@@ -1,0 +1,26 @@
+{
+  "name": "@dominode/dashboard",
+  "version": "0.1.0",
+  "private": true,
+  "main": "dist/src/index.js",
+  "types": "dist/src/index.d.ts",
+  "scripts": {
+    "build": "tsc --build",
+    "start": "node dist/src/main.js",
+    "clean": "tsc --build --clean && rm -rf dist"
+  },
+  "dependencies": {
+    "@dominode/shared": "*",
+    "@dominode/billing": "*",
+    "@dominode/metering": "*",
+    "express": "^4.21.2",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express-rate-limit": "^7.2.0",
+    "helmet": "^7.1.0"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.0",
+    "@types/cors": "^2.8.17"
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "name": "dominode",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "tsc --build",
+    "start:proxy": "node packages/proxy-gateway/dist/src/main.js",
+    "start:api": "node packages/dashboard/dist/src/main.js",
+    "db:migrate": "node packages/shared/dist/src/migrate.js",
+    "lint": "eslint 'packages/*/src/**/*.ts'",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "format": "prettier --write 'packages/*/src/**/*.ts'",
+    "clean": "tsc --build --clean && rm -rf packages/*/dist",
+    "start:frontend": "npm run dev --workspace=packages/frontend"
+  },
+  "devDependencies": {
+    "@types/node": "^25.2.1",
+    "@typescript-eslint/eslint-plugin": "^7.8.0",
+    "@typescript-eslint/parser": "^7.8.0",
+    "@vitest/coverage-v8": "^4.0.18",
+    "eslint": "^8.57.0",
+    "prettier": "^3.2.5",
+    "typescript": "^5.4.5",
+    "vitest": "^4.0.18"
+  }
+}

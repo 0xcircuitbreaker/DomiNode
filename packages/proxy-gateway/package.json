@@ -1,0 +1,22 @@
+{
+  "name": "@dominode/proxy-gateway",
+  "version": "0.1.0",
+  "private": true,
+  "main": "dist/src/index.js",
+  "types": "dist/src/index.d.ts",
+  "scripts": {
+    "build": "tsc --build",
+    "start": "node dist/src/main.js",
+    "clean": "tsc --build --clean && rm -rf dist"
+  },
+  "dependencies": {
+    "@dominode/shared": "*",
+    "@dominode/pool-manager": "*",
+    "@dominode/metering": "*",
+    "dotenv": "^16.4.7",
+    "geoip-lite": "^1.4.10"
+  },
+  "devDependencies": {
+    "@types/geoip-lite": "^1.4.4"
+  }
+}

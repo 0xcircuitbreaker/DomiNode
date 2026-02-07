@@ -1,0 +1,230 @@
+import { query } from "../db.js";
+import type { Session, SessionStatus, UsageRecord } from "../types.js";
+
+export async function createSession(
+  userId: string,
+  proxyIp: string = "",
+): Promise<Session> {
+  const result = await query<Session>(
+    `INSERT INTO sessions (user_id, proxy_ip)
+     VALUES ($1, $2)
+     RETURNING *`,
+    [userId, proxyIp],
+  );
+  return result.rows[0];
+}
+
+export async function endSession(
+  sessionId: string,
+  bytesTotal: number,
+  status: SessionStatus,
+): Promise<void> {
+  await query(
+    `UPDATE sessions
+     SET ended_at = now(),
+         bytes_total = $1,
+         status = $2
+     WHERE id = $3`,
+    [bytesTotal, status, sessionId],
+  );
+}
+
+export async function createUsageRecord(record: {
+  user_id: string;
+  session_id: string;
+  bytes_in: number;
+  bytes_out: number;
+  cost_cents: number;
+  proxy_type: string;
+  target_host: string;
+}): Promise<UsageRecord> {
+  const result = await query<UsageRecord>(
+    `INSERT INTO usage_records (user_id, session_id, bytes_in, bytes_out, cost_cents, proxy_type, target_host)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)
+     RETURNING *`,
+    [
+      record.user_id,
+      record.session_id,
+      record.bytes_in,
+      record.bytes_out,
+      record.cost_cents,
+      record.proxy_type,
+      record.target_host,
+    ],
+  );
+  return result.rows[0];
+}
+
+export async function getUsageByUser(
+  userId: string,
+  since: Date,
+  until: Date,
+  limit: number = 200,
+  offset: number = 0,
+): Promise<{ rows: UsageRecord[]; total: number }> {
+  const [dataResult, countResult] = await Promise.all([
+    query<UsageRecord>(
+      `SELECT * FROM usage_records
+       WHERE user_id = $1
+         AND created_at >= $2
+         AND created_at <= $3
+       ORDER BY created_at DESC
+       LIMIT $4 OFFSET $5`,
+      [userId, since, until, limit, offset],
+    ),
+    query<{ count: string }>(
+      `SELECT COUNT(*) AS count FROM usage_records
+       WHERE user_id = $1
+         AND created_at >= $2
+         AND created_at <= $3`,
+      [userId, since, until],
+    ),
+  ]);
+  return {
+    rows: dataResult.rows,
+    total: Number(countResult.rows[0].count),
+  };
+}
+
+export interface DailyUsage {
+  date: string;
+  total_bytes: number;
+  total_cost_cents: number;
+  request_count: number;
+}
+
+export async function getUsageByDay(
+  userId: string,
+  since: Date,
+  until: Date,
+): Promise<DailyUsage[]> {
+  const result = await query<{
+    date: string;
+    total_bytes: string;
+    total_cost_cents: string;
+    request_count: string;
+  }>(
+    `SELECT
+       DATE(created_at) AS date,
+       COALESCE(SUM(bytes_in + bytes_out), 0) AS total_bytes,
+       COALESCE(SUM(cost_cents), 0) AS total_cost_cents,
+       COUNT(*) AS request_count
+     FROM usage_records
+     WHERE user_id = $1
+       AND created_at >= $2
+       AND created_at <= $3
+     GROUP BY DATE(created_at)
+     ORDER BY date ASC`,
+    [userId, since, until],
+  );
+
+  return result.rows.map((row) => ({
+    date: row.date,
+    total_bytes: Number(row.total_bytes),
+    total_cost_cents: Number(row.total_cost_cents),
+    request_count: Number(row.request_count),
+  }));
+}
+
+export interface UsageSummary {
+  total_bytes: number;
+  total_cost_cents: number;
+  request_count: number;
+}
+
+export async function getActiveSessions(
+  userId: string,
+): Promise<
+  Array<{
+    id: string;
+    startedAt: Date;
+    proxyIp: string;
+    status: string;
+  }>
+> {
+  const result = await query<{
+    id: string;
+    started_at: Date;
+    proxy_ip: string;
+    status: string;
+  }>(
+    `SELECT id, started_at, proxy_ip, status
+     FROM sessions
+     WHERE user_id = $1
+       AND status = 'active'
+     ORDER BY started_at DESC
+     LIMIT 50`,
+    [userId],
+  );
+
+  return result.rows.map((row) => ({
+    id: row.id,
+    startedAt: row.started_at,
+    proxyIp: row.proxy_ip,
+    status: row.status,
+  }));
+}
+
+export async function getTopHosts(
+  userId: string,
+  since: Date,
+  until: Date,
+  limit: number = 10,
+): Promise<
+  Array<{
+    targetHost: string;
+    totalBytes: number;
+    requestCount: number;
+  }>
+> {
+  const result = await query<{
+    target_host: string;
+    total_bytes: string;
+    request_count: string;
+  }>(
+    `SELECT target_host,
+            SUM(bytes_in + bytes_out) AS total_bytes,
+            COUNT(*) AS request_count
+     FROM usage_records
+     WHERE user_id = $1
+       AND created_at >= $2
+       AND created_at < $3
+     GROUP BY target_host
+     ORDER BY total_bytes DESC
+     LIMIT $4`,
+    [userId, since, until, limit],
+  );
+
+  return result.rows.map((row) => ({
+    targetHost: row.target_host,
+    totalBytes: Number(row.total_bytes),
+    requestCount: Number(row.request_count),
+  }));
+}
+
+export async function getUsageSummary(
+  userId: string,
+  since: Date,
+): Promise<UsageSummary> {
+  const result = await query<{
+    total_bytes: string;
+    total_cost_cents: string;
+    request_count: string;
+  }>(
+    `SELECT
+       COALESCE(SUM(bytes_in + bytes_out), 0) AS total_bytes,
+       COALESCE(SUM(cost_cents), 0) AS total_cost_cents,
+       COUNT(*) AS request_count
+     FROM usage_records
+     WHERE user_id = $1
+       AND created_at >= $2`,
+    [userId, since],
+  );
+
+  const row = result.rows[0];
+  return {
+    total_bytes: Number(row.total_bytes),
+    total_cost_cents: Number(row.total_cost_cents),
+    request_count: Number(row.request_count),
+  };
+}
