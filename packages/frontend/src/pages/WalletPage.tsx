@@ -37,7 +37,7 @@ const CRYPTO_OPTIONS = ["btc", "eth", "xmr", "sol", "zec"] as const;
 export default function WalletPage() {
   const { data: wallet, error: walletError, refetch: refetchWallet } = useApi<WalletResponse>(() => get("/api/wallet"));
   const { data: txData, error: txError } = useApi<TxResponse>(() => get("/api/wallet/transactions"));
-  const { data: userPlan } = useApi<UserPlanResponse>(() => get("/api/user/plan"));
+  const { data: userPlan } = useApi<UserPlanResponse>(() => get("/api/plans/user/plan"));
   const pricePerGbCents = userPlan?.plan.pricePerGbCents ?? 500;
   const [amount, setAmount] = useState(1000);
   const [customAmount, setCustomAmount] = useState("");

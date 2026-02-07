@@ -4,9 +4,17 @@ let pool: pg.Pool | null = null;
 
 export function getPool(): pg.Pool {
   if (!pool) {
+    const connStr = process.env["DATABASE_URL"];
+    if (!connStr) {
+      throw new Error("DATABASE_URL environment variable is required");
+    }
     pool = new pg.Pool({
-      connectionString: process.env["DATABASE_URL"],
+      connectionString: connStr,
       max: 20,
+      connectionTimeoutMillis: 5000,
+      idleTimeoutMillis: 30000,
+      statement_timeout: 10000,
+      ssl: process.env.NODE_ENV === "production" ? { rejectUnauthorized: true } : false,
     });
     pool.on("error", (err) => {
       console.error("[db] unexpected pool error", err);

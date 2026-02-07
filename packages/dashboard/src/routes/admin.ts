@@ -1,10 +1,16 @@
 import { Router } from "express";
 import { adminRepo, createLogger } from "@dominode/shared";
-import { requireAuth } from "../middleware/auth.js";
+import { requireAuth, type AuthenticatedRequest } from "../middleware/auth.js";
 import { requireAdmin } from "../middleware/admin.js";
 
 const router = Router();
 const log = createLogger("api:admin");
+
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function isValidUuid(id: string): boolean {
+  return UUID_REGEX.test(id);
+}
 
 // All admin routes require auth + admin
 router.use(requireAuth);
@@ -37,6 +43,10 @@ router.get("/users", async (req, res) => {
 
 // GET /api/admin/users/:id — get user details
 router.get("/users/:id", async (req, res) => {
+  if (!isValidUuid(req.params.id)) {
+    res.status(400).json({ error: "Invalid user ID format" });
+    return;
+  }
   try {
     const user = await adminRepo.getUserDetails(req.params.id);
     if (!user) {
@@ -52,6 +62,15 @@ router.get("/users/:id", async (req, res) => {
 
 // PUT /api/admin/users/:id/suspend — suspend user
 router.put("/users/:id/suspend", async (req, res) => {
+  if (!isValidUuid(req.params.id)) {
+    res.status(400).json({ error: "Invalid user ID format" });
+    return;
+  }
+  const { userId } = (req as unknown as AuthenticatedRequest).user;
+  if (req.params.id === userId) {
+    res.status(400).json({ error: "Cannot suspend your own account" });
+    return;
+  }
   try {
     await adminRepo.suspendUser(req.params.id);
     log.info("user suspended", { targetUserId: req.params.id });
@@ -64,6 +83,10 @@ router.put("/users/:id/suspend", async (req, res) => {
 
 // PUT /api/admin/users/:id/activate — reactivate user
 router.put("/users/:id/activate", async (req, res) => {
+  if (!isValidUuid(req.params.id)) {
+    res.status(400).json({ error: "Invalid user ID format" });
+    return;
+  }
   try {
     await adminRepo.reactivateUser(req.params.id);
     log.info("user reactivated", { targetUserId: req.params.id });
@@ -76,6 +99,15 @@ router.put("/users/:id/activate", async (req, res) => {
 
 // DELETE /api/admin/users/:id — soft-delete user
 router.delete("/users/:id", async (req, res) => {
+  if (!isValidUuid(req.params.id)) {
+    res.status(400).json({ error: "Invalid user ID format" });
+    return;
+  }
+  const { userId } = (req as unknown as AuthenticatedRequest).user;
+  if (req.params.id === userId) {
+    res.status(400).json({ error: "Cannot delete your own account" });
+    return;
+  }
   try {
     await adminRepo.deleteUser(req.params.id);
     log.info("user deleted (soft)", { targetUserId: req.params.id });
@@ -91,12 +123,23 @@ router.delete("/users/:id", async (req, res) => {
 // GET /api/admin/revenue — revenue stats
 router.get("/revenue", async (req, res) => {
   try {
-    const since = req.query.since
+    let since = req.query.since
       ? new Date(req.query.since as string)
       : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
     const until = req.query.until
       ? new Date(req.query.until as string)
       : new Date();
+
+    if (isNaN(since.getTime()) || isNaN(until.getTime())) {
+      res.status(400).json({ error: "Invalid date format for 'since' or 'until'" });
+      return;
+    }
+
+    // Cap date range to max 365 days for admin
+    const MAX_RANGE_MS = 365 * 24 * 60 * 60 * 1000;
+    if (until.getTime() - since.getTime() > MAX_RANGE_MS) {
+      since = new Date(until.getTime() - MAX_RANGE_MS);
+    }
 
     const stats = await adminRepo.getRevenueStats(since, until);
 
@@ -118,12 +161,23 @@ router.get("/revenue", async (req, res) => {
 // GET /api/admin/revenue/daily — daily revenue breakdown
 router.get("/revenue/daily", async (req, res) => {
   try {
-    const since = req.query.since
+    let since = req.query.since
       ? new Date(req.query.since as string)
       : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
     const until = req.query.until
       ? new Date(req.query.until as string)
       : new Date();
+
+    if (isNaN(since.getTime()) || isNaN(until.getTime())) {
+      res.status(400).json({ error: "Invalid date format for 'since' or 'until'" });
+      return;
+    }
+
+    // Cap date range to max 365 days for admin
+    const MAX_RANGE_MS = 365 * 24 * 60 * 60 * 1000;
+    if (until.getTime() - since.getTime() > MAX_RANGE_MS) {
+      since = new Date(until.getTime() - MAX_RANGE_MS);
+    }
 
     const days = await adminRepo.getDailyRevenue(since, until);
 

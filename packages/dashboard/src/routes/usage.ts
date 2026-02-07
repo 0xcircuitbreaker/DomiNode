@@ -149,6 +149,18 @@ router.get("/top-hosts", async (req, res) => {
   }
 });
 
+
+function sanitizeCsvField(value: string): string {
+  // Escape double quotes by doubling them
+  let escaped = value.replace(/"/g, '""');
+  // Prefix formula-triggering characters with a single quote
+  if (/^[=+\-@\t\r]/.test(escaped)) {
+    escaped = "'" + escaped;
+  }
+  // Always wrap in double quotes
+  return '"' + escaped + '"';
+}
+
 // GET /api/usage/export — CSV export of usage records
 router.get("/export", async (req, res) => {
   try {
@@ -186,11 +198,7 @@ router.get("/export", async (req, res) => {
       const date = new Date(r.created_at).toISOString();
       const totalBytes = r.bytes_in + r.bytes_out;
       const costUsd = (r.cost_cents / 100).toFixed(4);
-      // Escape fields that may contain commas
-      const targetHost = r.target_host.includes(",")
-        ? `"${r.target_host}"`
-        : r.target_host;
-      return `${date},${r.session_id},${targetHost},${r.bytes_in},${r.bytes_out},${totalBytes},${costUsd}`;
+      return `${sanitizeCsvField(date)},${sanitizeCsvField(r.session_id)},${sanitizeCsvField(r.target_host)},${r.bytes_in},${r.bytes_out},${totalBytes},${costUsd}`;
     });
 
     res.send(header + rows.join("\n"));

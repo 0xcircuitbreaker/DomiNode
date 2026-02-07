@@ -135,7 +135,7 @@ describe("user-repo", () => {
       expect(result!.user).toEqual({
         id: "user-id",
         email: "u@x.com",
-        password_hash: "ph",
+        password_hash: "",
         created_at: now,
         status: "active",
         password_changed_at: null,
@@ -154,9 +154,9 @@ describe("user-repo", () => {
       mockQuery.mockResolvedValueOnce({ rows: [user] });
 
       const result = await findUserById("u1");
-      expect(result).toEqual(user);
+      expect(result).toEqual({ ...user, password_hash: "" });
       expect(mockQuery).toHaveBeenCalledWith(
-        expect.stringContaining("SELECT * FROM users WHERE id = $1"),
+        expect.stringContaining("SELECT id, email, created_at, status, password_changed_at, is_admin FROM users WHERE id = $1"),
         ["u1"],
       );
     });

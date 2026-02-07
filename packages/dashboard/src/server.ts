@@ -2,7 +2,7 @@ import express from "express";
 import cors from "cors";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
-import { createLogger } from "@dominode/shared";
+import { createLogger, query } from "@dominode/shared";
 
 import webhookRoutes from "./routes/webhooks.js";
 import authRoutes from "./routes/auth.js";
@@ -19,6 +19,10 @@ export function startApiServer(port: number = 3000): ReturnType<express.Express[
   const ALLOWED_ORIGINS = (process.env["CORS_ORIGINS"] ?? "http://localhost:5173")
     .split(",")
     .map((s) => s.trim());
+
+  if (process.env.NODE_ENV === "production" && ALLOWED_ORIGINS.includes("*")) {
+    throw new Error("CORS_ORIGINS must not contain wildcard (*) in production");
+  }
 
   const app = express();
 
@@ -66,13 +70,18 @@ export function startApiServer(port: number = 3000): ReturnType<express.Express[
   app.use("/api/keys", keyRoutes);
   app.use("/api/usage", usageRoutes);
   app.use("/api/wallet", walletRoutes);
-  app.use("/api", planRoutes);
+  app.use("/api/plans", planRoutes);
   app.use("/api/sessions", sessionRoutes);
   app.use("/api/admin", adminRoutes);
 
   // Health check
-  app.get("/api/health", (_req, res) => {
-    res.json({ status: "ok", service: "dominode-api" });
+  app.get("/api/health", async (_req, res) => {
+    try {
+      await query("SELECT 1");
+      res.json({ status: "ok", service: "dominode-api", db: "connected" });
+    } catch {
+      res.status(503).json({ status: "error", service: "dominode-api", db: "disconnected" });
+    }
   });
 
   // 404

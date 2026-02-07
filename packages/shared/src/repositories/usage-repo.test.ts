@@ -13,6 +13,8 @@ import {
   getUsageByUser,
   getUsageByDay,
   getUsageSummary,
+  getActiveSessions,
+  getTopHosts,
 } from "./usage-repo.js";
 
 describe("usage-repo", () => {
@@ -459,4 +461,162 @@ describe("usage-repo", () => {
       );
     });
   });
+
+
+  // --- getActiveSessions ---
+
+  describe("getActiveSessions", () => {
+    it("should return active sessions for a user", async () => {
+      const rows = [
+        { id: "s1", started_at: new Date("2025-06-01"), proxy_ip: "1.2.3.4", status: "active" },
+        { id: "s2", started_at: new Date("2025-06-02"), proxy_ip: "5.6.7.8", status: "active" },
+      ];
+      mockQuery.mockResolvedValueOnce({ rows });
+
+      const result = await getActiveSessions("u1");
+      expect(result).toHaveLength(2);
+      expect(result[0].id).toBe("s1");
+      expect(result[0].proxyIp).toBe("1.2.3.4");
+      expect(result[0].status).toBe("active");
+      expect(result[0].startedAt).toEqual(new Date("2025-06-01"));
+    });
+
+    it("should return empty array when no active sessions", async () => {
+      mockQuery.mockResolvedValueOnce({ rows: [] });
+
+      const result = await getActiveSessions("u-no-sessions");
+      expect(result).toEqual([]);
+    });
+
+    it("should filter by user_id and active status", async () => {
+      mockQuery.mockResolvedValueOnce({ rows: [] });
+
+      await getActiveSessions("user-abc");
+      expect(mockQuery).toHaveBeenCalledWith(
+        expect.stringContaining("WHERE user_id = "),
+        ["user-abc"],
+      );
+      expect(mockQuery).toHaveBeenCalledWith(
+        expect.stringContaining("status = 'active'"),
+        expect.any(Array),
+      );
+    });
+
+    it("should order by started_at DESC", async () => {
+      mockQuery.mockResolvedValueOnce({ rows: [] });
+
+      await getActiveSessions("u1");
+      expect(mockQuery).toHaveBeenCalledWith(
+        expect.stringContaining("ORDER BY started_at DESC"),
+        expect.any(Array),
+      );
+    });
+
+    it("should limit to 50 results", async () => {
+      mockQuery.mockResolvedValueOnce({ rows: [] });
+
+      await getActiveSessions("u1");
+      expect(mockQuery).toHaveBeenCalledWith(
+        expect.stringContaining("LIMIT 50"),
+        expect.any(Array),
+      );
+    });
+
+    it("should map row fields correctly", async () => {
+      const now = new Date();
+      mockQuery.mockResolvedValueOnce({
+        rows: [{ id: "sess-map", started_at: now, proxy_ip: "9.9.9.9", status: "active" }],
+      });
+
+      const result = await getActiveSessions("u1");
+      expect(result[0]).toEqual({
+        id: "sess-map",
+        startedAt: now,
+        proxyIp: "9.9.9.9",
+        status: "active",
+      });
+    });
+  });
+
+  // --- getTopHosts ---
+
+  describe("getTopHosts", () => {
+    it("should return top hosts by bandwidth", async () => {
+      const rows = [
+        { target_host: "example.com", total_bytes: "5000000", request_count: "100" },
+        { target_host: "api.test.io", total_bytes: "3000000", request_count: "50" },
+      ];
+      mockQuery.mockResolvedValueOnce({ rows });
+
+      const result = await getTopHosts("u1", new Date("2025-01-01"), new Date("2025-12-31"));
+      expect(result).toHaveLength(2);
+      expect(result[0].targetHost).toBe("example.com");
+      expect(result[0].totalBytes).toBe(5000000);
+      expect(result[0].requestCount).toBe(100);
+    });
+
+    it("should return empty array when no usage", async () => {
+      mockQuery.mockResolvedValueOnce({ rows: [] });
+
+      const result = await getTopHosts("u-empty", new Date(), new Date());
+      expect(result).toEqual([]);
+    });
+
+    it("should pass all parameters including default limit", async () => {
+      mockQuery.mockResolvedValueOnce({ rows: [] });
+
+      const since = new Date("2025-01-01");
+      const until = new Date("2025-12-31");
+      await getTopHosts("u1", since, until);
+
+      expect(mockQuery).toHaveBeenCalledWith(
+        expect.any(String),
+        ["u1", since, until, 10],
+      );
+    });
+
+    it("should accept custom limit", async () => {
+      mockQuery.mockResolvedValueOnce({ rows: [] });
+
+      const since = new Date("2025-01-01");
+      const until = new Date("2025-12-31");
+      await getTopHosts("u1", since, until, 5);
+
+      expect(mockQuery).toHaveBeenCalledWith(
+        expect.any(String),
+        ["u1", since, until, 5],
+      );
+    });
+
+    it("should order by total_bytes DESC", async () => {
+      mockQuery.mockResolvedValueOnce({ rows: [] });
+
+      await getTopHosts("u1", new Date(), new Date());
+      expect(mockQuery).toHaveBeenCalledWith(
+        expect.stringContaining("ORDER BY total_bytes DESC"),
+        expect.any(Array),
+      );
+    });
+
+    it("should group by target_host", async () => {
+      mockQuery.mockResolvedValueOnce({ rows: [] });
+
+      await getTopHosts("u1", new Date(), new Date());
+      expect(mockQuery).toHaveBeenCalledWith(
+        expect.stringContaining("GROUP BY target_host"),
+        expect.any(Array),
+      );
+    });
+
+    it("should convert string values to numbers", async () => {
+      mockQuery.mockResolvedValueOnce({
+        rows: [{ target_host: "test.com", total_bytes: "999999", request_count: "42" }],
+      });
+
+      const result = await getTopHosts("u1", new Date(), new Date());
+      expect(typeof result[0].totalBytes).toBe("number");
+      expect(typeof result[0].requestCount).toBe("number");
+    });
+  });
+
 });

@@ -41,7 +41,7 @@ function formatBandwidth(gb: number | null): string {
 
 export default function PlansPage() {
   const { data: plansData, error: plansError } = useApi<PlansResponse>(() => get("/api/plans"));
-  const { data: userPlan, error: userPlanError, refetch: refetchPlan } = useApi<UserPlanResponse>(() => get("/api/user/plan"));
+  const { data: userPlan, error: userPlanError, refetch: refetchPlan } = useApi<UserPlanResponse>(() => get("/api/plans/user/plan"));
   const [changingPlan, setChangingPlan] = useState<string | null>(null);
   const [changeError, setChangeError] = useState<string | null>(null);
 
@@ -50,7 +50,7 @@ export default function PlansPage() {
     setChangingPlan(planId);
     setChangeError(null);
     try {
-      await put<ChangePlanResponse>("/api/user/plan", { planId });
+      await put<ChangePlanResponse>("/api/plans/user/plan", { planId });
       refetchPlan();
     } catch (err) {
       setChangeError(err instanceof Error ? err.message : "Failed to change plan");

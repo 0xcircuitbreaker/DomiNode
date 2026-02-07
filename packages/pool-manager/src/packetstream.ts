@@ -1,4 +1,5 @@
 import * as crypto from "node:crypto";
+import { BLOCKED_COUNTRY_CODES } from "@dominode/shared";
 
 export interface PacketStreamConfig {
   gatewayHost: string;
@@ -53,6 +54,9 @@ export function buildUpstreamProxy(options?: ProxyOptions): UpstreamProxy {
     const country = options.country.toUpperCase();
     if (!/^[A-Z]{2}$/.test(country)) {
       throw new Error("Invalid country code: must be exactly 2 ASCII letters");
+    }
+    if (BLOCKED_COUNTRY_CODES.has(country)) {
+      throw new Error(`Country ${country} is sanctioned and cannot be used as proxy exit`);
     }
     password += `_country-${country}`;
   }

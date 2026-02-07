@@ -24,10 +24,12 @@ export async function findUserByEmail(email: string): Promise<User | null> {
 
 export async function findUserById(id: string): Promise<User | null> {
   const result = await query<User>(
-    `SELECT * FROM users WHERE id = $1`,
+    `SELECT id, email, created_at, status, password_changed_at, is_admin FROM users WHERE id = $1`,
     [id],
   );
-  return result.rows[0] ?? null;
+  const row = result.rows[0];
+  if (!row) return null;
+  return { ...row, password_hash: "" };
 }
 
 export async function findUserByApiKeyHash(
@@ -56,7 +58,7 @@ export async function findUserByApiKeyHash(
   const user: User = {
     id: row.id,
     email: row.email,
-    password_hash: row.password_hash,
+    password_hash: "",
     created_at: row.created_at,
     status: row.status,
     password_changed_at: row.password_changed_at,

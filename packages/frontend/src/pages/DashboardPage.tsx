@@ -58,7 +58,7 @@ export default function DashboardPage() {
   const { data: wallet } = useApi<WalletResponse>(() => get("/api/wallet"));
   const { data: usage } = useApi<UsageResponse>(() => get("/api/usage"));
   const { data: daily } = useApi<DailyResponse>(() => get("/api/usage/daily"));
-  const { data: userPlan } = useApi<UserPlanResponse>(() => get("/api/user/plan"));
+  const { data: userPlan } = useApi<UserPlanResponse>(() => get("/api/plans/user/plan"));
   const [chartMetric, setChartMetric] = useState<ChartMetric>("bandwidth");
 
   return (

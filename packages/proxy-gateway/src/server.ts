@@ -8,71 +8,20 @@ import { attachByteCounters } from "./counting-stream.js";
 import { startSession, endSession, getActiveSessionCount } from "./session-manager.js";
 import { checkSanctionedCountry, initGeoCheck } from "./geo-check.js";
 import { executeWithRetry, promisifyRequest, DEFAULT_RETRY_OPTIONS } from "./retry.js";
+import { validateTarget, isValidHostname, isValidPort } from "./target-validator.js";
+import { incrementUserConns, decrementUserConns } from "./connection-tracker.js";
+import { checkAuthRateLimit, recordAuthFailure } from "./auth-rate-limit.js";
 
 const log = createLogger("proxy:server");
 
 const MAX_CONNECTIONS = parseInt(process.env["PROXY_MAX_CONNECTIONS"] ?? "5000", 10);
-const MAX_PER_USER = parseInt(process.env["PROXY_MAX_PER_USER"] ?? "100", 10);
 
 // Validate config at module load
 if (isNaN(MAX_CONNECTIONS) || MAX_CONNECTIONS <= 0) {
   throw new Error("PROXY_MAX_CONNECTIONS must be a positive integer");
 }
-if (isNaN(MAX_PER_USER) || MAX_PER_USER <= 0) {
-  throw new Error("PROXY_MAX_PER_USER must be a positive integer");
-}
 
-const userConnectionCounts = new Map<string, number>();
-
-// Track failed auth attempts per IP for rate limiting
-const authFailures = new Map<string, { count: number; firstAt: number }>();
-const AUTH_FAIL_WINDOW_MS = 60_000; // 1 minute
-const AUTH_FAIL_MAX = 20; // 20 failures per minute per IP
-
-function checkAuthRateLimit(ip: string): boolean {
-  const now = Date.now();
-  const entry = authFailures.get(ip);
-  if (!entry || now - entry.firstAt > AUTH_FAIL_WINDOW_MS) {
-    return true; // allowed
-  }
-  return entry.count < AUTH_FAIL_MAX;
-}
-
-function recordAuthFailure(ip: string): void {
-  const now = Date.now();
-  const entry = authFailures.get(ip);
-  if (!entry || now - entry.firstAt > AUTH_FAIL_WINDOW_MS) {
-    authFailures.set(ip, { count: 1, firstAt: now });
-  } else {
-    entry.count++;
-  }
-}
-
-// Cleanup auth failure map every 5 minutes
-setInterval(() => {
-  const now = Date.now();
-  for (const [ip, entry] of authFailures) {
-    if (now - entry.firstAt > AUTH_FAIL_WINDOW_MS) {
-      authFailures.delete(ip);
-    }
-  }
-}, 300_000).unref();
-
-function incrementUserConns(userId: string): boolean {
-  const current = userConnectionCounts.get(userId) ?? 0;
-  if (current >= MAX_PER_USER) return false;
-  userConnectionCounts.set(userId, current + 1);
-  return true;
-}
-
-function decrementUserConns(userId: string): void {
-  const current = userConnectionCounts.get(userId) ?? 0;
-  if (current <= 1) {
-    userConnectionCounts.delete(userId);
-  } else {
-    userConnectionCounts.set(userId, current - 1);
-  }
-}
+const MAX_BODY_SIZE = 50 * 1024 * 1024; // 50MB
 
 // ─── HTTP forwarding (plain HTTP PROXY requests) ─────────────────────
 
@@ -90,7 +39,7 @@ async function handleRequest(
   }
 
   // Auth rate limiting
-  if (!checkAuthRateLimit(clientIp)) {
+  if (checkAuthRateLimit(clientIp)) {
     clientRes.writeHead(429, { "Content-Type": "text/plain" });
     clientRes.end("Too many authentication attempts.");
     return;
@@ -122,7 +71,19 @@ async function handleRequest(
     return;
   }
 
-  const upstream = buildUpstreamProxy(auth.proxyOptions);
+  let upstream;
+  try {
+    upstream = buildUpstreamProxy(auth.proxyOptions);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes("sanctioned")) {
+      decrementUserConns(auth.userId);
+      clientRes.writeHead(403, { "Content-Type": "text/plain" });
+      clientRes.end(msg);
+      return;
+    }
+    throw err;
+  }
   const targetUrl = clientReq.url ?? "/";
 
   // Strip our Proxy-Authorization before forwarding
@@ -132,7 +93,18 @@ async function handleRequest(
   // Byte counting — bytesIn is set after buffering the request body (below)
   const counter = { bytesIn: 0, bytesOut: 0 };
 
-  const targetHost = new URL(targetUrl, "http://localhost").hostname || "unknown";
+  const parsedTarget = new URL(targetUrl, "http://localhost");
+  const targetHost = parsedTarget.hostname || "unknown";
+  const targetPort = parseInt(parsedTarget.port || "80", 10);
+
+  // SSRF protection: validate target is not a private/internal address
+  const targetCheck = await validateTarget(targetHost, targetPort);
+  if (!targetCheck.allowed) {
+    decrementUserConns(auth.userId);
+    clientRes.writeHead(403, { "Content-Type": "text/plain" });
+    clientRes.end(targetCheck.reason || "Blocked: target is a private/internal address");
+    return;
+  }
 
   // C1+C6 fix: Reserve balance and start session — fails with 402 if insufficient balance
   let sessionId: string;
@@ -165,8 +137,17 @@ async function handleRequest(
 
   // Buffer the client request body so we can replay it on retries
   const bodyChunks: Buffer[] = [];
+  let bodySize = 0;
   for await (const chunk of clientReq) {
-    bodyChunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    bodySize += buf.length;
+    if (bodySize > MAX_BODY_SIZE) {
+      clientRes.writeHead(413, { "Content-Type": "text/plain" });
+      clientRes.end("Request body too large");
+      cleanup();
+      return;
+    }
+    bodyChunks.push(buf);
   }
   const requestBody = Buffer.concat(bodyChunks);
   counter.bytesIn = requestBody.length;
@@ -234,7 +215,7 @@ async function handleConnect(
   }
 
   // Auth rate limiting
-  if (!checkAuthRateLimit(connectClientIp)) {
+  if (checkAuthRateLimit(connectClientIp)) {
     clientSocket.write("HTTP/1.1 429 Too Many Requests\r\n\r\n");
     clientSocket.end();
     return;
@@ -271,7 +252,36 @@ async function handleConnect(
   const [targetHost, targetPortStr] = (req.url ?? "").split(":");
   const targetPort = parseInt(targetPortStr ?? "443", 10);
 
-  const upstream = buildUpstreamProxy(auth.proxyOptions);
+  // CRLF injection prevention: validate hostname characters
+  if (!isValidHostname(targetHost) || !isValidPort(targetPort)) {
+    decrementUserConns(userId);
+    clientSocket.write("HTTP/1.1 400 Bad Request\r\n\r\n");
+    clientSocket.end();
+    return;
+  }
+
+  // SSRF protection: validate target is not a private/internal address
+  const connectTargetCheck = await validateTarget(targetHost, targetPort);
+  if (!connectTargetCheck.allowed) {
+    decrementUserConns(userId);
+    clientSocket.write("HTTP/1.1 403 Forbidden\r\n\r\n");
+    clientSocket.end();
+    return;
+  }
+
+  let upstream;
+  try {
+    upstream = buildUpstreamProxy(auth.proxyOptions);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes("sanctioned")) {
+      decrementUserConns(userId);
+      clientSocket.write("HTTP/1.1 403 Forbidden\r\n\r\n");
+      clientSocket.end();
+      return;
+    }
+    throw err;
+  }
 
   log.info("CONNECT", { target: `${targetHost}:${targetPort}`, userId, country: auth.proxyOptions.country, sticky: !!auth.proxyOptions.sessionId });
 
@@ -291,8 +301,17 @@ async function handleConnect(
   const headerChunks: Buffer[] = [];
   let headerBytesSoFar = 0;
 
+  // Fix #6: Once-guard to prevent double-decrement of user connections
+  let decremented = false;
+  function safeDecrement(): void {
+    if (!decremented) {
+      decremented = true;
+      decrementUserConns(userId);
+    }
+  }
+
   // Named function to handle partial headers
-  function handleUpstreamData(chunk: Buffer): void {
+  async function handleUpstreamData(chunk: Buffer): Promise<void> {
     if (tunnelEstablished) return;
 
     headerChunks.push(chunk);
@@ -315,64 +334,63 @@ async function handleConnect(
       clientSocket.write("HTTP/1.1 502 Bad Gateway\r\n\r\n");
       clientSocket.end();
       psSocket.destroy();
-      decrementUserConns(userId);
+      safeDecrement();
       return;
     }
 
     tunnelEstablished = true;
 
-    // Tell client tunnel is established
-    clientSocket.write("HTTP/1.1 200 Connection Established\r\n\r\n");
-
     // C5 fix: Calculate remaining data correctly from the full concatenated buffer
     const headerEndIdx = fullBuffer.indexOf("\r\n\r\n") + 4;
     const remaining = fullBuffer.slice(headerEndIdx);
+
+    // Set up byte counting BEFORE piping
+    const counter = attachByteCounters(clientSocket, psSocket);
+
+    // Fix #3: Start session BEFORE sending 200 to client (billing race condition fix)
+    let sessionId: string;
+    try {
+      sessionId = await startSession(userId, targetHost ?? "unknown", counter);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes("Insufficient balance")) {
+        clientSocket.write("HTTP/1.1 402 Payment Required\r\n\r\n");
+      } else {
+        log.error("failed to start session", { error: msg });
+        clientSocket.write("HTTP/1.1 500 Internal Server Error\r\n\r\n");
+      }
+      safeDecrement();
+      clientSocket.end();
+      psSocket.destroy();
+      return;
+    }
+
+    // Session started successfully - NOW tell the client and start piping
+    clientSocket.write("HTTP/1.1 200 Connection Established\r\n\r\n");
+
     if (remaining.length > 0) {
       clientSocket.write(remaining);
     }
 
-    // Write head buffer from original CONNECT request
     if (head.length > 0) {
       psSocket.write(head);
     }
 
-    // Set up byte counting
-    const counter = attachByteCounters(clientSocket, psSocket);
-
-    // Start piping
     psSocket.pipe(clientSocket);
     clientSocket.pipe(psSocket);
 
-    // Track session with once-guard cleanup
-    startSession(userId, targetHost ?? "unknown", counter)
-      .then((sessionId) => {
-        let cleanedUp = false;
-        const cleanup = () => {
-          if (cleanedUp) return;
-          cleanedUp = true;
-          decrementUserConns(userId);
-          endSession(sessionId).catch((err) => {
-            log.error("session end failed", { sessionId, error: err instanceof Error ? err.message : String(err) });
-          });
-        };
-
-        clientSocket.on("end", cleanup);
-        clientSocket.on("error", cleanup);
-        psSocket.on("end", cleanup);
-        psSocket.on("error", cleanup);
-      })
-      .catch((err) => {
-        const msg = err instanceof Error ? err.message : String(err);
-        if (msg.includes("Insufficient balance")) {
-          clientSocket.write("HTTP/1.1 402 Payment Required\r\n\r\n");
-        } else {
-          log.error("failed to start session", { error: msg });
-          clientSocket.write("HTTP/1.1 500 Internal Server Error\r\n\r\n");
-        }
-        decrementUserConns(userId);
-        clientSocket.end();
-        psSocket.destroy();
+    // Once-guard cleanup for session end
+    const cleanup = () => {
+      safeDecrement();
+      endSession(sessionId).catch((cleanupErr) => {
+        log.error("session end failed", { sessionId, error: cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr) });
       });
+    };
+
+    clientSocket.on("end", cleanup);
+    clientSocket.on("error", cleanup);
+    psSocket.on("end", cleanup);
+    psSocket.on("error", cleanup);
   }
 
   psSocket.once("data", handleUpstreamData);
@@ -381,7 +399,7 @@ async function handleConnect(
     log.error("PacketStream socket error", { error: err.message });
     if (!tunnelEstablished) {
       clientSocket.write("HTTP/1.1 502 Bad Gateway\r\n\r\n");
-      decrementUserConns(userId);
+      safeDecrement();
     }
     clientSocket.end();
   });
@@ -398,7 +416,7 @@ async function handleConnect(
       clientSocket.write("HTTP/1.1 504 Gateway Timeout\r\n\r\n");
       clientSocket.end();
       psSocket.destroy();
-      decrementUserConns(userId);
+      safeDecrement();
     }
   }, 30_000);
 
@@ -435,7 +453,7 @@ export async function startProxyServer(port: number = 8080): Promise<http.Server
   server.keepAliveTimeout = 60_000;
 
   server.listen(port, () => {
-    log.info(`proxy gateway listening on port ${port}`, { maxConnections: MAX_CONNECTIONS, maxPerUser: MAX_PER_USER });
+    log.info(`proxy gateway listening on port ${port}`, { maxConnections: MAX_CONNECTIONS });
   });
 
   return server;

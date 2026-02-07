@@ -6,6 +6,9 @@ import { attachByteCounters } from "./counting-stream.js";
 import { startSession, endSession } from "./session-manager.js";
 import type { ProxyOptions } from "./auth.js";
 import { checkSanctionedCountry } from "./geo-check.js";
+import { validateTarget, isValidHostname, isValidPort } from "./target-validator.js";
+import { incrementUserConns, decrementUserConns } from "./connection-tracker.js";
+import { checkAuthRateLimit, recordAuthFailure } from "./auth-rate-limit.js";
 
 const log = createLogger("proxy:socks5");
 
@@ -22,26 +25,6 @@ const REP_SUCCESS = 0x00;
 const REP_GENERAL_FAILURE = 0x01;
 const REP_NOT_ALLOWED = 0x02;
 const REP_COMMAND_NOT_SUPPORTED = 0x07;
-
-// Per-user connection tracking (shared with HTTP handler via import if needed)
-const userConnectionCounts = new Map<string, number>();
-const MAX_PER_USER = parseInt(process.env["PROXY_MAX_PER_USER"] ?? "100", 10);
-
-function incrementUserConns(userId: string): boolean {
-  const current = userConnectionCounts.get(userId) ?? 0;
-  if (current >= MAX_PER_USER) return false;
-  userConnectionCounts.set(userId, current + 1);
-  return true;
-}
-
-function decrementUserConns(userId: string): void {
-  const current = userConnectionCounts.get(userId) ?? 0;
-  if (current <= 1) {
-    userConnectionCounts.delete(userId);
-  } else {
-    userConnectionCounts.set(userId, current - 1);
-  }
-}
 
 function parseProxyOptions(username: string): ProxyOptions {
   const options: ProxyOptions = {};
@@ -69,6 +52,12 @@ async function handleSocks5Connection(clientSocket: net.Socket): Promise<void> {
   // Geo-check
   const blocked = checkSanctionedCountry(clientIp);
   if (blocked) {
+    clientSocket.end();
+    return;
+  }
+
+  // SOCKS5 auth rate limiting (Fix #7)
+  if (checkAuthRateLimit(clientIp)) {
     clientSocket.end();
     return;
   }
@@ -122,6 +111,7 @@ async function handleSocks5Connection(clientSocket: net.Socket): Promise<void> {
 
   // Authenticate
   if (!apiKey.startsWith("dn_live_")) {
+    recordAuthFailure(clientIp);
     clientSocket.write(Buffer.from([USERPASS_VER, 0x01])); // auth failure
     clientSocket.end();
     return;
@@ -134,6 +124,7 @@ async function handleSocks5Connection(clientSocket: net.Socket): Promise<void> {
   try {
     const result = await userRepo.findUserByApiKeyHash(keyHash);
     if (!result) {
+      recordAuthFailure(clientIp);
       clientSocket.write(Buffer.from([USERPASS_VER, 0x01]));
       clientSocket.end();
       return;
@@ -216,10 +207,38 @@ async function handleSocks5Connection(clientSocket: net.Socket): Promise<void> {
   if (!portBuf) { decrementUserConns(userId); clientSocket.end(); return; }
   const targetPort = portBuf.readUInt16BE(0);
 
+  // CRLF injection prevention + SSRF validation
+  if (!isValidHostname(targetHost) || !isValidPort(targetPort)) {
+    sendReply(clientSocket, REP_NOT_ALLOWED);
+    decrementUserConns(userId);
+    clientSocket.end();
+    return;
+  }
+
+  const socksTargetCheck = await validateTarget(targetHost, targetPort);
+  if (!socksTargetCheck.allowed) {
+    sendReply(clientSocket, REP_NOT_ALLOWED);
+    decrementUserConns(userId);
+    clientSocket.end();
+    return;
+  }
+
   log.info("SOCKS5 CONNECT", { target: `${targetHost}:${targetPort}`, userId, country: proxyOptions.country });
 
   // Connect through PacketStream via HTTP CONNECT
-  const upstream = buildUpstreamProxy(proxyOptions);
+  let upstream;
+  try {
+    upstream = buildUpstreamProxy(proxyOptions);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes("sanctioned")) {
+      sendReply(clientSocket, REP_NOT_ALLOWED);
+      decrementUserConns(userId);
+      clientSocket.end();
+      return;
+    }
+    throw err;
+  }
 
   const psSocket = net.connect(upstream.port, upstream.host, () => {
     psSocket.write(
@@ -233,7 +252,16 @@ async function handleSocks5Connection(clientSocket: net.Socket): Promise<void> {
   let tunnelEstablished = false;
   const headerChunks: Buffer[] = [];
 
-  function handleUpstreamData(chunk: Buffer): void {
+  // Fix #6: Once-guard to prevent double-decrement
+  let decremented = false;
+  function safeDecrement(): void {
+    if (!decremented) {
+      decremented = true;
+      decrementUserConns(userId);
+    }
+  }
+
+  async function handleUpstreamData(chunk: Buffer): Promise<void> {
     if (tunnelEstablished) return;
 
     headerChunks.push(chunk);
@@ -252,51 +280,54 @@ async function handleSocks5Connection(clientSocket: net.Socket): Promise<void> {
       sendReply(clientSocket, REP_GENERAL_FAILURE);
       clientSocket.end();
       psSocket.destroy();
-      decrementUserConns(userId);
+      safeDecrement();
       return;
     }
 
     tunnelEstablished = true;
 
-    // Send SOCKS5 success reply
-    sendReply(clientSocket, REP_SUCCESS);
-
     // Forward any remaining data after HTTP headers
     const headerEndIdx = fullBuffer.indexOf("\r\n\r\n") + 4;
     const remaining = fullBuffer.slice(headerEndIdx);
+
+    // Set up byte counting BEFORE piping
+    const counter = attachByteCounters(clientSocket, psSocket);
+
+    // Fix #3: Start session BEFORE sending success reply (billing race condition fix)
+    let sessionId: string;
+    try {
+      sessionId = await startSession(userId, targetHost, counter);
+    } catch (err) {
+      log.error("SOCKS5 failed to start session", { error: err instanceof Error ? err.message : String(err) });
+      sendReply(clientSocket, REP_GENERAL_FAILURE);
+      safeDecrement();
+      clientSocket.end();
+      psSocket.destroy();
+      return;
+    }
+
+    // Session started successfully - NOW send success reply and start piping
+    sendReply(clientSocket, REP_SUCCESS);
+
     if (remaining.length > 0) {
       clientSocket.write(remaining);
     }
 
-    // Set up byte counting and piping
-    const counter = attachByteCounters(clientSocket, psSocket);
     psSocket.pipe(clientSocket);
     clientSocket.pipe(psSocket);
 
-    // Start session with reservation
-    startSession(userId, targetHost, counter)
-      .then((sessionId) => {
-        let cleanedUp = false;
-        const cleanup = () => {
-          if (cleanedUp) return;
-          cleanedUp = true;
-          decrementUserConns(userId);
-          endSession(sessionId).catch((err) => {
-            log.error("SOCKS5 session end failed", { sessionId, error: err instanceof Error ? err.message : String(err) });
-          });
-        };
-
-        clientSocket.on("end", cleanup);
-        clientSocket.on("error", cleanup);
-        psSocket.on("end", cleanup);
-        psSocket.on("error", cleanup);
-      })
-      .catch((err) => {
-        log.error("SOCKS5 failed to start session", { error: err instanceof Error ? err.message : String(err) });
-        decrementUserConns(userId);
-        clientSocket.end();
-        psSocket.destroy();
+    // Once-guard cleanup for session end
+    const cleanup = () => {
+      safeDecrement();
+      endSession(sessionId).catch((cleanupErr) => {
+        log.error("SOCKS5 session end failed", { sessionId, error: cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr) });
       });
+    };
+
+    clientSocket.on("end", cleanup);
+    clientSocket.on("error", cleanup);
+    psSocket.on("end", cleanup);
+    psSocket.on("error", cleanup);
   }
 
   psSocket.once("data", handleUpstreamData);
@@ -305,8 +336,8 @@ async function handleSocks5Connection(clientSocket: net.Socket): Promise<void> {
     log.error("SOCKS5 PacketStream error", { error: err.message });
     if (!tunnelEstablished) {
       sendReply(clientSocket, REP_GENERAL_FAILURE);
-      decrementUserConns(userId);
     }
+    safeDecrement();
     clientSocket.end();
   });
 
@@ -322,7 +353,7 @@ async function handleSocks5Connection(clientSocket: net.Socket): Promise<void> {
       sendReply(clientSocket, REP_GENERAL_FAILURE);
       clientSocket.end();
       psSocket.destroy();
-      decrementUserConns(userId);
+      safeDecrement();
     }
   }, 30_000);
 

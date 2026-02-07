@@ -81,12 +81,13 @@ export interface TokenPair {
 
 /** Sign a short-lived access token (15 minutes) */
 export function signJwt(payload: JwtPayload): string {
-  return jwt.sign(payload, getJwtSecret(), { expiresIn: ACCESS_TOKEN_EXPIRY });
+  return jwt.sign(payload, getJwtSecret(), { algorithm: "HS256", expiresIn: ACCESS_TOKEN_EXPIRY });
 }
 
 /** Sign a long-lived refresh token (7 days) */
 export function signRefreshToken(payload: JwtPayload): string {
   return jwt.sign({ ...payload, type: "refresh" }, getRefreshSecret(), {
+    algorithm: "HS256",
     expiresIn: REFRESH_TOKEN_EXPIRY,
   });
 }
@@ -102,7 +103,7 @@ export function createTokenPair(payload: JwtPayload): TokenPair {
 /** Verify an access token */
 export function verifyJwt(token: string): JwtPayload | null {
   try {
-    const decoded = jwt.verify(token, getJwtSecret()) as jwt.JwtPayload;
+    const decoded = jwt.verify(token, getJwtSecret(), { algorithms: ["HS256"] }) as jwt.JwtPayload;
     if (typeof decoded.userId === "string" && typeof decoded.email === "string") {
       return { userId: decoded.userId, email: decoded.email };
     }
@@ -115,7 +116,7 @@ export function verifyJwt(token: string): JwtPayload | null {
 /** Verify a refresh token */
 export function verifyRefreshToken(token: string): (JwtPayload & { iat?: number }) | null {
   try {
-    const decoded = jwt.verify(token, getRefreshSecret()) as jwt.JwtPayload;
+    const decoded = jwt.verify(token, getRefreshSecret(), { algorithms: ["HS256"] }) as jwt.JwtPayload;
     if (
       typeof decoded.userId === "string" &&
       typeof decoded.email === "string" &&

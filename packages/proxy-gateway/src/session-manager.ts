@@ -88,7 +88,8 @@ export async function endSession(sessionId: string): Promise<void> {
   const session = activeSessions.get(sessionId);
   if (!session) return;
 
-  activeSessions.delete(sessionId);
+  // Fix #8: Atomic check-and-remove to prevent TOCTOU race
+  if (!activeSessions.delete(sessionId)) return;
 
   const { userId, counter, targetHost, reservedCents } = session;
   const totalBytes = counter.bytesIn + counter.bytesOut;
