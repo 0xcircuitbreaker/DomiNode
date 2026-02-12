@@ -9,6 +9,11 @@ services:
     environment:
       TRUST_PROXY: ${TRUST_PROXY:-1}
       COOKIE_SECURE: ${COOKIE_SECURE:-true}
+      # Used by /api/proxy/status + /api/proxy/config endpoints (UI + extension).
+      PROXY_PUBLIC_HOST: ${PROXY_PUBLIC_HOST:-proxy.dominusnode.com}
+      PROXY_HOST: ${PROXY_HOST:-proxy.dominusnode.com}
+      PROXY_HTTP_PORT: ${PROXY_HTTP_PORT:-8080}
+      PROXY_SOCKS5_PORT: ${PROXY_SOCKS5_PORT:-1080}
 
   # TLS reverse proxy for the API (recommended for Netlify -> VPS proxying).
   # Exposes 80/443 on the VPS and forwards to the internal `api:3000` container.
@@ -31,4 +36,3 @@ services:
 volumes:
   caddy_data:
   caddy_config:
-
