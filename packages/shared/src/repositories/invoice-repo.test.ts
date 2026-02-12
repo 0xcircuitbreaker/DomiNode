@@ -150,7 +150,7 @@ describe("invoice-repo", () => {
 
   describe("completeInvoice", () => {
     it("should update invoice status to completed", async () => {
-      mockQuery.mockResolvedValueOnce({});
+      mockQuery.mockResolvedValueOnce({ rowCount: 1 });
 
       await completeInvoice("inv-1");
       expect(mockQuery).toHaveBeenCalledWith(
@@ -160,7 +160,7 @@ describe("invoice-repo", () => {
     });
 
     it("should filter by invoice id", async () => {
-      mockQuery.mockResolvedValueOnce({});
+      mockQuery.mockResolvedValueOnce({ rowCount: 1 });
 
       await completeInvoice("inv-abc-123");
       expect(mockQuery).toHaveBeenCalledWith(
@@ -170,7 +170,7 @@ describe("invoice-repo", () => {
     });
 
     it("should update payment_invoices table", async () => {
-      mockQuery.mockResolvedValueOnce({});
+      mockQuery.mockResolvedValueOnce({ rowCount: 1 });
 
       await completeInvoice("inv-2");
       expect(mockQuery).toHaveBeenCalledWith(
@@ -179,14 +179,29 @@ describe("invoice-repo", () => {
       );
     });
 
-    it("should not throw on missing invoice", async () => {
-      mockQuery.mockResolvedValueOnce({});
+    it("should return true when a pending invoice was updated", async () => {
+      mockQuery.mockResolvedValueOnce({ rowCount: 1 });
 
-      await expect(completeInvoice("inv-missing")).resolves.toBeUndefined();
+      const result = await completeInvoice("inv-claimed");
+      expect(result).toBe(true);
+    });
+
+    it("should return false when no pending invoice was found", async () => {
+      mockQuery.mockResolvedValueOnce({ rowCount: 0 });
+
+      const result = await completeInvoice("inv-missing");
+      expect(result).toBe(false);
+    });
+
+    it("should return false when rowCount is null", async () => {
+      mockQuery.mockResolvedValueOnce({ rowCount: null });
+
+      const result = await completeInvoice("inv-null");
+      expect(result).toBe(false);
     });
 
     it("should call query exactly once", async () => {
-      mockQuery.mockResolvedValueOnce({});
+      mockQuery.mockResolvedValueOnce({ rowCount: 1 });
 
       await completeInvoice("inv-3");
       expect(mockQuery).toHaveBeenCalledTimes(1);

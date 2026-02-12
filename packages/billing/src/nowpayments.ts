@@ -119,58 +119,91 @@ export async function handleIpnCallback(
     return null;
   }
 
-  const paymentStatus = body["payment_status"] as string | undefined;
+  // Validate payment_status is actually a string (R12 H-1: type confusion defense)
+  const rawStatus = body["payment_status"];
+  if (typeof rawStatus !== "string") {
+    log.error("IPN payment_status is not a string", { type: typeof rawStatus });
+    return null;
+  }
+  const paymentStatus = rawStatus;
   if (paymentStatus !== "finished" && paymentStatus !== "confirmed") {
     log.info("IPN status not final, ignoring", { paymentStatus });
     return null;
   }
 
-  const paymentId = String(body["payment_id"] ?? "");
-  const priceAmount = Number(body["price_amount"] ?? 0);
+  const rawPaymentId = body["payment_id"];
+  const rawInvoiceId = body["invoice_id"];
+  const rawPriceAmount = body["price_amount"];
+
+  // R16-C2: Strict type guards — only accept string or number, reject all other types
+  // to prevent type confusion from boolean/object/array coercion
+  if (rawPaymentId !== undefined && typeof rawPaymentId !== "string" && typeof rawPaymentId !== "number") {
+    log.error("IPN payment_id has unexpected type", { type: typeof rawPaymentId });
+    return null;
+  }
+  if (rawPriceAmount !== undefined && typeof rawPriceAmount !== "number" && typeof rawPriceAmount !== "string") {
+    log.error("IPN price_amount has unexpected type", { type: typeof rawPriceAmount });
+    return null;
+  }
+
+  // Explicit type narrowing: only coerce validated string/number types
+  const paymentId = typeof rawPaymentId === "string" ? rawPaymentId
+    : typeof rawPaymentId === "number" ? String(rawPaymentId) : "";
+  const invoiceId = typeof rawInvoiceId === "string" ? rawInvoiceId
+    : typeof rawInvoiceId === "number" ? String(rawInvoiceId) : "";
+  const priceAmount = Number(rawPriceAmount ?? 0);
 
   if (!paymentId || priceAmount <= 0) {
     log.error("IPN missing required fields", { paymentId, priceAmount });
     return null;
   }
 
-  // Look up the invoice we created at payment time instead of parsing userId from order_id
-  const invoice = await invoiceRepo.findInvoice("nowpayments", paymentId);
+  // Look up by invoice_id only (matches the external_id we stored at invoice creation time).
+  // NOWPayments IPN has both invoice_id and payment_id — they are different identifiers.
+  // We stored data.id (invoice ID) in createCryptoInvoice, so we must look up by invoice_id only.
+  // Do NOT fall back to paymentId — it's a different identifier and could match the wrong invoice.
+  if (!invoiceId) {
+    log.error("IPN missing invoice_id", { paymentId });
+    return null;
+  }
+  const invoice = await invoiceRepo.findInvoice("nowpayments", invoiceId);
   if (!invoice) {
-    log.error("no matching invoice found for NOWPayments payment", { paymentId });
+    log.error("no matching invoice found for NOWPayments payment", { paymentId, invoiceId });
     return null;
   }
 
   const userId = invoice.user_id;
-  const expectedAmount = invoice.amount_cents / 100;
 
   // Verify the price amount matches what we originally requested
-  if (Math.round(priceAmount * 100) !== Math.round(expectedAmount * 100)) {
+  // Compare as integer cents — allow ±1 cent tolerance for floating-point rounding
+  // (NOWPayments sends price_amount as a float which can drift by fractions of a cent)
+  const ipnAmountCents = Math.round(priceAmount * 100);
+  if (Math.abs(ipnAmountCents - invoice.amount_cents) > 1) {
     log.error("amount mismatch between invoice and IPN callback", {
       paymentId,
-      invoiceAmountUsd: expectedAmount,
-      ipnPriceAmount: priceAmount,
+      invoiceAmountCents: invoice.amount_cents,
+      ipnAmountCents,
     });
     return null;
   }
 
   const amountCents = invoice.amount_cents;
 
-  try {
-    await walletRepo.creditWallet(
-      userId,
-      amountCents,
-      "nowpayments",
-      paymentId,
-      `Crypto top-up $${priceAmount.toFixed(2)} (${body["pay_currency"] ?? "unknown"})`,
-    );
-    await invoiceRepo.completeInvoice(invoice.id);
-    log.info("wallet credited via NOWPayments", { userId, amountCents, paymentId });
+  // Atomically mark invoice as completed — only one concurrent IPN
+  // can succeed here since UPDATE ... WHERE status='pending' is atomic.
+  const claimed = await invoiceRepo.completeInvoice(invoice.id);
+  if (!claimed) {
+    log.info("duplicate IPN ignored (invoice already completed)", { paymentId, invoiceId });
     return { userId, amountCents };
-  } catch (err) {
-    if (err instanceof Error && err.message.includes("duplicate")) {
-      log.info("duplicate IPN ignored", { paymentId });
-      return { userId, amountCents };
-    }
-    throw err;
   }
+
+  await walletRepo.creditWallet(
+    userId,
+    amountCents,
+    "nowpayments",
+    paymentId,
+    `Crypto top-up $${priceAmount.toFixed(2)} (${body["pay_currency"] ?? "unknown"})`,
+  );
+  log.info("wallet credited via NOWPayments", { userId, amountCents, paymentId });
+  return { userId, amountCents };
 }

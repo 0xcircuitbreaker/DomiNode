@@ -1,4 +1,4 @@
-import { Router, raw, json } from "express";
+import { Router, raw, json, type Request, type Response, type NextFunction } from "express";
 import { createLogger } from "@dominode/shared";
 import { handleCheckoutWebhook } from "@dominode/billing";
 import { handleIpnCallback } from "@dominode/billing";
@@ -6,8 +6,52 @@ import { handleIpnCallback } from "@dominode/billing";
 const router = Router();
 const log = createLogger("api:webhooks");
 
+// ─── Webhook IP Allowlisting ───────────────────────────────────────
+// Stripe webhook source IPs: https://docs.stripe.com/ips#webhook-ip-addresses
+const STRIPE_WEBHOOK_IPS = new Set([
+  "3.18.12.63", "3.130.192.231", "13.235.14.237", "13.235.122.149",
+  "18.211.135.69", "35.154.171.200", "52.15.183.38", "54.88.130.119",
+  "54.88.130.237", "54.187.174.169", "54.187.205.235", "54.187.216.72",
+]);
+
+// NOWPayments IPN source IPs (known ranges)
+const NOWPAYMENTS_IPS = new Set<string>([
+  // NOWPayments does not publish a fixed IP list.
+  // When NOWPAYMENTS_WEBHOOK_IPS env var is set, those IPs are used.
+]);
+
+// Load additional IPs from env (comma-separated)
+const envStripeIps = process.env["STRIPE_WEBHOOK_IPS"];
+if (envStripeIps) {
+  for (const ip of envStripeIps.split(",")) STRIPE_WEBHOOK_IPS.add(ip.trim());
+}
+const envNowpaymentsIps = process.env["NOWPAYMENTS_WEBHOOK_IPS"];
+if (envNowpaymentsIps) {
+  for (const ip of envNowpaymentsIps.split(",")) NOWPAYMENTS_IPS.add(ip.trim());
+} else if (process.env["NOWPAYMENTS_API_KEY"]) {
+  // Warn if NOWPayments is configured but no webhook IP allowlist is set (R12 H-2)
+  log.warn("NOWPAYMENTS_WEBHOOK_IPS not set — webhook IP allowlisting is disabled. Set this in production.");
+}
+
+export function webhookIpCheck(allowedIps: Set<string>, providerName: string) {
+  return (req: Request, res: Response, next: NextFunction): void => {
+    // Skip IP check if the allowlist is empty (provider IPs not configured)
+    if (allowedIps.size === 0) {
+      next();
+      return;
+    }
+    const ip = (req.ip ?? req.socket.remoteAddress ?? "").replace(/^::ffff:/, "");
+    if (!allowedIps.has(ip)) {
+      log.warn(`${providerName} webhook from unauthorized IP`, { ip });
+      res.status(403).json({ error: "Forbidden" });
+      return;
+    }
+    next();
+  };
+}
+
 // POST /api/webhooks/stripe — raw body for signature verification
-router.post("/stripe", raw({ type: "application/json" }), async (req, res) => {
+router.post("/stripe", webhookIpCheck(STRIPE_WEBHOOK_IPS, "stripe"), raw({ type: "application/json", limit: "1mb" }), async (req, res) => {
   try {
     const signature = req.headers["stripe-signature"] as string;
     if (!signature) {
@@ -30,7 +74,7 @@ router.post("/stripe", raw({ type: "application/json" }), async (req, res) => {
 });
 
 // POST /api/webhooks/nowpayments
-router.post("/nowpayments", json(), async (req, res) => {
+router.post("/nowpayments", webhookIpCheck(NOWPAYMENTS_IPS, "nowpayments"), json({ limit: "1mb" }), async (req, res) => {
   try {
     const signature = req.headers["x-nowpayments-sig"] as string;
     if (!signature) {

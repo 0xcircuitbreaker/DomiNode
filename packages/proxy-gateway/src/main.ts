@@ -1,8 +1,8 @@
 import dotenv from "dotenv";
 dotenv.config();
 
-import { createLogger, closePool } from "@dominode/shared";
-import { validateConfig } from "@dominode/pool-manager";
+import { createLogger, closePool, usageRepo } from "@dominode/shared";
+import { validateConfig, createProviderSelector } from "@dominode/pool-manager";
 import { startProxyServer } from "./server.js";
 import { startSocks5Server } from "./socks5.js";
 import { getActiveSessionCount } from "./session-manager.js";
@@ -13,8 +13,20 @@ const socks5Port = parseInt(process.env["SOCKS5_LISTEN_PORT"] ?? "1080", 10);
 
 async function main(): Promise<void> {
   validateConfig();
-  const httpServer = await startProxyServer(httpPort);
-  const socks5Server = startSocks5Server(socks5Port);
+
+  // Create provider selector with all configured providers
+  const providerSelector = createProviderSelector();
+  const providerCount = providerSelector.getProviderCount();
+  log.info(`initialized ${providerCount} proxy provider(s)`);
+
+  // Clean up orphaned sessions from previous crash
+  const orphaned = await usageRepo.cleanupOrphanedSessions();
+  if (orphaned > 0) {
+    log.info(`cleaned up ${orphaned} orphaned sessions from previous run`);
+  }
+
+  const httpServer = await startProxyServer(httpPort, providerSelector);
+  const socks5Server = await startSocks5Server(socks5Port, providerSelector);
 
   // Graceful shutdown
   async function shutdown(signal: string): Promise<void> {

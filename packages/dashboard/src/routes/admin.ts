@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { adminRepo, createLogger } from "@dominode/shared";
+import { adminRepo, createLogger, userRepo, refreshTokenRepo } from "@dominode/shared";
 import { requireAuth, type AuthenticatedRequest } from "../middleware/auth.js";
 import { requireAdmin } from "../middleware/admin.js";
 
@@ -72,8 +72,39 @@ router.put("/users/:id/suspend", async (req, res) => {
     return;
   }
   try {
+    // Prevent admin-to-admin attacks
+    const targetUser = await userRepo.findUserById(req.params.id);
+    if (targetUser?.is_admin) {
+      res.status(403).json({ error: "Cannot suspend another admin account" });
+      return;
+    }
     await adminRepo.suspendUser(req.params.id);
-    log.info("user suspended", { targetUserId: req.params.id });
+    // Revoke all API keys and refresh tokens so the suspended user is immediately locked out
+    const [revokedKeys, revokedTokens] = await Promise.all([
+      userRepo.revokeAllApiKeys(req.params.id),
+      refreshTokenRepo.revokeAllForUser(req.params.id),
+    ]);
+    // Signal proxy-gateway to terminate active sessions for this user
+    let terminatedSessions = 0;
+    try {
+      const proxyHost = process.env["PROXY_INTERNAL_HOST"] ?? "127.0.0.1";
+      const proxyPort = process.env["PROXY_INTERNAL_PORT"] ?? process.env["PROXY_LISTEN_PORT"] ?? "8080";
+      const proxySecret = process.env["PROXY_STATS_SECRET"] ?? process.env["JWT_SECRET"] ?? "";
+      const headers: Record<string, string> = { "Content-Length": "0" };
+      if (proxySecret) headers["Authorization"] = `Bearer ${proxySecret}`;
+      const resp = await fetch(`http://${proxyHost}:${proxyPort}/internal/terminate-sessions/${req.params.id}`, {
+        method: "POST",
+        headers,
+      });
+      if (resp.ok) {
+        const body = await resp.json() as { terminated: number };
+        terminatedSessions = body.terminated;
+      }
+    } catch {
+      // Best effort — proxy-gateway may not be running in the same process
+      log.warn("could not signal proxy-gateway to terminate sessions", { targetUserId: req.params.id });
+    }
+    log.info("user suspended", { targetUserId: req.params.id, revokedKeys, revokedTokens, terminatedSessions });
     res.json({ message: "User suspended" });
   } catch (err) {
     log.error("failed to suspend user", { error: err instanceof Error ? err.message : String(err) });
@@ -87,7 +118,18 @@ router.put("/users/:id/activate", async (req, res) => {
     res.status(400).json({ error: "Invalid user ID format" });
     return;
   }
+  const { userId } = (req as unknown as AuthenticatedRequest).user;
+  if (req.params.id === userId) {
+    res.status(400).json({ error: "Cannot modify your own account" });
+    return;
+  }
   try {
+    // Prevent admin-to-admin attacks
+    const targetUser = await userRepo.findUserById(req.params.id);
+    if (targetUser?.is_admin) {
+      res.status(403).json({ error: "Cannot reactivate another admin account" });
+      return;
+    }
     await adminRepo.reactivateUser(req.params.id);
     log.info("user reactivated", { targetUserId: req.params.id });
     res.json({ message: "User reactivated" });
@@ -109,8 +151,19 @@ router.delete("/users/:id", async (req, res) => {
     return;
   }
   try {
+    // Prevent admin-to-admin attacks
+    const targetUser = await userRepo.findUserById(req.params.id);
+    if (targetUser?.is_admin) {
+      res.status(403).json({ error: "Cannot delete another admin account" });
+      return;
+    }
+    // Revoke all API keys and refresh tokens before deleting (same as suspend)
+    const [revokedKeys, revokedTokens] = await Promise.all([
+      userRepo.revokeAllApiKeys(req.params.id),
+      refreshTokenRepo.revokeAllForUser(req.params.id),
+    ]);
     await adminRepo.deleteUser(req.params.id);
-    log.info("user deleted (soft)", { targetUserId: req.params.id });
+    log.info("user deleted (soft)", { targetUserId: req.params.id, revokedKeys, revokedTokens });
     res.json({ message: "User deleted" });
   } catch (err) {
     log.error("failed to delete user", { error: err instanceof Error ? err.message : String(err) });

@@ -1,0 +1,156 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-dominode}
+      POSTGRES_USER: ${POSTGRES_USER:-dominode}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    # No ports exposed — only internal Docker services reach postgres via hostname
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-dominode}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "1.0"
+
+  api:
+    build:
+      context: .
+      dockerfile: infra/docker/api.Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-dominode}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-dominode}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+      MFA_ENCRYPTION_KEY: ${MFA_ENCRYPTION_KEY:?MFA_ENCRYPTION_KEY is required}
+      DASHBOARD_PORT: "3000"
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+      NOWPAYMENTS_API_KEY: ${NOWPAYMENTS_API_KEY:-}
+      NOWPAYMENTS_IPN_SECRET: ${NOWPAYMENTS_IPN_SECRET:-}
+      PROXY_INTERNAL_HOST: ${PROXY_INTERNAL_HOST:-proxy}
+      NODE_ENV: production
+    # API port NOT exposed to host — only reachable via nginx on the frontend network
+    # Use 'docker exec' or SSH tunnel for direct API access if needed
+    expose:
+      - "3000"
+    networks:
+      - frontend
+      - backend
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "1.0"
+
+  proxy:
+    build:
+      context: .
+      dockerfile: infra/docker/proxy.Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-dominode}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-dominode}
+      JWT_SECRET: ${JWT_SECRET}
+      PROXY_LISTEN_PORT: "8080"
+      SOCKS5_LISTEN_PORT: "1080"
+      PACKETSTREAM_USERNAME: ${PACKETSTREAM_USERNAME:-}
+      PACKETSTREAM_PASSWORD: ${PACKETSTREAM_PASSWORD:-}
+      PACKETSTREAM_GATEWAY_HOST: ${PACKETSTREAM_GATEWAY_HOST:-gw.packetstream.io}
+      PACKETSTREAM_GATEWAY_PORT: ${PACKETSTREAM_GATEWAY_PORT:-31112}
+      SKIP_GEOIP: ${SKIP_GEOIP:-0}
+      NODE_ENV: production
+    ports:
+      - "${PROXY_HTTP_HOST_PORT:-8080}:8080"
+      - "${PROXY_SOCKS5_HOST_PORT:-1080}:1080"
+    networks:
+      - proxy
+      - backend  # Needs DB access for auth, balance checks, session recording
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/internal/stats"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: "2.0"
+
+  frontend:
+    build:
+      context: .
+      dockerfile: infra/docker/frontend.Dockerfile
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "${FRONTEND_HOST_PORT:-80}:8080"
+    networks:
+      - frontend
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:8080/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /var/cache/nginx
+      - /var/run
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: "0.5"
+
+networks:
+  frontend:
+  backend:
+  proxy:
+
+volumes:
+  pgdata:

@@ -27,6 +27,9 @@ export async function getBalance(userId: string): Promise<number> {
   return result.rows[0]?.balance_cents ?? 0;
 }
 
+// Maximum wallet balance: $10,000 (prevents abuse and accounting overflow) (R12 H-4)
+const MAX_BALANCE_CENTS = 1_000_000;
+
 export async function creditWallet(
   userId: string,
   amountCents: number,
@@ -39,6 +42,19 @@ export async function creditWallet(
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
+    await client.query("SET LOCAL lock_timeout = '5s'");
+
+    // Check current balance before crediting to enforce max cap (R12 H-4)
+    const balanceCheck = await client.query<Wallet>(
+      `SELECT * FROM wallets WHERE user_id = $1 FOR UPDATE`,
+      [userId],
+    );
+    if (balanceCheck.rows.length === 0) {
+      throw new Error(`No wallet found for user ${userId}`);
+    }
+    if (balanceCheck.rows[0].balance_cents + amountCents > MAX_BALANCE_CENTS) {
+      throw new Error(`Credit would exceed maximum wallet balance of $${(MAX_BALANCE_CENTS / 100).toFixed(2)}`);
+    }
 
     const walletResult = await client.query<Wallet>(
       `UPDATE wallets
@@ -48,10 +64,6 @@ export async function creditWallet(
        RETURNING *`,
       [amountCents, userId],
     );
-
-    if (walletResult.rows.length === 0) {
-      throw new Error(`No wallet found for user ${userId}`);
-    }
 
     const txResult = await client.query<WalletTransaction>(
       `INSERT INTO wallet_transactions (wallet_id, type, amount_cents, description, payment_provider, payment_id)
@@ -81,6 +93,7 @@ export async function debitWallet(
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
+    await client.query("SET LOCAL lock_timeout = '5s'");
 
     // Lock the wallet row to prevent race conditions
     const walletResult = await client.query<Wallet>(
@@ -135,6 +148,7 @@ export async function reserveBalance(
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
+    await client.query("SET LOCAL lock_timeout = '5s'");
 
     const walletResult = await client.query<Wallet>(
       `SELECT * FROM wallets WHERE user_id = $1 FOR UPDATE`,
@@ -150,6 +164,13 @@ export async function reserveBalance(
     await client.query(
       `UPDATE wallets SET balance_cents = balance_cents - $1 WHERE id = $2`,
       [reserveAmountCents, wallet.id],
+    );
+
+    // Record reservation hold as a transaction for audit trail
+    await client.query(
+      `INSERT INTO wallet_transactions (wallet_id, type, amount_cents, description)
+       VALUES ($1, 'debit', $2, 'Session reservation hold')`,
+      [wallet.id, reserveAmountCents],
     );
 
     await client.query("COMMIT");
@@ -178,6 +199,7 @@ export async function settleSession(
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
+    await client.query("SET LOCAL lock_timeout = '5s'");
 
     const walletResult = await client.query<Wallet>(
       `SELECT * FROM wallets WHERE user_id = $1 FOR UPDATE`,
@@ -191,23 +213,23 @@ export async function settleSession(
     }
 
     const diff = actualCostCents - reservedCents;
+    const sessionLabel = `session ${sessionId.slice(0, 8)}`;
 
     if (diff > 0) {
       // Need to charge more — check if balance allows
       if (wallet.balance_cents < diff) {
-        // Charge whatever is left + record the shortfall
-        const available = wallet.balance_cents;
+        // Charge whatever is left
+        const additional = wallet.balance_cents;
         await client.query(
           `UPDATE wallets SET balance_cents = 0 WHERE id = $1`,
           [wallet.id],
         );
-        // Record debit for reserved + available (actual charged amount)
-        const charged = reservedCents + available;
-        if (charged > 0) {
+        // Record additional charge (reservation was already recorded)
+        if (additional > 0) {
           await client.query(
             `INSERT INTO wallet_transactions (wallet_id, type, amount_cents, description)
              VALUES ($1, 'debit', $2, $3)`,
-            [wallet.id, charged, `Proxy usage (session ${sessionId.slice(0, 8)})`],
+            [wallet.id, additional, `Proxy usage overage (${sessionLabel})`],
           );
         }
         await client.query("COMMIT");
@@ -219,22 +241,29 @@ export async function settleSession(
         `UPDATE wallets SET balance_cents = balance_cents - $1 WHERE id = $2`,
         [diff, wallet.id],
       );
-    } else if (diff < 0) {
-      // Refund excess reservation
-      await client.query(
-        `UPDATE wallets SET balance_cents = balance_cents + $1 WHERE id = $2`,
-        [-diff, wallet.id],
-      );
-    }
-
-    // Record the debit transaction for actual cost
-    if (actualCostCents > 0) {
+      // Record additional charge (reservation was already recorded)
       await client.query(
         `INSERT INTO wallet_transactions (wallet_id, type, amount_cents, description)
          VALUES ($1, 'debit', $2, $3)`,
-        [wallet.id, actualCostCents, `Proxy usage (session ${sessionId.slice(0, 8)})`],
+        [wallet.id, diff, `Proxy usage settlement (${sessionLabel})`],
       );
+    } else if (diff < 0) {
+      // Refund excess reservation, capped at MAX_BALANCE_CENTS (R13 H-2)
+      const refund = Math.min(-diff, MAX_BALANCE_CENTS - wallet.balance_cents);
+      if (refund > 0) {
+        await client.query(
+          `UPDATE wallets SET balance_cents = balance_cents + $1 WHERE id = $2`,
+          [refund, wallet.id],
+        );
+        // Record the refund transaction
+        await client.query(
+          `INSERT INTO wallet_transactions (wallet_id, type, amount_cents, description)
+           VALUES ($1, 'refund', $2, $3)`,
+          [wallet.id, refund, `Reservation refund (${sessionLabel})`],
+        );
+      }
     }
+    // If diff == 0, reservation matched actual cost exactly — no additional transaction needed
 
     await client.query("COMMIT");
     return true;
@@ -254,11 +283,43 @@ export async function releaseReservation(
   reservedCents: number,
 ): Promise<void> {
   if (reservedCents <= 0) return;
-  await query(
-    `UPDATE wallets SET balance_cents = balance_cents + $1
-     WHERE user_id = $2`,
-    [reservedCents, userId],
-  );
+  const pool = getPool();
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("SET LOCAL lock_timeout = '5s'");
+    // Lock wallet row first to prevent exceeding MAX_BALANCE_CENTS (R13 H-1)
+    const lockResult = await client.query<Wallet>(
+      `SELECT * FROM wallets WHERE user_id = $1 FOR UPDATE`,
+      [userId],
+    );
+    const wallet = lockResult.rows[0];
+    if (!wallet) {
+      await client.query("ROLLBACK");
+      return;
+    }
+    // Cap refund to MAX_BALANCE_CENTS to prevent exceeding limit
+    const cappedRefund = Math.min(reservedCents, MAX_BALANCE_CENTS - wallet.balance_cents);
+    if (cappedRefund <= 0) {
+      await client.query("ROLLBACK");
+      return;
+    }
+    await client.query(
+      `UPDATE wallets SET balance_cents = balance_cents + $1 WHERE id = $2`,
+      [cappedRefund, wallet.id],
+    );
+    await client.query(
+      `INSERT INTO wallet_transactions (wallet_id, type, amount_cents, description)
+       VALUES ($1, 'refund', $2, 'Reservation released (session failed)')`,
+      [wallet.id, cappedRefund],
+    );
+    await client.query("COMMIT");
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
 }
 
 export async function getTransactions(
@@ -266,6 +327,8 @@ export async function getTransactions(
   limit: number = 50,
   offset: number = 0,
 ): Promise<WalletTransaction[]> {
+  offset = Math.max(0, offset);
+  limit = Math.max(1, Math.min(100, limit));
   const result = await query<WalletTransaction>(
     `SELECT wt.*
      FROM wallet_transactions wt

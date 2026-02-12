@@ -9,10 +9,17 @@ import type { UsageRecord } from "@dominode/shared";
 
 const log = createLogger("metering");
 
+// PostgreSQL INTEGER max — costs above this would cause INSERT failures (R13 C-1)
+const MAX_COST_CENTS = 2_147_483_647;
+
 export function computeCostCents(totalBytes: number, pricePerGbCents: number = PRICE_PER_GB_CENTS): number {
   if (totalBytes <= 0) return 0;
+  // R14 H-3: guard against non-finite or extreme values
+  if (!Number.isFinite(totalBytes) || totalBytes > Number.MAX_SAFE_INTEGER) {
+    return MAX_COST_CENTS;
+  }
   const cost = Math.ceil((totalBytes / BYTES_PER_GB) * pricePerGbCents);
-  return Math.max(cost, 1); // minimum 1 cent if any bytes transferred
+  return Math.min(Math.max(cost, 1), MAX_COST_CENTS); // minimum 1 cent, capped at PostgreSQL INTEGER max
 }
 
 export async function recordUsage(
@@ -22,6 +29,7 @@ export async function recordUsage(
   bytesOut: number,
   targetHost: string,
   pricePerGbCents: number = PRICE_PER_GB_CENTS,
+  connectLatencyMs?: number,
 ): Promise<UsageRecord> {
   const totalBytes = bytesIn + bytesOut;
   const costCents = computeCostCents(totalBytes, pricePerGbCents);
@@ -34,6 +42,7 @@ export async function recordUsage(
     cost_cents: costCents,
     proxy_type: "residential",
     target_host: targetHost,
+    connect_latency_ms: connectLatencyMs ?? null,
   });
 
   log.info("usage recorded", {
@@ -42,6 +51,7 @@ export async function recordUsage(
     bytesIn,
     bytesOut,
     costCents,
+    connectLatencyMs,
   });
 
   return record;

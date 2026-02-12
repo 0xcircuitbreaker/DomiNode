@@ -1,16 +1,25 @@
 import * as net from "node:net";
 import { createLogger, hashApiKey, userRepo } from "@dominode/shared";
-import { buildUpstreamProxy } from "@dominode/pool-manager";
+import type { ProviderSelector } from "@dominode/pool-manager";
 import { checkBalance } from "./balance-check.js";
 import { attachByteCounters } from "./counting-stream.js";
-import { startSession, endSession } from "./session-manager.js";
+import { startSession, endSession, registerSessionDestroy, unregisterSessionDestroy } from "./session-manager.js";
 import type { ProxyOptions } from "./auth.js";
 import { checkSanctionedCountry } from "./geo-check.js";
 import { validateTarget, isValidHostname, isValidPort } from "./target-validator.js";
 import { incrementUserConns, decrementUserConns } from "./connection-tracker.js";
 import { checkAuthRateLimit, recordAuthFailure } from "./auth-rate-limit.js";
+import { recordRequest, recordError, recordLatency } from "./stats.js";
 
 const log = createLogger("proxy:socks5");
+
+/** Strip potential credentials from upstream status lines or error messages */
+function sanitizeUpstreamMsg(msg: string): string {
+  return msg
+    .replace(/Basic\s+[A-Za-z0-9+/=]+/gi, "Basic [REDACTED]")
+    .replace(/Bearer\s+[A-Za-z0-9._-]+/gi, "Bearer [REDACTED]")
+    .replace(/Proxy-Authorization:\s*[^\r\n]*/gi, "Proxy-Authorization: [REDACTED]");
+}
 
 // SOCKS5 constants
 const SOCKS_VER = 0x05;
@@ -30,6 +39,15 @@ function parseProxyOptions(username: string): ProxyOptions {
   const options: ProxyOptions = {};
   const countryMatch = username.match(/(?:^|-)country-([A-Za-z]{2})(?:-|$)/);
   if (countryMatch) options.country = countryMatch[1].toUpperCase();
+  const stateMatch = username.match(/(?:^|-)state-([a-zA-Z]{2,30})(?:-|$)/);
+  if (stateMatch) options.state = stateMatch[1].toLowerCase();
+  const cityMatch = username.match(/(?:^|-)city-([a-zA-Z]{2,50})(?:-|$)/);
+  if (cityMatch) options.city = cityMatch[1].toLowerCase();
+  const asnMatch = username.match(/(?:^|-)asn-(\d{1,10})(?:-|$)/);
+  if (asnMatch) {
+    const asnNum = parseInt(asnMatch[1], 10);
+    if (asnNum >= 1 && asnNum <= 4_294_967_295) options.asn = asnNum;
+  }
   const sessionMatch = username.match(/(?:^|-)session-([a-zA-Z0-9]+)(?:-|$)/);
   if (sessionMatch) options.sessionId = sessionMatch[1];
   return options;
@@ -46,7 +64,7 @@ function sendReply(socket: net.Socket, rep: number): void {
   socket.write(reply);
 }
 
-async function handleSocks5Connection(clientSocket: net.Socket): Promise<void> {
+async function handleSocks5Connection(clientSocket: net.Socket, providerSelector: ProviderSelector): Promise<void> {
   const clientIp = (clientSocket.remoteAddress ?? "").replace(/^::ffff:/, "");
 
   // Geo-check
@@ -223,12 +241,12 @@ async function handleSocks5Connection(clientSocket: net.Socket): Promise<void> {
     return;
   }
 
-  log.info("SOCKS5 CONNECT", { target: `${targetHost}:${targetPort}`, userId, country: proxyOptions.country });
+  recordRequest();
 
-  // Connect through PacketStream via HTTP CONNECT
-  let upstream;
+  // Provider selection (replaces global circuit breaker check)
+  let selected;
   try {
-    upstream = buildUpstreamProxy(proxyOptions);
+    selected = providerSelector.select(proxyOptions);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     if (msg.includes("sanctioned")) {
@@ -237,8 +255,22 @@ async function handleSocks5Connection(clientSocket: net.Socket): Promise<void> {
       clientSocket.end();
       return;
     }
+    if (msg.includes("unavailable")) {
+      sendReply(clientSocket, REP_GENERAL_FAILURE);
+      decrementUserConns(userId);
+      clientSocket.end();
+      return;
+    }
+    decrementUserConns(userId);
     throw err;
   }
+  const { provider, proxy: upstream } = selected;
+  const providerName = provider.name;
+
+  const redactedHost = targetHost.split(".").slice(-2).join(".");
+  log.info("SOCKS5 CONNECT", { target: `${redactedHost}:${targetPort}`, userId, country: proxyOptions.country, provider: providerName });
+
+  const connectStart = Date.now();
 
   const psSocket = net.connect(upstream.port, upstream.host, () => {
     psSocket.write(
@@ -250,7 +282,9 @@ async function handleSocks5Connection(clientSocket: net.Socket): Promise<void> {
   });
 
   let tunnelEstablished = false;
+  let headersParsed = false; // Re-entry guard for header parsing (separate from tunnelEstablished)
   const headerChunks: Buffer[] = [];
+  let headerBytesSoFar = 0;
 
   // Fix #6: Once-guard to prevent double-decrement
   let decremented = false;
@@ -262,21 +296,13 @@ async function handleSocks5Connection(clientSocket: net.Socket): Promise<void> {
   }
 
   async function handleUpstreamData(chunk: Buffer): Promise<void> {
-    if (tunnelEstablished) return;
+    if (headersParsed) return;
 
     headerChunks.push(chunk);
-    const fullBuffer = Buffer.concat(headerChunks);
-    const headerStr = fullBuffer.toString("utf-8");
+    headerBytesSoFar += chunk.length;
 
-    if (!headerStr.includes("\r\n\r\n")) {
-      psSocket.once("data", handleUpstreamData);
-      return;
-    }
-
-    const statusLine = headerStr.split("\r\n")[0];
-
-    if (!statusLine.includes("200")) {
-      log.error("SOCKS5 PacketStream CONNECT failed", { status: statusLine });
+    if (headerBytesSoFar > 32 * 1024) {
+      log.error("PacketStream response headers too large", { size: headerBytesSoFar });
       sendReply(clientSocket, REP_GENERAL_FAILURE);
       clientSocket.end();
       psSocket.destroy();
@@ -284,7 +310,42 @@ async function handleSocks5Connection(clientSocket: net.Socket): Promise<void> {
       return;
     }
 
-    tunnelEstablished = true;
+    const fullBuffer = Buffer.concat(headerChunks);
+    const headerStr = fullBuffer.toString("utf-8");
+
+    if (!headerStr.includes("\r\n\r\n")) {
+      psSocket.once("data", (nextChunk: Buffer) => {
+        handleUpstreamData(nextChunk).catch((err) => {
+          log.error("unhandled error in SOCKS5 upstream data handler", {
+            error: err instanceof Error ? err.message : String(err),
+            provider: providerName,
+          });
+          sendReply(clientSocket, REP_GENERAL_FAILURE);
+          clientSocket.end();
+          psSocket.destroy();
+          safeDecrement();
+        });
+      });
+      return;
+    }
+
+    const statusLine = headerStr.split("\r\n")[0];
+
+    if (!statusLine.includes("200")) {
+      log.error("SOCKS5 upstream CONNECT failed", { status: sanitizeUpstreamMsg(statusLine), provider: providerName });
+      providerSelector.recordFailure(providerName);
+      recordError();
+      sendReply(clientSocket, REP_GENERAL_FAILURE);
+      clientSocket.end();
+      psSocket.destroy();
+      safeDecrement();
+      return;
+    }
+
+    headersParsed = true; // Prevent re-entry into header parsing
+    const connectLatencyMs = Date.now() - connectStart;
+    recordLatency(connectLatencyMs);
+    providerSelector.recordSuccess(providerName, connectLatencyMs);
 
     // Forward any remaining data after HTTP headers
     const headerEndIdx = fullBuffer.indexOf("\r\n\r\n") + 4;
@@ -306,18 +367,41 @@ async function handleSocks5Connection(clientSocket: net.Socket): Promise<void> {
       return;
     }
 
+    // Register socket destroy callback so admin suspend can forcibly close this tunnel
+    registerSessionDestroy(sessionId, () => {
+      clientSocket.destroy();
+      psSocket.destroy();
+    });
+
+    // Mark tunnel as fully established AFTER session is started — this ensures
+    // the psSocket error handler properly cleans up if an error occurs during startSession
+    tunnelEstablished = true;
+    clearTimeout(handshakeTimeout); // Free timer immediately instead of waiting for socket close
+
     // Session started successfully - NOW send success reply and start piping
     sendReply(clientSocket, REP_SUCCESS);
 
     if (remaining.length > 0) {
+      counter.bytesOut += remaining.length; // Count buffered upstream data (R12 H-1)
       clientSocket.write(remaining);
     }
 
     psSocket.pipe(clientSocket);
     clientSocket.pipe(psSocket);
 
+    // Idle timeout: close tunnels inactive for 5 minutes to prevent resource leaks
+    const TUNNEL_IDLE_TIMEOUT_MS = parseInt(process.env["TUNNEL_IDLE_TIMEOUT_MS"] ?? "300000", 10);
+    clientSocket.setTimeout(TUNNEL_IDLE_TIMEOUT_MS);
+    psSocket.setTimeout(TUNNEL_IDLE_TIMEOUT_MS);
+    clientSocket.on("timeout", () => { clientSocket.destroy(); });
+    psSocket.on("timeout", () => { psSocket.destroy(); });
+
     // Once-guard cleanup for session end
+    let tunnelCleanedUp = false;
     const cleanup = () => {
+      if (tunnelCleanedUp) return;
+      tunnelCleanedUp = true;
+      unregisterSessionDestroy(sessionId);
       safeDecrement();
       endSession(sessionId).catch((cleanupErr) => {
         log.error("SOCKS5 session end failed", { sessionId, error: cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr) });
@@ -326,18 +410,33 @@ async function handleSocks5Connection(clientSocket: net.Socket): Promise<void> {
 
     clientSocket.on("end", cleanup);
     clientSocket.on("error", cleanup);
+    clientSocket.on("close", cleanup);
     psSocket.on("end", cleanup);
     psSocket.on("error", cleanup);
+    psSocket.on("close", cleanup);
   }
 
-  psSocket.once("data", handleUpstreamData);
+  psSocket.once("data", (chunk: Buffer) => {
+    handleUpstreamData(chunk).catch((err) => {
+      log.error("unhandled error in SOCKS5 upstream data handler", {
+        error: err instanceof Error ? err.message : String(err),
+        provider: providerName,
+      });
+      sendReply(clientSocket, REP_GENERAL_FAILURE);
+      clientSocket.end();
+      psSocket.destroy();
+      safeDecrement();
+    });
+  });
 
   psSocket.on("error", (err) => {
-    log.error("SOCKS5 PacketStream error", { error: err.message });
+    log.error("SOCKS5 upstream error", { error: err.message, provider: providerName });
     if (!tunnelEstablished) {
+      providerSelector.recordFailure(providerName);
+      recordError();
       sendReply(clientSocket, REP_GENERAL_FAILURE);
+      safeDecrement();
     }
-    safeDecrement();
     clientSocket.end();
   });
 
@@ -346,16 +445,20 @@ async function handleSocks5Connection(clientSocket: net.Socket): Promise<void> {
     psSocket.destroy();
   });
 
-  // Handshake timeout
-  const handshakeTimeout = setTimeout(() => {
+  const connectTimeoutMs = parseInt(process.env["PROXY_CONNECT_TIMEOUT_MS"] ?? "30000", 10);
+
+  // Handshake timeout — cleared when tunnel is established or sockets close
+  const handshakeTimeout: ReturnType<typeof setTimeout> = setTimeout(() => {
     if (!tunnelEstablished) {
-      log.error("SOCKS5 PacketStream handshake timeout");
+      log.error("SOCKS5 upstream handshake timeout", { provider: providerName });
+      providerSelector.recordFailure(providerName);
+      recordError();
       sendReply(clientSocket, REP_GENERAL_FAILURE);
       clientSocket.end();
       psSocket.destroy();
       safeDecrement();
     }
-  }, 30_000);
+  }, connectTimeoutMs);
 
   psSocket.once("close", () => clearTimeout(handshakeTimeout));
   clientSocket.once("close", () => clearTimeout(handshakeTimeout));
@@ -398,11 +501,21 @@ function readBytes(socket: net.Socket, n: number, timeoutMs: number): Promise<Bu
       collected = Buffer.concat([collected, chunk]);
       if (collected.length >= n) {
         const result = collected.slice(0, n);
-        // Push excess back
-        if (collected.length > n) {
-          socket.unshift(collected.slice(n));
+        const excess = collected.length > n ? collected.slice(n) : null;
+        if (resolved) return;
+        resolved = true;
+        clearTimeout(timer);
+        // Pause socket to stop flowing mode, then remove listeners.
+        // Without pause, removing the "data" listener while socket is flowing
+        // causes any unshifted data to be silently discarded (Node.js streams spec).
+        socket.pause();
+        socket.removeListener("data", onData);
+        socket.removeListener("error", onError);
+        socket.removeListener("close", onClose);
+        if (excess) {
+          socket.unshift(excess);
         }
-        finish(result);
+        resolve(result);
       }
     }
 
@@ -417,18 +530,44 @@ function readBytes(socket: net.Socket, n: number, timeoutMs: number): Promise<Bu
     socket.on("data", onData);
     socket.on("error", onError);
     socket.on("close", onClose);
+    // Ensure socket is flowing — needed after a previous readBytes call
+    // paused the socket to safely unshift excess data.
+    socket.resume();
   });
 }
 
-export function startSocks5Server(port: number = 1080): net.Server {
+export async function startSocks5Server(port: number = 1080, providerSelector?: ProviderSelector): Promise<net.Server> {
+  // Explicitly init geo-check — do not rely on HTTP server calling it first
+  const { initGeoCheck } = await import("./geo-check.js");
+  await initGeoCheck();
+
+  // Cache the resolved selector to avoid Promise.resolve().then() microtask delay
+  // which can cause readBytes to miss initial socket data in the connection handler
+  let resolvedSelector: ProviderSelector | null = providerSelector ?? null;
+
+  if (!resolvedSelector) {
+    const { createProviderSelector } = await import("@dominode/pool-manager");
+    resolvedSelector = createProviderSelector();
+  }
+
   const server = net.createServer((socket) => {
-    handleSocks5Connection(socket).catch((err) => {
-      log.error("unhandled SOCKS5 error", { error: err instanceof Error ? err.message : String(err) });
+    if (resolvedSelector) {
+      // Synchronous path — handler runs in same tick as connection callback
+      handleSocks5Connection(socket, resolvedSelector).catch((err) => {
+        log.error("unhandled SOCKS5 error", { error: err instanceof Error ? err.message : String(err) });
+        socket.destroy();
+      });
+    } else {
+      log.warn("SOCKS5 connection rejected: provider selector not yet initialized");
       socket.destroy();
-    });
+    }
   });
 
-  server.maxConnections = parseInt(process.env["PROXY_MAX_CONNECTIONS"] ?? "5000", 10);
+  const maxConns = parseInt(process.env["PROXY_MAX_CONNECTIONS"] ?? "5000", 10);
+  if (isNaN(maxConns) || maxConns <= 0) {
+    throw new Error("PROXY_MAX_CONNECTIONS must be a positive integer");
+  }
+  server.maxConnections = maxConns;
 
   server.listen(port, () => {
     log.info(`SOCKS5 proxy listening on port ${port}`);

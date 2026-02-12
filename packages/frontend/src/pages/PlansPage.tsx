@@ -47,6 +47,8 @@ export default function PlansPage() {
 
   async function handleChangePlan(planId: string) {
     if (planId === userPlan?.plan.id) return;
+    const planName = plansData?.plans.find((p) => p.id === planId)?.name ?? planId;
+    if (!window.confirm(`Switch to the ${planName} plan? This takes effect immediately.`)) return;
     setChangingPlan(planId);
     setChangeError(null);
     try {

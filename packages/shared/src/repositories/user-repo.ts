@@ -78,6 +78,16 @@ export async function findUserByApiKeyHash(
   return { user, apiKey };
 }
 
+export async function updatePassword(
+  userId: string,
+  passwordHash: string,
+): Promise<void> {
+  await query(
+    `UPDATE users SET password_hash = $1, password_changed_at = now() WHERE id = $2`,
+    [passwordHash, userId],
+  );
+}
+
 export async function createApiKey(
   userId: string,
   keyHash: string,
@@ -93,11 +103,11 @@ export async function createApiKey(
   return result.rows[0];
 }
 
-export async function listApiKeys(userId: string): Promise<ApiKey[]> {
+export async function listApiKeys(userId: string, includeRevoked: boolean = false): Promise<ApiKey[]> {
   const result = await query<ApiKey>(
     `SELECT id, user_id, key_prefix, label, created_at, revoked_at
      FROM api_keys
-     WHERE user_id = $1
+     WHERE user_id = $1 ${includeRevoked ? "" : "AND revoked_at IS NULL"}
      ORDER BY created_at DESC`,
     [userId],
   );
@@ -123,4 +133,13 @@ export async function revokeApiKey(
     [id, userId],
   );
   return (result.rowCount ?? 0) > 0;
+}
+
+/** Revoke all active API keys for a user (used on account suspension) */
+export async function revokeAllApiKeys(userId: string): Promise<number> {
+  const result = await query(
+    `UPDATE api_keys SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL`,
+    [userId],
+  );
+  return result.rowCount ?? 0;
 }

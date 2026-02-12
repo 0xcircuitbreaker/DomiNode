@@ -8,6 +8,7 @@ const mockCreateSession = vi.fn();
 const mockEndSessionRepo = vi.fn();
 const mockCreateUsageRecord = vi.fn();
 const mockGetUserPlan = vi.fn();
+const mockGetMonthlyUsage = vi.fn();
 
 vi.mock("@dominode/shared", () => ({
   walletRepo: {
@@ -22,6 +23,7 @@ vi.mock("@dominode/shared", () => ({
   },
   planRepo: {
     getUserPlan: (...args: unknown[]) => mockGetUserPlan(...args),
+    getMonthlyUsage: (...args: unknown[]) => mockGetMonthlyUsage(...args),
   },
   createLogger: () => ({
     debug: vi.fn(),
@@ -45,7 +47,7 @@ vi.mock("./balance-check.js", () => ({
   invalidateBalanceCache: vi.fn(),
 }));
 
-import { startSession, endSession, getActiveSessionCount } from "./session-manager.js";
+import { startSession, endSession, getActiveSessionCount, checkSessionRateLimit } from "./session-manager.js";
 import type { ByteCounter } from "./counting-stream.js";
 
 function makeCounter(bytesIn = 0, bytesOut = 0): ByteCounter {
@@ -66,8 +68,9 @@ async function startTestSession(
 describe("proxy-gateway/session-manager", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    // Default: plan lookup returns default PAYG rate
+    // Default: plan lookup returns default PAYG rate (unlimited bandwidth)
     mockGetUserPlan.mockResolvedValue({ id: "payg", name: "PAYG", pricePerGbCents: 500, monthlyBandwidthBytes: 0, isDefault: true });
+    mockGetMonthlyUsage.mockResolvedValue(0);
   });
 
   describe("startSession", () => {
@@ -144,13 +147,14 @@ describe("proxy-gateway/session-manager", () => {
       mockEndSessionRepo.mockResolvedValueOnce(undefined);
       await endSession("sess-target");
 
-      // recordUsage now takes 6 args: userId, sessionId, bytesIn, bytesOut, targetHost, pricePerGbCents
+      // recordUsage now takes 7 args: userId, sessionId, bytesIn, bytesOut, targetHost, pricePerGbCents, connectLatencyMs
       expect(mockRecordUsage).toHaveBeenCalledWith(
         "user-1",
         "sess-target",
         expect.any(Number),
         expect.any(Number),
         "api.example.org",
+        expect.any(Number),
         expect.any(Number),
       );
     });
@@ -163,6 +167,82 @@ describe("proxy-gateway/session-manager", () => {
       await expect(
         startSession("user-1", "example.com", counter),
       ).rejects.toThrow("connection timeout");
+    });
+
+    it("should reject session when monthly bandwidth limit exceeded", async () => {
+      mockGetUserPlan.mockResolvedValueOnce({
+        id: "free",
+        name: "Free Trial",
+        pricePerGbCents: 500,
+        monthlyBandwidthBytes: 107374182, // ~100MB
+        isDefault: false,
+      });
+      mockGetMonthlyUsage.mockResolvedValueOnce(200_000_000); // 200MB > 100MB limit
+
+      const counter = makeCounter();
+      await expect(
+        startSession("user-free", "example.com", counter),
+      ).rejects.toThrow("Monthly bandwidth limit exceeded");
+
+      // Should not have attempted to reserve balance
+      expect(mockReserveBalance).not.toHaveBeenCalled();
+    });
+
+    it("should allow session when within bandwidth limit", async () => {
+      mockGetUserPlan.mockResolvedValueOnce({
+        id: "free",
+        name: "Free Trial",
+        pricePerGbCents: 500,
+        monthlyBandwidthBytes: 107374182,
+        isDefault: false,
+      });
+      mockGetMonthlyUsage.mockResolvedValueOnce(50_000_000); // 50MB < 100MB
+
+      mockReserveBalance.mockResolvedValueOnce("wallet-1");
+      mockCreateSession.mockResolvedValueOnce({ id: "sess-within-limit" });
+
+      const counter = makeCounter();
+      const sessId = await startSession("user-free", "example.com", counter);
+      expect(sessId).toBe("sess-within-limit");
+
+      // Clean up
+      mockSettleSession.mockResolvedValueOnce(true);
+      mockEndSessionRepo.mockResolvedValueOnce(undefined);
+      await endSession(sessId);
+    });
+
+    it("should skip bandwidth check for unlimited plans (0 bytes)", async () => {
+      // PAYG has monthlyBandwidthBytes = 0 (unlimited) — already default mock
+      mockReserveBalance.mockResolvedValueOnce("wallet-1");
+      mockCreateSession.mockResolvedValueOnce({ id: "sess-unlimited" });
+
+      const counter = makeCounter();
+      const sessId = await startSession("user-payg", "example.com", counter);
+      expect(sessId).toBe("sess-unlimited");
+
+      // getMonthlyUsage should NOT have been called (skipped because limit is 0)
+      expect(mockGetMonthlyUsage).not.toHaveBeenCalled();
+
+      // Clean up
+      mockSettleSession.mockResolvedValueOnce(true);
+      mockEndSessionRepo.mockResolvedValueOnce(undefined);
+      await endSession(sessId);
+    });
+
+    it("should allow session when bandwidth check fails (graceful degradation)", async () => {
+      mockGetUserPlan.mockRejectedValueOnce(new Error("DB connection error"));
+
+      mockReserveBalance.mockResolvedValueOnce("wallet-1");
+      mockCreateSession.mockResolvedValueOnce({ id: "sess-degraded" });
+
+      const counter = makeCounter();
+      const sessId = await startSession("user-err", "example.com", counter);
+      expect(sessId).toBe("sess-degraded");
+
+      // Clean up
+      mockSettleSession.mockResolvedValueOnce(true);
+      mockEndSessionRepo.mockResolvedValueOnce(undefined);
+      await endSession(sessId);
     });
   });
 
@@ -280,6 +360,7 @@ describe("proxy-gateway/session-manager", () => {
         0,
         "example.com",
         expect.any(Number), // pricePerGbCents
+        expect.any(Number), // connectLatencyMs
       );
       // Cost should be 0 for 0 bytes
       expect(mockSettleSession).toHaveBeenCalledWith(
@@ -340,13 +421,16 @@ describe("proxy-gateway/session-manager", () => {
     });
 
     it("should use plan pricing for cost computation", async () => {
-      mockGetUserPlan.mockResolvedValueOnce({
+      const proPlan = {
         id: "pro",
         name: "Pro",
         pricePerGbCents: 300,
         monthlyBandwidthBytes: 100_000_000_000,
         isDefault: false,
-      });
+      };
+      // Single call: plan fetched once in startSession, price locked in session (R13 H-2)
+      mockGetUserPlan.mockResolvedValueOnce(proPlan);
+      mockGetMonthlyUsage.mockResolvedValueOnce(0); // within bandwidth limit
 
       const counter = makeCounter(500, 500);
       const sessId = await startTestSession("user-plan", "sess-plan", counter);
@@ -364,6 +448,7 @@ describe("proxy-gateway/session-manager", () => {
         500,
         "example.com",
         300, // Pro plan pricing
+        expect.any(Number), // connectLatencyMs
       );
     });
 
@@ -386,6 +471,7 @@ describe("proxy-gateway/session-manager", () => {
         500,
         "example.com",
         500, // default PAYG rate
+        expect.any(Number), // connectLatencyMs
       );
     });
   });
@@ -429,6 +515,52 @@ describe("proxy-gateway/session-manager", () => {
       await endSession(sessId);
 
       expect(getActiveSessionCount()).toBe(afterStart - 1);
+    });
+  });
+
+  describe("checkSessionRateLimit", () => {
+    it("should allow sessions under the rate limit", () => {
+      const userId = `rate-limit-ok-${Date.now()}`;
+      // Default limit is 30/minute
+      for (let i = 0; i < 30; i++) {
+        expect(checkSessionRateLimit(userId)).toBe(true);
+      }
+    });
+
+    it("should reject sessions exceeding the rate limit", () => {
+      const userId = `rate-limit-exceed-${Date.now()}`;
+      // Fill up the window
+      for (let i = 0; i < 30; i++) {
+        checkSessionRateLimit(userId);
+      }
+      // 31st should be rejected
+      expect(checkSessionRateLimit(userId)).toBe(false);
+    });
+
+    it("should track limits per-user independently", () => {
+      const userA = `rate-A-${Date.now()}`;
+      const userB = `rate-B-${Date.now()}`;
+      // Fill up userA's limit
+      for (let i = 0; i < 30; i++) {
+        checkSessionRateLimit(userA);
+      }
+      // userB should still be allowed
+      expect(checkSessionRateLimit(userB)).toBe(true);
+      // userA should be rejected
+      expect(checkSessionRateLimit(userA)).toBe(false);
+    });
+
+    it("should throw rate limit error from startSession", async () => {
+      const userId = `rate-start-${Date.now()}`;
+      // Exhaust rate limit
+      for (let i = 0; i < 30; i++) {
+        checkSessionRateLimit(userId);
+      }
+      mockReserveBalance.mockResolvedValueOnce("wallet-1");
+      const counter = makeCounter();
+      await expect(
+        startSession(userId, "example.com", counter),
+      ).rejects.toThrow("Session rate limit exceeded");
     });
   });
 });

@@ -1,6 +1,15 @@
 import { Router } from "express";
-import { planRepo, createLogger } from "@dominode/shared";
+import { planRepo, walletRepo, createLogger, getPool } from "@dominode/shared";
 import { requireAuth, type AuthenticatedRequest } from "../middleware/auth.js";
+
+// Plans that users are allowed to self-select (excludes admin-only and free trial)
+const USER_SELECTABLE_PLANS = new Set(["payg", "vol100", "vol1tb"]);
+
+// Minimum wallet balance required (in cents) to switch to volume plans
+const VOLUME_PLAN_MIN_BALANCE: Record<string, number> = {
+  vol100: 1000, // $10 minimum for $4/GB plan
+  vol1tb: 5000, // $50 minimum for $3/GB plan
+};
 
 const router = Router();
 const log = createLogger("api:plans");
@@ -78,14 +87,53 @@ router.put("/user/plan", requireAuth, async (req, res) => {
       return;
     }
 
-    // Verify plan exists
-    const plan = await planRepo.getPlan(planId);
-    if (!plan) {
-      res.status(404).json({ error: `Plan '${planId}' not found` });
+    // Restrict to user-selectable plans (prevents switching to free/admin-only plans)
+    if (!USER_SELECTABLE_PLANS.has(planId)) {
+      res.status(403).json({ error: "This plan cannot be selected. Contact support for assistance." });
       return;
     }
 
-    await planRepo.setUserPlan(userId, planId);
+    // Verify plan exists
+    const plan = await planRepo.getPlan(planId);
+    if (!plan) {
+      res.status(404).json({ error: "Plan not found" });
+      return;
+    }
+
+    // Volume plans require minimum wallet balance — use atomic transaction with FOR UPDATE
+    // to prevent TOCTOU race between balance check and plan update
+    const minBalance = VOLUME_PLAN_MIN_BALANCE[planId];
+    if (minBalance) {
+      const pool = getPool();
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        const walletResult = await client.query(
+          "SELECT balance_cents FROM wallets WHERE user_id = $1 FOR UPDATE",
+          [userId],
+        );
+        const wallet = walletResult.rows[0];
+        if (!wallet || wallet.balance_cents < minBalance) {
+          await client.query("ROLLBACK");
+          res.status(402).json({
+            error: `Minimum wallet balance of $${(minBalance / 100).toFixed(2)} required for ${plan.name} plan`,
+          });
+          return;
+        }
+        await client.query(
+          "INSERT INTO user_plans (user_id, plan_id) VALUES ($1, $2) ON CONFLICT (user_id) DO UPDATE SET plan_id = $2, updated_at = now()",
+          [userId, planId],
+        );
+        await client.query("COMMIT");
+      } catch (txErr) {
+        await client.query("ROLLBACK").catch(() => {});
+        throw txErr;
+      } finally {
+        client.release();
+      }
+    } else {
+      await planRepo.setUserPlan(userId, planId);
+    }
 
     log.info("user plan changed", { userId, planId });
 

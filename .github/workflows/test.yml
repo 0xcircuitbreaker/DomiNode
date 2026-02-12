@@ -1,0 +1,70 @@
+name: Test
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: dominode_test
+          POSTGRES_USER: dominode
+          POSTGRES_PASSWORD: dominode_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U dominode"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql://dominode:dominode_test@localhost:5432/dominode_test
+      JWT_SECRET: test-secret-key-that-is-at-least-32-characters-long-for-testing
+      PACKETSTREAM_USERNAME: testuser
+      PACKETSTREAM_PASSWORD: testpass
+      PACKETSTREAM_GATEWAY_HOST: gw.test.io
+      PACKETSTREAM_GATEWAY_PORT: "31112"
+      LOG_LEVEL: error
+      NODE_ENV: test
+
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: ".nvmrc"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build
+        run: npm run build
+
+      - name: Run backend tests with coverage
+        run: npm run test:coverage
+
+      - name: Run frontend tests
+        run: npm run test:frontend
+
+      - name: Upload coverage
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: coverage-report
+          path: coverage/
+          retention-days: 14

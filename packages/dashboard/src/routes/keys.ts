@@ -5,6 +5,8 @@ import { requireAuth, type AuthenticatedRequest } from "../middleware/auth.js";
 const router = Router();
 const log = createLogger("api:keys");
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 router.use(requireAuth);
 
 // POST /api/keys — create new API key
@@ -63,9 +65,13 @@ router.get("/", async (req, res) => {
 
 // DELETE /api/keys/:id — revoke API key
 router.delete("/:id", async (req, res) => {
+  const keyId = req.params.id;
+  if (!UUID_REGEX.test(keyId)) {
+    res.status(400).json({ error: "Invalid API key ID format" });
+    return;
+  }
   try {
     const { userId } = (req as unknown as AuthenticatedRequest).user;
-    const keyId = req.params.id;
 
     const revoked = await userRepo.revokeApiKey(keyId, userId);
     if (!revoked) {

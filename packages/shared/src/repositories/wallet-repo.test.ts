@@ -121,13 +121,16 @@ describe("wallet-repo", () => {
 
       mockClientQuery
         .mockResolvedValueOnce({}) // BEGIN
-        .mockResolvedValueOnce({ rows: [walletRow] }) // UPDATE wallets
+        .mockResolvedValueOnce({}) // SET LOCAL lock_timeout
+        .mockResolvedValueOnce({ rows: [walletRow] }) // SELECT FOR UPDATE (balance check)
+        .mockResolvedValueOnce({ rows: [walletRow] }) // UPDATE wallets RETURNING
         .mockResolvedValueOnce({ rows: [txRow] }) // INSERT wallet_transactions
         .mockResolvedValueOnce({}); // COMMIT
 
       const result = await creditWallet("u1", 1000, "stripe", "pay_123", "Top-up $10");
       expect(result).toEqual(txRow);
       expect(mockClientQuery).toHaveBeenCalledWith("BEGIN");
+      expect(mockClientQuery).toHaveBeenCalledWith("SET LOCAL lock_timeout = '5s'");
       expect(mockClientQuery).toHaveBeenCalledWith("COMMIT");
       expect(mockClientRelease).toHaveBeenCalled();
     });
@@ -144,7 +147,8 @@ describe("wallet-repo", () => {
     it("should throw and rollback if no wallet found", async () => {
       mockClientQuery
         .mockResolvedValueOnce({}) // BEGIN
-        .mockResolvedValueOnce({ rows: [] }) // UPDATE wallets returns nothing
+        .mockResolvedValueOnce({}) // SET LOCAL lock_timeout
+        .mockResolvedValueOnce({ rows: [] }) // SELECT FOR UPDATE returns nothing
         .mockResolvedValueOnce({}); // ROLLBACK
 
       await expect(
@@ -157,7 +161,8 @@ describe("wallet-repo", () => {
     it("should rollback and release client on unexpected error", async () => {
       mockClientQuery
         .mockResolvedValueOnce({}) // BEGIN
-        .mockRejectedValueOnce(new Error("connection failed")); // UPDATE throws
+        .mockResolvedValueOnce({}) // SET LOCAL lock_timeout
+        .mockRejectedValueOnce(new Error("connection failed")); // SELECT FOR UPDATE throws
 
       await expect(
         creditWallet("u1", 1000, "stripe", "pay_123", "desc"),
@@ -172,15 +177,33 @@ describe("wallet-repo", () => {
 
       mockClientQuery
         .mockResolvedValueOnce({}) // BEGIN
-        .mockResolvedValueOnce({ rows: [walletRow] }) // UPDATE wallets
+        .mockResolvedValueOnce({}) // SET LOCAL lock_timeout
+        .mockResolvedValueOnce({ rows: [walletRow] }) // SELECT FOR UPDATE (balance check)
+        .mockResolvedValueOnce({ rows: [walletRow] }) // UPDATE wallets RETURNING
         .mockResolvedValueOnce({ rows: [txRow] }) // INSERT wallet_transactions
         .mockResolvedValueOnce({}); // COMMIT
 
       await creditWallet("u1", 500, "nowpayments", "pay_abc", "Crypto top-up");
-      // The INSERT call is the 3rd call (index 2)
-      const insertCall = mockClientQuery.mock.calls[2];
+      // The INSERT call is the 5th call (index 4) due to lock_timeout + balance check
+      const insertCall = mockClientQuery.mock.calls[4];
       expect(insertCall[0]).toContain("INSERT INTO wallet_transactions");
       expect(insertCall[1]).toEqual(["w-test", 500, "Crypto top-up", "nowpayments", "pay_abc"]);
+    });
+
+    it("should reject credit that would exceed max balance", async () => {
+      const walletRow = { id: "w1", user_id: "u1", balance_cents: 999_500 };
+
+      mockClientQuery
+        .mockResolvedValueOnce({}) // BEGIN
+        .mockResolvedValueOnce({}) // SET LOCAL lock_timeout
+        .mockResolvedValueOnce({ rows: [walletRow] }) // SELECT FOR UPDATE (balance=999500)
+        .mockResolvedValueOnce({}); // ROLLBACK
+
+      await expect(
+        creditWallet("u1", 1000, "stripe", "pay_123", "Top-up $10"),
+      ).rejects.toThrow("exceed maximum wallet balance");
+      expect(mockClientQuery).toHaveBeenCalledWith("ROLLBACK");
+      expect(mockClientRelease).toHaveBeenCalled();
     });
   });
 
@@ -193,6 +216,7 @@ describe("wallet-repo", () => {
 
       mockClientQuery
         .mockResolvedValueOnce({}) // BEGIN
+        .mockResolvedValueOnce({}) // SET LOCAL lock_timeout
         .mockResolvedValueOnce({ rows: [wallet] }) // SELECT FOR UPDATE
         .mockResolvedValueOnce({}) // UPDATE balance
         .mockResolvedValueOnce({ rows: [txRow] }) // INSERT tx
@@ -217,6 +241,7 @@ describe("wallet-repo", () => {
 
       mockClientQuery
         .mockResolvedValueOnce({}) // BEGIN
+        .mockResolvedValueOnce({}) // SET LOCAL lock_timeout
         .mockResolvedValueOnce({ rows: [wallet] }) // SELECT FOR UPDATE
         .mockResolvedValueOnce({}); // ROLLBACK
 
@@ -227,6 +252,7 @@ describe("wallet-repo", () => {
     it("should return null if no wallet found", async () => {
       mockClientQuery
         .mockResolvedValueOnce({}) // BEGIN
+        .mockResolvedValueOnce({}) // SET LOCAL lock_timeout
         .mockResolvedValueOnce({ rows: [] }) // SELECT returns nothing
         .mockResolvedValueOnce({}); // ROLLBACK
 
@@ -250,6 +276,7 @@ describe("wallet-repo", () => {
 
       mockClientQuery
         .mockResolvedValueOnce({}) // BEGIN
+        .mockResolvedValueOnce({}) // SET LOCAL lock_timeout
         .mockResolvedValueOnce({ rows: [wallet] }) // SELECT FOR UPDATE
         .mockResolvedValueOnce({}) // UPDATE balance
         .mockResolvedValueOnce({ rows: [txRow] }) // INSERT tx
@@ -265,13 +292,14 @@ describe("wallet-repo", () => {
 
       mockClientQuery
         .mockResolvedValueOnce({}) // BEGIN
+        .mockResolvedValueOnce({}) // SET LOCAL lock_timeout
         .mockResolvedValueOnce({ rows: [wallet] }) // SELECT FOR UPDATE
         .mockResolvedValueOnce({}) // UPDATE
         .mockResolvedValueOnce({ rows: [txRow] }) // INSERT
         .mockResolvedValueOnce({}); // COMMIT
 
       await debitWallet("u1", 100, "desc");
-      const selectCall = mockClientQuery.mock.calls[1];
+      const selectCall = mockClientQuery.mock.calls[2]; // index shifted by 1 due to lock_timeout
       expect(selectCall[0]).toContain("FOR UPDATE");
     });
   });
@@ -284,8 +312,10 @@ describe("wallet-repo", () => {
 
       mockClientQuery
         .mockResolvedValueOnce({}) // BEGIN
+        .mockResolvedValueOnce({}) // SET LOCAL lock_timeout
         .mockResolvedValueOnce({ rows: [wallet] }) // SELECT FOR UPDATE
         .mockResolvedValueOnce({}) // UPDATE balance
+        .mockResolvedValueOnce({}) // INSERT wallet_transactions (reservation hold)
         .mockResolvedValueOnce({}); // COMMIT
 
       const result = await reserveBalance("u1", 10);
@@ -302,6 +332,7 @@ describe("wallet-repo", () => {
 
       mockClientQuery
         .mockResolvedValueOnce({}) // BEGIN
+        .mockResolvedValueOnce({}) // SET LOCAL lock_timeout
         .mockResolvedValueOnce({ rows: [wallet] }) // SELECT FOR UPDATE
         .mockResolvedValueOnce({}); // ROLLBACK
 
@@ -312,6 +343,7 @@ describe("wallet-repo", () => {
     it("should return null if no wallet found", async () => {
       mockClientQuery
         .mockResolvedValueOnce({}) // BEGIN
+        .mockResolvedValueOnce({}) // SET LOCAL lock_timeout
         .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValueOnce({}); // ROLLBACK
 
@@ -338,9 +370,9 @@ describe("wallet-repo", () => {
 
       mockClientQuery
         .mockResolvedValueOnce({}) // BEGIN
+        .mockResolvedValueOnce({}) // SET LOCAL lock_timeout
         .mockResolvedValueOnce({ rows: [wallet] }) // SELECT FOR UPDATE
-        // diff = 0, no balance update needed
-        .mockResolvedValueOnce({}) // INSERT tx (actual > 0)
+        // diff = 0, reservation matched actual — no additional transaction needed
         .mockResolvedValueOnce({}); // COMMIT
 
       const result = await settleSession("u1", 100, 100, "sess-12345678");
@@ -352,6 +384,7 @@ describe("wallet-repo", () => {
 
       mockClientQuery
         .mockResolvedValueOnce({}) // BEGIN
+        .mockResolvedValueOnce({}) // SET LOCAL lock_timeout
         .mockResolvedValueOnce({ rows: [wallet] }) // SELECT FOR UPDATE
         .mockResolvedValueOnce({}) // UPDATE balance (refund diff)
         .mockResolvedValueOnce({}) // INSERT tx
@@ -366,6 +399,7 @@ describe("wallet-repo", () => {
 
       mockClientQuery
         .mockResolvedValueOnce({}) // BEGIN
+        .mockResolvedValueOnce({}) // SET LOCAL lock_timeout
         .mockResolvedValueOnce({ rows: [wallet] }) // SELECT FOR UPDATE
         .mockResolvedValueOnce({}) // UPDATE balance (debit diff)
         .mockResolvedValueOnce({}) // INSERT tx
@@ -378,6 +412,7 @@ describe("wallet-repo", () => {
     it("should return false if no wallet found", async () => {
       mockClientQuery
         .mockResolvedValueOnce({}) // BEGIN
+        .mockResolvedValueOnce({}) // SET LOCAL lock_timeout
         .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValueOnce({}); // ROLLBACK
 
@@ -390,6 +425,7 @@ describe("wallet-repo", () => {
 
       mockClientQuery
         .mockResolvedValueOnce({}) // BEGIN
+        .mockResolvedValueOnce({}) // SET LOCAL lock_timeout
         .mockResolvedValueOnce({ rows: [wallet] }) // SELECT FOR UPDATE (balance=20)
         // diff = 200 - 100 = 100, wallet has 20 < 100
         .mockResolvedValueOnce({}) // UPDATE wallets SET balance_cents = 0
@@ -400,24 +436,25 @@ describe("wallet-repo", () => {
       expect(result).toBe(false);
     });
 
-    it("should not insert transaction when actualCostCents is 0", async () => {
+    it("should refund full reservation when actualCostCents is 0", async () => {
       const wallet = { id: "w1", user_id: "u1", balance_cents: 5000 };
 
       mockClientQuery
         .mockResolvedValueOnce({}) // BEGIN
+        .mockResolvedValueOnce({}) // SET LOCAL lock_timeout
         .mockResolvedValueOnce({ rows: [wallet] }) // SELECT FOR UPDATE
-        // diff = 0 - 100 = -100, refund
-        .mockResolvedValueOnce({}) // UPDATE balance (refund)
-        // actualCostCents is 0, so no INSERT tx
+        // diff = 0 - 100 = -100, refund 100
+        .mockResolvedValueOnce({}) // UPDATE balance (refund +100)
+        .mockResolvedValueOnce({}) // INSERT topup tx (reservation refund)
         .mockResolvedValueOnce({}); // COMMIT
 
       const result = await settleSession("u1", 100, 0, "sess-zero-cost");
       expect(result).toBe(true);
 
-      // Verify no INSERT was called (only BEGIN, SELECT, UPDATE refund, COMMIT)
+      // Verify refund INSERT was called
       const calls = mockClientQuery.mock.calls.map((c) => String(c[0]));
       const insertCalls = calls.filter((c) => c.includes("INSERT INTO wallet_transactions"));
-      expect(insertCalls.length).toBe(0);
+      expect(insertCalls.length).toBe(1);
     });
 
     it("should rollback and release on unexpected error", async () => {
@@ -437,11 +474,11 @@ describe("wallet-repo", () => {
 
       mockClientQuery
         .mockResolvedValueOnce({}) // BEGIN
+        .mockResolvedValueOnce({}) // SET LOCAL lock_timeout
         .mockResolvedValueOnce({ rows: [wallet] }) // SELECT FOR UPDATE (balance=0)
         // diff = 50 - 10 = 40, wallet has 0 < 40 => partial
         .mockResolvedValueOnce({}) // UPDATE wallets SET balance_cents = 0 (already 0)
-        // charged = reserved(10) + available(0) = 10, which is > 0
-        .mockResolvedValueOnce({}) // INSERT tx for charged amount=10
+        // additional = 0, so no INSERT (nothing extra charged)
         .mockResolvedValueOnce({}); // COMMIT
 
       const result = await settleSession("u1", 10, 50, "sess-partial-zero");
@@ -453,11 +490,14 @@ describe("wallet-repo", () => {
 
       mockClientQuery
         .mockResolvedValueOnce({}) // BEGIN
+        .mockResolvedValueOnce({}) // SET LOCAL lock_timeout
         .mockResolvedValueOnce({ rows: [wallet] }) // SELECT FOR UPDATE
-        .mockResolvedValueOnce({}) // INSERT tx
+        .mockResolvedValueOnce({}) // UPDATE balance (debit diff=100)
+        .mockResolvedValueOnce({}) // INSERT settlement tx
         .mockResolvedValueOnce({}); // COMMIT
 
-      await settleSession("u1", 100, 100, "sess-abcdefgh-1234");
+      // Use actual > reserved so diff > 0 triggers an INSERT
+      await settleSession("u1", 100, 200, "sess-abcdefgh-1234");
 
       // Find the INSERT call
       const insertCall = mockClientQuery.mock.calls.find(
@@ -475,13 +515,28 @@ describe("wallet-repo", () => {
 
   describe("releaseReservation", () => {
     it("should release reserved amount back to wallet", async () => {
-      mockQuery.mockResolvedValueOnce({});
+      const wallet = { id: "w1", user_id: "u1", balance_cents: 1100 };
+
+      mockClientQuery
+        .mockResolvedValueOnce({}) // BEGIN
+        .mockResolvedValueOnce({}) // SET LOCAL lock_timeout
+        .mockResolvedValueOnce({ rows: [wallet] }) // SELECT FOR UPDATE (R13 H-1)
+        .mockResolvedValueOnce({}) // UPDATE wallets SET balance_cents + $1
+        .mockResolvedValueOnce({}) // INSERT wallet_transactions (reservation released)
+        .mockResolvedValueOnce({}); // COMMIT
 
       await releaseReservation("u1", 100);
-      expect(mockQuery).toHaveBeenCalledWith(
-        expect.stringContaining("balance_cents + $1"),
-        [100, "u1"],
+      expect(mockClientQuery).toHaveBeenCalledWith("BEGIN");
+      expect(mockClientQuery).toHaveBeenCalledWith(
+        expect.stringContaining("FOR UPDATE"),
+        ["u1"],
       );
+      expect(mockClientQuery).toHaveBeenCalledWith(
+        expect.stringContaining("balance_cents + $1"),
+        [100, "w1"],
+      );
+      expect(mockClientQuery).toHaveBeenCalledWith("COMMIT");
+      expect(mockClientRelease).toHaveBeenCalled();
     });
 
     it("should be a no-op if amount is zero", async () => {

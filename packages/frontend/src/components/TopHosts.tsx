@@ -29,6 +29,7 @@ function formatBytes(bytes: number): string {
 export default function TopHosts({ since, until }: TopHostsProps) {
   const { data, loading } = useApi<TopHostsResponse>(
     () => get(`/api/usage/top-hosts?since=${since}T00:00:00Z&until=${until}T23:59:59Z&limit=10`),
+    [since, until],
   );
 
   const maxBytes = data?.hosts.length

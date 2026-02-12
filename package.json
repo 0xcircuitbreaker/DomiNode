@@ -15,7 +15,8 @@
     "test:coverage": "vitest run --coverage",
     "format": "prettier --write 'packages/*/src/**/*.ts'",
     "clean": "tsc --build --clean && rm -rf packages/*/dist",
-    "start:frontend": "npm run dev --workspace=packages/frontend"
+    "start:frontend": "npm run dev --workspace=packages/frontend",
+    "test:frontend": "vitest run --config packages/frontend/vitest.config.ts"
   },
   "devDependencies": {
     "@types/node": "^25.2.1",

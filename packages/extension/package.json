@@ -1,0 +1,22 @@
+{
+  "name": "@dominode/extension",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build:chrome": "NODE_ENV=production BROWSER_TARGET=chrome node build.mjs",
+    "build:firefox": "NODE_ENV=production BROWSER_TARGET=firefox node build.mjs",
+    "build:opera": "NODE_ENV=production BROWSER_TARGET=opera node build.mjs",
+    "build:edge": "NODE_ENV=production BROWSER_TARGET=edge node build.mjs",
+    "build:all": "npm run build:chrome && npm run build:firefox && npm run build:opera && npm run build:edge",
+    "clean": "rm -rf dist",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "preact": "^10.19.0"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.1.36",
+    "esbuild": "^0.20.0",
+    "vitest": "^4.0.18"
+  }
+}

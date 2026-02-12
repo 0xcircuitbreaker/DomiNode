@@ -6,6 +6,9 @@ const log = createLogger("proxy:auth");
 
 export interface ProxyOptions {
   country?: string;   // 2-letter country code (e.g., "US", "DE")
+  state?: string;     // lowercase state name (e.g., "california")
+  city?: string;      // lowercase city name (e.g., "losangeles")
+  asn?: number;       // ASN number (placeholder for future providers)
   sessionId?: string; // sticky session ID (alphanumeric)
 }
 
@@ -29,10 +32,31 @@ function parseProxyOptions(username: string): ProxyOptions {
     options.country = countryMatch[1].toUpperCase();
   }
 
-  // Match session-XXXX pattern
+  // Match state-xxxx pattern
+  const stateMatch = username.match(/(?:^|-)state-([a-zA-Z]{2,30})(?:-|$)/);
+  if (stateMatch) {
+    options.state = stateMatch[1].toLowerCase();
+  }
+
+  // Match city-xxxx pattern
+  const cityMatch = username.match(/(?:^|-)city-([a-zA-Z]{2,50})(?:-|$)/);
+  if (cityMatch) {
+    options.city = cityMatch[1].toLowerCase();
+  }
+
+  // Match asn-NNNNN pattern
+  const asnMatch = username.match(/(?:^|-)asn-(\d{1,10})(?:-|$)/);
+  if (asnMatch) {
+    const asnNum = parseInt(asnMatch[1], 10);
+    if (asnNum >= 1 && asnNum <= 4_294_967_295) {
+      options.asn = asnNum;
+    }
+  }
+
+  // Match session-XXXX pattern (R16-M4: cap at 255 chars to prevent log/memory abuse)
   const sessionMatch = username.match(/(?:^|-)session-([a-zA-Z0-9]+)(?:-|$)/);
   if (sessionMatch) {
-    options.sessionId = sessionMatch[1];
+    options.sessionId = sessionMatch[1].slice(0, 255);
   }
 
   return options;

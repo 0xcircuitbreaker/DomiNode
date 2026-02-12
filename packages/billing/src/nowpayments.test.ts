@@ -150,6 +150,7 @@ describe("nowpayments", () => {
     function makeValidBody(overrides: Record<string, unknown> = {}): Record<string, unknown> {
       return {
         payment_id: "pay-123",
+        invoice_id: "np-inv-123",
         payment_status: "finished",
         price_amount: 10,
         pay_currency: "btc",
@@ -172,12 +173,14 @@ describe("nowpayments", () => {
         amount_cents: 1000, // $10.00
       };
       mockFindInvoice.mockResolvedValueOnce(mockInvoice);
+      mockCompleteInvoice.mockResolvedValueOnce(true);
       mockCreditWallet.mockResolvedValueOnce({});
-      mockCompleteInvoice.mockResolvedValueOnce({});
 
       const result = await handleIpnCallback(body, sig);
 
       expect(result).toEqual({ userId: "user-1", amountCents: 1000 });
+      // completeInvoice is called FIRST as the atomic gate
+      expect(mockCompleteInvoice).toHaveBeenCalledWith("inv-1");
       expect(mockCreditWallet).toHaveBeenCalledWith(
         "user-1",
         1000,
@@ -185,7 +188,6 @@ describe("nowpayments", () => {
         "pay-123",
         "Crypto top-up $10.00 (btc)",
       );
-      expect(mockCompleteInvoice).toHaveBeenCalledWith("inv-1");
     });
 
     it("should return null for invalid signature", async () => {
@@ -213,8 +215,8 @@ describe("nowpayments", () => {
         user_id: "user-1",
         amount_cents: 1000,
       });
+      mockCompleteInvoice.mockResolvedValueOnce(true);
       mockCreditWallet.mockResolvedValueOnce({});
-      mockCompleteInvoice.mockResolvedValueOnce({});
 
       const result = await handleIpnCallback(body, sig);
       expect(result).not.toBeNull();
@@ -260,7 +262,7 @@ describe("nowpayments", () => {
       expect(result).toBeNull();
     });
 
-    it("should handle duplicate IPN gracefully", async () => {
+    it("should handle duplicate IPN gracefully via atomic completeInvoice", async () => {
       const body = makeValidBody();
       const sig = signBody(body);
 
@@ -269,13 +271,52 @@ describe("nowpayments", () => {
         user_id: "user-1",
         amount_cents: 1000,
       });
-      mockCreditWallet.mockRejectedValueOnce(new Error("duplicate key value violates unique constraint"));
+      // completeInvoice returns false = invoice already completed by another IPN
+      mockCompleteInvoice.mockResolvedValueOnce(false);
 
       const result = await handleIpnCallback(body, sig);
       expect(result).toEqual({ userId: "user-1", amountCents: 1000 });
+      // creditWallet should NOT be called for duplicate
+      expect(mockCreditWallet).not.toHaveBeenCalled();
     });
 
-    it("should re-throw non-duplicate errors from creditWallet", async () => {
+    it("should look up invoice by invoice_id not payment_id", async () => {
+      const body = makeValidBody({ payment_id: "pay-999", invoice_id: "np-inv-456" });
+      const sig = signBody(body);
+
+      mockFindInvoice.mockResolvedValueOnce({
+        id: "inv-6",
+        user_id: "user-1",
+        amount_cents: 1000,
+      });
+      mockCompleteInvoice.mockResolvedValueOnce(true);
+      mockCreditWallet.mockResolvedValueOnce({});
+
+      await handleIpnCallback(body, sig);
+
+      // Should look up by invoice_id (np-inv-456), NOT payment_id (pay-999)
+      expect(mockFindInvoice).toHaveBeenCalledWith("nowpayments", "np-inv-456");
+      // But creditWallet should use payment_id for dedup
+      expect(mockCreditWallet).toHaveBeenCalledWith(
+        "user-1", 1000, "nowpayments", "pay-999",
+        expect.any(String),
+      );
+    });
+
+    it("should return null when invoice_id is missing (no fallback to payment_id)", async () => {
+      const body = makeValidBody({ invoice_id: undefined });
+      // Remove invoice_id entirely
+      delete body["invoice_id"];
+      const sig = signBody(body);
+
+      const result = await handleIpnCallback(body, sig);
+
+      // Should reject IPN without invoice_id — no unsafe fallback to payment_id
+      expect(result).toBeNull();
+      expect(mockFindInvoice).not.toHaveBeenCalled();
+    });
+
+    it("should re-throw errors from creditWallet after successful claim", async () => {
       const body = makeValidBody();
       const sig = signBody(body);
 
@@ -284,6 +325,7 @@ describe("nowpayments", () => {
         user_id: "user-1",
         amount_cents: 1000,
       });
+      mockCompleteInvoice.mockResolvedValueOnce(true);
       mockCreditWallet.mockRejectedValueOnce(new Error("connection reset"));
 
       await expect(handleIpnCallback(body, sig)).rejects.toThrow("connection reset");

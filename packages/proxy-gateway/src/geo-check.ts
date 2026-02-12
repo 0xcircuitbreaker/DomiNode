@@ -12,6 +12,18 @@ let geoInitialized = false;
  * (fail-closed for OFAC compliance).
  */
 export async function initGeoCheck(): Promise<void> {
+  // Idempotent — safe to call from both HTTP and SOCKS5 server startup
+  if (geoInitialized) return;
+
+  // Skip geoip-lite only with explicit opt-in (saves ~185MB RAM for local dev)
+  // NEVER use NODE_ENV alone — that could accidentally disable OFAC compliance in production
+  if (process.env["SKIP_GEOIP"] === "1") {
+    geoInitialized = true;
+    geoLookup = () => null; // Allow all traffic when explicitly opted out
+    log.warn("geo-check DISABLED via SKIP_GEOIP=1 — OFAC sanctions not enforced. Do NOT use in production.");
+    return;
+  }
+
   try {
     const geoip = await import("geoip-lite");
     geoLookup = geoip.default?.lookup ?? geoip.lookup;

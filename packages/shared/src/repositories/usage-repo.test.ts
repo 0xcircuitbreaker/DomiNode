@@ -15,6 +15,7 @@ import {
   getUsageSummary,
   getActiveSessions,
   getTopHosts,
+  cleanupOrphanedSessions,
 } from "./usage-repo.js";
 
 describe("usage-repo", () => {
@@ -167,7 +168,7 @@ describe("usage-repo", () => {
 
       expect(mockQuery).toHaveBeenCalledWith(
         expect.stringContaining("INSERT INTO usage_records"),
-        ["u2", "s2", 500, 1500, 3, "datacenter", "api.example.org"],
+        ["u2", "s2", 500, 1500, 3, "datacenter", "api.example.org", null],
       );
     });
 
@@ -205,7 +206,7 @@ describe("usage-repo", () => {
 
       expect(mockQuery).toHaveBeenCalledWith(
         expect.any(String),
-        ["u4", "s4", 0, 0, 0, "residential", "empty.com"],
+        ["u4", "s4", 0, 0, 0, "residential", "empty.com", null],
       );
     });
   });
@@ -616,6 +617,44 @@ describe("usage-repo", () => {
       const result = await getTopHosts("u1", new Date(), new Date());
       expect(typeof result[0].totalBytes).toBe("number");
       expect(typeof result[0].requestCount).toBe("number");
+    });
+  });
+
+  // ─── cleanupOrphanedSessions ────────────────────────────────────────
+
+  describe("cleanupOrphanedSessions", () => {
+    it("should mark active sessions as error", async () => {
+      mockQuery.mockResolvedValueOnce({ rowCount: 3 });
+
+      const count = await cleanupOrphanedSessions();
+      expect(count).toBe(3);
+      expect(mockQuery).toHaveBeenCalledWith(
+        expect.stringContaining("UPDATE sessions"),
+      );
+    });
+
+    it("should update status to error and set ended_at", async () => {
+      mockQuery.mockResolvedValueOnce({ rowCount: 0 });
+
+      await cleanupOrphanedSessions();
+      const sql = mockQuery.mock.calls[0][0] as string;
+      expect(sql).toContain("status = 'error'");
+      expect(sql).toContain("ended_at = now()");
+      expect(sql).toContain("WHERE status = 'active'");
+    });
+
+    it("should return 0 when no orphaned sessions", async () => {
+      mockQuery.mockResolvedValueOnce({ rowCount: 0 });
+
+      const count = await cleanupOrphanedSessions();
+      expect(count).toBe(0);
+    });
+
+    it("should handle null rowCount gracefully", async () => {
+      mockQuery.mockResolvedValueOnce({ rowCount: null });
+
+      const count = await cleanupOrphanedSessions();
+      expect(count).toBe(0);
     });
   });
 

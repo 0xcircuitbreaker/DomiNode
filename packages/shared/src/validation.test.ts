@@ -5,6 +5,9 @@ import {
   validateTopupAmount,
   isValidCryptoCurrency,
   sanitizeString,
+  validateState,
+  validateCity,
+  validateAsn,
 } from "./validation.js";
 
 describe("validation", () => {
@@ -58,12 +61,12 @@ describe("validation", () => {
   // ─── validatePassword ──────────────────────────────────────────────
 
   describe("validatePassword", () => {
-    it("should return null for a valid password (8+ chars)", () => {
-      expect(validatePassword("abcdefgh")).toBeNull();
+    it("should return null for a valid password (8+ chars, 2+ classes)", () => {
+      expect(validatePassword("abcdefG1")).toBeNull();
     });
 
-    it("should return null for a 128-char password", () => {
-      expect(validatePassword("a".repeat(128))).toBeNull();
+    it("should return null for a 128-char password with 2+ classes", () => {
+      expect(validatePassword("A" + "a".repeat(127))).toBeNull();
     });
 
     it("should return error for a password < 8 chars", () => {
@@ -80,8 +83,27 @@ describe("validation", () => {
       expect(result).toBe("Password must be at most 128 characters");
     });
 
-    it("should return null for exactly 8 chars", () => {
-      expect(validatePassword("12345678")).toBeNull();
+    it("should return null for exactly 8 chars with 2+ classes", () => {
+      expect(validatePassword("1234abcd")).toBeNull();
+    });
+
+    it("should reject passwords with only 1 character class", () => {
+      expect(validatePassword("abcdefgh")).not.toBeNull();
+      expect(validatePassword("12345678")).not.toBeNull();
+      expect(validatePassword("ABCDEFGH")).not.toBeNull();
+    });
+
+    it("should reject common passwords", () => {
+      expect(validatePassword("password1")).not.toBeNull();
+      expect(validatePassword("qwerty123")).not.toBeNull();
+    });
+
+    it("should reject passwords containing email username", () => {
+      expect(validatePassword("john1234X", "john@example.com")).not.toBeNull();
+    });
+
+    it("should accept passwords not containing email username", () => {
+      expect(validatePassword("secureP9!", "john@example.com")).toBeNull();
     });
   });
 
@@ -181,6 +203,155 @@ describe("validation", () => {
 
     it("should handle string shorter than maxLength", () => {
       expect(sanitizeString("hi", 100)).toBe("hi");
+    });
+  });
+
+  // ─── validateState ────────────────────────────────────────────────
+
+  describe("validateState", () => {
+    it("should return null for empty string (no targeting)", () => {
+      expect(validateState("")).toBeNull();
+    });
+
+    it("should return null for valid lowercase state name", () => {
+      expect(validateState("california")).toBeNull();
+    });
+
+    it("should return null for two-letter code", () => {
+      expect(validateState("ca")).toBeNull();
+    });
+
+    it("should return null for 30-letter string", () => {
+      expect(validateState("a".repeat(30))).toBeNull();
+    });
+
+    it("should reject uppercase letters", () => {
+      const result = validateState("California");
+      expect(result).not.toBeNull();
+      expect(result).toContain("lowercase");
+    });
+
+    it("should reject mixed case", () => {
+      expect(validateState("newYork")).not.toBeNull();
+    });
+
+    it("should reject too short (1 char)", () => {
+      const result = validateState("a");
+      expect(result).not.toBeNull();
+    });
+
+    it("should reject too long (31 chars)", () => {
+      const result = validateState("a".repeat(31));
+      expect(result).not.toBeNull();
+    });
+
+    it("should reject numbers", () => {
+      const result = validateState("state1");
+      expect(result).not.toBeNull();
+    });
+
+    it("should reject special characters", () => {
+      expect(validateState("new-york")).not.toBeNull();
+      expect(validateState("new york")).not.toBeNull();
+      expect(validateState("state_name")).not.toBeNull();
+    });
+
+    it("should reject strings with spaces", () => {
+      expect(validateState(" ca ")).not.toBeNull();
+    });
+  });
+
+  // ─── validateCity ─────────────────────────────────────────────────
+
+  describe("validateCity", () => {
+    it("should return null for empty string (no targeting)", () => {
+      expect(validateCity("")).toBeNull();
+    });
+
+    it("should return null for valid lowercase city name", () => {
+      expect(validateCity("portland")).toBeNull();
+    });
+
+    it("should return null for two-letter city", () => {
+      expect(validateCity("la")).toBeNull();
+    });
+
+    it("should return null for 50-letter string", () => {
+      expect(validateCity("a".repeat(50))).toBeNull();
+    });
+
+    it("should reject uppercase letters", () => {
+      const result = validateCity("Portland");
+      expect(result).not.toBeNull();
+      expect(result).toContain("lowercase");
+    });
+
+    it("should reject too short (1 char)", () => {
+      const result = validateCity("a");
+      expect(result).not.toBeNull();
+    });
+
+    it("should reject too long (51 chars)", () => {
+      const result = validateCity("a".repeat(51));
+      expect(result).not.toBeNull();
+    });
+
+    it("should reject numbers", () => {
+      expect(validateCity("city1")).not.toBeNull();
+    });
+
+    it("should reject hyphens and spaces", () => {
+      expect(validateCity("new-york")).not.toBeNull();
+      expect(validateCity("san francisco")).not.toBeNull();
+    });
+
+    it("should reject special characters", () => {
+      expect(validateCity("city@name")).not.toBeNull();
+    });
+  });
+
+  // ─── validateAsn ──────────────────────────────────────────────────
+
+  describe("validateAsn", () => {
+    it("should return null for a valid ASN integer", () => {
+      expect(validateAsn(1)).toBeNull();
+    });
+
+    it("should return null for a typical ASN value", () => {
+      expect(validateAsn(15169)).toBeNull(); // Google's ASN
+    });
+
+    it("should return null for the maximum 32-bit ASN", () => {
+      expect(validateAsn(4_294_967_295)).toBeNull();
+    });
+
+    it("should reject 0", () => {
+      const result = validateAsn(0);
+      expect(result).not.toBeNull();
+      expect(result).toContain("ASN must be an integer");
+    });
+
+    it("should reject negative numbers", () => {
+      expect(validateAsn(-1)).not.toBeNull();
+      expect(validateAsn(-100)).not.toBeNull();
+    });
+
+    it("should reject floating point numbers", () => {
+      expect(validateAsn(1.5)).not.toBeNull();
+      expect(validateAsn(100.1)).not.toBeNull();
+    });
+
+    it("should reject values above 4,294,967,295", () => {
+      expect(validateAsn(4_294_967_296)).not.toBeNull();
+    });
+
+    it("should reject NaN", () => {
+      expect(validateAsn(NaN)).not.toBeNull();
+    });
+
+    it("should reject Infinity", () => {
+      expect(validateAsn(Infinity)).not.toBeNull();
+      expect(validateAsn(-Infinity)).not.toBeNull();
     });
   });
 });

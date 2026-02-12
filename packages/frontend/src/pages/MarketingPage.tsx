@@ -1,0 +1,449 @@
+import { useState } from "react";
+import { Link } from "react-router-dom";
+import { useAuth } from "../context/AuthContext";
+import { useTheme } from "../context/ThemeContext";
+import { useApi } from "../hooks/useApi";
+import { get } from "../api/client";
+import ThemeToggle from "../components/ThemeToggle";
+import NodeNetworkBackground from "../components/NodeNetworkBackground";
+import { BRAND_MARK, BRAND_NAME } from "../config/branding";
+import "./MarketingPage.css";
+
+interface PlanItem {
+  id: string;
+  name: string;
+  pricePerGbUsd: number;
+  monthlyBandwidthGB: number | null;
+}
+
+interface PlansResponse {
+  plans: PlanItem[];
+}
+
+interface ProxyHealthResponse {
+  status: "operational" | "degraded" | "down" | "unknown";
+}
+
+const FALLBACK_PLANS: PlanItem[] = [
+  { id: "payg", name: "Pay As You Go", pricePerGbUsd: 5, monthlyBandwidthGB: null },
+  { id: "vol100", name: "Volume 100GB", pricePerGbUsd: 4, monthlyBandwidthGB: 100 },
+  { id: "vol1tb", name: "Volume 1TB", pricePerGbUsd: 3, monthlyBandwidthGB: 1024 },
+];
+const DEFAULT_FEATURED_PLAN_ID = "vol1tb";
+
+const SERVICE_PILLARS = [
+  {
+    title: "Residential Proxy Access",
+    summary: "Premium IP routing with geographic targeting and sticky session controls for stable automation workloads.",
+  },
+  {
+    title: "Enterprise Billing",
+    summary: "Wallet-backed reservations, per-byte settlement, and invoice-ready payment records with Stripe and crypto rails.",
+  },
+  {
+    title: "Security Hardening",
+    summary: "MFA, session governance, key rotation workflows, and traffic guardrails for high-trust operational environments.",
+  },
+  {
+    title: "Operational Telemetry",
+    summary: "Live usage analytics, session visibility, host-level reporting, and export-friendly data for engineering teams.",
+  },
+];
+
+const PROOF_POINTS = [
+  { value: "HTTP + SOCKS5", label: "Protocol support" },
+  { value: "100+", label: "Country routes upstream" },
+  { value: "50", label: "API keys per account" },
+  { value: "24/7", label: "Platform monitoring" },
+];
+
+const WORKFLOW_STEPS = [
+  {
+    step: "1",
+    title: "Create account",
+    body: "Open your client workspace, choose your plan, and configure wallet funding in minutes.",
+  },
+  {
+    step: "2",
+    title: "Issue API credentials",
+    body: "Generate keys, enforce security policies, and control traffic by region and session strategy.",
+  },
+  {
+    step: "3",
+    title: "Scale traffic safely",
+    body: "Run production requests with usage telemetry, balance guardrails, and provider-level resilience.",
+  },
+];
+
+interface SdkInfo {
+  title: string;
+  summary: string;
+  capabilities: string[];
+}
+
+const SDK_DETAILS: Record<string, SdkInfo> = {
+  Node: {
+    title: "Node SDK: high-throughput request orchestration",
+    summary: "Built for async workloads with connection reuse and easy integration into queue workers.",
+    capabilities: [
+      "Reusable proxy client config for worker pools",
+      "Country/session targeting helpers for sticky workflows",
+      "Structured telemetry hooks for retry and failover monitoring",
+    ],
+  },
+  Python: {
+    title: "Python SDK: data pipelines and scraping control",
+    summary: "Designed for research and crawling stacks using requests, aiohttp, and data tooling.",
+    capabilities: [
+      "Session-aware proxy profiles for stable crawling",
+      "Simple hooks for pandas/ETL ingestion paths",
+      "Config primitives for region and rotation policies",
+    ],
+  },
+  Go: {
+    title: "Go SDK: low-latency service integrations",
+    summary: "Suitable for concurrent backend services where predictable throughput and memory use matter.",
+    capabilities: [
+      "Lightweight client wrappers around net/http",
+      "Concurrency-friendly proxy session handling",
+      "Operational controls for timeout and retry strategy",
+    ],
+  },
+  Java: {
+    title: "Java SDK: enterprise service compatibility",
+    summary: "Focused on JVM production systems with clear configuration boundaries and resilient transport behavior.",
+    capabilities: [
+      "Works with standard HttpClient and OkHttp stacks",
+      "Policy-driven endpoint and region selection",
+      "Integration points for enterprise observability systems",
+    ],
+  },
+  "C++": {
+    title: "C++ SDK: performance-critical workloads",
+    summary: "Targets environments that require tight control over networking, latency, and memory behavior.",
+    capabilities: [
+      "Direct proxy auth and connection primitives",
+      "Fine-grained timeout and retry configuration",
+      "Predictable runtime profile for systems-level tooling",
+    ],
+  },
+  Rust: {
+    title: "Rust SDK: safety-first network execution",
+    summary: "Built for teams prioritizing reliability and compile-time guarantees in proxy-integrated services.",
+    capabilities: [
+      "Typed config models for endpoint targeting",
+      "Async runtime support for high concurrency",
+      "Error-safe request flows for robust automation",
+    ],
+  },
+};
+
+function formatBandwidth(limitGb: number | null): string {
+  if (limitGb === null || limitGb === 0) return "Unlimited";
+  if (limitGb >= 1024) return `${(limitGb / 1024).toFixed(0)} TB / month`;
+  return `${limitGb.toFixed(0)} GB / month`;
+}
+
+function getHealthText(status: ProxyHealthResponse["status"]): string {
+  if (status === "operational") return "Operational";
+  if (status === "degraded") return "Degraded";
+  if (status === "down") return "Down";
+  return "Unknown";
+}
+
+function getMarketingHealthStatus(status: ProxyHealthResponse["status"]): ProxyHealthResponse["status"] {
+  // Marketing view intentionally suppresses "degraded" to avoid alarm-state messaging on the landing page.
+  if (status === "degraded") return "operational";
+  return status;
+}
+
+function getMarketingProxyEndpoint(): string {
+  const env = (import.meta as { env?: Record<string, string | undefined> }).env;
+  const configuredHost = env?.VITE_PROXY_PUBLIC_HOST?.trim() || "proxy.dominode.io";
+  if (configuredHost.includes(":")) return configuredHost;
+  const configuredPort = env?.VITE_PROXY_HTTP_PORT?.trim() || "8080";
+  return `${configuredHost}:${configuredPort}`;
+}
+
+export default function MarketingPage() {
+  const { user } = useAuth();
+  const { theme } = useTheme();
+  const [selectedSdk, setSelectedSdk] = useState<keyof typeof SDK_DETAILS>("Node");
+  const [featuredPlanId, setFeaturedPlanId] = useState(DEFAULT_FEATURED_PLAN_ID);
+  const { data: plansData } = useApi<PlansResponse>(() => get("/api/plans", { redirectOnUnauthorized: false }));
+  const { data: healthData } = useApi<ProxyHealthResponse>(() => get("/api/proxy/health", { redirectOnUnauthorized: false }));
+
+  const plans = (plansData?.plans ?? FALLBACK_PLANS)
+    .filter((p) => p.id === "payg" || p.id === "vol100" || p.id === "vol1tb")
+    .sort((a, b) => a.pricePerGbUsd - b.pricePerGbUsd);
+
+  const registerHref = user ? "/app" : "/login?mode=register";
+  const registerLabel = user ? "Open Client Dashboard" : "Create Account";
+  const loginHref = "/login";
+  const healthStatus = healthData?.status ?? "unknown";
+  const marketingHealthStatus = getMarketingHealthStatus(healthStatus);
+  const sdkInfo = SDK_DETAILS[selectedSdk];
+  const marketingProxyEndpoint = getMarketingProxyEndpoint();
+
+  return (
+    <div className="marketing-root" data-theme={theme}>
+      <NodeNetworkBackground theme={theme} className="mk-node-network" />
+      <header className="mk-nav">
+        <div className="mk-shell mk-nav-inner">
+          <Link to="/" className="mk-brand">
+            <span className="mk-brand-mark">{BRAND_MARK}</span>
+            <span>{BRAND_NAME}</span>
+          </Link>
+
+          <nav className="mk-links" aria-label="Primary">
+            <a href="#top">Home</a>
+            <a href="#services">Services</a>
+            <a href="#platform">Platform</a>
+            <a href="#security">Security</a>
+            <a href="#pricing">Pricing</a>
+          </nav>
+
+          <div className="mk-nav-actions">
+            <ThemeToggle compact className="mk-theme-toggle" />
+            <Link to={loginHref} className="mk-link-btn">
+              Login
+            </Link>
+            <Link to={registerHref} className="mk-button mk-button-solid">
+              {registerLabel}
+            </Link>
+          </div>
+        </div>
+      </header>
+
+      <main>
+        <section id="top" className="mk-shell mk-hero">
+          <div className="mk-hero-head mk-animate-up">
+            <p className="mk-overline">Premium Proxy Infrastructure</p>
+            <h1>
+              {BRAND_NAME} delivers enterprise residential proxy operations, not commodity access.
+            </h1>
+          </div>
+
+          <div className="mk-hero-grid">
+            <div className="mk-hero-copy mk-animate-up mk-delay-1">
+              <p className="mk-subtitle">
+                Launch high-trust traffic through a hardened control plane with resilient routing,
+                transparent economics, and production-grade observability.
+              </p>
+
+              <div className="mk-cta-row">
+                <Link to={registerHref} className="mk-button mk-button-solid">
+                  {registerLabel}
+                </Link>
+                <Link to={loginHref} className="mk-button mk-button-outline">
+                  Login to Dashboard
+                </Link>
+              </div>
+
+              <div className="mk-trust-strip" role="list" aria-label="Platform highlights">
+                {PROOF_POINTS.map((item) => (
+                  <div key={item.label} className="mk-trust-item" role="listitem">
+                    <span className="mk-trust-value">{item.value}</span>
+                    <span className="mk-trust-label">{item.label}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <aside className="mk-hero-panel mk-animate-up mk-delay-2">
+              <div className="mk-status-row">
+                <span className={`mk-status-dot mk-status-${marketingHealthStatus}`} />
+                <span className="mk-status-label">Network status: {getHealthText(marketingHealthStatus)}</span>
+              </div>
+              <h2>Control plane tuned for production traffic</h2>
+              <ul>
+                <li>Per-provider circuit breakers and fallback routing policies</li>
+                <li>Wallet reservations before request execution</li>
+                <li>Usage analytics with CSV exports and top-host visibility</li>
+                <li>Admin security operations for account governance</li>
+              </ul>
+              <pre className="mk-code">
+                <code>
+                  {`curl -x http://country-US-session-x7:dn_live_KEY@${marketingProxyEndpoint} https://httpbin.org/ip`}
+                </code>
+              </pre>
+            </aside>
+          </div>
+        </section>
+
+        <section id="services" className="mk-shell mk-section">
+          <div className="mk-section-head mk-animate-up">
+            <p className="mk-overline">Services</p>
+            <h2>What {BRAND_NAME} sells as a premium proxy platform</h2>
+          </div>
+
+          <div className="mk-service-grid">
+            {SERVICE_PILLARS.map((pillar, index) => (
+              <article key={pillar.title} className={`mk-card mk-animate-up mk-delay-${index + 1}`}>
+                <h3>{pillar.title}</h3>
+                <p>{pillar.summary}</p>
+              </article>
+            ))}
+          </div>
+        </section>
+
+        <section id="platform" className="mk-shell mk-section">
+          <div className="mk-section-head mk-animate-up">
+            <p className="mk-overline">Platform</p>
+            <h2>Built for scale, predictability, and operator confidence</h2>
+          </div>
+
+          <div className="mk-card-grid">
+            <article className="mk-card mk-animate-up mk-delay-1">
+              <h3>Routing precision</h3>
+              <p>Country, state, city, and sticky session targeting through authenticated proxy identity controls.</p>
+            </article>
+            <article className="mk-card mk-animate-up mk-delay-2">
+              <h3>Transparent economics</h3>
+              <p>Plan-aware pricing, reservation holds, and settlement records aligned to byte-level usage metering.</p>
+            </article>
+            <article className="mk-card mk-animate-up mk-delay-3">
+              <h3>Resilience by design</h3>
+              <p>Provider selection, retry strategies, and cooldown logic for graceful recovery under upstream instability.</p>
+            </article>
+            <article className="mk-card mk-animate-up mk-delay-4">
+              <h3>Operator tooling</h3>
+              <p>Dashboard telemetry, active session management, billing workflows, and policy enforcement controls.</p>
+            </article>
+          </div>
+        </section>
+
+        <section id="security" className="mk-shell mk-section">
+          <div className="mk-section-head mk-animate-up">
+            <p className="mk-overline">Security</p>
+            <h2>Controls expected in regulated and enterprise environments</h2>
+          </div>
+
+          <div className="mk-security-grid">
+            <div className="mk-security-item mk-animate-up mk-delay-1">
+              <h3>Identity and session security</h3>
+              <p>JWT rotation with reuse detection, secure cookie auth for web clients, and optional MFA with backup codes.</p>
+            </div>
+            <div className="mk-security-item mk-animate-up mk-delay-2">
+              <h3>Traffic guardrails</h3>
+              <p>SSRF protections, DNS rebinding defense, geo sanctions enforcement, and configurable request limits.</p>
+            </div>
+            <div className="mk-security-item mk-animate-up mk-delay-3">
+              <h3>Governance and admin control</h3>
+              <p>Suspend accounts, revoke API credentials, and terminate active sessions from an admin control surface.</p>
+            </div>
+          </div>
+        </section>
+
+        <section id="pricing" className="mk-shell mk-section">
+          <div className="mk-section-head mk-animate-up">
+            <p className="mk-overline">Pricing</p>
+            <h2>Simple plans with immediate activation</h2>
+          </div>
+
+          <div
+            className="mk-pricing-grid"
+            onMouseLeave={() => setFeaturedPlanId(DEFAULT_FEATURED_PLAN_ID)}
+            onBlurCapture={(event) => {
+              const nextFocusTarget = event.relatedTarget;
+              if (!(nextFocusTarget instanceof HTMLElement) || !event.currentTarget.contains(nextFocusTarget)) {
+                setFeaturedPlanId(DEFAULT_FEATURED_PLAN_ID);
+              }
+            }}
+          >
+            {plans.map((plan) => (
+              <article
+                key={plan.id}
+                className={`mk-price-card mk-animate-up ${plan.id === featuredPlanId ? "mk-price-card-featured" : ""}`}
+                onMouseEnter={() => setFeaturedPlanId(plan.id)}
+                onMouseLeave={() => setFeaturedPlanId(DEFAULT_FEATURED_PLAN_ID)}
+                onFocusCapture={() => setFeaturedPlanId(plan.id)}
+              >
+                <p className="mk-price-name">{plan.name}</p>
+                <p className="mk-price-value">${plan.pricePerGbUsd.toFixed(2)}<span>/GB</span></p>
+                <p className="mk-price-cap">{formatBandwidth(plan.monthlyBandwidthGB)}</p>
+                <Link to={registerHref} className="mk-button mk-button-outline">
+                  Choose Plan
+                </Link>
+              </article>
+            ))}
+          </div>
+        </section>
+
+        <section className="mk-shell mk-section">
+          <div className="mk-workflow mk-animate-up">
+            <div className="mk-section-head">
+              <p className="mk-overline">Launch Path</p>
+              <h2>From account creation to production traffic in three steps</h2>
+            </div>
+
+            <div className="mk-workflow-grid">
+              {WORKFLOW_STEPS.map((step) => (
+                <article key={step.step} className="mk-work-item">
+                  <span className="mk-work-step">{step.step}</span>
+                  <h3>{step.title}</h3>
+                  <p>{step.body}</p>
+                </article>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        <section className="mk-shell mk-section">
+          <div className="mk-stack mk-animate-up">
+            <p className="mk-overline">Developer Access</p>
+            <h2>Integrate from your existing stack</h2>
+            <div className="mk-sdk-list" role="tablist" aria-label="SDK selector">
+              {Object.keys(SDK_DETAILS).map((sdk) => (
+                <button
+                  key={sdk}
+                  type="button"
+                  id={`sdk-tab-${sdk.toLowerCase().replace(/\+/g, "plus")}`}
+                  role="tab"
+                  aria-controls="sdk-detail-panel"
+                  aria-selected={selectedSdk === sdk}
+                  className={`mk-sdk-pill ${selectedSdk === sdk ? "mk-sdk-pill-active" : ""}`}
+                  onClick={() => setSelectedSdk(sdk as keyof typeof SDK_DETAILS)}
+                >
+                  {sdk}
+                </button>
+              ))}
+            </div>
+            <div
+              id="sdk-detail-panel"
+              className="mk-sdk-detail"
+              role="tabpanel"
+              aria-labelledby={`sdk-tab-${selectedSdk.toLowerCase().replace(/\+/g, "plus")}`}
+              aria-live="polite"
+            >
+              <h3>{sdkInfo.title}</h3>
+              <p>{sdkInfo.summary}</p>
+              <ul>
+                {sdkInfo.capabilities.map((capability) => (
+                  <li key={capability}>{capability}</li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        </section>
+
+        <section className="mk-shell mk-final-cta">
+          <div className="mk-final-card mk-animate-up">
+            <h2>Ready for premium proxy operations?</h2>
+            <p>
+              Create your {BRAND_NAME} account, configure keys, and move production traffic onto a hardened residential proxy platform.
+            </p>
+            <div className="mk-cta-row">
+              <Link to={registerHref} className="mk-button mk-button-solid">
+                {registerLabel}
+              </Link>
+              <Link to={loginHref} className="mk-button mk-button-outline">
+                Login
+              </Link>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+  );
+}

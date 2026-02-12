@@ -4,6 +4,7 @@ const log = createLogger("proxy:connection-tracker");
 
 const userConnectionCounts = new Map<string, number>();
 const MAX_PER_USER = parseInt(process.env["PROXY_MAX_PER_USER"] ?? "100", 10);
+const MAX_TRACKED_USERS = 50_000; // Cap Map size to prevent OOM (R12 H-2)
 
 // Validate config at module load
 if (isNaN(MAX_PER_USER) || MAX_PER_USER <= 0) {
@@ -17,6 +18,11 @@ if (isNaN(MAX_PER_USER) || MAX_PER_USER <= 0) {
 export function incrementUserConns(userId: string): boolean {
   const current = userConnectionCounts.get(userId) ?? 0;
   if (current >= MAX_PER_USER) return false;
+  // Reject new users if Map is at capacity (prevent OOM under heavy load)
+  if (current === 0 && userConnectionCounts.size >= MAX_TRACKED_USERS) {
+    log.warn("connection tracker at capacity, rejecting new user", { userId, size: userConnectionCounts.size });
+    return false;
+  }
   userConnectionCounts.set(userId, current + 1);
   return true;
 }

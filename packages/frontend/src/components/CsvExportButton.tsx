@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { getToken } from "../api/client";
 
 interface CsvExportButtonProps {
   since: string;
@@ -12,11 +11,10 @@ export default function CsvExportButton({ since, until }: CsvExportButtonProps) 
   async function handleExport() {
     setDownloading(true);
     try {
-      const token = getToken();
       const url = `/api/usage/export?since=${since}T00:00:00Z&until=${until}T23:59:59Z&format=csv`;
 
       const res = await fetch(url, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        credentials: "include",
       });
 
       if (!res.ok) {

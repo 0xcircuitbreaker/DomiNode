@@ -2,6 +2,13 @@ import { useState } from "react";
 import { useApi } from "../hooks/useApi";
 import { get, post } from "../api/client";
 
+interface ForecastResponse {
+  dailyAvgCents: number;
+  daysRemaining: number | null;
+  trend: "up" | "down" | "stable";
+  trendPct: number;
+}
+
 interface UserPlanResponse {
   plan: {
     id: string;
@@ -31,6 +38,15 @@ interface TxResponse {
   transactions: Transaction[];
 }
 
+function isAllowedPaymentUrl(url: string, allowedHosts: string[]): boolean {
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "https:" && allowedHosts.some(h => parsed.hostname.endsWith(h));
+  } catch {
+    return false;
+  }
+}
+
 const PRESETS = [500, 1000, 2500, 5000, 10000]; // cents
 const CRYPTO_OPTIONS = ["btc", "eth", "xmr", "sol", "zec"] as const;
 
@@ -38,6 +54,7 @@ export default function WalletPage() {
   const { data: wallet, error: walletError, refetch: refetchWallet } = useApi<WalletResponse>(() => get("/api/wallet"));
   const { data: txData, error: txError } = useApi<TxResponse>(() => get("/api/wallet/transactions"));
   const { data: userPlan } = useApi<UserPlanResponse>(() => get("/api/plans/user/plan"));
+  const { data: forecast } = useApi<ForecastResponse>(() => get("/api/wallet/forecast"));
   const pricePerGbCents = userPlan?.plan.pricePerGbCents ?? 500;
   const [amount, setAmount] = useState(1000);
   const [customAmount, setCustomAmount] = useState("");
@@ -46,15 +63,25 @@ export default function WalletPage() {
   const [selectedCrypto, setSelectedCrypto] = useState<string>("btc");
   const [paymentError, setPaymentError] = useState<string | null>(null);
 
-  const effectiveAmount = customAmount ? parseInt(customAmount, 10) * 100 : amount;
+  const rawCustom = customAmount ? parseInt(customAmount, 10) * 100 : 0;
+  const effectiveAmount = customAmount ? rawCustom : amount;
+  const isValidAmount = effectiveAmount >= 500 && effectiveAmount <= 100000;
 
   async function handleStripe() {
+    if (!isValidAmount) {
+      setPaymentError("Amount must be between $5 and $1,000");
+      return;
+    }
     setLoadingStripe(true);
     setPaymentError(null);
     try {
       const res = await post<{ url: string }>("/api/wallet/topup/stripe", {
         amountCents: effectiveAmount,
       });
+      if (!isAllowedPaymentUrl(res.url, ["stripe.com"])) {
+        setPaymentError("Invalid payment URL received");
+        return;
+      }
       window.location.href = res.url;
     } catch (err) {
       setPaymentError(err instanceof Error ? err.message : "Payment failed. Please try again.");
@@ -64,6 +91,10 @@ export default function WalletPage() {
   }
 
   async function handleCrypto() {
+    if (!isValidAmount) {
+      setPaymentError("Amount must be between $5 and $1,000");
+      return;
+    }
     setLoadingCrypto(true);
     setPaymentError(null);
     try {
@@ -71,6 +102,10 @@ export default function WalletPage() {
         amountUsd: effectiveAmount / 100,
         currency: selectedCrypto,
       });
+      if (!isAllowedPaymentUrl(res.invoiceUrl, ["nowpayments.io"])) {
+        setPaymentError("Invalid payment URL received");
+        return;
+      }
       window.open(res.invoiceUrl, "_blank", "noopener,noreferrer");
       // Poll for balance update
       setTimeout(() => { refetchWallet(); }, 5000);
@@ -104,12 +139,56 @@ export default function WalletPage() {
         )}
         <p className="text-xs text-gray-500 mt-1">
           ={" "}
-          {wallet
+          {wallet && pricePerGbCents > 0
             ? (wallet.balanceCents / pricePerGbCents).toFixed(2)
             : "0.00"}{" "}
           GB of bandwidth at ${(pricePerGbCents / 100).toFixed(2)}/GB ({userPlan?.plan.name ?? "..."})
         </p>
       </div>
+
+      {/* Forecast */}
+      {forecast && (
+        <div className="bg-gray-900 border border-gray-800 rounded-xl p-6">
+          <h2 className="text-sm font-medium text-gray-400 mb-3">Spending Forecast</h2>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+              <p className="text-xs text-gray-500">Daily Avg Spend</p>
+              <p className="text-xl font-bold mt-0.5">
+                ${(forecast.dailyAvgCents / 100).toFixed(2)}/day
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-gray-500">Balance Lasts</p>
+              <p className={`text-xl font-bold mt-0.5 ${
+                forecast.daysRemaining === null
+                  ? "text-green-400"
+                  : forecast.daysRemaining > 7
+                    ? "text-green-400"
+                    : forecast.daysRemaining > 3
+                      ? "text-yellow-400"
+                      : "text-red-400"
+              }`}>
+                {forecast.daysRemaining === null
+                  ? "No spending"
+                  : `~${forecast.daysRemaining} days`}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-gray-500">Trend (vs prev 7d)</p>
+              <p className="text-xl font-bold mt-0.5">
+                <span className={
+                  forecast.trend === "up" ? "text-red-400" :
+                  forecast.trend === "down" ? "text-green-400" :
+                  "text-gray-400"
+                }>
+                  {forecast.trend === "up" ? "\u2191" : forecast.trend === "down" ? "\u2193" : "\u2192"}
+                  {" "}{forecast.trendPct}%
+                </span>
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Top Up */}
       <div className="bg-gray-900 border border-gray-800 rounded-xl p-6 space-y-4">
@@ -144,7 +223,7 @@ export default function WalletPage() {
           </div>
           <p className="text-xs text-gray-500 mt-2">
             ${(effectiveAmount / 100).toFixed(2)} ={" "}
-            {(effectiveAmount / pricePerGbCents).toFixed(2)} GB of bandwidth at ${(pricePerGbCents / 100).toFixed(2)}/GB
+            {pricePerGbCents > 0 ? (effectiveAmount / pricePerGbCents).toFixed(2) : "N/A"} GB of bandwidth at ${(pricePerGbCents / 100).toFixed(2)}/GB
           </p>
         </div>
 
@@ -196,52 +275,54 @@ export default function WalletPage() {
         <div className="px-4 py-3 border-b border-gray-800">
           <h2 className="font-semibold">Transaction History</h2>
         </div>
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-gray-800 text-gray-400">
-              <th className="text-left px-4 py-3 font-medium">Type</th>
-              <th className="text-left px-4 py-3 font-medium">Amount</th>
-              <th className="text-left px-4 py-3 font-medium">Description</th>
-              <th className="text-left px-4 py-3 font-medium">Provider</th>
-              <th className="text-left px-4 py-3 font-medium">Date</th>
-            </tr>
-          </thead>
-          <tbody>
-            {!txData?.transactions.length ? (
-              <tr>
-                <td colSpan={5} className="px-4 py-8 text-center text-gray-500">
-                  No transactions yet.
-                </td>
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[720px] text-sm">
+            <thead>
+              <tr className="border-b border-gray-800 text-gray-400">
+                <th className="text-left px-4 py-3 font-medium">Type</th>
+                <th className="text-left px-4 py-3 font-medium">Amount</th>
+                <th className="text-left px-4 py-3 font-medium">Description</th>
+                <th className="text-left px-4 py-3 font-medium">Provider</th>
+                <th className="text-left px-4 py-3 font-medium">Date</th>
               </tr>
-            ) : (
-              txData.transactions.map((tx) => (
-                <tr key={tx.id} className="border-b border-gray-800/50">
-                  <td className="px-4 py-3">
-                    <span
-                      className={`px-2 py-0.5 rounded text-xs font-medium ${
-                        tx.type === "topup"
-                          ? "bg-green-500/10 text-green-400"
-                          : tx.type === "debit"
-                            ? "bg-red-500/10 text-red-400"
-                            : "bg-gray-500/10 text-gray-400"
-                      }`}
-                    >
-                      {tx.type}
-                    </span>
-                  </td>
-                  <td className={`px-4 py-3 font-medium ${tx.type === "topup" ? "text-green-400" : "text-red-400"}`}>
-                    {tx.type === "topup" ? "+" : "-"}${Math.abs(tx.amountUsd).toFixed(2)}
-                  </td>
-                  <td className="px-4 py-3 text-gray-400">{tx.description}</td>
-                  <td className="px-4 py-3 text-gray-500">{tx.paymentProvider ?? "-"}</td>
-                  <td className="px-4 py-3 text-gray-400">
-                    {new Date(tx.createdAt).toLocaleDateString()}
+            </thead>
+            <tbody>
+              {!txData?.transactions.length ? (
+                <tr>
+                  <td colSpan={5} className="px-4 py-8 text-center text-gray-500">
+                    No transactions yet.
                   </td>
                 </tr>
-              ))
-            )}
-          </tbody>
-        </table>
+              ) : (
+                txData.transactions.map((tx) => (
+                  <tr key={tx.id} className="border-b border-gray-800/50">
+                    <td className="px-4 py-3">
+                      <span
+                        className={`px-2 py-0.5 rounded text-xs font-medium ${
+                          tx.type === "topup"
+                            ? "bg-green-500/10 text-green-400"
+                            : tx.type === "debit"
+                              ? "bg-red-500/10 text-red-400"
+                              : "bg-gray-500/10 text-gray-400"
+                        }`}
+                      >
+                        {tx.type}
+                      </span>
+                    </td>
+                    <td className={`px-4 py-3 font-medium ${tx.type === "topup" ? "text-green-400" : "text-red-400"}`}>
+                      {tx.type === "topup" ? "+" : "-"}${Math.abs(tx.amountUsd).toFixed(2)}
+                    </td>
+                    <td className="px-4 py-3 text-gray-400">{tx.description}</td>
+                    <td className="px-4 py-3 text-gray-500">{tx.paymentProvider ?? "-"}</td>
+                    <td className="px-4 py-3 text-gray-400">
+                      {new Date(tx.createdAt).toLocaleDateString()}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );

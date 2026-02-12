@@ -6,14 +6,27 @@ export interface AuthenticatedRequest extends Request {
   user: JwtPayload;
 }
 
-export async function requireAuth(req: Request, res: Response, next: NextFunction): Promise<void> {
+function extractToken(req: Request): string | null {
+  // Priority: cookie > Bearer header
+  // This supports both browser (cookies) and extension (Bearer) simultaneously
+  const cookieToken = req.cookies?.dominode_access;
+  if (cookieToken) return cookieToken;
+
   const authHeader = req.headers.authorization;
-  if (!authHeader?.startsWith("Bearer ")) {
-    res.status(401).json({ error: "Authorization header required (Bearer token)" });
+  if (authHeader?.startsWith("Bearer ")) {
+    return authHeader.slice(7);
+  }
+
+  return null;
+}
+
+export async function requireAuth(req: Request, res: Response, next: NextFunction): Promise<void> {
+  const token = extractToken(req);
+  if (!token) {
+    res.status(401).json({ error: "Authentication required" });
     return;
   }
 
-  const token = authHeader.slice(7);
   const payload = verifyJwt(token);
 
   if (!payload) {
@@ -28,6 +41,8 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
       res.status(401).json({ error: "Account is no longer active" });
       return;
     }
+    // Refresh isAdmin from DB to prevent stale JWT claims (up to 15 min lag)
+    payload.isAdmin = user.is_admin === true;
   } catch {
     res.status(500).json({ error: "Authentication check failed" });
     return;

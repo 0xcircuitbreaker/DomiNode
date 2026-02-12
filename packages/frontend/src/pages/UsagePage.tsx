@@ -51,6 +51,13 @@ function formatBytes(bytes: number): string {
   return `${(bytes / 1073741824).toFixed(3)} GB`;
 }
 
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+function isValidDate(s: string): boolean {
+  if (!DATE_RE.test(s)) return false;
+  const d = new Date(s + "T00:00:00Z");
+  return !isNaN(d.getTime());
+}
+
 export default function UsagePage() {
   const [since, setSince] = useState(() => {
     const d = new Date();
@@ -62,12 +69,18 @@ export default function UsagePage() {
   const [page, setPage] = useState(0);
   const pageSize = 50;
 
+  // Validate date params before sending to API
+  const safeSince = isValidDate(since) ? since : new Date(Date.now() - 30 * 86400000).toISOString().split("T")[0];
+  const safeUntil = isValidDate(until) ? until : new Date().toISOString().split("T")[0];
+
   const { data, loading, refetch } = useApi<UsageResponse>(
-    () => get(`/api/usage?since=${since}T00:00:00Z&until=${until}T23:59:59Z&limit=${pageSize}&offset=${page * pageSize}`),
+    () => get(`/api/usage?since=${safeSince}T00:00:00Z&until=${safeUntil}T23:59:59Z&limit=${pageSize}&offset=${page * pageSize}`),
+    [safeSince, safeUntil, page],
   );
 
   const { data: daily } = useApi<DailyResponse>(
-    () => get(`/api/usage/daily?since=${since}T00:00:00Z&until=${until}T23:59:59Z`),
+    () => get(`/api/usage/daily?since=${safeSince}T00:00:00Z&until=${safeUntil}T23:59:59Z`),
+    [safeSince, safeUntil],
   );
 
   const totalPages = data ? Math.ceil(data.pagination.total / pageSize) : 0;
@@ -100,9 +113,9 @@ export default function UsagePage() {
 
       {/* Chart */}
       <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
           <h2 className="font-semibold">Daily Breakdown</h2>
-          <div className="flex gap-1">
+          <div className="flex flex-wrap gap-1">
             {(["bandwidth", "cost", "requests"] as ChartMetric[]).map((m) => (
               <button
                 key={m}
@@ -122,7 +135,7 @@ export default function UsagePage() {
       </div>
 
       {/* Date Range */}
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-end gap-3">
         <div>
           <label className="block text-xs text-gray-500 mb-1">From</label>
           <input
@@ -157,49 +170,51 @@ export default function UsagePage() {
 
       {/* Records Table */}
       <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-gray-800 text-gray-400">
-              <th className="text-left px-4 py-3 font-medium">Target</th>
-              <th className="text-left px-4 py-3 font-medium">Upload</th>
-              <th className="text-left px-4 py-3 font-medium">Download</th>
-              <th className="text-left px-4 py-3 font-medium">Total</th>
-              <th className="text-left px-4 py-3 font-medium">Cost</th>
-              <th className="text-left px-4 py-3 font-medium">Date</th>
-            </tr>
-          </thead>
-          <tbody>
-            {loading ? (
-              <tr>
-                <td colSpan={6} className="px-4 py-8 text-center text-gray-500">
-                  Loading...
-                </td>
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[760px] text-sm">
+            <thead>
+              <tr className="border-b border-gray-800 text-gray-400">
+                <th className="text-left px-4 py-3 font-medium">Target</th>
+                <th className="text-left px-4 py-3 font-medium">Upload</th>
+                <th className="text-left px-4 py-3 font-medium">Download</th>
+                <th className="text-left px-4 py-3 font-medium">Total</th>
+                <th className="text-left px-4 py-3 font-medium">Cost</th>
+                <th className="text-left px-4 py-3 font-medium">Date</th>
               </tr>
-            ) : !data?.records.length ? (
-              <tr>
-                <td colSpan={6} className="px-4 py-8 text-center text-gray-500">
-                  No usage records for this period.
-                </td>
-              </tr>
-            ) : (
-              data.records.map((r) => (
-                <tr key={r.id} className="border-b border-gray-800/50">
-                  <td className="px-4 py-3 font-mono text-xs">{r.targetHost}</td>
-                  <td className="px-4 py-3 text-gray-400">{formatBytes(r.bytesIn)}</td>
-                  <td className="px-4 py-3 text-gray-400">{formatBytes(r.bytesOut)}</td>
-                  <td className="px-4 py-3">{formatBytes(r.totalBytes)}</td>
-                  <td className="px-4 py-3 text-red-400">${(r.costCents / 100).toFixed(4)}</td>
-                  <td className="px-4 py-3 text-gray-400">
-                    {new Date(r.createdAt).toLocaleString()}
+            </thead>
+            <tbody>
+              {loading ? (
+                <tr>
+                  <td colSpan={6} className="px-4 py-8 text-center text-gray-500">
+                    Loading...
                   </td>
                 </tr>
-              ))
-            )}
-          </tbody>
-        </table>
+              ) : !data?.records.length ? (
+                <tr>
+                  <td colSpan={6} className="px-4 py-8 text-center text-gray-500">
+                    No usage records for this period.
+                  </td>
+                </tr>
+              ) : (
+                data.records.map((r) => (
+                  <tr key={r.id} className="border-b border-gray-800/50">
+                    <td className="px-4 py-3 font-mono text-xs">{r.targetHost}</td>
+                    <td className="px-4 py-3 text-gray-400">{formatBytes(r.bytesIn)}</td>
+                    <td className="px-4 py-3 text-gray-400">{formatBytes(r.bytesOut)}</td>
+                    <td className="px-4 py-3">{formatBytes(r.totalBytes)}</td>
+                    <td className="px-4 py-3 text-red-400">${(r.costCents / 100).toFixed(4)}</td>
+                    <td className="px-4 py-3 text-gray-400">
+                      {new Date(r.createdAt).toLocaleString()}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
         {/* Pagination */}
         {totalPages > 1 && (
-          <div className="flex items-center justify-between px-4 py-3 border-t border-gray-800">
+          <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 border-t border-gray-800">
             <p className="text-xs text-gray-500">
               Page {page + 1} of {totalPages} ({data?.pagination.total} records)
             </p>

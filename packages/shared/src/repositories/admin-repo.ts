@@ -13,6 +13,9 @@ export async function listUsers(
   page: number,
   limit: number,
 ): Promise<{ users: AdminUserView[]; total: number }> {
+  // R14 H-4: bounds validation to prevent DoS via unbounded queries
+  page = Math.max(1, Math.floor(page) || 1);
+  limit = Math.max(1, Math.min(100, Math.floor(limit) || 20));
   const offset = (page - 1) * limit;
 
   const [dataResult, countResult] = await Promise.all([
@@ -71,8 +74,8 @@ export async function getUserDetails(
     `SELECT u.id, u.email, u.status, u.plan_id,
             w.balance_cents, u.created_at, u.is_admin,
             (SELECT COUNT(*) FROM api_keys WHERE user_id = u.id AND revoked_at IS NULL) AS api_key_count,
-            COALESCE((SELECT SUM(bytes_in + bytes_out) FROM usage_records WHERE user_id = u.id), 0) AS total_usage_bytes,
-            COALESCE((SELECT SUM(cost_cents) FROM usage_records WHERE user_id = u.id), 0) AS total_spent_cents,
+            COALESCE((SELECT SUM(bytes_in + bytes_out) FROM usage_records WHERE user_id = u.id AND created_at >= NOW() - INTERVAL '365 days'), 0) AS total_usage_bytes,
+            COALESCE((SELECT SUM(cost_cents) FROM usage_records WHERE user_id = u.id AND created_at >= NOW() - INTERVAL '365 days'), 0) AS total_spent_cents,
             (SELECT MAX(created_at) FROM usage_records WHERE user_id = u.id) AS last_active
      FROM users u
      LEFT JOIN wallets w ON w.user_id = u.id

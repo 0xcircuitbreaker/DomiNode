@@ -149,3 +149,96 @@ DO $$ BEGIN
   ALTER TABLE users ADD COLUMN is_admin BOOLEAN NOT NULL DEFAULT false;
 EXCEPTION WHEN duplicate_column THEN NULL;
 END $$;
+
+-- Add connect latency to usage records (idempotent)
+DO $$ BEGIN
+  ALTER TABLE usage_records ADD COLUMN connect_latency_ms INTEGER;
+EXCEPTION WHEN duplicate_column THEN NULL;
+END $$;
+
+-- ─── Refresh Tokens ─────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS refresh_tokens (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id     UUID NOT NULL REFERENCES users(id),
+  token_hash  TEXT NOT NULL,
+  family_id   UUID NOT NULL,
+  revoked     BOOLEAN NOT NULL DEFAULT false,
+  expires_at  TIMESTAMPTZ NOT NULL,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_refresh_tokens_hash
+  ON refresh_tokens(token_hash) WHERE NOT revoked;
+CREATE INDEX IF NOT EXISTS idx_refresh_tokens_family
+  ON refresh_tokens(family_id);
+CREATE INDEX IF NOT EXISTS idx_refresh_tokens_user
+  ON refresh_tokens(user_id);
+
+-- ─── MFA Configs ──────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS mfa_configs (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id         UUID UNIQUE NOT NULL REFERENCES users(id),
+  totp_secret_enc TEXT NOT NULL,
+  totp_secret_iv  TEXT NOT NULL,
+  enabled         BOOLEAN NOT NULL DEFAULT false,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  enabled_at      TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_mfa_configs_user ON mfa_configs(user_id);
+
+-- ─── MFA Backup Codes ────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS mfa_backup_codes (
+  id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id    UUID NOT NULL REFERENCES users(id),
+  code_hash  TEXT NOT NULL,
+  used_at    TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_mfa_backup_user
+  ON mfa_backup_codes(user_id) WHERE used_at IS NULL;
+
+-- ─── Explicit email index (for documentation/query planner clarity) ────
+CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+
+-- ─── Sessions: enforce non-negative bytes_total ────────────────────────
+DO $$ BEGIN
+  ALTER TABLE sessions ADD CONSTRAINT chk_sessions_bytes_total CHECK (bytes_total >= 0);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+-- ─── Audit Events ──────────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS audit_events (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id     UUID REFERENCES users(id),
+  action      TEXT NOT NULL,
+  resource    TEXT NOT NULL,
+  resource_id TEXT,
+  ip_address  TEXT,
+  details     JSONB,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_audit_events_user ON audit_events(user_id);
+CREATE INDEX IF NOT EXISTS idx_audit_events_action ON audit_events(action);
+CREATE INDEX IF NOT EXISTS idx_audit_events_created ON audit_events(created_at);
+
+-- ─── Data Retention Policies ───────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS data_retention_policies (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  table_name      TEXT UNIQUE NOT NULL,
+  retention_days  INTEGER NOT NULL CHECK (retention_days > 0),
+  description     TEXT NOT NULL DEFAULT '',
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+INSERT INTO data_retention_policies (table_name, retention_days, description) VALUES
+  ('usage_records',       365, 'Usage records retained for 1 year'),
+  ('sessions',             90, 'Session records retained for 90 days'),
+  ('audit_events',        365, 'Audit events retained for 1 year'),
+  ('wallet_transactions', 730, 'Wallet transactions retained for 2 years')
+ON CONFLICT (table_name) DO NOTHING;

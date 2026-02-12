@@ -15,7 +15,7 @@ vi.mock("@dominode/shared", () => ({
 // with vi.mock partial mocking), we mock setTimeout directly to make sleep instant.
 vi.useFakeTimers();
 
-import { executeWithRetry, sleep, promisifyRequest, type RetryOptions, type RequestFn } from "./retry.js";
+import { executeWithRetry, sleep, promisifyRequest, RETRYABLE_ERRORS, type RetryOptions, type RequestFn } from "./retry.js";
 import * as http from "node:http";
 
 /** Helper to create a fake IncomingMessage with the given status code */
@@ -41,6 +41,8 @@ describe("proxy-gateway/retry", () => {
     maxRetries: 2,
     baseDelayMs: 200,
     retryableStatuses: new Set([502, 503]),
+    retryableErrors: RETRYABLE_ERRORS,
+    jitter: false, // disable jitter for deterministic tests
   };
 
   describe("sleep", () => {
@@ -173,6 +175,8 @@ describe("proxy-gateway/retry", () => {
         maxRetries: 3,
         baseDelayMs: 100,
         retryableStatuses: new Set([502]),
+        retryableErrors: RETRYABLE_ERRORS,
+        jitter: false,
       };
 
       const requestFn: RequestFn = vi.fn()
@@ -196,6 +200,8 @@ describe("proxy-gateway/retry", () => {
         maxRetries: 1,
         baseDelayMs: 50,
         retryableStatuses: new Set([429]),
+        retryableErrors: RETRYABLE_ERRORS,
+        jitter: false,
       };
 
       const fail = fakeResponse(429);
@@ -218,6 +224,8 @@ describe("proxy-gateway/retry", () => {
         maxRetries: 2,
         baseDelayMs: 100,
         retryableStatuses: new Set([429]),
+        retryableErrors: RETRYABLE_ERRORS,
+        jitter: false,
       };
 
       // 502 is not in the custom retryable set
@@ -238,6 +246,8 @@ describe("proxy-gateway/retry", () => {
         maxRetries: 0,
         baseDelayMs: 200,
         retryableStatuses: new Set([502]),
+        retryableErrors: RETRYABLE_ERRORS,
+        jitter: false,
       };
 
       const response = fakeResponse(502);
@@ -253,11 +263,80 @@ describe("proxy-gateway/retry", () => {
       expect(requestFn).toHaveBeenCalledTimes(1);
     });
 
-    it("should propagate request function errors without retrying", async () => {
-      const requestFn: RequestFn = vi.fn().mockRejectedValueOnce(new Error("ECONNREFUSED"));
+    it("should retry on retryable connection errors (ECONNREFUSED)", async () => {
+      const connErr = Object.assign(new Error("connect ECONNREFUSED"), { code: "ECONNREFUSED" });
+      const success = fakeResponse(200);
+      const requestFn: RequestFn = vi.fn()
+        .mockRejectedValueOnce(connErr)
+        .mockResolvedValueOnce(success);
 
-      await expect(executeWithRetry(requestFn, defaultOpts)).rejects.toThrow("ECONNREFUSED");
+      const resultPromise = executeWithRetry(requestFn, defaultOpts);
+      await flushSleep();
+      const result = await resultPromise;
+
+      expect(result.response).toBe(success);
+      expect(result.retries).toBe(1);
+      expect(requestFn).toHaveBeenCalledTimes(2);
+    });
+
+    it("should retry on ECONNRESET errors", async () => {
+      const resetErr = Object.assign(new Error("read ECONNRESET"), { code: "ECONNRESET" });
+      const success = fakeResponse(200);
+      const requestFn: RequestFn = vi.fn()
+        .mockRejectedValueOnce(resetErr)
+        .mockResolvedValueOnce(success);
+
+      const resultPromise = executeWithRetry(requestFn, defaultOpts);
+      await flushSleep();
+      const result = await resultPromise;
+
+      expect(result.response).toBe(success);
+      expect(result.retries).toBe(1);
+    });
+
+    it("should retry on ETIMEDOUT errors", async () => {
+      const timeoutErr = Object.assign(new Error("connect ETIMEDOUT"), { code: "ETIMEDOUT" });
+      const success = fakeResponse(200);
+      const requestFn: RequestFn = vi.fn()
+        .mockRejectedValueOnce(timeoutErr)
+        .mockResolvedValueOnce(success);
+
+      const resultPromise = executeWithRetry(requestFn, defaultOpts);
+      await flushSleep();
+      const result = await resultPromise;
+
+      expect(result.response).toBe(success);
+      expect(result.retries).toBe(1);
+    });
+
+    it("should propagate non-retryable errors immediately", async () => {
+      const nonRetryable = Object.assign(new Error("ENOTFOUND"), { code: "ENOTFOUND" });
+      const requestFn: RequestFn = vi.fn().mockRejectedValueOnce(nonRetryable);
+
+      await expect(executeWithRetry(requestFn, defaultOpts)).rejects.toThrow("ENOTFOUND");
       expect(requestFn).toHaveBeenCalledTimes(1);
+    });
+
+    it("should throw after exhausting retries on connection errors", async () => {
+      // Use real timers to avoid unhandled rejection issues with fake timers
+      vi.useRealTimers();
+
+      const noDelayOpts: RetryOptions = {
+        ...defaultOpts,
+        baseDelayMs: 1, // minimal delay
+      };
+
+      const connErr = Object.assign(new Error("connect ECONNREFUSED"), { code: "ECONNREFUSED" });
+      const requestFn: RequestFn = vi.fn()
+        .mockRejectedValueOnce(connErr)
+        .mockRejectedValueOnce(connErr)
+        .mockRejectedValueOnce(connErr);
+
+      await expect(executeWithRetry(requestFn, noDelayOpts)).rejects.toThrow("ECONNREFUSED");
+      // initial + 2 retries = 3 attempts total
+      expect(requestFn).toHaveBeenCalledTimes(3);
+
+      vi.useFakeTimers();
     });
 
     it("should handle mixed retryable then success correctly", async () => {

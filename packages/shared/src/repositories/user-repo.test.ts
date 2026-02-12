@@ -11,6 +11,7 @@ import {
   findUserByEmail,
   findUserById,
   findUserByApiKeyHash,
+  updatePassword,
   createApiKey,
   listApiKeys,
   countActiveKeys,
@@ -165,6 +166,43 @@ describe("user-repo", () => {
       mockQuery.mockResolvedValueOnce({ rows: [] });
       const result = await findUserById("missing");
       expect(result).toBeNull();
+    });
+  });
+
+  // ─── updatePassword ───────────────────────────────────────────────
+
+  describe("updatePassword", () => {
+    it("should call UPDATE on users table setting password_hash and password_changed_at", async () => {
+      mockQuery.mockResolvedValueOnce({ rowCount: 1 });
+
+      await updatePassword("u1", "new-hash-abc");
+      expect(mockQuery).toHaveBeenCalledWith(
+        expect.stringContaining("UPDATE users SET password_hash = $1, password_changed_at = now()"),
+        ["new-hash-abc", "u1"],
+      );
+    });
+
+    it("should pass passwordHash as $1 and userId as $2", async () => {
+      mockQuery.mockResolvedValueOnce({ rowCount: 1 });
+
+      await updatePassword("user-xyz", "hashed-pw-123");
+      const [sql, params] = mockQuery.mock.calls[0];
+      expect(sql).toContain("WHERE id = $2");
+      expect(params).toEqual(["hashed-pw-123", "user-xyz"]);
+    });
+
+    it("should return void (no return value)", async () => {
+      mockQuery.mockResolvedValueOnce({ rowCount: 1 });
+
+      const result = await updatePassword("u1", "hash");
+      expect(result).toBeUndefined();
+    });
+
+    it("should call query exactly once", async () => {
+      mockQuery.mockResolvedValueOnce({ rowCount: 1 });
+
+      await updatePassword("u1", "hash");
+      expect(mockQuery).toHaveBeenCalledTimes(1);
     });
   });
 

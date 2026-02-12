@@ -37,10 +37,11 @@ export async function createUsageRecord(record: {
   cost_cents: number;
   proxy_type: string;
   target_host: string;
+  connect_latency_ms?: number | null;
 }): Promise<UsageRecord> {
   const result = await query<UsageRecord>(
-    `INSERT INTO usage_records (user_id, session_id, bytes_in, bytes_out, cost_cents, proxy_type, target_host)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)
+    `INSERT INTO usage_records (user_id, session_id, bytes_in, bytes_out, cost_cents, proxy_type, target_host, connect_latency_ms)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
      RETURNING *`,
     [
       record.user_id,
@@ -50,6 +51,7 @@ export async function createUsageRecord(record: {
       record.cost_cents,
       record.proxy_type,
       record.target_host,
+      record.connect_latency_ms ?? null,
     ],
   );
   return result.rows[0];
@@ -62,6 +64,9 @@ export async function getUsageByUser(
   limit: number = 200,
   offset: number = 0,
 ): Promise<{ rows: UsageRecord[]; total: number }> {
+  // Enforce bounds at the repository layer to prevent DoS from any caller
+  limit = Math.max(1, Math.min(1000, limit));
+  offset = Math.max(0, offset);
   const [dataResult, countResult] = await Promise.all([
     query<UsageRecord>(
       `SELECT * FROM usage_records
@@ -177,6 +182,8 @@ export async function getTopHosts(
     requestCount: number;
   }>
 > {
+  // Enforce bounds at the repository layer
+  limit = Math.max(1, Math.min(100, limit));
   const result = await query<{
     target_host: string;
     total_bytes: string;
@@ -200,6 +207,20 @@ export async function getTopHosts(
     totalBytes: Number(row.total_bytes),
     requestCount: Number(row.request_count),
   }));
+}
+
+/**
+ * Mark orphaned 'active' sessions as 'error' on startup.
+ * After a crash, in-memory sessions are lost but DB sessions remain 'active'.
+ */
+export async function cleanupOrphanedSessions(): Promise<number> {
+  const result = await query(
+    `UPDATE sessions
+     SET status = 'error',
+         ended_at = now()
+     WHERE status = 'active'`,
+  );
+  return result.rowCount ?? 0;
 }
 
 export async function getUsageSummary(

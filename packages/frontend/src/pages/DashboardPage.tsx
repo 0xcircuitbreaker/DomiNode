@@ -1,9 +1,22 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { Link } from "react-router-dom";
 import { useApi } from "../hooks/useApi";
 import { get } from "../api/client";
 import UsageChart from "../components/UsageChart";
 import ActiveSessions from "../components/ActiveSessions";
+
+interface ProxyStatusResponse {
+  status: "operational" | "degraded" | "down" | "unknown";
+  circuitBreaker: string;
+  activeSessions: number;
+  userActiveSessions: number;
+  avgLatencyMs: number;
+  endpoints: {
+    http: string;
+    socks5: string;
+  };
+  uptimeSeconds: number;
+}
 
 interface PlanItem {
   id: string;
@@ -54,16 +67,80 @@ interface DailyResponse {
 
 type ChartMetric = "bandwidth" | "cost" | "requests";
 
+const statusColors: Record<string, { dot: string; bg: string; text: string }> = {
+  operational: { dot: "bg-green-400", bg: "bg-green-900/30", text: "text-green-400" },
+  degraded: { dot: "bg-yellow-400", bg: "bg-yellow-900/30", text: "text-yellow-400" },
+  down: { dot: "bg-red-400", bg: "bg-red-900/30", text: "text-red-400" },
+  unknown: { dot: "bg-gray-400", bg: "bg-gray-900/30", text: "text-gray-400" },
+};
+
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  const handleCopy = useCallback(() => {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  }, [text]);
+  return (
+    <button
+      onClick={handleCopy}
+      className="ml-2 text-xs text-gray-500 hover:text-gray-300 transition-colors"
+      title="Copy to clipboard"
+    >
+      {copied ? "Copied" : "Copy"}
+    </button>
+  );
+}
+
 export default function DashboardPage() {
   const { data: wallet } = useApi<WalletResponse>(() => get("/api/wallet"));
   const { data: usage } = useApi<UsageResponse>(() => get("/api/usage"));
   const { data: daily } = useApi<DailyResponse>(() => get("/api/usage/daily"));
   const { data: userPlan } = useApi<UserPlanResponse>(() => get("/api/plans/user/plan"));
+  const { data: proxyStatus } = useApi<ProxyStatusResponse>(() => get("/api/proxy/status"));
   const [chartMetric, setChartMetric] = useState<ChartMetric>("bandwidth");
 
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-bold">Dashboard</h1>
+
+      {/* Proxy Status */}
+      {proxyStatus && (
+        <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+            <h2 className="font-semibold">Proxy Status</h2>
+            <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${statusColors[proxyStatus.status]?.bg ?? statusColors.unknown.bg} ${statusColors[proxyStatus.status]?.text ?? statusColors.unknown.text}`}>
+              <span className={`h-2 w-2 rounded-full ${statusColors[proxyStatus.status]?.dot ?? statusColors.unknown.dot}`} />
+              {proxyStatus.status.charAt(0).toUpperCase() + proxyStatus.status.slice(1)}
+            </span>
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+            <div>
+              <p className="text-gray-500 text-xs">Active Sessions</p>
+              <p className="font-medium">{proxyStatus.activeSessions}</p>
+            </div>
+            <div>
+              <p className="text-gray-500 text-xs">Avg Latency</p>
+              <p className="font-medium">{proxyStatus.avgLatencyMs}ms</p>
+            </div>
+            <div>
+              <p className="text-gray-500 text-xs">HTTP Proxy</p>
+              <p className="font-mono text-xs text-gray-300">
+                {proxyStatus.endpoints.http}
+                <CopyButton text={proxyStatus.endpoints.http} />
+              </p>
+            </div>
+            <div>
+              <p className="text-gray-500 text-xs">SOCKS5 Proxy</p>
+              <p className="font-mono text-xs text-gray-300">
+                {proxyStatus.endpoints.socks5}
+                <CopyButton text={proxyStatus.endpoints.socks5} />
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -75,7 +152,7 @@ export default function DashboardPage() {
           <p className="text-xs text-gray-500 mt-1">
             ${userPlan?.plan.pricePerGbUsd ?? "5.00"}/GB
           </p>
-          <Link to="/plans" className="text-sm text-indigo-400 hover:text-indigo-300 mt-2 inline-block">
+          <Link to="/app/plans" className="text-sm text-indigo-400 hover:text-indigo-300 mt-2 inline-block">
             Manage plan &rarr;
           </Link>
         </div>
@@ -87,14 +164,14 @@ export default function DashboardPage() {
           </p>
           <p className="text-xs text-gray-500 mt-1">
             ={" "}
-            {wallet && userPlan
+            {wallet && userPlan && userPlan.plan.pricePerGbCents > 0
               ? (wallet.balanceCents / userPlan.plan.pricePerGbCents).toFixed(2)
               : wallet
                 ? (wallet.balanceCents / 500).toFixed(2)
                 : "0.00"}{" "}
             GB at current rate
           </p>
-          <Link to="/wallet" className="text-sm text-indigo-400 hover:text-indigo-300 mt-2 inline-block">
+          <Link to="/app/wallet" className="text-sm text-indigo-400 hover:text-indigo-300 mt-2 inline-block">
             Top up &rarr;
           </Link>
         </div>
@@ -104,7 +181,7 @@ export default function DashboardPage() {
           <p className="text-3xl font-bold mt-1">
             {usage?.summary.totalGB.toFixed(3) ?? "0.000"} GB
           </p>
-          <Link to="/usage" className="text-sm text-indigo-400 hover:text-indigo-300 mt-2 inline-block">
+          <Link to="/app/usage" className="text-sm text-indigo-400 hover:text-indigo-300 mt-2 inline-block">
             View details &rarr;
           </Link>
         </div>
@@ -122,9 +199,9 @@ export default function DashboardPage() {
 
       {/* Usage Chart */}
       <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
           <h2 className="font-semibold">Usage (Last 30 Days)</h2>
-          <div className="flex gap-1">
+          <div className="flex flex-wrap gap-1">
             {(["bandwidth", "cost", "requests"] as ChartMetric[]).map((m) => (
               <button
                 key={m}
@@ -149,15 +226,15 @@ export default function DashboardPage() {
       {/* Quick Actions */}
       <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
         <h2 className="font-semibold mb-3">Quick Actions</h2>
-        <div className="flex gap-3">
+        <div className="flex flex-wrap gap-3">
           <Link
-            to="/keys"
+            to="/app/keys"
             className="bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
           >
             Manage API Keys
           </Link>
           <Link
-            to="/wallet"
+            to="/app/wallet"
             className="bg-gray-800 hover:bg-gray-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
           >
             Top Up Wallet
@@ -173,7 +250,7 @@ export default function DashboardPage() {
         </p>
         <div className="space-y-4">
           {/* Basic usage */}
-          <div className="bg-gray-950 border border-gray-800 rounded-lg p-4 font-mono text-sm">
+          <div className="bg-gray-950 border border-gray-800 rounded-lg p-4 font-mono text-sm overflow-x-auto">
             <p className="text-gray-500 mb-1"># Basic (rotating IP)</p>
             <p className="text-gray-300">
               curl -x http://user:<span className="text-indigo-400">YOUR_API_KEY</span>@proxy.dominode.io:8080 https://httpbin.org/ip
@@ -181,7 +258,7 @@ export default function DashboardPage() {
           </div>
 
           {/* Geo-targeting */}
-          <div className="bg-gray-950 border border-gray-800 rounded-lg p-4 font-mono text-sm">
+          <div className="bg-gray-950 border border-gray-800 rounded-lg p-4 font-mono text-sm overflow-x-auto">
             <p className="text-gray-500 mb-1"># Geo-targeted (US IP)</p>
             <p className="text-gray-300">
               curl -x http://<span className="text-green-400">country-US</span>:<span className="text-indigo-400">YOUR_API_KEY</span>@proxy.dominode.io:8080 https://httpbin.org/ip
@@ -189,7 +266,7 @@ export default function DashboardPage() {
           </div>
 
           {/* Sticky sessions */}
-          <div className="bg-gray-950 border border-gray-800 rounded-lg p-4 font-mono text-sm">
+          <div className="bg-gray-950 border border-gray-800 rounded-lg p-4 font-mono text-sm overflow-x-auto">
             <p className="text-gray-500 mb-1"># Sticky session (same IP for multiple requests)</p>
             <p className="text-gray-300">
               curl -x http://<span className="text-green-400">session-abc123</span>:<span className="text-indigo-400">YOUR_API_KEY</span>@proxy.dominode.io:8080 https://httpbin.org/ip
@@ -197,7 +274,7 @@ export default function DashboardPage() {
           </div>
 
           {/* Combined */}
-          <div className="bg-gray-950 border border-gray-800 rounded-lg p-4 font-mono text-sm">
+          <div className="bg-gray-950 border border-gray-800 rounded-lg p-4 font-mono text-sm overflow-x-auto">
             <p className="text-gray-500 mb-1"># Geo-targeted + sticky session</p>
             <p className="text-gray-300">
               curl -x http://<span className="text-green-400">country-DE-session-mysess</span>:<span className="text-indigo-400">YOUR_API_KEY</span>@proxy.dominode.io:8080 https://httpbin.org/ip
@@ -205,7 +282,7 @@ export default function DashboardPage() {
           </div>
 
           {/* SOCKS5 */}
-          <div className="bg-gray-950 border border-gray-800 rounded-lg p-4 font-mono text-sm">
+          <div className="bg-gray-950 border border-gray-800 rounded-lg p-4 font-mono text-sm overflow-x-auto">
             <p className="text-gray-500 mb-1"># SOCKS5 proxy</p>
             <p className="text-gray-300">
               curl --socks5-hostname <span className="text-green-400">country-US</span>:<span className="text-indigo-400">YOUR_API_KEY</span>@proxy.dominode.io:1080 https://httpbin.org/ip
@@ -213,7 +290,7 @@ export default function DashboardPage() {
           </div>
 
           {/* Python */}
-          <div className="bg-gray-950 border border-gray-800 rounded-lg p-4 font-mono text-sm">
+          <div className="bg-gray-950 border border-gray-800 rounded-lg p-4 font-mono text-sm overflow-x-auto">
             <p className="text-gray-500 mb-1"># Python requests</p>
             <p className="text-gray-300">
               proxies = {'{'}"https": "http://country-US:<span className="text-indigo-400">YOUR_API_KEY</span>@proxy.dominode.io:8080"{'}'}

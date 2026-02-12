@@ -28,11 +28,12 @@ export async function findInvoice(
   return result.rows[0] ?? null;
 }
 
-export async function completeInvoice(id: string): Promise<void> {
-  await query(
+export async function completeInvoice(id: string): Promise<boolean> {
+  const result = await query(
     `UPDATE payment_invoices
      SET status = 'completed'
-     WHERE id = $1`,
+     WHERE id = $1 AND status = 'pending'`,
     [id],
   );
+  return (result.rowCount ?? 0) > 0;
 }

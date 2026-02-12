@@ -1,6 +1,8 @@
 import { useAuth } from "../context/AuthContext";
 import { useApi } from "../hooks/useApi";
 import { get } from "../api/client";
+import { Link } from "react-router-dom";
+import ThemeToggle from "./ThemeToggle";
 
 interface WalletResponse {
   balanceUsd: number;
@@ -11,22 +13,35 @@ export default function TopBar() {
   const { data: wallet } = useApi<WalletResponse>(() => get("/api/wallet"));
 
   return (
-    <header className="h-16 bg-gray-900 border-b border-gray-800 flex items-center justify-between px-6">
-      <div />
+    <header className="app-topbar h-16 bg-gray-900 border-b border-gray-800 flex items-center justify-between px-4 sm:px-6">
+      <div className="app-topbar-left flex items-center gap-3 sm:gap-4">
+        <span className="app-pill">
+          <span className="app-pill-dot" />
+          Network Live
+        </span>
+        <div className="app-hide-compact">
+          <p className="text-xs text-gray-500 uppercase tracking-wide">Client Dashboard</p>
+          <p className="text-sm text-gray-400">Operational telemetry, billing, and access control</p>
+        </div>
+      </div>
 
-      <div className="flex items-center gap-6">
-        <div className="text-sm">
+      <div className="app-topbar-right flex items-center gap-2 sm:gap-4 md:gap-6">
+        <div className="app-balance text-sm">
           <span className="text-gray-400">Balance: </span>
           <span className="text-green-400 font-semibold">
             ${wallet?.balanceUsd.toFixed(2) ?? "-.--"}
           </span>
         </div>
 
-        <div className="flex items-center gap-3">
-          <span className="text-sm text-gray-400">{user?.email}</span>
+        <div className="flex items-center gap-2 sm:gap-3">
+          <ThemeToggle className="app-theme-toggle" />
+          <Link to="/" className="app-link text-sm app-hide-compact">
+            Website
+          </Link>
+          <span className="app-user-email text-sm text-gray-400">{user?.email}</span>
           <button
             onClick={logout}
-            className="text-sm text-gray-500 hover:text-gray-300 transition-colors"
+            className="app-logout-btn text-sm text-gray-500 hover:text-gray-300 transition-colors bg-gray-800 px-3 py-1.5 rounded-lg"
           >
             Logout
           </button>

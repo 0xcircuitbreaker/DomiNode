@@ -6,6 +6,7 @@ const BCRYPT_ROUNDS = 12;
 const API_KEY_BYTES = 32;
 const ACCESS_TOKEN_EXPIRY = "15m"; // Short-lived access tokens
 const REFRESH_TOKEN_EXPIRY = "7d"; // Refresh tokens last 7 days
+const MFA_CHALLENGE_EXPIRY = "5m"; // MFA challenge tokens
 
 const KNOWN_DEFAULTS = new Set([
   "change-me-to-a-64-char-random-string-in-production",
@@ -72,6 +73,7 @@ export async function verifyPassword(
 export interface JwtPayload {
   userId: string;
   email: string;
+  isAdmin?: boolean;
 }
 
 export interface TokenPair {
@@ -100,12 +102,56 @@ export function createTokenPair(payload: JwtPayload): TokenPair {
   };
 }
 
-/** Verify an access token */
+/** Verify an access token — rejects MFA challenge tokens */
 export function verifyJwt(token: string): JwtPayload | null {
   try {
     const decoded = jwt.verify(token, getJwtSecret(), { algorithms: ["HS256"] }) as jwt.JwtPayload;
+    // Reject MFA challenge tokens from being used as access tokens
+    if (decoded.mfaPending === true) return null;
     if (typeof decoded.userId === "string" && typeof decoded.email === "string") {
-      return { userId: decoded.userId, email: decoded.email };
+      return { userId: decoded.userId, email: decoded.email, isAdmin: decoded.isAdmin === true };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+// ─── MFA Challenge Token ────────────────────────────────────────────
+
+// Use a separate secret for MFA challenge tokens (derived from main secret)
+// to prevent token confusion attacks between access tokens and challenge tokens
+function getMfaChallengeSecret(): string {
+  const base = getJwtSecret();
+  return crypto.createHash("sha256").update(`mfa-challenge:${base}`).digest("hex");
+}
+
+export interface MfaChallengePayload {
+  userId: string;
+  email: string;
+  mfaPending: true;
+  jti?: string;
+}
+
+/** Sign a short-lived MFA challenge token (5 minutes) with unique JTI for single-use enforcement */
+export function signMfaChallengeToken(payload: { userId: string; email: string }): string {
+  const jti = crypto.randomUUID();
+  return jwt.sign({ ...payload, mfaPending: true, jti }, getMfaChallengeSecret(), {
+    algorithm: "HS256",
+    expiresIn: MFA_CHALLENGE_EXPIRY,
+  });
+}
+
+/** Verify an MFA challenge token — only valid if mfaPending is true */
+export function verifyMfaChallengeToken(token: string): MfaChallengePayload | null {
+  try {
+    const decoded = jwt.verify(token, getMfaChallengeSecret(), { algorithms: ["HS256"] }) as jwt.JwtPayload;
+    if (
+      decoded.mfaPending === true &&
+      typeof decoded.userId === "string" &&
+      typeof decoded.email === "string"
+    ) {
+      return { userId: decoded.userId, email: decoded.email, mfaPending: true, jti: typeof decoded.jti === "string" ? decoded.jti : undefined };
     }
     return null;
   } catch {
@@ -122,7 +168,7 @@ export function verifyRefreshToken(token: string): (JwtPayload & { iat?: number 
       typeof decoded.email === "string" &&
       decoded.type === "refresh"
     ) {
-      return { userId: decoded.userId, email: decoded.email, iat: decoded.iat };
+      return { userId: decoded.userId, email: decoded.email, isAdmin: decoded.isAdmin === true, iat: decoded.iat };
     }
     return null;
   } catch {

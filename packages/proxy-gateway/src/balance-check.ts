@@ -5,7 +5,7 @@ interface CacheEntry {
   cachedAt: number;
 }
 
-const CACHE_TTL_MS = 5_000; // 5 seconds
+const CACHE_TTL_MS = parseInt(process.env["BALANCE_CACHE_TTL_MS"] ?? "5000", 10);
 const MAX_CACHE_SIZE = 10_000;
 const cache = new Map<string, CacheEntry>();
 

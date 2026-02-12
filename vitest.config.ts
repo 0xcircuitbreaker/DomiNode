@@ -4,7 +4,7 @@ export default defineConfig({
   test: {
     globals: true,
     include: ["packages/*/src/**/*.test.ts"],
-    exclude: ["packages/frontend/**", "**/node_modules/**", "**/dist/**"],
+    exclude: ["packages/frontend/**", "packages/extension/**", "**/node_modules/**", "**/dist/**"],
     environment: "node",
     env: {
       JWT_SECRET: "test-secret-key-that-is-at-least-32-characters-long-for-testing",
@@ -31,7 +31,6 @@ export default defineConfig({
         "**/dist/**",
         "packages/shared/src/db.ts",
         "packages/shared/src/logger.ts",
-        "packages/proxy-gateway/src/server.ts",
         "packages/proxy-gateway/src/socks5.ts",
       ],
     },

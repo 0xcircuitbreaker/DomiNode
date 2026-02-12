@@ -3,6 +3,31 @@ import { walletRepo, invoiceRepo, createLogger } from "@dominode/shared";
 
 const log = createLogger("billing:stripe");
 
+function validateRedirectUrl(envVar: string, url: string): void {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new Error(`${envVar} is not a valid URL: ${url}`);
+  }
+  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+    throw new Error(`${envVar} must use http or https protocol: ${url}`);
+  }
+  const allowedOrigins = (process.env["CORS_ORIGINS"] ?? "http://localhost:5173")
+    .split(",")
+    .map((s) => s.trim());
+  if (!allowedOrigins.includes(parsed.origin)) {
+    throw new Error(`${envVar} origin ${parsed.origin} is not in CORS_ORIGINS (${allowedOrigins.join(", ")})`);
+  }
+}
+
+const STRIPE_SUCCESS_URL = process.env["STRIPE_SUCCESS_URL"] ?? "http://localhost:5173/wallet?topup=success";
+const STRIPE_CANCEL_URL = process.env["STRIPE_CANCEL_URL"] ?? "http://localhost:5173/wallet?topup=cancel";
+
+// Redirect URL validation is deferred to first use (createCheckoutSession) to
+// prevent module-level crashes when CORS_ORIGINS doesn't include the redirect URL origin
+let redirectUrlsValidated = false;
+
 let stripeInstance: Stripe | null = null;
 
 function getStripe(): Stripe {
@@ -18,9 +43,16 @@ export async function createCheckoutSession(
   userId: string,
   amountCents: number,
 ): Promise<{ sessionId: string; url: string }> {
+  // Validate redirect URLs on first use (deferred from module load to prevent import crash)
+  if (!redirectUrlsValidated) {
+    validateRedirectUrl("STRIPE_SUCCESS_URL", STRIPE_SUCCESS_URL);
+    validateRedirectUrl("STRIPE_CANCEL_URL", STRIPE_CANCEL_URL);
+    redirectUrlsValidated = true;
+  }
+
   const stripe = getStripe();
-  const successUrl = process.env["STRIPE_SUCCESS_URL"] ?? "http://localhost:5173/wallet?topup=success";
-  const cancelUrl = process.env["STRIPE_CANCEL_URL"] ?? "http://localhost:5173/wallet?topup=cancel";
+  const successUrl = STRIPE_SUCCESS_URL;
+  const cancelUrl = STRIPE_CANCEL_URL;
 
   const session = await stripe.checkout.sessions.create({
     mode: "payment",
@@ -105,22 +137,21 @@ export async function handleCheckoutWebhook(
 
   const userId = invoice.user_id;
 
-  try {
-    await walletRepo.creditWallet(
-      userId,
-      amountCents,
-      "stripe",
-      session.id,
-      `Stripe top-up $${(amountCents / 100).toFixed(2)}`,
-    );
-    await invoiceRepo.completeInvoice(invoice.id);
-    log.info("wallet credited via Stripe", { userId, amountCents });
+  // Atomically mark invoice as completed — only one concurrent webhook
+  // can succeed here since UPDATE ... WHERE status='pending' is atomic.
+  const claimed = await invoiceRepo.completeInvoice(invoice.id);
+  if (!claimed) {
+    log.info("duplicate Stripe webhook ignored (invoice already completed)", { sessionId: session.id });
     return { userId, amountCents };
-  } catch (err) {
-    if (err instanceof Error && err.message.includes("duplicate")) {
-      log.info("duplicate Stripe webhook ignored", { sessionId: session.id });
-      return { userId, amountCents };
-    }
-    throw err;
   }
+
+  await walletRepo.creditWallet(
+    userId,
+    amountCents,
+    "stripe",
+    session.id,
+    `Stripe top-up $${(amountCents / 100).toFixed(2)}`,
+  );
+  log.info("wallet credited via Stripe", { userId, amountCents });
+  return { userId, amountCents };
 }

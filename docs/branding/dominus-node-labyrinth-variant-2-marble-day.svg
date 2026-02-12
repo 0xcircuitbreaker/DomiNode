@@ -1,0 +1,58 @@
+<svg width="1800" height="1000" viewBox="0 0 1800 1000" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg2" x1="40" y1="40" x2="1760" y2="960" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F8F5EE"/>
+      <stop offset="1" stop-color="#EAE3D5"/>
+    </linearGradient>
+    <linearGradient id="ink2" x1="168" y1="150" x2="748" y2="850" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#1E232B"/>
+      <stop offset="1" stop-color="#384454"/>
+    </linearGradient>
+    <linearGradient id="gold2" x1="168" y1="150" x2="748" y2="850" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#D9BA70"/>
+      <stop offset="0.56" stop-color="#C8A45A"/>
+      <stop offset="1" stop-color="#875F2D"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="40" y="40" width="1720" height="920" rx="44" fill="url(#bg2)"/>
+  <rect x="40" y="40" width="1720" height="920" rx="44" stroke="#D2C8B7" stroke-width="4"/>
+
+  <circle cx="460" cy="500" r="334" fill="#FCFAF5" stroke="url(#gold2)" stroke-width="10"/>
+  <circle cx="460" cy="500" r="294" stroke="#D8CDBB" stroke-width="3"/>
+  <circle cx="460" cy="500" r="252" stroke="#E2D9CA" stroke-width="2"/>
+
+  <path d="M198 500H264V434H330V368H390V308H530V368H590V434H656V500H590V566H530V632H390V566H330V500H198Z" stroke="#6A4E24" stroke-opacity="0.72" stroke-width="6" stroke-linejoin="round"/>
+  <path d="M250 500H308V442H364V386H556V442H612V500H556V558H500V614H420V558H364V500H250Z" stroke="#0F766E" stroke-opacity="0.8" stroke-width="5" stroke-linejoin="round"/>
+
+  <path d="M292 338V702H390C506 702 574 630 574 500C574 370 506 298 390 298H292V338Z" stroke="url(#ink2)" stroke-width="34" stroke-linejoin="round"/>
+  <path d="M406 696V304L610 696V304" stroke="url(#gold2)" stroke-width="24" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <path d="M188 440C292 360 430 332 550 356C624 370 682 398 740 452" stroke="#8A6732" stroke-width="7" stroke-linecap="round"/>
+  <path d="M188 560C292 650 448 684 582 632C640 610 692 578 740 540" stroke="#0F766E" stroke-width="7" stroke-linecap="round"/>
+
+  <circle cx="188" cy="440" r="10" fill="#B18849"/>
+  <circle cx="550" cy="356" r="9" fill="#2A3341"/>
+  <circle cx="740" cy="452" r="10" fill="#B18849"/>
+  <circle cx="188" cy="560" r="10" fill="#0F766E"/>
+  <circle cx="582" cy="632" r="9" fill="#2A3341"/>
+  <circle cx="740" cy="540" r="10" fill="#0F766E"/>
+
+  <text x="1263" y="440" fill="#1E242D" font-family="Cinzel, Trajan Pro, Times New Roman, serif" font-size="122" letter-spacing="2" text-anchor="middle" textLength="860" lengthAdjust="spacingAndGlyphs">
+    DOMINUS NODE
+  </text>
+  <text x="1263" y="522" fill="#87612E" font-family="IBM Plex Sans, Arial, sans-serif" font-size="34" letter-spacing="3" text-anchor="middle" textLength="840" lengthAdjust="spacingAndGlyphs">
+    LABYRINTH SEAL II · MARBLE DAY
+  </text>
+
+  <path d="M806 638H1720" stroke="#D8CEBE" stroke-width="3"/>
+  <path d="M806 638H1720" stroke="#B58A4A" stroke-width="3" stroke-opacity="0.65"/>
+  <circle cx="806" cy="638" r="7" fill="#B18849"/>
+  <circle cx="1138" cy="638" r="7" fill="#2A3341"/>
+  <circle cx="1458" cy="638" r="7" fill="#0F766E"/>
+  <circle cx="1720" cy="638" r="7" fill="#B18849"/>
+
+  <text x="1263" y="710" fill="#505A67" font-family="IBM Plex Sans, Arial, sans-serif" font-size="27" letter-spacing="1.2" text-anchor="middle" textLength="860" lengthAdjust="spacingAndGlyphs">
+    Light-mode premium variant for investor decks and print.
+  </text>
+</svg>

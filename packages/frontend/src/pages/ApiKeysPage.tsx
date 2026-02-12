@@ -33,6 +33,11 @@ export default function ApiKeysPage() {
   const [actionError, setActionError] = useState<string | null>(null);
 
   async function handleCreate() {
+    const labelPattern = /^[a-zA-Z0-9 _-]+$/;
+    if (!newLabel || newLabel.length > 50 || !labelPattern.test(newLabel)) {
+      setActionError("Label must be 1-50 characters (letters, numbers, spaces, hyphens, underscores).");
+      return;
+    }
     setCreating(true);
     setActionError(null);
     try {
@@ -79,7 +84,7 @@ export default function ApiKeysPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-2xl font-bold">API Keys</h1>
         <button
           onClick={() => setShowCreate(true)}
@@ -101,44 +106,46 @@ export default function ApiKeysPage() {
         <>
           {/* Active Keys */}
           <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-gray-800 text-gray-400">
-                  <th className="text-left px-4 py-3 font-medium">Prefix</th>
-                  <th className="text-left px-4 py-3 font-medium">Label</th>
-                  <th className="text-left px-4 py-3 font-medium">Created</th>
-                  <th className="text-right px-4 py-3 font-medium">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {activeKeys.length === 0 ? (
-                  <tr>
-                    <td colSpan={4} className="px-4 py-8 text-center text-gray-500">
-                      No active API keys. Create one to get started.
-                    </td>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[640px] text-sm">
+                <thead>
+                  <tr className="border-b border-gray-800 text-gray-400">
+                    <th className="text-left px-4 py-3 font-medium">Prefix</th>
+                    <th className="text-left px-4 py-3 font-medium">Label</th>
+                    <th className="text-left px-4 py-3 font-medium">Created</th>
+                    <th className="text-right px-4 py-3 font-medium">Actions</th>
                   </tr>
-                ) : (
-                  activeKeys.map((key) => (
-                    <tr key={key.id} className="border-b border-gray-800/50">
-                      <td className="px-4 py-3 font-mono text-indigo-400">{key.prefix}...</td>
-                      <td className="px-4 py-3">{key.label}</td>
-                      <td className="px-4 py-3 text-gray-400">
-                        {new Date(key.created_at).toLocaleDateString()}
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        <button
-                          onClick={() => handleRevoke(key.id)}
-                          disabled={revoking === key.id}
-                          className="text-red-400 hover:text-red-300 text-sm disabled:opacity-50"
-                        >
-                          {revoking === key.id ? "Revoking..." : "Revoke"}
-                        </button>
+                </thead>
+                <tbody>
+                  {activeKeys.length === 0 ? (
+                    <tr>
+                      <td colSpan={4} className="px-4 py-8 text-center text-gray-500">
+                        No active API keys. Create one to get started.
                       </td>
                     </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
+                  ) : (
+                    activeKeys.map((key) => (
+                      <tr key={key.id} className="border-b border-gray-800/50">
+                        <td className="px-4 py-3 font-mono text-indigo-400">{key.prefix}...</td>
+                        <td className="px-4 py-3">{key.label}</td>
+                        <td className="px-4 py-3 text-gray-400">
+                          {new Date(key.created_at).toLocaleDateString()}
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          <button
+                            onClick={() => handleRevoke(key.id)}
+                            disabled={revoking === key.id}
+                            className="text-red-400 hover:text-red-300 text-sm disabled:opacity-50"
+                          >
+                            {revoking === key.id ? "Revoking..." : "Revoke"}
+                          </button>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
 
           {/* Revoked Keys */}
@@ -146,19 +153,21 @@ export default function ApiKeysPage() {
             <div>
               <h2 className="text-sm font-medium text-gray-500 mb-2">Revoked Keys</h2>
               <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden opacity-60">
-                <table className="w-full text-sm">
-                  <tbody>
-                    {revokedKeys.map((key) => (
-                      <tr key={key.id} className="border-b border-gray-800/50">
-                        <td className="px-4 py-3 font-mono text-gray-500">{key.prefix}...</td>
-                        <td className="px-4 py-3 text-gray-500">{key.label}</td>
-                        <td className="px-4 py-3 text-gray-500">
-                          Revoked {new Date(key.revoked_at!).toLocaleDateString()}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[560px] text-sm">
+                    <tbody>
+                      {revokedKeys.map((key) => (
+                        <tr key={key.id} className="border-b border-gray-800/50">
+                          <td className="px-4 py-3 font-mono text-gray-500">{key.prefix}...</td>
+                          <td className="px-4 py-3 text-gray-500">{key.label}</td>
+                          <td className="px-4 py-3 text-gray-500">
+                            Revoked {new Date(key.revoked_at!).toLocaleDateString()}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </div>
           )}
@@ -174,6 +183,9 @@ export default function ApiKeysPage() {
               <input
                 value={newLabel}
                 onChange={(e) => setNewLabel(e.target.value)}
+                required
+                maxLength={50}
+                pattern="[a-zA-Z0-9 _-]+"
                 className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-indigo-500"
                 placeholder="e.g. Production, Scraper, etc."
               />
@@ -195,6 +207,8 @@ export default function ApiKeysPage() {
               <input
                 readOnly
                 value={newKey}
+                autoComplete="off"
+                data-lpignore="true"
                 className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm font-mono"
               />
               <button

@@ -6,6 +6,7 @@
   "types": "dist/src/index.d.ts",
   "scripts": {
     "build": "tsc --build",
+    "postbuild": "cp src/schema.sql dist/src/schema.sql",
     "clean": "tsc --build --clean && rm -rf dist"
   },
   "dependencies": {

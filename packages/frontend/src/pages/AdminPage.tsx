@@ -163,32 +163,58 @@ function UsersTab() {
 
   const { data, loading, refetch } = useApi<UsersResponse>(
     () => get(`/api/admin/users?page=${page}&limit=${pageSize}`),
+    [page],
   );
 
   const { data: detailData } = useApi<UserDetailResponse | null>(
     () => selectedUserId ? get(`/api/admin/users/${selectedUserId}`) : Promise.resolve(null),
+    [selectedUserId],
   );
 
+  const [actionError, setActionError] = useState<string | null>(null);
+
   const handleSuspend = useCallback(async (userId: string) => {
-    await put(`/api/admin/users/${userId}/suspend`, {});
-    refetch();
+    if (!window.confirm("Suspend this user? They will lose proxy access.")) return;
+    setActionError(null);
+    try {
+      await put(`/api/admin/users/${userId}/suspend`, {});
+      refetch();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Failed to suspend user");
+    }
   }, [refetch]);
 
   const handleActivate = useCallback(async (userId: string) => {
-    await put(`/api/admin/users/${userId}/activate`, {});
-    refetch();
+    setActionError(null);
+    try {
+      await put(`/api/admin/users/${userId}/activate`, {});
+      refetch();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Failed to activate user");
+    }
   }, [refetch]);
 
   const handleDelete = useCallback(async (userId: string) => {
     if (!window.confirm("Are you sure you want to delete this user? This is a soft-delete.")) return;
-    await del(`/api/admin/users/${userId}`);
-    refetch();
+    setActionError(null);
+    try {
+      await del(`/api/admin/users/${userId}`);
+      refetch();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Failed to delete user");
+    }
   }, [refetch]);
 
   const totalPages = data?.pagination.totalPages ?? 0;
 
   return (
     <div className="space-y-4">
+      {actionError && (
+        <div className="bg-red-500/10 border border-red-500/20 rounded-lg px-4 py-3 text-sm text-red-400 flex items-center justify-between">
+          <span>{actionError}</span>
+          <button onClick={() => setActionError(null)} className="text-red-400 hover:text-red-300 ml-3">Dismiss</button>
+        </div>
+      )}
       {/* User Detail Modal */}
       {selectedUserId && detailData?.user && (
         <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
@@ -201,7 +227,7 @@ function UsersTab() {
               Close
             </button>
           </div>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
             <div>
               <p className="text-xs text-gray-500">Email</p>
               <p className="text-sm font-medium">{detailData.user.email}</p>
@@ -244,95 +270,97 @@ function UsersTab() {
 
       {/* Users Table */}
       <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-gray-800 text-gray-400">
-              <th className="text-left px-4 py-3 font-medium">Email</th>
-              <th className="text-left px-4 py-3 font-medium">Status</th>
-              <th className="text-left px-4 py-3 font-medium">Plan</th>
-              <th className="text-left px-4 py-3 font-medium">Balance</th>
-              <th className="text-left px-4 py-3 font-medium">Created</th>
-              <th className="text-left px-4 py-3 font-medium">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {loading ? (
-              <tr>
-                <td colSpan={6} className="px-4 py-8 text-center text-gray-500">
-                  Loading...
-                </td>
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[920px] text-sm">
+            <thead>
+              <tr className="border-b border-gray-800 text-gray-400">
+                <th className="text-left px-4 py-3 font-medium">Email</th>
+                <th className="text-left px-4 py-3 font-medium">Status</th>
+                <th className="text-left px-4 py-3 font-medium">Plan</th>
+                <th className="text-left px-4 py-3 font-medium">Balance</th>
+                <th className="text-left px-4 py-3 font-medium">Created</th>
+                <th className="text-left px-4 py-3 font-medium">Actions</th>
               </tr>
-            ) : !data?.users.length ? (
-              <tr>
-                <td colSpan={6} className="px-4 py-8 text-center text-gray-500">
-                  No users found.
-                </td>
-              </tr>
-            ) : (
-              data.users.map((u) => (
-                <tr key={u.id} className="border-b border-gray-800/50">
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-2">
-                      <span>{u.email}</span>
-                      {u.isAdmin && (
-                        <span className="px-1.5 py-0.5 rounded text-xs bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
-                          admin
-                        </span>
-                      )}
-                    </div>
-                  </td>
-                  <td className="px-4 py-3">
-                    <StatusBadge status={u.status} />
-                  </td>
-                  <td className="px-4 py-3 text-gray-400">{u.planId}</td>
-                  <td className="px-4 py-3 text-gray-400">
-                    ${(u.balanceCents / 100).toFixed(2)}
-                  </td>
-                  <td className="px-4 py-3 text-gray-400">
-                    {new Date(u.createdAt).toLocaleDateString()}
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => setSelectedUserId(u.id)}
-                        className="text-xs text-indigo-400 hover:text-indigo-300"
-                      >
-                        Details
-                      </button>
-                      {u.status === "active" ? (
-                        <button
-                          onClick={() => handleSuspend(u.id)}
-                          className="text-xs text-yellow-400 hover:text-yellow-300"
-                        >
-                          Suspend
-                        </button>
-                      ) : u.status === "suspended" ? (
-                        <button
-                          onClick={() => handleActivate(u.id)}
-                          className="text-xs text-green-400 hover:text-green-300"
-                        >
-                          Activate
-                        </button>
-                      ) : null}
-                      {u.status !== "deleted" && (
-                        <button
-                          onClick={() => handleDelete(u.id)}
-                          className="text-xs text-red-400 hover:text-red-300"
-                        >
-                          Delete
-                        </button>
-                      )}
-                    </div>
+            </thead>
+            <tbody>
+              {loading ? (
+                <tr>
+                  <td colSpan={6} className="px-4 py-8 text-center text-gray-500">
+                    Loading...
                   </td>
                 </tr>
-              ))
-            )}
-          </tbody>
-        </table>
+              ) : !data?.users.length ? (
+                <tr>
+                  <td colSpan={6} className="px-4 py-8 text-center text-gray-500">
+                    No users found.
+                  </td>
+                </tr>
+              ) : (
+                data.users.map((u) => (
+                  <tr key={u.id} className="border-b border-gray-800/50">
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-2">
+                        <span>{u.email}</span>
+                        {u.isAdmin && (
+                          <span className="px-1.5 py-0.5 rounded text-xs bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
+                            admin
+                          </span>
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <StatusBadge status={u.status} />
+                    </td>
+                    <td className="px-4 py-3 text-gray-400">{u.planId}</td>
+                    <td className="px-4 py-3 text-gray-400">
+                      ${(u.balanceCents / 100).toFixed(2)}
+                    </td>
+                    <td className="px-4 py-3 text-gray-400">
+                      {new Date(u.createdAt).toLocaleDateString()}
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => setSelectedUserId(u.id)}
+                          className="text-xs text-indigo-400 hover:text-indigo-300"
+                        >
+                          Details
+                        </button>
+                        {u.status === "active" ? (
+                          <button
+                            onClick={() => handleSuspend(u.id)}
+                            className="text-xs text-yellow-400 hover:text-yellow-300"
+                          >
+                            Suspend
+                          </button>
+                        ) : u.status === "suspended" ? (
+                          <button
+                            onClick={() => handleActivate(u.id)}
+                            className="text-xs text-green-400 hover:text-green-300"
+                          >
+                            Activate
+                          </button>
+                        ) : null}
+                        {u.status !== "deleted" && (
+                          <button
+                            onClick={() => handleDelete(u.id)}
+                            className="text-xs text-red-400 hover:text-red-300"
+                          >
+                            Delete
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
 
         {/* Pagination */}
         {totalPages > 1 && (
-          <div className="flex items-center justify-between px-4 py-3 border-t border-gray-800">
+          <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 border-t border-gray-800">
             <p className="text-xs text-gray-500">
               Page {page} of {totalPages} ({data?.pagination.total} users)
             </p>
@@ -371,10 +399,12 @@ function RevenueTab() {
 
   const { data: revenue } = useApi<RevenueResponse>(
     () => get(`/api/admin/revenue?since=${since}T00:00:00Z&until=${until}T23:59:59Z`),
+    [since, until],
   );
 
   const { data: daily } = useApi<DailyRevenueResponse>(
     () => get(`/api/admin/revenue/daily?since=${since}T00:00:00Z&until=${until}T23:59:59Z`),
+    [since, until],
   );
 
   return (
@@ -476,7 +506,7 @@ export default function AdminPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-2xl font-bold">Admin Dashboard</h1>
         <span className="px-2 py-1 rounded text-xs bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
           Admin
@@ -484,7 +514,8 @@ export default function AdminPage() {
       </div>
 
       {/* Tab Navigation */}
-      <div className="flex gap-1 bg-gray-900 border border-gray-800 rounded-lg p-1 w-fit">
+      <div className="max-w-full overflow-x-auto">
+        <div className="flex gap-1 bg-gray-900 border border-gray-800 rounded-lg p-1 w-fit min-w-max">
         {tabs.map((tab) => (
           <button
             key={tab.key}
@@ -498,6 +529,7 @@ export default function AdminPage() {
             {tab.label}
           </button>
         ))}
+        </div>
       </div>
 
       {/* Tab Content */}

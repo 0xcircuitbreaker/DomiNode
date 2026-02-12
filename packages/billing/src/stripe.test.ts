@@ -117,8 +117,8 @@ describe("stripe", () => {
         amount_cents: 2000,
       };
       mockFindInvoice.mockResolvedValueOnce(mockInvoice);
+      mockCompleteInvoice.mockResolvedValueOnce(true);
       mockCreditWallet.mockResolvedValueOnce({});
-      mockCompleteInvoice.mockResolvedValueOnce({});
 
       const result = await handleCheckoutWebhook(
         Buffer.from("raw-body"),
@@ -126,6 +126,8 @@ describe("stripe", () => {
       );
 
       expect(result).toEqual({ userId: "user-3", amountCents: 2000 });
+      // completeInvoice is called FIRST as the atomic gate
+      expect(mockCompleteInvoice).toHaveBeenCalledWith("inv-1");
       expect(mockCreditWallet).toHaveBeenCalledWith(
         "user-3",
         2000,
@@ -133,7 +135,6 @@ describe("stripe", () => {
         "cs_test_789",
         "Stripe top-up $20.00",
       );
-      expect(mockCompleteInvoice).toHaveBeenCalledWith("inv-1");
     });
 
     it("should return null when signature verification fails", async () => {
@@ -224,7 +225,7 @@ describe("stripe", () => {
       expect(result).toBeNull();
     });
 
-    it("should handle duplicate webhook gracefully", async () => {
+    it("should handle duplicate webhook gracefully via atomic completeInvoice", async () => {
       mockConstructEvent.mockReturnValueOnce({
         type: "checkout.session.completed",
         data: {
@@ -239,36 +240,16 @@ describe("stripe", () => {
         user_id: "user-7",
         amount_cents: 1000,
       });
-      mockCreditWallet.mockRejectedValueOnce(new Error("duplicate key value"));
+      // completeInvoice returns false = invoice already completed by another webhook
+      mockCompleteInvoice.mockResolvedValueOnce(false);
 
       const result = await handleCheckoutWebhook(
         Buffer.from("body"),
         "sig",
       );
       expect(result).toEqual({ userId: "user-7", amountCents: 1000 });
-    });
-
-    it("should re-throw non-duplicate errors from creditWallet", async () => {
-      mockConstructEvent.mockReturnValueOnce({
-        type: "checkout.session.completed",
-        data: {
-          object: {
-            id: "cs_rethrow",
-            amount_total: 1000,
-            metadata: { userId: "user-8" },
-          },
-        },
-      });
-      mockFindInvoice.mockResolvedValueOnce({
-        id: "inv-4",
-        user_id: "user-8",
-        amount_cents: 1000,
-      });
-      mockCreditWallet.mockRejectedValueOnce(new Error("DB connection failed"));
-
-      await expect(
-        handleCheckoutWebhook(Buffer.from("body"), "sig"),
-      ).rejects.toThrow("DB connection failed");
+      // creditWallet should NOT be called for duplicate
+      expect(mockCreditWallet).not.toHaveBeenCalled();
     });
   });
 });

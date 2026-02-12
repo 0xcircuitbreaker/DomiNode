@@ -1,6 +1,7 @@
 import { Router } from "express";
 import {
   walletRepo,
+  usageRepo,
   validateTopupAmount,
   isValidCryptoCurrency,
   createLogger,
@@ -42,8 +43,8 @@ router.get("/", async (req, res) => {
 router.get("/transactions", async (req, res) => {
   try {
     const { userId } = (req as AuthenticatedRequest).user;
-    const limit = Math.min(parseInt(req.query.limit as string, 10) || 50, 200);
-    const offset = parseInt(req.query.offset as string, 10) || 0;
+    const limit = Math.min(Math.max(1, parseInt(req.query.limit as string, 10) || 50), 200);
+    const offset = Math.max(0, parseInt(req.query.offset as string, 10) || 0);
 
     const transactions = await walletRepo.getTransactions(userId, limit, offset);
 
@@ -122,6 +123,64 @@ router.post("/topup/crypto", async (req, res) => {
   } catch (err) {
     log.error("crypto invoice failed", { error: err instanceof Error ? err.message : String(err) });
     res.status(500).json({ error: "Failed to create crypto invoice" });
+  }
+});
+
+// GET /api/wallet/forecast
+router.get("/forecast", async (req, res) => {
+  try {
+    const { userId } = (req as AuthenticatedRequest).user;
+
+    const wallet = await walletRepo.getWallet(userId);
+    if (!wallet) {
+      res.status(404).json({ error: "Wallet not found" });
+      return;
+    }
+
+    const now = new Date();
+
+    // Current period: last 7 days
+    const currentStart = new Date(now);
+    currentStart.setDate(currentStart.getDate() - 7);
+    const currentUsage = await usageRepo.getUsageByDay(userId, currentStart, now);
+
+    // Previous period: 7-14 days ago
+    const prevStart = new Date(now);
+    prevStart.setDate(prevStart.getDate() - 14);
+    const prevUsage = await usageRepo.getUsageByDay(userId, prevStart, currentStart);
+
+    const currentTotalCents = currentUsage.reduce((s, d) => s + d.total_cost_cents, 0);
+    const prevTotalCents = prevUsage.reduce((s, d) => s + d.total_cost_cents, 0);
+
+    const currentDays = Math.max(currentUsage.length, 1);
+    const dailyAvgCents = Math.round(currentTotalCents / currentDays);
+
+    const daysRemaining = dailyAvgCents > 0
+      ? Number((wallet.balance_cents / dailyAvgCents).toFixed(1))
+      : null; // null = no spending, balance lasts indefinitely
+
+    let trend: "up" | "down" | "stable" = "stable";
+    let trendPct = 0;
+
+    if (prevTotalCents > 0) {
+      const change = ((currentTotalCents - prevTotalCents) / prevTotalCents) * 100;
+      trendPct = Math.round(Math.abs(change));
+      if (change > 5) trend = "up";
+      else if (change < -5) trend = "down";
+    } else if (currentTotalCents > 0) {
+      trend = "up";
+      trendPct = 100;
+    }
+
+    res.json({
+      dailyAvgCents,
+      daysRemaining,
+      trend,
+      trendPct,
+    });
+  } catch (err) {
+    log.error("forecast fetch failed", { error: err instanceof Error ? err.message : String(err) });
+    res.status(500).json({ error: "Failed to compute forecast" });
   }
 });
 

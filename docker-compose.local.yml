@@ -1,0 +1,16 @@
+services:
+  api:
+    environment:
+      NODE_ENV: development
+
+  proxy:
+    environment:
+      NODE_ENV: development
+
+  frontend:
+    # Local runtime in this environment needs these to let nginx initialize tmpfs paths.
+    user: "0:0"
+    cap_add:
+      - CHOWN
+      - SETGID
+      - SETUID

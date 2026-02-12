@@ -2,6 +2,63 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+}
+
 body {
-  @apply bg-gray-950 text-gray-100 antialiased;
+  @apply antialiased;
+  background: #f2f6fb;
+  color: #0d1b2a;
+  font-family: "Manrope", "Segoe UI", sans-serif;
+}
+
+.theme-toggle {
+  border: 1px solid var(--theme-toggle-border, #bfd1e3);
+  background: var(--theme-toggle-bg, rgba(255, 255, 255, 0.9));
+  color: var(--theme-toggle-ink, #17314b);
+  border-radius: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.52rem 0.7rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  transition: background-color 180ms ease, border-color 180ms ease, transform 180ms ease;
+}
+
+.theme-toggle:hover {
+  background: var(--theme-toggle-hover-bg, #ffffff);
+  border-color: var(--theme-toggle-hover-border, #8eb1d2);
+  transform: translateY(-1px);
+}
+
+.theme-toggle:focus-visible {
+  outline: 2px solid #5d8fb9;
+  outline-offset: 2px;
+}
+
+.theme-toggle-icon {
+  width: 1rem;
+  height: 1rem;
+  display: inline-flex;
+  flex-shrink: 0;
+}
+
+.theme-toggle-icon svg {
+  width: 1rem;
+  height: 1rem;
+}
+
+.theme-toggle-compact {
+  padding-inline: 0.62rem;
+}
+
+.theme-toggle-compact .theme-toggle-label {
+  display: none;
 }

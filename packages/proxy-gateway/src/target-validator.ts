@@ -6,7 +6,15 @@ const log = createLogger("proxy:target-validator");
 
 export function isValidHostname(host: string): boolean {
   if (!host || host.length === 0 || host.length > 253) return false;
-  return /^[a-zA-Z0-9.\-:\[\]]+$/.test(host);
+  // Raw IPv6 addresses (::1) are valid
+  if (net.isIP(host) === 6) return true;
+  // Bracketed IPv6 ([::1]) is valid — brackets are stripped by CONNECT parser before calling this
+  if (host.startsWith("[") && host.endsWith("]")) {
+    const inner = host.slice(1, -1);
+    return net.isIP(inner) === 6;
+  }
+  // Domain names: only letters, digits, dots, and hyphens (no brackets or colons)
+  return /^[a-zA-Z0-9.\-]+$/.test(host);
 }
 
 export function isValidPort(port: number): boolean {
@@ -111,6 +119,54 @@ export function isBlockedTarget(host: string, port: number): boolean {
   return false;
 }
 
+/**
+ * Resolve a hostname and check all addresses against blocked ranges.
+ * Returns the resolved addresses if allowed, or a rejection reason.
+ */
+async function resolveAndCheck(
+  host: string,
+): Promise<{ allowed: boolean; reason?: string; addresses?: string[] }> {
+  try {
+    const addresses = await dns.promises.resolve(host);
+    if (addresses.length === 0) {
+      return { allowed: false, reason: "DNS resolution returned no addresses" };
+    }
+    for (const addr of addresses) {
+      if (isBlockedIP(addr)) {
+        log.warn("DNS resolved to blocked IP", { host, resolvedIp: addr });
+        return { allowed: false, reason: "Blocked: target is a private/internal address" };
+      }
+    }
+    return { allowed: true, addresses };
+  } catch (err) {
+    try {
+      const addresses = await dns.promises.resolve6(host);
+      for (const addr of addresses) {
+        if (isBlockedIP(addr)) {
+          log.warn("DNS (AAAA) resolved to blocked IP", { host, resolvedIp: addr });
+          return { allowed: false, reason: "Blocked: target is a private/internal address" };
+        }
+      }
+      return { allowed: true, addresses };
+    } catch {
+      log.warn("DNS resolution failed for target validation — denying by default", {
+        host,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return { allowed: false, reason: "DNS resolution failed" };
+    }
+  }
+}
+
+/**
+ * Validate a target host:port for SSRF.
+ * Uses double DNS resolution with a short delay to mitigate DNS rebinding attacks.
+ * The attacker needs the first resolution to return a public IP and the second
+ * to return a private IP — the delay between resolutions makes this significantly harder.
+ *
+ * Note: Since traffic routes through PacketStream (which resolves DNS independently),
+ * this is a best-effort defense. PacketStream may resolve differently from us.
+ */
 export async function validateTarget(
   host: string,
   port: number,
@@ -127,34 +183,31 @@ export async function validateTarget(
     }
     return { allowed: true };
   }
-  try {
-    const addresses = await dns.promises.resolve(host);
-    if (addresses.length === 0) {
-      return { allowed: false, reason: "DNS resolution returned no addresses" };
-    }
-    for (const addr of addresses) {
-      if (isBlockedIP(addr)) {
-        log.warn("DNS resolved to blocked IP", { host, resolvedIp: addr });
-        return { allowed: false, reason: "Blocked: target is a private/internal address" };
-      }
-    }
-    return { allowed: true };
-  } catch (err) {
-    try {
-      const addresses = await dns.promises.resolve6(host);
-      for (const addr of addresses) {
-        if (isBlockedIP(addr)) {
-          log.warn("DNS (AAAA) resolved to blocked IP", { host, resolvedIp: addr });
-          return { allowed: false, reason: "Blocked: target is a private/internal address" };
-        }
-      }
-      return { allowed: true };
-    } catch {
-      log.warn("DNS resolution failed for target validation", {
+
+  // First resolution
+  const first = await resolveAndCheck(host);
+  if (!first.allowed) return first;
+
+  // Brief delay to defeat DNS rebinding (TTL=0 records change between resolutions)
+  await new Promise((r) => setTimeout(r, 50));
+
+  // Second resolution — catches rebinding where DNS flips from public→private
+  const second = await resolveAndCheck(host);
+  if (!second.allowed) return second;
+
+  // Check for discrepancy: if addresses changed between resolutions, warn and block
+  if (first.addresses && second.addresses) {
+    const firstSet = new Set(first.addresses);
+    const changed = second.addresses.some((addr) => !firstSet.has(addr));
+    if (changed) {
+      log.warn("DNS rebinding suspected: addresses changed between resolutions", {
         host,
-        error: err instanceof Error ? err.message : String(err),
+        first: first.addresses,
+        second: second.addresses,
       });
-      return { allowed: true };
+      return { allowed: false, reason: "DNS rebinding detected: addresses changed between resolutions" };
     }
   }
+
+  return { allowed: true };
 }

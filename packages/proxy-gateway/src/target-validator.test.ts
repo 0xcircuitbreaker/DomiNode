@@ -222,16 +222,21 @@ describe("proxy-gateway/target-validator", () => {
       expect(result.reason).toContain("Invalid port");
     });
 
-    it("should resolve hostname and allow public IPs", async () => {
+    it("should resolve hostname and allow public IPs (double resolve)", async () => {
+      // Both resolutions return same public IP
+      mockResolve.mockResolvedValueOnce(["93.184.216.34"]);
       mockResolve.mockResolvedValueOnce(["93.184.216.34"]);
       const result = await validateTarget("example.com", 80);
       expect(result.allowed).toBe(true);
+      expect(mockResolve).toHaveBeenCalledTimes(2);
     });
 
-    it("should block hostname resolving to private IP", async () => {
+    it("should block hostname resolving to private IP on first resolve", async () => {
       mockResolve.mockResolvedValueOnce(["127.0.0.1"]);
       const result = await validateTarget("evil.example.com", 80);
       expect(result.allowed).toBe(false);
+      // Should not reach second resolution
+      expect(mockResolve).toHaveBeenCalledTimes(1);
     });
 
     it("should block when DNS returns empty", async () => {
@@ -241,7 +246,11 @@ describe("proxy-gateway/target-validator", () => {
       expect(result.reason).toContain("no addresses");
     });
 
-    it("should fall back to AAAA when A fails", async () => {
+    it("should fall back to AAAA when A fails (both resolutions)", async () => {
+      // First resolution: A fails, AAAA succeeds
+      mockResolve.mockRejectedValueOnce(new Error("ENODATA"));
+      mockResolve6.mockResolvedValueOnce(["2606:4700:4700::1111"]);
+      // Second resolution: A fails, AAAA succeeds
       mockResolve.mockRejectedValueOnce(new Error("ENODATA"));
       mockResolve6.mockResolvedValueOnce(["2606:4700:4700::1111"]);
       const result = await validateTarget("ipv6only.example.com", 80);
@@ -255,11 +264,12 @@ describe("proxy-gateway/target-validator", () => {
       expect(result.allowed).toBe(false);
     });
 
-    it("should allow when both lookups fail (fail-open)", async () => {
+    it("should deny when both lookups fail (fail-closed)", async () => {
       mockResolve.mockRejectedValueOnce(new Error("SERVFAIL"));
       mockResolve6.mockRejectedValueOnce(new Error("SERVFAIL"));
       const result = await validateTarget("unreachable.example.com", 80);
-      expect(result.allowed).toBe(true);
+      expect(result.allowed).toBe(false);
+      expect(result.reason).toBe("DNS resolution failed");
     });
 
     it("should check all resolved addresses", async () => {
@@ -268,10 +278,49 @@ describe("proxy-gateway/target-validator", () => {
       expect(result.allowed).toBe(false);
     });
 
-    it("should allow when all addresses are public", async () => {
+    it("should allow when all addresses are public (both resolutions)", async () => {
+      mockResolve.mockResolvedValueOnce(["93.184.216.34", "8.8.8.8"]);
       mockResolve.mockResolvedValueOnce(["93.184.216.34", "8.8.8.8"]);
       const result = await validateTarget("multi.example.com", 80);
       expect(result.allowed).toBe(true);
+    });
+
+    // DNS rebinding detection tests
+    it("should detect DNS rebinding: first public, second private", async () => {
+      // First resolution: public IP (passes check)
+      mockResolve.mockResolvedValueOnce(["93.184.216.34"]);
+      // Second resolution: private IP (would be caught by check)
+      mockResolve.mockResolvedValueOnce(["127.0.0.1"]);
+      const result = await validateTarget("rebinding.evil.com", 80);
+      expect(result.allowed).toBe(false);
+    });
+
+    it("should detect DNS rebinding: addresses change between resolutions", async () => {
+      // First resolution: public IP A
+      mockResolve.mockResolvedValueOnce(["93.184.216.34"]);
+      // Second resolution: different public IP (suspicious change)
+      mockResolve.mockResolvedValueOnce(["1.2.3.4"]);
+      const result = await validateTarget("rebinding-different.evil.com", 80);
+      expect(result.allowed).toBe(false);
+      expect(result.reason).toContain("DNS rebinding");
+    });
+
+    it("should allow when both resolutions return same addresses", async () => {
+      mockResolve.mockResolvedValueOnce(["93.184.216.34", "8.8.8.8"]);
+      mockResolve.mockResolvedValueOnce(["93.184.216.34", "8.8.8.8"]);
+      const result = await validateTarget("stable.example.com", 80);
+      expect(result.allowed).toBe(true);
+    });
+
+    it("should block when second resolution fails (fail-closed)", async () => {
+      // First resolution succeeds
+      mockResolve.mockResolvedValueOnce(["93.184.216.34"]);
+      // Second resolution fails
+      mockResolve.mockRejectedValueOnce(new Error("SERVFAIL"));
+      mockResolve6.mockRejectedValueOnce(new Error("SERVFAIL"));
+      const result = await validateTarget("flaky-dns.example.com", 80);
+      expect(result.allowed).toBe(false);
+      expect(result.reason).toBe("DNS resolution failed");
     });
   });
 });

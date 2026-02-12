@@ -3,11 +3,10 @@ import {
   useContext,
   useState,
   useCallback,
+  useEffect,
   type ReactNode,
 } from "react";
-import { post, setToken, setRefreshToken, clearToken, getToken } from "../api/client";
-
-const ADMIN_KEY = "dominode_is_admin";
+import { post, get } from "../api/client";
 
 interface AuthUser {
   id: string;
@@ -17,83 +16,100 @@ interface AuthUser {
 
 interface AuthState {
   user: AuthUser | null;
-  token: string | null;
   isAdmin: boolean;
-  login: (email: string, password: string) => Promise<void>;
+  loading: boolean;
+  mfaRequired: boolean;
+  login: (email: string, password: string) => Promise<{ mfaRequired: boolean }>;
+  verifyMfa: (code: string, isBackupCode?: boolean) => Promise<void>;
+  cancelMfa: () => void;
   register: (email: string, password: string) => Promise<void>;
-  logout: () => void;
+  logout: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthState | null>(null);
 
-interface AuthResponse {
-  token: string;
-  refreshToken: string;
+interface MeResponse {
   user: AuthUser;
 }
 
-function loadInitialState(): { user: AuthUser | null; token: string | null } {
-  const token = getToken();
-  if (!token) return { user: null, token: null };
+interface LoginResponse {
+  user?: AuthUser;
+  mfaRequired?: boolean;
+}
 
-  try {
-    const payload = JSON.parse(atob(token.split(".")[1]));
-    // Validate payload structure
-    if (typeof payload.userId !== "string" || typeof payload.email !== "string") {
-      clearToken();
-      return { user: null, token: null };
-    }
-    const isAdmin = localStorage.getItem(ADMIN_KEY) === "true";
-    return {
-      token,
-      user: { id: payload.userId, email: payload.email, is_admin: isAdmin },
-    };
-  } catch {
-    clearToken();
-    return { user: null, token: null };
-  }
+interface MfaVerifyResponse {
+  user: AuthUser;
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const initial = loadInitialState();
-  const [user, setUser] = useState<AuthUser | null>(initial.user);
-  const [token, setTokenState] = useState<string | null>(initial.token);
+  const [user, setUser] = useState<AuthUser | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [mfaRequired, setMfaRequired] = useState(false);
 
-  const login = useCallback(async (email: string, password: string) => {
-    const res = await post<AuthResponse>("/api/auth/login", {
+  // On mount: check session via GET /api/auth/me (cookie-based)
+  useEffect(() => {
+    get<MeResponse>("/api/auth/me", { redirectOnUnauthorized: false })
+      .then((data) => {
+        setUser(data.user);
+      })
+      .catch(() => {
+        setUser(null);
+      })
+      .finally(() => {
+        setLoading(false);
+      });
+  }, []);
+
+  const login = useCallback(async (email: string, password: string): Promise<{ mfaRequired: boolean }> => {
+    const res = await post<LoginResponse>("/api/auth/login", {
       email,
       password,
     });
-    setToken(res.token);
-    setRefreshToken(res.refreshToken);
-    setTokenState(res.token);
-    localStorage.setItem(ADMIN_KEY, String(res.user.is_admin ?? false));
+    if (res.mfaRequired) {
+      setMfaRequired(true);
+      return { mfaRequired: true };
+    }
+    if (res.user) {
+      setUser(res.user);
+    }
+    return { mfaRequired: false };
+  }, []);
+
+  const verifyMfa = useCallback(async (code: string, isBackupCode = false) => {
+    const res = await post<MfaVerifyResponse>("/api/auth/mfa/verify", {
+      code,
+      isBackupCode,
+    });
+    setMfaRequired(false);
     setUser(res.user);
+  }, []);
+
+  const cancelMfa = useCallback(() => {
+    setMfaRequired(false);
   }, []);
 
   const register = useCallback(async (email: string, password: string) => {
-    const res = await post<AuthResponse>("/api/auth/register", {
+    const res = await post<{ user: AuthUser }>("/api/auth/register", {
       email,
       password,
     });
-    setToken(res.token);
-    setRefreshToken(res.refreshToken);
-    setTokenState(res.token);
-    localStorage.setItem(ADMIN_KEY, String(res.user.is_admin ?? false));
     setUser(res.user);
   }, []);
 
-  const logout = useCallback(() => {
-    clearToken();
-    localStorage.removeItem(ADMIN_KEY);
-    setTokenState(null);
+  const logout = useCallback(async () => {
+    try {
+      await post("/api/auth/logout", {});
+    } catch {
+      console.warn("Server-side logout failed");
+    }
     setUser(null);
+    setMfaRequired(false);
   }, []);
 
   const isAdmin = user?.is_admin ?? false;
 
   return (
-    <AuthContext.Provider value={{ user, token, isAdmin, login, register, logout }}>
+    <AuthContext.Provider value={{ user, isAdmin, loading, mfaRequired, login, verifyMfa, cancelMfa, register, logout }}>
       {children}
     </AuthContext.Provider>
   );

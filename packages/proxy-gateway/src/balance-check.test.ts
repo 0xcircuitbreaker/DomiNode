@@ -98,8 +98,8 @@ describe("proxy-gateway/balance-check", () => {
       await checkBalance(uid);
       expect(mockGetBalance).toHaveBeenCalledTimes(1);
 
-      // Advance past the 5-second TTL
-      vi.advanceTimersByTime(5001);
+      // Advance past the 30-second TTL (default BALANCE_CACHE_TTL_MS)
+      vi.advanceTimersByTime(30_001);
 
       mockGetBalance.mockResolvedValue(0);
       const result = await checkBalance(uid);
