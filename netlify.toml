@@ -1,0 +1,20 @@
+[build]
+  # Monorepo: only build the Vite/React frontend workspace.
+  command = "npm ci --ignore-scripts --workspace=packages/frontend && npm run build --workspace=packages/frontend"
+  publish = "packages/frontend/dist"
+
+# Optional: reverse-proxy API calls to your backend so cookie-based auth stays first-party.
+# Replace the `to` value with your API origin (must be reachable from Netlify).
+#
+# Example:
+# [[redirects]]
+#   from = "/api/*"
+#   to = "https://api.example.com/api/:splat"
+#   status = 200
+#   force = true
+
+# SPA routing support (React Router)
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
