@@ -3,6 +3,9 @@
   command = "npm ci --ignore-scripts --workspace=packages/frontend && npm run build --workspace=packages/frontend"
   publish = "packages/frontend/dist"
 
+[build.environment]
+  NODE_VERSION = "22"
+
 # Optional: reverse-proxy API calls to your backend so cookie-based auth stays first-party.
 # Replace the `to` value with your API origin (must be reachable from Netlify).
 #

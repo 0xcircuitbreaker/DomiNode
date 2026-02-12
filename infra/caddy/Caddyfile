@@ -1,0 +1,8 @@
+# Replace api.yourdomain.com with the real hostname you point at your VPS.
+# Caddy will automatically provision/renew TLS certificates via Let's Encrypt.
+
+api.yourdomain.com {
+  encode zstd gzip
+  reverse_proxy api:3000
+}
+

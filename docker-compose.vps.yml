@@ -1,0 +1,34 @@
+services:
+  # Netlify hosts the frontend in this deployment model.
+  # This disables the local nginx-based frontend container to avoid port conflicts.
+  frontend:
+    profiles: ["local-frontend"]
+
+  # When the API sits behind a reverse proxy (Caddy/Nginx/Cloudflare), trust proxy headers.
+  api:
+    environment:
+      TRUST_PROXY: ${TRUST_PROXY:-1}
+      COOKIE_SECURE: ${COOKIE_SECURE:-true}
+
+  # TLS reverse proxy for the API (recommended for Netlify -> VPS proxying).
+  # Exposes 80/443 on the VPS and forwards to the internal `api:3000` container.
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "${API_HTTP_HOST_PORT:-80}:80"
+      - "${API_HTTPS_HOST_PORT:-443}:443"
+    volumes:
+      - ./infra/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - frontend
+
+volumes:
+  caddy_data:
+  caddy_config:
+

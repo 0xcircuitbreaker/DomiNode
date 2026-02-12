@@ -1602,13 +1602,8 @@ The DomiNode frontend is a static React SPA built with Vite. It can be deployed 
 ### Frontend Build
 
 ```bash
-cd packages/frontend
-
-# Set the API URL (points to your backend server)
-export VITE_API_URL=https://api.yourdomain.com
-
-npm run build
-# Output: packages/frontend/dist/
+npm run build --workspace=packages/frontend
+# Output: packages/frontend/dist
 ```
 
 ### Netlify Deployment
@@ -1620,24 +1615,27 @@ npm run build
 npm install -g netlify-cli
 
 # Deploy
-cd packages/frontend
-netlify deploy --prod --dir=dist
+netlify deploy --prod --dir=packages/frontend/dist
 ```
 
 **Option B: Git-based deployment**
 
 1. Connect your repository to Netlify.
-2. Set build settings:
-   - **Base directory:** `packages/frontend`
-   - **Build command:** `npm run build`
-   - **Publish directory:** `packages/frontend/dist`
-3. Set environment variables in Netlify dashboard:
-   - `VITE_API_URL` = `https://api.yourdomain.com`
+2. Netlify will use `netlify.toml` in the repo root (build command, publish directory, SPA routing).
 
-**SPA Routing:** Create `packages/frontend/public/_redirects` to handle client-side routing:
+**API Proxying (Recommended):**
 
-```
-/*    /index.html   200
+The frontend uses cookie-based auth (httpOnly cookies) and expects the API at the same origin under `/api/*`.
+To make this work on Netlify, proxy `/api/*` to your VPS-hosted API using a Netlify rewrite.
+
+In `netlify.toml`, add this rule **above** the `/* -> /index.html` SPA redirect:
+
+```toml
+[[redirects]]
+  from = "/api/*"
+  to = "https://api.yourdomain.com/api/:splat"
+  status = 200
+  force = true
 ```
 
 ### Vercel Deployment
@@ -1657,8 +1655,6 @@ vercel --prod
 
 1. Connect your repository to Vercel.
 2. Set root directory to `packages/frontend`.
-3. Set environment variables:
-   - `VITE_API_URL` = `https://api.yourdomain.com`
 
 **SPA Routing:** Create `packages/frontend/vercel.json`:
 
@@ -1683,9 +1679,10 @@ Then restart the API service.
 
 ### Vite API Proxy Configuration
 
-For production frontend builds, API calls need to target the backend directly (Vite's dev proxy does not apply to production builds). The frontend should read the API URL from an environment variable at build time.
+In `packages/frontend/vite.config.ts`, the dev server proxies `/api` to `localhost:3000`.
 
-In `packages/frontend/vite.config.ts`, the dev server already proxies `/api` to `localhost:3000`. For production, ensure the frontend's API client uses the `VITE_API_URL` environment variable or defaults to a relative path.
+For production static hosting (Netlify/Vercel), keep `/api/*` working by adding a platform rewrite rule that proxies `/api/*` to your VPS-hosted API (recommended).
+This preserves first-party cookies and avoids third-party cookie restrictions.
 
 ---
 
