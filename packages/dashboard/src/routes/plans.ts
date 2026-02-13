@@ -2,8 +2,8 @@ import { Router } from "express";
 import { planRepo, walletRepo, createLogger, getPool } from "@dominode/shared";
 import { requireAuth, type AuthenticatedRequest } from "../middleware/auth.js";
 
-// Plans that users are allowed to self-select (excludes admin-only and free trial)
-const USER_SELECTABLE_PLANS = new Set(["payg", "vol100", "vol1tb"]);
+// Plans that users are allowed to self-select
+const USER_SELECTABLE_PLANS = new Set(["free", "payg", "vol100", "vol1tb"]);
 
 // Minimum wallet balance required (in cents) to switch to volume plans
 const VOLUME_PLAN_MIN_BALANCE: Record<string, number> = {
@@ -29,6 +29,7 @@ router.get("/", async (_req, res) => {
           ? Number((p.monthlyBandwidthBytes / 1_073_741_824).toFixed(2))
           : null,
         isDefault: p.isDefault,
+        maxConnections: p.maxConnections,
       })),
     });
   } catch (err) {
@@ -57,6 +58,7 @@ router.get("/user/plan", requireAuth, async (req, res) => {
           ? Number((plan.monthlyBandwidthBytes / 1_073_741_824).toFixed(2))
           : null,
         isDefault: plan.isDefault,
+        maxConnections: plan.maxConnections,
       },
       usage: {
         monthlyUsageBytes,
@@ -149,6 +151,7 @@ router.put("/user/plan", requireAuth, async (req, res) => {
           ? Number((plan.monthlyBandwidthBytes / 1_073_741_824).toFixed(2))
           : null,
         isDefault: plan.isDefault,
+        maxConnections: plan.maxConnections,
       },
     });
   } catch (err) {

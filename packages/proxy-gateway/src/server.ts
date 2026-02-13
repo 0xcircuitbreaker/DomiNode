@@ -1,7 +1,7 @@
 import * as crypto from "node:crypto";
 import * as http from "node:http";
 import * as net from "node:net";
-import { createLogger } from "@dominode/shared";
+import { createLogger, planRepo } from "@dominode/shared";
 import type { ProviderSelector } from "@dominode/pool-manager";
 import { authenticateRequest } from "./auth.js";
 import { checkBalance } from "./balance-check.js";
@@ -104,17 +104,23 @@ async function handleRequest(
   }
   const { provider, proxy: upstream } = selected;
 
-  // Per-user connection limit
-  if (!incrementUserConns(auth.userId)) {
+  // Fetch plan for per-plan connection limits and free plan balance bypass
+  const userPlan = await planRepo.getUserPlan(auth.userId);
+
+  // Per-user connection limit (plan-aware)
+  if (!incrementUserConns(auth.userId, userPlan.maxConnections)) {
     sendError(clientRes, 429, "TOO_MANY_CONNECTIONS", "Too many concurrent connections.", { "Retry-After": "5" });
     return;
   }
 
-  const hasBalance = await checkBalance(auth.userId);
-  if (!hasBalance) {
-    decrementUserConns(auth.userId);
-    sendError(clientRes, 402, "INSUFFICIENT_BALANCE", "Insufficient balance. Top up your wallet at the DomiNode dashboard.");
-    return;
+  // Free plan: skip wallet balance check (bandwidth checked in startSession)
+  if (userPlan.pricePerGbCents > 0) {
+    const hasBalance = await checkBalance(auth.userId);
+    if (!hasBalance) {
+      decrementUserConns(auth.userId);
+      sendError(clientRes, 402, "INSUFFICIENT_BALANCE", "Insufficient balance. Top up your wallet at the DomiNode dashboard.");
+      return;
+    }
   }
 
   const targetUrl = clientReq.url ?? "/";
@@ -309,19 +315,25 @@ async function handleConnect(
   // Capture userId before nested closures (TS can't narrow nullable across closures)
   const userId = auth.userId;
 
-  // Per-user connection limit
-  if (!incrementUserConns(userId)) {
+  // Fetch plan for per-plan connection limits and free plan balance bypass
+  const connectPlan = await planRepo.getUserPlan(userId);
+
+  // Per-user connection limit (plan-aware)
+  if (!incrementUserConns(userId, connectPlan.maxConnections)) {
     clientSocket.write("HTTP/1.1 429 Too Many Requests\r\nX-DomiNode-Error: TOO_MANY_CONNECTIONS\r\nRetry-After: 5\r\n\r\n");
     clientSocket.end();
     return;
   }
 
-  const hasBalance = await checkBalance(userId);
-  if (!hasBalance) {
-    decrementUserConns(userId);
-    clientSocket.write("HTTP/1.1 402 Payment Required\r\nX-DomiNode-Error: INSUFFICIENT_BALANCE\r\n\r\n");
-    clientSocket.end();
-    return;
+  // Free plan: skip wallet balance check (bandwidth checked in startSession)
+  if (connectPlan.pricePerGbCents > 0) {
+    const hasBalance = await checkBalance(userId);
+    if (!hasBalance) {
+      decrementUserConns(userId);
+      clientSocket.write("HTTP/1.1 402 Payment Required\r\nX-DomiNode-Error: INSUFFICIENT_BALANCE\r\n\r\n");
+      clientSocket.end();
+      return;
+    }
   }
 
   // Parse host:port correctly for both IPv4 (host:port) and IPv6 ([::1]:port)

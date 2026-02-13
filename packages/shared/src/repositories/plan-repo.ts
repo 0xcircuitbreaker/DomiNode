@@ -7,6 +7,7 @@ interface PlanRow {
   price_per_gb_cents: number;
   monthly_bandwidth_bytes: string; // BIGINT comes as string from pg
   is_default: boolean;
+  max_connections: number;
 }
 
 function rowToPlan(row: PlanRow): Plan {
@@ -16,6 +17,7 @@ function rowToPlan(row: PlanRow): Plan {
     pricePerGbCents: row.price_per_gb_cents,
     monthlyBandwidthBytes: Number(row.monthly_bandwidth_bytes),
     isDefault: row.is_default,
+    maxConnections: row.max_connections,
   };
 }
 

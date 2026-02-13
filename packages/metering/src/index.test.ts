@@ -99,6 +99,16 @@ describe("metering", () => {
       // Default should be 500 (from PRICE_PER_GB_CENTS)
       expect(computeCostCents(1_073_741_824)).toBe(500);
     });
+
+    it("should return 0 for any bytes when pricePerGbCents is 0 (free plan)", () => {
+      expect(computeCostCents(1_073_741_824, 0)).toBe(0);
+      expect(computeCostCents(1, 0)).toBe(0);
+      expect(computeCostCents(10_000_000, 0)).toBe(0);
+    });
+
+    it("should return 0 for negative pricePerGbCents", () => {
+      expect(computeCostCents(1_073_741_824, -100)).toBe(0);
+    });
   });
 
   describe("recordUsage", () => {

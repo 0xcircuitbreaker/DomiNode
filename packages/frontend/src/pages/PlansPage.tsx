@@ -10,6 +10,7 @@ interface PlanItem {
   monthlyBandwidthBytes: number;
   monthlyBandwidthGB: number | null;
   isDefault: boolean;
+  maxConnections: number;
 }
 
 interface PlansResponse {
@@ -83,7 +84,7 @@ export default function PlansPage() {
             </div>
             <div className="text-right">
               <p className="text-sm text-gray-400">Price</p>
-              <p className="text-2xl font-bold mt-1">${userPlan.plan.pricePerGbUsd}/GB</p>
+              <p className="text-2xl font-bold mt-1">{userPlan.plan.pricePerGbCents === 0 ? "Free" : `$${userPlan.plan.pricePerGbUsd}/GB`}</p>
             </div>
           </div>
 
@@ -141,16 +142,18 @@ export default function PlansPage() {
               )}
               <h3 className="text-lg font-semibold">{plan.name}</h3>
               <p className="text-3xl font-bold mt-2">
-                ${plan.pricePerGbUsd}
-                <span className="text-sm font-normal text-gray-400">/GB</span>
+                {plan.pricePerGbCents === 0 ? "Free" : (<>${plan.pricePerGbUsd}<span className="text-sm font-normal text-gray-400">/GB</span></>)}
               </p>
               <p className="text-sm text-gray-400 mt-2">
                 {formatBandwidth(plan.monthlyBandwidthGB)}
                 {plan.monthlyBandwidthGB ? " /month" : ""}
               </p>
               <p className="text-xs text-gray-500 mt-1">
+                {plan.maxConnections} concurrent connections
+              </p>
+              <p className="text-xs text-gray-500 mt-1">
                 {plan.id === "free"
-                  ? "100 MB trial bandwidth for new users"
+                  ? "500 MB free bandwidth, no payment required"
                   : plan.id === "payg"
                     ? "Standard rate, no commitment"
                     : plan.id === "vol100"
@@ -185,6 +188,7 @@ export default function PlansPage() {
                 <th className="text-left px-4 py-3 font-medium">Plan</th>
                 <th className="text-left px-4 py-3 font-medium">Price/GB</th>
                 <th className="text-left px-4 py-3 font-medium">Monthly Bandwidth</th>
+                <th className="text-left px-4 py-3 font-medium">Max Connections</th>
                 <th className="text-left px-4 py-3 font-medium">Savings</th>
               </tr>
             </thead>
@@ -197,12 +201,15 @@ export default function PlansPage() {
                       <span className="ml-2 text-xs text-indigo-400">(current)</span>
                     )}
                   </td>
-                  <td className="px-4 py-3">${plan.pricePerGbUsd}</td>
+                  <td className="px-4 py-3">{plan.pricePerGbCents === 0 ? "Free" : `$${plan.pricePerGbUsd}`}</td>
                   <td className="px-4 py-3 text-gray-400">{formatBandwidth(plan.monthlyBandwidthGB)}</td>
+                  <td className="px-4 py-3 text-gray-400">{plan.maxConnections}</td>
                   <td className="px-4 py-3 text-gray-400">
-                    {plan.pricePerGbCents < 500
-                      ? `${Math.round((1 - plan.pricePerGbCents / 500) * 100)}% off`
-                      : "-"}
+                    {plan.pricePerGbCents === 0
+                      ? "Free"
+                      : plan.pricePerGbCents < 500
+                        ? `${Math.round((1 - plan.pricePerGbCents / 500) * 100)}% off`
+                        : "-"}
                   </td>
                 </tr>
               ))}

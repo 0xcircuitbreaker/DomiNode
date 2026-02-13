@@ -14,6 +14,7 @@ const MAX_COST_CENTS = 2_147_483_647;
 
 export function computeCostCents(totalBytes: number, pricePerGbCents: number = PRICE_PER_GB_CENTS): number {
   if (totalBytes <= 0) return 0;
+  if (pricePerGbCents <= 0) return 0; // Free plan — no charge
   // R14 H-3: guard against non-finite or extreme values
   if (!Number.isFinite(totalBytes) || totalBytes > Number.MAX_SAFE_INTEGER) {
     return MAX_COST_CENTS;

@@ -51,6 +51,27 @@ describe("proxy-gateway/connection-tracker", () => {
       }
     });
 
+    it("should respect custom maxConns parameter", () => {
+      const userId = "inc-user-custom-" + Date.now();
+      // Custom limit of 10 (like free plan)
+      for (let i = 0; i < 10; i++) {
+        expect(incrementUserConns(userId, 10)).toBe(true);
+      }
+      // 11th should be rejected with custom limit
+      expect(incrementUserConns(userId, 10)).toBe(false);
+      expect(getUserConnCount(userId)).toBe(10);
+      for (let i = 0; i < 10; i++) {
+        decrementUserConns(userId);
+      }
+    });
+
+    it("should use default MAX_PER_USER when maxConns not provided", () => {
+      const userId = "inc-user-default-" + Date.now();
+      expect(incrementUserConns(userId)).toBe(true);
+      expect(getUserConnCount(userId)).toBe(1);
+      decrementUserConns(userId);
+    });
+
     it("should track different users independently", () => {
       const user1 = "inc-indep-1-" + Date.now();
       const user2 = "inc-indep-2-" + Date.now();

@@ -131,21 +131,29 @@ export async function startSession(
     });
   }
 
-  // C1 fix: Reserve balance BEFORE creating session — no free proxy usage
-  const walletId = await walletRepo.reserveBalance(userId, MIN_RESERVATION_CENTS);
-  if (!walletId) {
-    throw new Error("Insufficient balance for reservation");
-  }
+  // Free plan (price=0): skip balance reservation entirely
+  const isFreePlan = pricePerGbCents === 0;
+  let reservedCents = 0;
 
-  invalidateBalanceCache(userId);
+  if (!isFreePlan) {
+    // C1 fix: Reserve balance BEFORE creating session — no free proxy usage
+    const walletId = await walletRepo.reserveBalance(userId, MIN_RESERVATION_CENTS);
+    if (!walletId) {
+      throw new Error("Insufficient balance for reservation");
+    }
+    reservedCents = MIN_RESERVATION_CENTS;
+    invalidateBalanceCache(userId);
+  }
 
   let dbSession;
   try {
     dbSession = await usageRepo.createSession(userId, "packetstream");
   } catch (err) {
     // If DB session creation fails, release the reservation
-    await walletRepo.releaseReservation(userId, MIN_RESERVATION_CENTS);
-    invalidateBalanceCache(userId);
+    if (reservedCents > 0) {
+      await walletRepo.releaseReservation(userId, reservedCents);
+      invalidateBalanceCache(userId);
+    }
     throw err;
   }
 
@@ -157,7 +165,7 @@ export async function startSession(
     targetHost,
     startedAt: new Date(),
     counter,
-    reservedCents: MIN_RESERVATION_CENTS,
+    reservedCents,
     connectLatencyMs,
     errorCount: 0,
     pricePerGbCents,
@@ -187,8 +195,15 @@ export async function endSession(sessionId: string): Promise<void> {
   const actualCostCents = computeCostCents(totalBytes, pricePerGbCents);
 
   try {
-    // Record usage in DB
+    // Record usage in DB (even for free plan — tracks bandwidth)
     await recordUsage(userId, sessionId, counter.bytesIn, counter.bytesOut, targetHost, pricePerGbCents, connectLatencyMs);
+
+    // Free plan: no wallet settlement needed (no reservation, no cost)
+    if (reservedCents === 0 && actualCostCents === 0) {
+      await usageRepo.endSession(sessionId, totalBytes, "completed");
+      log.info("session ended (free)", { sessionId, userId, totalBytes });
+      return;
+    }
 
     // C1 fix: Settle — adjust from reserved amount to actual cost
     const settled = await walletRepo.settleSession(userId, reservedCents, actualCostCents, sessionId);

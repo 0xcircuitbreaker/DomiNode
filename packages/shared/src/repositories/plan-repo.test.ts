@@ -20,6 +20,7 @@ const defaultPlanRow = {
   price_per_gb_cents: 500,
   monthly_bandwidth_bytes: "0",
   is_default: true,
+  max_connections: 100,
 };
 
 const proPlanRow = {
@@ -28,6 +29,7 @@ const proPlanRow = {
   price_per_gb_cents: 300,
   monthly_bandwidth_bytes: "107374182400",
   is_default: false,
+  max_connections: 100,
 };
 
 describe("plan-repo", () => {
@@ -46,6 +48,7 @@ describe("plan-repo", () => {
         pricePerGbCents: 500,
         monthlyBandwidthBytes: 0,
         isDefault: true,
+        maxConnections: 100,
       });
     });
 
@@ -111,6 +114,7 @@ describe("plan-repo", () => {
         expect(plan).toHaveProperty("pricePerGbCents");
         expect(plan).toHaveProperty("monthlyBandwidthBytes");
         expect(plan).toHaveProperty("isDefault");
+        expect(plan).toHaveProperty("maxConnections");
       }
     });
   });
@@ -126,6 +130,7 @@ describe("plan-repo", () => {
         pricePerGbCents: 300,
         monthlyBandwidthBytes: 107374182400,
         isDefault: false,
+        maxConnections: 100,
       });
     });
 

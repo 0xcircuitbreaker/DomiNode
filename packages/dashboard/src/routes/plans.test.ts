@@ -174,7 +174,8 @@ describe("plans routes", () => {
           name: "Pay As You Go",
           pricePerGbCents: 500,
           monthlyBandwidthBytes: 0,
-          isDefault: true,
+          isDefault: false,
+          maxConnections: 100,
         },
         {
           id: "vol100",
@@ -182,6 +183,7 @@ describe("plans routes", () => {
           pricePerGbCents: 400,
           monthlyBandwidthBytes: 107_374_182_400,
           isDefault: false,
+          maxConnections: 100,
         },
       ]);
 
@@ -195,9 +197,11 @@ describe("plans routes", () => {
       expect(plans[0].pricePerGbCents).toBe(500);
       expect(plans[0].pricePerGbUsd).toBe(5);
       expect(plans[0].monthlyBandwidthGB).toBeNull(); // 0 bytes => null
-      expect(plans[0].isDefault).toBe(true);
+      expect(plans[0].isDefault).toBe(false);
+      expect(plans[0].maxConnections).toBe(100);
       expect(plans[1].id).toBe("vol100");
       expect(plans[1].monthlyBandwidthGB).toBeCloseTo(100, 0);
+      expect(plans[1].maxConnections).toBe(100);
     });
 
     it("should return 500 on DB error", async () => {
@@ -220,7 +224,8 @@ describe("plans routes", () => {
         name: "Pay As You Go",
         pricePerGbCents: 500,
         monthlyBandwidthBytes: 0,
-        isDefault: true,
+        isDefault: false,
+        maxConnections: 100,
       });
       mockGetMonthlyUsage.mockResolvedValueOnce(536_870_912); // 0.5 GB
 
@@ -254,7 +259,8 @@ describe("plans routes", () => {
         name: "Pay As You Go",
         pricePerGbCents: 500,
         monthlyBandwidthBytes: 0,
-        isDefault: true,
+        isDefault: false,
+        maxConnections: 100,
       });
       mockSetUserPlan.mockResolvedValueOnce(undefined);
 
@@ -269,7 +275,7 @@ describe("plans routes", () => {
 
     it("should return 403 when plan is not user-selectable", async () => {
       const app = createApp();
-      const res = await requestWithBody(app, "PUT", "/api/plans/user/plan", { planId: "free_trial" });
+      const res = await requestWithBody(app, "PUT", "/api/plans/user/plan", { planId: "enterprise" });
 
       expect(res.status).toBe(403);
       expect(res.body.error).toContain("cannot be selected");
@@ -303,6 +309,7 @@ describe("plans routes", () => {
         pricePerGbCents: 400,
         monthlyBandwidthBytes: 107_374_182_400,
         isDefault: false,
+        maxConnections: 100,
       });
       // Mock pool client queries: BEGIN, SELECT FOR UPDATE (low balance), ROLLBACK
       mockPoolQuery
@@ -325,6 +332,7 @@ describe("plans routes", () => {
         pricePerGbCents: 300,
         monthlyBandwidthBytes: 1_099_511_627_776,
         isDefault: false,
+        maxConnections: 100,
       });
       // Mock pool client queries: BEGIN, SELECT FOR UPDATE (no wallet), ROLLBACK
       mockPoolQuery
@@ -346,6 +354,7 @@ describe("plans routes", () => {
         pricePerGbCents: 400,
         monthlyBandwidthBytes: 107_374_182_400,
         isDefault: false,
+        maxConnections: 100,
       });
       // Mock pool client queries: BEGIN, SELECT FOR UPDATE (sufficient balance), INSERT, COMMIT
       mockPoolQuery
@@ -371,7 +380,8 @@ describe("plans routes", () => {
         name: "Pay As You Go",
         pricePerGbCents: 500,
         monthlyBandwidthBytes: 0,
-        isDefault: true,
+        isDefault: false,
+        maxConnections: 100,
       });
       mockSetUserPlan.mockRejectedValueOnce(new Error("DB error"));
 

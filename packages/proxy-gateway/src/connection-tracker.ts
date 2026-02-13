@@ -14,10 +14,12 @@ if (isNaN(MAX_PER_USER) || MAX_PER_USER <= 0) {
 /**
  * Increment connection count for a user.
  * Returns false if the user is at the connection limit.
+ * @param maxConns Optional per-plan connection limit (defaults to PROXY_MAX_PER_USER env var)
  */
-export function incrementUserConns(userId: string): boolean {
+export function incrementUserConns(userId: string, maxConns?: number): boolean {
+  const limit = maxConns ?? MAX_PER_USER;
   const current = userConnectionCounts.get(userId) ?? 0;
-  if (current >= MAX_PER_USER) return false;
+  if (current >= limit) return false;
   // Reject new users if Map is at capacity (prevent OOM under heavy load)
   if (current === 0 && userConnectionCounts.size >= MAX_TRACKED_USERS) {
     log.warn("connection tracker at capacity, rejecting new user", { userId, size: userConnectionCounts.size });

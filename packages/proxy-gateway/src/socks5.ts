@@ -1,5 +1,5 @@
 import * as net from "node:net";
-import { createLogger, hashApiKey, userRepo } from "@dominode/shared";
+import { createLogger, hashApiKey, userRepo, planRepo } from "@dominode/shared";
 import type { ProviderSelector } from "@dominode/pool-manager";
 import { checkBalance } from "./balance-check.js";
 import { attachByteCounters } from "./counting-stream.js";
@@ -159,20 +159,25 @@ async function handleSocks5Connection(clientSocket: net.Socket, providerSelector
   // Auth success
   clientSocket.write(Buffer.from([USERPASS_VER, 0x00]));
 
-  // Per-user connection limit
-  if (!incrementUserConns(userId)) {
+  // Fetch plan for per-plan connection limits and free plan balance bypass
+  const socksUserPlan = await planRepo.getUserPlan(userId);
+
+  // Per-user connection limit (plan-aware)
+  if (!incrementUserConns(userId, socksUserPlan.maxConnections)) {
     sendReply(clientSocket, REP_NOT_ALLOWED);
     clientSocket.end();
     return;
   }
 
-  // Balance check
-  const hasBalance = await checkBalance(userId);
-  if (!hasBalance) {
-    decrementUserConns(userId);
-    sendReply(clientSocket, REP_NOT_ALLOWED);
-    clientSocket.end();
-    return;
+  // Free plan: skip wallet balance check (bandwidth checked in startSession)
+  if (socksUserPlan.pricePerGbCents > 0) {
+    const hasBalance = await checkBalance(userId);
+    if (!hasBalance) {
+      decrementUserConns(userId);
+      sendReply(clientSocket, REP_NOT_ALLOWED);
+      clientSocket.end();
+      return;
+    }
   }
 
   // Step 3: Read request (VER, CMD, RSV, ATYP, DST.ADDR, DST.PORT)

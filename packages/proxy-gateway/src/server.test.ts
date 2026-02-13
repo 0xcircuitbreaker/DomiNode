@@ -27,6 +27,7 @@ const mockRecordSuccess = vi.fn();
 const mockRecordFailure = vi.fn();
 const mockGetProviderCount = vi.fn();
 const mockGetProviderStats = vi.fn();
+const mockGetUserPlan = vi.fn();
 
 vi.mock("./auth.js", () => ({
   authenticateRequest: (...args: unknown[]) => mockAuthenticateRequest(...args),
@@ -87,6 +88,9 @@ vi.mock("@dominode/shared", () => ({
     error: vi.fn(),
     debug: vi.fn(),
   }),
+  planRepo: {
+    getUserPlan: (...args: unknown[]) => mockGetUserPlan(...args),
+  },
 }));
 
 vi.mock("@dominode/pool-manager", () => ({
@@ -164,6 +168,7 @@ describe("proxy-gateway server", () => {
       provider: { name: "packetstream" },
       proxy: { host: "gw.test.io", port: 31112, proxyAuth: Buffer.from("u:p").toString("base64") },
     });
+    mockGetUserPlan.mockResolvedValue({ id: "payg", name: "PAYG", pricePerGbCents: 500, monthlyBandwidthBytes: 0, isDefault: false, maxConnections: 100 });
     mockIncrementUserConns.mockReturnValue(true);
     mockCheckBalance.mockResolvedValue(true);
     mockValidateTarget.mockResolvedValue({ allowed: true });

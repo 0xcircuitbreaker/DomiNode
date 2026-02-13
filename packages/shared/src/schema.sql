@@ -127,22 +127,33 @@ CREATE TABLE IF NOT EXISTS plans (
   name                  TEXT NOT NULL,
   price_per_gb_cents    INTEGER NOT NULL,
   monthly_bandwidth_bytes BIGINT NOT NULL DEFAULT 0,
-  is_default            BOOLEAN NOT NULL DEFAULT false
+  is_default            BOOLEAN NOT NULL DEFAULT false,
+  max_connections       INTEGER NOT NULL DEFAULT 100
 );
 
 -- Seed plans
-INSERT INTO plans (id, name, price_per_gb_cents, monthly_bandwidth_bytes, is_default) VALUES
-  ('free',   'Free Trial',    500, 107374182,      false),
-  ('payg',   'Pay As You Go', 500, 0,              true),
-  ('vol100', 'Volume 100GB',  400, 107374182400,   false),
-  ('vol1tb', 'Volume 1TB',    300, 1099511627776,  false)
+INSERT INTO plans (id, name, price_per_gb_cents, monthly_bandwidth_bytes, is_default, max_connections) VALUES
+  ('free',   'Free',          0,   524288000,       true,  10),
+  ('payg',   'Pay As You Go', 500, 0,               false, 100),
+  ('vol100', 'Volume 100GB',  400, 107374182400,    false, 100),
+  ('vol1tb', 'Volume 1TB',    300, 1099511627776,   false, 100)
 ON CONFLICT (id) DO NOTHING;
 
 -- Add plan to users (idempotent)
 DO $$ BEGIN
-  ALTER TABLE users ADD COLUMN plan_id TEXT NOT NULL DEFAULT 'payg' REFERENCES plans(id);
+  ALTER TABLE users ADD COLUMN plan_id TEXT NOT NULL DEFAULT 'free' REFERENCES plans(id);
 EXCEPTION WHEN duplicate_column THEN NULL;
 END $$;
+
+-- Add max_connections to plans (idempotent migration for existing DBs)
+DO $$ BEGIN
+  ALTER TABLE plans ADD COLUMN max_connections INTEGER NOT NULL DEFAULT 100;
+EXCEPTION WHEN duplicate_column THEN NULL;
+END $$;
+
+-- Update free plan for existing databases (bandwidth, price, default, max_connections)
+UPDATE plans SET price_per_gb_cents = 0, monthly_bandwidth_bytes = 524288000, is_default = true, max_connections = 10, name = 'Free' WHERE id = 'free';
+UPDATE plans SET is_default = false WHERE id = 'payg';
 
 -- Add admin role (idempotent)
 DO $$ BEGIN

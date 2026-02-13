@@ -117,6 +117,7 @@ export interface Plan {
   pricePerGbCents: number;
   monthlyBandwidthBytes: number;
   isDefault: boolean;
+  maxConnections: number;
 }
 
 // ─── Admin Views ────────────────────────────────────────────────────

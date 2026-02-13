@@ -38,6 +38,7 @@ const mockRecordUsage = vi.fn().mockResolvedValue({});
 vi.mock("@dominode/metering", () => ({
   computeCostCents: (bytes: number, pricePerGb: number = 500) => {
     if (bytes <= 0) return 0;
+    if (pricePerGb <= 0) return 0;
     return Math.max(Math.ceil((bytes / 1_073_741_824) * pricePerGb), 1);
   },
   recordUsage: (...args: unknown[]) => mockRecordUsage(...args),
@@ -69,7 +70,7 @@ describe("proxy-gateway/session-manager", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     // Default: plan lookup returns default PAYG rate (unlimited bandwidth)
-    mockGetUserPlan.mockResolvedValue({ id: "payg", name: "PAYG", pricePerGbCents: 500, monthlyBandwidthBytes: 0, isDefault: true });
+    mockGetUserPlan.mockResolvedValue({ id: "payg", name: "PAYG", pricePerGbCents: 500, monthlyBandwidthBytes: 0, isDefault: true, maxConnections: 100 });
     mockGetMonthlyUsage.mockResolvedValue(0);
   });
 
@@ -172,12 +173,13 @@ describe("proxy-gateway/session-manager", () => {
     it("should reject session when monthly bandwidth limit exceeded", async () => {
       mockGetUserPlan.mockResolvedValueOnce({
         id: "free",
-        name: "Free Trial",
-        pricePerGbCents: 500,
-        monthlyBandwidthBytes: 107374182, // ~100MB
-        isDefault: false,
+        name: "Free",
+        pricePerGbCents: 0,
+        monthlyBandwidthBytes: 524288000, // 500MB
+        isDefault: true,
+        maxConnections: 10,
       });
-      mockGetMonthlyUsage.mockResolvedValueOnce(200_000_000); // 200MB > 100MB limit
+      mockGetMonthlyUsage.mockResolvedValueOnce(600_000_000); // 600MB > 500MB limit
 
       const counter = makeCounter();
       await expect(
@@ -191,24 +193,67 @@ describe("proxy-gateway/session-manager", () => {
     it("should allow session when within bandwidth limit", async () => {
       mockGetUserPlan.mockResolvedValueOnce({
         id: "free",
-        name: "Free Trial",
-        pricePerGbCents: 500,
-        monthlyBandwidthBytes: 107374182,
-        isDefault: false,
+        name: "Free",
+        pricePerGbCents: 0,
+        monthlyBandwidthBytes: 524288000,
+        isDefault: true,
+        maxConnections: 10,
       });
-      mockGetMonthlyUsage.mockResolvedValueOnce(50_000_000); // 50MB < 100MB
+      mockGetMonthlyUsage.mockResolvedValueOnce(50_000_000); // 50MB < 500MB
 
-      mockReserveBalance.mockResolvedValueOnce("wallet-1");
+      // Free plan: no reservation needed
       mockCreateSession.mockResolvedValueOnce({ id: "sess-within-limit" });
 
       const counter = makeCounter();
       const sessId = await startSession("user-free", "example.com", counter);
       expect(sessId).toBe("sess-within-limit");
 
-      // Clean up
-      mockSettleSession.mockResolvedValueOnce(true);
+      // Free plan: no reservation should have been made
+      expect(mockReserveBalance).not.toHaveBeenCalled();
+
+      // Clean up (free plan endSession skips wallet settlement)
       mockEndSessionRepo.mockResolvedValueOnce(undefined);
       await endSession(sessId);
+    });
+
+    it("should skip balance reservation for free plan (price=0)", async () => {
+      mockGetUserPlan.mockResolvedValueOnce({
+        id: "free",
+        name: "Free",
+        pricePerGbCents: 0,
+        monthlyBandwidthBytes: 524288000,
+        isDefault: true,
+        maxConnections: 10,
+      });
+      mockGetMonthlyUsage.mockResolvedValueOnce(100_000_000); // 100MB
+
+      mockCreateSession.mockResolvedValueOnce({ id: "sess-free-no-reserve" });
+
+      const counter = makeCounter(5000, 10000);
+      const sessId = await startSession("user-free2", "example.com", counter);
+      expect(sessId).toBe("sess-free-no-reserve");
+
+      // Should NOT have attempted to reserve balance
+      expect(mockReserveBalance).not.toHaveBeenCalled();
+
+      // End session: should record usage but skip wallet settlement
+      mockEndSessionRepo.mockResolvedValueOnce(undefined);
+      await endSession(sessId);
+
+      // Usage should still be recorded
+      expect(mockRecordUsage).toHaveBeenCalledWith(
+        "user-free2",
+        "sess-free-no-reserve",
+        5000,
+        10000,
+        "example.com",
+        0, // free plan pricing
+        expect.any(Number),
+      );
+      // Wallet settle should NOT have been called
+      expect(mockSettleSession).not.toHaveBeenCalled();
+      // Session should be marked completed
+      expect(mockEndSessionRepo).toHaveBeenCalledWith("sess-free-no-reserve", 15000, "completed");
     });
 
     it("should skip bandwidth check for unlimited plans (0 bytes)", async () => {
@@ -427,6 +472,7 @@ describe("proxy-gateway/session-manager", () => {
         pricePerGbCents: 300,
         monthlyBandwidthBytes: 100_000_000_000,
         isDefault: false,
+        maxConnections: 100,
       };
       // Single call: plan fetched once in startSession, price locked in session (R13 H-2)
       mockGetUserPlan.mockResolvedValueOnce(proPlan);
