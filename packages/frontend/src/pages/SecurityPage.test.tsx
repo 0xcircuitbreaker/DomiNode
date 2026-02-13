@@ -126,7 +126,9 @@ describe("SecurityPage", () => {
       expect(screen.getByText(/Disabling 2FA will remove/)).toBeInTheDocument();
     });
 
-    expect(screen.getByText("Password")).toBeInTheDocument();
+    // Both the MFA disable form and the Password section have "Password" text,
+    // so use getAllByText to verify it appears
+    expect(screen.getAllByText("Password").length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText("TOTP or backup code")).toBeInTheDocument();
   });
 });

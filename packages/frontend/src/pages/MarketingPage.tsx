@@ -31,6 +31,7 @@ const FALLBACK_PLANS: PlanItem[] = [
   { id: "payg", name: "Pay As You Go", pricePerGbCents: 500, pricePerGbUsd: 5, monthlyBandwidthGB: null, maxConnections: 100 },
   { id: "vol100", name: "Volume 100GB", pricePerGbCents: 400, pricePerGbUsd: 4, monthlyBandwidthGB: 100, maxConnections: 100 },
   { id: "vol1tb", name: "Volume 1TB", pricePerGbCents: 300, pricePerGbUsd: 3, monthlyBandwidthGB: 1024, maxConnections: 100 },
+  { id: "agent", name: "AI Agent", pricePerGbCents: 500, pricePerGbUsd: 5, monthlyBandwidthGB: 5, maxConnections: 50 },
 ];
 const DEFAULT_FEATURED_PLAN_ID = "vol1tb";
 
@@ -53,6 +54,65 @@ const SERVICE_PILLARS = [
   },
 ];
 
+const AI_AGENT_FEATURES = [
+  {
+    title: "One-Line Install",
+    detail: "npx @dominode/mcp-server",
+    summary: "Works with Claude, Gemini, Codex, Cursor, VS Code, and any MCP-compatible AI agent. Zero config bootstrap mode.",
+  },
+  {
+    title: "Agent Self-Signup",
+    detail: "dominode_setup",
+    summary: "AI agents create their own accounts, generate API keys, and start proxying — no human intervention required.",
+  },
+  {
+    title: "x402 Micropayments",
+    detail: "Pay-per-request with USDC",
+    summary: "HTTP 402 protocol support. Agents pay with Coinbase Agentic Wallets — no signup, no API key, just USDC on Base chain.",
+  },
+  {
+    title: "Privacy Coin Billing",
+    detail: "XMR / ZEC / BTC",
+    summary: "Anonymous payments via Monero and Zcash. No identity linked to your proxy traffic. The only agent proxy with true payment anonymity.",
+  },
+  {
+    title: "Wallet-Verified Registration",
+    detail: "EIP-191 Signature Auth",
+    summary: "Agents register with an Ethereum wallet signature — no email, no password. Cryptographic proof of identity for autonomous operation.",
+  },
+];
+
+const PLATFORM_CONFIGS = [
+  {
+    name: "Claude Desktop",
+    config: `{
+  "mcpServers": {
+    "dominode": {
+      "command": "npx",
+      "args": ["-y", "@dominode/mcp-server"]
+    }
+  }
+}`,
+  },
+  {
+    name: "Claude Code",
+    config: `claude mcp add dominode -- npx -y @dominode/mcp-server`,
+  },
+  {
+    name: "Cursor / VS Code",
+    config: `{
+  "mcp": {
+    "servers": {
+      "dominode": {
+        "command": "npx",
+        "args": ["-y", "@dominode/mcp-server"]
+      }
+    }
+  }
+}`,
+  },
+];
+
 const PROOF_POINTS = [
   { value: "HTTP + SOCKS5", label: "Protocol support" },
   { value: "100+", label: "Country routes upstream" },
@@ -64,7 +124,7 @@ const WORKFLOW_STEPS = [
   {
     step: "1",
     title: "Create a free account",
-    body: "Sign up in seconds — no credit card needed. Get 10 residential proxy connections and 1 GB of bandwidth immediately.",
+    body: "Sign up in seconds with email or an Ethereum wallet — no credit card needed. Get 10 residential proxy connections and 1 GB of bandwidth immediately.",
   },
   {
     step: "2",
@@ -177,7 +237,7 @@ export default function MarketingPage() {
   const { data: healthData } = useApi<ProxyHealthResponse>(() => get("/api/proxy/health", { redirectOnUnauthorized: false }));
 
   const plans = (plansData?.plans ?? FALLBACK_PLANS)
-    .filter((p) => p.id === "free" || p.id === "payg" || p.id === "vol100" || p.id === "vol1tb")
+    .filter((p) => p.id === "free" || p.id === "payg" || p.id === "vol100" || p.id === "vol1tb" || p.id === "agent")
     .sort((a, b) => a.pricePerGbUsd - b.pricePerGbUsd);
 
   const registerHref = user ? "/app" : "/login?mode=register";
@@ -201,6 +261,7 @@ export default function MarketingPage() {
           <nav className="mk-links" aria-label="Primary">
             <a href="#top">Home</a>
             <a href="#services">Services</a>
+            <a href="#ai-agents">AI Agents</a>
             <a href="#platform">Platform</a>
             <a href="#security">Security</a>
             <a href="#pricing">Pricing</a>
@@ -336,6 +397,47 @@ export default function MarketingPage() {
               <h3>Governance and admin control</h3>
               <p>Suspend accounts, revoke API credentials, and terminate active sessions from an admin control surface.</p>
             </div>
+          </div>
+        </section>
+
+        <section id="ai-agents" className="mk-shell mk-section">
+          <div className="mk-section-head mk-animate-up">
+            <p className="mk-overline">AI Agent Proxy</p>
+            <h2>Give your AI agents autonomous proxy access in 30 seconds</h2>
+          </div>
+
+          <div className="mk-service-grid">
+            {AI_AGENT_FEATURES.map((feat, index) => (
+              <article key={feat.title} className={`mk-card mk-animate-up mk-delay-${index + 1}`}>
+                <h3>{feat.title}</h3>
+                <pre className="mk-code" style={{ marginBottom: "0.75rem", fontSize: "0.8rem" }}>
+                  <code>{feat.detail}</code>
+                </pre>
+                <p>{feat.summary}</p>
+              </article>
+            ))}
+          </div>
+
+          <div className="mk-animate-up mk-delay-2" style={{ marginTop: "3rem" }}>
+            <h3 style={{ textAlign: "center", marginBottom: "1.5rem" }}>Quick Setup for Every Platform</h3>
+            <div className="mk-card-grid" style={{ gap: "1.5rem" }}>
+              {PLATFORM_CONFIGS.map((platform) => (
+                <article key={platform.name} className="mk-card">
+                  <h3>{platform.name}</h3>
+                  <pre className="mk-code" style={{ fontSize: "0.75rem", overflowX: "auto" }}>
+                    <code>{platform.config}</code>
+                  </pre>
+                </article>
+              ))}
+            </div>
+          </div>
+
+          <div className="mk-animate-up mk-delay-3" style={{ marginTop: "2rem", textAlign: "center" }}>
+            <p style={{ color: "var(--mk-muted)", maxWidth: "600px", margin: "0 auto 1.5rem" }}>
+              No API key? No problem. Start in bootstrap mode — your AI agent creates its own account
+              with <code>dominode_setup</code>, generates an API key, and starts proxying immediately.
+              Free tier includes 1 GB bandwidth and 10 connections.
+            </p>
           </div>
         </section>
 

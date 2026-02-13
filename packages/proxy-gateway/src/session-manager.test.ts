@@ -48,7 +48,7 @@ vi.mock("./balance-check.js", () => ({
   invalidateBalanceCache: vi.fn(),
 }));
 
-import { startSession, endSession, getActiveSessionCount, checkSessionRateLimit } from "./session-manager.js";
+import { startSession, endSession, getActiveSessionCount, checkSessionRateLimit, checkBandwidthVelocity, recordBandwidthUsage } from "./session-manager.js";
 import type { ByteCounter } from "./counting-stream.js";
 
 function makeCounter(bytesIn = 0, bytesOut = 0): ByteCounter {
@@ -70,7 +70,7 @@ describe("proxy-gateway/session-manager", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     // Default: plan lookup returns default PAYG rate (unlimited bandwidth)
-    mockGetUserPlan.mockResolvedValue({ id: "payg", name: "PAYG", pricePerGbCents: 500, monthlyBandwidthBytes: 0, isDefault: true, maxConnections: 100 });
+    mockGetUserPlan.mockResolvedValue({ id: "payg", name: "PAYG", pricePerGbCents: 500, monthlyBandwidthBytes: 0, isDefault: true, maxConnections: 100, maxSessionsPerMinute: 30 });
     mockGetMonthlyUsage.mockResolvedValue(0);
   });
 
@@ -175,9 +175,10 @@ describe("proxy-gateway/session-manager", () => {
         id: "free",
         name: "Free",
         pricePerGbCents: 0,
-        monthlyBandwidthBytes: 1073741824, // 500MB
+        monthlyBandwidthBytes: 1073741824,
         isDefault: true,
         maxConnections: 10,
+        maxSessionsPerMinute: 30,
       });
       mockGetMonthlyUsage.mockResolvedValueOnce(2_000_000_000); // 2GB > 1GB limit
 
@@ -198,6 +199,7 @@ describe("proxy-gateway/session-manager", () => {
         monthlyBandwidthBytes: 1073741824,
         isDefault: true,
         maxConnections: 10,
+        maxSessionsPerMinute: 30,
       });
       mockGetMonthlyUsage.mockResolvedValueOnce(50_000_000); // 50MB < 1GB
 
@@ -224,6 +226,7 @@ describe("proxy-gateway/session-manager", () => {
         monthlyBandwidthBytes: 1073741824,
         isDefault: true,
         maxConnections: 10,
+        maxSessionsPerMinute: 30,
       });
       mockGetMonthlyUsage.mockResolvedValueOnce(100_000_000); // 100MB
 
@@ -473,6 +476,7 @@ describe("proxy-gateway/session-manager", () => {
         monthlyBandwidthBytes: 100_000_000_000,
         isDefault: false,
         maxConnections: 100,
+        maxSessionsPerMinute: 60,
       };
       // Single call: plan fetched once in startSession, price locked in session (R13 H-2)
       mockGetUserPlan.mockResolvedValueOnce(proPlan);
@@ -607,6 +611,64 @@ describe("proxy-gateway/session-manager", () => {
       await expect(
         startSession(userId, "example.com", counter),
       ).rejects.toThrow("Session rate limit exceeded");
+    });
+
+    it("should respect per-plan session rate limit (R18)", () => {
+      const userId = `rate-plan-${Date.now()}`;
+      // Agent plan allows 60 sessions/minute
+      for (let i = 0; i < 60; i++) {
+        expect(checkSessionRateLimit(userId, 60)).toBe(true);
+      }
+      // 61st should be rejected
+      expect(checkSessionRateLimit(userId, 60)).toBe(false);
+    });
+
+    it("should use lower limit from plan when plan limit is lower", () => {
+      const userId = `rate-low-plan-${Date.now()}`;
+      // Plan allows only 5 sessions/minute
+      for (let i = 0; i < 5; i++) {
+        expect(checkSessionRateLimit(userId, 5)).toBe(true);
+      }
+      expect(checkSessionRateLimit(userId, 5)).toBe(false);
+    });
+  });
+
+  describe("checkBandwidthVelocity", () => {
+    it("should allow bandwidth under the limit", () => {
+      const userId = `bw-ok-${Date.now()}`;
+      const result = checkBandwidthVelocity(userId);
+      expect(result.allowed).toBe(true);
+      expect(result.usedBytes).toBe(0);
+    });
+
+    it("should track bandwidth across multiple recordings", () => {
+      const userId = `bw-track-${Date.now()}`;
+      recordBandwidthUsage(userId, 1_000_000); // 1MB
+      recordBandwidthUsage(userId, 2_000_000); // 2MB
+
+      const result = checkBandwidthVelocity(userId);
+      expect(result.allowed).toBe(true);
+      expect(result.usedBytes).toBe(3_000_000);
+    });
+
+    it("should reject when bandwidth exceeds limit", () => {
+      const userId = `bw-exceed-${Date.now()}`;
+      // Record 11GB (over the 10GB/hour default)
+      recordBandwidthUsage(userId, 11 * 1024 * 1024 * 1024);
+
+      const result = checkBandwidthVelocity(userId);
+      expect(result.allowed).toBe(false);
+    });
+
+    it("should track limits per-user independently", () => {
+      const userA = `bw-A-${Date.now()}`;
+      const userB = `bw-B-${Date.now()}`;
+
+      recordBandwidthUsage(userA, 11 * 1024 * 1024 * 1024); // 11GB (over limit)
+      recordBandwidthUsage(userB, 1_000_000); // 1MB (under limit)
+
+      expect(checkBandwidthVelocity(userA).allowed).toBe(false);
+      expect(checkBandwidthVelocity(userB).allowed).toBe(true);
     });
   });
 });

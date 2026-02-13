@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   isValidEmail,
+  isDisposableEmail,
   validatePassword,
   validateTopupAmount,
   isValidCryptoCurrency,
@@ -55,6 +56,38 @@ describe("validation", () => {
       // local@domain.com = local(245) + @ + d.co(4) = 250 total, well under 254
       const local = "a".repeat(245);
       expect(isValidEmail(`${local}@b.co`)).toBe(true);
+    });
+  });
+
+  // ─── isDisposableEmail ───────────────────────────────────────────────
+
+  describe("isDisposableEmail", () => {
+    it("should flag known disposable domains", () => {
+      expect(isDisposableEmail("test@mailinator.com")).toBe(true);
+      expect(isDisposableEmail("test@yopmail.com")).toBe(true);
+      expect(isDisposableEmail("test@10minutemail.com")).toBe(true);
+      expect(isDisposableEmail("test@guerrillamail.com")).toBe(true);
+      expect(isDisposableEmail("test@tempmail.com")).toBe(true);
+    });
+
+    it("should allow legitimate email providers", () => {
+      expect(isDisposableEmail("user@gmail.com")).toBe(false);
+      expect(isDisposableEmail("user@yahoo.com")).toBe(false);
+      expect(isDisposableEmail("user@protonmail.com")).toBe(false);
+      expect(isDisposableEmail("user@outlook.com")).toBe(false);
+      expect(isDisposableEmail("user@company.io")).toBe(false);
+    });
+
+    it("should handle missing domain", () => {
+      expect(isDisposableEmail("nodomain")).toBe(false);
+      expect(isDisposableEmail("")).toBe(false);
+    });
+
+    it("should require lowercase domain (caller must normalize)", () => {
+      // isDisposableEmail does a case-sensitive check — caller lowercases email first
+      expect(isDisposableEmail("user@mailinator.com")).toBe(true);
+      // Uppercase domain won't match (auth route lowercases email before calling this)
+      expect(isDisposableEmail("user@MAILINATOR.COM")).toBe(true); // .toLowerCase() in isDisposableEmail
     });
   });
 

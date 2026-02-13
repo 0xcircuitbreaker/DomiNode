@@ -1,6 +1,7 @@
 import { useState, useCallback } from "react";
 import { Link } from "react-router-dom";
 import { useApi } from "../hooks/useApi";
+import { useAuth } from "../context/AuthContext";
 import { get } from "../api/client";
 import UsageChart from "../components/UsageChart";
 import ActiveSessions from "../components/ActiveSessions";
@@ -94,6 +95,7 @@ function CopyButton({ text }: { text: string }) {
 }
 
 export default function DashboardPage() {
+  const { user } = useAuth();
   const { data: wallet } = useApi<WalletResponse>(() => get("/api/wallet"));
   const { data: usage } = useApi<UsageResponse>(() => get("/api/usage"));
   const { data: daily } = useApi<DailyResponse>(() => get("/api/usage/daily"));
@@ -104,6 +106,14 @@ export default function DashboardPage() {
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-bold">Dashboard</h1>
+
+      {/* Wallet Address (if linked) */}
+      {user?.wallet_address && (
+        <div className="bg-gray-900 border border-indigo-800/40 rounded-xl p-4 flex items-center gap-3">
+          <span className="text-indigo-400 text-sm font-medium">Wallet</span>
+          <code className="text-xs font-mono text-gray-300">{user.wallet_address}</code>
+        </div>
+      )}
 
       {/* Proxy Status */}
       {proxyStatus && (
@@ -239,6 +249,14 @@ export default function DashboardPage() {
           >
             Top Up Wallet
           </Link>
+          {!user?.wallet_address && (
+            <Link
+              to="/app/security"
+              className="bg-gray-800 hover:bg-gray-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+            >
+              Link Wallet
+            </Link>
+          )}
         </div>
       </div>
 

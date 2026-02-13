@@ -21,6 +21,7 @@ const defaultPlanRow = {
   monthly_bandwidth_bytes: "0",
   is_default: true,
   max_connections: 100,
+  max_sessions_per_minute: 30,
 };
 
 const proPlanRow = {
@@ -30,6 +31,7 @@ const proPlanRow = {
   monthly_bandwidth_bytes: "107374182400",
   is_default: false,
   max_connections: 100,
+  max_sessions_per_minute: 60,
 };
 
 describe("plan-repo", () => {
@@ -49,6 +51,7 @@ describe("plan-repo", () => {
         monthlyBandwidthBytes: 0,
         isDefault: true,
         maxConnections: 100,
+        maxSessionsPerMinute: 30,
       });
     });
 
@@ -115,7 +118,23 @@ describe("plan-repo", () => {
         expect(plan).toHaveProperty("monthlyBandwidthBytes");
         expect(plan).toHaveProperty("isDefault");
         expect(plan).toHaveProperty("maxConnections");
+        expect(plan).toHaveProperty("maxSessionsPerMinute");
       }
+    });
+
+    it("should map maxSessionsPerMinute from row", async () => {
+      mockQuery.mockResolvedValueOnce({ rows: [proPlanRow] });
+
+      const result = await getAllPlans();
+      expect(result[0].maxSessionsPerMinute).toBe(60);
+    });
+
+    it("should default maxSessionsPerMinute to 30 when column is null", async () => {
+      const rowWithoutColumn = { ...defaultPlanRow, max_sessions_per_minute: undefined as any };
+      mockQuery.mockResolvedValueOnce({ rows: [rowWithoutColumn] });
+
+      const result = await getAllPlans();
+      expect(result[0].maxSessionsPerMinute).toBe(30);
     });
   });
 
@@ -131,17 +150,16 @@ describe("plan-repo", () => {
         monthlyBandwidthBytes: 107374182400,
         isDefault: false,
         maxConnections: 100,
+        maxSessionsPerMinute: 60,
       });
     });
 
-    it("should fall back to default plan when user plan not found", async () => {
-      mockQuery
-        .mockResolvedValueOnce({ rows: [] }) // user plan lookup returns nothing
-        .mockResolvedValueOnce({ rows: [defaultPlanRow] }); // fallback to default
+    it("should throw when user plan not found (R17: no silent fallback to free tier)", async () => {
+      mockQuery.mockResolvedValueOnce({ rows: [] }); // user plan lookup returns nothing
 
-      const result = await getUserPlan("user-no-plan");
-      expect(result.id).toBe("payg");
-      expect(result.isDefault).toBe(true);
+      await expect(getUserPlan("user-no-plan")).rejects.toThrow(
+        "No plan found for user user-no-plan",
+      );
     });
 
     it("should query by user ID with JOIN", async () => {
@@ -154,15 +172,11 @@ describe("plan-repo", () => {
       );
     });
 
-    it("should query for default plan as fallback", async () => {
-      mockQuery
-        .mockResolvedValueOnce({ rows: [] })
-        .mockResolvedValueOnce({ rows: [defaultPlanRow] });
+    it("should only query once (no fallback query)", async () => {
+      mockQuery.mockResolvedValueOnce({ rows: [] });
 
-      await getUserPlan("user-fallback");
-
-      expect(mockQuery).toHaveBeenCalledTimes(2);
-      expect(mockQuery.mock.calls[1][0]).toContain("is_default = true");
+      await expect(getUserPlan("user-fallback")).rejects.toThrow();
+      expect(mockQuery).toHaveBeenCalledTimes(1);
     });
   });
 

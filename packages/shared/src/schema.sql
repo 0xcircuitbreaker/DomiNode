@@ -136,7 +136,8 @@ INSERT INTO plans (id, name, price_per_gb_cents, monthly_bandwidth_bytes, is_def
   ('free',   'Free',          0,   1073741824,      true,  10),
   ('payg',   'Pay As You Go', 500, 0,               false, 100),
   ('vol100', 'Volume 100GB',  400, 107374182400,    false, 100),
-  ('vol1tb', 'Volume 1TB',    300, 1099511627776,   false, 100)
+  ('vol1tb', 'Volume 1TB',    300, 1099511627776,   false, 100),
+  ('agent',  'AI Agent',      500, 5368709120,      false, 50)
 ON CONFLICT (id) DO NOTHING;
 
 -- Add plan to users (idempotent)
@@ -151,9 +152,19 @@ DO $$ BEGIN
 EXCEPTION WHEN duplicate_column THEN NULL;
 END $$;
 
+-- Add max_sessions_per_minute to plans (idempotent migration for existing DBs)
+DO $$ BEGIN
+  ALTER TABLE plans ADD COLUMN max_sessions_per_minute INTEGER NOT NULL DEFAULT 30;
+EXCEPTION WHEN duplicate_column THEN NULL;
+END $$;
+
 -- Update free plan for existing databases (bandwidth, price, default, max_connections)
 UPDATE plans SET price_per_gb_cents = 0, monthly_bandwidth_bytes = 1073741824, is_default = true, max_connections = 10, name = 'Free' WHERE id = 'free';
 UPDATE plans SET is_default = false WHERE id = 'payg';
+
+-- Set per-plan session rate limits
+UPDATE plans SET max_sessions_per_minute = 30 WHERE id IN ('free', 'payg');
+UPDATE plans SET max_sessions_per_minute = 60 WHERE id IN ('vol100', 'vol1tb', 'agent');
 
 -- Add admin role (idempotent)
 DO $$ BEGIN
@@ -237,6 +248,32 @@ CREATE INDEX IF NOT EXISTS idx_audit_events_user ON audit_events(user_id);
 CREATE INDEX IF NOT EXISTS idx_audit_events_action ON audit_events(action);
 CREATE INDEX IF NOT EXISTS idx_audit_events_created ON audit_events(created_at);
 
+-- ─── Wallet Address on Users (for crypto wallet auth) ─────────────────
+
+DO $$ BEGIN
+  ALTER TABLE users ADD COLUMN wallet_address TEXT;
+EXCEPTION WHEN duplicate_column THEN NULL;
+END $$;
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_wallet_address
+  ON users(wallet_address) WHERE wallet_address IS NOT NULL;
+
+-- ─── Wallet Challenges (nonce-based EIP-191 signature auth) ───────────
+
+CREATE TABLE IF NOT EXISTS wallet_challenges (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  address     TEXT NOT NULL,
+  nonce       TEXT NOT NULL,
+  ip_address  TEXT NOT NULL DEFAULT '',
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  consumed    BOOLEAN NOT NULL DEFAULT false
+);
+
+CREATE INDEX IF NOT EXISTS idx_wallet_challenges_address
+  ON wallet_challenges(address) WHERE NOT consumed;
+CREATE INDEX IF NOT EXISTS idx_wallet_challenges_created
+  ON wallet_challenges(created_at);
+
 -- ─── Data Retention Policies ───────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS data_retention_policies (
@@ -251,5 +288,6 @@ INSERT INTO data_retention_policies (table_name, retention_days, description) VA
   ('usage_records',       365, 'Usage records retained for 1 year'),
   ('sessions',             90, 'Session records retained for 90 days'),
   ('audit_events',        365, 'Audit events retained for 1 year'),
-  ('wallet_transactions', 730, 'Wallet transactions retained for 2 years')
+  ('wallet_transactions', 730, 'Wallet transactions retained for 2 years'),
+  ('wallet_challenges',     1, 'Wallet challenges retained for 1 day')
 ON CONFLICT (table_name) DO NOTHING;

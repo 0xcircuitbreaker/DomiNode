@@ -12,6 +12,12 @@ interface AuthUser {
   id: string;
   email: string;
   is_admin: boolean;
+  wallet_address?: string | null;
+}
+
+interface WalletChallengeResponse {
+  message: string;
+  nonce: string;
 }
 
 interface AuthState {
@@ -24,6 +30,8 @@ interface AuthState {
   cancelMfa: () => void;
   register: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
+  walletChallenge: (address: string) => Promise<WalletChallengeResponse>;
+  walletLogin: (address: string, signature: string) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthState | null>(null);
@@ -38,6 +46,10 @@ interface LoginResponse {
 }
 
 interface MfaVerifyResponse {
+  user: AuthUser;
+}
+
+interface WalletVerifyResponse {
   user: AuthUser;
 }
 
@@ -106,10 +118,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setMfaRequired(false);
   }, []);
 
+  const walletChallenge = useCallback(async (address: string): Promise<WalletChallengeResponse> => {
+    return post<WalletChallengeResponse>("/api/auth/wallet/challenge", { address });
+  }, []);
+
+  const walletLogin = useCallback(async (address: string, signature: string) => {
+    const res = await post<WalletVerifyResponse>("/api/auth/wallet/verify", {
+      address,
+      signature,
+    });
+    setUser(res.user);
+  }, []);
+
   const isAdmin = user?.is_admin ?? false;
 
   return (
-    <AuthContext.Provider value={{ user, isAdmin, loading, mfaRequired, login, verifyMfa, cancelMfa, register, logout }}>
+    <AuthContext.Provider value={{ user, isAdmin, loading, mfaRequired, login, verifyMfa, cancelMfa, register, logout, walletChallenge, walletLogin }}>
       {children}
     </AuthContext.Provider>
   );

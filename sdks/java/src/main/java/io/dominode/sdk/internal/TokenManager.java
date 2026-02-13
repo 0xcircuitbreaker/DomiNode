@@ -6,6 +6,8 @@ import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.function.Function;
 
 /**
@@ -204,10 +206,13 @@ public final class TokenManager {
         // If joining an in-flight refresh from another thread
         if (future != null) {
             try {
-                return future.get();
+                // R17: 30s timeout prevents indefinite thread blocking if refresh hangs
+                return future.get(30, TimeUnit.SECONDS);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 throw new AuthenticationException("Token refresh interrupted");
+            } catch (TimeoutException e) {
+                throw new AuthenticationException("Token refresh timed out after 30 seconds");
             } catch (ExecutionException e) {
                 Throwable cause = e.getCause();
                 if (cause instanceof AuthenticationException) {

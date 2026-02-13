@@ -235,6 +235,11 @@ nlohmann::json HttpClient::request(const std::string& method,
         int wait_ms = std::max(100, std::min(retry_after * 1000, 10000));
         std::this_thread::sleep_for(std::chrono::milliseconds(wait_ms));
 
+        // R17: Refresh token after wait in case it expired during the sleep
+        if (requires_auth) {
+            std::string fresh_token = token_manager_.get_valid_token();
+            headers["Authorization"] = "Bearer " + fresh_token;
+        }
         resp = perform(method, url, body_str, headers);
     }
 

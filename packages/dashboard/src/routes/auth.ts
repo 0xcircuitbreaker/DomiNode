@@ -13,8 +13,10 @@ import {
   verifyMfaChallengeToken,
   hashApiKey,
   isValidEmail,
+  isDisposableEmail,
   validatePassword,
   sanitizeString,
+  isWalletEmail,
   createLogger,
   generateTotpSecret,
   encryptTotpSecret,
@@ -71,6 +73,57 @@ const LOCKOUT_DURATION_MS = 15 * 60 * 1000; // 15 minutes
 const MAX_LOCKOUT_MAP_SIZE = 50_000; // Cap memory usage
 const loginAttempts = new Map<string, { count: number; lockedUntil: number }>();
 
+// R17: Per-IP global login limit across ALL emails — prevents credential stuffing
+const MAX_LOGIN_ATTEMPTS_PER_IP = 20; // 20 total login attempts per IP per 15 min
+const ipLoginAttempts = new Map<string, { count: number; windowStart: number }>();
+
+function checkIpLoginLimit(ip: string): string | null {
+  const now = Date.now();
+  const entry = ipLoginAttempts.get(ip);
+  if (!entry || now - entry.windowStart > LOCKOUT_DURATION_MS) {
+    return null; // window expired or new IP
+  }
+  if (entry.count >= MAX_LOGIN_ATTEMPTS_PER_IP) {
+    const remainSec = Math.ceil((entry.windowStart + LOCKOUT_DURATION_MS - now) / 1000);
+    return `Too many login attempts from this IP. Try again in ${remainSec} seconds.`;
+  }
+  return null;
+}
+
+function recordIpLoginAttempt(ip: string): void {
+  const now = Date.now();
+  if (ipLoginAttempts.size >= MAX_LOCKOUT_MAP_SIZE) {
+    const firstKey = ipLoginAttempts.keys().next().value;
+    if (firstKey) ipLoginAttempts.delete(firstKey);
+  }
+  const entry = ipLoginAttempts.get(ip);
+  if (!entry || now - entry.windowStart > LOCKOUT_DURATION_MS) {
+    ipLoginAttempts.set(ip, { count: 1, windowStart: now });
+  } else {
+    entry.count++;
+  }
+}
+
+// R17: Per-IP verify-key rate limiting — prevents API key brute force / oracle
+const MAX_VERIFY_KEY_PER_IP = 10; // 10 attempts per IP per 5-min window
+const VERIFY_KEY_WINDOW_MS = 5 * 60 * 1000;
+const verifyKeyAttempts = new Map<string, { count: number; windowStart: number }>();
+
+function checkVerifyKeyRateLimit(ip: string): boolean {
+  const now = Date.now();
+  const entry = verifyKeyAttempts.get(ip);
+  if (!entry || now - entry.windowStart > VERIFY_KEY_WINDOW_MS) {
+    if (verifyKeyAttempts.size >= MAX_LOCKOUT_MAP_SIZE) {
+      const firstKey = verifyKeyAttempts.keys().next().value;
+      if (firstKey) verifyKeyAttempts.delete(firstKey);
+    }
+    verifyKeyAttempts.set(ip, { count: 1, windowStart: now });
+    return true;
+  }
+  entry.count++;
+  return entry.count <= MAX_VERIFY_KEY_PER_IP;
+}
+
 function lockoutKey(ip: string, email: string): string {
   return `${ip}:${email}`;
 }
@@ -119,6 +172,44 @@ setInterval(() => {
   }
 }, 300_000).unref();
 
+// ─── Per-IP registration rate limiter (prevents mass signup abuse) ───
+const MAX_REGISTRATIONS_PER_IP = 3; // 3 accounts per IP per hour
+const REGISTRATION_WINDOW_MS = 60 * 60 * 1000; // 1 hour
+const MAX_REG_RATE_MAP_SIZE = 50_000;
+const registrationLog = new Map<string, number[]>(); // IP -> timestamps
+
+function checkRegistrationRateLimit(ip: string): boolean {
+  const now = Date.now();
+  let timestamps = registrationLog.get(ip);
+  if (!timestamps) {
+    if (registrationLog.size >= MAX_REG_RATE_MAP_SIZE) {
+      const firstKey = registrationLog.keys().next().value;
+      if (firstKey) registrationLog.delete(firstKey);
+    }
+    timestamps = [];
+    registrationLog.set(ip, timestamps);
+  }
+  while (timestamps.length > 0 && timestamps[0] < now - REGISTRATION_WINDOW_MS) {
+    timestamps.shift();
+  }
+  if (timestamps.length >= MAX_REGISTRATIONS_PER_IP) {
+    return false;
+  }
+  timestamps.push(now);
+  return true;
+}
+
+// Cleanup registration rate limit entries every 5 min
+setInterval(() => {
+  const now = Date.now();
+  for (const [ip, timestamps] of registrationLog) {
+    while (timestamps.length > 0 && timestamps[0] < now - REGISTRATION_WINDOW_MS) {
+      timestamps.shift();
+    }
+    if (timestamps.length === 0) registrationLog.delete(ip);
+  }
+}, 300_000).unref();
+
 // POST /api/auth/register
 router.post("/register", async (req, res) => {
   try {
@@ -127,6 +218,25 @@ router.post("/register", async (req, res) => {
 
     if (!isValidEmail(email)) {
       res.status(400).json({ error: "Invalid email address" });
+      return;
+    }
+
+    // Block disposable/temporary email domains (mass signup abuse prevention)
+    if (isDisposableEmail(email)) {
+      res.status(400).json({ error: "Disposable email addresses are not allowed. Please use a permanent email." });
+      return;
+    }
+
+    // Block synthetic wallet emails to prevent pre-registration attacks
+    if (isWalletEmail(email)) {
+      res.status(400).json({ error: "This email domain is reserved. Use wallet authentication instead." });
+      return;
+    }
+
+    // Per-IP registration rate limit: 3 accounts per IP per hour
+    const clientIp = req.ip ?? "unknown";
+    if (!checkRegistrationRateLimit(clientIp)) {
+      res.status(429).json({ error: "Too many registrations from this IP. Please try again later." });
       return;
     }
 
@@ -202,6 +312,13 @@ router.post("/login", async (req, res) => {
     const password = req.body.password ?? "";
     const clientIp = (req.ip ?? req.socket.remoteAddress ?? "").replace(/^::ffff:/, "");
 
+    // R17: Per-IP global login limit (prevents credential stuffing across emails)
+    const ipLimitMsg = checkIpLoginLimit(clientIp);
+    if (ipLimitMsg) {
+      res.status(429).json({ error: ipLimitMsg });
+      return;
+    }
+
     // Check account lockout (keyed on IP+email to prevent DoS)
     const lockoutMsg = checkLoginLockout(clientIp, email);
     if (lockoutMsg) {
@@ -212,6 +329,7 @@ router.post("/login", async (req, res) => {
     const user = await userRepo.findUserByEmail(email);
     if (!user) {
       recordLoginFailure(clientIp, email);
+      recordIpLoginAttempt(clientIp); // R17: Track IP-wide attempts
       res.status(401).json({ error: "Invalid email or password" });
       return;
     }
@@ -220,6 +338,7 @@ router.post("/login", async (req, res) => {
     const valid = await verifyPassword(password, user.password_hash);
     if (!valid) {
       recordLoginFailure(clientIp, email);
+      recordIpLoginAttempt(clientIp); // R17: Track IP-wide attempts
       res.status(401).json({ error: "Invalid email or password" });
       return;
     }
@@ -378,6 +497,13 @@ router.post("/refresh", async (req, res) => {
 router.post("/change-password", requireAuth, async (req, res) => {
   try {
     const { userId, email } = (req as AuthenticatedRequest).user;
+
+    // R18 C-4: Wallet-only accounts cannot set/change passwords
+    if (isWalletEmail(email)) {
+      res.status(400).json({ error: "Wallet accounts cannot set passwords" });
+      return;
+    }
+
     const currentPassword = req.body.currentPassword ?? "";
     const newPassword = req.body.newPassword ?? "";
 
@@ -451,20 +577,35 @@ router.post("/logout", requireAuth, async (req, res) => {
 });
 
 // GET /api/auth/me — session restoration via cookie (for frontend page reload)
-router.get("/me", requireAuth, (req, res) => {
-  const { userId, email, isAdmin } = (req as AuthenticatedRequest).user;
-  res.json({
-    user: {
-      id: userId,
-      email,
-      is_admin: isAdmin,
-    },
-  });
+router.get("/me", requireAuth, async (req, res) => {
+  try {
+    const { userId, email, isAdmin } = (req as AuthenticatedRequest).user;
+    // Fetch full user record to include wallet_address
+    const fullUser = await userRepo.findUserById(userId);
+    res.json({
+      user: {
+        id: userId,
+        email,
+        is_admin: isAdmin,
+        wallet_address: fullUser?.wallet_address ?? null,
+      },
+    });
+  } catch (err) {
+    log.error("me endpoint failed", { error: err instanceof Error ? err.message : String(err) });
+    res.status(500).json({ error: "Failed to retrieve user info" });
+  }
 });
 
 // POST /api/auth/verify-key — Verify API key and return JWT tokens (for browser extension)
 router.post("/verify-key", async (req, res) => {
   try {
+    // R17: Rate limit verify-key per IP to prevent brute force / timing oracle
+    const clientIp = (req.ip ?? req.socket.remoteAddress ?? "").replace(/^::ffff:/, "");
+    if (!checkVerifyKeyRateLimit(clientIp)) {
+      res.status(429).json({ valid: false, error: "Too many verification attempts. Try again later." });
+      return;
+    }
+
     const apiKey = sanitizeString(req.body.apiKey ?? "", 200);
 
     if (!apiKey.startsWith("dn_live_")) {

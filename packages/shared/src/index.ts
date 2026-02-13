@@ -57,6 +57,7 @@ export type { Logger, LogLevel } from "./logger.js";
 // Validation
 export {
   isValidEmail,
+  isDisposableEmail,
   validatePassword,
   validateTopupAmount,
   isValidCryptoCurrency,
@@ -84,6 +85,7 @@ export * as planRepo from "./repositories/plan-repo.js";
 export * as adminRepo from "./repositories/admin-repo.js";
 export * as refreshTokenRepo from "./repositories/refresh-token-repo.js";
 export * as mfaRepo from "./repositories/mfa-repo.js";
+export * as walletChallengeRepo from "./repositories/wallet-challenge-repo.js";
 
 // TOTP
 export {
@@ -96,6 +98,16 @@ export {
   generateBackupCodes,
   hashBackupCode,
 } from "./totp.js";
+
+// Wallet Auth
+export {
+  isValidEvmAddress,
+  generateWalletNonce,
+  buildSignMessage,
+  walletToSyntheticEmail,
+  isWalletEmail,
+  WALLET_CHALLENGE_TTL_MS,
+} from "./wallet-auth.js";
 
 // Geo Data
 export { US_STATES, MAJOR_US_CITIES } from "./geo-data.js";

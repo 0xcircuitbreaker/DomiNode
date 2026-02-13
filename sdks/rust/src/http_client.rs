@@ -98,7 +98,12 @@ impl HttpClient {
             return Err(map_error(status, &body, &headers));
         }
 
-        Ok(response.text().await.map_err(DomiNodeError::Network)?)
+        // R17: Enforce response body size limit
+        let bytes = response.bytes().await.map_err(DomiNodeError::Network)?;
+        if bytes.len() > MAX_RESPONSE_BYTES {
+            return Err(DomiNodeError::Server("Response body too large".into()));
+        }
+        Ok(String::from_utf8_lossy(&bytes).into_owned())
     }
 
     // --------------------------------------------------------------------
@@ -205,13 +210,21 @@ impl HttpClient {
 // Helpers
 // ---------------------------------------------------------------------------
 
+/// Maximum response body size (10 MB) to prevent OOM from malicious/large responses.
+const MAX_RESPONSE_BYTES: usize = 10 * 1024 * 1024;
+
 /// Parse a response body as JSON, treating empty bodies as `{}`.
 async fn parse_body<T: DeserializeOwned>(response: reqwest::Response) -> Result<T> {
-    let text = response.text().await.map_err(DomiNodeError::Network)?;
-    if text.is_empty() {
+    // R17: Enforce response body size limit to prevent OOM
+    let bytes = response.bytes().await.map_err(DomiNodeError::Network)?;
+    if bytes.len() > MAX_RESPONSE_BYTES {
+        return Err(DomiNodeError::Server("Response body too large".into()));
+    }
+    if bytes.is_empty() {
         // Deserialize `{}` — works for structs with all-optional/default fields.
         return serde_json::from_str("{}").map_err(DomiNodeError::Json);
     }
+    let text = String::from_utf8_lossy(&bytes);
     serde_json::from_str(&text).map_err(DomiNodeError::Json)
 }
 

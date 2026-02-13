@@ -230,6 +230,29 @@
   cursor: not-allowed;
 }
 
+.login-wallet-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--login-muted);
+  font-size: 13px;
+}
+
+.login-wallet-divider::before,
+.login-wallet-divider::after {
+  content: "";
+  flex: 1;
+  border-top: 1px solid var(--login-surface-line);
+}
+
+.login-wallet-btn {
+  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+}
+
+.login-wallet-btn:hover:enabled {
+  filter: brightness(1.08);
+}
+
 .login-actions-row {
   display: flex;
   align-items: center;

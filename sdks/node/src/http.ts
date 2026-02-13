@@ -7,13 +7,28 @@ import {
 import type { TokenManager } from "./token-manager.js";
 
 // R15 H-3: Sanitize parsed JSON to prevent prototype pollution from untrusted API responses
+// R15 H-3: Recursive prototype pollution stripping (covers nested objects too)
+const DANGEROUS_KEYS = new Set(["__proto__", "constructor", "prototype"]);
+
+function stripDangerousKeys(obj: unknown): void {
+  if (!obj || typeof obj !== "object") return;
+  if (Array.isArray(obj)) {
+    for (const item of obj) stripDangerousKeys(item);
+    return;
+  }
+  const record = obj as Record<string, unknown>;
+  for (const key of Object.keys(record)) {
+    if (DANGEROUS_KEYS.has(key)) {
+      delete record[key];
+    } else if (record[key] && typeof record[key] === "object") {
+      stripDangerousKeys(record[key]);
+    }
+  }
+}
+
 function safeJsonParse<T>(text: string): T {
   const parsed = JSON.parse(text);
-  if (parsed && typeof parsed === "object") {
-    delete (parsed as Record<string, unknown>)["__proto__"];
-    delete (parsed as Record<string, unknown>)["constructor"];
-    delete (parsed as Record<string, unknown>)["prototype"];
-  }
+  stripDangerousKeys(parsed);
   return parsed as T;
 }
 
@@ -48,7 +63,8 @@ function throwForStatus(status: number, body: string, headers: Headers): never {
     case 404: throw new NotFoundError(message);
     case 409: throw new ConflictError(message);
     case 429: {
-      const retryAfter = parseInt(headers.get("retry-after") ?? "60", 10);
+      const parsed = parseInt(headers.get("retry-after") ?? "60", 10);
+      const retryAfter = Number.isFinite(parsed) ? parsed : 60; // R17: NaN guard
       throw new RateLimitError(message, retryAfter);
     }
     default:
@@ -56,6 +72,9 @@ function throwForStatus(status: number, body: string, headers: Headers): never {
       throw new DomiNodeError(message, status);
   }
 }
+
+// R17: Max response body size to prevent OOM from malicious/large API responses
+const MAX_RESPONSE_BYTES = 10 * 1024 * 1024; // 10 MB
 
 export class HttpClient {
   constructor(
@@ -86,6 +105,7 @@ export class HttpClient {
         headers,
         body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
         signal: AbortSignal.timeout(timeoutMs),
+        redirect: "error", // R17: Reject redirects — prevents HTTPS→HTTP credential leakage
       });
     } catch (err) {
       throw new NetworkError(err instanceof Error ? err.message : "Network request failed");
@@ -93,7 +113,8 @@ export class HttpClient {
 
     if (response.status === 429) {
       // Auto-retry once on rate limit (cap wait at 10s to avoid client-side DoS)
-      const retryAfter = parseInt(response.headers.get("retry-after") ?? "5", 10);
+      const parsed = parseInt(response.headers.get("retry-after") ?? "5", 10);
+      const retryAfter = Number.isFinite(parsed) ? parsed : 5; // R17: NaN guard
       await response.text(); // consume body
       await new Promise((resolve) => setTimeout(resolve, addJitter(Math.min(retryAfter * 1000, 10_000))));
 
@@ -109,6 +130,7 @@ export class HttpClient {
           headers,
           body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
           signal: AbortSignal.timeout(timeoutMs),
+          redirect: "error",
         });
       } catch (err) {
         throw new NetworkError(err instanceof Error ? err.message : "Network request failed");
@@ -125,6 +147,7 @@ export class HttpClient {
           headers,
           body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
           signal: AbortSignal.timeout(timeoutMs),
+          redirect: "error",
         });
         if (retry.ok) {
           const text = await retry.text();
@@ -138,7 +161,15 @@ export class HttpClient {
       }
     }
 
+    // R17: Enforce response body size limit to prevent OOM
+    const contentLength = parseInt(response.headers.get("content-length") ?? "0", 10);
+    if (contentLength > MAX_RESPONSE_BYTES) {
+      throw new ServerError("Response body too large");
+    }
     const responseText = await response.text();
+    if (responseText.length > MAX_RESPONSE_BYTES) {
+      throw new ServerError("Response body exceeds size limit");
+    }
 
     if (!response.ok) {
       throwForStatus(response.status, responseText, response.headers);

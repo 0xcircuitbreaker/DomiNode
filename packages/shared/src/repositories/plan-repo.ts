@@ -8,6 +8,7 @@ interface PlanRow {
   monthly_bandwidth_bytes: string; // BIGINT comes as string from pg
   is_default: boolean;
   max_connections: number;
+  max_sessions_per_minute: number;
 }
 
 function rowToPlan(row: PlanRow): Plan {
@@ -18,6 +19,7 @@ function rowToPlan(row: PlanRow): Plan {
     monthlyBandwidthBytes: Number(row.monthly_bandwidth_bytes),
     isDefault: row.is_default,
     maxConnections: row.max_connections,
+    maxSessionsPerMinute: row.max_sessions_per_minute ?? 30,
   };
 }
 
@@ -47,11 +49,9 @@ export async function getUserPlan(userId: string): Promise<Plan> {
   );
   const row = result.rows[0];
   if (!row) {
-    // Fallback to default plan if user or plan not found
-    const fallback = await query<PlanRow>(
-      `SELECT * FROM plans WHERE is_default = true LIMIT 1`,
-    );
-    return rowToPlan(fallback.rows[0]);
+    // R17: Throw explicitly instead of silently falling back to free tier.
+    // Silent fallback could grant free access to deleted/suspended users.
+    throw new Error(`No plan found for user ${userId}`);
   }
   return rowToPlan(row);
 }

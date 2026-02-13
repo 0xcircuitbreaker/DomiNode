@@ -249,6 +249,9 @@ docker compose up -d     # Start PostgreSQL (local dev)
 | GET | /api/usage | JWT | Usage stats |
 | POST | /api/webhooks/stripe | Signature | Stripe webhook |
 | POST | /api/webhooks/nowpayments | Signature | NOWPayments IPN |
+| POST | /api/auth/wallet/challenge | None | Request wallet signature challenge |
+| POST | /api/auth/wallet/verify | None | Submit signed challenge (create/login) |
+| POST | /api/auth/wallet/link | JWT | Link wallet to existing account |
 | GET | /api/health | None | Health check |
 
 ## Proxy Usage

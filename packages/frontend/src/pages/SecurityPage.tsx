@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { get, post } from "../api/client";
+import { useAuth } from "../context/AuthContext";
 
 interface MfaStatus {
   enabled: boolean;
@@ -12,7 +13,12 @@ interface MfaSetupResponse {
   backupCodes: string[];
 }
 
+function isWalletEmail(email: string): boolean {
+  return email.endsWith("@wallet.dominode.io");
+}
+
 export default function SecurityPage() {
+  const { user } = useAuth();
   const [status, setStatus] = useState<MfaStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -27,6 +33,15 @@ export default function SecurityPage() {
   const [disablePassword, setDisablePassword] = useState("");
   const [disableCode, setDisableCode] = useState("");
   const [disabling, setDisabling] = useState(false);
+
+  // Password change state
+  const [showPasswordChange, setShowPasswordChange] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [changingPassword, setChangingPassword] = useState(false);
+  const [passwordMessage, setPasswordMessage] = useState("");
+
+  const isWallet = user ? isWalletEmail(user.email) : false;
 
   const fetchStatus = useCallback(async () => {
     try {
@@ -103,6 +118,27 @@ export default function SecurityPage() {
     }
   }
 
+  async function handlePasswordChange(e: React.FormEvent) {
+    e.preventDefault();
+    setError("");
+    setPasswordMessage("");
+    setChangingPassword(true);
+    try {
+      await post("/api/auth/change-password", {
+        currentPassword,
+        newPassword,
+      });
+      setPasswordMessage("Password changed successfully.");
+      setCurrentPassword("");
+      setNewPassword("");
+      setShowPasswordChange(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Password change failed");
+    } finally {
+      setChangingPassword(false);
+    }
+  }
+
   if (loading && !status) {
     return <div className="p-8 text-center text-gray-400">Loading...</div>;
   }
@@ -117,6 +153,36 @@ export default function SecurityPage() {
         </div>
       )}
 
+      {passwordMessage && (
+        <div className="text-sm text-green-400 bg-green-400/10 border border-green-400/20 rounded-lg px-4 py-3">
+          {passwordMessage}
+        </div>
+      )}
+
+      {/* Wallet Authentication Info */}
+      {isWallet && (
+        <div className="bg-gray-900 border border-gray-800 rounded-xl p-6 space-y-3">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-lg font-semibold">Wallet Authentication</h2>
+              <p className="text-sm text-gray-400 mt-1">
+                Your account is secured with EIP-191 Ethereum wallet signature authentication.
+              </p>
+            </div>
+            <span className="px-3 py-1 text-xs font-medium rounded-full bg-indigo-500/20 text-indigo-400 border border-indigo-500/30">
+              Active
+            </span>
+          </div>
+          <p className="text-sm text-gray-400">
+            Wallet address: <code className="text-indigo-300 font-mono text-xs">{user?.wallet_address ?? user?.email.split("@")[0]}</code>
+          </p>
+          <p className="text-xs text-gray-500">
+            Wallet-authenticated accounts use cryptographic signatures instead of passwords. No password can be set for this account.
+          </p>
+        </div>
+      )}
+
+      {/* Two-Factor Authentication */}
       <div className="bg-gray-900 border border-gray-800 rounded-xl p-6 space-y-4">
         <div className="flex items-center justify-between">
           <div>
@@ -267,6 +333,68 @@ export default function SecurityPage() {
           </form>
         )}
       </div>
+
+      {/* Password Change - only for non-wallet accounts */}
+      {!isWallet && (
+        <div className="bg-gray-900 border border-gray-800 rounded-xl p-6 space-y-4">
+          <div>
+            <h2 className="text-lg font-semibold">Password</h2>
+            <p className="text-sm text-gray-400 mt-1">
+              Change your account password. All existing sessions will be revoked.
+            </p>
+          </div>
+
+          {!showPasswordChange ? (
+            <button
+              onClick={() => setShowPasswordChange(true)}
+              className="bg-gray-700 hover:bg-gray-600 text-white font-medium px-4 py-2 rounded-lg transition-colors"
+            >
+              Change Password
+            </button>
+          ) : (
+            <form onSubmit={handlePasswordChange} className="border-t border-gray-800 pt-4 space-y-3">
+              <div>
+                <label className="block text-sm text-gray-400 mb-1">Current Password</label>
+                <input
+                  type="password"
+                  value={currentPassword}
+                  onChange={(e) => setCurrentPassword(e.target.value)}
+                  required
+                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-indigo-500"
+                />
+              </div>
+              <div>
+                <label className="block text-sm text-gray-400 mb-1">New Password</label>
+                <input
+                  type="password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  required
+                  minLength={8}
+                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-indigo-500"
+                  placeholder="Min 8 characters"
+                />
+              </div>
+              <div className="flex gap-2">
+                <button
+                  type="submit"
+                  disabled={changingPassword || !currentPassword || !newPassword}
+                  className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-medium px-4 py-2 rounded-lg transition-colors"
+                >
+                  {changingPassword ? "Changing..." : "Update Password"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setShowPasswordChange(false); setCurrentPassword(""); setNewPassword(""); setError(""); }}
+                  className="bg-gray-700 hover:bg-gray-600 text-white font-medium px-4 py-2 rounded-lg transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          )}
+        </div>
+      )}
     </div>
   );
 }

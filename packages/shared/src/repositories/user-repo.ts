@@ -24,12 +24,12 @@ export async function findUserByEmail(email: string): Promise<User | null> {
 
 export async function findUserById(id: string): Promise<User | null> {
   const result = await query<User>(
-    `SELECT id, email, created_at, status, password_changed_at, is_admin FROM users WHERE id = $1`,
+    `SELECT id, email, created_at, status, password_changed_at, is_admin, wallet_address FROM users WHERE id = $1`,
     [id],
   );
   const row = result.rows[0];
   if (!row) return null;
-  return { ...row, password_hash: "" };
+  return { ...row, password_hash: "", wallet_address: row.wallet_address ?? null };
 }
 
 export async function findUserByApiKeyHash(
@@ -63,6 +63,7 @@ export async function findUserByApiKeyHash(
     status: row.status,
     password_changed_at: row.password_changed_at,
     is_admin: row.is_admin ?? false,
+    wallet_address: row.wallet_address ?? null,
   };
 
   const apiKey: ApiKey = {
@@ -76,6 +77,39 @@ export async function findUserByApiKeyHash(
   };
 
   return { user, apiKey };
+}
+
+/** Create a user authenticated via crypto wallet (synthetic email, unusable password) */
+export async function createWalletUser(
+  walletAddress: string,
+  syntheticEmail: string,
+  randomHash: string,
+): Promise<User> {
+  const result = await query<User>(
+    `INSERT INTO users (email, password_hash, wallet_address)
+     VALUES ($1, $2, $3)
+     RETURNING *`,
+    [syntheticEmail, randomHash, walletAddress.toLowerCase()],
+  );
+  return result.rows[0];
+}
+
+/** Find a user by their linked wallet address */
+export async function findUserByWalletAddress(address: string): Promise<User | null> {
+  const result = await query<User>(
+    `SELECT * FROM users WHERE wallet_address = $1`,
+    [address.toLowerCase()],
+  );
+  return result.rows[0] ?? null;
+}
+
+/** Link a wallet address to an existing user account */
+export async function linkWalletAddress(userId: string, address: string): Promise<boolean> {
+  const result = await query(
+    `UPDATE users SET wallet_address = $1 WHERE id = $2 AND wallet_address IS NULL`,
+    [address.toLowerCase(), userId],
+  );
+  return (result.rowCount ?? 0) > 0;
 }
 
 export async function updatePassword(

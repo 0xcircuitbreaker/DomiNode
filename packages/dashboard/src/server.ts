@@ -17,6 +17,7 @@ import sessionRoutes from "./routes/sessions.js";
 import adminRoutes from "./routes/admin.js";
 import proxyConfigRoutes from "./routes/proxy-config.js";
 import proxyHealthRoutes from "./routes/proxy-health.js";
+import walletAuthRoutes from "./routes/wallet-auth.js";
 
 const log = createLogger("api:server");
 
@@ -184,6 +185,7 @@ export function startApiServer(port: number = 3000): ReturnType<express.Express[
   });
 
   // Routes
+  app.use("/api/auth/wallet", authLimiter, walletAuthRoutes);
   app.use("/api/auth", authLimiter, authRoutes);
   app.use("/api/keys", keyRoutes);
   app.use("/api/usage", usageRoutes);

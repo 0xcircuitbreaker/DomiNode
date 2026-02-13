@@ -1,0 +1,22 @@
+{
+  "name": "@dominode/mcp-server",
+  "description": "Rotating residential proxies for AI agents. Geo-targeting, crypto payments (BTC/ETH/XMR/SOL/ZEC), x402 micropayments, bootstrap mode (no API key needed), free tier (1GB).",
+  "version": "1.0.0",
+  "transport": "stdio",
+  "command": "npx",
+  "args": ["-y", "@dominode/mcp-server"],
+  "env": {
+    "DOMINODE_API_KEY": {
+      "description": "API key (optional — omit for bootstrap mode)",
+      "required": false
+    }
+  },
+  "capabilities": {
+    "tools": true
+  },
+  "toolCount": 24,
+  "categories": ["proxy", "web-scraping", "geo-targeting", "crypto-payments"],
+  "homepage": "https://dominusnode.com",
+  "repository": "https://github.com/dominode/mcp-server",
+  "license": "MIT"
+}

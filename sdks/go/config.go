@@ -31,6 +31,7 @@
 package dominode
 
 import (
+	"fmt"
 	"net/http"
 	"time"
 )
@@ -76,6 +77,28 @@ type Config struct {
 	// HTTPClient is an optional custom HTTP client.
 	// If nil, a default client with the configured timeout is used.
 	HTTPClient *http.Client
+}
+
+// redact returns "<redacted>" if the string is non-empty, "<not set>" otherwise.
+func redact(s string) string {
+	if s == "" {
+		return "<not set>"
+	}
+	return "<redacted>"
+}
+
+// String returns a safe representation of Config that redacts credentials.
+// This prevents accidental credential leakage in log statements.
+func (c Config) String() string {
+	return fmt.Sprintf("Config{BaseURL:%q, APIKey:%s, Email:%s, Password:%s, AccessToken:%s, RefreshToken:%s, ProxyHost:%q, HTTPProxyPort:%d, SOCKS5ProxyPort:%d}",
+		c.BaseURL, redact(c.APIKey), redact(c.Email), redact(c.Password),
+		redact(c.AccessToken), redact(c.RefreshToken),
+		c.ProxyHost, c.HTTPProxyPort, c.SOCKS5ProxyPort)
+}
+
+// GoString implements fmt.GoStringer to redact credentials in %#v format.
+func (c Config) GoString() string {
+	return c.String()
 }
 
 // withDefaults returns a copy of the config with default values applied

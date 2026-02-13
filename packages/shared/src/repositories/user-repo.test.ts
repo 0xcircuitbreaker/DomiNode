@@ -141,6 +141,7 @@ describe("user-repo", () => {
         status: "active",
         password_changed_at: null,
         is_admin: false,
+        wallet_address: null,
       });
       // ApiKey should have correct user_id
       expect(result!.apiKey.user_id).toBe("user-id");
@@ -155,9 +156,9 @@ describe("user-repo", () => {
       mockQuery.mockResolvedValueOnce({ rows: [user] });
 
       const result = await findUserById("u1");
-      expect(result).toEqual({ ...user, password_hash: "" });
+      expect(result).toEqual({ ...user, password_hash: "", wallet_address: null });
       expect(mockQuery).toHaveBeenCalledWith(
-        expect.stringContaining("SELECT id, email, created_at, status, password_changed_at, is_admin FROM users WHERE id = $1"),
+        expect.stringContaining("SELECT id, email, created_at, status, password_changed_at, is_admin, wallet_address FROM users WHERE id = $1"),
         ["u1"],
       );
     });

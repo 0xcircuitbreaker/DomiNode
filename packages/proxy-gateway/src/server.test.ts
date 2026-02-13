@@ -168,7 +168,7 @@ describe("proxy-gateway server", () => {
       provider: { name: "packetstream" },
       proxy: { host: "gw.test.io", port: 31112, proxyAuth: Buffer.from("u:p").toString("base64") },
     });
-    mockGetUserPlan.mockResolvedValue({ id: "payg", name: "PAYG", pricePerGbCents: 500, monthlyBandwidthBytes: 0, isDefault: false, maxConnections: 100 });
+    mockGetUserPlan.mockResolvedValue({ id: "payg", name: "PAYG", pricePerGbCents: 500, monthlyBandwidthBytes: 0, isDefault: false, maxConnections: 100, maxSessionsPerMinute: 30 });
     mockIncrementUserConns.mockReturnValue(true);
     mockCheckBalance.mockResolvedValue(true);
     mockValidateTarget.mockResolvedValue({ allowed: true });

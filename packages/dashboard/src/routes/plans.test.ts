@@ -176,6 +176,7 @@ describe("plans routes", () => {
           monthlyBandwidthBytes: 0,
           isDefault: false,
           maxConnections: 100,
+          maxSessionsPerMinute: 30,
         },
         {
           id: "vol100",
@@ -184,6 +185,7 @@ describe("plans routes", () => {
           monthlyBandwidthBytes: 107_374_182_400,
           isDefault: false,
           maxConnections: 100,
+          maxSessionsPerMinute: 30,
         },
       ]);
 

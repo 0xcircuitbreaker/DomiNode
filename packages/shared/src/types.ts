@@ -27,6 +27,7 @@ export interface User {
   status: UserStatus;
   password_changed_at: Date | null;
   is_admin: boolean;
+  wallet_address: string | null;
 }
 
 // ─── API Key ─────────────────────────────────────────────────────────
@@ -118,6 +119,7 @@ export interface Plan {
   monthlyBandwidthBytes: number;
   isDefault: boolean;
   maxConnections: number;
+  maxSessionsPerMinute: number;
 }
 
 // ─── Admin Views ────────────────────────────────────────────────────

@@ -115,6 +115,7 @@ class SyncHttpClient:
             base_url=self._base_url,
             timeout=timeout,
             headers={"User-Agent": USER_AGENT},
+            follow_redirects=False,  # R17: Prevent HTTPS→HTTP credential leakage
         )
 
     def close(self) -> None:
@@ -235,6 +236,7 @@ class AsyncHttpClient:
             base_url=self._base_url,
             timeout=timeout,
             headers={"User-Agent": USER_AGENT},
+            follow_redirects=False,  # R17: Prevent HTTPS→HTTP credential leakage
         )
 
     async def close(self) -> None:

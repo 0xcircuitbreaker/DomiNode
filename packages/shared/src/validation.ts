@@ -3,6 +3,31 @@ import { SUPPORTED_CRYPTO, type SupportedCrypto } from "./types.js";
 // Rejects double dots, leading/trailing dots in local/domain, and very short emails
 const EMAIL_RE = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?)*\.[a-zA-Z]{2,}$/;
 
+// Common disposable/temporary email domains used for mass signup abuse.
+// This is not exhaustive — a DNS-based check is better for production,
+// but this blocks the most common offenders at zero cost.
+const DISPOSABLE_EMAIL_DOMAINS = new Set([
+  "10minutemail.com", "tempmail.com", "throwaway.email", "guerrillamail.com",
+  "guerrillamail.net", "guerrillamail.org", "sharklasers.com", "grr.la",
+  "guerrillamailblock.com", "pokemail.net", "spam4.me", "dispostable.com",
+  "mailinator.com", "maildrop.cc", "yopmail.com", "yopmail.fr", "yopmail.net",
+  "trashmail.com", "trashmail.me", "trashmail.net", "tempr.email",
+  "temp-mail.org", "tempail.com", "mohmal.com", "getnada.com",
+  "emailondeck.com", "mailnesia.com", "fakeinbox.com", "mailnull.com",
+  "spamgourmet.com", "mytemp.email", "tmpmail.net", "tmpmail.org",
+  "burnermail.io", "discard.email", "discardmail.com", "harakirimail.com",
+  "mailexpire.com", "meltmail.com", "mintemail.com", "mt2015.com",
+  "nada.email", "throwam.com", "tmail.ws", "trash-mail.com",
+  "wegwerfmail.de", "wegwerfmail.net", "zoemail.org", "mailcatch.com",
+  "inboxkitten.com", "dropmail.me", "crazymailing.com",
+]);
+
+export function isDisposableEmail(email: string): boolean {
+  const domain = email.split("@")[1]?.toLowerCase();
+  if (!domain) return false;
+  return DISPOSABLE_EMAIL_DOMAINS.has(domain);
+}
+
 export function isValidEmail(email: string): boolean {
   if (email.length < 5 || email.length > 254) return false;
   // Reject double dots in local part or domain
@@ -61,8 +86,12 @@ export function isValidCryptoCurrency(currency: string): currency is SupportedCr
   return (SUPPORTED_CRYPTO as readonly string[]).includes(currency.toLowerCase());
 }
 
+// R17: Strip control characters, zero-width characters, and RTL overrides
+// to prevent log injection, display spoofing, and invisible payload insertion
+const CONTROL_CHARS_RE = /[\u0000-\u001F\u007F-\u009F\u200B-\u200F\u202A-\u202E\uFEFF]/g;
+
 export function sanitizeString(input: string, maxLength: number): string {
-  return input.trim().slice(0, maxLength);
+  return input.replace(CONTROL_CHARS_RE, "").trim().slice(0, maxLength);
 }
 
 // ─── Geo-Targeting Validation ──────────────────────────────────────

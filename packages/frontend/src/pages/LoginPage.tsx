@@ -38,8 +38,12 @@ function AuthShell({ theme, subtitle, children }: AuthShellProps) {
   );
 }
 
+function hasEthereumProvider(): boolean {
+  return typeof window !== "undefined" && typeof (window as any).ethereum !== "undefined";
+}
+
 export default function LoginPage() {
-  const { user, mfaRequired, login, verifyMfa, cancelMfa, register } = useAuth();
+  const { user, mfaRequired, login, verifyMfa, cancelMfa, register, walletChallenge, walletLogin } = useAuth();
   const { theme } = useTheme();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -50,6 +54,7 @@ export default function LoginPage() {
   const [useBackupCode, setUseBackupCode] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [walletLoading, setWalletLoading] = useState(false);
 
   useEffect(() => {
     setIsRegister(searchParams.get("mode") === "register");
@@ -97,6 +102,50 @@ export default function LoginPage() {
       setError(err instanceof Error ? err.message : "Invalid code");
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleWalletLogin() {
+    setError("");
+    setWalletLoading(true);
+
+    try {
+      const ethereum = (window as any).ethereum;
+      if (!ethereum) {
+        setError("No wallet provider detected. Install MetaMask or another Web3 wallet.");
+        return;
+      }
+
+      // Request account access
+      const accounts: string[] = await ethereum.request({ method: "eth_requestAccounts" });
+      if (!accounts || accounts.length === 0) {
+        setError("No account selected. Please connect your wallet.");
+        return;
+      }
+      const address = accounts[0].toLowerCase();
+
+      // Get challenge from server
+      const challenge = await walletChallenge(address);
+
+      // Sign the message with the wallet
+      const signature: string = await ethereum.request({
+        method: "personal_sign",
+        params: [challenge.message, address],
+      });
+
+      // Verify signature and login/register
+      await walletLogin(address, signature);
+      navigate("/app");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Wallet sign-in failed";
+      // Don't show "User rejected" as an error — they just cancelled
+      if (msg.includes("User rejected") || msg.includes("user rejected")) {
+        setError("");
+      } else {
+        setError(msg);
+      }
+    } finally {
+      setWalletLoading(false);
     }
   }
 
@@ -212,6 +261,23 @@ export default function LoginPage() {
         >
           {loading ? "..." : isRegister ? "Create Account" : "Sign In"}
         </button>
+
+        {hasEthereumProvider() && (
+          <div className="login-wallet-divider">
+            <span>or</span>
+          </div>
+        )}
+
+        {hasEthereumProvider() && (
+          <button
+            type="button"
+            onClick={handleWalletLogin}
+            disabled={walletLoading}
+            className="login-submit login-wallet-btn"
+          >
+            {walletLoading ? "Connecting..." : "Sign in with Wallet"}
+          </button>
+        )}
 
         <p className="login-switch-row">
           {isRegister ? "Already have an account?" : "Don't have an account?"}{" "}

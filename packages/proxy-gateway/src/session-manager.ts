@@ -32,7 +32,66 @@ const MAX_SESSIONS_PER_MINUTE = parseInt(process.env["MAX_SESSIONS_PER_MINUTE"] 
 const MAX_RATE_LIMIT_MAP_SIZE = 50_000;
 const sessionCreationLog = new Map<string, number[]>(); // userId -> timestamps
 
-export function checkSessionRateLimit(userId: string): boolean {
+// ─── Per-user bandwidth velocity tracking ────────────────────────────
+// Prevents a single user from monopolizing upstream bandwidth.
+// Tracks bytes transferred per user over a rolling 1-hour window.
+// Default: 10 GB/hour per user (configurable via MAX_BANDWIDTH_PER_HOUR_BYTES)
+const MAX_BANDWIDTH_PER_HOUR_BYTES = parseInt(
+  process.env["MAX_BANDWIDTH_PER_HOUR_BYTES"] ?? String(10 * 1024 * 1024 * 1024), // 10 GB
+  10,
+);
+const BANDWIDTH_WINDOW_MS = 60 * 60 * 1000; // 1 hour
+const MAX_BANDWIDTH_MAP_SIZE = 50_000;
+const bandwidthLog = new Map<string, Array<{ timestamp: number; bytes: number }>>(); // userId -> records
+
+export function recordBandwidthUsage(userId: string, bytes: number): void {
+  let records = bandwidthLog.get(userId);
+  if (!records) {
+    if (bandwidthLog.size >= MAX_BANDWIDTH_MAP_SIZE) {
+      const firstKey = bandwidthLog.keys().next().value;
+      if (firstKey) bandwidthLog.delete(firstKey);
+    }
+    records = [];
+    bandwidthLog.set(userId, records);
+  }
+  records.push({ timestamp: Date.now(), bytes });
+}
+
+export function checkBandwidthVelocity(userId: string): { allowed: boolean; usedBytes: number; limitBytes: number } {
+  const now = Date.now();
+  const records = bandwidthLog.get(userId);
+  if (!records) return { allowed: true, usedBytes: 0, limitBytes: MAX_BANDWIDTH_PER_HOUR_BYTES };
+
+  // Trim old records
+  while (records.length > 0 && records[0].timestamp < now - BANDWIDTH_WINDOW_MS) {
+    records.shift();
+  }
+  if (records.length === 0) {
+    bandwidthLog.delete(userId);
+    return { allowed: true, usedBytes: 0, limitBytes: MAX_BANDWIDTH_PER_HOUR_BYTES };
+  }
+
+  const totalBytes = records.reduce((sum, r) => sum + r.bytes, 0);
+  return {
+    allowed: totalBytes < MAX_BANDWIDTH_PER_HOUR_BYTES,
+    usedBytes: totalBytes,
+    limitBytes: MAX_BANDWIDTH_PER_HOUR_BYTES,
+  };
+}
+
+// Cleanup bandwidth log entries every 5 min
+setInterval(() => {
+  const now = Date.now();
+  for (const [userId, records] of bandwidthLog) {
+    while (records.length > 0 && records[0].timestamp < now - BANDWIDTH_WINDOW_MS) {
+      records.shift();
+    }
+    if (records.length === 0) bandwidthLog.delete(userId);
+  }
+}, 300_000).unref();
+
+export function checkSessionRateLimit(userId: string, planLimit?: number): boolean {
+  const limit = planLimit ?? MAX_SESSIONS_PER_MINUTE;
   const now = Date.now();
   const windowMs = 60_000;
   let timestamps = sessionCreationLog.get(userId);
@@ -49,7 +108,7 @@ export function checkSessionRateLimit(userId: string): boolean {
   while (timestamps.length > 0 && timestamps[0] < now - windowMs) {
     timestamps.shift();
   }
-  if (timestamps.length >= MAX_SESSIONS_PER_MINUTE) {
+  if (timestamps.length >= limit) {
     return false; // rate limited
   }
   timestamps.push(now);
@@ -66,6 +125,31 @@ setInterval(() => {
     if (timestamps.length === 0) sessionCreationLog.delete(userId);
   }
 }, 300_000).unref();
+
+// ─── Free tier bandwidth reservation ─────────────────────────────
+// Tracks in-flight bytes reserved per user for free-plan sessions.
+// Prevents concurrent sessions from exceeding the monthly bandwidth limit.
+const FREE_TIER_RESERVATION_BYTES = 50 * 1024 * 1024; // 50MB per session reservation
+const freeReservations = new Map<string, number>(); // userId -> reserved bytes
+
+function reserveFreeBandwidth(userId: string, planBandwidthBytes: number, currentUsage: number): boolean {
+  const reserved = freeReservations.get(userId) ?? 0;
+  if (currentUsage + reserved + FREE_TIER_RESERVATION_BYTES > planBandwidthBytes) {
+    return false;
+  }
+  freeReservations.set(userId, reserved + FREE_TIER_RESERVATION_BYTES);
+  return true;
+}
+
+function releaseFreeBandwidth(userId: string): void {
+  const reserved = freeReservations.get(userId) ?? 0;
+  const newReserved = reserved - FREE_TIER_RESERVATION_BYTES;
+  if (newReserved <= 0) {
+    freeReservations.delete(userId);
+  } else {
+    freeReservations.set(userId, newReserved);
+  }
+}
 
 const STALE_CLEANUP_INTERVAL_MS = parseInt(process.env["PROXY_STALE_CLEANUP_INTERVAL_MS"] ?? "60000", 10);
 const SESSION_MAX_AGE_MS = parseInt(process.env["PROXY_SESSION_MAX_AGE_MS"] ?? "3600000", 10);
@@ -103,16 +187,21 @@ export async function startSession(
   counter: ByteCounter,
   connectLatencyMs: number = 0,
 ): Promise<string> {
-  // Per-user session rate limiting
-  if (!checkSessionRateLimit(userId)) {
-    throw new Error("Session rate limit exceeded");
+  // Per-user bandwidth velocity check: prevent monopolizing upstream
+  const velocity = checkBandwidthVelocity(userId);
+  if (!velocity.allowed) {
+    const usedGB = (velocity.usedBytes / (1024 * 1024 * 1024)).toFixed(2);
+    const limitGB = (velocity.limitBytes / (1024 * 1024 * 1024)).toFixed(0);
+    throw new Error(`Bandwidth velocity limit exceeded: ${usedGB}GB used in last hour (limit: ${limitGB}GB/hour)`);
   }
 
-  // Fetch plan once for both bandwidth check and pricing lock (R13 H-2: eliminates TOCTOU)
+  // Fetch plan once for both bandwidth check, pricing lock, and rate limit (R13 H-2: eliminates TOCTOU)
   let pricePerGbCents = 500; // default PAYG rate
+  let planSessionLimit: number | undefined;
   try {
     const plan = await planRepo.getUserPlan(userId);
     pricePerGbCents = plan.pricePerGbCents;
+    planSessionLimit = plan.maxSessionsPerMinute;
 
     // Check plan bandwidth limit before allowing session
     if (plan.monthlyBandwidthBytes > 0) {
@@ -131,11 +220,28 @@ export async function startSession(
     });
   }
 
-  // Free plan (price=0): skip balance reservation entirely
+  // R18: Per-user session rate limiting — uses plan-specific limit when available
+  if (!checkSessionRateLimit(userId, planSessionLimit)) {
+    throw new Error("Session rate limit exceeded");
+  }
+
+  // R17: Free plan needs in-memory bandwidth reservation to prevent concurrent session abuse
   const isFreePlan = pricePerGbCents === 0;
   let reservedCents = 0;
+  let freeReserved = false;
 
-  if (!isFreePlan) {
+  if (isFreePlan) {
+    // For free plans, reserve bandwidth in memory to prevent concurrent sessions
+    // from exceeding the monthly limit (TOCTOU race on monthlyUsage check above)
+    const plan = await planRepo.getUserPlan(userId);
+    if (plan.monthlyBandwidthBytes > 0) {
+      const monthlyUsage = await planRepo.getMonthlyUsage(userId);
+      if (!reserveFreeBandwidth(userId, plan.monthlyBandwidthBytes, monthlyUsage)) {
+        throw new Error("Monthly bandwidth limit exceeded (including active sessions)");
+      }
+      freeReserved = true;
+    }
+  } else {
     // C1 fix: Reserve balance BEFORE creating session — no free proxy usage
     const walletId = await walletRepo.reserveBalance(userId, MIN_RESERVATION_CENTS);
     if (!walletId) {
@@ -153,6 +259,9 @@ export async function startSession(
     if (reservedCents > 0) {
       await walletRepo.releaseReservation(userId, reservedCents);
       invalidateBalanceCache(userId);
+    }
+    if (freeReserved) {
+      releaseFreeBandwidth(userId);
     }
     throw err;
   }
@@ -191,6 +300,16 @@ export async function endSession(sessionId: string): Promise<void> {
 
   const { userId, counter, targetHost, reservedCents, connectLatencyMs, pricePerGbCents } = session;
   const totalBytes = counter.bytesIn + counter.bytesOut;
+
+  // Record bandwidth for velocity tracking (prevents single user from monopolizing)
+  if (totalBytes > 0) {
+    recordBandwidthUsage(userId, totalBytes);
+  }
+
+  // R17: Release free tier bandwidth reservation on session end
+  if (pricePerGbCents === 0) {
+    releaseFreeBandwidth(userId);
+  }
 
   const actualCostCents = computeCostCents(totalBytes, pricePerGbCents);
 
