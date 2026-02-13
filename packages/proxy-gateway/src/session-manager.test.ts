@@ -175,11 +175,11 @@ describe("proxy-gateway/session-manager", () => {
         id: "free",
         name: "Free",
         pricePerGbCents: 0,
-        monthlyBandwidthBytes: 524288000, // 500MB
+        monthlyBandwidthBytes: 1073741824, // 500MB
         isDefault: true,
         maxConnections: 10,
       });
-      mockGetMonthlyUsage.mockResolvedValueOnce(600_000_000); // 600MB > 500MB limit
+      mockGetMonthlyUsage.mockResolvedValueOnce(2_000_000_000); // 2GB > 1GB limit
 
       const counter = makeCounter();
       await expect(
@@ -195,11 +195,11 @@ describe("proxy-gateway/session-manager", () => {
         id: "free",
         name: "Free",
         pricePerGbCents: 0,
-        monthlyBandwidthBytes: 524288000,
+        monthlyBandwidthBytes: 1073741824,
         isDefault: true,
         maxConnections: 10,
       });
-      mockGetMonthlyUsage.mockResolvedValueOnce(50_000_000); // 50MB < 500MB
+      mockGetMonthlyUsage.mockResolvedValueOnce(50_000_000); // 50MB < 1GB
 
       // Free plan: no reservation needed
       mockCreateSession.mockResolvedValueOnce({ id: "sess-within-limit" });
@@ -221,7 +221,7 @@ describe("proxy-gateway/session-manager", () => {
         id: "free",
         name: "Free",
         pricePerGbCents: 0,
-        monthlyBandwidthBytes: 524288000,
+        monthlyBandwidthBytes: 1073741824,
         isDefault: true,
         maxConnections: 10,
       });

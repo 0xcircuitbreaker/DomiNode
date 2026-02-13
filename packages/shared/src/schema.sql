@@ -133,7 +133,7 @@ CREATE TABLE IF NOT EXISTS plans (
 
 -- Seed plans
 INSERT INTO plans (id, name, price_per_gb_cents, monthly_bandwidth_bytes, is_default, max_connections) VALUES
-  ('free',   'Free',          0,   524288000,       true,  10),
+  ('free',   'Free',          0,   1073741824,      true,  10),
   ('payg',   'Pay As You Go', 500, 0,               false, 100),
   ('vol100', 'Volume 100GB',  400, 107374182400,    false, 100),
   ('vol1tb', 'Volume 1TB',    300, 1099511627776,   false, 100)
@@ -152,7 +152,7 @@ EXCEPTION WHEN duplicate_column THEN NULL;
 END $$;
 
 -- Update free plan for existing databases (bandwidth, price, default, max_connections)
-UPDATE plans SET price_per_gb_cents = 0, monthly_bandwidth_bytes = 524288000, is_default = true, max_connections = 10, name = 'Free' WHERE id = 'free';
+UPDATE plans SET price_per_gb_cents = 0, monthly_bandwidth_bytes = 1073741824, is_default = true, max_connections = 10, name = 'Free' WHERE id = 'free';
 UPDATE plans SET is_default = false WHERE id = 'payg';
 
 -- Add admin role (idempotent)

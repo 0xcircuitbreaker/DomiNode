@@ -153,7 +153,7 @@ export default function PlansPage() {
               </p>
               <p className="text-xs text-gray-500 mt-1">
                 {plan.id === "free"
-                  ? "500 MB free bandwidth, no payment required"
+                  ? "1 GB free residential bandwidth, no payment required"
                   : plan.id === "payg"
                     ? "Standard rate, no commitment"
                     : plan.id === "vol100"

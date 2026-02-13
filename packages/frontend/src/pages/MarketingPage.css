@@ -512,7 +512,7 @@ html {
   margin-top: 28px;
   display: grid;
   gap: 14px;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
 .mk-price-card {
@@ -554,6 +554,14 @@ html {
   margin-top: 10px;
   color: var(--mk-muted);
   font-size: 14px;
+}
+
+.mk-price-note {
+  margin-top: 6px;
+  color: var(--mk-accent);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.3px;
 }
 
 .mk-price-card .mk-button {

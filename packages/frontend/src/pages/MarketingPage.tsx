@@ -12,8 +12,10 @@ import "./MarketingPage.css";
 interface PlanItem {
   id: string;
   name: string;
+  pricePerGbCents: number;
   pricePerGbUsd: number;
   monthlyBandwidthGB: number | null;
+  maxConnections: number;
 }
 
 interface PlansResponse {
@@ -25,9 +27,10 @@ interface ProxyHealthResponse {
 }
 
 const FALLBACK_PLANS: PlanItem[] = [
-  { id: "payg", name: "Pay As You Go", pricePerGbUsd: 5, monthlyBandwidthGB: null },
-  { id: "vol100", name: "Volume 100GB", pricePerGbUsd: 4, monthlyBandwidthGB: 100 },
-  { id: "vol1tb", name: "Volume 1TB", pricePerGbUsd: 3, monthlyBandwidthGB: 1024 },
+  { id: "free", name: "Free", pricePerGbCents: 0, pricePerGbUsd: 0, monthlyBandwidthGB: 1, maxConnections: 10 },
+  { id: "payg", name: "Pay As You Go", pricePerGbCents: 500, pricePerGbUsd: 5, monthlyBandwidthGB: null, maxConnections: 100 },
+  { id: "vol100", name: "Volume 100GB", pricePerGbCents: 400, pricePerGbUsd: 4, monthlyBandwidthGB: 100, maxConnections: 100 },
+  { id: "vol1tb", name: "Volume 1TB", pricePerGbCents: 300, pricePerGbUsd: 3, monthlyBandwidthGB: 1024, maxConnections: 100 },
 ];
 const DEFAULT_FEATURED_PLAN_ID = "vol1tb";
 
@@ -60,8 +63,8 @@ const PROOF_POINTS = [
 const WORKFLOW_STEPS = [
   {
     step: "1",
-    title: "Create account",
-    body: "Open your client workspace, choose your plan, and configure wallet funding in minutes.",
+    title: "Create a free account",
+    body: "Sign up in seconds — no credit card needed. Get 10 residential proxy connections and 1 GB of bandwidth immediately.",
   },
   {
     step: "2",
@@ -174,7 +177,7 @@ export default function MarketingPage() {
   const { data: healthData } = useApi<ProxyHealthResponse>(() => get("/api/proxy/health", { redirectOnUnauthorized: false }));
 
   const plans = (plansData?.plans ?? FALLBACK_PLANS)
-    .filter((p) => p.id === "payg" || p.id === "vol100" || p.id === "vol1tb")
+    .filter((p) => p.id === "free" || p.id === "payg" || p.id === "vol100" || p.id === "vol1tb")
     .sort((a, b) => a.pricePerGbUsd - b.pricePerGbUsd);
 
   const registerHref = user ? "/app" : "/login?mode=register";
@@ -228,7 +231,8 @@ export default function MarketingPage() {
             <div className="mk-hero-copy mk-animate-up mk-delay-1">
               <p className="mk-subtitle">
                 Launch high-trust traffic through a hardened control plane with resilient routing,
-                transparent economics, and production-grade observability.
+                transparent economics, and production-grade observability. Start free with 10 proxy
+                connections and 1 GB of residential bandwidth — no credit card required.
               </p>
 
               <div className="mk-cta-row">
@@ -338,7 +342,7 @@ export default function MarketingPage() {
         <section id="pricing" className="mk-shell mk-section">
           <div className="mk-section-head mk-animate-up">
             <p className="mk-overline">Pricing</p>
-            <h2>Simple plans with immediate activation</h2>
+            <h2>Start free. Scale when ready.</h2>
           </div>
 
           <div
@@ -360,10 +364,21 @@ export default function MarketingPage() {
                 onFocusCapture={() => setFeaturedPlanId(plan.id)}
               >
                 <p className="mk-price-name">{plan.name}</p>
-                <p className="mk-price-value">${plan.pricePerGbUsd.toFixed(2)}<span>/GB</span></p>
-                <p className="mk-price-cap">{formatBandwidth(plan.monthlyBandwidthGB)}</p>
+                <p className="mk-price-value">
+                  {plan.pricePerGbCents === 0
+                    ? <>$0<span>/forever</span></>
+                    : <>${plan.pricePerGbUsd.toFixed(2)}<span>/GB</span></>}
+                </p>
+                <p className="mk-price-cap">
+                  {plan.pricePerGbCents === 0
+                    ? `${plan.maxConnections} proxies \u00b7 ${formatBandwidth(plan.monthlyBandwidthGB)}`
+                    : formatBandwidth(plan.monthlyBandwidthGB)}
+                </p>
+                {plan.pricePerGbCents === 0 && (
+                  <p className="mk-price-note">No credit card required</p>
+                )}
                 <Link to={registerHref} className="mk-button mk-button-outline">
-                  Choose Plan
+                  {plan.pricePerGbCents === 0 ? "Get Started Free" : "Choose Plan"}
                 </Link>
               </article>
             ))}
@@ -429,9 +444,10 @@ export default function MarketingPage() {
 
         <section className="mk-shell mk-final-cta">
           <div className="mk-final-card mk-animate-up">
-            <h2>Ready for premium proxy operations?</h2>
+            <h2>Start with 10 free residential proxies</h2>
             <p>
-              Create your {BRAND_NAME} account, configure keys, and move production traffic onto a hardened residential proxy platform.
+              Create your {BRAND_NAME} account in seconds — no credit card required. Get 1 GB of residential
+              proxy bandwidth free every month, then scale with transparent per-GB pricing.
             </p>
             <div className="mk-cta-row">
               <Link to={registerHref} className="mk-button mk-button-solid">
