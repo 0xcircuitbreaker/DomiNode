@@ -316,7 +316,7 @@ export default function MarketingPage() {
           <div className="mk-hero-head mk-animate-up">
             <p className="mk-overline">Premium Proxy Infrastructure</p>
             <h1>
-              {BRAND_NAME} delivers enterprise residential proxy operations, not commodity access.
+              {BRAND_NAME} is enterprise proxy infrastructure, built for scale.
             </h1>
           </div>
 
