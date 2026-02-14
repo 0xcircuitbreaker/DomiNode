@@ -248,6 +248,8 @@ export default function MarketingPage() {
   const sdkInfo = SDK_DETAILS[selectedSdk];
   const marketingProxyEndpoint = getMarketingProxyEndpoint();
 
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
   return (
     <div className="marketing-root" data-theme={theme}>
       <NodeNetworkBackground theme={theme} className="mk-node-network" />
@@ -275,9 +277,39 @@ export default function MarketingPage() {
             <Link to={registerHref} className="mk-button mk-button-solid">
               {registerLabel}
             </Link>
+            <button
+              className={`mk-hamburger${mobileMenuOpen ? " mk-hamburger-open" : ""}`}
+              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+              aria-label="Toggle menu"
+              aria-expanded={mobileMenuOpen}
+            >
+              <span />
+            </button>
           </div>
         </div>
       </header>
+
+      {/* Mobile slide-down menu */}
+      {mobileMenuOpen && (
+        <div className="mk-mobile-menu">
+          <nav className="mk-mobile-menu-links">
+            <a href="#top" onClick={() => setMobileMenuOpen(false)}>Home</a>
+            <a href="#services" onClick={() => setMobileMenuOpen(false)}>Services</a>
+            <a href="#ai-agents" onClick={() => setMobileMenuOpen(false)}>AI Agents</a>
+            <a href="#platform" onClick={() => setMobileMenuOpen(false)}>Platform</a>
+            <a href="#security" onClick={() => setMobileMenuOpen(false)}>Security</a>
+            <a href="#pricing" onClick={() => setMobileMenuOpen(false)}>Pricing</a>
+          </nav>
+          <div className="mk-mobile-menu-actions">
+            <Link to={loginHref} className="mk-button mk-button-outline" onClick={() => setMobileMenuOpen(false)}>
+              Login
+            </Link>
+            <Link to={registerHref} className="mk-button mk-button-solid" onClick={() => setMobileMenuOpen(false)}>
+              {registerLabel}
+            </Link>
+          </div>
+        </div>
+      )}
 
       <main>
         <section id="top" className="mk-shell mk-hero">

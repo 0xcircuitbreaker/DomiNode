@@ -129,7 +129,8 @@ describe("WalletPage", () => {
     renderWithProviders(<WalletPage />);
 
     await waitFor(() => {
-      expect(screen.getByText("No transactions yet.")).toBeInTheDocument();
+      // ResponsiveTable renders desktop+mobile views; text may appear in both
+      expect(screen.getAllByText("No transactions yet.").length).toBeGreaterThan(0);
     });
   });
 
@@ -164,10 +165,10 @@ describe("WalletPage", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByText("Stripe top-up")).toBeInTheDocument();
+      expect(screen.getAllByText("Stripe top-up").length).toBeGreaterThan(0);
     });
 
-    expect(screen.getByText("Usage charge")).toBeInTheDocument();
-    expect(screen.getByText("+$25.00")).toBeInTheDocument();
+    expect(screen.getAllByText("Usage charge").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("+$25.00").length).toBeGreaterThan(0);
   });
 });

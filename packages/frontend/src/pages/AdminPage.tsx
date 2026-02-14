@@ -2,6 +2,7 @@ import { useState, useCallback } from "react";
 import { useAuth } from "../context/AuthContext";
 import { useApi } from "../hooks/useApi";
 import { get, put, del } from "../api/client";
+import ResponsiveTable from "../components/ResponsiveTable";
 
 // ─── Types ──────────────────────────────────────────────────────────
 
@@ -270,93 +271,64 @@ function UsersTab() {
 
       {/* Users Table */}
       <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[920px] text-sm">
-            <thead>
-              <tr className="border-b border-gray-800 text-gray-400">
-                <th className="text-left px-4 py-3 font-medium">Email</th>
-                <th className="text-left px-4 py-3 font-medium">Status</th>
-                <th className="text-left px-4 py-3 font-medium">Plan</th>
-                <th className="text-left px-4 py-3 font-medium">Balance</th>
-                <th className="text-left px-4 py-3 font-medium">Created</th>
-                <th className="text-left px-4 py-3 font-medium">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {loading ? (
-                <tr>
-                  <td colSpan={6} className="px-4 py-8 text-center text-gray-500">
-                    Loading...
-                  </td>
-                </tr>
-              ) : !data?.users.length ? (
-                <tr>
-                  <td colSpan={6} className="px-4 py-8 text-center text-gray-500">
-                    No users found.
-                  </td>
-                </tr>
-              ) : (
-                data.users.map((u) => (
-                  <tr key={u.id} className="border-b border-gray-800/50">
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-2">
-                        <span>{u.email}</span>
-                        {u.isAdmin && (
-                          <span className="px-1.5 py-0.5 rounded text-xs bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
-                            admin
-                          </span>
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-4 py-3">
-                      <StatusBadge status={u.status} />
-                    </td>
-                    <td className="px-4 py-3 text-gray-400">{u.planId}</td>
-                    <td className="px-4 py-3 text-gray-400">
-                      ${(u.balanceCents / 100).toFixed(2)}
-                    </td>
-                    <td className="px-4 py-3 text-gray-400">
-                      {new Date(u.createdAt).toLocaleDateString()}
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => setSelectedUserId(u.id)}
-                          className="text-xs text-indigo-400 hover:text-indigo-300"
-                        >
-                          Details
-                        </button>
-                        {u.status === "active" ? (
-                          <button
-                            onClick={() => handleSuspend(u.id)}
-                            className="text-xs text-yellow-400 hover:text-yellow-300"
-                          >
-                            Suspend
-                          </button>
-                        ) : u.status === "suspended" ? (
-                          <button
-                            onClick={() => handleActivate(u.id)}
-                            className="text-xs text-green-400 hover:text-green-300"
-                          >
-                            Activate
-                          </button>
-                        ) : null}
-                        {u.status !== "deleted" && (
-                          <button
-                            onClick={() => handleDelete(u.id)}
-                            className="text-xs text-red-400 hover:text-red-300"
-                          >
-                            Delete
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
+        {loading ? (
+          <p className="px-4 py-8 text-center text-gray-500 text-sm">Loading...</p>
+        ) : (
+          <ResponsiveTable<AdminUser>
+            columns={[
+              { key: "email", header: "Email", primary: true, render: (u) => (
+                <div className="flex items-center gap-2">
+                  <span className="truncate">{u.email}</span>
+                  {u.isAdmin && (
+                    <span className="px-1.5 py-0.5 rounded text-xs bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 flex-shrink-0">
+                      admin
+                    </span>
+                  )}
+                </div>
+              )},
+              { key: "status", header: "Status", render: (u) => <StatusBadge status={u.status} /> },
+              { key: "plan", header: "Plan", render: (u) => <span className="text-gray-400">{u.planId}</span> },
+              { key: "balance", header: "Balance", render: (u) => <span className="text-gray-400">${(u.balanceCents / 100).toFixed(2)}</span> },
+              { key: "created", header: "Created", hideOnMobile: true, render: (u) => <span className="text-gray-400">{new Date(u.createdAt).toLocaleDateString()}</span> },
+              { key: "actions", header: "Actions", align: "right", render: (u) => (
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setSelectedUserId(u.id)}
+                    className="text-xs text-indigo-400 hover:text-indigo-300"
+                  >
+                    Details
+                  </button>
+                  {u.status === "active" ? (
+                    <button
+                      onClick={() => handleSuspend(u.id)}
+                      className="text-xs text-yellow-400 hover:text-yellow-300"
+                    >
+                      Suspend
+                    </button>
+                  ) : u.status === "suspended" ? (
+                    <button
+                      onClick={() => handleActivate(u.id)}
+                      className="text-xs text-green-400 hover:text-green-300"
+                    >
+                      Activate
+                    </button>
+                  ) : null}
+                  {u.status !== "deleted" && (
+                    <button
+                      onClick={() => handleDelete(u.id)}
+                      className="text-xs text-red-400 hover:text-red-300"
+                    >
+                      Delete
+                    </button>
+                  )}
+                </div>
+              )},
+            ]}
+            data={data?.users ?? []}
+            keyExtractor={(u) => u.id}
+            emptyMessage="No users found."
+          />
+        )}
 
         {/* Pagination */}
         {totalPages > 1 && (
@@ -368,14 +340,14 @@ function UsersTab() {
               <button
                 onClick={() => setPage(Math.max(1, page - 1))}
                 disabled={page === 1}
-                className="px-3 py-1 rounded text-xs bg-gray-800 text-gray-400 hover:bg-gray-700 disabled:opacity-50"
+                className="px-4 py-2 rounded-lg text-xs bg-gray-800 text-gray-400 hover:bg-gray-700 disabled:opacity-50"
               >
                 Previous
               </button>
               <button
                 onClick={() => setPage(Math.min(totalPages, page + 1))}
                 disabled={page >= totalPages}
-                className="px-3 py-1 rounded text-xs bg-gray-800 text-gray-400 hover:bg-gray-700 disabled:opacity-50"
+                className="px-4 py-2 rounded-lg text-xs bg-gray-800 text-gray-400 hover:bg-gray-700 disabled:opacity-50"
               >
                 Next
               </button>
@@ -410,31 +382,31 @@ function RevenueTab() {
   return (
     <div className="space-y-6">
       {/* Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 sm:p-5">
           <p className="text-sm text-gray-400">Total Revenue</p>
-          <p className="text-3xl font-bold text-green-400 mt-1">
+          <p className="text-xl sm:text-2xl lg:text-3xl font-bold text-green-400 mt-1">
             ${revenue?.totalRevenueUsd.toFixed(2) ?? "0.00"}
           </p>
           <p className="text-xs text-gray-500 mt-1">Last 30 days</p>
         </div>
-        <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
+        <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 sm:p-5">
           <p className="text-sm text-gray-400">Transactions</p>
-          <p className="text-3xl font-bold mt-1">
+          <p className="text-xl sm:text-2xl lg:text-3xl font-bold mt-1">
             {revenue?.totalTransactions ?? 0}
           </p>
           <p className="text-xs text-gray-500 mt-1">Top-ups processed</p>
         </div>
-        <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
+        <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 sm:p-5">
           <p className="text-sm text-gray-400">Avg Transaction</p>
-          <p className="text-3xl font-bold mt-1">
+          <p className="text-xl sm:text-2xl lg:text-3xl font-bold mt-1">
             ${revenue?.avgTransactionUsd.toFixed(2) ?? "0.00"}
           </p>
           <p className="text-xs text-gray-500 mt-1">Per top-up</p>
         </div>
-        <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
+        <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 sm:p-5">
           <p className="text-sm text-gray-400">Unique Payers</p>
-          <p className="text-3xl font-bold text-indigo-400 mt-1">
+          <p className="text-xl sm:text-2xl lg:text-3xl font-bold text-indigo-400 mt-1">
             {revenue?.uniquePayingUsers ?? 0}
           </p>
           <p className="text-xs text-gray-500 mt-1">Paying users</p>
@@ -468,11 +440,11 @@ function SystemTab() {
   ];
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4">
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
       {cards.map((card) => (
-        <div key={card.label} className="bg-gray-900 border border-gray-800 rounded-xl p-5">
+        <div key={card.label} className="bg-gray-900 border border-gray-800 rounded-xl p-4 sm:p-5">
           <p className="text-sm text-gray-400">{card.label}</p>
-          <p className={`text-3xl font-bold mt-1 ${card.color}`}>
+          <p className={`text-xl sm:text-2xl lg:text-3xl font-bold mt-1 ${card.color}`}>
             {card.value.toLocaleString()}
           </p>
         </div>

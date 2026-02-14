@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useApi } from "../hooks/useApi";
 import { get, post } from "../api/client";
+import ResponsiveTable from "../components/ResponsiveTable";
 
 interface ForecastResponse {
   dailyAvgCents: number;
@@ -127,9 +128,9 @@ export default function WalletPage() {
       )}
 
       {/* Balance */}
-      <div className="bg-gray-900 border border-gray-800 rounded-xl p-6">
+      <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 sm:p-6">
         <p className="text-sm text-gray-400">Current Balance</p>
-        <p className="text-4xl font-bold text-green-400 mt-1">
+        <p className="text-2xl sm:text-3xl lg:text-4xl font-bold text-green-400 mt-1">
           ${wallet?.balanceUsd.toFixed(2) ?? "0.00"}
         </p>
         {wallet?.lastToppedUp && (
@@ -150,16 +151,16 @@ export default function WalletPage() {
       {forecast && (
         <div className="bg-gray-900 border border-gray-800 rounded-xl p-6">
           <h2 className="text-sm font-medium text-gray-400 mb-3">Spending Forecast</h2>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
             <div>
               <p className="text-xs text-gray-500">Daily Avg Spend</p>
-              <p className="text-xl font-bold mt-0.5">
+              <p className="text-lg sm:text-xl font-bold mt-0.5">
                 ${(forecast.dailyAvgCents / 100).toFixed(2)}/day
               </p>
             </div>
             <div>
               <p className="text-xs text-gray-500">Balance Lasts</p>
-              <p className={`text-xl font-bold mt-0.5 ${
+              <p className={`text-lg sm:text-xl font-bold mt-0.5 ${
                 forecast.daysRemaining === null
                   ? "text-green-400"
                   : forecast.daysRemaining > 7
@@ -175,7 +176,7 @@ export default function WalletPage() {
             </div>
             <div>
               <p className="text-xs text-gray-500">Trend (vs prev 7d)</p>
-              <p className="text-xl font-bold mt-0.5">
+              <p className="text-lg sm:text-xl font-bold mt-0.5">
                 <span className={
                   forecast.trend === "up" ? "text-red-400" :
                   forecast.trend === "down" ? "text-green-400" :
@@ -235,7 +236,7 @@ export default function WalletPage() {
             <button
               onClick={handleStripe}
               disabled={loadingStripe || effectiveAmount < 500}
-              className="w-full bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-medium py-2.5 rounded-lg transition-colors"
+              className="w-full bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-medium py-2.5 rounded-lg transition-colors text-sm"
             >
               {loadingStripe ? "Redirecting..." : `Pay $${(effectiveAmount / 100).toFixed(2)} with Card`}
             </button>
@@ -249,7 +250,7 @@ export default function WalletPage() {
                 <button
                   key={c}
                   onClick={() => setSelectedCrypto(c)}
-                  className={`px-3 py-1.5 rounded text-xs font-medium uppercase transition-colors ${
+                  className={`px-3 py-1.5 min-h-[44px] rounded text-xs font-medium uppercase transition-colors ${
                     selectedCrypto === c
                       ? "bg-indigo-600 text-white"
                       : "bg-gray-800 text-gray-400 hover:bg-gray-700"
@@ -275,54 +276,34 @@ export default function WalletPage() {
         <div className="px-4 py-3 border-b border-gray-800">
           <h2 className="font-semibold">Transaction History</h2>
         </div>
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[720px] text-sm">
-            <thead>
-              <tr className="border-b border-gray-800 text-gray-400">
-                <th className="text-left px-4 py-3 font-medium">Type</th>
-                <th className="text-left px-4 py-3 font-medium">Amount</th>
-                <th className="text-left px-4 py-3 font-medium">Description</th>
-                <th className="text-left px-4 py-3 font-medium">Provider</th>
-                <th className="text-left px-4 py-3 font-medium">Date</th>
-              </tr>
-            </thead>
-            <tbody>
-              {!txData?.transactions.length ? (
-                <tr>
-                  <td colSpan={5} className="px-4 py-8 text-center text-gray-500">
-                    No transactions yet.
-                  </td>
-                </tr>
-              ) : (
-                txData.transactions.map((tx) => (
-                  <tr key={tx.id} className="border-b border-gray-800/50">
-                    <td className="px-4 py-3">
-                      <span
-                        className={`px-2 py-0.5 rounded text-xs font-medium ${
-                          tx.type === "topup"
-                            ? "bg-green-500/10 text-green-400"
-                            : tx.type === "debit"
-                              ? "bg-red-500/10 text-red-400"
-                              : "bg-gray-500/10 text-gray-400"
-                        }`}
-                      >
-                        {tx.type}
-                      </span>
-                    </td>
-                    <td className={`px-4 py-3 font-medium ${tx.type === "topup" ? "text-green-400" : "text-red-400"}`}>
-                      {tx.type === "topup" ? "+" : "-"}${Math.abs(tx.amountUsd).toFixed(2)}
-                    </td>
-                    <td className="px-4 py-3 text-gray-400">{tx.description}</td>
-                    <td className="px-4 py-3 text-gray-500">{tx.paymentProvider ?? "-"}</td>
-                    <td className="px-4 py-3 text-gray-400">
-                      {new Date(tx.createdAt).toLocaleDateString()}
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
+        <ResponsiveTable<Transaction>
+          columns={[
+            { key: "type", header: "Type", primary: true, render: (tx) => (
+              <span
+                className={`px-2 py-0.5 rounded text-xs font-medium ${
+                  tx.type === "topup"
+                    ? "bg-green-500/10 text-green-400"
+                    : tx.type === "debit"
+                      ? "bg-red-500/10 text-red-400"
+                      : "bg-gray-500/10 text-gray-400"
+                }`}
+              >
+                {tx.type}
+              </span>
+            )},
+            { key: "amount", header: "Amount", render: (tx) => (
+              <span className={`font-medium ${tx.type === "topup" ? "text-green-400" : "text-red-400"}`}>
+                {tx.type === "topup" ? "+" : "-"}${Math.abs(tx.amountUsd).toFixed(2)}
+              </span>
+            )},
+            { key: "description", header: "Description", render: (tx) => <span className="text-gray-400">{tx.description}</span> },
+            { key: "provider", header: "Provider", hideOnMobile: true, render: (tx) => <span className="text-gray-500">{tx.paymentProvider ?? "-"}</span> },
+            { key: "date", header: "Date", render: (tx) => <span className="text-gray-400">{new Date(tx.createdAt).toLocaleDateString()}</span> },
+          ]}
+          data={txData?.transactions ?? []}
+          keyExtractor={(tx) => tx.id}
+          emptyMessage="No transactions yet."
+        />
       </div>
     </div>
   );

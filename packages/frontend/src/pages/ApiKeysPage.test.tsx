@@ -50,7 +50,8 @@ describe("ApiKeysPage", () => {
     renderWithProviders(<ApiKeysPage />);
 
     await waitFor(() => {
-      expect(screen.getByText("No active API keys. Create one to get started.")).toBeInTheDocument();
+      // ResponsiveTable renders desktop+mobile views; text may appear in both
+      expect(screen.getAllByText("No active API keys. Create one to get started.").length).toBeGreaterThan(0);
     });
   });
 
@@ -75,12 +76,12 @@ describe("ApiKeysPage", () => {
     renderWithProviders(<ApiKeysPage />);
 
     await waitFor(() => {
-      expect(screen.getByText("dn_live_abc...")).toBeInTheDocument();
+      expect(screen.getAllByText("dn_live_abc...").length).toBeGreaterThan(0);
     });
 
-    expect(screen.getByText("Production")).toBeInTheDocument();
-    expect(screen.getByText("dn_live_def...")).toBeInTheDocument();
-    expect(screen.getByText("Testing")).toBeInTheDocument();
+    expect(screen.getAllByText("Production").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("dn_live_def...").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Testing").length).toBeGreaterThan(0);
   });
 
   it("shows revoked keys section when revoked keys exist", async () => {
@@ -100,7 +101,7 @@ describe("ApiKeysPage", () => {
       expect(screen.getByText("Revoked Keys")).toBeInTheDocument();
     });
 
-    expect(screen.getByText("Old Key")).toBeInTheDocument();
+    expect(screen.getAllByText("Old Key").length).toBeGreaterThan(0);
   });
 
   it("opens create key modal when Create Key button is clicked", async () => {

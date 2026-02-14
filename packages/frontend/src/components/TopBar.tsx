@@ -41,7 +41,7 @@ export default function TopBar() {
           <span className="app-user-email text-sm text-gray-400">{user?.email}</span>
           <button
             onClick={logout}
-            className="app-logout-btn text-sm text-gray-500 hover:text-gray-300 transition-colors bg-gray-800 px-3 py-1.5 rounded-lg"
+            className="app-logout-btn text-sm text-gray-500 hover:text-gray-300 transition-colors bg-gray-800 px-3 py-1.5 rounded-lg min-h-[44px]"
           >
             Logout
           </button>

@@ -62,3 +62,39 @@ body {
 .theme-toggle-compact .theme-toggle-label {
   display: none;
 }
+
+/* Safe area utilities for notched devices */
+.safe-area-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+.safe-area-top {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+
+/* Touch-friendly tap targets on coarse-pointer devices */
+@media (pointer: coarse) {
+  button,
+  a,
+  [role="button"] {
+    min-height: 44px;
+  }
+
+  input,
+  select,
+  textarea {
+    min-height: 44px;
+  }
+}
+
+/* Mobile code block overflow prevention */
+.mobile-code-block {
+  word-break: break-all;
+  white-space: pre-wrap;
+}
+
+@media (max-width: 640px) {
+  .mobile-code-block {
+    font-size: 0.65rem;
+  }
+}

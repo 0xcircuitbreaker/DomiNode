@@ -403,7 +403,9 @@
     bottom: 0;
     width: 100% !important;
     min-height: 0;
-    height: 4.5rem;
+    height: auto;
+    min-height: 4.5rem;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
     flex-direction: row;
     align-items: center;
     border-right: 0 !important;
@@ -435,12 +437,12 @@
   }
 
   .premium-app .app-sidebar .app-nav-link {
-    min-width: 3.25rem;
+    min-width: 2.75rem;
     min-height: 3.3rem;
     justify-content: center;
-    padding: 0.6rem 0.6rem !important;
+    padding: 0.5rem 0.5rem !important;
     border-radius: 0.88rem !important;
-    flex: 1 0 auto;
+    flex: 1 1 2.75rem;
   }
 
   .premium-app .app-sidebar .app-nav-link svg {
@@ -458,12 +460,12 @@
 
   .premium-app .app-topbar {
     height: auto;
-    min-height: 4rem;
-    padding-top: 0.6rem;
-    padding-bottom: 0.6rem;
+    min-height: 7rem;
+    padding-top: 1rem;
+    padding-bottom: 1rem;
     flex-wrap: wrap;
     align-items: center;
-    row-gap: 0.6rem;
+    row-gap: 0.75rem;
   }
 
   .premium-app .app-topbar-left {
@@ -474,6 +476,7 @@
   .premium-app .app-topbar-right {
     width: 100%;
     justify-content: space-between;
+    padding-top: 0.35rem;
   }
 
   .premium-app .app-user-email {
@@ -490,7 +493,7 @@
 
   .premium-app main {
     padding: 0.95rem !important;
-    padding-bottom: 5.7rem !important;
+    padding-bottom: calc(5rem + env(safe-area-inset-bottom, 0px)) !important;
   }
 
   .premium-app h1.text-2xl {

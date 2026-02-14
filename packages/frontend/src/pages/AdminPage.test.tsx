@@ -148,16 +148,17 @@ describe("AdminPage", () => {
     renderAdminPage();
 
     await waitFor(() => {
-      expect(screen.getByText("alice@example.com")).toBeInTheDocument();
+      // ResponsiveTable renders desktop+mobile views; text may appear in both
+      expect(screen.getAllByText("alice@example.com").length).toBeGreaterThan(0);
     });
 
-    expect(screen.getByText("bob@example.com")).toBeInTheDocument();
+    expect(screen.getAllByText("bob@example.com").length).toBeGreaterThan(0);
 
     // Table headers
-    expect(screen.getByText("Email")).toBeInTheDocument();
-    expect(screen.getByText("Status")).toBeInTheDocument();
-    expect(screen.getByText("Plan")).toBeInTheDocument();
-    expect(screen.getByText("Balance")).toBeInTheDocument();
+    expect(screen.getAllByText("Email").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Status").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Plan").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Balance").length).toBeGreaterThan(0);
   });
 
   it("shows user action buttons (Suspend, Activate, Delete)", async () => {
@@ -165,7 +166,7 @@ describe("AdminPage", () => {
     renderAdminPage();
 
     await waitFor(() => {
-      expect(screen.getByText("alice@example.com")).toBeInTheDocument();
+      expect(screen.getAllByText("alice@example.com").length).toBeGreaterThan(0);
     });
 
     // Alice is active -> should have Suspend button
@@ -173,7 +174,8 @@ describe("AdminPage", () => {
     expect(suspendButtons.length).toBeGreaterThan(0);
 
     // Bob is suspended -> should have Activate button
-    expect(screen.getByText("Activate")).toBeInTheDocument();
+    const activateButtons = screen.getAllByText("Activate");
+    expect(activateButtons.length).toBeGreaterThan(0);
   });
 
   it("switches to Revenue tab and shows revenue data", async () => {

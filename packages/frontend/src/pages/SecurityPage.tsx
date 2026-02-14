@@ -161,20 +161,20 @@ export default function SecurityPage() {
 
       {/* Wallet Authentication Info */}
       {isWallet && (
-        <div className="bg-gray-900 border border-gray-800 rounded-xl p-6 space-y-3">
-          <div className="flex items-center justify-between">
+        <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 sm:p-6 space-y-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
             <div>
-              <h2 className="text-lg font-semibold">Wallet Authentication</h2>
+              <h2 className="text-base sm:text-lg font-semibold">Wallet Authentication</h2>
               <p className="text-sm text-gray-400 mt-1">
                 Your account is secured with EIP-191 Ethereum wallet signature authentication.
               </p>
             </div>
-            <span className="px-3 py-1 text-xs font-medium rounded-full bg-indigo-500/20 text-indigo-400 border border-indigo-500/30">
+            <span className="self-start px-3 py-1 text-xs font-medium rounded-full bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 flex-shrink-0">
               Active
             </span>
           </div>
-          <p className="text-sm text-gray-400">
-            Wallet address: <code className="text-indigo-300 font-mono text-xs">{user?.wallet_address ?? user?.email.split("@")[0]}</code>
+          <p className="text-sm text-gray-400 min-w-0">
+            Wallet address: <code className="text-indigo-300 font-mono text-xs break-all">{user?.wallet_address ?? user?.email.split("@")[0]}</code>
           </p>
           <p className="text-xs text-gray-500">
             Wallet-authenticated accounts use cryptographic signatures instead of passwords. No password can be set for this account.
@@ -183,15 +183,15 @@ export default function SecurityPage() {
       )}
 
       {/* Two-Factor Authentication */}
-      <div className="bg-gray-900 border border-gray-800 rounded-xl p-6 space-y-4">
-        <div className="flex items-center justify-between">
+      <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 sm:p-6 space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
           <div>
-            <h2 className="text-lg font-semibold">Two-Factor Authentication</h2>
+            <h2 className="text-base sm:text-lg font-semibold">Two-Factor Authentication</h2>
             <p className="text-sm text-gray-400 mt-1">
               Add an extra layer of security to your account using a TOTP authenticator app.
             </p>
           </div>
-          <span className={`px-3 py-1 text-xs font-medium rounded-full ${
+          <span className={`self-start px-3 py-1 text-xs font-medium rounded-full flex-shrink-0 ${
             status?.enabled
               ? "bg-green-500/20 text-green-400 border border-green-500/30"
               : "bg-gray-700/50 text-gray-400 border border-gray-600"
@@ -236,7 +236,7 @@ export default function SecurityPage() {
               <p className="text-sm text-red-400 mb-2">
                 Save these codes securely. Each can only be used once.
               </p>
-              <div className="bg-gray-800 rounded-lg p-3 grid grid-cols-2 gap-2">
+              <div className="bg-gray-800 rounded-lg p-3 grid grid-cols-1 xs:grid-cols-2 gap-2">
                 {setupData.backupCodes.map((code, i) => (
                   <code key={i} className="text-sm font-mono text-gray-200">{code}</code>
                 ))}
@@ -336,9 +336,9 @@ export default function SecurityPage() {
 
       {/* Password Change - only for non-wallet accounts */}
       {!isWallet && (
-        <div className="bg-gray-900 border border-gray-800 rounded-xl p-6 space-y-4">
+        <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 sm:p-6 space-y-4">
           <div>
-            <h2 className="text-lg font-semibold">Password</h2>
+            <h2 className="text-base sm:text-lg font-semibold">Password</h2>
             <p className="text-sm text-gray-400 mt-1">
               Change your account password. All existing sessions will be revoked.
             </p>

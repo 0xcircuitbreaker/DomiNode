@@ -138,10 +138,10 @@ describe("PlansPage", () => {
       expect(screen.getByText("Plan Details")).toBeInTheDocument();
     });
 
-    // Table headers
-    expect(screen.getByText("Price/GB")).toBeInTheDocument();
-    expect(screen.getByText("Monthly Bandwidth")).toBeInTheDocument();
-    expect(screen.getByText("Savings")).toBeInTheDocument();
+    // ResponsiveTable renders desktop+mobile views; headers may appear in both
+    expect(screen.getAllByText("Price/GB").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Monthly Bandwidth").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Savings").length).toBeGreaterThan(0);
   });
 
   it("displays monthly usage information", async () => {

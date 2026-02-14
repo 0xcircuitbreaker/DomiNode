@@ -175,13 +175,15 @@ export function startApiServer(port: number = 3000): ReturnType<express.Express[
   // JSON body parser with size limit
   app.use(express.json({ limit: "16kb", type: "application/json" }));
 
-  // Stricter rate limits on auth endpoints
+  // Stricter rate limits on auth endpoints (login, register, wallet-auth)
+  // Note: the custom per-IP login lockout in auth.ts provides the real credential-stuffing defense.
+  // This express-rate-limit acts as a coarse outer guard on all auth routes.
   const authLimiter = rateLimit({
     windowMs: 15 * 60_000, // 15 minutes
-    max: process.env["NODE_ENV"] === "development" ? 1000 : 10,
+    max: 60,
     standardHeaders: true,
     legacyHeaders: false,
-    message: { error: "Too many attempts, please try again later" },
+    message: { error: "Too many requests. Please try again later." },
   });
 
   // Routes

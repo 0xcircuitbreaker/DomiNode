@@ -112,13 +112,14 @@ describe("UsagePage", () => {
     renderWithProviders(<UsagePage />);
 
     await waitFor(() => {
-      expect(screen.getByText("example.com")).toBeInTheDocument();
+      // ResponsiveTable renders desktop+mobile views; text may appear in both
+      expect(screen.getAllByText("example.com").length).toBeGreaterThan(0);
     });
 
-    // Table headers
-    expect(screen.getByText("Target")).toBeInTheDocument();
-    expect(screen.getByText("Upload")).toBeInTheDocument();
-    expect(screen.getByText("Download")).toBeInTheDocument();
+    // Table headers (desktop-only headers still appear once)
+    expect(screen.getAllByText("Target").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Upload").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Download").length).toBeGreaterThan(0);
   });
 
   it("renders chart metric buttons", async () => {

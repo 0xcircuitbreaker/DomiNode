@@ -4,6 +4,7 @@ import { get } from "../api/client";
 import UsageChart from "../components/UsageChart";
 import TopHosts from "../components/TopHosts";
 import CsvExportButton from "../components/CsvExportButton";
+import ResponsiveTable from "../components/ResponsiveTable";
 
 interface UsageRecord {
   id: string;
@@ -90,22 +91,22 @@ export default function UsagePage() {
       <h1 className="text-2xl font-bold">Usage</h1>
 
       {/* Summary */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 sm:p-5">
           <p className="text-sm text-gray-400">Total Data</p>
-          <p className="text-3xl font-bold mt-1">
+          <p className="text-xl sm:text-2xl lg:text-3xl font-bold mt-1">
             {data?.summary.totalGB.toFixed(3) ?? "0.000"} GB
           </p>
         </div>
-        <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
+        <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 sm:p-5">
           <p className="text-sm text-gray-400">Total Cost</p>
-          <p className="text-3xl font-bold mt-1">
+          <p className="text-xl sm:text-2xl lg:text-3xl font-bold mt-1">
             ${data?.summary.totalCostUsd.toFixed(2) ?? "0.00"}
           </p>
         </div>
-        <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
+        <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 sm:p-5">
           <p className="text-sm text-gray-400">Requests</p>
-          <p className="text-3xl font-bold mt-1">
+          <p className="text-xl sm:text-2xl lg:text-3xl font-bold mt-1">
             {data?.summary.requestCount ?? 0}
           </p>
         </div>
@@ -135,32 +136,32 @@ export default function UsagePage() {
       </div>
 
       {/* Date Range */}
-      <div className="flex flex-wrap items-end gap-3">
-        <div>
+      <div className="flex flex-col sm:flex-row flex-wrap items-stretch sm:items-end gap-3">
+        <div className="flex-1 sm:flex-none">
           <label className="block text-xs text-gray-500 mb-1">From</label>
           <input
             type="date"
             value={since}
             onChange={(e) => setSince(e.target.value)}
-            className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-indigo-500"
+            className="w-full sm:w-auto bg-gray-800 border border-gray-700 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-indigo-500"
           />
         </div>
-        <div>
+        <div className="flex-1 sm:flex-none">
           <label className="block text-xs text-gray-500 mb-1">To</label>
           <input
             type="date"
             value={until}
             onChange={(e) => setUntil(e.target.value)}
-            className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-indigo-500"
+            className="w-full sm:w-auto bg-gray-800 border border-gray-700 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-indigo-500"
           />
         </div>
         <button
           onClick={() => { setPage(0); refetch(); }}
-          className="mt-5 bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+          className="sm:mt-5 bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium px-4 py-2.5 rounded-lg transition-colors"
         >
           Apply
         </button>
-        <div className="mt-5">
+        <div className="sm:mt-5">
           <CsvExportButton since={since} until={until} />
         </div>
       </div>
@@ -170,48 +171,23 @@ export default function UsagePage() {
 
       {/* Records Table */}
       <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[760px] text-sm">
-            <thead>
-              <tr className="border-b border-gray-800 text-gray-400">
-                <th className="text-left px-4 py-3 font-medium">Target</th>
-                <th className="text-left px-4 py-3 font-medium">Upload</th>
-                <th className="text-left px-4 py-3 font-medium">Download</th>
-                <th className="text-left px-4 py-3 font-medium">Total</th>
-                <th className="text-left px-4 py-3 font-medium">Cost</th>
-                <th className="text-left px-4 py-3 font-medium">Date</th>
-              </tr>
-            </thead>
-            <tbody>
-              {loading ? (
-                <tr>
-                  <td colSpan={6} className="px-4 py-8 text-center text-gray-500">
-                    Loading...
-                  </td>
-                </tr>
-              ) : !data?.records.length ? (
-                <tr>
-                  <td colSpan={6} className="px-4 py-8 text-center text-gray-500">
-                    No usage records for this period.
-                  </td>
-                </tr>
-              ) : (
-                data.records.map((r) => (
-                  <tr key={r.id} className="border-b border-gray-800/50">
-                    <td className="px-4 py-3 font-mono text-xs">{r.targetHost}</td>
-                    <td className="px-4 py-3 text-gray-400">{formatBytes(r.bytesIn)}</td>
-                    <td className="px-4 py-3 text-gray-400">{formatBytes(r.bytesOut)}</td>
-                    <td className="px-4 py-3">{formatBytes(r.totalBytes)}</td>
-                    <td className="px-4 py-3 text-red-400">${(r.costCents / 100).toFixed(4)}</td>
-                    <td className="px-4 py-3 text-gray-400">
-                      {new Date(r.createdAt).toLocaleString()}
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
+        {loading ? (
+          <p className="px-4 py-8 text-center text-gray-500 text-sm">Loading...</p>
+        ) : (
+          <ResponsiveTable<UsageRecord>
+            columns={[
+              { key: "target", header: "Target", primary: true, render: (r) => <span className="font-mono text-xs">{r.targetHost}</span> },
+              { key: "upload", header: "Upload", hideOnMobile: true, render: (r) => <span className="text-gray-400">{formatBytes(r.bytesIn)}</span> },
+              { key: "download", header: "Download", hideOnMobile: true, render: (r) => <span className="text-gray-400">{formatBytes(r.bytesOut)}</span> },
+              { key: "total", header: "Total", render: (r) => formatBytes(r.totalBytes) },
+              { key: "cost", header: "Cost", render: (r) => <span className="text-red-400">${(r.costCents / 100).toFixed(4)}</span> },
+              { key: "date", header: "Date", render: (r) => <span className="text-gray-400">{new Date(r.createdAt).toLocaleDateString()}</span> },
+            ]}
+            data={data?.records ?? []}
+            keyExtractor={(r) => r.id}
+            emptyMessage="No usage records for this period."
+          />
+        )}
         {/* Pagination */}
         {totalPages > 1 && (
           <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 border-t border-gray-800">
@@ -222,14 +198,14 @@ export default function UsagePage() {
               <button
                 onClick={() => { setPage(Math.max(0, page - 1)); refetch(); }}
                 disabled={page === 0}
-                className="px-3 py-1 rounded text-xs bg-gray-800 text-gray-400 hover:bg-gray-700 disabled:opacity-50"
+                className="px-4 py-2 rounded-lg text-xs bg-gray-800 text-gray-400 hover:bg-gray-700 disabled:opacity-50"
               >
                 Previous
               </button>
               <button
                 onClick={() => { setPage(Math.min(totalPages - 1, page + 1)); refetch(); }}
                 disabled={page >= totalPages - 1}
-                className="px-3 py-1 rounded text-xs bg-gray-800 text-gray-400 hover:bg-gray-700 disabled:opacity-50"
+                className="px-4 py-2 rounded-lg text-xs bg-gray-800 text-gray-400 hover:bg-gray-700 disabled:opacity-50"
               >
                 Next
               </button>

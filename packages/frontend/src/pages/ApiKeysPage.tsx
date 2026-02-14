@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useApi } from "../hooks/useApi";
 import { get, post, del } from "../api/client";
 import Modal from "../components/Modal";
+import ResponsiveTable from "../components/ResponsiveTable";
 
 interface ApiKey {
   id: string;
@@ -106,46 +107,25 @@ export default function ApiKeysPage() {
         <>
           {/* Active Keys */}
           <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[640px] text-sm">
-                <thead>
-                  <tr className="border-b border-gray-800 text-gray-400">
-                    <th className="text-left px-4 py-3 font-medium">Prefix</th>
-                    <th className="text-left px-4 py-3 font-medium">Label</th>
-                    <th className="text-left px-4 py-3 font-medium">Created</th>
-                    <th className="text-right px-4 py-3 font-medium">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {activeKeys.length === 0 ? (
-                    <tr>
-                      <td colSpan={4} className="px-4 py-8 text-center text-gray-500">
-                        No active API keys. Create one to get started.
-                      </td>
-                    </tr>
-                  ) : (
-                    activeKeys.map((key) => (
-                      <tr key={key.id} className="border-b border-gray-800/50">
-                        <td className="px-4 py-3 font-mono text-indigo-400">{key.prefix}...</td>
-                        <td className="px-4 py-3">{key.label}</td>
-                        <td className="px-4 py-3 text-gray-400">
-                          {new Date(key.created_at).toLocaleDateString()}
-                        </td>
-                        <td className="px-4 py-3 text-right">
-                          <button
-                            onClick={() => handleRevoke(key.id)}
-                            disabled={revoking === key.id}
-                            className="text-red-400 hover:text-red-300 text-sm disabled:opacity-50"
-                          >
-                            {revoking === key.id ? "Revoking..." : "Revoke"}
-                          </button>
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
+            <ResponsiveTable<ApiKey>
+              columns={[
+                { key: "prefix", header: "Prefix", primary: true, render: (k) => <span className="font-mono text-indigo-400">{k.prefix}...</span> },
+                { key: "label", header: "Label", render: (k) => k.label },
+                { key: "created", header: "Created", render: (k) => <span className="text-gray-400">{new Date(k.created_at).toLocaleDateString()}</span> },
+                { key: "actions", header: "Actions", align: "right", render: (k) => (
+                  <button
+                    onClick={() => handleRevoke(k.id)}
+                    disabled={revoking === k.id}
+                    className="text-red-400 hover:text-red-300 text-sm disabled:opacity-50"
+                  >
+                    {revoking === k.id ? "Revoking..." : "Revoke"}
+                  </button>
+                )},
+              ]}
+              data={activeKeys}
+              keyExtractor={(k) => k.id}
+              emptyMessage="No active API keys. Create one to get started."
+            />
           </div>
 
           {/* Revoked Keys */}
@@ -153,21 +133,15 @@ export default function ApiKeysPage() {
             <div>
               <h2 className="text-sm font-medium text-gray-500 mb-2">Revoked Keys</h2>
               <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden opacity-60">
-                <div className="overflow-x-auto">
-                  <table className="w-full min-w-[560px] text-sm">
-                    <tbody>
-                      {revokedKeys.map((key) => (
-                        <tr key={key.id} className="border-b border-gray-800/50">
-                          <td className="px-4 py-3 font-mono text-gray-500">{key.prefix}...</td>
-                          <td className="px-4 py-3 text-gray-500">{key.label}</td>
-                          <td className="px-4 py-3 text-gray-500">
-                            Revoked {new Date(key.revoked_at!).toLocaleDateString()}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                <ResponsiveTable<ApiKey>
+                  columns={[
+                    { key: "prefix", header: "Prefix", primary: true, render: (k) => <span className="font-mono text-gray-500">{k.prefix}...</span> },
+                    { key: "label", header: "Label", render: (k) => <span className="text-gray-500">{k.label}</span> },
+                    { key: "revoked", header: "Revoked", render: (k) => <span className="text-gray-500">Revoked {new Date(k.revoked_at!).toLocaleDateString()}</span> },
+                  ]}
+                  data={revokedKeys}
+                  keyExtractor={(k) => k.id}
+                />
               </div>
             </div>
           )}
@@ -209,11 +183,11 @@ export default function ApiKeysPage() {
                 value={newKey}
                 autoComplete="off"
                 data-lpignore="true"
-                className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm font-mono"
+                className="flex-1 min-w-0 bg-gray-800 border border-gray-700 rounded-lg px-2 sm:px-3 py-2 text-xs sm:text-sm font-mono"
               />
               <button
                 onClick={handleCopy}
-                className="bg-gray-700 hover:bg-gray-600 px-3 py-2 rounded-lg text-sm transition-colors"
+                className="bg-gray-700 hover:bg-gray-600 px-3 py-2 rounded-lg text-sm transition-colors flex-shrink-0"
               >
                 {copied ? "Copied!" : "Copy"}
               </button>

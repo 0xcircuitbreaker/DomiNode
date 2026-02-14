@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useApi } from "../hooks/useApi";
 import { get, put } from "../api/client";
+import ResponsiveTable from "../components/ResponsiveTable";
 
 interface PlanItem {
   id: string;
@@ -125,7 +126,7 @@ export default function PlansPage() {
       )}
 
       {/* Available Plans */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {plansData?.plans.map((plan) => {
           const isCurrent = plan.id === userPlan?.plan.id;
           const isChanging = changingPlan === plan.id;
@@ -141,7 +142,7 @@ export default function PlansPage() {
                 <span className="text-xs font-medium text-indigo-400 mb-2">Current Plan</span>
               )}
               <h3 className="text-lg font-semibold">{plan.name}</h3>
-              <p className="text-3xl font-bold mt-2">
+              <p className="text-xl sm:text-2xl lg:text-3xl font-bold mt-2">
                 {plan.pricePerGbCents === 0 ? "Free" : (<>${plan.pricePerGbUsd}<span className="text-sm font-normal text-gray-400">/GB</span></>)}
               </p>
               <p className="text-sm text-gray-400 mt-2">
@@ -181,41 +182,32 @@ export default function PlansPage() {
       {/* Plan Details */}
       <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
         <h2 className="font-semibold mb-3">Plan Details</h2>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-gray-800 text-gray-400">
-                <th className="text-left px-4 py-3 font-medium">Plan</th>
-                <th className="text-left px-4 py-3 font-medium">Price/GB</th>
-                <th className="text-left px-4 py-3 font-medium">Monthly Bandwidth</th>
-                <th className="text-left px-4 py-3 font-medium">Max Connections</th>
-                <th className="text-left px-4 py-3 font-medium">Savings</th>
-              </tr>
-            </thead>
-            <tbody>
-              {plansData?.plans.map((plan) => (
-                <tr key={plan.id} className={`border-b border-gray-800/50 ${plan.id === userPlan?.plan.id ? "bg-indigo-500/5" : ""}`}>
-                  <td className="px-4 py-3 font-medium">
-                    {plan.name}
-                    {plan.id === userPlan?.plan.id && (
-                      <span className="ml-2 text-xs text-indigo-400">(current)</span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3">{plan.pricePerGbCents === 0 ? "Free" : `$${plan.pricePerGbUsd}`}</td>
-                  <td className="px-4 py-3 text-gray-400">{formatBandwidth(plan.monthlyBandwidthGB)}</td>
-                  <td className="px-4 py-3 text-gray-400">{plan.maxConnections}</td>
-                  <td className="px-4 py-3 text-gray-400">
-                    {plan.pricePerGbCents === 0
-                      ? "Free"
-                      : plan.pricePerGbCents < 500
-                        ? `${Math.round((1 - plan.pricePerGbCents / 500) * 100)}% off`
-                        : "-"}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <ResponsiveTable<PlanItem>
+          columns={[
+            { key: "plan", header: "Plan", primary: true, render: (plan) => (
+              <span className="font-medium">
+                {plan.name}
+                {plan.id === userPlan?.plan.id && (
+                  <span className="ml-2 text-xs text-indigo-400">(current)</span>
+                )}
+              </span>
+            )},
+            { key: "price", header: "Price/GB", render: (plan) => plan.pricePerGbCents === 0 ? "Free" : `$${plan.pricePerGbUsd}` },
+            { key: "bandwidth", header: "Monthly Bandwidth", render: (plan) => <span className="text-gray-400">{formatBandwidth(plan.monthlyBandwidthGB)}</span> },
+            { key: "connections", header: "Max Connections", hideOnMobile: true, render: (plan) => <span className="text-gray-400">{plan.maxConnections}</span> },
+            { key: "savings", header: "Savings", render: (plan) => (
+              <span className="text-gray-400">
+                {plan.pricePerGbCents === 0
+                  ? "Free"
+                  : plan.pricePerGbCents < 500
+                    ? `${Math.round((1 - plan.pricePerGbCents / 500) * 100)}% off`
+                    : "-"}
+              </span>
+            )},
+          ]}
+          data={plansData?.plans ?? []}
+          keyExtractor={(plan) => plan.id}
+        />
       </div>
     </div>
   );

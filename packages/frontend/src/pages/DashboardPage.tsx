@@ -109,9 +109,9 @@ export default function DashboardPage() {
 
       {/* Wallet Address (if linked) */}
       {user?.wallet_address && (
-        <div className="bg-gray-900 border border-indigo-800/40 rounded-xl p-4 flex items-center gap-3">
-          <span className="text-indigo-400 text-sm font-medium">Wallet</span>
-          <code className="text-xs font-mono text-gray-300">{user.wallet_address}</code>
+        <div className="bg-gray-900 border border-indigo-800/40 rounded-xl p-3 sm:p-4 flex items-center gap-3 min-w-0">
+          <span className="text-indigo-400 text-xs sm:text-sm font-medium flex-shrink-0">Wallet</span>
+          <code className="text-xs font-mono text-gray-300 truncate">{user.wallet_address}</code>
         </div>
       )}
 
@@ -125,7 +125,7 @@ export default function DashboardPage() {
               {proxyStatus.status.charAt(0).toUpperCase() + proxyStatus.status.slice(1)}
             </span>
           </div>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 text-sm">
             <div>
               <p className="text-gray-500 text-xs">Active Sessions</p>
               <p className="font-medium">{proxyStatus.activeSessions}</p>
@@ -134,16 +134,16 @@ export default function DashboardPage() {
               <p className="text-gray-500 text-xs">Avg Latency</p>
               <p className="font-medium">{proxyStatus.avgLatencyMs}ms</p>
             </div>
-            <div>
+            <div className="min-w-0">
               <p className="text-gray-500 text-xs">HTTP Proxy</p>
-              <p className="font-mono text-xs text-gray-300">
+              <p className="font-mono text-xs text-gray-300 truncate">
                 {proxyStatus.endpoints.http}
                 <CopyButton text={proxyStatus.endpoints.http} />
               </p>
             </div>
-            <div>
+            <div className="min-w-0">
               <p className="text-gray-500 text-xs">SOCKS5 Proxy</p>
-              <p className="font-mono text-xs text-gray-300">
+              <p className="font-mono text-xs text-gray-300 truncate">
                 {proxyStatus.endpoints.socks5}
                 <CopyButton text={proxyStatus.endpoints.socks5} />
               </p>
@@ -153,10 +153,10 @@ export default function DashboardPage() {
       )}
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 sm:p-5">
           <p className="text-sm text-gray-400">Current Plan</p>
-          <p className="text-3xl font-bold text-indigo-400 mt-1">
+          <p className="text-xl sm:text-2xl lg:text-3xl font-bold text-indigo-400 mt-1">
             {userPlan?.plan.name ?? "..."}
           </p>
           <p className="text-xs text-gray-500 mt-1">
@@ -167,9 +167,9 @@ export default function DashboardPage() {
           </Link>
         </div>
 
-        <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
+        <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 sm:p-5">
           <p className="text-sm text-gray-400">Wallet Balance</p>
-          <p className="text-3xl font-bold text-green-400 mt-1">
+          <p className="text-xl sm:text-2xl lg:text-3xl font-bold text-green-400 mt-1">
             ${wallet?.balanceUsd.toFixed(2) ?? "0.00"}
           </p>
           <p className="text-xs text-gray-500 mt-1">
@@ -186,9 +186,9 @@ export default function DashboardPage() {
           </Link>
         </div>
 
-        <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
+        <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 sm:p-5">
           <p className="text-sm text-gray-400">Data Used (30 days)</p>
-          <p className="text-3xl font-bold mt-1">
+          <p className="text-xl sm:text-2xl lg:text-3xl font-bold mt-1">
             {usage?.summary.totalGB.toFixed(3) ?? "0.000"} GB
           </p>
           <Link to="/app/usage" className="text-sm text-indigo-400 hover:text-indigo-300 mt-2 inline-block">
@@ -196,9 +196,9 @@ export default function DashboardPage() {
           </Link>
         </div>
 
-        <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
+        <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 sm:p-5">
           <p className="text-sm text-gray-400">Total Spent (30 days)</p>
-          <p className="text-3xl font-bold mt-1">
+          <p className="text-xl sm:text-2xl lg:text-3xl font-bold mt-1">
             ${usage?.summary.totalCostUsd.toFixed(2) ?? "0.00"}
           </p>
           <p className="text-xs text-gray-500 mt-2">
@@ -268,49 +268,49 @@ export default function DashboardPage() {
         </p>
         <div className="space-y-4">
           {/* Basic usage */}
-          <div className="bg-gray-950 border border-gray-800 rounded-lg p-4 font-mono text-sm overflow-x-auto">
+          <div className="bg-gray-950 border border-gray-800 rounded-lg p-3 sm:p-4 font-mono text-xs sm:text-sm overflow-x-auto">
             <p className="text-gray-500 mb-1"># Basic (rotating IP)</p>
-            <p className="text-gray-300">
+            <p className="text-gray-300 break-all">
               curl -x http://user:<span className="text-indigo-400">YOUR_API_KEY</span>@proxy.dominode.io:8080 https://httpbin.org/ip
             </p>
           </div>
 
           {/* Geo-targeting */}
-          <div className="bg-gray-950 border border-gray-800 rounded-lg p-4 font-mono text-sm overflow-x-auto">
+          <div className="bg-gray-950 border border-gray-800 rounded-lg p-3 sm:p-4 font-mono text-xs sm:text-sm overflow-x-auto">
             <p className="text-gray-500 mb-1"># Geo-targeted (US IP)</p>
-            <p className="text-gray-300">
+            <p className="text-gray-300 break-all">
               curl -x http://<span className="text-green-400">country-US</span>:<span className="text-indigo-400">YOUR_API_KEY</span>@proxy.dominode.io:8080 https://httpbin.org/ip
             </p>
           </div>
 
           {/* Sticky sessions */}
-          <div className="bg-gray-950 border border-gray-800 rounded-lg p-4 font-mono text-sm overflow-x-auto">
+          <div className="bg-gray-950 border border-gray-800 rounded-lg p-3 sm:p-4 font-mono text-xs sm:text-sm overflow-x-auto">
             <p className="text-gray-500 mb-1"># Sticky session (same IP for multiple requests)</p>
-            <p className="text-gray-300">
+            <p className="text-gray-300 break-all">
               curl -x http://<span className="text-green-400">session-abc123</span>:<span className="text-indigo-400">YOUR_API_KEY</span>@proxy.dominode.io:8080 https://httpbin.org/ip
             </p>
           </div>
 
           {/* Combined */}
-          <div className="bg-gray-950 border border-gray-800 rounded-lg p-4 font-mono text-sm overflow-x-auto">
+          <div className="bg-gray-950 border border-gray-800 rounded-lg p-3 sm:p-4 font-mono text-xs sm:text-sm overflow-x-auto">
             <p className="text-gray-500 mb-1"># Geo-targeted + sticky session</p>
-            <p className="text-gray-300">
+            <p className="text-gray-300 break-all">
               curl -x http://<span className="text-green-400">country-DE-session-mysess</span>:<span className="text-indigo-400">YOUR_API_KEY</span>@proxy.dominode.io:8080 https://httpbin.org/ip
             </p>
           </div>
 
           {/* SOCKS5 */}
-          <div className="bg-gray-950 border border-gray-800 rounded-lg p-4 font-mono text-sm overflow-x-auto">
+          <div className="bg-gray-950 border border-gray-800 rounded-lg p-3 sm:p-4 font-mono text-xs sm:text-sm overflow-x-auto">
             <p className="text-gray-500 mb-1"># SOCKS5 proxy</p>
-            <p className="text-gray-300">
+            <p className="text-gray-300 break-all">
               curl --socks5-hostname <span className="text-green-400">country-US</span>:<span className="text-indigo-400">YOUR_API_KEY</span>@proxy.dominode.io:1080 https://httpbin.org/ip
             </p>
           </div>
 
           {/* Python */}
-          <div className="bg-gray-950 border border-gray-800 rounded-lg p-4 font-mono text-sm overflow-x-auto">
+          <div className="bg-gray-950 border border-gray-800 rounded-lg p-3 sm:p-4 font-mono text-xs sm:text-sm overflow-x-auto">
             <p className="text-gray-500 mb-1"># Python requests</p>
-            <p className="text-gray-300">
+            <p className="text-gray-300 break-all">
               proxies = {'{'}"https": "http://country-US:<span className="text-indigo-400">YOUR_API_KEY</span>@proxy.dominode.io:8080"{'}'}
             </p>
           </div>

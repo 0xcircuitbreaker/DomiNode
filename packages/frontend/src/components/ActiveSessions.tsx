@@ -1,5 +1,6 @@
 import { useEffect, useCallback, useRef, useState } from "react";
 import { get } from "../api/client";
+import ResponsiveTable from "./ResponsiveTable";
 
 interface ActiveSession {
   id: string;
@@ -71,35 +72,20 @@ export default function ActiveSessions() {
         <p className="text-sm text-gray-500 py-4 text-center">No active sessions</p>
       ) : (
         <div className="overflow-hidden rounded-lg border border-gray-800">
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[520px] text-sm">
-              <thead>
-                <tr className="border-b border-gray-800 text-gray-400">
-                  <th className="text-left px-4 py-2 font-medium">Session ID</th>
-                  <th className="text-left px-4 py-2 font-medium">Started</th>
-                  <th className="text-left px-4 py-2 font-medium">Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {data.sessions.map((s) => (
-                  <tr key={s.id} className="border-b border-gray-800/50">
-                    <td className="px-4 py-2 font-mono text-xs text-gray-300">
-                      {s.id.slice(0, 8)}...
-                    </td>
-                    <td className="px-4 py-2 text-gray-400 text-xs">
-                      {timeAgo(s.startedAt)}
-                    </td>
-                    <td className="px-4 py-2">
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-green-900/30 text-green-400 border border-green-800/50">
-                        <span className="h-1.5 w-1.5 rounded-full bg-green-400" />
-                        {s.status}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <ResponsiveTable<ActiveSession>
+            columns={[
+              { key: "id", header: "Session ID", primary: true, render: (s) => <span className="font-mono text-xs text-gray-300">{s.id.slice(0, 8)}...</span> },
+              { key: "started", header: "Started", render: (s) => <span className="text-gray-400 text-xs">{timeAgo(s.startedAt)}</span> },
+              { key: "status", header: "Status", render: (s) => (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-green-900/30 text-green-400 border border-green-800/50">
+                  <span className="h-1.5 w-1.5 rounded-full bg-green-400" />
+                  {s.status}
+                </span>
+              )},
+            ]}
+            data={data.sessions}
+            keyExtractor={(s) => s.id}
+          />
         </div>
       )}
 

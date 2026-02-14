@@ -299,6 +299,21 @@
   }
 }
 
+@media (max-width: 480px) {
+  .login-panel {
+    padding: 18px;
+  }
+
+  .login-panel-head h1 {
+    font-size: clamp(24px, 6vw, 30px);
+  }
+
+  .login-input,
+  .login-submit {
+    min-height: 48px;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .login-input,
   .login-submit {
