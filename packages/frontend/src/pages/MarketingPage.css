@@ -178,13 +178,9 @@ html {
 .mk-brand-mark {
   width: 30px;
   height: 30px;
-  border-radius: 10px;
-  display: inline-grid;
-  place-items: center;
-  color: #ffffff;
-  background: linear-gradient(135deg, var(--mk-accent) 0%, #0f86a6 100%);
-  font-size: 12px;
-  font-weight: 700;
+  border-radius: 6px;
+  display: inline-block;
+  flex-shrink: 0;
 }
 
 .mk-links {

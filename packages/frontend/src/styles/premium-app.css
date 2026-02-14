@@ -282,15 +282,9 @@
 .premium-app .app-brand-mark {
   width: 2.2rem;
   height: 2.2rem;
-  border-radius: 0.78rem;
-  display: inline-grid;
-  place-items: center;
-  font-size: 0.72rem;
-  font-weight: 800;
-  letter-spacing: 0.06em;
-  color: #ffffff;
-  background: linear-gradient(135deg, var(--app-accent) 0%, #0f86a6 100%);
-  box-shadow: 0 10px 20px rgba(15, 118, 110, 0.3);
+  border-radius: 0.5rem;
+  display: inline-block;
+  flex-shrink: 0;
 }
 
 .premium-app .app-brand-subtitle {

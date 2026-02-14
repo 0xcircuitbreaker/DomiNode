@@ -27,7 +27,7 @@ export default function Sidebar() {
     <aside className="app-sidebar w-64 bg-gray-900 border-r border-gray-800 flex flex-col min-h-screen">
       <div className="app-sidebar-brand p-6">
         <div className="flex items-center gap-3">
-          <span className="app-brand-mark">{BRAND_MARK}</span>
+          <img src="/logo.svg" alt={BRAND_MARK} className="app-brand-mark" style={{ width: "2.2rem", height: "2.2rem" }} />
           <div className="app-hide-compact">
             <h1 className="text-xl font-bold text-indigo-400">{BRAND_NAME}</h1>
             <p className="app-brand-subtitle">Client Control Plane</p>

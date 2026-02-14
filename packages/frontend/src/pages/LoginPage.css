@@ -107,13 +107,9 @@
 .login-brand-mark {
   width: 30px;
   height: 30px;
-  border-radius: 10px;
-  display: inline-grid;
-  place-items: center;
-  color: #ffffff;
-  background: linear-gradient(135deg, #0f766e 0%, #0f86a6 100%);
-  font-size: 12px;
-  font-weight: 700;
+  border-radius: 6px;
+  display: inline-block;
+  flex-shrink: 0;
 }
 
 .login-theme-toggle {

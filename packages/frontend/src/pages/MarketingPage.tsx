@@ -256,7 +256,7 @@ export default function MarketingPage() {
       <header className="mk-nav">
         <div className="mk-shell mk-nav-inner">
           <Link to="/" className="mk-brand">
-            <span className="mk-brand-mark">{BRAND_MARK}</span>
+            <img src="/logo.svg" alt={BRAND_MARK} className="mk-brand-mark" style={{ width: "2.2rem", height: "2.2rem" }} />
             <span>{BRAND_NAME}</span>
           </Link>
 

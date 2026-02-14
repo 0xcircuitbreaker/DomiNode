@@ -20,7 +20,7 @@ function AuthShell({ theme, subtitle, children }: AuthShellProps) {
       <div className="login-shell">
         <header className="login-header">
           <Link to="/" className="login-brand">
-            <span className="login-brand-mark">{BRAND_MARK}</span>
+            <img src="/logo.svg" alt={BRAND_MARK} className="login-brand-mark" style={{ width: "2.2rem", height: "2.2rem" }} />
             <span>{BRAND_NAME}</span>
           </Link>
           <ThemeToggle compact className="login-theme-toggle" />
