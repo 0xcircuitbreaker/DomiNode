@@ -1,11 +1,11 @@
-#include "dominode/usage.hpp"
-#include "dominode/http_client.hpp"
+#include "dominusnode/usage.hpp"
+#include "dominusnode/http_client.hpp"
 
 #include <cctype>
 #include <iomanip>
 #include <sstream>
 
-namespace dominode {
+namespace dominusnode {
 
 // URL-encode query parameter values (R14 H-5)
 static std::string url_encode_param(const std::string& value) {
@@ -79,4 +79,4 @@ std::string UsageResource::export_csv(const DateRange& range) {
     return resp.dump();
 }
 
-} // namespace dominode
+} // namespace dominusnode

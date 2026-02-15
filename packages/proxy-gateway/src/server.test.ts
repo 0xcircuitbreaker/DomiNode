@@ -81,7 +81,7 @@ vi.mock("./retry.js", () => ({
   DEFAULT_RETRY_OPTIONS: { maxRetries: 2, baseDelayMs: 200, maxDelayMs: 2000 },
 }));
 
-vi.mock("@dominode/shared", () => ({
+vi.mock("@dominusnode/shared", () => ({
   createLogger: () => ({
     info: vi.fn(),
     warn: vi.fn(),
@@ -93,7 +93,7 @@ vi.mock("@dominode/shared", () => ({
   },
 }));
 
-vi.mock("@dominode/pool-manager", () => ({
+vi.mock("@dominusnode/pool-manager", () => ({
   createProviderSelector: () => ({
     select: (...args: unknown[]) => mockSelect(...args),
     recordSuccess: (...args: unknown[]) => mockRecordSuccess(...args),

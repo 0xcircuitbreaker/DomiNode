@@ -5,8 +5,8 @@ import { proxyFetch, validateUrl } from "../proxy-fetch.js";
 
 export function registerFetchTools(server: McpServer, config: McpConfig): void {
   server.tool(
-    "dominode_fetch",
-    "Fetch a URL through DomiNode's rotating proxy network. Supports geo-targeting by country/state/city. Returns response status, headers, and body. Use this for web scraping, geo-targeted requests, or avoiding IP blocks.",
+    "dominusnode_fetch",
+    "Fetch a URL through Dominus Node's rotating proxy network. Supports geo-targeting by country/state/city. Returns response status, headers, and body. Use this for web scraping, geo-targeted requests, or avoiding IP blocks.",
     {
       url: z.string().describe("URL to fetch (http: or https:)"),
       method: z.enum(["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"]).default("GET").describe("HTTP method"),

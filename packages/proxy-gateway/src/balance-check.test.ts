@@ -1,9 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
-// Mock @dominode/shared
+// Mock @dominusnode/shared
 const mockGetBalance = vi.fn();
 
-vi.mock("@dominode/shared", () => ({
+vi.mock("@dominusnode/shared", () => ({
   walletRepo: {
     getBalance: (...args: unknown[]) => mockGetBalance(...args),
   },

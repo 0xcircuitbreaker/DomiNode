@@ -17,19 +17,19 @@ jobs:
       postgres:
         image: postgres:16-alpine
         env:
-          POSTGRES_DB: dominode_test
-          POSTGRES_USER: dominode
-          POSTGRES_PASSWORD: dominode_test
+          POSTGRES_DB: dominusnode_test
+          POSTGRES_USER: dominusnode
+          POSTGRES_PASSWORD: dominusnode_test
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U dominode"
+          --health-cmd "pg_isready -U dominusnode"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
 
     env:
-      DATABASE_URL: postgresql://dominode:dominode_test@localhost:5432/dominode_test
+      DATABASE_URL: postgresql://dominusnode:dominusnode_test@localhost:5432/dominusnode_test
       JWT_SECRET: test-secret-key-that-is-at-least-32-characters-long-for-testing
       PACKETSTREAM_USERNAME: testuser
       PACKETSTREAM_PASSWORD: testpass

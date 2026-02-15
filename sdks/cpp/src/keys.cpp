@@ -1,9 +1,9 @@
-#include "dominode/keys.hpp"
-#include "dominode/http_client.hpp"
+#include "dominusnode/keys.hpp"
+#include "dominusnode/http_client.hpp"
 
 #include <sstream>
 
-namespace dominode {
+namespace dominusnode {
 
 KeysResource::KeysResource(HttpClient& http) : http_(http) {}
 
@@ -34,4 +34,4 @@ void KeysResource::revoke(const std::string& id) {
     http_.del(path.str());
 }
 
-} // namespace dominode
+} // namespace dominusnode

@@ -1,7 +1,7 @@
 import dotenv from "dotenv";
 dotenv.config();
 
-import { createLogger, closePool } from "@dominode/shared";
+import { createLogger, closePool } from "@dominusnode/shared";
 import { startApiServer } from "./server.js";
 
 const log = createLogger("api:main");

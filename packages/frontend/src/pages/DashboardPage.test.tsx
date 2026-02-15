@@ -73,7 +73,7 @@ function setupMocks() {
         activeSessions: 5,
         userActiveSessions: 2,
         avgLatencyMs: 120,
-        endpoints: { http: "proxy.dominode.io:8080", socks5: "proxy.dominode.io:1080" },
+        endpoints: { http: "proxy.dominusnode.io:8080", socks5: "proxy.dominusnode.io:1080" },
         uptimeSeconds: 86400,
       });
     }

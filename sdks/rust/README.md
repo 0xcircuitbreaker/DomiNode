@@ -1,6 +1,6 @@
-# dominode -- Official DomiNode Rust SDK
+# dominusnode -- Official Dominus Node Rust SDK
 
-The official Rust SDK for the [DomiNode](https://dominode.io) rotating proxy-as-a-service platform. Manage proxy connections, API keys, wallet balances, usage tracking, and more from Rust applications.
+The official Rust SDK for the [Dominus Node](https://dominusnode.io) rotating proxy-as-a-service platform. Manage proxy connections, API keys, wallet balances, usage tracking, and more from Rust applications.
 
 - **Async by default** -- powered by Tokio and reqwest
 - **Strongly typed** -- every request and response has a dedicated type
@@ -15,7 +15,7 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-dominode = "1.0"
+dominusnode = "1.0"
 tokio = { version = "1", features = ["full"] }
 ```
 
@@ -29,13 +29,13 @@ tokio = { version = "1", features = ["full"] }
 ## Quick Start
 
 ```rust
-use dominode::{DomiNodeClient, Config};
+use dominusnode::{DominusNodeClient, Config};
 
 #[tokio::main]
-async fn main() -> dominode::Result<()> {
+async fn main() -> dominusnode::Result<()> {
     // Create client with default config
-    let client = DomiNodeClient::new(Config {
-        base_url: "https://api.dominode.io".into(),
+    let client = DominusNodeClient::new(Config {
+        base_url: "https://api.dominusnode.io".into(),
         ..Config::default()
     })?;
 
@@ -49,7 +49,7 @@ async fn main() -> dominode::Result<()> {
     // Build a proxy URL
     let proxy_url = client.proxy.build_url("dn_live_your_api_key", None);
     println!("Proxy URL: {}", proxy_url);
-    // => http://user:dn_live_your_api_key@proxy.dominode.io:8080
+    // => http://user:dn_live_your_api_key@proxy.dominusnode.io:8080
 
     Ok(())
 }
@@ -60,15 +60,15 @@ async fn main() -> dominode::Result<()> {
 ### API Key (Recommended for Proxy Usage)
 
 ```rust
-let client = DomiNodeClient::new(Config::default())?;
+let client = DominusNodeClient::new(Config::default())?;
 client.connect_with_key("dn_live_your_api_key").await?;
 ```
 
 Or provide in the config:
 
 ```rust
-let client = DomiNodeClient::new(Config {
-    base_url: "https://api.dominode.io".into(),
+let client = DominusNodeClient::new(Config {
+    base_url: "https://api.dominusnode.io".into(),
     api_key: Some("dn_live_your_api_key".into()),
     ..Config::default()
 })?;
@@ -78,7 +78,7 @@ let client = DomiNodeClient::new(Config {
 ### Email/Password
 
 ```rust
-let client = DomiNodeClient::new(Config::default())?;
+let client = DominusNodeClient::new(Config::default())?;
 let result = client.connect_with_credentials("user@example.com", "SecurePass123!").await?;
 
 if result.mfa_required {
@@ -90,7 +90,7 @@ if result.mfa_required {
 ### Pre-existing Tokens
 
 ```rust
-let client = DomiNodeClient::new(Config {
+let client = DominusNodeClient::new(Config {
     access_token: Some("eyJhbGci...".into()),
     refresh_token: Some("eyJhbGci...".into()),
     ..Config::default()
@@ -229,7 +229,7 @@ for session in &sessions {
 ### Proxy
 
 ```rust
-use dominode::types::ProxyUrlOptions;
+use dominusnode::types::ProxyUrlOptions;
 
 // Default proxy URL
 let url = client.proxy.build_url("dn_live_key", None);
@@ -296,13 +296,13 @@ println!("Users: {}, Active sessions: {}", stats.total_users, stats.active_sessi
 ## Using Proxy URLs with reqwest
 
 ```rust
-use dominode::{DomiNodeClient, Config};
-use dominode::types::ProxyUrlOptions;
+use dominusnode::{DominusNodeClient, Config};
+use dominusnode::types::ProxyUrlOptions;
 use reqwest::Proxy;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let client = DomiNodeClient::new(Config::default())?;
+    let client = DominusNodeClient::new(Config::default())?;
     client.connect_with_key("dn_live_your_key").await?;
 
     // Build proxy URL with geo-targeting
@@ -326,20 +326,20 @@ async fn main() -> anyhow::Result<()> {
 
 ## Error Handling
 
-All errors are variants of `DomiNodeError`, implementing `std::error::Error` via `thiserror`:
+All errors are variants of `DominusNodeError`, implementing `std::error::Error` via `thiserror`:
 
 ```rust
-use dominode::DomiNodeError;
+use dominusnode::DominusNodeError;
 
 match client.connect_with_key("dn_live_invalid").await {
     Ok(_) => println!("Connected!"),
-    Err(DomiNodeError::Authentication(msg)) => {
+    Err(DominusNodeError::Authentication(msg)) => {
         eprintln!("Invalid API key: {}", msg);
     }
-    Err(DomiNodeError::RateLimit { retry_after_secs, .. }) => {
+    Err(DominusNodeError::RateLimit { retry_after_secs, .. }) => {
         eprintln!("Rate limited, retry after {}s", retry_after_secs);
     }
-    Err(DomiNodeError::InsufficientBalance(msg)) => {
+    Err(DominusNodeError::InsufficientBalance(msg)) => {
         eprintln!("Low balance: {}", msg);
     }
     Err(e) => eprintln!("Error: {}", e),
@@ -362,14 +362,14 @@ match client.connect_with_key("dn_live_invalid").await {
 ## Configuration
 
 ```rust
-use dominode::Config;
+use dominusnode::Config;
 
 let config = Config {
-    base_url: "https://api.dominode.io".into(),
+    base_url: "https://api.dominusnode.io".into(),
     api_key: None,
     access_token: None,
     refresh_token: None,
-    proxy_host: "proxy.dominode.io".into(),
+    proxy_host: "proxy.dominusnode.io".into(),
     http_proxy_port: 8080,
     socks5_proxy_port: 1080,
 };

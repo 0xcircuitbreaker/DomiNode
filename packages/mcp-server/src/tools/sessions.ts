@@ -10,7 +10,7 @@ function formatBytes(bytes: number): string {
 
 export function registerSessionsTools(server: McpServer, httpClient: HttpClient): void {
   server.tool(
-    "dominode_get_active_sessions",
+    "dominusnode_get_active_sessions",
     "Get all active proxy sessions showing target hosts, bandwidth used, and geo-targeting.",
     {},
     async () => {

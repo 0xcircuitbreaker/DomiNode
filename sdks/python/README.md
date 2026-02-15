@@ -1,8 +1,8 @@
-# dominode -- Official DomiNode Python SDK
+# dominusnode -- Official Dominus Node Python SDK
 
-The official Python SDK for the [DomiNode](https://dominode.io) rotating proxy-as-a-service platform. Manage proxy connections, API keys, wallet balances, usage tracking, and more.
+The official Python SDK for the [Dominus Node](https://dominusnode.io) rotating proxy-as-a-service platform. Manage proxy connections, API keys, wallet balances, usage tracking, and more.
 
-- **Sync + Async clients** -- `DomiNodeClient` and `AsyncDomiNodeClient`
+- **Sync + Async clients** -- `DominusNodeClient` and `AsyncDominusNodeClient`
 - **Single dependency** -- only requires [httpx](https://www.python-httpx.org/)
 - **Full type hints** -- PEP 561 compliant, works with mypy and pyright
 - **Auto token refresh** -- JWT expiry is handled transparently
@@ -13,11 +13,11 @@ The official Python SDK for the [DomiNode](https://dominode.io) rotating proxy-a
 ## Installation
 
 ```bash
-pip install dominode
+pip install dominusnode
 ```
 
 ```bash
-poetry add dominode
+poetry add dominusnode
 ```
 
 **Requirements:** Python 3.9+ and httpx >= 0.24.0.
@@ -27,9 +27,9 @@ poetry add dominode
 ### Synchronous
 
 ```python
-from dominode import DomiNodeClient
+from dominusnode import DominusNodeClient
 
-with DomiNodeClient(base_url="https://api.dominode.io") as client:
+with DominusNodeClient(base_url="https://api.dominusnode.io") as client:
     # Authenticate with API key
     client.connect_with_key("dn_live_your_api_key")
 
@@ -38,24 +38,24 @@ with DomiNodeClient(base_url="https://api.dominode.io") as client:
     print(f"Balance: ${balance.balance_usd}")
 
     # Build a proxy URL
-    from dominode import ProxyUrlOptions
+    from dominusnode import ProxyUrlOptions
     proxy_url = client.proxy.build_url(ProxyUrlOptions(
         protocol="http",
         country="US",
         state="california",
     ))
     print(proxy_url)
-    # => http://country-US-state-california:dn_live_your_api_key@proxy.dominode.io:8080
+    # => http://country-US-state-california:dn_live_your_api_key@proxy.dominusnode.io:8080
 ```
 
 ### Asynchronous
 
 ```python
 import asyncio
-from dominode import AsyncDomiNodeClient
+from dominusnode import AsyncDominusNodeClient
 
 async def main():
-    async with AsyncDomiNodeClient(base_url="https://api.dominode.io") as client:
+    async with AsyncDominusNodeClient(base_url="https://api.dominusnode.io") as client:
         await client.connect_with_key("dn_live_your_api_key")
 
         balance = await client.wallet.get_balance()
@@ -75,15 +75,15 @@ Three ways to authenticate:
 ### 1. API Key (Recommended for Proxy Usage)
 
 ```python
-with DomiNodeClient(base_url="https://api.dominode.io") as client:
+with DominusNodeClient(base_url="https://api.dominusnode.io") as client:
     client.connect_with_key("dn_live_your_api_key")
 ```
 
 Or pass it in the constructor for auto-connect:
 
 ```python
-with DomiNodeClient(
-    base_url="https://api.dominode.io",
+with DominusNodeClient(
+    base_url="https://api.dominusnode.io",
     api_key="dn_live_your_api_key",
 ) as client:
     # Already authenticated
@@ -93,7 +93,7 @@ with DomiNodeClient(
 ### 2. Email/Password
 
 ```python
-with DomiNodeClient(base_url="https://api.dominode.io") as client:
+with DominusNodeClient(base_url="https://api.dominusnode.io") as client:
     result = client.connect_with_credentials("user@example.com", "SecurePass123!")
 
     if result.mfa_required:
@@ -105,8 +105,8 @@ with DomiNodeClient(base_url="https://api.dominode.io") as client:
 ### 3. Pre-existing Tokens
 
 ```python
-client = DomiNodeClient(
-    base_url="https://api.dominode.io",
+client = DominusNodeClient(
+    base_url="https://api.dominusnode.io",
     access_token="eyJhbGci...",
     refresh_token="eyJhbGci...",
 )
@@ -249,12 +249,12 @@ for session in sessions:
 ### Proxy
 
 ```python
-from dominode import ProxyUrlOptions
+from dominusnode import ProxyUrlOptions
 
 # Build an HTTP proxy URL
 proxy_url = client.proxy.build_url()
 print(proxy_url)
-# => http://user:dn_live_xxxx@proxy.dominode.io:8080
+# => http://user:dn_live_xxxx@proxy.dominusnode.io:8080
 
 # With geo-targeting
 proxy_url = client.proxy.build_url(ProxyUrlOptions(
@@ -323,9 +323,9 @@ Build proxy URLs and use them with any HTTP client:
 
 ```python
 import requests
-from dominode import DomiNodeClient, ProxyUrlOptions
+from dominusnode import DominusNodeClient, ProxyUrlOptions
 
-with DomiNodeClient(base_url="https://api.dominode.io", api_key="dn_live_KEY") as client:
+with DominusNodeClient(base_url="https://api.dominusnode.io", api_key="dn_live_KEY") as client:
     proxy_url = client.proxy.build_url(ProxyUrlOptions(country="US"))
 
     proxies = {"http": proxy_url, "https": proxy_url}
@@ -337,9 +337,9 @@ with DomiNodeClient(base_url="https://api.dominode.io", api_key="dn_live_KEY") a
 
 ```python
 import httpx
-from dominode import DomiNodeClient, ProxyUrlOptions
+from dominusnode import DominusNodeClient, ProxyUrlOptions
 
-with DomiNodeClient(base_url="https://api.dominode.io", api_key="dn_live_KEY") as client:
+with DominusNodeClient(base_url="https://api.dominusnode.io", api_key="dn_live_KEY") as client:
     proxy_url = client.proxy.build_url(ProxyUrlOptions(country="US"))
 
     with httpx.Client(proxy=proxy_url) as http:
@@ -351,9 +351,9 @@ with DomiNodeClient(base_url="https://api.dominode.io", api_key="dn_live_KEY") a
 
 ```python
 import aiohttp
-from dominode import AsyncDomiNodeClient, ProxyUrlOptions
+from dominusnode import AsyncDominusNodeClient, ProxyUrlOptions
 
-async with AsyncDomiNodeClient(base_url="https://api.dominode.io", api_key="dn_live_KEY") as client:
+async with AsyncDominusNodeClient(base_url="https://api.dominusnode.io", api_key="dn_live_KEY") as client:
     proxy_url = client.proxy.build_url(ProxyUrlOptions(country="US"))
 
     async with aiohttp.ClientSession() as session:
@@ -363,12 +363,12 @@ async with AsyncDomiNodeClient(base_url="https://api.dominode.io", api_key="dn_l
 
 ## Error Handling
 
-All SDK errors inherit from `DomiNodeError`:
+All SDK errors inherit from `DominusNodeError`:
 
 ```python
-from dominode import (
-    DomiNodeClient,
-    DomiNodeError,
+from dominusnode import (
+    DominusNodeClient,
+    DominusNodeError,
     AuthenticationError,
     AuthorizationError,
     InsufficientBalanceError,
@@ -381,7 +381,7 @@ from dominode import (
     ProxyError,
 )
 
-with DomiNodeClient(base_url="https://api.dominode.io") as client:
+with DominusNodeClient(base_url="https://api.dominusnode.io") as client:
     try:
         client.connect_with_key("dn_live_invalid")
     except AuthenticationError:
@@ -390,7 +390,7 @@ with DomiNodeClient(base_url="https://api.dominode.io") as client:
         print(f"Rate limited. Retry after {e.retry_after_seconds}s")
     except InsufficientBalanceError:
         print("Not enough balance -- top up your wallet")
-    except DomiNodeError as e:
+    except DominusNodeError as e:
         print(f"API error: {e}")
 ```
 
@@ -410,9 +410,9 @@ with DomiNodeClient(base_url="https://api.dominode.io") as client:
 ## Configuration
 
 ```python
-client = DomiNodeClient(
-    base_url="https://api.dominode.io",  # API server URL
-    proxy_host="proxy.dominode.io",       # Proxy gateway hostname
+client = DominusNodeClient(
+    base_url="https://api.dominusnode.io",  # API server URL
+    proxy_host="proxy.dominusnode.io",       # Proxy gateway hostname
     http_proxy_port=8080,                 # HTTP proxy port
     socks5_proxy_port=1080,               # SOCKS5 proxy port
     timeout=30.0,                         # HTTP request timeout (seconds)
@@ -432,7 +432,7 @@ pytest
 pytest --asyncio-mode=auto
 
 # Type checking
-mypy dominode/
+mypy dominusnode/
 ```
 
 ## License

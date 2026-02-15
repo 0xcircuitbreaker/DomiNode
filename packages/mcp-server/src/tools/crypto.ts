@@ -6,8 +6,8 @@ const SUPPORTED_CRYPTO = ["BTC", "ETH", "XMR", "SOL", "ZEC", "USDC", "USDT"] as 
 
 export function registerCryptoTools(server: McpServer, httpClient: HttpClient): void {
   server.tool(
-    "dominode_pay_crypto",
-    "Create a cryptocurrency payment invoice to top up your DomiNode wallet. Supports BTC, ETH, XMR (Monero), SOL, ZEC (Zcash), USDC, and USDT. Returns a payment address and amount. Privacy coins (XMR, ZEC) provide anonymous billing — no identity linked to payment.",
+    "dominusnode_pay_crypto",
+    "Create a cryptocurrency payment invoice to top up your Dominus Node wallet. Supports BTC, ETH, XMR (Monero), SOL, ZEC (Zcash), USDC, and USDT. Returns a payment address and amount. Privacy coins (XMR, ZEC) provide anonymous billing — no identity linked to payment.",
     {
       amount_usd: z.number().min(1).max(10000).describe("Amount in USD to add to wallet (min $1)"),
       currency: z.enum(SUPPORTED_CRYPTO).describe("Cryptocurrency to pay with (BTC, ETH, XMR, SOL, ZEC, USDC, USDT)"),
@@ -41,7 +41,7 @@ export function registerCryptoTools(server: McpServer, httpClient: HttpClient): 
           `Status: ${data.status}`,
           `Expires: ${data.expiration_estimate_date}`,
           ``,
-          `Use dominode_check_payment to check payment status.`,
+          `Use dominusnode_check_payment to check payment status.`,
           args.currency === "XMR" || args.currency === "ZEC"
             ? `\nPrivacy note: ${args.currency} provides untraceable payment — no identity linked.`
             : "",
@@ -58,10 +58,10 @@ export function registerCryptoTools(server: McpServer, httpClient: HttpClient): 
   );
 
   server.tool(
-    "dominode_check_payment",
+    "dominusnode_check_payment",
     "Check the status of a cryptocurrency payment invoice. Returns whether payment has been received and confirmed.",
     {
-      invoice_id: z.string().min(1).max(100).describe("Invoice ID from dominode_pay_crypto"),
+      invoice_id: z.string().min(1).max(100).describe("Invoice ID from dominusnode_pay_crypto"),
     },
     async (args) => {
       try {

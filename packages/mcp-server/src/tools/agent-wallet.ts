@@ -5,7 +5,7 @@ import type { McpConfig } from "../config.js";
 
 export function registerAgentWalletTools(server: McpServer, httpClient: HttpClient, config: McpConfig): void {
   server.tool(
-    "dominode_x402_info",
+    "dominusnode_x402_info",
     "Get x402 payment info for pay-per-request proxy access. No account needed — pay with USDC on Base chain and get instant proxy access. Uses the HTTP 402 Payment Required protocol (Coinbase/Stripe standard).",
     {},
     async () => {
@@ -55,8 +55,8 @@ export function registerAgentWalletTools(server: McpServer, httpClient: HttpClie
           `Status: Coming soon`,
           ``,
           `For now, use one of these alternatives:`,
-          `  1. dominode_setup — Create a free account (1GB free bandwidth)`,
-          `  2. dominode_pay_crypto — Pay with BTC/ETH/XMR/SOL/ZEC`,
+          `  1. dominusnode_setup — Create a free account (1GB free bandwidth)`,
+          `  2. dominusnode_pay_crypto — Pay with BTC/ETH/XMR/SOL/ZEC`,
           ``,
           `x402 protocol details: https://x402.org`,
           `Coinbase Agentic Wallets: https://docs.cdp.coinbase.com`,
@@ -68,7 +68,7 @@ export function registerAgentWalletTools(server: McpServer, httpClient: HttpClie
   );
 
   server.tool(
-    "dominode_agent_wallet_create",
+    "dominusnode_agent_wallet_create",
     "Create a Coinbase Agentic Wallet for autonomous proxy billing. The wallet holds USDC on Base chain and auto-pays for proxy bandwidth. Set spending limits and session caps for safety.",
     {
       label: z.string().min(1).max(100).default("ai-agent-wallet").describe("Label for this wallet"),
@@ -126,8 +126,8 @@ export function registerAgentWalletTools(server: McpServer, httpClient: HttpClie
           `  - No human approval needed per transaction`,
           ``,
           `For now, use these alternatives:`,
-          `  1. dominode_setup — Free account with 1GB bandwidth`,
-          `  2. dominode_pay_crypto — Manual crypto top-up (BTC/ETH/XMR/SOL/ZEC)`,
+          `  1. dominusnode_setup — Free account with 1GB bandwidth`,
+          `  2. dominusnode_pay_crypto — Manual crypto top-up (BTC/ETH/XMR/SOL/ZEC)`,
           ``,
           `Agentic Wallet docs: https://docs.cdp.coinbase.com`,
         ].join("\n");
@@ -138,10 +138,10 @@ export function registerAgentWalletTools(server: McpServer, httpClient: HttpClie
   );
 
   server.tool(
-    "dominode_agent_wallet_balance",
+    "dominusnode_agent_wallet_balance",
     "Check the balance of your Coinbase Agentic Wallet. Shows available USDC, total spent, and remaining budget.",
     {
-      wallet_id: z.string().min(1).max(100).describe("Wallet ID from dominode_agent_wallet_create"),
+      wallet_id: z.string().min(1).max(100).describe("Wallet ID from dominusnode_agent_wallet_create"),
     },
     async (args) => {
       try {

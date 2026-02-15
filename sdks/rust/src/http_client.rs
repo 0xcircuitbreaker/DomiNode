@@ -6,10 +6,10 @@ use serde::de::DeserializeOwned;
 use tracing::{debug, warn};
 
 use crate::constants;
-use crate::errors::{DomiNodeError, Result};
+use crate::errors::{DominusNodeError, Result};
 use crate::token_manager::TokenManager;
 
-/// Low-level HTTP client that wraps [`reqwest::Client`] with DomiNode-specific
+/// Low-level HTTP client that wraps [`reqwest::Client`] with Dominus Node-specific
 /// error mapping, automatic 429 retry, and automatic 401 token-refresh retry.
 pub struct HttpClient {
     client: Client,
@@ -35,7 +35,7 @@ impl HttpClient {
             .redirect(reqwest::redirect::Policy::none())
             .timeout(std::time::Duration::from_secs(30))
             .build()
-            .map_err(DomiNodeError::Network)?;
+            .map_err(DominusNodeError::Network)?;
 
         Ok(Self {
             client,
@@ -89,7 +89,7 @@ impl HttpClient {
             builder = builder.bearer_auth(&token);
         }
 
-        let response = builder.send().await.map_err(DomiNodeError::Network)?;
+        let response = builder.send().await.map_err(DominusNodeError::Network)?;
 
         if !response.status().is_success() {
             let status = response.status();
@@ -99,9 +99,9 @@ impl HttpClient {
         }
 
         // R17: Enforce response body size limit
-        let bytes = response.bytes().await.map_err(DomiNodeError::Network)?;
+        let bytes = response.bytes().await.map_err(DominusNodeError::Network)?;
         if bytes.len() > MAX_RESPONSE_BYTES {
-            return Err(DomiNodeError::Server("Response body too large".into()));
+            return Err(DominusNodeError::Server("Response body too large".into()));
         }
         Ok(String::from_utf8_lossy(&bytes).into_owned())
     }
@@ -202,7 +202,7 @@ impl HttpClient {
             builder = builder.json(b);
         }
 
-        builder.send().await.map_err(DomiNodeError::Network)
+        builder.send().await.map_err(DominusNodeError::Network)
     }
 }
 
@@ -216,16 +216,16 @@ const MAX_RESPONSE_BYTES: usize = 10 * 1024 * 1024;
 /// Parse a response body as JSON, treating empty bodies as `{}`.
 async fn parse_body<T: DeserializeOwned>(response: reqwest::Response) -> Result<T> {
     // R17: Enforce response body size limit to prevent OOM
-    let bytes = response.bytes().await.map_err(DomiNodeError::Network)?;
+    let bytes = response.bytes().await.map_err(DominusNodeError::Network)?;
     if bytes.len() > MAX_RESPONSE_BYTES {
-        return Err(DomiNodeError::Server("Response body too large".into()));
+        return Err(DominusNodeError::Server("Response body too large".into()));
     }
     if bytes.is_empty() {
         // Deserialize `{}` — works for structs with all-optional/default fields.
-        return serde_json::from_str("{}").map_err(DomiNodeError::Json);
+        return serde_json::from_str("{}").map_err(DominusNodeError::Json);
     }
     let text = String::from_utf8_lossy(&bytes);
-    serde_json::from_str(&text).map_err(DomiNodeError::Json)
+    serde_json::from_str(&text).map_err(DominusNodeError::Json)
 }
 
 /// Extract the `Retry-After` header value in seconds, defaulting to 5, capped at 10.
@@ -251,24 +251,24 @@ fn extract_message(body: &str) -> String {
         .unwrap_or_else(|| body.to_string())
 }
 
-/// Map an HTTP status code + body into the appropriate [`DomiNodeError`] variant.
-fn map_error(status: StatusCode, body: &str, headers: &HeaderMap) -> DomiNodeError {
+/// Map an HTTP status code + body into the appropriate [`DominusNodeError`] variant.
+fn map_error(status: StatusCode, body: &str, headers: &HeaderMap) -> DominusNodeError {
     let message = extract_message(body);
     match status.as_u16() {
-        400 => DomiNodeError::Validation(message),
-        401 => DomiNodeError::Authentication(message),
-        402 => DomiNodeError::InsufficientBalance(message),
-        403 => DomiNodeError::Authorization(message),
-        404 => DomiNodeError::NotFound(message),
-        409 => DomiNodeError::Conflict(message),
+        400 => DominusNodeError::Validation(message),
+        401 => DominusNodeError::Authentication(message),
+        402 => DominusNodeError::InsufficientBalance(message),
+        403 => DominusNodeError::Authorization(message),
+        404 => DominusNodeError::NotFound(message),
+        409 => DominusNodeError::Conflict(message),
         429 => {
             let retry_after = parse_retry_after(headers);
-            DomiNodeError::RateLimit {
+            DominusNodeError::RateLimit {
                 message,
                 retry_after_seconds: retry_after,
             }
         }
-        s if s >= 500 => DomiNodeError::Server(message),
-        _ => DomiNodeError::Server(format!("HTTP {}: {}", status.as_u16(), message)),
+        s if s >= 500 => DominusNodeError::Server(message),
+        _ => DominusNodeError::Server(format!("HTTP {}: {}", status.as_u16(), message)),
     }
 }

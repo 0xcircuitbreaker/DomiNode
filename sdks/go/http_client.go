@@ -1,4 +1,4 @@
-package dominode
+package dominusnode
 
 import (
 	"bytes"
@@ -66,7 +66,7 @@ func (hc *httpClient) doRequest(ctx context.Context, opts requestOptions, result
 		case <-timer.C:
 		case <-ctx.Done():
 			timer.Stop()
-			return &NetworkError{DomiNodeError{Message: "Context cancelled during rate limit wait", Err: ctx.Err()}}
+			return &NetworkError{DominusNodeError{Message: "Context cancelled during rate limit wait", Err: ctx.Err()}}
 		}
 
 		resp, body, err = hc.executeRequest(ctx, opts)
@@ -121,7 +121,7 @@ func (hc *httpClient) doRequestRaw(ctx context.Context, opts requestOptions) (st
 		case <-timer.C:
 		case <-ctx.Done():
 			timer.Stop()
-			return "", &NetworkError{DomiNodeError{Message: "Context cancelled during rate limit wait", Err: ctx.Err()}}
+			return "", &NetworkError{DominusNodeError{Message: "Context cancelled during rate limit wait", Err: ctx.Err()}}
 		}
 
 		resp, body, err = hc.executeRequest(ctx, opts)
@@ -158,7 +158,7 @@ func (hc *httpClient) executeRequest(ctx context.Context, opts requestOptions) (
 	if opts.Body != nil {
 		bodyBytes, err := json.Marshal(opts.Body)
 		if err != nil {
-			return nil, nil, &ValidationError{DomiNodeError{Message: "Failed to marshal request body", StatusCode: 400, Err: err}}
+			return nil, nil, &ValidationError{DominusNodeError{Message: "Failed to marshal request body", StatusCode: 400, Err: err}}
 		}
 		bodyReader = bytes.NewReader(bodyBytes)
 	}
@@ -166,7 +166,7 @@ func (hc *httpClient) executeRequest(ctx context.Context, opts requestOptions) (
 	url := hc.baseURL + opts.Path
 	req, err := http.NewRequestWithContext(ctx, opts.Method, url, bodyReader)
 	if err != nil {
-		return nil, nil, &NetworkError{DomiNodeError{Message: "Failed to create request", Err: err}}
+		return nil, nil, &NetworkError{DominusNodeError{Message: "Failed to create request", Err: err}}
 	}
 
 	req.Header.Set("User-Agent", UserAgent)
@@ -184,7 +184,7 @@ func (hc *httpClient) executeRequest(ctx context.Context, opts requestOptions) (
 
 	resp, err := hc.client.Do(req)
 	if err != nil {
-		return nil, nil, &NetworkError{DomiNodeError{Message: "Network request failed", Err: err}}
+		return nil, nil, &NetworkError{DominusNodeError{Message: "Network request failed", Err: err}}
 	}
 	defer resp.Body.Close()
 
@@ -192,7 +192,7 @@ func (hc *httpClient) executeRequest(ctx context.Context, opts requestOptions) (
 	const maxResponseSize = 10 * 1024 * 1024
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseSize))
 	if err != nil {
-		return nil, nil, &NetworkError{DomiNodeError{Message: "Failed to read response body", Err: err}}
+		return nil, nil, &NetworkError{DominusNodeError{Message: "Failed to read response body", Err: err}}
 	}
 
 	return resp, body, nil
@@ -240,7 +240,7 @@ func decodeResponse(body []byte, result interface{}) error {
 		return nil
 	}
 	if err := json.Unmarshal(body, result); err != nil {
-		return &DomiNodeError{Message: "Failed to decode response", Err: err}
+		return &DominusNodeError{Message: "Failed to decode response", Err: err}
 	}
 	return nil
 }
@@ -251,28 +251,28 @@ func mapStatusToError(status int, body []byte, headers http.Header) error {
 
 	switch status {
 	case 400:
-		return &ValidationError{DomiNodeError{Message: msg, StatusCode: 400}}
+		return &ValidationError{DominusNodeError{Message: msg, StatusCode: 400}}
 	case 401:
-		return &AuthenticationError{DomiNodeError{Message: msg, StatusCode: 401}}
+		return &AuthenticationError{DominusNodeError{Message: msg, StatusCode: 401}}
 	case 402:
-		return &InsufficientBalanceError{DomiNodeError{Message: msg, StatusCode: 402}}
+		return &InsufficientBalanceError{DominusNodeError{Message: msg, StatusCode: 402}}
 	case 403:
-		return &AuthorizationError{DomiNodeError{Message: msg, StatusCode: 403}}
+		return &AuthorizationError{DominusNodeError{Message: msg, StatusCode: 403}}
 	case 404:
-		return &NotFoundError{DomiNodeError{Message: msg, StatusCode: 404}}
+		return &NotFoundError{DominusNodeError{Message: msg, StatusCode: 404}}
 	case 409:
-		return &ConflictError{DomiNodeError{Message: msg, StatusCode: 409}}
+		return &ConflictError{DominusNodeError{Message: msg, StatusCode: 409}}
 	case 429:
 		retryAfter := parseRetryAfter(headers.Get("Retry-After"), 60)
 		return &RateLimitError{
-			DomiNodeError: DomiNodeError{Message: msg, StatusCode: 429},
+			DominusNodeError: DominusNodeError{Message: msg, StatusCode: 429},
 			RetryAfter:    time.Duration(retryAfter) * time.Second,
 		}
 	default:
 		if status >= 500 {
-			return &ServerError{DomiNodeError{Message: msg, StatusCode: status}}
+			return &ServerError{DominusNodeError{Message: msg, StatusCode: status}}
 		}
-		return &DomiNodeError{Message: msg, StatusCode: status}
+		return &DominusNodeError{Message: msg, StatusCode: status}
 	}
 }
 

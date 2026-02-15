@@ -163,7 +163,7 @@ export async function proxyFetch(
   opts: ProxyFetchOptions,
 ): Promise<ProxyFetchResult> {
   if (!config.apiKey) {
-    throw new Error("Proxy fetch requires an API key. Use dominode_setup to create an account first.");
+    throw new Error("Proxy fetch requires an API key. Use dominusnode_setup to create an account first.");
   }
   const apiKey = config.apiKey;
 
@@ -308,7 +308,7 @@ function httpsProxyFetch(
           const requestPath = parsed.pathname + parsed.search;
           const reqHeaders: Record<string, string> = {
             Host: parsed.host,
-            "User-Agent": "dominode-mcp-server/1.0.0",
+            "User-Agent": "dominusnode-mcp-server/1.0.0",
             Accept: "*/*",
             Connection: "close",
             ...opts.headers,

@@ -1,4 +1,4 @@
-"""Tests for DomiNodeClient and AsyncDomiNodeClient initialization."""
+"""Tests for DominusNodeClient and AsyncDominusNodeClient initialization."""
 
 from __future__ import annotations
 
@@ -6,28 +6,28 @@ import pytest
 import httpx
 import respx
 
-from dominode import (
-    AsyncDomiNodeClient,
-    DomiNodeClient,
+from dominusnode import (
+    AsyncDominusNodeClient,
+    DominusNodeClient,
     AuthenticationError,
 )
-from dominode.auth import AuthResource, AsyncAuthResource
-from dominode.keys import KeysResource, AsyncKeysResource
-from dominode.wallet import WalletResource, AsyncWalletResource
-from dominode.usage import UsageResource, AsyncUsageResource
-from dominode.plans import PlansResource, AsyncPlansResource
-from dominode.sessions import SessionsResource, AsyncSessionsResource
-from dominode.proxy import ProxyResource, AsyncProxyResource
-from dominode.admin import AdminResource, AsyncAdminResource
-from dominode.constants import DEFAULT_BASE_URL, DEFAULT_PROXY_HOST
+from dominusnode.auth import AuthResource, AsyncAuthResource
+from dominusnode.keys import KeysResource, AsyncKeysResource
+from dominusnode.wallet import WalletResource, AsyncWalletResource
+from dominusnode.usage import UsageResource, AsyncUsageResource
+from dominusnode.plans import PlansResource, AsyncPlansResource
+from dominusnode.sessions import SessionsResource, AsyncSessionsResource
+from dominusnode.proxy import ProxyResource, AsyncProxyResource
+from dominusnode.admin import AdminResource, AsyncAdminResource
+from dominusnode.constants import DEFAULT_BASE_URL, DEFAULT_PROXY_HOST
 from tests.conftest import make_jwt
 
 
-class TestDomiNodeClientInit:
+class TestDominusNodeClientInit:
     """Test sync client initialization modes."""
 
     def test_default_initialization(self) -> None:
-        client = DomiNodeClient()
+        client = DominusNodeClient()
         try:
             assert client.auth is not None
             assert isinstance(client.auth, AuthResource)
@@ -42,7 +42,7 @@ class TestDomiNodeClientInit:
             client.close()
 
     def test_custom_base_url(self) -> None:
-        client = DomiNodeClient(base_url="http://localhost:3000")
+        client = DominusNodeClient(base_url="http://localhost:3000")
         try:
             # Client should be usable with custom URL
             assert client.auth is not None
@@ -50,7 +50,7 @@ class TestDomiNodeClientInit:
             client.close()
 
     def test_custom_proxy_settings(self) -> None:
-        client = DomiNodeClient(
+        client = DominusNodeClient(
             proxy_host="myproxy.local",
             http_proxy_port=9090,
             socks5_proxy_port=1081,
@@ -65,7 +65,7 @@ class TestDomiNodeClientInit:
     def test_pre_existing_tokens(self) -> None:
         access = make_jwt()
         refresh = make_jwt(exp=__import__("time").time() + 7 * 86400)
-        client = DomiNodeClient(
+        client = DominusNodeClient(
             access_token=access,
             refresh_token=refresh,
         )
@@ -76,7 +76,7 @@ class TestDomiNodeClientInit:
             client.close()
 
     def test_context_manager(self) -> None:
-        with DomiNodeClient() as client:
+        with DominusNodeClient() as client:
             assert client.auth is not None
 
     @respx.mock
@@ -98,7 +98,7 @@ class TestDomiNodeClientInit:
             )
         )
 
-        with DomiNodeClient(base_url="http://localhost:3000") as client:
+        with DominusNodeClient(base_url="http://localhost:3000") as client:
             result = client.connect_with_key("dn_live_test_key_123")
             assert result.token == access
             assert result.refresh_token == refresh
@@ -128,7 +128,7 @@ class TestDomiNodeClientInit:
             )
         )
 
-        with DomiNodeClient(base_url="http://localhost:3000") as client:
+        with DominusNodeClient(base_url="http://localhost:3000") as client:
             result = client.connect_with_credentials("user@example.com", "password123")
             assert result.user is not None
             assert result.user.email == "user@example.com"
@@ -147,7 +147,7 @@ class TestDomiNodeClientInit:
             )
         )
 
-        with DomiNodeClient(base_url="http://localhost:3000") as client:
+        with DominusNodeClient(base_url="http://localhost:3000") as client:
             result = client.connect_with_credentials("user@example.com", "password123")
             assert result.mfa_required is True
             assert result.mfa_challenge_token == "challenge_token_abc"
@@ -175,7 +175,7 @@ class TestDomiNodeClientInit:
             return_value=httpx.Response(200, json={"message": "Logged out successfully"})
         )
 
-        with DomiNodeClient(base_url="http://localhost:3000") as client:
+        with DominusNodeClient(base_url="http://localhost:3000") as client:
             client.connect_with_key("dn_live_test_key")
             assert client._token_manager.has_tokens is True
             client.disconnect()
@@ -183,11 +183,11 @@ class TestDomiNodeClientInit:
             assert client._api_key is None
 
 
-class TestAsyncDomiNodeClientInit:
+class TestAsyncDominusNodeClientInit:
     """Test async client initialization."""
 
     def test_default_initialization(self) -> None:
-        client = AsyncDomiNodeClient()
+        client = AsyncDominusNodeClient()
         assert isinstance(client.auth, AsyncAuthResource)
         assert isinstance(client.keys, AsyncKeysResource)
         assert isinstance(client.wallet, AsyncWalletResource)
@@ -198,7 +198,7 @@ class TestAsyncDomiNodeClientInit:
         assert isinstance(client.admin, AsyncAdminResource)
 
     def test_custom_settings(self) -> None:
-        client = AsyncDomiNodeClient(
+        client = AsyncDominusNodeClient(
             base_url="http://localhost:3000",
             proxy_host="myproxy.local",
             http_proxy_port=9090,
@@ -209,7 +209,7 @@ class TestAsyncDomiNodeClientInit:
     def test_pre_existing_tokens(self) -> None:
         access = make_jwt()
         refresh = make_jwt(exp=__import__("time").time() + 7 * 86400)
-        client = AsyncDomiNodeClient(access_token=access, refresh_token=refresh)
+        client = AsyncDominusNodeClient(access_token=access, refresh_token=refresh)
         assert client._token_manager.has_tokens is True
 
     @pytest.mark.asyncio
@@ -232,7 +232,7 @@ class TestAsyncDomiNodeClientInit:
             )
         )
 
-        async with AsyncDomiNodeClient(
+        async with AsyncDominusNodeClient(
             base_url="http://localhost:3000",
             api_key="dn_live_async_key",
         ) as client:
@@ -261,7 +261,7 @@ class TestAsyncDomiNodeClientInit:
             )
         )
 
-        async with AsyncDomiNodeClient(base_url="http://localhost:3000") as client:
+        async with AsyncDominusNodeClient(base_url="http://localhost:3000") as client:
             result = await client.connect_with_credentials("async@example.com", "pass123")
             assert result.user is not None
             assert result.user.email == "async@example.com"

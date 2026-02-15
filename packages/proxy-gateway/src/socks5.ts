@@ -1,6 +1,6 @@
 import * as net from "node:net";
-import { createLogger, hashApiKey, userRepo, planRepo } from "@dominode/shared";
-import type { ProviderSelector } from "@dominode/pool-manager";
+import { createLogger, hashApiKey, userRepo, planRepo } from "@dominusnode/shared";
+import type { ProviderSelector } from "@dominusnode/pool-manager";
 import { checkBalance } from "./balance-check.js";
 import { attachByteCounters } from "./counting-stream.js";
 import { startSession, endSession, registerSessionDestroy, unregisterSessionDestroy } from "./session-manager.js";
@@ -551,7 +551,7 @@ export async function startSocks5Server(port: number = 1080, providerSelector?: 
   let resolvedSelector: ProviderSelector | null = providerSelector ?? null;
 
   if (!resolvedSelector) {
-    const { createProviderSelector } = await import("@dominode/pool-manager");
+    const { createProviderSelector } = await import("@dominusnode/pool-manager");
     resolvedSelector = createProviderSelector();
   }
 

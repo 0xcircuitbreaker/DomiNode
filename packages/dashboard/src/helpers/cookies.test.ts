@@ -12,8 +12,8 @@ describe("cookies helper", () => {
   });
 
   it("should return correct cookie names", () => {
-    expect(getAccessCookieName()).toBe("dominode_access");
-    expect(getRefreshCookieName()).toBe("dominode_refresh");
+    expect(getAccessCookieName()).toBe("dominusnode_access");
+    expect(getRefreshCookieName()).toBe("dominusnode_refresh");
   });
 
   it("should set access and refresh cookies", () => {
@@ -23,7 +23,7 @@ describe("cookies helper", () => {
 
     // Access cookie
     const [accessName, accessValue, accessOpts] = res.cookie.mock.calls[0];
-    expect(accessName).toBe("dominode_access");
+    expect(accessName).toBe("dominusnode_access");
     expect(accessValue).toBe("access-token-123");
     expect(accessOpts.httpOnly).toBe(true);
     expect(accessOpts.sameSite).toBe("strict");
@@ -32,7 +32,7 @@ describe("cookies helper", () => {
 
     // Refresh cookie — restricted to /api/auth path (R13 H-5)
     const [refreshName, refreshValue, refreshOpts] = res.cookie.mock.calls[1];
-    expect(refreshName).toBe("dominode_refresh");
+    expect(refreshName).toBe("dominusnode_refresh");
     expect(refreshValue).toBe("refresh-token-456");
     expect(refreshOpts.httpOnly).toBe(true);
     expect(refreshOpts.sameSite).toBe("strict");
@@ -44,12 +44,12 @@ describe("cookies helper", () => {
     clearAuthCookies(res as never);
 
     expect(res.clearCookie).toHaveBeenCalledTimes(2);
-    expect(res.clearCookie).toHaveBeenCalledWith("dominode_access", expect.objectContaining({
+    expect(res.clearCookie).toHaveBeenCalledWith("dominusnode_access", expect.objectContaining({
       httpOnly: true,
       sameSite: "strict",
       path: "/api",
     }));
-    expect(res.clearCookie).toHaveBeenCalledWith("dominode_refresh", expect.objectContaining({
+    expect(res.clearCookie).toHaveBeenCalledWith("dominusnode_refresh", expect.objectContaining({
       httpOnly: true,
       sameSite: "strict",
       path: "/api/auth",

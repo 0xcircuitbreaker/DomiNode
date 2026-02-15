@@ -1,4 +1,4 @@
-import { createLogger } from "@dominode/shared";
+import { createLogger } from "@dominusnode/shared";
 
 const log = createLogger("proxy:auth-rate-limit");
 

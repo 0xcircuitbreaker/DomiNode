@@ -1,8 +1,8 @@
-# DomiNode Project Report
+# Dominus Node Project Report
 
 ## Executive Summary
 
-DomiNode is a production-ready rotating proxy-as-a-service platform that resells PacketStream residential bandwidth at $5/GB (cost $1/GB, 80% gross margin). The platform supports both fiat (Stripe) and cryptocurrency (BTC, ETH, XMR, SOL, ZEC via NOWPayments) payments. It consists of 8 backend packages, a React frontend, a browser extension for 4 browsers, and SDKs in 4 languages (Node.js, Python, C++, Rust). The codebase has undergone 10 comprehensive security audits with all CRITICAL and HIGH findings remediated. 1,152 tests across 72 test files provide comprehensive full-stack coverage.
+Dominus Node is a production-ready rotating proxy-as-a-service platform that resells PacketStream residential bandwidth at $5/GB (cost $1/GB, 80% gross margin). The platform supports both fiat (Stripe) and cryptocurrency (BTC, ETH, XMR, SOL, ZEC via NOWPayments) payments. It consists of 8 backend packages, a React frontend, a browser extension for 4 browsers, and SDKs in 4 languages (Node.js, Python, C++, Rust). The codebase has undergone 10 comprehensive security audits with all CRITICAL and HIGH findings remediated. 1,152 tests across 72 test files provide comprehensive full-stack coverage.
 
 ## Development Phases
 
@@ -213,7 +213,7 @@ DomiNode is a production-ready rotating proxy-as-a-service platform that resells
 ### Package Structure
 
 ```
-DomiNode/
+Dominus Node/
   packages/
     shared/           -- Types, DB, auth, validation, repositories
     pool-manager/     -- Provider interfaces, PacketStream, Direct, selector
@@ -513,4 +513,4 @@ cd sdks/python && python3 -m pytest        # Python SDK (112 tests)
 
 ## Conclusion
 
-DomiNode is a feature-complete, security-hardened, and thoroughly tested proxy-as-a-service platform ready for production deployment. It offers competitive pricing ($5/GB PAYG, $3/GB at volume), multiple payment methods (Stripe + 5 cryptocurrencies), enterprise security features (2FA, token rotation, sanctions compliance), geo-targeting (country/state/city), and developer-friendly SDKs in 4 languages. The 10-round security audit process has identified and remediated all critical and high-severity vulnerabilities across the entire codebase. Production infrastructure (Docker, CI/CD, nginx) is in place, with operational tooling (monitoring, secrets management) as the remaining gap.
+Dominus Node is a feature-complete, security-hardened, and thoroughly tested proxy-as-a-service platform ready for production deployment. It offers competitive pricing ($5/GB PAYG, $3/GB at volume), multiple payment methods (Stripe + 5 cryptocurrencies), enterprise security features (2FA, token rotation, sanctions compliance), geo-targeting (country/state/city), and developer-friendly SDKs in 4 languages. The 10-round security audit process has identified and remediated all critical and high-severity vulnerabilities across the entire codebase. Production infrastructure (Docker, CI/CD, nginx) is in place, with operational tooling (monitoring, secrets management) as the remaining gap.

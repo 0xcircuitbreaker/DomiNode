@@ -2,13 +2,13 @@
 pub const SDK_VERSION: &str = "1.0.0";
 
 /// User-Agent header sent with every request.
-pub const USER_AGENT: &str = "dominode-sdk-rust/1.0.0";
+pub const USER_AGENT: &str = "dominusnode-sdk-rust/1.0.0";
 
-/// Default DomiNode API base URL.
-pub const DEFAULT_BASE_URL: &str = "https://api.dominode.io";
+/// Default Dominus Node API base URL.
+pub const DEFAULT_BASE_URL: &str = "https://api.dominusnode.io";
 
 /// Default proxy hostname.
-pub const DEFAULT_PROXY_HOST: &str = "proxy.dominode.io";
+pub const DEFAULT_PROXY_HOST: &str = "proxy.dominusnode.io";
 
 /// Default HTTP proxy port.
 pub const DEFAULT_HTTP_PROXY_PORT: u16 = 8080;

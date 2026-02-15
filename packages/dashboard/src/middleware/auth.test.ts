@@ -8,7 +8,7 @@ import cookieParser from "cookie-parser";
 const mockVerifyJwt = vi.fn();
 const mockFindUserById = vi.fn();
 
-vi.mock("@dominode/shared", () => ({
+vi.mock("@dominusnode/shared", () => ({
   verifyJwt: (...args: unknown[]) => mockVerifyJwt(...args),
   userRepo: {
     findUserById: (...args: unknown[]) => mockFindUserById(...args),
@@ -119,7 +119,7 @@ describe("requireAuth middleware", () => {
     expect(mockFindUserById).toHaveBeenCalledWith("user-123");
   });
 
-  it("should extract token from dominode_access cookie", async () => {
+  it("should extract token from dominusnode_access cookie", async () => {
     mockVerifyJwt.mockReturnValueOnce({ userId: "cookie-user", email: "cookie@test.com", isAdmin: false });
     mockFindUserById.mockResolvedValueOnce({
       id: "cookie-user",
@@ -130,7 +130,7 @@ describe("requireAuth middleware", () => {
 
     const app = createApp();
     const res = await request(app, "GET", "/api/protected", {
-      Cookie: "dominode_access=cookie-jwt-token",
+      Cookie: "dominusnode_access=cookie-jwt-token",
     });
 
     expect(res.status).toBe(200);

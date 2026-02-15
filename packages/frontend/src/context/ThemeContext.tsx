@@ -15,7 +15,7 @@ interface ThemeContextValue {
   toggleTheme: () => void;
 }
 
-const STORAGE_KEY = "dominode-theme";
+const STORAGE_KEY = "dominusnode-theme";
 const ThemeContext = createContext<ThemeContextValue | undefined>(undefined);
 
 function readSavedTheme(): ThemeMode | null {

@@ -1,5 +1,5 @@
 {
-  "name": "@dominode/metering",
+  "name": "@dominusnode/metering",
   "version": "0.1.0",
   "private": true,
   "main": "dist/src/index.js",
@@ -9,6 +9,6 @@
     "clean": "tsc --build --clean && rm -rf dist"
   },
   "dependencies": {
-    "@dominode/shared": "*"
+    "@dominusnode/shared": "*"
   }
 }

@@ -5,7 +5,7 @@ import type { WalletBalance, WalletForecast, TransactionList } from "../types.js
 
 export function registerWalletTools(server: McpServer, httpClient: HttpClient): void {
   server.tool(
-    "dominode_get_balance",
+    "dominusnode_get_balance",
     "Get current wallet balance in USD. Check this before making requests to ensure sufficient funds.",
     {},
     async () => {
@@ -23,7 +23,7 @@ export function registerWalletTools(server: McpServer, httpClient: HttpClient): 
   );
 
   server.tool(
-    "dominode_get_forecast",
+    "dominusnode_get_forecast",
     "Get spending forecast: daily average spend, estimated days remaining, and projected depletion date.",
     {},
     async () => {
@@ -47,7 +47,7 @@ export function registerWalletTools(server: McpServer, httpClient: HttpClient): 
   );
 
   server.tool(
-    "dominode_get_transactions",
+    "dominusnode_get_transactions",
     "Get wallet transaction history. Shows top-ups, usage charges, and refunds.",
     {
       page: z.number().min(1).default(1).describe("Page number"),

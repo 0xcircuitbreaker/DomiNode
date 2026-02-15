@@ -1,4 +1,4 @@
-# DomiNode Security Audit - Round 13
+# Dominus Node Security Audit - Round 13
 
 **Date:** 2026-02-09
 **Scope:** Full system audit -- all application code, 4 SDKs (Node.js, Python, C++, Rust), browser extension, frontend, infrastructure (Docker, nginx, CI/CD)
@@ -9,7 +9,7 @@
 
 ## Executive Summary
 
-Round 13 performed a comprehensive enterprise-grade security audit across all DomiNode components with particular focus on SDK security, infrastructure hardening, and business logic integrity. The audit identified **11 CRITICAL** and **28 HIGH** findings across 5 audit domains. All 7 actionable CRITICAL and 9 HIGH findings were fixed. The remaining findings are deferred (defense-in-depth, architectural, or deployment-configuration concerns).
+Round 13 performed a comprehensive enterprise-grade security audit across all Dominus Node components with particular focus on SDK security, infrastructure hardening, and business logic integrity. The audit identified **11 CRITICAL** and **28 HIGH** findings across 5 audit domains. All 7 actionable CRITICAL and 9 HIGH findings were fixed. The remaining findings are deferred (defense-in-depth, architectural, or deployment-configuration concerns).
 
 **Post-fix status:** 932 tests passing (871 backend + 61 frontend), zero build errors.
 
@@ -58,7 +58,7 @@ Round 13 performed a comprehensive enterprise-grade security audit across all Do
 ### C-4: Python SDK `repr()` Exposes Credentials in Logs [FIXED]
 
 **Agent:** SDK Enterprise Audit
-**Location:** `sdks/python/dominode/types.py`
+**Location:** `sdks/python/dominusnode/types.py`
 
 **Issue:** `LoginResult`, `MfaSetup`, and `CreatedApiKey` dataclasses used auto-generated `__repr__` that printed tokens, TOTP secrets, backup codes, and raw API keys in full. Any `logging.debug()` or `print()` in enterprise applications would leak all credentials.
 
@@ -67,7 +67,7 @@ Round 13 performed a comprehensive enterprise-grade security audit across all Do
 ### C-5: Python SDK `keys.revoke()` Missing URL Encoding [FIXED]
 
 **Agent:** SDK Enterprise Audit
-**Location:** `sdks/python/dominode/keys.py`
+**Location:** `sdks/python/dominusnode/keys.py`
 
 **Issue:** Both sync and async `revoke()` methods used `f"/api/keys/{key_id}"` without URL-encoding. Key IDs containing `/`, `?`, or `#` would corrupt the URL path.
 
@@ -76,7 +76,7 @@ Round 13 performed a comprehensive enterprise-grade security audit across all Do
 ### C-6: Python Async HTTP Client Missing 401 Retry + AsyncTokenManager Missing force_refresh [FIXED]
 
 **Agent:** SDK Enterprise Audit
-**Location:** `sdks/python/dominode/http_client.py:242-282`, `sdks/python/dominode/token_manager.py:104-166`
+**Location:** `sdks/python/dominusnode/http_client.py:242-282`, `sdks/python/dominusnode/token_manager.py:104-166`
 
 **Issue:** The sync `SyncHttpClient` had 401 retry with automatic token refresh, but `AsyncHttpClient` had none. Additionally, `AsyncTokenManager` lacked `force_refresh()` and `has_refresh_token` property. Enterprise async applications would fail with `AuthenticationError` instead of auto-refreshing.
 
@@ -85,7 +85,7 @@ Round 13 performed a comprehensive enterprise-grade security audit across all Do
 ### C-7: C++ and Python Proxy Username Format Mismatch [FIXED]
 
 **Agent:** SDK Enterprise Audit
-**Location:** `sdks/cpp/src/proxy.cpp:51-84`, `sdks/python/dominode/proxy.py:54-64`
+**Location:** `sdks/cpp/src/proxy.cpp:51-84`, `sdks/python/dominusnode/proxy.py:54-64`
 
 **Issue:** The proxy server parses `country_XX` (underscore separator) but C++ used `country-XX` (hyphen) and Python used `country-XX` (hyphen, no "user" prefix). Geo-targeting silently failed in both SDKs, potentially violating data residency requirements.
 
@@ -243,11 +243,11 @@ Round 13 performed a comprehensive enterprise-grade security audit across all Do
 | `packages/shared/src/repositories/wallet-repo.ts` | FOR UPDATE lock + MAX_BALANCE cap in releaseReservation and settleSession |
 | `packages/proxy-gateway/src/server.ts` | Added `proxyRes.on("close", cleanup)` for HTTP handler |
 | `packages/proxy-gateway/src/session-manager.ts` | Merged duplicate getUserPlan into single call, price locked at session start |
-| `sdks/python/dominode/types.py` | Custom __repr__ for LoginResult, MfaSetup, CreatedApiKey |
-| `sdks/python/dominode/keys.py` | URL-encoded key_id in sync+async revoke() |
-| `sdks/python/dominode/http_client.py` | Added 401 retry to AsyncHttpClient |
-| `sdks/python/dominode/token_manager.py` | Added force_refresh() and has_refresh_token to AsyncTokenManager |
-| `sdks/python/dominode/proxy.py` | Standardized username format, URL-encoded geo values |
+| `sdks/python/dominusnode/types.py` | Custom __repr__ for LoginResult, MfaSetup, CreatedApiKey |
+| `sdks/python/dominusnode/keys.py` | URL-encoded key_id in sync+async revoke() |
+| `sdks/python/dominusnode/http_client.py` | Added 401 retry to AsyncHttpClient |
+| `sdks/python/dominusnode/token_manager.py` | Added force_refresh() and has_refresh_token to AsyncTokenManager |
+| `sdks/python/dominusnode/proxy.py` | Standardized username format, URL-encoded geo values |
 | `sdks/cpp/src/proxy.cpp` | Changed separator to `_`, URL-encoded geo values |
 | `sdks/rust/src/client.rs` | Custom Debug impl for Config (redacts credentials) |
 | `sdks/rust/src/types.rs` | Custom Debug impl for TokenPair, MfaSetup |

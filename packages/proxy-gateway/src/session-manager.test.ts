@@ -10,7 +10,7 @@ const mockCreateUsageRecord = vi.fn();
 const mockGetUserPlan = vi.fn();
 const mockGetMonthlyUsage = vi.fn();
 
-vi.mock("@dominode/shared", () => ({
+vi.mock("@dominusnode/shared", () => ({
   walletRepo: {
     reserveBalance: (...args: unknown[]) => mockReserveBalance(...args),
     releaseReservation: (...args: unknown[]) => mockReleaseReservation(...args),
@@ -35,7 +35,7 @@ vi.mock("@dominode/shared", () => ({
 
 const mockRecordUsage = vi.fn().mockResolvedValue({});
 
-vi.mock("@dominode/metering", () => ({
+vi.mock("@dominusnode/metering", () => ({
   computeCostCents: (bytes: number, pricePerGb: number = 500) => {
     if (bytes <= 0) return 0;
     if (pricePerGb <= 0) return 0;

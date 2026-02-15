@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
-  DomiNodeError,
+  DominusNodeError,
   AuthenticationError,
   AuthorizationError,
   RateLimitError,
@@ -14,11 +14,11 @@ import {
 } from "../src/errors.js";
 
 describe("Error hierarchy", () => {
-  it("DomiNodeError stores message and statusCode", () => {
-    const err = new DomiNodeError("test error", 418);
+  it("DominusNodeError stores message and statusCode", () => {
+    const err = new DominusNodeError("test error", 418);
     expect(err.message).toBe("test error");
     expect(err.statusCode).toBe(418);
-    expect(err.name).toBe("DomiNodeError");
+    expect(err.name).toBe("DominusNodeError");
     expect(err instanceof Error).toBe(true);
   });
 
@@ -26,7 +26,7 @@ describe("Error hierarchy", () => {
     const err = new AuthenticationError();
     expect(err.statusCode).toBe(401);
     expect(err.name).toBe("AuthenticationError");
-    expect(err instanceof DomiNodeError).toBe(true);
+    expect(err instanceof DominusNodeError).toBe(true);
   });
 
   it("AuthorizationError defaults to 403", () => {
@@ -89,7 +89,7 @@ describe("Error hierarchy", () => {
     expect(err.statusCode).toBeUndefined();
   });
 
-  it("all error types can be caught as DomiNodeError", () => {
+  it("all error types can be caught as DominusNodeError", () => {
     const errors = [
       new AuthenticationError(),
       new AuthorizationError(),
@@ -104,7 +104,7 @@ describe("Error hierarchy", () => {
     ];
 
     for (const err of errors) {
-      expect(err instanceof DomiNodeError).toBe(true);
+      expect(err instanceof DominusNodeError).toBe(true);
     }
   });
 });

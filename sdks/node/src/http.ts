@@ -1,6 +1,6 @@
 import { USER_AGENT, MAX_RATE_LIMIT_RETRIES } from "./constants.js";
 import {
-  DomiNodeError, AuthenticationError, AuthorizationError, RateLimitError,
+  DominusNodeError, AuthenticationError, AuthorizationError, RateLimitError,
   InsufficientBalanceError, ValidationError, NotFoundError, ConflictError,
   ServerError, NetworkError,
 } from "./errors.js";
@@ -69,7 +69,7 @@ function throwForStatus(status: number, body: string, headers: Headers): never {
     }
     default:
       if (status >= 500) throw new ServerError(message);
-      throw new DomiNodeError(message, status);
+      throw new DominusNodeError(message, status);
   }
 }
 
@@ -156,7 +156,7 @@ export class HttpClient {
         const retryBody = await retry.text();
         throwForStatus(retry.status, retryBody, retry.headers);
       } catch (err) {
-        if (err instanceof DomiNodeError) throw err;
+        if (err instanceof DominusNodeError) throw err;
         // Refresh failed — fall through to original 401 handling
       }
     }

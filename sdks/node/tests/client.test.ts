@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { DomiNodeClient } from "../src/client.js";
+import { DominusNodeClient } from "../src/client.js";
 import { DEFAULT_BASE_URL } from "../src/constants.js";
 
 // Helper: build a fake JWT with a given expiry
@@ -17,13 +17,13 @@ function makeJwt(expSeconds: number = 900): string {
   return `${header}.${payload}.${sig}`;
 }
 
-describe("DomiNodeClient", () => {
+describe("DominusNodeClient", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
   });
 
   it("initializes with default config and exposes all resource modules", () => {
-    const client = new DomiNodeClient();
+    const client = new DominusNodeClient();
     expect(client.auth).toBeDefined();
     expect(client.keys).toBeDefined();
     expect(client.wallet).toBeDefined();
@@ -35,7 +35,7 @@ describe("DomiNodeClient", () => {
   });
 
   it("accepts custom baseUrl in config", () => {
-    const client = new DomiNodeClient({ baseUrl: "http://localhost:3000" });
+    const client = new DominusNodeClient({ baseUrl: "http://localhost:3000" });
     // Client should construct without errors
     expect(client).toBeDefined();
   });
@@ -43,7 +43,7 @@ describe("DomiNodeClient", () => {
   it("stores tokens when accessToken and refreshToken are provided in config", () => {
     const access = makeJwt(900);
     const refresh = makeJwt(7 * 86400);
-    const client = new DomiNodeClient({ accessToken: access, refreshToken: refresh });
+    const client = new DominusNodeClient({ accessToken: access, refreshToken: refresh });
     // The client should be usable (tokens stored internally)
     expect(client).toBeDefined();
   });
@@ -65,7 +65,7 @@ describe("DomiNodeClient", () => {
       ),
     );
 
-    const client = new DomiNodeClient({ baseUrl: "http://localhost:3000" });
+    const client = new DominusNodeClient({ baseUrl: "http://localhost:3000" });
     await client.connectWithKey("dn_live_test_key_123");
     // After connecting, subsequent requests should include the token
     expect(client).toBeDefined();
@@ -91,7 +91,7 @@ describe("DomiNodeClient", () => {
       ),
     );
 
-    const client = new DomiNodeClient({ baseUrl: "http://localhost:3000" });
+    const client = new DominusNodeClient({ baseUrl: "http://localhost:3000" });
     const result = await client.connectWithCredentials("user@example.com", "password123");
     expect(result.user).toBeDefined();
     expect(result.user!.email).toBe("user@example.com");
@@ -109,7 +109,7 @@ describe("DomiNodeClient", () => {
       ),
     );
 
-    const client = new DomiNodeClient({ baseUrl: "http://localhost:3000" });
+    const client = new DominusNodeClient({ baseUrl: "http://localhost:3000" });
     const result = await client.connectWithCredentials("user@example.com", "password123");
     expect(result.mfaRequired).toBe(true);
     expect(result.user).toBeUndefined();
@@ -118,7 +118,7 @@ describe("DomiNodeClient", () => {
   it("disconnect clears stored tokens", () => {
     const access = makeJwt(900);
     const refresh = makeJwt(7 * 86400);
-    const client = new DomiNodeClient({ accessToken: access, refreshToken: refresh });
+    const client = new DominusNodeClient({ accessToken: access, refreshToken: refresh });
     client.disconnect();
     // After disconnect, tokens should be cleared
     expect(client).toBeDefined();

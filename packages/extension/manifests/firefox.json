@@ -1,11 +1,11 @@
 {
   "manifest_version": 3,
-  "name": "DomiNode Proxy",
+  "name": "Dominus Node Proxy",
   "version": "0.1.0",
-  "description": "Route browser traffic through DomiNode residential proxies with one click",
+  "description": "Route browser traffic through Dominus Node residential proxies with one click",
   "browser_specific_settings": {
     "gecko": {
-      "id": "proxy@dominode.io",
+      "id": "proxy@dominusnode.io",
       "strict_min_version": "109.0"
     }
   },

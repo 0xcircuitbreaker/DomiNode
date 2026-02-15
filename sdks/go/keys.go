@@ -1,4 +1,4 @@
-package dominode
+package dominusnode
 
 import (
 	"context"

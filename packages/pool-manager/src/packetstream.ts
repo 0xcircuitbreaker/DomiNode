@@ -1,5 +1,5 @@
 import * as crypto from "node:crypto";
-import { BLOCKED_COUNTRY_CODES } from "@dominode/shared";
+import { BLOCKED_COUNTRY_CODES } from "@dominusnode/shared";
 
 export interface PacketStreamConfig {
   gatewayHost: string;

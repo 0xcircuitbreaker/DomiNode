@@ -1,16 +1,16 @@
-//! # DomiNode SDK for Rust
+//! # Dominus Node SDK for Rust
 //!
-//! Official Rust client for the [DomiNode](https://dominode.io) rotating
+//! Official Rust client for the [Dominus Node](https://dominusnode.io) rotating
 //! proxy-as-a-service platform.
 //!
 //! ## Quick Start
 //!
 //! ```no_run
-//! use dominode::{DomiNodeClient, Config};
+//! use dominusnode::{DominusNodeClient, Config};
 //!
-//! # async fn example() -> dominode::Result<()> {
+//! # async fn example() -> dominusnode::Result<()> {
 //! // Create a client with default settings.
-//! let client = DomiNodeClient::new(Config::default())?;
+//! let client = DominusNodeClient::new(Config::default())?;
 //!
 //! // Authenticate with an API key.
 //! client.connect_with_key("dn_live_abc123").await?;
@@ -46,5 +46,5 @@ pub mod sessions;
 pub mod proxy;
 pub mod admin;
 
-pub use client::{Config, DomiNodeClient};
-pub use errors::{DomiNodeError, Result};
+pub use client::{Config, DominusNodeClient};
+pub use errors::{DominusNodeError, Result};

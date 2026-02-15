@@ -1,4 +1,4 @@
-# DomiNode Proxy Gateway
+# Dominus Node Proxy Gateway
 # Multi-stage build for minimal production image
 
 # ─── Stage 1: Build ─────────────────────────────────────────────────
@@ -29,26 +29,26 @@ RUN cp packages/shared/src/schema.sql packages/shared/dist/src/schema.sql
 # ─── Stage 2: Runtime ───────────────────────────────────────────────
 FROM node:22-alpine
 
-RUN addgroup -g 1001 -S dominode && \
-    adduser -S dominode -u 1001 -G dominode
+RUN addgroup -g 1001 -S dominusnode && \
+    adduser -S dominusnode -u 1001 -G dominusnode
 
 WORKDIR /app
 
 # Copy built artifacts
-COPY --from=builder --chown=dominode:dominode /app/package.json /app/package-lock.json ./
-COPY --from=builder --chown=dominode:dominode /app/packages/shared/package.json packages/shared/package.json
-COPY --from=builder --chown=dominode:dominode /app/packages/shared/dist packages/shared/dist
-COPY --from=builder --chown=dominode:dominode /app/packages/metering/package.json packages/metering/package.json
-COPY --from=builder --chown=dominode:dominode /app/packages/metering/dist packages/metering/dist
-COPY --from=builder --chown=dominode:dominode /app/packages/pool-manager/package.json packages/pool-manager/package.json
-COPY --from=builder --chown=dominode:dominode /app/packages/pool-manager/dist packages/pool-manager/dist
-COPY --from=builder --chown=dominode:dominode /app/packages/proxy-gateway/package.json packages/proxy-gateway/package.json
-COPY --from=builder --chown=dominode:dominode /app/packages/proxy-gateway/dist packages/proxy-gateway/dist
+COPY --from=builder --chown=dominusnode:dominusnode /app/package.json /app/package-lock.json ./
+COPY --from=builder --chown=dominusnode:dominusnode /app/packages/shared/package.json packages/shared/package.json
+COPY --from=builder --chown=dominusnode:dominusnode /app/packages/shared/dist packages/shared/dist
+COPY --from=builder --chown=dominusnode:dominusnode /app/packages/metering/package.json packages/metering/package.json
+COPY --from=builder --chown=dominusnode:dominusnode /app/packages/metering/dist packages/metering/dist
+COPY --from=builder --chown=dominusnode:dominusnode /app/packages/pool-manager/package.json packages/pool-manager/package.json
+COPY --from=builder --chown=dominusnode:dominusnode /app/packages/pool-manager/dist packages/pool-manager/dist
+COPY --from=builder --chown=dominusnode:dominusnode /app/packages/proxy-gateway/package.json packages/proxy-gateway/package.json
+COPY --from=builder --chown=dominusnode:dominusnode /app/packages/proxy-gateway/dist packages/proxy-gateway/dist
 
 # Install production dependencies
 RUN npm ci --omit=dev
 
-USER dominode
+USER dominusnode
 
 # HTTP proxy + SOCKS5 proxy
 EXPOSE 8080 1080

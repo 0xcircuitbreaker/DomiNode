@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { IncomingMessage } from "node:http";
 
-// Mock @dominode/shared to avoid module load issues
-vi.mock("@dominode/shared", () => ({
+// Mock @dominusnode/shared to avoid module load issues
+vi.mock("@dominusnode/shared", () => ({
   createLogger: () => ({
     debug: vi.fn(),
     info: vi.fn(),

@@ -1,5 +1,5 @@
 {
-  "name": "@dominode/billing",
+  "name": "@dominusnode/billing",
   "version": "0.1.0",
   "private": true,
   "main": "dist/src/index.js",
@@ -9,7 +9,7 @@
     "clean": "tsc --build --clean && rm -rf dist"
   },
   "dependencies": {
-    "@dominode/shared": "*",
+    "@dominusnode/shared": "*",
     "stripe": "^17.5.0"
   }
 }

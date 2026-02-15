@@ -1,4 +1,4 @@
--- DomiNode database schema
+-- Dominus Node database schema
 
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 

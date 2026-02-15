@@ -5,7 +5,7 @@ import type { AccountInfo } from "../types.js";
 
 export function registerAccountTools(server: McpServer, httpClient: HttpClient): void {
   server.tool(
-    "dominode_get_account_info",
+    "dominusnode_get_account_info",
     "Get account details including email, status, and MFA configuration.",
     {},
     async () => {
@@ -28,8 +28,8 @@ export function registerAccountTools(server: McpServer, httpClient: HttpClient):
   );
 
   server.tool(
-    "dominode_register",
-    "Register a new DomiNode account. Returns access token for immediate use. Use this when the AI agent needs to create its own proxy account. The free tier includes 10 connections and 1GB bandwidth — no payment required.",
+    "dominusnode_register",
+    "Register a new Dominus Node account. Returns access token for immediate use. Use this when the AI agent needs to create its own proxy account. The free tier includes 10 connections and 1GB bandwidth — no payment required.",
     {
       email: z.string().email().describe("Email address for the new account"),
       password: z.string().min(8).max(128).describe("Password (min 8 characters)"),
@@ -47,8 +47,8 @@ export function registerAccountTools(server: McpServer, httpClient: HttpClient):
           `User ID: ${data.user.id}`,
           ``,
           `You are now authenticated. Next steps:`,
-          `1. Use dominode_create_key to create an API key for proxy access`,
-          `2. Use dominode_fetch to make requests through the proxy`,
+          `1. Use dominusnode_create_key to create an API key for proxy access`,
+          `2. Use dominusnode_fetch to make requests through the proxy`,
           `3. Free tier: 10 connections, 1GB bandwidth — no payment needed`,
         ].join("\n");
         return { content: [{ type: "text", text }] };
@@ -62,8 +62,8 @@ export function registerAccountTools(server: McpServer, httpClient: HttpClient):
   );
 
   server.tool(
-    "dominode_login",
-    "Login to an existing DomiNode account with email and password.",
+    "dominusnode_login",
+    "Login to an existing Dominus Node account with email and password.",
     {
       email: z.string().email().describe("Account email"),
       password: z.string().min(1).describe("Account password"),
@@ -91,7 +91,7 @@ export function registerAccountTools(server: McpServer, httpClient: HttpClient):
   );
 
   server.tool(
-    "dominode_setup",
+    "dominusnode_setup",
     "One-shot setup: register a new account, create an API key, and return proxy config. Perfect for AI agents that need to bootstrap proxy access from scratch.",
     {
       email: z.string().email().describe("Email address for the new account"),
@@ -114,7 +114,7 @@ export function registerAccountTools(server: McpServer, httpClient: HttpClient):
         );
 
         const text = [
-          `DomiNode account setup complete!`,
+          `Dominus Node account setup complete!`,
           ``,
           `Account:`,
           `  Email: ${reg.user.email}`,
@@ -125,10 +125,10 @@ export function registerAccountTools(server: McpServer, httpClient: HttpClient):
           `  Label: ${keyData.label}`,
           ``,
           `Proxy Usage:`,
-          `  curl -x http://USER:${keyData.key}@proxy.dominode.io:8080 https://httpbin.org/ip`,
+          `  curl -x http://USER:${keyData.key}@proxy.dominusnode.io:8080 https://httpbin.org/ip`,
           ``,
           `Free tier: 10 connections, 1GB bandwidth.`,
-          `Use dominode_fetch to make proxy requests immediately.`,
+          `Use dominusnode_fetch to make proxy requests immediately.`,
         ].join("\n");
         return { content: [{ type: "text", text }] };
       } catch (err) {

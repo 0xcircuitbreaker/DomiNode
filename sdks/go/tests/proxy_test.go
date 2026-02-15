@@ -8,10 +8,10 @@ import (
 	"strings"
 	"testing"
 
-	dominode "github.com/dominode/dominode-go"
+	dominusnode "github.com/dominusnode/dominusnode-go"
 )
 
-func setupAuthenticatedClient(t *testing.T, handler http.HandlerFunc) (*dominode.Client, *httptest.Server) {
+func setupAuthenticatedClient(t *testing.T, handler http.HandlerFunc) (*dominusnode.Client, *httptest.Server) {
 	t.Helper()
 	futureExp := int64(9999999999)
 	token := newTestJWT(futureExp)
@@ -29,7 +29,7 @@ func setupAuthenticatedClient(t *testing.T, handler http.HandlerFunc) (*dominode
 	})
 
 	server := httptest.NewServer(wrappedHandler)
-	client := dominode.NewClient(dominode.Config{
+	client := dominusnode.NewClient(dominusnode.Config{
 		BaseURL:   server.URL,
 		ProxyHost: "proxy.test.io",
 	})
@@ -41,7 +41,7 @@ func TestProxy_BuildURL_Default(t *testing.T) {
 	client, server := setupAuthenticatedClient(t, nil)
 	defer server.Close()
 
-	url, err := client.Proxy.BuildURL(dominode.ProxyURLOptions{})
+	url, err := client.Proxy.BuildURL(dominusnode.ProxyURLOptions{})
 	if err != nil {
 		t.Fatalf("BuildURL failed: %v", err)
 	}
@@ -60,7 +60,7 @@ func TestProxy_BuildURL_SOCKS5(t *testing.T) {
 	client, server := setupAuthenticatedClient(t, nil)
 	defer server.Close()
 
-	url, err := client.Proxy.BuildURL(dominode.ProxyURLOptions{
+	url, err := client.Proxy.BuildURL(dominusnode.ProxyURLOptions{
 		Protocol: "socks5",
 	})
 	if err != nil {
@@ -78,7 +78,7 @@ func TestProxy_BuildURL_GeoTargeting(t *testing.T) {
 	client, server := setupAuthenticatedClient(t, nil)
 	defer server.Close()
 
-	url, err := client.Proxy.BuildURL(dominode.ProxyURLOptions{
+	url, err := client.Proxy.BuildURL(dominusnode.ProxyURLOptions{
 		Country:   "US",
 		State:     "CA",
 		City:      "Los Angeles",
@@ -110,7 +110,7 @@ func TestProxy_BuildURL_URLEncoding(t *testing.T) {
 	defer server.Close()
 
 	// Test with special characters that need URL encoding
-	url, err := client.Proxy.BuildURL(dominode.ProxyURLOptions{
+	url, err := client.Proxy.BuildURL(dominusnode.ProxyURLOptions{
 		Country: "US",
 		City:    "New York",
 	})
@@ -127,11 +127,11 @@ func TestProxy_BuildURL_URLEncoding(t *testing.T) {
 }
 
 func TestProxy_BuildURL_NoAPIKey(t *testing.T) {
-	client := dominode.NewClient(dominode.Config{
+	client := dominusnode.NewClient(dominusnode.Config{
 		BaseURL: "http://localhost:3000",
 	})
 
-	_, err := client.Proxy.BuildURL(dominode.ProxyURLOptions{})
+	_, err := client.Proxy.BuildURL(dominusnode.ProxyURLOptions{})
 	if err == nil {
 		t.Fatal("expected error when no API key is set")
 	}
@@ -153,7 +153,7 @@ func TestProxy_GetHealth(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := dominode.NewClient(dominode.Config{BaseURL: server.URL})
+	client := dominusnode.NewClient(dominusnode.Config{BaseURL: server.URL})
 	ctx := context.Background()
 
 	health, err := client.Proxy.GetHealth(ctx)
@@ -234,7 +234,7 @@ func TestProxy_CustomPorts(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := dominode.NewClient(dominode.Config{
+	client := dominusnode.NewClient(dominusnode.Config{
 		BaseURL:         server.URL,
 		ProxyHost:       "custom.proxy.io",
 		HTTPProxyPort:   9999,
@@ -242,7 +242,7 @@ func TestProxy_CustomPorts(t *testing.T) {
 	})
 	_ = client.ConnectWithKey(context.Background(), "dn_live_test")
 
-	httpURL, err := client.Proxy.BuildURL(dominode.ProxyURLOptions{Protocol: "http"})
+	httpURL, err := client.Proxy.BuildURL(dominusnode.ProxyURLOptions{Protocol: "http"})
 	if err != nil {
 		t.Fatalf("BuildURL http failed: %v", err)
 	}
@@ -250,7 +250,7 @@ func TestProxy_CustomPorts(t *testing.T) {
 		t.Errorf("expected port 9999, got %s", httpURL)
 	}
 
-	socks5URL, err := client.Proxy.BuildURL(dominode.ProxyURLOptions{Protocol: "socks5"})
+	socks5URL, err := client.Proxy.BuildURL(dominusnode.ProxyURLOptions{Protocol: "socks5"})
 	if err != nil {
 		t.Fatalf("BuildURL socks5 failed: %v", err)
 	}

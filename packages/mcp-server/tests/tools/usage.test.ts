@@ -34,7 +34,7 @@ describe("usage tools", () => {
     vi.restoreAllMocks();
   });
 
-  it("dominode_get_usage returns formatted summary", async () => {
+  it("dominusnode_get_usage returns formatted summary", async () => {
     globalThis.fetch = vi.fn().mockResolvedValueOnce({
       ok: true,
       status: 200,
@@ -49,14 +49,14 @@ describe("usage tools", () => {
     } as unknown as Response);
 
     const tools = (server as any)._registeredTools;
-    const result = await tools["dominode_get_usage"].handler({ days: 30 }, { sessionId: "" } as never);
+    const result = await tools["dominusnode_get_usage"].handler({ days: 30 }, { sessionId: "" } as never);
     const text = (result.content as Array<{ type: string; text: string }>)[0].text;
     expect(text).toContain("1.000 GB");
     expect(text).toContain("$5.00");
     expect(text).toContain("1000");
   });
 
-  it("dominode_get_top_hosts handles empty data", async () => {
+  it("dominusnode_get_top_hosts handles empty data", async () => {
     globalThis.fetch = vi.fn().mockResolvedValueOnce({
       ok: true,
       status: 200,
@@ -65,7 +65,7 @@ describe("usage tools", () => {
     } as unknown as Response);
 
     const tools = (server as any)._registeredTools;
-    const result = await tools["dominode_get_top_hosts"].handler({ limit: 10, days: 30 }, { sessionId: "" } as never);
+    const result = await tools["dominusnode_get_top_hosts"].handler({ limit: 10, days: 30 }, { sessionId: "" } as never);
     const text = (result.content as Array<{ type: string; text: string }>)[0].text;
     expect(text).toContain("No host data");
   });

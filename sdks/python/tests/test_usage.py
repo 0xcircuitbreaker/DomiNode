@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from dominode.usage import UsageResource
-from dominode.types import DailyUsage, TopHost, UsageResponse, UsageSummary
+from dominusnode.usage import UsageResource
+from dominusnode.types import DailyUsage, TopHost, UsageResponse, UsageSummary
 
 
 class TestUsageResource:

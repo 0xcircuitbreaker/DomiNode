@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	dominode "github.com/dominode/dominode-go"
+	dominusnode "github.com/dominusnode/dominusnode-go"
 )
 
 func TestKeys_Create(t *testing.T) {
@@ -163,7 +163,7 @@ func TestKeys_Revoke_NotFound(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for nonexistent key")
 	}
-	var notFound *dominode.NotFoundError
+	var notFound *dominusnode.NotFoundError
 	if !errors.As(err, &notFound) {
 		t.Fatalf("expected NotFoundError, got %T: %v", err, err)
 	}
@@ -172,8 +172,8 @@ func TestKeys_Revoke_NotFound(t *testing.T) {
 func TestKeys_UserAgentHeader(t *testing.T) {
 	client, server := setupAuthenticatedClient(t, func(w http.ResponseWriter, r *http.Request) {
 		ua := r.Header.Get("User-Agent")
-		if ua != dominode.UserAgent {
-			t.Errorf("expected User-Agent %s, got %s", dominode.UserAgent, ua)
+		if ua != dominusnode.UserAgent {
+			t.Errorf("expected User-Agent %s, got %s", dominusnode.UserAgent, ua)
 		}
 		resp := map[string]interface{}{"keys": []interface{}{}}
 		w.Header().Set("Content-Type", "application/json")

@@ -1,4 +1,4 @@
-# DomiNode Security Audit — Round 12
+# Dominus Node Security Audit — Round 12
 
 **Date:** 2026-02-09
 **Scope:** Full codebase deep-dive — all 6 backend packages, frontend, browser extension, 4 SDKs, Docker infrastructure, nginx, CI/CD
@@ -32,8 +32,8 @@ All CRITICAL and HIGH findings have been fixed. MEDIUM and LOW findings are docu
 **Fix:** Added `crypto.randomUUID()` JTI to `signMfaChallengeToken()`. Added server-side `consumedChallengeJtis` deny-list Map (capped at 50k, cleanup every 5 min) that rejects replayed JTIs. Challenge tokens are now consumed on successful MFA verification.
 
 ### C-3: Python SDK Deferred Credentials Persist After Failed Auth [FIXED]
-**Component:** `sdks/python/dominode/client.py`
-**Risk:** `AsyncDomiNodeClient.__aenter__` stored deferred credentials (api_key, email, password) but only cleared them on the happy path. If authentication failed, credentials remained in memory as instance attributes indefinitely.
+**Component:** `sdks/python/dominusnode/client.py`
+**Risk:** `AsyncDominusNodeClient.__aenter__` stored deferred credentials (api_key, email, password) but only cleared them on the happy path. If authentication failed, credentials remained in memory as instance attributes indefinitely.
 **Fix:** Wrapped auto-connect in `try/finally` block to ensure credentials are always cleared regardless of success or failure.
 
 ### C-4: Docker API Port Exposed to Host — Bypasses nginx [FIXED]
@@ -100,7 +100,7 @@ All CRITICAL and HIGH findings have been fixed. MEDIUM and LOW findings are docu
 **Fix:** Added `Strict-Transport-Security` and `Permissions-Policy` headers to the static asset block, matching the server-level headers.
 
 ### H-11: Python SDK Sync Client Missing 401 Retry [FIXED]
-**Component:** `sdks/python/dominode/http_client.py`, `sdks/python/dominode/token_manager.py`
+**Component:** `sdks/python/dominusnode/http_client.py`, `sdks/python/dominusnode/token_manager.py`
 **Risk:** The async HTTP client and all other SDK clients (Node.js, C++, Rust) had 401 retry with token refresh, but the Python sync `SyncHttpClient.request()` was missing this. Stale-but-not-expired tokens would cause immediate `AuthenticationError` instead of transparently refreshing.
 **Fix:** Added 401 retry logic to `SyncHttpClient.request()` that calls `self._token_manager.force_refresh()` and retries once. Added `has_refresh_token` property and `force_refresh()` method to the sync `TokenManager`.
 
@@ -144,7 +144,7 @@ Build: `npm run build` — all 6 packages compile cleanly with zero errors.
 - `packages/proxy-gateway/src/session-manager.ts` — Plan pricing lock at session start (C-1)
 - `packages/shared/src/auth.ts` — JTI in MFA challenge tokens (C-2)
 - `packages/dashboard/src/routes/auth.ts` — Challenge token single-use enforcement (C-2)
-- `sdks/python/dominode/client.py` — Deferred credentials try/finally (C-3)
+- `sdks/python/dominusnode/client.py` — Deferred credentials try/finally (C-3)
 - `docker-compose.prod.yml` — API port exposure + proxy network fix (C-4, C-5)
 
 ### HIGH fixes:
@@ -157,8 +157,8 @@ Build: `npm run build` — all 6 packages compile cleanly with zero errors.
 - `packages/dashboard/src/routes/auth.ts` — MFA disable brute-force, password change fixes (H-6, H-7)
 - `packages/dashboard/src/routes/webhooks.ts` — NOWPayments IP warning (H-8)
 - `infra/nginx/default.conf` — Static asset security headers (H-10)
-- `sdks/python/dominode/http_client.py` — 401 retry (H-11)
-- `sdks/python/dominode/token_manager.py` — force_refresh + has_refresh_token (H-11)
+- `sdks/python/dominusnode/http_client.py` — 401 retry (H-11)
+- `sdks/python/dominusnode/token_manager.py` — force_refresh + has_refresh_token (H-11)
 - `sdks/cpp/src/admin.cpp` — url_encode RFC 3986 compliance (H-12)
 
 ---

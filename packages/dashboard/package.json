@@ -1,5 +1,5 @@
 {
-  "name": "@dominode/dashboard",
+  "name": "@dominusnode/dashboard",
   "version": "0.1.0",
   "private": true,
   "main": "dist/src/index.js",
@@ -10,9 +10,9 @@
     "clean": "tsc --build --clean && rm -rf dist"
   },
   "dependencies": {
-    "@dominode/billing": "*",
-    "@dominode/metering": "*",
-    "@dominode/shared": "*",
+    "@dominusnode/billing": "*",
+    "@dominusnode/metering": "*",
+    "@dominusnode/shared": "*",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",

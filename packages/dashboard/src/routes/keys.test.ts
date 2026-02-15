@@ -11,7 +11,7 @@ const mockRevokeApiKey = vi.fn();
 const mockGenerateApiKey = vi.fn();
 const mockSanitizeString = vi.fn((s: string, _max?: number) => s);
 
-vi.mock("@dominode/shared", () => ({
+vi.mock("@dominusnode/shared", () => ({
   userRepo: {
     countActiveKeys: (...args: unknown[]) => mockCountActiveKeys(...args),
     createApiKey: (...args: unknown[]) => mockCreateApiKey(...args),

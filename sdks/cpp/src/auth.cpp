@@ -1,7 +1,7 @@
-#include "dominode/auth.hpp"
-#include "dominode/http_client.hpp"
+#include "dominusnode/auth.hpp"
+#include "dominusnode/http_client.hpp"
 
-namespace dominode {
+namespace dominusnode {
 
 AuthResource::AuthResource(HttpClient& http) : http_(http) {}
 
@@ -79,4 +79,4 @@ MfaStatus AuthResource::mfa_status() {
     return resp.get<MfaStatus>();
 }
 
-} // namespace dominode
+} // namespace dominusnode

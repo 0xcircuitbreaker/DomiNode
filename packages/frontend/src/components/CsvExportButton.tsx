@@ -29,7 +29,7 @@ export default function CsvExportButton({ since, until }: CsvExportButtonProps) 
       // Extract filename from Content-Disposition or use fallback
       const disposition = res.headers.get("Content-Disposition");
       const filenameMatch = disposition?.match(/filename="(.+)"/);
-      a.download = filenameMatch?.[1] ?? `dominode-usage-${since}-to-${until}.csv`;
+      a.download = filenameMatch?.[1] ?? `dominusnode-usage-${since}-to-${until}.csv`;
 
       document.body.appendChild(a);
       a.click();

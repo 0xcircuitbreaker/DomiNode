@@ -1,4 +1,4 @@
-export { PRICE_PER_GB_CENTS, COST_PER_GB_CENTS, BYTES_PER_GB } from "@dominode/shared";
+export { PRICE_PER_GB_CENTS, COST_PER_GB_CENTS, BYTES_PER_GB } from "@dominusnode/shared";
 
 export {
   createCheckoutSession,

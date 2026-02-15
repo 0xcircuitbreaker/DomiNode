@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	dominode "github.com/dominode/dominode-go"
+	dominusnode "github.com/dominusnode/dominusnode-go"
 )
 
 func TestUsage_Get(t *testing.T) {
@@ -47,7 +47,7 @@ func TestUsage_Get(t *testing.T) {
 	defer server.Close()
 
 	ctx := context.Background()
-	usage, err := client.Usage.Get(ctx, &dominode.UsageOptions{
+	usage, err := client.Usage.Get(ctx, &dominusnode.UsageOptions{
 		From: "2025-01-01",
 		To:   "2025-01-31",
 	})
@@ -116,7 +116,7 @@ func TestUsage_GetDaily(t *testing.T) {
 	defer server.Close()
 
 	ctx := context.Background()
-	daily, err := client.Usage.GetDaily(ctx, &dominode.DateRangeOptions{
+	daily, err := client.Usage.GetDaily(ctx, &dominusnode.DateRangeOptions{
 		From: "2025-01-15",
 		To:   "2025-01-17",
 	})
@@ -160,7 +160,7 @@ func TestUsage_GetTopHosts(t *testing.T) {
 
 	ctx := context.Background()
 	limit := 5
-	topHosts, err := client.Usage.GetTopHosts(ctx, &dominode.TopHostsOptions{
+	topHosts, err := client.Usage.GetTopHosts(ctx, &dominusnode.TopHostsOptions{
 		From:  "2025-01-01",
 		To:    "2025-02-01",
 		Limit: &limit,
@@ -214,7 +214,7 @@ func TestUsage_ServerError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for server error")
 	}
-	var serverErr *dominode.ServerError
+	var serverErr *dominusnode.ServerError
 	if !errors.As(err, &serverErr) {
 		t.Fatalf("expected ServerError, got %T: %v", err, err)
 	}

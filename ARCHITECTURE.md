@@ -1,8 +1,8 @@
-# DomiNode Architecture
+# Dominus Node Architecture
 
 ## System Overview
 
-DomiNode is a rotating residential proxy-as-a-service (PaaS) platform. It resells upstream proxy bandwidth from PacketStream at $5/GB (cost: $1/GB from PacketStream, yielding 80% gross margin). Users authenticate with API keys, connect through DomiNode's proxy gateway, and their traffic is routed through PacketStream's residential proxy network to target sites. Usage is metered by bytes transferred and debited from a prepaid wallet.
+Dominus Node is a rotating residential proxy-as-a-service (PaaS) platform. It resells upstream proxy bandwidth from PacketStream at $5/GB (cost: $1/GB from PacketStream, yielding 80% gross margin). Users authenticate with API keys, connect through Dominus Node's proxy gateway, and their traffic is routed through PacketStream's residential proxy network to target sites. Usage is metered by bytes transferred and debited from a prepaid wallet.
 
 The platform exposes three network-facing services:
 
@@ -19,7 +19,7 @@ During development, the React frontend runs on port 5173 via Vite dev server and
 ## Architecture Diagram
 
 ```
-                              DomiNode Platform
+                              Dominus Node Platform
                     ┌──────────────────────────────────────┐
                     │                                      │
  ┌──────────────┐   │  ┌──────────────────────────────┐    │   ┌──────────────────┐
@@ -62,16 +62,16 @@ During development, the React frontend runs on port 5173 via Vite dev server and
 
 ```
 HTTP Request:
-  Client ──▶ DomiNode HTTP Proxy (:8080) ──▶ PacketStream (31112) ──▶ Target
+  Client ──▶ Dominus Node HTTP Proxy (:8080) ──▶ PacketStream (31112) ──▶ Target
          Proxy-Authorization: Basic          Proxy-Authorization: Basic
          (API key)                           (PacketStream creds + geo)
 
 HTTPS CONNECT (double-CONNECT tunnel):
-  Client CONNECT ──▶ DomiNode ──CONNECT──▶ PacketStream ──CONNECT──▶ Target
-  (opaque TLS tunnel through both proxies — DomiNode cannot see encrypted content)
+  Client CONNECT ──▶ Dominus Node ──CONNECT──▶ PacketStream ──CONNECT──▶ Target
+  (opaque TLS tunnel through both proxies — Dominus Node cannot see encrypted content)
 
 SOCKS5:
-  Client ──SOCKS5──▶ DomiNode (:1080) ──CONNECT──▶ PacketStream (31112) ──▶ Target
+  Client ──SOCKS5──▶ Dominus Node (:1080) ──CONNECT──▶ PacketStream (31112) ──▶ Target
   (SOCKS5 auth with API key, then HTTP CONNECT to upstream)
 ```
 
@@ -82,7 +82,7 @@ SOCKS5:
 The project uses npm workspaces with TypeScript project references for build orchestration. All TypeScript code runs in strict mode.
 
 ```
-DomiNode/
+Dominus Node/
 ├── packages/
 │   ├── shared/              # Core library: types, DB, auth, TOTP, validation, repositories
 │   │   └── src/
@@ -194,17 +194,17 @@ DomiNode/
 │           └── ui/                    # Shared UI components
 │
 ├── sdks/
-│   ├── node/                    # Node.js/TypeScript SDK (@dominode/sdk)
+│   ├── node/                    # Node.js/TypeScript SDK (@dominusnode/sdk)
 │   │   ├── src/                        # Zero deps, dual CJS+ESM, Node 18+
 │   │   └── tests/
-│   ├── python/                  # Python SDK (dominode)
-│   │   ├── dominode/                   # httpx, sync + async clients, Python 3.9+
+│   ├── python/                  # Python SDK (dominusnode)
+│   │   ├── dominusnode/                   # httpx, sync + async clients, Python 3.9+
 │   │   └── tests/
-│   ├── cpp/                     # C++ SDK (dominode-cpp)
+│   ├── cpp/                     # C++ SDK (dominusnode-cpp)
 │   │   ├── include/                    # libcurl + nlohmann/json, CMake, C++17, Pimpl
 │   │   ├── src/
 │   │   └── tests/
-│   └── rust/                    # Rust SDK (dominode crate)
+│   └── rust/                    # Rust SDK (dominusnode crate)
 │       ├── src/                        # reqwest + tokio, async default + blocking feature
 │       └── tests/
 │
@@ -228,7 +228,7 @@ frontend (standalone React SPA — communicates with dashboard via fetch)
 extension (standalone — communicates with dashboard via fetch)
 ```
 
-All inter-package dependencies flow through `@dominode/shared` as the foundation. The proxy gateway depends on `pool-manager` for upstream proxy selection. The dashboard API depends on `pool-manager`, `metering`, and `billing` for business operations. The frontend and extension are fully decoupled client applications that only communicate via HTTP to the dashboard REST API.
+All inter-package dependencies flow through `@dominusnode/shared` as the foundation. The proxy gateway depends on `pool-manager` for upstream proxy selection. The dashboard API depends on `pool-manager`, `metering`, and `billing` for business operations. The frontend and extension are fully decoupled client applications that only communicate via HTTP to the dashboard REST API.
 
 ---
 
@@ -244,7 +244,7 @@ These names can be confusing, so to be explicit:
 
 ## Core Components
 
-### 1. Shared Library (`@dominode/shared`)
+### 1. Shared Library (`@dominusnode/shared`)
 
 The foundation package that all other backend packages depend on.
 
@@ -284,7 +284,7 @@ The foundation package that all other backend packages depend on.
 | `refresh-token-repo` | Store/revoke tokens, family rotation, reuse detection, expired token purging |
 | `mfa-repo` | MFA config CRUD, backup code storage, atomic backup code consumption |
 
-### 2. Pool Manager (`@dominode/pool-manager`)
+### 2. Pool Manager (`@dominusnode/pool-manager`)
 
 Manages upstream proxy providers with failover support.
 
@@ -314,7 +314,7 @@ Each provider has its own circuit breaker instance (from `provider.ts`) with con
 - `recordSuccess(latencyMs?)`: Reset circuit breaker
 - `recordFailure()`: Increment circuit breaker failures
 
-### 3. Proxy Gateway (`@dominode/proxy-gateway`)
+### 3. Proxy Gateway (`@dominusnode/proxy-gateway`)
 
 The core revenue-generating service. Two TCP servers sharing common infrastructure.
 
@@ -322,9 +322,9 @@ The core revenue-generating service. Two TCP servers sharing common infrastructu
 
 Handles two types of requests:
 
-**HTTP Forwarding**: Client sends a normal HTTP request with an absolute URL. DomiNode forwards it through PacketStream as a standard proxy request with `Proxy-Authorization` header.
+**HTTP Forwarding**: Client sends a normal HTTP request with an absolute URL. Dominus Node forwards it through PacketStream as a standard proxy request with `Proxy-Authorization` header.
 
-**HTTPS CONNECT Tunneling**: Client sends `CONNECT host:port HTTP/1.1`. DomiNode establishes a TCP connection to PacketStream and sends its own `CONNECT` request (double-CONNECT). Once both CONNECTs succeed, data is piped bidirectionally -- DomiNode sees only encrypted bytes.
+**HTTPS CONNECT Tunneling**: Client sends `CONNECT host:port HTTP/1.1`. Dominus Node establishes a TCP connection to PacketStream and sends its own `CONNECT` request (double-CONNECT). Once both CONNECTs succeed, data is piped bidirectionally -- Dominus Node sees only encrypted bytes.
 
 Also exposes an internal stats endpoint at `/internal/stats` (localhost-only, optional Bearer secret auth).
 
@@ -375,7 +375,7 @@ Both proxy servers use these shared modules:
 
 **Stats** (`stats.ts`): In-memory counters for total requests, errors, and latency percentiles. Accessible via the `/internal/stats` endpoint.
 
-### 4. Metering (`@dominode/metering`)
+### 4. Metering (`@dominusnode/metering`)
 
 Handles cost calculation and wallet debiting for proxy usage.
 
@@ -383,7 +383,7 @@ Handles cost calculation and wallet debiting for proxy usage.
 - **`recordUsage(userId, sessionId, bytesIn, bytesOut, targetHost, ...)`**: Creates a usage record in the database with all metering fields including optional connect latency.
 - **`debitForUsage(userId, costCents, sessionId)`**: Debits the user's wallet. Uses `walletRepo.debitWallet()` which internally does `SELECT FOR UPDATE` with a 5-second lock timeout to prevent race conditions and deadlocks under concurrent session settlement.
 
-### 5. Billing (`@dominode/billing`)
+### 5. Billing (`@dominusnode/billing`)
 
 Payment processing for wallet top-ups via two providers.
 
@@ -399,7 +399,7 @@ Payment processing for wallet top-ups via two providers.
 - Processes confirmed payments: credits the wallet based on the invoice amount.
 - Same idempotency guarantee via the unique index.
 
-### 6. Dashboard API (`@dominode/dashboard`)
+### 6. Dashboard API (`@dominusnode/dashboard`)
 
 Express.js REST API server providing all account management, billing, and admin functionality.
 
@@ -416,12 +416,12 @@ Express.js REST API server providing all account management, billing, and admin 
 10. **Auth Rate Limit**: Stricter limit on `/api/auth` endpoints (10 requests per 15 minutes in production, relaxed in development).
 
 **Authentication Middleware** (`middleware/auth.ts`): Dual-path authentication supporting two client types:
-1. **Browser clients**: Read JWT from `dominode_access` httpOnly cookie. Tokens are never exposed to JavaScript (XSS-proof).
+1. **Browser clients**: Read JWT from `dominusnode_access` httpOnly cookie. Tokens are never exposed to JavaScript (XSS-proof).
 2. **Extension/SDK clients**: Read JWT from `Authorization: Bearer <token>` header. Tokens are stored in `chrome.storage.session` (ephemeral, cleared when browser closes).
 
 **Token Lifecycle Management**: An hourly background job purges expired refresh tokens from the database to prevent unbounded table growth. The timer is `.unref()`'d so it does not prevent Node.js process exit.
 
-### 7. Frontend (`@dominode/frontend`)
+### 7. Frontend (`@dominusnode/frontend`)
 
 React 18 single-page application with Vite build tooling and Tailwind CSS dark theme.
 
@@ -695,19 +695,19 @@ mfa_backup_codes
    │   └── POST /api/auth/mfa/verify with TOTP code
    │       └── Server issues real tokens
    ├── Server issues JWT access token (15min) + refresh token (7d)
-   ├── Sets httpOnly cookies: dominode_access, dominode_refresh
+   ├── Sets httpOnly cookies: dominusnode_access, dominusnode_refresh
    └── Response body: { user: { id, email, is_admin } }
        (NO tokens in body for browser clients -- XSS safe)
 
 2. Session Restore (page reload):
    GET /api/auth/me
    ├── Browser auto-sends httpOnly cookies
-   ├── Middleware reads JWT from dominode_access cookie
+   ├── Middleware reads JWT from dominusnode_access cookie
    └── Returns { user: { id, email, is_admin } }
 
 3. Token Refresh (automatic on 401):
    POST /api/auth/refresh
-   ├── Browser auto-sends dominode_refresh cookie
+   ├── Browser auto-sends dominusnode_refresh cookie
    ├── Server verifies refresh token against DB
    ├── Checks for token reuse (stolen token detection)
    ├── Revokes old token, issues new pair (same family)
@@ -874,10 +874,10 @@ Four official SDKs with consistent API surfaces across all languages.
 
 | SDK | Package | Language | Dependencies | Requirements |
 |-----|---------|----------|--------------|--------------|
-| Node.js | `@dominode/sdk` | TypeScript | Zero external deps | Node.js 18+ |
-| Python | `dominode` | Python | httpx | Python 3.9+ |
-| C++ | `dominode-cpp` | C++17 | libcurl, nlohmann/json | CMake, C++17 compiler |
-| Rust | `dominode` | Rust | reqwest, tokio | Rust stable |
+| Node.js | `@dominusnode/sdk` | TypeScript | Zero external deps | Node.js 18+ |
+| Python | `dominusnode` | Python | httpx | Python 3.9+ |
+| C++ | `dominusnode-cpp` | C++17 | libcurl, nlohmann/json | CMake, C++17 compiler |
+| Rust | `dominusnode` | Rust | reqwest, tokio | Rust stable |
 
 **Common Features** (all SDKs):
 - Automatic JWT token refresh on 401 responses
@@ -888,7 +888,7 @@ Four official SDKs with consistent API surfaces across all languages.
 
 **SDK-Specific Notes**:
 - Node.js: Dual CJS + ESM output, zero dependencies, uses native `fetch()`.
-- Python: Both synchronous (`DomiNodeClient`) and asynchronous (`AsyncDomiNodeClient`) clients.
+- Python: Both synchronous (`DominusNodeClient`) and asynchronous (`AsyncDominusNodeClient`) clients.
 - C++: Pimpl pattern for ABI stability, thread-safe, CMake + vcpkg integration.
 - Rust: Async by default with `tokio`, optional `blocking` feature flag for synchronous usage.
 
@@ -1019,11 +1019,11 @@ curl -x http://country-US-session-mysession123:dn_live_YOUR_KEY@localhost:8080 h
 | Wallet model | Prepaid credits in cents (integer) | No floating-point rounding errors. PostgreSQL CHECK constraint prevents negative balance at database level. |
 | Wallet debit | `SELECT FOR UPDATE` with `lock_timeout 5s` | Prevents race conditions from concurrent session settlements. Lock timeout prevents deadlocks from holding row locks too long. |
 | Session tracking | In-memory Map | No Redis needed for MVP. Periodic cleanup timer evicts stale sessions. Map size is bounded by `PROXY_MAX_CONNECTIONS`. |
-| HTTPS tunneling | Double-CONNECT through PacketStream | Client CONNECTs to DomiNode, DomiNode CONNECTs to PacketStream, PacketStream CONNECTs to target. Fully opaque tunnel -- DomiNode never sees TLS plaintext. |
+| HTTPS tunneling | Double-CONNECT through PacketStream | Client CONNECTs to Dominus Node, Dominus Node CONNECTs to PacketStream, PacketStream CONNECTs to target. Fully opaque tunnel -- Dominus Node never sees TLS plaintext. |
 | Auth tokens | httpOnly cookies (browser) + Bearer (extension) | Cookies prevent XSS token theft. Bearer tokens for extension stored in ephemeral `chrome.storage.session`. |
 | Refresh tokens | Family-based rotation | Catches stolen tokens: if a revoked token is reused, the entire family is revoked, blocking both the attacker and alerting the user. |
 | TOTP secrets | AES-256-GCM at rest | Encrypted with a separate key (`MFA_ENCRYPTION_KEY`). Even if the database is compromised, TOTP secrets cannot be extracted without the encryption key. |
 | Crypto payments | NOWPayments | Only hosted provider supporting all 5 target cryptocurrencies (BTC, ETH, XMR, SOL, ZEC) at 0.5% fee. |
 | Pricing | $5/GB (was $7/GB) | Competitive vs. Bright Data ($8.40/GB PAYG). Our cost: $1/GB from PacketStream = 80% gross margin. |
 | Upstream proxy | PacketStream reseller | $1/GB cost, reseller API available, residential IPs, minimal infrastructure investment. |
-| SOCKS5 to PacketStream | HTTP CONNECT over TCP | PacketStream does not support SOCKS5 natively. DomiNode accepts SOCKS5 from clients but connects to PacketStream via HTTP CONNECT. |
+| SOCKS5 to PacketStream | HTTP CONNECT over TCP | PacketStream does not support SOCKS5 natively. Dominus Node accepts SOCKS5 from clients but connects to PacketStream via HTTP CONNECT. |

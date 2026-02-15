@@ -1,8 +1,8 @@
 import * as crypto from "node:crypto";
 import * as http from "node:http";
 import * as net from "node:net";
-import { createLogger, planRepo } from "@dominode/shared";
-import type { ProviderSelector } from "@dominode/pool-manager";
+import { createLogger, planRepo } from "@dominusnode/shared";
+import type { ProviderSelector } from "@dominusnode/pool-manager";
 import { authenticateRequest } from "./auth.js";
 import { checkBalance } from "./balance-check.js";
 import { attachByteCounters } from "./counting-stream.js";
@@ -46,7 +46,7 @@ function sendError(
 ): void {
   res.writeHead(status, {
     "Content-Type": "text/plain",
-    "X-DomiNode-Error": errorCode,
+    "X-DominusNode-Error": errorCode,
     ...extraHeaders,
   });
   res.end(message);
@@ -79,7 +79,7 @@ async function handleRequest(
   if (!auth) {
     recordAuthFailure(clientIp);
     clientRes.writeHead(407, {
-      "Proxy-Authenticate": 'Basic realm="DomiNode Proxy"',
+      "Proxy-Authenticate": 'Basic realm="Dominus Node Proxy"',
       "Content-Type": "text/plain",
     });
     clientRes.end("Proxy authentication required");
@@ -118,7 +118,7 @@ async function handleRequest(
     const hasBalance = await checkBalance(auth.userId);
     if (!hasBalance) {
       decrementUserConns(auth.userId);
-      sendError(clientRes, 402, "INSUFFICIENT_BALANCE", "Insufficient balance. Top up your wallet at the DomiNode dashboard.");
+      sendError(clientRes, 402, "INSUFFICIENT_BALANCE", "Insufficient balance. Top up your wallet at the Dominus Node dashboard.");
       return;
     }
   }
@@ -152,9 +152,9 @@ async function handleRequest(
     decrementUserConns(auth.userId);
     const msg = err instanceof Error ? err.message : String(err);
     if (msg.includes("Insufficient balance")) {
-      sendError(clientRes, 402, "INSUFFICIENT_BALANCE", "Insufficient balance. Top up your wallet at the DomiNode dashboard.");
+      sendError(clientRes, 402, "INSUFFICIENT_BALANCE", "Insufficient balance. Top up your wallet at the Dominus Node dashboard.");
     } else if (msg.includes("bandwidth limit")) {
-      sendError(clientRes, 403, "BANDWIDTH_LIMIT_EXCEEDED", "Monthly bandwidth limit exceeded. Upgrade your plan at the DomiNode dashboard.");
+      sendError(clientRes, 403, "BANDWIDTH_LIMIT_EXCEEDED", "Monthly bandwidth limit exceeded. Upgrade your plan at the Dominus Node dashboard.");
     } else if (msg.includes("rate limit")) {
       sendError(clientRes, 429, "TOO_MANY_CONNECTIONS", "Session rate limit exceeded. Please slow down.");
     } else {
@@ -230,8 +230,8 @@ async function handleRequest(
     delete responseHeaders["proxy-authorization"];
     delete responseHeaders["proxy-connection"];
     if (retries > 0) {
-      responseHeaders["x-dominode-retries"] = String(retries);
-      responseHeaders["x-dominode-retry-after"] = `${totalDelayMs}ms`;
+      responseHeaders["x-dominusnode-retries"] = String(retries);
+      responseHeaders["x-dominusnode-retry-after"] = `${totalDelayMs}ms`;
     }
 
     clientRes.writeHead(proxyRes.statusCode ?? 502, responseHeaders);
@@ -270,14 +270,14 @@ async function handleConnect(
   const connectClientIp = (clientSocket.remoteAddress ?? "").replace(/^::ffff:/, "");
   const connectBlockedCountry = checkSanctionedCountry(connectClientIp);
   if (connectBlockedCountry) {
-    clientSocket.write("HTTP/1.1 403 Forbidden\r\nX-DomiNode-Error: SANCTIONED_COUNTRY\r\n\r\n");
+    clientSocket.write("HTTP/1.1 403 Forbidden\r\nX-DominusNode-Error: SANCTIONED_COUNTRY\r\n\r\n");
     clientSocket.end();
     return;
   }
 
   // Auth rate limiting
   if (checkAuthRateLimit(connectClientIp)) {
-    clientSocket.write("HTTP/1.1 429 Too Many Requests\r\nX-DomiNode-Error: AUTH_RATE_LIMITED\r\nRetry-After: 60\r\n\r\n");
+    clientSocket.write("HTTP/1.1 429 Too Many Requests\r\nX-DominusNode-Error: AUTH_RATE_LIMITED\r\nRetry-After: 60\r\n\r\n");
     clientSocket.end();
     return;
   }
@@ -286,7 +286,7 @@ async function handleConnect(
   if (!auth) {
     recordAuthFailure(connectClientIp);
     clientSocket.write(
-      "HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: Basic realm=\"DomiNode Proxy\"\r\n\r\n",
+      "HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: Basic realm=\"Dominus Node Proxy\"\r\n\r\n",
     );
     clientSocket.end();
     return;
@@ -299,12 +299,12 @@ async function handleConnect(
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     if (msg.includes("sanctioned")) {
-      clientSocket.write("HTTP/1.1 403 Forbidden\r\nX-DomiNode-Error: SANCTIONED_COUNTRY\r\n\r\n");
+      clientSocket.write("HTTP/1.1 403 Forbidden\r\nX-DominusNode-Error: SANCTIONED_COUNTRY\r\n\r\n");
       clientSocket.end();
       return;
     }
     if (msg.includes("unavailable")) {
-      clientSocket.write("HTTP/1.1 503 Service Unavailable\r\nX-DomiNode-Error: ALL_PROVIDERS_DOWN\r\nRetry-After: 30\r\n\r\n");
+      clientSocket.write("HTTP/1.1 503 Service Unavailable\r\nX-DominusNode-Error: ALL_PROVIDERS_DOWN\r\nRetry-After: 30\r\n\r\n");
       clientSocket.end();
       return;
     }
@@ -320,7 +320,7 @@ async function handleConnect(
 
   // Per-user connection limit (plan-aware)
   if (!incrementUserConns(userId, connectPlan.maxConnections)) {
-    clientSocket.write("HTTP/1.1 429 Too Many Requests\r\nX-DomiNode-Error: TOO_MANY_CONNECTIONS\r\nRetry-After: 5\r\n\r\n");
+    clientSocket.write("HTTP/1.1 429 Too Many Requests\r\nX-DominusNode-Error: TOO_MANY_CONNECTIONS\r\nRetry-After: 5\r\n\r\n");
     clientSocket.end();
     return;
   }
@@ -330,7 +330,7 @@ async function handleConnect(
     const hasBalance = await checkBalance(userId);
     if (!hasBalance) {
       decrementUserConns(userId);
-      clientSocket.write("HTTP/1.1 402 Payment Required\r\nX-DomiNode-Error: INSUFFICIENT_BALANCE\r\n\r\n");
+      clientSocket.write("HTTP/1.1 402 Payment Required\r\nX-DominusNode-Error: INSUFFICIENT_BALANCE\r\n\r\n");
       clientSocket.end();
       return;
     }
@@ -421,7 +421,7 @@ async function handleConnect(
 
     if (headerBytesSoFar > 32 * 1024) {
       log.error("upstream response headers too large", { size: headerBytesSoFar, provider: providerName });
-      clientSocket.write("HTTP/1.1 502 Bad Gateway\r\nX-DomiNode-Error: UPSTREAM_UNAVAILABLE\r\n\r\n");
+      clientSocket.write("HTTP/1.1 502 Bad Gateway\r\nX-DominusNode-Error: UPSTREAM_UNAVAILABLE\r\n\r\n");
       clientSocket.end();
       psSocket.destroy();
       safeDecrement();
@@ -437,7 +437,7 @@ async function handleConnect(
       psSocket.once("data", (nextChunk: Buffer) => {
         handleUpstreamData(nextChunk).catch((err) => {
           log.error("unhandled error in upstream data handler", { error: err instanceof Error ? err.message : String(err), provider: providerName });
-          clientSocket.write("HTTP/1.1 502 Bad Gateway\r\nX-DomiNode-Error: UPSTREAM_UNAVAILABLE\r\n\r\n");
+          clientSocket.write("HTTP/1.1 502 Bad Gateway\r\nX-DominusNode-Error: UPSTREAM_UNAVAILABLE\r\n\r\n");
           clientSocket.end();
           psSocket.destroy();
           safeDecrement();
@@ -452,7 +452,7 @@ async function handleConnect(
       log.error("upstream CONNECT failed", { status: sanitizeUpstreamMsg(statusLine), provider: providerName });
       providerSelector.recordFailure(providerName);
       recordError();
-      clientSocket.write("HTTP/1.1 502 Bad Gateway\r\nX-DomiNode-Error: UPSTREAM_UNAVAILABLE\r\n\r\n");
+      clientSocket.write("HTTP/1.1 502 Bad Gateway\r\nX-DominusNode-Error: UPSTREAM_UNAVAILABLE\r\n\r\n");
       clientSocket.end();
       psSocket.destroy();
       safeDecrement();
@@ -478,11 +478,11 @@ async function handleConnect(
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       if (msg.includes("Insufficient balance")) {
-        clientSocket.write("HTTP/1.1 402 Payment Required\r\nX-DomiNode-Error: INSUFFICIENT_BALANCE\r\n\r\n");
+        clientSocket.write("HTTP/1.1 402 Payment Required\r\nX-DominusNode-Error: INSUFFICIENT_BALANCE\r\n\r\n");
       } else if (msg.includes("bandwidth limit")) {
-        clientSocket.write("HTTP/1.1 403 Forbidden\r\nX-DomiNode-Error: BANDWIDTH_LIMIT_EXCEEDED\r\n\r\n");
+        clientSocket.write("HTTP/1.1 403 Forbidden\r\nX-DominusNode-Error: BANDWIDTH_LIMIT_EXCEEDED\r\n\r\n");
       } else if (msg.includes("rate limit")) {
-        clientSocket.write("HTTP/1.1 429 Too Many Requests\r\nX-DomiNode-Error: TOO_MANY_CONNECTIONS\r\nRetry-After: 60\r\n\r\n");
+        clientSocket.write("HTTP/1.1 429 Too Many Requests\r\nX-DominusNode-Error: TOO_MANY_CONNECTIONS\r\nRetry-After: 60\r\n\r\n");
       } else {
         log.error("failed to start session", { error: msg });
         clientSocket.write("HTTP/1.1 500 Internal Server Error\r\n\r\n");
@@ -550,7 +550,7 @@ async function handleConnect(
   psSocket.once("data", (chunk: Buffer) => {
     handleUpstreamData(chunk).catch((err) => {
       log.error("unhandled error in upstream data handler", { error: err instanceof Error ? err.message : String(err), provider: providerName });
-      clientSocket.write("HTTP/1.1 502 Bad Gateway\r\nX-DomiNode-Error: UPSTREAM_UNAVAILABLE\r\n\r\n");
+      clientSocket.write("HTTP/1.1 502 Bad Gateway\r\nX-DominusNode-Error: UPSTREAM_UNAVAILABLE\r\n\r\n");
       clientSocket.end();
       psSocket.destroy();
       safeDecrement();
@@ -562,7 +562,7 @@ async function handleConnect(
     if (!tunnelEstablished) {
       providerSelector.recordFailure(providerName);
       recordError();
-      clientSocket.write("HTTP/1.1 502 Bad Gateway\r\nX-DomiNode-Error: UPSTREAM_UNAVAILABLE\r\n\r\n");
+      clientSocket.write("HTTP/1.1 502 Bad Gateway\r\nX-DominusNode-Error: UPSTREAM_UNAVAILABLE\r\n\r\n");
       safeDecrement();
     }
     clientSocket.end();
@@ -579,7 +579,7 @@ async function handleConnect(
       log.error("upstream handshake timeout", { provider: providerName });
       providerSelector.recordFailure(providerName);
       recordError();
-      clientSocket.write("HTTP/1.1 504 Gateway Timeout\r\nX-DomiNode-Error: UPSTREAM_TIMEOUT\r\n\r\n");
+      clientSocket.write("HTTP/1.1 504 Gateway Timeout\r\nX-DominusNode-Error: UPSTREAM_TIMEOUT\r\n\r\n");
       clientSocket.end();
       psSocket.destroy();
       safeDecrement();
@@ -600,7 +600,7 @@ export async function startProxyServer(port: number = 8080, providerSelector?: P
 
   // Lazily create default provider selector if none provided
   if (!providerSelector) {
-    const { createProviderSelector } = await import("@dominode/pool-manager");
+    const { createProviderSelector } = await import("@dominusnode/pool-manager");
     providerSelector = createProviderSelector();
   }
   const selector = providerSelector;

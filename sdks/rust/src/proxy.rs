@@ -54,7 +54,7 @@ impl ProxyResource {
     /// # Examples
     ///
     /// ```
-    /// use dominode::types::ProxyUrlOptions;
+    /// use dominusnode::types::ProxyUrlOptions;
     ///
     /// // These examples show the format; in practice you'd use the client's
     /// // proxy resource which is pre-configured with host/port.

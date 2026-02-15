@@ -1,9 +1,9 @@
-#include "dominode/wallet.hpp"
-#include "dominode/http_client.hpp"
+#include "dominusnode/wallet.hpp"
+#include "dominusnode/http_client.hpp"
 
 #include <sstream>
 
-namespace dominode {
+namespace dominusnode {
 
 WalletResource::WalletResource(HttpClient& http) : http_(http) {}
 
@@ -48,4 +48,4 @@ WalletForecast WalletResource::get_forecast() {
     return resp.get<WalletForecast>();
 }
 
-} // namespace dominode
+} // namespace dominusnode

@@ -1,5 +1,5 @@
 import * as net from "node:net";
-import { isBlockedCountry, createLogger } from "@dominode/shared";
+import { isBlockedCountry, createLogger } from "@dominusnode/shared";
 
 const log = createLogger("proxy:geo");
 

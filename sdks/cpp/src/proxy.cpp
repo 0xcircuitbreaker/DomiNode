@@ -1,11 +1,11 @@
-#include "dominode/proxy.hpp"
-#include "dominode/http_client.hpp"
+#include "dominusnode/proxy.hpp"
+#include "dominusnode/http_client.hpp"
 
 #include <sstream>
 #include <iomanip>
 #include <cctype>
 
-namespace dominode {
+namespace dominusnode {
 
 // URL-encode a string for safe inclusion in proxy URLs
 static std::string url_encode(const std::string& value) {
@@ -84,4 +84,4 @@ std::string ProxyResource::build_url(const std::string& api_key,
     return url.str();
 }
 
-} // namespace dominode
+} // namespace dominusnode

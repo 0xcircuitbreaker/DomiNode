@@ -5,7 +5,7 @@ import cookieParser from "cookie-parser";
 
 // ─── Mocks ─────────────────────────────────────────────────────────────
 
-vi.mock("@dominode/shared", () => ({
+vi.mock("@dominusnode/shared", () => ({
   userRepo: {
     findUserByEmail: vi.fn(),
     findUserById: vi.fn(),
@@ -57,7 +57,7 @@ vi.mock("@dominode/shared", () => ({
   encryptTotpSecret: vi.fn(() => ({ encrypted: "enc-secret", iv: "enc-iv" })),
   decryptTotpSecret: vi.fn(() => Buffer.from("01234567890123456789")),
   verifyTotpCode: vi.fn(),
-  buildTotpUri: vi.fn(() => "otpauth://totp/DomiNode:test@example.com?secret=ABC"),
+  buildTotpUri: vi.fn(() => "otpauth://totp/Dominus Node:test@example.com?secret=ABC"),
   generateBackupCodes: vi.fn(() => ({
     plaintextCodes: ["00000001", "00000002", "00000003", "00000004", "00000005",
                      "00000006", "00000007", "00000008", "00000009", "00000010"],
@@ -82,7 +82,7 @@ vi.mock("../middleware/auth.js", () => ({
 vi.mock("../helpers/cookies.js", () => ({
   setAuthCookies: vi.fn(),
   clearAuthCookies: vi.fn(),
-  getRefreshCookieName: vi.fn(() => "dominode_refresh"),
+  getRefreshCookieName: vi.fn(() => "dominusnode_refresh"),
 }));
 
 // Import AFTER mocks are set up
@@ -93,7 +93,7 @@ import {
   verifyMfaChallengeToken,
   verifyTotpCode,
   verifyPassword,
-} from "@dominode/shared";
+} from "@dominusnode/shared";
 
 // ─── Helpers ───────────────────────────────────────────────────────────
 
@@ -404,7 +404,7 @@ describe("MFA auth routes", () => {
 
       expect(res.status).toBe(200);
       expect(res.body.secret).toBe("GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ");
-      expect(res.body.otpauthUri).toBe("otpauth://totp/DomiNode:test@example.com?secret=ABC");
+      expect(res.body.otpauthUri).toBe("otpauth://totp/Dominus Node:test@example.com?secret=ABC");
       expect(res.body.backupCodes).toHaveLength(10);
     });
 

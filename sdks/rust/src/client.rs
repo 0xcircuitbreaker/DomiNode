@@ -17,11 +17,11 @@ use crate::wallet::WalletResource;
 /// SDK configuration.
 ///
 /// All fields have sensible defaults. At minimum you should set `base_url` if
-/// your DomiNode instance is not at the default `https://api.dominode.io`.
+/// your Dominus Node instance is not at the default `https://api.dominusnode.io`.
 // R15 H-5: Clone intentionally not derived — prevents accidental credential proliferation in memory.
 // Use Config::default() to create a new instance instead of cloning.
 pub struct Config {
-    /// Base URL of the DomiNode REST API (e.g. `"https://api.dominode.io"`).
+    /// Base URL of the Dominus Node REST API (e.g. `"https://api.dominusnode.io"`).
     pub base_url: String,
     /// Pre-configured API key (optional).
     pub api_key: Option<String>,
@@ -66,18 +66,18 @@ impl Default for Config {
     }
 }
 
-/// The top-level DomiNode SDK client.
+/// The top-level Dominus Node SDK client.
 ///
-/// Create an instance with [`DomiNodeClient::new`] and then use the resource
+/// Create an instance with [`DominusNodeClient::new`] and then use the resource
 /// fields (`auth`, `keys`, `wallet`, etc.) to interact with the API.
 ///
 /// # Examples
 ///
 /// ```no_run
-/// use dominode::{DomiNodeClient, Config};
+/// use dominusnode::{DominusNodeClient, Config};
 ///
-/// # async fn example() -> dominode::Result<()> {
-/// let client = DomiNodeClient::new(Config::default())?;
+/// # async fn example() -> dominusnode::Result<()> {
+/// let client = DominusNodeClient::new(Config::default())?;
 ///
 /// // Authenticate with an API key.
 /// client.connect_with_key("dn_live_abc123").await?;
@@ -88,7 +88,7 @@ impl Default for Config {
 /// # Ok(())
 /// # }
 /// ```
-pub struct DomiNodeClient {
+pub struct DominusNodeClient {
     /// Authentication operations (register, login, MFA, etc.).
     pub auth: AuthResource,
     /// API key management (create, list, revoke).
@@ -108,8 +108,8 @@ pub struct DomiNodeClient {
     token_manager: Arc<TokenManager>,
 }
 
-impl DomiNodeClient {
-    /// Create a new DomiNode client with the given configuration.
+impl DominusNodeClient {
+    /// Create a new Dominus Node client with the given configuration.
     ///
     /// If `config.access_token` is provided it will be stored immediately so
     /// subsequent requests are authenticated. A `refresh_token` enables
@@ -227,7 +227,7 @@ impl DomiNodeClient {
     /// Authenticate with email and password.
     ///
     /// If the account has MFA enabled the returned [`LoginResult`] will have
-    /// `mfa_required == true`. Call [`DomiNodeClient::complete_mfa`] to finish
+    /// `mfa_required == true`. Call [`DominusNodeClient::complete_mfa`] to finish
     /// the authentication flow.
     pub async fn connect_with_credentials(
         &self,

@@ -34,7 +34,7 @@ describe("wallet tools", () => {
     vi.restoreAllMocks();
   });
 
-  it("dominode_get_balance returns formatted balance", async () => {
+  it("dominusnode_get_balance returns formatted balance", async () => {
     globalThis.fetch = vi.fn().mockResolvedValueOnce({
       ok: true,
       status: 200,
@@ -44,7 +44,7 @@ describe("wallet tools", () => {
 
     // Access the tool handler directly via the server's internal tool list
     const tools = (server as any)._registeredTools;
-    const balanceTool = tools["dominode_get_balance"];
+    const balanceTool = tools["dominusnode_get_balance"];
     expect(balanceTool).toBeDefined();
 
     const result = await balanceTool.handler({}, { sessionId: "" } as never);
@@ -53,11 +53,11 @@ describe("wallet tools", () => {
     ]);
   });
 
-  it("dominode_get_balance returns error on failure", async () => {
+  it("dominusnode_get_balance returns error on failure", async () => {
     globalThis.fetch = vi.fn().mockRejectedValueOnce(new Error("timeout"));
 
     const tools = (server as any)._registeredTools;
-    const result = await tools["dominode_get_balance"].handler({}, { sessionId: "" } as never);
+    const result = await tools["dominusnode_get_balance"].handler({}, { sessionId: "" } as never);
     expect(result.isError).toBe(true);
   });
 });

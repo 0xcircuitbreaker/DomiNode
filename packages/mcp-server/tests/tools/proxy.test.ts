@@ -34,13 +34,13 @@ describe("proxy tools", () => {
     vi.restoreAllMocks();
   });
 
-  it("dominode_get_proxy_config returns formatted config", async () => {
+  it("dominusnode_get_proxy_config returns formatted config", async () => {
     globalThis.fetch = vi.fn().mockResolvedValueOnce({
       ok: true,
       status: 200,
       text: () => Promise.resolve(JSON.stringify({
-        http_endpoint: "proxy.dominode.io:8080",
-        socks5_endpoint: "proxy.dominode.io:1080",
+        http_endpoint: "proxy.dominusnode.io:8080",
+        socks5_endpoint: "proxy.dominusnode.io:1080",
         username_format: "API_KEY-country_XX",
         supported_countries: ["US", "GB", "DE"],
       })),
@@ -48,13 +48,13 @@ describe("proxy tools", () => {
     } as unknown as Response);
 
     const tools = (server as any)._registeredTools;
-    const result = await tools["dominode_get_proxy_config"].handler({}, { sessionId: "" } as never);
+    const result = await tools["dominusnode_get_proxy_config"].handler({}, { sessionId: "" } as never);
     const text = (result.content as Array<{ type: string; text: string }>)[0].text;
-    expect(text).toContain("proxy.dominode.io:8080");
+    expect(text).toContain("proxy.dominusnode.io:8080");
     expect(text).toContain("US, GB, DE");
   });
 
-  it("dominode_get_proxy_status returns status info", async () => {
+  it("dominusnode_get_proxy_status returns status info", async () => {
     globalThis.fetch = vi.fn().mockResolvedValueOnce({
       ok: true,
       status: 200,
@@ -68,7 +68,7 @@ describe("proxy tools", () => {
     } as unknown as Response);
 
     const tools = (server as any)._registeredTools;
-    const result = await tools["dominode_get_proxy_status"].handler({}, { sessionId: "" } as never);
+    const result = await tools["dominusnode_get_proxy_status"].handler({}, { sessionId: "" } as never);
     const text = (result.content as Array<{ type: string; text: string }>)[0].text;
     expect(text).toContain("healthy");
     expect(text).toContain("42ms");

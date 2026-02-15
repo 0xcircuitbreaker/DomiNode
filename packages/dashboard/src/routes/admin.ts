@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { adminRepo, createLogger, userRepo, refreshTokenRepo } from "@dominode/shared";
+import { adminRepo, createLogger, userRepo, refreshTokenRepo } from "@dominusnode/shared";
 import { requireAuth, type AuthenticatedRequest } from "../middleware/auth.js";
 import { requireAdmin } from "../middleware/admin.js";
 

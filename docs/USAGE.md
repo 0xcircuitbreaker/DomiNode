@@ -1,8 +1,8 @@
-# DomiNode Usage Guide
+# Dominus Node Usage Guide
 
-DomiNode is a rotating proxy-as-a-service (PaaS) platform. Users connect to DomiNode, are assigned a proxy IP from a managed pool, and their traffic is routed through it. Usage is metered by bandwidth and billed from a prepaid wallet.
+Dominus Node is a rotating proxy-as-a-service (PaaS) platform. Users connect to Dominus Node, are assigned a proxy IP from a managed pool, and their traffic is routed through it. Usage is metered by bandwidth and billed from a prepaid wallet.
 
-This guide covers everything you need to use DomiNode as an end user, developer integrating via API, or platform administrator.
+This guide covers everything you need to use Dominus Node as an end user, developer integrating via API, or platform administrator.
 
 ---
 
@@ -114,7 +114,7 @@ curl -x socks5://user:dn_live_YOUR_KEY@localhost:1080 http://httpbin.org/ip
 
 ## Authentication
 
-DomiNode supports two authentication paths:
+Dominus Node supports two authentication paths:
 
 - **Browser clients** (web dashboard): Tokens are delivered as httpOnly cookies. No token management is needed in frontend JavaScript. Cookies are sent automatically on subsequent requests.
 - **API/Extension clients**: Tokens are returned in the JSON response body. You must include `Authorization: Bearer <token>` on subsequent requests.
@@ -289,7 +289,7 @@ Server-side logout revokes all refresh tokens for the user and clears auth cooki
 
 ## Using the Proxy
 
-DomiNode provides two proxy protocols: HTTP (with HTTPS tunneling via CONNECT) and SOCKS5.
+Dominus Node provides two proxy protocols: HTTP (with HTTPS tunneling via CONNECT) and SOCKS5.
 
 Authentication is via proxy username/password, where:
 - **Username**: encodes geo-targeting and session options (see format below)
@@ -299,37 +299,37 @@ Authentication is via proxy username/password, where:
 
 ```bash
 # Basic usage -- any location
-curl -x http://user:dn_live_KEY@proxy.dominode.io:8080 http://target.com
+curl -x http://user:dn_live_KEY@proxy.dominusnode.io:8080 http://target.com
 
 # HTTPS (transparent tunneling via CONNECT)
-curl -x http://user:dn_live_KEY@proxy.dominode.io:8080 https://httpbin.org/ip
+curl -x http://user:dn_live_KEY@proxy.dominusnode.io:8080 https://httpbin.org/ip
 
 # With country targeting (United States)
-curl -x http://country-US:dn_live_KEY@proxy.dominode.io:8080 http://target.com
+curl -x http://country-US:dn_live_KEY@proxy.dominusnode.io:8080 http://target.com
 
 # With state + city targeting
-curl -x http://country-US-state-california-city-losangeles:dn_live_KEY@proxy.dominode.io:8080 http://target.com
+curl -x http://country-US-state-california-city-losangeles:dn_live_KEY@proxy.dominusnode.io:8080 http://target.com
 
 # With sticky session (same exit IP for the session duration)
-curl -x http://country-US-session-mysession123:dn_live_KEY@proxy.dominode.io:8080 http://target.com
+curl -x http://country-US-session-mysession123:dn_live_KEY@proxy.dominusnode.io:8080 http://target.com
 
 # Combined: country + state + sticky session
-curl -x http://country-DE-state-bavaria-session-s1:dn_live_KEY@proxy.dominode.io:8080 http://target.com
+curl -x http://country-DE-state-bavaria-session-s1:dn_live_KEY@proxy.dominusnode.io:8080 http://target.com
 ```
 
-For local development, replace `proxy.dominode.io` with `localhost`.
+For local development, replace `proxy.dominusnode.io` with `localhost`.
 
 ### SOCKS5 Proxy (Port 1080)
 
 ```bash
 # Basic
-curl -x socks5://user:dn_live_KEY@proxy.dominode.io:1080 http://target.com
+curl -x socks5://user:dn_live_KEY@proxy.dominusnode.io:1080 http://target.com
 
 # With geo-targeting (same username format as HTTP)
-curl -x socks5://country-US-state-california:dn_live_KEY@proxy.dominode.io:1080 http://target.com
+curl -x socks5://country-US-state-california:dn_live_KEY@proxy.dominusnode.io:1080 http://target.com
 
 # SOCKS5 with HTTPS
-curl -x socks5://user:dn_live_KEY@proxy.dominode.io:1080 https://httpbin.org/ip
+curl -x socks5://user:dn_live_KEY@proxy.dominusnode.io:1080 https://httpbin.org/ip
 ```
 
 ### Username Format for Geo-Targeting
@@ -379,8 +379,8 @@ PacketStream (the default upstream provider) supports 100+ countries. The follow
 import requests
 
 proxies = {
-    "http": "http://country-US:dn_live_KEY@proxy.dominode.io:8080",
-    "https": "http://country-US:dn_live_KEY@proxy.dominode.io:8080",
+    "http": "http://country-US:dn_live_KEY@proxy.dominusnode.io:8080",
+    "https": "http://country-US:dn_live_KEY@proxy.dominusnode.io:8080",
 }
 response = requests.get("http://httpbin.org/ip", proxies=proxies)
 print(response.json())
@@ -394,8 +394,8 @@ Requires `pip install requests[socks]` (or `pip install PySocks`).
 import requests
 
 proxies = {
-    "http": "socks5://country-US:dn_live_KEY@proxy.dominode.io:1080",
-    "https": "socks5://country-US:dn_live_KEY@proxy.dominode.io:1080",
+    "http": "socks5://country-US:dn_live_KEY@proxy.dominusnode.io:1080",
+    "https": "socks5://country-US:dn_live_KEY@proxy.dominusnode.io:1080",
 }
 response = requests.get("http://httpbin.org/ip", proxies=proxies)
 print(response.json())
@@ -406,7 +406,7 @@ print(response.json())
 ```javascript
 import { ProxyAgent } from 'undici';
 
-const agent = new ProxyAgent('http://country-US:dn_live_KEY@proxy.dominode.io:8080');
+const agent = new ProxyAgent('http://country-US:dn_live_KEY@proxy.dominusnode.io:8080');
 const res = await fetch('http://httpbin.org/ip', { dispatcher: agent });
 console.log(await res.json());
 ```
@@ -416,7 +416,7 @@ console.log(await res.json());
 ```javascript
 import { HttpsProxyAgent } from 'https-proxy-agent';
 
-const agent = new HttpsProxyAgent('http://country-US:dn_live_KEY@proxy.dominode.io:8080');
+const agent = new HttpsProxyAgent('http://country-US:dn_live_KEY@proxy.dominusnode.io:8080');
 const res = await fetch('https://httpbin.org/ip', { agent });
 console.log(await res.json());
 ```
@@ -429,7 +429,7 @@ import (
     "net/url"
 )
 
-proxyURL, _ := url.Parse("http://country-US:dn_live_KEY@proxy.dominode.io:8080")
+proxyURL, _ := url.Parse("http://country-US:dn_live_KEY@proxy.dominusnode.io:8080")
 client := &http.Client{
     Transport: &http.Transport{
         Proxy: http.ProxyURL(proxyURL),
@@ -448,7 +448,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.net.URI;
 
-var proxy = ProxySelector.of(new InetSocketAddress("proxy.dominode.io", 8080));
+var proxy = ProxySelector.of(new InetSocketAddress("proxy.dominusnode.io", 8080));
 var client = HttpClient.newBuilder()
     .proxy(proxy)
     .authenticator(new java.net.Authenticator() {
@@ -473,8 +473,8 @@ System.out.println(response.body());
 DOWNLOADER_MIDDLEWARES = {
     'scrapy.downloadermiddlewares.httpproxy.HttpProxyMiddleware': 110,
 }
-HTTP_PROXY = 'http://country-US:dn_live_KEY@proxy.dominode.io:8080'
-HTTPS_PROXY = 'http://country-US:dn_live_KEY@proxy.dominode.io:8080'
+HTTP_PROXY = 'http://country-US:dn_live_KEY@proxy.dominusnode.io:8080'
+HTTPS_PROXY = 'http://country-US:dn_live_KEY@proxy.dominusnode.io:8080'
 ```
 
 ---
@@ -483,7 +483,7 @@ HTTPS_PROXY = 'http://country-US:dn_live_KEY@proxy.dominode.io:8080'
 
 ### Prepaid Model
 
-DomiNode uses a prepaid wallet system:
+Dominus Node uses a prepaid wallet system:
 
 - You must have a positive balance before using the proxy.
 - Usage is metered by bandwidth: every byte routed through the proxy (in + out) is counted.
@@ -690,7 +690,7 @@ Volume plans require a minimum wallet balance to prevent discount abuse:
 
 ## Two-Factor Authentication (2FA/MFA)
 
-DomiNode supports time-based one-time passwords (TOTP) for two-factor authentication, compatible with Google Authenticator, Authy, 1Password, and other TOTP apps. Ten one-time backup codes are also generated for emergency access.
+Dominus Node supports time-based one-time passwords (TOTP) for two-factor authentication, compatible with Google Authenticator, Authy, 1Password, and other TOTP apps. Ten one-time backup codes are also generated for emergency access.
 
 ### Enable MFA
 
@@ -709,7 +709,7 @@ Response:
 ```json
 {
   "secret": "JBSWY3DPEHPK3PXP...",
-  "otpauthUri": "otpauth://totp/DomiNode:you@example.com?secret=JBSWY3DPEHPK3PXP...&issuer=DomiNode&algorithm=SHA1&digits=6&period=30",
+  "otpauthUri": "otpauth://totp/Dominus Node:you@example.com?secret=JBSWY3DPEHPK3PXP...&issuer=Dominus Node&algorithm=SHA1&digits=6&period=30",
   "backupCodes": [
     "a1b2c3d4",
     "e5f6g7h8",
@@ -760,7 +760,7 @@ curl -X POST http://localhost:3000/api/auth/mfa/verify \
 # Response: {"token":"eyJ...","refreshToken":"eyJ...","userId":"...","email":"..."}
 ```
 
-For browser clients, the challenge token is set as an httpOnly cookie (`dominode_mfa_challenge`) and read automatically -- you only need to send the `code` in the body.
+For browser clients, the challenge token is set as an httpOnly cookie (`dominusnode_mfa_challenge`) and read automatically -- you only need to send the `code` in the body.
 
 **Brute-force protection:** After 5 failed MFA attempts within a 5-minute window, verification is locked for 5 minutes.
 
@@ -1000,7 +1000,7 @@ Returns a CSV file with columns: Date, Session ID, Target Host, Bytes In, Bytes 
 
 ## Browser Extension
 
-The DomiNode browser extension provides one-click proxy toggling directly from your browser toolbar.
+The Dominus Node browser extension provides one-click proxy toggling directly from your browser toolbar.
 
 ### Supported Browsers
 
@@ -1029,7 +1029,7 @@ Then load the extension:
 
 ### Configure
 
-1. Click the DomiNode extension icon in your browser toolbar.
+1. Click the Dominus Node extension icon in your browser toolbar.
 2. Enter your API key (`dn_live_xxx`) or log in with email/password (MFA is supported).
 3. Select your target country, state, and/or city from the dropdowns.
 4. Toggle the proxy on or off.
@@ -1230,7 +1230,7 @@ When rate limited, the API returns HTTP `429 Too Many Requests` with a `Retry-Af
 
 ## Error Codes
 
-The proxy gateway sets the `X-DomiNode-Error` header to indicate the specific error:
+The proxy gateway sets the `X-DominusNode-Error` header to indicate the specific error:
 
 | Error Code | HTTP Status | Description |
 |------------|-------------|-------------|

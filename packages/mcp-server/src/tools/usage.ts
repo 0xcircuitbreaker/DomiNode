@@ -12,7 +12,7 @@ function formatBytes(bytes: number): string {
 
 export function registerUsageTools(server: McpServer, httpClient: HttpClient): void {
   server.tool(
-    "dominode_get_usage",
+    "dominusnode_get_usage",
     "Get bandwidth usage summary for a time period. Shows total bytes, cost, and request count.",
     {
       days: z.number().min(1).max(365).default(30).describe("Number of days to look back"),
@@ -38,7 +38,7 @@ export function registerUsageTools(server: McpServer, httpClient: HttpClient): v
   );
 
   server.tool(
-    "dominode_get_daily_usage",
+    "dominusnode_get_daily_usage",
     "Get daily bandwidth breakdown showing bytes, cost, and requests per day.",
     {
       days: z.number().min(1).max(90).default(7).describe("Number of days"),
@@ -64,7 +64,7 @@ export function registerUsageTools(server: McpServer, httpClient: HttpClient): v
   );
 
   server.tool(
-    "dominode_get_top_hosts",
+    "dominusnode_get_top_hosts",
     "Get top target hosts by bandwidth usage. Useful for understanding which sites consume the most data.",
     {
       limit: z.number().min(1).max(50).default(10).describe("Number of top hosts to return"),

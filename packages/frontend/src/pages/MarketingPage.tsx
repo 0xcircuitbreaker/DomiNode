@@ -57,12 +57,12 @@ const SERVICE_PILLARS = [
 const AI_AGENT_FEATURES = [
   {
     title: "One-Line Install",
-    detail: "npx @dominode/mcp-server",
+    detail: "npx @dominusnode/mcp-server",
     summary: "Works with Claude, Gemini, Codex, Cursor, VS Code, and any MCP-compatible AI agent. Zero config bootstrap mode.",
   },
   {
     title: "Agent Self-Signup",
-    detail: "dominode_setup",
+    detail: "dominusnode_setup",
     summary: "AI agents create their own accounts, generate API keys, and start proxying — no human intervention required.",
   },
   {
@@ -87,25 +87,25 @@ const PLATFORM_CONFIGS = [
     name: "Claude Desktop",
     config: `{
   "mcpServers": {
-    "dominode": {
+    "dominusnode": {
       "command": "npx",
-      "args": ["-y", "@dominode/mcp-server"]
+      "args": ["-y", "@dominusnode/mcp-server"]
     }
   }
 }`,
   },
   {
     name: "Claude Code",
-    config: `claude mcp add dominode -- npx -y @dominode/mcp-server`,
+    config: `claude mcp add dominusnode -- npx -y @dominusnode/mcp-server`,
   },
   {
     name: "Cursor / VS Code",
     config: `{
   "mcp": {
     "servers": {
-      "dominode": {
+      "dominusnode": {
         "command": "npx",
-        "args": ["-y", "@dominode/mcp-server"]
+        "args": ["-y", "@dominusnode/mcp-server"]
       }
     }
   }
@@ -222,7 +222,7 @@ function getMarketingHealthStatus(status: ProxyHealthResponse["status"]): ProxyH
 
 function getMarketingProxyEndpoint(): string {
   const env = (import.meta as { env?: Record<string, string | undefined> }).env;
-  const configuredHost = env?.VITE_PROXY_PUBLIC_HOST?.trim() || "proxy.dominode.io";
+  const configuredHost = env?.VITE_PROXY_PUBLIC_HOST?.trim() || "proxy.dominusnode.io";
   if (configuredHost.includes(":")) return configuredHost;
   const configuredPort = env?.VITE_PROXY_HTTP_PORT?.trim() || "8080";
   return `${configuredHost}:${configuredPort}`;
@@ -467,7 +467,7 @@ export default function MarketingPage() {
           <div className="mk-animate-up mk-delay-3" style={{ marginTop: "2rem", textAlign: "center" }}>
             <p style={{ color: "var(--mk-muted)", maxWidth: "600px", margin: "0 auto 1.5rem" }}>
               No API key? No problem. Start in bootstrap mode — your AI agent creates its own account
-              with <code>dominode_setup</code>, generates an API key, and starts proxying immediately.
+              with <code>dominusnode_setup</code>, generates an API key, and starts proxying immediately.
               Free tier includes 1 GB bandwidth and 10 connections.
             </p>
           </div>

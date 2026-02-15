@@ -1,7 +1,7 @@
-#include "dominode/plans.hpp"
-#include "dominode/http_client.hpp"
+#include "dominusnode/plans.hpp"
+#include "dominusnode/http_client.hpp"
 
-namespace dominode {
+namespace dominusnode {
 
 PlansResource::PlansResource(HttpClient& http) : http_(http) {}
 
@@ -21,4 +21,4 @@ ChangePlanResult PlansResource::change_plan(const std::string& plan_id) {
     return resp.get<ChangePlanResult>();
 }
 
-} // namespace dominode
+} // namespace dominusnode

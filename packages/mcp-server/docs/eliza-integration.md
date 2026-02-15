@@ -1,10 +1,10 @@
-# DomiNode + Eliza (elizaOS) Integration Guide
+# Dominus Node + Eliza (elizaOS) Integration Guide
 
 Give your Eliza agents autonomous web access through rotating residential proxies.
 
 ## Quick Start
 
-### 1. Add DomiNode MCP Server to your Eliza agent
+### 1. Add Dominus Node MCP Server to your Eliza agent
 
 In your Eliza agent's `character.json`:
 
@@ -12,11 +12,11 @@ In your Eliza agent's `character.json`:
 {
   "name": "my-agent",
   "mcpServers": {
-    "dominode": {
+    "dominusnode": {
       "command": "npx",
-      "args": ["-y", "@dominode/mcp-server"],
+      "args": ["-y", "@dominusnode/mcp-server"],
       "env": {
-        "DOMINODE_API_KEY": "dn_live_your_key_here"
+        "DOMINUSNODE_API_KEY": "dn_live_your_key_here"
       }
     }
   }
@@ -30,15 +30,15 @@ Start without an API key — your agent creates its own account:
 ```json
 {
   "mcpServers": {
-    "dominode": {
+    "dominusnode": {
       "command": "npx",
-      "args": ["-y", "@dominode/mcp-server"]
+      "args": ["-y", "@dominusnode/mcp-server"]
     }
   }
 }
 ```
 
-Your agent can then call `dominode_setup` to create an account and get proxy access.
+Your agent can then call `dominusnode_setup` to create an account and get proxy access.
 
 ### 3. Pay with Crypto (Fully Anonymous)
 
@@ -46,7 +46,7 @@ For agents that need anonymous proxy access:
 
 ```typescript
 // In your Eliza action handler
-const invoice = await callTool("dominode_pay_crypto", {
+const invoice = await callTool("dominusnode_pay_crypto", {
   amount_usd: 10,
   currency: "XMR"  // Monero — untraceable payment
 });
@@ -56,19 +56,19 @@ const invoice = await callTool("dominode_pay_crypto", {
 
 | Tool | Description |
 |------|-------------|
-| `dominode_fetch` | Fetch any URL through rotating proxy |
-| `dominode_setup` | One-shot: create account + API key |
-| `dominode_pay_crypto` | Pay with BTC/ETH/XMR/SOL/ZEC |
-| `dominode_get_balance` | Check wallet balance |
-| `dominode_x402_info` | Get x402 pay-per-request info |
-| `dominode_get_proxy_config` | Get proxy endpoints |
+| `dominusnode_fetch` | Fetch any URL through rotating proxy |
+| `dominusnode_setup` | One-shot: create account + API key |
+| `dominusnode_pay_crypto` | Pay with BTC/ETH/XMR/SOL/ZEC |
+| `dominusnode_get_balance` | Check wallet balance |
+| `dominusnode_x402_info` | Get x402 pay-per-request info |
+| `dominusnode_get_proxy_config` | Get proxy endpoints |
 
 ## Use Cases
 
 ### Web Research Agent
 ```
 Agent: "I need to research product prices across 5 countries."
-→ Uses dominode_fetch with country targeting (US, UK, DE, JP, BR)
+→ Uses dominusnode_fetch with country targeting (US, UK, DE, JP, BR)
 → Each request exits from a different country's IP pool
 → Avoids geo-blocks and rate limits
 ```
@@ -86,7 +86,7 @@ Agent: "Gather public data from multiple sources."
 Agent: "Monitor competitor pricing daily."
 → Uses sticky sessions for consistent access
 → Geo-targets specific markets
-→ Tracks bandwidth usage via dominode_get_usage
+→ Tracks bandwidth usage via dominusnode_get_usage
 ```
 
 ## x402 Integration (Coming Soon)
@@ -95,7 +95,7 @@ For agents with Coinbase Agentic Wallets:
 
 ```typescript
 // Agent pays per-request with USDC — no account needed
-const proxyAccess = await callTool("dominode_x402_info");
+const proxyAccess = await callTool("dominusnode_x402_info");
 // Send USDC micropayment → instant proxy access
 ```
 
@@ -103,9 +103,9 @@ const proxyAccess = await callTool("dominode_x402_info");
 
 | Variable | Required | Default |
 |----------|----------|---------|
-| `DOMINODE_API_KEY` | No (bootstrap mode) | — |
-| `DOMINODE_API_URL` | No | `https://api.dominode.io` |
-| `DOMINODE_PROXY_HOST` | No | `proxy.dominode.io` |
+| `DOMINUSNODE_API_KEY` | No (bootstrap mode) | — |
+| `DOMINUSNODE_API_URL` | No | `https://api.dominusnode.io` |
+| `DOMINUSNODE_PROXY_HOST` | No | `proxy.dominusnode.io` |
 
 ## Pricing
 

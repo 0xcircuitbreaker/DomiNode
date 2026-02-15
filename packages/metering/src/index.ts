@@ -4,8 +4,8 @@ import {
   usageRepo,
   walletRepo,
   createLogger,
-} from "@dominode/shared";
-import type { UsageRecord } from "@dominode/shared";
+} from "@dominusnode/shared";
+import type { UsageRecord } from "@dominusnode/shared";
 
 const log = createLogger("metering");
 

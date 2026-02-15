@@ -7,9 +7,9 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from dominode.auth import AuthResource, _parse_login_result
-from dominode.token_manager import TokenManager
-from dominode.types import LoginResult, MfaSetup, MfaStatus, User
+from dominusnode.auth import AuthResource, _parse_login_result
+from dominusnode.token_manager import TokenManager
+from dominusnode.types import LoginResult, MfaSetup, MfaStatus, User
 from tests.conftest import make_jwt
 
 
@@ -171,7 +171,7 @@ class TestAuthResource:
         auth, mock_http, tm = self._make_auth()
         mock_http.post.return_value = {
             "secret": "JBSWY3DPEHPK3PXP",
-            "otpauthUri": "otpauth://totp/DomiNode:test@test.com?secret=JBSWY3DPEHPK3PXP",
+            "otpauthUri": "otpauth://totp/Dominus Node:test@test.com?secret=JBSWY3DPEHPK3PXP",
             "backupCodes": ["12345678", "87654321"],
         }
 

@@ -1,7 +1,7 @@
 import type { Response, CookieOptions } from "express";
 
-const ACCESS_COOKIE = "dominode_access";
-const REFRESH_COOKIE = "dominode_refresh";
+const ACCESS_COOKIE = "dominusnode_access";
+const REFRESH_COOKIE = "dominusnode_refresh";
 
 // R15 H-4: secure flag should be true in production OR when explicitly configured
 // (e.g., staging environments behind HTTPS that aren't NODE_ENV=production)

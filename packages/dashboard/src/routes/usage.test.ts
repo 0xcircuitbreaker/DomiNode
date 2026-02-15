@@ -9,7 +9,7 @@ const mockGetUsageSummary = vi.fn();
 const mockGetUsageByDay = vi.fn();
 const mockGetTopHosts = vi.fn();
 
-vi.mock("@dominode/shared", () => ({
+vi.mock("@dominusnode/shared", () => ({
   usageRepo: {
     getUsageByUser: (...args: unknown[]) => mockGetUsageByUser(...args),
     getUsageSummary: (...args: unknown[]) => mockGetUsageSummary(...args),

@@ -1,6 +1,6 @@
-# dominode-cpp -- Official DomiNode C++ SDK
+# dominusnode-cpp -- Official Dominus Node C++ SDK
 
-The official C++ SDK for the [DomiNode](https://dominode.io) rotating proxy-as-a-service platform. Manage proxy connections, API keys, wallet balances, usage tracking, and more from C++ applications.
+The official C++ SDK for the [Dominus Node](https://dominusnode.io) rotating proxy-as-a-service platform. Manage proxy connections, API keys, wallet balances, usage tracking, and more from C++ applications.
 
 - **C++17** standard
 - **Pimpl pattern** for ABI stability
@@ -48,16 +48,16 @@ ctest --output-on-failure
 ## Quick Start
 
 ```cpp
-#include <dominode/dominode.hpp>
+#include <dominusnode/dominusnode.hpp>
 #include <iostream>
 
 int main() {
     // Configure the client
-    dominode::ClientConfig config;
-    config.base_url = "https://api.dominode.io";
+    dominusnode::ClientConfig config;
+    config.base_url = "https://api.dominusnode.io";
 
     // Create the client
-    dominode::DomiNodeClient client(config);
+    dominusnode::DominusNodeClient client(config);
 
     // Authenticate with API key
     client.connect_with_key("dn_live_your_api_key");
@@ -67,14 +67,14 @@ int main() {
     std::cout << "Balance: " << balance.balance_cents << " cents" << std::endl;
 
     // Build a proxy URL
-    dominode::ProxyUrlOptions opts;
+    dominusnode::ProxyUrlOptions opts;
     opts.protocol = "http";
     opts.country = "US";
     opts.state = "california";
 
     std::string proxy_url = client.proxy().build_url("dn_live_your_api_key", opts);
     std::cout << "Proxy URL: " << proxy_url << std::endl;
-    // => http://user-country_US-state_california:dn_live_your_api_key@proxy.dominode.io:8080
+    // => http://user-country_US-state_california:dn_live_your_api_key@proxy.dominusnode.io:8080
 
     return 0;
 }
@@ -85,36 +85,36 @@ int main() {
 ### API Key
 
 ```cpp
-dominode::DomiNodeClient client(config);
+dominusnode::DominusNodeClient client(config);
 client.connect_with_key("dn_live_your_api_key");
 ```
 
 Or provide in the config for auto-connect:
 
 ```cpp
-dominode::ClientConfig config;
-config.base_url = "https://api.dominode.io";
+dominusnode::ClientConfig config;
+config.base_url = "https://api.dominusnode.io";
 config.api_key = "dn_live_your_api_key";
 
-dominode::DomiNodeClient client(config);
+dominusnode::DominusNodeClient client(config);
 // Already authenticated
 ```
 
 ### Email/Password
 
 ```cpp
-dominode::DomiNodeClient client(config);
+dominusnode::DominusNodeClient client(config);
 client.connect_with_credentials("user@example.com", "SecurePass123!");
 ```
 
 ### Pre-existing Tokens
 
 ```cpp
-dominode::ClientConfig config;
+dominusnode::ClientConfig config;
 config.access_token = "eyJhbGci...";
 config.refresh_token = "eyJhbGci...";
 
-dominode::DomiNodeClient client(config);
+dominusnode::DominusNodeClient client(config);
 ```
 
 ## Resources
@@ -251,7 +251,7 @@ for (const auto& session : sessions) {
 auto url = client.proxy().build_url("dn_live_your_key");
 
 // With geo-targeting
-dominode::ProxyUrlOptions opts;
+dominusnode::ProxyUrlOptions opts;
 opts.protocol = "http";
 opts.country = "US";
 opts.state = "california";
@@ -259,13 +259,13 @@ opts.city = "losangeles";
 auto geo_url = client.proxy().build_url("dn_live_your_key", opts);
 
 // SOCKS5
-dominode::ProxyUrlOptions socks_opts;
+dominusnode::ProxyUrlOptions socks_opts;
 socks_opts.protocol = "socks5";
 socks_opts.country = "DE";
 auto socks_url = client.proxy().build_url("dn_live_your_key", socks_opts);
 
 // Sticky session
-dominode::ProxyUrlOptions sticky_opts;
+dominusnode::ProxyUrlOptions sticky_opts;
 sticky_opts.country = "US";
 sticky_opts.session_id = "my-session-123";
 auto sticky_url = client.proxy().build_url("dn_live_your_key", sticky_opts);
@@ -309,7 +309,7 @@ std::cout << "Users: " << stats.total_users << std::endl;
 ## Using Proxy URLs with libcurl
 
 ```cpp
-#include <dominode/dominode.hpp>
+#include <dominusnode/dominusnode.hpp>
 #include <curl/curl.h>
 #include <iostream>
 #include <string>
@@ -320,13 +320,13 @@ size_t write_callback(void* ptr, size_t size, size_t nmemb, std::string* data) {
 }
 
 int main() {
-    dominode::ClientConfig config;
-    config.base_url = "https://api.dominode.io";
-    dominode::DomiNodeClient client(config);
+    dominusnode::ClientConfig config;
+    config.base_url = "https://api.dominusnode.io";
+    dominusnode::DominusNodeClient client(config);
     client.connect_with_key("dn_live_your_key");
 
     // Build proxy URL
-    dominode::ProxyUrlOptions opts;
+    dominusnode::ProxyUrlOptions opts;
     opts.country = "US";
     std::string proxy_url = client.proxy().build_url("dn_live_your_key", opts);
 
@@ -351,21 +351,21 @@ int main() {
 
 ## Error Handling
 
-All errors throw exceptions derived from `dominode::DomiNodeError`:
+All errors throw exceptions derived from `dominusnode::DominusNodeError`:
 
 ```cpp
-#include <dominode/dominode.hpp>
-#include <dominode/errors.hpp>
+#include <dominusnode/dominusnode.hpp>
+#include <dominusnode/errors.hpp>
 
 try {
     client.connect_with_key("dn_live_invalid");
-} catch (const dominode::AuthenticationError& e) {
+} catch (const dominusnode::AuthenticationError& e) {
     std::cerr << "Invalid API key: " << e.what() << std::endl;
-} catch (const dominode::RateLimitError& e) {
+} catch (const dominusnode::RateLimitError& e) {
     std::cerr << "Rate limited. Retry after: " << e.retry_after_seconds << "s" << std::endl;
-} catch (const dominode::InsufficientBalanceError& e) {
+} catch (const dominusnode::InsufficientBalanceError& e) {
     std::cerr << "Insufficient balance" << std::endl;
-} catch (const dominode::DomiNodeError& e) {
+} catch (const dominusnode::DominusNodeError& e) {
     std::cerr << "API error: " << e.what() << std::endl;
 }
 ```
@@ -385,13 +385,13 @@ try {
 ## Configuration
 
 ```cpp
-dominode::ClientConfig config;
-config.base_url = "https://api.dominode.io";     // API server URL
-config.proxy_host = "proxy.dominode.io";          // Proxy gateway hostname
+dominusnode::ClientConfig config;
+config.base_url = "https://api.dominusnode.io";     // API server URL
+config.proxy_host = "proxy.dominusnode.io";          // Proxy gateway hostname
 config.http_proxy_port = 8080;                    // HTTP proxy port
 config.socks5_proxy_port = 1080;                  // SOCKS5 proxy port
 
-dominode::DomiNodeClient client(config);
+dominusnode::DominusNodeClient client(config);
 ```
 
 ## Security Notes
@@ -401,7 +401,7 @@ dominode::DomiNodeClient client(config);
 - **TLS verification**: Enabled by default (CURLOPT_SSL_VERIFYPEER + CURLOPT_SSL_VERIFYHOST); re-set after every `curl_easy_reset()`
 - **HTTPS only**: HTTP is only allowed for `localhost` and `127.0.0.1`; all other hosts require HTTPS
 - **URL encoding**: API keys and geo-targeting values are URL-encoded in proxy URLs
-- **Non-copyable**: `DomiNodeClient` is move-only to prevent accidental token duplication
+- **Non-copyable**: `DominusNodeClient` is move-only to prevent accidental token duplication
 
 ## License
 

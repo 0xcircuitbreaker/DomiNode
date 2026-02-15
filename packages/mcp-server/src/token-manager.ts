@@ -18,7 +18,7 @@ export class TokenManager {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "User-Agent": "dominode-mcp-server/1.0.0",
+        "User-Agent": "dominusnode-mcp-server/1.0.0",
       },
       body: JSON.stringify({ apiKey }),
       signal: AbortSignal.timeout(30_000),
@@ -70,7 +70,7 @@ export class TokenManager {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
-              "User-Agent": "dominode-mcp-server/1.0.0",
+              "User-Agent": "dominusnode-mcp-server/1.0.0",
             },
             body: JSON.stringify({ refreshToken: this.refreshTokenValue }),
             signal: AbortSignal.timeout(30_000),

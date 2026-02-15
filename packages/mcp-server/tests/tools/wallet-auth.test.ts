@@ -37,19 +37,19 @@ describe("wallet-auth tools", () => {
   const VALID_ADDRESS = "0xd8da6bf26964af9d7eed9e03e53415d37aa96045";
   const VALID_SIGNATURE = "0x" + "a".repeat(128) + "1b";
 
-  it("dominode_wallet_challenge returns challenge message", async () => {
+  it("dominusnode_wallet_challenge returns challenge message", async () => {
     globalThis.fetch = vi.fn().mockResolvedValueOnce({
       ok: true,
       status: 200,
       text: () => Promise.resolve(JSON.stringify({
-        message: "Sign in to DomiNode",
+        message: "Sign in to Dominus Node",
         nonce: "abc123",
       })),
       headers: new Headers(),
     } as unknown as Response);
 
     const tools = (server as any)._registeredTools;
-    const result = await tools["dominode_wallet_challenge"].handler(
+    const result = await tools["dominusnode_wallet_challenge"].handler(
       { address: VALID_ADDRESS },
       { sessionId: "" } as never,
     );
@@ -59,7 +59,7 @@ describe("wallet-auth tools", () => {
     expect(text).toContain("abc123");
   });
 
-  it("dominode_wallet_challenge handles error", async () => {
+  it("dominusnode_wallet_challenge handles error", async () => {
     const errorResponse = {
       ok: false,
       status: 400,
@@ -69,14 +69,14 @@ describe("wallet-auth tools", () => {
     globalThis.fetch = vi.fn().mockResolvedValueOnce(errorResponse);
 
     const tools = (server as any)._registeredTools;
-    const result = await tools["dominode_wallet_challenge"].handler(
+    const result = await tools["dominusnode_wallet_challenge"].handler(
       { address: VALID_ADDRESS },
       { sessionId: "" } as never,
     );
     expect(result.isError).toBe(true);
   });
 
-  it("dominode_register_wallet returns account info for new user", async () => {
+  it("dominusnode_register_wallet returns account info for new user", async () => {
     globalThis.fetch = vi.fn().mockResolvedValueOnce({
       ok: true,
       status: 201,
@@ -85,7 +85,7 @@ describe("wallet-auth tools", () => {
         refreshToken: "rt",
         user: {
           id: "u-new",
-          email: `${VALID_ADDRESS}@wallet.dominode.io`,
+          email: `${VALID_ADDRESS}@wallet.dominusnode.io`,
           wallet_address: VALID_ADDRESS,
           isNewUser: true,
         },
@@ -94,7 +94,7 @@ describe("wallet-auth tools", () => {
     } as unknown as Response);
 
     const tools = (server as any)._registeredTools;
-    const result = await tools["dominode_register_wallet"].handler(
+    const result = await tools["dominusnode_register_wallet"].handler(
       { address: VALID_ADDRESS, signature: VALID_SIGNATURE },
       { sessionId: "" } as never,
     );
@@ -104,7 +104,7 @@ describe("wallet-auth tools", () => {
     expect(text).toContain(VALID_ADDRESS);
   });
 
-  it("dominode_register_wallet shows login for existing user", async () => {
+  it("dominusnode_register_wallet shows login for existing user", async () => {
     globalThis.fetch = vi.fn().mockResolvedValueOnce({
       ok: true,
       status: 200,
@@ -113,7 +113,7 @@ describe("wallet-auth tools", () => {
         refreshToken: "rt",
         user: {
           id: "u-existing",
-          email: `${VALID_ADDRESS}@wallet.dominode.io`,
+          email: `${VALID_ADDRESS}@wallet.dominusnode.io`,
           wallet_address: VALID_ADDRESS,
           isNewUser: false,
         },
@@ -122,7 +122,7 @@ describe("wallet-auth tools", () => {
     } as unknown as Response);
 
     const tools = (server as any)._registeredTools;
-    const result = await tools["dominode_register_wallet"].handler(
+    const result = await tools["dominusnode_register_wallet"].handler(
       { address: VALID_ADDRESS, signature: VALID_SIGNATURE },
       { sessionId: "" } as never,
     );
@@ -130,7 +130,7 @@ describe("wallet-auth tools", () => {
     expect(text).toContain("Logged in");
   });
 
-  it("dominode_wallet_setup returns full config", async () => {
+  it("dominusnode_wallet_setup returns full config", async () => {
     // First call: verify wallet
     // Second call: create API key
     globalThis.fetch = vi.fn()
@@ -142,7 +142,7 @@ describe("wallet-auth tools", () => {
           refreshToken: "rt",
           user: {
             id: "u-new",
-            email: `${VALID_ADDRESS}@wallet.dominode.io`,
+            email: `${VALID_ADDRESS}@wallet.dominusnode.io`,
             wallet_address: VALID_ADDRESS,
             isNewUser: true,
           },
@@ -161,7 +161,7 @@ describe("wallet-auth tools", () => {
       } as unknown as Response);
 
     const tools = (server as any)._registeredTools;
-    const result = await tools["dominode_wallet_setup"].handler(
+    const result = await tools["dominusnode_wallet_setup"].handler(
       { address: VALID_ADDRESS, signature: VALID_SIGNATURE, key_label: "ai-agent-wallet" },
       { sessionId: "" } as never,
     );
@@ -172,7 +172,7 @@ describe("wallet-auth tools", () => {
     expect(text).toContain(VALID_ADDRESS);
   });
 
-  it("dominode_wallet_setup handles verify error", async () => {
+  it("dominusnode_wallet_setup handles verify error", async () => {
     globalThis.fetch = vi.fn().mockResolvedValueOnce({
       ok: false,
       status: 401,
@@ -181,7 +181,7 @@ describe("wallet-auth tools", () => {
     } as unknown as Response);
 
     const tools = (server as any)._registeredTools;
-    const result = await tools["dominode_wallet_setup"].handler(
+    const result = await tools["dominusnode_wallet_setup"].handler(
       { address: VALID_ADDRESS, signature: VALID_SIGNATURE, key_label: "test" },
       { sessionId: "" } as never,
     );

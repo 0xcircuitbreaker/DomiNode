@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-vi.mock("@dominode/shared", () => ({
+vi.mock("@dominusnode/shared", () => ({
   BLOCKED_COUNTRY_CODES: new Set(["CU", "IR", "KP", "RU", "SY"]),
 }));
 

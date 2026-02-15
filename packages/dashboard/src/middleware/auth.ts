@@ -1,6 +1,6 @@
 import type { Request, Response, NextFunction } from "express";
-import { verifyJwt, userRepo } from "@dominode/shared";
-import type { JwtPayload } from "@dominode/shared";
+import { verifyJwt, userRepo } from "@dominusnode/shared";
+import type { JwtPayload } from "@dominusnode/shared";
 
 export interface AuthenticatedRequest extends Request {
   user: JwtPayload;
@@ -9,7 +9,7 @@ export interface AuthenticatedRequest extends Request {
 function extractToken(req: Request): string | null {
   // Priority: cookie > Bearer header
   // This supports both browser (cookies) and extension (Bearer) simultaneously
-  const cookieToken = req.cookies?.dominode_access;
+  const cookieToken = req.cookies?.dominusnode_access;
   if (cookieToken) return cookieToken;
 
   const authHeader = req.headers.authorization;

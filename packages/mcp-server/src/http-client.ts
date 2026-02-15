@@ -1,6 +1,6 @@
 import type { TokenManager } from "./token-manager.js";
 
-const USER_AGENT = "dominode-mcp-server/1.0.0";
+const USER_AGENT = "dominusnode-mcp-server/1.0.0";
 
 const DANGEROUS_KEYS = new Set(["__proto__", "constructor", "prototype"]);
 

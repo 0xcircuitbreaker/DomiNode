@@ -1,9 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-// Mock @dominode/shared
+// Mock @dominusnode/shared
 const mockIsBlockedCountry = vi.fn();
 
-vi.mock("@dominode/shared", () => ({
+vi.mock("@dominusnode/shared", () => ({
   isBlockedCountry: (...args: unknown[]) => mockIsBlockedCountry(...args),
   createLogger: () => ({
     debug: vi.fn(),

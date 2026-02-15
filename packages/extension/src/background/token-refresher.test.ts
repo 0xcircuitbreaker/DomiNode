@@ -169,7 +169,7 @@ describe("token-refresher", () => {
         "session-expired",
         expect.objectContaining({
           type: "basic",
-          title: "DomiNode",
+          title: "Dominus Node",
           message: "Session expired. Please log in again.",
         }),
       );

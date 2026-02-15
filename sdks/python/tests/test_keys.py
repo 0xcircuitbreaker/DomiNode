@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from dominode.keys import KeysResource
-from dominode.types import ApiKey, CreatedApiKey
+from dominusnode.keys import KeysResource
+from dominusnode.types import ApiKey, CreatedApiKey
 
 
 class TestKeysResource:

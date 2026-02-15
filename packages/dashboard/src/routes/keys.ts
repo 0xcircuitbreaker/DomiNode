@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { userRepo, generateApiKey, sanitizeString, createLogger } from "@dominode/shared";
+import { userRepo, generateApiKey, sanitizeString, createLogger } from "@dominusnode/shared";
 import { requireAuth, type AuthenticatedRequest } from "../middleware/auth.js";
 
 const router = Router();

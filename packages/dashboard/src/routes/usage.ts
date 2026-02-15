@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { usageRepo, createLogger } from "@dominode/shared";
+import { usageRepo, createLogger } from "@dominusnode/shared";
 import { requireAuth, type AuthenticatedRequest } from "../middleware/auth.js";
 
 const router = Router();
@@ -187,7 +187,7 @@ router.get("/export", async (req, res) => {
     const usageData = await usageRepo.getUsageByUser(userId, since, until, 10000, 0);
 
     const dateStr = new Date().toISOString().split("T")[0];
-    const filename = `dominode-usage-${dateStr}.csv`;
+    const filename = `dominusnode-usage-${dateStr}.csv`;
 
     res.setHeader("Content-Type", "text/csv");
     res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);

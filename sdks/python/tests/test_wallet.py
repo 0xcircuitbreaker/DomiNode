@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from dominode.wallet import WalletResource
-from dominode.types import CryptoInvoice, StripeCheckout, Wallet, WalletForecast, WalletTransaction
+from dominusnode.wallet import WalletResource
+from dominusnode.types import CryptoInvoice, StripeCheckout, Wallet, WalletForecast, WalletTransaction
 
 
 class TestWalletResource:

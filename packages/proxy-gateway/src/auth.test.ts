@@ -1,10 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import * as http from "node:http";
 
-// Mock @dominode/shared
+// Mock @dominusnode/shared
 const mockFindUserByApiKeyHash = vi.fn();
 
-vi.mock("@dominode/shared", () => ({
+vi.mock("@dominusnode/shared", () => ({
   hashApiKey: (raw: string) => {
     // Use a simple deterministic hash for tests
     const crypto = require("node:crypto");

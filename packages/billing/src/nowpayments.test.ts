@@ -1,13 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import * as crypto from "node:crypto";
 
-// Mock @dominode/shared
+// Mock @dominusnode/shared
 const mockCreditWallet = vi.fn();
 const mockCreateInvoice = vi.fn();
 const mockFindInvoice = vi.fn();
 const mockCompleteInvoice = vi.fn();
 
-vi.mock("@dominode/shared", () => ({
+vi.mock("@dominusnode/shared", () => ({
   walletRepo: {
     creditWallet: (...args: unknown[]) => mockCreditWallet(...args),
   },

@@ -19,7 +19,7 @@ const mockPool = {
   connect: vi.fn(() => Promise.resolve(mockPoolClient)),
 };
 
-vi.mock("@dominode/shared", () => ({
+vi.mock("@dominusnode/shared", () => ({
   planRepo: {
     getAllPlans: (...args: unknown[]) => mockGetAllPlans(...args),
     getUserPlan: (...args: unknown[]) => mockGetUserPlan(...args),

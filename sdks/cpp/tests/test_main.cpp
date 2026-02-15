@@ -8,7 +8,7 @@ extern int run_proxy_tests();
 extern int run_token_manager_tests();
 
 int main() {
-    std::printf("=== DomiNode C++ SDK Test Suite ===\n\n");
+    std::printf("=== Dominus Node C++ SDK Test Suite ===\n\n");
 
     int failures = 0;
     failures += run_client_tests();

@@ -3,8 +3,8 @@ services:
     image: postgres:16-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-dominode}
-      POSTGRES_USER: ${POSTGRES_USER:-dominode}
+      POSTGRES_DB: ${POSTGRES_DB:-dominusnode}
+      POSTGRES_USER: ${POSTGRES_USER:-dominusnode}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
     volumes:
       - pgdata:/var/lib/postgresql/data
@@ -12,7 +12,7 @@ services:
     networks:
       - backend
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-dominode}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-dominusnode}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -34,7 +34,7 @@ services:
       postgres:
         condition: service_healthy
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-dominode}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-dominode}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-dominusnode}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-dominusnode}
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       MFA_ENCRYPTION_KEY: ${MFA_ENCRYPTION_KEY:?MFA_ENCRYPTION_KEY is required}
       DASHBOARD_PORT: "3000"
@@ -80,7 +80,7 @@ services:
       postgres:
         condition: service_healthy
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-dominode}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-dominode}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-dominusnode}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-dominusnode}
       JWT_SECRET: ${JWT_SECRET}
       PROXY_LISTEN_PORT: "8080"
       SOCKS5_LISTEN_PORT: "1080"

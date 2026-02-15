@@ -1,12 +1,12 @@
-# DomiNode
+# Dominus Node
 
 ## Project Overview
 
-DomiNode is a **rotating proxy-as-a-service (PaaS)** SaaS platform. Users connect to DomiNode, are automatically assigned a proxy IP from a managed pool, and their traffic is routed through it. Usage is metered by data (bandwidth) and billed accordingly. Burned/blocked IPs are automatically discarded and replaced with fresh ones from the pool.
+Dominus Node is a **rotating proxy-as-a-service (PaaS)** SaaS platform. Users connect to Dominus Node, are automatically assigned a proxy IP from a managed pool, and their traffic is routed through it. Usage is metered by data (bandwidth) and billed accordingly. Burned/blocked IPs are automatically discarded and replaced with fresh ones from the pool.
 
 ## Core Concept
 
-- **NOT a PiHole fork.** The original idea referenced PiHole, but PiHole is a DNS ad-blocker — it has no IP pool or proxy capability. DomiNode is a proxy network service built from scratch.
+- **NOT a PiHole fork.** The original idea referenced PiHole, but PiHole is a DNS ad-blocker — it has no IP pool or proxy capability. Dominus Node is a proxy network service built from scratch.
 - Think: Bright Data / SmartProxy / Oxylabs, but self-hosted and operator-controlled.
 - **You cannot "grab" IPs from a network and use them as proxies.** A device must be running proxy software to act as a proxy — an IP alone is useless. ARP spoofing, IP aliasing, and similar tricks are illegal and don't produce usable proxies.
 
@@ -71,7 +71,7 @@ Mobile IPs are hardest to block and most valuable ($7-20/GB retail).
 
 ```
 ┌─────────────┐     ┌──────────────────┐     ┌──────────────┐
-│  User/App   │────▶│  DomiNode Proxy   │────▶│  Target Site │
+│  User/App   │────▶│  Dominus Node Proxy   │────▶│  Target Site │
 │  (client)   │◀────│  Gateway (core)   │◀────│              │
 └─────────────┘     └──────────────────┘     └──────────────┘
                            │
@@ -113,7 +113,7 @@ Mobile IPs are hardest to block and most valuable ($7-20/GB retail).
 ## Project Structure
 
 ```
-DomiNode/
+Dominus Node/
 ├── CLAUDE.md                    # This file
 ├── ARCHITECTURE.md              # Full implementation plan
 ├── package.json                 # Root workspace config (npm workspaces)
@@ -189,12 +189,12 @@ AVAILABLE → ASSIGNED → IN_USE → (HEALTHY → re-pool | BURNED → discard)
 **Backend MVP COMPLETE — all 6 packages compile, zero errors.**
 
 ### What's built:
-- `@dominode/shared` — Types, PostgreSQL schema, db client, auth (API keys + JWT), repositories (user, wallet, usage)
-- `@dominode/pool-manager` — PacketStream gateway integration with geo targeting + sticky sessions
-- `@dominode/proxy-gateway` — Full HTTP/HTTPS proxy with API key auth, balance checks, PacketStream chaining, byte counting, session tracking, wallet debiting
-- `@dominode/metering` — Real cost calculation at $7/GB, usage recording, wallet debiting
-- `@dominode/billing` — Stripe Checkout for wallet top-ups, NOWPayments for crypto (BTC/ETH/XMR/SOL/ZEC)
-- `@dominode/dashboard` — Express REST API with auth, API key management, wallet, usage, and webhook endpoints
+- `@dominusnode/shared` — Types, PostgreSQL schema, db client, auth (API keys + JWT), repositories (user, wallet, usage)
+- `@dominusnode/pool-manager` — PacketStream gateway integration with geo targeting + sticky sessions
+- `@dominusnode/proxy-gateway` — Full HTTP/HTTPS proxy with API key auth, balance checks, PacketStream chaining, byte counting, session tracking, wallet debiting
+- `@dominusnode/metering` — Real cost calculation at $7/GB, usage recording, wallet debiting
+- `@dominusnode/billing` — Stripe Checkout for wallet top-ups, NOWPayments for crypto (BTC/ETH/XMR/SOL/ZEC)
+- `@dominusnode/dashboard` — Express REST API with auth, API key management, wallet, usage, and webhook endpoints
 
 ### To launch:
 1. `docker compose up -d` — start PostgreSQL

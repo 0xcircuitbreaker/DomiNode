@@ -8,7 +8,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	dominode "github.com/dominode/dominode-go"
+	dominusnode "github.com/dominusnode/dominusnode-go"
 )
 
 func TestAuth_Register(t *testing.T) {
@@ -37,7 +37,7 @@ func TestAuth_Register(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := dominode.NewClient(dominode.Config{BaseURL: server.URL})
+	client := dominusnode.NewClient(dominusnode.Config{BaseURL: server.URL})
 	ctx := context.Background()
 
 	result, err := client.Auth.Register(ctx, "new@example.com", "securepass123")
@@ -64,7 +64,7 @@ func TestAuth_Login_Success(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := dominode.NewClient(dominode.Config{BaseURL: server.URL})
+	client := dominusnode.NewClient(dominusnode.Config{BaseURL: server.URL})
 	ctx := context.Background()
 
 	result, err := client.Auth.Login(ctx, "user@example.com", "password")
@@ -86,7 +86,7 @@ func TestAuth_Login_InvalidCredentials(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := dominode.NewClient(dominode.Config{BaseURL: server.URL})
+	client := dominusnode.NewClient(dominusnode.Config{BaseURL: server.URL})
 	ctx := context.Background()
 
 	_, err := client.Auth.Login(ctx, "bad@example.com", "wrong")
@@ -94,7 +94,7 @@ func TestAuth_Login_InvalidCredentials(t *testing.T) {
 		t.Fatal("expected error for invalid credentials")
 	}
 
-	var authErr *dominode.AuthenticationError
+	var authErr *dominusnode.AuthenticationError
 	if !errors.As(err, &authErr) {
 		t.Fatalf("expected AuthenticationError, got %T: %v", err, err)
 	}
@@ -143,7 +143,7 @@ func TestAuth_MFAFlow(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := dominode.NewClient(dominode.Config{BaseURL: server.URL})
+	client := dominusnode.NewClient(dominusnode.Config{BaseURL: server.URL})
 	ctx := context.Background()
 
 	result, err := client.Auth.Login(ctx, "user@example.com", "password")
@@ -154,7 +154,7 @@ func TestAuth_MFAFlow(t *testing.T) {
 		t.Fatal("expected MFA required")
 	}
 
-	mfaResult, err := client.Auth.VerifyMFA(ctx, "654321", dominode.WithMFAChallengeToken("challenge_abc"))
+	mfaResult, err := client.Auth.VerifyMFA(ctx, "654321", dominusnode.WithMFAChallengeToken("challenge_abc"))
 	if err != nil {
 		t.Fatalf("VerifyMFA failed: %v", err)
 	}
@@ -198,7 +198,7 @@ func TestAuth_Me(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := dominode.NewClient(dominode.Config{BaseURL: server.URL})
+	client := dominusnode.NewClient(dominusnode.Config{BaseURL: server.URL})
 	ctx := context.Background()
 
 	_ = client.ConnectWithKey(ctx, "dn_live_test")
@@ -259,7 +259,7 @@ func TestAuth_TokenRefreshOn401(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := dominode.NewClient(dominode.Config{BaseURL: server.URL})
+	client := dominusnode.NewClient(dominusnode.Config{BaseURL: server.URL})
 	ctx := context.Background()
 
 	_ = client.ConnectWithKey(ctx, "dn_live_test")
@@ -292,7 +292,7 @@ func TestAuth_MFASetupAndStatus(t *testing.T) {
 		case "/api/auth/mfa/setup":
 			resp := map[string]interface{}{
 				"secret":      "JBSWY3DPEHPK3PXP",
-				"otpauthUri":  "otpauth://totp/DomiNode:user@example.com?secret=JBSWY3DPEHPK3PXP",
+				"otpauthUri":  "otpauth://totp/Dominus Node:user@example.com?secret=JBSWY3DPEHPK3PXP",
 				"backupCodes": []string{"12345678", "87654321"},
 			}
 			w.Header().Set("Content-Type", "application/json")
@@ -312,7 +312,7 @@ func TestAuth_MFASetupAndStatus(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := dominode.NewClient(dominode.Config{BaseURL: server.URL})
+	client := dominusnode.NewClient(dominusnode.Config{BaseURL: server.URL})
 	ctx := context.Background()
 	_ = client.ConnectWithKey(ctx, "dn_live_test")
 

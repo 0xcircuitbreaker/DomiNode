@@ -1,4 +1,4 @@
-# DomiNode Frontend
+# Dominus Node Frontend
 # Multi-stage build: Node for building, Nginx for serving
 
 # ─── Stage 1: Build ─────────────────────────────────────────────────

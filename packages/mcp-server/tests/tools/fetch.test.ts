@@ -18,11 +18,11 @@ describe("fetch tool", () => {
     vi.restoreAllMocks();
   });
 
-  it("registers dominode_fetch tool", () => {
+  it("registers dominusnode_fetch tool", () => {
     const server = new McpServer({ name: "test", version: "1.0.0" });
     registerFetchTools(server, config);
     const tools = (server as any)._registeredTools;
-    expect(tools["dominode_fetch"]).toBeDefined();
+    expect(tools["dominusnode_fetch"]).toBeDefined();
   });
 
   it("rejects invalid URLs", async () => {
@@ -30,7 +30,7 @@ describe("fetch tool", () => {
     registerFetchTools(server, config);
     const tools = (server as any)._registeredTools;
 
-    const result = await tools["dominode_fetch"].handler(
+    const result = await tools["dominusnode_fetch"].handler(
       { url: "file:///etc/passwd", method: "GET", timeout_ms: 30000 },
       { sessionId: "" } as never,
     );
@@ -44,7 +44,7 @@ describe("fetch tool", () => {
     registerFetchTools(server, config);
     const tools = (server as any)._registeredTools;
 
-    const result = await tools["dominode_fetch"].handler(
+    const result = await tools["dominusnode_fetch"].handler(
       { url: "ftp://ftp.example.com", method: "GET", timeout_ms: 30000 },
       { sessionId: "" } as never,
     );

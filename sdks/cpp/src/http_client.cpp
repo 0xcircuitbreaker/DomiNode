@@ -1,7 +1,7 @@
-#include "dominode/http_client.hpp"
-#include "dominode/token_manager.hpp"
-#include "dominode/constants.hpp"
-#include "dominode/errors.hpp"
+#include "dominusnode/http_client.hpp"
+#include "dominusnode/token_manager.hpp"
+#include "dominusnode/constants.hpp"
+#include "dominusnode/errors.hpp"
 
 #include <curl/curl.h>
 #include <algorithm>
@@ -11,7 +11,7 @@
 #include <thread>
 #include <chrono>
 
-namespace dominode {
+namespace dominusnode {
 
 // ─── Pimpl holding the CURL handle ──────────────────────────────────────────
 
@@ -199,7 +199,7 @@ void HttpClient::throw_for_status(long status,
         }
         default:
             if (status >= 500) throw ServerError(message);
-            throw DomiNodeError(message, static_cast<int>(status));
+            throw DominusNodeError(message, static_cast<int>(status));
     }
 }
 
@@ -289,4 +289,4 @@ nlohmann::json HttpClient::del(const std::string& path, bool requires_auth) {
     return request("DELETE", path, nullptr, requires_auth);
 }
 
-} // namespace dominode
+} // namespace dominusnode

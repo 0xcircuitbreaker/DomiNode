@@ -1,4 +1,4 @@
-# DomiNode Security Audit — Round 14
+# Dominus Node Security Audit — Round 14
 
 **Date:** 2026-02-09
 **Scope:** Full-system deep dive — all 6 backend packages, frontend, browser extension (4 manifests), 4 SDKs (Node.js, Python, C++, Rust), CI/CD, Docker infrastructure
@@ -101,7 +101,7 @@ Round 14 identified **11 CRITICAL + 28 HIGH** findings across the full stack. **
 **Fix:** Changed to `path: "/api/auth/mfa"` for both set and clear.
 
 ### H-5: Python SDK Missing ASN Field (Python SDK) — FIXED
-**Files:** `sdks/python/dominode/types.py:252`, `sdks/python/dominode/proxy.py:63-64`
+**Files:** `sdks/python/dominusnode/types.py:252`, `sdks/python/dominusnode/proxy.py:63-64`
 **Issue:** `ProxyUrlOptions` lacked `asn` field, breaking API parity with Node.js, C++, and Rust SDKs.
 **Fix:** Added `asn: Optional[int] = None` to dataclass and ASN handling in `build_proxy_url()`.
 
@@ -127,13 +127,13 @@ Round 14 identified **11 CRITICAL + 28 HIGH** findings across the full stack. **
 
 ### H-10: Extension externally_connectable Unrestricted (Extension) — FIXED
 **Files:** All 4 manifests (chrome.json, edge.json, opera.json, firefox.json)
-**Issue:** Missing `externally_connectable` restriction allowed any extension to send messages to DomiNode.
+**Issue:** Missing `externally_connectable` restriction allowed any extension to send messages to Dominus Node.
 **Fix:** Added `"externally_connectable": { "ids": [] }` to block all cross-extension messaging.
 
 ### H-11: Frontend CSP Overly Permissive connect-src (Frontend) — FIXED
 **File:** `packages/frontend/index.html:6`
 **Issue:** CSP included `http://localhost:*` in `connect-src`, unnecessary since Vite proxy handles dev and nginx handles production.
-**Fix:** Removed `http://localhost:*`, leaving `'self' https://*.dominode.io`.
+**Fix:** Removed `http://localhost:*`, leaving `'self' https://*.dominusnode.io`.
 
 ### H-12: Frontend Nginx Runs as Root (Docker) — FIXED
 **Files:** `infra/docker/frontend.Dockerfile`, `infra/nginx/default.conf`, `docker-compose.prod.yml`
@@ -219,13 +219,13 @@ Round 14 identified **11 CRITICAL + 28 HIGH** findings across the full stack. **
 
 ### Current SDK Competitive Position
 
-DomiNode already leads the market with **4 SDKs** (Node.js, Python, C++, Rust):
+Dominus Node already leads the market with **4 SDKs** (Node.js, Python, C++, Rust):
 - Bright Data: Node.js, Python, Java, C#, PHP, Go, Ruby
 - Oxylabs: Node.js, Python, Java, C#, PHP, Go
 - SmartProxy: Node.js, Python
 - IPRoyal: Node.js, Python
 
-Adding Go + Java would make DomiNode **the most broadly-supported proxy SDK** outside of Bright Data.
+Adding Go + Java would make Dominus Node **the most broadly-supported proxy SDK** outside of Bright Data.
 
 ---
 
@@ -250,8 +250,8 @@ Adding Go + Java would make DomiNode **the most broadly-supported proxy SDK** ou
 | `sdks/cpp/src/proxy.cpp` | Remove double URL-encoding |
 | `sdks/cpp/src/usage.cpp` | URL-encode query params |
 | `sdks/cpp/src/admin.cpp` | URL-encode query params |
-| `sdks/python/dominode/types.py` | Add ASN field |
-| `sdks/python/dominode/proxy.py` | ASN handling in URL builder |
+| `sdks/python/dominusnode/types.py` | Add ASN field |
+| `sdks/python/dominusnode/proxy.py` | ASN handling in URL builder |
 | `sdks/rust/src/types.rs` | Custom Debug impl for credential types |
 | `packages/frontend/index.html` | Remove localhost from CSP |
 | `infra/docker/frontend.Dockerfile` | Non-root nginx user |

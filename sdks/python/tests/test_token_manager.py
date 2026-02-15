@@ -8,7 +8,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from dominode.token_manager import AsyncTokenManager, TokenManager, is_expired
+from dominusnode.token_manager import AsyncTokenManager, TokenManager, is_expired
 from tests.conftest import make_jwt
 
 

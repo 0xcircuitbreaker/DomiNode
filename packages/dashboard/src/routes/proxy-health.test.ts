@@ -4,7 +4,7 @@ import http from "http";
 
 // ─── Mocks ─────────────────────────────────────────────────────────────
 
-vi.mock("@dominode/shared", () => ({
+vi.mock("@dominusnode/shared", () => ({
   createLogger: () => ({
     info: vi.fn(),
     warn: vi.fn(),

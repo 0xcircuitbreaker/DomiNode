@@ -1,6 +1,6 @@
-# DomiNode Setup Guide
+# Dominus Node Setup Guide
 
-Complete deployment guide for DomiNode, a rotating proxy-as-a-service SaaS platform. This document covers every deployment method from local development to production Kubernetes clusters.
+Complete deployment guide for Dominus Node, a rotating proxy-as-a-service SaaS platform. This document covers every deployment method from local development to production Kubernetes clusters.
 
 ---
 
@@ -50,7 +50,7 @@ All configuration is driven by environment variables. A complete template is pro
 
 ```bash
 # Database connection string
-DATABASE_URL=postgresql://dominode:dominode_dev@localhost:5432/dominode
+DATABASE_URL=postgresql://dominusnode:dominusnode_dev@localhost:5432/dominusnode
 
 # JWT secret for authentication (MUST change in production)
 # Generate with: openssl rand -hex 32
@@ -99,7 +99,7 @@ NOWPAYMENTS_API_URL=https://api.nowpayments.io/v1
 CORS_ORIGINS=http://localhost:5173
 
 # Public hostname for proxy endpoint (shown to users)
-PROXY_PUBLIC_HOST=proxy.dominode.io
+PROXY_PUBLIC_HOST=proxy.dominusnode.io
 
 # Proxy config served to browser extension
 PROXY_HOST=localhost
@@ -159,8 +159,8 @@ Best for development and testing. Uses Docker for PostgreSQL only; all services 
 ### Step 1: Clone and Install
 
 ```bash
-git clone https://github.com/your-org/DomiNode.git
-cd DomiNode
+git clone https://github.com/your-org/Dominus Node.git
+cd Dominus Node
 npm install
 ```
 
@@ -173,9 +173,9 @@ docker compose up -d
 ```
 
 This starts PostgreSQL on `localhost:5432` with:
-- Database: `dominode`
-- User: `dominode`
-- Password: `dominode_dev`
+- Database: `dominusnode`
+- User: `dominusnode`
+- Password: `dominusnode_dev`
 
 Verify it is running:
 
@@ -202,14 +202,14 @@ npm run build
 ```
 
 This runs `tsc --build` across all 6 backend packages via TypeScript project references:
-- `@dominode/shared` -- types, database, auth, repositories
-- `@dominode/pool-manager` -- PacketStream integration, provider failover
-- `@dominode/metering` -- bandwidth cost calculation
-- `@dominode/billing` -- Stripe and NOWPayments integration
-- `@dominode/proxy-gateway` -- HTTP/HTTPS/SOCKS5 proxy server
-- `@dominode/dashboard` -- Express REST API
+- `@dominusnode/shared` -- types, database, auth, repositories
+- `@dominusnode/pool-manager` -- PacketStream integration, provider failover
+- `@dominusnode/metering` -- bandwidth cost calculation
+- `@dominusnode/billing` -- Stripe and NOWPayments integration
+- `@dominusnode/proxy-gateway` -- HTTP/HTTPS/SOCKS5 proxy server
+- `@dominusnode/dashboard` -- Express REST API
 
-**Note:** The `@dominode/shared` package has a `postbuild` script that automatically copies `schema.sql` to `dist/`. If for some reason you need to do this manually:
+**Note:** The `@dominusnode/shared` package has a `postbuild` script that automatically copies `schema.sql` to `dist/`. If for some reason you need to do this manually:
 
 ```bash
 cp packages/shared/src/schema.sql packages/shared/dist/src/schema.sql
@@ -252,7 +252,7 @@ The frontend Vite dev server automatically proxies `/api` requests to `localhost
 ```bash
 # Check API health
 curl http://localhost:3000/api/health
-# Expected: {"status":"ok","service":"dominode-api","db":"connected"}
+# Expected: {"status":"ok","service":"dominusnode-api","db":"connected"}
 
 # Open frontend
 open http://localhost:5173
@@ -368,8 +368,8 @@ COPY --from=builder /app/packages/dashboard/dist packages/dashboard/dist
 COPY --from=builder /app/packages/dashboard/package.json packages/dashboard/
 
 # Non-root user for security
-RUN addgroup -S dominode && adduser -S dominode -G dominode
-USER dominode
+RUN addgroup -S dominusnode && adduser -S dominusnode -G dominusnode
+USER dominusnode
 
 EXPOSE 3000
 
@@ -394,8 +394,8 @@ COPY --from=builder /app/packages/pool-manager/package.json packages/pool-manage
 COPY --from=builder /app/packages/proxy-gateway/dist packages/proxy-gateway/dist
 COPY --from=builder /app/packages/proxy-gateway/package.json packages/proxy-gateway/
 
-RUN addgroup -S dominode && adduser -S dominode -G dominode
-USER dominode
+RUN addgroup -S dominusnode && adduser -S dominusnode -G dominusnode
+USER dominusnode
 
 EXPOSE 8080 1080
 
@@ -420,9 +420,9 @@ CMD ["node", "packages/shared/dist/src/migrate.js"]
 **Note:** This is a multi-target Dockerfile. Build specific targets with `--target`:
 
 ```bash
-docker build --target api -t dominode-api .
-docker build --target proxy -t dominode-proxy .
-docker build --target migrate -t dominode-migrate .
+docker build --target api -t dominusnode-api .
+docker build --target proxy -t dominusnode-proxy .
+docker build --target migrate -t dominusnode-migrate .
 ```
 
 ### docker-compose.production.yml
@@ -438,16 +438,16 @@ services:
     image: postgres:16-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_DB: dominode
-      POSTGRES_USER: dominode
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dominode_prod}
+      POSTGRES_DB: dominusnode
+      POSTGRES_USER: dominusnode
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dominusnode_prod}
     ports:
       - "127.0.0.1:5432:5432"  # Only listen on localhost
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./packages/shared/src/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U dominode -d dominode"]
+      test: ["CMD-SHELL", "pg_isready -U dominusnode -d dominusnode"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -468,7 +468,7 @@ services:
       postgres:
         condition: service_healthy
     environment:
-      DATABASE_URL: postgresql://dominode:${POSTGRES_PASSWORD:-dominode_prod}@postgres:5432/dominode
+      DATABASE_URL: postgresql://dominusnode:${POSTGRES_PASSWORD:-dominusnode_prod}@postgres:5432/dominusnode
     networks:
       - backend
     restart: "no"
@@ -488,7 +488,7 @@ services:
       - "3000:3000"
     environment:
       NODE_ENV: production
-      DATABASE_URL: postgresql://dominode:${POSTGRES_PASSWORD:-dominode_prod}@postgres:5432/dominode
+      DATABASE_URL: postgresql://dominusnode:${POSTGRES_PASSWORD:-dominusnode_prod}@postgres:5432/dominusnode
       DASHBOARD_PORT: "3000"
       JWT_SECRET: ${JWT_SECRET}
       MFA_ENCRYPTION_KEY: ${MFA_ENCRYPTION_KEY:-}
@@ -534,7 +534,7 @@ services:
       - "1080:1080"
     environment:
       NODE_ENV: production
-      DATABASE_URL: postgresql://dominode:${POSTGRES_PASSWORD:-dominode_prod}@postgres:5432/dominode
+      DATABASE_URL: postgresql://dominusnode:${POSTGRES_PASSWORD:-dominusnode_prod}@postgres:5432/dominusnode
       PROXY_LISTEN_PORT: "8080"
       SOCKS5_LISTEN_PORT: "1080"
       PACKETSTREAM_GATEWAY_HOST: ${PACKETSTREAM_GATEWAY_HOST:-gw.packetstream.io}
@@ -617,9 +617,9 @@ Create a `k8s/` directory in the project root with the following files:
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: dominode
+  name: dominusnode
   labels:
-    app.kubernetes.io/part-of: dominode
+    app.kubernetes.io/part-of: dominusnode
 ```
 
 ### k8s/secrets.yaml
@@ -628,13 +628,13 @@ metadata:
 apiVersion: v1
 kind: Secret
 metadata:
-  name: dominode-secrets
-  namespace: dominode
+  name: dominusnode-secrets
+  namespace: dominusnode
 type: Opaque
 stringData:
   # IMPORTANT: Replace all values below before applying.
   # In production, use sealed-secrets, external-secrets, or Vault instead.
-  DATABASE_URL: "postgresql://dominode:YOUR_DB_PASSWORD@dominode-postgres:5432/dominode?sslmode=require"
+  DATABASE_URL: "postgresql://dominusnode:YOUR_DB_PASSWORD@dominusnode-postgres:5432/dominusnode?sslmode=require"
   JWT_SECRET: "GENERATE_WITH_openssl_rand_-hex_32"
   MFA_ENCRYPTION_KEY: "GENERATE_WITH_openssl_rand_-hex_32"
   PACKETSTREAM_USERNAME: "your_username"
@@ -653,8 +653,8 @@ stringData:
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: dominode-config
-  namespace: dominode
+  name: dominusnode-config
+  namespace: dominusnode
 data:
   NODE_ENV: "production"
   DASHBOARD_PORT: "3000"
@@ -664,13 +664,13 @@ data:
   PACKETSTREAM_GATEWAY_PORT: "31112"
   PACKETSTREAM_RESELLER_API_URL: "https://reseller.packetstream.io"
   NOWPAYMENTS_API_URL: "https://api.nowpayments.io/v1"
-  CORS_ORIGINS: "https://app.dominode.io"
-  PROXY_PUBLIC_HOST: "proxy.dominode.io"
-  PROXY_HOST: "dominode-proxy"
+  CORS_ORIGINS: "https://app.dominusnode.io"
+  PROXY_PUBLIC_HOST: "proxy.dominusnode.io"
+  PROXY_HOST: "dominusnode-proxy"
   PROXY_HTTP_PORT: "8080"
   PROXY_SOCKS5_PORT: "1080"
-  STRIPE_SUCCESS_URL: "https://app.dominode.io/dashboard?topup=success"
-  STRIPE_CANCEL_URL: "https://app.dominode.io/dashboard?topup=cancel"
+  STRIPE_SUCCESS_URL: "https://app.dominusnode.io/dashboard?topup=success"
+  STRIPE_CANCEL_URL: "https://app.dominusnode.io/dashboard?topup=cancel"
   PROXY_CONNECT_TIMEOUT_MS: "30000"
   PROXY_SESSION_MAX_AGE_MS: "3600000"
   PROXY_MAX_CONNECTIONS: "5000"
@@ -688,31 +688,31 @@ For production, consider using a managed database (AWS RDS, GCP Cloud SQL, Azure
 apiVersion: v1
 kind: Service
 metadata:
-  name: dominode-postgres
-  namespace: dominode
+  name: dominusnode-postgres
+  namespace: dominusnode
 spec:
   type: ClusterIP
   ports:
     - port: 5432
       targetPort: 5432
   selector:
-    app: dominode-postgres
+    app: dominusnode-postgres
 ---
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
-  name: dominode-postgres
-  namespace: dominode
+  name: dominusnode-postgres
+  namespace: dominusnode
 spec:
-  serviceName: dominode-postgres
+  serviceName: dominusnode-postgres
   replicas: 1
   selector:
     matchLabels:
-      app: dominode-postgres
+      app: dominusnode-postgres
   template:
     metadata:
       labels:
-        app: dominode-postgres
+        app: dominusnode-postgres
     spec:
       containers:
         - name: postgres
@@ -721,13 +721,13 @@ spec:
             - containerPort: 5432
           env:
             - name: POSTGRES_DB
-              value: dominode
+              value: dominusnode
             - name: POSTGRES_USER
-              value: dominode
+              value: dominusnode
             - name: POSTGRES_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: dominode-secrets
+                  name: dominusnode-secrets
                   key: POSTGRES_PASSWORD
             - name: PGDATA
               value: /var/lib/postgresql/data/pgdata
@@ -740,12 +740,12 @@ spec:
               cpu: "500m"
           livenessProbe:
             exec:
-              command: ["pg_isready", "-U", "dominode", "-d", "dominode"]
+              command: ["pg_isready", "-U", "dominusnode", "-d", "dominusnode"]
             initialDelaySeconds: 30
             periodSeconds: 10
           readinessProbe:
             exec:
-              command: ["pg_isready", "-U", "dominode", "-d", "dominode"]
+              command: ["pg_isready", "-U", "dominusnode", "-d", "dominusnode"]
             initialDelaySeconds: 5
             periodSeconds: 5
           volumeMounts:
@@ -767,30 +767,30 @@ spec:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: dominode-api
-  namespace: dominode
+  name: dominusnode-api
+  namespace: dominusnode
   labels:
-    app: dominode-api
+    app: dominusnode-api
 spec:
   replicas: 2
   selector:
     matchLabels:
-      app: dominode-api
+      app: dominusnode-api
   template:
     metadata:
       labels:
-        app: dominode-api
+        app: dominusnode-api
     spec:
       containers:
         - name: api
-          image: your-registry/dominode-api:latest
+          image: your-registry/dominusnode-api:latest
           ports:
             - containerPort: 3000
           envFrom:
             - configMapRef:
-                name: dominode-config
+                name: dominusnode-config
             - secretRef:
-                name: dominode-secrets
+                name: dominusnode-secrets
           resources:
             requests:
               memory: "128Mi"
@@ -815,15 +815,15 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: dominode-api
-  namespace: dominode
+  name: dominusnode-api
+  namespace: dominusnode
 spec:
   type: ClusterIP
   ports:
     - port: 3000
       targetPort: 3000
   selector:
-    app: dominode-api
+    app: dominusnode-api
 ```
 
 ### k8s/proxy.yaml
@@ -832,23 +832,23 @@ spec:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: dominode-proxy
-  namespace: dominode
+  name: dominusnode-proxy
+  namespace: dominusnode
   labels:
-    app: dominode-proxy
+    app: dominusnode-proxy
 spec:
   replicas: 2
   selector:
     matchLabels:
-      app: dominode-proxy
+      app: dominusnode-proxy
   template:
     metadata:
       labels:
-        app: dominode-proxy
+        app: dominusnode-proxy
     spec:
       containers:
         - name: proxy
-          image: your-registry/dominode-proxy:latest
+          image: your-registry/dominusnode-proxy:latest
           ports:
             - containerPort: 8080
               name: http-proxy
@@ -856,9 +856,9 @@ spec:
               name: socks5-proxy
           envFrom:
             - configMapRef:
-                name: dominode-config
+                name: dominusnode-config
             - secretRef:
-                name: dominode-secrets
+                name: dominusnode-secrets
           resources:
             requests:
               memory: "256Mi"
@@ -881,8 +881,8 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: dominode-proxy
-  namespace: dominode
+  name: dominusnode-proxy
+  namespace: dominusnode
   annotations:
     # For AWS NLB (if on EKS). Adjust annotations for your cloud provider.
     service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
@@ -898,7 +898,7 @@ spec:
       name: socks5-proxy
       protocol: TCP
   selector:
-    app: dominode-proxy
+    app: dominusnode-proxy
 ```
 
 ### k8s/ingress.yaml
@@ -907,8 +907,8 @@ spec:
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: dominode-ingress
-  namespace: dominode
+  name: dominusnode-ingress
+  namespace: dominusnode
   annotations:
     cert-manager.io/cluster-issuer: "letsencrypt-prod"
     nginx.ingress.kubernetes.io/ssl-redirect: "true"
@@ -921,28 +921,28 @@ spec:
   ingressClassName: nginx
   tls:
     - hosts:
-        - api.dominode.io
-        - app.dominode.io
-      secretName: dominode-tls
+        - api.dominusnode.io
+        - app.dominusnode.io
+      secretName: dominusnode-tls
   rules:
-    - host: api.dominode.io
+    - host: api.dominusnode.io
       http:
         paths:
           - path: /api
             pathType: Prefix
             backend:
               service:
-                name: dominode-api
+                name: dominusnode-api
                 port:
                   number: 3000
-    - host: app.dominode.io
+    - host: app.dominusnode.io
       http:
         paths:
           - path: /
             pathType: Prefix
             backend:
               service:
-                name: dominode-frontend
+                name: dominusnode-frontend
                 port:
                   number: 80
 ```
@@ -953,13 +953,13 @@ spec:
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
-  name: dominode-proxy-hpa
-  namespace: dominode
+  name: dominusnode-proxy-hpa
+  namespace: dominusnode
 spec:
   scaleTargetRef:
     apiVersion: apps/v1
     kind: Deployment
-    name: dominode-proxy
+    name: dominusnode-proxy
   minReplicas: 2
   maxReplicas: 20
   metrics:
@@ -979,13 +979,13 @@ spec:
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
-  name: dominode-api-hpa
-  namespace: dominode
+  name: dominusnode-api-hpa
+  namespace: dominusnode
 spec:
   scaleTargetRef:
     apiVersion: apps/v1
     kind: Deployment
-    name: dominode-api
+    name: dominusnode-api
   minReplicas: 2
   maxReplicas: 10
   metrics:
@@ -1013,13 +1013,13 @@ kubectl apply -f k8s/configmap.yaml
 kubectl apply -f k8s/postgres.yaml
 
 # Wait for PostgreSQL to be ready
-kubectl -n dominode rollout status statefulset/dominode-postgres
+kubectl -n dominusnode rollout status statefulset/dominusnode-postgres
 
 # Run database migration (one-time job)
-kubectl -n dominode run dominode-migrate \
-  --image=your-registry/dominode-migrate:latest \
+kubectl -n dominusnode run dominusnode-migrate \
+  --image=your-registry/dominusnode-migrate:latest \
   --restart=Never \
-  --env="DATABASE_URL=postgresql://dominode:YOUR_DB_PASSWORD@dominode-postgres:5432/dominode" \
+  --env="DATABASE_URL=postgresql://dominusnode:YOUR_DB_PASSWORD@dominusnode-postgres:5432/dominusnode" \
   --rm -it
 
 # Deploy API and Proxy
@@ -1033,9 +1033,9 @@ kubectl apply -f k8s/ingress.yaml
 kubectl apply -f k8s/hpa.yaml
 
 # Verify
-kubectl -n dominode get pods
-kubectl -n dominode get services
-kubectl -n dominode get ingress
+kubectl -n dominusnode get pods
+kubectl -n dominusnode get services
+kubectl -n dominusnode get ingress
 ```
 
 ---
@@ -1087,29 +1087,29 @@ sudo systemctl start postgresql
 ```bash
 # Switch to postgres user
 sudo -u postgres psql <<'SQL'
-CREATE USER dominode WITH PASSWORD 'YOUR_STRONG_DB_PASSWORD';
-CREATE DATABASE dominode OWNER dominode;
-GRANT ALL PRIVILEGES ON DATABASE dominode TO dominode;
+CREATE USER dominusnode WITH PASSWORD 'YOUR_STRONG_DB_PASSWORD';
+CREATE DATABASE dominusnode OWNER dominusnode;
+GRANT ALL PRIVILEGES ON DATABASE dominusnode TO dominusnode;
 \q
 SQL
 ```
 
 Replace `YOUR_STRONG_DB_PASSWORD` with a strong password generated via `openssl rand -hex 16`.
 
-### Step 5: Create DomiNode System User
+### Step 5: Create Dominus Node System User
 
 ```bash
-sudo useradd -r -m -s /bin/bash dominode
+sudo useradd -r -m -s /bin/bash dominusnode
 ```
 
 ### Step 6: Clone and Build
 
 ```bash
-# Clone as the dominode user
-sudo -u dominode bash -c '
+# Clone as the dominusnode user
+sudo -u dominusnode bash -c '
   cd /opt
-  git clone https://github.com/your-org/DomiNode.git dominode
-  cd dominode
+  git clone https://github.com/your-org/Dominus Node.git dominusnode
+  cd dominusnode
   npm install
   npm run build
   cp packages/shared/src/schema.sql packages/shared/dist/src/schema.sql
@@ -1119,19 +1119,19 @@ sudo -u dominode bash -c '
 ### Step 7: Configure Environment
 
 ```bash
-sudo -u dominode bash -c '
-  cd /opt/dominode
+sudo -u dominusnode bash -c '
+  cd /opt/dominusnode
   cp .env.example .env
 '
 
 # Edit with your production values
-sudo -u dominode nano /opt/dominode/.env
+sudo -u dominusnode nano /opt/dominusnode/.env
 ```
 
 Set at minimum:
 
 ```bash
-DATABASE_URL=postgresql://dominode:YOUR_STRONG_DB_PASSWORD@localhost:5432/dominode
+DATABASE_URL=postgresql://dominusnode:YOUR_STRONG_DB_PASSWORD@localhost:5432/dominusnode
 JWT_SECRET=<output of openssl rand -hex 32>
 MFA_ENCRYPTION_KEY=<output of openssl rand -hex 32>
 PACKETSTREAM_USERNAME=your_username
@@ -1144,37 +1144,37 @@ PROXY_PUBLIC_HOST=proxy.yourdomain.com
 ### Step 8: Apply Database Schema
 
 ```bash
-sudo -u dominode bash -c 'cd /opt/dominode && npm run db:migrate'
+sudo -u dominusnode bash -c 'cd /opt/dominusnode && npm run db:migrate'
 ```
 
 ### Step 9: Set Up systemd Services
 
-**DomiNode API Service:**
+**Dominus Node API Service:**
 
 ```bash
-sudo tee /etc/systemd/system/dominode-api.service > /dev/null <<'EOF'
+sudo tee /etc/systemd/system/dominusnode-api.service > /dev/null <<'EOF'
 [Unit]
-Description=DomiNode API Server
-Documentation=https://github.com/your-org/DomiNode
+Description=Dominus Node API Server
+Documentation=https://github.com/your-org/Dominus Node
 After=network.target postgresql.service
 Requires=postgresql.service
 
 [Service]
 Type=simple
-User=dominode
-Group=dominode
-WorkingDirectory=/opt/dominode
+User=dominusnode
+Group=dominusnode
+WorkingDirectory=/opt/dominusnode
 ExecStart=/usr/bin/node packages/dashboard/dist/src/main.js
 Restart=always
 RestartSec=5
-EnvironmentFile=/opt/dominode/.env
+EnvironmentFile=/opt/dominusnode/.env
 Environment=NODE_ENV=production
 
 # Security hardening
 NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=yes
-ReadWritePaths=/opt/dominode
+ReadWritePaths=/opt/dominusnode
 PrivateTmp=yes
 
 # Resource limits
@@ -1184,39 +1184,39 @@ MemoryMax=256M
 # Logging
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=dominode-api
+SyslogIdentifier=dominusnode-api
 
 [Install]
 WantedBy=multi-user.target
 EOF
 ```
 
-**DomiNode Proxy Service:**
+**Dominus Node Proxy Service:**
 
 ```bash
-sudo tee /etc/systemd/system/dominode-proxy.service > /dev/null <<'EOF'
+sudo tee /etc/systemd/system/dominusnode-proxy.service > /dev/null <<'EOF'
 [Unit]
-Description=DomiNode Proxy Gateway
-Documentation=https://github.com/your-org/DomiNode
+Description=Dominus Node Proxy Gateway
+Documentation=https://github.com/your-org/Dominus Node
 After=network.target postgresql.service
 Requires=postgresql.service
 
 [Service]
 Type=simple
-User=dominode
-Group=dominode
-WorkingDirectory=/opt/dominode
+User=dominusnode
+Group=dominusnode
+WorkingDirectory=/opt/dominusnode
 ExecStart=/usr/bin/node packages/proxy-gateway/dist/src/main.js
 Restart=always
 RestartSec=5
-EnvironmentFile=/opt/dominode/.env
+EnvironmentFile=/opt/dominusnode/.env
 Environment=NODE_ENV=production
 
 # Security hardening
 NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=yes
-ReadWritePaths=/opt/dominode
+ReadWritePaths=/opt/dominusnode
 PrivateTmp=yes
 
 # Resource limits (proxy needs more)
@@ -1226,7 +1226,7 @@ MemoryMax=512M
 # Logging
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=dominode-proxy
+SyslogIdentifier=dominusnode-proxy
 
 [Install]
 WantedBy=multi-user.target
@@ -1237,28 +1237,28 @@ EOF
 
 ```bash
 sudo systemctl daemon-reload
-sudo systemctl enable dominode-api dominode-proxy
-sudo systemctl start dominode-api dominode-proxy
+sudo systemctl enable dominusnode-api dominusnode-proxy
+sudo systemctl start dominusnode-api dominusnode-proxy
 
 # Check status
-sudo systemctl status dominode-api
-sudo systemctl status dominode-proxy
+sudo systemctl status dominusnode-api
+sudo systemctl status dominusnode-proxy
 
 # View logs
-sudo journalctl -u dominode-api -f
-sudo journalctl -u dominode-proxy -f
+sudo journalctl -u dominusnode-api -f
+sudo journalctl -u dominusnode-proxy -f
 ```
 
 ### Step 10: Build Frontend
 
 ```bash
-sudo -u dominode bash -c '
-  cd /opt/dominode/packages/frontend
+sudo -u dominusnode bash -c '
+  cd /opt/dominusnode/packages/frontend
   npm run build
 '
 ```
 
-The built frontend will be at `/opt/dominode/packages/frontend/dist/`.
+The built frontend will be at `/opt/dominusnode/packages/frontend/dist/`.
 
 ### Step 11: Install and Configure Nginx
 
@@ -1269,7 +1269,7 @@ sudo apt install -y nginx
 **Main Nginx configuration:**
 
 ```bash
-sudo tee /etc/nginx/sites-available/dominode > /dev/null <<'NGINX'
+sudo tee /etc/nginx/sites-available/dominusnode > /dev/null <<'NGINX'
 # Redirect HTTP to HTTPS
 server {
     listen 80;
@@ -1320,7 +1320,7 @@ server {
 
     # Frontend (static files)
     location / {
-        root /opt/dominode/packages/frontend/dist;
+        root /opt/dominusnode/packages/frontend/dist;
         try_files $uri $uri/ /index.html;
 
         # Cache static assets
@@ -1361,7 +1361,7 @@ server {
 NGINX
 
 # Enable the site
-sudo ln -sf /etc/nginx/sites-available/dominode /etc/nginx/sites-enabled/dominode
+sudo ln -sf /etc/nginx/sites-available/dominusnode /etc/nginx/sites-enabled/dominusnode
 sudo rm -f /etc/nginx/sites-enabled/default
 
 # Test configuration
@@ -1414,15 +1414,15 @@ sudo ufw status verbose
 ### Step 14: Set Up Log Rotation
 
 ```bash
-sudo tee /etc/logrotate.d/dominode > /dev/null <<'EOF'
-/var/log/dominode/*.log {
+sudo tee /etc/logrotate.d/dominusnode > /dev/null <<'EOF'
+/var/log/dominusnode/*.log {
     daily
     missingok
     rotate 14
     compress
     delaycompress
     notifempty
-    create 0640 dominode dominode
+    create 0640 dominusnode dominusnode
     sharedscripts
 }
 EOF
@@ -1434,12 +1434,12 @@ For systemd journal logs, journald handles rotation automatically. Check current
 sudo journalctl --disk-usage
 ```
 
-### Updating DomiNode
+### Updating Dominus Node
 
 ```bash
 # Pull latest code
-sudo -u dominode bash -c '
-  cd /opt/dominode
+sudo -u dominusnode bash -c '
+  cd /opt/dominusnode
   git pull
   npm install
   npm run build
@@ -1448,20 +1448,20 @@ sudo -u dominode bash -c '
 '
 
 # Build frontend
-sudo -u dominode bash -c '
-  cd /opt/dominode/packages/frontend
+sudo -u dominusnode bash -c '
+  cd /opt/dominusnode/packages/frontend
   npm run build
 '
 
 # Restart services
-sudo systemctl restart dominode-api dominode-proxy
+sudo systemctl restart dominusnode-api dominusnode-proxy
 ```
 
 ---
 
 ## Method 5: Home Server
 
-Deploy DomiNode on a home server (Raspberry Pi, mini PC, repurposed desktop, NAS). This follows the same approach as VPS deployment with additional considerations for home networking.
+Deploy Dominus Node on a home server (Raspberry Pi, mini PC, repurposed desktop, NAS). This follows the same approach as VPS deployment with additional considerations for home networking.
 
 ### Additional Requirements
 
@@ -1597,7 +1597,7 @@ sudo usermod -aG docker $USER
 
 ## Method 6: Netlify / Vercel (Frontend Only)
 
-The DomiNode frontend is a static React SPA built with Vite. It can be deployed to static hosting platforms like Netlify or Vercel. However, the backend API and proxy gateway are long-running Node.js servers and **cannot** run on serverless platforms. You must host the backend on a VPS, Docker host, or Kubernetes cluster.
+The Dominus Node frontend is a static React SPA built with Vite. It can be deployed to static hosting platforms like Netlify or Vercel. However, the backend API and proxy gateway are long-running Node.js servers and **cannot** run on serverless platforms. You must host the backend on a VPS, Docker host, or Kubernetes cluster.
 
 ### Frontend Build
 
@@ -1694,7 +1694,7 @@ Run through these checks after any deployment to confirm everything is working.
 
 ```bash
 curl https://api.yourdomain.com/api/health
-# Expected: {"status":"ok","service":"dominode-api","db":"connected"}
+# Expected: {"status":"ok","service":"dominusnode-api","db":"connected"}
 ```
 
 ### 2. Register a Test User
@@ -1764,7 +1764,7 @@ curl -s https://api.yourdomain.com/api/usage \
 
 ### 10. Verify Frontend
 
-Open `https://app.yourdomain.com` in your browser. You should see the DomiNode login page.
+Open `https://app.yourdomain.com` in your browser. You should see the Dominus Node login page.
 
 ---
 
@@ -1776,7 +1776,7 @@ Before going live, verify every item on this list.
 
 - [ ] `JWT_SECRET` is a random 64-character hex string (generate: `openssl rand -hex 32`)
 - [ ] `MFA_ENCRYPTION_KEY` is a random 64-character hex string (generate: `openssl rand -hex 32`)
-- [ ] Default passwords have been changed in `.env` (no `dominode_dev` in production)
+- [ ] Default passwords have been changed in `.env` (no `dominusnode_dev` in production)
 - [ ] `NODE_ENV=production` is set
 - [ ] `.env` file permissions are restricted (`chmod 600 .env`)
 
@@ -1831,10 +1831,10 @@ PostgreSQL is not reachable. Check:
 sudo systemctl status postgresql
 
 # Can you connect?
-psql "postgresql://dominode:YOUR_PASSWORD@localhost:5432/dominode" -c "SELECT 1;"
+psql "postgresql://dominusnode:YOUR_PASSWORD@localhost:5432/dominusnode" -c "SELECT 1;"
 
 # Check DATABASE_URL in .env
-grep DATABASE_URL /opt/dominode/.env
+grep DATABASE_URL /opt/dominusnode/.env
 ```
 
 ### Migration fails with "relation already exists"
@@ -1881,22 +1881,22 @@ RUN apk add --no-cache python3 make g++
 
 ```bash
 # Check logs
-sudo journalctl -u dominode-api --no-pager -n 50
-sudo journalctl -u dominode-proxy --no-pager -n 50
+sudo journalctl -u dominusnode-api --no-pager -n 50
+sudo journalctl -u dominusnode-proxy --no-pager -n 50
 
 # Common issues:
 # - Missing .env file: ensure EnvironmentFile path is correct
-# - Permission denied: ensure dominode user owns /opt/dominode
+# - Permission denied: ensure dominusnode user owns /opt/dominusnode
 # - Port already in use: check with 'ss -tlnp | grep 3000'
 ```
 
 ### PostgreSQL running out of connections
 
-DomiNode uses `pg.Pool` with a default of 10 connections. If running multiple replicas:
+Dominus Node uses `pg.Pool` with a default of 10 connections. If running multiple replicas:
 
 ```bash
 # Check current connections
-sudo -u postgres psql -c "SELECT count(*) FROM pg_stat_activity WHERE datname='dominode';"
+sudo -u postgres psql -c "SELECT count(*) FROM pg_stat_activity WHERE datname='dominusnode';"
 
 # Increase max_connections in postgresql.conf if needed
 sudo nano /etc/postgresql/16/main/postgresql.conf

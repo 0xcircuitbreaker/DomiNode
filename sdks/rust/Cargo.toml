@@ -1,11 +1,11 @@
 [package]
-name = "dominode"
+name = "dominusnode"
 version = "1.0.0"
 edition = "2021"
-description = "Official DomiNode SDK for Rust"
+description = "Official Dominus Node SDK for Rust"
 license = "MIT"
-repository = "https://github.com/dominode/dominode-sdk-rust"
-keywords = ["proxy", "api", "sdk", "dominode"]
+repository = "https://github.com/dominusnode/dominusnode-sdk-rust"
+keywords = ["proxy", "api", "sdk", "dominusnode"]
 categories = ["api-bindings", "web-programming"]
 
 [features]

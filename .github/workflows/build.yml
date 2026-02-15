@@ -24,7 +24,7 @@ jobs:
           context: .
           file: infra/docker/api.Dockerfile
           push: false
-          tags: dominode/api:${{ github.sha }}
+          tags: dominusnode/api:${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -34,7 +34,7 @@ jobs:
           context: .
           file: infra/docker/proxy.Dockerfile
           push: false
-          tags: dominode/proxy:${{ github.sha }}
+          tags: dominusnode/proxy:${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -44,6 +44,6 @@ jobs:
           context: .
           file: infra/docker/frontend.Dockerfile
           push: false
-          tags: dominode/frontend:${{ github.sha }}
+          tags: dominusnode/frontend:${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max

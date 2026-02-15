@@ -48,7 +48,7 @@ describe("MCP Server Integration", () => {
       fetchMaxResponseBytes: 5 * 1024 * 1024,
     };
 
-    const server = new McpServer({ name: "dominode", version: "1.0.0" });
+    const server = new McpServer({ name: "dominusnode", version: "1.0.0" });
 
     registerFetchTools(server, config);
     registerProxyTools(server, httpClient);
@@ -65,32 +65,32 @@ describe("MCP Server Integration", () => {
     const toolNames = Object.keys(tools);
 
     // Original 19 tools
-    expect(toolNames).toContain("dominode_fetch");
-    expect(toolNames).toContain("dominode_get_balance");
-    expect(toolNames).toContain("dominode_get_forecast");
-    expect(toolNames).toContain("dominode_get_transactions");
-    expect(toolNames).toContain("dominode_get_usage");
-    expect(toolNames).toContain("dominode_get_daily_usage");
-    expect(toolNames).toContain("dominode_get_top_hosts");
-    expect(toolNames).toContain("dominode_list_keys");
-    expect(toolNames).toContain("dominode_create_key");
-    expect(toolNames).toContain("dominode_revoke_key");
-    expect(toolNames).toContain("dominode_get_proxy_config");
-    expect(toolNames).toContain("dominode_get_proxy_status");
-    expect(toolNames).toContain("dominode_get_plan");
-    expect(toolNames).toContain("dominode_list_plans");
-    expect(toolNames).toContain("dominode_get_active_sessions");
-    expect(toolNames).toContain("dominode_get_account_info");
-    expect(toolNames).toContain("dominode_register");
-    expect(toolNames).toContain("dominode_login");
-    expect(toolNames).toContain("dominode_setup");
+    expect(toolNames).toContain("dominusnode_fetch");
+    expect(toolNames).toContain("dominusnode_get_balance");
+    expect(toolNames).toContain("dominusnode_get_forecast");
+    expect(toolNames).toContain("dominusnode_get_transactions");
+    expect(toolNames).toContain("dominusnode_get_usage");
+    expect(toolNames).toContain("dominusnode_get_daily_usage");
+    expect(toolNames).toContain("dominusnode_get_top_hosts");
+    expect(toolNames).toContain("dominusnode_list_keys");
+    expect(toolNames).toContain("dominusnode_create_key");
+    expect(toolNames).toContain("dominusnode_revoke_key");
+    expect(toolNames).toContain("dominusnode_get_proxy_config");
+    expect(toolNames).toContain("dominusnode_get_proxy_status");
+    expect(toolNames).toContain("dominusnode_get_plan");
+    expect(toolNames).toContain("dominusnode_list_plans");
+    expect(toolNames).toContain("dominusnode_get_active_sessions");
+    expect(toolNames).toContain("dominusnode_get_account_info");
+    expect(toolNames).toContain("dominusnode_register");
+    expect(toolNames).toContain("dominusnode_login");
+    expect(toolNames).toContain("dominusnode_setup");
 
     // New crypto + agent wallet tools
-    expect(toolNames).toContain("dominode_pay_crypto");
-    expect(toolNames).toContain("dominode_check_payment");
-    expect(toolNames).toContain("dominode_x402_info");
-    expect(toolNames).toContain("dominode_agent_wallet_create");
-    expect(toolNames).toContain("dominode_agent_wallet_balance");
+    expect(toolNames).toContain("dominusnode_pay_crypto");
+    expect(toolNames).toContain("dominusnode_check_payment");
+    expect(toolNames).toContain("dominusnode_x402_info");
+    expect(toolNames).toContain("dominusnode_agent_wallet_create");
+    expect(toolNames).toContain("dominusnode_agent_wallet_balance");
 
     expect(toolNames.length).toBe(24);
   });
@@ -115,7 +115,7 @@ describe("MCP Server Integration", () => {
       fetchMaxResponseBytes: 5 * 1024 * 1024,
     };
 
-    const server = new McpServer({ name: "dominode", version: "1.0.0" });
+    const server = new McpServer({ name: "dominusnode", version: "1.0.0" });
 
     // Bootstrap mode registers only account + crypto + agent wallet tools
     registerAccountTools(server, httpClient);
@@ -126,11 +126,11 @@ describe("MCP Server Integration", () => {
     const toolNames = Object.keys(tools);
 
     // Should have account tools (4) + crypto tools (2) + agent wallet tools (3) = 9
-    expect(toolNames).toContain("dominode_register");
-    expect(toolNames).toContain("dominode_login");
-    expect(toolNames).toContain("dominode_setup");
-    expect(toolNames).toContain("dominode_pay_crypto");
-    expect(toolNames).toContain("dominode_x402_info");
+    expect(toolNames).toContain("dominusnode_register");
+    expect(toolNames).toContain("dominusnode_login");
+    expect(toolNames).toContain("dominusnode_setup");
+    expect(toolNames).toContain("dominusnode_pay_crypto");
+    expect(toolNames).toContain("dominusnode_x402_info");
     expect(toolNames.length).toBe(9);
   });
 
@@ -151,7 +151,7 @@ describe("MCP Server Integration", () => {
     globalThis.fetch = vi.fn().mockRejectedValueOnce(new Error("ECONNREFUSED"));
 
     const tools = (server as any)._registeredTools;
-    const result = await tools["dominode_get_balance"].handler({}, { sessionId: "" } as never);
+    const result = await tools["dominusnode_get_balance"].handler({}, { sessionId: "" } as never);
     expect(result.isError).toBe(true);
     expect((result.content as Array<{ type: string; text: string }>)[0].text).toContain("ECONNREFUSED");
   });

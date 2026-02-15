@@ -1,6 +1,6 @@
 import * as dns from "node:dns";
 import * as net from "node:net";
-import { createLogger } from "@dominode/shared";
+import { createLogger } from "@dominusnode/shared";
 
 const log = createLogger("proxy:target-validator");
 

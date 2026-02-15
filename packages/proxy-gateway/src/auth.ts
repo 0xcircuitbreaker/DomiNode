@@ -1,6 +1,6 @@
 import * as http from "node:http";
-import { hashApiKey, userRepo, createLogger } from "@dominode/shared";
-import type { User } from "@dominode/shared";
+import { hashApiKey, userRepo, createLogger } from "@dominusnode/shared";
+import type { User } from "@dominusnode/shared";
 
 const log = createLogger("proxy:auth");
 

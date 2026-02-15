@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from dominode import ProxyError, ProxyUrlOptions
-from dominode.proxy import build_proxy_url
+from dominusnode import ProxyError, ProxyUrlOptions
+from dominusnode.proxy import build_proxy_url
 
 
 class TestBuildProxyUrl:
@@ -14,21 +14,21 @@ class TestBuildProxyUrl:
     def test_basic_http_url(self) -> None:
         url = build_proxy_url(
             "dn_live_abc123",
-            proxy_host="proxy.dominode.io",
+            proxy_host="proxy.dominusnode.io",
             http_proxy_port=8080,
             socks5_proxy_port=1080,
         )
-        assert url == "http://user:dn_live_abc123@proxy.dominode.io:8080"
+        assert url == "http://user:dn_live_abc123@proxy.dominusnode.io:8080"
 
     def test_socks5_url(self) -> None:
         url = build_proxy_url(
             "dn_live_abc123",
-            proxy_host="proxy.dominode.io",
+            proxy_host="proxy.dominusnode.io",
             http_proxy_port=8080,
             socks5_proxy_port=1080,
             options=ProxyUrlOptions(protocol="socks5"),
         )
-        assert url == "socks5://user:dn_live_abc123@proxy.dominode.io:1080"
+        assert url == "socks5://user:dn_live_abc123@proxy.dominusnode.io:1080"
 
     def test_with_country(self) -> None:
         url = build_proxy_url(

@@ -1,6 +1,6 @@
-#include "dominode/token_manager.hpp"
-#include "dominode/constants.hpp"
-#include "dominode/errors.hpp"
+#include "dominusnode/token_manager.hpp"
+#include "dominusnode/constants.hpp"
+#include "dominusnode/errors.hpp"
 
 #include <nlohmann/json.hpp>
 #include <cstring>
@@ -10,7 +10,7 @@
 #include <strings.h>  // explicit_bzero on some platforms
 #endif
 
-namespace dominode {
+namespace dominusnode {
 
 // Portably zero memory without the compiler optimizing it away.
 // Zeros the full capacity (not just size) to cover SSO and heap buffers,
@@ -175,4 +175,4 @@ void TokenManager::clear() {
     refresh_fn_ = nullptr;
 }
 
-} // namespace dominode
+} // namespace dominusnode

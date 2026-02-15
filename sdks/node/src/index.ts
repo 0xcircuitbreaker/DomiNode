@@ -1,5 +1,5 @@
 // Main client
-export { DomiNodeClient } from "./client.js";
+export { DominusNodeClient } from "./client.js";
 
 // Resource modules
 export { AuthResource } from "./auth.js";
@@ -51,7 +51,7 @@ export type { HttpOptions } from "./http.js";
 
 // Errors
 export {
-  DomiNodeError,
+  DominusNodeError,
   AuthenticationError,
   AuthorizationError,
   RateLimitError,
@@ -66,7 +66,7 @@ export {
 
 // Types
 export type {
-  DomiNodeConfig,
+  Dominus NodeConfig,
   User,
   ApiKey,
   Wallet,

@@ -1,10 +1,10 @@
-package dominode
+package dominusnode
 
 import "fmt"
 
 // --- Auth types ---
 
-// User represents a DomiNode user account.
+// User represents a Dominus Node user account.
 type User struct {
 	ID        string `json:"id"`
 	Email     string `json:"email"`

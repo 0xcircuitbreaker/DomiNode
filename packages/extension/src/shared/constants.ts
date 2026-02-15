@@ -1,16 +1,16 @@
 export const STORAGE_KEYS = {
-  STATE: "dominode_ext_state",
-  AUTH: "dominode_ext_auth",
+  STATE: "dominusnode_ext_state",
+  AUTH: "dominusnode_ext_auth",
 } as const;
 
 export const ALARM_NAMES = {
-  TOKEN_REFRESH: "dominode_token_refresh",
-  BALANCE_POLL: "dominode_balance_poll",
-  SESSION_ROTATE: "dominode_session_rotate",
+  TOKEN_REFRESH: "dominusnode_token_refresh",
+  BALANCE_POLL: "dominusnode_balance_poll",
+  SESSION_ROTATE: "dominusnode_session_rotate",
 } as const;
 
-export const DEFAULT_API_BASE = "https://proxy.dominode.io";
-export const PROD_API_BASE = "https://api.dominode.io";
+export const DEFAULT_API_BASE = "https://proxy.dominusnode.io";
+export const PROD_API_BASE = "https://api.dominusnode.io";
 // DEV_API_BASE uses HTTP intentionally for local development only
 export const DEV_API_BASE = "http://localhost:3000";
 

@@ -7,7 +7,7 @@ const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12
 
 export function registerKeysTools(server: McpServer, httpClient: HttpClient): void {
   server.tool(
-    "dominode_list_keys",
+    "dominusnode_list_keys",
     "List all API keys on this account. Shows key prefix, label, and last used date.",
     {},
     async () => {
@@ -32,7 +32,7 @@ export function registerKeysTools(server: McpServer, httpClient: HttpClient): vo
   );
 
   server.tool(
-    "dominode_create_key",
+    "dominusnode_create_key",
     "Create a new API key. The full key is shown only once — save it immediately. Use a descriptive label.",
     {
       label: z.string().min(1).max(100).describe("Descriptive label for the key (e.g. 'scraping-agent')"),
@@ -59,7 +59,7 @@ export function registerKeysTools(server: McpServer, httpClient: HttpClient): vo
   );
 
   server.tool(
-    "dominode_revoke_key",
+    "dominusnode_revoke_key",
     "Revoke an API key by ID. This immediately disables the key. Cannot be undone.",
     {
       key_id: z.string().describe("UUID of the API key to revoke"),

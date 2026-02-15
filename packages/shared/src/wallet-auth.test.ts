@@ -59,25 +59,25 @@ describe("wallet-auth", () => {
   describe("buildSignMessage", () => {
     it("should include domain, address, nonce, and timestamp", () => {
       const message = buildSignMessage(
-        "dominode.io",
+        "dominusnode.io",
         "0xd8da6bf26964af9d7eed9e03e53415d37aa96045",
         "abc123",
         new Date("2025-01-01T00:00:00Z"),
       );
 
-      expect(message).toContain("dominode.io wants you to sign in with your Ethereum account:");
+      expect(message).toContain("dominusnode.io wants you to sign in with your Ethereum account:");
       expect(message).toContain("0xd8da6bf26964af9d7eed9e03e53415d37aa96045");
       expect(message).toContain("Nonce: abc123");
       expect(message).toContain("Issued At: 2025-01-01T00:00:00.000Z");
-      expect(message).toContain("URI: https://dominode.io");
-      expect(message).toContain("Sign in to DomiNode proxy service");
+      expect(message).toContain("URI: https://dominusnode.io");
+      expect(message).toContain("Sign in to Dominus Node proxy service");
     });
   });
 
   describe("walletToSyntheticEmail", () => {
     it("should convert address to synthetic email", () => {
       const email = walletToSyntheticEmail("0xD8DA6BF26964AF9D7EED9E03E53415D37AA96045");
-      expect(email).toBe("0xd8da6bf26964af9d7eed9e03e53415d37aa96045@wallet.dominode.io");
+      expect(email).toBe("0xd8da6bf26964af9d7eed9e03e53415d37aa96045@wallet.dominusnode.io");
     });
 
     it("should lowercase the address", () => {
@@ -88,7 +88,7 @@ describe("wallet-auth", () => {
 
   describe("isWalletEmail", () => {
     it("should detect synthetic wallet emails", () => {
-      expect(isWalletEmail("0xabc@wallet.dominode.io")).toBe(true);
+      expect(isWalletEmail("0xabc@wallet.dominusnode.io")).toBe(true);
     });
 
     it("should not detect regular emails", () => {
@@ -96,7 +96,7 @@ describe("wallet-auth", () => {
     });
 
     it("should not detect partial matches", () => {
-      expect(isWalletEmail("user@fakewallet.dominode.io")).toBe(false);
+      expect(isWalletEmail("user@fakewallet.dominusnode.io")).toBe(false);
     });
   });
 

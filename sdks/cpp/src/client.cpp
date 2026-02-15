@@ -1,7 +1,7 @@
-#include "dominode/client.hpp"
-#include "dominode/http_client.hpp"
-#include "dominode/token_manager.hpp"
-#include "dominode/errors.hpp"
+#include "dominusnode/client.hpp"
+#include "dominusnode/http_client.hpp"
+#include "dominusnode/token_manager.hpp"
+#include "dominusnode/errors.hpp"
 
 #include <cstring>
 
@@ -9,7 +9,7 @@
 #include <strings.h>
 #endif
 
-namespace dominode {
+namespace dominusnode {
 
 // Portably zero a string's memory (credential cleanup).
 static void secure_zero_string(std::string& s) {
@@ -37,7 +37,7 @@ ClientConfig::~ClientConfig() {
 
 // ─── Pimpl definition ───────────────────────────────────────────────────────
 
-struct DomiNodeClient::Impl {
+struct DominusNodeClient::Impl {
     ClientConfig config;
     TokenManager token_manager;
     HttpClient http_client;
@@ -78,17 +78,17 @@ struct DomiNodeClient::Impl {
     }
 };
 
-// ─── DomiNodeClient implementation ──────────────────────────────────────────
+// ─── DominusNodeClient implementation ──────────────────────────────────────────
 
-DomiNodeClient::DomiNodeClient(ClientConfig config)
+DominusNodeClient::DominusNodeClient(ClientConfig config)
     : impl_(std::make_unique<Impl>(std::move(config))) {}
 
-DomiNodeClient::~DomiNodeClient() = default;
+DominusNodeClient::~DominusNodeClient() = default;
 
-DomiNodeClient::DomiNodeClient(DomiNodeClient&&) noexcept = default;
-DomiNodeClient& DomiNodeClient::operator=(DomiNodeClient&&) noexcept = default;
+DominusNodeClient::DominusNodeClient(DominusNodeClient&&) noexcept = default;
+DominusNodeClient& DominusNodeClient::operator=(DominusNodeClient&&) noexcept = default;
 
-void DomiNodeClient::connect_with_key(const std::string& api_key) {
+void DominusNodeClient::connect_with_key(const std::string& api_key) {
     auto result = impl_->auth_resource.verify_key(api_key);
     if (!result.valid) {
         throw AuthenticationError("Invalid API key");
@@ -96,7 +96,7 @@ void DomiNodeClient::connect_with_key(const std::string& api_key) {
     impl_->token_manager.set_tokens(result.token, result.refresh_token);
 }
 
-void DomiNodeClient::connect_with_credentials(const std::string& email, const std::string& password) {
+void DominusNodeClient::connect_with_credentials(const std::string& email, const std::string& password) {
     auto result = impl_->auth_resource.login(email, password);
     if (result.mfa_required) {
         throw AuthenticationError("MFA required - use auth().login() and auth().verify_mfa() instead");
@@ -109,7 +109,7 @@ void DomiNodeClient::connect_with_credentials(const std::string& email, const st
     }
 }
 
-void DomiNodeClient::disconnect() {
+void DominusNodeClient::disconnect() {
     try {
         impl_->auth_resource.logout();
     } catch (...) {
@@ -118,17 +118,17 @@ void DomiNodeClient::disconnect() {
     impl_->token_manager.clear();
 }
 
-AuthResource& DomiNodeClient::auth() { return impl_->auth_resource; }
-KeysResource& DomiNodeClient::keys() { return impl_->keys_resource; }
-WalletResource& DomiNodeClient::wallet() { return impl_->wallet_resource; }
-UsageResource& DomiNodeClient::usage() { return impl_->usage_resource; }
-PlansResource& DomiNodeClient::plans() { return impl_->plans_resource; }
-SessionsResource& DomiNodeClient::sessions() { return impl_->sessions_resource; }
-ProxyResource& DomiNodeClient::proxy() { return impl_->proxy_resource; }
-AdminResource& DomiNodeClient::admin() { return impl_->admin_resource; }
+AuthResource& DominusNodeClient::auth() { return impl_->auth_resource; }
+KeysResource& DominusNodeClient::keys() { return impl_->keys_resource; }
+WalletResource& DominusNodeClient::wallet() { return impl_->wallet_resource; }
+UsageResource& DominusNodeClient::usage() { return impl_->usage_resource; }
+PlansResource& DominusNodeClient::plans() { return impl_->plans_resource; }
+SessionsResource& DominusNodeClient::sessions() { return impl_->sessions_resource; }
+ProxyResource& DominusNodeClient::proxy() { return impl_->proxy_resource; }
+AdminResource& DominusNodeClient::admin() { return impl_->admin_resource; }
 
-const std::string& DomiNodeClient::base_url() const {
+const std::string& DominusNodeClient::base_url() const {
     return impl_->config.base_url;
 }
 
-} // namespace dominode
+} // namespace dominusnode

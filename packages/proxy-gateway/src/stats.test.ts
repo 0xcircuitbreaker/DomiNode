@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-vi.mock("@dominode/shared", () => ({
+vi.mock("@dominusnode/shared", () => ({
   createLogger: () => ({
     debug: vi.fn(),
     info: vi.fn(),
@@ -12,7 +12,7 @@ vi.mock("@dominode/shared", () => ({
   planRepo: { getUserPlan: vi.fn(), getMonthlyUsage: vi.fn() },
 }));
 
-vi.mock("@dominode/metering", () => ({
+vi.mock("@dominusnode/metering", () => ({
   computeCostCents: vi.fn(),
   recordUsage: vi.fn(),
 }));

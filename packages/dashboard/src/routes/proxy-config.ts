@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { requireAuth } from "../middleware/auth.js";
-import { US_STATES, MAJOR_US_CITIES } from "@dominode/shared";
+import { US_STATES, MAJOR_US_CITIES } from "@dominusnode/shared";
 
 const router = Router();
 

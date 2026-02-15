@@ -16,7 +16,7 @@ const mockFindUserById = vi.fn();
 const mockRevokeAllApiKeys = vi.fn();
 const mockRevokeAllForUser = vi.fn();
 
-vi.mock("@dominode/shared", () => ({
+vi.mock("@dominusnode/shared", () => ({
   adminRepo: {
     listUsers: (...args: unknown[]) => mockListUsers(...args),
     getUserDetails: (...args: unknown[]) => mockGetUserDetails(...args),

@@ -1,8 +1,8 @@
 import dotenv from "dotenv";
 dotenv.config();
 
-import { createLogger, closePool, usageRepo } from "@dominode/shared";
-import { validateConfig, createProviderSelector } from "@dominode/pool-manager";
+import { createLogger, closePool, usageRepo } from "@dominusnode/shared";
+import { validateConfig, createProviderSelector } from "@dominusnode/pool-manager";
 import { startProxyServer } from "./server.js";
 import { startSocks5Server } from "./socks5.js";
 import { getActiveSessionCount } from "./session-manager.js";

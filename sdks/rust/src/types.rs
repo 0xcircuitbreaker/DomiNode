@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 // Auth
 // ---------------------------------------------------------------------------
 
-/// A DomiNode user account.
+/// A Dominus Node user account.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct User {
     pub id: String,

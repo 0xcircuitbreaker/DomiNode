@@ -13,7 +13,7 @@ import {
   buildSignMessage,
   walletToSyntheticEmail,
   isWalletEmail,
-} from "@dominode/shared";
+} from "@dominusnode/shared";
 import { recoverSignerAddress } from "../helpers/verify-signature.js";
 import { requireAuth, type AuthenticatedRequest } from "../middleware/auth.js";
 import { setAuthCookies } from "../helpers/cookies.js";
@@ -21,7 +21,7 @@ import { setAuthCookies } from "../helpers/cookies.js";
 const router = Router();
 const log = createLogger("api:wallet-auth");
 
-const DOMINODE_DOMAIN = process.env["DOMINODE_DOMAIN"] ?? "dominode.io";
+const DOMINUSNODE_DOMAIN = process.env["DOMINUSNODE_DOMAIN"] ?? "dominusnode.io";
 
 // ─── In-memory rate limiting for challenge requests ──────────────────
 const MAX_CHALLENGES_PER_IP = 5;
@@ -132,7 +132,7 @@ router.post("/challenge", async (req, res) => {
 
     const nonce = generateWalletNonce();
     const issuedAt = new Date();
-    const message = buildSignMessage(DOMINODE_DOMAIN, address, nonce, issuedAt);
+    const message = buildSignMessage(DOMINUSNODE_DOMAIN, address, nonce, issuedAt);
 
     await walletChallengeRepo.createChallenge(address, nonce, clientIp);
 
@@ -178,7 +178,7 @@ router.post("/verify", async (req, res) => {
     }
 
     // Rebuild the message that was signed
-    const message = buildSignMessage(DOMINODE_DOMAIN, address, challenge.nonce, challenge.created_at);
+    const message = buildSignMessage(DOMINUSNODE_DOMAIN, address, challenge.nonce, challenge.created_at);
 
     // Verify the EIP-191 signature
     const recoveredAddress = recoverSignerAddress(message, signature);
@@ -289,7 +289,7 @@ router.post("/link", requireAuth, async (req, res) => {
       return;
     }
 
-    const message = buildSignMessage(DOMINODE_DOMAIN, address, challenge.nonce, challenge.created_at);
+    const message = buildSignMessage(DOMINUSNODE_DOMAIN, address, challenge.nonce, challenge.created_at);
     const recoveredAddress = recoverSignerAddress(message, signature);
     if (!recoveredAddress || recoveredAddress !== address) {
       log.warn("wallet link signature verification failed", { userId, address: address.slice(0, 10) + "...", ip: clientIp });

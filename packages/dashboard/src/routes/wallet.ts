@@ -5,10 +5,10 @@ import {
   validateTopupAmount,
   isValidCryptoCurrency,
   createLogger,
-} from "@dominode/shared";
-import type { SupportedCrypto } from "@dominode/shared";
-import { createCheckoutSession } from "@dominode/billing";
-import { createCryptoInvoice } from "@dominode/billing";
+} from "@dominusnode/shared";
+import type { SupportedCrypto } from "@dominusnode/shared";
+import { createCheckoutSession } from "@dominusnode/billing";
+import { createCryptoInvoice } from "@dominusnode/billing";
 import { requireAuth, type AuthenticatedRequest } from "../middleware/auth.js";
 
 const router = Router();

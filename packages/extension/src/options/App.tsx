@@ -36,7 +36,7 @@ export function App() {
   return (
     <div class="options-container">
       <h1 style={{ fontSize: "24px", fontWeight: "700", color: "var(--accent)", marginBottom: "24px" }}>
-        DomiNode Settings
+        Dominus Node Settings
       </h1>
 
       {error && <div class="error-banner" style={{ marginBottom: "16px" }}>{error}</div>}
@@ -135,7 +135,7 @@ function LoginSection({ error, sendMessage }: LoginSectionProps) {
               required
             />
             <div class="text-sm text-muted">
-              Paste your API key from the DomiNode dashboard
+              Paste your API key from the Dominus Node dashboard
             </div>
             <button
               class="btn btn-primary"
@@ -338,7 +338,7 @@ function AuthenticatedSettings({ state, sendMessage }: AuthenticatedSettingsProp
             API Base URL is configured at build time. Current:
           </div>
           <div style={{ fontFamily: "monospace", fontSize: "13px", color: "var(--text-secondary)" }}>
-            {state.apiKey ? "API Key mode (direct proxy)" : "https://proxy.dominode.io"}
+            {state.apiKey ? "API Key mode (direct proxy)" : "https://proxy.dominusnode.io"}
           </div>
         </div>
       </div>

@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"testing"
 
-	dominode "github.com/dominode/dominode-go"
+	dominusnode "github.com/dominusnode/dominusnode-go"
 )
 
 func TestWallet_GetBalance(t *testing.T) {
@@ -77,7 +77,7 @@ func TestWallet_GetTransactions(t *testing.T) {
 	ctx := context.Background()
 	limit := 10
 	offset := 0
-	txns, err := client.Wallet.GetTransactions(ctx, &dominode.TransactionOptions{
+	txns, err := client.Wallet.GetTransactions(ctx, &dominusnode.TransactionOptions{
 		Limit:  &limit,
 		Offset: &offset,
 	})
@@ -234,7 +234,7 @@ func TestWallet_InsufficientBalance(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for insufficient balance")
 	}
-	var balanceErr *dominode.InsufficientBalanceError
+	var balanceErr *dominusnode.InsufficientBalanceError
 	if !errors.As(err, &balanceErr) {
 		t.Fatalf("expected InsufficientBalanceError, got %T: %v", err, err)
 	}

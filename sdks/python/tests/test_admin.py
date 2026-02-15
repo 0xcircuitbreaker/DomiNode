@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from dominode.admin import AdminResource
-from dominode.types import (
+from dominusnode.admin import AdminResource
+from dominusnode.types import (
     AdminUser,
     AdminUserDetail,
     AdminUsersResponse,

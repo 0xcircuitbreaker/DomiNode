@@ -1,3 +1,3 @@
-module github.com/dominode/dominode-go
+module github.com/dominusnode/dominusnode-go
 
 go 1.22

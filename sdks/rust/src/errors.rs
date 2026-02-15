@@ -1,8 +1,8 @@
 use thiserror::Error;
 
-/// All errors that can be returned by the DomiNode SDK.
+/// All errors that can be returned by the Dominus Node SDK.
 #[derive(Error, Debug)]
-pub enum DomiNodeError {
+pub enum DominusNodeError {
     /// The server rejected the provided credentials or token.
     #[error("Authentication failed: {0}")]
     Authentication(String),
@@ -55,4 +55,4 @@ pub enum DomiNodeError {
 }
 
 /// Convenience alias used throughout the SDK.
-pub type Result<T> = std::result::Result<T, DomiNodeError>;
+pub type Result<T> = std::result::Result<T, DominusNodeError>;

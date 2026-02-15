@@ -1,13 +1,13 @@
-// Package dominode provides a Go SDK for the DomiNode rotating proxy-as-a-service API.
+// Package dominusnode provides a Go SDK for the Dominus Node rotating proxy-as-a-service API.
 //
-// DomiNode is a proxy SaaS platform that provides rotating residential, datacenter,
+// Dominus Node is a proxy SaaS platform that provides rotating residential, datacenter,
 // and mobile proxies. This SDK supports authentication (API key and JWT), wallet
 // management, usage tracking, plan management, proxy URL building with geo-targeting,
 // and admin operations.
 //
 // Quick start with API key:
 //
-//	client := dominode.NewClient(dominode.Config{
+//	client := dominusnode.NewClient(dominusnode.Config{
 //	    BaseURL: "http://localhost:3000",
 //	})
 //	err := client.ConnectWithKey(ctx, "dn_live_YOUR_KEY")
@@ -18,7 +18,7 @@
 //
 // Quick start with credentials:
 //
-//	client := dominode.NewClient(dominode.Config{
+//	client := dominusnode.NewClient(dominusnode.Config{
 //	    BaseURL: "http://localhost:3000",
 //	})
 //	result, err := client.ConnectWithCredentials(ctx, "user@example.com", "password123")
@@ -28,7 +28,7 @@
 //	if result.MFARequired {
 //	    err = client.CompleteMFA(ctx, "123456")
 //	}
-package dominode
+package dominusnode
 
 import (
 	"fmt"
@@ -36,9 +36,9 @@ import (
 	"time"
 )
 
-// Config holds configuration options for the DomiNode client.
+// Config holds configuration options for the Dominus Node client.
 type Config struct {
-	// BaseURL is the base URL of the DomiNode API server.
+	// BaseURL is the base URL of the Dominus Node API server.
 	// Defaults to DefaultBaseURL if empty.
 	BaseURL string
 

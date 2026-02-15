@@ -54,7 +54,7 @@ function MfaView({ error, sendMessage }: MfaViewProps) {
     <div class="stack" style={{ padding: "16px" }}>
       <div style={{ textAlign: "center", padding: "8px 0" }}>
         <div style={{ fontSize: "20px", fontWeight: "700", color: "var(--accent)" }}>
-          DomiNode
+          Dominus Node
         </div>
         <div class="text-sm text-muted">Two-Factor Authentication</div>
       </div>
@@ -135,7 +135,7 @@ function LoginView({ error, sendMessage }: LoginViewProps) {
     <div class="stack" style={{ padding: "16px" }}>
       <div style={{ textAlign: "center", padding: "8px 0" }}>
         <div style={{ fontSize: "20px", fontWeight: "700", color: "var(--accent)" }}>
-          DomiNode
+          Dominus Node
         </div>
         <div class="text-sm text-muted">Residential Proxy Network</div>
       </div>
@@ -194,7 +194,7 @@ function LoginView({ error, sendMessage }: LoginViewProps) {
             required
           />
           <div class="text-sm text-muted">
-            Paste your API key from the DomiNode dashboard
+            Paste your API key from the Dominus Node dashboard
           </div>
           <button
             class="btn btn-primary btn-full"
@@ -255,7 +255,7 @@ function AuthenticatedView({ state, error, sendMessage }: AuthenticatedViewProps
     <div>
       {/* Header */}
       <div class="header">
-        <span class="header-title">DomiNode</span>
+        <span class="header-title">Dominus Node</span>
         <span class="header-email" title={state.email ?? "API Key"}>{state.email ?? "API Key"}</span>
       </div>
 

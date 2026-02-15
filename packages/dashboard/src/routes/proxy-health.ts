@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { createLogger } from "@dominode/shared";
+import { createLogger } from "@dominusnode/shared";
 import { requireAuth, type AuthenticatedRequest } from "../middleware/auth.js";
 
 const router = Router();
@@ -71,7 +71,7 @@ router.get("/health", async (_req, res) => {
 router.get("/status", requireAuth, async (req, res) => {
   const stats = await fetchProxyStats();
 
-  const proxyHost = process.env["PROXY_PUBLIC_HOST"] ?? "proxy.dominode.io";
+  const proxyHost = process.env["PROXY_PUBLIC_HOST"] ?? "proxy.dominusnode.io";
   const httpPort = process.env["PROXY_LISTEN_PORT"] ?? "8080";
   const socks5Port = process.env["SOCKS5_LISTEN_PORT"] ?? "1080";
 

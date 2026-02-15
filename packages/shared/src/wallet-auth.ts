@@ -27,7 +27,7 @@ export function buildSignMessage(
     `${domain} wants you to sign in with your Ethereum account:`,
     address,
     "",
-    "Sign in to DomiNode proxy service",
+    "Sign in to Dominus Node proxy service",
     "",
     `URI: https://${domain}`,
     `Nonce: ${nonce}`,
@@ -37,12 +37,12 @@ export function buildSignMessage(
 
 /** Convert a wallet address to a synthetic email for the users table */
 export function walletToSyntheticEmail(address: string): string {
-  return `${address.toLowerCase()}@wallet.dominode.io`;
+  return `${address.toLowerCase()}@wallet.dominusnode.io`;
 }
 
 /** Detect synthetic wallet emails */
 export function isWalletEmail(email: string): boolean {
-  return email.endsWith("@wallet.dominode.io");
+  return email.endsWith("@wallet.dominusnode.io");
 }
 
 /** Wallet challenge TTL in milliseconds (5 minutes) */

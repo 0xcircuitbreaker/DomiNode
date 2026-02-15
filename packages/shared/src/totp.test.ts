@@ -236,7 +236,7 @@ describe("totp", () => {
       const uri = buildTotpUri("JBSWY3DPEHPK3PXP", "user@example.com");
       expect(uri.startsWith("otpauth://totp/")).toBe(true);
       expect(uri).toContain("secret=JBSWY3DPEHPK3PXP");
-      expect(uri).toContain("issuer=DomiNode");
+      expect(uri).toMatch(/issuer=Dominus[+ ]Node/);
       expect(uri).toContain("algorithm=SHA1");
       expect(uri).toContain("digits=6");
       expect(uri).toContain("period=30");
@@ -244,8 +244,8 @@ describe("totp", () => {
 
     it("should include the email in the label", () => {
       const uri = buildTotpUri("ABCDEFGH", "test@domain.com");
-      // The label is URL-encoded: DomiNode:test@domain.com
-      expect(uri).toContain(encodeURIComponent("DomiNode:test@domain.com"));
+      // The label is URL-encoded: Dominus Node:test@domain.com
+      expect(uri).toContain(encodeURIComponent("Dominus Node:test@domain.com"));
     });
 
     it("should use custom issuer when provided", () => {
@@ -254,9 +254,9 @@ describe("totp", () => {
       expect(uri).toContain(encodeURIComponent("MyApp:test@domain.com"));
     });
 
-    it("should default issuer to DomiNode", () => {
+    it("should default issuer to Dominus Node", () => {
       const uri = buildTotpUri("ABCDEFGH", "test@domain.com");
-      expect(uri).toContain("issuer=DomiNode");
+      expect(uri).toMatch(/issuer=Dominus[+ ]Node/);
     });
 
     it("should handle special characters in email", () => {

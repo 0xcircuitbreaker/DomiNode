@@ -1,4 +1,4 @@
-# DomiNode + LangChain Integration Guide
+# Dominus Node + LangChain Integration Guide
 
 Add rotating proxy capabilities to your LangChain agents and chains.
 
@@ -6,27 +6,27 @@ Add rotating proxy capabilities to your LangChain agents and chains.
 
 ### Option 1: MCP Tool Integration
 
-Use DomiNode as an MCP tool server with LangChain's MCP adapter:
+Use Dominus Node as an MCP tool server with LangChain's MCP adapter:
 
 ```python
 from langchain_mcp_adapters.client import MultiServerMCPClient
 
 async with MultiServerMCPClient({
-    "dominode": {
+    "dominusnode": {
         "command": "npx",
-        "args": ["-y", "@dominode/mcp-server"],
+        "args": ["-y", "@dominusnode/mcp-server"],
         "env": {
-            "DOMINODE_API_KEY": "dn_live_your_key_here"
+            "DOMINUSNODE_API_KEY": "dn_live_your_key_here"
         }
     }
 }) as client:
     tools = client.get_tools()
-    # tools now includes dominode_fetch, dominode_get_balance, etc.
+    # tools now includes dominusnode_fetch, dominusnode_get_balance, etc.
 ```
 
 ### Option 2: Direct Proxy Integration
 
-Use DomiNode as a proxy for LangChain's web tools:
+Use Dominus Node as a proxy for LangChain's web tools:
 
 ```python
 import httpx
@@ -37,7 +37,7 @@ import httpx
 
 # Use a scoped httpx client for ONLY the requests that need the proxy:
 proxy_client = httpx.Client(
-    proxy="http://user:dn_live_KEY@proxy.dominode.io:8080",
+    proxy="http://user:dn_live_KEY@proxy.dominusnode.io:8080",
     timeout=30.0,
 )
 response = proxy_client.get("https://target-site.com")
@@ -45,7 +45,7 @@ response = proxy_client.get("https://target-site.com")
 
 ### Option 3: Custom Tool
 
-Create a LangChain tool that uses DomiNode for geo-targeted fetching:
+Create a LangChain tool that uses Dominus Node for geo-targeted fetching:
 
 ```python
 from langchain.tools import tool
@@ -55,13 +55,13 @@ from langchain_mcp_adapters.client import MultiServerMCPClient
 async def fetch_with_proxy(url: str, country: str = "US") -> str:
     """Fetch a URL through a rotating proxy from a specific country."""
     async with MultiServerMCPClient({
-        "dominode": {
+        "dominusnode": {
             "command": "npx",
-            "args": ["-y", "@dominode/mcp-server"],
-            "env": {"DOMINODE_API_KEY": os.environ["DOMINODE_API_KEY"]}
+            "args": ["-y", "@dominusnode/mcp-server"],
+            "env": {"DOMINUSNODE_API_KEY": os.environ["DOMINUSNODE_API_KEY"]}
         }
     }) as client:
-        result = await client.call_tool("dominode", "dominode_fetch", {
+        result = await client.call_tool("dominusnode", "dominusnode_fetch", {
             "url": url,
             "country": country
         })
@@ -78,10 +78,10 @@ from langchain_mcp_adapters.client import MultiServerMCPClient
 model = ChatAnthropic(model="claude-sonnet-4-5-20250929")
 
 async with MultiServerMCPClient({
-    "dominode": {
+    "dominusnode": {
         "command": "npx",
-        "args": ["-y", "@dominode/mcp-server"],
-        "env": {"DOMINODE_API_KEY": "dn_live_your_key_here"}
+        "args": ["-y", "@dominusnode/mcp-server"],
+        "env": {"DOMINUSNODE_API_KEY": "dn_live_your_key_here"}
     }
 }) as client:
     tools = client.get_tools()
@@ -100,37 +100,37 @@ Start without a key — let the agent create its own account:
 
 ```python
 async with MultiServerMCPClient({
-    "dominode": {
+    "dominusnode": {
         "command": "npx",
-        "args": ["-y", "@dominode/mcp-server"]
+        "args": ["-y", "@dominusnode/mcp-server"]
         # No API key — bootstrap mode
     }
 }) as client:
     tools = client.get_tools()
-    # Agent can call dominode_setup to create account
+    # Agent can call dominusnode_setup to create account
 ```
 
 ## Available Tools (24 total)
 
 ### Core Proxy
-- `dominode_fetch` — Fetch URL through rotating proxy with geo-targeting
+- `dominusnode_fetch` — Fetch URL through rotating proxy with geo-targeting
 
 ### Account Management
-- `dominode_setup` — One-shot account + API key creation
-- `dominode_register` — Create account
-- `dominode_login` — Login to existing account
-- `dominode_get_account_info` — Account details
+- `dominusnode_setup` — One-shot account + API key creation
+- `dominusnode_register` — Create account
+- `dominusnode_login` — Login to existing account
+- `dominusnode_get_account_info` — Account details
 
 ### Billing
-- `dominode_get_balance` — Wallet balance
-- `dominode_pay_crypto` — Pay with BTC/ETH/XMR/SOL/ZEC
-- `dominode_x402_info` — x402 pay-per-request info
-- `dominode_agent_wallet_create` — Coinbase Agentic Wallet
+- `dominusnode_get_balance` — Wallet balance
+- `dominusnode_pay_crypto` — Pay with BTC/ETH/XMR/SOL/ZEC
+- `dominusnode_x402_info` — x402 pay-per-request info
+- `dominusnode_agent_wallet_create` — Coinbase Agentic Wallet
 
 ### Monitoring
-- `dominode_get_usage` — Bandwidth usage summary
-- `dominode_get_active_sessions` — Active proxy sessions
-- `dominode_get_proxy_status` — Network health
+- `dominusnode_get_usage` — Bandwidth usage summary
+- `dominusnode_get_active_sessions` — Active proxy sessions
+- `dominusnode_get_proxy_status` — Network health
 
 ## Pricing
 

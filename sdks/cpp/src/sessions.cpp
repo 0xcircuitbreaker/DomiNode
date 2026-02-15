@@ -1,7 +1,7 @@
-#include "dominode/sessions.hpp"
-#include "dominode/http_client.hpp"
+#include "dominusnode/sessions.hpp"
+#include "dominusnode/http_client.hpp"
 
-namespace dominode {
+namespace dominusnode {
 
 SessionsResource::SessionsResource(HttpClient& http) : http_(http) {}
 
@@ -10,4 +10,4 @@ ActiveSessionsResult SessionsResource::get_active() {
     return resp.get<ActiveSessionsResult>();
 }
 
-} // namespace dominode
+} // namespace dominusnode

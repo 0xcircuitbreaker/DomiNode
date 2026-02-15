@@ -1,5 +1,5 @@
-#include "dominode/token_manager.hpp"
-#include "dominode/errors.hpp"
+#include "dominusnode/token_manager.hpp"
+#include "dominusnode/errors.hpp"
 
 #include <cassert>
 #include <cstdio>
@@ -103,27 +103,27 @@ static std::string make_jwt(int64_t exp) {
 // ─── Tests ──────────────────────────────────────────────────────────────────
 
 static void test_initial_state() {
-    dominode::TokenManager mgr;
+    dominusnode::TokenManager mgr;
     ASSERT_FALSE(mgr.has_access_token());
     ASSERT_FALSE(mgr.has_refresh_token());
 }
 
 static void test_set_tokens() {
-    dominode::TokenManager mgr;
+    dominusnode::TokenManager mgr;
     mgr.set_tokens("access_abc", "refresh_xyz");
     ASSERT_TRUE(mgr.has_access_token());
     ASSERT_TRUE(mgr.has_refresh_token());
 }
 
 static void test_set_access_only() {
-    dominode::TokenManager mgr;
+    dominusnode::TokenManager mgr;
     mgr.set_tokens("access_only");
     ASSERT_TRUE(mgr.has_access_token());
     ASSERT_FALSE(mgr.has_refresh_token());
 }
 
 static void test_clear_tokens() {
-    dominode::TokenManager mgr;
+    dominusnode::TokenManager mgr;
     mgr.set_tokens("access", "refresh");
     ASSERT_TRUE(mgr.has_access_token());
     mgr.clear();
@@ -132,19 +132,19 @@ static void test_clear_tokens() {
 }
 
 static void test_expired_empty_token() {
-    dominode::TokenManager mgr;
+    dominusnode::TokenManager mgr;
     ASSERT_TRUE(mgr.is_expired(""));
 }
 
 static void test_expired_garbage_token() {
-    dominode::TokenManager mgr;
+    dominusnode::TokenManager mgr;
     ASSERT_TRUE(mgr.is_expired("not.a.jwt"));
     ASSERT_TRUE(mgr.is_expired("garbage"));
     ASSERT_TRUE(mgr.is_expired("a.b"));
 }
 
 static void test_expired_token() {
-    dominode::TokenManager mgr;
+    dominusnode::TokenManager mgr;
     // Token that expired 1 hour ago
     int64_t past = static_cast<int64_t>(std::time(nullptr)) - 3600;
     std::string token = make_jwt(past);
@@ -152,7 +152,7 @@ static void test_expired_token() {
 }
 
 static void test_valid_token_not_expired() {
-    dominode::TokenManager mgr;
+    dominusnode::TokenManager mgr;
     // Token that expires 1 hour from now (well beyond the 60s buffer)
     int64_t future = static_cast<int64_t>(std::time(nullptr)) + 3600;
     std::string token = make_jwt(future);
@@ -160,7 +160,7 @@ static void test_valid_token_not_expired() {
 }
 
 static void test_token_within_buffer_is_expired() {
-    dominode::TokenManager mgr;
+    dominusnode::TokenManager mgr;
     // Token that expires in 30 seconds (within the 60s buffer)
     int64_t near_future = static_cast<int64_t>(std::time(nullptr)) + 30;
     std::string token = make_jwt(near_future);
@@ -168,7 +168,7 @@ static void test_token_within_buffer_is_expired() {
 }
 
 static void test_get_valid_token_returns_valid() {
-    dominode::TokenManager mgr;
+    dominusnode::TokenManager mgr;
     int64_t future = static_cast<int64_t>(std::time(nullptr)) + 3600;
     std::string token = make_jwt(future);
     mgr.set_tokens(token);
@@ -178,21 +178,21 @@ static void test_get_valid_token_returns_valid() {
 }
 
 static void test_get_valid_token_throws_when_expired_no_refresh() {
-    dominode::TokenManager mgr;
+    dominusnode::TokenManager mgr;
     int64_t past = static_cast<int64_t>(std::time(nullptr)) - 3600;
     std::string token = make_jwt(past);
     mgr.set_tokens(token);
 
-    ASSERT_THROWS(mgr.get_valid_token(), dominode::AuthenticationError);
+    ASSERT_THROWS(mgr.get_valid_token(), dominusnode::AuthenticationError);
 }
 
 static void test_get_valid_token_throws_when_no_token() {
-    dominode::TokenManager mgr;
-    ASSERT_THROWS(mgr.get_valid_token(), dominode::AuthenticationError);
+    dominusnode::TokenManager mgr;
+    ASSERT_THROWS(mgr.get_valid_token(), dominusnode::AuthenticationError);
 }
 
 static void test_refresh_called_when_expired() {
-    dominode::TokenManager mgr;
+    dominusnode::TokenManager mgr;
 
     // Set an expired access token and a refresh token
     int64_t past = static_cast<int64_t>(std::time(nullptr)) - 3600;
@@ -204,10 +204,10 @@ static void test_refresh_called_when_expired() {
 
     bool refresh_called = false;
     mgr.set_refresh_function(
-        [&](const std::string& rt) -> dominode::RefreshResult {
+        [&](const std::string& rt) -> dominusnode::RefreshResult {
             refresh_called = true;
             ASSERT_EQ(rt, "refresh_token_123");
-            return dominode::RefreshResult{new_token, "new_refresh_456"};
+            return dominusnode::RefreshResult{new_token, "new_refresh_456"};
         });
 
     std::string result = mgr.get_valid_token();
@@ -216,7 +216,7 @@ static void test_refresh_called_when_expired() {
 }
 
 static void test_refresh_rotates_refresh_token() {
-    dominode::TokenManager mgr;
+    dominusnode::TokenManager mgr;
 
     int64_t past = static_cast<int64_t>(std::time(nullptr)) - 3600;
     int64_t future = static_cast<int64_t>(std::time(nullptr)) + 3600;
@@ -225,8 +225,8 @@ static void test_refresh_rotates_refresh_token() {
 
     mgr.set_tokens(expired_token, "old_refresh");
     mgr.set_refresh_function(
-        [&](const std::string& /* rt */) -> dominode::RefreshResult {
-            return dominode::RefreshResult{new_access, "rotated_refresh"};
+        [&](const std::string& /* rt */) -> dominusnode::RefreshResult {
+            return dominusnode::RefreshResult{new_access, "rotated_refresh"};
         });
 
     mgr.get_valid_token();
@@ -240,16 +240,16 @@ static void test_refresh_rotates_refresh_token() {
 
     mgr.set_tokens(expired2);  // Overwrite access but keep refresh
     mgr.set_refresh_function(
-        [&](const std::string& rt) -> dominode::RefreshResult {
+        [&](const std::string& rt) -> dominusnode::RefreshResult {
             ASSERT_EQ(rt, "rotated_refresh");  // Should use the rotated token
-            return dominode::RefreshResult{new_access2, ""};
+            return dominusnode::RefreshResult{new_access2, ""};
         });
 
     mgr.get_valid_token();
 }
 
 static void test_overwrite_tokens() {
-    dominode::TokenManager mgr;
+    dominusnode::TokenManager mgr;
     int64_t future = static_cast<int64_t>(std::time(nullptr)) + 3600;
     std::string token1 = make_jwt(future);
     std::string token2 = make_jwt(future + 100);

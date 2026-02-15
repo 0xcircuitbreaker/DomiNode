@@ -1,4 +1,4 @@
-#include "dominode/dominode.hpp"
+#include "dominusnode/dominusnode.hpp"
 
 #include <cassert>
 #include <cstdio>
@@ -46,61 +46,61 @@ static int tests_failed = 0;
 // which does not make network calls.
 
 static void test_build_url_default() {
-    dominode::DomiNodeClient client;
+    dominusnode::DominusNodeClient client;
     auto url = client.proxy().build_url("dn_live_abc123");
-    ASSERT_EQ(url, "http://user:dn_live_abc123@proxy.dominode.io:8080");
+    ASSERT_EQ(url, "http://user:dn_live_abc123@proxy.dominusnode.io:8080");
 }
 
 static void test_build_url_socks5() {
-    dominode::DomiNodeClient client;
-    dominode::ProxyUrlOptions opts;
+    dominusnode::DominusNodeClient client;
+    dominusnode::ProxyUrlOptions opts;
     opts.protocol = "socks5";
     auto url = client.proxy().build_url("dn_live_abc123", opts);
-    ASSERT_EQ(url, "socks5://user:dn_live_abc123@proxy.dominode.io:1080");
+    ASSERT_EQ(url, "socks5://user:dn_live_abc123@proxy.dominusnode.io:1080");
 }
 
 static void test_build_url_with_country() {
-    dominode::DomiNodeClient client;
-    dominode::ProxyUrlOptions opts;
+    dominusnode::DominusNodeClient client;
+    dominusnode::ProxyUrlOptions opts;
     opts.country = "US";
     auto url = client.proxy().build_url("dn_live_key1", opts);
-    ASSERT_EQ(url, "http://user-country_US:dn_live_key1@proxy.dominode.io:8080");
+    ASSERT_EQ(url, "http://user-country_US:dn_live_key1@proxy.dominusnode.io:8080");
 }
 
 static void test_build_url_with_geo_targeting() {
-    dominode::DomiNodeClient client;
-    dominode::ProxyUrlOptions opts;
+    dominusnode::DominusNodeClient client;
+    dominusnode::ProxyUrlOptions opts;
     opts.country = "US";
     opts.state = "CA";
     opts.city = "LosAngeles";
     auto url = client.proxy().build_url("dn_live_key1", opts);
-    ASSERT_EQ(url, "http://user-country_US-state_CA-city_LosAngeles:dn_live_key1@proxy.dominode.io:8080");
+    ASSERT_EQ(url, "http://user-country_US-state_CA-city_LosAngeles:dn_live_key1@proxy.dominusnode.io:8080");
 }
 
 static void test_build_url_with_session() {
-    dominode::DomiNodeClient client;
-    dominode::ProxyUrlOptions opts;
+    dominusnode::DominusNodeClient client;
+    dominusnode::ProxyUrlOptions opts;
     opts.session_id = "sess_abc123";
     auto url = client.proxy().build_url("dn_live_key1", opts);
-    ASSERT_EQ(url, "http://user-session_sess_abc123:dn_live_key1@proxy.dominode.io:8080");
+    ASSERT_EQ(url, "http://user-session_sess_abc123:dn_live_key1@proxy.dominusnode.io:8080");
 }
 
 static void test_build_url_with_asn() {
-    dominode::DomiNodeClient client;
-    dominode::ProxyUrlOptions opts;
+    dominusnode::DominusNodeClient client;
+    dominusnode::ProxyUrlOptions opts;
     opts.asn = 15169;
     auto url = client.proxy().build_url("dn_live_key1", opts);
-    ASSERT_EQ(url, "http://user-asn_15169:dn_live_key1@proxy.dominode.io:8080");
+    ASSERT_EQ(url, "http://user-asn_15169:dn_live_key1@proxy.dominusnode.io:8080");
 }
 
 static void test_build_url_all_options() {
-    dominode::ClientConfig cfg;
+    dominusnode::ClientConfig cfg;
     cfg.proxy_host = "myproxy.example.com";
     cfg.http_proxy_port = 9090;
     cfg.socks5_proxy_port = 2080;
-    dominode::DomiNodeClient client(cfg);
+    dominusnode::DominusNodeClient client(cfg);
 
-    dominode::ProxyUrlOptions opts;
+    dominusnode::ProxyUrlOptions opts;
     opts.protocol = "socks5";
     opts.country = "DE";
     opts.state = "BY";
@@ -113,18 +113,18 @@ static void test_build_url_all_options() {
 }
 
 static void test_build_url_custom_host_port() {
-    dominode::ClientConfig cfg;
+    dominusnode::ClientConfig cfg;
     cfg.proxy_host = "localhost";
     cfg.http_proxy_port = 3128;
-    dominode::DomiNodeClient client(cfg);
+    dominusnode::DominusNodeClient client(cfg);
 
     auto url = client.proxy().build_url("dn_live_test");
     ASSERT_EQ(url, "http://user:dn_live_test@localhost:3128");
 }
 
 static void test_proxy_resource_accessors() {
-    dominode::DomiNodeClient client;
-    ASSERT_EQ(client.proxy().proxy_host(), "proxy.dominode.io");
+    dominusnode::DominusNodeClient client;
+    ASSERT_EQ(client.proxy().proxy_host(), "proxy.dominusnode.io");
     ASSERT_EQ(client.proxy().http_proxy_port(), 8080);
     ASSERT_EQ(client.proxy().socks5_proxy_port(), 1080);
 }

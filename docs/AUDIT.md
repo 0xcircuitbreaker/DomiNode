@@ -1,4 +1,4 @@
-# DomiNode Production Readiness Audit
+# Dominus Node Production Readiness Audit
 
 **Date:** February 9, 2026 (Updated after Production Readiness Phase)
 **Scope:** Full system -- backend (6 packages), frontend, browser extension, 4 SDKs, infrastructure, deployment
@@ -28,7 +28,7 @@
 
 ## Executive Summary
 
-DomiNode is a feature-complete rotating proxy-as-a-service platform with strong security fundamentals (10 audit rounds, all CRITICAL/HIGH findings fixed), comprehensive test coverage (1,152 tests across backend, frontend, extension, and SDKs), production-ready containerization (3 Dockerfiles, docker-compose.prod.yml, nginx), CI/CD pipelines (3 GitHub Actions workflows), and a well-architected TypeScript monorepo.
+Dominus Node is a feature-complete rotating proxy-as-a-service platform with strong security fundamentals (10 audit rounds, all CRITICAL/HIGH findings fixed), comprehensive test coverage (1,152 tests across backend, frontend, extension, and SDKs), production-ready containerization (3 Dockerfiles, docker-compose.prod.yml, nginx), CI/CD pipelines (3 GitHub Actions workflows), and a well-architected TypeScript monorepo.
 
 The platform has undergone a Production Readiness phase that addressed the most critical infrastructure gaps: Dockerfiles, CI/CD, startup env validation, database connection retry with exponential backoff, audit logging schema, data retention policies, and comprehensive test coverage for all components.
 
@@ -62,7 +62,7 @@ The remaining gaps are operational: monitoring stack (Prometheus/Grafana), secre
 ## Folder Structure & Component Overview
 
 ```
-DomiNode/
+Dominus Node/
 ├── ARCHITECTURE.md              # 1,050+ lines -- full technical architecture
 ├── CLAUDE.md                    # Project instructions and context
 ├── docker-compose.yml           # PostgreSQL 16 (dev only)
@@ -249,7 +249,7 @@ Browser                     Frontend (React SPA)         Dashboard (Express API)
 
 ### Overall Security Grade: A (9/10)
 
-DomiNode has undergone **10 comprehensive security audit rounds** with all CRITICAL and HIGH findings remediated. The security posture is strong.
+Dominus Node has undergone **10 comprehensive security audit rounds** with all CRITICAL and HIGH findings remediated. The security posture is strong.
 
 ### What's Well-Implemented
 
@@ -634,7 +634,7 @@ INFRASTRUCTURE
 [x] docker-compose.prod.yml with all services, resource limits, health checks
 [x] nginx config with API proxy, security headers, gzip, SPA fallback
 [ ] TLS termination (Let's Encrypt) configured for production domain
-[ ] DNS configured (api.dominode.io, proxy.dominode.io)
+[ ] DNS configured (api.dominusnode.io, proxy.dominusnode.io)
 [ ] Firewall rules: only 80/443 (public), 8080/1080 (proxy), 5432 (internal)
 [x] Process management via Docker restart policies (systemd docs available)
 
@@ -754,10 +754,10 @@ With a focused team: **3-4 weeks** to production readiness (down from 4-6 weeks 
                                           |
                     +---------------------v-----------------------+
                     |    nginx (TLS termination, reverse proxy)    |
-                    |    api.dominode.io -> dashboard:3000          |
-                    |    app.dominode.io -> frontend static files   |
-                    |    proxy.dominode.io:8080 -> proxy HTTP       |
-                    |    proxy.dominode.io:1080 -> proxy SOCKS5     |
+                    |    api.dominusnode.io -> dashboard:3000          |
+                    |    app.dominusnode.io -> frontend static files   |
+                    |    proxy.dominusnode.io:8080 -> proxy HTTP       |
+                    |    proxy.dominusnode.io:1080 -> proxy SOCKS5     |
                     +--+----------+----------+--------------------+
                        |          |          |
                +-------v--+  +---v----+  +--v-----------+
@@ -801,7 +801,7 @@ With a focused team: **3-4 weeks** to production readiness (down from 4-6 weeks 
 
 ## Conclusion
 
-DomiNode has made significant progress since the initial audit. The Production Readiness Phase addressed the most critical gaps:
+Dominus Node has made significant progress since the initial audit. The Production Readiness Phase addressed the most critical gaps:
 
 **Before:** 780 tests, no Dockerfiles, no CI/CD, no startup validation, no frontend/extension/SDK tests = **46% ready**
 

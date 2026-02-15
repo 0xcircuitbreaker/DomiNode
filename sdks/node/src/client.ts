@@ -9,9 +9,9 @@ import { SessionsResource } from "./sessions.js";
 import { ProxyResource } from "./proxy.js";
 import { AdminResource } from "./admin.js";
 import { DEFAULT_BASE_URL } from "./constants.js";
-import type { DomiNodeConfig, LoginResult } from "./types.js";
+import type { Dominus NodeConfig, LoginResult } from "./types.js";
 
-export class DomiNodeClient {
+export class DominusNodeClient {
   public readonly auth: AuthResource;
   public readonly keys: KeysResource;
   public readonly wallet: WalletResource;
@@ -24,7 +24,7 @@ export class DomiNodeClient {
   private tokenManager: TokenManager;
   private http: HttpClient;
 
-  constructor(config: DomiNodeConfig = {}) {
+  constructor(config: Dominus NodeConfig = {}) {
     const baseUrl = config.baseUrl ?? DEFAULT_BASE_URL;
     this.tokenManager = new TokenManager();
     this.http = new HttpClient(baseUrl, this.tokenManager);

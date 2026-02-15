@@ -25,7 +25,7 @@ import {
   buildTotpUri,
   generateBackupCodes,
   hashBackupCode,
-} from "@dominode/shared";
+} from "@dominusnode/shared";
 import { requireAuth, type AuthenticatedRequest } from "../middleware/auth.js";
 import { setAuthCookies, clearAuthCookies, getRefreshCookieName } from "../helpers/cookies.js";
 
@@ -360,7 +360,7 @@ router.post("/login", async (req, res) => {
 
       if (isBrowserClient(req)) {
         // Set challenge token as cookie for browser clients
-        res.cookie("dominode_mfa_challenge", challengeToken, {
+        res.cookie("dominusnode_mfa_challenge", challengeToken, {
           httpOnly: true,
           secure: process.env.NODE_ENV === "production",
           sameSite: "strict",
@@ -654,7 +654,7 @@ router.post("/verify-key", async (req, res) => {
 
 // ─── MFA Endpoints ──────────────────────────────────────────────────
 
-const MFA_CHALLENGE_COOKIE = "dominode_mfa_challenge";
+const MFA_CHALLENGE_COOKIE = "dominusnode_mfa_challenge";
 
 // MFA brute-force protection: max 5 failed attempts per userId per 5-minute window
 const MAX_MFA_ATTEMPTS = 5;

@@ -1,5 +1,5 @@
 import Stripe from "stripe";
-import { walletRepo, invoiceRepo, createLogger } from "@dominode/shared";
+import { walletRepo, invoiceRepo, createLogger } from "@dominusnode/shared";
 
 const log = createLogger("billing:stripe");
 
@@ -63,7 +63,7 @@ export async function createCheckoutSession(
           currency: "usd",
           unit_amount: amountCents,
           product_data: {
-            name: "DomiNode Wallet Top-Up",
+            name: "Dominus Node Wallet Top-Up",
             description: `Add $${(amountCents / 100).toFixed(2)} to your proxy balance`,
           },
         },

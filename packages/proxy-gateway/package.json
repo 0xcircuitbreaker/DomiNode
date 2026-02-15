@@ -1,5 +1,5 @@
 {
-  "name": "@dominode/proxy-gateway",
+  "name": "@dominusnode/proxy-gateway",
   "version": "0.1.0",
   "private": true,
   "main": "dist/src/index.js",
@@ -10,9 +10,9 @@
     "clean": "tsc --build --clean && rm -rf dist"
   },
   "dependencies": {
-    "@dominode/shared": "*",
-    "@dominode/pool-manager": "*",
-    "@dominode/metering": "*",
+    "@dominusnode/shared": "*",
+    "@dominusnode/pool-manager": "*",
+    "@dominusnode/metering": "*",
     "dotenv": "^16.4.7",
     "geoip-lite": "^1.4.10"
   },

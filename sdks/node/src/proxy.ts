@@ -1,5 +1,5 @@
 import type { HttpClient } from "./http.js";
-import type { ProxyUrlOptions, ProxyHealth, ProxyConfig, DomiNodeConfig } from "./types.js";
+import type { ProxyUrlOptions, ProxyHealth, ProxyConfig, Dominus NodeConfig } from "./types.js";
 import {
   DEFAULT_PROXY_HOST,
   DEFAULT_HTTP_PROXY_PORT,
@@ -39,7 +39,7 @@ export class ProxyResource {
   private httpPort: number;
   private socks5Port: number;
 
-  constructor(private http: HttpClient, config: DomiNodeConfig) {
+  constructor(private http: HttpClient, config: Dominus NodeConfig) {
     this.proxyHost = config.proxyHost ?? DEFAULT_PROXY_HOST;
     this.httpPort = config.httpProxyPort ?? DEFAULT_HTTP_PROXY_PORT;
     this.socks5Port = config.socks5ProxyPort ?? DEFAULT_SOCKS5_PROXY_PORT;
@@ -59,10 +59,10 @@ export class ProxyResource {
    * @example
    * ```ts
    * const url = client.proxy.buildUrl("dn_live_abc123");
-   * // => "http://user:dn_live_abc123@proxy.dominode.io:8080"
+   * // => "http://user:dn_live_abc123@proxy.dominusnode.io:8080"
    *
    * const socksUrl = client.proxy.buildUrl("dn_live_abc123", { protocol: "socks5", country: "US" });
-   * // => "socks5://user-country_US:dn_live_abc123@proxy.dominode.io:1080"
+   * // => "socks5://user-country_US:dn_live_abc123@proxy.dominusnode.io:1080"
    * ```
    */
   buildUrl(apiKey: string, opts?: ProxyUrlOptions): string {

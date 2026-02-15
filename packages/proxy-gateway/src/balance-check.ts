@@ -1,4 +1,4 @@
-import { walletRepo } from "@dominode/shared";
+import { walletRepo } from "@dominusnode/shared";
 
 interface CacheEntry {
   balanceCents: number;

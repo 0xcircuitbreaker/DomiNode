@@ -26,7 +26,7 @@ fn now_secs() -> u64 {
 // We use the token_manager module's is_expired through the public struct.
 // Since TokenManager is pub(crate), we can't construct it directly from
 // integration tests. However, is_expired is a public associated function.
-// We'll test it by using DomiNodeClient and accessing the token manager
+// We'll test it by using DominusNodeClient and accessing the token manager
 // indirectly, or by re-implementing the JWT check logic for testing.
 //
 // Actually, the is_expired function IS public (`pub fn is_expired`), so we

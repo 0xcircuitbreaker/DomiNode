@@ -4,7 +4,7 @@
  * but is no longer used by server.ts or socks5.ts.
  */
 
-import { createLogger } from "@dominode/shared";
+import { createLogger } from "@dominusnode/shared";
 
 const log = createLogger("proxy:circuit-breaker");
 

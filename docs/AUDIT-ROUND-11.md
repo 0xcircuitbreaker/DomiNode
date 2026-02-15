@@ -1,4 +1,4 @@
-# DomiNode Security Audit — Round 11
+# Dominus Node Security Audit — Round 11
 
 **Date:** 2026-02-09
 **Scope:** Full codebase — backend (6 packages), frontend, browser extension, 4 SDKs, infrastructure (Docker, nginx, CI/CD)
@@ -131,7 +131,7 @@ All **8 CRITICAL** and **20 HIGH** findings have been **fixed** in this round.
 
 ### H-14: Extension apiBase Initialized to DEV_API_BASE (EXT-H-1)
 **Issue:** `apiBase` defaulted to `DEV_API_BASE` (`http://localhost:3000`) creating a startup race condition where requests could go over HTTP.
-**Fix:** Changed initialization to `DEFAULT_API_BASE` (`https://proxy.dominode.io`).
+**Fix:** Changed initialization to `DEFAULT_API_BASE` (`https://proxy.dominusnode.io`).
 
 ### H-15: Python SDK Admin URL-Encoding (SDK-PY-H-1)
 **Issue:** Admin resource used f-strings without URL-encoding user IDs — path traversal risk.
@@ -204,7 +204,7 @@ Frontend:  vitest (frontend)    → 61/61 passed
 | `packages/extension/src/shared/state.ts` | Don't read auth from storage.local fallback |
 | `packages/extension/src/shared/api-client.ts` | Initialize apiBase to HTTPS production URL |
 | `sdks/rust/src/http_client.rs` | Retry-after cap 10s, default 5s |
-| `sdks/python/dominode/admin.py` | URL-encode user IDs in admin paths |
+| `sdks/python/dominusnode/admin.py` | URL-encode user IDs in admin paths |
 | `docker-compose.prod.yml` | Remove PG port, add networks, container hardening, MFA key required |
 | `infra/nginx/default.conf` | HSTS, rate limiting, server_tokens off, security headers |
 | `.github/workflows/security.yml` | Make audit-ci blocking |

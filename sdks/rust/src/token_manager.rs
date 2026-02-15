@@ -9,7 +9,7 @@ use tokio::sync::Mutex;
 use tracing::debug;
 
 use crate::constants::TOKEN_REFRESH_BUFFER_SECS;
-use crate::errors::{DomiNodeError, Result};
+use crate::errors::{DominusNodeError, Result};
 use crate::types::TokenPair;
 
 /// A refresh callback that takes a refresh token string and returns a future
@@ -80,7 +80,7 @@ impl TokenManager {
             self.refresh_lock.lock(),
         )
         .await
-        .map_err(|_| DomiNodeError::Authentication("Token refresh lock timed out".into()))?;
+        .map_err(|_| DominusNodeError::Authentication("Token refresh lock timed out".into()))?;
 
         // Re-check after acquiring lock (another caller may have refreshed).
         {
@@ -109,7 +109,7 @@ impl TokenManager {
                 *self.refresh_token.lock().await = Some(pair.refresh_token);
                 Ok(pair.access_token)
             }
-            _ => Err(DomiNodeError::Authentication(
+            _ => Err(DominusNodeError::Authentication(
                 "No valid token and cannot refresh".to_string(),
             )),
         }
@@ -162,7 +162,7 @@ impl TokenManager {
             self.refresh_lock.lock(),
         )
         .await
-        .map_err(|_| DomiNodeError::Authentication("Token refresh lock timed out".into()))?;
+        .map_err(|_| DominusNodeError::Authentication("Token refresh lock timed out".into()))?;
 
         let rt = {
             let guard = self.refresh_token.lock().await;
@@ -181,7 +181,7 @@ impl TokenManager {
                 *self.refresh_token.lock().await = Some(pair.refresh_token);
                 Ok(pair.access_token)
             }
-            _ => Err(DomiNodeError::Authentication(
+            _ => Err(DominusNodeError::Authentication(
                 "No valid token and cannot refresh".to_string(),
             )),
         }

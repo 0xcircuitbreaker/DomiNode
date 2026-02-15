@@ -1,6 +1,6 @@
 import * as crypto from "node:crypto";
-import { walletRepo, invoiceRepo, createLogger, SUPPORTED_CRYPTO } from "@dominode/shared";
-import type { SupportedCrypto } from "@dominode/shared";
+import { walletRepo, invoiceRepo, createLogger, SUPPORTED_CRYPTO } from "@dominusnode/shared";
+import type { SupportedCrypto } from "@dominusnode/shared";
 
 const log = createLogger("billing:nowpayments");
 
@@ -52,7 +52,7 @@ export async function createCryptoInvoice(
       price_currency: "usd",
       pay_currency: payCurrency,
       order_id: orderId,
-      order_description: `DomiNode wallet top-up $${amountUsd.toFixed(2)}`,
+      order_description: `Dominus Node wallet top-up $${amountUsd.toFixed(2)}`,
       is_fixed_rate: true,
     }),
   });

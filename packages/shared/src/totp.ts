@@ -117,7 +117,7 @@ export function generateTotpCode(secret: Buffer, nowMs?: number): string {
 
 // ─── OTPAuth URI ────────────────────────────────────────────────────
 
-export function buildTotpUri(base32Secret: string, email: string, issuer = "DomiNode"): string {
+export function buildTotpUri(base32Secret: string, email: string, issuer = "Dominus Node"): string {
   const label = encodeURIComponent(`${issuer}:${email}`);
   const params = new URLSearchParams({
     secret: base32Secret,

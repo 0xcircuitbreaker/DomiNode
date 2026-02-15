@@ -9,7 +9,7 @@ function formatBytes(bytes: number): string {
 
 export function registerPlansTools(server: McpServer, httpClient: HttpClient): void {
   server.tool(
-    "dominode_get_plan",
+    "dominusnode_get_plan",
     "Get current plan details including monthly usage and bandwidth limits.",
     {},
     async () => {
@@ -33,7 +33,7 @@ export function registerPlansTools(server: McpServer, httpClient: HttpClient): v
   );
 
   server.tool(
-    "dominode_list_plans",
+    "dominusnode_list_plans",
     "List all available pricing plans with bandwidth, connection limits, and features.",
     {},
     async () => {

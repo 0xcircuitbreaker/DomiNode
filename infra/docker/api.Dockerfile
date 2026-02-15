@@ -1,4 +1,4 @@
-# DomiNode API Server
+# Dominus Node API Server
 # Multi-stage build for minimal production image
 
 # ─── Stage 1: Build ─────────────────────────────────────────────────
@@ -29,28 +29,28 @@ RUN cp packages/shared/src/schema.sql packages/shared/dist/src/schema.sql
 # ─── Stage 2: Runtime ───────────────────────────────────────────────
 FROM node:22-alpine
 
-RUN addgroup -g 1001 -S dominode && \
-    adduser -S dominode -u 1001 -G dominode
+RUN addgroup -g 1001 -S dominusnode && \
+    adduser -S dominusnode -u 1001 -G dominusnode
 
 WORKDIR /app
 
 # Copy built artifacts
-COPY --from=builder --chown=dominode:dominode /app/package.json /app/package-lock.json ./
-COPY --from=builder --chown=dominode:dominode /app/packages/shared/package.json packages/shared/package.json
-COPY --from=builder --chown=dominode:dominode /app/packages/shared/dist packages/shared/dist
-COPY --from=builder --chown=dominode:dominode /app/packages/metering/package.json packages/metering/package.json
-COPY --from=builder --chown=dominode:dominode /app/packages/metering/dist packages/metering/dist
-COPY --from=builder --chown=dominode:dominode /app/packages/billing/package.json packages/billing/package.json
-COPY --from=builder --chown=dominode:dominode /app/packages/billing/dist packages/billing/dist
-COPY --from=builder --chown=dominode:dominode /app/packages/pool-manager/package.json packages/pool-manager/package.json
-COPY --from=builder --chown=dominode:dominode /app/packages/pool-manager/dist packages/pool-manager/dist
-COPY --from=builder --chown=dominode:dominode /app/packages/dashboard/package.json packages/dashboard/package.json
-COPY --from=builder --chown=dominode:dominode /app/packages/dashboard/dist packages/dashboard/dist
+COPY --from=builder --chown=dominusnode:dominusnode /app/package.json /app/package-lock.json ./
+COPY --from=builder --chown=dominusnode:dominusnode /app/packages/shared/package.json packages/shared/package.json
+COPY --from=builder --chown=dominusnode:dominusnode /app/packages/shared/dist packages/shared/dist
+COPY --from=builder --chown=dominusnode:dominusnode /app/packages/metering/package.json packages/metering/package.json
+COPY --from=builder --chown=dominusnode:dominusnode /app/packages/metering/dist packages/metering/dist
+COPY --from=builder --chown=dominusnode:dominusnode /app/packages/billing/package.json packages/billing/package.json
+COPY --from=builder --chown=dominusnode:dominusnode /app/packages/billing/dist packages/billing/dist
+COPY --from=builder --chown=dominusnode:dominusnode /app/packages/pool-manager/package.json packages/pool-manager/package.json
+COPY --from=builder --chown=dominusnode:dominusnode /app/packages/pool-manager/dist packages/pool-manager/dist
+COPY --from=builder --chown=dominusnode:dominusnode /app/packages/dashboard/package.json packages/dashboard/package.json
+COPY --from=builder --chown=dominusnode:dominusnode /app/packages/dashboard/dist packages/dashboard/dist
 
 # Install production dependencies (bcrypt native module needs install scripts)
 RUN npm ci --omit=dev
 
-USER dominode
+USER dominusnode
 
 EXPOSE 3000
 

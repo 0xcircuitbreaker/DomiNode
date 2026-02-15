@@ -1,11 +1,11 @@
-#include "dominode/admin.hpp"
-#include "dominode/http_client.hpp"
+#include "dominusnode/admin.hpp"
+#include "dominusnode/http_client.hpp"
 
 #include <cctype>
 #include <iomanip>
 #include <sstream>
 
-namespace dominode {
+namespace dominusnode {
 
 // URL-encode a path segment (same approach as keys.cpp)
 static std::string url_encode(const std::string& value) {
@@ -89,4 +89,4 @@ SystemStats AdminResource::get_stats() {
     return resp.get<SystemStats>();
 }
 
-} // namespace dominode
+} // namespace dominusnode

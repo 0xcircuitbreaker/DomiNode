@@ -4,9 +4,9 @@ import helmet from "helmet";
 import cookieParser from "cookie-parser";
 import rateLimit from "express-rate-limit";
 import * as crypto from "node:crypto";
-import { createLogger, query } from "@dominode/shared";
+import { createLogger, query } from "@dominusnode/shared";
 
-import { refreshTokenRepo } from "@dominode/shared";
+import { refreshTokenRepo } from "@dominusnode/shared";
 import webhookRoutes from "./routes/webhooks.js";
 import authRoutes from "./routes/auth.js";
 import keyRoutes from "./routes/keys.js";
@@ -152,7 +152,7 @@ export function startApiServer(port: number = 3000): ReturnType<express.Express[
     }
     // CSRF is only a risk when auth cookies are present (auto-sent by browser).
     // Requests without cookies are from extension/API clients — no CSRF risk.
-    const hasAuthCookie = !!req.cookies?.dominode_access || !!req.cookies?.dominode_refresh;
+    const hasAuthCookie = !!req.cookies?.dominusnode_access || !!req.cookies?.dominusnode_refresh;
     if (!hasAuthCookie) {
       next();
       return;
@@ -202,7 +202,7 @@ export function startApiServer(port: number = 3000): ReturnType<express.Express[
   app.get("/.well-known/security.txt", (_req, res) => {
     const expires = new Date(Date.now() + 180 * 24 * 60 * 60 * 1000).toISOString();
     res.type("text/plain").send(
-      `Contact: mailto:security@dominode.io\n` +
+      `Contact: mailto:security@dominusnode.io\n` +
       `Expires: ${expires}\n` +
       `Preferred-Languages: en\n`
     );
@@ -212,9 +212,9 @@ export function startApiServer(port: number = 3000): ReturnType<express.Express[
   app.get("/api/health", async (_req, res) => {
     try {
       await query("SELECT 1");
-      res.json({ status: "ok", service: "dominode-api", db: "connected" });
+      res.json({ status: "ok", service: "dominusnode-api", db: "connected" });
     } catch {
-      res.status(503).json({ status: "error", service: "dominode-api", db: "disconnected" });
+      res.status(503).json({ status: "error", service: "dominusnode-api", db: "disconnected" });
     }
   });
 

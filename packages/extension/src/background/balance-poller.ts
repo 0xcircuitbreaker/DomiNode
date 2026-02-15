@@ -45,7 +45,7 @@ export async function pollBalance(): Promise<void> {
       chrome.notifications.create("zero-balance", {
         type: "basic",
         iconUrl: "icons/icon128.png",
-        title: "DomiNode",
+        title: "Dominus Node",
         message: "Proxy disabled — wallet balance is $0.00. Please top up.",
       });
     } catch {
@@ -65,7 +65,7 @@ export async function pollBalance(): Promise<void> {
       chrome.notifications.create("low-balance", {
         type: "basic",
         iconUrl: "icons/icon128.png",
-        title: "DomiNode",
+        title: "Dominus Node",
         message: `Low balance: $${(balance / 100).toFixed(2)} remaining.`,
       });
     } catch {

@@ -4,14 +4,14 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
-    <groupId>io.dominode</groupId>
-    <artifactId>dominode-sdk</artifactId>
+    <groupId>io.dominusnode</groupId>
+    <artifactId>dominusnode-sdk</artifactId>
     <version>1.0.0</version>
     <packaging>jar</packaging>
 
-    <name>DomiNode Java SDK</name>
-    <description>Java SDK for DomiNode proxy-as-a-service platform</description>
-    <url>https://dominode.io</url>
+    <name>Dominus Node Java SDK</name>
+    <description>Java SDK for Dominus Node proxy-as-a-service platform</description>
+    <url>https://dominusnode.io</url>
 
     <properties>
         <maven.compiler.source>11</maven.compiler.source>

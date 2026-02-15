@@ -1,4 +1,4 @@
-package dominode
+package dominusnode
 
 import (
 	"context"
@@ -139,18 +139,18 @@ func (tm *tokenManager) getValidToken(ctx context.Context) (string, error) {
 			token := tm.accessToken
 			tm.mu.Unlock()
 			if token == "" {
-				return "", &AuthenticationError{DomiNodeError{Message: "Token refresh failed", StatusCode: 401}}
+				return "", &AuthenticationError{DominusNodeError{Message: "Token refresh failed", StatusCode: 401}}
 			}
 			return token, nil
 		case <-ctx.Done():
-			return "", &NetworkError{DomiNodeError{Message: "Context cancelled while waiting for token refresh", Err: ctx.Err()}}
+			return "", &NetworkError{DominusNodeError{Message: "Context cancelled while waiting for token refresh", Err: ctx.Err()}}
 		}
 	}
 
 	// No refresh in progress. Check if we can refresh.
 	if tm.refreshToken == "" || tm.refreshFn == nil {
 		tm.mu.Unlock()
-		return "", &AuthenticationError{DomiNodeError{Message: "No valid token and cannot refresh", StatusCode: 401}}
+		return "", &AuthenticationError{DominusNodeError{Message: "No valid token and cannot refresh", StatusCode: 401}}
 	}
 
 	// Start a refresh
@@ -202,17 +202,17 @@ func (tm *tokenManager) forceRefresh(ctx context.Context) (string, error) {
 			token := tm.accessToken
 			tm.mu.Unlock()
 			if token == "" {
-				return "", &AuthenticationError{DomiNodeError{Message: "Token refresh failed", StatusCode: 401}}
+				return "", &AuthenticationError{DominusNodeError{Message: "Token refresh failed", StatusCode: 401}}
 			}
 			return token, nil
 		case <-ctx.Done():
-			return "", &NetworkError{DomiNodeError{Message: "Context cancelled while waiting for token refresh", Err: ctx.Err()}}
+			return "", &NetworkError{DominusNodeError{Message: "Context cancelled while waiting for token refresh", Err: ctx.Err()}}
 		}
 	}
 
 	if tm.refreshToken == "" || tm.refreshFn == nil {
 		tm.mu.Unlock()
-		return "", &AuthenticationError{DomiNodeError{Message: "No valid token and cannot refresh", StatusCode: 401}}
+		return "", &AuthenticationError{DominusNodeError{Message: "No valid token and cannot refresh", StatusCode: 401}}
 	}
 
 	tm.refreshing = true

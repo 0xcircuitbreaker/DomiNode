@@ -4,7 +4,7 @@ import http from "http";
 
 // ─── Mocks ──────────────────────────────────────────────────────────
 
-vi.mock("@dominode/shared", () => ({
+vi.mock("@dominusnode/shared", () => ({
   userRepo: {
     findUserByWalletAddress: vi.fn(),
     createWalletUser: vi.fn(),
@@ -37,8 +37,8 @@ vi.mock("@dominode/shared", () => ({
   isValidEvmAddress: (addr: string) => /^0x[0-9a-fA-F]{40}$/.test(addr),
   generateWalletNonce: vi.fn().mockReturnValue("a".repeat(64)),
   buildSignMessage: vi.fn().mockReturnValue("test sign message"),
-  walletToSyntheticEmail: (addr: string) => `${addr.toLowerCase()}@wallet.dominode.io`,
-  isWalletEmail: (email: string) => email.endsWith("@wallet.dominode.io"),
+  walletToSyntheticEmail: (addr: string) => `${addr.toLowerCase()}@wallet.dominusnode.io`,
+  isWalletEmail: (email: string) => email.endsWith("@wallet.dominusnode.io"),
 }));
 
 vi.mock("../helpers/verify-signature.js", () => ({
@@ -55,7 +55,7 @@ vi.mock("../middleware/auth.js", () => ({
 vi.mock("../helpers/cookies.js", () => ({
   setAuthCookies: vi.fn(),
   clearAuthCookies: vi.fn(),
-  getRefreshCookieName: () => "dominode_refresh",
+  getRefreshCookieName: () => "dominusnode_refresh",
 }));
 
 import {
@@ -63,7 +63,7 @@ import {
   walletChallengeRepo,
   walletRepo,
   refreshTokenRepo,
-} from "@dominode/shared";
+} from "@dominusnode/shared";
 import { recoverSignerAddress } from "../helpers/verify-signature.js";
 import walletAuthRoutes from "./wallet-auth.js";
 
@@ -194,7 +194,7 @@ describe("wallet-auth routes", () => {
       vi.mocked(userRepo.findUserByWalletAddress).mockResolvedValue(null);
       vi.mocked(userRepo.createWalletUser).mockResolvedValue({
         id: "u-new",
-        email: `${VALID_ADDRESS}@wallet.dominode.io`,
+        email: `${VALID_ADDRESS}@wallet.dominusnode.io`,
         status: "active",
         is_admin: false,
         wallet_address: VALID_ADDRESS,
@@ -230,7 +230,7 @@ describe("wallet-auth routes", () => {
       vi.mocked(recoverSignerAddress).mockReturnValue(VALID_ADDRESS);
       vi.mocked(userRepo.findUserByWalletAddress).mockResolvedValue({
         id: "u-existing",
-        email: `${VALID_ADDRESS}@wallet.dominode.io`,
+        email: `${VALID_ADDRESS}@wallet.dominusnode.io`,
         status: "active",
         is_admin: false,
         wallet_address: VALID_ADDRESS,
@@ -308,7 +308,7 @@ describe("wallet-auth routes", () => {
       vi.mocked(recoverSignerAddress).mockReturnValue(VALID_ADDRESS);
       vi.mocked(userRepo.findUserByWalletAddress).mockResolvedValue({
         id: "u-suspended",
-        email: `${VALID_ADDRESS}@wallet.dominode.io`,
+        email: `${VALID_ADDRESS}@wallet.dominusnode.io`,
         status: "suspended",
         is_admin: false,
         wallet_address: VALID_ADDRESS,

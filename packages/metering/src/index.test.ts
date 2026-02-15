@@ -1,10 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-// Mock @dominode/shared before import
+// Mock @dominusnode/shared before import
 const mockCreateUsageRecord = vi.fn();
 const mockDebitWallet = vi.fn();
 
-vi.mock("@dominode/shared", () => ({
+vi.mock("@dominusnode/shared", () => ({
   PRICE_PER_GB_CENTS: 500,
   BYTES_PER_GB: 1_073_741_824,
   usageRepo: {

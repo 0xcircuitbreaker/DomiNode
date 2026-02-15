@@ -19,13 +19,13 @@ vi.mock("stripe", () => {
   };
 });
 
-// Mock @dominode/shared
+// Mock @dominusnode/shared
 const mockCreditWallet = vi.fn();
 const mockCreateInvoice = vi.fn();
 const mockFindInvoice = vi.fn();
 const mockCompleteInvoice = vi.fn();
 
-vi.mock("@dominode/shared", () => ({
+vi.mock("@dominusnode/shared", () => ({
   walletRepo: {
     creditWallet: (...args: unknown[]) => mockCreditWallet(...args),
   },

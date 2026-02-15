@@ -34,7 +34,7 @@ describe("keys tools", () => {
     vi.restoreAllMocks();
   });
 
-  it("dominode_create_key returns new key", async () => {
+  it("dominusnode_create_key returns new key", async () => {
     globalThis.fetch = vi.fn().mockResolvedValueOnce({
       ok: true,
       status: 200,
@@ -43,21 +43,21 @@ describe("keys tools", () => {
     } as unknown as Response);
 
     const tools = (server as any)._registeredTools;
-    const result = await tools["dominode_create_key"].handler({ label: "test" }, { sessionId: "" } as never);
+    const result = await tools["dominusnode_create_key"].handler({ label: "test" }, { sessionId: "" } as never);
     const text = (result.content as Array<{ type: string; text: string }>)[0].text;
     expect(text).toContain("dn_live_abc");
     expect(text).toContain("Save this key now");
   });
 
-  it("dominode_revoke_key validates UUID format", async () => {
+  it("dominusnode_revoke_key validates UUID format", async () => {
     const tools = (server as any)._registeredTools;
-    const result = await tools["dominode_revoke_key"].handler({ key_id: "not-a-uuid" }, { sessionId: "" } as never);
+    const result = await tools["dominusnode_revoke_key"].handler({ key_id: "not-a-uuid" }, { sessionId: "" } as never);
     expect(result.isError).toBe(true);
     const text = (result.content as Array<{ type: string; text: string }>)[0].text;
     expect(text).toContain("must be a UUID");
   });
 
-  it("dominode_revoke_key accepts valid UUID", async () => {
+  it("dominusnode_revoke_key accepts valid UUID", async () => {
     globalThis.fetch = vi.fn().mockResolvedValueOnce({
       ok: true,
       status: 200,
@@ -66,7 +66,7 @@ describe("keys tools", () => {
     } as unknown as Response);
 
     const tools = (server as any)._registeredTools;
-    const result = await tools["dominode_revoke_key"].handler(
+    const result = await tools["dominusnode_revoke_key"].handler(
       { key_id: "550e8400-e29b-41d4-a716-446655440000" },
       { sessionId: "" } as never,
     );
@@ -74,7 +74,7 @@ describe("keys tools", () => {
     expect(text).toContain("revoked");
   });
 
-  it("dominode_list_keys handles empty list", async () => {
+  it("dominusnode_list_keys handles empty list", async () => {
     globalThis.fetch = vi.fn().mockResolvedValueOnce({
       ok: true,
       status: 200,
@@ -83,7 +83,7 @@ describe("keys tools", () => {
     } as unknown as Response);
 
     const tools = (server as any)._registeredTools;
-    const result = await tools["dominode_list_keys"].handler({}, { sessionId: "" } as never);
+    const result = await tools["dominusnode_list_keys"].handler({}, { sessionId: "" } as never);
     const text = (result.content as Array<{ type: string; text: string }>)[0].text;
     expect(text).toContain("No API keys");
   });

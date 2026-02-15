@@ -4,7 +4,7 @@ import type { ProxyConfig, ProxyStatus } from "../types.js";
 
 export function registerProxyTools(server: McpServer, httpClient: HttpClient): void {
   server.tool(
-    "dominode_get_proxy_config",
+    "dominusnode_get_proxy_config",
     "Get proxy endpoint configuration including HTTP/SOCKS5 endpoints, supported countries, and username format for geo-targeting.",
     {},
     async () => {
@@ -27,7 +27,7 @@ export function registerProxyTools(server: McpServer, httpClient: HttpClient): v
   );
 
   server.tool(
-    "dominode_get_proxy_status",
+    "dominusnode_get_proxy_status",
     "Get live proxy network status including latency, active providers, and session count.",
     {},
     async () => {

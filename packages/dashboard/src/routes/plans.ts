@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { planRepo, walletRepo, createLogger, getPool } from "@dominode/shared";
+import { planRepo, walletRepo, createLogger, getPool } from "@dominusnode/shared";
 import { requireAuth, type AuthenticatedRequest } from "../middleware/auth.js";
 
 // Plans that users are allowed to self-select

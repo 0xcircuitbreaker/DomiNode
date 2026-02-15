@@ -162,7 +162,7 @@ describe("proxy-controller", () => {
 
       await enableProxy();
 
-      expect(chrome.alarms.create).toHaveBeenCalledWith("dominode_session_rotate", {
+      expect(chrome.alarms.create).toHaveBeenCalledWith("dominusnode_session_rotate", {
         periodInMinutes: 10,
       });
     });
@@ -213,7 +213,7 @@ describe("proxy-controller", () => {
     it("clears session rotation alarm", async () => {
       await disableProxy();
 
-      expect(chrome.alarms.clear).toHaveBeenCalledWith("dominode_session_rotate");
+      expect(chrome.alarms.clear).toHaveBeenCalledWith("dominusnode_session_rotate");
     });
 
     it("restores default WebRTC policy", async () => {

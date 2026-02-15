@@ -39,7 +39,7 @@ export async function refreshTokenIfNeeded(): Promise<void> {
       chrome.notifications.create("session-expired", {
         type: "basic",
         iconUrl: "icons/icon128.png",
-        title: "DomiNode",
+        title: "Dominus Node",
         message: "Session expired. Please log in again.",
       });
     } catch {

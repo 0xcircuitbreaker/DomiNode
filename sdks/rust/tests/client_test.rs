@@ -1,5 +1,5 @@
-use dominode::{Config, DomiNodeClient};
-use dominode::constants::{DEFAULT_BASE_URL, DEFAULT_HTTP_PROXY_PORT, DEFAULT_PROXY_HOST, DEFAULT_SOCKS5_PROXY_PORT};
+use dominusnode::{Config, DominusNodeClient};
+use dominusnode::constants::{DEFAULT_BASE_URL, DEFAULT_HTTP_PROXY_PORT, DEFAULT_PROXY_HOST, DEFAULT_SOCKS5_PROXY_PORT};
 
 #[test]
 fn test_config_defaults() {
@@ -32,7 +32,7 @@ fn test_config_custom_values() {
 
 #[test]
 fn test_client_construction_default() {
-    let client = DomiNodeClient::new(Config::default());
+    let client = DominusNodeClient::new(Config::default());
     assert!(client.is_ok());
 }
 
@@ -42,7 +42,7 @@ fn test_client_construction_custom_base_url() {
         base_url: "http://localhost:3000".to_string(),
         ..Config::default()
     };
-    let client = DomiNodeClient::new(config);
+    let client = DominusNodeClient::new(config);
     assert!(client.is_ok());
 }
 
@@ -54,13 +54,13 @@ fn test_client_construction_with_tokens() {
         ..Config::default()
     };
     // Should not panic even with pre-set tokens.
-    let client = DomiNodeClient::new(config);
+    let client = DominusNodeClient::new(config);
     assert!(client.is_ok());
 }
 
 #[tokio::test]
 async fn test_disconnect_clears_state() {
-    let client = DomiNodeClient::new(Config {
+    let client = DominusNodeClient::new(Config {
         access_token: Some("some.jwt.token".to_string()),
         ..Config::default()
     })

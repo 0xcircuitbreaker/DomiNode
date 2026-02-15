@@ -7,7 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	dominode "github.com/dominode/dominode-go"
+	dominusnode "github.com/dominusnode/dominusnode-go"
 )
 
 // newTestJWT creates a fake JWT token with a given expiry timestamp.
@@ -49,7 +49,7 @@ func base64URLEncode(data []byte) string {
 }
 
 func TestNewClient_Defaults(t *testing.T) {
-	client := dominode.NewClient(dominode.Config{})
+	client := dominusnode.NewClient(dominusnode.Config{})
 	if client.Auth == nil {
 		t.Fatal("Auth resource should not be nil")
 	}
@@ -78,7 +78,7 @@ func TestNewClient_Defaults(t *testing.T) {
 
 func TestNewClient_CustomConfig(t *testing.T) {
 	customClient := &http.Client{}
-	client := dominode.NewClient(dominode.Config{
+	client := dominusnode.NewClient(dominusnode.Config{
 		BaseURL:         "http://custom.example.com",
 		ProxyHost:       "custom-proxy.example.com",
 		HTTPProxyPort:   9090,
@@ -122,7 +122,7 @@ func TestConnectWithKey(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := dominode.NewClient(dominode.Config{
+	client := dominusnode.NewClient(dominusnode.Config{
 		BaseURL: server.URL,
 	})
 
@@ -154,7 +154,7 @@ func TestConnectWithCredentials(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := dominode.NewClient(dominode.Config{
+	client := dominusnode.NewClient(dominusnode.Config{
 		BaseURL: server.URL,
 	})
 
@@ -200,7 +200,7 @@ func TestConnectWithCredentials_MFARequired(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := dominode.NewClient(dominode.Config{
+	client := dominusnode.NewClient(dominusnode.Config{
 		BaseURL: server.URL,
 	})
 
@@ -213,7 +213,7 @@ func TestConnectWithCredentials_MFARequired(t *testing.T) {
 		t.Fatal("expected MFARequired to be true")
 	}
 
-	err = client.CompleteMFA(ctx, "123456", dominode.WithMFAChallengeToken("challenge_token_123"))
+	err = client.CompleteMFA(ctx, "123456", dominusnode.WithMFAChallengeToken("challenge_token_123"))
 	if err != nil {
 		t.Fatalf("CompleteMFA failed: %v", err)
 	}
@@ -246,7 +246,7 @@ func TestDisconnect(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := dominode.NewClient(dominode.Config{
+	client := dominusnode.NewClient(dominusnode.Config{
 		BaseURL: server.URL,
 	})
 
@@ -263,19 +263,19 @@ func TestDisconnect(t *testing.T) {
 }
 
 func TestSDKConstants(t *testing.T) {
-	if dominode.SDKVersion != "1.0.0" {
-		t.Errorf("unexpected SDK version: %s", dominode.SDKVersion)
+	if dominusnode.SDKVersion != "1.0.0" {
+		t.Errorf("unexpected SDK version: %s", dominusnode.SDKVersion)
 	}
-	if dominode.UserAgent != "dominode-sdk-go/1.0.0" {
-		t.Errorf("unexpected user agent: %s", dominode.UserAgent)
+	if dominusnode.UserAgent != "dominusnode-sdk-go/1.0.0" {
+		t.Errorf("unexpected user agent: %s", dominusnode.UserAgent)
 	}
-	if dominode.DefaultBaseURL != "https://api.dominode.io" {
-		t.Errorf("unexpected default base URL: %s", dominode.DefaultBaseURL)
+	if dominusnode.DefaultBaseURL != "https://api.dominusnode.io" {
+		t.Errorf("unexpected default base URL: %s", dominusnode.DefaultBaseURL)
 	}
-	if dominode.DefaultHTTPProxyPort != 8080 {
-		t.Errorf("unexpected default HTTP proxy port: %d", dominode.DefaultHTTPProxyPort)
+	if dominusnode.DefaultHTTPProxyPort != 8080 {
+		t.Errorf("unexpected default HTTP proxy port: %d", dominusnode.DefaultHTTPProxyPort)
 	}
-	if dominode.DefaultSOCKS5ProxyPort != 1080 {
-		t.Errorf("unexpected default SOCKS5 proxy port: %d", dominode.DefaultSOCKS5ProxyPort)
+	if dominusnode.DefaultSOCKS5ProxyPort != 1080 {
+		t.Errorf("unexpected default SOCKS5 proxy port: %d", dominusnode.DefaultSOCKS5ProxyPort)
 	}
 }

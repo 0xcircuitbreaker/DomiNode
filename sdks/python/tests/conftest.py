@@ -1,4 +1,4 @@
-"""Shared test fixtures for the DomiNode SDK test suite."""
+"""Shared test fixtures for the Dominus Node SDK test suite."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from typing import Generator
 
 import pytest
 
-from dominode import DomiNodeClient, AsyncDomiNodeClient
+from dominusnode import DominusNodeClient, AsyncDominusNodeClient
 
 
 def make_jwt(

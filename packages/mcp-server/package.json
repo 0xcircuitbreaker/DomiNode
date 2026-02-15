@@ -1,14 +1,14 @@
 {
-  "name": "@dominode/mcp-server",
+  "name": "@dominusnode/mcp-server",
   "version": "1.0.0",
-  "description": "DomiNode MCP server — proxy tools for AI agents (Claude, Gemini, Codex, etc.)",
-  "author": "DomiNode",
+  "description": "Dominus Node MCP server — proxy tools for AI agents (Claude, Gemini, Codex, etc.)",
+  "author": "Dominus Node",
   "license": "MIT",
   "type": "module",
   "main": "./dist/src/index.js",
   "types": "./dist/src/index.d.ts",
   "bin": {
-    "dominode-mcp": "./dist/src/index.js"
+    "dominusnode-mcp": "./dist/src/index.js"
   },
   "files": [
     "dist/src"

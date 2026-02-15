@@ -12,7 +12,7 @@ const mockIsValidCryptoCurrency = vi.fn();
 const mockCreateCheckoutSession = vi.fn();
 const mockCreateCryptoInvoice = vi.fn();
 
-vi.mock("@dominode/shared", () => ({
+vi.mock("@dominusnode/shared", () => ({
   walletRepo: {
     getWallet: (...args: unknown[]) => mockGetWallet(...args),
     getTransactions: (...args: unknown[]) => mockGetTransactions(...args),
@@ -30,7 +30,7 @@ vi.mock("@dominode/shared", () => ({
   }),
 }));
 
-vi.mock("@dominode/billing", () => ({
+vi.mock("@dominusnode/billing", () => ({
   createCheckoutSession: (...args: unknown[]) => mockCreateCheckoutSession(...args),
   createCryptoInvoice: (...args: unknown[]) => mockCreateCryptoInvoice(...args),
 }));
