@@ -9,8 +9,8 @@ export const ALARM_NAMES = {
   SESSION_ROTATE: "dominusnode_session_rotate",
 } as const;
 
-export const DEFAULT_API_BASE = "https://proxy.dominusnode.io";
-export const PROD_API_BASE = "https://api.dominusnode.io";
+export const DEFAULT_API_BASE = "https://proxy.dominusnode.com";
+export const PROD_API_BASE = "https://api.dominusnode.com";
 // DEV_API_BASE uses HTTP intentionally for local development only
 export const DEV_API_BASE = "http://localhost:3000";
 

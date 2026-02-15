@@ -1,6 +1,6 @@
 # dominusnode -- Official Dominus Node Python SDK
 
-The official Python SDK for the [Dominus Node](https://dominusnode.io) rotating proxy-as-a-service platform. Manage proxy connections, API keys, wallet balances, usage tracking, and more.
+The official Python SDK for the [Dominus Node](https://dominusnode.com) rotating proxy-as-a-service platform. Manage proxy connections, API keys, wallet balances, usage tracking, and more.
 
 - **Sync + Async clients** -- `DominusNodeClient` and `AsyncDominusNodeClient`
 - **Single dependency** -- only requires [httpx](https://www.python-httpx.org/)
@@ -29,7 +29,7 @@ poetry add dominusnode
 ```python
 from dominusnode import DominusNodeClient
 
-with DominusNodeClient(base_url="https://api.dominusnode.io") as client:
+with DominusNodeClient(base_url="https://api.dominusnode.com") as client:
     # Authenticate with API key
     client.connect_with_key("dn_live_your_api_key")
 
@@ -45,7 +45,7 @@ with DominusNodeClient(base_url="https://api.dominusnode.io") as client:
         state="california",
     ))
     print(proxy_url)
-    # => http://country-US-state-california:dn_live_your_api_key@proxy.dominusnode.io:8080
+    # => http://country-US-state-california:dn_live_your_api_key@proxy.dominusnode.com:8080
 ```
 
 ### Asynchronous
@@ -55,7 +55,7 @@ import asyncio
 from dominusnode import AsyncDominusNodeClient
 
 async def main():
-    async with AsyncDominusNodeClient(base_url="https://api.dominusnode.io") as client:
+    async with AsyncDominusNodeClient(base_url="https://api.dominusnode.com") as client:
         await client.connect_with_key("dn_live_your_api_key")
 
         balance = await client.wallet.get_balance()
@@ -75,7 +75,7 @@ Three ways to authenticate:
 ### 1. API Key (Recommended for Proxy Usage)
 
 ```python
-with DominusNodeClient(base_url="https://api.dominusnode.io") as client:
+with DominusNodeClient(base_url="https://api.dominusnode.com") as client:
     client.connect_with_key("dn_live_your_api_key")
 ```
 
@@ -83,7 +83,7 @@ Or pass it in the constructor for auto-connect:
 
 ```python
 with DominusNodeClient(
-    base_url="https://api.dominusnode.io",
+    base_url="https://api.dominusnode.com",
     api_key="dn_live_your_api_key",
 ) as client:
     # Already authenticated
@@ -93,7 +93,7 @@ with DominusNodeClient(
 ### 2. Email/Password
 
 ```python
-with DominusNodeClient(base_url="https://api.dominusnode.io") as client:
+with DominusNodeClient(base_url="https://api.dominusnode.com") as client:
     result = client.connect_with_credentials("user@example.com", "SecurePass123!")
 
     if result.mfa_required:
@@ -106,7 +106,7 @@ with DominusNodeClient(base_url="https://api.dominusnode.io") as client:
 
 ```python
 client = DominusNodeClient(
-    base_url="https://api.dominusnode.io",
+    base_url="https://api.dominusnode.com",
     access_token="eyJhbGci...",
     refresh_token="eyJhbGci...",
 )
@@ -254,7 +254,7 @@ from dominusnode import ProxyUrlOptions
 # Build an HTTP proxy URL
 proxy_url = client.proxy.build_url()
 print(proxy_url)
-# => http://user:dn_live_xxxx@proxy.dominusnode.io:8080
+# => http://user:dn_live_xxxx@proxy.dominusnode.com:8080
 
 # With geo-targeting
 proxy_url = client.proxy.build_url(ProxyUrlOptions(
@@ -325,7 +325,7 @@ Build proxy URLs and use them with any HTTP client:
 import requests
 from dominusnode import DominusNodeClient, ProxyUrlOptions
 
-with DominusNodeClient(base_url="https://api.dominusnode.io", api_key="dn_live_KEY") as client:
+with DominusNodeClient(base_url="https://api.dominusnode.com", api_key="dn_live_KEY") as client:
     proxy_url = client.proxy.build_url(ProxyUrlOptions(country="US"))
 
     proxies = {"http": proxy_url, "https": proxy_url}
@@ -339,7 +339,7 @@ with DominusNodeClient(base_url="https://api.dominusnode.io", api_key="dn_live_K
 import httpx
 from dominusnode import DominusNodeClient, ProxyUrlOptions
 
-with DominusNodeClient(base_url="https://api.dominusnode.io", api_key="dn_live_KEY") as client:
+with DominusNodeClient(base_url="https://api.dominusnode.com", api_key="dn_live_KEY") as client:
     proxy_url = client.proxy.build_url(ProxyUrlOptions(country="US"))
 
     with httpx.Client(proxy=proxy_url) as http:
@@ -353,7 +353,7 @@ with DominusNodeClient(base_url="https://api.dominusnode.io", api_key="dn_live_K
 import aiohttp
 from dominusnode import AsyncDominusNodeClient, ProxyUrlOptions
 
-async with AsyncDominusNodeClient(base_url="https://api.dominusnode.io", api_key="dn_live_KEY") as client:
+async with AsyncDominusNodeClient(base_url="https://api.dominusnode.com", api_key="dn_live_KEY") as client:
     proxy_url = client.proxy.build_url(ProxyUrlOptions(country="US"))
 
     async with aiohttp.ClientSession() as session:
@@ -381,7 +381,7 @@ from dominusnode import (
     ProxyError,
 )
 
-with DominusNodeClient(base_url="https://api.dominusnode.io") as client:
+with DominusNodeClient(base_url="https://api.dominusnode.com") as client:
     try:
         client.connect_with_key("dn_live_invalid")
     except AuthenticationError:
@@ -411,8 +411,8 @@ with DominusNodeClient(base_url="https://api.dominusnode.io") as client:
 
 ```python
 client = DominusNodeClient(
-    base_url="https://api.dominusnode.io",  # API server URL
-    proxy_host="proxy.dominusnode.io",       # Proxy gateway hostname
+    base_url="https://api.dominusnode.com",  # API server URL
+    proxy_host="proxy.dominusnode.com",       # Proxy gateway hostname
     http_proxy_port=8080,                 # HTTP proxy port
     socks5_proxy_port=1080,               # SOCKS5 proxy port
     timeout=30.0,                         # HTTP request timeout (seconds)

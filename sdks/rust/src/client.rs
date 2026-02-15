@@ -17,11 +17,11 @@ use crate::wallet::WalletResource;
 /// SDK configuration.
 ///
 /// All fields have sensible defaults. At minimum you should set `base_url` if
-/// your Dominus Node instance is not at the default `https://api.dominusnode.io`.
+/// your Dominus Node instance is not at the default `https://api.dominusnode.com`.
 // R15 H-5: Clone intentionally not derived — prevents accidental credential proliferation in memory.
 // Use Config::default() to create a new instance instead of cloning.
 pub struct Config {
-    /// Base URL of the Dominus Node REST API (e.g. `"https://api.dominusnode.io"`).
+    /// Base URL of the Dominus Node REST API (e.g. `"https://api.dominusnode.com"`).
     pub base_url: String,
     /// Pre-configured API key (optional).
     pub api_key: Option<String>,

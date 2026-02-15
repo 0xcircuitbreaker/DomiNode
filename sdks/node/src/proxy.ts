@@ -59,10 +59,10 @@ export class ProxyResource {
    * @example
    * ```ts
    * const url = client.proxy.buildUrl("dn_live_abc123");
-   * // => "http://user:dn_live_abc123@proxy.dominusnode.io:8080"
+   * // => "http://user:dn_live_abc123@proxy.dominusnode.com:8080"
    *
    * const socksUrl = client.proxy.buildUrl("dn_live_abc123", { protocol: "socks5", country: "US" });
-   * // => "socks5://user-country_US:dn_live_abc123@proxy.dominusnode.io:1080"
+   * // => "socks5://user-country_US:dn_live_abc123@proxy.dominusnode.com:1080"
    * ```
    */
   buildUrl(apiKey: string, opts?: ProxyUrlOptions): string {

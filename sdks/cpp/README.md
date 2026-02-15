@@ -1,6 +1,6 @@
 # dominusnode-cpp -- Official Dominus Node C++ SDK
 
-The official C++ SDK for the [Dominus Node](https://dominusnode.io) rotating proxy-as-a-service platform. Manage proxy connections, API keys, wallet balances, usage tracking, and more from C++ applications.
+The official C++ SDK for the [Dominus Node](https://dominusnode.com) rotating proxy-as-a-service platform. Manage proxy connections, API keys, wallet balances, usage tracking, and more from C++ applications.
 
 - **C++17** standard
 - **Pimpl pattern** for ABI stability
@@ -54,7 +54,7 @@ ctest --output-on-failure
 int main() {
     // Configure the client
     dominusnode::ClientConfig config;
-    config.base_url = "https://api.dominusnode.io";
+    config.base_url = "https://api.dominusnode.com";
 
     // Create the client
     dominusnode::DominusNodeClient client(config);
@@ -74,7 +74,7 @@ int main() {
 
     std::string proxy_url = client.proxy().build_url("dn_live_your_api_key", opts);
     std::cout << "Proxy URL: " << proxy_url << std::endl;
-    // => http://user-country_US-state_california:dn_live_your_api_key@proxy.dominusnode.io:8080
+    // => http://user-country_US-state_california:dn_live_your_api_key@proxy.dominusnode.com:8080
 
     return 0;
 }
@@ -93,7 +93,7 @@ Or provide in the config for auto-connect:
 
 ```cpp
 dominusnode::ClientConfig config;
-config.base_url = "https://api.dominusnode.io";
+config.base_url = "https://api.dominusnode.com";
 config.api_key = "dn_live_your_api_key";
 
 dominusnode::DominusNodeClient client(config);
@@ -321,7 +321,7 @@ size_t write_callback(void* ptr, size_t size, size_t nmemb, std::string* data) {
 
 int main() {
     dominusnode::ClientConfig config;
-    config.base_url = "https://api.dominusnode.io";
+    config.base_url = "https://api.dominusnode.com";
     dominusnode::DominusNodeClient client(config);
     client.connect_with_key("dn_live_your_key");
 
@@ -386,8 +386,8 @@ try {
 
 ```cpp
 dominusnode::ClientConfig config;
-config.base_url = "https://api.dominusnode.io";     // API server URL
-config.proxy_host = "proxy.dominusnode.io";          // Proxy gateway hostname
+config.base_url = "https://api.dominusnode.com";     // API server URL
+config.proxy_host = "proxy.dominusnode.com";          // Proxy gateway hostname
 config.http_proxy_port = 8080;                    // HTTP proxy port
 config.socks5_proxy_port = 1080;                  // SOCKS5 proxy port
 

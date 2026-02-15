@@ -1,6 +1,6 @@
 # dominusnode -- Official Dominus Node Rust SDK
 
-The official Rust SDK for the [Dominus Node](https://dominusnode.io) rotating proxy-as-a-service platform. Manage proxy connections, API keys, wallet balances, usage tracking, and more from Rust applications.
+The official Rust SDK for the [Dominus Node](https://dominusnode.com) rotating proxy-as-a-service platform. Manage proxy connections, API keys, wallet balances, usage tracking, and more from Rust applications.
 
 - **Async by default** -- powered by Tokio and reqwest
 - **Strongly typed** -- every request and response has a dedicated type
@@ -35,7 +35,7 @@ use dominusnode::{DominusNodeClient, Config};
 async fn main() -> dominusnode::Result<()> {
     // Create client with default config
     let client = DominusNodeClient::new(Config {
-        base_url: "https://api.dominusnode.io".into(),
+        base_url: "https://api.dominusnode.com".into(),
         ..Config::default()
     })?;
 
@@ -49,7 +49,7 @@ async fn main() -> dominusnode::Result<()> {
     // Build a proxy URL
     let proxy_url = client.proxy.build_url("dn_live_your_api_key", None);
     println!("Proxy URL: {}", proxy_url);
-    // => http://user:dn_live_your_api_key@proxy.dominusnode.io:8080
+    // => http://user:dn_live_your_api_key@proxy.dominusnode.com:8080
 
     Ok(())
 }
@@ -68,7 +68,7 @@ Or provide in the config:
 
 ```rust
 let client = DominusNodeClient::new(Config {
-    base_url: "https://api.dominusnode.io".into(),
+    base_url: "https://api.dominusnode.com".into(),
     api_key: Some("dn_live_your_api_key".into()),
     ..Config::default()
 })?;
@@ -365,11 +365,11 @@ match client.connect_with_key("dn_live_invalid").await {
 use dominusnode::Config;
 
 let config = Config {
-    base_url: "https://api.dominusnode.io".into(),
+    base_url: "https://api.dominusnode.com".into(),
     api_key: None,
     access_token: None,
     refresh_token: None,
-    proxy_host: "proxy.dominusnode.io".into(),
+    proxy_host: "proxy.dominusnode.com".into(),
     http_proxy_port: 8080,
     socks5_proxy_port: 1080,
 };

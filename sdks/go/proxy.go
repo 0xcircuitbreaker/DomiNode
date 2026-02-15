@@ -45,14 +45,14 @@ func newProxyResource(http *httpClient, proxyHost string, httpPort, socks5Port i
 // Example:
 //
 //	url, err := client.Proxy.BuildURL(dominusnode.ProxyURLOptions{})
-//	// => "http://user:dn_live_abc123@proxy.dominusnode.io:8080"
+//	// => "http://user:dn_live_abc123@proxy.dominusnode.com:8080"
 //
 //	url, err := client.Proxy.BuildURL(dominusnode.ProxyURLOptions{
 //	    Protocol: "socks5",
 //	    Country: "US",
 //	    State: "CA",
 //	})
-//	// => "socks5://user-country_US-state_CA:dn_live_abc123@proxy.dominusnode.io:1080"
+//	// => "socks5://user-country_US-state_CA:dn_live_abc123@proxy.dominusnode.com:1080"
 func (p *ProxyResource) BuildURL(opts ProxyURLOptions) (string, error) {
 	apiKey := p.getAPIKey()
 	if apiKey == "" {

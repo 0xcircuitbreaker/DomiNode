@@ -133,7 +133,7 @@ Round 14 identified **11 CRITICAL + 28 HIGH** findings across the full stack. **
 ### H-11: Frontend CSP Overly Permissive connect-src (Frontend) — FIXED
 **File:** `packages/frontend/index.html:6`
 **Issue:** CSP included `http://localhost:*` in `connect-src`, unnecessary since Vite proxy handles dev and nginx handles production.
-**Fix:** Removed `http://localhost:*`, leaving `'self' https://*.dominusnode.io`.
+**Fix:** Removed `http://localhost:*`, leaving `'self' https://*.dominusnode.com`.
 
 ### H-12: Frontend Nginx Runs as Root (Docker) — FIXED
 **Files:** `infra/docker/frontend.Dockerfile`, `infra/nginx/default.conf`, `docker-compose.prod.yml`

@@ -37,7 +37,7 @@ import httpx
 
 # Use a scoped httpx client for ONLY the requests that need the proxy:
 proxy_client = httpx.Client(
-    proxy="http://user:dn_live_KEY@proxy.dominusnode.io:8080",
+    proxy="http://user:dn_live_KEY@proxy.dominusnode.com:8080",
     timeout=30.0,
 )
 response = proxy_client.get("https://target-site.com")

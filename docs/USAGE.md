@@ -299,37 +299,37 @@ Authentication is via proxy username/password, where:
 
 ```bash
 # Basic usage -- any location
-curl -x http://user:dn_live_KEY@proxy.dominusnode.io:8080 http://target.com
+curl -x http://user:dn_live_KEY@proxy.dominusnode.com:8080 http://target.com
 
 # HTTPS (transparent tunneling via CONNECT)
-curl -x http://user:dn_live_KEY@proxy.dominusnode.io:8080 https://httpbin.org/ip
+curl -x http://user:dn_live_KEY@proxy.dominusnode.com:8080 https://httpbin.org/ip
 
 # With country targeting (United States)
-curl -x http://country-US:dn_live_KEY@proxy.dominusnode.io:8080 http://target.com
+curl -x http://country-US:dn_live_KEY@proxy.dominusnode.com:8080 http://target.com
 
 # With state + city targeting
-curl -x http://country-US-state-california-city-losangeles:dn_live_KEY@proxy.dominusnode.io:8080 http://target.com
+curl -x http://country-US-state-california-city-losangeles:dn_live_KEY@proxy.dominusnode.com:8080 http://target.com
 
 # With sticky session (same exit IP for the session duration)
-curl -x http://country-US-session-mysession123:dn_live_KEY@proxy.dominusnode.io:8080 http://target.com
+curl -x http://country-US-session-mysession123:dn_live_KEY@proxy.dominusnode.com:8080 http://target.com
 
 # Combined: country + state + sticky session
-curl -x http://country-DE-state-bavaria-session-s1:dn_live_KEY@proxy.dominusnode.io:8080 http://target.com
+curl -x http://country-DE-state-bavaria-session-s1:dn_live_KEY@proxy.dominusnode.com:8080 http://target.com
 ```
 
-For local development, replace `proxy.dominusnode.io` with `localhost`.
+For local development, replace `proxy.dominusnode.com` with `localhost`.
 
 ### SOCKS5 Proxy (Port 1080)
 
 ```bash
 # Basic
-curl -x socks5://user:dn_live_KEY@proxy.dominusnode.io:1080 http://target.com
+curl -x socks5://user:dn_live_KEY@proxy.dominusnode.com:1080 http://target.com
 
 # With geo-targeting (same username format as HTTP)
-curl -x socks5://country-US-state-california:dn_live_KEY@proxy.dominusnode.io:1080 http://target.com
+curl -x socks5://country-US-state-california:dn_live_KEY@proxy.dominusnode.com:1080 http://target.com
 
 # SOCKS5 with HTTPS
-curl -x socks5://user:dn_live_KEY@proxy.dominusnode.io:1080 https://httpbin.org/ip
+curl -x socks5://user:dn_live_KEY@proxy.dominusnode.com:1080 https://httpbin.org/ip
 ```
 
 ### Username Format for Geo-Targeting
@@ -379,8 +379,8 @@ PacketStream (the default upstream provider) supports 100+ countries. The follow
 import requests
 
 proxies = {
-    "http": "http://country-US:dn_live_KEY@proxy.dominusnode.io:8080",
-    "https": "http://country-US:dn_live_KEY@proxy.dominusnode.io:8080",
+    "http": "http://country-US:dn_live_KEY@proxy.dominusnode.com:8080",
+    "https": "http://country-US:dn_live_KEY@proxy.dominusnode.com:8080",
 }
 response = requests.get("http://httpbin.org/ip", proxies=proxies)
 print(response.json())
@@ -394,8 +394,8 @@ Requires `pip install requests[socks]` (or `pip install PySocks`).
 import requests
 
 proxies = {
-    "http": "socks5://country-US:dn_live_KEY@proxy.dominusnode.io:1080",
-    "https": "socks5://country-US:dn_live_KEY@proxy.dominusnode.io:1080",
+    "http": "socks5://country-US:dn_live_KEY@proxy.dominusnode.com:1080",
+    "https": "socks5://country-US:dn_live_KEY@proxy.dominusnode.com:1080",
 }
 response = requests.get("http://httpbin.org/ip", proxies=proxies)
 print(response.json())
@@ -406,7 +406,7 @@ print(response.json())
 ```javascript
 import { ProxyAgent } from 'undici';
 
-const agent = new ProxyAgent('http://country-US:dn_live_KEY@proxy.dominusnode.io:8080');
+const agent = new ProxyAgent('http://country-US:dn_live_KEY@proxy.dominusnode.com:8080');
 const res = await fetch('http://httpbin.org/ip', { dispatcher: agent });
 console.log(await res.json());
 ```
@@ -416,7 +416,7 @@ console.log(await res.json());
 ```javascript
 import { HttpsProxyAgent } from 'https-proxy-agent';
 
-const agent = new HttpsProxyAgent('http://country-US:dn_live_KEY@proxy.dominusnode.io:8080');
+const agent = new HttpsProxyAgent('http://country-US:dn_live_KEY@proxy.dominusnode.com:8080');
 const res = await fetch('https://httpbin.org/ip', { agent });
 console.log(await res.json());
 ```
@@ -429,7 +429,7 @@ import (
     "net/url"
 )
 
-proxyURL, _ := url.Parse("http://country-US:dn_live_KEY@proxy.dominusnode.io:8080")
+proxyURL, _ := url.Parse("http://country-US:dn_live_KEY@proxy.dominusnode.com:8080")
 client := &http.Client{
     Transport: &http.Transport{
         Proxy: http.ProxyURL(proxyURL),
@@ -448,7 +448,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.net.URI;
 
-var proxy = ProxySelector.of(new InetSocketAddress("proxy.dominusnode.io", 8080));
+var proxy = ProxySelector.of(new InetSocketAddress("proxy.dominusnode.com", 8080));
 var client = HttpClient.newBuilder()
     .proxy(proxy)
     .authenticator(new java.net.Authenticator() {
@@ -473,8 +473,8 @@ System.out.println(response.body());
 DOWNLOADER_MIDDLEWARES = {
     'scrapy.downloadermiddlewares.httpproxy.HttpProxyMiddleware': 110,
 }
-HTTP_PROXY = 'http://country-US:dn_live_KEY@proxy.dominusnode.io:8080'
-HTTPS_PROXY = 'http://country-US:dn_live_KEY@proxy.dominusnode.io:8080'
+HTTP_PROXY = 'http://country-US:dn_live_KEY@proxy.dominusnode.com:8080'
+HTTPS_PROXY = 'http://country-US:dn_live_KEY@proxy.dominusnode.com:8080'
 ```
 
 ---

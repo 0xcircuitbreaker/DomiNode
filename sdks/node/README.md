@@ -1,6 +1,6 @@
 # @dominusnode/sdk -- Official Dominus Node Node.js SDK
 
-The official Node.js/TypeScript SDK for the [Dominus Node](https://dominusnode.io) rotating proxy-as-a-service platform. Manage proxy connections, API keys, wallet balances, usage tracking, and more -- all from a single, strongly-typed client.
+The official Node.js/TypeScript SDK for the [Dominus Node](https://dominusnode.com) rotating proxy-as-a-service platform. Manage proxy connections, API keys, wallet balances, usage tracking, and more -- all from a single, strongly-typed client.
 
 - **Zero dependencies** -- uses the Node.js 18+ built-in `fetch` API
 - **Dual CJS + ESM output** -- works with `require()` and `import` out of the box
@@ -31,7 +31,7 @@ pnpm add @dominusnode/sdk
 import { DominusNodeClient } from '@dominusnode/sdk';
 
 // Connect with API key
-const client = new DominusNodeClient({ baseUrl: 'https://api.dominusnode.io' });
+const client = new DominusNodeClient({ baseUrl: 'https://api.dominusnode.com' });
 await client.connectWithKey('dn_live_your_api_key');
 
 // Check balance
@@ -46,7 +46,7 @@ const proxyUrl = client.proxy.buildUrl('dn_live_your_key', {
   city: 'losangeles',
 });
 console.log(proxyUrl);
-// => http://user-country_US-state_california-city_losangeles:dn_live_your_key@proxy.dominusnode.io:8080
+// => http://user-country_US-state_california-city_losangeles:dn_live_your_key@proxy.dominusnode.com:8080
 ```
 
 ## Authentication
@@ -58,7 +58,7 @@ The SDK supports three authentication modes. All authenticated requests automati
 Best for server-side scripts and backend integrations. The key is exchanged for a JWT token pair on the first call.
 
 ```typescript
-const client = new DominusNodeClient({ baseUrl: 'https://api.dominusnode.io' });
+const client = new DominusNodeClient({ baseUrl: 'https://api.dominusnode.com' });
 await client.connectWithKey('dn_live_your_api_key');
 ```
 
@@ -67,7 +67,7 @@ await client.connectWithKey('dn_live_your_api_key');
 Best for interactive applications where the user logs in with credentials. Supports MFA (TOTP or backup codes).
 
 ```typescript
-const client = new DominusNodeClient({ baseUrl: 'https://api.dominusnode.io' });
+const client = new DominusNodeClient({ baseUrl: 'https://api.dominusnode.com' });
 const result = await client.connectWithCredentials('user@example.com', 'SecurePass123!');
 
 if (result.mfaRequired) {
@@ -82,7 +82,7 @@ Use when you already have valid JWT tokens (e.g., stored from a previous session
 
 ```typescript
 const client = new DominusNodeClient({
-  baseUrl: 'https://api.dominusnode.io',
+  baseUrl: 'https://api.dominusnode.com',
   accessToken: 'existing_jwt',
   refreshToken: 'existing_refresh_token',
 });
@@ -101,10 +101,10 @@ client.disconnect();          // Clear local token state
 
 ```typescript
 interface Dominus NodeConfig {
-  baseUrl?: string;           // Default: 'https://api.dominusnode.io'
+  baseUrl?: string;           // Default: 'https://api.dominusnode.com'
   accessToken?: string;       // Pre-existing access token
   refreshToken?: string;      // Pre-existing refresh token
-  proxyHost?: string;         // Default: 'proxy.dominusnode.io'
+  proxyHost?: string;         // Default: 'proxy.dominusnode.com'
   httpProxyPort?: number;     // Default: 8080
   socks5ProxyPort?: number;   // Default: 1080
 }
@@ -278,11 +278,11 @@ Build proxy URLs for direct use with HTTP clients, and query proxy health/status
 ```typescript
 // Build a basic HTTP proxy URL (no network call -- pure string construction)
 const httpUrl = client.proxy.buildUrl('dn_live_key');
-// => http://user:dn_live_key@proxy.dominusnode.io:8080
+// => http://user:dn_live_key@proxy.dominusnode.com:8080
 
 // Build a SOCKS5 proxy URL
 const socksUrl = client.proxy.buildUrl('dn_live_key', { protocol: 'socks5' });
-// => socks5://user:dn_live_key@proxy.dominusnode.io:1080
+// => socks5://user:dn_live_key@proxy.dominusnode.com:1080
 
 // Geo-targeted with sticky session
 const geoUrl = client.proxy.buildUrl('dn_live_key', {
@@ -291,11 +291,11 @@ const geoUrl = client.proxy.buildUrl('dn_live_key', {
   city: 'losangeles',
   sessionId: 'sticky123',
 });
-// => http://user-country_US-state_california-city_losangeles-session_sticky123:dn_live_key@proxy.dominusnode.io:8080
+// => http://user-country_US-state_california-city_losangeles-session_sticky123:dn_live_key@proxy.dominusnode.com:8080
 
 // ASN targeting
 const asnUrl = client.proxy.buildUrl('dn_live_key', { asn: 7922 });
-// => http://user-asn_7922:dn_live_key@proxy.dominusnode.io:8080
+// => http://user-asn_7922:dn_live_key@proxy.dominusnode.com:8080
 
 // Proxy health (no auth required)
 const health = await client.proxy.getHealth();
@@ -412,7 +412,7 @@ The `proxy.buildUrl()` method returns a standard proxy URL string that works wit
 import { DominusNodeClient } from '@dominusnode/sdk';
 import { ProxyAgent } from 'undici';
 
-const client = new DominusNodeClient({ baseUrl: 'https://api.dominusnode.io' });
+const client = new DominusNodeClient({ baseUrl: 'https://api.dominusnode.com' });
 await client.connectWithKey('dn_live_key');
 
 const proxyUrl = client.proxy.buildUrl('dn_live_key', { country: 'US' });
@@ -426,8 +426,8 @@ console.log(data.origin); // US IP address
 ### With curl (command line)
 
 ```bash
-curl -x http://user:dn_live_your_key@proxy.dominusnode.io:8080 http://httpbin.org/ip
-curl -x http://user:dn_live_your_key@proxy.dominusnode.io:8080 https://httpbin.org/ip
+curl -x http://user:dn_live_your_key@proxy.dominusnode.com:8080 http://httpbin.org/ip
+curl -x http://user:dn_live_your_key@proxy.dominusnode.com:8080 https://httpbin.org/ip
 ```
 
 ### With axios
@@ -538,7 +538,7 @@ The SDK ships dual CJS + ESM builds. CommonJS usage works with `require()`:
 const { DominusNodeClient } = require('@dominusnode/sdk');
 
 async function main() {
-  const client = new DominusNodeClient({ baseUrl: 'https://api.dominusnode.io' });
+  const client = new DominusNodeClient({ baseUrl: 'https://api.dominusnode.com' });
   await client.connectWithKey('dn_live_your_key');
 
   const balance = await client.wallet.getBalance();
@@ -556,8 +556,8 @@ import { DominusNodeClient, AuthenticationError, InsufficientBalanceError } from
 async function main() {
   // Initialize client
   const client = new DominusNodeClient({
-    baseUrl: 'https://api.dominusnode.io',
-    proxyHost: 'proxy.dominusnode.io',
+    baseUrl: 'https://api.dominusnode.com',
+    proxyHost: 'proxy.dominusnode.com',
     httpProxyPort: 8080,
     socks5ProxyPort: 1080,
   });

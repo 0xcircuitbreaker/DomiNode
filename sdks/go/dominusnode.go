@@ -15,10 +15,10 @@ const (
 	UserAgent = "dominusnode-sdk-go/" + SDKVersion
 
 	// DefaultBaseURL is the default Dominus Node API server URL.
-	DefaultBaseURL = "https://api.dominusnode.io"
+	DefaultBaseURL = "https://api.dominusnode.com"
 
 	// DefaultProxyHost is the default hostname of the Dominus Node proxy server.
-	DefaultProxyHost = "proxy.dominusnode.io"
+	DefaultProxyHost = "proxy.dominusnode.com"
 
 	// DefaultHTTPProxyPort is the default port for the HTTP proxy.
 	DefaultHTTPProxyPort = 8080

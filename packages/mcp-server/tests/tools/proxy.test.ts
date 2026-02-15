@@ -39,8 +39,8 @@ describe("proxy tools", () => {
       ok: true,
       status: 200,
       text: () => Promise.resolve(JSON.stringify({
-        http_endpoint: "proxy.dominusnode.io:8080",
-        socks5_endpoint: "proxy.dominusnode.io:1080",
+        http_endpoint: "proxy.dominusnode.com:8080",
+        socks5_endpoint: "proxy.dominusnode.com:1080",
         username_format: "API_KEY-country_XX",
         supported_countries: ["US", "GB", "DE"],
       })),
@@ -50,7 +50,7 @@ describe("proxy tools", () => {
     const tools = (server as any)._registeredTools;
     const result = await tools["dominusnode_get_proxy_config"].handler({}, { sessionId: "" } as never);
     const text = (result.content as Array<{ type: string; text: string }>)[0].text;
-    expect(text).toContain("proxy.dominusnode.io:8080");
+    expect(text).toContain("proxy.dominusnode.com:8080");
     expect(text).toContain("US, GB, DE");
   });
 

@@ -37,12 +37,12 @@ export function buildSignMessage(
 
 /** Convert a wallet address to a synthetic email for the users table */
 export function walletToSyntheticEmail(address: string): string {
-  return `${address.toLowerCase()}@wallet.dominusnode.io`;
+  return `${address.toLowerCase()}@wallet.dominusnode.com`;
 }
 
 /** Detect synthetic wallet emails */
 export function isWalletEmail(email: string): boolean {
-  return email.endsWith("@wallet.dominusnode.io");
+  return email.endsWith("@wallet.dominusnode.com");
 }
 
 /** Wallet challenge TTL in milliseconds (5 minutes) */

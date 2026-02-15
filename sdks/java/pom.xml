@@ -11,7 +11,7 @@
 
     <name>Dominus Node Java SDK</name>
     <description>Java SDK for Dominus Node proxy-as-a-service platform</description>
-    <url>https://dominusnode.io</url>
+    <url>https://dominusnode.com</url>
 
     <properties>
         <maven.compiler.source>11</maven.compiler.source>

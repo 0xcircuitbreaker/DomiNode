@@ -21,7 +21,7 @@ import { setAuthCookies } from "../helpers/cookies.js";
 const router = Router();
 const log = createLogger("api:wallet-auth");
 
-const DOMINUSNODE_DOMAIN = process.env["DOMINUSNODE_DOMAIN"] ?? "dominusnode.io";
+const DOMINUSNODE_DOMAIN = process.env["DOMINUSNODE_DOMAIN"] ?? "dominusnode.com";
 
 // ─── In-memory rate limiting for challenge requests ──────────────────
 const MAX_CHALLENGES_PER_IP = 5;

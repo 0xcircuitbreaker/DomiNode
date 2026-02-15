@@ -14,7 +14,7 @@ interface MfaSetupResponse {
 }
 
 function isWalletEmail(email: string): boolean {
-  return email.endsWith("@wallet.dominusnode.io");
+  return email.endsWith("@wallet.dominusnode.com");
 }
 
 export default function SecurityPage() {

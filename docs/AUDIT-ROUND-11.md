@@ -131,7 +131,7 @@ All **8 CRITICAL** and **20 HIGH** findings have been **fixed** in this round.
 
 ### H-14: Extension apiBase Initialized to DEV_API_BASE (EXT-H-1)
 **Issue:** `apiBase` defaulted to `DEV_API_BASE` (`http://localhost:3000`) creating a startup race condition where requests could go over HTTP.
-**Fix:** Changed initialization to `DEFAULT_API_BASE` (`https://proxy.dominusnode.io`).
+**Fix:** Changed initialization to `DEFAULT_API_BASE` (`https://proxy.dominusnode.com`).
 
 ### H-15: Python SDK Admin URL-Encoding (SDK-PY-H-1)
 **Issue:** Admin resource used f-strings without URL-encoding user IDs — path traversal risk.

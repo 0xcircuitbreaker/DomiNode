@@ -634,7 +634,7 @@ INFRASTRUCTURE
 [x] docker-compose.prod.yml with all services, resource limits, health checks
 [x] nginx config with API proxy, security headers, gzip, SPA fallback
 [ ] TLS termination (Let's Encrypt) configured for production domain
-[ ] DNS configured (api.dominusnode.io, proxy.dominusnode.io)
+[ ] DNS configured (api.dominusnode.com, proxy.dominusnode.com)
 [ ] Firewall rules: only 80/443 (public), 8080/1080 (proxy), 5432 (internal)
 [x] Process management via Docker restart policies (systemd docs available)
 
@@ -754,10 +754,10 @@ With a focused team: **3-4 weeks** to production readiness (down from 4-6 weeks 
                                           |
                     +---------------------v-----------------------+
                     |    nginx (TLS termination, reverse proxy)    |
-                    |    api.dominusnode.io -> dashboard:3000          |
-                    |    app.dominusnode.io -> frontend static files   |
-                    |    proxy.dominusnode.io:8080 -> proxy HTTP       |
-                    |    proxy.dominusnode.io:1080 -> proxy SOCKS5     |
+                    |    api.dominusnode.com -> dashboard:3000          |
+                    |    app.dominusnode.com -> frontend static files   |
+                    |    proxy.dominusnode.com:8080 -> proxy HTTP       |
+                    |    proxy.dominusnode.com:1080 -> proxy SOCKS5     |
                     +--+----------+----------+--------------------+
                        |          |          |
                +-------v--+  +---v----+  +--v-----------+

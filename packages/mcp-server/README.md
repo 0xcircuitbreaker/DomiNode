@@ -238,8 +238,8 @@ Available bootstrap tools:
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `DOMINUSNODE_API_KEY` | No | — | API key (omit for bootstrap mode) |
-| `DOMINUSNODE_API_URL` | No | `https://api.dominusnode.io` | REST API base URL |
-| `DOMINUSNODE_PROXY_HOST` | No | `proxy.dominusnode.io` | Proxy gateway host |
+| `DOMINUSNODE_API_URL` | No | `https://api.dominusnode.com` | REST API base URL |
+| `DOMINUSNODE_PROXY_HOST` | No | `proxy.dominusnode.com` | Proxy gateway host |
 | `DOMINUSNODE_HTTP_PROXY_PORT` | No | `8080` | HTTP proxy port |
 | `DOMINUSNODE_SOCKS5_PROXY_PORT` | No | `1080` | SOCKS5 proxy port |
 | `DOMINUSNODE_FETCH_TIMEOUT_MS` | No | `30000` | Proxy fetch timeout (max 120000) |

@@ -43,8 +43,8 @@ static int tests_failed = 0;
 
 static void test_default_config() {
     dominusnode::ClientConfig cfg;
-    ASSERT_EQ(cfg.base_url, "https://api.dominusnode.io");
-    ASSERT_EQ(cfg.proxy_host, "proxy.dominusnode.io");
+    ASSERT_EQ(cfg.base_url, "https://api.dominusnode.com");
+    ASSERT_EQ(cfg.proxy_host, "proxy.dominusnode.com");
     ASSERT_EQ(cfg.http_proxy_port, 8080);
     ASSERT_EQ(cfg.socks5_proxy_port, 1080);
     ASSERT_TRUE(cfg.api_key.empty());
@@ -78,7 +78,7 @@ static void test_client_construction() {
 
 static void test_client_default_construction() {
     dominusnode::DominusNodeClient client;
-    ASSERT_EQ(client.base_url(), "https://api.dominusnode.io");
+    ASSERT_EQ(client.base_url(), "https://api.dominusnode.com");
 }
 
 static void test_client_move() {
@@ -109,8 +109,8 @@ static void test_client_resource_accessors() {
 static void test_constants() {
     ASSERT_EQ(std::string(dominusnode::SDK_VERSION), "1.0.0");
     ASSERT_EQ(std::string(dominusnode::USER_AGENT), "dominusnode-sdk-cpp/1.0.0");
-    ASSERT_EQ(std::string(dominusnode::DEFAULT_BASE_URL), "https://api.dominusnode.io");
-    ASSERT_EQ(std::string(dominusnode::DEFAULT_PROXY_HOST), "proxy.dominusnode.io");
+    ASSERT_EQ(std::string(dominusnode::DEFAULT_BASE_URL), "https://api.dominusnode.com");
+    ASSERT_EQ(std::string(dominusnode::DEFAULT_PROXY_HOST), "proxy.dominusnode.com");
     ASSERT_EQ(dominusnode::DEFAULT_HTTP_PROXY_PORT, 8080);
     ASSERT_EQ(dominusnode::DEFAULT_SOCKS5_PROXY_PORT, 1080);
     ASSERT_EQ(dominusnode::TOKEN_REFRESH_BUFFER_SECONDS, 60);

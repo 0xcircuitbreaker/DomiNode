@@ -269,7 +269,7 @@ func TestSDKConstants(t *testing.T) {
 	if dominusnode.UserAgent != "dominusnode-sdk-go/1.0.0" {
 		t.Errorf("unexpected user agent: %s", dominusnode.UserAgent)
 	}
-	if dominusnode.DefaultBaseURL != "https://api.dominusnode.io" {
+	if dominusnode.DefaultBaseURL != "https://api.dominusnode.com" {
 		t.Errorf("unexpected default base URL: %s", dominusnode.DefaultBaseURL)
 	}
 	if dominusnode.DefaultHTTPProxyPort != 8080 {

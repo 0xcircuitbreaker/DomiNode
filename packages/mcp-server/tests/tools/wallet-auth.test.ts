@@ -85,7 +85,7 @@ describe("wallet-auth tools", () => {
         refreshToken: "rt",
         user: {
           id: "u-new",
-          email: `${VALID_ADDRESS}@wallet.dominusnode.io`,
+          email: `${VALID_ADDRESS}@wallet.dominusnode.com`,
           wallet_address: VALID_ADDRESS,
           isNewUser: true,
         },
@@ -113,7 +113,7 @@ describe("wallet-auth tools", () => {
         refreshToken: "rt",
         user: {
           id: "u-existing",
-          email: `${VALID_ADDRESS}@wallet.dominusnode.io`,
+          email: `${VALID_ADDRESS}@wallet.dominusnode.com`,
           wallet_address: VALID_ADDRESS,
           isNewUser: false,
         },
@@ -142,7 +142,7 @@ describe("wallet-auth tools", () => {
           refreshToken: "rt",
           user: {
             id: "u-new",
-            email: `${VALID_ADDRESS}@wallet.dominusnode.io`,
+            email: `${VALID_ADDRESS}@wallet.dominusnode.com`,
             wallet_address: VALID_ADDRESS,
             isNewUser: true,
           },

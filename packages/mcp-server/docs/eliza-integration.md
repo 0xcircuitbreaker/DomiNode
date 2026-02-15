@@ -104,8 +104,8 @@ const proxyAccess = await callTool("dominusnode_x402_info");
 | Variable | Required | Default |
 |----------|----------|---------|
 | `DOMINUSNODE_API_KEY` | No (bootstrap mode) | — |
-| `DOMINUSNODE_API_URL` | No | `https://api.dominusnode.io` |
-| `DOMINUSNODE_PROXY_HOST` | No | `proxy.dominusnode.io` |
+| `DOMINUSNODE_API_URL` | No | `https://api.dominusnode.com` |
+| `DOMINUSNODE_PROXY_HOST` | No | `proxy.dominusnode.com` |
 
 ## Pricing
 

@@ -222,7 +222,7 @@ function getMarketingHealthStatus(status: ProxyHealthResponse["status"]): ProxyH
 
 function getMarketingProxyEndpoint(): string {
   const env = (import.meta as { env?: Record<string, string | undefined> }).env;
-  const configuredHost = env?.VITE_PROXY_PUBLIC_HOST?.trim() || "proxy.dominusnode.io";
+  const configuredHost = env?.VITE_PROXY_PUBLIC_HOST?.trim() || "proxy.dominusnode.com";
   if (configuredHost.includes(":")) return configuredHost;
   const configuredPort = env?.VITE_PROXY_HTTP_PORT?.trim() || "8080";
   return `${configuredHost}:${configuredPort}`;

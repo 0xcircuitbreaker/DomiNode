@@ -16,10 +16,10 @@ import java.time.Duration;
 public final class Config {
 
     /** Default Dominus Node API base URL. */
-    public static final String DEFAULT_BASE_URL = "https://api.dominusnode.io";
+    public static final String DEFAULT_BASE_URL = "https://api.dominusnode.com";
 
     /** Default proxy server hostname. */
-    public static final String DEFAULT_PROXY_HOST = "proxy.dominusnode.io";
+    public static final String DEFAULT_PROXY_HOST = "proxy.dominusnode.com";
 
     /** Default HTTP proxy port. */
     public static final int DEFAULT_HTTP_PROXY_PORT = 8080;

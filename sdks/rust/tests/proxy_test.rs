@@ -19,7 +19,7 @@ fn make_client_custom(host: &str, http_port: u16, socks5_port: u16) -> DominusNo
 fn test_build_url_default_http() {
     let client = make_client();
     let url = client.proxy.build_url("dn_live_abc123", None);
-    assert_eq!(url, "http://user:dn_live_abc123@proxy.dominusnode.io:8080");
+    assert_eq!(url, "http://user:dn_live_abc123@proxy.dominusnode.com:8080");
 }
 
 #[test]
@@ -30,7 +30,7 @@ fn test_build_url_explicit_http() {
         ..Default::default()
     };
     let url = client.proxy.build_url("dn_live_abc123", Some(&opts));
-    assert_eq!(url, "http://user:dn_live_abc123@proxy.dominusnode.io:8080");
+    assert_eq!(url, "http://user:dn_live_abc123@proxy.dominusnode.com:8080");
 }
 
 #[test]
@@ -41,7 +41,7 @@ fn test_build_url_socks5() {
         ..Default::default()
     };
     let url = client.proxy.build_url("dn_live_abc123", Some(&opts));
-    assert_eq!(url, "socks5://user:dn_live_abc123@proxy.dominusnode.io:1080");
+    assert_eq!(url, "socks5://user:dn_live_abc123@proxy.dominusnode.com:1080");
 }
 
 #[test]
@@ -52,7 +52,7 @@ fn test_build_url_with_country() {
         ..Default::default()
     };
     let url = client.proxy.build_url("dn_live_key", Some(&opts));
-    assert_eq!(url, "http://user-country_US:dn_live_key@proxy.dominusnode.io:8080");
+    assert_eq!(url, "http://user-country_US:dn_live_key@proxy.dominusnode.com:8080");
 }
 
 #[test]
@@ -66,7 +66,7 @@ fn test_build_url_socks5_with_country() {
     let url = client.proxy.build_url("dn_live_key", Some(&opts));
     assert_eq!(
         url,
-        "socks5://user-country_US:dn_live_key@proxy.dominusnode.io:1080"
+        "socks5://user-country_US:dn_live_key@proxy.dominusnode.com:1080"
     );
 }
 
@@ -82,7 +82,7 @@ fn test_build_url_with_state_and_city() {
     let url = client.proxy.build_url("dn_live_key", Some(&opts));
     assert_eq!(
         url,
-        "http://user-country_US-state_CA-city_LosAngeles:dn_live_key@proxy.dominusnode.io:8080"
+        "http://user-country_US-state_CA-city_LosAngeles:dn_live_key@proxy.dominusnode.com:8080"
     );
 }
 
@@ -96,7 +96,7 @@ fn test_build_url_with_asn() {
     let url = client.proxy.build_url("dn_live_key", Some(&opts));
     assert_eq!(
         url,
-        "http://user-asn_13335:dn_live_key@proxy.dominusnode.io:8080"
+        "http://user-asn_13335:dn_live_key@proxy.dominusnode.com:8080"
     );
 }
 
@@ -110,7 +110,7 @@ fn test_build_url_with_session_id() {
     let url = client.proxy.build_url("dn_live_key", Some(&opts));
     assert_eq!(
         url,
-        "http://user-session_sticky123:dn_live_key@proxy.dominusnode.io:8080"
+        "http://user-session_sticky123:dn_live_key@proxy.dominusnode.com:8080"
     );
 }
 
@@ -128,7 +128,7 @@ fn test_build_url_all_options() {
     let url = client.proxy.build_url("dn_live_key", Some(&opts));
     assert_eq!(
         url,
-        "socks5://user-country_DE-state_BY-city_Munich-asn_3320-session_sess42:dn_live_key@proxy.dominusnode.io:1080"
+        "socks5://user-country_DE-state_BY-city_Munich-asn_3320-session_sess42:dn_live_key@proxy.dominusnode.com:1080"
     );
 }
 
@@ -151,5 +151,5 @@ fn test_build_url_empty_options() {
     let client = make_client();
     let opts = ProxyUrlOptions::default();
     let url = client.proxy.build_url("dn_live_key", Some(&opts));
-    assert_eq!(url, "http://user:dn_live_key@proxy.dominusnode.io:8080");
+    assert_eq!(url, "http://user:dn_live_key@proxy.dominusnode.com:8080");
 }

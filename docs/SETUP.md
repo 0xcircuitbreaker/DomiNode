@@ -99,7 +99,7 @@ NOWPAYMENTS_API_URL=https://api.nowpayments.io/v1
 CORS_ORIGINS=http://localhost:5173
 
 # Public hostname for proxy endpoint (shown to users)
-PROXY_PUBLIC_HOST=proxy.dominusnode.io
+PROXY_PUBLIC_HOST=proxy.dominusnode.com
 
 # Proxy config served to browser extension
 PROXY_HOST=localhost
@@ -664,13 +664,13 @@ data:
   PACKETSTREAM_GATEWAY_PORT: "31112"
   PACKETSTREAM_RESELLER_API_URL: "https://reseller.packetstream.io"
   NOWPAYMENTS_API_URL: "https://api.nowpayments.io/v1"
-  CORS_ORIGINS: "https://app.dominusnode.io"
-  PROXY_PUBLIC_HOST: "proxy.dominusnode.io"
+  CORS_ORIGINS: "https://app.dominusnode.com"
+  PROXY_PUBLIC_HOST: "proxy.dominusnode.com"
   PROXY_HOST: "dominusnode-proxy"
   PROXY_HTTP_PORT: "8080"
   PROXY_SOCKS5_PORT: "1080"
-  STRIPE_SUCCESS_URL: "https://app.dominusnode.io/dashboard?topup=success"
-  STRIPE_CANCEL_URL: "https://app.dominusnode.io/dashboard?topup=cancel"
+  STRIPE_SUCCESS_URL: "https://app.dominusnode.com/dashboard?topup=success"
+  STRIPE_CANCEL_URL: "https://app.dominusnode.com/dashboard?topup=cancel"
   PROXY_CONNECT_TIMEOUT_MS: "30000"
   PROXY_SESSION_MAX_AGE_MS: "3600000"
   PROXY_MAX_CONNECTIONS: "5000"
@@ -921,11 +921,11 @@ spec:
   ingressClassName: nginx
   tls:
     - hosts:
-        - api.dominusnode.io
-        - app.dominusnode.io
+        - api.dominusnode.com
+        - app.dominusnode.com
       secretName: dominusnode-tls
   rules:
-    - host: api.dominusnode.io
+    - host: api.dominusnode.com
       http:
         paths:
           - path: /api
@@ -935,7 +935,7 @@ spec:
                 name: dominusnode-api
                 port:
                   number: 3000
-    - host: app.dominusnode.io
+    - host: app.dominusnode.com
       http:
         paths:
           - path: /

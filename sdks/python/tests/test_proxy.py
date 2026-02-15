@@ -14,21 +14,21 @@ class TestBuildProxyUrl:
     def test_basic_http_url(self) -> None:
         url = build_proxy_url(
             "dn_live_abc123",
-            proxy_host="proxy.dominusnode.io",
+            proxy_host="proxy.dominusnode.com",
             http_proxy_port=8080,
             socks5_proxy_port=1080,
         )
-        assert url == "http://user:dn_live_abc123@proxy.dominusnode.io:8080"
+        assert url == "http://user:dn_live_abc123@proxy.dominusnode.com:8080"
 
     def test_socks5_url(self) -> None:
         url = build_proxy_url(
             "dn_live_abc123",
-            proxy_host="proxy.dominusnode.io",
+            proxy_host="proxy.dominusnode.com",
             http_proxy_port=8080,
             socks5_proxy_port=1080,
             options=ProxyUrlOptions(protocol="socks5"),
         )
-        assert url == "socks5://user:dn_live_abc123@proxy.dominusnode.io:1080"
+        assert url == "socks5://user:dn_live_abc123@proxy.dominusnode.com:1080"
 
     def test_with_country(self) -> None:
         url = build_proxy_url(

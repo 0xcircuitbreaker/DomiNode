@@ -1,6 +1,6 @@
 //! # Dominus Node SDK for Rust
 //!
-//! Official Rust client for the [Dominus Node](https://dominusnode.io) rotating
+//! Official Rust client for the [Dominus Node](https://dominusnode.com) rotating
 //! proxy-as-a-service platform.
 //!
 //! ## Quick Start

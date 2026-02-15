@@ -271,7 +271,7 @@ export default function DashboardPage() {
           <div className="bg-gray-950 border border-gray-800 rounded-lg p-3 sm:p-4 font-mono text-xs sm:text-sm overflow-x-auto">
             <p className="text-gray-500 mb-1"># Basic (rotating IP)</p>
             <p className="text-gray-300 break-all">
-              curl -x http://user:<span className="text-indigo-400">YOUR_API_KEY</span>@proxy.dominusnode.io:8080 https://httpbin.org/ip
+              curl -x http://user:<span className="text-indigo-400">YOUR_API_KEY</span>@proxy.dominusnode.com:8080 https://httpbin.org/ip
             </p>
           </div>
 
@@ -279,7 +279,7 @@ export default function DashboardPage() {
           <div className="bg-gray-950 border border-gray-800 rounded-lg p-3 sm:p-4 font-mono text-xs sm:text-sm overflow-x-auto">
             <p className="text-gray-500 mb-1"># Geo-targeted (US IP)</p>
             <p className="text-gray-300 break-all">
-              curl -x http://<span className="text-green-400">country-US</span>:<span className="text-indigo-400">YOUR_API_KEY</span>@proxy.dominusnode.io:8080 https://httpbin.org/ip
+              curl -x http://<span className="text-green-400">country-US</span>:<span className="text-indigo-400">YOUR_API_KEY</span>@proxy.dominusnode.com:8080 https://httpbin.org/ip
             </p>
           </div>
 
@@ -287,7 +287,7 @@ export default function DashboardPage() {
           <div className="bg-gray-950 border border-gray-800 rounded-lg p-3 sm:p-4 font-mono text-xs sm:text-sm overflow-x-auto">
             <p className="text-gray-500 mb-1"># Sticky session (same IP for multiple requests)</p>
             <p className="text-gray-300 break-all">
-              curl -x http://<span className="text-green-400">session-abc123</span>:<span className="text-indigo-400">YOUR_API_KEY</span>@proxy.dominusnode.io:8080 https://httpbin.org/ip
+              curl -x http://<span className="text-green-400">session-abc123</span>:<span className="text-indigo-400">YOUR_API_KEY</span>@proxy.dominusnode.com:8080 https://httpbin.org/ip
             </p>
           </div>
 
@@ -295,7 +295,7 @@ export default function DashboardPage() {
           <div className="bg-gray-950 border border-gray-800 rounded-lg p-3 sm:p-4 font-mono text-xs sm:text-sm overflow-x-auto">
             <p className="text-gray-500 mb-1"># Geo-targeted + sticky session</p>
             <p className="text-gray-300 break-all">
-              curl -x http://<span className="text-green-400">country-DE-session-mysess</span>:<span className="text-indigo-400">YOUR_API_KEY</span>@proxy.dominusnode.io:8080 https://httpbin.org/ip
+              curl -x http://<span className="text-green-400">country-DE-session-mysess</span>:<span className="text-indigo-400">YOUR_API_KEY</span>@proxy.dominusnode.com:8080 https://httpbin.org/ip
             </p>
           </div>
 
@@ -303,7 +303,7 @@ export default function DashboardPage() {
           <div className="bg-gray-950 border border-gray-800 rounded-lg p-3 sm:p-4 font-mono text-xs sm:text-sm overflow-x-auto">
             <p className="text-gray-500 mb-1"># SOCKS5 proxy</p>
             <p className="text-gray-300 break-all">
-              curl --socks5-hostname <span className="text-green-400">country-US</span>:<span className="text-indigo-400">YOUR_API_KEY</span>@proxy.dominusnode.io:1080 https://httpbin.org/ip
+              curl --socks5-hostname <span className="text-green-400">country-US</span>:<span className="text-indigo-400">YOUR_API_KEY</span>@proxy.dominusnode.com:1080 https://httpbin.org/ip
             </p>
           </div>
 
@@ -311,7 +311,7 @@ export default function DashboardPage() {
           <div className="bg-gray-950 border border-gray-800 rounded-lg p-3 sm:p-4 font-mono text-xs sm:text-sm overflow-x-auto">
             <p className="text-gray-500 mb-1"># Python requests</p>
             <p className="text-gray-300 break-all">
-              proxies = {'{'}"https": "http://country-US:<span className="text-indigo-400">YOUR_API_KEY</span>@proxy.dominusnode.io:8080"{'}'}
+              proxies = {'{'}"https": "http://country-US:<span className="text-indigo-400">YOUR_API_KEY</span>@proxy.dominusnode.com:8080"{'}'}
             </p>
           </div>
         </div>

@@ -37,8 +37,8 @@ vi.mock("@dominusnode/shared", () => ({
   isValidEvmAddress: (addr: string) => /^0x[0-9a-fA-F]{40}$/.test(addr),
   generateWalletNonce: vi.fn().mockReturnValue("a".repeat(64)),
   buildSignMessage: vi.fn().mockReturnValue("test sign message"),
-  walletToSyntheticEmail: (addr: string) => `${addr.toLowerCase()}@wallet.dominusnode.io`,
-  isWalletEmail: (email: string) => email.endsWith("@wallet.dominusnode.io"),
+  walletToSyntheticEmail: (addr: string) => `${addr.toLowerCase()}@wallet.dominusnode.com`,
+  isWalletEmail: (email: string) => email.endsWith("@wallet.dominusnode.com"),
 }));
 
 vi.mock("../helpers/verify-signature.js", () => ({
@@ -194,7 +194,7 @@ describe("wallet-auth routes", () => {
       vi.mocked(userRepo.findUserByWalletAddress).mockResolvedValue(null);
       vi.mocked(userRepo.createWalletUser).mockResolvedValue({
         id: "u-new",
-        email: `${VALID_ADDRESS}@wallet.dominusnode.io`,
+        email: `${VALID_ADDRESS}@wallet.dominusnode.com`,
         status: "active",
         is_admin: false,
         wallet_address: VALID_ADDRESS,
@@ -230,7 +230,7 @@ describe("wallet-auth routes", () => {
       vi.mocked(recoverSignerAddress).mockReturnValue(VALID_ADDRESS);
       vi.mocked(userRepo.findUserByWalletAddress).mockResolvedValue({
         id: "u-existing",
-        email: `${VALID_ADDRESS}@wallet.dominusnode.io`,
+        email: `${VALID_ADDRESS}@wallet.dominusnode.com`,
         status: "active",
         is_admin: false,
         wallet_address: VALID_ADDRESS,
@@ -308,7 +308,7 @@ describe("wallet-auth routes", () => {
       vi.mocked(recoverSignerAddress).mockReturnValue(VALID_ADDRESS);
       vi.mocked(userRepo.findUserByWalletAddress).mockResolvedValue({
         id: "u-suspended",
-        email: `${VALID_ADDRESS}@wallet.dominusnode.io`,
+        email: `${VALID_ADDRESS}@wallet.dominusnode.com`,
         status: "suspended",
         is_admin: false,
         wallet_address: VALID_ADDRESS,

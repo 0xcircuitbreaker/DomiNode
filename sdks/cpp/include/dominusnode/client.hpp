@@ -17,11 +17,11 @@ namespace dominusnode {
 /// Configuration for the Dominus Node client.
 /// Credentials are securely zeroed on destruction.
 struct ClientConfig {
-    std::string base_url = "https://api.dominusnode.io";
+    std::string base_url = "https://api.dominusnode.com";
     std::string api_key;
     std::string access_token;
     std::string refresh_token;
-    std::string proxy_host = "proxy.dominusnode.io";
+    std::string proxy_host = "proxy.dominusnode.com";
     int http_proxy_port = 8080;
     int socks5_proxy_port = 1080;
 
@@ -41,7 +41,7 @@ struct ClientConfig {
 ///
 /// Usage:
 ///   dominusnode::ClientConfig cfg;
-///   cfg.base_url = "https://api.dominusnode.io";
+///   cfg.base_url = "https://api.dominusnode.com";
 ///   dominusnode::DominusNodeClient client(cfg);
 ///
 ///   // Connect with API key (for proxy usage):

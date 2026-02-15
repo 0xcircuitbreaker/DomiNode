@@ -23,9 +23,9 @@ export function parseConfig(env: Record<string, string | undefined> = process.en
     throw new ConfigError("DOMINUSNODE_API_KEY must start with 'dn_live_'");
   }
 
-  const apiUrl = (env["DOMINUSNODE_API_URL"] ?? "https://api.dominusnode.io").replace(/\/+$/, "");
+  const apiUrl = (env["DOMINUSNODE_API_URL"] ?? "https://api.dominusnode.com").replace(/\/+$/, "");
 
-  const proxyHost = env["DOMINUSNODE_PROXY_HOST"] ?? "proxy.dominusnode.io";
+  const proxyHost = env["DOMINUSNODE_PROXY_HOST"] ?? "proxy.dominusnode.com";
 
   const httpProxyPort = parsePort(env["DOMINUSNODE_HTTP_PROXY_PORT"], 8080, "DOMINUSNODE_HTTP_PROXY_PORT");
   const socks5ProxyPort = parsePort(env["DOMINUSNODE_SOCKS5_PROXY_PORT"], 1080, "DOMINUSNODE_SOCKS5_PROXY_PORT");

@@ -48,7 +48,7 @@ static int tests_failed = 0;
 static void test_build_url_default() {
     dominusnode::DominusNodeClient client;
     auto url = client.proxy().build_url("dn_live_abc123");
-    ASSERT_EQ(url, "http://user:dn_live_abc123@proxy.dominusnode.io:8080");
+    ASSERT_EQ(url, "http://user:dn_live_abc123@proxy.dominusnode.com:8080");
 }
 
 static void test_build_url_socks5() {
@@ -56,7 +56,7 @@ static void test_build_url_socks5() {
     dominusnode::ProxyUrlOptions opts;
     opts.protocol = "socks5";
     auto url = client.proxy().build_url("dn_live_abc123", opts);
-    ASSERT_EQ(url, "socks5://user:dn_live_abc123@proxy.dominusnode.io:1080");
+    ASSERT_EQ(url, "socks5://user:dn_live_abc123@proxy.dominusnode.com:1080");
 }
 
 static void test_build_url_with_country() {
@@ -64,7 +64,7 @@ static void test_build_url_with_country() {
     dominusnode::ProxyUrlOptions opts;
     opts.country = "US";
     auto url = client.proxy().build_url("dn_live_key1", opts);
-    ASSERT_EQ(url, "http://user-country_US:dn_live_key1@proxy.dominusnode.io:8080");
+    ASSERT_EQ(url, "http://user-country_US:dn_live_key1@proxy.dominusnode.com:8080");
 }
 
 static void test_build_url_with_geo_targeting() {
@@ -74,7 +74,7 @@ static void test_build_url_with_geo_targeting() {
     opts.state = "CA";
     opts.city = "LosAngeles";
     auto url = client.proxy().build_url("dn_live_key1", opts);
-    ASSERT_EQ(url, "http://user-country_US-state_CA-city_LosAngeles:dn_live_key1@proxy.dominusnode.io:8080");
+    ASSERT_EQ(url, "http://user-country_US-state_CA-city_LosAngeles:dn_live_key1@proxy.dominusnode.com:8080");
 }
 
 static void test_build_url_with_session() {
@@ -82,7 +82,7 @@ static void test_build_url_with_session() {
     dominusnode::ProxyUrlOptions opts;
     opts.session_id = "sess_abc123";
     auto url = client.proxy().build_url("dn_live_key1", opts);
-    ASSERT_EQ(url, "http://user-session_sess_abc123:dn_live_key1@proxy.dominusnode.io:8080");
+    ASSERT_EQ(url, "http://user-session_sess_abc123:dn_live_key1@proxy.dominusnode.com:8080");
 }
 
 static void test_build_url_with_asn() {
@@ -90,7 +90,7 @@ static void test_build_url_with_asn() {
     dominusnode::ProxyUrlOptions opts;
     opts.asn = 15169;
     auto url = client.proxy().build_url("dn_live_key1", opts);
-    ASSERT_EQ(url, "http://user-asn_15169:dn_live_key1@proxy.dominusnode.io:8080");
+    ASSERT_EQ(url, "http://user-asn_15169:dn_live_key1@proxy.dominusnode.com:8080");
 }
 
 static void test_build_url_all_options() {
@@ -124,7 +124,7 @@ static void test_build_url_custom_host_port() {
 
 static void test_proxy_resource_accessors() {
     dominusnode::DominusNodeClient client;
-    ASSERT_EQ(client.proxy().proxy_host(), "proxy.dominusnode.io");
+    ASSERT_EQ(client.proxy().proxy_host(), "proxy.dominusnode.com");
     ASSERT_EQ(client.proxy().http_proxy_port(), 8080);
     ASSERT_EQ(client.proxy().socks5_proxy_port(), 1080);
 }

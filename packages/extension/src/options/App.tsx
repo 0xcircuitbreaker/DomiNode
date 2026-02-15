@@ -338,7 +338,7 @@ function AuthenticatedSettings({ state, sendMessage }: AuthenticatedSettingsProp
             API Base URL is configured at build time. Current:
           </div>
           <div style={{ fontFamily: "monospace", fontSize: "13px", color: "var(--text-secondary)" }}>
-            {state.apiKey ? "API Key mode (direct proxy)" : "https://proxy.dominusnode.io"}
+            {state.apiKey ? "API Key mode (direct proxy)" : "https://proxy.dominusnode.com"}
           </div>
         </div>
       </div>

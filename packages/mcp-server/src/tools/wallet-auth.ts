@@ -127,7 +127,7 @@ export function registerWalletAuthTools(server: McpServer, httpClient: HttpClien
           `  Label: ${keyData.label}`,
           ``,
           `Proxy Usage:`,
-          `  curl -x http://USER:${keyData.key}@proxy.dominusnode.io:8080 https://httpbin.org/ip`,
+          `  curl -x http://USER:${keyData.key}@proxy.dominusnode.com:8080 https://httpbin.org/ip`,
           ``,
           `Free tier: 10 connections, 1GB bandwidth.`,
           `Use dominusnode_fetch to make proxy requests immediately.`,
