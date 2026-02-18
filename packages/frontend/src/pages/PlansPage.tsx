@@ -12,6 +12,7 @@ interface PlanItem {
   monthlyBandwidthGB: number | null;
   isDefault: boolean;
   maxConnections: number;
+  allowedProxyTypes?: string | null;
 }
 
 interface PlansResponse {
@@ -125,58 +126,120 @@ export default function PlansPage() {
         </div>
       )}
 
-      {/* Available Plans */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {plansData?.plans.map((plan) => {
-          const isCurrent = plan.id === userPlan?.plan.id;
-          const isChanging = changingPlan === plan.id;
+      {/* Free Tier Plans */}
+      {plansData?.plans.some((p) => p.id === "free-dc" || p.id === "free-res") && (
+        <div>
+          <h2 className="font-semibold mb-3">Free Tiers</h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {plansData.plans
+              .filter((p) => p.id === "free-dc" || p.id === "free-res")
+              .map((plan) => {
+                const isCurrent = plan.id === userPlan?.plan.id;
+                const isChanging = changingPlan === plan.id;
+                const isDC = plan.id === "free-dc";
 
-          return (
-            <div
-              key={plan.id}
-              className={`bg-gray-900 border rounded-xl p-5 flex flex-col ${
-                isCurrent ? "border-indigo-500" : "border-gray-800"
-              }`}
-            >
-              {isCurrent && (
-                <span className="text-xs font-medium text-indigo-400 mb-2">Current Plan</span>
-              )}
-              <h3 className="text-lg font-semibold">{plan.name}</h3>
-              <p className="text-xl sm:text-2xl lg:text-3xl font-bold mt-2">
-                {plan.pricePerGbCents === 0 ? "Free" : (<>${plan.pricePerGbUsd}<span className="text-sm font-normal text-gray-400">/GB</span></>)}
-              </p>
-              <p className="text-sm text-gray-400 mt-2">
-                {formatBandwidth(plan.monthlyBandwidthGB)}
-                {plan.monthlyBandwidthGB ? " /month" : ""}
-              </p>
-              <p className="text-xs text-gray-500 mt-1">
-                {plan.maxConnections} concurrent connections
-              </p>
-              <p className="text-xs text-gray-500 mt-1">
-                {plan.id === "free"
-                  ? "1 GB free residential bandwidth, no payment required"
-                  : plan.id === "payg"
+                return (
+                  <div
+                    key={plan.id}
+                    className={`bg-gray-900 border rounded-xl p-5 flex flex-col ${
+                      isCurrent ? "border-indigo-500" : "border-gray-800"
+                    }`}
+                  >
+                    {isCurrent && (
+                      <span className="text-xs font-medium text-indigo-400 mb-2">Current Plan</span>
+                    )}
+                    <h3 className="text-lg font-semibold">{plan.name}</h3>
+                    <p className="text-xl sm:text-2xl font-bold mt-2">Free</p>
+                    <p className="text-sm text-gray-400 mt-2">
+                      {formatBandwidth(plan.monthlyBandwidthGB)} /month
+                    </p>
+                    <p className="text-xs text-gray-500 mt-1">
+                      {plan.maxConnections} concurrent connections
+                    </p>
+                    <p className="text-xs text-gray-500 mt-1">
+                      {isDC
+                        ? "Datacenter IPs | Fast & reliable | Best for testing"
+                        : "Rotating residential IPs | Hard to detect | Best for scraping trials"}
+                    </p>
+                    <p className="text-xs text-gray-600 mt-1">
+                      {isDC ? "DC pool only" : "Residential pool only"} &middot; No credit card required
+                    </p>
+                    <div className="mt-auto pt-4">
+                      <button
+                        onClick={() => handleChangePlan(plan.id)}
+                        disabled={isCurrent || isChanging}
+                        className={`w-full py-2.5 rounded-lg text-sm font-medium transition-colors ${
+                          isCurrent
+                            ? "bg-gray-800 text-gray-500 cursor-default"
+                            : "bg-indigo-600 hover:bg-indigo-500 text-white"
+                        }`}
+                      >
+                        {isChanging ? "Switching..." : isCurrent ? "Current" : "Switch to This Free Tier"}
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+          </div>
+        </div>
+      )}
+
+      {/* Paid Plans */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {plansData?.plans
+          .filter((p) => p.id !== "free-dc" && p.id !== "free-res" && p.id !== "free")
+          .map((plan) => {
+            const isCurrent = plan.id === userPlan?.plan.id;
+            const isChanging = changingPlan === plan.id;
+
+            return (
+              <div
+                key={plan.id}
+                className={`bg-gray-900 border rounded-xl p-5 flex flex-col ${
+                  isCurrent ? "border-indigo-500" : "border-gray-800"
+                }`}
+              >
+                {isCurrent && (
+                  <span className="text-xs font-medium text-indigo-400 mb-2">Current Plan</span>
+                )}
+                <h3 className="text-lg font-semibold">{plan.name}</h3>
+                <p className="text-xl sm:text-2xl lg:text-3xl font-bold mt-2">
+                  ${plan.pricePerGbUsd}<span className="text-sm font-normal text-gray-400">/GB</span>
+                </p>
+                <p className="text-sm text-gray-400 mt-2">
+                  {formatBandwidth(plan.monthlyBandwidthGB)}
+                  {plan.monthlyBandwidthGB ? " /month" : ""}
+                </p>
+                <p className="text-xs text-gray-500 mt-1">
+                  {plan.maxConnections} concurrent connections
+                </p>
+                <p className="text-xs text-gray-500 mt-1">
+                  {plan.id === "payg"
                     ? "Standard rate, no commitment"
                     : plan.id === "vol100"
                       ? "Best for medium volume, save 20%"
-                      : "Best for high volume, save 40%"}
-              </p>
-              <div className="mt-auto pt-4">
-                <button
-                  onClick={() => handleChangePlan(plan.id)}
-                  disabled={isCurrent || isChanging}
-                  className={`w-full py-2.5 rounded-lg text-sm font-medium transition-colors ${
-                    isCurrent
-                      ? "bg-gray-800 text-gray-500 cursor-default"
-                      : "bg-indigo-600 hover:bg-indigo-500 text-white"
-                  }`}
-                >
-                  {isChanging ? "Switching..." : isCurrent ? "Current" : "Switch Plan"}
-                </button>
+                      : plan.id === "vol1tb"
+                        ? "Best for high volume, save 40%"
+                        : plan.id === "agent"
+                          ? "Optimized for AI agent workloads"
+                          : ""}
+                </p>
+                <div className="mt-auto pt-4">
+                  <button
+                    onClick={() => handleChangePlan(plan.id)}
+                    disabled={isCurrent || isChanging}
+                    className={`w-full py-2.5 rounded-lg text-sm font-medium transition-colors ${
+                      isCurrent
+                        ? "bg-gray-800 text-gray-500 cursor-default"
+                        : "bg-indigo-600 hover:bg-indigo-500 text-white"
+                    }`}
+                  >
+                    {isChanging ? "Switching..." : isCurrent ? "Current" : "Switch Plan"}
+                  </button>
+                </div>
               </div>
-            </div>
-          );
-        })}
+            );
+          })}
       </div>
 
       {/* Plan Details */}
@@ -194,6 +257,7 @@ export default function PlansPage() {
             )},
             { key: "price", header: "Price/GB", render: (plan) => plan.pricePerGbCents === 0 ? "Free" : `$${plan.pricePerGbUsd}` },
             { key: "bandwidth", header: "Monthly Bandwidth", render: (plan) => <span className="text-gray-400">{formatBandwidth(plan.monthlyBandwidthGB)}</span> },
+            { key: "pool", header: "Pool Access", render: (plan) => <span className="text-gray-400">{plan.allowedProxyTypes ? (plan.allowedProxyTypes === "dc" ? "DC only" : "Residential only") : "All pools"}</span> },
             { key: "connections", header: "Max Connections", hideOnMobile: true, render: (plan) => <span className="text-gray-400">{plan.maxConnections}</span> },
             { key: "savings", header: "Savings", render: (plan) => (
               <span className="text-gray-400">
@@ -205,7 +269,7 @@ export default function PlansPage() {
               </span>
             )},
           ]}
-          data={plansData?.plans ?? []}
+          data={(plansData?.plans ?? []).filter((p) => p.id !== "free")}
           keyExtractor={(plan) => plan.id}
         />
       </div>

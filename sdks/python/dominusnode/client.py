@@ -367,6 +367,10 @@ class AsyncDominusNodeClient:
             pass  # Best-effort — server may be unreachable
         self._token_manager.clear()
         self._api_key = None
+        # R25 H-5: Clear deferred credentials to prevent retention after disconnect
+        self._deferred_api_key = None
+        self._deferred_email = None
+        self._deferred_password = None
 
     async def close(self) -> None:
         """Close the underlying HTTP client."""

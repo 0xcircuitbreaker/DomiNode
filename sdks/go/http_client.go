@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"math/rand"
 	"net/url"
 	"sort"
 	"strconv"
@@ -61,7 +62,18 @@ func (hc *httpClient) doRequest(ctx context.Context, opts requestOptions, result
 			retryAfter = 0
 		}
 
-		timer := time.NewTimer(time.Duration(retryAfter) * time.Second)
+		// R24 C-1: Add ±10% jitter to prevent thundering-herd retry storms
+		waitMs := retryAfter * 1000
+		if waitMs < 100 {
+			waitMs = 100
+		}
+		jitterMs := int(float64(waitMs) * 0.2 * (rand.Float64() - 0.5))
+		waitMs += jitterMs
+		if waitMs < 100 {
+			waitMs = 100
+		}
+
+		timer := time.NewTimer(time.Duration(waitMs) * time.Millisecond)
 		select {
 		case <-timer.C:
 		case <-ctx.Done():
@@ -116,7 +128,18 @@ func (hc *httpClient) doRequestRaw(ctx context.Context, opts requestOptions) (st
 			retryAfter = 0
 		}
 
-		timer := time.NewTimer(time.Duration(retryAfter) * time.Second)
+		// R24 C-1: Add ±10% jitter to prevent thundering-herd retry storms
+		waitMs := retryAfter * 1000
+		if waitMs < 100 {
+			waitMs = 100
+		}
+		jitterMs := int(float64(waitMs) * 0.2 * (rand.Float64() - 0.5))
+		waitMs += jitterMs
+		if waitMs < 100 {
+			waitMs = 100
+		}
+
+		timer := time.NewTimer(time.Duration(waitMs) * time.Millisecond)
 		select {
 		case <-timer.C:
 		case <-ctx.Done():
@@ -189,10 +212,14 @@ func (hc *httpClient) executeRequest(ctx context.Context, opts requestOptions) (
 	defer resp.Body.Close()
 
 	// Cap response body to 10 MB to prevent OOM from malicious/compromised servers.
-	const maxResponseSize = 10 * 1024 * 1024
-	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseSize))
+	// R21 H-4: Read maxResponseSize+1 to detect truncation — prevents silent partial JSON
+	const maxResponseSize int64 = 10 * 1024 * 1024
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseSize+1))
 	if err != nil {
 		return nil, nil, &NetworkError{DominusNodeError{Message: "Failed to read response body", Err: err}}
+	}
+	if int64(len(body)) > maxResponseSize {
+		return nil, nil, &NetworkError{DominusNodeError{Message: "Response body exceeds 10MB limit"}}
 	}
 
 	return resp, body, nil
@@ -296,7 +323,12 @@ func extractErrorMessage(body []byte) string {
 		}
 	}
 
-	return string(body)
+	// R26 H-4: Truncate raw body to prevent info disclosure and log flooding
+	raw := string(body)
+	if len(raw) > 500 {
+		return raw[:500] + "...[truncated]"
+	}
+	return raw
 }
 
 // parseRetryAfter parses the Retry-After header value as seconds.

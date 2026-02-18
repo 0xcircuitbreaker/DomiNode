@@ -48,7 +48,8 @@ describe("api-client", () => {
       globalThis.fetch = vi.fn().mockResolvedValue({
         ok: true,
         status: 200,
-        json: () => Promise.resolve(mockResponse),
+        headers: { get: () => null },
+        text: () => Promise.resolve(JSON.stringify(mockResponse)),
       });
 
       const result = await apiPost<typeof mockResponse>("/api/auth/login", {
@@ -61,6 +62,8 @@ describe("api-client", () => {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: "test@example.com", password: "secret" }),
+        redirect: "error",
+        signal: expect.any(AbortSignal),
       });
     });
 
@@ -68,7 +71,8 @@ describe("api-client", () => {
       globalThis.fetch = vi.fn().mockResolvedValue({
         ok: true,
         status: 200,
-        json: () => Promise.resolve({ success: true }),
+        headers: { get: () => null },
+        text: () => Promise.resolve(JSON.stringify({ success: true })),
       });
 
       await apiPost("/api/auth/logout", {}, "my-jwt-token");
@@ -100,7 +104,8 @@ describe("api-client", () => {
         ok: false,
         status: 401,
         statusText: "Unauthorized",
-        json: () => Promise.resolve({ error: "Invalid credentials" }),
+        headers: { get: () => null },
+        text: () => Promise.resolve(JSON.stringify({ error: "Invalid credentials" })),
       });
 
       await expect(apiPost("/api/auth/login", {})).rejects.toThrow("Invalid credentials");
@@ -111,7 +116,8 @@ describe("api-client", () => {
         ok: false,
         status: 500,
         statusText: "Internal Server Error",
-        json: () => Promise.reject(new Error("not JSON")),
+        headers: { get: () => null },
+        text: () => Promise.resolve("not valid json {{{"),
       });
 
       await expect(apiPost("/api/test", {})).rejects.toThrow("Internal Server Error");
@@ -124,7 +130,8 @@ describe("api-client", () => {
       globalThis.fetch = vi.fn().mockResolvedValue({
         ok: true,
         status: 200,
-        json: () => Promise.resolve(mockData),
+        headers: { get: () => null },
+        text: () => Promise.resolve(JSON.stringify(mockData)),
       });
 
       const result = await apiGet<typeof mockData>("/api/wallet", "jwt-token-123");
@@ -132,6 +139,8 @@ describe("api-client", () => {
       expect(result).toEqual(mockData);
       expect(fetch).toHaveBeenCalledWith("http://localhost:3000/api/wallet", {
         headers: { Authorization: "Bearer jwt-token-123" },
+        redirect: "error",
+        signal: expect.any(AbortSignal),
       });
     });
 
@@ -139,13 +148,16 @@ describe("api-client", () => {
       globalThis.fetch = vi.fn().mockResolvedValue({
         ok: true,
         status: 200,
-        json: () => Promise.resolve({ status: "ok" }),
+        headers: { get: () => null },
+        text: () => Promise.resolve(JSON.stringify({ status: "ok" })),
       });
 
       await apiGet("/api/health");
 
       expect(fetch).toHaveBeenCalledWith("http://localhost:3000/api/health", {
         headers: {},
+        redirect: "error",
+        signal: expect.any(AbortSignal),
       });
     });
 

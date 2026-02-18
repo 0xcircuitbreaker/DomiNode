@@ -72,7 +72,7 @@ vi.mock("./stats.js", () => ({
 }));
 
 vi.mock("./counting-stream.js", () => ({
-  attachByteCounters: () => ({ bytesIn: 0, bytesOut: 0 }),
+  attachByteCounters: () => ({ bytesIn: 0, bytesOut: 0, maxBytes: 0, onLimitExceeded: null }),
 }));
 
 vi.mock("./retry.js", () => ({
@@ -165,7 +165,7 @@ describe("proxy-gateway server", () => {
       proxyOptions: {},
     });
     mockSelect.mockReturnValue({
-      provider: { name: "packetstream" },
+      provider: { name: "webshare-dc" },
       proxy: { host: "gw.test.io", port: 31112, proxyAuth: Buffer.from("u:p").toString("base64") },
     });
     mockGetUserPlan.mockResolvedValue({ id: "payg", name: "PAYG", pricePerGbCents: 500, monthlyBandwidthBytes: 0, isDefault: false, maxConnections: 100, maxSessionsPerMinute: 30 });
@@ -235,11 +235,11 @@ describe("proxy-gateway server", () => {
     });
 
     it("should include provider stats", async () => {
-      mockGetProviderStats.mockReturnValue([{ name: "packetstream", state: "closed" }]);
+      mockGetProviderStats.mockReturnValue([{ name: "webshare-dc", state: "closed" }]);
       const res = await makeRequest(port, { path: "/internal/stats", method: "GET" });
       const json = JSON.parse(res.body);
       expect(json.providers).toHaveLength(1);
-      expect(json.providers[0].name).toBe("packetstream");
+      expect(json.providers[0].name).toBe("webshare-dc");
     });
   });
 

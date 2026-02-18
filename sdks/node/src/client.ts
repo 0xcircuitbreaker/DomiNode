@@ -9,7 +9,7 @@ import { SessionsResource } from "./sessions.js";
 import { ProxyResource } from "./proxy.js";
 import { AdminResource } from "./admin.js";
 import { DEFAULT_BASE_URL } from "./constants.js";
-import type { Dominus NodeConfig, LoginResult } from "./types.js";
+import type { DominusNodeConfig, LoginResult } from "./types.js";
 
 export class DominusNodeClient {
   public readonly auth: AuthResource;
@@ -24,18 +24,13 @@ export class DominusNodeClient {
   private tokenManager: TokenManager;
   private http: HttpClient;
 
-  constructor(config: Dominus NodeConfig = {}) {
+  constructor(config: DominusNodeConfig = {}) {
     const baseUrl = config.baseUrl ?? DEFAULT_BASE_URL;
     this.tokenManager = new TokenManager();
     this.http = new HttpClient(baseUrl, this.tokenManager);
 
-    // Set refresh function — uses this.auth.refresh which is wired below
-    this.tokenManager.setRefreshFunction(async (rt) => {
-      const res = await this.auth.refresh(rt);
-      return { accessToken: res.token, refreshToken: res.refreshToken };
-    });
-
-    // Initialize all resource modules
+    // Initialize all resource modules BEFORE setting refresh function
+    // R26 C-1: this.auth must exist before refresh function can be invoked
     this.auth = new AuthResource(this.http);
     this.keys = new KeysResource(this.http);
     this.wallet = new WalletResource(this.http);
@@ -44,6 +39,12 @@ export class DominusNodeClient {
     this.sessions = new SessionsResource(this.http);
     this.proxy = new ProxyResource(this.http, config);
     this.admin = new AdminResource(this.http);
+
+    // Set refresh function AFTER auth is initialized
+    this.tokenManager.setRefreshFunction(async (rt) => {
+      const res = await this.auth.refresh(rt);
+      return { accessToken: res.token, refreshToken: res.refreshToken };
+    });
 
     // Auto-authenticate if tokens were provided in config
     if (config.accessToken) {

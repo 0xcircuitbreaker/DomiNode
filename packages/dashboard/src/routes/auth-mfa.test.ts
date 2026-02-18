@@ -8,10 +8,12 @@ import cookieParser from "cookie-parser";
 vi.mock("@dominusnode/shared", () => ({
   userRepo: {
     findUserByEmail: vi.fn(),
+    findUserForAuth: vi.fn(),
     findUserById: vi.fn(),
     findUserByApiKeyHash: vi.fn(),
     createUser: vi.fn(),
     updatePassword: vi.fn(),
+    revokeAllApiKeys: vi.fn(),
   },
   walletRepo: { createWallet: vi.fn() },
   refreshTokenRepo: {
@@ -169,7 +171,7 @@ describe("MFA auth routes", () => {
 
   describe("POST /api/auth/login (MFA flow)", () => {
     it("should return mfaRequired: true when MFA is enabled", async () => {
-      (userRepo.findUserByEmail as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      (userRepo.findUserForAuth as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
         id: "user1",
         email: "test@example.com",
         password_hash: "hashed-pw",
@@ -199,7 +201,7 @@ describe("MFA auth routes", () => {
     });
 
     it("should issue normal tokens when MFA is not enabled", async () => {
-      (userRepo.findUserByEmail as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      (userRepo.findUserForAuth as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
         id: "user1",
         email: "test@example.com",
         password_hash: "hashed-pw",
@@ -536,7 +538,7 @@ describe("MFA auth routes", () => {
 
   describe("POST /api/auth/mfa/disable", () => {
     it("should disable MFA with valid password and TOTP code", async () => {
-      (userRepo.findUserByEmail as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      (userRepo.findUserForAuth as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
         id: "user1",
         email: "test@example.com",
         password_hash: "hashed-pw",
@@ -564,7 +566,7 @@ describe("MFA auth routes", () => {
     });
 
     it("should disable MFA with valid password and backup code", async () => {
-      (userRepo.findUserByEmail as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      (userRepo.findUserForAuth as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
         id: "user1",
         email: "test@example.com",
         password_hash: "hashed-pw",
@@ -618,7 +620,7 @@ describe("MFA auth routes", () => {
     });
 
     it("should return 401 when password is incorrect", async () => {
-      (userRepo.findUserByEmail as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      (userRepo.findUserForAuth as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
         id: "user1",
         email: "test@example.com",
         password_hash: "hashed-pw",
@@ -637,7 +639,7 @@ describe("MFA auth routes", () => {
     });
 
     it("should return 401 when both TOTP and backup code are invalid", async () => {
-      (userRepo.findUserByEmail as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      (userRepo.findUserForAuth as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
         id: "user1",
         email: "test@example.com",
         password_hash: "hashed-pw",
@@ -665,7 +667,7 @@ describe("MFA auth routes", () => {
     });
 
     it("should return 400 when MFA is not enabled", async () => {
-      (userRepo.findUserByEmail as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      (userRepo.findUserForAuth as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
         id: "user1",
         email: "test@example.com",
         password_hash: "hashed-pw",
@@ -753,8 +755,9 @@ describe("MFA auth routes", () => {
       expect(res.body.valid).toBe(true);
       expect(res.body.token).toBe("access-token-123");
       expect(res.body.refreshToken).toBe("refresh-token-456");
-      // verify-key should NOT trigger MFA
-      expect(mfaRepo.findMfaConfigByUserId).not.toHaveBeenCalled();
+      // R31 C-3: verify-key now checks MFA — should call findMfaConfigByUserId
+      // but since mock returns null (no MFA), tokens are still issued
+      expect(mfaRepo.findMfaConfigByUserId).toHaveBeenCalledWith("user1");
     });
   });
 });

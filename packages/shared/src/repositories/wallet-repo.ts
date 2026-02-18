@@ -37,7 +37,9 @@ export async function creditWallet(
   paymentId: string,
   description: string,
 ): Promise<WalletTransaction> {
-  if (amountCents <= 0) throw new Error("Credit amount must be positive");
+  if (!Number.isInteger(amountCents) || amountCents <= 0 || amountCents > 2_147_483_647) {
+    throw new Error("Credit amount must be a positive integer within valid range");
+  }
   const pool = getPool();
   const client = await pool.connect();
   try {
@@ -87,7 +89,9 @@ export async function debitWallet(
   amountCents: number,
   description: string,
 ): Promise<WalletTransaction | null> {
-  if (amountCents <= 0) return null;
+  if (!Number.isInteger(amountCents) || amountCents <= 0 || amountCents > 2_147_483_647) {
+    return null;
+  }
 
   const pool = getPool();
   const client = await pool.connect();
@@ -142,7 +146,9 @@ export async function reserveBalance(
   userId: string,
   reserveAmountCents: number,
 ): Promise<string | null> {
-  if (reserveAmountCents <= 0) return null;
+  if (!Number.isInteger(reserveAmountCents) || reserveAmountCents <= 0 || reserveAmountCents > 2_147_483_647) {
+    return null;
+  }
 
   const pool = getPool();
   const client = await pool.connect();

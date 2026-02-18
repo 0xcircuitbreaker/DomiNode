@@ -3,6 +3,9 @@ import { getActiveSessionCount } from "./session-manager.js";
 const startedAt = Date.now();
 let totalRequests = 0;
 let totalErrors = 0;
+let totalBytesIn = 0;
+let totalBytesOut = 0;
+let totalSessions = 0;
 
 // Rolling window for latency (last 100 measurements)
 const LATENCY_WINDOW = 100;
@@ -29,11 +32,23 @@ export function getAvgLatencyMs(): number {
   return Math.round(sum / latencies.length);
 }
 
+export function recordBytes(bytesIn: number, bytesOut: number): void {
+  totalBytesIn += bytesIn;
+  totalBytesOut += bytesOut;
+}
+
+export function recordSessionStart(): void {
+  totalSessions++;
+}
+
 export interface ProxyStats {
   status: "operational" | "degraded";
   activeSessions: number;
   totalRequests: number;
   totalErrors: number;
+  totalBytesIn: number;
+  totalBytesOut: number;
+  totalSessions: number;
   avgLatencyMs: number;
   uptimeSeconds: number;
 }
@@ -53,14 +68,70 @@ export function getStats(): ProxyStats {
     activeSessions,
     totalRequests,
     totalErrors,
+    totalBytesIn,
+    totalBytesOut,
+    totalSessions,
     avgLatencyMs: getAvgLatencyMs(),
     uptimeSeconds: Math.floor((Date.now() - startedAt) / 1000),
   };
+}
+
+/** Format stats as Prometheus exposition text */
+export function getPrometheusMetrics(): string {
+  const stats = getStats();
+  const sorted = [...latencies].sort((a, b) => a - b);
+  const p50 = sorted[Math.floor(sorted.length * 0.5)] ?? 0;
+  const p95 = sorted[Math.floor(sorted.length * 0.95)] ?? 0;
+  const p99 = sorted[Math.floor(sorted.length * 0.99)] ?? 0;
+
+  return [
+    "# HELP dominusnode_proxy_requests_total Total proxy requests handled",
+    "# TYPE dominusnode_proxy_requests_total counter",
+    `dominusnode_proxy_requests_total ${stats.totalRequests}`,
+    "",
+    "# HELP dominusnode_proxy_errors_total Total proxy errors",
+    "# TYPE dominusnode_proxy_errors_total counter",
+    `dominusnode_proxy_errors_total ${stats.totalErrors}`,
+    "",
+    "# HELP dominusnode_proxy_sessions_total Total sessions created",
+    "# TYPE dominusnode_proxy_sessions_total counter",
+    `dominusnode_proxy_sessions_total ${stats.totalSessions}`,
+    "",
+    "# HELP dominusnode_proxy_active_sessions Current active sessions",
+    "# TYPE dominusnode_proxy_active_sessions gauge",
+    `dominusnode_proxy_active_sessions ${stats.activeSessions}`,
+    "",
+    "# HELP dominusnode_proxy_bytes_in_total Total bytes received from clients",
+    "# TYPE dominusnode_proxy_bytes_in_total counter",
+    `dominusnode_proxy_bytes_in_total ${stats.totalBytesIn}`,
+    "",
+    "# HELP dominusnode_proxy_bytes_out_total Total bytes sent to clients",
+    "# TYPE dominusnode_proxy_bytes_out_total counter",
+    `dominusnode_proxy_bytes_out_total ${stats.totalBytesOut}`,
+    "",
+    "# HELP dominusnode_proxy_latency_ms Proxy connect latency percentiles",
+    "# TYPE dominusnode_proxy_latency_ms gauge",
+    `dominusnode_proxy_latency_ms{quantile="0.5"} ${p50}`,
+    `dominusnode_proxy_latency_ms{quantile="0.95"} ${p95}`,
+    `dominusnode_proxy_latency_ms{quantile="0.99"} ${p99}`,
+    "",
+    "# HELP dominusnode_proxy_uptime_seconds Proxy uptime in seconds",
+    "# TYPE dominusnode_proxy_uptime_seconds gauge",
+    `dominusnode_proxy_uptime_seconds ${stats.uptimeSeconds}`,
+    "",
+    `# HELP dominusnode_proxy_status Proxy status (1=operational, 0=degraded)`,
+    `# TYPE dominusnode_proxy_status gauge`,
+    `dominusnode_proxy_status ${stats.status === "operational" ? 1 : 0}`,
+    "",
+  ].join("\n");
 }
 
 /** Reset for testing */
 export function _reset(): void {
   totalRequests = 0;
   totalErrors = 0;
+  totalBytesIn = 0;
+  totalBytesOut = 0;
+  totalSessions = 0;
   latencies.length = 0;
 }

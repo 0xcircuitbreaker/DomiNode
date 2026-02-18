@@ -101,18 +101,20 @@ export async function getUserDetails(
   };
 }
 
-export async function suspendUser(userId: string): Promise<void> {
-  await query(
+export async function suspendUser(userId: string): Promise<boolean> {
+  const result = await query(
     `UPDATE users SET status = 'suspended' WHERE id = $1 AND status = 'active'`,
     [userId],
   );
+  return (result.rowCount ?? 0) > 0;
 }
 
-export async function reactivateUser(userId: string): Promise<void> {
-  await query(
+export async function reactivateUser(userId: string): Promise<boolean> {
+  const result = await query(
     `UPDATE users SET status = 'active' WHERE id = $1 AND status = 'suspended'`,
     [userId],
   );
+  return (result.rowCount ?? 0) > 0;
 }
 
 export async function deleteUser(userId: string): Promise<void> {

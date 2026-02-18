@@ -1,6 +1,15 @@
 -- Dominus Node database schema
+-- Version: 1.0.0
 
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+
+-- ─── Schema Versioning ──────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS schema_migrations (
+  version     TEXT PRIMARY KEY,
+  applied_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  description TEXT NOT NULL DEFAULT ''
+);
 
 -- ─── Users ───────────────────────────────────────────────────────────
 
@@ -26,7 +35,8 @@ CREATE TABLE IF NOT EXISTS api_keys (
   revoked_at  TIMESTAMPTZ
 );
 
-CREATE INDEX IF NOT EXISTS idx_api_keys_hash
+-- R24 C-2: UNIQUE constraint prevents silent key collision on active keys
+CREATE UNIQUE INDEX IF NOT EXISTS idx_api_keys_hash
   ON api_keys(key_hash) WHERE revoked_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_api_keys_user
   ON api_keys(user_id);
@@ -103,6 +113,31 @@ CREATE INDEX IF NOT EXISTS idx_usage_created
   ON usage_records(created_at);
 CREATE INDEX IF NOT EXISTS idx_usage_user_created
   ON usage_records(user_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_usage_session
+  ON usage_records(session_id);
+
+-- R30 H-2: CHECK constraint on proxy_type
+DO $$ BEGIN
+  ALTER TABLE usage_records ADD CONSTRAINT chk_usage_proxy_type
+    CHECK (proxy_type IN ('dc', 'residential'));
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+-- R31 C-1: CHECK constraints on usage_records bytes and cost columns
+DO $$ BEGIN
+  ALTER TABLE usage_records ADD CONSTRAINT chk_usage_bytes_in CHECK (bytes_in >= 0);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+  ALTER TABLE usage_records ADD CONSTRAINT chk_usage_bytes_out CHECK (bytes_out >= 0);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+  ALTER TABLE usage_records ADD CONSTRAINT chk_usage_cost_cents CHECK (cost_cents >= 0);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- ─── Payment Invoices ──────────────────────────────────────────────
 
@@ -119,6 +154,8 @@ CREATE TABLE IF NOT EXISTS payment_invoices (
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_payment_invoices_external
   ON payment_invoices(provider, external_id);
+CREATE INDEX IF NOT EXISTS idx_payment_invoices_user
+  ON payment_invoices(user_id);
 
 -- ─── Plans ─────────────────────────────────────────────────────────
 
@@ -166,6 +203,28 @@ UPDATE plans SET is_default = false WHERE id = 'payg';
 UPDATE plans SET max_sessions_per_minute = 30 WHERE id IN ('free', 'payg');
 UPDATE plans SET max_sessions_per_minute = 60 WHERE id IN ('vol100', 'vol1tb', 'agent');
 
+-- ─── allowed_proxy_types column (Beta free-tier restructure) ─────────
+DO $$ BEGIN
+  ALTER TABLE plans ADD COLUMN allowed_proxy_types TEXT;
+EXCEPTION WHEN duplicate_column THEN NULL;
+END $$;
+
+-- Beta free plans: free-dc (2 GB DC only) and free-res (50 MB residential only)
+INSERT INTO plans (id, name, price_per_gb_cents, monthly_bandwidth_bytes, is_default, max_connections, max_sessions_per_minute, allowed_proxy_types) VALUES
+  ('free-dc',  'Free DC',          0, 2147483648,   true,  5, 30, 'dc'),
+  ('free-res', 'Free Residential', 0, 52428800,     false, 5, 30, 'residential')
+ON CONFLICT (id) DO UPDATE SET
+  name = EXCLUDED.name,
+  price_per_gb_cents = EXCLUDED.price_per_gb_cents,
+  monthly_bandwidth_bytes = EXCLUDED.monthly_bandwidth_bytes,
+  is_default = EXCLUDED.is_default,
+  max_connections = EXCLUDED.max_connections,
+  max_sessions_per_minute = EXCLUDED.max_sessions_per_minute,
+  allowed_proxy_types = EXCLUDED.allowed_proxy_types;
+
+-- Old free plan: keep for backward compat but no longer default
+UPDATE plans SET is_default = false WHERE id = 'free';
+
 -- Add admin role (idempotent)
 DO $$ BEGIN
   ALTER TABLE users ADD COLUMN is_admin BOOLEAN NOT NULL DEFAULT false;
@@ -190,7 +249,7 @@ CREATE TABLE IF NOT EXISTS refresh_tokens (
   created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX IF NOT EXISTS idx_refresh_tokens_hash
+CREATE UNIQUE INDEX IF NOT EXISTS idx_refresh_tokens_hash
   ON refresh_tokens(token_hash) WHERE NOT revoked;
 CREATE INDEX IF NOT EXISTS idx_refresh_tokens_family
   ON refresh_tokens(family_id);
@@ -291,3 +350,9 @@ INSERT INTO data_retention_policies (table_name, retention_days, description) VA
   ('wallet_transactions', 730, 'Wallet transactions retained for 2 years'),
   ('wallet_challenges',     1, 'Wallet challenges retained for 1 day')
 ON CONFLICT (table_name) DO NOTHING;
+
+-- ─── Record current schema version ──────────────────────────────────
+
+INSERT INTO schema_migrations (version, description) VALUES
+  ('1.0.0', 'Initial production schema: users, api_keys, wallets, sessions, usage_records, plans, MFA, wallet auth, audit events, data retention')
+ON CONFLICT (version) DO NOTHING;

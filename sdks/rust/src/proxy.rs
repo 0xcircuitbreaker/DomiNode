@@ -47,7 +47,7 @@ impl ProxyResource {
     ///
     /// The returned URL includes authentication via the username/password fields.
     /// Geo-targeting and sticky sessions are encoded in the username portion
-    /// following PacketStream conventions.
+    /// following Dominus Node proxy conventions.
     ///
     /// This is a pure computation -- no network call is made.
     ///
@@ -65,7 +65,23 @@ impl ProxyResource {
     ///     ..Default::default()
     /// };
     /// ```
+    /// Validate that a proxy host string does not contain URL-injection characters.
+    fn validate_proxy_host(host: &str) -> Result<()> {
+        const INVALID_CHARS: &[char] = &[' ', '/', '\\', '@', '?', '#'];
+        if host.chars().any(|c| INVALID_CHARS.contains(&c)) {
+            return Err(crate::errors::DominusNodeError::Validation(
+                "proxy_host contains invalid characters".to_string(),
+            ));
+        }
+        Ok(())
+    }
+
     pub fn build_url(&self, api_key: &str, opts: Option<&ProxyUrlOptions>) -> String {
+        // R31 C-4: Validate proxy_host to prevent URL injection via crafted hostnames.
+        // Panics on invalid host — this is a configuration error that must be caught early.
+        Self::validate_proxy_host(&self.proxy_host)
+            .expect("proxy_host contains invalid characters");
+
         let protocol = opts
             .and_then(|o| o.protocol.as_deref())
             .unwrap_or("http");

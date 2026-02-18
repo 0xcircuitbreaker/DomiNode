@@ -11,13 +11,13 @@ function createMockSocket(): EventEmitter {
 describe("proxy-gateway/counting-stream", () => {
   describe("ByteCounter interface", () => {
     it("should have bytesIn and bytesOut properties", () => {
-      const counter: ByteCounter = { bytesIn: 0, bytesOut: 0 };
+      const counter: ByteCounter = { bytesIn: 0, bytesOut: 0, maxBytes: 0, onLimitExceeded: null };
       expect(counter.bytesIn).toBe(0);
       expect(counter.bytesOut).toBe(0);
     });
 
     it("should be mutable", () => {
-      const counter: ByteCounter = { bytesIn: 0, bytesOut: 0 };
+      const counter: ByteCounter = { bytesIn: 0, bytesOut: 0, maxBytes: 0, onLimitExceeded: null };
       counter.bytesIn = 100;
       counter.bytesOut = 200;
       expect(counter.bytesIn).toBe(100);

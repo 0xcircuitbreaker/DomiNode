@@ -3,6 +3,48 @@ import { z } from "zod";
 import type { HttpClient } from "../http-client.js";
 import type { AccountInfo } from "../types.js";
 
+// R18-H7: Stricter rate limit for account creation in bootstrap mode.
+// The backend has per-IP limits (3 accounts/hour) but the MCP server should
+// also limit to prevent a compromised MCP client from spamming registration.
+const BOOTSTRAP_SIGNUP_MAX = 5;
+const BOOTSTRAP_SIGNUP_WINDOW_MS = 3600_000; // 1 hour
+const signupTimestamps: number[] = [];
+
+/** @internal Exported for testing only — clears rate limit state */
+export function _resetBootstrapSignupLimits(): void {
+  signupTimestamps.length = 0;
+  loginTimestamps.length = 0;
+}
+
+// R24 H-2: Rate limit login attempts to prevent brute-force via MCP client
+const LOGIN_MAX = 10;
+const LOGIN_WINDOW_MS = 900_000; // 15 minutes
+const loginTimestamps: number[] = [];
+
+function checkLoginLimit(): boolean {
+  const now = Date.now();
+  while (loginTimestamps.length > 0 && now - loginTimestamps[0] > LOGIN_WINDOW_MS) {
+    loginTimestamps.shift();
+  }
+  if (loginTimestamps.length > 100) loginTimestamps.length = 100;
+  if (loginTimestamps.length >= LOGIN_MAX) return false;
+  loginTimestamps.push(now);
+  return true;
+}
+
+function checkBootstrapSignupLimit(): boolean {
+  const now = Date.now();
+  // Remove expired entries
+  while (signupTimestamps.length > 0 && now - signupTimestamps[0] > BOOTSTRAP_SIGNUP_WINDOW_MS) {
+    signupTimestamps.shift();
+  }
+  // R23 H-2: Hard cap prevents unbounded growth under pathological clock skew
+  if (signupTimestamps.length > 100) signupTimestamps.length = 100;
+  if (signupTimestamps.length >= BOOTSTRAP_SIGNUP_MAX) return false;
+  signupTimestamps.push(now);
+  return true;
+}
+
 export function registerAccountTools(server: McpServer, httpClient: HttpClient): void {
   server.tool(
     "dominusnode_get_account_info",
@@ -36,11 +78,18 @@ export function registerAccountTools(server: McpServer, httpClient: HttpClient):
     },
     async (args) => {
       try {
-        const data = await httpClient.post<{ accessToken: string; refreshToken: string; user: { id: string; email: string } }>(
+        if (!checkBootstrapSignupLimit()) {
+          return { isError: true, content: [{ type: "text", text: "Account creation rate limit exceeded (max 5 per hour). Please try again later." }] };
+        }
+        const data = await httpClient.post<{ token: string; refreshToken: string; user: { id: string; email: string } }>(
           "/api/auth/register",
           { email: args.email, password: args.password },
           false,
         );
+        // R19 H-4: Store tokens so subsequent authenticated calls work (bootstrap mode)
+        if (data.token && data.refreshToken) {
+          httpClient.storeTokens(data.token, data.refreshToken);
+        }
         const text = [
           `Account created successfully!`,
           `Email: ${data.user.email}`,
@@ -66,15 +115,26 @@ export function registerAccountTools(server: McpServer, httpClient: HttpClient):
     "Login to an existing Dominus Node account with email and password.",
     {
       email: z.string().email().describe("Account email"),
-      password: z.string().min(1).describe("Account password"),
+      password: z.string().min(1).max(128).describe("Account password"),
     },
     async (args) => {
+      // R24 H-2: Rate limit login attempts to prevent brute-force via MCP client
+      if (!checkLoginLimit()) {
+        return {
+          isError: true,
+          content: [{ type: "text", text: "Login rate limit exceeded. Try again in 15 minutes." }],
+        };
+      }
       try {
-        const data = await httpClient.post<{ accessToken: string; refreshToken: string; user: { id: string; email: string } }>(
+        const data = await httpClient.post<{ token: string; refreshToken: string; user: { id: string; email: string } }>(
           "/api/auth/login",
           { email: args.email, password: args.password },
           false,
         );
+        // R19 H-4: Store tokens so subsequent authenticated calls work (bootstrap mode)
+        if (data.token && data.refreshToken) {
+          httpClient.storeTokens(data.token, data.refreshToken);
+        }
         const text = [
           `Logged in successfully!`,
           `Email: ${data.user.email}`,
@@ -100,12 +160,20 @@ export function registerAccountTools(server: McpServer, httpClient: HttpClient):
     },
     async (args) => {
       try {
+        if (!checkBootstrapSignupLimit()) {
+          return { isError: true, content: [{ type: "text", text: "Account creation rate limit exceeded (max 5 per hour). Please try again later." }] };
+        }
         // Step 1: Register
-        const reg = await httpClient.post<{ accessToken: string; refreshToken: string; user: { id: string; email: string } }>(
+        const reg = await httpClient.post<{ token: string; refreshToken: string; user: { id: string; email: string } }>(
           "/api/auth/register",
           { email: args.email, password: args.password },
           false,
         );
+
+        // R19 H-4: Store tokens from registration so subsequent authenticated calls work (bootstrap mode)
+        if (reg.token && reg.refreshToken) {
+          httpClient.storeTokens(reg.token, reg.refreshToken);
+        }
 
         // Step 2: Create API key (using the newly acquired auth)
         const keyData = await httpClient.post<{ id: string; key: string; label: string }>(

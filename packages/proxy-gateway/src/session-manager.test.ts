@@ -31,6 +31,7 @@ vi.mock("@dominusnode/shared", () => ({
     warn: vi.fn(),
     error: vi.fn(),
   }),
+  BYTES_PER_GB: 1_073_741_824,
 }));
 
 const mockRecordUsage = vi.fn().mockResolvedValue({});
@@ -52,7 +53,7 @@ import { startSession, endSession, getActiveSessionCount, checkSessionRateLimit,
 import type { ByteCounter } from "./counting-stream.js";
 
 function makeCounter(bytesIn = 0, bytesOut = 0): ByteCounter {
-  return { bytesIn, bytesOut };
+  return { bytesIn, bytesOut, maxBytes: 0, onLimitExceeded: null };
 }
 
 // Helper to start a session and return the sessionId for endSession tests
@@ -83,8 +84,8 @@ describe("proxy-gateway/session-manager", () => {
       const sessionId = await startSession("user-1", "example.com", counter);
 
       expect(sessionId).toBe("sess-123");
-      expect(mockReserveBalance).toHaveBeenCalledWith("user-1", 10); // MIN_RESERVATION_CENTS
-      expect(mockCreateSession).toHaveBeenCalledWith("user-1", "packetstream");
+      expect(mockReserveBalance).toHaveBeenCalledWith("user-1", 50); // MIN_RESERVATION_CENTS
+      expect(mockCreateSession).toHaveBeenCalledWith("user-1", "webshare");
     });
 
     it("should throw if insufficient balance for reservation", async () => {
@@ -105,7 +106,7 @@ describe("proxy-gateway/session-manager", () => {
         startSession("user-1", "example.com", counter),
       ).rejects.toThrow("DB error");
 
-      expect(mockReleaseReservation).toHaveBeenCalledWith("user-1", 10);
+      expect(mockReleaseReservation).toHaveBeenCalledWith("user-1", 50);
     });
 
     it("should not call createSession if reservation fails", async () => {
@@ -148,7 +149,7 @@ describe("proxy-gateway/session-manager", () => {
       mockEndSessionRepo.mockResolvedValueOnce(undefined);
       await endSession("sess-target");
 
-      // recordUsage now takes 7 args: userId, sessionId, bytesIn, bytesOut, targetHost, pricePerGbCents, connectLatencyMs
+      // recordUsage now takes 8 args: userId, sessionId, bytesIn, bytesOut, targetHost, pricePerGbCents, connectLatencyMs, proxyType
       expect(mockRecordUsage).toHaveBeenCalledWith(
         "user-1",
         "sess-target",
@@ -157,6 +158,7 @@ describe("proxy-gateway/session-manager", () => {
         "api.example.org",
         expect.any(Number),
         expect.any(Number),
+        "residential", // R20 H-5: default proxyType
       );
     });
 
@@ -252,6 +254,7 @@ describe("proxy-gateway/session-manager", () => {
         "example.com",
         0, // free plan pricing
         expect.any(Number),
+        "residential", // R20 H-5: default proxyType
       );
       // Wallet settle should NOT have been called
       expect(mockSettleSession).not.toHaveBeenCalled();
@@ -277,20 +280,13 @@ describe("proxy-gateway/session-manager", () => {
       await endSession(sessId);
     });
 
-    it("should allow session when bandwidth check fails (graceful degradation)", async () => {
+    it("should reject session when plan check fails (R22 H-2: fail closed)", async () => {
       mockGetUserPlan.mockRejectedValueOnce(new Error("DB connection error"));
 
-      mockReserveBalance.mockResolvedValueOnce("wallet-1");
-      mockCreateSession.mockResolvedValueOnce({ id: "sess-degraded" });
-
       const counter = makeCounter();
-      const sessId = await startSession("user-err", "example.com", counter);
-      expect(sessId).toBe("sess-degraded");
-
-      // Clean up
-      mockSettleSession.mockResolvedValueOnce(true);
-      mockEndSessionRepo.mockResolvedValueOnce(undefined);
-      await endSession(sessId);
+      await expect(
+        startSession("user-err", "example.com", counter),
+      ).rejects.toThrow("Unable to verify plan. Please try again.");
     });
   });
 
@@ -306,7 +302,7 @@ describe("proxy-gateway/session-manager", () => {
 
       expect(mockSettleSession).toHaveBeenCalledWith(
         "user-1",
-        10, // reserved cents
+        50, // reserved cents
         expect.any(Number), // actual cost cents
         "sess-end-1",
       );
@@ -409,11 +405,12 @@ describe("proxy-gateway/session-manager", () => {
         "example.com",
         expect.any(Number), // pricePerGbCents
         expect.any(Number), // connectLatencyMs
+        "residential", // R20 H-5: default proxyType
       );
       // Cost should be 0 for 0 bytes
       expect(mockSettleSession).toHaveBeenCalledWith(
         "user-zero",
-        10,
+        50,
         0, // actual cost = 0
         "sess-zero-bytes",
       );
@@ -452,7 +449,7 @@ describe("proxy-gateway/session-manager", () => {
     });
 
     it("should handle partial settlement when actual exceeds reserved", async () => {
-      // Use a very large byte count to exceed the 10-cent reservation
+      // Use a very large byte count to exceed the 50-cent reservation
       const counter = makeCounter(500_000_000, 500_000_000); // ~1GB
       const sessId = await startTestSession("user-overage", "sess-overage", counter);
 
@@ -490,7 +487,7 @@ describe("proxy-gateway/session-manager", () => {
 
       await endSession(sessId);
 
-      // recordUsage should be called with the plan's pricePerGbCents
+      // recordUsage should be called with the plan's pricePerGbCents and proxyType
       expect(mockRecordUsage).toHaveBeenCalledWith(
         "user-plan",
         "sess-plan",
@@ -499,30 +496,18 @@ describe("proxy-gateway/session-manager", () => {
         "example.com",
         300, // Pro plan pricing
         expect.any(Number), // connectLatencyMs
+        "residential", // R20 H-5: default proxyType
       );
     });
 
-    it("should use default pricing when getUserPlan throws", async () => {
+    it("should reject session when getUserPlan throws (R22 H-2: fail closed)", async () => {
       mockGetUserPlan.mockRejectedValueOnce(new Error("plan lookup failed"));
 
       const counter = makeCounter(500, 500);
-      const sessId = await startTestSession("user-no-plan", "sess-no-plan", counter);
-
-      mockSettleSession.mockResolvedValueOnce(true);
-      mockEndSessionRepo.mockResolvedValueOnce(undefined);
-
-      await endSession(sessId);
-
-      // Should still complete successfully with default pricing
-      expect(mockRecordUsage).toHaveBeenCalledWith(
-        "user-no-plan",
-        "sess-no-plan",
-        500,
-        500,
-        "example.com",
-        500, // default PAYG rate
-        expect.any(Number), // connectLatencyMs
-      );
+      // R22 H-2: Sessions are now rejected when plan can't be determined
+      await expect(
+        startSession("user-no-plan", "example.com", counter),
+      ).rejects.toThrow("Unable to verify plan. Please try again.");
     });
   });
 

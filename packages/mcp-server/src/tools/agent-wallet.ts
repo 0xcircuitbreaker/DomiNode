@@ -141,7 +141,7 @@ export function registerAgentWalletTools(server: McpServer, httpClient: HttpClie
     "dominusnode_agent_wallet_balance",
     "Check the balance of your Coinbase Agentic Wallet. Shows available USDC, total spent, and remaining budget.",
     {
-      wallet_id: z.string().min(1).max(100).describe("Wallet ID from dominusnode_agent_wallet_create"),
+      wallet_id: z.string().regex(/^[a-zA-Z0-9_-]{1,100}$/).describe("Wallet ID from dominusnode_agent_wallet_create"),
     },
     async (args) => {
       try {

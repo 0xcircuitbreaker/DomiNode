@@ -8,18 +8,47 @@ export async function createUser(
   const result = await query<User>(
     `INSERT INTO users (email, password_hash)
      VALUES ($1, $2)
-     RETURNING *`,
+     RETURNING id, email, created_at, status, password_changed_at, is_admin, wallet_address`,
     [email, passwordHash],
   );
-  return result.rows[0];
+  return { ...result.rows[0], password_hash: "", wallet_address: result.rows[0].wallet_address ?? null };
 }
 
-export async function findUserByEmail(email: string): Promise<User | null> {
+/**
+ * Find user by email for authentication (includes password_hash).
+ * Only use in auth flows where password verification is needed.
+ */
+export async function findUserForAuth(email: string): Promise<User | null> {
   const result = await query<User>(
-    `SELECT * FROM users WHERE email = $1`,
+    `SELECT id, email, password_hash, created_at, status, password_changed_at, is_admin, wallet_address FROM users WHERE email = $1 AND status = 'active'`,
     [email],
   );
   return result.rows[0] ?? null;
+}
+
+/**
+ * Find user by email (safe — redacts password_hash).
+ * Use in non-auth contexts where password_hash is not needed.
+ */
+export async function findUserByEmail(email: string): Promise<User | null> {
+  const result = await query<User>(
+    `SELECT id, email, created_at, status, password_changed_at, is_admin, wallet_address FROM users WHERE email = $1`,
+    [email],
+  );
+  const row = result.rows[0];
+  if (!row) return null;
+  return { ...row, password_hash: "", wallet_address: row.wallet_address ?? null };
+}
+
+/**
+ * Count all non-deleted users. Used for global registration cap enforcement.
+ * Cached result is acceptable — exact cap enforcement uses DB UNIQUE constraint.
+ */
+export async function countActiveUsers(): Promise<number> {
+  const result = await query<{ count: string }>(
+    `SELECT COUNT(*) AS count FROM users WHERE status != 'deleted'`,
+  );
+  return parseInt(result.rows[0].count, 10);
 }
 
 export async function findUserById(id: string): Promise<User | null> {
@@ -36,7 +65,7 @@ export async function findUserByApiKeyHash(
   keyHash: string,
 ): Promise<{ user: User; apiKey: ApiKey } | null> {
   const result = await query<User & { ak_id: string; ak_key_hash: string; ak_key_prefix: string; ak_label: string; ak_created_at: Date; ak_revoked_at: Date | null }>(
-    `SELECT u.*,
+    `SELECT u.id, u.email, u.created_at, u.status, u.password_changed_at, u.is_admin, u.wallet_address, u.plan_id,
             k.id AS ak_id,
             k.key_hash AS ak_key_hash,
             k.key_prefix AS ak_key_prefix,
@@ -88,19 +117,33 @@ export async function createWalletUser(
   const result = await query<User>(
     `INSERT INTO users (email, password_hash, wallet_address)
      VALUES ($1, $2, $3)
-     RETURNING *`,
+     RETURNING id, email, created_at, status, password_changed_at, is_admin, wallet_address`,
     [syntheticEmail, randomHash, walletAddress.toLowerCase()],
   );
-  return result.rows[0];
+  return { ...result.rows[0], password_hash: "", wallet_address: result.rows[0].wallet_address ?? null };
 }
 
-/** Find a user by their linked wallet address */
-export async function findUserByWalletAddress(address: string): Promise<User | null> {
+/**
+ * Find user by wallet address for authentication (includes password_hash).
+ * Only use in auth flows where password verification is needed.
+ */
+export async function findWalletUserForAuth(address: string): Promise<User | null> {
   const result = await query<User>(
-    `SELECT * FROM users WHERE wallet_address = $1`,
+    `SELECT id, email, password_hash, created_at, status, password_changed_at, is_admin, wallet_address FROM users WHERE wallet_address = $1 AND status = 'active'`,
     [address.toLowerCase()],
   );
   return result.rows[0] ?? null;
+}
+
+/** Find a user by their linked wallet address (safe — redacts password_hash) */
+export async function findUserByWalletAddress(address: string): Promise<User | null> {
+  const result = await query<User>(
+    `SELECT id, email, created_at, status, password_changed_at, is_admin, wallet_address FROM users WHERE wallet_address = $1`,
+    [address.toLowerCase()],
+  );
+  const row = result.rows[0];
+  if (!row) return null;
+  return { ...row, password_hash: "", wallet_address: row.wallet_address ?? null };
 }
 
 /** Link a wallet address to an existing user account */
@@ -131,20 +174,20 @@ export async function createApiKey(
   const result = await query<ApiKey>(
     `INSERT INTO api_keys (user_id, key_hash, key_prefix, label)
      VALUES ($1, $2, $3, $4)
-     RETURNING *`,
+     RETURNING id, user_id, key_prefix, label, created_at, revoked_at`,
     [userId, keyHash, keyPrefix, label],
   );
-  return result.rows[0];
+  return { ...result.rows[0], key_hash: "" };
 }
 
 export async function listApiKeys(userId: string, includeRevoked: boolean = false): Promise<ApiKey[]> {
-  const result = await query<ApiKey>(
-    `SELECT id, user_id, key_prefix, label, created_at, revoked_at
-     FROM api_keys
-     WHERE user_id = $1 ${includeRevoked ? "" : "AND revoked_at IS NULL"}
-     ORDER BY created_at DESC`,
-    [userId],
-  );
+  // R30 H-3: Use separate query strings instead of template literal interpolation
+  const sql = includeRevoked
+    ? `SELECT id, user_id, key_prefix, label, created_at, revoked_at
+       FROM api_keys WHERE user_id = $1 ORDER BY created_at DESC`
+    : `SELECT id, user_id, key_prefix, label, created_at, revoked_at
+       FROM api_keys WHERE user_id = $1 AND revoked_at IS NULL ORDER BY created_at DESC`;
+  const result = await query<ApiKey>(sql, [userId]);
   return result.rows;
 }
 

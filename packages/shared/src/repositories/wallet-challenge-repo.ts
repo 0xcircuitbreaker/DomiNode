@@ -38,6 +38,7 @@ export async function consumeChallenge(
 
   // R18 H-4: If IP is provided, bind challenge consumption to the originating IP
   if (ip) {
+    // R30 C-2: FOR UPDATE SKIP LOCKED prevents concurrent consumption of the same challenge
     const result = await query<WalletChallenge>(
       `UPDATE wallet_challenges
        SET consumed = true
@@ -49,6 +50,7 @@ export async function consumeChallenge(
            AND ip_address = $3
          ORDER BY created_at DESC
          LIMIT 1
+         FOR UPDATE SKIP LOCKED
        )
        RETURNING *`,
       [address.toLowerCase(), ttlCutoff.toISOString(), ip],
@@ -56,6 +58,7 @@ export async function consumeChallenge(
     return result.rows[0] ?? null;
   }
 
+  // R30 C-2: FOR UPDATE SKIP LOCKED prevents concurrent consumption of the same challenge
   const result = await query<WalletChallenge>(
     `UPDATE wallet_challenges
      SET consumed = true
@@ -66,6 +69,7 @@ export async function consumeChallenge(
          AND created_at > $2
        ORDER BY created_at DESC
        LIMIT 1
+       FOR UPDATE SKIP LOCKED
      )
      RETURNING *`,
     [address.toLowerCase(), ttlCutoff.toISOString()],

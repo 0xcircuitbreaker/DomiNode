@@ -23,7 +23,8 @@ export function App() {
     return <MfaView error={error} sendMessage={sendMessage} />;
   }
 
-  const isAuthenticated = !!(state.accessToken || state.apiKey);
+  // R31 C-2: Prefer isAuthenticated from sanitized state (tokens are stripped by sanitizeStateForUI)
+  const isAuthenticated = !!(state as any).isAuthenticated || !!(state.accessToken || state.apiKey);
 
   return isAuthenticated ? (
     <AuthenticatedView state={state} error={error} sendMessage={sendMessage} />
@@ -246,7 +247,7 @@ function AuthenticatedView({ state, error, sendMessage }: AuthenticatedViewProps
   // Filter cities by selected state
   const availableCities = state.country === "US" && state.state
     ? MAJOR_US_CITIES.filter((c) => {
-        const matchingState = US_STATES.find((s) => s.packetStreamName === state.state);
+        const matchingState = US_STATES.find((s) => s.slug === state.state);
         return matchingState && c.stateCode === matchingState.code;
       })
     : [];
@@ -337,7 +338,7 @@ function AuthenticatedView({ state, error, sendMessage }: AuthenticatedViewProps
             >
               <option value="">Any State</option>
               {US_STATES.map((s) => (
-                <option key={s.code} value={s.packetStreamName}>
+                <option key={s.code} value={s.slug}>
                   {s.name}
                 </option>
               ))}
@@ -359,7 +360,7 @@ function AuthenticatedView({ state, error, sendMessage }: AuthenticatedViewProps
             >
               <option value="">Any City</option>
               {availableCities.map((c) => (
-                <option key={c.packetStreamName} value={c.packetStreamName}>
+                <option key={c.slug} value={c.slug}>
                   {c.name}
                 </option>
               ))}

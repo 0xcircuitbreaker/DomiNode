@@ -20,7 +20,7 @@ function AuthShell({ theme, subtitle, children }: AuthShellProps) {
       <div className="login-shell">
         <header className="login-header">
           <Link to="/" className="login-brand">
-            <img src="/logo.svg" alt={BRAND_MARK} className="login-brand-mark" style={{ width: "2.2rem", height: "2.2rem" }} />
+            <img src="/logo.svg" alt={BRAND_MARK} className="login-brand-mark" style={{ width: "2.8rem", height: "2.8rem" }} />
             <span>{BRAND_NAME}</span>
           </Link>
           <ThemeToggle compact className="login-theme-toggle" />
@@ -220,6 +220,14 @@ export default function LoginPage() {
         <h2 className="login-form-title">
           {isRegister ? "Create Account" : "Sign In"}
         </h2>
+
+        {isRegister && (
+          <div className="login-alert-info">
+            <strong>Beta Access</strong>
+            <p>250 DC proxies | Limited residential bandwidth</p>
+            <p>If max bandwidth is reached, service restores within 1-6 hours</p>
+          </div>
+        )}
 
         {error && (
           <div className="login-alert-error">

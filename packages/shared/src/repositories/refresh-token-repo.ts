@@ -1,4 +1,5 @@
 import * as crypto from "node:crypto";
+import type { PoolClient } from "pg";
 import { query } from "../db.js";
 
 export interface RefreshTokenRecord {
@@ -81,6 +82,38 @@ export async function revokeAllForUser(userId: string): Promise<number> {
     [userId],
   );
   return result.rowCount ?? 0;
+}
+
+/** R30 C-1: Find and lock a token row by hash within a transaction (FOR UPDATE SKIP LOCKED) */
+export async function findAndLockTokenByHash(
+  tokenHash: string,
+  client: PoolClient,
+): Promise<RefreshTokenRecord | null> {
+  const result = await client.query(
+    `SELECT id, user_id, token_hash, family_id, revoked, expires_at, created_at
+     FROM refresh_tokens WHERE token_hash = $1 FOR UPDATE SKIP LOCKED LIMIT 1`,
+    [tokenHash],
+  );
+  return result.rows[0] ?? null;
+}
+
+/** R30 C-1: Revoke a token within a transaction */
+export async function revokeTokenInTx(tokenHash: string, client: PoolClient): Promise<void> {
+  await client.query(`UPDATE refresh_tokens SET revoked = true WHERE token_hash = $1`, [tokenHash]);
+}
+
+/** R30 C-1: Store a refresh token within a transaction */
+export async function storeTokenInTx(
+  userId: string,
+  tokenHash: string,
+  familyId: string,
+  expiresAt: Date,
+  client: PoolClient,
+): Promise<void> {
+  await client.query(
+    `INSERT INTO refresh_tokens (user_id, token_hash, family_id, expires_at) VALUES ($1, $2, $3, $4)`,
+    [userId, tokenHash, familyId, expiresAt],
+  );
 }
 
 /** Clean up expired tokens (maintenance) */

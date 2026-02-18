@@ -26,6 +26,11 @@ let authListener: ((
   callback: (response: chrome.webRequest.BlockingResponse) => void,
 ) => void) | null = null;
 
+// R30 C-1: Rate limit credential submissions to prevent harvesting
+let authAttempts = 0;
+const MAX_AUTH_ATTEMPTS = 3;
+const AUTH_RESET_MS = 60_000;
+
 function buildBypassList(): string[] {
   // Bypass proxy for API host, localhost, and private IP ranges
   const apiUrl = new URL(getApiBase());
@@ -56,11 +61,13 @@ function buildPacScript(config: ProxyConfig): string {
       }
       // Sanitize bypass hostnames too
       const safeBypass = sanitizeHostname(h);
+      // R18-H12: Use JSON.stringify for PAC script string interpolation to prevent
+      // injection if values ever become user-configurable
       // IPv6 addresses: exact match only (dnsDomainIs doesn't apply)
       if (IPV6_RE.test(h)) {
-        return `host === "[${safeBypass}]" || host === "${safeBypass}"`;
+        return `host === ${JSON.stringify("[" + safeBypass + "]")} || host === ${JSON.stringify(safeBypass)}`;
       }
-      return `host === "${safeBypass}" || dnsDomainIs(host, ".${safeBypass}")`;
+      return `host === ${JSON.stringify(safeBypass)} || dnsDomainIs(host, ${JSON.stringify("." + safeBypass)})`;
     })
     .join(" ||\n      ");
 
@@ -68,20 +75,23 @@ function buildPacScript(config: ProxyConfig): string {
     if (${conditions}) {
       return "DIRECT";
     }
-    return "PROXY ${safeHost}:${safePort}";
+    return ${JSON.stringify("PROXY " + safeHost + ":" + safePort)};
   }`;
 }
 
 export function enable(config: ProxyConfig): void {
   if (config.protocol === "socks5") {
+    // R29 H-4: Validate host/port for SOCKS5 mode (parity with PAC script path)
+    const safeHost = sanitizeHostname(config.host);
+    const safePort = sanitizePort(config.port);
     chrome.proxy.settings.set({
       value: {
         mode: "fixed_servers",
         rules: {
           singleProxy: {
             scheme: "socks5",
-            host: config.host,
-            port: config.port,
+            host: safeHost,
+            port: safePort,
           },
           bypassList: buildBypassList(),
         },
@@ -108,11 +118,17 @@ export function enable(config: ProxyConfig): void {
 
   const expectedHost = config.host;
   const expectedPort = config.port;
+  authAttempts = 0; // R30 C-1: Reset on re-enable
 
   authListener = (details, callback) => {
     // Reject auth requests from other extensions (tabId === -1 for background requests)
     if (details.tabId === -1) {
       callback({});
+      return;
+    }
+    // R30 C-1: Rate limit credential submissions to prevent harvesting
+    if (authAttempts >= MAX_AUTH_ATTEMPTS) {
+      callback({ cancel: true });
       return;
     }
 
@@ -122,6 +138,8 @@ export function enable(config: ProxyConfig): void {
       details.challenger.host === expectedHost &&
       details.challenger.port === expectedPort
     ) {
+      authAttempts++;
+      setTimeout(() => { authAttempts = Math.max(0, authAttempts - 1); }, AUTH_RESET_MS);
       callback({
         authCredentials: {
           username: config.username,
@@ -148,6 +166,7 @@ export function disable(): void {
     authListener = null;
   }
 
+  authAttempts = 0; // R30 C-1: Reset rate limit on disable
   active = false;
 }
 

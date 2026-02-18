@@ -6,15 +6,23 @@
 [build.environment]
   NODE_VERSION = "22"
 
-# Optional: reverse-proxy API calls to your backend so cookie-based auth stays first-party.
-# Replace the `to` value with your API origin (must be reachable from Netlify).
-#
-# Example:
-# [[redirects]]
-#   from = "/api/*"
-#   to = "https://api.example.com/api/:splat"
-#   status = 200
-#   force = true
+# R23 H-1: Security response headers for all pages
+[[headers]]
+  for = "/*"
+  [headers.values]
+    Strict-Transport-Security = "max-age=63072000; includeSubDomains; preload"
+    X-Content-Type-Options = "nosniff"
+    X-Frame-Options = "DENY"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Permissions-Policy = "camera=(), microphone=(), geolocation=(), payment=(self)"
+    Content-Security-Policy = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' https://*.dominusnode.com; img-src 'self' data:; font-src 'self'; frame-src https://checkout.stripe.com https://nowpayments.io; frame-ancestors 'none'; form-action 'self'; base-uri 'self'; upgrade-insecure-requests;"
+
+# Reverse-proxy API calls to backend so cookie-based auth stays first-party.
+[[redirects]]
+  from = "/api/*"
+  to = "https://api.dominusnode.com/api/:splat"
+  status = 200
+  force = true
 
 # SPA routing support (React Router)
 [[redirects]]

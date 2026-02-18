@@ -8,6 +8,7 @@ const mockCountActiveKeys = vi.fn();
 const mockCreateApiKey = vi.fn();
 const mockListApiKeys = vi.fn();
 const mockRevokeApiKey = vi.fn();
+const mockFindUserById = vi.fn();
 const mockGenerateApiKey = vi.fn();
 const mockSanitizeString = vi.fn((s: string, _max?: number) => s);
 
@@ -17,6 +18,7 @@ vi.mock("@dominusnode/shared", () => ({
     createApiKey: (...args: unknown[]) => mockCreateApiKey(...args),
     listApiKeys: (...args: unknown[]) => mockListApiKeys(...args),
     revokeApiKey: (...args: unknown[]) => mockRevokeApiKey(...args),
+    findUserById: (...args: unknown[]) => mockFindUserById(...args),
   },
   generateApiKey: (...args: unknown[]) => mockGenerateApiKey(...args),
   sanitizeString: (s: string, max?: number) => mockSanitizeString(s, max),
@@ -159,6 +161,7 @@ describe("keys routes", () => {
 
   describe("POST /api/keys", () => {
     it("should create a new API key (201)", async () => {
+      mockFindUserById.mockResolvedValueOnce({ id: "test-user-id", status: "active" });
       mockCountActiveKeys.mockResolvedValueOnce(5);
       mockSanitizeString.mockReturnValueOnce("My Key");
       mockGenerateApiKey.mockReturnValueOnce({
@@ -186,6 +189,7 @@ describe("keys routes", () => {
     });
 
     it("should create a key with default label when none provided", async () => {
+      mockFindUserById.mockResolvedValueOnce({ id: "test-user-id", status: "active" });
       mockCountActiveKeys.mockResolvedValueOnce(0);
       mockSanitizeString.mockReturnValueOnce("Default");
       mockGenerateApiKey.mockReturnValueOnce({
@@ -208,6 +212,7 @@ describe("keys routes", () => {
     });
 
     it("should return 400 when max 50 keys reached", async () => {
+      mockFindUserById.mockResolvedValueOnce({ id: "test-user-id", status: "active" });
       mockCountActiveKeys.mockResolvedValueOnce(50);
 
       const app = createApp();
@@ -219,6 +224,7 @@ describe("keys routes", () => {
     });
 
     it("should return 500 when DB error occurs during creation", async () => {
+      mockFindUserById.mockResolvedValueOnce({ id: "test-user-id", status: "active" });
       mockCountActiveKeys.mockResolvedValueOnce(0);
       mockSanitizeString.mockReturnValueOnce("Test");
       mockGenerateApiKey.mockReturnValueOnce({

@@ -363,7 +363,7 @@ All parameters are optional. If no targeting is specified, use any string (e.g.,
 
 ### Supported Countries
 
-PacketStream (the default upstream provider) supports 100+ countries. The following OFAC-sanctioned countries are blocked and will return an error:
+Webshare (the upstream provider) supports country-level geo-targeting only (state, city, and ASN targeting are not available). Over 100 countries are supported. The following OFAC-sanctioned countries are blocked and will return an error:
 
 - Cuba (CU)
 - Iran (IR)
@@ -1379,8 +1379,8 @@ CSRF protection only applies to requests that include auth cookies. API/extensio
 
 ### Connection timeout
 
-- Verify that PacketStream credentials are correctly set in `.env` (`PACKETSTREAM_USERNAME`, `PACKETSTREAM_PASSWORD`).
-- Check that the PacketStream gateway (`gw.packetstream.io:31112`) is reachable from your server.
+- Verify that Webshare credentials are correctly set in `.env` (`WEBSHARE_DC_USERNAME` / `WEBSHARE_DC_PASSWORD` for datacenter proxies, and `WEBSHARE_RES_USERNAME` / `WEBSHARE_RES_PASSWORD` for residential proxies).
+- Check that the Webshare gateway (`p.webshare.io:80`) is reachable from your server.
 - The default connect timeout is 30 seconds (configurable via `PROXY_CONNECT_TIMEOUT_MS`).
 
 ### MFA locked out

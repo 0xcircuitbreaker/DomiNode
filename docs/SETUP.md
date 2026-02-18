@@ -33,7 +33,7 @@ All deployment methods require the following:
 
 **Required external accounts:**
 
-- **PacketStream** account -- upstream proxy provider. Sign up at [packetstream.io](https://packetstream.io) and get your gateway username/password and reseller API key.
+- **Webshare** account -- upstream proxy provider. Sign up at [webshare.io](https://webshare.io) and get your proxy credentials and API key. Webshare offers a dual-pool model: Datacenter proxies (250 IPs with 1TB bandwidth and 250 replacements) and Residential proxies (~$40/mo for access to 80M+ IPs with 10GB bandwidth).
 
 **Optional external accounts (for billing):**
 
@@ -54,19 +54,21 @@ DATABASE_URL=postgresql://dominusnode:dominusnode_dev@localhost:5432/dominusnode
 
 # JWT secret for authentication (MUST change in production)
 # Generate with: openssl rand -hex 32
-JWT_SECRET=change-me-to-a-64-char-random-string-in-production
+JWT_SECRET=<run: openssl rand -hex 32>
 
 # MFA encryption key for TOTP secrets (required if MFA is enabled)
 # Generate with: openssl rand -hex 32
 MFA_ENCRYPTION_KEY=
 
-# PacketStream upstream proxy credentials
-PACKETSTREAM_GATEWAY_HOST=gw.packetstream.io
-PACKETSTREAM_GATEWAY_PORT=31112
-PACKETSTREAM_USERNAME=your_username
-PACKETSTREAM_PASSWORD=your_password
-PACKETSTREAM_RESELLER_API_URL=https://reseller.packetstream.io
-PACKETSTREAM_RESELLER_API_KEY=your_bearer_token
+# Webshare upstream proxy credentials
+# Dual-pool: DC (250 IPs, 1TB, 250 replacements) + Residential (~$40/mo, 80M+ IPs, 10GB)
+WEBSHARE_PROXY_HOST=p.webshare.io
+WEBSHARE_HTTP_PORT=80
+WEBSHARE_DC_USERNAME=your_dc_username
+WEBSHARE_DC_PASSWORD=your_dc_password
+WEBSHARE_RES_USERNAME=your_res_username
+WEBSHARE_RES_PASSWORD=your_res_password
+WEBSHARE_API_KEY=your_webshare_api_key
 ```
 
 ### Service Ports
@@ -81,8 +83,8 @@ DASHBOARD_PORT=3000          # REST API server
 
 ```bash
 # Stripe
-STRIPE_SECRET_KEY=sk_test_xxxxxxxxxxxxxxxxxxxx
-STRIPE_WEBHOOK_SECRET=whsec_xxxxxxxxxxxxxxxxxxxx
+STRIPE_SECRET_KEY=REPLACE_ME_WITH_YOUR_STRIPE_SECRET_KEY
+STRIPE_WEBHOOK_SECRET=REPLACE_ME_WITH_YOUR_STRIPE_WEBHOOK_SECRET
 STRIPE_SUCCESS_URL=https://yourdomain.com/dashboard?topup=success
 STRIPE_CANCEL_URL=https://yourdomain.com/dashboard?topup=cancel
 
@@ -191,7 +193,8 @@ cp .env.example .env
 
 Edit `.env` with your actual credentials. At minimum, set:
 - `JWT_SECRET` -- generate with `openssl rand -hex 32`
-- `PACKETSTREAM_USERNAME` and `PACKETSTREAM_PASSWORD` -- from your PacketStream account
+- `WEBSHARE_DC_USERNAME` and `WEBSHARE_DC_PASSWORD` -- from your Webshare datacenter proxy credentials
+- `WEBSHARE_RES_USERNAME` and `WEBSHARE_RES_PASSWORD` -- from your Webshare residential proxy credentials (optional)
 
 For local development, the default `DATABASE_URL` works with the Docker Compose PostgreSQL.
 
@@ -203,7 +206,7 @@ npm run build
 
 This runs `tsc --build` across all 6 backend packages via TypeScript project references:
 - `@dominusnode/shared` -- types, database, auth, repositories
-- `@dominusnode/pool-manager` -- PacketStream integration, provider failover
+- `@dominusnode/pool-manager` -- Webshare integration, provider failover
 - `@dominusnode/metering` -- bandwidth cost calculation
 - `@dominusnode/billing` -- Stripe and NOWPayments integration
 - `@dominusnode/proxy-gateway` -- HTTP/HTTPS/SOCKS5 proxy server
@@ -440,7 +443,7 @@ services:
     environment:
       POSTGRES_DB: dominusnode
       POSTGRES_USER: dominusnode
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dominusnode_prod}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
     ports:
       - "127.0.0.1:5432:5432"  # Only listen on localhost
     volumes:
@@ -468,7 +471,7 @@ services:
       postgres:
         condition: service_healthy
     environment:
-      DATABASE_URL: postgresql://dominusnode:${POSTGRES_PASSWORD:-dominusnode_prod}@postgres:5432/dominusnode
+      DATABASE_URL: postgresql://dominusnode:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/dominusnode
     networks:
       - backend
     restart: "no"
@@ -488,7 +491,7 @@ services:
       - "3000:3000"
     environment:
       NODE_ENV: production
-      DATABASE_URL: postgresql://dominusnode:${POSTGRES_PASSWORD:-dominusnode_prod}@postgres:5432/dominusnode
+      DATABASE_URL: postgresql://dominusnode:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/dominusnode
       DASHBOARD_PORT: "3000"
       JWT_SECRET: ${JWT_SECRET}
       MFA_ENCRYPTION_KEY: ${MFA_ENCRYPTION_KEY:-}
@@ -534,13 +537,16 @@ services:
       - "1080:1080"
     environment:
       NODE_ENV: production
-      DATABASE_URL: postgresql://dominusnode:${POSTGRES_PASSWORD:-dominusnode_prod}@postgres:5432/dominusnode
+      DATABASE_URL: postgresql://dominusnode:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/dominusnode
       PROXY_LISTEN_PORT: "8080"
       SOCKS5_LISTEN_PORT: "1080"
-      PACKETSTREAM_GATEWAY_HOST: ${PACKETSTREAM_GATEWAY_HOST:-gw.packetstream.io}
-      PACKETSTREAM_GATEWAY_PORT: ${PACKETSTREAM_GATEWAY_PORT:-31112}
-      PACKETSTREAM_USERNAME: ${PACKETSTREAM_USERNAME}
-      PACKETSTREAM_PASSWORD: ${PACKETSTREAM_PASSWORD}
+      WEBSHARE_PROXY_HOST: ${WEBSHARE_PROXY_HOST:-p.webshare.io}
+      WEBSHARE_HTTP_PORT: ${WEBSHARE_HTTP_PORT:-80}
+      WEBSHARE_DC_USERNAME: ${WEBSHARE_DC_USERNAME}
+      WEBSHARE_DC_PASSWORD: ${WEBSHARE_DC_PASSWORD}
+      WEBSHARE_RES_USERNAME: ${WEBSHARE_RES_USERNAME:-}
+      WEBSHARE_RES_PASSWORD: ${WEBSHARE_RES_PASSWORD:-}
+      WEBSHARE_API_KEY: ${WEBSHARE_API_KEY:-}
       JWT_SECRET: ${JWT_SECRET}
       PROXY_CONNECT_TIMEOUT_MS: ${PROXY_CONNECT_TIMEOUT_MS:-30000}
       PROXY_SESSION_MAX_AGE_MS: ${PROXY_SESSION_MAX_AGE_MS:-3600000}
@@ -573,8 +579,8 @@ networks:
 # Set required environment variables (or create a .env file)
 export JWT_SECRET=$(openssl rand -hex 32)
 export POSTGRES_PASSWORD=$(openssl rand -hex 16)
-export PACKETSTREAM_USERNAME=your_username
-export PACKETSTREAM_PASSWORD=your_password
+export WEBSHARE_DC_USERNAME=your_dc_username
+export WEBSHARE_DC_PASSWORD=your_dc_password
 
 # Build and start all 4 services (postgres, api, proxy, frontend)
 docker compose -f docker-compose.prod.yml build
@@ -632,16 +638,19 @@ metadata:
   namespace: dominusnode
 type: Opaque
 stringData:
+  # WARNING: NEVER commit this file with real values. Use sealed-secrets or external-secrets-operator.
   # IMPORTANT: Replace all values below before applying.
   # In production, use sealed-secrets, external-secrets, or Vault instead.
   DATABASE_URL: "postgresql://dominusnode:YOUR_DB_PASSWORD@dominusnode-postgres:5432/dominusnode?sslmode=require"
   JWT_SECRET: "GENERATE_WITH_openssl_rand_-hex_32"
   MFA_ENCRYPTION_KEY: "GENERATE_WITH_openssl_rand_-hex_32"
-  PACKETSTREAM_USERNAME: "your_username"
-  PACKETSTREAM_PASSWORD: "your_password"
-  PACKETSTREAM_RESELLER_API_KEY: "your_bearer_token"
-  STRIPE_SECRET_KEY: "sk_live_xxxxxxxxxxxxxxxxxxxx"
-  STRIPE_WEBHOOK_SECRET: "whsec_xxxxxxxxxxxxxxxxxxxx"
+  WEBSHARE_DC_USERNAME: "your_dc_username"
+  WEBSHARE_DC_PASSWORD: "your_dc_password"
+  WEBSHARE_RES_USERNAME: "your_res_username"
+  WEBSHARE_RES_PASSWORD: "your_res_password"
+  WEBSHARE_API_KEY: "your_webshare_api_key"
+  STRIPE_SECRET_KEY: "REPLACE_ME_WITH_YOUR_STRIPE_SECRET_KEY"
+  STRIPE_WEBHOOK_SECRET: "REPLACE_ME_WITH_YOUR_STRIPE_WEBHOOK_SECRET"
   NOWPAYMENTS_API_KEY: "your_api_key"
   NOWPAYMENTS_IPN_SECRET: "your_ipn_secret"
   POSTGRES_PASSWORD: "YOUR_DB_PASSWORD"
@@ -660,9 +669,8 @@ data:
   DASHBOARD_PORT: "3000"
   PROXY_LISTEN_PORT: "8080"
   SOCKS5_LISTEN_PORT: "1080"
-  PACKETSTREAM_GATEWAY_HOST: "gw.packetstream.io"
-  PACKETSTREAM_GATEWAY_PORT: "31112"
-  PACKETSTREAM_RESELLER_API_URL: "https://reseller.packetstream.io"
+  WEBSHARE_PROXY_HOST: "p.webshare.io"
+  WEBSHARE_HTTP_PORT: "80"
   NOWPAYMENTS_API_URL: "https://api.nowpayments.io/v1"
   CORS_ORIGINS: "https://app.dominusnode.com"
   PROXY_PUBLIC_HOST: "proxy.dominusnode.com"
@@ -1134,8 +1142,13 @@ Set at minimum:
 DATABASE_URL=postgresql://dominusnode:YOUR_STRONG_DB_PASSWORD@localhost:5432/dominusnode
 JWT_SECRET=<output of openssl rand -hex 32>
 MFA_ENCRYPTION_KEY=<output of openssl rand -hex 32>
-PACKETSTREAM_USERNAME=your_username
-PACKETSTREAM_PASSWORD=your_password
+WEBSHARE_PROXY_HOST=p.webshare.io
+WEBSHARE_HTTP_PORT=80
+WEBSHARE_DC_USERNAME=your_dc_username
+WEBSHARE_DC_PASSWORD=your_dc_password
+WEBSHARE_RES_USERNAME=your_res_username
+WEBSHARE_RES_PASSWORD=your_res_password
+WEBSHARE_API_KEY=your_webshare_api_key
 NODE_ENV=production
 CORS_ORIGINS=https://app.yourdomain.com
 PROXY_PUBLIC_HOST=proxy.yourdomain.com

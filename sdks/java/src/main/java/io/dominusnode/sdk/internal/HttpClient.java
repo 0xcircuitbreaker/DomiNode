@@ -184,9 +184,10 @@ public final class HttpClient {
         if (response.statusCode() == 429) {
             int retryAfter = parseRetryAfter(response);
             int waitMs = Math.min(retryAfter * 1000, MAX_RETRY_WAIT_MS);
-            waitMs = Math.max(waitMs, 0); // clamp negative
+            waitMs = Math.max(waitMs, 100); // R25 C-2: Enforce 100ms minimum before jitter
             // R15 H-5: Add ±10% jitter to prevent thundering-herd
             waitMs += (int) (waitMs * 0.2 * (Math.random() - 0.5));
+            waitMs = Math.max(waitMs, 100); // R25 C-2: Enforce 100ms minimum after jitter
             try {
                 Thread.sleep(waitMs);
             } catch (InterruptedException e) {
@@ -234,6 +235,10 @@ public final class HttpClient {
 
         if (requiresAuth) {
             String token = tokenManager.getValidToken();
+            // R29 H-7: Guard against null/empty token to prevent "Bearer null" header
+            if (token == null || token.isEmpty()) {
+                throw new AuthenticationException("No valid token available. Call connectWithKey() or login() first.");
+            }
             builder.header("Authorization", "Bearer " + token);
         }
 

@@ -19,6 +19,12 @@ export default function TopBar() {
           <span className="app-pill-dot" />
           Network Live
         </span>
+        {import.meta.env.VITE_BETA_MODE !== "false" && (
+          <span className="app-pill app-pill-beta">
+            <span className="app-pill-dot app-pill-dot-beta" />
+            BETA
+          </span>
+        )}
         <div className="app-hide-compact">
           <p className="text-xs text-gray-500 uppercase tracking-wide">Client Dashboard</p>
           <p className="text-sm text-gray-400">Operational telemetry, billing, and access control</p>

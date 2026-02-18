@@ -1,0 +1,111 @@
+version: "3.8"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: dominusnode
+      POSTGRES_USER: dominusnode
+      POSTGRES_PASSWORD: dominusnode_dev
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - stress-pgdata:/var/lib/postgresql/data
+      - ../packages/shared/src/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dominusnode"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  mock-target:
+    build:
+      context: ..
+      dockerfile: stress-tests/Dockerfile.mock-target
+    ports:
+      - "9090:9090"
+    environment:
+      PORT: "9090"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:9090/health || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  mock-upstream:
+    build:
+      context: ..
+      dockerfile: stress-tests/Dockerfile.mock-upstream
+    ports:
+      - "31112:31112"
+    environment:
+      PORT: "31112"
+      TARGET_HOST: mock-target
+      TARGET_PORT: "9090"
+    depends_on:
+      mock-target:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:31112/health || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  proxy-gateway:
+    build:
+      context: ..
+      dockerfile: infra/docker/proxy.Dockerfile
+    ports:
+      - "8080:8080"
+      - "1080:1080"
+    environment:
+      DATABASE_URL: postgresql://dominusnode:dominusnode_dev@postgres:5432/dominusnode
+      PROXY_LISTEN_PORT: "8080"
+      SOCKS5_LISTEN_PORT: "1080"
+      WEBSHARE_DC_USERNAME: stress_dc_user
+      WEBSHARE_DC_PASSWORD: stress_dc_pass
+      WEBSHARE_RES_USERNAME: stress_res_user
+      WEBSHARE_RES_PASSWORD: stress_res_pass
+      WEBSHARE_PROXY_HOST: mock-upstream
+      WEBSHARE_HTTP_PORT: "31112"
+      JWT_SECRET: stress-test-jwt-secret-do-not-use-in-production
+      SKIP_GEOIP: "1"
+      MAX_SESSIONS_PER_MINUTE: "1000"
+      MAX_BANDWIDTH_PER_HOUR_BYTES: "107374182400"
+      LOG_LEVEL: warn
+      BALANCE_CACHE_TTL_MS: "1000"
+      PROXY_MAX_CONNECTIONS: "5000"
+      PROXY_CONNECT_TIMEOUT_MS: "30000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mock-upstream:
+        condition: service_healthy
+
+  dashboard-api:
+    build:
+      context: ..
+      dockerfile: infra/docker/api.Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_URL: postgresql://dominusnode:dominusnode_dev@postgres:5432/dominusnode
+      DASHBOARD_PORT: "3000"
+      JWT_SECRET: stress-test-jwt-secret-do-not-use-in-production
+      SKIP_GEOIP: "1"
+      LOG_LEVEL: warn
+      CORS_ORIGINS: "*"
+      STRIPE_SECRET_KEY: sk_test_fake
+      STRIPE_WEBHOOK_SECRET: whsec_fake
+      NOWPAYMENTS_API_KEY: fake_key
+      NOWPAYMENTS_IPN_SECRET: fake_ipn_secret
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  stress-pgdata:

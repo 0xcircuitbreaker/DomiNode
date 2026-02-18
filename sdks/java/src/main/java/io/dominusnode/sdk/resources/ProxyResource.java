@@ -70,7 +70,7 @@ public final class ProxyResource {
     /**
      * Build a proxy URL with an explicit API key and options.
      *
-     * <p>The username encodes geo-targeting parameters following PacketStream conventions.
+     * <p>The username encodes geo-targeting parameters following Dominus Node proxy conventions.
      * Both the username components and the API key are URL-encoded to prevent injection.</p>
      *
      * @param apiKey  the API key to use
@@ -78,6 +78,11 @@ public final class ProxyResource {
      * @return a fully-formed proxy URL string
      */
     public String buildUrl(String apiKey, ProxyUrlOptions options) {
+        // R31 C-4: Validate proxyHost to prevent URL injection via crafted hostnames
+        if (proxyHost != null && proxyHost.chars().anyMatch(c -> " /\\@?#".indexOf(c) >= 0)) {
+            throw new IllegalArgumentException("proxyHost contains invalid characters");
+        }
+
         String protocol = "http";
         if (options != null && options.getProtocol() != null) {
             protocol = options.getProtocol();

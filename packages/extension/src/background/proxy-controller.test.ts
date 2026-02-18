@@ -245,16 +245,11 @@ describe("proxy-controller", () => {
 
       await reconfigureProxy();
 
-      // disableProxy then enableProxy should both be called
-      // updateState should be called for both disable and enable
+      // R31 C-1: Atomic reconfiguration — enableProxy called directly, no intermediate disable
       const calls = vi.mocked(updateState).mock.calls;
-      const disableCall = calls.find(
-        (c) => (c[0] as any).proxyEnabled === false,
-      );
       const enableCall = calls.find(
         (c) => (c[0] as any).proxyEnabled === true,
       );
-      expect(disableCall).toBeDefined();
       expect(enableCall).toBeDefined();
     });
 

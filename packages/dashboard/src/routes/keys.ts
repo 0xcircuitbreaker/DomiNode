@@ -14,6 +14,13 @@ router.post("/", async (req, res) => {
   try {
     const { userId } = (req as AuthenticatedRequest).user;
 
+    // R19 C-1: Check user is still active (JWT may outlive suspend by up to 15min)
+    const currentUser = await userRepo.findUserById(userId);
+    if (!currentUser || currentUser.status !== "active") {
+      res.status(403).json({ error: "Account is suspended or disabled" });
+      return;
+    }
+
     // Enforce max API key limit per user
     const activeKeyCount = await userRepo.countActiveKeys(userId);
     if (activeKeyCount >= 50) {

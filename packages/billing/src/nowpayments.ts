@@ -35,6 +35,11 @@ export async function createCryptoInvoice(
   amountUsd: number,
   payCurrency: SupportedCrypto,
 ): Promise<CryptoInvoice> {
+  // R30 H-4: Defense-in-depth validation
+  if (!Number.isFinite(amountUsd) || amountUsd < 5 || amountUsd > 1000) {
+    throw new Error("Invalid amount: must be between $5 and $1,000");
+  }
+
   if (!(SUPPORTED_CRYPTO as readonly string[]).includes(payCurrency)) {
     throw new Error(`Unsupported currency: ${payCurrency}`);
   }
@@ -55,14 +60,22 @@ export async function createCryptoInvoice(
       order_description: `Dominus Node wallet top-up $${amountUsd.toFixed(2)}`,
       is_fixed_rate: true,
     }),
+    redirect: "error", // R18-C2: Prevent HTTPS→HTTP redirect leaking x-api-key
+    signal: AbortSignal.timeout(30_000),
   });
 
   if (!resp.ok) {
-    const text = await resp.text();
-    throw new Error(`NOWPayments createInvoice failed: ${resp.status} ${text}`);
+    // R23 C-3: Cap error body read to prevent OOM from malicious/compromised upstream
+    await resp.body?.cancel();
+    throw new Error(`NOWPayments createInvoice failed: ${resp.status}`);
   }
 
-  const data = (await resp.json()) as {
+  // R18-H1: Response size limit to prevent OOM from oversized upstream response
+  const responseText = await resp.text();
+  if (responseText.length > 1_048_576) {
+    throw new Error("NOWPayments response too large");
+  }
+  const data = JSON.parse(responseText) as {
     id: string;
     invoice_url: string;
   };
@@ -141,6 +154,11 @@ export async function handleIpnCallback(
     log.error("IPN payment_id has unexpected type", { type: typeof rawPaymentId });
     return null;
   }
+  // R31 C-2: Type guard for invoice_id matching the pattern used for payment_id and price_amount
+  if (rawInvoiceId !== undefined && typeof rawInvoiceId !== "string" && typeof rawInvoiceId !== "number") {
+    log.error("IPN invoice_id has unexpected type", { type: typeof rawInvoiceId });
+    return null;
+  }
   if (rawPriceAmount !== undefined && typeof rawPriceAmount !== "number" && typeof rawPriceAmount !== "string") {
     log.error("IPN price_amount has unexpected type", { type: typeof rawPriceAmount });
     return null;
@@ -172,6 +190,12 @@ export async function handleIpnCallback(
     return null;
   }
 
+  // R30 H-3: Reject IPNs for invoices that have been permanently failed
+  if (invoice.status === "failed") {
+    log.warn("webhook received for failed invoice, ignoring", { externalId: invoiceId });
+    return null;
+  }
+
   const userId = invoice.user_id;
 
   // Verify the price amount matches what we originally requested
@@ -197,13 +221,25 @@ export async function handleIpnCallback(
     return { userId, amountCents };
   }
 
-  await walletRepo.creditWallet(
-    userId,
-    amountCents,
-    "nowpayments",
-    paymentId,
-    `Crypto top-up $${priceAmount.toFixed(2)} (${body["pay_currency"] ?? "unknown"})`,
-  );
+  try {
+    await walletRepo.creditWallet(
+      userId,
+      amountCents,
+      "nowpayments",
+      paymentId,
+      // R26 C-2: Sanitize pay_currency — only allow alphanumeric + hyphen/underscore, cap length
+      `Crypto top-up $${priceAmount.toFixed(2)} (${(typeof body["pay_currency"] === "string" ? body["pay_currency"].replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 20) : "unknown")})`,
+    );
+  } catch (creditErr) {
+    // R30 C-1: Do NOT revert to pending — this creates infinite retry loops.
+    // Mark as failed; operator can manually reconcile if needed.
+    log.error("wallet credit failed after invoice completion — marking invoice as failed", {
+      invoiceId: invoice.id, userId, paymentId,
+      error: creditErr instanceof Error ? creditErr.message : String(creditErr),
+    });
+    try { await invoiceRepo.markCreditFailed(invoice.id); } catch { /* best effort */ }
+    throw creditErr;
+  }
   log.info("wallet credited via NOWPayments", { userId, amountCents, paymentId });
   return { userId, amountCents };
 }

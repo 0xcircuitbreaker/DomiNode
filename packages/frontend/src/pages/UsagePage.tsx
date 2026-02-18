@@ -166,8 +166,8 @@ export default function UsagePage() {
         </div>
       </div>
 
-      {/* Top Hosts */}
-      <TopHosts since={since} until={until} />
+      {/* Top Hosts — R27 H-5: pass validated dates, not raw input */}
+      <TopHosts since={safeSince} until={safeUntil} />
 
       {/* Records Table */}
       <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">

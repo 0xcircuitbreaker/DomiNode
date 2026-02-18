@@ -40,43 +40,48 @@ import (
 type Config struct {
 	// BaseURL is the base URL of the Dominus Node API server.
 	// Defaults to DefaultBaseURL if empty.
-	BaseURL string
+	BaseURL string `json:"baseUrl,omitempty"`
 
 	// APIKey is an API key for immediate authentication.
 	// If set, the client will verify this key on first use.
-	APIKey string
+	// R31 H-3: json:"-" prevents accidental serialization of credentials.
+	APIKey string `json:"-"`
 
 	// Email is the user email for credential-based authentication.
-	Email string
+	// R31 H-3: json:"-" prevents accidental serialization of credentials.
+	Email string `json:"-"`
 
 	// Password is the user password for credential-based authentication.
-	Password string
+	// R31 H-3: json:"-" prevents accidental serialization of credentials.
+	Password string `json:"-"`
 
 	// AccessToken is a pre-existing JWT access token.
-	AccessToken string
+	// R31 H-3: json:"-" prevents accidental serialization of credentials.
+	AccessToken string `json:"-"`
 
 	// RefreshToken is a pre-existing JWT refresh token.
-	RefreshToken string
+	// R31 H-3: json:"-" prevents accidental serialization of credentials.
+	RefreshToken string `json:"-"`
 
 	// ProxyHost is the hostname of the proxy server.
 	// Defaults to DefaultProxyHost if empty.
-	ProxyHost string
+	ProxyHost string `json:"proxyHost,omitempty"`
 
 	// HTTPProxyPort is the HTTP proxy port.
 	// Defaults to DefaultHTTPProxyPort if zero.
-	HTTPProxyPort int
+	HTTPProxyPort int `json:"httpProxyPort,omitempty"`
 
 	// SOCKS5ProxyPort is the SOCKS5 proxy port.
 	// Defaults to DefaultSOCKS5ProxyPort if zero.
-	SOCKS5ProxyPort int
+	SOCKS5ProxyPort int `json:"socks5ProxyPort,omitempty"`
 
 	// Timeout is the HTTP request timeout.
 	// Defaults to 30 seconds if zero.
-	Timeout time.Duration
+	Timeout time.Duration `json:"timeout,omitempty"`
 
 	// HTTPClient is an optional custom HTTP client.
 	// If nil, a default client with the configured timeout is used.
-	HTTPClient *http.Client
+	HTTPClient *http.Client `json:"-"`
 }
 
 // redact returns "<redacted>" if the string is non-empty, "<not set>" otherwise.

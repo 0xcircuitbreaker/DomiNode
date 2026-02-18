@@ -1,9 +1,17 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const mockQuery = vi.fn();
+const mockClientQuery = vi.fn();
+const mockClientRelease = vi.fn();
 
 vi.mock("../db.js", () => ({
   query: (...args: unknown[]) => mockQuery(...args),
+  getPool: () => ({
+    connect: () => Promise.resolve({
+      query: (...args: unknown[]) => mockClientQuery(...args),
+      release: () => mockClientRelease(),
+    }),
+  }),
 }));
 
 import {
@@ -22,6 +30,7 @@ const defaultPlanRow = {
   is_default: true,
   max_connections: 100,
   max_sessions_per_minute: 30,
+  allowed_proxy_types: null,
 };
 
 const proPlanRow = {
@@ -32,11 +41,14 @@ const proPlanRow = {
   is_default: false,
   max_connections: 100,
   max_sessions_per_minute: 60,
+  allowed_proxy_types: null,
 };
 
 describe("plan-repo", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockClientQuery.mockReset();
+    mockClientRelease.mockReset();
   });
 
   describe("getPlan", () => {
@@ -52,6 +64,7 @@ describe("plan-repo", () => {
         isDefault: true,
         maxConnections: 100,
         maxSessionsPerMinute: 30,
+        allowedProxyTypes: null,
       });
     });
 
@@ -119,6 +132,7 @@ describe("plan-repo", () => {
         expect(plan).toHaveProperty("isDefault");
         expect(plan).toHaveProperty("maxConnections");
         expect(plan).toHaveProperty("maxSessionsPerMinute");
+        expect(plan).toHaveProperty("allowedProxyTypes");
       }
     });
 
@@ -151,6 +165,7 @@ describe("plan-repo", () => {
         isDefault: false,
         maxConnections: 100,
         maxSessionsPerMinute: 60,
+        allowedProxyTypes: null,
       });
     });
 
@@ -182,51 +197,66 @@ describe("plan-repo", () => {
 
   describe("setUserPlan", () => {
     it("should update user's plan", async () => {
-      mockQuery
-        .mockResolvedValueOnce({ rows: [proPlanRow] }) // plan exists
-        .mockResolvedValueOnce({ rowCount: 1 }); // update succeeds
+      mockClientQuery
+        .mockResolvedValueOnce({}) // BEGIN
+        .mockResolvedValueOnce({ rows: [proPlanRow] }) // SELECT FOR SHARE
+        .mockResolvedValueOnce({ rowCount: 1 }) // UPDATE
+        .mockResolvedValueOnce({}); // COMMIT
 
       await setUserPlan("user-1", "pro");
-      expect(mockQuery).toHaveBeenCalledTimes(2);
+      expect(mockClientQuery).toHaveBeenCalledTimes(4);
+      expect(mockClientRelease).toHaveBeenCalledTimes(1);
     });
 
     it("should throw when plan not found", async () => {
-      mockQuery.mockResolvedValueOnce({ rows: [] }); // plan doesn't exist
+      mockClientQuery
+        .mockResolvedValueOnce({}) // BEGIN
+        .mockResolvedValueOnce({ rows: [] }) // SELECT FOR SHARE - not found
+        .mockResolvedValueOnce({}); // ROLLBACK
 
       await expect(setUserPlan("user-1", "nonexistent")).rejects.toThrow(
         "Plan 'nonexistent' not found",
       );
+      expect(mockClientRelease).toHaveBeenCalledTimes(1);
     });
 
     it("should throw when user not found", async () => {
-      mockQuery
-        .mockResolvedValueOnce({ rows: [proPlanRow] }) // plan exists
-        .mockResolvedValueOnce({ rowCount: 0 }); // no user updated
+      mockClientQuery
+        .mockResolvedValueOnce({}) // BEGIN
+        .mockResolvedValueOnce({ rows: [proPlanRow] }) // SELECT FOR SHARE
+        .mockResolvedValueOnce({ rowCount: 0 }) // UPDATE - no rows
+        .mockResolvedValueOnce({}); // ROLLBACK
 
       await expect(setUserPlan("user-missing", "pro")).rejects.toThrow(
         "User 'user-missing' not found",
       );
+      expect(mockClientRelease).toHaveBeenCalledTimes(1);
     });
 
     it("should verify plan exists before updating user", async () => {
-      mockQuery
-        .mockResolvedValueOnce({ rows: [defaultPlanRow] })
-        .mockResolvedValueOnce({ rowCount: 1 });
+      mockClientQuery
+        .mockResolvedValueOnce({}) // BEGIN
+        .mockResolvedValueOnce({ rows: [defaultPlanRow] }) // SELECT FOR SHARE
+        .mockResolvedValueOnce({ rowCount: 1 }) // UPDATE
+        .mockResolvedValueOnce({}); // COMMIT
 
       await setUserPlan("user-1", "payg");
-      // First call should be SELECT plan
-      expect(mockQuery.mock.calls[0][0]).toContain("SELECT * FROM plans WHERE id = $1");
-      expect(mockQuery.mock.calls[0][1]).toEqual(["payg"]);
+      // Second call (after BEGIN) should be SELECT plan FOR SHARE
+      expect(mockClientQuery.mock.calls[1][0]).toContain("SELECT * FROM plans WHERE id = $1");
+      expect(mockClientQuery.mock.calls[1][1]).toEqual(["payg"]);
     });
 
     it("should handle null rowCount as 0", async () => {
-      mockQuery
-        .mockResolvedValueOnce({ rows: [proPlanRow] }) // plan exists
-        .mockResolvedValueOnce({ rowCount: null }); // null rowCount
+      mockClientQuery
+        .mockResolvedValueOnce({}) // BEGIN
+        .mockResolvedValueOnce({ rows: [proPlanRow] }) // SELECT FOR SHARE
+        .mockResolvedValueOnce({ rowCount: null }) // UPDATE - null rowCount
+        .mockResolvedValueOnce({}); // ROLLBACK
 
       await expect(setUserPlan("user-null", "pro")).rejects.toThrow(
         "User 'user-null' not found",
       );
+      expect(mockClientRelease).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -258,7 +288,7 @@ describe("plan-repo", () => {
 
       await getMonthlyUsage("user-1");
       expect(mockQuery).toHaveBeenCalledWith(
-        expect.stringContaining("date_trunc('month', now())"),
+        expect.stringContaining("date_trunc('month', now() AT TIME ZONE 'UTC')"),
         ["user-1"],
       );
     });

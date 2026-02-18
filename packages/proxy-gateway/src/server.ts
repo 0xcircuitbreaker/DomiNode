@@ -12,7 +12,7 @@ import { executeWithRetry, promisifyRequest, DEFAULT_RETRY_OPTIONS } from "./ret
 import { validateTarget, isValidHostname, isValidPort } from "./target-validator.js";
 import { incrementUserConns, decrementUserConns } from "./connection-tracker.js";
 import { checkAuthRateLimit, recordAuthFailure } from "./auth-rate-limit.js";
-import { recordRequest, recordError, recordLatency } from "./stats.js";
+import { recordRequest, recordError, recordLatency, recordBytes, recordSessionStart } from "./stats.js";
 
 const log = createLogger("proxy:server");
 
@@ -22,7 +22,17 @@ function sanitizeUpstreamMsg(msg: string): string {
   return msg
     .replace(/Basic\s+[A-Za-z0-9+/=]+/gi, "Basic [REDACTED]")
     .replace(/Bearer\s+[A-Za-z0-9._-]+/gi, "Bearer [REDACTED]")
-    .replace(/Proxy-Authorization:\s*[^\r\n]*/gi, "Proxy-Authorization: [REDACTED]");
+    .replace(/Proxy-Authorization:\s*[^\r\n]*/gi, "Proxy-Authorization: [REDACTED]")
+    .replace(/:\/\/[^@\s]+@/g, "://[REDACTED]@")
+    .replace(/\b\w+-country-[A-Z]{2}-\w+:[^\s@]*/g, "[REDACTED_CREDS]");
+}
+
+/** R30 C-2+H-4: Write to socket only if not destroyed, then end */
+function safeSocketWrite(socket: net.Socket, data: string): void {
+  if (!socket.destroyed) {
+    socket.write(data);
+    socket.end();
+  }
 }
 
 const MAX_CONNECTIONS = parseInt(process.env["PROXY_MAX_CONNECTIONS"] ?? "5000", 10);
@@ -34,6 +44,12 @@ if (isNaN(MAX_CONNECTIONS) || MAX_CONNECTIONS <= 0) {
 
 const MAX_BODY_SIZE = 50 * 1024 * 1024; // 50MB
 const CONNECT_TIMEOUT_MS = parseInt(process.env["PROXY_CONNECT_TIMEOUT_MS"] ?? "30000", 10);
+
+// R22 H-3: Parse and validate tunnel idle timeout once at module level
+const TUNNEL_IDLE_TIMEOUT_MS = parseInt(process.env["TUNNEL_IDLE_TIMEOUT_MS"] ?? "300000", 10);
+if (isNaN(TUNNEL_IDLE_TIMEOUT_MS) || TUNNEL_IDLE_TIMEOUT_MS < 10_000 || TUNNEL_IDLE_TIMEOUT_MS > 3_600_000) {
+  throw new Error("TUNNEL_IDLE_TIMEOUT_MS must be between 10000 and 3600000");
+}
 
 // ─── Error response helper ──────────────────────────────────────────
 
@@ -86,6 +102,28 @@ async function handleRequest(
     return;
   }
 
+  // Fetch plan BEFORE provider selection to enforce pool restrictions (R22 H-4)
+  const userPlan = await planRepo.getUserPlan(auth.userId);
+
+  // R22 H-4: Enforce allowedProxyTypes BEFORE provider selection — not after
+  // This ensures the provider selector receives the correct pool type, preventing
+  // DC-only users from consuming residential bandwidth (or vice versa).
+  if (userPlan.allowedProxyTypes) {
+    const reqType = auth.proxyOptions.proxyType;
+    if (reqType === "residential" && userPlan.allowedProxyTypes === "dc") {
+      sendError(clientRes, 403, "POOL_RESTRICTED", "Your plan only allows datacenter proxies");
+      return;
+    }
+    if (reqType === "dc" && userPlan.allowedProxyTypes === "residential") {
+      sendError(clientRes, 403, "POOL_RESTRICTED", "Your plan only allows residential proxies");
+      return;
+    }
+    // For "auto" or unrecognized, force to the allowed pool
+    if (!reqType || reqType === "auto") {
+      auth.proxyOptions.proxyType = userPlan.allowedProxyTypes as "dc" | "residential";
+    }
+  }
+
   // Provider selection (replaces global circuit breaker check)
   let selected;
   try {
@@ -103,9 +141,6 @@ async function handleRequest(
     throw err;
   }
   const { provider, proxy: upstream } = selected;
-
-  // Fetch plan for per-plan connection limits and free plan balance bypass
-  const userPlan = await planRepo.getUserPlan(auth.userId);
 
   // Per-user connection limit (plan-aware)
   if (!incrementUserConns(auth.userId, userPlan.maxConnections)) {
@@ -130,7 +165,7 @@ async function handleRequest(
   delete headers["proxy-authorization"];
 
   // Byte counting — bytesIn is set after buffering the request body (below)
-  const counter = { bytesIn: 0, bytesOut: 0 };
+  const counter: import("./counting-stream.js").ByteCounter = { bytesIn: 0, bytesOut: 0, maxBytes: 0, onLimitExceeded: null };
 
   const parsedTarget = new URL(targetUrl, "http://localhost");
   const targetHost = parsedTarget.hostname || "unknown";
@@ -147,7 +182,10 @@ async function handleRequest(
   // C1+C6 fix: Reserve balance and start session — fails with 402 if insufficient balance
   let sessionId: string;
   try {
-    sessionId = await startSession(auth.userId, targetHost, counter);
+    // R20 H-5: Pass proxyType derived from provider name
+    // R29 C-2: Pass pre-fetched plan to prevent TOCTOU double-fetch
+    const fwdPoolType = provider.name.includes("dc") ? "dc" : "residential";
+    sessionId = await startSession(auth.userId, targetHost, counter, 0, fwdPoolType, userPlan);
   } catch (err) {
     decrementUserConns(auth.userId);
     const msg = err instanceof Error ? err.message : String(err);
@@ -170,11 +208,24 @@ async function handleRequest(
   const cleanup = () => {
     if (cleanedUp) return;
     cleanedUp = true;
+    unregisterSessionDestroy(sessionId);
     decrementUserConns(auth.userId);
     endSession(sessionId).catch((err) => {
       log.error("failed to end session", { error: err instanceof Error ? err.message : String(err) });
     });
   };
+
+  // R29 C-1: Register session destroy callback for HTTP forwarding sessions.
+  // Without this, byte limit enforcement (counter.onLimitExceeded) cannot terminate
+  // the response stream, allowing unbounded bandwidth theft.
+  registerSessionDestroy(sessionId, () => {
+    if (!clientRes.headersSent) {
+      clientRes.writeHead(413, { "Content-Type": "text/plain" });
+    }
+    clientRes.end();
+    // Trigger cleanup which ends the session and settles billing
+    cleanup();
+  });
 
   // Buffer the client request body so we can replay it on retries
   const bodyChunks: Buffer[] = [];
@@ -220,15 +271,26 @@ async function handleRequest(
     // Count response bytes BEFORE piping to ensure no chunks are missed
     proxyRes.on("data", (chunk: Buffer) => {
       counter.bytesOut += chunk.length;
+      // R31 C-2: Check byte limit (parity with CONNECT's attachByteCounters)
+      if (counter.maxBytes > 0 && counter.onLimitExceeded &&
+          counter.bytesIn + counter.bytesOut > counter.maxBytes) {
+        counter.onLimitExceeded();
+        counter.onLimitExceeded = null; // fire once
+      }
     });
 
-    // Build response headers, stripping proxy hop-by-hop headers injected by upstream
+    // R31 H-3: Strip all hop-by-hop headers from upstream response
+    const HOP_BY_HOP = new Set([
+      "proxy-authenticate", "proxy-authorization", "proxy-connection",
+      "connection", "keep-alive", "te", "trailer", "upgrade",
+    ]);
+    // Also strip headers named in the Connection header value
+    const connHeaderVal = (proxyRes.headers["connection"] ?? "").toString();
+    const connHeaders = connHeaderVal.split(",").map(h => h.trim().toLowerCase()).filter(Boolean);
+
     const responseHeaders = { ...proxyRes.headers };
-    // Strip headers that upstream proxy (PacketStream) may inject — these should
-    // not be forwarded to the client as they could override security policies
-    delete responseHeaders["proxy-authenticate"];
-    delete responseHeaders["proxy-authorization"];
-    delete responseHeaders["proxy-connection"];
+    for (const h of HOP_BY_HOP) delete responseHeaders[h];
+    for (const h of connHeaders) delete responseHeaders[h];
     if (retries > 0) {
       responseHeaders["x-dominusnode-retries"] = String(retries);
       responseHeaders["x-dominusnode-retry-after"] = `${totalDelayMs}ms`;
@@ -236,6 +298,11 @@ async function handleRequest(
 
     clientRes.writeHead(proxyRes.statusCode ?? 502, responseHeaders);
     proxyRes.pipe(clientRes, { end: true });
+
+    // R30 C-1: Destroy upstream response if client disconnects mid-stream
+    clientRes.on("close", () => {
+      if (proxyRes && !proxyRes.destroyed) proxyRes.destroy();
+    });
 
     proxyRes.on("end", cleanup);
     proxyRes.on("error", cleanup);
@@ -270,26 +337,45 @@ async function handleConnect(
   const connectClientIp = (clientSocket.remoteAddress ?? "").replace(/^::ffff:/, "");
   const connectBlockedCountry = checkSanctionedCountry(connectClientIp);
   if (connectBlockedCountry) {
-    clientSocket.write("HTTP/1.1 403 Forbidden\r\nX-DominusNode-Error: SANCTIONED_COUNTRY\r\n\r\n");
-    clientSocket.end();
+    safeSocketWrite(clientSocket, "HTTP/1.1 403 Forbidden\r\nX-DominusNode-Error: SANCTIONED_COUNTRY\r\n\r\n");
     return;
   }
 
   // Auth rate limiting
   if (checkAuthRateLimit(connectClientIp)) {
-    clientSocket.write("HTTP/1.1 429 Too Many Requests\r\nX-DominusNode-Error: AUTH_RATE_LIMITED\r\nRetry-After: 60\r\n\r\n");
-    clientSocket.end();
+    safeSocketWrite(clientSocket, "HTTP/1.1 429 Too Many Requests\r\nX-DominusNode-Error: AUTH_RATE_LIMITED\r\nRetry-After: 60\r\n\r\n");
     return;
   }
 
   const auth = await authenticateRequest(req);
   if (!auth) {
     recordAuthFailure(connectClientIp);
-    clientSocket.write(
+    safeSocketWrite(clientSocket,
       "HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: Basic realm=\"Dominus Node Proxy\"\r\n\r\n",
     );
-    clientSocket.end();
     return;
+  }
+
+  // Capture userId before nested closures (TS can't narrow nullable across closures)
+  const userId = auth.userId;
+
+  // Fetch plan BEFORE provider selection to enforce pool restrictions (R22 H-4)
+  const connectPlan = await planRepo.getUserPlan(userId);
+
+  // R22 H-4: Enforce allowedProxyTypes BEFORE provider selection
+  if (connectPlan.allowedProxyTypes) {
+    const reqType = auth.proxyOptions.proxyType;
+    if (reqType === "residential" && connectPlan.allowedProxyTypes === "dc") {
+      safeSocketWrite(clientSocket, "HTTP/1.1 403 Forbidden\r\nX-DominusNode-Error: POOL_RESTRICTED\r\n\r\n");
+      return;
+    }
+    if (reqType === "dc" && connectPlan.allowedProxyTypes === "residential") {
+      safeSocketWrite(clientSocket, "HTTP/1.1 403 Forbidden\r\nX-DominusNode-Error: POOL_RESTRICTED\r\n\r\n");
+      return;
+    }
+    if (!reqType || reqType === "auto") {
+      auth.proxyOptions.proxyType = connectPlan.allowedProxyTypes as "dc" | "residential";
+    }
   }
 
   // Provider selection (replaces global circuit breaker check)
@@ -299,29 +385,20 @@ async function handleConnect(
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     if (msg.includes("sanctioned")) {
-      clientSocket.write("HTTP/1.1 403 Forbidden\r\nX-DominusNode-Error: SANCTIONED_COUNTRY\r\n\r\n");
-      clientSocket.end();
+      safeSocketWrite(clientSocket, "HTTP/1.1 403 Forbidden\r\nX-DominusNode-Error: SANCTIONED_COUNTRY\r\n\r\n");
       return;
     }
     if (msg.includes("unavailable")) {
-      clientSocket.write("HTTP/1.1 503 Service Unavailable\r\nX-DominusNode-Error: ALL_PROVIDERS_DOWN\r\nRetry-After: 30\r\n\r\n");
-      clientSocket.end();
+      safeSocketWrite(clientSocket, "HTTP/1.1 503 Service Unavailable\r\nX-DominusNode-Error: ALL_PROVIDERS_DOWN\r\nRetry-After: 30\r\n\r\n");
       return;
     }
     throw err;
   }
   const { provider, proxy: upstream } = selected;
 
-  // Capture userId before nested closures (TS can't narrow nullable across closures)
-  const userId = auth.userId;
-
-  // Fetch plan for per-plan connection limits and free plan balance bypass
-  const connectPlan = await planRepo.getUserPlan(userId);
-
   // Per-user connection limit (plan-aware)
   if (!incrementUserConns(userId, connectPlan.maxConnections)) {
-    clientSocket.write("HTTP/1.1 429 Too Many Requests\r\nX-DominusNode-Error: TOO_MANY_CONNECTIONS\r\nRetry-After: 5\r\n\r\n");
-    clientSocket.end();
+    safeSocketWrite(clientSocket, "HTTP/1.1 429 Too Many Requests\r\nX-DominusNode-Error: TOO_MANY_CONNECTIONS\r\nRetry-After: 5\r\n\r\n");
     return;
   }
 
@@ -330,8 +407,7 @@ async function handleConnect(
     const hasBalance = await checkBalance(userId);
     if (!hasBalance) {
       decrementUserConns(userId);
-      clientSocket.write("HTTP/1.1 402 Payment Required\r\nX-DominusNode-Error: INSUFFICIENT_BALANCE\r\n\r\n");
-      clientSocket.end();
+      safeSocketWrite(clientSocket, "HTTP/1.1 402 Payment Required\r\nX-DominusNode-Error: INSUFFICIENT_BALANCE\r\n\r\n");
       return;
     }
   }
@@ -345,11 +421,15 @@ async function handleConnect(
     const closeBracket = connectUrl.indexOf("]");
     if (closeBracket === -1) {
       decrementUserConns(userId);
-      clientSocket.write("HTTP/1.1 400 Bad Request\r\n\r\n");
-      clientSocket.end();
+      safeSocketWrite(clientSocket, "HTTP/1.1 400 Bad Request\r\n\r\n");
       return;
     }
     targetHost = connectUrl.slice(1, closeBracket); // strip brackets
+    // R31 C-1: Strip IPv6 zone ID before validation
+    const zoneIdx = targetHost.indexOf("%");
+    if (zoneIdx !== -1) {
+      targetHost = targetHost.substring(0, zoneIdx);
+    }
     const afterBracket = connectUrl.slice(closeBracket + 1);
     targetPort = afterBracket.startsWith(":") ? parseInt(afterBracket.slice(1), 10) : 443;
   } else {
@@ -367,8 +447,7 @@ async function handleConnect(
   // CRLF injection prevention: validate hostname characters
   if (!isValidHostname(targetHost) || !isValidPort(targetPort)) {
     decrementUserConns(userId);
-    clientSocket.write("HTTP/1.1 400 Bad Request\r\n\r\n");
-    clientSocket.end();
+    safeSocketWrite(clientSocket, "HTTP/1.1 400 Bad Request\r\n\r\n");
     return;
   }
 
@@ -376,8 +455,14 @@ async function handleConnect(
   const connectTargetCheck = await validateTarget(targetHost, targetPort);
   if (!connectTargetCheck.allowed) {
     decrementUserConns(userId);
-    clientSocket.write("HTTP/1.1 403 Forbidden\r\n\r\n");
-    clientSocket.end();
+    safeSocketWrite(clientSocket, "HTTP/1.1 403 Forbidden\r\n\r\n");
+    return;
+  }
+
+  // R30 C-2: Defense-in-depth: reject hostnames with control characters before upstream CONNECT
+  if (/[\x00-\x1f\x7f]/.test(targetHost)) {
+    decrementUserConns(userId);
+    safeSocketWrite(clientSocket, "HTTP/1.1 400 Bad Request\r\nX-DominusNode-Error: INVALID_TARGET\r\n\r\n");
     return;
   }
 
@@ -421,8 +506,7 @@ async function handleConnect(
 
     if (headerBytesSoFar > 32 * 1024) {
       log.error("upstream response headers too large", { size: headerBytesSoFar, provider: providerName });
-      clientSocket.write("HTTP/1.1 502 Bad Gateway\r\nX-DominusNode-Error: UPSTREAM_UNAVAILABLE\r\n\r\n");
-      clientSocket.end();
+      safeSocketWrite(clientSocket, "HTTP/1.1 502 Bad Gateway\r\nX-DominusNode-Error: UPSTREAM_UNAVAILABLE\r\n\r\n");
       psSocket.destroy();
       safeDecrement();
       return;
@@ -437,8 +521,7 @@ async function handleConnect(
       psSocket.once("data", (nextChunk: Buffer) => {
         handleUpstreamData(nextChunk).catch((err) => {
           log.error("unhandled error in upstream data handler", { error: err instanceof Error ? err.message : String(err), provider: providerName });
-          clientSocket.write("HTTP/1.1 502 Bad Gateway\r\nX-DominusNode-Error: UPSTREAM_UNAVAILABLE\r\n\r\n");
-          clientSocket.end();
+          safeSocketWrite(clientSocket, "HTTP/1.1 502 Bad Gateway\r\nX-DominusNode-Error: UPSTREAM_UNAVAILABLE\r\n\r\n");
           psSocket.destroy();
           safeDecrement();
         });
@@ -448,12 +531,13 @@ async function handleConnect(
 
     const statusLine = headerStr.split("\r\n")[0];
 
-    if (!statusLine.includes("200")) {
+    // R29 C-3: Strict status line check — prevent matching "200" in non-status contexts
+    const statusMatch = statusLine.match(/^HTTP\/1\.[01] (\d{3})/);
+    if (!statusMatch || statusMatch[1] !== "200") {
       log.error("upstream CONNECT failed", { status: sanitizeUpstreamMsg(statusLine), provider: providerName });
       providerSelector.recordFailure(providerName);
       recordError();
-      clientSocket.write("HTTP/1.1 502 Bad Gateway\r\nX-DominusNode-Error: UPSTREAM_UNAVAILABLE\r\n\r\n");
-      clientSocket.end();
+      safeSocketWrite(clientSocket, "HTTP/1.1 502 Bad Gateway\r\nX-DominusNode-Error: UPSTREAM_UNAVAILABLE\r\n\r\n");
       psSocket.destroy();
       safeDecrement();
       return;
@@ -474,21 +558,23 @@ async function handleConnect(
     // Start session BEFORE sending 200 to client (billing race condition fix)
     let sessionId: string;
     try {
-      sessionId = await startSession(userId, targetHost ?? "unknown", counter);
+      // R20 H-5: Pass connectLatencyMs and proxyType derived from provider name
+      // R29 C-2: Pass pre-fetched plan to prevent TOCTOU double-fetch
+      const poolType = providerName.includes("dc") ? "dc" : "residential";
+      sessionId = await startSession(userId, targetHost ?? "unknown", counter, connectLatencyMs, poolType, connectPlan);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       if (msg.includes("Insufficient balance")) {
-        clientSocket.write("HTTP/1.1 402 Payment Required\r\nX-DominusNode-Error: INSUFFICIENT_BALANCE\r\n\r\n");
+        safeSocketWrite(clientSocket, "HTTP/1.1 402 Payment Required\r\nX-DominusNode-Error: INSUFFICIENT_BALANCE\r\n\r\n");
       } else if (msg.includes("bandwidth limit")) {
-        clientSocket.write("HTTP/1.1 403 Forbidden\r\nX-DominusNode-Error: BANDWIDTH_LIMIT_EXCEEDED\r\n\r\n");
+        safeSocketWrite(clientSocket, "HTTP/1.1 403 Forbidden\r\nX-DominusNode-Error: BANDWIDTH_LIMIT_EXCEEDED\r\n\r\n");
       } else if (msg.includes("rate limit")) {
-        clientSocket.write("HTTP/1.1 429 Too Many Requests\r\nX-DominusNode-Error: TOO_MANY_CONNECTIONS\r\nRetry-After: 60\r\n\r\n");
+        safeSocketWrite(clientSocket, "HTTP/1.1 429 Too Many Requests\r\nX-DominusNode-Error: TOO_MANY_CONNECTIONS\r\nRetry-After: 60\r\n\r\n");
       } else {
         log.error("failed to start session", { error: msg });
-        clientSocket.write("HTTP/1.1 500 Internal Server Error\r\n\r\n");
+        safeSocketWrite(clientSocket, "HTTP/1.1 500 Internal Server Error\r\n\r\n");
       }
       safeDecrement();
-      clientSocket.end();
       psSocket.destroy();
       return;
     }
@@ -521,7 +607,6 @@ async function handleConnect(
     clientSocket.pipe(psSocket);
 
     // Idle timeout: close tunnels inactive for 5 minutes to prevent resource leaks
-    const TUNNEL_IDLE_TIMEOUT_MS = parseInt(process.env["TUNNEL_IDLE_TIMEOUT_MS"] ?? "300000", 10);
     clientSocket.setTimeout(TUNNEL_IDLE_TIMEOUT_MS);
     psSocket.setTimeout(TUNNEL_IDLE_TIMEOUT_MS);
     clientSocket.on("timeout", () => { clientSocket.destroy(); });
@@ -550,8 +635,7 @@ async function handleConnect(
   psSocket.once("data", (chunk: Buffer) => {
     handleUpstreamData(chunk).catch((err) => {
       log.error("unhandled error in upstream data handler", { error: err instanceof Error ? err.message : String(err), provider: providerName });
-      clientSocket.write("HTTP/1.1 502 Bad Gateway\r\nX-DominusNode-Error: UPSTREAM_UNAVAILABLE\r\n\r\n");
-      clientSocket.end();
+      safeSocketWrite(clientSocket, "HTTP/1.1 502 Bad Gateway\r\nX-DominusNode-Error: UPSTREAM_UNAVAILABLE\r\n\r\n");
       psSocket.destroy();
       safeDecrement();
     });
@@ -562,15 +646,17 @@ async function handleConnect(
     if (!tunnelEstablished) {
       providerSelector.recordFailure(providerName);
       recordError();
-      clientSocket.write("HTTP/1.1 502 Bad Gateway\r\nX-DominusNode-Error: UPSTREAM_UNAVAILABLE\r\n\r\n");
+      safeSocketWrite(clientSocket, "HTTP/1.1 502 Bad Gateway\r\nX-DominusNode-Error: UPSTREAM_UNAVAILABLE\r\n\r\n");
       safeDecrement();
+    } else {
+      if (!clientSocket.destroyed) clientSocket.end();
     }
-    clientSocket.end();
+    psSocket.destroy(); // R24 H-2: Ensure close event fires promptly for session cleanup
   });
 
   clientSocket.on("error", (err) => {
     log.error("client socket error", { error: err.message });
-    psSocket.destroy();
+    if (!psSocket.destroyed) psSocket.destroy();
   });
 
   // Timeout for upstream handshake
@@ -579,8 +665,7 @@ async function handleConnect(
       log.error("upstream handshake timeout", { provider: providerName });
       providerSelector.recordFailure(providerName);
       recordError();
-      clientSocket.write("HTTP/1.1 504 Gateway Timeout\r\nX-DominusNode-Error: UPSTREAM_TIMEOUT\r\n\r\n");
-      clientSocket.end();
+      safeSocketWrite(clientSocket, "HTTP/1.1 504 Gateway Timeout\r\nX-DominusNode-Error: UPSTREAM_TIMEOUT\r\n\r\n");
       psSocket.destroy();
       safeDecrement();
     }
@@ -592,7 +677,7 @@ async function handleConnect(
 
 // ─── Server bootstrap ────────────────────────────────────────────────
 
-import { getStats } from "./stats.js";
+import { getStats, getPrometheusMetrics } from "./stats.js";
 import { terminateUserSessions } from "./session-manager.js";
 
 export async function startProxyServer(port: number = 8080, providerSelector?: ProviderSelector): Promise<http.Server> {
@@ -605,7 +690,12 @@ export async function startProxyServer(port: number = 8080, providerSelector?: P
   }
   const selector = providerSelector;
 
-  const STATS_SECRET = process.env["PROXY_STATS_SECRET"] ?? process.env["JWT_SECRET"] ?? "";
+  // R18-H4: Derive a separate stats secret from JWT_SECRET using HMAC instead of
+  // reusing the raw JWT_SECRET as a Bearer token (prevents JWT signing key exposure)
+  const STATS_SECRET = process.env["PROXY_STATS_SECRET"] ??
+    (process.env["JWT_SECRET"]
+      ? crypto.createHmac("sha256", process.env["JWT_SECRET"]).update("proxy-stats-endpoint").digest("hex")
+      : "");
 
   const server = http.createServer((req, res) => {
     // Internal stats endpoint (localhost + optional shared secret auth)
@@ -631,6 +721,29 @@ export async function startProxyServer(port: number = 8080, providerSelector?: P
       const providerStats = selector.getStats();
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ ...stats, providers: providerStats }));
+      return;
+    }
+
+    // Prometheus metrics endpoint (same auth as /internal/stats)
+    if (req.url === "/metrics" && req.method === "GET") {
+      const metricsIp = (req.socket.remoteAddress ?? "").replace(/^::ffff:/, "");
+      const metricsLoopback = metricsIp === "127.0.0.1" || metricsIp === "::1";
+      if (!metricsLoopback) {
+        if (!STATS_SECRET) {
+          res.writeHead(403, { "Content-Type": "text/plain" });
+          res.end("Forbidden");
+          return;
+        }
+        const authHeader = req.headers["authorization"] ?? "";
+        const expected = `Bearer ${STATS_SECRET}`;
+        if (authHeader.length !== expected.length || !crypto.timingSafeEqual(Buffer.from(authHeader), Buffer.from(expected))) {
+          res.writeHead(401, { "Content-Type": "text/plain" });
+          res.end("Unauthorized");
+          return;
+        }
+      }
+      res.writeHead(200, { "Content-Type": "text/plain; version=0.0.4; charset=utf-8" });
+      res.end(getPrometheusMetrics());
       return;
     }
 
@@ -681,8 +794,10 @@ export async function startProxyServer(port: number = 8080, providerSelector?: P
   server.on("connect", (req, socket: net.Socket, head) => {
     handleConnect(req, socket, head, selector).catch((err) => {
       log.error("unhandled connect error", { error: err instanceof Error ? err.message : String(err) });
-      socket.write("HTTP/1.1 500 Internal Server Error\r\n\r\n");
-      socket.end();
+      if (!socket.destroyed) {
+        socket.write("HTTP/1.1 500 Internal Server Error\r\n\r\n");
+        socket.end();
+      }
     });
   });
 

@@ -100,7 +100,7 @@ client.disconnect();          // Clear local token state
 ## Configuration
 
 ```typescript
-interface Dominus NodeConfig {
+interface DominusNodeConfig {
   baseUrl?: string;           // Default: 'https://api.dominusnode.com'
   accessToken?: string;       // Pre-existing access token
   refreshToken?: string;      // Pre-existing refresh token
@@ -498,7 +498,7 @@ import type {
   TokenPair,
 
   // Config
-  Dominus NodeConfig,
+  DominusNodeConfig,
 
   // Response types
   WalletBalanceResponse,

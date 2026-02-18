@@ -18,6 +18,7 @@ import adminRoutes from "./routes/admin.js";
 import proxyConfigRoutes from "./routes/proxy-config.js";
 import proxyHealthRoutes from "./routes/proxy-health.js";
 import walletAuthRoutes from "./routes/wallet-auth.js";
+import accountRoutes from "./routes/account.js";
 
 const log = createLogger("api:server");
 
@@ -197,6 +198,7 @@ export function startApiServer(port: number = 3000): ReturnType<express.Express[
   app.use("/api/admin", adminRoutes);
   app.use("/api/proxy/config", proxyConfigRoutes);
   app.use("/api/proxy", proxyHealthRoutes);
+  app.use("/api/account", accountRoutes);
 
   // RFC 9116: security.txt
   app.get("/.well-known/security.txt", (_req, res) => {
@@ -206,6 +208,50 @@ export function startApiServer(port: number = 3000): ReturnType<express.Express[
       `Expires: ${expires}\n` +
       `Preferred-Languages: en\n`
     );
+  });
+
+  // Prometheus metrics endpoint (localhost only)
+  // H-2 fix: Use socket.remoteAddress (not req.ip) to prevent X-Forwarded-For spoofing
+  app.get("/metrics", async (req, res) => {
+    const remoteIp = (req.socket.remoteAddress ?? "").replace(/^::ffff:/, "");
+    const isLoopback = remoteIp === "127.0.0.1" || remoteIp === "::1";
+    if (!isLoopback) {
+      res.status(403).send("Forbidden");
+      return;
+    }
+    try {
+      const dbResult = await query("SELECT 1");
+      const dbUp = dbResult ? 1 : 0;
+      const uptime = Math.floor(process.uptime());
+      const mem = process.memoryUsage();
+      const metrics = [
+        "# HELP dominusnode_api_up API health status (1=healthy, 0=unhealthy)",
+        "# TYPE dominusnode_api_up gauge",
+        `dominusnode_api_up ${dbUp}`,
+        "",
+        "# HELP dominusnode_api_uptime_seconds API uptime in seconds",
+        "# TYPE dominusnode_api_uptime_seconds gauge",
+        `dominusnode_api_uptime_seconds ${uptime}`,
+        "",
+        "# HELP dominusnode_api_memory_rss_bytes API resident set size",
+        "# TYPE dominusnode_api_memory_rss_bytes gauge",
+        `dominusnode_api_memory_rss_bytes ${mem.rss}`,
+        "",
+        "# HELP dominusnode_api_memory_heap_used_bytes API heap used",
+        "# TYPE dominusnode_api_memory_heap_used_bytes gauge",
+        `dominusnode_api_memory_heap_used_bytes ${mem.heapUsed}`,
+        "",
+        "# HELP dominusnode_api_memory_heap_total_bytes API heap total",
+        "# TYPE dominusnode_api_memory_heap_total_bytes gauge",
+        `dominusnode_api_memory_heap_total_bytes ${mem.heapTotal}`,
+        "",
+      ].join("\n");
+      res.type("text/plain; version=0.0.4; charset=utf-8").send(metrics);
+    } catch {
+      res.type("text/plain; version=0.0.4; charset=utf-8").send(
+        `dominusnode_api_up 0\ndominusnode_api_uptime_seconds ${Math.floor(process.uptime())}\n`
+      );
+    }
   });
 
   // Health check

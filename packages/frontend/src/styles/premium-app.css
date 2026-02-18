@@ -1,5 +1,3 @@
-@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&display=swap");
-
 .premium-app {
   --app-bg:
     radial-gradient(circle at 0% 0%, #d6e7fb 0%, rgba(214, 231, 251, 0) 36%),
@@ -49,7 +47,7 @@
   position: relative;
   background: var(--app-bg);
   color: var(--app-ink);
-  font-family: "Manrope", "Segoe UI", sans-serif;
+  font-family: "Manrope", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   isolation: isolate;
   overflow-x: hidden;
 }
@@ -265,7 +263,7 @@
 }
 
 .premium-app .font-mono {
-  font-family: "IBM Plex Mono", "JetBrains Mono", monospace !important;
+  font-family: "IBM Plex Mono", "Cascadia Code", "Fira Code", "JetBrains Mono", Consolas, monospace !important;
 }
 
 .premium-app table th {
@@ -351,6 +349,16 @@
   height: 0.42rem;
   border-radius: 999px;
   background: var(--app-pill-dot);
+}
+
+.premium-app .app-pill-beta {
+  border-color: rgba(245, 158, 11, 0.3);
+  background: rgba(245, 158, 11, 0.1);
+  color: #f59e0b;
+}
+
+.premium-app .app-pill-dot-beta {
+  background: #f59e0b;
 }
 
 .premium-app .app-link {

@@ -4,10 +4,11 @@ const USER_AGENT = "dominusnode-mcp-server/1.0.0";
 
 const DANGEROUS_KEYS = new Set(["__proto__", "constructor", "prototype"]);
 
-function stripDangerousKeys(obj: unknown): void {
-  if (!obj || typeof obj !== "object") return;
+// R20 H-6: Depth limit prevents stack overflow on deeply nested JSON
+function stripDangerousKeys(obj: unknown, depth = 0): void {
+  if (depth > 50 || !obj || typeof obj !== "object") return;
   if (Array.isArray(obj)) {
-    for (const item of obj) stripDangerousKeys(item);
+    for (const item of obj) stripDangerousKeys(item, depth + 1);
     return;
   }
   const record = obj as Record<string, unknown>;
@@ -15,7 +16,7 @@ function stripDangerousKeys(obj: unknown): void {
     if (DANGEROUS_KEYS.has(key)) {
       delete record[key];
     } else if (record[key] && typeof record[key] === "object") {
-      stripDangerousKeys(record[key]);
+      stripDangerousKeys(record[key], depth + 1);
     }
   }
 }
@@ -66,6 +67,9 @@ class TokenBucket {
   }
 }
 
+// R18-C3: Maximum response body size for API calls (10MB)
+const MAX_API_RESPONSE_BYTES = 10 * 1024 * 1024;
+
 export interface HttpRequestOptions {
   method: string;
   path: string;
@@ -93,11 +97,19 @@ export class HttpClient {
       throw new Error("MCP rate limit exceeded — too many requests. Please slow down.");
     }
 
+    // R22 H-1: Protect base headers from user override
+    const PROTECTED_HEADERS = new Set(["user-agent", "content-type", "authorization", "host", "connection", "content-length"]);
     const headers: Record<string, string> = {
       "User-Agent": USER_AGENT,
       "Content-Type": "application/json",
-      ...opts.headers,
     };
+    if (opts.headers) {
+      for (const [key, value] of Object.entries(opts.headers)) {
+        if (!PROTECTED_HEADERS.has(key.toLowerCase())) {
+          headers[key] = value;
+        }
+      }
+    }
 
     if (opts.requiresAuth !== false) {
       const token = await this.tokenManager.getValidToken();
@@ -124,7 +136,8 @@ export class HttpClient {
     if (response.status === 429) {
       const retryAfterRaw = parseInt(response.headers.get("retry-after") ?? "5", 10);
       const retryAfter = isNaN(retryAfterRaw) ? 5 : retryAfterRaw;
-      await response.text();
+      // R22 C-1: Cancel body instead of buffering — prevents OOM from oversized 429 response
+      await response.body?.cancel();
       await new Promise((resolve) => setTimeout(resolve, addJitter(Math.min(retryAfter * 1000, 10_000))));
 
       if (opts.requiresAuth !== false) {
@@ -143,10 +156,28 @@ export class HttpClient {
       } catch (err) {
         throw new Error(`Network error on retry: ${err instanceof Error ? err.message : "request failed"}`);
       }
+
+      // R30 H-2: Prevent fall-through to 401 handler after 429 retry
+      if (response.ok) {
+        const responseText = await response.text();
+        if (responseText.length > MAX_API_RESPONSE_BYTES) {
+          throw new Error("Response too large");
+        }
+        return responseText ? safeJsonParse<T>(responseText) : ({} as T);
+      }
+      // If retry still failed (non-2xx, non-401), throw immediately
+      // R31 C-1: Cancel body instead of buffering — prevents OOM from oversized error response
+      if (response.status !== 401) {
+        await response.body?.cancel();
+        throw new Error(`API error ${response.status} after rate-limit retry`);
+      }
+      // Only fall through to 401 handler if retry returned 401
     }
 
     // 401 retry with force refresh
     if (response.status === 401 && opts.requiresAuth !== false) {
+      // R26 C-1: Cancel unconsumed 401 response body to free connection + memory
+      await response.body?.cancel();
       const newToken = await this.tokenManager.forceRefresh();
       headers["Authorization"] = `Bearer ${newToken}`;
       const retry = await fetch(url, {
@@ -158,29 +189,45 @@ export class HttpClient {
       });
       if (retry.ok) {
         const text = await retry.text();
+        if (text.length > MAX_API_RESPONSE_BYTES) throw new Error("API response exceeded maximum allowed size");
         return text ? safeJsonParse<T>(text) : ({} as T);
       }
+      // R22 C-1: Read limited error body to prevent OOM on oversized response
       const retryBody = await retry.text();
-      let retryMessage = retryBody;
+      if (retryBody.length > MAX_API_RESPONSE_BYTES) {
+        throw new Error("API error response exceeded maximum allowed size");
+      }
+      let retryMessage = retryBody.slice(0, 500);
       try {
-        const parsed = JSON.parse(retryBody);
-        retryMessage = parsed.error ?? parsed.message ?? retryBody;
+        // R31 H-1: Use safeJsonParse to prevent prototype pollution on error paths
+        const parsed = safeJsonParse<Record<string, unknown>>(retryBody);
+        retryMessage = (parsed.error as string) ?? (parsed.message as string) ?? retryBody.slice(0, 500);
       } catch { /* use raw text */ }
       throw new Error(`API error ${retry.status}: ${retryMessage}`);
     }
 
     const responseText = await response.text();
+    // R18-C3: Prevent OOM from oversized API response
+    if (responseText.length > MAX_API_RESPONSE_BYTES) {
+      throw new Error("API response exceeded maximum allowed size");
+    }
 
     if (!response.ok) {
-      let message = responseText;
+      let message = responseText.slice(0, 500);
       try {
-        const parsed = JSON.parse(responseText);
-        message = parsed.error ?? parsed.message ?? responseText;
+        // R31 H-1: Use safeJsonParse to prevent prototype pollution on error paths
+        const parsed = safeJsonParse<Record<string, unknown>>(responseText);
+        message = (parsed.error as string) ?? (parsed.message as string) ?? responseText.slice(0, 500);
       } catch { /* use raw text */ }
       throw new Error(`API error ${response.status}: ${message}`);
     }
 
     return responseText ? safeJsonParse<T>(responseText) : ({} as T);
+  }
+
+  /** Store tokens from an external auth flow (e.g., registration in bootstrap mode) */
+  storeTokens(accessToken: string, refreshToken: string): void {
+    this.tokenManager.setTokens(accessToken, refreshToken);
   }
 
   async get<T>(path: string, requiresAuth = true): Promise<T> {

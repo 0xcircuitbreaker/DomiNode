@@ -137,10 +137,10 @@ describe("wallet-repo", () => {
 
     it("should throw if amount is zero or negative", async () => {
       await expect(creditWallet("u1", 0, "stripe", "pay_123", "desc")).rejects.toThrow(
-        "Credit amount must be positive",
+        "Credit amount must be a positive integer within valid range",
       );
       await expect(creditWallet("u1", -100, "stripe", "pay_123", "desc")).rejects.toThrow(
-        "Credit amount must be positive",
+        "Credit amount must be a positive integer within valid range",
       );
     });
 

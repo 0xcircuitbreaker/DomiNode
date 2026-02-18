@@ -31,6 +31,7 @@ export async function recordUsage(
   targetHost: string,
   pricePerGbCents: number = PRICE_PER_GB_CENTS,
   connectLatencyMs?: number,
+  proxyType: string = "residential",
 ): Promise<UsageRecord> {
   const totalBytes = bytesIn + bytesOut;
   const costCents = computeCostCents(totalBytes, pricePerGbCents);
@@ -41,7 +42,7 @@ export async function recordUsage(
     bytes_in: bytesIn,
     bytes_out: bytesOut,
     cost_cents: costCents,
-    proxy_type: "residential",
+    proxy_type: proxyType, // R19 C-3: Pass actual proxy type instead of hardcoding
     target_host: targetHost,
     connect_latency_ms: connectLatencyMs ?? null,
   });

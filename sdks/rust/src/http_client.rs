@@ -133,7 +133,17 @@ impl HttpClient {
                 "Rate limited, retrying once"
             );
 
-            let sleep_ms = std::cmp::max(100, std::cmp::min(retry_after * 1000, 10_000));
+            let base_ms = std::cmp::max(100u64, std::cmp::min(retry_after * 1000, 10_000));
+            // R23 H-5: Add ±10% jitter to prevent thundering-herd retry storms
+            let jitter = {
+                use std::collections::hash_map::DefaultHasher;
+                use std::hash::{Hash, Hasher};
+                let mut hasher = DefaultHasher::new();
+                std::time::SystemTime::now().hash(&mut hasher);
+                let h = hasher.finish();
+                ((h % 201) as i64 - 100) * (base_ms as i64) / 1000 // ±10%
+            };
+            let sleep_ms = std::cmp::max(100, base_ms as i64 + jitter) as u64;
             tokio::time::sleep(std::time::Duration::from_millis(sleep_ms)).await;
 
             let retry = self.send(&method, &url, body, requires_auth).await?;
@@ -239,6 +249,7 @@ fn parse_retry_after(headers: &HeaderMap) -> u64 {
 }
 
 /// Extract an error message from a JSON body, falling back to the raw body.
+/// R27 H-1: Truncate raw body fallback to 500 chars to prevent unbounded error strings.
 fn extract_message(body: &str) -> String {
     serde_json::from_str::<serde_json::Value>(body)
         .ok()
@@ -248,7 +259,15 @@ fn extract_message(body: &str) -> String {
                 .and_then(|m| m.as_str())
                 .map(String::from)
         })
-        .unwrap_or_else(|| body.to_string())
+        .unwrap_or_else(|| {
+            if body.len() > 500 {
+                let mut truncated = body[..500].to_string();
+                truncated.push_str("... [truncated]");
+                truncated
+            } else {
+                body.to_string()
+            }
+        })
 }
 
 /// Map an HTTP status code + body into the appropriate [`DominusNodeError`] variant.

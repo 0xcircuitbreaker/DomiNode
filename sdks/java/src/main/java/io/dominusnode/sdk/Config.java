@@ -85,7 +85,7 @@ public final class Config {
     public String toString() {
         return "Config{baseUrl='" + baseUrl + "'"
                 + ", apiKey=" + (apiKey != null ? "'<redacted>'" : "null")
-                + ", email=" + (email != null ? "'" + email + "'" : "null")
+                + ", email=" + (email != null ? "'<redacted>'" : "null")
                 + ", password=" + (password != null ? "'<redacted>'" : "null")
                 + ", accessToken=" + (accessToken != null ? "'<redacted>'" : "null")
                 + ", refreshToken=" + (refreshToken != null ? "'<redacted>'" : "null")

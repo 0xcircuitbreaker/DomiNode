@@ -1,0 +1,25 @@
+{
+  "name": "@dominusnode/stress-tests",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Stress test suite for Dominus Node proxy infrastructure",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "stress:setup": "node dist/src/setup/provision-users.js",
+    "stress:cleanup": "node dist/src/setup/cleanup.js",
+    "stress:local": "node dist/src/orchestrator.js --mode local",
+    "stress:production": "node dist/src/orchestrator.js --mode production",
+    "stress:scenario": "node dist/src/orchestrator.js --mode local --scenario",
+    "mock:upstream": "node dist/src/mock/upstream-proxy.js",
+    "mock:target": "node dist/src/mock/target-server.js"
+  },
+  "dependencies": {
+    "pg": "^8.13.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/pg": "^8.11.0",
+    "typescript": "^5.7.0"
+  }
+}

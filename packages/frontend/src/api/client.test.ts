@@ -29,7 +29,8 @@ describe("API client", () => {
     mockFetch.mockResolvedValueOnce({
       ok: true,
       status: 200,
-      json: () => Promise.resolve({ balance: 100 }),
+      headers: { get: () => null },
+      text: () => Promise.resolve(JSON.stringify({ balance: 100 })),
     });
 
     const result = await get("/api/wallet");
@@ -46,7 +47,8 @@ describe("API client", () => {
     mockFetch.mockResolvedValueOnce({
       ok: true,
       status: 200,
-      json: () => Promise.resolve({ id: "123" }),
+      headers: { get: () => null },
+      text: () => Promise.resolve(JSON.stringify({ id: "123" })),
     });
 
     const result = await post("/api/keys", { label: "Test" });
@@ -64,7 +66,8 @@ describe("API client", () => {
     mockFetch.mockResolvedValueOnce({
       ok: true,
       status: 200,
-      json: () => Promise.resolve({ ok: true }),
+      headers: { get: () => null },
+      text: () => Promise.resolve(JSON.stringify({ ok: true })),
     });
 
     await put("/api/plans/user/plan", { planId: "vol100" });
@@ -92,7 +95,8 @@ describe("API client", () => {
       ok: false,
       status: 400,
       statusText: "Bad Request",
-      json: () => Promise.resolve({ error: "Invalid email" }),
+      headers: { get: () => null },
+      text: () => Promise.resolve(JSON.stringify({ error: "Invalid email" })),
     });
 
     await expect(get("/api/auth/me")).rejects.toThrow("Invalid email");
@@ -129,7 +133,8 @@ describe("API client", () => {
     mockFetch.mockResolvedValueOnce({
       ok: true,
       status: 200,
-      json: () => Promise.resolve({ user: { id: "1" } }),
+      headers: { get: () => null },
+      text: () => Promise.resolve(JSON.stringify({ user: { id: "1" } })),
     });
 
     const result = await get("/api/auth/me");

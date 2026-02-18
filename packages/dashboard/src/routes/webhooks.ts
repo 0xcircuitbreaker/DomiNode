@@ -35,8 +35,14 @@ if (envNowpaymentsIps) {
 
 export function webhookIpCheck(allowedIps: Set<string>, providerName: string) {
   return (req: Request, res: Response, next: NextFunction): void => {
-    // Skip IP check if the allowlist is empty (provider IPs not configured)
+    // R20 H-3: In production, reject if IP allowlist is empty — fail closed, not open
     if (allowedIps.size === 0) {
+      if (process.env["NODE_ENV"] === "production") {
+        log.error(`${providerName} webhook IP allowlist is empty in production — rejecting request`);
+        res.status(503).json({ error: "Webhook IP allowlist not configured" });
+        return;
+      }
+      // In development, allow through with warning (already logged at startup)
       next();
       return;
     }
@@ -74,7 +80,7 @@ router.post("/stripe", webhookIpCheck(STRIPE_WEBHOOK_IPS, "stripe"), raw({ type:
 });
 
 // POST /api/webhooks/nowpayments
-router.post("/nowpayments", webhookIpCheck(NOWPAYMENTS_IPS, "nowpayments"), json({ limit: "1mb" }), async (req, res) => {
+router.post("/nowpayments", webhookIpCheck(NOWPAYMENTS_IPS, "nowpayments"), json({ limit: "16kb" }), async (req, res) => {
   try {
     const signature = req.headers["x-nowpayments-sig"] as string;
     if (!signature) {

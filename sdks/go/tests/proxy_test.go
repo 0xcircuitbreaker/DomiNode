@@ -181,7 +181,7 @@ func TestProxy_GetStatus(t *testing.T) {
 			"avgLatencyMs":       45.5,
 			"providers": []interface{}{
 				map[string]interface{}{
-					"name":                "packetstream",
+					"name":                "webshare-dc",
 					"state":               "open",
 					"consecutiveFailures": 0,
 					"totalRequests":       1000,
@@ -213,8 +213,8 @@ func TestProxy_GetStatus(t *testing.T) {
 	if len(status.Providers) != 1 {
 		t.Fatalf("expected 1 provider, got %d", len(status.Providers))
 	}
-	if status.Providers[0].Name != "packetstream" {
-		t.Errorf("expected packetstream, got %s", status.Providers[0].Name)
+	if status.Providers[0].Name != "webshare-dc" {
+		t.Errorf("expected webshare-dc, got %s", status.Providers[0].Name)
 	}
 	if len(status.SupportedCountries) != 3 {
 		t.Errorf("expected 3 supported countries, got %d", len(status.SupportedCountries))

@@ -1,4 +1,5 @@
 import { Router } from "express";
+import rateLimit from "express-rate-limit";
 import {
   walletRepo,
   usageRepo,
@@ -13,6 +14,16 @@ import { requireAuth, type AuthenticatedRequest } from "../middleware/auth.js";
 
 const router = Router();
 const log = createLogger("api:wallet");
+
+// R29 C-2: Per-user rate limit on top-up endpoints to prevent invoice spam
+const topupLimiter = rateLimit({
+  windowMs: 60 * 60_000, // 1 hour
+  max: 10, // 10 top-up attempts per hour per user
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many top-up attempts. Please try again later." },
+  keyGenerator: (req) => (req as AuthenticatedRequest).user?.userId ?? "unknown",
+});
 
 router.use(requireAuth);
 
@@ -43,7 +54,8 @@ router.get("/", async (req, res) => {
 router.get("/transactions", async (req, res) => {
   try {
     const { userId } = (req as AuthenticatedRequest).user;
-    const limit = Math.min(Math.max(1, parseInt(req.query.limit as string, 10) || 50), 200);
+    // R19 H-2: Cap at 100 to match walletRepo internal limit (was 200, repo caps at 100)
+    const limit = Math.min(Math.max(1, parseInt(req.query.limit as string, 10) || 50), 100);
     const offset = Math.max(0, parseInt(req.query.offset as string, 10) || 0);
 
     const transactions = await walletRepo.getTransactions(userId, limit, offset);
@@ -66,7 +78,7 @@ router.get("/transactions", async (req, res) => {
 });
 
 // POST /api/wallet/topup/stripe
-router.post("/topup/stripe", async (req, res) => {
+router.post("/topup/stripe", topupLimiter, async (req, res) => {
   try {
     const { userId } = (req as AuthenticatedRequest).user;
     const amountCents = parseInt(req.body.amountCents, 10);
@@ -74,6 +86,18 @@ router.post("/topup/stripe", async (req, res) => {
     const error = validateTopupAmount(amountCents);
     if (error) {
       res.status(400).json({ error });
+      return;
+    }
+
+    // R29 C-3: Pre-check wallet balance cap before creating checkout session.
+    // Without this, user pays real money but creditWallet fails at MAX_BALANCE_CENTS,
+    // resulting in a lost payment.
+    const MAX_BALANCE_CENTS = 1_000_000; // $10,000 — matches wallet-repo.ts
+    const wallet = await walletRepo.getWallet(userId);
+    if (wallet && wallet.balance_cents + amountCents > MAX_BALANCE_CENTS) {
+      res.status(400).json({
+        error: `Top-up would exceed maximum wallet balance of $10,000. Current balance: $${(wallet.balance_cents / 100).toFixed(2)}`,
+      });
       return;
     }
 
@@ -92,13 +116,19 @@ router.post("/topup/stripe", async (req, res) => {
 });
 
 // POST /api/wallet/topup/crypto
-router.post("/topup/crypto", async (req, res) => {
+router.post("/topup/crypto", topupLimiter, async (req, res) => {
   try {
     const { userId } = (req as AuthenticatedRequest).user;
     const amountUsd = parseFloat(req.body.amountUsd);
     const currency = (req.body.currency ?? "").toLowerCase();
 
-    if (!amountUsd || amountUsd < 5 || amountUsd > 1000) {
+    // R23 H-4: Explicit NaN/Infinity check + integer-cents validation
+    if (!Number.isFinite(amountUsd) || amountUsd < 5 || amountUsd > 1000) {
+      res.status(400).json({ error: "Amount must be between $5 and $1,000" });
+      return;
+    }
+    const amountCents = Math.round(amountUsd * 100);
+    if (amountCents < 500 || amountCents > 100_000) {
       res.status(400).json({ error: "Amount must be between $5 and $1,000" });
       return;
     }
@@ -106,6 +136,16 @@ router.post("/topup/crypto", async (req, res) => {
     if (!isValidCryptoCurrency(currency)) {
       res.status(400).json({
         error: "Unsupported currency. Supported: btc, eth, xmr, sol, zec",
+      });
+      return;
+    }
+
+    // R29 C-3: Pre-check wallet balance cap before creating crypto invoice
+    const MAX_CRYPTO_BALANCE_CENTS = 1_000_000; // $10,000
+    const cryptoWallet = await walletRepo.getWallet(userId);
+    if (cryptoWallet && cryptoWallet.balance_cents + amountCents > MAX_CRYPTO_BALANCE_CENTS) {
+      res.status(400).json({
+        error: `Top-up would exceed maximum wallet balance of $10,000. Current balance: $${(cryptoWallet.balance_cents / 100).toFixed(2)}`,
       });
       return;
     }

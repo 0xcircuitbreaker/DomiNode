@@ -28,7 +28,7 @@ export const SANCTIONED_COUNTRIES: SanctionedCountry[] = [
  * These require IP geolocation at the region level.
  * For simplicity in the proxy gateway, we block at the country level
  * for these (Ukraine is NOT blocked — only specific occupied regions).
- * PacketStream country targeting uses country codes, so we note these
+ * Webshare country targeting uses country codes, so we note these
  * for reference but block via the country code where feasible.
  */
 export const SANCTIONED_REGIONS = [

@@ -2,6 +2,28 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { HttpClient } from "../http-client.js";
 
+// R19-H5: Bootstrap rate limiting for wallet auth (prevents mass wallet account creation)
+const BOOTSTRAP_WALLET_MAX = 5;
+const BOOTSTRAP_WALLET_WINDOW_MS = 3600_000; // 1 hour
+const walletAuthTimestamps: number[] = [];
+
+/** @internal Exported for testing only — clears rate limit state */
+export function _resetWalletAuthLimits(): void {
+  walletAuthTimestamps.length = 0;
+}
+
+function checkWalletAuthLimit(): boolean {
+  const now = Date.now();
+  while (walletAuthTimestamps.length > 0 && now - walletAuthTimestamps[0] > BOOTSTRAP_WALLET_WINDOW_MS) {
+    walletAuthTimestamps.shift();
+  }
+  // R23 H-2: Hard cap prevents unbounded growth under pathological clock skew
+  if (walletAuthTimestamps.length > 100) walletAuthTimestamps.length = 100;
+  if (walletAuthTimestamps.length >= BOOTSTRAP_WALLET_MAX) return false;
+  walletAuthTimestamps.push(now);
+  return true;
+}
+
 export function registerWalletAuthTools(server: McpServer, httpClient: HttpClient): void {
   server.tool(
     "dominusnode_wallet_challenge",
@@ -11,6 +33,9 @@ export function registerWalletAuthTools(server: McpServer, httpClient: HttpClien
     },
     async (args) => {
       try {
+        if (!checkWalletAuthLimit()) {
+          return { isError: true, content: [{ type: "text", text: "Wallet authentication rate limit exceeded (max 5 per hour). Please try again later." }] };
+        }
         const data = await httpClient.post<{ message: string; nonce: string }>(
           "/api/auth/wallet/challenge",
           { address: args.address },
@@ -53,6 +78,11 @@ export function registerWalletAuthTools(server: McpServer, httpClient: HttpClien
     },
     async (args) => {
       try {
+        // R23 H-3: Rate limit register_wallet (parity with challenge and setup)
+        if (!checkWalletAuthLimit()) {
+          return { isError: true, content: [{ type: "text" as const, text: "Wallet authentication rate limit exceeded. Try again later." }] };
+        }
+
         const data = await httpClient.post<{
           token: string;
           refreshToken: string;
@@ -62,6 +92,11 @@ export function registerWalletAuthTools(server: McpServer, httpClient: HttpClien
           { address: args.address, signature: args.signature },
           false,
         );
+
+        // R19 H-4: Store tokens so subsequent authenticated calls work (bootstrap mode)
+        if (data.token && data.refreshToken) {
+          httpClient.storeTokens(data.token, data.refreshToken);
+        }
 
         const action = data.user.isNewUser ? "Account created" : "Logged in";
         const text = [
@@ -97,6 +132,9 @@ export function registerWalletAuthTools(server: McpServer, httpClient: HttpClien
     },
     async (args) => {
       try {
+        if (!checkWalletAuthLimit()) {
+          return { isError: true, content: [{ type: "text", text: "Wallet setup rate limit exceeded (max 5 per hour). Please try again later." }] };
+        }
         // Step 1: Verify wallet signature (creates or logs into account)
         const verifyData = await httpClient.post<{
           token: string;
@@ -107,6 +145,11 @@ export function registerWalletAuthTools(server: McpServer, httpClient: HttpClien
           { address: args.address, signature: args.signature },
           false,
         );
+
+        // R19 H-4: Store tokens so the subsequent API key creation call works
+        if (verifyData.token && verifyData.refreshToken) {
+          httpClient.storeTokens(verifyData.token, verifyData.refreshToken);
+        }
 
         // Step 2: Create API key (using newly acquired auth)
         const keyData = await httpClient.post<{ id: string; key: string; label: string }>(

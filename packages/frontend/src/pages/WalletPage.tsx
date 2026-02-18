@@ -39,10 +39,17 @@ interface TxResponse {
   transactions: Transaction[];
 }
 
+// R19 H-4: Use strict hostname matching with dot-prefix to prevent subdomain bypass
+// (e.g., evil-stripe.com would match endsWith("stripe.com"))
 function isAllowedPaymentUrl(url: string, allowedHosts: string[]): boolean {
   try {
     const parsed = new URL(url);
-    return parsed.protocol === "https:" && allowedHosts.some(h => parsed.hostname.endsWith(h));
+    if (parsed.protocol !== "https:") return false;
+    const hostname = parsed.hostname.toLowerCase();
+    return allowedHosts.some(h => {
+      const allowed = h.toLowerCase();
+      return hostname === allowed || hostname.endsWith("." + allowed);
+    });
   } catch {
     return false;
   }

@@ -2,7 +2,7 @@
 
 ## System Overview
 
-Dominus Node is a rotating residential proxy-as-a-service (PaaS) platform. It resells upstream proxy bandwidth from PacketStream at $5/GB (cost: $1/GB from PacketStream, yielding 80% gross margin). Users authenticate with API keys, connect through Dominus Node's proxy gateway, and their traffic is routed through PacketStream's residential proxy network to target sites. Usage is metered by bytes transferred and debited from a prepaid wallet.
+Dominus Node is a rotating proxy-as-a-service (PaaS) platform. It resells upstream proxy bandwidth from Webshare via a dual-pool approach: datacenter (DC) proxies at $3/GB (cost: $0.012/GB, ~99.6% margin) and residential proxies at $5/GB (cost: $4.00/GB, 20% margin). Users authenticate with API keys, connect through Dominus Node's proxy gateway, and their traffic is routed through Webshare's proxy network to target sites. Usage is metered by bytes transferred and debited from a prepaid wallet.
 
 The platform exposes three network-facing services:
 
@@ -24,11 +24,11 @@ During development, the React frontend runs on port 5173 via Vite dev server and
                     │                                      │
  ┌──────────────┐   │  ┌──────────────────────────────┐    │   ┌──────────────────┐
  │ User App /   │───┼─▶│  HTTP Proxy Gateway  :8080   │────┼──▶│                  │
- │ Browser Ext  │   │  │  (HTTP fwd + HTTPS CONNECT)  │    │   │  PacketStream    │
+ │ Browser Ext  │   │  │  (HTTP fwd + HTTPS CONNECT)  │    │   │  Webshare        │
  │ (API key     │   │  └──────────────────────────────┘    │   │  Gateway         │
  │  auth)       │   │                                      │   │                  │
- │              │───┼─▶┌──────────────────────────────┐    │   │  gw.packetstream │──▶ Target Site
- │              │   │  │  SOCKS5 Proxy Gateway :1080  │────┼──▶│  .io:31112       │
+ │              │───┼─▶┌──────────────────────────────┐    │   │  p.webshare.io   │──▶ Target Site
+ │              │   │  │  SOCKS5 Proxy Gateway :1080  │────┼──▶│  :80 (HTTP)      │
  │              │   │  │  (SOCKS5 username/pass auth) │    │   │                  │
  └──────────────┘   │  └──────────────────────────────┘    │   └──────────────────┘
                     │         │                            │
@@ -62,16 +62,16 @@ During development, the React frontend runs on port 5173 via Vite dev server and
 
 ```
 HTTP Request:
-  Client ──▶ Dominus Node HTTP Proxy (:8080) ──▶ PacketStream (31112) ──▶ Target
+  Client ──▶ Dominus Node HTTP Proxy (:8080) ──▶ Webshare (p.webshare.io:80) ──▶ Target
          Proxy-Authorization: Basic          Proxy-Authorization: Basic
-         (API key)                           (PacketStream creds + geo)
+         (API key)                           (Webshare creds + geo)
 
 HTTPS CONNECT (double-CONNECT tunnel):
-  Client CONNECT ──▶ Dominus Node ──CONNECT──▶ PacketStream ──CONNECT──▶ Target
+  Client CONNECT ──▶ Dominus Node ──CONNECT──▶ Webshare ──CONNECT──▶ Target
   (opaque TLS tunnel through both proxies — Dominus Node cannot see encrypted content)
 
 SOCKS5:
-  Client ──SOCKS5──▶ Dominus Node (:1080) ──CONNECT──▶ PacketStream (31112) ──▶ Target
+  Client ──SOCKS5──▶ Dominus Node (:1080) ──CONNECT──▶ Webshare (p.webshare.io:80) ──▶ Target
   (SOCKS5 auth with API key, then HTTP CONNECT to upstream)
 ```
 
@@ -109,12 +109,12 @@ Dominus Node/
 │   │
 │   ├── pool-manager/            # Upstream proxy provider management
 │   │   └── src/
-│   │       ├── packetstream.ts          # PacketStream gateway auth builder, geo suffixes
-│   │       ├── packetstream-provider.ts # PacketStreamProvider (ProxyProvider impl)
+│   │       ├── webshare.ts              # Webshare gateway auth builder, geo suffixes
+│   │       ├── webshare-provider.ts    # WebshareDCProvider + WebshareResidentialProvider (ProxyProvider impl)
 │   │       ├── direct-provider.ts       # DirectProvider for self-hosted VPS proxies
 │   │       ├── provider.ts             # ProxyProvider interface, circuit breaker per provider
 │   │       ├── provider-selector.ts    # Multi-provider failover (primary + fallbacks)
-│   │       └── index.ts                # Re-exports, createProviderSelector factory
+│   │       └── index.ts                # Re-exports, createProviderSelector factory (DC + residential pools)
 │   │
 │   ├── proxy-gateway/           # HTTP + SOCKS5 proxy servers
 │   │   └── src/
@@ -248,7 +248,7 @@ These names can be confusing, so to be explicit:
 
 The foundation package that all other backend packages depend on.
 
-**Types** (`types.ts`): Defines all domain types including `User`, `ApiKey`, `Wallet`, `WalletTransaction`, `Session`, `UsageRecord`, `Plan`, `PaymentInvoice`, `AdminUserView`, `AdminUserDetail`, `RevenueStats`, `DailyRevenue`, `SystemStats`. Constants: `PRICE_PER_GB_CENTS` (500), `COST_PER_GB_CENTS` (100), `BYTES_PER_GB` (1073741824).
+**Types** (`types.ts`): Defines all domain types including `User`, `ApiKey`, `Wallet`, `WalletTransaction`, `Session`, `UsageRecord`, `Plan`, `PaymentInvoice`, `AdminUserView`, `AdminUserDetail`, `RevenueStats`, `DailyRevenue`, `SystemStats`. Constants: `DC_PRICE_PER_GB_CENTS` (300), `RESI_PRICE_PER_GB_CENTS` (500), `DC_COST_PER_GB_CENTS` (1.2), `RESI_COST_PER_GB_CENTS` (400), `BYTES_PER_GB` (1073741824).
 
 **Database** (`db.ts`): PostgreSQL connection via `pg.Pool` singleton. Provides `query()` helper for parameterized queries. SSL is enforced for all non-dev/test environments.
 
@@ -288,18 +288,24 @@ The foundation package that all other backend packages depend on.
 
 Manages upstream proxy providers with failover support.
 
-**PacketStream Provider** (`packetstream-provider.ts`): The primary proxy provider. Builds upstream proxy credentials with geo-targeting suffixes appended to the PacketStream password:
-- Country: `_country-US`
-- State: `_state-california`
-- City: `_city-losangeles`
-- Sticky session: `_session-abc123`
+**Webshare Providers** (`webshare-provider.ts`): Two primary proxy providers backed by Webshare's dual-pool infrastructure:
+- **WebshareDCProvider**: Datacenter proxy pool (250 IPs, 1TB bandwidth, 250 replacements). Sells at $3/GB.
+- **WebshareResidentialProvider**: Residential proxy pool (80M+ IPs, 10GB included, ~$40/mo). Cost: $4.00/GB. Sells at $5/GB.
+
+Webshare uses username suffixes for geo-targeting (unlike PacketStream which used password suffixes):
+- Username format: `username-country-US-rotate:password@p.webshare.io:80`
+- Country: `-country-US`
+- State: `-state-california`
+- City: `-city-losangeles`
+- Sticky session: `-session-abc123`
+- Rotation: `-rotate` (for rotating IP on each request)
 
 Username format from the client encodes targeting options: `country-US-state-california-city-losangeles-session-abc123`
 
 **Direct Provider** (`direct-provider.ts`): For self-hosted VPS or datacenter proxies configured via `FALLBACK_PROXY_*` environment variables. Supports up to 10 fallback providers with non-contiguous numbering (gaps are allowed).
 
 **Provider Selector** (`provider-selector.ts`): Multi-provider failover logic.
-1. Try primary providers first (PacketStream), sorted by priority.
+1. Try primary providers first (WebshareDCProvider, then WebshareResidentialProvider), sorted by priority.
 2. If all primaries are circuit-broken, try fallback providers in priority order.
 3. If all providers are down, throw "All proxy providers are unavailable".
 
@@ -322,9 +328,9 @@ The core revenue-generating service. Two TCP servers sharing common infrastructu
 
 Handles two types of requests:
 
-**HTTP Forwarding**: Client sends a normal HTTP request with an absolute URL. Dominus Node forwards it through PacketStream as a standard proxy request with `Proxy-Authorization` header.
+**HTTP Forwarding**: Client sends a normal HTTP request with an absolute URL. Dominus Node forwards it through Webshare as a standard proxy request with `Proxy-Authorization` header.
 
-**HTTPS CONNECT Tunneling**: Client sends `CONNECT host:port HTTP/1.1`. Dominus Node establishes a TCP connection to PacketStream and sends its own `CONNECT` request (double-CONNECT). Once both CONNECTs succeed, data is piped bidirectionally -- Dominus Node sees only encrypted bytes.
+**HTTPS CONNECT Tunneling**: Client sends `CONNECT host:port HTTP/1.1`. Dominus Node establishes a TCP connection to Webshare and sends its own `CONNECT` request (double-CONNECT). Once both CONNECTs succeed, data is piped bidirectionally -- Dominus Node sees only encrypted bytes.
 
 Also exposes an internal stats endpoint at `/internal/stats` (localhost-only, optional Bearer secret auth).
 
@@ -334,7 +340,7 @@ Full SOCKS5 protocol implementation (RFC 1928 + RFC 1929):
 1. **Greeting**: Client offers authentication methods; server requires username/password (0x02).
 2. **Authentication**: Username encodes geo-targeting options; password is the API key.
 3. **Request**: Only CONNECT command is supported. Supports IPv4, IPv6, and domain address types.
-4. **Relay**: After successful upstream CONNECT through PacketStream, data is piped bidirectionally.
+4. **Relay**: After successful upstream CONNECT through Webshare, data is piped bidirectionally.
 
 #### Shared Infrastructure
 
@@ -363,7 +369,7 @@ Both proxy servers use these shared modules:
 - DNS rebinding mitigation: double-resolve with 50ms delay. If the IP address changes between resolutions, the request is blocked.
 - Hostname validation: blocks CRLF injection characters in hostnames.
 - Port validation: only allows ports 1-65535.
-- Note: SSRF protection is best-effort when using an upstream proxy, since PacketStream resolves DNS independently.
+- Note: SSRF protection is best-effort when using an upstream proxy, since Webshare resolves DNS independently.
 
 **Geo Check** (`geo-check.ts`): Checks the connecting client's IP against the OFAC sanctions list. Connections from sanctioned countries are immediately rejected.
 
@@ -379,7 +385,7 @@ Both proxy servers use these shared modules:
 
 Handles cost calculation and wallet debiting for proxy usage.
 
-- **`computeCostCents(totalBytes, pricePerGbCents)`**: Calculates cost in cents. Default rate is $5/GB (500 cents). Minimum charge is 1 cent if any bytes were transferred. Uses ceiling rounding to avoid undercharging.
+- **`computeCostCents(totalBytes, pricePerGbCents)`**: Calculates cost in cents. Default rate is $3/GB (DC, 300 cents) or $5/GB (residential, 500 cents) depending on proxy type. Minimum charge is 1 cent if any bytes were transferred. Uses ceiling rounding to avoid undercharging.
 - **`recordUsage(userId, sessionId, bytesIn, bytesOut, targetHost, ...)`**: Creates a usage record in the database with all metering fields including optional connect latency.
 - **`debitForUsage(userId, costCents, sessionId)`**: Debits the user's wallet. Uses `walletRepo.debitWallet()` which internally does `SELECT FOR UPDATE` with a 5-second lock timeout to prevent race conditions and deadlocks under concurrent session settlement.
 
@@ -583,12 +589,12 @@ mfa_backup_codes
 
 ### Seeded Plans
 
-| Plan ID | Name | Price/GB | Monthly Bandwidth |
-|---------|------|----------|-------------------|
-| `free` | Free Trial | $5.00 (500 cents) | 100 MB |
-| `payg` | Pay As You Go | $5.00 (500 cents) | Unlimited (0 = no cap) |
-| `vol100` | Volume 100GB | $4.00 (400 cents) | 100 GB |
-| `vol1tb` | Volume 1TB | $3.00 (300 cents) | 1 TB |
+| Plan ID | Name | DC Price/GB | Residential Price/GB | Monthly Bandwidth |
+|---------|------|-------------|----------------------|-------------------|
+| `free` | Free Trial | $3.00 (300 cents) | $5.00 (500 cents) | 100 MB |
+| `payg` | Pay As You Go | $3.00 (300 cents) | $5.00 (500 cents) | Unlimited (0 = no cap) |
+| `vol100` | Volume 100GB | $2.50 (250 cents) | $4.00 (400 cents) | 100 GB |
+| `vol1tb` | Volume 1TB | $2.00 (200 cents) | $3.00 (300 cents) | 1 TB |
 
 ---
 
@@ -744,7 +750,7 @@ Client connects to proxy (HTTP or SOCKS5):
 ├── SHA-256 hash → O(1) database lookup
 ├── Verify: key exists, not revoked, user active, sufficient balance
 ├── Reserve 10 cents from wallet (SELECT FOR UPDATE)
-├── Route traffic through PacketStream
+├── Route traffic through Webshare (DC or residential pool)
 ├── Count bytes transferred
 └── On connection close: settle session (compute cost, debit wallet, record usage)
 ```
@@ -799,7 +805,7 @@ The platform has undergone 10 comprehensive security audits addressing findings 
 | Finding | Mitigation |
 |---------|------------|
 | DB connection security | SSL enforced for all non-dev/test PostgreSQL connections |
-| Credential exposure in logs | PacketStream creds non-enumerable; upstream errors sanitized before logging |
+| Credential exposure in logs | Webshare creds non-enumerable; upstream errors sanitized before logging |
 | User privacy | Target hostnames redacted in proxy logs (shows TLD+1 only) |
 | Error information leakage | Frontend `useApi` hook sanitizes error messages; server returns generic errors |
 | Rate limit feedback | 429 responses include `Retry-After` header with remaining lockout time |
@@ -821,7 +827,7 @@ The platform has undergone 10 comprehensive security audits addressing findings 
 
 ## Geo-Targeting
 
-Proxy requests support geographic targeting through the username field. The username is parsed for targeting directives and translated into PacketStream password suffixes.
+Proxy requests support geographic targeting through the username field. The username is parsed for targeting directives and translated into Webshare username suffixes.
 
 ### Username Format
 
@@ -836,28 +842,32 @@ Each segment is optional. The parser extracts:
 - `asn`: Autonomous System Number (e.g., `15169` for Google)
 - `session`: Sticky session identifier (maintains the same exit IP across requests)
 
-### PacketStream Translation
+### Webshare Translation
 
-The targeting options are appended as suffixes to the PacketStream password:
+The targeting options are appended as suffixes to the Webshare username (not the password, as was the case with the previous PacketStream integration):
 
 ```
-PacketStream password: <base_password>_country-US_state-california_city-losangeles
+Webshare username: <base_username>-country-US-state-california-city-losangeles-rotate
+Webshare proxy URL: <username>-country-US-rotate:<password>@p.webshare.io:80
 ```
 
-Sticky sessions use a separate suffix that instructs PacketStream to maintain IP affinity for the session duration.
+Sticky sessions use a session suffix on the username that instructs Webshare to maintain IP affinity for the session duration.
 
 ---
 
 ## Pricing Model
 
-| Plan | Price/GB | Monthly Bandwidth | Target User |
-|------|----------|-------------------|-------------|
-| Free Trial | $5.00 | 100 MB | Testing/evaluation |
-| Pay As You Go | $5.00 | Unlimited | Default, small-scale users |
-| Volume 100GB | $4.00 | 100 GB/month | Medium-scale scrapers |
-| Volume 1TB | $3.00 | 1 TB/month | Enterprise/high-volume |
+| Plan | DC Price/GB | Residential Price/GB | Monthly Bandwidth | Target User |
+|------|-------------|----------------------|-------------------|-------------|
+| Free Trial | $3.00 | $5.00 | 100 MB | Testing/evaluation |
+| Pay As You Go | $3.00 | $5.00 | Unlimited | Default, small-scale users |
+| Volume 100GB | $2.50 | $4.00 | 100 GB/month | Medium-scale scrapers |
+| Volume 1TB | $2.00 | $3.00 | 1 TB/month | Enterprise/high-volume |
 
-**Economics**: Our cost is $1.00/GB from PacketStream. At the default $5.00/GB rate, gross margin is 80%. At the Volume 1TB rate of $3.00/GB, gross margin is 67%.
+**Economics (Dual-Pool)**:
+- **Datacenter (DC)**: 250 proxies, 1TB bandwidth, 250 replacements from Webshare. Sell at $3.00/GB = high gross margin.
+- **Residential**: 80M+ rotating IPs, 10GB included (~$40/mo) from Webshare. Effective cost: $4.00/GB. Sell at $5.00/GB = 20% gross margin.
+- Blended margin depends on traffic mix. DC traffic is far more profitable; residential provides geo-coverage and harder-to-block IPs.
 
 **Billing Model**: Prepaid wallet system.
 1. User tops up their wallet via Stripe (fiat) or NOWPayments (crypto: BTC, ETH, XMR, SOL, ZEC).
@@ -899,7 +909,7 @@ Four official SDKs with consistent API surfaces across all languages.
 - **1,152 total tests** across **5 test suites** via Vitest and pytest
 - All 8 packages compile cleanly with TypeScript strict mode
 - Extension builds successfully for all 4 target browsers
-- End-to-end verified proxy flows: HTTP, HTTPS CONNECT, SOCKS5 HTTP, SOCKS5 HTTPS through PacketStream
+- End-to-end verified proxy flows: HTTP, HTTPS CONNECT, SOCKS5 HTTP, SOCKS5 HTTPS through Webshare
 
 | Suite | Tests | Files | Runner |
 |-------|-------|-------|--------|
@@ -932,7 +942,7 @@ All configuration is managed via environment variables. See `.env.example` for t
 |----------|-----------|-------------|
 | Database | `DATABASE_URL` | PostgreSQL connection string |
 | Auth | `JWT_SECRET`, `MFA_ENCRYPTION_KEY` | JWT signing secret, AES-256 key for TOTP secrets |
-| PacketStream | `PACKETSTREAM_GATEWAY_HOST`, `_PORT`, `_USERNAME`, `_PASSWORD`, `_RESELLER_API_URL`, `_RESELLER_API_KEY` | Upstream proxy provider credentials |
+| Webshare | `WEBSHARE_GATEWAY_HOST`, `_PORT`, `_USERNAME`, `_PASSWORD`, `_API_URL`, `_API_KEY` | Upstream proxy provider credentials (DC + residential pools) |
 | Stripe | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_SUCCESS_URL`, `STRIPE_CANCEL_URL` | Fiat payment processing |
 | NOWPayments | `NOWPAYMENTS_API_KEY`, `NOWPAYMENTS_IPN_SECRET`, `NOWPAYMENTS_API_URL` | Crypto payment processing |
 | Proxy Ports | `PROXY_LISTEN_PORT`, `SOCKS5_LISTEN_PORT`, `DASHBOARD_PORT` | Service listening ports |
@@ -982,7 +992,7 @@ docker compose up -d                    # Start PostgreSQL
 npm install && npm run build            # Install deps and compile
 npm run db:migrate                      # Apply schema
 cp .env.example .env                    # Configure environment
-# Edit .env with PacketStream, Stripe, NOWPayments credentials
+# Edit .env with Webshare, Stripe, NOWPayments credentials
 npm run start:api &                     # Start REST API on :3000
 npm run start:proxy &                   # Start proxy on :8080 + :1080
 npm run start:frontend                  # Start frontend on :5173
@@ -1019,11 +1029,11 @@ curl -x http://country-US-session-mysession123:dn_live_YOUR_KEY@localhost:8080 h
 | Wallet model | Prepaid credits in cents (integer) | No floating-point rounding errors. PostgreSQL CHECK constraint prevents negative balance at database level. |
 | Wallet debit | `SELECT FOR UPDATE` with `lock_timeout 5s` | Prevents race conditions from concurrent session settlements. Lock timeout prevents deadlocks from holding row locks too long. |
 | Session tracking | In-memory Map | No Redis needed for MVP. Periodic cleanup timer evicts stale sessions. Map size is bounded by `PROXY_MAX_CONNECTIONS`. |
-| HTTPS tunneling | Double-CONNECT through PacketStream | Client CONNECTs to Dominus Node, Dominus Node CONNECTs to PacketStream, PacketStream CONNECTs to target. Fully opaque tunnel -- Dominus Node never sees TLS plaintext. |
+| HTTPS tunneling | Double-CONNECT through Webshare | Client CONNECTs to Dominus Node, Dominus Node CONNECTs to Webshare, Webshare CONNECTs to target. Fully opaque tunnel -- Dominus Node never sees TLS plaintext. |
 | Auth tokens | httpOnly cookies (browser) + Bearer (extension) | Cookies prevent XSS token theft. Bearer tokens for extension stored in ephemeral `chrome.storage.session`. |
 | Refresh tokens | Family-based rotation | Catches stolen tokens: if a revoked token is reused, the entire family is revoked, blocking both the attacker and alerting the user. |
 | TOTP secrets | AES-256-GCM at rest | Encrypted with a separate key (`MFA_ENCRYPTION_KEY`). Even if the database is compromised, TOTP secrets cannot be extracted without the encryption key. |
 | Crypto payments | NOWPayments | Only hosted provider supporting all 5 target cryptocurrencies (BTC, ETH, XMR, SOL, ZEC) at 0.5% fee. |
-| Pricing | $5/GB (was $7/GB) | Competitive vs. Bright Data ($8.40/GB PAYG). Our cost: $1/GB from PacketStream = 80% gross margin. |
-| Upstream proxy | PacketStream reseller | $1/GB cost, reseller API available, residential IPs, minimal infrastructure investment. |
-| SOCKS5 to PacketStream | HTTP CONNECT over TCP | PacketStream does not support SOCKS5 natively. Dominus Node accepts SOCKS5 from clients but connects to PacketStream via HTTP CONNECT. |
+| Pricing | DC $3/GB, Residential $5/GB | Dual-pool pricing. DC cost: $0.012/GB from Webshare (~99.6% margin). Residential cost: $4.00/GB (20% margin). Competitive vs. Bright Data ($8.40/GB PAYG). |
+| Upstream proxy | Webshare dual-pool | DC pool: 250 IPs, 1TB bandwidth, 250 replacements. Residential pool: 80M+ IPs, 10GB, ~$40/mo. API available, minimal infrastructure investment. |
+| SOCKS5 to Webshare | HTTP CONNECT over TCP | Webshare supports SOCKS5 on port 1080, but we still use HTTP CONNECT over TCP for the upstream connection to maintain consistent double-CONNECT tunneling behavior across both proxy protocols. |

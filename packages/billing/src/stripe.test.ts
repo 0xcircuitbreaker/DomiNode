@@ -24,6 +24,7 @@ const mockCreditWallet = vi.fn();
 const mockCreateInvoice = vi.fn();
 const mockFindInvoice = vi.fn();
 const mockCompleteInvoice = vi.fn();
+const mockMarkCreditFailed = vi.fn();
 
 vi.mock("@dominusnode/shared", () => ({
   walletRepo: {
@@ -33,6 +34,7 @@ vi.mock("@dominusnode/shared", () => ({
     createInvoice: (...args: unknown[]) => mockCreateInvoice(...args),
     findInvoice: (...args: unknown[]) => mockFindInvoice(...args),
     completeInvoice: (...args: unknown[]) => mockCompleteInvoice(...args),
+    markCreditFailed: (...args: unknown[]) => mockMarkCreditFailed(...args),
   },
   createLogger: () => ({
     debug: vi.fn(),
@@ -103,6 +105,7 @@ describe("stripe", () => {
       const mockSession = {
         id: "cs_test_789",
         amount_total: 2000,
+        payment_status: "paid",
         metadata: { userId: "user-3" },
       };
 
@@ -162,6 +165,26 @@ describe("stripe", () => {
       expect(result).toBeNull();
     });
 
+    it("should return null when payment_status is not paid", async () => {
+      mockConstructEvent.mockReturnValueOnce({
+        type: "checkout.session.completed",
+        data: {
+          object: {
+            id: "cs_unpaid",
+            amount_total: 2000,
+            payment_status: "unpaid",
+            metadata: { userId: "user-4a" },
+          },
+        },
+      });
+
+      const result = await handleCheckoutWebhook(
+        Buffer.from("body"),
+        "sig",
+      );
+      expect(result).toBeNull();
+    });
+
     it("should return null when amount_total is 0", async () => {
       mockConstructEvent.mockReturnValueOnce({
         type: "checkout.session.completed",
@@ -169,6 +192,7 @@ describe("stripe", () => {
           object: {
             id: "cs_empty",
             amount_total: 0,
+            payment_status: "paid",
             metadata: { userId: "user-4" },
           },
         },
@@ -188,6 +212,7 @@ describe("stripe", () => {
           object: {
             id: "cs_no_inv",
             amount_total: 1000,
+            payment_status: "paid",
             metadata: { userId: "user-5" },
           },
         },
@@ -208,6 +233,7 @@ describe("stripe", () => {
           object: {
             id: "cs_mismatch",
             amount_total: 2000,
+            payment_status: "paid",
             metadata: { userId: "user-6" },
           },
         },
@@ -232,6 +258,7 @@ describe("stripe", () => {
           object: {
             id: "cs_dup",
             amount_total: 1000,
+            payment_status: "paid",
           },
         },
       });

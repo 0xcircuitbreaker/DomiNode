@@ -32,7 +32,7 @@ export {
 } from "./types.js";
 
 // Database
-export { getPool, query, closePool } from "./db.js";
+export { getPool, query, closePool, connectWithRetry } from "./db.js";
 
 // Auth
 export {
@@ -86,6 +86,7 @@ export * as adminRepo from "./repositories/admin-repo.js";
 export * as refreshTokenRepo from "./repositories/refresh-token-repo.js";
 export * as mfaRepo from "./repositories/mfa-repo.js";
 export * as walletChallengeRepo from "./repositories/wallet-challenge-repo.js";
+export * as retentionRepo from "./repositories/retention-repo.js";
 
 // TOTP
 export {

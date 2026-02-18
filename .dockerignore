@@ -1,0 +1,14 @@
+node_modules
+dist
+coverage
+.git
+.env
+.env.*
+*.md
+.nyc_output
+.vscode
+.idea
+sdks
+docs
+tests
+stress-tests

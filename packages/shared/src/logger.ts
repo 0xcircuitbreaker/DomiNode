@@ -14,12 +14,13 @@ function getMinLevel(): number {
 
 function log(level: LogLevel, component: string, msg: string, data?: object): void {
   if (LEVELS[level] < getMinLevel()) return;
+  // R26 H-4: Spread data first so reserved fields (ts, level, component, msg) cannot be overridden
   const entry = {
+    ...(data ?? {}),
     ts: new Date().toISOString(),
     level,
     component,
     msg,
-    ...data,
   };
   const out = level === "error" ? console.error : console.log;
   out(JSON.stringify(entry));

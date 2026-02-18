@@ -130,7 +130,7 @@ export interface MfaChallengePayload {
   userId: string;
   email: string;
   mfaPending: true;
-  jti?: string;
+  jti: string; // R24 H-4: REQUIRED — JTI-less tokens enable replay attacks
 }
 
 /** Sign a short-lived MFA challenge token (5 minutes) with unique JTI for single-use enforcement */
@@ -151,7 +151,10 @@ export function verifyMfaChallengeToken(token: string): MfaChallengePayload | nu
       typeof decoded.userId === "string" &&
       typeof decoded.email === "string"
     ) {
-      return { userId: decoded.userId, email: decoded.email, mfaPending: true, jti: typeof decoded.jti === "string" ? decoded.jti : undefined };
+      // R24 H-4: JTI is mandatory — reject tokens without it to prevent replay attacks
+      const jti = typeof decoded.jti === "string" && decoded.jti.length > 0 ? decoded.jti : null;
+      if (!jti) return null;
+      return { userId: decoded.userId, email: decoded.email, mfaPending: true, jti };
     }
     return null;
   } catch {

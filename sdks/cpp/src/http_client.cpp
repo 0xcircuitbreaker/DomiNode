@@ -10,6 +10,7 @@
 #include <sstream>
 #include <thread>
 #include <chrono>
+#include <random>
 
 namespace dominusnode {
 
@@ -40,8 +41,8 @@ static size_t write_callback(char* ptr, size_t size, size_t nmemb, void* userdat
     size_t total = size * nmemb;
     // Guard against size_t overflow in multiplication
     if (nmemb != 0 && total / nmemb != size) return 0;
-    // Cap response body to 50MB to prevent OOM from malicious servers
-    static constexpr size_t MAX_RESPONSE_SIZE = 50 * 1024 * 1024;
+    // R19 C-2: Cap response body to 10MB (consistent with all other SDKs)
+    static constexpr size_t MAX_RESPONSE_SIZE = 10 * 1024 * 1024;
     if (response->size() + total > MAX_RESPONSE_SIZE) return 0;
     response->append(ptr, total);
     return total;
@@ -181,6 +182,10 @@ void HttpClient::throw_for_status(long status,
     } catch (...) {
         message = body.empty() ? "Unknown error" : body;
     }
+    // R27 H-1: Truncate error message to prevent unbounded body in exception strings
+    if (message.size() > 500) {
+        message = message.substr(0, 500) + "... [truncated]";
+    }
 
     switch (status) {
         case 400: throw ValidationError(message);
@@ -233,6 +238,11 @@ nlohmann::json HttpClient::request(const std::string& method,
             try { retry_after = std::stoi(it->second); } catch (...) {}
         }
         int wait_ms = std::max(100, std::min(retry_after * 1000, 10000));
+        // R23 C-1: Thread-safe RNG for jitter (replaces non-thread-safe std::rand)
+        static thread_local std::mt19937 rng(std::random_device{}());
+        std::uniform_real_distribution<double> dist(-0.5, 0.5);
+        int jitter = static_cast<int>(wait_ms * 0.2 * dist(rng));
+        wait_ms = std::max(100, wait_ms + jitter);
         std::this_thread::sleep_for(std::chrono::milliseconds(wait_ms));
 
         // R17: Refresh token after wait in case it expired during the sleep

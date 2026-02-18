@@ -15,6 +15,7 @@ const mockGetSystemStats = vi.fn();
 const mockFindUserById = vi.fn();
 const mockRevokeAllApiKeys = vi.fn();
 const mockRevokeAllForUser = vi.fn();
+const mockDeleteMfaConfig = vi.fn();
 
 vi.mock("@dominusnode/shared", () => ({
   adminRepo: {
@@ -33,6 +34,9 @@ vi.mock("@dominusnode/shared", () => ({
   },
   refreshTokenRepo: {
     revokeAllForUser: (...args: unknown[]) => mockRevokeAllForUser(...args),
+  },
+  mfaRepo: {
+    deleteMfaConfig: (...args: unknown[]) => mockDeleteMfaConfig(...args),
   },
   createLogger: () => ({
     info: vi.fn(),

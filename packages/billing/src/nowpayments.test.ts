@@ -6,6 +6,7 @@ const mockCreditWallet = vi.fn();
 const mockCreateInvoice = vi.fn();
 const mockFindInvoice = vi.fn();
 const mockCompleteInvoice = vi.fn();
+const mockMarkCreditFailed = vi.fn();
 
 vi.mock("@dominusnode/shared", () => ({
   walletRepo: {
@@ -15,6 +16,7 @@ vi.mock("@dominusnode/shared", () => ({
     createInvoice: (...args: unknown[]) => mockCreateInvoice(...args),
     findInvoice: (...args: unknown[]) => mockFindInvoice(...args),
     completeInvoice: (...args: unknown[]) => mockCompleteInvoice(...args),
+    markCreditFailed: (...args: unknown[]) => mockMarkCreditFailed(...args),
   },
   createLogger: () => ({
     debug: vi.fn(),
@@ -62,7 +64,7 @@ describe("nowpayments", () => {
     it("should create an invoice via NOWPayments API", async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
-        json: () => Promise.resolve({ id: "np-inv-123", invoice_url: "https://pay.nowpayments.io/test" }),
+        text: () => Promise.resolve(JSON.stringify({ id: "np-inv-123", invoice_url: "https://pay.nowpayments.io/test" })),
       });
       mockCreateInvoice.mockResolvedValueOnce({});
 
@@ -107,7 +109,7 @@ describe("nowpayments", () => {
 
       await expect(
         createCryptoInvoice("user-1", 10.0, "eth"),
-      ).rejects.toThrow("NOWPayments createInvoice failed: 400 Bad request");
+      ).rejects.toThrow("NOWPayments createInvoice failed: 400");
     });
   });
 

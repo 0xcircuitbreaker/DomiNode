@@ -5,11 +5,13 @@ import http from "http";
 // ─── Mocks ──────────────────────────────────────────────────────────
 
 vi.mock("@dominusnode/shared", () => ({
+  hashPassword: vi.fn().mockResolvedValue("$2b$10$unusable-hashed-password"),
   userRepo: {
     findUserByWalletAddress: vi.fn(),
     createWalletUser: vi.fn(),
     linkWalletAddress: vi.fn(),
     findUserById: vi.fn(),
+    countActiveUsers: vi.fn().mockResolvedValue(0),
   },
   walletRepo: { createWallet: vi.fn() },
   walletChallengeRepo: {

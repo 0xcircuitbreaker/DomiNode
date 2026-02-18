@@ -1,5 +1,8 @@
 const TOKEN_REFRESH_BUFFER_MS = 60_000;
 
+// R18-C3: Maximum response body size for token endpoint responses (1MB)
+const MAX_TOKEN_RESPONSE_BYTES = 1_048_576;
+
 export class TokenManager {
   private accessToken: string | null = null;
   private refreshTokenValue: string | null = null;
@@ -26,13 +29,19 @@ export class TokenManager {
     });
 
     if (!res.ok) {
-      await res.text(); // consume body but don't expose raw response
+      // R31 C-2: Cancel body instead of buffering — prevents OOM from oversized error response
+      await res.body?.cancel();
       throw new Error(`Failed to verify API key (HTTP ${res.status})`);
     }
 
-    const data = safeJsonParse<{ accessToken: string; refreshToken: string }>(await res.text());
-    this.accessToken = data.accessToken;
-    this.refreshTokenValue = data.refreshToken;
+    // R18-C3: Response size limit to prevent OOM
+    const verifyText = await res.text();
+    if (verifyText.length > MAX_TOKEN_RESPONSE_BYTES) {
+      throw new Error("Token verification response too large");
+    }
+    const data = safeJsonParse<{ accessToken: string; refreshToken: string }>(verifyText);
+    // R26 H-4: Route through setTokens to enforce type+length validation
+    this.setTokens(data.accessToken, data.refreshToken);
   }
 
   isExpired(token: string): boolean {
@@ -42,6 +51,14 @@ export class TokenManager {
       const payload = JSON.parse(
         Buffer.from(parts[1].replace(/-/g, "+").replace(/_/g, "/"), "base64").toString(),
       );
+      // R31 H-2: Strip prototype pollution keys from JWT payload
+      if (payload && typeof payload === "object") {
+        for (const key of ["__proto__", "constructor", "prototype"]) {
+          delete (payload as Record<string, unknown>)[key];
+        }
+      }
+      // R27 H-2: Validate exp is a finite number — undefined/NaN comparison always returns false
+      if (typeof payload.exp !== "number" || !Number.isFinite(payload.exp)) return true;
       return payload.exp * 1000 < Date.now() + TOKEN_REFRESH_BUFFER_MS;
     } catch {
       return true;
@@ -55,10 +72,22 @@ export class TokenManager {
     return this.forceRefresh();
   }
 
+  // R19 H-2: Rate limit forceRefresh to prevent self-inflicted DDoS
+  private lastRefreshAttempt = 0;
+  private static readonly MIN_REFRESH_INTERVAL_MS = 5_000; // 5 seconds between refreshes
+
   async forceRefresh(): Promise<string> {
     if (!this.refreshTokenValue && !this.apiKey) {
       throw new Error("No refresh token or API key available — cannot recover");
     }
+
+    // Prevent refresh amplification — min 5s between attempts
+    const now = Date.now();
+    if (now - this.lastRefreshAttempt < TokenManager.MIN_REFRESH_INTERVAL_MS) {
+      if (this.accessToken) return this.accessToken;
+      throw new Error("Token refresh rate limited — try again shortly");
+    }
+    this.lastRefreshAttempt = now;
 
     if (this.refreshPromise) return this.refreshPromise;
 
@@ -78,16 +107,18 @@ export class TokenManager {
           });
 
           if (res.ok) {
-            const data = safeJsonParse<{ accessToken: string; refreshToken?: string }>(await res.text());
-            this.accessToken = data.accessToken;
-            if (data.refreshToken) {
-              this.refreshTokenValue = data.refreshToken;
+            const refreshText = await res.text();
+            if (refreshText.length > MAX_TOKEN_RESPONSE_BYTES) {
+              throw new Error("Token refresh response too large");
             }
-            return this.accessToken;
+            const data = safeJsonParse<{ accessToken: string; refreshToken?: string }>(refreshText);
+            // R26 H-4: Route through setTokens to enforce type+length validation
+            this.setTokens(data.accessToken, data.refreshToken ?? this.refreshTokenValue!);
+            return this.accessToken!;
           }
 
-          // Refresh failed — consume body before falling through
-          await res.text();
+          // R31 C-2: Cancel body instead of buffering — prevents OOM from oversized error response
+          await res.body?.cancel();
         }
 
         // Fallback: re-initialize with stored API key
@@ -110,7 +141,27 @@ export class TokenManager {
     return this.refreshPromise;
   }
 
+  /** Store tokens from external auth flow (e.g., registration, wallet auth in bootstrap mode) */
+  setTokens(accessToken: string, refreshToken: string): void {
+    // R20 H-1: Validate token type and length before storage
+    if (typeof accessToken !== "string" || typeof refreshToken !== "string") {
+      throw new Error("Tokens must be strings");
+    }
+    if (!accessToken || !refreshToken) {
+      throw new Error("Tokens cannot be empty");
+    }
+    if (accessToken.length > 10_000 || refreshToken.length > 10_000) {
+      throw new Error("Token exceeds maximum length");
+    }
+    this.accessToken = accessToken;
+    this.refreshTokenValue = refreshToken;
+  }
+
   clear(): void {
+    // R18-H6: Best-effort credential clearing. JavaScript strings are immutable and
+    // garbage-collected — old values persist in memory until GC reclaims them.
+    // True memory zeroing is not possible in Node.js. This is a known limitation.
+    // For maximum security, keep token lifetimes short (15min access, 7d refresh).
     this.accessToken = null;
     this.refreshTokenValue = null;
     this.refreshPromise = null;
@@ -120,10 +171,11 @@ export class TokenManager {
 
 const DANGEROUS_KEYS = new Set(["__proto__", "constructor", "prototype"]);
 
-function stripDangerousKeys(obj: unknown): void {
-  if (!obj || typeof obj !== "object") return;
+// R20 H-6: Depth limit prevents stack overflow on deeply nested JSON
+function stripDangerousKeys(obj: unknown, depth = 0): void {
+  if (depth > 50 || !obj || typeof obj !== "object") return;
   if (Array.isArray(obj)) {
-    for (const item of obj) stripDangerousKeys(item);
+    for (const item of obj) stripDangerousKeys(item, depth + 1);
     return;
   }
   const record = obj as Record<string, unknown>;
@@ -131,7 +183,7 @@ function stripDangerousKeys(obj: unknown): void {
     if (DANGEROUS_KEYS.has(key)) {
       delete record[key];
     } else if (record[key] && typeof record[key] === "object") {
-      stripDangerousKeys(record[key]);
+      stripDangerousKeys(record[key], depth + 1);
     }
   }
 }

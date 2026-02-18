@@ -1,4 +1,4 @@
-import type { ProxyOptions, UpstreamProxy } from "./packetstream.js";
+import type { ProxyOptions, UpstreamProxy } from "./webshare.js";
 
 export type CircuitState = "closed" | "open" | "half-open";
 
@@ -29,10 +29,16 @@ const DEFAULT_FAILURE_THRESHOLD = parseInt(
   process.env["CIRCUIT_BREAKER_FAILURE_THRESHOLD"] ?? "5",
   10,
 );
+if (isNaN(DEFAULT_FAILURE_THRESHOLD) || DEFAULT_FAILURE_THRESHOLD < 1 || DEFAULT_FAILURE_THRESHOLD > 100) {
+  throw new Error("CIRCUIT_BREAKER_FAILURE_THRESHOLD must be between 1 and 100");
+}
 const DEFAULT_COOLDOWN_MS = parseInt(
   process.env["CIRCUIT_BREAKER_COOLDOWN_MS"] ?? "30000",
   10,
 );
+if (isNaN(DEFAULT_COOLDOWN_MS) || DEFAULT_COOLDOWN_MS < 1000 || DEFAULT_COOLDOWN_MS > 600000) {
+  throw new Error("CIRCUIT_BREAKER_COOLDOWN_MS must be between 1000 and 600000");
+}
 
 export class PerProviderCircuitBreaker {
   private state: CircuitState = "closed";

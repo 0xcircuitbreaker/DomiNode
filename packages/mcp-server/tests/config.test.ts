@@ -38,11 +38,11 @@ describe("parseConfig", () => {
   it("parses custom proxy host and ports", () => {
     const config = parseConfig({
       ...validEnv,
-      DOMINUSNODE_PROXY_HOST: "localhost",
+      DOMINUSNODE_PROXY_HOST: "proxy.example.com",
       DOMINUSNODE_HTTP_PROXY_PORT: "9090",
       DOMINUSNODE_SOCKS5_PROXY_PORT: "2080",
     });
-    expect(config.proxyHost).toBe("localhost");
+    expect(config.proxyHost).toBe("proxy.example.com");
     expect(config.httpProxyPort).toBe(9090);
     expect(config.socks5ProxyPort).toBe(2080);
   });

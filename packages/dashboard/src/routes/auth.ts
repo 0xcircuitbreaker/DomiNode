@@ -37,33 +37,11 @@ const ALLOWED_ORIGINS = (process.env["CORS_ORIGINS"] ?? "http://localhost:5173")
   .split(",")
   .map((s) => s.trim());
 
+// R30 H-5: Simplified — only trust origins explicitly listed in ALLOWED_ORIGINS
 function isBrowserClient(req: ExpressRequest): boolean {
   const origin = req.headers.origin;
   if (!origin) return false;
-  if (ALLOWED_ORIGINS.includes(origin)) return true;
-
-  const forwardedHostHeader = req.headers["x-forwarded-host"];
-  const requestHostRaw = typeof forwardedHostHeader === "string" && forwardedHostHeader.trim()
-    ? forwardedHostHeader.split(",")[0]?.trim()
-    : req.headers["host"];
-  if (!requestHostRaw) return false;
-
-  try {
-    const originUrl = new URL(origin);
-    const normalizedRequestHost = requestHostRaw.includes("://")
-      ? requestHostRaw
-      : `http://${requestHostRaw}`;
-    const requestUrl = new URL(normalizedRequestHost);
-
-    if (originUrl.host.toLowerCase() === requestUrl.host.toLowerCase()) return true;
-    if (originUrl.hostname.toLowerCase() !== requestUrl.hostname.toLowerCase()) return false;
-
-    // Reverse proxies may strip port from Host; treat same hostname as browser origin.
-    if (!requestUrl.port || !originUrl.port) return true;
-    return originUrl.port === requestUrl.port;
-  } catch {
-    return false;
-  }
+  return ALLOWED_ORIGINS.includes(origin);
 }
 
 // ─── Account lockout after failed logins ──────────────────────────
@@ -124,6 +102,26 @@ function checkVerifyKeyRateLimit(ip: string): boolean {
   return entry.count <= MAX_VERIFY_KEY_PER_IP;
 }
 
+// Periodic cleanup of expired IP login attempt entries (every 5 min)
+setInterval(() => {
+  const now = Date.now();
+  for (const [ip, entry] of ipLoginAttempts) {
+    if (now - entry.windowStart > LOCKOUT_DURATION_MS) {
+      ipLoginAttempts.delete(ip);
+    }
+  }
+}, 300_000).unref();
+
+// Periodic cleanup of expired verify-key attempt entries (every 5 min)
+setInterval(() => {
+  const now = Date.now();
+  for (const [ip, entry] of verifyKeyAttempts) {
+    if (now - entry.windowStart > VERIFY_KEY_WINDOW_MS) {
+      verifyKeyAttempts.delete(ip);
+    }
+  }
+}, 300_000).unref();
+
 function lockoutKey(ip: string, email: string): string {
   return `${ip}:${email}`;
 }
@@ -171,6 +169,15 @@ setInterval(() => {
     }
   }
 }, 300_000).unref();
+
+// ─── Global registration cap (Alpha: 250, Beta: 1000, 0 = unlimited) ───
+const MAX_REGISTERED_USERS = parseInt(process.env["MAX_REGISTERED_USERS"] ?? "250", 10);
+
+async function checkGlobalRegistrationCap(): Promise<boolean> {
+  if (MAX_REGISTERED_USERS <= 0) return true; // 0 = unlimited (production)
+  const currentCount = await userRepo.countActiveUsers();
+  return currentCount < MAX_REGISTERED_USERS;
+}
 
 // ─── Per-IP registration rate limiter (prevents mass signup abuse) ───
 const MAX_REGISTRATIONS_PER_IP = 3; // 3 accounts per IP per hour
@@ -237,6 +244,13 @@ router.post("/register", async (req, res) => {
     const clientIp = req.ip ?? "unknown";
     if (!checkRegistrationRateLimit(clientIp)) {
       res.status(429).json({ error: "Too many registrations from this IP. Please try again later." });
+      return;
+    }
+
+    // R24 C-1: Global registration cap (Alpha: 250 slots)
+    if (!(await checkGlobalRegistrationCap())) {
+      log.warn("registration rejected: global cap reached", { ip: clientIp, cap: MAX_REGISTERED_USERS });
+      res.status(403).json({ error: `Registration is currently closed. All ${MAX_REGISTERED_USERS} alpha slots are filled.` });
       return;
     }
 
@@ -326,7 +340,7 @@ router.post("/login", async (req, res) => {
       return;
     }
 
-    const user = await userRepo.findUserByEmail(email);
+    const user = await userRepo.findUserForAuth(email);
     if (!user) {
       recordLoginFailure(clientIp, email);
       recordIpLoginAttempt(clientIp); // R17: Track IP-wide attempts
@@ -348,8 +362,11 @@ router.post("/login", async (req, res) => {
       return;
     }
 
-    // Successful login — clear any lockout for this IP+email
+    // Successful login — clear lockout for this IP+email combo only
     resetLoginAttempts(clientIp, email);
+    // R20 H-4: Do NOT clear IP-global counter on single success — attacker on shared IP
+    // could use one valid login to reset the counter, then resume credential stuffing.
+    // The IP-global counter expires naturally after its time window.
 
     // Check if MFA is enabled for this user
     const mfaConfig = await mfaRepo.findMfaConfigByUserId(user.id);
@@ -439,14 +456,23 @@ router.post("/refresh", async (req, res) => {
       return;
     }
 
+    // R29 H-4: Verify token has not expired in DB (defense-in-depth beyond JWT expiry)
+    if (storedToken.expires_at && new Date(storedToken.expires_at) < new Date()) {
+      res.status(401).json({ error: "Refresh token expired" });
+      return;
+    }
+
     if (storedToken.revoked) {
       // REUSE DETECTED: This token was already rotated, meaning it was stolen.
       // Revoke the entire family to protect the user.
       const revoked = await refreshTokenRepo.revokeFamily(storedToken.family_id);
-      log.warn("refresh token reuse detected — revoking family", {
+      // R19 H-6: Also revoke all API keys — otherwise proxy tunnels survive token revocation
+      const keysRevoked = await userRepo.revokeAllApiKeys(storedToken.user_id);
+      log.warn("refresh token reuse detected — revoking family + API keys", {
         userId: storedToken.user_id,
         familyId: storedToken.family_id,
-        revokedCount: revoked,
+        revokedTokens: revoked,
+        revokedKeys: keysRevoked,
       });
       res.status(401).json({ error: "Token reuse detected. All sessions revoked for security." });
       return;
@@ -497,6 +523,14 @@ router.post("/refresh", async (req, res) => {
 router.post("/change-password", requireAuth, async (req, res) => {
   try {
     const { userId, email } = (req as AuthenticatedRequest).user;
+    const clientIp = (req.ip ?? req.socket.remoteAddress ?? "").replace(/^::ffff:/, "");
+
+    // R31 H-1: Rate limit password change attempts to prevent brute force on current password
+    const lockoutMsg = checkLoginLockout(clientIp, email);
+    if (lockoutMsg) {
+      res.status(429).json({ error: lockoutMsg });
+      return;
+    }
 
     // R18 C-4: Wallet-only accounts cannot set/change passwords
     if (isWalletEmail(email)) {
@@ -525,7 +559,7 @@ router.post("/change-password", requireAuth, async (req, res) => {
     }
 
     // Verify current password
-    const user = await userRepo.findUserByEmail(email);
+    const user = await userRepo.findUserForAuth(email);
     if (!user) {
       res.status(401).json({ error: "User not found" });
       return;
@@ -533,9 +567,13 @@ router.post("/change-password", requireAuth, async (req, res) => {
 
     const valid = await verifyPassword(currentPassword, user.password_hash);
     if (!valid) {
+      recordLoginFailure(clientIp, email); // R31 H-1: Track failed password attempts
       res.status(401).json({ error: "Current password is incorrect" });
       return;
     }
+
+    // Successful password verification — clear lockout for this IP+email
+    resetLoginAttempts(clientIp, email);
 
     // Hash and save new password (also sets password_changed_at)
     const newHash = await hashPassword(newPassword);
@@ -543,6 +581,10 @@ router.post("/change-password", requireAuth, async (req, res) => {
 
     // Revoke all existing refresh tokens for this user
     await refreshTokenRepo.revokeAllForUser(userId);
+
+    // R29 H-7: Revoke all API keys on password change — if account was compromised,
+    // attacker's API keys must also be invalidated
+    await userRepo.revokeAllApiKeys(userId);
 
     // Issue new token pair with fresh family
     const tokens = createTokenPair({ userId, email, isAdmin: user.is_admin });
@@ -623,6 +665,17 @@ router.post("/verify-key", async (req, res) => {
 
     if (result.user.status !== "active") {
       res.status(403).json({ valid: false, error: "Account suspended" });
+      return;
+    }
+
+    // R31 C-3: Block verify-key when MFA is enabled — API key alone must not bypass MFA
+    const mfaConfig = await mfaRepo.findMfaConfigByUserId(result.user.id);
+    if (mfaConfig?.enabled) {
+      res.status(403).json({
+        valid: false,
+        error: "MFA is enabled. Use password login with MFA verification instead.",
+        mfaRequired: true,
+      });
       return;
     }
 
@@ -727,6 +780,14 @@ setInterval(() => {
 // POST /api/auth/mfa/verify — Complete MFA challenge with TOTP code or backup code
 router.post("/mfa/verify", async (req, res) => {
   try {
+    // R31 H-2: Per-IP rate limiting for MFA verification (prevents distributed brute force)
+    const clientIp = (req.ip ?? req.socket.remoteAddress ?? "").replace(/^::ffff:/, "");
+    const ipLimitMsg = checkIpLoginLimit(clientIp);
+    if (ipLimitMsg) {
+      res.status(429).json({ error: ipLimitMsg });
+      return;
+    }
+
     // Read challenge token from cookie (browser) or body (extension)
     const challengeToken =
       req.cookies?.[MFA_CHALLENGE_COOKIE] ?? req.body.mfaChallengeToken ?? "";
@@ -760,6 +821,14 @@ router.post("/mfa/verify", async (req, res) => {
       res.status(429).json({ error: mfaLockoutMsg });
       return;
     }
+
+    // R31 C-2: Consume challenge JTI BEFORE code verification to prevent brute force
+    // via challenge token reuse — token is single-use regardless of verification outcome
+    if (consumedChallengeJtis.size >= MAX_CONSUMED_CHALLENGES_SIZE) {
+      const firstKey = consumedChallengeJtis.keys().next().value;
+      if (firstKey) consumedChallengeJtis.delete(firstKey);
+    }
+    consumedChallengeJtis.set(jti, Date.now() + 5 * 60 * 1000);
 
     const code = sanitizeString(req.body.code ?? "", 20);
     const isBackupCode = req.body.isBackupCode === true;
@@ -803,19 +872,13 @@ router.post("/mfa/verify", async (req, res) => {
 
     if (!verified) {
       recordMfaFailure(challenge.userId);
+      recordIpLoginAttempt(clientIp); // R31 H-2: Count MFA failures against IP budget
       res.status(401).json({ error: "Invalid verification code" });
       return;
     }
 
     // MFA verified — clear lockout counter
     resetMfaAttempts(challenge.userId);
-
-    // Mark challenge token as consumed (single-use enforcement)
-    if (consumedChallengeJtis.size >= MAX_CONSUMED_CHALLENGES_SIZE) {
-      const firstKey = consumedChallengeJtis.keys().next().value;
-      if (firstKey) consumedChallengeJtis.delete(firstKey);
-    }
-    consumedChallengeJtis.set(jti, Date.now() + 5 * 60 * 1000);
 
     // MFA verified — issue real tokens
     const user = await userRepo.findUserById(challenge.userId);
@@ -972,7 +1035,7 @@ router.post("/mfa/disable", requireAuth, async (req, res) => {
     }
 
     // Verify password
-    const user = await userRepo.findUserByEmail(email);
+    const user = await userRepo.findUserForAuth(email);
     if (!user) {
       res.status(401).json({ error: "User not found" });
       return;
@@ -1022,6 +1085,9 @@ router.post("/mfa/disable", requireAuth, async (req, res) => {
 
     // Revoke all refresh tokens for safety
     await refreshTokenRepo.revokeAllForUser(userId);
+
+    // R30 H-4: MFA disable must also revoke API keys (parity with password change)
+    await userRepo.revokeAllApiKeys(userId);
 
     log.info("MFA disabled", { userId });
 

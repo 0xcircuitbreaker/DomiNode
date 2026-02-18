@@ -2,6 +2,7 @@
 
 #include <nlohmann/json.hpp>
 #include <optional>
+#include <ostream>
 #include <string>
 #include <vector>
 
@@ -48,6 +49,13 @@ inline void from_json(const nlohmann::json& j, LoginResult& r) {
     if (j.contains("mfaChallengeToken") && !j["mfaChallengeToken"].is_null()) r.mfa_challenge_token = j["mfaChallengeToken"].get<std::string>();
 }
 
+// R30 CX-2: Credential redaction in output
+inline std::ostream& operator<<(std::ostream& os, const LoginResult& r) {
+    os << "LoginResult{mfa_required=" << r.mfa_required
+       << ", token=[REDACTED], refresh_token=[REDACTED], mfa_challenge_token=[REDACTED]}";
+    return os;
+}
+
 struct RegisterResult {
     User user;
     std::optional<std::string> token;
@@ -58,6 +66,13 @@ inline void from_json(const nlohmann::json& j, RegisterResult& r) {
     j.at("user").get_to(r.user);
     if (j.contains("token") && !j["token"].is_null()) r.token = j["token"].get<std::string>();
     if (j.contains("refreshToken") && !j["refreshToken"].is_null()) r.refresh_token = j["refreshToken"].get<std::string>();
+}
+
+// R30 CX-2: Credential redaction in output
+inline std::ostream& operator<<(std::ostream& os, const RegisterResult& r) {
+    os << "RegisterResult{user=" << r.user.id
+       << ", token=[REDACTED], refresh_token=[REDACTED]}";
+    return os;
 }
 
 struct TokenPair {
@@ -71,6 +86,12 @@ inline void from_json(const nlohmann::json& j, TokenPair& t) {
     if (j.contains("refreshToken") && !j["refreshToken"].is_null()) {
         t.refresh_token = j["refreshToken"].get<std::string>();
     }
+}
+
+// R30 CX-2: Credential redaction in output
+inline std::ostream& operator<<(std::ostream& os, const TokenPair&) {
+    os << "TokenPair{access_token=[REDACTED], refresh_token=[REDACTED]}";
+    return os;
 }
 
 struct MfaStatus {
@@ -95,6 +116,12 @@ inline void from_json(const nlohmann::json& j, MfaSetup& m) {
     j.at("backupCodes").get_to(m.backup_codes);
 }
 
+// R30 CX-2: Credential redaction in output
+inline std::ostream& operator<<(std::ostream& os, const MfaSetup&) {
+    os << "MfaSetup{secret=[REDACTED], otpauth_uri=[REDACTED], backup_codes=[REDACTED]}";
+    return os;
+}
+
 struct MfaVerifyResult {
     User user;
     std::string token;
@@ -105,6 +132,13 @@ inline void from_json(const nlohmann::json& j, MfaVerifyResult& r) {
     j.at("user").get_to(r.user);
     j.at("token").get_to(r.token);
     j.at("refreshToken").get_to(r.refresh_token);
+}
+
+// R30 CX-2: Credential redaction in output
+inline std::ostream& operator<<(std::ostream& os, const MfaVerifyResult& r) {
+    os << "MfaVerifyResult{user=" << r.user.id
+       << ", token=[REDACTED], refresh_token=[REDACTED]}";
+    return os;
 }
 
 struct VerifyKeyResult {
@@ -123,6 +157,14 @@ inline void from_json(const nlohmann::json& j, VerifyKeyResult& r) {
     r.email = j.value("email", "");
 }
 
+// R30 CX-2: Credential redaction in output
+inline std::ostream& operator<<(std::ostream& os, const VerifyKeyResult& r) {
+    os << "VerifyKeyResult{valid=" << r.valid
+       << ", user_id=" << r.user_id
+       << ", token=[REDACTED], refresh_token=[REDACTED]}";
+    return os;
+}
+
 // ─── API Keys ───────────────────────────────────────────────────────────────
 
 struct CreateKeyResult {
@@ -139,6 +181,15 @@ inline void from_json(const nlohmann::json& j, CreateKeyResult& k) {
     j.at("prefix").get_to(k.prefix);
     k.label = j.value("label", "");
     k.created_at = j.value("created_at", "");
+}
+
+// R30 CX-2: Credential redaction in output
+inline std::ostream& operator<<(std::ostream& os, const CreateKeyResult& k) {
+    os << "CreateKeyResult{id=" << k.id
+       << ", prefix=" << k.prefix
+       << ", label=" << k.label
+       << ", key=[REDACTED]}";
+    return os;
 }
 
 struct ApiKeyEntry {

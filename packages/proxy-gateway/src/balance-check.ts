@@ -5,7 +5,9 @@ interface CacheEntry {
   cachedAt: number;
 }
 
-const CACHE_TTL_MS = parseInt(process.env["BALANCE_CACHE_TTL_MS"] ?? "5000", 10);
+// R19 H-4: Cap TTL at 30s to limit free bandwidth window from stale cache
+const rawCacheTtl = parseInt(process.env["BALANCE_CACHE_TTL_MS"] ?? "5000", 10);
+const CACHE_TTL_MS = Math.min(Math.max(isNaN(rawCacheTtl) ? 5000 : rawCacheTtl, 1000), 30_000);
 const MAX_CACHE_SIZE = 10_000;
 const cache = new Map<string, CacheEntry>();
 

@@ -78,17 +78,24 @@ class TokenManager:
         return self._do_refresh()
 
     def force_refresh(self) -> Optional[str]:
-        """Force a token refresh regardless of expiry (e.g., after 401)."""
-        return self._do_refresh()
+        """Force a token refresh regardless of expiry (e.g., after 401).
 
-    def _do_refresh(self) -> Optional[str]:
+        R23 C-2: Raises RuntimeError if refresh fails instead of returning None,
+        preventing "Bearer None" from being sent as an auth header.
+        """
+        return self._do_refresh(force=True)
+
+    def _do_refresh(self, force: bool = False) -> Optional[str]:
         """Perform a singleton refresh under lock."""
         if self._refresh_token is None or self._refresh_fn is None:
+            if force:
+                raise RuntimeError("No valid token and cannot refresh")
             return None
 
         with self._refresh_lock:
             # Double-check: another thread may have refreshed while we waited
-            if self._access_token and not is_expired(self._access_token):
+            # Skip double-check on force_refresh — the whole point is to NOT reuse current token
+            if not force and self._access_token and not is_expired(self._access_token):
                 return self._access_token
 
             try:
@@ -98,6 +105,8 @@ class TokenManager:
                 return self._access_token
             except Exception:
                 self.clear()
+                if force:
+                    raise RuntimeError("Token refresh failed")
                 return None
 
 
@@ -163,17 +172,22 @@ class AsyncTokenManager:
         return await self._do_refresh()
 
     async def force_refresh(self) -> Optional[str]:
-        """Force a token refresh regardless of expiry (e.g., after 401)."""
-        return await self._do_refresh()
+        """Force a token refresh regardless of expiry (e.g., after 401).
 
-    async def _do_refresh(self) -> Optional[str]:
+        R23 C-2: Raises RuntimeError if refresh fails instead of returning None.
+        """
+        return await self._do_refresh(force=True)
+
+    async def _do_refresh(self, force: bool = False) -> Optional[str]:
         """Perform a singleton refresh under async lock."""
         if self._refresh_token is None or self._refresh_fn is None:
+            if force:
+                raise RuntimeError("No valid token and cannot refresh")
             return None
 
         async with self._get_lock():
-            # Double-check after acquiring the lock
-            if self._access_token and not is_expired(self._access_token):
+            # Skip double-check on force_refresh
+            if not force and self._access_token and not is_expired(self._access_token):
                 return self._access_token
 
             try:
@@ -183,6 +197,8 @@ class AsyncTokenManager:
                 return self._access_token
             except Exception:
                 self.clear()
+                if force:
+                    raise RuntimeError("Token refresh failed")
                 return None
 
 

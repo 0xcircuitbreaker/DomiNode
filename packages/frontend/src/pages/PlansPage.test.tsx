@@ -19,13 +19,26 @@ beforeEach(() => {
 
 const mockPlans = [
   {
-    id: "free",
-    name: "Free Trial",
-    pricePerGbCents: 500,
-    pricePerGbUsd: 5.0,
-    monthlyBandwidthBytes: 104857600,
-    monthlyBandwidthGB: 0.1,
+    id: "free-dc",
+    name: "Free DC",
+    pricePerGbCents: 0,
+    pricePerGbUsd: 0,
+    monthlyBandwidthBytes: 2147483648,
+    monthlyBandwidthGB: 2,
     isDefault: true,
+    maxConnections: 5,
+    allowedProxyTypes: "dc",
+  },
+  {
+    id: "free-res",
+    name: "Free Residential",
+    pricePerGbCents: 0,
+    pricePerGbUsd: 0,
+    monthlyBandwidthBytes: 52428800,
+    monthlyBandwidthGB: 0.05,
+    isDefault: false,
+    maxConnections: 5,
+    allowedProxyTypes: "residential",
   },
   {
     id: "payg",
@@ -35,6 +48,8 @@ const mockPlans = [
     monthlyBandwidthBytes: 0,
     monthlyBandwidthGB: null,
     isDefault: false,
+    maxConnections: 100,
+    allowedProxyTypes: null,
   },
   {
     id: "vol100",
@@ -44,6 +59,8 @@ const mockPlans = [
     monthlyBandwidthBytes: 107374182400,
     monthlyBandwidthGB: 100,
     isDefault: false,
+    maxConnections: 100,
+    allowedProxyTypes: null,
   },
   {
     id: "vol1000",
@@ -53,6 +70,8 @@ const mockPlans = [
     monthlyBandwidthBytes: 1073741824000,
     monthlyBandwidthGB: 1000,
     isDefault: false,
+    maxConnections: 100,
+    allowedProxyTypes: null,
   },
 ];
 
@@ -68,7 +87,7 @@ function setupMocks() {
     }
     if (path === "/api/plans/user/plan") {
       return Promise.resolve({
-        plan: mockPlans[1], // payg
+        plan: mockPlans[2], // payg
         usage: {
           monthlyUsageBytes: 536870912,
           monthlyUsageGB: 0.5,
@@ -112,9 +131,10 @@ describe("PlansPage", () => {
 
     // Each plan name appears in both the card grid and the details table, so use getAllByText
     await waitFor(() => {
-      expect(screen.getAllByText("Free Trial").length).toBeGreaterThan(0);
+      expect(screen.getAllByText("Free DC").length).toBeGreaterThan(0);
     });
 
+    expect(screen.getAllByText("Free Residential").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Pay As You Go").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Volume 100").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Volume 1000").length).toBeGreaterThan(0);

@@ -9,27 +9,61 @@ export default function CsvExportButton({ since, until }: CsvExportButtonProps) 
   const [downloading, setDownloading] = useState(false);
 
   async function handleExport() {
+    // R26 H-2: Validate date format before constructing URL to prevent parameter injection
+    const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+    if (!DATE_RE.test(since) || !DATE_RE.test(until)) return;
+
     setDownloading(true);
     try {
-      const url = `/api/usage/export?since=${since}T00:00:00Z&until=${until}T23:59:59Z&format=csv`;
-
-      const res = await fetch(url, {
-        credentials: "include",
+      const params = new URLSearchParams({
+        since: `${since}T00:00:00Z`,
+        until: `${until}T23:59:59Z`,
+        format: "csv",
       });
+      const url = `/api/usage/export?${params.toString()}`;
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 60_000); // 60s export timeout
+      let res: Response;
+      try {
+        res = await fetch(url, {
+          credentials: "include",
+          redirect: "error", // R19 C-2: Prevent credential leakage via redirect
+          signal: controller.signal,
+        });
+      } finally {
+        clearTimeout(timeoutId);
+      }
 
       if (!res.ok) {
         throw new Error(`Export failed: ${res.status}`);
       }
 
+      // R24 H-4: Pre-flight Content-Length check before buffering (prevents OOM)
+      const MAX_EXPORT_BYTES = 50 * 1024 * 1024; // 50MB
+      const exportContentLength = parseInt(res.headers.get("content-length") ?? "0", 10);
+      if (exportContentLength > MAX_EXPORT_BYTES) {
+        throw new Error("Export too large — please narrow the date range");
+      }
       const blob = await res.blob();
+      // R23 H-4: Defense-in-depth size check after buffering
+      if (blob.size > MAX_EXPORT_BYTES) {
+        throw new Error("Export too large — please narrow the date range");
+      }
       const downloadUrl = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = downloadUrl;
 
       // Extract filename from Content-Disposition or use fallback
+      // R22 C-2: Sanitize filename to prevent path traversal / deceptive extensions
       const disposition = res.headers.get("Content-Disposition");
       const filenameMatch = disposition?.match(/filename="(.+)"/);
-      a.download = filenameMatch?.[1] ?? `dominusnode-usage-${since}-to-${until}.csv`;
+      let filename = filenameMatch?.[1] ?? `dominusnode-usage-${since}-to-${until}.csv`;
+      filename = filename.replace(/[/\\]/g, "_").replace(/[^\w.\-]/g, "_");
+      if (!filename.endsWith(".csv")) {
+        filename = `dominusnode-usage-${since}-to-${until}.csv`;
+      }
+      a.download = filename;
 
       document.body.appendChild(a);
       a.click();

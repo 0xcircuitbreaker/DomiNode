@@ -63,8 +63,8 @@ Mobile IPs are hardest to block and most valuable ($7-20/GB retail).
 
 ### Recommended Launch Strategy
 1. **MVP (now):** Use free cloud VMs (Oracle + GCP) for dev/testing
-2. **Alpha:** Resell PacketStream/Geonode bandwidth via their APIs — zero infra cost
-3. **Beta:** Add Webshare ISP proxies ($230/mo for 1,000 IPs) for dedicated pool
+2. **Alpha:** Resell Webshare bandwidth (DC + residential pools) — minimal infra cost
+3. **Beta:** Scale Webshare ISP proxies ($230/mo for 1,000 IPs) for dedicated pool
 4. **Scale:** Build DIY mobile farm (10-50 dongles) + lease IPv4 block via IPXO
 
 ## Architecture (Target)
@@ -131,17 +131,18 @@ Dominus Node/
 │   │   ├── validation.ts        # Input validators
 │   │   └── repositories/        # user-repo, wallet-repo, usage-repo
 │   ├── pool-manager/src/
-│   │   ├── packetstream.ts      # PacketStream gateway auth builder, reseller API
+│   │   ├── webshare.ts          # Webshare config, proxy URL builder (DC + residential), bandwidth API
+│   │   ├── webshare-provider.ts # WebshareDCProvider + WebshareResidentialProvider
 │   │   └── index.ts             # Re-exports
 │   ├── proxy-gateway/src/
-│   │   ├── server.ts            # HTTP proxy + HTTPS double-CONNECT through PacketStream
+│   │   ├── server.ts            # HTTP proxy + HTTPS double-CONNECT through Webshare
 │   │   ├── auth.ts              # Proxy-Authorization header parser
 │   │   ├── balance-check.ts     # Wallet balance check with 30s cache
 │   │   ├── counting-stream.ts   # Byte counters for billing
 │   │   ├── session-manager.ts   # In-memory session tracking, usage recording, wallet debit
 │   │   └── main.ts              # Entrypoint with graceful shutdown
 │   ├── metering/src/
-│   │   └── index.ts             # computeCostCents ($7/GB), recordUsage, debitForUsage
+│   │   └── index.ts             # computeCostCents (DC $3/GB, residential $5/GB), recordUsage, debitForUsage
 │   ├── billing/src/
 │   │   ├── stripe.ts            # Checkout sessions, webhook handling
 │   │   ├── nowpayments.ts       # Crypto invoices (BTC/ETH/XMR/SOL/ZEC), IPN verification
@@ -173,7 +174,7 @@ AVAILABLE → ASSIGNED → IN_USE → (HEALTHY → re-pool | BURNED → discard)
 ```
 
 ### Billing Model
-- Flat rate: **$7.00/GB** (our cost: $1.00/GB from PacketStream = 85% margin)
+- Tiered pricing: **$3.00/GB** datacenter (cost: $0.012/GB = 99.6% margin), **$5.00/GB** residential (cost: $4.00/GB = 20% margin)
 - Prepaid wallet system — users top up, usage debits automatically
 - Payments: Stripe (fiat) + NOWPayments (BTC, ETH, XMR, SOL, ZEC)
 - Balance stored in cents (integer) with DB CHECK constraint preventing negative
@@ -190,9 +191,9 @@ AVAILABLE → ASSIGNED → IN_USE → (HEALTHY → re-pool | BURNED → discard)
 
 ### What's built:
 - `@dominusnode/shared` — Types, PostgreSQL schema, db client, auth (API keys + JWT), repositories (user, wallet, usage)
-- `@dominusnode/pool-manager` — PacketStream gateway integration with geo targeting + sticky sessions
-- `@dominusnode/proxy-gateway` — Full HTTP/HTTPS proxy with API key auth, balance checks, PacketStream chaining, byte counting, session tracking, wallet debiting
-- `@dominusnode/metering` — Real cost calculation at $7/GB, usage recording, wallet debiting
+- `@dominusnode/pool-manager` — Webshare dual-pool (DC + residential) integration with geo targeting + sticky sessions
+- `@dominusnode/proxy-gateway` — Full HTTP/HTTPS proxy with API key auth, balance checks, Webshare chaining, byte counting, session tracking, wallet debiting
+- `@dominusnode/metering` — Cost calculation (DC $3/GB, residential $5/GB), usage recording, wallet debiting
 - `@dominusnode/billing` — Stripe Checkout for wallet top-ups, NOWPayments for crypto (BTC/ETH/XMR/SOL/ZEC)
 - `@dominusnode/dashboard` — Express REST API with auth, API key management, wallet, usage, and webhook endpoints
 
@@ -200,23 +201,21 @@ AVAILABLE → ASSIGNED → IN_USE → (HEALTHY → re-pool | BURNED → discard)
 1. `docker compose up -d` — start PostgreSQL
 2. `npm run db:migrate` — apply schema
 3. `npm run build` — compile
-4. Set `.env` with PacketStream, Stripe, NOWPayments credentials
+4. Set `.env` with Webshare, Stripe, NOWPayments credentials
 5. `npm run start:api` — REST API on :3000
 6. `npm run start:proxy` — proxy gateway on :8080
 
 ### Next steps:
 - Build frontend UI (dashboard, account management)
-- Add Webshare ISP proxy pool (Tier 2 IP sourcing)
-- Add rate limiting and abuse prevention
 - Add health monitoring / burn detection
 - Dockerize both processes
 
 ## Phases
 
 1. ~~**Phase 1 — Foundation**~~ DONE
-2. ~~**Phase 2 — Backend MVP**~~ DONE (PacketStream, auth, billing, API)
+2. ~~**Phase 2 — Backend MVP**~~ DONE (Webshare, auth, billing, API)
 3. **Phase 3 — Frontend Dashboard:** User web UI (usage, billing, API keys)
-4. **Phase 4 — ISP Proxy Pool:** Webshare integration, multi-provider pool management
+4. ~~**Phase 4 — ISP Proxy Pool:**~~ DONE (Webshare DC + residential dual-pool)
 5. **Phase 5 — Scale & Harden:** Rate limiting, abuse prevention, Kubernetes, monitoring
 
 ## Commands
@@ -258,6 +257,12 @@ docker compose up -d     # Start PostgreSQL (local dev)
 
 ```bash
 # After creating an account and API key via the REST API:
+# Default (auto): tries DC first, falls back to residential
 curl -x http://anything:dn_live_YOUR_KEY@localhost:8080 http://httpbin.org/ip
-curl -x http://anything:dn_live_YOUR_KEY@localhost:8080 https://httpbin.org/ip
+
+# Explicit DC pool (cheapest, $3/GB):
+curl -x http://dc-country-US:dn_live_YOUR_KEY@localhost:8080 https://httpbin.org/ip
+
+# Explicit residential pool (premium, $5/GB):
+curl -x http://residential-country-US:dn_live_YOUR_KEY@localhost:8080 https://httpbin.org/ip
 ```

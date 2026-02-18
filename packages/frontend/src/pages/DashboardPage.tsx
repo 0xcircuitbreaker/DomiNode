@@ -316,7 +316,7 @@ export default function DashboardPage() {
           </div>
         </div>
         <p className="text-xs text-gray-500 mt-3">
-          Pricing: From $3.00/GB &middot; HTTP &amp; SOCKS5 &middot; Residential IPs &middot; 195+ countries &middot; Geo-targeting &middot; Sticky sessions
+          Pricing: From $3.00/GB &middot; HTTP &amp; SOCKS5 &middot; Residential IPs &middot; 50+ countries &middot; Geo-targeting &middot; Sticky sessions
         </p>
       </div>
     </div>

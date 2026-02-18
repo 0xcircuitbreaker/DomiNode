@@ -27,7 +27,7 @@ export default function Sidebar() {
     <aside className="app-sidebar w-64 bg-gray-900 border-r border-gray-800 flex flex-col min-h-screen">
       <div className="app-sidebar-brand p-6">
         <div className="flex items-center gap-3">
-          <img src="/logo.svg" alt={BRAND_MARK} className="app-brand-mark" style={{ width: "2.2rem", height: "2.2rem" }} />
+          <img src="/logo.svg" alt={BRAND_MARK} className="app-brand-mark" style={{ width: "2.8rem", height: "2.8rem" }} />
           <div className="app-hide-compact">
             <h1 className="text-xl font-bold text-indigo-400">{BRAND_NAME}</h1>
             <p className="app-brand-subtitle">Client Control Plane</p>
@@ -59,11 +59,12 @@ export default function Sidebar() {
 
       <div className="app-sidebar-footer p-4 border-t border-gray-800">
         <div className="app-footer-note app-hide-compact">
-          <p className="text-xs text-gray-600 font-semibold">Premium Residential Network</p>
-          <p className="text-xs text-gray-600 mt-1">From $3/GB with enterprise controls.</p>
-          <Link to="/" className="app-link text-xs mt-2 inline-block">
-            View Public Website
-          </Link>
+          <p className="text-xs text-gray-600 font-semibold">DC &amp; Residential Proxy Pool</p>
+          <div className="flex gap-3 mt-2">
+            <Link to="/" className="app-link text-xs">Website</Link>
+            <Link to="/privacy" className="app-link text-xs">Privacy</Link>
+            <Link to="/terms" className="app-link text-xs">Terms</Link>
+          </div>
         </div>
       </div>
     </aside>

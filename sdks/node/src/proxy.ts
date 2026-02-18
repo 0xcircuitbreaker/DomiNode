@@ -1,5 +1,5 @@
 import type { HttpClient } from "./http.js";
-import type { ProxyUrlOptions, ProxyHealth, ProxyConfig, Dominus NodeConfig } from "./types.js";
+import type { ProxyUrlOptions, ProxyHealth, ProxyConfig, DominusNodeConfig } from "./types.js";
 import {
   DEFAULT_PROXY_HOST,
   DEFAULT_HTTP_PROXY_PORT,
@@ -39,8 +39,12 @@ export class ProxyResource {
   private httpPort: number;
   private socks5Port: number;
 
-  constructor(private http: HttpClient, config: Dominus NodeConfig) {
+  constructor(private http: HttpClient, config: DominusNodeConfig) {
     this.proxyHost = config.proxyHost ?? DEFAULT_PROXY_HOST;
+    // R31 C-4: Validate proxyHost to prevent URL injection via crafted hostnames
+    if (/[\s\/\\@?#]/.test(this.proxyHost)) {
+      throw new Error("proxyHost contains invalid characters");
+    }
     this.httpPort = config.httpProxyPort ?? DEFAULT_HTTP_PROXY_PORT;
     this.socks5Port = config.socks5ProxyPort ?? DEFAULT_SOCKS5_PROXY_PORT;
   }
@@ -50,7 +54,7 @@ export class ProxyResource {
    *
    * The returned URL includes authentication via the username field.
    * Geo-targeting and sticky sessions are encoded in the username portion
-   * following PacketStream conventions.
+   * following Dominus Node proxy conventions.
    *
    * @param apiKey - The API key to authenticate proxy requests.
    * @param opts   - Optional targeting parameters (protocol, country, etc.).

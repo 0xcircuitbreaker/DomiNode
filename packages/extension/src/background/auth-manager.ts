@@ -131,11 +131,15 @@ export async function logout(): Promise<void> {
 
 export function isTokenExpired(token: string): boolean {
   try {
-    const payloadB64 = token.split(".")[1];
-    if (!payloadB64) return true;
+    const parts = token.split(".");
+    if (parts.length !== 3) return true;
+    const payloadB64 = parts[1];
+    if (!payloadB64 || payloadB64.length > 4096) return true; // R30 H-5: Cap payload size
     // Convert base64url to standard base64
     const base64 = payloadB64.replace(/-/g, "+").replace(/_/g, "/");
     const payload = JSON.parse(atob(base64));
+    if (typeof payload !== "object" || payload === null) return true;
+    if (typeof payload.exp !== "number" || !Number.isFinite(payload.exp)) return true;
     // Expired if within 60 seconds of expiry
     return payload.exp * 1000 < Date.now() + 60_000;
   } catch {

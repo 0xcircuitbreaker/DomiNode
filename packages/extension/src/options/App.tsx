@@ -31,7 +31,8 @@ export function App() {
     );
   }
 
-  const isAuthenticated = !!(state.accessToken || state.apiKey);
+  // R31 C-2: Prefer isAuthenticated from sanitized state (tokens are stripped by sanitizeStateForUI)
+  const isAuthenticated = !!(state as any).isAuthenticated || !!(state.accessToken || state.apiKey);
 
   return (
     <div class="options-container">

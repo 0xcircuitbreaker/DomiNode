@@ -26,19 +26,19 @@ describe("user-repo", () => {
   // ─── createUser ────────────────────────────────────────────────────
 
   describe("createUser", () => {
-    it("should insert a user and return the row", async () => {
+    it("should insert a user and return the row with password_hash redacted", async () => {
       const user = {
         id: "u1",
         email: "test@example.com",
-        password_hash: "hash123",
         created_at: new Date(),
         status: "active",
         password_changed_at: null,
+        wallet_address: null,
       };
       mockQuery.mockResolvedValueOnce({ rows: [user] });
 
       const result = await createUser("test@example.com", "hash123");
-      expect(result).toEqual(user);
+      expect(result).toEqual({ ...user, password_hash: "", wallet_address: null });
       expect(mockQuery).toHaveBeenCalledWith(
         expect.stringContaining("INSERT INTO users"),
         ["test@example.com", "hash123"],
@@ -49,7 +49,7 @@ describe("user-repo", () => {
   // ─── findUserByEmail ──────────────────────────────────────────────
 
   describe("findUserByEmail", () => {
-    it("should return user when found", async () => {
+    it("should return user when found (password_hash redacted)", async () => {
       const user = {
         id: "u1",
         email: "test@example.com",
@@ -61,9 +61,14 @@ describe("user-repo", () => {
       mockQuery.mockResolvedValueOnce({ rows: [user] });
 
       const result = await findUserByEmail("test@example.com");
-      expect(result).toEqual(user);
+      // R22 C-3: findUserByEmail now redacts password_hash
+      expect(result).toEqual({
+        ...user,
+        password_hash: "",
+        wallet_address: null,
+      });
       expect(mockQuery).toHaveBeenCalledWith(
-        expect.stringContaining("SELECT * FROM users WHERE email = $1"),
+        expect.stringContaining("SELECT id, email,"),
         ["test@example.com"],
       );
     });
@@ -210,12 +215,12 @@ describe("user-repo", () => {
   // ─── createApiKey ──────────────────────────────────────────────────
 
   describe("createApiKey", () => {
-    it("should insert an API key and return it", async () => {
-      const apiKey = { id: "ak1", user_id: "u1", key_hash: "hash", key_prefix: "dn_live_", label: "My Key" };
+    it("should insert an API key and return it with key_hash redacted", async () => {
+      const apiKey = { id: "ak1", user_id: "u1", key_prefix: "dn_live_", label: "My Key" };
       mockQuery.mockResolvedValueOnce({ rows: [apiKey] });
 
       const result = await createApiKey("u1", "hash", "dn_live_", "My Key");
-      expect(result).toEqual(apiKey);
+      expect(result).toEqual({ ...apiKey, key_hash: "" });
       expect(mockQuery).toHaveBeenCalledWith(
         expect.stringContaining("INSERT INTO api_keys"),
         ["u1", "hash", "dn_live_", "My Key"],

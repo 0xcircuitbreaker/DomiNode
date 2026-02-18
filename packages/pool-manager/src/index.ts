@@ -1,17 +1,22 @@
 export {
   buildUpstreamProxy,
   generateStickySession,
-  addBalance,
-  getUserInfo,
   getConfig,
   validateConfig,
-} from "./packetstream.js";
+  getBandwidthUsage,
+  fetchProxyList,
+  StaticProxyPool,
+} from "./webshare.js";
 
 export type {
-  PacketStreamConfig,
+  WebshareConfig,
+  WebsharePoolConfig,
+  WebsharePool,
   ProxyOptions,
   UpstreamProxy,
-} from "./packetstream.js";
+  BandwidthUsage,
+  StaticProxy,
+} from "./webshare.js";
 
 export type {
   ProxyProvider,
@@ -20,7 +25,8 @@ export type {
 } from "./provider.js";
 export { PerProviderCircuitBreaker } from "./provider.js";
 
-export { PacketStreamProvider } from "./packetstream-provider.js";
+export { WebshareDCProvider, WebshareResidentialProvider } from "./webshare-provider.js";
+export type { DCMode } from "./webshare-provider.js";
 
 export { DirectProvider } from "./direct-provider.js";
 export type { DirectProviderConfig } from "./direct-provider.js";

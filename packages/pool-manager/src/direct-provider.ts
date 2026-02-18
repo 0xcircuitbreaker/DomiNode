@@ -1,4 +1,5 @@
-import type { UpstreamProxy, ProxyOptions } from "./packetstream.js";
+import type { UpstreamProxy, ProxyOptions } from "./webshare.js";
+import { BLOCKED_COUNTRY_CODES } from "@dominusnode/shared";
 import { PerProviderCircuitBreaker } from "./provider.js";
 import type { ProxyProvider, ProviderStats } from "./provider.js";
 
@@ -26,7 +27,14 @@ export class DirectProvider implements ProxyProvider {
     return this.cb.isAvailable();
   }
 
-  getProxy(_options?: ProxyOptions): UpstreamProxy {
+  getProxy(options?: ProxyOptions): UpstreamProxy {
+    // R29 H-1: Enforce sanctions check on fallback providers (parity with Webshare providers)
+    if (options?.country) {
+      const upper = options.country.toUpperCase();
+      if (BLOCKED_COUNTRY_CODES.has(upper)) {
+        throw new Error(`Country ${upper} is sanctioned and cannot be used as proxy exit`);
+      }
+    }
     const username = this.config.username ?? "";
     const password = this.config.password ?? "";
     const proxyAuth = (username || password)

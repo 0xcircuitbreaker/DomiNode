@@ -31,7 +31,7 @@ func newProxyResource(http *httpClient, proxyHost string, httpPort, socks5Port i
 //
 // The returned URL includes authentication via the username field.
 // Geo-targeting and sticky sessions are encoded in the username portion
-// following PacketStream conventions.
+// following Dominus Node proxy conventions.
 //
 // Username format: user-country_XX-state_YY-city_ZZ-asn_N-session_S
 //
@@ -57,6 +57,11 @@ func (p *ProxyResource) BuildURL(opts ProxyURLOptions) (string, error) {
 	apiKey := p.getAPIKey()
 	if apiKey == "" {
 		return "", &ProxyError{DominusNodeError{Message: "No API key set. Call ConnectWithKey first."}}
+	}
+
+	// R31 C-4: Validate proxyHost to prevent URL injection via crafted hostnames
+	if strings.ContainsAny(p.proxyHost, " /\\@?#") {
+		return "", &ProxyError{DominusNodeError{Message: "proxyHost contains invalid characters"}}
 	}
 
 	protocol := opts.Protocol

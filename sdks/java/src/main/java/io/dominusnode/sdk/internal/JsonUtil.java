@@ -85,6 +85,10 @@ public final class JsonUtil {
         } catch (JsonProcessingException ignored) {
             // Not JSON -- fall through
         }
+        // R27 H-1: Truncate error message to prevent unbounded body in exception strings
+        if (body.length() > 500) {
+            return body.substring(0, 500) + "... [truncated]";
+        }
         return body;
     }
 

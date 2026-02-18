@@ -1,4 +1,4 @@
-import { query } from "../db.js";
+import { query, getPool } from "../db.js";
 import type { Plan } from "../types.js";
 
 interface PlanRow {
@@ -9,6 +9,7 @@ interface PlanRow {
   is_default: boolean;
   max_connections: number;
   max_sessions_per_minute: number;
+  allowed_proxy_types: string | null;
 }
 
 function rowToPlan(row: PlanRow): Plan {
@@ -20,6 +21,7 @@ function rowToPlan(row: PlanRow): Plan {
     isDefault: row.is_default,
     maxConnections: row.max_connections,
     maxSessionsPerMinute: row.max_sessions_per_minute ?? 30,
+    allowedProxyTypes: row.allowed_proxy_types ?? null,
   };
 }
 
@@ -56,22 +58,35 @@ export async function getUserPlan(userId: string): Promise<Plan> {
   return rowToPlan(row);
 }
 
+// R30 H-5: Wrap setUserPlan in a transaction with FOR SHARE on plan lookup
 export async function setUserPlan(userId: string, planId: string): Promise<void> {
-  // Verify the plan exists
-  const planResult = await query<PlanRow>(
-    `SELECT * FROM plans WHERE id = $1`,
-    [planId],
-  );
-  if (planResult.rows.length === 0) {
-    throw new Error(`Plan '${planId}' not found`);
-  }
+  const client = await getPool().connect();
+  try {
+    await client.query("BEGIN");
 
-  const result = await query(
-    `UPDATE users SET plan_id = $1 WHERE id = $2`,
-    [planId, userId],
-  );
-  if ((result.rowCount ?? 0) === 0) {
-    throw new Error(`User '${userId}' not found`);
+    // Verify the plan exists (FOR SHARE prevents concurrent deletion)
+    const planResult = await client.query<PlanRow>(
+      `SELECT * FROM plans WHERE id = $1 FOR SHARE`,
+      [planId],
+    );
+    if (planResult.rows.length === 0) {
+      throw new Error(`Plan '${planId}' not found`);
+    }
+
+    const result = await client.query(
+      `UPDATE users SET plan_id = $1 WHERE id = $2`,
+      [planId, userId],
+    );
+    if ((result.rowCount ?? 0) === 0) {
+      throw new Error(`User '${userId}' not found`);
+    }
+
+    await client.query("COMMIT");
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
   }
 }
 
@@ -81,7 +96,7 @@ export async function getMonthlyUsage(userId: string): Promise<number> {
     `SELECT COALESCE(SUM(bytes_in + bytes_out), 0) AS total_bytes
      FROM usage_records
      WHERE user_id = $1
-       AND created_at >= date_trunc('month', now())`,
+       AND created_at >= date_trunc('month', now() AT TIME ZONE 'UTC')`,
     [userId],
   );
   return Number(result.rows[0].total_bytes);

@@ -61,7 +61,7 @@ describe("proxy tools", () => {
       text: () => Promise.resolve(JSON.stringify({
         status: "healthy",
         latency_ms: 42,
-        providers: ["PacketStream"],
+        providers: ["Webshare"],
         active_sessions: 5,
       })),
       headers: new Headers(),
@@ -72,6 +72,6 @@ describe("proxy tools", () => {
     const text = (result.content as Array<{ type: string; text: string }>)[0].text;
     expect(text).toContain("healthy");
     expect(text).toContain("42ms");
-    expect(text).toContain("PacketStream");
+    expect(text).toContain("Webshare");
   });
 });

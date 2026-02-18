@@ -10,6 +10,7 @@ export interface ProxyOptions {
   city?: string;      // lowercase city name (e.g., "losangeles")
   asn?: number;       // ASN number (placeholder for future providers)
   sessionId?: string; // sticky session ID (alphanumeric)
+  proxyType?: "dc" | "residential" | "auto"; // pool selection
 }
 
 export interface AuthResult {
@@ -25,6 +26,12 @@ export interface AuthResult {
  */
 function parseProxyOptions(username: string): ProxyOptions {
   const options: ProxyOptions = {};
+
+  // Match proxyType prefix: dc-, residential-, auto- at the start of username
+  const typeMatch = username.match(/^(dc|residential|auto)(?:-|$)/);
+  if (typeMatch) {
+    options.proxyType = typeMatch[1] as "dc" | "residential" | "auto";
+  }
 
   // Match country-XX pattern
   const countryMatch = username.match(/(?:^|-)country-([A-Za-z]{2})(?:-|$)/);
@@ -93,6 +100,12 @@ export async function authenticateRequest(
     const result = await userRepo.findUserByApiKeyHash(keyHash);
     if (!result) {
       log.warn("invalid API key", { prefix: apiKey.slice(0, 16) });
+      return null;
+    }
+
+    // R27 C-1: Reject suspended/deleted users at proxy auth layer
+    if (result.user.status !== "active") {
+      log.warn("rejected non-active user", { userId: result.user.id, status: result.user.status });
       return null;
     }
 

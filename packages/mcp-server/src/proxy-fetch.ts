@@ -79,12 +79,62 @@ const BLOCKED_HOSTNAMES = new Set([
   "[::]",
 ]);
 
+// R19 C-2: Normalize non-standard IP representations (octal, hex, decimal)
+// to standard dotted-decimal to prevent SSRF bypasses like 0x7f000001, 2130706433, 0177.0.0.1
+function normalizeIpv4(hostname: string): string | null {
+  // Single decimal integer (e.g., 2130706433 = 127.0.0.1)
+  if (/^\d+$/.test(hostname)) {
+    const n = parseInt(hostname, 10);
+    if (n >= 0 && n <= 0xffffffff) {
+      return `${(n >>> 24) & 0xff}.${(n >>> 16) & 0xff}.${(n >>> 8) & 0xff}.${n & 0xff}`;
+    }
+  }
+  // Hex notation (e.g., 0x7f000001)
+  if (/^0x[0-9a-fA-F]+$/i.test(hostname)) {
+    const n = parseInt(hostname, 16);
+    if (n >= 0 && n <= 0xffffffff) {
+      return `${(n >>> 24) & 0xff}.${(n >>> 16) & 0xff}.${(n >>> 8) & 0xff}.${n & 0xff}`;
+    }
+  }
+  // Octal or mixed-radix octets (e.g., 0177.0.0.1, 0x7f.0.0.1)
+  const parts = hostname.split(".");
+  if (parts.length === 4) {
+    const octets: number[] = [];
+    for (const part of parts) {
+      let val: number;
+      if (/^0x[0-9a-fA-F]+$/i.test(part)) {
+        val = parseInt(part, 16);
+      } else if (/^0\d+$/.test(part)) {
+        val = parseInt(part, 8);
+      } else if (/^\d+$/.test(part)) {
+        val = parseInt(part, 10);
+      } else {
+        return null; // Not an IP
+      }
+      if (isNaN(val) || val < 0 || val > 255) return null;
+      octets.push(val);
+    }
+    return octets.join(".");
+  }
+  return null;
+}
+
 function isPrivateIp(hostname: string): boolean {
   // Strip brackets from IPv6
-  const ip = hostname.replace(/^\[|\]$/g, "");
+  let ip = hostname.replace(/^\[|\]$/g, "");
+
+  // R23 C-2: Strip IPv6 zone ID (e.g., %25eth0, %eth0) before any analysis
+  const zoneIdx = ip.indexOf("%");
+  if (zoneIdx !== -1) {
+    ip = ip.substring(0, zoneIdx);
+  }
+
+  // R19 C-2: Normalize non-standard IP formats before checking
+  const normalized = normalizeIpv4(ip);
+  const checkIp = normalized ?? ip;
 
   // IPv4 private ranges
-  const ipv4Match = ip.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  const ipv4Match = checkIp.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
   if (ipv4Match) {
     const [, a, b] = ipv4Match.map(Number);
     if (a === 0) return true;                       // 0.0.0.0/8
@@ -155,6 +205,13 @@ export function validateUrl(url: string): URL {
     throw new Error("Requests to internal network hostnames are blocked");
   }
 
+  // R18-H5: DNS rebinding note — proxyFetch always routes through the upstream proxy
+  // (config.proxyHost), which does its own DNS resolution. The proxy-gateway has
+  // double-resolve DNS rebinding protection. A DNS rebinding attack would need to
+  // target the upstream proxy's resolver, which is not attacker-controlled.
+  // The isPrivateIp() check above handles the static case; dynamic DNS rebinding
+  // is mitigated by the upstream proxy's own protections.
+
   return parsed;
 }
 
@@ -198,6 +255,18 @@ function httpProxyFetch(
       reject(new Error(`Proxy request timed out after ${timeoutMs}ms`));
     }, timeoutMs);
 
+    // R24 H-4: Block smuggling-prone headers on HTTP path (matches HTTPS path blocklist)
+    // R27 H-3: Add user-agent to blocked set (matches HTTPS path PROTECTED_HEADERS)
+    const BLOCKED_HTTP_HEADERS = new Set(["host", "connection", "content-length", "transfer-encoding", "proxy-authorization", "user-agent", "authorization"]);
+    const safeHttpHeaders: Record<string, string> = {};
+    if (opts.headers) {
+      for (const [key, value] of Object.entries(opts.headers)) {
+        if (!BLOCKED_HTTP_HEADERS.has(key.toLowerCase())) {
+          safeHttpHeaders[key] = value;
+        }
+      }
+    }
+
     const req = http.request(
       {
         hostname: config.proxyHost,
@@ -205,7 +274,7 @@ function httpProxyFetch(
         method,
         path: opts.url,
         headers: {
-          ...opts.headers,
+          ...safeHttpHeaders,
           "Proxy-Authorization": buildProxyAuth(apiKey, opts),
           Host: parsed.host,
         },
@@ -214,9 +283,14 @@ function httpProxyFetch(
         collectResponse(res, maxBytes, timer).then(
           ({ body, truncated, byteCount }) => {
             const contentType = res.headers["content-type"] ?? "";
+            // R23 H-4: Redact security-sensitive response headers
+            const REDACTED_RESP = new Set([
+              "set-cookie", "www-authenticate", "proxy-authenticate",
+              "authorization", "proxy-authorization",
+            ]);
             const responseHeaders: Record<string, string> = {};
             for (const [key, value] of Object.entries(res.headers)) {
-              if (value) responseHeaders[key] = Array.isArray(value) ? value.join(", ") : value;
+              if (value && !REDACTED_RESP.has(key)) responseHeaders[key] = Array.isArray(value) ? value.join(", ") : value;
             }
 
             let responseBody: string;
@@ -306,13 +380,36 @@ function httpsProxyFetch(
         () => {
           // Step 3: Send HTTP request through TLS tunnel
           const requestPath = parsed.pathname + parsed.search;
+          // R31 C-3: Validate request path for CRLF injection before writing raw HTTP request line
+          if (/[\r\n]/.test(requestPath)) {
+            clearTimeout(timer);
+            tlsSocket.destroy();
+            reject(new Error("Request path contains invalid characters"));
+            return;
+          }
+          // R19 H-1: Set base headers first, then user headers, but block security-sensitive overrides
+          const BLOCKED_HEADERS = new Set(["host", "connection", "content-length", "transfer-encoding", "proxy-authorization", "authorization"]);
+          const safeUserHeaders: Record<string, string> = {};
+          if (opts.headers) {
+            for (const [key, value] of Object.entries(opts.headers)) {
+              if (!BLOCKED_HEADERS.has(key.toLowerCase())) {
+                safeUserHeaders[key] = value;
+              }
+            }
+          }
+          // R20 H-2: Merge user headers WITHOUT allowing override of security-critical base headers
+          const PROTECTED_HEADERS = new Set(["host", "user-agent", "connection", "content-length"]);
           const reqHeaders: Record<string, string> = {
             Host: parsed.host,
             "User-Agent": "dominusnode-mcp-server/1.0.0",
             Accept: "*/*",
             Connection: "close",
-            ...opts.headers,
           };
+          for (const [key, value] of Object.entries(safeUserHeaders)) {
+            if (!PROTECTED_HEADERS.has(key.toLowerCase())) {
+              reqHeaders[key] = value;
+            }
+          }
 
           let reqLine = `${method} ${requestPath} HTTP/1.1\r\n`;
           for (const [key, value] of Object.entries(reqHeaders)) {
@@ -447,12 +544,19 @@ function parseHttpResponse(
         const status = statusMatch ? parseInt(statusMatch[1], 10) : 0;
         const statusText = statusMatch?.[2] ?? "";
 
+        // R23 H-4: Redact security-sensitive response headers before returning to MCP client
+        const REDACTED_RESPONSE_HEADERS = new Set([
+          "set-cookie", "www-authenticate", "proxy-authenticate",
+          "authorization", "proxy-authorization",
+        ]);
         const headers: Record<string, string> = {};
         const headerLines = headerSection.split("\r\n").slice(1);
         for (const line of headerLines) {
           const colonIdx = line.indexOf(":");
           if (colonIdx > 0) {
-            headers[line.substring(0, colonIdx).trim().toLowerCase()] = line.substring(colonIdx + 1).trim();
+            const key = line.substring(0, colonIdx).trim().toLowerCase();
+            if (REDACTED_RESPONSE_HEADERS.has(key)) continue;
+            headers[key] = line.substring(colonIdx + 1).trim();
           }
         }
 

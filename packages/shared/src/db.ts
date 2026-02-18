@@ -1,4 +1,7 @@
 import pg from "pg";
+import { createLogger } from "./logger.js";
+
+const log = createLogger("db");
 
 let pool: pg.Pool | null = null;
 
@@ -18,15 +21,16 @@ export function getPool(): pg.Pool {
       connectionTimeoutMillis: connTimeout,
       idleTimeoutMillis: 30000,
       statement_timeout: 10000,
-      ssl: process.env.NODE_ENV === "development" || process.env.NODE_ENV === "test"
-        ? false
-        : { rejectUnauthorized: true },
+      ssl: process.env.NODE_ENV === "production"
+        ? { rejectUnauthorized: true }
+        : false,
     });
     pool.on("connect", () => {
-      console.log("[db] new client connected to pool");
+      log.debug("new client connected to pool");
     });
     pool.on("error", (err) => {
-      console.error("[db] unexpected pool error", err);
+      // Only log message — full error object may contain DATABASE_URL credentials
+      log.error("unexpected pool error", { error: err.message });
     });
   }
   return pool;
@@ -56,11 +60,11 @@ export async function connectWithRetry(maxAttempts: number = 5): Promise<void> {
     try {
       const client = await getPool().connect();
       client.release();
-      console.log(`[db] connected successfully (attempt ${attempt})`);
+      log.info(`connected successfully (attempt ${attempt})`);
       return;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      console.error(`[db] connection attempt ${attempt}/${maxAttempts} failed: ${msg}`);
+      log.error(`connection attempt ${attempt}/${maxAttempts} failed`, { error: msg });
       if (attempt === maxAttempts) {
         throw new Error(`Failed to connect to database after ${maxAttempts} attempts: ${msg}`);
       }

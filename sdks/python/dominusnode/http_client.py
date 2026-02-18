@@ -31,16 +31,25 @@ from .errors import (
 )
 from .token_manager import AsyncTokenManager, TokenManager
 
+# R18-H13: Maximum response body size to prevent OOM from oversized API response
+MAX_RESPONSE_BYTES = 10 * 1024 * 1024  # 10MB
+
 
 def _extract_error_message(response: httpx.Response) -> str:
-    """Try to extract an error message from the JSON body."""
+    """Try to extract an error message from the JSON body.
+
+    R31 H-1: All extracted messages are truncated to 500 chars to prevent
+    unbounded error body content from propagating into exception strings.
+    """
     try:
         body = response.json()
         if isinstance(body, dict):
-            return body.get("error", response.reason_phrase or "Unknown error")
+            msg = body.get("error", response.reason_phrase or "Unknown error")
+            return str(msg)[:500]
     except Exception:
         pass
-    return response.reason_phrase or f"HTTP {response.status_code}"
+    fallback = response.reason_phrase or f"HTTP {response.status_code}"
+    return str(fallback)[:500]
 
 
 def _raise_for_status(response: httpx.Response) -> None:
@@ -83,7 +92,11 @@ def _parse_retry_after(response: httpx.Response) -> float:
     ra = response.headers.get("retry-after")
     if ra:
         try:
-            return max(float(ra), 0.1)
+            val = float(ra)
+            # R18-M2: Guard against NaN/Infinity from malformed headers
+            if not (val == val) or val == float("inf"):  # NaN check + infinity check
+                return 1.0
+            return max(val, 0.1)
         except ValueError:
             pass
     return 1.0
@@ -152,6 +165,19 @@ class SyncHttpClient:
         except httpx.HTTPError as exc:
             raise NetworkError(str(exc)) from exc
 
+        # R18-H13: Response size limit — check Content-Length header if available
+        content_length = response.headers.get("content-length")
+        if content_length:
+            try:
+                if int(content_length) > MAX_RESPONSE_BYTES:
+                    raise NetworkError(f"Response too large: {content_length} bytes")
+            except ValueError:
+                pass  # Malformed Content-Length header — skip size check
+
+        # R19 C-1: Also check actual body size (chunked transfer encoding may omit Content-Length)
+        if len(response.content) > MAX_RESPONSE_BYTES:
+            raise NetworkError(f"Response body too large: {len(response.content)} bytes")
+
         # Auto-retry once on 401 after force-refreshing the token (R12 H-3)
         if response.status_code == 401 and self._token_manager.has_refresh_token:
             self._token_manager.force_refresh()
@@ -166,6 +192,9 @@ class SyncHttpClient:
                 )
             except httpx.HTTPError as exc:
                 raise NetworkError(str(exc)) from exc
+            # R26 H-1: Size check on 401-retry response
+            if len(response.content) > MAX_RESPONSE_BYTES:
+                raise NetworkError(f"Response body too large: {len(response.content)} bytes")
 
         # Auto-retry once on 429
         if response.status_code == 429:
@@ -183,6 +212,9 @@ class SyncHttpClient:
                 )
             except httpx.HTTPError as exc:
                 raise NetworkError(str(exc)) from exc
+            # R26 H-2: Size check on 429-retry response
+            if len(response.content) > MAX_RESPONSE_BYTES:
+                raise NetworkError(f"Response body too large: {len(response.content)} bytes")
 
         _raise_for_status(response)
         return response
@@ -273,6 +305,19 @@ class AsyncHttpClient:
         except httpx.HTTPError as exc:
             raise NetworkError(str(exc)) from exc
 
+        # R18-H13: Response size limit — check Content-Length header if available
+        content_length = response.headers.get("content-length")
+        if content_length:
+            try:
+                if int(content_length) > MAX_RESPONSE_BYTES:
+                    raise NetworkError(f"Response too large: {content_length} bytes")
+            except ValueError:
+                pass  # Malformed Content-Length header — skip size check
+
+        # R19 C-1: Also check actual body size (chunked transfer encoding may omit Content-Length)
+        if len(response.content) > MAX_RESPONSE_BYTES:
+            raise NetworkError(f"Response body too large: {len(response.content)} bytes")
+
         # Auto-retry once on 401 after force-refreshing the token (R13 C-3)
         if response.status_code == 401 and self._token_manager.has_refresh_token:
             await self._token_manager.force_refresh()
@@ -287,6 +332,9 @@ class AsyncHttpClient:
                 )
             except httpx.HTTPError as exc:
                 raise NetworkError(str(exc)) from exc
+            # R26 H-1: Size check on 401-retry response
+            if len(response.content) > MAX_RESPONSE_BYTES:
+                raise NetworkError(f"Response body too large: {len(response.content)} bytes")
 
         # Auto-retry once on 429
         if response.status_code == 429:
@@ -304,6 +352,9 @@ class AsyncHttpClient:
                 )
             except httpx.HTTPError as exc:
                 raise NetworkError(str(exc)) from exc
+            # R26 H-2: Size check on 429-retry response
+            if len(response.content) > MAX_RESPONSE_BYTES:
+                raise NetworkError(f"Response body too large: {len(response.content)} bytes")
 
         _raise_for_status(response)
         return response

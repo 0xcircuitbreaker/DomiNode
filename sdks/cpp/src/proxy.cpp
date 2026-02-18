@@ -1,5 +1,6 @@
 #include "dominusnode/proxy.hpp"
 #include "dominusnode/http_client.hpp"
+#include "dominusnode/errors.hpp"
 
 #include <sstream>
 #include <iomanip>
@@ -50,6 +51,14 @@ ProxyStatus ProxyResource::get_status() {
 
 std::string ProxyResource::build_url(const std::string& api_key,
                                       const ProxyUrlOptions& options) const {
+    // R31 C-4: Validate proxy_host to prevent URL injection via crafted hostnames
+    static const std::string invalid_chars = " /\\@?#";
+    for (char c : proxy_host_) {
+        if (invalid_chars.find(c) != std::string::npos) {
+            throw ValidationError("proxy_host contains invalid characters");
+        }
+    }
+
     // Build username from geo/session options
     // Format: user-country-XX-state-YY-city-ZZ-session-ID
     std::ostringstream username;

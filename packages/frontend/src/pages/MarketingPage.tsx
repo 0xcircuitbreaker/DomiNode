@@ -27,7 +27,8 @@ interface ProxyHealthResponse {
 }
 
 const FALLBACK_PLANS: PlanItem[] = [
-  { id: "free", name: "Free", pricePerGbCents: 0, pricePerGbUsd: 0, monthlyBandwidthGB: 1, maxConnections: 10 },
+  { id: "free-dc", name: "Free DC", pricePerGbCents: 0, pricePerGbUsd: 0, monthlyBandwidthGB: 2, maxConnections: 5 },
+  { id: "free-res", name: "Free Residential", pricePerGbCents: 0, pricePerGbUsd: 0, monthlyBandwidthGB: 0.05, maxConnections: 5 },
   { id: "payg", name: "Pay As You Go", pricePerGbCents: 500, pricePerGbUsd: 5, monthlyBandwidthGB: null, maxConnections: 100 },
   { id: "vol100", name: "Volume 100GB", pricePerGbCents: 400, pricePerGbUsd: 4, monthlyBandwidthGB: 100, maxConnections: 100 },
   { id: "vol1tb", name: "Volume 1TB", pricePerGbCents: 300, pricePerGbUsd: 3, monthlyBandwidthGB: 1024, maxConnections: 100 },
@@ -115,7 +116,7 @@ const PLATFORM_CONFIGS = [
 
 const PROOF_POINTS = [
   { value: "HTTP + SOCKS5", label: "Protocol support" },
-  { value: "100+", label: "Country routes upstream" },
+  { value: "50+", label: "Country routes upstream" },
   { value: "50", label: "API keys per account" },
   { value: "24/7", label: "Platform monitoring" },
 ];
@@ -124,7 +125,7 @@ const WORKFLOW_STEPS = [
   {
     step: "1",
     title: "Create a free account",
-    body: "Sign up in seconds with email or an Ethereum wallet — no credit card needed. Get 10 residential proxy connections and 1 GB of bandwidth immediately.",
+    body: "Sign up in seconds with email or an Ethereum wallet — no credit card needed. Choose 2 GB datacenter or 50 MB residential bandwidth free.",
   },
   {
     step: "2",
@@ -237,7 +238,7 @@ export default function MarketingPage() {
   const { data: healthData } = useApi<ProxyHealthResponse>(() => get("/api/proxy/health", { redirectOnUnauthorized: false }));
 
   const plans = (plansData?.plans ?? FALLBACK_PLANS)
-    .filter((p) => p.id === "free" || p.id === "payg" || p.id === "vol100" || p.id === "vol1tb" || p.id === "agent")
+    .filter((p) => p.id === "free-dc" || p.id === "free-res" || p.id === "payg" || p.id === "vol100" || p.id === "vol1tb" || p.id === "agent")
     .sort((a, b) => a.pricePerGbUsd - b.pricePerGbUsd);
 
   const registerHref = user ? "/app" : "/login?mode=register";
@@ -249,14 +250,41 @@ export default function MarketingPage() {
   const marketingProxyEndpoint = getMarketingProxyEndpoint();
 
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [betaDismissed, setBetaDismissed] = useState(() => {
+    try { return localStorage.getItem("dn_beta_dismissed") === "1"; } catch { return false; }
+  });
+
+  function dismissBeta() {
+    setBetaDismissed(true);
+    try { localStorage.setItem("dn_beta_dismissed", "1"); } catch { /* ignore */ }
+  }
 
   return (
     <div className="marketing-root" data-theme={theme}>
       <NodeNetworkBackground theme={theme} className="mk-node-network" />
+
+      {!betaDismissed && (
+        <div className="mk-beta-banner">
+          <div className="mk-shell mk-beta-banner-inner">
+            <span className="mk-beta-badge">BETA</span>
+            <p className="mk-beta-text">
+              Limited slots available &mdash; 250 datacenter proxies, residential pool access.
+              Join the beta before slots fill up.
+            </p>
+            <Link to={registerHref} className="mk-beta-cta">
+              {user ? "Open Dashboard" : "Join Beta"}
+            </Link>
+            <button className="mk-beta-close" onClick={dismissBeta} aria-label="Dismiss beta banner">
+              &times;
+            </button>
+          </div>
+        </div>
+      )}
+
       <header className="mk-nav">
         <div className="mk-shell mk-nav-inner">
           <Link to="/" className="mk-brand">
-            <img src="/logo.svg" alt={BRAND_MARK} className="mk-brand-mark" style={{ width: "2.2rem", height: "2.2rem" }} />
+            <img src="/logo.svg" alt={BRAND_MARK} className="mk-brand-mark" style={{ width: "2.8rem", height: "2.8rem" }} />
             <span>{BRAND_NAME}</span>
           </Link>
 
@@ -324,8 +352,8 @@ export default function MarketingPage() {
             <div className="mk-hero-copy mk-animate-up mk-delay-1">
               <p className="mk-subtitle">
                 Launch high-trust traffic through a hardened control plane with resilient routing,
-                transparent economics, and production-grade observability. Start free with 10 proxy
-                connections and 1 GB of residential bandwidth — no credit card required.
+                transparent economics, and production-grade observability. Start free with 2 GB
+                of datacenter bandwidth or 50 MB residential — no credit card required.
               </p>
 
               <div className="mk-cta-row">
@@ -393,7 +421,7 @@ export default function MarketingPage() {
           <div className="mk-card-grid">
             <article className="mk-card mk-animate-up mk-delay-1">
               <h3>Routing precision</h3>
-              <p>Country, state, city, and sticky session targeting through authenticated proxy identity controls.</p>
+              <p>Country-level targeting and sticky session controls through authenticated proxy identity.</p>
             </article>
             <article className="mk-card mk-animate-up mk-delay-2">
               <h3>Transparent economics</h3>
@@ -468,7 +496,7 @@ export default function MarketingPage() {
             <p style={{ color: "var(--mk-muted)", maxWidth: "600px", margin: "0 auto 1.5rem" }}>
               No API key? No problem. Start in bootstrap mode — your AI agent creates its own account
               with <code>dominusnode_setup</code>, generates an API key, and starts proxying immediately.
-              Free tier includes 1 GB bandwidth and 10 connections.
+              Free tier includes 2 GB datacenter bandwidth and 5 connections.
             </p>
           </div>
         </section>
@@ -578,10 +606,10 @@ export default function MarketingPage() {
 
         <section className="mk-shell mk-final-cta">
           <div className="mk-final-card mk-animate-up">
-            <h2>Start with 10 free residential proxies</h2>
+            <h2>Start free with datacenter or residential proxies</h2>
             <p>
-              Create your {BRAND_NAME} account in seconds — no credit card required. Get 1 GB of residential
-              proxy bandwidth free every month, then scale with transparent per-GB pricing.
+              Create your {BRAND_NAME} account in seconds — no credit card required. Get 2 GB datacenter
+              or 50 MB residential bandwidth free every month, then scale with transparent per-GB pricing.
             </p>
             <div className="mk-cta-row">
               <Link to={registerHref} className="mk-button mk-button-solid">
@@ -594,6 +622,17 @@ export default function MarketingPage() {
           </div>
         </section>
       </main>
+
+      <footer className="border-t border-gray-800 py-8 px-6">
+        <div className="mk-shell flex flex-col sm:flex-row items-center justify-between gap-4">
+          <p className="text-xs text-gray-600">&copy; {new Date().getFullYear()} {BRAND_NAME}. All rights reserved.</p>
+          <div className="flex gap-6">
+            <Link to="/privacy" className="text-xs text-gray-500 hover:text-gray-300 transition-colors">Privacy Policy</Link>
+            <Link to="/terms" className="text-xs text-gray-500 hover:text-gray-300 transition-colors">Terms of Service</Link>
+            <a href="mailto:support@dominusnode.com" className="text-xs text-gray-500 hover:text-gray-300 transition-colors">Contact</a>
+          </div>
+        </div>
+      </footer>
     </div>
   );
 }

@@ -65,7 +65,16 @@ describe("proxy-gateway/target-validator", () => {
     });
 
     it("should accept hostname at exactly 253 chars", () => {
-      expect(isValidHostname("a".repeat(253))).toBe(true);
+      // Build a valid 253-char hostname with labels ≤63 chars each
+      // "aaa...aaa.aaa...aaa...." pattern: 63-char labels separated by dots
+      const label63 = "a".repeat(63);
+      const hostname253 = `${label63}.${label63}.${label63}.${label63.slice(0, 253 - 63 * 3 - 3)}`;
+      expect(hostname253.length).toBe(253);
+      expect(isValidHostname(hostname253)).toBe(true);
+    });
+
+    it("should reject single label exceeding 63 chars", () => {
+      expect(isValidHostname("a".repeat(64))).toBe(false);
     });
 
     it("should reject empty hostname", () => {

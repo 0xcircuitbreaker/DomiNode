@@ -6,7 +6,7 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "tsc --build",
+    "build": "tsc --build && cp packages/shared/src/schema.sql packages/shared/dist/src/schema.sql",
     "start:proxy": "node packages/proxy-gateway/dist/src/main.js",
     "start:api": "node packages/dashboard/dist/src/main.js",
     "db:migrate": "node packages/shared/dist/src/migrate.js",

@@ -6,7 +6,7 @@ import { apiGet } from "../shared/api-client.js";
 import { LOW_BALANCE_THRESHOLD_CENTS } from "../shared/constants.js";
 
 interface WalletResponse {
-  balance: number; // cents
+  balanceCents: number; // cents — matches API response field name
 }
 
 let lastNotifiedLowBalance = false;
@@ -28,7 +28,12 @@ export async function pollBalance(): Promise<void> {
   let balance: number;
   try {
     const resp = await apiGet<WalletResponse>("/api/wallet", token);
-    balance = resp.balance;
+    // R31 H-1: Validate balance value before storing
+    const raw = resp.balanceCents;
+    if (typeof raw !== "number" || !Number.isFinite(raw) || raw < 0) {
+      return; // Reject invalid balance, keep last known value
+    }
+    balance = Math.floor(raw);
   } catch {
     // Network error — keep last known balance, don't update state
     return;

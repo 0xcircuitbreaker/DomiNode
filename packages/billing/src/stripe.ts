@@ -43,6 +43,11 @@ export async function createCheckoutSession(
   userId: string,
   amountCents: number,
 ): Promise<{ sessionId: string; url: string }> {
+  // R30 C-2: Defense-in-depth validation (callers should also validate)
+  if (!Number.isInteger(amountCents) || amountCents < 500 || amountCents > 100_000) {
+    throw new Error("Invalid top-up amount: must be integer between 500 and 100000 cents");
+  }
+
   // Validate redirect URLs on first use (deferred from module load to prevent import crash)
   if (!redirectUrlsValidated) {
     validateRedirectUrl("STRIPE_SUCCESS_URL", STRIPE_SUCCESS_URL);
@@ -111,6 +116,15 @@ export async function handleCheckoutWebhook(
   }
 
   const session = event.data.object as Stripe.Checkout.Session;
+
+  // R24 H-3: Verify payment is actually completed — some payment methods can fire completed without paid status
+  if (session.payment_status !== "paid") {
+    log.warn("checkout session completed but payment_status is not paid", {
+      sessionId: session.id, paymentStatus: session.payment_status,
+    });
+    return null;
+  }
+
   const amountCents = session.amount_total ?? 0;
 
   if (amountCents <= 0) {
@@ -122,6 +136,12 @@ export async function handleCheckoutWebhook(
   const invoice = await invoiceRepo.findInvoice("stripe", session.id);
   if (!invoice) {
     log.error("no matching invoice found for Stripe session", { sessionId: session.id });
+    return null;
+  }
+
+  // R30 H-3: Reject webhooks for invoices that have been permanently failed
+  if (invoice.status === "failed") {
+    log.warn("webhook received for failed invoice, ignoring", { externalId: session.id });
     return null;
   }
 
@@ -142,16 +162,31 @@ export async function handleCheckoutWebhook(
   const claimed = await invoiceRepo.completeInvoice(invoice.id);
   if (!claimed) {
     log.info("duplicate Stripe webhook ignored (invoice already completed)", { sessionId: session.id });
-    return { userId, amountCents };
+    return { userId, amountCents: invoice.amount_cents };
   }
 
-  await walletRepo.creditWallet(
-    userId,
-    amountCents,
-    "stripe",
-    session.id,
-    `Stripe top-up $${(amountCents / 100).toFixed(2)}`,
-  );
-  log.info("wallet credited via Stripe", { userId, amountCents });
-  return { userId, amountCents };
+  // R31 H-2: Credit invoice.amount_cents (our stored truth) not Stripe's amount_total
+  // — prevents crediting a manipulated amount if Stripe session data were ever tampered with.
+  // (The amounts are verified equal above, but defense-in-depth: trust our DB value.)
+  const creditAmountCents = invoice.amount_cents;
+  try {
+    await walletRepo.creditWallet(
+      userId,
+      creditAmountCents,
+      "stripe",
+      session.id,
+      `Stripe top-up $${(creditAmountCents / 100).toFixed(2)}`,
+    );
+  } catch (creditErr) {
+    // R30 C-1: Do NOT revert to pending — this creates infinite retry loops.
+    // Mark as failed; operator can manually reconcile if needed.
+    log.error("wallet credit failed after invoice completion — marking invoice as failed", {
+      invoiceId: invoice.id, userId, sessionId: session.id,
+      error: creditErr instanceof Error ? creditErr.message : String(creditErr),
+    });
+    try { await invoiceRepo.markCreditFailed(invoice.id); } catch { /* best effort */ }
+    throw creditErr;
+  }
+  log.info("wallet credited via Stripe", { userId, amountCents: creditAmountCents });
+  return { userId, amountCents: creditAmountCents };
 }

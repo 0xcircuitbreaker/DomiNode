@@ -167,18 +167,27 @@ function UsersTab() {
     [page],
   );
 
+  // R27 C-1: Validate user ID format before using in URL paths
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
   const { data: detailData } = useApi<UserDetailResponse | null>(
-    () => selectedUserId ? get(`/api/admin/users/${selectedUserId}`) : Promise.resolve(null),
+    // R31 C-1: Validate UUID before detail fetch to prevent path injection
+    () => selectedUserId && UUID_RE.test(selectedUserId) ? get(`/api/admin/users/${selectedUserId}`) : Promise.resolve(null),
     [selectedUserId],
   );
 
   const [actionError, setActionError] = useState<string | null>(null);
 
+  const validateUuid = (id: string): string => {
+    if (!UUID_RE.test(id)) throw new Error("Invalid user ID format");
+    return id;
+  };
+
   const handleSuspend = useCallback(async (userId: string) => {
     if (!window.confirm("Suspend this user? They will lose proxy access.")) return;
     setActionError(null);
     try {
-      await put(`/api/admin/users/${userId}/suspend`, {});
+      await put(`/api/admin/users/${validateUuid(userId)}/suspend`, {});
       refetch();
     } catch (err) {
       setActionError(err instanceof Error ? err.message : "Failed to suspend user");
@@ -188,7 +197,7 @@ function UsersTab() {
   const handleActivate = useCallback(async (userId: string) => {
     setActionError(null);
     try {
-      await put(`/api/admin/users/${userId}/activate`, {});
+      await put(`/api/admin/users/${validateUuid(userId)}/activate`, {});
       refetch();
     } catch (err) {
       setActionError(err instanceof Error ? err.message : "Failed to activate user");
@@ -199,7 +208,7 @@ function UsersTab() {
     if (!window.confirm("Are you sure you want to delete this user? This is a soft-delete.")) return;
     setActionError(null);
     try {
-      await del(`/api/admin/users/${userId}`);
+      await del(`/api/admin/users/${validateUuid(userId)}`);
       refetch();
     } catch (err) {
       setActionError(err instanceof Error ? err.message : "Failed to delete user");
@@ -361,6 +370,9 @@ function UsersTab() {
 
 // ─── Revenue Tab ────────────────────────────────────────────────────
 
+// R30 H-1: Validate date format before URL interpolation
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
 function RevenueTab() {
   const [since] = useState(() => {
     const d = new Date();
@@ -369,14 +381,20 @@ function RevenueTab() {
   });
   const [until] = useState(() => new Date().toISOString().split("T")[0]);
 
+  const safeSince = DATE_RE.test(since) ? since : new Date(Date.now() - 30 * 86400000).toISOString().split("T")[0];
+  const safeUntil = DATE_RE.test(until) ? until : new Date().toISOString().split("T")[0];
+
+  const revenueParams = new URLSearchParams({ since: `${safeSince}T00:00:00Z`, until: `${safeUntil}T23:59:59Z` });
+  const dailyParams = new URLSearchParams({ since: `${safeSince}T00:00:00Z`, until: `${safeUntil}T23:59:59Z` });
+
   const { data: revenue } = useApi<RevenueResponse>(
-    () => get(`/api/admin/revenue?since=${since}T00:00:00Z&until=${until}T23:59:59Z`),
-    [since, until],
+    () => get(`/api/admin/revenue?${revenueParams.toString()}`),
+    [safeSince, safeUntil],
   );
 
   const { data: daily } = useApi<DailyRevenueResponse>(
-    () => get(`/api/admin/revenue/daily?since=${since}T00:00:00Z&until=${until}T23:59:59Z`),
-    [since, until],
+    () => get(`/api/admin/revenue/daily?${dailyParams.toString()}`),
+    [safeSince, safeUntil],
   );
 
   return (

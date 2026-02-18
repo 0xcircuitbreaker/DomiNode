@@ -9,6 +9,8 @@ import WalletPage from "./pages/WalletPage";
 import UsagePage from "./pages/UsagePage";
 import PlansPage from "./pages/PlansPage";
 import SecurityPage from "./pages/SecurityPage";
+import PrivacyPage from "./pages/PrivacyPage";
+import TermsPage from "./pages/TermsPage";
 import { useAuth } from "./context/AuthContext";
 
 // Lazy-load admin page so admin-only code isn't shipped to regular users
@@ -24,6 +26,8 @@ export default function App() {
   return (
     <Routes>
       <Route path="/" element={<MarketingPage />} />
+      <Route path="/privacy" element={<PrivacyPage />} />
+      <Route path="/terms" element={<TermsPage />} />
       <Route path="/login" element={<LoginPage />} />
       <Route path="/dashboard" element={<Navigate to="/app" replace />} />
       <Route path="/keys" element={<Navigate to="/app/keys" replace />} />

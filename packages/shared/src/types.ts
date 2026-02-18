@@ -120,6 +120,7 @@ export interface Plan {
   isDefault: boolean;
   maxConnections: number;
   maxSessionsPerMinute: number;
+  allowedProxyTypes: string | null; // 'dc', 'residential', or null for all
 }
 
 // ─── Admin Views ────────────────────────────────────────────────────
@@ -167,11 +168,17 @@ export interface SystemStats {
 
 // ─── Constants ───────────────────────────────────────────────────────
 
-/** Sell price: $5.00 per GB */
+/** Sell price: $5.00 per GB (residential) */
 export const PRICE_PER_GB_CENTS = 500;
 
-/** Our cost from PacketStream: $1.00 per GB */
-export const COST_PER_GB_CENTS = 100;
+/** Sell price: $3.00 per GB (datacenter) */
+export const PRICE_PER_GB_CENTS_DC = 300;
+
+/** Our cost from Webshare DC (250 IPs, 1TB bandwidth, 250 replacements) */
+export const COST_PER_GB_CENTS = 1;
+
+/** Our cost from Webshare residential: $4.00 per GB (10GB for $40) */
+export const COST_PER_GB_CENTS_RESIDENTIAL = 400;
 
 /** 1 GB in bytes (1024^3) */
 export const BYTES_PER_GB = 1_073_741_824;

@@ -149,7 +149,7 @@ describe("proxy-health routes", () => {
           uptimeSeconds: 7200,
           providers: [
             {
-              name: "packetstream",
+              name: "webshare-dc",
               state: "healthy",
               consecutiveFailures: 0,
               totalRequests: 500,
@@ -170,9 +170,8 @@ describe("proxy-health routes", () => {
       expect(res.body.avgLatencyMs).toBe(120);
       expect(res.body.endpoints).toBeDefined();
       expect(res.body.supportedCountries).toBeDefined();
-      const providers = res.body.providers as Array<Record<string, unknown>>;
-      expect(providers).toHaveLength(1);
-      expect(providers[0].name).toBe("packetstream");
+      // R23 H-2: Non-admin users should NOT see provider details
+      expect(res.body.providers).toBeUndefined();
     });
 
     it("should return defaults when proxy is unreachable", async () => {

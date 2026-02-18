@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { adminRepo, createLogger, userRepo, refreshTokenRepo } from "@dominusnode/shared";
+import { adminRepo, createLogger, userRepo, refreshTokenRepo, mfaRepo } from "@dominusnode/shared";
 import { requireAuth, type AuthenticatedRequest } from "../middleware/auth.js";
 import { requireAdmin } from "../middleware/admin.js";
 
@@ -89,12 +89,17 @@ router.put("/users/:id/suspend", async (req, res) => {
     try {
       const proxyHost = process.env["PROXY_INTERNAL_HOST"] ?? "127.0.0.1";
       const proxyPort = process.env["PROXY_INTERNAL_PORT"] ?? process.env["PROXY_LISTEN_PORT"] ?? "8080";
-      const proxySecret = process.env["PROXY_STATS_SECRET"] ?? process.env["JWT_SECRET"] ?? "";
+      // R18-H4: Derive a separate stats secret from JWT_SECRET using HMAC
+      const proxySecret = process.env["PROXY_STATS_SECRET"] ??
+        (process.env["JWT_SECRET"]
+          ? (await import("node:crypto")).createHmac("sha256", process.env["JWT_SECRET"]).update("proxy-stats-endpoint").digest("hex")
+          : "");
       const headers: Record<string, string> = { "Content-Length": "0" };
       if (proxySecret) headers["Authorization"] = `Bearer ${proxySecret}`;
       const resp = await fetch(`http://${proxyHost}:${proxyPort}/internal/terminate-sessions/${req.params.id}`, {
         method: "POST",
         headers,
+        redirect: "error", // R19 H-5: Prevent SSRF via redirect
       });
       if (resp.ok) {
         const body = await resp.json() as { terminated: number };
@@ -157,13 +162,37 @@ router.delete("/users/:id", async (req, res) => {
       res.status(403).json({ error: "Cannot delete another admin account" });
       return;
     }
-    // Revoke all API keys and refresh tokens before deleting (same as suspend)
+    // Revoke all API keys, refresh tokens, and MFA config before deleting
     const [revokedKeys, revokedTokens] = await Promise.all([
       userRepo.revokeAllApiKeys(req.params.id),
       refreshTokenRepo.revokeAllForUser(req.params.id),
+      mfaRepo.deleteMfaConfig(req.params.id), // R27 C-1: Clear MFA state on delete
     ]);
+    // R19 H-3: Terminate active proxy sessions before deleting user (same as suspend)
+    let terminatedSessions = 0;
+    try {
+      const proxyHost = process.env["PROXY_INTERNAL_HOST"] ?? "127.0.0.1";
+      const proxyPort = process.env["PROXY_INTERNAL_PORT"] ?? process.env["PROXY_LISTEN_PORT"] ?? "8080";
+      const proxySecret = process.env["PROXY_STATS_SECRET"] ??
+        (process.env["JWT_SECRET"]
+          ? (await import("node:crypto")).createHmac("sha256", process.env["JWT_SECRET"]).update("proxy-stats-endpoint").digest("hex")
+          : "");
+      const headers: Record<string, string> = { "Content-Length": "0" };
+      if (proxySecret) headers["Authorization"] = `Bearer ${proxySecret}`;
+      const resp = await fetch(`http://${proxyHost}:${proxyPort}/internal/terminate-sessions/${req.params.id}`, {
+        method: "POST",
+        headers,
+        redirect: "error", // R19 H-5: Prevent SSRF via redirect
+      });
+      if (resp.ok) {
+        const body = await resp.json() as { terminated: number };
+        terminatedSessions = body.terminated;
+      }
+    } catch {
+      log.warn("could not signal proxy-gateway to terminate sessions", { targetUserId: req.params.id });
+    }
     await adminRepo.deleteUser(req.params.id);
-    log.info("user deleted (soft)", { targetUserId: req.params.id, revokedKeys, revokedTokens });
+    log.info("user deleted (soft)", { targetUserId: req.params.id, revokedKeys, revokedTokens, terminatedSessions });
     res.json({ message: "User deleted" });
   } catch (err) {
     log.error("failed to delete user", { error: err instanceof Error ? err.message : String(err) });

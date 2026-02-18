@@ -37,3 +37,30 @@ export async function completeInvoice(id: string): Promise<boolean> {
   );
   return (result.rowCount ?? 0) > 0;
 }
+
+/**
+ * R31 H-5: Mark a pending invoice as permanently failed.
+ * Only transitions pending → failed.
+ * Operator can manually reconcile failed invoices if needed.
+ */
+export async function failInvoice(invoiceId: string): Promise<boolean> {
+  const result = await query(
+    `UPDATE payment_invoices SET status = 'failed' WHERE id = $1 AND status = 'pending'`,
+    [invoiceId],
+  );
+  return (result.rowCount ?? 0) > 0;
+}
+
+/**
+ * R31 H-5: Mark a completed invoice as failed when wallet credit fails
+ * after the invoice was already marked completed. Only transitions
+ * completed → failed. Prevents infinite retry loops.
+ * Operator can manually reconcile failed invoices if needed.
+ */
+export async function markCreditFailed(invoiceId: string): Promise<boolean> {
+  const result = await query(
+    `UPDATE payment_invoices SET status = 'failed' WHERE id = $1 AND status = 'completed'`,
+    [invoiceId],
+  );
+  return (result.rowCount ?? 0) > 0;
+}

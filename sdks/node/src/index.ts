@@ -66,7 +66,7 @@ export {
 
 // Types
 export type {
-  Dominus NodeConfig,
+  DominusNodeConfig,
   User,
   ApiKey,
   Wallet,

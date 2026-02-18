@@ -1,4 +1,4 @@
-export interface Dominus NodeConfig {
+export interface DominusNodeConfig {
   baseUrl?: string;
   apiKey?: string;
   accessToken?: string;

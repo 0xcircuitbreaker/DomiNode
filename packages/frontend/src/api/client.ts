@@ -1,6 +1,44 @@
 // Simplified API client — auth is handled via httpOnly cookies.
 // No token management needed on the client side.
 
+// R22 H-3: Response size limit to prevent OOM from oversized server responses
+const MAX_RESPONSE_BYTES = 5 * 1024 * 1024; // 5MB
+
+// R26 M-1: Prototype pollution protection — strip dangerous keys from parsed JSON
+const DANGEROUS_KEYS = new Set(["__proto__", "constructor", "prototype"]);
+function stripDangerousKeys(obj: unknown, depth = 0): void {
+  if (depth > 50 || !obj || typeof obj !== "object") return;
+  if (Array.isArray(obj)) {
+    for (const item of obj) stripDangerousKeys(item, depth + 1);
+    return;
+  }
+  const record = obj as Record<string, unknown>;
+  for (const key of Object.keys(record)) {
+    if (DANGEROUS_KEYS.has(key)) {
+      delete record[key];
+    } else if (record[key] && typeof record[key] === "object") {
+      stripDangerousKeys(record[key], depth + 1);
+    }
+  }
+}
+
+async function safeJson<T>(res: Response): Promise<T> {
+  // R24 C-1: Pre-flight Content-Length check before buffering (prevents OOM on oversized responses)
+  const contentLength = parseInt(res.headers.get("content-length") ?? "0", 10);
+  if (contentLength > MAX_RESPONSE_BYTES) {
+    await res.body?.cancel();
+    throw new Error("Response too large");
+  }
+  const text = await res.text();
+  if (text.length > MAX_RESPONSE_BYTES) {
+    throw new Error("Response too large");
+  }
+  if (!text) return undefined as T;
+  const parsed = JSON.parse(text);
+  stripDangerousKeys(parsed);
+  return parsed as T;
+}
+
 // Singleton refresh lock prevents multiple concurrent 401-triggered refreshes
 // from racing against each other and causing token rotation confusion.
 let refreshPromise: Promise<boolean> | null = null;
@@ -14,6 +52,7 @@ function silentRefresh(): Promise<boolean> {
   refreshPromise = fetch("/api/auth/refresh", {
     method: "POST",
     credentials: "include",
+    redirect: "error", // R19 C-1: Prevent credential leakage via redirect
   })
     .then((r) => r.ok)
     .catch(() => false)
@@ -45,6 +84,7 @@ async function apiFetch<T>(
       headers,
       credentials: "include",
       signal: controller.signal,
+      redirect: "error", // R19 C-1: Prevent credential leakage via redirect
     });
   } finally {
     clearTimeout(timeoutId);
@@ -65,6 +105,7 @@ async function apiFetch<T>(
           headers,
           credentials: "include",
           signal: retryController.signal,
+          redirect: "error", // R19 C-1: Prevent credential leakage via redirect
         });
       } finally {
         clearTimeout(retryTimeoutId);
@@ -79,10 +120,10 @@ async function apiFetch<T>(
 
       if (retryRes.status === 204) return undefined as T;
       if (!retryRes.ok) {
-        const body = await retryRes.json().catch(() => ({ error: retryRes.statusText }));
+        const body = await safeJson<{ error?: string }>(retryRes).catch(() => ({ error: retryRes.statusText }));
         throw new Error(body.error || `Request failed: ${retryRes.status}`);
       }
-      return retryRes.json();
+      return safeJson<T>(retryRes);
     }
 
     if (redirectOnUnauthorized) {
@@ -103,11 +144,11 @@ async function apiFetch<T>(
   }
 
   if (!res.ok) {
-    const body = await res.json().catch(() => ({ error: res.statusText }));
+    const body = await safeJson<{ error?: string }>(res).catch(() => ({ error: res.statusText }));
     throw new Error(body.error || `Request failed: ${res.status}`);
   }
 
-  return res.json();
+  return safeJson<T>(res);
 }
 
 export function get<T>(path: string, options?: ApiRequestOptions): Promise<T> {

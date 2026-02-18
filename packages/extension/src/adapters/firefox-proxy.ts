@@ -1,6 +1,23 @@
 import { getApiBase } from "../shared/api-client.js";
 import type { ProxyAdapterConfig as ProxyConfig } from "../shared/types.js";
 
+// R30 H-1: Validate host/port to prevent injection via proxy config
+const HOSTNAME_RE = /^[a-zA-Z0-9.\-]+$/;
+
+function sanitizeHostname(host: string): string {
+  if (!HOSTNAME_RE.test(host)) {
+    throw new Error(`Invalid proxy hostname: ${host}`);
+  }
+  return host;
+}
+
+function sanitizePort(port: number): number {
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new Error(`Invalid proxy port: ${port}`);
+  }
+  return port;
+}
+
 type ProxyInfo =
   | { type: "http"; host: string; port: number; username: string; password: string }
   | { type: "socks"; host: string; port: number; username: string; password: string; proxyDNS: boolean }
@@ -68,7 +85,10 @@ function handleRequest(details: { url: string }): ProxyInfo {
 }
 
 export function enable(config: ProxyConfig): void {
-  currentConfig = config;
+  // R30 H-1: Validate host/port before storing config
+  const safeHost = sanitizeHostname(config.host);
+  const safePort = sanitizePort(config.port);
+  currentConfig = { ...config, host: safeHost, port: safePort };
 
   if (!listenerRegistered) {
     // @ts-expect-error Firefox proxy API uses browser.proxy.onRequest

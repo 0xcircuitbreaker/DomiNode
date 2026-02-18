@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { HttpClient } from "../../src/http-client.js";
 import { TokenManager } from "../../src/token-manager.js";
-import { registerWalletAuthTools } from "../../src/tools/wallet-auth.js";
+import { registerWalletAuthTools, _resetWalletAuthLimits } from "../../src/tools/wallet-auth.js";
 
 function makeJwt(exp: number): string {
   const header = Buffer.from(JSON.stringify({ alg: "HS256" })).toString("base64url");
@@ -16,6 +16,7 @@ describe("wallet-auth tools", () => {
   const originalFetch = globalThis.fetch;
 
   beforeEach(async () => {
+    _resetWalletAuthLimits();
     const token = makeJwt(Math.floor(Date.now() / 1000) + 600);
     const tm = new TokenManager("http://localhost:3000");
     globalThis.fetch = vi.fn().mockResolvedValueOnce({
@@ -133,13 +134,14 @@ describe("wallet-auth tools", () => {
   it("dominusnode_wallet_setup returns full config", async () => {
     // First call: verify wallet
     // Second call: create API key
+    const validJwt = makeJwt(Math.floor(Date.now() / 1000) + 600);
     globalThis.fetch = vi.fn()
       .mockResolvedValueOnce({
         ok: true,
         status: 201,
         text: () => Promise.resolve(JSON.stringify({
-          token: "at",
-          refreshToken: "rt",
+          token: validJwt,
+          refreshToken: "rt-wallet",
           user: {
             id: "u-new",
             email: `${VALID_ADDRESS}@wallet.dominusnode.com`,

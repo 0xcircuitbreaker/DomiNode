@@ -6,6 +6,7 @@ import {
   walletChallengeRepo,
   refreshTokenRepo,
   createTokenPair,
+  hashPassword,
   createLogger,
   sanitizeString,
   isValidEvmAddress,
@@ -22,6 +23,15 @@ const router = Router();
 const log = createLogger("api:wallet-auth");
 
 const DOMINUSNODE_DOMAIN = process.env["DOMINUSNODE_DOMAIN"] ?? "dominusnode.com";
+
+// ─── Global registration cap (Alpha: 250, Beta: 1000, 0 = unlimited) ───
+const MAX_REGISTERED_USERS = parseInt(process.env["MAX_REGISTERED_USERS"] ?? "250", 10);
+
+async function checkGlobalRegistrationCap(): Promise<boolean> {
+  if (MAX_REGISTERED_USERS <= 0) return true; // 0 = unlimited (production)
+  const currentCount = await userRepo.countActiveUsers();
+  return currentCount < MAX_REGISTERED_USERS;
+}
 
 // ─── In-memory rate limiting for challenge requests ──────────────────
 const MAX_CHALLENGES_PER_IP = 5;
@@ -194,9 +204,18 @@ router.post("/verify", async (req, res) => {
     let isNewUser = false;
 
     if (!user) {
+      // R24 C-1: Global registration cap (Alpha: 250 slots)
+      if (!(await checkGlobalRegistrationCap())) {
+        log.warn("wallet registration rejected: global cap reached", { ip: clientIp, cap: MAX_REGISTERED_USERS });
+        res.status(403).json({ error: `Registration is currently closed. All ${MAX_REGISTERED_USERS} alpha slots are filled.` });
+        return;
+      }
+
       // Create new user with synthetic email and unusable password
+      // R29 C-1: Hash through bcrypt so password_hash column is indistinguishable from real hashes.
+      // The random value is discarded — nobody can ever log in with this password.
       const syntheticEmail = walletToSyntheticEmail(address);
-      const unusablePassword = `$wallet$${crypto.randomBytes(32).toString("hex")}`;
+      const unusablePassword = await hashPassword(crypto.randomBytes(64).toString("hex"));
 
       try {
         user = await userRepo.createWalletUser(address, syntheticEmail, unusablePassword);

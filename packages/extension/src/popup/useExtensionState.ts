@@ -38,7 +38,13 @@ export function useExtensionState(): UseExtensionStateReturn {
       if (area !== "local") return;
       const stateChange = changes[STORAGE_KEYS.STATE];
       if (stateChange?.newValue) {
-        setState(stateChange.newValue as ExtensionState);
+        // R26 C-1: Re-fetch sanitized state from background instead of using raw storage
+        // (raw storage contains tokens; GET_STATE applies sanitizeStateForUI)
+        chrome.runtime.sendMessage({ type: "GET_STATE" }, (response: MessageResponse) => {
+          if (response?.success && response.data) {
+            setState(response.data as ExtensionState);
+          }
+        });
       }
     };
 

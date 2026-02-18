@@ -3,7 +3,7 @@ import { planRepo, walletRepo, createLogger, getPool } from "@dominusnode/shared
 import { requireAuth, type AuthenticatedRequest } from "../middleware/auth.js";
 
 // Plans that users are allowed to self-select
-const USER_SELECTABLE_PLANS = new Set(["free", "payg", "vol100", "vol1tb"]);
+const USER_SELECTABLE_PLANS = new Set(["free", "free-dc", "free-res", "payg", "vol100", "vol1tb"]);
 
 // Minimum wallet balance required (in cents) to switch to volume plans
 const VOLUME_PLAN_MIN_BALANCE: Record<string, number> = {
@@ -30,6 +30,7 @@ router.get("/", async (_req, res) => {
           : null,
         isDefault: p.isDefault,
         maxConnections: p.maxConnections,
+        allowedProxyTypes: p.allowedProxyTypes,
       })),
     });
   } catch (err) {
@@ -59,6 +60,7 @@ router.get("/user/plan", requireAuth, async (req, res) => {
           : null,
         isDefault: plan.isDefault,
         maxConnections: plan.maxConnections,
+        allowedProxyTypes: plan.allowedProxyTypes,
       },
       usage: {
         monthlyUsageBytes,
@@ -122,9 +124,10 @@ router.put("/user/plan", requireAuth, async (req, res) => {
           });
           return;
         }
+        // R18-H3: Use users.plan_id column (user_plans table does not exist)
         await client.query(
-          "INSERT INTO user_plans (user_id, plan_id) VALUES ($1, $2) ON CONFLICT (user_id) DO UPDATE SET plan_id = $2, updated_at = now()",
-          [userId, planId],
+          "UPDATE users SET plan_id = $1 WHERE id = $2",
+          [planId, userId],
         );
         await client.query("COMMIT");
       } catch (txErr) {
@@ -139,6 +142,28 @@ router.put("/user/plan", requireAuth, async (req, res) => {
 
     log.info("user plan changed", { userId, planId });
 
+    // R23 C-2: Terminate active sessions on ANY plan change to prevent stale pricing
+    // Sessions lock pricePerGbCents at start — any plan change leaves active sessions
+    // running with stale pricing (upgrade: free sessions keep $0, downgrade: paid sessions keep old limits)
+    try {
+      const proxyHost = process.env["PROXY_INTERNAL_HOST"] ?? "127.0.0.1";
+      const proxyPort = process.env["PROXY_LISTEN_PORT"] ?? "8080";
+      const jwtSecret = process.env["JWT_SECRET"] ?? "";
+      if (jwtSecret) {
+        const crypto = await import("node:crypto");
+        const statsSecret = crypto.createHmac("sha256", jwtSecret).update("proxy-stats-endpoint").digest("hex");
+        await fetch(`http://${proxyHost}:${proxyPort}/internal/terminate-sessions/${userId}`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${statsSecret}`, "Content-Length": "0" },
+          redirect: "error",
+          signal: AbortSignal.timeout(5_000),
+        });
+      }
+    } catch {
+      // Best effort — sessions will eventually expire via stale cleanup
+      log.warn("failed to terminate sessions on plan change", { userId, planId });
+    }
+
     res.json({
       message: "Plan updated successfully",
       plan: {
@@ -152,6 +177,7 @@ router.put("/user/plan", requireAuth, async (req, res) => {
           : null,
         isDefault: plan.isDefault,
         maxConnections: plan.maxConnections,
+        allowedProxyTypes: plan.allowedProxyTypes,
       },
     });
   } catch (err) {
