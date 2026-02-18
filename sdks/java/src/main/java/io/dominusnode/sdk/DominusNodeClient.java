@@ -49,6 +49,7 @@ public final class DominusNodeClient implements AutoCloseable {
     private final SessionsResource sessions;
     private final ProxyResource proxy;
     private final AdminResource admin;
+    private final SlotsResource slots;
 
     private final TokenManager tokenManager;
     private volatile String apiKey;
@@ -78,6 +79,7 @@ public final class DominusNodeClient implements AutoCloseable {
                 config.getHttpProxyPort(), config.getSocks5ProxyPort(),
                 () -> this.apiKey);
         this.admin = new AdminResource(http);
+        this.slots = new SlotsResource(http);
 
         // Wire up the token refresh function
         // R15 H-7: Use UncheckedDominusNodeException to preserve the original exception type
@@ -129,6 +131,9 @@ public final class DominusNodeClient implements AutoCloseable {
 
     /** Admin operations (requires admin privileges). */
     public AdminResource admin() { return admin; }
+
+    /** Slot availability and waitlist operations (public, no auth required). */
+    public SlotsResource slots() { return slots; }
 
     // ── Connection methods ─────────────────────────────────────────────
 

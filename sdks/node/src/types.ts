@@ -151,3 +151,18 @@ export interface TokenPair {
   accessToken: string;
   refreshToken: string;
 }
+
+export interface SlotsInfo {
+  total: number;
+  used: number;
+  remaining: number;
+  unlimited: boolean;
+}
+
+export interface WaitlistJoinResult {
+  message: string;
+}
+
+export interface WaitlistCount {
+  pending: number;
+}

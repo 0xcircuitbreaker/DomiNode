@@ -45,6 +45,7 @@ pub mod plans;
 pub mod sessions;
 pub mod proxy;
 pub mod admin;
+pub mod slots;
 
 pub use client::{Config, DominusNodeClient};
 pub use errors::{DominusNodeError, Result};

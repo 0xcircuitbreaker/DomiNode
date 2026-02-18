@@ -8,6 +8,7 @@ import { PlansResource } from "./plans.js";
 import { SessionsResource } from "./sessions.js";
 import { ProxyResource } from "./proxy.js";
 import { AdminResource } from "./admin.js";
+import { SlotsResource } from "./slots.js";
 import { DEFAULT_BASE_URL } from "./constants.js";
 import type { DominusNodeConfig, LoginResult } from "./types.js";
 
@@ -20,6 +21,7 @@ export class DominusNodeClient {
   public readonly sessions: SessionsResource;
   public readonly proxy: ProxyResource;
   public readonly admin: AdminResource;
+  public readonly slots: SlotsResource;
 
   private tokenManager: TokenManager;
   private http: HttpClient;
@@ -39,6 +41,7 @@ export class DominusNodeClient {
     this.sessions = new SessionsResource(this.http);
     this.proxy = new ProxyResource(this.http, config);
     this.admin = new AdminResource(this.http);
+    this.slots = new SlotsResource(this.http);
 
     // Set refresh function AFTER auth is initialized
     this.tokenManager.setRefreshFunction(async (rt) => {

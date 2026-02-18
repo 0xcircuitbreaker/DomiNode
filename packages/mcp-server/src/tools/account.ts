@@ -102,9 +102,17 @@ export function registerAccountTools(server: McpServer, httpClient: HttpClient):
         ].join("\n");
         return { content: [{ type: "text", text }] };
       } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        // Handle 403 "slots full" — suggest waitlist
+        if (msg.includes("403") || msg.toLowerCase().includes("slot") || msg.toLowerCase().includes("capacity")) {
+          return {
+            isError: true,
+            content: [{ type: "text", text: `All alpha registration slots are full.\n\nUse dominusnode_check_slots to see availability, or dominusnode_join_waitlist to get notified when a slot opens.` }],
+          };
+        }
         return {
           isError: true,
-          content: [{ type: "text", text: `Registration error: ${err instanceof Error ? err.message : String(err)}` }],
+          content: [{ type: "text", text: `Registration error: ${msg}` }],
         };
       }
     },
@@ -219,9 +227,17 @@ export function registerAccountTools(server: McpServer, httpClient: HttpClient):
         ].join("\n");
         return { content: [{ type: "text", text }] };
       } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        // Handle 403 "slots full" — suggest waitlist
+        if (msg.includes("403") || msg.toLowerCase().includes("slot") || msg.toLowerCase().includes("capacity")) {
+          return {
+            isError: true,
+            content: [{ type: "text", text: `All alpha registration slots are full.\n\nUse dominusnode_check_slots to see availability, or dominusnode_join_waitlist to get notified when a slot opens.` }],
+          };
+        }
         return {
           isError: true,
-          content: [{ type: "text", text: `Setup error: ${err instanceof Error ? err.message : String(err)}` }],
+          content: [{ type: "text", text: `Setup error: ${msg}` }],
         };
       }
     },

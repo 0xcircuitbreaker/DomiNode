@@ -558,3 +558,23 @@ type SystemStats struct {
 type MessageResponse struct {
 	Message string `json:"message"`
 }
+
+// --- Slots & Waitlist types ---
+
+// SlotsInfo contains registration slot availability information.
+type SlotsInfo struct {
+	Total     int  `json:"total"`
+	Used      int  `json:"used"`
+	Remaining int  `json:"remaining"`
+	Unlimited bool `json:"unlimited"`
+}
+
+// WaitlistJoinResult is the response from joining the waitlist.
+type WaitlistJoinResult struct {
+	Message string `json:"message"`
+}
+
+// WaitlistCount contains the number of pending waitlist entries.
+type WaitlistCount struct {
+	Pending int `json:"pending"`
+}

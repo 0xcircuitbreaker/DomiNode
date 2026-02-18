@@ -43,6 +43,7 @@ from .keys import AsyncKeysResource, KeysResource
 from .plans import AsyncPlansResource, PlansResource
 from .proxy import AsyncProxyResource, ProxyResource
 from .sessions import AsyncSessionsResource, SessionsResource
+from .slots import AsyncSlotsResource, SlotsResource
 from .token_manager import AsyncTokenManager, TokenManager
 from .types import LoginResult, User
 from .usage import AsyncUsageResource, UsageResource
@@ -119,6 +120,7 @@ class DominusNodeClient:
             get_api_key=lambda: self._api_key,
         )
         self._admin = AdminResource(self._http)
+        self._slots = SlotsResource(self._http)
 
         # Auto-connect if credentials provided.
         # On failure, clear credentials to prevent retention in a partial object.
@@ -173,6 +175,11 @@ class DominusNodeClient:
     def admin(self) -> AdminResource:
         """Admin operations (requires admin privileges)."""
         return self._admin
+
+    @property
+    def slots(self) -> SlotsResource:
+        """Slots and waitlist operations (public, no auth required)."""
+        return self._slots
 
     # ── Connection methods ───────────────────────────────────────────
 
@@ -299,6 +306,7 @@ class AsyncDominusNodeClient:
             get_api_key=lambda: self._api_key,
         )
         self._admin = AsyncAdminResource(self._http)
+        self._slots = AsyncSlotsResource(self._http)
 
     # ── Resource properties ──────────────────────────────────────────
 
@@ -333,6 +341,10 @@ class AsyncDominusNodeClient:
     @property
     def admin(self) -> AsyncAdminResource:
         return self._admin
+
+    @property
+    def slots(self) -> AsyncSlotsResource:
+        return self._slots
 
     # ── Connection methods ───────────────────────────────────────────
 

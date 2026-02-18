@@ -66,6 +66,9 @@ type Client struct {
 	// Admin provides administrative operations (requires admin privileges).
 	Admin *AdminResource
 
+	// Slots provides slot availability and waitlist operations (public, no auth).
+	Slots *SlotsResource
+
 	httpClient   *httpClient
 	tokenManager *tokenManager
 	config       Config
@@ -136,6 +139,7 @@ func NewClient(cfg Config) *Client {
 		return c.apiKey
 	})
 	c.Admin = newAdminResource(hc)
+	c.Slots = newSlotsResource(hc)
 
 	// Pre-set tokens if provided in config
 	if cfg.AccessToken != "" {

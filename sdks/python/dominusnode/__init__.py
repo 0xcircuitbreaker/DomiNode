@@ -59,6 +59,7 @@ from .types import (
     ProviderStat,
     RevenueStats,
     StripeCheckout,
+    SlotsInfo,
     SystemStats,
     TopHost,
     UsagePagination,
@@ -70,6 +71,8 @@ from .types import (
     UserPlanInfo,
     UserPlanUsage,
     Wallet,
+    WaitlistCount,
+    WaitlistJoinResult,
     WalletForecast,
     WalletTransaction,
 )
@@ -129,6 +132,9 @@ __all__ = [
     "AdminUsersResponse",
     "RevenueStats",
     "DailyRevenue",
+    "SlotsInfo",
+    "WaitlistJoinResult",
+    "WaitlistCount",
     "SystemStats",
     # Constants
     "SDK_VERSION",

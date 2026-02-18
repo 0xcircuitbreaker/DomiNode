@@ -49,6 +49,7 @@ struct DominusNodeClient::Impl {
     SessionsResource sessions_resource;
     ProxyResource proxy_resource;
     AdminResource admin_resource;
+    SlotsResource slots_resource;
 
     explicit Impl(ClientConfig cfg)
         : config(std::move(cfg))
@@ -61,7 +62,8 @@ struct DominusNodeClient::Impl {
         , sessions_resource(http_client)
         , proxy_resource(http_client, config.proxy_host,
                          config.http_proxy_port, config.socks5_proxy_port)
-        , admin_resource(http_client) {
+        , admin_resource(http_client)
+        , slots_resource(http_client) {
 
         // Set up the token refresh function
         token_manager.set_refresh_function(
@@ -126,6 +128,7 @@ PlansResource& DominusNodeClient::plans() { return impl_->plans_resource; }
 SessionsResource& DominusNodeClient::sessions() { return impl_->sessions_resource; }
 ProxyResource& DominusNodeClient::proxy() { return impl_->proxy_resource; }
 AdminResource& DominusNodeClient::admin() { return impl_->admin_resource; }
+SlotsResource& DominusNodeClient::slots() { return impl_->slots_resource; }
 
 const std::string& DominusNodeClient::base_url() const {
     return impl_->config.base_url;

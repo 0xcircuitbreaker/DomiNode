@@ -35,6 +35,7 @@ export type { ActiveSessionEntry, ActiveSessionsResponse } from "./sessions.js";
 export { ProxyResource } from "./proxy.js";
 export type { ProxyHealthResponse, ProxyStatusResponse } from "./proxy.js";
 export { AdminResource } from "./admin.js";
+export { SlotsResource } from "./slots.js";
 export type {
   DateRangeOptions as AdminDateRangeOptions,
   ListUsersResponse,
@@ -88,6 +89,9 @@ export type {
   MfaSetup,
   LoginResult,
   TokenPair,
+  SlotsInfo,
+  WaitlistJoinResult,
+  WaitlistCount,
 } from "./types.js";
 
 // Constants

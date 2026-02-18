@@ -390,3 +390,26 @@ class SystemStats:
     active_api_keys: int
     total_sessions: int
     active_sessions: int
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Slots & Waitlist
+# ──────────────────────────────────────────────────────────────────────
+
+
+@dataclass(frozen=True)
+class SlotsInfo:
+    total: int
+    used: int
+    remaining: int
+    unlimited: bool
+
+
+@dataclass(frozen=True)
+class WaitlistJoinResult:
+    message: str
+
+
+@dataclass(frozen=True)
+class WaitlistCount:
+    pending: int

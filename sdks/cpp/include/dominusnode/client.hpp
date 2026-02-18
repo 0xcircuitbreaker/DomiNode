@@ -8,6 +8,7 @@
 #include "dominusnode/sessions.hpp"
 #include "dominusnode/proxy.hpp"
 #include "dominusnode/admin.hpp"
+#include "dominusnode/slots.hpp"
 
 #include <memory>
 #include <string>
@@ -102,6 +103,9 @@ public:
 
     /// Access the admin resource (user management, revenue, stats).
     AdminResource& admin();
+
+    /// Access the slots resource (slot availability, waitlist — no auth required).
+    SlotsResource& slots();
 
     /// Get the configured base URL.
     const std::string& base_url() const;

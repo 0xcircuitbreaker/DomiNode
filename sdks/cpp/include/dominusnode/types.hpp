@@ -736,4 +736,36 @@ inline void from_json(const nlohmann::json& j, SystemStats& s) {
     s.total_bandwidth_bytes = j.value("totalBandwidthBytes", j.value("total_bandwidth_bytes", int64_t(0)));
 }
 
+// ─── Slots / Waitlist ─────────────────────────────────────────────────────
+
+struct SlotsInfo {
+    int total = 0;
+    int used = 0;
+    int remaining = 0;
+    bool unlimited = false;
+};
+
+inline void from_json(const nlohmann::json& j, SlotsInfo& s) {
+    s.total = j.value("total", 0);
+    s.used = j.value("used", 0);
+    s.remaining = j.value("remaining", 0);
+    s.unlimited = j.value("unlimited", false);
+}
+
+struct WaitlistJoinResult {
+    std::string message;
+};
+
+inline void from_json(const nlohmann::json& j, WaitlistJoinResult& w) {
+    w.message = j.value("message", "");
+}
+
+struct WaitlistCount {
+    int pending = 0;
+};
+
+inline void from_json(const nlohmann::json& j, WaitlistCount& w) {
+    w.pending = j.value("pending", 0);
+}
+
 } // namespace dominusnode

@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use crate::admin::AdminResource;
+use crate::slots::SlotsResource;
 use crate::auth::AuthResource;
 use crate::constants::{DEFAULT_BASE_URL, DEFAULT_HTTP_PROXY_PORT, DEFAULT_PROXY_HOST, DEFAULT_SOCKS5_PROXY_PORT};
 use crate::errors::Result;
@@ -105,6 +106,8 @@ pub struct DominusNodeClient {
     pub proxy: ProxyResource,
     /// Administrative operations (requires admin privileges).
     pub admin: AdminResource,
+    /// Slot availability and waitlist operations (public, no auth required).
+    pub slots: SlotsResource,
     token_manager: Arc<TokenManager>,
 }
 
@@ -186,6 +189,7 @@ impl DominusNodeClient {
             config.socks5_proxy_port,
         );
         let admin = AdminResource::new(Arc::clone(&http));
+        let slots = SlotsResource::new(Arc::clone(&http));
 
         let client = Self {
             auth,
@@ -196,6 +200,7 @@ impl DominusNodeClient {
             sessions,
             proxy,
             admin,
+            slots,
             token_manager: Arc::clone(&token_manager),
         };
 

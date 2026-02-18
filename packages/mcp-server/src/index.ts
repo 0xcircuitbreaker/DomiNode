@@ -16,6 +16,7 @@ import { registerAccountTools } from "./tools/account.js";
 import { registerCryptoTools } from "./tools/crypto.js";
 import { registerAgentWalletTools } from "./tools/agent-wallet.js";
 import { registerWalletAuthTools } from "./tools/wallet-auth.js";
+import { registerSlotsTools } from "./tools/slots.js";
 
 async function main(): Promise<void> {
   let config;
@@ -56,14 +57,15 @@ async function main(): Promise<void> {
     registerCryptoTools(server, httpClient);
     registerAgentWalletTools(server, httpClient, config);
     registerWalletAuthTools(server, httpClient);
+    registerSlotsTools(server, httpClient);
 
     // Register a helper tool that tells the agent what to do
     registerBootstrapHelper(server);
 
     const transport = new StdioServerTransport();
     await server.connect(transport);
-    process.stderr.write("Dominus Node MCP Server ready — bootstrap mode (8 tools)\n");
-    process.stderr.write("Run dominusnode_setup or dominusnode_wallet_setup to create an account and unlock all 27 tools.\n");
+    process.stderr.write("Dominus Node MCP Server ready — bootstrap mode (11 tools)\n");
+    process.stderr.write("Run dominusnode_setup or dominusnode_wallet_setup to create an account and unlock all 30 tools.\n");
   } else {
     // ── Authenticated Mode ──────────────────────────────────────────
     process.stderr.write("Dominus Node MCP Server starting...\n");
@@ -89,10 +91,11 @@ async function main(): Promise<void> {
     registerCryptoTools(server, httpClient);
     registerAgentWalletTools(server, httpClient, config);
     registerWalletAuthTools(server, httpClient);
+    registerSlotsTools(server, httpClient);
 
     const transport = new StdioServerTransport();
     await server.connect(transport);
-    process.stderr.write("Dominus Node MCP Server ready — 27 tools available\n");
+    process.stderr.write("Dominus Node MCP Server ready — 30 tools available\n");
   }
 }
 
@@ -106,6 +109,11 @@ function registerBootstrapHelper(server: McpServer): void {
         `Dominus Node Bootstrap Mode`,
         ``,
         `You're running without an API key. Here's how to get started:`,
+        ``,
+        `Step 0: Check slot availability`,
+        `  Use dominusnode_check_slots to see if registration slots are open.`,
+        `  Alpha is limited to 250 users. If slots are full, use`,
+        `  dominusnode_join_waitlist to get notified when one opens.`,
         ``,
         `Option 1: One-shot setup (recommended)`,
         `  Use dominusnode_setup with an email and password.`,
@@ -126,7 +134,7 @@ function registerBootstrapHelper(server: McpServer): void {
         `  Supports BTC, ETH, XMR, SOL, ZEC, USDC, USDT.`,
         ``,
         `After setup, set DOMINUSNODE_API_KEY in your environment`,
-        `to unlock all 27 tools on next startup.`,
+        `to unlock all 30 tools on next startup.`,
         ``,
         `Free tier: 10 connections, 1GB bandwidth — no payment required.`,
       ].join("\n");

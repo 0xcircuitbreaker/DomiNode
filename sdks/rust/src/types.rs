@@ -682,3 +682,28 @@ pub struct DailyRevenueResponse {
 pub struct MessageResponse {
     pub message: String,
 }
+
+// ---------------------------------------------------------------------------
+// Slots & Waitlist
+// ---------------------------------------------------------------------------
+
+/// Registration slot availability information.
+#[derive(Debug, Clone, Deserialize)]
+pub struct SlotsInfo {
+    pub total: i32,
+    pub used: i32,
+    pub remaining: i32,
+    pub unlimited: bool,
+}
+
+/// Response from joining the waitlist.
+#[derive(Debug, Clone, Deserialize)]
+pub struct WaitlistJoinResult {
+    pub message: String,
+}
+
+/// Pending waitlist count.
+#[derive(Debug, Clone, Deserialize)]
+pub struct WaitlistCount {
+    pub pending: i32,
+}
