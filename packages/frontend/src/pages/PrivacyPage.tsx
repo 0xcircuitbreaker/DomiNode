@@ -16,70 +16,92 @@ export default function PrivacyPage() {
 
         <div className="space-y-8 text-sm leading-relaxed">
           <section>
-            <h2 className="text-xl font-semibold text-white mb-3">1. Information We Collect</h2>
-            <p className="mb-2"><strong className="text-gray-200">Account Information:</strong> Email address and hashed password when you create an account. If you use wallet authentication, your Ethereum wallet address.</p>
-            <p className="mb-2"><strong className="text-gray-200">Usage Data:</strong> Bandwidth consumed (bytes in/out), proxy type used, connection timestamps, and target hostnames (retained for billing accuracy and abuse prevention).</p>
-            <p className="mb-2"><strong className="text-gray-200">Payment Data:</strong> Transaction records, payment provider IDs, and invoice amounts. We do not store credit card numbers — payment processing is handled by Stripe and NOWPayments.</p>
-            <p><strong className="text-gray-200">Technical Data:</strong> IP address (for rate limiting and abuse prevention), API key metadata (prefix, creation date), and session identifiers.</p>
+            <h2 className="text-xl font-semibold text-white mb-3">1. Our Privacy Commitment</h2>
+            <p className="mb-3 text-white font-medium">Dominus Node is built with privacy at its core. We save no traffic logs and we do not know what our proxies are being used for.</p>
+            <p>We do not log, inspect, monitor, store, or analyze the content of any traffic routed through our proxy servers. We have no record of what websites you visit, what data you send or receive, or what you use the proxy connection for. This is by design, not by accident.</p>
           </section>
 
           <section>
-            <h2 className="text-xl font-semibold text-white mb-3">2. How We Use Your Data</h2>
+            <h2 className="text-xl font-semibold text-white mb-3">2. What We Do Collect</h2>
+            <p className="mb-3">We collect the minimum data necessary to operate the service and bill you accurately:</p>
+            <p className="mb-2"><strong className="text-gray-200">Account Information:</strong> Email address and hashed password (bcrypt) when you create an account. If you use wallet authentication, your Ethereum wallet address. We cannot see or recover your password.</p>
+            <p className="mb-2"><strong className="text-gray-200">Bandwidth Metering:</strong> We track the total number of bytes transferred per session for billing purposes only. This is an aggregate number — we do not log which websites or services generated that traffic.</p>
+            <p className="mb-2"><strong className="text-gray-200">Payment Data:</strong> Transaction records, payment provider reference IDs, and invoice amounts. We do not store credit card numbers — payment processing is handled entirely by Stripe and NOWPayments.</p>
+            <p><strong className="text-gray-200">Security Data:</strong> IP addresses are used transiently for rate limiting and abuse prevention. API key metadata (prefix, creation date) is stored for your key management dashboard.</p>
+          </section>
+
+          <section>
+            <h2 className="text-xl font-semibold text-white mb-3">3. What We Do NOT Collect</h2>
+            <p className="mb-2">To be absolutely clear, we do <strong className="text-white">NOT</strong> collect or store:</p>
+            <ul className="list-disc list-inside space-y-1">
+              <li>URLs or domains you visit through the proxy</li>
+              <li>HTTP request or response content</li>
+              <li>DNS queries made through the proxy</li>
+              <li>Browsing history or browsing patterns</li>
+              <li>File downloads or uploads content</li>
+              <li>Cookies, form data, or authentication credentials you send to third-party sites</li>
+              <li>Any content of encrypted (HTTPS/TLS) connections — we cannot see this even if we wanted to</li>
+            </ul>
+            <p className="mt-3 text-gray-400">Our proxy gateway handles HTTPS traffic via the CONNECT method, which creates an encrypted tunnel directly between your device and the destination. We relay the encrypted bytes and count them for billing. We cannot decrypt or inspect this traffic.</p>
+          </section>
+
+          <section>
+            <h2 className="text-xl font-semibold text-white mb-3">4. How We Use Your Data</h2>
             <ul className="list-disc list-inside space-y-1">
               <li>Authenticate your identity and authorize proxy access</li>
-              <li>Meter bandwidth usage and process billing</li>
-              <li>Prevent abuse, fraud, and unauthorized access</li>
+              <li>Meter aggregate bandwidth usage and process billing</li>
+              <li>Prevent abuse, fraud, and unauthorized account access</li>
               <li>Enforce rate limits and connection quotas</li>
               <li>Comply with applicable laws and sanctions regulations</li>
             </ul>
           </section>
 
           <section>
-            <h2 className="text-xl font-semibold text-white mb-3">3. Data Retention</h2>
-            <p className="mb-2">We retain data according to the following schedule:</p>
+            <h2 className="text-xl font-semibold text-white mb-3">5. Data Retention</h2>
+            <p className="mb-2">We retain data for the minimum period necessary:</p>
             <ul className="list-disc list-inside space-y-1">
-              <li>Usage records: 1 year</li>
-              <li>Session records: 90 days</li>
-              <li>Audit events: 1 year</li>
-              <li>Wallet transactions: 2 years</li>
+              <li>Usage records (bandwidth totals only): 1 year</li>
+              <li>Session records (connection metadata): 90 days</li>
+              <li>Audit events (account actions): 1 year</li>
+              <li>Wallet transactions: 2 years (financial compliance)</li>
               <li>Authentication challenges: 1 day</li>
             </ul>
-            <p className="mt-2">Data is automatically purged after its retention period expires.</p>
+            <p className="mt-2">Data is automatically purged after its retention period expires. You can request early deletion by deleting your account.</p>
           </section>
 
           <section>
-            <h2 className="text-xl font-semibold text-white mb-3">4. Data Sharing</h2>
-            <p>We do not sell your data. We share data only with:</p>
+            <h2 className="text-xl font-semibold text-white mb-3">6. Data Sharing</h2>
+            <p className="mb-2">We do not sell, rent, or trade your personal data. We share data only with:</p>
             <ul className="list-disc list-inside space-y-1 mt-2">
-              <li><strong className="text-gray-200">Payment processors</strong> (Stripe, NOWPayments) to process transactions</li>
-              <li><strong className="text-gray-200">Upstream proxy providers</strong> (Webshare) to route your traffic — only connection metadata, not content</li>
-              <li><strong className="text-gray-200">Law enforcement</strong> when legally required</li>
+              <li><strong className="text-gray-200">Payment processors</strong> (Stripe, NOWPayments) — to process your payments only</li>
+              <li><strong className="text-gray-200">Upstream proxy providers</strong> (Webshare) — only connection routing data, never traffic content</li>
+              <li><strong className="text-gray-200">Law enforcement</strong> — only when legally compelled, and only the limited account data we have (we cannot provide traffic logs because they do not exist)</li>
             </ul>
           </section>
 
           <section>
-            <h2 className="text-xl font-semibold text-white mb-3">5. Your Rights</h2>
+            <h2 className="text-xl font-semibold text-white mb-3">7. Your Rights</h2>
             <p className="mb-2">You have the right to:</p>
             <ul className="list-disc list-inside space-y-1">
-              <li><strong className="text-gray-200">Export your data:</strong> Use the data export feature in your dashboard settings or call GET /api/account/export</li>
-              <li><strong className="text-gray-200">Delete your account:</strong> Request account deletion through your dashboard. Your personal data will be anonymized.</li>
-              <li><strong className="text-gray-200">Correct your data:</strong> Update your email or password through your security settings</li>
+              <li><strong className="text-gray-200">Export your data:</strong> Download your account data through the dashboard or via GET /api/account/export</li>
+              <li><strong className="text-gray-200">Delete your account:</strong> Request full account deletion through your dashboard. Your personal data will be anonymized and billing records retained only as required by law.</li>
+              <li><strong className="text-gray-200">Correct your data:</strong> Update your email or password through security settings</li>
             </ul>
           </section>
 
           <section>
-            <h2 className="text-xl font-semibold text-white mb-3">6. Security</h2>
-            <p>We protect your data using: password hashing (bcrypt), encrypted MFA secrets, TLS for all connections, API key hashing (SHA-256), httpOnly secure cookies, and regular security audits.</p>
+            <h2 className="text-xl font-semibold text-white mb-3">8. Security</h2>
+            <p>We protect your data using: bcrypt password hashing, AES-encrypted MFA secrets, TLS encryption for all connections, SHA-256 API key hashing, httpOnly secure cookies with strict SameSite policy, and regular independent security audits.</p>
           </section>
 
           <section>
-            <h2 className="text-xl font-semibold text-white mb-3">7. Cookies</h2>
-            <p>We use strictly necessary cookies for authentication (access token and refresh token). We do not use tracking or advertising cookies.</p>
+            <h2 className="text-xl font-semibold text-white mb-3">9. Cookies</h2>
+            <p>We use strictly necessary cookies for authentication (access token and refresh token) only. We do not use tracking cookies, advertising cookies, analytics cookies, or any third-party cookies.</p>
           </section>
 
           <section>
-            <h2 className="text-xl font-semibold text-white mb-3">8. Contact</h2>
-            <p>For privacy-related inquiries: <a href="mailto:privacy@dominusnode.com" className="text-indigo-400 hover:text-indigo-300">privacy@dominusnode.com</a></p>
+            <h2 className="text-xl font-semibold text-white mb-3">10. Contact</h2>
+            <p>For privacy-related inquiries: <a href="mailto:0xcircuitbreaker@protonmail.com" className="text-indigo-400 hover:text-indigo-300">0xcircuitbreaker@protonmail.com</a></p>
           </section>
         </div>
       </main>

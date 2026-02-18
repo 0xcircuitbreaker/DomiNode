@@ -21,66 +21,89 @@ export default function TermsPage() {
           </section>
 
           <section>
-            <h2 className="text-xl font-semibold text-white mb-3">2. Acceptable Use</h2>
-            <p className="mb-2">You agree NOT to use Dominus Node for:</p>
+            <h2 className="text-xl font-semibold text-white mb-3">2. Strictly Prohibited Use</h2>
+            <p className="mb-3 text-white font-medium">Dominus Node may NOT be used for any illegal operations whatsoever. This is a zero-tolerance policy.</p>
+            <p className="mb-2">Without limitation, the following activities are expressly prohibited:</p>
             <ul className="list-disc list-inside space-y-1">
-              <li>Any illegal activity under applicable law</li>
-              <li>Distributed denial-of-service (DDoS) attacks</li>
+              <li>Any activity that violates local, state, national, or international law</li>
+              <li>Fraud, identity theft, phishing, or financial crimes of any kind</li>
+              <li>Distributed denial-of-service (DDoS) attacks or network disruption</li>
               <li>Sending spam or unsolicited bulk messages</li>
-              <li>Distributing malware or exploiting vulnerabilities</li>
-              <li>Scraping in violation of target website terms of service</li>
-              <li>Circumventing sanctions or export controls</li>
-              <li>Child exploitation material of any kind</li>
-              <li>Credential stuffing, brute force attacks, or account takeover</li>
-              <li>Activities that could damage Dominus Node infrastructure or reputation</li>
+              <li>Distributing malware, ransomware, or exploiting vulnerabilities</li>
+              <li>Child sexual abuse material (CSAM) or any form of child exploitation</li>
+              <li>Human trafficking, drug trafficking, or weapons trafficking</li>
+              <li>Credential stuffing, brute force attacks, or unauthorized account access</li>
+              <li>Circumventing sanctions, export controls, or trade embargoes</li>
+              <li>Harassment, stalking, doxxing, or threats of violence</li>
+              <li>Copyright infringement or intellectual property theft at scale</li>
+              <li>Any activity that could damage Dominus Node infrastructure, reputation, or upstream providers</li>
             </ul>
-            <p className="mt-2">Violation of these terms may result in immediate account suspension without refund.</p>
           </section>
 
           <section>
-            <h2 className="text-xl font-semibold text-white mb-3">3. Billing and Payments</h2>
+            <h2 className="text-xl font-semibold text-white mb-3">3. Enforcement and Penalties</h2>
+            <p className="mb-3">If we determine, at our sole discretion, that your account has been used for any illegal activity or violation of these terms:</p>
+            <ul className="list-disc list-inside space-y-2">
+              <li><strong className="text-white">Immediate termination:</strong> Your account will be suspended and terminated without prior notice.</li>
+              <li><strong className="text-white">Balance forfeiture:</strong> Any remaining wallet balance will be permanently forfeited as a penalty. No refund will be issued under any circumstances for accounts terminated due to abuse or illegal activity.</li>
+              <li><strong className="text-white">API key revocation:</strong> All API keys and active proxy sessions will be immediately revoked.</li>
+              <li><strong className="text-white">Permanent ban:</strong> You will be permanently prohibited from creating new accounts or using Dominus Node services.</li>
+              <li><strong className="text-white">Legal cooperation:</strong> We reserve the right to cooperate with law enforcement agencies and may report illegal activity to the appropriate authorities.</li>
+            </ul>
+            <p className="mt-3 text-gray-400">We reserve the right to investigate suspected violations and take any action we deem necessary to protect the service, our users, and third parties.</p>
+          </section>
+
+          <section>
+            <h2 className="text-xl font-semibold text-white mb-3">4. Billing and Payments</h2>
             <ul className="list-disc list-inside space-y-1">
               <li>Dominus Node uses a prepaid wallet system. You must maintain a positive balance to use paid proxy services.</li>
               <li>Datacenter proxies are billed at the current rate (see Plans page). Residential proxies are billed at a separate rate.</li>
               <li>Payments are accepted via Stripe (credit/debit card) and cryptocurrency (BTC, ETH, XMR, SOL, ZEC via NOWPayments).</li>
-              <li>All payments are final. Refunds are issued at our sole discretion for service outages or billing errors.</li>
+              <li>All payments are final. Refunds are issued at our sole discretion for service outages or billing errors only.</li>
               <li>Free tier bandwidth is subject to monthly limits and may be reduced or discontinued at any time.</li>
             </ul>
           </section>
 
           <section>
-            <h2 className="text-xl font-semibold text-white mb-3">4. Service Availability</h2>
+            <h2 className="text-xl font-semibold text-white mb-3">5. No Logging of Proxy Traffic</h2>
+            <p>Dominus Node does not log, inspect, store, or monitor the content of traffic routed through our proxy servers. We do not know what websites you visit, what data you transmit, or what you use the proxies for. We track only aggregate bandwidth usage (bytes transferred) for billing purposes. See our Privacy Policy for full details.</p>
+          </section>
+
+          <section>
+            <h2 className="text-xl font-semibold text-white mb-3">6. Service Availability</h2>
             <p>We strive for high availability but do not guarantee uninterrupted service. Proxy IP availability, geographic coverage, and connection speeds may vary. We reserve the right to modify, suspend, or discontinue any aspect of the service with reasonable notice.</p>
           </section>
 
           <section>
-            <h2 className="text-xl font-semibold text-white mb-3">5. Account Responsibility</h2>
+            <h2 className="text-xl font-semibold text-white mb-3">7. Account Responsibility</h2>
             <p>You are responsible for all activity under your account and API keys. Keep your credentials secure. Notify us immediately if you suspect unauthorized access. We reserve the right to suspend accounts that pose a security risk.</p>
           </section>
 
           <section>
-            <h2 className="text-xl font-semibold text-white mb-3">6. Sanctions Compliance</h2>
-            <p>Dominus Node complies with OFAC sanctions. Service is not available to users in Cuba, Iran, North Korea, Russia, or Syria. Proxy exit nodes in these countries are blocked. Attempting to circumvent these restrictions will result in account termination.</p>
+            <h2 className="text-xl font-semibold text-white mb-3">8. Sanctions Compliance</h2>
+            <p>Dominus Node complies with OFAC sanctions. Service is not available to users in Cuba, Iran, North Korea, Russia, or Syria. Proxy exit nodes in these countries are blocked. Attempting to circumvent these restrictions will result in immediate account termination without refund.</p>
           </section>
 
           <section>
-            <h2 className="text-xl font-semibold text-white mb-3">7. Limitation of Liability</h2>
+            <h2 className="text-xl font-semibold text-white mb-3">9. Limitation of Liability</h2>
             <p>Dominus Node is provided "as is" without warranty of any kind. We are not liable for any indirect, incidental, special, or consequential damages arising from your use of the service. Our total liability shall not exceed the amount you paid in the 12 months preceding the claim.</p>
           </section>
 
           <section>
-            <h2 className="text-xl font-semibold text-white mb-3">8. Termination</h2>
-            <p>Either party may terminate the service at any time. You may delete your account through the dashboard. We may suspend or terminate accounts that violate these terms. Upon termination, remaining wallet balance may be forfeited if the account was terminated for abuse.</p>
+            <h2 className="text-xl font-semibold text-white mb-3">10. Termination</h2>
+            <p className="mb-2">Either party may terminate the service at any time. You may delete your account through the dashboard.</p>
+            <p className="mb-2"><strong className="text-gray-200">Voluntary termination:</strong> If you close your account in good standing, any remaining balance may be refunded at our discretion.</p>
+            <p><strong className="text-gray-200">Termination for violation:</strong> Accounts terminated for violating these terms, including any illegal use, will have their remaining balance permanently forfeited. No exceptions.</p>
           </section>
 
           <section>
-            <h2 className="text-xl font-semibold text-white mb-3">9. Changes to Terms</h2>
+            <h2 className="text-xl font-semibold text-white mb-3">11. Changes to Terms</h2>
             <p>We may update these terms from time to time. Continued use of the service after changes constitutes acceptance. Material changes will be communicated via email or dashboard notification.</p>
           </section>
 
           <section>
-            <h2 className="text-xl font-semibold text-white mb-3">10. Contact</h2>
-            <p>For questions about these terms: <a href="mailto:legal@dominusnode.com" className="text-indigo-400 hover:text-indigo-300">legal@dominusnode.com</a></p>
+            <h2 className="text-xl font-semibold text-white mb-3">12. Contact</h2>
+            <p>For questions about these terms: <a href="mailto:0xcircuitbreaker@protonmail.com" className="text-indigo-400 hover:text-indigo-300">0xcircuitbreaker@protonmail.com</a></p>
           </section>
         </div>
       </main>

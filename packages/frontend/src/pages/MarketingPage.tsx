@@ -629,7 +629,7 @@ export default function MarketingPage() {
           <div className="flex gap-6">
             <Link to="/privacy" className="text-xs text-gray-500 hover:text-gray-300 transition-colors">Privacy Policy</Link>
             <Link to="/terms" className="text-xs text-gray-500 hover:text-gray-300 transition-colors">Terms of Service</Link>
-            <a href="mailto:support@dominusnode.com" className="text-xs text-gray-500 hover:text-gray-300 transition-colors">Contact</a>
+            <a href="mailto:0xcircuitbreaker@protonmail.com" className="text-xs text-gray-500 hover:text-gray-300 transition-colors">Contact</a>
           </div>
         </div>
       </footer>
