@@ -107,8 +107,30 @@ describe("UsagePage", () => {
     expect(screen.getByText("Apply")).toBeInTheDocument();
   });
 
-  it("renders usage records table with target host", async () => {
-    setupMocks();
+  it("renders usage records table with target host when host logging enabled", async () => {
+    // Override /me to return log_target_hosts: true so target column shows
+    mockGet.mockImplementation((path: string) => {
+      if (path === "/api/auth/me") {
+        return Promise.resolve({
+          user: { id: "1", email: "test@example.com", is_admin: false, log_target_hosts: true },
+        });
+      }
+      if (path.startsWith("/api/usage/daily")) {
+        return Promise.resolve({ days: [] });
+      }
+      if (path.startsWith("/api/usage/top-hosts")) {
+        return Promise.resolve({ hosts: [] });
+      }
+      if (path.startsWith("/api/usage")) {
+        return Promise.resolve({
+          summary: { totalBytes: 858993459, totalCostCents: 400, requestCount: 80, totalGB: 0.8, totalCostUsd: 4.0 },
+          records: [{ id: "r1", sessionId: "s1", bytesIn: 100, bytesOut: 200, totalBytes: 300, costCents: 1, proxyType: "dc", targetHost: "example.com", createdAt: "2025-01-01T00:00:00Z" }],
+          pagination: { limit: 50, offset: 0, total: 1 },
+          period: { since: "2025-01-01", until: "2025-01-31" },
+        });
+      }
+      return Promise.reject(new Error("Unknown path"));
+    });
     renderWithProviders(<UsagePage />);
 
     await waitFor(() => {

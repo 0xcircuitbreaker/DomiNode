@@ -28,6 +28,8 @@ export interface User {
   password_changed_at: Date | null;
   is_admin: boolean;
   wallet_address: string | null;
+  log_target_hosts: boolean;
+  email_verified: boolean;
 }
 
 // ─── API Key ─────────────────────────────────────────────────────────

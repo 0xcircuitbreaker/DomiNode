@@ -15,8 +15,9 @@ Complete deployment guide for Dominus Node, a rotating proxy-as-a-service SaaS p
 7. [Method 5: Home Server](#method-5-home-server)
 8. [Method 6: Netlify / Vercel (Frontend Only)](#method-6-netlify--vercel-frontend-only)
 9. [Post-Deployment Verification](#post-deployment-verification)
-10. [Security Checklist for Production](#security-checklist-for-production)
-11. [Troubleshooting](#troubleshooting)
+10. [Email Server Setup (SMTP)](#email-server-setup-smtp)
+11. [Security Checklist for Production](#security-checklist-for-production)
+12. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -151,6 +152,28 @@ Add fallback proxy providers for resilience. Supports up to 10 providers. Gaps i
 # FALLBACK_PROXY_2_HOST=gcp-vm.example.com
 # FALLBACK_PROXY_2_PORT=3128
 ```
+
+### Email Configuration (SMTP)
+
+Required for password reset and email verification. When `EMAIL_ENABLED=false` (default), emails are logged to console instead of sent — suitable for development.
+
+```bash
+# Set to true to send real emails
+EMAIL_ENABLED=false
+
+# SMTP server settings
+SMTP_HOST=                         # e.g., localhost (Postfix) or smtp.resend.com
+SMTP_PORT=587                      # 587 for STARTTLS, 465 for implicit TLS, 25 for local
+SMTP_USER=                         # SMTP auth username (leave blank for local Postfix)
+SMTP_PASS=                         # SMTP auth password (leave blank for local Postfix)
+SMTP_FROM=noreply@dominusnode.com  # Sender address (must match your domain)
+SMTP_SECURE=false                  # Set to true for port 465 (implicit TLS)
+
+# Application URL (used to build verification/reset links in emails)
+APP_URL=https://app.dominusnode.com
+```
+
+See [Email Server Setup (SMTP)](#email-server-setup-smtp) for full installation instructions.
 
 ---
 
@@ -1447,6 +1470,38 @@ For systemd journal logs, journald handles rotation automatically. Check current
 sudo journalctl --disk-usage
 ```
 
+### Step 15: Configure Email (SMTP)
+
+See the full [Email Server Setup (SMTP)](#email-server-setup-smtp) section for detailed instructions. Quick summary for Postfix on the same VPS:
+
+```bash
+# Install Postfix as send-only MTA
+sudo apt install -y postfix
+# Select "Internet Site" when prompted, enter your domain (e.g., dominusnode.com)
+
+# Lock down Postfix to local-only sending
+sudo postconf -e "inet_interfaces = loopback-only"
+sudo postconf -e "mydestination = \$myhostname, localhost.\$mydomain, localhost"
+sudo systemctl restart postfix
+
+# Update .env for Dominus Node
+sudo -u dominusnode bash -c 'cat >> /opt/dominusnode/.env << EOF
+EMAIL_ENABLED=true
+SMTP_HOST=localhost
+SMTP_PORT=25
+SMTP_USER=
+SMTP_PASS=
+SMTP_FROM=noreply@dominusnode.com
+SMTP_SECURE=false
+APP_URL=https://app.dominusnode.com
+EOF'
+
+# Restart services to pick up email config
+sudo systemctl restart dominusnode-api
+```
+
+Then configure SPF, DKIM, and DMARC DNS records as described in the full email setup section.
+
 ### Updating Dominus Node
 
 ```bash
@@ -1778,6 +1833,425 @@ curl -s https://api.yourdomain.com/api/usage \
 ### 10. Verify Frontend
 
 Open `https://app.yourdomain.com` in your browser. You should see the Dominus Node login page.
+
+---
+
+## Email Server Setup (SMTP)
+
+Dominus Node sends two types of transactional email:
+- **Email verification** — sent on registration (24-hour expiry link)
+- **Password reset** — sent on forgot-password request (1-hour expiry link)
+
+When `EMAIL_ENABLED=false` (default), emails are logged to console. For production, you need a working SMTP setup.
+
+There are two approaches: **Option A** runs Postfix on the same server (simplest, free, no third-party dependency), or **Option B** uses a transactional email API service.
+
+### Option A: Postfix on the Same Server (Recommended for Single-Server)
+
+This installs Postfix as a send-only mail transfer agent (MTA) on the same machine that runs the API and proxy. No incoming mail is accepted.
+
+#### A1. Install Postfix
+
+```bash
+# Install Postfix and mailutils (for testing)
+sudo apt update && sudo apt install -y postfix mailutils
+
+# During installation, select:
+#   General type of mail configuration: Internet Site
+#   System mail name: dominusnode.com    (your actual domain)
+```
+
+If you missed the interactive prompt or need to reconfigure:
+
+```bash
+sudo dpkg-reconfigure postfix
+```
+
+#### A2. Configure Postfix as Send-Only
+
+Lock down Postfix so it only sends outbound email and does not accept external connections:
+
+```bash
+# Only listen on localhost (no external SMTP connections)
+sudo postconf -e "inet_interfaces = loopback-only"
+
+# Set hostname and domain
+sudo postconf -e "myhostname = mail.dominusnode.com"
+sudo postconf -e "mydomain = dominusnode.com"
+sudo postconf -e "myorigin = \$mydomain"
+
+# Only accept mail from localhost
+sudo postconf -e "mydestination = \$myhostname, localhost.\$mydomain, localhost"
+
+# Disable local delivery (send-only, no mailboxes)
+sudo postconf -e "local_transport = error:local delivery disabled"
+
+# Use TLS for outbound connections
+sudo postconf -e "smtp_tls_security_level = may"
+sudo postconf -e "smtp_tls_loglevel = 1"
+
+# Apply and restart
+sudo systemctl restart postfix
+sudo systemctl enable postfix
+```
+
+#### A3. Verify Postfix Is Running
+
+```bash
+# Check status
+sudo systemctl status postfix
+
+# Send a test email (replace with your real email)
+echo "Test from Dominus Node server" | mail -s "Postfix Test" -r noreply@dominusnode.com your-real-email@gmail.com
+
+# Check the mail queue
+mailq
+
+# Check logs for delivery status
+sudo tail -20 /var/log/mail.log
+```
+
+If the test email lands in spam or doesn't arrive, you need DNS records (next step).
+
+#### A4. DNS Records for Deliverability
+
+Without proper DNS records, most providers (Gmail, Outlook, etc.) will reject or spam-folder your emails. You need three records:
+
+**SPF Record** — Tells receiving servers which IPs can send mail for your domain:
+
+```
+Type: TXT
+Name: @   (or dominusnode.com)
+Value: v=spf1 ip4:YOUR_SERVER_IP -all
+TTL: 3600
+```
+
+Replace `YOUR_SERVER_IP` with your VPS public IPv4 address. The `-all` means only this IP is authorized.
+
+**DKIM Record** — Cryptographically signs outgoing emails:
+
+```bash
+# Install OpenDKIM
+sudo apt install -y opendkim opendkim-tools
+
+# Create key directory
+sudo mkdir -p /etc/opendkim/keys/dominusnode.com
+sudo chown -R opendkim:opendkim /etc/opendkim
+
+# Generate DKIM key pair
+sudo opendkim-genkey -b 2048 -d dominusnode.com -D /etc/opendkim/keys/dominusnode.com -s mail -v
+
+# Fix permissions
+sudo chown opendkim:opendkim /etc/opendkim/keys/dominusnode.com/mail.private
+sudo chmod 600 /etc/opendkim/keys/dominusnode.com/mail.private
+```
+
+Configure OpenDKIM:
+
+```bash
+sudo tee /etc/opendkim.conf > /dev/null << 'EOF'
+Syslog                  yes
+SyslogSuccess           yes
+LogWhy                  yes
+Canonicalization        relaxed/simple
+Mode                    sv
+SubDomains              no
+OversignHeaders         From
+
+AutoRestart             yes
+AutoRestartRate         10/1M
+Background              yes
+DNSTimeout              5
+SignatureAlgorithm      rsa-sha256
+
+KeyTable                refile:/etc/opendkim/key.table
+SigningTable             refile:/etc/opendkim/signing.table
+ExternalIgnoreList      /etc/opendkim/trusted.hosts
+InternalHosts           /etc/opendkim/trusted.hosts
+
+Socket                  local:/run/opendkim/opendkim.sock
+PidFile                 /run/opendkim/opendkim.pid
+UMask                   007
+UserID                  opendkim
+EOF
+
+# Key table: maps selector to key file
+sudo tee /etc/opendkim/key.table > /dev/null << 'EOF'
+mail._domainkey.dominusnode.com    dominusnode.com:mail:/etc/opendkim/keys/dominusnode.com/mail.private
+EOF
+
+# Signing table: maps From addresses to key
+sudo tee /etc/opendkim/signing.table > /dev/null << 'EOF'
+*@dominusnode.com    mail._domainkey.dominusnode.com
+EOF
+
+# Trusted hosts
+sudo tee /etc/opendkim/trusted.hosts > /dev/null << 'EOF'
+127.0.0.1
+localhost
+::1
+EOF
+
+# Create socket directory
+sudo mkdir -p /run/opendkim
+sudo chown opendkim:opendkim /run/opendkim
+```
+
+Connect Postfix to OpenDKIM:
+
+```bash
+# Add milter configuration to Postfix
+sudo postconf -e "milter_default_action = accept"
+sudo postconf -e "milter_protocol = 6"
+sudo postconf -e "smtpd_milters = local:/run/opendkim/opendkim.sock"
+sudo postconf -e "non_smtpd_milters = \$smtpd_milters"
+
+# Add postfix user to opendkim group (for socket access)
+sudo usermod -aG opendkim postfix
+
+# Restart both services
+sudo systemctl restart opendkim
+sudo systemctl enable opendkim
+sudo systemctl restart postfix
+```
+
+Now add the DKIM DNS record. View the public key:
+
+```bash
+sudo cat /etc/opendkim/keys/dominusnode.com/mail.txt
+```
+
+This outputs something like:
+
+```
+mail._domainkey IN TXT ( "v=DKIM1; h=sha256; k=rsa; "
+  "p=MIIBIjANBgkqhkiG9w0BAQEFAAOC..." )
+```
+
+Add this as a DNS TXT record:
+
+```
+Type: TXT
+Name: mail._domainkey   (or mail._domainkey.dominusnode.com)
+Value: v=DKIM1; h=sha256; k=rsa; p=MIIBIjANBgkq...   (the full key, no quotes/parentheses)
+TTL: 3600
+```
+
+**DMARC Record** — Tells receivers what to do with emails that fail SPF/DKIM:
+
+```
+Type: TXT
+Name: _dmarc   (or _dmarc.dominusnode.com)
+Value: v=DMARC1; p=quarantine; rua=mailto:dmarc-reports@dominusnode.com; pct=100; adkim=s; aspf=s
+TTL: 3600
+```
+
+**Reverse DNS (PTR Record)** — Set via your VPS provider's control panel. Map your server IP to `mail.dominusnode.com`. This is critical for deliverability — most providers check PTR records.
+
+#### A5. Test DNS Records
+
+Wait 5-30 minutes for DNS propagation, then verify:
+
+```bash
+# Check SPF
+dig +short TXT dominusnode.com | grep spf
+
+# Check DKIM
+dig +short TXT mail._domainkey.dominusnode.com
+
+# Check DMARC
+dig +short TXT _dmarc.dominusnode.com
+
+# Verify DKIM signing is working
+sudo opendkim-testkey -d dominusnode.com -s mail -vvv
+```
+
+Send another test email and check headers in your email client for `DKIM=pass` and `SPF=pass`.
+
+#### A6. Configure Dominus Node Environment
+
+```bash
+# Edit the .env file
+sudo -u dominusnode nano /opt/dominusnode/.env
+```
+
+Set these values:
+
+```bash
+EMAIL_ENABLED=true
+SMTP_HOST=localhost
+SMTP_PORT=25
+SMTP_USER=
+SMTP_PASS=
+SMTP_FROM=noreply@dominusnode.com
+SMTP_SECURE=false
+APP_URL=https://app.dominusnode.com
+```
+
+Notes:
+- `SMTP_HOST=localhost` — Postfix is on the same machine
+- `SMTP_PORT=25` — local Postfix, no auth needed
+- `SMTP_USER` and `SMTP_PASS` are blank — localhost doesn't need authentication
+- `SMTP_SECURE=false` — no TLS needed for localhost connections
+- `APP_URL` — the public URL of your frontend (used in email link generation)
+
+Restart the API service:
+
+```bash
+sudo systemctl restart dominusnode-api
+```
+
+#### A7. Verify End-to-End
+
+```bash
+# Register a test user via API
+curl -s -X POST https://api.dominusnode.com/api/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"email":"test@yourdomain.com","password":"TestPass123!"}' | jq .
+
+# Check mail log for the verification email
+sudo tail -20 /var/log/mail.log
+
+# Test password reset
+curl -s -X POST https://api.dominusnode.com/api/auth/forgot-password \
+  -H "Content-Type: application/json" \
+  -d '{"email":"test@yourdomain.com"}' | jq .
+
+# Check mail log again
+sudo tail -5 /var/log/mail.log
+```
+
+---
+
+### Option B: Transactional Email Service (Alternative)
+
+If you prefer not to run Postfix, use a third-party transactional email service. These handle deliverability, SPF/DKIM signing, and bounce management for you.
+
+#### Recommended Services
+
+| Service | Free Tier | SMTP Credentials |
+|---------|-----------|------------------|
+| **Resend** | 3,000 emails/month | `smtp.resend.com:587`, API key as password |
+| **Postmark** | 100 emails/month | `smtp.postmarkapp.com:587`, server API token |
+| **SendGrid** | 100 emails/day | `smtp.sendgrid.net:587`, API key as password |
+| **Brevo (Sendinblue)** | 300 emails/day | `smtp-relay.brevo.com:587`, SMTP key |
+| **AWS SES** | 62,000/month (if sending from EC2) | Regional SMTP endpoint, IAM credentials |
+| **Mailgun** | 1,000/month (3-month trial) | `smtp.mailgun.org:587`, SMTP credentials |
+
+#### B1. Example: Resend Setup
+
+1. Sign up at [resend.com](https://resend.com) and verify your domain
+2. Go to **API Keys** and create an SMTP key
+3. Configure `.env`:
+
+```bash
+EMAIL_ENABLED=true
+SMTP_HOST=smtp.resend.com
+SMTP_PORT=587
+SMTP_USER=resend
+SMTP_PASS=re_YOUR_API_KEY_HERE
+SMTP_FROM=noreply@dominusnode.com
+SMTP_SECURE=false
+APP_URL=https://app.dominusnode.com
+```
+
+4. Restart the API service:
+
+```bash
+sudo systemctl restart dominusnode-api
+```
+
+The service handles SPF/DKIM/DMARC automatically once you verify the domain in their dashboard.
+
+#### B2. Example: AWS SES Setup
+
+1. Go to AWS SES console, verify your domain
+2. Create SMTP credentials (IAM user)
+3. If in sandbox mode, verify recipient emails first, then request production access
+4. Configure `.env`:
+
+```bash
+EMAIL_ENABLED=true
+SMTP_HOST=email-smtp.us-east-1.amazonaws.com
+SMTP_PORT=587
+SMTP_USER=AKIAIOSFODNN7EXAMPLE
+SMTP_PASS=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
+SMTP_FROM=noreply@dominusnode.com
+SMTP_SECURE=false
+APP_URL=https://app.dominusnode.com
+```
+
+---
+
+### Firewall Considerations
+
+If using Postfix (Option A), the server needs outbound SMTP access:
+
+```bash
+# Verify outbound port 25 is not blocked (some VPS providers block it)
+telnet gmail-smtp-in.l.google.com 25
+
+# If port 25 is blocked, configure Postfix to relay through port 587
+# via a smarthost (your email provider's SMTP server)
+sudo postconf -e "relayhost = [smtp.gmail.com]:587"
+sudo postconf -e "smtp_sasl_auth_enable = yes"
+sudo postconf -e "smtp_sasl_password_maps = hash:/etc/postfix/sasl_passwd"
+sudo postconf -e "smtp_sasl_security_options = noanonymous"
+sudo postconf -e "smtp_tls_security_level = encrypt"
+
+# Create password file for smarthost relay
+echo "[smtp.gmail.com]:587 your-email@gmail.com:your-app-password" | sudo tee /etc/postfix/sasl_passwd
+sudo postmap /etc/postfix/sasl_passwd
+sudo chmod 600 /etc/postfix/sasl_passwd /etc/postfix/sasl_passwd.db
+sudo systemctl restart postfix
+```
+
+Note: Many cloud providers (AWS, GCP, Azure, Oracle) block outbound port 25 by default. You may need to:
+- Request port 25 unblock from your provider, OR
+- Use a relay/smarthost through port 587, OR
+- Use Option B (transactional email service) which uses port 587
+
+### Postfix Log Rotation
+
+Postfix logs go to `/var/log/mail.log`. Ubuntu's default logrotate handles this, but verify:
+
+```bash
+cat /etc/logrotate.d/rsyslog
+# Should include /var/log/mail.log
+```
+
+### How the Application Uses Email
+
+The email system (`packages/shared/src/email.ts`) works as follows:
+
+1. **Registration** → API sends verification email with a signed token link (24h expiry)
+2. **Forgot Password** → API sends password reset email with a signed token link (1h expiry)
+3. **Resend Verification** → Authenticated users can request a new verification email (rate-limited to 3/IP/15min)
+
+When `EMAIL_ENABLED=false`:
+- All email content is logged to the API server's stdout/journal instead of sent
+- Users can still register and log in — email verification is not enforced for access
+- Password reset is non-functional (the user receives no email)
+
+Token security:
+- Tokens are `crypto.randomBytes(32)` — 256-bit random
+- Only the SHA-256 hash is stored in the database
+- Raw token is sent to the user via email, never stored server-side
+- Verification tokens expire in 24 hours, reset tokens in 1 hour
+- Reset tokens are single-use (marked `used_at` after consumption)
+
+### Quick Reference: Environment Variables
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `EMAIL_ENABLED` | No | `false` | Set to `true` to send real emails |
+| `SMTP_HOST` | If EMAIL_ENABLED | — | SMTP server hostname |
+| `SMTP_PORT` | No | `587` | SMTP port (25=local, 587=STARTTLS, 465=TLS) |
+| `SMTP_USER` | No | — | SMTP auth username (blank for local Postfix) |
+| `SMTP_PASS` | No | — | SMTP auth password (blank for local Postfix) |
+| `SMTP_FROM` | No | `noreply@dominusnode.com` | Sender email address |
+| `SMTP_SECURE` | No | `false` | Use implicit TLS (port 465 only) |
+| `APP_URL` | Yes | `http://localhost:5173` | Public frontend URL for email links |
 
 ---
 

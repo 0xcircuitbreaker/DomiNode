@@ -351,6 +351,53 @@ INSERT INTO data_retention_policies (table_name, retention_days, description) VA
   ('wallet_challenges',     1, 'Wallet challenges retained for 1 day')
 ON CONFLICT (table_name) DO NOTHING;
 
+-- ─── Opt-in target host logging (privacy-first default) ──────────────
+DO $$ BEGIN
+  ALTER TABLE users ADD COLUMN log_target_hosts BOOLEAN NOT NULL DEFAULT false;
+EXCEPTION WHEN duplicate_column THEN NULL;
+END $$;
+
+-- ─── Email verified column on users ──────────────────────────────────
+DO $$ BEGIN
+  ALTER TABLE users ADD COLUMN email_verified BOOLEAN NOT NULL DEFAULT false;
+EXCEPTION WHEN duplicate_column THEN NULL;
+END $$;
+
+-- ─── Email Verification Tokens ──────────────────────────────────────
+CREATE TABLE IF NOT EXISTS email_verification_tokens (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id     UUID NOT NULL REFERENCES users(id),
+  token_hash  TEXT NOT NULL,
+  expires_at  TIMESTAMPTZ NOT NULL,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_email_verification_user
+  ON email_verification_tokens(user_id);
+CREATE INDEX IF NOT EXISTS idx_email_verification_expires
+  ON email_verification_tokens(expires_at);
+
+-- ─── Password Reset Tokens ──────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS password_reset_tokens (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id     UUID NOT NULL REFERENCES users(id),
+  token_hash  TEXT NOT NULL,
+  expires_at  TIMESTAMPTZ NOT NULL,
+  used_at     TIMESTAMPTZ,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_password_reset_user
+  ON password_reset_tokens(user_id);
+CREATE INDEX IF NOT EXISTS idx_password_reset_expires
+  ON password_reset_tokens(expires_at);
+
+-- Add retention policy for email/password tokens
+INSERT INTO data_retention_policies (table_name, retention_days, description) VALUES
+  ('email_verification_tokens', 1, 'Email verification tokens retained for 1 day'),
+  ('password_reset_tokens',     1, 'Password reset tokens retained for 1 day')
+ON CONFLICT (table_name) DO NOTHING;
+
 -- ─── Record current schema version ──────────────────────────────────
 
 INSERT INTO schema_migrations (version, description) VALUES

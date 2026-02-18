@@ -17,8 +17,8 @@ export default function PrivacyPage() {
         <div className="space-y-8 text-sm leading-relaxed">
           <section>
             <h2 className="text-xl font-semibold text-white mb-3">1. Our Privacy Commitment</h2>
-            <p className="mb-3 text-white font-medium">Dominus Node is built with privacy at its core. We save no traffic logs and we do not know what our proxies are being used for.</p>
-            <p>We do not log, inspect, monitor, store, or analyze the content of any traffic routed through our proxy servers. We have no record of what websites you visit, what data you send or receive, or what you use the proxy connection for. This is by design, not by accident.</p>
+            <p className="mb-3 text-white font-medium">Dominus Node is built with privacy at its core. By default, we save no traffic logs and we do not know what our proxies are being used for.</p>
+            <p>We do not log, inspect, monitor, store, or analyze the content of any traffic routed through our proxy servers. By default, we do not record which websites you visit — only aggregate bandwidth totals are tracked for billing. You may optionally enable per-site target host logging in your Security settings for usage analytics, but this is off by default. This is by design, not by accident.</p>
           </section>
 
           <section>
@@ -31,10 +31,10 @@ export default function PrivacyPage() {
           </section>
 
           <section>
-            <h2 className="text-xl font-semibold text-white mb-3">3. What We Do NOT Collect</h2>
-            <p className="mb-2">To be absolutely clear, we do <strong className="text-white">NOT</strong> collect or store:</p>
+            <h2 className="text-xl font-semibold text-white mb-3">3. What We Do NOT Collect (By Default)</h2>
+            <p className="mb-2">By default, we do <strong className="text-white">NOT</strong> collect or store:</p>
             <ul className="list-disc list-inside space-y-1">
-              <li>URLs or domains you visit through the proxy</li>
+              <li>URLs or domains you visit through the proxy (unless you opt in to target host logging)</li>
               <li>HTTP request or response content</li>
               <li>DNS queries made through the proxy</li>
               <li>Browsing history or browsing patterns</li>
@@ -43,6 +43,7 @@ export default function PrivacyPage() {
               <li>Any content of encrypted (HTTPS/TLS) connections — we cannot see this even if we wanted to</li>
             </ul>
             <p className="mt-3 text-gray-400">Our proxy gateway handles HTTPS traffic via the CONNECT method, which creates an encrypted tunnel directly between your device and the destination. We relay the encrypted bytes and count them for billing. We cannot decrypt or inspect this traffic.</p>
+            <p className="mt-2 text-gray-400"><strong className="text-gray-200">Opt-in target host logging:</strong> You may enable target host logging in your Security settings to see per-site bandwidth analytics. When enabled, the hostname (not full URL) of each destination is stored in your usage records. This is disabled by default and can be turned off at any time.</p>
           </section>
 
           <section>

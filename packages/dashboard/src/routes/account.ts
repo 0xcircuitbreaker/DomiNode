@@ -243,4 +243,48 @@ router.delete(
   }
 );
 
+/**
+ * GET /api/account/preferences
+ * Returns user privacy preferences
+ */
+router.get("/preferences", requireAuth, async (req, res) => {
+  const { userId } = (req as AuthenticatedRequest).user;
+  try {
+    const user = await userRepo.findUserById(userId);
+    if (!user) {
+      res.status(404).json({ error: "User not found" });
+      return;
+    }
+    res.json({ logTargetHosts: user.log_target_hosts });
+  } catch (err) {
+    log.error("preferences fetch failed", { userId, error: err instanceof Error ? err.message : String(err) });
+    res.status(500).json({ error: "Failed to fetch preferences" });
+  }
+});
+
+/**
+ * PUT /api/account/preferences
+ * Update user privacy preferences
+ */
+router.put("/preferences", requireAuth, async (req, res) => {
+  const { userId } = (req as AuthenticatedRequest).user;
+  try {
+    const { logTargetHosts } = req.body ?? {};
+    if (typeof logTargetHosts !== "boolean") {
+      res.status(400).json({ error: "logTargetHosts must be a boolean" });
+      return;
+    }
+    const updated = await userRepo.updateLogTargetHosts(userId, logTargetHosts);
+    if (!updated) {
+      res.status(404).json({ error: "User not found" });
+      return;
+    }
+    log.info("privacy preferences updated", { userId, logTargetHosts });
+    res.json({ logTargetHosts });
+  } catch (err) {
+    log.error("preferences update failed", { userId, error: err instanceof Error ? err.message : String(err) });
+    res.status(500).json({ error: "Failed to update preferences" });
+  }
+});
+
 export default router;

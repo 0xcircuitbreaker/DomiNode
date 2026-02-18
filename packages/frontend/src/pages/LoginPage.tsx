@@ -287,6 +287,14 @@ export default function LoginPage() {
           </button>
         )}
 
+        {!isRegister && (
+          <p className="login-switch-row">
+            <Link to="/forgot-password" className="login-link-button">
+              Forgot password?
+            </Link>
+          </p>
+        )}
+
         <p className="login-switch-row">
           {isRegister ? "Already have an account?" : "Don't have an account?"}{" "}
           <button

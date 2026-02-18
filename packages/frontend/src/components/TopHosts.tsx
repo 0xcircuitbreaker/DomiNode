@@ -32,8 +32,11 @@ export default function TopHosts({ since, until }: TopHostsProps) {
     [since, until],
   );
 
-  const maxBytes = data?.hosts.length
-    ? Math.max(...data.hosts.map((h) => h.totalBytes))
+  // Filter out empty host entries (from sessions where target host logging was disabled)
+  const hosts = (data?.hosts ?? []).filter((h) => h.targetHost && h.targetHost.length > 0);
+
+  const maxBytes = hosts.length
+    ? Math.max(...hosts.map((h) => h.totalBytes))
     : 0;
 
   return (
@@ -42,13 +45,13 @@ export default function TopHosts({ since, until }: TopHostsProps) {
 
       {loading ? (
         <p className="text-sm text-gray-500 py-4 text-center">Loading...</p>
-      ) : !data?.hosts.length ? (
+      ) : !hosts.length ? (
         <p className="text-sm text-gray-500 py-4 text-center">
           No host data for this period.
         </p>
       ) : (
         <div className="space-y-3">
-          {data.hosts.map((host) => {
+          {hosts.map((host) => {
             const pct = maxBytes > 0 ? (host.totalBytes / maxBytes) * 100 : 0;
 
             return (

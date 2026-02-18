@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { get, post } from "../api/client";
+import { get, post, put } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 
 interface MfaStatus {
@@ -41,6 +41,11 @@ export default function SecurityPage() {
   const [changingPassword, setChangingPassword] = useState(false);
   const [passwordMessage, setPasswordMessage] = useState("");
 
+  // Privacy preferences state
+  const [logTargetHosts, setLogTargetHosts] = useState(false);
+  const [savingPrivacy, setSavingPrivacy] = useState(false);
+  const [privacyMessage, setPrivacyMessage] = useState("");
+
   const isWallet = user ? isWalletEmail(user.email) : false;
 
   const fetchStatus = useCallback(async () => {
@@ -57,6 +62,13 @@ export default function SecurityPage() {
   useEffect(() => {
     fetchStatus();
   }, [fetchStatus]);
+
+  // Load privacy preference from user context
+  useEffect(() => {
+    if (user) {
+      setLogTargetHosts(user.log_target_hosts ?? false);
+    }
+  }, [user]);
 
   // R15 H-4: Auto-clear MFA setup data after 5 minutes to prevent indefinite secret display
   useEffect(() => {
@@ -118,6 +130,22 @@ export default function SecurityPage() {
     }
   }
 
+  async function handlePrivacyToggle() {
+    setError("");
+    setPrivacyMessage("");
+    setSavingPrivacy(true);
+    try {
+      const newValue = !logTargetHosts;
+      await put("/api/account/preferences", { logTargetHosts: newValue });
+      setLogTargetHosts(newValue);
+      setPrivacyMessage(newValue ? "Target host logging enabled." : "Target host logging disabled.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to update privacy settings");
+    } finally {
+      setSavingPrivacy(false);
+    }
+  }
+
   async function handlePasswordChange(e: React.FormEvent) {
     e.preventDefault();
     setError("");
@@ -153,9 +181,9 @@ export default function SecurityPage() {
         </div>
       )}
 
-      {passwordMessage && (
+      {(passwordMessage || privacyMessage) && (
         <div className="text-sm text-green-400 bg-green-400/10 border border-green-400/20 rounded-lg px-4 py-3">
-          {passwordMessage}
+          {passwordMessage || privacyMessage}
         </div>
       )}
 
@@ -395,6 +423,58 @@ export default function SecurityPage() {
           )}
         </div>
       )}
+
+      {/* Privacy — Target Host Logging */}
+      <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 sm:p-6 space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <div>
+            <h2 className="text-base sm:text-lg font-semibold">Privacy</h2>
+            <p className="text-sm text-gray-400 mt-1">
+              Control what data is stored about your proxy usage.
+            </p>
+          </div>
+          <span className={`self-start px-3 py-1 text-xs font-medium rounded-full flex-shrink-0 ${
+            logTargetHosts
+              ? "bg-yellow-500/20 text-yellow-400 border border-yellow-500/30"
+              : "bg-green-500/20 text-green-400 border border-green-500/30"
+          }`}>
+            {logTargetHosts ? "Logging On" : "Private"}
+          </span>
+        </div>
+
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-gray-200">Target host logging</p>
+              <p className="text-xs text-gray-500 mt-0.5">
+                {logTargetHosts
+                  ? "Website hostnames are stored in your usage records for per-site analytics."
+                  : "No website hostnames are stored. Only aggregate bandwidth is tracked."}
+              </p>
+            </div>
+            <button
+              onClick={handlePrivacyToggle}
+              disabled={savingPrivacy}
+              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${
+                logTargetHosts ? "bg-yellow-500" : "bg-gray-600"
+              } ${savingPrivacy ? "opacity-50" : ""}`}
+              role="switch"
+              aria-checked={logTargetHosts}
+            >
+              <span className={`inline-block h-4 w-4 rounded-full bg-white transition-transform ${
+                logTargetHosts ? "translate-x-6" : "translate-x-1"
+              }`} />
+            </button>
+          </div>
+
+          {logTargetHosts && (
+            <div className="text-xs text-yellow-400/80 bg-yellow-400/5 border border-yellow-400/10 rounded-lg px-3 py-2">
+              When enabled, the hostname of each website you visit through the proxy is stored in your usage records.
+              This enables the "Top Hosts" analytics on the Usage page. Disable to stop storing this data.
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

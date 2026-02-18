@@ -185,7 +185,7 @@ async function handleRequest(
     // R20 H-5: Pass proxyType derived from provider name
     // R29 C-2: Pass pre-fetched plan to prevent TOCTOU double-fetch
     const fwdPoolType = provider.name.includes("dc") ? "dc" : "residential";
-    sessionId = await startSession(auth.userId, targetHost, counter, 0, fwdPoolType, userPlan);
+    sessionId = await startSession(auth.userId, targetHost, counter, 0, fwdPoolType, userPlan, auth.user.log_target_hosts ?? false);
   } catch (err) {
     decrementUserConns(auth.userId);
     const msg = err instanceof Error ? err.message : String(err);
@@ -356,8 +356,9 @@ async function handleConnect(
     return;
   }
 
-  // Capture userId before nested closures (TS can't narrow nullable across closures)
+  // Capture userId and preferences before nested closures (TS can't narrow nullable across closures)
   const userId = auth.userId;
+  const connectLogTargetHosts = auth.user.log_target_hosts ?? false;
 
   // Fetch plan BEFORE provider selection to enforce pool restrictions (R22 H-4)
   const connectPlan = await planRepo.getUserPlan(userId);
@@ -561,7 +562,7 @@ async function handleConnect(
       // R20 H-5: Pass connectLatencyMs and proxyType derived from provider name
       // R29 C-2: Pass pre-fetched plan to prevent TOCTOU double-fetch
       const poolType = providerName.includes("dc") ? "dc" : "residential";
-      sessionId = await startSession(userId, targetHost ?? "unknown", counter, connectLatencyMs, poolType, connectPlan);
+      sessionId = await startSession(userId, targetHost ?? "unknown", counter, connectLatencyMs, poolType, connectPlan, connectLogTargetHosts);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       if (msg.includes("Insufficient balance")) {

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useApi } from "../hooks/useApi";
 import { get } from "../api/client";
+import { useAuth } from "../context/AuthContext";
 import UsageChart from "../components/UsageChart";
 import TopHosts from "../components/TopHosts";
 import CsvExportButton from "../components/CsvExportButton";
@@ -60,6 +61,8 @@ function isValidDate(s: string): boolean {
 }
 
 export default function UsagePage() {
+  const { user } = useAuth();
+  const hostLoggingEnabled = user?.log_target_hosts ?? false;
   const [since, setSince] = useState(() => {
     const d = new Date();
     d.setDate(d.getDate() - 30);
@@ -166,8 +169,8 @@ export default function UsagePage() {
         </div>
       </div>
 
-      {/* Top Hosts — R27 H-5: pass validated dates, not raw input */}
-      <TopHosts since={safeSince} until={safeUntil} />
+      {/* Top Hosts — only shown when target host logging is enabled */}
+      {hostLoggingEnabled && <TopHosts since={safeSince} until={safeUntil} />}
 
       {/* Records Table */}
       <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
@@ -176,8 +179,8 @@ export default function UsagePage() {
         ) : (
           <ResponsiveTable<UsageRecord>
             columns={[
-              { key: "target", header: "Target", primary: true, render: (r) => <span className="font-mono text-xs">{r.targetHost}</span> },
-              { key: "upload", header: "Upload", hideOnMobile: true, render: (r) => <span className="text-gray-400">{formatBytes(r.bytesIn)}</span> },
+              ...(hostLoggingEnabled ? [{ key: "target", header: "Target", primary: true, render: (r: UsageRecord) => <span className="font-mono text-xs">{r.targetHost || "(private)"}</span> }] : []),
+              { key: "upload", header: "Upload", primary: !hostLoggingEnabled, hideOnMobile: true, render: (r) => <span className="text-gray-400">{formatBytes(r.bytesIn)}</span> },
               { key: "download", header: "Download", hideOnMobile: true, render: (r) => <span className="text-gray-400">{formatBytes(r.bytesOut)}</span> },
               { key: "total", header: "Total", render: (r) => formatBytes(r.totalBytes) },
               { key: "cost", header: "Cost", render: (r) => <span className="text-red-400">${(r.costCents / 100).toFixed(4)}</span> },

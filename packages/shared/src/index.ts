@@ -110,6 +110,9 @@ export {
   WALLET_CHALLENGE_TTL_MS,
 } from "./wallet-auth.js";
 
+// Email
+export { sendVerificationEmail, sendPasswordResetEmail, isEmailEnabled } from "./email.js";
+
 // Geo Data
 export { US_STATES, MAJOR_US_CITIES } from "./geo-data.js";
 export type { USState, USCity } from "./geo-data.js";

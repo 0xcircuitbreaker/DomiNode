@@ -8,10 +8,10 @@ export async function createUser(
   const result = await query<User>(
     `INSERT INTO users (email, password_hash)
      VALUES ($1, $2)
-     RETURNING id, email, created_at, status, password_changed_at, is_admin, wallet_address`,
+     RETURNING id, email, created_at, status, password_changed_at, is_admin, wallet_address, log_target_hosts, email_verified`,
     [email, passwordHash],
   );
-  return { ...result.rows[0], password_hash: "", wallet_address: result.rows[0].wallet_address ?? null };
+  return { ...result.rows[0], password_hash: "", wallet_address: result.rows[0].wallet_address ?? null, log_target_hosts: result.rows[0].log_target_hosts ?? false, email_verified: result.rows[0].email_verified ?? false };
 }
 
 /**
@@ -20,7 +20,7 @@ export async function createUser(
  */
 export async function findUserForAuth(email: string): Promise<User | null> {
   const result = await query<User>(
-    `SELECT id, email, password_hash, created_at, status, password_changed_at, is_admin, wallet_address FROM users WHERE email = $1 AND status = 'active'`,
+    `SELECT id, email, password_hash, created_at, status, password_changed_at, is_admin, wallet_address, log_target_hosts, email_verified FROM users WHERE email = $1 AND status = 'active'`,
     [email],
   );
   return result.rows[0] ?? null;
@@ -32,12 +32,12 @@ export async function findUserForAuth(email: string): Promise<User | null> {
  */
 export async function findUserByEmail(email: string): Promise<User | null> {
   const result = await query<User>(
-    `SELECT id, email, created_at, status, password_changed_at, is_admin, wallet_address FROM users WHERE email = $1`,
+    `SELECT id, email, created_at, status, password_changed_at, is_admin, wallet_address, log_target_hosts, email_verified FROM users WHERE email = $1`,
     [email],
   );
   const row = result.rows[0];
   if (!row) return null;
-  return { ...row, password_hash: "", wallet_address: row.wallet_address ?? null };
+  return { ...row, password_hash: "", wallet_address: row.wallet_address ?? null, log_target_hosts: row.log_target_hosts ?? false, email_verified: row.email_verified ?? false };
 }
 
 /**
@@ -53,19 +53,19 @@ export async function countActiveUsers(): Promise<number> {
 
 export async function findUserById(id: string): Promise<User | null> {
   const result = await query<User>(
-    `SELECT id, email, created_at, status, password_changed_at, is_admin, wallet_address FROM users WHERE id = $1`,
+    `SELECT id, email, created_at, status, password_changed_at, is_admin, wallet_address, log_target_hosts, email_verified FROM users WHERE id = $1`,
     [id],
   );
   const row = result.rows[0];
   if (!row) return null;
-  return { ...row, password_hash: "", wallet_address: row.wallet_address ?? null };
+  return { ...row, password_hash: "", wallet_address: row.wallet_address ?? null, log_target_hosts: row.log_target_hosts ?? false, email_verified: row.email_verified ?? false };
 }
 
 export async function findUserByApiKeyHash(
   keyHash: string,
 ): Promise<{ user: User; apiKey: ApiKey } | null> {
   const result = await query<User & { ak_id: string; ak_key_hash: string; ak_key_prefix: string; ak_label: string; ak_created_at: Date; ak_revoked_at: Date | null }>(
-    `SELECT u.id, u.email, u.created_at, u.status, u.password_changed_at, u.is_admin, u.wallet_address, u.plan_id,
+    `SELECT u.id, u.email, u.created_at, u.status, u.password_changed_at, u.is_admin, u.wallet_address, u.log_target_hosts, u.email_verified, u.plan_id,
             k.id AS ak_id,
             k.key_hash AS ak_key_hash,
             k.key_prefix AS ak_key_prefix,
@@ -93,6 +93,8 @@ export async function findUserByApiKeyHash(
     password_changed_at: row.password_changed_at,
     is_admin: row.is_admin ?? false,
     wallet_address: row.wallet_address ?? null,
+    log_target_hosts: row.log_target_hosts ?? false,
+    email_verified: row.email_verified ?? false,
   };
 
   const apiKey: ApiKey = {
@@ -115,12 +117,12 @@ export async function createWalletUser(
   randomHash: string,
 ): Promise<User> {
   const result = await query<User>(
-    `INSERT INTO users (email, password_hash, wallet_address)
-     VALUES ($1, $2, $3)
-     RETURNING id, email, created_at, status, password_changed_at, is_admin, wallet_address`,
+    `INSERT INTO users (email, password_hash, wallet_address, email_verified)
+     VALUES ($1, $2, $3, true)
+     RETURNING id, email, created_at, status, password_changed_at, is_admin, wallet_address, log_target_hosts, email_verified`,
     [syntheticEmail, randomHash, walletAddress.toLowerCase()],
   );
-  return { ...result.rows[0], password_hash: "", wallet_address: result.rows[0].wallet_address ?? null };
+  return { ...result.rows[0], password_hash: "", wallet_address: result.rows[0].wallet_address ?? null, log_target_hosts: result.rows[0].log_target_hosts ?? false, email_verified: result.rows[0].email_verified ?? false };
 }
 
 /**
@@ -129,7 +131,7 @@ export async function createWalletUser(
  */
 export async function findWalletUserForAuth(address: string): Promise<User | null> {
   const result = await query<User>(
-    `SELECT id, email, password_hash, created_at, status, password_changed_at, is_admin, wallet_address FROM users WHERE wallet_address = $1 AND status = 'active'`,
+    `SELECT id, email, password_hash, created_at, status, password_changed_at, is_admin, wallet_address, log_target_hosts, email_verified FROM users WHERE wallet_address = $1 AND status = 'active'`,
     [address.toLowerCase()],
   );
   return result.rows[0] ?? null;
@@ -138,12 +140,12 @@ export async function findWalletUserForAuth(address: string): Promise<User | nul
 /** Find a user by their linked wallet address (safe — redacts password_hash) */
 export async function findUserByWalletAddress(address: string): Promise<User | null> {
   const result = await query<User>(
-    `SELECT id, email, created_at, status, password_changed_at, is_admin, wallet_address FROM users WHERE wallet_address = $1`,
+    `SELECT id, email, created_at, status, password_changed_at, is_admin, wallet_address, log_target_hosts, email_verified FROM users WHERE wallet_address = $1`,
     [address.toLowerCase()],
   );
   const row = result.rows[0];
   if (!row) return null;
-  return { ...row, password_hash: "", wallet_address: row.wallet_address ?? null };
+  return { ...row, password_hash: "", wallet_address: row.wallet_address ?? null, log_target_hosts: row.log_target_hosts ?? false, email_verified: row.email_verified ?? false };
 }
 
 /** Link a wallet address to an existing user account */
@@ -219,4 +221,77 @@ export async function revokeAllApiKeys(userId: string): Promise<number> {
     [userId],
   );
   return result.rowCount ?? 0;
+}
+
+/** Update user's target host logging preference */
+export async function updateLogTargetHosts(userId: string, enabled: boolean): Promise<boolean> {
+  const result = await query(
+    `UPDATE users SET log_target_hosts = $1 WHERE id = $2`,
+    [enabled, userId],
+  );
+  return (result.rowCount ?? 0) > 0;
+}
+
+/** Mark a user's email as verified */
+export async function markEmailVerified(userId: string): Promise<boolean> {
+  const result = await query(
+    `UPDATE users SET email_verified = true WHERE id = $1`,
+    [userId],
+  );
+  return (result.rowCount ?? 0) > 0;
+}
+
+// ─── Email Verification Tokens ──────────────────────────────────────
+
+export async function createEmailVerificationToken(userId: string, tokenHash: string, expiresAt: Date): Promise<void> {
+  // Delete any existing tokens for this user first (one active token at a time)
+  await query(`DELETE FROM email_verification_tokens WHERE user_id = $1`, [userId]);
+  await query(
+    `INSERT INTO email_verification_tokens (user_id, token_hash, expires_at)
+     VALUES ($1, $2, $3)`,
+    [userId, tokenHash, expiresAt],
+  );
+}
+
+export async function findEmailVerificationToken(tokenHash: string): Promise<{ userId: string; expiresAt: Date } | null> {
+  const result = await query<{ user_id: string; expires_at: Date }>(
+    `SELECT user_id, expires_at FROM email_verification_tokens WHERE token_hash = $1`,
+    [tokenHash],
+  );
+  const row = result.rows[0];
+  if (!row) return null;
+  return { userId: row.user_id, expiresAt: row.expires_at };
+}
+
+export async function deleteEmailVerificationToken(tokenHash: string): Promise<void> {
+  await query(`DELETE FROM email_verification_tokens WHERE token_hash = $1`, [tokenHash]);
+}
+
+// ─── Password Reset Tokens ──────────────────────────────────────────
+
+export async function createPasswordResetToken(userId: string, tokenHash: string, expiresAt: Date): Promise<void> {
+  // Delete any existing unused tokens for this user (one active reset at a time)
+  await query(`DELETE FROM password_reset_tokens WHERE user_id = $1 AND used_at IS NULL`, [userId]);
+  await query(
+    `INSERT INTO password_reset_tokens (user_id, token_hash, expires_at)
+     VALUES ($1, $2, $3)`,
+    [userId, tokenHash, expiresAt],
+  );
+}
+
+export async function findPasswordResetToken(tokenHash: string): Promise<{ userId: string; expiresAt: Date; usedAt: Date | null } | null> {
+  const result = await query<{ user_id: string; expires_at: Date; used_at: Date | null }>(
+    `SELECT user_id, expires_at, used_at FROM password_reset_tokens WHERE token_hash = $1`,
+    [tokenHash],
+  );
+  const row = result.rows[0];
+  if (!row) return null;
+  return { userId: row.user_id, expiresAt: row.expires_at, usedAt: row.used_at };
+}
+
+export async function markPasswordResetTokenUsed(tokenHash: string): Promise<void> {
+  await query(
+    `UPDATE password_reset_tokens SET used_at = now() WHERE token_hash = $1`,
+    [tokenHash],
+  );
 }

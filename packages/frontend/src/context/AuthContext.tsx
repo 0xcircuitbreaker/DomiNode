@@ -13,6 +13,8 @@ interface AuthUser {
   email: string;
   is_admin: boolean;
   wallet_address?: string | null;
+  log_target_hosts?: boolean;
+  email_verified?: boolean;
 }
 
 interface WalletChallengeResponse {

@@ -137,12 +137,12 @@ describe("proxy-gateway/session-manager", () => {
       await endSession(sessId);
     });
 
-    it("should pass target host correctly", async () => {
+    it("should pass target host correctly when logTargetHosts=true", async () => {
       mockReserveBalance.mockResolvedValueOnce("wallet-1");
       mockCreateSession.mockResolvedValueOnce({ id: "sess-target" });
 
       const counter = makeCounter();
-      await startSession("user-1", "api.example.org", counter);
+      await startSession("user-1", "api.example.org", counter, 0, "residential", undefined, true);
 
       // End the session and verify targetHost is used in recordUsage
       mockSettleSession.mockResolvedValueOnce(true);
@@ -159,6 +159,29 @@ describe("proxy-gateway/session-manager", () => {
         expect.any(Number),
         expect.any(Number),
         "residential", // R20 H-5: default proxyType
+      );
+    });
+
+    it("should store empty targetHost when logTargetHosts=false (default)", async () => {
+      mockReserveBalance.mockResolvedValueOnce("wallet-1");
+      mockCreateSession.mockResolvedValueOnce({ id: "sess-private" });
+
+      const counter = makeCounter();
+      await startSession("user-1", "api.example.org", counter);
+
+      mockSettleSession.mockResolvedValueOnce(true);
+      mockEndSessionRepo.mockResolvedValueOnce(undefined);
+      await endSession("sess-private");
+
+      expect(mockRecordUsage).toHaveBeenCalledWith(
+        "user-1",
+        "sess-private",
+        expect.any(Number),
+        expect.any(Number),
+        "", // Privacy-first: no targetHost stored by default
+        expect.any(Number),
+        expect.any(Number),
+        "residential",
       );
     });
 
@@ -245,13 +268,13 @@ describe("proxy-gateway/session-manager", () => {
       mockEndSessionRepo.mockResolvedValueOnce(undefined);
       await endSession(sessId);
 
-      // Usage should still be recorded
+      // Usage should still be recorded (targetHost is "" because logTargetHosts defaults to false)
       expect(mockRecordUsage).toHaveBeenCalledWith(
         "user-free2",
         "sess-free-no-reserve",
         5000,
         10000,
-        "example.com",
+        "", // Privacy-first: no targetHost stored by default
         0, // free plan pricing
         expect.any(Number),
         "residential", // R20 H-5: default proxyType
@@ -402,7 +425,7 @@ describe("proxy-gateway/session-manager", () => {
         "sess-zero-bytes",
         0,
         0,
-        "example.com",
+        "", // Privacy-first: no targetHost stored by default
         expect.any(Number), // pricePerGbCents
         expect.any(Number), // connectLatencyMs
         "residential", // R20 H-5: default proxyType
@@ -493,7 +516,7 @@ describe("proxy-gateway/session-manager", () => {
         "sess-plan",
         500,
         500,
-        "example.com",
+        "", // Privacy-first: no targetHost stored by default
         300, // Pro plan pricing
         expect.any(Number), // connectLatencyMs
         "residential", // R20 H-5: default proxyType

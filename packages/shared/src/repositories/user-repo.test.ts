@@ -38,7 +38,7 @@ describe("user-repo", () => {
       mockQuery.mockResolvedValueOnce({ rows: [user] });
 
       const result = await createUser("test@example.com", "hash123");
-      expect(result).toEqual({ ...user, password_hash: "", wallet_address: null });
+      expect(result).toEqual({ ...user, password_hash: "", wallet_address: null, log_target_hosts: false, email_verified: false });
       expect(mockQuery).toHaveBeenCalledWith(
         expect.stringContaining("INSERT INTO users"),
         ["test@example.com", "hash123"],
@@ -66,6 +66,8 @@ describe("user-repo", () => {
         ...user,
         password_hash: "",
         wallet_address: null,
+        log_target_hosts: false,
+        email_verified: false,
       });
       expect(mockQuery).toHaveBeenCalledWith(
         expect.stringContaining("SELECT id, email,"),
@@ -147,6 +149,8 @@ describe("user-repo", () => {
         password_changed_at: null,
         is_admin: false,
         wallet_address: null,
+        log_target_hosts: false,
+        email_verified: false,
       });
       // ApiKey should have correct user_id
       expect(result!.apiKey.user_id).toBe("user-id");
@@ -161,9 +165,9 @@ describe("user-repo", () => {
       mockQuery.mockResolvedValueOnce({ rows: [user] });
 
       const result = await findUserById("u1");
-      expect(result).toEqual({ ...user, password_hash: "", wallet_address: null });
+      expect(result).toEqual({ ...user, password_hash: "", wallet_address: null, log_target_hosts: false, email_verified: false });
       expect(mockQuery).toHaveBeenCalledWith(
-        expect.stringContaining("SELECT id, email, created_at, status, password_changed_at, is_admin, wallet_address FROM users WHERE id = $1"),
+        expect.stringContaining("SELECT id, email, created_at, status, password_changed_at, is_admin, wallet_address, log_target_hosts, email_verified FROM users WHERE id = $1"),
         ["u1"],
       );
     });

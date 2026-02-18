@@ -197,6 +197,7 @@ export async function startSession(
   connectLatencyMs: number = 0,
   requestedProxyType: string = "residential", // R20 H-5: Provider pool type from server.ts/socks5.ts
   preloadedPlan?: Plan, // R29 C-2: Accept pre-fetched plan to prevent TOCTOU double-fetch
+  logTargetHosts: boolean = false, // Privacy-first: only store targetHost when user opts in
 ): Promise<string> {
   let proxyType = requestedProxyType;
   // Per-user bandwidth velocity check: prevent monopolizing upstream
@@ -312,10 +313,13 @@ export async function startSession(
 
   const sessionId = dbSession.id;
 
+  // Privacy-first: only store actual targetHost when user has opted in
+  const storedTargetHost = logTargetHosts ? targetHost : "";
+
   activeSessions.set(sessionId, {
     sessionId,
     userId,
-    targetHost,
+    targetHost: storedTargetHost,
     startedAt: new Date(),
     counter,
     reservedCents,

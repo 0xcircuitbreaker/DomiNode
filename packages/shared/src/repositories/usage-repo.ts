@@ -196,6 +196,7 @@ export async function getTopHosts(
      WHERE user_id = $1
        AND created_at >= $2
        AND created_at < $3
+       AND target_host != ''
      GROUP BY target_host
      ORDER BY total_bytes DESC
      LIMIT $4`,

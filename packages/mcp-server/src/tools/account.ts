@@ -96,9 +96,9 @@ export function registerAccountTools(server: McpServer, httpClient: HttpClient):
           `User ID: ${data.user.id}`,
           ``,
           `You are now authenticated. Next steps:`,
-          `1. Use dominusnode_create_key to create an API key for proxy access`,
-          `2. Use dominusnode_fetch to make requests through the proxy`,
-          `3. Free tier: 10 connections, 1GB bandwidth — no payment needed`,
+          `1. Use dominusnode_setup to create an account + API key in one step (recommended)`,
+          `   Or set DOMINUSNODE_API_KEY and restart to unlock dominusnode_create_key`,
+          `2. Free tier: 10 connections, 1GB bandwidth — no payment needed`,
         ].join("\n");
         return { content: [{ type: "text", text }] };
       } catch (err) {
@@ -176,10 +176,29 @@ export function registerAccountTools(server: McpServer, httpClient: HttpClient):
         }
 
         // Step 2: Create API key (using the newly acquired auth)
-        const keyData = await httpClient.post<{ id: string; key: string; label: string }>(
-          "/api/keys",
-          { label: args.key_label },
-        );
+        let keyData: { id: string; key: string; label: string };
+        try {
+          keyData = await httpClient.post<{ id: string; key: string; label: string }>(
+            "/api/keys",
+            { label: args.key_label },
+          );
+        } catch (keyErr) {
+          // Account was created but key creation failed — tell the agent clearly
+          const text = [
+            `Account created but API key creation failed.`,
+            ``,
+            `Account:`,
+            `  Email: ${reg.user.email}`,
+            `  User ID: ${reg.user.id}`,
+            ``,
+            `You are authenticated. To create an API key:`,
+            `  1. Set DOMINUSNODE_API_KEY env var and restart to unlock dominusnode_create_key`,
+            `  2. Or use dominusnode_login to re-authenticate and retry`,
+            ``,
+            `Error: ${keyErr instanceof Error ? keyErr.message : String(keyErr)}`,
+          ].join("\n");
+          return { isError: true, content: [{ type: "text", text }] };
+        }
 
         const text = [
           `Dominus Node account setup complete!`,
@@ -196,7 +215,7 @@ export function registerAccountTools(server: McpServer, httpClient: HttpClient):
           `  curl -x http://USER:${keyData.key}@proxy.dominusnode.com:8080 https://httpbin.org/ip`,
           ``,
           `Free tier: 10 connections, 1GB bandwidth.`,
-          `Use dominusnode_fetch to make proxy requests immediately.`,
+          `Set DOMINUSNODE_API_KEY=${keyData.key} and restart to unlock all 27 tools.`,
         ].join("\n");
         return { content: [{ type: "text", text }] };
       } catch (err) {

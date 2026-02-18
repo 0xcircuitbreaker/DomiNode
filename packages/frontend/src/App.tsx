@@ -3,6 +3,9 @@ import { Routes, Route, Navigate } from "react-router-dom";
 import Layout from "./components/Layout";
 import MarketingPage from "./pages/MarketingPage";
 import LoginPage from "./pages/LoginPage";
+import ForgotPasswordPage from "./pages/ForgotPasswordPage";
+import ResetPasswordPage from "./pages/ResetPasswordPage";
+import VerifyEmailPage from "./pages/VerifyEmailPage";
 import DashboardPage from "./pages/DashboardPage";
 import ApiKeysPage from "./pages/ApiKeysPage";
 import WalletPage from "./pages/WalletPage";
@@ -29,6 +32,9 @@ export default function App() {
       <Route path="/privacy" element={<PrivacyPage />} />
       <Route path="/terms" element={<TermsPage />} />
       <Route path="/login" element={<LoginPage />} />
+      <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+      <Route path="/reset-password" element={<ResetPasswordPage />} />
+      <Route path="/verify-email" element={<VerifyEmailPage />} />
       <Route path="/dashboard" element={<Navigate to="/app" replace />} />
       <Route path="/keys" element={<Navigate to="/app/keys" replace />} />
       <Route path="/wallet" element={<Navigate to="/app/wallet" replace />} />

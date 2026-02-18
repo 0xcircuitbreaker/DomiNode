@@ -178,6 +178,7 @@ async function handleSocks5Connection(clientSocket: net.Socket, providerSelector
 
   const keyHash = hashApiKey(apiKey);
   let userId: string;
+  let logTargetHosts = false;
   let proxyOptions: ProxyOptions;
 
   try {
@@ -196,6 +197,7 @@ async function handleSocks5Connection(clientSocket: net.Socket, providerSelector
       return;
     }
     userId = result.user.id;
+    logTargetHosts = result.user.log_target_hosts ?? false;
     proxyOptions = parseProxyOptions(username);
   } catch (err) {
     log.error("SOCKS5 auth DB error", { error: err instanceof Error ? err.message : String(err) });
@@ -451,7 +453,7 @@ async function handleSocks5Connection(clientSocket: net.Socket, providerSelector
       // R20 H-5: Pass connectLatencyMs and proxyType derived from provider name
       // R29 C-2: Pass pre-fetched plan to prevent TOCTOU double-fetch
       const poolType = providerName.includes("dc") ? "dc" : "residential";
-      sessionId = await startSession(userId, targetHost, counter, connectLatencyMs, poolType, socksUserPlan);
+      sessionId = await startSession(userId, targetHost, counter, connectLatencyMs, poolType, socksUserPlan, logTargetHosts);
     } catch (err) {
       log.error("SOCKS5 failed to start session", { error: err instanceof Error ? err.message : String(err) });
       // R26 H-1: Guard against writing to destroyed socket

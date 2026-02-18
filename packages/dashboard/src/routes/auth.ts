@@ -1,4 +1,5 @@
 import { Router, type Request as ExpressRequest } from "express";
+import * as crypto from "node:crypto";
 import {
   userRepo,
   walletRepo,
@@ -25,6 +26,8 @@ import {
   buildTotpUri,
   generateBackupCodes,
   hashBackupCode,
+  sendVerificationEmail,
+  sendPasswordResetEmail,
 } from "@dominusnode/shared";
 import { requireAuth, type AuthenticatedRequest } from "../middleware/auth.js";
 import { setAuthCookies, clearAuthCookies, getRefreshCookieName } from "../helpers/cookies.js";
@@ -292,6 +295,15 @@ router.post("/register", async (req, res) => {
     await refreshTokenRepo.storeToken(user.id, tokenHash, familyId, expiresAt);
 
     log.info("user registered", { userId: user.id });
+
+    // Send email verification (non-blocking)
+    const verificationToken = generateSecureToken();
+    const verifyExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
+    userRepo.createEmailVerificationToken(user.id, verificationToken.hash, verifyExpiresAt)
+      .then(() => sendVerificationEmail(email, verificationToken.raw))
+      .catch((err) => {
+        log.error("failed to send verification email", { userId: user.id, error: err instanceof Error ? err.message : String(err) });
+      });
 
     setAuthCookies(res, tokens.accessToken, tokens.refreshToken);
 
@@ -622,7 +634,7 @@ router.post("/logout", requireAuth, async (req, res) => {
 router.get("/me", requireAuth, async (req, res) => {
   try {
     const { userId, email, isAdmin } = (req as AuthenticatedRequest).user;
-    // Fetch full user record to include wallet_address
+    // Fetch full user record to include wallet_address and preferences
     const fullUser = await userRepo.findUserById(userId);
     res.json({
       user: {
@@ -630,6 +642,8 @@ router.get("/me", requireAuth, async (req, res) => {
         email,
         is_admin: isAdmin,
         wallet_address: fullUser?.wallet_address ?? null,
+        log_target_hosts: fullUser?.log_target_hosts ?? false,
+        email_verified: fullUser?.email_verified ?? false,
       },
     });
   } catch (err) {
@@ -1110,6 +1124,273 @@ router.get("/mfa/status", requireAuth, async (req, res) => {
   } catch (err) {
     log.error("MFA status check failed", { error: err instanceof Error ? err.message : String(err) });
     res.status(500).json({ error: "Failed to check MFA status" });
+  }
+});
+
+// ─── Token Helpers ───────────────────────────────────────────────────
+
+function generateSecureToken(): { raw: string; hash: string } {
+  const raw = crypto.randomBytes(32).toString("hex");
+  const hash = crypto.createHash("sha256").update(raw).digest("hex");
+  return { raw, hash };
+}
+
+// ─── Per-IP forgot-password rate limiter ─────────────────────────────
+const MAX_FORGOT_PER_IP = 5; // 5 requests per IP per 15 min
+const FORGOT_WINDOW_MS = 15 * 60 * 1000;
+const forgotPasswordAttempts = new Map<string, { count: number; windowStart: number }>();
+
+function checkForgotPasswordRateLimit(ip: string): boolean {
+  const now = Date.now();
+  const entry = forgotPasswordAttempts.get(ip);
+  if (!entry || now - entry.windowStart > FORGOT_WINDOW_MS) {
+    if (forgotPasswordAttempts.size >= MAX_LOCKOUT_MAP_SIZE) {
+      const firstKey = forgotPasswordAttempts.keys().next().value;
+      if (firstKey) forgotPasswordAttempts.delete(firstKey);
+    }
+    forgotPasswordAttempts.set(ip, { count: 1, windowStart: now });
+    return true;
+  }
+  entry.count++;
+  return entry.count <= MAX_FORGOT_PER_IP;
+}
+
+// Cleanup forgot-password rate limit entries every 5 min
+setInterval(() => {
+  const now = Date.now();
+  for (const [ip, entry] of forgotPasswordAttempts) {
+    if (now - entry.windowStart > FORGOT_WINDOW_MS) {
+      forgotPasswordAttempts.delete(ip);
+    }
+  }
+}, 300_000).unref();
+
+// Per-IP resend-verification rate limiter
+const MAX_RESEND_PER_IP = 3; // 3 requests per IP per 15 min
+const resendVerificationAttempts = new Map<string, { count: number; windowStart: number }>();
+
+function checkResendVerificationRateLimit(ip: string): boolean {
+  const now = Date.now();
+  const entry = resendVerificationAttempts.get(ip);
+  if (!entry || now - entry.windowStart > FORGOT_WINDOW_MS) {
+    if (resendVerificationAttempts.size >= MAX_LOCKOUT_MAP_SIZE) {
+      const firstKey = resendVerificationAttempts.keys().next().value;
+      if (firstKey) resendVerificationAttempts.delete(firstKey);
+    }
+    resendVerificationAttempts.set(ip, { count: 1, windowStart: now });
+    return true;
+  }
+  entry.count++;
+  return entry.count <= MAX_RESEND_PER_IP;
+}
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [ip, entry] of resendVerificationAttempts) {
+    if (now - entry.windowStart > FORGOT_WINDOW_MS) {
+      resendVerificationAttempts.delete(ip);
+    }
+  }
+}, 300_000).unref();
+
+// ─── POST /api/auth/forgot-password ─────────────────────────────────
+router.post("/forgot-password", async (req, res) => {
+  try {
+    const email = sanitizeString(req.body.email ?? "", 254).toLowerCase();
+
+    if (!isValidEmail(email)) {
+      // Always return 200 to prevent email enumeration
+      res.json({ message: "If an account with that email exists, a password reset link has been sent." });
+      return;
+    }
+
+    const clientIp = req.ip ?? "unknown";
+    if (!checkForgotPasswordRateLimit(clientIp)) {
+      res.status(429).json({ error: "Too many password reset requests. Please try again later." });
+      return;
+    }
+
+    // Block wallet-only accounts from password reset
+    if (isWalletEmail(email)) {
+      // Don't reveal that it's a wallet email
+      res.json({ message: "If an account with that email exists, a password reset link has been sent." });
+      return;
+    }
+
+    const user = await userRepo.findUserByEmail(email);
+    if (!user || user.status !== "active") {
+      // Don't reveal whether the email exists
+      log.info("forgot-password for non-existent/inactive email", { email, ip: clientIp });
+      res.json({ message: "If an account with that email exists, a password reset link has been sent." });
+      return;
+    }
+
+    // Generate a secure token
+    const { raw, hash } = generateSecureToken();
+    const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+
+    await userRepo.createPasswordResetToken(user.id, hash, expiresAt);
+
+    // Send email (async, don't block response on delivery)
+    sendPasswordResetEmail(email, raw).catch((err) => {
+      log.error("failed to send password reset email", { userId: user.id, error: err instanceof Error ? err.message : String(err) });
+    });
+
+    log.info("password reset requested", { userId: user.id, ip: clientIp });
+    res.json({ message: "If an account with that email exists, a password reset link has been sent." });
+  } catch (err) {
+    log.error("forgot-password failed", { error: err instanceof Error ? err.message : String(err) });
+    res.status(500).json({ error: "Password reset request failed" });
+  }
+});
+
+// ─── POST /api/auth/reset-password ──────────────────────────────────
+router.post("/reset-password", async (req, res) => {
+  try {
+    const token = sanitizeString(req.body.token ?? "", 128);
+    const newPassword = req.body.newPassword ?? "";
+
+    if (!token || token.length < 32) {
+      res.status(400).json({ error: "Invalid or expired reset token." });
+      return;
+    }
+
+    const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
+    const resetToken = await userRepo.findPasswordResetToken(tokenHash);
+
+    if (!resetToken) {
+      res.status(400).json({ error: "Invalid or expired reset token." });
+      return;
+    }
+
+    // Check if token has already been used
+    if (resetToken.usedAt) {
+      res.status(400).json({ error: "This reset link has already been used." });
+      return;
+    }
+
+    // Check expiry
+    if (new Date(resetToken.expiresAt) < new Date()) {
+      res.status(400).json({ error: "This reset link has expired. Please request a new one." });
+      return;
+    }
+
+    // Find the user
+    const user = await userRepo.findUserById(resetToken.userId);
+    if (!user || user.status !== "active") {
+      res.status(400).json({ error: "Invalid or expired reset token." });
+      return;
+    }
+
+    // Validate new password
+    const pwError = validatePassword(newPassword, user.email);
+    if (pwError) {
+      res.status(400).json({ error: pwError });
+      return;
+    }
+
+    // Hash and update password
+    const passwordHash = await hashPassword(newPassword);
+    await userRepo.updatePassword(user.id, passwordHash);
+
+    // Mark token as used
+    await userRepo.markPasswordResetTokenUsed(tokenHash);
+
+    // Revoke all refresh tokens + API keys for security (force re-login)
+    await refreshTokenRepo.revokeAllForUser(user.id);
+    await userRepo.revokeAllApiKeys(user.id);
+
+    log.info("password reset completed", { userId: user.id });
+    res.json({ message: "Password has been reset successfully. Please log in with your new password." });
+  } catch (err) {
+    log.error("reset-password failed", { error: err instanceof Error ? err.message : String(err) });
+    res.status(500).json({ error: "Password reset failed" });
+  }
+});
+
+// ─── POST /api/auth/verify-email ────────────────────────────────────
+router.post("/verify-email", async (req, res) => {
+  try {
+    const token = sanitizeString(req.body.token ?? "", 128);
+
+    if (!token || token.length < 32) {
+      res.status(400).json({ error: "Invalid or expired verification token." });
+      return;
+    }
+
+    const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
+    const verifyToken = await userRepo.findEmailVerificationToken(tokenHash);
+
+    if (!verifyToken) {
+      res.status(400).json({ error: "Invalid or expired verification token." });
+      return;
+    }
+
+    // Check expiry
+    if (new Date(verifyToken.expiresAt) < new Date()) {
+      // Clean up expired token
+      await userRepo.deleteEmailVerificationToken(tokenHash);
+      res.status(400).json({ error: "This verification link has expired. Please request a new one." });
+      return;
+    }
+
+    // Mark email as verified
+    await userRepo.markEmailVerified(verifyToken.userId);
+
+    // Clean up token
+    await userRepo.deleteEmailVerificationToken(tokenHash);
+
+    log.info("email verified", { userId: verifyToken.userId });
+    res.json({ message: "Email verified successfully!" });
+  } catch (err) {
+    log.error("verify-email failed", { error: err instanceof Error ? err.message : String(err) });
+    res.status(500).json({ error: "Email verification failed" });
+  }
+});
+
+// ─── POST /api/auth/resend-verification ─────────────────────────────
+router.post("/resend-verification", requireAuth, async (req, res) => {
+  try {
+    const { userId } = (req as AuthenticatedRequest).user;
+    const clientIp = req.ip ?? "unknown";
+
+    if (!checkResendVerificationRateLimit(clientIp)) {
+      res.status(429).json({ error: "Too many verification requests. Please try again later." });
+      return;
+    }
+
+    const user = await userRepo.findUserById(userId);
+    if (!user) {
+      res.status(404).json({ error: "User not found" });
+      return;
+    }
+
+    if (user.email_verified) {
+      res.json({ message: "Email is already verified." });
+      return;
+    }
+
+    // Wallet users don't need email verification
+    if (isWalletEmail(user.email)) {
+      res.json({ message: "Wallet accounts do not require email verification." });
+      return;
+    }
+
+    // Generate verification token
+    const { raw, hash } = generateSecureToken();
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
+
+    await userRepo.createEmailVerificationToken(userId, hash, expiresAt);
+
+    sendVerificationEmail(user.email, raw).catch((err) => {
+      log.error("failed to send verification email", { userId, error: err instanceof Error ? err.message : String(err) });
+    });
+
+    log.info("verification email resent", { userId, ip: clientIp });
+    res.json({ message: "Verification email sent. Please check your inbox." });
+  } catch (err) {
+    log.error("resend-verification failed", { error: err instanceof Error ? err.message : String(err) });
+    res.status(500).json({ error: "Failed to resend verification email" });
   }
 });
 
