@@ -119,9 +119,10 @@ describe("WalletPage", () => {
     // Check crypto options
     expect(screen.getByText("btc")).toBeInTheDocument();
     expect(screen.getByText("eth")).toBeInTheDocument();
+    expect(screen.getByText("ltc")).toBeInTheDocument();
     expect(screen.getByText("xmr")).toBeInTheDocument();
-    expect(screen.getByText("sol")).toBeInTheDocument();
     expect(screen.getByText("zec")).toBeInTheDocument();
+    expect(screen.getByText("usdc")).toBeInTheDocument();
   });
 
   it("shows empty transactions message when no transactions exist", async () => {

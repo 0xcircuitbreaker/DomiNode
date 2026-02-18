@@ -64,7 +64,7 @@ async function main(): Promise<void> {
 
     const transport = new StdioServerTransport();
     await server.connect(transport);
-    process.stderr.write("Dominus Node MCP Server ready — bootstrap mode (11 tools)\n");
+    process.stderr.write("Dominus Node MCP Server ready — bootstrap mode (16 tools)\n");
     process.stderr.write("Run dominusnode_setup or dominusnode_wallet_setup to create an account and unlock all 30 tools.\n");
   } else {
     // ── Authenticated Mode ──────────────────────────────────────────
@@ -131,7 +131,7 @@ function registerBootstrapHelper(server: McpServer): void {
         ``,
         `Option 4: Top up with crypto`,
         `  After registering, use dominusnode_pay_crypto to add funds.`,
-        `  Supports BTC, ETH, XMR, SOL, ZEC, USDC, USDT.`,
+        `  Supports BTC, ETH, LTC, XMR, ZEC, USDC.`,
         ``,
         `After setup, set DOMINUSNODE_API_KEY in your environment`,
         `to unlock all 30 tools on next startup.`,

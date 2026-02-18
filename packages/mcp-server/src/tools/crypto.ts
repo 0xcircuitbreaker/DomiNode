@@ -2,15 +2,15 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { HttpClient } from "../http-client.js";
 
-const SUPPORTED_CRYPTO = ["BTC", "ETH", "XMR", "SOL", "ZEC", "USDC", "USDT"] as const;
+const SUPPORTED_CRYPTO = ["BTC", "ETH", "LTC", "XMR", "ZEC", "USDC"] as const;
 
 export function registerCryptoTools(server: McpServer, httpClient: HttpClient): void {
   server.tool(
     "dominusnode_pay_crypto",
-    "Create a cryptocurrency payment invoice to top up your Dominus Node wallet. Supports BTC, ETH, XMR (Monero), SOL, ZEC (Zcash), USDC, and USDT. Returns a payment address and amount. Privacy coins (XMR, ZEC) provide anonymous billing — no identity linked to payment.",
+    "Create a cryptocurrency payment invoice to top up your Dominus Node wallet. Supports BTC, ETH, LTC (Litecoin), XMR (Monero), ZEC (Zcash), and USDC. Returns a payment address and amount. Privacy coins (XMR, ZEC) provide anonymous billing — no identity linked to payment.",
     {
       amount_usd: z.number().min(1).max(10000).describe("Amount in USD to add to wallet (min $1)"),
-      currency: z.enum(SUPPORTED_CRYPTO).describe("Cryptocurrency to pay with (BTC, ETH, XMR, SOL, ZEC, USDC, USDT)"),
+      currency: z.enum(SUPPORTED_CRYPTO).describe("Cryptocurrency to pay with (BTC, ETH, LTC, XMR, ZEC, USDC)"),
     },
     async (args) => {
       try {

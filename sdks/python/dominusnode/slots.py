@@ -14,7 +14,7 @@ class SlotsResource:
 
     def get_slots(self) -> SlotsInfo:
         """Check available registration slots."""
-        data = self._http.get("/api/slots")
+        data = self._http.get("/api/slots", requires_auth=False)
         return SlotsInfo(
             total=data["total"],
             used=data["used"],
@@ -24,12 +24,12 @@ class SlotsResource:
 
     def join_waitlist(self, email: str) -> WaitlistJoinResult:
         """Join the waitlist when registration slots are full."""
-        data = self._http.post("/api/waitlist/join", json={"email": email})
+        data = self._http.post("/api/waitlist/join", json={"email": email}, requires_auth=False)
         return WaitlistJoinResult(message=data.get("message", ""))
 
     def get_waitlist_count(self) -> WaitlistCount:
         """Get the number of people on the waitlist."""
-        data = self._http.get("/api/waitlist/count")
+        data = self._http.get("/api/waitlist/count", requires_auth=False)
         return WaitlistCount(pending=data["pending"])
 
 
@@ -41,7 +41,7 @@ class AsyncSlotsResource:
 
     async def get_slots(self) -> SlotsInfo:
         """Check available registration slots."""
-        data = await self._http.get("/api/slots")
+        data = await self._http.get("/api/slots", requires_auth=False)
         return SlotsInfo(
             total=data["total"],
             used=data["used"],
@@ -51,10 +51,10 @@ class AsyncSlotsResource:
 
     async def join_waitlist(self, email: str) -> WaitlistJoinResult:
         """Join the waitlist when registration slots are full."""
-        data = await self._http.post("/api/waitlist/join", json={"email": email})
+        data = await self._http.post("/api/waitlist/join", json={"email": email}, requires_auth=False)
         return WaitlistJoinResult(message=data.get("message", ""))
 
     async def get_waitlist_count(self) -> WaitlistCount:
         """Get the number of people on the waitlist."""
-        data = await self._http.get("/api/waitlist/count")
+        data = await self._http.get("/api/waitlist/count", requires_auth=False)
         return WaitlistCount(pending=data["pending"])

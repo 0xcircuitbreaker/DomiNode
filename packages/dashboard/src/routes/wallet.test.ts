@@ -355,7 +355,7 @@ describe("wallet routes", () => {
       });
 
       expect(res.status).toBe(400);
-      expect(res.body.error).toBe("Unsupported currency. Supported: btc, eth, xmr, sol, zec");
+      expect(res.body.error).toBe("Unsupported currency. Supported: btc, eth, ltc, xmr, zec, usdc");
     });
   });
 

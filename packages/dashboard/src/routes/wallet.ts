@@ -135,7 +135,7 @@ router.post("/topup/crypto", topupLimiter, async (req, res) => {
 
     if (!isValidCryptoCurrency(currency)) {
       res.status(400).json({
-        error: "Unsupported currency. Supported: btc, eth, xmr, sol, zec",
+        error: "Unsupported currency. Supported: btc, eth, ltc, xmr, zec, usdc",
       });
       return;
     }

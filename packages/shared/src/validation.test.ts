@@ -190,12 +190,16 @@ describe("validation", () => {
       expect(isValidCryptoCurrency("xmr")).toBe(true);
     });
 
-    it("should accept sol", () => {
-      expect(isValidCryptoCurrency("sol")).toBe(true);
+    it("should accept ltc", () => {
+      expect(isValidCryptoCurrency("ltc")).toBe(true);
     });
 
     it("should accept zec", () => {
       expect(isValidCryptoCurrency("zec")).toBe(true);
+    });
+
+    it("should accept usdc", () => {
+      expect(isValidCryptoCurrency("usdc")).toBe(true);
     });
 
     it("should accept uppercase BTC", () => {
