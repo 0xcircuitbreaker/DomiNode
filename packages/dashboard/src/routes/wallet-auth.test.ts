@@ -25,6 +25,9 @@ vi.mock("@dominusnode/shared", () => ({
     hashToken: vi.fn(() => "hashed-rt"),
     storeToken: vi.fn(),
   },
+  waitlistRepo: {
+    markRegistered: vi.fn().mockResolvedValue(false),
+  },
   createTokenPair: vi.fn().mockReturnValue({
     accessToken: "test-access-token",
     refreshToken: "test-refresh-token",

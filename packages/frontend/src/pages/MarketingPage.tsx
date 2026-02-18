@@ -236,6 +236,12 @@ export default function MarketingPage() {
   const [featuredPlanId, setFeaturedPlanId] = useState(DEFAULT_FEATURED_PLAN_ID);
   const { data: plansData } = useApi<PlansResponse>(() => get("/api/plans", { redirectOnUnauthorized: false }));
   const { data: healthData } = useApi<ProxyHealthResponse>(() => get("/api/proxy/health", { redirectOnUnauthorized: false }));
+  const { data: slotsData } = useApi<{ total: number; used: number; remaining: number; unlimited: boolean }>(
+    () => get("/api/slots", { redirectOnUnauthorized: false })
+  );
+  const { data: waitlistData } = useApi<{ pending: number }>(
+    () => get("/api/waitlist/count", { redirectOnUnauthorized: false })
+  );
 
   const plans = (plansData?.plans ?? FALLBACK_PLANS)
     .filter((p) => p.id === "free-dc" || p.id === "free-res" || p.id === "payg" || p.id === "vol100" || p.id === "vol1tb" || p.id === "agent")
@@ -250,31 +256,36 @@ export default function MarketingPage() {
   const marketingProxyEndpoint = getMarketingProxyEndpoint();
 
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [betaDismissed, setBetaDismissed] = useState(() => {
-    try { return localStorage.getItem("dn_beta_dismissed") === "1"; } catch { return false; }
+  const [alphaDismissed, setAlphaDismissed] = useState(() => {
+    try { return localStorage.getItem("dn_alpha_dismissed") === "1"; } catch { return false; }
   });
 
-  function dismissBeta() {
-    setBetaDismissed(true);
-    try { localStorage.setItem("dn_beta_dismissed", "1"); } catch { /* ignore */ }
+  function dismissAlpha() {
+    setAlphaDismissed(true);
+    try { localStorage.setItem("dn_alpha_dismissed", "1"); } catch { /* ignore */ }
   }
 
   return (
     <div className="marketing-root" data-theme={theme}>
       <NodeNetworkBackground theme={theme} className="mk-node-network" />
 
-      {!betaDismissed && (
-        <div className="mk-beta-banner">
-          <div className="mk-shell mk-beta-banner-inner">
-            <span className="mk-beta-badge">BETA</span>
-            <p className="mk-beta-text">
-              Limited slots available &mdash; 250 datacenter proxies, residential pool access.
-              Join the beta before slots fill up.
+      {!alphaDismissed && (
+        <div className="mk-alpha-banner">
+          <div className="mk-shell mk-alpha-banner-inner">
+            <span className="mk-alpha-badge">ALPHA</span>
+            <p className="mk-alpha-text">
+              {slotsData && !slotsData.unlimited && slotsData.remaining > 0
+                ? <>{slotsData.remaining} of {slotsData.total} alpha slots remaining &mdash; join before they fill up.</>
+                : slotsData && !slotsData.unlimited && slotsData.remaining === 0
+                  ? <>All {slotsData.total} alpha slots filled{waitlistData && waitlistData.pending > 0 ? <> &mdash; {waitlistData.pending} on the waitlist</> : <> &mdash; join the waitlist!</>}</>
+                  : <>Limited alpha slots available &mdash; 250 datacenter proxies, residential pool access.</>}
             </p>
-            <Link to={registerHref} className="mk-beta-cta">
-              {user ? "Open Dashboard" : "Join Beta"}
+            <Link to={slotsData && !slotsData.unlimited && slotsData.remaining === 0 ? "/login?waitlist=1" : registerHref} className="mk-alpha-cta">
+              {slotsData && !slotsData.unlimited && slotsData.remaining === 0
+                ? "Join Waitlist"
+                : user ? "Open Dashboard" : "Join Alpha"}
             </Link>
-            <button className="mk-beta-close" onClick={dismissBeta} aria-label="Dismiss beta banner">
+            <button className="mk-alpha-close" onClick={dismissAlpha} aria-label="Dismiss alpha banner">
               &times;
             </button>
           </div>

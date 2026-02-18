@@ -87,6 +87,8 @@ export * as refreshTokenRepo from "./repositories/refresh-token-repo.js";
 export * as mfaRepo from "./repositories/mfa-repo.js";
 export * as walletChallengeRepo from "./repositories/wallet-challenge-repo.js";
 export * as retentionRepo from "./repositories/retention-repo.js";
+export * as waitlistRepo from "./repositories/waitlist-repo.js";
+export type { WaitlistEntry } from "./repositories/waitlist-repo.js";
 
 // TOTP
 export {
@@ -111,7 +113,7 @@ export {
 } from "./wallet-auth.js";
 
 // Email
-export { sendVerificationEmail, sendPasswordResetEmail, isEmailEnabled } from "./email.js";
+export { sendVerificationEmail, sendPasswordResetEmail, sendWaitlistApprovalEmail, isEmailEnabled } from "./email.js";
 
 // Geo Data
 export { US_STATES, MAJOR_US_CITIES } from "./geo-data.js";

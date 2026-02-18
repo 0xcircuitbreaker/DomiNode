@@ -146,9 +146,9 @@ html {
   scroll-margin-top: 0;
 }
 
-/* ─── Beta Banner ────────────────────────────────────────────── */
+/* ─── Alpha Banner ───────────────────────────────────────────── */
 
-.mk-beta-banner {
+.mk-alpha-banner {
   position: sticky;
   top: 0;
   z-index: 40;
@@ -156,14 +156,14 @@ html {
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);
 }
 
-.mk-beta-banner-inner {
+.mk-alpha-banner-inner {
   display: flex;
   align-items: center;
   gap: 12px;
   padding: 10px 0;
 }
 
-.mk-beta-badge {
+.mk-alpha-badge {
   display: inline-block;
   background: rgba(255, 255, 255, 0.15);
   color: #e9d5ff;
@@ -175,7 +175,7 @@ html {
   flex-shrink: 0;
 }
 
-.mk-beta-text {
+.mk-alpha-text {
   color: #e0d6f6;
   font-size: 13px;
   margin: 0;
@@ -183,7 +183,7 @@ html {
   min-width: 0;
 }
 
-.mk-beta-cta {
+.mk-alpha-cta {
   display: inline-block;
   background: rgba(255, 255, 255, 0.15);
   color: #ffffff;
@@ -197,11 +197,11 @@ html {
   transition: background 150ms ease;
 }
 
-.mk-beta-cta:hover {
+.mk-alpha-cta:hover {
   background: rgba(255, 255, 255, 0.25);
 }
 
-.mk-beta-close {
+.mk-alpha-close {
   background: none;
   border: 0;
   color: rgba(255, 255, 255, 0.5);
@@ -213,19 +213,19 @@ html {
   transition: color 150ms ease;
 }
 
-.mk-beta-close:hover {
+.mk-alpha-close:hover {
   color: rgba(255, 255, 255, 0.9);
 }
 
 @media (max-width: 680px) {
-  .mk-beta-banner-inner {
+  .mk-alpha-banner-inner {
     flex-wrap: wrap;
     gap: 8px;
   }
-  .mk-beta-text {
+  .mk-alpha-text {
     flex-basis: calc(100% - 80px);
   }
-  .mk-beta-cta {
+  .mk-alpha-cta {
     margin-left: auto;
   }
 }

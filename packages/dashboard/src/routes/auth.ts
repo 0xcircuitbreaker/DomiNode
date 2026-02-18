@@ -2,6 +2,7 @@ import { Router, type Request as ExpressRequest } from "express";
 import * as crypto from "node:crypto";
 import {
   userRepo,
+  waitlistRepo,
   walletRepo,
   refreshTokenRepo,
   mfaRepo,
@@ -173,7 +174,7 @@ setInterval(() => {
   }
 }, 300_000).unref();
 
-// ─── Global registration cap (Alpha: 250, Beta: 1000, 0 = unlimited) ───
+// ─── Global registration cap (Alpha: 250, 0 = unlimited) ───
 const MAX_REGISTERED_USERS = parseInt(process.env["MAX_REGISTERED_USERS"] ?? "250", 10);
 
 async function checkGlobalRegistrationCap(): Promise<boolean> {
@@ -295,6 +296,11 @@ router.post("/register", async (req, res) => {
     await refreshTokenRepo.storeToken(user.id, tokenHash, familyId, expiresAt);
 
     log.info("user registered", { userId: user.id });
+
+    // Mark waitlist entry as registered (non-blocking, best-effort)
+    waitlistRepo.markRegistered(email).catch((err) => {
+      log.error("failed to mark waitlist registered", { error: err instanceof Error ? err.message : String(err) });
+    });
 
     // Send email verification (non-blocking)
     const verificationToken = generateSecureToken();

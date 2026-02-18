@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { adminRepo, createLogger, userRepo, refreshTokenRepo, mfaRepo } from "@dominusnode/shared";
+import { adminRepo, createLogger, userRepo, refreshTokenRepo, mfaRepo, waitlistRepo, sendWaitlistApprovalEmail, sanitizeString } from "@dominusnode/shared";
 import { requireAuth, type AuthenticatedRequest } from "../middleware/auth.js";
 import { requireAdmin } from "../middleware/admin.js";
 
@@ -289,6 +289,126 @@ router.get("/stats", async (_req, res) => {
   } catch (err) {
     log.error("failed to get system stats", { error: err instanceof Error ? err.message : String(err) });
     res.status(500).json({ error: "Failed to get system stats" });
+  }
+});
+
+// ─── Waitlist Management ─────────────────────────────────────────────
+
+const WAITLIST_STATUSES = new Set(["pending", "notified", "registered", "cancelled"]);
+
+// GET /api/admin/waitlist — paginated waitlist with optional status filter
+router.get("/waitlist", async (req, res) => {
+  try {
+    const page = Math.max(1, parseInt(req.query.page as string, 10) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string, 10) || 20));
+    const statusFilter = req.query.status ? sanitizeString(req.query.status as string, 20) : undefined;
+
+    if (statusFilter && !WAITLIST_STATUSES.has(statusFilter)) {
+      res.status(400).json({ error: "Invalid status filter" });
+      return;
+    }
+
+    const result = await waitlistRepo.listWaitlist(page, limit, statusFilter);
+    const pending = await waitlistRepo.countPending();
+
+    res.json({
+      entries: result.entries,
+      pendingCount: pending,
+      pagination: {
+        page,
+        limit,
+        total: result.total,
+        totalPages: Math.ceil(result.total / limit),
+      },
+    });
+  } catch (err) {
+    log.error("failed to list waitlist", { error: err instanceof Error ? err.message : String(err) });
+    res.status(500).json({ error: "Failed to list waitlist" });
+  }
+});
+
+// POST /api/admin/waitlist/:id/approve — approve a single waitlist entry
+router.post("/waitlist/:id/approve", async (req, res) => {
+  if (!isValidUuid(req.params.id)) {
+    res.status(400).json({ error: "Invalid waitlist entry ID" });
+    return;
+  }
+  try {
+    const entry = await waitlistRepo.findById(req.params.id);
+    if (!entry) {
+      res.status(404).json({ error: "Waitlist entry not found" });
+      return;
+    }
+    if (entry.status !== "pending") {
+      res.status(400).json({ error: `Entry is already ${entry.status}` });
+      return;
+    }
+
+    const marked = await waitlistRepo.markNotified(req.params.id);
+    if (!marked) {
+      res.status(400).json({ error: "Failed to approve entry" });
+      return;
+    }
+
+    // Send approval email (non-blocking)
+    sendWaitlistApprovalEmail(entry.email).catch((err) => {
+      log.error("failed to send waitlist approval email", { entryId: req.params.id, error: err instanceof Error ? err.message : String(err) });
+    });
+
+    log.info("waitlist entry approved", { entryId: req.params.id, email: entry.email.slice(0, 3) + "***" });
+    res.json({ message: "Entry approved and notification sent" });
+  } catch (err) {
+    log.error("failed to approve waitlist entry", { error: err instanceof Error ? err.message : String(err) });
+    res.status(500).json({ error: "Failed to approve waitlist entry" });
+  }
+});
+
+// POST /api/admin/waitlist/bulk-approve — approve N oldest pending entries
+router.post("/waitlist/bulk-approve", async (req, res) => {
+  try {
+    const count = Math.min(100, Math.max(1, parseInt(req.body.count ?? "10", 10) || 10));
+
+    const pendingEntries = await waitlistRepo.getPendingEmails(count);
+    if (pendingEntries.length === 0) {
+      res.json({ approved: 0, message: "No pending entries to approve" });
+      return;
+    }
+
+    const ids = pendingEntries.map((e) => e.id);
+    const approved = await waitlistRepo.bulkNotify(ids);
+
+    // Send approval emails (non-blocking, best-effort)
+    for (const entry of pendingEntries) {
+      sendWaitlistApprovalEmail(entry.email).catch((err) => {
+        log.error("failed to send bulk approval email", { email: entry.email.slice(0, 3) + "***", error: err instanceof Error ? err.message : String(err) });
+      });
+    }
+
+    log.info("bulk waitlist approval", { approved, requested: count });
+    res.json({ approved, message: `${approved} entries approved and notified` });
+  } catch (err) {
+    log.error("failed to bulk approve waitlist", { error: err instanceof Error ? err.message : String(err) });
+    res.status(500).json({ error: "Failed to bulk approve waitlist entries" });
+  }
+});
+
+// DELETE /api/admin/waitlist/:id — cancel a waitlist entry
+router.delete("/waitlist/:id", async (req, res) => {
+  if (!isValidUuid(req.params.id)) {
+    res.status(400).json({ error: "Invalid waitlist entry ID" });
+    return;
+  }
+  try {
+    const cancelled = await waitlistRepo.cancelEntry(req.params.id);
+    if (!cancelled) {
+      res.status(404).json({ error: "Entry not found or already processed" });
+      return;
+    }
+    log.info("waitlist entry cancelled", { entryId: req.params.id });
+    res.json({ message: "Entry cancelled" });
+  } catch (err) {
+    log.error("failed to cancel waitlist entry", { error: err instanceof Error ? err.message : String(err) });
+    res.status(500).json({ error: "Failed to cancel waitlist entry" });
   }
 });
 

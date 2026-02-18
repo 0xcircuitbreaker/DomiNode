@@ -5,6 +5,8 @@ import { useTheme } from "../context/ThemeContext";
 import ThemeToggle from "../components/ThemeToggle";
 import NodeNetworkBackground from "../components/NodeNetworkBackground";
 import { BRAND_MARK, BRAND_NAME } from "../config/branding";
+import { useApi } from "../hooks/useApi";
+import { get, post } from "../api/client";
 import "./LoginPage.css";
 
 interface AuthShellProps {
@@ -55,6 +57,18 @@ export default function LoginPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [walletLoading, setWalletLoading] = useState(false);
+  const [waitlistMode, setWaitlistMode] = useState(searchParams.get("waitlist") === "1");
+  const [waitlistEmail, setWaitlistEmail] = useState("");
+  const [waitlistSuccess, setWaitlistSuccess] = useState(false);
+  const [waitlistError, setWaitlistError] = useState("");
+  const [waitlistLoading, setWaitlistLoading] = useState(false);
+
+  const { data: slotsData } = useApi<{ total: number; used: number; remaining: number; unlimited: boolean }>(
+    () => get("/api/slots", { redirectOnUnauthorized: false })
+  );
+  const { data: waitlistData } = useApi<{ pending: number }>(
+    () => get("/api/waitlist/count", { redirectOnUnauthorized: false })
+  );
 
   useEffect(() => {
     setIsRegister(searchParams.get("mode") === "register");
@@ -149,6 +163,20 @@ export default function LoginPage() {
     }
   }
 
+  async function handleWaitlistSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setWaitlistError("");
+    setWaitlistLoading(true);
+    try {
+      await post("/api/waitlist/join", { email: waitlistEmail }, { redirectOnUnauthorized: false });
+      setWaitlistSuccess(true);
+    } catch (err) {
+      setWaitlistError(err instanceof Error ? err.message : "Failed to join waitlist");
+    } finally {
+      setWaitlistLoading(false);
+    }
+  }
+
   // MFA verification step
   if (mfaRequired) {
     return (
@@ -214,6 +242,67 @@ export default function LoginPage() {
     );
   }
 
+  // Waitlist form: show when slots are filled or ?waitlist=1
+  const showWaitlist = (waitlistMode || (slotsData && !slotsData.unlimited && slotsData.remaining === 0)) && isRegister;
+
+  if (showWaitlist) {
+    return (
+      <AuthShell theme={theme} subtitle="Residential Proxy Service">
+        <div className="login-form">
+          <h2 className="login-form-title">Join the Waitlist</h2>
+
+          <div className="login-alert-info">
+            <strong>Alpha Access</strong>
+            <p>All {slotsData?.total ?? 250} alpha slots are currently filled.</p>
+            {waitlistData && waitlistData.pending > 0 && (
+              <p><strong>{waitlistData.pending}</strong> {waitlistData.pending === 1 ? "person" : "people"} already on the waitlist.</p>
+            )}
+            <p>Join the waitlist and we'll email you when a slot opens.</p>
+          </div>
+
+          {waitlistSuccess ? (
+            <div className="login-alert-info" style={{ borderColor: "rgba(34, 197, 94, 0.3)", background: "rgba(34, 197, 94, 0.1)" }}>
+              <strong style={{ color: "#22c55e" }}>You're on the list!</strong>
+              <p>We'll email you when a slot opens up.</p>
+            </div>
+          ) : (
+            <form onSubmit={handleWaitlistSubmit}>
+              {waitlistError && (
+                <div className="login-alert-error">{waitlistError}</div>
+              )}
+              <div className="login-field">
+                <label htmlFor="waitlist-email">Email</label>
+                <input
+                  id="waitlist-email"
+                  type="email"
+                  value={waitlistEmail}
+                  onChange={(e) => setWaitlistEmail(e.target.value)}
+                  required
+                  className="login-input"
+                  placeholder="you@example.com"
+                />
+              </div>
+              <button type="submit" disabled={waitlistLoading} className="login-submit">
+                {waitlistLoading ? "..." : "Join Waitlist"}
+              </button>
+            </form>
+          )}
+
+          <p className="login-switch-row">
+            Already have an account?{" "}
+            <button
+              type="button"
+              onClick={() => { setIsRegister(false); setWaitlistMode(false); setError(""); }}
+              className="login-link-button"
+            >
+              Sign in
+            </button>
+          </p>
+        </div>
+      </AuthShell>
+    );
+  }
+
   return (
     <AuthShell theme={theme} subtitle="Residential Proxy Service">
       <form onSubmit={handleSubmit} className="login-form" aria-label="Login form">
@@ -223,8 +312,8 @@ export default function LoginPage() {
 
         {isRegister && (
           <div className="login-alert-info">
-            <strong>Beta Access</strong>
-            <p>250 DC proxies | Limited residential bandwidth</p>
+            <strong>Alpha Access</strong>
+            <p>{slotsData && !slotsData.unlimited ? `${slotsData.remaining} of ${slotsData.total} slots remaining` : "250 DC proxies"} | Limited residential bandwidth</p>
             <p>If max bandwidth is reached, service restores within 1-6 hours</p>
           </div>
         )}

@@ -1,7 +1,7 @@
 import { useState, useCallback } from "react";
 import { useAuth } from "../context/AuthContext";
 import { useApi } from "../hooks/useApi";
-import { get, put, del } from "../api/client";
+import { get, post, put, del } from "../api/client";
 import ResponsiveTable from "../components/ResponsiveTable";
 
 // ─── Types ──────────────────────────────────────────────────────────
@@ -70,7 +70,7 @@ interface SystemStatsResponse {
   activeSessions: number;
 }
 
-type Tab = "users" | "revenue" | "system";
+type Tab = "users" | "revenue" | "system" | "waitlist";
 
 // ─── Helpers ────────────────────────────────────────────────────────
 
@@ -471,6 +471,203 @@ function SystemTab() {
   );
 }
 
+// ─── Waitlist Tab ────────────────────────────────────────────────────
+
+interface WaitlistEntryItem {
+  id: string;
+  email: string;
+  status: string;
+  notified_at: string | null;
+  created_at: string;
+}
+
+interface WaitlistResponse {
+  entries: WaitlistEntryItem[];
+  pendingCount: number;
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
+}
+
+function WaitlistStatusBadge({ status }: { status: string }) {
+  const colors: Record<string, string> = {
+    pending: "bg-yellow-500/10 text-yellow-400 border-yellow-500/20",
+    notified: "bg-blue-500/10 text-blue-400 border-blue-500/20",
+    registered: "bg-green-500/10 text-green-400 border-green-500/20",
+    cancelled: "bg-red-500/10 text-red-400 border-red-500/20",
+  };
+  return (
+    <span className={`px-2 py-0.5 rounded-full text-xs font-medium border ${colors[status] ?? "bg-gray-500/10 text-gray-400 border-gray-500/20"}`}>
+      {status}
+    </span>
+  );
+}
+
+function WaitlistTab() {
+  const [page, setPage] = useState(1);
+  const [statusFilter, setStatusFilter] = useState<string>("");
+  const [bulkCount, setBulkCount] = useState("10");
+  const [actionError, setActionError] = useState<string | null>(null);
+  const pageSize = 20;
+
+  const filterParam = statusFilter ? `&status=${encodeURIComponent(statusFilter)}` : "";
+  const { data, loading, refetch } = useApi<WaitlistResponse>(
+    () => get(`/api/admin/waitlist?page=${page}&limit=${pageSize}${filterParam}`),
+    [page, statusFilter],
+  );
+
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+  const handleApprove = useCallback(async (id: string) => {
+    if (!UUID_RE.test(id)) return;
+    setActionError(null);
+    try {
+      await post(`/api/admin/waitlist/${id}/approve`);
+      refetch();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Failed to approve");
+    }
+  }, [refetch]);
+
+  const handleCancel = useCallback(async (id: string) => {
+    if (!UUID_RE.test(id)) return;
+    if (!window.confirm("Cancel this waitlist entry?")) return;
+    setActionError(null);
+    try {
+      await del(`/api/admin/waitlist/${id}`);
+      refetch();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Failed to cancel");
+    }
+  }, [refetch]);
+
+  const handleBulkApprove = useCallback(async () => {
+    const count = parseInt(bulkCount, 10);
+    if (isNaN(count) || count < 1) return;
+    if (!window.confirm(`Approve and notify the ${count} oldest pending entries?`)) return;
+    setActionError(null);
+    try {
+      await post("/api/admin/waitlist/bulk-approve", { count });
+      refetch();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Failed to bulk approve");
+    }
+  }, [bulkCount, refetch]);
+
+  const totalPages = data?.pagination.totalPages ?? 0;
+
+  return (
+    <div className="space-y-4">
+      {/* Summary + Actions */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-sm text-gray-400">
+          Pending: <span className="text-yellow-400 font-semibold">{data?.pendingCount ?? 0}</span>
+          {" | "}Total: <span className="font-semibold">{data?.pagination.total ?? 0}</span>
+        </p>
+        <div className="flex items-center gap-2">
+          <select
+            value={statusFilter}
+            onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
+            className="bg-gray-800 text-gray-300 text-sm rounded-lg px-3 py-1.5 border border-gray-700"
+          >
+            <option value="">All statuses</option>
+            <option value="pending">Pending</option>
+            <option value="notified">Notified</option>
+            <option value="registered">Registered</option>
+            <option value="cancelled">Cancelled</option>
+          </select>
+          <input
+            type="number"
+            value={bulkCount}
+            onChange={(e) => setBulkCount(e.target.value)}
+            min={1}
+            max={100}
+            className="bg-gray-800 text-gray-300 text-sm rounded-lg px-3 py-1.5 border border-gray-700 w-20"
+          />
+          <button
+            onClick={handleBulkApprove}
+            className="px-3 py-1.5 rounded-lg text-sm bg-indigo-600 text-white hover:bg-indigo-500"
+          >
+            Bulk Approve
+          </button>
+        </div>
+      </div>
+
+      {actionError && (
+        <div className="bg-red-500/10 border border-red-500/20 rounded-lg px-4 py-3 text-sm text-red-400 flex items-center justify-between">
+          <span>{actionError}</span>
+          <button onClick={() => setActionError(null)} className="text-red-400 hover:text-red-300 ml-3">Dismiss</button>
+        </div>
+      )}
+
+      {/* Table */}
+      <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
+        {loading ? (
+          <p className="px-4 py-8 text-center text-gray-500 text-sm">Loading...</p>
+        ) : (
+          <ResponsiveTable<WaitlistEntryItem>
+            columns={[
+              { key: "email", header: "Email", primary: true, render: (e) => <span className="truncate">{e.email}</span> },
+              { key: "status", header: "Status", render: (e) => <WaitlistStatusBadge status={e.status} /> },
+              { key: "created", header: "Joined", render: (e) => <span className="text-gray-400">{new Date(e.created_at).toLocaleDateString()}</span> },
+              { key: "notified", header: "Notified", hideOnMobile: true, render: (e) => (
+                <span className="text-gray-400">
+                  {e.notified_at ? new Date(e.notified_at).toLocaleDateString() : "—"}
+                </span>
+              )},
+              { key: "actions", header: "Actions", align: "right", render: (e) => (
+                <div className="flex gap-2">
+                  {e.status === "pending" && (
+                    <button onClick={() => handleApprove(e.id)} className="text-xs text-green-400 hover:text-green-300">
+                      Approve
+                    </button>
+                  )}
+                  {(e.status === "pending" || e.status === "notified") && (
+                    <button onClick={() => handleCancel(e.id)} className="text-xs text-red-400 hover:text-red-300">
+                      Cancel
+                    </button>
+                  )}
+                </div>
+              )},
+            ]}
+            data={data?.entries ?? []}
+            keyExtractor={(e) => e.id}
+            emptyMessage="No waitlist entries."
+          />
+        )}
+
+        {/* Pagination */}
+        {totalPages > 1 && (
+          <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 border-t border-gray-800">
+            <p className="text-xs text-gray-500">
+              Page {page} of {totalPages}
+            </p>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setPage(Math.max(1, page - 1))}
+                disabled={page === 1}
+                className="px-4 py-2 rounded-lg text-xs bg-gray-800 text-gray-400 hover:bg-gray-700 disabled:opacity-50"
+              >
+                Previous
+              </button>
+              <button
+                onClick={() => setPage(Math.min(totalPages, page + 1))}
+                disabled={page >= totalPages}
+                className="px-4 py-2 rounded-lg text-xs bg-gray-800 text-gray-400 hover:bg-gray-700 disabled:opacity-50"
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── Main Admin Page ────────────────────────────────────────────────
 
 export default function AdminPage() {
@@ -490,6 +687,7 @@ export default function AdminPage() {
 
   const tabs: { key: Tab; label: string }[] = [
     { key: "users", label: "Users" },
+    { key: "waitlist", label: "Waitlist" },
     { key: "revenue", label: "Revenue" },
     { key: "system", label: "System" },
   ];
@@ -524,6 +722,7 @@ export default function AdminPage() {
 
       {/* Tab Content */}
       {activeTab === "users" && <UsersTab />}
+      {activeTab === "waitlist" && <WaitlistTab />}
       {activeTab === "revenue" && <RevenueTab />}
       {activeTab === "system" && <SystemTab />}
     </div>

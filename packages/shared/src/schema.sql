@@ -398,6 +398,27 @@ INSERT INTO data_retention_policies (table_name, retention_days, description) VA
   ('password_reset_tokens',     1, 'Password reset tokens retained for 1 day')
 ON CONFLICT (table_name) DO NOTHING;
 
+-- ─── Waitlist ────────────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS waitlist (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email       TEXT UNIQUE NOT NULL,
+  ip_address  TEXT NOT NULL DEFAULT '',
+  status      TEXT NOT NULL DEFAULT 'pending'
+              CHECK (status IN ('pending', 'notified', 'registered', 'cancelled')),
+  notified_at TIMESTAMPTZ,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_waitlist_status ON waitlist(status);
+CREATE INDEX IF NOT EXISTS idx_waitlist_email ON waitlist(email);
+CREATE INDEX IF NOT EXISTS idx_waitlist_created ON waitlist(created_at);
+
+-- Add retention policy for waitlist
+INSERT INTO data_retention_policies (table_name, retention_days, description) VALUES
+  ('waitlist', 365, 'Waitlist entries retained for 1 year')
+ON CONFLICT (table_name) DO NOTHING;
+
 -- ─── Record current schema version ──────────────────────────────────
 
 INSERT INTO schema_migrations (version, description) VALUES

@@ -138,6 +138,40 @@ export async function sendPasswordResetEmail(to: string, token: string): Promise
   return sendEmail(to, subject, html, text);
 }
 
+export async function sendWaitlistApprovalEmail(to: string): Promise<boolean> {
+  const registerUrl = `${APP_URL}/login?mode=register`;
+
+  const subject = "Your Dominus Node alpha slot is ready!";
+  const text = [
+    "Great news!",
+    "",
+    "A slot has opened up in the Dominus Node alpha program, and you're in!",
+    "",
+    "Create your account now:",
+    registerUrl,
+    "",
+    "This slot is available on a first-come, first-served basis.",
+    "",
+    "If you no longer wish to join, you can safely ignore this email.",
+  ].join("\n");
+
+  const html = `
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+      <h2 style="color: #818cf8;">Dominus Node</h2>
+      <p>Great news! A slot has opened up in the Dominus Node alpha program, and you're in!</p>
+      <p style="margin: 24px 0;">
+        <a href="${escapeHtml(registerUrl)}" style="background: #4f46e5; color: white; padding: 12px 24px; border-radius: 8px; text-decoration: none; display: inline-block;">Create Your Account</a>
+      </p>
+      <p style="color: #9ca3af; font-size: 14px;">This slot is available on a first-come, first-served basis.</p>
+      <p style="color: #9ca3af; font-size: 14px;">If you no longer wish to join, you can safely ignore this email.</p>
+      <hr style="border: none; border-top: 1px solid #374151; margin: 24px 0;" />
+      <p style="color: #6b7280; font-size: 12px;">Dominus Node — Proxy as a Service</p>
+    </div>
+  `;
+
+  return sendEmail(to, subject, html, text);
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────
 
 function escapeHtml(s: string): string {

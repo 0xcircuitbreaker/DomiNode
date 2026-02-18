@@ -19,6 +19,8 @@ import proxyConfigRoutes from "./routes/proxy-config.js";
 import proxyHealthRoutes from "./routes/proxy-health.js";
 import walletAuthRoutes from "./routes/wallet-auth.js";
 import accountRoutes from "./routes/account.js";
+import slotsRoutes from "./routes/slots.js";
+import waitlistRoutes from "./routes/waitlist.js";
 
 const log = createLogger("api:server");
 
@@ -199,6 +201,8 @@ export function startApiServer(port: number = 3000): ReturnType<express.Express[
   app.use("/api/proxy/config", proxyConfigRoutes);
   app.use("/api/proxy", proxyHealthRoutes);
   app.use("/api/account", accountRoutes);
+  app.use("/api/slots", slotsRoutes);
+  app.use("/api/waitlist", waitlistRoutes);
 
   // RFC 9116: security.txt
   app.get("/.well-known/security.txt", (_req, res) => {

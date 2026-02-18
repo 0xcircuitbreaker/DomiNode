@@ -351,13 +351,13 @@
   background: var(--app-pill-dot);
 }
 
-.premium-app .app-pill-beta {
+.premium-app .app-pill-alpha {
   border-color: rgba(245, 158, 11, 0.3);
   background: rgba(245, 158, 11, 0.1);
   color: #f59e0b;
 }
 
-.premium-app .app-pill-dot-beta {
+.premium-app .app-pill-dot-alpha {
   background: #f59e0b;
 }
 

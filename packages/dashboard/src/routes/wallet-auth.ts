@@ -2,6 +2,7 @@ import { Router } from "express";
 import * as crypto from "node:crypto";
 import {
   userRepo,
+  waitlistRepo,
   walletRepo,
   walletChallengeRepo,
   refreshTokenRepo,
@@ -24,7 +25,7 @@ const log = createLogger("api:wallet-auth");
 
 const DOMINUSNODE_DOMAIN = process.env["DOMINUSNODE_DOMAIN"] ?? "dominusnode.com";
 
-// ─── Global registration cap (Alpha: 250, Beta: 1000, 0 = unlimited) ───
+// ─── Global registration cap (Alpha: 250, 0 = unlimited) ───
 const MAX_REGISTERED_USERS = parseInt(process.env["MAX_REGISTERED_USERS"] ?? "250", 10);
 
 async function checkGlobalRegistrationCap(): Promise<boolean> {
@@ -223,6 +224,8 @@ router.post("/verify", async (req, res) => {
         isNewUser = true;
         // R18 H-6: Audit log wallet user creation
         log.info("wallet user created", { userId: user.id, address: address.slice(0, 10) + "...", ip: clientIp });
+        // Mark waitlist entry as registered (non-blocking, best-effort)
+        waitlistRepo.markRegistered(syntheticEmail).catch(() => {});
       } catch (err) {
         // Unique constraint — user was created between our check and insert (race condition)
         if (err instanceof Error && (err.message.includes("duplicate") || err.message.includes("unique"))) {

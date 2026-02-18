@@ -11,6 +11,9 @@ interface WalletResponse {
 export default function TopBar() {
   const { user, logout } = useAuth();
   const { data: wallet } = useApi<WalletResponse>(() => get("/api/wallet"));
+  const { data: slotsData } = useApi<{ total: number; used: number; remaining: number; unlimited: boolean }>(
+    () => get("/api/slots", { redirectOnUnauthorized: false })
+  );
 
   return (
     <header className="app-topbar h-16 bg-gray-900 border-b border-gray-800 flex items-center justify-between px-4 sm:px-6">
@@ -19,10 +22,15 @@ export default function TopBar() {
           <span className="app-pill-dot" />
           Network Live
         </span>
-        {import.meta.env.VITE_BETA_MODE !== "false" && (
-          <span className="app-pill app-pill-beta">
-            <span className="app-pill-dot app-pill-dot-beta" />
-            BETA
+        {import.meta.env.VITE_ALPHA_MODE !== "false" && (
+          <span className="app-pill app-pill-alpha">
+            <span className="app-pill-dot app-pill-dot-alpha" />
+            ALPHA
+            {slotsData && !slotsData.unlimited && (
+              <span style={{ marginLeft: "0.35rem", fontWeight: 400, opacity: 0.85 }}>
+                {slotsData.remaining}/{slotsData.total}
+              </span>
+            )}
           </span>
         )}
         <div className="app-hide-compact">
