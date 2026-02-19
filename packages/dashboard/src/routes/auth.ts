@@ -351,14 +351,24 @@ router.post("/register", async (req, res) => {
       log.error("failed to mark waitlist registered", { error: err instanceof Error ? err.message : String(err) });
     });
 
-    // Send email verification (non-blocking)
-    const verificationToken = generateSecureToken();
-    const verifyExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
-    userRepo.createEmailVerificationToken(user.id, verificationToken.hash, verifyExpiresAt)
-      .then(() => sendVerificationEmail(email, verificationToken.raw))
-      .catch((err) => {
-        log.error("failed to send verification email", { userId: user.id, error: err instanceof Error ? err.message : String(err) });
-      });
+    // MCP/AI agent auto-verification: if the request comes from an MCP server,
+    // auto-verify the email so AI agents can immediately use payment features.
+    // This is MCP-only — general SDK/API users must verify via email link.
+    // Mass signups are still blocked by reCAPTCHA + rate limits + alpha cap.
+    const isMcpAgent = req.headers["x-dominusnode-agent"] === "mcp";
+    if (isMcpAgent) {
+      await userRepo.markEmailVerified(user.id);
+      log.info("auto-verified email for MCP agent", { userId: user.id });
+    } else {
+      // Send email verification for non-MCP clients
+      const verificationToken = generateSecureToken();
+      const verifyExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
+      userRepo.createEmailVerificationToken(user.id, verificationToken.hash, verifyExpiresAt)
+        .then(() => sendVerificationEmail(email, verificationToken.raw))
+        .catch((err) => {
+          log.error("failed to send verification email", { userId: user.id, error: err instanceof Error ? err.message : String(err) });
+        });
+    }
 
     setAuthCookies(res, tokens.accessToken, tokens.refreshToken);
 

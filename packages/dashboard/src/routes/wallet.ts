@@ -4,10 +4,12 @@ import {
   walletRepo,
   userRepo,
   usageRepo,
+  invoiceRepo,
   validateTopupAmount,
   isValidCryptoCurrency,
   SUPPORTED_CRYPTO,
   createLogger,
+  sanitizeString,
 } from "@dominusnode/shared";
 import type { SupportedCrypto } from "@dominusnode/shared";
 import { createCheckoutSession } from "@dominusnode/billing";
@@ -181,6 +183,43 @@ router.post("/topup/crypto", topupLimiter, async (req, res) => {
   } catch (err) {
     log.error("crypto invoice failed", { error: err instanceof Error ? err.message : String(err) });
     res.status(500).json({ error: "Failed to create crypto invoice" });
+  }
+});
+
+// GET /api/wallet/crypto/status/:invoiceId
+router.get("/crypto/status/:invoiceId", async (req, res) => {
+  try {
+    const { userId } = (req as unknown as AuthenticatedRequest).user;
+    const invoiceId = sanitizeString((req.params as { invoiceId: string }).invoiceId ?? "", 128);
+
+    if (!invoiceId) {
+      res.status(400).json({ error: "Invoice ID is required" });
+      return;
+    }
+
+    // UUID format validation
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!uuidRegex.test(invoiceId)) {
+      res.status(400).json({ error: "Invalid invoice ID format" });
+      return;
+    }
+
+    const invoice = await invoiceRepo.findInvoiceById(invoiceId, userId);
+    if (!invoice) {
+      res.status(404).json({ error: "Invoice not found" });
+      return;
+    }
+
+    res.json({
+      invoiceId: invoice.id,
+      status: invoice.status,
+      amountCents: invoice.amount_cents,
+      provider: invoice.provider,
+      createdAt: invoice.created_at,
+    });
+  } catch (err) {
+    log.error("crypto status check failed", { error: err instanceof Error ? err.message : String(err) });
+    res.status(500).json({ error: "Failed to check payment status" });
   }
 });
 

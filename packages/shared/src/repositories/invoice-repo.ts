@@ -28,6 +28,22 @@ export async function findInvoice(
   return result.rows[0] ?? null;
 }
 
+/**
+ * Find an invoice by its internal ID and user ID.
+ * Used for payment status polling — ensures users can only query their own invoices.
+ */
+export async function findInvoiceById(
+  invoiceId: string,
+  userId: string,
+): Promise<PaymentInvoice | null> {
+  const result = await query<PaymentInvoice>(
+    `SELECT id, user_id, provider, external_id, amount_cents, status, created_at FROM payment_invoices
+     WHERE id = $1 AND user_id = $2`,
+    [invoiceId, userId],
+  );
+  return result.rows[0] ?? null;
+}
+
 export async function completeInvoice(id: string): Promise<boolean> {
   const result = await query(
     `UPDATE payment_invoices

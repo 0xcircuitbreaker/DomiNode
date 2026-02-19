@@ -71,54 +71,43 @@ export function registerCryptoTools(server: McpServer, httpClient: HttpClient): 
     },
   );
 
-  // TODO: dominusnode_check_payment is disabled — the backend endpoint
-  // GET /api/wallet/crypto/status/:invoiceId does not exist yet.
-  // Re-enable this tool once the backend implements payment status polling.
-  //
-  // server.tool(
-  //   "dominusnode_check_payment",
-  //   "Check the status of a cryptocurrency payment invoice. Returns whether payment has been received and confirmed.",
-  //   {
-  //     invoice_id: z.string().min(1).max(100).describe("Invoice ID from dominusnode_pay_crypto"),
-  //   },
-  //   async (args) => {
-  //     try {
-  //       const data = await httpClient.get<{
-  //         invoiceId: string;
-  //         status: string;
-  //         payAmount: number;
-  //         payCurrency: string;
-  //         actuallyPaid: number;
-  //         outcomeAmount: number;
-  //         outcomeCurrency: string;
-  //       }>(`/api/wallet/crypto/status/${encodeURIComponent(args.invoice_id)}`);
-  //
-  //       const statusEmoji: Record<string, string> = {
-  //         waiting: "Waiting for payment...",
-  //         confirming: "Payment detected, confirming...",
-  //         confirmed: "Payment confirmed!",
-  //         finished: "Payment complete! Wallet credited.",
-  //         failed: "Payment failed.",
-  //         expired: "Invoice expired.",
-  //       };
-  //
-  //       const text = [
-  //         `Payment Status: ${statusEmoji[data.status] ?? data.status}`,
-  //         `Invoice: ${data.invoiceId}`,
-  //         `Expected: ${data.payAmount} ${data.payCurrency}`,
-  //         `Received: ${data.actuallyPaid} ${data.payCurrency}`,
-  //         data.status === "finished"
-  //           ? `Wallet credited: $${(data.outcomeAmount / 100).toFixed(2)} USD`
-  //           : "",
-  //       ].filter(Boolean).join("\n");
-  //
-  //       return { content: [{ type: "text", text }] };
-  //     } catch (err) {
-  //       return {
-  //         isError: true,
-  //         content: [{ type: "text", text: `Error: ${err instanceof Error ? err.message : String(err)}` }],
-  //       };
-  //     }
-  //   },
-  // );
+  server.tool(
+    "dominusnode_check_payment",
+    "Check the status of a cryptocurrency payment invoice. Returns whether payment has been received and confirmed. Use this after dominusnode_pay_crypto to poll for payment completion.",
+    {
+      invoice_id: z.string().min(1).max(128).describe("Invoice ID from dominusnode_pay_crypto"),
+    },
+    async (args) => {
+      try {
+        const data = await httpClient.get<{
+          invoiceId: string;
+          status: string;
+          amountCents: number;
+          provider: string;
+          createdAt: string;
+        }>(`/api/wallet/crypto/status/${encodeURIComponent(args.invoice_id)}`);
+
+        const statusLabel: Record<string, string> = {
+          pending: "Waiting for payment...",
+          completed: "Payment complete! Wallet credited.",
+          failed: "Payment failed.",
+        };
+
+        const text = [
+          `Payment Status: ${statusLabel[data.status] ?? data.status}`,
+          `Invoice: ${data.invoiceId}`,
+          `Amount: $${(data.amountCents / 100).toFixed(2)} USD`,
+          `Provider: ${data.provider}`,
+          `Created: ${data.createdAt}`,
+        ].join("\n");
+
+        return { content: [{ type: "text", text }] };
+      } catch (err) {
+        return {
+          isError: true,
+          content: [{ type: "text", text: `Error: ${err instanceof Error ? err.message : String(err)}` }],
+        };
+      }
+    },
+  );
 }

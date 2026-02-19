@@ -98,10 +98,11 @@ export class HttpClient {
     }
 
     // R22 H-1: Protect base headers from user override
-    const PROTECTED_HEADERS = new Set(["user-agent", "content-type", "authorization", "host", "connection", "content-length"]);
+    const PROTECTED_HEADERS = new Set(["user-agent", "content-type", "authorization", "host", "connection", "content-length", "x-dominusnode-agent"]);
     const headers: Record<string, string> = {
       "User-Agent": USER_AGENT,
       "Content-Type": "application/json",
+      "X-DominusNode-Agent": "mcp",
     };
     if (opts.headers) {
       for (const [key, value] of Object.entries(opts.headers)) {

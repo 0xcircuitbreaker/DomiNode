@@ -65,8 +65,8 @@ async function main(): Promise<void> {
 
     const transport = new StdioServerTransport();
     await server.connect(transport);
-    process.stderr.write("Dominus Node MCP Server ready — bootstrap mode (19 tools)\n");
-    process.stderr.write("Run dominusnode_setup or dominusnode_wallet_setup to create an account and unlock all 41 tools.\n");
+    process.stderr.write("Dominus Node MCP Server ready — bootstrap mode (20 tools)\n");
+    process.stderr.write("Run dominusnode_setup or dominusnode_wallet_setup to create an account and unlock all 43 tools.\n");
   } else {
     // ── Authenticated Mode ──────────────────────────────────────────
     process.stderr.write("Dominus Node MCP Server starting...\n");
@@ -97,7 +97,7 @@ async function main(): Promise<void> {
 
     const transport = new StdioServerTransport();
     await server.connect(transport);
-    process.stderr.write("Dominus Node MCP Server ready — 41 tools available\n");
+    process.stderr.write("Dominus Node MCP Server ready — 43 tools available\n");
   }
 }
 
@@ -134,10 +134,21 @@ function registerBootstrapHelper(server: McpServer): void {
         `Option 4: Top up with crypto`,
         `  After registering, use dominusnode_pay_crypto to add funds.`,
         `  Supports BTC, ETH, LTC, XMR, ZEC, USDC, SOL, USDT, DAI, BNB.`,
+        `  Use dominusnode_check_payment to poll payment status.`,
+        ``,
+        `Option 5: Multi-agent teams (manage multiple AI agents)`,
+        `  Lead agent sets up account + payment, then:`,
+        `  1. dominusnode_create_team — Create a team for your agents`,
+        `  2. dominusnode_team_fund — Fund team wallet from personal wallet`,
+        `  3. Sub-agents register via dominusnode_setup (auto-verified)`,
+        `  4. dominusnode_team_add_member — Add sub-agents by email`,
+        `  5. dominusnode_team_create_key — Create shared team API keys`,
+        `  All traffic bills to team wallet. Only lead needs payment.`,
         ``,
         `After setup, set DOMINUSNODE_API_KEY in your environment`,
-        `to unlock all 41 tools on next startup.`,
+        `to unlock all 43 tools on next startup.`,
         ``,
+        `Email auto-verified for MCP agents — Stripe + crypto payments enabled.`,
         `Free tier: 10 connections, 1GB bandwidth — no payment required.`,
       ].join("\n");
       return { content: [{ type: "text", text }] };

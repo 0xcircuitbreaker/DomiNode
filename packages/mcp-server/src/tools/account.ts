@@ -90,15 +90,21 @@ export function registerAccountTools(server: McpServer, httpClient: HttpClient):
         if (data.token && data.refreshToken) {
           httpClient.storeTokens(data.token, data.refreshToken);
         }
+
+        // Email is auto-verified server-side for MCP agents (X-DominusNode-Agent header).
+        // Payments (Stripe + crypto) are immediately available.
         const text = [
           `Account created successfully!`,
           `Email: ${data.user.email}`,
           `User ID: ${data.user.id}`,
+          `Email: auto-verified (MCP agent)`,
           ``,
-          `You are now authenticated. Next steps:`,
+          `You are now authenticated. Payments (Stripe + crypto) are enabled.`,
+          `Next steps:`,
           `1. Use dominusnode_setup to create an account + API key in one step (recommended)`,
           `   Or set DOMINUSNODE_API_KEY and restart to unlock dominusnode_create_key`,
           `2. Free tier: 10 connections, 1GB bandwidth — no payment needed`,
+          `3. Use dominusnode_pay_crypto to add funds for premium bandwidth`,
         ].join("\n");
         return { content: [{ type: "text", text }] };
       } catch (err) {
@@ -172,6 +178,7 @@ export function registerAccountTools(server: McpServer, httpClient: HttpClient):
           return { isError: true, content: [{ type: "text", text: "Account creation rate limit exceeded (max 5 per hour). Please try again later." }] };
         }
         // Step 1: Register
+        // Email is auto-verified server-side for MCP agents (X-DominusNode-Agent header)
         const reg = await httpClient.post<{ token: string; refreshToken: string; user: { id: string; email: string } }>(
           "/api/auth/register",
           { email: args.email, password: args.password },
@@ -214,6 +221,7 @@ export function registerAccountTools(server: McpServer, httpClient: HttpClient):
           `Account:`,
           `  Email: ${reg.user.email}`,
           `  User ID: ${reg.user.id}`,
+          `  Email: auto-verified (MCP agent)`,
           ``,
           `API Key (save now — shown only once):`,
           `  Key: ${keyData.key}`,
@@ -223,6 +231,7 @@ export function registerAccountTools(server: McpServer, httpClient: HttpClient):
           `  curl -x http://USER:${keyData.key}@proxy.dominusnode.com:8080 https://httpbin.org/ip`,
           ``,
           `Free tier: 10 connections, 1GB bandwidth.`,
+          `Payments enabled: use dominusnode_pay_crypto to add funds (Stripe + crypto supported).`,
           `Set DOMINUSNODE_API_KEY=${keyData.key} and restart to unlock all 41 tools.`,
         ].join("\n");
         return { content: [{ type: "text", text }] };
@@ -238,6 +247,46 @@ export function registerAccountTools(server: McpServer, httpClient: HttpClient):
         return {
           isError: true,
           content: [{ type: "text", text: `Setup error: ${msg}` }],
+        };
+      }
+    },
+  );
+
+  server.tool(
+    "dominusnode_verify_email",
+    "Verify your email address using a verification token. The token is returned when registering via API/MCP. Email verification is required before you can make payments (Stripe or crypto). Wallet-authenticated accounts are auto-verified and do not need this.",
+    {
+      token: z.string().min(32).max(128).describe("Email verification token from registration response"),
+    },
+    async (args) => {
+      try {
+        await httpClient.post("/api/auth/verify-email", { token: args.token }, false);
+        return {
+          content: [{ type: "text", text: "Email verified successfully! You can now use dominusnode_pay_crypto to add funds to your wallet." }],
+        };
+      } catch (err) {
+        return {
+          isError: true,
+          content: [{ type: "text", text: `Verification failed: ${err instanceof Error ? err.message : String(err)}` }],
+        };
+      }
+    },
+  );
+
+  server.tool(
+    "dominusnode_resend_verification",
+    "Resend the email verification link. Use this if you registered with email/password but the verification email didn't arrive. Requires authentication (login first).",
+    {},
+    async () => {
+      try {
+        const data = await httpClient.post<{ message: string }>("/api/auth/resend-verification", {});
+        return {
+          content: [{ type: "text", text: data.message }],
+        };
+      } catch (err) {
+        return {
+          isError: true,
+          content: [{ type: "text", text: `Error: ${err instanceof Error ? err.message : String(err)}` }],
         };
       }
     },

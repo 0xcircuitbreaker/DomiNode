@@ -93,7 +93,7 @@ describe("MCP Server Integration", () => {
 
     // New crypto + agent wallet tools
     expect(toolNames).toContain("dominusnode_pay_crypto");
-    // dominusnode_check_payment commented out — backend endpoint doesn't exist yet
+    expect(toolNames).toContain("dominusnode_check_payment");
     expect(toolNames).toContain("dominusnode_x402_info");
     expect(toolNames).toContain("dominusnode_agent_wallet_create");
     expect(toolNames).toContain("dominusnode_agent_wallet_balance");
@@ -121,7 +121,11 @@ describe("MCP Server Integration", () => {
     expect(toolNames).toContain("dominusnode_join_waitlist");
     expect(toolNames).toContain("dominusnode_get_waitlist_count");
 
-    expect(toolNames.length).toBe(40);
+    // Email verification tools (2)
+    expect(toolNames).toContain("dominusnode_verify_email");
+    expect(toolNames).toContain("dominusnode_resend_verification");
+
+    expect(toolNames.length).toBe(43);
   });
 
   it("registers only bootstrap tools when no API key", async () => {
@@ -156,11 +160,14 @@ describe("MCP Server Integration", () => {
     const tools = (server as any)._registeredTools;
     const toolNames = Object.keys(tools);
 
-    // account(4) + crypto(2) + agent-wallet(6) + wallet-auth(3) + slots(3) = 18
+    // account(6) + crypto(2) + agent-wallet(6) + wallet-auth(3) + slots(3) = 20
     expect(toolNames).toContain("dominusnode_register");
     expect(toolNames).toContain("dominusnode_login");
     expect(toolNames).toContain("dominusnode_setup");
+    expect(toolNames).toContain("dominusnode_verify_email");
+    expect(toolNames).toContain("dominusnode_resend_verification");
     expect(toolNames).toContain("dominusnode_pay_crypto");
+    expect(toolNames).toContain("dominusnode_check_payment");
     expect(toolNames).toContain("dominusnode_x402_info");
     expect(toolNames).toContain("dominusnode_agent_wallet_create");
     expect(toolNames).toContain("dominusnode_agent_wallet_fund");
@@ -171,7 +178,7 @@ describe("MCP Server Integration", () => {
     expect(toolNames).toContain("dominusnode_check_slots");
     expect(toolNames).toContain("dominusnode_join_waitlist");
     expect(toolNames).toContain("dominusnode_get_waitlist_count");
-    expect(toolNames.length).toBe(17);
+    expect(toolNames.length).toBe(20);
   });
 
   it("tool error handling returns isError without throwing", async () => {
