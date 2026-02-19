@@ -21,6 +21,12 @@ router.post("/", async (req, res) => {
       return;
     }
 
+    // R36: Require email verification before creating API keys
+    if (!currentUser.email_verified) {
+      res.status(403).json({ error: "Please verify your email address before creating API keys" });
+      return;
+    }
+
     // Enforce max API key limit per user
     const activeKeyCount = await userRepo.countActiveKeys(userId);
     if (activeKeyCount >= 50) {

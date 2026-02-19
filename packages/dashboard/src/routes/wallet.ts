@@ -2,6 +2,7 @@ import { Router } from "express";
 import rateLimit from "express-rate-limit";
 import {
   walletRepo,
+  userRepo,
   usageRepo,
   validateTopupAmount,
   isValidCryptoCurrency,
@@ -82,6 +83,14 @@ router.get("/transactions", async (req, res) => {
 router.post("/topup/stripe", topupLimiter, async (req, res) => {
   try {
     const { userId } = (req as AuthenticatedRequest).user;
+
+    // R36: Require email verification before accepting payments
+    const currentUser = await userRepo.findUserById(userId);
+    if (!currentUser || !currentUser.email_verified) {
+      res.status(403).json({ error: "Please verify your email address before topping up" });
+      return;
+    }
+
     const amountCents = parseInt(req.body.amountCents, 10);
 
     const error = validateTopupAmount(amountCents);
@@ -120,6 +129,14 @@ router.post("/topup/stripe", topupLimiter, async (req, res) => {
 router.post("/topup/crypto", topupLimiter, async (req, res) => {
   try {
     const { userId } = (req as AuthenticatedRequest).user;
+
+    // R36: Require email verification before accepting payments
+    const cryptoUser = await userRepo.findUserById(userId);
+    if (!cryptoUser || !cryptoUser.email_verified) {
+      res.status(403).json({ error: "Please verify your email address before topping up" });
+      return;
+    }
+
     const amountUsd = parseFloat(req.body.amountUsd);
     const currency = (req.body.currency ?? "").toLowerCase();
 

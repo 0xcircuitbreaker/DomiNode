@@ -110,6 +110,12 @@ export async function authenticateRequest(
       return null;
     }
 
+    // R36: Reject users who haven't verified their email (wallet-auth users are pre-verified)
+    if (!result.user.email_verified) {
+      log.warn("rejected unverified email", { userId: result.user.id });
+      return null;
+    }
+
     const proxyOptions = parseProxyOptions(username);
 
     return { userId: result.user.id, user: result.user, proxyOptions, teamId: result.apiKey.team_id ?? null };

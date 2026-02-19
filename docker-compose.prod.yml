@@ -55,6 +55,7 @@ services:
       SMTP_FROM: ${SMTP_FROM:-noreply@dominusnode.com}
       SMTP_SECURE: ${SMTP_SECURE:-false}
       APP_URL: ${APP_URL:-http://localhost:5173}
+      RECAPTCHA_SECRET_KEY: ${RECAPTCHA_SECRET_KEY:-}
       NODE_ENV: production
     extra_hosts:
       - "host.docker.internal:host-gateway"

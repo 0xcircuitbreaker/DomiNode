@@ -174,6 +174,26 @@ setInterval(() => {
   }
 }, 300_000).unref();
 
+// ─── reCAPTCHA verification ──────────────────────────────────────
+const RECAPTCHA_SECRET_KEY = process.env["RECAPTCHA_SECRET_KEY"] ?? "";
+
+async function verifyRecaptcha(token: string, remoteIp: string): Promise<boolean> {
+  if (!RECAPTCHA_SECRET_KEY) return true; // Skip if not configured (dev mode)
+  try {
+    const resp = await fetch("https://www.google.com/recaptcha/api/siteverify", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: `secret=${encodeURIComponent(RECAPTCHA_SECRET_KEY)}&response=${encodeURIComponent(token)}&remoteip=${encodeURIComponent(remoteIp)}`,
+      signal: AbortSignal.timeout(5000),
+    });
+    const data = (await resp.json()) as { success: boolean };
+    return data.success === true;
+  } catch (err) {
+    log.error("reCAPTCHA verification failed", { error: err instanceof Error ? err.message : String(err) });
+    return false; // Fail closed — reject if reCAPTCHA service is unreachable
+  }
+}
+
 // ─── Global registration cap (Alpha: 250, 0 = unlimited) ───
 const MAX_REGISTERED_USERS = parseInt(process.env["MAX_REGISTERED_USERS"] ?? "250", 10);
 
@@ -230,6 +250,20 @@ router.post("/register", async (req, res) => {
     if (!isValidEmail(email)) {
       res.status(400).json({ error: "Invalid email address" });
       return;
+    }
+
+    // R36: reCAPTCHA verification (anti-bot)
+    const captchaToken = req.body.captchaToken ?? "";
+    if (RECAPTCHA_SECRET_KEY && !captchaToken) {
+      res.status(400).json({ error: "CAPTCHA verification required" });
+      return;
+    }
+    if (RECAPTCHA_SECRET_KEY) {
+      const captchaValid = await verifyRecaptcha(captchaToken, req.ip ?? "");
+      if (!captchaValid) {
+        res.status(400).json({ error: "CAPTCHA verification failed. Please try again." });
+        return;
+      }
     }
 
     // Block disposable/temporary email domains (mass signup abuse prevention)

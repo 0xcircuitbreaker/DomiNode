@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState, useRef, useCallback, type ReactNode } from "react";
 import { useNavigate, Navigate, useSearchParams, Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { useTheme } from "../context/ThemeContext";
@@ -8,6 +8,8 @@ import { BRAND_MARK, BRAND_NAME } from "../config/branding";
 import { useApi } from "../hooks/useApi";
 import { get, post } from "../api/client";
 import "./LoginPage.css";
+
+const RECAPTCHA_SITE_KEY = import.meta.env.VITE_RECAPTCHA_SITE_KEY || "";
 
 interface AuthShellProps {
   theme: "light" | "dark";
@@ -62,6 +64,42 @@ export default function LoginPage() {
   const [waitlistSuccess, setWaitlistSuccess] = useState(false);
   const [waitlistError, setWaitlistError] = useState("");
   const [waitlistLoading, setWaitlistLoading] = useState(false);
+  const captchaRef = useRef<HTMLDivElement>(null);
+  const captchaWidgetId = useRef<number | null>(null);
+
+  // Render reCAPTCHA widget when switching to register mode
+  const renderCaptcha = useCallback(() => {
+    if (
+      !RECAPTCHA_SITE_KEY ||
+      !captchaRef.current ||
+      !window.grecaptcha?.render
+    ) return;
+    // Reset if already rendered
+    if (captchaWidgetId.current !== null) {
+      try { window.grecaptcha.reset(captchaWidgetId.current); } catch { /* noop */ }
+      return;
+    }
+    captchaWidgetId.current = window.grecaptcha.render(captchaRef.current, {
+      sitekey: RECAPTCHA_SITE_KEY,
+      theme: theme === "dark" ? "dark" : "light",
+    });
+  }, [theme]);
+
+  useEffect(() => {
+    if (!isRegister || !RECAPTCHA_SITE_KEY) return;
+    // grecaptcha may not be loaded yet — poll briefly
+    if (window.grecaptcha?.render) {
+      renderCaptcha();
+    } else {
+      const id = setInterval(() => {
+        if (window.grecaptcha?.render) {
+          clearInterval(id);
+          renderCaptcha();
+        }
+      }, 200);
+      return () => clearInterval(id);
+    }
+  }, [isRegister, renderCaptcha]);
 
   const { data: slotsData } = useApi<{ total: number; used: number; remaining: number; unlimited: boolean }>(
     () => get("/api/slots", { redirectOnUnauthorized: false })
@@ -85,7 +123,16 @@ export default function LoginPage() {
 
     try {
       if (isRegister) {
-        await register(email, password);
+        let captchaToken: string | undefined;
+        if (RECAPTCHA_SITE_KEY) {
+          captchaToken = window.grecaptcha?.getResponse(captchaWidgetId.current ?? undefined);
+          if (!captchaToken) {
+            setError("Please complete the CAPTCHA verification.");
+            setLoading(false);
+            return;
+          }
+        }
+        await register(email, password, captchaToken);
         setPassword("");
         navigate("/app");
       } else {
@@ -98,6 +145,10 @@ export default function LoginPage() {
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");
+      // Reset captcha so user can retry
+      if (RECAPTCHA_SITE_KEY && captchaWidgetId.current !== null) {
+        try { window.grecaptcha?.reset(captchaWidgetId.current); } catch { /* noop */ }
+      }
     } finally {
       setLoading(false);
     }
@@ -350,6 +401,10 @@ export default function LoginPage() {
             placeholder="Min 8 characters"
           />
         </div>
+
+        {isRegister && RECAPTCHA_SITE_KEY && (
+          <div ref={captchaRef} className="login-captcha" />
+        )}
 
         <button
           type="submit"
