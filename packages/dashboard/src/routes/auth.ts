@@ -1445,6 +1445,14 @@ router.post("/resend-verification", requireAuth, async (req, res) => {
       return;
     }
 
+    // Cooldown: if a token was created in the last 60 seconds, don't replace it.
+    // Replacing too quickly invalidates the link in the email the user already received.
+    const recentExists = await userRepo.findRecentEmailVerificationToken(userId, 60);
+    if (recentExists) {
+      res.json({ message: "Verification email was sent recently. Please check your inbox (and spam folder)." });
+      return;
+    }
+
     // Generate verification token
     const { raw, hash } = generateSecureToken();
     const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours

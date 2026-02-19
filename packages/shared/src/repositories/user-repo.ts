@@ -41,12 +41,12 @@ export async function findUserByEmail(email: string): Promise<User | null> {
 }
 
 /**
- * Count all non-deleted users. Used for global registration cap enforcement.
- * Cached result is acceptable — exact cap enforcement uses DB UNIQUE constraint.
+ * Count all non-deleted, non-admin users. Used for global registration cap enforcement.
+ * Admin accounts don't consume alpha slots.
  */
 export async function countActiveUsers(): Promise<number> {
   const result = await query<{ count: string }>(
-    `SELECT COUNT(*) AS count FROM users WHERE status != 'deleted'`,
+    `SELECT COUNT(*) AS count FROM users WHERE status != 'deleted' AND is_admin = false`,
   );
   return parseInt(result.rows[0].count, 10);
 }
@@ -253,6 +253,16 @@ export async function createEmailVerificationToken(userId: string, tokenHash: st
      VALUES ($1, $2, $3)`,
     [userId, tokenHash, expiresAt],
   );
+}
+
+export async function findRecentEmailVerificationToken(userId: string, withinSeconds: number): Promise<boolean> {
+  const result = await query<{ id: string }>(
+    `SELECT id FROM email_verification_tokens
+     WHERE user_id = $1 AND created_at > NOW() - make_interval(secs => $2)
+     LIMIT 1`,
+    [userId, withinSeconds],
+  );
+  return result.rows.length > 0;
 }
 
 export async function findEmailVerificationToken(tokenHash: string): Promise<{ userId: string; expiresAt: Date } | null> {
