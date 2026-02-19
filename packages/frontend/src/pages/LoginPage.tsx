@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useCallback, type ReactNode } from "react";
+import { useEffect, useState, useRef, type ReactNode } from "react";
 import { useNavigate, Navigate, useSearchParams, Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { useTheme } from "../context/ThemeContext";
@@ -64,42 +64,17 @@ export default function LoginPage() {
   const [waitlistSuccess, setWaitlistSuccess] = useState(false);
   const [waitlistError, setWaitlistError] = useState("");
   const [waitlistLoading, setWaitlistLoading] = useState(false);
-  const captchaRef = useRef<HTMLDivElement>(null);
-  const captchaWidgetId = useRef<number | null>(null);
+  const recaptchaLoaded = useRef(false);
 
-  // Render reCAPTCHA widget when switching to register mode
-  const renderCaptcha = useCallback(() => {
-    if (
-      !RECAPTCHA_SITE_KEY ||
-      !captchaRef.current ||
-      !window.grecaptcha?.render
-    ) return;
-    // Reset if already rendered
-    if (captchaWidgetId.current !== null) {
-      try { window.grecaptcha.reset(captchaWidgetId.current); } catch { /* noop */ }
-      return;
-    }
-    captchaWidgetId.current = window.grecaptcha.render(captchaRef.current, {
-      sitekey: RECAPTCHA_SITE_KEY,
-      theme: theme === "dark" ? "dark" : "light",
-    });
-  }, [theme]);
-
+  // Load reCAPTCHA v3 script dynamically (invisible — no checkbox)
   useEffect(() => {
-    if (!isRegister || !RECAPTCHA_SITE_KEY) return;
-    // grecaptcha may not be loaded yet — poll briefly
-    if (window.grecaptcha?.render) {
-      renderCaptcha();
-    } else {
-      const id = setInterval(() => {
-        if (window.grecaptcha?.render) {
-          clearInterval(id);
-          renderCaptcha();
-        }
-      }, 200);
-      return () => clearInterval(id);
-    }
-  }, [isRegister, renderCaptcha]);
+    if (!RECAPTCHA_SITE_KEY || recaptchaLoaded.current) return;
+    recaptchaLoaded.current = true;
+    const script = document.createElement("script");
+    script.src = `https://www.google.com/recaptcha/api.js?render=${encodeURIComponent(RECAPTCHA_SITE_KEY)}`;
+    script.async = true;
+    document.head.appendChild(script);
+  }, []);
 
   const { data: slotsData } = useApi<{ total: number; used: number; remaining: number; unlimited: boolean }>(
     () => get("/api/slots", { redirectOnUnauthorized: false })
@@ -122,21 +97,26 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
-      if (isRegister) {
-        let captchaToken: string | undefined;
-        if (RECAPTCHA_SITE_KEY) {
-          captchaToken = window.grecaptcha?.getResponse(captchaWidgetId.current ?? undefined);
-          if (!captchaToken) {
-            setError("Please complete the CAPTCHA verification.");
-            setLoading(false);
-            return;
-          }
+      // reCAPTCHA v3: execute invisibly to get a score-based token
+      let captchaToken: string | undefined;
+      if (RECAPTCHA_SITE_KEY && window.grecaptcha?.execute) {
+        try {
+          captchaToken = await window.grecaptcha.execute(RECAPTCHA_SITE_KEY, {
+            action: isRegister ? "register" : "login",
+          });
+        } catch {
+          setError("CAPTCHA verification failed. Please refresh and try again.");
+          setLoading(false);
+          return;
         }
+      }
+
+      if (isRegister) {
         await register(email, password, captchaToken);
         setPassword("");
         navigate("/app");
       } else {
-        const result = await login(email, password);
+        const result = await login(email, password, captchaToken);
         // Use the returned value instead of React state to avoid race condition
         if (!result.mfaRequired) {
           setPassword("");
@@ -145,10 +125,6 @@ export default function LoginPage() {
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");
-      // Reset captcha so user can retry
-      if (RECAPTCHA_SITE_KEY && captchaWidgetId.current !== null) {
-        try { window.grecaptcha?.reset(captchaWidgetId.current); } catch { /* noop */ }
-      }
     } finally {
       setLoading(false);
     }
@@ -401,10 +377,6 @@ export default function LoginPage() {
             placeholder="Min 8 characters"
           />
         </div>
-
-        {isRegister && RECAPTCHA_SITE_KEY && (
-          <div ref={captchaRef} className="login-captcha" />
-        )}
 
         <button
           type="submit"

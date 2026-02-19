@@ -27,7 +27,7 @@ interface AuthState {
   isAdmin: boolean;
   loading: boolean;
   mfaRequired: boolean;
-  login: (email: string, password: string) => Promise<{ mfaRequired: boolean }>;
+  login: (email: string, password: string, captchaToken?: string) => Promise<{ mfaRequired: boolean }>;
   verifyMfa: (code: string, isBackupCode?: boolean) => Promise<void>;
   cancelMfa: () => void;
   register: (email: string, password: string, captchaToken?: string) => Promise<void>;
@@ -74,10 +74,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       });
   }, []);
 
-  const login = useCallback(async (email: string, password: string): Promise<{ mfaRequired: boolean }> => {
+  const login = useCallback(async (email: string, password: string, captchaToken?: string): Promise<{ mfaRequired: boolean }> => {
     const res = await post<LoginResponse>("/api/auth/login", {
       email,
       password,
+      ...(captchaToken ? { captchaToken } : {}),
     });
     if (res.mfaRequired) {
       setMfaRequired(true);

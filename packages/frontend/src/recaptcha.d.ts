@@ -1,4 +1,6 @@
 interface ReCaptchaInstance {
+  ready(cb: () => void): void;
+  execute(siteKey: string, options: { action: string }): Promise<string>;
   render(container: HTMLElement, params: { sitekey: string; theme?: string }): number;
   getResponse(widgetId?: number): string;
   reset(widgetId?: number): void;

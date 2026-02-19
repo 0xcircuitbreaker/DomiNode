@@ -177,7 +177,11 @@ setInterval(() => {
 // ─── reCAPTCHA verification ──────────────────────────────────────
 const RECAPTCHA_SECRET_KEY = process.env["RECAPTCHA_SECRET_KEY"] ?? "";
 
-async function verifyRecaptcha(token: string, remoteIp: string): Promise<boolean> {
+// reCAPTCHA v3 score threshold — 0.5 is Google's recommended default.
+// Scores range 0.0 (bot) to 1.0 (human). Adjust if needed.
+const RECAPTCHA_SCORE_THRESHOLD = parseFloat(process.env["RECAPTCHA_SCORE_THRESHOLD"] ?? "0.5");
+
+async function verifyRecaptcha(token: string, remoteIp: string, expectedAction?: string): Promise<boolean> {
   if (!RECAPTCHA_SECRET_KEY) return true; // Skip if not configured (dev mode)
   try {
     const resp = await fetch("https://www.google.com/recaptcha/api/siteverify", {
@@ -186,8 +190,19 @@ async function verifyRecaptcha(token: string, remoteIp: string): Promise<boolean
       body: `secret=${encodeURIComponent(RECAPTCHA_SECRET_KEY)}&response=${encodeURIComponent(token)}&remoteip=${encodeURIComponent(remoteIp)}`,
       signal: AbortSignal.timeout(5000),
     });
-    const data = (await resp.json()) as { success: boolean };
-    return data.success === true;
+    const data = (await resp.json()) as { success: boolean; score?: number; action?: string };
+    if (!data.success) return false;
+    // v3: check score threshold (if score is present)
+    if (typeof data.score === "number" && data.score < RECAPTCHA_SCORE_THRESHOLD) {
+      log.warn("reCAPTCHA v3 score too low", { score: data.score, action: data.action, ip: remoteIp });
+      return false;
+    }
+    // v3: verify action matches expected (prevents token reuse across endpoints)
+    if (expectedAction && data.action && data.action !== expectedAction) {
+      log.warn("reCAPTCHA v3 action mismatch", { expected: expectedAction, got: data.action, ip: remoteIp });
+      return false;
+    }
+    return true;
   } catch (err) {
     log.error("reCAPTCHA verification failed", { error: err instanceof Error ? err.message : String(err) });
     return false; // Fail closed — reject if reCAPTCHA service is unreachable
@@ -252,14 +267,14 @@ router.post("/register", async (req, res) => {
       return;
     }
 
-    // R36: reCAPTCHA verification (anti-bot)
+    // reCAPTCHA v3 verification (anti-bot)
     const captchaToken = req.body.captchaToken ?? "";
     if (RECAPTCHA_SECRET_KEY && !captchaToken) {
       res.status(400).json({ error: "CAPTCHA verification required" });
       return;
     }
     if (RECAPTCHA_SECRET_KEY) {
-      const captchaValid = await verifyRecaptcha(captchaToken, req.ip ?? "");
+      const captchaValid = await verifyRecaptcha(captchaToken, req.ip ?? "", "register");
       if (!captchaValid) {
         res.status(400).json({ error: "CAPTCHA verification failed. Please try again." });
         return;
@@ -377,6 +392,20 @@ router.post("/login", async (req, res) => {
     const email = sanitizeString(req.body.email ?? "", 254).toLowerCase();
     const password = req.body.password ?? "";
     const clientIp = (req.ip ?? req.socket.remoteAddress ?? "").replace(/^::ffff:/, "");
+
+    // reCAPTCHA v3 verification (anti-bot on login)
+    const captchaToken = req.body.captchaToken ?? "";
+    if (RECAPTCHA_SECRET_KEY && !captchaToken) {
+      res.status(400).json({ error: "CAPTCHA verification required" });
+      return;
+    }
+    if (RECAPTCHA_SECRET_KEY) {
+      const captchaValid = await verifyRecaptcha(captchaToken, clientIp, "login");
+      if (!captchaValid) {
+        res.status(400).json({ error: "CAPTCHA verification failed. Please try again." });
+        return;
+      }
+    }
 
     // R17: Per-IP global login limit (prevents credential stuffing across emails)
     const ipLimitMsg = checkIpLoginLimit(clientIp);
