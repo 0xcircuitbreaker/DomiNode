@@ -11,11 +11,15 @@ const mockValidateTopupAmount = vi.fn();
 const mockIsValidCryptoCurrency = vi.fn();
 const mockCreateCheckoutSession = vi.fn();
 const mockCreateCryptoInvoice = vi.fn();
+const mockFindUserById = vi.fn();
 
 vi.mock("@dominusnode/shared", () => ({
   walletRepo: {
     getWallet: (...args: unknown[]) => mockGetWallet(...args),
     getTransactions: (...args: unknown[]) => mockGetTransactions(...args),
+  },
+  userRepo: {
+    findUserById: (...args: unknown[]) => mockFindUserById(...args),
   },
   usageRepo: {
     getUsageByDay: (...args: unknown[]) => mockGetUsageByDay(...args),
@@ -254,7 +258,9 @@ describe("wallet routes", () => {
 
   describe("POST /api/wallet/topup/stripe", () => {
     it("should create a Stripe checkout session", async () => {
+      mockFindUserById.mockResolvedValueOnce({ id: "test-user-id", status: "active", email_verified: true });
       mockValidateTopupAmount.mockReturnValueOnce(null);
+      mockGetWallet.mockResolvedValueOnce({ balance_cents: 0, currency: "USD" });
       mockCreateCheckoutSession.mockResolvedValueOnce({
         sessionId: "cs_test_123",
         url: "https://checkout.stripe.com/test",
@@ -272,6 +278,7 @@ describe("wallet routes", () => {
     });
 
     it("should return 400 for invalid amount", async () => {
+      mockFindUserById.mockResolvedValueOnce({ id: "test-user-id", status: "active", email_verified: true });
       mockValidateTopupAmount.mockReturnValueOnce("Amount must be at least $5.00");
 
       const app = createApp();
@@ -285,7 +292,9 @@ describe("wallet routes", () => {
     });
 
     it("should return 500 when Stripe fails", async () => {
+      mockFindUserById.mockResolvedValueOnce({ id: "test-user-id", status: "active", email_verified: true });
       mockValidateTopupAmount.mockReturnValueOnce(null);
+      mockGetWallet.mockResolvedValueOnce({ balance_cents: 0, currency: "USD" });
       mockCreateCheckoutSession.mockRejectedValueOnce(new Error("Stripe API error"));
 
       const app = createApp();
@@ -302,6 +311,7 @@ describe("wallet routes", () => {
 
   describe("POST /api/wallet/topup/crypto", () => {
     it("should create a crypto invoice", async () => {
+      mockFindUserById.mockResolvedValueOnce({ id: "test-user-id", status: "active", email_verified: true });
       mockIsValidCryptoCurrency.mockReturnValueOnce(true);
       mockCreateCryptoInvoice.mockResolvedValueOnce({
         invoiceId: "inv_123",
@@ -324,6 +334,7 @@ describe("wallet routes", () => {
     });
 
     it("should return 400 for amount below $5", async () => {
+      mockFindUserById.mockResolvedValueOnce({ id: "test-user-id", status: "active", email_verified: true });
       const app = createApp();
       const res = await requestWithBody(app, "POST", "/api/wallet/topup/crypto", {
         amountUsd: 2,
@@ -336,6 +347,7 @@ describe("wallet routes", () => {
     });
 
     it("should return 400 for amount above $1000", async () => {
+      mockFindUserById.mockResolvedValueOnce({ id: "test-user-id", status: "active", email_verified: true });
       const app = createApp();
       const res = await requestWithBody(app, "POST", "/api/wallet/topup/crypto", {
         amountUsd: 1500,
@@ -347,6 +359,7 @@ describe("wallet routes", () => {
     });
 
     it("should return 400 for unsupported currency", async () => {
+      mockFindUserById.mockResolvedValueOnce({ id: "test-user-id", status: "active", email_verified: true });
       mockIsValidCryptoCurrency.mockReturnValueOnce(false);
 
       const app = createApp();

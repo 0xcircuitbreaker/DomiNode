@@ -86,6 +86,7 @@ describe("proxy-gateway/auth", () => {
         id: "user-1",
         email: "test@example.com",
         status: "active",
+        email_verified: true,
       };
       mockFindUserByApiKeyHash.mockResolvedValueOnce({
         user: mockUser,
@@ -102,7 +103,7 @@ describe("proxy-gateway/auth", () => {
     });
 
     it("should parse country option from username", async () => {
-      const mockUser = { id: "u2", email: "a@b.com", status: "active" };
+      const mockUser = { id: "u2", email: "a@b.com", status: "active", email_verified: true };
       mockFindUserByApiKeyHash.mockResolvedValueOnce({
         user: mockUser,
         apiKey: { id: "ak2" },
@@ -115,7 +116,7 @@ describe("proxy-gateway/auth", () => {
     });
 
     it("should parse session option from username", async () => {
-      const mockUser = { id: "u3", email: "a@b.com", status: "active" };
+      const mockUser = { id: "u3", email: "a@b.com", status: "active", email_verified: true };
       mockFindUserByApiKeyHash.mockResolvedValueOnce({
         user: mockUser,
         apiKey: { id: "ak3" },
@@ -128,7 +129,7 @@ describe("proxy-gateway/auth", () => {
     });
 
     it("should parse combined country and session from username", async () => {
-      const mockUser = { id: "u4", email: "a@b.com", status: "active" };
+      const mockUser = { id: "u4", email: "a@b.com", status: "active", email_verified: true };
       mockFindUserByApiKeyHash.mockResolvedValueOnce({
         user: mockUser,
         apiKey: { id: "ak4" },

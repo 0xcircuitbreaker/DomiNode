@@ -161,7 +161,7 @@ describe("keys routes", () => {
 
   describe("POST /api/keys", () => {
     it("should create a new API key (201)", async () => {
-      mockFindUserById.mockResolvedValueOnce({ id: "test-user-id", status: "active" });
+      mockFindUserById.mockResolvedValueOnce({ id: "test-user-id", status: "active", email_verified: true });
       mockCountActiveKeys.mockResolvedValueOnce(5);
       mockSanitizeString.mockReturnValueOnce("My Key");
       mockGenerateApiKey.mockReturnValueOnce({
@@ -189,7 +189,7 @@ describe("keys routes", () => {
     });
 
     it("should create a key with default label when none provided", async () => {
-      mockFindUserById.mockResolvedValueOnce({ id: "test-user-id", status: "active" });
+      mockFindUserById.mockResolvedValueOnce({ id: "test-user-id", status: "active", email_verified: true });
       mockCountActiveKeys.mockResolvedValueOnce(0);
       mockSanitizeString.mockReturnValueOnce("Default");
       mockGenerateApiKey.mockReturnValueOnce({
@@ -212,7 +212,7 @@ describe("keys routes", () => {
     });
 
     it("should return 400 when max 50 keys reached", async () => {
-      mockFindUserById.mockResolvedValueOnce({ id: "test-user-id", status: "active" });
+      mockFindUserById.mockResolvedValueOnce({ id: "test-user-id", status: "active", email_verified: true });
       mockCountActiveKeys.mockResolvedValueOnce(50);
 
       const app = createApp();
@@ -224,7 +224,7 @@ describe("keys routes", () => {
     });
 
     it("should return 500 when DB error occurs during creation", async () => {
-      mockFindUserById.mockResolvedValueOnce({ id: "test-user-id", status: "active" });
+      mockFindUserById.mockResolvedValueOnce({ id: "test-user-id", status: "active", email_verified: true });
       mockCountActiveKeys.mockResolvedValueOnce(0);
       mockSanitizeString.mockReturnValueOnce("Test");
       mockGenerateApiKey.mockReturnValueOnce({
