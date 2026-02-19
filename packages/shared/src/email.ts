@@ -22,10 +22,12 @@ function getTransporter(): Transporter | null {
   if (!EMAIL_ENABLED || !SMTP_HOST) return null;
 
   if (!transporter) {
+    const ignoreTLS = process.env.SMTP_IGNORE_TLS === "true";
     transporter = nodemailer.createTransport({
       host: SMTP_HOST,
       port: SMTP_PORT,
       secure: SMTP_SECURE,
+      ignoreTLS,
       auth: SMTP_USER ? { user: SMTP_USER, pass: SMTP_PASS } : undefined,
       tls: {
         // Allow self-signed certs for local Postfix relay
