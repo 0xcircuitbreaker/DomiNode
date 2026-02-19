@@ -31,42 +31,42 @@ interface SetupOptions {
     id: string;
     name: string;
     role: string;
-    balance_cents: number;
-    created_at: string;
+    balanceCents: number;
+    createdAt: string;
   }>;
   members?: Array<{
     id: string;
-    user_id: string;
+    userId: string;
     email: string;
     role: string;
-    joined_at: string;
+    joinedAt: string;
   }>;
   invites?: Array<{
     id: string;
     email: string;
     role: string;
-    created_at: string;
-    expires_at: string;
+    createdAt: string;
+    expiresAt: string;
   }>;
   keys?: Array<{
     id: string;
     prefix: string;
     label: string;
-    created_at: string;
+    createdAt: string;
   }>;
   transactions?: Array<{
     id: string;
     type: string;
-    amount_cents: number;
+    amountCents: number;
     description: string;
-    created_at: string;
+    createdAt: string;
   }>;
   teamDetail?: {
     id: string;
     name: string;
     role: string;
-    balance_cents: number;
-    created_at: string;
+    balanceCents: number;
+    createdAt: string;
   };
 }
 
@@ -87,7 +87,7 @@ function setupMocks(opts: SetupOptions = {}) {
       });
     }
     if (path === "/api/teams") {
-      return Promise.resolve(teams);
+      return Promise.resolve({ teams });
     }
     if (path.match(/^\/api\/teams\/[^/]+$/)) {
       return Promise.resolve(
@@ -95,8 +95,8 @@ function setupMocks(opts: SetupOptions = {}) {
           id: TEAM_ID,
           name: "Test Team",
           role: "owner",
-          balance_cents: 5000,
-          created_at: "2025-01-01T00:00:00Z",
+          balanceCents: 5000,
+          createdAt: "2025-01-01T00:00:00Z",
         },
       );
     }
@@ -120,16 +120,16 @@ const defaultTeam = {
   id: TEAM_ID,
   name: "Alpha Team",
   role: "owner",
-  balance_cents: 5000,
-  created_at: "2025-01-01T00:00:00Z",
+  balanceCents: 5000,
+  createdAt: "2025-01-01T00:00:00Z",
 };
 
 const secondTeam = {
   id: TEAM_ID_2,
   name: "Beta Team",
   role: "member",
-  balance_cents: 1200,
-  created_at: "2025-02-01T00:00:00Z",
+  balanceCents: 1200,
+  createdAt: "2025-02-01T00:00:00Z",
 };
 
 describe("TeamsPage", () => {
@@ -181,7 +181,7 @@ describe("TeamsPage", () => {
         });
       }
       if (path === "/api/teams") {
-        return Promise.resolve(teamsData);
+        return Promise.resolve({ teams: teamsData });
       }
       return Promise.reject(new Error(`Unexpected get: ${path}`));
     });
@@ -205,8 +205,8 @@ describe("TeamsPage", () => {
         id: TEAM_ID,
         name: "New Team",
         role: "owner",
-        balance_cents: 0,
-        created_at: "2025-03-01T00:00:00Z",
+        balanceCents: 0,
+        createdAt: "2025-03-01T00:00:00Z",
       },
     ];
 
@@ -276,17 +276,17 @@ describe("TeamsPage", () => {
       members: [
         {
           id: "m1",
-          user_id: MEMBER_ID,
+          userId: MEMBER_ID,
           email: "alice@example.com",
           role: "owner",
-          joined_at: "2025-01-01T00:00:00Z",
+          joinedAt: "2025-01-01T00:00:00Z",
         },
         {
           id: "m2",
-          user_id: "f1234567-abcd-1234-abcd-123456789abc",
+          userId: "f1234567-abcd-1234-abcd-123456789abc",
           email: "bob@example.com",
           role: "member",
-          joined_at: "2025-01-05T00:00:00Z",
+          joinedAt: "2025-01-05T00:00:00Z",
         },
       ],
     });
@@ -322,8 +322,8 @@ describe("TeamsPage", () => {
           id: INVITE_ID,
           email: "carol@example.com",
           role: "member",
-          created_at: "2025-01-10T00:00:00Z",
-          expires_at: "2025-01-17T00:00:00Z",
+          createdAt: "2025-01-10T00:00:00Z",
+          expiresAt: "2025-01-17T00:00:00Z",
         },
       ],
     });
@@ -361,7 +361,7 @@ describe("TeamsPage", () => {
           id: KEY_ID,
           prefix: "dn_live_abc",
           label: "Production",
-          created_at: "2025-01-10T00:00:00Z",
+          createdAt: "2025-01-10T00:00:00Z",
         },
       ],
     });
@@ -400,16 +400,16 @@ describe("TeamsPage", () => {
         id: TEAM_ID,
         name: "Alpha Team",
         role: "owner",
-        balance_cents: 5000,
-        created_at: "2025-01-01T00:00:00Z",
+        balanceCents: 5000,
+        createdAt: "2025-01-01T00:00:00Z",
       },
       transactions: [
         {
           id: "tx1",
           type: "fund",
-          amount_cents: 5000,
+          amountCents: 5000,
           description: "Initial funding",
-          created_at: "2025-01-15T00:00:00Z",
+          createdAt: "2025-01-15T00:00:00Z",
         },
       ],
     });
@@ -457,7 +457,7 @@ describe("TeamsPage", () => {
         });
       }
       if (path === "/api/teams") {
-        return Promise.resolve(teamsData);
+        return Promise.resolve({ teams: teamsData });
       }
       if (path.match(/^\/api\/teams\/[^/]+$/)) {
         return Promise.resolve(defaultTeam);
@@ -545,8 +545,8 @@ describe("TeamsPage", () => {
       id: TEAM_ID,
       name: "Other Team",
       role: "member",
-      balance_cents: 3000,
-      created_at: "2025-01-01T00:00:00Z",
+      balanceCents: 3000,
+      createdAt: "2025-01-01T00:00:00Z",
     };
 
     setupMocks({

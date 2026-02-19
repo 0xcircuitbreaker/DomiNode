@@ -7,54 +7,58 @@ interface Team {
   id: string;
   name: string;
   role: string;
-  balance_cents: number;
-  created_at: string;
+  balanceCents: number;
+  createdAt: string;
+}
+
+interface TeamsResponse {
+  teams: Team[];
 }
 
 interface TeamDetail {
   id: string;
   name: string;
   role: string;
-  balance_cents: number;
-  created_at: string;
+  balanceCents: number;
+  createdAt: string;
 }
 
 interface Member {
   id: string;
-  user_id: string;
+  userId: string;
   email: string;
   role: string;
-  joined_at: string;
+  joinedAt: string;
 }
 
 interface Invite {
   id: string;
   email: string;
   role: string;
-  created_at: string;
-  expires_at: string;
+  createdAt: string;
+  expiresAt: string;
 }
 
 interface TeamKey {
   id: string;
   prefix: string;
   label: string;
-  created_at: string;
+  createdAt: string;
 }
 
 interface CreateKeyResponse {
   id: string;
   key: string;
-  keyPrefix: string;
+  prefix: string;
   label: string;
 }
 
 interface Transaction {
   id: string;
   type: string;
-  amount_cents: number;
+  amountCents: number;
   description: string;
-  created_at: string;
+  createdAt: string;
 }
 
 // --- UUID validation for path params ---
@@ -117,8 +121,8 @@ export default function TeamsPage() {
     setTeamsLoading(true);
     setTeamsError(null);
     try {
-      const res = await get<Team[]>("/api/teams");
-      setTeams(res);
+      const res = await get<TeamsResponse>("/api/teams");
+      setTeams(res.teams);
     } catch (err) {
       setTeamsError(err instanceof Error ? err.message : "Failed to load teams");
     } finally {
@@ -485,7 +489,7 @@ export default function TeamsPage() {
                   {roleBadge(team.role)}
                 </div>
                 <span className="text-sm text-green-400 font-medium flex-shrink-0">
-                  ${(team.balance_cents / 100).toFixed(2)}
+                  ${(team.balanceCents / 100).toFixed(2)}
                 </span>
               </button>
             ))}
@@ -568,11 +572,11 @@ export default function TeamsPage() {
                         </div>
                         {m.role !== "owner" && (
                           <button
-                            onClick={() => handleRemoveMember(m.user_id)}
-                            disabled={removingMemberId === m.user_id}
+                            onClick={() => handleRemoveMember(m.userId)}
+                            disabled={removingMemberId === m.userId}
                             className="text-red-400 hover:text-red-300 text-sm disabled:opacity-50 flex-shrink-0"
                           >
-                            {removingMemberId === m.user_id ? "Removing..." : "Remove"}
+                            {removingMemberId === m.userId ? "Removing..." : "Remove"}
                           </button>
                         )}
                       </div>
@@ -624,7 +628,7 @@ export default function TeamsPage() {
                           <span className="text-sm truncate">{inv.email}</span>
                           {roleBadge(inv.role)}
                           <span className="text-xs text-gray-500 flex-shrink-0">
-                            Expires {new Date(inv.expires_at).toLocaleDateString()}
+                            Expires {new Date(inv.expiresAt).toLocaleDateString()}
                           </span>
                         </div>
                         <button
@@ -698,7 +702,7 @@ export default function TeamsPage() {
                           <span className="font-mono text-indigo-400 text-sm">{k.prefix}...</span>
                           <span className="text-sm text-gray-400 truncate">{k.label}</span>
                           <span className="text-xs text-gray-500 flex-shrink-0">
-                            {new Date(k.created_at).toLocaleDateString()}
+                            {new Date(k.createdAt).toLocaleDateString()}
                           </span>
                         </div>
                         <button
@@ -722,7 +726,7 @@ export default function TeamsPage() {
                 <div className="bg-gray-800 rounded-lg p-4">
                   <p className="text-sm text-gray-400">Team Balance</p>
                   <p className="text-2xl sm:text-3xl font-bold text-green-400 mt-1">
-                    ${teamDetail ? (teamDetail.balance_cents / 100).toFixed(2) : "0.00"}
+                    ${teamDetail ? (teamDetail.balanceCents / 100).toFixed(2) : "0.00"}
                   </p>
                 </div>
 
@@ -785,10 +789,10 @@ export default function TeamsPage() {
                               tx.type === "topup" || tx.type === "fund" ? "text-green-400" : "text-red-400"
                             }`}>
                               {tx.type === "topup" || tx.type === "fund" ? "+" : "-"}
-                              ${(Math.abs(tx.amount_cents) / 100).toFixed(2)}
+                              ${(Math.abs(tx.amountCents) / 100).toFixed(2)}
                             </span>
                             <span className="text-xs text-gray-500">
-                              {new Date(tx.created_at).toLocaleDateString()}
+                              {new Date(tx.createdAt).toLocaleDateString()}
                             </span>
                           </div>
                         </div>
