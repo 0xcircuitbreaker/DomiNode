@@ -27,6 +27,10 @@ function getTransporter(): Transporter | null {
       port: SMTP_PORT,
       secure: SMTP_SECURE,
       auth: SMTP_USER ? { user: SMTP_USER, pass: SMTP_PASS } : undefined,
+      tls: {
+        // Allow self-signed certs for local Postfix relay
+        rejectUnauthorized: false,
+      },
       connectionTimeout: 10_000,
       greetingTimeout: 10_000,
       socketTimeout: 15_000,
