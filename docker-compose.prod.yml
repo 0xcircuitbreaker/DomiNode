@@ -34,17 +34,30 @@ services:
       postgres:
         condition: service_healthy
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-dominusnode}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-dominusnode}?sslmode=require
+      DATABASE_URL: postgresql://${POSTGRES_USER:-dominusnode}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-dominusnode}
+      DB_SSL: "false"
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       MFA_ENCRYPTION_KEY: ${MFA_ENCRYPTION_KEY:?MFA_ENCRYPTION_KEY is required}
       DASHBOARD_PORT: "3000"
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost}
       STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
       STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+      STRIPE_SUCCESS_URL: ${STRIPE_SUCCESS_URL:-https://dominusnode.com/wallet?topup=success}
+      STRIPE_CANCEL_URL: ${STRIPE_CANCEL_URL:-https://dominusnode.com/wallet?topup=cancel}
       NOWPAYMENTS_API_KEY: ${NOWPAYMENTS_API_KEY:-}
       NOWPAYMENTS_IPN_SECRET: ${NOWPAYMENTS_IPN_SECRET:-}
       PROXY_INTERNAL_HOST: ${PROXY_INTERNAL_HOST:-proxy}
+      EMAIL_ENABLED: ${EMAIL_ENABLED:-false}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      SMTP_FROM: ${SMTP_FROM:-noreply@dominusnode.com}
+      SMTP_SECURE: ${SMTP_SECURE:-false}
+      APP_URL: ${APP_URL:-http://localhost:5173}
       NODE_ENV: production
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     # API port NOT exposed to host — only reachable via nginx on the frontend network
     # Use 'docker exec' or SSH tunnel for direct API access if needed
     expose:
@@ -80,7 +93,8 @@ services:
       postgres:
         condition: service_healthy
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-dominusnode}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-dominusnode}?sslmode=require
+      DATABASE_URL: postgresql://${POSTGRES_USER:-dominusnode}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-dominusnode}
+      DB_SSL: "false"
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       PROXY_LISTEN_PORT: "8080"
       SOCKS5_LISTEN_PORT: "1080"

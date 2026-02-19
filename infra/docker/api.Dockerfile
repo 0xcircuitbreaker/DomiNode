@@ -16,6 +16,7 @@ COPY packages/billing/ packages/billing/
 COPY packages/dashboard/ packages/dashboard/
 COPY packages/pool-manager/ packages/pool-manager/
 COPY packages/proxy-gateway/ packages/proxy-gateway/
+COPY packages/mcp-server/ packages/mcp-server/
 
 # Install dependencies
 RUN npm ci --ignore-scripts

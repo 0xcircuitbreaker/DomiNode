@@ -21,9 +21,11 @@ export function getPool(): pg.Pool {
       connectionTimeoutMillis: connTimeout,
       idleTimeoutMillis: 30000,
       statement_timeout: 10000,
-      ssl: process.env.NODE_ENV === "production"
-        ? { rejectUnauthorized: true }
-        : false,
+      ssl: process.env.DB_SSL === "false"
+        ? false
+        : process.env.NODE_ENV === "production"
+          ? { rejectUnauthorized: true }
+          : false,
     });
     pool.on("connect", () => {
       log.debug("new client connected to pool");

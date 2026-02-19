@@ -9,13 +9,26 @@ import { getActiveSessionCount, terminateUserSessions, getActiveSessions } from 
 
 const log = createLogger("proxy:main");
 
-// ─── Crash handlers — log and exit rather than silently dying ────────
+// ─── Crash handlers ─────────────────────────────────────────────────
+// Socket resets (ECONNRESET, EPIPE, ECONNABORTED) are normal in proxy
+// traffic — clients disconnect, upstreams drop connections. Log and
+// continue rather than crashing the entire process.
+const SOCKET_ERRORS = new Set(["ECONNRESET", "EPIPE", "ECONNABORTED", "ETIMEDOUT"]);
+
 process.on("uncaughtException", (err) => {
+  if (err && "code" in err && SOCKET_ERRORS.has((err as NodeJS.ErrnoException).code ?? "")) {
+    log.warn("socket error (non-fatal)", { code: (err as NodeJS.ErrnoException).code, message: err.message });
+    return; // Do NOT crash — this is normal proxy traffic noise
+  }
   log.error("uncaught exception — shutting down", { error: err.message, stack: err.stack });
   process.exit(1);
 });
 process.on("unhandledRejection", (reason) => {
   const msg = reason instanceof Error ? reason.message : String(reason);
+  if (reason instanceof Error && "code" in reason && SOCKET_ERRORS.has((reason as NodeJS.ErrnoException).code ?? "")) {
+    log.warn("socket rejection (non-fatal)", { code: (reason as NodeJS.ErrnoException).code, message: msg });
+    return;
+  }
   log.error("unhandled rejection — shutting down", { error: msg });
   process.exit(1);
 });

@@ -14,10 +14,11 @@ const STRIPE_WEBHOOK_IPS = new Set([
   "54.88.130.237", "54.187.174.169", "54.187.205.235", "54.187.216.72",
 ]);
 
-// NOWPayments IPN source IPs (known ranges)
+// NOWPayments IPN source IPs (optional — IPN signature verification is primary security)
 const NOWPAYMENTS_IPS = new Set<string>([
   // NOWPayments does not publish a fixed IP list.
   // When NOWPAYMENTS_WEBHOOK_IPS env var is set, those IPs are used.
+  // If empty, IP check is skipped and IPN HMAC signature is the sole verification.
 ]);
 
 // Load additional IPs from env (comma-separated)
@@ -35,14 +36,8 @@ if (envNowpaymentsIps) {
 
 export function webhookIpCheck(allowedIps: Set<string>, providerName: string) {
   return (req: Request, res: Response, next: NextFunction): void => {
-    // R20 H-3: In production, reject if IP allowlist is empty — fail closed, not open
+    // If no IPs configured, skip IP check (rely on signature verification instead)
     if (allowedIps.size === 0) {
-      if (process.env["NODE_ENV"] === "production") {
-        log.error(`${providerName} webhook IP allowlist is empty in production — rejecting request`);
-        res.status(503).json({ error: "Webhook IP allowlist not configured" });
-        return;
-      }
-      // In development, allow through with warning (already logged at startup)
       next();
       return;
     }
