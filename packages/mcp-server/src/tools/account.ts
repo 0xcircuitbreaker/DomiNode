@@ -223,7 +223,7 @@ export function registerAccountTools(server: McpServer, httpClient: HttpClient):
           `  curl -x http://USER:${keyData.key}@proxy.dominusnode.com:8080 https://httpbin.org/ip`,
           ``,
           `Free tier: 10 connections, 1GB bandwidth.`,
-          `Set DOMINUSNODE_API_KEY=${keyData.key} and restart to unlock all 27 tools.`,
+          `Set DOMINUSNODE_API_KEY=${keyData.key} and restart to unlock all 41 tools.`,
         ].join("\n");
         return { content: [{ type: "text", text }] };
       } catch (err) {

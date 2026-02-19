@@ -17,6 +17,7 @@ export interface AuthResult {
   userId: string;
   user: User;
   proxyOptions: ProxyOptions;
+  teamId: string | null;
 }
 
 /**
@@ -111,7 +112,7 @@ export async function authenticateRequest(
 
     const proxyOptions = parseProxyOptions(username);
 
-    return { userId: result.user.id, user: result.user, proxyOptions };
+    return { userId: result.user.id, user: result.user, proxyOptions, teamId: result.apiKey.team_id ?? null };
   } catch (err) {
     log.error("auth DB error", { error: err instanceof Error ? err.message : String(err) });
     return null;

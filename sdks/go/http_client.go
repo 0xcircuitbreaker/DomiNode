@@ -255,6 +255,11 @@ func (hc *httpClient) put(ctx context.Context, path string, body interface{}, re
 	return hc.doRequest(ctx, requestOptions{Method: "PUT", Path: path, Body: body, RequiresAuth: true}, result)
 }
 
+// patch performs an authenticated PATCH request.
+func (hc *httpClient) patch(ctx context.Context, path string, body interface{}, result interface{}) error {
+	return hc.doRequest(ctx, requestOptions{Method: "PATCH", Path: path, Body: body, RequiresAuth: true}, result)
+}
+
 // del performs an authenticated DELETE request.
 func (hc *httpClient) del(ctx context.Context, path string, result interface{}) error {
 	return hc.doRequest(ctx, requestOptions{Method: "DELETE", Path: path, RequiresAuth: true}, result)

@@ -12,6 +12,8 @@ import WalletPage from "./pages/WalletPage";
 import UsagePage from "./pages/UsagePage";
 import PlansPage from "./pages/PlansPage";
 import SecurityPage from "./pages/SecurityPage";
+import TeamsPage from "./pages/TeamsPage";
+import InviteAcceptPage from "./pages/InviteAcceptPage";
 import PrivacyPage from "./pages/PrivacyPage";
 import TermsPage from "./pages/TermsPage";
 import { useAuth } from "./context/AuthContext";
@@ -49,6 +51,7 @@ export default function App() {
         <Route path="usage" element={<UsagePage />} />
         <Route path="plans" element={<PlansPage />} />
         <Route path="security" element={<SecurityPage />} />
+        <Route path="teams" element={<TeamsPage />} />
         <Route path="admin" element={
           <AdminGuard>
             <Suspense fallback={<div className="p-8 text-center text-gray-400">Loading...</div>}>
@@ -57,6 +60,7 @@ export default function App() {
           </AdminGuard>
         } />
       </Route>
+      <Route path="/teams/invite" element={<InviteAcceptPage />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );

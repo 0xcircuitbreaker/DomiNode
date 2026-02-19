@@ -37,11 +37,64 @@ export interface User {
 export interface ApiKey {
   id: string;
   user_id: string;
+  team_id: string | null;
   key_hash: string;
   key_prefix: string;
   label: string;
   created_at: Date;
   revoked_at: Date | null;
+}
+
+// ─── Team Types ───────────────────────────────────────────────────────
+
+export type TeamRole = "owner" | "admin" | "member";
+export type TeamStatus = "active" | "suspended" | "deleted";
+
+export interface Team {
+  id: string;
+  name: string;
+  owner_id: string;
+  plan_id: string;
+  max_members: number;
+  status: TeamStatus;
+  created_at: Date;
+}
+
+export interface TeamMember {
+  id: string;
+  team_id: string;
+  user_id: string;
+  role: TeamRole;
+  joined_at: Date;
+  email?: string;
+}
+
+export interface TeamInvite {
+  id: string;
+  team_id: string;
+  email: string;
+  role: TeamRole;
+  invited_by: string;
+  expires_at: Date;
+  accepted_at: Date | null;
+  created_at: Date;
+}
+
+export interface TeamWallet {
+  id: string;
+  team_id: string;
+  balance_cents: number;
+  currency: string;
+  last_topped_up: Date | null;
+}
+
+export interface TeamWalletTransaction {
+  id: string;
+  wallet_id: string;
+  type: "fund" | "debit" | "refund";
+  amount_cents: number;
+  description: string;
+  created_at: Date;
 }
 
 // ─── Wallet ──────────────────────────────────────────────────────────
@@ -186,5 +239,5 @@ export const COST_PER_GB_CENTS_RESIDENTIAL = 400;
 export const BYTES_PER_GB = 1_073_741_824;
 
 /** Supported crypto currencies for top-up */
-export const SUPPORTED_CRYPTO = ["btc", "eth", "ltc", "xmr", "zec", "usdc"] as const;
+export const SUPPORTED_CRYPTO = ["btc", "eth", "ltc", "xmr", "zec", "usdc", "sol", "usdt", "dai", "bnb"] as const;
 export type SupportedCrypto = (typeof SUPPORTED_CRYPTO)[number];

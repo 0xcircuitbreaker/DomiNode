@@ -39,6 +39,11 @@ public:
                        const nlohmann::json& body = nullptr,
                        bool requires_auth = true);
 
+    /// Perform a PATCH request with optional JSON body. Returns parsed JSON.
+    nlohmann::json patch(const std::string& path,
+                         const nlohmann::json& body = nullptr,
+                         bool requires_auth = true);
+
     /// Perform a DELETE request. Returns parsed JSON.
     nlohmann::json del(const std::string& path, bool requires_auth = true);
 

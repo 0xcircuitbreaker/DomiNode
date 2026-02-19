@@ -3,171 +3,291 @@ import { z } from "zod";
 import type { HttpClient } from "../http-client.js";
 import type { McpConfig } from "../config.js";
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+const AGENT_WALLET_RATE_MAX = 20;
+const AGENT_WALLET_RATE_WINDOW_MS = 60_000;
+const agentWalletTimestamps: number[] = [];
+
+function checkAgentWalletRateLimit(): boolean {
+  const now = Date.now();
+  while (agentWalletTimestamps.length > 0 && now - agentWalletTimestamps[0] > AGENT_WALLET_RATE_WINDOW_MS) {
+    agentWalletTimestamps.shift();
+  }
+  if (agentWalletTimestamps.length > 100) agentWalletTimestamps.length = 100;
+  if (agentWalletTimestamps.length >= AGENT_WALLET_RATE_MAX) return false;
+  agentWalletTimestamps.push(now);
+  return true;
+}
+
 export function registerAgentWalletTools(server: McpServer, httpClient: HttpClient, config: McpConfig): void {
   server.tool(
     "dominusnode_x402_info",
-    "Get x402 payment info for pay-per-request proxy access. No account needed — pay with USDC on Base chain and get instant proxy access. Uses the HTTP 402 Payment Required protocol (Coinbase/Stripe standard).",
+    "Get x402 payment protocol info for Dominus Node. Returns supported currencies, pricing, and agentic wallet details.",
     {},
     async () => {
       try {
         const data = await httpClient.get<{
           supported: boolean;
-          chain: string;
-          currency: string;
-          address: string;
-          price_per_mb_usd: string;
-          price_per_request_usd: string;
-          min_payment_usd: string;
-          docs_url: string;
+          protocol: string;
+          pricing: { dcPerGbCents: number; residentialPerGbCents: number };
+          currencies: string[];
+          walletType: string;
+          agenticWallets: boolean;
         }>("/api/x402/info");
 
         const text = [
-          `x402 Pay-Per-Request Proxy Access`,
+          `x402 Payment Protocol Info`,
           ``,
-          `Protocol: HTTP 402 Payment Required`,
-          `Chain: ${data.chain}`,
-          `Currency: ${data.currency}`,
-          `Payment Address: ${data.address}`,
+          `Protocol: ${data.protocol}`,
+          `Supported: ${data.supported}`,
+          `Wallet Type: ${data.walletType}`,
+          `Agentic Wallets: ${data.agenticWallets ? "Yes" : "No"}`,
           ``,
           `Pricing:`,
-          `  Per request: $${data.price_per_request_usd}`,
-          `  Per MB: $${data.price_per_mb_usd}`,
-          `  Minimum payment: $${data.min_payment_usd}`,
+          `  Datacenter: $${(data.pricing.dcPerGbCents / 100).toFixed(2)}/GB`,
+          `  Residential: $${(data.pricing.residentialPerGbCents / 100).toFixed(2)}/GB`,
           ``,
-          `How it works:`,
-          `  1. Send USDC to the payment address on Base chain`,
-          `  2. Include the tx hash in X-402-Receipt header`,
-          `  3. Make proxy requests — no signup required`,
+          `Supported Currencies: ${data.currencies.join(", ")}`,
           ``,
-          `This is the Coinbase/Stripe x402 standard protocol.`,
-          `Compatible with Coinbase Agentic Wallets.`,
+          `Agentic wallets allow AI agents to hold sub-wallets`,
+          `with spending limits, funded from the main wallet.`,
         ].join("\n");
 
         return { content: [{ type: "text", text }] };
       } catch (err) {
-        // If the endpoint doesn't exist yet, return info about the protocol
-        const text = [
-          `x402 Pay-Per-Request Proxy Access`,
-          ``,
-          `The x402 protocol enables AI agents to pay for proxy access`,
-          `using USDC micropayments on Base chain — no account needed.`,
-          ``,
-          `Status: Coming soon`,
-          ``,
-          `For now, use one of these alternatives:`,
-          `  1. dominusnode_setup — Create a free account (1GB free bandwidth)`,
-          `  2. dominusnode_pay_crypto — Pay with BTC/ETH/XMR/SOL/ZEC`,
-          ``,
-          `x402 protocol details: https://x402.org`,
-          `Coinbase Agentic Wallets: https://docs.cdp.coinbase.com`,
-        ].join("\n");
-
-        return { content: [{ type: "text", text }] };
+        return {
+          isError: true,
+          content: [{ type: "text", text: `Error fetching x402 info: ${err instanceof Error ? err.message : String(err)}` }],
+        };
       }
     },
   );
 
   server.tool(
     "dominusnode_agent_wallet_create",
-    "Create a Coinbase Agentic Wallet for autonomous proxy billing. The wallet holds USDC on Base chain and auto-pays for proxy bandwidth. Set spending limits and session caps for safety.",
+    "Create a server-side custodial agentic wallet for autonomous proxy billing. Set a spending limit per transaction for safety. Fund it from your main wallet.",
     {
-      label: z.string().min(1).max(100).default("ai-agent-wallet").describe("Label for this wallet"),
-      max_spend_usd: z.number().min(1).max(10000).default(100).describe("Maximum total spend in USD"),
-      max_per_request_usd: z.number().min(0.01).max(100).default(1).describe("Maximum spend per request in USD"),
+      label: z.string().min(1).max(100).describe("Label for this wallet (e.g., 'scraper-bot', 'research-agent')"),
+      spending_limit_cents: z.number().int().min(0).max(1000000).default(10000).describe("Max spend per transaction in cents (0 = no limit, default $100)"),
     },
     async (args) => {
       try {
+        if (!checkAgentWalletRateLimit()) {
+          return {
+            isError: true,
+            content: [{ type: "text", text: "Rate limit exceeded: maximum 20 agentic wallet operations per minute. Please wait before retrying." }],
+          };
+        }
+
         const data = await httpClient.post<{
-          wallet_id: string;
-          address: string;
-          chain: string;
-          currency: string;
+          id: string;
           label: string;
-          max_spend_usd: number;
-          max_per_request_usd: number;
+          balanceCents: number;
+          spendingLimitCents: number;
           status: string;
-        }>(
-          "/api/agent-wallet/create",
-          {
-            label: args.label,
-            max_spend_usd: args.max_spend_usd,
-            max_per_request_usd: args.max_per_request_usd,
-          },
-        );
+          createdAt: string;
+        }>("/api/agent-wallet", {
+          label: args.label,
+          spendingLimitCents: args.spending_limit_cents,
+        });
 
         const text = [
           `Agentic Wallet Created`,
           ``,
-          `Wallet ID: ${data.wallet_id}`,
-          `Address: ${data.address}`,
-          `Chain: ${data.chain}`,
-          `Currency: ${data.currency}`,
+          `Wallet ID: ${data.id}`,
           `Label: ${data.label}`,
-          ``,
-          `Spending Limits:`,
-          `  Max total: $${data.max_spend_usd}`,
-          `  Max per request: $${data.max_per_request_usd}`,
-          ``,
+          `Balance: $${(data.balanceCents / 100).toFixed(2)}`,
+          `Spending Limit: ${data.spendingLimitCents > 0 ? `$${(data.spendingLimitCents / 100).toFixed(2)} per transaction` : "No limit"}`,
           `Status: ${data.status}`,
           ``,
-          `Fund this wallet with USDC on Base chain to start proxying.`,
-          `The wallet will auto-pay for bandwidth as you use it.`,
+          `Next steps:`,
+          `  1. Use dominusnode_agent_wallet_fund to add funds from your main wallet`,
+          `  2. The wallet can then be used for proxy billing`,
+          `  3. Use dominusnode_agent_wallet_balance to check balance`,
         ].join("\n");
 
         return { content: [{ type: "text", text }] };
       } catch (err) {
-        const text = [
-          `Agentic Wallet — Coming Soon`,
-          ``,
-          `Coinbase Agentic Wallet integration enables:`,
-          `  - AI agents hold their own crypto wallets`,
-          `  - Auto-pay for proxy bandwidth with USDC`,
-          `  - Spending limits and session caps for safety`,
-          `  - No human approval needed per transaction`,
-          ``,
-          `For now, use these alternatives:`,
-          `  1. dominusnode_setup — Free account with 1GB bandwidth`,
-          `  2. dominusnode_pay_crypto — Manual crypto top-up (BTC/ETH/XMR/SOL/ZEC)`,
-          ``,
-          `Agentic Wallet docs: https://docs.cdp.coinbase.com`,
-        ].join("\n");
-
-        return { content: [{ type: "text", text }] };
+        return {
+          isError: true,
+          content: [{ type: "text", text: `Error creating wallet: ${err instanceof Error ? err.message : String(err)}` }],
+        };
       }
     },
   );
 
   server.tool(
     "dominusnode_agent_wallet_balance",
-    "Check the balance of your Coinbase Agentic Wallet. Shows available USDC, total spent, and remaining budget.",
+    "Check the balance and details of an agentic wallet.",
     {
-      wallet_id: z.string().regex(/^[a-zA-Z0-9_-]{1,100}$/).describe("Wallet ID from dominusnode_agent_wallet_create"),
+      wallet_id: z.string().regex(UUID_RE).describe("Wallet ID from dominusnode_agent_wallet_create"),
     },
     async (args) => {
       try {
         const data = await httpClient.get<{
-          wallet_id: string;
-          balance_usdc: string;
-          total_spent_usdc: string;
-          remaining_budget_usdc: string;
-          transaction_count: number;
-          last_transaction_at: string | null;
-        }>(`/api/agent-wallet/${encodeURIComponent(args.wallet_id)}/balance`);
+          id: string;
+          label: string;
+          balanceCents: number;
+          spendingLimitCents: number;
+          status: string;
+          createdAt: string;
+        }>(`/api/agent-wallet/${encodeURIComponent(args.wallet_id)}`);
 
         const text = [
-          `Agentic Wallet Balance`,
+          `Agentic Wallet: ${data.label}`,
           ``,
-          `Wallet: ${data.wallet_id}`,
-          `Balance: ${data.balance_usdc} USDC`,
-          `Total Spent: ${data.total_spent_usdc} USDC`,
-          `Remaining Budget: ${data.remaining_budget_usdc} USDC`,
-          `Transactions: ${data.transaction_count}`,
-          data.last_transaction_at
-            ? `Last Transaction: ${data.last_transaction_at}`
-            : `No transactions yet — send USDC to fund this wallet.`,
+          `Wallet ID: ${data.id}`,
+          `Balance: $${(data.balanceCents / 100).toFixed(2)}`,
+          `Spending Limit: ${data.spendingLimitCents > 0 ? `$${(data.spendingLimitCents / 100).toFixed(2)} per tx` : "No limit"}`,
+          `Status: ${data.status}`,
+          `Created: ${data.createdAt}`,
         ].join("\n");
 
         return { content: [{ type: "text", text }] };
+      } catch (err) {
+        return {
+          isError: true,
+          content: [{ type: "text", text: `Error: ${err instanceof Error ? err.message : String(err)}` }],
+        };
+      }
+    },
+  );
+
+  server.tool(
+    "dominusnode_agent_wallet_fund",
+    "Transfer funds from your main wallet to an agentic wallet. Minimum $1, maximum $10,000.",
+    {
+      wallet_id: z.string().regex(UUID_RE).describe("Wallet ID to fund"),
+      amount_cents: z.number().int().min(100).max(1000000).describe("Amount in cents to transfer (min $1, max $10,000)"),
+    },
+    async (args) => {
+      try {
+        if (!checkAgentWalletRateLimit()) {
+          return {
+            isError: true,
+            content: [{ type: "text", text: "Rate limit exceeded: maximum 20 agentic wallet operations per minute. Please wait before retrying." }],
+          };
+        }
+
+        const data = await httpClient.post<{
+          transaction: {
+            id: string;
+            walletId: string;
+            type: string;
+            amountCents: number;
+            description: string;
+            createdAt: string;
+          };
+        }>(`/api/agent-wallet/${encodeURIComponent(args.wallet_id)}/fund`, {
+          amountCents: args.amount_cents,
+        });
+
+        const tx = data.transaction;
+        const text = [
+          `Wallet Funded Successfully`,
+          ``,
+          `Transaction ID: ${tx.id}`,
+          `Amount: $${(tx.amountCents / 100).toFixed(2)}`,
+          `Type: ${tx.type}`,
+          ``,
+          `The funds have been transferred from your main wallet.`,
+          `Use dominusnode_agent_wallet_balance to check the new balance.`,
+        ].join("\n");
+
+        return { content: [{ type: "text", text }] };
+      } catch (err) {
+        return {
+          isError: true,
+          content: [{ type: "text", text: `Error funding wallet: ${err instanceof Error ? err.message : String(err)}` }],
+        };
+      }
+    },
+  );
+
+  server.tool(
+    "dominusnode_agent_wallet_list",
+    "List all your agentic wallets with balances and status.",
+    {},
+    async () => {
+      try {
+        const data = await httpClient.get<{
+          wallets: Array<{
+            id: string;
+            label: string;
+            balanceCents: number;
+            spendingLimitCents: number;
+            status: string;
+            createdAt: string;
+          }>;
+        }>("/api/agent-wallet");
+
+        if (data.wallets.length === 0) {
+          return {
+            content: [{ type: "text", text: "No agentic wallets found. Use dominusnode_agent_wallet_create to create one." }],
+          };
+        }
+
+        const lines = [
+          `Agentic Wallets (${data.wallets.length})`,
+          ``,
+        ];
+
+        for (const w of data.wallets) {
+          lines.push(`  ${w.label} (${w.id.slice(0, 8)}...)`);
+          lines.push(`    Balance: $${(w.balanceCents / 100).toFixed(2)} | Limit: ${w.spendingLimitCents > 0 ? `$${(w.spendingLimitCents / 100).toFixed(2)}/tx` : "none"} | Status: ${w.status}`);
+          lines.push(``);
+        }
+
+        return { content: [{ type: "text", text: lines.join("\n") }] };
+      } catch (err) {
+        return {
+          isError: true,
+          content: [{ type: "text", text: `Error: ${err instanceof Error ? err.message : String(err)}` }],
+        };
+      }
+    },
+  );
+
+  server.tool(
+    "dominusnode_agent_wallet_transactions",
+    "Get transaction history for an agentic wallet.",
+    {
+      wallet_id: z.string().regex(UUID_RE).describe("Wallet ID"),
+      limit: z.number().int().min(1).max(100).default(20).describe("Number of transactions to return"),
+    },
+    async (args) => {
+      try {
+        const data = await httpClient.get<{
+          transactions: Array<{
+            id: string;
+            walletId: string;
+            type: string;
+            amountCents: number;
+            description: string;
+            sessionId: string | null;
+            createdAt: string;
+          }>;
+        }>(`/api/agent-wallet/${encodeURIComponent(args.wallet_id)}/transactions?limit=${args.limit}`);
+
+        if (data.transactions.length === 0) {
+          return {
+            content: [{ type: "text", text: "No transactions found for this wallet." }],
+          };
+        }
+
+        const lines = [
+          `Wallet Transactions (${data.transactions.length})`,
+          ``,
+        ];
+
+        for (const tx of data.transactions) {
+          const sign = tx.type === "fund" || tx.type === "refund" ? "+" : "-";
+          lines.push(`  ${sign}$${(tx.amountCents / 100).toFixed(2)} [${tx.type}] ${tx.description}`);
+          lines.push(`    ${tx.createdAt}${tx.sessionId ? ` | Session: ${tx.sessionId.slice(0, 8)}` : ""}`);
+        }
+
+        return { content: [{ type: "text", text: lines.join("\n") }] };
       } catch (err) {
         return {
           isError: true,

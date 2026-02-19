@@ -49,11 +49,11 @@ describe("wallet-repo", () => {
       );
     });
 
-    it("should pass the correct SQL query", async () => {
+    it("should pass the correct SQL query with explicit RETURNING columns", async () => {
       mockQuery.mockResolvedValueOnce({ rows: [{ id: "w2" }] });
       await createWallet("u2");
       expect(mockQuery).toHaveBeenCalledWith(
-        expect.stringContaining("RETURNING *"),
+        expect.stringContaining("RETURNING id, user_id, balance_cents"),
         ["u2"],
       );
     });

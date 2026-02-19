@@ -36,6 +36,29 @@ export { ProxyResource } from "./proxy.js";
 export type { ProxyHealthResponse, ProxyStatusResponse } from "./proxy.js";
 export { AdminResource } from "./admin.js";
 export { SlotsResource } from "./slots.js";
+export { AgenticWalletResource } from "./resources/agent-wallet.js";
+export type {
+  AgenticWallet,
+  AgenticWalletTransaction,
+  AgenticWalletListResponse,
+  AgenticWalletFundResponse,
+  AgenticWalletTransactionsResponse,
+  AgenticWalletDeleteResponse,
+} from "./resources/agent-wallet.js";
+export { TeamsResource } from "./resources/teams.js";
+export type {
+  Team,
+  TeamMember,
+  TeamInvite,
+  TeamListResponse,
+  TeamMembersResponse,
+  TeamInvitesResponse,
+  TeamKeysResponse,
+  TeamKeyCreateResponse,
+  TeamDeleteResponse,
+  TeamFundResponse,
+  TeamTransactionsResponse,
+} from "./resources/teams.js";
 export type {
   DateRangeOptions as AdminDateRangeOptions,
   ListUsersResponse,

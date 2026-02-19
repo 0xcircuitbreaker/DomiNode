@@ -26,6 +26,7 @@ export type {
 
 export {
   PRICE_PER_GB_CENTS,
+  PRICE_PER_GB_CENTS_DC,
   COST_PER_GB_CENTS,
   BYTES_PER_GB,
   SUPPORTED_CRYPTO,
@@ -89,6 +90,24 @@ export * as walletChallengeRepo from "./repositories/wallet-challenge-repo.js";
 export * as retentionRepo from "./repositories/retention-repo.js";
 export * as waitlistRepo from "./repositories/waitlist-repo.js";
 export type { WaitlistEntry } from "./repositories/waitlist-repo.js";
+export * as agenticWalletRepo from "./repositories/agentic-wallet-repo.js";
+export type {
+  AgenticWallet,
+  AgenticWalletTransaction,
+  AgenticWalletStatus,
+  AgenticWalletTxType,
+} from "./repositories/agentic-wallet-repo.js";
+
+export * as teamRepo from "./repositories/team-repo.js";
+export type {
+  Team,
+  TeamMember,
+  TeamInvite,
+  TeamWallet,
+  TeamWalletTransaction,
+  TeamRole,
+  TeamStatus,
+} from "./types.js";
 
 // TOTP
 export {
@@ -113,7 +132,7 @@ export {
 } from "./wallet-auth.js";
 
 // Email
-export { sendVerificationEmail, sendPasswordResetEmail, sendWaitlistApprovalEmail, isEmailEnabled } from "./email.js";
+export { sendVerificationEmail, sendPasswordResetEmail, sendWaitlistApprovalEmail, sendTeamInviteEmail, isEmailEnabled } from "./email.js";
 
 // Geo Data
 export { US_STATES, MAJOR_US_CITIES } from "./geo-data.js";

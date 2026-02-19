@@ -50,6 +50,8 @@ public final class DominusNodeClient implements AutoCloseable {
     private final ProxyResource proxy;
     private final AdminResource admin;
     private final SlotsResource slots;
+    private final AgenticWalletResource agenticWallets;
+    private final TeamsResource teams;
 
     private final TokenManager tokenManager;
     private volatile String apiKey;
@@ -80,6 +82,8 @@ public final class DominusNodeClient implements AutoCloseable {
                 () -> this.apiKey);
         this.admin = new AdminResource(http);
         this.slots = new SlotsResource(http);
+        this.agenticWallets = new AgenticWalletResource(http);
+        this.teams = new TeamsResource(http);
 
         // Wire up the token refresh function
         // R15 H-7: Use UncheckedDominusNodeException to preserve the original exception type
@@ -134,6 +138,12 @@ public final class DominusNodeClient implements AutoCloseable {
 
     /** Slot availability and waitlist operations (public, no auth required). */
     public SlotsResource slots() { return slots; }
+
+    /** Agentic wallet operations (sub-wallets with spending limits). */
+    public AgenticWalletResource agenticWallets() { return agenticWallets; }
+
+    /** Team operations (shared wallets, members, invites, keys). */
+    public TeamsResource teams() { return teams; }
 
     // ── Connection methods ─────────────────────────────────────────────
 

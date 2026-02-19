@@ -108,7 +108,7 @@ describe("user-repo", () => {
       expect(result!.user.id).toBe("u1");
       expect(result!.user.email).toBe("test@example.com");
       expect(result!.apiKey.id).toBe("ak1");
-      expect(result!.apiKey.key_hash).toBe("keyhash123");
+      expect(result!.apiKey.key_hash).toBe("");
       expect(result!.apiKey.label).toBe("My Key");
     });
 
@@ -220,7 +220,7 @@ describe("user-repo", () => {
 
   describe("createApiKey", () => {
     it("should insert an API key and return it with key_hash redacted", async () => {
-      const apiKey = { id: "ak1", user_id: "u1", key_prefix: "dn_live_", label: "My Key" };
+      const apiKey = { id: "ak1", user_id: "u1", key_prefix: "dn_live_", label: "My Key", team_id: null };
       mockQuery.mockResolvedValueOnce({ rows: [apiKey] });
 
       const result = await createApiKey("u1", "hash", "dn_live_", "My Key");

@@ -21,6 +21,9 @@ import walletAuthRoutes from "./routes/wallet-auth.js";
 import accountRoutes from "./routes/account.js";
 import slotsRoutes from "./routes/slots.js";
 import waitlistRoutes from "./routes/waitlist.js";
+import agentWalletRoutes from "./routes/agent-wallet.js";
+import x402Routes from "./routes/x402.js";
+import teamsRoutes from "./routes/teams.js";
 
 const log = createLogger("api:server");
 
@@ -118,7 +121,7 @@ export function startApiServer(port: number = 3000): ReturnType<express.Express[
   app.use(
     cors({
       origin: ALLOWED_ORIGINS,
-      methods: ["GET", "POST", "PUT", "DELETE"],
+      methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
       allowedHeaders: ["Content-Type", "Authorization"],
       credentials: true,
       maxAge: 86400,
@@ -203,6 +206,9 @@ export function startApiServer(port: number = 3000): ReturnType<express.Express[
   app.use("/api/account", accountRoutes);
   app.use("/api/slots", slotsRoutes);
   app.use("/api/waitlist", waitlistRoutes);
+  app.use("/api/agent-wallet", agentWalletRoutes);
+  app.use("/api/x402", x402Routes);
+  app.use("/api/teams", teamsRoutes);
 
   // RFC 9116: security.txt
   app.get("/.well-known/security.txt", (_req, res) => {

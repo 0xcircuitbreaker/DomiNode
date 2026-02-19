@@ -64,14 +64,15 @@ export async function findUserById(id: string): Promise<User | null> {
 export async function findUserByApiKeyHash(
   keyHash: string,
 ): Promise<{ user: User; apiKey: ApiKey } | null> {
-  const result = await query<User & { ak_id: string; ak_key_hash: string; ak_key_prefix: string; ak_label: string; ak_created_at: Date; ak_revoked_at: Date | null }>(
+  const result = await query<User & { ak_id: string; ak_key_hash: string; ak_key_prefix: string; ak_label: string; ak_created_at: Date; ak_revoked_at: Date | null; ak_team_id: string | null }>(
     `SELECT u.id, u.email, u.created_at, u.status, u.password_changed_at, u.is_admin, u.wallet_address, u.log_target_hosts, u.email_verified, u.plan_id,
             k.id AS ak_id,
             k.key_hash AS ak_key_hash,
             k.key_prefix AS ak_key_prefix,
             k.label AS ak_label,
             k.created_at AS ak_created_at,
-            k.revoked_at AS ak_revoked_at
+            k.revoked_at AS ak_revoked_at,
+            k.team_id AS ak_team_id
      FROM api_keys k
      JOIN users u ON u.id = k.user_id
      WHERE k.key_hash = $1
@@ -100,7 +101,8 @@ export async function findUserByApiKeyHash(
   const apiKey: ApiKey = {
     id: row.ak_id,
     user_id: row.id,
-    key_hash: row.ak_key_hash,
+    team_id: row.ak_team_id ?? null,
+    key_hash: "",
     key_prefix: row.ak_key_prefix,
     label: row.ak_label,
     created_at: row.ak_created_at,
@@ -176,18 +178,18 @@ export async function createApiKey(
   const result = await query<ApiKey>(
     `INSERT INTO api_keys (user_id, key_hash, key_prefix, label)
      VALUES ($1, $2, $3, $4)
-     RETURNING id, user_id, key_prefix, label, created_at, revoked_at`,
+     RETURNING id, user_id, team_id, key_prefix, label, created_at, revoked_at`,
     [userId, keyHash, keyPrefix, label],
   );
-  return { ...result.rows[0], key_hash: "" };
+  return { ...result.rows[0], key_hash: "", team_id: result.rows[0].team_id ?? null };
 }
 
 export async function listApiKeys(userId: string, includeRevoked: boolean = false): Promise<ApiKey[]> {
   // R30 H-3: Use separate query strings instead of template literal interpolation
   const sql = includeRevoked
-    ? `SELECT id, user_id, key_prefix, label, created_at, revoked_at
+    ? `SELECT id, user_id, team_id, key_prefix, label, created_at, revoked_at
        FROM api_keys WHERE user_id = $1 ORDER BY created_at DESC`
-    : `SELECT id, user_id, key_prefix, label, created_at, revoked_at
+    : `SELECT id, user_id, team_id, key_prefix, label, created_at, revoked_at
        FROM api_keys WHERE user_id = $1 AND revoked_at IS NULL ORDER BY created_at DESC`;
   const result = await query<ApiKey>(sql, [userId]);
   return result.rows;

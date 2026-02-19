@@ -72,7 +72,7 @@ export function registerKeysTools(server: McpServer, httpClient: HttpClient): vo
             content: [{ type: "text", text: "Invalid key ID — must be a UUID" }],
           };
         }
-        await httpClient.delete(`/api/keys/${args.key_id}`);
+        await httpClient.delete(`/api/keys/${encodeURIComponent(args.key_id)}`);
         return { content: [{ type: "text", text: `API key ${args.key_id} has been revoked.` }] };
       } catch (err) {
         return {

@@ -419,6 +419,147 @@ INSERT INTO data_retention_policies (table_name, retention_days, description) VA
   ('waitlist', 365, 'Waitlist entries retained for 1 year')
 ON CONFLICT (table_name) DO NOTHING;
 
+-- ─── Agentic Wallets ─────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS agentic_wallets (
+  id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id             UUID NOT NULL REFERENCES users(id),
+  label               TEXT NOT NULL DEFAULT '',
+  balance_cents       INTEGER NOT NULL DEFAULT 0
+                      CHECK (balance_cents >= 0),
+  spending_limit_cents INTEGER NOT NULL DEFAULT 0
+                      CHECK (spending_limit_cents >= 0),
+  status              TEXT NOT NULL DEFAULT 'active'
+                      CHECK (status IN ('active', 'frozen', 'deleted')),
+  created_at          TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_agentic_wallets_user
+  ON agentic_wallets(user_id);
+CREATE INDEX IF NOT EXISTS idx_agentic_wallets_user_active
+  ON agentic_wallets(user_id) WHERE status = 'active';
+
+-- ─── Agentic Wallet Transactions ─────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS agentic_wallet_transactions (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  wallet_id     UUID NOT NULL REFERENCES agentic_wallets(id),
+  type          TEXT NOT NULL
+                CHECK (type IN ('fund', 'spend', 'refund', 'withdraw')),
+  amount_cents  INTEGER NOT NULL CHECK (amount_cents > 0),
+  description   TEXT NOT NULL DEFAULT '',
+  session_id    UUID REFERENCES sessions(id),
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_agentic_wallet_tx_wallet
+  ON agentic_wallet_transactions(wallet_id);
+CREATE INDEX IF NOT EXISTS idx_agentic_wallet_tx_created
+  ON agentic_wallet_transactions(created_at);
+
+-- Add retention policy for agentic wallet transactions
+INSERT INTO data_retention_policies (table_name, retention_days, description) VALUES
+  ('agentic_wallets',              730, 'Agentic wallets retained for 2 years'),
+  ('agentic_wallet_transactions',  730, 'Agentic wallet transactions retained for 2 years')
+ON CONFLICT (table_name) DO NOTHING;
+
+-- ─── Teams ──────────────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS teams (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name        TEXT NOT NULL,
+  owner_id    UUID NOT NULL REFERENCES users(id),
+  plan_id     TEXT NOT NULL DEFAULT 'payg' REFERENCES plans(id),
+  max_members INTEGER NOT NULL DEFAULT 10
+              CHECK (max_members >= 1 AND max_members <= 100),
+  status      TEXT NOT NULL DEFAULT 'active'
+              CHECK (status IN ('active', 'suspended', 'deleted')),
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_teams_owner ON teams(owner_id);
+
+-- ─── Team Wallets (1:1 with teams) ─────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS team_wallets (
+  id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  team_id        UUID NOT NULL UNIQUE REFERENCES teams(id),
+  balance_cents  INTEGER NOT NULL DEFAULT 0
+                 CHECK (balance_cents >= 0),
+  currency       TEXT NOT NULL DEFAULT 'USD',
+  last_topped_up TIMESTAMPTZ
+);
+
+-- ─── Team Members ──────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS team_members (
+  id        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  team_id   UUID NOT NULL REFERENCES teams(id),
+  user_id   UUID NOT NULL REFERENCES users(id),
+  role      TEXT NOT NULL DEFAULT 'member'
+            CHECK (role IN ('owner', 'admin', 'member')),
+  joined_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE(team_id, user_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_team_members_user ON team_members(user_id);
+CREATE INDEX IF NOT EXISTS idx_team_members_team ON team_members(team_id);
+
+-- ─── Team Invites ──────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS team_invites (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  team_id     UUID NOT NULL REFERENCES teams(id),
+  email       TEXT NOT NULL,
+  role        TEXT NOT NULL DEFAULT 'member'
+              CHECK (role IN ('admin', 'member')),
+  token_hash  TEXT NOT NULL,
+  invited_by  UUID NOT NULL REFERENCES users(id),
+  expires_at  TIMESTAMPTZ NOT NULL,
+  accepted_at TIMESTAMPTZ,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_team_invites_token
+  ON team_invites(token_hash) WHERE accepted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_team_invites_team
+  ON team_invites(team_id);
+
+-- ─── Team API Keys: add team_id to api_keys ────────────────────────
+
+DO $$ BEGIN
+  ALTER TABLE api_keys ADD COLUMN team_id UUID REFERENCES teams(id);
+EXCEPTION WHEN duplicate_column THEN NULL;
+END $$;
+
+CREATE INDEX IF NOT EXISTS idx_api_keys_team
+  ON api_keys(team_id) WHERE team_id IS NOT NULL;
+
+-- ─── Team Wallet Transactions ──────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS team_wallet_transactions (
+  id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  wallet_id        UUID NOT NULL REFERENCES team_wallets(id),
+  type             TEXT NOT NULL CHECK (type IN ('fund', 'debit', 'refund')),
+  amount_cents     INTEGER NOT NULL CHECK (amount_cents > 0),
+  description      TEXT NOT NULL DEFAULT '',
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_team_wallet_tx_wallet
+  ON team_wallet_transactions(wallet_id);
+CREATE INDEX IF NOT EXISTS idx_team_wallet_tx_created
+  ON team_wallet_transactions(created_at);
+
+-- Add retention policies for team tables
+INSERT INTO data_retention_policies (table_name, retention_days, description) VALUES
+  ('teams',                    730, 'Teams retained for 2 years'),
+  ('team_wallets',             730, 'Team wallets retained for 2 years'),
+  ('team_wallet_transactions', 730, 'Team wallet transactions retained for 2 years'),
+  ('team_members',             730, 'Team members retained for 2 years'),
+  ('team_invites',             365, 'Team invites retained for 1 year')
+ON CONFLICT (table_name) DO NOTHING;
+
 -- ─── Record current schema version ──────────────────────────────────
 
 INSERT INTO schema_migrations (version, description) VALUES

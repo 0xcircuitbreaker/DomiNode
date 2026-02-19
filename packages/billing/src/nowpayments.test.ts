@@ -24,7 +24,7 @@ vi.mock("@dominusnode/shared", () => ({
     warn: vi.fn(),
     error: vi.fn(),
   }),
-  SUPPORTED_CRYPTO: ["btc", "eth", "ltc", "xmr", "zec", "usdc"] as const,
+  SUPPORTED_CRYPTO: ["btc", "eth", "ltc", "xmr", "zec", "usdc", "sol", "usdt", "dai", "bnb"] as const,
 }));
 
 // Set env vars before import
@@ -92,6 +92,50 @@ describe("nowpayments", () => {
         "np-inv-123",
         1000, // 10.0 * 100
       );
+    });
+
+    it("should accept sol currency", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        text: () => Promise.resolve(JSON.stringify({ id: "np-sol-123", invoice_url: "https://pay.nowpayments.io/sol" })),
+      });
+      mockCreateInvoice.mockResolvedValueOnce({});
+
+      const result = await createCryptoInvoice("user-1", 10.0, "sol");
+      expect(result.payCurrency).toBe("sol");
+    });
+
+    it("should accept usdt currency", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        text: () => Promise.resolve(JSON.stringify({ id: "np-usdt-123", invoice_url: "https://pay.nowpayments.io/usdt" })),
+      });
+      mockCreateInvoice.mockResolvedValueOnce({});
+
+      const result = await createCryptoInvoice("user-1", 10.0, "usdt");
+      expect(result.payCurrency).toBe("usdt");
+    });
+
+    it("should accept dai currency", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        text: () => Promise.resolve(JSON.stringify({ id: "np-dai-123", invoice_url: "https://pay.nowpayments.io/dai" })),
+      });
+      mockCreateInvoice.mockResolvedValueOnce({});
+
+      const result = await createCryptoInvoice("user-1", 10.0, "dai");
+      expect(result.payCurrency).toBe("dai");
+    });
+
+    it("should accept bnb currency", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        text: () => Promise.resolve(JSON.stringify({ id: "np-bnb-123", invoice_url: "https://pay.nowpayments.io/bnb" })),
+      });
+      mockCreateInvoice.mockResolvedValueOnce({});
+
+      const result = await createCryptoInvoice("user-1", 10.0, "bnb");
+      expect(result.payCurrency).toBe("bnb");
     });
 
     it("should throw for unsupported currency", async () => {

@@ -183,6 +183,43 @@ function escapeHtml(s: string): string {
     .replace(/'/g, "&#039;");
 }
 
+export async function sendTeamInviteEmail(
+  to: string,
+  teamName: string,
+  inviterEmail: string,
+  inviteUrl: string,
+): Promise<boolean> {
+  const subject = `You've been invited to join ${teamName} on Dominus Node`;
+  const text = [
+    `Team Invite`,
+    ``,
+    `${inviterEmail} has invited you to join the team "${teamName}" on Dominus Node.`,
+    ``,
+    `Accept the invitation by visiting this link:`,
+    inviteUrl,
+    ``,
+    `This invitation expires in 7 days.`,
+    ``,
+    `If you don't have an account, you'll need to register first.`,
+  ].join("\n");
+
+  const html = `
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+      <h2 style="color: #818cf8;">Dominus Node</h2>
+      <p><strong>${escapeHtml(inviterEmail)}</strong> has invited you to join the team <strong>"${escapeHtml(teamName)}"</strong>.</p>
+      <p style="margin: 24px 0;">
+        <a href="${escapeHtml(inviteUrl)}" style="background: #4f46e5; color: white; padding: 12px 24px; border-radius: 8px; text-decoration: none; display: inline-block;">Accept Invitation</a>
+      </p>
+      <p style="color: #9ca3af; font-size: 14px;">This invitation expires in 7 days.</p>
+      <p style="color: #9ca3af; font-size: 14px;">If you don't have an account, you'll need to register first.</p>
+      <hr style="border: none; border-top: 1px solid #374151; margin: 24px 0;" />
+      <p style="color: #6b7280; font-size: 12px;">Dominus Node — Proxy as a Service</p>
+    </div>
+  `;
+
+  return sendEmail(to, subject, html, text);
+}
+
 /** Check if email sending is configured */
 export function isEmailEnabled(): boolean {
   return EMAIL_ENABLED && !!SMTP_HOST;

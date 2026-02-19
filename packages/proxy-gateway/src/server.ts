@@ -4,7 +4,7 @@ import * as net from "node:net";
 import { createLogger, planRepo } from "@dominusnode/shared";
 import type { ProviderSelector } from "@dominusnode/pool-manager";
 import { authenticateRequest } from "./auth.js";
-import { checkBalance } from "./balance-check.js";
+import { checkBalance, checkTeamBalance } from "./balance-check.js";
 import { attachByteCounters } from "./counting-stream.js";
 import { startSession, endSession, getActiveSessionCount, registerSessionDestroy, unregisterSessionDestroy } from "./session-manager.js";
 import { checkSanctionedCountry, initGeoCheck } from "./geo-check.js";
@@ -150,7 +150,9 @@ async function handleRequest(
 
   // Free plan: skip wallet balance check (bandwidth checked in startSession)
   if (userPlan.pricePerGbCents > 0) {
-    const hasBalance = await checkBalance(auth.userId);
+    const hasBalance = auth.teamId
+      ? await checkTeamBalance(auth.teamId)
+      : await checkBalance(auth.userId);
     if (!hasBalance) {
       decrementUserConns(auth.userId);
       sendError(clientRes, 402, "INSUFFICIENT_BALANCE", "Insufficient balance. Top up your wallet at the Dominus Node dashboard.");
@@ -160,9 +162,13 @@ async function handleRequest(
 
   const targetUrl = clientReq.url ?? "/";
 
-  // Strip our Proxy-Authorization before forwarding
+  // R34 H-4: Strip hop-by-hop headers from client request before forwarding upstream
+  const HOP_BY_HOP_REQUEST = new Set([
+    "proxy-authorization", "proxy-connection", "connection",
+    "keep-alive", "te", "trailer", "upgrade", "transfer-encoding",
+  ]);
   const headers = { ...clientReq.headers };
-  delete headers["proxy-authorization"];
+  for (const h of HOP_BY_HOP_REQUEST) delete headers[h];
 
   // Byte counting — bytesIn is set after buffering the request body (below)
   const counter: import("./counting-stream.js").ByteCounter = { bytesIn: 0, bytesOut: 0, maxBytes: 0, onLimitExceeded: null };
@@ -185,7 +191,7 @@ async function handleRequest(
     // R20 H-5: Pass proxyType derived from provider name
     // R29 C-2: Pass pre-fetched plan to prevent TOCTOU double-fetch
     const fwdPoolType = provider.name.includes("dc") ? "dc" : "residential";
-    sessionId = await startSession(auth.userId, targetHost, counter, 0, fwdPoolType, userPlan, auth.user.log_target_hosts ?? false);
+    sessionId = await startSession(auth.userId, targetHost, counter, 0, fwdPoolType, userPlan, auth.user.log_target_hosts ?? false, auth.teamId);
   } catch (err) {
     decrementUserConns(auth.userId);
     const msg = err instanceof Error ? err.message : String(err);
@@ -358,6 +364,7 @@ async function handleConnect(
 
   // Capture userId and preferences before nested closures (TS can't narrow nullable across closures)
   const userId = auth.userId;
+  const connectTeamId = auth.teamId;
   const connectLogTargetHosts = auth.user.log_target_hosts ?? false;
 
   // Fetch plan BEFORE provider selection to enforce pool restrictions (R22 H-4)
@@ -405,7 +412,9 @@ async function handleConnect(
 
   // Free plan: skip wallet balance check (bandwidth checked in startSession)
   if (connectPlan.pricePerGbCents > 0) {
-    const hasBalance = await checkBalance(userId);
+    const hasBalance = connectTeamId
+      ? await checkTeamBalance(connectTeamId)
+      : await checkBalance(userId);
     if (!hasBalance) {
       decrementUserConns(userId);
       safeSocketWrite(clientSocket, "HTTP/1.1 402 Payment Required\r\nX-DominusNode-Error: INSUFFICIENT_BALANCE\r\n\r\n");
@@ -562,7 +571,7 @@ async function handleConnect(
       // R20 H-5: Pass connectLatencyMs and proxyType derived from provider name
       // R29 C-2: Pass pre-fetched plan to prevent TOCTOU double-fetch
       const poolType = providerName.includes("dc") ? "dc" : "residential";
-      sessionId = await startSession(userId, targetHost ?? "unknown", counter, connectLatencyMs, poolType, connectPlan, connectLogTargetHosts);
+      sessionId = await startSession(userId, targetHost ?? "unknown", counter, connectLatencyMs, poolType, connectPlan, connectLogTargetHosts, connectTeamId);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       if (msg.includes("Insufficient balance")) {

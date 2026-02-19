@@ -1,8 +1,8 @@
-import { usageRepo, walletRepo, planRepo, createLogger } from "@dominusnode/shared";
+import { usageRepo, walletRepo, planRepo, teamRepo, createLogger } from "@dominusnode/shared";
 import type { Plan } from "@dominusnode/shared";
 import { computeCostCents, recordUsage } from "@dominusnode/metering";
 import { BYTES_PER_GB } from "@dominusnode/shared";
-import { invalidateBalanceCache } from "./balance-check.js";
+import { invalidateBalanceCache, invalidateTeamBalanceCache } from "./balance-check.js";
 import { recordBytes, recordSessionStart } from "./stats.js";
 import type { ByteCounter } from "./counting-stream.js";
 
@@ -23,6 +23,7 @@ interface ActiveSession {
   errorCount: number;
   pricePerGbCents: number; // Locked at session start to prevent plan-switch gaming
   proxyType: string; // R20 H-5: Track provider pool type (dc/residential) for usage records
+  teamId: string | null; // When set, billing goes to team wallet
 }
 
 const activeSessions = new Map<string, ActiveSession>();
@@ -198,6 +199,7 @@ export async function startSession(
   requestedProxyType: string = "residential", // R20 H-5: Provider pool type from server.ts/socks5.ts
   preloadedPlan?: Plan, // R29 C-2: Accept pre-fetched plan to prevent TOCTOU double-fetch
   logTargetHosts: boolean = false, // Privacy-first: only store targetHost when user opts in
+  teamId?: string | null, // When set, billing goes to team wallet
 ): Promise<string> {
   let proxyType = requestedProxyType;
   // Per-user bandwidth velocity check: prevent monopolizing upstream
@@ -284,6 +286,15 @@ export async function startSession(
       if (err instanceof Error && err.message.includes("bandwidth limit")) throw err;
       throw err;
     }
+  } else if (teamId) {
+    // Team billing: reserve from team wallet instead of personal wallet
+    const teamWalletId = await teamRepo.reserveTeamBalance(teamId, MIN_RESERVATION_CENTS);
+    if (!teamWalletId) {
+      invalidateTeamBalanceCache(teamId);
+      throw new Error("Insufficient balance for reservation");
+    }
+    reservedCents = MIN_RESERVATION_CENTS;
+    invalidateTeamBalanceCache(teamId);
   } else {
     // C1 fix: Reserve balance BEFORE creating session — no free proxy usage
     const walletId = await walletRepo.reserveBalance(userId, MIN_RESERVATION_CENTS);
@@ -302,8 +313,13 @@ export async function startSession(
   } catch (err) {
     // If DB session creation fails, release the reservation
     if (reservedCents > 0) {
-      await walletRepo.releaseReservation(userId, reservedCents);
-      invalidateBalanceCache(userId);
+      if (teamId) {
+        await teamRepo.releaseTeamReservation(teamId, reservedCents);
+        invalidateTeamBalanceCache(teamId);
+      } else {
+        await walletRepo.releaseReservation(userId, reservedCents);
+        invalidateBalanceCache(userId);
+      }
     }
     if (freeReserved) {
       releaseFreeBandwidth(userId);
@@ -327,6 +343,7 @@ export async function startSession(
     errorCount: 0,
     pricePerGbCents,
     proxyType,
+    teamId: teamId ?? null,
   });
 
   // Set per-session byte limit to prevent unbounded usage beyond reservation
@@ -379,7 +396,7 @@ export async function endSession(sessionId: string): Promise<void> {
   // Fix #8: Atomic check-and-remove to prevent TOCTOU race
   if (!activeSessions.delete(sessionId)) return;
 
-  const { userId, counter, targetHost, reservedCents, connectLatencyMs, pricePerGbCents, proxyType } = session;
+  const { userId, counter, targetHost, reservedCents, connectLatencyMs, pricePerGbCents, proxyType, teamId } = session;
   const totalBytes = counter.bytesIn + counter.bytesOut;
 
   // Record bandwidth for velocity tracking (prevents single user from monopolizing)
@@ -407,8 +424,14 @@ export async function endSession(sessionId: string): Promise<void> {
     }
 
     // C1 fix: Settle — adjust from reserved amount to actual cost
-    const settled = await walletRepo.settleSession(userId, reservedCents, actualCostCents, sessionId);
-    invalidateBalanceCache(userId);
+    let settled: boolean;
+    if (teamId) {
+      settled = await teamRepo.settleTeamSession(teamId, reservedCents, actualCostCents, sessionId);
+      invalidateTeamBalanceCache(teamId);
+    } else {
+      settled = await walletRepo.settleSession(userId, reservedCents, actualCostCents, sessionId);
+      invalidateBalanceCache(userId);
+    }
 
     if (!settled) {
       // Partial payment — user ran out of balance during overage

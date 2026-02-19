@@ -45,12 +45,12 @@ describe("invoice-repo", () => {
       );
     });
 
-    it("should include RETURNING * clause", async () => {
+    it("should include explicit RETURNING columns", async () => {
       mockQuery.mockResolvedValueOnce({ rows: [{ id: "inv-3" }] });
 
       await createInvoice("u3", "stripe", "cs_789", 500);
       expect(mockQuery).toHaveBeenCalledWith(
-        expect.stringContaining("RETURNING *"),
+        expect.stringContaining("RETURNING id, user_id, provider"),
         expect.any(Array),
       );
     });

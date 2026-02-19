@@ -1,7 +1,9 @@
 use std::sync::Arc;
 
 use crate::admin::AdminResource;
+use crate::agent_wallet::AgenticWalletResource;
 use crate::slots::SlotsResource;
+use crate::teams::TeamsResource;
 use crate::auth::AuthResource;
 use crate::constants::{DEFAULT_BASE_URL, DEFAULT_HTTP_PROXY_PORT, DEFAULT_PROXY_HOST, DEFAULT_SOCKS5_PROXY_PORT};
 use crate::errors::Result;
@@ -108,6 +110,10 @@ pub struct DominusNodeClient {
     pub admin: AdminResource,
     /// Slot availability and waitlist operations (public, no auth required).
     pub slots: SlotsResource,
+    /// Agentic wallet operations (sub-wallets with spending limits).
+    pub agentic_wallets: AgenticWalletResource,
+    /// Team operations (shared wallets, members, invites, keys).
+    pub teams: TeamsResource,
     token_manager: Arc<TokenManager>,
 }
 
@@ -190,6 +196,8 @@ impl DominusNodeClient {
         );
         let admin = AdminResource::new(Arc::clone(&http));
         let slots = SlotsResource::new(Arc::clone(&http));
+        let agentic_wallets = AgenticWalletResource::new(Arc::clone(&http));
+        let teams = TeamsResource::new(Arc::clone(&http));
 
         let client = Self {
             auth,
@@ -201,6 +209,8 @@ impl DominusNodeClient {
             proxy,
             admin,
             slots,
+            agentic_wallets,
+            teams,
             token_manager: Arc::clone(&token_manager),
         };
 

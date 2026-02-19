@@ -27,7 +27,7 @@ function rowToPlan(row: PlanRow): Plan {
 
 export async function getPlan(planId: string): Promise<Plan | null> {
   const result = await query<PlanRow>(
-    `SELECT * FROM plans WHERE id = $1`,
+    `SELECT id, name, price_per_gb_cents, monthly_bandwidth_bytes, is_default, max_connections, max_sessions_per_minute, allowed_proxy_types FROM plans WHERE id = $1`,
     [planId],
   );
   const row = result.rows[0];
@@ -36,14 +36,14 @@ export async function getPlan(planId: string): Promise<Plan | null> {
 
 export async function getAllPlans(): Promise<Plan[]> {
   const result = await query<PlanRow>(
-    `SELECT * FROM plans ORDER BY price_per_gb_cents DESC, id`,
+    `SELECT id, name, price_per_gb_cents, monthly_bandwidth_bytes, is_default, max_connections, max_sessions_per_minute, allowed_proxy_types FROM plans ORDER BY price_per_gb_cents DESC, id`,
   );
   return result.rows.map(rowToPlan);
 }
 
 export async function getUserPlan(userId: string): Promise<Plan> {
   const result = await query<PlanRow>(
-    `SELECT p.*
+    `SELECT p.id, p.name, p.price_per_gb_cents, p.monthly_bandwidth_bytes, p.is_default, p.max_connections, p.max_sessions_per_minute, p.allowed_proxy_types
      FROM plans p
      JOIN users u ON u.plan_id = p.id
      WHERE u.id = $1`,
@@ -66,7 +66,7 @@ export async function setUserPlan(userId: string, planId: string): Promise<void>
 
     // Verify the plan exists (FOR SHARE prevents concurrent deletion)
     const planResult = await client.query<PlanRow>(
-      `SELECT * FROM plans WHERE id = $1 FOR SHARE`,
+      `SELECT id, name, price_per_gb_cents, monthly_bandwidth_bytes, is_default, max_connections, max_sessions_per_minute, allowed_proxy_types FROM plans WHERE id = $1 FOR SHARE`,
       [planId],
     );
     if (planResult.rows.length === 0) {

@@ -413,3 +413,98 @@ class WaitlistJoinResult:
 @dataclass(frozen=True)
 class WaitlistCount:
     pending: int
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Agentic Wallets
+# ──────────────────────────────────────────────────────────────────────
+
+
+@dataclass(frozen=True)
+class AgenticWallet:
+    id: str
+    label: str
+    balance_cents: int
+    spending_limit_cents: int
+    status: str
+    created_at: str = ""
+
+
+@dataclass(frozen=True)
+class AgenticWalletTransaction:
+    id: str
+    wallet_id: str
+    type: str
+    amount_cents: int
+    description: str
+    session_id: Optional[str] = None
+    created_at: str = ""
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Teams
+# ──────────────────────────────────────────────────────────────────────
+
+
+@dataclass(frozen=True)
+class Team:
+    id: str
+    name: str
+    owner_id: str
+    max_members: int
+    balance_cents: int
+    created_at: str = ""
+
+
+@dataclass(frozen=True)
+class TeamMember:
+    user_id: str
+    email: str
+    role: str
+    joined_at: str = ""
+
+
+@dataclass(frozen=True)
+class TeamInvite:
+    id: str
+    team_id: str
+    email: str
+    role: str
+    token: str = ""
+    expires_at: str = ""
+    created_at: str = ""
+
+
+@dataclass(frozen=True)
+class TeamTransaction:
+    id: str
+    team_id: str
+    type: str
+    amount_cents: int
+    description: str
+    created_at: str = ""
+
+
+@dataclass(frozen=True)
+class TeamKey:
+    id: str
+    key_prefix: str
+    label: str
+    created_at: str = ""
+
+
+@dataclass(frozen=True, repr=False)
+class TeamKeyCreateResponse:
+    """Returned only on creation -- includes the raw key (shown once)."""
+    id: str
+    key: str
+    key_prefix: str
+    label: str
+
+    def __repr__(self) -> str:
+        return f"TeamKeyCreateResponse(id={self.id!r}, key_prefix={self.key_prefix!r}, label={self.label!r}, key='[REDACTED]')"
+
+
+@dataclass(frozen=True)
+class TeamDeleteResponse:
+    refunded_cents: int

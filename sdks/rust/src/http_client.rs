@@ -9,6 +9,23 @@ use crate::constants;
 use crate::errors::{DominusNodeError, Result};
 use crate::token_manager::TokenManager;
 
+/// Percent-encode a URI path segment (RFC 3986 unreserved characters pass through).
+/// Multi-byte UTF-8 codepoints are encoded as individual `%XX` bytes per RFC 3986.
+pub(crate) fn encode_uri_component(s: &str) -> String {
+    let mut result = String::with_capacity(s.len());
+    for byte in s.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                result.push(byte as char);
+            }
+            _ => {
+                result.push_str(&format!("%{:02X}", byte));
+            }
+        }
+    }
+    result
+}
+
 /// Low-level HTTP client that wraps [`reqwest::Client`] with Dominus Node-specific
 /// error mapping, automatic 429 retry, and automatic 401 token-refresh retry.
 pub struct HttpClient {
@@ -71,6 +88,16 @@ impl HttpClient {
         body: Option<&B>,
     ) -> Result<T> {
         self.request(Method::PUT, path, body, true).await
+    }
+
+    /// Perform an authenticated `PATCH` request and deserialize the response.
+    pub async fn patch<T: DeserializeOwned, B: serde::Serialize>(
+        &self,
+        path: &str,
+        body: Option<&B>,
+        requires_auth: bool,
+    ) -> Result<T> {
+        self.request(Method::PATCH, path, body, requires_auth).await
     }
 
     /// Perform an authenticated `DELETE` request and deserialize the response.

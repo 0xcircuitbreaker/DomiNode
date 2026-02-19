@@ -202,6 +202,22 @@ describe("validation", () => {
       expect(isValidCryptoCurrency("usdc")).toBe(true);
     });
 
+    it("should accept sol", () => {
+      expect(isValidCryptoCurrency("sol")).toBe(true);
+    });
+
+    it("should accept usdt", () => {
+      expect(isValidCryptoCurrency("usdt")).toBe(true);
+    });
+
+    it("should accept dai", () => {
+      expect(isValidCryptoCurrency("dai")).toBe(true);
+    });
+
+    it("should accept bnb", () => {
+      expect(isValidCryptoCurrency("bnb")).toBe(true);
+    });
+
     it("should accept uppercase BTC", () => {
       expect(isValidCryptoCurrency("BTC")).toBe(true);
     });

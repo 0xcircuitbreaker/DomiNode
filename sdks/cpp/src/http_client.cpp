@@ -133,11 +133,13 @@ HttpResponse HttpClient::perform(const std::string& method,
         curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, "PUT");
     } else if (method == "DELETE") {
         curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, "DELETE");
+    } else if (method == "PATCH") {
+        curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, "PATCH");
     }
     // GET is the default
 
-    // Set request body for POST/PUT
-    if (!body_str.empty() && (method == "POST" || method == "PUT")) {
+    // Set request body for POST/PUT/PATCH
+    if (!body_str.empty() && (method == "POST" || method == "PUT" || method == "PATCH")) {
         curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body_str.c_str());
         curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, static_cast<long>(body_str.size()));
     } else if (method == "POST") {
@@ -293,6 +295,12 @@ nlohmann::json HttpClient::put(const std::string& path,
                                 const nlohmann::json& body,
                                 bool requires_auth) {
     return request("PUT", path, body.is_null() ? nlohmann::json::object() : body, requires_auth);
+}
+
+nlohmann::json HttpClient::patch(const std::string& path,
+                                  const nlohmann::json& body,
+                                  bool requires_auth) {
+    return request("PATCH", path, body.is_null() ? nlohmann::json::object() : body, requires_auth);
 }
 
 nlohmann::json HttpClient::del(const std::string& path, bool requires_auth) {

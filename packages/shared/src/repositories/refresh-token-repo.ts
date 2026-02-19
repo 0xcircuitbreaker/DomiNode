@@ -32,7 +32,7 @@ export async function storeToken(
   const result = await query<RefreshTokenRecord>(
     `INSERT INTO refresh_tokens (user_id, token_hash, family_id, expires_at)
      VALUES ($1, $2, $3, $4)
-     RETURNING *`,
+     RETURNING id, user_id, token_hash, family_id, revoked, expires_at, created_at`,
     [userId, tokenHash, familyId, expiresAt],
   );
   return result.rows[0];
@@ -41,7 +41,7 @@ export async function storeToken(
 /** Find a valid (non-revoked, non-expired) token by its hash */
 export async function findValidToken(tokenHash: string): Promise<RefreshTokenRecord | null> {
   const result = await query<RefreshTokenRecord>(
-    `SELECT * FROM refresh_tokens
+    `SELECT id, user_id, token_hash, family_id, revoked, expires_at, created_at FROM refresh_tokens
      WHERE token_hash = $1 AND NOT revoked AND expires_at > now()
      LIMIT 1`,
     [tokenHash],
@@ -52,7 +52,7 @@ export async function findValidToken(tokenHash: string): Promise<RefreshTokenRec
 /** Find a token by hash regardless of revocation (for reuse detection) */
 export async function findTokenByHash(tokenHash: string): Promise<RefreshTokenRecord | null> {
   const result = await query<RefreshTokenRecord>(
-    `SELECT * FROM refresh_tokens WHERE token_hash = $1 LIMIT 1`,
+    `SELECT id, user_id, token_hash, family_id, revoked, expires_at, created_at FROM refresh_tokens WHERE token_hash = $1 LIMIT 1`,
     [tokenHash],
   );
   return result.rows[0] ?? null;

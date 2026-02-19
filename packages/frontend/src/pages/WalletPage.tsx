@@ -56,7 +56,7 @@ function isAllowedPaymentUrl(url: string, allowedHosts: string[]): boolean {
 }
 
 const PRESETS = [500, 1000, 2500, 5000, 10000]; // cents
-const CRYPTO_OPTIONS = ["btc", "eth", "ltc", "xmr", "zec", "usdc"] as const;
+const CRYPTO_OPTIONS = ["btc", "eth", "ltc", "xmr", "zec", "usdc", "sol", "usdt", "dai", "bnb"] as const;
 
 export default function WalletPage() {
   const { data: wallet, error: walletError, refetch: refetchWallet } = useApi<WalletResponse>(() => get("/api/wallet"));

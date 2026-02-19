@@ -69,6 +69,12 @@ type Client struct {
 	// Slots provides slot availability and waitlist operations (public, no auth).
 	Slots *SlotsResource
 
+	// AgenticWallets provides agentic wallet operations (sub-wallets with spending limits).
+	AgenticWallets *AgenticWalletResource
+
+	// Teams provides team management operations (shared wallets, members, invites, keys).
+	Teams *TeamsResource
+
 	httpClient   *httpClient
 	tokenManager *tokenManager
 	config       Config
@@ -140,6 +146,8 @@ func NewClient(cfg Config) *Client {
 	})
 	c.Admin = newAdminResource(hc)
 	c.Slots = newSlotsResource(hc)
+	c.AgenticWallets = newAgenticWalletResource(hc)
+	c.Teams = newTeamsResource(hc)
 
 	// Pre-set tokens if provided in config
 	if cfg.AccessToken != "" {

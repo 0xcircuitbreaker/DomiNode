@@ -242,7 +242,7 @@ describe("plan-repo", () => {
 
       await setUserPlan("user-1", "payg");
       // Second call (after BEGIN) should be SELECT plan FOR SHARE
-      expect(mockClientQuery.mock.calls[1][0]).toContain("SELECT * FROM plans WHERE id = $1");
+      expect(mockClientQuery.mock.calls[1][0]).toContain("FROM plans WHERE id = $1 FOR SHARE");
       expect(mockClientQuery.mock.calls[1][1]).toEqual(["payg"]);
     });
 

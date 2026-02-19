@@ -17,6 +17,7 @@ import { registerCryptoTools } from "./tools/crypto.js";
 import { registerAgentWalletTools } from "./tools/agent-wallet.js";
 import { registerWalletAuthTools } from "./tools/wallet-auth.js";
 import { registerSlotsTools } from "./tools/slots.js";
+import { registerTeamsTools } from "./tools/teams.js";
 
 async function main(): Promise<void> {
   let config;
@@ -64,8 +65,8 @@ async function main(): Promise<void> {
 
     const transport = new StdioServerTransport();
     await server.connect(transport);
-    process.stderr.write("Dominus Node MCP Server ready — bootstrap mode (16 tools)\n");
-    process.stderr.write("Run dominusnode_setup or dominusnode_wallet_setup to create an account and unlock all 30 tools.\n");
+    process.stderr.write("Dominus Node MCP Server ready — bootstrap mode (19 tools)\n");
+    process.stderr.write("Run dominusnode_setup or dominusnode_wallet_setup to create an account and unlock all 41 tools.\n");
   } else {
     // ── Authenticated Mode ──────────────────────────────────────────
     process.stderr.write("Dominus Node MCP Server starting...\n");
@@ -92,10 +93,11 @@ async function main(): Promise<void> {
     registerAgentWalletTools(server, httpClient, config);
     registerWalletAuthTools(server, httpClient);
     registerSlotsTools(server, httpClient);
+    registerTeamsTools(server, httpClient);
 
     const transport = new StdioServerTransport();
     await server.connect(transport);
-    process.stderr.write("Dominus Node MCP Server ready — 30 tools available\n");
+    process.stderr.write("Dominus Node MCP Server ready — 41 tools available\n");
   }
 }
 
@@ -131,10 +133,10 @@ function registerBootstrapHelper(server: McpServer): void {
         ``,
         `Option 4: Top up with crypto`,
         `  After registering, use dominusnode_pay_crypto to add funds.`,
-        `  Supports BTC, ETH, LTC, XMR, ZEC, USDC.`,
+        `  Supports BTC, ETH, LTC, XMR, ZEC, USDC, SOL, USDT, DAI, BNB.`,
         ``,
         `After setup, set DOMINUSNODE_API_KEY in your environment`,
-        `to unlock all 30 tools on next startup.`,
+        `to unlock all 41 tools on next startup.`,
         ``,
         `Free tier: 10 connections, 1GB bandwidth — no payment required.`,
       ].join("\n");

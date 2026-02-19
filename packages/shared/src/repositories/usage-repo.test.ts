@@ -50,12 +50,12 @@ describe("usage-repo", () => {
       );
     });
 
-    it("should include RETURNING * clause", async () => {
+    it("should include explicit RETURNING columns", async () => {
       mockQuery.mockResolvedValueOnce({ rows: [{ id: "s3" }] });
 
       await createSession("u3", "10.0.0.1");
       expect(mockQuery).toHaveBeenCalledWith(
-        expect.stringContaining("RETURNING *"),
+        expect.stringContaining("RETURNING id, user_id, proxy_ip"),
         expect.any(Array),
       );
     });
@@ -172,7 +172,7 @@ describe("usage-repo", () => {
       );
     });
 
-    it("should include RETURNING * clause", async () => {
+    it("should include explicit RETURNING columns", async () => {
       mockQuery.mockResolvedValueOnce({ rows: [{ id: "ur3" }] });
 
       await createUsageRecord({
@@ -186,7 +186,7 @@ describe("usage-repo", () => {
       });
 
       expect(mockQuery).toHaveBeenCalledWith(
-        expect.stringContaining("RETURNING *"),
+        expect.stringContaining("RETURNING id, user_id, session_id"),
         expect.any(Array),
       );
     });

@@ -193,9 +193,17 @@ describe("proxy-gateway/balance-check", () => {
       expect(r3).toBe(true);
     });
 
-    it("should return true for balance of exactly 1 cent", async () => {
+    it("should return false for balance below reservation minimum (1 cent)", async () => {
       const uid = nextUser();
       mockGetBalance.mockResolvedValue(1);
+
+      const result = await checkBalance(uid);
+      expect(result).toBe(false);
+    });
+
+    it("should return true for balance at exact reservation minimum (50 cents)", async () => {
+      const uid = nextUser();
+      mockGetBalance.mockResolvedValue(50);
 
       const result = await checkBalance(uid);
       expect(result).toBe(true);

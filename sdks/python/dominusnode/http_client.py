@@ -249,6 +249,14 @@ class SyncHttpClient:
             return None
         return resp.json()
 
+    def patch(
+        self, path: str, *, json: Any = None, params: Optional[Dict[str, Any]] = None, requires_auth: bool = True,
+    ) -> Any:
+        resp = self.request("PATCH", path, json=json, params=params, requires_auth=requires_auth)
+        if resp.status_code == 204:
+            return None
+        return resp.json()
+
     def delete(
         self, path: str, *, params: Optional[Dict[str, Any]] = None, requires_auth: bool = True,
     ) -> Any:
@@ -400,6 +408,14 @@ class AsyncHttpClient:
         self, path: str, *, json: Any = None, params: Optional[Dict[str, Any]] = None, requires_auth: bool = True,
     ) -> Any:
         resp = await self.request("PUT", path, json=json, params=params, requires_auth=requires_auth)
+        if resp.status_code == 204:
+            return None
+        return resp.json()
+
+    async def patch(
+        self, path: str, *, json: Any = None, params: Optional[Dict[str, Any]] = None, requires_auth: bool = True,
+    ) -> Any:
+        resp = await self.request("PATCH", path, json=json, params=params, requires_auth=requires_auth)
         if resp.status_code == 204:
             return None
         return resp.json()

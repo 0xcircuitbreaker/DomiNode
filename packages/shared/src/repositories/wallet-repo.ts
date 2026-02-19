@@ -5,7 +5,7 @@ export async function createWallet(userId: string): Promise<Wallet> {
   const result = await query<Wallet>(
     `INSERT INTO wallets (user_id)
      VALUES ($1)
-     RETURNING *`,
+     RETURNING id, user_id, balance_cents, currency, last_topped_up`,
     [userId],
   );
   return result.rows[0];
@@ -13,7 +13,7 @@ export async function createWallet(userId: string): Promise<Wallet> {
 
 export async function getWallet(userId: string): Promise<Wallet | null> {
   const result = await query<Wallet>(
-    `SELECT * FROM wallets WHERE user_id = $1`,
+    `SELECT id, user_id, balance_cents, currency, last_topped_up FROM wallets WHERE user_id = $1`,
     [userId],
   );
   return result.rows[0] ?? null;
@@ -48,7 +48,7 @@ export async function creditWallet(
 
     // Check current balance before crediting to enforce max cap (R12 H-4)
     const balanceCheck = await client.query<Wallet>(
-      `SELECT * FROM wallets WHERE user_id = $1 FOR UPDATE`,
+      `SELECT id, user_id, balance_cents, currency, last_topped_up FROM wallets WHERE user_id = $1 FOR UPDATE`,
       [userId],
     );
     if (balanceCheck.rows.length === 0) {
@@ -63,14 +63,14 @@ export async function creditWallet(
        SET balance_cents = balance_cents + $1,
            last_topped_up = now()
        WHERE user_id = $2
-       RETURNING *`,
+       RETURNING id, user_id, balance_cents, currency, last_topped_up`,
       [amountCents, userId],
     );
 
     const txResult = await client.query<WalletTransaction>(
       `INSERT INTO wallet_transactions (wallet_id, type, amount_cents, description, payment_provider, payment_id)
        VALUES ($1, 'topup', $2, $3, $4, $5)
-       RETURNING *`,
+       RETURNING id, wallet_id, type, amount_cents, description, payment_provider, payment_id, created_at`,
       [walletResult.rows[0].id, amountCents, description, provider, paymentId],
     );
 
@@ -101,7 +101,7 @@ export async function debitWallet(
 
     // Lock the wallet row to prevent race conditions
     const walletResult = await client.query<Wallet>(
-      `SELECT * FROM wallets
+      `SELECT id, user_id, balance_cents, currency, last_topped_up FROM wallets
        WHERE user_id = $1
        FOR UPDATE`,
       [userId],
@@ -123,7 +123,7 @@ export async function debitWallet(
     const txResult = await client.query<WalletTransaction>(
       `INSERT INTO wallet_transactions (wallet_id, type, amount_cents, description)
        VALUES ($1, 'debit', $2, $3)
-       RETURNING *`,
+       RETURNING id, wallet_id, type, amount_cents, description, payment_provider, payment_id, created_at`,
       [wallet.id, amountCents, description],
     );
 
@@ -157,7 +157,7 @@ export async function reserveBalance(
     await client.query("SET LOCAL lock_timeout = '5s'");
 
     const walletResult = await client.query<Wallet>(
-      `SELECT * FROM wallets WHERE user_id = $1 FOR UPDATE`,
+      `SELECT id, user_id, balance_cents, currency, last_topped_up FROM wallets WHERE user_id = $1 FOR UPDATE`,
       [userId],
     );
 
@@ -208,7 +208,7 @@ export async function settleSession(
     await client.query("SET LOCAL lock_timeout = '5s'");
 
     const walletResult = await client.query<Wallet>(
-      `SELECT * FROM wallets WHERE user_id = $1 FOR UPDATE`,
+      `SELECT id, user_id, balance_cents, currency, last_topped_up FROM wallets WHERE user_id = $1 FOR UPDATE`,
       [userId],
     );
 
@@ -296,7 +296,7 @@ export async function releaseReservation(
     await client.query("SET LOCAL lock_timeout = '5s'");
     // Lock wallet row first to prevent exceeding MAX_BALANCE_CENTS (R13 H-1)
     const lockResult = await client.query<Wallet>(
-      `SELECT * FROM wallets WHERE user_id = $1 FOR UPDATE`,
+      `SELECT id, user_id, balance_cents, currency, last_topped_up FROM wallets WHERE user_id = $1 FOR UPDATE`,
       [userId],
     );
     const wallet = lockResult.rows[0];
@@ -336,7 +336,7 @@ export async function getTransactions(
   offset = Math.max(0, offset);
   limit = Math.max(1, Math.min(100, limit));
   const result = await query<WalletTransaction>(
-    `SELECT wt.*
+    `SELECT wt.id, wt.wallet_id, wt.type, wt.amount_cents, wt.description, wt.payment_provider, wt.payment_id, wt.created_at
      FROM wallet_transactions wt
      JOIN wallets w ON w.id = wt.wallet_id
      WHERE w.user_id = $1

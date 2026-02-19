@@ -5,6 +5,7 @@ import {
   usageRepo,
   validateTopupAmount,
   isValidCryptoCurrency,
+  SUPPORTED_CRYPTO,
   createLogger,
 } from "@dominusnode/shared";
 import type { SupportedCrypto } from "@dominusnode/shared";
@@ -135,7 +136,7 @@ router.post("/topup/crypto", topupLimiter, async (req, res) => {
 
     if (!isValidCryptoCurrency(currency)) {
       res.status(400).json({
-        error: "Unsupported currency. Supported: btc, eth, ltc, xmr, zec, usdc",
+        error: `Unsupported currency. Supported: ${SUPPORTED_CRYPTO.join(", ")}`,
       });
       return;
     }

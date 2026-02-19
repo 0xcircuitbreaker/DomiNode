@@ -27,7 +27,7 @@ export async function createMfaConfig(
     `INSERT INTO mfa_configs (user_id, totp_secret_enc, totp_secret_iv)
      VALUES ($1, $2, $3)
      ON CONFLICT (user_id) DO UPDATE SET totp_secret_enc = $2, totp_secret_iv = $3, enabled = false, enabled_at = NULL
-     RETURNING *`,
+     RETURNING id, user_id, enabled, created_at, enabled_at`,
     [userId, encSecret, iv],
   );
   return result.rows[0] as MfaConfig;
@@ -35,7 +35,7 @@ export async function createMfaConfig(
 
 export async function findMfaConfigByUserId(userId: string): Promise<MfaConfig | null> {
   const result = await query(
-    `SELECT * FROM mfa_configs WHERE user_id = $1`,
+    `SELECT id, user_id, totp_secret_enc, totp_secret_iv, enabled, created_at, enabled_at FROM mfa_configs WHERE user_id = $1`,
     [userId],
   );
   return (result.rows[0] as MfaConfig) ?? null;
@@ -94,7 +94,7 @@ export async function findUnusedBackupCode(
   codeHash: string,
 ): Promise<MfaBackupCode | null> {
   const result = await query(
-    `SELECT * FROM mfa_backup_codes WHERE user_id = $1 AND code_hash = $2 AND used_at IS NULL`,
+    `SELECT id, user_id, code_hash, used_at, created_at FROM mfa_backup_codes WHERE user_id = $1 AND code_hash = $2 AND used_at IS NULL`,
     [userId, codeHash],
   );
   return (result.rows[0] as MfaBackupCode) ?? null;
@@ -117,7 +117,7 @@ export async function consumeBackupCodeAtomic(
        LIMIT 1
        FOR UPDATE SKIP LOCKED
      )
-     RETURNING *`,
+     RETURNING id, user_id, code_hash, used_at, created_at`,
     [userId, codeHash],
   );
   return (result.rows[0] as MfaBackupCode) ?? null;

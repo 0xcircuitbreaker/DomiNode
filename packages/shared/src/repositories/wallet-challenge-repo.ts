@@ -19,7 +19,7 @@ export async function createChallenge(
   const result = await query<WalletChallenge>(
     `INSERT INTO wallet_challenges (address, nonce, ip_address)
      VALUES ($1, $2, $3)
-     RETURNING *`,
+     RETURNING id, address, nonce, ip_address, created_at, consumed`,
     [address.toLowerCase(), nonce, ip],
   );
   return result.rows[0];
@@ -52,7 +52,7 @@ export async function consumeChallenge(
          LIMIT 1
          FOR UPDATE SKIP LOCKED
        )
-       RETURNING *`,
+       RETURNING id, address, nonce, ip_address, created_at, consumed`,
       [address.toLowerCase(), ttlCutoff.toISOString(), ip],
     );
     return result.rows[0] ?? null;
@@ -71,7 +71,7 @@ export async function consumeChallenge(
        LIMIT 1
        FOR UPDATE SKIP LOCKED
      )
-     RETURNING *`,
+     RETURNING id, address, nonce, ip_address, created_at, consumed`,
     [address.toLowerCase(), ttlCutoff.toISOString()],
   );
   return result.rows[0] ?? null;

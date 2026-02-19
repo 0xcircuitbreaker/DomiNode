@@ -1,28 +1,29 @@
 export interface WalletBalance {
-  balance_cents: number;
-  balance_usd: string;
+  balanceCents: number;
+  balanceUsd: number;
   currency: string;
+  lastToppedUp: string | null;
 }
 
 export interface WalletForecast {
-  daily_average_cents: number;
-  days_remaining: number | null;
-  estimated_depletion_date: string | null;
+  dailyAvgCents: number;
+  daysRemaining: number | null;
+  trend: "up" | "down" | "stable";
+  trendPct: number;
 }
 
 export interface Transaction {
   id: string;
   type: string;
-  amount_cents: number;
+  amountCents: number;
+  amountUsd: number;
   description: string;
-  created_at: string;
+  paymentProvider: string | null;
+  createdAt: string;
 }
 
 export interface TransactionList {
   transactions: Transaction[];
-  total: number;
-  page: number;
-  limit: number;
 }
 
 export interface UsageSummary {

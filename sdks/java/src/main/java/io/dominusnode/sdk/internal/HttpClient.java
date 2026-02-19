@@ -150,6 +150,20 @@ public final class HttpClient {
     }
 
     /**
+     * Perform an authenticated PATCH request.
+     *
+     * @param path  API path
+     * @param body  request body (may be {@code null})
+     * @param clazz response type
+     * @param <T>   response type
+     * @return deserialized response
+     * @throws DominusNodeException on API or network errors
+     */
+    public <T> T patch(String path, Object body, Class<T> clazz) throws DominusNodeException {
+        return request("PATCH", path, body, clazz, true);
+    }
+
+    /**
      * Perform an authenticated DELETE request.
      *
      * @param path API path
@@ -157,6 +171,19 @@ public final class HttpClient {
      */
     public void delete(String path) throws DominusNodeException {
         requestRaw("DELETE", path, null, true);
+    }
+
+    /**
+     * Perform an authenticated DELETE request and deserialize the response.
+     *
+     * @param path  API path
+     * @param clazz response type
+     * @param <T>   response type parameter
+     * @return deserialized response
+     * @throws DominusNodeException on API or network errors
+     */
+    public <T> T delete(String path, Class<T> clazz) throws DominusNodeException {
+        return request("DELETE", path, null, clazz, true);
     }
 
     /**

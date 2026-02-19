@@ -96,7 +96,7 @@ describe("mfa-repo", () => {
       const result = await findMfaConfigByUserId("user1");
       expect(result).toEqual(config);
       expect(mockQuery).toHaveBeenCalledWith(
-        expect.stringContaining("SELECT * FROM mfa_configs WHERE user_id = $1"),
+        expect.stringContaining("SELECT id, user_id, totp_secret_enc, totp_secret_iv, enabled, created_at, enabled_at FROM mfa_configs WHERE user_id = $1"),
         ["user1"],
       );
     });

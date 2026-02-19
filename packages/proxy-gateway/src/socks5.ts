@@ -1,7 +1,7 @@
 import * as net from "node:net";
 import { createLogger, hashApiKey, userRepo, planRepo } from "@dominusnode/shared";
 import type { ProviderSelector } from "@dominusnode/pool-manager";
-import { checkBalance } from "./balance-check.js";
+import { checkBalance, checkTeamBalance } from "./balance-check.js";
 import { attachByteCounters } from "./counting-stream.js";
 import { startSession, endSession, registerSessionDestroy, unregisterSessionDestroy } from "./session-manager.js";
 import type { ProxyOptions } from "./auth.js";
@@ -180,6 +180,7 @@ async function handleSocks5Connection(clientSocket: net.Socket, providerSelector
   let userId: string;
   let logTargetHosts = false;
   let proxyOptions: ProxyOptions;
+  let teamId: string | null = null;
 
   try {
     const result = await userRepo.findUserByApiKeyHash(keyHash);
@@ -197,6 +198,7 @@ async function handleSocks5Connection(clientSocket: net.Socket, providerSelector
       return;
     }
     userId = result.user.id;
+    teamId = result.apiKey.team_id ?? null;
     logTargetHosts = result.user.log_target_hosts ?? false;
     proxyOptions = parseProxyOptions(username);
   } catch (err) {
@@ -221,7 +223,9 @@ async function handleSocks5Connection(clientSocket: net.Socket, providerSelector
 
   // Free plan: skip wallet balance check (bandwidth checked in startSession)
   if (socksUserPlan.pricePerGbCents > 0) {
-    const hasBalance = await checkBalance(userId);
+    const hasBalance = teamId
+      ? await checkTeamBalance(teamId)
+      : await checkBalance(userId);
     if (!hasBalance) {
       decrementUserConns(userId);
       sendReply(clientSocket, REP_NOT_ALLOWED);
@@ -453,7 +457,7 @@ async function handleSocks5Connection(clientSocket: net.Socket, providerSelector
       // R20 H-5: Pass connectLatencyMs and proxyType derived from provider name
       // R29 C-2: Pass pre-fetched plan to prevent TOCTOU double-fetch
       const poolType = providerName.includes("dc") ? "dc" : "residential";
-      sessionId = await startSession(userId, targetHost, counter, connectLatencyMs, poolType, socksUserPlan, logTargetHosts);
+      sessionId = await startSession(userId, targetHost, counter, connectLatencyMs, poolType, socksUserPlan, logTargetHosts, teamId);
     } catch (err) {
       log.error("SOCKS5 failed to start session", { error: err instanceof Error ? err.message : String(err) });
       // R26 H-1: Guard against writing to destroyed socket

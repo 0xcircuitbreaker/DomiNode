@@ -9,6 +9,8 @@
 #include "dominusnode/proxy.hpp"
 #include "dominusnode/admin.hpp"
 #include "dominusnode/slots.hpp"
+#include "dominusnode/agent_wallet.hpp"
+#include "dominusnode/teams.hpp"
 
 #include <memory>
 #include <string>
@@ -106,6 +108,12 @@ public:
 
     /// Access the slots resource (slot availability, waitlist — no auth required).
     SlotsResource& slots();
+
+    /// Access the agentic wallet resource (sub-wallets with spending limits).
+    AgenticWalletResource& agentic_wallets();
+
+    /// Access the teams resource (shared wallets, members, invites, keys).
+    TeamsResource& teams();
 
     /// Get the configured base URL.
     const std::string& base_url() const;

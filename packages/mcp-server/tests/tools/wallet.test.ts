@@ -38,7 +38,7 @@ describe("wallet tools", () => {
     globalThis.fetch = vi.fn().mockResolvedValueOnce({
       ok: true,
       status: 200,
-      text: () => Promise.resolve(JSON.stringify({ balance_cents: 1250, balance_usd: "12.50", currency: "USD" })),
+      text: () => Promise.resolve(JSON.stringify({ balanceCents: 1250, balanceUsd: 12.50, currency: "USD" })),
       headers: new Headers(),
     } as unknown as Response);
 

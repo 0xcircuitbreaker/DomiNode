@@ -8,7 +8,7 @@ export async function createSession(
   const result = await query<Session>(
     `INSERT INTO sessions (user_id, proxy_ip)
      VALUES ($1, $2)
-     RETURNING *`,
+     RETURNING id, user_id, proxy_ip, started_at, ended_at, bytes_total, status`,
     [userId, proxyIp],
   );
   return result.rows[0];
@@ -42,7 +42,7 @@ export async function createUsageRecord(record: {
   const result = await query<UsageRecord>(
     `INSERT INTO usage_records (user_id, session_id, bytes_in, bytes_out, cost_cents, proxy_type, target_host, connect_latency_ms)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-     RETURNING *`,
+     RETURNING id, user_id, session_id, bytes_in, bytes_out, cost_cents, proxy_type, target_host, connect_latency_ms, created_at`,
     [
       record.user_id,
       record.session_id,
@@ -69,7 +69,7 @@ export async function getUsageByUser(
   offset = Math.max(0, offset);
   const [dataResult, countResult] = await Promise.all([
     query<UsageRecord>(
-      `SELECT * FROM usage_records
+      `SELECT id, user_id, session_id, bytes_in, bytes_out, cost_cents, proxy_type, target_host, connect_latency_ms, created_at FROM usage_records
        WHERE user_id = $1
          AND created_at >= $2
          AND created_at <= $3

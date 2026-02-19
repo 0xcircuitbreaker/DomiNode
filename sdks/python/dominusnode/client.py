@@ -44,6 +44,8 @@ from .plans import AsyncPlansResource, PlansResource
 from .proxy import AsyncProxyResource, ProxyResource
 from .sessions import AsyncSessionsResource, SessionsResource
 from .slots import AsyncSlotsResource, SlotsResource
+from .agent_wallet import AgenticWalletResource, AsyncAgenticWalletResource
+from .teams import TeamsResource as TeamsRes, AsyncTeamsResource as AsyncTeamsRes
 from .token_manager import AsyncTokenManager, TokenManager
 from .types import LoginResult, User
 from .usage import AsyncUsageResource, UsageResource
@@ -121,6 +123,8 @@ class DominusNodeClient:
         )
         self._admin = AdminResource(self._http)
         self._slots = SlotsResource(self._http)
+        self._agentic_wallets = AgenticWalletResource(self._http)
+        self._teams = TeamsRes(self._http)
 
         # Auto-connect if credentials provided.
         # On failure, clear credentials to prevent retention in a partial object.
@@ -180,6 +184,16 @@ class DominusNodeClient:
     def slots(self) -> SlotsResource:
         """Slots and waitlist operations (public, no auth required)."""
         return self._slots
+
+    @property
+    def agentic_wallets(self) -> AgenticWalletResource:
+        """Agentic wallet operations (sub-wallets with spending limits)."""
+        return self._agentic_wallets
+
+    @property
+    def teams(self) -> TeamsRes:
+        """Team operations (shared wallets, members, invites, keys)."""
+        return self._teams
 
     # ── Connection methods ───────────────────────────────────────────
 
@@ -307,6 +321,8 @@ class AsyncDominusNodeClient:
         )
         self._admin = AsyncAdminResource(self._http)
         self._slots = AsyncSlotsResource(self._http)
+        self._agentic_wallets = AsyncAgenticWalletResource(self._http)
+        self._teams = AsyncTeamsRes(self._http)
 
     # ── Resource properties ──────────────────────────────────────────
 
@@ -345,6 +361,15 @@ class AsyncDominusNodeClient:
     @property
     def slots(self) -> AsyncSlotsResource:
         return self._slots
+
+    @property
+    def agentic_wallets(self) -> AsyncAgenticWalletResource:
+        return self._agentic_wallets
+
+    @property
+    def teams(self) -> AsyncTeamsRes:
+        """Team operations (shared wallets, members, invites, keys)."""
+        return self._teams
 
     # ── Connection methods ───────────────────────────────────────────
 
