@@ -64,13 +64,19 @@ export default function InviteAcceptPage() {
     setAccepting(true);
     setError(null);
     try {
-      await post(`/api/teams/invites/${encodeURIComponent(token)}/accept`);
+      await post(`/api/teams/invites/${encodeURIComponent(token)}/accept`, {}, { redirectOnUnauthorized: false });
       setAccepted(true);
       setTimeout(() => {
         navigate("/app/teams");
       }, 2000);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to accept invite.");
+      const message = err instanceof Error ? err.message : "Failed to accept invite.";
+      if (message === "Unauthorized") {
+        // Redirect to login, then come back to accept the invite
+        navigate(`/login?redirect=${encodeURIComponent(`/teams/invite?token=${token}`)}`);
+        return;
+      }
+      setError(message);
     } finally {
       setAccepting(false);
     }

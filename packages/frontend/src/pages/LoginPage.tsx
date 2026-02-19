@@ -87,8 +87,12 @@ export default function LoginPage() {
     setIsRegister(searchParams.get("mode") === "register");
   }, [searchParams]);
 
+  const redirectTo = searchParams.get("redirect") ?? "/app";
+  // Only allow relative paths to prevent open redirect
+  const safeRedirect = redirectTo.startsWith("/") ? redirectTo : "/app";
+
   if (user) {
-    return <Navigate to="/app" replace />;
+    return <Navigate to={safeRedirect} replace />;
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -114,13 +118,13 @@ export default function LoginPage() {
       if (isRegister) {
         await register(email, password, captchaToken);
         setPassword("");
-        navigate("/app");
+        navigate(safeRedirect);
       } else {
         const result = await login(email, password, captchaToken);
         // Use the returned value instead of React state to avoid race condition
         if (!result.mfaRequired) {
           setPassword("");
-          navigate("/app");
+          navigate(safeRedirect);
         }
       }
     } catch (err) {
@@ -138,7 +142,7 @@ export default function LoginPage() {
     try {
       await verifyMfa(mfaCode, useBackupCode);
       setMfaCode("");
-      navigate("/app");
+      navigate(safeRedirect);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Invalid code");
     } finally {
@@ -176,7 +180,7 @@ export default function LoginPage() {
 
       // Verify signature and login/register
       await walletLogin(address, signature);
-      navigate("/app");
+      navigate(safeRedirect);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Wallet sign-in failed";
       // Don't show "User rejected" as an error — they just cancelled

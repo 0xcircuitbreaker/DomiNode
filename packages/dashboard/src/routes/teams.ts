@@ -38,6 +38,47 @@ const inviteLimiter = rateLimit({
   keyGenerator: (req) => (req as unknown as AuthenticatedRequest).user?.userId ?? "unknown",
 });
 
+// ─── Public Endpoints (no auth required) ─────────────────────────────
+
+// GET /api/teams/invites/:token — Public invite details (no auth needed to view)
+router.get("/invites/:token", async (req, res) => {
+  try {
+    const token = req.params.token as string;
+
+    if (typeof token !== "string" || token.length !== 64 || !/^[0-9a-f]+$/i.test(token)) {
+      res.status(400).json({ error: "Invalid invite token format" });
+      return;
+    }
+
+    const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
+    const invite = await teamRepo.getInviteByToken(tokenHash);
+
+    if (!invite) {
+      res.status(404).json({ error: "Invite not found or expired" });
+      return;
+    }
+
+    if (new Date(invite.expires_at) < new Date()) {
+      res.status(410).json({ error: "Invite has expired" });
+      return;
+    }
+
+    res.json({
+      id: invite.id,
+      teamId: invite.team_id,
+      teamName: invite.team_name,
+      email: invite.email,
+      role: invite.role,
+      expiresAt: invite.expires_at,
+      createdAt: invite.created_at,
+    });
+  } catch (err) {
+    log.error("get invite details failed", { error: err instanceof Error ? err.message : String(err) });
+    res.status(500).json({ error: "Failed to get invite details" });
+  }
+});
+
+// ─── Authenticated Endpoints ─────────────────────────────────────────
 router.use(requireAuth);
 
 // ─── Team CRUD ───────────────────────────────────────────────────────
@@ -675,44 +716,6 @@ router.delete("/:id/invites/:inviteId", async (req, res) => {
     }
     log.error("cancel team invite failed", { error: msg });
     res.status(500).json({ error: "Failed to cancel invite" });
-  }
-});
-
-// GET /api/teams/invites/:token — Public invite details (requires auth but not membership)
-router.get("/invites/:token", async (req, res) => {
-  try {
-    const token = req.params.token as string;
-
-    if (typeof token !== "string" || token.length !== 64 || !/^[0-9a-f]+$/i.test(token)) {
-      res.status(400).json({ error: "Invalid invite token format" });
-      return;
-    }
-
-    const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
-    const invite = await teamRepo.getInviteByToken(tokenHash);
-
-    if (!invite) {
-      res.status(404).json({ error: "Invite not found or expired" });
-      return;
-    }
-
-    if (new Date(invite.expires_at) < new Date()) {
-      res.status(410).json({ error: "Invite has expired" });
-      return;
-    }
-
-    res.json({
-      id: invite.id,
-      teamId: invite.team_id,
-      teamName: invite.team_name,
-      email: invite.email,
-      role: invite.role,
-      expiresAt: invite.expires_at,
-      createdAt: invite.created_at,
-    });
-  } catch (err) {
-    log.error("get invite details failed", { error: err instanceof Error ? err.message : String(err) });
-    res.status(500).json({ error: "Failed to get invite details" });
   }
 });
 
