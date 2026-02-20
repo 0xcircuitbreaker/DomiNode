@@ -465,17 +465,17 @@ export function createGetProxyConfigTool(client: DominusNodeClient) {
 export function createListSessionsTool(client: DominusNodeClient) {
   return tool({
     description:
-      "List all currently active proxy sessions. Shows session ID, proxy IP, " +
+      "List all currently active proxy sessions. Shows session ID, " +
       "start time, and status for each active connection.",
     parameters: z.object({}),
     execute: async () => {
       try {
         const result = await client.sessions.getActive();
         return {
-          sessions: result.sessions.map((s: { id: string; startedAt: string; status: string }) => ({
-            id: s.id,
-            startedAt: s.startedAt,
-            status: s.status,
+          sessions: result.sessions.map((s: Record<string, unknown>) => ({
+            id: String(s.id ?? ""),
+            startedAt: String(s.startedAt ?? ""),
+            status: String(s.status ?? ""),
           })),
           count: result.sessions.length,
         };

@@ -48,6 +48,11 @@ function validateRequiredEnv(): void {
     throw new Error(`Environment validation failed: ${errors.join("; ")}`);
   }
 
+  // Non-fatal warnings for MCP agent support
+  if (!process.env["MCP_AGENT_SECRET"]) {
+    log.warn("MCP_AGENT_SECRET is not set — MCP agent auto-verification and reCAPTCHA bypass are DISABLED. AI agents will not be able to register or create API keys.");
+  }
+
   log.info("environment validation passed");
 }
 

@@ -124,7 +124,7 @@ export function registerWalletAuthTools(server: McpServer, httpClient: HttpClien
 
   server.tool(
     "dominusnode_wallet_setup",
-    "One-shot wallet setup: request challenge, verify signature, and create an API key in one call. The agent must sign the challenge message between the challenge and verify steps. Returns proxy configuration ready to use.",
+    "Submit a pre-signed wallet challenge and create an API key in one call. First call dominusnode_wallet_challenge to get the message to sign, then call this tool with the signature. Returns proxy configuration ready to use.",
     {
       address: z.string().regex(/^0x[0-9a-fA-F]{40}$/).describe("Your Ethereum wallet address (0x...)"),
       signature: z.string().min(130).max(200).describe("The EIP-191 signature of the challenge message (get challenge first via dominusnode_wallet_challenge)"),
