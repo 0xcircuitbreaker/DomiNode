@@ -36,7 +36,7 @@ export async function createTeam(
 
     // Atomic count check + insert to prevent TOCTOU
     const countResult = await client.query<{ count: string }>(
-      `SELECT COUNT(*) AS count FROM teams WHERE owner_id = $1 AND status != 'deleted'`,
+      `SELECT COUNT(*) AS count FROM teams WHERE owner_id = $1 AND status != 'deleted' FOR UPDATE`,
       [userId],
     );
     if (parseInt(countResult.rows[0].count, 10) >= MAX_TEAMS_PER_USER) {
@@ -227,6 +227,12 @@ export async function deleteTeam(
         [teamWallet.id],
       );
     }
+
+    // Clean up pending invites
+    await client.query(
+      `DELETE FROM team_invites WHERE team_id = $1 AND accepted_at IS NULL`,
+      [teamId],
+    );
 
     // Revoke all team API keys
     await client.query(

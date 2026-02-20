@@ -341,7 +341,7 @@ async function apiRequest(
       message = responseText;
     }
     if (message.length > 500) message = message.slice(0, 500) + "... [truncated]";
-    throw new Error(`API error ${response.status}: ${message}`);
+    throw new Error(`API error ${response.status}: ${sanitizeError(message)}`);
   }
 
   return responseText ? safeJsonParse(responseText) : {};
@@ -597,6 +597,9 @@ export function createDominusNodeFunctionHandler(
     if (label.length > 100) {
       return JSON.stringify({ error: "label must be 100 characters or fewer" });
     }
+    if (/[\x00-\x1f\x7f]/.test(label)) {
+      return JSON.stringify({ error: "label contains invalid control characters" });
+    }
     if (
       !Number.isInteger(spendingLimitCents) ||
       spendingLimitCents <= 0 ||
@@ -690,6 +693,19 @@ export function createDominusNodeFunctionHandler(
     const result = await api(
       "POST",
       `/api/agent-wallet/${encodeURIComponent(walletId)}/freeze`,
+    );
+    return JSON.stringify(result);
+  }
+
+  async function handleUnfreezeAgenticWallet(args: Record<string, unknown>): Promise<string> {
+    const walletId = args.wallet_id as string;
+    if (!walletId || typeof walletId !== "string") {
+      return JSON.stringify({ error: "wallet_id is required and must be a string" });
+    }
+
+    const result = await api(
+      "POST",
+      `/api/agent-wallet/${encodeURIComponent(walletId)}/unfreeze`,
     );
     return JSON.stringify(result);
   }
@@ -839,6 +855,7 @@ export function createDominusNodeFunctionHandler(
     dominusnode_list_agentic_wallets: handleListAgenticWallets,
     dominusnode_agentic_transactions: handleAgenticTransactions,
     dominusnode_freeze_agentic_wallet: handleFreezeAgenticWallet,
+    dominusnode_unfreeze_agentic_wallet: handleUnfreezeAgenticWallet,
     dominusnode_delete_agentic_wallet: handleDeleteAgenticWallet,
     dominusnode_create_team: handleCreateTeam,
     dominusnode_list_teams: handleListTeams,

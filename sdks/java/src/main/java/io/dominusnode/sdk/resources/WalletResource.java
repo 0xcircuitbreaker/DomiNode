@@ -33,7 +33,7 @@ public final class WalletResource {
      */
     static void validateAmountCents(int amountCents) {
         if (amountCents <= 0) {
-            throw new IllegalArgumentException("amountCents must be a positive integer <= 2,147,483,647");
+            throw new IllegalArgumentException("amountCents must be a positive integer");
         }
     }
 

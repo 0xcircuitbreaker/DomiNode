@@ -392,7 +392,7 @@ def create_dominusnode_function_handler(
                 except Exception:
                     msg = resp.text
                 msg = str(msg)[:500]
-                raise RuntimeError(f"API error {resp.status_code}: {msg}")
+                raise RuntimeError(f"API error {resp.status_code}: {_sanitize_error(msg)}")
 
             if resp.text:
                 data = resp.json()
@@ -512,6 +512,8 @@ def create_dominusnode_function_handler(
             return json.dumps({"error": "label is required and must be a string"})
         if len(label) > 100:
             return json.dumps({"error": "label must be 100 characters or fewer"})
+        if any(0 <= ord(c) <= 0x1F or ord(c) == 0x7F for c in label):
+            return json.dumps({"error": "label contains invalid control characters"})
 
         if (
             not isinstance(spending_limit_cents, int)
@@ -595,6 +597,17 @@ def create_dominusnode_function_handler(
         result = await api_request(
             "POST",
             f"/api/agent-wallet/{quote(wallet_id, safe='')}/freeze",
+        )
+        return json.dumps(result)
+
+    async def handle_unfreeze_agentic_wallet(args: Dict[str, Any]) -> str:
+        wallet_id = args.get("wallet_id")
+        if not wallet_id or not isinstance(wallet_id, str):
+            return json.dumps({"error": "wallet_id is required and must be a string"})
+
+        result = await api_request(
+            "POST",
+            f"/api/agent-wallet/{quote(wallet_id, safe='')}/unfreeze",
         )
         return json.dumps(result)
 
@@ -729,6 +742,7 @@ def create_dominusnode_function_handler(
         "dominusnode_list_agentic_wallets": handle_list_agentic_wallets,
         "dominusnode_agentic_transactions": handle_agentic_transactions,
         "dominusnode_freeze_agentic_wallet": handle_freeze_agentic_wallet,
+        "dominusnode_unfreeze_agentic_wallet": handle_unfreeze_agentic_wallet,
         "dominusnode_delete_agentic_wallet": handle_delete_agentic_wallet,
         "dominusnode_create_team": handle_create_team,
         "dominusnode_list_teams": handle_list_teams,

@@ -264,7 +264,7 @@ router.delete(
 
         // R36 H-1: Clean up agentic wallets (GDPR: sub-wallet data is personal)
         await client.query(
-          "DELETE FROM agentic_wallet_transactions WHERE agentic_wallet_id IN (SELECT id FROM agentic_wallets WHERE user_id = $1)",
+          "DELETE FROM agentic_wallet_transactions WHERE wallet_id IN (SELECT id FROM agentic_wallets WHERE user_id = $1)",
           [userId]
         );
         await client.query("DELETE FROM agentic_wallets WHERE user_id = $1", [userId]);
@@ -278,7 +278,7 @@ router.delete(
           [userEmail]
         );
         await client.query(
-          "UPDATE team_members SET user_id = NULL WHERE user_id = $1",
+          "DELETE FROM team_members WHERE user_id = $1",
           [userId]
         );
 

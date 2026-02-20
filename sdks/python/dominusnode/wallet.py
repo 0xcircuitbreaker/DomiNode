@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from typing import List, Optional
 
 from .http_client import AsyncHttpClient, SyncHttpClient
@@ -76,6 +77,8 @@ class WalletResource:
             amount_usd: Amount in USD (e.g. 10.0).
             currency: Crypto currency code (btc, eth, xmr, sol, zec).
         """
+        if not isinstance(amount_usd, (int, float)) or math.isnan(amount_usd) or math.isinf(amount_usd):
+            raise ValueError("amount_usd must be a finite number")
         # Validate amount_usd converted to cents stays within int4 range
         amount_cents_approx = int(amount_usd * 100)
         _validate_amount_cents(amount_cents_approx, "amount_usd (as cents)")
@@ -129,6 +132,8 @@ class AsyncWalletResource:
         )
 
     async def top_up_crypto(self, amount_usd: float, currency: str) -> CryptoInvoice:
+        if not isinstance(amount_usd, (int, float)) or math.isnan(amount_usd) or math.isinf(amount_usd):
+            raise ValueError("amount_usd must be a finite number")
         # Validate amount_usd converted to cents stays within int4 range
         amount_cents_approx = int(amount_usd * 100)
         _validate_amount_cents(amount_cents_approx, "amount_usd (as cents)")

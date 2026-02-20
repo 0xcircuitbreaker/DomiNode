@@ -285,6 +285,20 @@
     }
   },
   {
+    "name": "dominusnode_unfreeze_agentic_wallet",
+    "description": "Unfreeze a previously frozen agentic wallet to re-enable it for proxy billing. The balance and spending limit are preserved.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "wallet_id": {
+          "type": "string",
+          "description": "The UUID of the agentic wallet to unfreeze."
+        }
+      },
+      "required": ["wallet_id"]
+    }
+  },
+  {
     "name": "dominusnode_delete_agentic_wallet",
     "description": "Delete an agentic wallet permanently. Any remaining balance is automatically refunded to the main wallet. Cannot delete frozen wallets (unfreeze first). Transaction history is removed.",
     "parameters": {

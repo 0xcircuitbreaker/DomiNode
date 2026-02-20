@@ -179,7 +179,7 @@ export async function deleteUser(userId: string): Promise<void> {
 
     // Clean up agentic wallets
     await client.query(
-      "DELETE FROM agentic_wallet_transactions WHERE agentic_wallet_id IN (SELECT id FROM agentic_wallets WHERE user_id = $1)",
+      "DELETE FROM agentic_wallet_transactions WHERE wallet_id IN (SELECT id FROM agentic_wallets WHERE user_id = $1)",
       [userId]
     );
     await client.query("DELETE FROM agentic_wallets WHERE user_id = $1", [userId]);
@@ -205,7 +205,7 @@ export async function deleteUser(userId: string): Promise<void> {
       );
     }
     await client.query(
-      "UPDATE team_members SET user_id = NULL WHERE user_id = $1",
+      "DELETE FROM team_members WHERE user_id = $1",
       [userId]
     );
 

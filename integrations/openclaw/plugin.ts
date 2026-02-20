@@ -1,7 +1,7 @@
 /**
  * DomiNode OpenClaw Plugin
  *
- * Implements 16 tools for interacting with DomiNode's rotating proxy service
+ * Implements 19 tools for interacting with DomiNode's rotating proxy service
  * directly from OpenClaw AI coding sessions.
  *
  * Uses native fetch (no external dependencies). Runs via jiti runtime.
@@ -377,6 +377,7 @@ async function apiRequest<T = unknown>(
     method,
     headers,
     signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    redirect: "error",
   };
 
   if (body && (method === "POST" || method === "PUT" || method === "PATCH")) {
@@ -525,6 +526,10 @@ const proxiedFetchTool: ToolDefinition = {
       }
       const pool = String(args.pool ?? "dc");
       const bodyContent = args.body ? String(args.body) : undefined;
+
+      if (bodyContent && ["GET", "HEAD", "OPTIONS"].includes(method)) {
+        return "Error: Request body is not allowed with GET/HEAD/OPTIONS methods.";
+      }
 
       // Build query params for the proxy fetch API
       const params = new URLSearchParams();
@@ -1360,6 +1365,119 @@ const teamUsageTool: ToolDefinition = {
   },
 };
 
+// 17. freeze_agentic_wallet
+const freezeAgenticWalletTool: ToolDefinition = {
+  name: "freeze_agentic_wallet",
+  description:
+    "Freeze an agentic wallet to prevent any further spending. The wallet balance is preserved but no transactions are allowed until unfrozen.",
+  parameters: {
+    wallet_id: {
+      type: "string",
+      description: "Agentic wallet ID (UUID)",
+      required: true,
+    },
+  },
+  execute: async (args) => {
+    try {
+      const walletId = validateUuid(String(args.wallet_id ?? ""), "wallet_id");
+
+      const data = await apiPost<{
+        id: string;
+        label: string;
+        balanceCents: number;
+        spendingLimitCents: number;
+        status: string;
+      }>(`/api/agent-wallet/${encodeURIComponent(walletId)}/freeze`);
+
+      return [
+        "Agentic Wallet Frozen",
+        "",
+        `Wallet ID: ${data.id}`,
+        `Label: ${data.label}`,
+        `Balance: ${formatCents(data.balanceCents)}`,
+        `Status: ${data.status}`,
+        "",
+        "The wallet is now frozen. No spending is allowed until unfrozen.",
+        "Use unfreeze_agentic_wallet to re-enable spending.",
+      ].join("\n");
+    } catch (err) {
+      return `Error: ${safeError(err)}`;
+    }
+  },
+};
+
+// 18. unfreeze_agentic_wallet
+const unfreezeAgenticWalletTool: ToolDefinition = {
+  name: "unfreeze_agentic_wallet",
+  description:
+    "Unfreeze a previously frozen agentic wallet to re-enable spending.",
+  parameters: {
+    wallet_id: {
+      type: "string",
+      description: "Agentic wallet ID (UUID)",
+      required: true,
+    },
+  },
+  execute: async (args) => {
+    try {
+      const walletId = validateUuid(String(args.wallet_id ?? ""), "wallet_id");
+
+      const data = await apiPost<{
+        id: string;
+        label: string;
+        balanceCents: number;
+        spendingLimitCents: number;
+        status: string;
+      }>(`/api/agent-wallet/${encodeURIComponent(walletId)}/unfreeze`);
+
+      return [
+        "Agentic Wallet Unfrozen",
+        "",
+        `Wallet ID: ${data.id}`,
+        `Label: ${data.label}`,
+        `Balance: ${formatCents(data.balanceCents)}`,
+        `Status: ${data.status}`,
+        "",
+        "The wallet is now active and spending is re-enabled.",
+      ].join("\n");
+    } catch (err) {
+      return `Error: ${safeError(err)}`;
+    }
+  },
+};
+
+// 19. delete_agentic_wallet
+const deleteAgenticWalletTool: ToolDefinition = {
+  name: "delete_agentic_wallet",
+  description:
+    "Delete an agentic wallet. Any remaining balance is refunded to your main wallet.",
+  parameters: {
+    wallet_id: {
+      type: "string",
+      description: "Agentic wallet ID (UUID)",
+      required: true,
+    },
+  },
+  execute: async (args) => {
+    try {
+      const walletId = validateUuid(String(args.wallet_id ?? ""), "wallet_id");
+
+      await apiDelete(`/api/agent-wallet/${encodeURIComponent(walletId)}`);
+
+      return [
+        "Agentic Wallet Deleted",
+        "",
+        `Wallet ID: ${walletId}`,
+        "",
+        "Any remaining balance has been refunded to your main wallet.",
+        "Use check_balance to verify the refund.",
+      ].join("\n");
+    } catch (err) {
+      return `Error: ${safeError(err)}`;
+    }
+  },
+};
+
 // ---------------------------------------------------------------------------
 // Plugin export — the tools array that OpenClaw discovers
 // ---------------------------------------------------------------------------
@@ -1375,6 +1493,9 @@ export const tools: ToolDefinition[] = [
   checkAgenticBalanceTool,
   listAgenticWalletsTool,
   agenticTransactionsTool,
+  freezeAgenticWalletTool,
+  unfreezeAgenticWalletTool,
+  deleteAgenticWalletTool,
   createTeamTool,
   listTeamsTool,
   teamDetailsTool,

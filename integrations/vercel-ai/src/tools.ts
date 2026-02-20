@@ -22,6 +22,8 @@ function isPrivateIp(hostname: string): boolean {
   if (/^10\./.test(noZone)) return true;
   if (/^172\.(1[6-9]|2\d|3[01])\./.test(noZone)) return true;
   if (/^192\.168\./.test(noZone)) return true;
+  if (/^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(noZone)) return true; // CGNAT
+  if (/^(22[4-9]|2[3-5]\d)\./.test(noZone)) return true; // multicast + reserved
   if (/^169\.254\./.test(noZone)) return true; // link-local
   if (/^0\./.test(noZone)) return true; // 0.0.0.0/8
   if (noZone === "255.255.255.255") return true;
@@ -33,7 +35,11 @@ function isPrivateIp(hostname: string): boolean {
 
   // IPv6 patterns
   if (noZone === "::1") return true;
-  if (/^::ffff:/i.test(noZone)) return true; // IPv4-mapped
+  if (/^::ffff:/i.test(noZone)) {
+    const embedded = noZone.slice(7);
+    if (embedded.includes(".")) return isPrivateIp(embedded);
+    return true;
+  }
   if (/^fd[0-9a-fA-F]{2}:/i.test(noZone)) return true; // ULA fd00::/8
   if (/^fc[0-9a-fA-F]{2}:/i.test(noZone)) return true; // ULA fc00::/7
   if (/^fe[89abAB][0-9a-fA-F]:/i.test(noZone)) return true; // link-local fe80::/10
@@ -75,6 +81,11 @@ function validateUrl(urlStr: string): { valid: true; url: URL } | { valid: false
     lowerHost.endsWith(".localhost.")
   ) {
     return { valid: false, error: "Requests to localhost are not allowed" };
+  }
+
+  // Block internal network TLDs
+  if (lowerHost.endsWith(".local") || lowerHost.endsWith(".internal") || lowerHost.endsWith(".arpa")) {
+    return { valid: false, error: "Requests to internal network hostnames are not allowed" };
   }
 
   // Block private/reserved IPs
