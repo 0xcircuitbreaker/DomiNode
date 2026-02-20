@@ -58,9 +58,21 @@ export function registerFetchTools(server: McpServer, config: McpConfig): void {
 
         return { content: [{ type: "text", text }] };
       } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        // M-3: Provide actionable guidance for common proxy errors
+        let hint = "";
+        if (msg.includes("407") || msg.includes("Proxy Authentication")) {
+          hint = "\nHint: Check your API key with dominusnode_get_balance. You may need to create a new key.";
+        } else if (msg.includes("INSUFFICIENT_BALANCE") || msg.includes("insufficient")) {
+          hint = "\nHint: Use dominusnode_get_balance to check, then dominusnode_pay_crypto to add funds.";
+        } else if (msg.includes("timed out")) {
+          hint = "\nHint: Try increasing timeout_ms (max 120000) or use a different country/pool_type.";
+        } else if (msg.includes("ECONNREFUSED")) {
+          hint = "\nHint: The proxy gateway may be down. Use dominusnode_get_proxy_status to check.";
+        }
         return {
           isError: true,
-          content: [{ type: "text", text: `Fetch error: ${err instanceof Error ? err.message : String(err)}` }],
+          content: [{ type: "text", text: `Fetch error: ${msg}${hint}` }],
         };
       }
     },
