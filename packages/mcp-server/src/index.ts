@@ -66,8 +66,8 @@ async function main(): Promise<void> {
 
     const transport = new StdioServerTransport();
     await server.connect(transport);
-    process.stderr.write("Dominus Node MCP Server ready — bootstrap mode (14 tools + bootstrap helper)\n");
-    process.stderr.write("Run dominusnode_setup or dominusnode_wallet_setup to create an account and unlock all 53 tools.\n");
+    process.stderr.write("Dominus Node MCP Server ready — bootstrap mode (15 tools + bootstrap helper)\n");
+    process.stderr.write("Run dominusnode_setup or dominusnode_wallet_setup to create an account and unlock all 54 tools.\n");
   } else {
     // ── Authenticated Mode ──────────────────────────────────────────
     process.stderr.write("Dominus Node MCP Server starting...\n");
@@ -98,7 +98,7 @@ async function main(): Promise<void> {
 
     const transport = new StdioServerTransport();
     await server.connect(transport);
-    process.stderr.write("Dominus Node MCP Server ready — 53 tools available\n");
+    process.stderr.write("Dominus Node MCP Server ready — 54 tools available\n");
   }
 }
 

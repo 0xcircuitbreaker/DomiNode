@@ -61,9 +61,8 @@ export interface Plan {
 
 export interface ActiveSession {
   id: string;
-  proxy_ip: string;
   started_at: string;
-  bytes_total: number;
+  status: string;
 }
 
 export interface ProxyUrlOptions {

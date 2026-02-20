@@ -113,13 +113,11 @@ function createMockClient() {
         sessions: [
           {
             id: "sess-abc",
-            proxyIp: "198.51.100.42",
             startedAt: "2026-02-19T08:00:00Z",
             status: "active",
           },
           {
             id: "sess-def",
-            proxyIp: "203.0.113.17",
             startedAt: "2026-02-19T08:30:00Z",
             status: "active",
           },

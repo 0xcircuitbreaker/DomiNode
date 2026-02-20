@@ -443,8 +443,6 @@ pub struct ChangePlanResponse {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ActiveSession {
     pub id: String,
-    #[serde(alias = "proxy_ip", rename = "proxyIp")]
-    pub proxy_ip: String,
     #[serde(alias = "started_at", rename = "startedAt")]
     pub started_at: String,
     #[serde(alias = "bytes_total", default)]
@@ -457,8 +455,6 @@ pub struct ActiveSessionEntry {
     pub id: String,
     #[serde(rename = "startedAt")]
     pub started_at: String,
-    #[serde(rename = "proxyIp")]
-    pub proxy_ip: String,
     pub status: String,
 }
 

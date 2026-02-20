@@ -26,7 +26,6 @@ class SessionsResource:
             ActiveSession(
                 id=s["id"],
                 started_at=str(s["startedAt"]),
-                proxy_ip=s.get("proxyIp", ""),
                 status=s.get("status", "active"),
             )
             for s in data.get("sessions", [])
@@ -50,7 +49,6 @@ class AsyncSessionsResource:
             ActiveSession(
                 id=s["id"],
                 started_at=str(s["startedAt"]),
-                proxy_ip=s.get("proxyIp", ""),
                 status=s.get("status", "active"),
             )
             for s in data.get("sessions", [])

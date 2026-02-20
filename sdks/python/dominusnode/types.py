@@ -233,7 +233,6 @@ class UserPlanInfo:
 class ActiveSession:
     id: str
     started_at: str
-    proxy_ip: str
     status: str
 
 

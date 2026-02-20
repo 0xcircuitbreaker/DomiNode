@@ -323,7 +323,7 @@ View active proxy sessions for the authenticated user.
 
 ```go
 sessions, err := client.Sessions.GetActive(ctx)
-// sessions[0].ID, .StartedAt, .ProxyIP, .Status
+// sessions[0].ID, .StartedAt, .Status
 ```
 
 ### Proxy

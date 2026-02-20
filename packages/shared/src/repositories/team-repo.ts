@@ -23,9 +23,13 @@ export async function createTeam(
   userId: string,
   name: string,
   planId: string = "payg",
+  maxMembers?: number,
 ): Promise<Team & { walletId: string }> {
   if (!name || name.length > MAX_NAME_LENGTH) {
     throw new Error("Team name must be 1-100 characters");
+  }
+  if (maxMembers !== undefined && (!Number.isInteger(maxMembers) || maxMembers < 1 || maxMembers > 100)) {
+    throw new Error("maxMembers must be between 1 and 100");
   }
 
   const pool = getPool();
@@ -43,13 +47,20 @@ export async function createTeam(
       throw new Error(`Maximum of ${MAX_TEAMS_PER_USER} teams per user`);
     }
 
-    // Create team
-    const teamResult = await client.query<Team>(
-      `INSERT INTO teams (name, owner_id, plan_id)
-       VALUES ($1, $2, $3)
-       RETURNING id, name, owner_id, plan_id, max_members, status, created_at`,
-      [name, userId, planId],
-    );
+    // Create team (atomically set maxMembers if provided)
+    const teamResult = maxMembers !== undefined
+      ? await client.query<Team>(
+          `INSERT INTO teams (name, owner_id, plan_id, max_members)
+           VALUES ($1, $2, $3, $4)
+           RETURNING id, name, owner_id, plan_id, max_members, status, created_at`,
+          [name, userId, planId, maxMembers],
+        )
+      : await client.query<Team>(
+          `INSERT INTO teams (name, owner_id, plan_id)
+           VALUES ($1, $2, $3)
+           RETURNING id, name, owner_id, plan_id, max_members, status, created_at`,
+          [name, userId, planId],
+        );
     const team = teamResult.rows[0];
 
     // Create team wallet

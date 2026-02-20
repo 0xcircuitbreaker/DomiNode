@@ -394,7 +394,6 @@ type ChangePlanResult struct {
 type ActiveSession struct {
 	ID        string `json:"id"`
 	StartedAt string `json:"startedAt"`
-	ProxyIP   string `json:"proxyIp"`
 	Status    string `json:"status"`
 }
 

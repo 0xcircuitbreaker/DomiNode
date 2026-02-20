@@ -112,12 +112,7 @@ router.post("/", async (req, res) => {
       }
     }
 
-    const team = await teamRepo.createTeam(userId, name);
-
-    // Update maxMembers if provided
-    if (maxMembers !== undefined) {
-      await teamRepo.updateTeam(team.id, userId, { maxMembers });
-    }
+    const team = await teamRepo.createTeam(userId, name, "payg", maxMembers);
 
     log.info("team created", { userId, teamId: team.id });
 

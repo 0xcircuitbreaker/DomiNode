@@ -109,7 +109,7 @@ List all active proxy sessions.
 
 **Parameters:** None
 
-**Returns:** `{ sessions: [{ id, proxyIp, startedAt, status }], count }`
+**Returns:** `{ sessions: [{ id, startedAt, status }], count }`
 
 ## Advanced Usage
 

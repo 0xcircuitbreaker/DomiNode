@@ -92,7 +92,6 @@ export function registerTeamsTools(server: McpServer, httpClient: HttpClient): v
             status: string;
             role: string;
             balanceCents: number;
-            memberCount?: number;
             createdAt: string;
           }>;
         }>("/api/teams");
@@ -110,8 +109,7 @@ export function registerTeamsTools(server: McpServer, httpClient: HttpClient): v
 
         for (const t of data.teams) {
           lines.push(`  ${t.name} (${t.id.slice(0, 8)}...)`);
-          const memberInfo = t.memberCount !== undefined ? ` | Members: ${t.memberCount}` : "";
-          lines.push(`    Role: ${t.role} | Balance: $${(t.balanceCents / 100).toFixed(2)}${memberInfo}`);
+          lines.push(`    Role: ${t.role} | Balance: $${(t.balanceCents / 100).toFixed(2)}`);
           lines.push(``);
         }
 
@@ -142,16 +140,7 @@ export function registerTeamsTools(server: McpServer, httpClient: HttpClient): v
           role: string;
           balanceCents: number;
           createdAt: string;
-          // members/memberCount are NOT returned by GET /api/teams/:id
-          members?: Array<{
-            userId: string;
-            email: string;
-            role: string;
-            joinedAt: string;
-          }>;
         }>(`/api/teams/${encodeURIComponent(args.team_id)}`);
-
-        const members = data.members ?? [];
 
         const lines = [
           `Team: ${data.name}`,
@@ -163,16 +152,9 @@ export function registerTeamsTools(server: McpServer, httpClient: HttpClient): v
           `Balance: $${(data.balanceCents / 100).toFixed(2)}`,
           `Max Members: ${data.maxMembers ?? "Unlimited"}`,
           `Created: ${data.createdAt}`,
+          ``,
+          `Use dominusnode_team_list_members to view members.`,
         ];
-
-        if (members.length > 0) {
-          lines.push(``, `Members (${members.length}):`);
-          for (const m of members) {
-            lines.push(`  ${m.email} — ${m.role} (joined ${m.joinedAt})`);
-          }
-        } else {
-          lines.push(``, `Use dominusnode_team_list_members to view members.`);
-        }
 
         return { content: [{ type: "text", text: lines.join("\n") }] };
       } catch (err) {
@@ -630,7 +612,6 @@ export function registerTeamsTools(server: McpServer, httpClient: HttpClient): v
             label: string;
             teamId: string;
             createdAt: string;
-            revokedAt: string | null;
           }>;
         }>(`/api/teams/${encodeURIComponent(args.team_id)}/keys`);
 
@@ -646,9 +627,8 @@ export function registerTeamsTools(server: McpServer, httpClient: HttpClient): v
         ];
 
         for (const k of data.keys) {
-          const revokedLabel = k.revokedAt ? ` | REVOKED: ${k.revokedAt}` : "";
           lines.push(`  ${k.prefix}... — ${k.label}`);
-          lines.push(`    Key ID: ${k.id} | Created: ${k.createdAt}${revokedLabel}`);
+          lines.push(`    Key ID: ${k.id} | Created: ${k.createdAt}`);
           lines.push(``);
         }
 

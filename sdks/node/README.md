@@ -268,7 +268,7 @@ View active proxy sessions for the authenticated user.
 ```typescript
 // Get all active proxy sessions
 const sessions = await client.sessions.getActive();
-// sessions.sessions[0].id, .startedAt, .proxyIp, .status
+// sessions.sessions[0].id, .startedAt, .status
 ```
 
 ### Proxy

@@ -513,14 +513,12 @@ inline void from_json(const nlohmann::json& j, ChangePlanResult& r) {
 struct ActiveSessionEntry {
     std::string id;
     std::string started_at;
-    std::string proxy_ip;
     std::string status;
 };
 
 inline void from_json(const nlohmann::json& j, ActiveSessionEntry& s) {
     s.id = j.value("id", "");
     s.started_at = j.value("startedAt", "");
-    s.proxy_ip = j.value("proxyIp", "");
     s.status = j.value("status", "");
 }
 

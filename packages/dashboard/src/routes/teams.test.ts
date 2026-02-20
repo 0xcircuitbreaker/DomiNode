@@ -245,7 +245,7 @@ describe("teams routes", () => {
       expect(res.body.name).toBe("My Team");
       expect(res.body.ownerId).toBe("test-user-id");
       expect(res.body.status).toBe("active");
-      expect(mockCreateTeam).toHaveBeenCalledWith("test-user-id", "My Team");
+      expect(mockCreateTeam).toHaveBeenCalledWith("test-user-id", "My Team", "payg", undefined);
     });
 
     it("should return 400 for empty name", async () => {
@@ -277,7 +277,7 @@ describe("teams routes", () => {
 
       // sanitizeString truncates to 100 chars, so the request succeeds
       expect(res.status).toBe(201);
-      expect(mockCreateTeam).toHaveBeenCalledWith("test-user-id", "a".repeat(100));
+      expect(mockCreateTeam).toHaveBeenCalledWith("test-user-id", "a".repeat(100), "payg", undefined);
     });
 
     it("should return 409 when max teams limit reached", async () => {
