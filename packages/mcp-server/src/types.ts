@@ -78,17 +78,31 @@ export interface ApiKeyCreated {
 }
 
 export interface ProxyConfig {
-  httpEndpoint: string;
-  socks5Endpoint: string;
+  httpProxy: { host: string; port: number };
+  socks5Proxy: { host: string; port: number };
   supportedCountries: string[];
-  usernameFormat: string;
+  blockedCountries: string[];
+  geoTargeting: { stateSupport: boolean; citySupport: boolean; asnSupport: boolean };
 }
 
 export interface ProxyStatus {
   status: string;
-  latencyMs: number;
-  providers: string[];
+  avgLatencyMs: number;
   activeSessions: number;
+  uptimeSeconds: number;
+  endpoints: { http: string; socks5: string };
+  supportedCountries: string[];
+}
+
+export interface AccountInfo {
+  user: {
+    id: string;
+    email: string;
+    is_admin: boolean;
+    email_verified: boolean;
+    wallet_address: string | null;
+    log_target_hosts: boolean;
+  };
 }
 
 export interface Plan {
@@ -118,15 +132,6 @@ export interface ActiveSession {
   id: string;
   startedAt: string;
   status: string;
-}
-
-export interface AccountInfo {
-  user: {
-    id: string;
-    email: string;
-    is_admin: boolean;
-    email_verified: boolean;
-  };
 }
 
 export interface AuthVerifyKeyResponse {

@@ -126,7 +126,7 @@ def _validate_url(url: str) -> str:
     if lower == "localhost.localdomain" or lower.endswith(".localhost"):
         raise ValueError(f"Hostname {hostname!r} is blocked")
 
-    if lower.endswith(".internal") or lower.endswith(".local"):
+    if lower.endswith(".internal") or lower.endswith(".local") or lower.endswith(".arpa"):
         raise ValueError(f"Hostname {hostname!r} is in a blocked domain suffix")
 
     # -- Resolve and check IP -----------------------------------------------
@@ -286,8 +286,7 @@ class DominusNodeWebScrapeTool(BaseTool):
             with httpx.Client(
                 proxy=proxy_url,
                 timeout=30.0,
-                follow_redirects=True,
-                max_redirects=5,
+                follow_redirects=False,
             ) as http:
                 response = http.get(validated_url)
 

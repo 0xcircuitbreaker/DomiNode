@@ -348,6 +348,29 @@ function stripDangerousKeys(obj: unknown, depth = 0): void {
 }
 
 // ---------------------------------------------------------------------------
+// Lazy JWT authentication
+// ---------------------------------------------------------------------------
+
+let cachedJwt: string | null = null;
+let jwtExpiresAt = 0;
+
+async function ensureAuth(apiKey: string, baseUrl: string): Promise<string> {
+  if (cachedJwt && Date.now() < jwtExpiresAt) return cachedJwt;
+  const res = await fetch(`${baseUrl}/api/auth/verify-key`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "User-Agent": "dominusnode-openclaw-plugin/1.0.0" },
+    body: JSON.stringify({ apiKey }),
+    redirect: "error",
+  });
+  if (!res.ok) throw new Error(`Auth failed: ${res.status}`);
+  const data = await res.json() as { accessToken: string; refreshToken: string };
+  cachedJwt = data.accessToken;
+  // JWT expires in 15 min, refresh at 14 min for safety
+  jwtExpiresAt = Date.now() + 14 * 60 * 1000;
+  return cachedJwt;
+}
+
+// ---------------------------------------------------------------------------
 // HTTP client for DomiNode API
 // ---------------------------------------------------------------------------
 
@@ -367,8 +390,9 @@ async function apiRequest<T = unknown>(
   const baseUrl = getBaseUrl();
   const url = `${baseUrl}${path}`;
 
+  const jwt = await ensureAuth(apiKey, baseUrl);
   const headers: Record<string, string> = {
-    "x-api-key": apiKey,
+    "Authorization": `Bearer ${jwt}`,
     "Accept": "application/json",
     "User-Agent": "dominusnode-openclaw-plugin/1.0.0",
   };

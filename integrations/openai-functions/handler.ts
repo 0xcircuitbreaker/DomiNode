@@ -897,6 +897,11 @@ export function createDominusNodeFunctionHandler(
     try {
       return await fn(args);
     } catch (err) {
+      if (err instanceof Error && err.message.includes("401")) {
+        authToken = null;
+        await ensureAuth();
+        return await fn(args);
+      }
       return JSON.stringify({
         error: sanitizeError(err instanceof Error ? err.message : String(err)),
       });

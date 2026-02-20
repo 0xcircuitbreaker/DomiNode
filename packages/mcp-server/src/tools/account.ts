@@ -55,10 +55,12 @@ export function registerAccountTools(server: McpServer, httpClient: HttpClient):
         const info = await httpClient.get<AccountInfo>("/api/auth/me");
         const user = info.user;
         const text = [
+          `User ID: ${user.id}`,
           `Email: ${user.email}`,
           `Email Verified: ${user.email_verified ? "yes" : "no"}`,
           `Admin: ${user.is_admin ? "yes" : "no"}`,
-        ].join("\n");
+          user.wallet_address ? `Wallet: ${user.wallet_address}` : null,
+        ].filter(Boolean).join("\n");
         return { content: [{ type: "text", text }] };
       } catch (err) {
         return {
@@ -228,11 +230,11 @@ export function registerAccountTools(server: McpServer, httpClient: HttpClient):
           `  Label: ${keyData.label}`,
           ``,
           `Proxy Usage:`,
-          `  curl -x http://USER:${keyData.key}@proxy.dominusnode.com:8080 https://httpbin.org/ip`,
+          `  curl -x http://auto:<YOUR_API_KEY>@proxy.dominusnode.com:8080 https://httpbin.org/ip`,
           ``,
           `Free tier: 10 connections, 1GB bandwidth.`,
           `Payments enabled: use dominusnode_pay_crypto to add funds (Stripe + crypto supported).`,
-          `Set DOMINUSNODE_API_KEY=${keyData.key} and restart to unlock all 53 tools.`,
+          `Set DOMINUSNODE_API_KEY=<your key above> and restart to unlock all 53 tools.`,
         ].join("\n");
         return { content: [{ type: "text", text }] };
       } catch (err) {

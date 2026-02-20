@@ -60,7 +60,7 @@ export function registerCryptoTools(server: McpServer, httpClient: HttpClient): 
           priceAmount: number;
         }>(
           "/api/wallet/topup/crypto",
-          { amountUsd: args.amount_usd, currency: args.currency },
+          { amountUsd: args.amount_usd, currency: args.currency.toLowerCase() },
         );
 
         const text = [
@@ -89,14 +89,45 @@ export function registerCryptoTools(server: McpServer, httpClient: HttpClient): 
     },
   );
 
-  // check_payment tool disabled: no GET /api/wallet/crypto/status/:invoiceId endpoint exists yet.
-  // TODO: Implement backend endpoint, then re-enable this tool.
-  // See: https://github.com/DomiNode/DomiNode/issues/TBD
-  //
-  // server.tool(
-  //   "dominusnode_check_payment",
-  //   "Check the status of a cryptocurrency payment invoice...",
-  //   { invoice_id: z.string().regex(UUID_RE).describe("Invoice ID (UUID) from dominusnode_pay_crypto") },
-  //   async (args) => { ... }
-  // );
+  server.tool(
+    "dominusnode_check_payment",
+    "Check the status of a cryptocurrency payment invoice. Returns current payment status (pending, confirming, confirmed, finished, failed, expired).",
+    {
+      invoice_id: z.string().regex(UUID_RE).describe("Invoice ID (UUID) from dominusnode_pay_crypto"),
+    },
+    async (args) => {
+      try {
+        if (!checkPaymentRateLimit()) {
+          return {
+            isError: true,
+            content: [{ type: "text", text: "Rate limit exceeded: maximum 30 payment status checks per 5 minutes. Please wait before checking again." }],
+          };
+        }
+        const data = await httpClient.get<{
+          invoiceId: string;
+          status: string;
+          amountCents: number;
+          provider: string;
+          createdAt: string;
+        }>(`/api/wallet/crypto/status/${encodeURIComponent(args.invoice_id)}`);
+
+        const text = [
+          `Payment Status`,
+          ``,
+          `Invoice ID: ${data.invoiceId}`,
+          `Status: ${data.status}`,
+          `Amount: $${(data.amountCents / 100).toFixed(2)}`,
+          `Provider: ${data.provider}`,
+          `Created: ${data.createdAt}`,
+        ].join("\n");
+
+        return { content: [{ type: "text", text }] };
+      } catch (err) {
+        return {
+          isError: true,
+          content: [{ type: "text", text: `Payment check error: ${err instanceof Error ? err.message : String(err)}` }],
+        };
+      }
+    },
+  );
 }

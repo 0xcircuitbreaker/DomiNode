@@ -19,7 +19,9 @@ export function registerUsageTools(server: McpServer, httpClient: HttpClient): v
     },
     async (args) => {
       try {
-        const data = await httpClient.get<{ summary: UsageSummary }>(`/api/usage?days=${args.days}`);
+        const since = new Date(Date.now() - args.days * 24 * 60 * 60 * 1000).toISOString();
+        const until = new Date().toISOString();
+        const data = await httpClient.get<{ summary: UsageSummary }>(`/api/usage?since=${encodeURIComponent(since)}&until=${encodeURIComponent(until)}`);
         const usage = data.summary;
         const text = [
           `Usage Summary (last ${args.days} days):`,
@@ -45,7 +47,9 @@ export function registerUsageTools(server: McpServer, httpClient: HttpClient): v
     },
     async (args) => {
       try {
-        const data = await httpClient.get<{ days: DailyUsage[] }>(`/api/usage/daily?days=${args.days}`);
+        const since = new Date(Date.now() - args.days * 24 * 60 * 60 * 1000).toISOString();
+        const until = new Date().toISOString();
+        const data = await httpClient.get<{ days: DailyUsage[] }>(`/api/usage/daily?since=${encodeURIComponent(since)}&until=${encodeURIComponent(until)}`);
         if (!data.days || data.days.length === 0) {
           return { content: [{ type: "text", text: "No usage data for this period." }] };
         }
@@ -72,8 +76,10 @@ export function registerUsageTools(server: McpServer, httpClient: HttpClient): v
     },
     async (args) => {
       try {
+        const since = new Date(Date.now() - args.days * 24 * 60 * 60 * 1000).toISOString();
+        const until = new Date().toISOString();
         const data = await httpClient.get<{ hosts: TopHost[] }>(
-          `/api/usage/top-hosts?limit=${args.limit}&days=${args.days}`,
+          `/api/usage/top-hosts?limit=${args.limit}&since=${encodeURIComponent(since)}&until=${encodeURIComponent(until)}`,
         );
         if (!data.hosts || data.hosts.length === 0) {
           return { content: [{ type: "text", text: "No host data for this period." }] };

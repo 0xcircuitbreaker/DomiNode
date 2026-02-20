@@ -230,7 +230,9 @@ router.post("/:id/freeze", financialLimiter, async (req, res) => {
       id: wallet.id,
       label: wallet.label,
       balanceCents: wallet.balance_cents,
+      spendingLimitCents: wallet.spending_limit_cents,
       status: wallet.status,
+      createdAt: wallet.created_at,
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -261,7 +263,9 @@ router.post("/:id/unfreeze", financialLimiter, async (req, res) => {
       id: wallet.id,
       label: wallet.label,
       balanceCents: wallet.balance_cents,
+      spendingLimitCents: wallet.spending_limit_cents,
       status: wallet.status,
+      createdAt: wallet.created_at,
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

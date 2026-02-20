@@ -778,6 +778,11 @@ def create_dominusnode_function_handler(
         try:
             return await fn(args)
         except Exception as e:
+            if "401" in str(e):
+                nonlocal auth_token
+                auth_token = None
+                await ensure_auth()
+                return await fn(args)
             return json.dumps({"error": _sanitize_error(str(e))})
 
     return handler

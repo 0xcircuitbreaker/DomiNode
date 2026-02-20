@@ -273,13 +273,20 @@ router.post("/register", async (req, res) => {
       return;
     }
 
+    // MCP agent detection: skip reCAPTCHA for authenticated MCP agents
+    const MCP_AGENT_SECRET_REG = process.env["MCP_AGENT_SECRET"] ?? "";
+    const isMcpAgentReg =
+      req.headers["x-dominusnode-agent"] === "mcp" &&
+      MCP_AGENT_SECRET_REG.length > 0 &&
+      req.headers["x-dominusnode-agent-secret"] === MCP_AGENT_SECRET_REG;
+
     // reCAPTCHA v3 verification (anti-bot)
     const captchaToken = req.body.captchaToken ?? "";
-    if (RECAPTCHA_SECRET_KEY && !captchaToken) {
+    if (RECAPTCHA_SECRET_KEY && !captchaToken && !isMcpAgentReg) {
       res.status(400).json({ error: "CAPTCHA verification required" });
       return;
     }
-    if (RECAPTCHA_SECRET_KEY) {
+    if (RECAPTCHA_SECRET_KEY && !isMcpAgentReg) {
       const captchaValid = await verifyRecaptcha(captchaToken, req.ip ?? "", "register");
       if (!captchaValid) {
         res.status(400).json({ error: "CAPTCHA verification failed. Please try again." });
@@ -420,13 +427,20 @@ router.post("/login", async (req, res) => {
       return;
     }
 
+    // MCP agent detection: skip reCAPTCHA for authenticated MCP agents
+    const MCP_AGENT_SECRET_LOGIN = process.env["MCP_AGENT_SECRET"] ?? "";
+    const isMcpAgentLogin =
+      req.headers["x-dominusnode-agent"] === "mcp" &&
+      MCP_AGENT_SECRET_LOGIN.length > 0 &&
+      req.headers["x-dominusnode-agent-secret"] === MCP_AGENT_SECRET_LOGIN;
+
     // reCAPTCHA v3 verification (anti-bot on login)
     const captchaToken = req.body.captchaToken ?? "";
-    if (RECAPTCHA_SECRET_KEY && !captchaToken) {
+    if (RECAPTCHA_SECRET_KEY && !captchaToken && !isMcpAgentLogin) {
       res.status(400).json({ error: "CAPTCHA verification required" });
       return;
     }
-    if (RECAPTCHA_SECRET_KEY) {
+    if (RECAPTCHA_SECRET_KEY && !isMcpAgentLogin) {
       const captchaValid = await verifyRecaptcha(captchaToken, clientIp, "login");
       if (!captchaValid) {
         res.status(400).json({ error: "CAPTCHA verification failed. Please try again." });

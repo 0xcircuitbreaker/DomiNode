@@ -136,5 +136,7 @@ class DominusNodeToolkit(BaseToolkit):
         if self._sync_client is not None:
             self._sync_client.close()
             self._sync_client = None
-        self._async_client = None
+        if self._async_client is not None:
+            self._async_client.close()
+            self._async_client = None
         self._tools = None

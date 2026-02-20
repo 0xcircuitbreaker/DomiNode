@@ -488,6 +488,7 @@ describe("proxiedFetch tool", () => {
       forEach: (cb: (value: string, key: string) => void) => {
         cb("text/plain", "content-type");
       },
+      get: (_name: string) => null as string | null,
     };
     const mockFetch = vi.fn().mockResolvedValue({
       status: 200,
@@ -732,13 +733,11 @@ describe("listSessions tool", () => {
       sessions: [
         {
           id: "sess-abc",
-          proxyIp: "198.51.100.42",
           startedAt: "2026-02-19T08:00:00Z",
           status: "active",
         },
         {
           id: "sess-def",
-          proxyIp: "203.0.113.17",
           startedAt: "2026-02-19T08:30:00Z",
           status: "active",
         },

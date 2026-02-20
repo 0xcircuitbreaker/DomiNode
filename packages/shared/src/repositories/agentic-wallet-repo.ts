@@ -366,12 +366,12 @@ export async function deleteWallet(
     const walletResult = await client.query<AgenticWallet>(
       `SELECT id, user_id, label, balance_cents, spending_limit_cents, status, created_at
        FROM agentic_wallets
-       WHERE id = $1 AND user_id = $2 AND status != 'deleted'
+       WHERE id = $1 AND user_id = $2 AND status = 'active'
        FOR UPDATE`,
       [walletId, userId],
     );
     if (walletResult.rows.length === 0) {
-      throw new Error("Agentic wallet not found");
+      throw new Error("Agentic wallet not found or not active (frozen wallets must be unfrozen before deletion)");
     }
 
     const agenticWallet = walletResult.rows[0];

@@ -106,6 +106,5 @@ export class TokenManager {
     this.accessToken = null;
     this.refreshTokenValue = null;
     this.refreshPromise = null;
-    this.refreshFn = null;
   }
 }

@@ -12,6 +12,7 @@ export interface ProxyFetchOptions {
   country?: string;
   state?: string;
   city?: string;
+  poolType?: "dc" | "residential" | "auto";
   timeoutMs?: number;
 }
 
@@ -49,23 +50,26 @@ function isBinaryContentType(contentType: string): boolean {
   return BINARY_CONTENT_TYPES.some((t) => lower.includes(t));
 }
 
-function buildProxyUsername(apiKey: string, opts: ProxyFetchOptions): string {
-  let username = encodeURIComponent(apiKey);
+function buildProxyUsername(opts: ProxyFetchOptions): string {
+  const parts: string[] = [];
+  if (opts.poolType && opts.poolType !== "auto") {
+    parts.push(opts.poolType);
+  }
   if (opts.country) {
-    username += `-country_${encodeURIComponent(opts.country.toUpperCase())}`;
+    parts.push(`country-${encodeURIComponent(opts.country.toUpperCase())}`);
   }
   if (opts.state) {
-    username += `-state_${encodeURIComponent(opts.state)}`;
+    parts.push(`state-${encodeURIComponent(opts.state)}`);
   }
   if (opts.city) {
-    username += `-city_${encodeURIComponent(opts.city)}`;
+    parts.push(`city-${encodeURIComponent(opts.city)}`);
   }
-  return username;
+  return parts.length > 0 ? parts.join("-") : "auto";
 }
 
 function buildProxyAuth(apiKey: string, opts: ProxyFetchOptions): string {
-  const username = buildProxyUsername(apiKey, opts);
-  return "Basic " + Buffer.from(`${username}:x`).toString("base64");
+  const username = buildProxyUsername(opts);
+  return "Basic " + Buffer.from(`${username}:${apiKey}`).toString("base64");
 }
 
 const BLOCKED_HOSTNAMES = new Set([

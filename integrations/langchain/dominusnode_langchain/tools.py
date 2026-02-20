@@ -307,8 +307,7 @@ class DominusNodeProxiedFetchTool(BaseTool):
             with httpx.Client(
                 proxy=proxy_url,
                 timeout=30.0,
-                follow_redirects=True,
-                max_redirects=5,
+                follow_redirects=False,
             ) as http_client:
                 response = http_client.request(method_upper, validated_url)
 
@@ -376,8 +375,7 @@ class DominusNodeProxiedFetchTool(BaseTool):
             async with httpx.AsyncClient(
                 proxy=proxy_url,
                 timeout=30.0,
-                follow_redirects=True,
-                max_redirects=5,
+                follow_redirects=False,
             ) as http_client:
                 response = await http_client.request(method_upper, validated_url)
 

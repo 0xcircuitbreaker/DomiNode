@@ -40,6 +40,11 @@ function isPrivateIp(hostname: string): boolean {
     if (embedded.includes(".")) return isPrivateIp(embedded);
     return true;
   }
+  // IPv4-compatible (::x.x.x.x) — deprecated but still parsed
+  const ipv4CompatMatch = noZone.match(/^::(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/);
+  if (ipv4CompatMatch) {
+    return isPrivateIp(ipv4CompatMatch[1]);
+  }
   if (/^fd[0-9a-fA-F]{2}:/i.test(noZone)) return true; // ULA fd00::/8
   if (/^fc[0-9a-fA-F]{2}:/i.test(noZone)) return true; // ULA fc00::/7
   if (/^fe[89abAB][0-9a-fA-F]:/i.test(noZone)) return true; // link-local fe80::/10
@@ -467,9 +472,8 @@ export function createListSessionsTool(client: DominusNodeClient) {
       try {
         const result = await client.sessions.getActive();
         return {
-          sessions: result.sessions.map((s: { id: string; proxyIp: string; startedAt: string; status: string }) => ({
+          sessions: result.sessions.map((s: { id: string; startedAt: string; status: string }) => ({
             id: s.id,
-            proxyIp: s.proxyIp,
             startedAt: s.startedAt,
             status: s.status,
           })),

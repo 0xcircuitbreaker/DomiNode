@@ -39,10 +39,11 @@ describe("proxy tools", () => {
       ok: true,
       status: 200,
       text: () => Promise.resolve(JSON.stringify({
-        httpEndpoint: "proxy.dominusnode.com:8080",
-        socks5Endpoint: "proxy.dominusnode.com:1080",
-        usernameFormat: "API_KEY-country_XX",
+        httpProxy: { host: "proxy.dominusnode.com", port: 8080 },
+        socks5Proxy: { host: "proxy.dominusnode.com", port: 1080 },
         supportedCountries: ["US", "GB", "DE"],
+        blockedCountries: ["CU", "IR", "KP", "RU", "SY"],
+        geoTargeting: { stateSupport: false, citySupport: false, asnSupport: false },
       })),
       headers: new Headers(),
     } as unknown as Response);
@@ -52,6 +53,8 @@ describe("proxy tools", () => {
     const text = (result.content as Array<{ type: string; text: string }>)[0].text;
     expect(text).toContain("proxy.dominusnode.com:8080");
     expect(text).toContain("US, GB, DE");
+    expect(text).toContain("$3.00/GB");
+    expect(text).toContain("$5.00/GB");
   });
 
   it("dominusnode_get_proxy_status returns status info", async () => {
@@ -60,9 +63,11 @@ describe("proxy tools", () => {
       status: 200,
       text: () => Promise.resolve(JSON.stringify({
         status: "healthy",
-        latencyMs: 42,
-        providers: ["Webshare"],
+        avgLatencyMs: 42,
         activeSessions: 5,
+        uptimeSeconds: 3600,
+        endpoints: { http: "proxy.dominusnode.com:8080", socks5: "proxy.dominusnode.com:1080" },
+        supportedCountries: ["US", "GB", "DE"],
       })),
       headers: new Headers(),
     } as unknown as Response);
@@ -72,6 +77,6 @@ describe("proxy tools", () => {
     const text = (result.content as Array<{ type: string; text: string }>)[0].text;
     expect(text).toContain("healthy");
     expect(text).toContain("42ms");
-    expect(text).toContain("Webshare");
+    expect(text).toContain("3600s");
   });
 });

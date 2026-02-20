@@ -24,6 +24,9 @@ tools:
   - check_agentic_balance
   - list_agentic_wallets
   - agentic_transactions
+  - freeze_agentic_wallet
+  - unfreeze_agentic_wallet
+  - delete_agentic_wallet
   - create_team
   - list_teams
   - team_details
@@ -59,6 +62,9 @@ Route web requests through DomiNode's rotating proxy network. Supports datacente
 - **check_agentic_balance** - Check an agentic wallet's balance and status
 - **list_agentic_wallets** - List all agentic wallets with balances
 - **agentic_transactions** - View transaction history for an agentic wallet
+- **freeze_agentic_wallet** - Freeze an agentic wallet to prevent spending
+- **unfreeze_agentic_wallet** - Unfreeze a previously frozen agentic wallet
+- **delete_agentic_wallet** - Delete an agentic wallet and refund remaining balance
 
 ### Team Tools
 - **create_team** - Create a new team with shared billing

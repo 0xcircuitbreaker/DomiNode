@@ -3,7 +3,6 @@ import type { HttpClient } from "./http.js";
 export interface ActiveSessionEntry {
   id: string;
   startedAt: string;
-  proxyIp: string;
   status: string;
 }
 

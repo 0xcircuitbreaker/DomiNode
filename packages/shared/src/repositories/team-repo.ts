@@ -240,6 +240,12 @@ export async function deleteTeam(
       [teamId],
     );
 
+    // Remove all team members
+    await client.query(
+      `DELETE FROM team_members WHERE team_id = $1`,
+      [teamId],
+    );
+
     // Mark team as deleted
     await client.query(
       `UPDATE teams SET status = 'deleted' WHERE id = $1`,

@@ -171,7 +171,7 @@ export function registerTeamsTools(server: McpServer, httpClient: HttpClient): v
             lines.push(`  ${m.email} — ${m.role} (joined ${m.joinedAt})`);
           }
         } else {
-          lines.push(``, `Use dominusnode_team_add_member to view and manage members.`);
+          lines.push(``, `Use dominusnode_team_list_members to view members.`);
         }
 
         return { content: [{ type: "text", text: lines.join("\n") }] };
