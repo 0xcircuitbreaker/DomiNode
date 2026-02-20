@@ -92,11 +92,10 @@ export async function createDominusNodeTools(
 
   // Create and authenticate the client
   const client = new DominusNodeClient({
+    apiKey: config.apiKey,
     baseUrl: config.baseUrl,
     proxyHost: config.proxyHost,
-    httpProxyPort: config.httpProxyPort,
-    socks5ProxyPort: config.socks5ProxyPort,
-  });
+  } as any);
 
   await client.connectWithKey(config.apiKey);
 

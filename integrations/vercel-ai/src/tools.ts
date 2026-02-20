@@ -215,7 +215,7 @@ const MAX_RESPONSE_BODY_BYTES = 10 * 1024 * 1024;
  * rotating proxy network.
  */
 export function createProxiedFetchTool(client: DominusNodeClient, apiKey: string) {
-  return tool({
+  return (tool as any)({
     description:
       "Make an HTTP request through DomiNode's rotating proxy network. " +
       "Supports geo-targeting by country and choice of datacenter (dc) or residential proxy. " +
@@ -236,7 +236,7 @@ export function createProxiedFetchTool(client: DominusNodeClient, apiKey: string
         .default("dc")
         .describe("Proxy pool type: 'dc' for datacenter ($3/GB) or 'residential' ($5/GB)"),
       headers: z
-        .record(z.string())
+        .record(z.string(), z.string())
         .optional()
         .describe("Optional HTTP headers to include in the request"),
     }),
@@ -343,7 +343,7 @@ export function createProxiedFetchTool(client: DominusNodeClient, apiKey: string
  * Creates the `checkBalance` tool that retrieves the current wallet balance.
  */
 export function createCheckBalanceTool(client: DominusNodeClient) {
-  return tool({
+  return (tool as any)({
     description:
       "Check the current DomiNode wallet balance. " +
       "Returns balance in cents and USD. Use this before making proxy requests " +
@@ -370,7 +370,7 @@ export function createCheckBalanceTool(client: DominusNodeClient) {
  * Creates the `checkUsage` tool that retrieves usage statistics.
  */
 export function createCheckUsageTool(client: DominusNodeClient) {
-  return tool({
+  return (tool as any)({
     description:
       "Check DomiNode proxy usage statistics for a given time period. " +
       "Returns total bytes transferred, cost, and request count.",
@@ -406,16 +406,19 @@ export function createCheckUsageTool(client: DominusNodeClient) {
           limit: 100,
         });
 
+        const summary = usage.summary as Record<string, unknown>;
+        const records = usage.records as unknown[];
+
         return {
           summary: {
-            totalBytes: usage.summary.totalBytes,
-            totalGB: usage.summary.totalGB,
-            totalCostCents: usage.summary.totalCostCents,
-            totalCostUsd: usage.summary.totalCostUsd,
-            requestCount: usage.summary.requestCount,
+            totalBytes: summary.totalBytes,
+            totalGB: summary.totalGB,
+            totalCostCents: summary.totalCostCents,
+            totalCostUsd: summary.totalCostUsd,
+            requestCount: summary.requestCount,
           },
           period: usage.period,
-          recordCount: usage.records.length,
+          recordCount: records.length,
         };
       } catch (err) {
         const message = err instanceof Error ? err.message : "Unknown error";
@@ -429,7 +432,7 @@ export function createCheckUsageTool(client: DominusNodeClient) {
  * Creates the `getProxyConfig` tool that retrieves proxy endpoint configuration.
  */
 export function createGetProxyConfigTool(client: DominusNodeClient) {
-  return tool({
+  return (tool as any)({
     description:
       "Get DomiNode proxy endpoint configuration including supported countries, " +
       "geo-targeting capabilities, and connection details. Use this to discover " +
@@ -438,10 +441,12 @@ export function createGetProxyConfigTool(client: DominusNodeClient) {
     execute: async () => {
       try {
         const config = await client.proxy.getConfig();
+        const httpProxy = config.httpProxy as Record<string, unknown>;
+        const socks5Proxy = config.socks5Proxy as Record<string, unknown>;
         return {
           endpoints: {
-            http: `${config.httpProxy.host}:${config.httpProxy.port}`,
-            socks5: `${config.socks5Proxy.host}:${config.socks5Proxy.port}`,
+            http: `${httpProxy.host}:${httpProxy.port}`,
+            socks5: `${socks5Proxy.host}:${socks5Proxy.port}`,
           },
           supportedCountries: config.supportedCountries,
           blockedCountries: config.blockedCountries,
@@ -463,7 +468,7 @@ export function createGetProxyConfigTool(client: DominusNodeClient) {
  * Creates the `listSessions` tool that lists active proxy sessions.
  */
 export function createListSessionsTool(client: DominusNodeClient) {
-  return tool({
+  return (tool as any)({
     description:
       "List all currently active proxy sessions. Shows session ID, " +
       "start time, and status for each active connection.",
