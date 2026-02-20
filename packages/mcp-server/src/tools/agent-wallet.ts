@@ -361,7 +361,7 @@ export function registerAgentWalletTools(server: McpServer, httpClient: HttpClie
           ``,
           `Refunded: $${(data.refundedCents / 100).toFixed(2)} to your main wallet`,
           ``,
-          `The wallet and all its transaction history have been removed.`,
+          `The wallet has been deactivated and its balance refunded. Transaction records are retained for auditing.`,
         ].join("\n");
 
         return { content: [{ type: "text", text }] };

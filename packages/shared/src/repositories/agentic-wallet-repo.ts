@@ -290,23 +290,26 @@ export async function getTransactions(
   limit = Math.max(1, Math.min(100, limit));
   offset = Math.max(0, offset);
 
-  // Verify ownership first
-  const ownerCheck = await query<{ id: string }>(
-    `SELECT id FROM agentic_wallets WHERE id = $1 AND user_id = $2 AND status != 'deleted'`,
-    [walletId, userId],
-  );
-  if (ownerCheck.rows.length === 0) {
-    throw new Error("Agentic wallet not found");
-  }
-
+  // H-2: Atomic ownership check + data fetch via JOIN (prevents TOCTOU with GDPR deletion)
   const result = await query<AgenticWalletTransaction>(
-    `SELECT id, wallet_id, type, amount_cents, description, session_id, created_at
-     FROM agentic_wallet_transactions
-     WHERE wallet_id = $1
-     ORDER BY created_at DESC
-     LIMIT $2 OFFSET $3`,
-    [walletId, limit, offset],
+    `SELECT t.id, t.wallet_id, t.type, t.amount_cents, t.description, t.session_id, t.created_at
+     FROM agentic_wallet_transactions t
+     JOIN agentic_wallets w ON w.id = t.wallet_id
+     WHERE t.wallet_id = $1 AND w.user_id = $2 AND w.status != 'deleted'
+     ORDER BY t.created_at DESC
+     LIMIT $3 OFFSET $4`,
+    [walletId, userId, limit, offset],
   );
+  // If no transactions returned, verify the wallet exists (could be zero transactions vs not found)
+  if (result.rows.length === 0) {
+    const check = await query<{ id: string }>(
+      `SELECT id FROM agentic_wallets WHERE id = $1 AND user_id = $2 AND status != 'deleted'`,
+      [walletId, userId],
+    );
+    if (check.rows.length === 0) {
+      throw new Error("Agentic wallet not found");
+    }
+  }
   return result.rows;
 }
 
