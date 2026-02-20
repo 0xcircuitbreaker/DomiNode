@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { EventEmitter } from "events";
 import {
   createProxiedFetchTool,
   createCheckBalanceTool,
@@ -11,6 +12,44 @@ import {
   createDominusNodeTools,
   createDominusNodeToolsFromClient,
 } from "../src/create-tools.js";
+
+// ---------------------------------------------------------------------------
+// Mock node:http for proxy routing tests
+// ---------------------------------------------------------------------------
+const mockHttpBehavior: { mode: "error" | "respond" | "passthrough"; errorMsg?: string; responseBody?: string } = { mode: "passthrough" };
+
+vi.mock("node:http", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:http")>();
+  return {
+    ...actual,
+    request: (...args: any[]) => {
+      if (mockHttpBehavior.mode === "error") {
+        const mockReq = Object.assign(new EventEmitter(), { end: vi.fn() });
+        setTimeout(() => mockReq.emit("error", new Error(mockHttpBehavior.errorMsg || "Mock error")), 5);
+        return mockReq as any;
+      }
+      if (mockHttpBehavior.mode === "respond") {
+        const mockRes = Object.assign(new EventEmitter(), {
+          statusCode: 200,
+          statusMessage: "OK",
+          headers: { "content-type": "text/plain" } as Record<string, string | string[]>,
+        });
+        const mockReq = Object.assign(new EventEmitter(), { end: vi.fn() });
+        const cb = typeof args[1] === "function" ? args[1] : args[0]?.callback;
+        setTimeout(() => {
+          if (cb) cb(mockRes);
+          setTimeout(() => {
+            mockRes.emit("data", Buffer.from(mockHttpBehavior.responseBody || ""));
+            mockRes.emit("end");
+          }, 5);
+        }, 5);
+        return mockReq as any;
+      }
+      // passthrough to real implementation
+      return actual.request(...(args as [any]));
+    },
+  };
+});
 
 // ---------------------------------------------------------------------------
 // Mock the DominusNodeClient
@@ -414,34 +453,14 @@ describe("proxiedFetch tool", () => {
   });
 
   it("builds proxy URL with country geo-targeting", async () => {
-    // Mock global fetch so the actual request doesn't go out
-    const mockFetch = vi.fn().mockResolvedValue({
-      status: 200,
-      statusText: "OK",
-      text: vi.fn().mockResolvedValue('{"origin": "1.2.3.4"}'),
-      headers: new Map([["content-type", "application/json"]]) as any,
-    });
-
-    // Provide a minimal mock that has forEach
-    const mockHeaders = {
-      forEach: (cb: (value: string, key: string) => void) => {
-        cb("application/json", "content-type");
-      },
-    };
-    mockFetch.mockResolvedValue({
-      status: 200,
-      statusText: "OK",
-      text: vi.fn().mockResolvedValue('{"origin": "1.2.3.4"}'),
-      headers: mockHeaders,
-    });
-
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = mockFetch;
+    // Use mock HTTP to prevent real connections
+    mockHttpBehavior.mode = "respond";
+    mockHttpBehavior.responseBody = '{"origin": "1.2.3.4"}';
 
     try {
       await proxiedFetch.execute(
         {
-          url: "https://httpbin.org/ip",
+          url: "http://httpbin.org/ip",
           method: "GET",
           country: "US",
           proxyType: "dc",
@@ -454,16 +473,13 @@ describe("proxiedFetch tool", () => {
         country: "US",
       });
     } finally {
-      globalThis.fetch = originalFetch;
+      mockHttpBehavior.mode = "passthrough";
     }
   });
 
   it("sanitizes API keys from error messages", async () => {
-    const mockFetch = vi.fn().mockRejectedValue(
-      new Error("Connection failed to dn_live_testkey123@proxy.dominusnode.com"),
-    );
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = mockFetch;
+    mockHttpBehavior.mode = "error";
+    mockHttpBehavior.errorMsg = "Connection failed to dn_live_testkey123@proxy.dominusnode.com";
 
     try {
       const result = await proxiedFetch.execute(
@@ -478,31 +494,18 @@ describe("proxiedFetch tool", () => {
       expect((result as any).error).not.toContain("dn_live_testkey123");
       expect((result as any).error).toContain("***");
     } finally {
-      globalThis.fetch = originalFetch;
+      mockHttpBehavior.mode = "passthrough";
     }
   });
 
   it("truncates large response bodies", async () => {
-    const largeBody = "x".repeat(8000);
-    const mockHeaders = {
-      forEach: (cb: (value: string, key: string) => void) => {
-        cb("text/plain", "content-type");
-      },
-      get: (_name: string) => null as string | null,
-    };
-    const mockFetch = vi.fn().mockResolvedValue({
-      status: 200,
-      statusText: "OK",
-      text: vi.fn().mockResolvedValue(largeBody),
-      headers: mockHeaders,
-    });
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = mockFetch;
+    mockHttpBehavior.mode = "respond";
+    mockHttpBehavior.responseBody = "x".repeat(8000);
 
     try {
       const result = await proxiedFetch.execute(
         {
-          url: "https://example.com/big",
+          url: "http://example.com/big",
           method: "GET",
           proxyType: "dc",
         },
@@ -512,7 +515,7 @@ describe("proxiedFetch tool", () => {
       expect((result as any).body.length).toBeLessThan(8000);
       expect((result as any).body).toContain("[truncated");
     } finally {
-      globalThis.fetch = originalFetch;
+      mockHttpBehavior.mode = "passthrough";
     }
   });
 });

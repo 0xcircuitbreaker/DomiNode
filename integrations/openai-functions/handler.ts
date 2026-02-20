@@ -24,6 +24,9 @@
  */
 
 import dns from "dns/promises";
+import * as http from "node:http";
+import * as net from "node:net";
+import * as tls from "node:tls";
 
 // ---------------------------------------------------------------------------
 // SSRF Prevention -- URL validation
@@ -279,6 +282,15 @@ const ALLOWED_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 // ---------------------------------------------------------------------------
 // Configuration
 // ---------------------------------------------------------------------------
+
+function getProxyHost(): string {
+  return process.env.DOMINUSNODE_PROXY_HOST || "proxy.dominusnode.com";
+}
+function getProxyPort(): number {
+  const port = parseInt(process.env.DOMINUSNODE_PROXY_PORT || "8080", 10);
+  if (isNaN(port) || port < 1 || port > 65535) return 8080;
+  return port;
+}
 
 export interface DominusNodeFunctionConfig {
   /** DomiNode API key (starts with dn_live_ or dn_test_). */
@@ -552,21 +564,120 @@ export function createDominusNodeFunctionHandler(
         }
       }
 
-      // For the function handler, we make the request through the REST API
-      // proxy-fetch endpoint rather than a raw TCP proxy connection.
-      // This keeps the handler portable (no net/tls imports needed).
-      const fetchResult = await api("POST", "/api/proxy/fetch", {
-        url,
-        method,
-        headers: safeHeaders,
-        country: country?.toUpperCase(),
-        proxyType,
+      // Route through proxy gateway directly
+      const proxyHost = getProxyHost();
+      const proxyPort = getProxyPort();
+      const apiKey = config.apiKey;
+      const parts: string[] = [];
+      if (proxyType && proxyType !== "auto") parts.push(proxyType);
+      if (country) parts.push(`country-${country.toUpperCase()}`);
+      const username = parts.length > 0 ? parts.join("-") : "auto";
+      const proxyAuth = "Basic " + Buffer.from(`${username}:${apiKey}`).toString("base64");
+
+      const parsed = new URL(url);
+      const MAX_BODY_BYTES = 1_048_576; // 1MB response cap
+
+      const result = await new Promise<{ status: number; headers: Record<string, string>; body: string }>((resolve, reject) => {
+        const timeout = setTimeout(() => reject(new Error("Proxy request timed out after 30000ms")), 30_000);
+
+        if (parsed.protocol === "https:") {
+          // HTTPS: CONNECT tunnel + TLS
+          const connectReq = http.request({
+            hostname: proxyHost,
+            port: proxyPort,
+            method: "CONNECT",
+            path: `${parsed.hostname}:${parsed.port || 443}`,
+            headers: { "Proxy-Authorization": proxyAuth, Host: `${parsed.hostname}:${parsed.port || 443}` },
+          });
+          connectReq.on("connect", (_res, tunnelSocket) => {
+            if (_res.statusCode !== 200) {
+              clearTimeout(timeout);
+              tunnelSocket.destroy();
+              reject(new Error(`CONNECT failed: ${_res.statusCode}`));
+              return;
+            }
+            const tlsSocket = tls.connect({
+              host: parsed.hostname,
+              socket: tunnelSocket,
+              servername: parsed.hostname,
+              minVersion: "TLSv1.2",
+            }, () => {
+              const reqPath = parsed.pathname + parsed.search;
+              let reqLine = `${method} ${reqPath} HTTP/1.1\r\nHost: ${parsed.host}\r\nUser-Agent: dominusnode-openai-functions/1.0.0\r\nAccept: */*\r\nConnection: close\r\n`;
+              for (const [k, v] of Object.entries(safeHeaders)) {
+                if (!["host", "user-agent", "connection"].includes(k.toLowerCase())) {
+                  reqLine += `${k}: ${v}\r\n`;
+                }
+              }
+              reqLine += "\r\n";
+              tlsSocket.write(reqLine);
+              const chunks: Buffer[] = [];
+              let byteCount = 0;
+              tlsSocket.on("data", (chunk: Buffer) => {
+                byteCount += chunk.length;
+                if (byteCount <= MAX_BODY_BYTES + 16384) chunks.push(chunk);
+              });
+              const finalize = () => {
+                clearTimeout(timeout);
+                const raw = Buffer.concat(chunks).toString("utf-8");
+                const headerEnd = raw.indexOf("\r\n\r\n");
+                if (headerEnd === -1) { reject(new Error("Malformed response")); return; }
+                const headerSection = raw.substring(0, headerEnd);
+                const body = raw.substring(headerEnd + 4).substring(0, MAX_BODY_BYTES);
+                const statusLine = headerSection.split("\r\n")[0];
+                const statusMatch = statusLine.match(/^HTTP\/\d\.\d\s+(\d+)/);
+                const status = statusMatch ? parseInt(statusMatch[1], 10) : 0;
+                const headers: Record<string, string> = {};
+                for (const line of headerSection.split("\r\n").slice(1)) {
+                  const ci = line.indexOf(":");
+                  if (ci > 0) headers[line.substring(0, ci).trim().toLowerCase()] = line.substring(ci + 1).trim();
+                }
+                resolve({ status, headers, body });
+              };
+              tlsSocket.on("end", finalize);
+              tlsSocket.on("close", finalize);
+              tlsSocket.on("error", (err) => { clearTimeout(timeout); reject(err); });
+            });
+            tlsSocket.on("error", (err) => { clearTimeout(timeout); reject(err); });
+          });
+          connectReq.on("error", (err) => { clearTimeout(timeout); reject(err); });
+          connectReq.end();
+        } else {
+          // HTTP: direct proxy request
+          const req = http.request({
+            hostname: proxyHost,
+            port: proxyPort,
+            method,
+            path: url,
+            headers: { ...safeHeaders, "Proxy-Authorization": proxyAuth, Host: parsed.host },
+          }, (res) => {
+            const chunks: Buffer[] = [];
+            let byteCount = 0;
+            res.on("data", (chunk: Buffer) => { byteCount += chunk.length; if (byteCount <= MAX_BODY_BYTES) chunks.push(chunk); });
+            const finalize = () => {
+              clearTimeout(timeout);
+              const body = Buffer.concat(chunks).toString("utf-8").substring(0, MAX_BODY_BYTES);
+              const headers: Record<string, string> = {};
+              for (const [k, v] of Object.entries(res.headers)) {
+                if (v) headers[k] = Array.isArray(v) ? v.join(", ") : v;
+              }
+              resolve({ status: res.statusCode ?? 0, headers, body });
+            };
+            res.on("end", finalize);
+            res.on("close", finalize);
+            res.on("error", (err) => { clearTimeout(timeout); reject(err); });
+          });
+          req.on("error", (err) => { clearTimeout(timeout); reject(err); });
+          req.end();
+        }
       });
 
-      return JSON.stringify(fetchResult);
+      return JSON.stringify({
+        status: result.status,
+        headers: result.headers,
+        body: result.body.substring(0, 4000), // Truncate for AI consumption
+      });
     } catch (err) {
-      // Fallback: if the proxy-fetch REST endpoint is not available,
-      // make a direct proxied HTTP request
       return JSON.stringify({
         error: `Proxy fetch failed: ${sanitizeError(err instanceof Error ? err.message : String(err))}`,
         hint: "Ensure the DomiNode proxy gateway is running and accessible.",

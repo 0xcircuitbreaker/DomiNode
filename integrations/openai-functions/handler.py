@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import ipaddress
 import json
+import os
 import re
 import socket
 from datetime import datetime, timedelta, timezone
@@ -468,14 +469,41 @@ def create_dominusnode_function_handler(
                 safe_headers[key] = str(value)
 
         try:
-            result = await api_request("POST", "/api/proxy/fetch", {
-                "url": url,
-                "method": method,
-                "headers": safe_headers,
-                "country": country.upper() if country else None,
-                "proxyType": proxy_type,
-            })
-            return json.dumps(result)
+            proxy_host = os.environ.get("DOMINUSNODE_PROXY_HOST", "proxy.dominusnode.com")
+            proxy_port = os.environ.get("DOMINUSNODE_PROXY_PORT", "8080")
+            api_key_val = api_key  # from outer scope
+
+            # Build proxy username for routing
+            parts: list[str] = []
+            if proxy_type and proxy_type != "auto":
+                parts.append(proxy_type)
+            if country:
+                parts.append(f"country-{country.upper()}")
+            username = "-".join(parts) if parts else "auto"
+
+            proxy_url = f"http://{username}:{api_key_val}@{proxy_host}:{proxy_port}"
+
+            async with httpx.AsyncClient(
+                proxy=proxy_url,
+                timeout=30.0,
+                follow_redirects=False,
+                max_redirects=0,
+            ) as proxy_client:
+                resp = await proxy_client.request(
+                    method=method,
+                    url=url,
+                    headers=safe_headers,
+                )
+                body = resp.text[:4000]  # Truncate for AI consumption
+                resp_headers = dict(resp.headers)
+                # Scrub sensitive headers
+                for h in ("set-cookie", "www-authenticate", "proxy-authenticate"):
+                    resp_headers.pop(h, None)
+                return json.dumps({
+                    "status": resp.status_code,
+                    "headers": resp_headers,
+                    "body": body,
+                })
         except Exception as e:
             return json.dumps({
                 "error": f"Proxy fetch failed: {_sanitize_error(str(e))}",

@@ -1,6 +1,9 @@
 import { tool } from "ai";
 import { z } from "zod";
 import dns from "dns/promises";
+import * as http from "node:http";
+import * as net from "node:net";
+import * as tls from "node:tls";
 import type { DominusNodeClient } from "@dominusnode/sdk";
 
 // ---------------------------------------------------------------------------
@@ -266,66 +269,100 @@ export function createProxiedFetchTool(client: DominusNodeClient, apiKey: string
       });
 
       try {
-        // Use Node.js native fetch with proxy agent
-        // The proxy URL format is: http://user-country_XX:apikey@host:port
-        // We construct the request manually via the proxy CONNECT method
         const proxyUrlObj = new URL(proxyUrl);
+        const proxyHost = proxyUrlObj.hostname;
+        const proxyPort = parseInt(proxyUrlObj.port || "8080", 10);
+        const proxyAuth =
+          "Basic " +
+          Buffer.from(`${proxyUrlObj.username}:${proxyUrlObj.password}`).toString("base64");
 
-        // Build fetch options
-        const fetchOpts: RequestInit & { headers: Record<string, string> } = {
-          method,
-          headers: {
-            ...(headers ?? {}),
-            "Proxy-Authorization":
-              "Basic " +
-              Buffer.from(`${proxyUrlObj.username}:${proxyUrlObj.password}`).toString("base64"),
-          },
-          redirect: "manual" as RequestRedirect,
-        };
+        // Validate custom headers for CRLF injection
+        const STRIPPED_HEADERS = new Set(["host", "connection", "content-length", "transfer-encoding", "proxy-authorization", "authorization", "user-agent"]);
+        const safeHeaders: Record<string, string> = {};
+        if (headers) {
+          for (const [k, v] of Object.entries(headers)) {
+            if (/[\r\n\0]/.test(k) || /[\r\n\0]/.test(v)) {
+              return { error: `Header "${k.replace(/[\r\n\0]/g, "")}" contains invalid characters` };
+            }
+            if (!STRIPPED_HEADERS.has(k.toLowerCase())) {
+              safeHeaders[k] = v;
+            }
+          }
+        }
 
-        // For HTTP targets, we can route through the proxy directly
-        // For HTTPS, the proxy handles CONNECT tunneling
         const targetUrl = validation.url;
+        const MAX_RESP = 1_048_576; // 1MB
 
-        // Make the proxied request
-        // Note: In production, this uses the HTTP proxy with CONNECT for HTTPS
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 30_000); // 30s timeout
+        const result = await new Promise<{ status: number; statusText: string; headers: Record<string, string>; body: string }>((resolve, reject) => {
+          const timer = setTimeout(() => reject(new Error("Proxy request timed out")), 30_000);
 
-        let response: Response;
-        try {
-          // The Vercel AI SDK tool runs server-side where we can use the proxy.
-          // We send the request to the proxy host with the full target URL.
-          response = await fetch(targetUrl.toString(), {
-            ...fetchOpts,
-            signal: controller.signal,
-          });
-        } finally {
-          clearTimeout(timeout);
-        }
+          const customHeaderLines = Object.entries(safeHeaders).map(([k, v]) => `${k}: ${v}\r\n`).join("");
 
-        // Check Content-Length before reading body (H-8)
-        const contentLength = response.headers.get("content-length");
-        if (contentLength && parseInt(contentLength, 10) > MAX_RESPONSE_BODY_BYTES) {
-          return { error: "Response too large (exceeds 10MB limit)" };
-        }
-
-        // Read response body with size limit, then truncate for AI
-        const rawBody = await response.text();
-        if (rawBody.length > MAX_RESPONSE_BODY_BYTES) {
-          return { error: "Response too large (exceeds 10MB limit)" };
-        }
-
-        const responseHeaders: Record<string, string> = {};
-        response.headers.forEach((value, key) => {
-          responseHeaders[key] = value;
+          if (targetUrl.protocol === "https:") {
+            // HTTPS: use CONNECT tunnel through proxy
+            const connectReq = http.request({
+              hostname: proxyHost, port: proxyPort, method: "CONNECT",
+              path: `${targetUrl.hostname}:${targetUrl.port || 443}`,
+              headers: { "Proxy-Authorization": proxyAuth, Host: `${targetUrl.hostname}:${targetUrl.port || 443}` },
+            });
+            connectReq.on("connect", (_res, sock) => {
+              if (_res.statusCode !== 200) { clearTimeout(timer); sock.destroy(); reject(new Error(`CONNECT failed: ${_res.statusCode}`)); return; }
+              const tlsSock = tls.connect({ host: targetUrl.hostname, socket: sock as net.Socket, servername: targetUrl.hostname, minVersion: "TLSv1.2" }, () => {
+                const reqLine = `${method} ${targetUrl.pathname + targetUrl.search} HTTP/1.1\r\nHost: ${targetUrl.host}\r\nUser-Agent: dominusnode-vercel-ai/1.0.0\r\n${customHeaderLines}Connection: close\r\n\r\n`;
+                tlsSock.write(reqLine);
+                const chunks: Buffer[] = []; let bytes = 0;
+                tlsSock.on("data", (c: Buffer) => { bytes += c.length; if (bytes <= MAX_RESP + 16384) chunks.push(c); });
+                let done = false;
+                const fin = () => { if (done) return; done = true; clearTimeout(timer);
+                  const raw = Buffer.concat(chunks).toString("utf-8");
+                  const hEnd = raw.indexOf("\r\n\r\n");
+                  if (hEnd === -1) { reject(new Error("Malformed response")); return; }
+                  const hdr = raw.substring(0, hEnd); const body = raw.substring(hEnd + 4).substring(0, MAX_RESP);
+                  const sm = hdr.split("\r\n")[0].match(/^HTTP\/\d\.\d\s+(\d+)\s*(.*)/);
+                  const hdrs: Record<string, string> = {};
+                  for (const l of hdr.split("\r\n").slice(1)) { const ci = l.indexOf(":"); if (ci > 0) hdrs[l.substring(0, ci).trim().toLowerCase()] = l.substring(ci + 1).trim(); }
+                  resolve({ status: sm ? parseInt(sm[1], 10) : 0, statusText: sm ? sm[2] ?? "" : "", headers: hdrs, body });
+                };
+                tlsSock.on("end", fin); tlsSock.on("close", fin);
+                tlsSock.on("error", (e) => { clearTimeout(timer); reject(e); });
+              });
+              tlsSock.on("error", (e) => { clearTimeout(timer); reject(e); });
+            });
+            connectReq.on("error", (e) => { clearTimeout(timer); reject(e); });
+            connectReq.end();
+          } else {
+            // HTTP: route through proxy with full URL as request path
+            const req = http.request({
+              hostname: proxyHost, port: proxyPort, method, path: targetUrl.toString(),
+              headers: { "Proxy-Authorization": proxyAuth, Host: targetUrl.host ?? "", ...safeHeaders },
+            }, (res) => {
+              const chunks: Buffer[] = []; let bytes = 0;
+              res.on("data", (c: Buffer) => { bytes += c.length; if (bytes <= MAX_RESP) chunks.push(c); });
+              let done = false;
+              const fin = () => { if (done) return; done = true; clearTimeout(timer);
+                const body = Buffer.concat(chunks).toString("utf-8").substring(0, MAX_RESP);
+                const hdrs: Record<string, string> = {};
+                for (const [k, v] of Object.entries(res.headers)) { if (v) hdrs[k] = Array.isArray(v) ? v.join(", ") : v; }
+                resolve({ status: res.statusCode ?? 0, statusText: res.statusMessage ?? "", headers: hdrs, body });
+              };
+              res.on("end", fin); res.on("close", fin);
+              res.on("error", (e) => { clearTimeout(timer); reject(e); });
+            });
+            req.on("error", (e) => { clearTimeout(timer); reject(e); });
+            req.end();
+          }
         });
 
+        // Check response size
+        if (result.body.length > MAX_RESPONSE_BODY_BYTES) {
+          return { error: "Response too large (exceeds 10MB limit)" };
+        }
+
         return {
-          status: response.status,
-          statusText: response.statusText,
-          headers: filterHeaders(responseHeaders),
-          body: truncateBody(rawBody),
+          status: result.status,
+          statusText: result.statusText,
+          headers: filterHeaders(result.headers),
+          body: truncateBody(result.body),
           proxyType,
           country: country ?? "auto",
         };

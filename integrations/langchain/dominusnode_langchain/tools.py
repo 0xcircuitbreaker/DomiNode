@@ -301,7 +301,7 @@ class DominusNodeProxiedFetchTool(BaseTool):
             return "Error: No DomiNode client configured. Initialize the toolkit first."
 
         try:
-            options = ProxyUrlOptions(country=country)
+            options = ProxyUrlOptions(country=country, proxy_type=proxy_type)
             proxy_url = self.sync_client.proxy.build_url(options)
 
             with httpx.Client(
@@ -369,7 +369,7 @@ class DominusNodeProxiedFetchTool(BaseTool):
         try:
             # build_url is synchronous even on the async client
             client_for_url = self.async_client or self.sync_client
-            options = ProxyUrlOptions(country=country)
+            options = ProxyUrlOptions(country=country, proxy_type=proxy_type)
             proxy_url = client_for_url.proxy.build_url(options)
 
             async with httpx.AsyncClient(

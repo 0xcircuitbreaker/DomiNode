@@ -13,6 +13,9 @@
  *  - OFAC sanctioned country validation
  */
 
+import * as http from "node:http";
+import * as net from "node:net";
+import * as tls from "node:tls";
 import * as dns from "dns/promises";
 
 // ---------------------------------------------------------------------------
@@ -77,6 +80,16 @@ function getBaseUrl(): string {
     return url.trim().replace(/\/+$/, "");
   }
   return "https://api.dominusnode.com";
+}
+
+function getProxyHost(): string {
+  return process.env.DOMINUSNODE_PROXY_HOST || "proxy.dominusnode.com";
+}
+
+function getProxyPort(): number {
+  const port = parseInt(process.env.DOMINUSNODE_PROXY_PORT || "8080", 10);
+  if (isNaN(port) || port < 1 || port > 65535) return 8080;
+  return port;
 }
 
 // ---------------------------------------------------------------------------
@@ -529,11 +542,6 @@ const proxiedFetchTool: ToolDefinition = {
       description: "Additional HTTP headers to include in the request (JSON object of key-value pairs)",
       required: false,
     },
-    body: {
-      type: "string",
-      description: "Request body for POST/PUT/PATCH requests",
-      required: false,
-    },
   },
   execute: async (args) => {
     try {
@@ -548,88 +556,117 @@ const proxiedFetchTool: ToolDefinition = {
       if (!ALLOWED_METHODS.has(method)) {
         return `Error: HTTP method "${method}" is not allowed. Only GET, HEAD, and OPTIONS are permitted.`;
       }
-      const pool = String(args.pool ?? "dc");
-      const bodyContent = args.body ? String(args.body) : undefined;
+      const proxyType = String(args.pool ?? "dc");
 
-      if (bodyContent && ["GET", "HEAD", "OPTIONS"].includes(method)) {
-        return "Error: Request body is not allowed with GET/HEAD/OPTIONS methods.";
-      }
-
-      // Build query params for the proxy fetch API
-      const params = new URLSearchParams();
-      params.set("url", url);
-      params.set("method", method);
-      if (country) params.set("country", country);
-      if (pool) params.set("pool", pool);
-
-      // Use the REST API proxy endpoint
-      const requestBody: Record<string, unknown> = {
-        url,
-        method,
-        pool,
-      };
-      if (country) requestBody.country = country;
-      if (bodyContent) requestBody.body = bodyContent;
-      if (args.headers && typeof args.headers === "object") {
-        // Validate user-supplied headers: block CRLF injection
-        const userHeaders: Record<string, string> = {};
-        for (const [key, value] of Object.entries(args.headers as Record<string, unknown>)) {
-          const k = String(key);
-          const v = String(value);
-          if (/[\r\n\0]/.test(k) || /[\r\n\0]/.test(v)) {
-            return `Error: Header "${k}" contains invalid characters (CR/LF/null injection attempt).`;
+      // Validate and collect custom headers
+      const STRIPPED_HEADERS = new Set(["host", "connection", "content-length", "transfer-encoding", "proxy-authorization", "authorization", "user-agent"]);
+      const customHeaders: Record<string, string> = {};
+      if (args.headers && typeof args.headers === "object" && !Array.isArray(args.headers)) {
+        for (const [k, v] of Object.entries(args.headers as Record<string, unknown>)) {
+          const key = String(k);
+          const val = String(v ?? "");
+          if (/[\r\n\0]/.test(key) || /[\r\n\0]/.test(val)) {
+            return `Error: Header "${key.replace(/[\r\n\0]/g, "")}" contains invalid characters (CR, LF, or NUL).`;
           }
-          // Block security-sensitive header overrides
-          const kLower = k.toLowerCase();
-          if (
-            kLower === "host" ||
-            kLower === "proxy-authorization" ||
-            kLower === "authorization" ||
-            kLower === "transfer-encoding" ||
-            kLower === "connection"
-          ) {
-            continue; // silently skip
+          if (!STRIPPED_HEADERS.has(key.toLowerCase())) {
+            customHeaders[key] = val;
           }
-          userHeaders[k] = v;
         }
-        requestBody.headers = userHeaders;
       }
 
-      const data = await apiPost<{
-        status: number;
-        statusText: string;
-        headers: Record<string, string>;
-        body: string;
-        bodyTruncated: boolean;
-        byteCount: number;
-      }>("/api/proxy/fetch", requestBody);
+      const proxyHost = getProxyHost();
+      const proxyPort = getProxyPort();
+      const apiKey = getApiKey();
+      const parts: string[] = [];
+      if (proxyType && proxyType !== "auto") parts.push(proxyType);
+      if (country) parts.push(`country-${country.toUpperCase()}`);
+      const username = parts.length > 0 ? parts.join("-") : "auto";
+      const proxyAuth = "Basic " + Buffer.from(`${username}:${apiKey}`).toString("base64");
+
+      const parsed = new URL(url);
+      const MAX_RESP = 1_048_576; // 1MB
+
+      // Build custom header lines for raw HTTP request
+      const customHeaderLines = Object.entries(customHeaders).map(([k, v]) => `${k}: ${v}\r\n`).join("");
+
+      const result = await new Promise<{ status: number; headers: Record<string, string>; body: string }>((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error("Proxy request timed out")), 30_000);
+
+        if (parsed.protocol === "https:") {
+          const connectReq = http.request({
+            hostname: proxyHost, port: proxyPort, method: "CONNECT",
+            path: `${parsed.hostname}:${parsed.port || 443}`,
+            headers: { "Proxy-Authorization": proxyAuth, Host: `${parsed.hostname}:${parsed.port || 443}` },
+          });
+          connectReq.on("connect", (_res, sock) => {
+            if (_res.statusCode !== 200) { clearTimeout(timer); sock.destroy(); reject(new Error(`CONNECT failed: ${_res.statusCode}`)); return; }
+            const tlsSock = tls.connect({ host: parsed.hostname, socket: sock as net.Socket, servername: parsed.hostname, minVersion: "TLSv1.2" }, () => {
+              const reqLine = `${method} ${parsed.pathname + parsed.search} HTTP/1.1\r\nHost: ${parsed.host}\r\nUser-Agent: dominusnode-openclaw/1.0.0\r\n${customHeaderLines}Connection: close\r\n\r\n`;
+              tlsSock.write(reqLine);
+              const chunks: Buffer[] = []; let bytes = 0;
+              tlsSock.on("data", (c: Buffer) => { bytes += c.length; if (bytes <= MAX_RESP + 16384) chunks.push(c); });
+              let done = false;
+              const fin = () => { if (done) return; done = true; clearTimeout(timer);
+                const raw = Buffer.concat(chunks).toString("utf-8");
+                const hEnd = raw.indexOf("\r\n\r\n");
+                if (hEnd === -1) { reject(new Error("Malformed response")); return; }
+                const hdr = raw.substring(0, hEnd); const body = raw.substring(hEnd + 4).substring(0, MAX_RESP);
+                const sm = hdr.split("\r\n")[0].match(/^HTTP\/\d\.\d\s+(\d+)/);
+                const hdrs: Record<string, string> = {};
+                for (const l of hdr.split("\r\n").slice(1)) { const ci = l.indexOf(":"); if (ci > 0) hdrs[l.substring(0, ci).trim().toLowerCase()] = l.substring(ci + 1).trim(); }
+                resolve({ status: sm ? parseInt(sm[1], 10) : 0, headers: hdrs, body });
+              };
+              tlsSock.on("end", fin); tlsSock.on("close", fin);
+              tlsSock.on("error", (e) => { clearTimeout(timer); reject(e); });
+            });
+            tlsSock.on("error", (e) => { clearTimeout(timer); reject(e); });
+          });
+          connectReq.on("error", (e) => { clearTimeout(timer); reject(e); });
+          connectReq.end();
+        } else {
+          const req = http.request({
+            hostname: proxyHost, port: proxyPort, method, path: url,
+            headers: { "Proxy-Authorization": proxyAuth, Host: parsed.host ?? "", ...customHeaders },
+          }, (res) => {
+            const chunks: Buffer[] = []; let bytes = 0;
+            res.on("data", (c: Buffer) => { bytes += c.length; if (bytes <= MAX_RESP) chunks.push(c); });
+            let done = false;
+            const fin = () => { if (done) return; done = true; clearTimeout(timer);
+              const body = Buffer.concat(chunks).toString("utf-8").substring(0, MAX_RESP);
+              const hdrs: Record<string, string> = {};
+              for (const [k, v] of Object.entries(res.headers)) { if (v) hdrs[k] = Array.isArray(v) ? v.join(", ") : v; }
+              resolve({ status: res.statusCode ?? 0, headers: hdrs, body });
+            };
+            res.on("end", fin); res.on("close", fin);
+            res.on("error", (e) => { clearTimeout(timer); reject(e); });
+          });
+          req.on("error", (e) => { clearTimeout(timer); reject(e); });
+          req.end();
+        }
+      });
 
       const lines = [
-        `HTTP ${data.status} ${data.statusText}`,
-        `Bytes transferred: ${formatBytes(data.byteCount)}`,
-        `Pool: ${pool} | Country: ${country ?? "auto"}`,
+        `HTTP ${result.status}`,
+        `Pool: ${proxyType} | Country: ${country ?? "auto"}`,
         "",
       ];
 
       // Include relevant response headers
-      if (data.headers) {
+      if (result.headers) {
         const showHeaders = ["content-type", "content-length", "server", "x-cache", "cache-control"];
         for (const h of showHeaders) {
-          if (data.headers[h]) {
-            lines.push(`${h}: ${data.headers[h]}`);
+          if (result.headers[h]) {
+            lines.push(`${h}: ${result.headers[h]}`);
           }
         }
         lines.push("");
       }
 
-      if (data.body) {
-        lines.push(truncate(data.body));
-      }
-      if (data.bodyTruncated) {
-        lines.push("\n[Response body was truncated by the proxy]");
+      if (result.body) {
+        lines.push(truncate(result.body));
       }
 
-      return truncate(lines.join("\n"));
+      return scrubCredentials(truncate(lines.join("\n")));
     } catch (err) {
       return `Error: ${safeError(err)}`;
     }
@@ -686,13 +723,15 @@ const checkUsageTool: ToolDefinition = {
     try {
       const days = Math.min(Math.max(Number(args.days ?? 30), 1), 365);
 
+      const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+      const until = new Date().toISOString();
       const data = await apiGet<{
         summary: {
           totalBytes: number;
           totalCostUsd: number;
           requestCount: number;
         };
-      }>(`/api/usage?days=${days}`);
+      }>(`/api/usage?since=${encodeURIComponent(since)}&until=${encodeURIComponent(until)}`);
 
       const s = data.summary;
       return [

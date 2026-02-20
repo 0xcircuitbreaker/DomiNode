@@ -656,34 +656,34 @@ describe("proxied_fetch tool", () => {
     expect(result).toContain("not allowed");
   });
 
-  it("blocks body on GET requests", async () => {
+  it("ignores unknown body parameter on GET requests", async () => {
+    // body parameter was removed (H-7: dead param since only GET/HEAD/OPTIONS allowed)
+    // Passing it should be harmlessly ignored, triggering proxy connect (not a body-rejection error)
     const result = await fetchTool.execute({
       url: "https://example.com",
       method: "GET",
       body: "some data",
     });
-    expect(result).toContain("Error");
-    expect(result).toContain("not allowed");
+    // Should NOT contain "not allowed" — body is simply ignored
+    expect(result).not.toContain("not allowed");
   });
 
-  it("blocks body on HEAD requests", async () => {
+  it("ignores unknown body parameter on HEAD requests", async () => {
     const result = await fetchTool.execute({
       url: "https://example.com",
       method: "HEAD",
       body: "data",
     });
-    expect(result).toContain("Error");
-    expect(result).toContain("not allowed");
+    expect(result).not.toContain("not allowed");
   });
 
-  it("blocks body on OPTIONS requests", async () => {
+  it("ignores unknown body parameter on OPTIONS requests", async () => {
     const result = await fetchTool.execute({
       url: "https://example.com",
       method: "OPTIONS",
       body: "data",
     });
-    expect(result).toContain("Error");
-    expect(result).toContain("not allowed");
+    expect(result).not.toContain("not allowed");
   });
 
   it("blocks OFAC sanctioned country", async () => {
