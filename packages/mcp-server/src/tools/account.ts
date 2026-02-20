@@ -234,7 +234,7 @@ export function registerAccountTools(server: McpServer, httpClient: HttpClient):
           ``,
           `Free tier: 10 connections, 1GB bandwidth.`,
           `Payments: use dominusnode_pay_crypto to add funds (10 crypto currencies).`,
-          `Set DOMINUSNODE_API_KEY=<your key above> and restart to unlock all 54 tools.`,
+          `Set DOMINUSNODE_API_KEY=<your key above> and restart to unlock all 56 tools.`,
         ].join("\n");
         return { content: [{ type: "text", text }] };
       } catch (err) {

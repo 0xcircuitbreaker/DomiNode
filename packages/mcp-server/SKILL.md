@@ -119,6 +119,10 @@ tools:
     description: List your teams
   - name: dominusnode_team_details
     description: Get team details
+  - name: dominusnode_team_update
+    description: Update team name or max member limit
+  - name: dominusnode_team_update_member_role
+    description: Change a team member's role (admin/member)
   - name: dominusnode_team_add_member
     description: Add a member to a team
   - name: dominusnode_team_remove_member
@@ -171,7 +175,7 @@ If no API key is configured, you can still:
 3. Check payment status with `dominusnode_check_payment`
 4. Check x402 info with `dominusnode_x402_info` for machine-to-machine payments
 
-After setup, set DOMINUSNODE_API_KEY and restart to unlock all 54 tools.
+After setup, set DOMINUSNODE_API_KEY and restart to unlock all 56 tools.
 
 ## Cost Awareness
 

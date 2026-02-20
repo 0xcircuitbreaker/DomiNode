@@ -192,7 +192,7 @@ export function registerWalletAuthTools(server: McpServer, httpClient: HttpClien
           `  curl -x http://auto:<YOUR_API_KEY>@proxy.dominusnode.com:8080 https://httpbin.org/ip`,
           ``,
           `Free tier: 10 connections, 1GB bandwidth.`,
-          `Set DOMINUSNODE_API_KEY=<your key above> and restart to unlock all 53 tools.`,
+          `Set DOMINUSNODE_API_KEY=<your key above> and restart to unlock all 56 tools.`,
         ].join("\n");
 
         return { content: [{ type: "text", text }] };

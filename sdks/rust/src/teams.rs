@@ -13,14 +13,24 @@ pub struct Team {
     pub owner_id: String,
     #[serde(rename = "maxMembers")]
     pub max_members: i32,
+    #[serde(default = "default_status")]
+    pub status: String,
     #[serde(rename = "balanceCents")]
     pub balance_cents: i64,
     #[serde(rename = "createdAt")]
     pub created_at: String,
 }
 
+fn default_status() -> String {
+    "active".to_string()
+}
+
 #[derive(Debug, Deserialize)]
 pub struct TeamMember {
+    #[serde(default)]
+    pub id: String,
+    #[serde(rename = "teamId", default)]
+    pub team_id: String,
     #[serde(rename = "userId")]
     pub user_id: String,
     pub email: String,

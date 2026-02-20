@@ -1,7 +1,7 @@
 /**
  * DomiNode OpenClaw Plugin
  *
- * Implements 19 tools for interacting with DomiNode's rotating proxy service
+ * Implements 21 tools for interacting with DomiNode's rotating proxy service
  * directly from OpenClaw AI coding sessions.
  *
  * Uses native fetch (no external dependencies). Runs via jiti runtime.
@@ -485,6 +485,13 @@ async function apiPost<T = unknown>(
 
 async function apiDelete<T = unknown>(path: string): Promise<T> {
   return apiRequest<T>("DELETE", path);
+}
+
+async function apiPatch<T = unknown>(
+  path: string,
+  body?: Record<string, unknown>,
+): Promise<T> {
+  return apiRequest<T>("PATCH", path, body);
 }
 
 // ---------------------------------------------------------------------------
@@ -1541,6 +1548,132 @@ const deleteAgenticWalletTool: ToolDefinition = {
   },
 };
 
+// 20. update_team
+const updateTeamTool: ToolDefinition = {
+  name: "update_team",
+  description:
+    "Update a team's settings (name and/or max member count). Only owners and admins can update.",
+  parameters: {
+    team_id: {
+      type: "string",
+      description: "Team ID (UUID)",
+      required: true,
+    },
+    name: {
+      type: "string",
+      description: "New team name (1-100 characters). Optional -- omit to keep current.",
+      required: false,
+    },
+    max_members: {
+      type: "number",
+      description: "New max member count (1-100). Optional -- omit to keep current.",
+      required: false,
+    },
+  },
+  execute: async (args) => {
+    try {
+      const teamId = validateUuid(String(args.team_id ?? ""), "team_id");
+
+      const body: Record<string, unknown> = {};
+
+      if (args.name !== undefined) {
+        const name = String(args.name).trim();
+        if (!name || name.length === 0 || name.length > 100) {
+          return "Error: name must be 1-100 characters.";
+        }
+        if (/[\x00-\x1f\x7f]/.test(name)) {
+          return "Error: team name contains invalid control characters.";
+        }
+        body.name = name;
+      }
+
+      if (args.max_members !== undefined) {
+        const maxMembers = Number(args.max_members);
+        if (!Number.isInteger(maxMembers) || maxMembers < 1 || maxMembers > 100) {
+          return "Error: max_members must be an integer between 1 and 100.";
+        }
+        body.maxMembers = maxMembers;
+      }
+
+      if (Object.keys(body).length === 0) {
+        return "Error: At least one of name or max_members must be provided.";
+      }
+
+      const data = await apiPatch<{
+        id: string;
+        name: string;
+        maxMembers: number | null;
+        status: string;
+      }>(`/api/teams/${encodeURIComponent(teamId)}`, body);
+
+      return [
+        "Team Updated",
+        "",
+        `Team ID: ${data.id}`,
+        `Name: ${data.name}`,
+        `Max Members: ${data.maxMembers ?? "Unlimited"}`,
+        `Status: ${data.status}`,
+      ].join("\n");
+    } catch (err) {
+      return `Error: ${safeError(err)}`;
+    }
+  },
+};
+
+// 21. update_team_member_role
+const updateTeamMemberRoleTool: ToolDefinition = {
+  name: "update_team_member_role",
+  description:
+    "Update a team member's role (member or admin). Only owners and admins can change roles.",
+  parameters: {
+    team_id: {
+      type: "string",
+      description: "Team ID (UUID)",
+      required: true,
+    },
+    user_id: {
+      type: "string",
+      description: "User ID (UUID) of the member whose role to change",
+      required: true,
+    },
+    role: {
+      type: "string",
+      description: "New role for the member",
+      required: true,
+      enum: ["member", "admin"],
+    },
+  },
+  execute: async (args) => {
+    try {
+      const teamId = validateUuid(String(args.team_id ?? ""), "team_id");
+      const userId = validateUuid(String(args.user_id ?? ""), "user_id");
+      const role = String(args.role ?? "").trim();
+
+      if (role !== "member" && role !== "admin") {
+        return "Error: role must be 'member' or 'admin'.";
+      }
+
+      const data = await apiPatch<{
+        userId: string;
+        role: string;
+        teamId: string;
+      }>(`/api/teams/${encodeURIComponent(teamId)}/members/${encodeURIComponent(userId)}`, {
+        role,
+      });
+
+      return [
+        "Team Member Role Updated",
+        "",
+        `Team ID: ${data.teamId ?? teamId}`,
+        `User ID: ${data.userId ?? userId}`,
+        `New Role: ${data.role ?? role}`,
+      ].join("\n");
+    } catch (err) {
+      return `Error: ${safeError(err)}`;
+    }
+  },
+};
+
 // ---------------------------------------------------------------------------
 // Plugin export — the tools array that OpenClaw discovers
 // ---------------------------------------------------------------------------
@@ -1565,6 +1698,8 @@ export const tools: ToolDefinition[] = [
   teamFundTool,
   teamCreateKeyTool,
   teamUsageTool,
+  updateTeamTool,
+  updateTeamMemberRoleTool,
 ];
 
 /**

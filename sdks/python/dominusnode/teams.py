@@ -24,6 +24,7 @@ def _parse_team(data: Dict[str, Any]) -> Team:
         name=data["name"],
         owner_id=data["ownerId"],
         max_members=data.get("maxMembers", 0),
+        status=data.get("status", "active"),
         balance_cents=data.get("balanceCents", 0),
         created_at=data.get("createdAt", ""),
     )
@@ -31,6 +32,8 @@ def _parse_team(data: Dict[str, Any]) -> Team:
 
 def _parse_member(data: Dict[str, Any]) -> TeamMember:
     return TeamMember(
+        id=data.get("id", ""),
+        team_id=data.get("teamId", ""),
         user_id=data["userId"],
         email=data["email"],
         role=data["role"],

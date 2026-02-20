@@ -16,6 +16,8 @@ public final class Team {
     @SerializedName("maxMembers")
     private int maxMembers;
 
+    private String status;
+
     @SerializedName("balanceCents")
     private int balanceCents;
 
@@ -26,6 +28,7 @@ public final class Team {
     public String getName() { return name; }
     public String getOwnerId() { return ownerId; }
     public int getMaxMembers() { return maxMembers; }
+    public String getStatus() { return status; }
     public int getBalanceCents() { return balanceCents; }
     public String getCreatedAt() { return createdAt; }
 }

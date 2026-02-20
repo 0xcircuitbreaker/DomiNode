@@ -311,5 +311,54 @@
       },
       "required": ["wallet_id"]
     }
+  },
+  {
+    "name": "dominusnode_update_team",
+    "description": "Update a team's settings. Only team owners and admins can update. You can change the team name and/or maximum member count.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "team_id": {
+          "type": "string",
+          "description": "The UUID of the team to update."
+        },
+        "name": {
+          "type": "string",
+          "description": "New team name (1-100 characters). Optional — omit to keep current name.",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "max_members": {
+          "type": "integer",
+          "description": "New maximum number of team members (1-100). Optional — omit to keep current limit.",
+          "minimum": 1,
+          "maximum": 100
+        }
+      },
+      "required": ["team_id"]
+    }
+  },
+  {
+    "name": "dominusnode_update_team_member_role",
+    "description": "Update a team member's role. Only team owners and admins can change roles. Cannot change the owner's role. Valid roles are 'member' and 'admin'.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "team_id": {
+          "type": "string",
+          "description": "The UUID of the team."
+        },
+        "user_id": {
+          "type": "string",
+          "description": "The UUID of the team member whose role to change."
+        },
+        "role": {
+          "type": "string",
+          "enum": ["member", "admin"],
+          "description": "The new role for the team member."
+        }
+      },
+      "required": ["team_id", "user_id", "role"]
+    }
   }
 ]

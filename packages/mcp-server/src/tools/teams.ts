@@ -167,6 +167,100 @@ export function registerTeamsTools(server: McpServer, httpClient: HttpClient): v
   );
 
   server.tool(
+    "dominusnode_team_update",
+    "Update a team's name or max member limit. Only team owners and admins can update team settings.",
+    {
+      team_id: z.string().regex(UUID_RE).describe("Team ID"),
+      name: z.string().min(1).max(100).optional().describe("New team name"),
+      max_members: z.number().int().min(1).max(100).optional().describe("New maximum member limit"),
+    },
+    async (args) => {
+      try {
+        if (!checkTeamsRateLimit()) {
+          return {
+            isError: true,
+            content: [{ type: "text", text: "Rate limit exceeded: maximum 20 team operations per minute. Please wait before retrying." }],
+          };
+        }
+
+        const body: Record<string, unknown> = {};
+        if (args.name !== undefined) body.name = args.name;
+        if (args.max_members !== undefined) body.maxMembers = args.max_members;
+
+        if (Object.keys(body).length === 0) {
+          return {
+            isError: true,
+            content: [{ type: "text", text: "No updates provided. Specify name and/or max_members to update." }],
+          };
+        }
+
+        const data = await httpClient.patch<{
+          id: string;
+          name: string;
+          ownerId: string;
+          maxMembers: number | null;
+          status: string;
+          createdAt: string;
+        }>(`/api/teams/${encodeURIComponent(args.team_id)}`, body);
+
+        const text = [
+          `Team Updated`,
+          ``,
+          `Team ID: ${data.id}`,
+          `Name: ${data.name}`,
+          `Max Members: ${data.maxMembers ?? "Unlimited"}`,
+          `Status: ${data.status}`,
+        ].join("\n");
+
+        return { content: [{ type: "text", text }] };
+      } catch (err) {
+        return {
+          isError: true,
+          content: [{ type: "text", text: `Error updating team: ${err instanceof Error ? err.message : String(err)}` }],
+        };
+      }
+    },
+  );
+
+  server.tool(
+    "dominusnode_team_update_member_role",
+    "Change a team member's role. Only team owners can change roles. Cannot change the owner's role or your own role.",
+    {
+      team_id: z.string().regex(UUID_RE).describe("Team ID"),
+      user_id: z.string().regex(UUID_RE).describe("User ID of the member to update"),
+      role: z.enum(["member", "admin"]).describe("New role: 'admin' or 'member'"),
+    },
+    async (args) => {
+      try {
+        if (!checkTeamsRateLimit()) {
+          return {
+            isError: true,
+            content: [{ type: "text", text: "Rate limit exceeded: maximum 20 team operations per minute. Please wait before retrying." }],
+          };
+        }
+
+        const data = await httpClient.patch<{
+          id: string;
+          teamId: string;
+          userId: string;
+          role: string;
+          joinedAt: string;
+        }>(`/api/teams/${encodeURIComponent(args.team_id)}/members/${encodeURIComponent(args.user_id)}`, {
+          role: args.role,
+        });
+
+        const text = `Member ${data.userId} role updated to '${data.role}' in team ${data.teamId}.`;
+        return { content: [{ type: "text", text }] };
+      } catch (err) {
+        return {
+          isError: true,
+          content: [{ type: "text", text: `Error updating member role: ${err instanceof Error ? err.message : String(err)}` }],
+        };
+      }
+    },
+  );
+
+  server.tool(
     "dominusnode_team_add_member",
     "Add a member to a team by their email address. Optionally assign a role (default: member).",
     {

@@ -451,12 +451,15 @@ class Team:
     name: str
     owner_id: str
     max_members: int
+    status: str
     balance_cents: int
     created_at: str = ""
 
 
 @dataclass(frozen=True)
 class TeamMember:
+    id: str
+    team_id: str
     user_id: str
     email: str
     role: str

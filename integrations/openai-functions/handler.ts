@@ -957,6 +957,83 @@ export function createDominusNodeFunctionHandler(
     return JSON.stringify(result);
   }
 
+  async function handleUpdateTeam(args: Record<string, unknown>): Promise<string> {
+    const teamId = args.team_id as string;
+    if (!teamId || typeof teamId !== "string") {
+      return JSON.stringify({ error: "team_id is required and must be a string" });
+    }
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(teamId)) {
+      return JSON.stringify({ error: "team_id must be a valid UUID" });
+    }
+
+    const body: Record<string, unknown> = {};
+
+    if (args.name !== undefined) {
+      const name = args.name as string;
+      if (!name || typeof name !== "string") {
+        return JSON.stringify({ error: "name must be a non-empty string" });
+      }
+      if (name.length > 100) {
+        return JSON.stringify({ error: "name must be 100 characters or fewer" });
+      }
+      if (/[\x00-\x1f\x7f]/.test(name)) {
+        return JSON.stringify({ error: "name contains invalid control characters" });
+      }
+      body.name = name;
+    }
+
+    if (args.max_members !== undefined) {
+      const maxMembers = Number(args.max_members);
+      if (!Number.isInteger(maxMembers) || maxMembers < 1 || maxMembers > 100) {
+        return JSON.stringify({ error: "max_members must be an integer between 1 and 100" });
+      }
+      body.maxMembers = maxMembers;
+    }
+
+    if (Object.keys(body).length === 0) {
+      return JSON.stringify({ error: "At least one of name or max_members must be provided" });
+    }
+
+    const result = await api(
+      "PATCH",
+      `/api/teams/${encodeURIComponent(teamId)}`,
+      body,
+    );
+    return JSON.stringify(result);
+  }
+
+  async function handleUpdateTeamMemberRole(args: Record<string, unknown>): Promise<string> {
+    const teamId = args.team_id as string;
+    const userId = args.user_id as string;
+    const role = args.role as string;
+
+    if (!teamId || typeof teamId !== "string") {
+      return JSON.stringify({ error: "team_id is required and must be a string" });
+    }
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(teamId)) {
+      return JSON.stringify({ error: "team_id must be a valid UUID" });
+    }
+    if (!userId || typeof userId !== "string") {
+      return JSON.stringify({ error: "user_id is required and must be a string" });
+    }
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(userId)) {
+      return JSON.stringify({ error: "user_id must be a valid UUID" });
+    }
+    if (!role || typeof role !== "string") {
+      return JSON.stringify({ error: "role is required and must be a string" });
+    }
+    if (role !== "member" && role !== "admin") {
+      return JSON.stringify({ error: "role must be 'member' or 'admin'" });
+    }
+
+    const result = await api(
+      "PATCH",
+      `/api/teams/${encodeURIComponent(teamId)}/members/${encodeURIComponent(userId)}`,
+      { role },
+    );
+    return JSON.stringify(result);
+  }
+
   // -----------------------------------------------------------------------
   // Dispatch table
   // -----------------------------------------------------------------------
@@ -984,6 +1061,8 @@ export function createDominusNodeFunctionHandler(
     dominusnode_team_fund: handleTeamFund,
     dominusnode_team_create_key: handleTeamCreateKey,
     dominusnode_team_usage: handleTeamUsage,
+    dominusnode_update_team: handleUpdateTeam,
+    dominusnode_update_team_member_role: handleUpdateTeamMemberRole,
   };
 
   // -----------------------------------------------------------------------

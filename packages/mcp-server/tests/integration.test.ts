@@ -102,10 +102,12 @@ describe("MCP Server Integration", () => {
     expect(toolNames).toContain("dominusnode_agent_wallet_list");
     expect(toolNames).toContain("dominusnode_agent_wallet_transactions");
 
-    // Teams tools (15: 9 original + 6 new)
+    // Teams tools (17: 15 original + 2 new update tools)
     expect(toolNames).toContain("dominusnode_create_team");
     expect(toolNames).toContain("dominusnode_list_teams");
     expect(toolNames).toContain("dominusnode_team_details");
+    expect(toolNames).toContain("dominusnode_team_update");
+    expect(toolNames).toContain("dominusnode_team_update_member_role");
     expect(toolNames).toContain("dominusnode_team_add_member");
     expect(toolNames).toContain("dominusnode_team_remove_member");
     expect(toolNames).toContain("dominusnode_team_fund");
@@ -141,8 +143,8 @@ describe("MCP Server Integration", () => {
     expect(toolNames).toContain("dominusnode_agent_wallet_unfreeze");
     expect(toolNames).toContain("dominusnode_agent_wallet_delete");
 
-    // Total: 54 tools (original 47 + check_payment re-enabled + 7 new tools)
-    expect(toolNames.length).toBe(54);
+    // Total: 56 tools (54 + team_update + team_update_member_role)
+    expect(toolNames.length).toBe(56);
   });
 
   it("registers only bootstrap tools when no API key", async () => {

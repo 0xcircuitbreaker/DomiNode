@@ -12,12 +12,15 @@ type Team struct {
 	Name         string `json:"name"`
 	OwnerID      string `json:"ownerId"`
 	MaxMembers   int    `json:"maxMembers"`
+	Status       string `json:"status"`
 	BalanceCents int    `json:"balanceCents"`
 	CreatedAt    string `json:"createdAt"`
 }
 
 // TeamMember represents a member of a team.
 type TeamMember struct {
+	ID       string `json:"id"`
+	TeamID   string `json:"teamId"`
 	UserID   string `json:"userId"`
 	Email    string `json:"email"`
 	Role     string `json:"role"`

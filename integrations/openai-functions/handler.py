@@ -754,6 +754,77 @@ def create_dominusnode_function_handler(
         )
         return json.dumps(result)
 
+    _UUID_RE = re.compile(
+        r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+        re.IGNORECASE,
+    )
+
+    async def handle_update_team(args: Dict[str, Any]) -> str:
+        team_id = args.get("team_id")
+        if not team_id or not isinstance(team_id, str):
+            return json.dumps({"error": "team_id is required and must be a string"})
+        if not _UUID_RE.match(team_id):
+            return json.dumps({"error": "team_id must be a valid UUID"})
+
+        body: Dict[str, Any] = {}
+
+        name = args.get("name")
+        if name is not None:
+            if not isinstance(name, str) or len(name) == 0:
+                return json.dumps({"error": "name must be a non-empty string"})
+            if len(name) > 100:
+                return json.dumps({"error": "name must be 100 characters or fewer"})
+            if any(0 <= ord(c) <= 0x1F or ord(c) == 0x7F for c in name):
+                return json.dumps(
+                    {"error": "name contains invalid control characters"}
+                )
+            body["name"] = name
+
+        max_members = args.get("max_members")
+        if max_members is not None:
+            if not isinstance(max_members, int) or max_members < 1 or max_members > 100:
+                return json.dumps(
+                    {"error": "max_members must be an integer between 1 and 100"}
+                )
+            body["maxMembers"] = max_members
+
+        if not body:
+            return json.dumps(
+                {"error": "At least one of name or max_members must be provided"}
+            )
+
+        result = await api_request(
+            "PATCH",
+            f"/api/teams/{quote(team_id, safe='')}",
+            body,
+        )
+        return json.dumps(result)
+
+    async def handle_update_team_member_role(args: Dict[str, Any]) -> str:
+        team_id = args.get("team_id")
+        user_id = args.get("user_id")
+        role = args.get("role")
+
+        if not team_id or not isinstance(team_id, str):
+            return json.dumps({"error": "team_id is required and must be a string"})
+        if not _UUID_RE.match(team_id):
+            return json.dumps({"error": "team_id must be a valid UUID"})
+        if not user_id or not isinstance(user_id, str):
+            return json.dumps({"error": "user_id is required and must be a string"})
+        if not _UUID_RE.match(user_id):
+            return json.dumps({"error": "user_id must be a valid UUID"})
+        if not role or not isinstance(role, str):
+            return json.dumps({"error": "role is required and must be a string"})
+        if role not in ("member", "admin"):
+            return json.dumps({"error": "role must be 'member' or 'admin'"})
+
+        result = await api_request(
+            "PATCH",
+            f"/api/teams/{quote(team_id, safe='')}/members/{quote(user_id, safe='')}",
+            {"role": role},
+        )
+        return json.dumps(result)
+
     # -------------------------------------------------------------------
     # Dispatch table
     # -------------------------------------------------------------------
@@ -778,6 +849,8 @@ def create_dominusnode_function_handler(
         "dominusnode_team_fund": handle_team_fund,
         "dominusnode_team_create_key": handle_team_create_key,
         "dominusnode_team_usage": handle_team_usage,
+        "dominusnode_update_team": handle_update_team,
+        "dominusnode_update_team_member_role": handle_update_team_member_role,
     }
 
     # -------------------------------------------------------------------

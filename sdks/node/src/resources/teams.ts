@@ -5,11 +5,14 @@ export interface Team {
   name: string;
   ownerId: string;
   maxMembers: number;
+  status: string;
   balanceCents: number;
   createdAt: string;
 }
 
 export interface TeamMember {
+  id: string;
+  teamId: string;
   userId: string;
   email: string;
   role: string;

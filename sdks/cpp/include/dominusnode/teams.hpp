@@ -15,6 +15,7 @@ struct Team {
     std::string name;
     std::string owner_id;
     int max_members = 0;
+    std::string status;
     int balance_cents = 0;
     std::string created_at;
 };
@@ -24,11 +25,14 @@ inline void from_json(const nlohmann::json& j, Team& t) {
     j.at("name").get_to(t.name);
     t.owner_id = j.value("ownerId", "");
     t.max_members = j.value("maxMembers", 0);
+    t.status = j.value("status", "active");
     t.balance_cents = j.value("balanceCents", 0);
     t.created_at = j.value("createdAt", "");
 }
 
 struct TeamMember {
+    std::string id;
+    std::string team_id;
     std::string user_id;
     std::string email;
     std::string role;
@@ -36,6 +40,8 @@ struct TeamMember {
 };
 
 inline void from_json(const nlohmann::json& j, TeamMember& m) {
+    m.id = j.value("id", "");
+    m.team_id = j.value("teamId", "");
     m.user_id = j.value("userId", "");
     j.at("email").get_to(m.email);
     j.at("role").get_to(m.role);

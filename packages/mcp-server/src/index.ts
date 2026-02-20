@@ -67,7 +67,7 @@ async function main(): Promise<void> {
     const transport = new StdioServerTransport();
     await server.connect(transport);
     process.stderr.write("Dominus Node MCP Server ready — bootstrap mode (15 tools + bootstrap helper)\n");
-    process.stderr.write("Run dominusnode_setup or dominusnode_wallet_setup to create an account and unlock all 54 tools.\n");
+    process.stderr.write("Run dominusnode_setup or dominusnode_wallet_setup to create an account and unlock all 56 tools.\n");
   } else {
     // ── Authenticated Mode ──────────────────────────────────────────
     process.stderr.write("Dominus Node MCP Server starting...\n");
@@ -98,7 +98,7 @@ async function main(): Promise<void> {
 
     const transport = new StdioServerTransport();
     await server.connect(transport);
-    process.stderr.write("Dominus Node MCP Server ready — 54 tools available\n");
+    process.stderr.write("Dominus Node MCP Server ready — 56 tools available\n");
   }
 }
 
@@ -147,7 +147,7 @@ function registerBootstrapHelper(server: McpServer): void {
         `  All traffic bills to team wallet. Only lead needs payment.`,
         ``,
         `After setup, set DOMINUSNODE_API_KEY in your environment`,
-        `to unlock all 54 tools on next startup.`,
+        `to unlock all 56 tools on next startup.`,
         ``,
         `Email auto-verified for MCP agents — crypto payments enabled (10 currencies).`,
         `Free tier: 10 connections, 1GB bandwidth — no payment required.`,
