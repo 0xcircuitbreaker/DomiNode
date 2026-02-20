@@ -62,6 +62,6 @@ EXPOSE 8080 1080
 ENV NODE_OPTIONS="--max-old-space-size=768"
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
-  CMD wget --no-verbose --tries=1 --spider http://localhost:8080/internal/stats || exit 1
+  CMD wget --no-verbose --tries=1 --spider http://localhost:8080/healthz || exit 1
 
 CMD ["node", "packages/proxy-gateway/dist/src/main.js"]

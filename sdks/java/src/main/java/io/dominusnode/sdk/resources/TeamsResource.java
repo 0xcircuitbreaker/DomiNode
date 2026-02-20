@@ -116,6 +116,7 @@ public final class TeamsResource {
      * @throws DominusNodeException on API errors
      */
     public TeamFundResponse fundWallet(String teamId, int amountCents) throws DominusNodeException {
+        WalletResource.validateAmountCents(amountCents);
         return http.post("/api/teams/" + URLEncoder.encode(teamId, StandardCharsets.UTF_8) + "/wallet/fund",
                 Map.of("amountCents", amountCents), TeamFundResponse.class);
     }

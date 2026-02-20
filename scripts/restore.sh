@@ -46,7 +46,33 @@ fi
 
 echo "[$(date -Iseconds)] Restoring from ${BACKUP_FILE}..."
 
-gunzip -c "${BACKUP_FILE}" | psql "${DATABASE_URL}" --single-transaction --set ON_ERROR_STOP=on
+# R36 C-13: Extract credentials from DATABASE_URL to avoid password in process list
+# H-27: Use read-based parsing instead of eval to prevent command injection
+_pg_creds="$(echo "${DATABASE_URL}" | python3 -c "
+import sys, urllib.parse
+url = urllib.parse.urlparse(sys.stdin.read().strip())
+print(urllib.parse.unquote(url.username or ''))
+print(urllib.parse.unquote(url.password or ''))
+print(url.hostname or 'localhost')
+print(url.port or 5432)
+print(url.path.lstrip('/'))
+" 2>/dev/null)" || { echo 'ERROR: Failed to parse DATABASE_URL' >&2; exit 1; }
+
+PGUSER="$(echo "$_pg_creds" | sed -n '1p')"
+PGPASSWORD="$(echo "$_pg_creds" | sed -n '2p')"
+PGHOST="$(echo "$_pg_creds" | sed -n '3p')"
+PGPORT="$(echo "$_pg_creds" | sed -n '4p')"
+PGDATABASE="$(echo "$_pg_creds" | sed -n '5p')"
+export PGUSER PGPASSWORD PGHOST PGPORT PGDATABASE
+
+if [ -z "${PGUSER}" ] || [ -z "${PGDATABASE}" ]; then
+  echo "ERROR: Failed to extract valid credentials from DATABASE_URL" >&2
+  exit 1
+fi
+
+gunzip -c "${BACKUP_FILE}" | psql --single-transaction --set ON_ERROR_STOP=on
+
+unset PGPASSWORD
 
 echo "[$(date -Iseconds)] Restore complete."
 echo ""

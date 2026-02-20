@@ -69,6 +69,11 @@ impl WalletResource {
     ///
     /// Returns a checkout URL the user should be redirected to.
     pub async fn top_up_stripe(&self, amount_cents: i64) -> Result<StripeCheckout> {
+        if amount_cents <= 0 || amount_cents > 2_147_483_647 {
+            return Err(crate::errors::DominusNodeError::Validation(
+                "amountCents must be a positive integer <= 2,147,483,647".to_string(),
+            ));
+        }
         self.http
             .post(
                 "/api/wallet/topup/stripe",
@@ -87,6 +92,11 @@ impl WalletResource {
         amount_cents: i64,
         currency: &str,
     ) -> Result<CryptoInvoice> {
+        if amount_cents <= 0 || amount_cents > 2_147_483_647 {
+            return Err(crate::errors::DominusNodeError::Validation(
+                "amountCents must be a positive integer <= 2,147,483,647".to_string(),
+            ));
+        }
         let amount_usd = amount_cents as f64 / 100.0;
         self.http
             .post(

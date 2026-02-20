@@ -4,8 +4,15 @@
 #include <sstream>
 #include <iomanip>
 #include <cctype>
+#include <stdexcept>
 
 namespace dominusnode {
+
+static void validate_amount_cents(int amount_cents, const char* name = "amountCents") {
+    if (amount_cents <= 0 || amount_cents > 2147483647) {
+        throw std::invalid_argument(std::string(name) + " must be a positive integer <= 2,147,483,647");
+    }
+}
 
 // Percent-encode a URI path segment to prevent path injection.
 static std::string url_encode(const std::string& value) {
@@ -54,6 +61,7 @@ TeamDeleteResponse TeamsResource::delete_team(const std::string& team_id) {
 }
 
 TeamFundResponse TeamsResource::fund_wallet(const std::string& team_id, int amount_cents) {
+    validate_amount_cents(amount_cents);
     nlohmann::json body = {{"amountCents", amount_cents}};
     auto resp = http_.post("/api/teams/" + url_encode(team_id) + "/wallet/fund", body);
     return resp.get<TeamFundResponse>();

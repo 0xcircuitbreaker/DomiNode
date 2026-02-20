@@ -24,6 +24,21 @@ const TABLE_QUERIES: Record<string, string> = {
   wallet_challenges: `DELETE FROM wallet_challenges WHERE ctid IN (
     SELECT ctid FROM wallet_challenges WHERE created_at < NOW() - INTERVAL '1 day' * $1 LIMIT $2
   )`,
+  email_verification_tokens: `DELETE FROM email_verification_tokens WHERE ctid IN (
+    SELECT ctid FROM email_verification_tokens WHERE created_at < NOW() - INTERVAL '1 day' * $1 LIMIT $2
+  )`,
+  password_reset_tokens: `DELETE FROM password_reset_tokens WHERE ctid IN (
+    SELECT ctid FROM password_reset_tokens WHERE created_at < NOW() - INTERVAL '1 day' * $1 LIMIT $2
+  )`,
+  agentic_wallet_transactions: `DELETE FROM agentic_wallet_transactions WHERE ctid IN (
+    SELECT ctid FROM agentic_wallet_transactions WHERE created_at < NOW() - INTERVAL '1 day' * $1 LIMIT $2
+  )`,
+  team_wallet_transactions: `DELETE FROM team_wallet_transactions WHERE ctid IN (
+    SELECT ctid FROM team_wallet_transactions WHERE created_at < NOW() - INTERVAL '1 day' * $1 LIMIT $2
+  )`,
+  team_invites: `DELETE FROM team_invites WHERE ctid IN (
+    SELECT ctid FROM team_invites WHERE created_at < NOW() - INTERVAL '1 day' * $1 LIMIT $2
+  )`,
 };
 
 interface RetentionPolicy {

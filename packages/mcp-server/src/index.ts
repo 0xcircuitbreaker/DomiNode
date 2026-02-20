@@ -38,7 +38,7 @@ async function main(): Promise<void> {
   }
 
   const tokenManager = new TokenManager(config.apiUrl);
-  const httpClient = new HttpClient(config.apiUrl, tokenManager);
+  const httpClient = new HttpClient(config.apiUrl, tokenManager, config.mcpAgentSecret);
   const server = new McpServer({
     name: "dominusnode",
     version: "1.0.0",
@@ -56,7 +56,8 @@ async function main(): Promise<void> {
 
     registerAccountTools(server, httpClient);
     registerCryptoTools(server, httpClient);
-    registerAgentWalletTools(server, httpClient, config);
+    // R41 H-4: Do NOT register agent-wallet tools in bootstrap mode —
+    // they require authentication and should only be available in authenticated mode.
     registerWalletAuthTools(server, httpClient);
     registerSlotsTools(server, httpClient);
 
@@ -65,8 +66,8 @@ async function main(): Promise<void> {
 
     const transport = new StdioServerTransport();
     await server.connect(transport);
-    process.stderr.write("Dominus Node MCP Server ready — bootstrap mode (20 tools)\n");
-    process.stderr.write("Run dominusnode_setup or dominusnode_wallet_setup to create an account and unlock all 43 tools.\n");
+    process.stderr.write("Dominus Node MCP Server ready — bootstrap mode (14 tools + bootstrap helper)\n");
+    process.stderr.write("Run dominusnode_setup or dominusnode_wallet_setup to create an account and unlock all 53 tools.\n");
   } else {
     // ── Authenticated Mode ──────────────────────────────────────────
     process.stderr.write("Dominus Node MCP Server starting...\n");
@@ -97,7 +98,7 @@ async function main(): Promise<void> {
 
     const transport = new StdioServerTransport();
     await server.connect(transport);
-    process.stderr.write("Dominus Node MCP Server ready — 43 tools available\n");
+    process.stderr.write("Dominus Node MCP Server ready — 53 tools available\n");
   }
 }
 
@@ -134,7 +135,7 @@ function registerBootstrapHelper(server: McpServer): void {
         `Option 4: Top up with crypto`,
         `  After registering, use dominusnode_pay_crypto to add funds.`,
         `  Supports BTC, ETH, LTC, XMR, ZEC, USDC, SOL, USDT, DAI, BNB.`,
-        `  Use dominusnode_check_payment to poll payment status.`,
+        `  Check your balance with dominusnode_get_balance to confirm funds arrived.`,
         ``,
         `Option 5: Multi-agent teams (manage multiple AI agents)`,
         `  Lead agent sets up account + payment, then:`,
@@ -146,7 +147,7 @@ function registerBootstrapHelper(server: McpServer): void {
         `  All traffic bills to team wallet. Only lead needs payment.`,
         ``,
         `After setup, set DOMINUSNODE_API_KEY in your environment`,
-        `to unlock all 43 tools on next startup.`,
+        `to unlock all 53 tools on next startup.`,
         ``,
         `Email auto-verified for MCP agents — Stripe + crypto payments enabled.`,
         `Free tier: 10 connections, 1GB bandwidth — no payment required.`,

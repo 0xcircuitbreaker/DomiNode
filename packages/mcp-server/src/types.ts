@@ -27,41 +27,47 @@ export interface TransactionList {
 }
 
 export interface UsageSummary {
-  total_bytes: number;
-  total_cost_cents: number;
-  total_requests: number;
-  period_start: string;
-  period_end: string;
+  totalBytes: number;
+  totalCostCents: number;
+  requestCount: number;
+  totalGB: number;
+  totalCostUsd: number;
 }
 
 export interface UsageRecord {
   id: string;
-  bytes_in: number;
-  bytes_out: number;
-  cost_cents: number;
-  target_host: string;
-  created_at: string;
+  sessionId: string;
+  bytesIn: number;
+  bytesOut: number;
+  totalBytes: number;
+  costCents: number;
+  proxyType: string;
+  targetHost: string;
+  createdAt: string;
 }
 
 export interface DailyUsage {
   date: string;
-  bytes: number;
-  cost_cents: number;
-  requests: number;
+  totalBytes: number;
+  totalGB: number;
+  totalCostCents: number;
+  totalCostUsd: number;
+  requestCount: number;
 }
 
 export interface TopHost {
-  host: string;
-  bytes: number;
-  requests: number;
+  targetHost: string;
+  totalBytes: number;
+  totalGB: number;
+  requestCount: number;
 }
 
 export interface ApiKey {
   id: string;
   prefix: string;
   label: string;
-  created_at: string;
-  last_used_at: string | null;
+  createdAt: string;
+  revokedAt: string | null;
 }
 
 export interface ApiKeyCreated {
@@ -72,49 +78,55 @@ export interface ApiKeyCreated {
 }
 
 export interface ProxyConfig {
-  http_endpoint: string;
-  socks5_endpoint: string;
-  supported_countries: string[];
-  username_format: string;
+  httpEndpoint: string;
+  socks5Endpoint: string;
+  supportedCountries: string[];
+  usernameFormat: string;
 }
 
 export interface ProxyStatus {
   status: string;
-  latency_ms: number;
+  latencyMs: number;
   providers: string[];
-  active_sessions: number;
+  activeSessions: number;
 }
 
 export interface Plan {
   id: string;
   name: string;
-  price_cents: number;
-  bandwidth_bytes: number;
-  max_connections: number;
-  features: string[];
+  pricePerGbCents: number;
+  pricePerGbUsd: number;
+  monthlyBandwidthBytes: number;
+  monthlyBandwidthGB: number | null;
+  isDefault: boolean;
+  maxConnections: number;
+  allowedProxyTypes: string | string[] | null;
 }
 
 export interface UserPlan {
   plan: Plan;
-  usage_bytes: number;
-  usage_percent: number;
+  usage: {
+    monthlyUsageBytes: number;
+    monthlyUsageGB: number;
+    limitBytes: number;
+    limitGB: number | null;
+    percentUsed: number | null;
+  };
 }
 
 export interface ActiveSession {
   id: string;
-  started_at: string;
-  bytes_in: number;
-  bytes_out: number;
-  target_host: string;
-  country: string | null;
+  startedAt: string;
+  status: string;
 }
 
 export interface AccountInfo {
-  id: string;
-  email: string;
-  status: string;
-  created_at: string;
-  mfa_enabled: boolean;
+  user: {
+    id: string;
+    email: string;
+    is_admin: boolean;
+    email_verified: boolean;
+  };
 }
 
 export interface AuthVerifyKeyResponse {

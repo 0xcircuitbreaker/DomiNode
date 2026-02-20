@@ -86,8 +86,38 @@ function isBlockedIPv4(ip: string): boolean {
   return false;
 }
 
+/**
+ * Extract embedded IPv4 dotted-quad from an IPv6 address if present.
+ * Handles formats like ::ffff:192.168.1.1, ::192.168.1.1, 0:0:0:0:0:ffff:10.0.0.1
+ * Returns the IPv4 part or null if no dotted-quad is embedded.
+ */
+function extractEmbeddedIPv4(ip: string): string | null {
+  // Match a dotted-quad at the end of the IPv6 address
+  const match = ip.match(/(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/);
+  if (!match) return null;
+  const ipv4 = match[1];
+  // Validate it's a real IPv4 address
+  if (net.isIP(ipv4) !== 4) return null;
+  return ipv4;
+}
+
 function expandIPv6(ip: string): string | null {
   if (net.isIP(ip) !== 6) return null;
+
+  // R37 C-1: Handle IPv6 addresses with embedded IPv4 dotted-quad notation
+  // (e.g., ::ffff:192.168.1.1, ::10.0.0.1). The dotted-quad replaces
+  // the last two 16-bit groups per RFC 4291 Section 2.5.5.
+  const embeddedIPv4 = extractEmbeddedIPv4(ip);
+  if (embeddedIPv4) {
+    // Replace the dotted-quad with two hex groups
+    const ipv4Parts = embeddedIPv4.split(".").map(p => parseInt(p, 10));
+    const hi = ((ipv4Parts[0] << 8) | ipv4Parts[1]) & 0xffff;
+    const lo = ((ipv4Parts[2] << 8) | ipv4Parts[3]) & 0xffff;
+    const hexSuffix = `${hi.toString(16)}:${lo.toString(16)}`;
+    // Replace the dotted-quad portion with hex groups
+    ip = ip.replace(embeddedIPv4, hexSuffix);
+  }
+
   let groups: string[];
   if (ip.includes("::")) {
     const [left, right] = ip.split("::");
@@ -125,6 +155,49 @@ function isBlockedIPv6(ip: string): boolean {
     const ipv4 = `${(hi >> 8) & 0xff}.${hi & 0xff}.${(lo >> 8) & 0xff}.${lo & 0xff}`;
     return isBlockedIPv4(ipv4);
   }
+  // R37 C-1: IPv4-compatible IPv6 addresses (::x.x.x.x or 0:0:0:0:0:0:x.x.x.x)
+  // These have prefix 0000:0000:0000:0000:0000:0000: with an embedded IPv4 in the last 32 bits.
+  // Different from ::ffff: (IPv4-mapped) — these are deprecated but still parsed by many stacks.
+  if (expanded.startsWith("0000:0000:0000:0000:0000:0000:")) {
+    const ipv6Groups = expanded.split(":");
+    const hi = parseInt(ipv6Groups[6], 16);
+    const lo = parseInt(ipv6Groups[7], 16);
+    const ipv4 = `${(hi >> 8) & 0xff}.${hi & 0xff}.${(lo >> 8) & 0xff}.${lo & 0xff}`;
+    if (isBlockedIPv4(ipv4)) return true;
+  }
+
+  // R38 C-8: Teredo tunnel addresses (2001:0000::/32)
+  // Format: 2001:0000:SSSS:SSSS:CCCC:CCCC:XXXX:XXXX
+  // The embedded IPv4 (client) is in bytes 13-16 (groups 6-7), but bitwise inverted (XOR 0xFF).
+  // An attacker can encode 127.0.0.1 or 10.x.x.x inside a Teredo address to bypass SSRF checks.
+  if (expanded.startsWith("2001:0000:")) {
+    const ipv6Groups = expanded.split(":");
+    const g6 = parseInt(ipv6Groups[6], 16);
+    const g7 = parseInt(ipv6Groups[7], 16);
+    // Invert each byte (XOR 0xFF) to recover the original IPv4
+    const b1 = ((g6 >> 8) & 0xff) ^ 0xff;
+    const b2 = (g6 & 0xff) ^ 0xff;
+    const b3 = ((g7 >> 8) & 0xff) ^ 0xff;
+    const b4 = (g7 & 0xff) ^ 0xff;
+    const teredoIpv4 = `${b1}.${b2}.${b3}.${b4}`;
+    if (isBlockedIPv4(teredoIpv4)) return true;
+  }
+
+  // R38 C-8: 6to4 tunnel addresses (2002::/16)
+  // Format: 2002:XXYY:ZZWW:... where XX.YY.ZZ.WW is the embedded IPv4 in bytes 3-6 (groups 1-2).
+  // An attacker can encode private IPs inside a 6to4 address to bypass SSRF checks.
+  if (expanded.startsWith("2002:")) {
+    const ipv6Groups = expanded.split(":");
+    const g1 = parseInt(ipv6Groups[1], 16);
+    const g2 = parseInt(ipv6Groups[2], 16);
+    const b1 = (g1 >> 8) & 0xff;
+    const b2 = g1 & 0xff;
+    const b3 = (g2 >> 8) & 0xff;
+    const b4 = g2 & 0xff;
+    const sixToFourIpv4 = `${b1}.${b2}.${b3}.${b4}`;
+    if (isBlockedIPv4(sixToFourIpv4)) return true;
+  }
+
   return false;
 }
 

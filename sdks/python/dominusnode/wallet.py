@@ -8,6 +8,12 @@ from .http_client import AsyncHttpClient, SyncHttpClient
 from .types import CryptoInvoice, StripeCheckout, Wallet, WalletForecast, WalletTransaction
 
 
+def _validate_amount_cents(value: int, name: str = "amount_cents") -> None:
+    """Validate that a financial amount is a positive integer within PostgreSQL int4 range."""
+    if not isinstance(value, int) or value <= 0 or value > 2_147_483_647:
+        raise ValueError(f"{name} must be a positive integer <= 2,147,483,647")
+
+
 def _parse_wallet(data: dict) -> Wallet:
     return Wallet(
         balance_cents=data["balanceCents"],
@@ -56,6 +62,7 @@ class WalletResource:
         Args:
             amount_cents: Amount in cents (e.g. 1000 = $10.00).
         """
+        _validate_amount_cents(amount_cents, "amount_cents")
         data = self._http.post("/api/wallet/topup/stripe", json={"amountCents": amount_cents})
         return StripeCheckout(
             session_id=data["sessionId"],
@@ -69,6 +76,9 @@ class WalletResource:
             amount_usd: Amount in USD (e.g. 10.0).
             currency: Crypto currency code (btc, eth, xmr, sol, zec).
         """
+        # Validate amount_usd converted to cents stays within int4 range
+        amount_cents_approx = int(amount_usd * 100)
+        _validate_amount_cents(amount_cents_approx, "amount_usd (as cents)")
         data = self._http.post(
             "/api/wallet/topup/crypto",
             json={"amountUsd": amount_usd, "currency": currency},
@@ -111,6 +121,7 @@ class AsyncWalletResource:
         return [_parse_transaction(tx) for tx in data.get("transactions", [])]
 
     async def top_up_stripe(self, amount_cents: int) -> StripeCheckout:
+        _validate_amount_cents(amount_cents, "amount_cents")
         data = await self._http.post("/api/wallet/topup/stripe", json={"amountCents": amount_cents})
         return StripeCheckout(
             session_id=data["sessionId"],
@@ -118,6 +129,9 @@ class AsyncWalletResource:
         )
 
     async def top_up_crypto(self, amount_usd: float, currency: str) -> CryptoInvoice:
+        # Validate amount_usd converted to cents stays within int4 range
+        amount_cents_approx = int(amount_usd * 100)
+        _validate_amount_cents(amount_cents_approx, "amount_usd (as cents)")
         data = await self._http.post(
             "/api/wallet/topup/crypto",
             json={"amountUsd": amount_usd, "currency": currency},

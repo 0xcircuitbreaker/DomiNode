@@ -560,6 +560,97 @@ INSERT INTO data_retention_policies (table_name, retention_days, description) VA
   ('team_invites',             365, 'Team invites retained for 1 year')
 ON CONFLICT (table_name) DO NOTHING;
 
+-- ─── R37 C-1: Upper bound CHECK constraints on balance_cents ────────
+
+DO $$ BEGIN
+  ALTER TABLE wallets ADD CONSTRAINT chk_wallets_balance_upper CHECK (balance_cents <= 1000000);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+  ALTER TABLE team_wallets ADD CONSTRAINT chk_team_wallets_balance_upper CHECK (balance_cents <= 1000000);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+  ALTER TABLE agentic_wallets ADD CONSTRAINT chk_agentic_wallets_balance_upper CHECK (balance_cents <= 1000000);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+-- ─── R37 C-2: Upper bound CHECK constraints on amount_cents (prevent integer overflow) ──
+
+DO $$ BEGIN
+  ALTER TABLE wallet_transactions ADD CONSTRAINT chk_wallet_tx_amount_upper CHECK (amount_cents <= 214748364);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+  ALTER TABLE agentic_wallet_transactions ADD CONSTRAINT chk_agentic_tx_amount_upper CHECK (amount_cents <= 214748364);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+  ALTER TABLE team_wallet_transactions ADD CONSTRAINT chk_team_tx_amount_upper CHECK (amount_cents <= 214748364);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+  ALTER TABLE payment_invoices ADD CONSTRAINT chk_invoice_amount_upper CHECK (amount_cents <= 214748364);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+-- ─── R37 H-1: TEXT column length constraints on user-input fields ────
+
+DO $$ BEGIN
+  ALTER TABLE users ADD CONSTRAINT chk_users_email_length CHECK (length(email) <= 320);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+  ALTER TABLE api_keys ADD CONSTRAINT chk_api_keys_label_length CHECK (length(label) <= 255);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+  ALTER TABLE agentic_wallets ADD CONSTRAINT chk_agentic_wallets_label_length CHECK (length(label) <= 255);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+  ALTER TABLE teams ADD CONSTRAINT chk_teams_name_length CHECK (length(name) <= 255);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+  ALTER TABLE wallet_transactions ADD CONSTRAINT chk_wallet_tx_desc_length CHECK (length(description) <= 1000);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+  ALTER TABLE agentic_wallet_transactions ADD CONSTRAINT chk_agentic_tx_desc_length CHECK (length(description) <= 1000);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+  ALTER TABLE team_wallet_transactions ADD CONSTRAINT chk_team_tx_desc_length CHECK (length(description) <= 1000);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+  ALTER TABLE data_retention_policies ADD CONSTRAINT chk_retention_desc_length CHECK (length(description) <= 1000);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+  ALTER TABLE team_invites ADD CONSTRAINT chk_team_invites_email_length CHECK (length(email) <= 320);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+  ALTER TABLE waitlist ADD CONSTRAINT chk_waitlist_email_length CHECK (length(email) <= 320);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
 -- ─── Record current schema version ──────────────────────────────────
 
 INSERT INTO schema_migrations (version, description) VALUES

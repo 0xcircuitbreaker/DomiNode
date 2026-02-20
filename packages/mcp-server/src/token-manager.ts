@@ -22,6 +22,7 @@ export class TokenManager {
       headers: {
         "Content-Type": "application/json",
         "User-Agent": "dominusnode-mcp-server/1.0.0",
+        "X-DominusNode-Agent": "mcp", // R36 H-5: MCP identification
       },
       body: JSON.stringify({ apiKey }),
       signal: AbortSignal.timeout(30_000),
@@ -39,9 +40,14 @@ export class TokenManager {
     if (verifyText.length > MAX_TOKEN_RESPONSE_BYTES) {
       throw new Error("Token verification response too large");
     }
-    const data = safeJsonParse<{ accessToken: string; refreshToken: string }>(verifyText);
+    // R36 C-4: Backend returns { token, refreshToken } — accept both field names
+    const data = safeJsonParse<{ token?: string; accessToken?: string; refreshToken: string }>(verifyText);
+    const accessToken = data.accessToken ?? data.token;
+    if (!accessToken) {
+      throw new Error("No access token in verify-key response");
+    }
     // R26 H-4: Route through setTokens to enforce type+length validation
-    this.setTokens(data.accessToken, data.refreshToken);
+    this.setTokens(accessToken, data.refreshToken);
   }
 
   isExpired(token: string): boolean {
@@ -100,6 +106,7 @@ export class TokenManager {
             headers: {
               "Content-Type": "application/json",
               "User-Agent": "dominusnode-mcp-server/1.0.0",
+              "X-DominusNode-Agent": "mcp", // R36 H-5: MCP identification
             },
             body: JSON.stringify({ refreshToken: this.refreshTokenValue }),
             signal: AbortSignal.timeout(30_000),
@@ -111,9 +118,14 @@ export class TokenManager {
             if (refreshText.length > MAX_TOKEN_RESPONSE_BYTES) {
               throw new Error("Token refresh response too large");
             }
-            const data = safeJsonParse<{ accessToken: string; refreshToken?: string }>(refreshText);
+            // R36 C-4: Backend returns { token, refreshToken } — accept both field names
+            const data = safeJsonParse<{ token?: string; accessToken?: string; refreshToken?: string }>(refreshText);
+            const accessToken = data.accessToken ?? data.token;
+            if (!accessToken) {
+              throw new Error("No access token in refresh response");
+            }
             // R26 H-4: Route through setTokens to enforce type+length validation
-            this.setTokens(data.accessToken, data.refreshToken ?? this.refreshTokenValue!);
+            this.setTokens(accessToken, data.refreshToken ?? this.refreshTokenValue!);
             return this.accessToken!;
           }
 

@@ -212,6 +212,13 @@ describe("teams routes", () => {
     mockIsValidEmail.mockImplementation((email: string) => {
       return typeof email === "string" && email.includes("@") && email.length >= 5;
     });
+    // R36 H-6: Default mock for findUserById — returns verified user for invite accept tests
+    mockFindUserById.mockResolvedValue({
+      id: "test-user-id",
+      email: "test@example.com",
+      email_verified: true,
+      status: "active",
+    });
   });
 
   // ─── POST /api/teams ─────────────────────────────────────────────────
@@ -688,6 +695,7 @@ describe("teams routes", () => {
       mockFindUserByEmail.mockResolvedValueOnce({
         id: VALID_UUID_2,
         email: "newuser@test.com",
+        status: "active",
       });
       mockAddMember.mockResolvedValueOnce({
         id: "member-3",
@@ -720,7 +728,7 @@ describe("teams routes", () => {
       });
 
       expect(res.status).toBe(404);
-      expect(res.body.error).toBe("No user found with that email");
+      expect(res.body.error).toBe("No active user found with that email");
     });
 
     it("should return 400 for invalid email", async () => {
@@ -851,7 +859,7 @@ describe("teams routes", () => {
         expires_at: "2026-02-25T00:00:00Z",
         created_at: "2026-02-18T00:00:00Z",
       });
-      mockFindUserById.mockResolvedValueOnce({ email: "test@test.com" });
+      mockFindUserById.mockResolvedValueOnce({ email: "test@test.com", email_verified: true });
       mockGetTeam.mockResolvedValueOnce({ name: "Team Alpha" });
       mockSendTeamInviteEmail.mockResolvedValueOnce(undefined);
 
@@ -883,6 +891,7 @@ describe("teams routes", () => {
     });
 
     it("should return 409 for already a member", async () => {
+      mockFindUserById.mockResolvedValueOnce({ email: "test@test.com", email_verified: true });
       mockCreateInvite.mockRejectedValueOnce(new Error("User is already a member of this team"));
 
       const app = createApp();

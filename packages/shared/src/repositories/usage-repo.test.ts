@@ -469,15 +469,14 @@ describe("usage-repo", () => {
   describe("getActiveSessions", () => {
     it("should return active sessions for a user", async () => {
       const rows = [
-        { id: "s1", started_at: new Date("2025-06-01"), proxy_ip: "1.2.3.4", status: "active" },
-        { id: "s2", started_at: new Date("2025-06-02"), proxy_ip: "5.6.7.8", status: "active" },
+        { id: "s1", started_at: new Date("2025-06-01"), status: "active" },
+        { id: "s2", started_at: new Date("2025-06-02"), status: "active" },
       ];
       mockQuery.mockResolvedValueOnce({ rows });
 
       const result = await getActiveSessions("u1");
       expect(result).toHaveLength(2);
       expect(result[0].id).toBe("s1");
-      expect(result[0].proxyIp).toBe("1.2.3.4");
       expect(result[0].status).toBe("active");
       expect(result[0].startedAt).toEqual(new Date("2025-06-01"));
     });
@@ -526,14 +525,13 @@ describe("usage-repo", () => {
     it("should map row fields correctly", async () => {
       const now = new Date();
       mockQuery.mockResolvedValueOnce({
-        rows: [{ id: "sess-map", started_at: now, proxy_ip: "9.9.9.9", status: "active" }],
+        rows: [{ id: "sess-map", started_at: now, status: "active" }],
       });
 
       const result = await getActiveSessions("u1");
       expect(result[0]).toEqual({
         id: "sess-map",
         startedAt: now,
-        proxyIp: "9.9.9.9",
         status: "active",
       });
     });

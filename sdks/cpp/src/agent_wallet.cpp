@@ -4,8 +4,15 @@
 #include <sstream>
 #include <iomanip>
 #include <cctype>
+#include <stdexcept>
 
 namespace dominusnode {
+
+static void validate_amount_cents(int amount_cents, const char* name = "amountCents") {
+    if (amount_cents <= 0 || amount_cents > 2147483647) {
+        throw std::invalid_argument(std::string(name) + " must be a positive integer <= 2,147,483,647");
+    }
+}
 
 // R33 H-5: Percent-encode a URI path segment to prevent path injection.
 static std::string url_encode(const std::string& value) {
@@ -25,6 +32,7 @@ static std::string url_encode(const std::string& value) {
 AgenticWalletResource::AgenticWalletResource(HttpClient& http) : http_(http) {}
 
 AgenticWallet AgenticWalletResource::create(const std::string& label, int spending_limit_cents) {
+    validate_amount_cents(spending_limit_cents, "spendingLimitCents");
     nlohmann::json body = {
         {"label", label},
         {"spendingLimitCents", spending_limit_cents},
@@ -44,6 +52,7 @@ AgenticWallet AgenticWalletResource::get(const std::string& wallet_id) {
 }
 
 AgenticWalletFundResponse AgenticWalletResource::fund(const std::string& wallet_id, int amount_cents) {
+    validate_amount_cents(amount_cents);
     nlohmann::json body = {{"amountCents", amount_cents}};
     auto resp = http_.post("/api/agent-wallet/" + url_encode(wallet_id) + "/fund", body);
     return resp.get<AgenticWalletFundResponse>();

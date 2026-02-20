@@ -140,11 +140,21 @@ setInterval(() => {
 // Tracks in-flight bytes reserved per user for free-plan sessions.
 // Prevents concurrent sessions from exceeding the monthly bandwidth limit.
 const FREE_TIER_RESERVATION_BYTES = 50 * 1024 * 1024; // 50MB per session reservation
+const MAX_FREE_RESERVATIONS = 100_000; // R38 H-15: Size cap to prevent OOM
 const freeReservations = new Map<string, number>(); // userId -> reserved bytes
 
 function reserveFreeBandwidth(userId: string, planBandwidthBytes: number, currentUsage: number): boolean {
   const reserved = freeReservations.get(userId) ?? 0;
   if (currentUsage + reserved + FREE_TIER_RESERVATION_BYTES > planBandwidthBytes) {
+    return false;
+  }
+  // R38 H-15: Reject if map is at capacity and this is a new entry (existing users can still reserve)
+  if (!freeReservations.has(userId) && freeReservations.size >= MAX_FREE_RESERVATIONS) {
+    log.warn("freeReservations map at capacity, rejecting new entry", {
+      userId,
+      mapSize: freeReservations.size,
+      cap: MAX_FREE_RESERVATIONS,
+    });
     return false;
   }
   freeReservations.set(userId, reserved + FREE_TIER_RESERVATION_BYTES);
@@ -159,6 +169,12 @@ function releaseFreeBandwidth(userId: string): void {
   } else {
     freeReservations.set(userId, newReserved);
   }
+}
+
+// R37 H-4: Parse MAX_ACTIVE_SESSIONS once at module level (was parsed on every startSession call)
+const MAX_ACTIVE_SESSIONS = parseInt(process.env["MAX_ACTIVE_SESSIONS"] ?? "100000", 10);
+if (isNaN(MAX_ACTIVE_SESSIONS) || MAX_ACTIVE_SESSIONS <= 0) {
+  throw new Error("MAX_ACTIVE_SESSIONS must be a positive integer");
 }
 
 const STALE_CLEANUP_INTERVAL_MS = parseInt(process.env["PROXY_STALE_CLEANUP_INTERVAL_MS"] ?? "60000", 10);
@@ -331,6 +347,23 @@ export async function startSession(
 
   // Privacy-first: only store actual targetHost when user has opted in
   const storedTargetHost = logTargetHosts ? targetHost : "";
+
+  // R36 H-2: Cap active sessions to prevent OOM from session accumulation
+  // R37 H-4: MAX_ACTIVE_SESSIONS hoisted to module-level constant
+  if (activeSessions.size >= MAX_ACTIVE_SESSIONS) {
+    // Release reservation before rejecting
+    if (reservedCents > 0) {
+      if (teamId) {
+        await teamRepo.releaseTeamReservation(teamId, reservedCents);
+        invalidateTeamBalanceCache(teamId);
+      } else {
+        await walletRepo.releaseReservation(userId, reservedCents);
+        invalidateBalanceCache(userId);
+      }
+    }
+    if (freeReserved) releaseFreeBandwidth(userId);
+    throw new Error("Server at capacity. Please try again later.");
+  }
 
   activeSessions.set(sessionId, {
     sessionId,
@@ -544,16 +577,9 @@ export async function terminateUserSessions(userId: string): Promise<number> {
 
   let terminated = 0;
   for (const sessionId of userSessions) {
-    // Destroy the socket connections first
-    const destroyFn = sessionDestroyCallbacks.get(sessionId);
-    if (destroyFn) {
-      try {
-        destroyFn();
-      } catch {
-        // Best effort socket destruction
-      }
-    }
-    // Settle billing for the session
+    // R37 H-5: Settle billing FIRST, then destroy sockets.
+    // This ensures endSession() sees the session in activeSessions before the
+    // close-event handler (triggered by socket.destroy()) races to call it.
     try {
       await endSession(sessionId);
       terminated++;
@@ -563,6 +589,17 @@ export async function terminateUserSessions(userId: string): Promise<number> {
         userId,
         error: err instanceof Error ? err.message : String(err),
       });
+    }
+    // Destroy the socket connections AFTER billing settlement
+    const destroyFn = sessionDestroyCallbacks.get(sessionId);
+    if (destroyFn) {
+      try {
+        destroyFn();
+      } catch {
+        // Best effort socket destruction — socket.destroy() is synchronous
+        // and may throw if the socket is already in a bad state
+      }
+      sessionDestroyCallbacks.delete(sessionId);
     }
   }
 

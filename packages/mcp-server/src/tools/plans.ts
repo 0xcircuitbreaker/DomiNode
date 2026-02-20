@@ -15,12 +15,15 @@ export function registerPlansTools(server: McpServer, httpClient: HttpClient): v
     async () => {
       try {
         const data = await httpClient.get<UserPlan>("/api/plans/user/plan");
+        const bandwidthLine = data.usage.limitGB != null
+          ? `Bandwidth: ${formatBytes(data.usage.monthlyUsageBytes)} / ${formatBytes(data.usage.limitBytes)} (${data.usage.percentUsed?.toFixed(1) ?? "0.0"}%)`
+          : `Bandwidth: ${formatBytes(data.usage.monthlyUsageBytes)} (unlimited)`;
         const text = [
           `Plan: ${data.plan.name}`,
-          `Price: $${(data.plan.price_cents / 100).toFixed(2)}/month`,
-          `Bandwidth: ${formatBytes(data.usage_bytes)} / ${formatBytes(data.plan.bandwidth_bytes)} (${data.usage_percent.toFixed(1)}%)`,
-          `Max Connections: ${data.plan.max_connections}`,
-          `Features: ${data.plan.features?.join(", ") ?? "standard"}`,
+          `Price: $${data.plan.pricePerGbUsd.toFixed(2)}/GB`,
+          bandwidthLine,
+          `Max Connections: ${data.plan.maxConnections}`,
+          `Proxy Types: ${Array.isArray(data.plan.allowedProxyTypes) ? data.plan.allowedProxyTypes.join(", ") : (data.plan.allowedProxyTypes ?? "all")}`,
         ].join("\n");
         return { content: [{ type: "text", text }] };
       } catch (err) {
@@ -44,7 +47,7 @@ export function registerPlansTools(server: McpServer, httpClient: HttpClient): v
           return { content: [{ type: "text", text: "No plans available." }] };
         }
         const lines = plans.map(
-          (p) => `${p.name} — $${(p.price_cents / 100).toFixed(2)}/mo | ${formatBytes(p.bandwidth_bytes)} bandwidth | ${p.max_connections} connections`,
+          (p) => `${p.name} — $${p.pricePerGbUsd.toFixed(2)}/GB | ${p.monthlyBandwidthGB != null ? `${p.monthlyBandwidthGB} GB` : "unlimited"} bandwidth | ${p.maxConnections} connections`,
         );
         lines.unshift("Available Plans:");
         return { content: [{ type: "text", text: lines.join("\n") }] };

@@ -59,6 +59,9 @@ func newAgenticWalletResource(http *httpClient) *AgenticWalletResource {
 
 // Create creates a new agentic wallet with the given label and spending limit.
 func (r *AgenticWalletResource) Create(ctx context.Context, label string, spendingLimitCents int) (*AgenticWallet, error) {
+	if err := validateAmountCents(spendingLimitCents); err != nil {
+		return nil, err
+	}
 	body := map[string]interface{}{
 		"label":              label,
 		"spendingLimitCents": spendingLimitCents,
@@ -91,6 +94,9 @@ func (r *AgenticWalletResource) Get(ctx context.Context, walletID string) (*Agen
 
 // Fund transfers funds from the main wallet to the agentic wallet.
 func (r *AgenticWalletResource) Fund(ctx context.Context, walletID string, amountCents int) (*AgenticWalletFundResponse, error) {
+	if err := validateAmountCents(amountCents); err != nil {
+		return nil, err
+	}
 	body := map[string]interface{}{
 		"amountCents": amountCents,
 	}

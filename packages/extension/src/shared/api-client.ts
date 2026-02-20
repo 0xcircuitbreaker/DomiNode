@@ -107,11 +107,29 @@ async function safeJson<T>(res: Response): Promise<T> {
   return parsed as T;
 }
 
+// R38 H-2: Validate API paths to prevent CRLF injection and path traversal
+function validateApiPath(path: string): string {
+  // Block CRLF injection
+  if (/[\r\n]/.test(path)) {
+    throw new Error("Invalid API path");
+  }
+  // Block path traversal sequences
+  if (/(?:^|[/\\])\.\.(?:[/\\]|$)/.test(path)) {
+    throw new Error("Invalid API path");
+  }
+  // Must be a relative path starting with /
+  if (!path.startsWith("/")) {
+    throw new Error("Invalid API path");
+  }
+  return path;
+}
+
 export async function apiGet<T>(path: string, token?: string | null): Promise<T> {
+  const safePath = validateApiPath(path);
   const headers: Record<string, string> = {};
   if (token) headers["Authorization"] = `Bearer ${token}`;
 
-  const res = await fetch(`${apiBase}${path}`, {
+  const res = await fetch(`${apiBase}${safePath}`, {
     headers,
     redirect: "error", // R18-C4: Prevent HTTPS→HTTP redirect leaking Bearer token
     signal: AbortSignal.timeout(30_000), // R18-C5: Prevent indefinite hang
@@ -126,10 +144,11 @@ export async function apiGet<T>(path: string, token?: string | null): Promise<T>
 }
 
 export async function apiPost<T>(path: string, body: unknown, token?: string | null): Promise<T> {
+  const safePath = validateApiPath(path);
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (token) headers["Authorization"] = `Bearer ${token}`;
 
-  const res = await fetch(`${apiBase}${path}`, {
+  const res = await fetch(`${apiBase}${safePath}`, {
     method: "POST",
     headers,
     body: JSON.stringify(body),

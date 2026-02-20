@@ -32,6 +32,7 @@ public final class AgenticWalletResource {
      * @throws DominusNodeException on API errors
      */
     public AgenticWallet create(String label, int spendingLimitCents) throws DominusNodeException {
+        WalletResource.validateAmountCents(spendingLimitCents);
         return http.post("/api/agent-wallet",
                 Map.of("label", label, "spendingLimitCents", spendingLimitCents),
                 AgenticWallet.class);
@@ -67,6 +68,7 @@ public final class AgenticWalletResource {
      * @throws DominusNodeException on API errors
      */
     public AgenticWalletFundResponse fund(String walletId, int amountCents) throws DominusNodeException {
+        WalletResource.validateAmountCents(amountCents);
         return http.post("/api/agent-wallet/" + URLEncoder.encode(walletId, StandardCharsets.UTF_8) + "/fund",
                 Map.of("amountCents", amountCents),
                 AgenticWalletFundResponse.class);

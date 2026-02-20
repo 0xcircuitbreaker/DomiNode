@@ -212,6 +212,11 @@ impl TeamsResource {
 
     /// Fund the team wallet from the user's main wallet.
     pub async fn fund_wallet(&self, team_id: &str, amount_cents: i64) -> Result<TeamFundResponse> {
+        if amount_cents <= 0 || amount_cents > 2_147_483_647 {
+            return Err(crate::errors::DominusNodeError::Validation(
+                "amountCents must be a positive integer <= 2,147,483,647".to_string(),
+            ));
+        }
         self.http
             .post(
                 &format!("/api/teams/{}/wallet/fund", encode_uri_component(team_id)),

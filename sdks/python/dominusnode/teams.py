@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional
 from urllib.parse import quote
 
 from .http_client import AsyncHttpClient, SyncHttpClient
+from .wallet import _validate_amount_cents
 from .types import (
     Team,
     TeamMember,
@@ -110,6 +111,7 @@ class TeamsResource:
 
     def fund_wallet(self, team_id: str, amount_cents: int) -> TeamTransaction:
         """Fund the team wallet from the user's main wallet."""
+        _validate_amount_cents(amount_cents, "amount_cents")
         data = self._http.post(
             f"/api/teams/{quote(team_id, safe='')}/wallet/fund",
             json={"amountCents": amount_cents},
@@ -242,6 +244,7 @@ class AsyncTeamsResource:
 
     async def fund_wallet(self, team_id: str, amount_cents: int) -> TeamTransaction:
         """Fund the team wallet from the user's main wallet."""
+        _validate_amount_cents(amount_cents, "amount_cents")
         data = await self._http.post(
             f"/api/teams/{quote(team_id, safe='')}/wallet/fund",
             json={"amountCents": amount_cents},

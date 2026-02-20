@@ -139,6 +139,10 @@ export function isTokenExpired(token: string): boolean {
     const base64 = payloadB64.replace(/-/g, "+").replace(/_/g, "/");
     const payload = JSON.parse(atob(base64));
     if (typeof payload !== "object" || payload === null) return true;
+    // R36 C-16: Strip prototype pollution keys from JWT payload
+    delete payload.__proto__;
+    delete payload.constructor;
+    delete payload.prototype;
     if (typeof payload.exp !== "number" || !Number.isFinite(payload.exp)) return true;
     // Expired if within 60 seconds of expiry
     return payload.exp * 1000 < Date.now() + 60_000;

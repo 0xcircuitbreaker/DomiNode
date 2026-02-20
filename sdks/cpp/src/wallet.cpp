@@ -2,8 +2,15 @@
 #include "dominusnode/http_client.hpp"
 
 #include <sstream>
+#include <stdexcept>
 
 namespace dominusnode {
+
+static void validate_amount_cents(int amount_cents, const char* name = "amountCents") {
+    if (amount_cents <= 0 || amount_cents > 2147483647) {
+        throw std::invalid_argument(std::string(name) + " must be a positive integer <= 2,147,483,647");
+    }
+}
 
 WalletResource::WalletResource(HttpClient& http) : http_(http) {}
 
@@ -31,12 +38,14 @@ TransactionsResult WalletResource::get_transactions(std::optional<int> limit,
 }
 
 StripeCheckoutResult WalletResource::top_up_stripe(int amount_cents) {
+    validate_amount_cents(amount_cents);
     nlohmann::json body = {{"amountCents", amount_cents}};
     auto resp = http_.post("/api/wallet/topup/stripe", body);
     return resp.get<StripeCheckoutResult>();
 }
 
 CryptoInvoiceResult WalletResource::top_up_crypto(int amount_cents, const std::string& currency) {
+    validate_amount_cents(amount_cents);
     double amount_usd = amount_cents / 100.0;
     nlohmann::json body = {{"amountUsd", amount_usd}, {"currency", currency}};
     auto resp = http_.post("/api/wallet/topup/crypto", body);

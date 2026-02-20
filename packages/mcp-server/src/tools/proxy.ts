@@ -11,10 +11,10 @@ export function registerProxyTools(server: McpServer, httpClient: HttpClient): v
       try {
         const config = await httpClient.get<ProxyConfig>("/api/proxy/config");
         const text = [
-          `HTTP Endpoint: ${config.http_endpoint}`,
-          `SOCKS5 Endpoint: ${config.socks5_endpoint}`,
-          `Username Format: ${config.username_format}`,
-          `Supported Countries: ${config.supported_countries?.join(", ") ?? "all"}`,
+          `HTTP Endpoint: ${config.httpEndpoint}`,
+          `SOCKS5 Endpoint: ${config.socks5Endpoint}`,
+          `Username Format: ${config.usernameFormat}`,
+          `Supported Countries: ${config.supportedCountries?.join(", ") ?? "all"}`,
         ].join("\n");
         return { content: [{ type: "text", text }] };
       } catch (err) {
@@ -35,9 +35,9 @@ export function registerProxyTools(server: McpServer, httpClient: HttpClient): v
         const status = await httpClient.get<ProxyStatus>("/api/proxy/status");
         const text = [
           `Status: ${status.status}`,
-          `Latency: ${status.latency_ms}ms`,
+          `Latency: ${status.latencyMs}ms`,
           `Providers: ${status.providers?.join(", ") ?? "unknown"}`,
-          `Active Sessions: ${status.active_sessions}`,
+          `Active Sessions: ${status.activeSessions}`,
         ].join("\n");
         return { content: [{ type: "text", text }] };
       } catch (err) {

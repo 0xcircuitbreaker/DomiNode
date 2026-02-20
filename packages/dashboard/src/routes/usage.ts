@@ -32,7 +32,7 @@ router.get("/", async (req, res) => {
     }
 
     const limit = Math.min(Math.max(parseInt(req.query.limit as string, 10) || 200, 1), 1000);
-    const offset = Math.max(parseInt(req.query.offset as string, 10) || 0, 0);
+    const offset = Math.min(Math.max(parseInt(req.query.offset as string, 10) || 0, 0), 1_000_000);
 
     const [usageData, summary] = await Promise.all([
       usageRepo.getUsageByUser(userId, since, until, limit, offset),

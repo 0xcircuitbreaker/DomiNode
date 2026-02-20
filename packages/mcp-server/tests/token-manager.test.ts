@@ -46,9 +46,10 @@ describe("TokenManager", () => {
   describe("initialize", () => {
     it("fetches tokens via verify-key endpoint", async () => {
       const accessToken = makeJwt(Math.floor(Date.now() / 1000) + 600);
+      // R36 H-6: Use backend's actual response format ({ token } not { accessToken })
       globalThis.fetch = vi.fn().mockResolvedValueOnce({
         ok: true,
-        text: () => Promise.resolve(JSON.stringify({ accessToken, refreshToken: "rt_123" })),
+        text: () => Promise.resolve(JSON.stringify({ token: accessToken, refreshToken: "rt_123" })),
       } as unknown as Response);
 
       await tm.initialize("dn_live_test");
@@ -79,9 +80,10 @@ describe("TokenManager", () => {
   describe("getValidToken", () => {
     it("returns cached token if not expired", async () => {
       const token = makeJwt(Math.floor(Date.now() / 1000) + 600);
+      // R36 H-6: Use backend's actual response format ({ token } not { accessToken })
       globalThis.fetch = vi.fn().mockResolvedValueOnce({
         ok: true,
-        text: () => Promise.resolve(JSON.stringify({ accessToken: token, refreshToken: "rt_1" })),
+        text: () => Promise.resolve(JSON.stringify({ token, refreshToken: "rt_1" })),
       } as unknown as Response);
 
       await tm.initialize("dn_live_test");
@@ -95,14 +97,15 @@ describe("TokenManager", () => {
       const expiredToken = makeJwt(Math.floor(Date.now() / 1000) - 100);
       const freshToken = makeJwt(Math.floor(Date.now() / 1000) + 600);
 
+      // R36 H-6: Use backend's actual response format ({ token } not { accessToken })
       globalThis.fetch = vi.fn()
         .mockResolvedValueOnce({
           ok: true,
-          text: () => Promise.resolve(JSON.stringify({ accessToken: expiredToken, refreshToken: "rt_1" })),
+          text: () => Promise.resolve(JSON.stringify({ token: expiredToken, refreshToken: "rt_1" })),
         } as unknown as Response)
         .mockResolvedValueOnce({
           ok: true,
-          text: () => Promise.resolve(JSON.stringify({ accessToken: freshToken, refreshToken: "rt_2" })),
+          text: () => Promise.resolve(JSON.stringify({ token: freshToken, refreshToken: "rt_2" })),
         } as unknown as Response);
 
       await tm.initialize("dn_live_test");
@@ -120,14 +123,15 @@ describe("TokenManager", () => {
       const token1 = makeJwt(Math.floor(Date.now() / 1000) + 600);
       const token2 = makeJwt(Math.floor(Date.now() / 1000) + 600);
 
+      // R36 H-6: Use backend's actual response format ({ token } not { accessToken })
       globalThis.fetch = vi.fn()
         .mockResolvedValueOnce({
           ok: true,
-          text: () => Promise.resolve(JSON.stringify({ accessToken: token1, refreshToken: "rt_1" })),
+          text: () => Promise.resolve(JSON.stringify({ token: token1, refreshToken: "rt_1" })),
         } as unknown as Response)
         .mockResolvedValueOnce({
           ok: true,
-          text: () => Promise.resolve(JSON.stringify({ accessToken: token2, refreshToken: "rt_2" })),
+          text: () => Promise.resolve(JSON.stringify({ token: token2, refreshToken: "rt_2" })),
         } as unknown as Response);
 
       await tm.initialize("dn_live_test");
@@ -143,9 +147,10 @@ describe("TokenManager", () => {
   describe("clear", () => {
     it("clears all tokens", async () => {
       const token = makeJwt(Math.floor(Date.now() / 1000) + 600);
+      // R36 H-6: Use backend's actual response format ({ token } not { accessToken })
       globalThis.fetch = vi.fn().mockResolvedValueOnce({
         ok: true,
-        text: () => Promise.resolve(JSON.stringify({ accessToken: token, refreshToken: "rt_1" })),
+        text: () => Promise.resolve(JSON.stringify({ token, refreshToken: "rt_1" })),
       } as unknown as Response);
 
       await tm.initialize("dn_live_test");

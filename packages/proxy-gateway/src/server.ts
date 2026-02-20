@@ -44,6 +44,9 @@ if (isNaN(MAX_CONNECTIONS) || MAX_CONNECTIONS <= 0) {
 
 const MAX_BODY_SIZE = 50 * 1024 * 1024; // 50MB
 const CONNECT_TIMEOUT_MS = parseInt(process.env["PROXY_CONNECT_TIMEOUT_MS"] ?? "30000", 10);
+if (isNaN(CONNECT_TIMEOUT_MS) || CONNECT_TIMEOUT_MS < 1_000 || CONNECT_TIMEOUT_MS > 120_000) {
+  throw new Error("PROXY_CONNECT_TIMEOUT_MS must be between 1000 and 120000");
+}
 
 // R22 H-3: Parse and validate tunnel idle timeout once at module level
 const TUNNEL_IDLE_TIMEOUT_MS = parseInt(process.env["TUNNEL_IDLE_TIMEOUT_MS"] ?? "300000", 10);
@@ -483,11 +486,14 @@ async function handleConnect(
   const connectStart = Date.now();
   const providerName = provider.name;
 
+  // R37 C-2: Wrap IPv6 addresses in brackets for upstream CONNECT per RFC 7230
+  const connectHost = targetHost.includes(":") ? `[${targetHost}]` : targetHost;
+
   // Connect to upstream proxy gateway
   const psSocket = net.connect(upstream.port, upstream.host, () => {
     psSocket.write(
-      `CONNECT ${targetHost}:${targetPort} HTTP/1.1\r\n` +
-        `Host: ${targetHost}:${targetPort}\r\n` +
+      `CONNECT ${connectHost}:${targetPort} HTTP/1.1\r\n` +
+        `Host: ${connectHost}:${targetPort}\r\n` +
         `Proxy-Authorization: Basic ${upstream.proxyAuth}\r\n` +
         `\r\n`,
     );

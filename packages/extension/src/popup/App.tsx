@@ -3,6 +3,14 @@ import { useExtensionState } from "./useExtensionState.js";
 import { TOP_COUNTRIES, US_STATES, MAJOR_US_CITIES } from "../ui/countries.js";
 import { LOW_BALANCE_THRESHOLD_CENTS } from "../shared/constants.js";
 
+// R37 H-3: Truncate error messages to prevent UI overflow and potential content injection
+const MAX_ERROR_LENGTH = 200;
+function truncateError(msg: string | null | undefined): string {
+  if (!msg) return "";
+  if (msg.length <= MAX_ERROR_LENGTH) return msg;
+  return msg.slice(0, MAX_ERROR_LENGTH) + "...";
+}
+
 export function App() {
   const { state, loading, error, sendMessage } = useExtensionState();
 
@@ -13,7 +21,7 @@ export function App() {
   if (!state) {
     return (
       <div class="stack" style={{ padding: "16px" }}>
-        <div class="error-banner">{error ?? "Failed to load extension state"}</div>
+        <div class="error-banner">{truncateError(error) || "Failed to load extension state"}</div>
       </div>
     );
   }
@@ -60,7 +68,7 @@ function MfaView({ error, sendMessage }: MfaViewProps) {
         <div class="text-sm text-muted">Two-Factor Authentication</div>
       </div>
 
-      {error && <div class="error-banner">{error}</div>}
+      {error && <div class="error-banner">{truncateError(error)}</div>}
 
       <form class="stack-sm" onSubmit={handleSubmit}>
         <div class="text-sm text-muted">
@@ -122,6 +130,7 @@ function LoginView({ error, sendMessage }: LoginViewProps) {
     e.preventDefault();
     setSubmitting(true);
     await sendMessage("LOGIN", { email, password });
+    setPassword(""); // R36 C-15: Clear credential from component state immediately
     setSubmitting(false);
   };
 
@@ -129,6 +138,7 @@ function LoginView({ error, sendMessage }: LoginViewProps) {
     e.preventDefault();
     setSubmitting(true);
     await sendMessage("LOGIN_WITH_KEY", { apiKey });
+    setApiKey(""); // R36 C-15: Clear credential from component state immediately
     setSubmitting(false);
   };
 
@@ -156,7 +166,7 @@ function LoginView({ error, sendMessage }: LoginViewProps) {
         </button>
       </div>
 
-      {error && <div class="error-banner">{error}</div>}
+      {error && <div class="error-banner">{truncateError(error)}</div>}
 
       {tab === "email" ? (
         <form class="stack-sm" onSubmit={handleEmailLogin}>
@@ -302,7 +312,7 @@ function AuthenticatedView({ state, error, sendMessage }: AuthenticatedViewProps
 
         {/* Error */}
         {(error || state.lastError) && (
-          <div class="error-banner">{error ?? state.lastError}</div>
+          <div class="error-banner">{truncateError(error ?? state.lastError)}</div>
         )}
 
         {/* Country */}

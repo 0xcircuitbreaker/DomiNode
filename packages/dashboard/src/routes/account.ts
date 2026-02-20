@@ -52,6 +52,11 @@ router.get(
         usageResult,
         invoicesResult,
         auditResult,
+        agenticWalletsResult,
+        teamMembershipsResult,
+        teamInvitesSentResult,
+        teamInvitesReceivedResult,
+        agenticWalletTransactionsResult,
       ] = await Promise.all([
         query("SELECT id, email, status, created_at, plan_id, wallet_address FROM users WHERE id = $1", [userId]),
         query("SELECT id, balance_cents, currency, last_topped_up FROM wallets WHERE user_id = $1", [userId]),
@@ -85,6 +90,38 @@ router.get(
           "SELECT id, action, resource, resource_id, ip_address, created_at FROM audit_events WHERE user_id = $1 ORDER BY created_at DESC LIMIT 10000",
           [userId]
         ),
+        // R41 H-3: Include agentic wallets in GDPR export
+        query(
+          "SELECT id, label, balance_cents, spending_limit_cents, status, created_at FROM agentic_wallets WHERE user_id = $1",
+          [userId]
+        ),
+        // R41 H-3: Include team memberships in GDPR export
+        query(
+          `SELECT tm.team_id, tm.role, tm.joined_at, t.name AS team_name
+           FROM team_members tm JOIN teams t ON t.id = tm.team_id
+           WHERE tm.user_id = $1`,
+          [userId]
+        ),
+        // R42 M-1: Include team invites sent by user
+        query(
+          "SELECT id, team_id, email, role, expires_at, accepted_at, created_at FROM team_invites WHERE invited_by = $1",
+          [userId]
+        ),
+        // R42 M-1: Include team invites received by user
+        query(
+          `SELECT id, team_id, role, expires_at, accepted_at, created_at
+           FROM team_invites WHERE email = (SELECT email FROM users WHERE id = $1)`,
+          [userId]
+        ),
+        // R42 L-2: Include agentic wallet transactions
+        query(
+          `SELECT awt.id, awt.wallet_id, awt.type, awt.amount_cents, awt.description, awt.created_at
+           FROM agentic_wallet_transactions awt
+           JOIN agentic_wallets aw ON aw.id = awt.wallet_id
+           WHERE aw.user_id = $1
+           ORDER BY awt.created_at DESC LIMIT 10000`,
+          [userId]
+        ),
       ]);
 
       const exportData = {
@@ -98,6 +135,11 @@ router.get(
         usageRecords: usageResult.rows,
         paymentInvoices: invoicesResult.rows,
         auditEvents: auditResult.rows,
+        agenticWallets: agenticWalletsResult.rows, // R41 H-3
+        agenticWalletTransactions: agenticWalletTransactionsResult.rows, // R42 L-2
+        teamMemberships: teamMembershipsResult.rows, // R41 H-3
+        teamInvitesSent: teamInvitesSentResult.rows, // R42 M-1
+        teamInvitesReceived: teamInvitesReceivedResult.rows, // R42 M-1
       };
 
       log.info("GDPR data export", { userId });
@@ -162,6 +204,11 @@ router.delete(
       try {
         await client.query("BEGIN");
 
+        // R41 H-4: Read wallet_address BEFORE anonymization (UPDATE sets it to NULL)
+        const walletAddrRow = (await client.query(
+          "SELECT wallet_address FROM users WHERE id = $1", [userId]
+        )).rows[0];
+
         // Anonymize user: replace email, clear wallet_address, set status to deleted
         await client.query(
           `UPDATE users SET
@@ -201,6 +248,68 @@ router.delete(
         // Delete MFA config
         await client.query("DELETE FROM mfa_backup_codes WHERE user_id = $1", [userId]);
         await client.query("DELETE FROM mfa_configs WHERE user_id = $1", [userId]);
+
+        // R37 H-7: Delete password reset tokens and email verification tokens (GDPR completeness)
+        await client.query("DELETE FROM password_reset_tokens WHERE user_id = $1", [userId]);
+        await client.query("DELETE FROM email_verification_tokens WHERE user_id = $1", [userId]);
+
+        // R40 C-1: Delete wallet challenges by wallet address (table has no user_id column)
+        // R41 H-4: walletAddrRow captured BEFORE anonymization (above) so wallet_address is non-NULL
+        if (walletAddrRow?.wallet_address) {
+          await client.query(
+            "DELETE FROM wallet_challenges WHERE address = $1",
+            [walletAddrRow.wallet_address.toLowerCase()]
+          );
+        }
+
+        // R36 H-1: Clean up agentic wallets (GDPR: sub-wallet data is personal)
+        await client.query(
+          "DELETE FROM agentic_wallet_transactions WHERE agentic_wallet_id IN (SELECT id FROM agentic_wallets WHERE user_id = $1)",
+          [userId]
+        );
+        await client.query("DELETE FROM agentic_wallets WHERE user_id = $1", [userId]);
+
+        // R36 H-1: Clean up team memberships and owned teams
+        await client.query("DELETE FROM team_invites WHERE invited_by = $1", [userId]);
+        // R38 H-1: Delete pending team invites sent TO this user's email
+        // (userEmail captured before anonymization above)
+        await client.query(
+          "DELETE FROM team_invites WHERE email = $1 AND accepted_at IS NULL",
+          [userEmail]
+        );
+        await client.query(
+          "UPDATE team_members SET user_id = NULL WHERE user_id = $1",
+          [userId]
+        );
+
+        // R40 H-1: Anonymize team wallet transactions for teams owned by this user
+        await client.query(
+          `UPDATE team_wallet_transactions SET description = 'REDACTED'
+           WHERE wallet_id IN (
+             SELECT tw.id FROM team_wallets tw
+             JOIN teams t ON t.id = tw.team_id
+             WHERE t.owner_id = $1
+           )`,
+          [userId]
+        );
+
+        // R39 H-1: Anonymize audit events (IP addresses and action details are personal data)
+        await client.query(
+          "UPDATE audit_events SET ip_address = 'REDACTED', details = NULL WHERE user_id = $1",
+          [userId]
+        );
+
+        // R39 H-1: Anonymize payment invoice external references
+        await client.query(
+          "UPDATE payment_invoices SET external_id = 'REDACTED' WHERE user_id = $1",
+          [userId]
+        );
+
+        // R39 H-2: Anonymize session records (proxy_ip is infra, but timestamps are personal)
+        await client.query(
+          "UPDATE sessions SET proxy_ip = 'REDACTED' WHERE user_id = $1",
+          [userId]
+        );
 
         await client.query("COMMIT");
       } catch (txErr) {

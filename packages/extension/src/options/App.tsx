@@ -3,6 +3,14 @@ import { useExtensionState } from "../popup/useExtensionState.js";
 import { ALL_COUNTRIES } from "../ui/countries.js";
 import { LOW_BALANCE_THRESHOLD_CENTS } from "../shared/constants.js";
 
+// R37 H-3: Truncate error messages to prevent UI overflow and potential content injection
+const MAX_ERROR_LENGTH = 200;
+function truncateError(msg: string | null | undefined): string {
+  if (!msg) return "";
+  if (msg.length <= MAX_ERROR_LENGTH) return msg;
+  return msg.slice(0, MAX_ERROR_LENGTH) + "...";
+}
+
 const ROTATION_OPTIONS = [
   { value: 0, label: "Off" },
   { value: 1, label: "1 min" },
@@ -26,7 +34,7 @@ export function App() {
   if (!state) {
     return (
       <div class="options-container">
-        <div class="error-banner">{error ?? "Failed to load extension state"}</div>
+        <div class="error-banner">{truncateError(error) || "Failed to load extension state"}</div>
       </div>
     );
   }
@@ -40,7 +48,7 @@ export function App() {
         Dominus Node Settings
       </h1>
 
-      {error && <div class="error-banner" style={{ marginBottom: "16px" }}>{error}</div>}
+      {error && <div class="error-banner" style={{ marginBottom: "16px" }}>{truncateError(error)}</div>}
 
       {isAuthenticated ? (
         <AuthenticatedSettings state={state} error={error} sendMessage={sendMessage} />
@@ -68,6 +76,7 @@ function LoginSection({ error, sendMessage }: LoginSectionProps) {
     e.preventDefault();
     setSubmitting(true);
     await sendMessage("LOGIN", { email, password });
+    setPassword(""); // R36 C-15: Clear credential from component state immediately
     setSubmitting(false);
   };
 
@@ -75,6 +84,7 @@ function LoginSection({ error, sendMessage }: LoginSectionProps) {
     e.preventDefault();
     setSubmitting(true);
     await sendMessage("LOGIN_WITH_KEY", { apiKey });
+    setApiKey(""); // R36 C-15: Clear credential from component state immediately
     setSubmitting(false);
   };
 
@@ -97,7 +107,7 @@ function LoginSection({ error, sendMessage }: LoginSectionProps) {
           </button>
         </div>
 
-        {error && <div class="error-banner">{error}</div>}
+        {error && <div class="error-banner">{truncateError(error)}</div>}
 
         {tab === "email" ? (
           <form class="stack-sm" onSubmit={handleEmailLogin}>
@@ -326,7 +336,7 @@ function AuthenticatedSettings({ state, sendMessage }: AuthenticatedSettingsProp
             </div>
           </div>
           {state.lastError && (
-            <div class="error-banner">{state.lastError}</div>
+            <div class="error-banner">{truncateError(state.lastError)}</div>
           )}
         </div>
       </div>

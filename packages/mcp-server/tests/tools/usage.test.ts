@@ -39,11 +39,13 @@ describe("usage tools", () => {
       ok: true,
       status: 200,
       text: () => Promise.resolve(JSON.stringify({
-        total_bytes: 1073741824,
-        total_cost_cents: 500,
-        total_requests: 1000,
-        period_start: "2026-01-01",
-        period_end: "2026-01-31",
+        summary: {
+          totalBytes: 1073741824,
+          totalCostCents: 500,
+          requestCount: 1000,
+          totalGB: 1.0,
+          totalCostUsd: 5.0,
+        },
       })),
       headers: new Headers(),
     } as unknown as Response);

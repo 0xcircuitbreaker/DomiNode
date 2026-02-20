@@ -143,17 +143,15 @@ export async function getActiveSessions(
   Array<{
     id: string;
     startedAt: Date;
-    proxyIp: string;
     status: string;
   }>
 > {
   const result = await query<{
     id: string;
     started_at: Date;
-    proxy_ip: string;
     status: string;
   }>(
-    `SELECT id, started_at, proxy_ip, status
+    `SELECT id, started_at, status
      FROM sessions
      WHERE user_id = $1
        AND status = 'active'
@@ -165,7 +163,6 @@ export async function getActiveSessions(
   return result.rows.map((row) => ({
     id: row.id,
     startedAt: row.started_at,
-    proxyIp: row.proxy_ip,
     status: row.status,
   }));
 }

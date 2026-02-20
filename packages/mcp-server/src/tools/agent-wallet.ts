@@ -250,6 +250,131 @@ export function registerAgentWalletTools(server: McpServer, httpClient: HttpClie
   );
 
   server.tool(
+    "dominusnode_agent_wallet_freeze",
+    "Freeze an agentic wallet. Frozen wallets cannot be used for proxy billing until unfrozen.",
+    {
+      wallet_id: z.string().regex(UUID_RE).describe("Wallet ID to freeze"),
+    },
+    async (args) => {
+      try {
+        if (!checkAgentWalletRateLimit()) {
+          return {
+            isError: true,
+            content: [{ type: "text", text: "Rate limit exceeded: maximum 20 agentic wallet operations per minute. Please wait before retrying." }],
+          };
+        }
+
+        const data = await httpClient.post<{
+          id: string;
+          label: string;
+          balanceCents: number;
+          status: string;
+        }>(`/api/agent-wallet/${encodeURIComponent(args.wallet_id)}/freeze`);
+
+        const text = [
+          `Wallet Frozen`,
+          ``,
+          `Wallet ID: ${data.id}`,
+          `Label: ${data.label}`,
+          `Balance: $${(data.balanceCents / 100).toFixed(2)}`,
+          `Status: ${data.status}`,
+          ``,
+          `This wallet can no longer be used for proxy billing.`,
+          `Use dominusnode_agent_wallet_unfreeze to reactivate it.`,
+        ].join("\n");
+
+        return { content: [{ type: "text", text }] };
+      } catch (err) {
+        return {
+          isError: true,
+          content: [{ type: "text", text: `Error freezing wallet: ${err instanceof Error ? err.message : String(err)}` }],
+        };
+      }
+    },
+  );
+
+  server.tool(
+    "dominusnode_agent_wallet_unfreeze",
+    "Unfreeze a previously frozen agentic wallet, restoring it to active status for proxy billing.",
+    {
+      wallet_id: z.string().regex(UUID_RE).describe("Wallet ID to unfreeze"),
+    },
+    async (args) => {
+      try {
+        if (!checkAgentWalletRateLimit()) {
+          return {
+            isError: true,
+            content: [{ type: "text", text: "Rate limit exceeded: maximum 20 agentic wallet operations per minute. Please wait before retrying." }],
+          };
+        }
+
+        const data = await httpClient.post<{
+          id: string;
+          label: string;
+          balanceCents: number;
+          status: string;
+        }>(`/api/agent-wallet/${encodeURIComponent(args.wallet_id)}/unfreeze`);
+
+        const text = [
+          `Wallet Unfrozen`,
+          ``,
+          `Wallet ID: ${data.id}`,
+          `Label: ${data.label}`,
+          `Balance: $${(data.balanceCents / 100).toFixed(2)}`,
+          `Status: ${data.status}`,
+          ``,
+          `This wallet is now active and can be used for proxy billing.`,
+        ].join("\n");
+
+        return { content: [{ type: "text", text }] };
+      } catch (err) {
+        return {
+          isError: true,
+          content: [{ type: "text", text: `Error unfreezing wallet: ${err instanceof Error ? err.message : String(err)}` }],
+        };
+      }
+    },
+  );
+
+  server.tool(
+    "dominusnode_agent_wallet_delete",
+    "Delete an agentic wallet. Any remaining balance is automatically refunded to your main wallet. Cannot delete frozen wallets.",
+    {
+      wallet_id: z.string().regex(UUID_RE).describe("Wallet ID to delete"),
+    },
+    async (args) => {
+      try {
+        if (!checkAgentWalletRateLimit()) {
+          return {
+            isError: true,
+            content: [{ type: "text", text: "Rate limit exceeded: maximum 20 agentic wallet operations per minute. Please wait before retrying." }],
+          };
+        }
+
+        const data = await httpClient.delete<{
+          deleted: boolean;
+          refundedCents: number;
+        }>(`/api/agent-wallet/${encodeURIComponent(args.wallet_id)}`);
+
+        const text = [
+          `Wallet Deleted`,
+          ``,
+          `Refunded: $${(data.refundedCents / 100).toFixed(2)} to your main wallet`,
+          ``,
+          `The wallet and all its transaction history have been removed.`,
+        ].join("\n");
+
+        return { content: [{ type: "text", text }] };
+      } catch (err) {
+        return {
+          isError: true,
+          content: [{ type: "text", text: `Error deleting wallet: ${err instanceof Error ? err.message : String(err)}` }],
+        };
+      }
+    },
+  );
+
+  server.tool(
     "dominusnode_agent_wallet_transactions",
     "Get transaction history for an agentic wallet.",
     {

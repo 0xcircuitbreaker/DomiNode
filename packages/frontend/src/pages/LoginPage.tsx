@@ -88,8 +88,14 @@ export default function LoginPage() {
   }, [searchParams]);
 
   const redirectTo = searchParams.get("redirect") ?? "/app";
-  // Only allow relative paths to prevent open redirect
-  const safeRedirect = redirectTo.startsWith("/") ? redirectTo : "/app";
+  // R36 H-1 + R37 C-1: Only allow relative paths to prevent open redirect
+  // Block protocol-relative URLs (//evil.com) and backslash bypasses (\/evil.com, \evil.com)
+  // Browsers normalize backslashes to forward slashes, so \/evil.com becomes //evil.com
+  const normalizedRedirect = redirectTo.replace(/\\/g, "/");
+  const safeRedirect =
+    normalizedRedirect.startsWith("/") && !normalizedRedirect.startsWith("//")
+      ? normalizedRedirect
+      : "/app";
 
   if (user) {
     return <Navigate to={safeRedirect} replace />;

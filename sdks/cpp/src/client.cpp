@@ -122,6 +122,10 @@ void DominusNodeClient::disconnect() {
         // Best-effort logout
     }
     impl_->token_manager.clear();
+    // C-12: Securely zero config credentials to prevent lingering in memory.
+    secure_zero_string(impl_->config.api_key);
+    secure_zero_string(impl_->config.access_token);
+    secure_zero_string(impl_->config.refresh_token);
 }
 
 AuthResource& DominusNodeClient::auth() { return impl_->auth_resource; }

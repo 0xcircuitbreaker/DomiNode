@@ -85,6 +85,9 @@ function sendReply(socket: net.Socket, rep: number): void {
 
 // R31 H-4: Total SOCKS5 handshake timeout (covers client negotiation + upstream CONNECT)
 const SOCKS5_TOTAL_HANDSHAKE_TIMEOUT_MS = parseInt(process.env["SOCKS5_TOTAL_HANDSHAKE_TIMEOUT_MS"] ?? "15000", 10);
+if (isNaN(SOCKS5_TOTAL_HANDSHAKE_TIMEOUT_MS) || SOCKS5_TOTAL_HANDSHAKE_TIMEOUT_MS < 5_000 || SOCKS5_TOTAL_HANDSHAKE_TIMEOUT_MS > 60_000) {
+  throw new Error("SOCKS5_TOTAL_HANDSHAKE_TIMEOUT_MS must be between 5000 and 60000");
+}
 
 async function handleSocks5Connection(clientSocket: net.Socket, providerSelector: ProviderSelector): Promise<void> {
   const clientIp = (clientSocket.remoteAddress ?? "").replace(/^::ffff:/, "");
@@ -124,6 +127,7 @@ async function handleSocks5Connection(clientSocket: net.Socket, providerSelector
   // Step 1: Read greeting (VER, NMETHODS, METHODS...)
   const greeting = await readBytes(clientSocket, 2, 5000);
   if (!greeting || greeting[0] !== SOCKS_VER) {
+    clearTimeout(totalHandshakeTimer);
     clientSocket.end();
     return;
   }
@@ -131,12 +135,14 @@ async function handleSocks5Connection(clientSocket: net.Socket, providerSelector
   const nmethods = greeting[1];
   const methods = await readBytes(clientSocket, nmethods, 5000);
   if (!methods) {
+    clearTimeout(totalHandshakeTimer);
     clientSocket.end();
     return;
   }
 
   // We require username/password auth (0x02)
   if (!Array.from(methods).includes(AUTH_USERPASS)) {
+    clearTimeout(totalHandshakeTimer);
     clientSocket.write(Buffer.from([SOCKS_VER, AUTH_NONE_ACCEPTABLE]));
     clientSocket.end();
     return;
@@ -148,28 +154,30 @@ async function handleSocks5Connection(clientSocket: net.Socket, providerSelector
   // Step 2: Read username/password (RFC 1929)
   const authVer = await readBytes(clientSocket, 1, 5000);
   if (!authVer || authVer[0] !== USERPASS_VER) {
+    clearTimeout(totalHandshakeTimer);
     clientSocket.end();
     return;
   }
 
   const ulenBuf = await readBytes(clientSocket, 1, 5000);
-  if (!ulenBuf) { clientSocket.end(); return; }
+  if (!ulenBuf) { clearTimeout(totalHandshakeTimer); clientSocket.end(); return; }
   const ulen = ulenBuf[0];
 
   const unameBuf = await readBytes(clientSocket, ulen, 5000);
-  if (!unameBuf) { clientSocket.end(); return; }
+  if (!unameBuf) { clearTimeout(totalHandshakeTimer); clientSocket.end(); return; }
   const username = unameBuf.toString("utf-8");
 
   const plenBuf = await readBytes(clientSocket, 1, 5000);
-  if (!plenBuf) { clientSocket.end(); return; }
+  if (!plenBuf) { clearTimeout(totalHandshakeTimer); clientSocket.end(); return; }
   const plen = plenBuf[0];
 
   const passwdBuf = await readBytes(clientSocket, plen, 5000);
-  if (!passwdBuf) { clientSocket.end(); return; }
+  if (!passwdBuf) { clearTimeout(totalHandshakeTimer); clientSocket.end(); return; }
   const apiKey = passwdBuf.toString("utf-8");
 
   // Authenticate
   if (!apiKey.startsWith("dn_live_")) {
+    clearTimeout(totalHandshakeTimer);
     recordAuthFailure(clientIp);
     clientSocket.write(Buffer.from([USERPASS_VER, 0x01])); // auth failure
     clientSocket.end();
@@ -185,6 +193,7 @@ async function handleSocks5Connection(clientSocket: net.Socket, providerSelector
   try {
     const result = await userRepo.findUserByApiKeyHash(keyHash);
     if (!result) {
+      clearTimeout(totalHandshakeTimer);
       recordAuthFailure(clientIp);
       clientSocket.write(Buffer.from([USERPASS_VER, 0x01]));
       clientSocket.end();
@@ -192,6 +201,15 @@ async function handleSocks5Connection(clientSocket: net.Socket, providerSelector
     }
     // R27 C-1: Reject suspended/deleted users at SOCKS5 auth layer
     if (result.user.status !== "active") {
+      clearTimeout(totalHandshakeTimer);
+      recordAuthFailure(clientIp);
+      clientSocket.write(Buffer.from([USERPASS_VER, 0x01]));
+      clientSocket.end();
+      return;
+    }
+    // R36 C-7: Reject unverified email (parity with HTTP proxy auth.ts)
+    if (!result.user.email_verified) {
+      clearTimeout(totalHandshakeTimer);
       recordAuthFailure(clientIp);
       clientSocket.write(Buffer.from([USERPASS_VER, 0x01]));
       clientSocket.end();
@@ -202,6 +220,7 @@ async function handleSocks5Connection(clientSocket: net.Socket, providerSelector
     logTargetHosts = result.user.log_target_hosts ?? false;
     proxyOptions = parseProxyOptions(username);
   } catch (err) {
+    clearTimeout(totalHandshakeTimer);
     log.error("SOCKS5 auth DB error", { error: err instanceof Error ? err.message : String(err) });
     clientSocket.write(Buffer.from([USERPASS_VER, 0x01]));
     clientSocket.end();
@@ -216,6 +235,7 @@ async function handleSocks5Connection(clientSocket: net.Socket, providerSelector
 
   // Per-user connection limit (plan-aware)
   if (!incrementUserConns(userId, socksUserPlan.maxConnections)) {
+    clearTimeout(totalHandshakeTimer);
     sendReply(clientSocket, REP_NOT_ALLOWED);
     clientSocket.end();
     return;
@@ -227,6 +247,7 @@ async function handleSocks5Connection(clientSocket: net.Socket, providerSelector
       ? await checkTeamBalance(teamId)
       : await checkBalance(userId);
     if (!hasBalance) {
+      clearTimeout(totalHandshakeTimer);
       decrementUserConns(userId);
       sendReply(clientSocket, REP_NOT_ALLOWED);
       clientSocket.end();
@@ -237,6 +258,7 @@ async function handleSocks5Connection(clientSocket: net.Socket, providerSelector
   // Step 3: Read request (VER, CMD, RSV, ATYP, DST.ADDR, DST.PORT)
   const reqHeader = await readBytes(clientSocket, 4, 10000);
   if (!reqHeader || reqHeader[0] !== SOCKS_VER) {
+    clearTimeout(totalHandshakeTimer);
     decrementUserConns(userId);
     clientSocket.end();
     return;
@@ -246,6 +268,7 @@ async function handleSocks5Connection(clientSocket: net.Socket, providerSelector
   const atyp = reqHeader[3];
 
   if (cmd !== CMD_CONNECT) {
+    clearTimeout(totalHandshakeTimer);
     sendReply(clientSocket, REP_COMMAND_NOT_SUPPORTED);
     decrementUserConns(userId);
     clientSocket.end();
@@ -256,23 +279,24 @@ async function handleSocks5Connection(clientSocket: net.Socket, providerSelector
   let targetHost: string;
   if (atyp === ATYP_IPV4) {
     const addrBuf = await readBytes(clientSocket, 4, 5000);
-    if (!addrBuf) { decrementUserConns(userId); clientSocket.end(); return; }
+    if (!addrBuf) { clearTimeout(totalHandshakeTimer); decrementUserConns(userId); clientSocket.end(); return; }
     targetHost = `${addrBuf[0]}.${addrBuf[1]}.${addrBuf[2]}.${addrBuf[3]}`;
   } else if (atyp === ATYP_DOMAIN) {
     const domLenBuf = await readBytes(clientSocket, 1, 5000);
-    if (!domLenBuf) { decrementUserConns(userId); clientSocket.end(); return; }
+    if (!domLenBuf || domLenBuf[0] === 0) { clearTimeout(totalHandshakeTimer); decrementUserConns(userId); clientSocket.end(); return; }
     const domainBuf = await readBytes(clientSocket, domLenBuf[0], 5000);
-    if (!domainBuf) { decrementUserConns(userId); clientSocket.end(); return; }
+    if (!domainBuf) { clearTimeout(totalHandshakeTimer); decrementUserConns(userId); clientSocket.end(); return; }
     targetHost = domainBuf.toString("utf-8");
   } else if (atyp === ATYP_IPV6) {
     const addrBuf = await readBytes(clientSocket, 16, 5000);
-    if (!addrBuf) { decrementUserConns(userId); clientSocket.end(); return; }
+    if (!addrBuf) { clearTimeout(totalHandshakeTimer); decrementUserConns(userId); clientSocket.end(); return; }
     const parts: string[] = [];
     for (let i = 0; i < 16; i += 2) {
       parts.push(addrBuf.readUInt16BE(i).toString(16));
     }
     targetHost = parts.join(":");
   } else {
+    clearTimeout(totalHandshakeTimer);
     sendReply(clientSocket, REP_GENERAL_FAILURE);
     decrementUserConns(userId);
     clientSocket.end();
@@ -281,11 +305,12 @@ async function handleSocks5Connection(clientSocket: net.Socket, providerSelector
 
   // Parse destination port
   const portBuf = await readBytes(clientSocket, 2, 5000);
-  if (!portBuf) { decrementUserConns(userId); clientSocket.end(); return; }
+  if (!portBuf) { clearTimeout(totalHandshakeTimer); decrementUserConns(userId); clientSocket.end(); return; }
   const targetPort = portBuf.readUInt16BE(0);
 
   // CRLF injection prevention + SSRF validation
   if (!isValidHostname(targetHost) || !isValidPort(targetPort)) {
+    clearTimeout(totalHandshakeTimer);
     sendReply(clientSocket, REP_NOT_ALLOWED);
     decrementUserConns(userId);
     clientSocket.end();
@@ -294,6 +319,7 @@ async function handleSocks5Connection(clientSocket: net.Socket, providerSelector
 
   // R30 C-2: Defense-in-depth: reject hostnames with control characters before upstream CONNECT
   if (/[\x00-\x1f\x7f]/.test(targetHost)) {
+    clearTimeout(totalHandshakeTimer);
     sendReply(clientSocket, REP_NOT_ALLOWED);
     decrementUserConns(userId);
     clientSocket.end();
@@ -302,6 +328,7 @@ async function handleSocks5Connection(clientSocket: net.Socket, providerSelector
 
   const socksTargetCheck = await validateTarget(targetHost, targetPort);
   if (!socksTargetCheck.allowed) {
+    clearTimeout(totalHandshakeTimer);
     sendReply(clientSocket, REP_NOT_ALLOWED);
     decrementUserConns(userId);
     clientSocket.end();
@@ -312,12 +339,14 @@ async function handleSocks5Connection(clientSocket: net.Socket, providerSelector
   if (socksUserPlan.allowedProxyTypes) {
     const reqType = proxyOptions.proxyType;
     if (reqType === "residential" && socksUserPlan.allowedProxyTypes === "dc") {
+      clearTimeout(totalHandshakeTimer);
       sendReply(clientSocket, REP_NOT_ALLOWED);
       decrementUserConns(userId);
       clientSocket.end();
       return;
     }
     if (reqType === "dc" && socksUserPlan.allowedProxyTypes === "residential") {
+      clearTimeout(totalHandshakeTimer);
       sendReply(clientSocket, REP_NOT_ALLOWED);
       decrementUserConns(userId);
       clientSocket.end();
@@ -337,17 +366,20 @@ async function handleSocks5Connection(clientSocket: net.Socket, providerSelector
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     if (msg.includes("sanctioned")) {
+      clearTimeout(totalHandshakeTimer);
       sendReply(clientSocket, REP_NOT_ALLOWED);
       decrementUserConns(userId);
       clientSocket.end();
       return;
     }
     if (msg.includes("unavailable")) {
+      clearTimeout(totalHandshakeTimer);
       sendReply(clientSocket, REP_GENERAL_FAILURE);
       decrementUserConns(userId);
       clientSocket.end();
       return;
     }
+    clearTimeout(totalHandshakeTimer);
     decrementUserConns(userId);
     throw err;
   }
@@ -359,10 +391,13 @@ async function handleSocks5Connection(clientSocket: net.Socket, providerSelector
 
   const connectStart = Date.now();
 
+  // R37 C-2: Wrap IPv6 addresses in brackets for upstream CONNECT per RFC 7230
+  const connectHost = targetHost.includes(":") ? `[${targetHost}]` : targetHost;
+
   const psSocket = net.connect(upstream.port, upstream.host, () => {
     psSocket.write(
-      `CONNECT ${targetHost}:${targetPort} HTTP/1.1\r\n` +
-        `Host: ${targetHost}:${targetPort}\r\n` +
+      `CONNECT ${connectHost}:${targetPort} HTTP/1.1\r\n` +
+        `Host: ${connectHost}:${targetPort}\r\n` +
         `Proxy-Authorization: Basic ${upstream.proxyAuth}\r\n` +
         `\r\n`,
     );

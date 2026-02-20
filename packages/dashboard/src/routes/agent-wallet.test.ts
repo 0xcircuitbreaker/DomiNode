@@ -13,6 +13,7 @@ const mockFreezeWallet = vi.fn();
 const mockDeleteWallet = vi.fn();
 
 const mockUnfreezeWallet = vi.fn();
+const mockFindUserById = vi.fn();
 
 vi.mock("@dominusnode/shared", () => ({
   agenticWalletRepo: {
@@ -24,6 +25,9 @@ vi.mock("@dominusnode/shared", () => ({
     freezeWallet: (...args: unknown[]) => mockFreezeWallet(...args),
     unfreezeWallet: (...args: unknown[]) => mockUnfreezeWallet(...args),
     deleteWallet: (...args: unknown[]) => mockDeleteWallet(...args),
+  },
+  userRepo: {
+    findUserById: (...args: unknown[]) => mockFindUserById(...args),
   },
   SUPPORTED_CRYPTO: ["btc", "eth", "ltc", "xmr", "zec", "usdc", "sol", "usdt", "dai", "bnb"] as const,
   sanitizeString: (s: string, maxLen: number) => {
@@ -163,6 +167,13 @@ function requestWithBody(
 describe("agent-wallet routes", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // R37 C-5: Default mock returns a verified user so existing tests pass
+    mockFindUserById.mockResolvedValue({
+      id: "test-user-id",
+      email: "test@test.com",
+      email_verified: true,
+      status: "active",
+    });
   });
 
   // ─── POST /api/agent-wallet ─────────────────────────────────────────

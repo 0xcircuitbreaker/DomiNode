@@ -267,6 +267,12 @@ router.post("/register", async (req, res) => {
       return;
     }
 
+    // R37 H-10: Cap password length to prevent bcrypt DoS (O(n) cost on input length)
+    if (password.length > 128) {
+      res.status(400).json({ error: "Password exceeds maximum length" });
+      return;
+    }
+
     // reCAPTCHA v3 verification (anti-bot)
     const captchaToken = req.body.captchaToken ?? "";
     if (RECAPTCHA_SECRET_KEY && !captchaToken) {
@@ -355,7 +361,12 @@ router.post("/register", async (req, res) => {
     // auto-verify the email so AI agents can immediately use payment features.
     // This is MCP-only — general SDK/API users must verify via email link.
     // Mass signups are still blocked by reCAPTCHA + rate limits + alpha cap.
-    const isMcpAgent = req.headers["x-dominusnode-agent"] === "mcp";
+    // R36 C-1: Require shared secret alongside header to prevent trivial spoofing
+    const MCP_AGENT_SECRET = process.env["MCP_AGENT_SECRET"] ?? "";
+    const isMcpAgent =
+      req.headers["x-dominusnode-agent"] === "mcp" &&
+      MCP_AGENT_SECRET.length > 0 &&
+      req.headers["x-dominusnode-agent-secret"] === MCP_AGENT_SECRET;
     if (isMcpAgent) {
       await userRepo.markEmailVerified(user.id);
       log.info("auto-verified email for MCP agent", { userId: user.id });
@@ -402,6 +413,12 @@ router.post("/login", async (req, res) => {
     const email = sanitizeString(req.body.email ?? "", 254).toLowerCase();
     const password = req.body.password ?? "";
     const clientIp = (req.ip ?? req.socket.remoteAddress ?? "").replace(/^::ffff:/, "");
+
+    // R36 C-2: Cap password length to prevent bcrypt DoS (O(n) cost on input length)
+    if (password.length > 128) {
+      res.status(401).json({ error: "Invalid email or password" });
+      return;
+    }
 
     // reCAPTCHA v3 verification (anti-bot on login)
     const captchaToken = req.body.captchaToken ?? "";
@@ -634,6 +651,12 @@ router.post("/change-password", requireAuth, async (req, res) => {
 
     if (!currentPassword || !newPassword) {
       res.status(400).json({ error: "Current password and new password are required" });
+      return;
+    }
+
+    // R36 C-2: Cap password length to prevent bcrypt DoS
+    if (currentPassword.length > 128 || newPassword.length > 128) {
+      res.status(400).json({ error: "Password exceeds maximum length" });
       return;
     }
 
@@ -1115,6 +1138,11 @@ router.post("/mfa/disable", requireAuth, async (req, res) => {
       res.status(400).json({ error: "Password is required to disable MFA" });
       return;
     }
+    // R36 C-2: Cap password length to prevent bcrypt DoS
+    if (password.length > 128) {
+      res.status(400).json({ error: "Invalid password" });
+      return;
+    }
     if (!code) {
       res.status(400).json({ error: "TOTP code or backup code is required" });
       return;
@@ -1334,17 +1362,20 @@ router.post("/reset-password", async (req, res) => {
       return;
     }
 
-    const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
-    const resetToken = await userRepo.findPasswordResetToken(tokenHash);
-
-    if (!resetToken) {
-      res.status(400).json({ error: "Invalid or expired reset token." });
+    // R37 C-10: Cap password length to prevent bcrypt DoS
+    if (newPassword.length > 128) {
+      res.status(400).json({ error: "Password exceeds maximum length" });
       return;
     }
 
-    // Check if token has already been used
-    if (resetToken.usedAt) {
-      res.status(400).json({ error: "This reset link has already been used." });
+    const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
+
+    // R37 C-1: Atomically consume the token (DELETE...RETURNING) to prevent TOCTOU race.
+    // A concurrent request with the same token will get null since the row is already deleted.
+    const resetToken = await userRepo.consumePasswordResetToken(tokenHash);
+
+    if (!resetToken) {
+      res.status(400).json({ error: "Invalid or expired reset token." });
       return;
     }
 
@@ -1372,9 +1403,6 @@ router.post("/reset-password", async (req, res) => {
     const passwordHash = await hashPassword(newPassword);
     await userRepo.updatePassword(user.id, passwordHash);
 
-    // Mark token as used
-    await userRepo.markPasswordResetTokenUsed(tokenHash);
-
     // Revoke all refresh tokens + API keys for security (force re-login)
     await refreshTokenRepo.revokeAllForUser(user.id);
     await userRepo.revokeAllApiKeys(user.id);
@@ -1398,7 +1426,10 @@ router.post("/verify-email", async (req, res) => {
     }
 
     const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
-    const verifyToken = await userRepo.findEmailVerificationToken(tokenHash);
+
+    // R37 C-2: Atomically consume the token (DELETE...RETURNING) to prevent TOCTOU race.
+    // A concurrent request with the same token will get null since the row is already deleted.
+    const verifyToken = await userRepo.consumeEmailVerificationToken(tokenHash);
 
     if (!verifyToken) {
       res.status(400).json({ error: "Invalid or expired verification token." });
@@ -1407,17 +1438,13 @@ router.post("/verify-email", async (req, res) => {
 
     // Check expiry
     if (new Date(verifyToken.expiresAt) < new Date()) {
-      // Clean up expired token
-      await userRepo.deleteEmailVerificationToken(tokenHash);
+      // Token already deleted by consumeEmailVerificationToken — just inform user
       res.status(400).json({ error: "This verification link has expired. Please request a new one." });
       return;
     }
 
     // Mark email as verified
     await userRepo.markEmailVerified(verifyToken.userId);
-
-    // Clean up token
-    await userRepo.deleteEmailVerificationToken(tokenHash);
 
     log.info("email verified", { userId: verifyToken.userId });
     res.json({ message: "Email verified successfully!" });

@@ -71,8 +71,19 @@ export function startApiServer(port: number = 3000): ReturnType<express.Express[
       if (originHost === parsedRequestHost.host) return true;
       if (originHostname !== parsedRequestHost.hostname) return false;
 
-      // Reverse proxies often forward Host without port; allow same hostname in that case.
-      if (!parsedRequestHost.port || !originPort) return true;
+      // R40 H-2: Strict port matching — if request host has no port, only allow
+      // origins with no explicit port or standard ports for their scheme
+      if (!parsedRequestHost.port) {
+        if (!originPort) return true;
+        const isStandardPort = (originUrl.protocol === "https:" && originPort === "443") ||
+                                (originUrl.protocol === "http:" && originPort === "80");
+        return isStandardPort;
+      }
+      if (!originPort) {
+        const isStandardPort = (originUrl.protocol === "https:" && parsedRequestHost.port === "443") ||
+                                (originUrl.protocol === "http:" && parsedRequestHost.port === "80");
+        return isStandardPort;
+      }
       return parsedRequestHost.port === originPort;
     } catch {
       return false;

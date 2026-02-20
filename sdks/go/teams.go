@@ -153,6 +153,9 @@ func (r *TeamsResource) Delete(ctx context.Context, teamID string) (*TeamDeleteR
 
 // FundWallet transfers funds from the user's main wallet to the team wallet.
 func (r *TeamsResource) FundWallet(ctx context.Context, teamID string, amountCents int) (*TeamFundResponse, error) {
+	if err := validateAmountCents(amountCents); err != nil {
+		return nil, err
+	}
 	body := map[string]interface{}{
 		"amountCents": amountCents,
 	}

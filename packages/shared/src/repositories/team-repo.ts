@@ -114,44 +114,59 @@ export async function updateTeam(
   userId: string,
   updates: { name?: string; maxMembers?: number },
 ): Promise<Team> {
-  // Verify ownership/admin
-  const memberCheck = await query<{ role: string }>(
-    `SELECT role FROM team_members WHERE team_id = $1 AND user_id = $2`,
-    [teamId, userId],
-  );
-  if (!memberCheck.rows[0] || (memberCheck.rows[0].role !== "owner" && memberCheck.rows[0].role !== "admin")) {
-    throw new Error("Only team owners or admins can update team settings");
-  }
+  // R40 H-3: Wrap role check + UPDATE in transaction to prevent TOCTOU
+  const pool = getPool();
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("SET LOCAL lock_timeout = '5s'");
 
-  const sets: string[] = [];
-  const params: unknown[] = [teamId];
-  let idx = 2;
-
-  if (updates.name !== undefined) {
-    if (!updates.name || updates.name.length > MAX_NAME_LENGTH) {
-      throw new Error("Team name must be 1-100 characters");
+    // Verify ownership/admin (inside transaction with lock)
+    const memberCheck = await client.query<{ role: string }>(
+      `SELECT role FROM team_members WHERE team_id = $1 AND user_id = $2 FOR UPDATE`,
+      [teamId, userId],
+    );
+    if (!memberCheck.rows[0] || (memberCheck.rows[0].role !== "owner" && memberCheck.rows[0].role !== "admin")) {
+      throw new Error("Only team owners or admins can update team settings");
     }
-    sets.push(`name = $${idx++}`);
-    params.push(updates.name);
-  }
-  if (updates.maxMembers !== undefined) {
-    if (!Number.isInteger(updates.maxMembers) || updates.maxMembers < 1 || updates.maxMembers > 100) {
-      throw new Error("maxMembers must be between 1 and 100");
+
+    const sets: string[] = [];
+    const params: unknown[] = [teamId];
+    let idx = 2;
+
+    if (updates.name !== undefined) {
+      if (!updates.name || updates.name.length > MAX_NAME_LENGTH) {
+        throw new Error("Team name must be 1-100 characters");
+      }
+      sets.push(`name = $${idx++}`);
+      params.push(updates.name);
     }
-    sets.push(`max_members = $${idx++}`);
-    params.push(updates.maxMembers);
+    if (updates.maxMembers !== undefined) {
+      if (!Number.isInteger(updates.maxMembers) || updates.maxMembers < 1 || updates.maxMembers > 100) {
+        throw new Error("maxMembers must be between 1 and 100");
+      }
+      sets.push(`max_members = $${idx++}`);
+      params.push(updates.maxMembers);
+    }
+
+    if (sets.length === 0) throw new Error("No updates provided");
+
+    const result = await client.query<Team>(
+      `UPDATE teams SET ${sets.join(", ")}
+       WHERE id = $1 AND status != 'deleted'
+       RETURNING id, name, owner_id, plan_id, max_members, status, created_at`,
+      params,
+    );
+    if (result.rows.length === 0) throw new Error("Team not found");
+
+    await client.query("COMMIT");
+    return result.rows[0];
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
   }
-
-  if (sets.length === 0) throw new Error("No updates provided");
-
-  const result = await query<Team>(
-    `UPDATE teams SET ${sets.join(", ")}
-     WHERE id = $1 AND status != 'deleted'
-     RETURNING id, name, owner_id, plan_id, max_members, status, created_at`,
-    params,
-  );
-  if (result.rows.length === 0) throw new Error("Team not found");
-  return result.rows[0];
 }
 
 export async function deleteTeam(
@@ -166,7 +181,7 @@ export async function deleteTeam(
 
     // Verify owner only
     const memberCheck = await client.query<{ role: string }>(
-      `SELECT role FROM team_members WHERE team_id = $1 AND user_id = $2`,
+      `SELECT role FROM team_members WHERE team_id = $1 AND user_id = $2 FOR UPDATE`,
       [teamId, userId],
     );
     if (!memberCheck.rows[0] || memberCheck.rows[0].role !== "owner") {
@@ -272,7 +287,7 @@ export async function fundTeamWallet(
 
     // Verify ownership/admin
     const memberCheck = await client.query<{ role: string }>(
-      `SELECT role FROM team_members WHERE team_id = $1 AND user_id = $2`,
+      `SELECT role FROM team_members WHERE team_id = $1 AND user_id = $2 FOR UPDATE`,
       [teamId, userId],
     );
     if (!memberCheck.rows[0] || (memberCheck.rows[0].role !== "owner" && memberCheck.rows[0].role !== "admin")) {
@@ -371,13 +386,41 @@ export async function reserveTeamBalance(
   teamId: string,
   amountCents: number,
 ): Promise<string | null> {
-  const result = await query<{ id: string }>(
-    `UPDATE team_wallets SET balance_cents = balance_cents - $1
-     WHERE team_id = $2 AND balance_cents >= $1
-     RETURNING id`,
-    [amountCents, teamId],
-  );
-  return result.rows[0]?.id ?? null;
+  // R36 C-8 + H-1: Validate amount and check team status
+  if (!Number.isInteger(amountCents) || amountCents <= 0 || amountCents > MAX_INT) {
+    return null;
+  }
+  // R37 C-3: Use SELECT FOR UPDATE + UPDATE in a transaction to prevent concurrent reservation races.
+  // The FOR UPDATE lock serializes concurrent reservation attempts on the same wallet row.
+  const pool = getPool();
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("SET LOCAL lock_timeout = '5s'");
+    const walletResult = await client.query<{ id: string; balance_cents: number }>(
+      `SELECT tw.id, tw.balance_cents FROM team_wallets tw
+       JOIN teams t ON t.id = tw.team_id
+       WHERE tw.team_id = $1 AND t.status = 'active'
+       FOR UPDATE OF tw`,
+      [teamId],
+    );
+    const wallet = walletResult.rows[0];
+    if (!wallet || wallet.balance_cents < amountCents) {
+      await client.query("ROLLBACK");
+      return null;
+    }
+    await client.query(
+      `UPDATE team_wallets SET balance_cents = balance_cents - $1 WHERE id = $2`,
+      [amountCents, wallet.id],
+    );
+    await client.query("COMMIT");
+    return wallet.id;
+  } catch {
+    await client.query("ROLLBACK").catch(() => {});
+    return null;
+  } finally {
+    client.release();
+  }
 }
 
 /** Release a failed reservation back to team wallet */
@@ -385,10 +428,32 @@ export async function releaseTeamReservation(
   teamId: string,
   amountCents: number,
 ): Promise<void> {
-  await query(
-    `UPDATE team_wallets SET balance_cents = balance_cents + $1 WHERE team_id = $2`,
-    [amountCents, teamId],
-  );
+  // R36 C-9: Atomic release with FOR UPDATE lock + MAX_BALANCE_CENTS cap
+  if (!Number.isInteger(amountCents) || amountCents <= 0 || amountCents > MAX_INT) return;
+  const pool = getPool();
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("SET LOCAL lock_timeout = '5s'");
+    const walletResult = await client.query<{ id: string; balance_cents: number }>(
+      `SELECT id, balance_cents FROM team_wallets WHERE team_id = $1 FOR UPDATE`,
+      [teamId],
+    );
+    const wallet = walletResult.rows[0];
+    if (!wallet) { await client.query("ROLLBACK"); return; }
+    const cappedRefund = Math.min(amountCents, MAX_BALANCE_CENTS - wallet.balance_cents);
+    if (cappedRefund <= 0) { await client.query("ROLLBACK"); return; }
+    await client.query(
+      `UPDATE team_wallets SET balance_cents = balance_cents + $1 WHERE id = $2`,
+      [cappedRefund, wallet.id],
+    );
+    await client.query("COMMIT");
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw err;
+  } finally {
+    client.release();
+  }
 }
 
 /** Settle a team proxy session: refund excess or charge overage */
@@ -398,38 +463,60 @@ export async function settleTeamSession(
   actualCostCents: number,
   sessionId: string,
 ): Promise<boolean> {
-  const diff = reservedCents - actualCostCents;
-  if (diff > 0) {
-    // Refund excess reservation
-    await query(
-      `UPDATE team_wallets SET balance_cents = balance_cents + $1 WHERE team_id = $2`,
-      [diff, teamId],
-    );
-  } else if (diff < 0) {
-    // Charge overage
-    const result = await query<{ id: string }>(
-      `UPDATE team_wallets SET balance_cents = balance_cents - $1
-       WHERE team_id = $2 AND balance_cents >= $1
-       RETURNING id`,
-      [Math.abs(diff), teamId],
-    );
-    if (result.rows.length === 0) return false; // insufficient balance for overage
-  }
-  // Record usage debit
-  if (actualCostCents > 0) {
-    const walletResult = await query<{ id: string }>(
-      `SELECT id FROM team_wallets WHERE team_id = $1`,
+  // R36 C-3: Atomic settlement with FOR UPDATE lock + MAX_BALANCE_CENTS cap
+  if (!Number.isInteger(reservedCents) || reservedCents < 0 || reservedCents > MAX_INT) return false;
+  if (!Number.isInteger(actualCostCents) || actualCostCents < 0 || actualCostCents > MAX_INT) return false;
+
+  const pool = getPool();
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("SET LOCAL lock_timeout = '5s'");
+    const walletResult = await client.query<{ id: string; balance_cents: number }>(
+      `SELECT id, balance_cents FROM team_wallets WHERE team_id = $1 FOR UPDATE`,
       [teamId],
     );
-    if (walletResult.rows[0]) {
-      await query(
-        `INSERT INTO team_wallet_transactions (wallet_id, type, amount_cents, description)
-         VALUES ($1, 'debit', $2, $3)`,
-        [walletResult.rows[0].id, actualCostCents, `Proxy session ${sessionId.slice(0, 8)}`],
+    const wallet = walletResult.rows[0];
+    if (!wallet) { await client.query("ROLLBACK"); return false; }
+
+    const diff = reservedCents - actualCostCents;
+    if (diff > 0) {
+      // Refund excess reservation, capped at MAX_BALANCE_CENTS
+      const cappedRefund = Math.min(diff, MAX_BALANCE_CENTS - wallet.balance_cents);
+      if (cappedRefund > 0) {
+        await client.query(
+          `UPDATE team_wallets SET balance_cents = balance_cents + $1 WHERE id = $2`,
+          [cappedRefund, wallet.id],
+        );
+      }
+    } else if (diff < 0) {
+      // Charge overage
+      const overage = Math.abs(diff);
+      if (wallet.balance_cents < overage) {
+        await client.query("ROLLBACK");
+        return false; // insufficient balance for overage
+      }
+      await client.query(
+        `UPDATE team_wallets SET balance_cents = balance_cents - $1 WHERE id = $2`,
+        [overage, wallet.id],
       );
     }
+    // Record usage debit in same transaction
+    if (actualCostCents > 0) {
+      await client.query(
+        `INSERT INTO team_wallet_transactions (wallet_id, type, amount_cents, description)
+         VALUES ($1, 'debit', $2, $3)`,
+        [wallet.id, actualCostCents, `Proxy session ${sessionId.slice(0, 8)}`],
+      );
+    }
+    await client.query("COMMIT");
+    return true;
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw err;
+  } finally {
+    client.release();
   }
-  return true;
 }
 
 /** Get team wallet balance (for balance check in proxy gateway) */
@@ -481,7 +568,7 @@ export async function addMember(
 
     // Verify caller is owner/admin
     const callerCheck = await client.query<{ role: string }>(
-      `SELECT role FROM team_members WHERE team_id = $1 AND user_id = $2`,
+      `SELECT role FROM team_members WHERE team_id = $1 AND user_id = $2 FOR UPDATE`,
       [teamId, userId],
     );
     if (!callerCheck.rows[0] || (callerCheck.rows[0].role !== "owner" && callerCheck.rows[0].role !== "admin")) {
@@ -530,27 +617,41 @@ export async function updateMemberRole(
   newRole: TeamRole,
 ): Promise<TeamMember> {
   if (newRole === "owner") throw new Error("Cannot assign owner role");
-
-  // Verify caller is owner
-  const callerCheck = await query<{ role: string }>(
-    `SELECT role FROM team_members WHERE team_id = $1 AND user_id = $2`,
-    [teamId, userId],
-  );
-  if (!callerCheck.rows[0] || callerCheck.rows[0].role !== "owner") {
-    throw new Error("Only the team owner can change member roles");
-  }
-
   // Cannot change own role
   if (userId === targetUserId) throw new Error("Cannot change your own role");
 
-  const result = await query<TeamMember>(
-    `UPDATE team_members SET role = $1
-     WHERE team_id = $2 AND user_id = $3 AND role != 'owner'
-     RETURNING id, team_id, user_id, role, joined_at`,
-    [newRole, teamId, targetUserId],
-  );
-  if (result.rows.length === 0) throw new Error("Member not found or is the owner");
-  return result.rows[0];
+  // R40 H-3: Wrap role check + UPDATE in transaction to prevent TOCTOU
+  const pool = getPool();
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("SET LOCAL lock_timeout = '5s'");
+
+    // Verify caller is owner (inside transaction with lock)
+    const callerCheck = await client.query<{ role: string }>(
+      `SELECT role FROM team_members WHERE team_id = $1 AND user_id = $2 FOR UPDATE`,
+      [teamId, userId],
+    );
+    if (!callerCheck.rows[0] || callerCheck.rows[0].role !== "owner") {
+      throw new Error("Only the team owner can change member roles");
+    }
+
+    const result = await client.query<TeamMember>(
+      `UPDATE team_members SET role = $1
+       WHERE team_id = $2 AND user_id = $3 AND role != 'owner'
+       RETURNING id, team_id, user_id, role, joined_at`,
+      [newRole, teamId, targetUserId],
+    );
+    if (result.rows.length === 0) throw new Error("Member not found or is the owner");
+
+    await client.query("COMMIT");
+    return result.rows[0];
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
 }
 
 export async function removeMember(
@@ -562,10 +663,11 @@ export async function removeMember(
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
+    await client.query("SET LOCAL lock_timeout = '5s'");
 
     // Verify caller is owner/admin
     const callerCheck = await client.query<{ role: string }>(
-      `SELECT role FROM team_members WHERE team_id = $1 AND user_id = $2`,
+      `SELECT role FROM team_members WHERE team_id = $1 AND user_id = $2 FOR UPDATE`,
       [teamId, userId],
     );
     if (!callerCheck.rows[0] || (callerCheck.rows[0].role !== "owner" && callerCheck.rows[0].role !== "admin")) {
@@ -574,7 +676,7 @@ export async function removeMember(
 
     // Cannot remove the owner
     const targetCheck = await client.query<{ role: string }>(
-      `SELECT role FROM team_members WHERE team_id = $1 AND user_id = $2`,
+      `SELECT role FROM team_members WHERE team_id = $1 AND user_id = $2 FOR UPDATE`,
       [teamId, targetUserId],
     );
     if (!targetCheck.rows[0]) throw new Error("Member not found");
@@ -619,39 +721,55 @@ export async function createInvite(
 ): Promise<TeamInvite> {
   if (role === "owner") throw new Error("Cannot invite as owner");
 
-  // Verify caller is owner/admin
-  const callerCheck = await query<{ role: string }>(
-    `SELECT role FROM team_members WHERE team_id = $1 AND user_id = $2`,
-    [teamId, userId],
-  );
-  if (!callerCheck.rows[0] || (callerCheck.rows[0].role !== "owner" && callerCheck.rows[0].role !== "admin")) {
-    throw new Error("Only team owners or admins can create invites");
+  // R40 C-2: Wrap all checks + INSERT in a single transaction to prevent TOCTOU
+  const pool = getPool();
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("SET LOCAL lock_timeout = '5s'");
+
+    // Verify caller is owner/admin (inside transaction)
+    const callerCheck = await client.query<{ role: string }>(
+      `SELECT role FROM team_members WHERE team_id = $1 AND user_id = $2 FOR UPDATE`,
+      [teamId, userId],
+    );
+    if (!callerCheck.rows[0] || (callerCheck.rows[0].role !== "owner" && callerCheck.rows[0].role !== "admin")) {
+      throw new Error("Only team owners or admins can create invites");
+    }
+
+    // Check if email is already a member (inside transaction)
+    const existingMember = await client.query<{ id: string }>(
+      `SELECT tm.id FROM team_members tm
+       JOIN users u ON u.id = tm.user_id
+       WHERE tm.team_id = $1 AND u.email = $2`,
+      [teamId, email],
+    );
+    if (existingMember.rows.length > 0) throw new Error("User is already a member of this team");
+
+    // Check for existing pending invite (inside transaction with lock)
+    const existingInvite = await client.query<{ id: string }>(
+      `SELECT id FROM team_invites
+       WHERE team_id = $1 AND email = $2 AND accepted_at IS NULL AND expires_at > now()
+       FOR UPDATE`,
+      [teamId, email],
+    );
+    if (existingInvite.rows.length > 0) throw new Error("Pending invite already exists for this email");
+
+    const result = await client.query<TeamInvite>(
+      `INSERT INTO team_invites (team_id, email, role, token_hash, invited_by, expires_at)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       RETURNING id, team_id, email, role, invited_by, expires_at, accepted_at, created_at`,
+      [teamId, email, role, tokenHash, userId, expiresAt],
+    );
+
+    await client.query("COMMIT");
+    return result.rows[0];
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
   }
-
-  // Check if email is already a member
-  const existingMember = await query<{ id: string }>(
-    `SELECT tm.id FROM team_members tm
-     JOIN users u ON u.id = tm.user_id
-     WHERE tm.team_id = $1 AND u.email = $2`,
-    [teamId, email],
-  );
-  if (existingMember.rows.length > 0) throw new Error("User is already a member of this team");
-
-  // Check for existing pending invite
-  const existingInvite = await query<{ id: string }>(
-    `SELECT id FROM team_invites
-     WHERE team_id = $1 AND email = $2 AND accepted_at IS NULL AND expires_at > now()`,
-    [teamId, email],
-  );
-  if (existingInvite.rows.length > 0) throw new Error("Pending invite already exists for this email");
-
-  const result = await query<TeamInvite>(
-    `INSERT INTO team_invites (team_id, email, role, token_hash, invited_by, expires_at)
-     VALUES ($1, $2, $3, $4, $5, $6)
-     RETURNING id, team_id, email, role, invited_by, expires_at, accepted_at, created_at`,
-    [teamId, email, role, tokenHash, userId, expiresAt],
-  );
-  return result.rows[0];
 }
 
 export async function listInvites(
@@ -680,20 +798,34 @@ export async function cancelInvite(
   userId: string,
   inviteId: string,
 ): Promise<void> {
-  // Verify caller is owner/admin
-  const callerCheck = await query<{ role: string }>(
-    `SELECT role FROM team_members WHERE team_id = $1 AND user_id = $2`,
-    [teamId, userId],
-  );
-  if (!callerCheck.rows[0] || (callerCheck.rows[0].role !== "owner" && callerCheck.rows[0].role !== "admin")) {
-    throw new Error("Only team owners or admins can cancel invites");
-  }
+  const pool = getPool();
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("SET LOCAL lock_timeout = '5s'");
 
-  const result = await query(
-    `DELETE FROM team_invites WHERE id = $1 AND team_id = $2 AND accepted_at IS NULL`,
-    [inviteId, teamId],
-  );
-  if ((result.rowCount ?? 0) === 0) throw new Error("Invite not found or already accepted");
+    // Verify caller is owner/admin
+    const callerCheck = await client.query<{ role: string }>(
+      `SELECT role FROM team_members WHERE team_id = $1 AND user_id = $2 FOR UPDATE`,
+      [teamId, userId],
+    );
+    if (!callerCheck.rows[0] || (callerCheck.rows[0].role !== "owner" && callerCheck.rows[0].role !== "admin")) {
+      throw new Error("Only team owners or admins can cancel invites");
+    }
+
+    const result = await client.query(
+      `DELETE FROM team_invites WHERE id = $1 AND team_id = $2 AND accepted_at IS NULL`,
+      [inviteId, teamId],
+    );
+    if ((result.rowCount ?? 0) === 0) throw new Error("Invite not found or already accepted");
+
+    await client.query("COMMIT");
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
 }
 
 export async function getInviteByToken(
@@ -800,31 +932,45 @@ export async function createTeamApiKey(
   keyPrefix: string,
   label: string,
 ): Promise<{ id: string; key_prefix: string; label: string; created_at: Date }> {
-  // Verify membership
-  const memberCheck = await query<{ role: string }>(
-    `SELECT role FROM team_members WHERE team_id = $1 AND user_id = $2`,
-    [teamId, userId],
-  );
-  if (!memberCheck.rows[0] || (memberCheck.rows[0].role !== "owner" && memberCheck.rows[0].role !== "admin")) {
-    throw new Error("Only team owners or admins can create team API keys");
-  }
+  const pool = getPool();
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("SET LOCAL lock_timeout = '5s'");
 
-  // Verify team is active
-  const teamCheck = await query<{ status: string }>(
-    `SELECT status FROM teams WHERE id = $1`,
-    [teamId],
-  );
-  if (!teamCheck.rows[0] || teamCheck.rows[0].status !== "active") {
-    throw new Error("Team not found or not active");
-  }
+    // Verify membership
+    const memberCheck = await client.query<{ role: string }>(
+      `SELECT role FROM team_members WHERE team_id = $1 AND user_id = $2 FOR UPDATE`,
+      [teamId, userId],
+    );
+    if (!memberCheck.rows[0] || (memberCheck.rows[0].role !== "owner" && memberCheck.rows[0].role !== "admin")) {
+      throw new Error("Only team owners or admins can create team API keys");
+    }
 
-  const result = await query<{ id: string; key_prefix: string; label: string; created_at: Date }>(
-    `INSERT INTO api_keys (user_id, team_id, key_hash, key_prefix, label)
-     VALUES ($1, $2, $3, $4, $5)
-     RETURNING id, key_prefix, label, created_at`,
-    [userId, teamId, keyHash, keyPrefix, label],
-  );
-  return result.rows[0];
+    // Verify team is active
+    const teamCheck = await client.query<{ status: string }>(
+      `SELECT status FROM teams WHERE id = $1 FOR UPDATE`,
+      [teamId],
+    );
+    if (!teamCheck.rows[0] || teamCheck.rows[0].status !== "active") {
+      throw new Error("Team not found or not active");
+    }
+
+    const result = await client.query<{ id: string; key_prefix: string; label: string; created_at: Date }>(
+      `INSERT INTO api_keys (user_id, team_id, key_hash, key_prefix, label)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING id, key_prefix, label, created_at`,
+      [userId, teamId, keyHash, keyPrefix, label],
+    );
+
+    await client.query("COMMIT");
+    return result.rows[0];
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
 }
 
 export async function listTeamApiKeys(
@@ -853,19 +999,33 @@ export async function revokeTeamApiKey(
   userId: string,
   keyId: string,
 ): Promise<boolean> {
-  // Verify caller is owner/admin
-  const callerCheck = await query<{ role: string }>(
-    `SELECT role FROM team_members WHERE team_id = $1 AND user_id = $2`,
-    [teamId, userId],
-  );
-  if (!callerCheck.rows[0] || (callerCheck.rows[0].role !== "owner" && callerCheck.rows[0].role !== "admin")) {
-    throw new Error("Only team owners or admins can revoke team API keys");
-  }
+  const pool = getPool();
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("SET LOCAL lock_timeout = '5s'");
 
-  const result = await query(
-    `UPDATE api_keys SET revoked_at = now()
-     WHERE id = $1 AND team_id = $2 AND revoked_at IS NULL`,
-    [keyId, teamId],
-  );
-  return (result.rowCount ?? 0) > 0;
+    // Verify caller is owner/admin
+    const callerCheck = await client.query<{ role: string }>(
+      `SELECT role FROM team_members WHERE team_id = $1 AND user_id = $2 FOR UPDATE`,
+      [teamId, userId],
+    );
+    if (!callerCheck.rows[0] || (callerCheck.rows[0].role !== "owner" && callerCheck.rows[0].role !== "admin")) {
+      throw new Error("Only team owners or admins can revoke team API keys");
+    }
+
+    const result = await client.query(
+      `UPDATE api_keys SET revoked_at = now()
+       WHERE id = $1 AND team_id = $2 AND revoked_at IS NULL`,
+      [keyId, teamId],
+    );
+
+    await client.query("COMMIT");
+    return (result.rowCount ?? 0) > 0;
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
 }

@@ -2,12 +2,6 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { HttpClient } from "../http-client.js";
 import type { ActiveSession } from "../types.js";
 
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
-}
-
 export function registerSessionsTools(server: McpServer, httpClient: HttpClient): void {
   server.tool(
     "dominusnode_get_active_sessions",
@@ -21,7 +15,7 @@ export function registerSessionsTools(server: McpServer, httpClient: HttpClient)
           return { content: [{ type: "text", text: "No active proxy sessions." }] };
         }
         const lines = sessions.map(
-          (s) => `${s.id.substring(0, 8)}... | ${s.target_host} | In: ${formatBytes(s.bytes_in)} Out: ${formatBytes(s.bytes_out)} | Country: ${s.country ?? "any"} | Since: ${s.started_at}`,
+          (s) => `${s.id.substring(0, 8)}... | Status: ${s.status} | Since: ${s.startedAt}`,
         );
         lines.unshift(`Active Sessions (${sessions.length}):`);
         return { content: [{ type: "text", text: lines.join("\n") }] };

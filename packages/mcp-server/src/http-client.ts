@@ -80,11 +80,14 @@ export interface HttpRequestOptions {
 
 export class HttpClient {
   private rateLimiter: TokenBucket;
+  private mcpAgentSecret: string;
 
   constructor(
     private baseUrl: string,
     private tokenManager: TokenManager,
+    mcpAgentSecret = "",
   ) {
+    this.mcpAgentSecret = mcpAgentSecret;
     this.rateLimiter = new TokenBucket(
       MCP_BUCKET_SIZE,
       MCP_RATE_LIMIT_PER_MINUTE / 60_000, // tokens per ms
@@ -98,12 +101,16 @@ export class HttpClient {
     }
 
     // R22 H-1: Protect base headers from user override
-    const PROTECTED_HEADERS = new Set(["user-agent", "content-type", "authorization", "host", "connection", "content-length", "x-dominusnode-agent"]);
+    const PROTECTED_HEADERS = new Set(["user-agent", "content-type", "authorization", "host", "connection", "content-length", "x-dominusnode-agent", "x-dominusnode-agent-secret"]);
     const headers: Record<string, string> = {
       "User-Agent": USER_AGENT,
       "Content-Type": "application/json",
       "X-DominusNode-Agent": "mcp",
     };
+    // R36 C-1: Send shared secret for auto-verification (if configured)
+    if (this.mcpAgentSecret) {
+      headers["X-DominusNode-Agent-Secret"] = this.mcpAgentSecret;
+    }
     if (opts.headers) {
       for (const [key, value] of Object.entries(opts.headers)) {
         if (!PROTECTED_HEADERS.has(key.toLowerCase())) {

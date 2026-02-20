@@ -113,8 +113,8 @@ services:
     # access to proxy ports. To bind to localhost only, set PROXY_HTTP_HOST_PORT=127.0.0.1:8080
     # and PROXY_SOCKS5_HOST_PORT=127.0.0.1:1080 in your .env file.
     ports:
-      - "${PROXY_HTTP_HOST_PORT:-0.0.0.0:8080}:8080"
-      - "${PROXY_SOCKS5_HOST_PORT:-0.0.0.0:1080}:1080"
+      - "${PROXY_HTTP_HOST_PORT:-127.0.0.1:8080}:8080"
+      - "${PROXY_SOCKS5_HOST_PORT:-127.0.0.1:1080}:1080"
     networks:
       - proxy
       - backend  # Needs DB access for auth, balance checks, session recording

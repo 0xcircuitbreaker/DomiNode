@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { z } from "zod";
 import { HttpClient } from "../../src/http-client.js";
 import { TokenManager } from "../../src/token-manager.js";
 import { registerKeysTools } from "../../src/tools/keys.js";
@@ -49,12 +50,20 @@ describe("keys tools", () => {
     expect(text).toContain("Save this key now");
   });
 
-  it("dominusnode_revoke_key validates UUID format", async () => {
+  it("dominusnode_revoke_key schema rejects invalid UUID", () => {
     const tools = (server as any)._registeredTools;
-    const result = await tools["dominusnode_revoke_key"].handler({ key_id: "not-a-uuid" }, { sessionId: "" } as never);
-    expect(result.isError).toBe(true);
-    const text = (result.content as Array<{ type: string; text: string }>)[0].text;
-    expect(text).toContain("must be a UUID");
+    const tool = tools["dominusnode_revoke_key"];
+    const schema = tool.inputSchema as z.ZodObject<{ key_id: z.ZodString }>;
+    const result = schema.safeParse({ key_id: "not-a-uuid" });
+    expect(result.success).toBe(false);
+  });
+
+  it("dominusnode_revoke_key schema accepts valid UUID", () => {
+    const tools = (server as any)._registeredTools;
+    const tool = tools["dominusnode_revoke_key"];
+    const schema = tool.inputSchema as z.ZodObject<{ key_id: z.ZodString }>;
+    const result = schema.safeParse({ key_id: "550e8400-e29b-41d4-a716-446655440000" });
+    expect(result.success).toBe(true);
   });
 
   it("dominusnode_revoke_key accepts valid UUID", async () => {

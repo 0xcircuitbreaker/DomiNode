@@ -1,6 +1,6 @@
 import { Router } from "express";
 import rateLimit from "express-rate-limit";
-import { agenticWalletRepo, createLogger, sanitizeString, SUPPORTED_CRYPTO } from "@dominusnode/shared";
+import { agenticWalletRepo, userRepo, createLogger, sanitizeString, SUPPORTED_CRYPTO } from "@dominusnode/shared";
 import { requireAuth, type AuthenticatedRequest } from "../middleware/auth.js";
 
 const router = Router();
@@ -25,6 +25,14 @@ router.use(requireAuth);
 router.post("/", financialLimiter, async (req, res) => {
   try {
     const { userId } = (req as AuthenticatedRequest).user;
+
+    // R37 C-5: Require verified email before creating agentic wallets
+    const agUser = await userRepo.findUserById(userId);
+    if (!agUser || !agUser.email_verified) {
+      res.status(403).json({ error: "Email verification required before creating agentic wallets" });
+      return;
+    }
+
     const label = sanitizeString(typeof req.body.label === "string" ? req.body.label : "", 100);
     const spendingLimitCents = parseInt(req.body.spendingLimitCents, 10);
 
@@ -117,6 +125,14 @@ router.get("/:id", async (req, res) => {
 router.post("/:id/fund", financialLimiter, async (req, res) => {
   try {
     const { userId } = (req as unknown as AuthenticatedRequest).user;
+
+    // R37 C-5: Require verified email before funding agentic wallets
+    const fundUser = await userRepo.findUserById(userId);
+    if (!fundUser || !fundUser.email_verified) {
+      res.status(403).json({ error: "Email verification required before funding agentic wallets" });
+      return;
+    }
+
     const walletId = req.params.id as string;
     const amountCents = parseInt(req.body.amountCents, 10);
 

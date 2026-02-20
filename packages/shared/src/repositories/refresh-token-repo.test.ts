@@ -51,11 +51,10 @@ describe("refresh-token-repo", () => {
   });
 
   describe("storeToken", () => {
-    it("should insert a token record", async () => {
+    it("should insert a token record without returning token_hash", async () => {
       const record = {
         id: "tok-1",
         user_id: "user-1",
-        token_hash: "hash-1",
         family_id: "fam-1",
         revoked: false,
         expires_at: new Date(),
@@ -66,10 +65,12 @@ describe("refresh-token-repo", () => {
       const result = await storeToken("user-1", "hash-1", "fam-1", new Date());
 
       expect(result).toEqual(record);
-      expect(mockQuery).toHaveBeenCalledWith(
-        expect.stringContaining("INSERT INTO refresh_tokens"),
-        expect.arrayContaining(["user-1", "hash-1", "fam-1"]),
-      );
+      // R37 C-3: RETURNING clause must NOT include token_hash
+      const sql = mockQuery.mock.calls[0][0] as string;
+      expect(sql).toContain("INSERT INTO refresh_tokens");
+      const returningClause = sql.split("RETURNING")[1];
+      expect(returningClause).toBeDefined();
+      expect(returningClause).not.toContain("token_hash");
     });
   });
 

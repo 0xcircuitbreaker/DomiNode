@@ -43,37 +43,36 @@ echo "[$(date -Iseconds)] Starting ${BACKUP_TYPE} backup..."
 
 # M-5 mitigation: Use PGPASSWORD env var instead of URL in command line
 # Extract components from DATABASE_URL to avoid password in process list
-export PGDATABASE PGHOST PGPORT PGUSER PGPASSWORD
-eval "$(echo "${DATABASE_URL}" | python3 -c "
+# H-27: Use read-based parsing instead of eval to prevent command injection
+_pg_creds="$(echo "${DATABASE_URL}" | python3 -c "
 import sys, urllib.parse
 url = urllib.parse.urlparse(sys.stdin.read().strip())
-print(f'PGUSER={urllib.parse.unquote(url.username or \"\")}')
-print(f'PGPASSWORD={urllib.parse.unquote(url.password or \"\")}')
-print(f'PGHOST={url.hostname or \"localhost\"}')
-print(f'PGPORT={url.port or 5432}')
-print(f'PGDATABASE={url.path.lstrip(\"/\")}')
-" 2>/dev/null)" || {
-  # Fallback: use DATABASE_URL directly if python3 is unavailable
-  pg_dump "${DATABASE_URL}" \
-    --no-owner \
-    --no-privileges \
-    --clean \
-    --if-exists \
-    --format=plain \
-    | gzip -9 > "${BACKUP_FILE}"
-  echo "[$(date -Iseconds)] WARNING: Used DATABASE_URL directly (python3 not available for credential extraction)"
-}
+print(urllib.parse.unquote(url.username or ''))
+print(urllib.parse.unquote(url.password or ''))
+print(url.hostname or 'localhost')
+print(url.port or 5432)
+print(url.path.lstrip('/'))
+" 2>/dev/null)" || { echo 'ERROR: Failed to parse DATABASE_URL' >&2; exit 1; }
 
-# If we extracted components, run pg_dump without URL in command line
-if [ -n "${PGHOST:-}" ]; then
-  pg_dump \
-    --no-owner \
-    --no-privileges \
-    --clean \
-    --if-exists \
-    --format=plain \
-    | gzip -9 > "${BACKUP_FILE}"
+PGUSER="$(echo "$_pg_creds" | sed -n '1p')"
+PGPASSWORD="$(echo "$_pg_creds" | sed -n '2p')"
+PGHOST="$(echo "$_pg_creds" | sed -n '3p')"
+PGPORT="$(echo "$_pg_creds" | sed -n '4p')"
+PGDATABASE="$(echo "$_pg_creds" | sed -n '5p')"
+export PGUSER PGPASSWORD PGHOST PGPORT PGDATABASE
+
+if [ -z "${PGUSER}" ] || [ -z "${PGDATABASE}" ]; then
+  echo "ERROR: Failed to extract valid credentials from DATABASE_URL" >&2
+  exit 1
 fi
+
+pg_dump \
+  --no-owner \
+  --no-privileges \
+  --clean \
+  --if-exists \
+  --format=plain \
+  | gzip -9 > "${BACKUP_FILE}"
 
 # Ensure backup file has restrictive permissions
 chmod 600 "${BACKUP_FILE}"

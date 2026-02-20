@@ -28,20 +28,21 @@ export async function storeToken(
   tokenHash: string,
   familyId: string,
   expiresAt: Date,
-): Promise<RefreshTokenRecord> {
-  const result = await query<RefreshTokenRecord>(
+): Promise<Omit<RefreshTokenRecord, "token_hash">> {
+  const result = await query<Omit<RefreshTokenRecord, "token_hash">>(
     `INSERT INTO refresh_tokens (user_id, token_hash, family_id, expires_at)
      VALUES ($1, $2, $3, $4)
-     RETURNING id, user_id, token_hash, family_id, revoked, expires_at, created_at`,
+     RETURNING id, user_id, family_id, revoked, expires_at, created_at`,
     [userId, tokenHash, familyId, expiresAt],
   );
   return result.rows[0];
 }
 
 /** Find a valid (non-revoked, non-expired) token by its hash */
-export async function findValidToken(tokenHash: string): Promise<RefreshTokenRecord | null> {
-  const result = await query<RefreshTokenRecord>(
-    `SELECT id, user_id, token_hash, family_id, revoked, expires_at, created_at FROM refresh_tokens
+export async function findValidToken(tokenHash: string): Promise<Omit<RefreshTokenRecord, "token_hash"> | null> {
+  // R37 H-9: Exclude token_hash from SELECT — caller already has the hash as input
+  const result = await query<Omit<RefreshTokenRecord, "token_hash">>(
+    `SELECT id, user_id, family_id, revoked, expires_at, created_at FROM refresh_tokens
      WHERE token_hash = $1 AND NOT revoked AND expires_at > now()
      LIMIT 1`,
     [tokenHash],
@@ -50,9 +51,10 @@ export async function findValidToken(tokenHash: string): Promise<RefreshTokenRec
 }
 
 /** Find a token by hash regardless of revocation (for reuse detection) */
-export async function findTokenByHash(tokenHash: string): Promise<RefreshTokenRecord | null> {
-  const result = await query<RefreshTokenRecord>(
-    `SELECT id, user_id, token_hash, family_id, revoked, expires_at, created_at FROM refresh_tokens WHERE token_hash = $1 LIMIT 1`,
+export async function findTokenByHash(tokenHash: string): Promise<Omit<RefreshTokenRecord, "token_hash"> | null> {
+  // R37 H-9: Exclude token_hash from SELECT — caller already has the hash as input
+  const result = await query<Omit<RefreshTokenRecord, "token_hash">>(
+    `SELECT id, user_id, family_id, revoked, expires_at, created_at FROM refresh_tokens WHERE token_hash = $1 LIMIT 1`,
     [tokenHash],
   );
   return result.rows[0] ?? null;
@@ -88,9 +90,10 @@ export async function revokeAllForUser(userId: string): Promise<number> {
 export async function findAndLockTokenByHash(
   tokenHash: string,
   client: PoolClient,
-): Promise<RefreshTokenRecord | null> {
+): Promise<Omit<RefreshTokenRecord, "token_hash"> | null> {
+  // R37 H-9: Exclude token_hash from SELECT — caller already has the hash as input
   const result = await client.query(
-    `SELECT id, user_id, token_hash, family_id, revoked, expires_at, created_at
+    `SELECT id, user_id, family_id, revoked, expires_at, created_at
      FROM refresh_tokens WHERE token_hash = $1 FOR UPDATE SKIP LOCKED LIMIT 1`,
     [tokenHash],
   );

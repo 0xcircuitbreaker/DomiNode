@@ -145,7 +145,7 @@ describe("wallet-auth routes", () => {
         id: "ch-1",
         address: VALID_ADDRESS,
         nonce: "a".repeat(64),
-        ip_address: "::1",
+
         created_at: new Date(),
         consumed: false,
       });
@@ -191,7 +191,7 @@ describe("wallet-auth routes", () => {
         id: "ch-1",
         address: VALID_ADDRESS,
         nonce: "abc",
-        ip_address: "::1",
+
         created_at: now,
         consumed: true,
       });
@@ -228,7 +228,7 @@ describe("wallet-auth routes", () => {
         id: "ch-1",
         address: VALID_ADDRESS,
         nonce: "abc",
-        ip_address: "::1",
+
         created_at: now,
         consumed: true,
       });
@@ -273,7 +273,7 @@ describe("wallet-auth routes", () => {
         id: "ch-1",
         address: VALID_ADDRESS,
         nonce: "abc",
-        ip_address: "::1",
+
         created_at: new Date(),
         consumed: true,
       });
@@ -306,7 +306,7 @@ describe("wallet-auth routes", () => {
         id: "ch-1",
         address: VALID_ADDRESS,
         nonce: "abc",
-        ip_address: "::1",
+
         created_at: now,
         consumed: true,
       });
@@ -363,7 +363,7 @@ describe("wallet-auth routes", () => {
         id: "ch-1",
         address: VALID_ADDRESS,
         nonce: "abc",
-        ip_address: "::1",
+
         created_at: now,
         consumed: true,
       });
@@ -404,7 +404,7 @@ describe("wallet-auth routes", () => {
         id: "ch-1",
         address: VALID_ADDRESS,
         nonce: "abc",
-        ip_address: "::1",
+
         created_at: now,
         consumed: true,
       });

@@ -1,9 +1,16 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const mockQuery = vi.fn();
+const mockClientQuery = vi.fn();
+const mockClient = {
+  query: (...args: unknown[]) => mockClientQuery(...args),
+  release: vi.fn(),
+};
+const mockPool = { connect: vi.fn().mockResolvedValue(mockClient) };
 
 vi.mock("../db.js", () => ({
   query: (...args: unknown[]) => mockQuery(...args),
+  getPool: () => mockPool,
 }));
 
 import {
@@ -12,7 +19,7 @@ import {
 } from "./admin-repo.js";
 
 describe("admin-repo", () => {
-  beforeEach(() => { vi.clearAllMocks(); });
+  beforeEach(() => { vi.clearAllMocks(); mockClientQuery.mockReset(); mockClient.release.mockReset(); mockPool.connect.mockResolvedValue(mockClient); });
 
   describe("listUsers", () => {
     it("should return paginated users with total", async () => {
@@ -109,10 +116,17 @@ describe("admin-repo", () => {
   });
 
   describe("deleteUser", () => {
-    it("should soft-delete", async () => {
-      mockQuery.mockResolvedValueOnce({});
+    it("should anonymize and soft-delete in transaction", async () => {
+      // R40 H-4: deleteUser now uses getPool() for transactional anonymization
+      mockClientQuery.mockResolvedValue({ rows: [{ wallet_address: null }] });
       await deleteUser("u1");
-      expect(mockQuery).toHaveBeenCalledWith(expect.stringContaining("SET status = 'deleted'"), ["u1"]);
+      // Should have called BEGIN and COMMIT
+      expect(mockClientQuery).toHaveBeenCalledWith("BEGIN");
+      expect(mockClientQuery).toHaveBeenCalledWith("COMMIT");
+      // Should anonymize user record
+      const calls = mockClientQuery.mock.calls.map((c: unknown[]) => c[0]);
+      expect(calls.some((s: unknown) => typeof s === "string" && s.includes("status = 'deleted'") && s.includes("password_hash = 'DELETED'"))).toBe(true);
+      expect(mockClient.release).toHaveBeenCalled();
     });
   });
 

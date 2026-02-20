@@ -29,6 +29,15 @@ public final class WalletResource {
     }
 
     /**
+     * Validate that a financial amount is a positive integer within PostgreSQL int4 range.
+     */
+    static void validateAmountCents(int amountCents) {
+        if (amountCents <= 0) {
+            throw new IllegalArgumentException("amountCents must be a positive integer <= 2,147,483,647");
+        }
+    }
+
+    /**
      * Get the current wallet balance.
      *
      * @return wallet balance information
@@ -81,6 +90,7 @@ public final class WalletResource {
      * @throws DominusNodeException on API errors
      */
     public StripeCheckout topupStripe(int amountCents) throws DominusNodeException {
+        validateAmountCents(amountCents);
         Map<String, Object> body = new HashMap<>();
         body.put("amountCents", amountCents);
         return http.post("/api/wallet/topup/stripe", body, StripeCheckout.class);
@@ -95,6 +105,9 @@ public final class WalletResource {
      * @throws DominusNodeException on API errors
      */
     public CryptoInvoice topupCrypto(double amountUsd, String currency) throws DominusNodeException {
+        if (Double.isNaN(amountUsd) || Double.isInfinite(amountUsd) || amountUsd <= 0 || amountUsd > 21474836.47) {
+            throw new IllegalArgumentException("amountUsd must be a positive finite number <= 21,474,836.47");
+        }
         Map<String, Object> body = new HashMap<>();
         body.put("amountUsd", amountUsd);
         body.put("currency", currency);

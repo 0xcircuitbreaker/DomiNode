@@ -62,10 +62,28 @@ function silentRefresh(): Promise<boolean> {
   return refreshPromise;
 }
 
+// R37 H-2: Validate API paths to prevent CRLF injection and path traversal
+function validateApiPath(path: string): string {
+  // Block CRLF injection
+  if (/[\r\n]/.test(path)) {
+    throw new Error("Invalid API path");
+  }
+  // Block path traversal sequences
+  if (/(?:^|[/\\])\.\.(?:[/\\]|$)/.test(path)) {
+    throw new Error("Invalid API path");
+  }
+  // Must be a relative path starting with /
+  if (!path.startsWith("/")) {
+    throw new Error("Invalid API path");
+  }
+  return path;
+}
+
 async function apiFetch<T>(
   path: string,
   options: ApiRequestOptions = {},
 ): Promise<T> {
+  const safePath = validateApiPath(path);
   const { redirectOnUnauthorized = true, ...fetchOptions } = options;
   const headers: Record<string, string> = {
     ...(fetchOptions.headers as Record<string, string>),
@@ -79,7 +97,7 @@ async function apiFetch<T>(
   const timeoutId = setTimeout(() => controller.abort(), 30_000); // 30s timeout
   let res: Response;
   try {
-    res = await fetch(path, {
+    res = await fetch(safePath, {
       ...fetchOptions,
       headers,
       credentials: "include",
@@ -100,7 +118,7 @@ async function apiFetch<T>(
       const retryTimeoutId = setTimeout(() => retryController.abort(), 30_000);
       let retryRes: Response;
       try {
-        retryRes = await fetch(path, {
+        retryRes = await fetch(safePath, {
           ...fetchOptions,
           headers,
           credentials: "include",
@@ -167,6 +185,14 @@ export function put<T>(path: string, body: unknown, options?: ApiRequestOptions)
   return apiFetch<T>(path, {
     ...options,
     method: "PUT",
+    body: JSON.stringify(body),
+  });
+}
+
+export function patch<T>(path: string, body: unknown, options?: ApiRequestOptions): Promise<T> {
+  return apiFetch<T>(path, {
+    ...options,
+    method: "PATCH",
     body: JSON.stringify(body),
   });
 }

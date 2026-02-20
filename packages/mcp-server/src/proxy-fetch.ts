@@ -200,6 +200,11 @@ export function validateUrl(url: string): URL {
     throw new Error("Requests to private/internal IP addresses are blocked");
   }
 
+  // R38 C-6: Block .localhost TLD (RFC 6761) — "foo.localhost" resolves to loopback
+  if (hostname.endsWith(".localhost")) {
+    throw new Error("Requests to localhost/loopback addresses are blocked");
+  }
+
   // Block hostnames ending in .local, .internal, .arpa
   if (hostname.endsWith(".local") || hostname.endsWith(".internal") || hostname.endsWith(".arpa")) {
     throw new Error("Requests to internal network hostnames are blocked");

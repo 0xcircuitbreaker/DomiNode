@@ -31,7 +31,7 @@ describe("MCP Server Integration", () => {
     vi.restoreAllMocks();
   });
 
-  it("registers all 41 tools in authenticated mode", async () => {
+  it("registers all authenticated-mode tools", async () => {
     const token = makeJwt(Math.floor(Date.now() / 1000) + 600);
     const tm = new TokenManager("http://localhost:3000");
     globalThis.fetch = vi.fn().mockResolvedValueOnce({
@@ -93,7 +93,8 @@ describe("MCP Server Integration", () => {
 
     // New crypto + agent wallet tools
     expect(toolNames).toContain("dominusnode_pay_crypto");
-    expect(toolNames).toContain("dominusnode_check_payment");
+    // R41 H-1: check_payment disabled — no backend endpoint exists yet
+    expect(toolNames).not.toContain("dominusnode_check_payment");
     expect(toolNames).toContain("dominusnode_x402_info");
     expect(toolNames).toContain("dominusnode_agent_wallet_create");
     expect(toolNames).toContain("dominusnode_agent_wallet_balance");
@@ -101,7 +102,7 @@ describe("MCP Server Integration", () => {
     expect(toolNames).toContain("dominusnode_agent_wallet_list");
     expect(toolNames).toContain("dominusnode_agent_wallet_transactions");
 
-    // Teams tools (8)
+    // Teams tools (15: 9 original + 6 new)
     expect(toolNames).toContain("dominusnode_create_team");
     expect(toolNames).toContain("dominusnode_list_teams");
     expect(toolNames).toContain("dominusnode_team_details");
@@ -109,7 +110,14 @@ describe("MCP Server Integration", () => {
     expect(toolNames).toContain("dominusnode_team_remove_member");
     expect(toolNames).toContain("dominusnode_team_fund");
     expect(toolNames).toContain("dominusnode_team_create_key");
+    expect(toolNames).toContain("dominusnode_team_revoke_key");
     expect(toolNames).toContain("dominusnode_team_usage");
+    expect(toolNames).toContain("dominusnode_team_list_members");
+    expect(toolNames).toContain("dominusnode_team_invite_member");
+    expect(toolNames).toContain("dominusnode_team_list_invites");
+    expect(toolNames).toContain("dominusnode_team_cancel_invite");
+    expect(toolNames).toContain("dominusnode_team_list_keys");
+    expect(toolNames).toContain("dominusnode_team_delete");
 
     // Wallet auth tools (3)
     expect(toolNames).toContain("dominusnode_wallet_challenge");
@@ -125,7 +133,16 @@ describe("MCP Server Integration", () => {
     expect(toolNames).toContain("dominusnode_verify_email");
     expect(toolNames).toContain("dominusnode_resend_verification");
 
-    expect(toolNames.length).toBe(43);
+    // Account management tool (1)
+    expect(toolNames).toContain("dominusnode_update_password");
+
+    // Agent wallet freeze/unfreeze/delete tools (3)
+    expect(toolNames).toContain("dominusnode_agent_wallet_freeze");
+    expect(toolNames).toContain("dominusnode_agent_wallet_unfreeze");
+    expect(toolNames).toContain("dominusnode_agent_wallet_delete");
+
+    // Total: 53 tools (original 47 - 1 check_payment disabled + 7 new tools)
+    expect(toolNames.length).toBe(53);
   });
 
   it("registers only bootstrap tools when no API key", async () => {
@@ -150,35 +167,38 @@ describe("MCP Server Integration", () => {
 
     const server = new McpServer({ name: "dominusnode", version: "1.0.0" });
 
-    // Bootstrap mode registers account + crypto + agent wallet + wallet-auth + slots tools
+    // R41 H-4: Bootstrap mode registers account + crypto + wallet-auth + slots tools
+    // Agent-wallet tools are NOT registered in bootstrap mode (require auth).
     registerAccountTools(server, httpClient);
     registerCryptoTools(server, httpClient);
-    registerAgentWalletTools(server, httpClient, config);
     registerWalletAuthTools(server, httpClient);
     registerSlotsTools(server, httpClient);
 
     const tools = (server as any)._registeredTools;
     const toolNames = Object.keys(tools);
 
-    // account(6) + crypto(2) + agent-wallet(6) + wallet-auth(3) + slots(3) = 20
+    // account(7) + crypto(1, check_payment disabled) + wallet-auth(3) + slots(3) = 14
+    expect(toolNames).toContain("dominusnode_get_account_info");
     expect(toolNames).toContain("dominusnode_register");
     expect(toolNames).toContain("dominusnode_login");
     expect(toolNames).toContain("dominusnode_setup");
+    expect(toolNames).toContain("dominusnode_update_password");
     expect(toolNames).toContain("dominusnode_verify_email");
     expect(toolNames).toContain("dominusnode_resend_verification");
     expect(toolNames).toContain("dominusnode_pay_crypto");
-    expect(toolNames).toContain("dominusnode_check_payment");
-    expect(toolNames).toContain("dominusnode_x402_info");
-    expect(toolNames).toContain("dominusnode_agent_wallet_create");
-    expect(toolNames).toContain("dominusnode_agent_wallet_fund");
-    expect(toolNames).toContain("dominusnode_agent_wallet_list");
+    // R41 H-1: check_payment disabled — no backend endpoint exists yet
+    expect(toolNames).not.toContain("dominusnode_check_payment");
+    // R41 H-4: agent-wallet tools should NOT be present in bootstrap mode
+    expect(toolNames).not.toContain("dominusnode_agent_wallet_create");
+    expect(toolNames).not.toContain("dominusnode_agent_wallet_fund");
+    expect(toolNames).not.toContain("dominusnode_agent_wallet_list");
     expect(toolNames).toContain("dominusnode_wallet_challenge");
     expect(toolNames).toContain("dominusnode_register_wallet");
     expect(toolNames).toContain("dominusnode_wallet_setup");
     expect(toolNames).toContain("dominusnode_check_slots");
     expect(toolNames).toContain("dominusnode_join_waitlist");
     expect(toolNames).toContain("dominusnode_get_waitlist_count");
-    expect(toolNames.length).toBe(20);
+    expect(toolNames.length).toBe(14);
   });
 
   it("tool error handling returns isError without throwing", async () => {

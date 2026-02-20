@@ -1,4 +1,4 @@
-import { query } from "../db.js";
+import { query, getPool } from "../db.js";
 import type {
   AdminUserView,
   AdminUserDetail,
@@ -118,11 +118,118 @@ export async function reactivateUser(userId: string): Promise<boolean> {
 }
 
 export async function deleteUser(userId: string): Promise<void> {
-  // Soft-delete: set status to 'deleted', don't actually remove rows
-  await query(
-    `UPDATE users SET status = 'deleted' WHERE id = $1`,
-    [userId],
-  );
+  // R40 H-4: Admin delete now anonymizes data same as GDPR self-deletion
+  const pool = getPool();
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    // R41 H-1: Look up email + wallet address before anonymizing
+    const userRow = (await client.query(
+      "SELECT email, wallet_address FROM users WHERE id = $1", [userId]
+    )).rows[0];
+
+    // Anonymize user: replace email, clear password, set status to deleted
+    await client.query(
+      `UPDATE users SET
+        email = 'deleted-' || id || '@deleted.dominusnode.com',
+        password_hash = 'DELETED',
+        status = 'deleted',
+        wallet_address = NULL
+       WHERE id = $1`,
+      [userId]
+    );
+
+    // Anonymize browsing history
+    await client.query(
+      "UPDATE usage_records SET target_host = 'REDACTED' WHERE user_id = $1",
+      [userId]
+    );
+
+    // Anonymize wallet transaction payment references
+    await client.query(
+      `UPDATE wallet_transactions SET payment_id = 'REDACTED', description = 'REDACTED'
+       WHERE wallet_id IN (SELECT id FROM wallets WHERE user_id = $1)`,
+      [userId]
+    );
+
+    // R41 C-1: Revoke API keys + refresh tokens + MFA inside transaction (was separate in admin.ts)
+    await client.query(
+      "UPDATE api_keys SET revoked_at = NOW() WHERE user_id = $1 AND revoked_at IS NULL",
+      [userId]
+    );
+    await client.query(
+      "UPDATE refresh_tokens SET revoked = TRUE WHERE user_id = $1 AND NOT revoked",
+      [userId]
+    );
+    await client.query("DELETE FROM mfa_backup_codes WHERE user_id = $1", [userId]);
+    await client.query("DELETE FROM mfa_configs WHERE user_id = $1", [userId]);
+
+    // Delete tokens
+    await client.query("DELETE FROM password_reset_tokens WHERE user_id = $1", [userId]);
+    await client.query("DELETE FROM email_verification_tokens WHERE user_id = $1", [userId]);
+
+    // Delete wallet challenges by address
+    if (userRow?.wallet_address) {
+      await client.query(
+        "DELETE FROM wallet_challenges WHERE address = $1",
+        [userRow.wallet_address.toLowerCase()]
+      );
+    }
+
+    // Clean up agentic wallets
+    await client.query(
+      "DELETE FROM agentic_wallet_transactions WHERE agentic_wallet_id IN (SELECT id FROM agentic_wallets WHERE user_id = $1)",
+      [userId]
+    );
+    await client.query("DELETE FROM agentic_wallets WHERE user_id = $1", [userId]);
+
+    // Anonymize team wallet transactions for owned teams
+    await client.query(
+      `UPDATE team_wallet_transactions SET description = 'REDACTED'
+       WHERE wallet_id IN (
+         SELECT tw.id FROM team_wallets tw
+         JOIN teams t ON t.id = tw.team_id
+         WHERE t.owner_id = $1
+       )`,
+      [userId]
+    );
+
+    // Clean up team invites (outbound)
+    await client.query("DELETE FROM team_invites WHERE invited_by = $1", [userId]);
+    // R41 H-1: Delete inbound pending team invites addressed TO the deleted user's email
+    if (userRow?.email) {
+      await client.query(
+        "DELETE FROM team_invites WHERE email = $1 AND accepted_at IS NULL",
+        [userRow.email]
+      );
+    }
+    await client.query(
+      "UPDATE team_members SET user_id = NULL WHERE user_id = $1",
+      [userId]
+    );
+
+    // Anonymize audit events and sessions
+    await client.query(
+      "UPDATE audit_events SET ip_address = 'REDACTED', details = NULL WHERE user_id = $1",
+      [userId]
+    );
+    await client.query(
+      "UPDATE payment_invoices SET external_id = 'REDACTED' WHERE user_id = $1",
+      [userId]
+    );
+    await client.query(
+      "UPDATE sessions SET proxy_ip = 'REDACTED' WHERE user_id = $1",
+      [userId]
+    );
+
+    await client.query("COMMIT");
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
 }
 
 // ─── Revenue Analytics ──────────────────────────────────────────────

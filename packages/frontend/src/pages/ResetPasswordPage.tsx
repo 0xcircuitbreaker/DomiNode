@@ -6,14 +6,26 @@ type PageState = "form" | "success" | "error";
 
 export default function ResetPasswordPage() {
   const [searchParams] = useSearchParams();
-  const token = searchParams.get("token");
+  const rawToken = searchParams.get("token");
+
+  // R37 C-2: Validate token format before sending to API to prevent injection.
+  // Tokens should be hex or alphanumeric, with a reasonable length (16-512 chars).
+  const TOKEN_RE = /^[a-zA-Z0-9._-]+$/;
+  const token =
+    rawToken && rawToken.length >= 16 && rawToken.length <= 512 && TOKEN_RE.test(rawToken)
+      ? rawToken
+      : null;
 
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [pageState, setPageState] = useState<PageState>(token ? "form" : "error");
   const [errorMessage, setErrorMessage] = useState(
-    token ? "" : "No reset token found. Please request a new password reset link."
+    token
+      ? ""
+      : rawToken
+        ? "Invalid reset token format. Please request a new password reset link."
+        : "No reset token found. Please request a new password reset link."
   );
   const [successMessage, setSuccessMessage] = useState("");
 

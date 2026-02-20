@@ -9,14 +9,25 @@ export default function VerifyEmailPage() {
   const [state, setState] = useState<VerifyState>("loading");
   const [message, setMessage] = useState("");
 
-  useEffect(() => {
-    const token = searchParams.get("token");
+  // R38 H-1: Validate token format before sending to API to prevent injection
+  const TOKEN_RE = /^[a-zA-Z0-9._-]+$/;
 
-    if (!token) {
+  useEffect(() => {
+    const rawToken = searchParams.get("token");
+
+    if (!rawToken) {
       setState("no-token");
       return;
     }
 
+    // Validate token format: alphanumeric + ._- , 16-512 chars
+    if (rawToken.length < 16 || rawToken.length > 512 || !TOKEN_RE.test(rawToken)) {
+      setMessage("Invalid verification token format. Please use the link from your confirmation email.");
+      setState("error");
+      return;
+    }
+
+    const token = rawToken;
     let cancelled = false;
 
     post<{ message: string }>("/api/auth/verify-email", { token }, { redirectOnUnauthorized: false })

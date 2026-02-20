@@ -186,8 +186,18 @@ router.post("/topup/crypto", topupLimiter, async (req, res) => {
   }
 });
 
+// R36 H-3: Rate limit payment status polling to prevent abuse
+const statusPollLimiter = rateLimit({
+  windowMs: 5 * 60_000, // 5 minutes
+  max: 30, // 30 checks per 5 min per user
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many payment status checks. Please wait a moment." },
+  keyGenerator: (req) => (req as unknown as AuthenticatedRequest).user?.userId ?? "unknown",
+});
+
 // GET /api/wallet/crypto/status/:invoiceId
-router.get("/crypto/status/:invoiceId", async (req, res) => {
+router.get("/crypto/status/:invoiceId", statusPollLimiter, async (req, res) => {
   try {
     const { userId } = (req as unknown as AuthenticatedRequest).user;
     const invoiceId = sanitizeString((req.params as { invoiceId: string }).invoiceId ?? "", 128);

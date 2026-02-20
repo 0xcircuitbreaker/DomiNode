@@ -1,4 +1,4 @@
-import { query } from "../db.js";
+import { query, getPool } from "../db.js";
 import type { User, ApiKey } from "../types.js";
 
 export async function createUser(
@@ -64,10 +64,9 @@ export async function findUserById(id: string): Promise<User | null> {
 export async function findUserByApiKeyHash(
   keyHash: string,
 ): Promise<{ user: User; apiKey: ApiKey } | null> {
-  const result = await query<User & { ak_id: string; ak_key_hash: string; ak_key_prefix: string; ak_label: string; ak_created_at: Date; ak_revoked_at: Date | null; ak_team_id: string | null }>(
+  const result = await query<User & { ak_id: string; ak_key_prefix: string; ak_label: string; ak_created_at: Date; ak_revoked_at: Date | null; ak_team_id: string | null }>(
     `SELECT u.id, u.email, u.created_at, u.status, u.password_changed_at, u.is_admin, u.wallet_address, u.log_target_hosts, u.email_verified, u.plan_id,
             k.id AS ak_id,
-            k.key_hash AS ak_key_hash,
             k.key_prefix AS ak_key_prefix,
             k.label AS ak_label,
             k.created_at AS ak_created_at,
@@ -246,13 +245,25 @@ export async function markEmailVerified(userId: string): Promise<boolean> {
 // ─── Email Verification Tokens ──────────────────────────────────────
 
 export async function createEmailVerificationToken(userId: string, tokenHash: string, expiresAt: Date): Promise<void> {
-  // Delete any existing tokens for this user first (one active token at a time)
-  await query(`DELETE FROM email_verification_tokens WHERE user_id = $1`, [userId]);
-  await query(
-    `INSERT INTO email_verification_tokens (user_id, token_hash, expires_at)
-     VALUES ($1, $2, $3)`,
-    [userId, tokenHash, expiresAt],
-  );
+  // R37 C-4: Wrap DELETE old + INSERT new in a single transaction to prevent race conditions
+  const pool = getPool();
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    // Delete any existing tokens for this user first (one active token at a time)
+    await client.query(`DELETE FROM email_verification_tokens WHERE user_id = $1`, [userId]);
+    await client.query(
+      `INSERT INTO email_verification_tokens (user_id, token_hash, expires_at)
+       VALUES ($1, $2, $3)`,
+      [userId, tokenHash, expiresAt],
+    );
+    await client.query("COMMIT");
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
 }
 
 export async function findRecentEmailVerificationToken(userId: string, withinSeconds: number): Promise<boolean> {
@@ -265,9 +276,12 @@ export async function findRecentEmailVerificationToken(userId: string, withinSec
   return result.rows.length > 0;
 }
 
-export async function findEmailVerificationToken(tokenHash: string): Promise<{ userId: string; expiresAt: Date } | null> {
+/** R37 C-2: Atomically consume an email verification token (DELETE...RETURNING) to prevent TOCTOU */
+export async function consumeEmailVerificationToken(tokenHash: string): Promise<{ userId: string; expiresAt: Date } | null> {
   const result = await query<{ user_id: string; expires_at: Date }>(
-    `SELECT user_id, expires_at FROM email_verification_tokens WHERE token_hash = $1`,
+    `DELETE FROM email_verification_tokens
+     WHERE token_hash = $1
+     RETURNING user_id, expires_at`,
     [tokenHash],
   );
   const row = result.rows[0];
@@ -275,35 +289,39 @@ export async function findEmailVerificationToken(tokenHash: string): Promise<{ u
   return { userId: row.user_id, expiresAt: row.expires_at };
 }
 
-export async function deleteEmailVerificationToken(tokenHash: string): Promise<void> {
-  await query(`DELETE FROM email_verification_tokens WHERE token_hash = $1`, [tokenHash]);
-}
-
 // ─── Password Reset Tokens ──────────────────────────────────────────
 
 export async function createPasswordResetToken(userId: string, tokenHash: string, expiresAt: Date): Promise<void> {
-  // Delete any existing unused tokens for this user (one active reset at a time)
-  await query(`DELETE FROM password_reset_tokens WHERE user_id = $1 AND used_at IS NULL`, [userId]);
-  await query(
-    `INSERT INTO password_reset_tokens (user_id, token_hash, expires_at)
-     VALUES ($1, $2, $3)`,
-    [userId, tokenHash, expiresAt],
-  );
+  // R37: Wrap DELETE old + INSERT new in a single transaction to prevent race conditions
+  const pool = getPool();
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    // Delete any existing unused tokens for this user (one active reset at a time)
+    await client.query(`DELETE FROM password_reset_tokens WHERE user_id = $1 AND used_at IS NULL`, [userId]);
+    await client.query(
+      `INSERT INTO password_reset_tokens (user_id, token_hash, expires_at)
+       VALUES ($1, $2, $3)`,
+      [userId, tokenHash, expiresAt],
+    );
+    await client.query("COMMIT");
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
 }
 
-export async function findPasswordResetToken(tokenHash: string): Promise<{ userId: string; expiresAt: Date; usedAt: Date | null } | null> {
-  const result = await query<{ user_id: string; expires_at: Date; used_at: Date | null }>(
-    `SELECT user_id, expires_at, used_at FROM password_reset_tokens WHERE token_hash = $1`,
+/** R37 C-1: Atomically consume a password reset token (DELETE...RETURNING) to prevent TOCTOU */
+export async function consumePasswordResetToken(tokenHash: string): Promise<{ userId: string; expiresAt: Date } | null> {
+  const result = await query<{ user_id: string; expires_at: Date }>(
+    `DELETE FROM password_reset_tokens
+     WHERE token_hash = $1 AND used_at IS NULL
+     RETURNING user_id, expires_at`,
     [tokenHash],
   );
   const row = result.rows[0];
   if (!row) return null;
-  return { userId: row.user_id, expiresAt: row.expires_at, usedAt: row.used_at };
-}
-
-export async function markPasswordResetTokenUsed(tokenHash: string): Promise<void> {
-  await query(
-    `UPDATE password_reset_tokens SET used_at = now() WHERE token_hash = $1`,
-    [tokenHash],
-  );
+  return { userId: row.user_id, expiresAt: row.expires_at };
 }

@@ -11,6 +11,7 @@ permissions:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    environment: publish
     defaults:
       run:
         working-directory: sdks/rust

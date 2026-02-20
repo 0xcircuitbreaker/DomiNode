@@ -39,10 +39,10 @@ describe("proxy tools", () => {
       ok: true,
       status: 200,
       text: () => Promise.resolve(JSON.stringify({
-        http_endpoint: "proxy.dominusnode.com:8080",
-        socks5_endpoint: "proxy.dominusnode.com:1080",
-        username_format: "API_KEY-country_XX",
-        supported_countries: ["US", "GB", "DE"],
+        httpEndpoint: "proxy.dominusnode.com:8080",
+        socks5Endpoint: "proxy.dominusnode.com:1080",
+        usernameFormat: "API_KEY-country_XX",
+        supportedCountries: ["US", "GB", "DE"],
       })),
       headers: new Headers(),
     } as unknown as Response);
@@ -60,9 +60,9 @@ describe("proxy tools", () => {
       status: 200,
       text: () => Promise.resolve(JSON.stringify({
         status: "healthy",
-        latency_ms: 42,
+        latencyMs: 42,
         providers: ["Webshare"],
-        active_sessions: 5,
+        activeSessions: 5,
       })),
       headers: new Headers(),
     } as unknown as Response);

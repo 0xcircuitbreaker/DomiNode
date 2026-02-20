@@ -29,6 +29,7 @@ export class DominusNodeClient {
 
   private tokenManager: TokenManager;
   private http: HttpClient;
+  private apiKey: string | null = null;
 
   constructor(config: DominusNodeConfig = {}) {
     const baseUrl = config.baseUrl ?? DEFAULT_BASE_URL;
@@ -68,6 +69,7 @@ export class DominusNodeClient {
    */
   async connectWithKey(apiKey: string): Promise<void> {
     const res = await this.auth.verifyKey(apiKey);
+    this.apiKey = apiKey;
     this.tokenManager.setTokens(res.token, res.refreshToken);
   }
 
@@ -101,6 +103,7 @@ export class DominusNodeClient {
     } catch {
       // Best-effort — server may be unreachable
     }
+    this.apiKey = null;
     this.tokenManager.clear();
   }
 }

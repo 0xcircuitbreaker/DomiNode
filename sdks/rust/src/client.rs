@@ -115,6 +115,8 @@ pub struct DominusNodeClient {
     /// Team operations (shared wallets, members, invites, keys).
     pub teams: TeamsResource,
     token_manager: Arc<TokenManager>,
+    /// Stored API key for credential clearing on disconnect.
+    api_key: tokio::sync::Mutex<Option<String>>,
 }
 
 impl DominusNodeClient {
@@ -212,6 +214,7 @@ impl DominusNodeClient {
             agentic_wallets,
             teams,
             token_manager: Arc::clone(&token_manager),
+            api_key: tokio::sync::Mutex::new(config.api_key.clone()),
         };
 
         // If tokens were provided in the config, store them now.
@@ -236,6 +239,8 @@ impl DominusNodeClient {
         self.token_manager
             .set_tokens(&res.token, Some(&res.refresh_token))
             .await;
+        // Store the API key so it can be cleared on disconnect.
+        *self.api_key.lock().await = Some(api_key.to_string());
         Ok(())
     }
 
@@ -278,12 +283,24 @@ impl DominusNodeClient {
         Ok(())
     }
 
-    /// Clear all stored tokens. Does **not** call the server logout endpoint.
+    /// Log out from the server (best-effort) and clear all stored credentials.
     ///
-    /// If you want to revoke refresh tokens server-side, call
-    /// `client.auth.logout()` first.
+    /// Calls the server logout endpoint to revoke refresh tokens, then clears
+    /// the local token manager and any stored API key. Errors from the server
+    /// logout call are silently ignored.
     pub async fn disconnect(&self) {
+        // C-10: Best-effort server logout to revoke refresh tokens.
+        let _ = self.auth.logout().await;
+        // Clear JWT tokens (securely zeroed by TokenManager).
         self.token_manager.clear().await;
+        // C-11: Clear stored API key credential.
+        {
+            let mut key = self.api_key.lock().await;
+            if let Some(ref mut k) = *key {
+                zeroize::Zeroize::zeroize(k);
+            }
+            *key = None;
+        }
     }
 }
 

@@ -48,16 +48,16 @@ function checkBootstrapSignupLimit(): boolean {
 export function registerAccountTools(server: McpServer, httpClient: HttpClient): void {
   server.tool(
     "dominusnode_get_account_info",
-    "Get account details including email, status, and MFA configuration.",
+    "Get account details including email, admin status, and email verification.",
     {},
     async () => {
       try {
         const info = await httpClient.get<AccountInfo>("/api/auth/me");
+        const user = info.user;
         const text = [
-          `Email: ${info.email}`,
-          `Status: ${info.status}`,
-          `MFA Enabled: ${info.mfa_enabled ? "yes" : "no"}`,
-          `Account Created: ${info.created_at}`,
+          `Email: ${user.email}`,
+          `Email Verified: ${user.email_verified ? "yes" : "no"}`,
+          `Admin: ${user.is_admin ? "yes" : "no"}`,
         ].join("\n");
         return { content: [{ type: "text", text }] };
       } catch (err) {
@@ -232,7 +232,7 @@ export function registerAccountTools(server: McpServer, httpClient: HttpClient):
           ``,
           `Free tier: 10 connections, 1GB bandwidth.`,
           `Payments enabled: use dominusnode_pay_crypto to add funds (Stripe + crypto supported).`,
-          `Set DOMINUSNODE_API_KEY=${keyData.key} and restart to unlock all 41 tools.`,
+          `Set DOMINUSNODE_API_KEY=${keyData.key} and restart to unlock all 53 tools.`,
         ].join("\n");
         return { content: [{ type: "text", text }] };
       } catch (err) {
@@ -252,6 +252,88 @@ export function registerAccountTools(server: McpServer, httpClient: HttpClient):
     },
   );
 
+  // ─── Password change ──────────────────────────────────────────────
+  const PASSWORD_CHANGE_MAX = 5;
+  const PASSWORD_CHANGE_WINDOW_MS = 3600_000; // 1 hour
+  const passwordChangeTimestamps: number[] = [];
+  function checkPasswordChangeLimit(): boolean {
+    const now = Date.now();
+    while (passwordChangeTimestamps.length > 0 && now - passwordChangeTimestamps[0] > PASSWORD_CHANGE_WINDOW_MS) {
+      passwordChangeTimestamps.shift();
+    }
+    if (passwordChangeTimestamps.length > 100) passwordChangeTimestamps.length = 100;
+    if (passwordChangeTimestamps.length >= PASSWORD_CHANGE_MAX) return false;
+    passwordChangeTimestamps.push(now);
+    return true;
+  }
+
+  server.tool(
+    "dominusnode_update_password",
+    "Change the account password. Requires the current password for verification. Wallet-only accounts cannot use this. All existing API keys and refresh tokens are revoked on success.",
+    {
+      current_password: z.string().min(1).max(128).describe("Current account password"),
+      new_password: z.string().min(8).max(128).describe("New password (min 8 characters)"),
+    },
+    async (args) => {
+      if (!checkPasswordChangeLimit()) {
+        return {
+          isError: true,
+          content: [{ type: "text", text: "Password change rate limit exceeded (max 5 per hour). Please try again later." }],
+        };
+      }
+      try {
+        await httpClient.post("/api/auth/change-password", {
+          currentPassword: args.current_password,
+          newPassword: args.new_password,
+        });
+
+        const text = [
+          `Password changed successfully.`,
+          ``,
+          `All existing API keys and refresh tokens have been revoked for security.`,
+          `You will need to create new API keys and re-authenticate.`,
+        ].join("\n");
+
+        return { content: [{ type: "text", text }] };
+      } catch (err) {
+        return {
+          isError: true,
+          content: [{ type: "text", text: `Error changing password: ${err instanceof Error ? err.message : String(err)}` }],
+        };
+      }
+    },
+  );
+
+  // R36 C-5: Rate limit verify_email to prevent brute-force enumeration
+  const VERIFY_EMAIL_MAX = 10;
+  const VERIFY_EMAIL_WINDOW_MS = 900_000; // 15 minutes
+  const verifyEmailTimestamps: number[] = [];
+  function checkVerifyEmailLimit(): boolean {
+    const now = Date.now();
+    while (verifyEmailTimestamps.length > 0 && now - verifyEmailTimestamps[0] > VERIFY_EMAIL_WINDOW_MS) {
+      verifyEmailTimestamps.shift();
+    }
+    if (verifyEmailTimestamps.length > 100) verifyEmailTimestamps.length = 100;
+    if (verifyEmailTimestamps.length >= VERIFY_EMAIL_MAX) return false;
+    verifyEmailTimestamps.push(now);
+    return true;
+  }
+
+  // R36 H-1: Rate limit resend_verification
+  const RESEND_MAX = 3;
+  const RESEND_WINDOW_MS = 900_000; // 15 minutes
+  const resendTimestamps: number[] = [];
+  function checkResendLimit(): boolean {
+    const now = Date.now();
+    while (resendTimestamps.length > 0 && now - resendTimestamps[0] > RESEND_WINDOW_MS) {
+      resendTimestamps.shift();
+    }
+    if (resendTimestamps.length > 100) resendTimestamps.length = 100;
+    if (resendTimestamps.length >= RESEND_MAX) return false;
+    resendTimestamps.push(now);
+    return true;
+  }
+
   server.tool(
     "dominusnode_verify_email",
     "Verify your email address using a verification token. The token is returned when registering via API/MCP. Email verification is required before you can make payments (Stripe or crypto). Wallet-authenticated accounts are auto-verified and do not need this.",
@@ -259,6 +341,9 @@ export function registerAccountTools(server: McpServer, httpClient: HttpClient):
       token: z.string().min(32).max(128).describe("Email verification token from registration response"),
     },
     async (args) => {
+      if (!checkVerifyEmailLimit()) {
+        return { isError: true, content: [{ type: "text", text: "Email verification rate limit exceeded. Try again in 15 minutes." }] };
+      }
       try {
         await httpClient.post("/api/auth/verify-email", { token: args.token }, false);
         return {
@@ -278,6 +363,9 @@ export function registerAccountTools(server: McpServer, httpClient: HttpClient):
     "Resend the email verification link. Use this if you registered with email/password but the verification email didn't arrive. Requires authentication (login first).",
     {},
     async () => {
+      if (!checkResendLimit()) {
+        return { isError: true, content: [{ type: "text", text: "Resend verification rate limit exceeded. Try again in 15 minutes." }] };
+      }
       try {
         const data = await httpClient.post<{ message: string }>("/api/auth/resend-verification", {});
         return {

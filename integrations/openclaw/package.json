@@ -1,0 +1,29 @@
+{
+  "name": "@dominusnode/openclaw-plugin",
+  "version": "1.0.0",
+  "description": "DomiNode proxy plugin for OpenClaw — route web requests through rotating proxy networks",
+  "main": "plugin.ts",
+  "type": "module",
+  "license": "MIT",
+  "keywords": [
+    "openclaw",
+    "dominusnode",
+    "proxy",
+    "rotating-proxy",
+    "web-scraping",
+    "geo-targeting",
+    "mcp"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Dominus-Node/dominusnode-openclaw"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "files": [
+    "plugin.ts",
+    "SKILL.md",
+    "README.md"
+  ]
+}

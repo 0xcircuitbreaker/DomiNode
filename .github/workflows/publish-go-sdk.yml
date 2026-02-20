@@ -15,6 +15,7 @@ permissions:
 jobs:
   verify-and-index:
     runs-on: ubuntu-latest
+    environment: publish
     defaults:
       run:
         working-directory: sdks/go

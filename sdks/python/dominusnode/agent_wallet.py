@@ -7,6 +7,7 @@ from urllib.parse import quote
 
 from .http_client import AsyncHttpClient, SyncHttpClient
 from .types import AgenticWallet, AgenticWalletTransaction
+from .wallet import _validate_amount_cents
 
 
 class AgenticWalletResource:
@@ -17,6 +18,7 @@ class AgenticWalletResource:
 
     def create(self, label: str, spending_limit_cents: int = 10000) -> AgenticWallet:
         """Create a new agentic wallet."""
+        _validate_amount_cents(spending_limit_cents, "spending_limit_cents")
         data = self._http.post("/api/agent-wallet", json={
             "label": label,
             "spendingLimitCents": spending_limit_cents,
@@ -59,6 +61,7 @@ class AgenticWalletResource:
 
     def fund(self, wallet_id: str, amount_cents: int) -> AgenticWalletTransaction:
         """Fund an agentic wallet from the main wallet."""
+        _validate_amount_cents(amount_cents, "amount_cents")
         data = self._http.post(f"/api/agent-wallet/{quote(wallet_id, safe='')}/fund", json={
             "amountCents": amount_cents,
         })
@@ -131,6 +134,7 @@ class AsyncAgenticWalletResource:
 
     async def create(self, label: str, spending_limit_cents: int = 10000) -> AgenticWallet:
         """Create a new agentic wallet."""
+        _validate_amount_cents(spending_limit_cents, "spending_limit_cents")
         data = await self._http.post("/api/agent-wallet", json={
             "label": label,
             "spendingLimitCents": spending_limit_cents,
@@ -173,6 +177,7 @@ class AsyncAgenticWalletResource:
 
     async def fund(self, wallet_id: str, amount_cents: int) -> AgenticWalletTransaction:
         """Fund an agentic wallet from the main wallet."""
+        _validate_amount_cents(amount_cents, "amount_cents")
         data = await self._http.post(f"/api/agent-wallet/{quote(wallet_id, safe='')}/fund", json={
             "amountCents": amount_cents,
         })

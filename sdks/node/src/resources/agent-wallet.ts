@@ -40,6 +40,9 @@ export class AgenticWalletResource {
   constructor(private http: HttpClient) {}
 
   async create(label: string, spendingLimitCents: number = 10000): Promise<AgenticWallet> {
+    if (!Number.isInteger(spendingLimitCents) || spendingLimitCents <= 0 || spendingLimitCents > 2_147_483_647) {
+      throw new Error("amountCents must be a positive integer <= 2,147,483,647");
+    }
     return this.http.post("/api/agent-wallet", { label, spendingLimitCents });
   }
 
@@ -52,6 +55,9 @@ export class AgenticWalletResource {
   }
 
   async fund(walletId: string, amountCents: number): Promise<AgenticWalletFundResponse> {
+    if (!Number.isInteger(amountCents) || amountCents <= 0 || amountCents > 2_147_483_647) {
+      throw new Error("amountCents must be a positive integer <= 2,147,483,647");
+    }
     return this.http.post(`/api/agent-wallet/${encodeURIComponent(walletId)}/fund`, { amountCents });
   }
 

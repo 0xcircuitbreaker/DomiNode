@@ -103,6 +103,9 @@ export class TeamsResource {
   }
 
   async fundWallet(teamId: string, amountCents: number): Promise<TeamFundResponse> {
+    if (!Number.isInteger(amountCents) || amountCents <= 0 || amountCents > 2_147_483_647) {
+      throw new Error("amountCents must be a positive integer <= 2,147,483,647");
+    }
     return this.http.post(`/api/teams/${encodeURIComponent(teamId)}/wallet/fund`, { amountCents });
   }
 

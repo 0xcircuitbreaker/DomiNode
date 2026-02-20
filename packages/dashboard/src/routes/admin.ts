@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { adminRepo, createLogger, userRepo, refreshTokenRepo, mfaRepo, waitlistRepo, sendWaitlistApprovalEmail, sanitizeString } from "@dominusnode/shared";
+import { adminRepo, createLogger, userRepo, refreshTokenRepo, waitlistRepo, sendWaitlistApprovalEmail, sanitizeString } from "@dominusnode/shared";
 import { requireAuth, type AuthenticatedRequest } from "../middleware/auth.js";
 import { requireAdmin } from "../middleware/admin.js";
 
@@ -162,12 +162,8 @@ router.delete("/users/:id", async (req, res) => {
       res.status(403).json({ error: "Cannot delete another admin account" });
       return;
     }
-    // Revoke all API keys, refresh tokens, and MFA config before deleting
-    const [revokedKeys, revokedTokens] = await Promise.all([
-      userRepo.revokeAllApiKeys(req.params.id),
-      refreshTokenRepo.revokeAllForUser(req.params.id),
-      mfaRepo.deleteMfaConfig(req.params.id), // R27 C-1: Clear MFA state on delete
-    ]);
+    // R41 C-1: API key/refresh token/MFA revocation moved inside adminRepo.deleteUser() transaction
+    // to eliminate race window between separate non-transactional calls and deleteUser().
     // R19 H-3: Terminate active proxy sessions before deleting user (same as suspend)
     let terminatedSessions = 0;
     try {
@@ -192,7 +188,7 @@ router.delete("/users/:id", async (req, res) => {
       log.warn("could not signal proxy-gateway to terminate sessions", { targetUserId: req.params.id });
     }
     await adminRepo.deleteUser(req.params.id);
-    log.info("user deleted (soft)", { targetUserId: req.params.id, revokedKeys, revokedTokens, terminatedSessions });
+    log.info("user deleted (soft)", { targetUserId: req.params.id, terminatedSessions });
     res.json({ message: "User deleted" });
   } catch (err) {
     log.error("failed to delete user", { error: err instanceof Error ? err.message : String(err) });

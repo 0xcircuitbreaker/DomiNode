@@ -81,6 +81,11 @@ impl AgenticWalletResource {
 
     /// Create a new agentic wallet.
     pub async fn create(&self, label: &str, spending_limit_cents: i64) -> Result<AgenticWallet> {
+        if spending_limit_cents <= 0 || spending_limit_cents > 2_147_483_647 {
+            return Err(crate::errors::DominusNodeError::Validation(
+                "spendingLimitCents must be a positive integer <= 2,147,483,647".to_string(),
+            ));
+        }
         self.http
             .post(
                 "/api/agent-wallet",
@@ -104,6 +109,11 @@ impl AgenticWalletResource {
 
     /// Fund an agentic wallet from the main wallet.
     pub async fn fund(&self, wallet_id: &str, amount_cents: i64) -> Result<AgenticWalletFundResponse> {
+        if amount_cents <= 0 || amount_cents > 2_147_483_647 {
+            return Err(crate::errors::DominusNodeError::Validation(
+                "amountCents must be a positive integer <= 2,147,483,647".to_string(),
+            ));
+        }
         self.http
             .post(
                 &format!("/api/agent-wallet/{}/fund", encode_uri_component(wallet_id)),

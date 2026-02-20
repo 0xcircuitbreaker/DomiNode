@@ -6,6 +6,7 @@ export interface McpConfig {
   socks5ProxyPort: number;
   fetchTimeoutMs: number;
   fetchMaxResponseBytes: number;
+  mcpAgentSecret: string;
 }
 
 export class ConfigError extends Error {
@@ -99,6 +100,9 @@ export function parseConfig(env: Record<string, string | undefined> = process.en
     throw new ConfigError(`DOMINUSNODE_FETCH_MAX_RESPONSE_BYTES must not exceed ${MAX_FETCH_RESPONSE_BYTES}`);
   }
 
+  // R36 C-1: Shared secret for MCP agent auto-verification (prevents header spoofing)
+  const mcpAgentSecret = env["MCP_AGENT_SECRET"] ?? "";
+
   return {
     apiKey,
     apiUrl,
@@ -107,6 +111,7 @@ export function parseConfig(env: Record<string, string | undefined> = process.en
     socks5ProxyPort,
     fetchTimeoutMs,
     fetchMaxResponseBytes,
+    mcpAgentSecret,
   };
 }
 

@@ -19,13 +19,13 @@ export function registerUsageTools(server: McpServer, httpClient: HttpClient): v
     },
     async (args) => {
       try {
-        const usage = await httpClient.get<UsageSummary>(`/api/usage?days=${args.days}`);
+        const data = await httpClient.get<{ summary: UsageSummary }>(`/api/usage?days=${args.days}`);
+        const usage = data.summary;
         const text = [
           `Usage Summary (last ${args.days} days):`,
-          `Total Bandwidth: ${formatBytes(usage.total_bytes)}`,
-          `Total Cost: $${(usage.total_cost_cents / 100).toFixed(2)}`,
-          `Total Requests: ${usage.total_requests}`,
-          `Period: ${usage.period_start} to ${usage.period_end}`,
+          `Total Bandwidth: ${formatBytes(usage.totalBytes)}`,
+          `Total Cost: $${usage.totalCostUsd.toFixed(2)}`,
+          `Total Requests: ${usage.requestCount}`,
         ].join("\n");
         return { content: [{ type: "text", text }] };
       } catch (err) {
@@ -45,13 +45,13 @@ export function registerUsageTools(server: McpServer, httpClient: HttpClient): v
     },
     async (args) => {
       try {
-        const data = await httpClient.get<{ daily: DailyUsage[] }>(`/api/usage/daily?days=${args.days}`);
-        if (!data.daily || data.daily.length === 0) {
+        const data = await httpClient.get<{ days: DailyUsage[] }>(`/api/usage/daily?days=${args.days}`);
+        if (!data.days || data.days.length === 0) {
           return { content: [{ type: "text", text: "No usage data for this period." }] };
         }
         const header = "Date       | Bandwidth      | Cost    | Requests";
-        const lines = data.daily.map(
-          (d) => `${d.date} | ${formatBytes(d.bytes).padEnd(14)} | $${(d.cost_cents / 100).toFixed(2).padStart(5)} | ${d.requests}`,
+        const lines = data.days.map(
+          (d) => `${d.date} | ${formatBytes(d.totalBytes).padEnd(14)} | $${d.totalCostUsd.toFixed(2).padStart(5)} | ${d.requestCount}`,
         );
         return { content: [{ type: "text", text: [header, ...lines].join("\n") }] };
       } catch (err) {
@@ -80,7 +80,7 @@ export function registerUsageTools(server: McpServer, httpClient: HttpClient): v
         }
         const header = "Host                         | Bandwidth      | Requests";
         const lines = data.hosts.map(
-          (h) => `${h.host.padEnd(28)} | ${formatBytes(h.bytes).padEnd(14)} | ${h.requests}`,
+          (h) => `${h.targetHost.padEnd(28)} | ${formatBytes(h.totalBytes).padEnd(14)} | ${h.requestCount}`,
         );
         return { content: [{ type: "text", text: [header, ...lines].join("\n") }] };
       } catch (err) {

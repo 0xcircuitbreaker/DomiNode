@@ -58,11 +58,17 @@ export class WalletResource {
 
   /** Create a Stripe checkout session for wallet top-up. */
   async topUpStripe(amountCents: number): Promise<StripeCheckoutResponse> {
+    if (!Number.isInteger(amountCents) || amountCents <= 0 || amountCents > 2_147_483_647) {
+      throw new Error("amountCents must be a positive integer <= 2,147,483,647");
+    }
     return this.http.post("/api/wallet/topup/stripe", { amountCents });
   }
 
   /** Create a crypto invoice for wallet top-up. */
   async topUpCrypto(amountCents: number, currency: string): Promise<CryptoInvoiceResponse> {
+    if (!Number.isInteger(amountCents) || amountCents <= 0 || amountCents > 2_147_483_647) {
+      throw new Error("amountCents must be a positive integer <= 2,147,483,647");
+    }
     const amountUsd = amountCents / 100;
     return this.http.post("/api/wallet/topup/crypto", { amountUsd, currency });
   }
