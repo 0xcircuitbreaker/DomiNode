@@ -147,9 +147,9 @@ function registerBootstrapHelper(server: McpServer): void {
         `  All traffic bills to team wallet. Only lead needs payment.`,
         ``,
         `After setup, set DOMINUSNODE_API_KEY in your environment`,
-        `to unlock all 53 tools on next startup.`,
+        `to unlock all 54 tools on next startup.`,
         ``,
-        `Email auto-verified for MCP agents — Stripe + crypto payments enabled.`,
+        `Email auto-verified for MCP agents — crypto payments enabled (10 currencies).`,
         `Free tier: 10 connections, 1GB bandwidth — no payment required.`,
       ].join("\n");
       return { content: [{ type: "text", text }] };

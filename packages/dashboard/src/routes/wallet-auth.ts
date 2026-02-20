@@ -221,6 +221,9 @@ router.post("/verify", async (req, res) => {
       try {
         user = await userRepo.createWalletUser(address, syntheticEmail, unusablePassword);
         await walletRepo.createWallet(user.id);
+        // Wallet users are inherently verified (cryptographic signature proves identity).
+        // Synthetic emails can't receive verification tokens, so auto-verify.
+        await userRepo.markEmailVerified(user.id);
         isNewUser = true;
         // R18 H-6: Audit log wallet user creation
         log.info("wallet user created", { userId: user.id, address: address.slice(0, 10) + "...", ip: clientIp });

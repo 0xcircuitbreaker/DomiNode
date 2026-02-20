@@ -94,14 +94,14 @@ export function registerAccountTools(server: McpServer, httpClient: HttpClient):
         }
 
         // Email is auto-verified server-side for MCP agents (X-DominusNode-Agent header).
-        // Payments (Stripe + crypto) are immediately available.
+        // Payments (crypto) are immediately available. Stripe requires browser checkout.
         const text = [
           `Account created successfully!`,
           `Email: ${data.user.email}`,
           `User ID: ${data.user.id}`,
           `Email: auto-verified (MCP agent)`,
           ``,
-          `You are now authenticated. Payments (Stripe + crypto) are enabled.`,
+          `You are now authenticated. Crypto payments enabled (10 currencies).`,
           `Next steps:`,
           `1. Use dominusnode_setup to create an account + API key in one step (recommended)`,
           `   Or set DOMINUSNODE_API_KEY and restart to unlock dominusnode_create_key`,
@@ -233,8 +233,8 @@ export function registerAccountTools(server: McpServer, httpClient: HttpClient):
           `  curl -x http://auto:<YOUR_API_KEY>@proxy.dominusnode.com:8080 https://httpbin.org/ip`,
           ``,
           `Free tier: 10 connections, 1GB bandwidth.`,
-          `Payments enabled: use dominusnode_pay_crypto to add funds (Stripe + crypto supported).`,
-          `Set DOMINUSNODE_API_KEY=<your key above> and restart to unlock all 53 tools.`,
+          `Payments: use dominusnode_pay_crypto to add funds (10 crypto currencies).`,
+          `Set DOMINUSNODE_API_KEY=<your key above> and restart to unlock all 54 tools.`,
         ].join("\n");
         return { content: [{ type: "text", text }] };
       } catch (err) {

@@ -11,7 +11,9 @@ export function registerWalletTools(server: McpServer, httpClient: HttpClient): 
     async () => {
       try {
         const wallet = await httpClient.get<WalletBalance>("/api/wallet");
-        const text = `Balance: $${wallet.balanceUsd.toFixed(2)} (${wallet.balanceCents} cents)`;
+        const balanceUsd = typeof wallet.balanceUsd === "number" ? wallet.balanceUsd : 0;
+        const balanceCents = typeof wallet.balanceCents === "number" ? wallet.balanceCents : 0;
+        const text = `Balance: $${balanceUsd.toFixed(2)} (${balanceCents} cents)`;
         return { content: [{ type: "text", text }] };
       } catch (err) {
         return {
@@ -24,7 +26,7 @@ export function registerWalletTools(server: McpServer, httpClient: HttpClient): 
 
   server.tool(
     "dominusnode_get_forecast",
-    "Get spending forecast: daily average spend, estimated days remaining, and projected depletion date.",
+    "Get spending forecast: daily average spend, estimated days remaining, and spending trend.",
     {},
     async () => {
       try {
@@ -61,7 +63,7 @@ export function registerWalletTools(server: McpServer, httpClient: HttpClient): 
           return { content: [{ type: "text", text: "No transactions found." }] };
         }
         const lines = data.transactions.map(
-          (t) => `${t.createdAt} | ${t.type.padEnd(10)} | $${(t.amountCents / 100).toFixed(2)} | ${t.description}`,
+          (t) => `${t.createdAt ?? "unknown"} | ${(t.type ?? "unknown").padEnd(10)} | $${((t.amountCents ?? 0) / 100).toFixed(2)} | ${t.description ?? ""}`,
         );
         lines.unshift(`Transactions (page ${args.page}):`);
         return { content: [{ type: "text", text: lines.join("\n") }] };

@@ -12,6 +12,7 @@ vi.mock("@dominusnode/shared", () => ({
     linkWalletAddress: vi.fn(),
     findUserById: vi.fn(),
     countActiveUsers: vi.fn().mockResolvedValue(0),
+    markEmailVerified: vi.fn().mockResolvedValue(true),
   },
   walletRepo: { createWallet: vi.fn() },
   walletChallengeRepo: {
@@ -208,6 +209,7 @@ describe("wallet-auth routes", () => {
         password_changed_at: null,
       } as any);
       vi.mocked(walletRepo.createWallet).mockResolvedValue({} as any);
+      vi.mocked(userRepo.markEmailVerified).mockResolvedValue(true);
       vi.mocked(refreshTokenRepo.storeToken).mockResolvedValue({} as any);
 
       const app = createApp();
@@ -220,6 +222,8 @@ describe("wallet-auth routes", () => {
       expect(res.body.token).toBe("test-access-token");
       expect((res.body.user as any).isNewUser).toBe(true);
       expect((res.body.user as any).wallet_address).toBe(VALID_ADDRESS);
+      // Wallet users are auto-verified (crypto signature proves identity)
+      expect(userRepo.markEmailVerified).toHaveBeenCalledWith("u-new");
     });
 
     it("should login existing wallet user", async () => {
