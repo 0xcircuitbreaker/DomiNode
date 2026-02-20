@@ -409,6 +409,16 @@ export type FunctionHandler = (
  * // { balanceCents: 5000, balanceUsd: 50.00, currency: "USD", lastToppedUp: "..." }
  * ```
  */
+// Test exports — used by handler.test.ts
+export {
+  isPrivateIp,
+  validateUrl,
+  normalizeIpv4,
+  sanitizeError,
+  stripDangerousKeys,
+  safeJsonParse,
+};
+
 export function createDominusNodeFunctionHandler(
   config: DominusNodeFunctionConfig,
 ): FunctionHandler {

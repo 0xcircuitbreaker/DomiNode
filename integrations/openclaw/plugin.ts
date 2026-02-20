@@ -1517,3 +1517,17 @@ export const plugin = {
 };
 
 export default plugin;
+
+// Test exports — used by plugin.test.ts
+export {
+  isPrivateIp,
+  validateTargetUrl,
+  validateCountry,
+  validateUuid,
+  normalizeIpv4,
+  stripDangerousKeys,
+  scrubCredentials,
+  truncate,
+  formatBytes,
+  formatCents,
+};

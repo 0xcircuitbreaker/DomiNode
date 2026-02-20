@@ -5,6 +5,13 @@
   "main": "plugin.ts",
   "type": "module",
   "license": "MIT",
+  "scripts": {
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0",
+    "vitest": "^1.6.0"
+  },
   "keywords": [
     "openclaw",
     "dominusnode",
