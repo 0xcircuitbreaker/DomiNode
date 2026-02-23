@@ -109,7 +109,7 @@ public final class WalletResource {
             throw new IllegalArgumentException("amountUsd must be a positive finite number <= 21,474,836.47");
         }
         if (amountUsd < 10) {
-            throw new IllegalArgumentException("Minimum crypto top-up is $10.00 (NOWPayments requirement)");
+            throw new IllegalArgumentException("Minimum crypto top-up is $10.00");
         }
         Map<String, Object> body = new HashMap<>();
         body.put("amountUsd", amountUsd);

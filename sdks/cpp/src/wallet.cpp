@@ -47,7 +47,7 @@ StripeCheckoutResult WalletResource::top_up_stripe(int amount_cents) {
 CryptoInvoiceResult WalletResource::top_up_crypto(int amount_cents, const std::string& currency) {
     validate_amount_cents(amount_cents);
     if (amount_cents < 1000) {
-        throw std::invalid_argument("Minimum crypto top-up is $10.00 (1000 cents) — NOWPayments requirement");
+        throw std::invalid_argument("Minimum crypto top-up is $10.00 (1000 cents)");
     }
     double amount_usd = amount_cents / 100.0;
     nlohmann::json body = {{"amountUsd", amount_usd}, {"currency", currency}};

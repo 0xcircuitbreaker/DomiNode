@@ -79,7 +79,7 @@ func (w *WalletResource) TopupCrypto(ctx context.Context, amountUSD float64, cur
 		return nil, fmt.Errorf("amountUSD must be positive and <= 21,474,836.47")
 	}
 	if amountUSD < 10 {
-		return nil, fmt.Errorf("minimum crypto top-up is $10.00 (NOWPayments requirement)")
+		return nil, fmt.Errorf("minimum crypto top-up is $10.00")
 	}
 	body := map[string]interface{}{
 		"amountUsd": amountUSD,

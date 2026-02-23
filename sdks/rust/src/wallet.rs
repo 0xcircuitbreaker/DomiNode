@@ -99,7 +99,7 @@ impl WalletResource {
         }
         if amount_cents < 1000 {
             return Err(crate::errors::DominusNodeError::Validation(
-                "Minimum crypto top-up is $10.00 (1000 cents) — NOWPayments requirement".to_string(),
+                "Minimum crypto top-up is $10.00 (1000 cents)".to_string(),
             ));
         }
         let amount_usd = amount_cents as f64 / 100.0;

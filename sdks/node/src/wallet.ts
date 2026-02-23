@@ -64,13 +64,13 @@ export class WalletResource {
     return this.http.post("/api/wallet/topup/stripe", { amountCents });
   }
 
-  /** Create a crypto invoice for wallet top-up. Minimum $10 (1000 cents) per NOWPayments requirement. */
+  /** Create a crypto invoice for wallet top-up. Minimum $10 (1000 cents). */
   async topUpCrypto(amountCents: number, currency: string): Promise<CryptoInvoiceResponse> {
     if (!Number.isInteger(amountCents) || amountCents <= 0 || amountCents > 2_147_483_647) {
       throw new Error("amountCents must be a positive integer <= 2,147,483,647");
     }
     if (amountCents < 1000) {
-      throw new Error("Minimum crypto top-up is $10.00 (1000 cents) — NOWPayments requirement");
+      throw new Error("Minimum crypto top-up is $10.00 (1000 cents)");
     }
     const amountUsd = amountCents / 100;
     return this.http.post("/api/wallet/topup/crypto", { amountUsd, currency });
