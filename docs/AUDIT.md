@@ -134,7 +134,7 @@ Dominus Node/
 │   ├── billing/                 # PAYMENT PROCESSING
 │   │   └── src/
 │   │       ├── stripe.ts                # Stripe Checkout sessions + webhook handling
-│   │       ├── nowpayments.ts           # Crypto invoices (BTC/ETH/XMR/SOL/ZEC) + IPN verification
+│   │       ├── nowpayments.ts           # Crypto invoices (BTC/ETH/LTC/XMR/ZEC/USDC/SOL/USDT/DAI/BNB/LINK) + IPN verification
 │   │       └── index.ts                 # Re-exports
 │   │
 │   ├── dashboard/               # EXPRESS REST API SERVER (port 3000)

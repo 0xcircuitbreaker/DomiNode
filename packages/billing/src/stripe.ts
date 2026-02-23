@@ -116,7 +116,7 @@ export async function handleCheckoutWebhook(
     const failedSession = event.data.object as Stripe.Checkout.Session;
     const failedInvoice = await invoiceRepo.findInvoice("stripe", failedSession.id);
     if (failedInvoice && failedInvoice.status === "pending") {
-      await invoiceRepo.markCreditFailed(failedInvoice.id);
+      await invoiceRepo.failInvoice(failedInvoice.id);
       log.warn("async payment failed, invoice marked as failed", { sessionId: failedSession.id });
     }
     return null;
@@ -176,7 +176,7 @@ export async function handleCheckoutWebhook(
   const claimed = await invoiceRepo.completeInvoice(invoice.id);
   if (!claimed) {
     log.info("duplicate Stripe webhook ignored (invoice already completed)", { sessionId: session.id });
-    return { userId, amountCents: invoice.amount_cents };
+    return null;
   }
 
   // R31 H-2: Credit invoice.amount_cents (our stored truth) not Stripe's amount_total

@@ -632,7 +632,7 @@ mfa_backup_codes
 | GET | `/api/wallet` | JWT | Get current balance |
 | GET | `/api/wallet/transactions` | JWT | Transaction history with pagination |
 | POST | `/api/wallet/topup/stripe` | JWT | Create Stripe Checkout session |
-| POST | `/api/wallet/topup/crypto` | JWT | Create NOWPayments crypto invoice (BTC/ETH/XMR/SOL/ZEC) |
+| POST | `/api/wallet/topup/crypto` | JWT | Create NOWPayments crypto invoice (11 currencies incl. BTC/ETH/XMR/USDC/SOL/LINK) |
 | GET | `/api/wallet/forecast` | JWT | Usage forecast based on recent activity |
 
 ### Usage

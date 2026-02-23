@@ -171,7 +171,7 @@ dominusnode_fetch(url: "https://example.com", pool_type: "dc", country: "DE")  #
 
 If no API key is configured, you can still:
 1. Create an account with `dominusnode_setup` or `dominusnode_register`
-2. Pay with crypto using `dominusnode_pay_crypto` (10 currencies supported)
+2. Pay with crypto using `dominusnode_pay_crypto` (11 currencies supported)
 3. Check payment status with `dominusnode_check_payment`
 4. Check x402 info with `dominusnode_x402_info` for machine-to-machine payments
 
@@ -189,7 +189,7 @@ After setup, set DOMINUSNODE_API_KEY and restart to unlock all 56 tools.
 
 ## Crypto Payments
 
-For anonymous or autonomous payments (10 currencies, minimum $10):
+For anonymous or autonomous payments (11 currencies, minimum $10):
 ```
 dominusnode_pay_crypto(amount_usd: 10, currency: "XMR")    # Monero — private
 dominusnode_pay_crypto(amount_usd: 10, currency: "USDC")    # Stablecoin

@@ -20,7 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - **Wallet auth tools** (3 tools): `dominusnode_wallet_challenge`, `dominusnode_wallet_setup`, `dominusnode_wallet_link` for cryptographic wallet-based authentication.
 - **Key management tools** (3 tools): `dominusnode_create_key`, `dominusnode_list_keys`, `dominusnode_revoke_key`.
 - **Wallet tools** (3 tools): `dominusnode_balance`, `dominusnode_transactions`, `dominusnode_topup_stripe`.
-- **Crypto payment tools** (2 tools): `dominusnode_pay_crypto` (supports BTC, ETH, LTC, XMR, ZEC, USDC, SOL, USDT, DAI, BNB), `dominusnode_check_payment` for invoice status polling.
+- **Crypto payment tools** (2 tools): `dominusnode_pay_crypto` (supports BTC, ETH, LTC, XMR, ZEC, USDC, SOL, USDT, DAI, BNB, LINK), `dominusnode_check_payment` for invoice status polling.
 - **Usage tools** (3 tools): `dominusnode_usage_summary`, `dominusnode_usage_daily`, `dominusnode_usage_top_hosts`.
 - **Proxy tools** (2 tools): `dominusnode_proxy_url` (build proxy URLs with geo-targeting), `dominusnode_proxy_health`.
 - **Plan tools** (2 tools): `dominusnode_list_plans`, `dominusnode_current_plan`.

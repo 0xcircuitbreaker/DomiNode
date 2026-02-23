@@ -101,7 +101,7 @@ export function registerAccountTools(server: McpServer, httpClient: HttpClient):
           `User ID: ${data.user.id}`,
           `Email: auto-verified (MCP agent)`,
           ``,
-          `You are now authenticated. Crypto payments enabled (10 currencies).`,
+          `You are now authenticated. Crypto payments enabled (11 currencies).`,
           `Next steps:`,
           `1. Use dominusnode_setup to create an account + API key in one step (recommended)`,
           `   Or set DOMINUSNODE_API_KEY and restart to unlock dominusnode_create_key`,

@@ -145,7 +145,7 @@ Dominus Node/
 │   │   └── index.ts             # computeCostCents (DC $3/GB, residential $5/GB), recordUsage, debitForUsage
 │   ├── billing/src/
 │   │   ├── stripe.ts            # Checkout sessions, webhook handling
-│   │   ├── nowpayments.ts       # Crypto invoices (BTC/ETH/XMR/SOL/ZEC), IPN verification
+│   │   ├── nowpayments.ts       # Crypto invoices (BTC/ETH/LTC/XMR/ZEC/USDC/SOL/USDT/DAI/BNB/LINK), IPN verification
 │   │   └── index.ts             # Re-exports
 │   └── dashboard/src/
 │       ├── server.ts            # Express API server
@@ -194,7 +194,7 @@ AVAILABLE → ASSIGNED → IN_USE → (HEALTHY → re-pool | BURNED → discard)
 - `@dominusnode/pool-manager` — Webshare dual-pool (DC + residential) integration with geo targeting + sticky sessions
 - `@dominusnode/proxy-gateway` — Full HTTP/HTTPS proxy with API key auth, balance checks, Webshare chaining, byte counting, session tracking, wallet debiting
 - `@dominusnode/metering` — Cost calculation (DC $3/GB, residential $5/GB), usage recording, wallet debiting
-- `@dominusnode/billing` — Stripe Checkout for wallet top-ups, NOWPayments for crypto (BTC/ETH/XMR/SOL/ZEC)
+- `@dominusnode/billing` — Stripe Checkout for wallet top-ups, NOWPayments for crypto (BTC/ETH/LTC/XMR/ZEC/USDC/SOL/USDT/DAI/BNB/LINK), PayPal + Link via Stripe
 - `@dominusnode/dashboard` — Express REST API with auth, API key management, wallet, usage, and webhook endpoints
 
 ### To launch:

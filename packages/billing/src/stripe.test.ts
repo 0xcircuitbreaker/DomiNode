@@ -25,6 +25,7 @@ const mockCreateInvoice = vi.fn();
 const mockFindInvoice = vi.fn();
 const mockCompleteInvoice = vi.fn();
 const mockMarkCreditFailed = vi.fn();
+const mockFailInvoice = vi.fn();
 
 vi.mock("@dominusnode/shared", () => ({
   walletRepo: {
@@ -35,6 +36,7 @@ vi.mock("@dominusnode/shared", () => ({
     findInvoice: (...args: unknown[]) => mockFindInvoice(...args),
     completeInvoice: (...args: unknown[]) => mockCompleteInvoice(...args),
     markCreditFailed: (...args: unknown[]) => mockMarkCreditFailed(...args),
+    failInvoice: (...args: unknown[]) => mockFailInvoice(...args),
   },
   createLogger: () => ({
     debug: vi.fn(),
@@ -237,14 +239,15 @@ describe("stripe", () => {
         amount_cents: 2000,
         status: "pending",
       });
-      mockMarkCreditFailed.mockResolvedValueOnce(true);
+      mockFailInvoice.mockResolvedValueOnce(true);
 
       const result = await handleCheckoutWebhook(
         Buffer.from("body"),
         "sig",
       );
       expect(result).toBeNull();
-      expect(mockMarkCreditFailed).toHaveBeenCalledWith("inv-paypal-fail");
+      expect(mockFailInvoice).toHaveBeenCalledWith("inv-paypal-fail");
+      expect(mockMarkCreditFailed).not.toHaveBeenCalled();
     });
 
     it("should return null when amount_total is 0", async () => {
@@ -336,7 +339,7 @@ describe("stripe", () => {
         Buffer.from("body"),
         "sig",
       );
-      expect(result).toEqual({ userId: "user-7", amountCents: 1000 });
+      expect(result).toBeNull();
       // creditWallet should NOT be called for duplicate
       expect(mockCreditWallet).not.toHaveBeenCalled();
     });

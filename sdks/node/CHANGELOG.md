@@ -15,7 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - `DominusNodeClient` as the main entry point with resource-based API surface.
 - Authentication via API key (`connectWithKey`), email/password with MFA support (`connectWithCredentials`, `completeMfa`), and pre-authenticated JWT tokens (`connectWithTokens`).
 - `AuthResource` for registration, login, MFA setup/verification, password reset, email verification, and account profile management.
-- `WalletResource` for balance retrieval, transaction history, Stripe checkout session creation, and crypto invoice creation supporting 10 currencies (BTC, ETH, LTC, XMR, ZEC, USDC, SOL, USDT, DAI, BNB).
+- `WalletResource` for balance retrieval, transaction history, Stripe checkout session creation, and crypto invoice creation supporting 11 currencies (BTC, ETH, LTC, XMR, ZEC, USDC, SOL, USDT, DAI, BNB, LINK).
 - `UsageResource` for usage summaries, daily breakdown, top hosts, and CSV export.
 - `KeysResource` for creating, listing, and revoking API keys.
 - `PlansResource` for listing available plans, retrieving the current plan, and changing plans.

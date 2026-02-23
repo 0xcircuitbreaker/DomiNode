@@ -328,7 +328,7 @@ StripeCheckout checkout = client.wallet().topupStripe(1000); // $10.00
 
 // Top up with cryptocurrency
 CryptoInvoice invoice = client.wallet().topupCrypto(10.00, "btc");
-// Supported currencies: btc, eth, ltc, xmr, zec, usdc, sol, usdt, dai, bnb
+// Supported currencies: btc, eth, ltc, xmr, zec, usdc, sol, usdt, dai, bnb, link
 
 // Get spending forecast
 WalletForecast forecast = client.wallet().getForecast();

@@ -149,7 +149,7 @@ function registerBootstrapHelper(server: McpServer): void {
         `After setup, set DOMINUSNODE_API_KEY in your environment`,
         `to unlock all 56 tools on next startup.`,
         ``,
-        `Email auto-verified for MCP agents — crypto payments enabled (10 currencies).`,
+        `Email auto-verified for MCP agents — crypto payments enabled (11 currencies).`,
         `Free tier: 10 connections, 1GB bandwidth — no payment required.`,
       ].join("\n");
       return { content: [{ type: "text", text }] };

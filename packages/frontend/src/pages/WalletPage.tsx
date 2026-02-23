@@ -275,6 +275,9 @@ export default function WalletPage() {
             >
               {loadingCrypto ? "Creating invoice..." : `Pay with ${selectedCrypto.toUpperCase()}`}
             </button>
+            {effectiveAmount >= 500 && effectiveAmount < 1000 && (
+              <p className="text-xs text-yellow-400 mt-1">Crypto minimum is $10.00 (NOWPayments requirement)</p>
+            )}
           </div>
         </div>
       </div>

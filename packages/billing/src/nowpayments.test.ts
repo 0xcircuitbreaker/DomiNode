@@ -138,6 +138,17 @@ describe("nowpayments", () => {
       expect(result.payCurrency).toBe("bnb");
     });
 
+    it("should accept link currency", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        text: () => Promise.resolve(JSON.stringify({ id: "np-link-123", invoice_url: "https://pay.nowpayments.io/link" })),
+      });
+      mockCreateInvoice.mockResolvedValueOnce({});
+
+      const result = await createCryptoInvoice("user-1", 10.0, "link");
+      expect(result.payCurrency).toBe("link");
+    });
+
     it("should throw for unsupported currency", async () => {
       await expect(
         createCryptoInvoice("user-1", 10.0, "doge" as any),
