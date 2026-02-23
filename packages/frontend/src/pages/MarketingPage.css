@@ -545,6 +545,27 @@ html {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
+/* Centered flex grid — orphan items center instead of left-aligning */
+.mk-centered-grid {
+  margin-top: 28px;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 14px;
+}
+
+/* 4-per-row variant (for 5 AI agent cards: 4 + 1 centered) */
+.mk-centered-4 > * {
+  flex: 0 0 calc(25% - 10.5px);
+  min-width: 0;
+}
+
+/* 3-per-row variant (for 3 platform cards: all centered) */
+.mk-centered-3 > * {
+  flex: 0 0 calc(33.333% - 9.333px);
+  min-width: 0;
+}
+
 .mk-card {
   border-radius: 16px;
   border: 1px solid var(--mk-line);
@@ -860,6 +881,14 @@ html {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .mk-centered-4 > * {
+    flex: 0 0 calc(50% - 7px);
+  }
+
+  .mk-centered-3 > * {
+    flex: 0 0 calc(50% - 7px);
+  }
+
   .mk-security-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -1008,6 +1037,11 @@ html {
     grid-template-columns: 1fr;
   }
 
+  .mk-centered-4 > *,
+  .mk-centered-3 > * {
+    flex: 0 0 100%;
+  }
+
   .mk-pricing-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -1073,6 +1107,19 @@ html {
 
   .mk-trust-strip {
     grid-template-columns: 1fr;
+  }
+}
+
+/* Ultrawide: widen shell, keep centered grids balanced */
+@media (min-width: 1600px) {
+  .mk-shell {
+    width: min(1400px, 90vw);
+  }
+}
+
+@media (min-width: 2200px) {
+  .mk-shell {
+    width: min(1600px, 85vw);
   }
 }
 

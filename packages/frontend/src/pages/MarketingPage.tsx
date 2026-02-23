@@ -477,7 +477,7 @@ export default function MarketingPage() {
             <h2>Give your AI agents autonomous proxy access in 30 seconds</h2>
           </div>
 
-          <div className="mk-service-grid">
+          <div className="mk-service-grid mk-centered-grid mk-centered-4">
             {AI_AGENT_FEATURES.map((feat, index) => (
               <article key={feat.title} className={`mk-card mk-animate-up mk-delay-${index + 1}`}>
                 <h3>{feat.title}</h3>
@@ -491,7 +491,7 @@ export default function MarketingPage() {
 
           <div className="mk-animate-up mk-delay-2" style={{ marginTop: "3rem" }}>
             <h3 style={{ textAlign: "center", marginBottom: "1.5rem" }}>Quick Setup for Every Platform</h3>
-            <div className="mk-card-grid" style={{ gap: "1.5rem" }}>
+            <div className="mk-centered-grid mk-centered-3" style={{ gap: "1.5rem" }}>
               {PLATFORM_CONFIGS.map((platform) => (
                 <article key={platform.name} className="mk-card">
                   <h3>{platform.name}</h3>
