@@ -56,7 +56,7 @@ function isAllowedPaymentUrl(url: string, allowedHosts: string[]): boolean {
 }
 
 const PRESETS = [500, 1000, 2500, 5000, 10000]; // cents
-const CRYPTO_OPTIONS = ["btc", "eth", "ltc", "xmr", "zec", "usdc", "sol", "usdt", "dai", "bnb"] as const;
+const CRYPTO_OPTIONS = ["btc", "eth", "ltc", "xmr", "zec", "usdc", "sol", "usdt", "dai", "bnb", "link"] as const;
 
 export default function WalletPage() {
   const { data: wallet, error: walletError, refetch: refetchWallet } = useApi<WalletResponse>(() => get("/api/wallet"));
@@ -240,13 +240,13 @@ export default function WalletPage() {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {/* Stripe */}
           <div className="border border-gray-700 rounded-lg p-4">
-            <h3 className="text-sm font-medium mb-3">Card Payment (Stripe)</h3>
+            <h3 className="text-sm font-medium mb-3">Card / PayPal / Link (Stripe)</h3>
             <button
               onClick={handleStripe}
               disabled={loadingStripe || effectiveAmount < 500}
               className="w-full bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-medium py-2.5 rounded-lg transition-colors text-sm"
             >
-              {loadingStripe ? "Redirecting..." : `Pay $${(effectiveAmount / 100).toFixed(2)} with Card`}
+              {loadingStripe ? "Redirecting..." : `Pay $${(effectiveAmount / 100).toFixed(2)}`}
             </button>
           </div>
 

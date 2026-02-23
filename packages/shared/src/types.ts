@@ -239,5 +239,5 @@ export const COST_PER_GB_CENTS_RESIDENTIAL = 400;
 export const BYTES_PER_GB = 1_073_741_824;
 
 /** Supported crypto currencies for top-up */
-export const SUPPORTED_CRYPTO = ["btc", "eth", "ltc", "xmr", "zec", "usdc", "sol", "usdt", "dai", "bnb"] as const;
+export const SUPPORTED_CRYPTO = ["btc", "eth", "ltc", "xmr", "zec", "usdc", "sol", "usdt", "dai", "bnb", "link"] as const;
 export type SupportedCrypto = (typeof SUPPORTED_CRYPTO)[number];

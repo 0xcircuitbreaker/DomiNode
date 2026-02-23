@@ -123,7 +123,7 @@ async with MultiServerMCPClient({
 
 ### Billing
 - `dominusnode_get_balance` — Wallet balance
-- `dominusnode_pay_crypto` — Pay with BTC/ETH/XMR/SOL/ZEC
+- `dominusnode_pay_crypto` — Pay with BTC/ETH/LTC/XMR/ZEC/USDC/SOL/USDT/DAI/BNB/LINK
 - `dominusnode_x402_info` — x402 pay-per-request info
 - `dominusnode_agent_wallet_create` — Coinbase Agentic Wallet
 
@@ -141,4 +141,4 @@ async with MultiServerMCPClient({
 | Volume 100GB | $4/GB | 100 GB/month |
 | Volume 1TB | $3/GB | 1 TB/month |
 
-Crypto payments: BTC, ETH, XMR (Monero), SOL, ZEC (Zcash), USDC, USDT
+Crypto payments: BTC, ETH, LTC, XMR, ZEC, USDC, SOL, USDT, DAI, BNB, LINK

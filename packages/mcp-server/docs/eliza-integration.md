@@ -58,7 +58,7 @@ const invoice = await callTool("dominusnode_pay_crypto", {
 |------|-------------|
 | `dominusnode_fetch` | Fetch any URL through rotating proxy |
 | `dominusnode_setup` | One-shot: create account + API key |
-| `dominusnode_pay_crypto` | Pay with BTC/ETH/XMR/SOL/ZEC |
+| `dominusnode_pay_crypto` | Pay with BTC/ETH/LTC/XMR/ZEC/USDC/SOL/USDT/DAI/BNB/LINK |
 | `dominusnode_get_balance` | Check wallet balance |
 | `dominusnode_x402_info` | Get x402 pay-per-request info |
 | `dominusnode_get_proxy_config` | Get proxy endpoints |
@@ -111,4 +111,4 @@ const proxyAccess = await callTool("dominusnode_x402_info");
 
 - **Free tier**: 1 GB bandwidth, 10 connections — no payment needed
 - **Pay-as-you-go**: $5/GB residential proxy bandwidth
-- **Crypto accepted**: BTC, ETH, XMR, SOL, ZEC, USDC, USDT
+- **Crypto accepted**: BTC, ETH, LTC, XMR, ZEC, USDC, SOL, USDT, DAI, BNB, LINK

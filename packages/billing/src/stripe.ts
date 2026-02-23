@@ -61,7 +61,7 @@ export async function createCheckoutSession(
 
   const session = await stripe.checkout.sessions.create({
     mode: "payment",
-    payment_method_types: ["card"],
+    payment_method_types: ["card", "link", "paypal"],
     line_items: [
       {
         price_data: {
@@ -111,15 +111,29 @@ export async function handleCheckoutWebhook(
     return null;
   }
 
-  if (event.type !== "checkout.session.completed") {
+  // Handle async payment failure (PayPal can fail after initial authorization)
+  if (event.type === "checkout.session.async_payment_failed") {
+    const failedSession = event.data.object as Stripe.Checkout.Session;
+    const failedInvoice = await invoiceRepo.findInvoice("stripe", failedSession.id);
+    if (failedInvoice && failedInvoice.status === "pending") {
+      await invoiceRepo.markCreditFailed(failedInvoice.id);
+      log.warn("async payment failed, invoice marked as failed", { sessionId: failedSession.id });
+    }
+    return null;
+  }
+
+  // Accept both synchronous (card/Link) and asynchronous (PayPal) payment completions
+  if (event.type !== "checkout.session.completed" && event.type !== "checkout.session.async_payment_succeeded") {
     return null;
   }
 
   const session = event.data.object as Stripe.Checkout.Session;
 
-  // R24 H-3: Verify payment is actually completed — some payment methods can fire completed without paid status
+  // For checkout.session.completed: card/Link payments have payment_status "paid",
+  // PayPal has "unpaid" (pending async settlement) — skip unpaid, it will arrive via async_payment_succeeded.
+  // For async_payment_succeeded: payment_status is always "paid".
   if (session.payment_status !== "paid") {
-    log.warn("checkout session completed but payment_status is not paid", {
+    log.info("checkout session completed but payment pending async settlement (PayPal)", {
       sessionId: session.id, paymentStatus: session.payment_status,
     });
     return null;

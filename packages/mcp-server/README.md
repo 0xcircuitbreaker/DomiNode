@@ -10,7 +10,7 @@ MCP (Model Context Protocol) server for Dominus Node — rotating proxy tools fo
 - **dominusnode_fetch** — fetch any URL through rotating residential/datacenter proxies
 - **Geo-targeting** — route requests through specific countries, states, or cities
 - **Bootstrap mode** — start with no API key, let the agent create its own account
-- **Crypto payments** — pay with BTC, ETH, XMR, SOL, ZEC, USDC, USDT
+- **Crypto payments** — pay with BTC, ETH, LTC, XMR, ZEC, USDC, SOL, USDT, DAI, BNB, LINK — or card/PayPal via Stripe
 - **x402 ready** — machine-to-machine USDC micropayments (Coinbase Agentic Wallets)
 - **Free tier** — 1GB bandwidth, 10 connections, no payment required
 
@@ -198,7 +198,7 @@ Available bootstrap tools:
 
 | Tool | Description |
 |------|-------------|
-| `dominusnode_pay_crypto` | Create crypto invoice (BTC/ETH/XMR/SOL/ZEC/USDC/USDT) |
+| `dominusnode_pay_crypto` | Create crypto invoice (BTC/ETH/LTC/XMR/ZEC/USDC/SOL/USDT/DAI/BNB/LINK) |
 | `dominusnode_check_payment` | Check crypto payment status |
 
 ### x402 & Agentic Wallets
@@ -254,7 +254,7 @@ Available bootstrap tools:
 | Volume 100GB | $4/GB | 100 GB/month |
 | Volume 1TB | $3/GB | 1 TB/month |
 
-Crypto payments: BTC, ETH, XMR (Monero), SOL, ZEC (Zcash), USDC, USDT
+Crypto payments: BTC, ETH, LTC, XMR, ZEC, USDC, SOL, USDT, DAI, BNB, LINK
 
 ## Example: AI Agent Workflow
 

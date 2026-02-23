@@ -134,7 +134,7 @@ function registerBootstrapHelper(server: McpServer): void {
         ``,
         `Option 4: Top up with crypto`,
         `  After registering, use dominusnode_pay_crypto to add funds.`,
-        `  Supports BTC, ETH, LTC, XMR, ZEC, USDC, SOL, USDT, DAI, BNB.`,
+        `  Supports BTC, ETH, LTC, XMR, ZEC, USDC, SOL, USDT, DAI, BNB, LINK.`,
         `  Check your balance with dominusnode_get_balance to confirm funds arrived.`,
         ``,
         `Option 5: Multi-agent teams (manage multiple AI agents)`,

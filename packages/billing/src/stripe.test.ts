@@ -72,6 +72,7 @@ describe("stripe", () => {
       expect(mockSessionCreate).toHaveBeenCalledWith(
         expect.objectContaining({
           mode: "payment",
+          payment_method_types: ["card", "link", "paypal"],
           metadata: {
             userId: "user-1",
             amountCents: "1000",
@@ -165,7 +166,7 @@ describe("stripe", () => {
       expect(result).toBeNull();
     });
 
-    it("should return null when payment_status is not paid", async () => {
+    it("should return null when payment_status is not paid (PayPal pending)", async () => {
       mockConstructEvent.mockReturnValueOnce({
         type: "checkout.session.completed",
         data: {
@@ -183,6 +184,67 @@ describe("stripe", () => {
         "sig",
       );
       expect(result).toBeNull();
+    });
+
+    it("should credit wallet on async_payment_succeeded (PayPal settlement)", async () => {
+      mockConstructEvent.mockReturnValueOnce({
+        type: "checkout.session.async_payment_succeeded",
+        data: {
+          object: {
+            id: "cs_paypal_settled",
+            amount_total: 3000,
+            payment_status: "paid",
+            metadata: { userId: "user-paypal" },
+          },
+        },
+      });
+      mockFindInvoice.mockResolvedValueOnce({
+        id: "inv-paypal",
+        user_id: "user-paypal",
+        amount_cents: 3000,
+      });
+      mockCompleteInvoice.mockResolvedValueOnce(true);
+      mockCreditWallet.mockResolvedValueOnce({});
+
+      const result = await handleCheckoutWebhook(
+        Buffer.from("body"),
+        "sig",
+      );
+      expect(result).toEqual({ userId: "user-paypal", amountCents: 3000 });
+      expect(mockCreditWallet).toHaveBeenCalledWith(
+        "user-paypal",
+        3000,
+        "stripe",
+        "cs_paypal_settled",
+        "Stripe top-up $30.00",
+      );
+    });
+
+    it("should mark invoice as failed on async_payment_failed (PayPal failure)", async () => {
+      mockConstructEvent.mockReturnValueOnce({
+        type: "checkout.session.async_payment_failed",
+        data: {
+          object: {
+            id: "cs_paypal_failed",
+            amount_total: 2000,
+            payment_status: "unpaid",
+          },
+        },
+      });
+      mockFindInvoice.mockResolvedValueOnce({
+        id: "inv-paypal-fail",
+        user_id: "user-paypal-fail",
+        amount_cents: 2000,
+        status: "pending",
+      });
+      mockMarkCreditFailed.mockResolvedValueOnce(true);
+
+      const result = await handleCheckoutWebhook(
+        Buffer.from("body"),
+        "sig",
+      );
+      expect(result).toBeNull();
+      expect(mockMarkCreditFailed).toHaveBeenCalledWith("inv-paypal-fail");
     });
 
     it("should return null when amount_total is 0", async () => {

@@ -218,6 +218,10 @@ describe("validation", () => {
       expect(isValidCryptoCurrency("bnb")).toBe(true);
     });
 
+    it("should accept link", () => {
+      expect(isValidCryptoCurrency("link")).toBe(true);
+    });
+
     it("should accept uppercase BTC", () => {
       expect(isValidCryptoCurrency("BTC")).toBe(true);
     });

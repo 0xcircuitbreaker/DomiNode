@@ -29,7 +29,7 @@ vi.mock("@dominusnode/shared", () => ({
   userRepo: {
     findUserById: (...args: unknown[]) => mockFindUserById(...args),
   },
-  SUPPORTED_CRYPTO: ["btc", "eth", "ltc", "xmr", "zec", "usdc", "sol", "usdt", "dai", "bnb"] as const,
+  SUPPORTED_CRYPTO: ["btc", "eth", "ltc", "xmr", "zec", "usdc", "sol", "usdt", "dai", "bnb", "link"] as const,
   sanitizeString: (s: string, maxLen: number) => {
     if (typeof s !== "string") return "";
     return s.trim().replace(/<[^>]*>/g, "").slice(0, maxLen);

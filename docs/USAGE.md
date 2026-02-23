@@ -572,7 +572,7 @@ curl -X POST http://localhost:3000/api/wallet/topup/crypto \
 
 Parameters:
 - `amountUsd`: Dollar amount (must be between $10 and $1,000 — NOWPayments minimum)
-- `currency`: One of `btc`, `eth`, `xmr`, `sol`, `zec`
+- `currency`: One of `btc`, `eth`, `ltc`, `xmr`, `zec`, `usdc`, `sol`, `usdt`, `dai`, `bnb`, `link`
 
 Response:
 ```json

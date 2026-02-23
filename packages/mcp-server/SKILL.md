@@ -1,6 +1,6 @@
 ---
 name: dominusnode-proxy
-description: Rotating proxy access for AI agents — fetch URLs through geo-targeted datacenter ($3/GB) or residential ($5/GB) IPs, pay with crypto (BTC/ETH/LTC/XMR/ZEC/USDC/SOL/USDT/DAI/BNB), manage API keys, agentic wallets, teams, and monitor bandwidth usage. Supports bootstrap mode (no API key needed) and x402 machine-to-machine payments.
+description: Rotating proxy access for AI agents — fetch URLs through geo-targeted datacenter ($3/GB) or residential ($5/GB) IPs, pay with crypto (BTC/ETH/LTC/XMR/ZEC/USDC/SOL/USDT/DAI/BNB/LINK) or card/PayPal/Link via Stripe, manage API keys, agentic wallets, teams, and monitor bandwidth usage. Supports bootstrap mode (no API key needed) and x402 machine-to-machine payments.
 version: 1.0.0
 author: Dominus Node
 tools:
@@ -63,7 +63,7 @@ tools:
     description: Create crypto payment invoice
     parameters:
       amount_usd: { type: number, required: true, min: 10, max: 1000 }
-      currency: { type: string, enum: [BTC, ETH, LTC, XMR, ZEC, USDC, SOL, USDT, DAI, BNB] }
+      currency: { type: string, enum: [BTC, ETH, LTC, XMR, ZEC, USDC, SOL, USDT, DAI, BNB, LINK] }
   - name: dominusnode_check_payment
     description: Check status of a crypto payment
     parameters:
@@ -196,7 +196,7 @@ dominusnode_pay_crypto(amount_usd: 10, currency: "USDC")    # Stablecoin
 dominusnode_check_payment(invoice_id: "inv_xxx")             # Check status
 ```
 
-Supported: BTC, ETH, LTC, XMR, ZEC, USDC, SOL, USDT, DAI, BNB.
+Supported: BTC, ETH, LTC, XMR, ZEC, USDC, SOL, USDT, DAI, BNB, LINK.
 Privacy coins (XMR, ZEC) provide enhanced payment privacy.
 
 ## Agentic Wallets

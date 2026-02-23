@@ -26,7 +26,7 @@ vi.mock("@dominusnode/shared", () => ({
   },
   validateTopupAmount: (...args: unknown[]) => mockValidateTopupAmount(...args),
   isValidCryptoCurrency: (...args: unknown[]) => mockIsValidCryptoCurrency(...args),
-  SUPPORTED_CRYPTO: ["btc", "eth", "ltc", "xmr", "zec", "usdc", "sol", "usdt", "dai", "bnb"],
+  SUPPORTED_CRYPTO: ["btc", "eth", "ltc", "xmr", "zec", "usdc", "sol", "usdt", "dai", "bnb", "link"],
   createLogger: () => ({
     info: vi.fn(),
     warn: vi.fn(),
@@ -369,7 +369,7 @@ describe("wallet routes", () => {
       });
 
       expect(res.status).toBe(400);
-      expect(res.body.error).toBe("Unsupported currency. Supported: btc, eth, ltc, xmr, zec, usdc, sol, usdt, dai, bnb");
+      expect(res.body.error).toBe("Unsupported currency. Supported: btc, eth, ltc, xmr, zec, usdc, sol, usdt, dai, bnb, link");
     });
   });
 
