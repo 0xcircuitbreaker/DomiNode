@@ -20,5 +20,10 @@ api.dominusnode.com {
     header_up X-Real-IP {remote_host}
     header_up X-Forwarded-For {remote_host}
     header_up X-Forwarded-Proto {scheme}
+    # Override upstream Helmet headers to enforce DENY
+    header_down X-Frame-Options "DENY"
+    header_down X-Content-Type-Options "nosniff"
+    header_down -Server
+    header_down -X-Powered-By
   }
 }

@@ -110,6 +110,7 @@ export function startApiServer(port: number = 3000): ReturnType<express.Express[
   // Security headers
   app.use(helmet({
     hsts: { maxAge: 31536000, includeSubDomains: true, preload: true },
+    frameguard: { action: "deny" },
   }));
 
   // Request ID for tracing

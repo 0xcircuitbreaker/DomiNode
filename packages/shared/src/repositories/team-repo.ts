@@ -39,8 +39,13 @@ export async function createTeam(
     await client.query("SET LOCAL lock_timeout = '5s'");
 
     // Atomic count check + insert to prevent TOCTOU
+    // Lock the user's team rows first, then count them
+    await client.query(
+      `SELECT id FROM teams WHERE owner_id = $1 AND status != 'deleted' FOR UPDATE`,
+      [userId],
+    );
     const countResult = await client.query<{ count: string }>(
-      `SELECT COUNT(*) AS count FROM teams WHERE owner_id = $1 AND status != 'deleted' FOR UPDATE`,
+      `SELECT COUNT(*) AS count FROM teams WHERE owner_id = $1 AND status != 'deleted'`,
       [userId],
     );
     if (parseInt(countResult.rows[0].count, 10) >= MAX_TEAMS_PER_USER) {

@@ -44,6 +44,7 @@ services:
       STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
       STRIPE_SUCCESS_URL: ${STRIPE_SUCCESS_URL:-https://dominusnode.com/wallet?topup=success}
       STRIPE_CANCEL_URL: ${STRIPE_CANCEL_URL:-https://dominusnode.com/wallet?topup=cancel}
+      STRIPE_PAYMENT_METHODS: ${STRIPE_PAYMENT_METHODS:-card,link}
       NOWPAYMENTS_API_KEY: ${NOWPAYMENTS_API_KEY:-}
       NOWPAYMENTS_IPN_SECRET: ${NOWPAYMENTS_IPN_SECRET:-}
       PROXY_INTERNAL_HOST: ${PROXY_INTERNAL_HOST:-proxy}
@@ -57,6 +58,9 @@ services:
       SMTP_IGNORE_TLS: ${SMTP_IGNORE_TLS:-false}
       APP_URL: ${APP_URL:-http://localhost:5173}
       RECAPTCHA_SECRET_KEY: ${RECAPTCHA_SECRET_KEY:-}
+      MAX_REGISTERED_USERS: ${MAX_REGISTERED_USERS:-0}
+      MCP_AGENT_SECRET: ${MCP_AGENT_SECRET:-}
+      DOMINUSNODE_DOMAIN: ${DOMINUSNODE_DOMAIN:-dominusnode.com}
       NODE_ENV: production
     extra_hosts:
       - "host.docker.internal:host-gateway"

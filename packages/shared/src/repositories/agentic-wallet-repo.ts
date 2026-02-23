@@ -59,9 +59,13 @@ export async function createWallet(
     await client.query("SET LOCAL lock_timeout = '5s'");
 
     // R33 C-1 + M-6: Count check and INSERT on same client in same transaction
-    // Advisory lock on user_id prevents concurrent wallet creation
+    // Lock the user's wallet rows first, then count them
+    await client.query(
+      `SELECT id FROM agentic_wallets WHERE user_id = $1 AND status != 'deleted' FOR UPDATE`,
+      [userId],
+    );
     const countResult = await client.query<{ count: string }>(
-      `SELECT COUNT(*) as count FROM agentic_wallets WHERE user_id = $1 AND status != 'deleted' FOR UPDATE`,
+      `SELECT COUNT(*) as count FROM agentic_wallets WHERE user_id = $1 AND status != 'deleted'`,
       [userId],
     );
     if (parseInt(countResult.rows[0].count, 10) >= MAX_WALLETS_PER_USER) {
