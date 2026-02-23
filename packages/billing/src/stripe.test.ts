@@ -74,7 +74,7 @@ describe("stripe", () => {
       expect(mockSessionCreate).toHaveBeenCalledWith(
         expect.objectContaining({
           mode: "payment",
-          payment_method_types: ["card", "link", "paypal"],
+          payment_method_types: ["card", "link"],
           metadata: {
             userId: "user-1",
             amountCents: "1000",

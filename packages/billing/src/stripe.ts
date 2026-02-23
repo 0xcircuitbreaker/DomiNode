@@ -59,9 +59,16 @@ export async function createCheckoutSession(
   const successUrl = STRIPE_SUCCESS_URL;
   const cancelUrl = STRIPE_CANCEL_URL;
 
+  // Build payment method list dynamically — only include methods known to be
+  // supported. PayPal/Link require explicit enablement in Stripe Dashboard.
+  const methods: Stripe.Checkout.SessionCreateParams.PaymentMethodType[] = ["card"];
+  const enabledMethods = (process.env["STRIPE_PAYMENT_METHODS"] ?? "card,link").split(",").map(s => s.trim().toLowerCase());
+  if (enabledMethods.includes("link")) methods.push("link");
+  if (enabledMethods.includes("paypal")) methods.push("paypal");
+
   const session = await stripe.checkout.sessions.create({
     mode: "payment",
-    payment_method_types: ["card", "link", "paypal"],
+    payment_method_types: methods,
     line_items: [
       {
         price_data: {
