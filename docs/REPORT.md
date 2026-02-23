@@ -333,7 +333,7 @@ Dominus Node/
 | Gross margin | 80% |
 | Volume discount (100GB) | $4.00/GB |
 | Volume discount (1TB) | $3.00/GB |
-| Min top-up | $5.00 |
+| Min top-up | $5.00 (Stripe) / $10.00 (crypto) |
 | Session reservation | $0.10 |
 
 ### Plan Tiers

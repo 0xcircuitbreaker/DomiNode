@@ -36,8 +36,8 @@ export async function createCryptoInvoice(
   payCurrency: SupportedCrypto,
 ): Promise<CryptoInvoice> {
   // R30 H-4: Defense-in-depth validation
-  if (!Number.isFinite(amountUsd) || amountUsd < 5 || amountUsd > 1000) {
-    throw new Error("Invalid amount: must be between $5 and $1,000");
+  if (!Number.isFinite(amountUsd) || amountUsd < 10 || amountUsd > 1000) {
+    throw new Error("Invalid amount: must be between $10 and $1,000");
   }
 
   if (!(SUPPORTED_CRYPTO as readonly string[]).includes(payCurrency)) {

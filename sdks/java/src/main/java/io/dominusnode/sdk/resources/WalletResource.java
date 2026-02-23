@@ -108,6 +108,9 @@ public final class WalletResource {
         if (Double.isNaN(amountUsd) || Double.isInfinite(amountUsd) || amountUsd <= 0 || amountUsd > 21474836.47) {
             throw new IllegalArgumentException("amountUsd must be a positive finite number <= 21,474,836.47");
         }
+        if (amountUsd < 10) {
+            throw new IllegalArgumentException("Minimum crypto top-up is $10.00 (NOWPayments requirement)");
+        }
         Map<String, Object> body = new HashMap<>();
         body.put("amountUsd", amountUsd);
         body.put("currency", currency);

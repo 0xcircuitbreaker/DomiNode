@@ -333,16 +333,16 @@ describe("wallet routes", () => {
       expect(res.body.priceAmount).toBe(50);
     });
 
-    it("should return 400 for amount below $5", async () => {
+    it("should return 400 for amount below $10", async () => {
       mockFindUserById.mockResolvedValueOnce({ id: "test-user-id", status: "active", email_verified: true });
       const app = createApp();
       const res = await requestWithBody(app, "POST", "/api/wallet/topup/crypto", {
-        amountUsd: 2,
+        amountUsd: 5,
         currency: "btc",
       });
 
       expect(res.status).toBe(400);
-      expect(res.body.error).toBe("Amount must be between $5 and $1,000");
+      expect(res.body.error).toBe("Amount must be between $10 and $1,000");
       expect(mockCreateCryptoInvoice).not.toHaveBeenCalled();
     });
 
@@ -355,7 +355,7 @@ describe("wallet routes", () => {
       });
 
       expect(res.status).toBe(400);
-      expect(res.body.error).toBe("Amount must be between $5 and $1,000");
+      expect(res.body.error).toBe("Amount must be between $10 and $1,000");
     });
 
     it("should return 400 for unsupported currency", async () => {

@@ -143,13 +143,13 @@ router.post("/topup/crypto", topupLimiter, async (req, res) => {
     const currency = (req.body.currency ?? "").toLowerCase();
 
     // R23 H-4: Explicit NaN/Infinity check + integer-cents validation
-    if (!Number.isFinite(amountUsd) || amountUsd < 5 || amountUsd > 1000) {
-      res.status(400).json({ error: "Amount must be between $5 and $1,000" });
+    if (!Number.isFinite(amountUsd) || amountUsd < 10 || amountUsd > 1000) {
+      res.status(400).json({ error: "Amount must be between $10 and $1,000" });
       return;
     }
     const amountCents = Math.round(amountUsd * 100);
-    if (amountCents < 500 || amountCents > 100_000) {
-      res.status(400).json({ error: "Amount must be between $5 and $1,000" });
+    if (amountCents < 1000 || amountCents > 100_000) {
+      res.status(400).json({ error: "Amount must be between $10 and $1,000" });
       return;
     }
 

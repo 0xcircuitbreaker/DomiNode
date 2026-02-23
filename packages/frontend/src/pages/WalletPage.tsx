@@ -74,6 +74,7 @@ export default function WalletPage() {
   const rawCustom = customAmount ? parseInt(customAmount, 10) * 100 : 0;
   const effectiveAmount = customAmount ? rawCustom : amount;
   const isValidAmount = effectiveAmount >= 500 && effectiveAmount <= 100000;
+  const isCryptoValidAmount = effectiveAmount >= 1000 && effectiveAmount <= 100000;
 
   async function handleStripe() {
     if (!isValidAmount) {
@@ -99,8 +100,8 @@ export default function WalletPage() {
   }
 
   async function handleCrypto() {
-    if (!isValidAmount) {
-      setPaymentError("Amount must be between $5 and $1,000");
+    if (!isCryptoValidAmount) {
+      setPaymentError("Crypto minimum is $10 (NOWPayments requirement). Amount must be between $10 and $1,000.");
       return;
     }
     setLoadingCrypto(true);
@@ -269,7 +270,7 @@ export default function WalletPage() {
             </div>
             <button
               onClick={handleCrypto}
-              disabled={loadingCrypto || effectiveAmount < 500}
+              disabled={loadingCrypto || effectiveAmount < 1000}
               className="w-full bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-white font-medium py-2.5 rounded-lg transition-colors"
             >
               {loadingCrypto ? "Creating invoice..." : `Pay with ${selectedCrypto.toUpperCase()}`}

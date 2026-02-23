@@ -42,7 +42,7 @@ export function registerCryptoTools(server: McpServer, httpClient: HttpClient): 
     "dominusnode_pay_crypto",
     "Create a cryptocurrency payment invoice to top up your Dominus Node wallet. Supports BTC, ETH, LTC, XMR, ZEC, USDC, SOL, USDT, DAI, and BNB. Returns a payment address and amount. Privacy coins (XMR, ZEC) provide anonymous billing — no identity linked to payment.",
     {
-      amount_usd: z.number().min(5).max(1000).describe("Amount in USD to add to wallet (min $5, max $1000)"),
+      amount_usd: z.number().min(10).max(1000).describe("Amount in USD to add to wallet (min $10, max $1000)"),
       currency: z.enum(SUPPORTED_CRYPTO).describe("Cryptocurrency to pay with (BTC, ETH, LTC, XMR, ZEC, USDC, SOL, USDT, DAI, BNB)"),
     },
     async (args) => {

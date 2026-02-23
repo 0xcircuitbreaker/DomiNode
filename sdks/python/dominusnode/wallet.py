@@ -74,11 +74,13 @@ class WalletResource:
         """Create a crypto invoice for wallet top-up.
 
         Args:
-            amount_usd: Amount in USD (e.g. 10.0).
+            amount_usd: Amount in USD (min $10.00 per NOWPayments requirement).
             currency: Crypto currency code (btc, eth, xmr, sol, zec).
         """
         if not isinstance(amount_usd, (int, float)) or math.isnan(amount_usd) or math.isinf(amount_usd):
             raise ValueError("amount_usd must be a finite number")
+        if amount_usd < 10:
+            raise ValueError("Minimum crypto top-up is $10.00 (NOWPayments requirement)")
         # Validate amount_usd converted to cents stays within int4 range
         amount_cents_approx = int(amount_usd * 100)
         _validate_amount_cents(amount_cents_approx, "amount_usd (as cents)")
@@ -134,6 +136,8 @@ class AsyncWalletResource:
     async def top_up_crypto(self, amount_usd: float, currency: str) -> CryptoInvoice:
         if not isinstance(amount_usd, (int, float)) or math.isnan(amount_usd) or math.isinf(amount_usd):
             raise ValueError("amount_usd must be a finite number")
+        if amount_usd < 10:
+            raise ValueError("Minimum crypto top-up is $10.00 (NOWPayments requirement)")
         # Validate amount_usd converted to cents stays within int4 range
         amount_cents_approx = int(amount_usd * 100)
         _validate_amount_cents(amount_cents_approx, "amount_usd (as cents)")

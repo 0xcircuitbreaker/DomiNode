@@ -62,7 +62,7 @@ tools:
   - name: dominusnode_pay_crypto
     description: Create crypto payment invoice
     parameters:
-      amount_usd: { type: number, required: true, min: 5, max: 1000 }
+      amount_usd: { type: number, required: true, min: 10, max: 1000 }
       currency: { type: string, enum: [BTC, ETH, LTC, XMR, ZEC, USDC, SOL, USDT, DAI, BNB] }
   - name: dominusnode_check_payment
     description: Check status of a crypto payment
@@ -189,10 +189,10 @@ After setup, set DOMINUSNODE_API_KEY and restart to unlock all 56 tools.
 
 ## Crypto Payments
 
-For anonymous or autonomous payments (10 currencies, minimum $5):
+For anonymous or autonomous payments (10 currencies, minimum $10):
 ```
 dominusnode_pay_crypto(amount_usd: 10, currency: "XMR")    # Monero — private
-dominusnode_pay_crypto(amount_usd: 5, currency: "USDC")     # Stablecoin
+dominusnode_pay_crypto(amount_usd: 10, currency: "USDC")    # Stablecoin
 dominusnode_check_payment(invoice_id: "inv_xxx")             # Check status
 ```
 

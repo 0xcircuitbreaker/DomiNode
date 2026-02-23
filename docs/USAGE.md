@@ -73,7 +73,7 @@ This guide covers everything you need to use Dominus Node as an end user, develo
 Get up and running in four steps:
 
 1. Register an account
-2. Top up your wallet ($5 minimum)
+2. Top up your wallet ($5 minimum Stripe, $10 minimum crypto)
 3. Create an API key
 4. Use the proxy
 
@@ -571,7 +571,7 @@ curl -X POST http://localhost:3000/api/wallet/topup/crypto \
 ```
 
 Parameters:
-- `amountUsd`: Dollar amount (must be between $5 and $1,000)
+- `amountUsd`: Dollar amount (must be between $10 and $1,000 — NOWPayments minimum)
 - `currency`: One of `btc`, `eth`, `xmr`, `sol`, `zec`
 
 Response:

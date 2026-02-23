@@ -97,6 +97,11 @@ impl WalletResource {
                 "amountCents must be a positive integer <= 2,147,483,647".to_string(),
             ));
         }
+        if amount_cents < 1000 {
+            return Err(crate::errors::DominusNodeError::Validation(
+                "Minimum crypto top-up is $10.00 (1000 cents) — NOWPayments requirement".to_string(),
+            ));
+        }
         let amount_usd = amount_cents as f64 / 100.0;
         self.http
             .post(
