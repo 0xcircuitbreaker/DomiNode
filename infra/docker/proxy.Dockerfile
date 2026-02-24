@@ -43,6 +43,8 @@ COPY --from=builder --chown=dominusnode:dominusnode /app/packages/metering/packa
 COPY --from=builder --chown=dominusnode:dominusnode /app/packages/metering/dist packages/metering/dist
 COPY --from=builder --chown=dominusnode:dominusnode /app/packages/pool-manager/package.json packages/pool-manager/package.json
 COPY --from=builder --chown=dominusnode:dominusnode /app/packages/pool-manager/dist packages/pool-manager/dist
+COPY --from=builder --chown=dominusnode:dominusnode /app/packages/billing/package.json packages/billing/package.json
+COPY --from=builder --chown=dominusnode:dominusnode /app/packages/billing/dist packages/billing/dist
 COPY --from=builder --chown=dominusnode:dominusnode /app/packages/proxy-gateway/package.json packages/proxy-gateway/package.json
 COPY --from=builder --chown=dominusnode:dominusnode /app/packages/proxy-gateway/dist packages/proxy-gateway/dist
 
