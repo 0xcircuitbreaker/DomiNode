@@ -47,6 +47,12 @@ services:
       STRIPE_PAYMENT_METHODS: ${STRIPE_PAYMENT_METHODS:-card,link}
       NOWPAYMENTS_API_KEY: ${NOWPAYMENTS_API_KEY:-}
       NOWPAYMENTS_IPN_SECRET: ${NOWPAYMENTS_IPN_SECRET:-}
+      PAYPAL_CLIENT_ID: ${PAYPAL_CLIENT_ID:-}
+      PAYPAL_CLIENT_SECRET: ${PAYPAL_CLIENT_SECRET:-}
+      PAYPAL_ENVIRONMENT: ${PAYPAL_ENVIRONMENT:-sandbox}
+      PAYPAL_WEBHOOK_ID: ${PAYPAL_WEBHOOK_ID:-}
+      PAYPAL_RETURN_URL: ${PAYPAL_RETURN_URL:-https://dominusnode.com/wallet?topup=success&provider=paypal}
+      PAYPAL_CANCEL_URL: ${PAYPAL_CANCEL_URL:-https://dominusnode.com/wallet?topup=cancel&provider=paypal}
       PROXY_INTERNAL_HOST: ${PROXY_INTERNAL_HOST:-proxy}
       EMAIL_ENABLED: ${EMAIL_ENABLED:-false}
       SMTP_HOST: ${SMTP_HOST:-}
