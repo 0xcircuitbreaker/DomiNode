@@ -152,7 +152,7 @@ export interface UsageRecord {
 
 // ─── Payment Invoice ────────────────────────────────────────────
 
-export type PaymentProvider = "stripe" | "nowpayments";
+export type PaymentProvider = "stripe" | "nowpayments" | "paypal";
 export type PaymentInvoiceStatus = "pending" | "completed" | "failed";
 
 export interface PaymentInvoice {

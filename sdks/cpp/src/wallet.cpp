@@ -55,6 +55,16 @@ CryptoInvoiceResult WalletResource::top_up_crypto(int amount_cents, const std::s
     return resp.get<CryptoInvoiceResult>();
 }
 
+PaypalOrderResult WalletResource::top_up_paypal(int amount_cents) {
+    validate_amount_cents(amount_cents);
+    if (amount_cents < 500) {
+        throw std::invalid_argument("Minimum PayPal top-up is $5.00 (500 cents)");
+    }
+    nlohmann::json body = {{"amountCents", amount_cents}};
+    auto resp = http_.post("/api/wallet/topup/paypal", body);
+    return resp.get<PaypalOrderResult>();
+}
+
 WalletForecast WalletResource::get_forecast() {
     auto resp = http_.get("/api/wallet/forecast");
     return resp.get<WalletForecast>();

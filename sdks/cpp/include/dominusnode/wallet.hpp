@@ -25,6 +25,9 @@ public:
     /// Create a crypto invoice for wallet top-up.
     CryptoInvoiceResult top_up_crypto(int amount_cents, const std::string& currency);
 
+    /// Create a PayPal order for wallet top-up.
+    PaypalOrderResult top_up_paypal(int amount_cents);
+
     /// Get spending forecast based on recent usage.
     WalletForecast get_forecast();
 

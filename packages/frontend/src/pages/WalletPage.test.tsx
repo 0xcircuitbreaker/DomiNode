@@ -112,7 +112,7 @@ describe("WalletPage", () => {
     renderWithProviders(<WalletPage />);
 
     await waitFor(() => {
-      expect(screen.getByText("Card / PayPal / Link (Stripe)")).toBeInTheDocument();
+      expect(screen.getByText("Card / Link (Stripe)")).toBeInTheDocument();
     });
 
     expect(screen.getByText("Crypto Payment")).toBeInTheDocument();

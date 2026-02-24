@@ -1,7 +1,7 @@
 /**
  * DomiNode OpenClaw Plugin
  *
- * Implements 21 tools for interacting with DomiNode's rotating proxy service
+ * Implements 22 tools for interacting with DomiNode's rotating proxy service
  * directly from OpenClaw AI coding sessions.
  *
  * Uses native fetch (no external dependencies). Runs via jiti runtime.
@@ -1620,7 +1620,49 @@ const updateTeamTool: ToolDefinition = {
   },
 };
 
-// 21. update_team_member_role
+// 21. topup_paypal
+const topupPaypalTool: ToolDefinition = {
+  name: "topup_paypal",
+  description:
+    "Top up your DomiNode wallet balance via PayPal. Creates a PayPal order and returns an " +
+    "approval URL to complete payment. Minimum $5 (500 cents), maximum $1,000 (100000 cents).",
+  parameters: {
+    amount_cents: {
+      type: "number",
+      description: "Amount in cents to top up (min 500 = $5, max 100000 = $1,000)",
+      required: true,
+    },
+  },
+  execute: async (args) => {
+    try {
+      const amountCents = Number(args.amount_cents ?? 0);
+      if (!Number.isInteger(amountCents) || amountCents < 500 || amountCents > 100000) {
+        return "Error: amount_cents must be an integer between 500 ($5) and 100000 ($1,000).";
+      }
+
+      const data = await apiPost<{
+        orderId: string;
+        approvalUrl: string;
+        amountCents: number;
+      }>("/api/wallet/topup/paypal", { amountCents });
+
+      return [
+        "PayPal Top-Up Order Created",
+        "",
+        `Order ID: ${data.orderId}`,
+        `Amount: ${formatCents(data.amountCents)}`,
+        `Approval URL: ${data.approvalUrl}`,
+        "",
+        "Open the approval URL in a browser to complete payment.",
+        "Once approved, the funds will be credited to your wallet automatically.",
+      ].join("\n");
+    } catch (err) {
+      return `Error: ${safeError(err)}`;
+    }
+  },
+};
+
+// 22. update_team_member_role
 const updateTeamMemberRoleTool: ToolDefinition = {
   name: "update_team_member_role",
   description:
@@ -1700,6 +1742,7 @@ export const tools: ToolDefinition[] = [
   teamUsageTool,
   updateTeamTool,
   updateTeamMemberRoleTool,
+  topupPaypalTool,
 ];
 
 /**

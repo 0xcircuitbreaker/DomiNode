@@ -1,0 +1,18 @@
+{
+  "schema_version": "v1",
+  "name_for_human": "Dominus Node Proxy",
+  "name_for_model": "dominusnode",
+  "description_for_human": "Access rotating proxy network for web scraping with geo-targeting, wallet management, and team billing.",
+  "description_for_model": "DomiNode provides rotating proxy-as-a-service with datacenter ($3/GB) and residential ($5/GB) proxies. Use this to manage proxy API keys, check wallet balance, monitor usage, create agentic sub-wallets for AI agents, manage teams with shared billing, and top up via Stripe, crypto, or PayPal.",
+  "auth": {
+    "type": "user_http",
+    "authorization_type": "bearer"
+  },
+  "api": {
+    "type": "openapi",
+    "url": "https://api.dominusnode.com/.well-known/openapi.yaml"
+  },
+  "logo_url": "https://dominusnode.com/logo.png",
+  "contact_email": "support@dominusnode.com",
+  "legal_info_url": "https://dominusnode.com/legal"
+}

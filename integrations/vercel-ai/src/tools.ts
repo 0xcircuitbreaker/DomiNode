@@ -529,5 +529,38 @@ export function createListSessionsTool(client: DominusNodeClient) {
   });
 }
 
+/**
+ * Creates the `topupPaypal` tool that initiates a PayPal wallet top-up.
+ */
+export function createTopupPaypalTool(client: DominusNodeClient) {
+  return (tool as any)({
+    description:
+      "Top up your DomiNode wallet balance via PayPal. " +
+      "Creates a PayPal order and returns an approval URL to complete payment. " +
+      "Minimum $5 (500 cents), maximum $1,000 (100,000 cents).",
+    parameters: z.object({
+      amount_cents: z
+        .number()
+        .int()
+        .min(500)
+        .max(100000)
+        .describe("Amount in cents to top up (min 500 = $5, max 100000 = $1,000)"),
+    }),
+    execute: async ({ amount_cents }: { amount_cents: number }) => {
+      try {
+        const result = await (client as any).wallet.topupPaypal({ amountCents: amount_cents });
+        return {
+          orderId: result.orderId,
+          approvalUrl: result.approvalUrl,
+          amountCents: result.amountCents,
+        };
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Unknown error";
+        return { error: `Failed to create PayPal top-up: ${sanitizeError(message)}` };
+      }
+    },
+  });
+}
+
 // Re-export validation helpers for testing
 export { validateUrl, isPrivateIp, truncateBody, filterHeaders };

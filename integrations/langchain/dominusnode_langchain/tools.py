@@ -520,6 +520,84 @@ class DominusNodeUsageTool(BaseTool):
         return "Error: No DomiNode client configured. Initialize the toolkit first."
 
 
+class TopupPaypalInput(BaseModel):
+    """Input schema for the DomiNode PayPal top-up tool."""
+
+    amount_cents: int = Field(
+        description="Amount in cents to top up via PayPal (min 500 = $5, max 100000 = $1,000).",
+    )
+
+
+class DominusNodeTopupPaypalTool(BaseTool):
+    """Top up your DomiNode wallet balance via PayPal.
+
+    Creates a PayPal order and returns an approval URL to complete payment.
+    Minimum $5 (500 cents), maximum $1,000 (100,000 cents).
+    """
+
+    name: str = "dominusnode_topup_paypal"
+    description: str = (
+        "Top up your DomiNode wallet balance via PayPal. "
+        "Creates a PayPal order and returns an approval URL to complete payment. "
+        "Input: amount_cents (integer, min 500 = $5, max 100000 = $1,000)."
+    )
+    args_schema: Type[BaseModel] = TopupPaypalInput
+
+    sync_client: Optional[Any] = None
+    async_client: Optional[Any] = None
+
+    model_config = {"arbitrary_types_allowed": True}
+
+    def _run(
+        self,
+        amount_cents: int,
+        run_manager: Optional[CallbackManagerForToolRun] = None,
+    ) -> str:
+        if self.sync_client is None:
+            return "Error: No DomiNode client configured. Initialize the toolkit first."
+
+        if not isinstance(amount_cents, int) or amount_cents < 500 or amount_cents > 100000:
+            return "Error: amount_cents must be an integer between 500 ($5) and 100000 ($1,000)."
+
+        try:
+            result = self.sync_client.wallet.topup_paypal(amount_cents=amount_cents)
+            return (
+                f"PayPal Top-Up Order Created\n"
+                f"Order ID: {result.order_id}\n"
+                f"Amount: ${amount_cents / 100:.2f}\n"
+                f"Approval URL: {result.approval_url}\n\n"
+                f"Open the approval URL in a browser to complete payment."
+            )
+        except Exception as exc:
+            return f"Error: {_sanitize_error(str(exc))}"
+
+    async def _arun(
+        self,
+        amount_cents: int,
+        run_manager: Optional[AsyncCallbackManagerForToolRun] = None,
+    ) -> str:
+        if not isinstance(amount_cents, int) or amount_cents < 500 or amount_cents > 100000:
+            return "Error: amount_cents must be an integer between 500 ($5) and 100000 ($1,000)."
+
+        if self.async_client is not None:
+            try:
+                result = await self.async_client.wallet.topup_paypal(amount_cents=amount_cents)
+                return (
+                    f"PayPal Top-Up Order Created\n"
+                    f"Order ID: {result.order_id}\n"
+                    f"Amount: ${amount_cents / 100:.2f}\n"
+                    f"Approval URL: {result.approval_url}\n\n"
+                    f"Open the approval URL in a browser to complete payment."
+                )
+            except Exception as exc:
+                return f"Error: {_sanitize_error(str(exc))}"
+
+        if self.sync_client is not None:
+            return self._run(amount_cents=amount_cents)
+
+        return "Error: No DomiNode client configured. Initialize the toolkit first."
+
+
 class DominusNodeProxyConfigTool(BaseTool):
     """Get DomiNode proxy configuration and supported countries.
 

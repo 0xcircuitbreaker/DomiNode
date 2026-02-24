@@ -144,7 +144,7 @@ END $$;
 CREATE TABLE IF NOT EXISTS payment_invoices (
   id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id       UUID NOT NULL REFERENCES users(id),
-  provider      TEXT NOT NULL CHECK (provider IN ('stripe', 'nowpayments')),
+  provider      TEXT NOT NULL CHECK (provider IN ('stripe', 'nowpayments', 'paypal')),
   external_id   TEXT NOT NULL,
   amount_cents  INTEGER NOT NULL CHECK (amount_cents > 0),
   status        TEXT NOT NULL DEFAULT 'pending'
@@ -651,8 +651,21 @@ DO $$ BEGIN
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
+-- ─── PayPal provider migration ──────────────────────────────────────
+
+DO $$ BEGIN
+  ALTER TABLE payment_invoices DROP CONSTRAINT IF EXISTS payment_invoices_provider_check;
+  ALTER TABLE payment_invoices ADD CONSTRAINT payment_invoices_provider_check
+    CHECK (provider IN ('stripe', 'nowpayments', 'paypal'));
+EXCEPTION WHEN OTHERS THEN NULL;
+END $$;
+
 -- ─── Record current schema version ──────────────────────────────────
 
 INSERT INTO schema_migrations (version, description) VALUES
   ('1.0.0', 'Initial production schema: users, api_keys, wallets, sessions, usage_records, plans, MFA, wallet auth, audit events, data retention')
+ON CONFLICT (version) DO NOTHING;
+
+INSERT INTO schema_migrations (version, description) VALUES
+  ('1.1.0', 'Add PayPal as payment provider')
 ON CONFLICT (version) DO NOTHING;

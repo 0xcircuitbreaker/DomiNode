@@ -5,6 +5,7 @@ import {
   createCheckUsageTool,
   createGetProxyConfigTool,
   createListSessionsTool,
+  createTopupPaypalTool,
 } from "./tools.js";
 
 /**
@@ -56,6 +57,8 @@ export interface DominusNodeTools {
   getProxyConfig: ReturnType<typeof createGetProxyConfigTool>;
   /** List all active proxy sessions. */
   listSessions: ReturnType<typeof createListSessionsTool>;
+  /** Top up wallet balance via PayPal. */
+  topupPaypal: ReturnType<typeof createTopupPaypalTool>;
 }
 
 /**
@@ -105,6 +108,7 @@ export async function createDominusNodeTools(
     checkUsage: createCheckUsageTool(client),
     getProxyConfig: createGetProxyConfigTool(client),
     listSessions: createListSessionsTool(client),
+    topupPaypal: createTopupPaypalTool(client),
   };
 }
 
@@ -129,5 +133,6 @@ export function createDominusNodeToolsFromClient(
     checkUsage: createCheckUsageTool(client),
     getProxyConfig: createGetProxyConfigTool(client),
     listSessions: createListSessionsTool(client),
+    topupPaypal: createTopupPaypalTool(client),
   };
 }

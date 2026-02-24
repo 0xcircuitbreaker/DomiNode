@@ -127,6 +127,13 @@ class CryptoInvoice:
     price_amount: float
 
 
+@dataclass(frozen=True)
+class PaypalOrder:
+    order_id: str
+    approval_url: str
+    amount_cents: int
+
+
 # ──────────────────────────────────────────────────────────────────────
 # Usage
 # ──────────────────────────────────────────────────────────────────────

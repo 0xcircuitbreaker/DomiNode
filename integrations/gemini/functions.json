@@ -1,0 +1,345 @@
+[
+  {
+    "name": "dominusnode_proxied_fetch",
+    "description": "Make an HTTP request through DomiNode's rotating proxy network. Routes traffic through datacenter ($3/GB) or residential ($5/GB) proxies with optional geo-targeting. Useful for accessing geo-restricted content, avoiding IP blocks, or web scraping. Private/internal IPs and sanctioned countries (CU, IR, KP, RU, SY) are blocked.",
+    "parameters": {
+      "type": "OBJECT",
+      "properties": {
+        "url": {
+          "type": "STRING",
+          "description": "The URL to fetch. Must be http:// or https://. Private/internal IPs (10.x, 172.16-31.x, 192.168.x, 127.x, localhost) and non-standard IP representations (hex, octal, decimal) are blocked for SSRF prevention."
+        },
+        "method": {
+          "type": "STRING",
+          "description": "HTTP method to use for the request. Only read-only methods are permitted. One of: GET, HEAD, OPTIONS. Defaults to GET."
+        },
+        "country": {
+          "type": "STRING",
+          "description": "Two-letter ISO 3166-1 alpha-2 country code for geo-targeting (e.g., 'US', 'GB', 'DE', 'JP'). Supported countries: US, GB, DE, FR, JP, BR, AU, CA, IN, NL, SG, KR. Sanctioned countries (CU, IR, KP, RU, SY) are blocked."
+        },
+        "proxy_type": {
+          "type": "STRING",
+          "description": "Proxy type. One of: dc, residential. 'dc' (datacenter, $3/GB, fastest, suitable for most scraping) or 'residential' ($5/GB, uses real ISP IPs, hardest to detect/block). Defaults to dc."
+        },
+        "headers": {
+          "type": "OBJECT",
+          "description": "Optional HTTP headers as key-value string pairs. Security-sensitive headers (Host, Connection, Content-Length, Transfer-Encoding, Proxy-Authorization, Authorization, User-Agent) are stripped to prevent injection."
+        }
+      },
+      "required": ["url"]
+    }
+  },
+  {
+    "name": "dominusnode_check_balance",
+    "description": "Check the current wallet balance for the authenticated DomiNode account. Returns balance in cents and USD, currency, and last top-up timestamp. The wallet uses a prepaid model -- top up first, then usage is debited automatically.",
+    "parameters": {
+      "type": "OBJECT",
+      "properties": {},
+      "required": []
+    }
+  },
+  {
+    "name": "dominusnode_check_usage",
+    "description": "Check proxy usage statistics for the authenticated DomiNode account. Returns total bytes transferred, total cost, and request count for the specified period. Useful for monitoring bandwidth consumption and spending.",
+    "parameters": {
+      "type": "OBJECT",
+      "properties": {
+        "period": {
+          "type": "STRING",
+          "description": "Time period to query. One of: day (last 24 hours), week (last 7 days), month (last 30 days). Defaults to month."
+        }
+      },
+      "required": []
+    }
+  },
+  {
+    "name": "dominusnode_get_proxy_config",
+    "description": "Get DomiNode proxy endpoint configuration and supported features. Returns HTTP and SOCKS5 proxy connection details, list of supported countries for geo-targeting, blocked/sanctioned countries, and geo-targeting capabilities. Use this to discover available proxy endpoints before making proxied requests.",
+    "parameters": {
+      "type": "OBJECT",
+      "properties": {},
+      "required": []
+    }
+  },
+  {
+    "name": "dominusnode_list_sessions",
+    "description": "List all currently active proxy sessions for the authenticated DomiNode account. Returns session IDs, start times, and status. Useful for monitoring concurrent connections and debugging active proxy usage.",
+    "parameters": {
+      "type": "OBJECT",
+      "properties": {},
+      "required": []
+    }
+  },
+  {
+    "name": "dominusnode_create_agentic_wallet",
+    "description": "Create a new agentic wallet (sub-wallet) for an AI agent. Agentic wallets are server-side custodial sub-wallets with per-transaction spending limits, funded from the main wallet. They allow you to give AI agents controlled access to proxy bandwidth without exposing the main wallet. Maximum balance per agentic wallet is $10,000.00 (1,000,000 cents).",
+    "parameters": {
+      "type": "OBJECT",
+      "properties": {
+        "label": {
+          "type": "STRING",
+          "description": "Human-readable label for the agentic wallet (e.g., 'scraper-bot-1', 'research-agent'). Used for identification in listings and logs. Must be 1-100 characters, alphanumeric with hyphens and underscores."
+        },
+        "spending_limit_cents": {
+          "type": "INTEGER",
+          "description": "Per-transaction spending limit in cents. Controls the maximum amount that can be debited in a single proxy session. Must be a positive integer, no greater than 2,147,483,647. Use 0 for no per-transaction limit. Example: 500 = $5.00 limit per transaction."
+        }
+      },
+      "required": ["label", "spending_limit_cents"]
+    }
+  },
+  {
+    "name": "dominusnode_fund_agentic_wallet",
+    "description": "Fund an agentic wallet by transferring balance from the main wallet. The amount is debited from your main wallet and credited to the specified agentic wallet. Maximum agentic wallet balance is $10,000.00 (1,000,000 cents). Main wallet must have sufficient balance.",
+    "parameters": {
+      "type": "OBJECT",
+      "properties": {
+        "wallet_id": {
+          "type": "STRING",
+          "description": "The UUID of the agentic wallet to fund. Obtain this from dominusnode_create_agentic_wallet or by listing agentic wallets."
+        },
+        "amount_cents": {
+          "type": "INTEGER",
+          "description": "Amount to transfer in cents. Must be a positive integer, no greater than 2,147,483,647. Example: 1000 = $10.00. The agentic wallet's resulting balance cannot exceed $10,000.00 (1,000,000 cents)."
+        }
+      },
+      "required": ["wallet_id", "amount_cents"]
+    }
+  },
+  {
+    "name": "dominusnode_agentic_wallet_balance",
+    "description": "Check the balance and details of a specific agentic wallet. Returns the wallet ID, label, balance in cents, spending limit, status (active/frozen), and creation timestamp.",
+    "parameters": {
+      "type": "OBJECT",
+      "properties": {
+        "wallet_id": {
+          "type": "STRING",
+          "description": "The UUID of the agentic wallet to query. Obtain this from dominusnode_create_agentic_wallet or by listing agentic wallets."
+        }
+      },
+      "required": ["wallet_id"]
+    }
+  },
+  {
+    "name": "dominusnode_list_agentic_wallets",
+    "description": "List all agentic wallets (sub-wallets) associated with your account. Returns wallet IDs, labels, balances, spending limits, and status (active/frozen) for each.",
+    "parameters": {
+      "type": "OBJECT",
+      "properties": {},
+      "required": []
+    }
+  },
+  {
+    "name": "dominusnode_agentic_transactions",
+    "description": "Get transaction history for a specific agentic wallet. Shows funding, proxy usage charges, and refunds.",
+    "parameters": {
+      "type": "OBJECT",
+      "properties": {
+        "wallet_id": {
+          "type": "STRING",
+          "description": "The UUID of the agentic wallet to query."
+        },
+        "limit": {
+          "type": "INTEGER",
+          "description": "Number of transactions to return. Must be between 1 and 100. Defaults to 20."
+        }
+      },
+      "required": ["wallet_id"]
+    }
+  },
+  {
+    "name": "dominusnode_freeze_agentic_wallet",
+    "description": "Freeze an agentic wallet to temporarily disable it. Frozen wallets cannot be used for proxy billing until unfrozen. The balance is preserved. Useful for pausing an agent's spending.",
+    "parameters": {
+      "type": "OBJECT",
+      "properties": {
+        "wallet_id": {
+          "type": "STRING",
+          "description": "The UUID of the agentic wallet to freeze."
+        }
+      },
+      "required": ["wallet_id"]
+    }
+  },
+  {
+    "name": "dominusnode_unfreeze_agentic_wallet",
+    "description": "Unfreeze a previously frozen agentic wallet to re-enable it for proxy billing. The balance and spending limit are preserved.",
+    "parameters": {
+      "type": "OBJECT",
+      "properties": {
+        "wallet_id": {
+          "type": "STRING",
+          "description": "The UUID of the agentic wallet to unfreeze."
+        }
+      },
+      "required": ["wallet_id"]
+    }
+  },
+  {
+    "name": "dominusnode_delete_agentic_wallet",
+    "description": "Delete an agentic wallet permanently. Any remaining balance is automatically refunded to the main wallet. Cannot delete frozen wallets (unfreeze first). Transaction history is removed.",
+    "parameters": {
+      "type": "OBJECT",
+      "properties": {
+        "wallet_id": {
+          "type": "STRING",
+          "description": "The UUID of the agentic wallet to delete."
+        }
+      },
+      "required": ["wallet_id"]
+    }
+  },
+  {
+    "name": "dominusnode_create_team",
+    "description": "Create a new team for shared proxy billing. Teams have a shared wallet and can have multiple members with different roles (owner, admin, member). Team API keys bill against the team wallet. Requires email verification.",
+    "parameters": {
+      "type": "OBJECT",
+      "properties": {
+        "name": {
+          "type": "STRING",
+          "description": "Team name. Must be between 1 and 100 characters."
+        },
+        "max_members": {
+          "type": "INTEGER",
+          "description": "Maximum number of team members. Must be between 1 and 100. Leave unset for no limit."
+        }
+      },
+      "required": ["name"]
+    }
+  },
+  {
+    "name": "dominusnode_list_teams",
+    "description": "List all teams you belong to, including your role in each team, the team balance, and member count. Returns teams where you are owner, admin, or member.",
+    "parameters": {
+      "type": "OBJECT",
+      "properties": {},
+      "required": []
+    }
+  },
+  {
+    "name": "dominusnode_team_details",
+    "description": "Get detailed information about a specific team including balance, member count, settings, and your role. Requires team membership.",
+    "parameters": {
+      "type": "OBJECT",
+      "properties": {
+        "team_id": {
+          "type": "STRING",
+          "description": "The UUID of the team to query."
+        }
+      },
+      "required": ["team_id"]
+    }
+  },
+  {
+    "name": "dominusnode_team_fund",
+    "description": "Transfer funds from your personal wallet to a team wallet. Only team owners and admins can fund. Requires email verification.",
+    "parameters": {
+      "type": "OBJECT",
+      "properties": {
+        "team_id": {
+          "type": "STRING",
+          "description": "The UUID of the team to fund."
+        },
+        "amount_cents": {
+          "type": "INTEGER",
+          "description": "Amount to transfer in cents. Must be between 100 ($1) and 1,000,000 ($10,000)."
+        }
+      },
+      "required": ["team_id", "amount_cents"]
+    }
+  },
+  {
+    "name": "dominusnode_team_create_key",
+    "description": "Create a shared API key for a team. All proxy usage with this key bills against the team wallet. Only team owners and admins can create keys. The full key is shown only once. Requires email verification.",
+    "parameters": {
+      "type": "OBJECT",
+      "properties": {
+        "team_id": {
+          "type": "STRING",
+          "description": "The UUID of the team."
+        },
+        "label": {
+          "type": "STRING",
+          "description": "Descriptive label for the API key (e.g., 'production', 'staging'). Must be between 1 and 100 characters."
+        }
+      },
+      "required": ["team_id", "label"]
+    }
+  },
+  {
+    "name": "dominusnode_team_usage",
+    "description": "Get the team wallet transaction history including funding, proxy usage charges, and refunds. Requires team membership.",
+    "parameters": {
+      "type": "OBJECT",
+      "properties": {
+        "team_id": {
+          "type": "STRING",
+          "description": "The UUID of the team."
+        },
+        "limit": {
+          "type": "INTEGER",
+          "description": "Number of transactions to return. Must be between 1 and 100. Defaults to 20."
+        }
+      },
+      "required": ["team_id"]
+    }
+  },
+  {
+    "name": "dominusnode_update_team",
+    "description": "Update a team's settings. Only team owners and admins can update. You can change the team name and/or maximum member count.",
+    "parameters": {
+      "type": "OBJECT",
+      "properties": {
+        "team_id": {
+          "type": "STRING",
+          "description": "The UUID of the team to update."
+        },
+        "name": {
+          "type": "STRING",
+          "description": "New team name. Must be between 1 and 100 characters. Omit to keep current name."
+        },
+        "max_members": {
+          "type": "INTEGER",
+          "description": "New maximum number of team members. Must be between 1 and 100. Omit to keep current limit."
+        }
+      },
+      "required": ["team_id"]
+    }
+  },
+  {
+    "name": "dominusnode_update_team_member_role",
+    "description": "Update a team member's role. Only team owners and admins can change roles. Cannot change the owner's role. Valid roles are 'member' and 'admin'.",
+    "parameters": {
+      "type": "OBJECT",
+      "properties": {
+        "team_id": {
+          "type": "STRING",
+          "description": "The UUID of the team."
+        },
+        "user_id": {
+          "type": "STRING",
+          "description": "The UUID of the team member whose role to change."
+        },
+        "role": {
+          "type": "STRING",
+          "description": "The new role for the team member. One of: member, admin."
+        }
+      },
+      "required": ["team_id", "user_id", "role"]
+    }
+  },
+  {
+    "name": "dominusnode_topup_paypal",
+    "description": "Create a PayPal wallet top-up session. Initiates a PayPal payment for the specified amount to add funds to your DomiNode wallet. Returns a PayPal approval URL to complete the payment.",
+    "parameters": {
+      "type": "OBJECT",
+      "properties": {
+        "amount_cents": {
+          "type": "INTEGER",
+          "description": "Amount to top up in cents. Must be a positive integer, no greater than 2,147,483,647. Example: 1000 = $10.00."
+        }
+      },
+      "required": ["amount_cents"]
+    }
+  }
+]

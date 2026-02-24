@@ -92,6 +92,23 @@ func (w *WalletResource) TopupCrypto(ctx context.Context, amountUSD float64, cur
 	return &result, nil
 }
 
+// TopupPaypal creates a PayPal order for wallet top-up.
+// amountCents is the amount in cents (e.g., 1000 = $10.00). Minimum is $5.00 (500 cents).
+func (w *WalletResource) TopupPaypal(ctx context.Context, amountCents int) (*PaypalOrder, error) {
+	if err := validateAmountCents(amountCents); err != nil {
+		return nil, err
+	}
+	if amountCents < 500 {
+		return nil, fmt.Errorf("minimum PayPal top-up is $5.00 (500 cents)")
+	}
+	body := map[string]int{"amountCents": amountCents}
+	var result PaypalOrder
+	if err := w.http.post(ctx, "/api/wallet/topup/paypal", body, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
 // GetForecast returns spending forecast data based on recent usage patterns.
 func (w *WalletResource) GetForecast(ctx context.Context) (*WalletForecast, error) {
 	var result WalletForecast

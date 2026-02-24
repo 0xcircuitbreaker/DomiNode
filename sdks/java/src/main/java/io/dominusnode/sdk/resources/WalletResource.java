@@ -4,6 +4,7 @@ import io.dominusnode.sdk.errors.DominusNodeException;
 import io.dominusnode.sdk.internal.HttpClient;
 import io.dominusnode.sdk.internal.JsonUtil;
 import io.dominusnode.sdk.types.CryptoInvoice;
+import io.dominusnode.sdk.types.PaypalOrder;
 import io.dominusnode.sdk.types.StripeCheckout;
 import io.dominusnode.sdk.types.Wallet;
 import io.dominusnode.sdk.types.WalletForecast;
@@ -115,6 +116,23 @@ public final class WalletResource {
         body.put("amountUsd", amountUsd);
         body.put("currency", currency);
         return http.post("/api/wallet/topup/crypto", body, CryptoInvoice.class);
+    }
+
+    /**
+     * Create a PayPal order for wallet top-up.
+     *
+     * @param amountCents the amount in cents to top up (minimum 500 = $5.00)
+     * @return PayPal order with approval URL
+     * @throws DominusNodeException on API errors
+     */
+    public PaypalOrder topupPaypal(int amountCents) throws DominusNodeException {
+        validateAmountCents(amountCents);
+        if (amountCents < 500) {
+            throw new IllegalArgumentException("Minimum PayPal top-up is $5.00 (500 cents)");
+        }
+        Map<String, Object> body = new HashMap<>();
+        body.put("amountCents", amountCents);
+        return http.post("/api/wallet/topup/paypal", body, PaypalOrder.class);
     }
 
     /**

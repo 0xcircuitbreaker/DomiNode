@@ -245,6 +245,13 @@ type CryptoInvoice struct {
 	PriceAmount float64 `json:"priceAmount"`
 }
 
+// PaypalOrder is the response from creating a PayPal order for wallet top-up.
+type PaypalOrder struct {
+	OrderID     string `json:"orderId"`
+	ApprovalURL string `json:"approvalUrl"`
+	AmountCents int    `json:"amountCents"`
+}
+
 // WalletForecast contains spending forecast data.
 type WalletForecast struct {
 	DailyAvgCents int      `json:"dailyAvgCents"`

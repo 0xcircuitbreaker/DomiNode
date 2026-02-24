@@ -800,6 +800,17 @@ def create_dominusnode_function_handler(
         )
         return json.dumps(result)
 
+    async def handle_topup_paypal(args: Dict[str, Any]) -> str:
+        amount_cents = args.get("amount_cents")
+
+        if not isinstance(amount_cents, int) or amount_cents < 500 or amount_cents > 100_000:
+            return json.dumps({
+                "error": "amount_cents must be an integer between 500 ($5) and 100,000 ($1,000)",
+            })
+
+        result = await api_request("POST", "/api/wallet/topup/paypal", {"amountCents": amount_cents})
+        return json.dumps(result)
+
     async def handle_update_team_member_role(args: Dict[str, Any]) -> str:
         team_id = args.get("team_id")
         user_id = args.get("user_id")
@@ -851,6 +862,7 @@ def create_dominusnode_function_handler(
         "dominusnode_team_usage": handle_team_usage,
         "dominusnode_update_team": handle_update_team,
         "dominusnode_update_team_member_role": handle_update_team_member_role,
+        "dominusnode_topup_paypal": handle_topup_paypal,
     }
 
     # -------------------------------------------------------------------

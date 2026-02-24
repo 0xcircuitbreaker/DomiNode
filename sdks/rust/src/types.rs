@@ -230,6 +230,17 @@ pub struct CryptoInvoice {
     pub pay_currency: String,
 }
 
+/// Response from a PayPal top-up request.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PaypalOrder {
+    #[serde(rename = "orderId")]
+    pub order_id: String,
+    #[serde(rename = "approvalUrl")]
+    pub approval_url: String,
+    #[serde(rename = "amountCents")]
+    pub amount_cents: i64,
+}
+
 /// Spending forecast based on recent usage.
 #[derive(Debug, Clone, Deserialize)]
 pub struct ForecastResponse {

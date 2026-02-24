@@ -6,7 +6,7 @@ import math
 from typing import List, Optional
 
 from .http_client import AsyncHttpClient, SyncHttpClient
-from .types import CryptoInvoice, StripeCheckout, Wallet, WalletForecast, WalletTransaction
+from .types import CryptoInvoice, PaypalOrder, StripeCheckout, Wallet, WalletForecast, WalletTransaction
 
 
 def _validate_amount_cents(value: int, name: str = "amount_cents") -> None:
@@ -95,6 +95,22 @@ class WalletResource:
             price_amount=data["priceAmount"],
         )
 
+    def top_up_paypal(self, amount_cents: int) -> PaypalOrder:
+        """Create a PayPal order for wallet top-up.
+
+        Args:
+            amount_cents: Amount in cents (min 500 = $5.00).
+        """
+        _validate_amount_cents(amount_cents, "amount_cents")
+        if amount_cents < 500:
+            raise ValueError("Minimum PayPal top-up is $5.00 (500 cents)")
+        data = self._http.post("/api/wallet/topup/paypal", json={"amountCents": amount_cents})
+        return PaypalOrder(
+            order_id=data["orderId"],
+            approval_url=data["approvalUrl"],
+            amount_cents=data["amountCents"],
+        )
+
     def get_forecast(self) -> WalletForecast:
         """Get wallet balance forecast based on recent usage."""
         data = self._http.get("/api/wallet/forecast")
@@ -150,6 +166,17 @@ class AsyncWalletResource:
             invoice_url=data["invoiceUrl"],
             pay_currency=data["payCurrency"],
             price_amount=data["priceAmount"],
+        )
+
+    async def top_up_paypal(self, amount_cents: int) -> PaypalOrder:
+        _validate_amount_cents(amount_cents, "amount_cents")
+        if amount_cents < 500:
+            raise ValueError("Minimum PayPal top-up is $5.00 (500 cents)")
+        data = await self._http.post("/api/wallet/topup/paypal", json={"amountCents": amount_cents})
+        return PaypalOrder(
+            order_id=data["orderId"],
+            approval_url=data["approvalUrl"],
+            amount_cents=data["amountCents"],
         )
 
     async def get_forecast(self) -> WalletForecast:

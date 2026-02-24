@@ -2,6 +2,7 @@ import { Router, raw, json, type Request, type Response, type NextFunction } fro
 import { createLogger } from "@dominusnode/shared";
 import { handleCheckoutWebhook } from "@dominusnode/billing";
 import { handleIpnCallback } from "@dominusnode/billing";
+import { handlePaypalWebhook } from "@dominusnode/billing";
 
 const router = Router();
 const log = createLogger("api:webhooks");
@@ -96,6 +97,55 @@ router.post("/nowpayments", webhookIpCheck(NOWPAYMENTS_IPS, "nowpayments"), json
   } catch (err) {
     log.error("nowpayments webhook error", { error: err instanceof Error ? err.message : String(err) });
     // Return 500 for transient errors so the provider retries
+    res.status(500).json({ error: "Internal webhook processing error" });
+  }
+});
+
+// PayPal webhook source IPs (PayPal does not publish a fixed list;
+// webhook signature verification is the primary security mechanism).
+// Set PAYPAL_WEBHOOK_IPS env var in production if you want IP-layer filtering.
+const PAYPAL_WEBHOOK_IPS = new Set<string>();
+const envPaypalIps = process.env["PAYPAL_WEBHOOK_IPS"];
+if (envPaypalIps) {
+  for (const ip of envPaypalIps.split(",")) PAYPAL_WEBHOOK_IPS.add(ip.trim());
+} else if (process.env["PAYPAL_CLIENT_ID"]) {
+  log.warn("PAYPAL_WEBHOOK_IPS not set — webhook IP allowlisting is disabled. Set this in production.");
+}
+
+// POST /api/webhooks/paypal — raw body for signature verification
+router.post("/paypal", webhookIpCheck(PAYPAL_WEBHOOK_IPS, "paypal"), raw({ type: "application/json", limit: "64kb" }), async (req, res) => {
+  try {
+    const rawBody = (req.body as Buffer).toString("utf-8");
+
+    // Collect PayPal signature headers
+    const paypalHeaders: Record<string, string> = {};
+    for (const key of [
+      "paypal-transmission-id",
+      "paypal-transmission-time",
+      "paypal-transmission-sig",
+      "paypal-cert-url",
+      "paypal-auth-algo",
+    ]) {
+      const val = req.headers[key];
+      if (typeof val === "string") {
+        paypalHeaders[key] = val;
+      }
+    }
+
+    if (!paypalHeaders["paypal-transmission-sig"]) {
+      res.status(400).json({ error: "Missing PayPal signature headers" });
+      return;
+    }
+
+    const result = await handlePaypalWebhook(paypalHeaders, rawBody);
+
+    if (result) {
+      log.info("paypal webhook processed", result);
+    }
+
+    res.json({ received: true });
+  } catch (err) {
+    log.error("paypal webhook error", { error: err instanceof Error ? err.message : String(err) });
     res.status(500).json({ error: "Internal webhook processing error" });
   }
 });

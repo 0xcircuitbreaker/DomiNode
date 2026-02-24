@@ -1,5 +1,5 @@
 import type { HttpClient } from "./http.js";
-import type { Wallet, WalletTransaction, StripeCheckout, CryptoInvoice } from "./types.js";
+import type { Wallet, WalletTransaction, StripeCheckout, CryptoInvoice, PaypalOrder } from "./types.js";
 
 export interface WalletBalanceResponse {
   balanceCents: number;
@@ -30,6 +30,12 @@ export interface CryptoInvoiceResponse {
   invoiceUrl: string;
   payCurrency: string;
   priceAmount: number;
+}
+
+export interface PaypalOrderResponse {
+  orderId: string;
+  approvalUrl: string;
+  amountCents: number;
 }
 
 export interface ForecastResponse {
@@ -74,6 +80,17 @@ export class WalletResource {
     }
     const amountUsd = amountCents / 100;
     return this.http.post("/api/wallet/topup/crypto", { amountUsd, currency });
+  }
+
+  /** Create a PayPal order for wallet top-up. Minimum $5 (500 cents). */
+  async topUpPaypal(amountCents: number): Promise<PaypalOrderResponse> {
+    if (!Number.isInteger(amountCents) || amountCents <= 0 || amountCents > 2_147_483_647) {
+      throw new Error("amountCents must be a positive integer <= 2,147,483,647");
+    }
+    if (amountCents < 500) {
+      throw new Error("Minimum PayPal top-up is $5.00 (500 cents)");
+    }
+    return this.http.post("/api/wallet/topup/paypal", { amountCents });
   }
 
   /** Get spending forecast based on recent usage. */

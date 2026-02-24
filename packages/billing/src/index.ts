@@ -10,3 +10,10 @@ export {
   verifyIpnSignature,
   handleIpnCallback,
 } from "./nowpayments.js";
+
+export {
+  createPaypalOrder,
+  capturePaypalOrder,
+  handlePaypalWebhook,
+  verifyPaypalWebhook,
+} from "./paypal.js";

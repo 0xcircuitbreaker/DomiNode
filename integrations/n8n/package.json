@@ -1,0 +1,41 @@
+{
+  "name": "n8n-nodes-dominusnode",
+  "version": "1.0.0",
+  "description": "n8n community nodes for DomiNode rotating proxy service",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "n8n": {
+    "n8nNodesApiVersion": 1,
+    "credentials": [
+      "dist/credentials/DominusNodeApi.credentials.js"
+    ],
+    "nodes": [
+      "dist/nodes/DominusNodeProxy/DominusNodeProxy.node.js",
+      "dist/nodes/DominusNodeWallet/DominusNodeWallet.node.js",
+      "dist/nodes/DominusNodeUsage/DominusNodeUsage.node.js"
+    ]
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "lint": "tsc --noEmit"
+  },
+  "keywords": [
+    "n8n",
+    "n8n-community-node-package",
+    "dominusnode",
+    "proxy",
+    "rotating-proxy",
+    "web-scraping"
+  ],
+  "license": "MIT",
+  "peerDependencies": {
+    "n8n-workflow": ">=1.0.0"
+  },
+  "devDependencies": {
+    "n8n-workflow": "^1.70.0",
+    "vitest": "^3.0.0",
+    "typescript": "^5.7.0",
+    "@types/node": "^22.0.0"
+  }
+}

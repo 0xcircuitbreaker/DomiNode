@@ -103,6 +103,12 @@ export interface CryptoInvoice {
   currency: string;
 }
 
+export interface PaypalOrder {
+  orderId: string;
+  approvalUrl: string;
+  amountCents: number;
+}
+
 export interface AdminUser {
   id: string;
   email: string;

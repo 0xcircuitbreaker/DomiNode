@@ -1,0 +1,1673 @@
+openapi: 3.1.0
+info:
+  title: Dominus Node Proxy API
+  description: |
+    Dominus Node is a rotating proxy-as-a-service platform with datacenter ($3/GB) and
+    residential ($5/GB) proxy pools. This API provides account management, API key provisioning,
+    prepaid wallet billing (Stripe, crypto, PayPal), usage monitoring, agentic sub-wallets
+    for AI agents, and team-based shared billing.
+  version: 1.0.0
+  contact:
+    name: Dominus Node Support
+    email: support@dominusnode.com
+    url: https://dominusnode.com
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: https://api.dominusnode.com
+    description: Production API
+
+security:
+  - BearerAuth: []
+
+tags:
+  - name: Auth
+    description: Account registration, login, and token management
+  - name: Keys
+    description: API key creation, listing, and revocation
+  - name: Wallet
+    description: Wallet balance, transactions, and top-up via Stripe, crypto, or PayPal
+  - name: Usage
+    description: Bandwidth usage statistics and records
+  - name: Agentic Wallets
+    description: Sub-wallets for AI agents with spending limits
+  - name: Teams
+    description: Team management with shared wallet billing
+  - name: Proxy
+    description: Proxy server configuration details
+  - name: Sessions
+    description: Active proxy session monitoring
+  - name: Health
+    description: Service health check
+
+paths:
+  # ─── Auth ───────────────────────────────────────────────────────────
+  /api/auth/register:
+    post:
+      operationId: register
+      tags: [Auth]
+      summary: Create a new account
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email:
+                  type: string
+                  format: email
+                  description: Account email address
+                  example: user@example.com
+                password:
+                  type: string
+                  minLength: 8
+                  maxLength: 128
+                  description: Account password (8-128 characters)
+                captchaToken:
+                  type: string
+                  description: reCAPTCHA v3 token (required if reCAPTCHA is enabled)
+      responses:
+        "201":
+          description: Account created successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token:
+                    type: string
+                    description: JWT access token (15 min expiry)
+                  refreshToken:
+                    type: string
+                    description: Refresh token (7 day expiry)
+                  user:
+                    $ref: "#/components/schemas/User"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "409":
+          description: Email already registered
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
+  /api/auth/login:
+    post:
+      operationId: login
+      tags: [Auth]
+      summary: Log in and get JWT tokens
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+                  maxLength: 128
+                captchaToken:
+                  type: string
+                  description: reCAPTCHA v3 token (required if reCAPTCHA is enabled)
+      responses:
+        "200":
+          description: Login successful (or MFA challenge required)
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - type: object
+                    properties:
+                      token:
+                        type: string
+                        description: JWT access token
+                      refreshToken:
+                        type: string
+                        description: Refresh token
+                      userId:
+                        type: string
+                        format: uuid
+                      email:
+                        type: string
+                      user:
+                        $ref: "#/components/schemas/User"
+                  - type: object
+                    properties:
+                      mfaRequired:
+                        type: boolean
+                        enum: [true]
+                      mfaChallengeToken:
+                        type: string
+                        description: Short-lived MFA challenge token
+        "401":
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
+  # ─── Keys ───────────────────────────────────────────────────────────
+  /api/keys:
+    post:
+      operationId: createApiKey
+      tags: [Keys]
+      summary: Create a new API key
+      description: |
+        Creates a new API key for proxy authentication. The raw key is returned only once
+        in the response -- store it securely. Requires verified email.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                label:
+                  type: string
+                  maxLength: 100
+                  default: Default
+                  description: Human-readable label for the key
+      responses:
+        "201":
+          description: API key created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  key:
+                    type: string
+                    description: Raw API key (shown only once, starts with dn_live_)
+                    example: dn_live_abc123...
+                  id:
+                    type: string
+                    format: uuid
+                  prefix:
+                    type: string
+                    description: Key prefix for identification
+                  label:
+                    type: string
+                  created_at:
+                    type: string
+                    format: date-time
+        "403":
+          description: Email not verified or account suspended
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    get:
+      operationId: listApiKeys
+      tags: [Keys]
+      summary: List all API keys
+      responses:
+        "200":
+          description: List of API keys
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  keys:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ApiKey"
+
+  /api/keys/{id}:
+    delete:
+      operationId: revokeApiKey
+      tags: [Keys]
+      summary: Revoke an API key
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "204":
+          description: Key revoked successfully
+        "404":
+          description: Key not found or already revoked
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  # ─── Wallet ─────────────────────────────────────────────────────────
+  /api/wallet:
+    get:
+      operationId: getWalletBalance
+      tags: [Wallet]
+      summary: Get wallet balance
+      responses:
+        "200":
+          description: Current wallet balance
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  balanceCents:
+                    type: integer
+                    description: Balance in cents
+                    example: 5000
+                  balanceUsd:
+                    type: number
+                    format: float
+                    description: Balance in USD
+                    example: 50.00
+                  currency:
+                    type: string
+                    example: usd
+                  lastToppedUp:
+                    type: string
+                    format: date-time
+                    nullable: true
+        "404":
+          description: Wallet not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/wallet/transactions:
+    get:
+      operationId: getWalletTransactions
+      tags: [Wallet]
+      summary: Get wallet transaction history
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        "200":
+          description: List of wallet transactions
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  transactions:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/WalletTransaction"
+
+  /api/wallet/topup/stripe:
+    post:
+      operationId: topUpStripe
+      tags: [Wallet]
+      summary: Create Stripe checkout session for wallet top-up
+      description: Requires verified email. Returns a Stripe Checkout URL to complete payment.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [amountCents]
+              properties:
+                amountCents:
+                  type: integer
+                  minimum: 500
+                  maximum: 100000
+                  description: Amount in cents ($5 - $1,000)
+                  example: 2000
+      responses:
+        "200":
+          description: Checkout session created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  sessionId:
+                    type: string
+                    description: Stripe session ID
+                  url:
+                    type: string
+                    format: uri
+                    description: Stripe Checkout URL to redirect user
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          description: Email not verified
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/wallet/topup/crypto:
+    post:
+      operationId: topUpCrypto
+      tags: [Wallet]
+      summary: Create crypto payment invoice
+      description: |
+        Requires verified email. Supports BTC, ETH, LTC, XMR, ZEC, USDC, SOL, USDT, DAI, BNB.
+        Amount range: $10 - $1,000.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [amountUsd, currency]
+              properties:
+                amountUsd:
+                  type: number
+                  minimum: 10
+                  maximum: 1000
+                  description: Amount in USD
+                  example: 50
+                currency:
+                  type: string
+                  enum: [btc, eth, ltc, xmr, zec, usdc, sol, usdt, dai, bnb]
+                  description: Cryptocurrency to pay with
+      responses:
+        "200":
+          description: Crypto invoice created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  invoiceId:
+                    type: string
+                  invoiceUrl:
+                    type: string
+                    format: uri
+                    description: URL to view/pay the invoice
+                  payCurrency:
+                    type: string
+                  priceAmount:
+                    type: number
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          description: Email not verified
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/wallet/topup/paypal:
+    post:
+      operationId: topUpPaypal
+      tags: [Wallet]
+      summary: Create PayPal order for wallet top-up
+      description: Requires verified email. Returns a PayPal approval URL.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [amountCents]
+              properties:
+                amountCents:
+                  type: integer
+                  minimum: 500
+                  maximum: 100000
+                  description: Amount in cents ($5 - $1,000)
+      responses:
+        "200":
+          description: PayPal order created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  orderId:
+                    type: string
+                  approvalUrl:
+                    type: string
+                    format: uri
+                    description: PayPal approval URL to redirect user
+                  amountCents:
+                    type: integer
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          description: Email not verified
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/wallet/paypal/capture/{orderId}:
+    post:
+      operationId: capturePaypalOrder
+      tags: [Wallet]
+      summary: Capture a PayPal order after approval
+      parameters:
+        - name: orderId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Payment captured successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  amountCents:
+                    type: integer
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
+  /api/wallet/paypal/status/{orderId}:
+    get:
+      operationId: getPaypalOrderStatus
+      tags: [Wallet]
+      summary: Check PayPal order status
+      parameters:
+        - name: orderId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: PayPal order status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  orderId:
+                    type: string
+                  status:
+                    type: string
+                    enum: [pending, completed, failed]
+                  amountCents:
+                    type: integer
+                  provider:
+                    type: string
+                    example: paypal
+                  createdAt:
+                    type: string
+                    format: date-time
+        "404":
+          description: Order not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/wallet/crypto/status/{invoiceId}:
+    get:
+      operationId: getCryptoInvoiceStatus
+      tags: [Wallet]
+      summary: Check crypto payment invoice status
+      parameters:
+        - name: invoiceId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Invoice status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  invoiceId:
+                    type: string
+                    format: uuid
+                  status:
+                    type: string
+                    enum: [pending, completed, failed]
+                  amountCents:
+                    type: integer
+                  provider:
+                    type: string
+                  createdAt:
+                    type: string
+                    format: date-time
+        "404":
+          description: Invoice not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  # ─── Usage ──────────────────────────────────────────────────────────
+  /api/usage:
+    get:
+      operationId: getUsage
+      tags: [Usage]
+      summary: Get bandwidth usage records and summary
+      parameters:
+        - name: since
+          in: query
+          description: Start date (ISO 8601). Defaults to 30 days ago.
+          schema:
+            type: string
+            format: date-time
+        - name: until
+          in: query
+          description: End date (ISO 8601). Defaults to now.
+          schema:
+            type: string
+            format: date-time
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 1000
+            default: 200
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        "200":
+          description: Usage summary and records
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  summary:
+                    type: object
+                    properties:
+                      totalBytes:
+                        type: integer
+                        description: Total bytes transferred
+                      totalCostCents:
+                        type: integer
+                        description: Total cost in cents
+                      requestCount:
+                        type: integer
+                      totalGB:
+                        type: number
+                        format: float
+                      totalCostUsd:
+                        type: number
+                        format: float
+                  records:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/UsageRecord"
+                  pagination:
+                    type: object
+                    properties:
+                      limit:
+                        type: integer
+                      offset:
+                        type: integer
+                      total:
+                        type: integer
+                  period:
+                    type: object
+                    properties:
+                      since:
+                        type: string
+                        format: date-time
+                      until:
+                        type: string
+                        format: date-time
+
+  # ─── Agentic Wallets ────────────────────────────────────────────────
+  /api/agent-wallet:
+    post:
+      operationId: createAgenticWallet
+      tags: [Agentic Wallets]
+      summary: Create a new agentic sub-wallet
+      description: |
+        Creates a custodial sub-wallet for an AI agent with a configurable spending limit.
+        Requires verified email. Maximum 20 agentic wallets per user.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [label, spendingLimitCents]
+              properties:
+                label:
+                  type: string
+                  minLength: 1
+                  maxLength: 100
+                  description: Human-readable wallet label
+                  example: Scraping Agent
+                spendingLimitCents:
+                  type: integer
+                  minimum: 0
+                  maximum: 1000000
+                  description: Per-transaction spending limit in cents
+                  example: 10000
+      responses:
+        "201":
+          description: Agentic wallet created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgenticWallet"
+        "403":
+          description: Email not verified
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Maximum wallet count reached
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    get:
+      operationId: listAgenticWallets
+      tags: [Agentic Wallets]
+      summary: List all agentic wallets
+      responses:
+        "200":
+          description: List of agentic wallets
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  wallets:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/AgenticWallet"
+
+  /api/agent-wallet/{id}:
+    get:
+      operationId: getAgenticWallet
+      tags: [Agentic Wallets]
+      summary: Get agentic wallet details
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Agentic wallet details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgenticWallet"
+        "404":
+          description: Wallet not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    delete:
+      operationId: deleteAgenticWallet
+      tags: [Agentic Wallets]
+      summary: Delete agentic wallet and refund remaining balance
+      description: Remaining balance is refunded to the main wallet. Frozen wallets must be unfrozen first.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Wallet deleted and balance refunded
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deleted:
+                    type: boolean
+                  refundedCents:
+                    type: integer
+                    description: Amount refunded to main wallet
+        "400":
+          description: Cannot delete frozen wallet
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Wallet not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/agent-wallet/{id}/fund:
+    post:
+      operationId: fundAgenticWallet
+      tags: [Agentic Wallets]
+      summary: Fund agentic wallet from main wallet
+      description: Transfers funds from your main wallet to the agentic sub-wallet. Requires verified email.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [amountCents]
+              properties:
+                amountCents:
+                  type: integer
+                  minimum: 100
+                  maximum: 1000000
+                  description: Amount to transfer in cents ($1 - $10,000)
+                  example: 500
+      responses:
+        "200":
+          description: Wallet funded successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  transaction:
+                    $ref: "#/components/schemas/AgenticWalletTransaction"
+        "400":
+          description: Insufficient balance or exceeds cap
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Wallet not found or not active
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/agent-wallet/{id}/transactions:
+    get:
+      operationId: getAgenticWalletTransactions
+      tags: [Agentic Wallets]
+      summary: Get agentic wallet transaction history
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        "200":
+          description: Transaction history
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  transactions:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/AgenticWalletTransaction"
+        "404":
+          description: Wallet not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/agent-wallet/{id}/freeze:
+    post:
+      operationId: freezeAgenticWallet
+      tags: [Agentic Wallets]
+      summary: Freeze agentic wallet
+      description: Freezing prevents all spending from the wallet. The wallet can be unfrozen later.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Wallet frozen
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgenticWallet"
+        "404":
+          description: Wallet not found or not active
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/agent-wallet/{id}/unfreeze:
+    post:
+      operationId: unfreezeAgenticWallet
+      tags: [Agentic Wallets]
+      summary: Unfreeze agentic wallet
+      description: Restores a frozen wallet to active status so it can be used for spending again.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Wallet unfrozen
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgenticWallet"
+        "404":
+          description: Wallet not found or not frozen
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  # ─── Teams ──────────────────────────────────────────────────────────
+  /api/teams:
+    post:
+      operationId: createTeam
+      tags: [Teams]
+      summary: Create a new team
+      description: Creates a team with a shared wallet. You become the owner. Requires verified email.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                  maxLength: 100
+                  description: Team name
+                  example: Engineering Team
+                maxMembers:
+                  type: integer
+                  minimum: 1
+                  maximum: 100
+                  description: Maximum number of team members (default varies)
+      responses:
+        "201":
+          description: Team created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Team"
+        "403":
+          description: Email not verified
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Maximum team count reached
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    get:
+      operationId: listTeams
+      tags: [Teams]
+      summary: List teams you belong to
+      responses:
+        "200":
+          description: List of teams
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  teams:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/TeamListItem"
+
+  /api/teams/{id}:
+    get:
+      operationId: getTeam
+      tags: [Teams]
+      summary: Get team details
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Team details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TeamDetail"
+        "404":
+          description: Team not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    patch:
+      operationId: updateTeam
+      tags: [Teams]
+      summary: Update team settings (owner/admin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                  maxLength: 100
+                maxMembers:
+                  type: integer
+                  minimum: 1
+                  maximum: 100
+      responses:
+        "200":
+          description: Team updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Team"
+        "403":
+          description: Not authorized (owner/admin only)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Team not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/teams/{id}/wallet/fund:
+    post:
+      operationId: fundTeamWallet
+      tags: [Teams]
+      summary: Fund team wallet from personal wallet
+      description: Transfers funds from your personal wallet to the team shared wallet. Requires verified email.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [amountCents]
+              properties:
+                amountCents:
+                  type: integer
+                  minimum: 100
+                  maximum: 1000000
+                  description: Amount to transfer in cents ($1 - $10,000)
+      responses:
+        "200":
+          description: Team wallet funded
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  transaction:
+                    $ref: "#/components/schemas/TeamWalletTransaction"
+        "400":
+          description: Insufficient balance or exceeds cap
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Not authorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/teams/{id}/keys:
+    post:
+      operationId: createTeamApiKey
+      tags: [Teams]
+      summary: Create a team API key
+      description: Creates an API key that bills to the team wallet. Owner/admin only. Requires verified email.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [label]
+              properties:
+                label:
+                  type: string
+                  minLength: 1
+                  maxLength: 100
+                  description: Human-readable key label
+      responses:
+        "201":
+          description: Team API key created (raw key shown only once)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  key:
+                    type: string
+                    description: Raw API key (shown only once)
+                  id:
+                    type: string
+                    format: uuid
+                  prefix:
+                    type: string
+                  label:
+                    type: string
+                  createdAt:
+                    type: string
+                    format: date-time
+        "403":
+          description: Not authorized or email not verified
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/teams/{id}/wallet/transactions:
+    get:
+      operationId: getTeamWalletTransactions
+      tags: [Teams]
+      summary: Get team wallet transaction history
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        "200":
+          description: Team wallet transactions
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  transactions:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/TeamWalletTransaction"
+        "403":
+          description: Not a team member
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/teams/{id}/members:
+    get:
+      operationId: listTeamMembers
+      tags: [Teams]
+      summary: List team members
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: List of team members
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  members:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/TeamMember"
+        "403":
+          description: Not a team member
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/teams/{id}/members/{userId}:
+    patch:
+      operationId: updateTeamMemberRole
+      tags: [Teams]
+      summary: Update a team member's role (owner only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: Team ID
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: User ID of the member to update
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [role]
+              properties:
+                role:
+                  type: string
+                  enum: [member, admin]
+      responses:
+        "200":
+          description: Member role updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TeamMember"
+        "403":
+          description: Not authorized (owner only)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Member not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  # ─── Proxy Config ───────────────────────────────────────────────────
+  /api/proxy/config:
+    get:
+      operationId: getProxyConfig
+      tags: [Proxy]
+      summary: Get proxy server connection details
+      description: Returns HTTP and SOCKS5 proxy host/port, supported countries, and geo-targeting options.
+      responses:
+        "200":
+          description: Proxy configuration
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  httpProxy:
+                    type: object
+                    properties:
+                      host:
+                        type: string
+                        example: proxy.dominusnode.com
+                      port:
+                        type: integer
+                        example: 8080
+                  socks5Proxy:
+                    type: object
+                    properties:
+                      host:
+                        type: string
+                      port:
+                        type: integer
+                        example: 1080
+                  supportedCountries:
+                    type: array
+                    items:
+                      type: string
+                    example: ["US", "GB", "DE", "FR", "JP", "BR", "AU", "CA", "IN", "NL", "SG", "KR"]
+                  blockedCountries:
+                    type: array
+                    items:
+                      type: string
+                    description: OFAC-sanctioned countries
+                    example: ["CU", "IR", "KP", "RU", "SY"]
+                  maxRotationIntervalMinutes:
+                    type: integer
+                    example: 60
+                  minRotationIntervalMinutes:
+                    type: integer
+                    example: 1
+
+  # ─── Sessions ───────────────────────────────────────────────────────
+  /api/sessions/active:
+    get:
+      operationId: getActiveSessions
+      tags: [Sessions]
+      summary: List active proxy sessions
+      responses:
+        "200":
+          description: Active sessions
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  sessions:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        startedAt:
+                          type: string
+                          format: date-time
+                        status:
+                          type: string
+                          enum: [active]
+
+  # ─── Health ─────────────────────────────────────────────────────────
+  /api/health:
+    get:
+      operationId: healthCheck
+      tags: [Health]
+      summary: Service health check
+      security: []
+      responses:
+        "200":
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [ok]
+                  service:
+                    type: string
+                    example: dominusnode-api
+                  db:
+                    type: string
+                    enum: [connected]
+        "503":
+          description: Service is unhealthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [error]
+                  service:
+                    type: string
+                  db:
+                    type: string
+                    enum: [disconnected]
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        JWT access token obtained from POST /api/auth/login or POST /api/auth/register.
+        Tokens expire after 15 minutes. Use POST /api/auth/refresh to get a new token pair.
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+          description: Human-readable error message
+
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        created_at:
+          type: string
+          format: date-time
+        is_admin:
+          type: boolean
+
+    ApiKey:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        prefix:
+          type: string
+          description: First characters of the key for identification
+        label:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        revoked_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    WalletTransaction:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          type: string
+          enum: [topup, usage_debit, refund]
+        amountCents:
+          type: integer
+        amountUsd:
+          type: number
+          format: float
+        description:
+          type: string
+        paymentProvider:
+          type: string
+          nullable: true
+          enum: [stripe, nowpayments, paypal, null]
+        createdAt:
+          type: string
+          format: date-time
+
+    UsageRecord:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        sessionId:
+          type: string
+        bytesIn:
+          type: integer
+        bytesOut:
+          type: integer
+        totalBytes:
+          type: integer
+        costCents:
+          type: integer
+        proxyType:
+          type: string
+          enum: [dc, residential]
+        targetHost:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+
+    AgenticWallet:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        label:
+          type: string
+        balanceCents:
+          type: integer
+        spendingLimitCents:
+          type: integer
+        status:
+          type: string
+          enum: [active, frozen, deleted]
+        createdAt:
+          type: string
+          format: date-time
+
+    AgenticWalletTransaction:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        walletId:
+          type: string
+          format: uuid
+        type:
+          type: string
+          enum: [fund, spend, refund]
+        amountCents:
+          type: integer
+        description:
+          type: string
+        sessionId:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+
+    Team:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        ownerId:
+          type: string
+          format: uuid
+        maxMembers:
+          type: integer
+        status:
+          type: string
+          enum: [active]
+        walletId:
+          type: string
+          format: uuid
+        createdAt:
+          type: string
+          format: date-time
+
+    TeamListItem:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        ownerId:
+          type: string
+          format: uuid
+        maxMembers:
+          type: integer
+        status:
+          type: string
+        role:
+          type: string
+          enum: [owner, admin, member]
+          description: Your role in this team
+        balanceCents:
+          type: integer
+          description: Team wallet balance in cents
+        createdAt:
+          type: string
+          format: date-time
+
+    TeamDetail:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        ownerId:
+          type: string
+          format: uuid
+        maxMembers:
+          type: integer
+        status:
+          type: string
+        role:
+          type: string
+          enum: [owner, admin, member]
+        balanceCents:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+
+    TeamWalletTransaction:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        walletId:
+          type: string
+          format: uuid
+        type:
+          type: string
+          enum: [fund, usage_debit, refund]
+        amountCents:
+          type: integer
+        description:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+
+    TeamMember:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        teamId:
+          type: string
+          format: uuid
+        userId:
+          type: string
+          format: uuid
+        role:
+          type: string
+          enum: [owner, admin, member]
+        email:
+          type: string
+          format: email
+        joinedAt:
+          type: string
+          format: date-time
+
+  responses:
+    BadRequest:
+      description: Invalid request parameters
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    RateLimited:
+      description: Too many requests
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"

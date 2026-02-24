@@ -5,7 +5,8 @@ use serde::Serialize;
 use crate::errors::Result;
 use crate::http_client::HttpClient;
 use crate::types::{
-    CryptoInvoice, ForecastResponse, StripeCheckout, TransactionsResponse, WalletBalanceResponse,
+    CryptoInvoice, ForecastResponse, PaypalOrder, StripeCheckout, TransactionsResponse,
+    WalletBalanceResponse,
 };
 
 #[derive(Serialize)]
@@ -110,6 +111,29 @@ impl WalletResource {
                     amount_usd,
                     currency,
                 }),
+                true,
+            )
+            .await
+    }
+
+    /// Create a PayPal order for topping up the wallet.
+    ///
+    /// Returns an approval URL the user should be redirected to.
+    pub async fn top_up_paypal(&self, amount_cents: i64) -> Result<PaypalOrder> {
+        if amount_cents <= 0 || amount_cents > 2_147_483_647 {
+            return Err(crate::errors::DominusNodeError::Validation(
+                "amountCents must be a positive integer <= 2,147,483,647".to_string(),
+            ));
+        }
+        if amount_cents < 500 {
+            return Err(crate::errors::DominusNodeError::Validation(
+                "Minimum PayPal top-up is $5.00 (500 cents)".to_string(),
+            ));
+        }
+        self.http
+            .post(
+                "/api/wallet/topup/paypal",
+                Some(&StripeTopUpBody { amount_cents }),
                 true,
             )
             .await

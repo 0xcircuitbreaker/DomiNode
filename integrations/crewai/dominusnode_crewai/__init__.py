@@ -28,6 +28,7 @@ Example::
 from .tools import (
     DominusNodeBalanceTool,
     DominusNodeGeoTargetTool,
+    DominusNodeTopupPaypalTool,
     DominusNodeWebScrapeTool,
 )
 
@@ -35,4 +36,5 @@ __all__ = [
     "DominusNodeWebScrapeTool",
     "DominusNodeBalanceTool",
     "DominusNodeGeoTargetTool",
+    "DominusNodeTopupPaypalTool",
 ]

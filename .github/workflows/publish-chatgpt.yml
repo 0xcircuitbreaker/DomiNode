@@ -1,0 +1,40 @@
+name: Publish ChatGPT GPT Actions
+
+on:
+  push:
+    tags:
+      - "chatgpt-v*"
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: publish
+    defaults:
+      run:
+        working-directory: integrations/chatgpt
+
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "20"
+
+      - name: Validate OpenAPI spec
+        run: npx @redocly/cli lint openapi.yaml
+
+      - name: Package artifacts
+        run: |
+          mkdir -p dist
+          cp openapi.yaml ai-plugin.json README.md LICENSE CHANGELOG.md dist/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@da05d552573ad5aba039eaac05058a918a7bf631 # v2.2.2
+        with:
+          files: |
+            integrations/chatgpt/dist/openapi.yaml
+            integrations/chatgpt/dist/ai-plugin.json
+          generate_release_notes: true

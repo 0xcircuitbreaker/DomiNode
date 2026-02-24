@@ -1002,6 +1002,23 @@ export function createDominusNodeFunctionHandler(
     return JSON.stringify(result);
   }
 
+  async function handleTopupPaypal(args: Record<string, unknown>): Promise<string> {
+    const amountCents = args.amount_cents as number;
+
+    if (
+      !Number.isInteger(amountCents) ||
+      amountCents < 500 ||
+      amountCents > 100_000
+    ) {
+      return JSON.stringify({
+        error: "amount_cents must be an integer between 500 ($5) and 100,000 ($1,000)",
+      });
+    }
+
+    const result = await api("POST", "/api/wallet/topup/paypal", { amountCents });
+    return JSON.stringify(result);
+  }
+
   async function handleUpdateTeamMemberRole(args: Record<string, unknown>): Promise<string> {
     const teamId = args.team_id as string;
     const userId = args.user_id as string;
@@ -1063,6 +1080,7 @@ export function createDominusNodeFunctionHandler(
     dominusnode_team_usage: handleTeamUsage,
     dominusnode_update_team: handleUpdateTeam,
     dominusnode_update_team_member_role: handleUpdateTeamMemberRole,
+    dominusnode_topup_paypal: handleTopupPaypal,
   };
 
   // -----------------------------------------------------------------------

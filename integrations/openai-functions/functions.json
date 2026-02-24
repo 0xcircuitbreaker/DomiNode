@@ -360,5 +360,21 @@
       },
       "required": ["team_id", "user_id", "role"]
     }
+  },
+  {
+    "name": "dominusnode_topup_paypal",
+    "description": "Create a PayPal payment order to top up your DomiNode wallet. Returns an approval URL where you complete the payment. After approval, the wallet is credited automatically. Lower fees than Stripe for PayPal users. Minimum $5 (500 cents), maximum $1,000 (100,000 cents).",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "amount_cents": {
+          "type": "integer",
+          "description": "Amount in cents to add to wallet. Minimum 500 ($5.00), maximum 100000 ($1,000.00).",
+          "minimum": 500,
+          "maximum": 100000
+        }
+      },
+      "required": ["amount_cents"]
+    }
   }
 ]

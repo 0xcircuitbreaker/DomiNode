@@ -188,6 +188,14 @@ class GeoTargetInput(BaseModel):
     pass
 
 
+class TopupPaypalInput(BaseModel):
+    """Input schema for the DomiNode PayPal top-up tool."""
+
+    amount_cents: int = Field(
+        description="Amount in cents to top up via PayPal (min 500 = $5, max 100000 = $1,000).",
+    )
+
+
 # ---------------------------------------------------------------------------
 # Helper: create an authenticated SDK client
 # ---------------------------------------------------------------------------
@@ -457,6 +465,62 @@ class DominusNodeGeoTargetTool(BaseTool):
             ])
 
             return "\n".join(lines)
+
+        except RuntimeError as exc:
+            return f"Error: {_sanitize_error(str(exc))}"
+        except Exception as exc:
+            return f"Error: {type(exc).__name__} -- {_sanitize_error(str(exc))}"
+        finally:
+            if client is not None:
+                client.close()
+
+
+# ---------------------------------------------------------------------------
+# Tool 4: PayPal Top-Up
+# ---------------------------------------------------------------------------
+
+
+class DominusNodeTopupPaypalTool(BaseTool):
+    """Top up your DomiNode wallet balance via PayPal.
+
+    Creates a PayPal order and returns an approval URL to complete payment.
+    Minimum $5 (500 cents), maximum $1,000 (100,000 cents).
+    """
+
+    name: str = "dominusnode_topup_paypal"
+    description: str = (
+        "Top up your DomiNode wallet balance via PayPal. "
+        "Creates a PayPal order and returns an approval URL to complete "
+        "payment. Input: amount_cents (integer, min 500 = $5, max 100000 = $1,000)."
+    )
+    args_schema: Type[BaseModel] = TopupPaypalInput
+
+    # -- Configuration (not exposed to the LLM) ----------------------------
+    api_key: Optional[str] = Field(default=None, exclude=True)
+    base_url: Optional[str] = Field(default=None, exclude=True)
+    proxy_host: Optional[str] = Field(default=None, exclude=True)
+
+    def _run(self, amount_cents: int = 0, **kwargs: Any) -> str:
+        if not isinstance(amount_cents, int) or amount_cents < 500 or amount_cents > 100000:
+            return "Error: amount_cents must be an integer between 500 ($5) and 100000 ($1,000)."
+
+        client: Optional[DominusNodeClient] = None
+        try:
+            client = _make_client(
+                api_key=self.api_key,
+                base_url=self.base_url,
+                proxy_host=self.proxy_host,
+            )
+
+            result = client.wallet.topup_paypal(amount_cents=amount_cents)
+
+            return (
+                f"PayPal Top-Up Order Created\n"
+                f"Order ID: {result.order_id}\n"
+                f"Amount: ${amount_cents / 100:.2f}\n"
+                f"Approval URL: {result.approval_url}\n\n"
+                f"Open the approval URL in a browser to complete payment."
+            )
 
         except RuntimeError as exc:
             return f"Error: {_sanitize_error(str(exc))}"

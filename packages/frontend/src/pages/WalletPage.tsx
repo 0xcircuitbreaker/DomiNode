@@ -68,6 +68,7 @@ export default function WalletPage() {
   const [customAmount, setCustomAmount] = useState("");
   const [loadingStripe, setLoadingStripe] = useState(false);
   const [loadingCrypto, setLoadingCrypto] = useState(false);
+  const [loadingPaypal, setLoadingPaypal] = useState(false);
   const [selectedCrypto, setSelectedCrypto] = useState<string>("btc");
   const [paymentError, setPaymentError] = useState<string | null>(null);
 
@@ -96,6 +97,29 @@ export default function WalletPage() {
       setPaymentError(err instanceof Error ? err.message : "Payment failed. Please try again.");
     } finally {
       setLoadingStripe(false);
+    }
+  }
+
+  async function handlePaypal() {
+    if (!isValidAmount) {
+      setPaymentError("Amount must be between $5 and $1,000");
+      return;
+    }
+    setLoadingPaypal(true);
+    setPaymentError(null);
+    try {
+      const res = await post<{ orderId: string; approvalUrl: string }>("/api/wallet/topup/paypal", {
+        amountCents: effectiveAmount,
+      });
+      if (!isAllowedPaymentUrl(res.approvalUrl, ["paypal.com"])) {
+        setPaymentError("Invalid payment URL received");
+        return;
+      }
+      window.location.href = res.approvalUrl;
+    } catch (err) {
+      setPaymentError(err instanceof Error ? err.message : "Payment failed. Please try again.");
+    } finally {
+      setLoadingPaypal(false);
     }
   }
 
@@ -237,16 +261,28 @@ export default function WalletPage() {
         </div>
 
         {/* Payment Methods */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           {/* Stripe */}
           <div className="border border-gray-700 rounded-lg p-4">
-            <h3 className="text-sm font-medium mb-3">Card / PayPal / Link (Stripe)</h3>
+            <h3 className="text-sm font-medium mb-3">Card / Link (Stripe)</h3>
             <button
               onClick={handleStripe}
               disabled={loadingStripe || effectiveAmount < 500}
               className="w-full bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-medium py-2.5 rounded-lg transition-colors text-sm"
             >
               {loadingStripe ? "Redirecting..." : `Pay $${(effectiveAmount / 100).toFixed(2)}`}
+            </button>
+          </div>
+
+          {/* PayPal */}
+          <div className="border border-gray-700 rounded-lg p-4">
+            <h3 className="text-sm font-medium mb-3">PayPal</h3>
+            <button
+              onClick={handlePaypal}
+              disabled={loadingPaypal || effectiveAmount < 500}
+              className="w-full bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-medium py-2.5 rounded-lg transition-colors text-sm"
+            >
+              {loadingPaypal ? "Redirecting..." : `Pay $${(effectiveAmount / 100).toFixed(2)} with PayPal`}
             </button>
           </div>
 

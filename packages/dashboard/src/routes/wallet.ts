@@ -14,6 +14,7 @@ import {
 import type { SupportedCrypto } from "@dominusnode/shared";
 import { createCheckoutSession } from "@dominusnode/billing";
 import { createCryptoInvoice } from "@dominusnode/billing";
+import { createPaypalOrder, capturePaypalOrder } from "@dominusnode/billing";
 import { requireAuth, type AuthenticatedRequest } from "../middleware/auth.js";
 
 const router = Router();
@@ -230,6 +231,119 @@ router.get("/crypto/status/:invoiceId", statusPollLimiter, async (req, res) => {
   } catch (err) {
     log.error("crypto status check failed", { error: err instanceof Error ? err.message : String(err) });
     res.status(500).json({ error: "Failed to check payment status" });
+  }
+});
+
+// POST /api/wallet/topup/paypal
+router.post("/topup/paypal", topupLimiter, async (req, res) => {
+  try {
+    const { userId } = (req as AuthenticatedRequest).user;
+
+    // Require email verification before accepting payments
+    const paypalUser = await userRepo.findUserById(userId);
+    if (!paypalUser || !paypalUser.email_verified) {
+      res.status(403).json({ error: "Please verify your email address before topping up" });
+      return;
+    }
+
+    const amountCents = parseInt(req.body.amountCents, 10);
+
+    const error = validateTopupAmount(amountCents);
+    if (error) {
+      res.status(400).json({ error });
+      return;
+    }
+
+    // Pre-check wallet balance cap
+    const MAX_PAYPAL_BALANCE_CENTS = 1_000_000; // $10,000
+    const paypalWallet = await walletRepo.getWallet(userId);
+    if (paypalWallet && paypalWallet.balance_cents + amountCents > MAX_PAYPAL_BALANCE_CENTS) {
+      res.status(400).json({
+        error: `Top-up would exceed maximum wallet balance of $10,000. Current balance: $${(paypalWallet.balance_cents / 100).toFixed(2)}`,
+      });
+      return;
+    }
+
+    const order = await createPaypalOrder(userId, amountCents);
+
+    log.info("paypal order created", { userId, amountCents });
+
+    res.json({
+      orderId: order.orderId,
+      approvalUrl: order.approvalUrl,
+      amountCents: order.amountCents,
+    });
+  } catch (err) {
+    log.error("paypal order failed", { error: err instanceof Error ? err.message : String(err) });
+    res.status(500).json({ error: "Failed to create PayPal order" });
+  }
+});
+
+// POST /api/wallet/paypal/capture/:orderId
+router.post("/paypal/capture/:orderId", topupLimiter, async (req, res) => {
+  try {
+    const { userId } = (req as AuthenticatedRequest).user;
+
+    // Require email verification before capturing payments
+    const captureUser = await userRepo.findUserById(userId);
+    if (!captureUser || !captureUser.email_verified) {
+      res.status(403).json({ error: "Please verify your email address before capturing payments" });
+      return;
+    }
+
+    const orderId = sanitizeString((req.params as { orderId: string }).orderId ?? "", 128);
+
+    if (!orderId) {
+      res.status(400).json({ error: "Order ID is required" });
+      return;
+    }
+
+    const result = await capturePaypalOrder(orderId, userId);
+
+    if (!result) {
+      res.status(400).json({ error: "Failed to capture PayPal order" });
+      return;
+    }
+
+    log.info("paypal order captured", { userId, orderId, amountCents: result.amountCents });
+
+    res.json({
+      success: true,
+      amountCents: result.amountCents,
+    });
+  } catch (err) {
+    log.error("paypal capture failed", { error: err instanceof Error ? err.message : String(err) });
+    res.status(500).json({ error: "Failed to capture PayPal payment" });
+  }
+});
+
+// GET /api/wallet/paypal/status/:orderId
+router.get("/paypal/status/:orderId", statusPollLimiter, async (req, res) => {
+  try {
+    const { userId } = (req as unknown as AuthenticatedRequest).user;
+    const orderId = sanitizeString((req.params as { orderId: string }).orderId ?? "", 128);
+
+    if (!orderId) {
+      res.status(400).json({ error: "Order ID is required" });
+      return;
+    }
+
+    const invoice = await invoiceRepo.findInvoiceByExternalId("paypal", orderId, userId);
+    if (!invoice) {
+      res.status(404).json({ error: "PayPal order not found" });
+      return;
+    }
+
+    res.json({
+      orderId,
+      status: invoice.status,
+      amountCents: invoice.amount_cents,
+      provider: "paypal",
+      createdAt: invoice.created_at,
+    });
+  } catch (err) {
+    log.error("paypal status check failed", { error: err instanceof Error ? err.message : String(err) });
+    res.status(500).json({ error: "Failed to check PayPal order status" });
   }
 });
 

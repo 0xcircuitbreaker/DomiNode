@@ -290,6 +290,18 @@ inline void from_json(const nlohmann::json& j, CryptoInvoiceResult& r) {
     r.price_amount = j.value("priceAmount", 0.0);
 }
 
+struct PaypalOrderResult {
+    std::string order_id;
+    std::string approval_url;
+    int amount_cents = 0;
+};
+
+inline void from_json(const nlohmann::json& j, PaypalOrderResult& r) {
+    j.at("orderId").get_to(r.order_id);
+    j.at("approvalUrl").get_to(r.approval_url);
+    r.amount_cents = j.value("amountCents", 0);
+}
+
 struct WalletForecast {
     int daily_avg_cents = 0;
     std::optional<int> days_remaining;

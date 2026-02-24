@@ -15,4 +15,5 @@ export {
   createCheckUsageTool,
   createGetProxyConfigTool,
   createListSessionsTool,
+  createTopupPaypalTool,
 } from "./tools.js";

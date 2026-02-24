@@ -44,6 +44,23 @@ export async function findInvoiceById(
   return result.rows[0] ?? null;
 }
 
+/**
+ * Find an invoice by provider + external ID + user ID.
+ * Used for PayPal order status polling — ensures users can only query their own invoices.
+ */
+export async function findInvoiceByExternalId(
+  provider: PaymentProvider,
+  externalId: string,
+  userId: string,
+): Promise<PaymentInvoice | null> {
+  const result = await query<PaymentInvoice>(
+    `SELECT id, user_id, provider, external_id, amount_cents, status, created_at FROM payment_invoices
+     WHERE provider = $1 AND external_id = $2 AND user_id = $3`,
+    [provider, externalId, userId],
+  );
+  return result.rows[0] ?? null;
+}
+
 export async function completeInvoice(id: string): Promise<boolean> {
   const result = await query(
     `UPDATE payment_invoices
