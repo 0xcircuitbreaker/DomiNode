@@ -178,6 +178,30 @@ function isPrivateIp(hostname: string): boolean {
     return isPrivateIp(embedded);
   }
 
+  // IPv4-compatible IPv6 (::x.x.x.x) — deprecated but still parsed
+  if (ipLower.startsWith("::") && !ipLower.startsWith("::ffff:")) {
+    const rest = ipLower.slice(2);
+    if (rest && rest.includes(".")) return isPrivateIp(rest);
+    const hexParts = rest.split(":");
+    if (hexParts.length === 2 && hexParts[0] && hexParts[1]) {
+      const hi = parseInt(hexParts[0], 16);
+      const lo = parseInt(hexParts[1], 16);
+      if (!isNaN(hi) && !isNaN(lo)) {
+        const reconstructed = `${(hi >> 8) & 0xff}.${hi & 0xff}.${(lo >> 8) & 0xff}.${lo & 0xff}`;
+        return isPrivateIp(reconstructed);
+      }
+    }
+  }
+
+  // Teredo (2001:0000::/32) — block unconditionally
+  if (ipLower.startsWith("2001:0000:") || ipLower.startsWith("2001:0:")) return true;
+
+  // 6to4 (2002::/16) — block unconditionally
+  if (ipLower.startsWith("2002:")) return true;
+
+  // IPv6 multicast (ff00::/8)
+  if (ipLower.startsWith("ff")) return true;
+
   return false;
 }
 
@@ -356,14 +380,15 @@ function httpsProxyFetch(
     let socket: net.Socket | undefined;
 
     // Step 1: CONNECT tunnel
+    const connectHost = parsed.hostname.includes(":") ? `[${parsed.hostname}]` : parsed.hostname;
     const connectReq = http.request({
       hostname: config.proxyHost,
       port: config.httpProxyPort,
       method: "CONNECT",
-      path: `${parsed.hostname}:${parsed.port || 443}`,
+      path: `${connectHost}:${parsed.port || 443}`,
       headers: {
         "Proxy-Authorization": buildProxyAuth(apiKey, opts),
-        Host: `${parsed.hostname}:${parsed.port || 443}`,
+        Host: `${connectHost}:${parsed.port || 443}`,
       },
     });
 

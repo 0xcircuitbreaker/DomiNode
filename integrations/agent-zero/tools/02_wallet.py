@@ -7,7 +7,7 @@ Tools:
 
 Security:
     - Credential scrubbing in all error messages
-    - Amount validation for PayPal top-up (100-1,000,000 cents)
+    - Amount validation for PayPal top-up (500-1,000,000 cents)
     - Period-to-date-range conversion (backend uses since/until ISO dates)
 """
 
@@ -142,7 +142,7 @@ def topup_paypal(
         auth: Authenticated DomiNode helper.
         args: Tool arguments:
             - ``amount_cents`` (int, required): Amount in cents to add.
-              Must be between 100 ($1) and 1,000,000 ($10,000).
+              Must be between 500 ($5) and 1,000,000 ($10,000).
 
     Returns:
         JSON string with the PayPal checkout URL and session details,
@@ -150,10 +150,10 @@ def topup_paypal(
     """
     amount_cents = args.get("amount_cents")
 
-    if not isinstance(amount_cents, int) or amount_cents < 100 or amount_cents > 1_000_000:
+    if not isinstance(amount_cents, int) or amount_cents < 500 or amount_cents > 1_000_000:
         return json.dumps({
             "error": (
-                "amount_cents must be an integer between 100 ($1) "
+                "amount_cents must be an integer between 500 ($5) "
                 "and 1,000,000 ($10,000)"
             )
         })
@@ -200,7 +200,7 @@ TOOLS = {
         "function": topup_paypal,
         "description": (
             "Create a PayPal checkout session to add funds to the wallet. "
-            "Amount must be between $1 and $10,000."
+            "Amount must be between $5 and $10,000."
         ),
         "parameters": {
             "amount_cents": {

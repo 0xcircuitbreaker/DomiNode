@@ -26,6 +26,10 @@ export function isValidHostname(host: string): boolean {
   // Domain names: must start and end with alnum, no consecutive dots
   if (!/^[a-zA-Z0-9]([a-zA-Z0-9.\-]*[a-zA-Z0-9])?$/.test(host)) return false;
   if (host.includes("..")) return false;
+  // Block localhost and dangerous TLDs
+  const lower = host.toLowerCase();
+  if (lower === "localhost" || lower.endsWith(".localhost")) return false;
+  if (lower.endsWith(".local") || lower.endsWith(".internal") || lower.endsWith(".arpa")) return false;
   // Each label: 1-63 chars, no leading/trailing hyphen
   const labels = host.split(".");
   for (const label of labels) {

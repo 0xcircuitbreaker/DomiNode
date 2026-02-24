@@ -261,12 +261,9 @@ def _is_private_ip(hostname: str) -> bool:
             # Even if both IPs are "public", Teredo is suspicious -- block it
             return True
 
-        # 6to4 tunneling (2002::/16)
+        # 6to4 tunneling (2002::/16) -- block unconditionally
         if addr in ipaddress.IPv6Network("2002::/16"):
-            v4 = _extract_6to4_ipv4(addr)
-            if v4 is not None:
-                return any(v4 in net for net in _BLOCKED_IPV4_NETWORKS)
-            return False
+            return True
 
     return False
 

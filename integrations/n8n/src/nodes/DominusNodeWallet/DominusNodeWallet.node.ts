@@ -97,7 +97,7 @@ export class DominusNodeWallet implements INodeType {
         type: "number",
         default: 500,
         required: true,
-        description: "Amount in cents (e.g., 500 = $5.00). Minimum 100 ($1).",
+        description: "Amount in cents (e.g., 500 = $5.00). Minimum 500 ($5).",
         displayOptions: { show: { operation: ["topUpStripe", "topUpPaypal"] } },
       },
 
@@ -313,10 +313,10 @@ export class DominusNodeWallet implements INodeType {
 
           case "topUpStripe": {
             const amountCents = this.getNodeParameter("amountCents", i) as number;
-            if (!Number.isInteger(amountCents) || amountCents < 100 || amountCents > 1_000_000) {
+            if (!Number.isInteger(amountCents) || amountCents < 500 || amountCents > 1_000_000) {
               throw new NodeOperationError(
                 this.getNode(),
-                "amountCents must be an integer between 100 ($1) and 1,000,000 ($10,000)",
+                "amountCents must be an integer between 500 ($5) and 1,000,000 ($10,000)",
                 { itemIndex: i },
               );
             }
@@ -350,10 +350,10 @@ export class DominusNodeWallet implements INodeType {
 
           case "topUpPaypal": {
             const amountCents = this.getNodeParameter("amountCents", i) as number;
-            if (!Number.isInteger(amountCents) || amountCents < 100 || amountCents > 1_000_000) {
+            if (!Number.isInteger(amountCents) || amountCents < 500 || amountCents > 1_000_000) {
               throw new NodeOperationError(
                 this.getNode(),
-                "amountCents must be an integer between 100 ($1) and 1,000,000 ($10,000)",
+                "amountCents must be an integer between 500 ($5) and 1,000,000 ($10,000)",
                 { itemIndex: i },
               );
             }

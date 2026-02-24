@@ -24,10 +24,13 @@ Security:
 from __future__ import annotations
 
 import json
+import re
 from typing import Any, Dict
 
 from shared import DominusNodeAuth
 from shared.constants import CREDENTIAL_RE
+
+_UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.IGNORECASE)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -54,13 +57,16 @@ def _validate_wallet_id(wallet_id: Any) -> str | None:
     """Validate a wallet_id, returning an error message or None if valid."""
     if not wallet_id or not isinstance(wallet_id, str):
         return "wallet_id is required and must be a string"
+    if not _UUID_RE.match(wallet_id):
+        return "wallet_id must be a valid UUID"
     return None
 
 
 def _validate_amount_cents(amount_cents: Any) -> str | None:
     """Validate amount_cents, returning an error message or None if valid."""
     if (
-        not isinstance(amount_cents, int)
+        isinstance(amount_cents, bool)
+        or not isinstance(amount_cents, int)
         or amount_cents <= 0
         or amount_cents > 2_147_483_647
     ):

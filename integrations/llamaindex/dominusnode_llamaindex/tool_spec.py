@@ -422,7 +422,7 @@ class DominusNodeToolSpec(BaseToolSpec):
         approval URL to complete payment via PayPal.
 
         Args:
-            amount_cents: Amount to top up in cents (100-1,000,000, i.e. $1-$10,000).
+            amount_cents: Amount to top up in cents (500-1,000,000, i.e. $5-$10,000).
 
         Returns:
             Dict with orderId and approvalUrl for PayPal checkout.

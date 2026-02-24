@@ -61,11 +61,40 @@ _OCTAL_OCTET_RE = re.compile(r"^0\d+$")
 
 def _is_private_ip(host: str) -> bool:
     """Return True if *host* resolves to a private, loopback, or link-local address."""
+    # Strip IPv6 brackets and zone ID
+    clean = host.strip("[]")
+    if "%" in clean:
+        clean = clean.split("%")[0]
+
     try:
-        addr = ipaddress.ip_address(host)
-        return addr.is_private or addr.is_loopback or addr.is_link_local or addr.is_reserved
+        addr = ipaddress.ip_address(clean)
     except ValueError:
-        pass
+        return False
+
+    if addr.is_private or addr.is_loopback or addr.is_link_local or addr.is_reserved:
+        return True
+
+    if isinstance(addr, ipaddress.IPv6Address):
+        # IPv4-compatible IPv6 (::x.x.x.x or hex form ::7f00:1)
+        packed = addr.packed
+        if all(b == 0 for b in packed[:12]):
+            embedded = ipaddress.IPv4Address(packed[12:16])
+            if embedded.is_private or embedded.is_loopback or embedded.is_reserved:
+                return True
+
+        # Teredo tunneling (2001:0000::/32) -- block unconditionally
+        ip_lower = clean.lower()
+        if ip_lower.startswith("2001:0000:") or ip_lower.startswith("2001:0:"):
+            return True
+
+        # 6to4 tunneling (2002::/16) -- block unconditionally
+        if ip_lower.startswith("2002:"):
+            return True
+
+        # IPv6 multicast (ff00::/8)
+        if ip_lower.startswith("ff"):
+            return True
+
     return False
 
 

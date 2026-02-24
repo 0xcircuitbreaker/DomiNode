@@ -220,6 +220,31 @@ function isPrivateIp(hostname: string): boolean {
     }
     return isPrivateIp(embedded);
   }
+
+  // IPv4-compatible IPv6 (::x.x.x.x) — deprecated but still parsed
+  if (ipLower.startsWith("::") && !ipLower.startsWith("::ffff:")) {
+    const rest = ipLower.slice(2);
+    if (rest && rest.includes(".")) return isPrivateIp(rest);
+    const hexParts = rest.split(":");
+    if (hexParts.length === 2 && hexParts[0] && hexParts[1]) {
+      const hi = parseInt(hexParts[0], 16);
+      const lo = parseInt(hexParts[1], 16);
+      if (!isNaN(hi) && !isNaN(lo)) {
+        const reconstructed = `${(hi >> 8) & 0xff}.${hi & 0xff}.${(lo >> 8) & 0xff}.${lo & 0xff}`;
+        return isPrivateIp(reconstructed);
+      }
+    }
+  }
+
+  // Teredo (2001:0000::/32) — block unconditionally
+  if (ipLower.startsWith("2001:0000:") || ipLower.startsWith("2001:0:")) return true;
+
+  // 6to4 (2002::/16) — block unconditionally
+  if (ipLower.startsWith("2002:")) return true;
+
+  // IPv6 multicast (ff00::/8)
+  if (ipLower.startsWith("ff")) return true;
+
   return false;
 }
 
@@ -375,9 +400,12 @@ async function ensureAuth(apiKey: string, baseUrl: string): Promise<string> {
     body: JSON.stringify({ apiKey }),
     redirect: "error",
   });
-  if (!res.ok) throw new Error(`Auth failed: ${res.status}`);
-  const data = await res.json() as { accessToken: string; refreshToken: string };
-  cachedJwt = data.accessToken;
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Auth failed (${res.status}): ${scrubCredentials(text.slice(0, 500))}`);
+  }
+  const data = await res.json() as { token: string };
+  cachedJwt = data.token;
   // JWT expires in 15 min, refresh at 14 min for safety
   jwtExpiresAt = Date.now() + 14 * 60 * 1000;
   return cachedJwt;
@@ -600,10 +628,11 @@ const proxiedFetchTool: ToolDefinition = {
         const timer = setTimeout(() => reject(new Error("Proxy request timed out")), 30_000);
 
         if (parsed.protocol === "https:") {
+          const connectHost = parsed.hostname.includes(":") ? `[${parsed.hostname}]` : parsed.hostname;
           const connectReq = http.request({
             hostname: proxyHost, port: proxyPort, method: "CONNECT",
-            path: `${parsed.hostname}:${parsed.port || 443}`,
-            headers: { "Proxy-Authorization": proxyAuth, Host: `${parsed.hostname}:${parsed.port || 443}` },
+            path: `${connectHost}:${parsed.port || 443}`,
+            headers: { "Proxy-Authorization": proxyAuth, Host: `${connectHost}:${parsed.port || 443}` },
           });
           connectReq.on("connect", (_res, sock) => {
             if (_res.statusCode !== 200) { clearTimeout(timer); sock.destroy(); reject(new Error(`CONNECT failed: ${_res.statusCode}`)); return; }

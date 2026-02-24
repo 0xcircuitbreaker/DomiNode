@@ -94,9 +94,18 @@ export async function createCheckoutSession(
 
   log.info("checkout session created", { userId, amountCents, sessionId: session.id });
 
+  const url = session.url ?? "";
+  if (url) {
+    const parsed = new URL(url);
+    const host = parsed.hostname.toLowerCase();
+    if (!host.endsWith(".stripe.com") && host !== "stripe.com") {
+      throw new Error("Stripe checkout URL has unexpected hostname");
+    }
+  }
+
   return {
     sessionId: session.id,
-    url: session.url ?? "",
+    url,
   };
 }
 

@@ -155,6 +155,30 @@ def _is_private_ip(hostname: str) -> bool:
                 pass
         return _is_private_ip(embedded)
 
+    # IPv4-compatible IPv6 (::x.x.x.x or hex form ::7f00:1)
+    if ip_lower.startswith("::") and not ip_lower.startswith("::ffff:"):
+        try:
+            addr = ipaddress.IPv6Address(ip_lower)
+            packed = addr.packed
+            if all(b == 0 for b in packed[:12]):
+                embedded = ipaddress.IPv4Address(packed[12:16])
+                if embedded.is_private or embedded.is_loopback or embedded.is_reserved:
+                    return True
+        except (ValueError, ipaddress.AddressValueError):
+            pass
+
+    # Teredo tunneling (2001:0000::/32)
+    if ip_lower.startswith("2001:0000:") or ip_lower.startswith("2001:0:"):
+        return True
+
+    # 6to4 tunneling (2002::/16)
+    if ip_lower.startswith("2002:"):
+        return True
+
+    # IPv6 multicast (ff00::/8)
+    if ip_lower.startswith("ff"):
+        return True
+
     return False
 
 

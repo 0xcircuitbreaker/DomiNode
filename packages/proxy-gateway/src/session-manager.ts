@@ -34,6 +34,9 @@ const sessionDestroyCallbacks = new Map<string, () => void>();
 
 // Per-user session rate limiter: max new sessions per minute
 const MAX_SESSIONS_PER_MINUTE = parseInt(process.env["MAX_SESSIONS_PER_MINUTE"] ?? "30", 10);
+if (isNaN(MAX_SESSIONS_PER_MINUTE) || MAX_SESSIONS_PER_MINUTE <= 0) {
+  throw new Error("MAX_SESSIONS_PER_MINUTE must be a positive integer");
+}
 const MAX_RATE_LIMIT_MAP_SIZE = 50_000;
 const sessionCreationLog = new Map<string, number[]>(); // userId -> timestamps
 
@@ -45,6 +48,9 @@ const MAX_BANDWIDTH_PER_HOUR_BYTES = parseInt(
   process.env["MAX_BANDWIDTH_PER_HOUR_BYTES"] ?? String(10 * 1024 * 1024 * 1024), // 10 GB
   10,
 );
+if (isNaN(MAX_BANDWIDTH_PER_HOUR_BYTES) || MAX_BANDWIDTH_PER_HOUR_BYTES <= 0) {
+  throw new Error("MAX_BANDWIDTH_PER_HOUR_BYTES must be a positive integer");
+}
 const BANDWIDTH_WINDOW_MS = 60 * 60 * 1000; // 1 hour
 const MAX_BANDWIDTH_MAP_SIZE = 50_000;
 const MAX_RECORDS_PER_USER = 10_000; // R21 H-2: Cap per-user records to prevent OOM

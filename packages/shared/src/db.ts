@@ -14,6 +14,15 @@ export function getPool(): pg.Pool {
     const poolMax = parseInt(process.env["DB_POOL_MAX"] ?? "20", 10);
     const poolMin = parseInt(process.env["DB_POOL_MIN"] ?? "2", 10);
     const connTimeout = parseInt(process.env["DB_CONNECTION_TIMEOUT_MS"] ?? "5000", 10);
+    if (isNaN(poolMax) || poolMax <= 0 || poolMax > 1000) {
+      throw new Error("DB_POOL_MAX must be between 1 and 1000");
+    }
+    if (isNaN(poolMin) || poolMin < 0 || poolMin > poolMax) {
+      throw new Error("DB_POOL_MIN must be >= 0 and <= DB_POOL_MAX");
+    }
+    if (isNaN(connTimeout) || connTimeout < 1000) {
+      throw new Error("DB_CONNECTION_TIMEOUT_MS must be >= 1000");
+    }
     pool = new pg.Pool({
       connectionString: connStr,
       max: poolMax,

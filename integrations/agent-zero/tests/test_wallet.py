@@ -128,7 +128,7 @@ class TestTopupPaypal:
         auth = _mock_auth()
         result = json.loads(topup_paypal(auth, {"amount_cents": 50}))
         assert "error" in result
-        assert "100" in result["error"]
+        assert "500" in result["error"]
 
     def test_rejects_amount_above_maximum(self):
         auth = _mock_auth()

@@ -9,7 +9,13 @@ interface AuthFailureEntry {
 
 const authFailures = new Map<string, AuthFailureEntry>();
 const MAX_FAILURES = parseInt(process.env["AUTH_FAIL_MAX"] ?? "5", 10);
+if (isNaN(MAX_FAILURES) || MAX_FAILURES <= 0) {
+  throw new Error("AUTH_FAIL_MAX must be a positive integer");
+}
 const WINDOW_MS = parseInt(process.env["AUTH_FAIL_WINDOW_MS"] ?? "60000", 10);
+if (isNaN(WINDOW_MS) || WINDOW_MS < 1000) {
+  throw new Error("AUTH_FAIL_WINDOW_MS must be >= 1000");
+}
 const MAX_MAP_SIZE = 100_000; // Cap to prevent memory exhaustion (H-7 fix)
 
 /**

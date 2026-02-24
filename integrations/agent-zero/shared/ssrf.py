@@ -161,35 +161,25 @@ def is_private_ip(hostname: str) -> bool:
                 pass
         return is_private_ip(embedded)
 
-    # IPv4-compatible IPv6 (::127.0.0.1 — deprecated but still resolves)
-    if ip_lower.startswith("::") and "." in ip_lower:
-        embedded = ip_lower[2:]
-        if "." in embedded:
-            return is_private_ip(embedded)
+    # IPv4-compatible IPv6 (::127.0.0.1 or hex form ::7f00:1)
+    if ip_lower.startswith("::") and not ip_lower.startswith("::ffff:"):
+        try:
+            addr = ipaddress.IPv6Address(ip_lower)
+            packed = addr.packed
+            if all(b == 0 for b in packed[:12]):
+                embedded = ipaddress.IPv4Address(packed[12:16])
+                if embedded.is_private or embedded.is_loopback or embedded.is_reserved:
+                    return True
+        except (ValueError, ipaddress.AddressValueError):
+            pass
 
-    # Teredo tunnelling (2001:0000::/32) — embeds IPv4 in last 32 bits
+    # Teredo tunnelling (2001:0000::/32) — block unconditionally
     if ip_lower.startswith("2001:0000:") or ip_lower.startswith("2001:0:"):
-        try:
-            addr = ipaddress.IPv6Address(ip_lower)
-            # Last 32 bits are the obfuscated (XORed) IPv4 client address
-            ipv4_int = int(addr) & 0xFFFFFFFF
-            ipv4_int ^= 0xFFFFFFFF  # un-obfuscate
-            ipv4_addr = ipaddress.IPv4Address(ipv4_int)
-            if ipv4_addr.is_private or ipv4_addr.is_loopback or ipv4_addr.is_reserved:
-                return True
-        except (ValueError, ipaddress.AddressValueError):
-            pass
+        return True
 
-    # 6to4 tunnelling (2002::/16) — embeds IPv4 in bits 16-48
+    # 6to4 tunnelling (2002::/16) — block unconditionally
     if ip_lower.startswith("2002:"):
-        try:
-            addr = ipaddress.IPv6Address(ip_lower)
-            ipv4_int = (int(addr) >> 80) & 0xFFFFFFFF
-            ipv4_addr = ipaddress.IPv4Address(ipv4_int)
-            if ipv4_addr.is_private or ipv4_addr.is_loopback or ipv4_addr.is_reserved:
-                return True
-        except (ValueError, ipaddress.AddressValueError):
-            pass
+        return True
 
     return False
 

@@ -125,7 +125,7 @@ class TestFundAgenticWallet:
     def test_valid_funding(self):
         auth = _mock_auth()
         result = json.loads(fund_agentic_wallet(auth, {
-            "wallet_id": "some-uuid",
+            "wallet_id": "c3d4e5f6-a7b8-9012-cdef-123456789012",
             "amount_cents": 1000,
         }))
         assert "id" in result
@@ -139,7 +139,7 @@ class TestFundAgenticWallet:
     def test_rejects_zero_amount(self):
         auth = _mock_auth()
         result = json.loads(fund_agentic_wallet(auth, {
-            "wallet_id": "some-uuid",
+            "wallet_id": "c3d4e5f6-a7b8-9012-cdef-123456789012",
             "amount_cents": 0,
         }))
         assert "error" in result
@@ -155,8 +155,8 @@ class TestAgenticWalletBalance:
 
     def test_returns_balance(self):
         auth = _mock_auth()
-        auth.api_request.return_value = {"id": "uuid", "balanceCents": 500}
-        result = json.loads(agentic_wallet_balance(auth, {"wallet_id": "uuid"}))
+        auth.api_request.return_value = {"id": "b2c3d4e5-f6a7-8901-bcde-f12345678901", "balanceCents": 500}
+        result = json.loads(agentic_wallet_balance(auth, {"wallet_id": "b2c3d4e5-f6a7-8901-bcde-f12345678901"}))
         assert result["balanceCents"] == 500
 
     def test_rejects_missing_wallet_id(self):
@@ -196,7 +196,7 @@ class TestAgenticTransactions:
     def test_rejects_invalid_limit(self):
         auth = _mock_auth()
         result = json.loads(agentic_transactions(auth, {
-            "wallet_id": "uuid",
+            "wallet_id": "b2c3d4e5-f6a7-8901-bcde-f12345678901",
             "limit": 200,
         }))
         assert "error" in result
@@ -205,7 +205,7 @@ class TestAgenticTransactions:
     def test_rejects_zero_limit(self):
         auth = _mock_auth()
         result = json.loads(agentic_transactions(auth, {
-            "wallet_id": "uuid",
+            "wallet_id": "b2c3d4e5-f6a7-8901-bcde-f12345678901",
             "limit": 0,
         }))
         assert "error" in result
@@ -236,18 +236,18 @@ class TestFreezeUnfreezeDelete:
 
     def test_freeze_calls_correct_endpoint(self):
         auth = _mock_auth()
-        freeze_agentic_wallet(auth, {"wallet_id": "test-uuid"})
+        freeze_agentic_wallet(auth, {"wallet_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"})
         call_args = auth.api_request.call_args
         assert "/freeze" in call_args[0][1]
 
     def test_unfreeze_calls_correct_endpoint(self):
         auth = _mock_auth()
-        unfreeze_agentic_wallet(auth, {"wallet_id": "test-uuid"})
+        unfreeze_agentic_wallet(auth, {"wallet_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"})
         call_args = auth.api_request.call_args
         assert "/unfreeze" in call_args[0][1]
 
     def test_delete_calls_correct_endpoint(self):
         auth = _mock_auth()
-        delete_agentic_wallet(auth, {"wallet_id": "test-uuid"})
+        delete_agentic_wallet(auth, {"wallet_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"})
         call_args = auth.api_request.call_args
         assert call_args[0][0] == "DELETE"

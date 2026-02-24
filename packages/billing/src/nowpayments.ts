@@ -44,7 +44,7 @@ export async function createCryptoInvoice(
     throw new Error(`Unsupported currency: ${payCurrency}`);
   }
 
-  const orderId = `topup_${userId}_${Date.now()}`;
+  const orderId = `topup_${userId}_${crypto.randomUUID()}`;
 
   const resp = await fetch(`${getApiUrl()}/invoice`, {
     method: "POST",
@@ -79,6 +79,15 @@ export async function createCryptoInvoice(
     id: string;
     invoice_url: string;
   };
+
+  if (data.invoice_url) {
+    const parsed = new URL(data.invoice_url);
+    if (parsed.protocol !== "https:") throw new Error("NOWPayments invoice URL must use HTTPS");
+    const host = parsed.hostname.toLowerCase();
+    if (!host.endsWith(".nowpayments.io") && host !== "nowpayments.io") {
+      throw new Error("NOWPayments invoice URL has unexpected hostname");
+    }
+  }
 
   await invoiceRepo.createInvoice(userId, "nowpayments", String(data.id), Math.round(amountUsd * 100));
 

@@ -96,7 +96,9 @@ _BLOCKED_IPV6_NETWORKS = [
     ipaddress.IPv6Network("100::/64"),
     ipaddress.IPv6Network("fe80::/10"),
     ipaddress.IPv6Network("fc00::/7"),  # includes fd00::/8
-    ipaddress.IPv6Network("ff00::/8"),
+    ipaddress.IPv6Network("ff00::/8"),   # multicast
+    ipaddress.IPv6Network("2001::/32"),  # Teredo tunneling
+    ipaddress.IPv6Network("2002::/16"),  # 6to4 tunneling
 ]
 
 
@@ -146,7 +148,20 @@ def _is_private_ip(hostname: str) -> bool:
     if isinstance(addr, ipaddress.IPv4Address):
         return any(addr in net for net in _BLOCKED_IPV4_NETWORKS)
     if isinstance(addr, ipaddress.IPv6Address):
-        return any(addr in net for net in _BLOCKED_IPV6_NETWORKS)
+        if any(addr in net for net in _BLOCKED_IPV6_NETWORKS):
+            return True
+        # IPv4-compatible IPv6 (::x.x.x.x or hex form ::7f00:1)
+        packed = addr.packed
+        if all(b == 0 for b in packed[:12]):
+            embedded = ipaddress.IPv4Address(packed[12:16])
+            if any(embedded in net for net in _BLOCKED_IPV4_NETWORKS):
+                return True
+        # IPv4-mapped check via ipaddress
+        mapped = addr.ipv4_mapped
+        if mapped is not None:
+            if any(mapped in net for net in _BLOCKED_IPV4_NETWORKS):
+                return True
+        return False
     return False
 
 

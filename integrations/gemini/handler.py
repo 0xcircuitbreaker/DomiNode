@@ -155,6 +155,33 @@ def _is_private_ip(hostname: str) -> bool:
                 pass
         return _is_private_ip(embedded)
 
+    # IPv4-compatible IPv6 (::x.x.x.x)
+    if ip_lower.startswith("::") and not ip_lower.startswith("::ffff:"):
+        rest = ip_lower[2:]
+        if rest and "." in rest:
+            return _is_private_ip(rest)
+        parts = rest.split(":")
+        if len(parts) == 2 and parts[0] and parts[1]:
+            try:
+                hi = int(parts[0], 16)
+                lo = int(parts[1], 16)
+                reconstructed = f"{(hi >> 8) & 0xFF}.{hi & 0xFF}.{(lo >> 8) & 0xFF}.{lo & 0xFF}"
+                return _is_private_ip(reconstructed)
+            except ValueError:
+                pass
+
+    # Teredo tunneling (2001:0000::/32)
+    if ip_lower.startswith("2001:0000:") or ip_lower.startswith("2001:0:"):
+        return True
+
+    # 6to4 tunneling (2002::/16)
+    if ip_lower.startswith("2002:"):
+        return True
+
+    # IPv6 multicast (ff00::/8)
+    if ip_lower.startswith("ff"):
+        return True
+
     return False
 
 
@@ -340,7 +367,7 @@ def create_dominusnode_function_handler(
             )
 
             if resp.status_code != 200:
-                body = resp.text[:500]
+                body = _sanitize_error(resp.text[:500])
                 raise RuntimeError(
                     f"Authentication failed ({resp.status_code}): {body}"
                 )

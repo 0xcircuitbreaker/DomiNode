@@ -275,14 +275,15 @@ export class DominusNodeProxy implements INodeType {
 
             if (parsedUrl.protocol === "https:") {
               // HTTPS: CONNECT tunnel + TLS
+              const connectHost = parsedUrl.hostname.includes(":") ? `[${parsedUrl.hostname}]` : parsedUrl.hostname;
               const connectReq = http.request({
                 hostname: proxyHost,
                 port: proxyPort,
                 method: "CONNECT",
-                path: `${parsedUrl.hostname}:${parsedUrl.port || 443}`,
+                path: `${connectHost}:${parsedUrl.port || 443}`,
                 headers: {
                   "Proxy-Authorization": proxyAuth,
-                  Host: `${parsedUrl.hostname}:${parsedUrl.port || 443}`,
+                  Host: `${connectHost}:${parsedUrl.port || 443}`,
                 },
               });
 

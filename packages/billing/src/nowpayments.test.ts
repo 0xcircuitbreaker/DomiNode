@@ -74,7 +74,7 @@ describe("nowpayments", () => {
       expect(result.invoiceUrl).toBe("https://pay.nowpayments.io/test");
       expect(result.payCurrency).toBe("btc");
       expect(result.priceAmount).toBe(10.0);
-      expect(result.orderId).toMatch(/^topup_user-1_\d+$/);
+      expect(result.orderId).toMatch(/^topup_user-1_[0-9a-f-]+$/);
 
       expect(mockFetch).toHaveBeenCalledWith(
         "https://api.test.nowpayments.io/v1/invoice",

@@ -75,7 +75,7 @@ class DominusNodeAuth:
             )
 
             if resp.status_code != 200:
-                body = resp.text[:500]
+                body = self.sanitize_error(resp.text[:500])
                 raise RuntimeError(
                     f"Authentication failed ({resp.status_code}): {body}"
                 )

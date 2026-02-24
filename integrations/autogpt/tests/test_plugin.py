@@ -176,8 +176,8 @@ class TestIPNormalization:
         assert _is_private_ip("2002:0a00:0001::1") is True
 
     def test_6to4_with_public_ipv4(self):
-        # 2002:5db8:d822:: embeds 93.184.216.34 (public)
-        assert _is_private_ip("2002:5db8:d822::1") is False
+        # 2002::/16 is now blocked unconditionally (tunneling risk)
+        assert _is_private_ip("2002:5db8:d822::1") is True
 
     def test_public_ipv4(self):
         assert _is_private_ip("93.184.216.34") is False

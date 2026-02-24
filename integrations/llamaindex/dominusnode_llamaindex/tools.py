@@ -234,12 +234,28 @@ def is_private_ip(hostname: str) -> bool:
                 pass
         return is_private_ip(embedded)
 
+    # IPv6 multicast (ff00::/8)
+    if ip_lower.startswith("ff"):
+        return True
+
     # IPv4-compatible IPv6 (::x.x.x.x) -- deprecated but still parsed
     ipv4_compat_match = re.match(
         r"^::(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$", ip_lower
     )
     if ipv4_compat_match:
         return is_private_ip(ipv4_compat_match.group(1))
+
+    # IPv4-compatible IPv6 hex form (::7f00:1)
+    if ip_lower.startswith("::") and not ip_lower.startswith("::ffff:"):
+        try:
+            addr = ipaddress.IPv6Address(ip_lower)
+            packed = addr.packed
+            if all(b == 0 for b in packed[:12]):
+                embedded_v4 = ipaddress.IPv4Address(packed[12:16])
+                if embedded_v4.is_private or embedded_v4.is_loopback or embedded_v4.is_reserved:
+                    return True
+        except (ValueError, ipaddress.AddressValueError):
+            pass
 
     # Teredo tunneling (2001:0000::/32) -- embeds IPv4 addresses
     if ip_lower.startswith("2001:0000:") or ip_lower.startswith("2001:0:"):
@@ -450,7 +466,7 @@ def _validate_amount_cents(
     max_val: int = 2_147_483_647,
 ) -> Optional[str]:
     """Validate an integer cent amount.  Returns an error string or None if valid."""
-    if not isinstance(amount_cents, int) or amount_cents < min_val or amount_cents > max_val:
+    if isinstance(amount_cents, bool) or not isinstance(amount_cents, int) or amount_cents < min_val or amount_cents > max_val:
         return f"{field_name} must be an integer between {min_val} and {max_val}"
     return None
 

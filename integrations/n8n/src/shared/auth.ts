@@ -260,7 +260,7 @@ export class DominusNodeAuth {
 
     if (!response.ok) {
       const text = await response.text();
-      throw new Error(`Authentication failed (${response.status}): ${text.slice(0, 500)}`);
+      throw new Error(`Authentication failed (${response.status}): ${sanitizeError(text.slice(0, 500))}`);
     }
 
     const data = safeJsonParse<{ token: string }>(await response.text());

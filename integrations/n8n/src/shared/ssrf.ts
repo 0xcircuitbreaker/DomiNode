@@ -195,6 +195,9 @@ export function isPrivateIp(hostname: string): boolean {
     return true;
   }
 
+  // IPv6 multicast (ff00::/8)
+  if (ipLower.startsWith("ff")) return true;
+
   return false;
 }
 

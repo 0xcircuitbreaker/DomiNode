@@ -294,16 +294,18 @@ export async function capturePaypalOrder(
 
   // Verify captured amount matches invoice
   const capture = data.purchase_units?.[0]?.payments?.captures?.[0];
-  if (capture) {
-    const capturedCents = Math.round(parseFloat(capture.amount?.value ?? "0") * 100);
-    if (Math.abs(capturedCents - invoice.amount_cents) > 1) {
-      log.error("PayPal captured amount mismatch", {
-        orderId,
-        capturedCents,
-        invoiceAmountCents: invoice.amount_cents,
-      });
-      return null;
-    }
+  if (!capture || !capture.amount?.value) {
+    log.error("PayPal capture response missing amount", { orderId });
+    return null;
+  }
+  const capturedCents = Math.round(parseFloat(capture.amount.value) * 100);
+  if (Math.abs(capturedCents - invoice.amount_cents) > 1) {
+    log.error("PayPal captured amount mismatch", {
+      orderId,
+      capturedCents,
+      invoiceAmountCents: invoice.amount_cents,
+    });
+    return null;
   }
 
   // Atomically complete the invoice

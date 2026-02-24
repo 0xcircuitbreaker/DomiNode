@@ -53,6 +53,15 @@ function isPrivateIp(hostname: string): boolean {
   if (/^fe[89abAB][0-9a-fA-F]:/i.test(noZone)) return true; // link-local fe80::/10
   if (noZone === "::") return true; // unspecified
 
+  // Teredo (2001:0000::/32) — block unconditionally
+  if (noZone.startsWith("2001:0000:") || noZone.startsWith("2001:0:")) return true;
+
+  // 6to4 (2002::/16) — block unconditionally
+  if (noZone.startsWith("2002:")) return true;
+
+  // IPv6 multicast (ff00::/8)
+  if (noZone.startsWith("ff")) return true;
+
   return false;
 }
 
@@ -300,10 +309,11 @@ export function createProxiedFetchTool(client: DominusNodeClient, apiKey: string
 
           if (targetUrl.protocol === "https:") {
             // HTTPS: use CONNECT tunnel through proxy
+            const connectHost = targetUrl.hostname.includes(":") ? `[${targetUrl.hostname}]` : targetUrl.hostname;
             const connectReq = http.request({
               hostname: proxyHost, port: proxyPort, method: "CONNECT",
-              path: `${targetUrl.hostname}:${targetUrl.port || 443}`,
-              headers: { "Proxy-Authorization": proxyAuth, Host: `${targetUrl.hostname}:${targetUrl.port || 443}` },
+              path: `${connectHost}:${targetUrl.port || 443}`,
+              headers: { "Proxy-Authorization": proxyAuth, Host: `${connectHost}:${targetUrl.port || 443}` },
             });
             connectReq.on("connect", (_res, sock) => {
               if (_res.statusCode !== 200) { clearTimeout(timer); sock.destroy(); reject(new Error(`CONNECT failed: ${_res.statusCode}`)); return; }

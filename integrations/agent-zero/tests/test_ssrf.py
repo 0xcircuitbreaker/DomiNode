@@ -152,8 +152,8 @@ class TestIsPrivateIp:
         assert is_private_ip("2002:7f00:0001::1") is True
 
     def test_6to4_public(self):
-        # 2002:0808:0808:: = 6to4 embedding 8.8.8.8
-        assert is_private_ip("2002:0808:0808::1") is False
+        # 2002:0808:0808:: = 6to4 embedding 8.8.8.8 -- all 6to4 blocked unconditionally
+        assert is_private_ip("2002:0808:0808::1") is True
 
     # Zone ID stripping
 
