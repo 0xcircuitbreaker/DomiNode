@@ -289,12 +289,12 @@ export default function WalletPage() {
           {/* Crypto */}
           <div className="border border-gray-700 rounded-lg p-4">
             <h3 className="text-sm font-medium mb-3">Crypto Payment</h3>
-            <div className="flex gap-2 mb-3">
+            <div className="flex gap-2 mb-3 overflow-x-auto pb-2 scrollbar-thin">
               {CRYPTO_OPTIONS.map((c) => (
                 <button
                   key={c}
                   onClick={() => setSelectedCrypto(c)}
-                  className={`px-3 py-1.5 min-h-[44px] rounded text-xs font-medium uppercase transition-colors ${
+                  className={`px-3 py-1.5 min-h-[44px] rounded text-xs font-medium uppercase transition-colors whitespace-nowrap flex-shrink-0 ${
                     selectedCrypto === c
                       ? "bg-indigo-600 text-white"
                       : "bg-gray-800 text-gray-400 hover:bg-gray-700"

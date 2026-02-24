@@ -87,6 +87,22 @@ body {
   }
 }
 
+/* Thin scrollbar for horizontal scroll containers */
+.scrollbar-thin {
+  scrollbar-width: thin;
+  scrollbar-color: #4b5563 transparent;
+}
+.scrollbar-thin::-webkit-scrollbar {
+  height: 4px;
+}
+.scrollbar-thin::-webkit-scrollbar-track {
+  background: transparent;
+}
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background: #4b5563;
+  border-radius: 2px;
+}
+
 /* Mobile code block overflow prevention */
 .mobile-code-block {
   word-break: break-all;
