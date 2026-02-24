@@ -2,6 +2,7 @@ import { Router } from "express";
 import rateLimit from "express-rate-limit";
 import crypto from "node:crypto";
 import { requireAuth, type AuthenticatedRequest } from "../middleware/auth.js";
+import { clearAuthCookies } from "../helpers/cookies.js";
 import { query, getPool, createLogger, userRepo, verifyPassword, isWalletEmail } from "@dominusnode/shared";
 
 const log = createLogger("api:account");
@@ -269,6 +270,44 @@ router.delete(
         );
         await client.query("DELETE FROM agentic_wallets WHERE user_id = $1", [userId]);
 
+        // R46 C-3: Handle teams owned by this user
+        // Revoke all API keys for owned teams
+        await client.query(
+          `UPDATE api_keys SET revoked_at = NOW()
+           WHERE team_id IN (SELECT id FROM teams WHERE owner_id = $1)
+           AND revoked_at IS NULL`,
+          [userId]
+        );
+        // Delete team wallet transactions for owned teams
+        await client.query(
+          `DELETE FROM team_wallet_transactions
+           WHERE wallet_id IN (
+             SELECT tw.id FROM team_wallets tw
+             JOIN teams t ON t.id = tw.team_id WHERE t.owner_id = $1
+           )`,
+          [userId]
+        );
+        // Remove all members from owned teams (except self — deleted below)
+        await client.query(
+          `DELETE FROM team_members
+           WHERE team_id IN (SELECT id FROM teams WHERE owner_id = $1)
+           AND user_id != $1`,
+          [userId]
+        );
+        // Delete team invites for owned teams
+        await client.query(
+          `DELETE FROM team_invites
+           WHERE team_id IN (SELECT id FROM teams WHERE owner_id = $1)`,
+          [userId]
+        );
+        // Delete team wallets for owned teams
+        await client.query(
+          `DELETE FROM team_wallets WHERE team_id IN (SELECT id FROM teams WHERE owner_id = $1)`,
+          [userId]
+        );
+        // Delete owned teams
+        await client.query("DELETE FROM teams WHERE owner_id = $1", [userId]);
+
         // R36 H-1: Clean up team memberships and owned teams
         await client.query("DELETE FROM team_invites WHERE invited_by = $1", [userId]);
         // R38 H-1: Delete pending team invites sent TO this user's email
@@ -341,9 +380,9 @@ router.delete(
 
       log.info("account deleted (GDPR erasure)", { userId });
 
-      // Clear auth cookies
-      res.clearCookie("dominusnode_access");
-      res.clearCookie("dominusnode_refresh", { path: "/api/auth" });
+      // R46 C-2: Use clearAuthCookies helper — bare clearCookie() omits path/httpOnly/secure/sameSite
+      // options, so the browser won't actually clear the cookie (options must match how it was set)
+      clearAuthCookies(res);
       res.json({ message: "Account deleted. Your data has been anonymized." });
     } catch (err) {
       log.error("account deletion failed", { userId, error: err instanceof Error ? err.message : String(err) });

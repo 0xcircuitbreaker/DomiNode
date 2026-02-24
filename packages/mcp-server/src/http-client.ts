@@ -2,6 +2,22 @@ import type { TokenManager } from "./token-manager.js";
 
 const USER_AGENT = "dominusnode-mcp-server/1.0.0";
 
+// R46 C-1: Scrub credential patterns from error messages before returning to MCP client
+const CREDENTIAL_PATTERNS = [
+  /dn_live_[A-Za-z0-9_-]+/g,
+  /dn_test_[A-Za-z0-9_-]+/g,
+  /eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*/g,
+  /Bearer\s+[A-Za-z0-9._-]+/gi,
+];
+
+function scrubCredentials(msg: string): string {
+  let result = msg;
+  for (const pattern of CREDENTIAL_PATTERNS) {
+    result = result.replace(pattern, "[REDACTED]");
+  }
+  return result;
+}
+
 const DANGEROUS_KEYS = new Set(["__proto__", "constructor", "prototype"]);
 
 // R20 H-6: Depth limit prevents stack overflow on deeply nested JSON
@@ -137,10 +153,12 @@ export class HttpClient {
         redirect: "error", // R17: Reject redirects — prevents HTTPS→HTTP credential leakage
       });
     } catch (err) {
-      throw new Error(`Network error: ${err instanceof Error ? err.message : "request failed"}`);
+      throw new Error(scrubCredentials(`Network error: ${err instanceof Error ? err.message : "request failed"}`));
     }
 
     // 429 retry with jitter, cap 10s
+    // NOTE: Safe for POST/PATCH/DELETE because a 429 response means the backend
+    // rate limiter rejected the request BEFORE processing — no mutation occurred.
     if (response.status === 429) {
       const retryAfterRaw = parseInt(response.headers.get("retry-after") ?? "5", 10);
       const retryAfter = isNaN(retryAfterRaw) ? 5 : retryAfterRaw;
@@ -162,7 +180,7 @@ export class HttpClient {
           redirect: "error",
         });
       } catch (err) {
-        throw new Error(`Network error on retry: ${err instanceof Error ? err.message : "request failed"}`);
+        throw new Error(scrubCredentials(`Network error on retry: ${err instanceof Error ? err.message : "request failed"}`));
       }
 
       // R30 H-2: Prevent fall-through to 401 handler after 429 retry
@@ -183,6 +201,8 @@ export class HttpClient {
     }
 
     // 401 retry with force refresh
+    // NOTE: Safe for POST/PATCH/DELETE because a 401 means auth rejected BEFORE
+    // processing — no mutation occurred. Retrying with a fresh token is the first actual attempt.
     if (response.status === 401 && opts.requiresAuth !== false) {
       // R26 C-1: Cancel unconsumed 401 response body to free connection + memory
       await response.body?.cancel();
@@ -211,7 +231,7 @@ export class HttpClient {
         const parsed = safeJsonParse<Record<string, unknown>>(retryBody);
         retryMessage = (parsed.error as string) ?? (parsed.message as string) ?? retryBody.slice(0, 500);
       } catch { /* use raw text */ }
-      throw new Error(`API error ${retry.status}: ${retryMessage}`);
+      throw new Error(scrubCredentials(`API error ${retry.status}: ${retryMessage}`));
     }
 
     const responseText = await response.text();
@@ -227,7 +247,7 @@ export class HttpClient {
         const parsed = safeJsonParse<Record<string, unknown>>(responseText);
         message = (parsed.error as string) ?? (parsed.message as string) ?? responseText.slice(0, 500);
       } catch { /* use raw text */ }
-      throw new Error(`API error ${response.status}: ${message}`);
+      throw new Error(scrubCredentials(`API error ${response.status}: ${message}`));
     }
 
     return responseText ? safeJsonParse<T>(responseText) : ({} as T);

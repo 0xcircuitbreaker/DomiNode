@@ -17,3 +17,27 @@ export {
   handlePaypalWebhook,
   verifyPaypalWebhook,
 } from "./paypal.js";
+
+export {
+  isX402Enabled,
+  buildX402Requirements,
+  verifyX402Payment,
+  settleX402Payment,
+  updateX402Transaction,
+  claimPaymentHash,
+  releasePaymentHash,
+  detectFacilitator,
+  getDcPricePerRequestUsd,
+  getResPricePerRequestUsd,
+  getMaxRequestBodyBytes,
+  getX402MaxResponseBytes,
+  hashPaymentHeader,
+} from "./x402.js";
+
+export type {
+  X402Facilitator,
+  X402Requirements,
+  X402PaymentOption,
+  X402VerifyResult,
+  X402Settlement,
+} from "./x402.js";

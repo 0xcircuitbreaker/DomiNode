@@ -317,6 +317,13 @@ END $$;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_users_wallet_address
   ON users(wallet_address) WHERE wallet_address IS NOT NULL;
 
+-- R45 L-1: wallet_address must be exactly 42 chars (0x + 40 hex) and lowercase hex
+DO $$ BEGIN
+  ALTER TABLE users ADD CONSTRAINT chk_wallet_address_format
+    CHECK (wallet_address IS NULL OR (length(wallet_address) = 42 AND wallet_address ~ '^0x[0-9a-f]{40}$'));
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
 -- ─── Wallet Challenges (nonce-based EIP-191 signature auth) ───────────
 
 CREATE TABLE IF NOT EXISTS wallet_challenges (
@@ -332,6 +339,20 @@ CREATE INDEX IF NOT EXISTS idx_wallet_challenges_address
   ON wallet_challenges(address) WHERE NOT consumed;
 CREATE INDEX IF NOT EXISTS idx_wallet_challenges_created
   ON wallet_challenges(created_at);
+
+-- R46 H-1: Length constraints on wallet_challenges text fields
+DO $$ BEGIN
+  ALTER TABLE wallet_challenges ADD CONSTRAINT chk_wc_address_length CHECK (length(address) <= 42);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+DO $$ BEGIN
+  ALTER TABLE wallet_challenges ADD CONSTRAINT chk_wc_nonce_length CHECK (length(nonce) <= 128);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+DO $$ BEGIN
+  ALTER TABLE wallet_challenges ADD CONSTRAINT chk_wc_ip_length CHECK (length(ip_address) <= 45);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- ─── Data Retention Policies ───────────────────────────────────────────
 
@@ -651,13 +672,90 @@ DO $$ BEGIN
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
--- ─── PayPal provider migration ──────────────────────────────────────
+-- ─── x402 Micropayment Transactions ──────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS x402_transactions (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  facilitator     TEXT NOT NULL CHECK (facilitator IN ('coinbase', 'payai')),
+  payer_address   TEXT NOT NULL,
+  amount_usd      TEXT NOT NULL,
+  tx_hash         TEXT,
+  pool_type       TEXT NOT NULL CHECK (pool_type IN ('dc', 'residential')),
+  target_host     TEXT NOT NULL DEFAULT 'unknown',
+  status          TEXT NOT NULL DEFAULT 'settled'
+                  CHECK (status IN ('pending', 'settled', 'failed')),
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- C-5: payment_hash for replay detection (SHA-256 of X-PAYMENT header)
+DO $$ BEGIN
+  ALTER TABLE x402_transactions ADD COLUMN payment_hash TEXT;
+EXCEPTION WHEN duplicate_column THEN NULL;
+END $$;
+
+-- R45 H-7: Backfill NULL payment_hash values before adding NOT NULL constraint
+UPDATE x402_transactions SET payment_hash = id::TEXT WHERE payment_hash IS NULL;
+
+DO $$ BEGIN
+  ALTER TABLE x402_transactions ALTER COLUMN payment_hash SET NOT NULL;
+EXCEPTION WHEN OTHERS THEN NULL;
+END $$;
+
+CREATE INDEX IF NOT EXISTS idx_x402_transactions_payer ON x402_transactions(payer_address);
+CREATE INDEX IF NOT EXISTS idx_x402_transactions_created ON x402_transactions(created_at);
+-- R46 H-4: Unconditional unique index (payment_hash has NOT NULL constraint)
+CREATE UNIQUE INDEX IF NOT EXISTS idx_x402_payment_hash ON x402_transactions(payment_hash);
+
+-- Retention policy for x402 transactions
+INSERT INTO data_retention_policies (table_name, retention_days, description) VALUES
+  ('x402_transactions', 730, 'x402 micropayment transactions retained for 2 years')
+ON CONFLICT (table_name) DO NOTHING;
+
+-- R37 H-1: Length constraints on x402 text fields
+DO $$ BEGIN
+  ALTER TABLE x402_transactions ADD CONSTRAINT chk_x402_payer_length CHECK (length(payer_address) <= 255);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+  ALTER TABLE x402_transactions ADD CONSTRAINT chk_x402_amount_length CHECK (length(amount_usd) <= 50);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+  ALTER TABLE x402_transactions ADD CONSTRAINT chk_x402_tx_hash_length CHECK (length(tx_hash) <= 255);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+  ALTER TABLE x402_transactions ADD CONSTRAINT chk_x402_target_length CHECK (length(target_host) <= 255);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+-- ─── x402 + PayPal provider migration ──────────────────────────────────
 
 DO $$ BEGIN
   ALTER TABLE payment_invoices DROP CONSTRAINT IF EXISTS payment_invoices_provider_check;
   ALTER TABLE payment_invoices ADD CONSTRAINT payment_invoices_provider_check
-    CHECK (provider IN ('stripe', 'nowpayments', 'paypal'));
+    CHECK (provider IN ('stripe', 'nowpayments', 'paypal', 'x402'));
 EXCEPTION WHEN OTHERS THEN NULL;
+END $$;
+
+-- ─── R46 H-2: Upper bound on agentic_wallets spending_limit_cents ────
+DO $$ BEGIN
+  ALTER TABLE agentic_wallets ADD CONSTRAINT chk_agentic_wallets_spending_upper
+    CHECK (spending_limit_cents <= 1000000);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+-- ─── R46 H-10: Currency CHECK constraints ───────────────────────────
+DO $$ BEGIN
+  ALTER TABLE wallets ADD CONSTRAINT chk_wallets_currency CHECK (currency = 'USD');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+DO $$ BEGIN
+  ALTER TABLE team_wallets ADD CONSTRAINT chk_team_wallets_currency CHECK (currency = 'USD');
+EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
 -- ─── Record current schema version ──────────────────────────────────
@@ -668,4 +766,8 @@ ON CONFLICT (version) DO NOTHING;
 
 INSERT INTO schema_migrations (version, description) VALUES
   ('1.1.0', 'Add PayPal as payment provider')
+ON CONFLICT (version) DO NOTHING;
+
+INSERT INTO schema_migrations (version, description) VALUES
+  ('1.2.0', 'Add x402 micropayment transactions table and x402 payment provider')
 ON CONFLICT (version) DO NOTHING;

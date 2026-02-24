@@ -48,6 +48,8 @@ pub mod admin;
 pub mod slots;
 pub mod agent_wallet;
 pub mod teams;
+pub mod x402;
+pub mod wallet_auth;
 
 pub use client::{Config, DominusNodeClient};
 pub use errors::{DominusNodeError, Result};

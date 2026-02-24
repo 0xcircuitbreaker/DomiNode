@@ -4,6 +4,8 @@ use crate::admin::AdminResource;
 use crate::agent_wallet::AgenticWalletResource;
 use crate::slots::SlotsResource;
 use crate::teams::TeamsResource;
+use crate::x402::X402Resource;
+use crate::wallet_auth::WalletAuthResource;
 use crate::auth::AuthResource;
 use crate::constants::{DEFAULT_BASE_URL, DEFAULT_HTTP_PROXY_PORT, DEFAULT_PROXY_HOST, DEFAULT_SOCKS5_PROXY_PORT};
 use crate::errors::Result;
@@ -114,6 +116,10 @@ pub struct DominusNodeClient {
     pub agentic_wallets: AgenticWalletResource,
     /// Team operations (shared wallets, members, invites, keys).
     pub teams: TeamsResource,
+    /// x402 protocol information (HTTP 402 micropayments).
+    pub x402: X402Resource,
+    /// Wallet-based authentication (EIP-191 signed messages).
+    pub wallet_auth: WalletAuthResource,
     token_manager: Arc<TokenManager>,
     /// Stored API key for credential clearing on disconnect.
     api_key: tokio::sync::Mutex<Option<String>>,
@@ -200,6 +206,8 @@ impl DominusNodeClient {
         let slots = SlotsResource::new(Arc::clone(&http));
         let agentic_wallets = AgenticWalletResource::new(Arc::clone(&http));
         let teams = TeamsResource::new(Arc::clone(&http));
+        let x402 = X402Resource::new(Arc::clone(&http));
+        let wallet_auth = WalletAuthResource::new(Arc::clone(&http), Arc::clone(&token_manager));
 
         let client = Self {
             auth,
@@ -213,6 +221,8 @@ impl DominusNodeClient {
             slots,
             agentic_wallets,
             teams,
+            x402,
+            wallet_auth,
             token_manager: Arc::clone(&token_manager),
             api_key: tokio::sync::Mutex::new(config.api_key.clone()),
         };

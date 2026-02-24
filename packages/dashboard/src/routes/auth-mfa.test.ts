@@ -32,8 +32,6 @@ vi.mock("@dominusnode/shared", () => ({
     disableMfa: vi.fn(),
     deleteMfaConfig: vi.fn(),
     storeBackupCodes: vi.fn(),
-    findUnusedBackupCode: vi.fn(),
-    consumeBackupCode: vi.fn(),
     consumeBackupCodeAtomic: vi.fn(),
     countUnusedBackupCodes: vi.fn(),
   },

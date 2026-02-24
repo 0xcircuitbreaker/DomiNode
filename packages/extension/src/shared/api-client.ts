@@ -6,9 +6,10 @@ let apiBase = DEFAULT_API_BASE;
 export function setApiBase(base: string): void {
   const trimmed = base.replace(/\/$/, "");
   const parsed = new URL(trimmed);
-  // R27 H-4: Expand localhost check to cover IPv6 loopback and 0.0.0.0
+  // R27 H-4: Expand localhost check to cover IPv6 loopback
+  // R46 H-5: Removed 0.0.0.0 — it's the "all interfaces" bind address, not a valid API target
   const isLocal = parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1"
-    || parsed.hostname === "[::1]" || parsed.hostname === "0.0.0.0";
+    || parsed.hostname === "[::1]";
   if (parsed.protocol !== "https:" && !isLocal) {
     throw new Error("API base URL must use HTTPS for non-local hosts");
   }
@@ -90,7 +91,8 @@ async function safeJson<T>(res: Response): Promise<T> {
     const text = new TextDecoder().decode(
       chunks.length === 1 ? chunks[0] : mergeUint8Arrays(chunks, totalBytes)
     );
-    if (!text) return {} as T;
+    // R46 H-3: Throw on empty body — returning {} as T bypasses type safety
+    if (!text) throw new Error("Empty response from server");
     const parsed = JSON.parse(text);
     stripDangerousKeys(parsed);
     return parsed as T;

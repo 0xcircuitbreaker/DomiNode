@@ -40,7 +40,7 @@ vi.mock("../shared/api-client.js", () => ({
 }));
 
 vi.mock("../shared/proxy-config.js", () => ({
-  buildProxyUsername: vi.fn(() => "user-country_US"),
+  buildProxyUsername: vi.fn(() => "user-country-US"),
   generateSessionId: vi.fn(() => "abcd1234"),
 }));
 

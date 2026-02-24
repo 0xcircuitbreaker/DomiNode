@@ -129,9 +129,22 @@ router.put("/users/:id/activate", async (req, res) => {
     return;
   }
   try {
-    // Prevent admin-to-admin attacks
+    // R46 H-3: Prevent reactivating deleted or already-active users
     const targetUser = await userRepo.findUserById(req.params.id);
-    if (targetUser?.is_admin) {
+    if (!targetUser) {
+      res.status(404).json({ error: "User not found" });
+      return;
+    }
+    if (targetUser.status === "deleted") {
+      res.status(400).json({ error: "Cannot reactivate a deleted account" });
+      return;
+    }
+    if (targetUser.status === "active") {
+      res.status(400).json({ error: "User is already active" });
+      return;
+    }
+    // Prevent admin-to-admin attacks
+    if (targetUser.is_admin) {
       res.status(403).json({ error: "Cannot reactivate another admin account" });
       return;
     }

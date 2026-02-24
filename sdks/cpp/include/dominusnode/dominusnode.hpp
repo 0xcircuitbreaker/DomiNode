@@ -19,4 +19,6 @@
 #include "dominusnode/sessions.hpp"
 #include "dominusnode/proxy.hpp"
 #include "dominusnode/admin.hpp"
+#include "dominusnode/x402.hpp"
+#include "dominusnode/wallet_auth.hpp"
 #include "dominusnode/client.hpp"

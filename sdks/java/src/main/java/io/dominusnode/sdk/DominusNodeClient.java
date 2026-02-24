@@ -52,6 +52,8 @@ public final class DominusNodeClient implements AutoCloseable {
     private final SlotsResource slots;
     private final AgenticWalletResource agenticWallets;
     private final TeamsResource teams;
+    private final X402Resource x402;
+    private final WalletAuthResource walletAuth;
 
     private final TokenManager tokenManager;
     private volatile String apiKey;
@@ -84,6 +86,8 @@ public final class DominusNodeClient implements AutoCloseable {
         this.slots = new SlotsResource(http);
         this.agenticWallets = new AgenticWalletResource(http);
         this.teams = new TeamsResource(http);
+        this.x402 = new X402Resource(http);
+        this.walletAuth = new WalletAuthResource(http, tokenManager);
 
         // Wire up the token refresh function
         // R15 H-7: Use UncheckedDominusNodeException to preserve the original exception type
@@ -144,6 +148,12 @@ public final class DominusNodeClient implements AutoCloseable {
 
     /** Team operations (shared wallets, members, invites, keys). */
     public TeamsResource teams() { return teams; }
+
+    /** x402 protocol information (HTTP 402 micropayments). */
+    public X402Resource x402() { return x402; }
+
+    /** Wallet-based authentication (EIP-191 signed messages). */
+    public WalletAuthResource walletAuth() { return walletAuth; }
 
     // ── Connection methods ─────────────────────────────────────────────
 

@@ -46,6 +46,8 @@ from .sessions import AsyncSessionsResource, SessionsResource
 from .slots import AsyncSlotsResource, SlotsResource
 from .agent_wallet import AgenticWalletResource, AsyncAgenticWalletResource
 from .teams import TeamsResource as TeamsRes, AsyncTeamsResource as AsyncTeamsRes
+from .x402 import X402Resource, AsyncX402Resource
+from .wallet_auth import WalletAuthResource, AsyncWalletAuthResource
 from .token_manager import AsyncTokenManager, TokenManager
 from .types import LoginResult, User
 from .usage import AsyncUsageResource, UsageResource
@@ -125,6 +127,8 @@ class DominusNodeClient:
         self._slots = SlotsResource(self._http)
         self._agentic_wallets = AgenticWalletResource(self._http)
         self._teams = TeamsRes(self._http)
+        self._x402 = X402Resource(self._http)
+        self._wallet_auth = WalletAuthResource(self._http, self._token_manager)
 
         # Auto-connect if credentials provided.
         # On failure, clear credentials to prevent retention in a partial object.
@@ -194,6 +198,16 @@ class DominusNodeClient:
     def teams(self) -> TeamsRes:
         """Team operations (shared wallets, members, invites, keys)."""
         return self._teams
+
+    @property
+    def x402(self) -> X402Resource:
+        """x402 protocol information (HTTP 402 micropayments)."""
+        return self._x402
+
+    @property
+    def wallet_auth(self) -> WalletAuthResource:
+        """Wallet-based authentication (EIP-191 signed messages)."""
+        return self._wallet_auth
 
     # ── Connection methods ───────────────────────────────────────────
 
@@ -323,6 +337,8 @@ class AsyncDominusNodeClient:
         self._slots = AsyncSlotsResource(self._http)
         self._agentic_wallets = AsyncAgenticWalletResource(self._http)
         self._teams = AsyncTeamsRes(self._http)
+        self._x402 = AsyncX402Resource(self._http)
+        self._wallet_auth = AsyncWalletAuthResource(self._http, self._token_manager)
 
     # ── Resource properties ──────────────────────────────────────────
 
@@ -370,6 +386,16 @@ class AsyncDominusNodeClient:
     def teams(self) -> AsyncTeamsRes:
         """Team operations (shared wallets, members, invites, keys)."""
         return self._teams
+
+    @property
+    def x402(self) -> AsyncX402Resource:
+        """x402 protocol information (HTTP 402 micropayments)."""
+        return self._x402
+
+    @property
+    def wallet_auth(self) -> AsyncWalletAuthResource:
+        """Wallet-based authentication (EIP-191 signed messages)."""
+        return self._wallet_auth
 
     # ── Connection methods ───────────────────────────────────────────
 

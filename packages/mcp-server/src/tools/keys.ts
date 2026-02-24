@@ -69,6 +69,8 @@ export function registerKeysTools(server: McpServer, httpClient: HttpClient): vo
           `Label: ${data.label}`,
           ``,
           `IMPORTANT: Save this key now — it will not be shown again.`,
+          `WARNING: This key is a secret credential. Do not log it, share it,`,
+          `or include it in any output that may be visible to others.`,
         ].join("\n");
         return { content: [{ type: "text", text }] };
       } catch (err) {

@@ -52,6 +52,8 @@ struct DominusNodeClient::Impl {
     SlotsResource slots_resource;
     AgenticWalletResource agentic_wallet_resource;
     TeamsResource teams_resource;
+    X402Resource x402_resource;
+    WalletAuthResource wallet_auth_resource;
 
     explicit Impl(ClientConfig cfg)
         : config(std::move(cfg))
@@ -67,7 +69,9 @@ struct DominusNodeClient::Impl {
         , admin_resource(http_client)
         , slots_resource(http_client)
         , agentic_wallet_resource(http_client)
-        , teams_resource(http_client) {
+        , teams_resource(http_client)
+        , x402_resource(http_client)
+        , wallet_auth_resource(http_client, token_manager) {
 
         // Set up the token refresh function
         token_manager.set_refresh_function(
@@ -139,6 +143,8 @@ AdminResource& DominusNodeClient::admin() { return impl_->admin_resource; }
 SlotsResource& DominusNodeClient::slots() { return impl_->slots_resource; }
 AgenticWalletResource& DominusNodeClient::agentic_wallets() { return impl_->agentic_wallet_resource; }
 TeamsResource& DominusNodeClient::teams() { return impl_->teams_resource; }
+X402Resource& DominusNodeClient::x402() { return impl_->x402_resource; }
+WalletAuthResource& DominusNodeClient::wallet_auth() { return impl_->wallet_auth_resource; }
 
 const std::string& DominusNodeClient::base_url() const {
     return impl_->config.base_url;

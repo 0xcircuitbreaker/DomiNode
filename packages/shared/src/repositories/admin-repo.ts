@@ -125,8 +125,9 @@ export async function deleteUser(userId: string): Promise<void> {
     await client.query("BEGIN");
 
     // R41 H-1: Look up email + wallet address before anonymizing
+    // R46 C-5: FOR UPDATE prevents concurrent modification during deletion
     const userRow = (await client.query(
-      "SELECT email, wallet_address FROM users WHERE id = $1", [userId]
+      "SELECT email, wallet_address FROM users WHERE id = $1 FOR UPDATE", [userId]
     )).rows[0];
 
     // Anonymize user: replace email, clear password, set status to deleted
@@ -173,6 +174,15 @@ export async function deleteUser(userId: string): Promise<void> {
     if (userRow?.wallet_address) {
       await client.query(
         "DELETE FROM wallet_challenges WHERE address = $1",
+        [userRow.wallet_address.toLowerCase()]
+      );
+    }
+
+    // R46 C-4: Anonymize x402 transactions linked to user's wallet address
+    if (userRow?.wallet_address) {
+      await client.query(
+        `UPDATE x402_transactions SET payer_address = 'REDACTED', target_host = 'REDACTED', tx_hash = 'REDACTED'
+         WHERE payer_address = $1`,
         [userRow.wallet_address.toLowerCase()]
       );
     }

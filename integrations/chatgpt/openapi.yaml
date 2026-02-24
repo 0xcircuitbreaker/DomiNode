@@ -1282,6 +1282,57 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  # ─── x402 Protocol ─────────────────────────────────────────────────
+  /api/x402/info:
+    get:
+      operationId: getX402Info
+      tags: [Wallet]
+      security: []
+      summary: Get x402 micropayment protocol information
+      description: |
+        Returns x402 HTTP 402 Payment Required protocol details including supported
+        facilitators (Coinbase, PayAI), pricing, supported currencies, wallet type,
+        and agentic wallet information for AI agent micropayments.
+      responses:
+        "200":
+          description: x402 protocol information
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  supported:
+                    type: boolean
+                    description: Whether x402 is supported
+                  enabled:
+                    type: boolean
+                    description: Whether x402 is currently enabled
+                  protocol:
+                    type: string
+                    description: Protocol identifier
+                    example: x402
+                  version:
+                    type: string
+                    description: Protocol version
+                    example: "1.0"
+                  facilitators:
+                    type: object
+                    description: Supported payment facilitators
+                  pricing:
+                    type: object
+                    description: Pricing details for proxy usage
+                  currencies:
+                    type: array
+                    items:
+                      type: string
+                    description: Supported payment currencies
+                  walletType:
+                    type: string
+                    description: Type of wallet used
+                  agenticWallets:
+                    type: boolean
+                    description: Whether agentic wallets are available for AI agents
+
   # ─── Proxy Config ───────────────────────────────────────────────────
   /api/proxy/config:
     get:

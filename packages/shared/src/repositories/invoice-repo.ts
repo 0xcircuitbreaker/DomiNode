@@ -7,6 +7,10 @@ export async function createInvoice(
   externalId: string,
   amountCents: number,
 ): Promise<PaymentInvoice> {
+  // R46 H-3: Validate amountCents range to prevent DB overflow / negative invoices
+  if (!Number.isInteger(amountCents) || amountCents <= 0 || amountCents > 2_147_483_647) {
+    throw new Error("Invoice amount must be a positive integer within valid range");
+  }
   const result = await query<PaymentInvoice>(
     `INSERT INTO payment_invoices (user_id, provider, external_id, amount_cents)
      VALUES ($1, $2, $3, $4)

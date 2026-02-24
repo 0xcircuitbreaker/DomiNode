@@ -441,6 +441,12 @@ export async function reserveTeamBalance(
       `UPDATE team_wallets SET balance_cents = balance_cents - $1 WHERE id = $2`,
       [amountCents, wallet.id],
     );
+    // R46 H-8: Record reservation hold as a transaction for audit trail
+    await client.query(
+      `INSERT INTO team_wallet_transactions (wallet_id, type, amount_cents, description)
+       VALUES ($1, 'debit', $2, 'Session reservation hold')`,
+      [wallet.id, amountCents],
+    );
     await client.query("COMMIT");
     return wallet.id;
   } catch {
@@ -474,6 +480,12 @@ export async function releaseTeamReservation(
     await client.query(
       `UPDATE team_wallets SET balance_cents = balance_cents + $1 WHERE id = $2`,
       [cappedRefund, wallet.id],
+    );
+    // R46 H-9: Record reservation release as a transaction for audit trail
+    await client.query(
+      `INSERT INTO team_wallet_transactions (wallet_id, type, amount_cents, description)
+       VALUES ($1, 'refund', $2, 'Reservation released (session failed)')`,
+      [wallet.id, cappedRefund],
     );
     await client.query("COMMIT");
   } catch (err) {
@@ -518,11 +530,27 @@ export async function settleTeamSession(
         );
       }
     } else if (diff < 0) {
-      // Charge overage
+      // R46 C-4: Charge overage — partial charge if insufficient (matches personal wallet behavior)
       const overage = Math.abs(diff);
       if (wallet.balance_cents < overage) {
-        await client.query("ROLLBACK");
-        return false; // insufficient balance for overage
+        // Charge whatever is left (partial payment, don't reject entirely)
+        const partial = wallet.balance_cents;
+        if (partial > 0) {
+          await client.query(
+            `UPDATE team_wallets SET balance_cents = 0 WHERE id = $1`,
+            [wallet.id],
+          );
+        }
+        // Record partial overage charge + commit, then return false to signal underpayment
+        if (actualCostCents > 0) {
+          await client.query(
+            `INSERT INTO team_wallet_transactions (wallet_id, type, amount_cents, description)
+             VALUES ($1, 'debit', $2, $3)`,
+            [wallet.id, actualCostCents, `Proxy session ${sessionId.slice(0, 8)} (partial)`],
+          );
+        }
+        await client.query("COMMIT");
+        return false; // partial payment
       }
       await client.query(
         `UPDATE team_wallets SET balance_cents = balance_cents - $1 WHERE id = $2`,
@@ -619,6 +647,18 @@ export async function addMember(
     );
     if (parseInt(countResult.rows[0].count, 10) >= teamCheck.rows[0].max_members) {
       throw new Error("Team has reached maximum member count");
+    }
+
+    // R46 M-5: Verify target user exists and is active
+    const targetUserCheck = await client.query<{ status: string }>(
+      `SELECT status FROM users WHERE id = $1`,
+      [targetUserId],
+    );
+    if (!targetUserCheck.rows[0]) {
+      throw new Error("Target user not found");
+    }
+    if (targetUserCheck.rows[0].status !== "active") {
+      throw new Error("Target user account is not active");
     }
 
     const result = await client.query<TeamMember>(

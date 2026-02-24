@@ -4,6 +4,15 @@ import http from "http";
 
 // ─── Mocks ──────────────────────────────────────────────────────────
 
+const mockPoolQuery = vi.fn();
+const mockPoolClient = {
+  query: mockPoolQuery,
+  release: vi.fn(),
+};
+const mockPool = {
+  connect: vi.fn(() => Promise.resolve(mockPoolClient)),
+};
+
 vi.mock("@dominusnode/shared", () => ({
   hashPassword: vi.fn().mockResolvedValue("$2b$10$unusable-hashed-password"),
   userRepo: {
@@ -19,6 +28,7 @@ vi.mock("@dominusnode/shared", () => ({
     createChallenge: vi.fn(),
     consumeChallenge: vi.fn(),
     countActiveChallengesForIp: vi.fn(),
+    countActiveChallengesForAddress: vi.fn().mockResolvedValue(0),
     purgeExpiredChallenges: vi.fn(),
   },
   refreshTokenRepo: {
@@ -29,10 +39,15 @@ vi.mock("@dominusnode/shared", () => ({
   waitlistRepo: {
     markRegistered: vi.fn().mockResolvedValue(false),
   },
+  mfaRepo: {
+    findMfaConfigByUserId: vi.fn().mockResolvedValue(null),
+  },
+  getPool: () => mockPool,
   createTokenPair: vi.fn().mockReturnValue({
     accessToken: "test-access-token",
     refreshToken: "test-refresh-token",
   }),
+  signMfaChallengeToken: vi.fn().mockReturnValue("mfa-challenge-token"),
   createLogger: () => ({
     info: vi.fn(),
     warn: vi.fn(),
@@ -45,6 +60,7 @@ vi.mock("@dominusnode/shared", () => ({
   buildSignMessage: vi.fn().mockReturnValue("test sign message"),
   walletToSyntheticEmail: (addr: string) => `${addr.toLowerCase()}@wallet.dominusnode.com`,
   isWalletEmail: (email: string) => email.endsWith("@wallet.dominusnode.com"),
+  WALLET_CHALLENGE_TTL_MS: 300_000,
 }));
 
 vi.mock("../helpers/verify-signature.js", () => ({
@@ -69,6 +85,7 @@ import {
   walletChallengeRepo,
   walletRepo,
   refreshTokenRepo,
+  mfaRepo,
 } from "@dominusnode/shared";
 import { recoverSignerAddress } from "../helpers/verify-signature.js";
 import walletAuthRoutes from "./wallet-auth.js";
@@ -198,18 +215,22 @@ describe("wallet-auth routes", () => {
       });
       vi.mocked(recoverSignerAddress).mockReturnValue(VALID_ADDRESS);
       vi.mocked(userRepo.findUserByWalletAddress).mockResolvedValue(null);
-      vi.mocked(userRepo.createWalletUser).mockResolvedValue({
-        id: "u-new",
-        email: `${VALID_ADDRESS}@wallet.dominusnode.com`,
-        status: "active",
-        is_admin: false,
-        wallet_address: VALID_ADDRESS,
-        created_at: now,
-        password_hash: "",
-        password_changed_at: null,
-      } as any);
-      vi.mocked(walletRepo.createWallet).mockResolvedValue({} as any);
-      vi.mocked(userRepo.markEmailVerified).mockResolvedValue(true);
+      // R46 C-2: New user creation uses a DB transaction (pool.connect + client.query)
+      mockPoolQuery
+        .mockResolvedValueOnce({ rows: [] }) // BEGIN
+        .mockResolvedValueOnce({ rows: [{ // INSERT INTO users RETURNING ...
+          id: "u-new",
+          email: `${VALID_ADDRESS}@wallet.dominusnode.com`,
+          status: "active",
+          is_admin: false,
+          wallet_address: VALID_ADDRESS,
+          created_at: now,
+          password_changed_at: null,
+          log_target_hosts: false,
+          email_verified: true,
+        }] })
+        .mockResolvedValueOnce({ rows: [] }) // INSERT INTO wallets
+        .mockResolvedValueOnce({ rows: [] }); // COMMIT
       vi.mocked(refreshTokenRepo.storeToken).mockResolvedValue({} as any);
 
       const app = createApp();
@@ -222,8 +243,8 @@ describe("wallet-auth routes", () => {
       expect(res.body.token).toBe("test-access-token");
       expect((res.body.user as any).isNewUser).toBe(true);
       expect((res.body.user as any).wallet_address).toBe(VALID_ADDRESS);
-      // Wallet users are auto-verified (crypto signature proves identity)
-      expect(userRepo.markEmailVerified).toHaveBeenCalledWith("u-new");
+      // R46 C-2: Verify transaction was used (BEGIN + 2 INSERTs + COMMIT)
+      expect(mockPoolQuery).toHaveBeenCalledTimes(4);
     });
 
     it("should login existing wallet user", async () => {
@@ -291,6 +312,42 @@ describe("wallet-auth routes", () => {
 
       expect(res.status).toBe(401);
       expect(res.body.error).toContain("Signature verification failed");
+    });
+
+    it("should return MFA challenge for existing user with MFA enabled", async () => {
+      const now = new Date();
+      vi.mocked(walletChallengeRepo.consumeChallenge).mockResolvedValue({
+        id: "ch-1",
+        address: VALID_ADDRESS,
+        nonce: "abc",
+
+        created_at: now,
+        consumed: true,
+      });
+      vi.mocked(recoverSignerAddress).mockReturnValue(VALID_ADDRESS);
+      vi.mocked(userRepo.findUserByWalletAddress).mockResolvedValue({
+        id: "u-mfa",
+        email: `${VALID_ADDRESS}@wallet.dominusnode.com`,
+        status: "active",
+        is_admin: false,
+        wallet_address: VALID_ADDRESS,
+        created_at: now,
+        password_hash: "",
+        password_changed_at: null,
+      } as any);
+      vi.mocked(mfaRepo.findMfaConfigByUserId).mockResolvedValue({ enabled: true } as any);
+
+      const app = createApp();
+      const res = await request(app, "POST", "/api/auth/wallet/verify", {
+        address: VALID_ADDRESS,
+        signature: VALID_SIGNATURE,
+      });
+
+      expect(res.status).toBe(200);
+      expect(res.body.mfaRequired).toBe(true);
+      expect(res.body.mfaChallengeToken).toBe("mfa-challenge-token");
+      // Should NOT return access/refresh tokens
+      expect(res.body.token).toBeUndefined();
     });
 
     it("should reject short signature", async () => {

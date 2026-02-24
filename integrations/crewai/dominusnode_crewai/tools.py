@@ -505,7 +505,72 @@ class DominusNodeGeoTargetTool(BaseTool):
 
 
 # ---------------------------------------------------------------------------
-# Tool 4: PayPal Top-Up
+# Tool 4: x402 Info
+# ---------------------------------------------------------------------------
+
+
+class X402InfoInput(BaseModel):
+    """Input schema for the DomiNode x402 info tool."""
+
+    # No required inputs -- the tool just fetches x402 protocol information.
+    pass
+
+
+class DominusNodeX402InfoTool(BaseTool):
+    """Get x402 micropayment protocol information.
+
+    Returns details about x402 HTTP 402 Payment Required protocol support
+    including facilitators, pricing, supported currencies, and payment options
+    for AI agent micropayments.
+    """
+
+    name: str = "dominusnode_x402_info"
+    description: str = (
+        "Get x402 micropayment protocol information including supported "
+        "facilitators, pricing, and payment options."
+    )
+    args_schema: Type[BaseModel] = X402InfoInput
+
+    # -- Configuration (not exposed to the LLM) ----------------------------
+    api_key: Optional[str] = Field(default=None, exclude=True)
+    base_url: Optional[str] = Field(default=None, exclude=True)
+    proxy_host: Optional[str] = Field(default=None, exclude=True)
+
+    def _run(self, **kwargs: Any) -> str:
+        client: Optional[DominusNodeClient] = None
+        try:
+            client = _make_client(
+                api_key=self.api_key,
+                base_url=self.base_url,
+                proxy_host=self.proxy_host,
+            )
+
+            info = client.x402.get_info()
+
+            return (
+                f"x402 Protocol Information:\n"
+                f"  Supported: {info.supported}\n"
+                f"  Enabled: {info.enabled}\n"
+                f"  Protocol: {info.protocol}\n"
+                f"  Version: {info.version}\n"
+                f"  Currencies: {', '.join(info.currencies)}\n"
+                f"  Wallet Type: {info.wallet_type}\n"
+                f"  Agentic Wallets: {info.agentic_wallets}\n"
+                f"  Pricing: {info.pricing.per_request_cents} cents/request, "
+                f"{info.pricing.per_gb_cents} cents/GB ({info.pricing.currency})"
+            )
+
+        except RuntimeError as exc:
+            return f"Error: {_sanitize_error(str(exc))}"
+        except Exception as exc:
+            return f"Error: {type(exc).__name__} -- {_sanitize_error(str(exc))}"
+        finally:
+            if client is not None:
+                client.close()
+
+
+# ---------------------------------------------------------------------------
+# Tool 5: PayPal Top-Up
 # ---------------------------------------------------------------------------
 
 

@@ -11,6 +11,8 @@
 #include "dominusnode/slots.hpp"
 #include "dominusnode/agent_wallet.hpp"
 #include "dominusnode/teams.hpp"
+#include "dominusnode/x402.hpp"
+#include "dominusnode/wallet_auth.hpp"
 
 #include <memory>
 #include <string>
@@ -114,6 +116,12 @@ public:
 
     /// Access the teams resource (shared wallets, members, invites, keys).
     TeamsResource& teams();
+
+    /// Access the x402 resource (HTTP 402 micropayment protocol info).
+    X402Resource& x402();
+
+    /// Access the wallet auth resource (EIP-191 wallet-based authentication).
+    WalletAuthResource& wallet_auth();
 
     /// Get the configured base URL.
     const std::string& base_url() const;

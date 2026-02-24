@@ -8,7 +8,7 @@ export async function createSession(
   const result = await query<Session>(
     `INSERT INTO sessions (user_id, proxy_ip)
      VALUES ($1, $2)
-     RETURNING id, user_id, proxy_ip, started_at, ended_at, bytes_total, status`,
+     RETURNING id, user_id, started_at, ended_at, bytes_total, status`,
     [userId, proxyIp],
   );
   return result.rows[0];
@@ -29,6 +29,8 @@ export async function endSession(
   );
 }
 
+const MAX_INT = 2_147_483_647;
+
 export async function createUsageRecord(record: {
   user_id: string;
   session_id: string;
@@ -39,6 +41,16 @@ export async function createUsageRecord(record: {
   target_host: string;
   connect_latency_ms?: number | null;
 }): Promise<UsageRecord> {
+  // R46 H-4: Validate numeric fields to prevent negative values or DB overflow
+  if (!Number.isInteger(record.bytes_in) || record.bytes_in < 0 || record.bytes_in > MAX_INT) {
+    throw new Error("bytes_in must be a non-negative integer within valid range");
+  }
+  if (!Number.isInteger(record.bytes_out) || record.bytes_out < 0 || record.bytes_out > MAX_INT) {
+    throw new Error("bytes_out must be a non-negative integer within valid range");
+  }
+  if (!Number.isInteger(record.cost_cents) || record.cost_cents < 0 || record.cost_cents > MAX_INT) {
+    throw new Error("cost_cents must be a non-negative integer within valid range");
+  }
   const result = await query<UsageRecord>(
     `INSERT INTO usage_records (user_id, session_id, bytes_in, bytes_out, cost_cents, proxy_type, target_host, connect_latency_ms)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)

@@ -55,7 +55,7 @@ describe("usage-repo", () => {
 
       await createSession("u3", "10.0.0.1");
       expect(mockQuery).toHaveBeenCalledWith(
-        expect.stringContaining("RETURNING id, user_id, proxy_ip"),
+        expect.stringContaining("RETURNING id, user_id, started_at"),
         expect.any(Array),
       );
     });

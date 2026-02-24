@@ -33,7 +33,8 @@ async function safeJson<T>(res: Response): Promise<T> {
   if (text.length > MAX_RESPONSE_BYTES) {
     throw new Error("Response too large");
   }
-  if (!text) return undefined as T;
+  // R46 H-3: Throw on empty body rather than returning undefined as T (bypasses type safety)
+  if (!text) throw new Error("Empty response from server");
   const parsed = JSON.parse(text);
   stripDangerousKeys(parsed);
   return parsed as T;

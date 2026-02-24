@@ -572,5 +572,26 @@ export function createTopupPaypalTool(client: DominusNodeClient) {
   });
 }
 
+/**
+ * Creates the `x402Info` tool that retrieves x402 micropayment protocol information.
+ */
+export function createX402InfoTool(client: DominusNodeClient) {
+  return (tool as any)({
+    description:
+      "Get x402 micropayment protocol information including supported " +
+      "facilitators, pricing, and payment options.",
+    parameters: z.object({}),
+    execute: async () => {
+      try {
+        const result = await client.x402.getInfo();
+        return result;
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Unknown error";
+        return { error: `Failed to get x402 info: ${sanitizeError(message)}` };
+      }
+    },
+  });
+}
+
 // Re-export validation helpers for testing
 export { validateUrl, isPrivateIp, truncateBody, filterHeaders };

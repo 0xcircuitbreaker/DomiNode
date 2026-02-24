@@ -2,32 +2,32 @@ import type { ExtensionState } from "./types.js";
 
 /**
  * Build proxy username from extension state.
- * Format: user-country_XX[-state_xxx][-city_xxx][-asn_NNN][-session_XXXXXXXX]
+ * Format: user-country-XX[-state-xxx][-city-xxx][-asn-NNN][-session-XXXXXXXX]
  *
- * Uses underscore separator between key and value (country_XX not country-XX)
- * to match the standardized format across all SDKs. All values are URL-encoded.
+ * R46 C-1: Uses hyphen separator between key and value (country-XX not country_XX)
+ * to match the proxy gateway parser format. All values are URL-encoded.
  */
 export function buildProxyUsername(state: ExtensionState): string {
   const parts: string[] = ["user"];
 
   if (state.country) {
-    parts.push(`country_${encodeURIComponent(state.country)}`);
+    parts.push(`country-${encodeURIComponent(state.country)}`);
   }
 
   if (state.state) {
-    parts.push(`state_${encodeURIComponent(state.state)}`);
+    parts.push(`state-${encodeURIComponent(state.state)}`);
   }
 
   if (state.city) {
-    parts.push(`city_${encodeURIComponent(state.city)}`);
+    parts.push(`city-${encodeURIComponent(state.city)}`);
   }
 
   if (state.asn) {
-    parts.push(`asn_${encodeURIComponent(String(state.asn))}`);
+    parts.push(`asn-${encodeURIComponent(String(state.asn))}`);
   }
 
   if (state.stickySession && state.sessionId) {
-    parts.push(`session_${encodeURIComponent(state.sessionId)}`);
+    parts.push(`session-${encodeURIComponent(state.sessionId)}`);
   }
 
   return parts.join("-");

@@ -86,6 +86,8 @@ export class DominusNodeWallet implements INodeType {
           { name: "Team Usage", value: "teamUsage", description: "Get team wallet transactions", action: "Team usage" },
           { name: "Update Team", value: "updateTeam", description: "Update team settings", action: "Update team" },
           { name: "Update Team Member Role", value: "updateTeamMemberRole", description: "Update a team member role", action: "Update team member role" },
+          // x402
+          { name: "x402 Info", value: "x402Info", description: "Get x402 micropayment protocol information", action: "Get x402 info" },
         ],
         default: "checkBalance",
       },
@@ -686,6 +688,11 @@ export class DominusNodeWallet implements INodeType {
               `/api/teams/${encodeURIComponent(teamId)}/members/${encodeURIComponent(userId)}`,
               { role },
             );
+            break;
+          }
+
+          case "x402Info": {
+            result = await auth.apiRequest("GET", "/api/x402/info");
             break;
           }
 

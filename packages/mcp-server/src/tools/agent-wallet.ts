@@ -23,14 +23,25 @@ function checkAgentWalletRateLimit(): boolean {
 export function registerAgentWalletTools(server: McpServer, httpClient: HttpClient, config: McpConfig): void {
   server.tool(
     "dominusnode_x402_info",
-    "Get x402 payment protocol info for Dominus Node. Returns supported currencies, pricing, and agentic wallet details.",
+    "Get x402 payment protocol info for Dominus Node. Returns supported currencies, pricing, facilitator details (Coinbase + PayAI), and agentic wallet details.",
     {},
     async () => {
       try {
         const data = await httpClient.get<{
           supported: boolean;
+          enabled: boolean;
           protocol: string;
-          pricing: { dcPerGbCents: number; residentialPerGbCents: number };
+          version: string;
+          facilitators: {
+            coinbase: { network: string; receivingAddress: string | null; currency: string };
+            payai: { network: string; receivingAddress: string | null; currency: string };
+          };
+          pricing: {
+            dcPerRequestUsd: string;
+            residentialPerRequestUsd: string;
+            dcPerGbCents: number;
+            residentialPerGbCents: number;
+          };
           currencies: string[];
           walletType: string;
           agenticWallets: boolean;
@@ -39,19 +50,35 @@ export function registerAgentWalletTools(server: McpServer, httpClient: HttpClie
         const text = [
           `x402 Payment Protocol Info`,
           ``,
-          `Protocol: ${data.protocol}`,
+          `Protocol: ${data.protocol} v${data.version}`,
           `Supported: ${data.supported}`,
-          `Wallet Type: ${data.walletType}`,
-          `Agentic Wallets: ${data.agenticWallets ? "Yes" : "No"}`,
+          `Enabled: ${data.enabled}`,
           ``,
-          `Pricing:`,
+          `Facilitators:`,
+          `  Coinbase (EVM/Base):`,
+          `    Network: ${data.facilitators.coinbase.network}`,
+          `    Currency: ${data.facilitators.coinbase.currency}`,
+          `    Receiving Address: ${data.facilitators.coinbase.receivingAddress ?? "Not configured"}`,
+          `  PayAI (Solana):`,
+          `    Network: ${data.facilitators.payai.network}`,
+          `    Currency: ${data.facilitators.payai.currency}`,
+          `    Receiving Address: ${data.facilitators.payai.receivingAddress ?? "Not configured"}`,
+          ``,
+          `Per-Request Pricing (x402 micropayments):`,
+          `  Datacenter: $${data.pricing.dcPerRequestUsd}/request`,
+          `  Residential: $${data.pricing.residentialPerRequestUsd}/request`,
+          ``,
+          `Per-GB Pricing (wallet billing):`,
           `  Datacenter: $${(data.pricing.dcPerGbCents / 100).toFixed(2)}/GB`,
           `  Residential: $${(data.pricing.residentialPerGbCents / 100).toFixed(2)}/GB`,
           ``,
           `Supported Currencies: ${data.currencies.join(", ")}`,
+          `Wallet Type: ${data.walletType}`,
+          `Agentic Wallets: ${data.agenticWallets ? "Yes" : "No"}`,
           ``,
-          `Agentic wallets allow AI agents to hold sub-wallets`,
-          `with spending limits, funded from the main wallet.`,
+          `x402 allows AI agents to pay per-request with USDC micropayments`,
+          `via Coinbase (Base chain) or PayAI (Solana) — no signup needed.`,
+          `Agentic wallets allow agents to hold sub-wallets with spending limits.`,
         ].join("\n");
 
         return { content: [{ type: "text", text }] };

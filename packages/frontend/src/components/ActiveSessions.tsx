@@ -5,7 +5,6 @@ import ResponsiveTable from "./ResponsiveTable";
 interface ActiveSession {
   id: string;
   startedAt: string;
-  proxyIp: string;
   status: string;
 }
 

@@ -43,6 +43,13 @@ export function setAuthCookies(
 export function clearAuthCookies(res: Response): void {
   res.clearCookie(ACCESS_COOKIE, { ...BASE_OPTIONS });
   res.clearCookie(REFRESH_COOKIE, { ...REFRESH_OPTIONS });
+  // R46 M-7: Also clear MFA challenge cookie (5-min TTL, but survives logout without this)
+  res.clearCookie("dominusnode_mfa_challenge", {
+    httpOnly: true,
+    secure: isSecure,
+    sameSite: "strict",
+    path: "/api/auth/mfa",
+  });
 }
 
 export function getAccessCookieName(): string {

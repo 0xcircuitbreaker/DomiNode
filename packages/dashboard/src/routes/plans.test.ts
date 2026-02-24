@@ -10,6 +10,7 @@ const mockGetMonthlyUsage = vi.fn();
 const mockGetPlan = vi.fn();
 const mockSetUserPlan = vi.fn();
 const mockGetWallet = vi.fn();
+const mockFindUserById = vi.fn();
 const mockPoolQuery = vi.fn();
 const mockPoolClient = {
   query: mockPoolQuery,
@@ -29,6 +30,9 @@ vi.mock("@dominusnode/shared", () => ({
   },
   walletRepo: {
     getWallet: (...args: unknown[]) => mockGetWallet(...args),
+  },
+  userRepo: {
+    findUserById: (...args: unknown[]) => mockFindUserById(...args),
   },
   getPool: () => mockPool,
   createLogger: () => ({
@@ -162,6 +166,8 @@ function requestWithBody(
 describe("plans routes", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // R46 H-6: Plan change now requires email_verified — mock verified user by default
+    mockFindUserById.mockResolvedValue({ id: "test-user-id", email: "test@test.com", email_verified: true, status: "active" });
   });
 
   // ─── GET /api/plans ────────────────────────────────────────────────

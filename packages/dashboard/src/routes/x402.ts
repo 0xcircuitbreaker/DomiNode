@@ -8,8 +8,24 @@ const router = Router();
 router.get("/info", (_req, res) => {
   res.json({
     supported: true,
+    enabled: process.env["X402_ENABLED"] === "true",
     protocol: "x402",
+    version: "1",
+    facilitators: {
+      coinbase: {
+        network: process.env["X402_NETWORK"] ?? "base-sepolia",
+        receivingAddress: process.env["X402_RECEIVING_ADDRESS"] || null,
+        currency: "USDC",
+      },
+      payai: {
+        network: "solana",
+        receivingAddress: process.env["X402_RECEIVING_ADDRESS_SOLANA"] || null,
+        currency: "USDC",
+      },
+    },
     pricing: {
+      dcPerRequestUsd: process.env["X402_DC_PRICE_PER_REQUEST_USD"] || "0.001",
+      residentialPerRequestUsd: process.env["X402_RES_PRICE_PER_REQUEST_USD"] || "0.005",
       dcPerGbCents: PRICE_PER_GB_CENTS_DC,
       residentialPerGbCents: PRICE_PER_GB_CENTS,
     },

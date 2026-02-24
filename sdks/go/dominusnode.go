@@ -75,6 +75,12 @@ type Client struct {
 	// Teams provides team management operations (shared wallets, members, invites, keys).
 	Teams *TeamsResource
 
+	// X402 provides x402 protocol information (HTTP 402 micropayments).
+	X402 *X402Resource
+
+	// WalletAuth provides wallet-based authentication (EIP-191 signed messages).
+	WalletAuth *WalletAuthResource
+
 	httpClient   *httpClient
 	tokenManager *tokenManager
 	config       Config
@@ -148,6 +154,8 @@ func NewClient(cfg Config) *Client {
 	c.Slots = newSlotsResource(hc)
 	c.AgenticWallets = newAgenticWalletResource(hc)
 	c.Teams = newTeamsResource(hc)
+	c.X402 = newX402Resource(hc)
+	c.WalletAuth = newWalletAuthResource(hc, tm)
 
 	// Pre-set tokens if provided in config
 	if cfg.AccessToken != "" {

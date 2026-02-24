@@ -34,6 +34,8 @@ from .errors import (
     ServerError,
     ValidationError,
 )
+from .x402 import X402Info, X402Facilitator, X402Pricing
+from .wallet_auth import WalletChallenge, WalletVerifyResult, WalletLinkResult
 from .types import (
     ActiveSession,
     AdminUser,
@@ -136,6 +138,14 @@ __all__ = [
     "WaitlistJoinResult",
     "WaitlistCount",
     "SystemStats",
+    # x402
+    "X402Info",
+    "X402Facilitator",
+    "X402Pricing",
+    # Wallet Auth
+    "WalletChallenge",
+    "WalletVerifyResult",
+    "WalletLinkResult",
     # Constants
     "SDK_VERSION",
 ]

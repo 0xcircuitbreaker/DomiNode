@@ -103,6 +103,11 @@ export function parseConfig(env: Record<string, string | undefined> = process.en
   // R36 C-1: Shared secret for MCP agent auto-verification (prevents header spoofing)
   const mcpAgentSecret = env["MCP_AGENT_SECRET"] ?? "";
 
+  // R46 H-3: Enforce minimum strength when MCP_AGENT_SECRET is set
+  if (mcpAgentSecret && mcpAgentSecret.length < 32) {
+    throw new ConfigError("MCP_AGENT_SECRET must be at least 32 characters when set");
+  }
+
   return {
     apiKey,
     apiUrl,

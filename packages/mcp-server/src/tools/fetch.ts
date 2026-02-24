@@ -9,10 +9,15 @@ export function registerFetchTools(server: McpServer, config: McpConfig): void {
     "dominusnode_fetch",
     "Fetch a URL through Dominus Node's rotating proxy network. Supports geo-targeting by country and pool selection (dc at $3/GB or residential at $5/GB). Returns response status, headers, and body. Use this for web scraping, geo-targeted requests, or avoiding IP blocks.",
     {
-      url: z.string().describe("URL to fetch (http: or https:)"),
+      url: z.string().max(8192).describe("URL to fetch (http: or https:)"),
       method: z.enum(["GET", "HEAD"]).default("GET").describe("HTTP method (read-only for safety)"),
-      headers: z.record(z.string()).optional().describe("Request headers"),
-      country: z.string().max(2).optional().describe("2-letter ISO country code for geo-targeting (e.g. 'US')"),
+      headers: z.record(z.string().max(8192)).optional()
+        .refine(
+          (h) => !h || Object.keys(h).length <= 50,
+          "Maximum 50 custom headers allowed"
+        )
+        .describe("Request headers"),
+      country: z.string().regex(/^[A-Z]{2}$/i).optional().describe("2-letter ISO country code (e.g. 'US')"),
       pool_type: z.enum(["dc", "residential", "auto"]).default("auto").describe("Proxy pool: dc ($3/GB, datacenter), residential ($5/GB, harder to detect), auto (tries dc first)"),
       timeout_ms: z.number().min(1000).max(120000).default(30000).describe("Request timeout in milliseconds"),
     },

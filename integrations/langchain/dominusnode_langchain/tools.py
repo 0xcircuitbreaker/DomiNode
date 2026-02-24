@@ -685,3 +685,74 @@ class DominusNodeProxyConfigTool(BaseTool):
             return self._run()
 
         return "Error: No DomiNode client configured. Initialize the toolkit first."
+
+
+class DominusNodeX402InfoTool(BaseTool):
+    """Get x402 micropayment protocol information.
+
+    Returns details about x402 HTTP 402 Payment Required protocol support
+    including facilitators, pricing, supported currencies, and payment options
+    for AI agent micropayments.
+    """
+
+    name: str = "dominusnode_x402_info"
+    description: str = (
+        "Get x402 micropayment protocol information including supported "
+        "facilitators, pricing, and payment options. No input required."
+    )
+    args_schema: Type[BaseModel] = EmptyInput
+
+    sync_client: Optional[Any] = None
+    async_client: Optional[Any] = None
+
+    model_config = {"arbitrary_types_allowed": True}
+
+    def _run(
+        self,
+        run_manager: Optional[CallbackManagerForToolRun] = None,
+    ) -> str:
+        if self.sync_client is None:
+            return "Error: No DomiNode client configured. Initialize the toolkit first."
+        try:
+            info = self.sync_client.x402.get_info()
+            return (
+                f"x402 Protocol Information:\n"
+                f"  Supported: {info.supported}\n"
+                f"  Enabled: {info.enabled}\n"
+                f"  Protocol: {info.protocol}\n"
+                f"  Version: {info.version}\n"
+                f"  Currencies: {', '.join(info.currencies)}\n"
+                f"  Wallet Type: {info.wallet_type}\n"
+                f"  Agentic Wallets: {info.agentic_wallets}\n"
+                f"  Pricing: {info.pricing.per_request_cents} cents/request, "
+                f"{info.pricing.per_gb_cents} cents/GB ({info.pricing.currency})"
+            )
+        except Exception as exc:
+            return f"Error: {_sanitize_error(str(exc))}"
+
+    async def _arun(
+        self,
+        run_manager: Optional[AsyncCallbackManagerForToolRun] = None,
+    ) -> str:
+        if self.async_client is not None:
+            try:
+                info = await self.async_client.x402.get_info()
+                return (
+                    f"x402 Protocol Information:\n"
+                    f"  Supported: {info.supported}\n"
+                    f"  Enabled: {info.enabled}\n"
+                    f"  Protocol: {info.protocol}\n"
+                    f"  Version: {info.version}\n"
+                    f"  Currencies: {', '.join(info.currencies)}\n"
+                    f"  Wallet Type: {info.wallet_type}\n"
+                    f"  Agentic Wallets: {info.agentic_wallets}\n"
+                    f"  Pricing: {info.pricing.per_request_cents} cents/request, "
+                    f"{info.pricing.per_gb_cents} cents/GB ({info.pricing.currency})"
+                )
+            except Exception as exc:
+                return f"Error: {_sanitize_error(str(exc))}"
+
+        if self.sync_client is not None:
+            return self._run()
+
+        return "Error: No DomiNode client configured. Initialize the toolkit first."

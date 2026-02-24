@@ -1156,6 +1156,20 @@ class DominusNodeClient:
             {"role": role},
         )
 
+    # ----- x402 info -------------------------------------------------------
+
+    def x402_info(self) -> Dict[str, Any]:
+        """Get x402 micropayment protocol information.
+
+        Returns details about x402 HTTP 402 Payment Required protocol support
+        including facilitators, pricing, supported currencies, and payment
+        options for AI agent micropayments.
+
+        Returns:
+            Dict with x402 protocol information.
+        """
+        return self._api_request("GET", "/api/x402/info")
+
     # ----- PayPal top-up ---------------------------------------------------
 
     def topup_paypal(self, amount_cents: int) -> Dict[str, Any]:

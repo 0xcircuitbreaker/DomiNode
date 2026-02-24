@@ -11,6 +11,8 @@ import { AdminResource } from "./admin.js";
 import { SlotsResource } from "./slots.js";
 import { AgenticWalletResource } from "./resources/agent-wallet.js";
 import { TeamsResource } from "./resources/teams.js";
+import { X402Resource } from "./resources/x402.js";
+import { WalletAuthResource } from "./resources/wallet-auth.js";
 import { DEFAULT_BASE_URL } from "./constants.js";
 import type { DominusNodeConfig, LoginResult } from "./types.js";
 
@@ -26,6 +28,8 @@ export class DominusNodeClient {
   public readonly slots: SlotsResource;
   public readonly agenticWallets: AgenticWalletResource;
   public readonly teams: TeamsResource;
+  public readonly x402: X402Resource;
+  public readonly walletAuth: WalletAuthResource;
 
   private tokenManager: TokenManager;
   private http: HttpClient;
@@ -49,6 +53,8 @@ export class DominusNodeClient {
     this.slots = new SlotsResource(this.http);
     this.agenticWallets = new AgenticWalletResource(this.http);
     this.teams = new TeamsResource(this.http);
+    this.x402 = new X402Resource(this.http);
+    this.walletAuth = new WalletAuthResource(this.http, this.tokenManager);
 
     // Set refresh function AFTER auth is initialized
     this.tokenManager.setRefreshFunction(async (rt) => {

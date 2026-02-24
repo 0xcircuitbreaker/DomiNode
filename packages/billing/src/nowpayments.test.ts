@@ -3,6 +3,7 @@ import * as crypto from "node:crypto";
 
 // Mock @dominusnode/shared
 const mockCreditWallet = vi.fn();
+const mockAtomicCompleteInvoiceAndCredit = vi.fn();
 const mockCreateInvoice = vi.fn();
 const mockFindInvoice = vi.fn();
 const mockCompleteInvoice = vi.fn();
@@ -11,6 +12,7 @@ const mockMarkCreditFailed = vi.fn();
 vi.mock("@dominusnode/shared", () => ({
   walletRepo: {
     creditWallet: (...args: unknown[]) => mockCreditWallet(...args),
+    atomicCompleteInvoiceAndCredit: (...args: unknown[]) => mockAtomicCompleteInvoiceAndCredit(...args),
   },
   invoiceRepo: {
     createInvoice: (...args: unknown[]) => mockCreateInvoice(...args),
@@ -230,15 +232,14 @@ describe("nowpayments", () => {
         amount_cents: 1000, // $10.00
       };
       mockFindInvoice.mockResolvedValueOnce(mockInvoice);
-      mockCompleteInvoice.mockResolvedValueOnce(true);
-      mockCreditWallet.mockResolvedValueOnce({});
+      // R45 C-1: Now uses atomic complete+credit in single transaction
+      mockAtomicCompleteInvoiceAndCredit.mockResolvedValueOnce({ claimed: true, transaction: {} });
 
       const result = await handleIpnCallback(body, sig);
 
       expect(result).toEqual({ userId: "user-1", amountCents: 1000 });
-      // completeInvoice is called FIRST as the atomic gate
-      expect(mockCompleteInvoice).toHaveBeenCalledWith("inv-1");
-      expect(mockCreditWallet).toHaveBeenCalledWith(
+      expect(mockAtomicCompleteInvoiceAndCredit).toHaveBeenCalledWith(
+        "inv-1",
         "user-1",
         1000,
         "nowpayments",
@@ -272,8 +273,7 @@ describe("nowpayments", () => {
         user_id: "user-1",
         amount_cents: 1000,
       });
-      mockCompleteInvoice.mockResolvedValueOnce(true);
-      mockCreditWallet.mockResolvedValueOnce({});
+      mockAtomicCompleteInvoiceAndCredit.mockResolvedValueOnce({ claimed: true, transaction: {} });
 
       const result = await handleIpnCallback(body, sig);
       expect(result).not.toBeNull();
@@ -328,13 +328,11 @@ describe("nowpayments", () => {
         user_id: "user-1",
         amount_cents: 1000,
       });
-      // completeInvoice returns false = invoice already completed by another IPN
-      mockCompleteInvoice.mockResolvedValueOnce(false);
+      // atomicCompleteInvoiceAndCredit returns claimed:false = already completed
+      mockAtomicCompleteInvoiceAndCredit.mockResolvedValueOnce({ claimed: false });
 
       const result = await handleIpnCallback(body, sig);
       expect(result).toEqual({ userId: "user-1", amountCents: 1000 });
-      // creditWallet should NOT be called for duplicate
-      expect(mockCreditWallet).not.toHaveBeenCalled();
     });
 
     it("should look up invoice by invoice_id not payment_id", async () => {
@@ -346,16 +344,15 @@ describe("nowpayments", () => {
         user_id: "user-1",
         amount_cents: 1000,
       });
-      mockCompleteInvoice.mockResolvedValueOnce(true);
-      mockCreditWallet.mockResolvedValueOnce({});
+      mockAtomicCompleteInvoiceAndCredit.mockResolvedValueOnce({ claimed: true, transaction: {} });
 
       await handleIpnCallback(body, sig);
 
       // Should look up by invoice_id (np-inv-456), NOT payment_id (pay-999)
       expect(mockFindInvoice).toHaveBeenCalledWith("nowpayments", "np-inv-456");
-      // But creditWallet should use payment_id for dedup
-      expect(mockCreditWallet).toHaveBeenCalledWith(
-        "user-1", 1000, "nowpayments", "pay-999",
+      // atomicCompleteInvoiceAndCredit should use payment_id for dedup
+      expect(mockAtomicCompleteInvoiceAndCredit).toHaveBeenCalledWith(
+        "inv-6", "user-1", 1000, "nowpayments", "pay-999",
         expect.any(String),
       );
     });
@@ -373,7 +370,7 @@ describe("nowpayments", () => {
       expect(mockFindInvoice).not.toHaveBeenCalled();
     });
 
-    it("should re-throw errors from creditWallet after successful claim", async () => {
+    it("should re-throw errors from atomicCompleteInvoiceAndCredit", async () => {
       const body = makeValidBody();
       const sig = signBody(body);
 
@@ -382,8 +379,8 @@ describe("nowpayments", () => {
         user_id: "user-1",
         amount_cents: 1000,
       });
-      mockCompleteInvoice.mockResolvedValueOnce(true);
-      mockCreditWallet.mockRejectedValueOnce(new Error("connection reset"));
+      // R45 C-1: Atomic function throws on DB error — invoice stays 'pending'
+      mockAtomicCompleteInvoiceAndCredit.mockRejectedValueOnce(new Error("connection reset"));
 
       await expect(handleIpnCallback(body, sig)).rejects.toThrow("connection reset");
     });

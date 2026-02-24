@@ -1001,7 +1001,8 @@ describe("teams routes", () => {
       expect(res.status).toBe(200);
       expect(res.body.id).toBe("invite-1");
       expect(res.body.teamName).toBe("Team Alpha");
-      expect(res.body.email).toBe("invited@test.com");
+      // R46 C-3: Public endpoint now masks email PII
+      expect(res.body.email).toBe("in***@test.com");
       expect(mockGetInviteByToken).toHaveBeenCalled();
     });
 

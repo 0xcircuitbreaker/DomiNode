@@ -29,7 +29,8 @@ function getJwtSecret(): string {
 // Use a separate secret for refresh tokens (derived from main secret)
 function getRefreshSecret(): string {
   const base = getJwtSecret();
-  return crypto.createHash("sha256").update(`refresh:${base}`).digest("hex");
+  // R46 L-4: Use HMAC for proper PRF guarantee in key derivation
+  return crypto.createHmac("sha256", base).update("refresh").digest("hex");
 }
 
 // ─── API Key ─────────────────────────────────────────────────────────
@@ -123,7 +124,8 @@ export function verifyJwt(token: string): JwtPayload | null {
 // to prevent token confusion attacks between access tokens and challenge tokens
 function getMfaChallengeSecret(): string {
   const base = getJwtSecret();
-  return crypto.createHash("sha256").update(`mfa-challenge:${base}`).digest("hex");
+  // R46 L-4: Use HMAC for proper PRF guarantee in key derivation
+  return crypto.createHmac("sha256", base).update("mfa-challenge").digest("hex");
 }
 
 export interface MfaChallengePayload {

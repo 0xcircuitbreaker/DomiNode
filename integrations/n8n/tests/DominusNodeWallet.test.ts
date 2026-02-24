@@ -93,11 +93,11 @@ describe("DominusNodeWallet - metadata", () => {
     ]);
   });
 
-  it("has 20 operations", () => {
+  it("has 21 operations", () => {
     const node = new DominusNodeWallet();
     const opProp = node.description.properties.find((p) => p.name === "operation");
     expect(opProp).toBeDefined();
-    expect((opProp as any).options).toHaveLength(20);
+    expect((opProp as any).options).toHaveLength(21);
   });
 });
 

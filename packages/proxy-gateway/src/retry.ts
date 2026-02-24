@@ -20,13 +20,41 @@ export interface RetryOptions {
   jitter: boolean;
 }
 
+// R46 L-1: Validate retry config env vars for NaN/range
+const parsedMaxRetries = parseInt(process.env["PROXY_MAX_RETRIES"] ?? "2", 10);
+const parsedBaseDelay = parseInt(process.env["PROXY_RETRY_BASE_DELAY_MS"] ?? "200", 10);
+
+if (isNaN(parsedMaxRetries) || parsedMaxRetries < 0 || parsedMaxRetries > 10) {
+  throw new Error("PROXY_MAX_RETRIES must be between 0 and 10");
+}
+if (isNaN(parsedBaseDelay) || parsedBaseDelay < 0 || parsedBaseDelay > 10000) {
+  throw new Error("PROXY_RETRY_BASE_DELAY_MS must be between 0 and 10000");
+}
+
 export const DEFAULT_RETRY_OPTIONS: RetryOptions = {
-  maxRetries: parseInt(process.env["PROXY_MAX_RETRIES"] ?? "2", 10),
-  baseDelayMs: parseInt(process.env["PROXY_RETRY_BASE_DELAY_MS"] ?? "200", 10),
+  maxRetries: parsedMaxRetries,
+  baseDelayMs: parsedBaseDelay,
   retryableStatuses: new Set([502, 503]),
   retryableErrors: RETRYABLE_ERRORS,
   jitter: true,
 };
+
+// R46 M-3: No-retry options for non-idempotent HTTP methods (POST/PUT/DELETE/PATCH)
+export const NO_RETRY_OPTIONS: RetryOptions = {
+  maxRetries: 0,
+  baseDelayMs: 0,
+  retryableStatuses: new Set(),
+  retryableErrors: new Set(),
+  jitter: false,
+};
+
+/** Safe HTTP methods that can be retried without risk of duplicate side effects */
+export const SAFE_RETRY_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
+
+/** Get appropriate retry options based on HTTP method */
+export function getRetryOptionsForMethod(method: string): RetryOptions {
+  return SAFE_RETRY_METHODS.has(method.toUpperCase()) ? DEFAULT_RETRY_OPTIONS : NO_RETRY_OPTIONS;
+}
 
 export interface RetryResult {
   response: http.IncomingMessage;

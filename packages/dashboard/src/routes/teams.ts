@@ -63,11 +63,13 @@ router.get("/invites/:token", async (req, res) => {
       return;
     }
 
+    // R46 C-3: Mask email in public response — token possession doesn't grant PII access
+    const maskedEmail = invite.email.replace(/^(.{2}).*(@.*)$/, "$1***$2");
     res.json({
       id: invite.id,
       teamId: invite.team_id,
       teamName: invite.team_name,
-      email: invite.email,
+      email: maskedEmail,
       role: invite.role,
       expiresAt: invite.expires_at,
       createdAt: invite.created_at,
@@ -428,6 +430,14 @@ router.get("/:id/members", async (req, res) => {
 router.post("/:id/members", async (req, res) => {
   try {
     const { userId } = (req as unknown as AuthenticatedRequest).user;
+
+    // R46 H-7: Require email verification before adding team members
+    const adder = await userRepo.findUserById(userId);
+    if (!adder || !adder.email_verified) {
+      res.status(403).json({ error: "Email verification required before adding team members" });
+      return;
+    }
+
     const teamId = req.params.id as string;
     const email = typeof req.body.email === "string" ? req.body.email.trim().toLowerCase() : "";
     const role = req.body.role ?? "member";
@@ -738,7 +748,8 @@ router.delete("/:id/invites/:inviteId", async (req, res) => {
 });
 
 // POST /api/teams/invites/:token/accept — Accept invite
-router.post("/invites/:token/accept", async (req, res) => {
+// R46 H-1: Rate limit invite acceptance (DB writes on every attempt)
+router.post("/invites/:token/accept", inviteLimiter, async (req, res) => {
   try {
     const { userId } = (req as unknown as AuthenticatedRequest).user;
 

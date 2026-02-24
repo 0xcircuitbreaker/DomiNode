@@ -8,11 +8,13 @@ import { checkBalance, checkTeamBalance } from "./balance-check.js";
 import { attachByteCounters } from "./counting-stream.js";
 import { startSession, endSession, getActiveSessionCount, registerSessionDestroy, unregisterSessionDestroy } from "./session-manager.js";
 import { checkSanctionedCountry, initGeoCheck } from "./geo-check.js";
-import { executeWithRetry, promisifyRequest, DEFAULT_RETRY_OPTIONS } from "./retry.js";
+import { executeWithRetry, promisifyRequest, DEFAULT_RETRY_OPTIONS, getRetryOptionsForMethod } from "./retry.js";
 import { validateTarget, isValidHostname, isValidPort } from "./target-validator.js";
 import { incrementUserConns, decrementUserConns } from "./connection-tracker.js";
 import { checkAuthRateLimit, recordAuthFailure } from "./auth-rate-limit.js";
 import { recordRequest, recordError, recordLatency, recordBytes, recordSessionStart } from "./stats.js";
+import { handleX402Http, handleX402Connect, settleX402ConnectRequest, settleX402HttpRequest, build402ResponseBody, build402ConnectResponse, isX402Verified, getX402Data } from "./x402-handler.js";
+import type { X402ConnectResult } from "./x402-handler.js";
 
 const log = createLogger("proxy:server");
 
@@ -96,23 +98,164 @@ async function handleRequest(
 
   const auth = await authenticateRequest(clientReq);
   if (!auth) {
-    recordAuthFailure(clientIp);
-    clientRes.writeHead(407, {
-      "Proxy-Authenticate": 'Basic realm="Dominus Node Proxy"',
-      "Content-Type": "text/plain",
-    });
-    clientRes.end("Proxy authentication required");
+    // Check for x402 payment before rejecting
+    if (clientReq.headers["x-payment"]) {
+      const x402Handled = await handleX402Http(clientReq, clientRes);
+      if (x402Handled && !isX402Verified(clientReq)) {
+        // x402 handler already sent the response (402 or error)
+        return;
+      }
+      // If x402 verified, fall through to x402 proxy path below
+    }
+
+    // No x402 or x402 not enabled — require API key auth
+    if (!isX402Verified(clientReq)) {
+      recordAuthFailure(clientIp);
+      clientRes.writeHead(407, {
+        "Proxy-Authenticate": 'Basic realm="Dominus Node Proxy"',
+        "Content-Type": "text/plain",
+      });
+      clientRes.end("Proxy authentication required");
+      return;
+    }
+  }
+
+  // ─── x402 path: no user account, skip plan/balance/session ────────
+  const x402Data = getX402Data(clientReq);
+  if (x402Data && !auth) {
+    // R46 H-1: Restrict x402 to safe HTTP methods — anonymous payments must not
+    // enable mutating requests (POST/PUT/DELETE) through the proxy.
+    const X402_SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
+    if (!X402_SAFE_METHODS.has((clientReq.method ?? "").toUpperCase())) {
+      sendError(clientRes, 405, "METHOD_NOT_ALLOWED", "x402 micropayment requests only support GET, HEAD, and OPTIONS methods");
+      return;
+    }
+
+    const x402Options: import("./auth.js").ProxyOptions = { proxyType: x402Data.poolType };
+    let selected;
+    try {
+      selected = providerSelector.select(x402Options);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes("unavailable")) {
+        sendError(clientRes, 503, "ALL_PROVIDERS_DOWN", "Service temporarily unavailable.", { "Retry-After": "30" });
+      } else {
+        sendError(clientRes, 502, "UPSTREAM_UNAVAILABLE", "Bad gateway");
+      }
+      return;
+    }
+    const { provider, proxy: upstream } = selected;
+
+    const targetUrl = clientReq.url ?? "/";
+    const parsedTarget = new URL(targetUrl, "http://localhost");
+    const targetHost = parsedTarget.hostname || "unknown";
+    const targetPort = parseInt(parsedTarget.port || "80", 10);
+
+    // SSRF protection
+    const targetCheck = await validateTarget(targetHost, targetPort);
+    if (!targetCheck.allowed) {
+      sendError(clientRes, 403, "TARGET_BLOCKED", targetCheck.reason || "Blocked: target is a private/internal address");
+      return;
+    }
+
+    // Strip hop-by-hop headers
+    const HOP_BY_HOP_X402 = new Set([
+      "proxy-authorization", "proxy-connection", "connection",
+      "keep-alive", "te", "trailer", "upgrade", "transfer-encoding",
+      "x-payment", "x-pool-type",
+    ]);
+    const x402Headers = { ...clientReq.headers };
+    for (const h of HOP_BY_HOP_X402) delete x402Headers[h];
+
+    // Buffer request body
+    const x402BodyChunks: Buffer[] = [];
+    let x402BodySize = 0;
+    for await (const chunk of clientReq) {
+      const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      x402BodySize += buf.length;
+      if (x402BodySize > MAX_BODY_SIZE) {
+        clientRes.writeHead(413, { "Content-Type": "text/plain" });
+        clientRes.end("Request body too large");
+        return;
+      }
+      x402BodyChunks.push(buf);
+    }
+    const x402Body = Buffer.concat(x402BodyChunks);
+
+    const reqOptions: http.RequestOptions = {
+      hostname: upstream.host,
+      port: upstream.port,
+      path: targetUrl,
+      method: clientReq.method,
+      headers: {
+        ...x402Headers,
+        "Proxy-Authorization": `Basic ${upstream.proxyAuth}`,
+      },
+      timeout: CONNECT_TIMEOUT_MS,
+    };
+
+    const x402ConnStart = Date.now();
+    try {
+      const { response: proxyRes } = await executeWithRetry(
+        () => promisifyRequest(reqOptions, x402Body),
+        DEFAULT_RETRY_OPTIONS,
+      );
+
+      // R45 M-4: Record actual latency, not absolute timestamp
+      providerSelector.recordSuccess(provider.name, Date.now() - x402ConnStart);
+
+      // Strip hop-by-hop from response
+      const HOP_BY_HOP_RESP = new Set([
+        "proxy-authenticate", "proxy-authorization", "proxy-connection",
+        "connection", "keep-alive", "te", "trailer", "upgrade",
+      ]);
+      const responseHeaders = { ...proxyRes.headers };
+      for (const h of HOP_BY_HOP_RESP) delete responseHeaders[h];
+
+      // R46 C-1: Cap TOTAL bytes (request body + response) for x402 to prevent bandwidth theft.
+      // Request body bytes count against the cap — a 50MB upload for $0.001 is unacceptable.
+      const x402MaxResp = x402Data!.maxResponseBytes;
+      let x402TotalBytes = x402Body.length; // Include request body in cap
+      proxyRes.on("data", (chunk: Buffer) => {
+        x402TotalBytes += chunk.length;
+        if (x402TotalBytes > x402MaxResp) {
+          log.warn("x402 HTTP total byte cap reached", { bytes: x402TotalBytes, max: x402MaxResp });
+          proxyRes.destroy();
+        }
+      });
+
+      clientRes.writeHead(proxyRes.statusCode ?? 502, responseHeaders);
+      proxyRes.pipe(clientRes, { end: true });
+      clientRes.on("close", () => {
+        if (proxyRes && !proxyRes.destroyed) proxyRes.destroy();
+      });
+
+      proxyRes.on("end", () => {
+        settleX402HttpRequest(clientReq, targetHost).catch(e =>
+          log.error("x402 settle error", { error: e instanceof Error ? e.message : String(e) }));
+      });
+    } catch (err) {
+      providerSelector.recordFailure(provider.name);
+      recordError();
+      const errMsg = err instanceof Error ? err.message : String(err);
+      log.error("x402 upstream error", { error: sanitizeUpstreamMsg(errMsg) });
+      if (!clientRes.headersSent) {
+        sendError(clientRes, 502, "UPSTREAM_UNAVAILABLE", "Bad gateway");
+      }
+    }
     return;
   }
 
+  // ─── Standard auth path (API key authenticated) ───────────────────
+
   // Fetch plan BEFORE provider selection to enforce pool restrictions (R22 H-4)
-  const userPlan = await planRepo.getUserPlan(auth.userId);
+  const userPlan = await planRepo.getUserPlan(auth!.userId);
 
   // R22 H-4: Enforce allowedProxyTypes BEFORE provider selection — not after
   // This ensures the provider selector receives the correct pool type, preventing
   // DC-only users from consuming residential bandwidth (or vice versa).
   if (userPlan.allowedProxyTypes) {
-    const reqType = auth.proxyOptions.proxyType;
+    const reqType = auth!.proxyOptions.proxyType;
     if (reqType === "residential" && userPlan.allowedProxyTypes === "dc") {
       sendError(clientRes, 403, "POOL_RESTRICTED", "Your plan only allows datacenter proxies");
       return;
@@ -123,14 +266,14 @@ async function handleRequest(
     }
     // For "auto" or unrecognized, force to the allowed pool
     if (!reqType || reqType === "auto") {
-      auth.proxyOptions.proxyType = userPlan.allowedProxyTypes as "dc" | "residential";
+      auth!.proxyOptions.proxyType = userPlan.allowedProxyTypes as "dc" | "residential";
     }
   }
 
   // Provider selection (replaces global circuit breaker check)
   let selected;
   try {
-    selected = providerSelector.select(auth.proxyOptions);
+    selected = providerSelector.select(auth!.proxyOptions);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     if (msg.includes("sanctioned")) {
@@ -146,19 +289,24 @@ async function handleRequest(
   const { provider, proxy: upstream } = selected;
 
   // Per-user connection limit (plan-aware)
-  if (!incrementUserConns(auth.userId, userPlan.maxConnections)) {
+  if (!incrementUserConns(auth!.userId, userPlan.maxConnections)) {
     sendError(clientRes, 429, "TOO_MANY_CONNECTIONS", "Too many concurrent connections.", { "Retry-After": "5" });
     return;
   }
 
   // Free plan: skip wallet balance check (bandwidth checked in startSession)
   if (userPlan.pricePerGbCents > 0) {
-    const hasBalance = auth.teamId
-      ? await checkTeamBalance(auth.teamId)
-      : await checkBalance(auth.userId);
+    const hasBalance = auth!.teamId
+      ? await checkTeamBalance(auth!.teamId)
+      : await checkBalance(auth!.userId);
     if (!hasBalance) {
-      decrementUserConns(auth.userId);
-      sendError(clientRes, 402, "INSUFFICIENT_BALANCE", "Insufficient balance. Top up your wallet at the Dominus Node dashboard.");
+      decrementUserConns(auth!.userId);
+      const body402 = build402ResponseBody(auth!.proxyOptions.proxyType === "residential" ? "residential" : "dc");
+      clientRes.writeHead(402, {
+        "Content-Type": "application/json",
+        "X-DominusNode-Error": "INSUFFICIENT_BALANCE",
+      });
+      clientRes.end(body402);
       return;
     }
   }
@@ -183,7 +331,7 @@ async function handleRequest(
   // SSRF protection: validate target is not a private/internal address
   const targetCheck = await validateTarget(targetHost, targetPort);
   if (!targetCheck.allowed) {
-    decrementUserConns(auth.userId);
+    decrementUserConns(auth!.userId);
     sendError(clientRes, 403, "TARGET_BLOCKED", targetCheck.reason || "Blocked: target is a private/internal address");
     return;
   }
@@ -194,12 +342,14 @@ async function handleRequest(
     // R20 H-5: Pass proxyType derived from provider name
     // R29 C-2: Pass pre-fetched plan to prevent TOCTOU double-fetch
     const fwdPoolType = provider.name.includes("dc") ? "dc" : "residential";
-    sessionId = await startSession(auth.userId, targetHost, counter, 0, fwdPoolType, userPlan, auth.user.log_target_hosts ?? false, auth.teamId);
+    sessionId = await startSession(auth!.userId, targetHost, counter, 0, fwdPoolType, userPlan, auth!.user.log_target_hosts ?? false, auth!.teamId);
   } catch (err) {
-    decrementUserConns(auth.userId);
+    decrementUserConns(auth!.userId);
     const msg = err instanceof Error ? err.message : String(err);
     if (msg.includes("Insufficient balance")) {
-      sendError(clientRes, 402, "INSUFFICIENT_BALANCE", "Insufficient balance. Top up your wallet at the Dominus Node dashboard.");
+      const body402 = build402ResponseBody(auth!.proxyOptions.proxyType === "residential" ? "residential" : "dc");
+      clientRes.writeHead(402, { "Content-Type": "application/json", "X-DominusNode-Error": "INSUFFICIENT_BALANCE" });
+      clientRes.end(body402);
     } else if (msg.includes("bandwidth limit")) {
       sendError(clientRes, 403, "BANDWIDTH_LIMIT_EXCEEDED", "Monthly bandwidth limit exceeded. Upgrade your plan at the Dominus Node dashboard.");
     } else if (msg.includes("rate limit")) {
@@ -218,7 +368,7 @@ async function handleRequest(
     if (cleanedUp) return;
     cleanedUp = true;
     unregisterSessionDestroy(sessionId);
-    decrementUserConns(auth.userId);
+    decrementUserConns(auth!.userId);
     endSession(sessionId).catch((err) => {
       log.error("failed to end session", { error: err instanceof Error ? err.message : String(err) });
     });
@@ -268,9 +418,11 @@ async function handleRequest(
   const connectStart = Date.now();
 
   try {
+    // R46 M-3: Only retry safe HTTP methods to prevent duplicate side effects
+    const retryOpts = getRetryOptionsForMethod(clientReq.method ?? "GET");
     const { response: proxyRes, retries, totalDelayMs } = await executeWithRetry(
       () => promisifyRequest(reqOptions, requestBody),
-      DEFAULT_RETRY_OPTIONS,
+      retryOpts,
     );
 
     const connectLatencyMs = Date.now() - connectStart;
@@ -358,6 +510,20 @@ async function handleConnect(
 
   const auth = await authenticateRequest(req);
   if (!auth) {
+    // Check for x402 payment before rejecting
+    if (req.headers["x-payment"]) {
+      const x402Result = await handleX402Connect(req, clientSocket);
+      if (x402Result) {
+        if (!x402Result.verified) {
+          // x402 handler sent 402/429 response
+          return;
+        }
+        // x402 verified — handle CONNECT tunneling without user account
+        await handleX402ConnectTunnel(req, clientSocket, head, providerSelector, x402Result);
+        return;
+      }
+    }
+
     recordAuthFailure(connectClientIp);
     safeSocketWrite(clientSocket,
       "HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: Basic realm=\"Dominus Node Proxy\"\r\n\r\n",
@@ -420,7 +586,8 @@ async function handleConnect(
       : await checkBalance(userId);
     if (!hasBalance) {
       decrementUserConns(userId);
-      safeSocketWrite(clientSocket, "HTTP/1.1 402 Payment Required\r\nX-DominusNode-Error: INSUFFICIENT_BALANCE\r\n\r\n");
+      const poolHint = auth.proxyOptions.proxyType === "residential" ? "residential" : "dc";
+      safeSocketWrite(clientSocket, build402ConnectResponse(poolHint));
       return;
     }
   }
@@ -581,7 +748,8 @@ async function handleConnect(
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       if (msg.includes("Insufficient balance")) {
-        safeSocketWrite(clientSocket, "HTTP/1.1 402 Payment Required\r\nX-DominusNode-Error: INSUFFICIENT_BALANCE\r\n\r\n");
+        const sessionPoolHint = providerName.includes("dc") ? "dc" as const : "residential" as const;
+        safeSocketWrite(clientSocket, build402ConnectResponse(sessionPoolHint));
       } else if (msg.includes("bandwidth limit")) {
         safeSocketWrite(clientSocket, "HTTP/1.1 403 Forbidden\r\nX-DominusNode-Error: BANDWIDTH_LIMIT_EXCEEDED\r\n\r\n");
       } else if (msg.includes("rate limit")) {
@@ -684,6 +852,223 @@ async function handleConnect(
       safeSocketWrite(clientSocket, "HTTP/1.1 504 Gateway Timeout\r\nX-DominusNode-Error: UPSTREAM_TIMEOUT\r\n\r\n");
       psSocket.destroy();
       safeDecrement();
+    }
+  }, CONNECT_TIMEOUT_MS);
+
+  psSocket.once("close", () => clearTimeout(handshakeTimeout));
+  clientSocket.once("close", () => clearTimeout(handshakeTimeout));
+}
+
+// ─── x402 CONNECT tunnel (no user account, payment-per-request) ─────
+
+async function handleX402ConnectTunnel(
+  req: http.IncomingMessage,
+  clientSocket: net.Socket,
+  head: Buffer,
+  providerSelector: ProviderSelector,
+  x402Result: X402ConnectResult,
+): Promise<void> {
+  const x402Options: import("./auth.js").ProxyOptions = { proxyType: x402Result.poolType };
+  let selected;
+  try {
+    selected = providerSelector.select(x402Options);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes("unavailable")) {
+      safeSocketWrite(clientSocket, "HTTP/1.1 503 Service Unavailable\r\nRetry-After: 30\r\n\r\n");
+    } else {
+      safeSocketWrite(clientSocket, "HTTP/1.1 502 Bad Gateway\r\n\r\n");
+    }
+    return;
+  }
+  const { provider, proxy: upstream } = selected;
+  const providerName = provider.name;
+
+  // Parse host:port from CONNECT target
+  const connectUrl = req.url ?? "";
+  let targetHost: string;
+  let targetPort: number;
+  if (connectUrl.startsWith("[")) {
+    const closeBracket = connectUrl.indexOf("]");
+    if (closeBracket === -1) {
+      safeSocketWrite(clientSocket, "HTTP/1.1 400 Bad Request\r\n\r\n");
+      return;
+    }
+    targetHost = connectUrl.slice(1, closeBracket);
+    const zoneIdx = targetHost.indexOf("%");
+    if (zoneIdx !== -1) targetHost = targetHost.substring(0, zoneIdx);
+    const afterBracket = connectUrl.slice(closeBracket + 1);
+    targetPort = afterBracket.startsWith(":") ? parseInt(afterBracket.slice(1), 10) : 443;
+  } else {
+    const lastColon = connectUrl.lastIndexOf(":");
+    if (lastColon === -1) {
+      targetHost = connectUrl;
+      targetPort = 443;
+    } else {
+      targetHost = connectUrl.slice(0, lastColon);
+      targetPort = parseInt(connectUrl.slice(lastColon + 1), 10);
+    }
+  }
+
+  if (!isValidHostname(targetHost) || !isValidPort(targetPort)) {
+    safeSocketWrite(clientSocket, "HTTP/1.1 400 Bad Request\r\n\r\n");
+    return;
+  }
+
+  const targetCheck = await validateTarget(targetHost, targetPort);
+  if (!targetCheck.allowed) {
+    safeSocketWrite(clientSocket, "HTTP/1.1 403 Forbidden\r\n\r\n");
+    return;
+  }
+
+  if (/[\x00-\x1f\x7f]/.test(targetHost)) {
+    safeSocketWrite(clientSocket, "HTTP/1.1 400 Bad Request\r\n\r\n");
+    return;
+  }
+
+  const connectHost = targetHost.includes(":") ? `[${targetHost}]` : targetHost;
+  const connectStart = Date.now();
+
+  const psSocket = net.connect(upstream.port, upstream.host, () => {
+    psSocket.write(
+      `CONNECT ${connectHost}:${targetPort} HTTP/1.1\r\n` +
+        `Host: ${connectHost}:${targetPort}\r\n` +
+        `Proxy-Authorization: Basic ${upstream.proxyAuth}\r\n` +
+        `\r\n`,
+    );
+  });
+
+  let tunnelEstablished = false;
+  let headersParsed = false;
+  const headerChunks: Buffer[] = [];
+  let headerBytesSoFar = 0;
+
+  async function handleUpstreamData(chunk: Buffer): Promise<void> {
+    if (headersParsed) return;
+
+    headerChunks.push(chunk);
+    headerBytesSoFar += chunk.length;
+
+    if (headerBytesSoFar > 32 * 1024) {
+      safeSocketWrite(clientSocket, "HTTP/1.1 502 Bad Gateway\r\n\r\n");
+      psSocket.destroy();
+      return;
+    }
+
+    const fullBuffer = Buffer.concat(headerChunks);
+    const headerStr = fullBuffer.toString("utf-8");
+
+    if (!headerStr.includes("\r\n\r\n")) {
+      psSocket.once("data", (nextChunk: Buffer) => {
+        handleUpstreamData(nextChunk).catch(() => {
+          safeSocketWrite(clientSocket, "HTTP/1.1 502 Bad Gateway\r\n\r\n");
+          psSocket.destroy();
+        });
+      });
+      return;
+    }
+
+    const statusLine = headerStr.split("\r\n")[0];
+    const statusMatch = statusLine.match(/^HTTP\/1\.[01] (\d{3})/);
+    if (!statusMatch || statusMatch[1] !== "200") {
+      providerSelector.recordFailure(providerName);
+      recordError();
+      safeSocketWrite(clientSocket, "HTTP/1.1 502 Bad Gateway\r\n\r\n");
+      psSocket.destroy();
+      return;
+    }
+
+    headersParsed = true;
+    tunnelEstablished = true;
+    clearTimeout(handshakeTimeout);
+
+    const connectLatencyMs = Date.now() - connectStart;
+    recordLatency(connectLatencyMs);
+    providerSelector.recordSuccess(providerName, connectLatencyMs);
+
+    // Tell the client the tunnel is established
+    clientSocket.write("HTTP/1.1 200 Connection Established\r\n\r\n");
+
+    const headerEndIdx = fullBuffer.indexOf("\r\n\r\n") + 4;
+    const remaining = fullBuffer.slice(headerEndIdx);
+
+    // C-4: Add bandwidth cap for x402 CONNECT tunnel to prevent unlimited data for a micropayment
+    const x402Counter = attachByteCounters(clientSocket, psSocket);
+    x402Counter.maxBytes = x402Result.maxResponseBytes;
+    x402Counter.onLimitExceeded = () => {
+      log.warn("x402 CONNECT bandwidth cap reached", {
+        bytes: x402Counter.bytesIn + x402Counter.bytesOut,
+        max: x402Result.maxResponseBytes,
+        payer: x402Result.payer.slice(0, 10) + "...",
+      });
+      clientSocket.destroy();
+      psSocket.destroy();
+    };
+
+    // Count buffered data that was received before byte counters were attached
+    if (remaining.length > 0) {
+      x402Counter.bytesOut += remaining.length;
+      clientSocket.write(remaining);
+    }
+    if (head.length > 0) {
+      x402Counter.bytesIn += head.length;
+      psSocket.write(head);
+    }
+
+    psSocket.pipe(clientSocket);
+    clientSocket.pipe(psSocket);
+
+    clientSocket.setTimeout(TUNNEL_IDLE_TIMEOUT_MS);
+    psSocket.setTimeout(TUNNEL_IDLE_TIMEOUT_MS);
+    clientSocket.on("timeout", () => clientSocket.destroy());
+    psSocket.on("timeout", () => psSocket.destroy());
+
+    // Once-guard cleanup: settle x402 payment when tunnel closes
+    let tunnelCleanedUp = false;
+    const x402Cleanup = () => {
+      if (tunnelCleanedUp) return;
+      tunnelCleanedUp = true;
+      settleX402ConnectRequest(x402Result, targetHost).catch(e =>
+        log.error("x402 CONNECT settle error", { error: e instanceof Error ? e.message : String(e) }));
+    };
+
+    clientSocket.on("end", x402Cleanup);
+    clientSocket.on("error", x402Cleanup);
+    clientSocket.on("close", x402Cleanup);
+    psSocket.on("end", x402Cleanup);
+    psSocket.on("error", x402Cleanup);
+    psSocket.on("close", x402Cleanup);
+  }
+
+  psSocket.once("data", (chunk: Buffer) => {
+    handleUpstreamData(chunk).catch(() => {
+      safeSocketWrite(clientSocket, "HTTP/1.1 502 Bad Gateway\r\n\r\n");
+      psSocket.destroy();
+    });
+  });
+
+  psSocket.on("error", (err) => {
+    log.error("x402 upstream socket error", { error: err.message, provider: providerName });
+    if (!tunnelEstablished) {
+      providerSelector.recordFailure(providerName);
+      recordError();
+      safeSocketWrite(clientSocket, "HTTP/1.1 502 Bad Gateway\r\n\r\n");
+    } else {
+      if (!clientSocket.destroyed) clientSocket.end();
+    }
+    psSocket.destroy();
+  });
+
+  clientSocket.on("error", () => {
+    if (!psSocket.destroyed) psSocket.destroy();
+  });
+
+  const handshakeTimeout = setTimeout(() => {
+    if (!tunnelEstablished) {
+      providerSelector.recordFailure(providerName);
+      recordError();
+      safeSocketWrite(clientSocket, "HTTP/1.1 504 Gateway Timeout\r\n\r\n");
+      psSocket.destroy();
     }
   }, CONNECT_TIMEOUT_MS);
 

@@ -179,7 +179,9 @@ const RECAPTCHA_SECRET_KEY = process.env["RECAPTCHA_SECRET_KEY"] ?? "";
 
 // reCAPTCHA v3 score threshold — 0.5 is Google's recommended default.
 // Scores range 0.0 (bot) to 1.0 (human). Adjust if needed.
-const RECAPTCHA_SCORE_THRESHOLD = parseFloat(process.env["RECAPTCHA_SCORE_THRESHOLD"] ?? "0.5");
+// R46 M-3: Guard against NaN — parseFloat("abc") = NaN, NaN < 0.5 = false → silently disables check
+const _parsedThreshold = parseFloat(process.env["RECAPTCHA_SCORE_THRESHOLD"] ?? "0.5");
+const RECAPTCHA_SCORE_THRESHOLD = Number.isFinite(_parsedThreshold) ? _parsedThreshold : 0.5;
 
 async function verifyRecaptcha(token: string, remoteIp: string, expectedAction?: string): Promise<boolean> {
   if (!RECAPTCHA_SECRET_KEY) return true; // Skip if not configured (dev mode)
@@ -210,7 +212,9 @@ async function verifyRecaptcha(token: string, remoteIp: string, expectedAction?:
 }
 
 // ─── Global registration cap (Alpha: 250, 0 = unlimited) ───
-const MAX_REGISTERED_USERS = parseInt(process.env["MAX_REGISTERED_USERS"] ?? "250", 10);
+// R46 M-4: Guard against NaN — parseInt("abc") = NaN → comparison always false → blocks all registrations
+const _parsedMaxUsersAuth = parseInt(process.env["MAX_REGISTERED_USERS"] ?? "250", 10);
+const MAX_REGISTERED_USERS = Number.isFinite(_parsedMaxUsersAuth) ? _parsedMaxUsersAuth : 250;
 
 async function checkGlobalRegistrationCap(): Promise<boolean> {
   if (MAX_REGISTERED_USERS <= 0) return true; // 0 = unlimited (production)

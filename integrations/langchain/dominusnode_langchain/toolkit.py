@@ -30,6 +30,7 @@ from .tools import (
     DominusNodeProxyConfigTool,
     DominusNodeTopupPaypalTool,
     DominusNodeUsageTool,
+    DominusNodeX402InfoTool,
 )
 
 
@@ -128,7 +129,11 @@ class DominusNodeToolkit(BaseToolkit):
             sync_client=self._sync_client,
             async_client=self._async_client,
         )
-        return [fetch_tool, balance_tool, usage_tool, config_tool, topup_paypal_tool]
+        x402_info_tool = DominusNodeX402InfoTool(
+            sync_client=self._sync_client,
+            async_client=self._async_client,
+        )
+        return [fetch_tool, balance_tool, usage_tool, config_tool, topup_paypal_tool, x402_info_tool]
 
     def get_tools(self) -> List[BaseTool]:
         """Return the list of DomiNode LangChain tools."""

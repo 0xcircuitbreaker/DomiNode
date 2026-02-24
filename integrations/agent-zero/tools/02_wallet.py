@@ -170,6 +170,35 @@ def topup_paypal(
 
 
 # ---------------------------------------------------------------------------
+# Tool: x402_info
+# ---------------------------------------------------------------------------
+
+
+def x402_info(
+    auth: DominusNodeAuth,
+    args: Dict[str, Any],
+) -> str:
+    """Get x402 micropayment protocol information.
+
+    Returns details about x402 HTTP 402 Payment Required protocol support
+    including facilitators, pricing, supported currencies, and payment
+    options for AI agent micropayments.
+
+    Args:
+        auth: Authenticated DomiNode helper.
+        args: Tool arguments (none required).
+
+    Returns:
+        JSON string with x402 protocol information.
+    """
+    try:
+        result = auth.api_request("GET", "/api/x402/info")
+        return json.dumps(result)
+    except Exception as e:
+        return json.dumps({"error": _sanitize_error(str(e))})
+
+
+# ---------------------------------------------------------------------------
 # Dispatch table
 # ---------------------------------------------------------------------------
 
@@ -209,5 +238,13 @@ TOOLS = {
                 "description": "Amount in cents ($1 = 100, $10 = 1000)",
             },
         },
+    },
+    "x402_info": {
+        "function": x402_info,
+        "description": (
+            "Get x402 micropayment protocol information including supported "
+            "facilitators, pricing, and payment options."
+        ),
+        "parameters": {},
     },
 }

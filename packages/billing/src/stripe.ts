@@ -187,36 +187,22 @@ export async function handleCheckoutWebhook(
 
   const userId = invoice.user_id;
 
-  // Atomically mark invoice as completed — only one concurrent webhook
-  // can succeed here since UPDATE ... WHERE status='pending' is atomic.
-  const claimed = await invoiceRepo.completeInvoice(invoice.id);
-  if (!claimed) {
+  // R45 C-1: Atomically complete invoice + credit wallet in a single
+  // DB transaction. If the server crashes mid-operation, both roll back.
+  const creditAmountCents = invoice.amount_cents;
+  const result = await walletRepo.atomicCompleteInvoiceAndCredit(
+    invoice.id,
+    userId,
+    creditAmountCents,
+    "stripe",
+    session.id,
+    `Stripe top-up $${(creditAmountCents / 100).toFixed(2)}`,
+  );
+  if (!result.claimed) {
     log.info("duplicate Stripe webhook ignored (invoice already completed)", { sessionId: session.id });
     return null;
   }
 
-  // R31 H-2: Credit invoice.amount_cents (our stored truth) not Stripe's amount_total
-  // — prevents crediting a manipulated amount if Stripe session data were ever tampered with.
-  // (The amounts are verified equal above, but defense-in-depth: trust our DB value.)
-  const creditAmountCents = invoice.amount_cents;
-  try {
-    await walletRepo.creditWallet(
-      userId,
-      creditAmountCents,
-      "stripe",
-      session.id,
-      `Stripe top-up $${(creditAmountCents / 100).toFixed(2)}`,
-    );
-  } catch (creditErr) {
-    // R30 C-1: Do NOT revert to pending — this creates infinite retry loops.
-    // Mark as failed; operator can manually reconcile if needed.
-    log.error("wallet credit failed after invoice completion — marking invoice as failed", {
-      invoiceId: invoice.id, userId, sessionId: session.id,
-      error: creditErr instanceof Error ? creditErr.message : String(creditErr),
-    });
-    try { await invoiceRepo.markCreditFailed(invoice.id); } catch { /* best effort */ }
-    throw creditErr;
-  }
   log.info("wallet credited via Stripe", { userId, amountCents: creditAmountCents });
   return { userId, amountCents: creditAmountCents };
 }

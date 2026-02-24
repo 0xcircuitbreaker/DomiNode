@@ -1106,7 +1106,13 @@ export function createDominusNodeFunctionHandler(
     dominusnode_update_team: handleUpdateTeam,
     dominusnode_update_team_member_role: handleUpdateTeamMemberRole,
     dominusnode_topup_paypal: handleTopupPaypal,
+    dominusnode_x402_info: handleX402Info,
   };
+
+  async function handleX402Info(): Promise<string> {
+    const result = await api("GET", "/api/x402/info");
+    return JSON.stringify(result);
+  }
 
   // -----------------------------------------------------------------------
   // Main handler

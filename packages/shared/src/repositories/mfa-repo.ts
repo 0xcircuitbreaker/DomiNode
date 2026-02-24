@@ -27,7 +27,7 @@ export async function createMfaConfig(
     `INSERT INTO mfa_configs (user_id, totp_secret_enc, totp_secret_iv)
      VALUES ($1, $2, $3)
      ON CONFLICT (user_id) DO UPDATE SET totp_secret_enc = $2, totp_secret_iv = $3, enabled = false, enabled_at = NULL
-     RETURNING id, user_id, enabled, created_at, enabled_at`,
+     RETURNING id, user_id, totp_secret_enc, totp_secret_iv, enabled, created_at, enabled_at`,
     [userId, encSecret, iv],
   );
   return result.rows[0] as MfaConfig;
@@ -68,7 +68,13 @@ export async function deleteMfaConfig(userId: string): Promise<void> {
   }
 }
 
+// R46 H-9: Standard backup code count is 10; cap at 20 to prevent DoS via unbounded inserts
+const MAX_BACKUP_CODES = 20;
+
 export async function storeBackupCodes(userId: string, hashes: string[]): Promise<void> {
+  if (hashes.length > MAX_BACKUP_CODES) {
+    throw new Error(`Cannot store more than ${MAX_BACKUP_CODES} backup codes`);
+  }
   const pool = getPool();
   const client = await pool.connect();
   try {
@@ -87,17 +93,6 @@ export async function storeBackupCodes(userId: string, hashes: string[]): Promis
   } finally {
     client.release();
   }
-}
-
-export async function findUnusedBackupCode(
-  userId: string,
-  codeHash: string,
-): Promise<MfaBackupCode | null> {
-  const result = await query(
-    `SELECT id, user_id, code_hash, used_at, created_at FROM mfa_backup_codes WHERE user_id = $1 AND code_hash = $2 AND used_at IS NULL`,
-    [userId, codeHash],
-  );
-  return (result.rows[0] as MfaBackupCode) ?? null;
 }
 
 /**
@@ -121,13 +116,6 @@ export async function consumeBackupCodeAtomic(
     [userId, codeHash],
   );
   return (result.rows[0] as MfaBackupCode) ?? null;
-}
-
-export async function consumeBackupCode(codeId: string): Promise<void> {
-  await query(
-    `UPDATE mfa_backup_codes SET used_at = now() WHERE id = $1`,
-    [codeId],
-  );
 }
 
 export async function deleteAllBackupCodes(userId: string): Promise<void> {

@@ -13,7 +13,7 @@ const TABLE_QUERIES: Record<string, string> = {
     SELECT ctid FROM usage_records WHERE created_at < NOW() - INTERVAL '1 day' * $1 LIMIT $2
   )`,
   sessions: `DELETE FROM sessions WHERE ctid IN (
-    SELECT ctid FROM sessions WHERE created_at < NOW() - INTERVAL '1 day' * $1 LIMIT $2
+    SELECT ctid FROM sessions WHERE started_at < NOW() - INTERVAL '1 day' * $1 LIMIT $2
   )`,
   audit_events: `DELETE FROM audit_events WHERE ctid IN (
     SELECT ctid FROM audit_events WHERE created_at < NOW() - INTERVAL '1 day' * $1 LIMIT $2
@@ -38,6 +38,22 @@ const TABLE_QUERIES: Record<string, string> = {
   )`,
   team_invites: `DELETE FROM team_invites WHERE ctid IN (
     SELECT ctid FROM team_invites WHERE created_at < NOW() - INTERVAL '1 day' * $1 LIMIT $2
+  )`,
+  x402_transactions: `DELETE FROM x402_transactions WHERE ctid IN (
+    SELECT ctid FROM x402_transactions WHERE created_at < NOW() - INTERVAL '1 day' * $1 LIMIT $2
+  )`,
+  agentic_wallets: `DELETE FROM agentic_wallets WHERE ctid IN (
+    SELECT ctid FROM agentic_wallets WHERE status = 'deleted' AND created_at < NOW() - INTERVAL '1 day' * $1 LIMIT $2
+  )`,
+  teams: `DELETE FROM teams WHERE ctid IN (
+    SELECT ctid FROM teams WHERE status = 'deleted' AND created_at < NOW() - INTERVAL '1 day' * $1 LIMIT $2
+  )`,
+  // R46 H-8: Expired refresh tokens and old payment invoices
+  refresh_tokens: `DELETE FROM refresh_tokens WHERE ctid IN (
+    SELECT ctid FROM refresh_tokens WHERE created_at < NOW() - INTERVAL '1 day' * $1 LIMIT $2
+  )`,
+  payment_invoices: `DELETE FROM payment_invoices WHERE ctid IN (
+    SELECT ctid FROM payment_invoices WHERE created_at < NOW() - INTERVAL '1 day' * $1 LIMIT $2
   )`,
 };
 
@@ -73,6 +89,7 @@ export async function enforceRetentionPolicies(): Promise<number> {
     try {
       // M-4 fix: Delete in batches to prevent long table locks
       let batchDeleted = 0;
+      let tableDeleted = 0;
       let iterations = 0;
       const maxIterations = 100; // Safety cap: max 1M rows per table per run
 
@@ -83,15 +100,16 @@ export async function enforceRetentionPolicies(): Promise<number> {
         );
 
         batchDeleted = deleteResult.rowCount ?? 0;
+        tableDeleted += batchDeleted;
         totalDeleted += batchDeleted;
         iterations++;
       } while (batchDeleted >= DELETE_BATCH_SIZE && iterations < maxIterations);
 
-      if (totalDeleted > 0) {
+      if (tableDeleted > 0) {
         log.info("retention cleanup", {
           table: policy.table_name,
           retentionDays: policy.retention_days,
-          deleted: totalDeleted,
+          deleted: tableDeleted,
           batches: iterations,
         });
       }

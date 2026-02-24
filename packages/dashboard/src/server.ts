@@ -33,12 +33,17 @@ export function startApiServer(port: number = 3000): ReturnType<express.Express[
     .map((s) => s.trim());
 
   function getRequestHost(req: express.Request): string {
-    const forwardedHostHeader = req.headers["x-forwarded-host"];
-    if (typeof forwardedHostHeader === "string" && forwardedHostHeader.trim()) {
-      return forwardedHostHeader.split(",")[0]?.trim() ?? "";
-    }
-    if (Array.isArray(forwardedHostHeader) && forwardedHostHeader[0]) {
-      return forwardedHostHeader[0];
+    // R46 C-1: Only trust X-Forwarded-Host when trust proxy is configured.
+    // Without this check, an attacker sending a direct request with a spoofed
+    // X-Forwarded-Host could bypass CSRF origin validation.
+    if (req.app.get("trust proxy")) {
+      const forwardedHostHeader = req.headers["x-forwarded-host"];
+      if (typeof forwardedHostHeader === "string" && forwardedHostHeader.trim()) {
+        return forwardedHostHeader.split(",")[0]?.trim() ?? "";
+      }
+      if (Array.isArray(forwardedHostHeader) && forwardedHostHeader[0]) {
+        return forwardedHostHeader[0];
+      }
     }
     return req.headers["host"] ?? "";
   }

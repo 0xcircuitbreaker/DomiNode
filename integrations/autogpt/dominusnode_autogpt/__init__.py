@@ -1318,7 +1318,27 @@ class DominusNodePlugin:
             return json.dumps({"error": _sanitize_error(str(e))})
 
     # ==================================================================
-    # Command 22: topup_paypal
+    # Command 22: x402_info
+    # ==================================================================
+
+    def x402_info(self) -> str:
+        """Get x402 micropayment protocol information.
+
+        Returns details about x402 HTTP 402 Payment Required protocol support
+        including facilitators, pricing, supported currencies, and payment
+        options for AI agent micropayments.
+
+        Returns:
+            JSON string with x402 protocol information.
+        """
+        try:
+            result = self._request_with_retry("GET", "/api/x402/info")
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Command 23: topup_paypal
     # ==================================================================
 
     def topup_paypal(self, amount_cents: int) -> str:
@@ -1388,6 +1408,7 @@ class DominusNodePlugin:
             "update_team": self._handle_update_team,
             "update_team_member_role": self._handle_update_team_member_role,
             "topup_paypal": self._handle_topup_paypal,
+            "x402_info": self._handle_x402_info,
         }
 
         handler = dispatch.get(name)
@@ -1554,6 +1575,9 @@ class DominusNodePlugin:
             user_id=user_id,
             role=role,
         )
+
+    def _handle_x402_info(self, args: dict) -> str:
+        return self.x402_info()
 
     def _handle_topup_paypal(self, args: dict) -> str:
         amount_cents = args.get("amount_cents")
@@ -1725,6 +1749,11 @@ class DominusNodePlugin:
                     "user_id": {"type": "string", "description": "User UUID", "required": True},
                     "role": {"type": "string", "description": "member or admin", "required": True},
                 },
+            },
+            {
+                "name": "x402_info",
+                "description": "Get x402 micropayment protocol information including supported facilitators, pricing, and payment options",
+                "parameters": {},
             },
             {
                 "name": "topup_paypal",

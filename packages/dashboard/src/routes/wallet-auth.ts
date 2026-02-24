@@ -6,7 +6,9 @@ import {
   walletRepo,
   walletChallengeRepo,
   refreshTokenRepo,
+  mfaRepo,
   createTokenPair,
+  signMfaChallengeToken,
   hashPassword,
   createLogger,
   sanitizeString,
@@ -15,6 +17,8 @@ import {
   buildSignMessage,
   walletToSyntheticEmail,
   isWalletEmail,
+  getPool,
+  WALLET_CHALLENGE_TTL_MS,
 } from "@dominusnode/shared";
 import { recoverSignerAddress } from "../helpers/verify-signature.js";
 import { requireAuth, type AuthenticatedRequest } from "../middleware/auth.js";
@@ -23,10 +27,16 @@ import { setAuthCookies } from "../helpers/cookies.js";
 const router = Router();
 const log = createLogger("api:wallet-auth");
 
+// R45 H-2: Validate domain format at startup to prevent cross-site signature replay
 const DOMINUSNODE_DOMAIN = process.env["DOMINUSNODE_DOMAIN"] ?? "dominusnode.com";
+if (!/^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?)*\.[a-zA-Z]{2,}$/.test(DOMINUSNODE_DOMAIN)) {
+  throw new Error(`Invalid DOMINUSNODE_DOMAIN: "${DOMINUSNODE_DOMAIN}". Must be a valid domain name.`);
+}
 
 // ─── Global registration cap (Alpha: 250, 0 = unlimited) ───
-const MAX_REGISTERED_USERS = parseInt(process.env["MAX_REGISTERED_USERS"] ?? "250", 10);
+// R46 M-4: Guard against NaN — NaN <= 0 = false, NaN < X = false → blocks all registrations silently
+const _parsedMaxUsers = parseInt(process.env["MAX_REGISTERED_USERS"] ?? "250", 10);
+const MAX_REGISTERED_USERS = Number.isFinite(_parsedMaxUsers) ? _parsedMaxUsers : 250;
 
 async function checkGlobalRegistrationCap(): Promise<boolean> {
   if (MAX_REGISTERED_USERS <= 0) return true; // 0 = unlimited (production)
@@ -76,6 +86,52 @@ function checkVerifyRateLimit(ip: string): boolean {
   return entry.count <= MAX_VERIFY_PER_IP;
 }
 
+// ─── R45 H-3: In-memory rate limiting for /link endpoint ────────────
+const MAX_LINK_PER_IP = 10;
+const LINK_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
+const MAX_LINK_MAP_SIZE = 50_000;
+const linkRateMap = new Map<string, { count: number; windowStart: number }>();
+
+function checkLinkRateLimit(ip: string): boolean {
+  const now = Date.now();
+  const entry = linkRateMap.get(ip);
+  if (!entry || now - entry.windowStart > LINK_WINDOW_MS) {
+    if (linkRateMap.size >= MAX_LINK_MAP_SIZE) {
+      const firstKey = linkRateMap.keys().next().value;
+      if (firstKey) linkRateMap.delete(firstKey);
+    }
+    linkRateMap.set(ip, { count: 1, windowStart: now });
+    return true;
+  }
+  entry.count++;
+  return entry.count <= MAX_LINK_PER_IP;
+}
+
+// R46 C-1: Per-IP registration rate limit for wallet auth (matches email registration limit)
+const MAX_WALLET_REGISTRATIONS_PER_IP = 3;
+const WALLET_REG_WINDOW_MS = 60 * 60 * 1000;
+const MAX_WALLET_REG_MAP_SIZE = 50_000;
+const walletRegistrationLog = new Map<string, number[]>();
+
+function checkWalletRegistrationRateLimit(ip: string): boolean {
+  const now = Date.now();
+  let timestamps = walletRegistrationLog.get(ip);
+  if (!timestamps) {
+    if (walletRegistrationLog.size >= MAX_WALLET_REG_MAP_SIZE) {
+      const firstKey = walletRegistrationLog.keys().next().value;
+      if (firstKey) walletRegistrationLog.delete(firstKey);
+    }
+    timestamps = [];
+    walletRegistrationLog.set(ip, timestamps);
+  }
+  while (timestamps.length > 0 && timestamps[0]! < now - WALLET_REG_WINDOW_MS) {
+    timestamps.shift();
+  }
+  if (timestamps.length >= MAX_WALLET_REGISTRATIONS_PER_IP) return false;
+  timestamps.push(now);
+  return true;
+}
+
 // Periodic cleanup of expired rate limit entries (every 5 min)
 setInterval(() => {
   const now = Date.now();
@@ -88,6 +144,18 @@ setInterval(() => {
     if (now - entry.windowStart > VERIFY_WINDOW_MS) {
       verifyRateMap.delete(ip);
     }
+  }
+  for (const [ip, entry] of linkRateMap) {
+    if (now - entry.windowStart > LINK_WINDOW_MS) {
+      linkRateMap.delete(ip);
+    }
+  }
+  // R46 C-1: Cleanup expired wallet registration rate limit entries
+  for (const [ip, timestamps] of walletRegistrationLog) {
+    while (timestamps.length > 0 && timestamps[0]! < now - WALLET_REG_WINDOW_MS) {
+      timestamps.shift();
+    }
+    if (timestamps.length === 0) walletRegistrationLog.delete(ip);
   }
 }, 300_000).unref();
 
@@ -126,7 +194,12 @@ router.post("/challenge", async (req, res) => {
       return;
     }
 
-    const clientIp = req.ip ?? "unknown";
+    // R46 H-3: Reject if IP cannot be determined (don't fall back to "unknown")
+    const clientIp = req.ip;
+    if (!clientIp) {
+      res.status(400).json({ error: "Unable to determine client IP" });
+      return;
+    }
 
     // In-memory rate limit
     if (!checkChallengeRateLimit(clientIp)) {
@@ -134,10 +207,17 @@ router.post("/challenge", async (req, res) => {
       return;
     }
 
-    // DB-level defense in depth
+    // DB-level defense in depth: per-IP limit
     const activeCount = await walletChallengeRepo.countActiveChallengesForIp(clientIp);
     if (activeCount >= MAX_CHALLENGES_PER_IP) {
       res.status(429).json({ error: "Too many pending challenges. Try again later." });
+      return;
+    }
+
+    // R45 H-5: Per-address rate limit to prevent address-targeted challenge exhaustion
+    const addressCount = await walletChallengeRepo.countActiveChallengesForAddress(address);
+    if (addressCount >= 10) {
+      res.status(429).json({ error: "Too many pending challenges for this address. Try again later." });
       return;
     }
 
@@ -149,7 +229,9 @@ router.post("/challenge", async (req, res) => {
 
     log.info("wallet challenge issued", { address: address.slice(0, 10) + "..." });
 
-    res.json({ message, nonce });
+    // Return both legacy fields (message/nonce) and SDK-expected fields (challenge/expiresAt)
+    const expiresAt = new Date(issuedAt.getTime() + WALLET_CHALLENGE_TTL_MS).toISOString();
+    res.json({ message, nonce, challenge: message, expiresAt });
   } catch (err) {
     log.error("wallet challenge failed", { error: err instanceof Error ? err.message : String(err) });
     res.status(500).json({ error: "Challenge generation failed" });
@@ -160,7 +242,12 @@ router.post("/challenge", async (req, res) => {
 // Verify signature, create/login account, return JWT
 router.post("/verify", async (req, res) => {
   try {
-    const clientIp = req.ip ?? "unknown";
+    // R46 H-3: Reject if IP cannot be determined (don't fall back to "unknown")
+    const clientIp = req.ip;
+    if (!clientIp) {
+      res.status(400).json({ error: "Unable to determine client IP" });
+      return;
+    }
 
     // R18 H-1: Rate limit signature verification per IP (CPU-intensive ecrecover)
     if (!checkVerifyRateLimit(clientIp)) {
@@ -176,8 +263,9 @@ router.post("/verify", async (req, res) => {
       return;
     }
 
-    if (!signature || signature.length < 130) {
-      res.status(400).json({ error: "Invalid signature" });
+    // R45 C-3: Validate signature is hex-encoded EIP-191 format (0x + 130 hex chars = 65 bytes)
+    if (!signature || !/^0x[0-9a-fA-F]{130}$/.test(signature)) {
+      res.status(400).json({ error: "Invalid signature format" });
       return;
     }
 
@@ -188,12 +276,14 @@ router.post("/verify", async (req, res) => {
       return;
     }
 
-    // Rebuild the message that was signed
-    const message = buildSignMessage(DOMINUSNODE_DOMAIN, address, challenge.nonce, challenge.created_at);
+    // R45 H-4: Use challenge.address (DB truth) not request body address for message rebuild
+    const message = buildSignMessage(DOMINUSNODE_DOMAIN, challenge.address, challenge.nonce, challenge.created_at);
 
     // Verify the EIP-191 signature
     const recoveredAddress = recoverSignerAddress(message, signature);
-    if (!recoveredAddress || recoveredAddress !== address) {
+    // R46 H-1: Timing-safe comparison to prevent address-guessing side-channel
+    if (!recoveredAddress || recoveredAddress.length !== challenge.address.length
+        || !crypto.timingSafeEqual(Buffer.from(recoveredAddress), Buffer.from(challenge.address))) {
       // R18 H-6: Audit log failed signature verification
       log.warn("wallet signature verification failed", { address: address.slice(0, 10) + "...", ip: clientIp });
       res.status(401).json({ error: "Signature verification failed" });
@@ -205,6 +295,12 @@ router.post("/verify", async (req, res) => {
     let isNewUser = false;
 
     if (!user) {
+      // R46 C-1: Per-IP registration rate limit for wallet auth
+      if (!checkWalletRegistrationRateLimit(clientIp)) {
+        res.status(429).json({ error: "Too many new accounts from this IP. Try again later." });
+        return;
+      }
+
       // R24 C-1: Global registration cap (Alpha: 250 slots)
       if (!(await checkGlobalRegistrationCap())) {
         log.warn("wallet registration rejected: global cap reached", { ip: clientIp, cap: MAX_REGISTERED_USERS });
@@ -218,18 +314,33 @@ router.post("/verify", async (req, res) => {
       const syntheticEmail = walletToSyntheticEmail(address);
       const unusablePassword = await hashPassword(crypto.randomBytes(64).toString("hex"));
 
+      // R46 C-2: Wrap user creation + wallet creation in a transaction to prevent
+      // partial state (user exists without wallet) on intermediate failure.
+      // Note: createWalletUser INSERT already sets email_verified=true, no separate call needed (R46 M-6).
+      const pool = getPool();
+      const client = await pool.connect();
       try {
-        user = await userRepo.createWalletUser(address, syntheticEmail, unusablePassword);
-        await walletRepo.createWallet(user.id);
-        // Wallet users are inherently verified (cryptographic signature proves identity).
-        // Synthetic emails can't receive verification tokens, so auto-verify.
-        await userRepo.markEmailVerified(user.id);
+        await client.query("BEGIN");
+        const userResult = await client.query(
+          `INSERT INTO users (email, password_hash, wallet_address, email_verified)
+           VALUES ($1, $2, $3, true)
+           RETURNING id, email, created_at, status, password_changed_at, is_admin, wallet_address, log_target_hosts, email_verified`,
+          [syntheticEmail, unusablePassword, address.toLowerCase()],
+        );
+        const newUser = userResult.rows[0];
+        await client.query(
+          `INSERT INTO wallets (user_id, balance_cents) VALUES ($1, 0)`,
+          [newUser.id],
+        );
+        await client.query("COMMIT");
+        user = { ...newUser, password_hash: "", wallet_address: newUser.wallet_address ?? null, log_target_hosts: newUser.log_target_hosts ?? false, email_verified: newUser.email_verified ?? false };
         isNewUser = true;
         // R18 H-6: Audit log wallet user creation
-        log.info("wallet user created", { userId: user.id, address: address.slice(0, 10) + "...", ip: clientIp });
+        log.info("wallet user created", { userId: newUser.id, address: address.slice(0, 10) + "...", ip: clientIp });
         // Mark waitlist entry as registered (non-blocking, best-effort)
         waitlistRepo.markRegistered(syntheticEmail).catch(() => {});
       } catch (err) {
+        await client.query("ROLLBACK").catch(() => {});
         // Unique constraint — user was created between our check and insert (race condition)
         if (err instanceof Error && (err.message.includes("duplicate") || err.message.includes("unique"))) {
           user = await userRepo.findUserByWalletAddress(address);
@@ -240,12 +351,44 @@ router.post("/verify", async (req, res) => {
         } else {
           throw err;
         }
+      } finally {
+        client.release();
       }
+    }
+
+    // TypeScript can't track that user is always non-null after the try/catch above
+    if (!user) {
+      res.status(500).json({ error: "Registration failed" });
+      return;
     }
 
     if (user.status !== "active") {
       res.status(403).json({ error: "Account is suspended or disabled" });
       return;
+    }
+
+    // R45 C-1: Check if MFA is enabled for existing wallet users — wallet key compromise
+    // must not bypass MFA. New users can't have MFA yet, so skip for them.
+    if (!isNewUser) {
+      const mfaConfig = await mfaRepo.findMfaConfigByUserId(user.id);
+      if (mfaConfig?.enabled) {
+        const challengeToken = signMfaChallengeToken({ userId: user.id, email: user.email });
+        log.info("MFA challenge issued for wallet auth", { userId: user.id });
+
+        if (isBrowserClient(req)) {
+          res.cookie("dominusnode_mfa_challenge", challengeToken, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === "production",
+            sameSite: "strict",
+            maxAge: 5 * 60 * 1000,
+            path: "/api/auth/mfa",
+          });
+          res.json({ mfaRequired: true });
+        } else {
+          res.json({ mfaRequired: true, mfaChallengeToken: challengeToken });
+        }
+        return;
+      }
     }
 
     // Issue tokens
@@ -285,6 +428,18 @@ router.post("/verify", async (req, res) => {
 // Link a wallet to an existing email-based account (requires JWT auth)
 router.post("/link", requireAuth, async (req, res) => {
   try {
+    // R45 H-3: Rate limit /link endpoint (CPU-intensive ecrecover)
+    // R46 H-3: Reject if IP cannot be determined (don't fall back to "unknown")
+    const clientIp = req.ip;
+    if (!clientIp) {
+      res.status(400).json({ error: "Unable to determine client IP" });
+      return;
+    }
+    if (!checkLinkRateLimit(clientIp)) {
+      res.status(429).json({ error: "Too many verification attempts. Try again later." });
+      return;
+    }
+
     const { userId } = (req as AuthenticatedRequest).user;
     const address = sanitizeString(req.body.address ?? "", 42).toLowerCase();
     const signature = sanitizeString(req.body.signature ?? "", 200);
@@ -294,8 +449,9 @@ router.post("/link", requireAuth, async (req, res) => {
       return;
     }
 
-    if (!signature || signature.length < 130) {
-      res.status(400).json({ error: "Invalid signature" });
+    // R45 C-3: Validate signature is hex-encoded EIP-191 format
+    if (!signature || !/^0x[0-9a-fA-F]{130}$/.test(signature)) {
+      res.status(400).json({ error: "Invalid signature format" });
       return;
     }
 
@@ -307,23 +463,34 @@ router.post("/link", requireAuth, async (req, res) => {
     }
 
     // R18 H-4: Consume challenge bound to originating IP
-    const clientIp = req.ip ?? "unknown";
     const challenge = await walletChallengeRepo.consumeChallenge(address, clientIp);
     if (!challenge) {
       res.status(401).json({ error: "No valid challenge found. Request a new one." });
       return;
     }
 
-    const message = buildSignMessage(DOMINUSNODE_DOMAIN, address, challenge.nonce, challenge.created_at);
+    // R45 H-4: Use challenge.address (DB truth) not request body address
+    const message = buildSignMessage(DOMINUSNODE_DOMAIN, challenge.address, challenge.nonce, challenge.created_at);
     const recoveredAddress = recoverSignerAddress(message, signature);
-    if (!recoveredAddress || recoveredAddress !== address) {
+    // R46 H-1: Timing-safe comparison to prevent address-guessing side-channel
+    if (!recoveredAddress || recoveredAddress.length !== challenge.address.length
+        || !crypto.timingSafeEqual(Buffer.from(recoveredAddress), Buffer.from(challenge.address))) {
       log.warn("wallet link signature verification failed", { userId, address: address.slice(0, 10) + "...", ip: clientIp });
       res.status(401).json({ error: "Signature verification failed" });
       return;
     }
 
-    // Link wallet to user
-    const linked = await userRepo.linkWalletAddress(userId, address);
+    // R45 C-2: Link wallet to user — catch unique constraint violations (TOCTOU race)
+    let linked: boolean;
+    try {
+      linked = await userRepo.linkWalletAddress(userId, address);
+    } catch (err) {
+      if (err instanceof Error && (err.message.includes("duplicate") || err.message.includes("unique"))) {
+        res.status(409).json({ error: "This wallet is already linked to an account" });
+        return;
+      }
+      throw err;
+    }
     if (!linked) {
       res.status(409).json({ error: "Account already has a wallet linked" });
       return;
@@ -331,7 +498,8 @@ router.post("/link", requireAuth, async (req, res) => {
 
     // R18 H-6: Audit log wallet link
     log.info("wallet linked to account", { userId, address: address.slice(0, 10) + "...", ip: clientIp });
-    res.json({ linked: true, wallet_address: address });
+    // Return both legacy fields (linked/wallet_address) and SDK-expected fields (success/walletAddress)
+    res.json({ linked: true, wallet_address: address, success: true, walletAddress: address });
   } catch (err) {
     log.error("wallet link failed", { error: err instanceof Error ? err.message : String(err) });
     res.status(500).json({ error: "Wallet link failed" });

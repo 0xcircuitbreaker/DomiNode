@@ -462,9 +462,9 @@ describe("handler dispatching", () => {
     expect(JSON.parse(result)).toHaveProperty("success");
   });
 
-  it("handler has all 22 functions", async () => {
+  it("handler has all 23 functions", async () => {
     const result = JSON.parse(await handler("nonexistent", {}));
-    expect(result.available).toHaveLength(22);
+    expect(result.available).toHaveLength(23);
   });
 
   it("handler available list includes all expected names", async () => {

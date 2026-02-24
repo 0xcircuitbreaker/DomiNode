@@ -100,7 +100,8 @@ export async function authenticateRequest(
   try {
     const result = await userRepo.findUserByApiKeyHash(keyHash);
     if (!result) {
-      log.warn("invalid API key", { prefix: apiKey.slice(0, 16) });
+      // R46 M-4: Only log static prefix — don't leak key material
+      log.warn("invalid API key", { prefix: apiKey.slice(0, 8) });
       return null;
     }
 

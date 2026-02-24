@@ -59,6 +59,18 @@ export type {
   TeamFundResponse,
   TeamTransactionsResponse,
 } from "./resources/teams.js";
+export { X402Resource } from "./resources/x402.js";
+export type {
+  X402Info,
+  X402Facilitator,
+  X402Pricing,
+} from "./resources/x402.js";
+export { WalletAuthResource } from "./resources/wallet-auth.js";
+export type {
+  WalletChallenge,
+  WalletVerifyResult,
+  WalletLinkResult,
+} from "./resources/wallet-auth.js";
 export type {
   DateRangeOptions as AdminDateRangeOptions,
   ListUsersResponse,

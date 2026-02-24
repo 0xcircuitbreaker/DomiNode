@@ -96,3 +96,14 @@ export async function countActiveChallengesForIp(ip: string): Promise<number> {
   );
   return parseInt(result.rows[0].count, 10);
 }
+
+/** R45 H-5: Count active (unconsumed, non-expired) challenges for a specific address */
+export async function countActiveChallengesForAddress(address: string): Promise<number> {
+  const ttlCutoff = new Date(Date.now() - WALLET_CHALLENGE_TTL_MS);
+  const result = await query<{ count: string }>(
+    `SELECT COUNT(*) AS count FROM wallet_challenges
+     WHERE address = $1 AND consumed = false AND created_at > $2`,
+    [address.toLowerCase(), ttlCutoff.toISOString()],
+  );
+  return parseInt(result.rows[0].count, 10);
+}

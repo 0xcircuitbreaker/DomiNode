@@ -19,6 +19,11 @@ add_library(dominusnode
   src/sessions.cpp
   src/proxy.cpp
   src/admin.cpp
+  src/agent_wallet.cpp
+  src/teams.cpp
+  src/slots.cpp
+  src/x402.cpp
+  src/wallet_auth.cpp
 )
 
 target_include_directories(dominusnode PUBLIC include)

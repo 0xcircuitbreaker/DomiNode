@@ -1,5 +1,6 @@
-import { Router } from "express";
-import { planRepo, walletRepo, createLogger, getPool } from "@dominusnode/shared";
+import { Router, type Request } from "express";
+import rateLimit from "express-rate-limit";
+import { planRepo, walletRepo, userRepo, createLogger, getPool } from "@dominusnode/shared";
 import { requireAuth, type AuthenticatedRequest } from "../middleware/auth.js";
 
 // Plans that users are allowed to self-select
@@ -13,6 +14,15 @@ const VOLUME_PLAN_MIN_BALANCE: Record<string, number> = {
 
 const router = Router();
 const log = createLogger("api:plans");
+
+// R46 H-7: Rate limit plan change requests to prevent abuse
+const planChangeLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 10,
+  keyGenerator: (req: Request) => (req as any).user?.userId ?? req.ip ?? "unknown",
+  message: { error: "Too many plan change requests. Try again later." },
+  validate: false,
+});
 
 // GET /api/plans — list all available plans (public)
 router.get("/", async (_req, res) => {
@@ -81,10 +91,17 @@ router.get("/user/plan", requireAuth, async (req, res) => {
 });
 
 // PUT /api/user/plan — change user's plan (auth required)
-router.put("/user/plan", requireAuth, async (req, res) => {
+router.put("/user/plan", requireAuth, planChangeLimiter, async (req, res) => {
   try {
     const { userId } = (req as AuthenticatedRequest).user;
     const { planId } = req.body;
+
+    // R46 H-6: Require verified email before changing plans (matches other financial endpoints)
+    const planUser = await userRepo.findUserById(userId);
+    if (!planUser || !planUser.email_verified) {
+      res.status(403).json({ error: "Please verify your email address before changing plans" });
+      return;
+    }
 
     if (!planId || typeof planId !== "string") {
       res.status(400).json({ error: "planId is required" });

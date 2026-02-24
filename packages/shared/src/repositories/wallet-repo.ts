@@ -328,6 +328,82 @@ export async function releaseReservation(
   }
 }
 
+/**
+ * R45 C-1: Atomically complete an invoice AND credit the wallet in a single
+ * DB transaction. Eliminates the crash window between completeInvoice and
+ * creditWallet that could result in lost payments.
+ * Returns { claimed: true } if the invoice was claimed and wallet credited,
+ * or { claimed: false } if the invoice was already processed (idempotent).
+ */
+export async function atomicCompleteInvoiceAndCredit(
+  invoiceId: string,
+  userId: string,
+  amountCents: number,
+  provider: string,
+  paymentId: string,
+  description: string,
+): Promise<{ claimed: boolean; transaction?: WalletTransaction }> {
+  if (!Number.isInteger(amountCents) || amountCents <= 0 || amountCents > 2_147_483_647) {
+    throw new Error("Credit amount must be a positive integer within valid range");
+  }
+  const pool = getPool();
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("SET LOCAL lock_timeout = '5s'");
+
+    // Step 1: Atomically claim the invoice (UPDATE WHERE status='pending')
+    const claimResult = await client.query(
+      `UPDATE payment_invoices SET status = 'completed'
+       WHERE id = $1 AND status = 'pending'`,
+      [invoiceId],
+    );
+    if ((claimResult.rowCount ?? 0) === 0) {
+      // Already processed — idempotent return
+      await client.query("ROLLBACK");
+      return { claimed: false };
+    }
+
+    // Step 2: Lock wallet and check balance cap
+    const balanceCheck = await client.query<Wallet>(
+      `SELECT id, user_id, balance_cents, currency, last_topped_up
+       FROM wallets WHERE user_id = $1 FOR UPDATE`,
+      [userId],
+    );
+    if (balanceCheck.rows.length === 0) {
+      throw new Error(`No wallet found for user ${userId}`);
+    }
+    if (balanceCheck.rows[0].balance_cents + amountCents > MAX_BALANCE_CENTS) {
+      throw new Error(`Credit would exceed maximum wallet balance of $${(MAX_BALANCE_CENTS / 100).toFixed(2)}`);
+    }
+
+    // Step 3: Credit wallet
+    const walletResult = await client.query<Wallet>(
+      `UPDATE wallets
+       SET balance_cents = balance_cents + $1, last_topped_up = now()
+       WHERE user_id = $2
+       RETURNING id, user_id, balance_cents, currency, last_topped_up`,
+      [amountCents, userId],
+    );
+
+    // Step 4: Record transaction
+    const txResult = await client.query<WalletTransaction>(
+      `INSERT INTO wallet_transactions (wallet_id, type, amount_cents, description, payment_provider, payment_id)
+       VALUES ($1, 'topup', $2, $3, $4, $5)
+       RETURNING id, wallet_id, type, amount_cents, description, payment_provider, payment_id, created_at`,
+      [walletResult.rows[0].id, amountCents, description, provider, paymentId],
+    );
+
+    await client.query("COMMIT");
+    return { claimed: true, transaction: txResult.rows[0] };
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
 export async function getTransactions(
   userId: string,
   limit: number = 50,

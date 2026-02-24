@@ -262,6 +262,17 @@ export async function proxyFetch(
   const maxBytes = config.fetchMaxResponseBytes;
   const method = (opts.method ?? "GET").toUpperCase();
 
+  // R46 C-2: Enforce read-only methods at function level (defense-in-depth)
+  const ALLOWED_PROXY_METHODS = new Set(["GET", "HEAD"]);
+  if (!ALLOWED_PROXY_METHODS.has(method)) {
+    throw new Error(`Only GET and HEAD methods are allowed for proxy fetch, got ${method}`);
+  }
+
+  // R46 H-1: Drop body on GET/HEAD — these methods should never carry a request body
+  if (method === "GET" || method === "HEAD") {
+    opts.body = undefined;
+  }
+
   // Validate user-supplied headers to prevent CRLF injection
   if (opts.headers) {
     validateHeaders(opts.headers);

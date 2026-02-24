@@ -40,10 +40,11 @@ describe("cookies helper", () => {
     expect(refreshOpts.maxAge).toBe(7 * 24 * 60 * 60 * 1000);
   });
 
-  it("should clear both cookies", () => {
+  it("should clear all auth cookies including MFA challenge", () => {
     clearAuthCookies(res as never);
 
-    expect(res.clearCookie).toHaveBeenCalledTimes(2);
+    // R46 M-7: clearAuthCookies now clears 3 cookies (access + refresh + MFA challenge)
+    expect(res.clearCookie).toHaveBeenCalledTimes(3);
     expect(res.clearCookie).toHaveBeenCalledWith("dominusnode_access", expect.objectContaining({
       httpOnly: true,
       sameSite: "strict",
@@ -53,6 +54,11 @@ describe("cookies helper", () => {
       httpOnly: true,
       sameSite: "strict",
       path: "/api/auth",
+    }));
+    expect(res.clearCookie).toHaveBeenCalledWith("dominusnode_mfa_challenge", expect.objectContaining({
+      httpOnly: true,
+      sameSite: "strict",
+      path: "/api/auth/mfa",
     }));
   });
 

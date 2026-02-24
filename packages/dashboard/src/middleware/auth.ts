@@ -7,15 +7,17 @@ export interface AuthenticatedRequest extends Request {
 }
 
 function extractToken(req: Request): string | null {
-  // Priority: cookie > Bearer header
-  // This supports both browser (cookies) and extension (Bearer) simultaneously
-  const cookieToken = req.cookies?.dominusnode_access;
-  if (cookieToken) return cookieToken;
-
+  // R46 M-2: Priority: Bearer header > cookie
+  // Bearer header is controlled by the client app (SDKs, MCP, extension).
+  // Cookie can be injected via sibling subdomain (cookie tossing), so it must
+  // not override a legitimate Bearer token.
   const authHeader = req.headers.authorization;
   if (authHeader?.startsWith("Bearer ")) {
     return authHeader.slice(7);
   }
+
+  const cookieToken = req.cookies?.dominusnode_access;
+  if (cookieToken) return cookieToken;
 
   return null;
 }

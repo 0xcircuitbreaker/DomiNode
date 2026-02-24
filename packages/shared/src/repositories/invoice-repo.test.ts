@@ -78,6 +78,32 @@ describe("invoice-repo", () => {
         ["u6", "stripe", "cs_amt", 100_000],
       );
     });
+
+    // R46 H-3: amountCents validation
+    it("should reject negative amountCents", async () => {
+      await expect(createInvoice("u1", "stripe", "cs_neg", -100)).rejects.toThrow(
+        "Invoice amount must be a positive integer within valid range",
+      );
+      expect(mockQuery).not.toHaveBeenCalled();
+    });
+
+    it("should reject zero amountCents", async () => {
+      await expect(createInvoice("u1", "stripe", "cs_zero", 0)).rejects.toThrow(
+        "Invoice amount must be a positive integer within valid range",
+      );
+    });
+
+    it("should reject non-integer amountCents", async () => {
+      await expect(createInvoice("u1", "stripe", "cs_float", 10.5)).rejects.toThrow(
+        "Invoice amount must be a positive integer within valid range",
+      );
+    });
+
+    it("should reject amountCents exceeding INT max", async () => {
+      await expect(createInvoice("u1", "stripe", "cs_big", 2_147_483_648)).rejects.toThrow(
+        "Invoice amount must be a positive integer within valid range",
+      );
+    });
   });
 
   // ─── findInvoice ───────────────────────────────────────────────────

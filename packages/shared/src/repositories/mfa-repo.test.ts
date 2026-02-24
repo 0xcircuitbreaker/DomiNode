@@ -20,8 +20,6 @@ import {
   disableMfa,
   deleteMfaConfig,
   storeBackupCodes,
-  findUnusedBackupCode,
-  consumeBackupCode,
   deleteAllBackupCodes,
   countUnusedBackupCodes,
 } from "./mfa-repo.js";
@@ -201,6 +199,14 @@ describe("mfa-repo", () => {
       expect(mockClientRelease).toHaveBeenCalledTimes(1);
     });
 
+    // R46 H-9: Bounded backup codes
+    it("should reject more than 20 backup codes", async () => {
+      const tooMany = Array.from({ length: 21 }, (_, i) => `hash-${i}`);
+      await expect(storeBackupCodes("user1", tooMany)).rejects.toThrow(
+        "Cannot store more than 20 backup codes",
+      );
+    });
+
     it("should only delete when hashes array is empty", async () => {
       mockClientQuery.mockResolvedValue({ rowCount: 0 });
 
@@ -215,61 +221,6 @@ describe("mfa-repo", () => {
       );
       expect(mockClientQuery).toHaveBeenNthCalledWith(3, "COMMIT");
       expect(mockClientRelease).toHaveBeenCalledTimes(1);
-    });
-  });
-
-  // ─── findUnusedBackupCode ─────────────────────────────────────────
-
-  describe("findUnusedBackupCode", () => {
-    it("should return matching unused code", async () => {
-      const code = {
-        id: "bc1",
-        user_id: "user1",
-        code_hash: "hash-abc",
-        used_at: null,
-        created_at: new Date(),
-      };
-      mockQuery.mockResolvedValueOnce({ rows: [code] });
-
-      const result = await findUnusedBackupCode("user1", "hash-abc");
-      expect(result).toEqual(code);
-      expect(mockQuery).toHaveBeenCalledWith(
-        expect.stringContaining("used_at IS NULL"),
-        ["user1", "hash-abc"],
-      );
-    });
-
-    it("should return null when no matching code found", async () => {
-      mockQuery.mockResolvedValueOnce({ rows: [] });
-
-      const result = await findUnusedBackupCode("user1", "nonexistent-hash");
-      expect(result).toBeNull();
-    });
-
-    it("should query with both userId and codeHash", async () => {
-      mockQuery.mockResolvedValueOnce({ rows: [] });
-
-      await findUnusedBackupCode("user-x", "hash-y");
-      expect(mockQuery).toHaveBeenCalledWith(
-        expect.stringContaining("user_id = $1"),
-        ["user-x", "hash-y"],
-      );
-    });
-  });
-
-  // ─── consumeBackupCode ────────────────────────────────────────────
-
-  describe("consumeBackupCode", () => {
-    it("should update used_at timestamp", async () => {
-      mockQuery.mockResolvedValueOnce({ rowCount: 1 });
-
-      await consumeBackupCode("bc1");
-      expect(mockQuery).toHaveBeenCalledTimes(1);
-      const sql = mockQuery.mock.calls[0][0] as string;
-      expect(sql).toContain("UPDATE mfa_backup_codes");
-      expect(sql).toContain("used_at = now()");
-      expect(sql).toContain("WHERE id = $1");
-      expect(mockQuery).toHaveBeenCalledWith(expect.any(String), ["bc1"]);
     });
   });
 

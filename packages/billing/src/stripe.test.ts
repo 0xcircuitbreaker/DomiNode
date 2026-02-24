@@ -21,6 +21,7 @@ vi.mock("stripe", () => {
 
 // Mock @dominusnode/shared
 const mockCreditWallet = vi.fn();
+const mockAtomicCompleteInvoiceAndCredit = vi.fn();
 const mockCreateInvoice = vi.fn();
 const mockFindInvoice = vi.fn();
 const mockCompleteInvoice = vi.fn();
@@ -30,6 +31,7 @@ const mockFailInvoice = vi.fn();
 vi.mock("@dominusnode/shared", () => ({
   walletRepo: {
     creditWallet: (...args: unknown[]) => mockCreditWallet(...args),
+    atomicCompleteInvoiceAndCredit: (...args: unknown[]) => mockAtomicCompleteInvoiceAndCredit(...args),
   },
   invoiceRepo: {
     createInvoice: (...args: unknown[]) => mockCreateInvoice(...args),
@@ -123,8 +125,8 @@ describe("stripe", () => {
         amount_cents: 2000,
       };
       mockFindInvoice.mockResolvedValueOnce(mockInvoice);
-      mockCompleteInvoice.mockResolvedValueOnce(true);
-      mockCreditWallet.mockResolvedValueOnce({});
+      // R45 C-1: Now uses atomic complete+credit in single transaction
+      mockAtomicCompleteInvoiceAndCredit.mockResolvedValueOnce({ claimed: true, transaction: {} });
 
       const result = await handleCheckoutWebhook(
         Buffer.from("raw-body"),
@@ -132,9 +134,8 @@ describe("stripe", () => {
       );
 
       expect(result).toEqual({ userId: "user-3", amountCents: 2000 });
-      // completeInvoice is called FIRST as the atomic gate
-      expect(mockCompleteInvoice).toHaveBeenCalledWith("inv-1");
-      expect(mockCreditWallet).toHaveBeenCalledWith(
+      expect(mockAtomicCompleteInvoiceAndCredit).toHaveBeenCalledWith(
+        "inv-1",
         "user-3",
         2000,
         "stripe",
@@ -205,15 +206,15 @@ describe("stripe", () => {
         user_id: "user-paypal",
         amount_cents: 3000,
       });
-      mockCompleteInvoice.mockResolvedValueOnce(true);
-      mockCreditWallet.mockResolvedValueOnce({});
+      mockAtomicCompleteInvoiceAndCredit.mockResolvedValueOnce({ claimed: true, transaction: {} });
 
       const result = await handleCheckoutWebhook(
         Buffer.from("body"),
         "sig",
       );
       expect(result).toEqual({ userId: "user-paypal", amountCents: 3000 });
-      expect(mockCreditWallet).toHaveBeenCalledWith(
+      expect(mockAtomicCompleteInvoiceAndCredit).toHaveBeenCalledWith(
+        "inv-paypal",
         "user-paypal",
         3000,
         "stripe",
@@ -332,16 +333,14 @@ describe("stripe", () => {
         user_id: "user-7",
         amount_cents: 1000,
       });
-      // completeInvoice returns false = invoice already completed by another webhook
-      mockCompleteInvoice.mockResolvedValueOnce(false);
+      // atomicCompleteInvoiceAndCredit returns claimed:false = already completed
+      mockAtomicCompleteInvoiceAndCredit.mockResolvedValueOnce({ claimed: false });
 
       const result = await handleCheckoutWebhook(
         Buffer.from("body"),
         "sig",
       );
       expect(result).toBeNull();
-      // creditWallet should NOT be called for duplicate
-      expect(mockCreditWallet).not.toHaveBeenCalled();
     });
   });
 });

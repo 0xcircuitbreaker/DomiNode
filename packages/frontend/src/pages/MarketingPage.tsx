@@ -69,12 +69,12 @@ const AI_AGENT_FEATURES = [
   {
     title: "x402 Micropayments",
     detail: "Pay-per-request with USDC",
-    summary: "HTTP 402 protocol support. Agents pay with Coinbase Agentic Wallets — no signup, no API key, just USDC on Base chain.",
+    summary: "HTTP 402 protocol support. Agents pay via Coinbase (Base chain) or PayAI (Solana) — no signup, no API key, just USDC micropayments.",
   },
   {
-    title: "Privacy Coin Billing",
-    detail: "XMR / ZEC / BTC",
-    summary: "Anonymous payments via Monero and Zcash. No identity linked to your proxy traffic. The only agent proxy with true payment anonymity.",
+    title: "11 Cryptocurrencies",
+    detail: "BTC / ETH / SOL / XMR + 7 more",
+    summary: "Pay with Bitcoin, Ethereum, Solana, Monero, Zcash, USDC, USDT, DAI, BNB, LINK, or Litecoin via NOWPayments. Privacy coins supported for anonymous billing.",
   },
   {
     title: "Wallet-Verified Registration",

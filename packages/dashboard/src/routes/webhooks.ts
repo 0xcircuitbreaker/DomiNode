@@ -35,6 +35,25 @@ if (envNowpaymentsIps) {
   log.warn("NOWPAYMENTS_WEBHOOK_IPS not set — webhook IP allowlisting is disabled. Set this in production.");
 }
 
+// R45 H-2: Normalize IPv6-mapped/compatible addresses to IPv4 for allowlist matching
+function normalizeWebhookIp(rawIp: string): string {
+  let ip = rawIp.trim();
+  // Strip ::ffff: (IPv4-mapped IPv6)
+  if (ip.startsWith("::ffff:")) {
+    ip = ip.slice(7);
+  }
+  // Strip :: prefix (IPv4-compatible IPv6, e.g. ::10.0.0.1)
+  else if (ip.startsWith("::") && ip.includes(".")) {
+    ip = ip.slice(2);
+  }
+  // Strip IPv6 zone ID (%eth0 etc.)
+  const zoneIdx = ip.indexOf("%");
+  if (zoneIdx !== -1) {
+    ip = ip.slice(0, zoneIdx);
+  }
+  return ip;
+}
+
 export function webhookIpCheck(allowedIps: Set<string>, providerName: string) {
   return (req: Request, res: Response, next: NextFunction): void => {
     // If no IPs configured, skip IP check (rely on signature verification instead)
@@ -42,7 +61,7 @@ export function webhookIpCheck(allowedIps: Set<string>, providerName: string) {
       next();
       return;
     }
-    const ip = (req.ip ?? req.socket.remoteAddress ?? "").replace(/^::ffff:/, "");
+    const ip = normalizeWebhookIp(req.ip ?? req.socket.remoteAddress ?? "");
     if (!allowedIps.has(ip)) {
       log.warn(`${providerName} webhook from unauthorized IP`, { ip });
       res.status(403).json({ error: "Forbidden" });
@@ -69,9 +88,20 @@ router.post("/stripe", webhookIpCheck(STRIPE_WEBHOOK_IPS, "stripe"), raw({ type:
 
     res.json({ received: true });
   } catch (err) {
-    log.error("stripe webhook error", { error: err instanceof Error ? err.message : String(err) });
-    // Return 500 for transient errors so Stripe retries
-    res.status(500).json({ error: "Internal webhook processing error" });
+    const errMsg = err instanceof Error ? err.message : String(err);
+    log.error("stripe webhook error", { error: errMsg });
+    // R45 H-4: Only return 500 for transient DB errors (Stripe retries on 500).
+    // For permanent errors (balance cap exceeded, wallet not found), return 200
+    // to prevent infinite retry loops that would never succeed.
+    // R46 H-5: Balance cap errors are retryable (user might spend down balance)
+    const isTransient = errMsg.includes("connection") || errMsg.includes("timeout")
+      || errMsg.includes("ECONNREFUSED") || errMsg.includes("lock")
+      || errMsg.includes("exceed maximum wallet balance");
+    if (isTransient) {
+      res.status(500).json({ error: "Transient processing error, retry later" });
+    } else {
+      res.json({ received: true, error: "Permanent processing failure logged" });
+    }
   }
 });
 
@@ -95,9 +125,18 @@ router.post("/nowpayments", webhookIpCheck(NOWPAYMENTS_IPS, "nowpayments"), json
 
     res.json({ received: true });
   } catch (err) {
-    log.error("nowpayments webhook error", { error: err instanceof Error ? err.message : String(err) });
-    // Return 500 for transient errors so the provider retries
-    res.status(500).json({ error: "Internal webhook processing error" });
+    const errMsg = err instanceof Error ? err.message : String(err);
+    log.error("nowpayments webhook error", { error: errMsg });
+    // R45 H-4: Only return 500 for transient DB errors (NOWPayments retries on 500).
+    // R46 H-5: Balance cap errors are retryable (user might spend down balance)
+    const isTransient = errMsg.includes("connection") || errMsg.includes("timeout")
+      || errMsg.includes("ECONNREFUSED") || errMsg.includes("lock")
+      || errMsg.includes("exceed maximum wallet balance");
+    if (isTransient) {
+      res.status(500).json({ error: "Transient processing error, retry later" });
+    } else {
+      res.json({ received: true, error: "Permanent processing failure logged" });
+    }
   }
 });
 
@@ -145,8 +184,18 @@ router.post("/paypal", webhookIpCheck(PAYPAL_WEBHOOK_IPS, "paypal"), raw({ type:
 
     res.json({ received: true });
   } catch (err) {
-    log.error("paypal webhook error", { error: err instanceof Error ? err.message : String(err) });
-    res.status(500).json({ error: "Internal webhook processing error" });
+    const errMsg = err instanceof Error ? err.message : String(err);
+    log.error("paypal webhook error", { error: errMsg });
+    // R45 H-4: Only return 500 for transient DB errors (PayPal retries on 500).
+    // R46 H-5: Balance cap errors are retryable (user might spend down balance)
+    const isTransient = errMsg.includes("connection") || errMsg.includes("timeout")
+      || errMsg.includes("ECONNREFUSED") || errMsg.includes("lock")
+      || errMsg.includes("exceed maximum wallet balance");
+    if (isTransient) {
+      res.status(500).json({ error: "Transient processing error, retry later" });
+    } else {
+      res.json({ received: true, error: "Permanent processing failure logged" });
+    }
   }
 });
 

@@ -40,6 +40,15 @@ async function main(): Promise<void> {
 
   const tokenManager = new TokenManager(config.apiUrl);
   const httpClient = new HttpClient(config.apiUrl, tokenManager, config.mcpAgentSecret);
+
+  // R46 C-3: Clear credentials on process shutdown to minimize in-memory exposure time
+  function cleanupCredentials(): void {
+    tokenManager.clear();
+  }
+  process.on("SIGINT", () => { cleanupCredentials(); process.exit(0); });
+  process.on("SIGTERM", () => { cleanupCredentials(); process.exit(0); });
+  process.on("exit", cleanupCredentials);
+
   const server = new McpServer({
     name: "dominusnode",
     version: "1.0.0",

@@ -22,6 +22,7 @@ from .tools import (
     DominusNodeProxyConfigTool,
     DominusNodeTopupPaypalTool,
     DominusNodeUsageTool,
+    DominusNodeX402InfoTool,
 )
 from .toolkit import DominusNodeToolkit
 
@@ -32,4 +33,5 @@ __all__ = [
     "DominusNodeUsageTool",
     "DominusNodeProxyConfigTool",
     "DominusNodeTopupPaypalTool",
+    "DominusNodeX402InfoTool",
 ]

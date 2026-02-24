@@ -1,7 +1,7 @@
 /**
  * DomiNode OpenClaw Plugin
  *
- * Implements 22 tools for interacting with DomiNode's rotating proxy service
+ * Implements 23 tools for interacting with DomiNode's rotating proxy service
  * directly from OpenClaw AI coding sessions.
  *
  * Uses native fetch (no external dependencies). Runs via jiti runtime.
@@ -1691,7 +1691,24 @@ const topupPaypalTool: ToolDefinition = {
   },
 };
 
-// 22. update_team_member_role
+// 22. x402_info
+const x402InfoTool: ToolDefinition = {
+  name: "x402_info",
+  description:
+    "Get x402 micropayment protocol information including supported " +
+    "facilitators, pricing, and payment options.",
+  parameters: {},
+  execute: async () => {
+    try {
+      const data = await apiGet<Record<string, unknown>>("/api/x402/info");
+      return JSON.stringify(data, null, 2);
+    } catch (err) {
+      return `Error: ${safeError(err)}`;
+    }
+  },
+};
+
+// 23. update_team_member_role
 const updateTeamMemberRoleTool: ToolDefinition = {
   name: "update_team_member_role",
   description:
@@ -1772,6 +1789,7 @@ export const tools: ToolDefinition[] = [
   updateTeamTool,
   updateTeamMemberRoleTool,
   topupPaypalTool,
+  x402InfoTool,
 ];
 
 /**

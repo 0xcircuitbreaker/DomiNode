@@ -20,8 +20,8 @@ export function getPool(): pg.Pool {
     if (isNaN(poolMin) || poolMin < 0 || poolMin > poolMax) {
       throw new Error("DB_POOL_MIN must be >= 0 and <= DB_POOL_MAX");
     }
-    if (isNaN(connTimeout) || connTimeout < 1000) {
-      throw new Error("DB_CONNECTION_TIMEOUT_MS must be >= 1000");
+    if (isNaN(connTimeout) || connTimeout < 1000 || connTimeout > 30000) {
+      throw new Error("DB_CONNECTION_TIMEOUT_MS must be between 1000 and 30000");
     }
     pool = new pg.Pool({
       connectionString: connStr,

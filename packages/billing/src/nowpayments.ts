@@ -104,13 +104,18 @@ export async function createCryptoInvoice(
 
 // ─── IPN Signature Verification ──────────────────────────────────────
 
+// R45 H-1: Keys that could be injected via prototype pollution
+const DANGEROUS_KEYS = new Set(["__proto__", "constructor", "prototype"]);
+
 export function verifyIpnSignature(
   body: Record<string, unknown>,
   signature: string,
 ): boolean {
   const secret = getIpnSecret();
 
+  // R45 H-1: Strip dangerous prototype pollution keys before iterating
   const sorted = Object.keys(body)
+    .filter((key) => !DANGEROUS_KEYS.has(key))
     .sort()
     .reduce<Record<string, unknown>>((acc, key) => {
       acc[key] = body[key];
@@ -180,7 +185,8 @@ export async function handleIpnCallback(
     : typeof rawInvoiceId === "number" ? String(rawInvoiceId) : "";
   const priceAmount = Number(rawPriceAmount ?? 0);
 
-  if (!paymentId || priceAmount <= 0) {
+  // R46 H-1: Number("abc") = NaN; NaN <= 0 is false, bypassing this check
+  if (!paymentId || !Number.isFinite(priceAmount) || priceAmount <= 0) {
     log.error("IPN missing required fields", { paymentId, priceAmount });
     return null;
   }
@@ -222,33 +228,25 @@ export async function handleIpnCallback(
 
   const amountCents = invoice.amount_cents;
 
-  // Atomically mark invoice as completed — only one concurrent IPN
-  // can succeed here since UPDATE ... WHERE status='pending' is atomic.
-  const claimed = await invoiceRepo.completeInvoice(invoice.id);
-  if (!claimed) {
+  // R45 C-1: Atomically complete invoice + credit wallet in a single
+  // DB transaction. If the server crashes mid-operation, both roll back.
+  // R26 C-2: Sanitize pay_currency — only allow alphanumeric + hyphen/underscore, cap length
+  const payCurrency = typeof body["pay_currency"] === "string"
+    ? body["pay_currency"].replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 20)
+    : "unknown";
+  const result = await walletRepo.atomicCompleteInvoiceAndCredit(
+    invoice.id,
+    userId,
+    amountCents,
+    "nowpayments",
+    paymentId,
+    `Crypto top-up $${priceAmount.toFixed(2)} (${payCurrency})`,
+  );
+  if (!result.claimed) {
     log.info("duplicate IPN ignored (invoice already completed)", { paymentId, invoiceId });
     return { userId, amountCents };
   }
 
-  try {
-    await walletRepo.creditWallet(
-      userId,
-      amountCents,
-      "nowpayments",
-      paymentId,
-      // R26 C-2: Sanitize pay_currency — only allow alphanumeric + hyphen/underscore, cap length
-      `Crypto top-up $${priceAmount.toFixed(2)} (${(typeof body["pay_currency"] === "string" ? body["pay_currency"].replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 20) : "unknown")})`,
-    );
-  } catch (creditErr) {
-    // R30 C-1: Do NOT revert to pending — this creates infinite retry loops.
-    // Mark as failed; operator can manually reconcile if needed.
-    log.error("wallet credit failed after invoice completion — marking invoice as failed", {
-      invoiceId: invoice.id, userId, paymentId,
-      error: creditErr instanceof Error ? creditErr.message : String(creditErr),
-    });
-    try { await invoiceRepo.markCreditFailed(invoice.id); } catch { /* best effort */ }
-    throw creditErr;
-  }
   log.info("wallet credited via NOWPayments", { userId, amountCents, paymentId });
   return { userId, amountCents };
 }
