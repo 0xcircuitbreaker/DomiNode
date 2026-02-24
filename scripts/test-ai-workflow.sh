@@ -19,7 +19,7 @@
 set -uo pipefail
 
 API="https://api.dominusnode.com"
-MCP_SECRET="${MCP_AGENT_SECRET:-d1c6dcf64985f943439c119c3f54e8b8d97c1977bdff6638e2f56484148a16f0}"
+MCP_SECRET="${MCP_AGENT_SECRET:?MCP_AGENT_SECRET env var must be set}"
 WITH_PROXY=false
 for arg in "$@"; do
   [[ "$arg" == "--with-proxy" ]] && WITH_PROXY=true

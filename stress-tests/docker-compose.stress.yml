@@ -60,8 +60,8 @@ services:
       context: ..
       dockerfile: infra/docker/proxy.Dockerfile
     ports:
-      - "8080:8080"
-      - "1080:1080"
+      - "127.0.0.1:8080:8080"
+      - "127.0.0.1:1080:1080"
     environment:
       DATABASE_URL: postgresql://dominusnode:dominusnode_dev@postgres:5432/dominusnode
       PROXY_LISTEN_PORT: "8080"
@@ -91,7 +91,7 @@ services:
       context: ..
       dockerfile: infra/docker/api.Dockerfile
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     environment:
       DATABASE_URL: postgresql://dominusnode:dominusnode_dev@postgres:5432/dominusnode
       DASHBOARD_PORT: "3000"
