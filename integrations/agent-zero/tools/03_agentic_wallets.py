@@ -1,4 +1,4 @@
-"""Agent Zero tools: agentic wallet CRUD, funding, freeze/unfreeze.
+"""Agent Zero tools: agentic wallet CRUD, funding, freeze/unfreeze, policy.
 
 Agentic wallets are server-side custodial sub-wallets with per-transaction
 spending limits, funded from the user's main wallet. They allow AI agents
@@ -13,10 +13,13 @@ Tools:
     - ``freeze_agentic_wallet`` -- Freeze (pause) a sub-wallet
     - ``unfreeze_agentic_wallet`` -- Unfreeze a sub-wallet
     - ``delete_agentic_wallet`` -- Delete a sub-wallet (refunds remaining balance)
+    - ``update_wallet_policy`` -- Update daily limit and/or allowed domains
 
 Security:
     - Label sanitisation (length, control character validation)
     - Amount range validation (1 to 2,147,483,647 cents)
+    - Daily limit validation (1 to 1,000,000 cents)
+    - Allowed domains validation (max 100 entries, valid domain format)
     - Credential scrubbing in all error messages
     - Wallet must be unfrozen before deletion
 """
@@ -25,12 +28,13 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Any, Dict
+from typing import Any, Dict, List, Optional
 
 from shared import DominusNodeAuth
 from shared.constants import CREDENTIAL_RE
 
 _UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.IGNORECASE)
+_DOMAIN_RE = re.compile(r"^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?)*$")
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -74,6 +78,34 @@ def _validate_amount_cents(amount_cents: Any) -> str | None:
     return None
 
 
+def _validate_daily_limit_cents(daily_limit_cents: Any) -> str | None:
+    """Validate daily_limit_cents, returning an error message or None if valid."""
+    if (
+        isinstance(daily_limit_cents, bool)
+        or not isinstance(daily_limit_cents, int)
+        or daily_limit_cents <= 0
+        or daily_limit_cents > 1_000_000
+    ):
+        return "daily_limit_cents must be a positive integer <= 1,000,000"
+    return None
+
+
+def _validate_allowed_domains(allowed_domains: Any) -> str | None:
+    """Validate allowed_domains list, returning an error message or None if valid."""
+    if not isinstance(allowed_domains, list):
+        return "allowed_domains must be a list of strings"
+    if len(allowed_domains) > 100:
+        return "allowed_domains must have 100 or fewer entries"
+    for domain in allowed_domains:
+        if not isinstance(domain, str):
+            return "each entry in allowed_domains must be a string"
+        if len(domain) > 253:
+            return "each domain must be 253 characters or fewer"
+        if not _DOMAIN_RE.match(domain):
+            return f"invalid domain format: {domain}"
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Tool: create_agentic_wallet
 # ---------------------------------------------------------------------------
@@ -91,6 +123,10 @@ def create_agentic_wallet(
             - ``label`` (str, required): Human-readable name (max 100 chars).
             - ``spending_limit_cents`` (int, required): Per-transaction
               spending limit in cents. Must be > 0 and <= 2,147,483,647.
+            - ``daily_limit_cents`` (int, optional): Daily budget cap in
+              cents. Must be > 0 and <= 1,000,000.
+            - ``allowed_domains`` (list[str], optional): Restrict proxy
+              usage to these domains only (max 100, each <= 253 chars).
 
     Returns:
         JSON string with the created wallet details (id, label, balance, limit).
@@ -105,11 +141,27 @@ def create_agentic_wallet(
     if err:
         return json.dumps({"error": f"spending_limit_cents: {err}"})
 
+    body: Dict[str, Any] = {
+        "label": label,
+        "spendingLimitCents": spending_limit_cents,
+    }
+
+    daily_limit_cents = args.get("daily_limit_cents")
+    if daily_limit_cents is not None:
+        err = _validate_daily_limit_cents(daily_limit_cents)
+        if err:
+            return json.dumps({"error": err})
+        body["dailyLimitCents"] = daily_limit_cents
+
+    allowed_domains = args.get("allowed_domains")
+    if allowed_domains is not None:
+        err = _validate_allowed_domains(allowed_domains)
+        if err:
+            return json.dumps({"error": err})
+        body["allowedDomains"] = allowed_domains
+
     try:
-        result = auth.api_request("POST", "/api/agent-wallet", {
-            "label": label,
-            "spendingLimitCents": spending_limit_cents,
-        })
+        result = auth.api_request("POST", "/api/agent-wallet", body)
         return json.dumps(result)
     except Exception as e:
         return json.dumps({"error": _sanitize_error(str(e))})
@@ -370,6 +422,73 @@ def delete_agentic_wallet(
 
 
 # ---------------------------------------------------------------------------
+# Tool: update_wallet_policy
+# ---------------------------------------------------------------------------
+
+
+def update_wallet_policy(
+    auth: DominusNodeAuth,
+    args: Dict[str, Any],
+) -> str:
+    """Update policy fields on an agentic sub-wallet.
+
+    Allows setting or clearing the daily budget cap and/or the list of
+    allowed proxy domains.
+
+    Args:
+        auth: Authenticated DomiNode helper.
+        args: Tool arguments:
+            - ``wallet_id`` (str, required): Sub-wallet UUID.
+            - ``daily_limit_cents`` (int or None, optional): Daily budget
+              cap in cents.  Pass ``None`` to clear.  Must be > 0 and
+              <= 1,000,000 when set.
+            - ``allowed_domains`` (list[str] or None, optional): Restrict
+              proxy to these domains.  Pass ``None`` to clear.  Max 100
+              entries, each <= 253 chars, valid domain format.
+
+    Returns:
+        JSON string with updated wallet policy details.
+    """
+    wallet_id = args.get("wallet_id")
+    err = _validate_wallet_id(wallet_id)
+    if err:
+        return json.dumps({"error": err})
+
+    body: Dict[str, Any] = {}
+
+    daily_limit_cents = args.get("daily_limit_cents")
+    if "daily_limit_cents" in args:
+        if daily_limit_cents is not None:
+            err = _validate_daily_limit_cents(daily_limit_cents)
+            if err:
+                return json.dumps({"error": err})
+        body["dailyLimitCents"] = daily_limit_cents
+
+    allowed_domains = args.get("allowed_domains")
+    if "allowed_domains" in args:
+        if allowed_domains is not None:
+            err = _validate_allowed_domains(allowed_domains)
+            if err:
+                return json.dumps({"error": err})
+        body["allowedDomains"] = allowed_domains
+
+    if not body:
+        return json.dumps(
+            {"error": "At least one of daily_limit_cents or allowed_domains must be provided"}
+        )
+
+    try:
+        result = auth.api_request(
+            "PATCH",
+            f"/api/agent-wallet/{auth.url_encode(wallet_id)}/policy",
+            body,
+        )
+        return json.dumps(result)
+    except Exception as e:
+        return json.dumps({"error": _sanitize_error(str(e))})
+
+
+# ---------------------------------------------------------------------------
 # Dispatch table
 # ---------------------------------------------------------------------------
 
@@ -390,6 +509,16 @@ TOOLS = {
                 "type": "integer",
                 "required": True,
                 "description": "Per-transaction spending limit in cents",
+            },
+            "daily_limit_cents": {
+                "type": "integer",
+                "required": False,
+                "description": "Daily budget cap in cents (> 0, <= 1,000,000)",
+            },
+            "allowed_domains": {
+                "type": "array",
+                "required": False,
+                "description": "Restrict proxy to these domains only (max 100)",
             },
         },
     },
@@ -445,6 +574,30 @@ TOOLS = {
         ),
         "parameters": {
             "wallet_id": {"type": "string", "required": True, "description": "Sub-wallet UUID"},
+        },
+    },
+    "update_wallet_policy": {
+        "function": update_wallet_policy,
+        "description": (
+            "Update policy fields (daily limit, allowed domains) on an "
+            "agentic sub-wallet."
+        ),
+        "parameters": {
+            "wallet_id": {
+                "type": "string",
+                "required": True,
+                "description": "Sub-wallet UUID",
+            },
+            "daily_limit_cents": {
+                "type": "integer",
+                "required": False,
+                "description": "Daily budget cap in cents (> 0, <= 1,000,000). null to clear.",
+            },
+            "allowed_domains": {
+                "type": "array",
+                "required": False,
+                "description": "Restrict proxy to these domains (max 100). null to clear.",
+            },
         },
     },
 }

@@ -60,24 +60,24 @@ std::string ProxyResource::build_url(const std::string& api_key,
     }
 
     // Build username from geo/session options
-    // Format: user-country-XX-state-YY-city-ZZ-session-ID
+    // Format: user-country-XX-state-YY-city-ZZ-asn-N-session-ID
     std::ostringstream username;
     username << "user";
 
     if (!options.country.empty()) {
-        username << "-country_" << url_encode(options.country);
+        username << "-country-" << url_encode(options.country);
     }
     if (!options.state.empty()) {
-        username << "-state_" << url_encode(options.state);
+        username << "-state-" << url_encode(options.state);
     }
     if (!options.city.empty()) {
-        username << "-city_" << url_encode(options.city);
+        username << "-city-" << url_encode(options.city);
     }
     if (options.asn.has_value()) {
-        username << "-asn_" << *options.asn;
+        username << "-asn-" << *options.asn;
     }
     if (!options.session_id.empty()) {
-        username << "-session_" << url_encode(options.session_id);
+        username << "-session-" << url_encode(options.session_id);
     }
 
     // Determine protocol and port

@@ -66,7 +66,7 @@ export class ProxyResource {
    * // => "http://user:dn_live_abc123@proxy.dominusnode.com:8080"
    *
    * const socksUrl = client.proxy.buildUrl("dn_live_abc123", { protocol: "socks5", country: "US" });
-   * // => "socks5://user-country_US:dn_live_abc123@proxy.dominusnode.com:1080"
+   * // => "socks5://user-country-US:dn_live_abc123@proxy.dominusnode.com:1080"
    * ```
    */
   buildUrl(apiKey: string, opts?: ProxyUrlOptions): string {
@@ -75,11 +75,11 @@ export class ProxyResource {
 
     // Build username with geo-targeting parameters (URL-encoded to prevent injection)
     const userParts: string[] = ["user"];
-    if (opts?.country) userParts.push(`country_${encodeURIComponent(opts.country)}`);
-    if (opts?.state) userParts.push(`state_${encodeURIComponent(opts.state)}`);
-    if (opts?.city) userParts.push(`city_${encodeURIComponent(opts.city)}`);
-    if (opts?.asn) userParts.push(`asn_${encodeURIComponent(String(opts.asn))}`);
-    if (opts?.sessionId) userParts.push(`session_${encodeURIComponent(opts.sessionId)}`);
+    if (opts?.country) userParts.push(`country-${encodeURIComponent(opts.country)}`);
+    if (opts?.state) userParts.push(`state-${encodeURIComponent(opts.state)}`);
+    if (opts?.city) userParts.push(`city-${encodeURIComponent(opts.city)}`);
+    if (opts?.asn) userParts.push(`asn-${encodeURIComponent(String(opts.asn))}`);
+    if (opts?.sessionId) userParts.push(`session-${encodeURIComponent(opts.sessionId)}`);
 
     const username = userParts.join("-");
 

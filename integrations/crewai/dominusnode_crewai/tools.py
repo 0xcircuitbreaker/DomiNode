@@ -17,7 +17,7 @@ import os
 import re
 import socket
 from typing import Any, Optional, Type
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 
 import httpx
 from crewai.tools import BaseTool
@@ -38,7 +38,7 @@ _BYTES_PER_GB = 1_073_741_824
 _SANCTIONED_COUNTRIES = frozenset({"CU", "IR", "KP", "RU", "SY"})
 
 # Credential scrubbing pattern
-_CREDENTIAL_RE = re.compile(r"dn_(live|test)_[a-zA-Z0-9]+")
+_CREDENTIAL_RE = re.compile(r"dn_(live|test)_[a-zA-Z0-9]+|eyJ[a-zA-Z0-9_-]+\.eyJ[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+")
 
 # Maximum response body size (10 MB)
 _MAX_RESPONSE_BODY_BYTES = 10 * 1024 * 1024
@@ -47,6 +47,29 @@ _MAX_RESPONSE_BODY_BYTES = 10 * 1024 * 1024
 def _sanitize_error(message: str) -> str:
     """Remove DomiNode API key patterns from error messages."""
     return _CREDENTIAL_RE.sub("***", message)
+
+
+# ---------------------------------------------------------------------------
+# Prototype pollution prevention
+# ---------------------------------------------------------------------------
+
+_DANGEROUS_KEYS = frozenset({"__proto__", "constructor", "prototype"})
+
+
+def _strip_dangerous_keys(obj: Any, depth: int = 0) -> None:
+    """Recursively remove prototype pollution keys from parsed JSON."""
+    if depth > 50 or obj is None:
+        return
+    if isinstance(obj, list):
+        for item in obj:
+            _strip_dangerous_keys(item, depth + 1)
+    elif isinstance(obj, dict):
+        for key in list(obj.keys()):
+            if key in _DANGEROUS_KEYS:
+                del obj[key]
+            else:
+                _strip_dangerous_keys(obj[key], depth + 1)
+
 
 # ---------------------------------------------------------------------------
 # SSRF protection helpers
@@ -623,3 +646,584 @@ class DominusNodeTopupPaypalTool(BaseTool):
         finally:
             if client is not None:
                 client.close()
+
+
+# ---------------------------------------------------------------------------
+# Agentic Wallet — shared helpers
+# ---------------------------------------------------------------------------
+
+_UUID_RE = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+    re.IGNORECASE,
+)
+
+_DOMAIN_RE = re.compile(
+    r"^(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$"
+)
+
+
+def _validate_label(label: str) -> Optional[str]:
+    """Return an error message if *label* is invalid, else None."""
+    if not label or not isinstance(label, str):
+        return "label is required and must be a non-empty string"
+    if len(label) > 100:
+        return "label must be 100 characters or fewer"
+    if any(0 <= ord(c) <= 0x1F or ord(c) == 0x7F for c in label):
+        return "label contains invalid control characters"
+    return None
+
+
+def _validate_wallet_id(wallet_id: str) -> Optional[str]:
+    """Return an error message if *wallet_id* is invalid, else None."""
+    if not wallet_id or not isinstance(wallet_id, str):
+        return "wallet_id is required and must be a non-empty string"
+    if not _UUID_RE.match(wallet_id):
+        return "wallet_id must be a valid UUID"
+    return None
+
+
+def _validate_domains(domains: list) -> Optional[str]:
+    """Return an error message if *domains* is invalid, else None."""
+    if not isinstance(domains, list):
+        return "allowed_domains must be a list of strings"
+    if len(domains) > 100:
+        return "allowed_domains must have 100 or fewer entries"
+    for d in domains:
+        if not isinstance(d, str):
+            return "Each allowed_domains entry must be a string"
+        if len(d) > 253:
+            return "Each allowed_domains entry must be 253 characters or fewer"
+        if not _DOMAIN_RE.match(d):
+            return f"Invalid domain format: {d}"
+    return None
+
+
+def _api_request_sync(
+    base_url: str,
+    api_key: str,
+    method: str,
+    path: str,
+    body: Optional[dict] = None,
+) -> dict:
+    """Make an authenticated request to the DomiNode REST API."""
+    url = f"{base_url}{path}"
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+    with httpx.Client(timeout=30.0, follow_redirects=False, max_redirects=0) as client:
+        if method == "GET":
+            resp = client.get(url, headers=headers)
+        elif method == "POST":
+            resp = client.post(url, headers=headers, json=body or {})
+        elif method == "DELETE":
+            resp = client.delete(url, headers=headers)
+        elif method == "PATCH":
+            resp = client.patch(url, headers=headers, json=body or {})
+        else:
+            raise ValueError(f"Unsupported HTTP method: {method}")
+        if len(resp.content) > _MAX_RESPONSE_BODY_BYTES:
+            raise RuntimeError("Response body exceeds 10 MB size limit")
+        resp.raise_for_status()
+        data = resp.json()
+        _strip_dangerous_keys(data)
+        return data
+
+
+# ---------------------------------------------------------------------------
+# Agentic Wallet — Pydantic input schemas
+# ---------------------------------------------------------------------------
+
+
+class CreateAgenticWalletInput(BaseModel):
+    """Input schema for creating an agentic wallet."""
+    label: str = Field(description="A human-readable label for the wallet (max 100 chars).")
+    spending_limit_cents: int = Field(description="Per-transaction spending limit in cents (1 – 2,147,483,647).")
+    daily_limit_cents: Optional[int] = Field(default=None, description="Optional daily spending limit in cents (1 – 1,000,000).")
+    allowed_domains: Optional[list] = Field(default=None, description="Optional list of allowed domains (max 100 entries, each ≤ 253 chars).")
+
+
+class FundAgenticWalletInput(BaseModel):
+    """Input schema for funding an agentic wallet."""
+    wallet_id: str = Field(description="UUID of the agentic wallet to fund.")
+    amount_cents: int = Field(description="Amount in cents to transfer from main wallet (1 – 2,147,483,647).")
+
+
+class WalletIdInput(BaseModel):
+    """Input schema for operations that only need a wallet ID."""
+    wallet_id: str = Field(description="UUID of the agentic wallet.")
+
+
+class AgenticTransactionsInput(BaseModel):
+    """Input schema for listing agentic wallet transactions."""
+    wallet_id: str = Field(description="UUID of the agentic wallet.")
+    limit: Optional[int] = Field(default=None, description="Maximum number of transactions to return (1 – 100).")
+
+
+class UpdateWalletPolicyInput(BaseModel):
+    """Input schema for updating an agentic wallet's policy."""
+    wallet_id: str = Field(description="UUID of the agentic wallet.")
+    daily_limit_cents: Optional[int] = Field(default=None, description="New daily spending limit in cents (1 – 1,000,000), or None to keep unchanged.")
+    allowed_domains: Optional[list] = Field(default=None, description="New allowed domains list (max 100 entries), or None to keep unchanged.")
+
+
+# ---------------------------------------------------------------------------
+# Tool 6: Create Agentic Wallet
+# ---------------------------------------------------------------------------
+
+
+class DominusNodeCreateAgenticWalletTool(BaseTool):
+    """Create a new agentic sub-wallet with a spending limit.
+
+    Agentic wallets are server-side custodial sub-wallets funded from the
+    main wallet, designed for AI agents with per-transaction spending caps.
+    """
+
+    name: str = "dominusnode_create_agentic_wallet"
+    description: str = (
+        "Create a new agentic sub-wallet with a spending limit. "
+        "Input: label (string), spending_limit_cents (integer), "
+        "optional daily_limit_cents and allowed_domains."
+    )
+    args_schema: Type[BaseModel] = CreateAgenticWalletInput
+
+    api_key: Optional[str] = Field(default=None, exclude=True)
+    base_url: Optional[str] = Field(default=None, exclude=True)
+
+    def _run(
+        self,
+        label: str = "",
+        spending_limit_cents: int = 0,
+        daily_limit_cents: Optional[int] = None,
+        allowed_domains: Optional[list] = None,
+        **kwargs: Any,
+    ) -> str:
+        err = _validate_label(label)
+        if err:
+            return f"Error: {err}"
+
+        if (
+            not isinstance(spending_limit_cents, int)
+            or spending_limit_cents <= 0
+            or spending_limit_cents > 2_147_483_647
+        ):
+            return "Error: spending_limit_cents must be a positive integer <= 2,147,483,647"
+
+        if daily_limit_cents is not None:
+            if (
+                not isinstance(daily_limit_cents, int)
+                or daily_limit_cents < 1
+                or daily_limit_cents > 1_000_000
+            ):
+                return "Error: daily_limit_cents must be an integer between 1 and 1,000,000"
+
+        if allowed_domains is not None:
+            derr = _validate_domains(allowed_domains)
+            if derr:
+                return f"Error: {derr}"
+
+        key = self.api_key or os.environ.get("DOMINUSNODE_API_KEY", "")
+        url = self.base_url or os.environ.get("DOMINUSNODE_BASE_URL", "https://api.dominusnode.com")
+        if not key:
+            return "Error: DomiNode API key is required. Pass api_key= or set DOMINUSNODE_API_KEY."
+
+        body: dict = {
+            "label": label,
+            "spendingLimitCents": spending_limit_cents,
+        }
+        if daily_limit_cents is not None:
+            body["dailyLimitCents"] = daily_limit_cents
+        if allowed_domains is not None:
+            body["allowedDomains"] = allowed_domains
+
+        try:
+            result = _api_request_sync(url, key, "POST", "/api/agent-wallet", body)
+            return (
+                f"Agentic Wallet Created\n"
+                f"  ID: {result.get('id', 'unknown')}\n"
+                f"  Label: {result.get('label', label)}\n"
+                f"  Spending Limit: {spending_limit_cents} cents\n"
+                f"  Status: {result.get('status', 'active')}"
+            )
+        except httpx.HTTPStatusError as exc:
+            return f"Error: API returned {exc.response.status_code} -- {_sanitize_error(exc.response.text[:200])}"
+        except Exception as exc:
+            return f"Error: {_sanitize_error(str(exc))}"
+
+
+# ---------------------------------------------------------------------------
+# Tool 7: Fund Agentic Wallet
+# ---------------------------------------------------------------------------
+
+
+class DominusNodeFundAgenticWalletTool(BaseTool):
+    """Transfer funds from the main wallet to an agentic sub-wallet."""
+
+    name: str = "dominusnode_fund_agentic_wallet"
+    description: str = (
+        "Transfer funds from the main wallet to an agentic sub-wallet. "
+        "Input: wallet_id (UUID), amount_cents (positive integer)."
+    )
+    args_schema: Type[BaseModel] = FundAgenticWalletInput
+
+    api_key: Optional[str] = Field(default=None, exclude=True)
+    base_url: Optional[str] = Field(default=None, exclude=True)
+
+    def _run(self, wallet_id: str = "", amount_cents: int = 0, **kwargs: Any) -> str:
+        err = _validate_wallet_id(wallet_id)
+        if err:
+            return f"Error: {err}"
+
+        if (
+            not isinstance(amount_cents, int)
+            or amount_cents <= 0
+            or amount_cents > 2_147_483_647
+        ):
+            return "Error: amount_cents must be a positive integer <= 2,147,483,647"
+
+        key = self.api_key or os.environ.get("DOMINUSNODE_API_KEY", "")
+        url = self.base_url or os.environ.get("DOMINUSNODE_BASE_URL", "https://api.dominusnode.com")
+        if not key:
+            return "Error: DomiNode API key is required. Pass api_key= or set DOMINUSNODE_API_KEY."
+
+        try:
+            result = _api_request_sync(
+                url, key, "POST",
+                f"/api/agent-wallet/{quote(wallet_id, safe='')}/fund",
+                {"amountCents": amount_cents},
+            )
+            return (
+                f"Agentic Wallet Funded\n"
+                f"  Wallet ID: {wallet_id}\n"
+                f"  Amount: {amount_cents} cents (${amount_cents / 100:.2f})\n"
+                f"  New Balance: {result.get('balanceCents', 'unknown')} cents"
+            )
+        except httpx.HTTPStatusError as exc:
+            return f"Error: API returned {exc.response.status_code} -- {_sanitize_error(exc.response.text[:200])}"
+        except Exception as exc:
+            return f"Error: {_sanitize_error(str(exc))}"
+
+
+# ---------------------------------------------------------------------------
+# Tool 8: Agentic Wallet Balance
+# ---------------------------------------------------------------------------
+
+
+class DominusNodeAgenticWalletBalanceTool(BaseTool):
+    """Check the balance and details of an agentic sub-wallet."""
+
+    name: str = "dominusnode_agentic_wallet_balance"
+    description: str = (
+        "Check the balance and details of an agentic sub-wallet. "
+        "Input: wallet_id (UUID)."
+    )
+    args_schema: Type[BaseModel] = WalletIdInput
+
+    api_key: Optional[str] = Field(default=None, exclude=True)
+    base_url: Optional[str] = Field(default=None, exclude=True)
+
+    def _run(self, wallet_id: str = "", **kwargs: Any) -> str:
+        err = _validate_wallet_id(wallet_id)
+        if err:
+            return f"Error: {err}"
+
+        key = self.api_key or os.environ.get("DOMINUSNODE_API_KEY", "")
+        url = self.base_url or os.environ.get("DOMINUSNODE_BASE_URL", "https://api.dominusnode.com")
+        if not key:
+            return "Error: DomiNode API key is required. Pass api_key= or set DOMINUSNODE_API_KEY."
+
+        try:
+            result = _api_request_sync(url, key, "GET", f"/api/agent-wallet/{quote(wallet_id, safe='')}")
+            balance = result.get("balanceCents", 0)
+            return (
+                f"Agentic Wallet: {result.get('label', 'unknown')}\n"
+                f"  ID: {result.get('id', wallet_id)}\n"
+                f"  Balance: {balance} cents (${balance / 100:.2f})\n"
+                f"  Spending Limit: {result.get('spendingLimitCents', 'unknown')} cents\n"
+                f"  Status: {result.get('status', 'unknown')}"
+            )
+        except httpx.HTTPStatusError as exc:
+            return f"Error: API returned {exc.response.status_code} -- {_sanitize_error(exc.response.text[:200])}"
+        except Exception as exc:
+            return f"Error: {_sanitize_error(str(exc))}"
+
+
+# ---------------------------------------------------------------------------
+# Tool 9: List Agentic Wallets
+# ---------------------------------------------------------------------------
+
+
+class DominusNodeListAgenticWalletsTool(BaseTool):
+    """List all agentic sub-wallets for the authenticated user."""
+
+    name: str = "dominusnode_list_agentic_wallets"
+    description: str = (
+        "List all agentic sub-wallets for the current user. No input required."
+    )
+    args_schema: Type[BaseModel] = BalanceInput  # reuse empty schema
+
+    api_key: Optional[str] = Field(default=None, exclude=True)
+    base_url: Optional[str] = Field(default=None, exclude=True)
+
+    def _run(self, **kwargs: Any) -> str:
+        key = self.api_key or os.environ.get("DOMINUSNODE_API_KEY", "")
+        url = self.base_url or os.environ.get("DOMINUSNODE_BASE_URL", "https://api.dominusnode.com")
+        if not key:
+            return "Error: DomiNode API key is required. Pass api_key= or set DOMINUSNODE_API_KEY."
+
+        try:
+            result = _api_request_sync(url, key, "GET", "/api/agent-wallet")
+            wallets = result.get("wallets", result) if isinstance(result, dict) else result
+            if isinstance(wallets, list):
+                if not wallets:
+                    return "No agentic wallets found."
+                lines = [f"Agentic Wallets ({len(wallets)}):"]
+                for w in wallets:
+                    lines.append(
+                        f"  - {w.get('label', 'unknown')} (ID: {w.get('id', '?')}, "
+                        f"Balance: {w.get('balanceCents', 0)} cents, "
+                        f"Status: {w.get('status', '?')})"
+                    )
+                return "\n".join(lines)
+            return str(result)
+        except httpx.HTTPStatusError as exc:
+            return f"Error: API returned {exc.response.status_code} -- {_sanitize_error(exc.response.text[:200])}"
+        except Exception as exc:
+            return f"Error: {_sanitize_error(str(exc))}"
+
+
+# ---------------------------------------------------------------------------
+# Tool 10: Agentic Wallet Transactions
+# ---------------------------------------------------------------------------
+
+
+class DominusNodeAgenticTransactionsTool(BaseTool):
+    """List recent transactions for an agentic sub-wallet."""
+
+    name: str = "dominusnode_agentic_transactions"
+    description: str = (
+        "List recent transactions for an agentic sub-wallet. "
+        "Input: wallet_id (UUID), optional limit (1-100)."
+    )
+    args_schema: Type[BaseModel] = AgenticTransactionsInput
+
+    api_key: Optional[str] = Field(default=None, exclude=True)
+    base_url: Optional[str] = Field(default=None, exclude=True)
+
+    def _run(self, wallet_id: str = "", limit: Optional[int] = None, **kwargs: Any) -> str:
+        err = _validate_wallet_id(wallet_id)
+        if err:
+            return f"Error: {err}"
+
+        if limit is not None:
+            if not isinstance(limit, int) or limit < 1 or limit > 100:
+                return "Error: limit must be an integer between 1 and 100"
+
+        key = self.api_key or os.environ.get("DOMINUSNODE_API_KEY", "")
+        url = self.base_url or os.environ.get("DOMINUSNODE_BASE_URL", "https://api.dominusnode.com")
+        if not key:
+            return "Error: DomiNode API key is required. Pass api_key= or set DOMINUSNODE_API_KEY."
+
+        qs = f"?limit={limit}" if limit else ""
+        try:
+            result = _api_request_sync(
+                url, key, "GET",
+                f"/api/agent-wallet/{quote(wallet_id, safe='')}/transactions{qs}",
+            )
+            txns = result.get("transactions", result) if isinstance(result, dict) else result
+            if isinstance(txns, list):
+                if not txns:
+                    return f"No transactions found for wallet {wallet_id}."
+                lines = [f"Transactions for wallet {wallet_id} ({len(txns)}):"]
+                for t in txns:
+                    lines.append(
+                        f"  - {t.get('type', '?')}: {t.get('amountCents', 0)} cents "
+                        f"({t.get('createdAt', '?')})"
+                    )
+                return "\n".join(lines)
+            return str(result)
+        except httpx.HTTPStatusError as exc:
+            return f"Error: API returned {exc.response.status_code} -- {_sanitize_error(exc.response.text[:200])}"
+        except Exception as exc:
+            return f"Error: {_sanitize_error(str(exc))}"
+
+
+# ---------------------------------------------------------------------------
+# Tool 11: Freeze Agentic Wallet
+# ---------------------------------------------------------------------------
+
+
+class DominusNodeFreezeAgenticWalletTool(BaseTool):
+    """Freeze an agentic sub-wallet to prevent further spending."""
+
+    name: str = "dominusnode_freeze_agentic_wallet"
+    description: str = (
+        "Freeze an agentic sub-wallet to prevent further spending. "
+        "Input: wallet_id (UUID)."
+    )
+    args_schema: Type[BaseModel] = WalletIdInput
+
+    api_key: Optional[str] = Field(default=None, exclude=True)
+    base_url: Optional[str] = Field(default=None, exclude=True)
+
+    def _run(self, wallet_id: str = "", **kwargs: Any) -> str:
+        err = _validate_wallet_id(wallet_id)
+        if err:
+            return f"Error: {err}"
+
+        key = self.api_key or os.environ.get("DOMINUSNODE_API_KEY", "")
+        url = self.base_url or os.environ.get("DOMINUSNODE_BASE_URL", "https://api.dominusnode.com")
+        if not key:
+            return "Error: DomiNode API key is required. Pass api_key= or set DOMINUSNODE_API_KEY."
+
+        try:
+            _api_request_sync(url, key, "POST", f"/api/agent-wallet/{quote(wallet_id, safe='')}/freeze")
+            return f"Agentic wallet {wallet_id} has been frozen."
+        except httpx.HTTPStatusError as exc:
+            return f"Error: API returned {exc.response.status_code} -- {_sanitize_error(exc.response.text[:200])}"
+        except Exception as exc:
+            return f"Error: {_sanitize_error(str(exc))}"
+
+
+# ---------------------------------------------------------------------------
+# Tool 12: Unfreeze Agentic Wallet
+# ---------------------------------------------------------------------------
+
+
+class DominusNodeUnfreezeAgenticWalletTool(BaseTool):
+    """Unfreeze a previously frozen agentic sub-wallet."""
+
+    name: str = "dominusnode_unfreeze_agentic_wallet"
+    description: str = (
+        "Unfreeze a previously frozen agentic sub-wallet to re-enable spending. "
+        "Input: wallet_id (UUID)."
+    )
+    args_schema: Type[BaseModel] = WalletIdInput
+
+    api_key: Optional[str] = Field(default=None, exclude=True)
+    base_url: Optional[str] = Field(default=None, exclude=True)
+
+    def _run(self, wallet_id: str = "", **kwargs: Any) -> str:
+        err = _validate_wallet_id(wallet_id)
+        if err:
+            return f"Error: {err}"
+
+        key = self.api_key or os.environ.get("DOMINUSNODE_API_KEY", "")
+        url = self.base_url or os.environ.get("DOMINUSNODE_BASE_URL", "https://api.dominusnode.com")
+        if not key:
+            return "Error: DomiNode API key is required. Pass api_key= or set DOMINUSNODE_API_KEY."
+
+        try:
+            _api_request_sync(url, key, "POST", f"/api/agent-wallet/{quote(wallet_id, safe='')}/unfreeze")
+            return f"Agentic wallet {wallet_id} has been unfrozen."
+        except httpx.HTTPStatusError as exc:
+            return f"Error: API returned {exc.response.status_code} -- {_sanitize_error(exc.response.text[:200])}"
+        except Exception as exc:
+            return f"Error: {_sanitize_error(str(exc))}"
+
+
+# ---------------------------------------------------------------------------
+# Tool 13: Delete Agentic Wallet
+# ---------------------------------------------------------------------------
+
+
+class DominusNodeDeleteAgenticWalletTool(BaseTool):
+    """Delete an agentic sub-wallet (must be active, not frozen)."""
+
+    name: str = "dominusnode_delete_agentic_wallet"
+    description: str = (
+        "Delete an agentic sub-wallet. The wallet must be active (not frozen). "
+        "Remaining balance is returned to the main wallet. Input: wallet_id (UUID)."
+    )
+    args_schema: Type[BaseModel] = WalletIdInput
+
+    api_key: Optional[str] = Field(default=None, exclude=True)
+    base_url: Optional[str] = Field(default=None, exclude=True)
+
+    def _run(self, wallet_id: str = "", **kwargs: Any) -> str:
+        err = _validate_wallet_id(wallet_id)
+        if err:
+            return f"Error: {err}"
+
+        key = self.api_key or os.environ.get("DOMINUSNODE_API_KEY", "")
+        url = self.base_url or os.environ.get("DOMINUSNODE_BASE_URL", "https://api.dominusnode.com")
+        if not key:
+            return "Error: DomiNode API key is required. Pass api_key= or set DOMINUSNODE_API_KEY."
+
+        try:
+            _api_request_sync(url, key, "DELETE", f"/api/agent-wallet/{quote(wallet_id, safe='')}")
+            return f"Agentic wallet {wallet_id} has been deleted."
+        except httpx.HTTPStatusError as exc:
+            return f"Error: API returned {exc.response.status_code} -- {_sanitize_error(exc.response.text[:200])}"
+        except Exception as exc:
+            return f"Error: {_sanitize_error(str(exc))}"
+
+
+# ---------------------------------------------------------------------------
+# Tool 14: Update Wallet Policy
+# ---------------------------------------------------------------------------
+
+
+class DominusNodeUpdateWalletPolicyTool(BaseTool):
+    """Update the policy (daily limit, allowed domains) of an agentic sub-wallet."""
+
+    name: str = "dominusnode_update_wallet_policy"
+    description: str = (
+        "Update the policy of an agentic sub-wallet. "
+        "Input: wallet_id (UUID), optional daily_limit_cents (1-1,000,000), "
+        "optional allowed_domains (list of domain strings)."
+    )
+    args_schema: Type[BaseModel] = UpdateWalletPolicyInput
+
+    api_key: Optional[str] = Field(default=None, exclude=True)
+    base_url: Optional[str] = Field(default=None, exclude=True)
+
+    def _run(
+        self,
+        wallet_id: str = "",
+        daily_limit_cents: Optional[int] = None,
+        allowed_domains: Optional[list] = None,
+        **kwargs: Any,
+    ) -> str:
+        err = _validate_wallet_id(wallet_id)
+        if err:
+            return f"Error: {err}"
+
+        body: dict = {}
+
+        if daily_limit_cents is not None:
+            if (
+                not isinstance(daily_limit_cents, int)
+                or daily_limit_cents < 1
+                or daily_limit_cents > 1_000_000
+            ):
+                return "Error: daily_limit_cents must be an integer between 1 and 1,000,000"
+            body["dailyLimitCents"] = daily_limit_cents
+
+        if allowed_domains is not None:
+            derr = _validate_domains(allowed_domains)
+            if derr:
+                return f"Error: {derr}"
+            body["allowedDomains"] = allowed_domains
+
+        if not body:
+            return "Error: At least one of daily_limit_cents or allowed_domains must be provided"
+
+        key = self.api_key or os.environ.get("DOMINUSNODE_API_KEY", "")
+        url = self.base_url or os.environ.get("DOMINUSNODE_BASE_URL", "https://api.dominusnode.com")
+        if not key:
+            return "Error: DomiNode API key is required. Pass api_key= or set DOMINUSNODE_API_KEY."
+
+        try:
+            result = _api_request_sync(
+                url, key, "PATCH",
+                f"/api/agent-wallet/{quote(wallet_id, safe='')}/policy",
+                body,
+            )
+            return (
+                f"Wallet Policy Updated\n"
+                f"  Wallet ID: {wallet_id}\n"
+                f"  Daily Limit: {result.get('dailyLimitCents', 'unchanged')} cents\n"
+                f"  Allowed Domains: {result.get('allowedDomains', 'unchanged')}"
+            )
+        except httpx.HTTPStatusError as exc:
+            return f"Error: API returned {exc.response.status_code} -- {_sanitize_error(exc.response.text[:200])}"
+        except Exception as exc:
+            return f"Error: {_sanitize_error(str(exc))}"

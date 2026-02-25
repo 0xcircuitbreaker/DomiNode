@@ -10,54 +10,56 @@ from .types import AgenticWallet, AgenticWalletTransaction
 from .wallet import _validate_amount_cents
 
 
+def _parse_agentic_wallet(data: dict) -> AgenticWallet:
+    """Parse an agentic wallet response dict into an AgenticWallet dataclass."""
+    return AgenticWallet(
+        id=data["id"],
+        label=data["label"],
+        balance_cents=data["balanceCents"],
+        spending_limit_cents=data["spendingLimitCents"],
+        status=data["status"],
+        created_at=data.get("createdAt", ""),
+        daily_limit_cents=data.get("dailyLimitCents"),
+        allowed_domains=data.get("allowedDomains"),
+    )
+
+
 class AgenticWalletResource:
     """Synchronous agentic wallet operations."""
 
     def __init__(self, http: SyncHttpClient) -> None:
         self._http = http
 
-    def create(self, label: str, spending_limit_cents: int = 10000) -> AgenticWallet:
+    def create(
+        self,
+        label: str,
+        spending_limit_cents: int = 10000,
+        daily_limit_cents: Optional[int] = None,
+        allowed_domains: Optional[List[str]] = None,
+    ) -> AgenticWallet:
         """Create a new agentic wallet."""
         _validate_amount_cents(spending_limit_cents, "spending_limit_cents")
-        data = self._http.post("/api/agent-wallet", json={
+        body: dict = {
             "label": label,
             "spendingLimitCents": spending_limit_cents,
-        })
-        return AgenticWallet(
-            id=data["id"],
-            label=data["label"],
-            balance_cents=data["balanceCents"],
-            spending_limit_cents=data["spendingLimitCents"],
-            status=data["status"],
-            created_at=data["createdAt"],
-        )
+        }
+        if daily_limit_cents is not None:
+            _validate_amount_cents(daily_limit_cents, "daily_limit_cents")
+            body["dailyLimitCents"] = daily_limit_cents
+        if allowed_domains is not None:
+            body["allowedDomains"] = allowed_domains
+        data = self._http.post("/api/agent-wallet", json=body)
+        return _parse_agentic_wallet(data)
 
     def list(self) -> List[AgenticWallet]:
         """List all agentic wallets."""
         data = self._http.get("/api/agent-wallet")
-        return [
-            AgenticWallet(
-                id=w["id"],
-                label=w["label"],
-                balance_cents=w["balanceCents"],
-                spending_limit_cents=w["spendingLimitCents"],
-                status=w["status"],
-                created_at=w["createdAt"],
-            )
-            for w in data["wallets"]
-        ]
+        return [_parse_agentic_wallet(w) for w in data["wallets"]]
 
     def get(self, wallet_id: str) -> AgenticWallet:
         """Get a single agentic wallet."""
         data = self._http.get(f"/api/agent-wallet/{quote(wallet_id, safe='')}")
-        return AgenticWallet(
-            id=data["id"],
-            label=data["label"],
-            balance_cents=data["balanceCents"],
-            spending_limit_cents=data["spendingLimitCents"],
-            status=data["status"],
-            created_at=data["createdAt"],
-        )
+        return _parse_agentic_wallet(data)
 
     def fund(self, wallet_id: str, amount_cents: int) -> AgenticWalletTransaction:
         """Fund an agentic wallet from the main wallet."""
@@ -99,31 +101,35 @@ class AgenticWalletResource:
     def freeze(self, wallet_id: str) -> AgenticWallet:
         """Freeze an agentic wallet."""
         data = self._http.post(f"/api/agent-wallet/{quote(wallet_id, safe='')}/freeze", json={})
-        return AgenticWallet(
-            id=data["id"],
-            label=data["label"],
-            balance_cents=data["balanceCents"],
-            spending_limit_cents=data.get("spendingLimitCents", 0),
-            status=data["status"],
-            created_at=data.get("createdAt", ""),
-        )
+        return _parse_agentic_wallet(data)
 
     def unfreeze(self, wallet_id: str) -> AgenticWallet:
         """Unfreeze an agentic wallet."""
         data = self._http.post(f"/api/agent-wallet/{quote(wallet_id, safe='')}/unfreeze", json={})
-        return AgenticWallet(
-            id=data["id"],
-            label=data["label"],
-            balance_cents=data["balanceCents"],
-            spending_limit_cents=data.get("spendingLimitCents", 0),
-            status=data["status"],
-            created_at=data.get("createdAt", ""),
-        )
+        return _parse_agentic_wallet(data)
 
     def delete(self, wallet_id: str) -> int:
         """Delete an agentic wallet and refund remaining balance. Returns refunded cents."""
         data = self._http.delete(f"/api/agent-wallet/{quote(wallet_id, safe='')}")
         return data["refundedCents"]
+
+    def update_wallet_policy(
+        self,
+        wallet_id: str,
+        daily_limit_cents: Optional[int] = None,
+        allowed_domains: Optional[List[str]] = None,
+    ) -> AgenticWallet:
+        """Update the policy on an agentic wallet."""
+        body: dict = {}
+        if daily_limit_cents is not None:
+            _validate_amount_cents(daily_limit_cents, "daily_limit_cents")
+            body["dailyLimitCents"] = daily_limit_cents
+        if allowed_domains is not None:
+            body["allowedDomains"] = allowed_domains
+        data = self._http.patch(
+            f"/api/agent-wallet/{quote(wallet_id, safe='')}/policy", json=body
+        )
+        return _parse_agentic_wallet(data)
 
 
 class AsyncAgenticWalletResource:
@@ -132,48 +138,36 @@ class AsyncAgenticWalletResource:
     def __init__(self, http: AsyncHttpClient) -> None:
         self._http = http
 
-    async def create(self, label: str, spending_limit_cents: int = 10000) -> AgenticWallet:
+    async def create(
+        self,
+        label: str,
+        spending_limit_cents: int = 10000,
+        daily_limit_cents: Optional[int] = None,
+        allowed_domains: Optional[List[str]] = None,
+    ) -> AgenticWallet:
         """Create a new agentic wallet."""
         _validate_amount_cents(spending_limit_cents, "spending_limit_cents")
-        data = await self._http.post("/api/agent-wallet", json={
+        body: dict = {
             "label": label,
             "spendingLimitCents": spending_limit_cents,
-        })
-        return AgenticWallet(
-            id=data["id"],
-            label=data["label"],
-            balance_cents=data["balanceCents"],
-            spending_limit_cents=data["spendingLimitCents"],
-            status=data["status"],
-            created_at=data["createdAt"],
-        )
+        }
+        if daily_limit_cents is not None:
+            _validate_amount_cents(daily_limit_cents, "daily_limit_cents")
+            body["dailyLimitCents"] = daily_limit_cents
+        if allowed_domains is not None:
+            body["allowedDomains"] = allowed_domains
+        data = await self._http.post("/api/agent-wallet", json=body)
+        return _parse_agentic_wallet(data)
 
     async def list(self) -> List[AgenticWallet]:
         """List all agentic wallets."""
         data = await self._http.get("/api/agent-wallet")
-        return [
-            AgenticWallet(
-                id=w["id"],
-                label=w["label"],
-                balance_cents=w["balanceCents"],
-                spending_limit_cents=w["spendingLimitCents"],
-                status=w["status"],
-                created_at=w["createdAt"],
-            )
-            for w in data["wallets"]
-        ]
+        return [_parse_agentic_wallet(w) for w in data["wallets"]]
 
     async def get(self, wallet_id: str) -> AgenticWallet:
         """Get a single agentic wallet."""
         data = await self._http.get(f"/api/agent-wallet/{quote(wallet_id, safe='')}")
-        return AgenticWallet(
-            id=data["id"],
-            label=data["label"],
-            balance_cents=data["balanceCents"],
-            spending_limit_cents=data["spendingLimitCents"],
-            status=data["status"],
-            created_at=data["createdAt"],
-        )
+        return _parse_agentic_wallet(data)
 
     async def fund(self, wallet_id: str, amount_cents: int) -> AgenticWalletTransaction:
         """Fund an agentic wallet from the main wallet."""
@@ -215,28 +209,32 @@ class AsyncAgenticWalletResource:
     async def freeze(self, wallet_id: str) -> AgenticWallet:
         """Freeze an agentic wallet."""
         data = await self._http.post(f"/api/agent-wallet/{quote(wallet_id, safe='')}/freeze", json={})
-        return AgenticWallet(
-            id=data["id"],
-            label=data["label"],
-            balance_cents=data["balanceCents"],
-            spending_limit_cents=data.get("spendingLimitCents", 0),
-            status=data["status"],
-            created_at=data.get("createdAt", ""),
-        )
+        return _parse_agentic_wallet(data)
 
     async def unfreeze(self, wallet_id: str) -> AgenticWallet:
         """Unfreeze an agentic wallet."""
         data = await self._http.post(f"/api/agent-wallet/{quote(wallet_id, safe='')}/unfreeze", json={})
-        return AgenticWallet(
-            id=data["id"],
-            label=data["label"],
-            balance_cents=data["balanceCents"],
-            spending_limit_cents=data.get("spendingLimitCents", 0),
-            status=data["status"],
-            created_at=data.get("createdAt", ""),
-        )
+        return _parse_agentic_wallet(data)
 
     async def delete(self, wallet_id: str) -> int:
         """Delete an agentic wallet and refund remaining balance. Returns refunded cents."""
         data = await self._http.delete(f"/api/agent-wallet/{quote(wallet_id, safe='')}")
         return data["refundedCents"]
+
+    async def update_wallet_policy(
+        self,
+        wallet_id: str,
+        daily_limit_cents: Optional[int] = None,
+        allowed_domains: Optional[List[str]] = None,
+    ) -> AgenticWallet:
+        """Update the policy on an agentic wallet."""
+        body: dict = {}
+        if daily_limit_cents is not None:
+            _validate_amount_cents(daily_limit_cents, "daily_limit_cents")
+            body["dailyLimitCents"] = daily_limit_cents
+        if allowed_domains is not None:
+            body["allowedDomains"] = allowed_domains
+        data = await self._http.patch(
+            f"/api/agent-wallet/{quote(wallet_id, safe='')}/policy", json=body
+        )
+        return _parse_agentic_wallet(data)

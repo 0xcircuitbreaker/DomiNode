@@ -673,6 +673,20 @@ paths:
                   maximum: 1000000
                   description: Per-transaction spending limit in cents
                   example: 10000
+                dailyLimitCents:
+                  type: integer
+                  minimum: 1
+                  maximum: 1000000
+                  description: Optional daily budget cap in cents. Omit to leave uncapped.
+                  example: 50000
+                allowedDomains:
+                  type: array
+                  maxItems: 100
+                  items:
+                    type: string
+                    maxLength: 253
+                  description: Optional domain allowlist (max 100 entries, each <= 253 chars). Omit to allow all domains.
+                  example: ["httpbin.org", "example.com"]
       responses:
         "201":
           description: Agentic wallet created
@@ -915,6 +929,64 @@ paths:
                 $ref: "#/components/schemas/AgenticWallet"
         "404":
           description: Wallet not found or not frozen
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/agent-wallet/{id}/policy:
+    patch:
+      operationId: updateAgenticWalletPolicy
+      tags: [Agentic Wallets]
+      summary: Update agentic wallet policy
+      description: |
+        Updates the daily limit and/or allowed domains policy on an agentic wallet.
+        Set a field to null to remove the restriction. Only active wallets can be updated.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                dailyLimitCents:
+                  type: integer
+                  minimum: 1
+                  maximum: 1000000
+                  nullable: true
+                  description: Daily budget cap in cents. Set to null to remove the daily limit.
+                  example: 50000
+                allowedDomains:
+                  type: array
+                  maxItems: 100
+                  nullable: true
+                  items:
+                    type: string
+                    maxLength: 253
+                  description: Domain allowlist (max 100 entries, each <= 253 chars). Set to null to allow all domains.
+                  example: ["httpbin.org", "example.com"]
+      responses:
+        "200":
+          description: Wallet policy updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgenticWallet"
+        "404":
+          description: Wallet not found or not active
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "422":
+          description: Validation error (invalid daily limit or domain entries)
           content:
             application/json:
               schema:
@@ -1564,6 +1636,16 @@ components:
           type: integer
         spendingLimitCents:
           type: integer
+        dailyLimitCents:
+          type: integer
+          nullable: true
+          description: Daily budget cap in cents, or null if uncapped
+        allowedDomains:
+          type: array
+          nullable: true
+          items:
+            type: string
+          description: Domain allowlist, or null if all domains are allowed
         status:
           type: string
           enum: [active, frozen, deleted]

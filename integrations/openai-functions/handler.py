@@ -556,6 +556,11 @@ def create_dominusnode_function_handler(
         result = await api_request("GET", "/api/sessions/active")
         return json.dumps(result)
 
+    _DOMAIN_RE = re.compile(
+        r"^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?"
+        r"(\.[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?)*$"
+    )
+
     async def handle_create_agentic_wallet(args: Dict[str, Any]) -> str:
         label = args.get("label")
         spending_limit_cents = args.get("spending_limit_cents")
@@ -576,10 +581,43 @@ def create_dominusnode_function_handler(
                 "error": "spending_limit_cents must be a positive integer <= 2,147,483,647"
             })
 
-        result = await api_request("POST", "/api/agent-wallet", {
+        body: Dict[str, Any] = {
             "label": label,
             "spendingLimitCents": spending_limit_cents,
-        })
+        }
+
+        # Optional daily_limit_cents
+        if "daily_limit_cents" in args:
+            daily_limit = args["daily_limit_cents"]
+            if (
+                not isinstance(daily_limit, int)
+                or daily_limit < 1
+                or daily_limit > 1_000_000
+            ):
+                return json.dumps({
+                    "error": "daily_limit_cents must be an integer between 1 and 1,000,000"
+                })
+            body["dailyLimitCents"] = daily_limit
+
+        # Optional allowed_domains
+        if "allowed_domains" in args:
+            domains = args["allowed_domains"]
+            if not isinstance(domains, list):
+                return json.dumps({"error": "allowed_domains must be an array of strings"})
+            if len(domains) > 100:
+                return json.dumps({"error": "allowed_domains must have 100 or fewer entries"})
+            for d in domains:
+                if not isinstance(d, str):
+                    return json.dumps({"error": "Each allowed_domains entry must be a string"})
+                if len(d) > 253:
+                    return json.dumps(
+                        {"error": "Each allowed_domains entry must be 253 characters or fewer"}
+                    )
+                if not _DOMAIN_RE.match(d):
+                    return json.dumps({"error": f"Invalid domain format: {d}"})
+            body["allowedDomains"] = domains
+
+        result = await api_request("POST", "/api/agent-wallet", body)
         return json.dumps(result)
 
     async def handle_fund_agentic_wallet(args: Dict[str, Any]) -> str:
@@ -671,6 +709,75 @@ def create_dominusnode_function_handler(
         result = await api_request(
             "DELETE",
             f"/api/agent-wallet/{quote(wallet_id, safe='')}",
+        )
+        return json.dumps(result)
+
+    _UUID_RE = re.compile(
+        r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+        re.IGNORECASE,
+    )
+
+    async def handle_update_wallet_policy(args: Dict[str, Any]) -> str:
+        wallet_id = args.get("wallet_id")
+        if not wallet_id or not isinstance(wallet_id, str):
+            return json.dumps({"error": "wallet_id is required and must be a string"})
+        if not _UUID_RE.match(wallet_id):
+            return json.dumps({"error": "wallet_id must be a valid UUID"})
+
+        body: Dict[str, Any] = {}
+
+        # daily_limit_cents: integer or None (to remove)
+        if "daily_limit_cents" in args:
+            daily_limit = args["daily_limit_cents"]
+            if daily_limit is None:
+                body["dailyLimitCents"] = None
+            else:
+                if (
+                    not isinstance(daily_limit, int)
+                    or daily_limit < 1
+                    or daily_limit > 1_000_000
+                ):
+                    return json.dumps({
+                        "error": "daily_limit_cents must be an integer between 1 and 1,000,000 (or null to remove)"
+                    })
+                body["dailyLimitCents"] = daily_limit
+
+        # allowed_domains: list or None (to remove)
+        if "allowed_domains" in args:
+            domains = args["allowed_domains"]
+            if domains is None:
+                body["allowedDomains"] = None
+            else:
+                if not isinstance(domains, list):
+                    return json.dumps(
+                        {"error": "allowed_domains must be an array of strings or null"}
+                    )
+                if len(domains) > 100:
+                    return json.dumps(
+                        {"error": "allowed_domains must have 100 or fewer entries"}
+                    )
+                for d in domains:
+                    if not isinstance(d, str):
+                        return json.dumps(
+                            {"error": "Each allowed_domains entry must be a string"}
+                        )
+                    if len(d) > 253:
+                        return json.dumps(
+                            {"error": "Each allowed_domains entry must be 253 characters or fewer"}
+                        )
+                    if not _DOMAIN_RE.match(d):
+                        return json.dumps({"error": f"Invalid domain format: {d}"})
+                body["allowedDomains"] = domains
+
+        if not body:
+            return json.dumps(
+                {"error": "At least one of daily_limit_cents or allowed_domains must be provided"}
+            )
+
+        result = await api_request(
+            "PATCH",
+            f"/api/agent-wallet/{quote(wallet_id, safe='')}/policy",
+            body,
         )
         return json.dumps(result)
 
@@ -778,11 +885,6 @@ def create_dominusnode_function_handler(
         )
         return json.dumps(result)
 
-    _UUID_RE = re.compile(
-        r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
-        re.IGNORECASE,
-    )
-
     async def handle_update_team(args: Dict[str, Any]) -> str:
         team_id = args.get("team_id")
         if not team_id or not isinstance(team_id, str):
@@ -878,6 +980,7 @@ def create_dominusnode_function_handler(
         "dominusnode_freeze_agentic_wallet": handle_freeze_agentic_wallet,
         "dominusnode_unfreeze_agentic_wallet": handle_unfreeze_agentic_wallet,
         "dominusnode_delete_agentic_wallet": handle_delete_agentic_wallet,
+        "dominusnode_update_wallet_policy": handle_update_wallet_policy,
         "dominusnode_create_team": handle_create_team,
         "dominusnode_list_teams": handle_list_teams,
         "dominusnode_team_details": handle_team_details,

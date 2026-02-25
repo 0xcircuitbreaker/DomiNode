@@ -1,0 +1,10 @@
+identity:
+  name: x402_info
+  author: DomiNode
+  label:
+    en_US: x402 Info
+description:
+  human:
+    en_US: Get x402 micropayment protocol information
+  llm: Get x402 HTTP 402 Payment Required protocol information including facilitators, pricing, supported currencies, and payment options for AI agent micropayments.
+parameters: []

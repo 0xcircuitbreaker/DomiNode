@@ -9,6 +9,39 @@ const log = createLogger("api:agent-wallet");
 // UUID v4 validation regex
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+// Domain validation: RFC 1035 compliant, max 253 chars
+const DOMAIN_RE = /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)*[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/i;
+const MAX_ALLOWED_DOMAINS = 100;
+const MAX_DOMAIN_LENGTH = 253;
+
+function validateAllowedDomains(input: unknown): string | null {
+  if (input === null || input === undefined) return null;
+  if (!Array.isArray(input)) throw new Error("allowedDomains must be an array of domain strings");
+  if (input.length === 0) return null;
+  if (input.length > MAX_ALLOWED_DOMAINS) throw new Error(`allowedDomains cannot exceed ${MAX_ALLOWED_DOMAINS} entries`);
+  for (const d of input) {
+    if (typeof d !== "string") throw new Error("Each domain must be a string");
+    if (d.length === 0 || d.length > MAX_DOMAIN_LENGTH) throw new Error(`Domain must be 1-${MAX_DOMAIN_LENGTH} characters`);
+    if (!DOMAIN_RE.test(d)) throw new Error(`Invalid domain format: ${d.slice(0, 50)}`);
+  }
+  const json = JSON.stringify(input);
+  if (json.length > 4096) throw new Error("allowedDomains JSON exceeds 4096 character limit");
+  return json;
+}
+
+function formatWalletResponse(w: { id: string; label: string; balance_cents: number; spending_limit_cents: number; daily_limit_cents: number | null; allowed_domains: string | null; status: string; created_at: Date }) {
+  return {
+    id: w.id,
+    label: w.label,
+    balanceCents: w.balance_cents,
+    spendingLimitCents: w.spending_limit_cents,
+    dailyLimitCents: w.daily_limit_cents,
+    allowedDomains: w.allowed_domains ? JSON.parse(w.allowed_domains, (key, value) => (key === "__proto__" || key === "constructor" || key === "prototype") ? undefined : value) : null,
+    status: w.status,
+    createdAt: w.created_at,
+  };
+}
+
 // R33 H-1: Per-user rate limit on financial agentic wallet operations
 const financialLimiter = rateLimit({
   windowMs: 60_000,
@@ -46,17 +79,28 @@ router.post("/", financialLimiter, async (req, res) => {
       return;
     }
 
-    const wallet = await agenticWalletRepo.createWallet(userId, label, spendingLimitCents);
+    // Parse optional policy fields
+    let dailyLimitCents: number | null = null;
+    if (req.body.dailyLimitCents !== undefined && req.body.dailyLimitCents !== null) {
+      dailyLimitCents = parseInt(req.body.dailyLimitCents, 10);
+      if (!Number.isFinite(dailyLimitCents) || dailyLimitCents <= 0 || dailyLimitCents > 1_000_000) {
+        res.status(400).json({ error: "Daily limit must be between 1 and 1,000,000 cents ($10,000)" });
+        return;
+      }
+    }
+
+    let allowedDomainsJson: string | null = null;
+    try {
+      allowedDomainsJson = validateAllowedDomains(req.body.allowedDomains);
+    } catch (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : "Invalid allowedDomains" });
+      return;
+    }
+
+    const wallet = await agenticWalletRepo.createWallet(userId, label, spendingLimitCents, dailyLimitCents, allowedDomainsJson);
     log.info("agentic wallet created", { userId, walletId: wallet.id });
 
-    res.status(201).json({
-      id: wallet.id,
-      label: wallet.label,
-      balanceCents: wallet.balance_cents,
-      spendingLimitCents: wallet.spending_limit_cents,
-      status: wallet.status,
-      createdAt: wallet.created_at,
-    });
+    res.status(201).json(formatWalletResponse(wallet));
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     if (msg.includes("Maximum of")) {
@@ -75,14 +119,7 @@ router.get("/", async (req, res) => {
     const wallets = await agenticWalletRepo.listWallets(userId);
 
     res.json({
-      wallets: wallets.map((w) => ({
-        id: w.id,
-        label: w.label,
-        balanceCents: w.balance_cents,
-        spendingLimitCents: w.spending_limit_cents,
-        status: w.status,
-        createdAt: w.created_at,
-      })),
+      wallets: wallets.map(formatWalletResponse),
     });
   } catch (err) {
     log.error("list agentic wallets failed", { error: err instanceof Error ? err.message : String(err) });
@@ -107,14 +144,7 @@ router.get("/:id", async (req, res) => {
       return;
     }
 
-    res.json({
-      id: wallet.id,
-      label: wallet.label,
-      balanceCents: wallet.balance_cents,
-      spendingLimitCents: wallet.spending_limit_cents,
-      status: wallet.status,
-      createdAt: wallet.created_at,
-    });
+    res.json(formatWalletResponse(wallet));
   } catch (err) {
     log.error("get agentic wallet failed", { error: err instanceof Error ? err.message : String(err) });
     res.status(500).json({ error: "Failed to get agentic wallet" });
@@ -226,14 +256,7 @@ router.post("/:id/freeze", financialLimiter, async (req, res) => {
     const wallet = await agenticWalletRepo.freezeWallet(walletId, userId);
     log.info("agentic wallet frozen", { userId, walletId });
 
-    res.json({
-      id: wallet.id,
-      label: wallet.label,
-      balanceCents: wallet.balance_cents,
-      spendingLimitCents: wallet.spending_limit_cents,
-      status: wallet.status,
-      createdAt: wallet.created_at,
-    });
+    res.json(formatWalletResponse(wallet));
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     if (msg.includes("not found") || msg.includes("not active")) {
@@ -259,14 +282,7 @@ router.post("/:id/unfreeze", financialLimiter, async (req, res) => {
     const wallet = await agenticWalletRepo.unfreezeWallet(walletId, userId);
     log.info("agentic wallet unfrozen", { userId, walletId });
 
-    res.json({
-      id: wallet.id,
-      label: wallet.label,
-      balanceCents: wallet.balance_cents,
-      spendingLimitCents: wallet.spending_limit_cents,
-      status: wallet.status,
-      createdAt: wallet.created_at,
-    });
+    res.json(formatWalletResponse(wallet));
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     if (msg.includes("not found") || msg.includes("not frozen")) {
@@ -275,6 +291,61 @@ router.post("/:id/unfreeze", financialLimiter, async (req, res) => {
     }
     log.error("unfreeze agentic wallet failed", { error: msg });
     res.status(500).json({ error: "Failed to unfreeze agentic wallet" });
+  }
+});
+
+// PATCH /api/agent-wallet/:id/policy — Update wallet policy (daily limit, allowed domains)
+router.patch("/:id/policy", financialLimiter, async (req, res) => {
+  try {
+    const { userId } = (req as unknown as AuthenticatedRequest).user;
+    const walletId = req.params.id as string;
+
+    if (!UUID_RE.test(walletId)) {
+      res.status(400).json({ error: "Invalid wallet ID format" });
+      return;
+    }
+
+    const policy: { dailyLimitCents?: number | null; allowedDomains?: string | null } = {};
+
+    if (req.body.dailyLimitCents !== undefined) {
+      if (req.body.dailyLimitCents === null) {
+        policy.dailyLimitCents = null;
+      } else {
+        const parsed = parseInt(req.body.dailyLimitCents, 10);
+        if (!Number.isFinite(parsed) || parsed <= 0 || parsed > 1_000_000) {
+          res.status(400).json({ error: "Daily limit must be between 1 and 1,000,000 cents ($10,000), or null to remove" });
+          return;
+        }
+        policy.dailyLimitCents = parsed;
+      }
+    }
+
+    if (req.body.allowedDomains !== undefined) {
+      try {
+        policy.allowedDomains = validateAllowedDomains(req.body.allowedDomains);
+      } catch (err) {
+        res.status(400).json({ error: err instanceof Error ? err.message : "Invalid allowedDomains" });
+        return;
+      }
+    }
+
+    if (policy.dailyLimitCents === undefined && policy.allowedDomains === undefined) {
+      res.status(400).json({ error: "At least one policy field (dailyLimitCents, allowedDomains) is required" });
+      return;
+    }
+
+    const wallet = await agenticWalletRepo.updateWalletPolicy(walletId, userId, policy);
+    log.info("agentic wallet policy updated", { userId, walletId });
+
+    res.json(formatWalletResponse(wallet));
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes("not found")) {
+      res.status(404).json({ error: msg });
+      return;
+    }
+    log.error("update agentic wallet policy failed", { error: msg });
+    res.status(500).json({ error: "Failed to update wallet policy" });
   }
 });
 

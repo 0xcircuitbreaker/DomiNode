@@ -6,6 +6,16 @@ import {
   createGetProxyConfigTool,
   createListSessionsTool,
   createTopupPaypalTool,
+  createX402InfoTool,
+  createCreateAgenticWalletTool,
+  createFundAgenticWalletTool,
+  createAgenticWalletBalanceTool,
+  createListAgenticWalletsTool,
+  createAgenticTransactionsTool,
+  createFreezeAgenticWalletTool,
+  createUnfreezeAgenticWalletTool,
+  createDeleteAgenticWalletTool,
+  createUpdateWalletPolicyTool,
 } from "./tools.js";
 
 /**
@@ -59,6 +69,26 @@ export interface DominusNodeTools {
   listSessions: ReturnType<typeof createListSessionsTool>;
   /** Top up wallet balance via PayPal. */
   topupPaypal: ReturnType<typeof createTopupPaypalTool>;
+  /** Get x402 micropayment protocol information. */
+  x402Info: ReturnType<typeof createX402InfoTool>;
+  /** Create a new agentic sub-wallet. */
+  createAgenticWallet: ReturnType<typeof createCreateAgenticWalletTool>;
+  /** Fund an agentic sub-wallet from the main wallet. */
+  fundAgenticWallet: ReturnType<typeof createFundAgenticWalletTool>;
+  /** Check the balance of an agentic sub-wallet. */
+  agenticWalletBalance: ReturnType<typeof createAgenticWalletBalanceTool>;
+  /** List all agentic sub-wallets. */
+  listAgenticWallets: ReturnType<typeof createListAgenticWalletsTool>;
+  /** List transactions for an agentic sub-wallet. */
+  agenticTransactions: ReturnType<typeof createAgenticTransactionsTool>;
+  /** Freeze an agentic sub-wallet. */
+  freezeAgenticWallet: ReturnType<typeof createFreezeAgenticWalletTool>;
+  /** Unfreeze an agentic sub-wallet. */
+  unfreezeAgenticWallet: ReturnType<typeof createUnfreezeAgenticWalletTool>;
+  /** Delete an agentic sub-wallet. */
+  deleteAgenticWallet: ReturnType<typeof createDeleteAgenticWalletTool>;
+  /** Update the policy of an agentic sub-wallet. */
+  updateWalletPolicy: ReturnType<typeof createUpdateWalletPolicyTool>;
 }
 
 /**
@@ -109,6 +139,16 @@ export async function createDominusNodeTools(
     getProxyConfig: createGetProxyConfigTool(client),
     listSessions: createListSessionsTool(client),
     topupPaypal: createTopupPaypalTool(client),
+    x402Info: createX402InfoTool(client),
+    createAgenticWallet: createCreateAgenticWalletTool(client),
+    fundAgenticWallet: createFundAgenticWalletTool(client),
+    agenticWalletBalance: createAgenticWalletBalanceTool(client),
+    listAgenticWallets: createListAgenticWalletsTool(client),
+    agenticTransactions: createAgenticTransactionsTool(client),
+    freezeAgenticWallet: createFreezeAgenticWalletTool(client),
+    unfreezeAgenticWallet: createUnfreezeAgenticWalletTool(client),
+    deleteAgenticWallet: createDeleteAgenticWalletTool(client),
+    updateWalletPolicy: createUpdateWalletPolicyTool(client),
   };
 }
 
@@ -134,5 +174,15 @@ export function createDominusNodeToolsFromClient(
     getProxyConfig: createGetProxyConfigTool(client),
     listSessions: createListSessionsTool(client),
     topupPaypal: createTopupPaypalTool(client),
+    x402Info: createX402InfoTool(client),
+    createAgenticWallet: createCreateAgenticWalletTool(client),
+    fundAgenticWallet: createFundAgenticWalletTool(client),
+    agenticWalletBalance: createAgenticWalletBalanceTool(client),
+    listAgenticWallets: createListAgenticWalletsTool(client),
+    agenticTransactions: createAgenticTransactionsTool(client),
+    freezeAgenticWallet: createFreezeAgenticWalletTool(client),
+    unfreezeAgenticWallet: createUnfreezeAgenticWalletTool(client),
+    deleteAgenticWallet: createDeleteAgenticWalletTool(client),
+    updateWalletPolicy: createUpdateWalletPolicyTool(client),
   };
 }

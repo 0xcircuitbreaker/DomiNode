@@ -1,0 +1,10 @@
+identity:
+  name: list_sessions
+  author: DomiNode
+  label:
+    en_US: List Sessions
+description:
+  human:
+    en_US: List active proxy sessions
+  llm: List all currently active proxy sessions for the authenticated user. Shows session IDs, start times, and bytes transferred.
+parameters: []

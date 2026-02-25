@@ -8,12 +8,14 @@ import (
 
 // AgenticWallet represents a server-side custodial sub-wallet.
 type AgenticWallet struct {
-	ID                string `json:"id"`
-	Label             string `json:"label"`
-	BalanceCents      int    `json:"balanceCents"`
-	SpendingLimitCents int   `json:"spendingLimitCents"`
-	Status            string `json:"status"`
-	CreatedAt         string `json:"createdAt"`
+	ID                 string   `json:"id"`
+	Label              string   `json:"label"`
+	BalanceCents       int      `json:"balanceCents"`
+	SpendingLimitCents int      `json:"spendingLimitCents"`
+	DailyLimitCents    *int     `json:"dailyLimitCents"`
+	AllowedDomains     []string `json:"allowedDomains"`
+	Status             string   `json:"status"`
+	CreatedAt          string   `json:"createdAt"`
 }
 
 // AgenticWalletTransaction represents a transaction on an agentic wallet.
@@ -48,6 +50,12 @@ type AgenticWalletDeleteResponse struct {
 	RefundedCents int  `json:"refundedCents"`
 }
 
+// UpdateWalletPolicyParams contains the fields for updating an agentic wallet's policy.
+type UpdateWalletPolicyParams struct {
+	DailyLimitCents *int     `json:"dailyLimitCents"`
+	AllowedDomains  []string `json:"allowedDomains"`
+}
+
 // AgenticWalletResource provides agentic wallet operations.
 type AgenticWalletResource struct {
 	http *httpClient
@@ -57,14 +65,23 @@ func newAgenticWalletResource(http *httpClient) *AgenticWalletResource {
 	return &AgenticWalletResource{http: http}
 }
 
-// Create creates a new agentic wallet with the given label and spending limit.
-func (r *AgenticWalletResource) Create(ctx context.Context, label string, spendingLimitCents int) (*AgenticWallet, error) {
+// Create creates a new agentic wallet with the given label, spending limit, and optional policy fields.
+func (r *AgenticWalletResource) Create(ctx context.Context, label string, spendingLimitCents int, dailyLimitCents *int, allowedDomains []string) (*AgenticWallet, error) {
 	if err := validateAmountCents(spendingLimitCents); err != nil {
 		return nil, err
 	}
 	body := map[string]interface{}{
 		"label":              label,
 		"spendingLimitCents": spendingLimitCents,
+	}
+	if dailyLimitCents != nil {
+		if *dailyLimitCents < 1 || *dailyLimitCents > 1_000_000 {
+			return nil, fmt.Errorf("dailyLimitCents must be between 1 and 1,000,000")
+		}
+		body["dailyLimitCents"] = *dailyLimitCents
+	}
+	if allowedDomains != nil {
+		body["allowedDomains"] = allowedDomains
 	}
 	var result AgenticWallet
 	if err := r.http.post(ctx, "/api/agent-wallet", body, &result); err != nil {
@@ -139,6 +156,20 @@ func (r *AgenticWalletResource) Unfreeze(ctx context.Context, walletID string) (
 func (r *AgenticWalletResource) Delete(ctx context.Context, walletID string) (*AgenticWalletDeleteResponse, error) {
 	var result AgenticWalletDeleteResponse
 	if err := r.http.del(ctx, fmt.Sprintf("/api/agent-wallet/%s", url.PathEscape(walletID)), &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// UpdateWalletPolicy updates the policy fields on an agentic wallet.
+func (r *AgenticWalletResource) UpdateWalletPolicy(ctx context.Context, walletID string, policy UpdateWalletPolicyParams) (*AgenticWallet, error) {
+	if policy.DailyLimitCents != nil {
+		if *policy.DailyLimitCents < 1 || *policy.DailyLimitCents > 1_000_000 {
+			return nil, fmt.Errorf("dailyLimitCents must be between 1 and 1,000,000")
+		}
+	}
+	var result AgenticWallet
+	if err := r.http.patch(ctx, fmt.Sprintf("/api/agent-wallet/%s/policy", url.PathEscape(walletID)), policy, &result); err != nil {
 		return nil, err
 	}
 	return &result, nil

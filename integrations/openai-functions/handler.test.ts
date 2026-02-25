@@ -462,9 +462,9 @@ describe("handler dispatching", () => {
     expect(JSON.parse(result)).toHaveProperty("success");
   });
 
-  it("handler has all 23 functions", async () => {
+  it("handler has all 24 functions", async () => {
     const result = JSON.parse(await handler("nonexistent", {}));
-    expect(result.available).toHaveLength(23);
+    expect(result.available).toHaveLength(24);
   });
 
   it("handler available list includes all expected names", async () => {
@@ -492,6 +492,7 @@ describe("handler dispatching", () => {
       "dominusnode_update_team",
       "dominusnode_update_team_member_role",
       "dominusnode_topup_paypal",
+      "dominusnode_update_wallet_policy",
     ];
     for (const name of expected) {
       expect(result.available).toContain(name);
@@ -826,6 +827,196 @@ describe("handler input validation", () => {
       }),
     );
     expect(result.error).toContain("limit");
+  });
+
+  // create_agentic_wallet with daily_limit_cents
+  it("create_agentic_wallet accepts valid daily_limit_cents", async () => {
+    const result = JSON.parse(
+      await handler("dominusnode_create_agentic_wallet", {
+        label: "test-bot",
+        spending_limit_cents: 500,
+        daily_limit_cents: 10000,
+      }),
+    );
+    expect(result.success).toBe(true);
+  });
+
+  it("create_agentic_wallet rejects invalid daily_limit_cents", async () => {
+    const result = JSON.parse(
+      await handler("dominusnode_create_agentic_wallet", {
+        label: "test-bot",
+        spending_limit_cents: 500,
+        daily_limit_cents: 0,
+      }),
+    );
+    expect(result.error).toContain("daily_limit_cents");
+  });
+
+  it("create_agentic_wallet rejects daily_limit_cents > 1000000", async () => {
+    const result = JSON.parse(
+      await handler("dominusnode_create_agentic_wallet", {
+        label: "test-bot",
+        spending_limit_cents: 500,
+        daily_limit_cents: 1000001,
+      }),
+    );
+    expect(result.error).toContain("daily_limit_cents");
+  });
+
+  // create_agentic_wallet with allowed_domains
+  it("create_agentic_wallet accepts valid allowed_domains", async () => {
+    const result = JSON.parse(
+      await handler("dominusnode_create_agentic_wallet", {
+        label: "test-bot",
+        spending_limit_cents: 500,
+        allowed_domains: ["example.com", "api.github.com"],
+      }),
+    );
+    expect(result.success).toBe(true);
+  });
+
+  it("create_agentic_wallet rejects non-array allowed_domains", async () => {
+    const result = JSON.parse(
+      await handler("dominusnode_create_agentic_wallet", {
+        label: "test-bot",
+        spending_limit_cents: 500,
+        allowed_domains: "example.com",
+      }),
+    );
+    expect(result.error).toContain("allowed_domains");
+  });
+
+  it("create_agentic_wallet rejects invalid domain format", async () => {
+    const result = JSON.parse(
+      await handler("dominusnode_create_agentic_wallet", {
+        label: "test-bot",
+        spending_limit_cents: 500,
+        allowed_domains: ["-invalid.com"],
+      }),
+    );
+    expect(result.error).toContain("Invalid domain format");
+  });
+
+  it("create_agentic_wallet rejects too many domains", async () => {
+    const domains = Array.from({ length: 101 }, (_, i) => `d${i}.com`);
+    const result = JSON.parse(
+      await handler("dominusnode_create_agentic_wallet", {
+        label: "test-bot",
+        spending_limit_cents: 500,
+        allowed_domains: domains,
+      }),
+    );
+    expect(result.error).toContain("100");
+  });
+
+  it("create_agentic_wallet rejects domain > 253 chars", async () => {
+    const result = JSON.parse(
+      await handler("dominusnode_create_agentic_wallet", {
+        label: "test-bot",
+        spending_limit_cents: 500,
+        allowed_domains: ["a".repeat(254) + ".com"],
+      }),
+    );
+    expect(result.error).toContain("253");
+  });
+
+  // update_wallet_policy
+  it("update_wallet_policy dispatches with valid daily_limit_cents", async () => {
+    const result = JSON.parse(
+      await handler("dominusnode_update_wallet_policy", {
+        wallet_id: "550e8400-e29b-41d4-a716-446655440000",
+        daily_limit_cents: 5000,
+      }),
+    );
+    expect(result.success).toBe(true);
+  });
+
+  it("update_wallet_policy dispatches with null daily_limit_cents", async () => {
+    const result = JSON.parse(
+      await handler("dominusnode_update_wallet_policy", {
+        wallet_id: "550e8400-e29b-41d4-a716-446655440000",
+        daily_limit_cents: null,
+      }),
+    );
+    expect(result.success).toBe(true);
+  });
+
+  it("update_wallet_policy dispatches with valid allowed_domains", async () => {
+    const result = JSON.parse(
+      await handler("dominusnode_update_wallet_policy", {
+        wallet_id: "550e8400-e29b-41d4-a716-446655440000",
+        allowed_domains: ["example.com"],
+      }),
+    );
+    expect(result.success).toBe(true);
+  });
+
+  it("update_wallet_policy dispatches with null allowed_domains", async () => {
+    const result = JSON.parse(
+      await handler("dominusnode_update_wallet_policy", {
+        wallet_id: "550e8400-e29b-41d4-a716-446655440000",
+        allowed_domains: null,
+      }),
+    );
+    expect(result.success).toBe(true);
+  });
+
+  it("update_wallet_policy rejects missing wallet_id", async () => {
+    const result = JSON.parse(
+      await handler("dominusnode_update_wallet_policy", {
+        daily_limit_cents: 5000,
+      }),
+    );
+    expect(result.error).toContain("wallet_id");
+  });
+
+  it("update_wallet_policy rejects invalid UUID", async () => {
+    const result = JSON.parse(
+      await handler("dominusnode_update_wallet_policy", {
+        wallet_id: "not-a-uuid",
+        daily_limit_cents: 5000,
+      }),
+    );
+    expect(result.error).toContain("UUID");
+  });
+
+  it("update_wallet_policy rejects invalid daily_limit_cents", async () => {
+    const result = JSON.parse(
+      await handler("dominusnode_update_wallet_policy", {
+        wallet_id: "550e8400-e29b-41d4-a716-446655440000",
+        daily_limit_cents: -1,
+      }),
+    );
+    expect(result.error).toContain("daily_limit_cents");
+  });
+
+  it("update_wallet_policy rejects daily_limit_cents > 1000000", async () => {
+    const result = JSON.parse(
+      await handler("dominusnode_update_wallet_policy", {
+        wallet_id: "550e8400-e29b-41d4-a716-446655440000",
+        daily_limit_cents: 1000001,
+      }),
+    );
+    expect(result.error).toContain("daily_limit_cents");
+  });
+
+  it("update_wallet_policy rejects invalid domain format", async () => {
+    const result = JSON.parse(
+      await handler("dominusnode_update_wallet_policy", {
+        wallet_id: "550e8400-e29b-41d4-a716-446655440000",
+        allowed_domains: ["..bad"],
+      }),
+    );
+    expect(result.error).toContain("Invalid domain format");
+  });
+
+  it("update_wallet_policy rejects empty body (no fields)", async () => {
+    const result = JSON.parse(
+      await handler("dominusnode_update_wallet_policy", {
+        wallet_id: "550e8400-e29b-41d4-a716-446655440000",
+      }),
+    );
+    expect(result.error).toContain("At least one");
   });
 });
 

@@ -10,6 +10,8 @@ import io.dominusnode.sdk.types.AgenticWalletTransactionsResponse;
 
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -32,10 +34,36 @@ public final class AgenticWalletResource {
      * @throws DominusNodeException on API errors
      */
     public AgenticWallet create(String label, int spendingLimitCents) throws DominusNodeException {
+        return create(label, spendingLimitCents, null, null);
+    }
+
+    /**
+     * Create a new agentic wallet with optional policy fields.
+     *
+     * @param label              label for the wallet (1-100 chars)
+     * @param spendingLimitCents maximum spend per transaction in cents (0 = no limit)
+     * @param dailyLimitCents    optional daily spending limit in cents ({@code null} for no limit)
+     * @param allowedDomains     optional list of allowed target domains ({@code null} for unrestricted)
+     * @return the created wallet
+     * @throws DominusNodeException on API errors
+     */
+    public AgenticWallet create(String label, int spendingLimitCents,
+                                Integer dailyLimitCents, List<String> allowedDomains)
+            throws DominusNodeException {
         WalletResource.validateAmountCents(spendingLimitCents);
-        return http.post("/api/agent-wallet",
-                Map.of("label", label, "spendingLimitCents", spendingLimitCents),
-                AgenticWallet.class);
+        Map<String, Object> body = new HashMap<>();
+        body.put("label", label);
+        body.put("spendingLimitCents", spendingLimitCents);
+        if (dailyLimitCents != null) {
+            if (dailyLimitCents < 1 || dailyLimitCents > 1_000_000) {
+                throw new DominusNodeException("dailyLimitCents must be between 1 and 1,000,000");
+            }
+            body.put("dailyLimitCents", dailyLimitCents);
+        }
+        if (allowedDomains != null) {
+            body.put("allowedDomains", allowedDomains);
+        }
+        return http.post("/api/agent-wallet", body, AgenticWallet.class);
     }
 
     /**
@@ -111,6 +139,31 @@ public final class AgenticWalletResource {
     public AgenticWallet unfreeze(String walletId) throws DominusNodeException {
         return http.post("/api/agent-wallet/" + URLEncoder.encode(walletId, StandardCharsets.UTF_8) + "/unfreeze",
                 Map.of(), AgenticWallet.class);
+    }
+
+    /**
+     * Update the policy on an agentic wallet.
+     *
+     * @param walletId        the wallet UUID
+     * @param dailyLimitCents new daily spending limit in cents ({@code null} to leave unchanged)
+     * @param allowedDomains  new list of allowed target domains ({@code null} to leave unchanged)
+     * @return the updated wallet
+     * @throws DominusNodeException on API errors
+     */
+    public AgenticWallet updateWalletPolicy(String walletId, Integer dailyLimitCents,
+                                            List<String> allowedDomains) throws DominusNodeException {
+        Map<String, Object> body = new HashMap<>();
+        if (dailyLimitCents != null) {
+            if (dailyLimitCents < 1 || dailyLimitCents > 1_000_000) {
+                throw new DominusNodeException("dailyLimitCents must be between 1 and 1,000,000");
+            }
+            body.put("dailyLimitCents", dailyLimitCents);
+        }
+        if (allowedDomains != null) {
+            body.put("allowedDomains", allowedDomains);
+        }
+        return http.patch("/api/agent-wallet/" + URLEncoder.encode(walletId, StandardCharsets.UTF_8) + "/policy",
+                body, AgenticWallet.class);
     }
 
     /**

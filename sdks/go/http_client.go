@@ -321,9 +321,15 @@ func extractErrorMessage(body []byte) string {
 	}
 	if err := json.Unmarshal(body, &parsed); err == nil {
 		if parsed.Error != "" {
+			if len(parsed.Error) > 500 {
+				return parsed.Error[:500] + "... [truncated]"
+			}
 			return parsed.Error
 		}
 		if parsed.Message != "" {
+			if len(parsed.Message) > 500 {
+				return parsed.Message[:500] + "... [truncated]"
+			}
 			return parsed.Message
 		}
 	}

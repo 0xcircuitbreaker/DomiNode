@@ -1,0 +1,18 @@
+identity:
+  name: agentic_wallet_balance
+  author: DomiNode
+  label:
+    en_US: Agentic Wallet Balance
+description:
+  human:
+    en_US: Check the balance of an agentic wallet
+  llm: Check the current balance and details of a specific agentic sub-wallet.
+parameters:
+  - name: wallet_id
+    type: string
+    required: true
+    label:
+      en_US: Wallet ID
+    human_description:
+      en_US: ID of the agentic wallet
+    llm_description: The UUID of the agentic wallet to check.

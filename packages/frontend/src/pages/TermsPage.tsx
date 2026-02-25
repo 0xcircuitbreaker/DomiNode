@@ -35,7 +35,7 @@ export default function TermsPage() {
               <li>Credential stuffing, brute force attacks, or unauthorized account access</li>
               <li>Circumventing sanctions, export controls, or trade embargoes</li>
               <li>Harassment, stalking, doxxing, or threats of violence</li>
-              <li>Copyright infringement or intellectual property theft at scale</li>
+              <li>Copyright infringement or intellectual property theft</li>
               <li>Any activity that could damage Dominus Node infrastructure, reputation, or upstream providers</li>
             </ul>
           </section>

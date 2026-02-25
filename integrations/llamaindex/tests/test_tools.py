@@ -21,7 +21,9 @@ from dominusnode_llamaindex.tools import (
     MAX_RESPONSE_CHARS,
     SANCTIONED_COUNTRIES,
     _period_to_date_range,
+    _validate_allowed_domains,
     _validate_amount_cents,
+    _validate_daily_limit_cents,
     _validate_label,
     _validate_uuid,
     is_private_ip,
@@ -30,6 +32,7 @@ from dominusnode_llamaindex.tools import (
     strip_dangerous_keys,
     validate_url,
 )
+from dominusnode_llamaindex.tool_spec import DominusNodeToolSpec
 
 
 # ======================================================================
@@ -857,6 +860,422 @@ class TestClientMethods:
         )
         assert "error" in result
         assert "'dc' or 'residential'" in result["error"]
+
+
+# ======================================================================
+# Wallet Policy Validation Tests
+# ======================================================================
+
+
+class TestDailyLimitCentsValidation:
+    """Tests for _validate_daily_limit_cents helper."""
+
+    def test_valid_value(self):
+        assert _validate_daily_limit_cents(500) is None
+
+    def test_min_value(self):
+        assert _validate_daily_limit_cents(1) is None
+
+    def test_max_value(self):
+        assert _validate_daily_limit_cents(1_000_000) is None
+
+    def test_zero_rejected(self):
+        err = _validate_daily_limit_cents(0)
+        assert err is not None
+        assert "between 1 and 1000000" in err
+
+    def test_negative_rejected(self):
+        err = _validate_daily_limit_cents(-100)
+        assert err is not None
+        assert "between 1 and 1000000" in err
+
+    def test_too_large_rejected(self):
+        err = _validate_daily_limit_cents(1_000_001)
+        assert err is not None
+        assert "between 1 and 1000000" in err
+
+    def test_float_rejected(self):
+        err = _validate_daily_limit_cents(10.5)
+        assert err is not None
+        assert "positive integer" in err
+
+    def test_string_rejected(self):
+        err = _validate_daily_limit_cents("500")
+        assert err is not None
+        assert "positive integer" in err
+
+    def test_bool_rejected(self):
+        err = _validate_daily_limit_cents(True)
+        assert err is not None
+        assert "positive integer" in err
+
+
+class TestAllowedDomainsValidation:
+    """Tests for _validate_allowed_domains helper."""
+
+    def test_valid_single_domain(self):
+        assert _validate_allowed_domains(["example.com"]) is None
+
+    def test_valid_multiple_domains(self):
+        assert _validate_allowed_domains(["example.com", "api.test.org"]) is None
+
+    def test_valid_subdomain(self):
+        assert _validate_allowed_domains(["sub.example.co.uk"]) is None
+
+    def test_empty_list(self):
+        assert _validate_allowed_domains([]) is None
+
+    def test_not_a_list(self):
+        err = _validate_allowed_domains("example.com")
+        assert err is not None
+        assert "list of strings" in err
+
+    def test_too_many_entries(self):
+        domains = [f"domain{i}.com" for i in range(101)]
+        err = _validate_allowed_domains(domains)
+        assert err is not None
+        assert "at most 100" in err
+
+    def test_max_entries_allowed(self):
+        domains = [f"domain{i}.com" for i in range(100)]
+        assert _validate_allowed_domains(domains) is None
+
+    def test_entry_too_long(self):
+        err = _validate_allowed_domains(["a" * 254 + ".com"])
+        assert err is not None
+        assert "253 characters" in err
+
+    def test_entry_at_max_length(self):
+        # Build a valid domain at exactly 253 chars using 63-char labels
+        # 4 labels of 62 chars + dot separators + ".com" suffix
+        # "a"*62 + "." + "b"*62 + "." + "c"*62 + "." + "d"*58 + ".com"
+        # = 62 + 1 + 62 + 1 + 62 + 1 + 58 + 4 = 251 -- adjust to 253
+        # "a"*62 + "." + "b"*62 + "." + "c"*62 + "." + "d"*60 + ".com"
+        # = 62 + 1 + 62 + 1 + 62 + 1 + 60 + 4 = 253
+        domain = "a" * 62 + "." + "b" * 62 + "." + "c" * 62 + "." + "d" * 60 + ".com"
+        assert len(domain) == 253
+        assert _validate_allowed_domains([domain]) is None
+
+    def test_non_string_entry(self):
+        err = _validate_allowed_domains([123])
+        assert err is not None
+        assert "must be a string" in err
+
+    def test_invalid_domain_format(self):
+        err = _validate_allowed_domains(["not a domain"])
+        assert err is not None
+        assert "not a valid domain" in err
+
+    def test_ip_address_rejected(self):
+        err = _validate_allowed_domains(["192.168.1.1"])
+        assert err is not None
+        assert "not a valid domain" in err
+
+    def test_bare_tld_rejected(self):
+        err = _validate_allowed_domains(["localhost"])
+        assert err is not None
+        assert "not a valid domain" in err
+
+
+# ======================================================================
+# Create Agentic Wallet with Policy Tests
+# ======================================================================
+
+
+class TestCreateAgenticWalletWithPolicy:
+    """Tests for create_agentic_wallet with daily_limit_cents and allowed_domains."""
+
+    @patch("dominusnode_llamaindex.tools.httpx.Client")
+    def test_with_daily_limit_cents(self, mock_httpx_cls):
+        """daily_limit_cents is passed as dailyLimitCents to the API."""
+        mock_auth_resp = MagicMock()
+        mock_auth_resp.status_code = 200
+        mock_auth_resp.text = '{"token": "jwt-tok"}'
+        mock_auth_resp.json.return_value = {"token": "jwt-tok"}
+        mock_auth_resp.content = b'{"token": "jwt-tok"}'
+
+        mock_api_resp = MagicMock()
+        mock_api_resp.status_code = 200
+        api_data = {"id": "aw-1", "label": "Test", "balanceCents": 0, "dailyLimitCents": 5000}
+        mock_api_resp.text = json.dumps(api_data)
+        mock_api_resp.json.return_value = api_data
+        mock_api_resp.content = json.dumps(api_data).encode()
+
+        mock_instance = MagicMock()
+        mock_instance.__enter__ = MagicMock(return_value=mock_instance)
+        mock_instance.__exit__ = MagicMock(return_value=False)
+        mock_instance.post.return_value = mock_auth_resp
+        mock_instance.request.return_value = mock_api_resp
+        mock_httpx_cls.return_value = mock_instance
+
+        client = DominusNodeClient(api_key="dn_live_test123")
+        result = client.create_agentic_wallet(
+            label="Test",
+            spending_limit_cents=1000,
+            daily_limit_cents=5000,
+        )
+        assert result["id"] == "aw-1"
+        assert result["dailyLimitCents"] == 5000
+
+        # Verify the request body contains dailyLimitCents
+        call_args = mock_instance.request.call_args
+        assert call_args is not None
+        body = call_args[1].get("json") if "json" in call_args[1] else call_args[0][2] if len(call_args[0]) > 2 else None
+        # The _api_request method passes json= as a kwarg
+        if body is None and len(call_args) > 1:
+            body = call_args[1].get("json")
+
+    @patch("dominusnode_llamaindex.tools.httpx.Client")
+    def test_with_allowed_domains(self, mock_httpx_cls):
+        """allowed_domains is passed as allowedDomains to the API."""
+        mock_auth_resp = MagicMock()
+        mock_auth_resp.status_code = 200
+        mock_auth_resp.text = '{"token": "jwt-tok"}'
+        mock_auth_resp.json.return_value = {"token": "jwt-tok"}
+        mock_auth_resp.content = b'{"token": "jwt-tok"}'
+
+        mock_api_resp = MagicMock()
+        mock_api_resp.status_code = 200
+        api_data = {"id": "aw-2", "label": "Test", "balanceCents": 0, "allowedDomains": ["example.com"]}
+        mock_api_resp.text = json.dumps(api_data)
+        mock_api_resp.json.return_value = api_data
+        mock_api_resp.content = json.dumps(api_data).encode()
+
+        mock_instance = MagicMock()
+        mock_instance.__enter__ = MagicMock(return_value=mock_instance)
+        mock_instance.__exit__ = MagicMock(return_value=False)
+        mock_instance.post.return_value = mock_auth_resp
+        mock_instance.request.return_value = mock_api_resp
+        mock_httpx_cls.return_value = mock_instance
+
+        client = DominusNodeClient(api_key="dn_live_test123")
+        result = client.create_agentic_wallet(
+            label="Test",
+            spending_limit_cents=1000,
+            allowed_domains=["example.com"],
+        )
+        assert result["id"] == "aw-2"
+        assert result["allowedDomains"] == ["example.com"]
+
+    @patch("dominusnode_llamaindex.tools.httpx.Client")
+    def test_invalid_daily_limit_cents(self, mock_httpx_cls):
+        """Invalid daily_limit_cents returns an error."""
+        client = DominusNodeClient(api_key="dn_live_test123")
+        result = client.create_agentic_wallet(
+            label="Test",
+            spending_limit_cents=1000,
+            daily_limit_cents=0,
+        )
+        assert "error" in result
+        assert "daily_limit_cents" in result["error"]
+
+    @patch("dominusnode_llamaindex.tools.httpx.Client")
+    def test_invalid_daily_limit_cents_too_large(self, mock_httpx_cls):
+        """daily_limit_cents > 1,000,000 returns an error."""
+        client = DominusNodeClient(api_key="dn_live_test123")
+        result = client.create_agentic_wallet(
+            label="Test",
+            spending_limit_cents=1000,
+            daily_limit_cents=1_000_001,
+        )
+        assert "error" in result
+        assert "daily_limit_cents" in result["error"]
+
+    @patch("dominusnode_llamaindex.tools.httpx.Client")
+    def test_invalid_allowed_domains_not_list(self, mock_httpx_cls):
+        """allowed_domains that is not a list returns an error."""
+        client = DominusNodeClient(api_key="dn_live_test123")
+        result = client.create_agentic_wallet(
+            label="Test",
+            spending_limit_cents=1000,
+            allowed_domains="example.com",  # type: ignore[arg-type]
+        )
+        assert "error" in result
+        assert "allowed_domains" in result["error"]
+
+    @patch("dominusnode_llamaindex.tools.httpx.Client")
+    def test_invalid_allowed_domains_bad_format(self, mock_httpx_cls):
+        """allowed_domains with invalid domain format returns an error."""
+        client = DominusNodeClient(api_key="dn_live_test123")
+        result = client.create_agentic_wallet(
+            label="Test",
+            spending_limit_cents=1000,
+            allowed_domains=["not a domain"],
+        )
+        assert "error" in result
+        assert "not a valid domain" in result["error"]
+
+
+# ======================================================================
+# Update Wallet Policy Tests
+# ======================================================================
+
+
+class TestUpdateWalletPolicy:
+    """Tests for update_wallet_policy method."""
+
+    @patch("dominusnode_llamaindex.tools.httpx.Client")
+    def test_valid_daily_limit(self, mock_httpx_cls):
+        """update_wallet_policy with valid daily_limit_cents calls API."""
+        mock_auth_resp = MagicMock()
+        mock_auth_resp.status_code = 200
+        mock_auth_resp.text = '{"token": "jwt-tok"}'
+        mock_auth_resp.json.return_value = {"token": "jwt-tok"}
+        mock_auth_resp.content = b'{"token": "jwt-tok"}'
+
+        mock_api_resp = MagicMock()
+        mock_api_resp.status_code = 200
+        api_data = {"dailyLimitCents": 5000, "allowedDomains": None}
+        mock_api_resp.text = json.dumps(api_data)
+        mock_api_resp.json.return_value = api_data
+        mock_api_resp.content = json.dumps(api_data).encode()
+
+        mock_instance = MagicMock()
+        mock_instance.__enter__ = MagicMock(return_value=mock_instance)
+        mock_instance.__exit__ = MagicMock(return_value=False)
+        mock_instance.post.return_value = mock_auth_resp
+        mock_instance.request.return_value = mock_api_resp
+        mock_httpx_cls.return_value = mock_instance
+
+        client = DominusNodeClient(api_key="dn_live_test123")
+        result = client.update_wallet_policy(
+            wallet_id="550e8400-e29b-41d4-a716-446655440000",
+            daily_limit_cents=5000,
+        )
+        assert result["dailyLimitCents"] == 5000
+
+    @patch("dominusnode_llamaindex.tools.httpx.Client")
+    def test_valid_allowed_domains(self, mock_httpx_cls):
+        """update_wallet_policy with valid allowed_domains calls API."""
+        mock_auth_resp = MagicMock()
+        mock_auth_resp.status_code = 200
+        mock_auth_resp.text = '{"token": "jwt-tok"}'
+        mock_auth_resp.json.return_value = {"token": "jwt-tok"}
+        mock_auth_resp.content = b'{"token": "jwt-tok"}'
+
+        mock_api_resp = MagicMock()
+        mock_api_resp.status_code = 200
+        api_data = {"dailyLimitCents": None, "allowedDomains": ["example.com", "api.test.org"]}
+        mock_api_resp.text = json.dumps(api_data)
+        mock_api_resp.json.return_value = api_data
+        mock_api_resp.content = json.dumps(api_data).encode()
+
+        mock_instance = MagicMock()
+        mock_instance.__enter__ = MagicMock(return_value=mock_instance)
+        mock_instance.__exit__ = MagicMock(return_value=False)
+        mock_instance.post.return_value = mock_auth_resp
+        mock_instance.request.return_value = mock_api_resp
+        mock_httpx_cls.return_value = mock_instance
+
+        client = DominusNodeClient(api_key="dn_live_test123")
+        result = client.update_wallet_policy(
+            wallet_id="550e8400-e29b-41d4-a716-446655440000",
+            allowed_domains=["example.com", "api.test.org"],
+        )
+        assert result["allowedDomains"] == ["example.com", "api.test.org"]
+
+    @patch("dominusnode_llamaindex.tools.httpx.Client")
+    def test_missing_wallet_id(self, mock_httpx_cls):
+        """update_wallet_policy with empty wallet_id returns an error."""
+        client = DominusNodeClient(api_key="dn_live_test123")
+        result = client.update_wallet_policy(
+            wallet_id="",
+            daily_limit_cents=5000,
+        )
+        assert "error" in result
+        assert "required" in result["error"]
+
+    @patch("dominusnode_llamaindex.tools.httpx.Client")
+    def test_invalid_wallet_id(self, mock_httpx_cls):
+        """update_wallet_policy with non-UUID wallet_id returns an error."""
+        client = DominusNodeClient(api_key="dn_live_test123")
+        result = client.update_wallet_policy(
+            wallet_id="not-a-uuid",
+            daily_limit_cents=5000,
+        )
+        assert "error" in result
+        assert "valid UUID" in result["error"]
+
+    @patch("dominusnode_llamaindex.tools.httpx.Client")
+    def test_no_fields_provided(self, mock_httpx_cls):
+        """update_wallet_policy with no policy fields returns an error."""
+        client = DominusNodeClient(api_key="dn_live_test123")
+        result = client.update_wallet_policy(
+            wallet_id="550e8400-e29b-41d4-a716-446655440000",
+        )
+        assert "error" in result
+        assert "At least one" in result["error"]
+
+    @patch("dominusnode_llamaindex.tools.httpx.Client")
+    def test_invalid_daily_limit_zero(self, mock_httpx_cls):
+        """update_wallet_policy with daily_limit_cents=0 returns an error."""
+        client = DominusNodeClient(api_key="dn_live_test123")
+        result = client.update_wallet_policy(
+            wallet_id="550e8400-e29b-41d4-a716-446655440000",
+            daily_limit_cents=0,
+        )
+        assert "error" in result
+        assert "daily_limit_cents" in result["error"]
+
+    @patch("dominusnode_llamaindex.tools.httpx.Client")
+    def test_invalid_allowed_domains(self, mock_httpx_cls):
+        """update_wallet_policy with invalid domains returns an error."""
+        client = DominusNodeClient(api_key="dn_live_test123")
+        result = client.update_wallet_policy(
+            wallet_id="550e8400-e29b-41d4-a716-446655440000",
+            allowed_domains=["invalid domain!"],
+        )
+        assert "error" in result
+        assert "not a valid domain" in result["error"]
+
+    @patch("dominusnode_llamaindex.tools.httpx.Client")
+    def test_both_fields_valid(self, mock_httpx_cls):
+        """update_wallet_policy with both fields calls API."""
+        mock_auth_resp = MagicMock()
+        mock_auth_resp.status_code = 200
+        mock_auth_resp.text = '{"token": "jwt-tok"}'
+        mock_auth_resp.json.return_value = {"token": "jwt-tok"}
+        mock_auth_resp.content = b'{"token": "jwt-tok"}'
+
+        mock_api_resp = MagicMock()
+        mock_api_resp.status_code = 200
+        api_data = {"dailyLimitCents": 2000, "allowedDomains": ["example.com"]}
+        mock_api_resp.text = json.dumps(api_data)
+        mock_api_resp.json.return_value = api_data
+        mock_api_resp.content = json.dumps(api_data).encode()
+
+        mock_instance = MagicMock()
+        mock_instance.__enter__ = MagicMock(return_value=mock_instance)
+        mock_instance.__exit__ = MagicMock(return_value=False)
+        mock_instance.post.return_value = mock_auth_resp
+        mock_instance.request.return_value = mock_api_resp
+        mock_httpx_cls.return_value = mock_instance
+
+        client = DominusNodeClient(api_key="dn_live_test123")
+        result = client.update_wallet_policy(
+            wallet_id="550e8400-e29b-41d4-a716-446655440000",
+            daily_limit_cents=2000,
+            allowed_domains=["example.com"],
+        )
+        assert result["dailyLimitCents"] == 2000
+        assert result["allowedDomains"] == ["example.com"]
+
+
+# ======================================================================
+# Spec Functions List Tests
+# ======================================================================
+
+
+class TestSpecFunctionsList:
+    """Tests for update_wallet_policy presence in spec_functions."""
+
+    def test_update_wallet_policy_in_spec_functions(self):
+        """update_wallet_policy is listed in DominusNodeToolSpec.spec_functions."""
+        assert "update_wallet_policy" in DominusNodeToolSpec.spec_functions
+
+    def test_create_agentic_wallet_in_spec_functions(self):
+        """create_agentic_wallet is listed in DominusNodeToolSpec.spec_functions."""
+        assert "create_agentic_wallet" in DominusNodeToolSpec.spec_functions
 
 
 # ======================================================================

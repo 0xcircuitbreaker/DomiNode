@@ -1,0 +1,91 @@
+name: dominusnode
+enabled: true
+description: >-
+  DomiNode rotating proxy-as-a-service plugin. Provides 24 commands for proxy
+  fetching, wallet management, team operations, and x402 micropayments.
+  Security includes SSRF prevention, OFAC country blocking, credential
+  scrubbing, prototype pollution prevention, and HTTP method restriction.
+parameters:
+  - name: command
+    type: str
+    required: true
+    description: >-
+      Command to execute. One of: proxied_fetch, check_balance, check_usage,
+      get_proxy_config, list_sessions, create_agentic_wallet, fund_agentic_wallet,
+      agentic_wallet_balance, list_agentic_wallets, agentic_transactions,
+      freeze_agentic_wallet, unfreeze_agentic_wallet, delete_agentic_wallet,
+      create_team, list_teams, team_details, team_fund, team_create_key,
+      team_usage, update_team, update_team_member_role, x402_info, topup_paypal,
+      update_wallet_policy
+  - name: url
+    type: str
+    required: false
+    description: Target URL (for proxied_fetch)
+  - name: method
+    type: str
+    required: false
+    description: HTTP method GET/HEAD/OPTIONS (for proxied_fetch)
+  - name: country
+    type: str
+    required: false
+    description: ISO 3166-1 alpha-2 country code for geo-targeting (for proxied_fetch)
+  - name: proxy_type
+    type: str
+    required: false
+    description: Proxy type -- dc or residential (for proxied_fetch)
+  - name: wallet_id
+    type: str
+    required: false
+    description: Agentic wallet ID (for agentic wallet commands)
+  - name: team_id
+    type: str
+    required: false
+    description: Team UUID (for team commands)
+  - name: user_id
+    type: str
+    required: false
+    description: User UUID (for update_team_member_role)
+  - name: label
+    type: str
+    required: false
+    description: Label for wallet or API key creation (max 100 chars)
+  - name: amount_cents
+    type: int
+    required: false
+    description: Amount in cents (for fund, topup, and team_fund commands)
+  - name: spending_limit_cents
+    type: int
+    required: false
+    description: Per-transaction spending limit in cents (for create_agentic_wallet)
+  - name: period
+    type: str
+    required: false
+    description: Time period for usage -- day, week, or month (for check_usage)
+  - name: limit
+    type: int
+    required: false
+    description: Maximum number of results to return, 1-100 (for agentic_transactions, team_usage)
+  - name: name
+    type: str
+    required: false
+    description: Team name (for create_team, update_team)
+  - name: max_members
+    type: int
+    required: false
+    description: Maximum team members, 1-100 (for create_team, update_team)
+  - name: role
+    type: str
+    required: false
+    description: Team member role -- member or admin (for update_team_member_role)
+  - name: daily_limit_cents
+    type: int
+    required: false
+    description: Daily budget cap in cents, 1 to 1000000 (for create_agentic_wallet, update_wallet_policy)
+  - name: allowed_domains
+    type: list
+    required: false
+    description: List of allowed domains, max 100 entries each <= 253 chars (for create_agentic_wallet, update_wallet_policy)
+returns:
+  - name: result
+    type: str
+    description: JSON string with command result or error details

@@ -1,0 +1,34 @@
+identity:
+  name: update_team
+  author: DomiNode
+  label:
+    en_US: Update Team
+description:
+  human:
+    en_US: Update team settings (name and/or max_members)
+  llm: Update team settings. At least one of name or max_members must be provided. Requires owner or admin role.
+parameters:
+  - name: team_id
+    type: string
+    required: true
+    label:
+      en_US: Team ID
+    human_description:
+      en_US: UUID of the team
+    llm_description: The UUID of the team to update.
+  - name: name
+    type: string
+    required: false
+    label:
+      en_US: New Team Name
+    human_description:
+      en_US: New team name (max 100 characters)
+    llm_description: New team name. Max 100 characters, no control characters.
+  - name: max_members
+    type: number
+    required: false
+    label:
+      en_US: New Max Members
+    human_description:
+      en_US: New maximum number of team members (1-100)
+    llm_description: New maximum number of team members. Must be between 1 and 100.

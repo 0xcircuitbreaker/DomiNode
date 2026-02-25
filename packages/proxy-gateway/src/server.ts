@@ -1,7 +1,7 @@
 import * as crypto from "node:crypto";
 import * as http from "node:http";
 import * as net from "node:net";
-import { createLogger, planRepo } from "@dominusnode/shared";
+import { createLogger, planRepo, agenticWalletRepo } from "@dominusnode/shared";
 import type { ProviderSelector } from "@dominusnode/pool-manager";
 import { authenticateRequest } from "./auth.js";
 import { checkBalance, checkTeamBalance } from "./balance-check.js";
@@ -71,6 +71,58 @@ function sendError(
     ...extraHeaders,
   });
   res.end(message);
+}
+
+// ─── Agentic wallet policy check ─────────────────────────────────────
+
+interface WalletPolicyResult {
+  allowed: boolean;
+  errorCode?: string;
+  message?: string;
+}
+
+async function checkAgenticWalletPolicy(
+  walletId: string | undefined,
+  userId: string,
+  targetHost: string,
+): Promise<WalletPolicyResult> {
+  if (!walletId) return { allowed: true };
+
+  try {
+    const wallet = await agenticWalletRepo.getWallet(walletId, userId);
+    if (!wallet) return { allowed: true }; // Unknown wallet ID — skip policy (wallet may be deleted)
+
+    // Domain allowlist check
+    if (wallet.allowed_domains) {
+      let domains: string[];
+      try {
+        domains = JSON.parse(wallet.allowed_domains);
+      } catch {
+        return { allowed: true }; // Malformed JSON — skip check
+      }
+      const normalizedTarget = targetHost.toLowerCase();
+      const isAllowed = domains.some((d: string) => {
+        const normalizedDomain = d.toLowerCase();
+        return normalizedTarget === normalizedDomain || normalizedTarget.endsWith("." + normalizedDomain);
+      });
+      if (!isAllowed) {
+        return { allowed: false, errorCode: "DOMAIN_NOT_ALLOWED", message: "Target domain not in wallet allowlist" };
+      }
+    }
+
+    // Daily budget check
+    if (wallet.daily_limit_cents !== null && wallet.daily_limit_cents > 0) {
+      const dailySpend = await agenticWalletRepo.getDailySpend(walletId);
+      if (dailySpend >= wallet.daily_limit_cents) {
+        return { allowed: false, errorCode: "BUDGET_EXCEEDED", message: "Daily budget limit reached" };
+      }
+    }
+  } catch (err) {
+    log.error("wallet policy check error", { error: err instanceof Error ? err.message : String(err), walletId });
+    // Fail open — don't block requests due to policy check errors
+  }
+
+  return { allowed: true };
 }
 
 // ─── HTTP forwarding (plain HTTP PROXY requests) ─────────────────────
@@ -333,6 +385,14 @@ async function handleRequest(
   if (!targetCheck.allowed) {
     decrementUserConns(auth!.userId);
     sendError(clientRes, 403, "TARGET_BLOCKED", targetCheck.reason || "Blocked: target is a private/internal address");
+    return;
+  }
+
+  // Agentic wallet policy check (domain allowlist + daily budget)
+  const walletPolicy = await checkAgenticWalletPolicy(auth!.proxyOptions.walletId, auth!.userId, targetHost);
+  if (!walletPolicy.allowed) {
+    decrementUserConns(auth!.userId);
+    sendError(clientRes, 403, walletPolicy.errorCode!, walletPolicy.message!);
     return;
   }
 
@@ -643,6 +703,14 @@ async function handleConnect(
   if (/[\x00-\x1f\x7f]/.test(targetHost)) {
     decrementUserConns(userId);
     safeSocketWrite(clientSocket, "HTTP/1.1 400 Bad Request\r\nX-DominusNode-Error: INVALID_TARGET\r\n\r\n");
+    return;
+  }
+
+  // Agentic wallet policy check (domain allowlist + daily budget)
+  const connectWalletPolicy = await checkAgenticWalletPolicy(auth.proxyOptions.walletId, userId, targetHost);
+  if (!connectWalletPolicy.allowed) {
+    decrementUserConns(userId);
+    safeSocketWrite(clientSocket, `HTTP/1.1 403 Forbidden\r\nX-DominusNode-Error: ${connectWalletPolicy.errorCode}\r\n\r\n`);
     return;
   }
 

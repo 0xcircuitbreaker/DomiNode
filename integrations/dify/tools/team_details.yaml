@@ -1,0 +1,18 @@
+identity:
+  name: team_details
+  author: DomiNode
+  label:
+    en_US: Team Details
+description:
+  human:
+    en_US: Get details for a specific team
+  llm: Get detailed information about a specific team including members, wallet balance, and settings.
+parameters:
+  - name: team_id
+    type: string
+    required: true
+    label:
+      en_US: Team ID
+    human_description:
+      en_US: UUID of the team
+    llm_description: The UUID of the team to get details for.

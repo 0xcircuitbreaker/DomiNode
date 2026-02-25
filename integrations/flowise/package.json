@@ -1,0 +1,21 @@
+{
+  "name": "@dominusnode/flowise-tools",
+  "version": "1.0.0",
+  "description": "DomiNode rotating proxy tools for Flowise AI",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "lint": "eslint src/"
+  },
+  "dependencies": {
+    "@langchain/core": ">=0.1.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0",
+    "vitest": "^1.0.0",
+    "@types/node": "^20.0.0"
+  },
+  "license": "MIT"
+}

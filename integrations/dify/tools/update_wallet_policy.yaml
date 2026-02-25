@@ -1,0 +1,34 @@
+identity:
+  name: update_wallet_policy
+  author: DomiNode
+  label:
+    en_US: Update Wallet Policy
+description:
+  human:
+    en_US: Update the policy for an agentic wallet (daily limit, allowed domains)
+  llm: Update the policy for an agentic sub-wallet. Set a daily budget cap and/or restrict proxy usage to specific domains.
+parameters:
+  - name: wallet_id
+    type: string
+    required: true
+    label:
+      en_US: Wallet ID
+    human_description:
+      en_US: UUID of the agentic wallet to update
+    llm_description: UUID of the agentic wallet whose policy should be updated.
+  - name: daily_limit_cents
+    type: number
+    required: false
+    label:
+      en_US: Daily Limit (cents)
+    human_description:
+      en_US: Daily budget cap in cents (1 to 1,000,000)
+    llm_description: Optional daily budget cap in cents. Must be a positive integer between 1 and 1,000,000.
+  - name: allowed_domains
+    type: string
+    required: false
+    label:
+      en_US: Allowed Domains (JSON array)
+    human_description:
+      en_US: JSON array of domain strings to restrict proxy usage (max 100 entries)
+    llm_description: Optional JSON-encoded array of domain strings to restrict proxy usage. Max 100 entries, each <= 253 chars, valid domain format.

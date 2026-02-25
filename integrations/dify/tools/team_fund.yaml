@@ -1,0 +1,26 @@
+identity:
+  name: team_fund
+  author: DomiNode
+  label:
+    en_US: Fund Team Wallet
+description:
+  human:
+    en_US: Fund a team's shared wallet from the user's personal wallet
+  llm: Transfer funds from the authenticated user's personal wallet to a team's shared wallet. Amount must be between $1.00 (100 cents) and $10,000 (1,000,000 cents).
+parameters:
+  - name: team_id
+    type: string
+    required: true
+    label:
+      en_US: Team ID
+    human_description:
+      en_US: UUID of the team
+    llm_description: The UUID of the team whose wallet to fund.
+  - name: amount_cents
+    type: number
+    required: true
+    label:
+      en_US: Amount (cents)
+    human_description:
+      en_US: Amount to transfer in cents (100 to 1,000,000)
+    llm_description: Amount to transfer in cents. Must be between 100 ($1.00) and 1,000,000 ($10,000).

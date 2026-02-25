@@ -1,0 +1,26 @@
+identity:
+  name: create_team
+  author: DomiNode
+  label:
+    en_US: Create Team
+description:
+  human:
+    en_US: Create a new team with a shared wallet
+  llm: Create a new team with a shared wallet for collaborative proxy usage. The creator becomes the team owner.
+parameters:
+  - name: name
+    type: string
+    required: true
+    label:
+      en_US: Team Name
+    human_description:
+      en_US: Team name (max 100 characters)
+    llm_description: Team name. Max 100 characters, no control characters.
+  - name: max_members
+    type: number
+    required: false
+    label:
+      en_US: Max Members
+    human_description:
+      en_US: Maximum number of team members (1-100)
+    llm_description: Optional maximum number of team members. Must be between 1 and 100.

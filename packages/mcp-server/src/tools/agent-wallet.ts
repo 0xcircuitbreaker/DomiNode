@@ -97,6 +97,8 @@ export function registerAgentWalletTools(server: McpServer, httpClient: HttpClie
     {
       label: z.string().min(1).max(100).describe("Label for this wallet (e.g., 'scraper-bot', 'research-agent')"),
       spending_limit_cents: z.number().int().min(0).max(1000000).default(10000).describe("Max spend per transaction in cents (0 = no limit, default $100)"),
+      daily_limit_cents: z.number().int().min(1).max(1000000).optional().describe("Optional daily budget in cents (resets at midnight UTC). Omit for no daily limit."),
+      allowed_domains: z.array(z.string().max(253)).max(100).optional().describe("Optional list of allowed target domains. When set, proxy requests to unlisted domains are rejected."),
     },
     async (args) => {
       try {
@@ -107,17 +109,23 @@ export function registerAgentWalletTools(server: McpServer, httpClient: HttpClie
           };
         }
 
+        const body: Record<string, unknown> = {
+          label: args.label,
+          spendingLimitCents: args.spending_limit_cents,
+        };
+        if (args.daily_limit_cents !== undefined) body.dailyLimitCents = args.daily_limit_cents;
+        if (args.allowed_domains !== undefined) body.allowedDomains = args.allowed_domains;
+
         const data = await httpClient.post<{
           id: string;
           label: string;
           balanceCents: number;
           spendingLimitCents: number;
+          dailyLimitCents: number | null;
+          allowedDomains: string[] | null;
           status: string;
           createdAt: string;
-        }>("/api/agent-wallet", {
-          label: args.label,
-          spendingLimitCents: args.spending_limit_cents,
-        });
+        }>("/api/agent-wallet", body);
 
         const text = [
           `Agentic Wallet Created`,
@@ -126,12 +134,15 @@ export function registerAgentWalletTools(server: McpServer, httpClient: HttpClie
           `Label: ${data.label}`,
           `Balance: $${(data.balanceCents / 100).toFixed(2)}`,
           `Spending Limit: ${data.spendingLimitCents > 0 ? `$${(data.spendingLimitCents / 100).toFixed(2)} per transaction` : "No limit"}`,
+          `Daily Budget: ${data.dailyLimitCents ? `$${(data.dailyLimitCents / 100).toFixed(2)}/day` : "No daily limit"}`,
+          `Allowed Domains: ${data.allowedDomains ? data.allowedDomains.join(", ") : "All domains"}`,
           `Status: ${data.status}`,
           ``,
           `Next steps:`,
           `  1. Use dominusnode_agent_wallet_fund to add funds from your main wallet`,
           `  2. The wallet can then be used for proxy billing`,
           `  3. Use dominusnode_agent_wallet_balance to check balance`,
+          `  4. Use dominusnode_update_wallet_policy to change daily limits or domain restrictions`,
         ].join("\n");
 
         return { content: [{ type: "text", text }] };
@@ -157,6 +168,8 @@ export function registerAgentWalletTools(server: McpServer, httpClient: HttpClie
           label: string;
           balanceCents: number;
           spendingLimitCents: number;
+          dailyLimitCents: number | null;
+          allowedDomains: string[] | null;
           status: string;
           createdAt: string;
         }>(`/api/agent-wallet/${encodeURIComponent(args.wallet_id)}`);
@@ -167,6 +180,8 @@ export function registerAgentWalletTools(server: McpServer, httpClient: HttpClie
           `Wallet ID: ${data.id}`,
           `Balance: $${(data.balanceCents / 100).toFixed(2)}`,
           `Spending Limit: ${data.spendingLimitCents > 0 ? `$${(data.spendingLimitCents / 100).toFixed(2)} per tx` : "No limit"}`,
+          `Daily Budget: ${data.dailyLimitCents ? `$${(data.dailyLimitCents / 100).toFixed(2)}/day` : "No daily limit"}`,
+          `Allowed Domains: ${data.allowedDomains ? data.allowedDomains.join(", ") : "All domains"}`,
           `Status: ${data.status}`,
           `Created: ${data.createdAt}`,
         ].join("\n");
@@ -244,6 +259,8 @@ export function registerAgentWalletTools(server: McpServer, httpClient: HttpClie
             label: string;
             balanceCents: number;
             spendingLimitCents: number;
+            dailyLimitCents: number | null;
+            allowedDomains: string[] | null;
             status: string;
             createdAt: string;
           }>;
@@ -263,6 +280,8 @@ export function registerAgentWalletTools(server: McpServer, httpClient: HttpClie
         for (const w of data.wallets) {
           lines.push(`  ${w.label} (${w.id.slice(0, 8)}...)`);
           lines.push(`    Balance: $${(w.balanceCents / 100).toFixed(2)} | Limit: ${w.spendingLimitCents > 0 ? `$${(w.spendingLimitCents / 100).toFixed(2)}/tx` : "none"} | Status: ${w.status}`);
+          if (w.dailyLimitCents) lines.push(`    Daily Budget: $${(w.dailyLimitCents / 100).toFixed(2)}/day`);
+          if (w.allowedDomains) lines.push(`    Allowed Domains: ${w.allowedDomains.join(", ")}`);
           lines.push(``);
         }
 
@@ -358,6 +377,58 @@ export function registerAgentWalletTools(server: McpServer, httpClient: HttpClie
         return {
           isError: true,
           content: [{ type: "text", text: `Error unfreezing wallet: ${err instanceof Error ? err.message : String(err)}` }],
+        };
+      }
+    },
+  );
+
+  server.tool(
+    "dominusnode_update_wallet_policy",
+    "Update policy settings (daily budget limit and/or domain allowlist) on an agentic wallet. Set dailyLimitCents to null to remove daily limit. Set allowedDomains to null to allow all domains.",
+    {
+      wallet_id: z.string().regex(UUID_RE).describe("Wallet ID to update"),
+      daily_limit_cents: z.number().int().min(1).max(1000000).nullable().optional().describe("Daily budget in cents (null to remove limit)"),
+      allowed_domains: z.array(z.string().max(253)).max(100).nullable().optional().describe("Allowed target domains (null to allow all)"),
+    },
+    async (args) => {
+      try {
+        if (!checkAgentWalletRateLimit()) {
+          return {
+            isError: true,
+            content: [{ type: "text", text: "Rate limit exceeded: maximum 20 agentic wallet operations per minute. Please wait before retrying." }],
+          };
+        }
+
+        const body: Record<string, unknown> = {};
+        if (args.daily_limit_cents !== undefined) body.dailyLimitCents = args.daily_limit_cents;
+        if (args.allowed_domains !== undefined) body.allowedDomains = args.allowed_domains;
+
+        const data = await httpClient.patch<{
+          id: string;
+          label: string;
+          balanceCents: number;
+          spendingLimitCents: number;
+          dailyLimitCents: number | null;
+          allowedDomains: string[] | null;
+          status: string;
+          createdAt: string;
+        }>(`/api/agent-wallet/${encodeURIComponent(args.wallet_id)}/policy`, body);
+
+        const text = [
+          `Wallet Policy Updated`,
+          ``,
+          `Wallet ID: ${data.id}`,
+          `Label: ${data.label}`,
+          `Daily Budget: ${data.dailyLimitCents ? `$${(data.dailyLimitCents / 100).toFixed(2)}/day` : "No daily limit"}`,
+          `Allowed Domains: ${data.allowedDomains ? data.allowedDomains.join(", ") : "All domains"}`,
+          `Status: ${data.status}`,
+        ].join("\n");
+
+        return { content: [{ type: "text", text }] };
+      } catch (err) {
+        return {
+          isError: true,
+          content: [{ type: "text", text: `Error updating policy: ${err instanceof Error ? err.message : String(err)}` }],
         };
       }
     },

@@ -1,0 +1,122 @@
+# dominusnode-ironclaw
+
+DomiNode toolkit for [IronClaw](https://github.com/nicekate/IronClaw), NEAR AI's open-source Rust-based AI agent runtime. Provides 23 tools for interacting with the DomiNode rotating proxy-as-a-service platform, plus MCP server configuration for IronClaw's native MCP bridge.
+
+## Installation
+
+```bash
+pip install dominusnode-ironclaw
+```
+
+Or from source:
+
+```bash
+cd integrations/ironclaw
+pip install -e ".[dev]"
+```
+
+## Quick Start
+
+### Python Bridge Usage
+
+```python
+from dominusnode_ironclaw import DominusNodeToolkit
+
+toolkit = DominusNodeToolkit(api_key="dn_live_your_key_here")
+
+# Check wallet balance
+balance = toolkit.check_balance()
+print(balance)  # JSON string
+
+# Fetch a URL through the proxy network
+result = toolkit.proxied_fetch(url="https://httpbin.org/ip", country="US")
+print(result)
+```
+
+### IronClaw MCP Bridge
+
+IronClaw supports MCP Protocol natively. Configure it to connect to the DomiNode MCP server:
+
+```python
+from dominusnode_ironclaw import DominusNodeToolkit
+
+toolkit = DominusNodeToolkit(api_key="dn_live_your_key_here")
+mcp_config = toolkit.get_mcp_config()
+# Pass mcp_config to IronClaw's MCP bridge configuration
+```
+
+Or generate MCP config directly:
+
+```python
+from dominusnode_ironclaw.mcp_config import generate_mcp_config
+
+config = generate_mcp_config(
+    base_url="https://api.dominusnode.com",
+    api_key="dn_live_your_key_here",
+)
+```
+
+### Tool Definitions
+
+Get IronClaw-compatible tool definitions for registration:
+
+```python
+toolkit = DominusNodeToolkit(api_key="dn_live_your_key_here")
+tools = toolkit.get_tool_definitions()
+
+for tool in tools:
+    print(f"{tool['name']}: {tool['description']}")
+    # Each tool has: name, description, parameters (JSON Schema), handler
+```
+
+## Configuration
+
+| Parameter | Environment Variable | Default |
+|-----------|---------------------|---------|
+| `api_key` | `DOMINUSNODE_API_KEY` | (required) |
+| `base_url` | `DOMINUSNODE_BASE_URL` | `https://api.dominusnode.com` |
+| `proxy_host` | `DOMINUSNODE_PROXY_HOST` | `proxy.dominusnode.com` |
+| `proxy_port` | `DOMINUSNODE_PROXY_PORT` | `8080` |
+| `timeout` | - | `30.0` seconds |
+
+## Tools (23)
+
+| # | Tool | Description |
+|---|------|-------------|
+| 1 | `proxied_fetch` | Fetch a URL through DomiNode's rotating proxy network |
+| 2 | `check_balance` | Check wallet balance |
+| 3 | `check_usage` | Check proxy usage statistics |
+| 4 | `get_proxy_config` | Get proxy configuration and geo-targeting options |
+| 5 | `list_sessions` | List active proxy sessions |
+| 6 | `create_agentic_wallet` | Create an agentic sub-wallet with a spending limit |
+| 7 | `fund_agentic_wallet` | Fund an agentic wallet from the main wallet |
+| 8 | `agentic_wallet_balance` | Check agentic wallet balance |
+| 9 | `list_agentic_wallets` | List all agentic wallets |
+| 10 | `agentic_transactions` | Get agentic wallet transaction history |
+| 11 | `freeze_agentic_wallet` | Freeze an agentic wallet |
+| 12 | `unfreeze_agentic_wallet` | Unfreeze an agentic wallet |
+| 13 | `delete_agentic_wallet` | Delete an agentic wallet |
+| 14 | `create_team` | Create a new team with a shared wallet |
+| 15 | `list_teams` | List all teams the user belongs to |
+| 16 | `team_details` | Get details for a specific team |
+| 17 | `team_fund` | Fund a team's shared wallet |
+| 18 | `team_create_key` | Create an API key for a team |
+| 19 | `team_usage` | Get team usage/transaction history |
+| 20 | `update_team` | Update team name and/or max_members |
+| 21 | `update_team_member_role` | Update a team member's role |
+| 22 | `x402_info` | Get x402 micropayment protocol information |
+| 23 | `topup_paypal` | Create a PayPal wallet top-up order |
+
+## Security
+
+- **SSRF Prevention**: Private IP blocking, DNS rebinding protection, Teredo/6to4 IPv6 tunnel detection, hex/octal/decimal normalization, zone ID stripping, `.localhost`/`.local`/`.internal`/`.arpa` TLD blocking, embedded credential blocking
+- **OFAC Compliance**: Blocks proxied requests to sanctioned countries (CU, IR, KP, RU, SY)
+- **Credential Scrubbing**: All `dn_live_*`/`dn_test_*` patterns removed from error outputs
+- **Prototype Pollution**: Recursive stripping of `__proto__`, `constructor`, `prototype` keys
+- **HTTP Method Restriction**: Only GET/HEAD/OPTIONS allowed for proxied fetch
+- **Response Caps**: 10 MB response limit, 4000 character body truncation
+- **Redirect Disabled**: `follow_redirects=False` prevents open redirect abuse
+
+## License
+
+MIT

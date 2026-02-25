@@ -483,7 +483,7 @@ export function createDominusNodeFunctionHandler(
 
     if (!response.ok) {
       const text = await response.text();
-      throw new Error(`Authentication failed (${response.status}): ${text.slice(0, 500)}`);
+      throw new Error(`Authentication failed (${response.status}): ${sanitizeError(text.slice(0, 500))}`);
     }
 
     const data = safeJsonParse<{ token: string }>(await response.text());
@@ -642,7 +642,10 @@ export function createDominusNodeFunctionHandler(
                 byteCount += chunk.length;
                 if (byteCount <= MAX_BODY_BYTES + 16384) chunks.push(chunk);
               });
+              let finalized = false;
               const finalize = () => {
+                if (finalized) return;
+                finalized = true;
                 clearTimeout(timeout);
                 const raw = Buffer.concat(chunks).toString("utf-8");
                 const headerEnd = raw.indexOf("\r\n\r\n");
@@ -657,6 +660,7 @@ export function createDominusNodeFunctionHandler(
                   const ci = line.indexOf(":");
                   if (ci > 0) headers[line.substring(0, ci).trim().toLowerCase()] = line.substring(ci + 1).trim();
                 }
+                stripDangerousKeys(headers);
                 resolve({ status, headers, body });
               };
               tlsSocket.on("end", finalize);
@@ -679,13 +683,17 @@ export function createDominusNodeFunctionHandler(
             const chunks: Buffer[] = [];
             let byteCount = 0;
             res.on("data", (chunk: Buffer) => { byteCount += chunk.length; if (byteCount <= MAX_BODY_BYTES) chunks.push(chunk); });
+            let httpFinalized = false;
             const finalize = () => {
+              if (httpFinalized) return;
+              httpFinalized = true;
               clearTimeout(timeout);
               const body = Buffer.concat(chunks).toString("utf-8").substring(0, MAX_BODY_BYTES);
               const headers: Record<string, string> = {};
               for (const [k, v] of Object.entries(res.headers)) {
                 if (v) headers[k] = Array.isArray(v) ? v.join(", ") : v;
               }
+              stripDangerousKeys(headers);
               resolve({ status: res.statusCode ?? 0, headers, body });
             };
             res.on("end", finalize);
@@ -756,10 +764,47 @@ export function createDominusNodeFunctionHandler(
       });
     }
 
-    const result = await api("POST", "/api/agent-wallet", {
+    const body: Record<string, unknown> = {
       label,
       spendingLimitCents,
-    });
+    };
+
+    // Optional daily_limit_cents
+    if (args.daily_limit_cents !== undefined) {
+      const dailyLimit = args.daily_limit_cents as number;
+      if (!Number.isInteger(dailyLimit) || dailyLimit < 1 || dailyLimit > 1_000_000) {
+        return JSON.stringify({
+          error: "daily_limit_cents must be an integer between 1 and 1,000,000",
+        });
+      }
+      body.dailyLimitCents = dailyLimit;
+    }
+
+    // Optional allowed_domains
+    if (args.allowed_domains !== undefined) {
+      const domains = args.allowed_domains;
+      if (!Array.isArray(domains)) {
+        return JSON.stringify({ error: "allowed_domains must be an array of strings" });
+      }
+      if (domains.length > 100) {
+        return JSON.stringify({ error: "allowed_domains must have 100 or fewer entries" });
+      }
+      const domainRe = /^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?)*$/;
+      for (const d of domains) {
+        if (typeof d !== "string") {
+          return JSON.stringify({ error: "Each allowed_domains entry must be a string" });
+        }
+        if (d.length > 253) {
+          return JSON.stringify({ error: "Each allowed_domains entry must be 253 characters or fewer" });
+        }
+        if (!domainRe.test(d)) {
+          return JSON.stringify({ error: `Invalid domain format: ${d}` });
+        }
+      }
+      body.allowedDomains = domains;
+    }
+
+    const result = await api("POST", "/api/agent-wallet", body);
     return JSON.stringify(result);
   }
 
@@ -1044,6 +1089,72 @@ export function createDominusNodeFunctionHandler(
     return JSON.stringify(result);
   }
 
+  async function handleUpdateWalletPolicy(args: Record<string, unknown>): Promise<string> {
+    const walletId = args.wallet_id as string;
+    if (!walletId || typeof walletId !== "string") {
+      return JSON.stringify({ error: "wallet_id is required and must be a string" });
+    }
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(walletId)) {
+      return JSON.stringify({ error: "wallet_id must be a valid UUID" });
+    }
+
+    const body: Record<string, unknown> = {};
+
+    // daily_limit_cents: integer or null (to remove)
+    if (args.daily_limit_cents !== undefined) {
+      if (args.daily_limit_cents === null) {
+        body.dailyLimitCents = null;
+      } else {
+        const dailyLimit = args.daily_limit_cents as number;
+        if (!Number.isInteger(dailyLimit) || dailyLimit < 1 || dailyLimit > 1_000_000) {
+          return JSON.stringify({
+            error: "daily_limit_cents must be an integer between 1 and 1,000,000 (or null to remove)",
+          });
+        }
+        body.dailyLimitCents = dailyLimit;
+      }
+    }
+
+    // allowed_domains: array or null (to remove)
+    if (args.allowed_domains !== undefined) {
+      if (args.allowed_domains === null) {
+        body.allowedDomains = null;
+      } else {
+        const domains = args.allowed_domains;
+        if (!Array.isArray(domains)) {
+          return JSON.stringify({ error: "allowed_domains must be an array of strings or null" });
+        }
+        if (domains.length > 100) {
+          return JSON.stringify({ error: "allowed_domains must have 100 or fewer entries" });
+        }
+        const domainRe = /^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?)*$/;
+        for (const d of domains) {
+          if (typeof d !== "string") {
+            return JSON.stringify({ error: "Each allowed_domains entry must be a string" });
+          }
+          if (d.length > 253) {
+            return JSON.stringify({ error: "Each allowed_domains entry must be 253 characters or fewer" });
+          }
+          if (!domainRe.test(d)) {
+            return JSON.stringify({ error: `Invalid domain format: ${d}` });
+          }
+        }
+        body.allowedDomains = domains;
+      }
+    }
+
+    if (Object.keys(body).length === 0) {
+      return JSON.stringify({ error: "At least one of daily_limit_cents or allowed_domains must be provided" });
+    }
+
+    const result = await api(
+      "PATCH",
+      `/api/agent-wallet/${encodeURIComponent(walletId)}/policy`,
+      body,
+    );
+    return JSON.stringify(result);
+  }
+
   async function handleUpdateTeamMemberRole(args: Record<string, unknown>): Promise<string> {
     const teamId = args.team_id as string;
     const userId = args.user_id as string;
@@ -1097,6 +1208,7 @@ export function createDominusNodeFunctionHandler(
     dominusnode_freeze_agentic_wallet: handleFreezeAgenticWallet,
     dominusnode_unfreeze_agentic_wallet: handleUnfreezeAgenticWallet,
     dominusnode_delete_agentic_wallet: handleDeleteAgenticWallet,
+    dominusnode_update_wallet_policy: handleUpdateWalletPolicy,
     dominusnode_create_team: handleCreateTeam,
     dominusnode_list_teams: handleListTeams,
     dominusnode_team_details: handleTeamDetails,

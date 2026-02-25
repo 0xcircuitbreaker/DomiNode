@@ -13,6 +13,15 @@ from dominusnode_crewai.tools import (
     DominusNodeBalanceTool,
     DominusNodeGeoTargetTool,
     DominusNodeWebScrapeTool,
+    DominusNodeCreateAgenticWalletTool,
+    DominusNodeFundAgenticWalletTool,
+    DominusNodeAgenticWalletBalanceTool,
+    DominusNodeListAgenticWalletsTool,
+    DominusNodeAgenticTransactionsTool,
+    DominusNodeFreezeAgenticWalletTool,
+    DominusNodeUnfreezeAgenticWalletTool,
+    DominusNodeDeleteAgenticWalletTool,
+    DominusNodeUpdateWalletPolicyTool,
     _validate_url,
 )
 
@@ -127,7 +136,7 @@ def _mock_proxy_config(countries=None):
     geo.major_us_cities = ["Los Angeles", "New York", "Houston"]
 
     config = MagicMock()
-    config.supported_countries = countries or ["US", "GB", "DE", "JP", "BR"]
+    config.supported_countries = countries if countries is not None else ["US", "GB", "DE", "JP", "BR"]
     config.blocked_countries = ["CU", "IR", "KP", "RU", "SY"]
     config.geo_targeting = geo
     config.min_rotation_interval_minutes = 1
@@ -496,3 +505,312 @@ class TestEnvFallback:
 
         assert "Error" not in result
         assert "$" in result
+
+
+# ---------------------------------------------------------------------------
+# Agentic Wallet Tool tests
+# ---------------------------------------------------------------------------
+
+
+class TestAgenticWalletValidation:
+    """Input validation tests for agentic wallet tools."""
+
+    def test_create_empty_label(self):
+        tool = DominusNodeCreateAgenticWalletTool(api_key="dn_live_test")
+        result = tool._run(label="", spending_limit_cents=1000)
+        assert "Error" in result
+        assert "label" in result.lower()
+
+    def test_create_long_label(self):
+        tool = DominusNodeCreateAgenticWalletTool(api_key="dn_live_test")
+        result = tool._run(label="A" * 101, spending_limit_cents=1000)
+        assert "Error" in result
+        assert "100 characters" in result
+
+    def test_create_control_char_label(self):
+        tool = DominusNodeCreateAgenticWalletTool(api_key="dn_live_test")
+        result = tool._run(label="test\x00wallet", spending_limit_cents=1000)
+        assert "Error" in result
+        assert "control" in result.lower()
+
+    def test_create_zero_spending_limit(self):
+        tool = DominusNodeCreateAgenticWalletTool(api_key="dn_live_test")
+        result = tool._run(label="test", spending_limit_cents=0)
+        assert "Error" in result
+        assert "spending_limit_cents" in result
+
+    def test_create_negative_spending_limit(self):
+        tool = DominusNodeCreateAgenticWalletTool(api_key="dn_live_test")
+        result = tool._run(label="test", spending_limit_cents=-100)
+        assert "Error" in result
+
+    def test_create_invalid_daily_limit(self):
+        tool = DominusNodeCreateAgenticWalletTool(api_key="dn_live_test")
+        result = tool._run(label="test", spending_limit_cents=1000, daily_limit_cents=0)
+        assert "Error" in result
+        assert "daily_limit_cents" in result
+
+    def test_create_daily_limit_too_high(self):
+        tool = DominusNodeCreateAgenticWalletTool(api_key="dn_live_test")
+        result = tool._run(label="test", spending_limit_cents=1000, daily_limit_cents=1_000_001)
+        assert "Error" in result
+
+    def test_create_invalid_domain(self):
+        tool = DominusNodeCreateAgenticWalletTool(api_key="dn_live_test")
+        result = tool._run(
+            label="test", spending_limit_cents=1000,
+            allowed_domains=["not a domain!!"],
+        )
+        assert "Error" in result
+        assert "domain" in result.lower()
+
+    def test_create_too_many_domains(self):
+        tool = DominusNodeCreateAgenticWalletTool(api_key="dn_live_test")
+        result = tool._run(
+            label="test", spending_limit_cents=1000,
+            allowed_domains=["example.com"] * 101,
+        )
+        assert "Error" in result
+        assert "100" in result
+
+    def test_create_domain_too_long(self):
+        tool = DominusNodeCreateAgenticWalletTool(api_key="dn_live_test")
+        result = tool._run(
+            label="test", spending_limit_cents=1000,
+            allowed_domains=["a" * 254 + ".com"],
+        )
+        assert "Error" in result
+        assert "253" in result
+
+    def test_fund_invalid_wallet_id(self):
+        tool = DominusNodeFundAgenticWalletTool(api_key="dn_live_test")
+        result = tool._run(wallet_id="not-a-uuid", amount_cents=100)
+        assert "Error" in result
+        assert "UUID" in result
+
+    def test_fund_empty_wallet_id(self):
+        tool = DominusNodeFundAgenticWalletTool(api_key="dn_live_test")
+        result = tool._run(wallet_id="", amount_cents=100)
+        assert "Error" in result
+
+    def test_fund_zero_amount(self):
+        tool = DominusNodeFundAgenticWalletTool(api_key="dn_live_test")
+        result = tool._run(
+            wallet_id="12345678-1234-1234-1234-123456789012",
+            amount_cents=0,
+        )
+        assert "Error" in result
+        assert "amount_cents" in result
+
+    def test_fund_negative_amount(self):
+        tool = DominusNodeFundAgenticWalletTool(api_key="dn_live_test")
+        result = tool._run(
+            wallet_id="12345678-1234-1234-1234-123456789012",
+            amount_cents=-50,
+        )
+        assert "Error" in result
+
+    def test_balance_invalid_wallet_id(self):
+        tool = DominusNodeAgenticWalletBalanceTool(api_key="dn_live_test")
+        result = tool._run(wallet_id="bad-id")
+        assert "Error" in result
+        assert "UUID" in result
+
+    def test_transactions_invalid_limit(self):
+        tool = DominusNodeAgenticTransactionsTool(api_key="dn_live_test")
+        result = tool._run(
+            wallet_id="12345678-1234-1234-1234-123456789012",
+            limit=0,
+        )
+        assert "Error" in result
+        assert "limit" in result
+
+    def test_transactions_limit_too_high(self):
+        tool = DominusNodeAgenticTransactionsTool(api_key="dn_live_test")
+        result = tool._run(
+            wallet_id="12345678-1234-1234-1234-123456789012",
+            limit=101,
+        )
+        assert "Error" in result
+
+    def test_freeze_invalid_wallet_id(self):
+        tool = DominusNodeFreezeAgenticWalletTool(api_key="dn_live_test")
+        result = tool._run(wallet_id="not-uuid")
+        assert "Error" in result
+
+    def test_unfreeze_invalid_wallet_id(self):
+        tool = DominusNodeUnfreezeAgenticWalletTool(api_key="dn_live_test")
+        result = tool._run(wallet_id="not-uuid")
+        assert "Error" in result
+
+    def test_delete_invalid_wallet_id(self):
+        tool = DominusNodeDeleteAgenticWalletTool(api_key="dn_live_test")
+        result = tool._run(wallet_id="not-uuid")
+        assert "Error" in result
+
+    def test_update_policy_no_changes(self):
+        tool = DominusNodeUpdateWalletPolicyTool(api_key="dn_live_test")
+        result = tool._run(wallet_id="12345678-1234-1234-1234-123456789012")
+        assert "Error" in result
+        assert "At least one" in result
+
+    def test_update_policy_invalid_daily_limit(self):
+        tool = DominusNodeUpdateWalletPolicyTool(api_key="dn_live_test")
+        result = tool._run(
+            wallet_id="12345678-1234-1234-1234-123456789012",
+            daily_limit_cents=0,
+        )
+        assert "Error" in result
+
+    def test_update_policy_invalid_domains(self):
+        tool = DominusNodeUpdateWalletPolicyTool(api_key="dn_live_test")
+        result = tool._run(
+            wallet_id="12345678-1234-1234-1234-123456789012",
+            allowed_domains=["!!!invalid"],
+        )
+        assert "Error" in result
+
+
+class TestAgenticWalletApiCalls:
+    """Tests for agentic wallet tools making API calls."""
+
+    @patch("dominusnode_crewai.tools._api_request_sync")
+    def test_create_success(self, mock_api):
+        mock_api.return_value = {
+            "id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+            "label": "My Agent",
+            "status": "active",
+        }
+        tool = DominusNodeCreateAgenticWalletTool(api_key="dn_live_test")
+        result = tool._run(label="My Agent", spending_limit_cents=5000)
+        assert "Created" in result
+        assert "My Agent" in result
+        assert "aaaaaaaa" in result
+        mock_api.assert_called_once()
+
+    @patch("dominusnode_crewai.tools._api_request_sync")
+    def test_fund_success(self, mock_api):
+        mock_api.return_value = {"balanceCents": 1500}
+        tool = DominusNodeFundAgenticWalletTool(api_key="dn_live_test")
+        result = tool._run(
+            wallet_id="12345678-1234-1234-1234-123456789012",
+            amount_cents=1000,
+        )
+        assert "Funded" in result
+        assert "1000 cents" in result
+        assert "1500" in result
+
+    @patch("dominusnode_crewai.tools._api_request_sync")
+    def test_balance_success(self, mock_api):
+        mock_api.return_value = {
+            "id": "12345678-1234-1234-1234-123456789012",
+            "label": "Test",
+            "balanceCents": 2500,
+            "spendingLimitCents": 5000,
+            "status": "active",
+        }
+        tool = DominusNodeAgenticWalletBalanceTool(api_key="dn_live_test")
+        result = tool._run(wallet_id="12345678-1234-1234-1234-123456789012")
+        assert "2500 cents" in result
+        assert "$25.00" in result
+        assert "Test" in result
+
+    @patch("dominusnode_crewai.tools._api_request_sync")
+    def test_list_success(self, mock_api):
+        mock_api.return_value = {
+            "wallets": [
+                {"id": "aaa", "label": "W1", "balanceCents": 100, "status": "active"},
+                {"id": "bbb", "label": "W2", "balanceCents": 200, "status": "frozen"},
+            ]
+        }
+        tool = DominusNodeListAgenticWalletsTool(api_key="dn_live_test")
+        result = tool._run()
+        assert "W1" in result
+        assert "W2" in result
+        assert "2" in result
+
+    @patch("dominusnode_crewai.tools._api_request_sync")
+    def test_list_empty(self, mock_api):
+        mock_api.return_value = {"wallets": []}
+        tool = DominusNodeListAgenticWalletsTool(api_key="dn_live_test")
+        result = tool._run()
+        assert "No agentic wallets" in result
+
+    @patch("dominusnode_crewai.tools._api_request_sync")
+    def test_transactions_success(self, mock_api):
+        mock_api.return_value = {
+            "transactions": [
+                {"type": "fund", "amountCents": 500, "createdAt": "2026-01-15"},
+            ]
+        }
+        tool = DominusNodeAgenticTransactionsTool(api_key="dn_live_test")
+        result = tool._run(wallet_id="12345678-1234-1234-1234-123456789012")
+        assert "fund" in result
+        assert "500" in result
+
+    @patch("dominusnode_crewai.tools._api_request_sync")
+    def test_freeze_success(self, mock_api):
+        mock_api.return_value = {"status": "frozen"}
+        tool = DominusNodeFreezeAgenticWalletTool(api_key="dn_live_test")
+        result = tool._run(wallet_id="12345678-1234-1234-1234-123456789012")
+        assert "frozen" in result
+
+    @patch("dominusnode_crewai.tools._api_request_sync")
+    def test_unfreeze_success(self, mock_api):
+        mock_api.return_value = {"status": "active"}
+        tool = DominusNodeUnfreezeAgenticWalletTool(api_key="dn_live_test")
+        result = tool._run(wallet_id="12345678-1234-1234-1234-123456789012")
+        assert "unfrozen" in result
+
+    @patch("dominusnode_crewai.tools._api_request_sync")
+    def test_delete_success(self, mock_api):
+        mock_api.return_value = {}
+        tool = DominusNodeDeleteAgenticWalletTool(api_key="dn_live_test")
+        result = tool._run(wallet_id="12345678-1234-1234-1234-123456789012")
+        assert "deleted" in result
+
+    @patch("dominusnode_crewai.tools._api_request_sync")
+    def test_update_policy_success(self, mock_api):
+        mock_api.return_value = {
+            "dailyLimitCents": 5000,
+            "allowedDomains": ["example.com"],
+        }
+        tool = DominusNodeUpdateWalletPolicyTool(api_key="dn_live_test")
+        result = tool._run(
+            wallet_id="12345678-1234-1234-1234-123456789012",
+            daily_limit_cents=5000,
+            allowed_domains=["example.com"],
+        )
+        assert "Updated" in result
+        assert "5000" in result
+
+
+class TestAgenticWalletErrorHandling:
+    """Tests for error handling in agentic wallet tools."""
+
+    def test_create_no_api_key(self):
+        with patch.dict("os.environ", {}, clear=True):
+            tool = DominusNodeCreateAgenticWalletTool()
+            result = tool._run(label="test", spending_limit_cents=1000)
+            assert "Error" in result
+            assert "API key" in result
+
+    @patch("dominusnode_crewai.tools._api_request_sync")
+    def test_create_api_error_scrubs_credentials(self, mock_api):
+        mock_api.side_effect = Exception("Auth failed for dn_live_secret123")
+        tool = DominusNodeCreateAgenticWalletTool(api_key="dn_live_test")
+        result = tool._run(label="test", spending_limit_cents=1000)
+        assert "Error" in result
+        assert "dn_live_secret123" not in result
+        assert "***" in result
+
+    @patch("dominusnode_crewai.tools._api_request_sync")
+    def test_fund_api_error(self, mock_api):
+        mock_api.side_effect = Exception("Connection refused")
+        tool = DominusNodeFundAgenticWalletTool(api_key="dn_live_test")
+        result = tool._run(
+            wallet_id="12345678-1234-1234-1234-123456789012",
+            amount_cents=100,
+        )
+        assert "Error" in result
+        assert "Connection refused" in result

@@ -62,14 +62,14 @@ const AI_AGENT_FEATURES = [
     summary: "Works with Claude, Gemini, Codex, Cursor, VS Code, and any MCP-compatible AI agent. Zero config bootstrap mode.",
   },
   {
-    title: "Agent Self-Signup",
+    title: "Agent Authorization",
     detail: "dominusnode_setup",
-    summary: "AI agents create their own accounts, generate API keys, and start proxying — no human intervention required.",
+    summary: "AI agents create accounts, generate API keys, and start proxying through a verified MCP bootstrap flow — subject to spend controls and usage policies.",
   },
   {
     title: "x402 Micropayments",
     detail: "Pay-per-request with USDC",
-    summary: "HTTP 402 protocol support. Agents pay via Coinbase (Base chain) or PayAI (Solana) — no signup, no API key, just USDC micropayments.",
+    summary: "HTTP 402 protocol support. Agents pay via Coinbase (Base chain) or PayAI (Solana) with USDC micropayments. All transactions logged and auditable.",
   },
   {
     title: "11 Cryptocurrencies",
@@ -115,10 +115,10 @@ const PLATFORM_CONFIGS = [
 ];
 
 const PROOF_POINTS = [
-  { value: "HTTP + SOCKS5", label: "Protocol support" },
-  { value: "50+", label: "Country routes upstream" },
-  { value: "50", label: "API keys per account" },
-  { value: "24/7", label: "Platform monitoring" },
+  { value: "26", label: "AI frameworks supported" },
+  { value: "x402", label: "Pay-per-request protocol" },
+  { value: "50+", label: "Country routes" },
+  { value: "<1s", label: "Agent onboarding" },
 ];
 
 const WORKFLOW_STEPS = [
@@ -156,10 +156,10 @@ const SDK_DETAILS: Record<string, SdkInfo> = {
     ],
   },
   Python: {
-    title: "Python SDK: data pipelines and scraping control",
-    summary: "Designed for research and crawling stacks using requests, aiohttp, and data tooling.",
+    title: "Python SDK: data pipelines and automation",
+    summary: "Designed for research and data collection workflows using requests, aiohttp, and data tooling.",
     capabilities: [
-      "Session-aware proxy profiles for stable crawling",
+      "Session-aware proxy profiles for stable data collection",
       "Simple hooks for pandas/ETL ingestion paths",
       "Config primitives for region and rotation policies",
     ],
@@ -353,26 +353,26 @@ export default function MarketingPage() {
       <main>
         <section id="top" className="mk-shell mk-hero">
           <div className="mk-hero-head mk-animate-up">
-            <p className="mk-overline">Premium Proxy Infrastructure</p>
+            <p className="mk-overline">AI-Native Proxy Infrastructure</p>
             <h1>
-              {BRAND_NAME} is enterprise proxy infrastructure, built for privacy.
+              Proxy infrastructure built for AI agents.
             </h1>
           </div>
 
           <div className="mk-hero-grid">
             <div className="mk-hero-copy mk-animate-up mk-delay-1">
               <p className="mk-subtitle">
-                Launch high-trust traffic through a hardened control plane with resilient routing,
-                transparent economics, and production-grade observability. Start free with 2 GB
-                of datacenter bandwidth or 50 MB residential — no credit card required.
+                Give your agents authenticated web access through rotating residential and
+                datacenter proxies. One MCP command to connect. Pay per request with USDC
+                via x402 — with built-in spend controls and usage accountability.
               </p>
 
               <div className="mk-cta-row">
                 <Link to={registerHref} className="mk-button mk-button-solid">
-                  {registerLabel}
+                  Connect Your Agent
                 </Link>
                 <Link to={loginHref} className="mk-button mk-button-outline">
-                  Login to Dashboard
+                  View Documentation
                 </Link>
               </div>
 
@@ -391,16 +391,16 @@ export default function MarketingPage() {
                 <span className={`mk-status-dot mk-status-${marketingHealthStatus}`} />
                 <span className="mk-status-label">Network status: {getHealthText(marketingHealthStatus)}</span>
               </div>
-              <h2>Control plane tuned for production traffic</h2>
+              <h2>Zero-config agent connectivity</h2>
               <ul>
-                <li>Per-provider circuit breakers and fallback routing policies</li>
-                <li>Wallet reservations before request execution</li>
-                <li>Usage analytics with CSV exports and top-host visibility</li>
-                <li>Admin security operations for account governance</li>
+                <li>MCP server for Claude, Gemini, Codex, Cursor</li>
+                <li>x402 USDC micropayments — no account needed</li>
+                <li>EIP-191 wallet auth — no email, no password</li>
+                <li>Agent authorization: MCP bootstrap with spend controls</li>
               </ul>
               <pre className="mk-code">
                 <code>
-                  {`curl -x http://country-US-session-x7:dn_live_KEY@${marketingProxyEndpoint} https://httpbin.org/ip`}
+                  {`npx @dominusnode/mcp-server`}
                 </code>
               </pre>
             </aside>
@@ -505,9 +505,9 @@ export default function MarketingPage() {
 
           <div className="mk-animate-up mk-delay-3" style={{ marginTop: "2rem", textAlign: "center" }}>
             <p style={{ color: "var(--mk-muted)", maxWidth: "600px", margin: "0 auto 1.5rem" }}>
-              No API key? No problem. Start in bootstrap mode — your AI agent creates its own account
-              with <code>dominusnode_setup</code>, generates an API key, and starts proxying immediately.
-              Free tier includes 2 GB datacenter bandwidth and 5 connections.
+              No API key? Start in bootstrap mode — your AI agent authenticates via MCP,
+              generates an API key, and begins proxying under spend controls.
+              Free tier includes 2 GB datacenter bandwidth and 5 connections. Subject to <Link to="/aup" style={{ color: "var(--mk-accent)" }}>Acceptable Use Policy</Link>.
             </p>
           </div>
         </section>
@@ -640,6 +640,7 @@ export default function MarketingPage() {
           <div className="flex gap-6">
             <Link to="/privacy" className="text-xs text-gray-500 hover:text-gray-300 transition-colors">Privacy Policy</Link>
             <Link to="/terms" className="text-xs text-gray-500 hover:text-gray-300 transition-colors">Terms of Service</Link>
+            <Link to="/aup" className="text-xs text-gray-500 hover:text-gray-300 transition-colors">Acceptable Use</Link>
             <a href="mailto:0xcircuitbreaker@protonmail.com" className="text-xs text-gray-500 hover:text-gray-300 transition-colors">Contact</a>
           </div>
         </div>

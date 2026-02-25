@@ -94,7 +94,7 @@ class ProxyResourceTest {
         DominusNodeClient client = createConnectedClient();
         ProxyUrlOptions opts = ProxyUrlOptions.builder().country("US").build();
         String url = client.proxy().buildUrl(opts);
-        assertEquals("http://user-country_US:dn_live_abc123@proxy.test.io:8080", url);
+        assertEquals("http://user-country-US:dn_live_abc123@proxy.test.io:8080", url);
         client.close();
     }
 
@@ -109,7 +109,7 @@ class ProxyResourceTest {
                 .sessionId("sess_001")
                 .build();
         String url = client.proxy().buildUrl(opts);
-        assertTrue(url.startsWith("http://user-country_US-state_CA-city_Los+Angeles-asn_13335-session_sess_001:"));
+        assertTrue(url.startsWith("http://user-country-US-state-CA-city-Los+Angeles-asn-13335-session-sess_001:"));
         assertTrue(url.endsWith("@proxy.test.io:8080"));
         client.close();
     }

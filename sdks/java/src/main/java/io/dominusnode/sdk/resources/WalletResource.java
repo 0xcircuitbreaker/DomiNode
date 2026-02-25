@@ -33,8 +33,8 @@ public final class WalletResource {
      * Validate that a financial amount is a positive integer within PostgreSQL int4 range.
      */
     static void validateAmountCents(int amountCents) {
-        if (amountCents <= 0) {
-            throw new IllegalArgumentException("amountCents must be a positive integer");
+        if (amountCents <= 0 || amountCents > 2_147_483_647) {
+            throw new IllegalArgumentException("amountCents must be a positive integer <= 2,147,483,647");
         }
     }
 

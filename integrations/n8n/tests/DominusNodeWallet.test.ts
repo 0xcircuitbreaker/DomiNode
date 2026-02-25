@@ -93,11 +93,11 @@ describe("DominusNodeWallet - metadata", () => {
     ]);
   });
 
-  it("has 21 operations", () => {
+  it("has 22 operations", () => {
     const node = new DominusNodeWallet();
     const opProp = node.description.properties.find((p) => p.name === "operation");
     expect(opProp).toBeDefined();
-    expect((opProp as any).options).toHaveLength(21);
+    expect((opProp as any).options).toHaveLength(22);
   });
 });
 
@@ -389,5 +389,203 @@ describe("DominusNodeWallet.execute - team validation", () => {
     });
 
     await expect(node.execute.call(mockFns as any)).rejects.toThrow(/valid UUID/);
+  });
+});
+
+describe("DominusNodeWallet.execute - createAgenticWallet with policy fields", () => {
+  it("accepts dailyLimitCents in create", async () => {
+    const node = new DominusNodeWallet();
+    const mockFns = createMockExecuteFunctions({
+      operation: "createAgenticWallet",
+      params: {
+        agenticLabel: "test-wallet",
+        spendingLimitCents: 5000,
+        dailyLimitCents: 10000,
+        allowedDomains: "",
+      },
+    });
+
+    const result = await node.execute.call(mockFns as any);
+    expect(result[0][0].json).toHaveProperty("success", true);
+  });
+
+  it("accepts allowedDomains in create", async () => {
+    const node = new DominusNodeWallet();
+    const mockFns = createMockExecuteFunctions({
+      operation: "createAgenticWallet",
+      params: {
+        agenticLabel: "test-wallet",
+        spendingLimitCents: 5000,
+        dailyLimitCents: 0,
+        allowedDomains: "example.com,api.example.org",
+      },
+    });
+
+    const result = await node.execute.call(mockFns as any);
+    expect(result[0][0].json).toHaveProperty("success", true);
+  });
+
+  it("rejects dailyLimitCents above 1,000,000", async () => {
+    const node = new DominusNodeWallet();
+    const mockFns = createMockExecuteFunctions({
+      operation: "createAgenticWallet",
+      params: {
+        agenticLabel: "test-wallet",
+        spendingLimitCents: 5000,
+        dailyLimitCents: 1_000_001,
+        allowedDomains: "",
+      },
+    });
+
+    await expect(node.execute.call(mockFns as any)).rejects.toThrow(/dailyLimitCents/);
+  });
+
+  it("rejects more than 100 allowed domains", async () => {
+    const node = new DominusNodeWallet();
+    const domains = Array.from({ length: 101 }, (_, i) => `d${i}.example.com`).join(",");
+    const mockFns = createMockExecuteFunctions({
+      operation: "createAgenticWallet",
+      params: {
+        agenticLabel: "test-wallet",
+        spendingLimitCents: 5000,
+        dailyLimitCents: 0,
+        allowedDomains: domains,
+      },
+    });
+
+    await expect(node.execute.call(mockFns as any)).rejects.toThrow(/at most 100/);
+  });
+
+  it("rejects invalid domain format", async () => {
+    const node = new DominusNodeWallet();
+    const mockFns = createMockExecuteFunctions({
+      operation: "createAgenticWallet",
+      params: {
+        agenticLabel: "test-wallet",
+        spendingLimitCents: 5000,
+        dailyLimitCents: 0,
+        allowedDomains: "not a valid domain!",
+      },
+    });
+
+    await expect(node.execute.call(mockFns as any)).rejects.toThrow(/Invalid domain/);
+  });
+});
+
+describe("DominusNodeWallet.execute - updateWalletPolicy", () => {
+  it("accepts valid dailyLimitCents", async () => {
+    const node = new DominusNodeWallet();
+    const mockFns = createMockExecuteFunctions({
+      operation: "updateWalletPolicy",
+      params: {
+        policyWalletId: "550e8400-e29b-41d4-a716-446655440000",
+        policyDailyLimitCents: 50000,
+        policyAllowedDomains: "",
+      },
+    });
+
+    const result = await node.execute.call(mockFns as any);
+    expect(result[0][0].json).toHaveProperty("success", true);
+  });
+
+  it("accepts allowedDomains", async () => {
+    const node = new DominusNodeWallet();
+    const mockFns = createMockExecuteFunctions({
+      operation: "updateWalletPolicy",
+      params: {
+        policyWalletId: "550e8400-e29b-41d4-a716-446655440000",
+        policyDailyLimitCents: 0,
+        policyAllowedDomains: "example.com,test.org",
+      },
+    });
+
+    const result = await node.execute.call(mockFns as any);
+    expect(result[0][0].json).toHaveProperty("success", true);
+  });
+
+  it("accepts null dailyLimitCents via -1", async () => {
+    const node = new DominusNodeWallet();
+    const mockFns = createMockExecuteFunctions({
+      operation: "updateWalletPolicy",
+      params: {
+        policyWalletId: "550e8400-e29b-41d4-a716-446655440000",
+        policyDailyLimitCents: -1,
+        policyAllowedDomains: "",
+      },
+    });
+
+    const result = await node.execute.call(mockFns as any);
+    expect(result[0][0].json).toHaveProperty("success", true);
+  });
+
+  it("accepts null allowedDomains via '*'", async () => {
+    const node = new DominusNodeWallet();
+    const mockFns = createMockExecuteFunctions({
+      operation: "updateWalletPolicy",
+      params: {
+        policyWalletId: "550e8400-e29b-41d4-a716-446655440000",
+        policyDailyLimitCents: 0,
+        policyAllowedDomains: "*",
+      },
+    });
+
+    const result = await node.execute.call(mockFns as any);
+    expect(result[0][0].json).toHaveProperty("success", true);
+  });
+
+  it("rejects invalid walletId UUID", async () => {
+    const node = new DominusNodeWallet();
+    const mockFns = createMockExecuteFunctions({
+      operation: "updateWalletPolicy",
+      params: {
+        policyWalletId: "not-a-uuid",
+        policyDailyLimitCents: 5000,
+        policyAllowedDomains: "",
+      },
+    });
+
+    await expect(node.execute.call(mockFns as any)).rejects.toThrow(/valid UUID/);
+  });
+
+  it("rejects when no fields provided", async () => {
+    const node = new DominusNodeWallet();
+    const mockFns = createMockExecuteFunctions({
+      operation: "updateWalletPolicy",
+      params: {
+        policyWalletId: "550e8400-e29b-41d4-a716-446655440000",
+        policyDailyLimitCents: 0,
+        policyAllowedDomains: "",
+      },
+    });
+
+    await expect(node.execute.call(mockFns as any)).rejects.toThrow(/At least one/);
+  });
+
+  it("rejects dailyLimitCents above 1,000,000", async () => {
+    const node = new DominusNodeWallet();
+    const mockFns = createMockExecuteFunctions({
+      operation: "updateWalletPolicy",
+      params: {
+        policyWalletId: "550e8400-e29b-41d4-a716-446655440000",
+        policyDailyLimitCents: 1_000_001,
+        policyAllowedDomains: "",
+      },
+    });
+
+    await expect(node.execute.call(mockFns as any)).rejects.toThrow(/dailyLimitCents/);
+  });
+
+  it("rejects invalid domain in allowedDomains", async () => {
+    const node = new DominusNodeWallet();
+    const mockFns = createMockExecuteFunctions({
+      operation: "updateWalletPolicy",
+      params: {
+        policyWalletId: "550e8400-e29b-41d4-a716-446655440000",
+        policyDailyLimitCents: 0,
+        policyAllowedDomains: "valid.com,inv@lid!",
+      },
+    });
+
+    await expect(node.execute.call(mockFns as any)).rejects.toThrow(/Invalid domain/);
   });
 });

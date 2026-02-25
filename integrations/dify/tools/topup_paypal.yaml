@@ -1,0 +1,18 @@
+identity:
+  name: topup_paypal
+  author: DomiNode
+  label:
+    en_US: Top Up via PayPal
+description:
+  human:
+    en_US: Create a PayPal top-up order for the user's wallet
+  llm: Create a PayPal wallet top-up order. Returns an orderId and approvalUrl for completing the PayPal payment flow. Minimum $5.00 (500 cents).
+parameters:
+  - name: amount_cents
+    type: number
+    required: true
+    label:
+      en_US: Amount (cents)
+    human_description:
+      en_US: Amount to top up in cents (minimum 500 = $5.00)
+    llm_description: Amount to top up in cents. Must be between 500 ($5.00) and 1,000,000 ($10,000).

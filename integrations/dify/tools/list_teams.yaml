@@ -1,0 +1,10 @@
+identity:
+  name: list_teams
+  author: DomiNode
+  label:
+    en_US: List Teams
+description:
+  human:
+    en_US: List all teams the user belongs to
+  llm: List all teams that the authenticated user is a member of. Returns team IDs, names, roles, and member counts.
+parameters: []

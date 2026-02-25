@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dominusnode-semantic-kernel"
+version = "1.0.0"
+description = "DomiNode rotating proxy plugin for Microsoft Semantic Kernel"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.10"
+dependencies = ["httpx>=0.24.0", "semantic-kernel>=1.0.0"]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0", "pytest-mock"]
+
+[tool.setuptools.packages.find]
+include = ["dominusnode_semantic_kernel*"]

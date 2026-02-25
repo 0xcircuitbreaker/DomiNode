@@ -434,6 +434,8 @@ class AgenticWallet:
     spending_limit_cents: int
     status: str
     created_at: str = ""
+    daily_limit_cents: Optional[int] = None
+    allowed_domains: Optional[List[str]] = None
 
 
 @dataclass(frozen=True)

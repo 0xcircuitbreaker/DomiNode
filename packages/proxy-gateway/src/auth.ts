@@ -11,6 +11,7 @@ export interface ProxyOptions {
   asn?: number;       // ASN number (placeholder for future providers)
   sessionId?: string; // sticky session ID (alphanumeric)
   proxyType?: "dc" | "residential" | "auto"; // pool selection
+  walletId?: string;  // agentic wallet UUID for policy enforcement
 }
 
 export interface AuthResult {
@@ -65,6 +66,12 @@ function parseProxyOptions(username: string): ProxyOptions {
   const sessionMatch = username.match(/(?:^|-)session-([a-zA-Z0-9]+)(?:-|$)/);
   if (sessionMatch) {
     options.sessionId = sessionMatch[1].slice(0, 255);
+  }
+
+  // Match wallet-UUID pattern for agentic wallet policy enforcement
+  const walletMatch = username.match(/(?:^|-)wallet-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:-|$)/i);
+  if (walletMatch) {
+    options.walletId = walletMatch[1].toLowerCase();
   }
 
   return options;

@@ -1,0 +1,30 @@
+identity:
+  author: DomiNode
+  name: dominusnode
+  label:
+    en_US: DomiNode
+  description:
+    en_US: Rotating proxy-as-a-service with wallet billing, team management, and x402 micropayments
+  icon: icon.svg
+credentials_for_provider:
+  api_key:
+    type: secret-input
+    required: true
+    label:
+      en_US: DomiNode API Key
+    placeholder:
+      en_US: dn_live_...
+    help:
+      en_US: Your DomiNode API key (starts with dn_live_ or dn_test_)
+  base_url:
+    type: text-input
+    required: false
+    label:
+      en_US: API Base URL
+    default: "https://api.dominusnode.com"
+  proxy_host:
+    type: text-input
+    required: false
+    label:
+      en_US: Proxy Host
+    default: "proxy.dominusnode.com"

@@ -1,7 +1,7 @@
 /**
  * DomiNode OpenClaw Plugin
  *
- * Implements 23 tools for interacting with DomiNode's rotating proxy service
+ * Implements 24 tools for interacting with DomiNode's rotating proxy service
  * directly from OpenClaw AI coding sessions.
  *
  * Uses native fetch (no external dependencies). Runs via jiti runtime.
@@ -53,6 +53,9 @@ const COUNTRY_CODE_RE = /^[A-Z]{2}$/;
 
 /** UUID v4 pattern for wallet/team IDs. */
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Valid domain name pattern (e.g. example.com, sub.example.co.uk). */
+const DOMAIN_RE = /^(?:[a-zA-Z0-9](?:[a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$/;
 
 // ---------------------------------------------------------------------------
 // Environment helpers
@@ -391,9 +394,11 @@ function stripDangerousKeys(obj: unknown, depth = 0): void {
 
 let cachedJwt: string | null = null;
 let jwtExpiresAt = 0;
+let cachedApiKeyPrefix: string | null = null;
 
 async function ensureAuth(apiKey: string, baseUrl: string): Promise<string> {
-  if (cachedJwt && Date.now() < jwtExpiresAt) return cachedJwt;
+  const keyPrefix = apiKey.slice(0, 16);
+  if (cachedJwt && Date.now() < jwtExpiresAt && cachedApiKeyPrefix === keyPrefix) return cachedJwt;
   const res = await fetch(`${baseUrl}/api/auth/verify-key`, {
     method: "POST",
     headers: { "Content-Type": "application/json", "User-Agent": "dominusnode-openclaw-plugin/1.0.0" },
@@ -405,6 +410,7 @@ async function ensureAuth(apiKey: string, baseUrl: string): Promise<string> {
     throw new Error(`Auth failed (${res.status}): ${scrubCredentials(text.slice(0, 500))}`);
   }
   const data = await res.json() as { token: string };
+  cachedApiKeyPrefix = keyPrefix;
   cachedJwt = data.token;
   // JWT expires in 15 min, refresh at 14 min for safety
   jwtExpiresAt = Date.now() + 14 * 60 * 1000;
@@ -894,6 +900,16 @@ const createAgenticWalletTool: ToolDefinition = {
       required: false,
       default: 10000,
     },
+    daily_limit_cents: {
+      type: "number",
+      description: "Optional daily spending budget in cents, resets midnight UTC (1-1000000)",
+      required: false,
+    },
+    allowed_domains: {
+      type: "array",
+      description: "Optional domain allowlist for proxy requests (max 100, each <= 253 chars, e.g. ['example.com'])",
+      required: false,
+    },
   },
   execute: async (args) => {
     try {
@@ -911,6 +927,43 @@ const createAgenticWalletTool: ToolDefinition = {
         1000000,
       );
 
+      const body: Record<string, unknown> = {
+        label,
+        spendingLimitCents,
+      };
+
+      // Validate optional daily_limit_cents
+      if (args.daily_limit_cents !== undefined && args.daily_limit_cents !== null) {
+        const dailyLimit = Number(args.daily_limit_cents);
+        if (!Number.isInteger(dailyLimit) || dailyLimit < 1 || dailyLimit > 1000000) {
+          return "Error: daily_limit_cents must be a positive integer between 1 and 1000000.";
+        }
+        body.dailyLimitCents = dailyLimit;
+      }
+
+      // Validate optional allowed_domains
+      if (args.allowed_domains !== undefined && args.allowed_domains !== null) {
+        if (!Array.isArray(args.allowed_domains)) {
+          return "Error: allowed_domains must be an array of domain strings.";
+        }
+        if (args.allowed_domains.length > 100) {
+          return "Error: allowed_domains must have at most 100 entries.";
+        }
+        for (let i = 0; i < args.allowed_domains.length; i++) {
+          const d = args.allowed_domains[i];
+          if (typeof d !== "string") {
+            return `Error: allowed_domains[${i}] must be a string.`;
+          }
+          if (d.length > 253) {
+            return `Error: allowed_domains[${i}] exceeds 253 characters.`;
+          }
+          if (!DOMAIN_RE.test(d)) {
+            return `Error: allowed_domains[${i}] is not a valid domain: ${d}`;
+          }
+        }
+        body.allowedDomains = args.allowed_domains;
+      }
+
       const data = await apiPost<{
         id: string;
         label: string;
@@ -918,10 +971,7 @@ const createAgenticWalletTool: ToolDefinition = {
         spendingLimitCents: number;
         status: string;
         createdAt: string;
-      }>("/api/agent-wallet", {
-        label,
-        spendingLimitCents,
-      });
+      }>("/api/agent-wallet", body);
 
       return [
         "Agentic Wallet Created",
@@ -1762,6 +1812,96 @@ const updateTeamMemberRoleTool: ToolDefinition = {
   },
 };
 
+// 24. update_wallet_policy
+const updateWalletPolicyTool: ToolDefinition = {
+  name: "update_wallet_policy",
+  description:
+    "Update the policy of an agentic wallet. Sets or clears the daily budget cap " +
+    "and/or domain allowlist. Pass null to clear a field. At least one field must be provided.",
+  parameters: {
+    wallet_id: {
+      type: "string",
+      description: "Agentic wallet ID (UUID)",
+      required: true,
+    },
+    daily_limit_cents: {
+      type: "number",
+      description: "Daily spending budget in cents (1-1000000), or null to clear",
+      required: false,
+    },
+    allowed_domains: {
+      type: "array",
+      description: "Domain allowlist (max 100 entries, each <= 253 chars), or null to clear",
+      required: false,
+    },
+  },
+  execute: async (args) => {
+    try {
+      const walletId = validateUuid(String(args.wallet_id ?? ""), "wallet_id");
+
+      const body: Record<string, unknown> = {};
+
+      if (args.daily_limit_cents !== undefined) {
+        if (args.daily_limit_cents === null) {
+          body.dailyLimitCents = null;
+        } else {
+          const dailyLimit = Number(args.daily_limit_cents);
+          if (!Number.isInteger(dailyLimit) || dailyLimit < 1 || dailyLimit > 1000000) {
+            return "Error: daily_limit_cents must be a positive integer between 1 and 1000000, or null to clear.";
+          }
+          body.dailyLimitCents = dailyLimit;
+        }
+      }
+
+      if (args.allowed_domains !== undefined) {
+        if (args.allowed_domains === null) {
+          body.allowedDomains = null;
+        } else {
+          if (!Array.isArray(args.allowed_domains)) {
+            return "Error: allowed_domains must be an array of domain strings, or null to clear.";
+          }
+          if (args.allowed_domains.length > 100) {
+            return "Error: allowed_domains must have at most 100 entries.";
+          }
+          for (let i = 0; i < args.allowed_domains.length; i++) {
+            const d = args.allowed_domains[i];
+            if (typeof d !== "string") {
+              return `Error: allowed_domains[${i}] must be a string.`;
+            }
+            if (d.length > 253) {
+              return `Error: allowed_domains[${i}] exceeds 253 characters.`;
+            }
+            if (!DOMAIN_RE.test(d)) {
+              return `Error: allowed_domains[${i}] is not a valid domain: ${d}`;
+            }
+          }
+          body.allowedDomains = args.allowed_domains;
+        }
+      }
+
+      if (Object.keys(body).length === 0) {
+        return "Error: At least one of daily_limit_cents or allowed_domains must be provided.";
+      }
+
+      const data = await apiPatch<{
+        id: string;
+        dailyLimitCents: number | null;
+        allowedDomains: string[] | null;
+      }>(`/api/agent-wallet/${encodeURIComponent(walletId)}/policy`, body);
+
+      return [
+        "Wallet Policy Updated",
+        "",
+        `Wallet ID: ${data.id}`,
+        `Daily Limit: ${data.dailyLimitCents != null ? formatCents(data.dailyLimitCents) + "/day" : "None (unlimited)"}`,
+        `Allowed Domains: ${data.allowedDomains != null && data.allowedDomains.length > 0 ? data.allowedDomains.join(", ") : "None (all domains)"}`,
+      ].join("\n");
+    } catch (err) {
+      return `Error: ${safeError(err)}`;
+    }
+  },
+};
+
 // ---------------------------------------------------------------------------
 // Plugin export — the tools array that OpenClaw discovers
 // ---------------------------------------------------------------------------
@@ -1790,6 +1930,7 @@ export const tools: ToolDefinition[] = [
   updateTeamMemberRoleTool,
   topupPaypalTool,
   x402InfoTool,
+  updateWalletPolicyTool,
 ];
 
 /**

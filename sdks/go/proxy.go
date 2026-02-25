@@ -33,7 +33,7 @@ func newProxyResource(http *httpClient, proxyHost string, httpPort, socks5Port i
 // Geo-targeting and sticky sessions are encoded in the username portion
 // following Dominus Node proxy conventions.
 //
-// Username format: user-country_XX-state_YY-city_ZZ-asn_N-session_S
+// Username format: user-country-XX-state-YY-city-ZZ-asn-N-session-S
 //
 // All user-controlled values are URL-encoded to prevent injection.
 // The API key is URL-encoded in the password position.
@@ -52,7 +52,7 @@ func newProxyResource(http *httpClient, proxyHost string, httpPort, socks5Port i
 //	    Country: "US",
 //	    State: "CA",
 //	})
-//	// => "socks5://user-country_US-state_CA:dn_live_abc123@proxy.dominusnode.com:1080"
+//	// => "socks5://user-country-US-state-CA:dn_live_abc123@proxy.dominusnode.com:1080"
 func (p *ProxyResource) BuildURL(opts ProxyURLOptions) (string, error) {
 	apiKey := p.getAPIKey()
 	if apiKey == "" {
@@ -77,19 +77,19 @@ func (p *ProxyResource) BuildURL(opts ProxyURLOptions) (string, error) {
 	// Build username with geo-targeting parameters
 	parts := []string{"user"}
 	if opts.Country != "" {
-		parts = append(parts, "country_"+url.QueryEscape(opts.Country))
+		parts = append(parts, "country-"+url.QueryEscape(opts.Country))
 	}
 	if opts.State != "" {
-		parts = append(parts, "state_"+url.QueryEscape(opts.State))
+		parts = append(parts, "state-"+url.QueryEscape(opts.State))
 	}
 	if opts.City != "" {
-		parts = append(parts, "city_"+url.QueryEscape(opts.City))
+		parts = append(parts, "city-"+url.QueryEscape(opts.City))
 	}
 	if opts.ASN != 0 {
-		parts = append(parts, fmt.Sprintf("asn_%d", opts.ASN))
+		parts = append(parts, fmt.Sprintf("asn-%d", opts.ASN))
 	}
 	if opts.SessionID != "" {
-		parts = append(parts, "session_"+url.QueryEscape(opts.SessionID))
+		parts = append(parts, "session-"+url.QueryEscape(opts.SessionID))
 	}
 
 	username := strings.Join(parts, "-")

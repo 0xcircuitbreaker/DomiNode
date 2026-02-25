@@ -64,7 +64,7 @@ static void test_build_url_with_country() {
     dominusnode::ProxyUrlOptions opts;
     opts.country = "US";
     auto url = client.proxy().build_url("dn_live_key1", opts);
-    ASSERT_EQ(url, "http://user-country_US:dn_live_key1@proxy.dominusnode.com:8080");
+    ASSERT_EQ(url, "http://user-country-US:dn_live_key1@proxy.dominusnode.com:8080");
 }
 
 static void test_build_url_with_geo_targeting() {
@@ -74,7 +74,7 @@ static void test_build_url_with_geo_targeting() {
     opts.state = "CA";
     opts.city = "LosAngeles";
     auto url = client.proxy().build_url("dn_live_key1", opts);
-    ASSERT_EQ(url, "http://user-country_US-state_CA-city_LosAngeles:dn_live_key1@proxy.dominusnode.com:8080");
+    ASSERT_EQ(url, "http://user-country-US-state-CA-city-LosAngeles:dn_live_key1@proxy.dominusnode.com:8080");
 }
 
 static void test_build_url_with_session() {
@@ -82,7 +82,7 @@ static void test_build_url_with_session() {
     dominusnode::ProxyUrlOptions opts;
     opts.session_id = "sess_abc123";
     auto url = client.proxy().build_url("dn_live_key1", opts);
-    ASSERT_EQ(url, "http://user-session_sess_abc123:dn_live_key1@proxy.dominusnode.com:8080");
+    ASSERT_EQ(url, "http://user-session-sess_abc123:dn_live_key1@proxy.dominusnode.com:8080");
 }
 
 static void test_build_url_with_asn() {
@@ -90,7 +90,7 @@ static void test_build_url_with_asn() {
     dominusnode::ProxyUrlOptions opts;
     opts.asn = 15169;
     auto url = client.proxy().build_url("dn_live_key1", opts);
-    ASSERT_EQ(url, "http://user-asn_15169:dn_live_key1@proxy.dominusnode.com:8080");
+    ASSERT_EQ(url, "http://user-asn-15169:dn_live_key1@proxy.dominusnode.com:8080");
 }
 
 static void test_build_url_all_options() {
@@ -109,7 +109,7 @@ static void test_build_url_all_options() {
     opts.session_id = "sticky123";
 
     auto url = client.proxy().build_url("dn_live_mykey", opts);
-    ASSERT_EQ(url, "socks5://user-country_DE-state_BY-city_Munich-asn_3320-session_sticky123:dn_live_mykey@myproxy.example.com:2080");
+    ASSERT_EQ(url, "socks5://user-country-DE-state-BY-city-Munich-asn-3320-session-sticky123:dn_live_mykey@myproxy.example.com:2080");
 }
 
 static void test_build_url_custom_host_port() {

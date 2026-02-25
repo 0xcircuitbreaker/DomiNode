@@ -30,8 +30,8 @@ from .tools import DominusNodeClient
 class DominusNodeToolSpec(BaseToolSpec):
     """LlamaIndex tool spec for the DomiNode rotating proxy service.
 
-    Provides 22 tools covering proxy operations, wallet management,
-    agentic wallets, team management, and PayPal top-ups.
+    Provides 23 tools covering proxy operations, wallet management,
+    agentic wallets, team management, PayPal top-ups, and x402 info.
 
     Args:
         api_key: DomiNode API key (``dn_live_...``).  Falls back to the
@@ -58,6 +58,7 @@ class DominusNodeToolSpec(BaseToolSpec):
         "freeze_agentic_wallet",
         "unfreeze_agentic_wallet",
         "delete_agentic_wallet",
+        "update_wallet_policy",
         "create_team",
         "list_teams",
         "team_details",
@@ -67,6 +68,7 @@ class DominusNodeToolSpec(BaseToolSpec):
         "update_team",
         "update_team_member_role",
         "topup_paypal",
+        "x402_info",
     ]
 
     def __init__(
@@ -168,7 +170,11 @@ class DominusNodeToolSpec(BaseToolSpec):
     # ----- Agentic Wallet tools --------------------------------------------
 
     def create_agentic_wallet(
-        self, label: str, spending_limit_cents: int
+        self,
+        label: str,
+        spending_limit_cents: int,
+        daily_limit_cents: Optional[int] = None,
+        allowed_domains: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         """Create a new agentic wallet (server-side custodial sub-wallet).
 
@@ -178,6 +184,9 @@ class DominusNodeToolSpec(BaseToolSpec):
         Args:
             label: Human-readable label (max 100 chars, no control chars).
             spending_limit_cents: Per-transaction spending limit in cents.
+            daily_limit_cents: Optional daily budget cap in cents (1-1,000,000).
+            allowed_domains: Optional list of allowed proxy domains (max 100
+                entries, each <= 253 chars, valid domain format).
 
         Returns:
             Dict with the created wallet ID, label, balance, and limit.
@@ -185,6 +194,8 @@ class DominusNodeToolSpec(BaseToolSpec):
         return self._client.create_agentic_wallet(
             label=label,
             spending_limit_cents=spending_limit_cents,
+            daily_limit_cents=daily_limit_cents,
+            allowed_domains=allowed_domains,
         )
 
     def fund_agentic_wallet(
@@ -280,6 +291,32 @@ class DominusNodeToolSpec(BaseToolSpec):
             Dict confirming deletion and any refunded amount.
         """
         return self._client.delete_agentic_wallet(wallet_id=wallet_id)
+
+    def update_wallet_policy(
+        self,
+        wallet_id: str,
+        daily_limit_cents: Optional[int] = None,
+        allowed_domains: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        """Update the policy of an agentic wallet.
+
+        Sets or clears the daily budget cap and/or domain allowlist for an
+        existing agentic wallet.  At least one field must be provided.
+
+        Args:
+            wallet_id: UUID of the agentic wallet.
+            daily_limit_cents: Optional daily budget cap in cents (1-1,000,000).
+            allowed_domains: Optional list of allowed proxy domains (max 100
+                entries, each <= 253 chars, valid domain format).
+
+        Returns:
+            Dict with the updated wallet policy.
+        """
+        return self._client.update_wallet_policy(
+            wallet_id=wallet_id,
+            daily_limit_cents=daily_limit_cents,
+            allowed_domains=allowed_domains,
+        )
 
     # ----- Team tools ------------------------------------------------------
 
@@ -412,6 +449,20 @@ class DominusNodeToolSpec(BaseToolSpec):
             user_id=user_id,
             role=role,
         )
+
+    # ----- x402 info -------------------------------------------------------
+
+    def x402_info(self) -> Dict[str, Any]:
+        """Get x402 micropayment protocol information.
+
+        Returns details about x402 HTTP 402 Payment Required protocol support
+        including facilitators, pricing, supported currencies, and payment
+        options for AI agent micropayments.
+
+        Returns:
+            Dict with x402 protocol information.
+        """
+        return self._client.x402_info()
 
     # ----- PayPal top-up ---------------------------------------------------
 

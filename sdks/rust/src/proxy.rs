@@ -95,19 +95,19 @@ impl ProxyResource {
 
         if let Some(ref o) = opts {
             if let Some(ref country) = o.country {
-                user_parts.push(format!("country_{}", encode_uri_component(country)));
+                user_parts.push(format!("country-{}", encode_uri_component(country)));
             }
             if let Some(ref state) = o.state {
-                user_parts.push(format!("state_{}", encode_uri_component(state)));
+                user_parts.push(format!("state-{}", encode_uri_component(state)));
             }
             if let Some(ref city) = o.city {
-                user_parts.push(format!("city_{}", encode_uri_component(city)));
+                user_parts.push(format!("city-{}", encode_uri_component(city)));
             }
             if let Some(asn) = o.asn {
-                user_parts.push(format!("asn_{}", asn));
+                user_parts.push(format!("asn-{}", asn));
             }
             if let Some(ref session_id) = o.session_id {
-                user_parts.push(format!("session_{}", encode_uri_component(session_id)));
+                user_parts.push(format!("session-{}", encode_uri_component(session_id)));
             }
         }
 

@@ -82,7 +82,16 @@
         },
         "spending_limit_cents": {
           "type": "INTEGER",
-          "description": "Per-transaction spending limit in cents. Controls the maximum amount that can be debited in a single proxy session. Must be a positive integer, no greater than 2,147,483,647. Use 0 for no per-transaction limit. Example: 500 = $5.00 limit per transaction."
+          "description": "Per-transaction spending limit in cents. Controls the maximum amount that can be debited in a single proxy session. Must be a positive integer (minimum 1), no greater than 2,147,483,647. Example: 500 = $5.00 limit per transaction."
+        },
+        "daily_limit_cents": {
+          "type": "INTEGER",
+          "description": "Optional daily spending budget in cents (resets midnight UTC). Must be between 1 and 1,000,000. Omit to not set a daily limit."
+        },
+        "allowed_domains": {
+          "type": "ARRAY",
+          "description": "Optional domain allowlist for proxy requests. Only these domains will be accessible. Maximum 100 entries, each must be a valid domain name with at most 253 characters.",
+          "items": { "type": "STRING" }
         }
       },
       "required": ["label", "spending_limit_cents"]
@@ -184,6 +193,29 @@
         "wallet_id": {
           "type": "STRING",
           "description": "The UUID of the agentic wallet to delete."
+        }
+      },
+      "required": ["wallet_id"]
+    }
+  },
+  {
+    "name": "dominusnode_update_wallet_policy",
+    "description": "Update the policy of an agentic wallet. Sets or clears the daily budget cap and/or domain allowlist for an existing agentic wallet. Pass null to clear a field. At least one of daily_limit_cents or allowed_domains must be provided.",
+    "parameters": {
+      "type": "OBJECT",
+      "properties": {
+        "wallet_id": {
+          "type": "STRING",
+          "description": "The UUID of the agentic wallet to update. Obtain this from dominusnode_create_agentic_wallet or by listing agentic wallets."
+        },
+        "daily_limit_cents": {
+          "type": "INTEGER",
+          "description": "Daily spending budget in cents (1-1,000,000). Pass null to clear the daily limit. Resets at midnight UTC."
+        },
+        "allowed_domains": {
+          "type": "ARRAY",
+          "description": "Domain allowlist for proxy requests. Pass null to clear the allowlist. Maximum 100 entries, each must be a valid domain name with at most 253 characters.",
+          "items": { "type": "STRING" }
         }
       },
       "required": ["wallet_id"]

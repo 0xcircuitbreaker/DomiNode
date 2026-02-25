@@ -92,9 +92,21 @@
         },
         "spending_limit_cents": {
           "type": "integer",
-          "description": "Per-transaction spending limit in cents. Controls the maximum amount that can be debited in a single proxy session. Use 0 for no per-transaction limit. Must be a non-negative integer <= 2,147,483,647. Example: 500 = $5.00 limit per transaction, 0 = no limit.",
-          "minimum": 0,
+          "description": "Per-transaction spending limit in cents. Controls the maximum amount that can be debited in a single proxy session. Must be a positive integer <= 2,147,483,647. Example: 500 = $5.00 limit per transaction.",
+          "minimum": 1,
           "maximum": 2147483647
+        },
+        "daily_limit_cents": {
+          "type": "integer",
+          "description": "Optional daily spending budget in cents (resets midnight UTC). If set, agent cannot spend more than this per day.",
+          "minimum": 1,
+          "maximum": 1000000
+        },
+        "allowed_domains": {
+          "type": "array",
+          "description": "Optional list of allowed target domains. When set, proxy requests to unlisted domains are rejected.",
+          "items": { "type": "string", "maxLength": 253 },
+          "maxItems": 100
         }
       },
       "required": ["label", "spending_limit_cents"]
@@ -307,6 +319,33 @@
         "wallet_id": {
           "type": "string",
           "description": "The UUID of the agentic wallet to delete."
+        }
+      },
+      "required": ["wallet_id"]
+    }
+  },
+  {
+    "name": "dominusnode_update_wallet_policy",
+    "description": "Update spending policy for an agentic wallet (daily limit and/or domain allowlist).",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "wallet_id": {
+          "type": "string",
+          "description": "Agentic wallet UUID",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "daily_limit_cents": {
+          "type": ["integer", "null"],
+          "description": "Daily budget in cents (null to remove)",
+          "minimum": 1,
+          "maximum": 1000000
+        },
+        "allowed_domains": {
+          "type": ["array", "null"],
+          "description": "Domain allowlist (null to remove)",
+          "items": { "type": "string", "maxLength": 253 },
+          "maxItems": 100
         }
       },
       "required": ["wallet_id"]

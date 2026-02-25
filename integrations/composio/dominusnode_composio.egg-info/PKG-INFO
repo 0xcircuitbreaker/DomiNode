@@ -1,0 +1,218 @@
+Metadata-Version: 2.4
+Name: dominusnode-composio
+Version: 1.0.0
+Summary: DomiNode tools for Composio -- 22 proxy, wallet, and team management actions
+License: MIT
+Requires-Python: >=3.10
+Description-Content-Type: text/markdown
+License-File: LICENSE
+Requires-Dist: httpx>=0.25.0
+Provides-Extra: dev
+Requires-Dist: pytest>=7.0; extra == "dev"
+Dynamic: license-file
+
+# dominusnode-composio
+
+Composio toolkit for the [DomiNode](https://dominusnode.com) rotating proxy-as-a-service platform. Provides 22 Composio-compatible actions for proxy management, wallet operations, team administration, and payment processing.
+
+## Installation
+
+```bash
+pip install dominusnode-composio
+```
+
+Or install from source:
+
+```bash
+cd integrations/composio
+pip install -e ".[dev]"
+```
+
+## Environment Setup
+
+Set your DomiNode API key as an environment variable:
+
+```bash
+export DOMINUSNODE_API_KEY="dn_live_your_api_key_here"
+```
+
+Optionally configure the API base URL and proxy host:
+
+```bash
+export DOMINUSNODE_BASE_URL="https://api.dominusnode.com"
+export DOMINUSNODE_PROXY_HOST="proxy.dominusnode.com"
+export DOMINUSNODE_PROXY_PORT="8080"
+```
+
+## Quick Start
+
+```python
+from dominusnode_composio import DominusNodeToolkit
+
+# Create toolkit (picks up DOMINUSNODE_API_KEY from environment)
+toolkit = DominusNodeToolkit()
+
+# Or pass the API key explicitly
+toolkit = DominusNodeToolkit(api_key="dn_live_...")
+
+# Check wallet balance
+print(toolkit.check_balance())
+
+# Fetch a URL through rotating proxies
+print(toolkit.proxied_fetch(url="https://example.com", country="US"))
+
+# Get Composio-compatible action definitions
+actions = toolkit.get_actions()
+for action in actions:
+    print(f"{action['name']}: {action['description']}")
+```
+
+## Actions (22 total)
+
+### Proxy Actions
+
+| Action | Description | Required Parameters |
+|--------|-------------|-------------------|
+| `DOMINUSNODE_PROXIED_FETCH` | Fetch URL through rotating proxy | `url` |
+| `DOMINUSNODE_GET_PROXY_CONFIG` | Get proxy configuration | - |
+| `DOMINUSNODE_LIST_SESSIONS` | List active proxy sessions | - |
+
+### Wallet Actions
+
+| Action | Description | Required Parameters |
+|--------|-------------|-------------------|
+| `DOMINUSNODE_CHECK_BALANCE` | Check wallet balance | - |
+| `DOMINUSNODE_CHECK_USAGE` | Check usage statistics | - |
+| `DOMINUSNODE_TOPUP_PAYPAL` | Create PayPal top-up order | `amount_cents` |
+
+### Agentic Wallet Actions
+
+| Action | Description | Required Parameters |
+|--------|-------------|-------------------|
+| `DOMINUSNODE_CREATE_AGENTIC_WALLET` | Create sub-wallet with spending limit | `label`, `spending_limit_cents` |
+| `DOMINUSNODE_FUND_AGENTIC_WALLET` | Fund agentic wallet from main wallet | `wallet_id`, `amount_cents` |
+| `DOMINUSNODE_AGENTIC_WALLET_BALANCE` | Check agentic wallet balance | `wallet_id` |
+| `DOMINUSNODE_LIST_AGENTIC_WALLETS` | List all agentic wallets | - |
+| `DOMINUSNODE_AGENTIC_TRANSACTIONS` | Get agentic wallet transactions | `wallet_id` |
+| `DOMINUSNODE_FREEZE_AGENTIC_WALLET` | Freeze agentic wallet | `wallet_id` |
+| `DOMINUSNODE_UNFREEZE_AGENTIC_WALLET` | Unfreeze agentic wallet | `wallet_id` |
+| `DOMINUSNODE_DELETE_AGENTIC_WALLET` | Delete agentic wallet | `wallet_id` |
+
+### Team Actions
+
+| Action | Description | Required Parameters |
+|--------|-------------|-------------------|
+| `DOMINUSNODE_CREATE_TEAM` | Create team with shared wallet | `name` |
+| `DOMINUSNODE_LIST_TEAMS` | List all teams | - |
+| `DOMINUSNODE_TEAM_DETAILS` | Get team details | `team_id` |
+| `DOMINUSNODE_TEAM_FUND` | Fund team wallet | `team_id`, `amount_cents` |
+| `DOMINUSNODE_TEAM_CREATE_KEY` | Create team API key | `team_id`, `label` |
+| `DOMINUSNODE_TEAM_USAGE` | Get team usage history | `team_id` |
+| `DOMINUSNODE_UPDATE_TEAM` | Update team settings | `team_id` |
+| `DOMINUSNODE_UPDATE_TEAM_MEMBER_ROLE` | Change member role | `team_id`, `user_id`, `role` |
+
+### Protocol Actions
+
+| Action | Description | Required Parameters |
+|--------|-------------|-------------------|
+| `DOMINUSNODE_X402_INFO` | Get x402 micropayment info | - |
+
+## Usage Examples
+
+### Proxied Fetch with Geo-Targeting
+
+```python
+# Fetch through a US datacenter proxy ($3/GB)
+result = toolkit.proxied_fetch(
+    url="https://example.com",
+    country="US",
+    proxy_type="dc",
+)
+
+# Fetch through a German residential proxy ($5/GB)
+result = toolkit.proxied_fetch(
+    url="https://example.de",
+    country="DE",
+    proxy_type="residential",
+)
+```
+
+### Agentic Wallet Management
+
+```python
+import json
+
+# Create a sub-wallet for an AI agent with $10 spending limit
+wallet = json.loads(toolkit.create_agentic_wallet(
+    label="Research Agent",
+    spending_limit_cents=1000,
+))
+
+# Fund it with $5 from main wallet
+toolkit.fund_agentic_wallet(
+    wallet_id=wallet["id"],
+    amount_cents=500,
+)
+
+# Check balance
+print(toolkit.agentic_wallet_balance(wallet_id=wallet["id"]))
+
+# Freeze if needed
+toolkit.freeze_agentic_wallet(wallet_id=wallet["id"])
+```
+
+### Team Management
+
+```python
+import json
+
+# Create a team
+team = json.loads(toolkit.create_team(name="Research Team", max_members=10))
+
+# Fund the team wallet
+toolkit.team_fund(team_id=team["id"], amount_cents=5000)
+
+# Create a team API key
+key = json.loads(toolkit.team_create_key(
+    team_id=team["id"],
+    label="Agent Key",
+))
+```
+
+### Composio Action Discovery
+
+```python
+# Get all Composio-compatible action definitions
+actions = toolkit.get_actions()
+for action in actions:
+    print(f"{action['name']}: {action['description']}")
+    print(f"  Parameters: {list(action['parameters'].keys())}")
+    # Each action has a 'handler' callable
+    # handler = action['handler']
+```
+
+## Security
+
+This toolkit includes comprehensive security measures:
+
+- **SSRF Prevention**: Blocks requests to private IPs (10.x, 172.16-31.x, 192.168.x, 127.x, 0.0.0.0/8, 169.254.x, 100.64-127.x CGNAT, 224+ multicast), IPv6 loopback/ULA/link-local, IPv4-mapped/compatible IPv6, Teredo (2001:0000::/32), 6to4 (2002::/16), hex/octal/decimal encoded IPs
+- **DNS Rebinding Protection**: Resolves hostnames and validates all IP addresses before connecting
+- **TLD Blocking**: .localhost, .local, .internal, .arpa
+- **Credential Protection**: Embedded URL credentials blocked; API keys scrubbed from all error output
+- **OFAC Compliance**: Cuba, Iran, North Korea, Russia, Syria blocked for geo-targeting
+- **HTTP Method Restriction**: Only GET, HEAD, OPTIONS allowed through proxy
+- **Prototype Pollution Prevention**: Dangerous keys stripped from all JSON responses
+- **Response Limits**: 10 MB body cap, 4000 char truncation for LLM context
+- **Redirect Disabled**: No redirect following to prevent open redirect abuse
+
+## Running Tests
+
+```bash
+cd integrations/composio
+pip install -e ".[dev]"
+pytest tests/ -v
+```
+
+## License
+
+MIT

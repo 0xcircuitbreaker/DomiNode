@@ -1,13 +1,13 @@
-"""DomiNode AutoGPT plugin -- 22 proxy, wallet, team, and PayPal management commands.
+"""DomiNode AutoGPT plugin -- 23 proxy, wallet, team, and PayPal management commands.
 
-Provides an AutoGPT-compatible plugin class that exposes 22 commands for
+Provides an AutoGPT-compatible plugin class that exposes 23 commands for
 interacting with the DomiNode rotating proxy-as-a-service platform.
 
 Commands cover:
   - Proxied HTTP fetching through rotating proxies
   - Wallet balance and usage monitoring
   - Proxy configuration and session listing
-  - Agentic wallet management (create, fund, freeze, unfreeze, delete)
+  - Agentic wallet management (create, fund, freeze, unfreeze, delete, policy)
   - Team management (create, list, fund, keys, usage, update, role changes)
   - PayPal top-up
 
@@ -42,7 +42,7 @@ import os
 import re
 import socket
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, Optional, Set
+from typing import Any, Dict, List, Optional, Set
 from urllib.parse import quote, urlparse
 
 import httpx
@@ -415,6 +415,10 @@ _UUID_RE = re.compile(
     re.IGNORECASE,
 )
 
+_DOMAIN_RE = re.compile(
+    r"^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?)*$"
+)
+
 
 # ---------------------------------------------------------------------------
 # Period to date range helper
@@ -475,6 +479,22 @@ def _validate_uuid(value: Any, field_name: str) -> Optional[str]:
     return None
 
 
+def _validate_allowed_domains(domains: Any) -> Optional[str]:
+    """Validate allowed_domains list, returning error message or None."""
+    if not isinstance(domains, list):
+        return "allowed_domains must be a list of strings"
+    if len(domains) > 100:
+        return "allowed_domains must contain at most 100 entries"
+    for i, domain in enumerate(domains):
+        if not isinstance(domain, str):
+            return f"allowed_domains[{i}] must be a string"
+        if len(domain) > 253:
+            return f"allowed_domains[{i}] exceeds maximum length of 253 characters"
+        if not _DOMAIN_RE.match(domain):
+            return f"allowed_domains[{i}] is not a valid domain format"
+    return None
+
+
 # ===========================================================================
 # DominusNodePlugin -- main plugin class
 # ===========================================================================
@@ -483,7 +503,7 @@ def _validate_uuid(value: Any, field_name: str) -> Optional[str]:
 class DominusNodePlugin:
     """AutoGPT plugin providing DomiNode rotating proxy commands.
 
-    Authenticates using a DomiNode API key and exposes 22 commands for proxy,
+    Authenticates using a DomiNode API key and exposes 23 commands for proxy,
     wallet, team, and payment management.  All commands return JSON strings
     suitable for consumption by an LLM.
 
@@ -843,13 +863,20 @@ class DominusNodePlugin:
     # ==================================================================
 
     def create_agentic_wallet(
-        self, label: str, spending_limit_cents: int
+        self,
+        label: str,
+        spending_limit_cents: int,
+        daily_limit_cents: int | None = None,
+        allowed_domains: List[str] | None = None,
     ) -> str:
         """Create a new agentic sub-wallet with a spending limit.
 
         Args:
             label: Human-readable label for the wallet (max 100 chars).
             spending_limit_cents: Per-transaction spending limit in cents.
+            daily_limit_cents: Optional daily budget cap in cents (1 to 1,000,000).
+            allowed_domains: Optional list of domains to restrict proxy usage
+                (max 100 entries, each <= 253 chars, valid domain format).
 
         Returns:
             JSON string with the created wallet details.
@@ -862,11 +889,29 @@ class DominusNodePlugin:
         if err:
             return json.dumps({"error": err})
 
+        if daily_limit_cents is not None:
+            err = _validate_positive_int(
+                daily_limit_cents, "daily_limit_cents", max_value=1_000_000
+            )
+            if err:
+                return json.dumps({"error": err})
+
+        if allowed_domains is not None:
+            err = _validate_allowed_domains(allowed_domains)
+            if err:
+                return json.dumps({"error": err})
+
+        body: Dict[str, Any] = {
+            "label": label,
+            "spendingLimitCents": spending_limit_cents,
+        }
+        if daily_limit_cents is not None:
+            body["dailyLimitCents"] = daily_limit_cents
+        if allowed_domains is not None:
+            body["allowedDomains"] = allowed_domains
+
         try:
-            result = self._request_with_retry("POST", "/api/agent-wallet", {
-                "label": label,
-                "spendingLimitCents": spending_limit_cents,
-            })
+            result = self._request_with_retry("POST", "/api/agent-wallet", body)
             return json.dumps(result)
         except Exception as e:
             return json.dumps({"error": _sanitize_error(str(e))})
@@ -1052,7 +1097,58 @@ class DominusNodePlugin:
             return json.dumps({"error": _sanitize_error(str(e))})
 
     # ==================================================================
-    # Command 14: create_team
+    # Command 14: update_wallet_policy
+    # ==================================================================
+
+    def update_wallet_policy(
+        self,
+        wallet_id: str,
+        daily_limit_cents: int | None = None,
+        allowed_domains: List[str] | None = None,
+    ) -> str:
+        """Update the policy for an agentic wallet.
+
+        Args:
+            wallet_id: UUID of the agentic wallet.
+            daily_limit_cents: Optional daily budget cap in cents (1 to 1,000,000).
+            allowed_domains: Optional list of domains to restrict proxy usage
+                (max 100 entries, each <= 253 chars, valid domain format).
+
+        Returns:
+            JSON string with the updated wallet policy.
+        """
+        err = _validate_uuid(wallet_id, "wallet_id")
+        if err:
+            return json.dumps({"error": err})
+
+        body: Dict[str, Any] = {}
+
+        if daily_limit_cents is not None:
+            err = _validate_positive_int(
+                daily_limit_cents, "daily_limit_cents", max_value=1_000_000
+            )
+            if err:
+                return json.dumps({"error": err})
+            body["dailyLimitCents"] = daily_limit_cents
+
+        if allowed_domains is not None:
+            err = _validate_allowed_domains(allowed_domains)
+            if err:
+                return json.dumps({"error": err})
+            body["allowedDomains"] = allowed_domains
+
+        try:
+            result = self._request_with_retry(
+                "PATCH",
+                f"/api/agent-wallet/{quote(wallet_id, safe='')}/policy",
+                body,
+            )
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Command 15: create_team
     # ==================================================================
 
     def create_team(self, name: str, max_members: int | None = None) -> str:
@@ -1399,6 +1495,7 @@ class DominusNodePlugin:
             "freeze_agentic_wallet": self._handle_freeze_agentic_wallet,
             "unfreeze_agentic_wallet": self._handle_unfreeze_agentic_wallet,
             "delete_agentic_wallet": self._handle_delete_agentic_wallet,
+            "update_wallet_policy": self._handle_update_wallet_policy,
             "create_team": self._handle_create_team,
             "list_teams": self._handle_list_teams,
             "team_details": self._handle_team_details,
@@ -1461,6 +1558,8 @@ class DominusNodePlugin:
         return self.create_agentic_wallet(
             label=label,
             spending_limit_cents=spending_limit_cents,
+            daily_limit_cents=args.get("daily_limit_cents"),
+            allowed_domains=args.get("allowed_domains"),
         )
 
     def _handle_fund_agentic_wallet(self, args: dict) -> str:
@@ -1508,6 +1607,16 @@ class DominusNodePlugin:
         if not wallet_id:
             return json.dumps({"error": "wallet_id is required"})
         return self.delete_agentic_wallet(wallet_id=wallet_id)
+
+    def _handle_update_wallet_policy(self, args: dict) -> str:
+        wallet_id = args.get("wallet_id")
+        if not wallet_id:
+            return json.dumps({"error": "wallet_id is required"})
+        return self.update_wallet_policy(
+            wallet_id=wallet_id,
+            daily_limit_cents=args.get("daily_limit_cents"),
+            allowed_domains=args.get("allowed_domains"),
+        )
 
     def _handle_create_team(self, args: dict) -> str:
         name = args.get("name")
@@ -1591,7 +1700,7 @@ class DominusNodePlugin:
 
     @staticmethod
     def get_commands() -> list[dict]:
-        """Return metadata for all 22 commands (for AutoGPT plugin discovery).
+        """Return metadata for all 23 commands (for AutoGPT plugin discovery).
 
         Returns:
             A list of dicts with ``name``, ``description``, and ``parameters``
@@ -1637,6 +1746,8 @@ class DominusNodePlugin:
                 "parameters": {
                     "label": {"type": "string", "description": "Wallet label (max 100 chars)", "required": True},
                     "spending_limit_cents": {"type": "integer", "description": "Per-transaction limit in cents", "required": True},
+                    "daily_limit_cents": {"type": "integer", "description": "Daily budget cap in cents (1-1,000,000)"},
+                    "allowed_domains": {"type": "array", "description": "Restrict proxy to these domains (max 100)"},
                 },
             },
             {
@@ -1686,6 +1797,15 @@ class DominusNodePlugin:
                 "description": "Delete an agentic wallet (must be unfrozen first)",
                 "parameters": {
                     "wallet_id": {"type": "string", "description": "Agentic wallet ID", "required": True},
+                },
+            },
+            {
+                "name": "update_wallet_policy",
+                "description": "Update the policy for an agentic wallet (daily limit, allowed domains)",
+                "parameters": {
+                    "wallet_id": {"type": "string", "description": "Agentic wallet UUID", "required": True},
+                    "daily_limit_cents": {"type": "integer", "description": "Daily budget cap in cents (1-1,000,000)"},
+                    "allowed_domains": {"type": "array", "description": "Restrict proxy to these domains (max 100)"},
                 },
             },
             {

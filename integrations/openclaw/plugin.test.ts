@@ -533,8 +533,8 @@ describe("formatCents", () => {
 // =========================================================================
 
 describe("plugin structure", () => {
-  it("exports exactly 23 tools", () => {
-    expect(tools).toHaveLength(23);
+  it("exports exactly 24 tools", () => {
+    expect(tools).toHaveLength(24);
   });
 
   it("has correct plugin metadata", () => {
@@ -579,6 +579,7 @@ describe("plugin structure", () => {
     expect(names).toContain("team_fund");
     expect(names).toContain("team_create_key");
     expect(names).toContain("team_usage");
+    expect(names).toContain("update_wallet_policy");
   });
 });
 
@@ -897,5 +898,200 @@ describe("team_fund tool", () => {
       amount_cents: 1000001,
     });
     expect(result).toContain("Error");
+  });
+});
+
+// =========================================================================
+// Tool Execution — create_agentic_wallet (wallet policy fields)
+// =========================================================================
+
+describe("create_agentic_wallet wallet policy fields", () => {
+  const tool = tools.find((t) => t.name === "create_agentic_wallet")!;
+
+  it("rejects daily_limit_cents below 1", async () => {
+    const result = await tool.execute({
+      label: "test-bot",
+      spending_limit_cents: 1000,
+      daily_limit_cents: 0,
+    });
+    expect(result).toContain("Error");
+    expect(result).toContain("daily_limit_cents");
+  });
+
+  it("rejects daily_limit_cents above 1000000", async () => {
+    const result = await tool.execute({
+      label: "test-bot",
+      spending_limit_cents: 1000,
+      daily_limit_cents: 1000001,
+    });
+    expect(result).toContain("Error");
+    expect(result).toContain("daily_limit_cents");
+  });
+
+  it("rejects non-integer daily_limit_cents", async () => {
+    const result = await tool.execute({
+      label: "test-bot",
+      spending_limit_cents: 1000,
+      daily_limit_cents: 100.5,
+    });
+    expect(result).toContain("Error");
+    expect(result).toContain("daily_limit_cents");
+  });
+
+  it("rejects allowed_domains that is not an array", async () => {
+    const result = await tool.execute({
+      label: "test-bot",
+      spending_limit_cents: 1000,
+      allowed_domains: "example.com",
+    });
+    expect(result).toContain("Error");
+    expect(result).toContain("allowed_domains");
+  });
+
+  it("rejects allowed_domains with more than 100 entries", async () => {
+    const domains = Array.from({ length: 101 }, (_, i) => `d${i}.example.com`);
+    const result = await tool.execute({
+      label: "test-bot",
+      spending_limit_cents: 1000,
+      allowed_domains: domains,
+    });
+    expect(result).toContain("Error");
+    expect(result).toContain("100");
+  });
+
+  it("rejects allowed_domains entry exceeding 253 chars", async () => {
+    const result = await tool.execute({
+      label: "test-bot",
+      spending_limit_cents: 1000,
+      allowed_domains: ["a".repeat(254) + ".com"],
+    });
+    expect(result).toContain("Error");
+    expect(result).toContain("253");
+  });
+
+  it("rejects allowed_domains with invalid domain format", async () => {
+    const result = await tool.execute({
+      label: "test-bot",
+      spending_limit_cents: 1000,
+      allowed_domains: ["not a domain!!"],
+    });
+    expect(result).toContain("Error");
+    expect(result).toContain("not a valid domain");
+  });
+
+  it("rejects allowed_domains entry that is not a string", async () => {
+    const result = await tool.execute({
+      label: "test-bot",
+      spending_limit_cents: 1000,
+      allowed_domains: [123],
+    });
+    expect(result).toContain("Error");
+    expect(result).toContain("must be a string");
+  });
+});
+
+// =========================================================================
+// Tool Execution — update_wallet_policy
+// =========================================================================
+
+describe("update_wallet_policy tool", () => {
+  const tool = tools.find((t) => t.name === "update_wallet_policy")!;
+
+  it("rejects invalid wallet_id", async () => {
+    const result = await tool.execute({
+      wallet_id: "not-a-uuid",
+      daily_limit_cents: 5000,
+    });
+    expect(result).toContain("Error");
+    expect(result).toContain("wallet_id");
+  });
+
+  it("rejects missing wallet_id", async () => {
+    const result = await tool.execute({
+      daily_limit_cents: 5000,
+    });
+    expect(result).toContain("Error");
+    expect(result).toContain("wallet_id");
+  });
+
+  it("requires at least one policy field", async () => {
+    const result = await tool.execute({
+      wallet_id: "550e8400-e29b-41d4-a716-446655440000",
+    });
+    expect(result).toContain("Error");
+    expect(result).toContain("At least one");
+  });
+
+  it("rejects daily_limit_cents below 1", async () => {
+    const result = await tool.execute({
+      wallet_id: "550e8400-e29b-41d4-a716-446655440000",
+      daily_limit_cents: 0,
+    });
+    expect(result).toContain("Error");
+    expect(result).toContain("daily_limit_cents");
+  });
+
+  it("rejects daily_limit_cents above 1000000", async () => {
+    const result = await tool.execute({
+      wallet_id: "550e8400-e29b-41d4-a716-446655440000",
+      daily_limit_cents: 1000001,
+    });
+    expect(result).toContain("Error");
+    expect(result).toContain("daily_limit_cents");
+  });
+
+  it("rejects non-integer daily_limit_cents", async () => {
+    const result = await tool.execute({
+      wallet_id: "550e8400-e29b-41d4-a716-446655440000",
+      daily_limit_cents: 500.5,
+    });
+    expect(result).toContain("Error");
+    expect(result).toContain("daily_limit_cents");
+  });
+
+  it("rejects allowed_domains that is not an array", async () => {
+    const result = await tool.execute({
+      wallet_id: "550e8400-e29b-41d4-a716-446655440000",
+      allowed_domains: "example.com",
+    });
+    expect(result).toContain("Error");
+    expect(result).toContain("allowed_domains");
+  });
+
+  it("rejects allowed_domains with more than 100 entries", async () => {
+    const domains = Array.from({ length: 101 }, (_, i) => `d${i}.example.com`);
+    const result = await tool.execute({
+      wallet_id: "550e8400-e29b-41d4-a716-446655440000",
+      allowed_domains: domains,
+    });
+    expect(result).toContain("Error");
+    expect(result).toContain("100");
+  });
+
+  it("rejects allowed_domains entry exceeding 253 chars", async () => {
+    const result = await tool.execute({
+      wallet_id: "550e8400-e29b-41d4-a716-446655440000",
+      allowed_domains: ["a".repeat(254) + ".com"],
+    });
+    expect(result).toContain("Error");
+    expect(result).toContain("253");
+  });
+
+  it("rejects allowed_domains with invalid domain", async () => {
+    const result = await tool.execute({
+      wallet_id: "550e8400-e29b-41d4-a716-446655440000",
+      allowed_domains: ["-invalid.com"],
+    });
+    expect(result).toContain("Error");
+    expect(result).toContain("not a valid domain");
+  });
+
+  it("rejects allowed_domains entry that is not a string", async () => {
+    const result = await tool.execute({
+      wallet_id: "550e8400-e29b-41d4-a716-446655440000",
+      allowed_domains: [42],
+    });
+    expect(result).toContain("Error");
+    expect(result).toContain("must be a string");
   });
 });

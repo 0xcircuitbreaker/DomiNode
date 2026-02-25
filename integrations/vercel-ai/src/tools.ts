@@ -206,11 +206,39 @@ async function checkDnsRebinding(hostname: string): Promise<void> {
 // Credential sanitization for error messages
 // ---------------------------------------------------------------------------
 
-const CREDENTIAL_RE = /dn_(live|test)_[a-zA-Z0-9]+/g;
+const CREDENTIAL_RE = /dn_(live|test)_[a-zA-Z0-9]+|eyJ[a-zA-Z0-9_-]+\.eyJ[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+/g;
 
 function sanitizeError(message: string): string {
   return message.replace(CREDENTIAL_RE, "***");
 }
+
+// ---------------------------------------------------------------------------
+// Prototype pollution prevention
+// ---------------------------------------------------------------------------
+
+const DANGEROUS_KEYS = new Set(["__proto__", "constructor", "prototype"]);
+
+function stripDangerousKeys(obj: unknown, depth = 0): void {
+  if (depth > 50 || obj == null || typeof obj !== "object") return;
+  if (Array.isArray(obj)) {
+    for (const item of obj) stripDangerousKeys(item, depth + 1);
+  } else {
+    for (const key of Object.keys(obj as Record<string, unknown>)) {
+      if (DANGEROUS_KEYS.has(key)) {
+        delete (obj as Record<string, unknown>)[key];
+      } else {
+        stripDangerousKeys((obj as Record<string, unknown>)[key], depth + 1);
+      }
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Agentic wallet validation helpers
+// ---------------------------------------------------------------------------
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const DOMAIN_RE = /^(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$/;
 
 // ---------------------------------------------------------------------------
 // Response body size limit (10 MB)
@@ -331,6 +359,7 @@ export function createProxiedFetchTool(client: DominusNodeClient, apiKey: string
                   const sm = hdr.split("\r\n")[0].match(/^HTTP\/\d\.\d\s+(\d+)\s*(.*)/);
                   const hdrs: Record<string, string> = {};
                   for (const l of hdr.split("\r\n").slice(1)) { const ci = l.indexOf(":"); if (ci > 0) hdrs[l.substring(0, ci).trim().toLowerCase()] = l.substring(ci + 1).trim(); }
+                  stripDangerousKeys(hdrs);
                   resolve({ status: sm ? parseInt(sm[1], 10) : 0, statusText: sm ? sm[2] ?? "" : "", headers: hdrs, body });
                 };
                 tlsSock.on("end", fin); tlsSock.on("close", fin);
@@ -353,6 +382,7 @@ export function createProxiedFetchTool(client: DominusNodeClient, apiKey: string
                 const body = Buffer.concat(chunks).toString("utf-8").substring(0, MAX_RESP);
                 const hdrs: Record<string, string> = {};
                 for (const [k, v] of Object.entries(res.headers)) { if (v) hdrs[k] = Array.isArray(v) ? v.join(", ") : v; }
+                stripDangerousKeys(hdrs);
                 resolve({ status: res.statusCode ?? 0, statusText: res.statusMessage ?? "", headers: hdrs, body });
               };
               res.on("end", fin); res.on("close", fin);
@@ -584,6 +614,9 @@ export function createX402InfoTool(client: DominusNodeClient) {
     execute: async () => {
       try {
         const result = await client.x402.getInfo();
+        if (result && typeof result === "object") {
+          stripDangerousKeys(result);
+        }
         return result;
       } catch (err) {
         const message = err instanceof Error ? err.message : "Unknown error";
@@ -593,5 +626,248 @@ export function createX402InfoTool(client: DominusNodeClient) {
   });
 }
 
+// ---------------------------------------------------------------------------
+// Authenticated API request helper
+// ---------------------------------------------------------------------------
+
+/** Make an authenticated JSON request to the DomiNode REST API. */
+async function apiRequest(
+  client: DominusNodeClient,
+  method: "GET" | "POST" | "DELETE" | "PATCH",
+  path: string,
+  body?: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  // Use client's baseUrl and apiKey for authentication
+  const baseUrl = (client as any).baseUrl || "https://api.dominusnode.com";
+  const apiKey = (client as any).apiKey || "";
+  const url = `${baseUrl}${path}`;
+  const headers: Record<string, string> = {
+    "Authorization": `Bearer ${apiKey}`,
+    "Content-Type": "application/json",
+  };
+
+  const fetchOptions: RequestInit = { method, headers, redirect: "error" };
+  if (body && method !== "GET") {
+    fetchOptions.body = JSON.stringify(body);
+  }
+
+  const resp = await fetch(url, fetchOptions);
+  if (!resp.ok) {
+    const text = await resp.text().catch(() => "");
+    throw new Error(`API returned ${resp.status}: ${sanitizeError(text.slice(0, 200))}`);
+  }
+
+  const text = await resp.text();
+  if (text.length > MAX_RESPONSE_BODY_BYTES) {
+    throw new Error("Response body exceeds 10MB size limit");
+  }
+
+  const data = JSON.parse(text);
+  stripDangerousKeys(data);
+  return data as Record<string, unknown>;
+}
+
+// ---------------------------------------------------------------------------
+// Agentic wallet tool definitions
+// ---------------------------------------------------------------------------
+
+/**
+ * Creates a tool to create a new agentic sub-wallet with a spending limit.
+ */
+export function createCreateAgenticWalletTool(client: DominusNodeClient) {
+  return (tool as any)({
+    description:
+      "Create a new agentic sub-wallet with a spending limit. " +
+      "Agentic wallets are custodial sub-wallets for AI agents with per-transaction spending caps.",
+    parameters: z.object({
+      label: z.string().min(1).max(100).describe("Human-readable label for the wallet"),
+      spending_limit_cents: z.number().int().min(1).max(2147483647).describe("Per-transaction spending limit in cents"),
+      daily_limit_cents: z.number().int().min(1).max(1000000).optional().describe("Optional daily spending limit in cents"),
+      allowed_domains: z.array(z.string().max(253).regex(DOMAIN_RE)).max(100).optional().describe("Optional list of allowed domains"),
+    }),
+    execute: async ({ label, spending_limit_cents, daily_limit_cents, allowed_domains }: {
+      label: string; spending_limit_cents: number; daily_limit_cents?: number; allowed_domains?: string[];
+    }) => {
+      // Validate no control chars in label
+      if (/[\x00-\x1F\x7F]/.test(label)) {
+        return { error: "label contains invalid control characters" };
+      }
+      try {
+        const body: Record<string, unknown> = { label, spendingLimitCents: spending_limit_cents };
+        if (daily_limit_cents !== undefined) body.dailyLimitCents = daily_limit_cents;
+        if (allowed_domains !== undefined) body.allowedDomains = allowed_domains;
+        const result = await apiRequest(client, "POST", "/api/agent-wallet", body);
+        return result;
+      } catch (err) {
+        return { error: `Failed to create agentic wallet: ${sanitizeError(err instanceof Error ? err.message : "Unknown error")}` };
+      }
+    },
+  });
+}
+
+/**
+ * Creates a tool to transfer funds from the main wallet to an agentic sub-wallet.
+ */
+export function createFundAgenticWalletTool(client: DominusNodeClient) {
+  return (tool as any)({
+    description: "Transfer funds from the main wallet to an agentic sub-wallet.",
+    parameters: z.object({
+      wallet_id: z.string().regex(UUID_RE, "Must be a valid UUID").describe("UUID of the agentic wallet"),
+      amount_cents: z.number().int().min(1).max(2147483647).describe("Amount in cents to transfer"),
+    }),
+    execute: async ({ wallet_id, amount_cents }: { wallet_id: string; amount_cents: number }) => {
+      try {
+        return await apiRequest(client, "POST", `/api/agent-wallet/${encodeURIComponent(wallet_id)}/fund`, { amountCents: amount_cents });
+      } catch (err) {
+        return { error: `Failed to fund wallet: ${sanitizeError(err instanceof Error ? err.message : "Unknown error")}` };
+      }
+    },
+  });
+}
+
+/**
+ * Creates a tool to check the balance and details of an agentic sub-wallet.
+ */
+export function createAgenticWalletBalanceTool(client: DominusNodeClient) {
+  return (tool as any)({
+    description: "Check the balance and details of an agentic sub-wallet.",
+    parameters: z.object({
+      wallet_id: z.string().regex(UUID_RE, "Must be a valid UUID").describe("UUID of the agentic wallet"),
+    }),
+    execute: async ({ wallet_id }: { wallet_id: string }) => {
+      try {
+        return await apiRequest(client, "GET", `/api/agent-wallet/${encodeURIComponent(wallet_id)}`);
+      } catch (err) {
+        return { error: `Failed to get wallet balance: ${sanitizeError(err instanceof Error ? err.message : "Unknown error")}` };
+      }
+    },
+  });
+}
+
+/**
+ * Creates a tool to list all agentic sub-wallets for the current user.
+ */
+export function createListAgenticWalletsTool(client: DominusNodeClient) {
+  return (tool as any)({
+    description: "List all agentic sub-wallets for the current user.",
+    parameters: z.object({}),
+    execute: async () => {
+      try {
+        return await apiRequest(client, "GET", "/api/agent-wallet");
+      } catch (err) {
+        return { error: `Failed to list wallets: ${sanitizeError(err instanceof Error ? err.message : "Unknown error")}` };
+      }
+    },
+  });
+}
+
+/**
+ * Creates a tool to list recent transactions for an agentic sub-wallet.
+ */
+export function createAgenticTransactionsTool(client: DominusNodeClient) {
+  return (tool as any)({
+    description: "List recent transactions for an agentic sub-wallet.",
+    parameters: z.object({
+      wallet_id: z.string().regex(UUID_RE, "Must be a valid UUID").describe("UUID of the agentic wallet"),
+      limit: z.number().int().min(1).max(100).optional().describe("Maximum transactions to return (1-100)"),
+    }),
+    execute: async ({ wallet_id, limit }: { wallet_id: string; limit?: number }) => {
+      try {
+        const qs = limit ? `?limit=${limit}` : "";
+        return await apiRequest(client, "GET", `/api/agent-wallet/${encodeURIComponent(wallet_id)}/transactions${qs}`);
+      } catch (err) {
+        return { error: `Failed to get transactions: ${sanitizeError(err instanceof Error ? err.message : "Unknown error")}` };
+      }
+    },
+  });
+}
+
+/**
+ * Creates a tool to freeze an agentic sub-wallet to prevent further spending.
+ */
+export function createFreezeAgenticWalletTool(client: DominusNodeClient) {
+  return (tool as any)({
+    description: "Freeze an agentic sub-wallet to prevent further spending.",
+    parameters: z.object({
+      wallet_id: z.string().regex(UUID_RE, "Must be a valid UUID").describe("UUID of the agentic wallet"),
+    }),
+    execute: async ({ wallet_id }: { wallet_id: string }) => {
+      try {
+        return await apiRequest(client, "POST", `/api/agent-wallet/${encodeURIComponent(wallet_id)}/freeze`);
+      } catch (err) {
+        return { error: `Failed to freeze wallet: ${sanitizeError(err instanceof Error ? err.message : "Unknown error")}` };
+      }
+    },
+  });
+}
+
+/**
+ * Creates a tool to unfreeze a previously frozen agentic sub-wallet.
+ */
+export function createUnfreezeAgenticWalletTool(client: DominusNodeClient) {
+  return (tool as any)({
+    description: "Unfreeze a previously frozen agentic sub-wallet to re-enable spending.",
+    parameters: z.object({
+      wallet_id: z.string().regex(UUID_RE, "Must be a valid UUID").describe("UUID of the agentic wallet"),
+    }),
+    execute: async ({ wallet_id }: { wallet_id: string }) => {
+      try {
+        return await apiRequest(client, "POST", `/api/agent-wallet/${encodeURIComponent(wallet_id)}/unfreeze`);
+      } catch (err) {
+        return { error: `Failed to unfreeze wallet: ${sanitizeError(err instanceof Error ? err.message : "Unknown error")}` };
+      }
+    },
+  });
+}
+
+/**
+ * Creates a tool to delete an agentic sub-wallet. Must be active (not frozen).
+ * Remaining balance returns to main wallet.
+ */
+export function createDeleteAgenticWalletTool(client: DominusNodeClient) {
+  return (tool as any)({
+    description: "Delete an agentic sub-wallet. Must be active (not frozen). Remaining balance returns to main wallet.",
+    parameters: z.object({
+      wallet_id: z.string().regex(UUID_RE, "Must be a valid UUID").describe("UUID of the agentic wallet"),
+    }),
+    execute: async ({ wallet_id }: { wallet_id: string }) => {
+      try {
+        return await apiRequest(client, "DELETE", `/api/agent-wallet/${encodeURIComponent(wallet_id)}`);
+      } catch (err) {
+        return { error: `Failed to delete wallet: ${sanitizeError(err instanceof Error ? err.message : "Unknown error")}` };
+      }
+    },
+  });
+}
+
+/**
+ * Creates a tool to update the policy (daily limit, allowed domains) of an agentic sub-wallet.
+ */
+export function createUpdateWalletPolicyTool(client: DominusNodeClient) {
+  return (tool as any)({
+    description: "Update the policy (daily limit, allowed domains) of an agentic sub-wallet.",
+    parameters: z.object({
+      wallet_id: z.string().regex(UUID_RE, "Must be a valid UUID").describe("UUID of the agentic wallet"),
+      daily_limit_cents: z.number().int().min(1).max(1000000).optional().describe("New daily spending limit in cents"),
+      allowed_domains: z.array(z.string().max(253).regex(DOMAIN_RE)).max(100).optional().describe("New allowed domains list"),
+    }),
+    execute: async ({ wallet_id, daily_limit_cents, allowed_domains }: {
+      wallet_id: string; daily_limit_cents?: number; allowed_domains?: string[];
+    }) => {
+      const body: Record<string, unknown> = {};
+      if (daily_limit_cents !== undefined) body.dailyLimitCents = daily_limit_cents;
+      if (allowed_domains !== undefined) body.allowedDomains = allowed_domains;
+      if (Object.keys(body).length === 0) {
+        return { error: "At least one of daily_limit_cents or allowed_domains must be provided" };
+      }
+      try {
+        return await apiRequest(client, "PATCH", `/api/agent-wallet/${encodeURIComponent(wallet_id)}/policy`, body);
+      } catch (err) {
+        return { error: `Failed to update policy: ${sanitizeError(err instanceof Error ? err.message : "Unknown error")}` };
+      }
+    },
+  });
+}
+
 // Re-export validation helpers for testing
-export { validateUrl, isPrivateIp, truncateBody, filterHeaders };
+export { validateUrl, isPrivateIp, truncateBody, filterHeaders, apiRequest, UUID_RE, DOMAIN_RE };

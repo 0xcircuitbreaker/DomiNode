@@ -559,6 +559,32 @@ def create_dominusnode_function_handler(
         result = await api_request("GET", "/api/sessions/active")
         return json.dumps(result)
 
+    _DOMAIN_RE = re.compile(
+        r"^(?:[a-zA-Z0-9](?:[a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+"
+        r"[a-zA-Z]{2,}$"
+    )
+
+    def _validate_daily_limit(value: Any) -> Optional[str]:
+        if isinstance(value, bool) or not isinstance(value, int):
+            return "daily_limit_cents must be a positive integer"
+        if value < 1 or value > 1_000_000:
+            return "daily_limit_cents must be between 1 and 1,000,000"
+        return None
+
+    def _validate_domains(value: Any) -> Optional[str]:
+        if not isinstance(value, list):
+            return "allowed_domains must be a list of strings"
+        if len(value) > 100:
+            return "allowed_domains must have at most 100 entries"
+        for i, domain in enumerate(value):
+            if not isinstance(domain, str):
+                return f"allowed_domains[{i}] must be a string"
+            if len(domain) > 253:
+                return f"allowed_domains[{i}] exceeds 253 characters"
+            if not _DOMAIN_RE.match(domain):
+                return f"allowed_domains[{i}] is not a valid domain: {domain!r}"
+        return None
+
     async def handle_create_agentic_wallet(args: Dict[str, Any]) -> str:
         label = args.get("label")
         spending_limit_cents = args.get("spending_limit_cents")
@@ -579,10 +605,28 @@ def create_dominusnode_function_handler(
                 "error": "spending_limit_cents must be a positive integer <= 2,147,483,647"
             })
 
-        result = await api_request("POST", "/api/agent-wallet", {
+        body: Dict[str, Any] = {
             "label": label,
             "spendingLimitCents": spending_limit_cents,
-        })
+        }
+
+        # Validate optional daily_limit_cents
+        daily_limit = args.get("daily_limit_cents")
+        if daily_limit is not None:
+            err = _validate_daily_limit(daily_limit)
+            if err:
+                return json.dumps({"error": err})
+            body["dailyLimitCents"] = daily_limit
+
+        # Validate optional allowed_domains
+        allowed = args.get("allowed_domains")
+        if allowed is not None:
+            err = _validate_domains(allowed)
+            if err:
+                return json.dumps({"error": err})
+            body["allowedDomains"] = allowed
+
+        result = await api_request("POST", "/api/agent-wallet", body)
         return json.dumps(result)
 
     async def handle_fund_agentic_wallet(args: Dict[str, Any]) -> str:
@@ -871,6 +915,47 @@ def create_dominusnode_function_handler(
         )
         return json.dumps(result)
 
+    async def handle_update_wallet_policy(args: Dict[str, Any]) -> str:
+        wallet_id = args.get("wallet_id")
+        if not wallet_id or not isinstance(wallet_id, str):
+            return json.dumps({"error": "wallet_id is required and must be a string"})
+        if not _UUID_RE.match(wallet_id):
+            return json.dumps({"error": "wallet_id must be a valid UUID"})
+
+        body: Dict[str, Any] = {}
+
+        daily_limit = args.get("daily_limit_cents")
+        if daily_limit is not None:
+            err = _validate_daily_limit(daily_limit)
+            if err:
+                return json.dumps({"error": err})
+            body["dailyLimitCents"] = daily_limit
+        elif "daily_limit_cents" in args:
+            # Explicitly passed as None (null) to clear
+            body["dailyLimitCents"] = None
+
+        allowed = args.get("allowed_domains")
+        if allowed is not None:
+            err = _validate_domains(allowed)
+            if err:
+                return json.dumps({"error": err})
+            body["allowedDomains"] = allowed
+        elif "allowed_domains" in args:
+            # Explicitly passed as None (null) to clear
+            body["allowedDomains"] = None
+
+        if not body:
+            return json.dumps({
+                "error": "At least one of daily_limit_cents or allowed_domains must be provided"
+            })
+
+        result = await api_request(
+            "PATCH",
+            f"/api/agent-wallet/{quote(wallet_id, safe='')}/policy",
+            body,
+        )
+        return json.dumps(result)
+
     # -------------------------------------------------------------------
     # Dispatch table
     # -------------------------------------------------------------------
@@ -898,6 +983,7 @@ def create_dominusnode_function_handler(
         "dominusnode_update_team": handle_update_team,
         "dominusnode_update_team_member_role": handle_update_team_member_role,
         "dominusnode_topup_paypal": handle_topup_paypal,
+        "dominusnode_update_wallet_policy": handle_update_wallet_policy,
     }
 
     # -------------------------------------------------------------------

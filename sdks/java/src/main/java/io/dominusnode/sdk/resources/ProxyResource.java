@@ -94,19 +94,19 @@ public final class ProxyResource {
         StringBuilder username = new StringBuilder("user");
         if (options != null) {
             if (options.getCountry() != null) {
-                username.append("-country_").append(encode(options.getCountry()));
+                username.append("-country-").append(encode(options.getCountry()));
             }
             if (options.getState() != null) {
-                username.append("-state_").append(encode(options.getState()));
+                username.append("-state-").append(encode(options.getState()));
             }
             if (options.getCity() != null) {
-                username.append("-city_").append(encode(options.getCity()));
+                username.append("-city-").append(encode(options.getCity()));
             }
             if (options.getAsn() != null) {
-                username.append("-asn_").append(encode(String.valueOf(options.getAsn())));
+                username.append("-asn-").append(encode(String.valueOf(options.getAsn())));
             }
             if (options.getSessionId() != null) {
-                username.append("-session_").append(encode(options.getSessionId()));
+                username.append("-session-").append(encode(options.getSessionId()));
             }
         }
 

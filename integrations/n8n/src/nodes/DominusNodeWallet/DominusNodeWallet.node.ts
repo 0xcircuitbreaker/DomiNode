@@ -14,6 +14,7 @@
  * - Freeze Agentic Wallet: Freeze an agentic wallet
  * - Unfreeze Agentic Wallet: Unfreeze an agentic wallet
  * - Delete Agentic Wallet: Delete an agentic wallet
+ * - Update Wallet Policy: Update agentic wallet spending policy
  * - Create Team: Create a new team
  * - List Teams: List all teams
  * - Team Details: Get team details
@@ -39,6 +40,7 @@ import { DominusNodeAuth, sanitizeError } from "../../shared/auth";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const CONTROL_CHAR_RE = /[\x00-\x1f\x7f]/;
+const DOMAIN_RE = /^(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$/;
 const VALID_CRYPTO_CURRENCIES = new Set([
   "btc", "eth", "ltc", "xmr", "zec", "usdc", "sol", "usdt", "dai", "bnb",
 ]);
@@ -77,6 +79,7 @@ export class DominusNodeWallet implements INodeType {
           { name: "Freeze Agentic Wallet", value: "freezeAgenticWallet", description: "Freeze an agentic wallet", action: "Freeze agentic wallet" },
           { name: "Unfreeze Agentic Wallet", value: "unfreezeAgenticWallet", description: "Unfreeze an agentic wallet", action: "Unfreeze agentic wallet" },
           { name: "Delete Agentic Wallet", value: "deleteAgenticWallet", description: "Delete an agentic wallet", action: "Delete agentic wallet" },
+          { name: "Update Wallet Policy", value: "updateWalletPolicy", description: "Update agentic wallet spending policy", action: "Update wallet policy" },
           // Teams
           { name: "Create Team", value: "createTeam", description: "Create a new team", action: "Create team" },
           { name: "List Teams", value: "listTeams", description: "List all teams", action: "List teams" },
@@ -152,6 +155,47 @@ export class DominusNodeWallet implements INodeType {
         required: true,
         description: "Per-transaction spending limit in cents",
         displayOptions: { show: { operation: ["createAgenticWallet"] } },
+      },
+      {
+        displayName: "Daily Limit (Cents)",
+        name: "dailyLimitCents",
+        type: "number",
+        default: 0,
+        description: "Optional daily budget cap in cents (0 = no limit, max 1,000,000)",
+        displayOptions: { show: { operation: ["createAgenticWallet"] } },
+      },
+      {
+        displayName: "Allowed Domains",
+        name: "allowedDomains",
+        type: "string",
+        default: "",
+        description: "Comma-separated domain allowlist (e.g., \"example.com,api.example.org\"). Leave empty for no restriction.",
+        displayOptions: { show: { operation: ["createAgenticWallet"] } },
+      },
+      {
+        displayName: "Wallet ID",
+        name: "policyWalletId",
+        type: "string",
+        default: "",
+        required: true,
+        description: "Agentic wallet UUID to update policy for",
+        displayOptions: { show: { operation: ["updateWalletPolicy"] } },
+      },
+      {
+        displayName: "Daily Limit (Cents)",
+        name: "policyDailyLimitCents",
+        type: "number",
+        default: 0,
+        description: "Daily budget cap in cents (0 = no limit, max 1,000,000). Set to -1 to remove.",
+        displayOptions: { show: { operation: ["updateWalletPolicy"] } },
+      },
+      {
+        displayName: "Allowed Domains",
+        name: "policyAllowedDomains",
+        type: "string",
+        default: "",
+        description: "Comma-separated domain allowlist. Leave empty to skip, set to \"*\" to remove restriction.",
+        displayOptions: { show: { operation: ["updateWalletPolicy"] } },
       },
       {
         displayName: "Wallet ID",
@@ -370,6 +414,8 @@ export class DominusNodeWallet implements INodeType {
           case "createAgenticWallet": {
             const label = this.getNodeParameter("agenticLabel", i) as string;
             const spendingLimitCents = this.getNodeParameter("spendingLimitCents", i) as number;
+            const dailyLimitCents = this.getNodeParameter("dailyLimitCents", i, 0) as number;
+            const allowedDomainsRaw = this.getNodeParameter("allowedDomains", i, "") as string;
 
             if (!label || typeof label !== "string") {
               throw new NodeOperationError(this.getNode(), "Label is required", { itemIndex: i });
@@ -400,10 +446,41 @@ export class DominusNodeWallet implements INodeType {
               );
             }
 
-            result = await auth.apiRequest("POST", "/api/agent-wallet", {
-              label,
-              spendingLimitCents,
-            });
+            const body: Record<string, unknown> = { label, spendingLimitCents };
+
+            if (dailyLimitCents > 0) {
+              if (!Number.isInteger(dailyLimitCents) || dailyLimitCents > 1_000_000) {
+                throw new NodeOperationError(
+                  this.getNode(),
+                  "dailyLimitCents must be an integer between 1 and 1,000,000",
+                  { itemIndex: i },
+                );
+              }
+              body.dailyLimitCents = dailyLimitCents;
+            }
+
+            if (allowedDomainsRaw && allowedDomainsRaw.trim().length > 0) {
+              const domains = allowedDomainsRaw.split(",").map((d) => d.trim()).filter(Boolean);
+              if (domains.length > 100) {
+                throw new NodeOperationError(
+                  this.getNode(),
+                  "allowedDomains may contain at most 100 entries",
+                  { itemIndex: i },
+                );
+              }
+              for (const d of domains) {
+                if (d.length > 253 || !DOMAIN_RE.test(d)) {
+                  throw new NodeOperationError(
+                    this.getNode(),
+                    `Invalid domain: "${d}". Must be a valid domain name (max 253 chars).`,
+                    { itemIndex: i },
+                  );
+                }
+              }
+              body.allowedDomains = domains;
+            }
+
+            result = await auth.apiRequest("POST", "/api/agent-wallet", body);
             break;
           }
 
@@ -488,6 +565,67 @@ export class DominusNodeWallet implements INodeType {
             result = await auth.apiRequest(
               "DELETE",
               `/api/agent-wallet/${encodeURIComponent(walletId)}`,
+            );
+            break;
+          }
+
+          case "updateWalletPolicy": {
+            const walletId = this.getNodeParameter("policyWalletId", i) as string;
+            const dailyLimitCents = this.getNodeParameter("policyDailyLimitCents", i, 0) as number;
+            const allowedDomainsRaw = this.getNodeParameter("policyAllowedDomains", i, "") as string;
+
+            validateUuid(this, walletId, "policyWalletId", i);
+
+            const body: Record<string, unknown> = {};
+
+            if (dailyLimitCents === -1) {
+              body.dailyLimitCents = null;
+            } else if (dailyLimitCents > 0) {
+              if (!Number.isInteger(dailyLimitCents) || dailyLimitCents > 1_000_000) {
+                throw new NodeOperationError(
+                  this.getNode(),
+                  "dailyLimitCents must be an integer between 1 and 1,000,000 (or -1 to remove)",
+                  { itemIndex: i },
+                );
+              }
+              body.dailyLimitCents = dailyLimitCents;
+            }
+
+            if (allowedDomainsRaw === "*") {
+              body.allowedDomains = null;
+            } else if (allowedDomainsRaw && allowedDomainsRaw.trim().length > 0) {
+              const domains = allowedDomainsRaw.split(",").map((d) => d.trim()).filter(Boolean);
+              if (domains.length > 100) {
+                throw new NodeOperationError(
+                  this.getNode(),
+                  "allowedDomains may contain at most 100 entries",
+                  { itemIndex: i },
+                );
+              }
+              for (const d of domains) {
+                if (d.length > 253 || !DOMAIN_RE.test(d)) {
+                  throw new NodeOperationError(
+                    this.getNode(),
+                    `Invalid domain: "${d}". Must be a valid domain name (max 253 chars).`,
+                    { itemIndex: i },
+                  );
+                }
+              }
+              body.allowedDomains = domains;
+            }
+
+            if (Object.keys(body).length === 0) {
+              throw new NodeOperationError(
+                this.getNode(),
+                "At least one of dailyLimitCents or allowedDomains must be provided",
+                { itemIndex: i },
+              );
+            }
+
+            result = await auth.apiRequest(
+              "PATCH",
+              `/api/agent-wallet/${encodeURIComponent(walletId)}/policy`,
+              body,
             );
             break;
           }

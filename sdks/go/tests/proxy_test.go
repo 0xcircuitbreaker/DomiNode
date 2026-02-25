@@ -88,20 +88,20 @@ func TestProxy_BuildURL_GeoTargeting(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildURL failed: %v", err)
 	}
-	if !strings.Contains(url, "country_US") {
-		t.Errorf("expected country_US in URL, got %s", url)
+	if !strings.Contains(url, "country-US") {
+		t.Errorf("expected country-US in URL, got %s", url)
 	}
-	if !strings.Contains(url, "state_CA") {
-		t.Errorf("expected state_CA in URL, got %s", url)
+	if !strings.Contains(url, "state-CA") {
+		t.Errorf("expected state-CA in URL, got %s", url)
 	}
-	if !strings.Contains(url, "city_Los") {
-		t.Errorf("expected city_Los%%20Angeles (URL encoded) in URL, got %s", url)
+	if !strings.Contains(url, "city-Los") {
+		t.Errorf("expected city-Los%%20Angeles (URL encoded) in URL, got %s", url)
 	}
-	if !strings.Contains(url, "asn_12345") {
-		t.Errorf("expected asn_12345 in URL, got %s", url)
+	if !strings.Contains(url, "asn-12345") {
+		t.Errorf("expected asn-12345 in URL, got %s", url)
 	}
-	if !strings.Contains(url, "session_sticky-1") {
-		t.Errorf("expected session_sticky-1 in URL, got %s", url)
+	if !strings.Contains(url, "session-sticky-1") {
+		t.Errorf("expected session-sticky-1 in URL, got %s", url)
 	}
 }
 
@@ -121,7 +121,7 @@ func TestProxy_BuildURL_URLEncoding(t *testing.T) {
 	if strings.Contains(url, " ") {
 		t.Errorf("URL should not contain unencoded spaces: %s", url)
 	}
-	if !strings.Contains(url, "city_New") {
+	if !strings.Contains(url, "city-New") {
 		t.Errorf("expected city in URL, got %s", url)
 	}
 }

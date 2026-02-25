@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[project]
+name = "dominusnode-haystack"
+version = "1.0.0"
+description = "DomiNode rotating proxy tools for Haystack AI pipelines"
+requires-python = ">=3.9"
+license = {text = "MIT"}
+authors = [
+    {name = "DomiNode", email = "dev@dominusnode.com"},
+]
+keywords = ["haystack", "proxy", "dominusnode", "ai", "tools"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Internet :: Proxy Servers",
+    "Topic :: Software Development :: Libraries",
+]
+dependencies = ["httpx>=0.24.0", "haystack-ai>=2.0.0"]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0", "pytest-mock"]
+
+[tool.setuptools.packages.find]
+include = ["dominusnode_haystack*"]

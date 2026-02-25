@@ -13,6 +13,7 @@ const mockFreezeWallet = vi.fn();
 const mockDeleteWallet = vi.fn();
 
 const mockUnfreezeWallet = vi.fn();
+const mockUpdateWalletPolicy = vi.fn();
 const mockFindUserById = vi.fn();
 
 vi.mock("@dominusnode/shared", () => ({
@@ -25,6 +26,7 @@ vi.mock("@dominusnode/shared", () => ({
     freezeWallet: (...args: unknown[]) => mockFreezeWallet(...args),
     unfreezeWallet: (...args: unknown[]) => mockUnfreezeWallet(...args),
     deleteWallet: (...args: unknown[]) => mockDeleteWallet(...args),
+    updateWalletPolicy: (...args: unknown[]) => mockUpdateWalletPolicy(...args),
   },
   userRepo: {
     findUserById: (...args: unknown[]) => mockFindUserById(...args),
@@ -186,6 +188,8 @@ describe("agent-wallet routes", () => {
         label: "scraper-bot",
         balance_cents: 0,
         spending_limit_cents: 10000,
+        daily_limit_cents: null,
+        allowed_domains: null,
         status: "active",
         created_at: "2026-02-18T00:00:00Z",
       });
@@ -202,7 +206,7 @@ describe("agent-wallet routes", () => {
       expect(res.body.balanceCents).toBe(0);
       expect(res.body.spendingLimitCents).toBe(10000);
       expect(res.body.status).toBe("active");
-      expect(mockCreateWallet).toHaveBeenCalledWith("test-user-id", "scraper-bot", 10000);
+      expect(mockCreateWallet).toHaveBeenCalledWith("test-user-id", "scraper-bot", 10000, null, null);
     });
 
     it("should return 400 for empty label", async () => {
@@ -223,6 +227,8 @@ describe("agent-wallet routes", () => {
         label: "a".repeat(100),
         balance_cents: 0,
         spending_limit_cents: 5000,
+        daily_limit_cents: null,
+        allowed_domains: null,
         status: "active",
         created_at: "2026-02-18T00:00:00Z",
       });
@@ -235,7 +241,7 @@ describe("agent-wallet routes", () => {
 
       // sanitizeString truncates to 100 chars, so the request succeeds
       expect(res.status).toBe(201);
-      expect(mockCreateWallet).toHaveBeenCalledWith("test-user-id", "a".repeat(100), 5000);
+      expect(mockCreateWallet).toHaveBeenCalledWith("test-user-id", "a".repeat(100), 5000, null, null);
     });
 
     it("should return 400 for negative spending limit", async () => {
@@ -297,6 +303,8 @@ describe("agent-wallet routes", () => {
           label: "bot-1",
           balance_cents: 500,
           spending_limit_cents: 10000,
+          daily_limit_cents: null,
+          allowed_domains: null,
           status: "active",
           created_at: "2026-02-18T00:00:00Z",
         },
@@ -344,6 +352,8 @@ describe("agent-wallet routes", () => {
         label: "research",
         balance_cents: 2500,
         spending_limit_cents: 5000,
+        daily_limit_cents: null,
+        allowed_domains: null,
         status: "active",
         created_at: "2026-02-18T00:00:00Z",
       });
@@ -523,6 +533,8 @@ describe("agent-wallet routes", () => {
         label: "bot-1",
         balance_cents: 500,
         spending_limit_cents: 10000,
+        daily_limit_cents: null,
+        allowed_domains: null,
         status: "frozen",
         created_at: "2026-02-18T00:00:00Z",
       });

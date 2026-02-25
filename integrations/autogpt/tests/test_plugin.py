@@ -475,14 +475,15 @@ class TestPluginInit:
         )
         assert plugin.base_url == "https://api.example.com"
 
-    def test_get_commands_returns_23(self):
+    def test_get_commands_returns_24(self):
         commands = DominusNodePlugin.get_commands()
-        assert len(commands) == 23
+        assert len(commands) == 24
         names = [c["name"] for c in commands]
         assert "proxied_fetch" in names
         assert "check_balance" in names
         assert "topup_paypal" in names
         assert "update_team_member_role" in names
+        assert "update_wallet_policy" in names
 
 
 # ===========================================================================
@@ -807,3 +808,155 @@ class TestAuthentication:
         # RuntimeError, then after re-auth, the second request() returns 200.
         result = json.loads(plugin.check_balance())
         assert result["balanceCents"] == 1000
+
+
+# ===========================================================================
+# Wallet Policy Tests
+# ===========================================================================
+
+
+class TestWalletPolicy:
+    """Test wallet policy fields on create_agentic_wallet and update_wallet_policy."""
+
+    # -- create_agentic_wallet with daily_limit_cents --
+
+    def test_create_wallet_with_valid_daily_limit(self):
+        """Valid daily_limit_cents should pass validation (will fail on auth)."""
+        plugin = DominusNodePlugin(api_key="dn_test_key123")
+        result = json.loads(plugin.create_agentic_wallet(
+            label="test-wallet",
+            spending_limit_cents=1000,
+            daily_limit_cents=5000,
+        ))
+        # Should not have a daily_limit_cents validation error
+        if "error" in result:
+            assert "daily_limit_cents" not in result["error"]
+
+    def test_create_wallet_with_valid_allowed_domains(self):
+        """Valid allowed_domains should pass validation (will fail on auth)."""
+        plugin = DominusNodePlugin(api_key="dn_test_key123")
+        result = json.loads(plugin.create_agentic_wallet(
+            label="test-wallet",
+            spending_limit_cents=1000,
+            allowed_domains=["example.com", "api.example.org"],
+        ))
+        # Should not have an allowed_domains validation error
+        if "error" in result:
+            assert "allowed_domains" not in result["error"]
+
+    def test_create_wallet_rejects_negative_daily_limit(self):
+        plugin = DominusNodePlugin(api_key="dn_test_key123")
+        result = json.loads(plugin.create_agentic_wallet(
+            label="test-wallet",
+            spending_limit_cents=1000,
+            daily_limit_cents=-1,
+        ))
+        assert "error" in result
+        assert "daily_limit_cents" in result["error"]
+
+    def test_create_wallet_rejects_zero_daily_limit(self):
+        plugin = DominusNodePlugin(api_key="dn_test_key123")
+        result = json.loads(plugin.create_agentic_wallet(
+            label="test-wallet",
+            spending_limit_cents=1000,
+            daily_limit_cents=0,
+        ))
+        assert "error" in result
+        assert "daily_limit_cents" in result["error"]
+
+    def test_create_wallet_rejects_daily_limit_over_max(self):
+        plugin = DominusNodePlugin(api_key="dn_test_key123")
+        result = json.loads(plugin.create_agentic_wallet(
+            label="test-wallet",
+            spending_limit_cents=1000,
+            daily_limit_cents=1_000_001,
+        ))
+        assert "error" in result
+        assert "daily_limit_cents" in result["error"]
+
+    def test_create_wallet_rejects_non_int_daily_limit(self):
+        plugin = DominusNodePlugin(api_key="dn_test_key123")
+        result = json.loads(plugin.create_agentic_wallet(
+            label="test-wallet",
+            spending_limit_cents=1000,
+            daily_limit_cents="5000",  # type: ignore
+        ))
+        assert "error" in result
+        assert "daily_limit_cents" in result["error"]
+
+    def test_create_wallet_rejects_too_many_domains(self):
+        plugin = DominusNodePlugin(api_key="dn_test_key123")
+        domains = [f"domain{i}.com" for i in range(101)]
+        result = json.loads(plugin.create_agentic_wallet(
+            label="test-wallet",
+            spending_limit_cents=1000,
+            allowed_domains=domains,
+        ))
+        assert "error" in result
+        assert "100" in result["error"]
+
+    def test_create_wallet_rejects_domain_too_long(self):
+        plugin = DominusNodePlugin(api_key="dn_test_key123")
+        long_domain = "a" * 254 + ".com"
+        result = json.loads(plugin.create_agentic_wallet(
+            label="test-wallet",
+            spending_limit_cents=1000,
+            allowed_domains=[long_domain],
+        ))
+        assert "error" in result
+        assert "253" in result["error"]
+
+    def test_create_wallet_rejects_invalid_domain_format(self):
+        plugin = DominusNodePlugin(api_key="dn_test_key123")
+        result = json.loads(plugin.create_agentic_wallet(
+            label="test-wallet",
+            spending_limit_cents=1000,
+            allowed_domains=["not a valid domain!"],
+        ))
+        assert "error" in result
+        assert "valid domain" in result["error"]
+
+    # -- update_wallet_policy --
+
+    def test_update_wallet_policy_valid(self):
+        """Valid update_wallet_policy should pass validation (will fail on auth)."""
+        plugin = DominusNodePlugin(api_key="dn_test_key123")
+        result = json.loads(plugin.update_wallet_policy(
+            wallet_id="550e8400-e29b-41d4-a716-446655440000",
+            daily_limit_cents=10000,
+            allowed_domains=["example.com"],
+        ))
+        # Should not have a validation error for policy fields
+        if "error" in result:
+            assert "daily_limit_cents" not in result["error"]
+            assert "allowed_domains" not in result["error"]
+            assert "wallet_id" not in result["error"]
+
+    def test_update_wallet_policy_missing_wallet_id(self):
+        plugin = DominusNodePlugin(api_key="dn_test_key123")
+        result = json.loads(plugin.update_wallet_policy(
+            wallet_id="",
+            daily_limit_cents=5000,
+        ))
+        assert "error" in result
+        assert "wallet_id" in result["error"]
+
+    def test_update_wallet_policy_invalid_wallet_id(self):
+        plugin = DominusNodePlugin(api_key="dn_test_key123")
+        result = json.loads(plugin.update_wallet_policy(
+            wallet_id="not-a-uuid",
+            daily_limit_cents=5000,
+        ))
+        assert "error" in result
+        assert "UUID" in result["error"]
+
+    def test_update_wallet_policy_dispatch(self):
+        """update_wallet_policy should be in handle_command dispatch."""
+        plugin = DominusNodePlugin(api_key="dn_test_key123")
+        result = json.loads(plugin.handle_command("update_wallet_policy", {
+            "wallet_id": "550e8400-e29b-41d4-a716-446655440000",
+            "daily_limit_cents": 5000,
+        }))
+        # Should dispatch correctly (will fail on auth, not on "Unknown command")
+        if "error" in result:
+            assert "Unknown command" not in result["error"]

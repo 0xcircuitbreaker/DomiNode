@@ -11,6 +11,8 @@ export interface AgenticWallet {
   label: string;
   balance_cents: number;
   spending_limit_cents: number;
+  daily_limit_cents: number | null;
+  allowed_domains: string | null;
   status: AgenticWalletStatus;
   created_at: Date;
 }
@@ -47,9 +49,23 @@ export async function createWallet(
   userId: string,
   label: string,
   spendingLimitCents: number,
+  dailyLimitCents?: number | null,
+  allowedDomains?: string | null,
 ): Promise<AgenticWallet> {
   if (!Number.isInteger(spendingLimitCents) || spendingLimitCents < 0 || spendingLimitCents > MAX_INT) {
     throw new Error("Spending limit must be a non-negative integer within valid range");
+  }
+
+  if (dailyLimitCents !== undefined && dailyLimitCents !== null) {
+    if (!Number.isInteger(dailyLimitCents) || dailyLimitCents <= 0 || dailyLimitCents > MAX_BALANCE_CENTS) {
+      throw new Error("Daily limit must be a positive integer up to 1,000,000 cents");
+    }
+  }
+
+  if (allowedDomains !== undefined && allowedDomains !== null) {
+    if (typeof allowedDomains !== "string" || allowedDomains.length > 4096) {
+      throw new Error("Allowed domains must be a JSON string up to 4096 characters");
+    }
   }
 
   const pool = getPool();
@@ -73,10 +89,10 @@ export async function createWallet(
     }
 
     const result = await client.query<AgenticWallet>(
-      `INSERT INTO agentic_wallets (user_id, label, spending_limit_cents)
-       VALUES ($1, $2, $3)
-       RETURNING id, user_id, label, balance_cents, spending_limit_cents, status, created_at`,
-      [userId, label, spendingLimitCents],
+      `INSERT INTO agentic_wallets (user_id, label, spending_limit_cents, daily_limit_cents, allowed_domains)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING id, user_id, label, balance_cents, spending_limit_cents, daily_limit_cents, allowed_domains, status, created_at`,
+      [userId, label, spendingLimitCents, dailyLimitCents ?? null, allowedDomains ?? null],
     );
 
     await client.query("COMMIT");
@@ -96,7 +112,7 @@ export async function getWallet(
   userId: string,
 ): Promise<AgenticWallet | null> {
   const result = await query<AgenticWallet>(
-    `SELECT id, user_id, label, balance_cents, spending_limit_cents, status, created_at
+    `SELECT id, user_id, label, balance_cents, spending_limit_cents, daily_limit_cents, allowed_domains, status, created_at
      FROM agentic_wallets
      WHERE id = $1 AND user_id = $2 AND status != 'deleted'`,
     [walletId, userId],
@@ -108,7 +124,7 @@ export async function getWallet(
 
 export async function listWallets(userId: string): Promise<AgenticWallet[]> {
   const result = await query<AgenticWallet>(
-    `SELECT id, user_id, label, balance_cents, spending_limit_cents, status, created_at
+    `SELECT id, user_id, label, balance_cents, spending_limit_cents, daily_limit_cents, allowed_domains, status, created_at
      FROM agentic_wallets
      WHERE user_id = $1 AND status != 'deleted'
      ORDER BY created_at DESC`,
@@ -148,7 +164,7 @@ export async function fundWallet(
 
     // Lock agentic wallet
     const agenticResult = await client.query<AgenticWallet>(
-      `SELECT id, user_id, label, balance_cents, spending_limit_cents, status, created_at
+      `SELECT id, user_id, label, balance_cents, spending_limit_cents, daily_limit_cents, allowed_domains, status, created_at
        FROM agentic_wallets
        WHERE id = $1 AND user_id = $2 AND status = 'active'
        FOR UPDATE`,
@@ -224,7 +240,7 @@ export async function spendFromWallet(
     await client.query("SET LOCAL lock_timeout = '5s'");
 
     const walletResult = await client.query<AgenticWallet>(
-      `SELECT id, user_id, label, balance_cents, spending_limit_cents, status, created_at
+      `SELECT id, user_id, label, balance_cents, spending_limit_cents, daily_limit_cents, allowed_domains, status, created_at
        FROM agentic_wallets
        WHERE id = $1 AND user_id = $2 AND status = 'active'
        FOR UPDATE`,
@@ -239,6 +255,21 @@ export async function spendFromWallet(
     // R33 L-1: Do not leak spending limit value in error message
     if (wallet.spending_limit_cents > 0 && amountCents > wallet.spending_limit_cents) {
       throw new Error("Amount exceeds spending limit");
+    }
+
+    // Daily limit enforcement: check today's spend total (UTC)
+    if (wallet.daily_limit_cents !== null && wallet.daily_limit_cents > 0) {
+      const dailySpendResult = await client.query<{ total: string }>(
+        `SELECT COALESCE(SUM(amount_cents), 0) as total
+         FROM agentic_wallet_transactions
+         WHERE wallet_id = $1 AND type = 'spend'
+           AND created_at >= date_trunc('day', now() AT TIME ZONE 'UTC')`,
+        [walletId],
+      );
+      const dailySpent = parseInt(dailySpendResult.rows[0].total, 10);
+      if (dailySpent + amountCents > wallet.daily_limit_cents) {
+        throw new Error("Daily budget limit exceeded");
+      }
     }
 
     if (wallet.balance_cents < amountCents) {
@@ -327,7 +358,7 @@ export async function freezeWallet(
     `UPDATE agentic_wallets
      SET status = 'frozen'
      WHERE id = $1 AND user_id = $2 AND status = 'active'
-     RETURNING id, user_id, label, balance_cents, spending_limit_cents, status, created_at`,
+     RETURNING id, user_id, label, balance_cents, spending_limit_cents, daily_limit_cents, allowed_domains, status, created_at`,
     [walletId, userId],
   );
   if (result.rows.length === 0) {
@@ -347,7 +378,7 @@ export async function unfreezeWallet(
     `UPDATE agentic_wallets
      SET status = 'active'
      WHERE id = $1 AND user_id = $2 AND status = 'frozen'
-     RETURNING id, user_id, label, balance_cents, spending_limit_cents, status, created_at`,
+     RETURNING id, user_id, label, balance_cents, spending_limit_cents, daily_limit_cents, allowed_domains, status, created_at`,
     [walletId, userId],
   );
   if (result.rows.length === 0) {
@@ -371,7 +402,7 @@ export async function deleteWallet(
 
     // Lock agentic wallet
     const walletResult = await client.query<AgenticWallet>(
-      `SELECT id, user_id, label, balance_cents, spending_limit_cents, status, created_at
+      `SELECT id, user_id, label, balance_cents, spending_limit_cents, daily_limit_cents, allowed_domains, status, created_at
        FROM agentic_wallets
        WHERE id = $1 AND user_id = $2 AND status = 'active'
        FOR UPDATE`,
@@ -435,4 +466,73 @@ export async function deleteWallet(
   } finally {
     client.release();
   }
+}
+
+// ─── Get Daily Spend ───────────────────────────────────────────────
+
+export async function getDailySpend(walletId: string): Promise<number> {
+  const result = await query<{ total: string }>(
+    `SELECT COALESCE(SUM(amount_cents), 0) as total
+     FROM agentic_wallet_transactions
+     WHERE wallet_id = $1 AND type = 'spend'
+       AND created_at >= date_trunc('day', now() AT TIME ZONE 'UTC')`,
+    [walletId],
+  );
+  return parseInt(result.rows[0].total, 10);
+}
+
+// ─── Update Wallet Policy ──────────────────────────────────────────
+
+export async function updateWalletPolicy(
+  walletId: string,
+  userId: string,
+  policy: { dailyLimitCents?: number | null; allowedDomains?: string | null },
+): Promise<AgenticWallet> {
+  if (policy.dailyLimitCents !== undefined && policy.dailyLimitCents !== null) {
+    if (!Number.isInteger(policy.dailyLimitCents) || policy.dailyLimitCents <= 0 || policy.dailyLimitCents > MAX_BALANCE_CENTS) {
+      throw new Error("Daily limit must be a positive integer up to 1,000,000 cents");
+    }
+  }
+
+  if (policy.allowedDomains !== undefined && policy.allowedDomains !== null) {
+    if (typeof policy.allowedDomains !== "string" || policy.allowedDomains.length > 4096) {
+      throw new Error("Allowed domains must be a JSON string up to 4096 characters");
+    }
+  }
+
+  const setClauses: string[] = [];
+  const params: (string | number | null)[] = [];
+  let paramIdx = 1;
+
+  if (policy.dailyLimitCents !== undefined) {
+    setClauses.push(`daily_limit_cents = $${paramIdx++}`);
+    params.push(policy.dailyLimitCents);
+  }
+
+  if (policy.allowedDomains !== undefined) {
+    setClauses.push(`allowed_domains = $${paramIdx++}`);
+    params.push(policy.allowedDomains);
+  }
+
+  if (setClauses.length === 0) {
+    throw new Error("No policy fields to update");
+  }
+
+  params.push(walletId, userId);
+  const walletIdIdx = paramIdx++;
+  const userIdIdx = paramIdx++;
+
+  const result = await query<AgenticWallet>(
+    `UPDATE agentic_wallets
+     SET ${setClauses.join(", ")}
+     WHERE id = $${walletIdIdx} AND user_id = $${userIdIdx} AND status = 'active'
+     RETURNING id, user_id, label, balance_cents, spending_limit_cents, daily_limit_cents, allowed_domains, status, created_at`,
+    params,
+  );
+
+  if (result.rows.length === 0) {
+    throw new Error("Agentic wallet not found");
+  }
+
+  return result.rows[0];
 }

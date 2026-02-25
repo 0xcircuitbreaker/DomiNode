@@ -1,0 +1,18 @@
+identity:
+  name: freeze_agentic_wallet
+  author: DomiNode
+  label:
+    en_US: Freeze Agentic Wallet
+description:
+  human:
+    en_US: Freeze an agentic wallet (prevent spending)
+  llm: Freeze an agentic sub-wallet to prevent any further spending. The wallet can be unfrozen later to re-enable spending.
+parameters:
+  - name: wallet_id
+    type: string
+    required: true
+    label:
+      en_US: Wallet ID
+    human_description:
+      en_US: ID of the agentic wallet to freeze
+    llm_description: The UUID of the agentic wallet to freeze.

@@ -17,10 +17,19 @@ Example::
 """
 
 from .tools import (
+    DominusNodeAgenticTransactionsTool,
+    DominusNodeAgenticWalletBalanceTool,
     DominusNodeBalanceTool,
+    DominusNodeCreateAgenticWalletTool,
+    DominusNodeDeleteAgenticWalletTool,
+    DominusNodeFreezeAgenticWalletTool,
+    DominusNodeFundAgenticWalletTool,
+    DominusNodeListAgenticWalletsTool,
     DominusNodeProxiedFetchTool,
     DominusNodeProxyConfigTool,
     DominusNodeTopupPaypalTool,
+    DominusNodeUnfreezeAgenticWalletTool,
+    DominusNodeUpdateWalletPolicyTool,
     DominusNodeUsageTool,
     DominusNodeX402InfoTool,
 )
@@ -34,4 +43,13 @@ __all__ = [
     "DominusNodeProxyConfigTool",
     "DominusNodeTopupPaypalTool",
     "DominusNodeX402InfoTool",
+    "DominusNodeCreateAgenticWalletTool",
+    "DominusNodeFundAgenticWalletTool",
+    "DominusNodeAgenticWalletBalanceTool",
+    "DominusNodeListAgenticWalletsTool",
+    "DominusNodeAgenticTransactionsTool",
+    "DominusNodeFreezeAgenticWalletTool",
+    "DominusNodeUnfreezeAgenticWalletTool",
+    "DominusNodeDeleteAgenticWalletTool",
+    "DominusNodeUpdateWalletPolicyTool",
 ]

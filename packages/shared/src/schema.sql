@@ -741,6 +741,20 @@ DO $$ BEGIN
 EXCEPTION WHEN OTHERS THEN NULL;
 END $$;
 
+-- ─── Agentic wallet policy fields: daily budget + domain allowlist ────
+
+DO $$ BEGIN
+  ALTER TABLE agentic_wallets ADD COLUMN daily_limit_cents INTEGER DEFAULT NULL
+    CHECK (daily_limit_cents IS NULL OR (daily_limit_cents > 0 AND daily_limit_cents <= 1000000));
+EXCEPTION WHEN duplicate_column THEN NULL;
+END $$;
+
+DO $$ BEGIN
+  ALTER TABLE agentic_wallets ADD COLUMN allowed_domains TEXT DEFAULT NULL
+    CHECK (allowed_domains IS NULL OR length(allowed_domains) <= 4096);
+EXCEPTION WHEN duplicate_column THEN NULL;
+END $$;
+
 -- ─── R46 H-2: Upper bound on agentic_wallets spending_limit_cents ────
 DO $$ BEGIN
   ALTER TABLE agentic_wallets ADD CONSTRAINT chk_agentic_wallets_spending_upper
@@ -770,4 +784,8 @@ ON CONFLICT (version) DO NOTHING;
 
 INSERT INTO schema_migrations (version, description) VALUES
   ('1.2.0', 'Add x402 micropayment transactions table and x402 payment provider')
+ON CONFLICT (version) DO NOTHING;
+
+INSERT INTO schema_migrations (version, description) VALUES
+  ('1.3.0', 'Add agentic wallet policy fields: daily_limit_cents, allowed_domains')
 ON CONFLICT (version) DO NOTHING;

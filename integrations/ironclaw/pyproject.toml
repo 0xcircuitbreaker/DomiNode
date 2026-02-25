@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dominusnode-ironclaw"
+version = "1.0.0"
+description = "DomiNode toolkit for IronClaw AI agent runtime -- 23 proxy, wallet, team, and payment management tools"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.10"
+dependencies = ["httpx>=0.25.0"]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0"]
+
+[tool.setuptools.packages.find]
+include = ["dominusnode_ironclaw*"]

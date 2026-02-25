@@ -30,7 +30,7 @@ import os
 import re
 import socket
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, Optional, Set
+from typing import Any, Dict, List, Optional, Set
 from urllib.parse import quote, urlparse
 
 import httpx
@@ -471,6 +471,56 @@ def _validate_amount_cents(
     return None
 
 
+_DOMAIN_RE = re.compile(
+    r"^(?:[a-zA-Z0-9](?:[a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+"
+    r"[a-zA-Z]{2,}$"
+)
+"""Regex to match a valid domain name (e.g. example.com, sub.example.co.uk)."""
+
+
+def _validate_daily_limit_cents(value: Any) -> Optional[str]:
+    """Validate daily_limit_cents policy field.
+
+    Must be a positive integer <= 1,000,000.
+
+    Args:
+        value: The value to validate.
+
+    Returns:
+        Error string or None if valid.
+    """
+    if isinstance(value, bool) or not isinstance(value, int):
+        return "daily_limit_cents must be a positive integer"
+    if value < 1 or value > 1_000_000:
+        return "daily_limit_cents must be between 1 and 1000000"
+    return None
+
+
+def _validate_allowed_domains(value: Any) -> Optional[str]:
+    """Validate allowed_domains policy field.
+
+    Must be a list of strings, max 100 entries, each <= 253 chars, valid domain format.
+
+    Args:
+        value: The value to validate.
+
+    Returns:
+        Error string or None if valid.
+    """
+    if not isinstance(value, list):
+        return "allowed_domains must be a list of strings"
+    if len(value) > 100:
+        return "allowed_domains must have at most 100 entries"
+    for i, domain in enumerate(value):
+        if not isinstance(domain, str):
+            return f"allowed_domains[{i}] must be a string"
+        if len(domain) > 253:
+            return f"allowed_domains[{i}] exceeds 253 characters"
+        if not _DOMAIN_RE.match(domain):
+            return f"allowed_domains[{i}] is not a valid domain: {domain!r}"
+    return None
+
+
 # ---------------------------------------------------------------------------
 # DominusNodeClient
 # ---------------------------------------------------------------------------
@@ -796,13 +846,19 @@ class DominusNodeClient:
     # ----- Agentic Wallet methods ------------------------------------------
 
     def create_agentic_wallet(
-        self, label: str, spending_limit_cents: int
+        self,
+        label: str,
+        spending_limit_cents: int,
+        daily_limit_cents: Optional[int] = None,
+        allowed_domains: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         """Create a new agentic wallet (server-side custodial sub-wallet).
 
         Args:
             label: Human-readable label for the wallet (max 100 chars).
             spending_limit_cents: Per-transaction spending limit in cents (positive int).
+            daily_limit_cents: Optional daily budget cap in cents (1-1,000,000).
+            allowed_domains: Optional list of allowed domains (max 100, each <= 253 chars).
 
         Returns:
             Dict with the created wallet details.
@@ -815,10 +871,24 @@ class DominusNodeClient:
         if err:
             return {"error": err}
 
-        return self._api_request("POST", "/api/agent-wallet", {
+        body: Dict[str, Any] = {
             "label": label,
             "spendingLimitCents": spending_limit_cents,
-        })
+        }
+
+        if daily_limit_cents is not None:
+            err = _validate_daily_limit_cents(daily_limit_cents)
+            if err:
+                return {"error": err}
+            body["dailyLimitCents"] = daily_limit_cents
+
+        if allowed_domains is not None:
+            err = _validate_allowed_domains(allowed_domains)
+            if err:
+                return {"error": err}
+            body["allowedDomains"] = allowed_domains
+
+        return self._api_request("POST", "/api/agent-wallet", body)
 
     def fund_agentic_wallet(
         self, wallet_id: str, amount_cents: int
@@ -948,6 +1018,55 @@ class DominusNodeClient:
         return self._api_request(
             "DELETE",
             f"/api/agent-wallet/{quote(wallet_id, safe='')}",
+        )
+
+    def update_wallet_policy(
+        self,
+        wallet_id: str,
+        daily_limit_cents: Optional[int] = None,
+        allowed_domains: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        """Update the policy of an agentic wallet.
+
+        Sets or clears the daily budget cap and/or domain allowlist for an
+        existing agentic wallet.  At least one of ``daily_limit_cents`` or
+        ``allowed_domains`` must be provided.
+
+        Args:
+            wallet_id: UUID of the agentic wallet.
+            daily_limit_cents: Optional daily budget cap in cents (1-1,000,000).
+            allowed_domains: Optional list of allowed domains (max 100, each <= 253 chars).
+
+        Returns:
+            Dict with the updated wallet policy.
+        """
+        err = _validate_uuid(wallet_id, "wallet_id")
+        if err:
+            return {"error": err}
+
+        body: Dict[str, Any] = {}
+
+        if daily_limit_cents is not None:
+            err = _validate_daily_limit_cents(daily_limit_cents)
+            if err:
+                return {"error": err}
+            body["dailyLimitCents"] = daily_limit_cents
+
+        if allowed_domains is not None:
+            err = _validate_allowed_domains(allowed_domains)
+            if err:
+                return {"error": err}
+            body["allowedDomains"] = allowed_domains
+
+        if not body:
+            return {
+                "error": "At least one of daily_limit_cents or allowed_domains must be provided"
+            }
+
+        return self._api_request(
+            "PATCH",
+            f"/api/agent-wallet/{quote(wallet_id, safe='')}/policy",
+            body,
         )
 
     # ----- Team methods ----------------------------------------------------

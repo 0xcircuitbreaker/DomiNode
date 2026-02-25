@@ -13,6 +13,10 @@ pub struct AgenticWallet {
     pub balance_cents: i64,
     #[serde(rename = "spendingLimitCents")]
     pub spending_limit_cents: i64,
+    #[serde(rename = "dailyLimitCents")]
+    pub daily_limit_cents: Option<i64>,
+    #[serde(rename = "allowedDomains")]
+    pub allowed_domains: Option<Vec<String>>,
     pub status: String,
     #[serde(rename = "createdAt")]
     pub created_at: String,
@@ -61,6 +65,18 @@ struct CreateBody<'a> {
     label: &'a str,
     #[serde(rename = "spendingLimitCents")]
     spending_limit_cents: i64,
+    #[serde(rename = "dailyLimitCents", skip_serializing_if = "Option::is_none")]
+    daily_limit_cents: Option<i64>,
+    #[serde(rename = "allowedDomains", skip_serializing_if = "Option::is_none")]
+    allowed_domains: Option<&'a [String]>,
+}
+
+#[derive(Serialize)]
+struct UpdatePolicyBody<'a> {
+    #[serde(rename = "dailyLimitCents", skip_serializing_if = "Option::is_none")]
+    daily_limit_cents: Option<i64>,
+    #[serde(rename = "allowedDomains", skip_serializing_if = "Option::is_none")]
+    allowed_domains: Option<&'a [String]>,
 }
 
 #[derive(Serialize)]
@@ -80,16 +96,34 @@ impl AgenticWalletResource {
     }
 
     /// Create a new agentic wallet.
-    pub async fn create(&self, label: &str, spending_limit_cents: i64) -> Result<AgenticWallet> {
+    pub async fn create(
+        &self,
+        label: &str,
+        spending_limit_cents: i64,
+        daily_limit_cents: Option<i64>,
+        allowed_domains: Option<&[String]>,
+    ) -> Result<AgenticWallet> {
         if spending_limit_cents <= 0 || spending_limit_cents > 2_147_483_647 {
             return Err(crate::errors::DominusNodeError::Validation(
                 "spendingLimitCents must be a positive integer <= 2,147,483,647".to_string(),
             ));
         }
+        if let Some(d) = daily_limit_cents {
+            if d <= 0 || d > 2_147_483_647 {
+                return Err(crate::errors::DominusNodeError::Validation(
+                    "dailyLimitCents must be a positive integer <= 2,147,483,647".to_string(),
+                ));
+            }
+        }
         self.http
             .post(
                 "/api/agent-wallet",
-                Some(&CreateBody { label, spending_limit_cents }),
+                Some(&CreateBody {
+                    label,
+                    spending_limit_cents,
+                    daily_limit_cents,
+                    allowed_domains,
+                }),
                 true,
             )
             .await
@@ -169,6 +203,32 @@ impl AgenticWalletResource {
     pub async fn delete(&self, wallet_id: &str) -> Result<AgenticWalletDeleteResponse> {
         self.http
             .delete(&format!("/api/agent-wallet/{}", encode_uri_component(wallet_id)))
+            .await
+    }
+
+    /// Update the policy on an agentic wallet.
+    pub async fn update_wallet_policy(
+        &self,
+        wallet_id: &str,
+        daily_limit_cents: Option<i64>,
+        allowed_domains: Option<&[String]>,
+    ) -> Result<AgenticWallet> {
+        if let Some(d) = daily_limit_cents {
+            if d <= 0 || d > 2_147_483_647 {
+                return Err(crate::errors::DominusNodeError::Validation(
+                    "dailyLimitCents must be a positive integer <= 2,147,483,647".to_string(),
+                ));
+            }
+        }
+        self.http
+            .patch(
+                &format!("/api/agent-wallet/{}/policy", encode_uri_component(wallet_id)),
+                Some(&UpdatePolicyBody {
+                    daily_limit_cents,
+                    allowed_domains,
+                }),
+                true,
+            )
             .await
     }
 }

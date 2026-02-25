@@ -52,7 +52,7 @@ fn test_build_url_with_country() {
         ..Default::default()
     };
     let url = client.proxy.build_url("dn_live_key", Some(&opts));
-    assert_eq!(url, "http://user-country_US:dn_live_key@proxy.dominusnode.com:8080");
+    assert_eq!(url, "http://user-country-US:dn_live_key@proxy.dominusnode.com:8080");
 }
 
 #[test]
@@ -66,7 +66,7 @@ fn test_build_url_socks5_with_country() {
     let url = client.proxy.build_url("dn_live_key", Some(&opts));
     assert_eq!(
         url,
-        "socks5://user-country_US:dn_live_key@proxy.dominusnode.com:1080"
+        "socks5://user-country-US:dn_live_key@proxy.dominusnode.com:1080"
     );
 }
 
@@ -82,7 +82,7 @@ fn test_build_url_with_state_and_city() {
     let url = client.proxy.build_url("dn_live_key", Some(&opts));
     assert_eq!(
         url,
-        "http://user-country_US-state_CA-city_LosAngeles:dn_live_key@proxy.dominusnode.com:8080"
+        "http://user-country-US-state-CA-city-LosAngeles:dn_live_key@proxy.dominusnode.com:8080"
     );
 }
 
@@ -96,7 +96,7 @@ fn test_build_url_with_asn() {
     let url = client.proxy.build_url("dn_live_key", Some(&opts));
     assert_eq!(
         url,
-        "http://user-asn_13335:dn_live_key@proxy.dominusnode.com:8080"
+        "http://user-asn-13335:dn_live_key@proxy.dominusnode.com:8080"
     );
 }
 
@@ -110,7 +110,7 @@ fn test_build_url_with_session_id() {
     let url = client.proxy.build_url("dn_live_key", Some(&opts));
     assert_eq!(
         url,
-        "http://user-session_sticky123:dn_live_key@proxy.dominusnode.com:8080"
+        "http://user-session-sticky123:dn_live_key@proxy.dominusnode.com:8080"
     );
 }
 
@@ -128,7 +128,7 @@ fn test_build_url_all_options() {
     let url = client.proxy.build_url("dn_live_key", Some(&opts));
     assert_eq!(
         url,
-        "socks5://user-country_DE-state_BY-city_Munich-asn_3320-session_sess42:dn_live_key@proxy.dominusnode.com:1080"
+        "socks5://user-country-DE-state-BY-city-Munich-asn-3320-session-sess42:dn_live_key@proxy.dominusnode.com:1080"
     );
 }
 

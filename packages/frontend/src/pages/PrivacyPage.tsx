@@ -71,7 +71,21 @@ export default function PrivacyPage() {
           </section>
 
           <section>
-            <h2 className="text-xl font-semibold text-white mb-3">6. Data Sharing</h2>
+            <h2 className="text-xl font-semibold text-white mb-3">6. x402 Micropayment Data</h2>
+            <p className="mb-2">When using x402 pay-per-request micropayments, we record the following data for billing reconciliation and fraud prevention:</p>
+            <ul className="list-disc list-inside space-y-1">
+              <li>Payer wallet address (Ethereum or Solana)</li>
+              <li>Transaction amount (in USD)</li>
+              <li>Facilitator used (Coinbase or PayAI)</li>
+              <li>Transaction hash</li>
+              <li>Proxy pool type (datacenter or residential)</li>
+              <li>Timestamp</li>
+            </ul>
+            <p className="mt-2 text-gray-400">This data is retained for 2 years in accordance with our financial data retention policies. x402 transactions do not require an account — the wallet address serves as the billing identity. This data is subject to the same retention and deletion policies as other billing data.</p>
+          </section>
+
+          <section>
+            <h2 className="text-xl font-semibold text-white mb-3">7. Data Sharing</h2>
             <p className="mb-2">We do not sell, rent, or trade your personal data. We share data only with:</p>
             <ul className="list-disc list-inside space-y-1 mt-2">
               <li><strong className="text-gray-200">Payment processors</strong> (Stripe, NOWPayments) — to process your payments only</li>
@@ -81,7 +95,7 @@ export default function PrivacyPage() {
           </section>
 
           <section>
-            <h2 className="text-xl font-semibold text-white mb-3">7. Your Rights</h2>
+            <h2 className="text-xl font-semibold text-white mb-3">8. Your Rights</h2>
             <p className="mb-2">You have the right to:</p>
             <ul className="list-disc list-inside space-y-1">
               <li><strong className="text-gray-200">Export your data:</strong> Download your account data through the dashboard or via GET /api/account/export</li>
@@ -91,17 +105,17 @@ export default function PrivacyPage() {
           </section>
 
           <section>
-            <h2 className="text-xl font-semibold text-white mb-3">8. Security</h2>
+            <h2 className="text-xl font-semibold text-white mb-3">9. Security</h2>
             <p>We protect your data using: bcrypt password hashing, AES-encrypted MFA secrets, TLS encryption for all connections, SHA-256 API key hashing, httpOnly secure cookies with strict SameSite policy, and regular independent security audits.</p>
           </section>
 
           <section>
-            <h2 className="text-xl font-semibold text-white mb-3">9. Cookies</h2>
+            <h2 className="text-xl font-semibold text-white mb-3">10. Cookies</h2>
             <p>We use strictly necessary cookies for authentication (access token and refresh token) only. We do not use tracking cookies, advertising cookies, analytics cookies, or any third-party cookies.</p>
           </section>
 
           <section>
-            <h2 className="text-xl font-semibold text-white mb-3">10. Contact</h2>
+            <h2 className="text-xl font-semibold text-white mb-3">11. Contact</h2>
             <p>For privacy-related inquiries: <a href="mailto:0xcircuitbreaker@protonmail.com" className="text-indigo-400 hover:text-indigo-300">0xcircuitbreaker@protonmail.com</a></p>
           </section>
         </div>

@@ -31,12 +31,21 @@ static std::string url_encode(const std::string& value) {
 
 AgenticWalletResource::AgenticWalletResource(HttpClient& http) : http_(http) {}
 
-AgenticWallet AgenticWalletResource::create(const std::string& label, int spending_limit_cents) {
+AgenticWallet AgenticWalletResource::create(
+    const std::string& label, int spending_limit_cents,
+    int daily_limit_cents, const std::vector<std::string>& allowed_domains) {
     validate_amount_cents(spending_limit_cents, "spendingLimitCents");
     nlohmann::json body = {
         {"label", label},
         {"spendingLimitCents", spending_limit_cents},
     };
+    if (daily_limit_cents >= 0) {
+        validate_amount_cents(daily_limit_cents, "dailyLimitCents");
+        body["dailyLimitCents"] = daily_limit_cents;
+    }
+    if (!allowed_domains.empty()) {
+        body["allowedDomains"] = allowed_domains;
+    }
     auto resp = http_.post("/api/agent-wallet", body);
     return resp.get<AgenticWallet>();
 }
@@ -82,6 +91,22 @@ AgenticWallet AgenticWalletResource::unfreeze(const std::string& wallet_id) {
 AgenticWalletDeleteResponse AgenticWalletResource::delete_wallet(const std::string& wallet_id) {
     auto resp = http_.del("/api/agent-wallet/" + url_encode(wallet_id));
     return resp.get<AgenticWalletDeleteResponse>();
+}
+
+AgenticWallet AgenticWalletResource::update_wallet_policy(
+    const std::string& wallet_id, int daily_limit_cents,
+    const std::vector<std::string>& allowed_domains) {
+    nlohmann::json body = nlohmann::json::object();
+    if (daily_limit_cents >= 0) {
+        validate_amount_cents(daily_limit_cents, "dailyLimitCents");
+        body["dailyLimitCents"] = daily_limit_cents;
+    }
+    if (!allowed_domains.empty()) {
+        body["allowedDomains"] = allowed_domains;
+    }
+    auto resp = http_.patch(
+        "/api/agent-wallet/" + url_encode(wallet_id) + "/policy", body);
+    return resp.get<AgenticWallet>();
 }
 
 } // namespace dominusnode

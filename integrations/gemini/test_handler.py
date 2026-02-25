@@ -324,16 +324,22 @@ class TestHandlerDispatch:
         assert "success" in result
 
     @pytest.mark.asyncio
-    async def test_handler_has_22_functions(self, mock_httpx):
+    async def test_handler_has_23_functions(self, mock_httpx):
         handler = create_dominusnode_function_handler(api_key="dn_test_abc123")
         result = json.loads(await handler("nonexistent", {}))
-        assert len(result["available"]) == 22
+        assert len(result["available"]) == 23
 
     @pytest.mark.asyncio
     async def test_handler_includes_topup_paypal(self, mock_httpx):
         handler = create_dominusnode_function_handler(api_key="dn_test_abc123")
         result = json.loads(await handler("nonexistent", {}))
         assert "dominusnode_topup_paypal" in result["available"]
+
+    @pytest.mark.asyncio
+    async def test_handler_includes_update_wallet_policy(self, mock_httpx):
+        handler = create_dominusnode_function_handler(api_key="dn_test_abc123")
+        result = json.loads(await handler("nonexistent", {}))
+        assert "dominusnode_update_wallet_policy" in result["available"]
 
 
 # =========================================================================
@@ -571,5 +577,209 @@ class TestHandlerValidation:
         handler = create_dominusnode_function_handler(api_key="dn_test_abc123")
         result = json.loads(
             await handler("dominusnode_topup_paypal", {"amount_cents": 1000})
+        )
+        assert "success" in result
+
+    # create_agentic_wallet -- wallet policy fields
+    @pytest.mark.asyncio
+    async def test_create_wallet_daily_limit_below_1(self, mock_httpx):
+        handler = create_dominusnode_function_handler(api_key="dn_test_abc123")
+        result = json.loads(
+            await handler(
+                "dominusnode_create_agentic_wallet",
+                {"label": "bot", "spending_limit_cents": 100, "daily_limit_cents": 0},
+            )
+        )
+        assert "daily_limit_cents" in result["error"]
+
+    @pytest.mark.asyncio
+    async def test_create_wallet_daily_limit_above_1000000(self, mock_httpx):
+        handler = create_dominusnode_function_handler(api_key="dn_test_abc123")
+        result = json.loads(
+            await handler(
+                "dominusnode_create_agentic_wallet",
+                {"label": "bot", "spending_limit_cents": 100, "daily_limit_cents": 1000001},
+            )
+        )
+        assert "daily_limit_cents" in result["error"]
+
+    @pytest.mark.asyncio
+    async def test_create_wallet_non_integer_daily_limit(self, mock_httpx):
+        handler = create_dominusnode_function_handler(api_key="dn_test_abc123")
+        result = json.loads(
+            await handler(
+                "dominusnode_create_agentic_wallet",
+                {"label": "bot", "spending_limit_cents": 100, "daily_limit_cents": 100.5},
+            )
+        )
+        assert "daily_limit_cents" in result["error"]
+
+    @pytest.mark.asyncio
+    async def test_create_wallet_non_array_allowed_domains(self, mock_httpx):
+        handler = create_dominusnode_function_handler(api_key="dn_test_abc123")
+        result = json.loads(
+            await handler(
+                "dominusnode_create_agentic_wallet",
+                {"label": "bot", "spending_limit_cents": 100, "allowed_domains": "example.com"},
+            )
+        )
+        assert "allowed_domains" in result["error"]
+
+    @pytest.mark.asyncio
+    async def test_create_wallet_too_many_domains(self, mock_httpx):
+        handler = create_dominusnode_function_handler(api_key="dn_test_abc123")
+        domains = [f"d{i}.example.com" for i in range(101)]
+        result = json.loads(
+            await handler(
+                "dominusnode_create_agentic_wallet",
+                {"label": "bot", "spending_limit_cents": 100, "allowed_domains": domains},
+            )
+        )
+        assert "100" in result["error"]
+
+    @pytest.mark.asyncio
+    async def test_create_wallet_domain_too_long(self, mock_httpx):
+        handler = create_dominusnode_function_handler(api_key="dn_test_abc123")
+        result = json.loads(
+            await handler(
+                "dominusnode_create_agentic_wallet",
+                {"label": "bot", "spending_limit_cents": 100, "allowed_domains": ["a" * 254 + ".com"]},
+            )
+        )
+        assert "253" in result["error"]
+
+    @pytest.mark.asyncio
+    async def test_create_wallet_invalid_domain(self, mock_httpx):
+        handler = create_dominusnode_function_handler(api_key="dn_test_abc123")
+        result = json.loads(
+            await handler(
+                "dominusnode_create_agentic_wallet",
+                {"label": "bot", "spending_limit_cents": 100, "allowed_domains": ["not a domain!!"]},
+            )
+        )
+        assert "not a valid domain" in result["error"]
+
+    @pytest.mark.asyncio
+    async def test_create_wallet_valid_policy_fields(self, mock_httpx):
+        handler = create_dominusnode_function_handler(api_key="dn_test_abc123")
+        result = json.loads(
+            await handler(
+                "dominusnode_create_agentic_wallet",
+                {
+                    "label": "bot",
+                    "spending_limit_cents": 100,
+                    "daily_limit_cents": 5000,
+                    "allowed_domains": ["example.com", "api.example.org"],
+                },
+            )
+        )
+        assert "success" in result
+
+    # update_wallet_policy
+    @pytest.mark.asyncio
+    async def test_update_policy_missing_wallet_id(self, mock_httpx):
+        handler = create_dominusnode_function_handler(api_key="dn_test_abc123")
+        result = json.loads(
+            await handler("dominusnode_update_wallet_policy", {"daily_limit_cents": 5000})
+        )
+        assert "wallet_id" in result["error"]
+
+    @pytest.mark.asyncio
+    async def test_update_policy_invalid_uuid(self, mock_httpx):
+        handler = create_dominusnode_function_handler(api_key="dn_test_abc123")
+        result = json.loads(
+            await handler(
+                "dominusnode_update_wallet_policy",
+                {"wallet_id": "bad", "daily_limit_cents": 5000},
+            )
+        )
+        assert "wallet_id" in result["error"]
+
+    @pytest.mark.asyncio
+    async def test_update_policy_no_fields(self, mock_httpx):
+        handler = create_dominusnode_function_handler(api_key="dn_test_abc123")
+        result = json.loads(
+            await handler(
+                "dominusnode_update_wallet_policy",
+                {"wallet_id": "550e8400-e29b-41d4-a716-446655440000"},
+            )
+        )
+        assert "At least one" in result["error"]
+
+    @pytest.mark.asyncio
+    async def test_update_policy_daily_limit_below_1(self, mock_httpx):
+        handler = create_dominusnode_function_handler(api_key="dn_test_abc123")
+        result = json.loads(
+            await handler(
+                "dominusnode_update_wallet_policy",
+                {"wallet_id": "550e8400-e29b-41d4-a716-446655440000", "daily_limit_cents": 0},
+            )
+        )
+        assert "daily_limit_cents" in result["error"]
+
+    @pytest.mark.asyncio
+    async def test_update_policy_daily_limit_above_1000000(self, mock_httpx):
+        handler = create_dominusnode_function_handler(api_key="dn_test_abc123")
+        result = json.loads(
+            await handler(
+                "dominusnode_update_wallet_policy",
+                {"wallet_id": "550e8400-e29b-41d4-a716-446655440000", "daily_limit_cents": 1000001},
+            )
+        )
+        assert "daily_limit_cents" in result["error"]
+
+    @pytest.mark.asyncio
+    async def test_update_policy_non_array_domains(self, mock_httpx):
+        handler = create_dominusnode_function_handler(api_key="dn_test_abc123")
+        result = json.loads(
+            await handler(
+                "dominusnode_update_wallet_policy",
+                {"wallet_id": "550e8400-e29b-41d4-a716-446655440000", "allowed_domains": "example.com"},
+            )
+        )
+        assert "allowed_domains" in result["error"]
+
+    @pytest.mark.asyncio
+    async def test_update_policy_too_many_domains(self, mock_httpx):
+        handler = create_dominusnode_function_handler(api_key="dn_test_abc123")
+        domains = [f"d{i}.example.com" for i in range(101)]
+        result = json.loads(
+            await handler(
+                "dominusnode_update_wallet_policy",
+                {"wallet_id": "550e8400-e29b-41d4-a716-446655440000", "allowed_domains": domains},
+            )
+        )
+        assert "100" in result["error"]
+
+    @pytest.mark.asyncio
+    async def test_update_policy_invalid_domain(self, mock_httpx):
+        handler = create_dominusnode_function_handler(api_key="dn_test_abc123")
+        result = json.loads(
+            await handler(
+                "dominusnode_update_wallet_policy",
+                {"wallet_id": "550e8400-e29b-41d4-a716-446655440000", "allowed_domains": ["-bad.com"]},
+            )
+        )
+        assert "not a valid domain" in result["error"]
+
+    @pytest.mark.asyncio
+    async def test_update_policy_valid_daily_limit(self, mock_httpx):
+        handler = create_dominusnode_function_handler(api_key="dn_test_abc123")
+        result = json.loads(
+            await handler(
+                "dominusnode_update_wallet_policy",
+                {"wallet_id": "550e8400-e29b-41d4-a716-446655440000", "daily_limit_cents": 5000},
+            )
+        )
+        assert "success" in result
+
+    @pytest.mark.asyncio
+    async def test_update_policy_valid_domains(self, mock_httpx):
+        handler = create_dominusnode_function_handler(api_key="dn_test_abc123")
+        result = json.loads(
+            await handler(
+                "dominusnode_update_wallet_policy",
+                {"wallet_id": "550e8400-e29b-41d4-a716-446655440000", "allowed_domains": ["example.com"]},
+            )
         )
         assert "success" in result

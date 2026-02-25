@@ -1,0 +1,27 @@
+identity:
+  name: agentic_transactions
+  author: DomiNode
+  label:
+    en_US: Agentic Transactions
+description:
+  human:
+    en_US: Get transaction history for an agentic wallet
+  llm: Get the transaction history for a specific agentic sub-wallet. Returns fund, spend, and refund transactions.
+parameters:
+  - name: wallet_id
+    type: string
+    required: true
+    label:
+      en_US: Wallet ID
+    human_description:
+      en_US: ID of the agentic wallet
+    llm_description: The UUID of the agentic wallet to get transactions for.
+  - name: limit
+    type: number
+    required: false
+    default: 20
+    label:
+      en_US: Limit
+    human_description:
+      en_US: Maximum number of transactions to return (1-100)
+    llm_description: Maximum number of transactions to return. Must be between 1 and 100. Default is 20.

@@ -38,7 +38,7 @@ class TestBuildProxyUrl:
             socks5_proxy_port=1080,
             options=ProxyUrlOptions(country="us"),
         )
-        assert url == "http://user-country_US:dn_live_key@proxy.test.io:8080"
+        assert url == "http://user-country-US:dn_live_key@proxy.test.io:8080"
 
     def test_with_country_and_state(self) -> None:
         url = build_proxy_url(
@@ -48,7 +48,7 @@ class TestBuildProxyUrl:
             socks5_proxy_port=1080,
             options=ProxyUrlOptions(country="us", state="CA"),
         )
-        assert url == "http://user-country_US-state_CA:dn_live_key@proxy.test.io:8080"
+        assert url == "http://user-country-US-state-CA:dn_live_key@proxy.test.io:8080"
 
     def test_with_country_state_city(self) -> None:
         url = build_proxy_url(
@@ -58,7 +58,7 @@ class TestBuildProxyUrl:
             socks5_proxy_port=1080,
             options=ProxyUrlOptions(country="us", state="CA", city="Los Angeles"),
         )
-        assert url == "http://user-country_US-state_CA-city_Los%20Angeles:dn_live_key@proxy.test.io:8080"
+        assert url == "http://user-country-US-state-CA-city-Los%20Angeles:dn_live_key@proxy.test.io:8080"
 
     def test_with_session_id(self) -> None:
         url = build_proxy_url(
@@ -68,7 +68,7 @@ class TestBuildProxyUrl:
             socks5_proxy_port=1080,
             options=ProxyUrlOptions(session_id="sess-12345"),
         )
-        assert url == "http://user-session_sess-12345:dn_live_key@proxy.test.io:8080"
+        assert url == "http://user-session-sess-12345:dn_live_key@proxy.test.io:8080"
 
     def test_with_all_options(self) -> None:
         url = build_proxy_url(
@@ -84,10 +84,10 @@ class TestBuildProxyUrl:
                 protocol="http",
             ),
         )
-        assert "country_GB" in url
-        assert "state_London" in url
-        assert "city_Camden" in url
-        assert "session_sticky-1" in url
+        assert "country-GB" in url
+        assert "state-London" in url
+        assert "city-Camden" in url
+        assert "session-sticky-1" in url
         assert url.startswith("http://")
         assert url.endswith("@proxy.test.io:8080")
 
@@ -101,7 +101,7 @@ class TestBuildProxyUrl:
         )
         assert url.startswith("socks5://")
         assert url.endswith("@proxy.test.io:1080")
-        assert "country_DE" in url
+        assert "country-DE" in url
 
     def test_special_characters_in_key_are_encoded(self) -> None:
         url = build_proxy_url(

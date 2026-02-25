@@ -45,7 +45,7 @@ describe("ProxyResource", () => {
 
     it("includes country geo-targeting in the username", () => {
       const url = proxy.buildUrl("dn_live_key", { country: "US" });
-      expect(url).toContain("user-country_US:");
+      expect(url).toContain("user-country-US:");
     });
 
     it("includes state and city geo-targeting", () => {
@@ -54,14 +54,14 @@ describe("ProxyResource", () => {
         state: "CA",
         city: "Los Angeles",
       });
-      expect(url).toContain("country_US");
-      expect(url).toContain("state_CA");
-      expect(url).toContain("city_Los%20Angeles");
+      expect(url).toContain("country-US");
+      expect(url).toContain("state-CA");
+      expect(url).toContain("city-Los%20Angeles");
     });
 
     it("includes session ID for sticky sessions", () => {
       const url = proxy.buildUrl("dn_live_key", { sessionId: "sticky-123" });
-      expect(url).toContain("session_sticky-123");
+      expect(url).toContain("session-sticky-123");
     });
 
     it("URL-encodes special characters in the API key", () => {
@@ -87,7 +87,7 @@ describe("ProxyResource", () => {
 
     it("includes ASN targeting in the username", () => {
       const url = proxy.buildUrl("dn_live_key", { asn: 12345 });
-      expect(url).toContain("asn_12345");
+      expect(url).toContain("asn-12345");
     });
   });
 });

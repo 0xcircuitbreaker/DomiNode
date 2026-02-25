@@ -1,0 +1,64 @@
+identity:
+  name: proxied_fetch
+  author: DomiNode
+  label:
+    en_US: Proxied Fetch
+description:
+  human:
+    en_US: Fetch a URL through DomiNode's rotating proxy network
+  llm: Fetch a URL through DomiNode's rotating proxy network with geo-targeting and proxy type selection. Supports datacenter ($3/GB) and residential ($5/GB) proxies. Only GET, HEAD, and OPTIONS methods are allowed.
+parameters:
+  - name: url
+    type: string
+    required: true
+    label:
+      en_US: URL
+    human_description:
+      en_US: Target URL to fetch
+    llm_description: The URL to fetch through the proxy. Must be http or https.
+  - name: method
+    type: string
+    required: false
+    default: "GET"
+    label:
+      en_US: HTTP Method
+    human_description:
+      en_US: HTTP method (only GET, HEAD, OPTIONS allowed)
+    llm_description: HTTP method to use. Only GET, HEAD, and OPTIONS are permitted for security.
+    options:
+      - value: GET
+        label:
+          en_US: GET
+      - value: HEAD
+        label:
+          en_US: HEAD
+      - value: OPTIONS
+        label:
+          en_US: OPTIONS
+  - name: country
+    type: string
+    required: false
+    label:
+      en_US: Country Code
+    human_description:
+      en_US: ISO 3166-1 alpha-2 country code (e.g., US, GB, DE)
+    llm_description: ISO 3166-1 alpha-2 country code for geo-targeting (e.g., US, GB, DE). OFAC sanctioned countries (CU, IR, KP, RU, SY) are blocked.
+  - name: proxy_type
+    type: string
+    required: false
+    default: "dc"
+    label:
+      en_US: Proxy Type
+    human_description:
+      en_US: Type of proxy to use
+    llm_description: "Proxy type: dc (datacenter, $3/GB), residential ($5/GB), or auto."
+    options:
+      - value: dc
+        label:
+          en_US: Datacenter ($3/GB)
+      - value: residential
+        label:
+          en_US: Residential ($5/GB)
+      - value: auto
+        label:
+          en_US: Auto

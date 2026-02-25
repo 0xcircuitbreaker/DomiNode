@@ -617,8 +617,8 @@ export function createDominusNodeFunctionHandler(
             hostname: proxyHost,
             port: proxyPort,
             method: "CONNECT",
-            path: `${parsed.hostname}:${parsed.port || 443}`,
-            headers: { "Proxy-Authorization": proxyAuth, Host: `${parsed.hostname}:${parsed.port || 443}` },
+            path: `${parsed.hostname.includes(":") ? `[${parsed.hostname}]` : parsed.hostname}:${parsed.port || 443}`,
+            headers: { "Proxy-Authorization": proxyAuth, Host: `${parsed.hostname.includes(":") ? `[${parsed.hostname}]` : parsed.hostname}:${parsed.port || 443}` },
           });
           connectReq.on("connect", (_res, tunnelSocket) => {
             if (_res.statusCode !== 200) {
@@ -666,6 +666,7 @@ export function createDominusNodeFunctionHandler(
                   const ci = line.indexOf(":");
                   if (ci > 0) headers[line.substring(0, ci).trim().toLowerCase()] = line.substring(ci + 1).trim();
                 }
+                stripDangerousKeys(headers);
                 resolve({ status, headers, body });
               };
               tlsSocket.on("end", finalize);
@@ -698,6 +699,7 @@ export function createDominusNodeFunctionHandler(
               for (const [k, v] of Object.entries(res.headers)) {
                 if (v) headers[k] = Array.isArray(v) ? v.join(", ") : v;
               }
+              stripDangerousKeys(headers);
               resolve({ status: res.statusCode ?? 0, headers, body });
             };
             res.on("end", finalize);
@@ -768,10 +770,47 @@ export function createDominusNodeFunctionHandler(
       });
     }
 
-    const result = await api("POST", "/api/agent-wallet", {
+    const body: Record<string, unknown> = {
       label,
       spendingLimitCents,
-    });
+    };
+
+    // Validate optional daily_limit_cents
+    if (args.daily_limit_cents !== undefined && args.daily_limit_cents !== null) {
+      const dailyLimit = Number(args.daily_limit_cents);
+      if (!Number.isInteger(dailyLimit) || dailyLimit < 1 || dailyLimit > 1_000_000) {
+        return JSON.stringify({
+          error: "daily_limit_cents must be a positive integer between 1 and 1,000,000",
+        });
+      }
+      body.dailyLimitCents = dailyLimit;
+    }
+
+    // Validate optional allowed_domains
+    if (args.allowed_domains !== undefined && args.allowed_domains !== null) {
+      if (!Array.isArray(args.allowed_domains)) {
+        return JSON.stringify({ error: "allowed_domains must be an array of domain strings" });
+      }
+      if (args.allowed_domains.length > 100) {
+        return JSON.stringify({ error: "allowed_domains must have at most 100 entries" });
+      }
+      const domainRe = /^(?:[a-zA-Z0-9](?:[a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$/;
+      for (let i = 0; i < args.allowed_domains.length; i++) {
+        const d = args.allowed_domains[i];
+        if (typeof d !== "string") {
+          return JSON.stringify({ error: `allowed_domains[${i}] must be a string` });
+        }
+        if (d.length > 253) {
+          return JSON.stringify({ error: `allowed_domains[${i}] exceeds 253 characters` });
+        }
+        if (!domainRe.test(d)) {
+          return JSON.stringify({ error: `allowed_domains[${i}] is not a valid domain: ${d}` });
+        }
+      }
+      body.allowedDomains = args.allowed_domains;
+    }
+
+    const result = await api("POST", "/api/agent-wallet", body);
     return JSON.stringify(result);
   }
 
@@ -1119,7 +1158,74 @@ export function createDominusNodeFunctionHandler(
     dominusnode_update_team_member_role: handleUpdateTeamMemberRole,
     dominusnode_topup_paypal: handleTopupPaypal,
     dominusnode_x402_info: handleX402Info,
+    dominusnode_update_wallet_policy: handleUpdateWalletPolicy,
   };
+
+  async function handleUpdateWalletPolicy(args: Record<string, unknown>): Promise<string> {
+    const walletId = args.wallet_id as string;
+    if (!walletId || typeof walletId !== "string") {
+      return JSON.stringify({ error: "wallet_id is required and must be a string" });
+    }
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(walletId)) {
+      return JSON.stringify({ error: "wallet_id must be a valid UUID" });
+    }
+
+    const body: Record<string, unknown> = {};
+
+    if (args.daily_limit_cents !== undefined) {
+      if (args.daily_limit_cents === null) {
+        body.dailyLimitCents = null;
+      } else {
+        const dailyLimit = Number(args.daily_limit_cents);
+        if (!Number.isInteger(dailyLimit) || dailyLimit < 1 || dailyLimit > 1_000_000) {
+          return JSON.stringify({
+            error: "daily_limit_cents must be a positive integer between 1 and 1,000,000, or null to clear",
+          });
+        }
+        body.dailyLimitCents = dailyLimit;
+      }
+    }
+
+    if (args.allowed_domains !== undefined) {
+      if (args.allowed_domains === null) {
+        body.allowedDomains = null;
+      } else {
+        if (!Array.isArray(args.allowed_domains)) {
+          return JSON.stringify({ error: "allowed_domains must be an array of domain strings, or null to clear" });
+        }
+        if (args.allowed_domains.length > 100) {
+          return JSON.stringify({ error: "allowed_domains must have at most 100 entries" });
+        }
+        const domainRe = /^(?:[a-zA-Z0-9](?:[a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$/;
+        for (let i = 0; i < args.allowed_domains.length; i++) {
+          const d = args.allowed_domains[i];
+          if (typeof d !== "string") {
+            return JSON.stringify({ error: `allowed_domains[${i}] must be a string` });
+          }
+          if (d.length > 253) {
+            return JSON.stringify({ error: `allowed_domains[${i}] exceeds 253 characters` });
+          }
+          if (!domainRe.test(d)) {
+            return JSON.stringify({ error: `allowed_domains[${i}] is not a valid domain: ${d}` });
+          }
+        }
+        body.allowedDomains = args.allowed_domains;
+      }
+    }
+
+    if (Object.keys(body).length === 0) {
+      return JSON.stringify({
+        error: "At least one of daily_limit_cents or allowed_domains must be provided",
+      });
+    }
+
+    const result = await api(
+      "PATCH",
+      `/api/agent-wallet/${encodeURIComponent(walletId)}/policy`,
+      body,
+    );
+    return JSON.stringify(result);
+  }
 
   async function handleX402Info(): Promise<string> {
     const result = await api("GET", "/api/x402/info");

@@ -142,9 +142,10 @@ describe("MCP Server Integration", () => {
     expect(toolNames).toContain("dominusnode_agent_wallet_freeze");
     expect(toolNames).toContain("dominusnode_agent_wallet_unfreeze");
     expect(toolNames).toContain("dominusnode_agent_wallet_delete");
+    expect(toolNames).toContain("dominusnode_update_wallet_policy");
 
-    // Total: 56 tools (54 + team_update + team_update_member_role)
-    expect(toolNames.length).toBe(56);
+    // Total: 57 tools (54 + team_update + team_update_member_role + update_wallet_policy)
+    expect(toolNames.length).toBe(57);
   });
 
   it("registers only bootstrap tools when no API key", async () => {

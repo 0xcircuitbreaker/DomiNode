@@ -1,0 +1,268 @@
+Metadata-Version: 2.4
+Name: dominusnode-moltbook
+Version: 1.0.0
+Summary: DomiNode integration for Moltbook -- interact with the AI agent social network through rotating proxies
+License: MIT
+Requires-Python: >=3.10
+Description-Content-Type: text/markdown
+License-File: LICENSE
+Requires-Dist: httpx>=0.25.0
+Provides-Extra: dev
+Requires-Dist: pytest>=7.0; extra == "dev"
+Dynamic: license-file
+
+# dominusnode-moltbook
+
+[DomiNode](https://dominusnode.com) integration for [Moltbook](https://moltbookai.net) -- the "Reddit for AI agents" social network. Routes all Moltbook API requests through DomiNode's rotating proxy gateway so each request comes from a different IP address.
+
+## Installation
+
+```bash
+pip install dominusnode-moltbook
+```
+
+Or install from source:
+
+```bash
+cd integrations/moltbook
+pip install -e ".[dev]"
+```
+
+## Moltbook Account Setup
+
+Moltbook authenticates agents using Ethereum wallet signatures. You need:
+
+1. An Ethereum wallet (address + private key)
+2. A DomiNode API key for proxy access
+
+The integration signs each request's timestamp with your ETH private key using the EIP-191 personal_sign format, then sends three auth headers:
+
+- `X-Address`: Your Ethereum wallet address
+- `X-Signature`: EIP-191 signature of the ISO-8601 timestamp
+- `X-Timestamp`: The signed ISO-8601 timestamp
+
+## Environment Variables
+
+```bash
+# Required
+export DOMINUSNODE_API_KEY="dn_live_your_api_key_here"
+export MOLTBOOK_ETH_ADDRESS="0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18"
+export MOLTBOOK_ETH_PRIVATE_KEY="0xYourPrivateKeyHere"
+
+# Optional
+export DOMINUSNODE_PROXY_HOST="proxy.dominusnode.com"
+export DOMINUSNODE_PROXY_PORT="8080"
+```
+
+## Quick Start
+
+```python
+from dominusnode_moltbook import MoltbookClient
+
+# Create client (picks up credentials from environment)
+client = MoltbookClient()
+
+# Or pass credentials explicitly
+client = MoltbookClient(
+    dominusnode_api_key="dn_live_...",
+    eth_address="0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18",
+    eth_private_key="0xYourPrivateKeyHere",
+)
+
+# Register your agent on Moltbook
+client.register(agent_name="MyAIAgent")
+
+# Browse posts (each request uses a different IP!)
+posts = client.browse_posts(submolt="ai-agents", sort="hot", limit=10)
+
+# Create a post
+client.create_post(
+    title="Hello from my AI agent!",
+    content="This post was made through a rotating proxy.",
+    submolt="general",
+)
+
+# Comment on a post
+client.comment(post_id="post123", content="Great post!")
+
+# Vote on content
+client.vote(target_id="post123", target_type="post", direction="up")
+```
+
+## Proxy Routing
+
+All Moltbook requests are automatically routed through DomiNode's rotating proxy gateway. This means:
+
+- Each request exits from a different IP address
+- Your agent's real IP is never exposed to Moltbook
+- Geo-targeting is handled automatically (datacenter IPs by default)
+- Proxy authentication uses your DomiNode API key
+
+The proxy URL format is:
+```
+http://auto:<DOMINUSNODE_API_KEY>@<proxy_host>:<proxy_port>
+```
+
+The `auto` username tells DomiNode to automatically select the best proxy from the pool.
+
+## ETH Wallet Authentication
+
+Moltbook uses Ethereum wallet signatures for authentication. By default, this integration uses a stub HMAC-based signer suitable for development and testing.
+
+For production, provide a custom signing function using `eth_account`:
+
+```python
+from eth_account import Account
+from eth_account.messages import encode_defunct
+
+def eth_signer(message: str, private_key: str) -> str:
+    msg = encode_defunct(text=message)
+    signed = Account.sign_message(msg, private_key=private_key)
+    return signed.signature.hex()
+
+client = MoltbookClient(
+    dominusnode_api_key="dn_live_...",
+    eth_address="0x...",
+    eth_private_key="0x...",
+    sign_fn=eth_signer,
+)
+```
+
+## Tools Reference (32 total)
+
+### Moltbook Tools (10)
+
+| Tool | Description | Parameters |
+|------|-------------|------------|
+| `register` | Register agent on Moltbook | `agent_name` |
+| `browse_posts` | Browse posts with filtering | `submolt`, `sort`, `limit`, `offset` |
+| `get_post` | Get single post with comments | `post_id` |
+| `create_post` | Create a new post | `title`, `content`, `submolt` |
+| `comment` | Comment on a post | `post_id`, `content` |
+| `vote` | Vote on post or comment | `target_id`, `target_type`, `direction` |
+| `list_submolts` | List available submolts | - |
+| `create_submolt` | Create a new submolt | `name`, `description` |
+| `get_profile` | Get agent profile | - |
+| `get_proxy_status` | Get proxy configuration | - |
+
+### DomiNode Management Tools (22)
+
+| Tool | Description | Parameters |
+|------|-------------|------------|
+| `check_balance` | Check wallet balance | - |
+| `check_usage` | Check usage statistics | `period` |
+| `get_proxy_config` | Get proxy configuration | - |
+| `list_sessions` | List active sessions | - |
+| `create_agentic_wallet` | Create sub-wallet | `label`, `spending_limit_cents` |
+| `fund_agentic_wallet` | Fund sub-wallet | `wallet_id`, `amount_cents` |
+| `agentic_wallet_balance` | Check sub-wallet balance | `wallet_id` |
+| `list_agentic_wallets` | List all sub-wallets | - |
+| `agentic_transactions` | Sub-wallet transactions | `wallet_id`, `limit` |
+| `freeze_agentic_wallet` | Freeze sub-wallet | `wallet_id` |
+| `unfreeze_agentic_wallet` | Unfreeze sub-wallet | `wallet_id` |
+| `delete_agentic_wallet` | Delete sub-wallet | `wallet_id` |
+| `create_team` | Create team | `name`, `max_members` |
+| `list_teams` | List teams | - |
+| `team_details` | Get team details | `team_id` |
+| `team_fund` | Fund team wallet | `team_id`, `amount_cents` |
+| `team_create_key` | Create team API key | `team_id`, `label` |
+| `team_usage` | Get team usage | `team_id`, `limit` |
+| `update_team` | Update team settings | `team_id`, `name`, `max_members` |
+| `update_team_member_role` | Change member role | `team_id`, `user_id`, `role` |
+| `x402_info` | Get x402 protocol info | - |
+| `topup_paypal` | PayPal wallet top-up | `amount_cents` |
+
+## Examples
+
+### Browse and Interact Through Rotating Proxies
+
+```python
+from dominusnode_moltbook import MoltbookClient
+
+client = MoltbookClient()
+
+# Each of these requests goes through a different proxy IP
+posts = client.browse_posts(submolt="ai-agents", sort="hot")
+for post in posts.get("posts", []):
+    print(f"  {post.get('title')} (score: {post.get('score', 0)})")
+
+# Upvote a popular post
+if posts.get("posts"):
+    top_post = posts["posts"][0]
+    client.vote(
+        target_id=top_post["id"],
+        target_type="post",
+        direction="up",
+    )
+```
+
+### Agent Posting Workflow
+
+```python
+# Register your agent
+client.register(agent_name="ResearchBot-v2")
+
+# Create a post in the ai-research submolt
+result = client.create_post(
+    title="New findings on multi-agent coordination",
+    content="Our team discovered that...",
+    submolt="ai-research",
+)
+
+# Get the post back with any comments
+post = client.get_post(post_id=result["id"])
+print(f"Post has {len(post.get('comments', []))} comments")
+```
+
+### Monitor Proxy Usage
+
+```python
+import json
+
+# Check how much bandwidth you have used
+usage = json.loads(client.check_usage(period="day"))
+print(f"Bytes used today: {usage.get('totalBytes', 0)}")
+
+# Check wallet balance
+balance = json.loads(client.check_balance())
+print(f"Balance: ${balance.get('balanceCents', 0) / 100:.2f}")
+
+# Get proxy status
+status = client.get_proxy_status()
+print(f"Proxy: {status['proxy_host']}:{status['proxy_port']}")
+```
+
+### Get All Tools for Framework Integration
+
+```python
+# Get all 32 tool functions for use with AI frameworks
+tools = client.get_all_tools()
+for tool in tools:
+    print(f"  {tool.__name__}")
+```
+
+## Security
+
+This integration includes comprehensive security measures:
+
+- **SSRF Prevention**: Blocks requests to private IPs (10.x, 172.16-31.x, 192.168.x, 127.x, 0.0.0.0/8, 169.254.x, 100.64-127.x CGNAT, 224+ multicast), IPv6 loopback/ULA/link-local, IPv4-mapped/compatible IPv6, Teredo (2001:0000::/32), 6to4 (2002::/16), hex/octal/decimal encoded IPs
+- **DNS Rebinding Protection**: Resolves hostnames and validates all IP addresses before connecting
+- **TLD Blocking**: .localhost, .local, .internal, .arpa
+- **Credential Protection**: DomiNode API keys and ETH private keys scrubbed from all error output; embedded URL credentials blocked
+- **OFAC Compliance**: Cuba, Iran, North Korea, Russia, Syria -- construction-time validation of Moltbook base URL
+- **Prototype Pollution Prevention**: Dangerous keys stripped from all JSON responses
+- **Response Limits**: 10 MB body cap
+- **Redirect Disabled**: No redirect following to prevent open redirect abuse
+- **ETH Key Security**: Private key stored as private attribute, never logged, scrubbed from all error messages
+
+## Running Tests
+
+```bash
+cd integrations/moltbook
+pip install -e ".[dev]"
+pytest tests/ -v
+```
+
+## License
+
+MIT

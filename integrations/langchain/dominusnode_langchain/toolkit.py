@@ -25,10 +25,19 @@ from langchain_core.tools import BaseTool, BaseToolkit
 from dominusnode import AsyncDominusNodeClient, DominusNodeClient
 
 from .tools import (
+    DominusNodeAgenticTransactionsTool,
+    DominusNodeAgenticWalletBalanceTool,
     DominusNodeBalanceTool,
+    DominusNodeCreateAgenticWalletTool,
+    DominusNodeDeleteAgenticWalletTool,
+    DominusNodeFreezeAgenticWalletTool,
+    DominusNodeFundAgenticWalletTool,
+    DominusNodeListAgenticWalletsTool,
     DominusNodeProxiedFetchTool,
     DominusNodeProxyConfigTool,
     DominusNodeTopupPaypalTool,
+    DominusNodeUnfreezeAgenticWalletTool,
+    DominusNodeUpdateWalletPolicyTool,
     DominusNodeUsageTool,
     DominusNodeX402InfoTool,
 )
@@ -86,6 +95,10 @@ class DominusNodeToolkit(BaseToolkit):
             "DOMINUSNODE_PROXY_HOST", "proxy.dominusnode.com"
         )
 
+        # Store credentials for agentic wallet tools (direct REST API calls)
+        self._api_key = resolved_key
+        self._base_url = resolved_base
+
         # Create sync client
         self._sync_client = DominusNodeClient(
             base_url=resolved_base,
@@ -133,7 +146,37 @@ class DominusNodeToolkit(BaseToolkit):
             sync_client=self._sync_client,
             async_client=self._async_client,
         )
-        return [fetch_tool, balance_tool, usage_tool, config_tool, topup_paypal_tool, x402_info_tool]
+
+        # Agentic wallet tools use direct REST API calls
+        _ak = self._api_key
+        _bu = self._base_url
+        create_wallet_tool = DominusNodeCreateAgenticWalletTool(api_key=_ak, base_url=_bu)
+        fund_wallet_tool = DominusNodeFundAgenticWalletTool(api_key=_ak, base_url=_bu)
+        wallet_balance_tool = DominusNodeAgenticWalletBalanceTool(api_key=_ak, base_url=_bu)
+        list_wallets_tool = DominusNodeListAgenticWalletsTool(api_key=_ak, base_url=_bu)
+        transactions_tool = DominusNodeAgenticTransactionsTool(api_key=_ak, base_url=_bu)
+        freeze_tool = DominusNodeFreezeAgenticWalletTool(api_key=_ak, base_url=_bu)
+        unfreeze_tool = DominusNodeUnfreezeAgenticWalletTool(api_key=_ak, base_url=_bu)
+        delete_wallet_tool = DominusNodeDeleteAgenticWalletTool(api_key=_ak, base_url=_bu)
+        update_policy_tool = DominusNodeUpdateWalletPolicyTool(api_key=_ak, base_url=_bu)
+
+        return [
+            fetch_tool,
+            balance_tool,
+            usage_tool,
+            config_tool,
+            topup_paypal_tool,
+            x402_info_tool,
+            create_wallet_tool,
+            fund_wallet_tool,
+            wallet_balance_tool,
+            list_wallets_tool,
+            transactions_tool,
+            freeze_tool,
+            unfreeze_tool,
+            delete_wallet_tool,
+            update_policy_tool,
+        ]
 
     def get_tools(self) -> List[BaseTool]:
         """Return the list of DomiNode LangChain tools."""

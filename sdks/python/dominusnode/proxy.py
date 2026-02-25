@@ -56,19 +56,19 @@ def build_proxy_url(
     username_parts: list[str] = ["user"]
 
     if opts.country:
-        username_parts.append(f"country_{quote(opts.country.upper(), safe='')}")
+        username_parts.append(f"country-{quote(opts.country.upper(), safe='')}")
 
     if opts.state:
-        username_parts.append(f"state_{quote(opts.state, safe='')}")
+        username_parts.append(f"state-{quote(opts.state, safe='')}")
 
     if opts.city:
-        username_parts.append(f"city_{quote(opts.city, safe='')}")
+        username_parts.append(f"city-{quote(opts.city, safe='')}")
 
     if opts.asn is not None:
-        username_parts.append(f"asn_{opts.asn}")
+        username_parts.append(f"asn-{opts.asn}")
 
     if opts.session_id:
-        username_parts.append(f"session_{quote(opts.session_id, safe='')}")
+        username_parts.append(f"session-{quote(opts.session_id, safe='')}")
 
     username = "-".join(username_parts)
 

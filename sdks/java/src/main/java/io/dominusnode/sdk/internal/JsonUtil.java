@@ -77,10 +77,12 @@ public final class JsonUtil {
         try {
             JsonNode node = MAPPER.readTree(body);
             if (node.has("error") && !node.get("error").isNull()) {
-                return node.get("error").asText();
+                String msg = node.get("error").asText();
+                return msg.length() > 500 ? msg.substring(0, 500) + "... [truncated]" : msg;
             }
             if (node.has("message") && !node.get("message").isNull()) {
-                return node.get("message").asText();
+                String msg = node.get("message").asText();
+                return msg.length() > 500 ? msg.substring(0, 500) + "... [truncated]" : msg;
             }
         } catch (JsonProcessingException ignored) {
             // Not JSON -- fall through
