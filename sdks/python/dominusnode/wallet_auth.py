@@ -13,7 +13,7 @@ from .types import LoginResult, User
 # Ethereum address: 0x followed by 40 hex characters
 _ETH_ADDRESS_RE = re.compile(r"^0x[0-9a-fA-F]{40}$")
 
-# R45 H-2: EIP-191 signature format: 0x prefix + 130 hex chars (65 bytes)
+# EIP-191 signature format: 0x prefix + 130 hex chars (65 bytes)
 _EIP191_SIGNATURE_RE = re.compile(r"^0x[0-9a-fA-F]{130}$")
 _MAX_SIGNATURE_LENGTH = 200
 
@@ -32,12 +32,12 @@ def _validate_signature(signature: str) -> None:
     """Validate EIP-191 signature format."""
     if not signature or not isinstance(signature, str):
         raise ValueError("signature is required and must be a string")
-    # R45 H-3: Max length check before regex
+    # Max length check before regex
     if len(signature) > _MAX_SIGNATURE_LENGTH:
         raise ValueError(
             f"signature must not exceed {_MAX_SIGNATURE_LENGTH} characters"
         )
-    # R45 H-2: EIP-191 format validation
+    # EIP-191 format validation
     if not _EIP191_SIGNATURE_RE.match(signature):
         raise ValueError(
             "signature must be a valid EIP-191 signature (0x followed by 130 hex characters)"
@@ -83,7 +83,7 @@ class WalletLinkResult:
 def _parse_verify_result(data: dict) -> WalletVerifyResult:
     """Parse verify response into typed result.
 
-    R46 C-1: Detect MFA-required responses so callers know to complete MFA
+    Detect MFA-required responses so callers know to complete MFA
     instead of silently returning empty tokens.
     """
     if data.get("mfaRequired"):

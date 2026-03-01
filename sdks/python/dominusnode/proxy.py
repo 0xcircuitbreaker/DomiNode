@@ -46,13 +46,13 @@ def build_proxy_url(
     if not api_key:
         raise ProxyError("API key is required to build proxy URL")
 
-    # R31 C-4: Validate proxy_host to prevent URL injection via crafted hostnames
+    # Validate proxy_host to prevent URL injection via crafted hostnames
     if any(c in proxy_host for c in " /\\@?#"):
         raise ValueError("proxy_host contains invalid characters")
 
     opts = options or ProxyUrlOptions()
 
-    # Build username with geo-targeting segments (R13: standardized separator format)
+    # Build username with geo-targeting segments
     username_parts: list[str] = ["user"]
 
     if opts.country:

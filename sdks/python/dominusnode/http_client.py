@@ -31,14 +31,14 @@ from .errors import (
 )
 from .token_manager import AsyncTokenManager, TokenManager
 
-# R18-H13: Maximum response body size to prevent OOM from oversized API response
+# Maximum response body size to prevent OOM from oversized API response
 MAX_RESPONSE_BYTES = 10 * 1024 * 1024  # 10MB
 
 
 def _extract_error_message(response: httpx.Response) -> str:
     """Try to extract an error message from the JSON body.
 
-    R31 H-1: All extracted messages are truncated to 500 chars to prevent
+    All extracted messages are truncated to 500 chars to prevent
     unbounded error body content from propagating into exception strings.
     """
     try:
@@ -93,7 +93,7 @@ def _parse_retry_after(response: httpx.Response) -> float:
     if ra:
         try:
             val = float(ra)
-            # R18-M2: Guard against NaN/Infinity from malformed headers
+            # Guard against NaN/Infinity from malformed headers
             if not (val == val) or val == float("inf"):  # NaN check + infinity check
                 return 1.0
             return max(val, 0.1)
@@ -103,7 +103,7 @@ def _parse_retry_after(response: httpx.Response) -> float:
 
 
 def _add_jitter(seconds: float) -> float:
-    """Add ±10% jitter to prevent thundering-herd on rate-limited endpoints (R15 H-5)."""
+    """Add ±10% jitter to prevent thundering-herd on rate-limited endpoints."""
     jitter = seconds * 0.2 * (random.random() - 0.5)
     return max(0.1, seconds + jitter)
 
@@ -128,7 +128,7 @@ class SyncHttpClient:
             base_url=self._base_url,
             timeout=timeout,
             headers={"User-Agent": USER_AGENT},
-            follow_redirects=False,  # R17: Prevent HTTPS→HTTP credential leakage
+            follow_redirects=False,  # Prevent HTTPS→HTTP credential leakage
         )
 
     def close(self) -> None:
@@ -138,7 +138,7 @@ class SyncHttpClient:
         self, extra: Optional[Dict[str, str]] = None, *, requires_auth: bool = True,
     ) -> Dict[str, str]:
         headers: Dict[str, str] = {}
-        # R32 C-1: Only attach Authorization header when auth is required.
+        # Only attach Authorization header when auth is required.
         # Public endpoints (slots, waitlist) must not leak credentials.
         if requires_auth:
             token = self._token_manager.get_valid_token()
@@ -171,7 +171,7 @@ class SyncHttpClient:
         except httpx.HTTPError as exc:
             raise NetworkError(str(exc)) from exc
 
-        # R18-H13: Response size limit — check Content-Length header if available
+        # Response size limit — check Content-Length header if available
         content_length = response.headers.get("content-length")
         if content_length:
             try:
@@ -180,11 +180,11 @@ class SyncHttpClient:
             except ValueError:
                 pass  # Malformed Content-Length header — skip size check
 
-        # R19 C-1: Also check actual body size (chunked transfer encoding may omit Content-Length)
+        # Also check actual body size (chunked transfer encoding may omit Content-Length)
         if len(response.content) > MAX_RESPONSE_BYTES:
             raise NetworkError(f"Response body too large: {len(response.content)} bytes")
 
-        # Auto-retry once on 401 after force-refreshing the token (R12 H-3)
+        # Auto-retry once on 401 after force-refreshing the token
         if response.status_code == 401 and requires_auth and self._token_manager.has_refresh_token:
             self._token_manager.force_refresh()
             merged_headers = self._build_headers(headers, requires_auth=requires_auth)
@@ -198,7 +198,7 @@ class SyncHttpClient:
                 )
             except httpx.HTTPError as exc:
                 raise NetworkError(str(exc)) from exc
-            # R26 H-1: Size check on 401-retry response
+            # Size check on 401-retry response
             if len(response.content) > MAX_RESPONSE_BYTES:
                 raise NetworkError(f"Response body too large: {len(response.content)} bytes")
 
@@ -206,7 +206,7 @@ class SyncHttpClient:
         if response.status_code == 429:
             wait = _parse_retry_after(response)
             time.sleep(_add_jitter(min(wait, 10.0)))  # Cap at 10s + jitter
-            # R16 P16-C: Rebuild headers to get fresh token in case it expired during wait
+            # Rebuild headers to get fresh token in case it expired during wait
             merged_headers = self._build_headers(headers, requires_auth=requires_auth)
             try:
                 response = self._client.request(
@@ -218,7 +218,7 @@ class SyncHttpClient:
                 )
             except httpx.HTTPError as exc:
                 raise NetworkError(str(exc)) from exc
-            # R26 H-2: Size check on 429-retry response
+            # Size check on 429-retry response
             if len(response.content) > MAX_RESPONSE_BYTES:
                 raise NetworkError(f"Response body too large: {len(response.content)} bytes")
 
@@ -292,7 +292,7 @@ class AsyncHttpClient:
             base_url=self._base_url,
             timeout=timeout,
             headers={"User-Agent": USER_AGENT},
-            follow_redirects=False,  # R17: Prevent HTTPS→HTTP credential leakage
+            follow_redirects=False,  # Prevent HTTPS→HTTP credential leakage
         )
 
     async def close(self) -> None:
@@ -302,7 +302,7 @@ class AsyncHttpClient:
         self, extra: Optional[Dict[str, str]] = None, *, requires_auth: bool = True,
     ) -> Dict[str, str]:
         headers: Dict[str, str] = {}
-        # R32 C-1: Only attach Authorization header when auth is required.
+        # Only attach Authorization header when auth is required.
         if requires_auth:
             token = await self._token_manager.get_valid_token()
             if token:
@@ -334,7 +334,7 @@ class AsyncHttpClient:
         except httpx.HTTPError as exc:
             raise NetworkError(str(exc)) from exc
 
-        # R18-H13: Response size limit — check Content-Length header if available
+        # Response size limit — check Content-Length header if available
         content_length = response.headers.get("content-length")
         if content_length:
             try:
@@ -343,11 +343,11 @@ class AsyncHttpClient:
             except ValueError:
                 pass  # Malformed Content-Length header — skip size check
 
-        # R19 C-1: Also check actual body size (chunked transfer encoding may omit Content-Length)
+        # Also check actual body size (chunked transfer encoding may omit Content-Length)
         if len(response.content) > MAX_RESPONSE_BYTES:
             raise NetworkError(f"Response body too large: {len(response.content)} bytes")
 
-        # Auto-retry once on 401 after force-refreshing the token (R13 C-3)
+        # Auto-retry once on 401 after force-refreshing the token
         if response.status_code == 401 and requires_auth and self._token_manager.has_refresh_token:
             await self._token_manager.force_refresh()
             merged_headers = await self._build_headers(headers, requires_auth=requires_auth)
@@ -361,7 +361,7 @@ class AsyncHttpClient:
                 )
             except httpx.HTTPError as exc:
                 raise NetworkError(str(exc)) from exc
-            # R26 H-1: Size check on 401-retry response
+            # Size check on 401-retry response
             if len(response.content) > MAX_RESPONSE_BYTES:
                 raise NetworkError(f"Response body too large: {len(response.content)} bytes")
 
@@ -369,7 +369,7 @@ class AsyncHttpClient:
         if response.status_code == 429:
             wait = _parse_retry_after(response)
             await asyncio.sleep(_add_jitter(min(wait, 10.0)))
-            # R16 P16-C: Rebuild headers to get fresh token in case it expired during wait
+            # Rebuild headers to get fresh token in case it expired during wait
             merged_headers = await self._build_headers(headers, requires_auth=requires_auth)
             try:
                 response = await self._client.request(
@@ -381,7 +381,7 @@ class AsyncHttpClient:
                 )
             except httpx.HTTPError as exc:
                 raise NetworkError(str(exc)) from exc
-            # R26 H-2: Size check on 429-retry response
+            # Size check on 429-retry response
             if len(response.content) > MAX_RESPONSE_BYTES:
                 raise NetworkError(f"Response body too large: {len(response.content)} bytes")
 

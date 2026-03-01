@@ -80,7 +80,7 @@ class TokenManager:
     def force_refresh(self) -> Optional[str]:
         """Force a token refresh regardless of expiry (e.g., after 401).
 
-        R23 C-2: Raises RuntimeError if refresh fails instead of returning None,
+        Raises RuntimeError if refresh fails instead of returning None,
         preventing "Bearer None" from being sent as an auth header.
         """
         return self._do_refresh(force=True)
@@ -174,7 +174,7 @@ class AsyncTokenManager:
     async def force_refresh(self) -> Optional[str]:
         """Force a token refresh regardless of expiry (e.g., after 401).
 
-        R23 C-2: Raises RuntimeError if refresh fails instead of returning None.
+        Raises RuntimeError if refresh fails instead of returning None.
         """
         return await self._do_refresh(force=True)
 

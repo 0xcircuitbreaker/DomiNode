@@ -255,7 +255,7 @@ class ProxyUrlOptions:
     country: Optional[str] = None
     state: Optional[str] = None
     city: Optional[str] = None
-    asn: Optional[int] = None  # R14 H-1: ASN targeting (API parity with Node.js/C++/Rust)
+    asn: Optional[int] = None  # ASN targeting (API parity with Node.js/C++/Rust)
     session_id: Optional[str] = None
     protocol: str = "http"  # "http" or "socks5"
 
