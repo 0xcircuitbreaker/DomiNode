@@ -51,7 +51,7 @@ ProxyStatus ProxyResource::get_status() {
 
 std::string ProxyResource::build_url(const std::string& api_key,
                                       const ProxyUrlOptions& options) const {
-    // R31 C-4: Validate proxy_host to prevent URL injection via crafted hostnames
+    // Validate proxy_host to prevent URL injection via crafted hostnames
     static const std::string invalid_chars = " /\\@?#";
     for (char c : proxy_host_) {
         if (invalid_chars.find(c) != std::string::npos) {
@@ -86,7 +86,7 @@ std::string ProxyResource::build_url(const std::string& api_key,
     std::string scheme = (protocol == "socks5") ? "socks5" : "http";
 
     std::ostringstream url;
-    // R14 C-2: Don't double-encode username — individual components are already encoded
+    // Don't double-encode username — individual components are already encoded
     url << scheme << "://" << username.str() << ":" << url_encode(api_key)
         << "@" << proxy_host_ << ":" << port;
 

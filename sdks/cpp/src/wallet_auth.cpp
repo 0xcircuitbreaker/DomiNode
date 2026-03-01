@@ -10,7 +10,7 @@ static void validate_eth_address(const std::string& address) {
     if (address.empty()) {
         throw std::invalid_argument("address is required");
     }
-    // R45 M-3: String-based validation instead of std::regex for thread safety + performance
+    // String-based validation instead of std::regex for thread safety + performance
     if (address.size() != 42 || address[0] != '0' || address[1] != 'x') {
         throw std::invalid_argument(
             "address must be a valid Ethereum address (0x followed by 40 hex characters)");
@@ -24,17 +24,17 @@ static void validate_eth_address(const std::string& address) {
     }
 }
 
-// R45 H-2: Validate EIP-191 signature format (0x + 130 hex chars = 65 bytes)
+// Validate EIP-191 signature format (0x + 130 hex chars = 65 bytes)
 static void validate_signature(const std::string& signature) {
     if (signature.empty()) {
         throw std::invalid_argument(
             "signature is required and must be a non-empty string");
     }
-    // R45 H-3: Max length check
+    // Max length check
     if (signature.size() > 200) {
         throw std::invalid_argument("signature must not exceed 200 characters");
     }
-    // R45 H-2: EIP-191 format: exactly 132 chars, starts with 0x, rest is hex
+    // EIP-191 format: exactly 132 chars, starts with 0x, rest is hex
     if (signature.size() != 132 || signature[0] != '0' || signature[1] != 'x') {
         throw std::invalid_argument(
             "signature must be a valid EIP-191 signature (0x followed by 130 hex characters)");
@@ -72,11 +72,11 @@ WalletVerifyResult WalletAuthResource::verify(const std::string& address,
     }
     auto resp = http_.post("/api/auth/wallet/verify", body, false);
     auto result = resp.get<WalletVerifyResult>();
-    // R46 C-1: Detect MFA-required response — don't store tokens, surface to caller
+    // Detect MFA-required response — don't store tokens, surface to caller
     if (result.mfa_required) {
         return result;
     }
-    // R45 H-1: Store tokens after verify (matching Python/Go/Java)
+    // Store tokens after verify (matching Python/Go/Java)
     if (!result.token.empty()) {
         token_manager_.set_tokens(result.token, result.refresh_token);
     }

@@ -41,7 +41,7 @@ static size_t write_callback(char* ptr, size_t size, size_t nmemb, void* userdat
     size_t total = size * nmemb;
     // Guard against size_t overflow in multiplication
     if (nmemb != 0 && total / nmemb != size) return 0;
-    // R19 C-2: Cap response body to 10MB (consistent with all other SDKs)
+    // Cap response body to 10MB (consistent with all other SDKs)
     static constexpr size_t MAX_RESPONSE_SIZE = 10 * 1024 * 1024;
     if (response->size() + total > MAX_RESPONSE_SIZE) return 0;
     response->append(ptr, total);
@@ -114,9 +114,9 @@ HttpResponse HttpClient::perform(const std::string& method,
     // Enforce TLS verification (explicit after curl_easy_reset clears all options)
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 2L);
-    // R16 C-2: Enforce TLS 1.2 minimum to prevent weak cipher negotiation on old systems
+    // Enforce TLS 1.2 minimum to prevent weak cipher negotiation on old systems
     curl_easy_setopt(curl, CURLOPT_SSLVERSION, CURL_SSLVERSION_TLSv1_2);
-    // R16 C-4: Disable automatic redirects to prevent credential leakage via HTTPS→HTTP redirects
+    // Disable automatic redirects to prevent credential leakage via HTTPS→HTTP redirects
     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 0L);
     // Restrict to HTTPS only by default to prevent redirect-based token leakage.
     // Allow HTTP for local development (localhost / 127.0.0.1).
@@ -184,7 +184,7 @@ void HttpClient::throw_for_status(long status,
     } catch (...) {
         message = body.empty() ? "Unknown error" : body;
     }
-    // R27 H-1: Truncate error message to prevent unbounded body in exception strings
+    // Truncate error message to prevent unbounded body in exception strings
     if (message.size() > 500) {
         message = message.substr(0, 500) + "... [truncated]";
     }
@@ -240,14 +240,14 @@ nlohmann::json HttpClient::request(const std::string& method,
             try { retry_after = std::stoi(it->second); } catch (...) {}
         }
         int wait_ms = std::max(100, std::min(retry_after * 1000, 10000));
-        // R23 C-1: Thread-safe RNG for jitter (replaces non-thread-safe std::rand)
+        // Thread-safe RNG for jitter (replaces non-thread-safe std::rand)
         static thread_local std::mt19937 rng(std::random_device{}());
         std::uniform_real_distribution<double> dist(-0.5, 0.5);
         int jitter = static_cast<int>(wait_ms * 0.2 * dist(rng));
         wait_ms = std::max(100, wait_ms + jitter);
         std::this_thread::sleep_for(std::chrono::milliseconds(wait_ms));
 
-        // R17: Refresh token after wait in case it expired during the sleep
+        // Refresh token after wait in case it expired during the sleep
         if (requires_auth) {
             std::string fresh_token = token_manager_.get_valid_token();
             headers["Authorization"] = "Bearer " + fresh_token;

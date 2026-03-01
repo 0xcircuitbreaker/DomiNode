@@ -41,7 +41,7 @@ struct WalletVerifyResult {
     std::string token;
     std::string refresh_token;
     WalletAuthUser user;
-    /// R46 C-1: True when MFA is required before authentication is complete.
+    /// True when MFA is required before authentication is complete.
     bool mfa_required = false;
     std::string mfa_challenge_token;
 };
@@ -56,7 +56,7 @@ inline void from_json(const nlohmann::json& j, WalletVerifyResult& r) {
     r.mfa_challenge_token = j.value("mfaChallengeToken", "");
 }
 
-// R45 H-4: Redact tokens in stream output to prevent accidental logging
+// Redact tokens in stream output to prevent accidental logging
 inline std::ostream& operator<<(std::ostream& os, const WalletVerifyResult& r) {
     os << "WalletVerifyResult{token=[REDACTED], refresh_token=[REDACTED], mfa_required="
        << (r.mfa_required ? "true" : "false") << ", user.id=" << r.user.id << "}";

@@ -34,7 +34,7 @@ struct ClientConfig {
 
     ClientConfig() = default;
 
-    // R16-C1: Delete copy operations to prevent credential proliferation in memory.
+    // Delete copy operations to prevent credential proliferation in memory.
     // Use move semantics to transfer ownership of credential strings.
     ClientConfig(const ClientConfig&) = delete;
     ClientConfig& operator=(const ClientConfig&) = delete;

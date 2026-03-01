@@ -14,7 +14,7 @@ static void validate_amount_cents(int amount_cents, const char* name = "amountCe
     }
 }
 
-// R33 H-5: Percent-encode a URI path segment to prevent path injection.
+// Percent-encode a URI path segment to prevent path injection.
 static std::string url_encode(const std::string& value) {
     std::ostringstream encoded;
     encoded.fill('0');

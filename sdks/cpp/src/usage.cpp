@@ -7,7 +7,7 @@
 
 namespace dominusnode {
 
-// URL-encode query parameter values (R14 H-5)
+// URL-encode query parameter values
 static std::string url_encode_param(const std::string& value) {
     std::ostringstream encoded;
     for (unsigned char c : value) {
