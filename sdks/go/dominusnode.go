@@ -102,7 +102,7 @@ func NewClient(cfg Config) *Client {
 	// Create HTTP client
 	var httpCl *http.Client
 	if cfg.HTTPClient != nil {
-		// R19 H-2: Ensure custom HTTPClient also has redirect protection
+		// Ensure custom HTTPClient also has redirect protection
 		if cfg.HTTPClient.CheckRedirect == nil {
 			cfg.HTTPClient.CheckRedirect = func(req *http.Request, via []*http.Request) error {
 				return http.ErrUseLastResponse
@@ -112,7 +112,7 @@ func NewClient(cfg Config) *Client {
 	} else {
 		httpCl = &http.Client{
 			Timeout: cfg.Timeout,
-			// R16 G-2: Disable auto-redirects to prevent credential leakage via protocol downgrade
+			// Disable auto-redirects to prevent credential leakage via protocol downgrade
 			CheckRedirect: func(req *http.Request, via []*http.Request) error {
 				return http.ErrUseLastResponse
 			},
@@ -206,7 +206,7 @@ func (c *Client) Disconnect() {
 	c.apiKeyMu.Lock()
 	c.apiKey = ""
 	c.apiKeyMu.Unlock()
-	// R27 H-6 + R29 H-6: Clear ALL config credentials to prevent lingering references
+	// Clear ALL config credentials to prevent lingering references
 	c.config.APIKey = ""
 	c.config.AccessToken = ""
 	c.config.RefreshToken = ""

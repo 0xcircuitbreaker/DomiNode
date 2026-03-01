@@ -62,7 +62,7 @@ func (hc *httpClient) doRequest(ctx context.Context, opts requestOptions, result
 			retryAfter = 0
 		}
 
-		// R24 C-1: Add ±10% jitter to prevent thundering-herd retry storms
+		// Add ±10% jitter to prevent thundering-herd retry storms
 		waitMs := retryAfter * 1000
 		if waitMs < 100 {
 			waitMs = 100
@@ -128,7 +128,7 @@ func (hc *httpClient) doRequestRaw(ctx context.Context, opts requestOptions) (st
 			retryAfter = 0
 		}
 
-		// R24 C-1: Add ±10% jitter to prevent thundering-herd retry storms
+		// Add ±10% jitter to prevent thundering-herd retry storms
 		waitMs := retryAfter * 1000
 		if waitMs < 100 {
 			waitMs = 100
@@ -212,7 +212,7 @@ func (hc *httpClient) executeRequest(ctx context.Context, opts requestOptions) (
 	defer resp.Body.Close()
 
 	// Cap response body to 10 MB to prevent OOM from malicious/compromised servers.
-	// R21 H-4: Read maxResponseSize+1 to detect truncation — prevents silent partial JSON
+	// Read maxResponseSize+1 to detect truncation — prevents silent partial JSON
 	const maxResponseSize int64 = 10 * 1024 * 1024
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseSize+1))
 	if err != nil {
@@ -334,7 +334,7 @@ func extractErrorMessage(body []byte) string {
 		}
 	}
 
-	// R26 H-4: Truncate raw body to prevent info disclosure and log flooding
+	// Truncate raw body to prevent info disclosure and log flooding
 	raw := string(body)
 	if len(raw) > 500 {
 		return raw[:500] + "...[truncated]"

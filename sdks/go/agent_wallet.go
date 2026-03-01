@@ -100,7 +100,7 @@ func (r *AgenticWalletResource) List(ctx context.Context) (*AgenticWalletListRes
 }
 
 // Get returns a single agentic wallet by ID.
-// R33 H-3: URL-encode walletID to prevent path injection.
+// URL-encode walletID to prevent path injection.
 func (r *AgenticWalletResource) Get(ctx context.Context, walletID string) (*AgenticWallet, error) {
 	var result AgenticWallet
 	if err := r.http.get(ctx, fmt.Sprintf("/api/agent-wallet/%s", url.PathEscape(walletID)), &result); err != nil {

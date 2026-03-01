@@ -44,23 +44,23 @@ type Config struct {
 
 	// APIKey is an API key for immediate authentication.
 	// If set, the client will verify this key on first use.
-	// R31 H-3: json:"-" prevents accidental serialization of credentials.
+	// json:"-" prevents accidental serialization of credentials.
 	APIKey string `json:"-"`
 
 	// Email is the user email for credential-based authentication.
-	// R31 H-3: json:"-" prevents accidental serialization of credentials.
+	// json:"-" prevents accidental serialization of credentials.
 	Email string `json:"-"`
 
 	// Password is the user password for credential-based authentication.
-	// R31 H-3: json:"-" prevents accidental serialization of credentials.
+	// json:"-" prevents accidental serialization of credentials.
 	Password string `json:"-"`
 
 	// AccessToken is a pre-existing JWT access token.
-	// R31 H-3: json:"-" prevents accidental serialization of credentials.
+	// json:"-" prevents accidental serialization of credentials.
 	AccessToken string `json:"-"`
 
 	// RefreshToken is a pre-existing JWT refresh token.
-	// R31 H-3: json:"-" prevents accidental serialization of credentials.
+	// json:"-" prevents accidental serialization of credentials.
 	RefreshToken string `json:"-"`
 
 	// ProxyHost is the hostname of the proxy server.

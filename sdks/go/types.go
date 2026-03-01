@@ -50,7 +50,7 @@ type TokenPair struct {
 }
 
 // String returns a redacted string representation of TokenPair.
-// R19 H-4: Prevent accidental credential leakage in logs.
+// Prevent accidental credential leakage in logs.
 func (tp TokenPair) String() string {
 	accessStr := "<none>"
 	if tp.AccessToken != "" {
@@ -78,7 +78,7 @@ type VerifyKeyResult struct {
 }
 
 // String returns a redacted string representation of VerifyKeyResult.
-// R19 H-3: Prevent accidental credential leakage in logs.
+// Prevent accidental credential leakage in logs.
 func (vr VerifyKeyResult) String() string {
 	tokenStr := "<none>"
 	if vr.Token != "" {

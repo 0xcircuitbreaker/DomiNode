@@ -9,7 +9,7 @@ import (
 
 var ethAddressRE = regexp.MustCompile(`^0x[0-9a-fA-F]{40}$`)
 
-// R45 H-2: EIP-191 signature format: 0x prefix + 130 hex chars (65 bytes)
+// EIP-191 signature format: 0x prefix + 130 hex chars (65 bytes)
 var eip191SignatureRE = regexp.MustCompile(`^0x[0-9a-fA-F]{130}$`)
 
 const maxSignatureLength = 200
@@ -28,11 +28,11 @@ func validateSignature(signature string) error {
 	if signature == "" {
 		return fmt.Errorf("signature is required and must be a non-empty string")
 	}
-	// R45 H-3: Max length check before regex
+	// Max length check before regex
 	if len(signature) > maxSignatureLength {
 		return fmt.Errorf("signature must not exceed %d characters", maxSignatureLength)
 	}
-	// R45 H-2: EIP-191 format validation
+	// EIP-191 format validation
 	if !eip191SignatureRE.MatchString(signature) {
 		return fmt.Errorf("signature must be a valid EIP-191 signature (0x followed by 130 hex characters)")
 	}
@@ -66,7 +66,7 @@ func (r WalletVerifyResult) GoString() string {
 	return r.String()
 }
 
-// R45 H-6: MarshalJSON redacts token fields to prevent leaking via json.Marshal.
+// MarshalJSON redacts token fields to prevent leaking via json.Marshal.
 func (r WalletVerifyResult) MarshalJSON() ([]byte, error) {
 	return json.Marshal(struct {
 		Token        string `json:"token"`
@@ -136,7 +136,7 @@ func (r *WalletAuthResource) Verify(ctx context.Context, address, signature stri
 	if err := r.http.postPublic(ctx, "/api/auth/wallet/verify", body, &result); err != nil {
 		return nil, err
 	}
-	// R46 C-1: Detect MFA-required response — don't store tokens, surface to caller
+	// Detect MFA-required response — don't store tokens, surface to caller
 	if result.MFARequired {
 		return &result, nil
 	}

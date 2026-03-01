@@ -59,7 +59,7 @@ func (p *ProxyResource) BuildURL(opts ProxyURLOptions) (string, error) {
 		return "", &ProxyError{DominusNodeError{Message: "No API key set. Call ConnectWithKey first."}}
 	}
 
-	// R31 C-4: Validate proxyHost to prevent URL injection via crafted hostnames
+	// Validate proxyHost to prevent URL injection via crafted hostnames
 	if strings.ContainsAny(p.proxyHost, " /\\@?#") {
 		return "", &ProxyError{DominusNodeError{Message: "proxyHost contains invalid characters"}}
 	}
