@@ -74,7 +74,7 @@ impl TokenManager {
 
         // Slow path: need to refresh. Acquire the refresh lock so only one
         // caller performs the network call.
-        // R16 R-4: Timeout on lock acquisition to prevent indefinite hang if refresh callback stalls
+        // Timeout on lock acquisition to prevent indefinite hang if refresh callback stalls
         let _lock = tokio::time::timeout(
             std::time::Duration::from_secs(30),
             self.refresh_lock.lock(),
@@ -156,7 +156,7 @@ impl TokenManager {
     /// Force a token refresh regardless of expiry state.
     /// Used after a 401 response to avoid re-using a rejected token.
     pub async fn force_refresh(&self) -> Result<String> {
-        // R16 R-4: Timeout on lock acquisition to prevent indefinite hang
+        // Timeout on lock acquisition to prevent indefinite hang
         let _lock = tokio::time::timeout(
             std::time::Duration::from_secs(30),
             self.refresh_lock.lock(),

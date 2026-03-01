@@ -125,7 +125,7 @@ impl HttpClient {
             return Err(map_error(status, &body, &headers));
         }
 
-        // R17: Enforce response body size limit
+        // Enforce response body size limit
         let bytes = response.bytes().await.map_err(DominusNodeError::Network)?;
         if bytes.len() > MAX_RESPONSE_BYTES {
             return Err(DominusNodeError::Server("Response body too large".into()));
@@ -161,7 +161,7 @@ impl HttpClient {
             );
 
             let base_ms = std::cmp::max(100u64, std::cmp::min(retry_after * 1000, 10_000));
-            // R23 H-5: Add ±10% jitter to prevent thundering-herd retry storms
+            // Add ±10% jitter to prevent thundering-herd retry storms
             let jitter = {
                 use std::collections::hash_map::DefaultHasher;
                 use std::hash::{Hash, Hasher};
@@ -252,7 +252,7 @@ const MAX_RESPONSE_BYTES: usize = 10 * 1024 * 1024;
 
 /// Parse a response body as JSON, treating empty bodies as `{}`.
 async fn parse_body<T: DeserializeOwned>(response: reqwest::Response) -> Result<T> {
-    // R17: Enforce response body size limit to prevent OOM
+    // Enforce response body size limit to prevent OOM
     let bytes = response.bytes().await.map_err(DominusNodeError::Network)?;
     if bytes.len() > MAX_RESPONSE_BYTES {
         return Err(DominusNodeError::Server("Response body too large".into()));
@@ -276,7 +276,7 @@ fn parse_retry_after(headers: &HeaderMap) -> u64 {
 }
 
 /// Extract an error message from a JSON body, falling back to the raw body.
-/// R27 H-1: Truncate raw body fallback to 500 chars to prevent unbounded error strings.
+/// Truncate raw body fallback to 500 chars to prevent unbounded error strings.
 fn extract_message(body: &str) -> String {
     serde_json::from_str::<serde_json::Value>(body)
         .ok()

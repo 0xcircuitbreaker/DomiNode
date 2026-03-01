@@ -23,7 +23,7 @@ use crate::wallet::WalletResource;
 ///
 /// All fields have sensible defaults. At minimum you should set `base_url` if
 /// your Dominus Node instance is not at the default `https://api.dominusnode.com`.
-// R15 H-5: Clone intentionally not derived — prevents accidental credential proliferation in memory.
+// Clone intentionally not derived — prevents accidental credential proliferation in memory.
 // Use Config::default() to create a new instance instead of cloning.
 pub struct Config {
     /// Base URL of the Dominus Node REST API (e.g. `"https://api.dominusnode.com"`).
@@ -42,7 +42,7 @@ pub struct Config {
     pub socks5_proxy_port: u16,
 }
 
-// Custom Debug to redact credentials (R13 H-2)
+// Custom Debug to redact credentials
 impl std::fmt::Debug for Config {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Config")

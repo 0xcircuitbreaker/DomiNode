@@ -28,7 +28,7 @@ pub struct WalletVerifyResult {
     pub refresh_token: String,
     #[serde(default)]
     pub user: User,
-    /// R46 C-1: True when MFA is required before authentication is complete.
+    /// True when MFA is required before authentication is complete.
     #[serde(rename = "mfaRequired", default)]
     pub mfa_required: bool,
     #[serde(rename = "mfaChallengeToken", default)]
@@ -89,20 +89,20 @@ fn validate_address(address: &str) -> Result<()> {
     Ok(())
 }
 
-/// R45 H-2: Validate EIP-191 signature format (0x + 130 hex chars = 65 bytes).
+/// Validate EIP-191 signature format (0x + 130 hex chars = 65 bytes).
 fn validate_signature(signature: &str) -> Result<()> {
     if signature.is_empty() {
         return Err(DominusNodeError::Validation(
             "signature is required and must be a non-empty string".to_string(),
         ));
     }
-    // R45 H-3: Max length check
+    // Max length check
     if signature.len() > 200 {
         return Err(DominusNodeError::Validation(
             "signature must not exceed 200 characters".to_string(),
         ));
     }
-    // R45 H-2: EIP-191 format validation
+    // EIP-191 format validation
     if signature.len() != 132
         || !signature.starts_with("0x")
         || !signature[2..].chars().all(|c| c.is_ascii_hexdigit())
@@ -176,11 +176,11 @@ impl WalletAuthResource {
                 false,
             )
             .await?;
-        // R46 C-1: Detect MFA-required response — don't store tokens, surface to caller
+        // Detect MFA-required response — don't store tokens, surface to caller
         if result.mfa_required {
             return Ok(result);
         }
-        // R45 H-1/H-8: Store tokens after verify (matching Python/Go/Java)
+        // Store tokens after verify (matching Python/Go/Java)
         if !result.token.is_empty() {
             self.token_manager
                 .set_tokens(&result.token, Some(&result.refresh_token))

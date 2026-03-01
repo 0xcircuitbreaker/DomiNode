@@ -77,7 +77,7 @@ impl ProxyResource {
     }
 
     pub fn build_url(&self, api_key: &str, opts: Option<&ProxyUrlOptions>) -> String {
-        // R31 C-4: Validate proxy_host to prevent URL injection via crafted hostnames.
+        // Validate proxy_host to prevent URL injection via crafted hostnames.
         // Panics on invalid host — this is a configuration error that must be caught early.
         Self::validate_proxy_host(&self.proxy_host)
             .expect("proxy_host contains invalid characters");

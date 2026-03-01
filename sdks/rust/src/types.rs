@@ -36,7 +36,7 @@ pub(crate) struct LoginResponse {
     pub refresh_token: Option<String>,
 }
 
-// R14 H-3: Custom Debug to redact tokens
+// Custom Debug to redact tokens
 impl std::fmt::Debug for LoginResponse {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("LoginResponse")
@@ -57,7 +57,7 @@ pub struct TokenPair {
     pub refresh_token: String,
 }
 
-// Custom Debug to redact tokens (R13 H-2)
+// Custom Debug to redact tokens
 impl std::fmt::Debug for TokenPair {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("TokenPair")
@@ -85,7 +85,7 @@ pub struct MfaSetup {
     pub backup_codes: Vec<String>,
 }
 
-// Custom Debug to redact MFA secrets (R13 H-2)
+// Custom Debug to redact MFA secrets
 impl std::fmt::Debug for MfaSetup {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("MfaSetup")
@@ -123,7 +123,7 @@ pub struct CreateKeyResponse {
     pub created_at: String,
 }
 
-// R14 H-3: Custom Debug to redact raw API key
+// Custom Debug to redact raw API key
 impl std::fmt::Debug for CreateKeyResponse {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("CreateKeyResponse")
