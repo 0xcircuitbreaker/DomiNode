@@ -206,7 +206,7 @@ public final class TokenManager {
         // If joining an in-flight refresh from another thread
         if (future != null) {
             try {
-                // R17: 30s timeout prevents indefinite thread blocking if refresh hangs
+                // 30s timeout prevents indefinite thread blocking if refresh hangs
                 return future.get(30, TimeUnit.SECONDS);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();

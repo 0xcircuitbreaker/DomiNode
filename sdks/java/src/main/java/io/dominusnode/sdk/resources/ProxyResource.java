@@ -78,7 +78,7 @@ public final class ProxyResource {
      * @return a fully-formed proxy URL string
      */
     public String buildUrl(String apiKey, ProxyUrlOptions options) {
-        // R31 C-4: Validate proxyHost to prevent URL injection via crafted hostnames
+        // Validate proxyHost to prevent URL injection via crafted hostnames
         if (proxyHost != null && proxyHost.chars().anyMatch(c -> " /\\@?#".indexOf(c) >= 0)) {
             throw new IllegalArgumentException("proxyHost contains invalid characters");
         }

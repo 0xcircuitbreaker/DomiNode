@@ -90,7 +90,7 @@ public final class DominusNodeClient implements AutoCloseable {
         this.walletAuth = new WalletAuthResource(http, tokenManager);
 
         // Wire up the token refresh function
-        // R15 H-7: Use UncheckedDominusNodeException to preserve the original exception type
+        // Use UncheckedDominusNodeException to preserve the original exception type
         // so callers can catch and inspect the cause without losing the typed error
         tokenManager.setRefreshFunction(rt -> {
             try {

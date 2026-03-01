@@ -48,7 +48,7 @@ public final class HttpClient {
         this.baseUrl = baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl;
         this.tokenManager = tokenManager;
         this.timeout = timeout;
-        // R16 G-1/J-3: Disable auto-redirects to prevent credential leakage via protocol downgrade
+        // Disable auto-redirects to prevent credential leakage via protocol downgrade
         this.httpClient = java.net.http.HttpClient.newBuilder()
                 .connectTimeout(timeout)
                 .followRedirects(java.net.http.HttpClient.Redirect.NEVER)
@@ -211,10 +211,10 @@ public final class HttpClient {
         if (response.statusCode() == 429) {
             int retryAfter = parseRetryAfter(response);
             int waitMs = Math.min(retryAfter * 1000, MAX_RETRY_WAIT_MS);
-            waitMs = Math.max(waitMs, 100); // R25 C-2: Enforce 100ms minimum before jitter
-            // R15 H-5: Add ±10% jitter to prevent thundering-herd
+            waitMs = Math.max(waitMs, 100); // Enforce 100ms minimum before jitter
+            // Add ±10% jitter to prevent thundering-herd
             waitMs += (int) (waitMs * 0.2 * (Math.random() - 0.5));
-            waitMs = Math.max(waitMs, 100); // R25 C-2: Enforce 100ms minimum after jitter
+            waitMs = Math.max(waitMs, 100); // Enforce 100ms minimum after jitter
             try {
                 Thread.sleep(waitMs);
             } catch (InterruptedException e) {
@@ -262,7 +262,7 @@ public final class HttpClient {
 
         if (requiresAuth) {
             String token = tokenManager.getValidToken();
-            // R29 H-7: Guard against null/empty token to prevent "Bearer null" header
+            // Guard against null/empty token to prevent "Bearer null" header
             if (token == null || token.isEmpty()) {
                 throw new AuthenticationException("No valid token available. Call connectWithKey() or login() first.");
             }
@@ -280,7 +280,7 @@ public final class HttpClient {
         builder.method(method, bodyPublisher);
 
         try {
-            // R16 G-1: Use BodyHandlers.ofInputStream to enforce size limit BEFORE buffering entire response
+            // Use BodyHandlers.ofInputStream to enforce size limit BEFORE buffering entire response
             HttpResponse<java.io.InputStream> streamResp = httpClient.send(builder.build(), HttpResponse.BodyHandlers.ofInputStream());
             String respBody;
             try (java.io.InputStream is = streamResp.body()) {
@@ -316,7 +316,7 @@ public final class HttpClient {
     }
 
     /**
-     * R16 G-1: Adapter wrapping a streaming HttpResponse with a pre-read String body.
+     * Adapter wrapping a streaming HttpResponse with a pre-read String body.
      * Implements only the methods used internally (statusCode, body, headers).
      */
     private static final class HttpStringResponse implements HttpResponse<String> {

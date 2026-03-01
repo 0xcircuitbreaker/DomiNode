@@ -22,7 +22,7 @@ import java.util.regex.Pattern;
 public final class WalletAuthResource {
 
     private static final Pattern ETH_ADDRESS_RE = Pattern.compile("^0x[0-9a-fA-F]{40}$");
-    // R45 H-2: EIP-191 signature format: 0x prefix + 130 hex chars (65 bytes)
+    // EIP-191 signature format: 0x prefix + 130 hex chars (65 bytes)
     private static final Pattern EIP191_SIGNATURE_RE = Pattern.compile("^0x[0-9a-fA-F]{130}$");
     private static final int MAX_SIGNATURE_LENGTH = 200;
 
@@ -97,7 +97,7 @@ public final class WalletAuthResource {
         }
         WalletVerifyResult result = http.post("/api/auth/wallet/verify",
                 body, WalletVerifyResult.class, false);
-        // R46 C-1: Detect MFA-required response — don't store tokens, surface to caller
+        // Detect MFA-required response — don't store tokens, surface to caller
         if (result.isMfaRequired()) {
             return result;
         }
@@ -155,16 +155,16 @@ public final class WalletAuthResource {
         }
     }
 
-    // R45 H-2: Validate EIP-191 signature format
+    // Validate EIP-191 signature format
     private static void validateSignature(String signature) throws ValidationException {
         if (signature == null || signature.isEmpty()) {
             throw new ValidationException("signature is required and must be a non-empty string");
         }
-        // R45 H-3: Max length check
+        // Max length check
         if (signature.length() > MAX_SIGNATURE_LENGTH) {
             throw new ValidationException("signature must not exceed " + MAX_SIGNATURE_LENGTH + " characters");
         }
-        // R45 H-2: EIP-191 format validation
+        // EIP-191 format validation
         if (!EIP191_SIGNATURE_RE.matcher(signature).matches()) {
             throw new ValidationException(
                     "signature must be a valid EIP-191 signature (0x followed by 130 hex characters)");

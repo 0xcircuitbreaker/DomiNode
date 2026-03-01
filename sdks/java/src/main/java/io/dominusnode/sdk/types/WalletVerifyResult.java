@@ -39,7 +39,7 @@ public final class WalletVerifyResult {
     public String getToken() { return token; }
     public String getRefreshToken() { return refreshToken; }
     public User getUser() { return user; }
-    /** R46 C-1: True when MFA is required before authentication is complete. */
+    /** True when MFA is required before authentication is complete. */
     public boolean isMfaRequired() { return mfaRequired; }
     public String getMfaChallengeToken() { return mfaChallengeToken; }
 
