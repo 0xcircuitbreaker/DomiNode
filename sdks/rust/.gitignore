@@ -1,0 +1,15 @@
+# Build output
+target/
+
+# Cargo lock (library — consumers generate their own)
+Cargo.lock
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
