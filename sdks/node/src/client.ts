@@ -41,7 +41,7 @@ export class DominusNodeClient {
     this.http = new HttpClient(baseUrl, this.tokenManager);
 
     // Initialize all resource modules BEFORE setting refresh function
-    // R26 C-1: this.auth must exist before refresh function can be invoked
+    // this.auth must exist before refresh function can be invoked
     this.auth = new AuthResource(this.http);
     this.keys = new KeysResource(this.http);
     this.wallet = new WalletResource(this.http);

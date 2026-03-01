@@ -6,11 +6,11 @@ import {
 } from "./errors.js";
 import type { TokenManager } from "./token-manager.js";
 
-// R15 H-3: Sanitize parsed JSON to prevent prototype pollution from untrusted API responses
-// R15 H-3: Recursive prototype pollution stripping (covers nested objects too)
+// Sanitize parsed JSON to prevent prototype pollution from untrusted API responses
+// Recursive prototype pollution stripping (covers nested objects too)
 const DANGEROUS_KEYS = new Set(["__proto__", "constructor", "prototype"]);
 
-// R21 C-2: Depth limit prevents stack overflow on deeply nested JSON
+// Depth limit prevents stack overflow on deeply nested JSON
 function stripDangerousKeys(obj: unknown, depth = 0): void {
   if (depth > 50 || !obj || typeof obj !== "object") return;
   if (Array.isArray(obj)) {
@@ -33,7 +33,7 @@ function safeJsonParse<T>(text: string): T {
   return parsed as T;
 }
 
-// R15 H-5: Add jitter to retry delays to prevent thundering-herd on rate-limited endpoints
+// Add jitter to retry delays to prevent thundering-herd on rate-limited endpoints
 function addJitter(ms: number): number {
   const jitter = ms * 0.2 * (Math.random() - 0.5); // ±10% jitter
   return Math.max(100, Math.round(ms + jitter));
@@ -55,7 +55,7 @@ function throwForStatus(status: number, body: string, headers: Headers): never {
   } catch {
     message = body;
   }
-  // R27 H-1: Truncate error message to prevent unbounded body in exception strings
+  // Truncate error message to prevent unbounded body in exception strings
   if (message.length > 500) message = message.slice(0, 500) + "... [truncated]";
 
   switch (status) {
@@ -67,7 +67,7 @@ function throwForStatus(status: number, body: string, headers: Headers): never {
     case 409: throw new ConflictError(message);
     case 429: {
       const parsed = parseInt(headers.get("retry-after") ?? "60", 10);
-      const retryAfter = Number.isFinite(parsed) ? parsed : 60; // R17: NaN guard
+      const retryAfter = Number.isFinite(parsed) ? parsed : 60; // NaN guard
       throw new RateLimitError(message, retryAfter);
     }
     default:
@@ -76,7 +76,7 @@ function throwForStatus(status: number, body: string, headers: Headers): never {
   }
 }
 
-// R17: Max response body size to prevent OOM from malicious/large API responses
+// Max response body size to prevent OOM from malicious/large API responses
 const MAX_RESPONSE_BYTES = 10 * 1024 * 1024; // 10 MB
 
 export class HttpClient {
@@ -94,7 +94,7 @@ export class HttpClient {
 
     if (opts.requiresAuth !== false) {
       const token = await this.tokenManager.getValidToken();
-      // R30 CX-1: Guard against null/empty token to prevent "Bearer " header
+      // Guard against null/empty token to prevent "Bearer " header
       if (!token) {
         throw new Error("No valid token available. Call connectWithKey() or login() first.");
       }
@@ -112,7 +112,7 @@ export class HttpClient {
         headers,
         body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
         signal: AbortSignal.timeout(timeoutMs),
-        redirect: "error", // R17: Reject redirects — prevents HTTPS→HTTP credential leakage
+        redirect: "error", // Reject redirects — prevents HTTPS→HTTP credential leakage
       });
     } catch (err) {
       throw new NetworkError(err instanceof Error ? err.message : "Network request failed");
@@ -121,8 +121,8 @@ export class HttpClient {
     if (response.status === 429) {
       // Auto-retry once on rate limit (cap wait at 10s to avoid client-side DoS)
       const parsed = parseInt(response.headers.get("retry-after") ?? "5", 10);
-      const retryAfter = Number.isFinite(parsed) ? parsed : 5; // R17: NaN guard
-      // R29 H-2: Cancel body stream instead of buffering — prevents OOM from large 429 responses
+      const retryAfter = Number.isFinite(parsed) ? parsed : 5; // NaN guard
+      // Cancel body stream instead of buffering — prevents OOM from large 429 responses
       await response.body?.cancel();
       await new Promise((resolve) => setTimeout(resolve, addJitter(Math.min(retryAfter * 1000, 10_000))));
 
@@ -146,7 +146,7 @@ export class HttpClient {
     }
 
     if (response.status === 401 && opts.requiresAuth !== false) {
-      // R30 CX-1: Cancel body stream before retry to prevent memory leak from unconsumed response
+      // Cancel body stream before retry to prevent memory leak from unconsumed response
       await response.body?.cancel();
       // Force a token refresh (don't reuse the rejected token) and retry once
       try {
@@ -159,7 +159,7 @@ export class HttpClient {
           signal: AbortSignal.timeout(timeoutMs),
           redirect: "error",
         });
-        // R19 H-1: Apply response size limit to 401 retry path too
+        // Apply response size limit to 401 retry path too
         const retryContentLength = parseInt(retry.headers.get("content-length") ?? "0", 10);
         if (retryContentLength > MAX_RESPONSE_BYTES) {
           throw new ServerError("Response body too large");
@@ -178,7 +178,7 @@ export class HttpClient {
       }
     }
 
-    // R17: Enforce response body size limit to prevent OOM
+    // Enforce response body size limit to prevent OOM
     const contentLength = parseInt(response.headers.get("content-length") ?? "0", 10);
     if (contentLength > MAX_RESPONSE_BYTES) {
       throw new ServerError("Response body too large");

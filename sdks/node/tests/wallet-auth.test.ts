@@ -22,7 +22,7 @@ function createMockTokenManager() {
 }
 
 const VALID_ADDRESS = "0x1234567890abcdef1234567890abcdef12345678";
-// R45 H-2: Valid EIP-191 signature: 0x + 130 hex chars (65 bytes)
+// Valid EIP-191 signature: 0x + 130 hex chars (65 bytes)
 const VALID_SIGNATURE = "0x" + "a".repeat(130);
 const VALID_CHALLENGE = "Sign this message to authenticate: abc123";
 

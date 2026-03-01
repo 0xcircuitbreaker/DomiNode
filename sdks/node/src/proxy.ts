@@ -41,7 +41,7 @@ export class ProxyResource {
 
   constructor(private http: HttpClient, config: DominusNodeConfig) {
     this.proxyHost = config.proxyHost ?? DEFAULT_PROXY_HOST;
-    // R31 C-4: Validate proxyHost to prevent URL injection via crafted hostnames
+    // Validate proxyHost to prevent URL injection via crafted hostnames
     if (/[\s\/\\@?#]/.test(this.proxyHost)) {
       throw new Error("proxyHost contains invalid characters");
     }

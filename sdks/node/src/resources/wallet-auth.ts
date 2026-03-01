@@ -11,7 +11,7 @@ export interface WalletVerifyResult {
   token: string;
   refreshToken: string;
   user: User;
-  /** R46 C-1: When true, the user must complete MFA before authentication is granted. */
+  /** When true, the user must complete MFA before authentication is granted. */
   mfaRequired?: boolean;
   /** Challenge token to pass to auth.verifyMfa() when mfaRequired is true. */
   mfaChallengeToken?: string;
@@ -25,7 +25,7 @@ export interface WalletLinkResult {
 // Ethereum address validation: 0x followed by 40 hex characters
 const ETH_ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
 
-// R45 H-2: EIP-191 signature format: 0x prefix + 130 hex chars (65 bytes)
+// EIP-191 signature format: 0x prefix + 130 hex chars (65 bytes)
 const EIP191_SIGNATURE_RE = /^0x[0-9a-fA-F]{130}$/;
 const MAX_SIGNATURE_LENGTH = 200;
 
@@ -42,11 +42,11 @@ function validateSignature(signature: string): void {
   if (!signature || typeof signature !== "string") {
     throw new Error("signature is required and must be a string");
   }
-  // R45 H-3: Max length check before regex
+  // Max length check before regex
   if (signature.length > MAX_SIGNATURE_LENGTH) {
     throw new Error(`signature must not exceed ${MAX_SIGNATURE_LENGTH} characters`);
   }
-  // R45 H-2: EIP-191 format validation
+  // EIP-191 format validation
   if (!EIP191_SIGNATURE_RE.test(signature)) {
     throw new Error("signature must be a valid EIP-191 signature (0x followed by 130 hex characters)");
   }
@@ -98,11 +98,11 @@ export class WalletAuthResource {
     const body: Record<string, string> = { address, signature };
     if (challenge) body.challenge = challenge;
     const result: WalletVerifyResult = await this.http.post("/api/auth/wallet/verify", body, false);
-    // R46 C-1: Detect MFA-required response — don't store tokens, surface to caller
+    // Detect MFA-required response — don't store tokens, surface to caller
     if (result.mfaRequired) {
       return result;
     }
-    // R45 H-7: Store tokens after verify (matching Python/Go/Java SDKs)
+    // Store tokens after verify (matching Python/Go/Java SDKs)
     if (result.token && result.refreshToken) {
       this.tokenManager.setTokens(result.token, result.refreshToken);
     }
