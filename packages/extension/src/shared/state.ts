@@ -69,7 +69,7 @@ export async function loadState(): Promise<ExtensionState> {
         refreshToken: null,
         userId: null,
         email: null,
-        mfaChallengeToken: null, // R18-H10: Prevent stale MFA token from persisted state
+        mfaChallengeToken: null, // Prevent stale MFA token from persisted state
       };
     }
 
@@ -79,7 +79,7 @@ export async function loadState(): Promise<ExtensionState> {
 
     return {
       ...DEFAULT_STATE,
-      // R30 C-2: Strip auth fields from local storage config to prevent stale credential reconnection
+      // Strip auth fields from local storage config to prevent stale credential reconnection
       ...stripAuth(config as ExtensionState),
       // Auth from session storage overrides any stale auth in local
       ...(savedAuth ?? {}),
@@ -102,7 +102,7 @@ export async function saveState(state: ExtensionState): Promise<void> {
       await chrome.storage.session.set({ [STORAGE_KEYS.AUTH]: auth });
     } else {
       // Fallback: save config-only to local storage (no auth data, no PII)
-      // R24 H-3: Also strip userId and email — PII should not persist in non-session storage
+      // Also strip userId and email — PII should not persist in non-session storage
       const { accessToken: _a, refreshToken: _r, apiKey: _k, mfaChallengeToken: _m, userId: _u, email: _e, ...safeConfig } = state;
       await chrome.storage.local.set({ [STORAGE_KEYS.STATE]: safeConfig });
     }
@@ -115,7 +115,7 @@ export async function saveState(state: ExtensionState): Promise<void> {
 }
 
 export async function updateState(partial: Partial<ExtensionState>): Promise<ExtensionState> {
-  // R31 H-2: Re-throw errors instead of silently returning undefined
+  // Re-throw errors instead of silently returning undefined
   let result: ExtensionState | undefined;
   let error: unknown;
   const prev = stateLock;

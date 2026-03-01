@@ -117,7 +117,7 @@ describe("admin-repo", () => {
 
   describe("deleteUser", () => {
     it("should anonymize and soft-delete in transaction", async () => {
-      // R40 H-4: deleteUser now uses getPool() for transactional anonymization
+      // deleteUser now uses getPool() for transactional anonymization
       mockClientQuery.mockResolvedValue({ rows: [{ wallet_address: null }] });
       await deleteUser("u1");
       // Should have called BEGIN and COMMIT

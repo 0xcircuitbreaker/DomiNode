@@ -4,7 +4,7 @@ import { SUPPORTED_CRYPTO, PRICE_PER_GB_CENTS, PRICE_PER_GB_CENTS_DC } from "@do
 const router = Router();
 
 // GET /api/x402/info — Public x402 payment protocol info
-// R33 M-5: Use shared constants instead of hardcoded pricing
+// Use shared constants instead of hardcoded pricing
 router.get("/info", (_req, res) => {
   res.json({
     supported: true,

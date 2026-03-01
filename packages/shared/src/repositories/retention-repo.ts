@@ -6,7 +6,7 @@ const log = createLogger("retention");
 // M-4 fix: Batch size to prevent long table locks
 const DELETE_BATCH_SIZE = 10_000;
 
-// R30 H-1: Pre-built query map eliminates dynamic table name interpolation.
+// Pre-built query map eliminates dynamic table name interpolation.
 // Each allowed table has its DELETE query as a static string — no SQL injection possible.
 const TABLE_QUERIES: Record<string, string> = {
   usage_records: `DELETE FROM usage_records WHERE ctid IN (
@@ -48,12 +48,34 @@ const TABLE_QUERIES: Record<string, string> = {
   teams: `DELETE FROM teams WHERE ctid IN (
     SELECT ctid FROM teams WHERE status = 'deleted' AND created_at < NOW() - INTERVAL '1 day' * $1 LIMIT $2
   )`,
-  // R46 H-8: Expired refresh tokens and old payment invoices
+  // Expired refresh tokens and old payment invoices
   refresh_tokens: `DELETE FROM refresh_tokens WHERE ctid IN (
     SELECT ctid FROM refresh_tokens WHERE created_at < NOW() - INTERVAL '1 day' * $1 LIMIT $2
   )`,
   payment_invoices: `DELETE FROM payment_invoices WHERE ctid IN (
     SELECT ctid FROM payment_invoices WHERE created_at < NOW() - INTERVAL '1 day' * $1 LIMIT $2
+  )`,
+  // Referral/affiliate/promo/loyalty tables
+  referral_codes: `DELETE FROM referral_codes WHERE ctid IN (
+    SELECT ctid FROM referral_codes WHERE created_at < NOW() - INTERVAL '1 day' * $1 AND active = false LIMIT $2
+  )`,
+  referral_redemptions: `DELETE FROM referral_redemptions WHERE ctid IN (
+    SELECT ctid FROM referral_redemptions WHERE created_at < NOW() - INTERVAL '1 day' * $1 LIMIT $2
+  )`,
+  affiliate_links: `DELETE FROM affiliate_links WHERE ctid IN (
+    SELECT ctid FROM affiliate_links WHERE created_at < NOW() - INTERVAL '1 day' * $1 AND active = false LIMIT $2
+  )`,
+  affiliate_commissions: `DELETE FROM affiliate_commissions WHERE ctid IN (
+    SELECT ctid FROM affiliate_commissions WHERE created_at < NOW() - INTERVAL '1 day' * $1 AND status = 'credited' LIMIT $2
+  )`,
+  promo_codes: `DELETE FROM promo_codes WHERE ctid IN (
+    SELECT ctid FROM promo_codes WHERE created_at < NOW() - INTERVAL '1 day' * $1 AND active = false LIMIT $2
+  )`,
+  promo_redemptions: `DELETE FROM promo_redemptions WHERE ctid IN (
+    SELECT ctid FROM promo_redemptions WHERE created_at < NOW() - INTERVAL '1 day' * $1 LIMIT $2
+  )`,
+  loyalty_rewards: `DELETE FROM loyalty_rewards WHERE ctid IN (
+    SELECT ctid FROM loyalty_rewards WHERE created_at < NOW() - INTERVAL '1 day' * $1 AND status = 'credited' LIMIT $2
   )`,
 };
 

@@ -31,11 +31,11 @@ const envNowpaymentsIps = process.env["NOWPAYMENTS_WEBHOOK_IPS"];
 if (envNowpaymentsIps) {
   for (const ip of envNowpaymentsIps.split(",")) NOWPAYMENTS_IPS.add(ip.trim());
 } else if (process.env["NOWPAYMENTS_API_KEY"]) {
-  // Warn if NOWPayments is configured but no webhook IP allowlist is set (R12 H-2)
+  // Warn if NOWPayments is configured but no webhook IP allowlist is set
   log.warn("NOWPAYMENTS_WEBHOOK_IPS not set — webhook IP allowlisting is disabled. Set this in production.");
 }
 
-// R45 H-2: Normalize IPv6-mapped/compatible addresses to IPv4 for allowlist matching
+// Normalize IPv6-mapped/compatible addresses to IPv4 for allowlist matching
 function normalizeWebhookIp(rawIp: string): string {
   let ip = rawIp.trim();
   // Strip ::ffff: (IPv4-mapped IPv6)
@@ -90,10 +90,10 @@ router.post("/stripe", webhookIpCheck(STRIPE_WEBHOOK_IPS, "stripe"), raw({ type:
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
     log.error("stripe webhook error", { error: errMsg });
-    // R45 H-4: Only return 500 for transient DB errors (Stripe retries on 500).
+    // Only return 500 for transient DB errors (Stripe retries on 500).
     // For permanent errors (balance cap exceeded, wallet not found), return 200
     // to prevent infinite retry loops that would never succeed.
-    // R46 H-5: Balance cap errors are retryable (user might spend down balance)
+    // Balance cap errors are retryable (user might spend down balance)
     const isTransient = errMsg.includes("connection") || errMsg.includes("timeout")
       || errMsg.includes("ECONNREFUSED") || errMsg.includes("lock")
       || errMsg.includes("exceed maximum wallet balance");
@@ -127,8 +127,8 @@ router.post("/nowpayments", webhookIpCheck(NOWPAYMENTS_IPS, "nowpayments"), json
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
     log.error("nowpayments webhook error", { error: errMsg });
-    // R45 H-4: Only return 500 for transient DB errors (NOWPayments retries on 500).
-    // R46 H-5: Balance cap errors are retryable (user might spend down balance)
+    // Only return 500 for transient DB errors (NOWPayments retries on 500).
+    // Balance cap errors are retryable (user might spend down balance)
     const isTransient = errMsg.includes("connection") || errMsg.includes("timeout")
       || errMsg.includes("ECONNREFUSED") || errMsg.includes("lock")
       || errMsg.includes("exceed maximum wallet balance");
@@ -186,8 +186,8 @@ router.post("/paypal", webhookIpCheck(PAYPAL_WEBHOOK_IPS, "paypal"), raw({ type:
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
     log.error("paypal webhook error", { error: errMsg });
-    // R45 H-4: Only return 500 for transient DB errors (PayPal retries on 500).
-    // R46 H-5: Balance cap errors are retryable (user might spend down balance)
+    // Only return 500 for transient DB errors (PayPal retries on 500).
+    // Balance cap errors are retryable (user might spend down balance)
     const isTransient = errMsg.includes("connection") || errMsg.includes("timeout")
       || errMsg.includes("ECONNREFUSED") || errMsg.includes("lock")
       || errMsg.includes("exceed maximum wallet balance");

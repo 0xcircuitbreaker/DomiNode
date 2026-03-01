@@ -12,7 +12,7 @@ async function migrate(): Promise<void> {
 
   console.log("[migrate] applying schema...");
   const pool = getPool();
-  // R23 H-1: Wrap migration in transaction for atomicity — partial schema = broken DB
+  // Wrap migration in transaction for atomicity — partial schema = broken DB
   const client = await pool.connect();
   try {
     await client.query("BEGIN");

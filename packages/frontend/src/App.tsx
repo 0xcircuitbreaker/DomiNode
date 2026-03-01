@@ -13,6 +13,7 @@ import UsagePage from "./pages/UsagePage";
 import PlansPage from "./pages/PlansPage";
 import SecurityPage from "./pages/SecurityPage";
 import TeamsPage from "./pages/TeamsPage";
+import ReferralsPage from "./pages/ReferralsPage";
 import InviteAcceptPage from "./pages/InviteAcceptPage";
 import PrivacyPage from "./pages/PrivacyPage";
 import TermsPage from "./pages/TermsPage";
@@ -56,6 +57,7 @@ export default function App() {
         <Route path="plans" element={<PlansPage />} />
         <Route path="security" element={<SecurityPage />} />
         <Route path="teams" element={<TeamsPage />} />
+        <Route path="referrals" element={<ReferralsPage />} />
         <Route path="admin" element={
           <AdminGuard>
             <Suspense fallback={<div className="p-8 text-center text-gray-400">Loading...</div>}>

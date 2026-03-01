@@ -199,7 +199,7 @@ describe("mfa-repo", () => {
       expect(mockClientRelease).toHaveBeenCalledTimes(1);
     });
 
-    // R46 H-9: Bounded backup codes
+    // Bounded backup codes
     it("should reject more than 20 backup codes", async () => {
       const tooMany = Array.from({ length: 21 }, (_, i) => `hash-${i}`);
       await expect(storeBackupCodes("user1", tooMany)).rejects.toThrow(

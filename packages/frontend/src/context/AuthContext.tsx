@@ -30,7 +30,7 @@ interface AuthState {
   login: (email: string, password: string, captchaToken?: string) => Promise<{ mfaRequired: boolean }>;
   verifyMfa: (code: string, isBackupCode?: boolean) => Promise<void>;
   cancelMfa: () => void;
-  register: (email: string, password: string, captchaToken?: string) => Promise<void>;
+  register: (email: string, password: string, captchaToken?: string, referralCode?: string) => Promise<void>;
   logout: () => Promise<void>;
   walletChallenge: (address: string) => Promise<WalletChallengeResponse>;
   walletLogin: (address: string, signature: string) => Promise<void>;
@@ -103,11 +103,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setMfaRequired(false);
   }, []);
 
-  const register = useCallback(async (email: string, password: string, captchaToken?: string) => {
+  const register = useCallback(async (email: string, password: string, captchaToken?: string, referralCode?: string) => {
     const res = await post<{ user: AuthUser }>("/api/auth/register", {
       email,
       password,
       ...(captchaToken ? { captchaToken } : {}),
+      ...(referralCode ? { referralCode } : {}),
     });
     setUser(res.user);
   }, []);

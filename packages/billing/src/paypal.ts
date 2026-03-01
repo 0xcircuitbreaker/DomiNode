@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto";
-import { walletRepo, invoiceRepo, createLogger } from "@dominusnode/shared";
+import { walletRepo, invoiceRepo, referralRepo, createLogger } from "@dominusnode/shared";
 
 const log = createLogger("billing:paypal");
 
-// R46 H-4: Prototype pollution protection
+// Prototype pollution protection
 const DANGEROUS_KEYS = new Set(["__proto__", "constructor", "prototype"]);
 function stripDangerousKeys(obj: Record<string, unknown>, depth = 0): void {
   if (depth > 5) return;
@@ -231,7 +231,7 @@ export async function createPaypalOrder(
 // Capture PayPal Order (after user approves)
 // ---------------------------------------------------------------------------
 
-// R45 H-3: PayPal order IDs are alphanumeric (uppercase + digits), max 50 chars.
+// PayPal order IDs are alphanumeric (uppercase + digits), max 50 chars.
 // Validate to prevent injection into URL construction.
 const PAYPAL_ORDER_ID_RE = /^[A-Z0-9]{5,50}$/;
 
@@ -286,7 +286,7 @@ export async function capturePaypalOrder(
   if (!resp.ok) {
     const errText = await resp.text().catch(() => "");
     log.error("PayPal capture failed", { orderId, status: resp.status, body: errText.slice(0, 500) });
-    // R46 C-1: Only permanently fail invoice on definitive PayPal rejection (4xx client errors).
+    // Only permanently fail invoice on definitive PayPal rejection (4xx client errors).
     // Leave 5xx/timeout as pending — the webhook may still arrive and complete it.
     // markCreditFailed only transitions completed→failed; failInvoice transitions pending→failed.
     if (resp.status >= 400 && resp.status < 500 && resp.status !== 429) {
@@ -323,7 +323,7 @@ export async function capturePaypalOrder(
     return null;
   }
   const capturedCents = Math.round(parseFloat(capture.amount.value) * 100);
-  // R46 C-2: NaN check — parseFloat("abc") = NaN, Math.round(NaN) = NaN, NaN > 1 = false (bypass)
+  // NaN check — parseFloat("abc") = NaN, Math.round(NaN) = NaN, NaN > 1 = false (bypass)
   if (isNaN(capturedCents) || Math.abs(capturedCents - invoice.amount_cents) > 1) {
     log.error("PayPal captured amount mismatch", {
       orderId,
@@ -333,7 +333,7 @@ export async function capturePaypalOrder(
     return null;
   }
 
-  // R45 C-1: Atomically complete invoice + credit wallet in a single
+  // Atomically complete invoice + credit wallet in a single
   // DB transaction. If the server crashes mid-operation, both roll back.
   const amountCents = invoice.amount_cents;
   const result = await walletRepo.atomicCompleteInvoiceAndCredit(
@@ -350,6 +350,10 @@ export async function capturePaypalOrder(
   }
 
   log.info("wallet credited via PayPal", { userId: invoice.user_id, amountCents, orderId });
+
+  // Fire-and-forget affiliate commission recording — must never block wallet credit
+  referralRepo.recordAffiliateCommission(invoice.user_id, amountCents, orderId).catch(() => {});
+
   return { userId: invoice.user_id, amountCents };
 }
 
@@ -443,7 +447,7 @@ export async function handlePaypalWebhook(
   let event: { event_type: string; resource: Record<string, unknown> };
   try {
     event = JSON.parse(rawBody);
-    // R46 H-4: Prototype pollution protection on parsed webhook body
+    // Prototype pollution protection on parsed webhook body
     if (typeof event === "object" && event !== null) {
       stripDangerousKeys(event as unknown as Record<string, unknown>);
     }
@@ -476,7 +480,7 @@ export async function handlePaypalWebhook(
       return null;
     }
 
-    // R45 C-3: Amount verification is mandatory — reject if capture data is missing
+    // Amount verification is mandatory — reject if capture data is missing
     const capturedAmount = resource.amount as { value?: string } | undefined;
     if (!capturedAmount?.value) {
       log.error("PayPal webhook capture missing amount — rejecting", { orderId });
@@ -488,7 +492,7 @@ export async function handlePaypalWebhook(
       return null;
     }
 
-    // R45 C-1: Atomically complete invoice + credit wallet in a single
+    // Atomically complete invoice + credit wallet in a single
     // DB transaction. If the server crashes mid-operation, both roll back.
     const amountCents = invoice.amount_cents;
     const result = await walletRepo.atomicCompleteInvoiceAndCredit(
@@ -505,6 +509,10 @@ export async function handlePaypalWebhook(
     }
 
     log.info("wallet credited via PayPal webhook", { userId: invoice.user_id, amountCents, orderId });
+
+    // Fire-and-forget affiliate commission recording — must never block wallet credit
+    referralRepo.recordAffiliateCommission(invoice.user_id, amountCents, orderId).catch(() => {});
+
     return { userId: invoice.user_id, amountCents };
   }
 

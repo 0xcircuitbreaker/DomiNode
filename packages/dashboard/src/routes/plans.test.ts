@@ -166,7 +166,7 @@ function requestWithBody(
 describe("plans routes", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    // R46 H-6: Plan change now requires email_verified — mock verified user by default
+    // Plan change now requires email_verified — mock verified user by default
     mockFindUserById.mockResolvedValue({ id: "test-user-id", email: "test@test.com", email_verified: true, status: "active" });
   });
 

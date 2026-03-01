@@ -42,7 +42,7 @@ function formatWalletResponse(w: { id: string; label: string; balance_cents: num
   };
 }
 
-// R33 H-1: Per-user rate limit on financial agentic wallet operations
+// Per-user rate limit on financial agentic wallet operations
 const financialLimiter = rateLimit({
   windowMs: 60_000,
   max: 20,
@@ -59,7 +59,7 @@ router.post("/", financialLimiter, async (req, res) => {
   try {
     const { userId } = (req as AuthenticatedRequest).user;
 
-    // R37 C-5: Require verified email before creating agentic wallets
+    // Require verified email before creating agentic wallets
     const agUser = await userRepo.findUserById(userId);
     if (!agUser || !agUser.email_verified) {
       res.status(403).json({ error: "Email verification required before creating agentic wallets" });
@@ -156,7 +156,7 @@ router.post("/:id/fund", financialLimiter, async (req, res) => {
   try {
     const { userId } = (req as unknown as AuthenticatedRequest).user;
 
-    // R37 C-5: Require verified email before funding agentic wallets
+    // Require verified email before funding agentic wallets
     const fundUser = await userRepo.findUserById(userId);
     if (!fundUser || !fundUser.email_verified) {
       res.status(403).json({ error: "Email verification required before funding agentic wallets" });
@@ -268,7 +268,7 @@ router.post("/:id/freeze", financialLimiter, async (req, res) => {
   }
 });
 
-// R33 H-8: POST /api/agent-wallet/:id/unfreeze — Unfreeze wallet
+// POST /api/agent-wallet/:id/unfreeze — Unfreeze wallet
 router.post("/:id/unfreeze", financialLimiter, async (req, res) => {
   try {
     const { userId } = (req as unknown as AuthenticatedRequest).user;

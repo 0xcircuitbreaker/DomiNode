@@ -103,7 +103,7 @@ export async function handleX402Http(
   // The caller will continue with normal auth flow.
   if (!paymentHeader) return false;
 
-  // R45 H-2: IP-based rate limit BEFORE verify (prevent CPU waste on anonymous requests)
+  // IP-based rate limit BEFORE verify (prevent CPU waste on anonymous requests)
   const clientIp = (req.socket?.remoteAddress ?? "").replace(/^::ffff:/, "");
   if (clientIp && !checkX402RateLimit(`ip:${clientIp}`)) {
     res.writeHead(429, {
@@ -143,7 +143,7 @@ export async function handleX402Http(
 
   // Rate limit by payer address (BEFORE settlement to avoid wasting payments)
   if (!checkX402RateLimit(`payer:${verifyResult.payer}`)) {
-    // R46 H-2: Release the claimed hash since we're rejecting before settlement
+    // Release the claimed hash since we're rejecting before settlement
     const payHash = hashPaymentHeader(paymentHeader);
     await releasePaymentHash(payHash).catch(() => {});
     res.writeHead(429, {
@@ -251,7 +251,7 @@ export async function handleX402Connect(
   const paymentHeader = req.headers["x-payment"] as string | undefined;
   if (!paymentHeader) return null;
 
-  // R45 H-2: IP-based rate limit BEFORE verify
+  // IP-based rate limit BEFORE verify
   const clientIp = (req.socket?.remoteAddress ?? "").replace(/^::ffff:/, "");
   if (clientIp && !checkX402RateLimit(`ip:${clientIp}`)) {
     if (!clientSocket.destroyed) {
@@ -289,7 +289,7 @@ export async function handleX402Connect(
   }
 
   if (!checkX402RateLimit(`payer:${verifyResult.payer}`)) {
-    // R46 H-5: Release the claimed hash since we're rejecting before settlement
+    // Release the claimed hash since we're rejecting before settlement
     const payHashRL = hashPaymentHeader(paymentHeader);
     await releasePaymentHash(payHashRL).catch(() => {});
     if (!clientSocket.destroyed) {
@@ -342,7 +342,7 @@ export async function handleX402Connect(
     poolType,
   });
 
-  // R45 H-4: Do not store full paymentHeader in result struct (settlement is done, no longer needed)
+  // Do not store full paymentHeader in result struct (settlement is done, no longer needed)
   return {
     handled: true,
     verified: true,

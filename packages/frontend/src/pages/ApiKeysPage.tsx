@@ -51,7 +51,7 @@ export default function ApiKeysPage() {
     }
   }
 
-  // R30 H-2: Validate API key ID format before using in URL path
+  // Validate API key ID format before using in URL path
   const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
   async function handleRevoke(id: string) {

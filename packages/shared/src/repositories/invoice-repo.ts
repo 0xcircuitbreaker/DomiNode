@@ -7,7 +7,7 @@ export async function createInvoice(
   externalId: string,
   amountCents: number,
 ): Promise<PaymentInvoice> {
-  // R46 H-3: Validate amountCents range to prevent DB overflow / negative invoices
+  // Validate amountCents range to prevent DB overflow / negative invoices
   if (!Number.isInteger(amountCents) || amountCents <= 0 || amountCents > 2_147_483_647) {
     throw new Error("Invoice amount must be a positive integer within valid range");
   }
@@ -76,8 +76,8 @@ export async function completeInvoice(id: string): Promise<boolean> {
 }
 
 /**
- * R31 H-5: Mark a pending invoice as permanently failed.
- * Only transitions pending → failed.
+ * Mark a pending invoice as permanently failed.
+ * Only transitions pending -> failed.
  * Operator can manually reconcile failed invoices if needed.
  */
 export async function failInvoice(invoiceId: string): Promise<boolean> {
@@ -89,9 +89,9 @@ export async function failInvoice(invoiceId: string): Promise<boolean> {
 }
 
 /**
- * R31 H-5: Mark a completed invoice as failed when wallet credit fails
+ * Mark a completed invoice as failed when wallet credit fails
  * after the invoice was already marked completed. Only transitions
- * completed → failed. Prevents infinite retry loops.
+ * completed -> failed. Prevents infinite retry loops.
  * Operator can manually reconcile failed invoices if needed.
  */
 export async function markCreditFailed(invoiceId: string): Promise<boolean> {

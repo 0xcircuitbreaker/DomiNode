@@ -7,7 +7,7 @@
   NODE_VERSION = "22"
   VITE_RECAPTCHA_SITE_KEY = "6LcQvXAsAAAAAKtirq965QN3_Ew9x2Hl5THmRUSN"
 
-# R23 H-1: Security response headers for all pages
+# Security response headers for all pages
 [[headers]]
   for = "/*"
   [headers.values]

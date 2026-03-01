@@ -169,7 +169,7 @@ function requestWithBody(
 describe("agent-wallet routes", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    // R37 C-5: Default mock returns a verified user so existing tests pass
+    // Default mock returns a verified user so existing tests pass
     mockFindUserById.mockResolvedValue({
       id: "test-user-id",
       email: "test@test.com",

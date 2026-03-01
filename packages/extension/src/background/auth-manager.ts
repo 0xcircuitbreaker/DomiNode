@@ -134,12 +134,12 @@ export function isTokenExpired(token: string): boolean {
     const parts = token.split(".");
     if (parts.length !== 3) return true;
     const payloadB64 = parts[1];
-    if (!payloadB64 || payloadB64.length > 4096) return true; // R30 H-5: Cap payload size
+    if (!payloadB64 || payloadB64.length > 4096) return true; // Cap payload size
     // Convert base64url to standard base64
     const base64 = payloadB64.replace(/-/g, "+").replace(/_/g, "/");
     const payload = JSON.parse(atob(base64));
     if (typeof payload !== "object" || payload === null) return true;
-    // R36 C-16: Strip prototype pollution keys from JWT payload
+    // Strip prototype pollution keys from JWT payload
     delete payload.__proto__;
     delete payload.constructor;
     delete payload.prototype;

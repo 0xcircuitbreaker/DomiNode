@@ -51,14 +51,14 @@ export async function getUserPlan(userId: string): Promise<Plan> {
   );
   const row = result.rows[0];
   if (!row) {
-    // R17: Throw explicitly instead of silently falling back to free tier.
+    // Throw explicitly instead of silently falling back to free tier.
     // Silent fallback could grant free access to deleted/suspended users.
     throw new Error(`No plan found for user ${userId}`);
   }
   return rowToPlan(row);
 }
 
-// R30 H-5: Wrap setUserPlan in a transaction with FOR SHARE on plan lookup
+// Wrap setUserPlan in a transaction with FOR SHARE on plan lookup
 export async function setUserPlan(userId: string, planId: string): Promise<void> {
   const client = await getPool().connect();
   try {
@@ -88,6 +88,21 @@ export async function setUserPlan(userId: string, planId: string): Promise<void>
   } finally {
     client.release();
   }
+}
+
+export async function getTeamPlan(teamId: string): Promise<Plan> {
+  const result = await query<PlanRow>(
+    `SELECT p.id, p.name, p.price_per_gb_cents, p.monthly_bandwidth_bytes, p.is_default, p.max_connections, p.max_sessions_per_minute, p.allowed_proxy_types
+     FROM plans p
+     JOIN teams t ON t.plan_id = p.id
+     WHERE t.id = $1 AND t.status = 'active'`,
+    [teamId],
+  );
+  const row = result.rows[0];
+  if (!row) {
+    throw new Error(`No plan found for team ${teamId}`);
+  }
+  return rowToPlan(row);
 }
 
 export async function getMonthlyUsage(userId: string): Promise<number> {

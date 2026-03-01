@@ -22,7 +22,7 @@ interface ActiveSession {
   connectLatencyMs: number;
   errorCount: number;
   pricePerGbCents: number; // Locked at session start to prevent plan-switch gaming
-  proxyType: string; // R20 H-5: Track provider pool type (dc/residential) for usage records
+  proxyType: string; // Track provider pool type (dc/residential) for usage records
   teamId: string | null; // When set, billing goes to team wallet
 }
 
@@ -53,7 +53,7 @@ if (isNaN(MAX_BANDWIDTH_PER_HOUR_BYTES) || MAX_BANDWIDTH_PER_HOUR_BYTES <= 0) {
 }
 const BANDWIDTH_WINDOW_MS = 60 * 60 * 1000; // 1 hour
 const MAX_BANDWIDTH_MAP_SIZE = 50_000;
-const MAX_RECORDS_PER_USER = 10_000; // R21 H-2: Cap per-user records to prevent OOM
+const MAX_RECORDS_PER_USER = 10_000; // Cap per-user records to prevent OOM
 const bandwidthLog = new Map<string, Array<{ timestamp: number; bytes: number }>>(); // userId -> records
 
 export function recordBandwidthUsage(userId: string, bytes: number): void {
@@ -66,7 +66,7 @@ export function recordBandwidthUsage(userId: string, bytes: number): void {
     records = [];
     bandwidthLog.set(userId, records);
   }
-  // R21 H-2: Evict oldest record when per-user cap is reached
+  // Evict oldest record when per-user cap is reached
   if (records.length >= MAX_RECORDS_PER_USER) {
     records.shift();
   }
@@ -146,7 +146,7 @@ setInterval(() => {
 // Tracks in-flight bytes reserved per user for free-plan sessions.
 // Prevents concurrent sessions from exceeding the monthly bandwidth limit.
 const FREE_TIER_RESERVATION_BYTES = 50 * 1024 * 1024; // 50MB per session reservation
-const MAX_FREE_RESERVATIONS = 100_000; // R38 H-15: Size cap to prevent OOM
+const MAX_FREE_RESERVATIONS = 100_000; // Size cap to prevent OOM
 const freeReservations = new Map<string, number>(); // userId -> reserved bytes
 
 function reserveFreeBandwidth(userId: string, planBandwidthBytes: number, currentUsage: number): boolean {
@@ -154,7 +154,7 @@ function reserveFreeBandwidth(userId: string, planBandwidthBytes: number, curren
   if (currentUsage + reserved + FREE_TIER_RESERVATION_BYTES > planBandwidthBytes) {
     return false;
   }
-  // R38 H-15: Reject if map is at capacity and this is a new entry (existing users can still reserve)
+  // Reject if map is at capacity and this is a new entry (existing users can still reserve)
   if (!freeReservations.has(userId) && freeReservations.size >= MAX_FREE_RESERVATIONS) {
     log.warn("freeReservations map at capacity, rejecting new entry", {
       userId,
@@ -177,7 +177,7 @@ function releaseFreeBandwidth(userId: string): void {
   }
 }
 
-// R37 H-4: Parse MAX_ACTIVE_SESSIONS once at module level (was parsed on every startSession call)
+// Parse MAX_ACTIVE_SESSIONS once at module level (was parsed on every startSession call)
 const MAX_ACTIVE_SESSIONS = parseInt(process.env["MAX_ACTIVE_SESSIONS"] ?? "100000", 10);
 if (isNaN(MAX_ACTIVE_SESSIONS) || MAX_ACTIVE_SESSIONS <= 0) {
   throw new Error("MAX_ACTIVE_SESSIONS must be a positive integer");
@@ -218,8 +218,8 @@ export async function startSession(
   targetHost: string,
   counter: ByteCounter,
   connectLatencyMs: number = 0,
-  requestedProxyType: string = "residential", // R20 H-5: Provider pool type from server.ts/socks5.ts
-  preloadedPlan?: Plan, // R29 C-2: Accept pre-fetched plan to prevent TOCTOU double-fetch
+  requestedProxyType: string = "residential", // Provider pool type from server.ts/socks5.ts
+  preloadedPlan?: Plan, // Accept pre-fetched plan to prevent TOCTOU double-fetch
   logTargetHosts: boolean = false, // Privacy-first: only store targetHost when user opts in
   teamId?: string | null, // When set, billing goes to team wallet
 ): Promise<string> {
@@ -232,11 +232,11 @@ export async function startSession(
     throw new Error(`Bandwidth velocity limit exceeded: ${usedGB}GB used in last hour (limit: ${limitGB}GB/hour)`);
   }
 
-  // R29 C-2: Use pre-fetched plan if available — eliminates TOCTOU from double getUserPlan
+  // Use pre-fetched plan if available — eliminates TOCTOU from double getUserPlan
   let pricePerGbCents = 500; // default PAYG rate
   let planSessionLimit: number | undefined;
   let planMonthlyBandwidthBytes = 0; // Hoisted for reuse in free-tier block below
-  let monthlyUsage = 0; // R21 C-1: Hoisted — single fetch, reused in free-tier reservation block
+  let monthlyUsage = 0; // Hoisted — single fetch, reused in free-tier reservation block
   try {
     const plan = preloadedPlan ?? await planRepo.getUserPlan(userId);
     pricePerGbCents = plan.pricePerGbCents;
@@ -244,7 +244,8 @@ export async function startSession(
     planMonthlyBandwidthBytes = plan.monthlyBandwidthBytes;
 
     // Enforce pool restriction from plan (Beta free-tier restructure)
-    if (plan.allowedProxyTypes) {
+    // 'all' means unrestricted — skip the guard (truthy but should not restrict)
+    if (plan.allowedProxyTypes && plan.allowedProxyTypes !== 'all') {
       // Determine the requested pool from proxyType prefix
       const requestedPool = proxyType.startsWith("dc") ? "dc"
         : proxyType.startsWith("residential") ? "residential"
@@ -271,7 +272,7 @@ export async function startSession(
     if (err instanceof Error && (err.message.includes("bandwidth limit") || err.message.includes("only allows"))) {
       throw err;
     }
-    // R22 H-2: FAIL CLOSED — do not allow sessions when plan cannot be determined
+    // FAIL CLOSED — do not allow sessions when plan cannot be determined
     // Falling through with default pricing bypasses bandwidth limits and rate limits
     log.error("failed to check plan, rejecting session", {
       userId,
@@ -280,23 +281,23 @@ export async function startSession(
     throw new Error("Unable to verify plan. Please try again.");
   }
 
-  // R18: Per-user session rate limiting — uses plan-specific limit when available
+  // Per-user session rate limiting — uses plan-specific limit when available
   if (!checkSessionRateLimit(userId, planSessionLimit)) {
     throw new Error("Session rate limit exceeded");
   }
 
-  // R17: Free plan needs in-memory bandwidth reservation to prevent concurrent session abuse
+  // Free plan needs in-memory bandwidth reservation to prevent concurrent session abuse
   const isFreePlan = pricePerGbCents === 0;
   let reservedCents = 0;
   let freeReserved = false;
 
   if (isFreePlan) {
-    // R24 H-5: Free plan MUST have a bandwidth limit — 0 = unlimited = abuse vector
+    // Free plan MUST have a bandwidth limit — 0 = unlimited = abuse vector
     if (planMonthlyBandwidthBytes <= 0) {
       throw new Error("Free plan must have a bandwidth limit configured");
     }
-    // R20 C-1: Reuse planMonthlyBandwidthBytes from the single fetch above (no second getUserPlan call)
-    // R21 C-1: Reuse monthlyUsage from the single fetch above (no second getMonthlyUsage call)
+    // Reuse planMonthlyBandwidthBytes from the single fetch above (no second getUserPlan call)
+    // Reuse monthlyUsage from the single fetch above (no second getMonthlyUsage call)
     try {
       if (planMonthlyBandwidthBytes > 0) {
         if (!reserveFreeBandwidth(userId, planMonthlyBandwidthBytes, monthlyUsage)) {
@@ -321,7 +322,7 @@ export async function startSession(
     // C1 fix: Reserve balance BEFORE creating session — no free proxy usage
     const walletId = await walletRepo.reserveBalance(userId, MIN_RESERVATION_CENTS);
     if (!walletId) {
-      // R30 C-3: Invalidate stale balance cache so next request re-checks DB
+      // Invalidate stale balance cache so next request re-checks DB
       invalidateBalanceCache(userId);
       throw new Error("Insufficient balance for reservation");
     }
@@ -354,8 +355,8 @@ export async function startSession(
   // Privacy-first: only store actual targetHost when user has opted in
   const storedTargetHost = logTargetHosts ? targetHost : "";
 
-  // R36 H-2: Cap active sessions to prevent OOM from session accumulation
-  // R37 H-4: MAX_ACTIVE_SESSIONS hoisted to module-level constant
+  // Cap active sessions to prevent OOM from session accumulation
+  // MAX_ACTIVE_SESSIONS hoisted to module-level constant
   if (activeSessions.size >= MAX_ACTIVE_SESSIONS) {
     // Release reservation before rejecting
     if (reservedCents > 0) {
@@ -402,7 +403,7 @@ export async function startSession(
     };
   } else if (isFreePlan && planMonthlyBandwidthBytes > 0) {
     // Free plan: cap session at remaining bandwidth
-    // R29 M-3: Don't give 1MB floor when bandwidth is exhausted — reject at session start instead
+    // Don't give 1MB floor when bandwidth is exhausted — reject at session start instead
     const remainingBytes = Math.max(0, planMonthlyBandwidthBytes - monthlyUsage);
     counter.maxBytes = Math.max(remainingBytes, 1024); // at least 1KB (for small API responses)
     counter.onLimitExceeded = () => {
@@ -444,7 +445,7 @@ export async function endSession(sessionId: string): Promise<void> {
     recordBytes(counter.bytesIn, counter.bytesOut);
   }
 
-  // R17: Release free tier bandwidth reservation on session end
+  // Release free tier bandwidth reservation on session end
   if (pricePerGbCents === 0) {
     releaseFreeBandwidth(userId);
   }
@@ -534,7 +535,7 @@ export function getActiveSessions(userId?: string): Array<{
 
   for (const session of activeSessions.values()) {
     if (userId && session.userId !== userId) continue;
-    // R23 H-3: Redact full target hostname — only expose TLD+1 to protect user browsing privacy
+    // Redact full target hostname — only expose TLD+1 to protect user browsing privacy
     const hostParts = session.targetHost.split(".");
     const redactedHost = hostParts.length > 2 ? hostParts.slice(-2).join(".") : session.targetHost;
     results.push({
@@ -583,7 +584,7 @@ export async function terminateUserSessions(userId: string): Promise<number> {
 
   let terminated = 0;
   for (const sessionId of userSessions) {
-    // R37 H-5: Settle billing FIRST, then destroy sockets.
+    // Settle billing FIRST, then destroy sockets.
     // This ensures endSession() sees the session in activeSessions before the
     // close-event handler (triggered by socket.destroy()) races to call it.
     try {

@@ -41,7 +41,7 @@ async function main(): Promise<void> {
   const tokenManager = new TokenManager(config.apiUrl);
   const httpClient = new HttpClient(config.apiUrl, tokenManager, config.mcpAgentSecret);
 
-  // R46 C-3: Clear credentials on process shutdown to minimize in-memory exposure time
+  // Clear credentials on process shutdown to minimize in-memory exposure time
   function cleanupCredentials(): void {
     tokenManager.clear();
   }
@@ -67,7 +67,7 @@ async function main(): Promise<void> {
     registerAccountTools(server, httpClient);
     registerCryptoTools(server, httpClient);
     registerPaypalTools(server, httpClient);
-    // R41 H-4: Do NOT register agent-wallet tools in bootstrap mode —
+    // Do NOT register agent-wallet tools in bootstrap mode —
     // they require authentication and should only be available in authenticated mode.
     registerWalletAuthTools(server, httpClient);
     registerSlotsTools(server, httpClient);

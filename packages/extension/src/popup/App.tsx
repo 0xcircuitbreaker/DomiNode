@@ -3,7 +3,7 @@ import { useExtensionState } from "./useExtensionState.js";
 import { TOP_COUNTRIES, US_STATES, MAJOR_US_CITIES } from "../ui/countries.js";
 import { LOW_BALANCE_THRESHOLD_CENTS } from "../shared/constants.js";
 
-// R37 H-3: Truncate error messages to prevent UI overflow and potential content injection
+// Truncate error messages to prevent UI overflow and potential content injection
 const MAX_ERROR_LENGTH = 200;
 function truncateError(msg: string | null | undefined): string {
   if (!msg) return "";
@@ -31,7 +31,7 @@ export function App() {
     return <MfaView error={error} sendMessage={sendMessage} />;
   }
 
-  // R31 C-2: Prefer isAuthenticated from sanitized state (tokens are stripped by sanitizeStateForUI)
+  // Prefer isAuthenticated from sanitized state (tokens are stripped by sanitizeStateForUI)
   const isAuthenticated = !!(state as any).isAuthenticated || !!(state.accessToken || state.apiKey);
 
   return isAuthenticated ? (
@@ -130,7 +130,7 @@ function LoginView({ error, sendMessage }: LoginViewProps) {
     e.preventDefault();
     setSubmitting(true);
     await sendMessage("LOGIN", { email, password });
-    setPassword(""); // R36 C-15: Clear credential from component state immediately
+    setPassword(""); // Clear credential from component state immediately
     setSubmitting(false);
   };
 
@@ -138,7 +138,7 @@ function LoginView({ error, sendMessage }: LoginViewProps) {
     e.preventDefault();
     setSubmitting(true);
     await sendMessage("LOGIN_WITH_KEY", { apiKey });
-    setApiKey(""); // R36 C-15: Clear credential from component state immediately
+    setApiKey(""); // Clear credential from component state immediately
     setSubmitting(false);
   };
 

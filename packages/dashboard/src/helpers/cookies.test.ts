@@ -30,7 +30,7 @@ describe("cookies helper", () => {
     expect(accessOpts.path).toBe("/api");
     expect(accessOpts.maxAge).toBe(15 * 60 * 1000);
 
-    // Refresh cookie — restricted to /api/auth path (R13 H-5)
+    // Refresh cookie — restricted to /api/auth path
     const [refreshName, refreshValue, refreshOpts] = res.cookie.mock.calls[1];
     expect(refreshName).toBe("dominusnode_refresh");
     expect(refreshValue).toBe("refresh-token-456");
@@ -43,7 +43,7 @@ describe("cookies helper", () => {
   it("should clear all auth cookies including MFA challenge", () => {
     clearAuthCookies(res as never);
 
-    // R46 M-7: clearAuthCookies now clears 3 cookies (access + refresh + MFA challenge)
+    // clearAuthCookies now clears 3 cookies (access + refresh + MFA challenge)
     expect(res.clearCookie).toHaveBeenCalledTimes(3);
     expect(res.clearCookie).toHaveBeenCalledWith("dominusnode_access", expect.objectContaining({
       httpOnly: true,

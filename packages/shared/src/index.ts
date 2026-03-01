@@ -109,6 +109,20 @@ export type {
   TeamStatus,
 } from "./types.js";
 
+export * as referralRepo from "./repositories/referral-repo.js";
+export type {
+  ReferralCode,
+  ReferralRedemption,
+  AffiliateLink,
+  AffiliateCommission,
+  AffiliateStats,
+  PromoCode,
+  PromoRedemption,
+  LoyaltyTier,
+  LoyaltyReward,
+  LoyaltyStatus,
+} from "./types.js";
+
 // TOTP
 export {
   generateTotpSecret,

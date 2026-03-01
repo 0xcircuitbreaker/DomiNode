@@ -169,7 +169,7 @@ describe("plan-repo", () => {
       });
     });
 
-    it("should throw when user plan not found (R17: no silent fallback to free tier)", async () => {
+    it("should throw when user plan not found (no silent fallback to free tier)", async () => {
       mockQuery.mockResolvedValueOnce({ rows: [] }); // user plan lookup returns nothing
 
       await expect(getUserPlan("user-no-plan")).rejects.toThrow(

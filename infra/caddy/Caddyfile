@@ -4,7 +4,7 @@
 api.dominusnode.com {
   encode zstd gzip
 
-  # R36 C-12: Security headers (parity with nginx config)
+  # Security headers (parity with nginx config)
   header {
     X-Frame-Options "DENY"
     X-Content-Type-Options "nosniff"

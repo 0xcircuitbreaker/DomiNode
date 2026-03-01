@@ -1,0 +1,35 @@
+# Template: Java Maven publish workflow
+# Copy to .github/workflows/publish.yml in dominusnode-java
+# Publishes to GitHub Packages (Maven)
+
+name: Publish to GitHub Packages
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: publish
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "11"
+
+      - name: Build and test
+        run: mvn clean verify
+
+      - name: Publish to GitHub Packages
+        run: mvn deploy -DaltDeploymentRepository=github::default::https://maven.pkg.github.com/Dominus-Node/dominusnode-java
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

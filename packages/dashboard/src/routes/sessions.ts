@@ -14,7 +14,7 @@ router.get("/active", async (req, res) => {
 
     const sessions = await usageRepo.getActiveSessions(userId);
 
-    // R37 H-8: Omit proxyIp from response — exposes upstream infrastructure details
+    // Omit proxyIp from response — exposes upstream infrastructure details
     res.json({
       sessions: sessions.map((s) => ({
         id: s.id,

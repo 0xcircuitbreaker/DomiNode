@@ -184,7 +184,7 @@ export async function createApiKey(
 }
 
 export async function listApiKeys(userId: string, includeRevoked: boolean = false): Promise<ApiKey[]> {
-  // R30 H-3: Use separate query strings instead of template literal interpolation
+  // Use separate query strings instead of template literal interpolation
   const sql = includeRevoked
     ? `SELECT id, user_id, team_id, key_prefix, label, created_at, revoked_at
        FROM api_keys WHERE user_id = $1 ORDER BY created_at DESC`
@@ -245,7 +245,7 @@ export async function markEmailVerified(userId: string): Promise<boolean> {
 // ─── Email Verification Tokens ──────────────────────────────────────
 
 export async function createEmailVerificationToken(userId: string, tokenHash: string, expiresAt: Date): Promise<void> {
-  // R37 C-4: Wrap DELETE old + INSERT new in a single transaction to prevent race conditions
+  // Wrap DELETE old + INSERT new in a single transaction to prevent race conditions
   const pool = getPool();
   const client = await pool.connect();
   try {
@@ -276,7 +276,7 @@ export async function findRecentEmailVerificationToken(userId: string, withinSec
   return result.rows.length > 0;
 }
 
-/** R37 C-2: Atomically consume an email verification token (DELETE...RETURNING) to prevent TOCTOU */
+/** Atomically consume an email verification token (DELETE...RETURNING) to prevent TOCTOU */
 export async function consumeEmailVerificationToken(tokenHash: string): Promise<{ userId: string; expiresAt: Date } | null> {
   const result = await query<{ user_id: string; expires_at: Date }>(
     `DELETE FROM email_verification_tokens
@@ -292,7 +292,7 @@ export async function consumeEmailVerificationToken(tokenHash: string): Promise<
 // ─── Password Reset Tokens ──────────────────────────────────────────
 
 export async function createPasswordResetToken(userId: string, tokenHash: string, expiresAt: Date): Promise<void> {
-  // R37: Wrap DELETE old + INSERT new in a single transaction to prevent race conditions
+  // Wrap DELETE old + INSERT new in a single transaction to prevent race conditions
   const pool = getPool();
   const client = await pool.connect();
   try {
@@ -313,7 +313,7 @@ export async function createPasswordResetToken(userId: string, tokenHash: string
   }
 }
 
-/** R37 C-1: Atomically consume a password reset token (DELETE...RETURNING) to prevent TOCTOU */
+/** Atomically consume a password reset token (DELETE...RETURNING) to prevent TOCTOU */
 export async function consumePasswordResetToken(tokenHash: string): Promise<{ userId: string; expiresAt: Date } | null> {
   const result = await query<{ user_id: string; expires_at: Date }>(
     `DELETE FROM password_reset_tokens

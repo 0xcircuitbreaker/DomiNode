@@ -1,7 +1,7 @@
 import { getApiBase } from "../shared/api-client.js";
 import type { ProxyAdapterConfig as ProxyConfig } from "../shared/types.js";
 
-// R30 H-1: Validate host/port to prevent injection via proxy config
+// Validate host/port to prevent injection via proxy config
 const HOSTNAME_RE = /^[a-zA-Z0-9.\-]+$/;
 
 function sanitizeHostname(host: string): string {
@@ -85,7 +85,7 @@ function handleRequest(details: { url: string }): ProxyInfo {
 }
 
 export function enable(config: ProxyConfig): void {
-  // R30 H-1: Validate host/port before storing config
+  // Validate host/port before storing config
   const safeHost = sanitizeHostname(config.host);
   const safePort = sanitizePort(config.port);
   currentConfig = { ...config, host: safeHost, port: safePort };

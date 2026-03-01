@@ -83,7 +83,7 @@ const BLOCKED_HOSTNAMES = new Set([
   "[::]",
 ]);
 
-// R19 C-2: Normalize non-standard IP representations (octal, hex, decimal)
+// Normalize non-standard IP representations (octal, hex, decimal)
 // to standard dotted-decimal to prevent SSRF bypasses like 0x7f000001, 2130706433, 0177.0.0.1
 function normalizeIpv4(hostname: string): string | null {
   // Single decimal integer (e.g., 2130706433 = 127.0.0.1)
@@ -127,13 +127,13 @@ function isPrivateIp(hostname: string): boolean {
   // Strip brackets from IPv6
   let ip = hostname.replace(/^\[|\]$/g, "");
 
-  // R23 C-2: Strip IPv6 zone ID (e.g., %25eth0, %eth0) before any analysis
+  // Strip IPv6 zone ID (e.g., %25eth0, %eth0) before any analysis
   const zoneIdx = ip.indexOf("%");
   if (zoneIdx !== -1) {
     ip = ip.substring(0, zoneIdx);
   }
 
-  // R19 C-2: Normalize non-standard IP formats before checking
+  // Normalize non-standard IP formats before checking
   const normalized = normalizeIpv4(ip);
   const checkIp = normalized ?? ip;
 
@@ -228,7 +228,7 @@ export function validateUrl(url: string): URL {
     throw new Error("Requests to private/internal IP addresses are blocked");
   }
 
-  // R38 C-6: Block .localhost TLD (RFC 6761) — "foo.localhost" resolves to loopback
+  // Block .localhost TLD (RFC 6761) — "foo.localhost" resolves to loopback
   if (hostname.endsWith(".localhost")) {
     throw new Error("Requests to localhost/loopback addresses are blocked");
   }
@@ -238,7 +238,7 @@ export function validateUrl(url: string): URL {
     throw new Error("Requests to internal network hostnames are blocked");
   }
 
-  // R18-H5: DNS rebinding note — proxyFetch always routes through the upstream proxy
+  // DNS rebinding note — proxyFetch always routes through the upstream proxy
   // (config.proxyHost), which does its own DNS resolution. The proxy-gateway has
   // double-resolve DNS rebinding protection. A DNS rebinding attack would need to
   // target the upstream proxy's resolver, which is not attacker-controlled.
@@ -262,13 +262,13 @@ export async function proxyFetch(
   const maxBytes = config.fetchMaxResponseBytes;
   const method = (opts.method ?? "GET").toUpperCase();
 
-  // R46 C-2: Enforce read-only methods at function level (defense-in-depth)
+  // Enforce read-only methods at function level (defense-in-depth)
   const ALLOWED_PROXY_METHODS = new Set(["GET", "HEAD"]);
   if (!ALLOWED_PROXY_METHODS.has(method)) {
     throw new Error(`Only GET and HEAD methods are allowed for proxy fetch, got ${method}`);
   }
 
-  // R46 H-1: Drop body on GET/HEAD — these methods should never carry a request body
+  // Drop body on GET/HEAD — these methods should never carry a request body
   if (method === "GET" || method === "HEAD") {
     opts.body = undefined;
   }
@@ -299,8 +299,8 @@ function httpProxyFetch(
       reject(new Error(`Proxy request timed out after ${timeoutMs}ms`));
     }, timeoutMs);
 
-    // R24 H-4: Block smuggling-prone headers on HTTP path (matches HTTPS path blocklist)
-    // R27 H-3: Add user-agent to blocked set (matches HTTPS path PROTECTED_HEADERS)
+    // Block smuggling-prone headers on HTTP path (matches HTTPS path blocklist)
+    // Add user-agent to blocked set (matches HTTPS path PROTECTED_HEADERS)
     const BLOCKED_HTTP_HEADERS = new Set(["host", "connection", "content-length", "transfer-encoding", "proxy-authorization", "user-agent", "authorization"]);
     const safeHttpHeaders: Record<string, string> = {};
     if (opts.headers) {
@@ -327,7 +327,7 @@ function httpProxyFetch(
         collectResponse(res, maxBytes, timer).then(
           ({ body, truncated, byteCount }) => {
             const contentType = res.headers["content-type"] ?? "";
-            // R23 H-4: Redact security-sensitive response headers
+            // Redact security-sensitive response headers
             const REDACTED_RESP = new Set([
               "set-cookie", "www-authenticate", "proxy-authenticate",
               "authorization", "proxy-authorization",
@@ -425,14 +425,14 @@ function httpsProxyFetch(
         () => {
           // Step 3: Send HTTP request through TLS tunnel
           const requestPath = parsed.pathname + parsed.search;
-          // R31 C-3: Validate request path for CRLF injection before writing raw HTTP request line
+          // Validate request path for CRLF injection before writing raw HTTP request line
           if (/[\r\n]/.test(requestPath)) {
             clearTimeout(timer);
             tlsSocket.destroy();
             reject(new Error("Request path contains invalid characters"));
             return;
           }
-          // R19 H-1: Set base headers first, then user headers, but block security-sensitive overrides
+          // Set base headers first, then user headers, but block security-sensitive overrides
           const BLOCKED_HEADERS = new Set(["host", "connection", "content-length", "transfer-encoding", "proxy-authorization", "authorization"]);
           const safeUserHeaders: Record<string, string> = {};
           if (opts.headers) {
@@ -442,7 +442,7 @@ function httpsProxyFetch(
               }
             }
           }
-          // R20 H-2: Merge user headers WITHOUT allowing override of security-critical base headers
+          // Merge user headers WITHOUT allowing override of security-critical base headers
           const PROTECTED_HEADERS = new Set(["host", "user-agent", "connection", "content-length"]);
           const reqHeaders: Record<string, string> = {
             Host: parsed.host,
@@ -589,7 +589,7 @@ function parseHttpResponse(
         const status = statusMatch ? parseInt(statusMatch[1], 10) : 0;
         const statusText = statusMatch?.[2] ?? "";
 
-        // R23 H-4: Redact security-sensitive response headers before returning to MCP client
+        // Redact security-sensitive response headers before returning to MCP client
         const REDACTED_RESPONSE_HEADERS = new Set([
           "set-cookie", "www-authenticate", "proxy-authenticate",
           "authorization", "proxy-authorization",

@@ -6,14 +6,14 @@ let apiBase = DEFAULT_API_BASE;
 export function setApiBase(base: string): void {
   const trimmed = base.replace(/\/$/, "");
   const parsed = new URL(trimmed);
-  // R27 H-4: Expand localhost check to cover IPv6 loopback
-  // R46 H-5: Removed 0.0.0.0 — it's the "all interfaces" bind address, not a valid API target
+  // Expand localhost check to cover IPv6 loopback
+  // Removed 0.0.0.0 — it's the "all interfaces" bind address, not a valid API target
   const isLocal = parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1"
     || parsed.hostname === "[::1]";
   if (parsed.protocol !== "https:" && !isLocal) {
     throw new Error("API base URL must use HTTPS for non-local hosts");
   }
-  // R30 H-2: Validate API base URL against path traversal, credential injection, query/fragment
+  // Validate API base URL against path traversal, credential injection, query/fragment
   if (parsed.pathname !== "/" && parsed.pathname !== "") {
     throw new Error("API base URL must not contain a path");
   }
@@ -30,10 +30,10 @@ export function getApiBase(): string {
   return apiBase;
 }
 
-// R22 H-2: Response size limit to prevent OOM from oversized server responses
+// Response size limit to prevent OOM from oversized server responses
 const MAX_RESPONSE_BYTES = 5 * 1024 * 1024; // 5MB
 
-// R26 M-2: Prototype pollution protection — strip dangerous keys from parsed JSON
+// Prototype pollution protection — strip dangerous keys from parsed JSON
 const DANGEROUS_KEYS = new Set(["__proto__", "constructor", "prototype"]);
 function stripDangerousKeys(obj: unknown, depth = 0): void {
   if (depth > 50 || !obj || typeof obj !== "object") return;
@@ -62,14 +62,14 @@ function mergeUint8Arrays(chunks: Uint8Array[], totalLength: number): Uint8Array
 }
 
 async function safeJson<T>(res: Response): Promise<T> {
-  // R25 C-2: Pre-flight Content-Length check before buffering (prevents OOM)
+  // Pre-flight Content-Length check before buffering (prevents OOM)
   const contentLength = parseInt(res.headers.get("content-length") ?? "0", 10);
   if (contentLength > MAX_RESPONSE_BYTES) {
     await res.body?.cancel();
     throw new Error("Response too large");
   }
 
-  // R30 H-4: Enforce size limit for chunked responses (no Content-Length header)
+  // Enforce size limit for chunked responses (no Content-Length header)
   if (res.body) {
     const reader = res.body.getReader();
     const chunks: Uint8Array[] = [];
@@ -91,7 +91,7 @@ async function safeJson<T>(res: Response): Promise<T> {
     const text = new TextDecoder().decode(
       chunks.length === 1 ? chunks[0] : mergeUint8Arrays(chunks, totalBytes)
     );
-    // R46 H-3: Throw on empty body — returning {} as T bypasses type safety
+    // Throw on empty body — returning {} as T bypasses type safety
     if (!text) throw new Error("Empty response from server");
     const parsed = JSON.parse(text);
     stripDangerousKeys(parsed);
@@ -109,7 +109,7 @@ async function safeJson<T>(res: Response): Promise<T> {
   return parsed as T;
 }
 
-// R38 H-2: Validate API paths to prevent CRLF injection and path traversal
+// Validate API paths to prevent CRLF injection and path traversal
 function validateApiPath(path: string): string {
   // Block CRLF injection
   if (/[\r\n]/.test(path)) {
@@ -133,8 +133,8 @@ export async function apiGet<T>(path: string, token?: string | null): Promise<T>
 
   const res = await fetch(`${apiBase}${safePath}`, {
     headers,
-    redirect: "error", // R18-C4: Prevent HTTPS→HTTP redirect leaking Bearer token
-    signal: AbortSignal.timeout(30_000), // R18-C5: Prevent indefinite hang
+    redirect: "error", // Prevent HTTPS→HTTP redirect leaking Bearer token
+    signal: AbortSignal.timeout(30_000), // Prevent indefinite hang
   });
 
   if (!res.ok) {
@@ -154,8 +154,8 @@ export async function apiPost<T>(path: string, body: unknown, token?: string | n
     method: "POST",
     headers,
     body: JSON.stringify(body),
-    redirect: "error", // R18-C4: Prevent HTTPS→HTTP redirect leaking Bearer token
-    signal: AbortSignal.timeout(30_000), // R18-C5: Prevent indefinite hang
+    redirect: "error", // Prevent HTTPS→HTTP redirect leaking Bearer token
+    signal: AbortSignal.timeout(30_000), // Prevent indefinite hang
   });
 
   if (res.status === 204) return undefined as T;

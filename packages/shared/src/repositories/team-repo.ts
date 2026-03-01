@@ -130,7 +130,7 @@ export async function updateTeam(
   userId: string,
   updates: { name?: string; maxMembers?: number },
 ): Promise<Team> {
-  // R40 H-3: Wrap role check + UPDATE in transaction to prevent TOCTOU
+  // Wrap role check + UPDATE in transaction to prevent TOCTOU
   const pool = getPool();
   const client = await pool.connect();
   try {
@@ -381,6 +381,54 @@ export async function fundTeamWallet(
   }
 }
 
+/**
+ * Admin-only: Credit a team wallet directly without personal wallet debit.
+ * Used by operator to seed swarm teams with credits ($0 real cost).
+ */
+export async function adminCreditTeamWallet(
+  teamId: string,
+  amountCents: number,
+  reason: string,
+): Promise<void> {
+  validateAmountCents(amountCents, "Credit amount");
+
+  const pool = getPool();
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("SET LOCAL lock_timeout = '5s'");
+
+    const teamWalletResult = await client.query<{ id: string; balance_cents: number }>(
+      `SELECT id, balance_cents FROM team_wallets WHERE team_id = $1 FOR UPDATE`,
+      [teamId],
+    );
+    if (teamWalletResult.rows.length === 0) throw new Error("Team wallet not found");
+    const teamWallet = teamWalletResult.rows[0];
+
+    if (teamWallet.balance_cents + amountCents > MAX_BALANCE_CENTS) {
+      throw new Error(`Credit would exceed team wallet balance cap of $${(MAX_BALANCE_CENTS / 100).toFixed(2)}`);
+    }
+
+    await client.query(
+      `UPDATE team_wallets SET balance_cents = balance_cents + $1, last_topped_up = now() WHERE id = $2`,
+      [amountCents, teamWallet.id],
+    );
+
+    await client.query(
+      `INSERT INTO team_wallet_transactions (wallet_id, type, amount_cents, description)
+       VALUES ($1, 'fund', $2, $3)`,
+      [teamWallet.id, amountCents, reason],
+    );
+
+    await client.query("COMMIT");
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
 export async function getTeamWalletTransactions(
   teamId: string,
   userId: string,
@@ -414,11 +462,11 @@ export async function reserveTeamBalance(
   teamId: string,
   amountCents: number,
 ): Promise<string | null> {
-  // R36 C-8 + H-1: Validate amount and check team status
+  // Validate amount and check team status
   if (!Number.isInteger(amountCents) || amountCents <= 0 || amountCents > MAX_INT) {
     return null;
   }
-  // R37 C-3: Use SELECT FOR UPDATE + UPDATE in a transaction to prevent concurrent reservation races.
+  // Use SELECT FOR UPDATE + UPDATE in a transaction to prevent concurrent reservation races.
   // The FOR UPDATE lock serializes concurrent reservation attempts on the same wallet row.
   const pool = getPool();
   const client = await pool.connect();
@@ -441,7 +489,7 @@ export async function reserveTeamBalance(
       `UPDATE team_wallets SET balance_cents = balance_cents - $1 WHERE id = $2`,
       [amountCents, wallet.id],
     );
-    // R46 H-8: Record reservation hold as a transaction for audit trail
+    // Record reservation hold as a transaction for audit trail
     await client.query(
       `INSERT INTO team_wallet_transactions (wallet_id, type, amount_cents, description)
        VALUES ($1, 'debit', $2, 'Session reservation hold')`,
@@ -462,7 +510,7 @@ export async function releaseTeamReservation(
   teamId: string,
   amountCents: number,
 ): Promise<void> {
-  // R36 C-9: Atomic release with FOR UPDATE lock + MAX_BALANCE_CENTS cap
+  // Atomic release with FOR UPDATE lock + MAX_BALANCE_CENTS cap
   if (!Number.isInteger(amountCents) || amountCents <= 0 || amountCents > MAX_INT) return;
   const pool = getPool();
   const client = await pool.connect();
@@ -481,7 +529,7 @@ export async function releaseTeamReservation(
       `UPDATE team_wallets SET balance_cents = balance_cents + $1 WHERE id = $2`,
       [cappedRefund, wallet.id],
     );
-    // R46 H-9: Record reservation release as a transaction for audit trail
+    // Record reservation release as a transaction for audit trail
     await client.query(
       `INSERT INTO team_wallet_transactions (wallet_id, type, amount_cents, description)
        VALUES ($1, 'refund', $2, 'Reservation released (session failed)')`,
@@ -503,7 +551,7 @@ export async function settleTeamSession(
   actualCostCents: number,
   sessionId: string,
 ): Promise<boolean> {
-  // R36 C-3: Atomic settlement with FOR UPDATE lock + MAX_BALANCE_CENTS cap
+  // Atomic settlement with FOR UPDATE lock + MAX_BALANCE_CENTS cap
   if (!Number.isInteger(reservedCents) || reservedCents < 0 || reservedCents > MAX_INT) return false;
   if (!Number.isInteger(actualCostCents) || actualCostCents < 0 || actualCostCents > MAX_INT) return false;
 
@@ -530,7 +578,7 @@ export async function settleTeamSession(
         );
       }
     } else if (diff < 0) {
-      // R46 C-4: Charge overage — partial charge if insufficient (matches personal wallet behavior)
+      // Charge overage — partial charge if insufficient (matches personal wallet behavior)
       const overage = Math.abs(diff);
       if (wallet.balance_cents < overage) {
         // Charge whatever is left (partial payment, don't reject entirely)
@@ -649,7 +697,7 @@ export async function addMember(
       throw new Error("Team has reached maximum member count");
     }
 
-    // R46 M-5: Verify target user exists and is active
+    // Verify target user exists and is active
     const targetUserCheck = await client.query<{ status: string }>(
       `SELECT status FROM users WHERE id = $1`,
       [targetUserId],
@@ -688,7 +736,7 @@ export async function updateMemberRole(
   // Cannot change own role
   if (userId === targetUserId) throw new Error("Cannot change your own role");
 
-  // R40 H-3: Wrap role check + UPDATE in transaction to prevent TOCTOU
+  // Wrap role check + UPDATE in transaction to prevent TOCTOU
   const pool = getPool();
   const client = await pool.connect();
   try {
@@ -789,7 +837,7 @@ export async function createInvite(
 ): Promise<TeamInvite> {
   if (role === "owner") throw new Error("Cannot invite as owner");
 
-  // R40 C-2: Wrap all checks + INSERT in a single transaction to prevent TOCTOU
+  // Wrap all checks + INSERT in a single transaction to prevent TOCTOU
   const pool = getPool();
   const client = await pool.connect();
   try {
@@ -933,7 +981,7 @@ export async function acceptInvite(
 
     if (new Date(invite.expires_at) < new Date()) throw new Error("Invite has expired");
 
-    // R34 H-2: Verify the accepting user's email matches the invite email
+    // Verify the accepting user's email matches the invite email
     const userCheck = await client.query<{ email: string }>(
       `SELECT email FROM users WHERE id = $1`,
       [userId],

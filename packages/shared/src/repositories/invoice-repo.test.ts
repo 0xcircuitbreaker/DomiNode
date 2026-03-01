@@ -79,7 +79,7 @@ describe("invoice-repo", () => {
       );
     });
 
-    // R46 H-3: amountCents validation
+    // amountCents validation
     it("should reject negative amountCents", async () => {
       await expect(createInvoice("u1", "stripe", "cs_neg", -100)).rejects.toThrow(
         "Invoice amount must be a positive integer within valid range",

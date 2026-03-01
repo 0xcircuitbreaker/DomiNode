@@ -29,7 +29,7 @@ function sanitizeUpstreamMsg(msg: string): string {
     .replace(/\b\w+-country-[A-Z]{2}-\w+:[^\s@]*/g, "[REDACTED_CREDS]");
 }
 
-/** R30 C-2+H-4: Write to socket only if not destroyed, then end */
+/** Write to socket only if not destroyed, then end */
 function safeSocketWrite(socket: net.Socket, data: string): void {
   if (!socket.destroyed) {
     socket.write(data);
@@ -50,7 +50,7 @@ if (isNaN(CONNECT_TIMEOUT_MS) || CONNECT_TIMEOUT_MS < 1_000 || CONNECT_TIMEOUT_M
   throw new Error("PROXY_CONNECT_TIMEOUT_MS must be between 1000 and 120000");
 }
 
-// R22 H-3: Parse and validate tunnel idle timeout once at module level
+// Parse and validate tunnel idle timeout once at module level
 const TUNNEL_IDLE_TIMEOUT_MS = parseInt(process.env["TUNNEL_IDLE_TIMEOUT_MS"] ?? "300000", 10);
 if (isNaN(TUNNEL_IDLE_TIMEOUT_MS) || TUNNEL_IDLE_TIMEOUT_MS < 10_000 || TUNNEL_IDLE_TIMEOUT_MS > 3_600_000) {
   throw new Error("TUNNEL_IDLE_TIMEOUT_MS must be between 10000 and 3600000");
@@ -175,7 +175,7 @@ async function handleRequest(
   // ─── x402 path: no user account, skip plan/balance/session ────────
   const x402Data = getX402Data(clientReq);
   if (x402Data && !auth) {
-    // R46 H-1: Restrict x402 to safe HTTP methods — anonymous payments must not
+    // Restrict x402 to safe HTTP methods — anonymous payments must not
     // enable mutating requests (POST/PUT/DELETE) through the proxy.
     const X402_SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
     if (!X402_SAFE_METHODS.has((clientReq.method ?? "").toUpperCase())) {
@@ -253,7 +253,7 @@ async function handleRequest(
         DEFAULT_RETRY_OPTIONS,
       );
 
-      // R45 M-4: Record actual latency, not absolute timestamp
+      // Record actual latency, not absolute timestamp
       providerSelector.recordSuccess(provider.name, Date.now() - x402ConnStart);
 
       // Strip hop-by-hop from response
@@ -264,7 +264,7 @@ async function handleRequest(
       const responseHeaders = { ...proxyRes.headers };
       for (const h of HOP_BY_HOP_RESP) delete responseHeaders[h];
 
-      // R46 C-1: Cap TOTAL bytes (request body + response) for x402 to prevent bandwidth theft.
+      // Cap TOTAL bytes (request body + response) for x402 to prevent bandwidth theft.
       // Request body bytes count against the cap — a 50MB upload for $0.001 is unacceptable.
       const x402MaxResp = x402Data!.maxResponseBytes;
       let x402TotalBytes = x402Body.length; // Include request body in cap
@@ -300,13 +300,17 @@ async function handleRequest(
 
   // ─── Standard auth path (API key authenticated) ───────────────────
 
-  // Fetch plan BEFORE provider selection to enforce pool restrictions (R22 H-4)
-  const userPlan = await planRepo.getUserPlan(auth!.userId);
+  // Fetch plan BEFORE provider selection to enforce pool restrictions
+  // Team API keys use the team's plan (e.g. payg/unrestricted) not the creator's personal plan
+  const userPlan = auth!.teamId
+    ? await planRepo.getTeamPlan(auth!.teamId)
+    : await planRepo.getUserPlan(auth!.userId);
 
-  // R22 H-4: Enforce allowedProxyTypes BEFORE provider selection — not after
+  // Enforce allowedProxyTypes BEFORE provider selection — not after
   // This ensures the provider selector receives the correct pool type, preventing
   // DC-only users from consuming residential bandwidth (or vice versa).
-  if (userPlan.allowedProxyTypes) {
+  // 'all' means unrestricted — skip the guard (truthy but should not restrict)
+  if (userPlan.allowedProxyTypes && userPlan.allowedProxyTypes !== 'all') {
     const reqType = auth!.proxyOptions.proxyType;
     if (reqType === "residential" && userPlan.allowedProxyTypes === "dc") {
       sendError(clientRes, 403, "POOL_RESTRICTED", "Your plan only allows datacenter proxies");
@@ -365,7 +369,7 @@ async function handleRequest(
 
   const targetUrl = clientReq.url ?? "/";
 
-  // R34 H-4: Strip hop-by-hop headers from client request before forwarding upstream
+  // Strip hop-by-hop headers from client request before forwarding upstream
   const HOP_BY_HOP_REQUEST = new Set([
     "proxy-authorization", "proxy-connection", "connection",
     "keep-alive", "te", "trailer", "upgrade", "transfer-encoding",
@@ -399,8 +403,8 @@ async function handleRequest(
   // C1+C6 fix: Reserve balance and start session — fails with 402 if insufficient balance
   let sessionId: string;
   try {
-    // R20 H-5: Pass proxyType derived from provider name
-    // R29 C-2: Pass pre-fetched plan to prevent TOCTOU double-fetch
+    // Pass proxyType derived from provider name
+    // Pass pre-fetched plan to prevent TOCTOU double-fetch
     const fwdPoolType = provider.name.includes("dc") ? "dc" : "residential";
     sessionId = await startSession(auth!.userId, targetHost, counter, 0, fwdPoolType, userPlan, auth!.user.log_target_hosts ?? false, auth!.teamId);
   } catch (err) {
@@ -434,7 +438,7 @@ async function handleRequest(
     });
   };
 
-  // R29 C-1: Register session destroy callback for HTTP forwarding sessions.
+  // Register session destroy callback for HTTP forwarding sessions.
   // Without this, byte limit enforcement (counter.onLimitExceeded) cannot terminate
   // the response stream, allowing unbounded bandwidth theft.
   registerSessionDestroy(sessionId, () => {
@@ -478,7 +482,7 @@ async function handleRequest(
   const connectStart = Date.now();
 
   try {
-    // R46 M-3: Only retry safe HTTP methods to prevent duplicate side effects
+    // Only retry safe HTTP methods to prevent duplicate side effects
     const retryOpts = getRetryOptionsForMethod(clientReq.method ?? "GET");
     const { response: proxyRes, retries, totalDelayMs } = await executeWithRetry(
       () => promisifyRequest(reqOptions, requestBody),
@@ -492,7 +496,7 @@ async function handleRequest(
     // Count response bytes BEFORE piping to ensure no chunks are missed
     proxyRes.on("data", (chunk: Buffer) => {
       counter.bytesOut += chunk.length;
-      // R31 C-2: Check byte limit (parity with CONNECT's attachByteCounters)
+      // Check byte limit (parity with CONNECT's attachByteCounters)
       if (counter.maxBytes > 0 && counter.onLimitExceeded &&
           counter.bytesIn + counter.bytesOut > counter.maxBytes) {
         counter.onLimitExceeded();
@@ -500,7 +504,7 @@ async function handleRequest(
       }
     });
 
-    // R31 H-3: Strip all hop-by-hop headers from upstream response
+    // Strip all hop-by-hop headers from upstream response
     const HOP_BY_HOP = new Set([
       "proxy-authenticate", "proxy-authorization", "proxy-connection",
       "connection", "keep-alive", "te", "trailer", "upgrade",
@@ -520,14 +524,14 @@ async function handleRequest(
     clientRes.writeHead(proxyRes.statusCode ?? 502, responseHeaders);
     proxyRes.pipe(clientRes, { end: true });
 
-    // R30 C-1: Destroy upstream response if client disconnects mid-stream
+    // Destroy upstream response if client disconnects mid-stream
     clientRes.on("close", () => {
       if (proxyRes && !proxyRes.destroyed) proxyRes.destroy();
     });
 
     proxyRes.on("end", cleanup);
     proxyRes.on("error", cleanup);
-    proxyRes.on("close", cleanup); // Handle abrupt disconnects (R13 H-3)
+    proxyRes.on("close", cleanup); // Handle abrupt disconnects
   } catch (err) {
     providerSelector.recordFailure(provider.name);
     recordError();
@@ -596,11 +600,15 @@ async function handleConnect(
   const connectTeamId = auth.teamId;
   const connectLogTargetHosts = auth.user.log_target_hosts ?? false;
 
-  // Fetch plan BEFORE provider selection to enforce pool restrictions (R22 H-4)
-  const connectPlan = await planRepo.getUserPlan(userId);
+  // Fetch plan BEFORE provider selection to enforce pool restrictions
+  // Team API keys use the team's plan (e.g. payg/unrestricted) not the creator's personal plan
+  const connectPlan = connectTeamId
+    ? await planRepo.getTeamPlan(connectTeamId)
+    : await planRepo.getUserPlan(userId);
 
-  // R22 H-4: Enforce allowedProxyTypes BEFORE provider selection
-  if (connectPlan.allowedProxyTypes) {
+  // Enforce allowedProxyTypes BEFORE provider selection
+  // 'all' means unrestricted — skip the guard (truthy but should not restrict)
+  if (connectPlan.allowedProxyTypes && connectPlan.allowedProxyTypes !== 'all') {
     const reqType = auth.proxyOptions.proxyType;
     if (reqType === "residential" && connectPlan.allowedProxyTypes === "dc") {
       safeSocketWrite(clientSocket, "HTTP/1.1 403 Forbidden\r\nX-DominusNode-Error: POOL_RESTRICTED\r\n\r\n");
@@ -665,7 +673,7 @@ async function handleConnect(
       return;
     }
     targetHost = connectUrl.slice(1, closeBracket); // strip brackets
-    // R31 C-1: Strip IPv6 zone ID before validation
+    // Strip IPv6 zone ID before validation
     const zoneIdx = targetHost.indexOf("%");
     if (zoneIdx !== -1) {
       targetHost = targetHost.substring(0, zoneIdx);
@@ -699,7 +707,7 @@ async function handleConnect(
     return;
   }
 
-  // R30 C-2: Defense-in-depth: reject hostnames with control characters before upstream CONNECT
+  // Defense-in-depth: reject hostnames with control characters before upstream CONNECT
   if (/[\x00-\x1f\x7f]/.test(targetHost)) {
     decrementUserConns(userId);
     safeSocketWrite(clientSocket, "HTTP/1.1 400 Bad Request\r\nX-DominusNode-Error: INVALID_TARGET\r\n\r\n");
@@ -721,7 +729,7 @@ async function handleConnect(
   const connectStart = Date.now();
   const providerName = provider.name;
 
-  // R37 C-2: Wrap IPv6 addresses in brackets for upstream CONNECT per RFC 7230
+  // Wrap IPv6 addresses in brackets for upstream CONNECT per RFC 7230
   const connectHost = targetHost.includes(":") ? `[${targetHost}]` : targetHost;
 
   // Connect to upstream proxy gateway
@@ -782,7 +790,7 @@ async function handleConnect(
 
     const statusLine = headerStr.split("\r\n")[0];
 
-    // R29 C-3: Strict status line check — prevent matching "200" in non-status contexts
+    // Strict status line check — prevent matching "200" in non-status contexts
     const statusMatch = statusLine.match(/^HTTP\/1\.[01] (\d{3})/);
     if (!statusMatch || statusMatch[1] !== "200") {
       log.error("upstream CONNECT failed", { status: sanitizeUpstreamMsg(statusLine), provider: providerName });
@@ -809,8 +817,8 @@ async function handleConnect(
     // Start session BEFORE sending 200 to client (billing race condition fix)
     let sessionId: string;
     try {
-      // R20 H-5: Pass connectLatencyMs and proxyType derived from provider name
-      // R29 C-2: Pass pre-fetched plan to prevent TOCTOU double-fetch
+      // Pass connectLatencyMs and proxyType derived from provider name
+      // Pass pre-fetched plan to prevent TOCTOU double-fetch
       const poolType = providerName.includes("dc") ? "dc" : "residential";
       sessionId = await startSession(userId, targetHost ?? "unknown", counter, connectLatencyMs, poolType, connectPlan, connectLogTargetHosts, connectTeamId);
     } catch (err) {
@@ -903,7 +911,7 @@ async function handleConnect(
     } else {
       if (!clientSocket.destroyed) clientSocket.end();
     }
-    psSocket.destroy(); // R24 H-2: Ensure close event fires promptly for session cleanup
+    psSocket.destroy(); // Ensure close event fires promptly for session cleanup
   });
 
   clientSocket.on("error", (err) => {
@@ -1159,7 +1167,7 @@ export async function startProxyServer(port: number = 8080, providerSelector?: P
   }
   const selector = providerSelector;
 
-  // R18-H4: Derive a separate stats secret from JWT_SECRET using HMAC instead of
+  // Derive a separate stats secret from JWT_SECRET using HMAC instead of
   // reusing the raw JWT_SECRET as a Bearer token (prevents JWT signing key exposure)
   const STATS_SECRET = process.env["PROXY_STATS_SECRET"] ??
     (process.env["JWT_SECRET"]

@@ -43,7 +43,7 @@ export function registerFetchTools(server: McpServer, config: McpConfig): void {
           .map(([k, v]) => `${k}: ${v}`)
           .join("\n");
 
-        // R18-H8: Use cryptographic nonce in boundary markers to prevent
+        // Use cryptographic nonce in boundary markers to prevent
         // malicious response content from forging the end-of-body marker
         const nonce = crypto.randomBytes(8).toString("hex");
         const closeTag = `--- End Response Body [${nonce}] ---`;

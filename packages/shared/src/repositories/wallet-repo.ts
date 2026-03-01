@@ -27,7 +27,7 @@ export async function getBalance(userId: string): Promise<number> {
   return result.rows[0]?.balance_cents ?? 0;
 }
 
-// Maximum wallet balance: $10,000 (prevents abuse and accounting overflow) (R12 H-4)
+// Maximum wallet balance: $10,000 (prevents abuse and accounting overflow)
 const MAX_BALANCE_CENTS = 1_000_000;
 
 export async function creditWallet(
@@ -46,7 +46,7 @@ export async function creditWallet(
     await client.query("BEGIN");
     await client.query("SET LOCAL lock_timeout = '5s'");
 
-    // Check current balance before crediting to enforce max cap (R12 H-4)
+    // Check current balance before crediting to enforce max cap
     const balanceCheck = await client.query<Wallet>(
       `SELECT id, user_id, balance_cents, currency, last_topped_up FROM wallets WHERE user_id = $1 FOR UPDATE`,
       [userId],
@@ -254,7 +254,7 @@ export async function settleSession(
         [wallet.id, diff, `Proxy usage settlement (${sessionLabel})`],
       );
     } else if (diff < 0) {
-      // Refund excess reservation, capped at MAX_BALANCE_CENTS (R13 H-2)
+      // Refund excess reservation, capped at MAX_BALANCE_CENTS
       const refund = Math.min(-diff, MAX_BALANCE_CENTS - wallet.balance_cents);
       if (refund > 0) {
         await client.query(
@@ -294,7 +294,7 @@ export async function releaseReservation(
   try {
     await client.query("BEGIN");
     await client.query("SET LOCAL lock_timeout = '5s'");
-    // Lock wallet row first to prevent exceeding MAX_BALANCE_CENTS (R13 H-1)
+    // Lock wallet row first to prevent exceeding MAX_BALANCE_CENTS
     const lockResult = await client.query<Wallet>(
       `SELECT id, user_id, balance_cents, currency, last_topped_up FROM wallets WHERE user_id = $1 FOR UPDATE`,
       [userId],
@@ -329,7 +329,7 @@ export async function releaseReservation(
 }
 
 /**
- * R45 C-1: Atomically complete an invoice AND credit the wallet in a single
+ * Atomically complete an invoice AND credit the wallet in a single
  * DB transaction. Eliminates the crash window between completeInvoice and
  * creditWallet that could result in lost payments.
  * Returns { claimed: true } if the invoice was claimed and wallet credited,

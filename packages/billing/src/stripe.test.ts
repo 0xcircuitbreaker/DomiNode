@@ -125,7 +125,7 @@ describe("stripe", () => {
         amount_cents: 2000,
       };
       mockFindInvoice.mockResolvedValueOnce(mockInvoice);
-      // R45 C-1: Now uses atomic complete+credit in single transaction
+      // Now uses atomic complete+credit in single transaction
       mockAtomicCompleteInvoiceAndCredit.mockResolvedValueOnce({ claimed: true, transaction: {} });
 
       const result = await handleCheckoutWebhook(

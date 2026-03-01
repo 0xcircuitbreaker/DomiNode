@@ -221,6 +221,108 @@ export interface SystemStats {
   activeSessions: number;
 }
 
+// ─── Referral / Affiliate / Promo / Loyalty ─────────────────────────
+
+export interface ReferralCode {
+  id: string;
+  user_id: string;
+  code_hash: string;
+  code_prefix: string;
+  max_uses: number;
+  uses: number;
+  credit_cents: number;
+  active: boolean;
+  expires_at: Date | null;
+  created_at: Date;
+}
+
+export interface ReferralRedemption {
+  id: string;
+  referral_code_id: string;
+  referrer_id: string;
+  referee_id: string;
+  credit_cents: number;
+  created_at: Date;
+}
+
+export interface AffiliateLink {
+  id: string;
+  referrer_id: string;
+  referee_id: string;
+  active: boolean;
+  created_at: Date;
+}
+
+export interface AffiliateCommission {
+  id: string;
+  referrer_id: string;
+  referee_id: string;
+  payment_id: string;
+  topup_cents: number;
+  commission_cents: number;
+  commission_rate: number;
+  status: "pending" | "credited" | "cancelled";
+  credited_at: Date | null;
+  created_at: Date;
+}
+
+export interface AffiliateStats {
+  totalReferrals: number;
+  activeReferrals: number;
+  totalCommissionCents: number;
+  pendingCommissionCents: number;
+  creditedCommissionCents: number;
+}
+
+export interface PromoCode {
+  id: string;
+  admin_user_id: string;
+  code_hash: string;
+  code_prefix: string;
+  credit_cents: number;
+  max_uses: number;
+  uses: number;
+  active: boolean;
+  expires_at: Date | null;
+  created_at: Date;
+}
+
+export interface PromoRedemption {
+  id: string;
+  promo_code_id: string;
+  user_id: string;
+  credit_cents: number;
+  created_at: Date;
+}
+
+export interface LoyaltyTier {
+  id: string;
+  name: string;
+  min_spend_bytes: number;
+  cashback_basis_pts: number;
+  sort_order: number;
+}
+
+export interface LoyaltyReward {
+  id: string;
+  user_id: string;
+  tier_id: string;
+  period_start: string;
+  period_end: string;
+  spend_cents: number;
+  reward_cents: number;
+  status: "pending" | "credited";
+  credited_at: Date | null;
+  created_at: Date;
+}
+
+export interface LoyaltyStatus {
+  currentTier: LoyaltyTier;
+  currentMonthSpendBytes: number;
+  nextTier: LoyaltyTier | null;
+  bytesToNextTier: number;
+}
+
 // ─── Constants ───────────────────────────────────────────────────────
 
 /** Sell price: $5.00 per GB (residential) */

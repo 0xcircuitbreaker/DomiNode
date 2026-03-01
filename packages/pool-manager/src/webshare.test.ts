@@ -253,7 +253,7 @@ describe("webshare", () => {
         body: { cancel: vi.fn().mockResolvedValue(undefined) },
       });
 
-      // R22 C-1: Error no longer includes response body
+      // Error no longer includes response body
       await expect(getBandwidthUsage()).rejects.toThrow(
         "Webshare bandwidth API failed: 401",
       );

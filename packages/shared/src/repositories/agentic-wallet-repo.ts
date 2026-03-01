@@ -43,7 +43,7 @@ function validateAmountCents(amount: number, label: string): void {
 }
 
 // ─── Create ─────────────────────────────────────────────────────────
-// R33 C-1: Atomic count check + insert in single transaction to prevent TOCTOU
+// Atomic count check + insert in single transaction to prevent TOCTOU
 
 export async function createWallet(
   userId: string,
@@ -74,7 +74,7 @@ export async function createWallet(
     await client.query("BEGIN");
     await client.query("SET LOCAL lock_timeout = '5s'");
 
-    // R33 C-1 + M-6: Count check and INSERT on same client in same transaction
+    // Count check and INSERT on same client in same transaction
     // Lock the user's wallet rows first, then count them
     await client.query(
       `SELECT id FROM agentic_wallets WHERE user_id = $1 AND status != 'deleted' FOR UPDATE`,
@@ -174,7 +174,7 @@ export async function fundWallet(
       throw new Error("Agentic wallet not found or not active");
     }
 
-    // R33 C-2: Cap agentic wallet balance at MAX_BALANCE_CENTS to prevent overflow
+    // Cap agentic wallet balance at MAX_BALANCE_CENTS to prevent overflow
     const agenticWallet = agenticResult.rows[0];
     if (agenticWallet.balance_cents + amountCents > MAX_BALANCE_CENTS) {
       throw new Error(`Fund would exceed agentic wallet balance cap of $${(MAX_BALANCE_CENTS / 100).toFixed(2)}`);
@@ -228,7 +228,7 @@ export async function spendFromWallet(
 ): Promise<AgenticWalletTransaction> {
   validateAmountCents(amountCents, "Spend amount");
 
-  // R33 M-2: Cap description length to prevent DB bloat
+  // Cap description length to prevent DB bloat
   if (description.length > MAX_DESCRIPTION_LENGTH) {
     description = description.slice(0, MAX_DESCRIPTION_LENGTH);
   }
@@ -252,7 +252,7 @@ export async function spendFromWallet(
 
     const wallet = walletResult.rows[0];
 
-    // R33 L-1: Do not leak spending limit value in error message
+    // Do not leak spending limit value in error message
     if (wallet.spending_limit_cents > 0 && amountCents > wallet.spending_limit_cents) {
       throw new Error("Amount exceeds spending limit");
     }
@@ -368,7 +368,7 @@ export async function freezeWallet(
 }
 
 // ─── Unfreeze ───────────────────────────────────────────────────────
-// R33 H-8: Allow unfreezing a frozen wallet to resume normal operation
+// Allow unfreezing a frozen wallet to resume normal operation
 
 export async function unfreezeWallet(
   walletId: string,
@@ -388,7 +388,7 @@ export async function unfreezeWallet(
 }
 
 // ─── Delete (refund remaining balance to main wallet) ───────────────
-// R33 H-7: Block deletion if refund would be partial; return actual refund amount
+// Block deletion if refund would be partial; return actual refund amount
 
 export async function deleteWallet(
   walletId: string,
@@ -426,7 +426,7 @@ export async function deleteWallet(
       }
       const mainWallet = mainResult.rows[0];
 
-      // R33 H-7: Block deletion if refund would exceed main wallet cap (prevents silent fund loss)
+      // Block deletion if refund would exceed main wallet cap (prevents silent fund loss)
       if (mainWallet.balance_cents + refundCents > MAX_BALANCE_CENTS) {
         throw new Error("Cannot delete: refund would exceed main wallet balance cap. Withdraw main wallet funds first.");
       }

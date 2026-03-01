@@ -2,7 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { HttpClient } from "../http-client.js";
 
-// R19-H5: Bootstrap rate limiting for wallet auth (prevents mass wallet account creation)
+// Bootstrap rate limiting for wallet auth (prevents mass wallet account creation)
 const BOOTSTRAP_WALLET_MAX = 5;
 const BOOTSTRAP_WALLET_WINDOW_MS = 3600_000; // 1 hour
 const walletAuthTimestamps: number[] = [];
@@ -17,7 +17,7 @@ function checkWalletAuthLimit(): boolean {
   while (walletAuthTimestamps.length > 0 && now - walletAuthTimestamps[0] > BOOTSTRAP_WALLET_WINDOW_MS) {
     walletAuthTimestamps.shift();
   }
-  // R23 H-2: Hard cap prevents unbounded growth under pathological clock skew
+  // Hard cap prevents unbounded growth under pathological clock skew
   if (walletAuthTimestamps.length > 100) walletAuthTimestamps.length = 100;
   if (walletAuthTimestamps.length >= BOOTSTRAP_WALLET_MAX) return false;
   walletAuthTimestamps.push(now);
@@ -78,7 +78,7 @@ export function registerWalletAuthTools(server: McpServer, httpClient: HttpClien
     },
     async (args) => {
       try {
-        // R23 H-3: Rate limit register_wallet (parity with challenge and setup)
+        // Rate limit register_wallet (parity with challenge and setup)
         if (!checkWalletAuthLimit()) {
           return { isError: true, content: [{ type: "text" as const, text: "Wallet authentication rate limit exceeded. Try again later." }] };
         }
@@ -93,7 +93,7 @@ export function registerWalletAuthTools(server: McpServer, httpClient: HttpClien
           false,
         );
 
-        // R19 H-4: Store tokens so subsequent authenticated calls work (bootstrap mode)
+        // Store tokens so subsequent authenticated calls work (bootstrap mode)
         if (data.token && data.refreshToken) {
           httpClient.storeTokens(data.token, data.refreshToken);
         }
@@ -146,7 +146,7 @@ export function registerWalletAuthTools(server: McpServer, httpClient: HttpClien
           false,
         );
 
-        // R19 H-4: Store tokens so the subsequent API key creation call works
+        // Store tokens so the subsequent API key creation call works
         if (verifyData.token && verifyData.refreshToken) {
           httpClient.storeTokens(verifyData.token, verifyData.refreshToken);
         }

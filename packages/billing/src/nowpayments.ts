@@ -1,5 +1,5 @@
 import * as crypto from "node:crypto";
-import { walletRepo, invoiceRepo, createLogger, SUPPORTED_CRYPTO } from "@dominusnode/shared";
+import { walletRepo, invoiceRepo, referralRepo, createLogger, SUPPORTED_CRYPTO } from "@dominusnode/shared";
 import type { SupportedCrypto } from "@dominusnode/shared";
 
 const log = createLogger("billing:nowpayments");
@@ -35,7 +35,7 @@ export async function createCryptoInvoice(
   amountUsd: number,
   payCurrency: SupportedCrypto,
 ): Promise<CryptoInvoice> {
-  // R30 H-4: Defense-in-depth validation
+  // Defense-in-depth validation
   if (!Number.isFinite(amountUsd) || amountUsd < 10 || amountUsd > 1000) {
     throw new Error("Invalid amount: must be between $10 and $1,000");
   }
@@ -60,17 +60,17 @@ export async function createCryptoInvoice(
       order_description: `Dominus Node wallet top-up $${amountUsd.toFixed(2)}`,
       is_fixed_rate: true,
     }),
-    redirect: "error", // R18-C2: Prevent HTTPS→HTTP redirect leaking x-api-key
+    redirect: "error", // Prevent HTTPS→HTTP redirect leaking x-api-key
     signal: AbortSignal.timeout(30_000),
   });
 
   if (!resp.ok) {
-    // R23 C-3: Cap error body read to prevent OOM from malicious/compromised upstream
+    // Cap error body read to prevent OOM from malicious/compromised upstream
     await resp.body?.cancel();
     throw new Error(`NOWPayments createInvoice failed: ${resp.status}`);
   }
 
-  // R18-H1: Response size limit to prevent OOM from oversized upstream response
+  // Response size limit to prevent OOM from oversized upstream response
   const responseText = await resp.text();
   if (responseText.length > 1_048_576) {
     throw new Error("NOWPayments response too large");
@@ -104,7 +104,7 @@ export async function createCryptoInvoice(
 
 // ─── IPN Signature Verification ──────────────────────────────────────
 
-// R45 H-1: Keys that could be injected via prototype pollution
+// Keys that could be injected via prototype pollution
 const DANGEROUS_KEYS = new Set(["__proto__", "constructor", "prototype"]);
 
 export function verifyIpnSignature(
@@ -113,7 +113,7 @@ export function verifyIpnSignature(
 ): boolean {
   const secret = getIpnSecret();
 
-  // R45 H-1: Strip dangerous prototype pollution keys before iterating
+  // Strip dangerous prototype pollution keys before iterating
   const sorted = Object.keys(body)
     .filter((key) => !DANGEROUS_KEYS.has(key))
     .sort()
@@ -146,7 +146,7 @@ export async function handleIpnCallback(
     return null;
   }
 
-  // Validate payment_status is actually a string (R12 H-1: type confusion defense)
+  // Validate payment_status is actually a string (type confusion defense)
   const rawStatus = body["payment_status"];
   if (typeof rawStatus !== "string") {
     log.error("IPN payment_status is not a string", { type: typeof rawStatus });
@@ -162,13 +162,13 @@ export async function handleIpnCallback(
   const rawInvoiceId = body["invoice_id"];
   const rawPriceAmount = body["price_amount"];
 
-  // R16-C2: Strict type guards — only accept string or number, reject all other types
+  // Strict type guards — only accept string or number, reject all other types
   // to prevent type confusion from boolean/object/array coercion
   if (rawPaymentId !== undefined && typeof rawPaymentId !== "string" && typeof rawPaymentId !== "number") {
     log.error("IPN payment_id has unexpected type", { type: typeof rawPaymentId });
     return null;
   }
-  // R31 C-2: Type guard for invoice_id matching the pattern used for payment_id and price_amount
+  // Type guard for invoice_id matching the pattern used for payment_id and price_amount
   if (rawInvoiceId !== undefined && typeof rawInvoiceId !== "string" && typeof rawInvoiceId !== "number") {
     log.error("IPN invoice_id has unexpected type", { type: typeof rawInvoiceId });
     return null;
@@ -185,7 +185,7 @@ export async function handleIpnCallback(
     : typeof rawInvoiceId === "number" ? String(rawInvoiceId) : "";
   const priceAmount = Number(rawPriceAmount ?? 0);
 
-  // R46 H-1: Number("abc") = NaN; NaN <= 0 is false, bypassing this check
+  // Number("abc") = NaN; NaN <= 0 is false, bypassing this check
   if (!paymentId || !Number.isFinite(priceAmount) || priceAmount <= 0) {
     log.error("IPN missing required fields", { paymentId, priceAmount });
     return null;
@@ -205,7 +205,7 @@ export async function handleIpnCallback(
     return null;
   }
 
-  // R30 H-3: Reject IPNs for invoices that have been permanently failed
+  // Reject IPNs for invoices that have been permanently failed
   if (invoice.status === "failed") {
     log.warn("webhook received for failed invoice, ignoring", { externalId: invoiceId });
     return null;
@@ -228,9 +228,9 @@ export async function handleIpnCallback(
 
   const amountCents = invoice.amount_cents;
 
-  // R45 C-1: Atomically complete invoice + credit wallet in a single
+  // Atomically complete invoice + credit wallet in a single
   // DB transaction. If the server crashes mid-operation, both roll back.
-  // R26 C-2: Sanitize pay_currency — only allow alphanumeric + hyphen/underscore, cap length
+  // Sanitize pay_currency — only allow alphanumeric + hyphen/underscore, cap length
   const payCurrency = typeof body["pay_currency"] === "string"
     ? body["pay_currency"].replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 20)
     : "unknown";
@@ -248,5 +248,9 @@ export async function handleIpnCallback(
   }
 
   log.info("wallet credited via NOWPayments", { userId, amountCents, paymentId });
+
+  // Fire-and-forget affiliate commission recording — must never block wallet credit
+  referralRepo.recordAffiliateCommission(userId, amountCents, paymentId).catch(() => {});
+
   return { userId, amountCents };
 }

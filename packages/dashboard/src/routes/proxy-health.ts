@@ -9,7 +9,7 @@ const PROXY_INTERNAL_HOST = process.env["PROXY_INTERNAL_HOST"] ?? "127.0.0.1";
 const PROXY_INTERNAL_PORT = process.env["PROXY_INTERNAL_PORT"] ?? process.env["PROXY_LISTEN_PORT"] ?? "8080";
 const PROXY_INTERNAL_URL = process.env["PROXY_INTERNAL_URL"] ??
   `http://${PROXY_INTERNAL_HOST}:${PROXY_INTERNAL_PORT}/internal/stats`;
-// R18-H4: Derive a separate stats secret from JWT_SECRET using HMAC instead of
+// Derive a separate stats secret from JWT_SECRET using HMAC instead of
 // reusing the raw JWT_SECRET as a Bearer token (prevents JWT signing key exposure)
 import * as crypto from "node:crypto";
 const PROXY_INTERNAL_SECRET = process.env["PROXY_STATS_SECRET"] ??
@@ -51,7 +51,7 @@ async function fetchProxyStats(): Promise<ProxyStats | null> {
     if (PROXY_INTERNAL_SECRET) {
       headers["Authorization"] = `Bearer ${PROXY_INTERNAL_SECRET}`;
     }
-    // R21 H-1: Reject redirects — prevents leaking Bearer token to arbitrary destinations
+    // Reject redirects — prevents leaking Bearer token to arbitrary destinations
     const res = await fetch(PROXY_INTERNAL_URL, { signal: AbortSignal.timeout(3000), headers, redirect: "error" });
     if (!res.ok) return null;
     return await res.json() as ProxyStats;
@@ -99,7 +99,7 @@ router.get("/status", requireAuth, async (req, res) => {
     return;
   }
 
-  // R23 H-2: Only expose provider details to admin users
+  // Only expose provider details to admin users
   const isAdmin = (req as AuthenticatedRequest).user.isAdmin === true;
 
   res.json({

@@ -278,7 +278,7 @@ export default function MarketingPage() {
                 ? <>{slotsData.remaining} of {slotsData.total} alpha slots remaining &mdash; join before they fill up.</>
                 : slotsData && !slotsData.unlimited && slotsData.remaining === 0
                   ? <>All {slotsData.total} alpha slots filled{waitlistData && waitlistData.pending > 0 ? <> &mdash; {waitlistData.pending} on the waitlist</> : <> &mdash; join the waitlist!</>}</>
-                  : <>Limited alpha slots available &mdash; 250 datacenter proxies, residential pool access.</>}
+                  : <>Limited alpha slots available &mdash; 5,000 slots, 250 datacenter proxies, residential pool access.</>}
             </p>
             <Link to={slotsData && !slotsData.unlimited && slotsData.remaining === 0 ? "/login?waitlist=1" : registerHref} className="mk-alpha-cta">
               {slotsData && !slotsData.unlimited && slotsData.remaining === 0

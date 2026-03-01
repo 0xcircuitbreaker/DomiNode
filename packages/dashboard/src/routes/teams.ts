@@ -63,7 +63,7 @@ router.get("/invites/:token", async (req, res) => {
       return;
     }
 
-    // R46 C-3: Mask email in public response — token possession doesn't grant PII access
+    // Mask email in public response — token possession doesn't grant PII access
     const maskedEmail = invite.email.replace(/^(.{2}).*(@.*)$/, "$1***$2");
     res.json({
       id: invite.id,
@@ -90,7 +90,7 @@ router.post("/", async (req, res) => {
   try {
     const { userId } = (req as unknown as AuthenticatedRequest).user;
 
-    // R37 H-6: Require verified email before creating teams
+    // Require verified email before creating teams
     const teamCreator = await userRepo.findUserById(userId);
     if (!teamCreator || !teamCreator.email_verified) {
       res.status(403).json({ error: "Email verification required before creating teams" });
@@ -301,7 +301,7 @@ router.post("/:id/wallet/fund", financialLimiter, async (req, res) => {
   try {
     const { userId } = (req as unknown as AuthenticatedRequest).user;
 
-    // R37 H-6: Require verified email before funding team wallets
+    // Require verified email before funding team wallets
     const fundingUser = await userRepo.findUserById(userId);
     if (!fundingUser || !fundingUser.email_verified) {
       res.status(403).json({ error: "Email verification required before funding team wallets" });
@@ -431,7 +431,7 @@ router.post("/:id/members", async (req, res) => {
   try {
     const { userId } = (req as unknown as AuthenticatedRequest).user;
 
-    // R46 H-7: Require email verification before adding team members
+    // Require email verification before adding team members
     const adder = await userRepo.findUserById(userId);
     if (!adder || !adder.email_verified) {
       res.status(403).json({ error: "Email verification required before adding team members" });
@@ -457,7 +457,7 @@ router.post("/:id/members", async (req, res) => {
       return;
     }
 
-    // Look up user by email — R38 H-2: reject suspended/deleted users
+    // Look up user by email — reject suspended/deleted users
     const targetUser = await userRepo.findUserByEmail(email);
     if (!targetUser || targetUser.status !== "active") {
       res.status(404).json({ error: "No active user found with that email" });
@@ -606,7 +606,7 @@ router.post("/:id/invites", inviteLimiter, async (req, res) => {
       return;
     }
 
-    // R38 M-1: Require verified email before sending team invites
+    // Require verified email before sending team invites
     // (also reuse this lookup for the email notification below)
     const inviter = await userRepo.findUserById(userId);
     if (!inviter || !inviter.email_verified) {
@@ -748,12 +748,12 @@ router.delete("/:id/invites/:inviteId", async (req, res) => {
 });
 
 // POST /api/teams/invites/:token/accept — Accept invite
-// R46 H-1: Rate limit invite acceptance (DB writes on every attempt)
+// Rate limit invite acceptance (DB writes on every attempt)
 router.post("/invites/:token/accept", inviteLimiter, async (req, res) => {
   try {
     const { userId } = (req as unknown as AuthenticatedRequest).user;
 
-    // R36 H-6: Verify email before allowing team join (prevents unverified accounts from accessing team resources)
+    // Verify email before allowing team join (prevents unverified accounts from accessing team resources)
     const invitingUser = await userRepo.findUserById(userId);
     if (!invitingUser || !invitingUser.email_verified) {
       res.status(403).json({ error: "Email verification required before joining a team" });
@@ -812,7 +812,7 @@ router.post("/:id/keys", financialLimiter, async (req, res) => {
   try {
     const { userId } = (req as unknown as AuthenticatedRequest).user;
 
-    // R37 H-6: Require verified email before creating team API keys
+    // Require verified email before creating team API keys
     const keyCreator = await userRepo.findUserById(userId);
     if (!keyCreator || !keyCreator.email_verified) {
       res.status(403).json({ error: "Email verification required before creating team API keys" });

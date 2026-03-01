@@ -520,7 +520,7 @@ describe("wallet-repo", () => {
       mockClientQuery
         .mockResolvedValueOnce({}) // BEGIN
         .mockResolvedValueOnce({}) // SET LOCAL lock_timeout
-        .mockResolvedValueOnce({ rows: [wallet] }) // SELECT FOR UPDATE (R13 H-1)
+        .mockResolvedValueOnce({ rows: [wallet] }) // SELECT FOR UPDATE
         .mockResolvedValueOnce({}) // UPDATE wallets SET balance_cents + $1
         .mockResolvedValueOnce({}) // INSERT wallet_transactions (reservation released)
         .mockResolvedValueOnce({}); // COMMIT

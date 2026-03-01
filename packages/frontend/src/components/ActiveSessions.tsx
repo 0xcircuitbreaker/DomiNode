@@ -37,7 +37,7 @@ export default function ActiveSessions() {
       setError(null);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      // R30 H-3: Sanitize error messages to prevent internal detail leakage
+      // Sanitize error messages to prevent internal detail leakage
       const safe = msg.includes("/") || msg.includes("\\") || msg.length > 200
         ? "Failed to load active sessions. Please try again."
         : msg;

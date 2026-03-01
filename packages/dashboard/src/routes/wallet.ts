@@ -20,7 +20,7 @@ import { requireAuth, type AuthenticatedRequest } from "../middleware/auth.js";
 const router = Router();
 const log = createLogger("api:wallet");
 
-// R29 C-2: Per-user rate limit on top-up endpoints to prevent invoice spam
+// Per-user rate limit on top-up endpoints to prevent invoice spam
 const topupLimiter = rateLimit({
   windowMs: 60 * 60_000, // 1 hour
   max: 10, // 10 top-up attempts per hour per user
@@ -59,7 +59,7 @@ router.get("/", async (req, res) => {
 router.get("/transactions", async (req, res) => {
   try {
     const { userId } = (req as AuthenticatedRequest).user;
-    // R19 H-2: Cap at 100 to match walletRepo internal limit (was 200, repo caps at 100)
+    // Cap at 100 to match walletRepo internal limit (was 200, repo caps at 100)
     const limit = Math.min(Math.max(1, parseInt(req.query.limit as string, 10) || 50), 100);
     const offset = Math.max(0, parseInt(req.query.offset as string, 10) || 0);
 
@@ -87,7 +87,7 @@ router.post("/topup/stripe", topupLimiter, async (req, res) => {
   try {
     const { userId } = (req as AuthenticatedRequest).user;
 
-    // R36: Require email verification before accepting payments
+    // Require email verification before accepting payments
     const currentUser = await userRepo.findUserById(userId);
     if (!currentUser || !currentUser.email_verified) {
       res.status(403).json({ error: "Please verify your email address before topping up" });
@@ -102,7 +102,7 @@ router.post("/topup/stripe", topupLimiter, async (req, res) => {
       return;
     }
 
-    // R29 C-3: Pre-check wallet balance cap before creating checkout session.
+    // Pre-check wallet balance cap before creating checkout session.
     // Without this, user pays real money but creditWallet fails at MAX_BALANCE_CENTS,
     // resulting in a lost payment.
     const MAX_BALANCE_CENTS = 1_000_000; // $10,000 — matches wallet-repo.ts
@@ -133,7 +133,7 @@ router.post("/topup/crypto", topupLimiter, async (req, res) => {
   try {
     const { userId } = (req as AuthenticatedRequest).user;
 
-    // R36: Require email verification before accepting payments
+    // Require email verification before accepting payments
     const cryptoUser = await userRepo.findUserById(userId);
     if (!cryptoUser || !cryptoUser.email_verified) {
       res.status(403).json({ error: "Please verify your email address before topping up" });
@@ -143,7 +143,7 @@ router.post("/topup/crypto", topupLimiter, async (req, res) => {
     const amountUsd = parseFloat(req.body.amountUsd);
     const currency = (req.body.currency ?? "").toLowerCase();
 
-    // R23 H-4: Explicit NaN/Infinity check + integer-cents validation
+    // Explicit NaN/Infinity check + integer-cents validation
     if (!Number.isFinite(amountUsd) || amountUsd < 10 || amountUsd > 1000) {
       res.status(400).json({ error: "Amount must be between $10 and $1,000" });
       return;
@@ -161,7 +161,7 @@ router.post("/topup/crypto", topupLimiter, async (req, res) => {
       return;
     }
 
-    // R29 C-3: Pre-check wallet balance cap before creating crypto invoice
+    // Pre-check wallet balance cap before creating crypto invoice
     const MAX_CRYPTO_BALANCE_CENTS = 1_000_000; // $10,000
     const cryptoWallet = await walletRepo.getWallet(userId);
     if (cryptoWallet && cryptoWallet.balance_cents + amountCents > MAX_CRYPTO_BALANCE_CENTS) {
@@ -187,7 +187,7 @@ router.post("/topup/crypto", topupLimiter, async (req, res) => {
   }
 });
 
-// R36 H-3: Rate limit payment status polling to prevent abuse
+// Rate limit payment status polling to prevent abuse
 const statusPollLimiter = rateLimit({
   windowMs: 5 * 60_000, // 5 minutes
   max: 30, // 30 checks per 5 min per user

@@ -4,7 +4,7 @@ import type { ExtensionState } from "./types.js";
  * Build proxy username from extension state.
  * Format: user-country-XX[-state-xxx][-city-xxx][-asn-NNN][-session-XXXXXXXX]
  *
- * R46 C-1: Uses hyphen separator between key and value (country-XX not country_XX)
+ * Uses hyphen separator between key and value (country-XX not country_XX)
  * to match the proxy gateway parser format. All values are URL-encoded.
  */
 export function buildProxyUsername(state: ExtensionState): string {

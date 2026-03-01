@@ -48,10 +48,10 @@ COPY --from=builder --chown=dominusnode:dominusnode /app/packages/billing/dist p
 COPY --from=builder --chown=dominusnode:dominusnode /app/packages/proxy-gateway/package.json packages/proxy-gateway/package.json
 COPY --from=builder --chown=dominusnode:dominusnode /app/packages/proxy-gateway/dist packages/proxy-gateway/dist
 
-# R24 C-3: Strip source maps from production image
+# Strip source maps from production image
 RUN find /app -name "*.js.map" -delete && find /app -name "*.d.ts.map" -delete
 
-# R30 C-2: --ignore-scripts prevents supply chain attacks; explicit rebuild for bcrypt native module
+# --ignore-scripts prevents supply chain attacks; explicit rebuild for bcrypt native module
 # (bcrypt is a transitive dependency via @dominusnode/shared which is imported at startup)
 RUN npm ci --omit=dev --ignore-scripts && npm rebuild bcrypt
 

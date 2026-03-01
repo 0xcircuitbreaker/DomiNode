@@ -13,13 +13,13 @@ import { recordRequest, recordError, recordLatency } from "./stats.js";
 
 const log = createLogger("proxy:socks5");
 
-// R22 H-3: Parse and validate tunnel idle timeout once at module level
+// Parse and validate tunnel idle timeout once at module level
 const TUNNEL_IDLE_TIMEOUT_MS = parseInt(process.env["TUNNEL_IDLE_TIMEOUT_MS"] ?? "300000", 10);
 if (isNaN(TUNNEL_IDLE_TIMEOUT_MS) || TUNNEL_IDLE_TIMEOUT_MS < 10_000 || TUNNEL_IDLE_TIMEOUT_MS > 3_600_000) {
   throw new Error("TUNNEL_IDLE_TIMEOUT_MS must be between 10000 and 3600000");
 }
 
-// R23 M-4: Parse and validate connect timeout at module level (not per-connection)
+// Parse and validate connect timeout at module level (not per-connection)
 const SOCKS5_CONNECT_TIMEOUT_MS = parseInt(process.env["PROXY_CONNECT_TIMEOUT_MS"] ?? "30000", 10);
 if (isNaN(SOCKS5_CONNECT_TIMEOUT_MS) || SOCKS5_CONNECT_TIMEOUT_MS < 1_000 || SOCKS5_CONNECT_TIMEOUT_MS > 120_000) {
   throw new Error("PROXY_CONNECT_TIMEOUT_MS must be between 1000 and 120000");
@@ -66,12 +66,12 @@ function parseProxyOptions(username: string): ProxyOptions {
     if (asnNum >= 1 && asnNum <= 4_294_967_295) options.asn = asnNum;
   }
   const sessionMatch = username.match(/(?:^|-)session-([a-zA-Z0-9]+)(?:-|$)/);
-  if (sessionMatch) options.sessionId = sessionMatch[1].slice(0, 255); // R18-C1: cap length to match HTTP parser
+  if (sessionMatch) options.sessionId = sessionMatch[1].slice(0, 255); // cap length to match HTTP parser
   return options;
 }
 
 function sendReply(socket: net.Socket, rep: number): void {
-  // R29 M-4: Guard against writing to destroyed socket
+  // Guard against writing to destroyed socket
   if (socket.destroyed) return;
   // Minimal SOCKS5 reply: VER REP RSV ATYP(IPv4) BND.ADDR(0.0.0.0) BND.PORT(0)
   const reply = Buffer.alloc(10);
@@ -83,7 +83,7 @@ function sendReply(socket: net.Socket, rep: number): void {
   socket.write(reply);
 }
 
-// R31 H-4: Total SOCKS5 handshake timeout (covers client negotiation + upstream CONNECT)
+// Total SOCKS5 handshake timeout (covers client negotiation + upstream CONNECT)
 const SOCKS5_TOTAL_HANDSHAKE_TIMEOUT_MS = parseInt(process.env["SOCKS5_TOTAL_HANDSHAKE_TIMEOUT_MS"] ?? "15000", 10);
 if (isNaN(SOCKS5_TOTAL_HANDSHAKE_TIMEOUT_MS) || SOCKS5_TOTAL_HANDSHAKE_TIMEOUT_MS < 5_000 || SOCKS5_TOTAL_HANDSHAKE_TIMEOUT_MS > 60_000) {
   throw new Error("SOCKS5_TOTAL_HANDSHAKE_TIMEOUT_MS must be between 5000 and 60000");
@@ -92,7 +92,7 @@ if (isNaN(SOCKS5_TOTAL_HANDSHAKE_TIMEOUT_MS) || SOCKS5_TOTAL_HANDSHAKE_TIMEOUT_M
 async function handleSocks5Connection(clientSocket: net.Socket, providerSelector: ProviderSelector): Promise<void> {
   const clientIp = (clientSocket.remoteAddress ?? "").replace(/^::ffff:/, "");
 
-  // R31 H-4: Total handshake timeout — destroys socket if entire SOCKS5 handshake
+  // Total handshake timeout — destroys socket if entire SOCKS5 handshake
   // (greeting + auth + request + upstream CONNECT) isn't completed within 15 seconds.
   // This prevents slowloris-style attacks that hold connections open indefinitely
   // by trickling SOCKS5 protocol bytes one at a time.
@@ -199,7 +199,7 @@ async function handleSocks5Connection(clientSocket: net.Socket, providerSelector
       clientSocket.end();
       return;
     }
-    // R27 C-1: Reject suspended/deleted users at SOCKS5 auth layer
+    // Reject suspended/deleted users at SOCKS5 auth layer
     if (result.user.status !== "active") {
       clearTimeout(totalHandshakeTimer);
       recordAuthFailure(clientIp);
@@ -207,7 +207,7 @@ async function handleSocks5Connection(clientSocket: net.Socket, providerSelector
       clientSocket.end();
       return;
     }
-    // R36 C-7: Reject unverified email (parity with HTTP proxy auth.ts)
+    // Reject unverified email (parity with HTTP proxy auth.ts)
     if (!result.user.email_verified) {
       clearTimeout(totalHandshakeTimer);
       recordAuthFailure(clientIp);
@@ -231,7 +231,10 @@ async function handleSocks5Connection(clientSocket: net.Socket, providerSelector
   clientSocket.write(Buffer.from([USERPASS_VER, 0x00]));
 
   // Fetch plan for per-plan connection limits and free plan balance bypass
-  const socksUserPlan = await planRepo.getUserPlan(userId);
+  // Team API keys use the team's plan (e.g. payg/unrestricted) not the creator's personal plan
+  const socksUserPlan = teamId
+    ? await planRepo.getTeamPlan(teamId)
+    : await planRepo.getUserPlan(userId);
 
   // Per-user connection limit (plan-aware)
   if (!incrementUserConns(userId, socksUserPlan.maxConnections)) {
@@ -317,7 +320,7 @@ async function handleSocks5Connection(clientSocket: net.Socket, providerSelector
     return;
   }
 
-  // R30 C-2: Defense-in-depth: reject hostnames with control characters before upstream CONNECT
+  // Defense-in-depth: reject hostnames with control characters before upstream CONNECT
   if (/[\x00-\x1f\x7f]/.test(targetHost)) {
     clearTimeout(totalHandshakeTimer);
     sendReply(clientSocket, REP_NOT_ALLOWED);
@@ -335,8 +338,9 @@ async function handleSocks5Connection(clientSocket: net.Socket, providerSelector
     return;
   }
 
-  // R23 C-1: Enforce allowedProxyTypes BEFORE provider selection (parity with HTTP handler)
-  if (socksUserPlan.allowedProxyTypes) {
+  // Enforce allowedProxyTypes BEFORE provider selection (parity with HTTP handler)
+  // 'all' means unrestricted — skip the guard (truthy but should not restrict)
+  if (socksUserPlan.allowedProxyTypes && socksUserPlan.allowedProxyTypes !== 'all') {
     const reqType = proxyOptions.proxyType;
     if (reqType === "residential" && socksUserPlan.allowedProxyTypes === "dc") {
       clearTimeout(totalHandshakeTimer);
@@ -391,7 +395,7 @@ async function handleSocks5Connection(clientSocket: net.Socket, providerSelector
 
   const connectStart = Date.now();
 
-  // R37 C-2: Wrap IPv6 addresses in brackets for upstream CONNECT per RFC 7230
+  // Wrap IPv6 addresses in brackets for upstream CONNECT per RFC 7230
   const connectHost = targetHost.includes(":") ? `[${targetHost}]` : targetHost;
 
   const psSocket = net.connect(upstream.port, upstream.host, () => {
@@ -425,7 +429,7 @@ async function handleSocks5Connection(clientSocket: net.Socket, providerSelector
 
     if (headerBytesSoFar > 32 * 1024) {
       log.error("upstream response headers too large", { size: headerBytesSoFar });
-      // R26 H-1: Guard against writing to destroyed socket
+      // Guard against writing to destroyed socket
       if (!clientSocket.destroyed) {
         sendReply(clientSocket, REP_GENERAL_FAILURE);
         clientSocket.end();
@@ -458,13 +462,13 @@ async function handleSocks5Connection(clientSocket: net.Socket, providerSelector
 
     const statusLine = headerStr.split("\r\n")[0];
 
-    // R29 C-3: Strict status line check — prevent matching "200" in non-status contexts
+    // Strict status line check — prevent matching "200" in non-status contexts
     const statusMatch = statusLine.match(/^HTTP\/1\.[01] (\d{3})/);
     if (!statusMatch || statusMatch[1] !== "200") {
       log.error("SOCKS5 upstream CONNECT failed", { status: sanitizeUpstreamMsg(statusLine), provider: providerName });
       providerSelector.recordFailure(providerName);
       recordError();
-      // R26 H-1: Guard against writing to destroyed socket
+      // Guard against writing to destroyed socket
       if (!clientSocket.destroyed) {
         sendReply(clientSocket, REP_GENERAL_FAILURE);
         clientSocket.end();
@@ -489,13 +493,13 @@ async function handleSocks5Connection(clientSocket: net.Socket, providerSelector
     // Fix #3: Start session BEFORE sending success reply (billing race condition fix)
     let sessionId: string;
     try {
-      // R20 H-5: Pass connectLatencyMs and proxyType derived from provider name
-      // R29 C-2: Pass pre-fetched plan to prevent TOCTOU double-fetch
+      // Pass connectLatencyMs and proxyType derived from provider name
+      // Pass pre-fetched plan to prevent TOCTOU double-fetch
       const poolType = providerName.includes("dc") ? "dc" : "residential";
       sessionId = await startSession(userId, targetHost, counter, connectLatencyMs, poolType, socksUserPlan, logTargetHosts, teamId);
     } catch (err) {
       log.error("SOCKS5 failed to start session", { error: err instanceof Error ? err.message : String(err) });
-      // R26 H-1: Guard against writing to destroyed socket
+      // Guard against writing to destroyed socket
       if (!clientSocket.destroyed) {
         sendReply(clientSocket, REP_GENERAL_FAILURE);
         clientSocket.end();
@@ -514,7 +518,7 @@ async function handleSocks5Connection(clientSocket: net.Socket, providerSelector
     // Mark tunnel as fully established AFTER session is started — this ensures
     // the psSocket error handler properly cleans up if an error occurs during startSession
     tunnelEstablished = true;
-    totalHandshakeCompleted = true; // R31 H-4: Clear total handshake timeout
+    totalHandshakeCompleted = true; // Clear total handshake timeout
     clearTimeout(totalHandshakeTimer);
     clearTimeout(handshakeTimeout); // Free timer immediately instead of waiting for socket close
 
@@ -522,7 +526,7 @@ async function handleSocks5Connection(clientSocket: net.Socket, providerSelector
     sendReply(clientSocket, REP_SUCCESS);
 
     if (remaining.length > 0) {
-      counter.bytesOut += remaining.length; // Count buffered upstream data (R12 H-1)
+      counter.bytesOut += remaining.length; // Count buffered upstream data
       clientSocket.write(remaining);
     }
 
@@ -579,7 +583,7 @@ async function handleSocks5Connection(clientSocket: net.Socket, providerSelector
       safeDecrement();
     }
     if (!clientSocket.destroyed) clientSocket.end();
-    psSocket.destroy(); // R25 H-2: Ensure close event fires for session cleanup (parity with server.ts)
+    psSocket.destroy(); // Ensure close event fires for session cleanup (parity with server.ts)
   });
 
   clientSocket.on("error", (err) => {
@@ -595,7 +599,7 @@ async function handleSocks5Connection(clientSocket: net.Socket, providerSelector
       log.error("SOCKS5 upstream handshake timeout", { provider: providerName });
       providerSelector.recordFailure(providerName);
       recordError();
-      // R25 H-1: Guard against writing to destroyed socket (client may have disconnected)
+      // Guard against writing to destroyed socket (client may have disconnected)
       if (!clientSocket.destroyed) {
         sendReply(clientSocket, REP_GENERAL_FAILURE);
         clientSocket.end();
@@ -625,7 +629,7 @@ function readBytes(socket: net.Socket, n: number, timeoutMs: number): Promise<Bu
     const timer = setTimeout(() => {
       if (!resolved) {
         resolved = true;
-        // R30 H-5: Free intermediate buffer memory before resolving
+        // Free intermediate buffer memory before resolving
         collected = Buffer.alloc(0);
         socket.removeListener("data", onData);
         socket.removeListener("error", onError);

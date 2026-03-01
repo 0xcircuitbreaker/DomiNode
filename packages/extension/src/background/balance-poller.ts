@@ -28,7 +28,7 @@ export async function pollBalance(): Promise<void> {
   let balance: number;
   try {
     const resp = await apiGet<WalletResponse>("/api/wallet", token);
-    // R31 H-1: Validate balance value before storing
+    // Validate balance value before storing
     const raw = resp.balanceCents;
     if (typeof raw !== "number" || !Number.isFinite(raw) || raw < 0) {
       return; // Reject invalid balance, keep last known value

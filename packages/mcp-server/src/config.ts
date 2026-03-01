@@ -26,13 +26,13 @@ export function parseConfig(env: Record<string, string | undefined> = process.en
 
   const apiUrl = (env["DOMINUSNODE_API_URL"] ?? "https://api.dominusnode.com").replace(/\/+$/, "");
 
-  // R23 H-5: Validate API URL protocol to prevent credential leakage to non-HTTPS endpoints
+  // Validate API URL protocol to prevent credential leakage to non-HTTPS endpoints
   try {
     const parsedApiUrl = new URL(apiUrl);
     if (parsedApiUrl.protocol !== "https:" && parsedApiUrl.protocol !== "http:") {
       throw new ConfigError("DOMINUSNODE_API_URL must use http: or https: protocol");
     }
-    // R30 C-2: Warn when http: is used for non-localhost (credentials sent in plaintext)
+    // Warn when http: is used for non-localhost (credentials sent in plaintext)
     if (parsedApiUrl.protocol === "http:" && !["localhost", "127.0.0.1", "[::1]"].includes(parsedApiUrl.hostname)) {
       process.stderr.write(
         "WARNING: DOMINUSNODE_API_URL uses http: — credentials will be sent in plaintext. Use https: in production.\n"
@@ -45,14 +45,14 @@ export function parseConfig(env: Record<string, string | undefined> = process.en
 
   const proxyHost = env["DOMINUSNODE_PROXY_HOST"] ?? "proxy.dominusnode.com";
 
-  // R26 C-2 + R29 H-5: Validate proxyHost strictly to prevent SSRF via config injection
+  // Validate proxyHost strictly to prevent SSRF via config injection
   if (!/^[a-zA-Z0-9.\-]+$/.test(proxyHost)) {
     throw new ConfigError("DOMINUSNODE_PROXY_HOST contains invalid characters (only alphanumeric, dots, hyphens allowed)");
   }
   if (proxyHost.length > 253) {
     throw new ConfigError("DOMINUSNODE_PROXY_HOST exceeds maximum hostname length (253)");
   }
-  // R30 C-1: Block bare localhost and other loopback/private hostnames
+  // Block bare localhost and other loopback/private hostnames
   const BLOCKED_PROXY_HOSTS = new Set([
     "localhost", "localhost.localdomain", "ip6-localhost", "ip6-loopback",
     "0.0.0.0", "127.0.0.1",
@@ -66,10 +66,10 @@ export function parseConfig(env: Record<string, string | undefined> = process.en
   ) {
     throw new ConfigError("DOMINUSNODE_PROXY_HOST must not be a localhost/internal hostname");
   }
-  // R30 M-3: Block private IP ranges
+  // Block private IP ranges
   const ipMatch = proxyHost.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
   if (ipMatch) {
-    // R31 H-3: Block octal notation IPs (e.g., 0177.0.0.1) to prevent private IP bypass
+    // Block octal notation IPs (e.g., 0177.0.0.1) to prevent private IP bypass
     const octets = [ipMatch[1], ipMatch[2], ipMatch[3], ipMatch[4]];
     if (octets.some(o => o.startsWith("0") && o.length > 1)) {
       throw new ConfigError("DOMINUSNODE_PROXY_HOST must not use octal IP notation");
@@ -94,16 +94,16 @@ export function parseConfig(env: Record<string, string | undefined> = process.en
     5 * 1024 * 1024,
     "DOMINUSNODE_FETCH_MAX_RESPONSE_BYTES",
   );
-  // R19 H-3: Enforce upper bound to prevent config-based OOM
+  // Enforce upper bound to prevent config-based OOM
   const MAX_FETCH_RESPONSE_BYTES = 50 * 1024 * 1024; // 50MB hard cap
   if (fetchMaxResponseBytes > MAX_FETCH_RESPONSE_BYTES) {
     throw new ConfigError(`DOMINUSNODE_FETCH_MAX_RESPONSE_BYTES must not exceed ${MAX_FETCH_RESPONSE_BYTES}`);
   }
 
-  // R36 C-1: Shared secret for MCP agent auto-verification (prevents header spoofing)
+  // Shared secret for MCP agent auto-verification (prevents header spoofing)
   const mcpAgentSecret = env["MCP_AGENT_SECRET"] ?? "";
 
-  // R46 H-3: Enforce minimum strength when MCP_AGENT_SECRET is set
+  // Enforce minimum strength when MCP_AGENT_SECRET is set
   if (mcpAgentSecret && mcpAgentSecret.length < 32) {
     throw new ConfigError("MCP_AGENT_SECRET must be at least 32 characters when set");
   }

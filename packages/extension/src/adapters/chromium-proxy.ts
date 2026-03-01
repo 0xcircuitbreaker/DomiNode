@@ -26,7 +26,7 @@ let authListener: ((
   callback: (response: chrome.webRequest.BlockingResponse) => void,
 ) => void) | null = null;
 
-// R30 C-1: Rate limit credential submissions to prevent harvesting
+// Rate limit credential submissions to prevent harvesting
 let authAttempts = 0;
 const MAX_AUTH_ATTEMPTS = 3;
 const AUTH_RESET_MS = 60_000;
@@ -61,7 +61,7 @@ function buildPacScript(config: ProxyConfig): string {
       }
       // Sanitize bypass hostnames too
       const safeBypass = sanitizeHostname(h);
-      // R18-H12: Use JSON.stringify for PAC script string interpolation to prevent
+      // Use JSON.stringify for PAC script string interpolation to prevent
       // injection if values ever become user-configurable
       // IPv6 addresses: exact match only (dnsDomainIs doesn't apply)
       if (IPV6_RE.test(h)) {
@@ -81,7 +81,7 @@ function buildPacScript(config: ProxyConfig): string {
 
 export function enable(config: ProxyConfig): void {
   if (config.protocol === "socks5") {
-    // R29 H-4: Validate host/port for SOCKS5 mode (parity with PAC script path)
+    // Validate host/port for SOCKS5 mode (parity with PAC script path)
     const safeHost = sanitizeHostname(config.host);
     const safePort = sanitizePort(config.port);
     chrome.proxy.settings.set({
@@ -118,7 +118,7 @@ export function enable(config: ProxyConfig): void {
 
   const expectedHost = config.host;
   const expectedPort = config.port;
-  authAttempts = 0; // R30 C-1: Reset on re-enable
+  authAttempts = 0; // Reset on re-enable
 
   authListener = (details, callback) => {
     // Reject auth requests from other extensions (tabId === -1 for background requests)
@@ -126,7 +126,7 @@ export function enable(config: ProxyConfig): void {
       callback({});
       return;
     }
-    // R30 C-1: Rate limit credential submissions to prevent harvesting
+    // Rate limit credential submissions to prevent harvesting
     if (authAttempts >= MAX_AUTH_ATTEMPTS) {
       callback({ cancel: true });
       return;
@@ -166,7 +166,7 @@ export function disable(): void {
     authListener = null;
   }
 
-  authAttempts = 0; // R30 C-1: Reset rate limit on disable
+  authAttempts = 0; // Reset rate limit on disable
   active = false;
 }
 

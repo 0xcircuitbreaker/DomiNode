@@ -7,7 +7,7 @@ export interface AuthenticatedRequest extends Request {
 }
 
 function extractToken(req: Request): string | null {
-  // R46 M-2: Priority: Bearer header > cookie
+  // Priority: Bearer header > cookie
   // Bearer header is controlled by the client app (SDKs, MCP, extension).
   // Cookie can be injected via sibling subdomain (cookie tossing), so it must
   // not override a legitimate Bearer token.

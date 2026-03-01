@@ -86,7 +86,7 @@ export function isValidCryptoCurrency(currency: string): currency is SupportedCr
   return (SUPPORTED_CRYPTO as readonly string[]).includes(currency.toLowerCase());
 }
 
-// R17: Strip control characters, zero-width characters, and RTL overrides
+// Strip control characters, zero-width characters, and RTL overrides
 // to prevent log injection, display spoofing, and invisible payload insertion
 const CONTROL_CHARS_RE = /[\u0000-\u001F\u007F-\u009F\u200B-\u200F\u202A-\u202E\uFEFF]/g;
 

@@ -15,7 +15,7 @@ const VOLUME_PLAN_MIN_BALANCE: Record<string, number> = {
 const router = Router();
 const log = createLogger("api:plans");
 
-// R46 H-7: Rate limit plan change requests to prevent abuse
+// Rate limit plan change requests to prevent abuse
 const planChangeLimiter = rateLimit({
   windowMs: 60_000,
   max: 10,
@@ -96,7 +96,7 @@ router.put("/user/plan", requireAuth, planChangeLimiter, async (req, res) => {
     const { userId } = (req as AuthenticatedRequest).user;
     const { planId } = req.body;
 
-    // R46 H-6: Require verified email before changing plans (matches other financial endpoints)
+    // Require verified email before changing plans (matches other financial endpoints)
     const planUser = await userRepo.findUserById(userId);
     if (!planUser || !planUser.email_verified) {
       res.status(403).json({ error: "Please verify your email address before changing plans" });
@@ -141,7 +141,7 @@ router.put("/user/plan", requireAuth, planChangeLimiter, async (req, res) => {
           });
           return;
         }
-        // R18-H3: Use users.plan_id column (user_plans table does not exist)
+        // Use users.plan_id column (user_plans table does not exist)
         await client.query(
           "UPDATE users SET plan_id = $1 WHERE id = $2",
           [planId, userId],
@@ -159,7 +159,7 @@ router.put("/user/plan", requireAuth, planChangeLimiter, async (req, res) => {
 
     log.info("user plan changed", { userId, planId });
 
-    // R23 C-2: Terminate active sessions on ANY plan change to prevent stale pricing
+    // Terminate active sessions on ANY plan change to prevent stale pricing
     // Sessions lock pricePerGbCents at start — any plan change leaves active sessions
     // running with stale pricing (upgrade: free sessions keep $0, downgrade: paid sessions keep old limits)
     try {

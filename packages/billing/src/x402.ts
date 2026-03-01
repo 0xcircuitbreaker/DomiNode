@@ -7,7 +7,7 @@ const log = createLogger("billing:x402");
 
 const DANGEROUS_KEYS = new Set(["__proto__", "constructor", "prototype"]);
 
-/** R45 H-1: Recursively strip dangerous keys to prevent prototype pollution */
+/** Recursively strip dangerous keys to prevent prototype pollution */
 function stripDangerousKeys(obj: Record<string, unknown>, depth = 0): void {
   if (depth > 5) return; // prevent deep recursion
   for (const key of Object.keys(obj)) {
@@ -89,7 +89,7 @@ export function detectFacilitator(paymentHeader: string): X402Facilitator {
   // Try to parse as JSON first
   try {
     const parsed = JSON.parse(paymentHeader);
-    // R45 H-1: Recursive prototype pollution protection
+    // Recursive prototype pollution protection
     if (typeof parsed === "object" && parsed !== null) {
       stripDangerousKeys(parsed);
     }
@@ -197,9 +197,9 @@ export function hashPaymentHeader(paymentHeader: string): string {
 }
 
 /**
- * R45 C-1: Atomic replay guard — INSERT with ON CONFLICT to prevent TOCTOU race.
+ * Atomic replay guard — INSERT with ON CONFLICT to prevent TOCTOU race.
  * Returns true if the hash was claimed (proceed), false if already used (replay).
- * Only settled transactions block replays (R45 C-3: failed settlements don't poison).
+ * Only settled transactions block replays (failed settlements don't poison).
  */
 export async function claimPaymentHash(paymentHash: string): Promise<boolean> {
   const result = await query(
@@ -235,7 +235,7 @@ export async function verifyX402Payment(
     return { valid: false, payer: "", amountUsd: "0", facilitator: "coinbase", error: "No payment facilitators configured" };
   }
 
-  // R45 C-1: Atomic replay guard — claim the hash BEFORE verify/settle
+  // Atomic replay guard — claim the hash BEFORE verify/settle
   const paymentHash = hashPaymentHeader(paymentHeader);
   try {
     const claimed = await claimPaymentHash(paymentHash);
@@ -257,7 +257,7 @@ export async function verifyX402Payment(
     } else {
       result = await verifyPayAIPayment(paymentHeader, requirements);
     }
-    // R46 C-1: If verification returned invalid, release the claimed hash so
+    // If verification returned invalid, release the claimed hash so
     // the same payment can be retried (e.g., after transient facilitator error)
     if (!result.valid) {
       await releasePaymentHash(paymentHash).catch(() => {});
@@ -266,7 +266,7 @@ export async function verifyX402Payment(
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     log.error("x402 verification failed", { facilitator, error: msg });
-    // R46 C-1: Release hash so payment can be retried after transient errors
+    // Release hash so payment can be retried after transient errors
     await releasePaymentHash(paymentHash).catch(() => {});
     // H-2: Generic error to client — specific error logged server-side
     return { valid: false, payer: "", amountUsd: "0", facilitator, error: "Payment verification failed" };
@@ -320,7 +320,7 @@ async function verifyCoinbasePayment(
     return { valid: false, payer: "", amountUsd: "0", facilitator: "coinbase", error: "Payment verification failed" };
   }
 
-  // R45 H-6: Size-limit facilitator response to prevent OOM
+  // Size-limit facilitator response to prevent OOM
   const resText = await res.text();
   if (resText.length > 10_000) {
     log.error("Coinbase verify response too large", { length: resText.length });
@@ -400,7 +400,7 @@ async function verifyPayAIPayment(
     return { valid: false, payer: "", amountUsd: "0", facilitator: "payai", error: "Payment verification failed" };
   }
 
-  // R45 H-6: Size-limit facilitator response to prevent OOM
+  // Size-limit facilitator response to prevent OOM
   const resText = await res.text();
   if (resText.length > 10_000) {
     log.error("PayAI verify response too large", { length: resText.length });
@@ -478,13 +478,13 @@ async function settleCoinbasePayment(paymentHeader: string): Promise<X402Settlem
 
   if (!res.ok) {
     const errText = await res.text().catch(() => "");
-    // R46 H-3: Log full facilitator error server-side but scrub from thrown error
+    // Log full facilitator error server-side but scrub from thrown error
     // to prevent leaking internal facilitator details to callers/logs upstream
     log.error("Coinbase settle failed", { status: res.status, body: errText.slice(0, 200) });
     throw new Error(`Coinbase settlement failed (HTTP ${res.status})`);
   }
 
-  // R45 H-6: Size-limit settle response
+  // Size-limit settle response
   const settleText = await res.text();
   if (settleText.length > 10_000) throw new Error("Coinbase settle response too large");
   const result = JSON.parse(settleText) as { txHash?: string; amount?: string };
@@ -519,12 +519,12 @@ async function settlePayAIPayment(paymentHeader: string): Promise<X402Settlement
 
   if (!res.ok) {
     const errText = await res.text().catch(() => "");
-    // R46 H-3: Log full facilitator error server-side but scrub from thrown error
+    // Log full facilitator error server-side but scrub from thrown error
     log.error("PayAI settle failed", { status: res.status, body: errText.slice(0, 200) });
     throw new Error(`PayAI settlement failed (HTTP ${res.status})`);
   }
 
-  // R45 H-6: Size-limit settle response
+  // Size-limit settle response
   const settleText = await res.text();
   if (settleText.length > 10_000) throw new Error("PayAI settle response too large");
   const result = JSON.parse(settleText) as { txHash?: string; amount?: string };
@@ -538,7 +538,7 @@ async function settlePayAIPayment(paymentHeader: string): Promise<X402Settlement
 // ─── Record Transaction ─────────────────────────────────────────────
 
 /**
- * R45 C-1: Update a pending x402 transaction (claimed by claimPaymentHash) with settlement result.
+ * Update a pending x402 transaction (claimed by claimPaymentHash) with settlement result.
  * This replaces the old INSERT-after-settle pattern with UPDATE-after-settle.
  */
 export async function updateX402Transaction(
@@ -568,7 +568,7 @@ export async function updateX402Transaction(
 // ─── Release Payment Hash ────────────────────────────────────────────
 
 /**
- * R45 C-3: Release a pending payment hash so the same payment can be retried
+ * Release a pending payment hash so the same payment can be retried
  * after a failed settlement. Only deletes rows with status='pending'.
  */
 export async function releasePaymentHash(paymentHash: string): Promise<void> {
@@ -581,7 +581,7 @@ export async function releasePaymentHash(paymentHash: string): Promise<void> {
 // ─── Response Size Config ────────────────────────────────────────────
 
 /**
- * R45 C-4/C-5: Max response bytes per x402 request.
+ * Max response bytes per x402 request.
  * Prevents bandwidth theft through unlimited data transfer for a single micropayment.
  */
 export function getX402MaxResponseBytes(): number {

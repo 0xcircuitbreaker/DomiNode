@@ -61,7 +61,7 @@ describe("user-repo", () => {
       mockQuery.mockResolvedValueOnce({ rows: [user] });
 
       const result = await findUserByEmail("test@example.com");
-      // R22 C-3: findUserByEmail now redacts password_hash
+      // findUserByEmail now redacts password_hash
       expect(result).toEqual({
         ...user,
         password_hash: "",

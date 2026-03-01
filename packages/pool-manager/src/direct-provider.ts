@@ -28,7 +28,7 @@ export class DirectProvider implements ProxyProvider {
   }
 
   getProxy(options?: ProxyOptions): UpstreamProxy {
-    // R29 H-1: Enforce sanctions check on fallback providers (parity with Webshare providers)
+    // Enforce sanctions check on fallback providers (parity with Webshare providers)
     if (options?.country) {
       const upper = options.country.toUpperCase();
       if (BLOCKED_COUNTRY_CODES.has(upper)) {

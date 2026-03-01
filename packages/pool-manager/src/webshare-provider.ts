@@ -43,7 +43,7 @@ export class WebshareDCProvider implements ProxyProvider {
     }
 
     // Gateway mode (rotating DC via p.webshare.io)
-    // R28 WARNING-2 fix: Do NOT silently drop country filter on error.
+    // Do NOT silently drop country filter on error.
     // Users requesting a specific country should get that country or an error.
     return buildUpstreamProxy("dc", options);
   }
@@ -86,7 +86,7 @@ export class WebshareResidentialProvider implements ProxyProvider {
   }
 
   getProxy(options?: ProxyOptions): UpstreamProxy {
-    // R28 WARNING-2 fix: Do NOT silently drop country filter on error.
+    // Do NOT silently drop country filter on error.
     // Users requesting a specific country should get that country or an error.
     return buildUpstreamProxy("residential", options);
   }

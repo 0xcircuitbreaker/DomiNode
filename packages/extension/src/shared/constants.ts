@@ -9,7 +9,7 @@ export const ALARM_NAMES = {
   SESSION_ROTATE: "dominusnode_session_rotate",
 } as const;
 
-// R22 H-4: API base must point to the API host, not the proxy host
+// API base must point to the API host, not the proxy host
 export const DEFAULT_API_BASE = "https://api.dominusnode.com";
 export const PROD_API_BASE = "https://api.dominusnode.com";
 // DEV_API_BASE uses HTTP intentionally for local development only

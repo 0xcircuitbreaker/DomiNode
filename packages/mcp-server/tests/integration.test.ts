@@ -93,7 +93,7 @@ describe("MCP Server Integration", () => {
 
     // New crypto + agent wallet tools
     expect(toolNames).toContain("dominusnode_pay_crypto");
-    // R44: check_payment re-enabled — backend endpoint exists at /api/wallet/crypto/status/:invoiceId
+    // check_payment re-enabled — backend endpoint exists at /api/wallet/crypto/status/:invoiceId
     expect(toolNames).toContain("dominusnode_check_payment");
     expect(toolNames).toContain("dominusnode_x402_info");
     expect(toolNames).toContain("dominusnode_agent_wallet_create");
@@ -170,7 +170,7 @@ describe("MCP Server Integration", () => {
 
     const server = new McpServer({ name: "dominusnode", version: "1.0.0" });
 
-    // R41 H-4: Bootstrap mode registers account + crypto + wallet-auth + slots tools
+    // Bootstrap mode registers account + crypto + wallet-auth + slots tools
     // Agent-wallet tools are NOT registered in bootstrap mode (require auth).
     registerAccountTools(server, httpClient);
     registerCryptoTools(server, httpClient);
@@ -189,9 +189,9 @@ describe("MCP Server Integration", () => {
     expect(toolNames).toContain("dominusnode_verify_email");
     expect(toolNames).toContain("dominusnode_resend_verification");
     expect(toolNames).toContain("dominusnode_pay_crypto");
-    // R44: check_payment re-enabled
+    // check_payment re-enabled
     expect(toolNames).toContain("dominusnode_check_payment");
-    // R41 H-4: agent-wallet tools should NOT be present in bootstrap mode
+    // agent-wallet tools should NOT be present in bootstrap mode
     expect(toolNames).not.toContain("dominusnode_agent_wallet_create");
     expect(toolNames).not.toContain("dominusnode_agent_wallet_fund");
     expect(toolNames).not.toContain("dominusnode_agent_wallet_list");

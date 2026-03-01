@@ -1,5 +1,5 @@
 import Stripe from "stripe";
-import { walletRepo, invoiceRepo, createLogger } from "@dominusnode/shared";
+import { walletRepo, invoiceRepo, referralRepo, createLogger } from "@dominusnode/shared";
 
 const log = createLogger("billing:stripe");
 
@@ -43,7 +43,7 @@ export async function createCheckoutSession(
   userId: string,
   amountCents: number,
 ): Promise<{ sessionId: string; url: string }> {
-  // R30 C-2: Defense-in-depth validation (callers should also validate)
+  // Defense-in-depth validation (callers should also validate)
   if (!Number.isInteger(amountCents) || amountCents < 500 || amountCents > 100_000) {
     throw new Error("Invalid top-up amount: must be integer between 500 and 100000 cents");
   }
@@ -169,7 +169,7 @@ export async function handleCheckoutWebhook(
     return null;
   }
 
-  // R30 H-3: Reject webhooks for invoices that have been permanently failed
+  // Reject webhooks for invoices that have been permanently failed
   if (invoice.status === "failed") {
     log.warn("webhook received for failed invoice, ignoring", { externalId: session.id });
     return null;
@@ -187,7 +187,7 @@ export async function handleCheckoutWebhook(
 
   const userId = invoice.user_id;
 
-  // R45 C-1: Atomically complete invoice + credit wallet in a single
+  // Atomically complete invoice + credit wallet in a single
   // DB transaction. If the server crashes mid-operation, both roll back.
   const creditAmountCents = invoice.amount_cents;
   const result = await walletRepo.atomicCompleteInvoiceAndCredit(
@@ -204,5 +204,9 @@ export async function handleCheckoutWebhook(
   }
 
   log.info("wallet credited via Stripe", { userId, amountCents: creditAmountCents });
+
+  // Fire-and-forget affiliate commission recording — must never block wallet credit
+  referralRepo.recordAffiliateCommission(userId, creditAmountCents, session.id).catch(() => {});
+
   return { userId, amountCents: creditAmountCents };
 }

@@ -167,11 +167,11 @@ function UsersTab() {
     [page],
   );
 
-  // R27 C-1: Validate user ID format before using in URL paths
+  // Validate user ID format before using in URL paths
   const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
   const { data: detailData } = useApi<UserDetailResponse | null>(
-    // R31 C-1: Validate UUID before detail fetch to prevent path injection
+    // Validate UUID before detail fetch to prevent path injection
     () => selectedUserId && UUID_RE.test(selectedUserId) ? get(`/api/admin/users/${selectedUserId}`) : Promise.resolve(null),
     [selectedUserId],
   );
@@ -370,7 +370,7 @@ function UsersTab() {
 
 // ─── Revenue Tab ────────────────────────────────────────────────────
 
-// R30 H-1: Validate date format before URL interpolation
+// Validate date format before URL interpolation
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 function RevenueTab() {

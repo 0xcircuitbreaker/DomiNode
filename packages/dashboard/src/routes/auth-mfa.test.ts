@@ -753,7 +753,7 @@ describe("MFA auth routes", () => {
       expect(res.body.valid).toBe(true);
       expect(res.body.token).toBe("access-token-123");
       expect(res.body.refreshToken).toBe("refresh-token-456");
-      // R31 C-3: verify-key now checks MFA — should call findMfaConfigByUserId
+      // verify-key now checks MFA — should call findMfaConfigByUserId
       // but since mock returns null (no MFA), tokens are still issued
       expect(mfaRepo.findMfaConfigByUserId).toHaveBeenCalledWith("user1");
     });

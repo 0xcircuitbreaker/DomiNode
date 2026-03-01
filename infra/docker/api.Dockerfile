@@ -48,10 +48,10 @@ COPY --from=builder --chown=dominusnode:dominusnode /app/packages/pool-manager/d
 COPY --from=builder --chown=dominusnode:dominusnode /app/packages/dashboard/package.json packages/dashboard/package.json
 COPY --from=builder --chown=dominusnode:dominusnode /app/packages/dashboard/dist packages/dashboard/dist
 
-# R24 C-3: Strip source maps from production image
+# Strip source maps from production image
 RUN find /app -name "*.js.map" -delete && find /app -name "*.d.ts.map" -delete
 
-# R30 C-2: --ignore-scripts prevents supply chain attacks; explicit rebuild for bcrypt native module
+# --ignore-scripts prevents supply chain attacks; explicit rebuild for bcrypt native module
 RUN npm ci --omit=dev --ignore-scripts && npm rebuild bcrypt
 
 USER dominusnode

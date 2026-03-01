@@ -232,7 +232,7 @@ describe("nowpayments", () => {
         amount_cents: 1000, // $10.00
       };
       mockFindInvoice.mockResolvedValueOnce(mockInvoice);
-      // R45 C-1: Now uses atomic complete+credit in single transaction
+      // Now uses atomic complete+credit in single transaction
       mockAtomicCompleteInvoiceAndCredit.mockResolvedValueOnce({ claimed: true, transaction: {} });
 
       const result = await handleIpnCallback(body, sig);
@@ -379,7 +379,7 @@ describe("nowpayments", () => {
         user_id: "user-1",
         amount_cents: 1000,
       });
-      // R45 C-1: Atomic function throws on DB error — invoice stays 'pending'
+      // Atomic function throws on DB error — invoice stays 'pending'
       mockAtomicCompleteInvoiceAndCredit.mockRejectedValueOnce(new Error("connection reset"));
 
       await expect(handleIpnCallback(body, sig)).rejects.toThrow("connection reset");

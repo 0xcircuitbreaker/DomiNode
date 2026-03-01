@@ -158,7 +158,7 @@ describe("proxy-gateway/session-manager", () => {
         "api.example.org",
         expect.any(Number),
         expect.any(Number),
-        "residential", // R20 H-5: default proxyType
+        "residential", // default proxyType
       );
     });
 
@@ -277,7 +277,7 @@ describe("proxy-gateway/session-manager", () => {
         "", // Privacy-first: no targetHost stored by default
         0, // free plan pricing
         expect.any(Number),
-        "residential", // R20 H-5: default proxyType
+        "residential", // default proxyType
       );
       // Wallet settle should NOT have been called
       expect(mockSettleSession).not.toHaveBeenCalled();
@@ -303,7 +303,7 @@ describe("proxy-gateway/session-manager", () => {
       await endSession(sessId);
     });
 
-    it("should reject session when plan check fails (R22 H-2: fail closed)", async () => {
+    it("should reject session when plan check fails (fail closed)", async () => {
       mockGetUserPlan.mockRejectedValueOnce(new Error("DB connection error"));
 
       const counter = makeCounter();
@@ -428,7 +428,7 @@ describe("proxy-gateway/session-manager", () => {
         "", // Privacy-first: no targetHost stored by default
         expect.any(Number), // pricePerGbCents
         expect.any(Number), // connectLatencyMs
-        "residential", // R20 H-5: default proxyType
+        "residential", // default proxyType
       );
       // Cost should be 0 for 0 bytes
       expect(mockSettleSession).toHaveBeenCalledWith(
@@ -498,7 +498,7 @@ describe("proxy-gateway/session-manager", () => {
         maxConnections: 100,
         maxSessionsPerMinute: 60,
       };
-      // Single call: plan fetched once in startSession, price locked in session (R13 H-2)
+      // Single call: plan fetched once in startSession, price locked in session
       mockGetUserPlan.mockResolvedValueOnce(proPlan);
       mockGetMonthlyUsage.mockResolvedValueOnce(0); // within bandwidth limit
 
@@ -519,15 +519,15 @@ describe("proxy-gateway/session-manager", () => {
         "", // Privacy-first: no targetHost stored by default
         300, // Pro plan pricing
         expect.any(Number), // connectLatencyMs
-        "residential", // R20 H-5: default proxyType
+        "residential", // default proxyType
       );
     });
 
-    it("should reject session when getUserPlan throws (R22 H-2: fail closed)", async () => {
+    it("should reject session when getUserPlan throws (fail closed)", async () => {
       mockGetUserPlan.mockRejectedValueOnce(new Error("plan lookup failed"));
 
       const counter = makeCounter(500, 500);
-      // R22 H-2: Sessions are now rejected when plan can't be determined
+      // Sessions are now rejected when plan can't be determined
       await expect(
         startSession("user-no-plan", "example.com", counter),
       ).rejects.toThrow("Unable to verify plan. Please try again.");
@@ -621,7 +621,7 @@ describe("proxy-gateway/session-manager", () => {
       ).rejects.toThrow("Session rate limit exceeded");
     });
 
-    it("should respect per-plan session rate limit (R18)", () => {
+    it("should respect per-plan session rate limit", () => {
       const userId = `rate-plan-${Date.now()}`;
       // Agent plan allows 60 sessions/minute
       for (let i = 0; i < 60; i++) {

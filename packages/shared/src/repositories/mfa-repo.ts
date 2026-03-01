@@ -68,7 +68,7 @@ export async function deleteMfaConfig(userId: string): Promise<void> {
   }
 }
 
-// R46 H-9: Standard backup code count is 10; cap at 20 to prevent DoS via unbounded inserts
+// Standard backup code count is 10; cap at 20 to prevent DoS via unbounded inserts
 const MAX_BACKUP_CODES = 20;
 
 export async function storeBackupCodes(userId: string, hashes: string[]): Promise<void> {

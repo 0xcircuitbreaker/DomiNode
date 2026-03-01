@@ -13,7 +13,7 @@ export async function listUsers(
   page: number,
   limit: number,
 ): Promise<{ users: AdminUserView[]; total: number }> {
-  // R14 H-4: bounds validation to prevent DoS via unbounded queries
+  // Bounds validation to prevent DoS via unbounded queries
   page = Math.max(1, Math.floor(page) || 1);
   limit = Math.max(1, Math.min(100, Math.floor(limit) || 20));
   const offset = (page - 1) * limit;
@@ -118,14 +118,14 @@ export async function reactivateUser(userId: string): Promise<boolean> {
 }
 
 export async function deleteUser(userId: string): Promise<void> {
-  // R40 H-4: Admin delete now anonymizes data same as GDPR self-deletion
+  // Admin delete now anonymizes data same as GDPR self-deletion
   const pool = getPool();
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
 
-    // R41 H-1: Look up email + wallet address before anonymizing
-    // R46 C-5: FOR UPDATE prevents concurrent modification during deletion
+    // Look up email + wallet address before anonymizing
+    // FOR UPDATE prevents concurrent modification during deletion
     const userRow = (await client.query(
       "SELECT email, wallet_address FROM users WHERE id = $1 FOR UPDATE", [userId]
     )).rows[0];
@@ -154,7 +154,7 @@ export async function deleteUser(userId: string): Promise<void> {
       [userId]
     );
 
-    // R41 C-1: Revoke API keys + refresh tokens + MFA inside transaction (was separate in admin.ts)
+    // Revoke API keys + refresh tokens + MFA inside transaction
     await client.query(
       "UPDATE api_keys SET revoked_at = NOW() WHERE user_id = $1 AND revoked_at IS NULL",
       [userId]
@@ -178,7 +178,7 @@ export async function deleteUser(userId: string): Promise<void> {
       );
     }
 
-    // R46 C-4: Anonymize x402 transactions linked to user's wallet address
+    // Anonymize x402 transactions linked to user's wallet address
     if (userRow?.wallet_address) {
       await client.query(
         `UPDATE x402_transactions SET payer_address = 'REDACTED', target_host = 'REDACTED', tx_hash = 'REDACTED'
@@ -207,7 +207,7 @@ export async function deleteUser(userId: string): Promise<void> {
 
     // Clean up team invites (outbound)
     await client.query("DELETE FROM team_invites WHERE invited_by = $1", [userId]);
-    // R41 H-1: Delete inbound pending team invites addressed TO the deleted user's email
+    // Delete inbound pending team invites addressed TO the deleted user's email
     if (userRow?.email) {
       await client.query(
         "DELETE FROM team_invites WHERE email = $1 AND accepted_at IS NULL",

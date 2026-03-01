@@ -133,6 +133,6 @@ export async function disableProxy(): Promise<void> {
 export async function reconfigureProxy(): Promise<void> {
   const state = await loadState();
   if (!state.proxyEnabled) return;
-  // R31 C-1: Apply new config atomically without intermediate DIRECT state
+  // Apply new config atomically without intermediate DIRECT state
   await enableProxy();
 }

@@ -1,12 +1,28 @@
 import { Router } from "express";
-import { adminRepo, createLogger, userRepo, refreshTokenRepo, waitlistRepo, sendWaitlistApprovalEmail, sanitizeString } from "@dominusnode/shared";
+import * as crypto from "node:crypto";
+import { adminRepo, createLogger, userRepo, refreshTokenRepo, waitlistRepo, walletRepo, teamRepo, planRepo, referralRepo, sendWaitlistApprovalEmail, sanitizeString, query as dbQuery } from "@dominusnode/shared";
 import { requireAuth, type AuthenticatedRequest } from "../middleware/auth.js";
 import { requireAdmin } from "../middleware/admin.js";
+import rateLimit from "express-rate-limit";
 
 const router = Router();
 const log = createLogger("api:admin");
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// Admin emails authorized for wallet credit operations (security-critical)
+// Only these admins can mint credits. Default: operator's email.
+const ADMIN_CREDIT_EMAILS = new Set(
+  (process.env["ADMIN_CREDIT_EMAILS"] ?? "sarris88p@gmail.com")
+    .split(",")
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean),
+);
+
+// Max single credit operation: $500 (50000 cents) — prevents fat-finger mistakes
+const MAX_CREDIT_AMOUNT_CENTS = parseInt(process.env["ADMIN_MAX_CREDIT_CENTS"] ?? "50000", 10);
+const SAFE_MAX_CREDIT = Number.isFinite(MAX_CREDIT_AMOUNT_CENTS) && MAX_CREDIT_AMOUNT_CENTS > 0
+  ? MAX_CREDIT_AMOUNT_CENTS : 50000;
 
 function isValidUuid(id: string): boolean {
   return UUID_REGEX.test(id);
@@ -89,7 +105,7 @@ router.put("/users/:id/suspend", async (req, res) => {
     try {
       const proxyHost = process.env["PROXY_INTERNAL_HOST"] ?? "127.0.0.1";
       const proxyPort = process.env["PROXY_INTERNAL_PORT"] ?? process.env["PROXY_LISTEN_PORT"] ?? "8080";
-      // R18-H4: Derive a separate stats secret from JWT_SECRET using HMAC
+      // Derive a separate stats secret from JWT_SECRET using HMAC
       const proxySecret = process.env["PROXY_STATS_SECRET"] ??
         (process.env["JWT_SECRET"]
           ? (await import("node:crypto")).createHmac("sha256", process.env["JWT_SECRET"]).update("proxy-stats-endpoint").digest("hex")
@@ -99,7 +115,7 @@ router.put("/users/:id/suspend", async (req, res) => {
       const resp = await fetch(`http://${proxyHost}:${proxyPort}/internal/terminate-sessions/${req.params.id}`, {
         method: "POST",
         headers,
-        redirect: "error", // R19 H-5: Prevent SSRF via redirect
+        redirect: "error", // Prevent SSRF via redirect
       });
       if (resp.ok) {
         const body = await resp.json() as { terminated: number };
@@ -129,7 +145,7 @@ router.put("/users/:id/activate", async (req, res) => {
     return;
   }
   try {
-    // R46 H-3: Prevent reactivating deleted or already-active users
+    // Prevent reactivating deleted or already-active users
     const targetUser = await userRepo.findUserById(req.params.id);
     if (!targetUser) {
       res.status(404).json({ error: "User not found" });
@@ -175,9 +191,9 @@ router.delete("/users/:id", async (req, res) => {
       res.status(403).json({ error: "Cannot delete another admin account" });
       return;
     }
-    // R41 C-1: API key/refresh token/MFA revocation moved inside adminRepo.deleteUser() transaction
+    // API key/refresh token/MFA revocation moved inside adminRepo.deleteUser() transaction
     // to eliminate race window between separate non-transactional calls and deleteUser().
-    // R19 H-3: Terminate active proxy sessions before deleting user (same as suspend)
+    // Terminate active proxy sessions before deleting user (same as suspend)
     let terminatedSessions = 0;
     try {
       const proxyHost = process.env["PROXY_INTERNAL_HOST"] ?? "127.0.0.1";
@@ -191,7 +207,7 @@ router.delete("/users/:id", async (req, res) => {
       const resp = await fetch(`http://${proxyHost}:${proxyPort}/internal/terminate-sessions/${req.params.id}`, {
         method: "POST",
         headers,
-        redirect: "error", // R19 H-5: Prevent SSRF via redirect
+        redirect: "error", // Prevent SSRF via redirect
       });
       if (resp.ok) {
         const body = await resp.json() as { terminated: number };
@@ -418,6 +434,529 @@ router.delete("/waitlist/:id", async (req, res) => {
   } catch (err) {
     log.error("failed to cancel waitlist entry", { error: err instanceof Error ? err.message : String(err) });
     res.status(500).json({ error: "Failed to cancel waitlist entry" });
+  }
+});
+
+// ─── Plan Assignment ─────────────────────────────────────────────────
+
+// PUT /api/admin/users/:id/plan — assign a plan to a user
+router.put("/users/:id/plan", async (req, res) => {
+  if (!isValidUuid(req.params.id)) {
+    res.status(400).json({ error: "Invalid user ID format" });
+    return;
+  }
+
+  const { planId } = req.body as { planId?: string };
+  if (!planId || typeof planId !== "string" || planId.length > 100) {
+    res.status(400).json({ error: "planId is required (string, max 100 chars)" });
+    return;
+  }
+
+  // Sanitize planId — only allow alphanumeric + hyphens + underscores
+  if (!/^[a-zA-Z0-9_-]+$/.test(planId)) {
+    res.status(400).json({ error: "Invalid planId format" });
+    return;
+  }
+
+  try {
+    await planRepo.setUserPlan(req.params.id, planId);
+    const { userId: adminId } = (req as unknown as AuthenticatedRequest).user;
+    log.info("admin assigned plan", { adminId, targetUserId: req.params.id, planId });
+    res.json({ message: "Plan assigned", userId: req.params.id, planId });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes("not found")) {
+      res.status(404).json({ error: msg });
+      return;
+    }
+    log.error("failed to assign plan", { error: msg });
+    res.status(500).json({ error: "Failed to assign plan" });
+  }
+});
+
+// ─── Admin Wallet Credit (operator-only, mints credits) ─────────────
+
+// Extra rate limit: 10 credit operations per 15 minutes
+const creditLimiter = rateLimit({
+  windowMs: 15 * 60_000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Credit rate limit exceeded" },
+});
+
+// POST /api/admin/credit-wallet — mint credits into a user or team wallet
+// Restricted to ADMIN_CREDIT_EMAILS (default: sarris88p@gmail.com)
+router.post("/credit-wallet", creditLimiter, async (req, res) => {
+  const { userId: adminId } = (req as unknown as AuthenticatedRequest).user;
+
+  // Double-check: only authorized admin emails can mint credits
+  const adminUser = await userRepo.findUserById(adminId);
+  if (!adminUser || !ADMIN_CREDIT_EMAILS.has(adminUser.email.toLowerCase())) {
+    log.warn("unauthorized credit attempt", { adminId, email: adminUser?.email });
+    res.status(403).json({ error: "Your admin account is not authorized for credit operations" });
+    return;
+  }
+
+  const { targetUserId, teamId, amountCents, reason } = req.body as {
+    targetUserId?: string;
+    teamId?: string;
+    amountCents?: number;
+    reason?: string;
+  };
+
+  // Must specify either user or team, not both
+  if ((!targetUserId && !teamId) || (targetUserId && teamId)) {
+    res.status(400).json({ error: "Specify either targetUserId or teamId, not both" });
+    return;
+  }
+
+  if (targetUserId && !isValidUuid(targetUserId)) {
+    res.status(400).json({ error: "Invalid targetUserId format" });
+    return;
+  }
+  if (teamId && !isValidUuid(teamId)) {
+    res.status(400).json({ error: "Invalid teamId format" });
+    return;
+  }
+
+  if (!Number.isInteger(amountCents) || amountCents! <= 0) {
+    res.status(400).json({ error: "amountCents must be a positive integer" });
+    return;
+  }
+  if (amountCents! > SAFE_MAX_CREDIT) {
+    res.status(400).json({ error: `amountCents exceeds maximum of ${SAFE_MAX_CREDIT} ($${(SAFE_MAX_CREDIT / 100).toFixed(2)})` });
+    return;
+  }
+
+  const sanitizedReason = sanitizeString(reason ?? "Admin credit", 200);
+
+  try {
+    if (targetUserId) {
+      // Credit individual user wallet
+      const tx = await walletRepo.creditWallet(
+        targetUserId,
+        amountCents!,
+        "admin",
+        `admin-credit-${Date.now()}`,
+        sanitizedReason,
+      );
+      log.info("admin credited user wallet", {
+        adminId,
+        targetUserId,
+        amountCents,
+        reason: sanitizedReason,
+        transactionId: tx.id,
+      });
+      res.json({
+        message: "Wallet credited",
+        transactionId: tx.id,
+        amountCents,
+        targetUserId,
+      });
+    } else {
+      // Credit team wallet — admin must be a member of the team
+      // For operator flexibility, we bypass the membership check since this is admin-only
+      // and restricted to ADMIN_CREDIT_EMAILS
+      await teamRepo.adminCreditTeamWallet(teamId!, amountCents!, sanitizedReason);
+      log.info("admin credited team wallet", {
+        adminId,
+        teamId,
+        amountCents,
+        reason: sanitizedReason,
+      });
+      res.json({
+        message: "Team wallet credited",
+        amountCents,
+        teamId,
+      });
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes("No wallet found") || msg.includes("not found")) {
+      res.status(404).json({ error: "Wallet not found for the specified target" });
+      return;
+    }
+    if (msg.includes("exceed")) {
+      res.status(400).json({ error: msg });
+      return;
+    }
+    log.error("admin credit failed", { error: msg, adminId, targetUserId, teamId, amountCents });
+    res.status(500).json({ error: "Failed to credit wallet" });
+  }
+});
+
+// ─── Bug Bounty System ──────────────────────────────────────────────
+
+const BUG_PRIORITIES = new Set(["p1", "p2", "p3"]);
+const BUG_CATEGORIES = new Set(["quality", "security"]);
+const BUG_STATUSES = new Set(["pending", "approved", "rejected", "credited"]);
+
+// POST /api/admin/bug-reports/:id/approve — approve and optionally credit
+router.post("/bug-reports/:id/approve", async (req, res) => {
+  if (!isValidUuid(req.params.id)) {
+    res.status(400).json({ error: "Invalid report ID" });
+    return;
+  }
+
+  const { userId: adminId } = (req as unknown as AuthenticatedRequest).user;
+  // Only authorized credit admins can approve bug reports with credits
+  const adminUser = await userRepo.findUserById(adminId);
+  if (!adminUser || !ADMIN_CREDIT_EMAILS.has(adminUser.email.toLowerCase())) {
+    res.status(403).json({ error: "Not authorized to approve bug reports" });
+    return;
+  }
+
+  const { creditAmountCents } = req.body as { creditAmountCents?: number };
+  if (creditAmountCents !== undefined) {
+    if (!Number.isInteger(creditAmountCents) || creditAmountCents <= 0 || creditAmountCents > SAFE_MAX_CREDIT) {
+      res.status(400).json({ error: `creditAmountCents must be 1-${SAFE_MAX_CREDIT}` });
+      return;
+    }
+  }
+
+  try {
+    const { query: dbQuery } = await import("@dominusnode/shared");
+    // Fetch the report
+    const reportResult = await dbQuery(
+      `SELECT id, user_id, status FROM bug_reports WHERE id = $1`,
+      [req.params.id],
+    );
+    if (!reportResult || reportResult.rows.length === 0) {
+      res.status(404).json({ error: "Bug report not found" });
+      return;
+    }
+    const report = reportResult.rows[0] as { id: string; user_id: string; status: string };
+    if (report.status !== "pending") {
+      res.status(400).json({ error: `Report is already ${report.status}` });
+      return;
+    }
+
+    // Approve the report
+    await dbQuery(
+      `UPDATE bug_reports SET status = 'approved', reviewed_by = $1, reviewed_at = now(), credit_amount_cents = $2 WHERE id = $3`,
+      [adminId, creditAmountCents ?? 0, req.params.id],
+    );
+
+    // Credit the reporter's wallet if credits awarded
+    if (creditAmountCents && creditAmountCents > 0) {
+      await walletRepo.creditWallet(
+        report.user_id,
+        creditAmountCents,
+        "bug_bounty",
+        `bug-${req.params.id}`,
+        `Bug bounty reward for report #${req.params.id.slice(0, 8)}`,
+      );
+      await dbQuery(
+        `UPDATE bug_reports SET status = 'credited' WHERE id = $1`,
+        [req.params.id],
+      );
+    }
+
+    log.info("bug report approved", { reportId: req.params.id, creditAmountCents, adminId });
+    res.json({ message: "Report approved", creditAmountCents: creditAmountCents ?? 0 });
+  } catch (err) {
+    log.error("failed to approve bug report", { error: err instanceof Error ? err.message : String(err) });
+    res.status(500).json({ error: "Failed to approve bug report" });
+  }
+});
+
+// POST /api/admin/bug-reports/:id/reject — reject a bug report
+router.post("/bug-reports/:id/reject", async (req, res) => {
+  if (!isValidUuid(req.params.id)) {
+    res.status(400).json({ error: "Invalid report ID" });
+    return;
+  }
+  try {
+    const { userId: adminId } = (req as unknown as AuthenticatedRequest).user;
+    const { query: dbQuery } = await import("@dominusnode/shared");
+    const result = await dbQuery(
+      `UPDATE bug_reports SET status = 'rejected', reviewed_by = $1, reviewed_at = now() WHERE id = $2 AND status = 'pending' RETURNING id`,
+      [adminId, req.params.id],
+    );
+    if (!result || result.rows.length === 0) {
+      res.status(404).json({ error: "Report not found or already processed" });
+      return;
+    }
+    log.info("bug report rejected", { reportId: req.params.id, adminId });
+    res.json({ message: "Report rejected" });
+  } catch (err) {
+    log.error("failed to reject bug report", { error: err instanceof Error ? err.message : String(err) });
+    res.status(500).json({ error: "Failed to reject bug report" });
+  }
+});
+
+// GET /api/admin/bug-reports — list all bug reports (paginated)
+router.get("/bug-reports", async (req, res) => {
+  try {
+    const page = Math.max(1, parseInt(req.query.page as string, 10) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string, 10) || 20));
+    const statusFilter = req.query.status ? sanitizeString(req.query.status as string, 20) : undefined;
+    if (statusFilter && !BUG_STATUSES.has(statusFilter)) {
+      res.status(400).json({ error: "Invalid status filter" });
+      return;
+    }
+
+    const { query: dbQuery } = await import("@dominusnode/shared");
+    const offset = (page - 1) * limit;
+    const whereClause = statusFilter ? `WHERE status = $3` : "";
+    const params = statusFilter ? [limit, offset, statusFilter] : [limit, offset];
+    const result = await dbQuery(
+      `SELECT id, user_id, category, priority, title, integration, status, credit_amount_cents, created_at, reviewed_at
+       FROM bug_reports ${whereClause}
+       ORDER BY created_at DESC LIMIT $1 OFFSET $2`,
+      params,
+    );
+    const countResult = await dbQuery(
+      `SELECT count(*) as total FROM bug_reports ${statusFilter ? "WHERE status = $1" : ""}`,
+      statusFilter ? [statusFilter] : [],
+    );
+    const total = parseInt((countResult?.rows[0] as { total: string })?.total ?? "0", 10);
+
+    res.json({
+      reports: result?.rows ?? [],
+      pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
+    });
+  } catch (err) {
+    log.error("failed to list bug reports", { error: err instanceof Error ? err.message : String(err) });
+    res.status(500).json({ error: "Failed to list bug reports" });
+  }
+});
+
+// ─── Promo Code Management ──────────────────────────────────────────
+
+const PROMO_CODE_REGEX = /^[A-Za-z0-9]{4,20}$/;
+
+function hashPromoCode(code: string): string {
+  return crypto.createHash("sha256").update(code).digest("hex");
+}
+
+// POST /api/admin/promo — create promo code
+// Promo code creation restricted to ADMIN_CREDIT_EMAILS (same as credit-wallet)
+// because promo codes mint credits — any admin creating promos is equivalent to minting money
+router.post("/promo", async (req, res) => {
+  try {
+    const authReq = req as AuthenticatedRequest;
+    // Only authorized admin emails can create promo codes (they mint credits)
+    const promoAdmin = await userRepo.findUserById(authReq.user.userId);
+    if (!promoAdmin || !ADMIN_CREDIT_EMAILS.has(promoAdmin.email.toLowerCase())) {
+      log.warn("unauthorized promo creation attempt", { adminId: authReq.user.userId });
+      res.status(403).json({ error: "Your admin account is not authorized to create promo codes" });
+      return;
+    }
+    const { code, creditCents, maxUses, expiresAt } = req.body ?? {};
+
+    if (!code || typeof code !== "string" || !PROMO_CODE_REGEX.test(code.trim())) {
+      res.status(400).json({ error: "Invalid promo code format (4-20 alphanumeric characters)" });
+      return;
+    }
+    const sanitizedCode = sanitizeString(code.trim().toUpperCase(), 20);
+    const numCreditCents = Number(creditCents);
+    if (!Number.isFinite(numCreditCents) || numCreditCents < 1 || numCreditCents > 100000) {
+      res.status(400).json({ error: "creditCents must be 1-100000" });
+      return;
+    }
+    const numMaxUses = typeof maxUses === "number" ? Math.min(Math.max(0, maxUses), 1000000) : 0;
+    const expiresDate = expiresAt ? new Date(expiresAt) : undefined;
+    if (expiresDate && isNaN(expiresDate.getTime())) {
+      res.status(400).json({ error: "Invalid expiresAt date" });
+      return;
+    }
+
+    const codeHash = hashPromoCode(sanitizedCode);
+    const promo = await referralRepo.createPromoCode(
+      authReq.user.userId,
+      codeHash,
+      sanitizedCode.slice(0, 4),
+      numCreditCents,
+      { maxUses: numMaxUses, expiresAt: expiresDate },
+    );
+
+    log.info("admin created promo code", { adminId: authReq.user.userId, promoId: promo.id });
+    res.status(201).json({
+      id: promo.id,
+      code: sanitizedCode,
+      prefix: promo.code_prefix,
+      creditCents: promo.credit_cents,
+      maxUses: promo.max_uses,
+      expiresAt: promo.expires_at,
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes("duplicate")) {
+      res.status(409).json({ error: "Promo code already exists" });
+      return;
+    }
+    log.error("admin create promo failed", { error: msg });
+    res.status(500).json({ error: "Failed to create promo code" });
+  }
+});
+
+// GET /api/admin/promo — list all promo codes
+router.get("/promo", async (_req, res) => {
+  try {
+    const promos = await referralRepo.listPromoCodes();
+    res.json({
+      promos: promos.map((p) => ({
+        id: p.id,
+        prefix: p.code_prefix,
+        creditCents: p.credit_cents,
+        maxUses: p.max_uses,
+        uses: p.uses,
+        active: p.active,
+        expiresAt: p.expires_at,
+        createdAt: p.created_at,
+      })),
+    });
+  } catch (err) {
+    log.error("admin list promos failed", { error: err instanceof Error ? err.message : String(err) });
+    res.status(500).json({ error: "Failed to list promo codes" });
+  }
+});
+
+// DELETE /api/admin/promo/:id — disable promo code
+router.delete("/promo/:id", async (req, res) => {
+  try {
+    const codeId = req.params.id ?? "";
+    if (!isValidUuid(codeId)) {
+      res.status(400).json({ error: "Invalid promo code ID" });
+      return;
+    }
+    const disabled = await referralRepo.disablePromoCode(codeId);
+    if (!disabled) {
+      res.status(404).json({ error: "Promo code not found or already disabled" });
+      return;
+    }
+    log.info("admin disabled promo code", { promoId: codeId });
+    res.json({ success: true });
+  } catch (err) {
+    log.error("admin disable promo failed", { error: err instanceof Error ? err.message : String(err) });
+    res.status(500).json({ error: "Failed to disable promo code" });
+  }
+});
+
+// GET /api/admin/affiliates — affiliate system stats
+router.get("/affiliates", async (_req, res) => {
+  try {
+    const { query: q } = await import("@dominusnode/shared");
+    const [linksResult, commissionsResult, pendingResult] = await Promise.all([
+      q<{ cnt: string }>("SELECT COUNT(*) AS cnt FROM affiliate_links"),
+      q<{ total: string; cnt: string }>(
+        "SELECT COALESCE(SUM(commission_cents), 0) AS total, COUNT(*) AS cnt FROM affiliate_commissions"
+      ),
+      q<{ total: string }>(
+        "SELECT COALESCE(SUM(commission_cents), 0) AS total FROM affiliate_commissions WHERE status = 'pending'"
+      ),
+    ]);
+    res.json({
+      totalLinks: parseInt(linksResult.rows[0]?.cnt ?? "0", 10),
+      totalCommissions: parseInt(commissionsResult.rows[0]?.cnt ?? "0", 10),
+      totalCommissionCents: parseInt(commissionsResult.rows[0]?.total ?? "0", 10),
+      pendingCommissionCents: parseInt(pendingResult.rows[0]?.total ?? "0", 10),
+    });
+  } catch (err) {
+    log.error("admin affiliates stats failed", { error: err instanceof Error ? err.message : String(err) });
+    res.status(500).json({ error: "Failed to get affiliate stats" });
+  }
+});
+
+// POST /api/admin/loyalty/process — trigger monthly loyalty calculation
+const loyaltyProcessLimiter = rateLimit({
+  windowMs: 60 * 60_000,
+  max: 1,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Loyalty processing limited to once per hour" },
+});
+
+router.post("/loyalty/process", loyaltyProcessLimiter, async (req, res) => {
+  try {
+    const authReq = req as AuthenticatedRequest;
+    // Calculate for previous month
+    const now = new Date();
+    const periodStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const periodEnd = new Date(now.getFullYear(), now.getMonth(), 1);
+
+    // Get all active users with usage
+    const { query: q } = await import("@dominusnode/shared");
+    const usersResult = await q<{ user_id: string }>(
+      `SELECT DISTINCT user_id FROM usage_records
+       WHERE created_at >= $1 AND created_at < $2`,
+      [periodStart.toISOString(), periodEnd.toISOString()],
+    );
+
+    let processed = 0;
+    let rewarded = 0;
+    for (const row of usersResult.rows) {
+      try {
+        const reward = await referralRepo.calculateAndRecordMonthlyReward(
+          row.user_id,
+          periodStart,
+          periodEnd,
+        );
+        processed++;
+        if (reward) rewarded++;
+      } catch {
+        // Skip individual user errors
+      }
+    }
+
+    // Credit pending rewards
+    const credited = await referralRepo.creditPendingLoyaltyRewards();
+
+    log.info("admin loyalty processing complete", {
+      adminId: authReq.user.userId,
+      processed,
+      rewarded,
+      creditedCents: credited,
+    });
+    res.json({ processed, rewarded, creditedCents: credited });
+  } catch (err) {
+    log.error("admin loyalty process failed", { error: err instanceof Error ? err.message : String(err) });
+    res.status(500).json({ error: "Failed to process loyalty rewards" });
+  }
+});
+
+// POST /api/admin/commissions/process — trigger commission payouts for all users
+const commissionProcessLimiter = rateLimit({
+  windowMs: 60 * 60_000,
+  max: 1,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Commission processing limited to once per hour" },
+});
+
+router.post("/commissions/process", commissionProcessLimiter, async (req, res) => {
+  try {
+    const authReq = req as AuthenticatedRequest;
+    const { query: q } = await import("@dominusnode/shared");
+
+    // Get all referrers with pending commissions
+    const referrersResult = await q<{ referrer_id: string }>(
+      "SELECT DISTINCT referrer_id FROM affiliate_commissions WHERE status = 'pending'",
+    );
+
+    let processed = 0;
+    let totalCredited = 0;
+    for (const row of referrersResult.rows) {
+      try {
+        const amount = await referralRepo.creditPendingCommissions(row.referrer_id);
+        processed++;
+        totalCredited += amount;
+      } catch {
+        // Skip individual errors
+      }
+    }
+
+    log.info("admin commission processing complete", {
+      adminId: authReq.user.userId,
+      processed,
+      totalCreditedCents: totalCredited,
+    });
+    res.json({ processed, totalCreditedCents: totalCredited });
+  } catch (err) {
+    log.error("admin commission process failed", { error: err instanceof Error ? err.message : String(err) });
+    res.status(500).json({ error: "Failed to process commissions" });
   }
 });
 

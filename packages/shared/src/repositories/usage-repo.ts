@@ -41,7 +41,7 @@ export async function createUsageRecord(record: {
   target_host: string;
   connect_latency_ms?: number | null;
 }): Promise<UsageRecord> {
-  // R46 H-4: Validate numeric fields to prevent negative values or DB overflow
+  // Validate numeric fields to prevent negative values or DB overflow
   if (!Number.isInteger(record.bytes_in) || record.bytes_in < 0 || record.bytes_in > MAX_INT) {
     throw new Error("bytes_in must be a non-negative integer within valid range");
   }

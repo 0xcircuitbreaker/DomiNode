@@ -3,7 +3,7 @@ import type { Response, CookieOptions } from "express";
 const ACCESS_COOKIE = "dominusnode_access";
 const REFRESH_COOKIE = "dominusnode_refresh";
 
-// R15 H-4: secure flag should be true in production OR when explicitly configured
+// secure flag should be true in production OR when explicitly configured
 // (e.g., staging environments behind HTTPS that aren't NODE_ENV=production)
 const isSecure = process.env.NODE_ENV === "production" || process.env["COOKIE_SECURE"] === "true";
 
@@ -14,7 +14,7 @@ const BASE_OPTIONS: CookieOptions = {
   path: "/api",
 };
 
-// Refresh cookie restricted to auth path only — minimizes exposure of long-lived credential (R13 H-5)
+// Refresh cookie restricted to auth path only — minimizes exposure of long-lived credential
 const REFRESH_OPTIONS: CookieOptions = {
   httpOnly: true,
   secure: isSecure,
@@ -43,7 +43,7 @@ export function setAuthCookies(
 export function clearAuthCookies(res: Response): void {
   res.clearCookie(ACCESS_COOKIE, { ...BASE_OPTIONS });
   res.clearCookie(REFRESH_COOKIE, { ...REFRESH_OPTIONS });
-  // R46 M-7: Also clear MFA challenge cookie (5-min TTL, but survives logout without this)
+  // Also clear MFA challenge cookie (5-min TTL, but survives logout without this)
   res.clearCookie("dominusnode_mfa_challenge", {
     httpOnly: true,
     secure: isSecure,

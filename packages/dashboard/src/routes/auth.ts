@@ -29,6 +29,7 @@ import {
   hashBackupCode,
   sendVerificationEmail,
   sendPasswordResetEmail,
+  referralRepo,
 } from "@dominusnode/shared";
 import { requireAuth, type AuthenticatedRequest } from "../middleware/auth.js";
 import { setAuthCookies, clearAuthCookies, getRefreshCookieName } from "../helpers/cookies.js";
@@ -41,7 +42,7 @@ const ALLOWED_ORIGINS = (process.env["CORS_ORIGINS"] ?? "http://localhost:5173")
   .split(",")
   .map((s) => s.trim());
 
-// R30 H-5: Simplified — only trust origins explicitly listed in ALLOWED_ORIGINS
+// Simplified — only trust origins explicitly listed in ALLOWED_ORIGINS
 function isBrowserClient(req: ExpressRequest): boolean {
   const origin = req.headers.origin;
   if (!origin) return false;
@@ -55,7 +56,7 @@ const LOCKOUT_DURATION_MS = 15 * 60 * 1000; // 15 minutes
 const MAX_LOCKOUT_MAP_SIZE = 50_000; // Cap memory usage
 const loginAttempts = new Map<string, { count: number; lockedUntil: number }>();
 
-// R17: Per-IP global login limit across ALL emails — prevents credential stuffing
+// Per-IP global login limit across ALL emails — prevents credential stuffing
 const MAX_LOGIN_ATTEMPTS_PER_IP = 20; // 20 total login attempts per IP per 15 min
 const ipLoginAttempts = new Map<string, { count: number; windowStart: number }>();
 
@@ -86,7 +87,7 @@ function recordIpLoginAttempt(ip: string): void {
   }
 }
 
-// R17: Per-IP verify-key rate limiting — prevents API key brute force / oracle
+// Per-IP verify-key rate limiting — prevents API key brute force / oracle
 const MAX_VERIFY_KEY_PER_IP = 10; // 10 attempts per IP per 5-min window
 const VERIFY_KEY_WINDOW_MS = 5 * 60 * 1000;
 const verifyKeyAttempts = new Map<string, { count: number; windowStart: number }>();
@@ -179,7 +180,7 @@ const RECAPTCHA_SECRET_KEY = process.env["RECAPTCHA_SECRET_KEY"] ?? "";
 
 // reCAPTCHA v3 score threshold — 0.5 is Google's recommended default.
 // Scores range 0.0 (bot) to 1.0 (human). Adjust if needed.
-// R46 M-3: Guard against NaN — parseFloat("abc") = NaN, NaN < 0.5 = false → silently disables check
+// Guard against NaN — parseFloat("abc") = NaN, NaN < 0.5 = false → silently disables check
 const _parsedThreshold = parseFloat(process.env["RECAPTCHA_SCORE_THRESHOLD"] ?? "0.5");
 const RECAPTCHA_SCORE_THRESHOLD = Number.isFinite(_parsedThreshold) ? _parsedThreshold : 0.5;
 
@@ -211,10 +212,10 @@ async function verifyRecaptcha(token: string, remoteIp: string, expectedAction?:
   }
 }
 
-// ─── Global registration cap (Alpha: 250, 0 = unlimited) ───
-// R46 M-4: Guard against NaN — parseInt("abc") = NaN → comparison always false → blocks all registrations
-const _parsedMaxUsersAuth = parseInt(process.env["MAX_REGISTERED_USERS"] ?? "250", 10);
-const MAX_REGISTERED_USERS = Number.isFinite(_parsedMaxUsersAuth) ? _parsedMaxUsersAuth : 250;
+// ─── Global registration cap (Alpha: 5000, 0 = unlimited) ───
+// Guard against NaN — parseInt("abc") = NaN → comparison always false → blocks all registrations
+const _parsedMaxUsersAuth = parseInt(process.env["MAX_REGISTERED_USERS"] ?? "5000", 10);
+const MAX_REGISTERED_USERS = Number.isFinite(_parsedMaxUsersAuth) ? _parsedMaxUsersAuth : 5000;
 
 async function checkGlobalRegistrationCap(): Promise<boolean> {
   if (MAX_REGISTERED_USERS <= 0) return true; // 0 = unlimited (production)
@@ -271,7 +272,7 @@ router.post("/register", async (req, res) => {
       return;
     }
 
-    // R37 H-10: Cap password length to prevent bcrypt DoS (O(n) cost on input length)
+    // Cap password length to prevent bcrypt DoS (O(n) cost on input length)
     if (password.length > 128) {
       res.status(400).json({ error: "Password exceeds maximum length" });
       return;
@@ -317,7 +318,7 @@ router.post("/register", async (req, res) => {
       return;
     }
 
-    // R24 C-1: Global registration cap (Alpha: 250 slots)
+    // Global registration cap (Alpha: 250 slots)
     if (!(await checkGlobalRegistrationCap())) {
       log.warn("registration rejected: global cap reached", { ip: clientIp, cap: MAX_REGISTERED_USERS });
       res.status(403).json({ error: `Registration is currently closed. All ${MAX_REGISTERED_USERS} alpha slots are filled.` });
@@ -353,6 +354,18 @@ router.post("/register", async (req, res) => {
 
     await walletRepo.createWallet(user.id);
 
+    // Referral code processing (non-blocking: referral failure must NOT prevent registration)
+    const referralCode = typeof req.body?.referralCode === "string" ? req.body.referralCode.trim().toUpperCase() : "";
+    if (referralCode && /^[A-Za-z0-9]{4,20}$/.test(referralCode)) {
+      const refHash = crypto.createHash("sha256").update(referralCode).digest("hex");
+      referralRepo.redeemReferralCode(refHash, user.id).catch((err) => {
+        log.warn("referral code redemption failed (non-blocking)", {
+          userId: user.id,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
+    }
+
     const tokens = createTokenPair({ userId: user.id, email: user.email, isAdmin: user.is_admin });
 
     // Store refresh token in DB for rotation tracking
@@ -372,7 +385,7 @@ router.post("/register", async (req, res) => {
     // auto-verify the email so AI agents can immediately use payment features.
     // This is MCP-only — general SDK/API users must verify via email link.
     // Mass signups are still blocked by reCAPTCHA + rate limits + alpha cap.
-    // R36 C-1: Require shared secret alongside header to prevent trivial spoofing
+    // Require shared secret alongside header to prevent trivial spoofing
     const MCP_AGENT_SECRET = process.env["MCP_AGENT_SECRET"] ?? "";
     const isMcpAgent =
       req.headers["x-dominusnode-agent"] === "mcp" &&
@@ -425,7 +438,7 @@ router.post("/login", async (req, res) => {
     const password = req.body.password ?? "";
     const clientIp = (req.ip ?? req.socket.remoteAddress ?? "").replace(/^::ffff:/, "");
 
-    // R36 C-2: Cap password length to prevent bcrypt DoS (O(n) cost on input length)
+    // Cap password length to prevent bcrypt DoS (O(n) cost on input length)
     if (password.length > 128) {
       res.status(401).json({ error: "Invalid email or password" });
       return;
@@ -452,7 +465,7 @@ router.post("/login", async (req, res) => {
       }
     }
 
-    // R17: Per-IP global login limit (prevents credential stuffing across emails)
+    // Per-IP global login limit (prevents credential stuffing across emails)
     const ipLimitMsg = checkIpLoginLimit(clientIp);
     if (ipLimitMsg) {
       res.status(429).json({ error: ipLimitMsg });
@@ -469,7 +482,7 @@ router.post("/login", async (req, res) => {
     const user = await userRepo.findUserForAuth(email);
     if (!user) {
       recordLoginFailure(clientIp, email);
-      recordIpLoginAttempt(clientIp); // R17: Track IP-wide attempts
+      recordIpLoginAttempt(clientIp); // Track IP-wide attempts
       res.status(401).json({ error: "Invalid email or password" });
       return;
     }
@@ -478,7 +491,7 @@ router.post("/login", async (req, res) => {
     const valid = await verifyPassword(password, user.password_hash);
     if (!valid) {
       recordLoginFailure(clientIp, email);
-      recordIpLoginAttempt(clientIp); // R17: Track IP-wide attempts
+      recordIpLoginAttempt(clientIp); // Track IP-wide attempts
       res.status(401).json({ error: "Invalid email or password" });
       return;
     }
@@ -490,7 +503,7 @@ router.post("/login", async (req, res) => {
 
     // Successful login — clear lockout for this IP+email combo only
     resetLoginAttempts(clientIp, email);
-    // R20 H-4: Do NOT clear IP-global counter on single success — attacker on shared IP
+    // Do NOT clear IP-global counter on single success — attacker on shared IP
     // could use one valid login to reset the counter, then resume credential stuffing.
     // The IP-global counter expires naturally after its time window.
 
@@ -508,7 +521,7 @@ router.post("/login", async (req, res) => {
           secure: process.env.NODE_ENV === "production",
           sameSite: "strict",
           maxAge: 5 * 60 * 1000, // 5 minutes
-          path: "/api/auth/mfa", // R14 H-4: restrict to MFA verification path
+          path: "/api/auth/mfa", // restrict to MFA verification path
         });
         res.json({ mfaRequired: true });
       } else {
@@ -582,7 +595,7 @@ router.post("/refresh", async (req, res) => {
       return;
     }
 
-    // R29 H-4: Verify token has not expired in DB (defense-in-depth beyond JWT expiry)
+    // Verify token has not expired in DB (defense-in-depth beyond JWT expiry)
     if (storedToken.expires_at && new Date(storedToken.expires_at) < new Date()) {
       res.status(401).json({ error: "Refresh token expired" });
       return;
@@ -592,7 +605,7 @@ router.post("/refresh", async (req, res) => {
       // REUSE DETECTED: This token was already rotated, meaning it was stolen.
       // Revoke the entire family to protect the user.
       const revoked = await refreshTokenRepo.revokeFamily(storedToken.family_id);
-      // R19 H-6: Also revoke all API keys — otherwise proxy tunnels survive token revocation
+      // Also revoke all API keys — otherwise proxy tunnels survive token revocation
       const keysRevoked = await userRepo.revokeAllApiKeys(storedToken.user_id);
       log.warn("refresh token reuse detected — revoking family + API keys", {
         userId: storedToken.user_id,
@@ -651,14 +664,14 @@ router.post("/change-password", requireAuth, async (req, res) => {
     const { userId, email } = (req as AuthenticatedRequest).user;
     const clientIp = (req.ip ?? req.socket.remoteAddress ?? "").replace(/^::ffff:/, "");
 
-    // R31 H-1: Rate limit password change attempts to prevent brute force on current password
+    // Rate limit password change attempts to prevent brute force on current password
     const lockoutMsg = checkLoginLockout(clientIp, email);
     if (lockoutMsg) {
       res.status(429).json({ error: lockoutMsg });
       return;
     }
 
-    // R18 C-4: Wallet-only accounts cannot set/change passwords
+    // Wallet-only accounts cannot set/change passwords
     if (isWalletEmail(email)) {
       res.status(400).json({ error: "Wallet accounts cannot set passwords" });
       return;
@@ -672,13 +685,13 @@ router.post("/change-password", requireAuth, async (req, res) => {
       return;
     }
 
-    // R36 C-2: Cap password length to prevent bcrypt DoS
+    // Cap password length to prevent bcrypt DoS
     if (currentPassword.length > 128 || newPassword.length > 128) {
       res.status(400).json({ error: "Password exceeds maximum length" });
       return;
     }
 
-    // Reject same password (R12 H-4)
+    // Reject same password
     if (currentPassword === newPassword) {
       res.status(400).json({ error: "New password must be different from current password" });
       return;
@@ -699,7 +712,7 @@ router.post("/change-password", requireAuth, async (req, res) => {
 
     const valid = await verifyPassword(currentPassword, user.password_hash);
     if (!valid) {
-      recordLoginFailure(clientIp, email); // R31 H-1: Track failed password attempts
+      recordLoginFailure(clientIp, email); // Track failed password attempts
       res.status(401).json({ error: "Current password is incorrect" });
       return;
     }
@@ -714,7 +727,7 @@ router.post("/change-password", requireAuth, async (req, res) => {
     // Revoke all existing refresh tokens for this user
     await refreshTokenRepo.revokeAllForUser(userId);
 
-    // R29 H-7: Revoke all API keys on password change — if account was compromised,
+    // Revoke all API keys on password change — if account was compromised,
     // attacker's API keys must also be invalidated
     await userRepo.revokeAllApiKeys(userId);
 
@@ -775,7 +788,7 @@ router.get("/me", requireAuth, async (req, res) => {
 // POST /api/auth/verify-key — Verify API key and return JWT tokens (for browser extension)
 router.post("/verify-key", async (req, res) => {
   try {
-    // R17: Rate limit verify-key per IP to prevent brute force / timing oracle
+    // Rate limit verify-key per IP to prevent brute force / timing oracle
     const clientIp = (req.ip ?? req.socket.remoteAddress ?? "").replace(/^::ffff:/, "");
     if (!checkVerifyKeyRateLimit(clientIp)) {
       res.status(429).json({ valid: false, error: "Too many verification attempts. Try again later." });
@@ -785,7 +798,7 @@ router.post("/verify-key", async (req, res) => {
     const apiKey = sanitizeString(req.body.apiKey ?? "", 200);
 
     if (!apiKey.startsWith("dn_live_")) {
-      res.status(401).json({ valid: false, error: "Invalid API key" }); // R14 H-3: unified error message
+      res.status(401).json({ valid: false, error: "Invalid API key" }); // unified error message
       return;
     }
 
@@ -802,7 +815,7 @@ router.post("/verify-key", async (req, res) => {
       return;
     }
 
-    // R31 C-3: Block verify-key when MFA is enabled — API key alone must not bypass MFA
+    // Block verify-key when MFA is enabled — API key alone must not bypass MFA
     const mfaConfig = await mfaRepo.findMfaConfigByUserId(result.user.id);
     if (mfaConfig?.enabled) {
       res.status(403).json({
@@ -854,7 +867,7 @@ const mfaAttempts = new Map<string, { count: number; lockedUntil: number }>();
 const MAX_TOTP_COUNTER_MAP_SIZE = 50_000;
 const totpLastUsedCounters = new Map<string, bigint>();
 
-// MFA challenge token single-use enforcement (R12 C-1):
+// MFA challenge token single-use enforcement:
 // Track consumed challenge JTIs to prevent replay within the 5-min validity window
 const MAX_CONSUMED_CHALLENGES_SIZE = 50_000;
 const consumedChallengeJtis = new Map<string, number>(); // jti -> expiresAt timestamp
@@ -914,7 +927,7 @@ setInterval(() => {
 // POST /api/auth/mfa/verify — Complete MFA challenge with TOTP code or backup code
 router.post("/mfa/verify", async (req, res) => {
   try {
-    // R31 H-2: Per-IP rate limiting for MFA verification (prevents distributed brute force)
+    // Per-IP rate limiting for MFA verification (prevents distributed brute force)
     const clientIp = (req.ip ?? req.socket.remoteAddress ?? "").replace(/^::ffff:/, "");
     const ipLimitMsg = checkIpLoginLimit(clientIp);
     if (ipLimitMsg) {
@@ -936,7 +949,7 @@ router.post("/mfa/verify", async (req, res) => {
       return;
     }
 
-    // Single-use enforcement: reject replayed challenge tokens (R12 C-1, R13 C-1, R14 C-1)
+    // Single-use enforcement: reject replayed challenge tokens
     const jti = challenge.jti;
     if (!jti) {
       log.warn("MFA challenge token missing jti claim", { userId: challenge.userId });
@@ -956,7 +969,7 @@ router.post("/mfa/verify", async (req, res) => {
       return;
     }
 
-    // R31 C-2: Consume challenge JTI BEFORE code verification to prevent brute force
+    // Consume challenge JTI BEFORE code verification to prevent brute force
     // via challenge token reuse — token is single-use regardless of verification outcome
     if (consumedChallengeJtis.size >= MAX_CONSUMED_CHALLENGES_SIZE) {
       const firstKey = consumedChallengeJtis.keys().next().value;
@@ -1006,7 +1019,7 @@ router.post("/mfa/verify", async (req, res) => {
 
     if (!verified) {
       recordMfaFailure(challenge.userId);
-      recordIpLoginAttempt(clientIp); // R31 H-2: Count MFA failures against IP budget
+      recordIpLoginAttempt(clientIp); // Count MFA failures against IP budget
       res.status(401).json({ error: "Invalid verification code" });
       return;
     }
@@ -1156,7 +1169,7 @@ router.post("/mfa/disable", requireAuth, async (req, res) => {
       res.status(400).json({ error: "Password is required to disable MFA" });
       return;
     }
-    // R36 C-2: Cap password length to prevent bcrypt DoS
+    // Cap password length to prevent bcrypt DoS
     if (password.length > 128) {
       res.status(400).json({ error: "Invalid password" });
       return;
@@ -1166,7 +1179,7 @@ router.post("/mfa/disable", requireAuth, async (req, res) => {
       return;
     }
 
-    // Brute-force protection for MFA disable (R12 H-3)
+    // Brute-force protection for MFA disable
     const mfaDisableLockout = checkMfaLockout(userId);
     if (mfaDisableLockout) {
       res.status(429).json({ error: mfaDisableLockout });
@@ -1181,7 +1194,7 @@ router.post("/mfa/disable", requireAuth, async (req, res) => {
     }
     const passwordValid = await verifyPassword(password, user.password_hash);
     if (!passwordValid) {
-      recordMfaFailure(userId); // R12 H-3: count password failures too
+      recordMfaFailure(userId); // count password failures too
       res.status(401).json({ error: "Invalid password" });
       return;
     }
@@ -1211,7 +1224,7 @@ router.post("/mfa/disable", requireAuth, async (req, res) => {
     }
 
     if (!verified) {
-      recordMfaFailure(userId); // R12 H-3: track failures for brute-force protection
+      recordMfaFailure(userId); // track failures for brute-force protection
       res.status(401).json({ error: "Invalid verification code" });
       return;
     }
@@ -1225,7 +1238,7 @@ router.post("/mfa/disable", requireAuth, async (req, res) => {
     // Revoke all refresh tokens for safety
     await refreshTokenRepo.revokeAllForUser(userId);
 
-    // R30 H-4: MFA disable must also revoke API keys (parity with password change)
+    // MFA disable must also revoke API keys (parity with password change)
     await userRepo.revokeAllApiKeys(userId);
 
     log.info("MFA disabled", { userId });
@@ -1380,7 +1393,7 @@ router.post("/reset-password", async (req, res) => {
       return;
     }
 
-    // R37 C-10: Cap password length to prevent bcrypt DoS
+    // Cap password length to prevent bcrypt DoS
     if (newPassword.length > 128) {
       res.status(400).json({ error: "Password exceeds maximum length" });
       return;
@@ -1388,7 +1401,7 @@ router.post("/reset-password", async (req, res) => {
 
     const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
 
-    // R37 C-1: Atomically consume the token (DELETE...RETURNING) to prevent TOCTOU race.
+    // Atomically consume the token (DELETE...RETURNING) to prevent TOCTOU race.
     // A concurrent request with the same token will get null since the row is already deleted.
     const resetToken = await userRepo.consumePasswordResetToken(tokenHash);
 
@@ -1445,7 +1458,7 @@ router.post("/verify-email", async (req, res) => {
 
     const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
 
-    // R37 C-2: Atomically consume the token (DELETE...RETURNING) to prevent TOCTOU race.
+    // Atomically consume the token (DELETE...RETURNING) to prevent TOCTOU race.
     // A concurrent request with the same token will get null since the row is already deleted.
     const verifyToken = await userRepo.consumeEmailVerificationToken(tokenHash);
 

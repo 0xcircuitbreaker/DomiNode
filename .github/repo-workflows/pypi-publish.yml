@@ -1,0 +1,51 @@
+# Template: PyPI package publish workflow
+# Copy this to .github/workflows/publish.yml in each Python-based repo
+# Works for: dominusnode-python, dominusnode-langchain, dominusnode-crewai,
+#            dominusnode-llamaindex, dominusnode-autogpt, dominusnode-agent-zero,
+#            dominusnode-agno, dominusnode-camel-ai, dominusnode-composio,
+#            dominusnode-dify, dominusnode-haystack, dominusnode-ironclaw,
+#            dominusnode-metagpt, dominusnode-moltbook, dominusnode-pydantic-ai,
+#            dominusnode-semantic-kernel, dominusnode-superagi
+
+name: Publish to PyPI
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: publish
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install build tools
+        run: pip install build twine
+
+      - name: Install dev dependencies
+        run: pip install -e ".[dev]"
+
+      - name: Run tests
+        run: python -m pytest
+
+      - name: Build package
+        run: python -m build
+
+      - name: Verify package
+        run: twine check dist/*
+
+      - name: Publish to PyPI
+        run: twine upload dist/*
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.PYPI_TOKEN }}

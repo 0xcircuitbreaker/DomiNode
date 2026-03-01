@@ -35,7 +35,7 @@ CREATE TABLE IF NOT EXISTS api_keys (
   revoked_at  TIMESTAMPTZ
 );
 
--- R24 C-2: UNIQUE constraint prevents silent key collision on active keys
+-- UNIQUE constraint prevents silent key collision on active keys
 CREATE UNIQUE INDEX IF NOT EXISTS idx_api_keys_hash
   ON api_keys(key_hash) WHERE revoked_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_api_keys_user
@@ -116,14 +116,14 @@ CREATE INDEX IF NOT EXISTS idx_usage_user_created
 CREATE INDEX IF NOT EXISTS idx_usage_session
   ON usage_records(session_id);
 
--- R30 H-2: CHECK constraint on proxy_type
+-- CHECK constraint on proxy_type
 DO $$ BEGIN
   ALTER TABLE usage_records ADD CONSTRAINT chk_usage_proxy_type
     CHECK (proxy_type IN ('dc', 'residential'));
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
--- R31 C-1: CHECK constraints on usage_records bytes and cost columns
+-- CHECK constraints on usage_records bytes and cost columns
 DO $$ BEGIN
   ALTER TABLE usage_records ADD CONSTRAINT chk_usage_bytes_in CHECK (bytes_in >= 0);
 EXCEPTION WHEN duplicate_object THEN NULL;
@@ -209,9 +209,10 @@ DO $$ BEGIN
 EXCEPTION WHEN duplicate_column THEN NULL;
 END $$;
 
--- Beta free plans: free-dc (2 GB DC only) and free-res (50 MB residential only)
+-- Beta free plans: free-dc (500 MB DC only) and free-res (50 MB residential only)
+-- free-dc is the default for new signups — AI agents are efficient, 500 MB is plenty
 INSERT INTO plans (id, name, price_per_gb_cents, monthly_bandwidth_bytes, is_default, max_connections, max_sessions_per_minute, allowed_proxy_types) VALUES
-  ('free-dc',  'Free DC',          0, 2147483648,   true,  5, 30, 'dc'),
+  ('free-dc',  'Free DC',          0, 524288000,    true,  5, 30, 'dc'),
   ('free-res', 'Free Residential', 0, 52428800,     false, 5, 30, 'residential')
 ON CONFLICT (id) DO UPDATE SET
   name = EXCLUDED.name,
@@ -224,6 +225,25 @@ ON CONFLICT (id) DO UPDATE SET
 
 -- Old free plan: keep for backward compat but no longer default
 UPDATE plans SET is_default = false WHERE id = 'free';
+
+-- Wire up free-dc as the actual DB column default for new signups
+-- (Previously pointed to legacy 'free' which allowed residential access)
+ALTER TABLE users ALTER COLUMN plan_id SET DEFAULT 'free-dc';
+
+-- Swarm plans: ultra-tight limits for operator-controlled agent swarms
+-- swarm-dc: 200 MB/month, DC only, 2 connections, 10 sessions/min (poster/API bots)
+-- swarm-mixed: 200 MB/month, all pools, 2 connections, 10 sessions/min (scraper bots needing residential)
+INSERT INTO plans (id, name, price_per_gb_cents, monthly_bandwidth_bytes, is_default, max_connections, max_sessions_per_minute, allowed_proxy_types) VALUES
+  ('swarm-dc', 'Swarm DC', 0, 209715200, false, 2, 10, 'dc'),
+  ('swarm-mixed', 'Swarm Mixed', 0, 209715200, false, 2, 10, 'all')
+ON CONFLICT (id) DO UPDATE SET
+  name = EXCLUDED.name,
+  price_per_gb_cents = EXCLUDED.price_per_gb_cents,
+  monthly_bandwidth_bytes = EXCLUDED.monthly_bandwidth_bytes,
+  is_default = EXCLUDED.is_default,
+  max_connections = EXCLUDED.max_connections,
+  max_sessions_per_minute = EXCLUDED.max_sessions_per_minute,
+  allowed_proxy_types = EXCLUDED.allowed_proxy_types;
 
 -- Add admin role (idempotent)
 DO $$ BEGIN
@@ -317,7 +337,7 @@ END $$;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_users_wallet_address
   ON users(wallet_address) WHERE wallet_address IS NOT NULL;
 
--- R45 L-1: wallet_address must be exactly 42 chars (0x + 40 hex) and lowercase hex
+-- wallet_address must be exactly 42 chars (0x + 40 hex) and lowercase hex
 DO $$ BEGIN
   ALTER TABLE users ADD CONSTRAINT chk_wallet_address_format
     CHECK (wallet_address IS NULL OR (length(wallet_address) = 42 AND wallet_address ~ '^0x[0-9a-f]{40}$'));
@@ -340,7 +360,7 @@ CREATE INDEX IF NOT EXISTS idx_wallet_challenges_address
 CREATE INDEX IF NOT EXISTS idx_wallet_challenges_created
   ON wallet_challenges(created_at);
 
--- R46 H-1: Length constraints on wallet_challenges text fields
+-- Length constraints on wallet_challenges text fields
 DO $$ BEGIN
   ALTER TABLE wallet_challenges ADD CONSTRAINT chk_wc_address_length CHECK (length(address) <= 42);
 EXCEPTION WHEN duplicate_object THEN NULL;
@@ -581,7 +601,7 @@ INSERT INTO data_retention_policies (table_name, retention_days, description) VA
   ('team_invites',             365, 'Team invites retained for 1 year')
 ON CONFLICT (table_name) DO NOTHING;
 
--- ─── R37 C-1: Upper bound CHECK constraints on balance_cents ────────
+-- ─── Upper bound CHECK constraints on balance_cents ────────
 
 DO $$ BEGIN
   ALTER TABLE wallets ADD CONSTRAINT chk_wallets_balance_upper CHECK (balance_cents <= 1000000);
@@ -598,7 +618,7 @@ DO $$ BEGIN
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
--- ─── R37 C-2: Upper bound CHECK constraints on amount_cents (prevent integer overflow) ──
+-- ─── Upper bound CHECK constraints on amount_cents (prevent integer overflow) ──
 
 DO $$ BEGIN
   ALTER TABLE wallet_transactions ADD CONSTRAINT chk_wallet_tx_amount_upper CHECK (amount_cents <= 214748364);
@@ -620,7 +640,7 @@ DO $$ BEGIN
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
--- ─── R37 H-1: TEXT column length constraints on user-input fields ────
+-- ─── TEXT column length constraints on user-input fields ────
 
 DO $$ BEGIN
   ALTER TABLE users ADD CONSTRAINT chk_users_email_length CHECK (length(email) <= 320);
@@ -693,7 +713,7 @@ DO $$ BEGIN
 EXCEPTION WHEN duplicate_column THEN NULL;
 END $$;
 
--- R45 H-7: Backfill NULL payment_hash values before adding NOT NULL constraint
+-- Backfill NULL payment_hash values before adding NOT NULL constraint
 UPDATE x402_transactions SET payment_hash = id::TEXT WHERE payment_hash IS NULL;
 
 DO $$ BEGIN
@@ -703,7 +723,7 @@ END $$;
 
 CREATE INDEX IF NOT EXISTS idx_x402_transactions_payer ON x402_transactions(payer_address);
 CREATE INDEX IF NOT EXISTS idx_x402_transactions_created ON x402_transactions(created_at);
--- R46 H-4: Unconditional unique index (payment_hash has NOT NULL constraint)
+-- Unconditional unique index (payment_hash has NOT NULL constraint)
 CREATE UNIQUE INDEX IF NOT EXISTS idx_x402_payment_hash ON x402_transactions(payment_hash);
 
 -- Retention policy for x402 transactions
@@ -711,7 +731,7 @@ INSERT INTO data_retention_policies (table_name, retention_days, description) VA
   ('x402_transactions', 730, 'x402 micropayment transactions retained for 2 years')
 ON CONFLICT (table_name) DO NOTHING;
 
--- R37 H-1: Length constraints on x402 text fields
+-- Length constraints on x402 text fields
 DO $$ BEGIN
   ALTER TABLE x402_transactions ADD CONSTRAINT chk_x402_payer_length CHECK (length(payer_address) <= 255);
 EXCEPTION WHEN duplicate_object THEN NULL;
@@ -755,14 +775,14 @@ DO $$ BEGIN
 EXCEPTION WHEN duplicate_column THEN NULL;
 END $$;
 
--- ─── R46 H-2: Upper bound on agentic_wallets spending_limit_cents ────
+-- ─── Upper bound on agentic_wallets spending_limit_cents ────
 DO $$ BEGIN
   ALTER TABLE agentic_wallets ADD CONSTRAINT chk_agentic_wallets_spending_upper
     CHECK (spending_limit_cents <= 1000000);
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
--- ─── R46 H-10: Currency CHECK constraints ───────────────────────────
+-- ─── Currency CHECK constraints ───────────────────────────
 DO $$ BEGIN
   ALTER TABLE wallets ADD CONSTRAINT chk_wallets_currency CHECK (currency = 'USD');
 EXCEPTION WHEN duplicate_object THEN NULL;
@@ -788,4 +808,221 @@ ON CONFLICT (version) DO NOTHING;
 
 INSERT INTO schema_migrations (version, description) VALUES
   ('1.3.0', 'Add agentic wallet policy fields: daily_limit_cents, allowed_domains')
+ON CONFLICT (version) DO NOTHING;
+
+-- ─── Bug Reports (bug bounty system) ──────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS bug_reports (
+  id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id             UUID NOT NULL REFERENCES users(id),
+  category            TEXT NOT NULL CHECK (category IN ('quality', 'security')),
+  priority            TEXT NOT NULL DEFAULT 'p3' CHECK (priority IN ('p1', 'p2', 'p3')),
+  title               TEXT NOT NULL CHECK (length(title) BETWEEN 5 AND 200),
+  description         TEXT NOT NULL CHECK (length(description) BETWEEN 10 AND 5000),
+  integration         TEXT CHECK (length(integration) <= 100),
+  sdk_version         TEXT CHECK (length(sdk_version) <= 50),
+  trace_ids           TEXT[] DEFAULT '{}',
+  steps_to_reproduce  TEXT CHECK (length(steps_to_reproduce) <= 5000),
+  impact              TEXT CHECK (length(impact) <= 1000),
+  status              TEXT NOT NULL DEFAULT 'pending'
+                      CHECK (status IN ('pending', 'approved', 'rejected', 'credited')),
+  credit_amount_cents INTEGER NOT NULL DEFAULT 0
+                      CHECK (credit_amount_cents >= 0 AND credit_amount_cents <= 100000),
+  reviewed_by         UUID REFERENCES users(id),
+  reviewed_at         TIMESTAMPTZ,
+  created_at          TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_bug_reports_user ON bug_reports(user_id);
+CREATE INDEX IF NOT EXISTS idx_bug_reports_status ON bug_reports(status);
+CREATE INDEX IF NOT EXISTS idx_bug_reports_created ON bug_reports(created_at);
+
+INSERT INTO schema_migrations (version, description) VALUES
+  ('1.4.0', 'Add swarm-dc plan and bug_reports table for bug bounty system'),
+  ('1.4.1', 'Add swarm-mixed plan for residential scraper bots')
+ON CONFLICT (version) DO NOTHING;
+
+-- ─── Referral Codes ──────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS referral_codes (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id       UUID NOT NULL REFERENCES users(id),
+  -- SHA-256 hex is always exactly 64 characters
+  code_hash     TEXT NOT NULL CHECK (length(code_hash) = 64),
+  code_prefix   TEXT NOT NULL CHECK (length(code_prefix) <= 10),
+  max_uses      INTEGER NOT NULL DEFAULT 0
+                CHECK (max_uses >= 0 AND max_uses <= 100000),
+  uses          INTEGER NOT NULL DEFAULT 0
+                CHECK (uses >= 0),
+  credit_cents  INTEGER NOT NULL DEFAULT 100
+                CHECK (credit_cents >= 0 AND credit_cents <= 100000),
+  active        BOOLEAN NOT NULL DEFAULT true,
+  expires_at    TIMESTAMPTZ,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_referral_codes_hash
+  ON referral_codes(code_hash) WHERE active = true;
+CREATE INDEX IF NOT EXISTS idx_referral_codes_user
+  ON referral_codes(user_id);
+CREATE INDEX IF NOT EXISTS idx_referral_codes_created
+  ON referral_codes(created_at);
+
+-- ─── Referral Redemptions ────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS referral_redemptions (
+  id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  referral_code_id UUID NOT NULL REFERENCES referral_codes(id),
+  referrer_id      UUID NOT NULL REFERENCES users(id),
+  referee_id       UUID NOT NULL REFERENCES users(id),
+  credit_cents     INTEGER NOT NULL CHECK (credit_cents >= 0 AND credit_cents <= 100000),
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE(referee_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_referral_redemptions_referrer
+  ON referral_redemptions(referrer_id);
+CREATE INDEX IF NOT EXISTS idx_referral_redemptions_created
+  ON referral_redemptions(created_at);
+
+-- ─── Affiliate Links ─────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS affiliate_links (
+  id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  referrer_id  UUID NOT NULL REFERENCES users(id),
+  referee_id   UUID NOT NULL REFERENCES users(id),
+  active       BOOLEAN NOT NULL DEFAULT true,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE(referee_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_affiliate_links_referrer
+  ON affiliate_links(referrer_id);
+
+-- ─── Affiliate Commissions ───────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS affiliate_commissions (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  referrer_id     UUID NOT NULL REFERENCES users(id),
+  referee_id      UUID NOT NULL REFERENCES users(id),
+  payment_id      TEXT NOT NULL,
+  topup_cents     INTEGER NOT NULL CHECK (topup_cents > 0 AND topup_cents <= 214748364),
+  commission_cents INTEGER NOT NULL CHECK (commission_cents >= 0 AND commission_cents <= 214748364),
+  commission_rate  INTEGER NOT NULL CHECK (commission_rate >= 0 AND commission_rate <= 10000),
+  status          TEXT NOT NULL DEFAULT 'pending'
+                  CHECK (status IN ('pending', 'credited', 'cancelled')),
+  credited_at     TIMESTAMPTZ,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE(payment_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_affiliate_commissions_referrer
+  ON affiliate_commissions(referrer_id);
+CREATE INDEX IF NOT EXISTS idx_affiliate_commissions_status
+  ON affiliate_commissions(status);
+CREATE INDEX IF NOT EXISTS idx_affiliate_commissions_created
+  ON affiliate_commissions(created_at);
+
+-- ─── Promo Codes ─────────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS promo_codes (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  admin_user_id UUID NOT NULL REFERENCES users(id),
+  -- SHA-256 hex is always exactly 64 characters
+  code_hash     TEXT NOT NULL CHECK (length(code_hash) = 64),
+  code_prefix   TEXT NOT NULL CHECK (length(code_prefix) <= 10),
+  credit_cents  INTEGER NOT NULL CHECK (credit_cents > 0 AND credit_cents <= 100000),
+  max_uses      INTEGER NOT NULL DEFAULT 0
+                CHECK (max_uses >= 0 AND max_uses <= 1000000),
+  uses          INTEGER NOT NULL DEFAULT 0
+                CHECK (uses >= 0),
+  active        BOOLEAN NOT NULL DEFAULT true,
+  expires_at    TIMESTAMPTZ,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_promo_codes_hash
+  ON promo_codes(code_hash) WHERE active = true;
+CREATE INDEX IF NOT EXISTS idx_promo_codes_created
+  ON promo_codes(created_at);
+
+-- ─── Promo Redemptions ───────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS promo_redemptions (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  promo_code_id UUID NOT NULL REFERENCES promo_codes(id),
+  user_id       UUID NOT NULL REFERENCES users(id),
+  credit_cents  INTEGER NOT NULL CHECK (credit_cents > 0 AND credit_cents <= 100000),
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE(promo_code_id, user_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_promo_redemptions_user
+  ON promo_redemptions(user_id);
+CREATE INDEX IF NOT EXISTS idx_promo_redemptions_created
+  ON promo_redemptions(created_at);
+
+-- ─── Loyalty Tiers ───────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS loyalty_tiers (
+  id                  TEXT PRIMARY KEY,
+  name                TEXT NOT NULL CHECK (length(name) <= 50),
+  min_spend_bytes     BIGINT NOT NULL DEFAULT 0
+                      CHECK (min_spend_bytes >= 0),
+  cashback_basis_pts  INTEGER NOT NULL DEFAULT 0
+                      CHECK (cashback_basis_pts >= 0 AND cashback_basis_pts <= 5000),
+  sort_order          INTEGER NOT NULL DEFAULT 0
+);
+
+-- Seed loyalty tiers
+INSERT INTO loyalty_tiers (id, name, min_spend_bytes, cashback_basis_pts, sort_order) VALUES
+  ('none',   'None',   0,               0,    0),
+  ('bronze', 'Bronze', 1073741824,      200,  1),
+  ('silver', 'Silver', 10737418240,     500,  2),
+  ('gold',   'Gold',   53687091200,     1000, 3)
+ON CONFLICT (id) DO UPDATE SET
+  name = EXCLUDED.name,
+  min_spend_bytes = EXCLUDED.min_spend_bytes,
+  cashback_basis_pts = EXCLUDED.cashback_basis_pts,
+  sort_order = EXCLUDED.sort_order;
+
+-- ─── Loyalty Rewards ─────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS loyalty_rewards (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id       UUID NOT NULL REFERENCES users(id),
+  tier_id       TEXT NOT NULL REFERENCES loyalty_tiers(id),
+  period_start  DATE NOT NULL,
+  period_end    DATE NOT NULL,
+  spend_cents   INTEGER NOT NULL DEFAULT 0
+                CHECK (spend_cents >= 0 AND spend_cents <= 214748364),
+  reward_cents  INTEGER NOT NULL DEFAULT 0
+                CHECK (reward_cents >= 0 AND reward_cents <= 214748364),
+  status        TEXT NOT NULL DEFAULT 'pending'
+                CHECK (status IN ('pending', 'credited')),
+  credited_at   TIMESTAMPTZ,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE(user_id, period_start)
+);
+
+CREATE INDEX IF NOT EXISTS idx_loyalty_rewards_user
+  ON loyalty_rewards(user_id);
+CREATE INDEX IF NOT EXISTS idx_loyalty_rewards_status
+  ON loyalty_rewards(status);
+CREATE INDEX IF NOT EXISTS idx_loyalty_rewards_created
+  ON loyalty_rewards(created_at);
+
+-- Retention policies for referral/affiliate/promo/loyalty tables
+INSERT INTO data_retention_policies (table_name, retention_days, description) VALUES
+  ('referral_codes',         730, 'Referral codes retained for 2 years'),
+  ('referral_redemptions',   730, 'Referral redemptions retained for 2 years'),
+  ('affiliate_links',        730, 'Affiliate links retained for 2 years'),
+  ('affiliate_commissions',  730, 'Affiliate commissions retained for 2 years'),
+  ('promo_codes',            730, 'Promo codes retained for 2 years'),
+  ('promo_redemptions',      730, 'Promo redemptions retained for 2 years'),
+  ('loyalty_rewards',        730, 'Loyalty rewards retained for 2 years')
+ON CONFLICT (table_name) DO NOTHING;
+
+INSERT INTO schema_migrations (version, description) VALUES
+  ('1.5.0', 'Add referral codes, affiliate commissions, promo codes, loyalty tiers/rewards tables')
 ON CONFLICT (version) DO NOTHING;

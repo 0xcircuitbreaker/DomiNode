@@ -1,6 +1,6 @@
 const TOKEN_REFRESH_BUFFER_MS = 60_000;
 
-// R18-C3: Maximum response body size for token endpoint responses (1MB)
+// Maximum response body size for token endpoint responses (1MB)
 const MAX_TOKEN_RESPONSE_BYTES = 1_048_576;
 
 export class TokenManager {
@@ -22,31 +22,31 @@ export class TokenManager {
       headers: {
         "Content-Type": "application/json",
         "User-Agent": "dominusnode-mcp-server/1.0.0",
-        "X-DominusNode-Agent": "mcp", // R36 H-5: MCP identification
+        "X-DominusNode-Agent": "mcp", // MCP identification
       },
       body: JSON.stringify({ apiKey }),
       signal: AbortSignal.timeout(30_000),
-      redirect: "error", // R17: Reject redirects — prevents credential leakage
+      redirect: "error", // Reject redirects — prevents credential leakage
     });
 
     if (!res.ok) {
-      // R31 C-2: Cancel body instead of buffering — prevents OOM from oversized error response
+      // Cancel body instead of buffering — prevents OOM from oversized error response
       await res.body?.cancel();
       throw new Error(`Failed to verify API key (HTTP ${res.status})`);
     }
 
-    // R18-C3: Response size limit to prevent OOM
+    // Response size limit to prevent OOM
     const verifyText = await res.text();
     if (verifyText.length > MAX_TOKEN_RESPONSE_BYTES) {
       throw new Error("Token verification response too large");
     }
-    // R36 C-4: Backend returns { token, refreshToken } — accept both field names
+    // Backend returns { token, refreshToken } — accept both field names
     const data = safeJsonParse<{ token?: string; accessToken?: string; refreshToken: string }>(verifyText);
     const accessToken = data.accessToken ?? data.token;
     if (!accessToken) {
       throw new Error("No access token in verify-key response");
     }
-    // R26 H-4: Route through setTokens to enforce type+length validation
+    // Route through setTokens to enforce type+length validation
     this.setTokens(accessToken, data.refreshToken);
   }
 
@@ -57,13 +57,13 @@ export class TokenManager {
       const payload = JSON.parse(
         Buffer.from(parts[1].replace(/-/g, "+").replace(/_/g, "/"), "base64").toString(),
       );
-      // R31 H-2: Strip prototype pollution keys from JWT payload
+      // Strip prototype pollution keys from JWT payload
       if (payload && typeof payload === "object") {
         for (const key of ["__proto__", "constructor", "prototype"]) {
           delete (payload as Record<string, unknown>)[key];
         }
       }
-      // R27 H-2: Validate exp is a finite number — undefined/NaN comparison always returns false
+      // Validate exp is a finite number — undefined/NaN comparison always returns false
       if (typeof payload.exp !== "number" || !Number.isFinite(payload.exp)) return true;
       return payload.exp * 1000 < Date.now() + TOKEN_REFRESH_BUFFER_MS;
     } catch {
@@ -78,7 +78,7 @@ export class TokenManager {
     return this.forceRefresh();
   }
 
-  // R19 H-2: Rate limit forceRefresh to prevent self-inflicted DDoS
+  // Rate limit forceRefresh to prevent self-inflicted DDoS
   private lastRefreshAttempt = 0;
   private static readonly MIN_REFRESH_INTERVAL_MS = 5_000; // 5 seconds between refreshes
 
@@ -106,11 +106,11 @@ export class TokenManager {
             headers: {
               "Content-Type": "application/json",
               "User-Agent": "dominusnode-mcp-server/1.0.0",
-              "X-DominusNode-Agent": "mcp", // R36 H-5: MCP identification
+              "X-DominusNode-Agent": "mcp", // MCP identification
             },
             body: JSON.stringify({ refreshToken: this.refreshTokenValue }),
             signal: AbortSignal.timeout(30_000),
-            redirect: "error", // R17: Reject redirects
+            redirect: "error", // Reject redirects
           });
 
           if (res.ok) {
@@ -118,18 +118,18 @@ export class TokenManager {
             if (refreshText.length > MAX_TOKEN_RESPONSE_BYTES) {
               throw new Error("Token refresh response too large");
             }
-            // R36 C-4: Backend returns { token, refreshToken } — accept both field names
+            // Backend returns { token, refreshToken } — accept both field names
             const data = safeJsonParse<{ token?: string; accessToken?: string; refreshToken?: string }>(refreshText);
             const accessToken = data.accessToken ?? data.token;
             if (!accessToken) {
               throw new Error("No access token in refresh response");
             }
-            // R26 H-4: Route through setTokens to enforce type+length validation
+            // Route through setTokens to enforce type+length validation
             this.setTokens(accessToken, data.refreshToken ?? this.refreshTokenValue!);
             return this.accessToken!;
           }
 
-          // R31 C-2: Cancel body instead of buffering — prevents OOM from oversized error response
+          // Cancel body instead of buffering — prevents OOM from oversized error response
           await res.body?.cancel();
         }
 
@@ -155,7 +155,7 @@ export class TokenManager {
 
   /** Store tokens from external auth flow (e.g., registration, wallet auth in bootstrap mode) */
   setTokens(accessToken: string, refreshToken: string): void {
-    // R20 H-1: Validate token type and length before storage
+    // Validate token type and length before storage
     if (typeof accessToken !== "string" || typeof refreshToken !== "string") {
       throw new Error("Tokens must be strings");
     }
@@ -170,7 +170,7 @@ export class TokenManager {
   }
 
   clear(): void {
-    // R18-H6: Best-effort credential clearing. JavaScript strings are immutable and
+    // Best-effort credential clearing. JavaScript strings are immutable and
     // garbage-collected — old values persist in memory until GC reclaims them.
     // True memory zeroing is not possible in Node.js. This is a known limitation.
     // For maximum security, keep token lifetimes short (15min access, 7d refresh).
@@ -183,7 +183,7 @@ export class TokenManager {
 
 const DANGEROUS_KEYS = new Set(["__proto__", "constructor", "prototype"]);
 
-// R20 H-6: Depth limit prevents stack overflow on deeply nested JSON
+// Depth limit prevents stack overflow on deeply nested JSON
 function stripDangerousKeys(obj: unknown, depth = 0): void {
   if (depth > 50 || !obj || typeof obj !== "object") return;
   if (Array.isArray(obj)) {

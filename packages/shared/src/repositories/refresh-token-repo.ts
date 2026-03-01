@@ -40,7 +40,7 @@ export async function storeToken(
 
 /** Find a valid (non-revoked, non-expired) token by its hash */
 export async function findValidToken(tokenHash: string): Promise<Omit<RefreshTokenRecord, "token_hash"> | null> {
-  // R37 H-9: Exclude token_hash from SELECT — caller already has the hash as input
+  // Exclude token_hash from SELECT — caller already has the hash as input
   const result = await query<Omit<RefreshTokenRecord, "token_hash">>(
     `SELECT id, user_id, family_id, revoked, expires_at, created_at FROM refresh_tokens
      WHERE token_hash = $1 AND NOT revoked AND expires_at > now()
@@ -52,7 +52,7 @@ export async function findValidToken(tokenHash: string): Promise<Omit<RefreshTok
 
 /** Find a token by hash regardless of revocation (for reuse detection) */
 export async function findTokenByHash(tokenHash: string): Promise<Omit<RefreshTokenRecord, "token_hash"> | null> {
-  // R37 H-9: Exclude token_hash from SELECT — caller already has the hash as input
+  // Exclude token_hash from SELECT — caller already has the hash as input
   const result = await query<Omit<RefreshTokenRecord, "token_hash">>(
     `SELECT id, user_id, family_id, revoked, expires_at, created_at FROM refresh_tokens WHERE token_hash = $1 LIMIT 1`,
     [tokenHash],
@@ -86,12 +86,12 @@ export async function revokeAllForUser(userId: string): Promise<number> {
   return result.rowCount ?? 0;
 }
 
-/** R30 C-1: Find and lock a token row by hash within a transaction (FOR UPDATE SKIP LOCKED) */
+/** Find and lock a token row by hash within a transaction (FOR UPDATE SKIP LOCKED) */
 export async function findAndLockTokenByHash(
   tokenHash: string,
   client: PoolClient,
 ): Promise<Omit<RefreshTokenRecord, "token_hash"> | null> {
-  // R37 H-9: Exclude token_hash from SELECT — caller already has the hash as input
+  // Exclude token_hash from SELECT — caller already has the hash as input
   const result = await client.query(
     `SELECT id, user_id, family_id, revoked, expires_at, created_at
      FROM refresh_tokens WHERE token_hash = $1 FOR UPDATE SKIP LOCKED LIMIT 1`,
@@ -100,12 +100,12 @@ export async function findAndLockTokenByHash(
   return result.rows[0] ?? null;
 }
 
-/** R30 C-1: Revoke a token within a transaction */
+/** Revoke a token within a transaction */
 export async function revokeTokenInTx(tokenHash: string, client: PoolClient): Promise<void> {
   await client.query(`UPDATE refresh_tokens SET revoked = true WHERE token_hash = $1`, [tokenHash]);
 }
 
-/** R30 C-1: Store a refresh token within a transaction */
+/** Store a refresh token within a transaction */
 export async function storeTokenInTx(
   userId: string,
   tokenHash: string,

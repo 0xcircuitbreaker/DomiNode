@@ -212,7 +212,7 @@ describe("teams routes", () => {
     mockIsValidEmail.mockImplementation((email: string) => {
       return typeof email === "string" && email.includes("@") && email.length >= 5;
     });
-    // R36 H-6: Default mock for findUserById — returns verified user for invite accept tests
+    // Default mock for findUserById — returns verified user for invite accept tests
     mockFindUserById.mockResolvedValue({
       id: "test-user-id",
       email: "test@example.com",
@@ -1001,7 +1001,7 @@ describe("teams routes", () => {
       expect(res.status).toBe(200);
       expect(res.body.id).toBe("invite-1");
       expect(res.body.teamName).toBe("Team Alpha");
-      // R46 C-3: Public endpoint now masks email PII
+      // Public endpoint now masks email PII
       expect(res.body.email).toBe("in***@test.com");
       expect(mockGetInviteByToken).toHaveBeenCalled();
     });

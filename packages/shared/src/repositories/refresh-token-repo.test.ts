@@ -65,7 +65,7 @@ describe("refresh-token-repo", () => {
       const result = await storeToken("user-1", "hash-1", "fam-1", new Date());
 
       expect(result).toEqual(record);
-      // R37 C-3: RETURNING clause must NOT include token_hash
+      // RETURNING clause must NOT include token_hash
       const sql = mockQuery.mock.calls[0][0] as string;
       expect(sql).toContain("INSERT INTO refresh_tokens");
       const returningClause = sql.split("RETURNING")[1];

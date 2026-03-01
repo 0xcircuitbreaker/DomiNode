@@ -215,7 +215,7 @@ describe("wallet-auth routes", () => {
       });
       vi.mocked(recoverSignerAddress).mockReturnValue(VALID_ADDRESS);
       vi.mocked(userRepo.findUserByWalletAddress).mockResolvedValue(null);
-      // R46 C-2: New user creation uses a DB transaction (pool.connect + client.query)
+      // New user creation uses a DB transaction (pool.connect + client.query)
       mockPoolQuery
         .mockResolvedValueOnce({ rows: [] }) // BEGIN
         .mockResolvedValueOnce({ rows: [{ // INSERT INTO users RETURNING ...
@@ -243,7 +243,7 @@ describe("wallet-auth routes", () => {
       expect(res.body.token).toBe("test-access-token");
       expect((res.body.user as any).isNewUser).toBe(true);
       expect((res.body.user as any).wallet_address).toBe(VALID_ADDRESS);
-      // R46 C-2: Verify transaction was used (BEGIN + 2 INSERTs + COMMIT)
+      // Verify transaction was used (BEGIN + 2 INSERTs + COMMIT)
       expect(mockPoolQuery).toHaveBeenCalledTimes(4);
     });
 
@@ -394,7 +394,7 @@ describe("wallet-auth routes", () => {
 
     // NOTE: Rate limit test must be LAST in this describe block because
     // it exhausts the in-memory rate limiter for the test IP (127.0.0.1)
-    it("should rate limit /verify endpoint (R18 H-1)", async () => {
+    it("should rate limit /verify endpoint", async () => {
       // consumeChallenge returns null so each request fails fast after rate limit check
       vi.mocked(walletChallengeRepo.consumeChallenge).mockResolvedValue(null);
 

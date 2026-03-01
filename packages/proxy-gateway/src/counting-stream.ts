@@ -21,7 +21,7 @@ export function attachByteCounters(
     if (limitFired || counter.maxBytes <= 0 || !counter.onLimitExceeded) return;
     if (counter.bytesIn + counter.bytesOut > counter.maxBytes) {
       limitFired = true;
-      // R30 H-2: Pause streams before limit callback to prevent TCP window overshoot
+      // Pause streams before limit callback to prevent TCP window overshoot
       try { (clientSocket as net.Socket).pause(); } catch { /* best effort */ }
       try { (upstreamSocket as net.Socket).pause(); } catch { /* best effort */ }
       counter.onLimitExceeded();

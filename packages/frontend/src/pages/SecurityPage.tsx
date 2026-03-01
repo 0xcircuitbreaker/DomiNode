@@ -70,7 +70,7 @@ export default function SecurityPage() {
     }
   }, [user]);
 
-  // R15 H-4: Auto-clear MFA setup data after 5 minutes to prevent indefinite secret display
+  // Auto-clear MFA setup data after 5 minutes to prevent indefinite secret display
   useEffect(() => {
     if (!setupData) return;
     const timer = setTimeout(() => {

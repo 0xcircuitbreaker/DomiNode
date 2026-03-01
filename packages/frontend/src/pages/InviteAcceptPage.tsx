@@ -72,7 +72,7 @@ export default function InviteAcceptPage() {
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to accept invite.";
       if (message === "Unauthorized") {
-        // R37 H-1: Redirect to login, then come back to accept the invite.
+        // Redirect to login, then come back to accept the invite.
         // Double-encode the token to prevent query string injection in the inner URL.
         const returnPath = `/teams/invite?token=${encodeURIComponent(token)}`;
         navigate(`/login?redirect=${encodeURIComponent(returnPath)}`);

@@ -18,7 +18,7 @@ router.get("/", requireAuth, async (_req, res) => {
     maxRotationIntervalMinutes: 60,
     minRotationIntervalMinutes: 1,
     geoTargeting: {
-      // R19 M-3: Webshare only supports country-level targeting; state/city are silently ignored
+      // Webshare only supports country-level targeting; state/city are silently ignored
       stateSupport: false,
       citySupport: false,
       asnSupport: false,

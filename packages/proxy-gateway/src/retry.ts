@@ -20,7 +20,7 @@ export interface RetryOptions {
   jitter: boolean;
 }
 
-// R46 L-1: Validate retry config env vars for NaN/range
+// Validate retry config env vars for NaN/range
 const parsedMaxRetries = parseInt(process.env["PROXY_MAX_RETRIES"] ?? "2", 10);
 const parsedBaseDelay = parseInt(process.env["PROXY_RETRY_BASE_DELAY_MS"] ?? "200", 10);
 
@@ -39,7 +39,7 @@ export const DEFAULT_RETRY_OPTIONS: RetryOptions = {
   jitter: true,
 };
 
-// R46 M-3: No-retry options for non-idempotent HTTP methods (POST/PUT/DELETE/PATCH)
+// No-retry options for non-idempotent HTTP methods (POST/PUT/DELETE/PATCH)
 export const NO_RETRY_OPTIONS: RetryOptions = {
   maxRetries: 0,
   baseDelayMs: 0,

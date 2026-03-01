@@ -8,7 +8,7 @@ export default function ResetPasswordPage() {
   const [searchParams] = useSearchParams();
   const rawToken = searchParams.get("token");
 
-  // R37 C-2: Validate token format before sending to API to prevent injection.
+  // Validate token format before sending to API to prevent injection.
   // Tokens should be hex or alphanumeric, with a reasonable length (16-512 chars).
   const TOKEN_RE = /^[a-zA-Z0-9._-]+$/;
   const token =

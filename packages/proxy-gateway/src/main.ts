@@ -110,7 +110,7 @@ async function main(): Promise<void> {
 
     if (getActiveSessionCount() > 0) {
       log.warn(`forced shutdown with ${getActiveSessionCount()} active sessions — force-settling`);
-      // R29 C-2: Force-settle all remaining sessions to prevent unbilled bandwidth
+      // Force-settle all remaining sessions to prevent unbilled bandwidth
       const remaining = getActiveSessions();
       const uniqueUsers = new Set(remaining.map(s => s.userId));
       for (const uid of uniqueUsers) {

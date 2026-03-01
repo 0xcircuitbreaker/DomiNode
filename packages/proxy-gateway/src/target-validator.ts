@@ -6,7 +6,7 @@ const log = createLogger("proxy:target-validator");
 
 export function isValidHostname(host: string): boolean {
   if (!host || host.length === 0 || host.length > 253) return false;
-  // R31 C-1: Strip IPv6 zone ID before validation (%25-encoded or raw %)
+  // Strip IPv6 zone ID before validation (%25-encoded or raw %)
   const zoneIdx = host.indexOf("%");
   if (zoneIdx !== -1) {
     host = host.substring(0, zoneIdx);
@@ -19,7 +19,7 @@ export function isValidHostname(host: string): boolean {
     const inner = host.slice(1, -1);
     return net.isIP(inner) === 6;
   }
-  // R26 H-4: Block hex/octal/decimal IP representations that bypass net.isIP()
+  // Block hex/octal/decimal IP representations that bypass net.isIP()
   if (/^0x[0-9a-fA-F]+$/.test(host)) return false;           // hex IP (0x7f000001)
   if (/^0[0-7]+(\.[0-7]+){0,3}$/.test(host)) return false;   // octal IP (0177.0.0.1)
   if (/^\d+$/.test(host)) return false;                       // decimal IP (2130706433)
@@ -108,7 +108,7 @@ function extractEmbeddedIPv4(ip: string): string | null {
 function expandIPv6(ip: string): string | null {
   if (net.isIP(ip) !== 6) return null;
 
-  // R37 C-1: Handle IPv6 addresses with embedded IPv4 dotted-quad notation
+  // Handle IPv6 addresses with embedded IPv4 dotted-quad notation
   // (e.g., ::ffff:192.168.1.1, ::10.0.0.1). The dotted-quad replaces
   // the last two 16-bit groups per RFC 4291 Section 2.5.5.
   const embeddedIPv4 = extractEmbeddedIPv4(ip);
@@ -137,7 +137,7 @@ function expandIPv6(ip: string): string | null {
 }
 
 function isBlockedIPv6(ip: string): boolean {
-  // R31 C-1: Strip IPv6 zone ID before blocking check
+  // Strip IPv6 zone ID before blocking check
   const zoneIdx = ip.indexOf("%");
   if (zoneIdx !== -1) {
     ip = ip.substring(0, zoneIdx);
@@ -159,7 +159,7 @@ function isBlockedIPv6(ip: string): boolean {
     const ipv4 = `${(hi >> 8) & 0xff}.${hi & 0xff}.${(lo >> 8) & 0xff}.${lo & 0xff}`;
     return isBlockedIPv4(ipv4);
   }
-  // R37 C-1: IPv4-compatible IPv6 addresses (::x.x.x.x or 0:0:0:0:0:0:x.x.x.x)
+  // IPv4-compatible IPv6 addresses (::x.x.x.x or 0:0:0:0:0:0:x.x.x.x)
   // These have prefix 0000:0000:0000:0000:0000:0000: with an embedded IPv4 in the last 32 bits.
   // Different from ::ffff: (IPv4-mapped) — these are deprecated but still parsed by many stacks.
   if (expanded.startsWith("0000:0000:0000:0000:0000:0000:")) {
@@ -170,7 +170,7 @@ function isBlockedIPv6(ip: string): boolean {
     if (isBlockedIPv4(ipv4)) return true;
   }
 
-  // R38 C-8: Teredo tunnel addresses (2001:0000::/32)
+  // Teredo tunnel addresses (2001:0000::/32)
   // Format: 2001:0000:SSSS:SSSS:CCCC:CCCC:XXXX:XXXX
   // The embedded IPv4 (client) is in bytes 13-16 (groups 6-7), but bitwise inverted (XOR 0xFF).
   // An attacker can encode 127.0.0.1 or 10.x.x.x inside a Teredo address to bypass SSRF checks.
@@ -187,7 +187,7 @@ function isBlockedIPv6(ip: string): boolean {
     if (isBlockedIPv4(teredoIpv4)) return true;
   }
 
-  // R38 C-8: 6to4 tunnel addresses (2002::/16)
+  // 6to4 tunnel addresses (2002::/16)
   // Format: 2002:XXYY:ZZWW:... where XX.YY.ZZ.WW is the embedded IPv4 in bytes 3-6 (groups 1-2).
   // An attacker can encode private IPs inside a 6to4 address to bypass SSRF checks.
   if (expanded.startsWith("2002:")) {

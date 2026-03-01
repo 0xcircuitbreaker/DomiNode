@@ -19,7 +19,7 @@ function checkCryptoPayLimit(): boolean {
   return true;
 }
 
-// R36 C-6: Rate limit check_payment to prevent polling abuse
+// Rate limit check_payment to prevent polling abuse
 const CHECK_PAYMENT_MAX = 30;
 const CHECK_PAYMENT_WINDOW_MS = 300_000; // 5 minutes
 const checkPaymentTimestamps: number[] = [];

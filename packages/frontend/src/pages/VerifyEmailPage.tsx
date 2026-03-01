@@ -9,7 +9,7 @@ export default function VerifyEmailPage() {
   const [state, setState] = useState<VerifyState>("loading");
   const [message, setMessage] = useState("");
 
-  // R38 H-1: Validate token format before sending to API to prevent injection
+  // Validate token format before sending to API to prevent injection
   const TOKEN_RE = /^[a-zA-Z0-9._-]+$/;
 
   useEffect(() => {

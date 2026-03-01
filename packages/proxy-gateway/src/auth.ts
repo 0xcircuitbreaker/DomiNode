@@ -62,7 +62,7 @@ function parseProxyOptions(username: string): ProxyOptions {
     }
   }
 
-  // Match session-XXXX pattern (R16-M4: cap at 255 chars to prevent log/memory abuse)
+  // Match session-XXXX pattern (cap at 255 chars to prevent log/memory abuse)
   const sessionMatch = username.match(/(?:^|-)session-([a-zA-Z0-9]+)(?:-|$)/);
   if (sessionMatch) {
     options.sessionId = sessionMatch[1].slice(0, 255);
@@ -107,18 +107,18 @@ export async function authenticateRequest(
   try {
     const result = await userRepo.findUserByApiKeyHash(keyHash);
     if (!result) {
-      // R46 M-4: Only log static prefix — don't leak key material
+      // Only log static prefix — don't leak key material
       log.warn("invalid API key", { prefix: apiKey.slice(0, 8) });
       return null;
     }
 
-    // R27 C-1: Reject suspended/deleted users at proxy auth layer
+    // Reject suspended/deleted users at proxy auth layer
     if (result.user.status !== "active") {
       log.warn("rejected non-active user", { userId: result.user.id, status: result.user.status });
       return null;
     }
 
-    // R36: Reject users who haven't verified their email (wallet-auth users are pre-verified)
+    // Reject users who haven't verified their email (wallet-auth users are pre-verified)
     if (!result.user.email_verified) {
       log.warn("rejected unverified email", { userId: result.user.id });
       return null;

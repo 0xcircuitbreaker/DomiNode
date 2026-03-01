@@ -42,7 +42,7 @@ export const options = {
   },
 };
 
-// R18-C1: Verify oversized sessionId doesn't crash the proxy
+// Verify oversized sessionId doesn't crash the proxy
 export function oversizedSessionId() {
   const user = getUserForVU(users);
   const targetUrl = `${getTargetBase()}/payload/tiny`;

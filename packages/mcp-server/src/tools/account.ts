@@ -3,7 +3,7 @@ import { z } from "zod";
 import type { HttpClient } from "../http-client.js";
 import type { AccountInfo } from "../types.js";
 
-// R18-H7: Stricter rate limit for account creation in bootstrap mode.
+// Stricter rate limit for account creation in bootstrap mode.
 // The backend has per-IP limits (3 accounts/hour) but the MCP server should
 // also limit to prevent a compromised MCP client from spamming registration.
 const BOOTSTRAP_SIGNUP_MAX = 5;
@@ -16,7 +16,7 @@ export function _resetBootstrapSignupLimits(): void {
   loginTimestamps.length = 0;
 }
 
-// R24 H-2: Rate limit login attempts to prevent brute-force via MCP client
+// Rate limit login attempts to prevent brute-force via MCP client
 const LOGIN_MAX = 10;
 const LOGIN_WINDOW_MS = 900_000; // 15 minutes
 const loginTimestamps: number[] = [];
@@ -38,7 +38,7 @@ function checkBootstrapSignupLimit(): boolean {
   while (signupTimestamps.length > 0 && now - signupTimestamps[0] > BOOTSTRAP_SIGNUP_WINDOW_MS) {
     signupTimestamps.shift();
   }
-  // R23 H-2: Hard cap prevents unbounded growth under pathological clock skew
+  // Hard cap prevents unbounded growth under pathological clock skew
   if (signupTimestamps.length > 100) signupTimestamps.length = 100;
   if (signupTimestamps.length >= BOOTSTRAP_SIGNUP_MAX) return false;
   signupTimestamps.push(now);
@@ -88,7 +88,7 @@ export function registerAccountTools(server: McpServer, httpClient: HttpClient):
           { email: args.email, password: args.password },
           false,
         );
-        // R19 H-4: Store tokens so subsequent authenticated calls work (bootstrap mode)
+        // Store tokens so subsequent authenticated calls work (bootstrap mode)
         if (data.token && data.refreshToken) {
           httpClient.storeTokens(data.token, data.refreshToken);
         }
@@ -134,7 +134,7 @@ export function registerAccountTools(server: McpServer, httpClient: HttpClient):
       password: z.string().min(1).max(128).describe("Account password"),
     },
     async (args) => {
-      // R24 H-2: Rate limit login attempts to prevent brute-force via MCP client
+      // Rate limit login attempts to prevent brute-force via MCP client
       if (!checkLoginLimit()) {
         return {
           isError: true,
@@ -147,7 +147,7 @@ export function registerAccountTools(server: McpServer, httpClient: HttpClient):
           { email: args.email, password: args.password },
           false,
         );
-        // R19 H-4: Store tokens so subsequent authenticated calls work (bootstrap mode)
+        // Store tokens so subsequent authenticated calls work (bootstrap mode)
         if (data.token && data.refreshToken) {
           httpClient.storeTokens(data.token, data.refreshToken);
         }
@@ -187,7 +187,7 @@ export function registerAccountTools(server: McpServer, httpClient: HttpClient):
           false,
         );
 
-        // R19 H-4: Store tokens from registration so subsequent authenticated calls work (bootstrap mode)
+        // Store tokens from registration so subsequent authenticated calls work (bootstrap mode)
         if (reg.token && reg.refreshToken) {
           httpClient.storeTokens(reg.token, reg.refreshToken);
         }
@@ -306,7 +306,7 @@ export function registerAccountTools(server: McpServer, httpClient: HttpClient):
     },
   );
 
-  // R36 C-5: Rate limit verify_email to prevent brute-force enumeration
+  // Rate limit verify_email to prevent brute-force enumeration
   const VERIFY_EMAIL_MAX = 10;
   const VERIFY_EMAIL_WINDOW_MS = 900_000; // 15 minutes
   const verifyEmailTimestamps: number[] = [];
@@ -321,7 +321,7 @@ export function registerAccountTools(server: McpServer, httpClient: HttpClient):
     return true;
   }
 
-  // R36 H-1: Rate limit resend_verification
+  // Rate limit resend_verification
   const RESEND_MAX = 3;
   const RESEND_WINDOW_MS = 900_000; // 15 minutes
   const resendTimestamps: number[] = [];

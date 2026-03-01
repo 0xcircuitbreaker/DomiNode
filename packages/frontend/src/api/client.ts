@@ -1,10 +1,10 @@
 // Simplified API client — auth is handled via httpOnly cookies.
 // No token management needed on the client side.
 
-// R22 H-3: Response size limit to prevent OOM from oversized server responses
+// Response size limit to prevent OOM from oversized server responses
 const MAX_RESPONSE_BYTES = 5 * 1024 * 1024; // 5MB
 
-// R26 M-1: Prototype pollution protection — strip dangerous keys from parsed JSON
+// Prototype pollution protection — strip dangerous keys from parsed JSON
 const DANGEROUS_KEYS = new Set(["__proto__", "constructor", "prototype"]);
 function stripDangerousKeys(obj: unknown, depth = 0): void {
   if (depth > 50 || !obj || typeof obj !== "object") return;
@@ -23,7 +23,7 @@ function stripDangerousKeys(obj: unknown, depth = 0): void {
 }
 
 async function safeJson<T>(res: Response): Promise<T> {
-  // R24 C-1: Pre-flight Content-Length check before buffering (prevents OOM on oversized responses)
+  // Pre-flight Content-Length check before buffering (prevents OOM on oversized responses)
   const contentLength = parseInt(res.headers.get("content-length") ?? "0", 10);
   if (contentLength > MAX_RESPONSE_BYTES) {
     await res.body?.cancel();
@@ -33,7 +33,7 @@ async function safeJson<T>(res: Response): Promise<T> {
   if (text.length > MAX_RESPONSE_BYTES) {
     throw new Error("Response too large");
   }
-  // R46 H-3: Throw on empty body rather than returning undefined as T (bypasses type safety)
+  // Throw on empty body rather than returning undefined as T (bypasses type safety)
   if (!text) throw new Error("Empty response from server");
   const parsed = JSON.parse(text);
   stripDangerousKeys(parsed);
@@ -53,7 +53,7 @@ function silentRefresh(): Promise<boolean> {
   refreshPromise = fetch("/api/auth/refresh", {
     method: "POST",
     credentials: "include",
-    redirect: "error", // R19 C-1: Prevent credential leakage via redirect
+    redirect: "error", // Prevent credential leakage via redirect
   })
     .then((r) => r.ok)
     .catch(() => false)
@@ -63,7 +63,7 @@ function silentRefresh(): Promise<boolean> {
   return refreshPromise;
 }
 
-// R37 H-2: Validate API paths to prevent CRLF injection and path traversal
+// Validate API paths to prevent CRLF injection and path traversal
 function validateApiPath(path: string): string {
   // Block CRLF injection
   if (/[\r\n]/.test(path)) {
@@ -103,7 +103,7 @@ async function apiFetch<T>(
       headers,
       credentials: "include",
       signal: controller.signal,
-      redirect: "error", // R19 C-1: Prevent credential leakage via redirect
+      redirect: "error", // Prevent credential leakage via redirect
     });
   } finally {
     clearTimeout(timeoutId);
@@ -114,7 +114,7 @@ async function apiFetch<T>(
     const refreshed = await silentRefresh();
 
     if (refreshed) {
-      // R16 F-2: Retry with same 30s timeout as original request
+      // Retry with same 30s timeout as original request
       const retryController = new AbortController();
       const retryTimeoutId = setTimeout(() => retryController.abort(), 30_000);
       let retryRes: Response;
@@ -124,7 +124,7 @@ async function apiFetch<T>(
           headers,
           credentials: "include",
           signal: retryController.signal,
-          redirect: "error", // R19 C-1: Prevent credential leakage via redirect
+          redirect: "error", // Prevent credential leakage via redirect
         });
       } finally {
         clearTimeout(retryTimeoutId);
@@ -153,7 +153,7 @@ async function apiFetch<T>(
 
   if (res.status === 429) {
     const retryAfter = res.headers.get("Retry-After");
-    // R16 F-3: Guard against NaN from non-numeric header values
+    // Guard against NaN from non-numeric header values
     const seconds = retryAfter ? (parseInt(retryAfter, 10) || 60) : 60;
     throw new Error(`Too many requests. Please try again in ${seconds} seconds.`);
   }

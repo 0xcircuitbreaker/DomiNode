@@ -64,6 +64,7 @@ export default function LoginPage() {
   const [waitlistSuccess, setWaitlistSuccess] = useState(false);
   const [waitlistError, setWaitlistError] = useState("");
   const [waitlistLoading, setWaitlistLoading] = useState(false);
+  const [referralCode, setReferralCode] = useState(searchParams.get("ref") ?? "");
   const recaptchaLoaded = useRef(false);
 
   // Load reCAPTCHA v3 script dynamically (invisible — no checkbox)
@@ -88,7 +89,7 @@ export default function LoginPage() {
   }, [searchParams]);
 
   const redirectTo = searchParams.get("redirect") ?? "/app";
-  // R36 H-1 + R37 C-1: Only allow relative paths to prevent open redirect
+  // Only allow relative paths to prevent open redirect
   // Block protocol-relative URLs (//evil.com) and backslash bypasses (\/evil.com, \evil.com)
   // Browsers normalize backslashes to forward slashes, so \/evil.com becomes //evil.com
   const normalizedRedirect = redirectTo.replace(/\\/g, "/");
@@ -122,7 +123,7 @@ export default function LoginPage() {
       }
 
       if (isRegister) {
-        await register(email, password, captchaToken);
+        await register(email, password, captchaToken, referralCode || undefined);
         setPassword("");
         navigate(safeRedirect);
       } else {
@@ -350,7 +351,7 @@ export default function LoginPage() {
         {isRegister && (
           <div className="login-alert-info">
             <strong>Alpha Access</strong>
-            <p>{slotsData && !slotsData.unlimited ? `${slotsData.remaining} of ${slotsData.total} slots remaining` : "250 DC proxies"} | Limited residential bandwidth</p>
+            <p>{slotsData && !slotsData.unlimited ? `${slotsData.remaining} of ${slotsData.total} slots remaining` : "5,000 alpha slots, 250 DC proxies"} | Limited residential bandwidth</p>
             <p>If max bandwidth is reached, service restores within 1-6 hours</p>
           </div>
         )}
@@ -387,6 +388,21 @@ export default function LoginPage() {
             placeholder="Min 8 characters"
           />
         </div>
+
+        {isRegister && (
+          <div className="login-field">
+            <label htmlFor="login-referral">Referral Code <span style={{ color: "#6b7280", fontWeight: "normal" }}>(optional)</span></label>
+            <input
+              id="login-referral"
+              type="text"
+              value={referralCode}
+              onChange={(e) => setReferralCode(e.target.value.toUpperCase())}
+              maxLength={20}
+              className="login-input"
+              placeholder="e.g. ABCD1234"
+            />
+          </div>
+        )}
 
         <button
           type="submit"

@@ -170,7 +170,7 @@ describe("proxy-health routes", () => {
       expect(res.body.avgLatencyMs).toBe(120);
       expect(res.body.endpoints).toBeDefined();
       expect(res.body.supportedCountries).toBeDefined();
-      // R23 H-2: Non-admin users should NOT see provider details
+      // Non-admin users should NOT see provider details
       expect(res.body.providers).toBeUndefined();
     });
 

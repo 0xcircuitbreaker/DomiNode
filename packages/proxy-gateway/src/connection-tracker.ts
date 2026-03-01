@@ -4,7 +4,7 @@ const log = createLogger("proxy:connection-tracker");
 
 const userConnectionCounts = new Map<string, number>();
 const MAX_PER_USER = parseInt(process.env["PROXY_MAX_PER_USER"] ?? "100", 10);
-const MAX_TRACKED_USERS = 50_000; // Cap Map size to prevent OOM (R12 H-2)
+const MAX_TRACKED_USERS = 50_000; // Cap Map size to prevent OOM
 
 // Validate config at module load
 if (isNaN(MAX_PER_USER) || MAX_PER_USER <= 0) {

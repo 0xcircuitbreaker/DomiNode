@@ -46,7 +46,7 @@ fi
 
 echo "[$(date -Iseconds)] Restoring from ${BACKUP_FILE}..."
 
-# R36 C-13: Extract credentials from DATABASE_URL to avoid password in process list
+# Extract credentials from DATABASE_URL to avoid password in process list
 # H-27: Use read-based parsing instead of eval to prevent command injection
 _pg_creds="$(echo "${DATABASE_URL}" | python3 -c "
 import sys, urllib.parse

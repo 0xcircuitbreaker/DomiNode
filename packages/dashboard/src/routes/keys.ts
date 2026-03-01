@@ -14,14 +14,14 @@ router.post("/", async (req, res) => {
   try {
     const { userId } = (req as AuthenticatedRequest).user;
 
-    // R19 C-1: Check user is still active (JWT may outlive suspend by up to 15min)
+    // Check user is still active (JWT may outlive suspend by up to 15min)
     const currentUser = await userRepo.findUserById(userId);
     if (!currentUser || currentUser.status !== "active") {
       res.status(403).json({ error: "Account is suspended or disabled" });
       return;
     }
 
-    // R36: Require email verification before creating API keys
+    // Require email verification before creating API keys
     if (!currentUser.email_verified) {
       res.status(403).json({ error: "Please verify your email address before creating API keys" });
       return;

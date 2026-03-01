@@ -24,6 +24,8 @@ import waitlistRoutes from "./routes/waitlist.js";
 import agentWalletRoutes from "./routes/agent-wallet.js";
 import x402Routes from "./routes/x402.js";
 import teamsRoutes from "./routes/teams.js";
+import bugReportRoutes from "./routes/bug-reports.js";
+import referralRoutes from "./routes/referrals.js";
 
 const log = createLogger("api:server");
 
@@ -33,7 +35,7 @@ export function startApiServer(port: number = 3000): ReturnType<express.Express[
     .map((s) => s.trim());
 
   function getRequestHost(req: express.Request): string {
-    // R46 C-1: Only trust X-Forwarded-Host when trust proxy is configured.
+    // Only trust X-Forwarded-Host when trust proxy is configured.
     // Without this check, an attacker sending a direct request with a spoofed
     // X-Forwarded-Host could bypass CSRF origin validation.
     if (req.app.get("trust proxy")) {
@@ -76,7 +78,7 @@ export function startApiServer(port: number = 3000): ReturnType<express.Express[
       if (originHost === parsedRequestHost.host) return true;
       if (originHostname !== parsedRequestHost.hostname) return false;
 
-      // R40 H-2: Strict port matching — if request host has no port, only allow
+      // Strict port matching — if request host has no port, only allow
       // origins with no explicit port or standard ports for their scheme
       if (!parsedRequestHost.port) {
         if (!originPort) return true;
@@ -102,7 +104,7 @@ export function startApiServer(port: number = 3000): ReturnType<express.Express[
   const app = express();
 
   // Trust proxy: required for correct req.ip behind reverse proxies (nginx, Cloudflare, ALB)
-  // Without this, rate limiting, login lockout, and webhook IP allowlisting all use the proxy's IP (R13 C-2)
+  // Without this, rate limiting, login lockout, and webhook IP allowlisting all use the proxy's IP
   const trustProxy = process.env["TRUST_PROXY"];
   if (trustProxy) {
     const parsed = parseInt(trustProxy, 10);
@@ -226,6 +228,8 @@ export function startApiServer(port: number = 3000): ReturnType<express.Express[
   app.use("/api/agent-wallet", agentWalletRoutes);
   app.use("/api/x402", x402Routes);
   app.use("/api/teams", teamsRoutes);
+  app.use("/api/bug-reports", bugReportRoutes);
+  app.use("/api/referrals", referralRoutes);
 
   // RFC 9116: security.txt
   app.get("/.well-known/security.txt", (_req, res) => {
@@ -235,6 +239,132 @@ export function startApiServer(port: number = 3000): ReturnType<express.Express[
       `Expires: ${expires}\n` +
       `Preferred-Languages: en\n`
     );
+  });
+
+  // Agent Tool Discovery: machine-readable tool card for AI agent swarms
+  app.get("/.well-known/agent-tool.json", (_req, res) => {
+    const baseUrl = process.env["APP_URL"] ?? "https://dominusnode.com";
+    const proxyHost = process.env["PROXY_PUBLIC_HOST"] ?? "proxy.dominusnode.com";
+    const httpPort = process.env["PROXY_HTTP_PORT"] ?? "8080";
+    const socks5Port = process.env["SOCKS5_LISTEN_PORT"] ?? "1080";
+
+    res.json({
+      schema_version: "1.0.0",
+      name: "DomiNode",
+      description: "Rotating proxy-as-a-service with per-agent budgets, guardrails, and pay-per-use billing for AI agent swarms.",
+      homepage: baseUrl,
+      documentation: `${baseUrl}/docs`,
+      openapi_url: `${baseUrl}/api/openapi.json`,
+
+      auth: {
+        methods: ["api_key", "jwt", "eip191_wallet", "x402_micropayment"],
+        signup: {
+          email_password: `${baseUrl}/api/auth/register`,
+          wallet_challenge: `${baseUrl}/api/auth/wallet/challenge`,
+          wallet_verify: `${baseUrl}/api/auth/wallet/verify`,
+        },
+        login: `${baseUrl}/api/auth/login`,
+        api_keys: `${baseUrl}/api/keys`,
+      },
+
+      proxy: {
+        http: `http://{routing}:{api_key}@${proxyHost}:${httpPort}`,
+        socks5: `socks5://{routing}:{api_key}@${proxyHost}:${socks5Port}`,
+        routing_format: "{pool_type}-country-{ISO2}",
+        pool_types: ["dc", "residential", "auto"],
+        example: `curl -x http://dc-country-US:{YOUR_API_KEY}@${proxyHost}:${httpPort} https://httpbin.org/ip`,
+      },
+
+      pricing: {
+        model: "prepaid_wallet",
+        currency: "USD",
+        tiers: {
+          free_dc: { price_per_gb: 0, monthly_bandwidth: "500 MB", pool: "dc" },
+          swarm_dc: { price_per_gb: 0, monthly_bandwidth: "200 MB", pool: "dc" },
+          swarm_mixed: { price_per_gb: 0, monthly_bandwidth: "200 MB", pool: "all" },
+          payg: { price_per_gb: 5.00, monthly_bandwidth: "unlimited", pool: "all" },
+          volume_1tb: { price_per_gb: 3.00, monthly_bandwidth: "1 TB", pool: "all" },
+          agent: { price_per_gb: 5.00, monthly_bandwidth: "5 GB", pool: "all" },
+        },
+        x402: {
+          enabled: process.env["X402_ENABLED"] === "true",
+          dc_per_request_usd: 0.001,
+          residential_per_request_usd: 0.005,
+          payment_methods: ["USDC_base", "USDC_solana"],
+        },
+        payment_methods: ["stripe", "paypal", "crypto_nowpayments"],
+        crypto_currencies: ["BTC", "ETH", "LTC", "XMR", "ZEC", "USDC", "SOL", "USDT", "DAI", "BNB", "LINK"],
+      },
+
+      agent_features: {
+        agentic_wallets: {
+          description: "Server-side custodial sub-wallets with spending limits per agent",
+          create: `${baseUrl}/api/agent-wallet`,
+          operations: ["create", "fund", "balance", "freeze", "unfreeze", "delete", "transactions"],
+        },
+        teams: {
+          description: "Shared wallet billing with owner/admin/member roles",
+          create: `${baseUrl}/api/teams`,
+          operations: ["create", "fund", "add_member", "invite", "create_key", "usage"],
+        },
+        guardrails: {
+          spending_limits: true,
+          domain_allowlists: true,
+          daily_budgets: true,
+          freeze_unfreeze: true,
+          geo_restrictions: true,
+        },
+      },
+
+      integrations: {
+        mcp_server: "@dominusnode/mcp-server",
+        sdks: {
+          node: "@dominusnode/sdk",
+          python: "dominusnode",
+          rust: "dominusnode",
+          go: "github.com/Dominus-Node/dominusnode-go",
+          java: "com.dominusnode:dominusnode-java",
+          cpp: "dominusnode-cpp",
+        },
+        ai_frameworks: [
+          "langchain", "vercel-ai", "crewai", "openai-functions",
+          "openclaw", "chatgpt-gpt-actions", "gemini", "llamaindex",
+          "autogpt", "agent-zero", "n8n",
+        ],
+      },
+
+      rate_limits: {
+        api: "100 requests/min",
+        auth: "60 requests/15min",
+        proxy_sessions: "30/min (plan dependent)",
+        bandwidth: "10 GB/hour per user",
+      },
+
+      errors: {
+        structured: true,
+        codes: [
+          "INSUFFICIENT_BALANCE", "BANDWIDTH_LIMIT_EXCEEDED",
+          "TOO_MANY_CONNECTIONS", "POOL_RESTRICTED",
+          "UPSTREAM_UNAVAILABLE", "BUDGET_EXCEEDED",
+          "POLICY_DENIED", "NEEDS_REAUTH",
+        ],
+      },
+
+      bug_bounty: {
+        enabled: true,
+        submit: `${baseUrl}/api/bug-reports`,
+        rewards: {
+          p3_minor: "$0.05-$0.25 credits",
+          p2_integration_break: "$0.50-$2.50 credits",
+          p1_critical: "$2.50-$10.00 credits",
+        },
+      },
+
+      status: {
+        health: `${baseUrl}/api/health`,
+        slots: `${baseUrl}/api/slots`,
+      },
+    });
   });
 
   // Prometheus metrics endpoint (localhost only)

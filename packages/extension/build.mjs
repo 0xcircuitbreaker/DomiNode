@@ -8,7 +8,7 @@ const browser = process.env.BROWSER_TARGET || "chrome";
 const outdir = resolve(__dirname, `dist/${browser}`);
 const isProd = process.env.NODE_ENV === "production";
 
-// R16 EX-1: Warn if building without NODE_ENV=production to prevent sourcemap leakage
+// Warn if building without NODE_ENV=production to prevent sourcemap leakage
 if (!isProd) {
   console.warn("⚠ WARNING: Building in development mode (sourcemaps enabled).");
   console.warn("  For release builds, set NODE_ENV=production");

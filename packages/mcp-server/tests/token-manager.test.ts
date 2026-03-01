@@ -46,7 +46,7 @@ describe("TokenManager", () => {
   describe("initialize", () => {
     it("fetches tokens via verify-key endpoint", async () => {
       const accessToken = makeJwt(Math.floor(Date.now() / 1000) + 600);
-      // R36 H-6: Use backend's actual response format ({ token } not { accessToken })
+      // Use backend's actual response format ({ token } not { accessToken })
       globalThis.fetch = vi.fn().mockResolvedValueOnce({
         ok: true,
         text: () => Promise.resolve(JSON.stringify({ token: accessToken, refreshToken: "rt_123" })),
@@ -80,7 +80,7 @@ describe("TokenManager", () => {
   describe("getValidToken", () => {
     it("returns cached token if not expired", async () => {
       const token = makeJwt(Math.floor(Date.now() / 1000) + 600);
-      // R36 H-6: Use backend's actual response format ({ token } not { accessToken })
+      // Use backend's actual response format ({ token } not { accessToken })
       globalThis.fetch = vi.fn().mockResolvedValueOnce({
         ok: true,
         text: () => Promise.resolve(JSON.stringify({ token, refreshToken: "rt_1" })),
@@ -97,7 +97,7 @@ describe("TokenManager", () => {
       const expiredToken = makeJwt(Math.floor(Date.now() / 1000) - 100);
       const freshToken = makeJwt(Math.floor(Date.now() / 1000) + 600);
 
-      // R36 H-6: Use backend's actual response format ({ token } not { accessToken })
+      // Use backend's actual response format ({ token } not { accessToken })
       globalThis.fetch = vi.fn()
         .mockResolvedValueOnce({
           ok: true,
@@ -123,7 +123,7 @@ describe("TokenManager", () => {
       const token1 = makeJwt(Math.floor(Date.now() / 1000) + 600);
       const token2 = makeJwt(Math.floor(Date.now() / 1000) + 600);
 
-      // R36 H-6: Use backend's actual response format ({ token } not { accessToken })
+      // Use backend's actual response format ({ token } not { accessToken })
       globalThis.fetch = vi.fn()
         .mockResolvedValueOnce({
           ok: true,
@@ -147,7 +147,7 @@ describe("TokenManager", () => {
   describe("clear", () => {
     it("clears all tokens", async () => {
       const token = makeJwt(Math.floor(Date.now() / 1000) + 600);
-      // R36 H-6: Use backend's actual response format ({ token } not { accessToken })
+      // Use backend's actual response format ({ token } not { accessToken })
       globalThis.fetch = vi.fn().mockResolvedValueOnce({
         ok: true,
         text: () => Promise.resolve(JSON.stringify({ token, refreshToken: "rt_1" })),

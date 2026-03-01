@@ -4,7 +4,7 @@
  * Overrides RTCPeerConnection to force relay-only ICE transport,
  * preventing local IP address disclosure through WebRTC.
  *
- * R14 C-2 + H-1: Uses Object.defineProperty with configurable:false
+ * Uses Object.defineProperty with configurable:false
  * to prevent pages from restoring the original constructor.
  * Must run in "MAIN" world (Chrome MV3) to affect page context.
  */

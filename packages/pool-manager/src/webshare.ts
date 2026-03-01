@@ -197,16 +197,16 @@ export async function getBandwidthUsage(): Promise<BandwidthUsage> {
       Authorization: `Token ${config.apiKey}`,
     },
     redirect: "error",
-    signal: AbortSignal.timeout(30_000), // R18-reaudit: prevent indefinite hang
+    signal: AbortSignal.timeout(30_000), // prevent indefinite hang
   });
 
   if (!resp.ok) {
-    // R22 C-1: Don't include response body in error — may contain account/credential details
+    // Don't include response body in error — may contain account/credential details
     await resp.body?.cancel(); // Drain without buffering
     throw new Error(`Webshare bandwidth API failed: ${resp.status}`);
   }
 
-  // R18-H2: Response size limit to prevent OOM from oversized upstream response
+  // Response size limit to prevent OOM from oversized upstream response
   const respText = await resp.text();
   if (respText.length > 1_048_576) {
     throw new Error("Webshare bandwidth API response too large");
@@ -303,7 +303,7 @@ export async function fetchProxyList(): Promise<StaticProxy[]> {
         const cc = typeof rec["country_code"] === "string"
           ? (rec["country_code"] as string).toUpperCase()
           : "";
-        // R22 H-3: Skip proxies in sanctioned countries at ingestion time
+        // Skip proxies in sanctioned countries at ingestion time
         if (cc && BLOCKED_COUNTRY_CODES.has(cc)) continue;
         const entry: StaticProxy = {
           address: proxyAddress,
@@ -312,7 +312,7 @@ export async function fetchProxyList(): Promise<StaticProxy[]> {
           password: typeof rec["password"] === "string" ? rec["password"] : "",
           countryCode: cc,
         };
-        // R22 H-1: Make password non-enumerable to prevent accidental serialization
+        // Make password non-enumerable to prevent accidental serialization
         Object.defineProperty(entry, "password", { enumerable: false, writable: true, configurable: true });
         proxies.push(entry);
       }
@@ -359,7 +359,7 @@ export class StaticProxyPool {
         this._lastError = "Webshare proxy list returned 0 proxies";
       }
     } catch (err) {
-      // R22 M-1: Truncate error to avoid storing sensitive upstream details
+      // Truncate error to avoid storing sensitive upstream details
       const rawMsg = err instanceof Error ? err.message : String(err);
       this._lastError = rawMsg.slice(0, 100);
       // On refresh failure, keep existing proxies if we have them
@@ -375,7 +375,7 @@ export class StaticProxyPool {
    */
   getProxy(options?: ProxyOptions): UpstreamProxy {
     if (this.proxies.length === 0) {
-      // R22 M-1: Don't expose _lastError details — may contain upstream API info
+      // Don't expose _lastError details — may contain upstream API info
       throw new Error("No DC proxies available — proxy list not yet loaded");
     }
 
@@ -388,7 +388,7 @@ export class StaticProxyPool {
         throw new Error(`Country ${upper} is sanctioned and cannot be used as proxy exit`);
       }
       const filtered = this.proxies.filter((p) => p.countryCode === upper);
-      // R22 H-2: Fail explicitly instead of silently falling back to unfiltered pool
+      // Fail explicitly instead of silently falling back to unfiltered pool
       if (filtered.length === 0) {
         throw new Error(`No DC proxies available for country ${upper}`);
       }
@@ -445,7 +445,7 @@ export class StaticProxyPool {
       clearInterval(this.refreshTimer);
       this.refreshTimer = null;
     }
-    // R22 H-1: Scrub credentials from memory on destroy
+    // Scrub credentials from memory on destroy
     for (const p of this.proxies) {
       p.username = "";
       p.password = "";

@@ -8,6 +8,7 @@ dist/
 .env
 .env.*
 !.env.example
+!.env.swarm.example
 
 # Logs
 *.log

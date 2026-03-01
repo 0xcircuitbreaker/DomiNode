@@ -35,9 +35,9 @@ export async function consumeChallenge(
 ): Promise<WalletChallenge | null> {
   const ttlCutoff = new Date(Date.now() - WALLET_CHALLENGE_TTL_MS);
 
-  // R18 H-4: If IP is provided, bind challenge consumption to the originating IP
+  // If IP is provided, bind challenge consumption to the originating IP
   if (ip) {
-    // R30 C-2: FOR UPDATE SKIP LOCKED prevents concurrent consumption of the same challenge
+    // FOR UPDATE SKIP LOCKED prevents concurrent consumption of the same challenge
     const result = await query<WalletChallenge>(
       `UPDATE wallet_challenges
        SET consumed = true
@@ -57,7 +57,7 @@ export async function consumeChallenge(
     return result.rows[0] ?? null;
   }
 
-  // R30 C-2: FOR UPDATE SKIP LOCKED prevents concurrent consumption of the same challenge
+  // FOR UPDATE SKIP LOCKED prevents concurrent consumption of the same challenge
   const result = await query<WalletChallenge>(
     `UPDATE wallet_challenges
      SET consumed = true
@@ -97,7 +97,7 @@ export async function countActiveChallengesForIp(ip: string): Promise<number> {
   return parseInt(result.rows[0].count, 10);
 }
 
-/** R45 H-5: Count active (unconsumed, non-expired) challenges for a specific address */
+/** Count active (unconsumed, non-expired) challenges for a specific address */
 export async function countActiveChallengesForAddress(address: string): Promise<number> {
   const ttlCutoff = new Date(Date.now() - WALLET_CHALLENGE_TTL_MS);
   const result = await query<{ count: string }>(

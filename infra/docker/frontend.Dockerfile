@@ -19,7 +19,7 @@ RUN npm run build --workspace=packages/frontend
 # ─── Stage 2: Serve ─────────────────────────────────────────────────
 FROM nginx:1.27-alpine
 
-# R14 H-1: Run nginx as non-root user
+# Run nginx as non-root user
 RUN chown -R nginx:nginx /var/cache/nginx /var/log/nginx /etc/nginx/conf.d && \
     touch /var/run/nginx.pid && chown nginx:nginx /var/run/nginx.pid
 
