@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// DomiNode Documentation Content
+// Dominus Node Documentation Content
 // ---------------------------------------------------------------------------
 
 export interface Endpoint {
@@ -91,7 +91,7 @@ const quickStart: DocSection = {
       title: "Make Your First Proxy Request",
       searchTerms: ["first request", "proxy", "curl", "test", "httpbin"],
       content: [
-        { type: "text", text: "Route HTTP/HTTPS traffic through DomiNode by using your API key as the proxy password." },
+        { type: "text", text: "Route HTTP/HTTPS traffic through Dominus Node by using your API key as the proxy password." },
         { type: "code", lang: "bash", label: "Default (DC + residential fallback)", code: `curl -x http://anything:dn_live_YOUR_KEY@proxy.dominusnode.com:8080 \\
   https://httpbin.org/ip` },
         { type: "code", lang: "bash", label: "Explicit datacenter pool", code: `curl -x http://dc-country-US:dn_live_YOUR_KEY@proxy.dominusnode.com:8080 \\
@@ -114,7 +114,7 @@ console.log(config.httpProxy); // { host, port }` },
       title: "Top Up Your Wallet",
       searchTerms: ["top up", "wallet", "balance", "stripe", "billing", "pay"],
       content: [
-        { type: "text", text: "DomiNode uses a prepaid wallet system. Fund your wallet via Stripe, PayPal, or 11 cryptocurrencies. Usage is debited per byte." },
+        { type: "text", text: "Dominus Node uses a prepaid wallet system. Fund your wallet via Stripe, PayPal, or 11 cryptocurrencies. Usage is debited per byte." },
         { type: "code", lang: "bash", label: "Check balance", code: `curl https://api.dominusnode.com/api/wallet \\
   -H 'Authorization: Bearer eyJ...'
 # → { "balance": 1050, "balanceUsd": "10.50" }` },
@@ -240,7 +240,7 @@ const proxyUsage: DocSection = {
       title: "Proxy Endpoints",
       searchTerms: ["http proxy", "socks5", "port", "8080", "1080", "connect", "tunnel"],
       content: [
-        { type: "text", text: "DomiNode exposes two proxy endpoints:" },
+        { type: "text", text: "Dominus Node exposes two proxy endpoints:" },
         {
           type: "param-table", params: [
             { name: "HTTP/HTTPS Proxy", type: "host:port", required: true, description: "proxy.dominusnode.com:8080 — supports HTTP CONNECT tunneling for HTTPS" },
@@ -313,7 +313,7 @@ print(resp.json())` },
       title: "How Billing Works",
       searchTerms: ["billing", "bytes", "reservation", "debit", "wallet", "session"],
       content: [
-        { type: "text", text: "DomiNode uses a reservation-then-settle model:" },
+        { type: "text", text: "Dominus Node uses a reservation-then-settle model:" },
         {
           type: "param-table", params: [
             { name: "Session start", type: "event", required: true, description: "$0.50 pre-authorized from your wallet to open the session" },
@@ -754,7 +754,7 @@ const mcpServer: DocSection = {
       title: "Installation & Setup",
       searchTerms: ["mcp", "npx", "claude", "cursor", "vs code", "install", "bootstrap"],
       content: [
-        { type: "text", text: "DomiNode ships a full MCP (Model Context Protocol) server with 59+ tools. AI agents can authenticate, manage proxies, and handle payments entirely via MCP." },
+        { type: "text", text: "Dominus Node ships a full MCP (Model Context Protocol) server with 59+ tools. AI agents can authenticate, manage proxies, and handle payments entirely via MCP." },
         { type: "code", lang: "bash", label: "One-line install", code: "npx @dominusnode/mcp-server" },
         { type: "heading", level: 3, text: "Platform configurations" },
         { type: "code", lang: "json", label: "Claude Desktop (~/.claude/config.json)", code: `{
@@ -959,7 +959,7 @@ if response.candidates[0].content.parts[0].function_call:
       searchTerms: ["n8n", "workflow", "automation", "low-code", "node", "trigger"],
       content: [
         { type: "code", lang: "bash", label: "Install", code: "npm install n8n-nodes-dominusnode" },
-        { type: "text", text: "Adds 3 custom n8n nodes: DomiNode Proxy (fetch via proxy), DomiNode Wallet (balance/topup), and DomiNode Keys (create/list/revoke). Supports DomiNode credentials type for secure API key storage." },
+        { type: "text", text: "Adds 3 custom n8n nodes: Dominus Node Proxy (fetch via proxy), Dominus Node Wallet (balance/topup), and Dominus Node Keys (create/list/revoke). Supports Dominus Node credentials type for secure API key storage." },
       ],
     },
     {
@@ -1005,8 +1005,8 @@ agent = ReActAgent.from_tools(tools)` },
       title: "ChatGPT GPT Actions",
       searchTerms: ["chatgpt", "gpt actions", "openapi", "ai plugin", "custom gpt"],
       content: [
-        { type: "text", text: "Use the DomiNode OpenAPI 3.1.0 spec to configure a ChatGPT Custom GPT with Actions. The GPT can call the DomiNode REST API directly — checking balances, managing API keys, and triggering top-ups from within a conversation." },
-        { type: "note", variant: "info", text: "In your Custom GPT settings, add a new Action and paste in the DomiNode OpenAPI schema URL. Set the authentication type to 'API Key' and use your DomiNode API key as the bearer token." },
+        { type: "text", text: "Use the Dominus Node OpenAPI 3.1.0 spec to configure a ChatGPT Custom GPT with Actions. The GPT can call the Dominus Node REST API directly — checking balances, managing API keys, and triggering top-ups from within a conversation." },
+        { type: "note", variant: "info", text: "In your Custom GPT settings, add a new Action and paste in the Dominus Node OpenAPI schema URL. Set the authentication type to 'API Key' and use your Dominus Node API key as the bearer token." },
       ],
     },
     {
@@ -1014,7 +1014,7 @@ agent = ReActAgent.from_tools(tools)` },
       title: "Other Frameworks",
       searchTerms: ["autogpt", "agent zero", "pydantic", "camel", "metagpt", "superagi", "agno", "semantic kernel", "ironclaw", "haystack", "composio", "dify", "langflow", "taskweaver", "moltbook"],
       content: [
-        { type: "text", text: "DomiNode also integrates with these frameworks — each with full SSRF protection and OFAC validation:" },
+        { type: "text", text: "Dominus Node also integrates with these frameworks — each with full SSRF protection and OFAC validation:" },
         {
           type: "param-table", params: [
             { name: "AutoGPT", type: "Python", required: false, description: "pip install dominusnode-autogpt — command plugin with 22 functions" },
@@ -1057,7 +1057,7 @@ const x402Protocol: DocSection = {
         {
           type: "param-table", params: [
             { name: "Step 1", type: "HTTP", required: true, description: "Client sends request → server returns 402 with X-Payment-Requirements header" },
-            { name: "Step 2", type: "On-chain", required: true, description: "Client transfers USDC to DomiNode wallet address on specified chain" },
+            { name: "Step 2", type: "On-chain", required: true, description: "Client transfers USDC to Dominus Node wallet address on specified chain" },
             { name: "Step 3", type: "HTTP", required: true, description: "Client resends request with X-Payment header (tx hash + signature)" },
             { name: "Step 4", type: "HTTP", required: true, description: "Server verifies payment on-chain, proxies request, returns response" },
           ],
@@ -1070,7 +1070,7 @@ const x402Protocol: DocSection = {
       title: "Supported Networks",
       searchTerms: ["coinbase", "payai", "base", "solana", "polygon", "avalanche", "sei", "skale", "iotex", "xlayer", "peaq"],
       content: [
-        { type: "text", text: "DomiNode supports x402 payments on 9 chains via two facilitators:" },
+        { type: "text", text: "Dominus Node supports x402 payments on 9 chains via two facilitators:" },
         {
           type: "param-table", params: [
             { name: "Base", type: "Coinbase", required: false, description: "EIP-3009 gasless USDC transfer. Network ID: 'base'" },
@@ -1112,7 +1112,7 @@ if (res.status === 402) {
     headers: { 'X-Payment': JSON.stringify(receipt) },
   });
 }` },
-        { type: "note", variant: "info", text: "x402 supports read-only requests (GET, HEAD, OPTIONS). For authenticated write operations, use a standard DomiNode API key with your wallet balance." },
+        { type: "note", variant: "info", text: "x402 supports read-only requests (GET, HEAD, OPTIONS). For authenticated write operations, use a standard Dominus Node API key with your wallet balance." },
       ],
     },
   ],
@@ -1132,7 +1132,7 @@ const plansBilling: DocSection = {
       title: "Available Plans",
       searchTerms: ["free", "payg", "volume", "100gb", "1tb", "agent", "plan", "pricing", "gb"],
       content: [
-        { type: "text", text: "DomiNode offers tiered plans with per-GB pricing. All plans use the same prepaid wallet system." },
+        { type: "text", text: "Dominus Node offers tiered plans with per-GB pricing. All plans use the same prepaid wallet system." },
         {
           type: "param-table", params: [
             { name: "Free DC", type: "Plan", required: false, description: "$0/GB — 490 MB datacenter bandwidth, 5 connections. Free forever." },
@@ -1151,7 +1151,7 @@ const plansBilling: DocSection = {
       title: "Wallet System",
       searchTerms: ["wallet", "balance", "prepaid", "credits", "cents", "cap", "maximum"],
       content: [
-        { type: "text", text: "DomiNode uses a prepaid credit wallet. Usage is debited from your balance automatically." },
+        { type: "text", text: "Dominus Node uses a prepaid credit wallet. Usage is debited from your balance automatically." },
         {
           type: "param-table", params: [
             { name: "Balance format", type: "integer cents", required: true, description: "API responses return balance as an integer number of cents — divide by 100 for the dollar amount (e.g., 1000 = $10.00)" },
@@ -1256,7 +1256,7 @@ curl -X POST https://api.dominusnode.com/api/keys \\
       title: "Network Access Controls",
       searchTerms: ["ssrf", "server side request forgery", "private ip", "localhost", "dns rebinding", "internal", "network security"],
       content: [
-        { type: "text", text: "Every proxy destination is validated server-side before any traffic is forwarded. DomiNode enforces strict network access controls to protect both our infrastructure and the targets you reach." },
+        { type: "text", text: "Every proxy destination is validated server-side before any traffic is forwarded. Dominus Node enforces strict network access controls to protect both our infrastructure and the targets you reach." },
         {
           type: "param-table", params: [
             { name: "Private networks", type: "blocked", required: false, description: "Requests to private IP ranges (RFC 1918), loopback, link-local, CGNAT, and multicast addresses are rejected" },
@@ -1275,7 +1275,7 @@ curl -X POST https://api.dominusnode.com/api/keys \\
       title: "OFAC Sanctions Compliance",
       searchTerms: ["ofac", "sanctions", "cuba", "iran", "north korea", "russia", "syria", "blocked countries"],
       content: [
-        { type: "text", text: "DomiNode enforces OFAC (Office of Foreign Assets Control) sanctions. Traffic targeting or originating from sanctioned jurisdictions is blocked at all layers." },
+        { type: "text", text: "Dominus Node enforces OFAC (Office of Foreign Assets Control) sanctions. Traffic targeting or originating from sanctioned jurisdictions is blocked at all layers." },
         {
           type: "param-table", params: [
             { name: "CU", type: "Cuba", required: false, description: "Blocked — OFAC SDN list" },
@@ -1293,7 +1293,7 @@ curl -X POST https://api.dominusnode.com/api/keys \\
       title: "GDPR Compliance",
       searchTerms: ["gdpr", "data export", "right to erasure", "deletion", "article 17", "article 20", "privacy"],
       content: [
-        { type: "text", text: "DomiNode is GDPR compliant. Exercise your rights:" },
+        { type: "text", text: "Dominus Node is GDPR compliant. Exercise your rights:" },
         { type: "code", lang: "bash", label: "Export all personal data (Article 20)", code: `curl https://api.dominusnode.com/api/gdpr/export \\
   -H 'Authorization: Bearer eyJ...'
 # → JSON with all user data, usage history, wallet transactions, API keys, sessions` },
@@ -1336,25 +1336,8 @@ curl -X POST https://api.dominusnode.com/api/keys \\
           ],
         },
       ],
-    },
-    {
-      id: "sec-websocket",
-      title: "WebSocket Support",
-      searchTerms: ["websocket", "ws", "wss", "realtime", "streaming", "upgrade"],
-      content: [
-        { type: "text", text: "WebSocket connections to your target sites are fully supported today — DomiNode tunnels WS and WSS traffic transparently. Your existing WebSocket client code works without any modifications." },
-        { type: "code", lang: "javascript", label: "WebSocket through DomiNode proxy", code: `// Use any WS client with proxy support
-const WebSocket = require('ws');
-const { HttpsProxyAgent } = require('https-proxy-agent');
-
-const agent = new HttpsProxyAgent(
-  \`http://any:\${process.env.DOMINUSNODE_API_KEY}@proxy.dominusnode.com:8080\`
-);
-
-const ws = new WebSocket('wss://echo.websocket.org', { agent });
-ws.on('open', () => ws.send('hello through proxy!'));` },
-        { type: "note", variant: "tip", text: "Coming soon: real-time events for the DomiNode Management API itself — live balance alerts, instant session notifications, and usage threshold warnings pushed directly to your app. When this ships, your dashboard and AI agents will react the moment something changes, with no polling required." },
-      ],
+    }
+  ],
     },
   ],
 };
