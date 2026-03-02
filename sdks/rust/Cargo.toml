@@ -9,6 +9,7 @@ homepage = "https://dominusnode.com"
 readme = "README.md"
 keywords = ["proxy", "api", "sdk", "dominusnode"]
 categories = ["api-bindings", "web-programming"]
+exclude = ["target/", ".git/", "tests/"]
 
 [features]
 default = ["async"]

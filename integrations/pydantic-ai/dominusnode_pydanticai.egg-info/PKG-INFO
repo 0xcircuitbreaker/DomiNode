@@ -1,6 +1,6 @@
-Metadata-Version: 2.1
+Metadata-Version: 2.4
 Name: dominusnode-pydanticai
-Version: 1.0.0
+Version: 1.0.1
 Summary: Dominus Node rotating proxy tools for PydanticAI agents
 License: MIT
 Requires-Python: >=3.9
@@ -11,6 +11,7 @@ Requires-Dist: pydantic>=2.0.0
 Provides-Extra: dev
 Requires-Dist: pytest>=7.0; extra == "dev"
 Requires-Dist: pytest-mock; extra == "dev"
+Dynamic: license-file
 
 # dominusnode-pydanticai
 

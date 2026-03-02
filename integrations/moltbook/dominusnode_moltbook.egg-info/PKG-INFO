@@ -1,6 +1,6 @@
-Metadata-Version: 2.1
+Metadata-Version: 2.4
 Name: dominusnode-moltbook
-Version: 1.0.0
+Version: 1.0.1
 Summary: Dominus Node integration for Moltbook -- interact with the AI agent social network through rotating proxies
 License: MIT
 Requires-Python: >=3.10
@@ -9,6 +9,7 @@ License-File: LICENSE
 Requires-Dist: httpx>=0.25.0
 Provides-Extra: dev
 Requires-Dist: pytest>=7.0; extra == "dev"
+Dynamic: license-file
 
 # dominusnode-moltbook
 
