@@ -11,7 +11,7 @@
  *     <integration_id> <api_base> <proxy_host> <proxy_port> <target_url> <proxy_type>
  *
  * Supported integrations:
- *   mastra | flowise | openclaw | vercel-ai | openai-functions | n8n
+ *   mastra | flowise | openclaw | vercel-ai | openai-functions | n8n | gemini
  *
  * Output JSON:
  *   { balance?, fetch?, usage?, error? }
@@ -359,6 +359,42 @@ async function runN8n() {
   };
 }
 
+// ── Runner: Gemini / Vertex AI ────────────────────────────────────────────────
+// Gemini uses the same function-handler pattern as openai-functions.
+// ESM module — use dynamic import() with pathToFileURL.
+async function runGemini() {
+  const handlerUrl = pathToFileURL(
+    path.join(INTEGRATIONS_DIR, "gemini/dist/handler.js")
+  ).href;
+  const mod = await import(handlerUrl);
+
+  const createHandler =
+    mod.createDominusNodeFunctionHandler ||
+    (mod.default && mod.default.createDominusNodeFunctionHandler);
+
+  if (!createHandler) {
+    throw new Error("createDominusNodeFunctionHandler not found in gemini handler");
+  }
+
+  const handler = createHandler({ apiKey, baseUrl: apiBase });
+
+  const [bal, fet] = await Promise.allSettled([
+    handler("dominusnode_check_balance", {}),
+    handler("dominusnode_proxied_fetch", {
+      url:        targetUrl,
+      method:     "GET",
+      country:    "US",
+      proxy_type: proxyType,
+    }),
+  ]);
+
+  return {
+    balance: bal.status === "fulfilled" ? String(settled(bal)).slice(0, 500) : null,
+    fetch:   fet.status === "fulfilled" ? String(settled(fet)).slice(0, 500) : null,
+    error:   settledErr(bal),
+  };
+}
+
 // ── Dispatch ──────────────────────────────────────────────────────────────────
 const RUNNERS = {
   "mastra":            runMastra,
@@ -367,6 +403,7 @@ const RUNNERS = {
   "vercel-ai":         runVercelAI,
   "openai-functions":  runOpenAIFunctions,
   "n8n":               runN8n,
+  "gemini":            runGemini,
 };
 
 (async () => {

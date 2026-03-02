@@ -19,6 +19,7 @@ import PrivacyPage from "./pages/PrivacyPage";
 import TermsPage from "./pages/TermsPage";
 import AUPPage from "./pages/AUPPage";
 import ErrorCodesPage from "./pages/ErrorCodesPage";
+import DocsPage from "./pages/DocsPage";
 import { useAuth } from "./context/AuthContext";
 
 // Lazy-load admin page so admin-only code isn't shipped to regular users
@@ -37,6 +38,7 @@ export default function App() {
       <Route path="/privacy" element={<PrivacyPage />} />
       <Route path="/terms" element={<TermsPage />} />
       <Route path="/aup" element={<AUPPage />} />
+      <Route path="/docs" element={<DocsPage />} />
       <Route path="/docs/error-codes" element={<ErrorCodesPage />} />
       <Route path="/login" element={<LoginPage />} />
       <Route path="/forgot-password" element={<ForgotPasswordPage />} />

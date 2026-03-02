@@ -9,7 +9,7 @@ social post about the experience.
 
 Features:
   • Curses TUI wizard: connection → select integrations → distribute agents
-  • 13 integrations: 7 Python + 6 TypeScript (all built dist/ available)
+  • 24 integrations: 17 Python + 7 TypeScript (all built dist/ available)
   • Auto-install: pip install -e <local-dir>  /  npm run build
   • Docker fallback: --network=host containers if local install fails
   • N agents per integration, concurrently via ThreadPoolExecutor
@@ -19,6 +19,7 @@ Features:
 Usage:
     python3 scripts/swarm-showcase.py
     python3 scripts/swarm-showcase.py --no-tui --integrations langchain crewai --agents 4
+    python3 scripts/swarm-showcase.py --no-tui --integrations agno camel-ai composio dify haystack ironclaw metagpt moltbook pydantic-ai semantic-kernel gemini --agents 11
 """
 
 import argparse
@@ -102,6 +103,7 @@ class AgentResult:
     post: str = ""
     duration: float = 0.0
     status: str = "pending"   # pending | running | done | failed
+    target_url: str = "https://httpbin.org/ip"
 
 
 # ── Integration catalog ────────────────────────────────────────────────────────
@@ -173,6 +175,61 @@ def _make_catalog() -> Dict[str, IntegrationInfo]:
             "(none)", "raw_http",
             "",
             "Direct REST + proxy gateway — no framework", "#Proxy", 0),
+        "agno": IntegrationInfo(
+            "agno", "Agno", "python",
+            "dominusnode-agno", "dominusnode_agno",
+            str(d / "agno"),
+            "Agno (phidata) toolkit — 26 tools", "#Agno", 26),
+        "camel-ai": IntegrationInfo(
+            "camel-ai", "CAMEL-AI", "python",
+            "dominusnode-camel", "dominusnode_camel",
+            str(d / "camel-ai"),
+            "CAMEL-AI FunctionTool set — 26 tools", "#CAMELAI", 26),
+        "composio": IntegrationInfo(
+            "composio", "Composio", "python",
+            "dominusnode-composio", "dominusnode_composio",
+            str(d / "composio"),
+            "Composio action toolkit — 26 tools", "#Composio", 26),
+        "dify": IntegrationInfo(
+            "dify", "Dify", "python",
+            "dominusnode-dify", "dominusnode_dify",
+            str(d / "dify"),
+            "Dify tool provider — 26 tools", "#Dify", 26),
+        "haystack": IntegrationInfo(
+            "haystack", "Haystack", "python",
+            "dominusnode-haystack", "dominusnode_haystack",
+            str(d / "haystack"),
+            "Haystack component toolkit — 26 tools", "#Haystack", 26),
+        "ironclaw": IntegrationInfo(
+            "ironclaw", "IronClaw", "python",
+            "dominusnode-ironclaw", "dominusnode_ironclaw",
+            str(d / "ironclaw"),
+            "IronClaw tool defs + MCP config — 26 tools", "#IronClaw", 26),
+        "metagpt": IntegrationInfo(
+            "metagpt", "MetaGPT", "python",
+            "dominusnode-metagpt", "dominusnode_metagpt",
+            str(d / "metagpt"),
+            "MetaGPT tool functions — 26 tools", "#MetaGPT", 26),
+        "moltbook": IntegrationInfo(
+            "moltbook", "Moltbook", "python",
+            "dominusnode-moltbook", "dominusnode_moltbook",
+            str(d / "moltbook"),
+            "Moltbook proxy client — balance check", "#Moltbook", 1),
+        "pydantic-ai": IntegrationInfo(
+            "pydantic-ai", "PydanticAI", "python",
+            "dominusnode-pydanticai", "dominusnode_pydanticai",
+            str(d / "pydantic-ai"),
+            "PydanticAI agent tools — 26 tools", "#PydanticAI", 26),
+        "semantic-kernel": IntegrationInfo(
+            "semantic-kernel", "Semantic Kernel", "python",
+            "dominusnode-semantic-kernel", "dominusnode_semantic_kernel",
+            str(d / "semantic-kernel"),
+            "Semantic Kernel plugin — 26 functions", "#SemanticKernel", 26),
+        "gemini": IntegrationInfo(
+            "gemini", "Gemini/Vertex AI", "node",
+            "@dominusnode/gemini-functions", "gemini",
+            str(d / "gemini"),
+            "Gemini function calling handler — 26 functions", "#Gemini", 26),
     }
 
 CATALOG = _make_catalog()
@@ -187,6 +244,7 @@ def check_python_dep(info: IntegrationInfo) -> bool:
     if info.id == "agent-zero":
         return (Path(info.src_dir) / "dominusnode_agent_zero").is_dir() or \
                (Path(info.src_dir) / "tools.py").exists() or \
+               (Path(info.src_dir) / "tools" / "01_proxy_fetch.py").exists() or \
                (Path(info.src_dir) / "tools" / "proxy_fetch.py").exists()
     try:
         __import__(info.module)
@@ -196,12 +254,12 @@ def check_python_dep(info: IntegrationInfo) -> bool:
 
 
 def check_node_dep(info: IntegrationInfo) -> bool:
-    dist = Path(info.src_dir) / "dist" / "index.js"
-    if dist.exists():
-        return True
-    # openclaw uses plugin.js
-    plugin = Path(info.src_dir) / "dist" / "plugin.js"
-    return plugin.exists()
+    dist_dir = Path(info.src_dir) / "dist"
+    # Check common entry points: index.js, plugin.js, handler.js
+    for entry in ("index.js", "plugin.js", "handler.js"):
+        if (dist_dir / entry).exists():
+            return True
+    return False
 
 
 def dep_installed(info: IntegrationInfo) -> bool:
@@ -285,13 +343,24 @@ POST_TEMPLATES = {
     "openai-functions": "Function-called Dominus Node from OpenAI's API — dominusnode_proxied_fetch routed {url} in {dur}s with a US DC IP. #DominusNode #OpenAI",
     "n8n": "n8n workflow node: Dominus Node Proxy + Wallet + Usage nodes installed. DC proxy fetch working in my automation. #DominusNode #n8n",
     "raw-http": "Direct Dominus Node proxy — no framework needed. HTTP CONNECT tunnel through dc-country-US, fetched {url}. #DominusNode",
+    "agno": "Agno agent used Dominus Node's toolkit — 26 tools, rotating DC proxies, fetched {url} in {dur}s. #DominusNode #Agno",
+    "camel-ai": "CAMEL-AI multi-agent society now proxied via Dominus Node — 26 FunctionTool instances, DC pool. #DominusNode #CAMELAI",
+    "composio": "Composio action toolkit + Dominus Node: 26 actions for rotating proxy requests. Fetched {url} in {dur}s. #DominusNode #Composio",
+    "dify": "Dify AI app routed {url} through Dominus Node's DC proxy pool — 26 provider tools, zero config. #DominusNode #Dify",
+    "haystack": "Haystack RAG pipeline + Dominus Node = geo-targeted DC proxies for document fetching. #DominusNode #Haystack",
+    "ironclaw": "IronClaw + Dominus Node: 26 tool definitions + MCP server config auto-generated. Fetched {url} in {dur}s. #DominusNode #IronClaw",
+    "metagpt": "MetaGPT multi-role team accessed {url} via Dominus Node rotating DC proxies in {dur}s. #DominusNode #MetaGPT",
+    "moltbook": "Moltbook workflow connected to Dominus Node — wallet balance check via rotating proxy client. #DominusNode #Moltbook",
+    "pydantic-ai": "PydanticAI agent #{n} used Dominus Node tools — type-safe proxy requests, DC pool, fetched {url}. #DominusNode #PydanticAI",
+    "semantic-kernel": "Semantic Kernel plugin + Dominus Node = 26 kernel functions for proxy requests. Routed {url} in {dur}s. #DominusNode #SemanticKernel",
+    "gemini": "Gemini function calling + Dominus Node: dominusnode_proxied_fetch dispatched {url} in {dur}s. #DominusNode #Gemini",
 }
 
 
 def make_post(result: AgentResult) -> str:
     tpl = POST_TEMPLATES.get(result.integration, "#DominusNode proxy integration test ✓")
     return tpl.format(
-        url=result.integration,
+        url=result.target_url,
         dur=f"{result.duration:.1f}",
         n=result.agent_num,
     )[:280]
@@ -483,14 +552,127 @@ def _run_raw_http(api_key, api_base, proxy_host, proxy_port, target_url, proxy_t
     return res
 
 
+def _run_agno(api_key, api_base, proxy_host, proxy_port, target_url, proxy_type) -> dict:
+    from dominusnode_agno.tools import DominusNodeToolkit
+    tk = DominusNodeToolkit(api_key=api_key, base_url=api_base,
+                            proxy_host=proxy_host, proxy_port=proxy_port)
+    return {
+        "balance": tk.check_balance(),
+        "fetch":   tk.proxied_fetch(url=target_url, country="US", proxy_type=proxy_type),
+    }
+
+
+def _run_camel_ai(api_key, api_base, proxy_host, proxy_port, target_url, proxy_type) -> dict:
+    from dominusnode_camel.tools import DominusNodeToolkit
+    tk = DominusNodeToolkit(api_key=api_key, base_url=api_base,
+                            proxy_host=proxy_host, proxy_port=proxy_port)
+    return {
+        "balance": tk.check_balance(),
+        "fetch":   tk.proxied_fetch(url=target_url, country="US", proxy_type=proxy_type),
+    }
+
+
+def _run_composio(api_key, api_base, proxy_host, proxy_port, target_url, proxy_type) -> dict:
+    from dominusnode_composio.tools import DominusNodeToolkit
+    tk = DominusNodeToolkit(api_key=api_key, base_url=api_base,
+                            proxy_host=proxy_host, proxy_port=proxy_port)
+    return {
+        "balance": tk.check_balance(),
+        "fetch":   tk.proxied_fetch(url=target_url, country="US", proxy_type=proxy_type),
+    }
+
+
+def _run_dify(api_key, api_base, proxy_host, proxy_port, target_url, proxy_type) -> dict:
+    from dominusnode_dify import DominusNodeProvider
+    provider = DominusNodeProvider(credentials={
+        "api_key": api_key, "base_url": api_base,
+        "proxy_host": proxy_host, "proxy_port": str(proxy_port),
+    })
+    return {
+        "balance": str(provider.check_balance({})),
+        "fetch":   str(provider.proxied_fetch({
+            "url": target_url, "country": "US", "proxy_type": proxy_type,
+        })),
+    }
+
+
+def _run_haystack(api_key, api_base, proxy_host, proxy_port, target_url, proxy_type) -> dict:
+    from dominusnode_haystack.tools import DominusNodeToolkit
+    tk = DominusNodeToolkit(api_key=api_key, base_url=api_base,
+                            proxy_host=proxy_host, proxy_port=proxy_port)
+    return {
+        "balance": tk.check_balance(),
+        "fetch":   tk.proxied_fetch(url=target_url, country="US", proxy_type=proxy_type),
+    }
+
+
+def _run_ironclaw(api_key, api_base, proxy_host, proxy_port, target_url, proxy_type) -> dict:
+    from dominusnode_ironclaw.tools import DominusNodeToolkit
+    tk = DominusNodeToolkit(api_key=api_key, base_url=api_base,
+                            proxy_host=proxy_host, proxy_port=proxy_port)
+    return {
+        "balance": tk.check_balance(),
+        "fetch":   tk.proxied_fetch(url=target_url, country="US", proxy_type=proxy_type),
+    }
+
+
+def _run_metagpt(api_key, api_base, proxy_host, proxy_port, target_url, proxy_type) -> dict:
+    from dominusnode_metagpt.tools import DominusNodeToolkit
+    tk = DominusNodeToolkit(api_key=api_key, base_url=api_base,
+                            proxy_host=proxy_host, proxy_port=proxy_port)
+    return {
+        "balance": tk.check_balance(),
+        "fetch":   tk.proxied_fetch(url=target_url, country="US", proxy_type=proxy_type),
+    }
+
+
+def _run_moltbook(api_key, api_base, proxy_host, proxy_port, target_url, proxy_type) -> dict:
+    # MoltbookClient routes all requests through proxy; wallet operations require
+    # Ethereum signing for full functionality. We exercise check_balance() only.
+    from dominusnode_moltbook.client import MoltbookClient
+    client = MoltbookClient(dominusnode_api_key=api_key, dominusnode_base_url=api_base,
+                            proxy_host=proxy_host, proxy_port=proxy_port)
+    return {"balance": client.check_balance()}
+
+
+def _run_pydantic_ai(api_key, api_base, proxy_host, proxy_port, target_url, proxy_type) -> dict:
+    from dominusnode_pydanticai.tools import DominusNodeToolkit
+    tk = DominusNodeToolkit(api_key=api_key, base_url=api_base,
+                            proxy_host=proxy_host, proxy_port=proxy_port)
+    return {
+        "balance": tk.check_balance(),
+        "fetch":   tk.proxied_fetch(url=target_url, country="US", proxy_type=proxy_type),
+    }
+
+
+def _run_semantic_kernel(api_key, api_base, proxy_host, proxy_port, target_url, proxy_type) -> dict:
+    from dominusnode_semantic_kernel.plugin import DominusNodePlugin
+    plugin = DominusNodePlugin(api_key=api_key, base_url=api_base,
+                               proxy_host=proxy_host, proxy_port=proxy_port)
+    return {
+        "balance": plugin.check_balance(),
+        "fetch":   plugin.proxied_fetch(url=target_url, country="US", proxy_type=proxy_type),
+    }
+
+
 PYTHON_RUNNERS = {
-    "langchain":   _run_langchain,
-    "crewai":      _run_crewai,
-    "llamaindex":  _run_llamaindex,
-    "autogpt":     _run_autogpt,
-    "agent-zero":  _run_agent_zero,
-    "superagi":    _run_superagi,
-    "raw-http":    _run_raw_http,
+    "langchain":        _run_langchain,
+    "crewai":           _run_crewai,
+    "llamaindex":       _run_llamaindex,
+    "autogpt":          _run_autogpt,
+    "agent-zero":       _run_agent_zero,
+    "superagi":         _run_superagi,
+    "raw-http":         _run_raw_http,
+    "agno":             _run_agno,
+    "camel-ai":         _run_camel_ai,
+    "composio":         _run_composio,
+    "dify":             _run_dify,
+    "haystack":         _run_haystack,
+    "ironclaw":         _run_ironclaw,
+    "metagpt":          _run_metagpt,
+    "moltbook":         _run_moltbook,
+    "pydantic-ai":      _run_pydantic_ai,
+    "semantic-kernel":  _run_semantic_kernel,
 }
 
 
@@ -518,7 +700,8 @@ def run_agent(agent_num: int, integration_id: str, cfg: ShowcaseConfig,
               admin_jwt: str, results: List[AgentResult]) -> AgentResult:
     """Full lifecycle for one showcase agent."""
     info = CATALOG[integration_id]
-    res = AgentResult(agent_num=agent_num, integration=integration_id)
+    res = AgentResult(agent_num=agent_num, integration=integration_id,
+                      target_url=cfg.target_url)
     res.status = "running"
     start = time.time()
 
@@ -736,7 +919,11 @@ def screen_select_integrations(stdscr, cfg: ShowcaseConfig) -> str:
 
     items = list(CATALOG.keys())
     if not cfg.selected:
-        cfg.selected = {"langchain", "crewai", "llamaindex", "autogpt", "mastra", "flowise", "raw-http"}
+        cfg.selected = {
+            "langchain", "crewai", "llamaindex", "autogpt", "mastra", "flowise",
+            "agno", "camel-ai", "composio", "dify", "haystack", "ironclaw",
+            "metagpt", "pydantic-ai", "semantic-kernel", "gemini", "raw-http",
+        }
 
     current = 0
     scroll = 0
@@ -1208,7 +1395,10 @@ def main():
 
     if args.no_tui:
         cfg.selected = set(args.integrations) if args.integrations else \
-                       {"langchain", "crewai", "mastra", "flowise", "raw-http"}
+                       {"langchain", "crewai", "mastra", "flowise",
+                        "agno", "camel-ai", "composio", "dify", "haystack",
+                        "ironclaw", "metagpt", "pydantic-ai", "semantic-kernel",
+                        "gemini", "raw-http"}
         launch_swarm(cfg)
     else:
         try:
