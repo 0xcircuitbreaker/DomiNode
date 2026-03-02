@@ -39,8 +39,9 @@ from typing import Any, Dict, List, Optional, Set
 try:
     import requests
 except ImportError:
-    print("ERROR: pip install requests")
-    sys.exit(1)
+    print("Auto-installing requests...", flush=True)
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "requests", "-q"])
+    import requests
 
 # ── Paths ──────────────────────────────────────────────────────────────────────
 REPO_ROOT = Path(__file__).parent.parent
@@ -246,6 +247,22 @@ def docker_available() -> bool:
         return False
 
 
+def node_available() -> bool:
+    try:
+        r = subprocess.run(["node", "--version"], capture_output=True, timeout=5)
+        return r.returncode == 0
+    except Exception:
+        return False
+
+
+def npm_available() -> bool:
+    try:
+        r = subprocess.run(["npm", "--version"], capture_output=True, timeout=5)
+        return r.returncode == 0
+    except Exception:
+        return False
+
+
 def install_via_docker(info: IntegrationInfo) -> bool:
     """Use a Docker container to test if install works (verify only)."""
     # For now, Docker is used as a verification step, not a full runner.
@@ -258,7 +275,7 @@ POST_TEMPLATES = {
     "langchain": "Tested Dominus Node's LangChain integration — rotating DC proxies with geo-targeting in 3 lines. 26 tools, works inside existing LangChain agents. #DominusNode #LangChain",
     "crewai": "My CrewAI crew now scrapes behind rotating proxies via Dominus Node. DominusNodeWebScrapeTool handles IP rotation transparently. #DominusNode #CrewAI",
     "llamaindex": "LlamaIndex + Dominus Node = 22 proxy tools for my RAG pipeline. Fetched {url} through a DC proxy in {dur}s. #DominusNode #LlamaIndex",
-    "autogpt": "AutoGPT agent #{{n}} used Dominus Node's plugin to route {url} through a rotating DC proxy. Zero config, just works. #DominusNode #AutoGPT",
+    "autogpt": "AutoGPT agent #{n} used Dominus Node's plugin to route {url} through a rotating DC proxy. Zero config, just works. #DominusNode #AutoGPT",
     "agent-zero": "Agent Zero tool modules connected to Dominus Node proxy gateway. proxied_fetch + wallet balance working perfectly. #DominusNode #AgentZero",
     "superagi": "SuperAGI toolkit: 26 Dominus Node tools loaded. Checked balance, fetched {url} via DC proxy in {dur}s. #DominusNode #SuperAGI",
     "mastra": "Mastra AI agent used Dominus Node — 26 createTool() instances, geo-targeting US DC proxies. Works natively in Mastra workflows. #DominusNode #MastraAI",
@@ -345,7 +362,7 @@ def setup_account(cfg: ShowcaseConfig, admin_jwt: str, tag: str) -> dict:
 def _run_langchain(api_key, api_base, proxy_host, proxy_port, target_url, proxy_type) -> dict:
     from dominusnode_langchain import DominusNodeToolkit
     tk = DominusNodeToolkit(api_key=api_key, base_url=api_base,
-                            proxy_host=proxy_host, proxy_port=proxy_port)
+                            proxy_host=proxy_host, http_proxy_port=proxy_port)
     tools = {t.name: t for t in tk.get_tools()}
     res = {}
     for n in ("dominusnode_check_balance", "dominusnode_balance"):
@@ -354,7 +371,7 @@ def _run_langchain(api_key, api_base, proxy_host, proxy_port, target_url, proxy_
     for n in ("dominusnode_proxied_fetch", "dominusnode_proxy_fetch"):
         if n in tools:
             res["fetch"] = tools[n].run(json.dumps(
-                {"url": target_url, "country": "US", "proxyType": proxy_type}))
+                {"url": target_url, "country": "US", "proxy_type": proxy_type}))
             break
     for n in ("dominusnode_check_usage", "dominusnode_usage"):
         if n in tools:
@@ -397,46 +414,51 @@ def _run_autogpt(api_key, api_base, proxy_host, proxy_port, target_url, proxy_ty
 
 
 def _run_agent_zero(api_key, api_base, proxy_host, proxy_port, target_url, proxy_type) -> dict:
+    import importlib.util
     az_path = str(INTEGRATIONS_DIR / "agent-zero")
     if az_path not in sys.path:
         sys.path.insert(0, az_path)
     res = {}
     try:
         from shared.auth import DominusNodeAuth
-        from tools.proxy_fetch import TOOLS as pf_tools
-        from tools.wallet import TOOLS as w_tools
-        auth = DominusNodeAuth(api_key=api_key, base_url=api_base,
-                               proxy_host=proxy_host, proxy_port=proxy_port)
-        if "check_balance" in w_tools:
-            res["balance"] = w_tools["check_balance"](auth, {})
-        if "proxied_fetch" in pf_tools:
-            res["fetch"] = pf_tools["proxied_fetch"](auth,
-                {"url": target_url, "country": "US", "proxy_type": proxy_type})
-    except ImportError:
-        # Try alternate structure
-        import importlib.util
-        spec_path = INTEGRATIONS_DIR / "agent-zero" / "dominusnode_agent_zero" / "tools.py"
-        if spec_path.exists():
-            spec = importlib.util.spec_from_file_location("az_tools", spec_path)
+        # DominusNodeAuth only takes api_key, base_url, timeout — no proxy params
+        auth = DominusNodeAuth(api_key=api_key, base_url=api_base)
+
+        def _load_tool_module(filename):
+            p = INTEGRATIONS_DIR / "agent-zero" / "tools" / filename
+            spec = importlib.util.spec_from_file_location(
+                filename.replace(".py", "").replace("-", "_"), p)
             mod = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(mod)
-            if hasattr(mod, "check_balance"):
-                res["balance"] = mod.check_balance(api_key, api_base)
+            return mod
+
+        w_mod  = _load_tool_module("02_wallet.py")
+        pf_mod = _load_tool_module("01_proxy_fetch.py")
+        if hasattr(w_mod, "check_balance"):
+            res["balance"] = w_mod.check_balance(auth, {})
+        if hasattr(pf_mod, "proxied_fetch"):
+            res["fetch"] = pf_mod.proxied_fetch(auth,
+                {"url": target_url, "country": "US", "proxy_type": proxy_type})
+    except Exception as e:
+        res["error"] = scrub(str(e))
     return res
 
 
 def _run_superagi(api_key, api_base, proxy_host, proxy_port, target_url, proxy_type) -> dict:
+    # SuperAGI tools read all config from env — set all 4 before creating toolkit
+    os.environ["DOMINUSNODE_API_KEY"]    = api_key
+    os.environ["DOMINUSNODE_BASE_URL"]   = api_base
+    os.environ["DOMINUSNODE_PROXY_HOST"] = proxy_host
+    os.environ["DOMINUSNODE_PROXY_PORT"] = str(proxy_port)
     from dominusnode_superagi import DominusNodeToolkit
     tk = DominusNodeToolkit()
     tools = {t.name: t for t in tk.get_tools()}
     res = {}
     if "dominusnode_check_balance" in tools:
-        t = tools["dominusnode_check_balance"]
-        os.environ.setdefault("DOMINUSNODE_API_KEY", api_key)
-        res["balance"] = t._execute()
+        res["balance"] = tools["dominusnode_check_balance"]._execute()
     if "dominusnode_proxied_fetch" in tools:
-        t = tools["dominusnode_proxied_fetch"]
-        res["fetch"] = t._execute(url=target_url, country="US", proxy_type=proxy_type)
+        res["fetch"] = tools["dominusnode_proxied_fetch"]._execute(
+            url=target_url, country="US", proxy_type=proxy_type)
     return res
 
 
@@ -919,7 +941,7 @@ def screen_prelaunch(stdscr, cfg: ShowcaseConfig) -> str:
             status = statuses.get(iid, "checking")
             sym_map = {"ok": ("✓", CP_GREEN), "failed": ("✗", CP_RED),
                        "installing": ("↓", CP_YLW), "checking": ("…", CP_CYN),
-                       "skip": ("─", CP_DIM)}
+                       "missing": ("○", CP_RED), "skip": ("─", CP_DIM)}
             sym, col = sym_map.get(status, ("?", CP_DIM))
             inst_note = info.package if status in ("failed", "installing") else ""
             line = f"  {sym}  {info.name:<16} {info.description[:30]:<30} {inst_note}"
@@ -930,21 +952,35 @@ def screen_prelaunch(stdscr, cfg: ShowcaseConfig) -> str:
 
         docker_y = 5 + len(sel) + 1
         dok = docker_available()
+        has_node = node_available()
+        has_npm  = npm_available()
         cfg.use_docker = dok
+        need_node = any(CATALOG[i].runtime == "node" for i in sel)
         try:
-            stdscr.addstr(docker_y, 2,
-                          f"  {'✓' if dok else '✗'}  Docker:  {'available' if dok else 'not available'}",
+            stdscr.addstr(docker_y,     2,
+                          f"  {'✓' if dok       else '✗'}  Docker:  {'available'     if dok       else 'not available'}",
                           c(CP_GREEN) if dok else c(CP_DIM))
+            stdscr.addstr(docker_y + 1, 2,
+                          f"  {'✓' if has_node  else '✗'}  Node.js: {'available'     if has_node  else 'NOT FOUND — required for TS integrations'}",
+                          c(CP_GREEN) if has_node else (c(CP_RED, True) if need_node else c(CP_DIM)))
+            stdscr.addstr(docker_y + 2, 2,
+                          f"  {'✓' if has_npm   else '✗'}  npm:     {'available'     if has_npm   else 'NOT FOUND — required to install TS deps'}",
+                          c(CP_GREEN) if has_npm else (c(CP_RED) if need_node else c(CP_DIM)))
         except curses.error:
             pass
 
-        all_ok = all(statuses.get(i) in ("ok", "skip") for i in sel)
+        node_blocker = need_node and not has_node
+        all_ok = all(statuses.get(i) in ("ok", "skip") for i in sel) and not node_blocker
         try:
-            if all_ok:
-                stdscr.addstr(docker_y + 2, 2,
+            if node_blocker:
+                stdscr.addstr(docker_y + 4, 2,
+                              "  ✗  Install Node.js ≥18 to use TypeScript integrations",
+                              c(CP_RED, True))
+            elif all_ok:
+                stdscr.addstr(docker_y + 4, 2,
                               "  ▶  [LAUNCH SWARM]  (press ENTER)", c(CP_GREEN, True))
             else:
-                stdscr.addstr(docker_y + 2, 2,
+                stdscr.addstr(docker_y + 4, 2,
                               "  ↓  [INSTALL MISSING]  (press I)  |  [LAUNCH ANYWAY]  (press ENTER)",
                               c(CP_YLW))
         except curses.error:
