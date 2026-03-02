@@ -452,5 +452,14 @@
       },
       "required": ["amount_usd", "currency"]
     }
+  },
+  {
+    "name": "dominusnode_x402_info",
+    "description": "Get x402 micropayment protocol information for pay-per-request proxy access. Returns the accepted payment networks (Coinbase Base USDC, PayAI Solana USDC, Polygon, Avalanche, Sei, and more), per-request pricing, and how to use the X-PAYMENT header for zero-signup proxy access. Use this when you want to pay per-request without a wallet top-up.",
+    "parameters": {
+      "type": "object",
+      "properties": {},
+      "required": []
+    }
   }
 ]

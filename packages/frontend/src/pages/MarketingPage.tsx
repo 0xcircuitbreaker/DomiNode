@@ -27,12 +27,12 @@ interface ProxyHealthResponse {
 }
 
 const FALLBACK_PLANS: PlanItem[] = [
-  { id: "free-dc", name: "Free DC", pricePerGbCents: 0, pricePerGbUsd: 0, monthlyBandwidthGB: 2, maxConnections: 5 },
+  { id: "free-dc", name: "Free DC", pricePerGbCents: 0, pricePerGbUsd: 0, monthlyBandwidthGB: 0.49, maxConnections: 5 },
   { id: "free-res", name: "Free Residential", pricePerGbCents: 0, pricePerGbUsd: 0, monthlyBandwidthGB: 0.05, maxConnections: 5 },
   { id: "payg", name: "Pay As You Go", pricePerGbCents: 500, pricePerGbUsd: 5, monthlyBandwidthGB: null, maxConnections: 100 },
   { id: "vol100", name: "Volume 100GB", pricePerGbCents: 400, pricePerGbUsd: 4, monthlyBandwidthGB: 100, maxConnections: 100 },
   { id: "vol1tb", name: "Volume 1TB", pricePerGbCents: 300, pricePerGbUsd: 3, monthlyBandwidthGB: 1024, maxConnections: 100 },
-  { id: "agent", name: "AI Agent", pricePerGbCents: 500, pricePerGbUsd: 5, monthlyBandwidthGB: 5, maxConnections: 50 },
+  { id: "agent", name: "AI Agent", pricePerGbCents: 500, pricePerGbUsd: 5, monthlyBandwidthGB: null, maxConnections: 50 },
 ];
 const DEFAULT_FEATURED_PLAN_ID = "vol1tb";
 
@@ -119,6 +119,47 @@ const PROOF_POINTS = [
   { value: "x402", label: "Pay-per-request protocol" },
   { value: "50+", label: "Country routes" },
   { value: "<1s", label: "Agent onboarding" },
+];
+
+// ── Payment Methods Data ──────────────────────────────────────────────
+
+interface X402Network {
+  name: string;
+  facilitator: string;
+  token: string;
+  note: string;
+  tag: "coinbase" | "payai";
+}
+
+const X402_NETWORKS: X402Network[] = [
+  { name: "Base",      facilitator: "Coinbase",  token: "USDC", note: "EIP-3009 gasless",  tag: "coinbase" },
+  { name: "Solana",    facilitator: "PayAI",     token: "USDC", note: "~400ms settlement", tag: "payai" },
+  { name: "Polygon",   facilitator: "PayAI",     token: "USDC", note: "PoS sidechain",     tag: "payai" },
+  { name: "Avalanche", facilitator: "PayAI",     token: "USDC", note: "C-Chain EVM",       tag: "payai" },
+  { name: "Sei",       facilitator: "PayAI",     token: "USDC", note: "High-speed EVM",    tag: "payai" },
+  { name: "SKALE",     facilitator: "PayAI",     token: "USDC", note: "Zero gas fees",     tag: "payai" },
+  { name: "IoTeX",     facilitator: "PayAI",     token: "USDC", note: "DePIN network",     tag: "payai" },
+  { name: "XLayer",    facilitator: "PayAI",     token: "USDC", note: "OKX L2",            tag: "payai" },
+  { name: "Peaq",      facilitator: "PayAI",     token: "USDC", note: "DePIN L1",          tag: "payai" },
+];
+
+interface CryptoCurrency {
+  symbol: string;
+  name: string;
+}
+
+const NOWPAYMENTS_CURRENCIES: CryptoCurrency[] = [
+  { symbol: "BTC",  name: "Bitcoin" },
+  { symbol: "ETH",  name: "Ethereum" },
+  { symbol: "SOL",  name: "Solana" },
+  { symbol: "XMR",  name: "Monero" },
+  { symbol: "ZEC",  name: "Zcash" },
+  { symbol: "USDC", name: "USD Coin" },
+  { symbol: "USDT", name: "Tether" },
+  { symbol: "DAI",  name: "Dai" },
+  { symbol: "BNB",  name: "BNB" },
+  { symbol: "LINK", name: "Chainlink" },
+  { symbol: "LTC",  name: "Litecoin" },
 ];
 
 const WORKFLOW_STEPS = [
@@ -328,13 +369,6 @@ function getMarketingHealthStatus(status: ProxyHealthResponse["status"]): ProxyH
   return status;
 }
 
-function getMarketingProxyEndpoint(): string {
-  const env = (import.meta as { env?: Record<string, string | undefined> }).env;
-  const configuredHost = env?.VITE_PROXY_PUBLIC_HOST?.trim() || "proxy.dominusnode.com";
-  if (configuredHost.includes(":")) return configuredHost;
-  const configuredPort = env?.VITE_PROXY_HTTP_PORT?.trim() || "8080";
-  return `${configuredHost}:${configuredPort}`;
-}
 
 export default function MarketingPage() {
   const { user } = useAuth();
@@ -360,7 +394,6 @@ export default function MarketingPage() {
   const healthStatus = healthData?.status ?? "unknown";
   const marketingHealthStatus = getMarketingHealthStatus(healthStatus);
   const sdkInfo = SDK_DETAILS[selectedSdk];
-  const marketingProxyEndpoint = getMarketingProxyEndpoint();
 
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [alphaDismissed, setAlphaDismissed] = useState(() => {
@@ -413,6 +446,8 @@ export default function MarketingPage() {
             <a href="#ecosystem">Ecosystem</a>
             <a href="#platform">Platform</a>
             <a href="#pricing">Pricing</a>
+            <a href="#payments">Payments</a>
+            <Link to="/docs">Docs</Link>
           </nav>
 
           <div className="mk-nav-actions">
@@ -445,6 +480,8 @@ export default function MarketingPage() {
             <a href="#ecosystem" onClick={() => setMobileMenuOpen(false)}>Ecosystem</a>
             <a href="#platform" onClick={() => setMobileMenuOpen(false)}>Platform</a>
             <a href="#pricing" onClick={() => setMobileMenuOpen(false)}>Pricing</a>
+            <a href="#payments" onClick={() => setMobileMenuOpen(false)}>Payments</a>
+            <Link to="/docs" onClick={() => setMobileMenuOpen(false)}>Docs</Link>
           </nav>
           <div className="mk-mobile-menu-actions">
             <Link to={loginHref} className="mk-button mk-button-outline" onClick={() => setMobileMenuOpen(false)}>
@@ -654,7 +691,7 @@ export default function MarketingPage() {
                 <h3>{category.name}</h3>
                 <p>{category.description}</p>
               </div>
-              <div className="mk-integration-grid">
+              <div className={`mk-integration-grid${category.integrations.length % 4 !== 0 ? " mk-integration-centered" : ""}`}>
                 {category.integrations.map((integration) => (
                   <div key={integration.name} className="mk-integration-card">
                     <div className="mk-integration-top">
@@ -722,6 +759,81 @@ export default function MarketingPage() {
                 </Link>
               </article>
             ))}
+          </div>
+        </section>
+
+        <section id="payments" className="mk-shell mk-section">
+          <div className="mk-section-head mk-animate-up">
+            <p className="mk-overline">Payments</p>
+            <h2>Pay with any currency, any chain, any method</h2>
+          </div>
+
+          {/* x402 — AI micropayments */}
+          <div className="mk-payment-category mk-animate-up mk-delay-1">
+            <div className="mk-payment-category-head">
+              <div className="mk-payment-category-title">
+                <span className="mk-payment-proto-badge">x402 Protocol</span>
+                <h3>AI Micropayments &mdash; USDC on 9 chains</h3>
+              </div>
+              <p>HTTP-native pay-per-request. AI agents pay directly from their wallet with a single
+              USDC transfer, no account or subscription required. Verified on-chain before each proxy request.</p>
+            </div>
+            <div className="mk-chain-grid">
+              {X402_NETWORKS.map((chain) => (
+                <div key={chain.name} className={`mk-chain-chip mk-chain-${chain.tag}`}>
+                  <div className="mk-chain-chip-top">
+                    <span className="mk-chain-name">{chain.name}</span>
+                    <span className="mk-chain-token">{chain.token}</span>
+                  </div>
+                  <div className="mk-chain-chip-bottom">
+                    <span className="mk-chain-facilitator">{chain.facilitator}</span>
+                    <span className="mk-chain-note">{chain.note}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Traditional crypto top-up */}
+          <div className="mk-payment-category mk-animate-up mk-delay-2">
+            <div className="mk-payment-category-head">
+              <div className="mk-payment-category-title">
+                <span className="mk-payment-proto-badge mk-payment-proto-crypto">NOWPayments</span>
+                <h3>Crypto Wallet Top-Up &mdash; 11 currencies</h3>
+              </div>
+              <p>Fund your Dominus Node wallet with any major cryptocurrency. Payments are converted to
+              wallet credits automatically. Privacy coins (XMR, ZEC) supported for anonymous billing.</p>
+            </div>
+            <div className="mk-crypto-grid">
+              {NOWPAYMENTS_CURRENCIES.map((c) => (
+                <div key={c.symbol} className="mk-crypto-pill">
+                  <span className="mk-crypto-symbol">{c.symbol}</span>
+                  <span className="mk-crypto-name">{c.name}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Fiat */}
+          <div className="mk-payment-category mk-animate-up mk-delay-3">
+            <div className="mk-payment-category-head">
+              <div className="mk-payment-category-title">
+                <span className="mk-payment-proto-badge mk-payment-proto-fiat">Fiat</span>
+                <h3>Card &amp; PayPal</h3>
+              </div>
+              <p>Pay with a credit or debit card via Stripe, or use PayPal directly. Stripe Link
+              enables one-click checkout for returning customers. All payments convert to wallet credits.</p>
+            </div>
+            <div className="mk-fiat-grid">
+              <div className="mk-fiat-card">
+                <span className="mk-fiat-provider">Stripe</span>
+                <p className="mk-fiat-detail">Credit / debit card &middot; Stripe Link one-click &middot; All major card networks</p>
+              </div>
+              <div className="mk-fiat-card">
+                <span className="mk-fiat-provider">PayPal</span>
+                <p className="mk-fiat-detail">Direct PayPal integration &middot; Lower fees than card &middot; PayPal balance or linked bank</p>
+              </div>
+            </div>
           </div>
         </section>
 
@@ -805,6 +917,7 @@ export default function MarketingPage() {
         <div className="mk-shell flex flex-col sm:flex-row items-center justify-between gap-4">
           <p className="text-xs text-gray-600">&copy; {new Date().getFullYear()} {BRAND_NAME}. All rights reserved.</p>
           <div className="flex gap-6">
+            <Link to="/docs" className="text-xs text-gray-500 hover:text-gray-300 transition-colors">Documentation</Link>
             <Link to="/privacy" className="text-xs text-gray-500 hover:text-gray-300 transition-colors">Privacy Policy</Link>
             <Link to="/terms" className="text-xs text-gray-500 hover:text-gray-300 transition-colors">Terms of Service</Link>
             <Link to="/aup" className="text-xs text-gray-500 hover:text-gray-300 transition-colors">Acceptable Use</Link>

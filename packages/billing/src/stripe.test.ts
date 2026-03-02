@@ -40,6 +40,9 @@ vi.mock("@dominusnode/shared", () => ({
     markCreditFailed: (...args: unknown[]) => mockMarkCreditFailed(...args),
     failInvoice: (...args: unknown[]) => mockFailInvoice(...args),
   },
+  referralRepo: {
+    recordAffiliateCommission: vi.fn().mockResolvedValue(undefined),
+  },
   createLogger: () => ({
     debug: vi.fn(),
     info: vi.fn(),

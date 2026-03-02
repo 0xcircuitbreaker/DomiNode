@@ -1,4 +1,5 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { z } from "zod";
 import type { HttpClient } from "../http-client.js";
 import type { Plan, UserPlan } from "../types.js";
 
@@ -23,7 +24,7 @@ export function registerPlansTools(server: McpServer, httpClient: HttpClient): v
           `Price: $${data.plan.pricePerGbUsd.toFixed(2)}/GB`,
           bandwidthLine,
           `Max Connections: ${data.plan.maxConnections}`,
-          `Proxy Types: ${Array.isArray(data.plan.allowedProxyTypes) ? data.plan.allowedProxyTypes.join(", ") : (data.plan.allowedProxyTypes ?? "all")}`,
+          `Proxy Types: ${data.plan.allowedProxyTypes ?? "all"}`,
         ].join("\n");
         return { content: [{ type: "text", text }] };
       } catch (err) {
@@ -51,6 +52,33 @@ export function registerPlansTools(server: McpServer, httpClient: HttpClient): v
         );
         lines.unshift("Available Plans:");
         return { content: [{ type: "text", text: lines.join("\n") }] };
+      } catch (err) {
+        return {
+          isError: true,
+          content: [{ type: "text", text: `Error: ${err instanceof Error ? err.message : String(err)}` }],
+        };
+      }
+    },
+  );
+
+  server.tool(
+    "dominusnode_change_plan",
+    "Switch your account to a different pricing plan. Available plans: free-dc (free, 500MB DC), free-res (free, 50MB residential), payg (pay-as-you-go, unlimited), vol100 (100GB/month), vol1tb (1TB/month), agent (AI agent plan, unlimited bandwidth, 50 connections, $5/GB). Volume plans require minimum wallet balance. Email must be verified.",
+    {
+      plan_id: z.string().min(1).max(50).describe("Plan ID to switch to. Options: free-dc, free-res, payg, vol100, vol1tb, agent"),
+    },
+    async (args) => {
+      try {
+        const data = await httpClient.put<{ message: string; plan: Plan }>("/api/plans/user/plan", { planId: args.plan_id });
+        const text = [
+          data.message,
+          `Plan: ${data.plan.name}`,
+          `Price: $${data.plan.pricePerGbUsd.toFixed(2)}/GB`,
+          `Bandwidth: ${data.plan.monthlyBandwidthGB != null ? `${data.plan.monthlyBandwidthGB} GB/month` : "Unlimited"}`,
+          `Max Connections: ${data.plan.maxConnections}`,
+          `Proxy Types: ${data.plan.allowedProxyTypes ?? "all"}`,
+        ].join("\n");
+        return { content: [{ type: "text", text }] };
       } catch (err) {
         return {
           isError: true,

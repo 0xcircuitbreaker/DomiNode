@@ -625,9 +625,15 @@ html {
 
 .mk-pricing-grid {
   margin-top: 28px;
-  display: grid;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
   gap: 14px;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.mk-pricing-grid > * {
+  flex: 0 0 calc(25% - 10.5px);
+  min-width: 0;
 }
 
 .mk-price-card {
@@ -944,6 +950,18 @@ html {
   gap: 10px;
 }
 
+/* Center partial last rows (e.g. 3 of 4 columns) */
+.mk-integration-grid.mk-integration-centered {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.mk-integration-grid.mk-integration-centered > * {
+  flex: 0 0 calc(25% - 7.5px);
+  min-width: 0;
+}
+
 .mk-integration-card {
   border-radius: 12px;
   border: 1px solid var(--mk-line);
@@ -1001,6 +1019,258 @@ html {
   font-size: 12px;
   line-height: 1.5;
   color: var(--mk-muted);
+}
+
+/* ─── Payments Section ──────────────────────────────────────── */
+
+.mk-payment-category {
+  margin-top: 32px;
+  border: 1px solid var(--mk-line);
+  border-radius: 18px;
+  padding: 22px;
+  background: color-mix(in srgb, var(--mk-surface) 90%, transparent);
+}
+
+.mk-payment-category-head {
+  margin-bottom: 18px;
+}
+
+.mk-payment-category-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.mk-payment-category-title h3 {
+  font-size: 20px;
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+
+.mk-payment-category-head > p {
+  color: var(--mk-muted);
+  font-size: 14px;
+  line-height: 1.6;
+  max-width: 760px;
+}
+
+.mk-payment-proto-badge {
+  display: inline-block;
+  padding: 3px 9px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--mk-accent);
+  background: color-mix(in srgb, var(--mk-accent) 10%, var(--mk-surface));
+  border: 1px solid color-mix(in srgb, var(--mk-accent) 25%, var(--mk-line));
+  white-space: nowrap;
+}
+
+.mk-payment-proto-crypto {
+  color: #d97706;
+  background: color-mix(in srgb, #d97706 10%, var(--mk-surface));
+  border-color: color-mix(in srgb, #d97706 25%, var(--mk-line));
+}
+
+.mk-payment-proto-fiat {
+  color: #7c3aed;
+  background: color-mix(in srgb, #7c3aed 10%, var(--mk-surface));
+  border-color: color-mix(in srgb, #7c3aed 25%, var(--mk-line));
+}
+
+/* x402 chain chips grid */
+.mk-chain-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.mk-chain-chip {
+  border-radius: 12px;
+  border: 1px solid var(--mk-line);
+  background: color-mix(in srgb, var(--mk-surface-soft) 92%, transparent);
+  padding: 12px;
+  transition: border-color 150ms ease, transform 150ms ease, box-shadow 150ms ease;
+}
+
+.mk-chain-chip:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
+}
+
+.mk-chain-coinbase {
+  border-color: color-mix(in srgb, #0052ff 30%, var(--mk-line));
+  background: color-mix(in srgb, #0052ff 5%, var(--mk-surface-soft));
+}
+
+.mk-chain-coinbase:hover {
+  border-color: color-mix(in srgb, #0052ff 55%, var(--mk-line));
+}
+
+.mk-chain-payai {
+  border-color: var(--mk-line);
+}
+
+.mk-chain-payai:hover {
+  border-color: color-mix(in srgb, var(--mk-accent) 50%, var(--mk-line));
+}
+
+.mk-chain-chip-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.mk-chain-name {
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.mk-chain-token {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--mk-accent);
+  background: color-mix(in srgb, var(--mk-accent) 10%, var(--mk-surface));
+  border: 1px solid color-mix(in srgb, var(--mk-accent) 22%, var(--mk-line));
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+
+.mk-chain-chip-bottom {
+  margin-top: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+}
+
+.mk-chain-facilitator {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--mk-muted);
+}
+
+.mk-chain-note {
+  font-size: 10px;
+  color: var(--mk-muted);
+  text-align: right;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* NOWPayments crypto currency grid */
+.mk-crypto-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.mk-crypto-pill {
+  border-radius: 10px;
+  border: 1px solid var(--mk-line);
+  background: color-mix(in srgb, var(--mk-surface-soft) 90%, transparent);
+  padding: 10px 12px;
+  text-align: center;
+  transition: border-color 150ms ease, transform 150ms ease;
+}
+
+.mk-crypto-pill:hover {
+  border-color: color-mix(in srgb, #d97706 40%, var(--mk-line));
+  transform: translateY(-1px);
+}
+
+.mk-crypto-symbol {
+  display: block;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  color: var(--mk-ink);
+  font-family: "IBM Plex Mono", "Cascadia Code", "Fira Code", "JetBrains Mono", Consolas, monospace;
+}
+
+.mk-crypto-name {
+  display: block;
+  margin-top: 3px;
+  font-size: 10px;
+  color: var(--mk-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Fiat providers grid */
+.mk-fiat-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.mk-fiat-card {
+  border-radius: 12px;
+  border: 1px solid var(--mk-line);
+  background: color-mix(in srgb, var(--mk-surface-soft) 90%, transparent);
+  padding: 16px;
+  transition: border-color 150ms ease, transform 150ms ease;
+}
+
+.mk-fiat-card:hover {
+  border-color: color-mix(in srgb, #7c3aed 40%, var(--mk-line));
+  transform: translateY(-1px);
+}
+
+.mk-fiat-provider {
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.mk-fiat-detail {
+  margin-top: 6px;
+  font-size: 13px;
+  color: var(--mk-muted);
+  line-height: 1.5;
+}
+
+/* Responsive: payment section */
+@media (max-width: 1140px) {
+  .mk-chain-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .mk-crypto-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 980px) {
+  .mk-chain-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .mk-crypto-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .mk-chain-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .mk-crypto-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .mk-fiat-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .mk-final-cta {
@@ -1099,6 +1369,10 @@ html {
 
   .mk-integration-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .mk-integration-grid.mk-integration-centered > * {
+    flex: 0 0 calc(33.333% - 6.667px);
   }
 
   .mk-toolkit-grid {
@@ -1209,8 +1483,8 @@ html {
 }
 
 @media (max-width: 1140px) {
-  .mk-pricing-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  .mk-pricing-grid > * {
+    flex: 0 0 calc(50% - 7px);
   }
 }
 
@@ -1250,8 +1524,8 @@ html {
     flex: 0 0 100%;
   }
 
-  .mk-pricing-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  .mk-pricing-grid > * {
+    flex: 0 0 calc(50% - 7px);
   }
 
   .mk-hero-panel h2 {
@@ -1273,11 +1547,15 @@ html {
   .mk-integration-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .mk-integration-grid.mk-integration-centered > * {
+    flex: 0 0 calc(50% - 5px);
+  }
 }
 
 @media (max-width: 640px) {
-  .mk-pricing-grid {
-    grid-template-columns: 1fr;
+  .mk-pricing-grid > * {
+    flex: 0 0 100%;
   }
 
   .mk-price-value {
@@ -1286,6 +1564,10 @@ html {
 
   .mk-integration-grid {
     grid-template-columns: 1fr;
+  }
+
+  .mk-integration-grid.mk-integration-centered > * {
+    flex: 0 0 100%;
   }
 
   .mk-ecosystem-stats {

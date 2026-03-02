@@ -174,7 +174,7 @@ INSERT INTO plans (id, name, price_per_gb_cents, monthly_bandwidth_bytes, is_def
   ('payg',   'Pay As You Go', 500, 0,               false, 100),
   ('vol100', 'Volume 100GB',  400, 107374182400,    false, 100),
   ('vol1tb', 'Volume 1TB',    300, 1099511627776,   false, 100),
-  ('agent',  'AI Agent',      500, 5368709120,      false, 50)
+  ('agent',  'AI Agent',      500, 0,               false, 50)
 ON CONFLICT (id) DO NOTHING;
 
 -- Add plan to users (idempotent)
@@ -198,6 +198,8 @@ END $$;
 -- Update free plan for existing databases (bandwidth, price, default, max_connections)
 UPDATE plans SET price_per_gb_cents = 0, monthly_bandwidth_bytes = 1073741824, is_default = true, max_connections = 10, name = 'Free' WHERE id = 'free';
 UPDATE plans SET is_default = false WHERE id = 'payg';
+-- AI Agent plan: unlimited bandwidth (matching Pay As You Go)
+UPDATE plans SET monthly_bandwidth_bytes = 0 WHERE id = 'agent';
 
 -- Set per-plan session rate limits
 UPDATE plans SET max_sessions_per_minute = 30 WHERE id IN ('free', 'payg');
@@ -207,6 +209,13 @@ UPDATE plans SET max_sessions_per_minute = 60 WHERE id IN ('vol100', 'vol1tb', '
 DO $$ BEGIN
   ALTER TABLE plans ADD COLUMN allowed_proxy_types TEXT;
 EXCEPTION WHEN duplicate_column THEN NULL;
+END $$;
+
+-- Enforce valid values for allowed_proxy_types
+DO $$ BEGIN
+  ALTER TABLE plans ADD CONSTRAINT chk_plans_allowed_proxy_types
+    CHECK (allowed_proxy_types IS NULL OR allowed_proxy_types IN ('dc', 'residential', 'all'));
+EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
 -- Beta free plans: free-dc (500 MB DC only) and free-res (50 MB residential only)

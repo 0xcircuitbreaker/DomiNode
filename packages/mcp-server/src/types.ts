@@ -114,7 +114,7 @@ export interface Plan {
   monthlyBandwidthGB: number | null;
   isDefault: boolean;
   maxConnections: number;
-  allowedProxyTypes: string | string[] | null;
+  allowedProxyTypes: string | null;
 }
 
 export interface UserPlan {

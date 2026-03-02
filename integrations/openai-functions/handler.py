@@ -982,6 +982,10 @@ def create_dominusnode_function_handler(
         })
         return json.dumps(result)
 
+    async def handle_x402_info(_args: Dict[str, Any]) -> str:
+        result = await api_request("GET", "/api/x402/info")
+        return json.dumps(result)
+
     async def handle_update_team_member_role(args: Dict[str, Any]) -> str:
         team_id = args.get("team_id")
         user_id = args.get("user_id")
@@ -1037,6 +1041,7 @@ def create_dominusnode_function_handler(
         "dominusnode_topup_paypal": handle_topup_paypal,
         "dominusnode_topup_stripe": handle_topup_stripe,
         "dominusnode_topup_crypto": handle_topup_crypto,
+        "dominusnode_x402_info": handle_x402_info,
     }
 
     # -------------------------------------------------------------------

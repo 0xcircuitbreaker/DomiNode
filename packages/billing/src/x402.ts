@@ -23,6 +23,58 @@ function stripDangerousKeys(obj: Record<string, unknown>, depth = 0): void {
 
 export type X402Facilitator = "coinbase" | "payai";
 
+// USDC contract addresses for well-known chains.
+// These are Circle's official deployments (EVM) and the canonical SPL mint (Solana).
+// For chains not listed here, operators must set X402_USDC_ADDRESS_{NETWORK_UPPER} env var.
+// E.g., X402_USDC_ADDRESS_SEI, X402_USDC_ADDRESS_SKALE_BASE, X402_USDC_ADDRESS_IOTEX, etc.
+const USDC_ASSET_ADDRESSES: Record<string, string> = {
+  "base":          "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", // Circle official — Base mainnet
+  "base-sepolia":  "0x036CbD53842c5426634e7929541eC2318f3dCF7e", // Circle official — Base Sepolia
+  "solana":        "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", // Circle official — Solana mainnet
+  "solana-devnet": "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU", // Solana devnet test USDC
+  "polygon":       "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359", // Circle native USDC — Polygon PoS
+  "avalanche":     "0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E", // Circle official — Avalanche C-Chain
+};
+
+/**
+ * Look up the USDC token contract address for a given x402 network.
+ * Checks the hardcoded map first; falls back to X402_USDC_ADDRESS_{NETWORK_SCREAMING_SNAKE} env var.
+ * Returns null if the address is unknown — callers should skip the chain and warn.
+ */
+function getUsdcAssetAddress(network: string): string | null {
+  if (USDC_ASSET_ADDRESSES[network]) return USDC_ASSET_ADDRESSES[network];
+  const envKey = `X402_USDC_ADDRESS_${network.toUpperCase().replace(/-/g, "_")}`;
+  return process.env[envKey]?.trim() || null;
+}
+
+// PayAI-supported EVM chains beyond Solana.
+// Each entry maps an env var holding the receiving address → x402 network string.
+// Operators configure whichever chains they want to accept by setting the env vars.
+// For exotic chains (sei, skale-base, iotex, xlayer, peaq) also set the corresponding
+// X402_USDC_ADDRESS_{CHAIN} env var with the bridged USDC contract address on that network.
+const PAYAI_EVM_CHAINS: { envVar: string; network: string }[] = [
+  { envVar: "X402_RECEIVING_ADDRESS_POLYGON",   network: "polygon" },    // Circle native USDC
+  { envVar: "X402_RECEIVING_ADDRESS_AVALANCHE",  network: "avalanche" }, // Circle native USDC
+  { envVar: "X402_RECEIVING_ADDRESS_SEI",        network: "sei" },       // Requires X402_USDC_ADDRESS_SEI
+  { envVar: "X402_RECEIVING_ADDRESS_SKALE",      network: "skale-base" },// Requires X402_USDC_ADDRESS_SKALE_BASE
+  { envVar: "X402_RECEIVING_ADDRESS_IOTEX",      network: "iotex" },     // Requires X402_USDC_ADDRESS_IOTEX
+  { envVar: "X402_RECEIVING_ADDRESS_XLAYER",     network: "xlayer" },    // Requires X402_USDC_ADDRESS_XLAYER
+  { envVar: "X402_RECEIVING_ADDRESS_PEAQ",       network: "peaq" },      // Requires X402_USDC_ADDRESS_PEAQ
+];
+
+// Network identifiers that route to the PayAI facilitator.
+// Anything NOT in this set but with an 0x address → Coinbase (Base).
+const PAYAI_NETWORKS = new Set([
+  "solana", "solana-devnet",
+  "polygon", "polygon-amoy",
+  "avalanche", "avalanche-fuji",
+  "sei", "sei-testnet",
+  "peaq",
+  "iotex",
+  "xlayer", "xlayer-testnet",
+  "skale-base", "skale-base-sepolia",
+]);
+
 export interface X402Requirements {
   version: string;
   accepts: X402PaymentOption[];
@@ -34,7 +86,12 @@ export interface X402PaymentOption {
   maxAmountRequired: string;
   resource: string;
   payTo: string;
-  extra: { facilitator: X402Facilitator };
+  asset: string;           // ERC-20 contract address (or SPL mint for Solana)
+  extra: {
+    facilitator: X402Facilitator;
+    name: string;          // Token symbol, e.g. "USDC"
+    version: string;       // EIP-3009 authorization version: "2" for EVM, "1" for Solana
+  };
 }
 
 export interface X402VerifyResult {
@@ -77,8 +134,8 @@ function getMaxRequestBodyBytes(): number {
 
 /**
  * Detect which facilitator to use based on the X-PAYMENT header content.
- * - Coinbase: payment contains EVM-style 0x addresses (Base chain)
- * - PayAI: payment contains Solana-style base58 addresses
+ * - Coinbase: Base / base-sepolia (0x EVM address)
+ * - PayAI: Solana (base58) OR any PAYAI_NETWORKS chain (Polygon, Avalanche, Sei, SKALE, IoTeX, XLayer)
  * Falls back to coinbase if ambiguous.
  */
 export function detectFacilitator(paymentHeader: string): X402Facilitator {
@@ -93,23 +150,28 @@ export function detectFacilitator(paymentHeader: string): X402Facilitator {
     if (typeof parsed === "object" && parsed !== null) {
       stripDangerousKeys(parsed);
     }
-    // Check for explicit facilitator field
-    if (parsed.facilitator === "payai" || parsed.network === "solana") {
-      return "payai";
+    // Explicit facilitator field wins unconditionally
+    if (parsed.facilitator === "payai") return "payai";
+    if (parsed.facilitator === "coinbase") return "coinbase";
+    // Network field: PayAI handles its network set; Coinbase handles Base
+    if (typeof parsed.network === "string") {
+      if (PAYAI_NETWORKS.has(parsed.network)) return "payai";
+      if (parsed.network === "base" || parsed.network === "base-sepolia") return "coinbase";
     }
-    if (parsed.facilitator === "coinbase" || parsed.network === "base" || parsed.network === "base-sepolia") {
-      return "coinbase";
-    }
-    // Check payTo address format
+    // Address format as last resort
     if (typeof parsed.payTo === "string") {
-      if (parsed.payTo.startsWith("0x")) return "coinbase";
-      // Solana base58 addresses are 32-44 chars, no 0x prefix
+      // Solana base58 (no 0x prefix)
       if (/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(parsed.payTo)) return "payai";
+      // EVM 0x — default to Coinbase (Base) unless network said otherwise above
+      if (parsed.payTo.startsWith("0x")) return "coinbase";
     }
   } catch {
     // Not JSON — check raw content patterns
-    if (paymentHeader.includes('"network":"solana"') || paymentHeader.includes('"facilitator":"payai"')) {
-      return "payai";
+    if (paymentHeader.includes('"facilitator":"payai"')) return "payai";
+    if (paymentHeader.includes('"facilitator":"coinbase"')) return "coinbase";
+    // Check all PayAI network strings in raw payload
+    for (const net of PAYAI_NETWORKS) {
+      if (paymentHeader.includes(`"network":"${net}"`)) return "payai";
     }
   }
 
@@ -142,41 +204,78 @@ export function buildX402Requirements(poolType: "dc" | "residential"): X402Requi
   const amountUsdc = Math.ceil(priceFloat * 1_000_000).toString();
 
   const accepts: X402PaymentOption[] = [];
+  const resourceUrl = `https://${process.env["PROXY_PUBLIC_HOST"] ?? "proxy.dominusnode.com"}`;
 
-  // Coinbase facilitator (Base chain)
+  // Coinbase facilitator — Base chain (USDC, EIP-3009 gasless transfer)
   const evmAddr = process.env["X402_RECEIVING_ADDRESS"];
   if (evmAddr) {
     // H-1: Validate EVM address format
     if (!/^0x[0-9a-fA-F]{40}$/.test(evmAddr)) {
       log.warn("Invalid X402_RECEIVING_ADDRESS format — must be 0x + 40 hex chars", { addr: evmAddr.slice(0, 6) });
     } else {
-      accepts.push({
-        scheme: "exact",
-        network: process.env["X402_NETWORK"] ?? "base-sepolia",
-        maxAmountRequired: amountUsdc,
-        resource: `https://${process.env["PROXY_PUBLIC_HOST"] ?? "proxy.dominusnode.com"}`,
-        payTo: evmAddr,
-        extra: { facilitator: "coinbase" },
-      });
+      const network = process.env["X402_NETWORK"] ?? "base-sepolia";
+      const assetAddress = getUsdcAssetAddress(network);
+      if (!assetAddress) {
+        log.warn(`No USDC asset address for Coinbase network ${network} — set X402_USDC_ADDRESS_${network.toUpperCase().replace(/-/g, "_")}`);
+      } else {
+        accepts.push({
+          scheme: "exact",
+          network,
+          maxAmountRequired: amountUsdc,
+          resource: resourceUrl,
+          payTo: evmAddr,
+          asset: assetAddress,
+          extra: { facilitator: "coinbase", name: "USDC", version: "2" },
+        });
+      }
     }
   }
 
-  // PayAI facilitator (Solana)
+  // PayAI facilitator — Solana (base58 address, SPL USDC)
   const solAddr = process.env["X402_RECEIVING_ADDRESS_SOLANA"];
   if (solAddr) {
     // H-1: Validate Solana address format (base58, 32-44 chars)
     if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(solAddr)) {
       log.warn("Invalid X402_RECEIVING_ADDRESS_SOLANA format", { addr: solAddr.slice(0, 6) });
     } else {
+      const assetAddress = getUsdcAssetAddress("solana");
       accepts.push({
         scheme: "exact",
         network: "solana",
         maxAmountRequired: amountUsdc,
-        resource: `https://${process.env["PROXY_PUBLIC_HOST"] ?? "proxy.dominusnode.com"}`,
+        resource: resourceUrl,
         payTo: solAddr,
-        extra: { facilitator: "payai" },
+        asset: assetAddress!, // Always known — Circle official SPL mint
+        extra: { facilitator: "payai", name: "USDC", version: "1" },
       });
     }
+  }
+
+  // PayAI facilitator — EVM chains (Polygon, Avalanche, Sei, SKALE, IoTeX, XLayer, Peaq)
+  // Each uses an 0x EVM address on the respective chain, all settled via PayAI's facilitator.
+  // Operators opt-in per chain by setting the corresponding env var.
+  // For chains without a hardcoded USDC address, also set X402_USDC_ADDRESS_{CHAIN}.
+  for (const { envVar, network } of PAYAI_EVM_CHAINS) {
+    const addr = process.env[envVar]?.trim();
+    if (!addr) continue;
+    if (!/^0x[0-9a-fA-F]{40}$/.test(addr)) {
+      log.warn(`Invalid ${envVar} format — must be 0x + 40 hex chars`, { network, addr: addr.slice(0, 6) });
+      continue;
+    }
+    const assetAddress = getUsdcAssetAddress(network);
+    if (!assetAddress) {
+      log.warn(`No USDC asset address for PayAI network ${network} — set X402_USDC_ADDRESS_${network.toUpperCase().replace(/-/g, "_")} to the bridged USDC contract on that chain`);
+      continue;
+    }
+    accepts.push({
+      scheme: "exact",
+      network,
+      maxAmountRequired: amountUsdc,
+      resource: resourceUrl,
+      payTo: addr,
+      asset: assetAddress,
+      extra: { facilitator: "payai", name: "USDC", version: "2" },
+    });
   }
 
   // H-8: Warn if no accepts and x402 is enabled

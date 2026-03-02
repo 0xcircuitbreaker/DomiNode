@@ -232,7 +232,8 @@ describe("verifyX402Payment", () => {
         maxAmountRequired: "1000",
         resource: "https://proxy.dominusnode.com",
         payTo: "0x1234567890abcdef1234567890abcdef12345678",
-        extra: { facilitator: "coinbase" as const },
+        asset: "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+        extra: { facilitator: "coinbase" as const, name: "USDC", version: "2" },
       },
     ],
   };
@@ -347,7 +348,8 @@ describe("verifyX402Payment", () => {
         maxAmountRequired: "5000",
         resource: "https://proxy.dominusnode.com",
         payTo: "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU",
-        extra: { facilitator: "payai" as const },
+        asset: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+        extra: { facilitator: "payai" as const, name: "USDC", version: "1" },
       }],
     };
 
@@ -372,7 +374,8 @@ describe("verifyX402Payment", () => {
         maxAmountRequired: "5000",
         resource: "https://proxy.dominusnode.com",
         payTo: "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU",
-        extra: { facilitator: "payai" as const },
+        asset: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+        extra: { facilitator: "payai" as const, name: "USDC", version: "1" },
       }],
     };
 

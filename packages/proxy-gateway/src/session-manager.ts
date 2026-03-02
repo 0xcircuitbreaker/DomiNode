@@ -5,6 +5,7 @@ import { BYTES_PER_GB } from "@dominusnode/shared";
 import { invalidateBalanceCache, invalidateTeamBalanceCache } from "./balance-check.js";
 import { recordBytes, recordSessionStart } from "./stats.js";
 import type { ByteCounter } from "./counting-stream.js";
+import { getUserConnCount } from "./connection-tracker.js";
 
 const log = createLogger("proxy:session");
 
@@ -235,12 +236,14 @@ export async function startSession(
   // Use pre-fetched plan if available — eliminates TOCTOU from double getUserPlan
   let pricePerGbCents = 500; // default PAYG rate
   let planSessionLimit: number | undefined;
+  let planMaxConns: number | undefined;
   let planMonthlyBandwidthBytes = 0; // Hoisted for reuse in free-tier block below
   let monthlyUsage = 0; // Hoisted — single fetch, reused in free-tier reservation block
   try {
     const plan = preloadedPlan ?? await planRepo.getUserPlan(userId);
     pricePerGbCents = plan.pricePerGbCents;
     planSessionLimit = plan.maxSessionsPerMinute;
+    planMaxConns = plan.maxConnections;
     planMonthlyBandwidthBytes = plan.monthlyBandwidthBytes;
 
     // Enforce pool restriction from plan (Beta free-tier restructure)
@@ -284,6 +287,15 @@ export async function startSession(
   // Per-user session rate limiting — uses plan-specific limit when available
   if (!checkSessionRateLimit(userId, planSessionLimit)) {
     throw new Error("Session rate limit exceeded");
+  }
+
+  // Defense-in-depth: verify active connection count is within plan limit.
+  // Primary enforcement is in server.ts/socks5.ts via incrementUserConns().
+  // This guard prevents bypass if startSession() is called without that check.
+  if (planMaxConns != null && planMaxConns > 0) {
+    if (getUserConnCount(userId) > planMaxConns) {
+      throw new Error("Too many concurrent connections");
+    }
   }
 
   // Free plan needs in-memory bandwidth reservation to prevent concurrent session abuse

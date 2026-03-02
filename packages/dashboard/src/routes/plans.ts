@@ -5,6 +5,8 @@ import { requireAuth, type AuthenticatedRequest } from "../middleware/auth.js";
 
 // Plans that users are allowed to self-select
 const USER_SELECTABLE_PLANS = new Set(["free", "free-dc", "free-res", "payg", "vol100", "vol1tb"]);
+// Plans only selectable by MCP agents (identified by X-DominusNode-Agent: mcp header)
+const AGENT_ONLY_PLANS = new Set(["agent"]);
 
 // Minimum wallet balance required (in cents) to switch to volume plans
 const VOLUME_PLAN_MIN_BALANCE: Record<string, number> = {
@@ -109,7 +111,10 @@ router.put("/user/plan", requireAuth, planChangeLimiter, async (req, res) => {
     }
 
     // Restrict to user-selectable plans (prevents switching to free/admin-only plans)
-    if (!USER_SELECTABLE_PLANS.has(planId)) {
+    // MCP agents (X-DominusNode-Agent: mcp) can additionally select agent-only plans
+    const isMcpAgent = req.headers["x-dominusnode-agent"] === "mcp";
+    const isAllowed = USER_SELECTABLE_PLANS.has(planId) || (isMcpAgent && AGENT_ONLY_PLANS.has(planId));
+    if (!isAllowed) {
       res.status(403).json({ error: "This plan cannot be selected. Contact support for assistance." });
       return;
     }
