@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.1.0
+
+### Added
+- Stripe checkout top-up tool (`dominusnode_topup_stripe`) — create Stripe Checkout sessions ($5–$1,000)
+- Crypto top-up tool (`dominusnode_topup_crypto`) — NOWPayments invoices for BTC, ETH, LTC, XMR, ZEC, USDC, SOL, USDT, DAI, BNB, LINK ($5–$1,000)
+- `dominusnode_update_wallet_policy` tool — update daily limits and domain allowlists for agentic wallets
+- Comprehensive test suite: 167 tests covering SSRF protection (incl. DNS rebinding), input validation, credential scrubbing, payment response fields, and all 26 tools
+
+### Fixed
+- `topupCrypto`: use `Number.isFinite()` instead of `isNaN()` to correctly reject `NaN` and `Infinity` inputs
+
 ## 1.0.1
 
 - Fix branding: replace "DomiNode" with "Dominus Node" throughout

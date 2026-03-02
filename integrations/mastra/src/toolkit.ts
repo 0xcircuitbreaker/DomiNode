@@ -34,7 +34,7 @@ const REQUEST_TIMEOUT_MS = 30_000;
 const MAX_RESPONSE_BYTES = 10 * 1024 * 1024; // 10 MB hard cap
 
 /** OFAC sanctioned countries -- must never be used as geo-targeting destinations. */
-const SANCTIONED_COUNTRIES = new Set(["CU", "IR", "KP", "RU", "SY"]);
+export const SANCTIONED_COUNTRIES = new Set(["CU", "IR", "KP", "RU", "SY"]);
 
 /** ISO 3166-1 alpha-2 country code pattern. */
 const COUNTRY_CODE_RE = /^[A-Z]{2}$/;
@@ -84,7 +84,7 @@ export function truncate(text: string, max: number = MAX_RESPONSE_CHARS): string
 // SSRF Protection
 // ---------------------------------------------------------------------------
 
-const BLOCKED_HOSTNAMES = new Set([
+export const BLOCKED_HOSTNAMES = new Set([
   "localhost",
   "localhost.localdomain",
   "ip6-localhost",
@@ -297,7 +297,7 @@ export function validateUuid(id: string, label: string): string {
 /**
  * Resolve a hostname via DNS and verify none of the resolved IPs are private.
  */
-async function checkDnsRebinding(hostname: string): Promise<void> {
+export async function checkDnsRebinding(hostname: string): Promise<void> {
   const stripped = hostname.replace(/^\[|\]$/g, "");
   if (/^(\d{1,3}\.){3}\d{1,3}$/.test(stripped) || stripped.includes(":")) {
     return;

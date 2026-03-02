@@ -39,6 +39,9 @@ if [ -f "$ENV_FILE" ]; then
     key="${key%"${key##*[![:space:]]}"}"
     value="${value#"${value%%[![:space:]]*}"}"
     value="${value%"${value##*[![:space:]]}"}"
+    # Strip surrounding quotes (double or single) from value
+    value="${value#\"}" ; value="${value%\"}"
+    value="${value#\'}" ; value="${value%\'}"
     # Validate key is a safe env var name
     if ! [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
       echo "WARNING: Skipping invalid env key: $key" >&2
@@ -78,9 +81,13 @@ case "$MODE" in
     ;;
 esac
 
-# Validate num_agents is a positive integer
+# Validate num_agents is a positive integer within bounds
 if ! [[ "$NUM_AGENTS" =~ ^[0-9]+$ ]] || [ "$NUM_AGENTS" -lt 1 ]; then
   echo "ERROR: num_agents must be a positive integer (got: $NUM_AGENTS)"
+  exit 1
+fi
+if [ "$NUM_AGENTS" -gt 1000 ]; then
+  echo "ERROR: num_agents ($NUM_AGENTS) exceeds maximum (1000)"
   exit 1
 fi
 
@@ -147,6 +154,16 @@ esac
 # ─── Launch ────────────────────────────────────────────────────────
 PIDS=()
 EXIT_CODE=0
+
+cleanup() {
+  if [ ${#PIDS[@]} -gt 0 ]; then
+    for PID in "${PIDS[@]}"; do kill "$PID" 2>/dev/null || true; done
+    sleep 1
+    for PID in "${PIDS[@]}"; do kill -9 "$PID" 2>/dev/null || true; done
+  fi
+  unset ADMIN_PASSWORD 2>/dev/null || true
+}
+trap cleanup EXIT INT TERM
 
 if [ "$TEAM_AGENTS" -gt 0 ]; then
   echo "Launching team swarm (${TEAM_AGENTS} agents)..."

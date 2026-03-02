@@ -50,6 +50,9 @@ if [ -f "$ENV_FILE" ]; then
     key="${key%"${key##*[![:space:]]}"}"
     value="${value#"${value%%[![:space:]]*}"}"
     value="${value%"${value##*[![:space:]]}"}"
+    # Strip surrounding quotes (double or single) from value
+    value="${value#\"}" ; value="${value%\"}"
+    value="${value#\'}" ; value="${value%\'}"
     # Validate key is a safe env var name
     if ! [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
       echo "WARNING: Skipping invalid env key: $key" >&2

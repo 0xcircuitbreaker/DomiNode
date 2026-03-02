@@ -45,7 +45,7 @@ log() { echo "[solo-${AGENT_NUM}] $(date '+%H:%M:%S') $*"; }
 # ─── Step 1: Register ────────────────────────────────────────────────
 # Pipe credentials via stdin (--data @-) to avoid exposure in process table
 log "Registering as ${EMAIL}..."
-REG_RESP=$(printf '{"email":"%s","password":"%s"}' "$EMAIL" "$PASSWORD" | \
+REG_RESP=$(jq -n --arg e "$EMAIL" --arg p "$PASSWORD" '{"email":$e,"password":$p}' | \
   curl -s -w "\n%{http_code}" -X POST "${API_BASE}/api/auth/register" \
   -H "Content-Type: application/json" \
   --data @- 2>/dev/null || true)
@@ -60,7 +60,7 @@ fi
 # ─── Step 2: Login ───────────────────────────────────────────────────
 # Pipe credentials via stdin
 log "Logging in..."
-LOGIN_RESP=$(printf '{"email":"%s","password":"%s"}' "$EMAIL" "$PASSWORD" | \
+LOGIN_RESP=$(jq -n --arg e "$EMAIL" --arg p "$PASSWORD" '{"email":$e,"password":$p}' | \
   curl -s -X POST "${API_BASE}/api/auth/login" \
   -H "Content-Type: application/json" \
   --data @- 2>/dev/null || true)
@@ -80,15 +80,20 @@ if [ -z "$USER_ID" ]; then
   log "ERROR: Could not get user ID"
   exit 1
 fi
+if ! [[ "$USER_ID" =~ ^[a-f0-9-]+$ ]]; then
+  log "ERROR: Invalid user ID format"
+  exit 1
+fi
 log "User ID: ${USER_ID}"
 
 # ─── Step 4: Admin assigns plan + credits wallet ─────────────────────
 if [ -n "${ADMIN_JWT:-}" ]; then
   # Assign plan
-  PLAN_RESP=$(curl -s -w "\n%{http_code}" -X PUT "${API_BASE}/api/admin/users/${USER_ID}/plan" \
+  PLAN_RESP=$(printf '{"planId":"%s"}' "$AGENT_PLAN" | \
+    curl -s -w "\n%{http_code}" -X PUT "${API_BASE}/api/admin/users/${USER_ID}/plan" \
     -H "Content-Type: application/json" \
     -H "Authorization: Bearer ${ADMIN_JWT}" \
-    -d "{\"planId\":\"${AGENT_PLAN}\"}" 2>/dev/null || true)
+    --data @- 2>/dev/null || true)
   PLAN_CODE=$(echo "$PLAN_RESP" | tail -1)
   if [ "$PLAN_CODE" = "200" ]; then
     log "Plan assigned: ${AGENT_PLAN}"
@@ -97,10 +102,12 @@ if [ -n "${ADMIN_JWT:-}" ]; then
   fi
 
   # Credit wallet
-  CREDIT_RESP=$(curl -s -w "\n%{http_code}" -X POST "${API_BASE}/api/admin/credit-wallet" \
+  CREDIT_RESP=$(printf '{"targetUserId":"%s","amountCents":%d,"reason":"Solo swarm agent #%d"}' \
+    "$USER_ID" "$AGENT_CREDIT" "$AGENT_NUM" | \
+    curl -s -w "\n%{http_code}" -X POST "${API_BASE}/api/admin/credit-wallet" \
     -H "Content-Type: application/json" \
     -H "Authorization: Bearer ${ADMIN_JWT}" \
-    -d "{\"targetUserId\":\"${USER_ID}\",\"amountCents\":${AGENT_CREDIT},\"reason\":\"Solo swarm agent #${AGENT_NUM}\"}" 2>/dev/null || true)
+    --data @- 2>/dev/null || true)
   CREDIT_CODE=$(echo "$CREDIT_RESP" | tail -1)
   if [ "$CREDIT_CODE" = "200" ]; then
     log "Wallet credited: \$$(printf '%.2f' "$(echo "scale=2; ${AGENT_CREDIT}/100" | bc)")"
@@ -117,10 +124,11 @@ unset ADMIN_JWT 2>/dev/null || true
 
 # ─── Step 5: Create API key ──────────────────────────────────────────
 log "Creating API key..."
-KEY_RESP=$(curl -s -X POST "${API_BASE}/api/keys" \
+KEY_RESP=$(printf '{"label":"solo-%d"}' "$AGENT_NUM" | \
+  curl -s -X POST "${API_BASE}/api/keys" \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer ${TOKEN}" \
-  -d "{\"label\":\"solo-${AGENT_NUM}\"}" 2>/dev/null || true)
+  --data @- 2>/dev/null || true)
 
 API_KEY=$(echo "$KEY_RESP" | grep -o '"rawKey":"[^"]*"' | head -1 | cut -d'"' -f4)
 if [ -z "$API_KEY" ]; then

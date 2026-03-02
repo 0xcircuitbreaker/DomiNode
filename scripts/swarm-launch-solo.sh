@@ -42,6 +42,12 @@ else
 fi
 BATCH_SIZE="${SWARM_BATCH_SIZE:-25}"
 BATCH_DELAY="${SWARM_BATCH_DELAY:-10}"
+if ! [[ "$BATCH_SIZE" =~ ^[0-9]+$ ]] || [ "$BATCH_SIZE" -lt 1 ]; then
+  echo "ERROR: SWARM_BATCH_SIZE must be a positive integer (got: $BATCH_SIZE)"; exit 1
+fi
+if ! [[ "$BATCH_DELAY" =~ ^[0-9]+$ ]]; then
+  echo "ERROR: SWARM_BATCH_DELAY must be a non-negative integer (got: $BATCH_DELAY)"; exit 1
+fi
 LOG_DIR="${SWARM_LOG_DIR:-/tmp/dominusnode-swarm-solo}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 AGENT_CREDIT="${SWARM_AGENT_CREDIT:-500}"
@@ -135,7 +141,8 @@ echo ""
 # ─── Admin auth ──────────────────────────────────────────────────────
 # Pipe credentials via stdin to avoid exposure in process table
 echo "Authenticating as admin..."
-ADMIN_LOGIN=$(printf '{"email":"%s","password":"%s"}' "$ADMIN_EMAIL" "$ADMIN_PASSWORD" | \
+ADMIN_LOGIN=$(jq -n --arg e "$ADMIN_EMAIL" --arg p "$ADMIN_PASSWORD" \
+  '{"email":$e,"password":$p}' | \
   curl -s -X POST "${API_BASE}/api/auth/login" \
   -H "Content-Type: application/json" \
   --data @- 2>/dev/null || true)
@@ -171,7 +178,7 @@ LAUNCHED=0
 PIDS=()
 
 for AGENT_NUM in $(seq 1 "$NUM_AGENTS"); do
-  ADMIN_JWT="$ADMIN_JWT" bash "${SCRIPT_DIR}/swarm-agent-solo.sh" "$AGENT_NUM" "$API_BASE" "$PROXY_HOST" "$PROXY_PORT" \
+  ADMIN_JWT="${ADMIN_JWT:-}" bash "${SCRIPT_DIR}/swarm-agent-solo.sh" "$AGENT_NUM" "$API_BASE" "$PROXY_HOST" "$PROXY_PORT" \
     > "${LOG_DIR}/agent-${AGENT_NUM}.log" 2>&1 &
   PIDS+=($!)
   LAUNCHED=$((LAUNCHED + 1))
@@ -188,6 +195,8 @@ done
 echo ""
 echo ""
 echo "All ${NUM_AGENTS} solo agents launched!"
+# Admin JWT no longer needed after all agents are launched
+unset ADMIN_JWT 2>/dev/null || true
 
 printf '%s\n' "${PIDS[@]}" > "${LOG_DIR}/pids.txt"
 

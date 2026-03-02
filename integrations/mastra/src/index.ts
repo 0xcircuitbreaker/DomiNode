@@ -2,7 +2,7 @@
  * @dominusnode/mastra-tools
  *
  * Dominus Node rotating proxy tools for Mastra AI agents.
- * Provides 23 tools for proxy fetching, wallet management,
+ * Provides 26 tools for proxy fetching, wallet management,
  * team collaboration, and payment operations.
  *
  * @example
@@ -30,6 +30,9 @@ export {
   truncate,
   formatBytes,
   formatCents,
+  checkDnsRebinding,
+  SANCTIONED_COUNTRIES,
+  BLOCKED_HOSTNAMES,
 } from "./toolkit.js";
 
 export type { DominusNodeToolkitConfig } from "./toolkit.js";

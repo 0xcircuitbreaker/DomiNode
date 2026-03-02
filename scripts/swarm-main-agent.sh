@@ -79,7 +79,7 @@ EMAIL="swarm-main-agent@dominusnode.bot"
 log "Registering main agent as ${EMAIL}..."
 
 # Pipe credentials via stdin to avoid exposure in process table
-REG_RESP=$(printf '{"email":"%s","password":"%s"}' "$EMAIL" "$PASSWORD" | \
+REG_RESP=$(jq -n --arg e "$EMAIL" --arg p "$PASSWORD" '{"email":$e,"password":$p}' | \
   curl -s -w "\n%{http_code}" -X POST "${API_BASE}/api/auth/register" \
   -H "Content-Type: application/json" \
   --data @- 2>/dev/null || true)
@@ -94,7 +94,7 @@ fi
 # ─── Step 2: Login ───────────────────────────────────────────────────
 # Pipe credentials via stdin
 log "Logging in..."
-LOGIN_RESP=$(printf '{"email":"%s","password":"%s"}' "$EMAIL" "$PASSWORD" | \
+LOGIN_RESP=$(jq -n --arg e "$EMAIL" --arg p "$PASSWORD" '{"email":$e,"password":$p}' | \
   curl -s -X POST "${API_BASE}/api/auth/login" \
   -H "Content-Type: application/json" \
   --data @- 2>/dev/null || true)
@@ -159,10 +159,11 @@ KEYS_FILE="${LOG_DIR}/team-keys.txt"
 chmod 600 "$KEYS_FILE"
 
 for i in $(seq 1 "$NUM_AGENTS"); do
-  KEY_RESP=$(curl -s -X POST "${API_BASE}/api/teams/${TEAM_ID}/keys" \
+  KEY_RESP=$(printf '{"label":"swarm-sub-%d"}' "$i" | \
+    curl -s -X POST "${API_BASE}/api/teams/${TEAM_ID}/keys" \
     -H "Content-Type: application/json" \
     -H "Authorization: Bearer ${TOKEN}" \
-    -d "{\"label\":\"swarm-sub-${i}\"}" 2>/dev/null || true)
+    --data @- 2>/dev/null || true)
 
   RAW_KEY=$(echo "$KEY_RESP" | grep -o '"rawKey":"[^"]*"' | head -1 | cut -d'"' -f4)
   if [ -z "$RAW_KEY" ]; then

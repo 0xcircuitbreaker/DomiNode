@@ -168,7 +168,8 @@ echo ""
 # ─── Authenticate as admin ───────────────────────────────────────────
 # Pipe credentials via stdin to avoid exposure in process table
 echo "Authenticating as admin (${ADMIN_EMAIL})..."
-ADMIN_LOGIN=$(printf '{"email":"%s","password":"%s"}' "$ADMIN_EMAIL" "$ADMIN_PASSWORD" | \
+ADMIN_LOGIN=$(jq -n --arg e "$ADMIN_EMAIL" --arg p "$ADMIN_PASSWORD" \
+  '{"email":$e,"password":$p}' | \
   curl -s -X POST "${API_BASE}/api/auth/login" \
   -H "Content-Type: application/json" \
   --data @- 2>/dev/null || true)
@@ -192,5 +193,6 @@ export SWARM_NUM_AGENTS="$NUM_AGENTS"
 
 (umask 077 && mkdir -p "$LOG_DIR")
 
-# Pass ADMIN_JWT only to the main agent (not inherited by sub-agents)
+# Pass ADMIN_JWT only to the main agent (not inherited by sub-agents), then unset
 ADMIN_JWT="$ADMIN_JWT" bash "${SCRIPT_DIR}/swarm-main-agent.sh" "$NUM_AGENTS" "$API_BASE" "$PROXY_HOST" "$PROXY_PORT"
+unset ADMIN_JWT 2>/dev/null || true

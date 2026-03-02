@@ -32,7 +32,6 @@ Modes:
 """
 
 import argparse
-import hashlib
 import json
 import logging
 import os
@@ -537,7 +536,8 @@ def run_team_swarm(num_agents: int, api_base: str, proxy_host: str, proxy_port: 
         log.info("Launching team batch %d-%d...", batch_start + 1, batch_start + len(batch))
         with ThreadPoolExecutor(max_workers=len(batch)) as pool:
             futures = {
-                pool.submit(run_agent, cfg, admin_jwt, post_urls, post_tokens): cfg
+                # Team agents already have a pre-issued key — no admin JWT needed
+                pool.submit(run_agent, cfg, "", post_urls, post_tokens): cfg
                 for cfg in batch
             }
             for future in as_completed(futures):
@@ -612,7 +612,7 @@ def main():
     parser.add_argument("--log-dir", default="/tmp/dominusnode-ai-swarm")
     args = parser.parse_args()
 
-    Path(args.log_dir).mkdir(parents=True, exist_ok=True)
+    os.makedirs(args.log_dir, mode=0o700, exist_ok=True)
 
     # Generate shared password for all swarm agents.
     # NOTE: Using a shared password is intentional for ephemeral test/demo

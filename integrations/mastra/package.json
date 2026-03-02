@@ -1,6 +1,6 @@
 {
   "name": "@dominusnode/mastra-tools",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "description": "Dominus Node rotating proxy tools for Mastra AI",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -21,6 +21,7 @@
   "files": [
     "dist/",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "CHANGELOG.md"
   ]
 }

@@ -2,7 +2,7 @@
 
 Dominus Node rotating proxy tools for [Mastra AI](https://mastra.ai) agents.
 
-Provides 23 tools for interacting with Dominus Node's rotating proxy-as-a-service platform from Mastra AI workflows and agents.
+Provides 26 tools for interacting with Dominus Node's rotating proxy-as-a-service platform from Mastra AI workflows and agents.
 
 ## Installation
 
@@ -35,7 +35,7 @@ const balance = await toolkit.checkBalance();
 | `DOMINUSNODE_PROXY_HOST` | Proxy gateway host | `proxy.dominusnode.com` |
 | `DOMINUSNODE_PROXY_PORT` | Proxy gateway port | `8080` |
 
-## Available Tools (23)
+## Available Tools (26)
 
 ### Proxy Operations
 - `dominusnode_proxied_fetch` - Fetch a URL through the rotating proxy with geo-targeting
@@ -53,6 +53,7 @@ const balance = await toolkit.checkBalance();
 - `dominusnode_freeze_agentic_wallet` - Freeze an agentic wallet
 - `dominusnode_unfreeze_agentic_wallet` - Unfreeze an agentic wallet
 - `dominusnode_delete_agentic_wallet` - Delete an agentic wallet
+- `dominusnode_update_wallet_policy` - Update daily limits and domain restrictions
 
 ### Team Management
 - `dominusnode_create_team` - Create a team with shared wallet
@@ -65,7 +66,9 @@ const balance = await toolkit.checkBalance();
 - `dominusnode_update_team_member_role` - Change a member's role
 
 ### Payments
-- `dominusnode_topup_paypal` - Top up wallet via PayPal
+- `dominusnode_topup_paypal` - Top up wallet via PayPal ($5–$1,000)
+- `dominusnode_topup_stripe` - Top up wallet via Stripe ($5–$1,000)
+- `dominusnode_topup_crypto` - Top up wallet via crypto (BTC/ETH/LTC/XMR/ZEC/USDC/SOL/USDT/DAI/BNB/LINK)
 - `dominusnode_x402_info` - Get x402 micropayment protocol info
 
 ## Security

@@ -64,27 +64,29 @@ TS=$(date +%s%N | head -c13)
 AI_EMAIL="ai-e2e-${TS}@dominusnode.test"
 AI_PASS="AiTest!${TS}"
 
-SETUP=$(curl -s --max-time 15 -X POST "${API}/api/auth/setup" \
+SETUP=$(jq -n --arg e "$AI_EMAIL" --arg p "$AI_PASS" '{"email":$e,"password":$p}' | \
+  curl -s --max-time 15 -X POST "${API}/api/auth/setup" \
   -H "Content-Type: application/json" \
   -H "X-DominusNode-Agent: mcp" \
   -H "X-DominusNode-Agent-Secret: ${MCP_SECRET}" \
-  -d "{\"email\":\"${AI_EMAIL}\",\"password\":\"${AI_PASS}\"}" 2>&1 || echo '{"error":"request failed"}')
+  --data @- 2>&1 || echo '{"error":"request failed"}')
 
 API_KEY=$(json_val "$SETUP" "d.get('apiKey',d.get('key',''))")
 USER_ID=$(json_val "$SETUP" "d.get('userId',d.get('id',''))")
 
 if [[ "$API_KEY" == dn_live_* ]]; then
-  pass "One-shot setup → API key: ${API_KEY:0:25}..."
+  pass "One-shot setup → API key: ${API_KEY:0:8}..."
   pass "User created: ${AI_EMAIL}"
 else
   # Fallback: try register + login + create key separately
   echo -e "  ${YELLOW}→ /api/auth/setup not available, trying register+login flow...${NC}"
 
-  REG=$(curl -s --max-time 10 -X POST "${API}/api/auth/register" \
+  REG=$(jq -n --arg e "$AI_EMAIL" --arg p "$AI_PASS" '{"email":$e,"password":$p}' | \
+    curl -s --max-time 10 -X POST "${API}/api/auth/register" \
     -H "Content-Type: application/json" \
     -H "X-DominusNode-Agent: mcp" \
     -H "X-DominusNode-Agent-Secret: ${MCP_SECRET}" \
-    -d "{\"email\":\"${AI_EMAIL}\",\"password\":\"${AI_PASS}\"}" 2>&1 || echo '{}')
+    --data @- 2>&1 || echo '{}')
 
   if echo "$REG" | grep -q "token\|id\|user"; then
     pass "Register → OK"
@@ -92,11 +94,12 @@ else
     fail "Register" "$REG"
   fi
 
-  LOGIN=$(curl -s --max-time 10 -X POST "${API}/api/auth/login" \
+  LOGIN=$(jq -n --arg e "$AI_EMAIL" --arg p "$AI_PASS" '{"email":$e,"password":$p}' | \
+    curl -s --max-time 10 -X POST "${API}/api/auth/login" \
     -H "Content-Type: application/json" \
     -H "X-DominusNode-Agent: mcp" \
     -H "X-DominusNode-Agent-Secret: ${MCP_SECRET}" \
-    -d "{\"email\":\"${AI_EMAIL}\",\"password\":\"${AI_PASS}\"}" 2>&1 || echo '{}')
+    --data @- 2>&1 || echo '{}')
 
   JWT=$(json_val "$LOGIN" "d.get('token','')")
 
@@ -117,7 +120,7 @@ else
   API_KEY=$(json_val "$KEY_RESP" "d.get('key','')")
 
   if [[ "$API_KEY" == dn_live_* ]]; then
-    pass "Create API key → ${API_KEY:0:25}..."
+    pass "Create API key → ${API_KEY:0:8}..."
   else
     fail "Create API key" "$KEY_RESP"
   fi
@@ -307,7 +310,7 @@ if [ -n "$TEAM_ID" ] && [ "$TEAM_ID" != "None" ]; then
 
   TEAM_KEY=$(json_val "$TK" "d.get('key','')")
   if [[ "$TEAM_KEY" == dn_live_* ]]; then
-    pass "Create team API key → ${TEAM_KEY:0:25}..."
+    pass "Create team API key → ${TEAM_KEY:0:8}..."
   else
     fail "Create team API key" "$TK"
   fi
@@ -377,7 +380,7 @@ if [ "$FAIL" -eq 0 ]; then
   echo -e "create teams, manage agentic wallets, and route traffic."
   echo ""
   echo -e "${CYAN}Test user created: ${AI_EMAIL}${NC}"
-  echo -e "${CYAN}API key: ${API_KEY:-none}${NC}"
+  echo -e "${CYAN}API key: ${API_KEY:0:8}...${NC}"
   echo ""
   echo -e "To test Stripe payment end-to-end:"
   echo -e "  1. Open the Stripe URL above in a browser"

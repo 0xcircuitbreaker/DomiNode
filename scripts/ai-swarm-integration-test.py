@@ -575,7 +575,7 @@ def main():
     log_dir = args.log_dir or os.path.join(
         os.environ.get("TEMP", "/tmp"), "dominusnode-integration-test"
     )
-    Path(log_dir).mkdir(parents=True, exist_ok=True)
+    os.makedirs(log_dir, mode=0o700, exist_ok=True)
 
     # Determine which integrations to test
     if "all" in args.integrations:
@@ -607,7 +607,7 @@ def main():
         admin_jwt = admin_login(args.api_base)
         log.info("Admin authenticated")
     except Exception as e:
-        log.warning("Admin login failed: %s", e)
+        log.warning("Admin login failed: %s", scrub_credentials(str(e)))
 
     # Generate shared password for test accounts
     password = secrets.token_hex(16)
@@ -683,9 +683,10 @@ def main():
     print(f"  Posts:     {len(posts)}")
     print("=" * 55)
 
-    # Save results
+    # Save results with restricted permissions (0o600 — no world-read)
     results_file = Path(log_dir) / "integration-results.json"
-    with open(results_file, "w") as f:
+    fd = os.open(str(results_file), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
         json.dump({
             "summary": {
                 "total": len(all_results),
