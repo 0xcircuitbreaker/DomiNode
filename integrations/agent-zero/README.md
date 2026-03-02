@@ -1,8 +1,8 @@
-# DomiNode Agent Zero Integration
+# Dominus Node Agent Zero Integration
 
 22 tools for [Agent Zero](https://github.com/frdel/agent-zero) providing
 proxy, wallet, agentic wallet, and team management capabilities through
-the DomiNode rotating proxy network.
+the Dominus Node rotating proxy network.
 
 ## Installation
 
@@ -23,7 +23,7 @@ Set the following environment variables:
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `DOMINUSNODE_API_KEY` | Yes | -- | Your DomiNode API key (`dn_live_...`) |
+| `DOMINUSNODE_API_KEY` | Yes | -- | Your Dominus Node API key (`dn_live_...`) |
 | `DOMINUSNODE_BASE_URL` | No | `https://api.dominusnode.com` | REST API base URL |
 | `DOMINUSNODE_PROXY_HOST` | No | `proxy.dominusnode.com` | Proxy gateway hostname |
 | `DOMINUSNODE_PROXY_PORT` | No | `8080` | Proxy gateway port |
@@ -34,7 +34,7 @@ Set the following environment variables:
 
 | Tool | Description |
 |------|-------------|
-| `proxied_fetch` | Fetch a URL through the DomiNode proxy (HTTPS CONNECT tunnel) |
+| `proxied_fetch` | Fetch a URL through the Dominus Node proxy (HTTPS CONNECT tunnel) |
 | `get_proxy_config` | Get proxy endpoints, supported countries, geo-targeting |
 | `list_sessions` | List active proxy sessions with byte transfer stats |
 

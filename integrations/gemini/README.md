@@ -1,6 +1,6 @@
-# DomiNode Google Gemini / Vertex AI Function Declarations
+# Dominus Node Google Gemini / Vertex AI Function Declarations
 
-Gemini-format function declarations and handler implementations for the DomiNode rotating proxy-as-a-service platform. These declarations allow Google Gemini and Vertex AI models to interact with DomiNode's proxy network, wallet, agentic wallet, and team APIs via function calling.
+Gemini-format function declarations and handler implementations for the Dominus Node rotating proxy-as-a-service platform. These declarations allow Google Gemini and Vertex AI models to interact with Dominus Node's proxy network, wallet, agentic wallet, and team APIs via function calling.
 
 ## What This Is
 
@@ -9,8 +9,8 @@ This directory contains:
 | File | Description |
 |------|-------------|
 | `functions.json` | Array of 22 Gemini `FunctionDeclaration` objects |
-| `handler.ts` | TypeScript handler that dispatches function calls to the DomiNode API |
-| `handler.py` | Python handler that dispatches function calls to the DomiNode API |
+| `handler.ts` | TypeScript handler that dispatches function calls to the Dominus Node API |
+| `handler.py` | Python handler that dispatches function calls to the Dominus Node API |
 
 The function declarations follow the [Gemini function calling specification](https://ai.google.dev/docs/function_calling), using uppercase types (`STRING`, `INTEGER`, `OBJECT`, `BOOLEAN`, `ARRAY`) and embedding constraints in description text rather than using JSON Schema keywords like `minimum`, `maximum`, `enum`, or `default`.
 
@@ -18,7 +18,7 @@ The function declarations follow the [Gemini function calling specification](htt
 
 | Function | Description | Auth Required |
 |----------|-------------|---------------|
-| `dominusnode_proxied_fetch` | Make an HTTP request through DomiNode's rotating proxy network | Yes |
+| `dominusnode_proxied_fetch` | Make an HTTP request through Dominus Node's rotating proxy network | Yes |
 | `dominusnode_check_balance` | Check wallet balance (cents, USD, currency) | Yes |
 | `dominusnode_check_usage` | Check usage stats for a time period (day/week/month) | Yes |
 | `dominusnode_get_proxy_config` | Get proxy endpoints, supported countries, geo-targeting info | Yes |
@@ -52,7 +52,7 @@ from handler import create_dominusnode_function_handler
 with open("functions.json") as f:
     declarations = json.load(f)
 
-# Create the DomiNode handler
+# Create the Dominus Node handler
 dominusnode = create_dominusnode_function_handler(
     api_key="dn_live_your_api_key_here",
     base_url="https://api.dominusnode.com",
@@ -67,7 +67,7 @@ model = genai.GenerativeModel(
 
 # Start a chat
 chat = model.start_chat()
-response = chat.send_message("What is my DomiNode proxy balance?")
+response = chat.send_message("What is my Dominus Node proxy balance?")
 
 # Handle function calls
 for part in response.parts:

@@ -1,5 +1,5 @@
 /**
- * Constants shared across all DomiNode n8n nodes.
+ * Constants shared across all Dominus Node n8n nodes.
  *
  * @module
  */

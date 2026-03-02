@@ -1,8 +1,8 @@
-"""CrewAI tools for DomiNode rotating proxy service.
+"""CrewAI tools for Dominus Node rotating proxy service.
 
 Provides CrewAI-compatible tools for fetching web content through rotating
 proxies, checking wallet balance, and listing available geo-targeting options
-through the DomiNode platform.
+through the Dominus Node platform.
 
 Example::
 

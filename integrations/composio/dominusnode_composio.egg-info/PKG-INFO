@@ -1,7 +1,7 @@
-Metadata-Version: 2.4
+Metadata-Version: 2.1
 Name: dominusnode-composio
 Version: 1.0.0
-Summary: DomiNode tools for Composio -- 22 proxy, wallet, and team management actions
+Summary: Dominus Node tools for Composio -- 22 proxy, wallet, and team management actions
 License: MIT
 Requires-Python: >=3.10
 Description-Content-Type: text/markdown
@@ -9,11 +9,10 @@ License-File: LICENSE
 Requires-Dist: httpx>=0.25.0
 Provides-Extra: dev
 Requires-Dist: pytest>=7.0; extra == "dev"
-Dynamic: license-file
 
 # dominusnode-composio
 
-Composio toolkit for the [DomiNode](https://dominusnode.com) rotating proxy-as-a-service platform. Provides 22 Composio-compatible actions for proxy management, wallet operations, team administration, and payment processing.
+Composio toolkit for the [Dominus Node](https://dominusnode.com) rotating proxy-as-a-service platform. Provides 22 Composio-compatible actions for proxy management, wallet operations, team administration, and payment processing.
 
 ## Installation
 
@@ -30,7 +29,7 @@ pip install -e ".[dev]"
 
 ## Environment Setup
 
-Set your DomiNode API key as an environment variable:
+Set your Dominus Node API key as an environment variable:
 
 ```bash
 export DOMINUSNODE_API_KEY="dn_live_your_api_key_here"

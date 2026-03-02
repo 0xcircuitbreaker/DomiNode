@@ -1,4 +1,4 @@
-"""DomiNode plugin for Microsoft Semantic Kernel."""
+"""Dominus Node plugin for Microsoft Semantic Kernel."""
 
 from dominusnode_semantic_kernel.plugin import DominusNodePlugin
 

@@ -1,4 +1,4 @@
-"""Shared constants for DomiNode Agent Zero integration.
+"""Shared constants for Dominus Node Agent Zero integration.
 
 All security-sensitive values (blocked hostnames, sanctioned countries,
 credential patterns) are centralised here so that every tool module
@@ -54,7 +54,7 @@ MAX_BODY_TRUNCATE: int = 4000
 # ---------------------------------------------------------------------------
 
 CREDENTIAL_RE: re.Pattern[str] = re.compile(r"dn_(live|test)_[a-zA-Z0-9]+")
-"""Regex matching DomiNode API key patterns (dn_live_xxx / dn_test_xxx)."""
+"""Regex matching Dominus Node API key patterns (dn_live_xxx / dn_test_xxx)."""
 
 # ---------------------------------------------------------------------------
 # Prototype pollution prevention

@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "dominusnode-ironclaw"
-version = "1.0.0"
-description = "DomiNode toolkit for IronClaw AI agent runtime -- 23 proxy, wallet, team, and payment management tools"
+version = "1.0.1"
+description = "Dominus Node toolkit for IronClaw AI agent runtime -- 23 proxy, wallet, team, and payment management tools"
 readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.10"

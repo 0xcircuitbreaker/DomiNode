@@ -27,7 +27,7 @@ from shared.constants import CREDENTIAL_RE
 
 
 def _sanitize_error(message: str) -> str:
-    """Remove DomiNode API key patterns from error messages."""
+    """Remove Dominus Node API key patterns from error messages."""
     return CREDENTIAL_RE.sub("***", message)
 
 
@@ -71,7 +71,7 @@ def check_balance(
     reservation amounts.
 
     Args:
-        auth: Authenticated DomiNode helper.
+        auth: Authenticated Dominus Node helper.
         args: Tool arguments (none required).
 
     Returns:
@@ -99,7 +99,7 @@ def check_usage(
     proxy type (datacenter vs residential).
 
     Args:
-        auth: Authenticated DomiNode helper.
+        auth: Authenticated Dominus Node helper.
         args: Tool arguments:
             - ``period`` (str, optional): ``day``, ``week``, or ``month``.
               Default: ``month``.
@@ -139,7 +139,7 @@ def topup_paypal(
     payment, the wallet will be credited automatically via webhook.
 
     Args:
-        auth: Authenticated DomiNode helper.
+        auth: Authenticated Dominus Node helper.
         args: Tool arguments:
             - ``amount_cents`` (int, required): Amount in cents to add.
               Must be between 500 ($5) and 1,000,000 ($10,000).
@@ -185,7 +185,7 @@ def x402_info(
     options for AI agent micropayments.
 
     Args:
-        auth: Authenticated DomiNode helper.
+        auth: Authenticated Dominus Node helper.
         args: Tool arguments (none required).
 
     Returns:
@@ -206,7 +206,7 @@ TOOLS = {
     "check_balance": {
         "function": check_balance,
         "description": (
-            "Check the current DomiNode wallet balance. Returns balance in "
+            "Check the current Dominus Node wallet balance. Returns balance in "
             "cents and USD."
         ),
         "parameters": {},

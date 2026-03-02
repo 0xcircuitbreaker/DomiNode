@@ -42,7 +42,7 @@ function createMockExecuteFunctions(overrides: {
       return params[name] ?? fallback;
     },
     getCredentials: vi.fn().mockResolvedValue(creds),
-    getNode: () => ({ name: "DomiNode Usage" }),
+    getNode: () => ({ name: "Dominus Node Usage" }),
     continueOnFail: () => overrides.continueOnFail ?? false,
   };
 }
@@ -89,7 +89,7 @@ describe("DominusNodeUsage - metadata", () => {
   it("has correct description metadata", () => {
     const node = new DominusNodeUsage();
     expect(node.description.name).toBe("dominusNodeUsage");
-    expect(node.description.displayName).toBe("DomiNode Usage");
+    expect(node.description.displayName).toBe("Dominus Node Usage");
     expect(node.description.credentials).toEqual([
       { name: "dominusNodeApi", required: true },
     ]);

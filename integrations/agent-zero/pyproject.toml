@@ -1,11 +1,11 @@
 [build-system]
 requires = ["setuptools>=68.0"]
-build-backend = "setuptools.backends._legacy:_Backend"
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "dominusnode-agent-zero"
-version = "1.0.0"
-description = "DomiNode tools for Agent Zero -- 22 proxy, wallet, and team management tools"
+version = "1.0.1"
+description = "Dominus Node tools for Agent Zero -- 22 proxy, wallet, and team management tools"
 readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.10"

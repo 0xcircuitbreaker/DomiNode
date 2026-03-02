@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "dominusnode-pydanticai"
-version = "1.0.0"
-description = "DomiNode rotating proxy tools for PydanticAI agents"
+version = "1.0.1"
+description = "Dominus Node rotating proxy tools for PydanticAI agents"
 readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.9"

@@ -1,4 +1,4 @@
-"""DomiNode tools for Microsoft TaskWeaver."""
+"""Dominus Node tools for Microsoft TaskWeaver."""
 
 from dominusnode_taskweaver.plugin import DominusNodePlugin
 

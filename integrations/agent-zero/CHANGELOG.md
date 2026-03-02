@@ -1,6 +1,10 @@
 # Changelog
 
-All notable changes to the DomiNode Agent Zero integration will be
+## 1.0.1
+
+- Fix branding: replace "DomiNode" with "Dominus Node" throughout
+
+All notable changes to the Dominus Node Agent Zero integration will be
 documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).

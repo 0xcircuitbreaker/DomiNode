@@ -1,7 +1,7 @@
-"""DomiNode tools for Composio -- 24 proxy, wallet, team, and payment actions.
+"""Dominus Node tools for Composio -- 24 proxy, wallet, team, and payment actions.
 
 Provides a Composio-compatible toolkit class that exposes 24 actions for
-interacting with the DomiNode rotating proxy-as-a-service platform.
+interacting with the Dominus Node rotating proxy-as-a-service platform.
 
 Actions cover:
   - Proxied HTTP fetching through rotating proxies
@@ -374,7 +374,7 @@ _CREDENTIAL_RE = re.compile(r"dn_(live|test)_[a-zA-Z0-9]+")
 
 
 def _sanitize_error(message: str) -> str:
-    """Remove DomiNode API key patterns from error messages."""
+    """Remove Dominus Node API key patterns from error messages."""
     return _CREDENTIAL_RE.sub("***", message)
 
 
@@ -502,19 +502,19 @@ def _validate_allowed_domains(domains: Any) -> Optional[str]:
 
 
 class DominusNodeToolkit:
-    """Composio toolkit providing DomiNode rotating proxy actions.
+    """Composio toolkit providing Dominus Node rotating proxy actions.
 
-    Authenticates using a DomiNode API key and exposes 24 actions for proxy,
+    Authenticates using a Dominus Node API key and exposes 24 actions for proxy,
     wallet, team, and payment management.  All action methods return JSON
     strings suitable for consumption by an LLM.  The ``get_actions()`` method
     returns Composio-compatible action definitions with handlers.
 
     Args:
-        api_key: DomiNode API key (``dn_live_...`` or ``dn_test_...``).
+        api_key: Dominus Node API key (``dn_live_...`` or ``dn_test_...``).
             Falls back to ``DOMINUSNODE_API_KEY`` environment variable.
-        base_url: Base URL of the DomiNode REST API.
-        proxy_host: Hostname of the DomiNode proxy gateway.
-        proxy_port: Port of the DomiNode proxy gateway.
+        base_url: Base URL of the Dominus Node REST API.
+        proxy_host: Hostname of the Dominus Node proxy gateway.
+        proxy_port: Port of the Dominus Node proxy gateway.
         timeout: HTTP request timeout in seconds.
 
     Example::
@@ -544,7 +544,7 @@ class DominusNodeToolkit:
     # ------------------------------------------------------------------
 
     def _authenticate(self) -> str:
-        """Authenticate with the DomiNode API using the API key.
+        """Authenticate with the Dominus Node API using the API key.
 
         Returns:
             The JWT bearer token.
@@ -554,7 +554,7 @@ class DominusNodeToolkit:
         """
         if not self.api_key:
             raise RuntimeError(
-                "DomiNode API key is required. Pass api_key or set "
+                "Dominus Node API key is required. Pass api_key or set "
                 "DOMINUSNODE_API_KEY environment variable."
             )
 
@@ -599,7 +599,7 @@ class DominusNodeToolkit:
         path: str,
         body: Optional[Dict[str, Any]] = None,
     ) -> Any:
-        """Make an authenticated API request to the DomiNode REST API.
+        """Make an authenticated API request to the Dominus Node REST API.
 
         Args:
             method: HTTP method (GET, POST, PATCH, DELETE).
@@ -681,7 +681,7 @@ class DominusNodeToolkit:
         proxy_type: str = "dc",
         headers: Dict[str, str] | None = None,
     ) -> str:
-        """Fetch a URL through the DomiNode rotating proxy network.
+        """Fetch a URL through the Dominus Node rotating proxy network.
 
         Args:
             url: Target URL to fetch.
@@ -783,7 +783,7 @@ class DominusNodeToolkit:
         except Exception as e:
             return json.dumps({
                 "error": f"Proxy fetch failed: {_sanitize_error(str(e))}",
-                "hint": "Ensure the DomiNode proxy gateway is running and accessible.",
+                "hint": "Ensure the Dominus Node proxy gateway is running and accessible.",
             })
 
     # ==================================================================
@@ -1471,7 +1471,7 @@ class DominusNodeToolkit:
     # ==================================================================
 
     def get_actions(self) -> list:
-        """Return Composio-compatible action definitions for all 24 DomiNode operations.
+        """Return Composio-compatible action definitions for all 24 Dominus Node operations.
 
         Each action is a dictionary with:
           - ``name``: Uppercase action identifier (e.g., ``DOMINUSNODE_PROXIED_FETCH``)
@@ -1487,7 +1487,7 @@ class DominusNodeToolkit:
             {
                 "name": "DOMINUSNODE_PROXIED_FETCH",
                 "display_name": "Proxied Fetch",
-                "description": "Fetch a URL through DomiNode's rotating proxy network",
+                "description": "Fetch a URL through Dominus Node's rotating proxy network",
                 "parameters": {
                     "url": {"type": "string", "description": "Target URL to fetch", "required": True},
                     "method": {"type": "string", "description": "HTTP method (GET/HEAD/OPTIONS)", "default": "GET"},

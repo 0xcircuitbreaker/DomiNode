@@ -1,10 +1,10 @@
-# DomiNode OpenClaw Plugin
+# Dominus Node OpenClaw Plugin
 
-Route web requests through DomiNode's rotating proxy network directly from your OpenClaw AI coding sessions. Supports datacenter and residential proxy pools with geo-targeting across 195+ countries, agentic wallets for autonomous agent billing, and team collaboration with shared wallets.
+Route web requests through Dominus Node's rotating proxy network directly from your OpenClaw AI coding sessions. Supports datacenter and residential proxy pools with geo-targeting across 195+ countries, agentic wallets for autonomous agent billing, and team collaboration with shared wallets.
 
-## What is DomiNode?
+## What is Dominus Node?
 
-DomiNode is a rotating proxy-as-a-service (PaaS) platform. Users connect to DomiNode, are automatically assigned a proxy IP from a managed pool, and their traffic is routed through it. Usage is metered by bandwidth and billed via a prepaid wallet system.
+Dominus Node is a rotating proxy-as-a-service (PaaS) platform. Users connect to Dominus Node, are automatically assigned a proxy IP from a managed pool, and their traffic is routed through it. Usage is metered by bandwidth and billed via a prepaid wallet system.
 
 - **Datacenter proxies**: $3.00/GB (fastest, best for non-protected targets)
 - **Residential proxies**: $5.00/GB (premium, harder to detect)
@@ -28,9 +28,9 @@ export DOMINUSNODE_BASE_URL="https://api.dominusnode.com"  # optional, this is t
 ### Manual Setup
 
 ```bash
-# Clone the DomiNode repo
-git clone https://github.com/Dominus-Node/DomiNode.git
-cd DomiNode/integrations/openclaw
+# Clone the Dominus Node repo
+git clone https://github.com/Dominus-Node/Dominus Node.git
+cd Dominus Node/integrations/openclaw
 
 # No npm install needed — the plugin uses only native fetch (Node 18+)
 ```
@@ -39,8 +39,8 @@ cd DomiNode/integrations/openclaw
 
 | Environment Variable | Required | Default | Description |
 |---|---|---|---|
-| `DOMINUSNODE_API_KEY` | Yes | -- | Your DomiNode API key (starts with `dn_live_` or `dn_test_`) |
-| `DOMINUSNODE_BASE_URL` | No | `https://api.dominusnode.com` | Base URL for the DomiNode REST API |
+| `DOMINUSNODE_API_KEY` | Yes | -- | Your Dominus Node API key (starts with `dn_live_` or `dn_test_`) |
+| `DOMINUSNODE_BASE_URL` | No | `https://api.dominusnode.com` | Base URL for the Dominus Node REST API |
 
 ### Getting an API Key
 
@@ -176,7 +176,7 @@ Use proxied_fetch to get https://httpbin.org/ip through a US datacenter proxy
 
 ### Check your budget
 ```
-Check my DomiNode balance and tell me how much residential browsing I have left
+Check my Dominus Node balance and tell me how much residential browsing I have left
 ```
 
 ### Set up a research team
@@ -191,7 +191,7 @@ Create an agentic wallet called "price-monitor" with a $5 spending limit, fund i
 
 ### View usage breakdown
 ```
-Show my DomiNode usage for the last 7 days
+Show my Dominus Node usage for the last 7 days
 ```
 
 ### Fetch with residential proxy and geo-targeting
@@ -241,7 +241,7 @@ The plugin implements comprehensive security measures:
 
 - Node.js 18+ (uses native `fetch`)
 - OpenClaw runtime with `jiti` support
-- DomiNode API key with funded wallet
+- Dominus Node API key with funded wallet
 
 ## License
 

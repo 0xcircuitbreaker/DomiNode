@@ -1,7 +1,7 @@
-"""CrewAI tool implementations for DomiNode proxy service.
+"""CrewAI tool implementations for Dominus Node proxy service.
 
 Each tool subclasses ``crewai.tools.BaseTool`` and manages its own
-DomiNode SDK client connection.
+Dominus Node SDK client connection.
 
 Security:
     - URL validation blocks SSRF (private IPs, localhost, non-HTTP schemes).
@@ -45,7 +45,7 @@ _MAX_RESPONSE_BODY_BYTES = 10 * 1024 * 1024
 
 
 def _sanitize_error(message: str) -> str:
-    """Remove DomiNode API key patterns from error messages."""
+    """Remove Dominus Node API key patterns from error messages."""
     return _CREDENTIAL_RE.sub("***", message)
 
 
@@ -213,7 +213,7 @@ def _validate_url(url: str) -> str:
 
 
 class WebScrapeInput(BaseModel):
-    """Input schema for the DomiNode web scrape tool."""
+    """Input schema for the Dominus Node web scrape tool."""
 
     url: str = Field(description="The URL to fetch through the proxy network.")
     country: Optional[str] = Field(
@@ -227,21 +227,21 @@ class WebScrapeInput(BaseModel):
 
 
 class BalanceInput(BaseModel):
-    """Input schema for the DomiNode balance tool."""
+    """Input schema for the Dominus Node balance tool."""
 
     # No required inputs -- the tool just checks the current balance.
     pass
 
 
 class GeoTargetInput(BaseModel):
-    """Input schema for the DomiNode geo-targets tool."""
+    """Input schema for the Dominus Node geo-targets tool."""
 
     # No required inputs -- the tool just lists available locations.
     pass
 
 
 class TopupPaypalInput(BaseModel):
-    """Input schema for the DomiNode PayPal top-up tool."""
+    """Input schema for the Dominus Node PayPal top-up tool."""
 
     amount_cents: int = Field(
         description="Amount in cents to top up via PayPal (min 500 = $5, max 100000 = $1,000).",
@@ -267,7 +267,7 @@ def _make_client(
     key = api_key or os.environ.get("DOMINUSNODE_API_KEY", "")
     if not key:
         raise RuntimeError(
-            "DomiNode API key is required.  Pass api_key= or set DOMINUSNODE_API_KEY."
+            "Dominus Node API key is required.  Pass api_key= or set DOMINUSNODE_API_KEY."
         )
 
     url = base_url or os.environ.get("DOMINUSNODE_BASE_URL", "https://api.dominusnode.com")
@@ -283,7 +283,7 @@ def _make_client(
 
 
 class DominusNodeWebScrapeTool(BaseTool):
-    """Fetch web page content through DomiNode's rotating proxy network.
+    """Fetch web page content through Dominus Node's rotating proxy network.
 
     Useful for accessing geo-restricted content or avoiding IP blocks when
     scraping. Supports datacenter and residential proxy types with optional
@@ -292,7 +292,7 @@ class DominusNodeWebScrapeTool(BaseTool):
 
     name: str = "dominusnode_web_scrape"
     description: str = (
-        "Fetch web page content through DomiNode's rotating proxy network. "
+        "Fetch web page content through Dominus Node's rotating proxy network. "
         "Useful for accessing geo-restricted content or avoiding IP blocks. "
         "Input requires a URL. Optionally specify a two-letter country code "
         "and proxy_type ('dc' or 'residential')."
@@ -451,7 +451,7 @@ class DominusNodeBalanceTool(BaseTool):
 class DominusNodeGeoTargetTool(BaseTool):
     """List available proxy server countries and geo-targeting options.
 
-    Queries the DomiNode API for the current proxy configuration including
+    Queries the Dominus Node API for the current proxy configuration including
     supported countries, US state targeting, city targeting, and ASN
     targeting capabilities.
     """
@@ -494,7 +494,7 @@ class DominusNodeGeoTargetTool(BaseTool):
             features_str = ", ".join(features) if features else "Country-level only"
 
             lines = [
-                "DomiNode Geo-Targeting Options:",
+                "Dominus Node Geo-Targeting Options:",
                 f"  Supported countries: {countries}",
                 f"  Blocked countries:   {blocked}",
                 f"  Targeting features:  {features_str}",
@@ -533,7 +533,7 @@ class DominusNodeGeoTargetTool(BaseTool):
 
 
 class X402InfoInput(BaseModel):
-    """Input schema for the DomiNode x402 info tool."""
+    """Input schema for the Dominus Node x402 info tool."""
 
     # No required inputs -- the tool just fetches x402 protocol information.
     pass
@@ -598,7 +598,7 @@ class DominusNodeX402InfoTool(BaseTool):
 
 
 class DominusNodeTopupPaypalTool(BaseTool):
-    """Top up your DomiNode wallet balance via PayPal.
+    """Top up your Dominus Node wallet balance via PayPal.
 
     Creates a PayPal order and returns an approval URL to complete payment.
     Minimum $5 (500 cents), maximum $1,000 (100,000 cents).
@@ -606,7 +606,7 @@ class DominusNodeTopupPaypalTool(BaseTool):
 
     name: str = "dominusnode_topup_paypal"
     description: str = (
-        "Top up your DomiNode wallet balance via PayPal. "
+        "Top up your Dominus Node wallet balance via PayPal. "
         "Creates a PayPal order and returns an approval URL to complete "
         "payment. Input: amount_cents (integer, min 500 = $5, max 100000 = $1,000)."
     )
@@ -705,7 +705,7 @@ def _api_request_sync(
     path: str,
     body: Optional[dict] = None,
 ) -> dict:
-    """Make an authenticated request to the DomiNode REST API."""
+    """Make an authenticated request to the Dominus Node REST API."""
     url = f"{base_url}{path}"
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
     with httpx.Client(timeout=30.0, follow_redirects=False, max_redirects=0) as client:
@@ -822,7 +822,7 @@ class DominusNodeCreateAgenticWalletTool(BaseTool):
         key = self.api_key or os.environ.get("DOMINUSNODE_API_KEY", "")
         url = self.base_url or os.environ.get("DOMINUSNODE_BASE_URL", "https://api.dominusnode.com")
         if not key:
-            return "Error: DomiNode API key is required. Pass api_key= or set DOMINUSNODE_API_KEY."
+            return "Error: Dominus Node API key is required. Pass api_key= or set DOMINUSNODE_API_KEY."
 
         body: dict = {
             "label": label,
@@ -881,7 +881,7 @@ class DominusNodeFundAgenticWalletTool(BaseTool):
         key = self.api_key or os.environ.get("DOMINUSNODE_API_KEY", "")
         url = self.base_url or os.environ.get("DOMINUSNODE_BASE_URL", "https://api.dominusnode.com")
         if not key:
-            return "Error: DomiNode API key is required. Pass api_key= or set DOMINUSNODE_API_KEY."
+            return "Error: Dominus Node API key is required. Pass api_key= or set DOMINUSNODE_API_KEY."
 
         try:
             result = _api_request_sync(
@@ -927,7 +927,7 @@ class DominusNodeAgenticWalletBalanceTool(BaseTool):
         key = self.api_key or os.environ.get("DOMINUSNODE_API_KEY", "")
         url = self.base_url or os.environ.get("DOMINUSNODE_BASE_URL", "https://api.dominusnode.com")
         if not key:
-            return "Error: DomiNode API key is required. Pass api_key= or set DOMINUSNODE_API_KEY."
+            return "Error: Dominus Node API key is required. Pass api_key= or set DOMINUSNODE_API_KEY."
 
         try:
             result = _api_request_sync(url, key, "GET", f"/api/agent-wallet/{quote(wallet_id, safe='')}")
@@ -966,7 +966,7 @@ class DominusNodeListAgenticWalletsTool(BaseTool):
         key = self.api_key or os.environ.get("DOMINUSNODE_API_KEY", "")
         url = self.base_url or os.environ.get("DOMINUSNODE_BASE_URL", "https://api.dominusnode.com")
         if not key:
-            return "Error: DomiNode API key is required. Pass api_key= or set DOMINUSNODE_API_KEY."
+            return "Error: Dominus Node API key is required. Pass api_key= or set DOMINUSNODE_API_KEY."
 
         try:
             result = _api_request_sync(url, key, "GET", "/api/agent-wallet")
@@ -1019,7 +1019,7 @@ class DominusNodeAgenticTransactionsTool(BaseTool):
         key = self.api_key or os.environ.get("DOMINUSNODE_API_KEY", "")
         url = self.base_url or os.environ.get("DOMINUSNODE_BASE_URL", "https://api.dominusnode.com")
         if not key:
-            return "Error: DomiNode API key is required. Pass api_key= or set DOMINUSNODE_API_KEY."
+            return "Error: Dominus Node API key is required. Pass api_key= or set DOMINUSNODE_API_KEY."
 
         qs = f"?limit={limit}" if limit else ""
         try:
@@ -1071,7 +1071,7 @@ class DominusNodeFreezeAgenticWalletTool(BaseTool):
         key = self.api_key or os.environ.get("DOMINUSNODE_API_KEY", "")
         url = self.base_url or os.environ.get("DOMINUSNODE_BASE_URL", "https://api.dominusnode.com")
         if not key:
-            return "Error: DomiNode API key is required. Pass api_key= or set DOMINUSNODE_API_KEY."
+            return "Error: Dominus Node API key is required. Pass api_key= or set DOMINUSNODE_API_KEY."
 
         try:
             _api_request_sync(url, key, "POST", f"/api/agent-wallet/{quote(wallet_id, safe='')}/freeze")
@@ -1108,7 +1108,7 @@ class DominusNodeUnfreezeAgenticWalletTool(BaseTool):
         key = self.api_key or os.environ.get("DOMINUSNODE_API_KEY", "")
         url = self.base_url or os.environ.get("DOMINUSNODE_BASE_URL", "https://api.dominusnode.com")
         if not key:
-            return "Error: DomiNode API key is required. Pass api_key= or set DOMINUSNODE_API_KEY."
+            return "Error: Dominus Node API key is required. Pass api_key= or set DOMINUSNODE_API_KEY."
 
         try:
             _api_request_sync(url, key, "POST", f"/api/agent-wallet/{quote(wallet_id, safe='')}/unfreeze")
@@ -1145,7 +1145,7 @@ class DominusNodeDeleteAgenticWalletTool(BaseTool):
         key = self.api_key or os.environ.get("DOMINUSNODE_API_KEY", "")
         url = self.base_url or os.environ.get("DOMINUSNODE_BASE_URL", "https://api.dominusnode.com")
         if not key:
-            return "Error: DomiNode API key is required. Pass api_key= or set DOMINUSNODE_API_KEY."
+            return "Error: Dominus Node API key is required. Pass api_key= or set DOMINUSNODE_API_KEY."
 
         try:
             _api_request_sync(url, key, "DELETE", f"/api/agent-wallet/{quote(wallet_id, safe='')}")
@@ -1209,7 +1209,7 @@ class DominusNodeUpdateWalletPolicyTool(BaseTool):
         key = self.api_key or os.environ.get("DOMINUSNODE_API_KEY", "")
         url = self.base_url or os.environ.get("DOMINUSNODE_BASE_URL", "https://api.dominusnode.com")
         if not key:
-            return "Error: DomiNode API key is required. Pass api_key= or set DOMINUSNODE_API_KEY."
+            return "Error: Dominus Node API key is required. Pass api_key= or set DOMINUSNODE_API_KEY."
 
         try:
             result = _api_request_sync(

@@ -1,6 +1,6 @@
 # dominusnode-semantic-kernel
 
-Microsoft Semantic Kernel plugin for the [DomiNode](https://dominusnode.com) rotating proxy-as-a-service platform. Provides 22 kernel functions for proxy management, wallet operations, team administration, and payment processing.
+Microsoft Semantic Kernel plugin for the [Dominus Node](https://dominusnode.com) rotating proxy-as-a-service platform. Provides 22 kernel functions for proxy management, wallet operations, team administration, and payment processing.
 
 ## Installation
 
@@ -17,7 +17,7 @@ pip install -e ".[dev]"
 
 ## Environment Setup
 
-Set your DomiNode API key as an environment variable:
+Set your Dominus Node API key as an environment variable:
 
 ```bash
 export DOMINUSNODE_API_KEY="dn_live_your_api_key_here"
@@ -113,7 +113,7 @@ kernel = sk.Kernel()
 plugin = DominusNodePlugin()
 kernel.add_plugin(plugin, plugin_name="dominusnode")
 
-# Now the kernel can use DomiNode functions in AI orchestration
+# Now the kernel can use Dominus Node functions in AI orchestration
 ```
 
 ### Proxied Fetch with Geo-Targeting
@@ -187,7 +187,7 @@ kernel = sk.Kernel()
 kernel.add_service(OpenAIChatCompletion(service_id="chat"))
 kernel.add_plugin(DominusNodePlugin(), plugin_name="dominusnode")
 
-# The kernel can now automatically invoke DomiNode functions
+# The kernel can now automatically invoke Dominus Node functions
 # as part of AI-driven plans and function calling
 ```
 

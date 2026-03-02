@@ -1,7 +1,7 @@
-"""LangChain tools for interacting with the DomiNode proxy service.
+"""LangChain tools for interacting with the Dominus Node proxy service.
 
 Each tool subclasses ``BaseTool`` from ``langchain_core.tools`` and wraps
-the DomiNode Python SDK to expose proxy, wallet, usage, and configuration
+the Dominus Node Python SDK to expose proxy, wallet, usage, and configuration
 operations to LangChain agents.
 
 Security:
@@ -60,7 +60,7 @@ _MAX_RESPONSE_BODY_BYTES = 10 * 1024 * 1024
 
 
 def _sanitize_error(message: str) -> str:
-    """Remove DomiNode API key patterns from error messages."""
+    """Remove Dominus Node API key patterns from error messages."""
     return _CREDENTIAL_RE.sub("***", message)
 
 
@@ -251,9 +251,9 @@ def _validate_url(url: str) -> str:
 
 
 class ProxiedFetchInput(BaseModel):
-    """Input schema for the DomiNode proxied fetch tool."""
+    """Input schema for the Dominus Node proxied fetch tool."""
 
-    url: str = Field(description="The URL to fetch through the DomiNode proxy.")
+    url: str = Field(description="The URL to fetch through the Dominus Node proxy.")
     method: str = Field(
         default="GET",
         description="HTTP method (GET, HEAD, or OPTIONS). Default: GET.",
@@ -280,9 +280,9 @@ class EmptyInput(BaseModel):
 
 
 class DominusNodeProxiedFetchTool(BaseTool):
-    """Make HTTP requests through the DomiNode rotating proxy network.
+    """Make HTTP requests through the Dominus Node rotating proxy network.
 
-    Fetches the given URL through a DomiNode proxy IP, optionally targeting a
+    Fetches the given URL through a Dominus Node proxy IP, optionally targeting a
     specific country.  Returns the HTTP status code and the first 4 000
     characters of the response body.
 
@@ -292,7 +292,7 @@ class DominusNodeProxiedFetchTool(BaseTool):
 
     name: str = "dominusnode_proxied_fetch"
     description: str = (
-        "Fetch a URL through the DomiNode rotating proxy network. "
+        "Fetch a URL through the Dominus Node rotating proxy network. "
         "Useful for accessing geo-restricted content or browsing anonymously. "
         "Supports country targeting and both datacenter and residential proxies. "
         "Input: url (required), method (GET/HEAD/OPTIONS), country (e.g. US), "
@@ -335,7 +335,7 @@ class DominusNodeProxiedFetchTool(BaseTool):
             return "Error: proxy_type must be 'dc' or 'residential'."
 
         if self.sync_client is None:
-            return "Error: No DomiNode client configured. Initialize the toolkit first."
+            return "Error: No Dominus Node client configured. Initialize the toolkit first."
 
         try:
             options = ProxyUrlOptions(country=country, proxy_type=proxy_type)
@@ -401,7 +401,7 @@ class DominusNodeProxiedFetchTool(BaseTool):
             return "Error: proxy_type must be 'dc' or 'residential'."
 
         if self.async_client is None and self.sync_client is None:
-            return "Error: No DomiNode client configured. Initialize the toolkit first."
+            return "Error: No Dominus Node client configured. Initialize the toolkit first."
 
         try:
             # build_url is synchronous even on the async client
@@ -442,7 +442,7 @@ class DominusNodeProxiedFetchTool(BaseTool):
 
 
 class DominusNodeBalanceTool(BaseTool):
-    """Check the current DomiNode wallet balance.
+    """Check the current Dominus Node wallet balance.
 
     Returns the wallet balance in both USD and cents, useful for monitoring
     spend before making proxied requests.
@@ -450,7 +450,7 @@ class DominusNodeBalanceTool(BaseTool):
 
     name: str = "dominusnode_balance"
     description: str = (
-        "Check your DomiNode wallet balance. Returns the current balance "
+        "Check your Dominus Node wallet balance. Returns the current balance "
         "in dollars and cents. No input required."
     )
     args_schema: Type[BaseModel] = EmptyInput
@@ -465,7 +465,7 @@ class DominusNodeBalanceTool(BaseTool):
         run_manager: Optional[CallbackManagerForToolRun] = None,
     ) -> str:
         if self.sync_client is None:
-            return "Error: No DomiNode client configured. Initialize the toolkit first."
+            return "Error: No Dominus Node client configured. Initialize the toolkit first."
         try:
             wallet = self.sync_client.wallet.get_balance()
             return (
@@ -492,11 +492,11 @@ class DominusNodeBalanceTool(BaseTool):
         if self.sync_client is not None:
             return self._run()
 
-        return "Error: No DomiNode client configured. Initialize the toolkit first."
+        return "Error: No Dominus Node client configured. Initialize the toolkit first."
 
 
 class DominusNodeUsageTool(BaseTool):
-    """Check DomiNode proxy usage statistics.
+    """Check Dominus Node proxy usage statistics.
 
     Returns a summary of bandwidth usage including total bytes transferred,
     cost, and request count.
@@ -504,7 +504,7 @@ class DominusNodeUsageTool(BaseTool):
 
     name: str = "dominusnode_usage"
     description: str = (
-        "Check your DomiNode proxy usage statistics. Returns total bandwidth "
+        "Check your Dominus Node proxy usage statistics. Returns total bandwidth "
         "used (in GB), total cost, and request count. No input required."
     )
     args_schema: Type[BaseModel] = EmptyInput
@@ -519,7 +519,7 @@ class DominusNodeUsageTool(BaseTool):
         run_manager: Optional[CallbackManagerForToolRun] = None,
     ) -> str:
         if self.sync_client is None:
-            return "Error: No DomiNode client configured. Initialize the toolkit first."
+            return "Error: No Dominus Node client configured. Initialize the toolkit first."
         try:
             usage_resp = self.sync_client.usage.get()
             s = usage_resp.summary
@@ -554,11 +554,11 @@ class DominusNodeUsageTool(BaseTool):
         if self.sync_client is not None:
             return self._run()
 
-        return "Error: No DomiNode client configured. Initialize the toolkit first."
+        return "Error: No Dominus Node client configured. Initialize the toolkit first."
 
 
 class TopupPaypalInput(BaseModel):
-    """Input schema for the DomiNode PayPal top-up tool."""
+    """Input schema for the Dominus Node PayPal top-up tool."""
 
     amount_cents: int = Field(
         description="Amount in cents to top up via PayPal (min 500 = $5, max 100000 = $1,000).",
@@ -566,7 +566,7 @@ class TopupPaypalInput(BaseModel):
 
 
 class DominusNodeTopupPaypalTool(BaseTool):
-    """Top up your DomiNode wallet balance via PayPal.
+    """Top up your Dominus Node wallet balance via PayPal.
 
     Creates a PayPal order and returns an approval URL to complete payment.
     Minimum $5 (500 cents), maximum $1,000 (100,000 cents).
@@ -574,7 +574,7 @@ class DominusNodeTopupPaypalTool(BaseTool):
 
     name: str = "dominusnode_topup_paypal"
     description: str = (
-        "Top up your DomiNode wallet balance via PayPal. "
+        "Top up your Dominus Node wallet balance via PayPal. "
         "Creates a PayPal order and returns an approval URL to complete payment. "
         "Input: amount_cents (integer, min 500 = $5, max 100000 = $1,000)."
     )
@@ -591,7 +591,7 @@ class DominusNodeTopupPaypalTool(BaseTool):
         run_manager: Optional[CallbackManagerForToolRun] = None,
     ) -> str:
         if self.sync_client is None:
-            return "Error: No DomiNode client configured. Initialize the toolkit first."
+            return "Error: No Dominus Node client configured. Initialize the toolkit first."
 
         if not isinstance(amount_cents, int) or amount_cents < 500 or amount_cents > 100000:
             return "Error: amount_cents must be an integer between 500 ($5) and 100000 ($1,000)."
@@ -632,11 +632,11 @@ class DominusNodeTopupPaypalTool(BaseTool):
         if self.sync_client is not None:
             return self._run(amount_cents=amount_cents)
 
-        return "Error: No DomiNode client configured. Initialize the toolkit first."
+        return "Error: No Dominus Node client configured. Initialize the toolkit first."
 
 
 class DominusNodeProxyConfigTool(BaseTool):
-    """Get DomiNode proxy configuration and supported countries.
+    """Get Dominus Node proxy configuration and supported countries.
 
     Returns the proxy endpoints, supported countries for geo-targeting,
     and available geo-targeting features.
@@ -644,7 +644,7 @@ class DominusNodeProxyConfigTool(BaseTool):
 
     name: str = "dominusnode_proxy_config"
     description: str = (
-        "Get the DomiNode proxy configuration including supported countries, "
+        "Get the Dominus Node proxy configuration including supported countries, "
         "proxy endpoints, and geo-targeting capabilities. No input required."
     )
     args_schema: Type[BaseModel] = EmptyInput
@@ -659,7 +659,7 @@ class DominusNodeProxyConfigTool(BaseTool):
         run_manager: Optional[CallbackManagerForToolRun] = None,
     ) -> str:
         if self.sync_client is None:
-            return "Error: No DomiNode client configured. Initialize the toolkit first."
+            return "Error: No Dominus Node client configured. Initialize the toolkit first."
         try:
             config = self.sync_client.proxy.get_config()
             countries = ", ".join(config.supported_countries) if config.supported_countries else "none listed"
@@ -706,7 +706,7 @@ class DominusNodeProxyConfigTool(BaseTool):
         if self.sync_client is not None:
             return self._run()
 
-        return "Error: No DomiNode client configured. Initialize the toolkit first."
+        return "Error: No Dominus Node client configured. Initialize the toolkit first."
 
 
 class DominusNodeX402InfoTool(BaseTool):
@@ -734,7 +734,7 @@ class DominusNodeX402InfoTool(BaseTool):
         run_manager: Optional[CallbackManagerForToolRun] = None,
     ) -> str:
         if self.sync_client is None:
-            return "Error: No DomiNode client configured. Initialize the toolkit first."
+            return "Error: No Dominus Node client configured. Initialize the toolkit first."
         try:
             info = self.sync_client.x402.get_info()
             return (
@@ -777,7 +777,7 @@ class DominusNodeX402InfoTool(BaseTool):
         if self.sync_client is not None:
             return self._run()
 
-        return "Error: No DomiNode client configured. Initialize the toolkit first."
+        return "Error: No Dominus Node client configured. Initialize the toolkit first."
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -980,7 +980,7 @@ class DominusNodeCreateAgenticWalletTool(BaseTool):
         run_manager: Optional[CallbackManagerForToolRun] = None,
     ) -> str:
         if not self.api_key or not self.base_url:
-            return "Error: No DomiNode API credentials configured. Initialize the toolkit first."
+            return "Error: No Dominus Node API credentials configured. Initialize the toolkit first."
 
         err = _validate_label(label)
         if err:
@@ -1031,7 +1031,7 @@ class DominusNodeCreateAgenticWalletTool(BaseTool):
         run_manager: Optional[AsyncCallbackManagerForToolRun] = None,
     ) -> str:
         if not self.api_key or not self.base_url:
-            return "Error: No DomiNode API credentials configured. Initialize the toolkit first."
+            return "Error: No Dominus Node API credentials configured. Initialize the toolkit first."
 
         err = _validate_label(label)
         if err:
@@ -1096,7 +1096,7 @@ class DominusNodeFundAgenticWalletTool(BaseTool):
         run_manager: Optional[CallbackManagerForToolRun] = None,
     ) -> str:
         if not self.api_key or not self.base_url:
-            return "Error: No DomiNode API credentials configured. Initialize the toolkit first."
+            return "Error: No Dominus Node API credentials configured. Initialize the toolkit first."
 
         err = _validate_wallet_id(wallet_id)
         if err:
@@ -1129,7 +1129,7 @@ class DominusNodeFundAgenticWalletTool(BaseTool):
         run_manager: Optional[AsyncCallbackManagerForToolRun] = None,
     ) -> str:
         if not self.api_key or not self.base_url:
-            return "Error: No DomiNode API credentials configured. Initialize the toolkit first."
+            return "Error: No Dominus Node API credentials configured. Initialize the toolkit first."
 
         err = _validate_wallet_id(wallet_id)
         if err:
@@ -1177,7 +1177,7 @@ class DominusNodeAgenticWalletBalanceTool(BaseTool):
         run_manager: Optional[CallbackManagerForToolRun] = None,
     ) -> str:
         if not self.api_key or not self.base_url:
-            return "Error: No DomiNode API credentials configured. Initialize the toolkit first."
+            return "Error: No Dominus Node API credentials configured. Initialize the toolkit first."
 
         err = _validate_wallet_id(wallet_id)
         if err:
@@ -1207,7 +1207,7 @@ class DominusNodeAgenticWalletBalanceTool(BaseTool):
         run_manager: Optional[AsyncCallbackManagerForToolRun] = None,
     ) -> str:
         if not self.api_key or not self.base_url:
-            return "Error: No DomiNode API credentials configured. Initialize the toolkit first."
+            return "Error: No Dominus Node API credentials configured. Initialize the toolkit first."
 
         err = _validate_wallet_id(wallet_id)
         if err:
@@ -1251,7 +1251,7 @@ class DominusNodeListAgenticWalletsTool(BaseTool):
         run_manager: Optional[CallbackManagerForToolRun] = None,
     ) -> str:
         if not self.api_key or not self.base_url:
-            return "Error: No DomiNode API credentials configured. Initialize the toolkit first."
+            return "Error: No Dominus Node API credentials configured. Initialize the toolkit first."
 
         try:
             data = _api_request_sync(
@@ -1278,7 +1278,7 @@ class DominusNodeListAgenticWalletsTool(BaseTool):
         run_manager: Optional[AsyncCallbackManagerForToolRun] = None,
     ) -> str:
         if not self.api_key or not self.base_url:
-            return "Error: No DomiNode API credentials configured. Initialize the toolkit first."
+            return "Error: No Dominus Node API credentials configured. Initialize the toolkit first."
 
         try:
             data = await _api_request_async(
@@ -1323,7 +1323,7 @@ class DominusNodeAgenticTransactionsTool(BaseTool):
         run_manager: Optional[CallbackManagerForToolRun] = None,
     ) -> str:
         if not self.api_key or not self.base_url:
-            return "Error: No DomiNode API credentials configured. Initialize the toolkit first."
+            return "Error: No Dominus Node API credentials configured. Initialize the toolkit first."
 
         err = _validate_wallet_id(wallet_id)
         if err:
@@ -1362,7 +1362,7 @@ class DominusNodeAgenticTransactionsTool(BaseTool):
         run_manager: Optional[AsyncCallbackManagerForToolRun] = None,
     ) -> str:
         if not self.api_key or not self.base_url:
-            return "Error: No DomiNode API credentials configured. Initialize the toolkit first."
+            return "Error: No Dominus Node API credentials configured. Initialize the toolkit first."
 
         err = _validate_wallet_id(wallet_id)
         if err:
@@ -1416,7 +1416,7 @@ class DominusNodeFreezeAgenticWalletTool(BaseTool):
         run_manager: Optional[CallbackManagerForToolRun] = None,
     ) -> str:
         if not self.api_key or not self.base_url:
-            return "Error: No DomiNode API credentials configured. Initialize the toolkit first."
+            return "Error: No Dominus Node API credentials configured. Initialize the toolkit first."
 
         err = _validate_wallet_id(wallet_id)
         if err:
@@ -1442,7 +1442,7 @@ class DominusNodeFreezeAgenticWalletTool(BaseTool):
         run_manager: Optional[AsyncCallbackManagerForToolRun] = None,
     ) -> str:
         if not self.api_key or not self.base_url:
-            return "Error: No DomiNode API credentials configured. Initialize the toolkit first."
+            return "Error: No Dominus Node API credentials configured. Initialize the toolkit first."
 
         err = _validate_wallet_id(wallet_id)
         if err:
@@ -1484,7 +1484,7 @@ class DominusNodeUnfreezeAgenticWalletTool(BaseTool):
         run_manager: Optional[CallbackManagerForToolRun] = None,
     ) -> str:
         if not self.api_key or not self.base_url:
-            return "Error: No DomiNode API credentials configured. Initialize the toolkit first."
+            return "Error: No Dominus Node API credentials configured. Initialize the toolkit first."
 
         err = _validate_wallet_id(wallet_id)
         if err:
@@ -1510,7 +1510,7 @@ class DominusNodeUnfreezeAgenticWalletTool(BaseTool):
         run_manager: Optional[AsyncCallbackManagerForToolRun] = None,
     ) -> str:
         if not self.api_key or not self.base_url:
-            return "Error: No DomiNode API credentials configured. Initialize the toolkit first."
+            return "Error: No Dominus Node API credentials configured. Initialize the toolkit first."
 
         err = _validate_wallet_id(wallet_id)
         if err:
@@ -1552,7 +1552,7 @@ class DominusNodeDeleteAgenticWalletTool(BaseTool):
         run_manager: Optional[CallbackManagerForToolRun] = None,
     ) -> str:
         if not self.api_key or not self.base_url:
-            return "Error: No DomiNode API credentials configured. Initialize the toolkit first."
+            return "Error: No Dominus Node API credentials configured. Initialize the toolkit first."
 
         err = _validate_wallet_id(wallet_id)
         if err:
@@ -1577,7 +1577,7 @@ class DominusNodeDeleteAgenticWalletTool(BaseTool):
         run_manager: Optional[AsyncCallbackManagerForToolRun] = None,
     ) -> str:
         if not self.api_key or not self.base_url:
-            return "Error: No DomiNode API credentials configured. Initialize the toolkit first."
+            return "Error: No Dominus Node API credentials configured. Initialize the toolkit first."
 
         err = _validate_wallet_id(wallet_id)
         if err:
@@ -1621,7 +1621,7 @@ class DominusNodeUpdateWalletPolicyTool(BaseTool):
         run_manager: Optional[CallbackManagerForToolRun] = None,
     ) -> str:
         if not self.api_key or not self.base_url:
-            return "Error: No DomiNode API credentials configured. Initialize the toolkit first."
+            return "Error: No Dominus Node API credentials configured. Initialize the toolkit first."
 
         err = _validate_wallet_id(wallet_id)
         if err:
@@ -1667,7 +1667,7 @@ class DominusNodeUpdateWalletPolicyTool(BaseTool):
         run_manager: Optional[AsyncCallbackManagerForToolRun] = None,
     ) -> str:
         if not self.api_key or not self.base_url:
-            return "Error: No DomiNode API credentials configured. Initialize the toolkit first."
+            return "Error: No Dominus Node API credentials configured. Initialize the toolkit first."
 
         err = _validate_wallet_id(wallet_id)
         if err:

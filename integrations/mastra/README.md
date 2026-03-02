@@ -1,8 +1,8 @@
 # @dominusnode/mastra-tools
 
-DomiNode rotating proxy tools for [Mastra AI](https://mastra.ai) agents.
+Dominus Node rotating proxy tools for [Mastra AI](https://mastra.ai) agents.
 
-Provides 23 tools for interacting with DomiNode's rotating proxy-as-a-service platform from Mastra AI workflows and agents.
+Provides 23 tools for interacting with Dominus Node's rotating proxy-as-a-service platform from Mastra AI workflows and agents.
 
 ## Installation
 

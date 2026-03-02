@@ -251,13 +251,13 @@ const MAX_RESPONSE_BODY_BYTES = 10 * 1024 * 1024;
 // ---------------------------------------------------------------------------
 
 /**
- * Creates the `proxiedFetch` tool that makes HTTP requests through DomiNode's
+ * Creates the `proxiedFetch` tool that makes HTTP requests through Dominus Node's
  * rotating proxy network.
  */
 export function createProxiedFetchTool(client: DominusNodeClient, apiKey: string) {
   return (tool as any)({
     description:
-      "Make an HTTP request through DomiNode's rotating proxy network. " +
+      "Make an HTTP request through Dominus Node's rotating proxy network. " +
       "Supports geo-targeting by country and choice of datacenter (dc) or residential proxy. " +
       "Use this to fetch web pages, APIs, or any HTTP resource through a proxy IP.",
     parameters: z.object({
@@ -422,7 +422,7 @@ export function createProxiedFetchTool(client: DominusNodeClient, apiKey: string
 export function createCheckBalanceTool(client: DominusNodeClient) {
   return (tool as any)({
     description:
-      "Check the current DomiNode wallet balance. " +
+      "Check the current Dominus Node wallet balance. " +
       "Returns balance in cents and USD. Use this before making proxy requests " +
       "to ensure sufficient funds.",
     parameters: z.object({}),
@@ -449,7 +449,7 @@ export function createCheckBalanceTool(client: DominusNodeClient) {
 export function createCheckUsageTool(client: DominusNodeClient) {
   return (tool as any)({
     description:
-      "Check DomiNode proxy usage statistics for a given time period. " +
+      "Check Dominus Node proxy usage statistics for a given time period. " +
       "Returns total bytes transferred, cost, and request count.",
     parameters: z.object({
       period: z
@@ -483,7 +483,7 @@ export function createCheckUsageTool(client: DominusNodeClient) {
           limit: 100,
         });
 
-        const summary = usage.summary as Record<string, unknown>;
+        const summary = usage.summary as unknown as Record<string, unknown>;
         const records = usage.records as unknown[];
 
         return {
@@ -511,7 +511,7 @@ export function createCheckUsageTool(client: DominusNodeClient) {
 export function createGetProxyConfigTool(client: DominusNodeClient) {
   return (tool as any)({
     description:
-      "Get DomiNode proxy endpoint configuration including supported countries, " +
+      "Get Dominus Node proxy endpoint configuration including supported countries, " +
       "geo-targeting capabilities, and connection details. Use this to discover " +
       "available proxy options before making requests.",
     parameters: z.object({}),
@@ -554,7 +554,7 @@ export function createListSessionsTool(client: DominusNodeClient) {
       try {
         const result = await client.sessions.getActive();
         return {
-          sessions: result.sessions.map((s: Record<string, unknown>) => ({
+          sessions: result.sessions.map((s: any) => ({
             id: String(s.id ?? ""),
             startedAt: String(s.startedAt ?? ""),
             status: String(s.status ?? ""),
@@ -575,7 +575,7 @@ export function createListSessionsTool(client: DominusNodeClient) {
 export function createTopupPaypalTool(client: DominusNodeClient) {
   return (tool as any)({
     description:
-      "Top up your DomiNode wallet balance via PayPal. " +
+      "Top up your Dominus Node wallet balance via PayPal. " +
       "Creates a PayPal order and returns an approval URL to complete payment. " +
       "Minimum $5 (500 cents), maximum $1,000 (100,000 cents).",
     parameters: z.object({
@@ -630,7 +630,7 @@ export function createX402InfoTool(client: DominusNodeClient) {
 // Authenticated API request helper
 // ---------------------------------------------------------------------------
 
-/** Make an authenticated JSON request to the DomiNode REST API. */
+/** Make an authenticated JSON request to the Dominus Node REST API. */
 async function apiRequest(
   client: DominusNodeClient,
   method: "GET" | "POST" | "DELETE" | "PATCH",

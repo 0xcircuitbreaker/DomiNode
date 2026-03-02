@@ -1,12 +1,12 @@
 identity:
   name: check_usage
-  author: DomiNode
+  author: Dominus Node
   label:
     en_US: Check Usage
 description:
   human:
     en_US: Check proxy usage statistics
-  llm: Check DomiNode proxy usage statistics for a given time period. Returns bandwidth consumed and cost breakdown.
+  llm: Check Dominus Node proxy usage statistics for a given time period. Returns bandwidth consumed and cost breakdown.
 parameters:
   - name: period
     type: string

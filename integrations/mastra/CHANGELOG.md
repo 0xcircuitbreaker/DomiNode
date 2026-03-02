@@ -1,10 +1,14 @@
 # Changelog
 
+## 1.0.1
+
+- Fix branding: replace "DomiNode" with "Dominus Node" throughout
+
 ## 1.0.0 (2026-02-24)
 
 ### Added
 
-- Initial release with 23 Mastra AI tools for DomiNode proxy service
+- Initial release with 23 Mastra AI tools for Dominus Node proxy service
 - Proxied fetch with full SSRF protection, DNS rebinding, OFAC blocking, and credential scrubbing
 - Wallet balance and usage monitoring tools
 - Proxy configuration and active session listing

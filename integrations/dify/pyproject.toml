@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "dominusnode-dify"
-version = "1.0.0"
-description = "DomiNode tool provider for Dify -- 22 proxy, wallet, and team management tools"
+version = "1.0.1"
+description = "Dominus Node tool provider for Dify -- 22 proxy, wallet, and team management tools"
 readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.10"

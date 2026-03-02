@@ -1,7 +1,7 @@
-"""DomiNode SuperAGI Toolkit -- registers all 24 DomiNode tools.
+"""Dominus Node SuperAGI Toolkit -- registers all 24 Dominus Node tools.
 
 Provides a ``BaseToolkit`` subclass that exposes 24 tools for interacting
-with the DomiNode rotating proxy-as-a-service platform.  The toolkit
+with the Dominus Node rotating proxy-as-a-service platform.  The toolkit
 covers proxied HTTP fetching, wallet and usage monitoring, agentic wallet
 management, team management, x402 micropayments, and PayPal top-up.
 
@@ -51,7 +51,7 @@ from dominusnode_superagi.tools import (
 
 
 class DominusNodeToolkit(BaseToolkit):
-    """SuperAGI toolkit providing 22 DomiNode proxy service tools.
+    """SuperAGI toolkit providing 22 Dominus Node proxy service tools.
 
     Tools include:
 
@@ -77,7 +77,7 @@ class DominusNodeToolkit(BaseToolkit):
       - X402 Info -- micropayment protocol details
     """
 
-    name: str = "DomiNode Proxy Toolkit"
+    name: str = "Dominus Node Proxy Toolkit"
     description: str = (
         "Rotating proxy-as-a-service with wallet billing, team management, "
         "agentic sub-wallets, and x402 micropayments. Datacenter proxies at "
@@ -85,7 +85,7 @@ class DominusNodeToolkit(BaseToolkit):
     )
 
     def get_tools(self) -> list:
-        """Return all 24 DomiNode tools for registration in SuperAGI.
+        """Return all 24 Dominus Node tools for registration in SuperAGI.
 
         Returns:
             A list of 22 BaseTool instances covering proxy, wallet, team,
@@ -119,7 +119,7 @@ class DominusNodeToolkit(BaseToolkit):
         ]
 
     def get_env_keys(self) -> list:
-        """Return the environment/config keys needed by DomiNode tools.
+        """Return the environment/config keys needed by Dominus Node tools.
 
         Returns:
             A list of configuration key names that SuperAGI should prompt

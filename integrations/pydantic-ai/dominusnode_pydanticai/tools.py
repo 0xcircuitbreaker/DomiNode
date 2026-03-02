@@ -1,7 +1,7 @@
-"""DomiNode PydanticAI toolkit -- 22 proxy, wallet, team, and PayPal tools.
+"""Dominus Node PydanticAI toolkit -- 22 proxy, wallet, team, and PayPal tools.
 
 Provides a PydanticAI-compatible toolkit class that exposes 22 tool functions
-for interacting with the DomiNode rotating proxy-as-a-service platform.
+for interacting with the Dominus Node rotating proxy-as-a-service platform.
 
 Tools cover:
   - Proxied HTTP fetching through rotating proxies
@@ -377,7 +377,7 @@ _CREDENTIAL_RE = re.compile(r"dn_(live|test)_[a-zA-Z0-9]+")
 
 
 def _sanitize_error(message: str) -> str:
-    """Remove DomiNode API key patterns from error messages."""
+    """Remove Dominus Node API key patterns from error messages."""
     return _CREDENTIAL_RE.sub("***", message)
 
 
@@ -506,19 +506,19 @@ def _validate_domains(domains: Any) -> Optional[str]:
 
 
 class DominusNodeToolkit:
-    """PydanticAI toolkit providing DomiNode rotating proxy tools.
+    """PydanticAI toolkit providing Dominus Node rotating proxy tools.
 
-    Authenticates using a DomiNode API key and exposes 22 tool functions for
+    Authenticates using a Dominus Node API key and exposes 22 tool functions for
     proxy, wallet, team, and payment management. Use ``get_tools()`` to
     retrieve a list of plain callable functions suitable for registration
     with a PydanticAI agent.
 
     Args:
-        api_key: DomiNode API key (``dn_live_...`` or ``dn_test_...``).
+        api_key: Dominus Node API key (``dn_live_...`` or ``dn_test_...``).
             Falls back to ``DOMINUSNODE_API_KEY`` environment variable.
-        base_url: Base URL of the DomiNode REST API.
-        proxy_host: Hostname of the DomiNode proxy gateway.
-        proxy_port: Port of the DomiNode proxy gateway.
+        base_url: Base URL of the Dominus Node REST API.
+        proxy_host: Hostname of the Dominus Node proxy gateway.
+        proxy_port: Port of the Dominus Node proxy gateway.
         timeout: HTTP request timeout in seconds.
 
     Example::
@@ -550,7 +550,7 @@ class DominusNodeToolkit:
     # ------------------------------------------------------------------
 
     def _authenticate(self) -> str:
-        """Authenticate with the DomiNode API using the API key.
+        """Authenticate with the Dominus Node API using the API key.
 
         Returns:
             The JWT bearer token.
@@ -560,7 +560,7 @@ class DominusNodeToolkit:
         """
         if not self.api_key:
             raise RuntimeError(
-                "DomiNode API key is required. Pass api_key or set "
+                "Dominus Node API key is required. Pass api_key or set "
                 "DOMINUSNODE_API_KEY environment variable."
             )
 
@@ -605,7 +605,7 @@ class DominusNodeToolkit:
         path: str,
         body: Optional[Dict[str, Any]] = None,
     ) -> Any:
-        """Make an authenticated API request to the DomiNode REST API.
+        """Make an authenticated API request to the Dominus Node REST API.
 
         Args:
             method: HTTP method (GET, POST, PATCH, DELETE).
@@ -686,7 +686,7 @@ class DominusNodeToolkit:
         country: str | None = None,
         proxy_type: str = "dc",
     ) -> dict:
-        """Fetch a URL through the DomiNode rotating proxy network.
+        """Fetch a URL through the Dominus Node rotating proxy network.
 
         Args:
             url: Target URL to fetch.
@@ -767,7 +767,7 @@ class DominusNodeToolkit:
         except Exception as e:
             return {
                 "error": f"Proxy fetch failed: {_sanitize_error(str(e))}",
-                "hint": "Ensure the DomiNode proxy gateway is running and accessible.",
+                "hint": "Ensure the Dominus Node proxy gateway is running and accessible.",
             }
 
     # ==================================================================
@@ -1449,7 +1449,7 @@ class DominusNodeToolkit:
             country: str | None = None,
             proxy_type: str = "dc",
         ) -> dict:
-            """Fetch a URL through the DomiNode rotating proxy network.
+            """Fetch a URL through the Dominus Node rotating proxy network.
 
             Args:
                 url: Target URL to fetch.
@@ -1465,7 +1465,7 @@ class DominusNodeToolkit:
             )
 
         def check_balance() -> dict:
-            """Check the current DomiNode wallet balance.
+            """Check the current Dominus Node wallet balance.
 
             Returns:
                 Dict with wallet balance in cents and currency info.

@@ -1,10 +1,10 @@
 identity:
   name: get_proxy_config
-  author: DomiNode
+  author: Dominus Node
   label:
     en_US: Get Proxy Config
 description:
   human:
     en_US: Get proxy configuration information
-  llm: Get DomiNode proxy configuration including endpoints, available geo-targeting options, and supported proxy types.
+  llm: Get Dominus Node proxy configuration including endpoints, available geo-targeting options, and supported proxy types.
 parameters: []

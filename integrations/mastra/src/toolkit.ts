@@ -1,7 +1,7 @@
 /**
- * DomiNode Mastra AI Toolkit
+ * Dominus Node Mastra AI Toolkit
  *
- * Implements 24 tools for interacting with DomiNode's rotating proxy service
+ * Implements 24 tools for interacting with Dominus Node's rotating proxy service
  * from Mastra AI agents and workflows.
  *
  * Uses createTool() from @mastra/core/tools with Zod schemas.
@@ -47,13 +47,13 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 // ---------------------------------------------------------------------------
 
 export interface DominusNodeToolkitConfig {
-  /** DomiNode API key (dn_live_... or dn_test_...). Falls back to DOMINUSNODE_API_KEY env var. */
+  /** Dominus Node API key (dn_live_... or dn_test_...). Falls back to DOMINUSNODE_API_KEY env var. */
   apiKey?: string;
-  /** Base URL of the DomiNode REST API. */
+  /** Base URL of the Dominus Node REST API. */
   baseUrl?: string;
-  /** Hostname of the DomiNode proxy gateway. */
+  /** Hostname of the Dominus Node proxy gateway. */
   proxyHost?: string;
-  /** Port of the DomiNode proxy gateway. */
+  /** Port of the Dominus Node proxy gateway. */
   proxyPort?: number;
 }
 
@@ -394,7 +394,7 @@ export class DominusNodeToolkit {
     if (!this.apiKey || typeof this.apiKey !== "string" || this.apiKey.trim().length === 0) {
       throw new Error(
         "DOMINUSNODE_API_KEY is required. " +
-        'Set it to your DomiNode API key (starts with "dn_live_" or "dn_test_").',
+        'Set it to your Dominus Node API key (starts with "dn_live_" or "dn_test_").',
       );
     }
     const trimmed = this.apiKey.trim();
@@ -431,7 +431,7 @@ export class DominusNodeToolkit {
   }
 
   // -----------------------------------------------------------------------
-  // HTTP client for DomiNode API
+  // HTTP client for Dominus Node API
   // -----------------------------------------------------------------------
 
   private async apiRequest<T = unknown>(
@@ -911,7 +911,7 @@ export class DominusNodeToolkit {
       createTool({
         id: "dominusnode_proxied_fetch",
         description:
-          "Fetch a URL through DomiNode's rotating proxy network with geo-targeting. " +
+          "Fetch a URL through Dominus Node's rotating proxy network with geo-targeting. " +
           "Supports datacenter ($3/GB) and residential ($5/GB) pools. " +
           "Only GET, HEAD, and OPTIONS methods are allowed.",
         inputSchema: z.object({
@@ -919,7 +919,7 @@ export class DominusNodeToolkit {
           method: z.enum(["GET", "HEAD", "OPTIONS"]).default("GET").describe("HTTP method"),
           country: z.string().optional().describe("ISO 3166-1 alpha-2 country code for geo-targeting (e.g., US, GB, DE)"),
           proxyType: z.enum(["dc", "residential"]).default("dc").describe("Proxy pool type: dc (datacenter, $3/GB) or residential ($5/GB)"),
-        }),
+        }) as any,
         outputSchema: z.object({
           status: z.number(),
           headers: z.record(z.string()),
@@ -941,9 +941,9 @@ export class DominusNodeToolkit {
       createTool({
         id: "dominusnode_check_balance",
         description:
-          "Check your DomiNode wallet balance and estimated remaining bandwidth at current pricing. " +
+          "Check your Dominus Node wallet balance and estimated remaining bandwidth at current pricing. " +
           "Shows balance in USD, datacenter GB remaining ($3/GB), and residential GB remaining ($5/GB).",
-        inputSchema: z.object({}),
+        inputSchema: z.object({}) as any,
         outputSchema: z.object({
           balanceCents: z.number(),
           balanceUsd: z.number(),
@@ -968,7 +968,7 @@ export class DominusNodeToolkit {
           "Shows total bytes transferred, total cost, and request count.",
         inputSchema: z.object({
           days: z.number().min(1).max(365).default(30).describe("Number of days to look back (1-365)"),
-        }),
+        }) as any,
         outputSchema: z.object({
           totalBytes: z.number(),
           totalCostUsd: z.number(),
@@ -991,7 +991,7 @@ export class DominusNodeToolkit {
         description:
           "Get available proxy pools, pricing, supported countries, and endpoint configuration. " +
           "Returns proxy host, ports, and pool details.",
-        inputSchema: z.object({}),
+        inputSchema: z.object({}) as any,
         outputSchema: z.object({
           data: z.unknown(),
           error: z.string().optional(),
@@ -1010,7 +1010,7 @@ export class DominusNodeToolkit {
         id: "dominusnode_list_sessions",
         description:
           "List all active proxy sessions showing target hosts, bandwidth used, and status.",
-        inputSchema: z.object({}),
+        inputSchema: z.object({}) as any,
         outputSchema: z.object({
           data: z.unknown(),
           error: z.string().optional(),
@@ -1038,7 +1038,7 @@ export class DominusNodeToolkit {
             .describe("Optional daily budget cap in cents (max 1,000,000 = $10,000)"),
           allowedDomains: z.array(z.string().max(253)).max(100).optional()
             .describe("Optional list of allowed domains for proxy access (max 100 entries)"),
-        }),
+        }) as any,
         outputSchema: z.object({
           data: z.unknown(),
           error: z.string().optional(),
@@ -1061,7 +1061,7 @@ export class DominusNodeToolkit {
         inputSchema: z.object({
           walletId: z.string().describe("Agentic wallet ID (UUID)"),
           amountCents: z.number().int().min(100).max(1000000).describe("Amount in cents to transfer (min 100, max 1000000)"),
-        }),
+        }) as any,
         outputSchema: z.object({
           data: z.unknown(),
           error: z.string().optional(),
@@ -1081,7 +1081,7 @@ export class DominusNodeToolkit {
         description: "Check the balance and details of an agentic wallet.",
         inputSchema: z.object({
           walletId: z.string().describe("Agentic wallet ID (UUID)"),
-        }),
+        }) as any,
         outputSchema: z.object({
           data: z.unknown(),
           error: z.string().optional(),
@@ -1099,7 +1099,7 @@ export class DominusNodeToolkit {
       createTool({
         id: "dominusnode_list_agentic_wallets",
         description: "List all your agentic wallets with balances and status.",
-        inputSchema: z.object({}),
+        inputSchema: z.object({}) as any,
         outputSchema: z.object({
           data: z.unknown(),
           error: z.string().optional(),
@@ -1120,7 +1120,7 @@ export class DominusNodeToolkit {
         inputSchema: z.object({
           walletId: z.string().describe("Agentic wallet ID (UUID)"),
           limit: z.number().int().min(1).max(100).default(20).describe("Number of transactions to return (1-100, default 20)"),
-        }),
+        }) as any,
         outputSchema: z.object({
           data: z.unknown(),
           error: z.string().optional(),
@@ -1142,7 +1142,7 @@ export class DominusNodeToolkit {
           "The wallet balance is preserved but no transactions are allowed until unfrozen.",
         inputSchema: z.object({
           walletId: z.string().describe("Agentic wallet ID (UUID)"),
-        }),
+        }) as any,
         outputSchema: z.object({
           data: z.unknown(),
           error: z.string().optional(),
@@ -1162,7 +1162,7 @@ export class DominusNodeToolkit {
         description: "Unfreeze a previously frozen agentic wallet to re-enable spending.",
         inputSchema: z.object({
           walletId: z.string().describe("Agentic wallet ID (UUID)"),
-        }),
+        }) as any,
         outputSchema: z.object({
           data: z.unknown(),
           error: z.string().optional(),
@@ -1184,7 +1184,7 @@ export class DominusNodeToolkit {
           "Any remaining balance is refunded to your main wallet.",
         inputSchema: z.object({
           walletId: z.string().describe("Agentic wallet ID (UUID)"),
-        }),
+        }) as any,
         outputSchema: z.object({
           data: z.unknown(),
           error: z.string().optional(),
@@ -1210,7 +1210,7 @@ export class DominusNodeToolkit {
             .describe("Daily budget cap in cents (max 1,000,000). Set null to remove."),
           allowedDomains: z.array(z.string().max(253)).max(100).nullable().optional()
             .describe("List of allowed domains (max 100). Set null to remove restriction."),
-        }),
+        }) as any,
         outputSchema: z.object({
           data: z.unknown(),
           error: z.string().optional(),
@@ -1233,7 +1233,7 @@ export class DominusNodeToolkit {
         inputSchema: z.object({
           name: z.string().min(1).max(100).describe("Team name (1-100 characters)"),
           maxMembers: z.number().int().min(1).max(100).optional().describe("Maximum number of team members (1-100, optional)"),
-        }),
+        }) as any,
         outputSchema: z.object({
           data: z.unknown(),
           error: z.string().optional(),
@@ -1251,7 +1251,7 @@ export class DominusNodeToolkit {
       createTool({
         id: "dominusnode_list_teams",
         description: "List all teams you belong to, with your role and team balance.",
-        inputSchema: z.object({}),
+        inputSchema: z.object({}) as any,
         outputSchema: z.object({
           data: z.unknown(),
           error: z.string().optional(),
@@ -1272,7 +1272,7 @@ export class DominusNodeToolkit {
           "Get detailed info about a team including balance, members, settings, and your role.",
         inputSchema: z.object({
           teamId: z.string().describe("Team ID (UUID)"),
-        }),
+        }) as any,
         outputSchema: z.object({
           data: z.unknown(),
           error: z.string().optional(),
@@ -1295,7 +1295,7 @@ export class DominusNodeToolkit {
         inputSchema: z.object({
           teamId: z.string().describe("Team ID (UUID)"),
           amountCents: z.number().int().min(100).max(1000000).describe("Amount in cents to transfer (min 100, max 1000000)"),
-        }),
+        }) as any,
         outputSchema: z.object({
           data: z.unknown(),
           error: z.string().optional(),
@@ -1318,7 +1318,7 @@ export class DominusNodeToolkit {
         inputSchema: z.object({
           teamId: z.string().describe("Team ID (UUID)"),
           label: z.string().min(1).max(100).describe('Label for the API key (e.g., "production", "staging")'),
-        }),
+        }) as any,
         outputSchema: z.object({
           data: z.unknown(),
           error: z.string().optional(),
@@ -1339,7 +1339,7 @@ export class DominusNodeToolkit {
         inputSchema: z.object({
           teamId: z.string().describe("Team ID (UUID)"),
           limit: z.number().int().min(1).max(100).default(20).describe("Number of transactions to return (1-100, default 20)"),
-        }),
+        }) as any,
         outputSchema: z.object({
           data: z.unknown(),
           error: z.string().optional(),
@@ -1362,7 +1362,7 @@ export class DominusNodeToolkit {
           teamId: z.string().describe("Team ID (UUID)"),
           name: z.string().min(1).max(100).optional().describe("New team name (1-100 characters)"),
           maxMembers: z.number().int().min(1).max(100).optional().describe("New max member count (1-100)"),
-        }),
+        }) as any,
         outputSchema: z.object({
           data: z.unknown(),
           error: z.string().optional(),
@@ -1385,7 +1385,7 @@ export class DominusNodeToolkit {
           teamId: z.string().describe("Team ID (UUID)"),
           userId: z.string().describe("User ID (UUID) of the member whose role to change"),
           role: z.enum(["member", "admin"]).describe("New role for the member"),
-        }),
+        }) as any,
         outputSchema: z.object({
           data: z.unknown(),
           error: z.string().optional(),
@@ -1403,12 +1403,12 @@ export class DominusNodeToolkit {
       createTool({
         id: "dominusnode_topup_paypal",
         description:
-          "Top up your DomiNode wallet balance via PayPal. Creates a PayPal order and returns " +
+          "Top up your Dominus Node wallet balance via PayPal. Creates a PayPal order and returns " +
           "an approval URL to complete payment. Minimum $5 (500 cents), maximum $1,000 (100000 cents).",
         inputSchema: z.object({
           amountCents: z.number().int().min(500).max(100000)
             .describe("Amount in cents to top up (min 500 = $5, max 100000 = $1,000)"),
-        }),
+        }) as any,
         outputSchema: z.object({
           data: z.unknown(),
           error: z.string().optional(),
@@ -1428,7 +1428,7 @@ export class DominusNodeToolkit {
         description:
           "Get x402 micropayment protocol information including supported " +
           "facilitators, pricing, and payment options.",
-        inputSchema: z.object({}),
+        inputSchema: z.object({}) as any,
         outputSchema: z.object({
           data: z.unknown(),
           error: z.string().optional(),

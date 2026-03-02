@@ -1,9 +1,9 @@
-"""DomiNode LlamaIndex ToolSpec -- exposes all 22 functions as LlamaIndex tools.
+"""Dominus Node LlamaIndex ToolSpec -- exposes all 22 functions as LlamaIndex tools.
 
 The :class:`DominusNodeToolSpec` subclasses
 :class:`llama_index.core.tools.tool_spec.base.BaseToolSpec` and delegates
 every method to an internal :class:`DominusNodeClient`.  This allows
-LlamaIndex agents to call DomiNode proxy, wallet, agentic wallet, team,
+LlamaIndex agents to call Dominus Node proxy, wallet, agentic wallet, team,
 and PayPal tools through a unified interface.
 
 Example::
@@ -28,19 +28,19 @@ from .tools import DominusNodeClient
 
 
 class DominusNodeToolSpec(BaseToolSpec):
-    """LlamaIndex tool spec for the DomiNode rotating proxy service.
+    """LlamaIndex tool spec for the Dominus Node rotating proxy service.
 
     Provides 23 tools covering proxy operations, wallet management,
     agentic wallets, team management, PayPal top-ups, and x402 info.
 
     Args:
-        api_key: DomiNode API key (``dn_live_...``).  Falls back to the
+        api_key: Dominus Node API key (``dn_live_...``).  Falls back to the
             ``DOMINUSNODE_API_KEY`` environment variable.
-        base_url: Base URL for the DomiNode REST API.  Falls back to
+        base_url: Base URL for the Dominus Node REST API.  Falls back to
             ``DOMINUSNODE_BASE_URL`` or ``https://api.dominusnode.com``.
-        proxy_host: Hostname of the DomiNode proxy gateway.  Falls back
+        proxy_host: Hostname of the Dominus Node proxy gateway.  Falls back
             to ``DOMINUSNODE_PROXY_HOST`` or ``proxy.dominusnode.com``.
-        proxy_port: Port of the DomiNode proxy gateway.  Falls back to
+        proxy_port: Port of the Dominus Node proxy gateway.  Falls back to
             ``DOMINUSNODE_PROXY_PORT`` or ``8080``.
     """
 
@@ -97,9 +97,9 @@ class DominusNodeToolSpec(BaseToolSpec):
         proxy_type: str = "dc",
         headers: Optional[Dict[str, str]] = None,
     ) -> Dict[str, Any]:
-        """Fetch a URL through the DomiNode rotating proxy network.
+        """Fetch a URL through the Dominus Node rotating proxy network.
 
-        Routes the request through a DomiNode proxy IP for anonymity and
+        Routes the request through a Dominus Node proxy IP for anonymity and
         geo-targeting.  Only read-only HTTP methods (GET, HEAD, OPTIONS)
         are permitted.
 
@@ -122,7 +122,7 @@ class DominusNodeToolSpec(BaseToolSpec):
         )
 
     def check_balance(self) -> Dict[str, Any]:
-        """Check the current DomiNode wallet balance.
+        """Check the current Dominus Node wallet balance.
 
         Returns the wallet balance in cents and USD, plus currency type.
         Useful for monitoring spend before making proxied requests.
@@ -146,7 +146,7 @@ class DominusNodeToolSpec(BaseToolSpec):
         return self._client.check_usage(period=period)
 
     def get_proxy_config(self) -> Dict[str, Any]:
-        """Get the DomiNode proxy configuration.
+        """Get the Dominus Node proxy configuration.
 
         Returns proxy endpoints (HTTP + SOCKS5), supported countries,
         blocked countries, rotation intervals, and geo-targeting features.

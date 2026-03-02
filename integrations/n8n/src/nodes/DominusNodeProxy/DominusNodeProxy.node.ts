@@ -1,8 +1,8 @@
 /**
- * DomiNode Proxy n8n community node.
+ * Dominus Node Proxy n8n community node.
  *
  * Operations:
- * - Proxied Fetch: Make HTTP requests through DomiNode's rotating proxy network
+ * - Proxied Fetch: Make HTTP requests through Dominus Node's rotating proxy network
  * - Get Proxy Config: Retrieve proxy endpoint configuration
  * - List Active Sessions: List currently active proxy sessions
  *
@@ -50,14 +50,14 @@ const BLOCKED_HEADERS = new Set([
 
 export class DominusNodeProxy implements INodeType {
   description: INodeTypeDescription = {
-    displayName: "DomiNode Proxy",
+    displayName: "Dominus Node Proxy",
     name: "dominusNodeProxy",
     icon: "file:dominusnode.svg",
     group: ["transform"],
     version: 1,
     subtitle: '={{$parameter["operation"]}}',
-    description: "Make requests through DomiNode rotating proxy network",
-    defaults: { name: "DomiNode Proxy" },
+    description: "Make requests through Dominus Node rotating proxy network",
+    defaults: { name: "Dominus Node Proxy" },
     inputs: ["main"],
     outputs: ["main"],
     credentials: [{ name: "dominusNodeApi", required: true }],

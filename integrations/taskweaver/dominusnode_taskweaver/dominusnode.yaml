@@ -1,7 +1,7 @@
 name: dominusnode
 enabled: true
 description: >-
-  DomiNode rotating proxy-as-a-service plugin. Provides 24 commands for proxy
+  Dominus Node rotating proxy-as-a-service plugin. Provides 24 commands for proxy
   fetching, wallet management, team operations, and x402 micropayments.
   Security includes SSRF prevention, OFAC country blocking, credential
   scrubbing, prototype pollution prevention, and HTTP method restriction.

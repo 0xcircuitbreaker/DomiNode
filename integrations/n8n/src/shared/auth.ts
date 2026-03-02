@@ -1,11 +1,11 @@
 /**
- * Authentication and security utilities for the DomiNode n8n integration.
+ * Authentication and security utilities for the Dominus Node n8n integration.
  *
  * Provides:
  * - Credential sanitization (redact dn_live_/dn_test_ keys from errors)
  * - Prototype pollution prevention (strip dangerous keys from parsed JSON)
  * - DNS rebinding protection (resolve hostnames, check all IPs)
- * - Authenticated HTTP client for the DomiNode REST API
+ * - Authenticated HTTP client for the Dominus Node REST API
  *
  * @module
  */
@@ -29,7 +29,7 @@ export { SANCTIONED_COUNTRIES };
 // ---------------------------------------------------------------------------
 
 /**
- * Redact DomiNode API keys from error messages to prevent credential leakage.
+ * Redact Dominus Node API keys from error messages to prevent credential leakage.
  */
 export function sanitizeError(message: string): string {
   return message.replace(CREDENTIAL_RE, "***");
@@ -147,7 +147,7 @@ export function periodToDateRange(period: string): { since: string; until: strin
 // ---------------------------------------------------------------------------
 
 /**
- * Authenticated HTTP client for the DomiNode REST API.
+ * Authenticated HTTP client for the Dominus Node REST API.
  *
  * Lazily authenticates on first request using the API key via the
  * /api/auth/verify-key endpoint. Automatically retries on 401 (token expired).

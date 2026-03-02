@@ -1,4 +1,4 @@
-"""DomiNode tools for Langflow pipelines."""
+"""Dominus Node tools for Langflow pipelines."""
 from dominusnode_langflow.tools import DominusNodeToolkit
 
 __version__ = "1.0.0"

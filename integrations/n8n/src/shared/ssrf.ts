@@ -1,5 +1,5 @@
 /**
- * SSRF prevention utilities for the DomiNode n8n integration.
+ * SSRF prevention utilities for the Dominus Node n8n integration.
  *
  * Blocks private IPs, localhost, internal hostnames, embedded credentials,
  * hex/octal/decimal-encoded IPs, IPv4-mapped IPv6, IPv4-compatible IPv6,

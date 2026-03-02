@@ -1,4 +1,4 @@
-"""Tests for DomiNode LlamaIndex integration.
+"""Tests for Dominus Node LlamaIndex integration.
 
 All tests mock httpx calls to avoid network requests.
 Covers SSRF validation, credential sanitization, prototype pollution,

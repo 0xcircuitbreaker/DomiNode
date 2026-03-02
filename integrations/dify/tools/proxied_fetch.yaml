@@ -1,12 +1,12 @@
 identity:
   name: proxied_fetch
-  author: DomiNode
+  author: Dominus Node
   label:
     en_US: Proxied Fetch
 description:
   human:
-    en_US: Fetch a URL through DomiNode's rotating proxy network
-  llm: Fetch a URL through DomiNode's rotating proxy network with geo-targeting and proxy type selection. Supports datacenter ($3/GB) and residential ($5/GB) proxies. Only GET, HEAD, and OPTIONS methods are allowed.
+    en_US: Fetch a URL through Dominus Node's rotating proxy network
+  llm: Fetch a URL through Dominus Node's rotating proxy network with geo-targeting and proxy type selection. Supports datacenter ($3/GB) and residential ($5/GB) proxies. Only GET, HEAD, and OPTIONS methods are allowed.
 parameters:
   - name: url
     type: string

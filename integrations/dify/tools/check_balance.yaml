@@ -1,10 +1,10 @@
 identity:
   name: check_balance
-  author: DomiNode
+  author: Dominus Node
   label:
     en_US: Check Balance
 description:
   human:
     en_US: Check the current wallet balance
-  llm: Check the current DomiNode wallet balance in cents. Returns balance information for the authenticated user.
+  llm: Check the current Dominus Node wallet balance in cents. Returns balance information for the authenticated user.
 parameters: []

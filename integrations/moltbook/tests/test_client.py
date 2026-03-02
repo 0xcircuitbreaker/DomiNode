@@ -3,7 +3,7 @@
 Covers SSRF validation, IP normalization, credential sanitization (including
 ETH private key scrubbing), prototype pollution prevention, OFAC blocking,
 input validation, Moltbook auth headers, proxy routing, Moltbook API tools
-(browse, post, comment, vote, submolts), DomiNode management tools, PayPal
+(browse, post, comment, vote, submolts), Dominus Node management tools, PayPal
 top-up, and authentication flows.
 
 All tests mock httpx calls so no real network requests are made.
@@ -600,7 +600,7 @@ class TestMoltbookAuth:
 
 
 class TestProxyRouting:
-    """Test that requests are routed through the DomiNode proxy."""
+    """Test that requests are routed through the Dominus Node proxy."""
 
     def test_proxy_url_format(self):
         client = _make_client()
@@ -637,7 +637,7 @@ class TestProxyRouting:
 
     @patch("dominusnode_moltbook.client.httpx.Client")
     def test_moltbook_request_uses_proxy(self, mock_httpx_cls):
-        """Verify that Moltbook requests are sent through the DomiNode proxy."""
+        """Verify that Moltbook requests are sent through the Dominus Node proxy."""
         mock_resp = _mock_moltbook_response({"posts": []})
         mock_client = MagicMock()
         mock_client.request.return_value = mock_resp
@@ -1061,7 +1061,7 @@ class TestRegister:
 
 
 class TestDominusNodeTools:
-    """Test DomiNode management tools exposed by MoltbookClient."""
+    """Test Dominus Node management tools exposed by MoltbookClient."""
 
     @patch("dominusnode_moltbook.client.httpx.Client")
     def test_check_balance(self, mock_httpx_cls):
@@ -1243,7 +1243,7 @@ class TestPayPalTopup:
 
 
 class TestAuthentication:
-    """Test DomiNode authentication behavior."""
+    """Test Dominus Node authentication behavior."""
 
     def test_no_api_key_raises(self):
         with patch.dict(os.environ, {}, clear=True):

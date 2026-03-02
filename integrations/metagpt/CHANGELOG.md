@@ -1,10 +1,14 @@
 # Changelog
 
+## 1.0.1
+
+- Fix branding: replace "DomiNode" with "Dominus Node" throughout
+
 ## 1.0.0 (2026-02-24)
 
 ### Added
 
-- Initial release with 22 MetaGPT tools for DomiNode proxy service
+- Initial release with 22 MetaGPT tools for Dominus Node proxy service
 - DominusNodeToolkit class with get_tool_functions() for MetaGPT tool registration
 - Google-style docstrings on all tools for automatic schema extraction
 - Proxied fetch with SSRF protection, OFAC blocking, and credential scrubbing

@@ -1,6 +1,6 @@
 # dominusnode-pydanticai
 
-PydanticAI tools for the [DomiNode](https://dominusnode.com) rotating proxy-as-a-service platform. Provides 22 tool functions for proxy management, wallet operations, team administration, and payment processing -- designed for direct registration with PydanticAI agents.
+PydanticAI tools for the [Dominus Node](https://dominusnode.com) rotating proxy-as-a-service platform. Provides 22 tool functions for proxy management, wallet operations, team administration, and payment processing -- designed for direct registration with PydanticAI agents.
 
 ## Installation
 
@@ -17,7 +17,7 @@ pip install -e ".[dev]"
 
 ## Environment Setup
 
-Set your DomiNode API key as an environment variable:
+Set your Dominus Node API key as an environment variable:
 
 ```bash
 export DOMINUSNODE_API_KEY="dn_live_your_api_key_here"
@@ -185,7 +185,7 @@ agent = Agent(
     system_prompt="You are a proxy management assistant.",
 )
 
-# The agent can now use all 22 DomiNode tools
+# The agent can now use all 22 Dominus Node tools
 result = agent.run_sync("Fetch https://httpbin.org/ip through a US proxy")
 print(result.data)
 

@@ -1,6 +1,6 @@
 # dominusnode-composio
 
-Composio toolkit for the [DomiNode](https://dominusnode.com) rotating proxy-as-a-service platform. Provides 22 Composio-compatible actions for proxy management, wallet operations, team administration, and payment processing.
+Composio toolkit for the [Dominus Node](https://dominusnode.com) rotating proxy-as-a-service platform. Provides 22 Composio-compatible actions for proxy management, wallet operations, team administration, and payment processing.
 
 ## Installation
 
@@ -17,7 +17,7 @@ pip install -e ".[dev]"
 
 ## Environment Setup
 
-Set your DomiNode API key as an environment variable:
+Set your Dominus Node API key as an environment variable:
 
 ```bash
 export DOMINUSNODE_API_KEY="dn_live_your_api_key_here"

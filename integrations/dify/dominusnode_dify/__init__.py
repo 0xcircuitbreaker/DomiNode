@@ -1,7 +1,7 @@
-"""DomiNode Dify integration -- 24 tools for the Dify AI platform.
+"""Dominus Node Dify integration -- 24 tools for the Dify AI platform.
 
 Provides a Dify-compatible tool provider that exposes 24 tools for
-interacting with the DomiNode rotating proxy-as-a-service platform.
+interacting with the Dominus Node rotating proxy-as-a-service platform.
 
 Tools cover:
   - Proxied HTTP fetching through rotating proxies

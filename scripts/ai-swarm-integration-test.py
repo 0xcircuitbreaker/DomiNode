@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-DomiNode Integration Swarm Tester
+Dominus Node Integration Swarm Tester
 
 Tests each AI integration (LangChain, CrewAI, LlamaIndex, AutoGPT, Agent Zero, etc.)
-by creating agents that USE the actual plugins to interact with DomiNode, then generate
+by creating agents that USE the actual plugins to interact with Dominus Node, then generate
 social posts about the experience to attract real AI agent users.
 
 Architecture:
@@ -92,7 +92,7 @@ def ai_generate(prompt: str, max_tokens: int = 512, temperature: float = 0.7) ->
         return ""
 
 
-# --- DomiNode API Helpers ----------------------------------------------------
+# --- Dominus Node API Helpers ----------------------------------------------------
 
 def api_request(method: str, url: str, jwt: str = "", json_data: dict = None) -> dict:
     headers = {"Content-Type": "application/json"}
@@ -384,7 +384,7 @@ def test_raw_http(api_key: str, api_base: str, proxy_host: str, proxy_port: int)
                 "https://httpbin.org/ip",
                 proxies={"http": proxy_url, "https": proxy_url},
                 timeout=30,
-                headers={"User-Agent": "DomiNode-IntegrationTest/1.0"},
+                headers={"User-Agent": "DominusNode-IntegrationTest/1.0"},
             )
             results["fetch"] = json.dumps({
                 "status": resp.status_code,
@@ -512,7 +512,7 @@ def run_integration_test(
     if result.usage_check:
         features_tested.append("usage stats")
 
-    prompt = f"""You are an AI agent that just tested the DomiNode proxy service using the {framework} integration.
+    prompt = f"""You are an AI agent that just tested the Dominus Node proxy service using the {framework} integration.
 
 Here's what happened:
 - Integration: {framework} ({test_info['description']})
@@ -521,31 +521,31 @@ Here's what happened:
 - Duration: {result.duration_sec}s
 - Error: {result.error or 'None'}
 
-Write a short social media post (under 280 characters) about your experience using DomiNode's
+Write a short social media post (under 280 characters) about your experience using Dominus Node's
 {framework} integration. Focus on:
-- How easy it was to use DomiNode through {framework}
+- How easy it was to use Dominus Node through {framework}
 - The proxy routing (DC + residential) and geo-targeting
 - SDKs for Node.js, Python, Rust, Go, Java, C++
 - That it just works with existing {framework} agents
 
-Be enthusiastic but authentic. Include #DomiNode and #{framework.replace(' ', '')}."""
+Be enthusiastic but authentic. Include #DominusNode and #{framework.replace(' ', '')}."""
 
     post = ai_generate(prompt, max_tokens=150, temperature=0.8)
     if not post:
         # Template fallback
         if result.success:
             post = (
-                f"Tested DomiNode's {framework} integration — "
+                f"Tested Dominus Node's {framework} integration — "
                 f"{', '.join(features_tested)}. "
                 f"Rotating proxies with geo-targeting, {result.duration_sec}s total. "
                 f"Works seamlessly with existing {framework} agents. "
-                f"#DomiNode #{framework.replace(' ', '')}"
+                f"#DominusNode #{framework.replace(' ', '')}"
             )
         else:
             post = (
-                f"Setting up DomiNode's {framework} integration. "
+                f"Setting up Dominus Node's {framework} integration. "
                 f"22 tools for proxy, wallet, teams, agentic wallets. "
-                f"SDKs: Node/Python/Rust/Go/Java/C++. #DomiNode #{framework.replace(' ', '')}"
+                f"SDKs: Node/Python/Rust/Go/Java/C++. #DominusNode #{framework.replace(' ', '')}"
             )
     result.ai_post = post[:280]
 
@@ -554,7 +554,7 @@ Be enthusiastic but authentic. Include #DomiNode and #{framework.replace(' ', ''
 
 
 def main():
-    parser = argparse.ArgumentParser(description="DomiNode Integration Swarm Tester")
+    parser = argparse.ArgumentParser(description="Dominus Node Integration Swarm Tester")
     parser.add_argument("--api-base", default="http://localhost:3000")
     parser.add_argument("--proxy-host", default="localhost")
     parser.add_argument("--proxy-port", type=int, default=8080)
@@ -590,7 +590,7 @@ def main():
 
     print()
     print("=" * 55)
-    print("  DomiNode Integration Swarm Tester")
+    print("  Dominus Node Integration Swarm Tester")
     print("=" * 55)
     print(f"  Integrations: {', '.join(test_names)}")
     print(f"  API:          {args.api_base}")

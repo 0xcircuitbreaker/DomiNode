@@ -1,6 +1,6 @@
 # @dominusnode/ai-tools
 
-Vercel AI SDK tools for the [DomiNode](https://dominusnode.com) rotating proxy-as-a-service platform. Gives AI agents the ability to make proxied HTTP requests, check wallet balance, monitor usage, and manage proxy sessions.
+Vercel AI SDK tools for the [Dominus Node](https://dominusnode.com) rotating proxy-as-a-service platform. Gives AI agents the ability to make proxied HTTP requests, check wallet balance, monitor usage, and manage proxy sessions.
 
 ## Installation
 
@@ -62,7 +62,7 @@ console.log(text);
 
 ### `proxiedFetch`
 
-Make HTTP requests through DomiNode's rotating proxy network with geo-targeting support.
+Make HTTP requests through Dominus Node's rotating proxy network with geo-targeting support.
 
 | Parameter   | Type                                    | Required | Description                                  |
 |-------------|-----------------------------------------|----------|----------------------------------------------|
@@ -79,7 +79,7 @@ Make HTTP requests through DomiNode's rotating proxy network with geo-targeting 
 
 ### `checkBalance`
 
-Check the current DomiNode wallet balance.
+Check the current Dominus Node wallet balance.
 
 **Parameters:** None
 
@@ -171,12 +171,12 @@ const { text } = await generateText({
 
 | Variable                | Description                           | Default                         |
 |-------------------------|---------------------------------------|---------------------------------|
-| `DOMINUSNODE_API_KEY`   | DomiNode API key                      | Required                        |
-| `DOMINUSNODE_BASE_URL`  | DomiNode API base URL                 | `https://api.dominusnode.com`   |
+| `DOMINUSNODE_API_KEY`   | Dominus Node API key                      | Required                        |
+| `DOMINUSNODE_BASE_URL`  | Dominus Node API base URL                 | `https://api.dominusnode.com`   |
 
 ## Pricing
 
-Proxy usage is billed from your DomiNode wallet:
+Proxy usage is billed from your Dominus Node wallet:
 
 - **Datacenter (dc):** $3.00/GB
 - **Residential:** $5.00/GB

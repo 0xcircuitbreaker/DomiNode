@@ -10,7 +10,7 @@
 
 NetNut is an **enterprise-grade proxy provider** with a dedicated reseller program, but pricing is **significantly higher** than PacketStream/Geonode alternatives. While they offer comprehensive white-label options and a robust API, their minimum entry point and per-GB costs make them less attractive for early-stage SaaS operations.
 
-**Key Takeaway:** NetNut targets mid-to-large enterprises with $300-4,000/month budgets. For DomiNode's reseller strategy, **Geonode ($0.45-0.50/GB) or PacketStream ($1.00/GB) remain superior options** due to lower costs and clearer reseller API access.
+**Key Takeaway:** NetNut targets mid-to-large enterprises with $300-4,000/month budgets. For Dominus Node's reseller strategy, **Geonode ($0.45-0.50/GB) or PacketStream ($1.00/GB) remain superior options** due to lower costs and clearer reseller API access.
 
 ---
 
@@ -197,7 +197,7 @@ NetNut is an **enterprise-grade proxy provider** with a dedicated reseller progr
 - Likely requires minimum commitment (e.g., $1,000-5,000/month)
 - May require custom domain configuration
 
-**Use Case for DomiNode:**
+**Use Case for Dominus Node:**
 ✅ **Good:** Could rebrand NetNut proxies as "Dominus Node Residential Network"
 ❌ **Expensive:** Need $300-4,000/month minimum to access reseller features
 
@@ -278,7 +278,7 @@ NetNut uses **bandwidth metering** as the default pricing model:
 
 ---
 
-## Recommendation for DomiNode
+## Recommendation for Dominus Node
 
 ### ❌ **Not Recommended for Phase 3 (Alpha/Beta)**
 
@@ -293,7 +293,7 @@ NetNut uses **bandwidth metering** as the default pricing model:
 
 **When NetNut Makes Sense:**
 
-- DomiNode reaches 10TB+/month (NetNut drops to $3.75/GB at 10TB)
+- Dominus Node reaches 10TB+/month (NetNut drops to $3.75/GB at 10TB)
 - Enterprise clients demand city/state-level targeting (NetNut's Master plan feature)
 - Need 99.99% uptime SLA for high-value customers
 - Require dedicated IP pools for compliance/security

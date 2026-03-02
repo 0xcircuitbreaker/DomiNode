@@ -42,7 +42,7 @@ _DOMAIN_RE = re.compile(r"^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9](
 
 
 def _sanitize_error(message: str) -> str:
-    """Remove DomiNode API key patterns from error messages."""
+    """Remove Dominus Node API key patterns from error messages."""
     return CREDENTIAL_RE.sub("***", message)
 
 
@@ -118,7 +118,7 @@ def create_agentic_wallet(
     """Create a new agentic sub-wallet.
 
     Args:
-        auth: Authenticated DomiNode helper.
+        auth: Authenticated Dominus Node helper.
         args: Tool arguments:
             - ``label`` (str, required): Human-readable name (max 100 chars).
             - ``spending_limit_cents`` (int, required): Per-transaction
@@ -179,7 +179,7 @@ def fund_agentic_wallet(
     """Transfer funds from the main wallet to an agentic sub-wallet.
 
     Args:
-        auth: Authenticated DomiNode helper.
+        auth: Authenticated Dominus Node helper.
         args: Tool arguments:
             - ``wallet_id`` (str, required): Sub-wallet UUID.
             - ``amount_cents`` (int, required): Amount to transfer in cents.
@@ -220,7 +220,7 @@ def agentic_wallet_balance(
     """Check the balance and details of a specific agentic sub-wallet.
 
     Args:
-        auth: Authenticated DomiNode helper.
+        auth: Authenticated Dominus Node helper.
         args: Tool arguments:
             - ``wallet_id`` (str, required): Sub-wallet UUID.
 
@@ -254,7 +254,7 @@ def list_agentic_wallets(
     """List all agentic sub-wallets for the authenticated user.
 
     Args:
-        auth: Authenticated DomiNode helper.
+        auth: Authenticated Dominus Node helper.
         args: Tool arguments (none required).
 
     Returns:
@@ -279,7 +279,7 @@ def agentic_transactions(
     """Get transaction history for a specific agentic sub-wallet.
 
     Args:
-        auth: Authenticated DomiNode helper.
+        auth: Authenticated Dominus Node helper.
         args: Tool arguments:
             - ``wallet_id`` (str, required): Sub-wallet UUID.
             - ``limit`` (int, optional): Maximum transactions to return
@@ -326,7 +326,7 @@ def freeze_agentic_wallet(
     A frozen wallet cannot be used for proxy spending until it is unfrozen.
 
     Args:
-        auth: Authenticated DomiNode helper.
+        auth: Authenticated Dominus Node helper.
         args: Tool arguments:
             - ``wallet_id`` (str, required): Sub-wallet UUID.
 
@@ -362,7 +362,7 @@ def unfreeze_agentic_wallet(
     Restores the wallet to active status so it can be used for spending.
 
     Args:
-        auth: Authenticated DomiNode helper.
+        auth: Authenticated Dominus Node helper.
         args: Tool arguments:
             - ``wallet_id`` (str, required): Sub-wallet UUID.
 
@@ -399,7 +399,7 @@ def delete_agentic_wallet(
     deleted. Any remaining balance is returned to the main wallet.
 
     Args:
-        auth: Authenticated DomiNode helper.
+        auth: Authenticated Dominus Node helper.
         args: Tool arguments:
             - ``wallet_id`` (str, required): Sub-wallet UUID.
 
@@ -436,7 +436,7 @@ def update_wallet_policy(
     allowed proxy domains.
 
     Args:
-        auth: Authenticated DomiNode helper.
+        auth: Authenticated Dominus Node helper.
         args: Tool arguments:
             - ``wallet_id`` (str, required): Sub-wallet UUID.
             - ``daily_limit_cents`` (int or None, optional): Daily budget

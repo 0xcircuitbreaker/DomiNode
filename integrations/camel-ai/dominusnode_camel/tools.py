@@ -1,4 +1,4 @@
-"""DomiNode CAMEL-AI toolkit -- 22 proxy, wallet, team, and PayPal tools.
+"""Dominus Node CAMEL-AI toolkit -- 22 proxy, wallet, team, and PayPal tools.
 
 Provides a CAMEL-AI compatible toolkit class that exposes 22 tools as
 ``FunctionTool`` objects for use with CAMEL agents.
@@ -371,7 +371,7 @@ _CREDENTIAL_RE = re.compile(r"dn_(live|test)_[a-zA-Z0-9]+")
 
 
 def _sanitize_error(message: str) -> str:
-    """Remove DomiNode API key patterns from error messages."""
+    """Remove Dominus Node API key patterns from error messages."""
     return _CREDENTIAL_RE.sub("***", message)
 
 
@@ -500,18 +500,18 @@ def _validate_domains(domains: Any) -> Optional[str]:
 
 
 class DominusNodeToolkit:
-    """CAMEL-AI toolkit providing DomiNode rotating proxy tools.
+    """CAMEL-AI toolkit providing Dominus Node rotating proxy tools.
 
-    Authenticates using a DomiNode API key and exposes 22 tools as CAMEL
+    Authenticates using a Dominus Node API key and exposes 22 tools as CAMEL
     ``FunctionTool`` objects for proxy, wallet, team, and payment management.
     All tool methods return dicts suitable for JSON serialization.
 
     Args:
-        api_key: DomiNode API key (``dn_live_...`` or ``dn_test_...``).
+        api_key: Dominus Node API key (``dn_live_...`` or ``dn_test_...``).
             Falls back to ``DOMINUSNODE_API_KEY`` environment variable.
-        base_url: Base URL of the DomiNode REST API.
-        proxy_host: Hostname of the DomiNode proxy gateway.
-        proxy_port: Port of the DomiNode proxy gateway.
+        base_url: Base URL of the Dominus Node REST API.
+        proxy_host: Hostname of the Dominus Node proxy gateway.
+        proxy_port: Port of the Dominus Node proxy gateway.
         timeout: HTTP request timeout in seconds.
 
     Example::
@@ -543,7 +543,7 @@ class DominusNodeToolkit:
     # ------------------------------------------------------------------
 
     def _authenticate(self) -> str:
-        """Authenticate with the DomiNode API using the API key.
+        """Authenticate with the Dominus Node API using the API key.
 
         Returns:
             The JWT bearer token.
@@ -553,7 +553,7 @@ class DominusNodeToolkit:
         """
         if not self.api_key:
             raise RuntimeError(
-                "DomiNode API key is required. Pass api_key or set "
+                "Dominus Node API key is required. Pass api_key or set "
                 "DOMINUSNODE_API_KEY environment variable."
             )
 
@@ -598,7 +598,7 @@ class DominusNodeToolkit:
         path: str,
         body: Optional[Dict[str, Any]] = None,
     ) -> Any:
-        """Make an authenticated API request to the DomiNode REST API.
+        """Make an authenticated API request to the Dominus Node REST API.
 
         Args:
             method: HTTP method (GET, POST, PATCH, DELETE).
@@ -680,7 +680,7 @@ class DominusNodeToolkit:
         proxy_type: str = "dc",
         headers: Dict[str, str] | None = None,
     ) -> Dict[str, Any]:
-        """Fetch a URL through the DomiNode rotating proxy network.
+        """Fetch a URL through the Dominus Node rotating proxy network.
 
         Args:
             url: Target URL to fetch (must be http or https).
@@ -779,7 +779,7 @@ class DominusNodeToolkit:
         except Exception as e:
             return {
                 "error": f"Proxy fetch failed: {_sanitize_error(str(e))}",
-                "hint": "Ensure the DomiNode proxy gateway is running and accessible.",
+                "hint": "Ensure the Dominus Node proxy gateway is running and accessible.",
             }
 
     # ==================================================================
@@ -1464,7 +1464,7 @@ class DominusNodeToolkit:
     # ==================================================================
 
     def get_tools(self) -> list:
-        """Return CAMEL FunctionTool objects for all 22 DomiNode operations.
+        """Return CAMEL FunctionTool objects for all 22 Dominus Node operations.
 
         Each method is wrapped in a ``camel.toolkits.FunctionTool`` so that
         CAMEL agents can discover and invoke them automatically.

@@ -1,7 +1,7 @@
 """MCP configuration helper for IronClaw's native MCP bridge.
 
 Generates connection configuration that IronClaw agents can use to connect
-to the DomiNode MCP server, which exposes 57 authenticated tools for proxy,
+to the Dominus Node MCP server, which exposes 57 authenticated tools for proxy,
 wallet, team, and payment management.
 
 Example::
@@ -26,13 +26,13 @@ def generate_mcp_config(
 ) -> Dict[str, Any]:
     """Generate an IronClaw-compatible MCP server connection configuration.
 
-    This configuration tells IronClaw how to connect to the DomiNode MCP
+    This configuration tells IronClaw how to connect to the Dominus Node MCP
     server, which provides 57 authenticated tools for proxy, wallet, team,
     and payment management.
 
     Args:
-        base_url: Base URL of the DomiNode API (default: production).
-        api_key: DomiNode API key (``dn_live_...`` or ``dn_test_...``).
+        base_url: Base URL of the Dominus Node API (default: production).
+        api_key: Dominus Node API key (``dn_live_...`` or ``dn_test_...``).
 
     Returns:
         A dictionary suitable for IronClaw's MCP bridge configuration.
@@ -42,7 +42,7 @@ def generate_mcp_config(
     return {
         "server": {
             "name": "dominusnode",
-            "description": "DomiNode rotating proxy-as-a-service MCP server",
+            "description": "Dominus Node rotating proxy-as-a-service MCP server",
             "transport": {
                 "type": "streamable-http",
                 "url": f"{base}/mcp",

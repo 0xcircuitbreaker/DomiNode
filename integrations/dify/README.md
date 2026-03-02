@@ -1,6 +1,6 @@
 # dominusnode-dify
 
-Dify tool provider for the [DomiNode](https://dominusnode.com) rotating proxy-as-a-service platform. Provides 22 tools for proxy management, wallet operations, team administration, and payment processing.
+Dify tool provider for the [Dominus Node](https://dominusnode.com) rotating proxy-as-a-service platform. Provides 22 tools for proxy management, wallet operations, team administration, and payment processing.
 
 ## Installation
 

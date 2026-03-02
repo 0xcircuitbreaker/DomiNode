@@ -1,7 +1,7 @@
-"""DomiNode SuperAGI tools -- 24 proxy, wallet, team, and PayPal management tools.
+"""Dominus Node SuperAGI tools -- 24 proxy, wallet, team, and PayPal management tools.
 
 Provides SuperAGI-compatible tool classes that expose 24 tools for
-interacting with the DomiNode rotating proxy-as-a-service platform.
+interacting with the Dominus Node rotating proxy-as-a-service platform.
 
 Tools cover:
   - Proxied HTTP fetching through rotating proxies
@@ -365,7 +365,7 @@ _CREDENTIAL_RE = re.compile(r"dn_(live|test)_[a-zA-Z0-9]+")
 
 
 def _sanitize_error(message: str) -> str:
-    """Remove DomiNode API key patterns from error messages."""
+    """Remove Dominus Node API key patterns from error messages."""
     return _CREDENTIAL_RE.sub("***", message)
 
 
@@ -493,9 +493,9 @@ def _validate_allowed_domains(domains: Any) -> Optional[str]:
 
 
 class _DominusNodeClient:
-    """Shared HTTP client for all DomiNode SuperAGI tools.
+    """Shared HTTP client for all Dominus Node SuperAGI tools.
 
-    Authenticates using a DomiNode API key and provides methods for proxy,
+    Authenticates using a Dominus Node API key and provides methods for proxy,
     wallet, team, and payment management.  All methods return JSON strings
     suitable for consumption by an LLM.
 
@@ -549,7 +549,7 @@ class _DominusNodeClient:
     # ------------------------------------------------------------------
 
     def _authenticate(self) -> str:
-        """Authenticate with the DomiNode API using the API key.
+        """Authenticate with the Dominus Node API using the API key.
 
         Returns:
             The JWT bearer token.
@@ -559,7 +559,7 @@ class _DominusNodeClient:
         """
         if not self.api_key:
             raise RuntimeError(
-                "DomiNode API key is required. Pass api_key or set "
+                "Dominus Node API key is required. Pass api_key or set "
                 "DOMINUSNODE_API_KEY environment variable."
             )
 
@@ -604,7 +604,7 @@ class _DominusNodeClient:
         path: str,
         body: Optional[Dict[str, Any]] = None,
     ) -> Any:
-        """Make an authenticated API request to the DomiNode REST API.
+        """Make an authenticated API request to the Dominus Node REST API.
 
         Args:
             method: HTTP method (GET, POST, PATCH, DELETE).
@@ -685,7 +685,7 @@ class _DominusNodeClient:
         country: str | None = None,
         proxy_type: str = "dc",
     ) -> str:
-        """Fetch a URL through the DomiNode rotating proxy network.
+        """Fetch a URL through the Dominus Node rotating proxy network.
 
         Args:
             url: Target URL to fetch.
@@ -770,7 +770,7 @@ class _DominusNodeClient:
         except Exception as e:
             return json.dumps({
                 "error": f"Proxy fetch failed: {_sanitize_error(str(e))}",
-                "hint": "Ensure the DomiNode proxy gateway is running and accessible.",
+                "hint": "Ensure the Dominus Node proxy gateway is running and accessible.",
             })
 
     # ==================================================================
@@ -1584,11 +1584,11 @@ def _get_client(tool: BaseTool) -> _DominusNodeClient:
 
 
 class DominusNodeProxiedFetchTool(BaseTool):
-    """Fetch a URL through DomiNode's rotating proxy network."""
+    """Fetch a URL through Dominus Node's rotating proxy network."""
 
-    name: str = "DomiNode Proxied Fetch"
+    name: str = "Dominus Node Proxied Fetch"
     description: str = (
-        "Fetch a URL through DomiNode's rotating proxy network with "
+        "Fetch a URL through Dominus Node's rotating proxy network with "
         "geo-targeting support. Datacenter proxies cost $3/GB, residential $5/GB. "
         "Only GET, HEAD, OPTIONS methods are allowed."
     )
@@ -1611,10 +1611,10 @@ class DominusNodeProxiedFetchTool(BaseTool):
 
 
 class DominusNodeBalanceTool(BaseTool):
-    """Check the current DomiNode wallet balance."""
+    """Check the current Dominus Node wallet balance."""
 
-    name: str = "DomiNode Check Balance"
-    description: str = "Check your current DomiNode wallet balance in cents."
+    name: str = "Dominus Node Check Balance"
+    description: str = "Check your current Dominus Node wallet balance in cents."
     args_schema: type[BaseModel] = BalanceSchema
 
     def _execute(self) -> str:
@@ -1623,9 +1623,9 @@ class DominusNodeBalanceTool(BaseTool):
 
 
 class DominusNodeUsageTool(BaseTool):
-    """Check DomiNode proxy usage statistics."""
+    """Check Dominus Node proxy usage statistics."""
 
-    name: str = "DomiNode Check Usage"
+    name: str = "Dominus Node Check Usage"
     description: str = (
         "Check proxy usage statistics for a given time period. "
         "Returns bandwidth consumed, cost, and request counts."
@@ -1638,9 +1638,9 @@ class DominusNodeUsageTool(BaseTool):
 
 
 class DominusNodeProxyConfigTool(BaseTool):
-    """Get DomiNode proxy configuration."""
+    """Get Dominus Node proxy configuration."""
 
-    name: str = "DomiNode Proxy Config"
+    name: str = "Dominus Node Proxy Config"
     description: str = (
         "Get proxy configuration including endpoints, supported geo-targeting "
         "countries, and available proxy types."
@@ -1653,9 +1653,9 @@ class DominusNodeProxyConfigTool(BaseTool):
 
 
 class DominusNodeSessionsTool(BaseTool):
-    """List active DomiNode proxy sessions."""
+    """List active Dominus Node proxy sessions."""
 
-    name: str = "DomiNode List Sessions"
+    name: str = "Dominus Node List Sessions"
     description: str = "List all currently active proxy sessions with their usage details."
     args_schema: type[BaseModel] = SessionsSchema
 
@@ -1665,9 +1665,9 @@ class DominusNodeSessionsTool(BaseTool):
 
 
 class DominusNodeCreateAgenticWalletTool(BaseTool):
-    """Create a new DomiNode agentic sub-wallet."""
+    """Create a new Dominus Node agentic sub-wallet."""
 
-    name: str = "DomiNode Create Agentic Wallet"
+    name: str = "Dominus Node Create Agentic Wallet"
     description: str = (
         "Create a new agentic sub-wallet with a per-transaction spending limit. "
         "Agentic wallets are funded from the main wallet and used for automated spending."
@@ -1691,9 +1691,9 @@ class DominusNodeCreateAgenticWalletTool(BaseTool):
 
 
 class DominusNodeFundAgenticWalletTool(BaseTool):
-    """Fund a DomiNode agentic wallet from the main wallet."""
+    """Fund a Dominus Node agentic wallet from the main wallet."""
 
-    name: str = "DomiNode Fund Agentic Wallet"
+    name: str = "Dominus Node Fund Agentic Wallet"
     description: str = "Transfer funds from the main wallet to an agentic sub-wallet."
     args_schema: type[BaseModel] = FundAgenticWalletSchema
 
@@ -1706,9 +1706,9 @@ class DominusNodeFundAgenticWalletTool(BaseTool):
 
 
 class DominusNodeAgenticWalletBalanceTool(BaseTool):
-    """Check a DomiNode agentic wallet balance."""
+    """Check a Dominus Node agentic wallet balance."""
 
-    name: str = "DomiNode Agentic Wallet Balance"
+    name: str = "Dominus Node Agentic Wallet Balance"
     description: str = "Check the balance and details of a specific agentic sub-wallet."
     args_schema: type[BaseModel] = AgenticWalletBalanceSchema
 
@@ -1718,9 +1718,9 @@ class DominusNodeAgenticWalletBalanceTool(BaseTool):
 
 
 class DominusNodeListAgenticWalletsTool(BaseTool):
-    """List all DomiNode agentic wallets."""
+    """List all Dominus Node agentic wallets."""
 
-    name: str = "DomiNode List Agentic Wallets"
+    name: str = "Dominus Node List Agentic Wallets"
     description: str = "List all agentic sub-wallets with their balances and spending limits."
     args_schema: type[BaseModel] = ListAgenticWalletsSchema
 
@@ -1730,9 +1730,9 @@ class DominusNodeListAgenticWalletsTool(BaseTool):
 
 
 class DominusNodeAgenticTransactionsTool(BaseTool):
-    """Get transaction history for a DomiNode agentic wallet."""
+    """Get transaction history for a Dominus Node agentic wallet."""
 
-    name: str = "DomiNode Agentic Transactions"
+    name: str = "Dominus Node Agentic Transactions"
     description: str = "Get the transaction history for a specific agentic sub-wallet."
     args_schema: type[BaseModel] = AgenticTransactionsSchema
 
@@ -1742,9 +1742,9 @@ class DominusNodeAgenticTransactionsTool(BaseTool):
 
 
 class DominusNodeFreezeAgenticWalletTool(BaseTool):
-    """Freeze a DomiNode agentic wallet to prevent spending."""
+    """Freeze a Dominus Node agentic wallet to prevent spending."""
 
-    name: str = "DomiNode Freeze Agentic Wallet"
+    name: str = "Dominus Node Freeze Agentic Wallet"
     description: str = "Freeze an agentic wallet to temporarily prevent all spending."
     args_schema: type[BaseModel] = FreezeAgenticWalletSchema
 
@@ -1754,9 +1754,9 @@ class DominusNodeFreezeAgenticWalletTool(BaseTool):
 
 
 class DominusNodeUnfreezeAgenticWalletTool(BaseTool):
-    """Unfreeze a DomiNode agentic wallet to re-enable spending."""
+    """Unfreeze a Dominus Node agentic wallet to re-enable spending."""
 
-    name: str = "DomiNode Unfreeze Agentic Wallet"
+    name: str = "Dominus Node Unfreeze Agentic Wallet"
     description: str = "Unfreeze an agentic wallet to re-enable spending."
     args_schema: type[BaseModel] = UnfreezeAgenticWalletSchema
 
@@ -1766,9 +1766,9 @@ class DominusNodeUnfreezeAgenticWalletTool(BaseTool):
 
 
 class DominusNodeDeleteAgenticWalletTool(BaseTool):
-    """Delete a DomiNode agentic wallet and refund balance."""
+    """Delete a Dominus Node agentic wallet and refund balance."""
 
-    name: str = "DomiNode Delete Agentic Wallet"
+    name: str = "Dominus Node Delete Agentic Wallet"
     description: str = (
         "Delete an agentic wallet. The wallet must be unfrozen first. "
         "Any remaining balance is refunded to the main wallet."
@@ -1781,9 +1781,9 @@ class DominusNodeDeleteAgenticWalletTool(BaseTool):
 
 
 class DominusNodeUpdateWalletPolicyTool(BaseTool):
-    """Update the policy for a DomiNode agentic wallet."""
+    """Update the policy for a Dominus Node agentic wallet."""
 
-    name: str = "DomiNode Update Wallet Policy"
+    name: str = "Dominus Node Update Wallet Policy"
     description: str = (
         "Update the policy for an agentic wallet. Set a daily budget cap "
         "and/or restrict proxy usage to specific domains."
@@ -1805,9 +1805,9 @@ class DominusNodeUpdateWalletPolicyTool(BaseTool):
 
 
 class DominusNodeCreateTeamTool(BaseTool):
-    """Create a new DomiNode team with a shared wallet."""
+    """Create a new Dominus Node team with a shared wallet."""
 
-    name: str = "DomiNode Create Team"
+    name: str = "Dominus Node Create Team"
     description: str = (
         "Create a new team with a shared wallet for collaborative proxy usage. "
         "Teams support owner/admin/member roles."
@@ -1823,9 +1823,9 @@ class DominusNodeCreateTeamTool(BaseTool):
 
 
 class DominusNodeListTeamsTool(BaseTool):
-    """List all DomiNode teams the user belongs to."""
+    """List all Dominus Node teams the user belongs to."""
 
-    name: str = "DomiNode List Teams"
+    name: str = "Dominus Node List Teams"
     description: str = "List all teams the authenticated user belongs to."
     args_schema: type[BaseModel] = ListTeamsSchema
 
@@ -1835,9 +1835,9 @@ class DominusNodeListTeamsTool(BaseTool):
 
 
 class DominusNodeTeamDetailsTool(BaseTool):
-    """Get details for a specific DomiNode team."""
+    """Get details for a specific Dominus Node team."""
 
-    name: str = "DomiNode Team Details"
+    name: str = "Dominus Node Team Details"
     description: str = "Get details for a specific team including members, wallet balance, and settings."
     args_schema: type[BaseModel] = TeamDetailsSchema
 
@@ -1847,9 +1847,9 @@ class DominusNodeTeamDetailsTool(BaseTool):
 
 
 class DominusNodeTeamFundTool(BaseTool):
-    """Fund a DomiNode team's shared wallet."""
+    """Fund a Dominus Node team's shared wallet."""
 
-    name: str = "DomiNode Team Fund"
+    name: str = "Dominus Node Team Fund"
     description: str = (
         "Fund a team's shared wallet from the user's personal wallet. "
         "Amount must be between 100 and 1,000,000 cents."
@@ -1862,9 +1862,9 @@ class DominusNodeTeamFundTool(BaseTool):
 
 
 class DominusNodeTeamCreateKeyTool(BaseTool):
-    """Create an API key for a DomiNode team."""
+    """Create an API key for a Dominus Node team."""
 
-    name: str = "DomiNode Team Create Key"
+    name: str = "Dominus Node Team Create Key"
     description: str = "Create a new API key for a team. The key is shown once and cannot be retrieved later."
     args_schema: type[BaseModel] = TeamCreateKeySchema
 
@@ -1874,9 +1874,9 @@ class DominusNodeTeamCreateKeyTool(BaseTool):
 
 
 class DominusNodeTeamUsageTool(BaseTool):
-    """Get usage/transaction history for a DomiNode team."""
+    """Get usage/transaction history for a Dominus Node team."""
 
-    name: str = "DomiNode Team Usage"
+    name: str = "Dominus Node Team Usage"
     description: str = "Get the usage and transaction history for a team's shared wallet."
     args_schema: type[BaseModel] = TeamUsageSchema
 
@@ -1886,9 +1886,9 @@ class DominusNodeTeamUsageTool(BaseTool):
 
 
 class DominusNodeUpdateTeamTool(BaseTool):
-    """Update DomiNode team settings."""
+    """Update Dominus Node team settings."""
 
-    name: str = "DomiNode Update Team"
+    name: str = "Dominus Node Update Team"
     description: str = "Update team name and/or maximum member count."
     args_schema: type[BaseModel] = UpdateTeamSchema
 
@@ -1902,9 +1902,9 @@ class DominusNodeUpdateTeamTool(BaseTool):
 
 
 class DominusNodeUpdateTeamMemberRoleTool(BaseTool):
-    """Update a DomiNode team member's role."""
+    """Update a Dominus Node team member's role."""
 
-    name: str = "DomiNode Update Team Member Role"
+    name: str = "Dominus Node Update Team Member Role"
     description: str = "Update a team member's role to 'member' or 'admin'."
     args_schema: type[BaseModel] = UpdateTeamMemberRoleSchema
 
@@ -1918,9 +1918,9 @@ class DominusNodeUpdateTeamMemberRoleTool(BaseTool):
 
 
 class DominusNodeX402InfoTool(BaseTool):
-    """Get DomiNode x402 micropayment protocol information."""
+    """Get Dominus Node x402 micropayment protocol information."""
 
-    name: str = "DomiNode X402 Info"
+    name: str = "Dominus Node X402 Info"
     description: str = (
         "Get x402 micropayment protocol information including supported "
         "facilitators, pricing, currencies, and payment options for AI agent micropayments."
@@ -1935,7 +1935,7 @@ class DominusNodeX402InfoTool(BaseTool):
 class DominusNodeTopupPaypalTool(BaseTool):
     """Create a PayPal wallet top-up order."""
 
-    name: str = "DomiNode TopUp PayPal"
+    name: str = "Dominus Node TopUp PayPal"
     description: str = (
         "Create a PayPal top-up order for the wallet. "
         "Minimum $5.00 (500 cents). Returns an approval URL to complete payment."

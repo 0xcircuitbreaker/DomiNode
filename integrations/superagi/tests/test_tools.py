@@ -818,7 +818,7 @@ class TestToolkitRegistration:
 
     def test_toolkit_name(self):
         toolkit = DominusNodeToolkit()
-        assert toolkit.name == "DomiNode Proxy Toolkit"
+        assert toolkit.name == "Dominus Node Proxy Toolkit"
 
     def test_toolkit_description(self):
         toolkit = DominusNodeToolkit()
@@ -853,37 +853,37 @@ class TestToolkitRegistration:
         toolkit = DominusNodeToolkit()
         tools = toolkit.get_tools()
         names = [t.name for t in tools]
-        assert "DomiNode Proxied Fetch" in names
+        assert "Dominus Node Proxied Fetch" in names
 
     def test_tool_has_balance(self):
         toolkit = DominusNodeToolkit()
         tools = toolkit.get_tools()
         names = [t.name for t in tools]
-        assert "DomiNode Check Balance" in names
+        assert "Dominus Node Check Balance" in names
 
     def test_tool_has_paypal(self):
         toolkit = DominusNodeToolkit()
         tools = toolkit.get_tools()
         names = [t.name for t in tools]
-        assert "DomiNode TopUp PayPal" in names
+        assert "Dominus Node TopUp PayPal" in names
 
     def test_tool_has_x402(self):
         toolkit = DominusNodeToolkit()
         tools = toolkit.get_tools()
         names = [t.name for t in tools]
-        assert "DomiNode X402 Info" in names
+        assert "Dominus Node X402 Info" in names
 
     def test_tool_has_create_team(self):
         toolkit = DominusNodeToolkit()
         tools = toolkit.get_tools()
         names = [t.name for t in tools]
-        assert "DomiNode Create Team" in names
+        assert "Dominus Node Create Team" in names
 
     def test_tool_has_update_member_role(self):
         toolkit = DominusNodeToolkit()
         tools = toolkit.get_tools()
         names = [t.name for t in tools]
-        assert "DomiNode Update Team Member Role" in names
+        assert "Dominus Node Update Team Member Role" in names
 
     def test_all_tools_have_description(self):
         toolkit = DominusNodeToolkit()
@@ -1113,7 +1113,7 @@ class TestWalletPolicy:
         toolkit = DominusNodeToolkit()
         tools = toolkit.get_tools()
         names = [t.name for t in tools]
-        assert "DomiNode Update Wallet Policy" in names
+        assert "Dominus Node Update Wallet Policy" in names
 
     def test_update_wallet_policy_tool_is_base_tool(self):
         tool = DominusNodeUpdateWalletPolicyTool()

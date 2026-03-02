@@ -1,6 +1,6 @@
-# DomiNode LangChain Integration
+# Dominus Node LangChain Integration
 
-LangChain tools for the [DomiNode](https://dominusnode.com) rotating proxy-as-a-service platform. Enables LangChain agents to make proxied HTTP requests, check wallet balances, monitor usage, and query proxy configuration through the DomiNode network.
+LangChain tools for the [Dominus Node](https://dominusnode.com) rotating proxy-as-a-service platform. Enables LangChain agents to make proxied HTTP requests, check wallet balances, monitor usage, and query proxy configuration through the Dominus Node network.
 
 ## Installation
 
@@ -18,14 +18,14 @@ pip install -e ".[dev]"
 ### Dependencies
 
 - `langchain-core >= 0.2.0`
-- `dominusnode >= 0.1.0` (DomiNode Python SDK)
+- `dominusnode >= 0.1.0` (Dominus Node Python SDK)
 - `httpx >= 0.24.0`
 
 ## Quick Start
 
 ### Environment Variables
 
-Set up your DomiNode credentials:
+Set up your Dominus Node credentials:
 
 ```bash
 export DOMINUSNODE_API_KEY="dn_live_your_api_key_here"
@@ -103,7 +103,7 @@ print(fetch_tool.run({
 
 ### `dominusnode_proxied_fetch`
 
-Makes HTTP requests through the DomiNode rotating proxy network.
+Makes HTTP requests through the Dominus Node rotating proxy network.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
@@ -121,19 +121,19 @@ Makes HTTP requests through the DomiNode rotating proxy network.
 
 ### `dominusnode_balance`
 
-Check your DomiNode wallet balance. No input required.
+Check your Dominus Node wallet balance. No input required.
 
 Returns the balance in both USD and cents.
 
 ### `dominusnode_usage`
 
-Check your DomiNode proxy usage statistics. No input required.
+Check your Dominus Node proxy usage statistics. No input required.
 
 Returns total bandwidth used (GB), total cost, and request count.
 
 ### `dominusnode_proxy_config`
 
-Get the DomiNode proxy configuration. No input required.
+Get the Dominus Node proxy configuration. No input required.
 
 Returns proxy endpoints, supported countries for geo-targeting, blocked countries, rotation intervals, and available geo-targeting features (state, city, ASN).
 

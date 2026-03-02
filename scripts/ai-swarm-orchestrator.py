@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-DomiNode AI Swarm Orchestrator
+Dominus Node AI Swarm Orchestrator
 
 Uses a local AI model (via OpenAI-compatible API) to create and manage
-autonomous DomiNode agents. Each agent registers, gets an API key,
+autonomous Dominus Node agents. Each agent registers, gets an API key,
 uses the proxy, and generates social posts about the experience.
 
 Architecture:
@@ -23,7 +23,7 @@ Architecture:
          ↑                              ↓
     All N agent threads share this single inference endpoint
          ↓
-    Each agent thread ──→ DomiNode API (:3000) ──→ Proxy Gateway (:8080)
+    Each agent thread ──→ Dominus Node API (:3000) ──→ Proxy Gateway (:8080)
 
 Modes:
   - team:  Creates one team, shared wallet, agents use team API keys
@@ -163,8 +163,8 @@ def ai_generate(prompt: str, max_tokens: int = 512, temperature: float = 0.7) ->
 
 
 def ai_generate_post(agent_num: int, mode: str, stats: dict) -> str:
-    """Use AI to generate a social media post about the agent's DomiNode experience."""
-    prompt = f"""You are agent #{agent_num} in a DomiNode proxy swarm operating in {mode} mode.
+    """Use AI to generate a social media post about the agent's Dominus Node experience."""
+    prompt = f"""You are agent #{agent_num} in a Dominus Node proxy swarm operating in {mode} mode.
 You just completed a proxy session with these stats:
 - Residential requests: {stats.get('res_requests', 0)}
 - Datacenter requests: {stats.get('dc_requests', 0)}
@@ -172,26 +172,26 @@ You just completed a proxy session with these stats:
 - Mode: {"team (shared wallet)" if mode == "team" else "solo (own account)"}
 
 Write a short, enthusiastic social media post (under 280 characters) about your experience
-using DomiNode's proxy infrastructure. Mention specific features like:
+using Dominus Node's proxy infrastructure. Mention specific features like:
 - Rotating proxies, smart pool routing (residential for Google/LinkedIn, DC for everything else)
 - {"Team billing with shared wallet" if mode == "team" else "Individual account management"}
 - SDKs available (Node, Python, Rust, Go, Java, C++)
 - Real usage stats from above
 
-Include #DomiNode and one other relevant hashtag. Be authentic, not spammy."""
+Include #DominusNode and one other relevant hashtag. Be authentic, not spammy."""
 
     post = ai_generate(prompt, max_tokens=150, temperature=0.8)
     if not post:
         # Template fallback
         templates = [
-            f"Agent #{agent_num} running on DomiNode ({mode} mode). "
+            f"Agent #{agent_num} running on Dominus Node ({mode} mode). "
             f"{stats.get('res_requests', 0)} residential + {stats.get('dc_requests', 0)} DC requests. "
             f"{stats.get('total_kb', 0)}KB total bandwidth. Smart routing saves 80% residential costs. "
-            f"#DomiNode #AgentSwarm",
+            f"#DominusNode #AgentSwarm",
 
-            f"Autonomous agent #{agent_num} completed {stats.get('cycles', 5)} proxy cycles via DomiNode. "
+            f"Autonomous agent #{agent_num} completed {stats.get('cycles', 5)} proxy cycles via Dominus Node. "
             f"{'Shared team wallet' if mode == 'team' else 'Personal wallet'} billing. "
-            f"SDKs: Node/Python/Rust/Go/Java/C++. #DomiNode #ProxyAPI",
+            f"SDKs: Node/Python/Rust/Go/Java/C++. #DominusNode #ProxyAPI",
         ]
         post = random.choice(templates)
     return post[:280]
@@ -216,10 +216,10 @@ Reply with just the action word."""
     return action
 
 
-# --- DomiNode API Helpers ----------------------------------------------------
+# --- Dominus Node API Helpers ----------------------------------------------------
 
 def api_request(method: str, url: str, jwt: str = "", json_data: dict = None) -> dict:
-    """Make an API request to DomiNode."""
+    """Make an API request to Dominus Node."""
     headers = {"Content-Type": "application/json"}
     if jwt:
         headers["Authorization"] = f"Bearer {jwt}"
@@ -324,14 +324,14 @@ def get_balance(api_base: str, jwt: str) -> dict:
 
 def do_proxy_request(url: str, api_key: str, proxy_host: str, proxy_port: int,
                      pool: str = "dc-country-US") -> dict:
-    """Make a request through the DomiNode proxy."""
+    """Make a request through the Dominus Node proxy."""
     proxy_url = f"http://{pool}:{api_key}@{proxy_host}:{proxy_port}"
     try:
         resp = requests.get(
             url,
             proxies={"http": proxy_url, "https": proxy_url},
             timeout=60,
-            headers={"User-Agent": "DomiNode-AI-Agent/1.0"},
+            headers={"User-Agent": "DominusNode-AI-Agent/1.0"},
         )
         return {
             "status": resp.status_code,
@@ -602,7 +602,7 @@ def run_solo_swarm(num_agents: int, api_base: str, proxy_host: str, proxy_port: 
 # --- Main --------------------------------------------------------------------
 
 def main():
-    parser = argparse.ArgumentParser(description="DomiNode AI Swarm Orchestrator")
+    parser = argparse.ArgumentParser(description="Dominus Node AI Swarm Orchestrator")
     parser.add_argument("--num-agents", type=int, required=True)
     parser.add_argument("--mode", choices=["team", "solo", "both"], default="both")
     parser.add_argument("--api-base", default="http://localhost:3000")

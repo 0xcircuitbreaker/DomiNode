@@ -1,7 +1,7 @@
 [
   {
     "name": "dominusnode_proxied_fetch",
-    "description": "Make an HTTP request through DomiNode's rotating proxy network. Routes traffic through datacenter ($3/GB) or residential ($5/GB) proxies with optional geo-targeting. Useful for accessing geo-restricted content, avoiding IP blocks, or web scraping. Private/internal IPs and sanctioned countries (CU, IR, KP, RU, SY) are blocked.",
+    "description": "Make an HTTP request through Dominus Node's rotating proxy network. Routes traffic through datacenter ($3/GB) or residential ($5/GB) proxies with optional geo-targeting. Useful for accessing geo-restricted content, avoiding IP blocks, or web scraping. Private/internal IPs and sanctioned countries (CU, IR, KP, RU, SY) are blocked.",
     "parameters": {
       "type": "OBJECT",
       "properties": {
@@ -31,7 +31,7 @@
   },
   {
     "name": "dominusnode_check_balance",
-    "description": "Check the current wallet balance for the authenticated DomiNode account. Returns balance in cents and USD, currency, and last top-up timestamp. The wallet uses a prepaid model -- top up first, then usage is debited automatically.",
+    "description": "Check the current wallet balance for the authenticated Dominus Node account. Returns balance in cents and USD, currency, and last top-up timestamp. The wallet uses a prepaid model -- top up first, then usage is debited automatically.",
     "parameters": {
       "type": "OBJECT",
       "properties": {},
@@ -40,7 +40,7 @@
   },
   {
     "name": "dominusnode_check_usage",
-    "description": "Check proxy usage statistics for the authenticated DomiNode account. Returns total bytes transferred, total cost, and request count for the specified period. Useful for monitoring bandwidth consumption and spending.",
+    "description": "Check proxy usage statistics for the authenticated Dominus Node account. Returns total bytes transferred, total cost, and request count for the specified period. Useful for monitoring bandwidth consumption and spending.",
     "parameters": {
       "type": "OBJECT",
       "properties": {
@@ -54,7 +54,7 @@
   },
   {
     "name": "dominusnode_get_proxy_config",
-    "description": "Get DomiNode proxy endpoint configuration and supported features. Returns HTTP and SOCKS5 proxy connection details, list of supported countries for geo-targeting, blocked/sanctioned countries, and geo-targeting capabilities. Use this to discover available proxy endpoints before making proxied requests.",
+    "description": "Get Dominus Node proxy endpoint configuration and supported features. Returns HTTP and SOCKS5 proxy connection details, list of supported countries for geo-targeting, blocked/sanctioned countries, and geo-targeting capabilities. Use this to discover available proxy endpoints before making proxied requests.",
     "parameters": {
       "type": "OBJECT",
       "properties": {},
@@ -63,7 +63,7 @@
   },
   {
     "name": "dominusnode_list_sessions",
-    "description": "List all currently active proxy sessions for the authenticated DomiNode account. Returns session IDs, start times, and status. Useful for monitoring concurrent connections and debugging active proxy usage.",
+    "description": "List all currently active proxy sessions for the authenticated Dominus Node account. Returns session IDs, start times, and status. Useful for monitoring concurrent connections and debugging active proxy usage.",
     "parameters": {
       "type": "OBJECT",
       "properties": {},
@@ -362,7 +362,7 @@
   },
   {
     "name": "dominusnode_topup_paypal",
-    "description": "Create a PayPal wallet top-up session. Initiates a PayPal payment for the specified amount to add funds to your DomiNode wallet. Returns a PayPal approval URL to complete the payment.",
+    "description": "Create a PayPal wallet top-up session. Initiates a PayPal payment for the specified amount to add funds to your Dominus Node wallet. Returns a PayPal approval URL to complete the payment.",
     "parameters": {
       "type": "OBJECT",
       "properties": {

@@ -1,6 +1,6 @@
 # dominusnode-ironclaw
 
-DomiNode toolkit for [IronClaw](https://github.com/nicekate/IronClaw), NEAR AI's open-source Rust-based AI agent runtime. Provides 23 tools for interacting with the DomiNode rotating proxy-as-a-service platform, plus MCP server configuration for IronClaw's native MCP bridge.
+Dominus Node toolkit for [IronClaw](https://github.com/nicekate/IronClaw), NEAR AI's open-source Rust-based AI agent runtime. Provides 23 tools for interacting with the Dominus Node rotating proxy-as-a-service platform, plus MCP server configuration for IronClaw's native MCP bridge.
 
 ## Installation
 
@@ -35,7 +35,7 @@ print(result)
 
 ### IronClaw MCP Bridge
 
-IronClaw supports MCP Protocol natively. Configure it to connect to the DomiNode MCP server:
+IronClaw supports MCP Protocol natively. Configure it to connect to the Dominus Node MCP server:
 
 ```python
 from dominusnode_ironclaw import DominusNodeToolkit
@@ -83,7 +83,7 @@ for tool in tools:
 
 | # | Tool | Description |
 |---|------|-------------|
-| 1 | `proxied_fetch` | Fetch a URL through DomiNode's rotating proxy network |
+| 1 | `proxied_fetch` | Fetch a URL through Dominus Node's rotating proxy network |
 | 2 | `check_balance` | Check wallet balance |
 | 3 | `check_usage` | Check proxy usage statistics |
 | 4 | `get_proxy_config` | Get proxy configuration and geo-targeting options |

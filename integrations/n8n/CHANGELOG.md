@@ -1,14 +1,18 @@
 # Changelog
 
+## 1.0.1
+
+- Fix branding: replace "DomiNode" with "Dominus Node" throughout
+
 All notable changes to `n8n-nodes-dominusnode` will be documented in this file.
 
 ## [1.0.0] - 2025-02-23
 
 ### Added
-- Initial release of n8n community nodes for DomiNode
-- **DomiNode Proxy** node: Proxied Fetch, Get Proxy Config, List Active Sessions
-- **DomiNode Wallet** node: 20 operations covering wallet, agentic wallets, and teams
-- **DomiNode Usage** node: Check usage statistics by period (day/week/month)
+- Initial release of n8n community nodes for Dominus Node
+- **Dominus Node Proxy** node: Proxied Fetch, Get Proxy Config, List Active Sessions
+- **Dominus Node Wallet** node: 20 operations covering wallet, agentic wallets, and teams
+- **Dominus Node Usage** node: Check usage statistics by period (day/week/month)
 - Full SSRF prevention (private IPs, hex/octal/decimal, IPv6, Teredo, 6to4, CGNAT, multicast)
 - DNS rebinding protection
 - OFAC sanctioned country blocking (CU, IR, KP, RU, SY)

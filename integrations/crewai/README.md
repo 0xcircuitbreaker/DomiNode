@@ -1,6 +1,6 @@
 # dominusnode-crewai
 
-CrewAI tools for the [DomiNode](https://dominusnode.com) rotating proxy-as-a-service platform. Gives your CrewAI agents the ability to fetch web content through rotating proxies, check wallet balance, and discover geo-targeting options.
+CrewAI tools for the [Dominus Node](https://dominusnode.com) rotating proxy-as-a-service platform. Gives your CrewAI agents the ability to fetch web content through rotating proxies, check wallet balance, and discover geo-targeting options.
 
 ## Installation
 
@@ -17,7 +17,7 @@ pip install -e ".[dev]"
 
 ## Environment Setup
 
-Set your DomiNode API key as an environment variable:
+Set your Dominus Node API key as an environment variable:
 
 ```bash
 export DOMINUSNODE_API_KEY="dn_live_your_api_key_here"
@@ -48,7 +48,7 @@ geo_tool = DominusNodeGeoTargetTool()
 # Or pass the API key explicitly
 scrape_tool = DominusNodeWebScrapeTool(api_key="dn_live_...")
 
-# Create a CrewAI agent with DomiNode tools
+# Create a CrewAI agent with Dominus Node tools
 researcher = Agent(
     role="Web Researcher",
     goal="Gather competitive intelligence from geo-restricted sources",
@@ -78,7 +78,7 @@ print(result)
 
 ### DominusNodeWebScrapeTool
 
-Fetch web page content through DomiNode's rotating proxy network.
+Fetch web page content through Dominus Node's rotating proxy network.
 
 **Parameters:**
 | Parameter | Type | Required | Default | Description |
@@ -119,7 +119,7 @@ List available proxy server countries and geo-targeting options.
 
 **Example output:**
 ```
-DomiNode Geo-Targeting Options:
+Dominus Node Geo-Targeting Options:
   Supported countries: US, GB, DE, JP, BR
   Blocked countries:   CU, IR, KP, RU, SY
   Targeting features:  US state targeting, City targeting

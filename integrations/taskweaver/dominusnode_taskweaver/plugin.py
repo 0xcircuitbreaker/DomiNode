@@ -1,7 +1,7 @@
-"""DomiNode TaskWeaver plugin -- 22 proxy, wallet, team, and payment commands.
+"""Dominus Node TaskWeaver plugin -- 22 proxy, wallet, team, and payment commands.
 
 Provides a TaskWeaver-compatible plugin class that exposes 22 commands for
-interacting with the DomiNode rotating proxy-as-a-service platform.
+interacting with the Dominus Node rotating proxy-as-a-service platform.
 
 Commands cover:
   - Proxied HTTP fetching through rotating proxies
@@ -370,7 +370,7 @@ _CREDENTIAL_RE = re.compile(r"dn_(live|test)_[a-zA-Z0-9]+")
 
 
 def _sanitize_error(message: str) -> str:
-    """Remove DomiNode API key patterns from error messages."""
+    """Remove Dominus Node API key patterns from error messages."""
     return _CREDENTIAL_RE.sub("***", message)
 
 
@@ -499,9 +499,9 @@ def _validate_domains(domains: Any) -> Optional[str]:
 
 
 class DominusNodePlugin:
-    """TaskWeaver plugin providing DomiNode rotating proxy commands.
+    """TaskWeaver plugin providing Dominus Node rotating proxy commands.
 
-    Authenticates using a DomiNode API key and exposes 22 commands for proxy,
+    Authenticates using a Dominus Node API key and exposes 22 commands for proxy,
     wallet, team, and payment management.  All commands return JSON strings
     suitable for consumption by an LLM.
 
@@ -510,11 +510,11 @@ class DominusNodePlugin:
     methods can be called directly.
 
     Args:
-        api_key: DomiNode API key (``dn_live_...`` or ``dn_test_...``).
+        api_key: Dominus Node API key (``dn_live_...`` or ``dn_test_...``).
             Falls back to ``DOMINUSNODE_API_KEY`` environment variable.
-        base_url: Base URL of the DomiNode REST API.
-        proxy_host: Hostname of the DomiNode proxy gateway.
-        proxy_port: Port of the DomiNode proxy gateway.
+        base_url: Base URL of the Dominus Node REST API.
+        proxy_host: Hostname of the Dominus Node proxy gateway.
+        proxy_port: Port of the Dominus Node proxy gateway.
         timeout: HTTP request timeout in seconds.
 
     Example::
@@ -544,7 +544,7 @@ class DominusNodePlugin:
     # ------------------------------------------------------------------
 
     def _authenticate(self) -> str:
-        """Authenticate with the DomiNode API using the API key.
+        """Authenticate with the Dominus Node API using the API key.
 
         Returns:
             The JWT bearer token.
@@ -554,7 +554,7 @@ class DominusNodePlugin:
         """
         if not self.api_key:
             raise RuntimeError(
-                "DomiNode API key is required. Pass api_key or set "
+                "Dominus Node API key is required. Pass api_key or set "
                 "DOMINUSNODE_API_KEY environment variable."
             )
 
@@ -599,7 +599,7 @@ class DominusNodePlugin:
         path: str,
         body: Optional[Dict[str, Any]] = None,
     ) -> Any:
-        """Make an authenticated API request to the DomiNode REST API.
+        """Make an authenticated API request to the Dominus Node REST API.
 
         Args:
             method: HTTP method (GET, POST, PATCH, DELETE).
@@ -681,7 +681,7 @@ class DominusNodePlugin:
         proxy_type: str = "dc",
         headers: Dict[str, str] | None = None,
     ) -> str:
-        """Fetch a URL through the DomiNode rotating proxy network.
+        """Fetch a URL through the Dominus Node rotating proxy network.
 
         Args:
             url: Target URL to fetch.
@@ -783,7 +783,7 @@ class DominusNodePlugin:
         except Exception as e:
             return json.dumps({
                 "error": f"Proxy fetch failed: {_sanitize_error(str(e))}",
-                "hint": "Ensure the DomiNode proxy gateway is running and accessible.",
+                "hint": "Ensure the Dominus Node proxy gateway is running and accessible.",
             })
 
     # ==================================================================
@@ -1471,7 +1471,7 @@ class DominusNodePlugin:
     # ==================================================================
 
     def __call__(self, command: str, **kwargs: Any) -> str:
-        """Execute a DomiNode command.
+        """Execute a Dominus Node command.
 
         This is the main entry point for TaskWeaver to invoke plugin commands.
         It maps command names to their corresponding methods.

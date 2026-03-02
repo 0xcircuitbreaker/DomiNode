@@ -1,5 +1,5 @@
 /**
- * DomiNode Flowise Toolkit
+ * Dominus Node Flowise Toolkit
  *
  * Provides 24 LangChain-compatible DynamicStructuredTool instances for use
  * inside Flowise AI workflows. Covers proxied fetching, wallet management,
@@ -394,7 +394,7 @@ export class DominusNodeToolkit {
   private async _authenticate(): Promise<string> {
     if (!this.apiKey) {
       throw new Error(
-        "DomiNode API key is required. Pass apiKey in options or set DOMINUSNODE_API_KEY env var.",
+        "Dominus Node API key is required. Pass apiKey in options or set DOMINUSNODE_API_KEY env var.",
       );
     }
     if (!this.apiKey.startsWith("dn_live_") && !this.apiKey.startsWith("dn_test_")) {
@@ -815,7 +815,7 @@ export class DominusNodeToolkit {
       }>("GET", "/api/proxy/config");
 
       const lines = [
-        "DomiNode Proxy Configuration",
+        "Dominus Node Proxy Configuration",
         "",
         `Proxy Host: ${data.proxyHost ?? "proxy.dominusnode.com"}`,
         `HTTP Proxy Port: ${data.httpProxyPort ?? 8080}`,
@@ -1665,7 +1665,7 @@ export class DominusNodeToolkit {
       new DynamicStructuredTool({
         name: "dominusnode_proxied_fetch",
         description:
-          "Fetch a URL through DomiNode's rotating proxy network. Supports geo-targeting " +
+          "Fetch a URL through Dominus Node's rotating proxy network. Supports geo-targeting " +
           "by country. Returns status code, headers, and response body (truncated).",
         schema: z.object({
           url: z.string().describe("The target URL to fetch (http or https)"),
@@ -1682,7 +1682,7 @@ export class DominusNodeToolkit {
       new DynamicStructuredTool({
         name: "dominusnode_check_balance",
         description:
-          "Check your DomiNode wallet balance and estimated remaining bandwidth at current pricing.",
+          "Check your Dominus Node wallet balance and estimated remaining bandwidth at current pricing.",
         schema: z.object({}),
         func: async () => {
           return this.checkBalance();
@@ -1979,7 +1979,7 @@ export class DominusNodeToolkit {
       new DynamicStructuredTool({
         name: "dominusnode_topup_paypal",
         description:
-          "Top up your DomiNode wallet via PayPal. Creates a PayPal order and returns an " +
+          "Top up your Dominus Node wallet via PayPal. Creates a PayPal order and returns an " +
           "approval URL. Minimum $5, maximum $1,000.",
         schema: z.object({
           amountCents: z.number().int().min(500).max(100000).describe("Amount in cents to top up (min 500 = $5)"),

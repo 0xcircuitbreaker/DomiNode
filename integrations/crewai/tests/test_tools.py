@@ -1,6 +1,6 @@
 """Tests for dominusnode-crewai tools.
 
-All tests mock the DomiNode SDK client so no real network calls are made.
+All tests mock the Dominus Node SDK client so no real network calls are made.
 """
 
 from __future__ import annotations

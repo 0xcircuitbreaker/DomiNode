@@ -1,6 +1,6 @@
-# DomiNode OpenAI-Compatible Function Calling Schemas
+# Dominus Node OpenAI-Compatible Function Calling Schemas
 
-OpenAI function-calling schemas and handler implementations for the DomiNode rotating proxy-as-a-service platform. These schemas allow any LLM with function/tool calling support to interact with DomiNode's proxy network, wallet, and agentic wallet APIs.
+OpenAI function-calling schemas and handler implementations for the Dominus Node rotating proxy-as-a-service platform. These schemas allow any LLM with function/tool calling support to interact with Dominus Node's proxy network, wallet, and agentic wallet APIs.
 
 ## What This Is
 
@@ -9,8 +9,8 @@ This directory contains:
 | File | Description |
 |------|-------------|
 | `functions.json` | Array of 8 OpenAI function definitions (JSON Schema format) |
-| `handler.ts` | TypeScript handler that dispatches function calls to the DomiNode API |
-| `handler.py` | Python handler that dispatches function calls to the DomiNode API |
+| `handler.ts` | TypeScript handler that dispatches function calls to the Dominus Node API |
+| `handler.py` | Python handler that dispatches function calls to the Dominus Node API |
 
 The function schemas follow the [OpenAI function calling specification](https://platform.openai.com/docs/guides/function-calling), which has become a de facto standard adopted by Claude (tool_use), Gemini, Mistral, Llama, and others.
 
@@ -18,7 +18,7 @@ The function schemas follow the [OpenAI function calling specification](https://
 
 | Function | Description | Auth Required |
 |----------|-------------|---------------|
-| `dominusnode_proxied_fetch` | Make an HTTP request through DomiNode's rotating proxy network | Yes |
+| `dominusnode_proxied_fetch` | Make an HTTP request through Dominus Node's rotating proxy network | Yes |
 | `dominusnode_check_balance` | Check wallet balance (cents, USD, currency) | Yes |
 | `dominusnode_check_usage` | Check usage stats for a time period (day/week/month) | Yes |
 | `dominusnode_get_proxy_config` | Get proxy endpoints, supported countries, geo-targeting info | Yes |
@@ -38,7 +38,7 @@ from handler import create_dominusnode_function_handler
 with open("functions.json") as f:
     functions = json.load(f)
 
-# Create the DomiNode handler
+# Create the Dominus Node handler
 dominusnode = create_dominusnode_function_handler(
     api_key="dn_live_your_api_key_here",
     base_url="https://api.dominusnode.com",
@@ -49,7 +49,7 @@ client = openai.OpenAI()
 response = client.chat.completions.create(
     model="gpt-4o",
     messages=[
-        {"role": "system", "content": "You have access to DomiNode proxy tools."},
+        {"role": "system", "content": "You have access to Dominus Node proxy tools."},
         {"role": "user", "content": "What is my current proxy balance?"},
     ],
     functions=functions,
@@ -62,14 +62,14 @@ if message.function_call:
     name = message.function_call.name
     args = json.loads(message.function_call.arguments)
 
-    # Dispatch to DomiNode handler
+    # Dispatch to Dominus Node handler
     result = await dominusnode(name, args)
 
     # Send the result back to the LLM
     response = client.chat.completions.create(
         model="gpt-4o",
         messages=[
-            {"role": "system", "content": "You have access to DomiNode proxy tools."},
+            {"role": "system", "content": "You have access to Dominus Node proxy tools."},
             {"role": "user", "content": "What is my current proxy balance?"},
             message,
             {"role": "function", "name": name, "content": result},
@@ -100,7 +100,7 @@ tools = [
     for fn in functions
 ]
 
-# Create the DomiNode handler
+# Create the Dominus Node handler
 dominusnode = create_dominusnode_function_handler(
     api_key="dn_live_your_api_key_here",
 )
@@ -112,7 +112,7 @@ response = client.messages.create(
     max_tokens=1024,
     tools=tools,
     messages=[
-        {"role": "user", "content": "Check my DomiNode proxy balance and usage this week."},
+        {"role": "user", "content": "Check my Dominus Node proxy balance and usage this week."},
     ],
 )
 
@@ -127,7 +127,7 @@ for block in response.content:
             max_tokens=1024,
             tools=tools,
             messages=[
-                {"role": "user", "content": "Check my DomiNode proxy balance and usage this week."},
+                {"role": "user", "content": "Check my Dominus Node proxy balance and usage this week."},
                 {"role": "assistant", "content": response.content},
                 {
                     "role": "user",
@@ -204,7 +204,7 @@ The `functions.json` file follows the standard OpenAI function definition schema
 | **OpenAI SDK** | Pass `functions` directly to `chat.completions.create()` |
 | **Anthropic SDK** | Convert to `tools` format (rename `parameters` to `input_schema`) |
 | **Google Gemini** | Convert to `FunctionDeclaration` objects |
-| **LangChain** | Use `StructuredTool.from_function()` or the DomiNode LangChain integration |
+| **LangChain** | Use `StructuredTool.from_function()` or the Dominus Node LangChain integration |
 | **Vercel AI SDK** | See the `integrations/vercel-ai/` package |
 | **LlamaIndex** | Use `FunctionTool.from_defaults()` with the handler |
 | **Ollama** | Pass as `tools` parameter in chat API |

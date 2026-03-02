@@ -1,15 +1,15 @@
-"""DomiNode Moltbook integration -- interact with Moltbook through rotating proxies.
+"""Dominus Node Moltbook integration -- interact with Moltbook through rotating proxies.
 
 Provides a MoltbookClient that routes all requests to the Moltbook social network
-(moltbookai.net) through DomiNode rotating proxies, so each request comes from a
-different IP. Includes 10 Moltbook-specific tools plus 23 DomiNode management tools
+(moltbookai.net) through Dominus Node rotating proxies, so each request comes from a
+different IP. Includes 10 Moltbook-specific tools plus 23 Dominus Node management tools
 for a total of 33 tools.
 
 Moltbook tools:
   - register, browse_posts, get_post, create_post, comment, vote
   - list_submolts, create_submolt, get_profile, get_proxy_status
 
-DomiNode management tools:
+Dominus Node management tools:
   - check_balance, check_usage, get_proxy_config, list_sessions
   - Agentic wallet: create, fund, balance, list, transactions, freeze, unfreeze, delete
   - Teams: create, list, details, fund, create_key, usage, update, update_member_role
@@ -21,7 +21,7 @@ Security:
     stripping, .localhost/.local/.internal/.arpa TLD blocking, embedded
     credential blocking)
   - OFAC sanctioned country validation (CU, IR, KP, RU, SY)
-  - Credential scrubbing in all error outputs (DomiNode API keys + ETH private keys)
+  - Credential scrubbing in all error outputs (Dominus Node API keys + ETH private keys)
   - Prototype pollution prevention on all parsed JSON
   - 10 MB response cap, 30 s timeout
   - Redirect following disabled to prevent open redirect abuse

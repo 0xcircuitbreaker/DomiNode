@@ -19,17 +19,17 @@ import {
 } from "./tools.js";
 
 /**
- * Configuration for creating DomiNode AI tools.
+ * Configuration for creating Dominus Node AI tools.
  */
 export interface DominusNodeToolsConfig {
   /**
-   * DomiNode API key for authentication.
+   * Dominus Node API key for authentication.
    * Must start with "dn_live_" or "dn_test_".
    */
   apiKey: string;
 
   /**
-   * Base URL for the DomiNode API.
+   * Base URL for the Dominus Node API.
    * @default "https://api.dominusnode.com"
    */
   baseUrl?: string;
@@ -54,10 +54,10 @@ export interface DominusNodeToolsConfig {
 }
 
 /**
- * The set of DomiNode tools for use with the Vercel AI SDK.
+ * The set of Dominus Node tools for use with the Vercel AI SDK.
  */
 export interface DominusNodeTools {
-  /** Make HTTP requests through DomiNode's rotating proxy network. */
+  /** Make HTTP requests through Dominus Node's rotating proxy network. */
   proxiedFetch: ReturnType<typeof createProxiedFetchTool>;
   /** Check the current wallet balance. */
   checkBalance: ReturnType<typeof createCheckBalanceTool>;
@@ -92,7 +92,7 @@ export interface DominusNodeTools {
 }
 
 /**
- * Create a set of Vercel AI SDK tools for interacting with the DomiNode
+ * Create a set of Vercel AI SDK tools for interacting with the Dominus Node
  * rotating proxy service.
  *
  * @example
@@ -153,7 +153,7 @@ export async function createDominusNodeTools(
 }
 
 /**
- * Create DomiNode AI tools from an already-authenticated client instance.
+ * Create Dominus Node AI tools from an already-authenticated client instance.
  * Use this when you manage the DominusNodeClient lifecycle yourself.
  *
  * @param client - An already-authenticated DominusNodeClient.

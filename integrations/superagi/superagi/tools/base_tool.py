@@ -1,7 +1,7 @@
 """Mock SuperAGI base_tool module for local development and testing.
 
 Provides minimal BaseTool and BaseToolkit stubs matching the SuperAGI API
-so the DomiNode toolkit can be developed and tested without installing
+so the Dominus Node toolkit can be developed and tested without installing
 the full SuperAGI framework.
 """
 

@@ -1,8 +1,8 @@
 /**
- * DomiNode Gemini / Vertex AI function calling handler (TypeScript).
+ * Dominus Node Gemini / Vertex AI function calling handler (TypeScript).
  *
  * Provides a factory function that creates a handler for dispatching
- * Google Gemini function calls to the DomiNode REST API. Works with
+ * Google Gemini function calls to the Dominus Node REST API. Works with
  * Gemini, Vertex AI, or any system that uses Gemini-format function
  * declarations.
  *
@@ -332,9 +332,9 @@ function getProxyPort(): number {
 }
 
 export interface DominusNodeFunctionConfig {
-  /** DomiNode API key (starts with dn_live_ or dn_test_). */
+  /** Dominus Node API key (starts with dn_live_ or dn_test_). */
   apiKey: string;
-  /** Base URL of the DomiNode REST API. Defaults to https://api.dominusnode.com */
+  /** Base URL of the Dominus Node REST API. Defaults to https://api.dominusnode.com */
   baseUrl?: string;
   /** Request timeout in milliseconds. Defaults to 30000. */
   timeoutMs?: number;
@@ -429,7 +429,7 @@ function periodToDateRange(period: string): { since: string; until: string } {
 
 /**
  * Handler function type returned by createDominusNodeFunctionHandler.
- * Dispatches function calls to the DomiNode API and returns JSON string results.
+ * Dispatches function calls to the Dominus Node API and returns JSON string results.
  */
 export type FunctionHandler = (
   name: string,
@@ -437,10 +437,10 @@ export type FunctionHandler = (
 ) => Promise<string>;
 
 /**
- * Create a DomiNode function handler for Gemini / Vertex AI function calling.
+ * Create a Dominus Node function handler for Gemini / Vertex AI function calling.
  *
  * Authenticates using the provided API key, then returns a handler function
- * that dispatches function calls to the appropriate DomiNode REST API endpoint.
+ * that dispatches function calls to the appropriate Dominus Node REST API endpoint.
  *
  * @param config - API key and optional base URL / timeout.
  * @returns A handler function: (name, args) => Promise<string>
@@ -719,7 +719,7 @@ export function createDominusNodeFunctionHandler(
     } catch (err) {
       return JSON.stringify({
         error: `Proxy fetch failed: ${sanitizeError(err instanceof Error ? err.message : String(err))}`,
-        hint: "Ensure the DomiNode proxy gateway is running and accessible.",
+        hint: "Ensure the Dominus Node proxy gateway is running and accessible.",
       });
     }
   }

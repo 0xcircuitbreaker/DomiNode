@@ -1,7 +1,7 @@
 /**
  * @dominusnode/mastra-tools
  *
- * DomiNode rotating proxy tools for Mastra AI agents.
+ * Dominus Node rotating proxy tools for Mastra AI agents.
  * Provides 23 tools for proxy fetching, wallet management,
  * team collaboration, and payment operations.
  *

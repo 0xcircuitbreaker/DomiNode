@@ -1,6 +1,6 @@
 # dominusnode-haystack
 
-DomiNode rotating proxy tools for [Haystack](https://haystack.deepset.ai/) AI pipelines.
+Dominus Node rotating proxy tools for [Haystack](https://haystack.deepset.ai/) AI pipelines.
 
 ## Installation
 

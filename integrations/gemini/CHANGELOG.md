@@ -1,11 +1,15 @@
 # Changelog
 
+## 1.0.1
+
+- Fix branding: replace "DomiNode" with "Dominus Node" throughout
+
 All notable changes to this project will be documented in this file.
 
 ## [1.0.0] - 2025-02-23
 
 ### Added
-- Initial release of DomiNode Gemini / Vertex AI function declarations
+- Initial release of Dominus Node Gemini / Vertex AI function declarations
 - 22 Gemini-format function declarations in `functions.json`
   - All 21 functions from OpenAI Functions integration adapted to Gemini schema
   - New `dominusnode_topup_paypal` function for PayPal wallet top-ups

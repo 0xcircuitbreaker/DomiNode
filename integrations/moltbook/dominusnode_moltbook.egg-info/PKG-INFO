@@ -1,7 +1,7 @@
-Metadata-Version: 2.4
+Metadata-Version: 2.1
 Name: dominusnode-moltbook
 Version: 1.0.0
-Summary: DomiNode integration for Moltbook -- interact with the AI agent social network through rotating proxies
+Summary: Dominus Node integration for Moltbook -- interact with the AI agent social network through rotating proxies
 License: MIT
 Requires-Python: >=3.10
 Description-Content-Type: text/markdown
@@ -9,11 +9,10 @@ License-File: LICENSE
 Requires-Dist: httpx>=0.25.0
 Provides-Extra: dev
 Requires-Dist: pytest>=7.0; extra == "dev"
-Dynamic: license-file
 
 # dominusnode-moltbook
 
-[DomiNode](https://dominusnode.com) integration for [Moltbook](https://moltbookai.net) -- the "Reddit for AI agents" social network. Routes all Moltbook API requests through DomiNode's rotating proxy gateway so each request comes from a different IP address.
+[Dominus Node](https://dominusnode.com) integration for [Moltbook](https://moltbookai.net) -- the "Reddit for AI agents" social network. Routes all Moltbook API requests through Dominus Node's rotating proxy gateway so each request comes from a different IP address.
 
 ## Installation
 
@@ -33,7 +32,7 @@ pip install -e ".[dev]"
 Moltbook authenticates agents using Ethereum wallet signatures. You need:
 
 1. An Ethereum wallet (address + private key)
-2. A DomiNode API key for proxy access
+2. A Dominus Node API key for proxy access
 
 The integration signs each request's timestamp with your ETH private key using the EIP-191 personal_sign format, then sends three auth headers:
 
@@ -91,19 +90,19 @@ client.vote(target_id="post123", target_type="post", direction="up")
 
 ## Proxy Routing
 
-All Moltbook requests are automatically routed through DomiNode's rotating proxy gateway. This means:
+All Moltbook requests are automatically routed through Dominus Node's rotating proxy gateway. This means:
 
 - Each request exits from a different IP address
 - Your agent's real IP is never exposed to Moltbook
 - Geo-targeting is handled automatically (datacenter IPs by default)
-- Proxy authentication uses your DomiNode API key
+- Proxy authentication uses your Dominus Node API key
 
 The proxy URL format is:
 ```
 http://auto:<DOMINUSNODE_API_KEY>@<proxy_host>:<proxy_port>
 ```
 
-The `auto` username tells DomiNode to automatically select the best proxy from the pool.
+The `auto` username tells Dominus Node to automatically select the best proxy from the pool.
 
 ## ETH Wallet Authentication
 
@@ -145,7 +144,7 @@ client = MoltbookClient(
 | `get_profile` | Get agent profile | - |
 | `get_proxy_status` | Get proxy configuration | - |
 
-### DomiNode Management Tools (22)
+### Dominus Node Management Tools (22)
 
 | Tool | Description | Parameters |
 |------|-------------|------------|
@@ -248,7 +247,7 @@ This integration includes comprehensive security measures:
 - **SSRF Prevention**: Blocks requests to private IPs (10.x, 172.16-31.x, 192.168.x, 127.x, 0.0.0.0/8, 169.254.x, 100.64-127.x CGNAT, 224+ multicast), IPv6 loopback/ULA/link-local, IPv4-mapped/compatible IPv6, Teredo (2001:0000::/32), 6to4 (2002::/16), hex/octal/decimal encoded IPs
 - **DNS Rebinding Protection**: Resolves hostnames and validates all IP addresses before connecting
 - **TLD Blocking**: .localhost, .local, .internal, .arpa
-- **Credential Protection**: DomiNode API keys and ETH private keys scrubbed from all error output; embedded URL credentials blocked
+- **Credential Protection**: Dominus Node API keys and ETH private keys scrubbed from all error output; embedded URL credentials blocked
 - **OFAC Compliance**: Cuba, Iran, North Korea, Russia, Syria -- construction-time validation of Moltbook base URL
 - **Prototype Pollution Prevention**: Dangerous keys stripped from all JSON responses
 - **Response Limits**: 10 MB body cap

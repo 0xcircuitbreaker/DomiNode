@@ -1,9 +1,9 @@
-"""DomiNode Dify tool provider -- 24 tools with full security hardening.
+"""Dominus Node Dify tool provider -- 24 tools with full security hardening.
 
 This module implements the DominusNodeProvider class that Dify invokes.
 Each tool is a method that receives credentials (from the provider YAML)
 and parameters (from the tool YAML), performs the operation against the
-DomiNode REST API, and returns a dict result.
+Dominus Node REST API, and returns a dict result.
 
 Security code is copied verbatim from the AutoGPT integration to ensure
 identical SSRF, OFAC, credential scrubbing, and prototype pollution
@@ -346,7 +346,7 @@ _CREDENTIAL_RE = re.compile(r"dn_(live|test)_[a-zA-Z0-9]+")
 
 
 def _sanitize_error(message: str) -> str:
-    """Remove DomiNode API key patterns from error messages."""
+    """Remove Dominus Node API key patterns from error messages."""
     return _CREDENTIAL_RE.sub("***", message)
 
 
@@ -474,9 +474,9 @@ def _validate_allowed_domains(domains: Any) -> Optional[str]:
 
 
 class DominusNodeProvider:
-    """Dify tool provider for DomiNode rotating proxy service.
+    """Dify tool provider for Dominus Node rotating proxy service.
 
-    Authenticates using a DomiNode API key and exposes 24 tool methods that
+    Authenticates using a Dominus Node API key and exposes 24 tool methods that
     Dify can invoke.  Each tool method receives ``credentials`` and ``params``
     dicts from the Dify runtime and returns a dict result.
 
@@ -509,7 +509,7 @@ class DominusNodeProvider:
     # ------------------------------------------------------------------
 
     def _authenticate(self) -> str:
-        """Authenticate with the DomiNode API using the API key.
+        """Authenticate with the Dominus Node API using the API key.
 
         Returns:
             The JWT bearer token.
@@ -519,7 +519,7 @@ class DominusNodeProvider:
         """
         if not self.api_key:
             raise RuntimeError(
-                "DomiNode API key is required. Set api_key in provider credentials "
+                "Dominus Node API key is required. Set api_key in provider credentials "
                 "or DOMINUSNODE_API_KEY environment variable."
             )
 
@@ -564,7 +564,7 @@ class DominusNodeProvider:
         path: str,
         body: Optional[Dict[str, Any]] = None,
     ) -> Any:
-        """Make an authenticated API request to the DomiNode REST API.
+        """Make an authenticated API request to the Dominus Node REST API.
 
         Args:
             method: HTTP method (GET, POST, PATCH, DELETE).
@@ -639,7 +639,7 @@ class DominusNodeProvider:
     # ==================================================================
 
     def proxied_fetch(self, params: Dict[str, Any]) -> Dict[str, Any]:
-        """Fetch a URL through the DomiNode rotating proxy network.
+        """Fetch a URL through the Dominus Node rotating proxy network.
 
         Args:
             params: Dict with keys: url (required), method, country, proxy_type.
@@ -724,7 +724,7 @@ class DominusNodeProvider:
         except Exception as e:
             return {
                 "error": f"Proxy fetch failed: {_sanitize_error(str(e))}",
-                "hint": "Ensure the DomiNode proxy gateway is running and accessible.",
+                "hint": "Ensure the Dominus Node proxy gateway is running and accessible.",
             }
 
     # ==================================================================

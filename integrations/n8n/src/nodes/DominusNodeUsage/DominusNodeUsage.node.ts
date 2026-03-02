@@ -1,5 +1,5 @@
 /**
- * DomiNode Usage n8n community node.
+ * Dominus Node Usage n8n community node.
  *
  * Operations:
  * - Check Usage: Get proxy usage statistics for a given period
@@ -22,14 +22,14 @@ const VALID_PERIODS = new Set(["day", "week", "month"]);
 
 export class DominusNodeUsage implements INodeType {
   description: INodeTypeDescription = {
-    displayName: "DomiNode Usage",
+    displayName: "Dominus Node Usage",
     name: "dominusNodeUsage",
     icon: "file:dominusnode.svg",
     group: ["transform"],
     version: 1,
     subtitle: '={{$parameter["operation"]}}',
-    description: "Check DomiNode proxy usage statistics",
-    defaults: { name: "DomiNode Usage" },
+    description: "Check Dominus Node proxy usage statistics",
+    defaults: { name: "Dominus Node Usage" },
     inputs: ["main"],
     outputs: ["main"],
     credentials: [{ name: "dominusNodeApi", required: true }],

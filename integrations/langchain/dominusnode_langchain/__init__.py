@@ -1,8 +1,8 @@
-"""LangChain tools for DomiNode rotating proxy service.
+"""LangChain tools for Dominus Node rotating proxy service.
 
 Provides LangChain-compatible tools for making proxied HTTP requests,
 checking wallet balance, viewing usage statistics, and querying proxy
-configuration through the DomiNode platform.
+configuration through the Dominus Node platform.
 
 Example::
 

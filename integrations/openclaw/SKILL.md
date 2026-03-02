@@ -1,8 +1,8 @@
 ---
 name: dominusnode-proxy
 version: 1.0.0
-description: Route web requests through DomiNode's rotating proxy network with geo-targeting, balance management, and team collaboration
-author: DomiNode
+description: Route web requests through Dominus Node's rotating proxy network with geo-targeting, balance management, and team collaboration
+author: Dominus Node
 tags:
   - proxy
   - web-scraping
@@ -35,9 +35,9 @@ tools:
   - team_usage
 ---
 
-# DomiNode Proxy Skill
+# Dominus Node Proxy Skill
 
-Route web requests through DomiNode's rotating proxy network. Supports datacenter ($3/GB) and residential ($5/GB) proxy pools with geo-targeting across 195+ countries.
+Route web requests through Dominus Node's rotating proxy network. Supports datacenter ($3/GB) and residential ($5/GB) proxy pools with geo-targeting across 195+ countries.
 
 ## Setup
 
@@ -83,7 +83,7 @@ Use proxied_fetch to get https://example.com through a US datacenter proxy
 
 ### Check remaining budget
 ```
-Check my DomiNode balance and tell me how much browsing I have left
+Check my Dominus Node balance and tell me how much browsing I have left
 ```
 
 ### Set up a team for shared billing
@@ -98,7 +98,7 @@ Create an agentic wallet called "scraper-bot" with a $10 spending limit, then fu
 
 ### View recent usage breakdown
 ```
-Show my DomiNode usage for the last 7 days
+Show my Dominus Node usage for the last 7 days
 ```
 
 ## Pricing

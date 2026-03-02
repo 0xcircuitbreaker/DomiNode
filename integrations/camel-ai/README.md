@@ -1,6 +1,6 @@
 # dominusnode-camel
 
-CAMEL-AI toolkit for the [DomiNode](https://dominusnode.com) rotating proxy-as-a-service platform. Provides 22 tools as CAMEL `FunctionTool` objects for proxy management, wallet operations, team administration, and payment processing.
+CAMEL-AI toolkit for the [Dominus Node](https://dominusnode.com) rotating proxy-as-a-service platform. Provides 22 tools as CAMEL `FunctionTool` objects for proxy management, wallet operations, team administration, and payment processing.
 
 ## Installation
 
@@ -17,7 +17,7 @@ pip install -e ".[dev]"
 
 ## Environment Setup
 
-Set your DomiNode API key as an environment variable:
+Set your Dominus Node API key as an environment variable:
 
 ```bash
 export DOMINUSNODE_API_KEY="dn_live_your_api_key_here"
@@ -48,7 +48,7 @@ toolkit = DominusNodeToolkit(api_key="dn_live_...")
 # Get CAMEL FunctionTool objects
 tools = toolkit.get_tools()
 
-# Create a CAMEL agent with DomiNode tools
+# Create a CAMEL agent with Dominus Node tools
 model = ModelFactory.create(
     model_platform=ModelPlatformType.OPENAI,
     model_type=ModelType.GPT_4O,
@@ -59,7 +59,7 @@ agent = ChatAgent(
     tools=tools,
 )
 
-# The agent can now use DomiNode proxy tools
+# The agent can now use Dominus Node proxy tools
 response = agent.step("Check my wallet balance")
 print(response.msgs[0].content)
 ```

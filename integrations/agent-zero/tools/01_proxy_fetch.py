@@ -1,7 +1,7 @@
 """Agent Zero tools: proxied HTTP fetch, proxy config, active sessions.
 
 Tools:
-    - ``proxied_fetch`` -- Fetch a URL through the DomiNode proxy gateway
+    - ``proxied_fetch`` -- Fetch a URL through the Dominus Node proxy gateway
     - ``get_proxy_config`` -- Retrieve proxy endpoint configuration
     - ``list_sessions`` -- List active proxy sessions
 
@@ -38,7 +38,7 @@ from shared.constants import CREDENTIAL_RE
 
 
 def _sanitize_error(message: str) -> str:
-    """Remove DomiNode API key patterns from error messages."""
+    """Remove Dominus Node API key patterns from error messages."""
     return CREDENTIAL_RE.sub("***", message)
 
 
@@ -66,13 +66,13 @@ def proxied_fetch(
     auth: DominusNodeAuth,
     args: Dict[str, Any],
 ) -> str:
-    """Fetch a URL through the DomiNode rotating proxy gateway.
+    """Fetch a URL through the Dominus Node rotating proxy gateway.
 
     Routes HTTP requests through the proxy gateway using CONNECT tunnelling
     for HTTPS and full-URL path rewriting for plain HTTP.
 
     Args:
-        auth: Authenticated DomiNode helper.
+        auth: Authenticated Dominus Node helper.
         args: Tool arguments:
             - ``url`` (str, required): Target URL to fetch.
             - ``method`` (str, optional): HTTP method (GET/HEAD/OPTIONS). Default: GET.
@@ -180,7 +180,7 @@ def proxied_fetch(
     except Exception as e:
         return json.dumps({
             "error": f"Proxy fetch failed: {_sanitize_error(str(e))}",
-            "hint": "Ensure the DomiNode proxy gateway is running and accessible.",
+            "hint": "Ensure the Dominus Node proxy gateway is running and accessible.",
         })
 
 
@@ -193,13 +193,13 @@ def get_proxy_config(
     auth: DominusNodeAuth,
     args: Dict[str, Any],
 ) -> str:
-    """Retrieve the DomiNode proxy endpoint configuration.
+    """Retrieve the Dominus Node proxy endpoint configuration.
 
     Returns proxy host/port, supported countries, geo-targeting capabilities,
     and rotation interval settings.
 
     Args:
-        auth: Authenticated DomiNode helper.
+        auth: Authenticated Dominus Node helper.
         args: Tool arguments (none required).
 
     Returns:
@@ -228,7 +228,7 @@ def list_sessions(
     are never exposed.
 
     Args:
-        auth: Authenticated DomiNode helper.
+        auth: Authenticated Dominus Node helper.
         args: Tool arguments (none required).
 
     Returns:
@@ -249,7 +249,7 @@ TOOLS = {
     "proxied_fetch": {
         "function": proxied_fetch,
         "description": (
-            "Fetch a URL through the DomiNode rotating proxy network. "
+            "Fetch a URL through the Dominus Node rotating proxy network. "
             "Routes traffic through datacenter or residential proxy IPs "
             "with optional country-level geo-targeting. "
             "Only read-only HTTP methods (GET, HEAD, OPTIONS) are permitted."
@@ -265,7 +265,7 @@ TOOLS = {
     "get_proxy_config": {
         "function": get_proxy_config,
         "description": (
-            "Get the DomiNode proxy configuration including endpoints, "
+            "Get the Dominus Node proxy configuration including endpoints, "
             "supported countries, and geo-targeting capabilities."
         ),
         "parameters": {},

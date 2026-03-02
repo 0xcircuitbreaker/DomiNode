@@ -1,7 +1,7 @@
-"""DomiNode Langflow toolkit -- 22 proxy, wallet, team, and PayPal management tools.
+"""Dominus Node Langflow toolkit -- 22 proxy, wallet, team, and PayPal management tools.
 
 Provides a Langflow-compatible toolkit class that exposes 22 LangChain
-StructuredTool objects for interacting with the DomiNode rotating
+StructuredTool objects for interacting with the Dominus Node rotating
 proxy-as-a-service platform.
 
 Tools cover:
@@ -372,7 +372,7 @@ _CREDENTIAL_RE = re.compile(r"dn_(live|test)_[a-zA-Z0-9]+")
 
 
 def _sanitize_error(message: str) -> str:
-    """Remove DomiNode API key patterns from error messages."""
+    """Remove Dominus Node API key patterns from error messages."""
     return _CREDENTIAL_RE.sub("***", message)
 
 
@@ -661,17 +661,17 @@ class EmptyInput(BaseModel):
 
 
 class DominusNodeToolkit:
-    """Langflow-compatible toolkit providing DomiNode rotating proxy tools.
+    """Langflow-compatible toolkit providing Dominus Node rotating proxy tools.
 
-    Authenticates using a DomiNode API key and exposes 22 tools as LangChain
+    Authenticates using a Dominus Node API key and exposes 22 tools as LangChain
     StructuredTool objects compatible with Langflow's visual tool system.
 
     Args:
-        api_key: DomiNode API key (``dn_live_...`` or ``dn_test_...``).
+        api_key: Dominus Node API key (``dn_live_...`` or ``dn_test_...``).
             Falls back to ``DOMINUSNODE_API_KEY`` environment variable.
-        base_url: Base URL of the DomiNode REST API.
-        proxy_host: Hostname of the DomiNode proxy gateway.
-        proxy_port: Port of the DomiNode proxy gateway.
+        base_url: Base URL of the Dominus Node REST API.
+        proxy_host: Hostname of the Dominus Node proxy gateway.
+        proxy_port: Port of the Dominus Node proxy gateway.
         timeout: HTTP request timeout in seconds.
 
     Example::
@@ -700,7 +700,7 @@ class DominusNodeToolkit:
     # ------------------------------------------------------------------
 
     def _authenticate(self) -> str:
-        """Authenticate with the DomiNode API using the API key.
+        """Authenticate with the Dominus Node API using the API key.
 
         Returns:
             The JWT bearer token.
@@ -710,7 +710,7 @@ class DominusNodeToolkit:
         """
         if not self.api_key:
             raise RuntimeError(
-                "DomiNode API key is required. Pass api_key or set "
+                "Dominus Node API key is required. Pass api_key or set "
                 "DOMINUSNODE_API_KEY environment variable."
             )
 
@@ -755,7 +755,7 @@ class DominusNodeToolkit:
         path: str,
         body: Optional[Dict[str, Any]] = None,
     ) -> Any:
-        """Make an authenticated API request to the DomiNode REST API.
+        """Make an authenticated API request to the Dominus Node REST API.
 
         Args:
             method: HTTP method (GET, POST, PATCH, DELETE).
@@ -836,7 +836,7 @@ class DominusNodeToolkit:
         country: str | None = None,
         proxy_type: str = "dc",
     ) -> str:
-        """Fetch a URL through the DomiNode rotating proxy network.
+        """Fetch a URL through the Dominus Node rotating proxy network.
 
         Args:
             url: Target URL to fetch.
@@ -921,7 +921,7 @@ class DominusNodeToolkit:
         except Exception as e:
             return json.dumps({
                 "error": f"Proxy fetch failed: {_sanitize_error(str(e))}",
-                "hint": "Ensure the DomiNode proxy gateway is running and accessible.",
+                "hint": "Ensure the Dominus Node proxy gateway is running and accessible.",
             })
 
     # ==================================================================
@@ -1622,7 +1622,7 @@ class DominusNodeToolkit:
                 func=self.proxied_fetch,
                 name="dominusnode_proxied_fetch",
                 description=(
-                    "Fetch a URL through DomiNode's rotating proxy network. "
+                    "Fetch a URL through Dominus Node's rotating proxy network. "
                     "Supports geo-targeting by country and datacenter or residential proxy types. "
                     "Only GET, HEAD, and OPTIONS methods are allowed."
                 ),
@@ -1631,14 +1631,14 @@ class DominusNodeToolkit:
             StructuredTool.from_function(
                 func=self.check_balance,
                 name="dominusnode_check_balance",
-                description="Check the current DomiNode wallet balance in cents.",
+                description="Check the current Dominus Node wallet balance in cents.",
                 args_schema=EmptyInput,
             ),
             StructuredTool.from_function(
                 func=self.check_usage,
                 name="dominusnode_check_usage",
                 description=(
-                    "Check DomiNode proxy usage statistics for a given period "
+                    "Check Dominus Node proxy usage statistics for a given period "
                     "(day, week, or month)."
                 ),
                 args_schema=CheckUsageInput,
@@ -1647,7 +1647,7 @@ class DominusNodeToolkit:
                 func=self.get_proxy_config,
                 name="dominusnode_get_proxy_config",
                 description=(
-                    "Get DomiNode proxy configuration including endpoints "
+                    "Get Dominus Node proxy configuration including endpoints "
                     "and geo-targeting options."
                 ),
                 args_schema=EmptyInput,
@@ -1655,7 +1655,7 @@ class DominusNodeToolkit:
             StructuredTool.from_function(
                 func=self.list_sessions,
                 name="dominusnode_list_sessions",
-                description="List active DomiNode proxy sessions.",
+                description="List active Dominus Node proxy sessions.",
                 args_schema=EmptyInput,
             ),
             StructuredTool.from_function(

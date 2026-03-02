@@ -1,7 +1,7 @@
-"""DomiNode Haystack toolkit -- 22 proxy, wallet, team, and PayPal tools.
+"""Dominus Node Haystack toolkit -- 22 proxy, wallet, team, and PayPal tools.
 
 Provides a Haystack-compatible toolkit class that exposes 22 Tool objects for
-interacting with the DomiNode rotating proxy-as-a-service platform.
+interacting with the Dominus Node rotating proxy-as-a-service platform.
 
 Tools cover:
   - Proxied HTTP fetching through rotating proxies
@@ -372,7 +372,7 @@ _CREDENTIAL_RE = re.compile(r"dn_(live|test)_[a-zA-Z0-9]+")
 
 
 def _sanitize_error(message: str) -> str:
-    """Remove DomiNode API key patterns from error messages."""
+    """Remove Dominus Node API key patterns from error messages."""
     return _CREDENTIAL_RE.sub("***", message)
 
 
@@ -501,18 +501,18 @@ def _validate_domains(domains: Any) -> Optional[str]:
 
 
 class DominusNodeToolkit:
-    """Haystack toolkit providing DomiNode rotating proxy tools.
+    """Haystack toolkit providing Dominus Node rotating proxy tools.
 
-    Authenticates using a DomiNode API key and exposes 22 tools for proxy,
+    Authenticates using a Dominus Node API key and exposes 22 tools for proxy,
     wallet, team, and payment management.  All tool methods return dicts
     suitable for Haystack pipeline consumption.
 
     Args:
-        api_key: DomiNode API key (``dn_live_...`` or ``dn_test_...``).
+        api_key: Dominus Node API key (``dn_live_...`` or ``dn_test_...``).
             Falls back to ``DOMINUSNODE_API_KEY`` environment variable.
-        base_url: Base URL of the DomiNode REST API.
-        proxy_host: Hostname of the DomiNode proxy gateway.
-        proxy_port: Port of the DomiNode proxy gateway.
+        base_url: Base URL of the Dominus Node REST API.
+        proxy_host: Hostname of the Dominus Node proxy gateway.
+        proxy_port: Port of the Dominus Node proxy gateway.
         timeout: HTTP request timeout in seconds.
 
     Example::
@@ -544,7 +544,7 @@ class DominusNodeToolkit:
     # ------------------------------------------------------------------
 
     def _authenticate(self) -> str:
-        """Authenticate with the DomiNode API using the API key.
+        """Authenticate with the Dominus Node API using the API key.
 
         Returns:
             The JWT bearer token.
@@ -554,7 +554,7 @@ class DominusNodeToolkit:
         """
         if not self.api_key:
             raise RuntimeError(
-                "DomiNode API key is required. Pass api_key or set "
+                "Dominus Node API key is required. Pass api_key or set "
                 "DOMINUSNODE_API_KEY environment variable."
             )
 
@@ -599,7 +599,7 @@ class DominusNodeToolkit:
         path: str,
         body: Optional[Dict[str, Any]] = None,
     ) -> Any:
-        """Make an authenticated API request to the DomiNode REST API.
+        """Make an authenticated API request to the Dominus Node REST API.
 
         Args:
             method: HTTP method (GET, POST, PATCH, DELETE).
@@ -681,7 +681,7 @@ class DominusNodeToolkit:
         proxy_type: str = "dc",
         headers: Dict[str, str] | None = None,
     ) -> Dict[str, Any]:
-        """Fetch a URL through the DomiNode rotating proxy network.
+        """Fetch a URL through the Dominus Node rotating proxy network.
 
         Args:
             url: Target URL to fetch.
@@ -779,7 +779,7 @@ class DominusNodeToolkit:
         except Exception as e:
             return {
                 "error": f"Proxy fetch failed: {_sanitize_error(str(e))}",
-                "hint": "Ensure the DomiNode proxy gateway is running and accessible.",
+                "hint": "Ensure the Dominus Node proxy gateway is running and accessible.",
             }
 
     # ==================================================================
@@ -1461,7 +1461,7 @@ class DominusNodeToolkit:
     # ==================================================================
 
     def get_tools(self) -> List[Any]:
-        """Return list of Haystack Tool objects for all 22 DomiNode functions.
+        """Return list of Haystack Tool objects for all 22 Dominus Node functions.
 
         Each Tool wraps one of the toolkit methods with a name, description,
         and JSON Schema parameter definition compatible with Haystack's
@@ -1476,7 +1476,7 @@ class DominusNodeToolkit:
             Tool(
                 name="dominusnode_proxied_fetch",
                 description=(
-                    "Fetch a URL through DomiNode's rotating proxy network. "
+                    "Fetch a URL through Dominus Node's rotating proxy network. "
                     "Supports geo-targeting and datacenter/residential pool selection. "
                     "Only GET, HEAD, OPTIONS methods are allowed."
                 ),
@@ -1505,7 +1505,7 @@ class DominusNodeToolkit:
             ),
             Tool(
                 name="dominusnode_check_balance",
-                description="Check the current DomiNode wallet balance in cents.",
+                description="Check the current Dominus Node wallet balance in cents.",
                 function=self.check_balance,
                 parameters={
                     "type": "object",
@@ -1514,7 +1514,7 @@ class DominusNodeToolkit:
             ),
             Tool(
                 name="dominusnode_check_usage",
-                description="Check DomiNode proxy usage statistics for a given time period.",
+                description="Check Dominus Node proxy usage statistics for a given time period.",
                 function=self.check_usage,
                 parameters={
                     "type": "object",
@@ -1529,7 +1529,7 @@ class DominusNodeToolkit:
             ),
             Tool(
                 name="dominusnode_get_proxy_config",
-                description="Get DomiNode proxy configuration including endpoints and geo-targeting options.",
+                description="Get Dominus Node proxy configuration including endpoints and geo-targeting options.",
                 function=self.get_proxy_config,
                 parameters={
                     "type": "object",
@@ -1538,7 +1538,7 @@ class DominusNodeToolkit:
             ),
             Tool(
                 name="dominusnode_list_sessions",
-                description="List active DomiNode proxy sessions.",
+                description="List active Dominus Node proxy sessions.",
                 function=self.list_sessions,
                 parameters={
                     "type": "object",

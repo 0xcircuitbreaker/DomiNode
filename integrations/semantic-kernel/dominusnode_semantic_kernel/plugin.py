@@ -1,7 +1,7 @@
-"""DomiNode Semantic Kernel plugin -- 22 proxy, wallet, team, and PayPal management functions.
+"""Dominus Node Semantic Kernel plugin -- 22 proxy, wallet, team, and PayPal management functions.
 
 Provides a Semantic Kernel plugin class that exposes 22 kernel functions for
-interacting with the DomiNode rotating proxy-as-a-service platform.
+interacting with the Dominus Node rotating proxy-as-a-service platform.
 
 Functions cover:
   - Proxied HTTP fetching through rotating proxies
@@ -375,7 +375,7 @@ _CREDENTIAL_RE = re.compile(r"dn_(live|test)_[a-zA-Z0-9]+")
 
 
 def _sanitize_error(message: str) -> str:
-    """Remove DomiNode API key patterns from error messages."""
+    """Remove Dominus Node API key patterns from error messages."""
     return _CREDENTIAL_RE.sub("***", message)
 
 
@@ -504,18 +504,18 @@ def _validate_domains(domains: Any) -> Optional[str]:
 
 
 class DominusNodePlugin:
-    """Semantic Kernel plugin providing DomiNode rotating proxy functions.
+    """Semantic Kernel plugin providing Dominus Node rotating proxy functions.
 
-    Authenticates using a DomiNode API key and exposes 22 kernel functions for
+    Authenticates using a Dominus Node API key and exposes 22 kernel functions for
     proxy, wallet, team, and payment management.  All functions return JSON
     strings suitable for consumption by an LLM.
 
     Args:
-        api_key: DomiNode API key (``dn_live_...`` or ``dn_test_...``).
+        api_key: Dominus Node API key (``dn_live_...`` or ``dn_test_...``).
             Falls back to ``DOMINUSNODE_API_KEY`` environment variable.
-        base_url: Base URL of the DomiNode REST API.
-        proxy_host: Hostname of the DomiNode proxy gateway.
-        proxy_port: Port of the DomiNode proxy gateway.
+        base_url: Base URL of the Dominus Node REST API.
+        proxy_host: Hostname of the Dominus Node proxy gateway.
+        proxy_port: Port of the Dominus Node proxy gateway.
         timeout: HTTP request timeout in seconds.
 
     Example::
@@ -548,7 +548,7 @@ class DominusNodePlugin:
     # ------------------------------------------------------------------
 
     def _authenticate(self) -> str:
-        """Authenticate with the DomiNode API using the API key.
+        """Authenticate with the Dominus Node API using the API key.
 
         Returns:
             The JWT bearer token.
@@ -558,7 +558,7 @@ class DominusNodePlugin:
         """
         if not self.api_key:
             raise RuntimeError(
-                "DomiNode API key is required. Pass api_key or set "
+                "Dominus Node API key is required. Pass api_key or set "
                 "DOMINUSNODE_API_KEY environment variable."
             )
 
@@ -603,7 +603,7 @@ class DominusNodePlugin:
         path: str,
         body: Optional[Dict[str, Any]] = None,
     ) -> Any:
-        """Make an authenticated API request to the DomiNode REST API.
+        """Make an authenticated API request to the Dominus Node REST API.
 
         Args:
             method: HTTP method (GET, POST, PATCH, DELETE).
@@ -679,7 +679,7 @@ class DominusNodePlugin:
 
     @kernel_function(
         name="proxied_fetch",
-        description="Fetch a URL through DomiNode's rotating proxy network with geo-targeting",
+        description="Fetch a URL through Dominus Node's rotating proxy network with geo-targeting",
     )
     def proxied_fetch(
         self,
@@ -688,7 +688,7 @@ class DominusNodePlugin:
         country: str = "",
         proxy_type: str = "dc",
     ) -> str:
-        """Fetch a URL through the DomiNode rotating proxy network.
+        """Fetch a URL through the Dominus Node rotating proxy network.
 
         Args:
             url: Target URL to fetch.
@@ -773,7 +773,7 @@ class DominusNodePlugin:
         except Exception as e:
             return json.dumps({
                 "error": f"Proxy fetch failed: {_sanitize_error(str(e))}",
-                "hint": "Ensure the DomiNode proxy gateway is running and accessible.",
+                "hint": "Ensure the Dominus Node proxy gateway is running and accessible.",
             })
 
     # ==================================================================
@@ -782,7 +782,7 @@ class DominusNodePlugin:
 
     @kernel_function(
         name="check_balance",
-        description="Check DomiNode wallet balance in cents",
+        description="Check Dominus Node wallet balance in cents",
     )
     def check_balance(self) -> str:
         """Check the current wallet balance.

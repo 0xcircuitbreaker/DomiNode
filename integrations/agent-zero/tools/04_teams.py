@@ -43,7 +43,7 @@ _VALID_ROLES = frozenset({"member", "admin"})
 
 
 def _sanitize_error(message: str) -> str:
-    """Remove DomiNode API key patterns from error messages."""
+    """Remove Dominus Node API key patterns from error messages."""
     return CREDENTIAL_RE.sub("***", message)
 
 
@@ -82,7 +82,7 @@ def create_team(
     is created automatically.
 
     Args:
-        auth: Authenticated DomiNode helper.
+        auth: Authenticated Dominus Node helper.
         args: Tool arguments:
             - ``name`` (str, required): Team name (max 100 chars).
             - ``max_members`` (int, optional): Maximum team size (1-100).
@@ -124,7 +124,7 @@ def list_teams(
     """List all teams the authenticated user belongs to.
 
     Args:
-        auth: Authenticated DomiNode helper.
+        auth: Authenticated Dominus Node helper.
         args: Tool arguments (none required).
 
     Returns:
@@ -151,7 +151,7 @@ def team_details(
     Returns team metadata, member list, wallet balance, and active API keys.
 
     Args:
-        auth: Authenticated DomiNode helper.
+        auth: Authenticated Dominus Node helper.
         args: Tool arguments:
             - ``team_id`` (str, required): Team UUID.
 
@@ -184,7 +184,7 @@ def team_fund(
     """Transfer funds from the user's personal wallet to the team wallet.
 
     Args:
-        auth: Authenticated DomiNode helper.
+        auth: Authenticated Dominus Node helper.
         args: Tool arguments:
             - ``team_id`` (str, required): Team UUID.
             - ``amount_cents`` (int, required): Amount in cents.
@@ -237,7 +237,7 @@ def team_create_key(
     individual user's wallet.
 
     Args:
-        auth: Authenticated DomiNode helper.
+        auth: Authenticated Dominus Node helper.
         args: Tool arguments:
             - ``team_id`` (str, required): Team UUID.
             - ``label`` (str, required): Key label (max 100 chars).
@@ -278,7 +278,7 @@ def team_usage(
     """Get team wallet transaction history.
 
     Args:
-        auth: Authenticated DomiNode helper.
+        auth: Authenticated Dominus Node helper.
         args: Tool arguments:
             - ``team_id`` (str, required): Team UUID.
             - ``limit`` (int, optional): Maximum transactions (1-100).
@@ -324,7 +324,7 @@ def update_team(
     At least one of ``name`` or ``max_members`` must be provided.
 
     Args:
-        auth: Authenticated DomiNode helper.
+        auth: Authenticated Dominus Node helper.
         args: Tool arguments:
             - ``team_id`` (str, required): Team UUID.
             - ``name`` (str, optional): New team name (max 100 chars).
@@ -391,7 +391,7 @@ def update_team_member_role(
     be assigned through this endpoint.
 
     Args:
-        auth: Authenticated DomiNode helper.
+        auth: Authenticated Dominus Node helper.
         args: Tool arguments:
             - ``team_id`` (str, required): Team UUID.
             - ``user_id`` (str, required): Target member's UUID.

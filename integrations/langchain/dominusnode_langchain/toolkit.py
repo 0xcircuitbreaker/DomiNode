@@ -1,4 +1,4 @@
-"""DomiNode LangChain Toolkit -- bundles all DomiNode tools for agent use.
+"""Dominus Node LangChain Toolkit -- bundles all Dominus Node tools for agent use.
 
 The :class:`DominusNodeToolkit` creates a :class:`DominusNodeClient` internally
 and injects it into each tool so that a single authenticated session is shared
@@ -44,17 +44,17 @@ from .tools import (
 
 
 class DominusNodeToolkit(BaseToolkit):
-    """LangChain toolkit that provides all DomiNode proxy service tools.
+    """LangChain toolkit that provides all Dominus Node proxy service tools.
 
     Creates and manages a :class:`DominusNodeClient` (sync) and optionally
     an :class:`AsyncDominusNodeClient` (async) for use by LangChain agents.
 
     Args:
-        api_key: DomiNode API key (``dn_live_...``).  Falls back to the
+        api_key: Dominus Node API key (``dn_live_...``).  Falls back to the
             ``DOMINUSNODE_API_KEY`` environment variable if not provided.
-        base_url: Base URL for the DomiNode REST API.  Falls back to
+        base_url: Base URL for the Dominus Node REST API.  Falls back to
             ``DOMINUSNODE_BASE_URL`` or the SDK default.
-        proxy_host: Hostname of the DomiNode proxy server.  Falls back to
+        proxy_host: Hostname of the Dominus Node proxy server.  Falls back to
             ``DOMINUSNODE_PROXY_HOST`` or the SDK default.
         http_proxy_port: HTTP proxy port (default 8080).
         socks5_proxy_port: SOCKS5 proxy port (default 1080).
@@ -84,7 +84,7 @@ class DominusNodeToolkit(BaseToolkit):
         resolved_key = api_key or os.environ.get("DOMINUSNODE_API_KEY")
         if not resolved_key:
             raise ValueError(
-                "A DomiNode API key is required.  Pass api_key= or set the "
+                "A Dominus Node API key is required.  Pass api_key= or set the "
                 "DOMINUSNODE_API_KEY environment variable."
             )
 
@@ -179,7 +179,7 @@ class DominusNodeToolkit(BaseToolkit):
         ]
 
     def get_tools(self) -> List[BaseTool]:
-        """Return the list of DomiNode LangChain tools."""
+        """Return the list of Dominus Node LangChain tools."""
         if self._tools is None:
             self._tools = self._build_tools()
         return list(self._tools)

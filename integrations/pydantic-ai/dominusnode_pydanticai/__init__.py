@@ -1,4 +1,4 @@
-"""DomiNode tools for PydanticAI agents."""
+"""Dominus Node tools for PydanticAI agents."""
 
 from dominusnode_pydanticai.tools import DominusNodeToolkit
 

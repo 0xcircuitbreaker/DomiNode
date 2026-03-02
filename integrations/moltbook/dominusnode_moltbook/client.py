@@ -1,8 +1,8 @@
-"""DomiNode Moltbook client -- Moltbook social network through rotating proxies.
+"""Dominus Node Moltbook client -- Moltbook social network through rotating proxies.
 
 This module provides the ``MoltbookClient`` class which routes all Moltbook API
-requests through DomiNode's rotating proxy gateway, ensuring each request comes
-from a different IP address.  It also exposes 23 DomiNode management tools for
+requests through Dominus Node's rotating proxy gateway, ensuring each request comes
+from a different IP address.  It also exposes 23 Dominus Node management tools for
 wallet, team, and proxy operations.
 
 Authentication with Moltbook uses Ethereum wallet signatures (EIP-191
@@ -366,7 +366,7 @@ _ETH_PRIVATE_KEY_RE = re.compile(r"0x[0-9a-fA-F]{64}")
 
 
 def _sanitize_error(message: str) -> str:
-    """Remove DomiNode API key patterns and ETH private keys from error messages."""
+    """Remove Dominus Node API key patterns and ETH private keys from error messages."""
     result = _CREDENTIAL_RE.sub("***", message)
     result = _ETH_PRIVATE_KEY_RE.sub("***ETH_KEY***", result)
     return result
@@ -529,17 +529,17 @@ def _default_sign_fn(message: str, private_key: str) -> str:
 
 
 class MoltbookClient:
-    """Client for interacting with Moltbook through DomiNode rotating proxies.
+    """Client for interacting with Moltbook through Dominus Node rotating proxies.
 
-    Routes all Moltbook API requests through the DomiNode proxy gateway so
+    Routes all Moltbook API requests through the Dominus Node proxy gateway so
     each request comes from a different IP.  Authenticates with Moltbook
     using Ethereum wallet signatures (EIP-191 personal_sign).
 
-    Also provides 23 DomiNode management tools for wallet, team, and proxy
+    Also provides 23 Dominus Node management tools for wallet, team, and proxy
     operations, giving AI agents a total of 33 tools.
 
     Args:
-        dominusnode_api_key: DomiNode API key (``dn_live_...`` or ``dn_test_...``).
+        dominusnode_api_key: Dominus Node API key (``dn_live_...`` or ``dn_test_...``).
             Falls back to ``DOMINUSNODE_API_KEY`` environment variable.
         moltbook_base_url: Base URL of the Moltbook API.
         eth_address: Ethereum wallet address for Moltbook authentication.
@@ -547,9 +547,9 @@ class MoltbookClient:
             Never logged or included in error messages.
         sign_fn: Optional custom signing function ``(message, private_key) -> signature``.
             If not provided, a stub HMAC-based signer is used.
-        proxy_host: Hostname of the DomiNode proxy gateway.
-        proxy_port: Port of the DomiNode proxy gateway.
-        dominusnode_base_url: Base URL of the DomiNode REST API.
+        proxy_host: Hostname of the Dominus Node proxy gateway.
+        proxy_port: Port of the Dominus Node proxy gateway.
+        dominusnode_base_url: Base URL of the Dominus Node REST API.
         timeout: HTTP request timeout in seconds.
 
     Example::
@@ -641,17 +641,17 @@ class MoltbookClient:
     # ------------------------------------------------------------------
 
     def _build_proxy_url(self) -> str:
-        """Build the DomiNode proxy URL with API key authentication.
+        """Build the Dominus Node proxy URL with API key authentication.
 
         Returns:
             HTTP proxy URL string with credentials.
 
         Raises:
-            RuntimeError: If DomiNode API key is not configured.
+            RuntimeError: If Dominus Node API key is not configured.
         """
         if not self.dominusnode_api_key:
             raise RuntimeError(
-                "DomiNode API key is required. Pass dominusnode_api_key or set "
+                "Dominus Node API key is required. Pass dominusnode_api_key or set "
                 "DOMINUSNODE_API_KEY environment variable."
             )
         return (
@@ -1021,7 +1021,7 @@ class MoltbookClient:
     # ==================================================================
 
     def get_proxy_status(self) -> dict:
-        """Get the DomiNode proxy configuration being used for Moltbook requests.
+        """Get the Dominus Node proxy configuration being used for Moltbook requests.
 
         Returns:
             Dict with proxy host, port, and routing mode.
@@ -1032,17 +1032,17 @@ class MoltbookClient:
             "moltbook_base_url": self.moltbook_base_url,
             "routing_mode": "auto",
             "description": (
-                "All Moltbook requests are routed through DomiNode's rotating "
+                "All Moltbook requests are routed through Dominus Node's rotating "
                 "proxy gateway. Each request uses a different IP address."
             ),
         }
 
     # ==================================================================
-    # DomiNode Management -- Authentication
+    # Dominus Node Management -- Authentication
     # ==================================================================
 
     def _authenticate(self) -> str:
-        """Authenticate with the DomiNode API using the API key.
+        """Authenticate with the Dominus Node API using the API key.
 
         Returns:
             The JWT bearer token.
@@ -1052,7 +1052,7 @@ class MoltbookClient:
         """
         if not self.dominusnode_api_key:
             raise RuntimeError(
-                "DomiNode API key is required. Pass dominusnode_api_key or set "
+                "Dominus Node API key is required. Pass dominusnode_api_key or set "
                 "DOMINUSNODE_API_KEY environment variable."
             )
 
@@ -1088,7 +1088,7 @@ class MoltbookClient:
             self._authenticate()
 
     # ------------------------------------------------------------------
-    # DomiNode API request helper
+    # Dominus Node API request helper
     # ------------------------------------------------------------------
 
     def _api_request(
@@ -1097,7 +1097,7 @@ class MoltbookClient:
         path: str,
         body: Optional[Dict[str, Any]] = None,
     ) -> Any:
-        """Make an authenticated API request to the DomiNode REST API.
+        """Make an authenticated API request to the Dominus Node REST API.
 
         Args:
             method: HTTP method (GET, POST, PATCH, DELETE).
@@ -1168,7 +1168,7 @@ class MoltbookClient:
             raise
 
     # ==================================================================
-    # DomiNode Tool 1: check_balance
+    # Dominus Node Tool 1: check_balance
     # ==================================================================
 
     def check_balance(self) -> str:
@@ -1184,7 +1184,7 @@ class MoltbookClient:
             return json.dumps({"error": _sanitize_error(str(e))})
 
     # ==================================================================
-    # DomiNode Tool 2: check_usage
+    # Dominus Node Tool 2: check_usage
     # ==================================================================
 
     def check_usage(self, period: str = "month") -> str:
@@ -1210,7 +1210,7 @@ class MoltbookClient:
             return json.dumps({"error": _sanitize_error(str(e))})
 
     # ==================================================================
-    # DomiNode Tool 3: get_proxy_config
+    # Dominus Node Tool 3: get_proxy_config
     # ==================================================================
 
     def get_proxy_config(self) -> str:
@@ -1226,7 +1226,7 @@ class MoltbookClient:
             return json.dumps({"error": _sanitize_error(str(e))})
 
     # ==================================================================
-    # DomiNode Tool 4: list_sessions
+    # Dominus Node Tool 4: list_sessions
     # ==================================================================
 
     def list_sessions(self) -> str:
@@ -1242,7 +1242,7 @@ class MoltbookClient:
             return json.dumps({"error": _sanitize_error(str(e))})
 
     # ==================================================================
-    # DomiNode Tool 5: create_agentic_wallet
+    # Dominus Node Tool 5: create_agentic_wallet
     # ==================================================================
 
     def create_agentic_wallet(
@@ -1300,7 +1300,7 @@ class MoltbookClient:
             return json.dumps({"error": _sanitize_error(str(e))})
 
     # ==================================================================
-    # DomiNode Tool 6: fund_agentic_wallet
+    # Dominus Node Tool 6: fund_agentic_wallet
     # ==================================================================
 
     def fund_agentic_wallet(self, wallet_id: str, amount_cents: int) -> str:
@@ -1331,7 +1331,7 @@ class MoltbookClient:
             return json.dumps({"error": _sanitize_error(str(e))})
 
     # ==================================================================
-    # DomiNode Tool 7: agentic_wallet_balance
+    # Dominus Node Tool 7: agentic_wallet_balance
     # ==================================================================
 
     def agentic_wallet_balance(self, wallet_id: str) -> str:
@@ -1356,7 +1356,7 @@ class MoltbookClient:
             return json.dumps({"error": _sanitize_error(str(e))})
 
     # ==================================================================
-    # DomiNode Tool 8: list_agentic_wallets
+    # Dominus Node Tool 8: list_agentic_wallets
     # ==================================================================
 
     def list_agentic_wallets(self) -> str:
@@ -1372,7 +1372,7 @@ class MoltbookClient:
             return json.dumps({"error": _sanitize_error(str(e))})
 
     # ==================================================================
-    # DomiNode Tool 9: agentic_transactions
+    # Dominus Node Tool 9: agentic_transactions
     # ==================================================================
 
     def agentic_transactions(self, wallet_id: str, limit: int = 20) -> str:
@@ -1405,7 +1405,7 @@ class MoltbookClient:
             return json.dumps({"error": _sanitize_error(str(e))})
 
     # ==================================================================
-    # DomiNode Tool 10: freeze_agentic_wallet
+    # Dominus Node Tool 10: freeze_agentic_wallet
     # ==================================================================
 
     def freeze_agentic_wallet(self, wallet_id: str) -> str:
@@ -1430,7 +1430,7 @@ class MoltbookClient:
             return json.dumps({"error": _sanitize_error(str(e))})
 
     # ==================================================================
-    # DomiNode Tool 11: unfreeze_agentic_wallet
+    # Dominus Node Tool 11: unfreeze_agentic_wallet
     # ==================================================================
 
     def unfreeze_agentic_wallet(self, wallet_id: str) -> str:
@@ -1455,7 +1455,7 @@ class MoltbookClient:
             return json.dumps({"error": _sanitize_error(str(e))})
 
     # ==================================================================
-    # DomiNode Tool 12: delete_agentic_wallet
+    # Dominus Node Tool 12: delete_agentic_wallet
     # ==================================================================
 
     def delete_agentic_wallet(self, wallet_id: str) -> str:
@@ -1480,7 +1480,7 @@ class MoltbookClient:
             return json.dumps({"error": _sanitize_error(str(e))})
 
     # ==================================================================
-    # DomiNode Tool 13: update_wallet_policy
+    # Dominus Node Tool 13: update_wallet_policy
     # ==================================================================
 
     def update_wallet_policy(
@@ -1531,7 +1531,7 @@ class MoltbookClient:
             return json.dumps({"error": _sanitize_error(str(e))})
 
     # ==================================================================
-    # DomiNode Tool 14: create_team
+    # Dominus Node Tool 14: create_team
     # ==================================================================
 
     def create_team(self, name: str, max_members: int | None = None) -> str:
@@ -1563,7 +1563,7 @@ class MoltbookClient:
             return json.dumps({"error": _sanitize_error(str(e))})
 
     # ==================================================================
-    # DomiNode Tool 14: list_teams
+    # Dominus Node Tool 14: list_teams
     # ==================================================================
 
     def list_teams(self) -> str:
@@ -1579,7 +1579,7 @@ class MoltbookClient:
             return json.dumps({"error": _sanitize_error(str(e))})
 
     # ==================================================================
-    # DomiNode Tool 15: team_details
+    # Dominus Node Tool 15: team_details
     # ==================================================================
 
     def team_details(self, team_id: str) -> str:
@@ -1604,7 +1604,7 @@ class MoltbookClient:
             return json.dumps({"error": _sanitize_error(str(e))})
 
     # ==================================================================
-    # DomiNode Tool 16: team_fund
+    # Dominus Node Tool 16: team_fund
     # ==================================================================
 
     def team_fund(self, team_id: str, amount_cents: int) -> str:
@@ -1638,7 +1638,7 @@ class MoltbookClient:
             return json.dumps({"error": _sanitize_error(str(e))})
 
     # ==================================================================
-    # DomiNode Tool 17: team_create_key
+    # Dominus Node Tool 17: team_create_key
     # ==================================================================
 
     def team_create_key(self, team_id: str, label: str) -> str:
@@ -1670,7 +1670,7 @@ class MoltbookClient:
             return json.dumps({"error": _sanitize_error(str(e))})
 
     # ==================================================================
-    # DomiNode Tool 18: team_usage
+    # Dominus Node Tool 18: team_usage
     # ==================================================================
 
     def team_usage(self, team_id: str, limit: int = 20) -> str:
@@ -1704,7 +1704,7 @@ class MoltbookClient:
             return json.dumps({"error": _sanitize_error(str(e))})
 
     # ==================================================================
-    # DomiNode Tool 19: update_team
+    # Dominus Node Tool 19: update_team
     # ==================================================================
 
     def update_team(
@@ -1757,7 +1757,7 @@ class MoltbookClient:
             return json.dumps({"error": _sanitize_error(str(e))})
 
     # ==================================================================
-    # DomiNode Tool 20: update_team_member_role
+    # Dominus Node Tool 20: update_team_member_role
     # ==================================================================
 
     def update_team_member_role(
@@ -1797,7 +1797,7 @@ class MoltbookClient:
             return json.dumps({"error": _sanitize_error(str(e))})
 
     # ==================================================================
-    # DomiNode Tool 21: x402_info
+    # Dominus Node Tool 21: x402_info
     # ==================================================================
 
     def x402_info(self) -> str:
@@ -1813,7 +1813,7 @@ class MoltbookClient:
             return json.dumps({"error": _sanitize_error(str(e))})
 
     # ==================================================================
-    # DomiNode Tool 22: topup_paypal
+    # Dominus Node Tool 22: topup_paypal
     # ==================================================================
 
     def topup_paypal(self, amount_cents: int) -> str:
@@ -1847,7 +1847,7 @@ class MoltbookClient:
     # ==================================================================
 
     def get_all_tools(self) -> List[Callable]:
-        """Return a list of all tool functions (Moltbook + DomiNode = 33 total).
+        """Return a list of all tool functions (Moltbook + Dominus Node = 33 total).
 
         Returns:
             List of bound method references for all 33 tools.
@@ -1864,7 +1864,7 @@ class MoltbookClient:
             self.create_submolt,
             self.get_profile,
             self.get_proxy_status,
-            # DomiNode management tools (23)
+            # Dominus Node management tools (23)
             self.check_balance,
             self.check_usage,
             self.get_proxy_config,

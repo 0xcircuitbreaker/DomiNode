@@ -1,6 +1,6 @@
-# DomiNode SuperAGI Toolkit
+# Dominus Node SuperAGI Toolkit
 
-SuperAGI toolkit providing 22 tools for interacting with the DomiNode rotating proxy-as-a-service platform.
+SuperAGI toolkit providing 22 tools for interacting with the Dominus Node rotating proxy-as-a-service platform.
 
 ## Installation
 
@@ -21,10 +21,10 @@ Set the following environment variables (or configure them in SuperAGI's tool co
 
 | Variable | Required | Default | Description |
 |---|---|---|---|
-| `DOMINUSNODE_API_KEY` | Yes | -- | Your DomiNode API key (`dn_live_...` or `dn_test_...`) |
-| `DOMINUSNODE_BASE_URL` | No | `https://api.dominusnode.com` | DomiNode REST API base URL |
-| `DOMINUSNODE_PROXY_HOST` | No | `proxy.dominusnode.com` | DomiNode proxy gateway hostname |
-| `DOMINUSNODE_PROXY_PORT` | No | `8080` | DomiNode proxy gateway port |
+| `DOMINUSNODE_API_KEY` | Yes | -- | Your Dominus Node API key (`dn_live_...` or `dn_test_...`) |
+| `DOMINUSNODE_BASE_URL` | No | `https://api.dominusnode.com` | Dominus Node REST API base URL |
+| `DOMINUSNODE_PROXY_HOST` | No | `proxy.dominusnode.com` | Dominus Node proxy gateway hostname |
+| `DOMINUSNODE_PROXY_PORT` | No | `8080` | Dominus Node proxy gateway port |
 
 ## Usage with SuperAGI
 
@@ -42,37 +42,37 @@ env_keys = toolkit.get_env_keys()  # Config keys needed
 ## Available Tools (22)
 
 ### Proxy Operations
-- **DomiNode Proxied Fetch** -- Fetch a URL through rotating proxies with geo-targeting
-- **DomiNode Proxy Config** -- Get proxy endpoint configuration
-- **DomiNode List Sessions** -- View active proxy sessions
+- **Dominus Node Proxied Fetch** -- Fetch a URL through rotating proxies with geo-targeting
+- **Dominus Node Proxy Config** -- Get proxy endpoint configuration
+- **Dominus Node List Sessions** -- View active proxy sessions
 
 ### Wallet
-- **DomiNode Check Balance** -- View wallet balance
-- **DomiNode Check Usage** -- View usage statistics by period
-- **DomiNode TopUp PayPal** -- Create a PayPal wallet top-up order
+- **Dominus Node Check Balance** -- View wallet balance
+- **Dominus Node Check Usage** -- View usage statistics by period
+- **Dominus Node TopUp PayPal** -- Create a PayPal wallet top-up order
 
 ### Agentic Wallets
-- **DomiNode Create Agentic Wallet** -- Create a sub-wallet with spending limit
-- **DomiNode Fund Agentic Wallet** -- Transfer from main wallet
-- **DomiNode Agentic Wallet Balance** -- Check sub-wallet balance
-- **DomiNode List Agentic Wallets** -- List all sub-wallets
-- **DomiNode Agentic Transactions** -- Transaction history
-- **DomiNode Freeze Agentic Wallet** -- Temporarily halt spending
-- **DomiNode Unfreeze Agentic Wallet** -- Re-enable spending
-- **DomiNode Delete Agentic Wallet** -- Delete and refund balance
+- **Dominus Node Create Agentic Wallet** -- Create a sub-wallet with spending limit
+- **Dominus Node Fund Agentic Wallet** -- Transfer from main wallet
+- **Dominus Node Agentic Wallet Balance** -- Check sub-wallet balance
+- **Dominus Node List Agentic Wallets** -- List all sub-wallets
+- **Dominus Node Agentic Transactions** -- Transaction history
+- **Dominus Node Freeze Agentic Wallet** -- Temporarily halt spending
+- **Dominus Node Unfreeze Agentic Wallet** -- Re-enable spending
+- **Dominus Node Delete Agentic Wallet** -- Delete and refund balance
 
 ### Teams
-- **DomiNode Create Team** -- Create team with shared wallet
-- **DomiNode List Teams** -- List user's teams
-- **DomiNode Team Details** -- Get team info
-- **DomiNode Team Fund** -- Fund team wallet
-- **DomiNode Team Create Key** -- Create team API key
-- **DomiNode Team Usage** -- Team transaction history
-- **DomiNode Update Team** -- Update team settings
-- **DomiNode Update Team Member Role** -- Change member role
+- **Dominus Node Create Team** -- Create team with shared wallet
+- **Dominus Node List Teams** -- List user's teams
+- **Dominus Node Team Details** -- Get team info
+- **Dominus Node Team Fund** -- Fund team wallet
+- **Dominus Node Team Create Key** -- Create team API key
+- **Dominus Node Team Usage** -- Team transaction history
+- **Dominus Node Update Team** -- Update team settings
+- **Dominus Node Update Team Member Role** -- Change member role
 
 ### Payments
-- **DomiNode X402 Info** -- x402 micropayment protocol details
+- **Dominus Node X402 Info** -- x402 micropayment protocol details
 
 ## Security
 

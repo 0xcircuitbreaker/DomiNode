@@ -1,6 +1,6 @@
 # n8n-nodes-dominusnode
 
-n8n community nodes for the [DomiNode](https://dominusnode.com) rotating proxy-as-a-service platform.
+n8n community nodes for the [Dominus Node](https://dominusnode.com) rotating proxy-as-a-service platform.
 
 ## Installation
 
@@ -19,29 +19,29 @@ npm install n8n-nodes-dominusnode
 
 ## Credentials
 
-Create a **DomiNode API** credential with:
+Create a **Dominus Node API** credential with:
 
 | Field | Description | Default |
 |-------|-------------|---------|
-| API Key | Your DomiNode API key (`dn_live_...` or `dn_test_...`) | *(required)* |
-| Base URL | DomiNode API base URL | `https://api.dominusnode.com` |
+| API Key | Your Dominus Node API key (`dn_live_...` or `dn_test_...`) | *(required)* |
+| Base URL | Dominus Node API base URL | `https://api.dominusnode.com` |
 | Proxy Host | Proxy gateway hostname | `proxy.dominusnode.com` |
 | Proxy Port | Proxy gateway port | `8080` |
 
 ## Nodes
 
-### DomiNode Proxy
+### Dominus Node Proxy
 
-Make HTTP requests through DomiNode's rotating proxy network.
+Make HTTP requests through Dominus Node's rotating proxy network.
 
 **Operations:**
 - **Proxied Fetch** -- Route HTTP requests through datacenter or residential proxies with geo-targeting
 - **Get Proxy Config** -- Retrieve proxy endpoint configuration
 - **List Active Sessions** -- List currently active proxy sessions
 
-### DomiNode Wallet
+### Dominus Node Wallet
 
-Manage your DomiNode wallet, agentic sub-wallets, and teams.
+Manage your Dominus Node wallet, agentic sub-wallets, and teams.
 
 **Operations:**
 - **Check Balance** -- Get current wallet balance
@@ -61,7 +61,7 @@ Manage your DomiNode wallet, agentic sub-wallets, and teams.
 - **Team Usage** -- View team transaction history
 - **Update Team** / **Update Team Member Role** -- Team administration
 
-### DomiNode Usage
+### Dominus Node Usage
 
 Check proxy usage statistics.
 

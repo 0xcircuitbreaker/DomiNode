@@ -1,6 +1,6 @@
 # dominusnode-llamaindex
 
-LlamaIndex integration for the [DomiNode](https://dominusnode.com) rotating proxy-as-a-service platform. Provides 22 tools covering proxy operations, wallet management, agentic wallets, team management, and PayPal top-ups.
+LlamaIndex integration for the [Dominus Node](https://dominusnode.com) rotating proxy-as-a-service platform. Provides 22 tools covering proxy operations, wallet management, agentic wallets, team management, and PayPal top-ups.
 
 ## Installation
 
@@ -38,7 +38,7 @@ print(response)
 ### Proxy Operations
 | Tool | Description |
 |------|-------------|
-| `proxied_fetch` | Fetch a URL through the DomiNode proxy (GET/HEAD/OPTIONS, geo-targeting, dc/residential) |
+| `proxied_fetch` | Fetch a URL through the Dominus Node proxy (GET/HEAD/OPTIONS, geo-targeting, dc/residential) |
 | `check_balance` | Check wallet balance in USD and cents |
 | `check_usage` | View bandwidth usage stats for a time period (day/week/month) |
 | `get_proxy_config` | Get proxy endpoints, supported countries, and geo-targeting features |

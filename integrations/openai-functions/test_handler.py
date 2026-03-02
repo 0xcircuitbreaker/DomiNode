@@ -1,4 +1,4 @@
-"""Tests for the DomiNode OpenAI-compatible function calling handler (Python).
+"""Tests for the Dominus Node OpenAI-compatible function calling handler (Python).
 
 Run with: python -m pytest test_handler.py -v
 """

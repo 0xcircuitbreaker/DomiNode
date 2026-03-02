@@ -1,11 +1,13 @@
 {
   "name": "@dominusnode/openai-functions",
-  "version": "1.0.0",
-  "description": "DomiNode OpenAI-compatible function calling handler — dispatches LLM function calls to the DomiNode REST API",
-  "main": "handler.ts",
+  "version": "1.0.1",
+  "description": "Dominus Node OpenAI-compatible function calling handler — dispatches LLM function calls to the Dominus Node REST API",
+  "main": "dist/handler.js",
+  "types": "dist/handler.d.ts",
   "type": "module",
   "license": "MIT",
   "scripts": {
+    "build": "tsc",
     "test": "vitest run",
     "test:py": "python -m pytest test_handler.py -v"
   },
@@ -27,5 +29,11 @@
   },
   "engines": {
     "node": ">=18.0.0"
-  }
+  },
+  "files": [
+    "dist/",
+    "functions.json",
+    "README.md",
+    "LICENSE"
+  ]
 }

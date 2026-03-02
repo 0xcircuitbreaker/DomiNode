@@ -1,12 +1,12 @@
-"""DomiNode LlamaIndex integration -- core client and security helpers.
+"""Dominus Node LlamaIndex integration -- core client and security helpers.
 
-Provides a ``DominusNodeClient`` that wraps the DomiNode REST API using
+Provides a ``DominusNodeClient`` that wraps the Dominus Node REST API using
 httpx, with full SSRF prevention, credential scrubbing, prototype
 pollution protection, OFAC compliance, and 401 retry logic.
 
 The client authenticates via the ``/api/auth/verify-key`` endpoint to
 obtain a JWT, then uses Bearer auth for subsequent API calls.  Proxied
-fetch requests are routed through the DomiNode proxy gateway using
+fetch requests are routed through the Dominus Node proxy gateway using
 CONNECT tunnels (HTTPS) or full-URL forwarding (HTTP).
 
 Security:
@@ -55,7 +55,7 @@ SANCTIONED_COUNTRIES: frozenset[str] = frozenset({"CU", "IR", "KP", "RU", "SY"})
 """OFAC sanctioned countries -- requests geo-targeting these are blocked."""
 
 _CREDENTIAL_RE = re.compile(r"dn_(live|test)_[a-zA-Z0-9]+")
-"""Regex to match DomiNode API key patterns for scrubbing."""
+"""Regex to match Dominus Node API key patterns for scrubbing."""
 
 _DANGEROUS_KEYS: frozenset[str] = frozenset({"__proto__", "constructor", "prototype"})
 """Keys that must be stripped from parsed JSON to prevent prototype pollution."""
@@ -363,7 +363,7 @@ def validate_url(url: str) -> str:
 
 
 def sanitize_error(message: str) -> str:
-    """Remove DomiNode API key patterns from error messages.
+    """Remove Dominus Node API key patterns from error messages.
 
     Args:
         message: The error message to sanitize.
@@ -527,24 +527,24 @@ def _validate_allowed_domains(value: Any) -> Optional[str]:
 
 
 class DominusNodeClient:
-    """HTTP client for the DomiNode REST API with JWT authentication.
+    """HTTP client for the Dominus Node REST API with JWT authentication.
 
     Authenticates using an API key via the ``/api/auth/verify-key`` endpoint
     to obtain a JWT token, then uses Bearer authentication for all subsequent
     API calls.  Automatically retries on 401 (token expired) by
     re-authenticating.
 
-    Proxied fetch requests are routed through the DomiNode proxy gateway
+    Proxied fetch requests are routed through the Dominus Node proxy gateway
     (CONNECT tunnel for HTTPS, full-URL forwarding for HTTP).
 
     Args:
-        api_key: DomiNode API key (starts with ``dn_live_`` or ``dn_test_``).
+        api_key: Dominus Node API key (starts with ``dn_live_`` or ``dn_test_``).
             Falls back to ``DOMINUSNODE_API_KEY`` environment variable.
-        base_url: Base URL for the DomiNode REST API.
+        base_url: Base URL for the Dominus Node REST API.
             Falls back to ``DOMINUSNODE_BASE_URL`` or ``https://api.dominusnode.com``.
-        proxy_host: Hostname of the DomiNode proxy gateway.
+        proxy_host: Hostname of the Dominus Node proxy gateway.
             Falls back to ``DOMINUSNODE_PROXY_HOST`` or ``proxy.dominusnode.com``.
-        proxy_port: Port of the DomiNode proxy gateway.
+        proxy_port: Port of the Dominus Node proxy gateway.
             Falls back to ``DOMINUSNODE_PROXY_PORT`` or ``8080``.
         timeout: HTTP request timeout in seconds.  Defaults to 30.
     """
@@ -560,7 +560,7 @@ class DominusNodeClient:
         self._api_key = api_key or os.environ.get("DOMINUSNODE_API_KEY", "")
         if not self._api_key:
             raise ValueError(
-                "A DomiNode API key is required.  Pass api_key= or set the "
+                "A Dominus Node API key is required.  Pass api_key= or set the "
                 "DOMINUSNODE_API_KEY environment variable."
             )
 
@@ -582,7 +582,7 @@ class DominusNodeClient:
     # ----- Authentication --------------------------------------------------
 
     def _ensure_auth(self) -> None:
-        """Authenticate with the DomiNode API if not already authenticated.
+        """Authenticate with the Dominus Node API if not already authenticated.
 
         Sends the API key to ``/api/auth/verify-key`` and stores the
         resulting JWT token for subsequent requests.
@@ -696,9 +696,9 @@ class DominusNodeClient:
         proxy_type: str = "dc",
         headers: Optional[Dict[str, str]] = None,
     ) -> Dict[str, Any]:
-        """Fetch a URL through the DomiNode proxy gateway.
+        """Fetch a URL through the Dominus Node proxy gateway.
 
-        Routes the request through the DomiNode proxy using the API key
+        Routes the request through the Dominus Node proxy using the API key
         in the Proxy-Authorization password field for authentication and
         the routing options (pool type, country) in the username field.
 
@@ -797,7 +797,7 @@ class DominusNodeClient:
         except Exception as e:
             return {
                 "error": f"Proxy fetch failed: {sanitize_error(str(e))}",
-                "hint": "Ensure the DomiNode proxy gateway is running and accessible.",
+                "hint": "Ensure the Dominus Node proxy gateway is running and accessible.",
             }
 
     def check_balance(self) -> Dict[str, Any]:

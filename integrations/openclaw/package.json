@@ -1,11 +1,13 @@
 {
   "name": "@dominusnode/openclaw-plugin",
-  "version": "1.0.0",
-  "description": "DomiNode proxy plugin for OpenClaw — route web requests through rotating proxy networks",
-  "main": "plugin.ts",
+  "version": "1.0.1",
+  "description": "Dominus Node proxy plugin for OpenClaw — route web requests through rotating proxy networks",
+  "main": "dist/plugin.js",
+  "types": "dist/plugin.d.ts",
   "type": "module",
   "license": "MIT",
   "scripts": {
+    "build": "tsc",
     "test": "vitest run"
   },
   "devDependencies": {
@@ -29,8 +31,8 @@
     "node": ">=18.0.0"
   },
   "files": [
-    "plugin.ts",
-    "SKILL.md",
-    "README.md"
+    "dist/",
+    "README.md",
+    "LICENSE"
   ]
 }

@@ -1,4 +1,4 @@
-"""DomiNode tools for Haystack pipelines."""
+"""Dominus Node tools for Haystack pipelines."""
 from dominusnode_haystack.tools import DominusNodeToolkit
 
 __version__ = "1.0.0"

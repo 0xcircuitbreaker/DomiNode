@@ -1,10 +1,14 @@
 # Changelog
 
+## 1.0.1
+
+- Fix branding: replace "DomiNode" with "Dominus Node" throughout
+
 ## 1.0.0 (2026-02-24)
 
 ### Added
 
-- Initial release with 22 PydanticAI tool functions for DomiNode proxy service
+- Initial release with 22 PydanticAI tool functions for Dominus Node proxy service
 - DominusNodeToolkit class with get_tools() returning plain callables for PydanticAI agent registration
 - Proxied fetch with SSRF protection, OFAC blocking, and credential scrubbing
 - Wallet balance and usage monitoring tools

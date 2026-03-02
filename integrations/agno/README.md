@@ -1,6 +1,6 @@
 # dominusnode-agno
 
-Agno (phidata) toolkit for the [DomiNode](https://dominusnode.com) rotating proxy-as-a-service platform. Provides 22 tools for proxy management, wallet operations, team administration, and payment processing.
+Agno (phidata) toolkit for the [Dominus Node](https://dominusnode.com) rotating proxy-as-a-service platform. Provides 22 tools for proxy management, wallet operations, team administration, and payment processing.
 
 ## Installation
 
@@ -17,7 +17,7 @@ pip install -e ".[dev]"
 
 ## Environment Setup
 
-Set your DomiNode API key as an environment variable:
+Set your Dominus Node API key as an environment variable:
 
 ```bash
 export DOMINUSNODE_API_KEY="dn_live_your_api_key_here"
@@ -51,7 +51,7 @@ agent = Agent(
     show_tool_calls=True,
 )
 
-# Let the agent use DomiNode tools
+# Let the agent use Dominus Node tools
 agent.print_response("Check my proxy wallet balance")
 agent.print_response("Fetch https://example.com through a US datacenter proxy")
 ```
@@ -185,7 +185,7 @@ key = json.loads(toolkit.team_create_key(
 ))
 ```
 
-### Agno Agent with DomiNode
+### Agno Agent with Dominus Node
 
 ```python
 from agno.agent import Agent
@@ -197,7 +197,7 @@ agent = Agent(
     tools=[DominusNodeToolkit(api_key="dn_live_...")],
     instructions=[
         "You are a web research assistant.",
-        "Use DomiNode proxies to fetch web pages.",
+        "Use Dominus Node proxies to fetch web pages.",
         "Always use datacenter proxies for cost efficiency.",
     ],
     show_tool_calls=True,

@@ -300,13 +300,13 @@ Assuming $0.50/GB reseller cost:
 - **Sell at $5/GB:** 90% gross margin ($4.50 profit per GB)
 - **Sell at $7/GB:** 93% gross margin ($6.50 profit per GB)
 
-**DomiNode Current Strategy:** $5/GB retail, $1/GB from PacketStream = 80% margin
+**Dominus Node Current Strategy:** $5/GB retail, $1/GB from PacketStream = 80% margin
 
 **With Rayobyte:** $5/GB retail, $0.50/GB from Rayobyte = **90% margin** (+10% improvement)
 
 ---
 
-## Integration Considerations for DomiNode
+## Integration Considerations for Dominus Node
 
 ### Technical Integration
 1. **API Integration:** Replace/augment PacketStream API with Rayobyte reseller API
@@ -330,7 +330,7 @@ Assuming $0.50/GB reseller cost:
 
 ---
 
-## Recommendations for DomiNode
+## Recommendations for Dominus Node
 
 ### Immediate Actions
 1. **Apply for Reseller Program:** Fill out vetting form at proxyreseller.com
@@ -374,7 +374,7 @@ Assuming $0.50/GB reseller cost:
 
 ## Conclusion
 
-**ProxyReseller (Rayobyte) is a strong candidate for DomiNode's proxy sourcing strategy.**
+**ProxyReseller (Rayobyte) is a strong candidate for Dominus Node's proxy sourcing strategy.**
 
 **Key Advantages:**
 - 50% lower cost than PacketStream ($0.50/GB vs $1.00/GB)
@@ -410,4 +410,4 @@ Assuming $0.50/GB reseller cost:
 ---
 
 **Research completed:** February 15, 2026
-**Prepared for:** DomiNode proxy sourcing evaluation
+**Prepared for:** Dominus Node proxy sourcing evaluation

@@ -1,7 +1,7 @@
 /**
- * DomiNode OpenClaw Plugin
+ * Dominus Node OpenClaw Plugin
  *
- * Implements 24 tools for interacting with DomiNode's rotating proxy service
+ * Implements 24 tools for interacting with Dominus Node's rotating proxy service
  * directly from OpenClaw AI coding sessions.
  *
  * Uses native fetch (no external dependencies). Runs via jiti runtime.
@@ -66,7 +66,7 @@ function getApiKey(): string {
   if (!key || typeof key !== "string" || key.trim().length === 0) {
     throw new Error(
       "DOMINUSNODE_API_KEY environment variable is required. " +
-        'Set it to your DomiNode API key (starts with "dn_live_" or "dn_test_").',
+        'Set it to your Dominus Node API key (starts with "dn_live_" or "dn_test_").',
     );
   }
   const trimmed = key.trim();
@@ -418,7 +418,7 @@ async function ensureAuth(apiKey: string, baseUrl: string): Promise<string> {
 }
 
 // ---------------------------------------------------------------------------
-// HTTP client for DomiNode API
+// HTTP client for Dominus Node API
 // ---------------------------------------------------------------------------
 
 interface ApiResponse<T = unknown> {
@@ -551,7 +551,7 @@ function formatCents(cents: number): string {
 const proxiedFetchTool: ToolDefinition = {
   name: "proxied_fetch",
   description:
-    "Fetch a URL through DomiNode's rotating proxy network. Supports geo-targeting " +
+    "Fetch a URL through Dominus Node's rotating proxy network. Supports geo-targeting " +
     "by country. Returns status code, headers, and response body (truncated to 4000 chars).",
   parameters: {
     url: {
@@ -719,7 +719,7 @@ const proxiedFetchTool: ToolDefinition = {
 const checkBalanceTool: ToolDefinition = {
   name: "check_balance",
   description:
-    "Check your DomiNode wallet balance and estimated remaining bandwidth at current pricing.",
+    "Check your Dominus Node wallet balance and estimated remaining bandwidth at current pricing.",
   parameters: {},
   execute: async () => {
     try {
@@ -811,7 +811,7 @@ const getProxyConfigTool: ToolDefinition = {
       }>("/api/proxy/config");
 
       const lines = [
-        "DomiNode Proxy Configuration",
+        "Dominus Node Proxy Configuration",
         "",
         `Proxy Host: ${data.proxyHost ?? "proxy.dominusnode.com"}`,
         `HTTP Proxy Port: ${data.httpProxyPort ?? 8080}`,
@@ -1703,7 +1703,7 @@ const updateTeamTool: ToolDefinition = {
 const topupPaypalTool: ToolDefinition = {
   name: "topup_paypal",
   description:
-    "Top up your DomiNode wallet balance via PayPal. Creates a PayPal order and returns an " +
+    "Top up your Dominus Node wallet balance via PayPal. Creates a PayPal order and returns an " +
     "approval URL to complete payment. Minimum $5 (500 cents), maximum $1,000 (100000 cents).",
   parameters: {
     amount_cents: {
@@ -1940,7 +1940,7 @@ export const plugin = {
   name: "dominusnode-proxy",
   version: "1.0.0",
   description:
-    "Route web requests through DomiNode's rotating proxy network with geo-targeting, " +
+    "Route web requests through Dominus Node's rotating proxy network with geo-targeting, " +
     "balance management, agentic wallets, and team collaboration.",
   tools,
 };

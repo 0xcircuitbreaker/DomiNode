@@ -1,10 +1,14 @@
 # Changelog
 
+## 1.0.1
+
+- Fix branding: replace "DomiNode" with "Dominus Node" throughout
+
 ## 1.0.0 (2026-02-24)
 
 ### Added
 
-- Initial release with 22 SuperAGI tools for DomiNode proxy service
+- Initial release with 22 SuperAGI tools for Dominus Node proxy service
 - DominusNodeToolkit (BaseToolkit) registering all 22 tools with get_tools()
 - Proxied fetch with SSRF protection, OFAC blocking, and credential scrubbing
 - Wallet balance and usage monitoring tools

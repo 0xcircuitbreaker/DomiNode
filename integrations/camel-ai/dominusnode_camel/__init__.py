@@ -1,4 +1,4 @@
-"""DomiNode tools for CAMEL-AI agents."""
+"""Dominus Node tools for CAMEL-AI agents."""
 
 from dominusnode_camel.tools import DominusNodeToolkit
 

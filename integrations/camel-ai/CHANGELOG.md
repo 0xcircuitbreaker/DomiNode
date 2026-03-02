@@ -1,10 +1,14 @@
 # Changelog
 
+## 1.0.1
+
+- Fix branding: replace "DomiNode" with "Dominus Node" throughout
+
 ## 1.0.0 (2026-02-24)
 
 ### Added
 
-- Initial release with 22 CAMEL-AI FunctionTool wrappers for DomiNode proxy service
+- Initial release with 22 CAMEL-AI FunctionTool wrappers for Dominus Node proxy service
 - DominusNodeToolkit class exposing get_tools() for CAMEL agent integration
 - Proxied fetch with SSRF protection, OFAC blocking, and credential scrubbing
 - Wallet balance and usage monitoring tools

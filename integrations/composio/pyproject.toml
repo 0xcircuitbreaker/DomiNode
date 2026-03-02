@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "dominusnode-composio"
-version = "1.0.0"
-description = "DomiNode tools for Composio -- 22 proxy, wallet, and team management actions"
+version = "1.0.1"
+description = "Dominus Node tools for Composio -- 22 proxy, wallet, and team management actions"
 readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.10"

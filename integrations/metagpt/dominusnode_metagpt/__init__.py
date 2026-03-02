@@ -1,4 +1,4 @@
-"""DomiNode tools for MetaGPT agents."""
+"""Dominus Node tools for MetaGPT agents."""
 
 from dominusnode_metagpt.tools import DominusNodeToolkit
 

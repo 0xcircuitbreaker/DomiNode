@@ -1,6 +1,6 @@
-"""Tests for DomiNode LangChain tools.
+"""Tests for Dominus Node LangChain tools.
 
-All tests mock the DomiNode SDK client to avoid network calls.
+All tests mock the Dominus Node SDK client to avoid network calls.
 """
 
 from __future__ import annotations
@@ -265,7 +265,7 @@ class TestProxiedFetchTool:
         tool = DominusNodeProxiedFetchTool()
         result = tool._run(url="http://example.com")
         assert "Error" in result
-        assert "No DomiNode client" in result
+        assert "No Dominus Node client" in result
 
     @patch("dominusnode_langchain.tools.httpx.Client")
     def test_successful_fetch(self, mock_httpx_client_cls, mock_sync_client):
@@ -370,7 +370,7 @@ class TestBalanceTool:
         tool = DominusNodeBalanceTool()
         result = tool._run()
         assert "Error" in result
-        assert "No DomiNode client" in result
+        assert "No Dominus Node client" in result
 
     def test_sdk_error_handled(self, mock_sync_client):
         mock_sync_client.wallet.get_balance.side_effect = Exception("Connection refused")
@@ -492,7 +492,7 @@ class TestProxiedFetchToolAsync:
         tool = DominusNodeProxiedFetchTool()
         result = await tool._arun(url="http://example.com")
         assert "Error" in result
-        assert "No DomiNode client" in result
+        assert "No Dominus Node client" in result
 
     @pytest.mark.asyncio
     @patch("dominusnode_langchain.tools.httpx.AsyncClient")

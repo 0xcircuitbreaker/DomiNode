@@ -1,7 +1,7 @@
 /**
  * @dominusnode/flowise-tools
  *
- * DomiNode rotating proxy tools for Flowise AI.
+ * Dominus Node rotating proxy tools for Flowise AI.
  *
  * Exposes a DominusNodeToolkit class that produces LangChain-compatible
  * DynamicStructuredTool instances for use inside Flowise workflows.

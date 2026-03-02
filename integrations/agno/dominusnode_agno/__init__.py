@@ -1,4 +1,4 @@
-"""DomiNode tools for Agno (phidata) agents."""
+"""Dominus Node tools for Agno (phidata) agents."""
 
 from dominusnode_agno.tools import DominusNodeToolkit
 

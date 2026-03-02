@@ -1,4 +1,4 @@
-"""Shared utilities for DomiNode Agent Zero integration.
+"""Shared utilities for Dominus Node Agent Zero integration.
 
 Re-exports all public symbols for convenient imports::
 

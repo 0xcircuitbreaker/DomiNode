@@ -1,4 +1,4 @@
-"""Tests for the DomiNode Gemini / Vertex AI function calling handler (Python).
+"""Tests for the Dominus Node Gemini / Vertex AI function calling handler (Python).
 
 Run with: python -m pytest test_handler.py -v
 """

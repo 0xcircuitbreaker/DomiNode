@@ -1,4 +1,4 @@
-"""Agent Zero tool modules for DomiNode.
+"""Agent Zero tool modules for Dominus Node.
 
 Each module in this package follows Agent Zero's numeric-prefix convention:
 

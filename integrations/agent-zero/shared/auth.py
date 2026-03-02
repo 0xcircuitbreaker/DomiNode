@@ -1,4 +1,4 @@
-"""DomiNode authentication helper for Agent Zero tools.
+"""Dominus Node authentication helper for Agent Zero tools.
 
 Provides JWT-based authentication using the ``/api/auth/verify-key`` flow,
 automatic 401 retry, credential sanitisation, and prototype-pollution-safe
@@ -44,7 +44,7 @@ class DominusNodeAuth:
         self.api_key: str = api_key or os.environ.get("DOMINUSNODE_API_KEY", "")
         if not self.api_key:
             raise ValueError(
-                "DomiNode API key is required.  "
+                "Dominus Node API key is required.  "
                 "Pass api_key= or set DOMINUSNODE_API_KEY."
             )
 
@@ -104,7 +104,7 @@ class DominusNodeAuth:
         *,
         _retry: bool = True,
     ) -> Any:
-        """Make an authenticated API request to the DomiNode REST API.
+        """Make an authenticated API request to the Dominus Node REST API.
 
         Automatically retries once on 401 (token expired) by
         re-authenticating and replaying the request.
@@ -169,7 +169,7 @@ class DominusNodeAuth:
     # ------------------------------------------------------------------
 
     def sanitize_error(self, message: str) -> str:
-        """Remove DomiNode API key patterns from error messages."""
+        """Remove Dominus Node API key patterns from error messages."""
         return CREDENTIAL_RE.sub("***", message)
 
     def strip_dangerous_keys(self, obj: Any, depth: int = 0) -> None:

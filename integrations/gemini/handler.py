@@ -1,7 +1,7 @@
-"""DomiNode Gemini / Vertex AI function calling handler (Python).
+"""Dominus Node Gemini / Vertex AI function calling handler (Python).
 
 Provides a factory function that creates a handler for dispatching
-Google Gemini function calls to the DomiNode REST API. Works with
+Google Gemini function calls to the Dominus Node REST API. Works with
 Gemini, Vertex AI, or any system that uses Gemini-format function
 declarations.
 
@@ -274,7 +274,7 @@ _CREDENTIAL_RE = re.compile(r"dn_(live|test)_[a-zA-Z0-9]+")
 
 
 def _sanitize_error(message: str) -> str:
-    """Remove DomiNode API key patterns from error messages."""
+    """Remove Dominus Node API key patterns from error messages."""
     return _CREDENTIAL_RE.sub("***", message)
 
 
@@ -323,15 +323,15 @@ def create_dominusnode_function_handler(
     base_url: str = "https://api.dominusnode.com",
     timeout: float = 30.0,
 ) -> FunctionHandler:
-    """Create a DomiNode function handler for Gemini / Vertex AI function calling.
+    """Create a Dominus Node function handler for Gemini / Vertex AI function calling.
 
     Authenticates using the provided API key, then returns an async handler
-    function that dispatches function calls to the appropriate DomiNode REST
+    function that dispatches function calls to the appropriate Dominus Node REST
     API endpoint.
 
     Args:
-        api_key: DomiNode API key (starts with ``dn_live_`` or ``dn_test_``).
-        base_url: Base URL of the DomiNode REST API.
+        api_key: Dominus Node API key (starts with ``dn_live_`` or ``dn_test_``).
+        base_url: Base URL of the Dominus Node REST API.
         timeout: HTTP request timeout in seconds.
 
     Returns:
@@ -350,7 +350,7 @@ def create_dominusnode_function_handler(
     auth_token: Optional[str] = None
 
     async def authenticate() -> str:
-        """Authenticate with the DomiNode API using the API key."""
+        """Authenticate with the Dominus Node API using the API key."""
         nonlocal auth_token
 
         async with httpx.AsyncClient(
@@ -534,7 +534,7 @@ def create_dominusnode_function_handler(
         except Exception as e:
             return json.dumps({
                 "error": f"Proxy fetch failed: {_sanitize_error(str(e))}",
-                "hint": "Ensure the DomiNode proxy gateway is running and accessible.",
+                "hint": "Ensure the Dominus Node proxy gateway is running and accessible.",
             })
 
     async def handle_check_balance(_args: Dict[str, Any]) -> str:
@@ -991,7 +991,7 @@ def create_dominusnode_function_handler(
     # -------------------------------------------------------------------
 
     async def handler(name: str, args: Dict[str, Any]) -> str:
-        """Dispatch a Gemini function call to the appropriate DomiNode API endpoint.
+        """Dispatch a Gemini function call to the appropriate Dominus Node API endpoint.
 
         Args:
             name: The function name (e.g., ``dominusnode_check_balance``).

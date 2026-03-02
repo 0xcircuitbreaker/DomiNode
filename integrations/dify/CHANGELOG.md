@@ -1,10 +1,14 @@
 # Changelog
 
+## 1.0.1
+
+- Fix branding: replace "DomiNode" with "Dominus Node" throughout
+
 ## 1.0.0 (2026-02-24)
 
 ### Added
 
-- Initial release with 22 Dify tools for DomiNode proxy service
+- Initial release with 22 Dify tools for Dominus Node proxy service
 - YAML provider definition with API key, base URL, and proxy host credentials
 - 22 YAML tool definitions with full parameter schemas and LLM descriptions
 - Proxied fetch with SSRF protection, OFAC blocking, and credential scrubbing

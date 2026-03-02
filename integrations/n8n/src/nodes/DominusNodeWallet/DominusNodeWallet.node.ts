@@ -1,5 +1,5 @@
 /**
- * DomiNode Wallet n8n community node.
+ * Dominus Node Wallet n8n community node.
  *
  * Operations:
  * - Check Balance: Get current wallet balance
@@ -47,14 +47,14 @@ const VALID_CRYPTO_CURRENCIES = new Set([
 
 export class DominusNodeWallet implements INodeType {
   description: INodeTypeDescription = {
-    displayName: "DomiNode Wallet",
+    displayName: "Dominus Node Wallet",
     name: "dominusNodeWallet",
     icon: "file:dominusnode.svg",
     group: ["transform"],
     version: 1,
     subtitle: '={{$parameter["operation"]}}',
-    description: "Manage DomiNode wallet, agentic wallets, and teams",
-    defaults: { name: "DomiNode Wallet" },
+    description: "Manage Dominus Node wallet, agentic wallets, and teams",
+    defaults: { name: "Dominus Node Wallet" },
     inputs: ["main"],
     outputs: ["main"],
     credentials: [{ name: "dominusNodeApi", required: true }],

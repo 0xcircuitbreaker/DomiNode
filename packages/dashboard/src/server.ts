@@ -250,7 +250,7 @@ export function startApiServer(port: number = 3000): ReturnType<express.Express[
 
     res.json({
       schema_version: "1.0.0",
-      name: "DomiNode",
+      name: "Dominus Node",
       description: "Rotating proxy-as-a-service with per-agent budgets, guardrails, and pay-per-use billing for AI agent swarms.",
       homepage: baseUrl,
       documentation: `${baseUrl}/docs`,
