@@ -62,8 +62,22 @@ if [ -f "$ENV_FILE" ]; then
 fi
 
 # ─── Arguments ───────────────────────────────────────────────────────
-NUM_AGENTS="${1:?Usage: ai-swarm.sh <num_agents> [team|solo|both]}"
+NUM_AGENTS="${1:?Usage: ai-swarm.sh <num_agents> [team|solo|both] [--dry-run]}"
 MODE="${2:-both}"
+DRY_RUN=0
+
+# Check for --dry-run in any position
+for arg in "$@"; do
+  if [ "$arg" = "--dry-run" ]; then
+    DRY_RUN=1
+    export SWARM_DRY_RUN=1
+  fi
+done
+
+# If mode was set to --dry-run, fix it
+if [ "$MODE" = "--dry-run" ]; then
+  MODE="both"
+fi
 
 case "$MODE" in
   team|solo|both) ;;
@@ -93,8 +107,13 @@ PROXY_HOST="${PROXY_HOST:-localhost}"
 PROXY_PORT="${PROXY_PORT:-8080}"
 LOG_DIR="${SWARM_LOG_DIR:-/tmp/dominusnode-ai-swarm}"
 
-: "${ADMIN_EMAIL:?ADMIN_EMAIL required (set in .env.swarm or shell env)}"
-: "${ADMIN_PASSWORD:?ADMIN_PASSWORD required}"
+if [ "$DRY_RUN" -eq 1 ]; then
+  ADMIN_EMAIL="${ADMIN_EMAIL:-dryrun@example.invalid}"
+  ADMIN_PASSWORD="${ADMIN_PASSWORD:-DRY_RUN_NO_PASSWORD}"
+else
+  : "${ADMIN_EMAIL:?ADMIN_EMAIL required (set in .env.swarm or shell env)}"
+  : "${ADMIN_PASSWORD:?ADMIN_PASSWORD required}"
+fi
 
 (umask 077 && mkdir -p "$LOG_DIR")
 
@@ -109,7 +128,11 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 echo "============================================"
-echo "  Dominus Node AI Agent Swarm"
+if [ "$DRY_RUN" -eq 1 ]; then
+  echo "  Dominus Node AI Agent Swarm [DRY RUN]"
+else
+  echo "  Dominus Node AI Agent Swarm"
+fi
 echo "============================================"
 echo ""
 echo "  Model:       ${AI_MODEL}"
@@ -120,9 +143,89 @@ echo "  Agents:      ${NUM_AGENTS}"
 echo "  API:         ${API_BASE}"
 echo "  Proxy:       ${PROXY_HOST}:${PROXY_PORT}"
 echo "  Log dir:     ${LOG_DIR}"
+if [ "$DRY_RUN" -eq 1 ]; then
+  echo "  Dry run:     YES (no GPU, no API calls, no proxy traffic)"
+fi
 echo ""
 
 # ─── Pre-flight checks ──────────────────────────────────────────────
+if [ "$DRY_RUN" -eq 1 ]; then
+  echo "Pre-flight checks... [DRY RUN]"
+
+  # Check Python (still useful even in dry run)
+  if command -v python3 &>/dev/null; then
+    echo "  Python:  $(python3 --version 2>&1)"
+  else
+    echo "  Python:  NOT FOUND (required for AI swarm)"
+  fi
+
+  # Check Python packages (informational)
+  MISSING_PKGS=()
+  for pkg in crewai dominusnode; do
+    if ! python3 -c "import $pkg" 2>/dev/null; then
+      MISSING_PKGS+=("$pkg")
+    fi
+  done
+  if [ ${#MISSING_PKGS[@]} -gt 0 ]; then
+    echo "  Packages: MISSING — ${MISSING_PKGS[*]} (install: pip install ${MISSING_PKGS[*]})"
+  else
+    echo "  Packages: crewai, dominusnode OK"
+  fi
+
+  echo "  API:     SKIPPED (dry run)"
+
+  # Check GPU (informational)
+  if command -v nvidia-smi &>/dev/null; then
+    GPU_NAME=$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -1)
+    GPU_VRAM=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader 2>/dev/null | head -1)
+    GPU_FREE=$(nvidia-smi --query-gpu=memory.free --format=csv,noheader 2>/dev/null | head -1)
+    echo "  GPU:     ${GPU_NAME} (${GPU_VRAM}, ${GPU_FREE} free)"
+
+    # VRAM-based model recommendation
+    VRAM_MB=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null | head -1)
+    if [ -n "$VRAM_MB" ]; then
+      if [ "$VRAM_MB" -ge 24000 ]; then
+        echo "  Recommend: Qwen3.5-35B-A3B (~18GB Q4) or Qwen3-Coder-30B-A3B (~18GB Q4)"
+      elif [ "$VRAM_MB" -ge 8000 ]; then
+        echo "  Recommend: Qwen/Qwen3-8B (~5GB Q4) — leaves room for KV cache"
+      elif [ "$VRAM_MB" -ge 4000 ]; then
+        echo "  Recommend: Qwen3-4B (~2.5GB Q4) or Gemma 3 4B QAT (~2.6GB Q4)"
+      else
+        echo "  WARNING: <4GB VRAM — try Qwen3-1.7B (~1.2GB Q4) or use CPU inference"
+      fi
+    fi
+  else
+    echo "  GPU:     nvidia-smi not found"
+  fi
+
+  # Check if Ollama is available
+  if command -v ollama &>/dev/null; then
+    echo "  Ollama:  $(ollama --version 2>&1)"
+  else
+    echo "  Ollama:  NOT INSTALLED (install: curl -fsSL https://ollama.com/install.sh | sh)"
+  fi
+
+  # Check if SGLang is available
+  if python3 -c "import sglang" 2>/dev/null; then
+    echo "  SGLang:  installed"
+  else
+    echo "  SGLang:  NOT INSTALLED (install: pip install 'sglang[all]')"
+  fi
+
+  echo ""
+  echo "DRY RUN SUMMARY:"
+  echo "  Config validation:     PASSED"
+  echo "  AI model:              ${AI_MODEL}"
+  echo "  Skip server:           ${AI_SKIP_SERVER} ($([ "$AI_SKIP_SERVER" = "1" ] && echo "using external API" || echo "will launch SGLang"))"
+  echo "  Mode:                  ${MODE}"
+  echo "  Agent count:           ${NUM_AGENTS}"
+  echo "  Tensor parallel:       ${AI_SGLANG_TP}"
+  echo "  GPU mem fraction:      ${AI_SGLANG_MEM_FRAC}"
+  echo ""
+  echo "Dry run complete — config is valid. Remove --dry-run to launch for real."
+  exit 0
+fi
+
 echo "Pre-flight checks..."
 
 # Check Python

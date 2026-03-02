@@ -31,8 +31,15 @@ API_BASE="${2:-http://localhost:3000}"
 PROXY_HOST="${3:-localhost}"
 PROXY_PORT="${4:-8080}"
 
-ADMIN_EMAIL="${ADMIN_EMAIL:?ADMIN_EMAIL required (set in .env.swarm or shell env)}"
-ADMIN_PASSWORD="${ADMIN_PASSWORD:?ADMIN_PASSWORD required}"
+DRY_RUN="${SWARM_DRY_RUN:-0}"
+
+if [ "$DRY_RUN" -eq 1 ]; then
+  ADMIN_EMAIL="${ADMIN_EMAIL:-dryrun@example.invalid}"
+  ADMIN_PASSWORD="${ADMIN_PASSWORD:-DRY_RUN_NO_PASSWORD}"
+else
+  ADMIN_EMAIL="${ADMIN_EMAIL:?ADMIN_EMAIL required (set in .env.swarm or shell env)}"
+  ADMIN_PASSWORD="${ADMIN_PASSWORD:?ADMIN_PASSWORD required}"
+fi
 BATCH_SIZE="${SWARM_BATCH_SIZE:-25}"
 BATCH_DELAY="${SWARM_BATCH_DELAY:-10}"
 LOG_DIR="${SWARM_LOG_DIR:-/tmp/dominusnode-swarm-solo}"
@@ -58,6 +65,39 @@ echo "  Log dir:      ${LOG_DIR}"
 echo ""
 
 # ─── Pre-flight checks ──────────────────────────────────────────────
+if [ "$DRY_RUN" -eq 1 ]; then
+  echo "Pre-flight checks... [DRY RUN — skipping live checks]"
+  echo "  API:   SKIPPED (dry run)"
+  echo "  Proxy: SKIPPED (dry run)"
+  echo "  Slots: SKIPPED (dry run)"
+  echo ""
+  echo "DRY RUN: Would authenticate as admin (${ADMIN_EMAIL})"
+  echo "  Admin auth: SIMULATED"
+  echo ""
+  echo "DRY RUN: Would launch ${NUM_AGENTS} solo agents"
+  RES_SCRAPES="${SWARM_RES_SCRAPES:-1}"
+  DC_REQUESTS="${SWARM_DC_REQUESTS:-4}"
+  CYCLES="${SWARM_CYCLES:-5}"
+  RES_PER_AGENT_KB=$(( RES_SCRAPES * CYCLES * 100 ))
+  DC_PER_AGENT_KB=$(( DC_REQUESTS * CYCLES * 5 ))
+  TOTAL_RES_MB=$(( NUM_AGENTS * RES_PER_AGENT_KB / 1024 ))
+  TOTAL_DC_MB=$(( NUM_AGENTS * DC_PER_AGENT_KB / 1024 ))
+  TOTAL_CREDIT_CENTS=$(( AGENT_CREDIT * NUM_AGENTS ))
+  echo "DRY RUN SUMMARY:"
+  echo "  Config validation:     PASSED"
+  echo "  Bandwidth estimation:  ~${TOTAL_RES_MB} MB residential, ~${TOTAL_DC_MB} MB DC"
+  echo "  Agent count:           ${NUM_AGENTS} (valid)"
+  echo "  Plan per agent:        ${AGENT_PLAN}"
+  echo "  Credit per agent:      \$$(printf '%.2f' "$(echo "scale=2; ${AGENT_CREDIT}/100" | bc)")"
+  echo "  Total credit needed:   \$$(printf '%.2f' "$(echo "scale=2; ${TOTAL_CREDIT_CENTS}/100" | bc)")"
+  echo "  Batch size:            ${BATCH_SIZE}"
+  echo "  Cycles per agent:      ${CYCLES}"
+  echo "  Delay between reqs:    ${SWARM_DELAY_SEC:-5}s"
+  echo ""
+  echo "Dry run complete — config is valid. Remove --dry-run to launch for real."
+  exit 0
+fi
+
 echo "Pre-flight checks..."
 
 API_HEALTH=$(curl -s -o /dev/null -w "%{http_code}" "${API_BASE}/api/health" 2>/dev/null || echo "000")

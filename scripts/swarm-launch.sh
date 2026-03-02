@@ -37,8 +37,15 @@ API_BASE="${2:-http://localhost:3000}"
 PROXY_HOST="${3:-localhost}"
 PROXY_PORT="${4:-8080}"
 
-ADMIN_EMAIL="${ADMIN_EMAIL:?ADMIN_EMAIL required (set in .env.swarm or shell env)}"
-ADMIN_PASSWORD="${ADMIN_PASSWORD:?ADMIN_PASSWORD required}"
+DRY_RUN="${SWARM_DRY_RUN:-0}"
+
+if [ "$DRY_RUN" -eq 1 ]; then
+  ADMIN_EMAIL="${ADMIN_EMAIL:-dryrun@example.invalid}"
+  ADMIN_PASSWORD="${ADMIN_PASSWORD:-DRY_RUN_NO_PASSWORD}"
+else
+  ADMIN_EMAIL="${ADMIN_EMAIL:?ADMIN_EMAIL required (set in .env.swarm or shell env)}"
+  ADMIN_PASSWORD="${ADMIN_PASSWORD:?ADMIN_PASSWORD required}"
+fi
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 LOG_DIR="${SWARM_LOG_DIR:-/tmp/dominusnode-swarm}"
 
@@ -81,6 +88,36 @@ if [ "$RES_PCT" -gt 70 ]; then
 fi
 
 # ─── Pre-flight checks ──────────────────────────────────────────────
+if [ "$DRY_RUN" -eq 1 ]; then
+  echo "Pre-flight checks... [DRY RUN — skipping live checks]"
+  echo "  API:   SKIPPED (dry run)"
+  echo "  Proxy: SKIPPED (dry run)"
+  echo "  Slots: SKIPPED (dry run)"
+  if [ -z "${SWARM_POST_URLS:-}" ]; then
+    echo "  Posts: NOT CONFIGURED (set SWARM_POST_URLS to enable posting)"
+  else
+    IFS=',' read -ra _URLS <<< "$SWARM_POST_URLS"
+    echo "  Posts: ${#_URLS[@]} platform(s) configured"
+  fi
+  echo ""
+  echo "DRY RUN: Would authenticate as admin (${ADMIN_EMAIL})"
+  ADMIN_JWT="dry-run-simulated-jwt"
+  echo "  Admin auth: SIMULATED"
+  echo ""
+  echo "DRY RUN: Would launch main agent (team + ${NUM_AGENTS} sub-agents)"
+  echo "DRY RUN SUMMARY:"
+  echo "  Config validation:     PASSED"
+  echo "  Bandwidth estimation:  ~${TOTAL_RES_MB} MB residential, ~${TOTAL_DC_MB} MB DC"
+  echo "  Agent count:           ${NUM_AGENTS} (valid)"
+  echo "  Admin email:           ${ADMIN_EMAIL}"
+  echo "  Batch size:            ${SWARM_BATCH_SIZE:-25}"
+  echo "  Cycles per agent:      ${CYCLES}"
+  echo "  Delay between reqs:    ${SWARM_DELAY_SEC:-5}s"
+  echo ""
+  echo "Dry run complete — config is valid. Remove --dry-run to launch for real."
+  exit 0
+fi
+
 echo "Pre-flight checks..."
 
 # Check API is up

@@ -310,7 +310,7 @@ MoE models shine here -- large total params but tiny active params = fast infere
 ### AI Model
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `AI_MODEL` | `THUDM/glm-4-9b-chat` | HuggingFace model ID or Ollama tag |
+| `AI_MODEL` | `Qwen/Qwen3-8B` | HuggingFace model ID or Ollama tag |
 | `AI_SKIP_SERVER` | 0 | Set to 1 to use external AI API (Ollama) |
 | `AI_API_BASE` | `http://localhost:8000/v1` | OpenAI-compatible API URL |
 | `AI_SGLANG_PORT` | 8000 | SGLang API port |
@@ -363,6 +363,37 @@ scripts/
 ├── swarm-agent-solo.sh          # Solo sub-agent (registers own account)
 └── AI-SWARM-README.md           # This file
 ```
+
+## Dry Run Mode
+
+Test your configuration without a running backend, GPU, or network access:
+
+```bash
+# Validate shell swarm config
+./scripts/swarm.sh 200 both --dry-run
+
+# Validate AI swarm config (also checks GPU, Ollama, SGLang)
+./scripts/ai-swarm.sh 20 team --dry-run
+
+# Validate solo mode
+./scripts/swarm.sh 50 solo --dry-run
+```
+
+**What dry-run does:**
+- Validates all configuration (agent count, mode, env vars)
+- Calculates bandwidth estimates
+- Checks available tools (Python, Ollama, SGLang, GPU)
+- Recommends models based on detected GPU VRAM
+- Skips all API calls, proxy connections, and authentication
+- Reports what *would* happen with current config
+
+**What dry-run does NOT do:**
+- Does not contact the backend API or proxy
+- Does not register accounts or create API keys
+- Does not launch SGLang or download models
+- Does not use any GPU resources
+
+Use `--dry-run` on a new machine to verify the environment before running for real.
 
 ## Troubleshooting
 

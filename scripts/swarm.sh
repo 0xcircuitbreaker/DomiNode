@@ -6,13 +6,14 @@
 # solo mode, or both simultaneously.
 #
 # Usage:
-#   ./scripts/swarm.sh <num_agents> [team|solo|both]
+#   ./scripts/swarm.sh <num_agents> [team|solo|both] [--dry-run]
 #
 # Examples:
 #   ./scripts/swarm.sh 200          # both: 140 team + 60 solo
 #   ./scripts/swarm.sh 50 team      # 50 team agents only
 #   ./scripts/swarm.sh 50 solo      # 50 solo agents only
 #   ./scripts/swarm.sh 200 both     # 140 team + 60 solo
+#   ./scripts/swarm.sh 10 both --dry-run  # validate config without live server
 #
 # Environment:
 #   Config is read from .env.swarm (next to this script's repo root).
@@ -51,8 +52,22 @@ if [ -f "$ENV_FILE" ]; then
 fi
 
 # ─── Arguments ─────────────────────────────────────────────────────
-NUM_AGENTS="${1:?Usage: swarm.sh <num_agents> [team|solo|both]}"
+NUM_AGENTS="${1:?Usage: swarm.sh <num_agents> [team|solo|both] [--dry-run]}"
 MODE="${2:-both}"
+DRY_RUN=0
+
+# Check for --dry-run in any position
+for arg in "$@"; do
+  if [ "$arg" = "--dry-run" ]; then
+    DRY_RUN=1
+    export SWARM_DRY_RUN=1
+  fi
+done
+
+# If mode was set to --dry-run, fix it
+if [ "$MODE" = "--dry-run" ]; then
+  MODE="both"
+fi
 
 # Validate mode
 case "$MODE" in
@@ -69,8 +84,13 @@ if ! [[ "$NUM_AGENTS" =~ ^[0-9]+$ ]] || [ "$NUM_AGENTS" -lt 1 ]; then
   exit 1
 fi
 
-# ─── Required check ───────────────────────────────────────────────
-: "${ADMIN_PASSWORD:?ADMIN_PASSWORD is required. Set in .env.swarm or shell env.}"
+# ─── Required check (skip in dry-run) ─────────────────────────────
+if [ "$DRY_RUN" -eq 1 ]; then
+  ADMIN_PASSWORD="${ADMIN_PASSWORD:-DRY_RUN_NO_PASSWORD}"
+  ADMIN_EMAIL="${ADMIN_EMAIL:-dryrun@example.invalid}"
+else
+  : "${ADMIN_PASSWORD:?ADMIN_PASSWORD is required. Set in .env.swarm or shell env.}"
+fi
 
 # ─── Inherit defaults from .env.swarm or use hardcoded fallbacks ──
 export API_BASE="${API_BASE:-http://localhost:3000}"
@@ -79,7 +99,11 @@ export PROXY_PORT="${PROXY_PORT:-8080}"
 export SWARM_LOG_DIR="${SWARM_LOG_DIR:-/tmp/dominusnode-swarm}"
 
 echo "============================================"
-echo "  Dominus Node Unified Swarm Launcher"
+if [ "$DRY_RUN" -eq 1 ]; then
+  echo "  Dominus Node Unified Swarm Launcher [DRY RUN]"
+else
+  echo "  Dominus Node Unified Swarm Launcher"
+fi
 echo "============================================"
 echo ""
 echo "  Mode:    ${MODE}"
@@ -87,6 +111,9 @@ echo "  Agents:  ${NUM_AGENTS}"
 echo "  API:     ${API_BASE}"
 echo "  Proxy:   ${PROXY_HOST}:${PROXY_PORT}"
 echo "  Log dir: ${SWARM_LOG_DIR}"
+if [ "$DRY_RUN" -eq 1 ]; then
+  echo "  Dry run: YES (no API calls, no proxy traffic)"
+fi
 echo ""
 
 # ─── Calculate agent split for "both" mode ─────────────────────────
