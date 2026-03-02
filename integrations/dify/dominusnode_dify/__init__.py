@@ -1,6 +1,6 @@
-"""Dominus Node Dify integration -- 24 tools for the Dify AI platform.
+"""Dominus Node Dify integration -- 26 tools for the Dify AI platform.
 
-Provides a Dify-compatible tool provider that exposes 24 tools for
+Provides a Dify-compatible tool provider that exposes 26 tools for
 interacting with the Dominus Node rotating proxy-as-a-service platform.
 
 Tools cover:
@@ -10,7 +10,7 @@ Tools cover:
   - Agentic wallet management (create, fund, freeze, unfreeze, delete)
   - Team management (create, list, fund, keys, usage, update, role changes)
   - x402 micropayment info
-  - PayPal top-up
+  - PayPal, Stripe, and crypto top-up
 
 Security:
   - Full SSRF prevention (private IP blocking, DNS rebinding, Teredo/6to4,

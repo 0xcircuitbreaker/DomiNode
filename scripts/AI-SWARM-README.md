@@ -230,15 +230,36 @@ python3 scripts/ai-swarm-integration-test.py --list
 
 ---
 
-## Recommended Models for RTX 5090
+## Recommended Models
 
-| Model | VRAM | Quality | Speed | Best For |
-|-------|------|---------|-------|----------|
-| `qwen3:8b` (Ollama) / `Qwen/Qwen3-8B` (SGLang) | ~5 GB Q4 | Good | Fast | Most agents, leaves VRAM for KV cache |
-| `glm4:9b` (Ollama) / `THUDM/glm-4-9b-chat` (SGLang) | ~12 GB Q5 | Better | Medium | Higher quality posts, fewer concurrent agents |
-| `Qwen/Qwen3-Coder-30B-A3B` (SGLang only) | ~21 GB Q5 | Best | Fast | MoE — only 3B active params, great throughput |
+### RTX 3060 Mobile (6GB VRAM)
 
-**Rule of thumb:** Smaller model = more concurrent agents. Qwen3-8B at Q4 leaves ~25GB for KV cache, supporting 50+ agents. GLM-4-9B at Q5 leaves ~18GB, supporting ~20-30 agents.
+With 6GB, you need Q4 models under ~3.5GB to leave room for KV cache + CUDA overhead.
+
+| Model | VRAM (Q4) | Tool Calling | Ollama Tag | Agents | Notes |
+|-------|-----------|-------------|------------|--------|-------|
+| **Qwen3-4B** (recommended) | ~2.5 GB | Native | `qwen3:4b` | 5-10 | Best tool-call accuracy at this size; outperforms Qwen2.5-7B |
+| Gemma 3 4B QAT | ~2.6 GB | Native | `gemma3:4b-it-q4_K_M` | 5-10 | Google QAT retains near-BF16 quality at int4 |
+| Phi-4-mini 3.8B | ~2.5 GB | Built-in | `phi4-mini:3.8b-q4_K_M` | 5-10 | Strong STEM reasoning; Microsoft synthetic data training |
+| Qwen3-1.7B | ~1.2 GB | Native | `qwen3:1.7b` | 15-20 | Max concurrency; lower quality but very fast |
+| SmolLM3 3B | ~2 GB | Hermes | `smollm3` | 5-10 | 128K context; competitive with 4B models |
+
+### RTX 5090 (32GB VRAM)
+
+MoE models shine here -- large total params but tiny active params = fast inference + high quality.
+
+| Model | Params (Total/Active) | VRAM (Q4) | Tool Calling | Ollama Tag | Agents | Notes |
+|-------|-----------------------|-----------|-------------|------------|--------|-------|
+| **Qwen3.5-35B-A3B** (recommended) | 35B / 3B MoE | ~18 GB | Best-in-class | `qwen3.5:35b-a3b-q4_K_M` | 10-20 | Feb 2026; trained on 1M RL agentic environments |
+| Qwen3-Coder-30B-A3B | 30B / 3.3B MoE | ~18 GB | Specialized | `qwen3-coder:30b-a3b-q4_K_M` | 10-20 | No-thinking mode; purpose-built for tool use |
+| GLM-4.7-Flash | 30B / 3B MoE | ~18 GB | Native | `glm-4.7-flash` | 10-20 | Jan 2026; strong tau-Bench scores; 60-220 tok/s |
+| Qwen3-30B-A3B | 30B / 3B MoE | ~18 GB | Native | `qwen3:30b-a3b` | 10-20 | Thinking + non-thinking modes |
+| Mistral Small 3.2 | 24B dense | ~14 GB | Improved | `mistral-small3.2:24b` | 15-25 | Apache 2.0; 128K context |
+| Qwen3-8B (budget) | 8B dense | ~5 GB | Native | `qwen3:8b` | 30-50+ | Leaves ~27GB for KV cache; max concurrency |
+
+**Dual-model strategy:** Run Qwen3.5-35B-A3B as orchestrator (~18GB) + Qwen3-4B as lightweight worker (~2.5GB). Total ~20.5GB, leaving ~11.5GB for KV cache.
+
+**Rule of thumb:** Smaller model = more concurrent agents. Qwen3-8B at Q4 leaves ~27GB for KV cache (50+ agents). MoE models at ~18GB leave ~14GB (10-20 agents with better quality).
 
 ## Swarm Modes
 

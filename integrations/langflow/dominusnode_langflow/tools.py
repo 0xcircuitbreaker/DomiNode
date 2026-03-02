@@ -1,6 +1,6 @@
-"""Dominus Node Langflow toolkit -- 22 proxy, wallet, team, and PayPal management tools.
+"""Dominus Node Langflow toolkit -- 26 proxy, wallet, team, and payment management tools.
 
-Provides a Langflow-compatible toolkit class that exposes 22 LangChain
+Provides a Langflow-compatible toolkit class that exposes 26 LangChain
 StructuredTool objects for interacting with the Dominus Node rotating
 proxy-as-a-service platform.
 
@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import ipaddress
 import json
+import math
 import os
 import re
 import socket
@@ -637,6 +638,23 @@ class TopupPaypalInput(BaseModel):
     )
 
 
+class TopupStripeInput(BaseModel):
+    """Input schema for the topup_stripe tool."""
+    amount_cents: int = Field(
+        description="Amount to top up in cents (500 to 100,000). Minimum $5.00, maximum $1,000.",
+    )
+
+
+class TopupCryptoInput(BaseModel):
+    """Input schema for the topup_crypto tool."""
+    amount_usd: float = Field(
+        description="Amount to top up in USD (5 to 1,000).",
+    )
+    currency: str = Field(
+        description="Cryptocurrency: btc, eth, ltc, xmr, zec, usdc, sol, usdt, dai, bnb, or link.",
+    )
+
+
 class UpdateWalletPolicyInput(BaseModel):
     """Input schema for the update_wallet_policy tool."""
     wallet_id: str = Field(description="ID of the agentic wallet")
@@ -663,7 +681,7 @@ class EmptyInput(BaseModel):
 class DominusNodeToolkit:
     """Langflow-compatible toolkit providing Dominus Node rotating proxy tools.
 
-    Authenticates using a Dominus Node API key and exposes 22 tools as LangChain
+    Authenticates using a Dominus Node API key and exposes 26 tools as LangChain
     StructuredTool objects compatible with Langflow's visual tool system.
 
     Args:
@@ -1552,7 +1570,80 @@ class DominusNodeToolkit:
             return json.dumps({"error": _sanitize_error(str(e))})
 
     # ==================================================================
-    # Tool 24: update_wallet_policy
+    # Tool 24: topup_stripe
+    # ==================================================================
+
+    def topup_stripe(self, amount_cents: int) -> str:
+        """Create a Stripe checkout session to top up the user's wallet.
+
+        Args:
+            amount_cents: Amount to top up in cents (500 to 100,000).
+                Minimum $5.00 (500 cents), maximum $1,000 (100,000 cents).
+
+        Returns:
+            JSON string with ``sessionId`` and ``checkoutUrl`` for completing
+            the Stripe payment flow.
+        """
+        err = _validate_positive_int(
+            amount_cents, "amount_cents", min_value=500, max_value=100_000
+        )
+        if err:
+            return json.dumps({"error": err})
+
+        try:
+            result = self._request_with_retry(
+                "POST",
+                "/api/wallet/topup/stripe",
+                {"amountCents": amount_cents},
+            )
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Tool 25: topup_crypto
+    # ==================================================================
+
+    _VALID_CRYPTO_CURRENCIES = {
+        "btc", "eth", "ltc", "xmr", "zec", "usdc", "sol", "usdt", "dai", "bnb", "link",
+    }
+
+    def topup_crypto(self, amount_usd: float, currency: str) -> str:
+        """Create a crypto payment invoice to top up the user's wallet.
+
+        Args:
+            amount_usd: Amount in USD (5 to 1,000).
+            currency: Cryptocurrency to pay with (btc, eth, ltc, xmr, zec,
+                usdc, sol, usdt, dai, bnb, link).
+
+        Returns:
+            JSON string with invoice details including payment address and amount.
+        """
+        if isinstance(amount_usd, bool):
+            return json.dumps({"error": "amount_usd must be a number between 5 and 1,000"})
+        if not isinstance(amount_usd, (int, float)) or not math.isfinite(amount_usd):
+            return json.dumps({"error": "amount_usd must be a number between 5 and 1,000"})
+        if amount_usd < 5 or amount_usd > 1000:
+            return json.dumps({"error": "amount_usd must be a number between 5 and 1,000"})
+
+        cur = str(currency).lower()
+        if cur not in self._VALID_CRYPTO_CURRENCIES:
+            return json.dumps({
+                "error": f"currency must be one of: {', '.join(sorted(self._VALID_CRYPTO_CURRENCIES))}"
+            })
+
+        try:
+            result = self._request_with_retry(
+                "POST",
+                "/api/wallet/topup/crypto",
+                {"amountUsd": amount_usd, "currency": cur},
+            )
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Tool 26: update_wallet_policy
     # ==================================================================
 
     def update_wallet_policy(
@@ -1611,11 +1702,11 @@ class DominusNodeToolkit:
     def get_tools(self) -> List[StructuredTool]:
         """Return Langflow-compatible StructuredTool objects.
 
-        Returns a list of 24 LangChain StructuredTool instances that can be
+        Returns a list of 26 LangChain StructuredTool instances that can be
         used directly in Langflow visual pipelines or with any LangChain agent.
 
         Returns:
-            List of 24 StructuredTool objects.
+            List of 26 StructuredTool objects.
         """
         return [
             StructuredTool.from_function(
@@ -1778,6 +1869,26 @@ class DominusNodeToolkit:
                     "Minimum $5.00 (500 cents)."
                 ),
                 args_schema=TopupPaypalInput,
+            ),
+            StructuredTool.from_function(
+                func=self.topup_stripe,
+                name="dominusnode_topup_stripe",
+                description=(
+                    "Create a Stripe checkout session to top up your wallet. "
+                    "Returns a checkout URL for completing the payment. "
+                    "Minimum $5 (500 cents), maximum $1,000 (100,000 cents)."
+                ),
+                args_schema=TopupStripeInput,
+            ),
+            StructuredTool.from_function(
+                func=self.topup_crypto,
+                name="dominusnode_topup_crypto",
+                description=(
+                    "Create a crypto payment invoice to top up your wallet. "
+                    "Supports BTC, ETH, LTC, XMR, ZEC, USDC, SOL, USDT, DAI, BNB, LINK. "
+                    "Minimum $5, maximum $1,000."
+                ),
+                args_schema=TopupCryptoInput,
             ),
             StructuredTool.from_function(
                 func=self.update_wallet_policy,

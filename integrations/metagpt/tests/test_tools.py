@@ -476,14 +476,16 @@ class TestToolkitInit:
         )
         assert toolkit.base_url == "https://api.example.com"
 
-    def test_get_tool_functions_returns_24(self):
+    def test_get_tool_functions_returns_26(self):
         toolkit = DominusNodeToolkit(api_key="dn_test_key123")
         tools = toolkit.get_tool_functions()
-        assert len(tools) == 24
+        assert len(tools) == 26
         names = [fn.__name__ for fn in tools]
         assert "proxied_fetch" in names
         assert "check_balance" in names
         assert "topup_paypal" in names
+        assert "topup_stripe" in names
+        assert "topup_crypto" in names
         assert "update_team_member_role" in names
         assert "x402_info" in names
 
@@ -864,6 +866,8 @@ class TestToolRegistration:
             "update_team_member_role",
             "x402_info",
             "topup_paypal",
+            "topup_stripe",
+            "topup_crypto",
             "update_wallet_policy",
         }
         actual = {fn.__name__ for fn in tools}
@@ -889,6 +893,7 @@ class TestToolRegistration:
             "create_team", "team_details", "team_fund",
             "team_create_key", "team_usage", "update_team",
             "update_team_member_role", "topup_paypal",
+            "topup_stripe", "topup_crypto",
             "update_wallet_policy",
         }
         for fn in toolkit.get_tool_functions():
@@ -982,6 +987,18 @@ class TestMockedAPICalls:
     def test_delete_agentic_wallet_calls_api(self, mock_httpx_cls):
         toolkit, mock_client = self._make_toolkit_with_mock(mock_httpx_cls)
         result = json.loads(toolkit.delete_agentic_wallet(wallet_id="w-123"))
+        assert result == {"ok": True}
+
+    @patch("dominusnode_metagpt.tools.httpx.Client")
+    def test_topup_stripe_calls_api(self, mock_httpx_cls):
+        toolkit, mock_client = self._make_toolkit_with_mock(mock_httpx_cls)
+        result = json.loads(toolkit.topup_stripe(amount_cents=1000))
+        assert result == {"ok": True}
+
+    @patch("dominusnode_metagpt.tools.httpx.Client")
+    def test_topup_crypto_calls_api(self, mock_httpx_cls):
+        toolkit, mock_client = self._make_toolkit_with_mock(mock_httpx_cls)
+        result = json.loads(toolkit.topup_crypto(amount_usd=10, currency="BTC"))
         assert result == {"ok": True}
 
 

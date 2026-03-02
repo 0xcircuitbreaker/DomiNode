@@ -1,6 +1,6 @@
-"""Dominus Node Haystack toolkit -- 22 proxy, wallet, team, and PayPal tools.
+"""Dominus Node Haystack toolkit -- 26 proxy, wallet, team, and payment tools.
 
-Provides a Haystack-compatible toolkit class that exposes 22 Tool objects for
+Provides a Haystack-compatible toolkit class that exposes 26 Tool objects for
 interacting with the Dominus Node rotating proxy-as-a-service platform.
 
 Tools cover:
@@ -9,7 +9,7 @@ Tools cover:
   - Proxy configuration and session listing
   - Agentic wallet management (create, fund, freeze, unfreeze, delete)
   - Team management (create, list, fund, keys, usage, update, role changes)
-  - PayPal top-up
+  - PayPal, Stripe, and crypto top-up
 
 Security:
   - Full SSRF prevention (private IP blocking, DNS rebinding, Teredo/6to4,
@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import ipaddress
 import json
+import math
 import os
 import re
 import socket
@@ -503,7 +504,7 @@ def _validate_domains(domains: Any) -> Optional[str]:
 class DominusNodeToolkit:
     """Haystack toolkit providing Dominus Node rotating proxy tools.
 
-    Authenticates using a Dominus Node API key and exposes 22 tools for proxy,
+    Authenticates using a Dominus Node API key and exposes 26 tools for proxy,
     wallet, team, and payment management.  All tool methods return dicts
     suitable for Haystack pipeline consumption.
 
@@ -1404,7 +1405,84 @@ class DominusNodeToolkit:
             return {"error": _sanitize_error(str(e))}
 
     # ==================================================================
-    # Tool 24: update_wallet_policy
+    # Tool 24: topup_stripe
+    # ==================================================================
+
+    def topup_stripe(self, amount_cents: int) -> Dict[str, Any]:
+        """Create a Stripe checkout session for wallet top-up.
+
+        Args:
+            amount_cents: Amount to top up in cents (500 to 100,000).
+                Minimum $5.00 (500 cents), maximum $1,000.00 (100,000 cents).
+
+        Returns:
+            Dict with checkout session details for completing
+            the Stripe payment flow.
+        """
+        err = _validate_positive_int(
+            amount_cents, "amount_cents", min_value=500, max_value=100_000
+        )
+        if err:
+            return {"error": err}
+
+        try:
+            result = self._request_with_retry(
+                "POST",
+                "/api/wallet/topup/stripe",
+                {"amountCents": amount_cents},
+            )
+            return result
+        except Exception as e:
+            return {"error": _sanitize_error(str(e))}
+
+    # ==================================================================
+    # Tool 25: topup_crypto
+    # ==================================================================
+
+    _VALID_CRYPTO_CURRENCIES = {
+        "BTC", "ETH", "LTC", "XMR", "ZEC",
+        "USDC", "SOL", "USDT", "DAI", "BNB", "LINK",
+    }
+
+    def topup_crypto(self, amount_usd: float, currency: str) -> Dict[str, Any]:
+        """Create a crypto payment invoice for wallet top-up.
+
+        Args:
+            amount_usd: Amount in USD (5 to 1,000).
+            currency: Cryptocurrency code (BTC/ETH/LTC/XMR/ZEC/USDC/SOL/
+                USDT/DAI/BNB/LINK).
+
+        Returns:
+            Dict with invoice details for completing the crypto payment.
+        """
+        if not isinstance(amount_usd, (int, float)) or isinstance(amount_usd, bool):
+            return {"error": "amount_usd must be a number between 5 and 1,000"}
+        if not math.isfinite(amount_usd):
+            return {"error": "amount_usd must be a number between 5 and 1,000"}
+        if amount_usd < 5 or amount_usd > 1000:
+            return {"error": "amount_usd must be a number between 5 and 1,000"}
+
+        if not currency or not isinstance(currency, str):
+            return {
+                "error": "currency must be one of: BTC, ETH, LTC, XMR, ZEC, USDC, SOL, USDT, DAI, BNB, LINK",
+            }
+        if currency.upper() not in self._VALID_CRYPTO_CURRENCIES:
+            return {
+                "error": "currency must be one of: BTC, ETH, LTC, XMR, ZEC, USDC, SOL, USDT, DAI, BNB, LINK",
+            }
+
+        try:
+            result = self._request_with_retry(
+                "POST",
+                "/api/wallet/topup/crypto",
+                {"amountUsd": amount_usd, "currency": currency.lower()},
+            )
+            return result
+        except Exception as e:
+            return {"error": _sanitize_error(str(e))}
+
+    # ==================================================================
+    # Tool 26: update_wallet_policy
     # ==================================================================
 
     def update_wallet_policy(
@@ -1461,7 +1539,7 @@ class DominusNodeToolkit:
     # ==================================================================
 
     def get_tools(self) -> List[Any]:
-        """Return list of Haystack Tool objects for all 22 Dominus Node functions.
+        """Return list of Haystack Tool objects for all 26 Dominus Node functions.
 
         Each Tool wraps one of the toolkit methods with a name, description,
         and JSON Schema parameter definition compatible with Haystack's
@@ -1844,6 +1922,40 @@ class DominusNodeToolkit:
                         },
                     },
                     "required": ["amount_cents"],
+                },
+            ),
+            Tool(
+                name="dominusnode_topup_stripe",
+                description="Create a Stripe checkout session for wallet top-up. Minimum $5.00 (500 cents).",
+                function=self.topup_stripe,
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "amount_cents": {
+                            "type": "integer",
+                            "description": "Amount to top up in cents (500-100,000)",
+                        },
+                    },
+                    "required": ["amount_cents"],
+                },
+            ),
+            Tool(
+                name="dominusnode_topup_crypto",
+                description="Create a crypto payment invoice for wallet top-up. Supports BTC, ETH, LTC, XMR, ZEC, USDC, SOL, USDT, DAI, BNB, LINK.",
+                function=self.topup_crypto,
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "amount_usd": {
+                            "type": "number",
+                            "description": "Amount in USD (5-1,000)",
+                        },
+                        "currency": {
+                            "type": "string",
+                            "description": "Crypto currency (BTC/ETH/LTC/XMR/ZEC/USDC/SOL/USDT/DAI/BNB/LINK)",
+                        },
+                    },
+                    "required": ["amount_usd", "currency"],
                 },
             ),
             Tool(

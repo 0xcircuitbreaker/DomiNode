@@ -1197,7 +1197,7 @@ class TestGetTools:
             try:
                 from haystack.tools import Tool
                 tools = toolkit.get_tools()
-                assert len(tools) == 24
+                assert len(tools) == 26
                 names = [t.name for t in tools]
                 assert "dominusnode_proxied_fetch" in names
                 assert "dominusnode_check_balance" in names

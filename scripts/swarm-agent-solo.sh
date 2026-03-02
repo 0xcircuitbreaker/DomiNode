@@ -112,6 +112,9 @@ else
   log "Agent will use default plan and existing wallet balance"
 fi
 
+# Admin JWT no longer needed — unset to limit blast radius (C-1)
+unset ADMIN_JWT 2>/dev/null || true
+
 # ─── Step 5: Create API key ──────────────────────────────────────────
 log "Creating API key..."
 KEY_RESP=$(curl -s -X POST "${API_BASE}/api/keys" \
@@ -128,7 +131,7 @@ if [ -z "$API_KEY" ]; then
   log "ERROR: Cannot proceed without API key"
   exit 1
 fi
-log "API key ready: ${API_KEY:0:8}..."
+log "API key ready: ${API_KEY:0:4}..."
 
 # ─── Step 6: Delegate to swarm-agent.sh ──────────────────────────────
 # Pass API key via environment variable instead of command-line argument

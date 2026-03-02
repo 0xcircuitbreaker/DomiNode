@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import ipaddress
 import json
+import math
 import os
 import re
 import socket
@@ -364,7 +365,7 @@ def create_dominusnode_function_handler(
             )
 
             if resp.status_code != 200:
-                body = resp.text[:500]
+                body = _sanitize_error(resp.text[:500])
                 raise RuntimeError(
                     f"Authentication failed ({resp.status_code}): {body}"
                 )
@@ -929,12 +930,56 @@ def create_dominusnode_function_handler(
     async def handle_topup_paypal(args: Dict[str, Any]) -> str:
         amount_cents = args.get("amount_cents")
 
+        if isinstance(amount_cents, bool):
+            return json.dumps({
+                "error": "amount_cents must be an integer between 500 ($5) and 100,000 ($1,000)",
+            })
         if not isinstance(amount_cents, int) or amount_cents < 500 or amount_cents > 100_000:
             return json.dumps({
                 "error": "amount_cents must be an integer between 500 ($5) and 100,000 ($1,000)",
             })
 
         result = await api_request("POST", "/api/wallet/topup/paypal", {"amountCents": amount_cents})
+        return json.dumps(result)
+
+    async def handle_topup_stripe(args: Dict[str, Any]) -> str:
+        amount_cents = args.get("amount_cents")
+
+        if isinstance(amount_cents, bool):
+            return json.dumps({
+                "error": "amount_cents must be an integer between 500 ($5) and 100,000 ($1,000)",
+            })
+        if not isinstance(amount_cents, int) or amount_cents < 500 or amount_cents > 100_000:
+            return json.dumps({
+                "error": "amount_cents must be an integer between 500 ($5) and 100,000 ($1,000)",
+            })
+
+        result = await api_request("POST", "/api/wallet/topup/stripe", {"amountCents": amount_cents})
+        return json.dumps(result)
+
+    async def handle_topup_crypto(args: Dict[str, Any]) -> str:
+        amount_usd = args.get("amount_usd")
+        currency = args.get("currency")
+
+        if isinstance(amount_usd, bool):
+            return json.dumps({
+                "error": "amount_usd must be a number between 5 and 1,000",
+            })
+        if not isinstance(amount_usd, (int, float)) or not math.isfinite(amount_usd) or amount_usd < 5 or amount_usd > 1000:
+            return json.dumps({
+                "error": "amount_usd must be a number between 5 and 1,000",
+            })
+
+        valid_currencies = {"BTC", "ETH", "LTC", "XMR", "ZEC", "USDC", "SOL", "USDT", "DAI", "BNB", "LINK"}
+        if not currency or not isinstance(currency, str) or currency.upper() not in valid_currencies:
+            return json.dumps({
+                "error": "currency must be one of: BTC, ETH, LTC, XMR, ZEC, USDC, SOL, USDT, DAI, BNB, LINK",
+            })
+
+        result = await api_request("POST", "/api/wallet/topup/crypto", {
+            "amountUsd": amount_usd,
+            "currency": currency.lower(),
+        })
         return json.dumps(result)
 
     async def handle_update_team_member_role(args: Dict[str, Any]) -> str:
@@ -990,6 +1035,8 @@ def create_dominusnode_function_handler(
         "dominusnode_update_team": handle_update_team,
         "dominusnode_update_team_member_role": handle_update_team_member_role,
         "dominusnode_topup_paypal": handle_topup_paypal,
+        "dominusnode_topup_stripe": handle_topup_stripe,
+        "dominusnode_topup_crypto": handle_topup_crypto,
     }
 
     # -------------------------------------------------------------------

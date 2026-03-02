@@ -324,16 +324,28 @@ class TestHandlerDispatch:
         assert "success" in result
 
     @pytest.mark.asyncio
-    async def test_handler_has_23_functions(self, mock_httpx):
+    async def test_handler_has_25_functions(self, mock_httpx):
         handler = create_dominusnode_function_handler(api_key="dn_test_abc123")
         result = json.loads(await handler("nonexistent", {}))
-        assert len(result["available"]) == 23
+        assert len(result["available"]) == 25
 
     @pytest.mark.asyncio
     async def test_handler_includes_topup_paypal(self, mock_httpx):
         handler = create_dominusnode_function_handler(api_key="dn_test_abc123")
         result = json.loads(await handler("nonexistent", {}))
         assert "dominusnode_topup_paypal" in result["available"]
+
+    @pytest.mark.asyncio
+    async def test_handler_includes_topup_stripe(self, mock_httpx):
+        handler = create_dominusnode_function_handler(api_key="dn_test_abc123")
+        result = json.loads(await handler("nonexistent", {}))
+        assert "dominusnode_topup_stripe" in result["available"]
+
+    @pytest.mark.asyncio
+    async def test_handler_includes_topup_crypto(self, mock_httpx):
+        handler = create_dominusnode_function_handler(api_key="dn_test_abc123")
+        result = json.loads(await handler("nonexistent", {}))
+        assert "dominusnode_topup_crypto" in result["available"]
 
     @pytest.mark.asyncio
     async def test_handler_includes_update_wallet_policy(self, mock_httpx):

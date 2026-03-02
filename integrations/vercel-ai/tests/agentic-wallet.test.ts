@@ -35,6 +35,8 @@ function createMockClient() {
     wallet: {
       getBalance: vi.fn(),
       topupPaypal: vi.fn(),
+      topupStripe: vi.fn(),
+      topupCrypto: vi.fn(),
     },
     usage: { get: vi.fn() },
     sessions: { getActive: vi.fn() },

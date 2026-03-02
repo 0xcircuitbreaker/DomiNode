@@ -362,16 +362,48 @@
   },
   {
     "name": "dominusnode_topup_paypal",
-    "description": "Create a PayPal wallet top-up session. Initiates a PayPal payment for the specified amount to add funds to your Dominus Node wallet. Returns a PayPal approval URL to complete the payment.",
+    "description": "Create a PayPal wallet top-up session. Initiates a PayPal payment for the specified amount to add funds to your Dominus Node wallet. Returns a PayPal approval URL to complete the payment. Minimum $5 (500 cents), maximum $1,000 (100000 cents).",
     "parameters": {
       "type": "OBJECT",
       "properties": {
         "amount_cents": {
           "type": "INTEGER",
-          "description": "Amount to top up in cents. Must be a positive integer, no greater than 2,147,483,647. Example: 1000 = $10.00."
+          "description": "Amount to top up in cents. Must be an integer between 500 ($5) and 100000 ($1,000). Example: 1000 = $10.00."
         }
       },
       "required": ["amount_cents"]
+    }
+  },
+  {
+    "name": "dominusnode_topup_stripe",
+    "description": "Create a Stripe wallet top-up checkout session. Initiates a Stripe payment for the specified amount to add funds to your Dominus Node wallet. Returns a Stripe checkout URL to complete the payment. Minimum $5 (500 cents), maximum $1,000 (100000 cents).",
+    "parameters": {
+      "type": "OBJECT",
+      "properties": {
+        "amount_cents": {
+          "type": "INTEGER",
+          "description": "Amount to top up in cents. Must be an integer between 500 ($5) and 100000 ($1,000). Example: 1000 = $10.00."
+        }
+      },
+      "required": ["amount_cents"]
+    }
+  },
+  {
+    "name": "dominusnode_topup_crypto",
+    "description": "Create a cryptocurrency wallet top-up invoice. Initiates a crypto payment for the specified amount to add funds to your Dominus Node wallet. Returns payment address and amount. Minimum $5, maximum $1,000. Supported currencies: BTC, ETH, LTC, XMR, ZEC, USDC, SOL, USDT, DAI, BNB, LINK.",
+    "parameters": {
+      "type": "OBJECT",
+      "properties": {
+        "amount_usd": {
+          "type": "NUMBER",
+          "description": "Amount to top up in USD. Must be between 5 and 1000."
+        },
+        "currency": {
+          "type": "STRING",
+          "description": "Cryptocurrency to pay with. One of: btc, eth, ltc, xmr, zec, usdc, sol, usdt, dai, bnb, link."
+        }
+      },
+      "required": ["amount_usd", "currency"]
     }
   }
 ]

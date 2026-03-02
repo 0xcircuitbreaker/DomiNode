@@ -45,8 +45,16 @@ if [ -f "$ENV_FILE" ]; then
   echo "Loading config from ${ENV_FILE}"
   while IFS='=' read -r key value; do
     [[ -z "$key" || "$key" =~ ^[[:space:]]*# ]] && continue
-    key="$(echo "$key" | xargs)"
-    value="$(echo "$value" | xargs)"
+    # Trim whitespace with parameter expansion (no xargs — avoids command injection)
+    key="${key#"${key%%[![:space:]]*}"}"
+    key="${key%"${key##*[![:space:]]}"}"
+    value="${value#"${value%%[![:space:]]*}"}"
+    value="${value%"${value##*[![:space:]]}"}"
+    # Validate key is a safe env var name
+    if ! [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+      echo "WARNING: Skipping invalid env key: $key" >&2
+      continue
+    fi
     if [ -z "${!key+x}" ]; then
       export "$key=$value"
     fi
@@ -67,6 +75,12 @@ if ! [[ "$NUM_AGENTS" =~ ^[0-9]+$ ]] || [ "$NUM_AGENTS" -lt 1 ]; then
   exit 1
 fi
 
+MAX_AGENTS=1000
+if [ "$NUM_AGENTS" -gt "$MAX_AGENTS" ]; then
+  echo "ERROR: num_agents ($NUM_AGENTS) exceeds maximum ($MAX_AGENTS)"
+  exit 1
+fi
+
 # ─── Configuration ───────────────────────────────────────────────────
 AI_MODEL="${AI_MODEL:-THUDM/glm-4-9b-chat}"
 AI_SGLANG_PORT="${AI_SGLANG_PORT:-8000}"
@@ -82,8 +96,17 @@ LOG_DIR="${SWARM_LOG_DIR:-/tmp/dominusnode-ai-swarm}"
 : "${ADMIN_EMAIL:?ADMIN_EMAIL required (set in .env.swarm or shell env)}"
 : "${ADMIN_PASSWORD:?ADMIN_PASSWORD required}"
 
-mkdir -p "$LOG_DIR"
-trap 'rm -f "${LOG_DIR}/swarm-password.txt" 2>/dev/null' EXIT
+(umask 077 && mkdir -p "$LOG_DIR")
+
+cleanup() {
+  rm -f "${LOG_DIR}/swarm-password.txt" 2>/dev/null
+  if [ -n "${SGLANG_PID:-}" ]; then
+    echo "Cleaning up SGLang server (PID ${SGLANG_PID})..."
+    kill "$SGLANG_PID" 2>/dev/null || true
+    wait "$SGLANG_PID" 2>/dev/null || true
+  fi
+}
+trap cleanup EXIT INT TERM
 
 echo "============================================"
 echo "  Dominus Node AI Agent Swarm"

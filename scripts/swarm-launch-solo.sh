@@ -24,6 +24,9 @@
 set -euo pipefail
 
 NUM_AGENTS="${1:-10}"
+if ! [[ "$NUM_AGENTS" =~ ^[0-9]+$ ]] || [ "$NUM_AGENTS" -lt 1 ] || [ "$NUM_AGENTS" -gt 1000 ]; then
+  echo "ERROR: num_agents must be 1-1000 (got: $NUM_AGENTS)"; exit 1
+fi
 API_BASE="${2:-http://localhost:3000}"
 PROXY_HOST="${3:-localhost}"
 PROXY_PORT="${4:-8080}"
@@ -97,7 +100,6 @@ ADMIN_LOGIN=$(printf '{"email":"%s","password":"%s"}' "$ADMIN_EMAIL" "$ADMIN_PAS
   -H "Content-Type: application/json" \
   --data @- 2>/dev/null || true)
 
-export ADMIN_JWT
 ADMIN_JWT=$(echo "$ADMIN_LOGIN" | grep -o '"token":"[^"]*"' | head -1 | cut -d'"' -f4)
 if [ -z "$ADMIN_JWT" ]; then
   # Redact any potential token from error log
@@ -108,12 +110,18 @@ echo "  Admin auth: OK"
 echo ""
 
 # ─── Launch agents ───────────────────────────────────────────────────
-mkdir -p "$LOG_DIR"
-echo "$SWARM_PASSWORD" > "${LOG_DIR}/swarm-password.txt"
-chmod 600 "${LOG_DIR}/swarm-password.txt"
+(umask 077 && mkdir -p "$LOG_DIR")
 
-# Clean up credential files on exit (normal or signal)
-trap 'rm -f "${LOG_DIR}/swarm-password.txt" 2>/dev/null' EXIT
+# Clean up child processes on exit
+PIDS=()
+cleanup() {
+  if [ ${#PIDS[@]} -gt 0 ]; then
+    for PID in "${PIDS[@]}"; do kill "$PID" 2>/dev/null || true; done
+    sleep 1
+    for PID in "${PIDS[@]}"; do kill -9 "$PID" 2>/dev/null || true; done
+  fi
+}
+trap cleanup EXIT INT TERM
 
 echo "Launching ${NUM_AGENTS} solo agents in batches of ${BATCH_SIZE}..."
 echo "Logs: ${LOG_DIR}/agent-*.log"
@@ -123,7 +131,7 @@ LAUNCHED=0
 PIDS=()
 
 for AGENT_NUM in $(seq 1 "$NUM_AGENTS"); do
-  bash "${SCRIPT_DIR}/swarm-agent-solo.sh" "$AGENT_NUM" "$API_BASE" "$PROXY_HOST" "$PROXY_PORT" \
+  ADMIN_JWT="$ADMIN_JWT" bash "${SCRIPT_DIR}/swarm-agent-solo.sh" "$AGENT_NUM" "$API_BASE" "$PROXY_HOST" "$PROXY_PORT" \
     > "${LOG_DIR}/agent-${AGENT_NUM}.log" 2>&1 &
   PIDS+=($!)
   LAUNCHED=$((LAUNCHED + 1))
@@ -178,5 +186,4 @@ echo "  Failed:    ${FAILED}"
 echo "  Logs:      ${LOG_DIR}/"
 echo "============================================"
 
-# Clean up credential files after swarm completes
-rm -f "${LOG_DIR}/swarm-password.txt"
+# Clean up complete

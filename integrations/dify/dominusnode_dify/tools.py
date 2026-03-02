@@ -1,4 +1,4 @@
-"""Dominus Node Dify tool provider -- 24 tools with full security hardening.
+"""Dominus Node Dify tool provider -- 26 tools with full security hardening.
 
 This module implements the DominusNodeProvider class that Dify invokes.
 Each tool is a method that receives credentials (from the provider YAML)
@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import ipaddress
 import json
+import math
 import os
 import re
 import socket
@@ -476,7 +477,7 @@ def _validate_allowed_domains(domains: Any) -> Optional[str]:
 class DominusNodeProvider:
     """Dify tool provider for Dominus Node rotating proxy service.
 
-    Authenticates using a Dominus Node API key and exposes 24 tool methods that
+    Authenticates using a Dominus Node API key and exposes 26 tool methods that
     Dify can invoke.  Each tool method receives ``credentials`` and ``params``
     dicts from the Dify runtime and returns a dict result.
 
@@ -1481,6 +1482,99 @@ class DominusNodeProvider:
             return {"error": _sanitize_error(str(e))}
 
     # ==================================================================
+    # Tool 24: topup_stripe
+    # ==================================================================
+
+    def topup_stripe(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Create a Stripe checkout session for wallet top-up.
+
+        Args:
+            params: Dict with key: amount_cents (required, 500-100000).
+
+        Returns:
+            Dict with checkout session details.
+        """
+        amount_cents = params.get("amount_cents")
+        if amount_cents is None:
+            return {"error": "amount_cents is required"}
+
+        # Dify sends numbers as float; coerce to int
+        if isinstance(amount_cents, float):
+            if not math.isfinite(amount_cents):
+                return {"error": "amount_cents must be an integer between 500 and 100000"}
+            if amount_cents == int(amount_cents):
+                amount_cents = int(amount_cents)
+
+        err = _validate_positive_int(
+            amount_cents, "amount_cents", min_value=500, max_value=100_000
+        )
+        if err:
+            return {"error": err}
+
+        try:
+            result = self._request_with_retry(
+                "POST",
+                "/api/wallet/topup/stripe",
+                {"amountCents": amount_cents},
+            )
+            return result if isinstance(result, dict) else {"data": result}
+        except Exception as e:
+            return {"error": _sanitize_error(str(e))}
+
+    # ==================================================================
+    # Tool 25: topup_crypto
+    # ==================================================================
+
+    _VALID_CRYPTO_CURRENCIES = {
+        "BTC", "ETH", "LTC", "XMR", "ZEC",
+        "USDC", "SOL", "USDT", "DAI", "BNB", "LINK",
+    }
+
+    def topup_crypto(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Create a crypto payment invoice for wallet top-up.
+
+        Args:
+            params: Dict with keys: amount_usd (required, 5-1000),
+                currency (required, one of BTC/ETH/LTC/XMR/ZEC/USDC/SOL/
+                USDT/DAI/BNB/LINK).
+
+        Returns:
+            Dict with invoice details for completing the crypto payment.
+        """
+        amount_usd = params.get("amount_usd")
+        currency = params.get("currency")
+
+        if amount_usd is None:
+            return {"error": "amount_usd is required"}
+
+        # Dify sends numbers as float; keep as-is but validate
+        if isinstance(amount_usd, bool) or not isinstance(amount_usd, (int, float)):
+            return {"error": "amount_usd must be a number between 5 and 1,000"}
+        if not math.isfinite(amount_usd):
+            return {"error": "amount_usd must be a number between 5 and 1,000"}
+        if amount_usd < 5 or amount_usd > 1000:
+            return {"error": "amount_usd must be a number between 5 and 1,000"}
+
+        if not currency or not isinstance(currency, str):
+            return {
+                "error": "currency must be one of: BTC, ETH, LTC, XMR, ZEC, USDC, SOL, USDT, DAI, BNB, LINK",
+            }
+        if currency.upper() not in self._VALID_CRYPTO_CURRENCIES:
+            return {
+                "error": "currency must be one of: BTC, ETH, LTC, XMR, ZEC, USDC, SOL, USDT, DAI, BNB, LINK",
+            }
+
+        try:
+            result = self._request_with_retry(
+                "POST",
+                "/api/wallet/topup/crypto",
+                {"amountUsd": amount_usd, "currency": currency.lower()},
+            )
+            return result if isinstance(result, dict) else {"data": result}
+        except Exception as e:
+            return {"error": _sanitize_error(str(e))}
+
+    # ==================================================================
     # Tool dispatcher (Dify invokes tools by name)
     # ==================================================================
 
@@ -1521,6 +1615,8 @@ class DominusNodeProvider:
             "update_team_member_role": self.update_team_member_role,
             "x402_info": self.x402_info,
             "topup_paypal": self.topup_paypal,
+            "topup_stripe": self.topup_stripe,
+            "topup_crypto": self.topup_crypto,
         }
 
         handler = dispatch.get(tool_name)
@@ -1537,7 +1633,7 @@ class DominusNodeProvider:
 
     @staticmethod
     def get_tools() -> list[str]:
-        """Return the list of all 22 tool names (plus topup_paypal = 23 entries).
+        """Return the list of all 26 tool names.
 
         Returns:
             Sorted list of tool name strings.
@@ -1567,4 +1663,6 @@ class DominusNodeProvider:
             "update_team_member_role",
             "x402_info",
             "topup_paypal",
+            "topup_stripe",
+            "topup_crypto",
         ])

@@ -1,7 +1,7 @@
 /**
  * Dominus Node Mastra AI Toolkit
  *
- * Implements 24 tools for interacting with Dominus Node's rotating proxy service
+ * Implements 26 tools for interacting with Dominus Node's rotating proxy service
  * from Mastra AI agents and workflows.
  *
  * Uses createTool() from @mastra/core/tools with Zod schemas.
@@ -897,12 +897,34 @@ export class DominusNodeToolkit {
     return this.apiPost("/api/wallet/topup/paypal", { amountCents });
   }
 
+  async topupStripe(amountCents: number): Promise<Record<string, unknown>> {
+    if (!Number.isInteger(amountCents) || amountCents < 500 || amountCents > 100000) {
+      throw new Error("amount_cents must be an integer between 500 ($5) and 100000 ($1,000).");
+    }
+    return this.apiPost("/api/wallet/topup/stripe", { amountCents });
+  }
+
+  private static readonly VALID_CRYPTO_CURRENCIES = new Set([
+    "btc", "eth", "ltc", "xmr", "zec", "usdc", "sol", "usdt", "dai", "bnb", "link",
+  ]);
+
+  async topupCrypto(amountUsd: number, currency: string): Promise<Record<string, unknown>> {
+    if (typeof amountUsd !== "number" || !Number.isFinite(amountUsd) || amountUsd < 5 || amountUsd > 1000) {
+      throw new Error("amount_usd must be a number between 5 and 1,000.");
+    }
+    const cur = String(currency ?? "").toLowerCase();
+    if (!DominusNodeToolkit.VALID_CRYPTO_CURRENCIES.has(cur)) {
+      throw new Error(`currency must be one of: ${[...DominusNodeToolkit.VALID_CRYPTO_CURRENCIES].join(", ")}.`);
+    }
+    return this.apiPost("/api/wallet/topup/crypto", { amountUsd, currency: cur });
+  }
+
   async x402Info(): Promise<Record<string, unknown>> {
     return this.apiGet("/api/x402/info");
   }
 
   // -----------------------------------------------------------------------
-  // getTools() -- returns Mastra createTool() instances for all 24 tools
+  // getTools() -- returns Mastra createTool() instances for all 26 tools
   // -----------------------------------------------------------------------
 
   getTools() {
@@ -1422,7 +1444,56 @@ export class DominusNodeToolkit {
         },
       }),
 
-      // 24. x402_info
+      // 23. topup_stripe
+      createTool({
+        id: "dominusnode_topup_stripe",
+        description:
+          "Top up your Dominus Node wallet balance via Stripe. Creates a Stripe checkout session and returns " +
+          "a checkout URL to complete payment. Minimum $5 (500 cents), maximum $1,000 (100000 cents).",
+        inputSchema: z.object({
+          amountCents: z.number().int().min(500).max(100000)
+            .describe("Amount in cents to top up (min 500 = $5, max 100000 = $1,000)"),
+        }) as any,
+        outputSchema: z.object({
+          data: z.unknown(),
+          error: z.string().optional(),
+        }),
+        execute: async ({ context }: { context: any }) => {
+          try {
+            return { data: await this.topupStripe(context.amountCents) };
+          } catch (err) {
+            return { data: null, error: safeError(err) };
+          }
+        },
+      }),
+
+      // 24. topup_crypto
+      createTool({
+        id: "dominusnode_topup_crypto",
+        description:
+          "Top up your Dominus Node wallet balance via cryptocurrency. Creates a crypto payment invoice. " +
+          "Supports BTC, ETH, LTC, XMR, ZEC, USDC, SOL, USDT, DAI, BNB, LINK. " +
+          "Minimum $5, maximum $1,000.",
+        inputSchema: z.object({
+          amountUsd: z.number().min(5).max(1000)
+            .describe("Amount in USD to top up (5-1000)"),
+          currency: z.enum(["btc", "eth", "ltc", "xmr", "zec", "usdc", "sol", "usdt", "dai", "bnb", "link"])
+            .describe("Cryptocurrency to pay with"),
+        }) as any,
+        outputSchema: z.object({
+          data: z.unknown(),
+          error: z.string().optional(),
+        }),
+        execute: async ({ context }: { context: any }) => {
+          try {
+            return { data: await this.topupCrypto(context.amountUsd, context.currency) };
+          } catch (err) {
+            return { data: null, error: safeError(err) };
+          }
+        },
+      }),
+
+      // 26. x402_info
       createTool({
         id: "dominusnode_x402_info",
         description:

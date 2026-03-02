@@ -35,7 +35,9 @@ from .tools import (
     DominusNodeListAgenticWalletsTool,
     DominusNodeProxiedFetchTool,
     DominusNodeProxyConfigTool,
+    DominusNodeTopupCryptoTool,
     DominusNodeTopupPaypalTool,
+    DominusNodeTopupStripeTool,
     DominusNodeUnfreezeAgenticWalletTool,
     DominusNodeUpdateWalletPolicyTool,
     DominusNodeUsageTool,
@@ -142,6 +144,14 @@ class DominusNodeToolkit(BaseToolkit):
             sync_client=self._sync_client,
             async_client=self._async_client,
         )
+        topup_stripe_tool = DominusNodeTopupStripeTool(
+            sync_client=self._sync_client,
+            async_client=self._async_client,
+        )
+        topup_crypto_tool = DominusNodeTopupCryptoTool(
+            sync_client=self._sync_client,
+            async_client=self._async_client,
+        )
         x402_info_tool = DominusNodeX402InfoTool(
             sync_client=self._sync_client,
             async_client=self._async_client,
@@ -166,6 +176,8 @@ class DominusNodeToolkit(BaseToolkit):
             usage_tool,
             config_tool,
             topup_paypal_tool,
+            topup_stripe_tool,
+            topup_crypto_tool,
             x402_info_tool,
             create_wallet_tool,
             fund_wallet_tool,

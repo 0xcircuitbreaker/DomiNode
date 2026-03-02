@@ -603,6 +603,74 @@ export function createTopupPaypalTool(client: DominusNodeClient) {
 }
 
 /**
+ * Creates the `topupStripe` tool that initiates a Stripe wallet top-up.
+ */
+export function createTopupStripeTool(client: DominusNodeClient) {
+  return (tool as any)({
+    description:
+      "Create a Stripe checkout session to top up your Dominus Node wallet with " +
+      "credit/debit card, Apple Pay, Google Pay, or Link. Returns a checkout URL. " +
+      "After payment, wallet is credited automatically.",
+    parameters: z.object({
+      amount_cents: z
+        .number()
+        .int()
+        .min(500)
+        .max(100000)
+        .describe("Amount in cents to top up (min 500 = $5, max 100000 = $1,000)"),
+    }),
+    execute: async ({ amount_cents }: { amount_cents: number }) => {
+      try {
+        const result = await (client as any).wallet.topupStripe({ amountCents: amount_cents });
+        return {
+          sessionId: result.sessionId,
+          url: result.url,
+          amountCents: amount_cents,
+        };
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Unknown error";
+        return { error: `Failed to create Stripe checkout: ${sanitizeError(message)}` };
+      }
+    },
+  });
+}
+
+/**
+ * Creates the `topupCrypto` tool that initiates a cryptocurrency wallet top-up.
+ */
+export function createTopupCryptoTool(client: DominusNodeClient) {
+  return (tool as any)({
+    description:
+      "Create a cryptocurrency payment invoice to top up wallet. Supports BTC, ETH, LTC, " +
+      "XMR, ZEC, USDC, SOL, USDT, DAI, BNB, LINK. Privacy coins (XMR, ZEC) provide anonymous billing.",
+    parameters: z.object({
+      amount_usd: z
+        .number()
+        .min(5)
+        .max(1000)
+        .describe("Amount in USD to top up (min $5, max $1,000)"),
+      currency: z
+        .enum(["BTC", "ETH", "LTC", "XMR", "ZEC", "USDC", "SOL", "USDT", "DAI", "BNB", "LINK"])
+        .describe("Cryptocurrency to pay with"),
+    }),
+    execute: async ({ amount_usd, currency }: { amount_usd: number; currency: string }) => {
+      try {
+        const result = await (client as any).wallet.topupCrypto({ amountUsd: amount_usd, currency: currency.toLowerCase() });
+        return {
+          invoiceId: result.invoiceId,
+          invoiceUrl: result.invoiceUrl,
+          payCurrency: result.payCurrency,
+          priceAmount: result.priceAmount,
+        };
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Unknown error";
+        return { error: `Failed to create crypto invoice: ${sanitizeError(message)}` };
+      }
+    },
+  });
+}
+
+/**
  * Creates the `x402Info` tool that retrieves x402 micropayment protocol information.
  */
 export function createX402InfoTool(client: DominusNodeClient) {

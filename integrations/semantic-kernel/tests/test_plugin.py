@@ -506,8 +506,8 @@ class TestKernelFunctionDecorators:
         meta = getattr(DominusNodePlugin.check_balance, "__kernel_function_metadata__", None)
         assert meta is not None or hasattr(DominusNodePlugin.check_balance, "__kernel_function__")
 
-    def test_all_22_functions_are_callable(self):
-        """Verify all 22 expected function names exist on the plugin class."""
+    def test_all_26_functions_are_callable(self):
+        """Verify all 26 expected function names exist on the plugin class."""
         expected_functions = [
             "proxied_fetch",
             "check_balance",
@@ -532,14 +532,16 @@ class TestKernelFunctionDecorators:
             "update_team_member_role",
             "x402_info",
             "topup_paypal",
+            "topup_stripe",
+            "topup_crypto",
         ]
         plugin = DominusNodePlugin(api_key="dn_test_key123")
         for fn_name in expected_functions:
             assert hasattr(plugin, fn_name), f"Missing function: {fn_name}"
             assert callable(getattr(plugin, fn_name)), f"Not callable: {fn_name}"
 
-    def test_function_count_is_24(self):
-        """Verify we have exactly 24 public kernel function methods."""
+    def test_function_count_is_26(self):
+        """Verify we have exactly 26 public kernel function methods."""
         plugin = DominusNodePlugin(api_key="dn_test_key123")
         kernel_functions = []
         for attr_name in dir(plugin):
@@ -552,7 +554,7 @@ class TestKernelFunctionDecorators:
                     or hasattr(attr, "__kernel_function__")
                 ):
                     kernel_functions.append(attr_name)
-        assert len(kernel_functions) == 24, f"Expected 24 kernel functions, got {len(kernel_functions)}: {kernel_functions}"
+        assert len(kernel_functions) == 26, f"Expected 26 kernel functions, got {len(kernel_functions)}: {kernel_functions}"
 
 
 # ===========================================================================
@@ -1113,6 +1115,24 @@ class TestMockedAPIFunctions:
         plugin = DominusNodePlugin(api_key="dn_test_key123")
         result = json.loads(plugin.topup_paypal(amount_cents=1000))
         assert result["orderId"] == "PAY-456"
+
+    @patch("dominusnode_semantic_kernel.plugin.httpx.Client")
+    def test_topup_stripe(self, mock_httpx_cls):
+        mock_httpx_cls.return_value = _make_mock_httpx(
+            api_response={"sessionId": "cs_123", "checkoutUrl": "https://checkout.stripe.com/x"}
+        )
+        plugin = DominusNodePlugin(api_key="dn_test_key123")
+        result = json.loads(plugin.topup_stripe(amount_cents=1000))
+        assert result["sessionId"] == "cs_123"
+
+    @patch("dominusnode_semantic_kernel.plugin.httpx.Client")
+    def test_topup_crypto(self, mock_httpx_cls):
+        mock_httpx_cls.return_value = _make_mock_httpx(
+            api_response={"invoiceId": "INV-1", "paymentUrl": "https://nowpayments.io/x"}
+        )
+        plugin = DominusNodePlugin(api_key="dn_test_key123")
+        result = json.loads(plugin.topup_crypto(amount_usd=10, currency="BTC"))
+        assert result["invoiceId"] == "INV-1"
 
 
 # ===========================================================================

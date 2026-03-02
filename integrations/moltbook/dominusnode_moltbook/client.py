@@ -2,7 +2,7 @@
 
 This module provides the ``MoltbookClient`` class which routes all Moltbook API
 requests through Dominus Node's rotating proxy gateway, ensuring each request comes
-from a different IP address.  It also exposes 23 Dominus Node management tools for
+from a different IP address.  It also exposes 25 Dominus Node management tools for
 wallet, team, and proxy operations.
 
 Authentication with Moltbook uses Ethereum wallet signatures (EIP-191
@@ -31,6 +31,7 @@ import hashlib
 import hmac
 import ipaddress
 import json
+import math
 import os
 import re
 import socket
@@ -504,23 +505,32 @@ MAX_SUBMOLT_DESC_LEN = 500
 
 
 def _default_sign_fn(message: str, private_key: str) -> str:
-    """Stub EIP-191 signer using HMAC-SHA256.
+    """Placeholder that raises at runtime to prevent silent use of a non-EIP-191 signer.
 
-    This is NOT a real Ethereum personal_sign implementation.  It produces a
-    deterministic hex signature suitable for testing and development.  For
-    production, replace this with ``eth_account.messages.encode_defunct`` +
-    ``Account.sign_message``.
+    Users MUST provide a real ``sign_fn`` using ``eth_account``::
+
+        from eth_account import Account
+        from eth_account.messages import encode_defunct
+
+        def real_sign(message: str, private_key: str) -> str:
+            msg = encode_defunct(text=message)
+            signed = Account.sign_message(msg, private_key)
+            return signed.signature.hex()
+
+        client = MoltbookClient(sign_fn=real_sign, ...)
 
     Args:
-        message: The message to sign (the ISO-8601 timestamp).
-        private_key: The hex-encoded private key (0x-prefixed or raw).
+        message: The message to sign.
+        private_key: The hex-encoded private key.
 
-    Returns:
-        A 0x-prefixed hex string representing the signature.
+    Raises:
+        NotImplementedError: Always. A real EIP-191 signer must be provided.
     """
-    key_bytes = bytes.fromhex(private_key.replace("0x", ""))
-    sig = hmac.new(key_bytes, message.encode("utf-8"), hashlib.sha256).hexdigest()
-    return f"0x{sig}"
+    raise NotImplementedError(
+        "No sign_fn provided. You must supply a real EIP-191 signer. "
+        "Install eth_account and pass a sign_fn callback to MoltbookClient. "
+        "See the docstring for an example."
+    )
 
 
 # ===========================================================================
@@ -1843,14 +1853,86 @@ class MoltbookClient:
             return json.dumps({"error": _sanitize_error(str(e))})
 
     # ==================================================================
+    # Dominus Node Tool 23: topup_stripe
+    # ==================================================================
+
+    def topup_stripe(self, amount_cents: int) -> str:
+        """Create a Stripe checkout session to top up the user's wallet.
+
+        Args:
+            amount_cents: Amount to top up in cents (500 to 100,000).
+                Minimum $5.00 (500 cents), maximum $1,000 (100,000 cents).
+
+        Returns:
+            JSON string with ``sessionId`` and ``checkoutUrl``.
+        """
+        err = _validate_positive_int(
+            amount_cents, "amount_cents", min_value=500, max_value=100_000
+        )
+        if err:
+            return json.dumps({"error": err})
+
+        try:
+            result = self._request_with_retry(
+                "POST",
+                "/api/wallet/topup/stripe",
+                {"amountCents": amount_cents},
+            )
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Dominus Node Tool 24: topup_crypto
+    # ==================================================================
+
+    _VALID_CRYPTO_CURRENCIES = {
+        "btc", "eth", "ltc", "xmr", "zec", "usdc", "sol", "usdt", "dai", "bnb", "link",
+    }
+
+    def topup_crypto(self, amount_usd: float, currency: str) -> str:
+        """Create a crypto payment invoice to top up the user's wallet.
+
+        Args:
+            amount_usd: Amount in USD (5 to 1,000).
+            currency: Cryptocurrency to pay with (btc, eth, ltc, xmr, zec,
+                usdc, sol, usdt, dai, bnb, link).
+
+        Returns:
+            JSON string with invoice details including payment address and amount.
+        """
+        if isinstance(amount_usd, bool):
+            return json.dumps({"error": "amount_usd must be a number between 5 and 1,000"})
+        if not isinstance(amount_usd, (int, float)) or not math.isfinite(amount_usd):
+            return json.dumps({"error": "amount_usd must be a number between 5 and 1,000"})
+        if amount_usd < 5 or amount_usd > 1000:
+            return json.dumps({"error": "amount_usd must be a number between 5 and 1,000"})
+
+        cur = str(currency).lower()
+        if cur not in self._VALID_CRYPTO_CURRENCIES:
+            return json.dumps({
+                "error": f"currency must be one of: {', '.join(sorted(self._VALID_CRYPTO_CURRENCIES))}"
+            })
+
+        try:
+            result = self._request_with_retry(
+                "POST",
+                "/api/wallet/topup/crypto",
+                {"amountUsd": amount_usd, "currency": cur},
+            )
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
     # Tool listing
     # ==================================================================
 
     def get_all_tools(self) -> List[Callable]:
-        """Return a list of all tool functions (Moltbook + Dominus Node = 33 total).
+        """Return a list of all tool functions (Moltbook + Dominus Node = 35 total).
 
         Returns:
-            List of bound method references for all 33 tools.
+            List of bound method references for all 35 tools.
         """
         return [
             # Moltbook tools (10)
@@ -1864,7 +1946,7 @@ class MoltbookClient:
             self.create_submolt,
             self.get_profile,
             self.get_proxy_status,
-            # Dominus Node management tools (23)
+            # Dominus Node management tools (25)
             self.check_balance,
             self.check_usage,
             self.get_proxy_config,
@@ -1888,4 +1970,6 @@ class MoltbookClient:
             self.update_team_member_role,
             self.x402_info,
             self.topup_paypal,
+            self.topup_stripe,
+            self.topup_crypto,
         ]

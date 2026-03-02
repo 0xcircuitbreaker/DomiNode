@@ -486,10 +486,10 @@ class TestToolkitInit:
 class TestGetTools:
     """Test the get_tools method returns correct StructuredTool objects."""
 
-    def test_returns_24_tools(self):
+    def test_returns_26_tools(self):
         toolkit = DominusNodeToolkit(api_key="dn_test_key123")
         tools = toolkit.get_tools()
-        assert len(tools) == 24
+        assert len(tools) == 26
 
     def test_tool_names(self):
         toolkit = DominusNodeToolkit(api_key="dn_test_key123")
@@ -519,6 +519,8 @@ class TestGetTools:
             "dominusnode_update_team_member_role",
             "dominusnode_x402_info",
             "dominusnode_topup_paypal",
+            "dominusnode_topup_stripe",
+            "dominusnode_topup_crypto",
             "dominusnode_update_wallet_policy",
         ]
         assert names == expected

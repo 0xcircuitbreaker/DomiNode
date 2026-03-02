@@ -488,7 +488,7 @@ class TestComposioActions:
     def test_get_actions_returns_24(self):
         toolkit = DominusNodeToolkit(api_key="dn_test_key123")
         actions = toolkit.get_actions()
-        assert len(actions) == 24
+        assert len(actions) == 26
 
     def test_all_actions_have_required_keys(self):
         toolkit = DominusNodeToolkit(api_key="dn_test_key123")
@@ -553,6 +553,8 @@ class TestComposioActions:
             "DOMINUSNODE_UPDATE_TEAM_MEMBER_ROLE",
             "DOMINUSNODE_X402_INFO",
             "DOMINUSNODE_TOPUP_PAYPAL",
+            "DOMINUSNODE_TOPUP_STRIPE",
+            "DOMINUSNODE_TOPUP_CRYPTO",
         }
         assert names == expected
 

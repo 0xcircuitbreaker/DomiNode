@@ -1,7 +1,7 @@
 /**
  * Dominus Node OpenClaw Plugin
  *
- * Implements 24 tools for interacting with Dominus Node's rotating proxy service
+ * Implements 26 tools for interacting with Dominus Node's rotating proxy service
  * directly from OpenClaw AI coding sessions.
  *
  * Uses native fetch (no external dependencies). Runs via jiti runtime.
@@ -1741,7 +1741,108 @@ const topupPaypalTool: ToolDefinition = {
   },
 };
 
-// 22. x402_info
+// 22. topup_stripe
+const topupStripeTool: ToolDefinition = {
+  name: "topup_stripe",
+  description:
+    "Top up your Dominus Node wallet balance via Stripe. Creates a Stripe checkout session and returns " +
+    "a checkout URL to complete payment. Minimum $5 (500 cents), maximum $1,000 (100000 cents).",
+  parameters: {
+    amount_cents: {
+      type: "number",
+      description: "Amount in cents to top up (min 500 = $5, max 100000 = $1,000)",
+      required: true,
+    },
+  },
+  execute: async (args) => {
+    try {
+      const amountCents = Number(args.amount_cents ?? 0);
+      if (!Number.isInteger(amountCents) || amountCents < 500 || amountCents > 100000) {
+        return "Error: amount_cents must be an integer between 500 ($5) and 100000 ($1,000).";
+      }
+
+      const data = await apiPost<{
+        sessionId: string;
+        url: string;
+      }>("/api/wallet/topup/stripe", { amountCents });
+
+      return [
+        "Stripe Checkout Session Created",
+        "",
+        `Session ID: ${data.sessionId}`,
+        `Amount: ${formatCents(amountCents)}`,
+        `Checkout URL: ${data.url}`,
+        "",
+        "Open the checkout URL in a browser to complete payment.",
+        "Once paid, the funds will be credited to your wallet automatically.",
+      ].join("\n");
+    } catch (err) {
+      return `Error: ${safeError(err)}`;
+    }
+  },
+};
+
+// 23. topup_crypto
+const VALID_CRYPTO_CURRENCIES = new Set([
+  "BTC", "ETH", "LTC", "XMR", "ZEC", "USDC", "SOL", "USDT", "DAI", "BNB", "LINK",
+]);
+
+const topupCryptoTool: ToolDefinition = {
+  name: "topup_crypto",
+  description:
+    "Top up your Dominus Node wallet balance via cryptocurrency. Creates a crypto payment invoice " +
+    "and returns payment details. Minimum $5, maximum $1,000. " +
+    "Supported currencies: BTC, ETH, LTC, XMR, ZEC, USDC, SOL, USDT, DAI, BNB, LINK.",
+  parameters: {
+    amount_usd: {
+      type: "number",
+      description: "Amount in USD to top up (min 5, max 1000)",
+      required: true,
+    },
+    currency: {
+      type: "string",
+      description: "Cryptocurrency to pay with",
+      required: true,
+      enum: ["BTC", "ETH", "LTC", "XMR", "ZEC", "USDC", "SOL", "USDT", "DAI", "BNB", "LINK"],
+    },
+  },
+  execute: async (args) => {
+    try {
+      const amountUsd = Number(args.amount_usd ?? 0);
+      if (typeof amountUsd !== "number" || !Number.isFinite(amountUsd) || amountUsd < 5 || amountUsd > 1000) {
+        return "Error: amount_usd must be a number between 5 and 1000.";
+      }
+
+      const currency = String(args.currency ?? "").toUpperCase();
+      if (!VALID_CRYPTO_CURRENCIES.has(currency)) {
+        return `Error: currency must be one of: ${[...VALID_CRYPTO_CURRENCIES].join(", ")}.`;
+      }
+
+      const data = await apiPost<{
+        invoiceId: string;
+        invoiceUrl: string;
+        payCurrency: string;
+        priceAmount: number;
+      }>("/api/wallet/topup/crypto", { amountUsd, currency: currency.toLowerCase() });
+
+      return [
+        "Crypto Payment Invoice Created",
+        "",
+        `Invoice ID: ${data.invoiceId}`,
+        `Amount: $${amountUsd}`,
+        `Pay: ${data.priceAmount} ${data.payCurrency?.toUpperCase() ?? currency}`,
+        `Payment URL: ${data.invoiceUrl}`,
+        "",
+        "Open the payment URL to complete payment.",
+        "Once confirmed on-chain, the funds will be credited to your wallet.",
+      ].join("\n");
+    } catch (err) {
+      return `Error: ${safeError(err)}`;
+    }
+  },
+};
+
+// 24. x402_info
 const x402InfoTool: ToolDefinition = {
   name: "x402_info",
   description:
@@ -1758,7 +1859,7 @@ const x402InfoTool: ToolDefinition = {
   },
 };
 
-// 23. update_team_member_role
+// 25. update_team_member_role
 const updateTeamMemberRoleTool: ToolDefinition = {
   name: "update_team_member_role",
   description:
@@ -1812,7 +1913,7 @@ const updateTeamMemberRoleTool: ToolDefinition = {
   },
 };
 
-// 24. update_wallet_policy
+// 26. update_wallet_policy
 const updateWalletPolicyTool: ToolDefinition = {
   name: "update_wallet_policy",
   description:
@@ -1929,6 +2030,8 @@ export const tools: ToolDefinition[] = [
   updateTeamTool,
   updateTeamMemberRoleTool,
   topupPaypalTool,
+  topupStripeTool,
+  topupCryptoTool,
   x402InfoTool,
   updateWalletPolicyTool,
 ];

@@ -147,8 +147,8 @@ do_request() {
 
 # ─── Main loop ───────────────────────────────────────────────────────
 log "Starting ${CYCLES} cycles (${RES_SCRAPES} res + ${DC_REQUESTS} DC per cycle, ${DELAY}s delay)"
-# Only log key prefix (8 chars) to avoid credential leakage in log files
-log "API key: ${API_KEY:0:8}..."
+# Only log first 4 chars to avoid credential leakage (dn_l prefix is 8 chars)
+log "API key: ${API_KEY:0:4}..."
 
 for CYCLE in $(seq 1 "$CYCLES"); do
   log "── Cycle ${CYCLE}/${CYCLES} ──"

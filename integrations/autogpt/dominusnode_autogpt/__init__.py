@@ -1,4 +1,4 @@
-"""Dominus Node AutoGPT plugin -- 23 proxy, wallet, team, and PayPal management commands.
+"""Dominus Node AutoGPT plugin -- 25 proxy, wallet, team, and payment management commands.
 
 Provides an AutoGPT-compatible plugin class that exposes 23 commands for
 interacting with the Dominus Node rotating proxy-as-a-service platform.
@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import ipaddress
 import json
+import math
 import os
 import re
 import socket
@@ -1465,6 +1466,83 @@ class DominusNodePlugin:
             return json.dumps({"error": _sanitize_error(str(e))})
 
     # ==================================================================
+    # Command 24: topup_stripe
+    # ==================================================================
+
+    def topup_stripe(self, amount_cents: int) -> str:
+        """Create a Stripe checkout session for wallet top-up.
+
+        Args:
+            amount_cents: Amount to top up in cents (500 to 100,000).
+                Minimum $5.00 (500 cents), maximum $1,000.
+
+        Returns:
+            JSON string with ``sessionId`` and ``checkoutUrl`` for completing
+            the Stripe payment flow.
+        """
+        err = _validate_positive_int(
+            amount_cents, "amount_cents", min_value=500, max_value=100_000
+        )
+        if err:
+            return json.dumps({"error": err})
+
+        try:
+            result = self._request_with_retry(
+                "POST",
+                "/api/wallet/topup/stripe",
+                {"amountCents": amount_cents},
+            )
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Command 25: topup_crypto
+    # ==================================================================
+
+    _VALID_CRYPTO_CURRENCIES: Set[str] = {
+        "btc", "eth", "ltc", "xmr", "zec", "usdc", "sol", "usdt", "dai",
+        "bnb", "link",
+    }
+
+    def topup_crypto(self, amount_usd: float, currency: str) -> str:
+        """Create a crypto invoice for wallet top-up via NOWPayments.
+
+        Args:
+            amount_usd: Amount in USD (5 to 1,000).
+            currency: Cryptocurrency to pay with.  One of: BTC, ETH, LTC,
+                XMR, ZEC, USDC, SOL, USDT, DAI, BNB, LINK.
+
+        Returns:
+            JSON string with ``invoiceId`` and ``paymentUrl`` for completing
+            the crypto payment.
+        """
+        if not isinstance(amount_usd, (int, float)) or isinstance(amount_usd, bool):
+            return json.dumps({"error": "amount_usd must be a number between 5 and 1000"})
+        if not math.isfinite(amount_usd):
+            return json.dumps({"error": "amount_usd must be a number between 5 and 1000"})
+        if amount_usd < 5 or amount_usd > 1000:
+            return json.dumps({"error": "amount_usd must be a number between 5 and 1000"})
+
+        if not isinstance(currency, str) or currency.lower() not in self._VALID_CRYPTO_CURRENCIES:
+            return json.dumps({
+                "error": (
+                    "currency must be one of: "
+                    "BTC, ETH, LTC, XMR, ZEC, USDC, SOL, USDT, DAI, BNB, LINK"
+                )
+            })
+
+        try:
+            result = self._request_with_retry(
+                "POST",
+                "/api/wallet/topup/crypto",
+                {"amountUsd": amount_usd, "currency": currency.lower()},
+            )
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
     # Command dispatcher
     # ==================================================================
 
@@ -1505,6 +1583,8 @@ class DominusNodePlugin:
             "update_team": self._handle_update_team,
             "update_team_member_role": self._handle_update_team_member_role,
             "topup_paypal": self._handle_topup_paypal,
+            "topup_stripe": self._handle_topup_stripe,
+            "topup_crypto": self._handle_topup_crypto,
             "x402_info": self._handle_x402_info,
         }
 
@@ -1694,13 +1774,26 @@ class DominusNodePlugin:
             return json.dumps({"error": "amount_cents is required"})
         return self.topup_paypal(amount_cents=amount_cents)
 
+    def _handle_topup_stripe(self, args: dict) -> str:
+        amount_cents = args.get("amount_cents")
+        if amount_cents is None:
+            return json.dumps({"error": "amount_cents is required"})
+        return self.topup_stripe(amount_cents=amount_cents)
+
+    def _handle_topup_crypto(self, args: dict) -> str:
+        amount_usd = args.get("amount_usd")
+        currency = args.get("currency")
+        if amount_usd is None or currency is None:
+            return json.dumps({"error": "amount_usd and currency are required"})
+        return self.topup_crypto(amount_usd=amount_usd, currency=currency)
+
     # ------------------------------------------------------------------
     # Command metadata for AutoGPT discovery
     # ------------------------------------------------------------------
 
     @staticmethod
     def get_commands() -> list[dict]:
-        """Return metadata for all 23 commands (for AutoGPT plugin discovery).
+        """Return metadata for all 25 commands (for AutoGPT plugin discovery).
 
         Returns:
             A list of dicts with ``name``, ``description``, and ``parameters``
@@ -1880,6 +1973,21 @@ class DominusNodePlugin:
                 "description": "Create a PayPal wallet top-up order",
                 "parameters": {
                     "amount_cents": {"type": "integer", "description": "Amount in cents (500-1,000,000)", "required": True},
+                },
+            },
+            {
+                "name": "topup_stripe",
+                "description": "Create a Stripe checkout session for wallet top-up",
+                "parameters": {
+                    "amount_cents": {"type": "integer", "description": "Amount in cents (500-100,000)", "required": True},
+                },
+            },
+            {
+                "name": "topup_crypto",
+                "description": "Create a crypto invoice for wallet top-up (BTC, ETH, LTC, XMR, ZEC, USDC, SOL, USDT, DAI, BNB, LINK)",
+                "parameters": {
+                    "amount_usd": {"type": "number", "description": "Amount in USD (5-1,000)", "required": True},
+                    "currency": {"type": "string", "description": "Cryptocurrency (BTC/ETH/LTC/XMR/ZEC/USDC/SOL/USDT/DAI/BNB/LINK)", "required": True},
                 },
             },
         ]

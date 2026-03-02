@@ -453,7 +453,7 @@ class TestProviderInit:
 
     def test_get_tools_returns_24(self):
         tools = DominusNodeProvider.get_tools()
-        assert len(tools) == 24
+        assert len(tools) == 26
         assert "proxied_fetch" in tools
         assert "check_balance" in tools
         assert "topup_paypal" in tools

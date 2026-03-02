@@ -1,6 +1,6 @@
-"""Dominus Node SuperAGI tools -- 24 proxy, wallet, team, and PayPal management tools.
+"""Dominus Node SuperAGI tools -- 26 proxy, wallet, team, and payment management tools.
 
-Provides SuperAGI-compatible tool classes that expose 24 tools for
+Provides SuperAGI-compatible tool classes that expose 26 tools for
 interacting with the Dominus Node rotating proxy-as-a-service platform.
 
 Tools cover:
@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import ipaddress
 import json
+import math
 import os
 import re
 import socket
@@ -1449,6 +1450,82 @@ class _DominusNodeClient:
             return json.dumps({"error": _sanitize_error(str(e))})
 
 
+    # ==================================================================
+    # Command 24: topup_stripe
+    # ==================================================================
+
+    def topup_stripe(self, amount_cents: int) -> str:
+        """Create a Stripe checkout session for wallet top-up.
+
+        Args:
+            amount_cents: Amount to top up in cents (500 to 100,000).
+                Minimum $5.00 (500 cents).
+
+        Returns:
+            JSON string with ``sessionId`` and ``checkoutUrl``.
+        """
+        err = _validate_positive_int(
+            amount_cents, "amount_cents", min_value=500, max_value=100_000
+        )
+        if err:
+            return json.dumps({"error": err})
+
+        try:
+            result = self._request_with_retry(
+                "POST",
+                "/api/wallet/topup/stripe",
+                {"amountCents": amount_cents},
+            )
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Command 25: topup_crypto
+    # ==================================================================
+
+    _VALID_CRYPTO_CURRENCIES: Set[str] = {
+        "btc", "eth", "ltc", "xmr", "zec", "usdc", "sol", "usdt", "dai",
+        "bnb", "link",
+    }
+
+    def topup_crypto(self, amount_usd: float, currency: str) -> str:
+        """Create a crypto invoice for wallet top-up via NOWPayments.
+
+        Args:
+            amount_usd: Amount in USD (5 to 1,000).
+            currency: Cryptocurrency to pay with. One of: BTC, ETH, LTC,
+                XMR, ZEC, USDC, SOL, USDT, DAI, BNB, LINK.
+
+        Returns:
+            JSON string with ``invoiceId`` and ``paymentUrl``.
+        """
+        if not isinstance(amount_usd, (int, float)) or isinstance(amount_usd, bool):
+            return json.dumps({"error": "amount_usd must be a number between 5 and 1000"})
+        if not math.isfinite(amount_usd):
+            return json.dumps({"error": "amount_usd must be a number between 5 and 1000"})
+        if amount_usd < 5 or amount_usd > 1000:
+            return json.dumps({"error": "amount_usd must be a number between 5 and 1000"})
+
+        if not isinstance(currency, str) or currency.lower() not in self._VALID_CRYPTO_CURRENCIES:
+            return json.dumps({
+                "error": (
+                    "currency must be one of: "
+                    "BTC, ETH, LTC, XMR, ZEC, USDC, SOL, USDT, DAI, BNB, LINK"
+                )
+            })
+
+        try:
+            result = self._request_with_retry(
+                "POST",
+                "/api/wallet/topup/crypto",
+                {"amountUsd": amount_usd, "currency": currency.lower()},
+            )
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+
 # ===========================================================================
 # Pydantic Schemas for SuperAGI tool args
 # ===========================================================================
@@ -1568,8 +1645,17 @@ class TopupPaypalSchema(BaseModel):
     amount_cents: int = Field(description="Amount to top up in cents (minimum 500 = $5.00)")
 
 
+class TopupStripeSchema(BaseModel):
+    amount_cents: int = Field(description="Amount to top up in cents (500 to 100,000 = $5-$1,000)")
+
+
+class TopupCryptoSchema(BaseModel):
+    amount_usd: float = Field(description="Amount in USD to top up via crypto (5 to 1,000)")
+    currency: str = Field(description="Cryptocurrency: BTC, ETH, LTC, XMR, ZEC, USDC, SOL, USDT, DAI, BNB, or LINK")
+
+
 # ===========================================================================
-# SuperAGI Tool Classes (24 tools)
+# SuperAGI Tool Classes (26 tools)
 # ===========================================================================
 
 
@@ -1945,3 +2031,35 @@ class DominusNodeTopupPaypalTool(BaseTool):
     def _execute(self, amount_cents: int) -> str:
         client = _get_client(self)
         return client.topup_paypal(amount_cents=amount_cents)
+
+
+class DominusNodeTopupStripeTool(BaseTool):
+    """Create a Stripe checkout session for wallet top-up."""
+
+    name: str = "Dominus Node TopUp Stripe"
+    description: str = (
+        "Create a Stripe checkout session for wallet top-up. "
+        "Amount between $5.00 (500 cents) and $1,000 (100,000 cents). "
+        "Returns a checkout URL to complete payment."
+    )
+    args_schema: type[BaseModel] = TopupStripeSchema
+
+    def _execute(self, amount_cents: int) -> str:
+        client = _get_client(self)
+        return client.topup_stripe(amount_cents=amount_cents)
+
+
+class DominusNodeTopupCryptoTool(BaseTool):
+    """Create a crypto invoice for wallet top-up."""
+
+    name: str = "Dominus Node TopUp Crypto"
+    description: str = (
+        "Create a crypto payment invoice via NOWPayments for wallet top-up. "
+        "Amount between $5 and $1,000 USD. Supports BTC, ETH, LTC, XMR, ZEC, "
+        "USDC, SOL, USDT, DAI, BNB, LINK."
+    )
+    args_schema: type[BaseModel] = TopupCryptoSchema
+
+    def _execute(self, amount_usd: float, currency: str) -> str:
+        client = _get_client(self)
+        return client.topup_crypto(amount_usd=amount_usd, currency=currency)

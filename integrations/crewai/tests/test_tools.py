@@ -13,6 +13,8 @@ from dominusnode_crewai.tools import (
     DominusNodeBalanceTool,
     DominusNodeGeoTargetTool,
     DominusNodeWebScrapeTool,
+    DominusNodeTopupStripeTool,
+    DominusNodeTopupCryptoTool,
     DominusNodeCreateAgenticWalletTool,
     DominusNodeFundAgenticWalletTool,
     DominusNodeAgenticWalletBalanceTool,
@@ -814,3 +816,307 @@ class TestAgenticWalletErrorHandling:
         )
         assert "Error" in result
         assert "Connection refused" in result
+
+
+# ---------------------------------------------------------------------------
+# Stripe Top-Up Tool tests
+# ---------------------------------------------------------------------------
+
+
+class TestTopupStripeValidation:
+    """Input validation tests for DominusNodeTopupStripeTool."""
+
+    def test_rejects_amount_too_low(self):
+        tool = DominusNodeTopupStripeTool(api_key="dn_live_test")
+        result = tool._run(amount_cents=499)
+        assert "Error" in result
+        assert "500" in result
+
+    def test_rejects_amount_too_high(self):
+        tool = DominusNodeTopupStripeTool(api_key="dn_live_test")
+        result = tool._run(amount_cents=100001)
+        assert "Error" in result
+        assert "100000" in result
+
+    def test_rejects_zero_amount(self):
+        tool = DominusNodeTopupStripeTool(api_key="dn_live_test")
+        result = tool._run(amount_cents=0)
+        assert "Error" in result
+
+    def test_rejects_negative_amount(self):
+        tool = DominusNodeTopupStripeTool(api_key="dn_live_test")
+        result = tool._run(amount_cents=-100)
+        assert "Error" in result
+
+    def test_no_api_key_returns_error(self):
+        with patch.dict("os.environ", {}, clear=True):
+            tool = DominusNodeTopupStripeTool()
+            result = tool._run(amount_cents=1000)
+            assert "Error" in result
+            assert "API key" in result
+
+
+class TestTopupStripeApiCalls:
+    """Tests for DominusNodeTopupStripeTool making API calls."""
+
+    @patch("dominusnode_crewai.tools._make_client")
+    def test_success(self, mock_make):
+        mock_result = MagicMock()
+        mock_result.session_id = "cs_test_abc123"
+        mock_result.url = "https://checkout.stripe.com/pay/cs_test_abc123"
+
+        client = _mock_client()
+        client.wallet.topup_stripe.return_value = mock_result
+        mock_make.return_value = client
+
+        tool = DominusNodeTopupStripeTool(api_key="dn_live_test")
+        result = tool._run(amount_cents=5000)
+
+        assert "Stripe Checkout Session Created" in result
+        assert "cs_test_abc123" in result
+        assert "$50.00" in result
+        assert "https://checkout.stripe.com/pay/cs_test_abc123" in result
+        client.wallet.topup_stripe.assert_called_once_with(amount_cents=5000)
+
+    @patch("dominusnode_crewai.tools._make_client")
+    def test_client_closed_after_call(self, mock_make):
+        mock_result = MagicMock()
+        mock_result.session_id = "cs_test_123"
+        mock_result.url = "https://checkout.stripe.com/pay/cs_test_123"
+
+        client = _mock_client()
+        client.wallet.topup_stripe.return_value = mock_result
+        mock_make.return_value = client
+
+        tool = DominusNodeTopupStripeTool(api_key="dn_live_test")
+        tool._run(amount_cents=1000)
+
+        client.close.assert_called_once()
+
+    @patch("dominusnode_crewai.tools._make_client")
+    def test_client_closed_on_error(self, mock_make):
+        client = _mock_client()
+        client.wallet.topup_stripe.side_effect = Exception("boom")
+        mock_make.return_value = client
+
+        tool = DominusNodeTopupStripeTool(api_key="dn_live_test")
+        result = tool._run(amount_cents=1000)
+
+        assert "Error" in result
+        client.close.assert_called_once()
+
+    @patch("dominusnode_crewai.tools._make_client")
+    def test_api_error_scrubs_credentials(self, mock_make):
+        client = _mock_client()
+        client.wallet.topup_stripe.side_effect = Exception(
+            "Auth failed for dn_live_secret123"
+        )
+        mock_make.return_value = client
+
+        tool = DominusNodeTopupStripeTool(api_key="dn_live_test")
+        result = tool._run(amount_cents=1000)
+
+        assert "Error" in result
+        assert "dn_live_secret123" not in result
+        assert "***" in result
+
+    @patch("dominusnode_crewai.tools._make_client")
+    def test_api_key_not_in_output(self, mock_make):
+        mock_result = MagicMock()
+        mock_result.session_id = "cs_test_xyz"
+        mock_result.url = "https://checkout.stripe.com/pay/cs_test_xyz"
+
+        client = _mock_client()
+        client.wallet.topup_stripe.return_value = mock_result
+        mock_make.return_value = client
+
+        api_key = "dn_live_supersecretstripe"
+        tool = DominusNodeTopupStripeTool(api_key=api_key)
+        result = tool._run(amount_cents=2000)
+
+        assert api_key not in result
+
+
+# ---------------------------------------------------------------------------
+# Crypto Top-Up Tool tests
+# ---------------------------------------------------------------------------
+
+
+class TestTopupCryptoValidation:
+    """Input validation tests for DominusNodeTopupCryptoTool."""
+
+    def test_rejects_amount_too_low(self):
+        tool = DominusNodeTopupCryptoTool(api_key="dn_live_test")
+        result = tool._run(amount_usd=4.99, currency="BTC")
+        assert "Error" in result
+        assert "5" in result
+
+    def test_rejects_amount_too_high(self):
+        tool = DominusNodeTopupCryptoTool(api_key="dn_live_test")
+        result = tool._run(amount_usd=1001, currency="BTC")
+        assert "Error" in result
+        assert "1000" in result
+
+    def test_rejects_zero_amount(self):
+        tool = DominusNodeTopupCryptoTool(api_key="dn_live_test")
+        result = tool._run(amount_usd=0, currency="ETH")
+        assert "Error" in result
+
+    def test_rejects_negative_amount(self):
+        tool = DominusNodeTopupCryptoTool(api_key="dn_live_test")
+        result = tool._run(amount_usd=-50, currency="ETH")
+        assert "Error" in result
+
+    def test_rejects_invalid_currency(self):
+        tool = DominusNodeTopupCryptoTool(api_key="dn_live_test")
+        result = tool._run(amount_usd=50, currency="DOGE")
+        assert "Error" in result
+        assert "BTC" in result
+
+    def test_rejects_empty_currency(self):
+        tool = DominusNodeTopupCryptoTool(api_key="dn_live_test")
+        result = tool._run(amount_usd=50, currency="")
+        assert "Error" in result
+
+    def test_accepts_lowercase_currency(self):
+        """Currency should be normalized to uppercase before validation."""
+        tool = DominusNodeTopupCryptoTool(api_key="dn_live_test")
+        # This should fail at the API call stage (no mock), not at validation
+        with patch("dominusnode_crewai.tools._make_client") as mock_make:
+            mock_result = MagicMock()
+            mock_result.invoice_id = "inv_123"
+            mock_result.payment_url = "https://nowpayments.io/inv_123"
+
+            client = _mock_client()
+            client.wallet.topup_crypto.return_value = mock_result
+            mock_make.return_value = client
+
+            result = tool._run(amount_usd=50, currency="btc")
+            assert "Error" not in result
+            assert "BTC" in result
+
+    def test_no_api_key_returns_error(self):
+        with patch.dict("os.environ", {}, clear=True):
+            tool = DominusNodeTopupCryptoTool()
+            result = tool._run(amount_usd=50, currency="BTC")
+            assert "Error" in result
+            assert "API key" in result
+
+
+class TestTopupCryptoApiCalls:
+    """Tests for DominusNodeTopupCryptoTool making API calls."""
+
+    @patch("dominusnode_crewai.tools._make_client")
+    def test_success(self, mock_make):
+        mock_result = MagicMock()
+        mock_result.invoice_id = "inv_abc123"
+        mock_result.payment_url = "https://nowpayments.io/payment/inv_abc123"
+
+        client = _mock_client()
+        client.wallet.topup_crypto.return_value = mock_result
+        mock_make.return_value = client
+
+        tool = DominusNodeTopupCryptoTool(api_key="dn_live_test")
+        result = tool._run(amount_usd=50, currency="BTC")
+
+        assert "Crypto Payment Invoice Created" in result
+        assert "inv_abc123" in result
+        assert "$50.00" in result
+        assert "BTC" in result
+        assert "https://nowpayments.io/payment/inv_abc123" in result
+        client.wallet.topup_crypto.assert_called_once_with(
+            amount_usd=50, currency="btc",
+        )
+
+    @patch("dominusnode_crewai.tools._make_client")
+    def test_passes_lowercase_currency_to_sdk(self, mock_make):
+        mock_result = MagicMock()
+        mock_result.invoice_id = "inv_eth"
+        mock_result.payment_url = "https://nowpayments.io/payment/inv_eth"
+
+        client = _mock_client()
+        client.wallet.topup_crypto.return_value = mock_result
+        mock_make.return_value = client
+
+        tool = DominusNodeTopupCryptoTool(api_key="dn_live_test")
+        tool._run(amount_usd=100, currency="ETH")
+
+        client.wallet.topup_crypto.assert_called_once_with(
+            amount_usd=100, currency="eth",
+        )
+
+    @patch("dominusnode_crewai.tools._make_client")
+    def test_client_closed_after_call(self, mock_make):
+        mock_result = MagicMock()
+        mock_result.invoice_id = "inv_123"
+        mock_result.payment_url = "https://nowpayments.io/payment/inv_123"
+
+        client = _mock_client()
+        client.wallet.topup_crypto.return_value = mock_result
+        mock_make.return_value = client
+
+        tool = DominusNodeTopupCryptoTool(api_key="dn_live_test")
+        tool._run(amount_usd=25, currency="SOL")
+
+        client.close.assert_called_once()
+
+    @patch("dominusnode_crewai.tools._make_client")
+    def test_client_closed_on_error(self, mock_make):
+        client = _mock_client()
+        client.wallet.topup_crypto.side_effect = Exception("boom")
+        mock_make.return_value = client
+
+        tool = DominusNodeTopupCryptoTool(api_key="dn_live_test")
+        result = tool._run(amount_usd=50, currency="XMR")
+
+        assert "Error" in result
+        client.close.assert_called_once()
+
+    @patch("dominusnode_crewai.tools._make_client")
+    def test_api_error_scrubs_credentials(self, mock_make):
+        client = _mock_client()
+        client.wallet.topup_crypto.side_effect = Exception(
+            "Auth failed for dn_live_secret456"
+        )
+        mock_make.return_value = client
+
+        tool = DominusNodeTopupCryptoTool(api_key="dn_live_test")
+        result = tool._run(amount_usd=50, currency="BTC")
+
+        assert "Error" in result
+        assert "dn_live_secret456" not in result
+        assert "***" in result
+
+    @patch("dominusnode_crewai.tools._make_client")
+    def test_api_key_not_in_output(self, mock_make):
+        mock_result = MagicMock()
+        mock_result.invoice_id = "inv_xyz"
+        mock_result.payment_url = "https://nowpayments.io/payment/inv_xyz"
+
+        client = _mock_client()
+        client.wallet.topup_crypto.return_value = mock_result
+        mock_make.return_value = client
+
+        api_key = "dn_live_supersecretcrypto"
+        tool = DominusNodeTopupCryptoTool(api_key=api_key)
+        result = tool._run(amount_usd=100, currency="ETH")
+
+        assert api_key not in result
+
+    @patch("dominusnode_crewai.tools._make_client")
+    def test_all_valid_currencies(self, mock_make):
+        """Each valid currency should pass validation."""
+        valid = ["BTC", "ETH", "LTC", "XMR", "ZEC", "USDC", "SOL", "USDT", "DAI", "BNB", "LINK"]
+        for curr in valid:
+            mock_result = MagicMock()
+            mock_result.invoice_id = f"inv_{curr.lower()}"
+            mock_result.payment_url = f"https://nowpayments.io/payment/inv_{curr.lower()}"
+
+            client = _mock_client()
+            client.wallet.topup_crypto.return_value = mock_result
+            mock_make.return_value = client
+
+            tool = DominusNodeTopupCryptoTool(api_key="dn_live_test")
+            result = tool._run(amount_usd=10, currency=curr)
+            assert "Error" not in result, f"Currency {curr} should be valid"
+            assert curr in result

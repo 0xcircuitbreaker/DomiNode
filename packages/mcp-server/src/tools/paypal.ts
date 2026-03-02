@@ -57,7 +57,7 @@ export function registerPaypalTools(server: McpServer, httpClient: HttpClient): 
       } catch (err) {
         return {
           isError: true,
-          content: [{ type: "text", text: `PayPal payment error: ${err instanceof Error ? err.message : String(err)}` }],
+          content: [{ type: "text", text: `PayPal payment error: ${(err instanceof Error ? err.message : String(err)).replace(/dn_(?:live|test)_[A-Za-z0-9_-]+/g, "[REDACTED]")}` }],
         };
       }
     },

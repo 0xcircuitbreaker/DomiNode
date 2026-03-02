@@ -6,6 +6,8 @@ import {
   createGetProxyConfigTool,
   createListSessionsTool,
   createTopupPaypalTool,
+  createTopupStripeTool,
+  createTopupCryptoTool,
   createX402InfoTool,
   createCreateAgenticWalletTool,
   createFundAgenticWalletTool,
@@ -69,6 +71,10 @@ export interface DominusNodeTools {
   listSessions: ReturnType<typeof createListSessionsTool>;
   /** Top up wallet balance via PayPal. */
   topupPaypal: ReturnType<typeof createTopupPaypalTool>;
+  /** Top up wallet balance via Stripe (credit/debit card, Apple Pay, Google Pay, Link). */
+  topupStripe: ReturnType<typeof createTopupStripeTool>;
+  /** Top up wallet balance via cryptocurrency (BTC, ETH, XMR, etc.). */
+  topupCrypto: ReturnType<typeof createTopupCryptoTool>;
   /** Get x402 micropayment protocol information. */
   x402Info: ReturnType<typeof createX402InfoTool>;
   /** Create a new agentic sub-wallet. */
@@ -139,6 +145,8 @@ export async function createDominusNodeTools(
     getProxyConfig: createGetProxyConfigTool(client),
     listSessions: createListSessionsTool(client),
     topupPaypal: createTopupPaypalTool(client),
+    topupStripe: createTopupStripeTool(client),
+    topupCrypto: createTopupCryptoTool(client),
     x402Info: createX402InfoTool(client),
     createAgenticWallet: createCreateAgenticWalletTool(client),
     fundAgenticWallet: createFundAgenticWalletTool(client),
@@ -174,6 +182,8 @@ export function createDominusNodeToolsFromClient(
     getProxyConfig: createGetProxyConfigTool(client),
     listSessions: createListSessionsTool(client),
     topupPaypal: createTopupPaypalTool(client),
+    topupStripe: createTopupStripeTool(client),
+    topupCrypto: createTopupCryptoTool(client),
     x402Info: createX402InfoTool(client),
     createAgenticWallet: createCreateAgenticWalletTool(client),
     fundAgenticWallet: createFundAgenticWalletTool(client),

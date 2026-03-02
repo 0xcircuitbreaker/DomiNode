@@ -37,7 +37,9 @@ from dominusnode_superagi.tools import (
     DominusNodeTeamDetailsTool,
     DominusNodeTeamFundTool,
     DominusNodeTeamUsageTool,
+    DominusNodeTopupCryptoTool,
     DominusNodeTopupPaypalTool,
+    DominusNodeTopupStripeTool,
     DominusNodeUnfreezeAgenticWalletTool,
     DominusNodeUpdateTeamMemberRoleTool,
     DominusNodeUpdateTeamTool,
@@ -824,10 +826,10 @@ class TestToolkitRegistration:
         toolkit = DominusNodeToolkit()
         assert "proxy" in toolkit.description.lower()
 
-    def test_get_tools_returns_24(self):
+    def test_get_tools_returns_26(self):
         toolkit = DominusNodeToolkit()
         tools = toolkit.get_tools()
-        assert len(tools) == 24
+        assert len(tools) == 26
 
     def test_get_tools_all_are_base_tool(self):
         toolkit = DominusNodeToolkit()
@@ -866,6 +868,18 @@ class TestToolkitRegistration:
         tools = toolkit.get_tools()
         names = [t.name for t in tools]
         assert "Dominus Node TopUp PayPal" in names
+
+    def test_tool_has_stripe(self):
+        toolkit = DominusNodeToolkit()
+        tools = toolkit.get_tools()
+        names = [t.name for t in tools]
+        assert "Dominus Node TopUp Stripe" in names
+
+    def test_tool_has_crypto(self):
+        toolkit = DominusNodeToolkit()
+        tools = toolkit.get_tools()
+        names = [t.name for t in tools]
+        assert "Dominus Node TopUp Crypto" in names
 
     def test_tool_has_x402(self):
         toolkit = DominusNodeToolkit()

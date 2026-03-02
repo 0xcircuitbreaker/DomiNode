@@ -1,9 +1,9 @@
 /**
  * Dominus Node Flowise Toolkit
  *
- * Provides 24 LangChain-compatible DynamicStructuredTool instances for use
+ * Provides 26 LangChain-compatible DynamicStructuredTool instances for use
  * inside Flowise AI workflows. Covers proxied fetching, wallet management,
- * agentic wallets, teams, PayPal top-up, and x402 micropayment info.
+ * agentic wallets, teams, Stripe/PayPal/crypto top-up, and x402 micropayment info.
  *
  * Security:
  *  - Full SSRF protection (private IP blocking, DNS rebinding, Teredo/6to4,
@@ -1643,7 +1643,79 @@ export class DominusNodeToolkit {
   }
 
   // -----------------------------------------------------------------------
-  // Tool 23: x402Info
+  // Tool 23: topupStripe
+  // -----------------------------------------------------------------------
+
+  async topupStripe(amountCents: number): Promise<string> {
+    try {
+      if (!Number.isInteger(amountCents) || amountCents < 500 || amountCents > 100000) {
+        return "Error: amount_cents must be an integer between 500 ($5) and 100000 ($1,000).";
+      }
+
+      const data = await this._requestWithRetry<{
+        sessionId: string;
+        url: string;
+      }>("POST", "/api/wallet/topup/stripe", { amountCents });
+
+      return [
+        "Stripe Checkout Session Created",
+        "",
+        `Session ID: ${data.sessionId}`,
+        `Amount: ${formatCents(amountCents)}`,
+        `Checkout URL: ${data.url}`,
+        "",
+        "Open the checkout URL in a browser to complete payment.",
+        "Once paid, the funds will be credited to your wallet automatically.",
+      ].join("\n");
+    } catch (err) {
+      return `Error: ${safeError(err)}`;
+    }
+  }
+
+  // -----------------------------------------------------------------------
+  // Tool 24: topupCrypto
+  // -----------------------------------------------------------------------
+
+  private static readonly VALID_CRYPTO_CURRENCIES = new Set([
+    "btc", "eth", "ltc", "xmr", "zec", "usdc", "sol", "usdt", "dai", "bnb", "link",
+  ]);
+
+  async topupCrypto(amountUsd: number, currency: string): Promise<string> {
+    try {
+      if (typeof amountUsd !== "number" || !Number.isFinite(amountUsd) || amountUsd < 5 || amountUsd > 1000) {
+        return "Error: amount_usd must be a number between 5 and 1,000.";
+      }
+
+      const cur = String(currency ?? "").toLowerCase();
+      if (!DominusNodeToolkit.VALID_CRYPTO_CURRENCIES.has(cur)) {
+        return `Error: currency must be one of: ${[...DominusNodeToolkit.VALID_CRYPTO_CURRENCIES].join(", ")}.`;
+      }
+
+      const data = await this._requestWithRetry<{
+        invoiceId: string;
+        invoiceUrl: string;
+        payCurrency: string;
+        priceAmount: number;
+      }>("POST", "/api/wallet/topup/crypto", { amountUsd, currency: cur });
+
+      return [
+        "Crypto Payment Invoice Created",
+        "",
+        `Invoice ID: ${data.invoiceId}`,
+        `Amount: $${amountUsd}`,
+        `Pay: ${data.priceAmount} ${data.payCurrency?.toUpperCase() ?? cur.toUpperCase()}`,
+        `Payment URL: ${data.invoiceUrl}`,
+        "",
+        "Open the payment URL to complete payment.",
+        "Once confirmed on-chain, the funds will be credited to your wallet.",
+      ].join("\n");
+    } catch (err) {
+      return `Error: ${safeError(err)}`;
+    }
+  }
+
+  // -----------------------------------------------------------------------
+  // Tool 25: x402Info
   // -----------------------------------------------------------------------
 
   async x402Info(): Promise<string> {
@@ -1989,7 +2061,38 @@ export class DominusNodeToolkit {
         },
       }),
 
-      // 24. x402_info
+      // 23. topup_stripe
+      new DynamicStructuredTool({
+        name: "dominusnode_topup_stripe",
+        description:
+          "Top up your Dominus Node wallet via Stripe. Creates a Stripe checkout session and returns " +
+          "a checkout URL. Minimum $5 (500 cents), maximum $1,000 (100000 cents).",
+        schema: z.object({
+          amountCents: z.number().int().min(500).max(100000).describe("Amount in cents to top up (min 500 = $5)"),
+        }),
+        func: async ({  amountCents }: Record<string, any>) => {
+          return this.topupStripe(amountCents);
+        },
+      }),
+
+      // 24. topup_crypto
+      new DynamicStructuredTool({
+        name: "dominusnode_topup_crypto",
+        description:
+          "Top up your Dominus Node wallet via cryptocurrency. Creates a crypto payment invoice. " +
+          "Supports BTC, ETH, LTC, XMR, ZEC, USDC, SOL, USDT, DAI, BNB, LINK. " +
+          "Minimum $5, maximum $1,000.",
+        schema: z.object({
+          amountUsd: z.number().min(5).max(1000).describe("Amount in USD to top up (5-1000)"),
+          currency: z.enum(["btc", "eth", "ltc", "xmr", "zec", "usdc", "sol", "usdt", "dai", "bnb", "link"])
+            .describe("Cryptocurrency to pay with"),
+        }),
+        func: async ({  amountUsd, currency }: Record<string, any>) => {
+          return this.topupCrypto(amountUsd, currency);
+        },
+      }),
+
+      // 25. x402_info
       new DynamicStructuredTool({
         name: "dominusnode_x402_info",
         description:

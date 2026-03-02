@@ -475,13 +475,15 @@ class TestPluginInit:
         )
         assert plugin.base_url == "https://api.example.com"
 
-    def test_get_commands_returns_24(self):
+    def test_get_commands_returns_26(self):
         commands = DominusNodePlugin.get_commands()
-        assert len(commands) == 24
+        assert len(commands) == 26
         names = [c["name"] for c in commands]
         assert "proxied_fetch" in names
         assert "check_balance" in names
         assert "topup_paypal" in names
+        assert "topup_stripe" in names
+        assert "topup_crypto" in names
         assert "update_team_member_role" in names
         assert "update_wallet_policy" in names
 

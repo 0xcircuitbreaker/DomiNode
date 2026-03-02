@@ -1127,6 +1127,55 @@ export function createDominusNodeFunctionHandler(
     return JSON.stringify(result);
   }
 
+  async function handleTopupStripe(args: Record<string, unknown>): Promise<string> {
+    const amountCents = args.amount_cents as number;
+
+    if (
+      !Number.isInteger(amountCents) ||
+      amountCents < 500 ||
+      amountCents > 100_000
+    ) {
+      return JSON.stringify({
+        error: "amount_cents must be an integer between 500 ($5) and 100,000 ($1,000)",
+      });
+    }
+
+    const result = await api("POST", "/api/wallet/topup/stripe", { amountCents });
+    return JSON.stringify(result);
+  }
+
+  const VALID_CRYPTO_CURRENCIES = new Set([
+    "btc", "eth", "ltc", "xmr", "zec", "usdc", "sol", "usdt", "dai", "bnb", "link",
+  ]);
+
+  async function handleTopupCrypto(args: Record<string, unknown>): Promise<string> {
+    const amountUsd = args.amount_usd as number;
+    const currency = String(args.currency ?? "").toLowerCase();
+
+    if (
+      typeof amountUsd !== "number" ||
+      !Number.isFinite(amountUsd) ||
+      amountUsd < 5 ||
+      amountUsd > 1_000
+    ) {
+      return JSON.stringify({
+        error: "amount_usd must be a number between 5 and 1,000",
+      });
+    }
+
+    if (!VALID_CRYPTO_CURRENCIES.has(currency)) {
+      return JSON.stringify({
+        error: `currency must be one of: ${[...VALID_CRYPTO_CURRENCIES].join(", ")}`,
+      });
+    }
+
+    const result = await api("POST", "/api/wallet/topup/crypto", {
+      amountUsd,
+      currency,
+    });
+    return JSON.stringify(result);
+  }
+
   // -----------------------------------------------------------------------
   // Dispatch table
   // -----------------------------------------------------------------------
@@ -1157,6 +1206,8 @@ export function createDominusNodeFunctionHandler(
     dominusnode_update_team: handleUpdateTeam,
     dominusnode_update_team_member_role: handleUpdateTeamMemberRole,
     dominusnode_topup_paypal: handleTopupPaypal,
+    dominusnode_topup_stripe: handleTopupStripe,
+    dominusnode_topup_crypto: handleTopupCrypto,
     dominusnode_x402_info: handleX402Info,
     dominusnode_update_wallet_policy: handleUpdateWalletPolicy,
   };

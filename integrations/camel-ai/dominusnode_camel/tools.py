@@ -1,6 +1,6 @@
-"""Dominus Node CAMEL-AI toolkit -- 22 proxy, wallet, team, and PayPal tools.
+"""Dominus Node CAMEL-AI toolkit -- 26 proxy, wallet, team, and payment tools.
 
-Provides a CAMEL-AI compatible toolkit class that exposes 22 tools as
+Provides a CAMEL-AI compatible toolkit class that exposes 26 tools as
 ``FunctionTool`` objects for use with CAMEL agents.
 
 Tools cover:
@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import ipaddress
 import json
+import math
 import os
 import re
 import socket
@@ -1407,7 +1408,84 @@ class DominusNodeToolkit:
             return {"error": _sanitize_error(str(e))}
 
     # ==================================================================
-    # Tool 24: update_wallet_policy
+    # Tool 24: topup_stripe
+    # ==================================================================
+
+    def topup_stripe(self, amount_cents: int) -> Dict[str, Any]:
+        """Create a Stripe checkout session for wallet top-up.
+
+        Args:
+            amount_cents: Amount to top up in cents. Minimum $5.00 (500 cents),
+                maximum $1,000.00 (100,000 cents).
+
+        Returns:
+            Dict with ``sessionId`` and ``checkoutUrl`` for completing the
+            Stripe checkout flow.
+        """
+        err = _validate_positive_int(
+            amount_cents, "amount_cents", min_value=500, max_value=100_000
+        )
+        if err:
+            return {"error": err}
+
+        try:
+            result = self._request_with_retry(
+                "POST",
+                "/api/wallet/topup/stripe",
+                {"amountCents": amount_cents},
+            )
+            return result
+        except Exception as e:
+            return {"error": _sanitize_error(str(e))}
+
+    # ==================================================================
+    # Tool 25: topup_crypto
+    # ==================================================================
+
+    _VALID_CRYPTO_CURRENCIES: Set[str] = {
+        "btc", "eth", "ltc", "xmr", "zec", "usdc", "sol", "usdt", "dai",
+        "bnb", "link",
+    }
+
+    def topup_crypto(self, amount_usd: float, currency: str) -> Dict[str, Any]:
+        """Create a crypto invoice for wallet top-up via NOWPayments.
+
+        Args:
+            amount_usd: Amount in USD (5 to 1,000).
+            currency: Cryptocurrency to pay with. One of: BTC, ETH, LTC,
+                XMR, ZEC, USDC, SOL, USDT, DAI, BNB, LINK.
+
+        Returns:
+            Dict with ``invoiceId`` and ``paymentUrl`` for completing the
+            crypto payment.
+        """
+        if not isinstance(amount_usd, (int, float)) or isinstance(amount_usd, bool):
+            return {"error": "amount_usd must be a number between 5 and 1000"}
+        if not math.isfinite(amount_usd):
+            return {"error": "amount_usd must be a number between 5 and 1000"}
+        if amount_usd < 5 or amount_usd > 1000:
+            return {"error": "amount_usd must be a number between 5 and 1000"}
+
+        if not isinstance(currency, str) or currency.lower() not in self._VALID_CRYPTO_CURRENCIES:
+            return {
+                "error": (
+                    "currency must be one of: "
+                    "BTC, ETH, LTC, XMR, ZEC, USDC, SOL, USDT, DAI, BNB, LINK"
+                )
+            }
+
+        try:
+            result = self._request_with_retry(
+                "POST",
+                "/api/wallet/topup/crypto",
+                {"amountUsd": amount_usd, "currency": currency.lower()},
+            )
+            return result
+        except Exception as e:
+            return {"error": _sanitize_error(str(e))}
+
+    # ==================================================================
+    # Tool 26: update_wallet_policy
     # ==================================================================
 
     def update_wallet_policy(
@@ -1464,13 +1542,13 @@ class DominusNodeToolkit:
     # ==================================================================
 
     def get_tools(self) -> list:
-        """Return CAMEL FunctionTool objects for all 22 Dominus Node operations.
+        """Return CAMEL FunctionTool objects for all 26 Dominus Node operations.
 
         Each method is wrapped in a ``camel.toolkits.FunctionTool`` so that
         CAMEL agents can discover and invoke them automatically.
 
         Returns:
-            A list of 22 ``FunctionTool`` instances.
+            A list of 26 ``FunctionTool`` instances.
         """
         from camel.toolkits import FunctionTool
 
@@ -1498,5 +1576,7 @@ class DominusNodeToolkit:
             FunctionTool(self.update_team_member_role),
             FunctionTool(self.x402_info),
             FunctionTool(self.topup_paypal),
+            FunctionTool(self.topup_stripe),
+            FunctionTool(self.topup_crypto),
             FunctionTool(self.update_wallet_policy),
         ]

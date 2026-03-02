@@ -677,7 +677,7 @@ class TestCallDispatcher:
     def test_available_commands_count(self):
         plugin = DominusNodePlugin(api_key="dn_test_key123")
         result = json.loads(plugin("nonexistent"))
-        assert len(result["available_commands"]) == 24
+        assert len(result["available_commands"]) == 26
 
     def test_dispatch_check_balance(self):
         plugin = DominusNodePlugin(api_key="dn_test_key123")

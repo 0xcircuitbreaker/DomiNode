@@ -16,6 +16,7 @@ Security:
 from __future__ import annotations
 
 import ipaddress
+import math
 import re
 import socket
 from typing import Any, Optional, Type
@@ -631,6 +632,209 @@ class DominusNodeTopupPaypalTool(BaseTool):
 
         if self.sync_client is not None:
             return self._run(amount_cents=amount_cents)
+
+        return "Error: No Dominus Node client configured. Initialize the toolkit first."
+
+
+class TopupStripeInput(BaseModel):
+    """Input schema for the Dominus Node Stripe top-up tool."""
+
+    amount_cents: int = Field(
+        ge=500,
+        le=100000,
+        description="Amount in cents to top up via Stripe (min 500 = $5, max 100000 = $1,000).",
+    )
+
+
+class DominusNodeTopupStripeTool(BaseTool):
+    """Top up your Dominus Node wallet balance via Stripe.
+
+    Creates a Stripe checkout session and returns a URL to complete payment.
+    Supports credit/debit card, Apple Pay, Google Pay, and Link.
+    Minimum $5 (500 cents), maximum $1,000 (100,000 cents).
+    """
+
+    name: str = "dominusnode_topup_stripe"
+    description: str = (
+        "Top up your Dominus Node wallet balance via Stripe (credit/debit card, "
+        "Apple Pay, Google Pay, Link). Creates a Stripe checkout session and returns "
+        "a URL to complete payment. Input: amount_cents (integer, min 500 = $5, "
+        "max 100000 = $1,000)."
+    )
+    args_schema: Type[BaseModel] = TopupStripeInput
+
+    sync_client: Optional[Any] = None
+    async_client: Optional[Any] = None
+
+    model_config = {"arbitrary_types_allowed": True}
+
+    def _run(
+        self,
+        amount_cents: int,
+        run_manager: Optional[CallbackManagerForToolRun] = None,
+    ) -> str:
+        if self.sync_client is None:
+            return "Error: No Dominus Node client configured. Initialize the toolkit first."
+
+        if not isinstance(amount_cents, int) or amount_cents < 500 or amount_cents > 100000:
+            return "Error: amount_cents must be an integer between 500 ($5) and 100000 ($1,000)."
+
+        try:
+            result = self.sync_client.wallet.topup_stripe(amount_cents=amount_cents)
+            return (
+                f"Stripe Checkout Session Created\n"
+                f"Session ID: {result.session_id}\n"
+                f"Amount: ${amount_cents / 100:.2f}\n"
+                f"Checkout URL: {result.url}\n\n"
+                f"Open the checkout URL in a browser to complete payment."
+            )
+        except Exception as exc:
+            return f"Error: {_sanitize_error(str(exc))}"
+
+    async def _arun(
+        self,
+        amount_cents: int,
+        run_manager: Optional[AsyncCallbackManagerForToolRun] = None,
+    ) -> str:
+        if not isinstance(amount_cents, int) or amount_cents < 500 or amount_cents > 100000:
+            return "Error: amount_cents must be an integer between 500 ($5) and 100000 ($1,000)."
+
+        if self.async_client is not None:
+            try:
+                result = await self.async_client.wallet.topup_stripe(amount_cents=amount_cents)
+                return (
+                    f"Stripe Checkout Session Created\n"
+                    f"Session ID: {result.session_id}\n"
+                    f"Amount: ${amount_cents / 100:.2f}\n"
+                    f"Checkout URL: {result.url}\n\n"
+                    f"Open the checkout URL in a browser to complete payment."
+                )
+            except Exception as exc:
+                return f"Error: {_sanitize_error(str(exc))}"
+
+        if self.sync_client is not None:
+            return self._run(amount_cents=amount_cents)
+
+        return "Error: No Dominus Node client configured. Initialize the toolkit first."
+
+
+class TopupCryptoInput(BaseModel):
+    """Input schema for the Dominus Node crypto top-up tool."""
+
+    amount_usd: float = Field(
+        ge=5,
+        le=1000,
+        description="Amount in USD to top up with cryptocurrency (min 5, max 1000).",
+    )
+    currency: str = Field(
+        description=(
+            "Cryptocurrency code: BTC, ETH, LTC, XMR, ZEC, USDC, SOL, USDT, DAI, BNB, LINK. "
+            "Privacy coins (XMR, ZEC) provide anonymous billing."
+        ),
+    )
+
+
+class DominusNodeTopupCryptoTool(BaseTool):
+    """Top up your Dominus Node wallet with cryptocurrency.
+
+    Creates a crypto invoice via NOWPayments and returns a payment URL.
+    Supports BTC, ETH, LTC, XMR, ZEC, USDC, SOL, USDT, DAI, BNB, LINK.
+    Privacy coins (XMR, ZEC) provide anonymous billing.
+    Minimum $5, maximum $1,000.
+    """
+
+    name: str = "dominusnode_topup_crypto"
+    description: str = (
+        "Top up your Dominus Node wallet with cryptocurrency. Supports BTC, ETH, "
+        "LTC, XMR, ZEC, USDC, SOL, USDT, DAI, BNB, LINK. Privacy coins (XMR, ZEC) "
+        "provide anonymous billing. Input: amount_usd (number, min 5, max 1000), "
+        "currency (string)."
+    )
+    args_schema: Type[BaseModel] = TopupCryptoInput
+
+    sync_client: Optional[Any] = None
+    async_client: Optional[Any] = None
+
+    model_config = {"arbitrary_types_allowed": True}
+
+    _VALID_CURRENCIES: frozenset = frozenset({
+        "btc", "eth", "ltc", "xmr", "zec", "usdc", "sol", "usdt", "dai", "bnb", "link",
+    })
+
+    def _run(
+        self,
+        amount_usd: float,
+        currency: str,
+        run_manager: Optional[CallbackManagerForToolRun] = None,
+    ) -> str:
+        if self.sync_client is None:
+            return "Error: No Dominus Node client configured. Initialize the toolkit first."
+
+        if not isinstance(amount_usd, (int, float)) or isinstance(amount_usd, bool):
+            return "Error: amount_usd must be a number between 5 ($5) and 1000 ($1,000)."
+        if not math.isfinite(amount_usd):
+            return "Error: amount_usd must be a number between 5 ($5) and 1000 ($1,000)."
+        if amount_usd < 5 or amount_usd > 1000:
+            return "Error: amount_usd must be a number between 5 ($5) and 1000 ($1,000)."
+
+        if not isinstance(currency, str) or currency.lower() not in self._VALID_CURRENCIES:
+            return (
+                f"Error: currency must be one of: "
+                f"{', '.join(sorted(self._VALID_CURRENCIES)).upper()}."
+            )
+
+        try:
+            result = self.sync_client.wallet.topup_crypto(
+                amount_usd=amount_usd, currency=currency.lower(),
+            )
+            return (
+                f"Crypto Invoice Created\n"
+                f"Invoice ID: {result.invoice_id}\n"
+                f"Amount: ${amount_usd:.2f}\n"
+                f"Currency: {result.pay_currency.upper()}\n"
+                f"Payment URL: {result.invoice_url}\n\n"
+                f"Open the payment URL in a browser to complete payment."
+            )
+        except Exception as exc:
+            return f"Error: {_sanitize_error(str(exc))}"
+
+    async def _arun(
+        self,
+        amount_usd: float,
+        currency: str,
+        run_manager: Optional[AsyncCallbackManagerForToolRun] = None,
+    ) -> str:
+        if not isinstance(amount_usd, (int, float)) or isinstance(amount_usd, bool):
+            return "Error: amount_usd must be a number between 5 ($5) and 1000 ($1,000)."
+        if not math.isfinite(amount_usd):
+            return "Error: amount_usd must be a number between 5 ($5) and 1000 ($1,000)."
+        if amount_usd < 5 or amount_usd > 1000:
+            return "Error: amount_usd must be a number between 5 ($5) and 1000 ($1,000)."
+
+        if not isinstance(currency, str) or currency.lower() not in self._VALID_CURRENCIES:
+            return (
+                f"Error: currency must be one of: "
+                f"{', '.join(sorted(self._VALID_CURRENCIES)).upper()}."
+            )
+
+        if self.async_client is not None:
+            try:
+                result = await self.async_client.wallet.topup_crypto(
+                    amount_usd=amount_usd, currency=currency.lower(),
+                )
+                return (
+                    f"Crypto Invoice Created\n"
+                    f"Invoice ID: {result.invoice_id}\n"
+                    f"Amount: ${amount_usd:.2f}\n"
+                    f"Currency: {result.pay_currency.upper()}\n"
+                    f"Payment URL: {result.invoice_url}\n\n"
+                    f"Open the payment URL in a browser to complete payment."
+                )
+            except Exception as exc:
+                return f"Error: {_sanitize_error(str(exc))}"
+
+        if self.sync_client is not None:
+            return self._run(amount_usd=amount_usd, currency=currency)
 
         return "Error: No Dominus Node client configured. Initialize the toolkit first."
 

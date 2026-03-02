@@ -48,12 +48,22 @@ _TEST_ETH_KEY = "0x" + "ab" * 32  # 64 hex chars
 _TEST_API_KEY = "dn_test_key123"
 
 
+def _test_sign_fn(message: str, private_key: str) -> str:
+    """HMAC-SHA256 stub signer for tests only."""
+    import hashlib
+    import hmac as _hmac
+    key_bytes = bytes.fromhex(private_key.replace("0x", ""))
+    sig = _hmac.new(key_bytes, message.encode("utf-8"), hashlib.sha256).hexdigest()
+    return f"0x{sig}"
+
+
 def _make_client(**kwargs):
     defaults = {
         "dominusnode_api_key": _TEST_API_KEY,
         "eth_address": _TEST_ETH_ADDRESS,
         "eth_private_key": _TEST_ETH_KEY,
         "moltbook_base_url": "https://moltbook.com",
+        "sign_fn": _test_sign_fn,
     }
     defaults.update(kwargs)
     return MoltbookClient(**defaults)
@@ -1329,10 +1339,10 @@ class TestAuthentication:
 class TestGetAllTools:
     """Test the get_all_tools method."""
 
-    def test_returns_33_tools(self):
+    def test_returns_35_tools(self):
         client = _make_client()
         tools = client.get_all_tools()
-        assert len(tools) == 33
+        assert len(tools) == 35
 
     def test_all_tools_are_callable(self):
         client = _make_client()

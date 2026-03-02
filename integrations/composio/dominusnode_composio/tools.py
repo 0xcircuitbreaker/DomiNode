@@ -1,6 +1,6 @@
-"""Dominus Node tools for Composio -- 24 proxy, wallet, team, and payment actions.
+"""Dominus Node tools for Composio -- 26 proxy, wallet, team, and payment actions.
 
-Provides a Composio-compatible toolkit class that exposes 24 actions for
+Provides a Composio-compatible toolkit class that exposes 26 actions for
 interacting with the Dominus Node rotating proxy-as-a-service platform.
 
 Actions cover:
@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import ipaddress
 import json
+import math
 import os
 import re
 import socket
@@ -504,7 +505,7 @@ def _validate_allowed_domains(domains: Any) -> Optional[str]:
 class DominusNodeToolkit:
     """Composio toolkit providing Dominus Node rotating proxy actions.
 
-    Authenticates using a Dominus Node API key and exposes 24 actions for proxy,
+    Authenticates using a Dominus Node API key and exposes 26 actions for proxy,
     wallet, team, and payment management.  All action methods return JSON
     strings suitable for consumption by an LLM.  The ``get_actions()`` method
     returns Composio-compatible action definitions with handlers.
@@ -1467,11 +1468,88 @@ class DominusNodeToolkit:
             return json.dumps({"error": _sanitize_error(str(e))})
 
     # ==================================================================
+    # Action 24: topup_stripe
+    # ==================================================================
+
+    def topup_stripe(self, amount_cents: int) -> str:
+        """Create a Stripe checkout session for wallet top-up.
+
+        Args:
+            amount_cents: Amount to top up in cents (500 to 100,000).
+                Minimum $5.00 (500 cents), maximum $1,000.00 (100,000 cents).
+
+        Returns:
+            JSON string with checkout session details for completing
+            the Stripe payment flow.
+        """
+        err = _validate_positive_int(
+            amount_cents, "amount_cents", min_value=500, max_value=100_000
+        )
+        if err:
+            return json.dumps({"error": err})
+
+        try:
+            result = self._request_with_retry(
+                "POST",
+                "/api/wallet/topup/stripe",
+                {"amountCents": amount_cents},
+            )
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Action 25: topup_crypto
+    # ==================================================================
+
+    _VALID_CRYPTO_CURRENCIES = {
+        "BTC", "ETH", "LTC", "XMR", "ZEC",
+        "USDC", "SOL", "USDT", "DAI", "BNB", "LINK",
+    }
+
+    def topup_crypto(self, amount_usd: float, currency: str) -> str:
+        """Create a crypto payment invoice for wallet top-up.
+
+        Args:
+            amount_usd: Amount in USD (5 to 1,000).
+            currency: Cryptocurrency code (BTC/ETH/LTC/XMR/ZEC/USDC/SOL/
+                USDT/DAI/BNB/LINK).
+
+        Returns:
+            JSON string with invoice details for completing the crypto payment.
+        """
+        if not isinstance(amount_usd, (int, float)) or isinstance(amount_usd, bool):
+            return json.dumps({"error": "amount_usd must be a number between 5 and 1,000"})
+        if not math.isfinite(amount_usd):
+            return json.dumps({"error": "amount_usd must be a number between 5 and 1,000"})
+        if amount_usd < 5 or amount_usd > 1000:
+            return json.dumps({"error": "amount_usd must be a number between 5 and 1,000"})
+
+        if not currency or not isinstance(currency, str):
+            return json.dumps({
+                "error": "currency must be one of: BTC, ETH, LTC, XMR, ZEC, USDC, SOL, USDT, DAI, BNB, LINK",
+            })
+        if currency.upper() not in self._VALID_CRYPTO_CURRENCIES:
+            return json.dumps({
+                "error": "currency must be one of: BTC, ETH, LTC, XMR, ZEC, USDC, SOL, USDT, DAI, BNB, LINK",
+            })
+
+        try:
+            result = self._request_with_retry(
+                "POST",
+                "/api/wallet/topup/crypto",
+                {"amountUsd": amount_usd, "currency": currency.lower()},
+            )
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
     # Composio action definitions
     # ==================================================================
 
     def get_actions(self) -> list:
-        """Return Composio-compatible action definitions for all 24 Dominus Node operations.
+        """Return Composio-compatible action definitions for all 26 Dominus Node operations.
 
         Each action is a dictionary with:
           - ``name``: Uppercase action identifier (e.g., ``DOMINUSNODE_PROXIED_FETCH``)
@@ -1481,7 +1559,7 @@ class DominusNodeToolkit:
           - ``handler``: Callable that executes the action
 
         Returns:
-            A list of 25 action definition dicts.
+            A list of 26 action definition dicts.
         """
         return [
             {
@@ -1707,6 +1785,25 @@ class DominusNodeToolkit:
                 },
                 "handler": self._action_topup_paypal,
             },
+            {
+                "name": "DOMINUSNODE_TOPUP_STRIPE",
+                "display_name": "Stripe Top-up",
+                "description": "Create a Stripe checkout session for wallet top-up",
+                "parameters": {
+                    "amount_cents": {"type": "integer", "description": "Amount in cents (500-100,000)", "required": True},
+                },
+                "handler": self._action_topup_stripe,
+            },
+            {
+                "name": "DOMINUSNODE_TOPUP_CRYPTO",
+                "display_name": "Crypto Top-up",
+                "description": "Create a crypto payment invoice for wallet top-up",
+                "parameters": {
+                    "amount_usd": {"type": "number", "description": "Amount in USD (5-1,000)", "required": True},
+                    "currency": {"type": "string", "description": "Crypto currency (BTC/ETH/LTC/XMR/ZEC/USDC/SOL/USDT/DAI/BNB/LINK)", "required": True},
+                },
+                "handler": self._action_topup_crypto,
+            },
         ]
 
     # ------------------------------------------------------------------
@@ -1882,3 +1979,18 @@ class DominusNodeToolkit:
         if amount_cents is None:
             return json.dumps({"error": "amount_cents is required"})
         return self.topup_paypal(amount_cents=amount_cents)
+
+    def _action_topup_stripe(self, params: dict) -> str:
+        amount_cents = params.get("amount_cents")
+        if amount_cents is None:
+            return json.dumps({"error": "amount_cents is required"})
+        return self.topup_stripe(amount_cents=amount_cents)
+
+    def _action_topup_crypto(self, params: dict) -> str:
+        amount_usd = params.get("amount_usd")
+        currency = params.get("currency")
+        if amount_usd is None or currency is None:
+            return json.dumps({
+                "error": "amount_usd and currency are required"
+            })
+        return self.topup_crypto(amount_usd=amount_usd, currency=currency)

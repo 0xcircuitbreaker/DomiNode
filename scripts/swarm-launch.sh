@@ -30,6 +30,9 @@
 set -euo pipefail
 
 NUM_AGENTS="${1:-10}"
+if ! [[ "$NUM_AGENTS" =~ ^[0-9]+$ ]] || [ "$NUM_AGENTS" -lt 1 ] || [ "$NUM_AGENTS" -gt 1000 ]; then
+  echo "ERROR: num_agents must be 1-1000 (got: $NUM_AGENTS)"; exit 1
+fi
 API_BASE="${2:-http://localhost:3000}"
 PROXY_HOST="${3:-localhost}"
 PROXY_PORT="${4:-8080}"
@@ -147,16 +150,10 @@ echo "Launching main agent (will create team + ${NUM_AGENTS} sub-agents)..."
 echo "Logs: ${LOG_DIR}/"
 echo ""
 
-export ADMIN_JWT
 export SWARM_PASSWORD="${SWARM_PASSWORD:-$(openssl rand -hex 16)}"
 export SWARM_NUM_AGENTS="$NUM_AGENTS"
 
-# Save password
-mkdir -p "$LOG_DIR"
-echo "$SWARM_PASSWORD" > "${LOG_DIR}/swarm-password.txt"
-chmod 600 "${LOG_DIR}/swarm-password.txt"
+(umask 077 && mkdir -p "$LOG_DIR")
 
-# Clean up credential files on exit (normal or signal)
-trap 'rm -f "${LOG_DIR}/swarm-password.txt" 2>/dev/null' EXIT
-
-bash "${SCRIPT_DIR}/swarm-main-agent.sh" "$NUM_AGENTS" "$API_BASE" "$PROXY_HOST" "$PROXY_PORT"
+# Pass ADMIN_JWT only to the main agent (not inherited by sub-agents)
+ADMIN_JWT="$ADMIN_JWT" bash "${SCRIPT_DIR}/swarm-main-agent.sh" "$NUM_AGENTS" "$API_BASE" "$PROXY_HOST" "$PROXY_PORT"

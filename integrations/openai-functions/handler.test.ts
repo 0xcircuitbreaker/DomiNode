@@ -462,9 +462,9 @@ describe("handler dispatching", () => {
     expect(JSON.parse(result)).toHaveProperty("success");
   });
 
-  it("handler has all 24 functions", async () => {
+  it("handler has all 26 functions", async () => {
     const result = JSON.parse(await handler("nonexistent", {}));
-    expect(result.available).toHaveLength(24);
+    expect(result.available).toHaveLength(26);
   });
 
   it("handler available list includes all expected names", async () => {
@@ -492,6 +492,8 @@ describe("handler dispatching", () => {
       "dominusnode_update_team",
       "dominusnode_update_team_member_role",
       "dominusnode_topup_paypal",
+      "dominusnode_topup_stripe",
+      "dominusnode_topup_crypto",
       "dominusnode_update_wallet_policy",
     ];
     for (const name of expected) {

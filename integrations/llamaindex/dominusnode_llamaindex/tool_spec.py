@@ -1,4 +1,4 @@
-"""Dominus Node LlamaIndex ToolSpec -- exposes all 22 functions as LlamaIndex tools.
+"""Dominus Node LlamaIndex ToolSpec -- exposes all 24 functions as LlamaIndex tools.
 
 The :class:`DominusNodeToolSpec` subclasses
 :class:`llama_index.core.tools.tool_spec.base.BaseToolSpec` and delegates
@@ -30,8 +30,8 @@ from .tools import DominusNodeClient
 class DominusNodeToolSpec(BaseToolSpec):
     """LlamaIndex tool spec for the Dominus Node rotating proxy service.
 
-    Provides 23 tools covering proxy operations, wallet management,
-    agentic wallets, team management, PayPal top-ups, and x402 info.
+    Provides 25 tools covering proxy operations, wallet management,
+    agentic wallets, team management, payment top-ups, and x402 info.
 
     Args:
         api_key: Dominus Node API key (``dn_live_...``).  Falls back to the
@@ -68,6 +68,8 @@ class DominusNodeToolSpec(BaseToolSpec):
         "update_team",
         "update_team_member_role",
         "topup_paypal",
+        "topup_stripe",
+        "topup_crypto",
         "x402_info",
     ]
 
@@ -479,3 +481,37 @@ class DominusNodeToolSpec(BaseToolSpec):
             Dict with orderId and approvalUrl for PayPal checkout.
         """
         return self._client.topup_paypal(amount_cents=amount_cents)
+
+    def topup_stripe(self, amount_cents: int) -> Dict[str, Any]:
+        """Create a Stripe checkout session to top up the wallet.
+
+        Returns a session ID and checkout URL.  The user should visit the
+        checkout URL to complete payment via Stripe.
+
+        Args:
+            amount_cents: Amount to top up in cents (500-100,000, i.e. $5-$1,000).
+
+        Returns:
+            Dict with sessionId and checkoutUrl for Stripe checkout.
+        """
+        return self._client.topup_stripe(amount_cents=amount_cents)
+
+    def topup_crypto(
+        self, amount_usd: float, currency: str
+    ) -> Dict[str, Any]:
+        """Create a crypto invoice to top up the wallet via NOWPayments.
+
+        Returns an invoice ID and payment URL.  The user should visit the
+        payment URL to complete the crypto payment.
+
+        Args:
+            amount_usd: Amount in USD (5-1,000).
+            currency: Cryptocurrency to pay with.  One of: BTC, ETH, LTC,
+                XMR, ZEC, USDC, SOL, USDT, DAI, BNB, LINK.
+
+        Returns:
+            Dict with invoiceId and paymentUrl for crypto checkout.
+        """
+        return self._client.topup_crypto(
+            amount_usd=amount_usd, currency=currency
+        )

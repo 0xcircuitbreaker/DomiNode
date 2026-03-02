@@ -1,9 +1,9 @@
-"""Dominus Node SuperAGI Toolkit -- registers all 24 Dominus Node tools.
+"""Dominus Node SuperAGI Toolkit -- registers all 26 Dominus Node tools.
 
-Provides a ``BaseToolkit`` subclass that exposes 24 tools for interacting
+Provides a ``BaseToolkit`` subclass that exposes 26 tools for interacting
 with the Dominus Node rotating proxy-as-a-service platform.  The toolkit
 covers proxied HTTP fetching, wallet and usage monitoring, agentic wallet
-management, team management, x402 micropayments, and PayPal top-up.
+management, team management, x402 micropayments, and payment top-ups.
 
 Example::
 
@@ -40,7 +40,9 @@ from dominusnode_superagi.tools import (
     DominusNodeTeamDetailsTool,
     DominusNodeTeamFundTool,
     DominusNodeTeamUsageTool,
+    DominusNodeTopupCryptoTool,
     DominusNodeTopupPaypalTool,
+    DominusNodeTopupStripeTool,
     DominusNodeUnfreezeAgenticWalletTool,
     DominusNodeUpdateTeamMemberRoleTool,
     DominusNodeUpdateTeamTool,
@@ -74,6 +76,8 @@ class DominusNodeToolkit(BaseToolkit):
       - Update Team, Update Member Role
 
     **Payments:**
+      - TopUp Stripe -- create Stripe checkout session
+      - TopUp Crypto -- create crypto invoice via NOWPayments
       - X402 Info -- micropayment protocol details
     """
 
@@ -85,10 +89,10 @@ class DominusNodeToolkit(BaseToolkit):
     )
 
     def get_tools(self) -> list:
-        """Return all 24 Dominus Node tools for registration in SuperAGI.
+        """Return all 26 Dominus Node tools for registration in SuperAGI.
 
         Returns:
-            A list of 22 BaseTool instances covering proxy, wallet, team,
+            A list of 26 BaseTool instances covering proxy, wallet, team,
             and payment operations.
         """
         return [
@@ -116,6 +120,8 @@ class DominusNodeToolkit(BaseToolkit):
             DominusNodeUpdateTeamMemberRoleTool(),
             DominusNodeX402InfoTool(),
             DominusNodeTopupPaypalTool(),
+            DominusNodeTopupStripeTool(),
+            DominusNodeTopupCryptoTool(),
         ]
 
     def get_env_keys(self) -> list:

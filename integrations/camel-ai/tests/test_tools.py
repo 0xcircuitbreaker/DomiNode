@@ -958,6 +958,18 @@ class TestToolMethods:
         result = toolkit.topup_paypal(amount_cents=500)
         assert result["orderId"] == "PAY-999"
 
+    @patch("dominusnode_camel.tools.httpx.Client")
+    def test_topup_stripe(self, mock_httpx_cls):
+        toolkit = self._make_toolkit(mock_httpx_cls, {"sessionId": "cs_123", "checkoutUrl": "https://checkout.stripe.com/x"})
+        result = toolkit.topup_stripe(amount_cents=1000)
+        assert result["sessionId"] == "cs_123"
+
+    @patch("dominusnode_camel.tools.httpx.Client")
+    def test_topup_crypto(self, mock_httpx_cls):
+        toolkit = self._make_toolkit(mock_httpx_cls, {"invoiceId": "INV-1", "paymentUrl": "https://nowpayments.io/x"})
+        result = toolkit.topup_crypto(amount_usd=10, currency="BTC")
+        assert result["invoiceId"] == "INV-1"
+
 
 # ===========================================================================
 # get_tools Tests
@@ -967,8 +979,8 @@ class TestToolMethods:
 class TestGetTools:
     """Test the get_tools method returns correct FunctionTool objects."""
 
-    def test_get_tools_returns_23_tools(self):
-        """get_tools should return 23 FunctionTool objects (22 commands + x402)."""
+    def test_get_tools_returns_26_tools(self):
+        """get_tools should return 26 FunctionTool objects."""
         toolkit = DominusNodeToolkit(api_key="dn_test_key123")
 
         # Mock FunctionTool since camel-ai may not be installed in test env
@@ -984,7 +996,7 @@ class TestGetTools:
         with patch("camel.toolkits.FunctionTool", side_effect=mock_function_tool):
             tools = toolkit.get_tools()
 
-        assert len(tools) == 24
+        assert len(tools) == 26
         tool_names = [t.name for t in tools]
         assert "proxied_fetch" in tool_names
         assert "check_balance" in tool_names
@@ -1009,6 +1021,8 @@ class TestGetTools:
         assert "update_team_member_role" in tool_names
         assert "x402_info" in tool_names
         assert "topup_paypal" in tool_names
+        assert "topup_stripe" in tool_names
+        assert "topup_crypto" in tool_names
         assert "update_wallet_policy" in tool_names
 
 

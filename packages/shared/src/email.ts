@@ -30,8 +30,10 @@ function getTransporter(): Transporter | null {
       ignoreTLS,
       auth: SMTP_USER ? { user: SMTP_USER, pass: SMTP_PASS } : undefined,
       tls: {
-        // Allow self-signed certs for local Postfix relay
-        rejectUnauthorized: false,
+        // Verify TLS certs in production; allow self-signed in dev for local Postfix relay
+        rejectUnauthorized: process.env.NODE_ENV === "production"
+          ? (process.env.SMTP_REJECT_UNAUTHORIZED !== "false")
+          : false,
       },
       connectionTimeout: 10_000,
       greetingTimeout: 10_000,

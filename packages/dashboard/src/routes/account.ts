@@ -28,7 +28,7 @@ const deleteLimiter = rateLimit({
   keyGenerator: (req) => (req as AuthenticatedRequest).user?.userId ?? "unknown",
 });
 
-const PROXY_INTERNAL_HOST = process.env["PROXY_INTERNAL_HOST"] ?? "localhost";
+const PROXY_INTERNAL_HOST = process.env["PROXY_INTERNAL_HOST"] ?? "127.0.0.1";
 const PROXY_LISTEN_PORT = process.env["PROXY_LISTEN_PORT"] ?? "8080";
 
 /**

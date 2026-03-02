@@ -533,8 +533,8 @@ describe("formatCents", () => {
 // =========================================================================
 
 describe("plugin structure", () => {
-  it("exports exactly 24 tools", () => {
-    expect(tools).toHaveLength(24);
+  it("exports exactly 26 tools", () => {
+    expect(tools).toHaveLength(26);
   });
 
   it("has correct plugin metadata", () => {

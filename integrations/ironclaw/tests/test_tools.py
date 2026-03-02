@@ -488,7 +488,7 @@ class TestToolkitInit:
     def test_tool_count_is_24(self):
         toolkit = DominusNodeToolkit(api_key="dn_test_key123")
         tools = toolkit.get_tool_definitions()
-        assert len(tools) == 24
+        assert len(tools) == 26
 
 
 # ===========================================================================
@@ -800,7 +800,7 @@ class TestToolDefinitions:
     def test_returns_24_tools(self):
         toolkit = DominusNodeToolkit(api_key="dn_test_key123")
         tools = toolkit.get_tool_definitions()
-        assert len(tools) == 24
+        assert len(tools) == 26
 
     def test_each_tool_has_required_keys(self):
         toolkit = DominusNodeToolkit(api_key="dn_test_key123")
@@ -861,6 +861,7 @@ class TestToolDefinitions:
             "team_fund", "team_create_key", "team_usage",
             "update_team", "update_team_member_role",
             "x402_info", "topup_paypal",
+            "topup_stripe", "topup_crypto",
         }
         assert names == expected
 

@@ -78,6 +78,9 @@ function createMockClient() {
         currency: "USD",
         lastToppedUp: "2026-02-15T10:00:00Z",
       }),
+      topupPaypal: vi.fn(),
+      topupStripe: vi.fn(),
+      topupCrypto: vi.fn(),
     },
     usage: {
       get: vi.fn().mockResolvedValue({
@@ -788,7 +791,7 @@ describe("createDominusNodeTools", () => {
 });
 
 describe("createDominusNodeToolsFromClient", () => {
-  it("creates all 5 tools from an existing client", () => {
+  it("creates all tools from an existing client", () => {
     const mockClient = createMockClient();
     const tools = createDominusNodeToolsFromClient(mockClient, "dn_live_abc123");
     expect(tools).toHaveProperty("proxiedFetch");
@@ -796,6 +799,9 @@ describe("createDominusNodeToolsFromClient", () => {
     expect(tools).toHaveProperty("checkUsage");
     expect(tools).toHaveProperty("getProxyConfig");
     expect(tools).toHaveProperty("listSessions");
+    expect(tools).toHaveProperty("topupPaypal");
+    expect(tools).toHaveProperty("topupStripe");
+    expect(tools).toHaveProperty("topupCrypto");
   });
 
   it("rejects empty API key", () => {

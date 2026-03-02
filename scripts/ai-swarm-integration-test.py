@@ -65,8 +65,11 @@ def safe_int(value: str, default: int, min_val: int = 0, max_val: int = 100000) 
 
 
 def scrub_credentials(msg: str) -> str:
-    msg = re.sub(r'dn_(live|test)_[a-zA-Z0-9]+', 'dn_***', msg)
+    """Remove API keys, passwords, JWTs, and Bearer tokens from error strings."""
+    msg = re.sub(r'dn_(live|test)_[a-zA-Z0-9]+', 'dn_***_REDACTED', msg)
     msg = re.sub(r'"password"\s*:\s*"[^"]*"', '"password":"***"', msg)
+    msg = re.sub(r'eyJ[a-zA-Z0-9_-]+\.eyJ[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+', 'JWT_REDACTED', msg)
+    msg = re.sub(r'Bearer\s+[a-zA-Z0-9._-]+', 'Bearer REDACTED', msg)
     return msg
 
 

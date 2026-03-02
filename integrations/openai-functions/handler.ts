@@ -1089,6 +1089,49 @@ export function createDominusNodeFunctionHandler(
     return JSON.stringify(result);
   }
 
+  async function handleTopupStripe(args: Record<string, unknown>): Promise<string> {
+    const amountCents = args.amount_cents as number;
+
+    if (
+      !Number.isInteger(amountCents) ||
+      amountCents < 500 ||
+      amountCents > 100_000
+    ) {
+      return JSON.stringify({
+        error: "amount_cents must be an integer between 500 ($5) and 100,000 ($1,000)",
+      });
+    }
+
+    const result = await api("POST", "/api/wallet/topup/stripe", { amountCents });
+    return JSON.stringify(result);
+  }
+
+  async function handleTopupCrypto(args: Record<string, unknown>): Promise<string> {
+    const amountUsd = args.amount_usd as number;
+    const currency = args.currency as string;
+
+    if (typeof amountUsd !== "number" || !Number.isFinite(amountUsd) || amountUsd < 5 || amountUsd > 1000) {
+      return JSON.stringify({
+        error: "amount_usd must be a number between 5 and 1,000",
+      });
+    }
+
+    const validCurrencies = new Set([
+      "BTC", "ETH", "LTC", "XMR", "ZEC", "USDC", "SOL", "USDT", "DAI", "BNB", "LINK",
+    ]);
+    if (!currency || typeof currency !== "string" || !validCurrencies.has(currency.toUpperCase())) {
+      return JSON.stringify({
+        error: "currency must be one of: BTC, ETH, LTC, XMR, ZEC, USDC, SOL, USDT, DAI, BNB, LINK",
+      });
+    }
+
+    const result = await api("POST", "/api/wallet/topup/crypto", {
+      amountUsd,
+      currency: currency.toLowerCase(),
+    });
+    return JSON.stringify(result);
+  }
+
   async function handleUpdateWalletPolicy(args: Record<string, unknown>): Promise<string> {
     const walletId = args.wallet_id as string;
     if (!walletId || typeof walletId !== "string") {
@@ -1218,6 +1261,8 @@ export function createDominusNodeFunctionHandler(
     dominusnode_update_team: handleUpdateTeam,
     dominusnode_update_team_member_role: handleUpdateTeamMemberRole,
     dominusnode_topup_paypal: handleTopupPaypal,
+    dominusnode_topup_stripe: handleTopupStripe,
+    dominusnode_topup_crypto: handleTopupCrypto,
     dominusnode_x402_info: handleX402Info,
   };
 

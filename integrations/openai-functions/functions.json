@@ -415,5 +415,42 @@
       },
       "required": ["amount_cents"]
     }
+  },
+  {
+    "name": "dominusnode_topup_stripe",
+    "description": "Create a Stripe checkout session to top up your Dominus Node wallet with credit/debit card, Apple Pay, Google Pay, or Link. Returns a checkout URL. After payment, wallet is credited automatically. Minimum $5 (500 cents), maximum $1,000 (100,000 cents).",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "amount_cents": {
+          "type": "integer",
+          "description": "Amount in cents to add to wallet. Minimum 500 ($5.00), maximum 100000 ($1,000.00).",
+          "minimum": 500,
+          "maximum": 100000
+        }
+      },
+      "required": ["amount_cents"]
+    }
+  },
+  {
+    "name": "dominusnode_topup_crypto",
+    "description": "Create a cryptocurrency payment invoice to top up your Dominus Node wallet. Supports BTC, ETH, LTC, XMR, ZEC, USDC, SOL, USDT, DAI, BNB, and LINK. Returns a payment URL with address and amount. Privacy coins (XMR, ZEC) provide anonymous billing. Minimum $5, maximum $1,000.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "amount_usd": {
+          "type": "number",
+          "description": "Amount in USD to add to wallet. Minimum 5, maximum 1000.",
+          "minimum": 5,
+          "maximum": 1000
+        },
+        "currency": {
+          "type": "string",
+          "description": "Cryptocurrency to pay with: BTC, ETH, LTC, XMR, ZEC, USDC, SOL, USDT, DAI, BNB, or LINK.",
+          "enum": ["BTC", "ETH", "LTC", "XMR", "ZEC", "USDC", "SOL", "USDT", "DAI", "BNB", "LINK"]
+        }
+      },
+      "required": ["amount_usd", "currency"]
+    }
   }
 ]

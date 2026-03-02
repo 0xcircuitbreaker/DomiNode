@@ -1,7 +1,7 @@
 """Dominus Node IronClaw AI agent integration.
 
 Provides a Python toolkit for NEAR AI's IronClaw agent runtime, exposing
-23 tools for interacting with the Dominus Node rotating proxy-as-a-service
+26 tools for interacting with the Dominus Node rotating proxy-as-a-service
 platform.  Supports both direct Python bridge usage and MCP Protocol
 configuration for IronClaw's native MCP bridge.
 

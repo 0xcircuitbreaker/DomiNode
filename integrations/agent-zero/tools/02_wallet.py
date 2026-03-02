@@ -1,19 +1,23 @@
-"""Agent Zero tools: wallet balance, usage statistics, PayPal top-up.
+"""Agent Zero tools: wallet balance, usage statistics, payment top-ups.
 
 Tools:
     - ``check_balance`` -- Get current wallet balance
     - ``check_usage`` -- Get proxy usage statistics for a time period
     - ``topup_paypal`` -- Create a PayPal checkout session for wallet top-up
+    - ``topup_stripe`` -- Create a Stripe checkout session for wallet top-up
+    - ``topup_crypto`` -- Create a crypto invoice for wallet top-up
 
 Security:
     - Credential scrubbing in all error messages
-    - Amount validation for PayPal top-up (500-1,000,000 cents)
+    - Amount validation for all top-up methods
+    - Currency validation for crypto top-up
     - Period-to-date-range conversion (backend uses since/until ISO dates)
 """
 
 from __future__ import annotations
 
 import json
+import math
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict
 from urllib.parse import quote
@@ -170,6 +174,118 @@ def topup_paypal(
 
 
 # ---------------------------------------------------------------------------
+# Tool: topup_stripe
+# ---------------------------------------------------------------------------
+
+
+def topup_stripe(
+    auth: DominusNodeAuth,
+    args: Dict[str, Any],
+) -> str:
+    """Create a Stripe checkout session to top up the wallet.
+
+    Initiates a Stripe payment flow for the specified amount. On successful
+    payment, the wallet will be credited automatically via webhook.
+
+    Args:
+        auth: Authenticated Dominus Node helper.
+        args: Tool arguments:
+            - ``amount_cents`` (int, required): Amount in cents to add.
+              Must be between 500 ($5) and 100,000 ($1,000).
+
+    Returns:
+        JSON string with the Stripe checkout URL and session details,
+        or an error.
+    """
+    amount_cents = args.get("amount_cents")
+
+    if not isinstance(amount_cents, int) or isinstance(amount_cents, bool) or amount_cents < 500 or amount_cents > 100_000:
+        return json.dumps({
+            "error": (
+                "amount_cents must be an integer between 500 ($5) "
+                "and 100,000 ($1,000)"
+            )
+        })
+
+    try:
+        result = auth.api_request(
+            "POST",
+            "/api/wallet/topup/stripe",
+            {"amountCents": amount_cents},
+        )
+        return json.dumps(result)
+    except Exception as e:
+        return json.dumps({"error": _sanitize_error(str(e))})
+
+
+# ---------------------------------------------------------------------------
+# Tool: topup_crypto
+# ---------------------------------------------------------------------------
+
+_VALID_CRYPTO_CURRENCIES = {
+    "btc", "eth", "ltc", "xmr", "zec", "usdc", "sol", "usdt", "dai",
+    "bnb", "link",
+}
+
+
+def topup_crypto(
+    auth: DominusNodeAuth,
+    args: Dict[str, Any],
+) -> str:
+    """Create a crypto invoice to top up the wallet via NOWPayments.
+
+    Initiates a crypto payment flow for the specified amount and currency.
+    On successful payment, the wallet will be credited automatically via IPN.
+
+    Args:
+        auth: Authenticated Dominus Node helper.
+        args: Tool arguments:
+            - ``amount_usd`` (number, required): Amount in USD to add.
+              Must be between 5 and 1,000.
+            - ``currency`` (str, required): Cryptocurrency to pay with.
+              One of: BTC, ETH, LTC, XMR, ZEC, USDC, SOL, USDT, DAI,
+              BNB, LINK.
+
+    Returns:
+        JSON string with the crypto invoice details and payment URL,
+        or an error.
+    """
+    amount_usd = args.get("amount_usd")
+    currency = args.get("currency")
+
+    if not isinstance(amount_usd, (int, float)) or isinstance(amount_usd, bool):
+        return json.dumps({
+            "error": "amount_usd must be a number between 5 and 1,000"
+        })
+    if not math.isfinite(amount_usd):
+        return json.dumps({
+            "error": "amount_usd must be a number between 5 and 1,000"
+        })
+    if amount_usd < 5 or amount_usd > 1000:
+        return json.dumps({
+            "error": "amount_usd must be a number between 5 and 1,000"
+        })
+
+    if not isinstance(currency, str) or currency.lower() not in _VALID_CRYPTO_CURRENCIES:
+        return json.dumps({
+            "error": (
+                "currency must be one of: "
+                "BTC, ETH, LTC, XMR, ZEC, USDC, SOL, USDT, DAI, BNB, LINK"
+            )
+        })
+
+    try:
+        result = auth.api_request(
+            "POST",
+            "/api/wallet/topup/crypto",
+            {"amountUsd": amount_usd, "currency": currency.lower()},
+        )
+        return json.dumps(result)
+    except Exception as e:
+        return json.dumps({"error": _sanitize_error(str(e))})
+
+
+# ---------------------------------------------------------------------------
 # Tool: x402_info
 # ---------------------------------------------------------------------------
 
@@ -236,6 +352,40 @@ TOOLS = {
                 "type": "integer",
                 "required": True,
                 "description": "Amount in cents ($1 = 100, $10 = 1000)",
+            },
+        },
+    },
+    "topup_stripe": {
+        "function": topup_stripe,
+        "description": (
+            "Create a Stripe checkout session to add funds to the wallet. "
+            "Amount must be between $5 and $1,000."
+        ),
+        "parameters": {
+            "amount_cents": {
+                "type": "integer",
+                "required": True,
+                "description": "Amount in cents ($5 = 500, $10 = 1000)",
+            },
+        },
+    },
+    "topup_crypto": {
+        "function": topup_crypto,
+        "description": (
+            "Create a crypto invoice to add funds to the wallet via "
+            "NOWPayments. Supports BTC, ETH, LTC, XMR, ZEC, USDC, SOL, "
+            "USDT, DAI, BNB, LINK."
+        ),
+        "parameters": {
+            "amount_usd": {
+                "type": "number",
+                "required": True,
+                "description": "Amount in USD (5-1,000)",
+            },
+            "currency": {
+                "type": "string",
+                "required": True,
+                "description": "Cryptocurrency: BTC/ETH/LTC/XMR/ZEC/USDC/SOL/USDT/DAI/BNB/LINK",
             },
         },
     },

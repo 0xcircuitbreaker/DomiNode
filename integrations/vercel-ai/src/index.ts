@@ -16,6 +16,8 @@ export {
   createGetProxyConfigTool,
   createListSessionsTool,
   createTopupPaypalTool,
+  createTopupStripeTool,
+  createTopupCryptoTool,
   createX402InfoTool,
   createCreateAgenticWalletTool,
   createFundAgenticWalletTool,

@@ -1,6 +1,6 @@
-"""Dominus Node TaskWeaver plugin -- 22 proxy, wallet, team, and payment commands.
+"""Dominus Node TaskWeaver plugin -- 26 proxy, wallet, team, and payment commands.
 
-Provides a TaskWeaver-compatible plugin class that exposes 22 commands for
+Provides a TaskWeaver-compatible plugin class that exposes 26 commands for
 interacting with the Dominus Node rotating proxy-as-a-service platform.
 
 Commands cover:
@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import ipaddress
 import json
+import math
 import os
 import re
 import socket
@@ -501,7 +502,7 @@ def _validate_domains(domains: Any) -> Optional[str]:
 class DominusNodePlugin:
     """TaskWeaver plugin providing Dominus Node rotating proxy commands.
 
-    Authenticates using a Dominus Node API key and exposes 22 commands for proxy,
+    Authenticates using a Dominus Node API key and exposes 26 commands for proxy,
     wallet, team, and payment management.  All commands return JSON strings
     suitable for consumption by an LLM.
 
@@ -1414,7 +1415,84 @@ class DominusNodePlugin:
             return json.dumps({"error": _sanitize_error(str(e))})
 
     # ==================================================================
-    # Command 24: update_wallet_policy
+    # Command 24: topup_stripe
+    # ==================================================================
+
+    def topup_stripe(self, amount_cents: int) -> str:
+        """Create a Stripe checkout session for wallet top-up.
+
+        Args:
+            amount_cents: Amount to top up in cents (500 to 100,000).
+                Minimum $5.00 (500 cents), maximum $1,000.00 (100,000 cents).
+
+        Returns:
+            JSON string with checkout session details for completing
+            the Stripe payment flow.
+        """
+        err = _validate_positive_int(
+            amount_cents, "amount_cents", min_value=500, max_value=100_000
+        )
+        if err:
+            return json.dumps({"error": err})
+
+        try:
+            result = self._request_with_retry(
+                "POST",
+                "/api/wallet/topup/stripe",
+                {"amountCents": amount_cents},
+            )
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Command 25: topup_crypto
+    # ==================================================================
+
+    _VALID_CRYPTO_CURRENCIES = {
+        "BTC", "ETH", "LTC", "XMR", "ZEC",
+        "USDC", "SOL", "USDT", "DAI", "BNB", "LINK",
+    }
+
+    def topup_crypto(self, amount_usd: float, currency: str) -> str:
+        """Create a crypto payment invoice for wallet top-up.
+
+        Args:
+            amount_usd: Amount in USD (5 to 1,000).
+            currency: Cryptocurrency code (BTC/ETH/LTC/XMR/ZEC/USDC/SOL/
+                USDT/DAI/BNB/LINK).
+
+        Returns:
+            JSON string with invoice details for completing the crypto payment.
+        """
+        if not isinstance(amount_usd, (int, float)) or isinstance(amount_usd, bool):
+            return json.dumps({"error": "amount_usd must be a number between 5 and 1,000"})
+        if not math.isfinite(amount_usd):
+            return json.dumps({"error": "amount_usd must be a number between 5 and 1,000"})
+        if amount_usd < 5 or amount_usd > 1000:
+            return json.dumps({"error": "amount_usd must be a number between 5 and 1,000"})
+
+        if not currency or not isinstance(currency, str):
+            return json.dumps({
+                "error": "currency must be one of: BTC, ETH, LTC, XMR, ZEC, USDC, SOL, USDT, DAI, BNB, LINK",
+            })
+        if currency.upper() not in self._VALID_CRYPTO_CURRENCIES:
+            return json.dumps({
+                "error": "currency must be one of: BTC, ETH, LTC, XMR, ZEC, USDC, SOL, USDT, DAI, BNB, LINK",
+            })
+
+        try:
+            result = self._request_with_retry(
+                "POST",
+                "/api/wallet/topup/crypto",
+                {"amountUsd": amount_usd, "currency": currency.lower()},
+            )
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Command 26: update_wallet_policy
     # ==================================================================
 
     def update_wallet_policy(
@@ -1507,6 +1585,8 @@ class DominusNodePlugin:
             "update_team_member_role": self._dispatch_update_team_member_role,
             "x402_info": self._dispatch_x402_info,
             "topup_paypal": self._dispatch_topup_paypal,
+            "topup_stripe": self._dispatch_topup_stripe,
+            "topup_crypto": self._dispatch_topup_crypto,
             "update_wallet_policy": self._dispatch_update_wallet_policy,
         }
 
@@ -1685,6 +1765,21 @@ class DominusNodePlugin:
         if amount_cents is None:
             return json.dumps({"error": "amount_cents is required"})
         return self.topup_paypal(amount_cents=amount_cents)
+
+    def _dispatch_topup_stripe(self, args: dict) -> str:
+        amount_cents = args.get("amount_cents")
+        if amount_cents is None:
+            return json.dumps({"error": "amount_cents is required"})
+        return self.topup_stripe(amount_cents=amount_cents)
+
+    def _dispatch_topup_crypto(self, args: dict) -> str:
+        amount_usd = args.get("amount_usd")
+        currency = args.get("currency")
+        if amount_usd is None or currency is None:
+            return json.dumps({
+                "error": "amount_usd and currency are required"
+            })
+        return self.topup_crypto(amount_usd=amount_usd, currency=currency)
 
     def _dispatch_update_wallet_policy(self, args: dict) -> str:
         wallet_id = args.get("wallet_id")

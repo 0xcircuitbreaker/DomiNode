@@ -33,9 +33,16 @@ if [ -f "$ENV_FILE" ]; then
   while IFS='=' read -r key value; do
     # Skip comments and blank lines
     [[ -z "$key" || "$key" =~ ^[[:space:]]*# ]] && continue
-    # Trim whitespace
-    key="$(echo "$key" | xargs)"
-    value="$(echo "$value" | xargs)"
+    # Trim whitespace with parameter expansion (no xargs — avoids command injection)
+    key="${key#"${key%%[![:space:]]*}"}"
+    key="${key%"${key##*[![:space:]]}"}"
+    value="${value#"${value%%[![:space:]]*}"}"
+    value="${value%"${value##*[![:space:]]}"}"
+    # Validate key is a safe env var name
+    if ! [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+      echo "WARNING: Skipping invalid env key: $key" >&2
+      continue
+    fi
     # Only set if not already in environment
     if [ -z "${!key+x}" ]; then
       export "$key=$value"

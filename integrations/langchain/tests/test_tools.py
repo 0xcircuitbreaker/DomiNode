@@ -10,9 +10,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from dominusnode.types import (
+    CryptoInvoice,
     GeoTargeting,
     ProxyConfig,
     ProxyEndpointConfig,
+    StripeCheckout,
     UsagePagination,
     UsagePeriod,
     UsageResponse,
@@ -31,6 +33,8 @@ from dominusnode_langchain.tools import (
     DominusNodeListAgenticWalletsTool,
     DominusNodeProxiedFetchTool,
     DominusNodeProxyConfigTool,
+    DominusNodeTopupCryptoTool,
+    DominusNodeTopupStripeTool,
     DominusNodeUnfreezeAgenticWalletTool,
     DominusNodeUpdateWalletPolicyTool,
     DominusNodeUsageTool,
@@ -91,6 +95,20 @@ def mock_sync_client():
         ),
     )
 
+    # wallet.topup_stripe returns a StripeCheckout
+    client.wallet.topup_stripe.return_value = StripeCheckout(
+        session_id="cs_test_abc123",
+        url="https://checkout.stripe.com/pay/cs_test_abc123",
+    )
+
+    # wallet.topup_crypto returns a CryptoInvoice
+    client.wallet.topup_crypto.return_value = CryptoInvoice(
+        invoice_id="inv_crypto_456",
+        invoice_url="https://nowpayments.io/payment/?iid=inv_crypto_456",
+        pay_currency="btc",
+        price_amount=0.0012,
+    )
+
     return client
 
 
@@ -140,6 +158,22 @@ def mock_async_client():
                 us_states=["CA", "NY", "TX"],
                 major_us_cities=["Los Angeles", "New York", "Houston"],
             ),
+        )
+    )
+
+    client.wallet.topup_stripe = AsyncMock(
+        return_value=StripeCheckout(
+            session_id="cs_test_abc123",
+            url="https://checkout.stripe.com/pay/cs_test_abc123",
+        )
+    )
+
+    client.wallet.topup_crypto = AsyncMock(
+        return_value=CryptoInvoice(
+            invoice_id="inv_crypto_456",
+            invoice_url="https://nowpayments.io/payment/?iid=inv_crypto_456",
+            pay_currency="btc",
+            price_amount=0.0012,
         )
     )
 
@@ -471,6 +505,203 @@ class TestProxyConfigTool:
         assert "proxy.dominusnode.com:8080" in result
         assert "US" in result
         mock_async_client.proxy.get_config.assert_awaited_once()
+
+
+# ──────────────────────────────────────────────────────────────────────
+# DominusNodeTopupStripeTool
+# ──────────────────────────────────────────────────────────────────────
+
+
+class TestTopupStripeTool:
+    """Tests for the Stripe top-up tool."""
+
+    def test_returns_checkout_session(self, mock_sync_client):
+        tool = DominusNodeTopupStripeTool(sync_client=mock_sync_client)
+        result = tool._run(amount_cents=5000)
+
+        assert "Stripe Checkout Session Created" in result
+        assert "cs_test_abc123" in result
+        assert "$50.00" in result
+        assert "https://checkout.stripe.com/pay/cs_test_abc123" in result
+        mock_sync_client.wallet.topup_stripe.assert_called_once_with(amount_cents=5000)
+
+    def test_no_client(self):
+        tool = DominusNodeTopupStripeTool()
+        result = tool._run(amount_cents=5000)
+        assert "Error" in result
+        assert "No Dominus Node client" in result
+
+    def test_amount_too_low(self, mock_sync_client):
+        tool = DominusNodeTopupStripeTool(sync_client=mock_sync_client)
+        result = tool._run(amount_cents=100)
+        assert "Error" in result
+        assert "500" in result
+
+    def test_amount_too_high(self, mock_sync_client):
+        tool = DominusNodeTopupStripeTool(sync_client=mock_sync_client)
+        result = tool._run(amount_cents=200000)
+        assert "Error" in result
+        assert "100000" in result
+
+    def test_sdk_error_handled(self, mock_sync_client):
+        mock_sync_client.wallet.topup_stripe.side_effect = Exception("Stripe API error")
+        tool = DominusNodeTopupStripeTool(sync_client=mock_sync_client)
+        result = tool._run(amount_cents=5000)
+        assert "Error" in result
+        assert "Stripe API error" in result
+
+    def test_credential_scrubbing(self, mock_sync_client):
+        mock_sync_client.wallet.topup_stripe.side_effect = Exception(
+            "Auth failed: dn_live_secret123abc"
+        )
+        tool = DominusNodeTopupStripeTool(sync_client=mock_sync_client)
+        result = tool._run(amount_cents=5000)
+        assert "Error" in result
+        assert "dn_live_secret123abc" not in result
+        assert "***" in result
+
+    @pytest.mark.asyncio
+    async def test_async_returns_checkout_session(self, mock_async_client):
+        tool = DominusNodeTopupStripeTool(async_client=mock_async_client)
+        result = await tool._arun(amount_cents=5000)
+
+        assert "Stripe Checkout Session Created" in result
+        assert "cs_test_abc123" in result
+        assert "$50.00" in result
+        mock_async_client.wallet.topup_stripe.assert_awaited_once_with(amount_cents=5000)
+
+    @pytest.mark.asyncio
+    async def test_async_amount_too_low(self, mock_async_client):
+        tool = DominusNodeTopupStripeTool(async_client=mock_async_client)
+        result = await tool._arun(amount_cents=100)
+        assert "Error" in result
+        assert "500" in result
+
+    @pytest.mark.asyncio
+    async def test_async_no_client(self):
+        tool = DominusNodeTopupStripeTool()
+        result = await tool._arun(amount_cents=5000)
+        assert "Error" in result
+        assert "No Dominus Node client" in result
+
+
+# ──────────────────────────────────────────────────────────────────────
+# DominusNodeTopupCryptoTool
+# ──────────────────────────────────────────────────────────────────────
+
+
+class TestTopupCryptoTool:
+    """Tests for the crypto top-up tool."""
+
+    def test_returns_crypto_invoice(self, mock_sync_client):
+        tool = DominusNodeTopupCryptoTool(sync_client=mock_sync_client)
+        result = tool._run(amount_usd=50.0, currency="btc")
+
+        assert "Crypto Invoice Created" in result
+        assert "inv_crypto_456" in result
+        assert "$50.00" in result
+        assert "BTC" in result
+        assert "https://nowpayments.io/payment/?iid=inv_crypto_456" in result
+        mock_sync_client.wallet.topup_crypto.assert_called_once_with(
+            amount_usd=50.0, currency="btc",
+        )
+
+    def test_no_client(self):
+        tool = DominusNodeTopupCryptoTool()
+        result = tool._run(amount_usd=50.0, currency="btc")
+        assert "Error" in result
+        assert "No Dominus Node client" in result
+
+    def test_amount_too_low(self, mock_sync_client):
+        tool = DominusNodeTopupCryptoTool(sync_client=mock_sync_client)
+        result = tool._run(amount_usd=2.0, currency="btc")
+        assert "Error" in result
+        assert "5" in result
+
+    def test_amount_too_high(self, mock_sync_client):
+        tool = DominusNodeTopupCryptoTool(sync_client=mock_sync_client)
+        result = tool._run(amount_usd=5000.0, currency="eth")
+        assert "Error" in result
+        assert "1000" in result
+
+    def test_invalid_currency(self, mock_sync_client):
+        tool = DominusNodeTopupCryptoTool(sync_client=mock_sync_client)
+        result = tool._run(amount_usd=50.0, currency="DOGE")
+        assert "Error" in result
+        assert "currency" in result.lower()
+
+    def test_uppercase_currency_accepted(self, mock_sync_client):
+        tool = DominusNodeTopupCryptoTool(sync_client=mock_sync_client)
+        result = tool._run(amount_usd=50.0, currency="ETH")
+
+        assert "Crypto Invoice Created" in result
+        mock_sync_client.wallet.topup_crypto.assert_called_once_with(
+            amount_usd=50.0, currency="eth",
+        )
+
+    def test_privacy_coin_xmr(self, mock_sync_client):
+        mock_sync_client.wallet.topup_crypto.return_value = CryptoInvoice(
+            invoice_id="inv_xmr_789",
+            invoice_url="https://nowpayments.io/payment/?iid=inv_xmr_789",
+            pay_currency="xmr",
+            price_amount=0.35,
+        )
+        tool = DominusNodeTopupCryptoTool(sync_client=mock_sync_client)
+        result = tool._run(amount_usd=100.0, currency="xmr")
+
+        assert "Crypto Invoice Created" in result
+        assert "XMR" in result
+
+    def test_sdk_error_handled(self, mock_sync_client):
+        mock_sync_client.wallet.topup_crypto.side_effect = Exception("NOWPayments API error")
+        tool = DominusNodeTopupCryptoTool(sync_client=mock_sync_client)
+        result = tool._run(amount_usd=50.0, currency="btc")
+        assert "Error" in result
+        assert "NOWPayments API error" in result
+
+    def test_credential_scrubbing(self, mock_sync_client):
+        mock_sync_client.wallet.topup_crypto.side_effect = Exception(
+            "Auth failed: dn_live_secret123abc"
+        )
+        tool = DominusNodeTopupCryptoTool(sync_client=mock_sync_client)
+        result = tool._run(amount_usd=50.0, currency="btc")
+        assert "Error" in result
+        assert "dn_live_secret123abc" not in result
+        assert "***" in result
+
+    @pytest.mark.asyncio
+    async def test_async_returns_crypto_invoice(self, mock_async_client):
+        tool = DominusNodeTopupCryptoTool(async_client=mock_async_client)
+        result = await tool._arun(amount_usd=50.0, currency="btc")
+
+        assert "Crypto Invoice Created" in result
+        assert "inv_crypto_456" in result
+        assert "$50.00" in result
+        assert "BTC" in result
+        mock_async_client.wallet.topup_crypto.assert_awaited_once_with(
+            amount_usd=50.0, currency="btc",
+        )
+
+    @pytest.mark.asyncio
+    async def test_async_invalid_currency(self, mock_async_client):
+        tool = DominusNodeTopupCryptoTool(async_client=mock_async_client)
+        result = await tool._arun(amount_usd=50.0, currency="DOGE")
+        assert "Error" in result
+        assert "currency" in result.lower()
+
+    @pytest.mark.asyncio
+    async def test_async_amount_too_low(self, mock_async_client):
+        tool = DominusNodeTopupCryptoTool(async_client=mock_async_client)
+        result = await tool._arun(amount_usd=2.0, currency="btc")
+        assert "Error" in result
+        assert "5" in result
+
+    @pytest.mark.asyncio
+    async def test_async_no_client(self):
+        tool = DominusNodeTopupCryptoTool()
+        result = await tool._arun(amount_usd=50.0, currency="btc")
+        assert "Error" in result
+        assert "No Dominus Node client" in result
 
 
 # ──────────────────────────────────────────────────────────────────────

@@ -11,9 +11,9 @@ const log = createLogger("api:admin");
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // Admin emails authorized for wallet credit operations (security-critical)
-// Only these admins can mint credits. Default: operator's email.
+// Only these admins can mint credits. MUST be set via environment variable.
 const ADMIN_CREDIT_EMAILS = new Set(
-  (process.env["ADMIN_CREDIT_EMAILS"] ?? "sarris88p@gmail.com")
+  (process.env["ADMIN_CREDIT_EMAILS"] ?? "")
     .split(",")
     .map((e) => e.trim().toLowerCase())
     .filter(Boolean),

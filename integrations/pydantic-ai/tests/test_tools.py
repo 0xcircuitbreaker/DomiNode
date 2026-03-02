@@ -452,14 +452,16 @@ class TestToolkitInit:
         )
         assert toolkit.base_url == "https://api.example.com"
 
-    def test_get_tools_returns_24(self):
+    def test_get_tools_returns_26(self):
         toolkit = DominusNodeToolkit(api_key="dn_test_key123")
         tools = toolkit.get_tools()
-        assert len(tools) == 24
+        assert len(tools) == 26
         names = [t.__name__ for t in tools]
         assert "proxied_fetch" in names
         assert "check_balance" in names
         assert "topup_paypal" in names
+        assert "topup_stripe" in names
+        assert "topup_crypto" in names
         assert "update_team_member_role" in names
         assert "x402_info" in names
         assert "update_wallet_policy" in names

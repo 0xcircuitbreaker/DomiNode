@@ -13,6 +13,7 @@ Security:
 from __future__ import annotations
 
 import ipaddress
+import math
 import os
 import re
 import socket
@@ -245,6 +246,31 @@ class TopupPaypalInput(BaseModel):
 
     amount_cents: int = Field(
         description="Amount in cents to top up via PayPal (min 500 = $5, max 100000 = $1,000).",
+    )
+
+
+class TopupStripeInput(BaseModel):
+    """Input schema for the Dominus Node Stripe top-up tool."""
+
+    amount_cents: int = Field(
+        description="Amount in cents to top up via Stripe (min 500 = $5, max 100000 = $1,000).",
+    )
+
+
+# Valid crypto currencies for NOWPayments
+_VALID_CRYPTO_CURRENCIES = frozenset({
+    "BTC", "ETH", "LTC", "XMR", "ZEC", "USDC", "SOL", "USDT", "DAI", "BNB", "LINK",
+})
+
+
+class TopupCryptoInput(BaseModel):
+    """Input schema for the Dominus Node crypto top-up tool."""
+
+    amount_usd: float = Field(
+        description="Amount in USD to top up via crypto (min 5, max 1000).",
+    )
+    currency: str = Field(
+        description="Cryptocurrency to pay with: BTC, ETH, LTC, XMR, ZEC, USDC, SOL, USDT, DAI, BNB, or LINK.",
     )
 
 
@@ -649,6 +675,135 @@ class DominusNodeTopupPaypalTool(BaseTool):
 
 
 # ---------------------------------------------------------------------------
+# Tool 6: Stripe Top-Up
+# ---------------------------------------------------------------------------
+
+
+class DominusNodeTopupStripeTool(BaseTool):
+    """Top up your Dominus Node wallet balance via Stripe.
+
+    Creates a Stripe checkout session and returns a checkout URL to complete
+    payment. Minimum $5 (500 cents), maximum $1,000 (100,000 cents).
+    """
+
+    name: str = "dominusnode_topup_stripe"
+    description: str = (
+        "Top up your Dominus Node wallet balance via Stripe. "
+        "Creates a Stripe checkout session and returns a checkout URL to "
+        "complete payment. Input: amount_cents (integer, min 500 = $5, max 100000 = $1,000)."
+    )
+    args_schema: Type[BaseModel] = TopupStripeInput
+
+    # -- Configuration (not exposed to the LLM) ----------------------------
+    api_key: Optional[str] = Field(default=None, exclude=True)
+    base_url: Optional[str] = Field(default=None, exclude=True)
+    proxy_host: Optional[str] = Field(default=None, exclude=True)
+
+    def _run(self, amount_cents: int = 0, **kwargs: Any) -> str:
+        if not isinstance(amount_cents, int) or amount_cents < 500 or amount_cents > 100000:
+            return "Error: amount_cents must be an integer between 500 ($5) and 100000 ($1,000)."
+
+        client: Optional[DominusNodeClient] = None
+        try:
+            client = _make_client(
+                api_key=self.api_key,
+                base_url=self.base_url,
+                proxy_host=self.proxy_host,
+            )
+
+            result = client.wallet.topup_stripe(amount_cents=amount_cents)
+
+            return (
+                f"Stripe Checkout Session Created\n"
+                f"Session ID: {result.session_id}\n"
+                f"Amount: ${amount_cents / 100:.2f}\n"
+                f"Checkout URL: {result.url}\n\n"
+                f"Open the checkout URL in a browser to complete payment."
+            )
+
+        except RuntimeError as exc:
+            return f"Error: {_sanitize_error(str(exc))}"
+        except Exception as exc:
+            return f"Error: {type(exc).__name__} -- {_sanitize_error(str(exc))}"
+        finally:
+            if client is not None:
+                client.close()
+
+
+# ---------------------------------------------------------------------------
+# Tool 7: Crypto Top-Up
+# ---------------------------------------------------------------------------
+
+
+class DominusNodeTopupCryptoTool(BaseTool):
+    """Top up your Dominus Node wallet balance via cryptocurrency.
+
+    Creates a crypto payment invoice via NOWPayments and returns a payment URL.
+    Supports BTC, ETH, LTC, XMR, ZEC, USDC, SOL, USDT, DAI, BNB, and LINK.
+    Minimum $5, maximum $1,000.
+    """
+
+    name: str = "dominusnode_topup_crypto"
+    description: str = (
+        "Top up your Dominus Node wallet balance via cryptocurrency. "
+        "Creates a crypto invoice and returns a payment URL. "
+        "Input: amount_usd (number, min 5, max 1000) and currency "
+        "(BTC, ETH, LTC, XMR, ZEC, USDC, SOL, USDT, DAI, BNB, or LINK)."
+    )
+    args_schema: Type[BaseModel] = TopupCryptoInput
+
+    # -- Configuration (not exposed to the LLM) ----------------------------
+    api_key: Optional[str] = Field(default=None, exclude=True)
+    base_url: Optional[str] = Field(default=None, exclude=True)
+    proxy_host: Optional[str] = Field(default=None, exclude=True)
+
+    def _run(self, amount_usd: float = 0, currency: str = "", **kwargs: Any) -> str:
+        if not isinstance(amount_usd, (int, float)) or isinstance(amount_usd, bool):
+            return "Error: amount_usd must be a number between 5 ($5) and 1000 ($1,000)."
+        if not math.isfinite(amount_usd):
+            return "Error: amount_usd must be a number between 5 ($5) and 1000 ($1,000)."
+        if amount_usd < 5 or amount_usd > 1000:
+            return "Error: amount_usd must be a number between 5 ($5) and 1000 ($1,000)."
+
+        currency_upper = currency.upper().strip() if isinstance(currency, str) else ""
+        if currency_upper not in _VALID_CRYPTO_CURRENCIES:
+            return (
+                f"Error: currency must be one of: "
+                f"{', '.join(sorted(_VALID_CRYPTO_CURRENCIES))}."
+            )
+
+        client: Optional[DominusNodeClient] = None
+        try:
+            client = _make_client(
+                api_key=self.api_key,
+                base_url=self.base_url,
+                proxy_host=self.proxy_host,
+            )
+
+            result = client.wallet.topup_crypto(
+                amount_usd=amount_usd,
+                currency=currency_upper.lower(),
+            )
+
+            return (
+                f"Crypto Payment Invoice Created\n"
+                f"Invoice ID: {result.invoice_id}\n"
+                f"Amount: ${amount_usd:.2f}\n"
+                f"Currency: {currency_upper}\n"
+                f"Payment URL: {result.payment_url}\n\n"
+                f"Open the payment URL in a browser to complete payment."
+            )
+
+        except RuntimeError as exc:
+            return f"Error: {_sanitize_error(str(exc))}"
+        except Exception as exc:
+            return f"Error: {type(exc).__name__} -- {_sanitize_error(str(exc))}"
+        finally:
+            if client is not None:
+                client.close()
+
+
+# ---------------------------------------------------------------------------
 # Agentic Wallet — shared helpers
 # ---------------------------------------------------------------------------
 
@@ -765,7 +920,7 @@ class UpdateWalletPolicyInput(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Tool 6: Create Agentic Wallet
+# Tool 8: Create Agentic Wallet
 # ---------------------------------------------------------------------------
 
 
@@ -849,7 +1004,7 @@ class DominusNodeCreateAgenticWalletTool(BaseTool):
 
 
 # ---------------------------------------------------------------------------
-# Tool 7: Fund Agentic Wallet
+# Tool 9: Fund Agentic Wallet
 # ---------------------------------------------------------------------------
 
 
@@ -902,7 +1057,7 @@ class DominusNodeFundAgenticWalletTool(BaseTool):
 
 
 # ---------------------------------------------------------------------------
-# Tool 8: Agentic Wallet Balance
+# Tool 10: Agentic Wallet Balance
 # ---------------------------------------------------------------------------
 
 
@@ -946,7 +1101,7 @@ class DominusNodeAgenticWalletBalanceTool(BaseTool):
 
 
 # ---------------------------------------------------------------------------
-# Tool 9: List Agentic Wallets
+# Tool 11: List Agentic Wallets
 # ---------------------------------------------------------------------------
 
 
@@ -990,7 +1145,7 @@ class DominusNodeListAgenticWalletsTool(BaseTool):
 
 
 # ---------------------------------------------------------------------------
-# Tool 10: Agentic Wallet Transactions
+# Tool 12: Agentic Wallet Transactions
 # ---------------------------------------------------------------------------
 
 
@@ -1046,7 +1201,7 @@ class DominusNodeAgenticTransactionsTool(BaseTool):
 
 
 # ---------------------------------------------------------------------------
-# Tool 11: Freeze Agentic Wallet
+# Tool 13: Freeze Agentic Wallet
 # ---------------------------------------------------------------------------
 
 
@@ -1083,7 +1238,7 @@ class DominusNodeFreezeAgenticWalletTool(BaseTool):
 
 
 # ---------------------------------------------------------------------------
-# Tool 12: Unfreeze Agentic Wallet
+# Tool 14: Unfreeze Agentic Wallet
 # ---------------------------------------------------------------------------
 
 
@@ -1120,7 +1275,7 @@ class DominusNodeUnfreezeAgenticWalletTool(BaseTool):
 
 
 # ---------------------------------------------------------------------------
-# Tool 13: Delete Agentic Wallet
+# Tool 15: Delete Agentic Wallet
 # ---------------------------------------------------------------------------
 
 
@@ -1157,7 +1312,7 @@ class DominusNodeDeleteAgenticWalletTool(BaseTool):
 
 
 # ---------------------------------------------------------------------------
-# Tool 14: Update Wallet Policy
+# Tool 16: Update Wallet Policy
 # ---------------------------------------------------------------------------
 
 

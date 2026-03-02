@@ -34,17 +34,43 @@ PROXY_HOST="${3:-localhost}"
 PROXY_PORT="${4:-8080}"
 
 ADMIN_JWT="${ADMIN_JWT:?ADMIN_JWT required — login as admin first}"
-TEAM_CREDIT="${SWARM_TEAM_CREDIT:-10000}"
-BATCH_SIZE="${SWARM_BATCH_SIZE:-25}"
-BATCH_DELAY="${SWARM_BATCH_DELAY:-10}"
 LOG_DIR="${SWARM_LOG_DIR:-/tmp/dominusnode-swarm}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PASSWORD="${SWARM_PASSWORD:-$(openssl rand -hex 16)}"
 
-mkdir -p "$LOG_DIR"
+# ─── Validate numeric env vars (C-3) ─────────────────────────────────
+validate_int() {
+  local name="$1" value="$2" default="$3" min="${4:-1}" max="${5:-100000}"
+  if ! [[ "$value" =~ ^[0-9]+$ ]]; then
+    echo "WARNING: ${name} is not a valid integer ('${value}'), using default ${default}" >&2
+    echo "$default"; return
+  fi
+  if [ "$value" -lt "$min" ]; then value="$min"; fi
+  if [ "$value" -gt "$max" ]; then value="$max"; fi
+  echo "$value"
+}
 
-# Clean up credential files on exit (normal or signal)
-trap 'rm -f "${LOG_DIR}/swarm-password.txt" "${LOG_DIR}/team-keys.txt" 2>/dev/null' EXIT
+TEAM_CREDIT=$(validate_int "SWARM_TEAM_CREDIT" "${SWARM_TEAM_CREDIT:-10000}" 10000 1 1000000)
+BATCH_SIZE=$(validate_int "SWARM_BATCH_SIZE" "${SWARM_BATCH_SIZE:-25}" 25 1 100)
+BATCH_DELAY=$(validate_int "SWARM_BATCH_DELAY" "${SWARM_BATCH_DELAY:-10}" 10 1 300)
+
+if ! [[ "$NUM_AGENTS" =~ ^[0-9]+$ ]] || [ "$NUM_AGENTS" -lt 1 ] || [ "$NUM_AGENTS" -gt 1000 ]; then
+  echo "ERROR: num_agents must be 1-1000 (got: $NUM_AGENTS)"; exit 1
+fi
+
+(umask 077 && mkdir -p "$LOG_DIR")
+
+# Clean up child processes + credential files on exit
+PIDS=()
+cleanup() {
+  rm -f "${LOG_DIR}/team-keys.txt" 2>/dev/null
+  if [ ${#PIDS[@]} -gt 0 ]; then
+    for PID in "${PIDS[@]}"; do kill "$PID" 2>/dev/null || true; done
+    sleep 1
+    for PID in "${PIDS[@]}"; do kill -9 "$PID" 2>/dev/null || true; done
+  fi
+}
+trap cleanup EXIT INT TERM
 
 log() { echo "[main-agent] $(date '+%H:%M:%S') $*"; }
 
@@ -83,10 +109,11 @@ log "Logged in"
 
 # ─── Step 3: Create team ─────────────────────────────────────────────
 log "Creating team 'Dominus Node Agent Swarm'..."
-TEAM_RESP=$(curl -s -X POST "${API_BASE}/api/teams" \
+TEAM_RESP=$(printf '{"name":"Dominus Node Agent Swarm","maxMembers":%d}' "$NUM_AGENTS" | \
+  curl -s -X POST "${API_BASE}/api/teams" \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer ${TOKEN}" \
-  -d "{\"name\":\"Dominus Node Agent Swarm\",\"maxMembers\":${NUM_AGENTS}}" 2>/dev/null || true)
+  --data @- 2>/dev/null || true)
 
 TEAM_ID=$(echo "$TEAM_RESP" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
 if [ -z "$TEAM_ID" ]; then
@@ -104,11 +131,17 @@ else
 fi
 
 # ─── Step 4: Credit team wallet (admin operation) ────────────────────
+# Validate TEAM_ID is UUID-like (C-4: prevent JSON/path injection)
+if ! [[ "$TEAM_ID" =~ ^[a-f0-9-]+$ ]]; then
+  log "ERROR: Invalid team ID format: ${TEAM_ID}"
+  exit 1
+fi
 log "Crediting team wallet with \$$(( TEAM_CREDIT / 100 )).$(printf '%02d' $(( TEAM_CREDIT % 100 )))..."
-CREDIT_RESP=$(curl -s -w "\n%{http_code}" -X POST "${API_BASE}/api/admin/credit-wallet" \
+CREDIT_RESP=$(printf '{"teamId":"%s","amountCents":%d,"reason":"Swarm launch credit"}' "$TEAM_ID" "$TEAM_CREDIT" | \
+  curl -s -w "\n%{http_code}" -X POST "${API_BASE}/api/admin/credit-wallet" \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer ${ADMIN_JWT}" \
-  -d "{\"teamId\":\"${TEAM_ID}\",\"amountCents\":${TEAM_CREDIT},\"reason\":\"Swarm launch credit\"}" 2>/dev/null || true)
+  --data @- 2>/dev/null || true)
 CREDIT_CODE=$(echo "$CREDIT_RESP" | tail -1)
 CREDIT_BODY=$(echo "$CREDIT_RESP" | sed '$d')
 
@@ -154,10 +187,12 @@ if [ "$KEY_COUNT" -eq 0 ]; then
 fi
 
 # ─── Step 6: Launch sub-agents ───────────────────────────────────────
+# Sub-agents don't need admin privileges — unset to limit blast radius (C-1)
+unset ADMIN_JWT
+
 log "Launching ${KEY_COUNT} sub-agents in batches of ${BATCH_SIZE}..."
 
 LAUNCHED=0
-PIDS=()
 AGENT_NUM=0
 
 while IFS= read -r KEY; do
@@ -218,5 +253,3 @@ log "============================================"
 
 # Clean up sensitive files
 rm -f "$KEYS_FILE"
-# Remove password file after swarm completes
-rm -f "${LOG_DIR}/swarm-password.txt"

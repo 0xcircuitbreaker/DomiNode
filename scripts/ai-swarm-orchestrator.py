@@ -85,10 +85,11 @@ def safe_int(value: str, default: int, min_val: int = 0, max_val: int = 100000) 
 
 # Scrub credentials from error messages
 def scrub_credentials(msg: str) -> str:
-    """Remove API keys, passwords, and JWTs from error strings."""
+    """Remove API keys, passwords, JWTs, and Bearer tokens from error strings."""
     msg = re.sub(r'dn_(live|test)_[a-zA-Z0-9]+', 'dn_***_REDACTED', msg)
     msg = re.sub(r'"password"\s*:\s*"[^"]*"', '"password":"***"', msg)
     msg = re.sub(r'eyJ[a-zA-Z0-9_-]+\.eyJ[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+', 'JWT_REDACTED', msg)
+    msg = re.sub(r'Bearer\s+[a-zA-Z0-9._-]+', 'Bearer REDACTED', msg)
     return msg
 
 # Proxy request targets
@@ -158,7 +159,7 @@ def ai_generate(prompt: str, max_tokens: int = 512, temperature: float = 0.7) ->
         data = resp.json()
         return data["choices"][0]["message"]["content"].strip()
     except Exception as e:
-        log.warning("AI generation failed: %s. Using template fallback.", e)
+        log.warning("AI generation failed: %s. Using template fallback.", scrub_credentials(str(e)))
         return ""
 
 
@@ -629,7 +630,7 @@ def main():
         admin_jwt = admin_login(args.api_base)
         log.info("Admin authenticated")
     except Exception as e:
-        log.warning("Admin login failed: %s. Agents will use default plans.", e)
+        log.warning("Admin login failed: %s. Agents will use default plans.", scrub_credentials(str(e)))
 
     # Calculate split
     if args.mode == "team":
@@ -700,9 +701,10 @@ def main():
     print(f"  AI posts gen:   {len(ai_posts)}")
     print("=" * 50)
 
-    # Save results
+    # Save results (owner-only permissions)
     results_file = Path(args.log_dir) / "results.json"
-    with open(results_file, "w") as f:
+    fd = os.open(str(results_file), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
         json.dump({
             "summary": {
                 "total": len(all_results),

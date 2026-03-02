@@ -489,7 +489,7 @@ class TestToolkitInit:
         """Verify all 22 tools are registered with the Agno toolkit."""
         toolkit = DominusNodeToolkit(api_key="dn_test_key123")
         # Agno stores registered functions in self.functions dict
-        assert len(toolkit.functions) == 24
+        assert len(toolkit.functions) == 26
         expected_names = {
             "proxied_fetch",
             "check_balance",
@@ -514,6 +514,8 @@ class TestToolkitInit:
             "update_team_member_role",
             "x402_info",
             "topup_paypal",
+            "topup_stripe",
+            "topup_crypto",
             "update_wallet_policy",
         }
         registered_names = set(toolkit.functions.keys())
