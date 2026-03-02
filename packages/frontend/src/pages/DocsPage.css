@@ -160,6 +160,9 @@
 .docs-brand-mark {
   width: 2rem;
   height: 2rem;
+  display: block;
+  flex-shrink: 0;
+  object-fit: contain;
 }
 
 .docs-brand-name {
