@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ============================================================================
-# DomiNode Unified Swarm Launcher
+# Dominus Node Unified Swarm Launcher
 #
 # Loads config from .env.swarm (if present), then launches team mode,
 # solo mode, or both simultaneously.
@@ -72,7 +72,7 @@ export PROXY_PORT="${PROXY_PORT:-8080}"
 export SWARM_LOG_DIR="${SWARM_LOG_DIR:-/tmp/dominusnode-swarm}"
 
 echo "============================================"
-echo "  DomiNode Unified Swarm Launcher"
+echo "  Dominus Node Unified Swarm Launcher"
 echo "============================================"
 echo ""
 echo "  Mode:    ${MODE}"

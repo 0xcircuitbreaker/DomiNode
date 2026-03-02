@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # ============================================================================
-# DomiNode Team Swarm — Main Agent (Orchestrator)
+# Dominus Node Team Swarm — Main Agent (Orchestrator)
 #
 # The main agent:
 #   1. Registers its own account + logs in
-#   2. Creates a team ("DomiNode Agent Swarm")
+#   2. Creates a team ("Dominus Node Agent Swarm")
 #   3. Gets the team wallet credited by the admin
 #   4. Creates N team API keys (one per sub-agent)
 #   5. Launches N sub-agents in parallel, each with a team key
@@ -82,11 +82,11 @@ fi
 log "Logged in"
 
 # ─── Step 3: Create team ─────────────────────────────────────────────
-log "Creating team 'DomiNode Agent Swarm'..."
+log "Creating team 'Dominus Node Agent Swarm'..."
 TEAM_RESP=$(curl -s -X POST "${API_BASE}/api/teams" \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer ${TOKEN}" \
-  -d "{\"name\":\"DomiNode Agent Swarm\",\"maxMembers\":${NUM_AGENTS}}" 2>/dev/null || true)
+  -d "{\"name\":\"Dominus Node Agent Swarm\",\"maxMembers\":${NUM_AGENTS}}" 2>/dev/null || true)
 
 TEAM_ID=$(echo "$TEAM_RESP" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
 if [ -z "$TEAM_ID" ]; then

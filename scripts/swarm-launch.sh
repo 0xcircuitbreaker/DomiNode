@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ============================================================================
-# DomiNode Team Swarm Launcher
+# Dominus Node Team Swarm Launcher
 #
 # Entry point that:
 #   1. Pre-flight checks (API, proxy, slots)
@@ -52,7 +52,7 @@ TOTAL_RES_MB=$(( NUM_AGENTS * RES_PER_AGENT_KB / 1024 ))
 TOTAL_DC_MB=$(( NUM_AGENTS * DC_PER_AGENT_KB / 1024 ))
 
 echo "============================================"
-echo "  DomiNode Team Swarm Launcher"
+echo "  Dominus Node Team Swarm Launcher"
 echo "============================================"
 echo ""
 echo "  Model:          Team-based (shared wallet, team API keys)"

@@ -1,4 +1,4 @@
-# DomiNode AI Swarm — Python Dependencies
+# Dominus Node AI Swarm — Python Dependencies
 # Install: pip install -r requirements-ai-swarm.txt
 
 requests>=2.31.0

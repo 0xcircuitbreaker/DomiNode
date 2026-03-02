@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ============================================================================
-# DomiNode Solo Swarm Agent
+# Dominus Node Solo Swarm Agent
 #
 # A standalone agent that registers its own account, gets a personal API key,
 # and runs proxy cycles independently (no team). Requires an admin to credit

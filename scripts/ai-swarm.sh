@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
 # ============================================================================
-# DomiNode AI Agent Swarm Launcher
+# Dominus Node AI Agent Swarm Launcher
 #
 # Launches a local AI model via SGLang, then runs an AI orchestrator that
-# creates autonomous DomiNode agents. Each agent registers its own account,
+# creates autonomous Dominus Node agents. Each agent registers its own account,
 # manages its wallet, uses the proxy, and posts about its experience.
 #
 # Requirements:
 #   - NVIDIA GPU with sufficient VRAM (e.g., RTX 5090 32GB)
 #   - Python 3.10+ with: sglang, crewai, dominusnode (SDK)
-#   - Running DomiNode API + proxy gateway
+#   - Running Dominus Node API + proxy gateway
 #
 # Usage:
 #   ./scripts/ai-swarm.sh <num_agents> [team|solo|both]
@@ -86,7 +86,7 @@ mkdir -p "$LOG_DIR"
 trap 'rm -f "${LOG_DIR}/swarm-password.txt" 2>/dev/null' EXIT
 
 echo "============================================"
-echo "  DomiNode AI Agent Swarm"
+echo "  Dominus Node AI Agent Swarm"
 echo "============================================"
 echo ""
 echo "  Model:       ${AI_MODEL}"

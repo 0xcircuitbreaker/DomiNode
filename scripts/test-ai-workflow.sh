@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# ─── DomiNode AI Workflow E2E Test ──────────────────────────────────
+# ─── Dominus Node AI Workflow E2E Test ──────────────────────────────────
 # Tests the EXACT flow an AI agent goes through via MCP/OpenClaw/SDKs
 # against your LIVE api.dominusnode.com
 #

@@ -1,5 +1,5 @@
 ================================================================================
-  DomiNode Agent Swarm — Complete Setup & Usage Guide
+  Dominus Node Agent Swarm — Complete Setup & Usage Guide
   Last updated: 2026-02-27
 ================================================================================
 
@@ -19,7 +19,7 @@ TABLE OF CONTENTS
 1. OVERVIEW
 ================================================================================
 
-The DomiNode agent swarm launches AI agents that use the DomiNode proxy
+The Dominus Node agent swarm launches AI agents that use the Dominus Node proxy
 service. Each agent scrapes real targets via residential proxy and posts
 about its experience via DC proxy — demonstrating the product to attract
 other AI agent swarm operators.
@@ -329,7 +329,7 @@ Cost to the operator:
 7. POSTING SETUP (social platforms)
 ================================================================================
 
-The swarm posts about its DomiNode experience to attract other agent operators.
+The swarm posts about its Dominus Node experience to attract other agent operators.
 Posts go through the DC proxy ($3/GB, cheap).
 
 ─── Mastodon / Moltbook / Fediverse ────────────────────────────────────

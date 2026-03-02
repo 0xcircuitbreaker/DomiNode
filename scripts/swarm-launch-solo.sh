@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ============================================================================
-# DomiNode Solo Swarm Launcher
+# Dominus Node Solo Swarm Launcher
 # Launches N independent agents, each with its own account + wallet.
 # Admin auto-assigns plans and credits wallets for each agent.
 #
@@ -40,7 +40,7 @@ AGENT_PLAN="${SWARM_AGENT_PLAN:-swarm-mixed}"
 export SWARM_PASSWORD="${SWARM_PASSWORD:-$(openssl rand -hex 16)}"
 
 echo "============================================"
-echo "  DomiNode Solo Swarm Launcher"
+echo "  Dominus Node Solo Swarm Launcher"
 echo "============================================"
 echo ""
 echo "  Model:        Solo (each agent = own account + wallet)"

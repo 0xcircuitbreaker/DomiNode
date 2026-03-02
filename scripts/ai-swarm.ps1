@@ -1,12 +1,12 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-    DomiNode AI Agent Swarm Launcher (Windows/PowerShell)
+    Dominus Node AI Agent Swarm Launcher (Windows/PowerShell)
 
 .DESCRIPTION
     Launches the AI swarm orchestrator on Windows. Optionally starts an inference
     server (SGLang), then runs the Python orchestrator that creates autonomous
-    DomiNode agents.
+    Dominus Node agents.
 
     Architecture:
       ONE model instance on GPU serves ALL agent threads via batched inference.
@@ -14,7 +14,7 @@
 
     Prerequisites:
       - Run ai-swarm-setup.ps1 first to install dependencies
-      - DomiNode API + proxy gateway must be running
+      - Dominus Node API + proxy gateway must be running
       - .env.swarm configured with ADMIN_EMAIL + ADMIN_PASSWORD
 
 .PARAMETER NumAgents
@@ -171,7 +171,7 @@ New-Item -ItemType Directory -Path $LOG_DIR -Force | Out-Null
 
 Write-Host ""
 Write-Host "============================================" -ForegroundColor Cyan
-Write-Host "  DomiNode AI Agent Swarm" -ForegroundColor Cyan
+Write-Host "  Dominus Node AI Agent Swarm" -ForegroundColor Cyan
 Write-Host "============================================" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "  Model:       $AI_MODEL"
@@ -236,7 +236,7 @@ try {
     }
 } catch {
     Write-Host "  ERROR: API not reachable at $API_BASE" -ForegroundColor Red
-    Write-Host "  Make sure DomiNode API is running" -ForegroundColor Yellow
+    Write-Host "  Make sure Dominus Node API is running" -ForegroundColor Yellow
     exit 1
 }
 

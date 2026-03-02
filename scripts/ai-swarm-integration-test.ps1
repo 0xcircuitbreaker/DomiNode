@@ -1,7 +1,7 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-    DomiNode Integration Swarm Tester (Windows/PowerShell)
+    Dominus Node Integration Swarm Tester (Windows/PowerShell)
 
 .DESCRIPTION
     Tests each AI integration (LangChain, CrewAI, LlamaIndex, AutoGPT, etc.)

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# ─── DomiNode End-to-End Test Script ────────────────────────────────
+# ─── Dominus Node End-to-End Test Script ────────────────────────────────
 # Tests the full AI agent flow: signup → API key → teams → payments → proxy
 #
 # Prerequisites:

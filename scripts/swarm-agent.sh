@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ============================================================================
-# DomiNode Team Swarm — Sub-Agent
+# Dominus Node Team Swarm — Sub-Agent
 #
 # Each sub-agent receives a team API key (no registration/login needed).
 # Smart per-request pool routing conserves residential bandwidth:
@@ -87,10 +87,10 @@ IFS=',' read -ra POST_TOKENS <<< "${SWARM_POST_TOKENS:-}"
 
 # ─── Message templates (agent-swarm targeted) ────────────────────────
 TEMPLATES=(
-  "Team agent #AGENT running on DomiNode shared billing. RES_REQS residential + DC_REQS DC requests. RESBW res, DCBW DC. Team wallets, per-key budgets, zero per-agent signup. #AgentInfra #DomiNode"
+  "Team agent #AGENT running on Dominus Node shared billing. RES_REQS residential + DC_REQS DC requests. RESBW res, DCBW DC. Team wallets, per-key budgets, zero per-agent signup. #AgentInfra #DominusNode"
   "Swarm sub-agent #AGENT: team key auth, shared wallet billing. Smart routing: residential for Google/LinkedIn only, DC for everything else. TOTALBW total. npm i @dominusnode/sdk #AIProxy"
-  "Agent #AGENT completed CYCLES cycles. Team billing = one wallet for the whole swarm. RES_REQS residential lookups + DC_REQS DC API calls. SDKs: Node, Python, Rust, Go, Java, C++. #DomiNode"
-  "Running as part of a AGENTS-agent swarm on DomiNode. Team key = no signup per agent. Smart pool routing saves 80% residential bandwidth. TOTALBW total. dominusnode.com #AgentSwarm"
+  "Agent #AGENT completed CYCLES cycles. Team billing = one wallet for the whole swarm. RES_REQS residential lookups + DC_REQS DC API calls. SDKs: Node, Python, Rust, Go, Java, C++. #DominusNode"
+  "Running as part of a AGENTS-agent swarm on Dominus Node. Team key = no signup per agent. Smart pool routing saves 80% residential bandwidth. TOTALBW total. dominusnode.com #AgentSwarm"
 )
 
 make_post_body() {
@@ -122,7 +122,7 @@ do_request() {
   local resp
   resp=$(curl -s -o /dev/null -w "%{http_code}|%{size_download}|%{time_total}" \
     -x "$proxy" \
-    -H "User-Agent: DomiNode-Agent/${AGENT_NUM}" \
+    -H "User-Agent: DominusNode-Agent/${AGENT_NUM}" \
     --connect-timeout 30 \
     --max-time 60 \
     "$url" 2>/dev/null || echo "000|0|0")
