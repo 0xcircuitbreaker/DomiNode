@@ -284,7 +284,7 @@ export function startApiServer(port: number = 3000): ReturnType<express.Express[
           swarm_mixed: { price_per_gb: 0, monthly_bandwidth: "200 MB", pool: "all" },
           payg: { price_per_gb: 5.00, monthly_bandwidth: "unlimited", pool: "all" },
           volume_1tb: { price_per_gb: 3.00, monthly_bandwidth: "1 TB", pool: "all" },
-          agent: { price_per_gb: 5.00, monthly_bandwidth: "5 GB", pool: "all" },
+          agent: { price_per_gb: 5.00, monthly_bandwidth: "unlimited", pool: "all" },
         },
         x402: {
           enabled: process.env["X402_ENABLED"] === "true",

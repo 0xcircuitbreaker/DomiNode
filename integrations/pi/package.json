@@ -1,0 +1,39 @@
+{
+  "name": "@dominusnode/pi-extension",
+  "version": "1.0.0",
+  "description": "Dominus Node pi-mono extension — 26 tools for rotating proxy, wallet, agentic wallets, teams, and payments",
+  "keywords": [
+    "pi-package",
+    "dominusnode",
+    "proxy",
+    "ai-agent",
+    "rotating-proxy"
+  ],
+  "license": "MIT",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist/",
+    "skills/",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "pi": {
+    "extensions": ["./dist"],
+    "skills": ["./skills"]
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "lint": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@sinclair/typebox": "^0.34.0",
+    "typescript": "^5.4.0",
+    "vitest": "^1.6.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
