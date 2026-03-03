@@ -247,7 +247,6 @@ const proxyUsage: DocSection = {
             { name: "SOCKS5 Proxy", type: "host:port", required: true, description: "proxy.dominusnode.com:1080 — supports SOCKS5 protocol, works with most clients" },
           ],
         },
-        { type: "note", variant: "info", text: "WebSocket traffic is transparently proxied via HTTP CONNECT — your existing WS client code works without any changes." },
       ],
     },
     {
@@ -1336,8 +1335,6 @@ curl -X POST https://api.dominusnode.com/api/keys \\
           ],
         },
       ],
-    }
-  ],
     },
   ],
 };
