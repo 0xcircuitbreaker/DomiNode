@@ -193,6 +193,7 @@ html {
   font-weight: 700;
   letter-spacing: 0.04em;
   padding: 3px 10px;
+  min-height: 25px;
   border-radius: 4px;
   text-decoration: none;
   white-space: nowrap;
