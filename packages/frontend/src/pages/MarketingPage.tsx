@@ -921,7 +921,9 @@ export default function MarketingPage() {
             <Link to="/privacy" className="text-xs text-gray-500 hover:text-gray-300 transition-colors">Privacy Policy</Link>
             <Link to="/terms" className="text-xs text-gray-500 hover:text-gray-300 transition-colors">Terms of Service</Link>
             <Link to="/aup" className="text-xs text-gray-500 hover:text-gray-300 transition-colors">Acceptable Use</Link>
-            <a href="mailto:0xcircuitbreaker@protonmail.com" className="text-xs text-gray-500 hover:text-gray-300 transition-colors">Contact</a>
+            <a href="mailto:0xcircuitbreaker@dominusnode.com" className="text-xs text-gray-500 hover:text-gray-300 transition-colors">Contact</a>
+            <a href="mailto:development@dominusnode.com" className="text-xs text-gray-500 hover:text-gray-300 transition-colors">Development</a>
+            <a href="mailto:security@dominusnode.com" className="text-xs text-gray-500 hover:text-gray-300 transition-colors">Security</a>
           </div>
         </div>
       </footer>
