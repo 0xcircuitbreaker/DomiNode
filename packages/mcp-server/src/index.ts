@@ -130,7 +130,7 @@ function registerBootstrapHelper(server: McpServer): void {
         ``,
         `Step 0: Check slot availability`,
         `  Use dominusnode_check_slots to see if registration slots are open.`,
-        `  Alpha is limited to 250 users. If slots are full, use`,
+        `  Alpha is limited to 2,500 users. If slots are full, use`,
         `  dominusnode_join_waitlist to get notified when one opens.`,
         ``,
         `Option 1: One-shot setup (recommended)`,

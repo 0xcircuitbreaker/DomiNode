@@ -291,7 +291,7 @@ export default function LoginPage() {
 
           <div className="login-alert-info">
             <strong>Alpha Access</strong>
-            <p>All {slotsData?.total ?? 250} alpha slots are currently filled.</p>
+            <p>All {slotsData?.total ?? 2500} alpha slots are currently filled.</p>
             {waitlistData && waitlistData.pending > 0 && (
               <p><strong>{waitlistData.pending}</strong> {waitlistData.pending === 1 ? "person" : "people"} already on the waitlist.</p>
             )}
@@ -351,7 +351,7 @@ export default function LoginPage() {
         {isRegister && (
           <div className="login-alert-info">
             <strong>Alpha Access</strong>
-            <p>{slotsData && !slotsData.unlimited ? `${slotsData.remaining} of ${slotsData.total} slots remaining` : "5,000 alpha slots, 250 DC proxies"} | Limited residential bandwidth</p>
+            <p>{slotsData && !slotsData.unlimited ? `${slotsData.remaining} of ${slotsData.total} slots remaining` : "2,500 alpha slots, 250 DC proxies"} | Limited residential bandwidth</p>
             <p>If max bandwidth is reached, service restores within 1-6 hours</p>
           </div>
         )}

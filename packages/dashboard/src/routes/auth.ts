@@ -212,10 +212,10 @@ async function verifyRecaptcha(token: string, remoteIp: string, expectedAction?:
   }
 }
 
-// ─── Global registration cap (Alpha: 5000, 0 = unlimited) ───
+// ─── Global registration cap (Alpha: 2500, 0 = unlimited) ───
 // Guard against NaN — parseInt("abc") = NaN → comparison always false → blocks all registrations
-const _parsedMaxUsersAuth = parseInt(process.env["MAX_REGISTERED_USERS"] ?? "5000", 10);
-const MAX_REGISTERED_USERS = Number.isFinite(_parsedMaxUsersAuth) ? _parsedMaxUsersAuth : 5000;
+const _parsedMaxUsersAuth = parseInt(process.env["MAX_REGISTERED_USERS"] ?? "2500", 10);
+const MAX_REGISTERED_USERS = Number.isFinite(_parsedMaxUsersAuth) ? _parsedMaxUsersAuth : 2500;
 
 async function checkGlobalRegistrationCap(): Promise<boolean> {
   if (MAX_REGISTERED_USERS <= 0) return true; // 0 = unlimited (production)

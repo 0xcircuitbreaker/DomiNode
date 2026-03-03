@@ -4,7 +4,7 @@ import { userRepo, createLogger } from "@dominusnode/shared";
 const router = Router();
 const log = createLogger("api:slots");
 
-const MAX_REGISTERED_USERS = parseInt(process.env["MAX_REGISTERED_USERS"] ?? "5000", 10);
+const MAX_REGISTERED_USERS = parseInt(process.env["MAX_REGISTERED_USERS"] ?? "2500", 10);
 
 // 10-second in-memory cache to prevent DB hammering from polling
 let cachedCount: number | null = null;

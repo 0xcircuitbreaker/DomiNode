@@ -218,6 +218,11 @@ AVAILABLE → ASSIGNED → IN_USE → (HEALTHY → re-pool | BURNED → discard)
 4. ~~**Phase 4 — ISP Proxy Pool:**~~ DONE (Webshare DC + residential dual-pool)
 5. **Phase 5 — Scale & Harden:** Rate limiting, abuse prevention, Kubernetes, monitoring
 
+## Git Commit Rules
+
+- **NEVER add `Co-Authored-By:` trailers to commit messages.** Do not include any `Co-Authored-By`, `Signed-off-by`, or attribution lines referencing Claude, Anthropic, or any AI tool.
+- Commit messages should contain only the subject line and optional body describing the change — nothing else.
+
 ## Commands
 
 ```bash

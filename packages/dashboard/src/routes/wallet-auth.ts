@@ -34,10 +34,10 @@ if (!/^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z
   throw new Error(`Invalid DOMINUSNODE_DOMAIN: "${DOMINUSNODE_DOMAIN}". Must be a valid domain name.`);
 }
 
-// ─── Global registration cap (Alpha: 5000, 0 = unlimited) ───
+// ─── Global registration cap (Alpha: 2500, 0 = unlimited) ───
 // Guard against NaN — NaN <= 0 = false, NaN < X = false → blocks all registrations silently
-const _parsedMaxUsers = parseInt(process.env["MAX_REGISTERED_USERS"] ?? "5000", 10);
-const MAX_REGISTERED_USERS = Number.isFinite(_parsedMaxUsers) ? _parsedMaxUsers : 5000;
+const _parsedMaxUsers = parseInt(process.env["MAX_REGISTERED_USERS"] ?? "2500", 10);
+const MAX_REGISTERED_USERS = Number.isFinite(_parsedMaxUsers) ? _parsedMaxUsers : 2500;
 
 async function checkGlobalRegistrationCap(): Promise<boolean> {
   if (MAX_REGISTERED_USERS <= 0) return true; // 0 = unlimited (production)
