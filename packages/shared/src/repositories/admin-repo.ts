@@ -194,9 +194,16 @@ export async function deleteUser(userId: string): Promise<void> {
     );
     await client.query("DELETE FROM agentic_wallets WHERE user_id = $1", [userId]);
 
-    // Anonymize team wallet transactions for owned teams
+    // Clean up teams owned by this user (full cascade)
+    // First, detach api_keys from owned teams to avoid FK violation
     await client.query(
-      `UPDATE team_wallet_transactions SET description = 'REDACTED'
+      `UPDATE api_keys SET team_id = NULL
+       WHERE team_id IN (SELECT id FROM teams WHERE owner_id = $1)`,
+      [userId]
+    );
+    // Delete team wallet transactions, then team wallets
+    await client.query(
+      `DELETE FROM team_wallet_transactions
        WHERE wallet_id IN (
          SELECT tw.id FROM team_wallets tw
          JOIN teams t ON t.id = tw.team_id
@@ -204,8 +211,26 @@ export async function deleteUser(userId: string): Promise<void> {
        )`,
       [userId]
     );
+    await client.query(
+      `DELETE FROM team_wallets
+       WHERE team_id IN (SELECT id FROM teams WHERE owner_id = $1)`,
+      [userId]
+    );
+    // Delete team invites and members for owned teams
+    await client.query(
+      `DELETE FROM team_invites
+       WHERE team_id IN (SELECT id FROM teams WHERE owner_id = $1)`,
+      [userId]
+    );
+    await client.query(
+      `DELETE FROM team_members
+       WHERE team_id IN (SELECT id FROM teams WHERE owner_id = $1)`,
+      [userId]
+    );
+    // Delete the teams themselves
+    await client.query("DELETE FROM teams WHERE owner_id = $1", [userId]);
 
-    // Clean up team invites (outbound)
+    // Clean up team invites (outbound from this user, on other teams)
     await client.query("DELETE FROM team_invites WHERE invited_by = $1", [userId]);
     // Delete inbound pending team invites addressed TO the deleted user's email
     if (userRow?.email) {
@@ -214,6 +239,7 @@ export async function deleteUser(userId: string): Promise<void> {
         [userRow.email]
       );
     }
+    // Remove user from any teams they're a member of
     await client.query(
       "DELETE FROM team_members WHERE user_id = $1",
       [userId]
@@ -225,7 +251,7 @@ export async function deleteUser(userId: string): Promise<void> {
       [userId]
     );
     await client.query(
-      "UPDATE payment_invoices SET external_id = 'REDACTED' WHERE user_id = $1",
+      "UPDATE payment_invoices SET external_id = 'REDACTED-' || id WHERE user_id = $1",
       [userId]
     );
     await client.query(
