@@ -986,6 +986,95 @@ const tools = toolkit.getTools(); // 26 Mastra createTool() instances` },
       ],
     },
     {
+      id: "ai-pi",
+      title: "Pi (pi-mono)",
+      searchTerms: ["pi", "pi-mono", "mario zechner", "openclaw", "typebox", "registerTool", "extension", "typescript agent", "coding agent"],
+      content: [
+        { type: "text", text: "Pi (pi-mono) is a TypeScript/Node.js agentic coding framework by Mario Zechner. The Dominus Node extension registers 26 tools with full TypeBox schemas — covering proxied fetch, wallet management, agentic wallets, teams, billing, and x402. Pi also powers OpenClaw." },
+        { type: "heading", level: 3, text: "Installation" },
+        { type: "code", lang: "bash", label: "Install as Pi Package", code: `npm install @dominusnode/pi-extension` },
+        { type: "code", lang: "json", label: "Declare in package.json", code: `{
+  "pi": {
+    "extensions": ["./node_modules/@dominusnode/pi-extension/dist"]
+  }
+}` },
+        { type: "note", variant: "info", text: "Alternatively, copy or symlink the dist/ folder to ~/.pi/agent/extensions/dominusnode/ (global) or .pi/extensions/dominusnode/ (project-local). Pi discovers and loads extensions automatically." },
+        { type: "heading", level: 3, text: "Authentication" },
+        { type: "code", lang: "bash", label: "Set API key", code: `export DOMINUSNODE_API_KEY="dn_live_your_key_here"` },
+        { type: "text", text: "The extension reads DOMINUSNODE_API_KEY from the environment. Get your key at dominusnode.com → Dashboard → API Keys." },
+        { type: "heading", level: 3, text: "Usage" },
+        { type: "code", lang: "typescript", label: "Extension entry point (loaded by Pi)", code: `import dominusNodeExtension from '@dominusnode/pi-extension';
+
+// Pi calls this automatically when the extension is loaded.
+// Your pi agent now has access to 26 dominusnode_* tools.
+dominusNodeExtension(pi); // pi is injected by the runtime` },
+        { type: "code", lang: "typescript", label: "Advanced — use toolkit directly", code: `import { DominusNodeToolkit } from '@dominusnode/pi-extension';
+
+// Construct toolkit manually (e.g. for testing or embedding)
+const toolkit = new DominusNodeToolkit({
+  apiKey: 'dn_live_...',          // overrides env var
+  baseUrl: 'https://api.dominusnode.com',
+  timeout: 30000,                  // request timeout ms (1000–120000)
+});
+
+// Fetch via rotating proxy — GET/HEAD/OPTIONS only
+const result = await toolkit.proxiedFetch(
+  'https://httpbin.org/ip',
+  'GET',
+  'US',          // ISO country code for geo-targeting
+  'dc',          // 'dc' | 'residential' | 'auto'
+);
+
+// Wallet & usage
+await toolkit.checkBalance();
+await toolkit.checkUsage(30);  // last 30 days
+
+// Agentic wallets — give each sub-agent its own wallet
+const wallet = await toolkit.createAgenticWallet('research-agent-1', 500);  // $5 limit
+await toolkit.fundAgenticWallet(wallet.id, 1000);                            // add $10
+await toolkit.freezeAgenticWallet(wallet.id);                                // suspend
+await toolkit.deleteAgenticWallet(wallet.id);
+
+// Top-up
+await toolkit.topupStripe(2500);   // $25 via Stripe
+await toolkit.topupPaypal(1000);   // $10 via PayPal
+await toolkit.topupCrypto(10, 'USDC', 'base');  // $10 in USDC on Base chain` },
+        { type: "heading", level: 3, text: "Available Tools (26)" },
+        {
+          type: "param-table", params: [
+            { name: "dominusnode_proxied_fetch", type: "Proxy", required: false, description: "Fetch a URL through rotating datacenter or residential IPs (GET/HEAD/OPTIONS only)" },
+            { name: "dominusnode_check_balance", type: "Wallet", required: false, description: "Get current wallet balance and account details" },
+            { name: "dominusnode_check_usage", type: "Wallet", required: false, description: "Bandwidth usage stats for the past N days (DC + residential pools)" },
+            { name: "dominusnode_get_proxy_config", type: "Wallet", required: false, description: "Proxy endpoint details — host, port, auth format, and pool options" },
+            { name: "dominusnode_list_sessions", type: "Wallet", required: false, description: "Active proxy sessions with pool type and byte counts" },
+            { name: "dominusnode_create_agentic_wallet", type: "Agentic", required: false, description: "Create a sub-wallet for an agent with an optional spending limit" },
+            { name: "dominusnode_fund_agentic_wallet", type: "Agentic", required: false, description: "Transfer funds from the main wallet into a sub-wallet" },
+            { name: "dominusnode_check_agentic_balance", type: "Agentic", required: false, description: "Get balance and policy for a specific sub-wallet" },
+            { name: "dominusnode_list_agentic_wallets", type: "Agentic", required: false, description: "List all sub-wallets with status and balance" },
+            { name: "dominusnode_agentic_transactions", type: "Agentic", required: false, description: "Transaction history for a sub-wallet" },
+            { name: "dominusnode_freeze_agentic_wallet", type: "Agentic", required: false, description: "Suspend a sub-wallet — blocks new proxy sessions" },
+            { name: "dominusnode_unfreeze_agentic_wallet", type: "Agentic", required: false, description: "Re-activate a frozen sub-wallet" },
+            { name: "dominusnode_delete_agentic_wallet", type: "Agentic", required: false, description: "Delete a sub-wallet and refund its balance to the main wallet" },
+            { name: "dominusnode_create_team", type: "Teams", required: false, description: "Create a team with a shared billing wallet" },
+            { name: "dominusnode_list_teams", type: "Teams", required: false, description: "List all teams the account belongs to" },
+            { name: "dominusnode_team_details", type: "Teams", required: false, description: "Team details, member count, and wallet balance" },
+            { name: "dominusnode_team_fund", type: "Teams", required: false, description: "Transfer funds from the main wallet to a team wallet" },
+            { name: "dominusnode_team_create_api_key", type: "Teams", required: false, description: "Create an API key scoped to a team's billing wallet" },
+            { name: "dominusnode_team_usage", type: "Teams", required: false, description: "Team bandwidth stats for the past N days" },
+            { name: "dominusnode_update_team", type: "Teams", required: false, description: "Update team name or description" },
+            { name: "dominusnode_update_team_member_role", type: "Teams", required: false, description: "Change a member's role (owner/admin/member)" },
+            { name: "dominusnode_topup_stripe", type: "Billing", required: false, description: "Create a Stripe Checkout session to top up the wallet" },
+            { name: "dominusnode_topup_paypal", type: "Billing", required: false, description: "Create a PayPal order to top up the wallet" },
+            { name: "dominusnode_topup_crypto", type: "Billing", required: false, description: "Create a crypto invoice (BTC/ETH/USDC/SOL/LTC/XMR/ZEC/DAI/BNB/LINK)" },
+            { name: "dominusnode_x402_info", type: "x402", required: false, description: "x402 micropayment config — networks, USDC addresses, and payment amounts" },
+            { name: "dominusnode_update_wallet_policy", type: "Wallet", required: false, description: "Set spending limits and domain restrictions on a sub-wallet" },
+          ],
+        },
+        { type: "heading", level: 3, text: "Security" },
+        { type: "note", variant: "info", text: "All 26 tools include full SSRF protection (RFC1918, CGNAT, Teredo/6to4, IPv4-mapped IPv6, 2/3-part IPv4 normalization, DNS rebinding), OFAC sanctioned country blocking (CU, IR, KP, RU, SY), credential scrubbing from error outputs, prototype pollution prevention on all parsed JSON, and HTTP method restriction (GET/HEAD/OPTIONS only for proxied fetch)." },
+      ],
+    },
+    {
       id: "ai-llamaindex",
       title: "LlamaIndex",
       searchTerms: ["llamaindex", "rag", "python", "base tool spec", "function tool"],
@@ -1011,7 +1100,7 @@ agent = ReActAgent.from_tools(tools)` },
     {
       id: "ai-others",
       title: "Other Frameworks",
-      searchTerms: ["autogpt", "agent zero", "pydantic", "camel", "metagpt", "superagi", "agno", "semantic kernel", "ironclaw", "haystack", "composio", "dify", "langflow", "taskweaver", "moltbook"],
+      searchTerms: ["autogpt", "agent zero", "pydantic", "camel", "metagpt", "superagi", "agno", "semantic kernel", "ironclaw", "haystack", "composio", "dify", "langflow", "taskweaver", "moltbook", "pi", "pi-mono"],
       content: [
         { type: "text", text: "Dominus Node also integrates with these frameworks — each with full SSRF protection and OFAC validation:" },
         {
@@ -1031,6 +1120,7 @@ agent = ReActAgent.from_tools(tools)` },
             { name: "Langflow", type: "Python", required: false, description: "pip install dominusnode-langflow — Custom Langflow component" },
             { name: "n8n", type: "TypeScript", required: false, description: "npm install n8n-nodes-dominusnode — 3 custom nodes + credential type" },
             { name: "Mastra", type: "TypeScript", required: false, description: "npm install @dominusnode/mastra-tools — 26 createTool() instances" },
+            { name: "Pi (pi-mono)", type: "TypeScript", required: false, description: "npm install @dominusnode/pi-extension — 26 tools via pi.registerTool() with TypeBox schemas" },
           ],
         },
       ],

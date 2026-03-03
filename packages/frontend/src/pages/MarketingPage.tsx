@@ -115,7 +115,7 @@ const PLATFORM_CONFIGS = [
 ];
 
 const PROOF_POINTS = [
-  { value: "27", label: "AI frameworks supported" },
+  { value: "28", label: "AI frameworks supported" },
   { value: "x402", label: "Pay-per-request protocol" },
   { value: "50+", label: "Country routes" },
   { value: "<1s", label: "Agent onboarding" },
