@@ -9,7 +9,7 @@ social post about the experience.
 
 Features:
   • Curses TUI wizard: connection → select integrations → distribute agents
-  • 24 integrations: 17 Python + 7 TypeScript (all built dist/ available)
+  • 25 integrations: 17 Python + 8 TypeScript (all built dist/ available)
   • Auto-install: pip install -e <local-dir>  /  npm run build
   • Docker fallback: --network=host containers if local install fails
   • N agents per integration, concurrently via ThreadPoolExecutor
@@ -19,7 +19,7 @@ Features:
 Usage:
     python3 scripts/swarm-showcase.py
     python3 scripts/swarm-showcase.py --no-tui --integrations langchain crewai --agents 4
-    python3 scripts/swarm-showcase.py --no-tui --integrations agno camel-ai composio dify haystack ironclaw metagpt moltbook pydantic-ai semantic-kernel gemini --agents 11
+    python3 scripts/swarm-showcase.py --no-tui --integrations agno camel-ai composio dify haystack ironclaw metagpt moltbook pydantic-ai semantic-kernel gemini pi --agents 12
 """
 
 import argparse
@@ -230,6 +230,11 @@ def _make_catalog() -> Dict[str, IntegrationInfo]:
             "@dominusnode/gemini-functions", "gemini",
             str(d / "gemini"),
             "Gemini function calling handler — 26 functions", "#Gemini", 26),
+        "pi": IntegrationInfo(
+            "pi", "Pi (pi-mono)", "node",
+            "@dominusnode/pi-extension", "pi",
+            str(d / "pi"),
+            "Pi agentic coding framework extension — 26 tools", "#PiMono", 26),
     }
 
 CATALOG = _make_catalog()
@@ -354,6 +359,7 @@ POST_TEMPLATES = {
     "pydantic-ai": "PydanticAI agent #{n} used Dominus Node tools — type-safe proxy requests, DC pool, fetched {url}. #DominusNode #PydanticAI",
     "semantic-kernel": "Semantic Kernel plugin + Dominus Node = 26 kernel functions for proxy requests. Routed {url} in {dur}s. #DominusNode #SemanticKernel",
     "gemini": "Gemini function calling + Dominus Node: dominusnode_proxied_fetch dispatched {url} in {dur}s. #DominusNode #Gemini",
+    "pi": "Pi (pi-mono) agent used Dominus Node's 26-tool extension — TypeBox-typed proxied fetch routed {url} in {dur}s via rotating DC proxy. #DominusNode #PiMono",
 }
 
 

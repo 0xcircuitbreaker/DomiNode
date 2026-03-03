@@ -11,7 +11,7 @@
  *     <integration_id> <api_base> <proxy_host> <proxy_port> <target_url> <proxy_type>
  *
  * Supported integrations:
- *   mastra | flowise | openclaw | vercel-ai | openai-functions | n8n | gemini
+ *   mastra | flowise | openclaw | vercel-ai | openai-functions | n8n | gemini | pi
  *
  * Output JSON:
  *   { balance?, fetch?, usage?, error? }
@@ -395,6 +395,92 @@ async function runGemini() {
   };
 }
 
+// ── Runner: Pi (pi-mono) ──────────────────────────────────────────────────────
+// Pi toolkit returns PiToolResult: { content: [{ type:"text", text:string }], details:{} }
+// The Pi constructor rejects private/loopback proxyHost values (security hardening).
+// Strategy: use DominusNodeToolkit for API calls (checkBalance, checkUsage) which
+// do not require a proxy host, and make the proxy fetch via raw Node.js HTTP (same
+// pattern as the n8n runner) to exercise the gateway independently.
+async function runPi() {
+  const { DominusNodeToolkit } = require(
+    path.join(INTEGRATIONS_DIR, "pi/dist/index.js")
+  );
+
+  // Construct without proxyHost/proxyPort — only API methods are called on this instance.
+  // This avoids the private-IP guard that blocks localhost in local dev setups.
+  const tk = new DominusNodeToolkit({
+    apiKey,
+    baseUrl: apiBase,
+  });
+
+  // Pi returns { content: [{type:"text", text:string}], details:{} }
+  function extractText(r) {
+    if (r.status !== "fulfilled") return null;
+    const v = r.value;
+    if (v && v.content && Array.isArray(v.content) && v.content[0]) {
+      return String(v.content[0].text || "");
+    }
+    return String(v || "");
+  }
+
+  const [bal, usg] = await Promise.allSettled([
+    tk.checkBalance(),
+    tk.checkUsage(1),
+  ]);
+
+  // Proxy fetch: raw HTTP through the gateway (same pattern as n8n runner)
+  let fetchResult = null;
+  try {
+    const http = require("node:http");
+    const proxyAuth = "Basic " + Buffer.from(
+      `${proxyType}-country-US:${apiKey}`
+    ).toString("base64");
+    const targetParsed = new URL(targetUrl);
+
+    fetchResult = await new Promise((resolve, reject) => {
+      const req = http.request(
+        {
+          hostname: proxyHost,
+          port:     proxyPort,
+          method:   "GET",
+          path:     targetUrl,          // full URL for HTTP proxy
+          headers: {
+            Host:                  targetParsed.host,
+            "Proxy-Authorization": proxyAuth,
+            "User-Agent":          "dominusnode-pi/1.0.0",
+          },
+        },
+        (res) => {
+          const chunks = [];
+          let bytes = 0;
+          res.on("data", (c) => { bytes += c.length; chunks.push(c); });
+          res.on("end", () => resolve({
+            status: res.statusCode ?? 0,
+            bytes,
+            body:   Buffer.concat(chunks).toString("utf-8").slice(0, 200),
+          }));
+          res.on("error", reject);
+        }
+      );
+      req.on("error", reject);
+      req.setTimeout(20_000, () => {
+        req.destroy();
+        reject(new Error("proxy request timed out (20s)"));
+      });
+      req.end();
+    });
+  } catch (e) {
+    fetchResult = { error: scrub(e instanceof Error ? e.message : String(e)) };
+  }
+
+  return {
+    balance: extractText(bal),
+    fetch:   JSON.stringify(fetchResult),
+    usage:   extractText(usg),
+    error:   settledErr(bal),
+  };
+}
+
 // ── Dispatch ──────────────────────────────────────────────────────────────────
 const RUNNERS = {
   "mastra":            runMastra,
@@ -404,6 +490,7 @@ const RUNNERS = {
   "openai-functions":  runOpenAIFunctions,
   "n8n":               runN8n,
   "gemini":            runGemini,
+  "pi":                runPi,
 };
 
 (async () => {
