@@ -100,9 +100,9 @@ const quickStart: DocSection = {
   https://httpbin.org/ip` },
         { type: "code", lang: "bash", label: "SOCKS5", code: `curl --socks5 socks5://anything:dn_live_YOUR_KEY@proxy.dominusnode.com:1080 \\
   https://httpbin.org/ip` },
-        { type: "code", lang: "javascript", label: "Node.js SDK", code: `import { DomiNode } from '@dominusnode/node-sdk';
+        { type: "code", lang: "javascript", label: "Node.js SDK", code: `import { DominusNodeClient } from '@dominusnode/node-sdk';
 
-const client = new DomiNode({ apiKey: process.env.DOMINUSNODE_API_KEY });
+const client = new DominusNodeClient({ apiKey: process.env.DOMINUSNODE_API_KEY });
 
 // Get your proxy config
 const config = await client.proxy.getConfig();
@@ -182,7 +182,7 @@ curl -x http://dc-country-US:dn_live_abc123@proxy.dominusnode.com:8080 https://h
         { type: "code", lang: "bash", label: "Step 1: Request challenge", code: `curl -X POST https://api.dominusnode.com/api/auth/wallet/challenge \\
   -H 'Content-Type: application/json' \\
   -d '{"address":"0xYourEthAddress"}'
-# → { "challenge": "DomiNode login: <nonce>", "expiresAt": "..." }` },
+# → { "challenge": "Dominus Node login: <nonce>", "expiresAt": "..." }` },
         { type: "code", lang: "bash", label: "Step 2: Sign & verify", code: `curl -X POST https://api.dominusnode.com/api/auth/wallet/verify \\
   -H 'Content-Type: application/json' \\
   -d '{
@@ -286,20 +286,20 @@ curl -x http://residential-country-US-session-mybot42:dn_live_KEY@proxy.dominusn
       searchTerms: ["sdk", "proxy config", "http client", "agent", "urllib", "requests"],
       content: [
         { type: "text", text: "Each SDK provides a proxy configuration helper that returns the correct HTTP proxy URL and credentials for use with any HTTP client." },
-        { type: "code", lang: "javascript", label: "Node.js", code: `import { DomiNode } from '@dominusnode/node-sdk';
+        { type: "code", lang: "javascript", label: "Node.js", code: `import { DominusNodeClient } from '@dominusnode/node-sdk';
 import fetch from 'node-fetch';
 import { HttpsProxyAgent } from 'https-proxy-agent';
 
-const client = new DomiNode({ apiKey: process.env.DOMINUSNODE_API_KEY });
+const client = new DominusNodeClient({ apiKey: process.env.DOMINUSNODE_API_KEY });
 const { httpProxy } = await client.proxy.getConfig();
 const proxyUrl = \`http://dc-country-US:\${process.env.DOMINUSNODE_API_KEY}@\${httpProxy.host}:\${httpProxy.port}\`;
 
 const agent = new HttpsProxyAgent(proxyUrl);
 const resp = await fetch('https://httpbin.org/ip', { agent });` },
         { type: "code", lang: "python", label: "Python", code: `import os, requests
-from dominusnode import DomiNode
+from dominusnode import DominusNodeClient
 
-client = DomiNode(api_key=os.environ["DOMINUSNODE_API_KEY"])
+client = DominusNodeClient(api_key=os.environ["DOMINUSNODE_API_KEY"])
 config = client.proxy.get_config()
 proxy_url = f"http://dc-country-US:{os.environ['DOMINUSNODE_API_KEY']}@{config['httpProxy']['host']}:{config['httpProxy']['port']}"
 
@@ -570,9 +570,9 @@ const sdkReference: DocSection = {
       searchTerms: ["node", "typescript", "javascript", "npm", "cjs", "esm"],
       content: [
         { type: "code", lang: "bash", label: "Install", code: "npm install @dominusnode/node-sdk" },
-        { type: "code", lang: "javascript", label: "Quick start", code: `import { DomiNode } from '@dominusnode/node-sdk';
+        { type: "code", lang: "javascript", label: "Quick start", code: `import { DominusNodeClient } from '@dominusnode/node-sdk';
 
-const client = new DomiNode({
+const client = new DominusNodeClient({
   apiKey: process.env.DOMINUSNODE_API_KEY,
   // Optional: baseUrl, proxyHost, proxyPort
 });
@@ -606,9 +606,9 @@ await client.teams.inviteMember(team.id, { email: 'member@example.com' });` },
       content: [
         { type: "code", lang: "bash", label: "Install", code: "pip install dominusnode" },
         { type: "code", lang: "python", label: "Quick start", code: `import os
-from dominusnode import DomiNode
+from dominusnode import DominusNodeClient
 
-client = DomiNode(api_key=os.environ["DOMINUSNODE_API_KEY"])
+client = DominusNodeClient(api_key=os.environ["DOMINUSNODE_API_KEY"])
 
 # Wallet
 wallet = client.wallet.get_balance()
@@ -668,12 +668,12 @@ func main() {
         { type: "code", lang: "toml", label: "Cargo.toml", code: `[dependencies]
 dominusnode = "1.0"
 tokio = { version = "1", features = ["full"] }` },
-        { type: "code", lang: "rust", label: "Quick start", code: `use dominusnode::DomiNode;
+        { type: "code", lang: "rust", label: "Quick start", code: `use dominusnode::DominusNodeClient;
 use std::env;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let client = DomiNode::new(env::var("DOMINUSNODE_API_KEY")?);
+    let client = DominusNodeClient::new(env::var("DOMINUSNODE_API_KEY")?);
 
     let wallet = client.wallet().get_balance().await?;
     println!("Balance: {} cents", wallet.balance);
@@ -695,12 +695,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
   <artifactId>dominusnode-java</artifactId>
   <version>1.0.0</version>
 </dependency>` },
-        { type: "code", lang: "java", label: "Quick start", code: `import com.dominusnode.DomiNode;
-import com.dominusnode.models.*;
+        { type: "code", lang: "java", label: "Quick start", code: `import io.dominusnode.sdk.DominusNodeClient;
+import io.dominusnode.sdk.types.*;
 
 public class Example {
     public static void main(String[] args) {
-        DomiNode client = new DomiNode(System.getenv("DOMINUSNODE_API_KEY"));
+        DominusNodeClient client = new DominusNodeClient(System.getenv("DOMINUSNODE_API_KEY"));
 
         WalletBalance wallet = client.wallet().getBalance();
         System.out.println("Balance: " + wallet.getBalance() + " cents");
@@ -723,7 +723,7 @@ public class Example {
 
 int main() {
     std::string apiKey = std::getenv("DOMINUSNODE_API_KEY");
-    DomiNode client(apiKey);
+    DominusNodeClient client(apiKey);
 
     auto wallet = client.wallet().getBalance();
     std::cout << "Balance: " << wallet.balance << " cents" << std::endl;
@@ -1199,7 +1199,7 @@ const plansBilling: DocSection = {
       searchTerms: ["agentic", "agent", "sub-wallet", "spending limit", "custodial", "audit"],
       content: [
         { type: "text", text: "Agentic wallets let you give AI agents controlled spending authority without exposing your main wallet." },
-        { type: "code", lang: "javascript", label: "Create and fund an agentic wallet", code: `const client = new DomiNode({ apiKey: 'dn_live_...' });
+        { type: "code", lang: "javascript", label: "Create and fund an agentic wallet", code: `const client = new DominusNodeClient({ apiKey: 'dn_live_...' });
 
 // Create with $5 per-transaction limit
 const wallet = await client.agenticWallet.create({
