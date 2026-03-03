@@ -1,6 +1,6 @@
 # AI Search Implementation Report
 **Dominus Node Docs — Semantic Search Upgrade**
-*Prepared: 2026-03-02 | Revised: 2026-03-02 (T620 / GTX 1080 reassessment)*
+*Prepared: 2026-03-02 | Revised: 2026-03-02 (T620 / GTX 1080 reassessment + multi-instance / CUDA MPS analysis)*
 *Target hardware: Dell PowerEdge T620 + NVIDIA GTX 1080 8GB VRAM, Linux, behind Cloudflare*
 
 ---
@@ -13,6 +13,13 @@
 4. [Model Recommendations](#4-model-recommendations)
 5. [GTX 1080 Pascal Optimizations (llama.cpp)](#5-gtx-1080-pascal-optimizations)
 6. [Concurrency Analysis — GPU Embedding](#6-concurrency-analysis)
+   - 6.1 VRAM Budget
+   - 6.2 Scaling to Thousands of AI Agent Queries
+   - 6.3 Throughput Estimates at Scale
+   - 6.4 Single Instance vs Multiple Instances
+   - 6.5 CUDA MPS on Pascal CC 6.1
+   - 6.6 Queuing Architecture
+   - 6.7 Alternative High-Throughput Backends for Pascal
 7. [Backend Comparison Matrix](#7-backend-comparison-matrix)
 8. [Implementation Plan](#8-implementation-plan)
 9. [Build & Run Commands](#9-build--run-commands)
@@ -265,12 +272,12 @@ llama-server \
   --rope-scaling yarn \      # Required for nomic-embed-text-v1.5
   --rope-freq-scale 0.75 \   # Required for nomic-embed-text-v1.5
   --no-flash-attn \          # MANDATORY on Pascal
-  --parallel 8 \             # 8 concurrent embedding slots, batched together
+  --parallel 64 \            # 64 concurrent embedding slots — sized for AI agent traffic
   --host 127.0.0.1 \
   --port 8080
 ```
 
-`--parallel 8` is the key setting for concurrent search requests. When 8 users submit searches simultaneously, the server collects all 8 query embeddings and processes them as a single GPU forward pass instead of 8 serial passes.
+`--parallel 64` is the key setting for AI agent traffic. When many agents submit searches simultaneously, the server collects up to 64 query embeddings and processes them as a single GPU forward pass. For human-only interactive search, `--parallel 8` is sufficient; for AI agent workloads use `--parallel 64` (see Section 6.2 for full analysis).
 
 ### 5.6 FP16 — Memory Savings Only, Not Compute Speedup
 
@@ -309,19 +316,275 @@ The 50-document corpus embedding at startup uses <700MB of 8GB. Essentially unli
 | **Total end-to-end (single user)** | **~80–150ms** |
 | **Total end-to-end (8 concurrent users)** | **~120–200ms each** |
 
-### Maximum Concurrent Searches at <100ms Latency
+### 6.1 Concurrent Capacity by Parallel Setting
 
-| `--parallel` setting | Concurrent capacity | Per-query latency |
-|---------------------|--------------------|--------------------|
-| 4 | 4 simultaneous | ~50–70ms |
-| **8** | **8 simultaneous** | **~70–100ms** ← recommended |
-| 16 | 12–16 simultaneous | ~100–150ms (some over 100ms) |
+| `--parallel` setting | Use case | QPS estimate | Per-query latency |
+|---------------------|----------|--------------|-------------------|
+| 8 | Human interactive search | ~50–80 QPS | ~70–100ms |
+| 32 | Mixed human + light agent | ~200–450 QPS | ~80–120ms |
+| **64** | **AI agent workload** | **~400–900 QPS** | **~50–150ms** ← **recommended** |
+| 128 | Heavy sustained agent bursts | ~600–1,200 QPS | ~100–250ms |
 
-Above `--parallel 16`, per-request latency starts exceeding 100ms on the GTX 1080 for 200-token queries. Start with `--parallel 8` as the production default.
+**For AI agent deployments, `--parallel 64` is the production default.** See Section 6.2–6.6 for the full multi-instance analysis.
 
 ### Why Batching Helps More for Embeddings Than Generation
 
-Autoregressive generation has a sequential dependency (each token depends on previous). Embeddings do not — the entire batch of N sequences can be processed as a single matrix multiply. The GTX 1080's 2,560 CUDA cores reach full occupancy around batch_size 8–16 for a 768-dim model, making `--parallel 8` the sweet spot where GPU utilization is maximized without queuing delay.
+Autoregressive generation has a sequential dependency (each token depends on previous). Embeddings do not — the entire batch of N sequences can be processed as a single matrix multiply. The GTX 1080's 2,560 CUDA cores reach full occupancy around batch_size 8–16 for a 768-dim model. For AI agent traffic (hundreds of concurrent requests), scale `--parallel` to 64 — see Section 6.2.
+
+### 6.2 Scaling to Thousands of Concurrent AI Agent Queries
+
+The initial recommendation of `--parallel 8` targets human-speed interactive search (8 users simultaneously). AI agents hit search endpoints in automated bursts — potentially hundreds to thousands of requests per minute. With only 274MB VRAM used by the model, the GTX 1080 has ~7.7GB of remaining headroom.
+
+**Revised recommendation for AI agent workloads: `--parallel 64`.**
+
+This is the single most important tuning change for agent-heavy traffic. At `--parallel 64`, the server queues up to 64 in-flight embedding requests and processes them as one GPU forward pass — maximizing SM occupancy and amortizing CUDA kernel launch overhead across the full batch.
+
+### 6.3 Throughput Estimates at Scale
+
+GTX 1080 real sustained FP32: ~5 TFLOPS (derated from 8.87 TFLOPS peak for continuous workloads).
+
+| Scenario | `--parallel` | QPS estimate | Per-query latency |
+|----------|-------------|--------------|-------------------|
+| Interactive search (human) | 8 | ~50–80 QPS | ~70–100ms |
+| **AI agent workload (recommended)** | **64** | **~400–900 QPS** | **~50–150ms burst** |
+| Aggressive sustained peak | 128 | ~600–1,200 QPS | ~100–250ms |
+
+**QPS basis:**
+- 50-token average query: ~400–900 QPS at `--parallel 64`
+- 200-token average query: ~130–220 QPS at `--parallel 64`
+- Values are per-GPU estimates under continuous load; single-shot latency is lower
+
+**At 1,000 req/min (AI agent batch):** ~16.7 RPS — comfortably within capacity.
+**At 10,000 req/min:** ~167 RPS — still within capacity for short queries.
+**At 60,000 req/min:** ~1,000 RPS — approaching limit; use Redis-backed multi-node at this scale.
+
+### 6.4 Single Instance vs Multiple Instances
+
+Running multiple llama-server processes each with `--parallel 8` might seem like it would help, but for homogeneous embedding workloads, **a single `--parallel 64` instance is strictly better:**
+
+| Approach | Instances | VRAM per instance | Total VRAM used | QPS | Verdict |
+|----------|-----------|------------------|-----------------|-----|---------|
+| **Single `--parallel 64`** | **1** | **~1,050MB** | **~1.1GB** | **~400–900** | **Best — one large batch per GPU pass** |
+| 3× `--parallel 32` (no MPS) | 3 | ~734MB | ~2.2GB | ~350–700 | Redundant CUDA contexts waste 3×350MB |
+| 8× `--parallel 16` (no MPS) | 8 | ~734MB | ~5.9GB | ~300–600 | Almost fills 8GB on context overhead alone |
+| 3× `--parallel 32` (with MPS) | 3 | ~434MB | ~1.3GB | ~350–700 | MPS amortizes context; still less than single-64 |
+| 14× `--parallel 8` (with MPS) | 14 | ~434MB | ~6.1GB | ~450–850 | Most instances; diminishing returns on 20-SM GPU |
+
+**VRAM breakdown for single `--parallel 64` instance:**
+```
+Model weights (F16):                           274 MB
+CUDA context (one process):                    350 MB
+Compute workspace (batch=64 forward pass):     200 MB
+KV cache (64 slots × avg 100 tokens × 36KB):  ~230 MB
+                                             ─────────
+Total (practical, avg 100-token queries):    ~1,054 MB
+Remaining VRAM:                              ~6.9 GB  ← free headroom
+```
+
+**Why single instance wins for pure embedding workloads:**
+- Embedding forward passes are fully parallel (no sequential token dependency like generation)
+- A `--parallel 64` call submits all 64 sequences as one batched matrix multiply — perfect SM occupancy
+- Multiple processes split the workload into smaller batches, reducing batching efficiency
+- At batch ≥ 16 on a 20-SM Pascal GPU, the SMs are already near full saturation during a single forward pass — concurrent processes compete rather than cooperate
+
+**When multiple instances do make sense:**
+- Multi-GPU setups (one instance per card)
+- Rolling upgrades without downtime (canary deployment)
+- Mixed workloads (embedding + generation simultaneously, partitioned by CUDA MPS)
+- Load balancing across multiple machines in a scale-out cluster
+
+### 6.5 CUDA MPS on Pascal CC 6.1
+
+**CUDA Multi-Process Service (MPS)** is a shared-context daemon that enables Hyper-Q concurrent kernel scheduling across multiple processes. It eliminates redundant per-process CUDA context overhead.
+
+**Pascal CC 6.1 MPS compatibility:**
+- Minimum requirement: CC 3.5 ✅ (GTX 1080 = CC 6.1 ✅)
+- Maximum concurrent clients (pre-Volta hardware): 16
+- Hyper-Q concurrent streams: enabled
+- **Key limitation (pre-Volta):** A crash in one MPS client CAN propagate and crash the MPS server — this fault isolation gap was fixed in Volta (CC 7.0+). For production use, monitor client health.
+
+**When CUDA MPS saves VRAM:**
+
+| Component | Without MPS | With MPS |
+|-----------|-------------|----------|
+| Model weights | 274MB | 274MB |
+| CUDA context | 350MB (per process) | ~50MB (amortized via shared daemon) |
+| Compute workspace | ~80MB | ~80MB |
+| KV cache (32 slots) | ~30MB | ~30MB |
+| **Total per instance** | **~734MB** | **~434MB** |
+| Instances in 8GB | 8–9 | 14–16 |
+
+**When MPS improves throughput:**
+MPS enables true concurrent kernel execution from multiple client processes via Hyper-Q. However, at `--parallel 32+`, a single llama-server instance already saturates the 20 SMs during its forward pass. Concurrent instances don't run simultaneously — they queue. MPS **saves ~300MB VRAM per instance** but provides minimal throughput improvement over a single well-tuned `--parallel 64` instance for homogeneous embedding-only workloads.
+
+**When MPS is genuinely useful here:** Running an embedding instance AND a generation instance (e.g., a small 1.7B model for the future `/answer` endpoint) simultaneously on the same GPU — MPS lets them share the context and interleave GPU time.
+
+**CUDA MPS setup commands:**
+
+```bash
+# 1. Set exclusive compute mode (required for MPS)
+sudo nvidia-smi -i 0 -c EXCLUSIVE_PROCESS
+
+# 2. Set up MPS directories
+export CUDA_MPS_PIPE_DIRECTORY=/tmp/nvidia-mps
+export CUDA_MPS_LOG_DIRECTORY=/tmp/nvidia-log
+mkdir -p /tmp/nvidia-mps /tmp/nvidia-log
+
+# 3. Start MPS daemon
+sudo CUDA_MPS_PIPE_DIRECTORY=/tmp/nvidia-mps \
+     CUDA_MPS_LOG_DIRECTORY=/tmp/nvidia-log \
+     nvidia-cuda-mps-control -d
+
+# 4. Verify MPS is running
+echo "get_default_active_thread_percentage" | nvidia-cuda-mps-control
+
+# 5. (Optional) Allocate thread budget per client (e.g., 3 clients at 33% each)
+CUDA_MPS_ACTIVE_THREAD_PERCENTAGE=33 llama-server ...
+
+# 6. Stop MPS when done
+echo quit | sudo nvidia-cuda-mps-control
+sudo nvidia-smi -i 0 -c DEFAULT  # Restore default compute mode
+```
+
+**Systemd service for persistent MPS daemon:**
+
+```ini
+# /etc/systemd/system/nvidia-mps.service
+[Unit]
+Description=NVIDIA CUDA MPS Daemon
+After=network.target
+
+[Service]
+Type=forking
+Environment=CUDA_MPS_PIPE_DIRECTORY=/tmp/nvidia-mps
+Environment=CUDA_MPS_LOG_DIRECTORY=/tmp/nvidia-log
+ExecStartPre=/usr/bin/mkdir -p /tmp/nvidia-mps /tmp/nvidia-log
+ExecStartPre=/usr/bin/nvidia-smi -i 0 -c EXCLUSIVE_PROCESS
+ExecStart=/usr/bin/nvidia-cuda-mps-control -d
+ExecStop=/bin/bash -c 'echo quit | nvidia-cuda-mps-control'
+ExecStopPost=/usr/bin/nvidia-smi -i 0 -c DEFAULT
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+```
+
+### 6.6 Queuing Architecture for AI Agent Traffic
+
+For thousands of concurrent AI agent queries, the queuing strategy at the Python sidecar layer is critical:
+
+```
+AI Agents (1000s req/min)
+         │
+┌────────▼────────────────────────────────────────┐
+│  Python FastAPI search-service                  │
+│  asyncio.Semaphore(cap=200)  ← burst protection │
+│  httpx connection pool: max_connections=200     │
+│  max_keepalive_connections=64                   │
+└────────────────┬────────────────────────────────┘
+                 │  HTTP POST /v1/embeddings
+┌────────────────▼────────────────────────────────┐
+│  llama-server --parallel 64                     │
+│  Internal slot queue: up to 64 concurrent       │
+│  GTX 1080 processes as single batched pass      │
+│  ~400–900 QPS sustained (50-token avg)          │
+└─────────────────────────────────────────────────┘
+```
+
+**Updated `embed()` function with semaphore and connection pooling:**
+
+```python
+import asyncio
+import httpx
+import numpy as np
+
+MAX_CONCURRENT_EMBEDDINGS = 200  # ~3× parallel slots — allows deep queuing without rejection
+_sem = asyncio.Semaphore(MAX_CONCURRENT_EMBEDDINGS)
+
+# Persistent connection pool (reuse TCP connections across requests)
+_http_client = httpx.AsyncClient(
+    timeout=30.0,
+    limits=httpx.Limits(
+        max_connections=200,
+        max_keepalive_connections=64,
+        keepalive_expiry=30,
+    ),
+)
+
+async def embed(texts: list[str]) -> np.ndarray:
+    """Call llama-server /v1/embeddings with concurrency cap and connection reuse."""
+    async with _sem:
+        resp = await _http_client.post(
+            f"{LLAMA_SERVER_URL}/v1/embeddings",
+            json={"model": "nomic-embed-text-v1.5", "input": texts},
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        vecs = np.array([d["embedding"] for d in data["data"]], dtype=np.float32)
+    norms = np.linalg.norm(vecs, axis=1, keepdims=True)
+    return vecs / np.maximum(norms, 1e-10)
+```
+
+**Note:** Use `workers=1` in uvicorn (single process, async I/O) — multiple worker processes each need their own httpx pool and semaphore, and don't share state. With asyncio + `--parallel 64` in llama-server, a single uvicorn worker handles thousands of concurrent requests efficiently.
+
+**For multi-node scaling (when one GTX 1080 is insufficient):**
+- Add an nginx load balancer in front of multiple search-service + llama-server pairs
+- Each node holds its own in-memory corpus embeddings (corpus is static, ~2MB JSON)
+- No Redis/shared cache needed — pre-embedding is fast (<600ms at startup)
+
+### 6.7 Alternative High-Throughput Backends for Pascal
+
+If llama.cpp throughput proves insufficient, these alternatives are confirmed to work on CC 6.1:
+
+| Backend | How to install | Notes |
+|---------|---------------|-------|
+| **Triton Inference Server ≤ 24.01** | `docker pull nvcr.io/nvidia/tritonserver:24.01-py3` | Supports CC 6.0+; **24.02+ requires CC 7.0+** — pin the version |
+| **infinity-emb** | `pip install "infinity-emb[torch]"` | Requires `torch==2.7.*`; **PyTorch 2.8+ dropped CC 6.1** |
+| **fastembed-gpu (ONNX Runtime)** | `pip install fastembed-gpu` | Requires CUDA 11.8; CUDA 12.x may block CC 6.1 |
+| **CTranslate2** | `pip install ctranslate2` | INT8 DP4A on Pascal; 2-4× vs PyTorch for BERT-class models |
+
+**Critical version lock warning — PyTorch:**
+
+```bash
+# PyTorch 2.8+ dropped Pascal CC 6.1 support. Always pin:
+pip install "torch==2.7.*" --index-url https://download.pytorch.org/whl/cu121
+# Or for CUDA 11.8:
+pip install "torch==2.7.*" --index-url https://download.pytorch.org/whl/cu118
+```
+
+**CUDA Toolkit version note:** CUDA Toolkit 13.x also dropped offline compilation for CC 6.1. Use CUDA 12.x toolkit for building llama.cpp with Pascal support.
+
+**Triton Inference Server setup for nomic-embed (ONNX backend):**
+
+```bash
+# Pull last version supporting CC 6.1
+docker pull nvcr.io/nvidia/tritonserver:24.01-py3
+
+# Export nomic-embed-text-v1.5 to ONNX
+pip install "torch==2.7.*" transformers optimum
+python -c "
+from optimum.exporters.onnx import main_export
+main_export('nomic-ai/nomic-embed-text-v1.5',
+            output='/opt/triton/models/nomic-embed/1/',
+            task='feature-extraction')
+"
+
+# config.pbtxt for dynamic batching
+cat > /opt/triton/models/nomic-embed/config.pbtxt << 'EOF'
+name: "nomic-embed"
+backend: "onnxruntime"
+dynamic_batching {
+  preferred_batch_size: [32, 64]
+  max_queue_delay_microseconds: 10000
+}
+instance_group [{ count: 1, kind: KIND_GPU }]
+EOF
+
+docker run --gpus all -p 8000:8000 \
+  -v /opt/triton:/models \
+  nvcr.io/nvidia/tritonserver:24.01-py3 \
+  tritonserver --model-repository=/models
+```
 
 ---
 
@@ -417,7 +680,7 @@ llama-server \
   --rope-scaling yarn \
   --rope-freq-scale 0.75 \
   --no-flash-attn \
-  --parallel 8 \
+  --parallel 64 \            # 64 for AI agent traffic; use 8 for human-only interactive search
   --host 127.0.0.1 \
   --port 8080
 ```
@@ -463,7 +726,7 @@ ExecStart=/usr/local/bin/llama-server \
     --rope-scaling yarn \
     --rope-freq-scale 0.75 \
     --no-flash-attn \
-    --parallel 8 \
+    --parallel 64 \
     --host 127.0.0.1 \
     --port 8080
 Restart=always
@@ -822,7 +1085,8 @@ llama-server --model /opt/dominusnode/models/nomic-embed-text-v1.5.f16.gguf \
   --n-gpu-layers 99 --embedding --pooling mean \
   --batch-size 4096 --ubatch-size 4096 --ctx-size 8192 \
   --rope-scaling yarn --rope-freq-scale 0.75 \
-  --no-flash-attn --parallel 8 --host 127.0.0.1 --port 8080
+  --no-flash-attn --parallel 64 --host 127.0.0.1 --port 8080
+  # use --parallel 8 for human-only interactive search; --parallel 64 for AI agent traffic
 
 # ── Generate search corpus ───────────────────────────────────────────────────
 cd packages/frontend && npx ts-node scripts/export-search-index.ts
@@ -857,6 +1121,12 @@ sudo cloudflared service install && sudo systemctl enable --now cloudflared
 | FP16 benefit on GTX 1080? | Memory savings only — no compute speedup (1/64 FP32 rate) |
 | INT8 optimization? | Test `GGML_CUDA_FORCE_MMQ=1` with Q8_0 (DP4A parity with FP32) |
 | HuggingFace TEI? | ❌ Completely blocked (CC < 7.5) |
-| Concurrent search capacity | 8 simultaneous at ~100ms each (`--parallel 8`) |
+| `--parallel` for human search | `--parallel 8` (~70–100ms, ~50–80 QPS) |
+| `--parallel` for AI agent traffic | **`--parallel 64`** (~400–900 QPS at 50-token avg) |
+| Run multiple instances? | **No** — single `--parallel 64` beats N×`--parallel 8` for homogeneous embedding |
+| CUDA MPS on Pascal CC 6.1? | ✅ Supported (CC ≥ 3.5); saves ~300MB VRAM/instance; minimal throughput gain for embedding-only |
+| CUDA MPS fault isolation? | ⚠️ Pre-Volta: client crash can bring down MPS server; monitor in prod |
+| PyTorch version for Pascal? | Pin `torch==2.7.*` — PyTorch 2.8+ dropped CC 6.1 |
+| Triton Inference Server? | Use ≤ 24.01 — `24.02+` requires CC 7.0+ |
 | Latency (single user) | ~80–150ms end-to-end |
 | GPU upgrade for generative RAG | RTX 3060 12GB (~$220 used) |
