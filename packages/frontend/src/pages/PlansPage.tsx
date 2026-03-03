@@ -221,7 +221,7 @@ export default function PlansPage() {
                       : plan.id === "vol1tb"
                         ? "Best for high volume, save 40%"
                         : plan.id === "agent"
-                          ? "Optimized for AI agent workloads"
+                          ? "Unlimited bandwidth — optimized for AI agent workloads"
                           : ""}
                 </p>
                 <div className="mt-auto pt-4">

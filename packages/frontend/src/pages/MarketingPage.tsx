@@ -244,7 +244,7 @@ const SDK_DETAILS: Record<string, SdkInfo> = {
 };
 
 const ECOSYSTEM_STATS = [
-  { value: "27", label: "AI Integrations" },
+  { value: "28", label: "AI Integrations" },
   { value: "6", label: "Native SDKs" },
   { value: "59+", label: "MCP Tools" },
   { value: "4", label: "Browsers" },
@@ -280,6 +280,7 @@ const INTEGRATION_CATEGORIES: IntegrationCategory[] = [
       { name: "Agno", lang: "Python", tools: 24, desc: "Toolkit with x402 micropayment and agentic wallet support" },
       { name: "Semantic Kernel", lang: "Python", tools: 25, desc: "Microsoft kernel functions as a native plugin" },
       { name: "IronClaw", lang: "Python", tools: 25, desc: "NEAR AI Rust agent runtime with native MCP bridge" },
+      { name: "Pi (pi-mono)", lang: "TypeScript", tools: 26, desc: "TypeBox-typed tool extension for the pi-mono agentic coding framework" },
     ],
   },
   {
