@@ -1,6 +1,6 @@
 {
   "name": "n8n-nodes-dominusnode",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "description": "n8n community nodes for Dominus Node rotating proxy service",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: dominusnode-ironclaw
-Version: 1.0.1
+Version: 1.1.0
 Summary: Dominus Node toolkit for IronClaw AI agent runtime -- 23 proxy, wallet, team, and payment management tools
 License: MIT
 Requires-Python: >=3.10

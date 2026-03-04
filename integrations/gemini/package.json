@@ -1,18 +1,29 @@
 {
   "name": "@dominusnode/gemini-functions",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "description": "Dominus Node function declarations and handlers for Google Gemini / Vertex AI",
   "main": "dist/handler.js",
   "types": "dist/handler.d.ts",
   "type": "module",
-  "files": ["dist/", "functions.json", "README.md", "LICENSE"],
+  "files": [
+    "dist/",
+    "functions.json",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "build": "tsc",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:py": "python -m pytest test_handler.py -v"
   },
-  "keywords": ["dominusnode", "gemini", "vertex-ai", "proxy", "function-calling"],
+  "keywords": [
+    "dominusnode",
+    "gemini",
+    "vertex-ai",
+    "proxy",
+    "function-calling"
+  ],
   "license": "MIT",
   "repository": {
     "type": "git",

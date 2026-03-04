@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "dominusnode-crewai"
-version = "1.0.1"
+version = "1.1.0"
 description = "CrewAI tools for Dominus Node rotating proxy service"
 readme = "README.md"
 license = "MIT"

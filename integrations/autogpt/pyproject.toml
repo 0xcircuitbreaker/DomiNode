@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "dominusnode-autogpt"
-version = "1.0.1"
+version = "1.1.0"
 description = "Dominus Node plugin for AutoGPT -- 22 proxy, wallet, and team management commands"
 readme = "README.md"
 license = {text = "MIT"}
