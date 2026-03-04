@@ -124,7 +124,7 @@ function Get-EnvOrDefault {
     if ($val) { return $val } else { return $Default }
 }
 
-$AI_MODEL = Get-EnvOrDefault "AI_MODEL" "qwen3:8b"
+$AI_MODEL = Get-EnvOrDefault "AI_MODEL" "qwen3.5:9b"
 $AI_SGLANG_PORT = Get-EnvOrDefault "AI_SGLANG_PORT" "8000"
 $AI_SGLANG_TP = Get-EnvOrDefault "AI_SGLANG_TP" "1"
 $AI_SGLANG_MEM_FRAC = Get-EnvOrDefault "AI_SGLANG_MEM_FRAC" "0.85"

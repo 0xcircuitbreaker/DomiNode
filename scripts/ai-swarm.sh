@@ -20,7 +20,7 @@
 #   ./scripts/ai-swarm.sh 5 solo        # 5 solo agents
 #
 # Environment (set in .env.swarm or shell):
-#   AI_MODEL              — HuggingFace model ID (default: THUDM/glm-4-9b-chat)
+#   AI_MODEL              — Ollama tag or HuggingFace ID (default: qwen3.5:9b)
 #   AI_MODEL_QUANTIZATION — Quantization method (default: awq)
 #   AI_SGLANG_PORT        — SGLang API port (default: 8000)
 #   AI_SGLANG_TP          — Tensor parallel degree (default: 1)
@@ -99,7 +99,7 @@ if [ "$NUM_AGENTS" -gt "$MAX_AGENTS" ]; then
 fi
 
 # ─── Configuration ───────────────────────────────────────────────────
-AI_MODEL="${AI_MODEL:-THUDM/glm-4-9b-chat}"
+AI_MODEL="${AI_MODEL:-qwen3.5:9b}"
 AI_SGLANG_PORT="${AI_SGLANG_PORT:-8000}"
 AI_SGLANG_TP="${AI_SGLANG_TP:-1}"
 AI_SGLANG_MEM_FRAC="${AI_SGLANG_MEM_FRAC:-0.85}"
@@ -184,17 +184,20 @@ if [ "$DRY_RUN" -eq 1 ]; then
     GPU_FREE=$(nvidia-smi --query-gpu=memory.free --format=csv,noheader 2>/dev/null | head -1)
     echo "  GPU:     ${GPU_NAME} (${GPU_VRAM}, ${GPU_FREE} free)"
 
-    # VRAM-based model recommendation
+    # VRAM-based model recommendation (updated Mar 2026 for Qwen 3.5)
     VRAM_MB=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null | head -1)
     if [ -n "$VRAM_MB" ]; then
       if [ "$VRAM_MB" -ge 24000 ]; then
-        echo "  Recommend: Qwen3.5-35B-A3B (~18GB Q4) or Qwen3-Coder-30B-A3B (~18GB Q4)"
+        echo "  Recommend: qwen3.5:27b (~17GB, best quality) or qwen3.5:9b (~6.6GB, 50+ agents)"
+        echo "             qwen3.5:35b-a3b (~24GB, fast+smart) — see README for full comparison"
+      elif [ "$VRAM_MB" -ge 16000 ]; then
+        echo "  Recommend: qwen3.5:9b (~6.6GB, 30+ agents) or qwen3.5:27b (~17GB, best quality)"
       elif [ "$VRAM_MB" -ge 8000 ]; then
-        echo "  Recommend: Qwen/Qwen3-8B (~5GB Q4) — leaves room for KV cache"
+        echo "  Recommend: qwen3.5:9b (~6.6GB Q4) — beats Qwen3-30B, leaves room for KV cache"
       elif [ "$VRAM_MB" -ge 4000 ]; then
-        echo "  Recommend: Qwen3-4B (~2.5GB Q4) or Gemma 3 4B QAT (~2.6GB Q4)"
+        echo "  Recommend: qwen3.5:4b (~3.4GB Q4) or qwen3.5:2b (~1.9GB Q4)"
       else
-        echo "  WARNING: <4GB VRAM — try Qwen3-1.7B (~1.2GB Q4) or use CPU inference"
+        echo "  WARNING: <4GB VRAM — try qwen3.5:0.8b (~1GB Q4) or use CPU inference"
       fi
     fi
   else

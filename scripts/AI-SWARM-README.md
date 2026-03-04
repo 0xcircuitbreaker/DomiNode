@@ -8,7 +8,7 @@ Run autonomous AI agents that register, proxy traffic, and generate social posts
                           RTX 5090 (32GB VRAM)
                      ┌────────────────────────────┐
                      │   ONE model instance        │
-                     │   (Qwen3-8B or GLM-4-9B)    │
+                     │   (Qwen3.5-9B or 35B-A3B)   │
                      │   serves ALL agent threads   │
                      │   via batched inference       │
                      └────────────┬───────────────┘
@@ -113,17 +113,20 @@ pip install dominusnode crewai requests
 # Install Ollama
 curl -fsSL https://ollama.com/install.sh | sh
 
-# Pull a model
-ollama pull qwen3:8b         # ~5GB, fast, good quality
-# OR
-ollama pull glm4:9b           # ~6GB, higher quality
+# Pull a model (pick one based on your GPU and strategy)
+ollama pull qwen3.5:9b        # ~6.6GB, BEST VALUE — 50+ agents, beats Qwen3-30B
+# OR for 32GB VRAM (fewer agents, higher quality):
+ollama pull qwen3.5:27b       # ~17GB dense, BEST QUALITY — BFCL 68.5, beats GPT-5 mini
+ollama pull qwen3.5:35b-a3b   # ~24GB MoE, FAST+SMART — 4x faster than 27B, near-same quality
+# OR for 6GB VRAM:
+ollama pull qwen3.5:4b         # ~3.4GB, multimodal, 262K context
 
 # Ollama runs automatically on :11434
 ```
 
 Add to `.env.swarm`:
 ```bash
-AI_MODEL=qwen3:8b
+AI_MODEL=qwen3.5:9b
 AI_SKIP_SERVER=1
 AI_API_BASE=http://localhost:11434/v1
 ```
@@ -137,7 +140,7 @@ pip install "sglang[all]"
 
 # Launch manually (or let ai-swarm.sh do it):
 python3 -m sglang.launch_server \
-  --model-path Qwen/Qwen3-8B \
+  --model-path Qwen/Qwen3.5-9B \
   --port 8000 \
   --tp 1 \
   --mem-fraction-static 0.85 \
@@ -146,7 +149,7 @@ python3 -m sglang.launch_server \
 
 Add to `.env.swarm`:
 ```bash
-AI_MODEL=Qwen/Qwen3-8B
+AI_MODEL=Qwen/Qwen3.5-9B
 AI_SKIP_SERVER=0              # ai-swarm.sh will launch SGLang
 AI_SGLANG_PORT=8000
 AI_SGLANG_TP=1                # Tensor parallel (1 for single GPU)
@@ -238,28 +241,61 @@ With 6GB, you need Q4 models under ~3.5GB to leave room for KV cache + CUDA over
 
 | Model | VRAM (Q4) | Tool Calling | Ollama Tag | Agents | Notes |
 |-------|-----------|-------------|------------|--------|-------|
-| **Qwen3-4B** (recommended) | ~2.5 GB | Native | `qwen3:4b` | 5-10 | Best tool-call accuracy at this size; outperforms Qwen2.5-7B |
+| **Qwen3.5-4B** (recommended) | ~3.4 GB | Native | `qwen3.5:4b` | 5-10 | Mar 2026; 262K context, multimodal, GPQA 76.2 — beats Qwen3-8B on reasoning |
+| Qwen3.5-2B | ~1.9 GB | Native | `qwen3.5:2b` | 10-15 | Mar 2026; 262K context, multimodal, native tool calling at 2B |
+| Qwen3-4B | ~2.5 GB | Native | `qwen3:4b` | 5-10 | Previous gen; still solid tool-call accuracy |
 | Gemma 3 4B QAT | ~2.6 GB | Native | `gemma3:4b-it-q4_K_M` | 5-10 | Google QAT retains near-BF16 quality at int4 |
 | Phi-4-mini 3.8B | ~2.5 GB | Built-in | `phi4-mini:3.8b-q4_K_M` | 5-10 | Strong STEM reasoning; Microsoft synthetic data training |
-| Qwen3-1.7B | ~1.2 GB | Native | `qwen3:1.7b` | 15-20 | Max concurrency; lower quality but very fast |
+| Qwen3.5-0.8B | ~1 GB | Limited | `qwen3.5:0.8b` | 20-30 | Mar 2026; ultra-light edge model, max concurrency |
 | SmolLM3 3B | ~2 GB | Hermes | `smollm3` | 5-10 | 128K context; competitive with 4B models |
 
 ### RTX 5090 (32GB VRAM)
 
-MoE models shine here -- large total params but tiny active params = fast inference + high quality.
+Qwen 3.5 (Feb-Mar 2026) is a generational leap: the 9B dense beats the previous Qwen3-30B, and the 27B dense beats GPT-5 mini + Claude Sonnet 4.5 on agentic benchmarks.
 
-| Model | Params (Total/Active) | VRAM (Q4) | Tool Calling | Ollama Tag | Agents | Notes |
-|-------|-----------------------|-----------|-------------|------------|--------|-------|
-| **Qwen3.5-35B-A3B** (recommended) | 35B / 3B MoE | ~18 GB | Best-in-class | `qwen3.5:35b-a3b-q4_K_M` | 10-20 | Feb 2026; trained on 1M RL agentic environments |
-| Qwen3-Coder-30B-A3B | 30B / 3.3B MoE | ~18 GB | Specialized | `qwen3-coder:30b-a3b-q4_K_M` | 10-20 | No-thinking mode; purpose-built for tool use |
-| GLM-4.7-Flash | 30B / 3B MoE | ~18 GB | Native | `glm-4.7-flash` | 10-20 | Jan 2026; strong tau-Bench scores; 60-220 tok/s |
-| Qwen3-30B-A3B | 30B / 3B MoE | ~18 GB | Native | `qwen3:30b-a3b` | 10-20 | Thinking + non-thinking modes |
-| Mistral Small 3.2 | 24B dense | ~14 GB | Improved | `mistral-small3.2:24b` | 15-25 | Apache 2.0; 128K context |
-| Qwen3-8B (budget) | 8B dense | ~5 GB | Native | `qwen3:8b` | 30-50+ | Leaves ~27GB for KV cache; max concurrency |
+| Model | Params (Total/Active) | VRAM (Q4) | Ollama Tag | Agents | Speed | Notes |
+|-------|-----------------------|-----------|------------|--------|-------|-------|
+| **Qwen3.5-27B** (best quality) | 27B dense | ~17 GB | `qwen3.5:27b` | 5-10 | ~20 tok/s | BFCL 68.5, SWE-bench 72.4, beats GPT-5 mini |
+| **Qwen3.5-35B-A3B** (fast+smart) | 35B / 3B MoE | ~24 GB | `qwen3.5:35b-a3b` | 10-20 | ~80 tok/s | BFCL 67.3, 4x faster than 27B, near-same quality |
+| **Qwen3.5-9B** (best value) | 9B dense | ~6.6 GB | `qwen3.5:9b` | 30-50+ | ~70 tok/s | GPQA 81.7, beats Qwen3-30B; 262K ctx |
+| Qwen3.5-27B Q8 (max quality) | 27B dense | ~30 GB | `qwen3.5:27b-q8_0` | 1-3 | ~15 tok/s | Highest fidelity, tight VRAM fit |
+| Qwen3-Coder-30B-A3B | 30B / 3.3B MoE | ~18 GB | `qwen3-coder:30b-a3b` | 10-20 | ~80 tok/s | No-thinking mode; purpose-built for tool use |
+| GLM-4.7-Flash | 30B / 3B MoE | ~18 GB | `glm-4.7-flash` | 10-20 | ~100 tok/s | Jan 2026; strong tau-Bench scores |
+| Mistral Small 3.2 | 24B dense | ~14 GB | `mistral-small3.2:24b` | 15-25 | ~25 tok/s | Apache 2.0; 128K context |
+| Qwen3.5-4B (max concurrency) | 4B dense | ~3.4 GB | `qwen3.5:4b` | 50-80+ | ~100 tok/s | Leaves ~28GB for KV cache; GPQA 76.2 |
 
-**Dual-model strategy:** Run Qwen3.5-35B-A3B as orchestrator (~18GB) + Qwen3-4B as lightweight worker (~2.5GB). Total ~20.5GB, leaving ~11.5GB for KV cache.
+#### Qwen3.5-27B vs 35B-A3B vs 9B — Head-to-Head
 
-**Rule of thumb:** Smaller model = more concurrent agents. Qwen3-8B at Q4 leaves ~27GB for KV cache (50+ agents). MoE models at ~18GB leave ~14GB (10-20 agents with better quality).
+| Benchmark | Qwen3.5-27B | Qwen3.5-35B-A3B | Qwen3.5-9B | GPT-5 mini | Claude Sonnet 4.5 |
+|-----------|------------|-----------------|-----------|-----------|------------------|
+| MMLU-Pro | **86.1** | 85.3 | 82.5 | 83.7 | 80.8 |
+| GPQA Diamond | **85.5** | 84.2 | 81.7 | 82.8 | 80.1 |
+| BFCL-v4 (tool use) | **68.5** | 67.3 | — | 55.5 | 54.8 |
+| SWE-bench Verified | **72.4** | 69.2 | — | 72.0 | 62.0 |
+| IFEval (instruction) | **95.0** | 91.9 | 91.5 | — | — |
+| HMMT Feb 25 (math) | **92.0** | 89.0 | 83.2 | 89.2 | 90.0 |
+| LiveCodeBench v6 | **80.7** | 74.6 | — | 80.5 | 82.7 |
+
+#### VRAM & Concurrency on 32GB
+
+| Model | VRAM (Q4) | Free for KV | Concurrent Agents | tok/s |
+|-------|-----------|------------|-------------------|-------|
+| Qwen3.5-4B | 3.4 GB | ~28 GB | **50-80+** | ~100 |
+| Qwen3.5-9B | 6.6 GB | ~25 GB | **30-50+** | ~70 |
+| Qwen3.5-27B | 17 GB | ~14 GB | **5-10** | ~20 |
+| Qwen3.5-35B-A3B | 24 GB | ~8 GB | **10-20** | ~80 |
+| Qwen3.5-27B Q8 | 30 GB | ~2 GB | **1-3** | ~15 |
+
+#### Choosing Your Strategy
+
+| Strategy | Model | Why |
+|----------|-------|-----|
+| **Max post quality** | `qwen3.5:27b` | BFCL 68.5, SWE-bench 72.4 — best reasoning and writing. 5-10 agents at ~20 tok/s |
+| **Quality + speed** | `qwen3.5:35b-a3b` | Near-27B quality at 4x the speed. 10-20 agents at ~80 tok/s. Only 3B params active per token |
+| **Best value (recommended)** | `qwen3.5:9b` | Beats prev-gen 30B models. 30-50 agents at ~70 tok/s. Leaves 25GB for KV cache |
+| **Max concurrency** | `qwen3.5:4b` | 50-80+ agents at ~100 tok/s. Great for massive swarms with simpler posts |
+
+**Note:** Our swarm uses plain chat completions for post generation (not tool calling), so all models work correctly on Ollama despite known tool-calling bugs in Ollama's Qwen3.5 template (issue #14493).
 
 ## Swarm Modes
 
@@ -310,7 +346,7 @@ MoE models shine here -- large total params but tiny active params = fast infere
 ### AI Model
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `AI_MODEL` | `Qwen/Qwen3-8B` | HuggingFace model ID or Ollama tag |
+| `AI_MODEL` | `qwen3.5:9b` | Ollama tag or HuggingFace model ID |
 | `AI_SKIP_SERVER` | 0 | Set to 1 to use external AI API (Ollama) |
 | `AI_API_BASE` | `http://localhost:8000/v1` | OpenAI-compatible API URL |
 | `AI_SGLANG_PORT` | 8000 | SGLang API port |
@@ -400,13 +436,13 @@ Use `--dry-run` on a new machine to verify the environment before running for re
 ### SGLang won't start
 - Check VRAM: `nvidia-smi` — model needs enough free VRAM
 - Try reducing `AI_SGLANG_MEM_FRAC` to 0.7
-- Try a smaller model: `Qwen/Qwen3-8B` (5GB) instead of GLM-4-9B (12GB)
+- Try a smaller model: `qwen3.5:9b` (6.6GB) or `qwen3.5:4b` (3.4GB)
 - Check logs: `cat /tmp/dominusnode-ai-swarm/sglang.log`
 
 ### Ollama model not found
 ```bash
 ollama list                    # See installed models
-ollama pull qwen3:8b           # Download if missing
+ollama pull qwen3.5:9b         # Download if missing
 curl http://localhost:11434/v1/models  # Verify API works
 ```
 
@@ -460,12 +496,12 @@ pip install dominusnode crewai requests
 
 # 7. Ollama (simplest path)
 curl -fsSL https://ollama.com/install.sh | sh
-ollama pull qwen3:8b
+ollama pull qwen3.5:9b
 
 # 8. Configure swarm
 cp .env.swarm.example .env.swarm
 # Edit: set ADMIN_EMAIL, ADMIN_PASSWORD
-# Set: AI_SKIP_SERVER=1, AI_API_BASE=http://localhost:11434/v1, AI_MODEL=qwen3:8b
+# Set: AI_SKIP_SERVER=1, AI_API_BASE=http://localhost:11434/v1, AI_MODEL=qwen3.5:9b
 
 # 9. Run it
 ./scripts/ai-swarm.sh 20        # 14 team + 6 solo agents

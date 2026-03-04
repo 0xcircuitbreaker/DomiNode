@@ -53,7 +53,7 @@ logging.basicConfig(
 log = logging.getLogger("integration-test")
 
 AI_API_BASE = os.environ.get("AI_API_BASE", "http://localhost:11434/v1")
-AI_MODEL = os.environ.get("AI_MODEL", "qwen3:8b")
+AI_MODEL = os.environ.get("AI_MODEL", "qwen3.5:9b")
 
 
 def safe_int(value: str, default: int, min_val: int = 0, max_val: int = 100000) -> int:

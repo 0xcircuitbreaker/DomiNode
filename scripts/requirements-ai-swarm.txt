@@ -13,7 +13,7 @@ dominusnode>=0.1.0
 # vllm>=0.4.0
 
 # Ollama — simplest setup (cross-platform, no Python package needed)
-# Install from https://ollama.com, then: ollama pull qwen3:8b
+# Install from https://ollama.com, then: ollama pull qwen3.5:9b
 
 # --- Optional ---
 # crewai>=0.1.0             # For CrewAI-based orchestration (future)

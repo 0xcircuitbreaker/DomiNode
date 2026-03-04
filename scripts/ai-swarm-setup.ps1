@@ -14,10 +14,10 @@
       The model uses ~5-12GB VRAM; remaining VRAM is KV cache for concurrency.
 
     VRAM budget (32GB RTX 5090):
-      Model weights:  ~5GB (Qwen3-8B Q4) or ~12GB (GLM-4-9B Q5)
+      Model weights:  ~6.6GB (Qwen3.5-9B Q4) or ~24GB (Qwen3.5-35B-A3B Q4)
       KV cache:       ~4-8GB (scales with concurrent requests)
       CUDA overhead:  ~2GB
-      Total:          ~18-22GB → supports 10-50 concurrent agent threads
+      Total:          ~13-30GB → supports 10-50+ concurrent agent threads
 
 .PARAMETER ServerBackend
     Inference server: "ollama" (recommended, simplest) or "sglang" (advanced).
@@ -25,7 +25,7 @@
 
 .PARAMETER Model
     HuggingFace model ID or Ollama model tag.
-    Default: qwen3:8b (for Ollama) or Qwen/Qwen3-8B (for SGLang)
+    Default: qwen3.5:9b (for Ollama) or Qwen/Qwen3.5-9B (for SGLang)
 
 .PARAMETER ApiBase
     Dominus Node API server URL. Default: http://localhost:3000
@@ -35,8 +35,8 @@
 
 .EXAMPLE
     .\ai-swarm-setup.ps1
-    .\ai-swarm-setup.ps1 -ServerBackend sglang -Model "Qwen/Qwen3-8B"
-    .\ai-swarm-setup.ps1 -ServerBackend ollama -Model "qwen3:8b"
+    .\ai-swarm-setup.ps1 -ServerBackend sglang -Model "Qwen/Qwen3.5-9B"
+    .\ai-swarm-setup.ps1 -ServerBackend ollama -Model "qwen3.5:9b"
 #>
 
 [CmdletBinding()]
@@ -166,7 +166,7 @@ Write-Host "Step 4: Setting up $ServerBackend inference server..." -ForegroundCo
 $defaultModel = ""
 
 if ($ServerBackend -eq "ollama") {
-    $defaultModel = "qwen3:8b"
+    $defaultModel = "qwen3.5:9b"
 
     if (Test-CommandExists "ollama") {
         Write-Step "Ollama already installed"
@@ -198,7 +198,7 @@ if ($ServerBackend -eq "ollama") {
     Write-Step "Model $modelName ready"
 
 } elseif ($ServerBackend -eq "sglang") {
-    $defaultModel = "Qwen/Qwen3-8B"
+    $defaultModel = "Qwen/Qwen3.5-9B"
 
     Write-Step "Installing SGLang + PyTorch..."
     Write-Warn "SGLang requires CUDA 12.1+ and PyTorch 2.1+"

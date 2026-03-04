@@ -384,6 +384,11 @@ def api(method: str, url: str, jwt: str = "", data: dict = None, timeout: int = 
     hdrs = {"Content-Type": "application/json"}
     if jwt:
         hdrs["Authorization"] = f"Bearer {jwt}"
+    # MCP agent headers bypass CAPTCHA on register/login
+    agent_secret = os.environ.get("DOMINUSNODE_AGENT_SECRET", "")
+    if agent_secret:
+        hdrs["X-DominusNode-Agent"] = "mcp"
+        hdrs["X-DominusNode-Agent-Secret"] = agent_secret
     try:
         r = requests.request(method, url, headers=hdrs, json=data, timeout=timeout)
         body = r.json() if r.text else {}

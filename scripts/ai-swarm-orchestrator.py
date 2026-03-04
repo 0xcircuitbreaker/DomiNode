@@ -12,7 +12,7 @@ Architecture:
   batched inference and RadixAttention (shared prefix caching).
 
   VRAM budget (32GB RTX 5090 example):
-    Model weights:  ~12GB (GLM-4-9B Q5) or ~5GB (Qwen3-8B Q4)
+    Model weights:  ~6.6GB (Qwen3.5-9B Q4) or ~24GB (Qwen3.5-35B-A3B Q4)
     KV cache:       ~4-8GB (scales with concurrent requests)
     CUDA overhead:  ~2GB
     ─────────────────────────────────────────────
@@ -69,7 +69,7 @@ log = logging.getLogger("ai-swarm")
 
 # Default to Ollama port (matches PowerShell launcher default)
 AI_API_BASE = os.environ.get("AI_API_BASE", "http://localhost:11434/v1")
-AI_MODEL = os.environ.get("AI_MODEL", "qwen3:8b")
+AI_MODEL = os.environ.get("AI_MODEL", "qwen3.5:9b")
 
 
 # Safe integer parser with bounds validation
@@ -223,6 +223,11 @@ def api_request(method: str, url: str, jwt: str = "", json_data: dict = None) ->
     headers = {"Content-Type": "application/json"}
     if jwt:
         headers["Authorization"] = f"Bearer {jwt}"
+    # MCP agent headers bypass CAPTCHA on register/login
+    agent_secret = os.environ.get("DOMINUSNODE_AGENT_SECRET", "")
+    if agent_secret:
+        headers["X-DominusNode-Agent"] = "mcp"
+        headers["X-DominusNode-Agent-Secret"] = agent_secret
     try:
         resp = requests.request(method, url, headers=headers, json=json_data, timeout=30)
         return {"status": resp.status_code, "body": resp.json() if resp.text else {}}
