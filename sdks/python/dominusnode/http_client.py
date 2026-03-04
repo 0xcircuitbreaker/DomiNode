@@ -121,9 +121,11 @@ class SyncHttpClient:
         base_url: str,
         token_manager: TokenManager,
         timeout: float = 30.0,
+        agent_secret: Optional[str] = None,
     ) -> None:
         self._base_url = base_url.rstrip("/")
         self._token_manager = token_manager
+        self._agent_secret = agent_secret
         self._client = httpx.Client(
             base_url=self._base_url,
             timeout=timeout,
@@ -144,6 +146,9 @@ class SyncHttpClient:
             token = self._token_manager.get_valid_token()
             if token:
                 headers["Authorization"] = f"Bearer {token}"
+        if self._agent_secret:
+            headers["X-DominusNode-Agent"] = "mcp"
+            headers["X-DominusNode-Agent-Secret"] = self._agent_secret
         if extra:
             headers.update(extra)
         return headers
@@ -285,9 +290,11 @@ class AsyncHttpClient:
         base_url: str,
         token_manager: AsyncTokenManager,
         timeout: float = 30.0,
+        agent_secret: Optional[str] = None,
     ) -> None:
         self._base_url = base_url.rstrip("/")
         self._token_manager = token_manager
+        self._agent_secret = agent_secret
         self._client = httpx.AsyncClient(
             base_url=self._base_url,
             timeout=timeout,
@@ -307,6 +314,9 @@ class AsyncHttpClient:
             token = await self._token_manager.get_valid_token()
             if token:
                 headers["Authorization"] = f"Bearer {token}"
+        if self._agent_secret:
+            headers["X-DominusNode-Agent"] = "mcp"
+            headers["X-DominusNode-Agent-Secret"] = self._agent_secret
         if extra:
             headers.update(extra)
         return headers

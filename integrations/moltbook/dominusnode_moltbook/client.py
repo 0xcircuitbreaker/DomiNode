@@ -583,6 +583,7 @@ class MoltbookClient:
         proxy_port: int = 8080,
         dominusnode_base_url: str = "https://api.dominusnode.com",
         timeout: float = 30.0,
+        agent_secret: str | None = None,
     ):
         self.dominusnode_api_key = dominusnode_api_key or os.environ.get(
             "DOMINUSNODE_API_KEY", ""
@@ -599,6 +600,7 @@ class MoltbookClient:
         )
         self.dominusnode_base_url = dominusnode_base_url.rstrip("/")
         self.timeout = timeout
+        self.agent_secret: str | None = agent_secret or os.environ.get("DOMINUSNODE_AGENT_SECRET")
         self._token: str | None = None
 
         # Validate moltbook_base_url for SSRF on construction
@@ -1070,13 +1072,18 @@ class MoltbookClient:
             timeout=self.timeout,
             follow_redirects=False,
         ) as client:
+            auth_headers: Dict[str, str] = {
+                    "User-Agent": "dominusnode-moltbook/1.0.0",
+                    "Content-Type": "application/json",
+                }
+            if self.agent_secret:
+                auth_headers["X-DominusNode-Agent"] = "mcp"
+                auth_headers["X-DominusNode-Agent-Secret"] = self.agent_secret
+
             resp = client.post(
                 f"{self.dominusnode_base_url}/api/auth/verify-key",
                 json={"apiKey": self.dominusnode_api_key},
-                headers={
-                    "User-Agent": "dominusnode-moltbook/1.0.0",
-                    "Content-Type": "application/json",
-                },
+                headers=auth_headers,
             )
 
             if resp.status_code != 200:
@@ -1127,12 +1134,17 @@ class MoltbookClient:
             timeout=self.timeout,
             follow_redirects=False,
         ) as client:
-            kwargs: Dict[str, Any] = {
-                "headers": {
+            req_headers: Dict[str, str] = {
                     "User-Agent": "dominusnode-moltbook/1.0.0",
                     "Content-Type": "application/json",
                     "Authorization": f"Bearer {self._token}",
-                },
+                }
+            if self.agent_secret:
+                req_headers["X-DominusNode-Agent"] = "mcp"
+                req_headers["X-DominusNode-Agent-Secret"] = self.agent_secret
+
+            kwargs: Dict[str, Any] = {
+                "headers": req_headers,
             }
 
             if body is not None and method.upper() not in ("GET", "HEAD", "OPTIONS"):

@@ -323,6 +323,8 @@ export interface DominusNodeFunctionConfig {
   baseUrl?: string;
   /** Request timeout in milliseconds. Defaults to 30000. */
   timeoutMs?: number;
+  /** Agent secret for MCP agent identification. Bypasses reCAPTCHA and auto-verifies email. */
+  agentSecret?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -337,7 +339,7 @@ interface ApiResponse {
 }
 
 async function apiRequest(
-  config: Required<Pick<DominusNodeFunctionConfig, "baseUrl" | "timeoutMs">> & { token: string },
+  config: Required<Pick<DominusNodeFunctionConfig, "baseUrl" | "timeoutMs">> & { token: string; agentSecret?: string },
   method: string,
   path: string,
   body?: unknown,
@@ -349,6 +351,10 @@ async function apiRequest(
     "Content-Type": "application/json",
     Authorization: `Bearer ${config.token}`,
   };
+  if (config.agentSecret) {
+    headers["X-DominusNode-Agent"] = "mcp";
+    headers["X-DominusNode-Agent-Secret"] = config.agentSecret;
+  }
 
   const response = await fetch(url, {
     method,
@@ -460,6 +466,7 @@ export function createDominusNodeFunctionHandler(
 ): FunctionHandler {
   const baseUrl = config.baseUrl ?? "https://api.dominusnode.com";
   const timeoutMs = config.timeoutMs ?? 30_000;
+  const agentSecret = config.agentSecret || process.env.DOMINUSNODE_AGENT_SECRET;
 
   if (!config.apiKey || typeof config.apiKey !== "string") {
     throw new Error("apiKey is required and must be a non-empty string");
@@ -470,12 +477,18 @@ export function createDominusNodeFunctionHandler(
   let authPromise: Promise<void> | null = null;
 
   async function authenticate(): Promise<void> {
+    const authHeaders: Record<string, string> = {
+      "User-Agent": "dominusnode-openai-functions/1.0.0",
+      "Content-Type": "application/json",
+    };
+    if (agentSecret) {
+      authHeaders["X-DominusNode-Agent"] = "mcp";
+      authHeaders["X-DominusNode-Agent-Secret"] = agentSecret;
+    }
+
     const response = await fetch(`${baseUrl}/api/auth/verify-key`, {
       method: "POST",
-      headers: {
-        "User-Agent": "dominusnode-openai-functions/1.0.0",
-        "Content-Type": "application/json",
-      },
+      headers: authHeaders,
       body: JSON.stringify({ apiKey: config.apiKey }),
       signal: AbortSignal.timeout(timeoutMs),
       redirect: "error",
@@ -505,7 +518,7 @@ export function createDominusNodeFunctionHandler(
 
   function api(method: string, path: string, body?: unknown): Promise<unknown> {
     if (!authToken) throw new Error("Not authenticated");
-    return apiRequest({ baseUrl, timeoutMs, token: authToken }, method, path, body);
+    return apiRequest({ baseUrl, timeoutMs, token: authToken, agentSecret }, method, path, body);
   }
 
   // -----------------------------------------------------------------------

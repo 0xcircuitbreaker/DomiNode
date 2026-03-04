@@ -88,6 +88,7 @@ class DominusNodeClient:
         http_proxy_port: int = DEFAULT_HTTP_PROXY_PORT,
         socks5_proxy_port: int = DEFAULT_SOCKS5_PROXY_PORT,
         timeout: float = 30.0,
+        agent_secret: Optional[str] = None,
     ) -> None:
         self._api_key: Optional[str] = api_key
         self._proxy_host = proxy_host
@@ -107,7 +108,7 @@ class DominusNodeClient:
             self._token_manager.set_tokens(access_token, refresh_token)
 
         # HTTP client
-        self._http = SyncHttpClient(base_url, self._token_manager, timeout=timeout)
+        self._http = SyncHttpClient(base_url, self._token_manager, timeout=timeout, agent_secret=agent_secret)
 
         # Resource instances
         self._auth = AuthResource(self._http, self._token_manager)
@@ -295,6 +296,7 @@ class AsyncDominusNodeClient:
         http_proxy_port: int = DEFAULT_HTTP_PROXY_PORT,
         socks5_proxy_port: int = DEFAULT_SOCKS5_PROXY_PORT,
         timeout: float = 30.0,
+        agent_secret: Optional[str] = None,
     ) -> None:
         self._api_key: Optional[str] = api_key
         self._proxy_host = proxy_host
@@ -317,7 +319,7 @@ class AsyncDominusNodeClient:
             self._token_manager.set_tokens(access_token, refresh_token)
 
         # HTTP client
-        self._http = AsyncHttpClient(base_url, self._token_manager, timeout=timeout)
+        self._http = AsyncHttpClient(base_url, self._token_manager, timeout=timeout, agent_secret=agent_secret)
 
         # Resource instances
         self._auth = AsyncAuthResource(self._http, self._token_manager)

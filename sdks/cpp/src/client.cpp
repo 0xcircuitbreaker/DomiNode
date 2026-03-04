@@ -33,6 +33,7 @@ ClientConfig::~ClientConfig() {
     secure_zero_string(api_key);
     secure_zero_string(access_token);
     secure_zero_string(refresh_token);
+    secure_zero_string(agent_secret);
 }
 
 // ─── Pimpl definition ───────────────────────────────────────────────────────
@@ -57,7 +58,7 @@ struct DominusNodeClient::Impl {
 
     explicit Impl(ClientConfig cfg)
         : config(std::move(cfg))
-        , http_client(config.base_url, token_manager)
+        , http_client(config.base_url, token_manager, config.agent_secret)
         , auth_resource(http_client)
         , keys_resource(http_client)
         , wallet_resource(http_client)
@@ -130,6 +131,7 @@ void DominusNodeClient::disconnect() {
     secure_zero_string(impl_->config.api_key);
     secure_zero_string(impl_->config.access_token);
     secure_zero_string(impl_->config.refresh_token);
+    secure_zero_string(impl_->config.agent_secret);
 }
 
 AuthResource& DominusNodeClient::auth() { return impl_->auth_resource; }

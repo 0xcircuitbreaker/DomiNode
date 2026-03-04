@@ -1,4 +1,5 @@
 import { Router, type Request } from "express";
+import * as crypto from "node:crypto";
 import rateLimit from "express-rate-limit";
 import { planRepo, walletRepo, userRepo, createLogger, getPool } from "@dominusnode/shared";
 import { requireAuth, type AuthenticatedRequest } from "../middleware/auth.js";
@@ -111,8 +112,17 @@ router.put("/user/plan", requireAuth, planChangeLimiter, async (req, res) => {
     }
 
     // Restrict to user-selectable plans (prevents switching to free/admin-only plans)
-    // MCP agents (X-DominusNode-Agent: mcp) can additionally select agent-only plans
-    const isMcpAgent = req.headers["x-dominusnode-agent"] === "mcp";
+    // MCP agents (X-DominusNode-Agent: mcp + verified secret) can additionally select agent-only plans
+    const MCP_AGENT_SECRET_PLAN = process.env["MCP_AGENT_SECRET"] ?? "";
+    const agentSecretHeader = (req.headers["x-dominusnode-agent-secret"] ?? "") as string;
+    const isMcpAgent =
+      req.headers["x-dominusnode-agent"] === "mcp" &&
+      MCP_AGENT_SECRET_PLAN.length > 0 &&
+      agentSecretHeader.length === MCP_AGENT_SECRET_PLAN.length &&
+      crypto.timingSafeEqual(
+        Buffer.from(agentSecretHeader, "utf8"),
+        Buffer.from(MCP_AGENT_SECRET_PLAN, "utf8"),
+      );
     const isAllowed = USER_SELECTABLE_PLANS.has(planId) || (isMcpAgent && AGENT_ONLY_PLANS.has(planId));
     if (!isAllowed) {
       res.status(403).json({ error: "This plan cannot be selected. Contact support for assistance." });

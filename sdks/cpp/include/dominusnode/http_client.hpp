@@ -20,7 +20,8 @@ struct HttpResponse {
 /// Uses RAII for curl handle management.
 class HttpClient {
 public:
-    HttpClient(const std::string& base_url, TokenManager& token_manager);
+    HttpClient(const std::string& base_url, TokenManager& token_manager,
+               const std::string& agent_secret = "");
     ~HttpClient();
 
     HttpClient(const HttpClient&) = delete;
@@ -55,6 +56,7 @@ private:
     std::unique_ptr<Impl> impl_;
     std::string base_url_;
     TokenManager& token_manager_;
+    std::string agent_secret_;
 
     /// Core request method.
     nlohmann::json request(const std::string& method,

@@ -40,6 +40,9 @@ pub struct Config {
     pub http_proxy_port: u16,
     /// SOCKS5 proxy port.
     pub socks5_proxy_port: u16,
+    /// Agent secret for captcha bypass (optional). When set, injects
+    /// `X-DominusNode-Agent: mcp` and `X-DominusNode-Agent-Secret` headers.
+    pub agent_secret: Option<String>,
 }
 
 // Custom Debug to redact credentials
@@ -53,6 +56,7 @@ impl std::fmt::Debug for Config {
             .field("proxy_host", &self.proxy_host)
             .field("http_proxy_port", &self.http_proxy_port)
             .field("socks5_proxy_port", &self.socks5_proxy_port)
+            .field("agent_secret", &self.agent_secret.as_ref().map(|_| "[REDACTED]"))
             .finish()
     }
 }
@@ -67,6 +71,7 @@ impl Default for Config {
             proxy_host: DEFAULT_PROXY_HOST.to_string(),
             http_proxy_port: DEFAULT_HTTP_PROXY_PORT,
             socks5_proxy_port: DEFAULT_SOCKS5_PROXY_PORT,
+            agent_secret: None,
         }
     }
 }
@@ -133,7 +138,7 @@ impl DominusNodeClient {
     /// automatic token renewal.
     pub fn new(config: Config) -> Result<Self> {
         let token_manager = Arc::new(TokenManager::new());
-        let http = Arc::new(HttpClient::new(&config.base_url, Arc::clone(&token_manager))?);
+        let http = Arc::new(HttpClient::new(&config.base_url, Arc::clone(&token_manager), config.agent_secret.clone())?);
 
         // Wire up the refresh callback. We create a separate HttpClient that
         // always calls the refresh endpoint without auth (it sends the refresh

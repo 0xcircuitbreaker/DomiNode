@@ -343,6 +343,8 @@ export interface DominusNodeToolkitOptions {
   proxyHost?: string;
   proxyPort?: number;
   timeout?: number;
+  /** Optional agent secret for MCP agent auto-verification (bypasses reCAPTCHA). */
+  agentSecret?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -355,6 +357,7 @@ export class DominusNodeToolkit {
   private proxyHost: string;
   private proxyPort: number;
   private timeout: number;
+  private agentSecret?: string;
   private token: string | null = null;
   private tokenExpiresAt: number = 0;
   private _authPromise: Promise<void> | null = null; // H-1: mutex for concurrent _ensureAuth
@@ -392,6 +395,7 @@ export class DominusNodeToolkit {
     // H-2: Validate timeout option; store but use REQUEST_TIMEOUT_MS constant for requests
     const tVal = Number(options.timeout ?? 30000);
     this.timeout = Number.isFinite(tVal) && tVal >= 1000 && tVal <= 120000 ? tVal : 30000;
+    this.agentSecret = options.agentSecret || process.env["DOMINUSNODE_AGENT_SECRET"];
   }
 
   // -----------------------------------------------------------------------
@@ -403,9 +407,17 @@ export class DominusNodeToolkit {
     if (!this.apiKey.startsWith("dn_live_") && !this.apiKey.startsWith("dn_test_")) {
       throw new Error('DOMINUSNODE_API_KEY must start with "dn_live_" or "dn_test_".');
     }
+    const authHeaders: Record<string, string> = {
+      "Content-Type": "application/json",
+      "User-Agent": "dominusnode-pi/1.0.0",
+    };
+    if (this.agentSecret) {
+      authHeaders["X-DominusNode-Agent"] = "mcp";
+      authHeaders["X-DominusNode-Agent-Secret"] = this.agentSecret;
+    }
     const res = await fetch(`${this.baseUrl}/api/auth/verify-key`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", "User-Agent": "dominusnode-pi/1.0.0" },
+      headers: authHeaders,
       body: JSON.stringify({ apiKey: this.apiKey }),
       redirect: "error",
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
@@ -461,6 +473,10 @@ export class DominusNodeToolkit {
       Accept: "application/json",
       "User-Agent": "dominusnode-pi/1.0.0",
     };
+    if (this.agentSecret) {
+      headers["X-DominusNode-Agent"] = "mcp";
+      headers["X-DominusNode-Agent-Secret"] = this.agentSecret;
+    }
     const init: RequestInit = { method, headers, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS), redirect: "error" };
     // M-6: Drop body on safe HTTP methods
     if (body && !["GET", "HEAD"].includes(method) && ["POST", "PUT", "PATCH", "DELETE"].includes(method)) {

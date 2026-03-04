@@ -53,6 +53,12 @@ export interface DominusNodeToolsConfig {
    * @default 1080
    */
   socks5ProxyPort?: number;
+
+  /**
+   * Optional agent secret for MCP agent auto-verification (bypasses reCAPTCHA).
+   * Falls back to DOMINUSNODE_AGENT_SECRET environment variable if not set.
+   */
+  agentSecret?: string;
 }
 
 /**
@@ -129,11 +135,15 @@ export async function createDominusNodeTools(
     throw new Error('apiKey must start with "dn_live_" or "dn_test_"');
   }
 
+  // Resolve agent secret from config or environment
+  const agentSecret = config.agentSecret || process.env.DOMINUSNODE_AGENT_SECRET;
+
   // Create and authenticate the client
   const client = new DominusNodeClient({
     apiKey: config.apiKey,
     baseUrl: config.baseUrl,
     proxyHost: config.proxyHost,
+    agentSecret,
   } as any);
 
   await client.connectWithKey(config.apiKey);
@@ -148,15 +158,15 @@ export async function createDominusNodeTools(
     topupStripe: createTopupStripeTool(client),
     topupCrypto: createTopupCryptoTool(client),
     x402Info: createX402InfoTool(client),
-    createAgenticWallet: createCreateAgenticWalletTool(client),
-    fundAgenticWallet: createFundAgenticWalletTool(client),
-    agenticWalletBalance: createAgenticWalletBalanceTool(client),
-    listAgenticWallets: createListAgenticWalletsTool(client),
-    agenticTransactions: createAgenticTransactionsTool(client),
-    freezeAgenticWallet: createFreezeAgenticWalletTool(client),
-    unfreezeAgenticWallet: createUnfreezeAgenticWalletTool(client),
-    deleteAgenticWallet: createDeleteAgenticWalletTool(client),
-    updateWalletPolicy: createUpdateWalletPolicyTool(client),
+    createAgenticWallet: createCreateAgenticWalletTool(client, agentSecret),
+    fundAgenticWallet: createFundAgenticWalletTool(client, agentSecret),
+    agenticWalletBalance: createAgenticWalletBalanceTool(client, agentSecret),
+    listAgenticWallets: createListAgenticWalletsTool(client, agentSecret),
+    agenticTransactions: createAgenticTransactionsTool(client, agentSecret),
+    freezeAgenticWallet: createFreezeAgenticWalletTool(client, agentSecret),
+    unfreezeAgenticWallet: createUnfreezeAgenticWalletTool(client, agentSecret),
+    deleteAgenticWallet: createDeleteAgenticWalletTool(client, agentSecret),
+    updateWalletPolicy: createUpdateWalletPolicyTool(client, agentSecret),
   };
 }
 
@@ -166,14 +176,18 @@ export async function createDominusNodeTools(
  *
  * @param client - An already-authenticated DominusNodeClient.
  * @param apiKey - The API key (needed for building proxy URLs).
+ * @param agentSecret - Optional agent secret for MCP agent auto-verification.
  */
 export function createDominusNodeToolsFromClient(
   client: DominusNodeClient,
   apiKey: string,
+  agentSecret?: string,
 ): DominusNodeTools {
   if (!apiKey || typeof apiKey !== "string") {
     throw new Error("apiKey is required and must be a non-empty string");
   }
+
+  const resolvedAgentSecret = agentSecret || process.env.DOMINUSNODE_AGENT_SECRET;
 
   return {
     proxiedFetch: createProxiedFetchTool(client, apiKey),
@@ -185,14 +199,14 @@ export function createDominusNodeToolsFromClient(
     topupStripe: createTopupStripeTool(client),
     topupCrypto: createTopupCryptoTool(client),
     x402Info: createX402InfoTool(client),
-    createAgenticWallet: createCreateAgenticWalletTool(client),
-    fundAgenticWallet: createFundAgenticWalletTool(client),
-    agenticWalletBalance: createAgenticWalletBalanceTool(client),
-    listAgenticWallets: createListAgenticWalletsTool(client),
-    agenticTransactions: createAgenticTransactionsTool(client),
-    freezeAgenticWallet: createFreezeAgenticWalletTool(client),
-    unfreezeAgenticWallet: createUnfreezeAgenticWalletTool(client),
-    deleteAgenticWallet: createDeleteAgenticWalletTool(client),
-    updateWalletPolicy: createUpdateWalletPolicyTool(client),
+    createAgenticWallet: createCreateAgenticWalletTool(client, resolvedAgentSecret),
+    fundAgenticWallet: createFundAgenticWalletTool(client, resolvedAgentSecret),
+    agenticWalletBalance: createAgenticWalletBalanceTool(client, resolvedAgentSecret),
+    listAgenticWallets: createListAgenticWalletsTool(client, resolvedAgentSecret),
+    agenticTransactions: createAgenticTransactionsTool(client, resolvedAgentSecret),
+    freezeAgenticWallet: createFreezeAgenticWalletTool(client, resolvedAgentSecret),
+    unfreezeAgenticWallet: createUnfreezeAgenticWalletTool(client, resolvedAgentSecret),
+    deleteAgenticWallet: createDeleteAgenticWalletTool(client, resolvedAgentSecret),
+    updateWalletPolicy: createUpdateWalletPolicyTool(client, resolvedAgentSecret),
   };
 }

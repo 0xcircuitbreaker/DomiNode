@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import ipaddress
 import math
+import os
 import re
 import socket
 from typing import Any, Optional, Type
@@ -1040,6 +1041,7 @@ def _api_request_sync(
     method: str,
     path: str,
     body: Optional[dict] = None,
+    agent_secret: Optional[str] = None,
 ) -> dict:
     """Make a synchronous authenticated REST API request.
 
@@ -1049,8 +1051,11 @@ def _api_request_sync(
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
-        "X-DominusNode-Agent": "mcp",
     }
+    secret = agent_secret or os.environ.get("DOMINUSNODE_AGENT_SECRET")
+    if secret:
+        headers["X-DominusNode-Agent"] = "mcp"
+        headers["X-DominusNode-Agent-Secret"] = secret
     with httpx.Client(timeout=30.0, follow_redirects=False, max_redirects=0) as client:
         resp = client.request(method, url, headers=headers, json=body)
     if len(resp.content) > _MAX_RESPONSE_BODY_BYTES:
@@ -1068,6 +1073,7 @@ async def _api_request_async(
     method: str,
     path: str,
     body: Optional[dict] = None,
+    agent_secret: Optional[str] = None,
 ) -> dict:
     """Make an asynchronous authenticated REST API request.
 
@@ -1077,8 +1083,11 @@ async def _api_request_async(
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
-        "X-DominusNode-Agent": "mcp",
     }
+    secret = agent_secret or os.environ.get("DOMINUSNODE_AGENT_SECRET")
+    if secret:
+        headers["X-DominusNode-Agent"] = "mcp"
+        headers["X-DominusNode-Agent-Secret"] = secret
     async with httpx.AsyncClient(timeout=30.0, follow_redirects=False, max_redirects=0) as client:
         resp = await client.request(method, url, headers=headers, json=body)
     if len(resp.content) > _MAX_RESPONSE_BODY_BYTES:
@@ -1172,6 +1181,7 @@ class DominusNodeCreateAgenticWalletTool(BaseTool):
 
     api_key: Optional[str] = None
     base_url: Optional[str] = None
+    agent_secret: Optional[str] = None
 
     model_config = {"arbitrary_types_allowed": True}
 
@@ -1213,7 +1223,7 @@ class DominusNodeCreateAgenticWalletTool(BaseTool):
             body["allowedDomains"] = allowed_domains
 
         try:
-            data = _api_request_sync(self.base_url, self.api_key, "POST", "/api/agent-wallet", body)
+            data = _api_request_sync(self.base_url, self.api_key, "POST", "/api/agent-wallet", body, agent_secret=self.agent_secret)
             w = data.get("wallet", data)
             return (
                 f"Agentic Wallet Created\n"
@@ -1264,7 +1274,7 @@ class DominusNodeCreateAgenticWalletTool(BaseTool):
             body["allowedDomains"] = allowed_domains
 
         try:
-            data = await _api_request_async(self.base_url, self.api_key, "POST", "/api/agent-wallet", body)
+            data = await _api_request_async(self.base_url, self.api_key, "POST", "/api/agent-wallet", body, agent_secret=self.agent_secret)
             w = data.get("wallet", data)
             return (
                 f"Agentic Wallet Created\n"
@@ -1290,6 +1300,7 @@ class DominusNodeFundAgenticWalletTool(BaseTool):
 
     api_key: Optional[str] = None
     base_url: Optional[str] = None
+    agent_secret: Optional[str] = None
 
     model_config = {"arbitrary_types_allowed": True}
 
@@ -1315,6 +1326,7 @@ class DominusNodeFundAgenticWalletTool(BaseTool):
                 self.base_url, self.api_key, "POST",
                 f"/api/agent-wallet/{quote(wallet_id, safe='')}/fund",
                 {"amountCents": amount_cents},
+                agent_secret=self.agent_secret,
             )
             w = data.get("wallet", data)
             return (
@@ -1348,6 +1360,7 @@ class DominusNodeFundAgenticWalletTool(BaseTool):
                 self.base_url, self.api_key, "POST",
                 f"/api/agent-wallet/{quote(wallet_id, safe='')}/fund",
                 {"amountCents": amount_cents},
+                agent_secret=self.agent_secret,
             )
             w = data.get("wallet", data)
             return (
@@ -1372,6 +1385,7 @@ class DominusNodeAgenticWalletBalanceTool(BaseTool):
 
     api_key: Optional[str] = None
     base_url: Optional[str] = None
+    agent_secret: Optional[str] = None
 
     model_config = {"arbitrary_types_allowed": True}
 
@@ -1391,6 +1405,7 @@ class DominusNodeAgenticWalletBalanceTool(BaseTool):
             data = _api_request_sync(
                 self.base_url, self.api_key, "GET",
                 f"/api/agent-wallet/{quote(wallet_id, safe='')}",
+                agent_secret=self.agent_secret,
             )
             w = data.get("wallet", data)
             return (
@@ -1421,6 +1436,7 @@ class DominusNodeAgenticWalletBalanceTool(BaseTool):
             data = await _api_request_async(
                 self.base_url, self.api_key, "GET",
                 f"/api/agent-wallet/{quote(wallet_id, safe='')}",
+                agent_secret=self.agent_secret,
             )
             w = data.get("wallet", data)
             return (
@@ -1447,6 +1463,7 @@ class DominusNodeListAgenticWalletsTool(BaseTool):
 
     api_key: Optional[str] = None
     base_url: Optional[str] = None
+    agent_secret: Optional[str] = None
 
     model_config = {"arbitrary_types_allowed": True}
 
@@ -1460,6 +1477,7 @@ class DominusNodeListAgenticWalletsTool(BaseTool):
         try:
             data = _api_request_sync(
                 self.base_url, self.api_key, "GET", "/api/agent-wallet",
+                agent_secret=self.agent_secret,
             )
             wallets = data.get("wallets", [])
             if not wallets:
@@ -1487,6 +1505,7 @@ class DominusNodeListAgenticWalletsTool(BaseTool):
         try:
             data = await _api_request_async(
                 self.base_url, self.api_key, "GET", "/api/agent-wallet",
+                agent_secret=self.agent_secret,
             )
             wallets = data.get("wallets", [])
             if not wallets:
@@ -1517,6 +1536,7 @@ class DominusNodeAgenticTransactionsTool(BaseTool):
 
     api_key: Optional[str] = None
     base_url: Optional[str] = None
+    agent_secret: Optional[str] = None
 
     model_config = {"arbitrary_types_allowed": True}
 
@@ -1543,7 +1563,7 @@ class DominusNodeAgenticTransactionsTool(BaseTool):
             path += f"?limit={limit}"
 
         try:
-            data = _api_request_sync(self.base_url, self.api_key, "GET", path)
+            data = _api_request_sync(self.base_url, self.api_key, "GET", path, agent_secret=self.agent_secret)
             txns = data.get("transactions", [])
             if not txns:
                 return f"No transactions found for wallet {wallet_id}."
@@ -1582,7 +1602,7 @@ class DominusNodeAgenticTransactionsTool(BaseTool):
             path += f"?limit={limit}"
 
         try:
-            data = await _api_request_async(self.base_url, self.api_key, "GET", path)
+            data = await _api_request_async(self.base_url, self.api_key, "GET", path, agent_secret=self.agent_secret)
             txns = data.get("transactions", [])
             if not txns:
                 return f"No transactions found for wallet {wallet_id}."
@@ -1611,6 +1631,7 @@ class DominusNodeFreezeAgenticWalletTool(BaseTool):
 
     api_key: Optional[str] = None
     base_url: Optional[str] = None
+    agent_secret: Optional[str] = None
 
     model_config = {"arbitrary_types_allowed": True}
 
@@ -1630,6 +1651,7 @@ class DominusNodeFreezeAgenticWalletTool(BaseTool):
             data = _api_request_sync(
                 self.base_url, self.api_key, "POST",
                 f"/api/agent-wallet/{quote(wallet_id, safe='')}/freeze",
+                agent_secret=self.agent_secret,
             )
             w = data.get("wallet", data)
             return (
@@ -1656,6 +1678,7 @@ class DominusNodeFreezeAgenticWalletTool(BaseTool):
             data = await _api_request_async(
                 self.base_url, self.api_key, "POST",
                 f"/api/agent-wallet/{quote(wallet_id, safe='')}/freeze",
+                agent_secret=self.agent_secret,
             )
             w = data.get("wallet", data)
             return (
@@ -1679,6 +1702,7 @@ class DominusNodeUnfreezeAgenticWalletTool(BaseTool):
 
     api_key: Optional[str] = None
     base_url: Optional[str] = None
+    agent_secret: Optional[str] = None
 
     model_config = {"arbitrary_types_allowed": True}
 
@@ -1698,6 +1722,7 @@ class DominusNodeUnfreezeAgenticWalletTool(BaseTool):
             data = _api_request_sync(
                 self.base_url, self.api_key, "POST",
                 f"/api/agent-wallet/{quote(wallet_id, safe='')}/unfreeze",
+                agent_secret=self.agent_secret,
             )
             w = data.get("wallet", data)
             return (
@@ -1724,6 +1749,7 @@ class DominusNodeUnfreezeAgenticWalletTool(BaseTool):
             data = await _api_request_async(
                 self.base_url, self.api_key, "POST",
                 f"/api/agent-wallet/{quote(wallet_id, safe='')}/unfreeze",
+                agent_secret=self.agent_secret,
             )
             w = data.get("wallet", data)
             return (
@@ -1747,6 +1773,7 @@ class DominusNodeDeleteAgenticWalletTool(BaseTool):
 
     api_key: Optional[str] = None
     base_url: Optional[str] = None
+    agent_secret: Optional[str] = None
 
     model_config = {"arbitrary_types_allowed": True}
 
@@ -1766,6 +1793,7 @@ class DominusNodeDeleteAgenticWalletTool(BaseTool):
             data = _api_request_sync(
                 self.base_url, self.api_key, "DELETE",
                 f"/api/agent-wallet/{quote(wallet_id, safe='')}",
+                agent_secret=self.agent_secret,
             )
             return (
                 f"Agentic Wallet Deleted\n"
@@ -1791,6 +1819,7 @@ class DominusNodeDeleteAgenticWalletTool(BaseTool):
             data = await _api_request_async(
                 self.base_url, self.api_key, "DELETE",
                 f"/api/agent-wallet/{quote(wallet_id, safe='')}",
+                agent_secret=self.agent_secret,
             )
             return (
                 f"Agentic Wallet Deleted\n"
@@ -1814,6 +1843,7 @@ class DominusNodeUpdateWalletPolicyTool(BaseTool):
 
     api_key: Optional[str] = None
     base_url: Optional[str] = None
+    agent_secret: Optional[str] = None
 
     model_config = {"arbitrary_types_allowed": True}
 
@@ -1852,6 +1882,7 @@ class DominusNodeUpdateWalletPolicyTool(BaseTool):
                 self.base_url, self.api_key, "PATCH",
                 f"/api/agent-wallet/{quote(wallet_id, safe='')}/policy",
                 body,
+                agent_secret=self.agent_secret,
             )
             w = data.get("wallet", data)
             return (
@@ -1898,6 +1929,7 @@ class DominusNodeUpdateWalletPolicyTool(BaseTool):
                 self.base_url, self.api_key, "PATCH",
                 f"/api/agent-wallet/{quote(wallet_id, safe='')}/policy",
                 body,
+                agent_secret=self.agent_secret,
             )
             w = data.get("wallet", data)
             return (

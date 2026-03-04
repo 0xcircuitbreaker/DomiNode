@@ -79,6 +79,7 @@ class DominusNodeToolSpec(BaseToolSpec):
         base_url: Optional[str] = None,
         proxy_host: Optional[str] = None,
         proxy_port: Optional[int] = None,
+        agent_secret: Optional[str] = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
@@ -87,6 +88,7 @@ class DominusNodeToolSpec(BaseToolSpec):
             base_url=base_url,
             proxy_host=proxy_host,
             proxy_port=proxy_port,
+            agent_secret=agent_secret,
         )
 
     # ----- Proxy tools -----------------------------------------------------

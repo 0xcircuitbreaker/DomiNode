@@ -21,14 +21,16 @@ type httpClient struct {
 	baseURL      string
 	client       *http.Client
 	tokenManager *tokenManager
+	agentSecret  string
 }
 
 // newHTTPClient creates a new httpClient with the given configuration.
-func newHTTPClient(baseURL string, tm *tokenManager, client *http.Client) *httpClient {
+func newHTTPClient(baseURL string, tm *tokenManager, client *http.Client, agentSecret string) *httpClient {
 	return &httpClient{
 		baseURL:      baseURL,
 		client:       client,
 		tokenManager: tm,
+		agentSecret:  agentSecret,
 	}
 }
 
@@ -195,6 +197,11 @@ func (hc *httpClient) executeRequest(ctx context.Context, opts requestOptions) (
 	req.Header.Set("User-Agent", UserAgent)
 	if opts.Body != nil {
 		req.Header.Set("Content-Type", "application/json")
+	}
+
+	if hc.agentSecret != "" {
+		req.Header.Set("X-DominusNode-Agent", "mcp")
+		req.Header.Set("X-DominusNode-Agent-Secret", hc.agentSecret)
 	}
 
 	if opts.RequiresAuth {

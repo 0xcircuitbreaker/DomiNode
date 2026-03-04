@@ -35,5 +35,14 @@ export class DominusNodeApi implements ICredentialType {
       default: 8080,
       description: "Dominus Node proxy gateway port",
     },
+    {
+      displayName: "Agent Secret",
+      name: "agentSecret",
+      type: "string",
+      typeOptions: { password: true },
+      default: "",
+      description:
+        "Optional agent secret for AI/MCP captcha bypass. When set, injects X-DominusNode-Agent and X-DominusNode-Agent-Secret headers.",
+    },
   ];
 }

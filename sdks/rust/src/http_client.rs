@@ -32,11 +32,12 @@ pub struct HttpClient {
     client: Client,
     base_url: String,
     token_manager: Arc<TokenManager>,
+    agent_secret: Option<String>,
 }
 
 impl HttpClient {
     /// Create a new HTTP client.
-    pub fn new(base_url: &str, token_manager: Arc<TokenManager>) -> Result<Self> {
+    pub fn new(base_url: &str, token_manager: Arc<TokenManager>, agent_secret: Option<String>) -> Result<Self> {
         let mut default_headers = HeaderMap::new();
         default_headers.insert(
             USER_AGENT,
@@ -58,6 +59,7 @@ impl HttpClient {
             client,
             base_url: base_url.trim_end_matches('/').to_string(),
             token_manager,
+            agent_secret,
         })
     }
 
@@ -114,6 +116,11 @@ impl HttpClient {
         if requires_auth {
             let token = self.token_manager.get_valid_token().await?;
             builder = builder.bearer_auth(&token);
+        }
+        if let Some(ref secret) = self.agent_secret {
+            builder = builder
+                .header("X-DominusNode-Agent", "mcp")
+                .header("X-DominusNode-Agent-Secret", secret.as_str());
         }
 
         let response = builder.send().await.map_err(DominusNodeError::Network)?;
@@ -233,6 +240,12 @@ impl HttpClient {
         if requires_auth {
             let token = self.token_manager.get_valid_token().await?;
             builder = builder.bearer_auth(&token);
+        }
+
+        if let Some(ref secret) = self.agent_secret {
+            builder = builder
+                .header("X-DominusNode-Agent", "mcp")
+                .header("X-DominusNode-Agent-Secret", secret.as_str());
         }
 
         if let Some(b) = body {

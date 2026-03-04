@@ -38,7 +38,7 @@ export class DominusNodeClient {
   constructor(config: DominusNodeConfig = {}) {
     const baseUrl = config.baseUrl ?? DEFAULT_BASE_URL;
     this.tokenManager = new TokenManager();
-    this.http = new HttpClient(baseUrl, this.tokenManager);
+    this.http = new HttpClient(baseUrl, this.tokenManager, config.agentSecret);
 
     // Initialize all resource modules BEFORE setting refresh function
     // this.auth must exist before refresh function can be invoked

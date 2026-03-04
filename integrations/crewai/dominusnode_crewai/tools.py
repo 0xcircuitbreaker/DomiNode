@@ -283,6 +283,7 @@ def _make_client(
     api_key: Optional[str] = None,
     base_url: Optional[str] = None,
     proxy_host: Optional[str] = None,
+    agent_secret: Optional[str] = None,
 ) -> DominusNodeClient:
     """Create and authenticate a ``DominusNodeClient``.
 
@@ -298,8 +299,9 @@ def _make_client(
 
     url = base_url or os.environ.get("DOMINUSNODE_BASE_URL", "https://api.dominusnode.com")
     host = proxy_host or os.environ.get("DOMINUSNODE_PROXY_HOST", "proxy.dominusnode.com")
+    secret = agent_secret or os.environ.get("DOMINUSNODE_AGENT_SECRET")
 
-    client = DominusNodeClient(base_url=url, api_key=key, proxy_host=host)
+    client = DominusNodeClient(base_url=url, api_key=key, proxy_host=host, agent_secret=secret)
     return client
 
 
@@ -329,6 +331,7 @@ class DominusNodeWebScrapeTool(BaseTool):
     api_key: Optional[str] = Field(default=None, exclude=True)
     base_url: Optional[str] = Field(default=None, exclude=True)
     proxy_host: Optional[str] = Field(default=None, exclude=True)
+    agent_secret: Optional[str] = Field(default=None, exclude=True)
 
     _max_body_chars: int = 4000
 
@@ -359,6 +362,7 @@ class DominusNodeWebScrapeTool(BaseTool):
                 api_key=self.api_key,
                 base_url=self.base_url,
                 proxy_host=self.proxy_host,
+                agent_secret=self.agent_secret,
             )
 
             # Build proxy URL via SDK
@@ -431,6 +435,7 @@ class DominusNodeBalanceTool(BaseTool):
     api_key: Optional[str] = Field(default=None, exclude=True)
     base_url: Optional[str] = Field(default=None, exclude=True)
     proxy_host: Optional[str] = Field(default=None, exclude=True)
+    agent_secret: Optional[str] = Field(default=None, exclude=True)
 
     def _run(self, **kwargs: Any) -> str:
         client: Optional[DominusNodeClient] = None
@@ -439,6 +444,7 @@ class DominusNodeBalanceTool(BaseTool):
                 api_key=self.api_key,
                 base_url=self.base_url,
                 proxy_host=self.proxy_host,
+                agent_secret=self.agent_secret,
             )
 
             wallet = client.wallet.get_balance()
@@ -494,6 +500,7 @@ class DominusNodeGeoTargetTool(BaseTool):
     api_key: Optional[str] = Field(default=None, exclude=True)
     base_url: Optional[str] = Field(default=None, exclude=True)
     proxy_host: Optional[str] = Field(default=None, exclude=True)
+    agent_secret: Optional[str] = Field(default=None, exclude=True)
 
     def _run(self, **kwargs: Any) -> str:
         client: Optional[DominusNodeClient] = None
@@ -502,6 +509,7 @@ class DominusNodeGeoTargetTool(BaseTool):
                 api_key=self.api_key,
                 base_url=self.base_url,
                 proxy_host=self.proxy_host,
+                agent_secret=self.agent_secret,
             )
 
             config = client.proxy.get_config()
@@ -584,6 +592,7 @@ class DominusNodeX402InfoTool(BaseTool):
     api_key: Optional[str] = Field(default=None, exclude=True)
     base_url: Optional[str] = Field(default=None, exclude=True)
     proxy_host: Optional[str] = Field(default=None, exclude=True)
+    agent_secret: Optional[str] = Field(default=None, exclude=True)
 
     def _run(self, **kwargs: Any) -> str:
         client: Optional[DominusNodeClient] = None
@@ -592,6 +601,7 @@ class DominusNodeX402InfoTool(BaseTool):
                 api_key=self.api_key,
                 base_url=self.base_url,
                 proxy_host=self.proxy_host,
+                agent_secret=self.agent_secret,
             )
 
             info = client.x402.get_info()
@@ -642,6 +652,7 @@ class DominusNodeTopupPaypalTool(BaseTool):
     api_key: Optional[str] = Field(default=None, exclude=True)
     base_url: Optional[str] = Field(default=None, exclude=True)
     proxy_host: Optional[str] = Field(default=None, exclude=True)
+    agent_secret: Optional[str] = Field(default=None, exclude=True)
 
     def _run(self, amount_cents: int = 0, **kwargs: Any) -> str:
         if not isinstance(amount_cents, int) or amount_cents < 500 or amount_cents > 100000:
@@ -653,6 +664,7 @@ class DominusNodeTopupPaypalTool(BaseTool):
                 api_key=self.api_key,
                 base_url=self.base_url,
                 proxy_host=self.proxy_host,
+                agent_secret=self.agent_secret,
             )
 
             result = client.wallet.topup_paypal(amount_cents=amount_cents)
@@ -698,6 +710,7 @@ class DominusNodeTopupStripeTool(BaseTool):
     api_key: Optional[str] = Field(default=None, exclude=True)
     base_url: Optional[str] = Field(default=None, exclude=True)
     proxy_host: Optional[str] = Field(default=None, exclude=True)
+    agent_secret: Optional[str] = Field(default=None, exclude=True)
 
     def _run(self, amount_cents: int = 0, **kwargs: Any) -> str:
         if not isinstance(amount_cents, int) or amount_cents < 500 or amount_cents > 100000:
@@ -709,6 +722,7 @@ class DominusNodeTopupStripeTool(BaseTool):
                 api_key=self.api_key,
                 base_url=self.base_url,
                 proxy_host=self.proxy_host,
+                agent_secret=self.agent_secret,
             )
 
             result = client.wallet.topup_stripe(amount_cents=amount_cents)
@@ -756,6 +770,7 @@ class DominusNodeTopupCryptoTool(BaseTool):
     api_key: Optional[str] = Field(default=None, exclude=True)
     base_url: Optional[str] = Field(default=None, exclude=True)
     proxy_host: Optional[str] = Field(default=None, exclude=True)
+    agent_secret: Optional[str] = Field(default=None, exclude=True)
 
     def _run(self, amount_usd: float = 0, currency: str = "", **kwargs: Any) -> str:
         if not isinstance(amount_usd, (int, float)) or isinstance(amount_usd, bool):
@@ -778,6 +793,7 @@ class DominusNodeTopupCryptoTool(BaseTool):
                 api_key=self.api_key,
                 base_url=self.base_url,
                 proxy_host=self.proxy_host,
+                agent_secret=self.agent_secret,
             )
 
             result = client.wallet.topup_crypto(
@@ -859,10 +875,15 @@ def _api_request_sync(
     method: str,
     path: str,
     body: Optional[dict] = None,
+    agent_secret: Optional[str] = None,
 ) -> dict:
     """Make an authenticated request to the Dominus Node REST API."""
     url = f"{base_url}{path}"
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+    secret = agent_secret or os.environ.get("DOMINUSNODE_AGENT_SECRET")
+    if secret:
+        headers["X-DominusNode-Agent"] = "mcp"
+        headers["X-DominusNode-Agent-Secret"] = secret
     with httpx.Client(timeout=30.0, follow_redirects=False, max_redirects=0) as client:
         if method == "GET":
             resp = client.get(url, headers=headers)
@@ -941,6 +962,7 @@ class DominusNodeCreateAgenticWalletTool(BaseTool):
 
     api_key: Optional[str] = Field(default=None, exclude=True)
     base_url: Optional[str] = Field(default=None, exclude=True)
+    agent_secret: Optional[str] = Field(default=None, exclude=True)
 
     def _run(
         self,
@@ -989,7 +1011,7 @@ class DominusNodeCreateAgenticWalletTool(BaseTool):
             body["allowedDomains"] = allowed_domains
 
         try:
-            result = _api_request_sync(url, key, "POST", "/api/agent-wallet", body)
+            result = _api_request_sync(url, key, "POST", "/api/agent-wallet", body, agent_secret=self.agent_secret)
             return (
                 f"Agentic Wallet Created\n"
                 f"  ID: {result.get('id', 'unknown')}\n"
@@ -1020,6 +1042,7 @@ class DominusNodeFundAgenticWalletTool(BaseTool):
 
     api_key: Optional[str] = Field(default=None, exclude=True)
     base_url: Optional[str] = Field(default=None, exclude=True)
+    agent_secret: Optional[str] = Field(default=None, exclude=True)
 
     def _run(self, wallet_id: str = "", amount_cents: int = 0, **kwargs: Any) -> str:
         err = _validate_wallet_id(wallet_id)
@@ -1043,6 +1066,7 @@ class DominusNodeFundAgenticWalletTool(BaseTool):
                 url, key, "POST",
                 f"/api/agent-wallet/{quote(wallet_id, safe='')}/fund",
                 {"amountCents": amount_cents},
+                agent_secret=self.agent_secret,
             )
             return (
                 f"Agentic Wallet Funded\n"
@@ -1073,6 +1097,7 @@ class DominusNodeAgenticWalletBalanceTool(BaseTool):
 
     api_key: Optional[str] = Field(default=None, exclude=True)
     base_url: Optional[str] = Field(default=None, exclude=True)
+    agent_secret: Optional[str] = Field(default=None, exclude=True)
 
     def _run(self, wallet_id: str = "", **kwargs: Any) -> str:
         err = _validate_wallet_id(wallet_id)
@@ -1085,7 +1110,7 @@ class DominusNodeAgenticWalletBalanceTool(BaseTool):
             return "Error: Dominus Node API key is required. Pass api_key= or set DOMINUSNODE_API_KEY."
 
         try:
-            result = _api_request_sync(url, key, "GET", f"/api/agent-wallet/{quote(wallet_id, safe='')}")
+            result = _api_request_sync(url, key, "GET", f"/api/agent-wallet/{quote(wallet_id, safe='')}", agent_secret=self.agent_secret)
             balance = result.get("balanceCents", 0)
             return (
                 f"Agentic Wallet: {result.get('label', 'unknown')}\n"
@@ -1116,6 +1141,7 @@ class DominusNodeListAgenticWalletsTool(BaseTool):
 
     api_key: Optional[str] = Field(default=None, exclude=True)
     base_url: Optional[str] = Field(default=None, exclude=True)
+    agent_secret: Optional[str] = Field(default=None, exclude=True)
 
     def _run(self, **kwargs: Any) -> str:
         key = self.api_key or os.environ.get("DOMINUSNODE_API_KEY", "")
@@ -1124,7 +1150,7 @@ class DominusNodeListAgenticWalletsTool(BaseTool):
             return "Error: Dominus Node API key is required. Pass api_key= or set DOMINUSNODE_API_KEY."
 
         try:
-            result = _api_request_sync(url, key, "GET", "/api/agent-wallet")
+            result = _api_request_sync(url, key, "GET", "/api/agent-wallet", agent_secret=self.agent_secret)
             wallets = result.get("wallets", result) if isinstance(result, dict) else result
             if isinstance(wallets, list):
                 if not wallets:
@@ -1161,6 +1187,7 @@ class DominusNodeAgenticTransactionsTool(BaseTool):
 
     api_key: Optional[str] = Field(default=None, exclude=True)
     base_url: Optional[str] = Field(default=None, exclude=True)
+    agent_secret: Optional[str] = Field(default=None, exclude=True)
 
     def _run(self, wallet_id: str = "", limit: Optional[int] = None, **kwargs: Any) -> str:
         err = _validate_wallet_id(wallet_id)
@@ -1181,6 +1208,7 @@ class DominusNodeAgenticTransactionsTool(BaseTool):
             result = _api_request_sync(
                 url, key, "GET",
                 f"/api/agent-wallet/{quote(wallet_id, safe='')}/transactions{qs}",
+                agent_secret=self.agent_secret,
             )
             txns = result.get("transactions", result) if isinstance(result, dict) else result
             if isinstance(txns, list):
@@ -1217,6 +1245,7 @@ class DominusNodeFreezeAgenticWalletTool(BaseTool):
 
     api_key: Optional[str] = Field(default=None, exclude=True)
     base_url: Optional[str] = Field(default=None, exclude=True)
+    agent_secret: Optional[str] = Field(default=None, exclude=True)
 
     def _run(self, wallet_id: str = "", **kwargs: Any) -> str:
         err = _validate_wallet_id(wallet_id)
@@ -1229,7 +1258,7 @@ class DominusNodeFreezeAgenticWalletTool(BaseTool):
             return "Error: Dominus Node API key is required. Pass api_key= or set DOMINUSNODE_API_KEY."
 
         try:
-            _api_request_sync(url, key, "POST", f"/api/agent-wallet/{quote(wallet_id, safe='')}/freeze")
+            _api_request_sync(url, key, "POST", f"/api/agent-wallet/{quote(wallet_id, safe='')}/freeze", agent_secret=self.agent_secret)
             return f"Agentic wallet {wallet_id} has been frozen."
         except httpx.HTTPStatusError as exc:
             return f"Error: API returned {exc.response.status_code} -- {_sanitize_error(exc.response.text[:200])}"
@@ -1254,6 +1283,7 @@ class DominusNodeUnfreezeAgenticWalletTool(BaseTool):
 
     api_key: Optional[str] = Field(default=None, exclude=True)
     base_url: Optional[str] = Field(default=None, exclude=True)
+    agent_secret: Optional[str] = Field(default=None, exclude=True)
 
     def _run(self, wallet_id: str = "", **kwargs: Any) -> str:
         err = _validate_wallet_id(wallet_id)
@@ -1266,7 +1296,7 @@ class DominusNodeUnfreezeAgenticWalletTool(BaseTool):
             return "Error: Dominus Node API key is required. Pass api_key= or set DOMINUSNODE_API_KEY."
 
         try:
-            _api_request_sync(url, key, "POST", f"/api/agent-wallet/{quote(wallet_id, safe='')}/unfreeze")
+            _api_request_sync(url, key, "POST", f"/api/agent-wallet/{quote(wallet_id, safe='')}/unfreeze", agent_secret=self.agent_secret)
             return f"Agentic wallet {wallet_id} has been unfrozen."
         except httpx.HTTPStatusError as exc:
             return f"Error: API returned {exc.response.status_code} -- {_sanitize_error(exc.response.text[:200])}"
@@ -1291,6 +1321,7 @@ class DominusNodeDeleteAgenticWalletTool(BaseTool):
 
     api_key: Optional[str] = Field(default=None, exclude=True)
     base_url: Optional[str] = Field(default=None, exclude=True)
+    agent_secret: Optional[str] = Field(default=None, exclude=True)
 
     def _run(self, wallet_id: str = "", **kwargs: Any) -> str:
         err = _validate_wallet_id(wallet_id)
@@ -1303,7 +1334,7 @@ class DominusNodeDeleteAgenticWalletTool(BaseTool):
             return "Error: Dominus Node API key is required. Pass api_key= or set DOMINUSNODE_API_KEY."
 
         try:
-            _api_request_sync(url, key, "DELETE", f"/api/agent-wallet/{quote(wallet_id, safe='')}")
+            _api_request_sync(url, key, "DELETE", f"/api/agent-wallet/{quote(wallet_id, safe='')}", agent_secret=self.agent_secret)
             return f"Agentic wallet {wallet_id} has been deleted."
         except httpx.HTTPStatusError as exc:
             return f"Error: API returned {exc.response.status_code} -- {_sanitize_error(exc.response.text[:200])}"
@@ -1329,6 +1360,7 @@ class DominusNodeUpdateWalletPolicyTool(BaseTool):
 
     api_key: Optional[str] = Field(default=None, exclude=True)
     base_url: Optional[str] = Field(default=None, exclude=True)
+    agent_secret: Optional[str] = Field(default=None, exclude=True)
 
     def _run(
         self,
@@ -1371,6 +1403,7 @@ class DominusNodeUpdateWalletPolicyTool(BaseTool):
                 url, key, "PATCH",
                 f"/api/agent-wallet/{quote(wallet_id, safe='')}/policy",
                 body,
+                agent_secret=self.agent_secret,
             )
             return (
                 f"Wallet Policy Updated\n"

@@ -17,12 +17,14 @@ Example::
 
 from __future__ import annotations
 
+import os
 from typing import Any, Dict
 
 
 def generate_mcp_config(
     base_url: str = "https://api.dominusnode.com",
     api_key: str = "",
+    agent_secret: str | None = None,
 ) -> Dict[str, Any]:
     """Generate an IronClaw-compatible MCP server connection configuration.
 
@@ -33,11 +35,22 @@ def generate_mcp_config(
     Args:
         base_url: Base URL of the Dominus Node API (default: production).
         api_key: Dominus Node API key (``dn_live_...`` or ``dn_test_...``).
+        agent_secret: Optional agent secret for MCP agent identification.
+            Falls back to ``DOMINUSNODE_AGENT_SECRET`` environment variable.
 
     Returns:
         A dictionary suitable for IronClaw's MCP bridge configuration.
     """
     base = base_url.rstrip("/")
+    secret = agent_secret or os.environ.get("DOMINUSNODE_AGENT_SECRET")
+
+    headers: Dict[str, str] = {
+        "X-API-Key": api_key,
+        "User-Agent": "dominusnode-ironclaw/1.0.0",
+    }
+    if secret:
+        headers["X-DominusNode-Agent"] = "mcp"
+        headers["X-DominusNode-Agent-Secret"] = secret
 
     return {
         "server": {
@@ -49,11 +62,7 @@ def generate_mcp_config(
             },
             "auth": {
                 "type": "custom",
-                "headers": {
-                    "X-API-Key": api_key,
-                    "X-DominusNode-Agent": "mcp",
-                    "User-Agent": "dominusnode-ironclaw/1.0.0",
-                },
+                "headers": headers,
             },
         },
         "capabilities": {

@@ -35,6 +35,7 @@ public final class HttpClient {
     private final TokenManager tokenManager;
     private final java.net.http.HttpClient httpClient;
     private final Duration timeout;
+    private final String agentSecret;
 
     /**
      * Create a new HTTP client.
@@ -42,12 +43,14 @@ public final class HttpClient {
      * @param baseUrl      the API base URL
      * @param tokenManager the token manager for authentication
      * @param timeout      request timeout duration
+     * @param agentSecret  optional agent secret for captcha bypass
      */
-    public HttpClient(String baseUrl, TokenManager tokenManager, Duration timeout) {
+    public HttpClient(String baseUrl, TokenManager tokenManager, Duration timeout, String agentSecret) {
         // Strip trailing slash from base URL
         this.baseUrl = baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl;
         this.tokenManager = tokenManager;
         this.timeout = timeout;
+        this.agentSecret = agentSecret;
         // Disable auto-redirects to prevent credential leakage via protocol downgrade
         this.httpClient = java.net.http.HttpClient.newBuilder()
                 .connectTimeout(timeout)
@@ -259,6 +262,11 @@ public final class HttpClient {
                 .header("User-Agent", USER_AGENT)
                 .header("Content-Type", "application/json")
                 .header("Accept", "application/json");
+
+        if (agentSecret != null && !agentSecret.isEmpty()) {
+            builder.header("X-DominusNode-Agent", "mcp");
+            builder.header("X-DominusNode-Agent-Secret", agentSecret);
+        }
 
         if (requiresAuth) {
             String token = tokenManager.getValidToken();

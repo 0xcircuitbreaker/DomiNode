@@ -120,7 +120,7 @@ func NewClient(cfg Config) *Client {
 	}
 
 	tm := newTokenManager()
-	hc := newHTTPClient(cfg.BaseURL, tm, httpCl)
+	hc := newHTTPClient(cfg.BaseURL, tm, httpCl, cfg.AgentSecret)
 
 	c := &Client{
 		httpClient:   hc,
@@ -212,4 +212,5 @@ func (c *Client) Disconnect() {
 	c.config.RefreshToken = ""
 	c.config.Email = ""
 	c.config.Password = ""
+	c.config.AgentSecret = ""
 }

@@ -704,6 +704,7 @@ async function apiRequest(
   method: "GET" | "POST" | "DELETE" | "PATCH",
   path: string,
   body?: Record<string, unknown>,
+  agentSecret?: string,
 ): Promise<Record<string, unknown>> {
   // Use client's baseUrl and apiKey for authentication
   const baseUrl = (client as any).baseUrl || "https://api.dominusnode.com";
@@ -713,6 +714,10 @@ async function apiRequest(
     "Authorization": `Bearer ${apiKey}`,
     "Content-Type": "application/json",
   };
+  if (agentSecret) {
+    headers["X-DominusNode-Agent"] = "mcp";
+    headers["X-DominusNode-Agent-Secret"] = agentSecret;
+  }
 
   const fetchOptions: RequestInit = { method, headers, redirect: "error" };
   if (body && method !== "GET") {
@@ -742,7 +747,7 @@ async function apiRequest(
 /**
  * Creates a tool to create a new agentic sub-wallet with a spending limit.
  */
-export function createCreateAgenticWalletTool(client: DominusNodeClient) {
+export function createCreateAgenticWalletTool(client: DominusNodeClient, agentSecret?: string) {
   return (tool as any)({
     description:
       "Create a new agentic sub-wallet with a spending limit. " +
@@ -764,7 +769,7 @@ export function createCreateAgenticWalletTool(client: DominusNodeClient) {
         const body: Record<string, unknown> = { label, spendingLimitCents: spending_limit_cents };
         if (daily_limit_cents !== undefined) body.dailyLimitCents = daily_limit_cents;
         if (allowed_domains !== undefined) body.allowedDomains = allowed_domains;
-        const result = await apiRequest(client, "POST", "/api/agent-wallet", body);
+        const result = await apiRequest(client, "POST", "/api/agent-wallet", body, agentSecret);
         return result;
       } catch (err) {
         return { error: `Failed to create agentic wallet: ${sanitizeError(err instanceof Error ? err.message : "Unknown error")}` };
@@ -776,7 +781,7 @@ export function createCreateAgenticWalletTool(client: DominusNodeClient) {
 /**
  * Creates a tool to transfer funds from the main wallet to an agentic sub-wallet.
  */
-export function createFundAgenticWalletTool(client: DominusNodeClient) {
+export function createFundAgenticWalletTool(client: DominusNodeClient, agentSecret?: string) {
   return (tool as any)({
     description: "Transfer funds from the main wallet to an agentic sub-wallet.",
     parameters: z.object({
@@ -785,7 +790,7 @@ export function createFundAgenticWalletTool(client: DominusNodeClient) {
     }),
     execute: async ({ wallet_id, amount_cents }: { wallet_id: string; amount_cents: number }) => {
       try {
-        return await apiRequest(client, "POST", `/api/agent-wallet/${encodeURIComponent(wallet_id)}/fund`, { amountCents: amount_cents });
+        return await apiRequest(client, "POST", `/api/agent-wallet/${encodeURIComponent(wallet_id)}/fund`, { amountCents: amount_cents }, agentSecret);
       } catch (err) {
         return { error: `Failed to fund wallet: ${sanitizeError(err instanceof Error ? err.message : "Unknown error")}` };
       }
@@ -796,7 +801,7 @@ export function createFundAgenticWalletTool(client: DominusNodeClient) {
 /**
  * Creates a tool to check the balance and details of an agentic sub-wallet.
  */
-export function createAgenticWalletBalanceTool(client: DominusNodeClient) {
+export function createAgenticWalletBalanceTool(client: DominusNodeClient, agentSecret?: string) {
   return (tool as any)({
     description: "Check the balance and details of an agentic sub-wallet.",
     parameters: z.object({
@@ -804,7 +809,7 @@ export function createAgenticWalletBalanceTool(client: DominusNodeClient) {
     }),
     execute: async ({ wallet_id }: { wallet_id: string }) => {
       try {
-        return await apiRequest(client, "GET", `/api/agent-wallet/${encodeURIComponent(wallet_id)}`);
+        return await apiRequest(client, "GET", `/api/agent-wallet/${encodeURIComponent(wallet_id)}`, undefined, agentSecret);
       } catch (err) {
         return { error: `Failed to get wallet balance: ${sanitizeError(err instanceof Error ? err.message : "Unknown error")}` };
       }
@@ -815,13 +820,13 @@ export function createAgenticWalletBalanceTool(client: DominusNodeClient) {
 /**
  * Creates a tool to list all agentic sub-wallets for the current user.
  */
-export function createListAgenticWalletsTool(client: DominusNodeClient) {
+export function createListAgenticWalletsTool(client: DominusNodeClient, agentSecret?: string) {
   return (tool as any)({
     description: "List all agentic sub-wallets for the current user.",
     parameters: z.object({}),
     execute: async () => {
       try {
-        return await apiRequest(client, "GET", "/api/agent-wallet");
+        return await apiRequest(client, "GET", "/api/agent-wallet", undefined, agentSecret);
       } catch (err) {
         return { error: `Failed to list wallets: ${sanitizeError(err instanceof Error ? err.message : "Unknown error")}` };
       }
@@ -832,7 +837,7 @@ export function createListAgenticWalletsTool(client: DominusNodeClient) {
 /**
  * Creates a tool to list recent transactions for an agentic sub-wallet.
  */
-export function createAgenticTransactionsTool(client: DominusNodeClient) {
+export function createAgenticTransactionsTool(client: DominusNodeClient, agentSecret?: string) {
   return (tool as any)({
     description: "List recent transactions for an agentic sub-wallet.",
     parameters: z.object({
@@ -842,7 +847,7 @@ export function createAgenticTransactionsTool(client: DominusNodeClient) {
     execute: async ({ wallet_id, limit }: { wallet_id: string; limit?: number }) => {
       try {
         const qs = limit ? `?limit=${limit}` : "";
-        return await apiRequest(client, "GET", `/api/agent-wallet/${encodeURIComponent(wallet_id)}/transactions${qs}`);
+        return await apiRequest(client, "GET", `/api/agent-wallet/${encodeURIComponent(wallet_id)}/transactions${qs}`, undefined, agentSecret);
       } catch (err) {
         return { error: `Failed to get transactions: ${sanitizeError(err instanceof Error ? err.message : "Unknown error")}` };
       }
@@ -853,7 +858,7 @@ export function createAgenticTransactionsTool(client: DominusNodeClient) {
 /**
  * Creates a tool to freeze an agentic sub-wallet to prevent further spending.
  */
-export function createFreezeAgenticWalletTool(client: DominusNodeClient) {
+export function createFreezeAgenticWalletTool(client: DominusNodeClient, agentSecret?: string) {
   return (tool as any)({
     description: "Freeze an agentic sub-wallet to prevent further spending.",
     parameters: z.object({
@@ -861,7 +866,7 @@ export function createFreezeAgenticWalletTool(client: DominusNodeClient) {
     }),
     execute: async ({ wallet_id }: { wallet_id: string }) => {
       try {
-        return await apiRequest(client, "POST", `/api/agent-wallet/${encodeURIComponent(wallet_id)}/freeze`);
+        return await apiRequest(client, "POST", `/api/agent-wallet/${encodeURIComponent(wallet_id)}/freeze`, undefined, agentSecret);
       } catch (err) {
         return { error: `Failed to freeze wallet: ${sanitizeError(err instanceof Error ? err.message : "Unknown error")}` };
       }
@@ -872,7 +877,7 @@ export function createFreezeAgenticWalletTool(client: DominusNodeClient) {
 /**
  * Creates a tool to unfreeze a previously frozen agentic sub-wallet.
  */
-export function createUnfreezeAgenticWalletTool(client: DominusNodeClient) {
+export function createUnfreezeAgenticWalletTool(client: DominusNodeClient, agentSecret?: string) {
   return (tool as any)({
     description: "Unfreeze a previously frozen agentic sub-wallet to re-enable spending.",
     parameters: z.object({
@@ -880,7 +885,7 @@ export function createUnfreezeAgenticWalletTool(client: DominusNodeClient) {
     }),
     execute: async ({ wallet_id }: { wallet_id: string }) => {
       try {
-        return await apiRequest(client, "POST", `/api/agent-wallet/${encodeURIComponent(wallet_id)}/unfreeze`);
+        return await apiRequest(client, "POST", `/api/agent-wallet/${encodeURIComponent(wallet_id)}/unfreeze`, undefined, agentSecret);
       } catch (err) {
         return { error: `Failed to unfreeze wallet: ${sanitizeError(err instanceof Error ? err.message : "Unknown error")}` };
       }
@@ -892,7 +897,7 @@ export function createUnfreezeAgenticWalletTool(client: DominusNodeClient) {
  * Creates a tool to delete an agentic sub-wallet. Must be active (not frozen).
  * Remaining balance returns to main wallet.
  */
-export function createDeleteAgenticWalletTool(client: DominusNodeClient) {
+export function createDeleteAgenticWalletTool(client: DominusNodeClient, agentSecret?: string) {
   return (tool as any)({
     description: "Delete an agentic sub-wallet. Must be active (not frozen). Remaining balance returns to main wallet.",
     parameters: z.object({
@@ -900,7 +905,7 @@ export function createDeleteAgenticWalletTool(client: DominusNodeClient) {
     }),
     execute: async ({ wallet_id }: { wallet_id: string }) => {
       try {
-        return await apiRequest(client, "DELETE", `/api/agent-wallet/${encodeURIComponent(wallet_id)}`);
+        return await apiRequest(client, "DELETE", `/api/agent-wallet/${encodeURIComponent(wallet_id)}`, undefined, agentSecret);
       } catch (err) {
         return { error: `Failed to delete wallet: ${sanitizeError(err instanceof Error ? err.message : "Unknown error")}` };
       }
@@ -911,7 +916,7 @@ export function createDeleteAgenticWalletTool(client: DominusNodeClient) {
 /**
  * Creates a tool to update the policy (daily limit, allowed domains) of an agentic sub-wallet.
  */
-export function createUpdateWalletPolicyTool(client: DominusNodeClient) {
+export function createUpdateWalletPolicyTool(client: DominusNodeClient, agentSecret?: string) {
   return (tool as any)({
     description: "Update the policy (daily limit, allowed domains) of an agentic sub-wallet.",
     parameters: z.object({
@@ -929,7 +934,7 @@ export function createUpdateWalletPolicyTool(client: DominusNodeClient) {
         return { error: "At least one of daily_limit_cents or allowed_domains must be provided" };
       }
       try {
-        return await apiRequest(client, "PATCH", `/api/agent-wallet/${encodeURIComponent(wallet_id)}/policy`, body);
+        return await apiRequest(client, "PATCH", `/api/agent-wallet/${encodeURIComponent(wallet_id)}/policy`, body, agentSecret);
       } catch (err) {
         return { error: `Failed to update policy: ${sanitizeError(err instanceof Error ? err.message : "Unknown error")}` };
       }

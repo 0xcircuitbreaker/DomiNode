@@ -37,6 +37,7 @@ public final class Config {
     private final int httpProxyPort;
     private final int socks5ProxyPort;
     private final Duration timeout;
+    private final String agentSecret;
 
     private Config(Builder builder) {
         this.baseUrl = builder.baseUrl;
@@ -49,6 +50,7 @@ public final class Config {
         this.httpProxyPort = builder.httpProxyPort;
         this.socks5ProxyPort = builder.socks5ProxyPort;
         this.timeout = builder.timeout;
+        this.agentSecret = builder.agentSecret;
     }
 
     /** API base URL. */
@@ -81,6 +83,9 @@ public final class Config {
     /** HTTP request timeout. */
     public Duration getTimeout() { return timeout; }
 
+    /** Agent secret for captcha bypass, or {@code null}. */
+    public String getAgentSecret() { return agentSecret; }
+
     @Override
     public String toString() {
         return "Config{baseUrl='" + baseUrl + "'"
@@ -89,6 +94,7 @@ public final class Config {
                 + ", password=" + (password != null ? "'<redacted>'" : "null")
                 + ", accessToken=" + (accessToken != null ? "'<redacted>'" : "null")
                 + ", refreshToken=" + (refreshToken != null ? "'<redacted>'" : "null")
+                + ", agentSecret=" + (agentSecret != null ? "'<redacted>'" : "null")
                 + ", proxyHost='" + proxyHost + "'"
                 + ", httpProxyPort=" + httpProxyPort
                 + ", socks5ProxyPort=" + socks5ProxyPort
@@ -119,6 +125,7 @@ public final class Config {
         private int httpProxyPort = DEFAULT_HTTP_PROXY_PORT;
         private int socks5ProxyPort = DEFAULT_SOCKS5_PROXY_PORT;
         private Duration timeout = Duration.ofSeconds(30);
+        private String agentSecret;
 
         private Builder() {}
 
@@ -151,6 +158,9 @@ public final class Config {
 
         /** Set the HTTP request timeout. */
         public Builder timeout(Duration timeout) { this.timeout = timeout; return this; }
+
+        /** Set the agent secret for captcha bypass. */
+        public Builder agentSecret(String agentSecret) { this.agentSecret = agentSecret; return this; }
 
         /** Build the {@link Config} instance.
          *

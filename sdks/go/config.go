@@ -79,6 +79,11 @@ type Config struct {
 	// Defaults to 30 seconds if zero.
 	Timeout time.Duration `json:"timeout,omitempty"`
 
+	// AgentSecret is an optional secret for captcha bypass.
+	// When set, injects X-DominusNode-Agent and X-DominusNode-Agent-Secret headers.
+	// json:"-" prevents accidental serialization of credentials.
+	AgentSecret string `json:"-"`
+
 	// HTTPClient is an optional custom HTTP client.
 	// If nil, a default client with the configured timeout is used.
 	HTTPClient *http.Client `json:"-"`
@@ -95,9 +100,9 @@ func redact(s string) string {
 // String returns a safe representation of Config that redacts credentials.
 // This prevents accidental credential leakage in log statements.
 func (c Config) String() string {
-	return fmt.Sprintf("Config{BaseURL:%q, APIKey:%s, Email:%s, Password:%s, AccessToken:%s, RefreshToken:%s, ProxyHost:%q, HTTPProxyPort:%d, SOCKS5ProxyPort:%d}",
+	return fmt.Sprintf("Config{BaseURL:%q, APIKey:%s, Email:%s, Password:%s, AccessToken:%s, RefreshToken:%s, AgentSecret:%s, ProxyHost:%q, HTTPProxyPort:%d, SOCKS5ProxyPort:%d}",
 		c.BaseURL, redact(c.APIKey), redact(c.Email), redact(c.Password),
-		redact(c.AccessToken), redact(c.RefreshToken),
+		redact(c.AccessToken), redact(c.RefreshToken), redact(c.AgentSecret),
 		c.ProxyHost, c.HTTPProxyPort, c.SOCKS5ProxyPort)
 }
 

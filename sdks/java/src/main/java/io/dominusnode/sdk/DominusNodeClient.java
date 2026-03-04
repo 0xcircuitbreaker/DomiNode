@@ -70,7 +70,7 @@ public final class DominusNodeClient implements AutoCloseable {
      */
     public DominusNodeClient(Config config) throws DominusNodeException {
         this.tokenManager = new TokenManager();
-        HttpClient http = new HttpClient(config.getBaseUrl(), tokenManager, config.getTimeout());
+        HttpClient http = new HttpClient(config.getBaseUrl(), tokenManager, config.getTimeout(), config.getAgentSecret());
 
         // Initialize resource modules
         this.auth = new AuthResource(http, tokenManager);

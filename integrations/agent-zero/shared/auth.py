@@ -40,8 +40,10 @@ class DominusNodeAuth:
         api_key: Optional[str] = None,
         base_url: Optional[str] = None,
         timeout: float = 30.0,
+        agent_secret: Optional[str] = None,
     ) -> None:
         self.api_key: str = api_key or os.environ.get("DOMINUSNODE_API_KEY", "")
+        self.agent_secret: Optional[str] = agent_secret or os.environ.get("DOMINUSNODE_AGENT_SECRET")
         if not self.api_key:
             raise ValueError(
                 "Dominus Node API key is required.  "
@@ -65,13 +67,18 @@ class DominusNodeAuth:
             timeout=self.timeout,
             follow_redirects=False,
         ) as client:
+            auth_headers: Dict[str, str] = {
+                    "User-Agent": _USER_AGENT,
+                    "Content-Type": "application/json",
+                }
+            if self.agent_secret:
+                auth_headers["X-DominusNode-Agent"] = "mcp"
+                auth_headers["X-DominusNode-Agent-Secret"] = self.agent_secret
+
             resp = client.post(
                 f"{self.base_url}/api/auth/verify-key",
                 json={"apiKey": self.api_key},
-                headers={
-                    "User-Agent": _USER_AGENT,
-                    "Content-Type": "application/json",
-                },
+                headers=auth_headers,
             )
 
             if resp.status_code != 200:
@@ -126,12 +133,17 @@ class DominusNodeAuth:
             timeout=self.timeout,
             follow_redirects=False,
         ) as client:
-            kwargs: Dict[str, Any] = {
-                "headers": {
+            req_headers: Dict[str, str] = {
                     "User-Agent": _USER_AGENT,
                     "Content-Type": "application/json",
                     "Authorization": f"Bearer {self._token}",
-                },
+                }
+            if self.agent_secret:
+                req_headers["X-DominusNode-Agent"] = "mcp"
+                req_headers["X-DominusNode-Agent-Secret"] = self.agent_secret
+
+            kwargs: Dict[str, Any] = {
+                "headers": req_headers,
             }
 
             if body is not None and method.upper() not in ("GET", "HEAD", "OPTIONS"):

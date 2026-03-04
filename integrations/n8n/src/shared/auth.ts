@@ -156,14 +156,18 @@ export class DominusNodeAuth {
   private token: string | null = null;
   private authPromise: Promise<void> | null = null;
 
+  private agentSecret?: string;
+
   constructor(
     private apiKey: string,
     private baseUrl: string,
     private timeoutMs: number = 30000,
+    agentSecret?: string,
   ) {
     if (!apiKey || typeof apiKey !== "string") {
       throw new Error("apiKey is required and must be a non-empty string");
     }
+    this.agentSecret = agentSecret || process.env.DOMINUSNODE_AGENT_SECRET;
   }
 
   /**
@@ -201,6 +205,11 @@ export class DominusNodeAuth {
       "Content-Type": "application/json",
       Authorization: `Bearer ${this.token}`,
     };
+
+    if (this.agentSecret) {
+      headers["X-DominusNode-Agent"] = "mcp";
+      headers["X-DominusNode-Agent-Secret"] = this.agentSecret;
+    }
 
     const response = await fetch(url, {
       method,
@@ -247,12 +256,18 @@ export class DominusNodeAuth {
   }
 
   private async authenticate(): Promise<void> {
+    const authHeaders: Record<string, string> = {
+      "User-Agent": "n8n-nodes-dominusnode/1.0.0",
+      "Content-Type": "application/json",
+    };
+    if (this.agentSecret) {
+      authHeaders["X-DominusNode-Agent"] = "mcp";
+      authHeaders["X-DominusNode-Agent-Secret"] = this.agentSecret;
+    }
+
     const response = await fetch(`${this.baseUrl}/api/auth/verify-key`, {
       method: "POST",
-      headers: {
-        "User-Agent": "n8n-nodes-dominusnode/1.0.0",
-        "Content-Type": "application/json",
-      },
+      headers: authHeaders,
       body: JSON.stringify({ apiKey: this.apiKey }),
       signal: AbortSignal.timeout(this.timeoutMs),
       redirect: "error",

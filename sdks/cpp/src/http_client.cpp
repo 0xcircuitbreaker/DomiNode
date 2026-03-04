@@ -82,10 +82,12 @@ static size_t header_callback(char* buffer, size_t size, size_t nitems, void* us
 
 // ─── HttpClient implementation ──────────────────────────────────────────────
 
-HttpClient::HttpClient(const std::string& base_url, TokenManager& token_manager)
+HttpClient::HttpClient(const std::string& base_url, TokenManager& token_manager,
+                       const std::string& agent_secret)
     : impl_(std::make_unique<Impl>())
     , base_url_(base_url)
-    , token_manager_(token_manager) {
+    , token_manager_(token_manager)
+    , agent_secret_(agent_secret) {
     // Strip trailing slash from base URL
     while (!base_url_.empty() && base_url_.back() == '/') {
         base_url_.pop_back();
@@ -218,6 +220,11 @@ nlohmann::json HttpClient::request(const std::string& method,
     headers["User-Agent"] = USER_AGENT;
     headers["Content-Type"] = "application/json";
     headers["Accept"] = "application/json";
+
+    if (!agent_secret_.empty()) {
+        headers["X-DominusNode-Agent"] = "mcp";
+        headers["X-DominusNode-Agent-Secret"] = agent_secret_;
+    }
 
     if (requires_auth) {
         std::string token = token_manager_.get_valid_token();

@@ -503,6 +503,7 @@ class DominusNodeProvider:
         self.proxy_host: str = creds.get("proxy_host", "") or os.environ.get("DOMINUSNODE_PROXY_HOST", "proxy.dominusnode.com")
         self.proxy_port: int = int(os.environ.get("DOMINUSNODE_PROXY_PORT", "8080"))
         self.timeout: float = 30.0
+        self.agent_secret: str | None = creds.get("agent_secret") or os.environ.get("DOMINUSNODE_AGENT_SECRET")
         self._token: str | None = None
 
     # ------------------------------------------------------------------
@@ -524,6 +525,14 @@ class DominusNodeProvider:
                 "or DOMINUSNODE_API_KEY environment variable."
             )
 
+        auth_headers = {
+            "User-Agent": "dominusnode-dify/1.0.0",
+            "Content-Type": "application/json",
+        }
+        if self.agent_secret:
+            auth_headers["X-DominusNode-Agent"] = "mcp"
+            auth_headers["X-DominusNode-Agent-Secret"] = self.agent_secret
+
         with httpx.Client(
             timeout=self.timeout,
             follow_redirects=False,
@@ -531,10 +540,7 @@ class DominusNodeProvider:
             resp = client.post(
                 f"{self.base_url}/api/auth/verify-key",
                 json={"apiKey": self.api_key},
-                headers={
-                    "User-Agent": "dominusnode-dify/1.0.0",
-                    "Content-Type": "application/json",
-                },
+                headers=auth_headers,
             )
 
             if resp.status_code != 200:
@@ -585,12 +591,17 @@ class DominusNodeProvider:
             timeout=self.timeout,
             follow_redirects=False,
         ) as client:
+            req_headers = {
+                "User-Agent": "dominusnode-dify/1.0.0",
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {self._token}",
+            }
+            if self.agent_secret:
+                req_headers["X-DominusNode-Agent"] = "mcp"
+                req_headers["X-DominusNode-Agent-Secret"] = self.agent_secret
+
             kwargs: Dict[str, Any] = {
-                "headers": {
-                    "User-Agent": "dominusnode-dify/1.0.0",
-                    "Content-Type": "application/json",
-                    "Authorization": f"Bearer {self._token}",
-                },
+                "headers": req_headers,
             }
 
             if body is not None and method.upper() not in ("GET", "HEAD", "OPTIONS"):

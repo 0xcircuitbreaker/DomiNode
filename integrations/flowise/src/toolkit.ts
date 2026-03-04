@@ -363,6 +363,8 @@ export interface DominusNodeToolkitOptions {
   proxyHost?: string;
   proxyPort?: number;
   timeout?: number;
+  /** Optional agent secret for MCP agent auto-verification (bypasses reCAPTCHA). */
+  agentSecret?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -375,6 +377,7 @@ export class DominusNodeToolkit {
   private proxyHost: string;
   private proxyPort: number;
   private timeout: number;
+  private agentSecret?: string;
   private token: string | null = null;
   private tokenExpiresAt: number = 0;
 
@@ -385,6 +388,7 @@ export class DominusNodeToolkit {
     const portVal = Number(options.proxyPort || process.env.DOMINUSNODE_PROXY_PORT || 8080);
     this.proxyPort = isNaN(portVal) || portVal < 1 || portVal > 65535 ? 8080 : portVal;
     this.timeout = options.timeout || 30000;
+    this.agentSecret = options.agentSecret || process.env.DOMINUSNODE_AGENT_SECRET;
   }
 
   // -----------------------------------------------------------------------
@@ -401,12 +405,18 @@ export class DominusNodeToolkit {
       throw new Error('DOMINUSNODE_API_KEY must start with "dn_live_" or "dn_test_".');
     }
 
+    const authHeaders: Record<string, string> = {
+      "Content-Type": "application/json",
+      "User-Agent": "dominusnode-flowise/1.0.0",
+    };
+    if (this.agentSecret) {
+      authHeaders["X-DominusNode-Agent"] = "mcp";
+      authHeaders["X-DominusNode-Agent-Secret"] = this.agentSecret;
+    }
+
     const res = await fetch(`${this.baseUrl}/api/auth/verify-key`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "User-Agent": "dominusnode-flowise/1.0.0",
-      },
+      headers: authHeaders,
       body: JSON.stringify({ apiKey: this.apiKey }),
       redirect: "error",
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
@@ -448,6 +458,10 @@ export class DominusNodeToolkit {
       Accept: "application/json",
       "User-Agent": "dominusnode-flowise/1.0.0",
     };
+    if (this.agentSecret) {
+      headers["X-DominusNode-Agent"] = "mcp";
+      headers["X-DominusNode-Agent-Secret"] = this.agentSecret;
+    }
 
     const init: RequestInit = {
       method,

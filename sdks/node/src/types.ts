@@ -6,6 +6,7 @@ export interface DominusNodeConfig {
   proxyHost?: string;
   httpProxyPort?: number;
   socks5ProxyPort?: number;
+  agentSecret?: string;
 }
 
 export interface User {

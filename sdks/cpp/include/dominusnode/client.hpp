@@ -29,6 +29,7 @@ struct ClientConfig {
     std::string proxy_host = "proxy.dominusnode.com";
     int http_proxy_port = 8080;
     int socks5_proxy_port = 1080;
+    std::string agent_secret;
 
     ~ClientConfig();
 

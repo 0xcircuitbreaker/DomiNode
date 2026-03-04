@@ -80,6 +80,7 @@ class DominusNodeToolkit(BaseToolkit):
         proxy_host: Optional[str] = None,
         http_proxy_port: int = 8080,
         socks5_proxy_port: int = 1080,
+        agent_secret: Optional[str] = None,
     ) -> None:
         super().__init__()
 
@@ -100,6 +101,7 @@ class DominusNodeToolkit(BaseToolkit):
         # Store credentials for agentic wallet tools (direct REST API calls)
         self._api_key = resolved_key
         self._base_url = resolved_base
+        self._agent_secret = agent_secret or os.environ.get("DOMINUSNODE_AGENT_SECRET")
 
         # Create sync client
         self._sync_client = DominusNodeClient(
@@ -108,6 +110,7 @@ class DominusNodeToolkit(BaseToolkit):
             proxy_host=resolved_proxy_host,
             http_proxy_port=http_proxy_port,
             socks5_proxy_port=socks5_proxy_port,
+            agent_secret=self._agent_secret,
         )
 
         # Create async client (deferred connect -- will connect in __aenter__)
@@ -117,6 +120,7 @@ class DominusNodeToolkit(BaseToolkit):
             proxy_host=resolved_proxy_host,
             http_proxy_port=http_proxy_port,
             socks5_proxy_port=socks5_proxy_port,
+            agent_secret=self._agent_secret,
         )
 
         # Build tools once
@@ -160,15 +164,16 @@ class DominusNodeToolkit(BaseToolkit):
         # Agentic wallet tools use direct REST API calls
         _ak = self._api_key
         _bu = self._base_url
-        create_wallet_tool = DominusNodeCreateAgenticWalletTool(api_key=_ak, base_url=_bu)
-        fund_wallet_tool = DominusNodeFundAgenticWalletTool(api_key=_ak, base_url=_bu)
-        wallet_balance_tool = DominusNodeAgenticWalletBalanceTool(api_key=_ak, base_url=_bu)
-        list_wallets_tool = DominusNodeListAgenticWalletsTool(api_key=_ak, base_url=_bu)
-        transactions_tool = DominusNodeAgenticTransactionsTool(api_key=_ak, base_url=_bu)
-        freeze_tool = DominusNodeFreezeAgenticWalletTool(api_key=_ak, base_url=_bu)
-        unfreeze_tool = DominusNodeUnfreezeAgenticWalletTool(api_key=_ak, base_url=_bu)
-        delete_wallet_tool = DominusNodeDeleteAgenticWalletTool(api_key=_ak, base_url=_bu)
-        update_policy_tool = DominusNodeUpdateWalletPolicyTool(api_key=_ak, base_url=_bu)
+        _as = self._agent_secret
+        create_wallet_tool = DominusNodeCreateAgenticWalletTool(api_key=_ak, base_url=_bu, agent_secret=_as)
+        fund_wallet_tool = DominusNodeFundAgenticWalletTool(api_key=_ak, base_url=_bu, agent_secret=_as)
+        wallet_balance_tool = DominusNodeAgenticWalletBalanceTool(api_key=_ak, base_url=_bu, agent_secret=_as)
+        list_wallets_tool = DominusNodeListAgenticWalletsTool(api_key=_ak, base_url=_bu, agent_secret=_as)
+        transactions_tool = DominusNodeAgenticTransactionsTool(api_key=_ak, base_url=_bu, agent_secret=_as)
+        freeze_tool = DominusNodeFreezeAgenticWalletTool(api_key=_ak, base_url=_bu, agent_secret=_as)
+        unfreeze_tool = DominusNodeUnfreezeAgenticWalletTool(api_key=_ak, base_url=_bu, agent_secret=_as)
+        delete_wallet_tool = DominusNodeDeleteAgenticWalletTool(api_key=_ak, base_url=_bu, agent_secret=_as)
+        update_policy_tool = DominusNodeUpdateWalletPolicyTool(api_key=_ak, base_url=_bu, agent_secret=_as)
 
         return [
             fetch_tool,

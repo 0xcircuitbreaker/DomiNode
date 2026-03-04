@@ -80,10 +80,15 @@ function throwForStatus(status: number, body: string, headers: Headers): never {
 const MAX_RESPONSE_BYTES = 10 * 1024 * 1024; // 10 MB
 
 export class HttpClient {
+  private agentSecret?: string;
+
   constructor(
     private baseUrl: string,
     private tokenManager: TokenManager,
-  ) {}
+    agentSecret?: string,
+  ) {
+    this.agentSecret = agentSecret;
+  }
 
   async request<T>(opts: HttpOptions): Promise<T> {
     const headers: Record<string, string> = {
@@ -91,6 +96,11 @@ export class HttpClient {
       "Content-Type": "application/json",
       ...opts.headers,
     };
+
+    if (this.agentSecret) {
+      headers["X-DominusNode-Agent"] = "mcp";
+      headers["X-DominusNode-Agent-Secret"] = this.agentSecret;
+    }
 
     if (opts.requiresAuth !== false) {
       const token = await this.tokenManager.getValidToken();

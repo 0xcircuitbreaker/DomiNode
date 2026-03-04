@@ -95,6 +95,10 @@ function getProxyPort(): number {
   return port;
 }
 
+function getAgentSecret(): string | undefined {
+  return process.env.DOMINUSNODE_AGENT_SECRET || undefined;
+}
+
 // ---------------------------------------------------------------------------
 // Credential scrubbing
 // ---------------------------------------------------------------------------
@@ -399,9 +403,18 @@ let cachedApiKeyPrefix: string | null = null;
 async function ensureAuth(apiKey: string, baseUrl: string): Promise<string> {
   const keyPrefix = apiKey.slice(0, 16);
   if (cachedJwt && Date.now() < jwtExpiresAt && cachedApiKeyPrefix === keyPrefix) return cachedJwt;
+  const authHeaders: Record<string, string> = {
+    "Content-Type": "application/json",
+    "User-Agent": "dominusnode-openclaw-plugin/1.0.0",
+  };
+  const agentSecret = getAgentSecret();
+  if (agentSecret) {
+    authHeaders["X-DominusNode-Agent"] = "mcp";
+    authHeaders["X-DominusNode-Agent-Secret"] = agentSecret;
+  }
   const res = await fetch(`${baseUrl}/api/auth/verify-key`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", "User-Agent": "dominusnode-openclaw-plugin/1.0.0" },
+    headers: authHeaders,
     body: JSON.stringify({ apiKey }),
     redirect: "error",
   });
@@ -443,6 +456,11 @@ async function apiRequest<T = unknown>(
     "Accept": "application/json",
     "User-Agent": "dominusnode-openclaw-plugin/1.0.0",
   };
+  const agentSecret = getAgentSecret();
+  if (agentSecret) {
+    headers["X-DominusNode-Agent"] = "mcp";
+    headers["X-DominusNode-Agent-Secret"] = agentSecret;
+  }
 
   const init: RequestInit = {
     method,

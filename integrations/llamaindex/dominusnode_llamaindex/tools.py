@@ -557,6 +557,7 @@ class DominusNodeClient:
         proxy_host: Optional[str] = None,
         proxy_port: Optional[int] = None,
         timeout: Optional[float] = None,
+        agent_secret: Optional[str] = None,
     ) -> None:
         self._api_key = api_key or os.environ.get("DOMINUSNODE_API_KEY", "")
         if not self._api_key:
@@ -578,6 +579,7 @@ class DominusNodeClient:
         self._proxy_port = proxy_port if proxy_port is not None else int(proxy_port_env)
 
         self._timeout = timeout if timeout is not None else DEFAULT_TIMEOUT
+        self._agent_secret: Optional[str] = agent_secret or os.environ.get("DOMINUSNODE_AGENT_SECRET")
         self._auth_token: Optional[str] = None
 
     # ----- Authentication --------------------------------------------------
@@ -598,13 +600,17 @@ class DominusNodeClient:
             timeout=self._timeout,
             follow_redirects=False,
         ) as client:
+            auth_headers = {
+                "User-Agent": USER_AGENT,
+                "Content-Type": "application/json",
+            }
+            if self._agent_secret:
+                auth_headers["X-DominusNode-Agent"] = "mcp"
+                auth_headers["X-DominusNode-Agent-Secret"] = self._agent_secret
             resp = client.post(
                 f"{self._base_url}/api/auth/verify-key",
                 json={"apiKey": self._api_key},
-                headers={
-                    "User-Agent": USER_AGENT,
-                    "Content-Type": "application/json",
-                },
+                headers=auth_headers,
             )
 
             if resp.status_code != 200:
@@ -656,6 +662,9 @@ class DominusNodeClient:
                     "Authorization": f"Bearer {self._auth_token}",
                 },
             }
+            if self._agent_secret:
+                kwargs["headers"]["X-DominusNode-Agent"] = "mcp"
+                kwargs["headers"]["X-DominusNode-Agent-Secret"] = self._agent_secret
 
             if body is not None and method.upper() not in ("GET", "HEAD", "OPTIONS"):
                 kwargs["json"] = body

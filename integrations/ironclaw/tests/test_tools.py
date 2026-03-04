@@ -919,9 +919,21 @@ class TestMCPConfig:
         assert config["server"]["transport"]["url"] == "https://custom.api.com/mcp"
         assert config["server"]["auth"]["headers"]["X-API-Key"] == "dn_test_key123"
 
-    def test_mcp_config_agent_header(self):
+    def test_mcp_config_agent_header_without_secret(self):
         config = generate_mcp_config(api_key="dn_test_key123")
+        assert "X-DominusNode-Agent" not in config["server"]["auth"]["headers"]
+        assert "X-DominusNode-Agent-Secret" not in config["server"]["auth"]["headers"]
+
+    def test_mcp_config_agent_header_with_secret(self):
+        config = generate_mcp_config(api_key="dn_test_key123", agent_secret="s3cret")
         assert config["server"]["auth"]["headers"]["X-DominusNode-Agent"] == "mcp"
+        assert config["server"]["auth"]["headers"]["X-DominusNode-Agent-Secret"] == "s3cret"
+
+    def test_mcp_config_agent_secret_env_fallback(self):
+        with patch.dict(os.environ, {"DOMINUSNODE_AGENT_SECRET": "env_secret"}):
+            config = generate_mcp_config(api_key="dn_test_key123")
+            assert config["server"]["auth"]["headers"]["X-DominusNode-Agent"] == "mcp"
+            assert config["server"]["auth"]["headers"]["X-DominusNode-Agent-Secret"] == "env_secret"
 
     def test_mcp_config_user_agent(self):
         config = generate_mcp_config(api_key="dn_test_key123")

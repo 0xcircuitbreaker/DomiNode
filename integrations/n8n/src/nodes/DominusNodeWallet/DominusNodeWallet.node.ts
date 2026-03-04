@@ -343,7 +343,8 @@ export class DominusNodeWallet implements INodeType {
       throw new NodeOperationError(this.getNode(), "API Key is required");
     }
 
-    const auth = new DominusNodeAuth(apiKey, baseUrl);
+    const agentSecret = (credentials.agentSecret as string) || undefined;
+    const auth = new DominusNodeAuth(apiKey, baseUrl, 30000, agentSecret);
     const operation = this.getNodeParameter("operation", 0) as string;
 
     for (let i = 0; i < items.length; i++) {

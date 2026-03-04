@@ -77,7 +77,8 @@ export class DominusNodeUsage implements INodeType {
       throw new NodeOperationError(this.getNode(), "API Key is required");
     }
 
-    const auth = new DominusNodeAuth(apiKey, baseUrl);
+    const agentSecret = (credentials.agentSecret as string) || undefined;
+    const auth = new DominusNodeAuth(apiKey, baseUrl, 30000, agentSecret);
 
     for (let i = 0; i < items.length; i++) {
       try {

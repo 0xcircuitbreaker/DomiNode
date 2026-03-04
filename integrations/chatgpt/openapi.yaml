@@ -50,6 +50,9 @@ paths:
       tags: [Auth]
       summary: Create a new account
       security: []
+      parameters:
+        - $ref: "#/components/parameters/AgentHeader"
+        - $ref: "#/components/parameters/AgentSecretHeader"
       requestBody:
         required: true
         content:
@@ -104,6 +107,9 @@ paths:
       tags: [Auth]
       summary: Log in and get JWT tokens
       security: []
+      parameters:
+        - $ref: "#/components/parameters/AgentHeader"
+        - $ref: "#/components/parameters/AgentSecretHeader"
       requestBody:
         required: true
         content:
@@ -1532,6 +1538,31 @@ components:
       description: |
         JWT access token obtained from POST /api/auth/login or POST /api/auth/register.
         Tokens expire after 15 minutes. Use POST /api/auth/refresh to get a new token pair.
+    AgentSecret:
+      type: apiKey
+      in: header
+      name: X-DominusNode-Agent-Secret
+      description: |
+        Agent secret for AI/MCP captcha bypass. When provided alongside the
+        X-DominusNode-Agent: mcp header, bypasses reCAPTCHA on register/login
+        and auto-verifies email. Configured server-side via MCP_AGENT_SECRET env var.
+
+  parameters:
+    AgentHeader:
+      name: X-DominusNode-Agent
+      in: header
+      required: false
+      schema:
+        type: string
+        enum: [mcp]
+      description: Set to "mcp" to identify as an AI agent (requires X-DominusNode-Agent-Secret)
+    AgentSecretHeader:
+      name: X-DominusNode-Agent-Secret
+      in: header
+      required: false
+      schema:
+        type: string
+      description: Agent secret for captcha bypass and email auto-verification
 
   schemas:
     Error:

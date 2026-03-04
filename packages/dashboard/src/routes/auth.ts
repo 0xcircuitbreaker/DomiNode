@@ -37,6 +37,12 @@ import { setAuthCookies, clearAuthCookies, getRefreshCookieName } from "../helpe
 const router = Router();
 const log = createLogger("api:auth");
 
+/** Timing-safe comparison for agent secrets (prevents timing side-channel leaks). */
+function timingSafeSecretMatch(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  return crypto.timingSafeEqual(Buffer.from(a, "utf8"), Buffer.from(b, "utf8"));
+}
+
 // Determine if the request is from the browser frontend (uses cookies, no tokens needed in body)
 const ALLOWED_ORIGINS = (process.env["CORS_ORIGINS"] ?? "http://localhost:5173")
   .split(",")
@@ -283,7 +289,10 @@ router.post("/register", async (req, res) => {
     const isMcpAgentReg =
       req.headers["x-dominusnode-agent"] === "mcp" &&
       MCP_AGENT_SECRET_REG.length > 0 &&
-      req.headers["x-dominusnode-agent-secret"] === MCP_AGENT_SECRET_REG;
+      timingSafeSecretMatch(
+        (req.headers["x-dominusnode-agent-secret"] ?? "") as string,
+        MCP_AGENT_SECRET_REG,
+      );
 
     // reCAPTCHA v3 verification (anti-bot)
     const captchaToken = req.body.captchaToken ?? "";
@@ -390,7 +399,10 @@ router.post("/register", async (req, res) => {
     const isMcpAgent =
       req.headers["x-dominusnode-agent"] === "mcp" &&
       MCP_AGENT_SECRET.length > 0 &&
-      req.headers["x-dominusnode-agent-secret"] === MCP_AGENT_SECRET;
+      timingSafeSecretMatch(
+        (req.headers["x-dominusnode-agent-secret"] ?? "") as string,
+        MCP_AGENT_SECRET,
+      );
     if (isMcpAgent) {
       await userRepo.markEmailVerified(user.id);
       log.info("auto-verified email for MCP agent", { userId: user.id });
@@ -449,7 +461,10 @@ router.post("/login", async (req, res) => {
     const isMcpAgentLogin =
       req.headers["x-dominusnode-agent"] === "mcp" &&
       MCP_AGENT_SECRET_LOGIN.length > 0 &&
-      req.headers["x-dominusnode-agent-secret"] === MCP_AGENT_SECRET_LOGIN;
+      timingSafeSecretMatch(
+        (req.headers["x-dominusnode-agent-secret"] ?? "") as string,
+        MCP_AGENT_SECRET_LOGIN,
+      );
 
     // reCAPTCHA v3 verification (anti-bot on login)
     const captchaToken = req.body.captchaToken ?? "";
