@@ -5,6 +5,7 @@ import cookieParser from "cookie-parser";
 import rateLimit from "express-rate-limit";
 import * as crypto from "node:crypto";
 import { createLogger, query } from "@dominusnode/shared";
+import { agentAwareRateLimit } from "./helpers/agent-rate-limit.js";
 
 import { refreshTokenRepo } from "@dominusnode/shared";
 import webhookRoutes from "./routes/webhooks.js";
@@ -147,9 +148,9 @@ export function startApiServer(port: number = 3000): ReturnType<express.Express[
     }),
   );
 
-  // Global rate limit: 100 requests/min per IP
+  // Global rate limit: 100 requests/min per IP (agents get boosted)
   app.use(
-    rateLimit({
+    agentAwareRateLimit({
       windowMs: 60_000,
       max: 100,
       standardHeaders: true,
@@ -203,6 +204,7 @@ export function startApiServer(port: number = 3000): ReturnType<express.Express[
   // Stricter rate limits on auth endpoints (login, register, wallet-auth)
   // Note: the custom per-IP login lockout in auth.ts provides the real credential-stuffing defense.
   // This express-rate-limit acts as a coarse outer guard on all auth routes.
+  // Auth limiter: NOT agent-boosted (covers wallet-auth + auth routes — security-sensitive)
   const authLimiter = rateLimit({
     windowMs: 15 * 60_000, // 15 minutes
     max: 60,

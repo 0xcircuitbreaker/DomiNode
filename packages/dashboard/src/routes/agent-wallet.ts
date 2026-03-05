@@ -1,6 +1,6 @@
 import { Router } from "express";
-import rateLimit from "express-rate-limit";
 import { agenticWalletRepo, userRepo, createLogger, sanitizeString, SUPPORTED_CRYPTO } from "@dominusnode/shared";
+import { agentAwareRateLimit } from "../helpers/agent-rate-limit.js";
 import { requireAuth, type AuthenticatedRequest } from "../middleware/auth.js";
 
 const router = Router();
@@ -42,8 +42,8 @@ function formatWalletResponse(w: { id: string; label: string; balance_cents: num
   };
 }
 
-// Per-user rate limit on financial agentic wallet operations
-const financialLimiter = rateLimit({
+// Per-user rate limit on financial agentic wallet operations (agents get boosted)
+const financialLimiter = agentAwareRateLimit({
   windowMs: 60_000,
   max: 20,
   standardHeaders: true,

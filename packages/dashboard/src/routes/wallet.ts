@@ -1,5 +1,4 @@
 import { Router } from "express";
-import rateLimit from "express-rate-limit";
 import {
   walletRepo,
   userRepo,
@@ -16,12 +15,13 @@ import { createCheckoutSession } from "@dominusnode/billing";
 import { createCryptoInvoice } from "@dominusnode/billing";
 import { createPaypalOrder, capturePaypalOrder } from "@dominusnode/billing";
 import { requireAuth, type AuthenticatedRequest } from "../middleware/auth.js";
+import { agentAwareRateLimit } from "../helpers/agent-rate-limit.js";
 
 const router = Router();
 const log = createLogger("api:wallet");
 
-// Per-user rate limit on top-up endpoints to prevent invoice spam
-const topupLimiter = rateLimit({
+// Per-user rate limit on top-up endpoints to prevent invoice spam (agents get boosted)
+const topupLimiter = agentAwareRateLimit({
   windowMs: 60 * 60_000, // 1 hour
   max: 10, // 10 top-up attempts per hour per user
   standardHeaders: true,
@@ -187,8 +187,8 @@ router.post("/topup/crypto", topupLimiter, async (req, res) => {
   }
 });
 
-// Rate limit payment status polling to prevent abuse
-const statusPollLimiter = rateLimit({
+// Rate limit payment status polling to prevent abuse (agents get boosted)
+const statusPollLimiter = agentAwareRateLimit({
   windowMs: 5 * 60_000, // 5 minutes
   max: 30, // 30 checks per 5 min per user
   standardHeaders: true,

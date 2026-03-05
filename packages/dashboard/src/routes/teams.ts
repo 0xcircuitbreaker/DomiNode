@@ -1,5 +1,4 @@
 import { Router } from "express";
-import rateLimit from "express-rate-limit";
 import * as crypto from "node:crypto";
 import {
   teamRepo,
@@ -12,6 +11,7 @@ import {
   userRepo,
 } from "@dominusnode/shared";
 import { requireAuth, type AuthenticatedRequest } from "../middleware/auth.js";
+import { agentAwareRateLimit } from "../helpers/agent-rate-limit.js";
 
 const router = Router();
 const log = createLogger("api:teams");
@@ -19,8 +19,8 @@ const log = createLogger("api:teams");
 // UUID v4 validation regex
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-// Rate limiters
-const financialLimiter = rateLimit({
+// Rate limiters (agents get boosted for swarm operations)
+const financialLimiter = agentAwareRateLimit({
   windowMs: 60_000,
   max: 20,
   standardHeaders: true,
@@ -29,7 +29,7 @@ const financialLimiter = rateLimit({
   keyGenerator: (req) => (req as unknown as AuthenticatedRequest).user?.userId ?? "unknown",
 });
 
-const inviteLimiter = rateLimit({
+const inviteLimiter = agentAwareRateLimit({
   windowMs: 60_000,
   max: 10,
   standardHeaders: true,
