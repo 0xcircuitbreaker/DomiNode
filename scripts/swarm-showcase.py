@@ -23,7 +23,10 @@ Usage:
 """
 
 import argparse
-import curses
+try:
+    import curses
+except ImportError:
+    curses = None  # Windows without windows-curses; --no-tui still works
 import json
 import logging
 import os
@@ -40,7 +43,9 @@ from typing import Any, Dict, List, Optional, Set
 try:
     import requests
 except ImportError:
-    requests = None  # Will be available after venv re-exec
+    print("Auto-installing requests...", flush=True)
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "requests", "-q"])
+    import requests
 
 # ── Paths ──────────────────────────────────────────────────────────────────────
 REPO_ROOT = Path(__file__).parent.parent
@@ -468,8 +473,15 @@ def _lifecycle_toolkit(tk, target_url: str, proxy_type: str) -> dict:
     ok = err = 0
     categories: Dict[str, bool] = {}
 
-    def call(key: str, category: str, fn, *a, **kw) -> str:
+    def call(key: str, category: str, method_name: str, *a, **kw) -> str:
         nonlocal ok, err
+        fn = getattr(tk, method_name, None)
+        if fn is None:
+            res[key] = f"ERROR: method {method_name} not found"
+            err += 1
+            if category not in categories:
+                categories[category] = False
+            return ""
         try:
             r = fn(*a, **kw)
             val = str(r) if r is not None else "OK"
@@ -485,77 +497,81 @@ def _lifecycle_toolkit(tk, target_url: str, proxy_type: str) -> dict:
             return ""
 
     # -- Account --
-    call("account_info", "account", tk.get_account_info)
-    call("resend_verify", "account", tk.resend_verification)
+    call("account_info", "account", "get_account_info")
+    call("resend_verify", "account", "resend_verification")
 
     # -- Balance & Billing --
-    call("balance", "billing", tk.check_balance)
-    call("transactions", "billing", tk.get_transactions)
-    call("forecast", "billing", tk.get_forecast)
-    call("topup_paypal", "billing", tk.topup_paypal, 100)
-    call("topup_stripe", "billing", tk.topup_stripe, 100)
-    call("topup_crypto", "billing", tk.topup_crypto, 1.0, "BTC")
-    call("x402_info", "billing", tk.x402_info)
+    call("balance", "billing", "check_balance")
+    call("transactions", "billing", "get_transactions")
+    call("forecast", "billing", "get_forecast")
+    call("topup_paypal", "billing", "topup_paypal", 100)
+    call("topup_stripe", "billing", "topup_stripe", 100)
+    call("topup_crypto", "billing", "topup_crypto", 1.0, "BTC")
+    call("x402_info", "billing", "x402_info")
 
     # -- Proxy --
-    call("fetch", "proxy", tk.proxied_fetch, target_url, "US", proxy_type)
-    call("proxy_config", "proxy", tk.get_proxy_config)
-    call("proxy_status", "proxy", tk.get_proxy_status)
-    call("sessions", "proxy", tk.list_sessions)
+    call("fetch", "proxy", "proxied_fetch", target_url, "US", proxy_type)
+    call("proxy_config", "proxy", "get_proxy_config")
+    call("proxy_status", "proxy", "get_proxy_status")
+    call("sessions", "proxy", "list_sessions")
 
     # -- Usage --
-    call("usage", "usage", tk.check_usage)
-    call("daily_usage", "usage", tk.get_daily_usage)
-    call("top_hosts", "usage", tk.get_top_hosts)
+    call("usage", "usage", "check_usage")
+    call("daily_usage", "usage", "get_daily_usage")
+    call("top_hosts", "usage", "get_top_hosts")
 
     # -- API Keys --
-    call("list_keys", "keys", tk.list_keys)
-    kr = call("create_key", "keys", tk.create_key, "showcase-lifecycle-key")
+    call("list_keys", "keys", "list_keys")
+    kr = call("create_key", "keys", "create_key", "showcase-lifecycle-key")
     kid = _extract_uuid(kr)
     if kid:
-        call("revoke_key", "keys", tk.revoke_key, kid)
+        call("revoke_key", "keys", "revoke_key", kid)
 
     # -- Plans --
-    call("get_plan", "plans", tk.get_plan)
-    call("list_plans", "plans", tk.list_plans)
+    call("get_plan", "plans", "get_plan")
+    call("list_plans", "plans", "list_plans")
 
     # -- Agentic Wallets --
-    wr = call("create_wallet", "wallets", tk.create_agentic_wallet,
+    wr = call("create_wallet", "wallets", "create_agentic_wallet",
               "showcase-wallet", 10000)
     wid = _extract_uuid(wr)
     if wid:
-        call("fund_wallet", "wallets", tk.fund_agentic_wallet, wid, 100)
-        call("wallet_balance", "wallets", tk.agentic_wallet_balance, wid)
-        call("list_wallets", "wallets", tk.list_agentic_wallets)
-        call("wallet_txns", "wallets", tk.agentic_transactions, wid)
-        call("wallet_policy", "wallets", tk.update_wallet_policy, wid,
+        call("fund_wallet", "wallets", "fund_agentic_wallet", wid, 100)
+        call("wallet_balance", "wallets", "agentic_wallet_balance", wid)
+        call("list_wallets", "wallets", "list_agentic_wallets")
+        call("wallet_txns", "wallets", "agentic_transactions", wid)
+        call("wallet_policy", "wallets", "update_wallet_policy", wid,
              daily_limit_cents=5000)
-        call("freeze_wallet", "wallets", tk.freeze_agentic_wallet, wid)
-        call("unfreeze_wallet", "wallets", tk.unfreeze_agentic_wallet, wid)
-        call("delete_wallet", "wallets", tk.delete_agentic_wallet, wid)
+        call("freeze_wallet", "wallets", "freeze_agentic_wallet", wid)
+        call("unfreeze_wallet", "wallets", "unfreeze_agentic_wallet", wid)
+        call("delete_wallet", "wallets", "delete_agentic_wallet", wid)
 
     # -- Teams --
-    tr = call("create_team", "teams", tk.create_team, "showcase-team")
+    tr = call("create_team", "teams", "create_team", "showcase-team")
     tid = _extract_uuid(tr)
     if tid:
-        call("list_teams", "teams", tk.list_teams)
-        call("team_details", "teams", tk.team_details, tid)
-        call("update_team", "teams", tk.update_team, tid, name="updated-showcase")
-        call("team_fund", "teams", tk.team_fund, tid, 50)
-        tkr = call("team_create_key", "teams", tk.team_create_key, tid, "team-key")
+        call("list_teams", "teams", "list_teams")
+        call("team_details", "teams", "team_details", tid)
+        call("update_team", "teams", "update_team", tid, name="updated-showcase")
+        call("team_fund", "teams", "team_fund", tid, 50)
+        tkr = call("team_create_key", "teams", "team_create_key", tid, "team-key")
         tkid = _extract_uuid(tkr)
-        call("team_list_keys", "teams", tk.team_list_keys, tid)
-        call("team_usage", "teams", tk.team_usage, tid)
-        call("team_members", "teams", tk.team_list_members, tid)
-        ir = call("team_invite", "teams", tk.team_invite_member, tid,
+        call("team_list_keys", "teams", "team_list_keys", tid)
+        call("team_usage", "teams", "team_usage", tid)
+        call("team_members", "teams", "team_list_members", tid)
+        ir = call("team_invite", "teams", "team_invite_member", tid,
                   "invite-test@dominusnode.bot")
         iid = _extract_uuid(ir)
-        call("team_invites", "teams", tk.team_list_invites, tid)
+        call("team_invites", "teams", "team_list_invites", tid)
         if iid:
-            call("team_cancel_invite", "teams", tk.team_cancel_invite, tid, iid)
+            call("team_cancel_invite", "teams", "team_cancel_invite", tid, iid)
         if tkid:
-            call("team_revoke_key", "teams", tk.team_revoke_key, tid, tkid)
-        call("team_delete", "teams", tk.team_delete, tid)
+            call("team_revoke_key", "teams", "team_revoke_key", tid, tkid)
+        # Try both naming conventions for team delete
+        if hasattr(tk, "team_delete"):
+            call("team_delete", "teams", "team_delete", tid)
+        else:
+            call("team_delete", "teams", "delete_team", tid)
 
     res["_stats"] = {"ok": ok, "err": err, "total": ok + err}
     res["_categories"] = categories
@@ -1089,9 +1105,29 @@ def _run_superagi(api_key, api_base, proxy_host, proxy_port, target_url, proxy_t
     os.environ["DOMINUSNODE_BASE_URL"]   = api_base
     os.environ["DOMINUSNODE_PROXY_HOST"] = proxy_host
     os.environ["DOMINUSNODE_PROXY_PORT"] = str(proxy_port)
-    from dominusnode_superagi import DominusNodeToolkit
-    tk = DominusNodeToolkit()
-    tools = {t.name: t for t in tk.get_tools()}
+    try:
+        from dominusnode_superagi import DominusNodeToolkit
+        tk = DominusNodeToolkit()
+        tools = {t.name: t for t in tk.get_tools()}
+    except ImportError:
+        # SuperAGI framework not installed — inject stubs and load client
+        import types
+        sa_mod = types.ModuleType("superagi")
+        sa_tools = types.ModuleType("superagi.tools")
+        sa_base = types.ModuleType("superagi.tools.base_tool")
+        sa_base.BaseTool = type("BaseTool", (), {})
+        sa_base.BaseToolkit = type("BaseToolkit", (), {})
+        sa_mod.tools = sa_tools
+        sa_tools.base_tool = sa_base
+        sys.modules.setdefault("superagi", sa_mod)
+        sys.modules.setdefault("superagi.tools", sa_tools)
+        sys.modules.setdefault("superagi.tools.base_tool", sa_base)
+        from dominusnode_superagi.tools import _DominusNodeClient
+        _DominusNodeClient.reset_instance()
+        client = _DominusNodeClient(
+            api_key=api_key, base_url=api_base,
+            proxy_host=proxy_host, proxy_port=proxy_port)
+        return _lifecycle_toolkit(client, target_url, proxy_type)
 
     res: Dict[str, Any] = {}
     ok = err = 0
@@ -2063,7 +2099,7 @@ def launch_swarm(cfg: ShowcaseConfig):
     def worker(idx, agent_num, iid):
         return idx, run_agent(agent_num, iid, cfg, admin_jwt, results)
 
-    with ThreadPoolExecutor(max_workers=min(len(assignments), 20)) as pool:
+    with ThreadPoolExecutor(max_workers=min(len(assignments), 8)) as pool:
         futures = {
             pool.submit(worker, i, num, iid): (i, num, iid)
             for i, (num, iid) in enumerate(assignments)
@@ -2145,9 +2181,16 @@ def launch_swarm(cfg: ShowcaseConfig):
 # ══════════════════════════════════════════════════════════════════════════════
 
 def ensure_venv():
-    """Create a venv and re-exec this script under it if not already in one."""
+    """Create a venv and re-exec this script under it if not already in one.
+
+    On Windows, skip venv isolation — SDK packages are installed in the system
+    Python and a fresh venv would lack them.  The venv approach is for Linux CI.
+    """
     if sys.prefix != sys.base_prefix:
         return  # already running inside a venv
+
+    if sys.platform == "win32":
+        return  # use system Python on Windows (SDKs already installed)
 
     venv_python = VENV_DIR / "bin" / "python3"
 
@@ -2162,7 +2205,7 @@ def ensure_venv():
             [str(venv_python), "-m", "pip", "install", "-q", "requests"],
         )
 
-    # Re-exec under the venv's Python — replaces this process entirely
+    # Re-exec under the venv's Python
     os.execvp(str(venv_python), [str(venv_python)] + sys.argv)
 
 
@@ -2209,6 +2252,10 @@ def main():
                         "gemini", "raw-http"}
         launch_swarm(cfg)
     else:
+        if curses is None:
+            print("ERROR: TUI requires 'curses' (pip install windows-curses on Windows).")
+            print("       Use --no-tui mode instead.")
+            sys.exit(1)
         try:
             ok = curses.wrapper(run_tui, cfg)
         except KeyboardInterrupt:
