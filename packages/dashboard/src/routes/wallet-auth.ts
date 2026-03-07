@@ -210,19 +210,20 @@ router.post("/challenge", async (req, res) => {
       return;
     }
 
-    // In-memory rate limit
+    // In-memory rate limit — verified MCP agents skip entirely
     const isAgentChallenge = isVerifiedAgent(req);
-    if (!checkChallengeRateLimit(clientIp, isAgentChallenge)) {
+    if (!isAgentChallenge && !checkChallengeRateLimit(clientIp)) {
       res.status(429).json({ error: "Too many challenge requests. Try again later." });
       return;
     }
 
-    // DB-level defense in depth: per-IP limit
-    const challengeIpLimit = isAgentChallenge ? MAX_CHALLENGES_PER_IP * AGENT_RATE_LIMIT_MULTIPLIER : MAX_CHALLENGES_PER_IP;
-    const activeCount = await walletChallengeRepo.countActiveChallengesForIp(clientIp);
-    if (activeCount >= challengeIpLimit) {
-      res.status(429).json({ error: "Too many pending challenges. Try again later." });
-      return;
+    // DB-level defense in depth: per-IP limit — agents skip
+    if (!isAgentChallenge) {
+      const activeCount = await walletChallengeRepo.countActiveChallengesForIp(clientIp);
+      if (activeCount >= MAX_CHALLENGES_PER_IP) {
+        res.status(429).json({ error: "Too many pending challenges. Try again later." });
+        return;
+      }
     }
 
     // Per-address rate limit to prevent address-targeted challenge exhaustion
@@ -260,9 +261,9 @@ router.post("/verify", async (req, res) => {
       return;
     }
 
-    // Rate limit signature verification per IP (CPU-intensive ecrecover)
+    // Rate limit signature verification per IP — verified MCP agents skip
     const isAgentVerify = isVerifiedAgent(req);
-    if (!checkVerifyRateLimit(clientIp, isAgentVerify)) {
+    if (!isAgentVerify && !checkVerifyRateLimit(clientIp)) {
       res.status(429).json({ error: "Too many verification attempts. Try again later." });
       return;
     }
@@ -307,8 +308,8 @@ router.post("/verify", async (req, res) => {
     let isNewUser = false;
 
     if (!user) {
-      // Per-IP registration rate limit for wallet auth
-      if (!checkWalletRegistrationRateLimit(clientIp, isAgentVerify)) {
+      // Per-IP registration rate limit for wallet auth — verified agents skip
+      if (!isAgentVerify && !checkWalletRegistrationRateLimit(clientIp)) {
         res.status(429).json({ error: "Too many new accounts from this IP. Try again later." });
         return;
       }
@@ -459,7 +460,7 @@ router.post("/link", requireAuth, async (req, res) => {
       return;
     }
     const isAgentLink = isVerifiedAgent(req);
-    if (!checkLinkRateLimit(clientIp, isAgentLink)) {
+    if (!isAgentLink && !checkLinkRateLimit(clientIp)) {
       res.status(429).json({ error: "Too many verification attempts. Try again later." });
       return;
     }

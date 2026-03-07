@@ -316,8 +316,9 @@ router.post("/register", async (req, res) => {
     }
 
     // Per-IP registration rate limit: 3 accounts per IP per hour
+    // Verified MCP agents skip — they're authenticated by shared secret
     const clientIp = req.ip ?? "unknown";
-    if (!checkRegistrationRateLimit(clientIp, isMcpAgentReg)) {
+    if (!isMcpAgentReg && !checkRegistrationRateLimit(clientIp)) {
       res.status(429).json({ error: "Too many registrations from this IP. Please try again later." });
       return;
     }
@@ -462,23 +463,28 @@ router.post("/login", async (req, res) => {
     }
 
     // Per-IP global login limit (prevents credential stuffing across emails)
-    const ipLimitMsg = checkIpLoginLimit(clientIp, isMcpAgentLogin);
-    if (ipLimitMsg) {
-      res.status(429).json({ error: ipLimitMsg });
-      return;
+    // Verified MCP agents skip — authenticated by shared secret
+    if (!isMcpAgentLogin) {
+      const ipLimitMsg = checkIpLoginLimit(clientIp);
+      if (ipLimitMsg) {
+        res.status(429).json({ error: ipLimitMsg });
+        return;
+      }
     }
 
     // Check account lockout (keyed on IP+email to prevent DoS)
-    const lockoutMsg = checkLoginLockout(clientIp, email, isMcpAgentLogin);
-    if (lockoutMsg) {
-      res.status(429).json({ error: lockoutMsg });
-      return;
+    // Verified MCP agents skip — authenticated by shared secret
+    if (!isMcpAgentLogin) {
+      const lockoutMsg = checkLoginLockout(clientIp, email);
+      if (lockoutMsg) {
+        res.status(429).json({ error: lockoutMsg });
+        return;
+      }
     }
 
     const user = await userRepo.findUserForAuth(email);
     if (!user) {
-      recordLoginFailure(clientIp, email, isMcpAgentLogin);
-      recordIpLoginAttempt(clientIp); // Track IP-wide attempts
+      if (!isMcpAgentLogin) { recordLoginFailure(clientIp, email); recordIpLoginAttempt(clientIp); }
       res.status(401).json({ error: "Invalid email or password" });
       return;
     }
@@ -486,8 +492,7 @@ router.post("/login", async (req, res) => {
     // Check password BEFORE revealing account status (prevents enumeration)
     const valid = await verifyPassword(password, user.password_hash);
     if (!valid) {
-      recordLoginFailure(clientIp, email, isMcpAgentLogin);
-      recordIpLoginAttempt(clientIp); // Track IP-wide attempts
+      if (!isMcpAgentLogin) { recordLoginFailure(clientIp, email); recordIpLoginAttempt(clientIp); }
       res.status(401).json({ error: "Invalid email or password" });
       return;
     }
@@ -662,7 +667,7 @@ router.post("/change-password", requireAuth, async (req, res) => {
 
     // Rate limit password change attempts to prevent brute force on current password
     const isAgentChangePw = isVerifiedAgent(req);
-    const lockoutMsg = checkLoginLockout(clientIp, email, isAgentChangePw);
+    const lockoutMsg = isAgentChangePw ? null : checkLoginLockout(clientIp, email);
     if (lockoutMsg) {
       res.status(429).json({ error: lockoutMsg });
       return;
@@ -709,7 +714,7 @@ router.post("/change-password", requireAuth, async (req, res) => {
 
     const valid = await verifyPassword(currentPassword, user.password_hash);
     if (!valid) {
-      recordLoginFailure(clientIp, email, isAgentChangePw); // Track failed password attempts
+      if (!isAgentChangePw) recordLoginFailure(clientIp, email); // Track failed password attempts
       res.status(401).json({ error: "Current password is incorrect" });
       return;
     }
@@ -788,7 +793,7 @@ router.post("/verify-key", async (req, res) => {
     // Rate limit verify-key per IP to prevent brute force / timing oracle
     const clientIp = (req.ip ?? req.socket.remoteAddress ?? "").replace(/^::ffff:/, "");
     const isAgentVerifyKey = isVerifiedAgent(req);
-    if (!checkVerifyKeyRateLimit(clientIp, isAgentVerifyKey)) {
+    if (!isAgentVerifyKey && !checkVerifyKeyRateLimit(clientIp)) {
       res.status(429).json({ valid: false, error: "Too many verification attempts. Try again later." });
       return;
     }
@@ -928,7 +933,7 @@ router.post("/mfa/verify", async (req, res) => {
     // Per-IP rate limiting for MFA verification (prevents distributed brute force)
     const clientIp = (req.ip ?? req.socket.remoteAddress ?? "").replace(/^::ffff:/, "");
     const isAgentMfa = isVerifiedAgent(req);
-    const ipLimitMsg = checkIpLoginLimit(clientIp, isAgentMfa);
+    const ipLimitMsg = isAgentMfa ? null : checkIpLoginLimit(clientIp);
     if (ipLimitMsg) {
       res.status(429).json({ error: ipLimitMsg });
       return;
