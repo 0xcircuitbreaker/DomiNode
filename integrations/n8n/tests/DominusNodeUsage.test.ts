@@ -95,11 +95,11 @@ describe("DominusNodeUsage - metadata", () => {
     ]);
   });
 
-  it("has one operation", () => {
+  it("has three operations", () => {
     const node = new DominusNodeUsage();
     const opProp = node.description.properties.find((p) => p.name === "operation");
     expect(opProp).toBeDefined();
-    expect((opProp as any).options).toHaveLength(1);
+    expect((opProp as any).options).toHaveLength(3);
   });
 
   it("has period options: day, week, month", () => {

@@ -1,11 +1,14 @@
 /**
  * Dominus Node Wallet n8n community node.
  *
- * Operations:
+ * Operations (25 tools):
  * - Check Balance: Get current wallet balance
  * - Top Up (Stripe): Create a Stripe checkout session
  * - Top Up (Crypto): Create a crypto payment invoice
  * - Top Up (PayPal): Create a PayPal checkout session via Stripe
+ * - Get Transactions: Get wallet transaction history
+ * - Get Forecast: Get wallet spend forecast
+ * - Check Payment: Check crypto payment invoice status
  * - Create Agentic Wallet: Create a sub-wallet with spending limits
  * - Fund Agentic Wallet: Transfer funds to an agentic wallet
  * - Get Agentic Wallet Balance: Check an agentic wallet's balance
@@ -23,6 +26,7 @@
  * - Team Usage: Get team wallet transaction history
  * - Update Team: Update team name/max members
  * - Update Team Member Role: Update a team member's role
+ * - x402 Info: Get x402 micropayment protocol information
  *
  * @module
  */
@@ -70,6 +74,9 @@ export class DominusNodeWallet implements INodeType {
           { name: "Top Up (Stripe)", value: "topUpStripe", description: "Create a Stripe checkout session", action: "Top up stripe" },
           { name: "Top Up (Crypto)", value: "topUpCrypto", description: "Create a crypto payment invoice", action: "Top up crypto" },
           { name: "Top Up (PayPal)", value: "topUpPaypal", description: "Create a PayPal checkout session", action: "Top up paypal" },
+          { name: "Get Transactions", value: "getTransactions", description: "Get wallet transaction history", action: "Get transactions" },
+          { name: "Get Forecast", value: "getForecast", description: "Get wallet spend forecast", action: "Get forecast" },
+          { name: "Check Payment", value: "checkPayment", description: "Check crypto payment invoice status", action: "Check payment" },
           // Agentic Wallets
           { name: "Create Agentic Wallet", value: "createAgenticWallet", description: "Create a sub-wallet with spending limits", action: "Create agentic wallet" },
           { name: "Fund Agentic Wallet", value: "fundAgenticWallet", description: "Transfer funds to an agentic wallet", action: "Fund agentic wallet" },
@@ -135,6 +142,25 @@ export class DominusNodeWallet implements INodeType {
         default: "btc",
         description: "Cryptocurrency to pay with",
         displayOptions: { show: { operation: ["topUpCrypto"] } },
+      },
+
+      // --- Transaction / payment params ---
+      {
+        displayName: "Limit",
+        name: "walletTransactionLimit",
+        type: "number",
+        default: 20,
+        description: "Number of transactions to return (1-100)",
+        displayOptions: { show: { operation: ["getTransactions"] } },
+      },
+      {
+        displayName: "Invoice ID",
+        name: "invoiceId",
+        type: "string",
+        default: "",
+        required: true,
+        description: "Crypto payment invoice UUID to check status",
+        displayOptions: { show: { operation: ["checkPayment"] } },
       },
 
       // --- Agentic wallet params ---
@@ -408,6 +434,31 @@ export class DominusNodeWallet implements INodeType {
               amountCents,
               paymentMethod: "paypal",
             });
+            break;
+          }
+
+          case "getTransactions": {
+            const limit = this.getNodeParameter("walletTransactionLimit", i, 20) as number;
+            validateLimit(this, limit, i);
+
+            const params = new URLSearchParams();
+            params.set("limit", String(limit));
+            result = await auth.apiRequest("GET", `/api/wallet/transactions?${params.toString()}`);
+            break;
+          }
+
+          case "getForecast": {
+            result = await auth.apiRequest("GET", "/api/wallet/forecast");
+            break;
+          }
+
+          case "checkPayment": {
+            const invoiceId = this.getNodeParameter("invoiceId", i) as string;
+            validateUuid(this, invoiceId, "invoiceId", i);
+            result = await auth.apiRequest(
+              "GET",
+              `/api/wallet/topup/crypto/${encodeURIComponent(invoiceId)}/status`,
+            );
             break;
           }
 

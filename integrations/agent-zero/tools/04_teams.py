@@ -1,4 +1,4 @@
-"""Agent Zero tools: team management, shared wallets, API keys.
+"""Agent Zero tools: team management, shared wallets, API keys, invitations.
 
 Teams allow multiple users to share a wallet for proxy billing, with
 owner/admin/member role hierarchy and email-based invitations.
@@ -12,11 +12,21 @@ Tools:
     - ``team_usage`` -- Get team wallet transaction history
     - ``update_team`` -- Update team name or member limit
     - ``update_team_member_role`` -- Change a member's role (admin/member)
+    - ``team_delete`` -- Delete a team (owner only)
+    - ``team_revoke_key`` -- Revoke a team API key
+    - ``team_list_keys`` -- List all team API keys
+    - ``team_list_members`` -- List all team members
+    - ``team_add_member`` -- Add a user to a team by user ID
+    - ``team_remove_member`` -- Remove a member from a team
+    - ``team_invite_member`` -- Invite a user by email address
+    - ``team_list_invites`` -- List pending team invitations
+    - ``team_cancel_invite`` -- Cancel a pending team invitation
 
 Security:
     - Name/label sanitisation (length, control characters)
-    - UUID format validation for team_id and user_id
+    - UUID format validation for team_id, user_id, key_id, invite_id
     - Role enum validation (member/admin only)
+    - Email validation for invitations
     - Amount range validation for funding
     - Credential scrubbing in all error messages
 """
@@ -40,6 +50,7 @@ _UUID_RE = re.compile(
 )
 
 _VALID_ROLES = frozenset({"member", "admin"})
+_EMAIL_RE = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
 
 
 def _sanitize_error(message: str) -> str:
@@ -53,6 +64,27 @@ def _validate_team_id(team_id: Any) -> str | None:
         return "team_id is required and must be a string"
     if not _UUID_RE.match(team_id):
         return "team_id must be a valid UUID"
+    return None
+
+
+def _validate_uuid(value: Any, field: str) -> str | None:
+    """Validate a generic UUID field, returning an error or None."""
+    if not value or not isinstance(value, str):
+        return f"{field} is required and must be a string"
+    if not _UUID_RE.match(value):
+        return f"{field} must be a valid UUID"
+    return None
+
+
+def _validate_email(email: Any) -> str | None:
+    """Validate an email address, returning an error or None."""
+    if not email or not isinstance(email, str):
+        return "email is required and must be a string"
+    trimmed = email.strip()
+    if not _EMAIL_RE.match(trimmed):
+        return "Invalid email address"
+    if len(trimmed) > 254:
+        return "Email address too long (max 254 characters)"
     return None
 
 
@@ -429,6 +461,371 @@ def update_team_member_role(
 
 
 # ---------------------------------------------------------------------------
+# Tool: team_delete
+# ---------------------------------------------------------------------------
+
+
+def team_delete(
+    auth: DominusNodeAuth,
+    args: Dict[str, Any],
+) -> str:
+    """Delete a team.
+
+    Only the team owner can delete a team. All team API keys are revoked
+    and any remaining wallet balance is refunded.
+
+    Args:
+        auth: Authenticated Dominus Node helper.
+        args: Tool arguments:
+            - ``team_id`` (str, required): Team UUID.
+
+    Returns:
+        JSON string confirming the deletion.
+    """
+    team_id = args.get("team_id")
+    err = _validate_team_id(team_id)
+    if err:
+        return json.dumps({"error": err})
+
+    try:
+        result = auth.api_request(
+            "DELETE", f"/api/teams/{auth.url_encode(team_id)}"
+        )
+        return json.dumps(result)
+    except Exception as e:
+        return json.dumps({"error": _sanitize_error(str(e))})
+
+
+# ---------------------------------------------------------------------------
+# Tool: team_revoke_key
+# ---------------------------------------------------------------------------
+
+
+def team_revoke_key(
+    auth: DominusNodeAuth,
+    args: Dict[str, Any],
+) -> str:
+    """Revoke a team API key.
+
+    Only owners and admins can revoke keys. Applications using this key
+    will lose access immediately.
+
+    Args:
+        auth: Authenticated Dominus Node helper.
+        args: Tool arguments:
+            - ``team_id`` (str, required): Team UUID.
+            - ``key_id`` (str, required): API key UUID to revoke.
+
+    Returns:
+        JSON string confirming the key revocation.
+    """
+    team_id = args.get("team_id")
+    err = _validate_team_id(team_id)
+    if err:
+        return json.dumps({"error": err})
+
+    key_id = args.get("key_id")
+    err = _validate_uuid(key_id, "key_id")
+    if err:
+        return json.dumps({"error": err})
+
+    try:
+        result = auth.api_request(
+            "DELETE",
+            f"/api/teams/{auth.url_encode(team_id)}/keys/{auth.url_encode(key_id)}",
+        )
+        return json.dumps(result)
+    except Exception as e:
+        return json.dumps({"error": _sanitize_error(str(e))})
+
+
+# ---------------------------------------------------------------------------
+# Tool: team_list_keys
+# ---------------------------------------------------------------------------
+
+
+def team_list_keys(
+    auth: DominusNodeAuth,
+    args: Dict[str, Any],
+) -> str:
+    """List all API keys for a team.
+
+    Returns key labels, creation dates, and last-used timestamps.
+
+    Args:
+        auth: Authenticated Dominus Node helper.
+        args: Tool arguments:
+            - ``team_id`` (str, required): Team UUID.
+
+    Returns:
+        JSON string with an array of team API key objects.
+    """
+    team_id = args.get("team_id")
+    err = _validate_team_id(team_id)
+    if err:
+        return json.dumps({"error": err})
+
+    try:
+        result = auth.api_request(
+            "GET", f"/api/teams/{auth.url_encode(team_id)}/keys"
+        )
+        return json.dumps(result)
+    except Exception as e:
+        return json.dumps({"error": _sanitize_error(str(e))})
+
+
+# ---------------------------------------------------------------------------
+# Tool: team_list_members
+# ---------------------------------------------------------------------------
+
+
+def team_list_members(
+    auth: DominusNodeAuth,
+    args: Dict[str, Any],
+) -> str:
+    """List all members of a team.
+
+    Returns member details including roles and join dates.
+
+    Args:
+        auth: Authenticated Dominus Node helper.
+        args: Tool arguments:
+            - ``team_id`` (str, required): Team UUID.
+
+    Returns:
+        JSON string with an array of team member objects.
+    """
+    team_id = args.get("team_id")
+    err = _validate_team_id(team_id)
+    if err:
+        return json.dumps({"error": err})
+
+    try:
+        result = auth.api_request(
+            "GET", f"/api/teams/{auth.url_encode(team_id)}/members"
+        )
+        return json.dumps(result)
+    except Exception as e:
+        return json.dumps({"error": _sanitize_error(str(e))})
+
+
+# ---------------------------------------------------------------------------
+# Tool: team_add_member
+# ---------------------------------------------------------------------------
+
+
+def team_add_member(
+    auth: DominusNodeAuth,
+    args: Dict[str, Any],
+) -> str:
+    """Add a user directly to a team by user ID.
+
+    Only owners and admins can add members.
+
+    Args:
+        auth: Authenticated Dominus Node helper.
+        args: Tool arguments:
+            - ``team_id`` (str, required): Team UUID.
+            - ``user_id`` (str, required): User UUID to add.
+            - ``role`` (str, optional): Role for the new member
+              (``member`` or ``admin``). Default: ``member``.
+
+    Returns:
+        JSON string confirming the member addition.
+    """
+    team_id = args.get("team_id")
+    err = _validate_team_id(team_id)
+    if err:
+        return json.dumps({"error": err})
+
+    user_id = args.get("user_id")
+    err = _validate_uuid(user_id, "user_id")
+    if err:
+        return json.dumps({"error": err})
+
+    role = args.get("role", "member")
+    if role not in _VALID_ROLES:
+        return json.dumps({"error": "role must be 'member' or 'admin'"})
+
+    try:
+        result = auth.api_request(
+            "POST",
+            f"/api/teams/{auth.url_encode(team_id)}/members",
+            {"userId": user_id, "role": role},
+        )
+        return json.dumps(result)
+    except Exception as e:
+        return json.dumps({"error": _sanitize_error(str(e))})
+
+
+# ---------------------------------------------------------------------------
+# Tool: team_remove_member
+# ---------------------------------------------------------------------------
+
+
+def team_remove_member(
+    auth: DominusNodeAuth,
+    args: Dict[str, Any],
+) -> str:
+    """Remove a member from a team.
+
+    Only owners and admins can remove members.
+
+    Args:
+        auth: Authenticated Dominus Node helper.
+        args: Tool arguments:
+            - ``team_id`` (str, required): Team UUID.
+            - ``user_id`` (str, required): User UUID of the member to remove.
+
+    Returns:
+        JSON string confirming the member removal.
+    """
+    team_id = args.get("team_id")
+    err = _validate_team_id(team_id)
+    if err:
+        return json.dumps({"error": err})
+
+    user_id = args.get("user_id")
+    err = _validate_uuid(user_id, "user_id")
+    if err:
+        return json.dumps({"error": err})
+
+    try:
+        result = auth.api_request(
+            "DELETE",
+            f"/api/teams/{auth.url_encode(team_id)}/members/{auth.url_encode(user_id)}",
+        )
+        return json.dumps(result)
+    except Exception as e:
+        return json.dumps({"error": _sanitize_error(str(e))})
+
+
+# ---------------------------------------------------------------------------
+# Tool: team_invite_member
+# ---------------------------------------------------------------------------
+
+
+def team_invite_member(
+    auth: DominusNodeAuth,
+    args: Dict[str, Any],
+) -> str:
+    """Invite a user to join a team by email address.
+
+    The user will receive an invitation email. Only owners and admins
+    can send invitations.
+
+    Args:
+        auth: Authenticated Dominus Node helper.
+        args: Tool arguments:
+            - ``team_id`` (str, required): Team UUID.
+            - ``email`` (str, required): Email address of the user to invite.
+            - ``role`` (str, optional): Role for the invited member
+              (``member`` or ``admin``). Default: ``member``.
+
+    Returns:
+        JSON string with the invitation details.
+    """
+    team_id = args.get("team_id")
+    err = _validate_team_id(team_id)
+    if err:
+        return json.dumps({"error": err})
+
+    email = args.get("email")
+    err = _validate_email(email)
+    if err:
+        return json.dumps({"error": err})
+
+    role = args.get("role", "member")
+    if role not in _VALID_ROLES:
+        return json.dumps({"error": "role must be 'member' or 'admin'"})
+
+    try:
+        result = auth.api_request(
+            "POST",
+            f"/api/teams/{auth.url_encode(team_id)}/invites",
+            {"email": email.strip(), "role": role},
+        )
+        return json.dumps(result)
+    except Exception as e:
+        return json.dumps({"error": _sanitize_error(str(e))})
+
+
+# ---------------------------------------------------------------------------
+# Tool: team_list_invites
+# ---------------------------------------------------------------------------
+
+
+def team_list_invites(
+    auth: DominusNodeAuth,
+    args: Dict[str, Any],
+) -> str:
+    """List all pending invitations for a team.
+
+    Args:
+        auth: Authenticated Dominus Node helper.
+        args: Tool arguments:
+            - ``team_id`` (str, required): Team UUID.
+
+    Returns:
+        JSON string with an array of pending invitation objects.
+    """
+    team_id = args.get("team_id")
+    err = _validate_team_id(team_id)
+    if err:
+        return json.dumps({"error": err})
+
+    try:
+        result = auth.api_request(
+            "GET", f"/api/teams/{auth.url_encode(team_id)}/invites"
+        )
+        return json.dumps(result)
+    except Exception as e:
+        return json.dumps({"error": _sanitize_error(str(e))})
+
+
+# ---------------------------------------------------------------------------
+# Tool: team_cancel_invite
+# ---------------------------------------------------------------------------
+
+
+def team_cancel_invite(
+    auth: DominusNodeAuth,
+    args: Dict[str, Any],
+) -> str:
+    """Cancel a pending team invitation.
+
+    Only owners and admins can cancel invitations.
+
+    Args:
+        auth: Authenticated Dominus Node helper.
+        args: Tool arguments:
+            - ``team_id`` (str, required): Team UUID.
+            - ``invite_id`` (str, required): Invitation UUID to cancel.
+
+    Returns:
+        JSON string confirming the invitation cancellation.
+    """
+    team_id = args.get("team_id")
+    err = _validate_team_id(team_id)
+    if err:
+        return json.dumps({"error": err})
+
+    invite_id = args.get("invite_id")
+    err = _validate_uuid(invite_id, "invite_id")
+    if err:
+        return json.dumps({"error": err})
+
+    try:
+        result = auth.api_request(
+            "DELETE",
+            f"/api/teams/{auth.url_encode(team_id)}/invites/{auth.url_encode(invite_id)}",
+        )
+        return json.dumps(result)
+    except Exception as e:
+        return json.dumps({"error": _sanitize_error(str(e))})
+
+
+# ---------------------------------------------------------------------------
 # Dispatch table
 # ---------------------------------------------------------------------------
 
@@ -493,6 +890,90 @@ TOOLS = {
             "team_id": {"type": "string", "required": True, "description": "Team UUID"},
             "user_id": {"type": "string", "required": True, "description": "Member's user UUID"},
             "role": {"type": "string", "required": True, "description": "New role: member or admin"},
+        },
+    },
+    "team_delete": {
+        "function": team_delete,
+        "description": (
+            "Delete a team. Only the owner can delete. All keys are revoked "
+            "and remaining balance is refunded."
+        ),
+        "parameters": {
+            "team_id": {"type": "string", "required": True, "description": "Team UUID"},
+        },
+    },
+    "team_revoke_key": {
+        "function": team_revoke_key,
+        "description": (
+            "Revoke a team API key. Applications using this key lose access immediately."
+        ),
+        "parameters": {
+            "team_id": {"type": "string", "required": True, "description": "Team UUID"},
+            "key_id": {"type": "string", "required": True, "description": "API key UUID to revoke"},
+        },
+    },
+    "team_list_keys": {
+        "function": team_list_keys,
+        "description": (
+            "List all API keys for a team with labels, creation dates, "
+            "and last-used timestamps."
+        ),
+        "parameters": {
+            "team_id": {"type": "string", "required": True, "description": "Team UUID"},
+        },
+    },
+    "team_list_members": {
+        "function": team_list_members,
+        "description": "List all members of a team with their roles and join dates.",
+        "parameters": {
+            "team_id": {"type": "string", "required": True, "description": "Team UUID"},
+        },
+    },
+    "team_add_member": {
+        "function": team_add_member,
+        "description": (
+            "Add a user directly to a team by user ID. "
+            "Only owners and admins can add members."
+        ),
+        "parameters": {
+            "team_id": {"type": "string", "required": True, "description": "Team UUID"},
+            "user_id": {"type": "string", "required": True, "description": "User UUID to add"},
+            "role": {"type": "string", "required": False, "description": "Role: member or admin (default: member)"},
+        },
+    },
+    "team_remove_member": {
+        "function": team_remove_member,
+        "description": "Remove a member from a team. Only owners and admins can remove members.",
+        "parameters": {
+            "team_id": {"type": "string", "required": True, "description": "Team UUID"},
+            "user_id": {"type": "string", "required": True, "description": "User UUID of the member to remove"},
+        },
+    },
+    "team_invite_member": {
+        "function": team_invite_member,
+        "description": (
+            "Invite a user to join a team by email address. "
+            "The user will receive an invitation email."
+        ),
+        "parameters": {
+            "team_id": {"type": "string", "required": True, "description": "Team UUID"},
+            "email": {"type": "string", "required": True, "description": "Email address to invite"},
+            "role": {"type": "string", "required": False, "description": "Role: member or admin (default: member)"},
+        },
+    },
+    "team_list_invites": {
+        "function": team_list_invites,
+        "description": "List all pending invitations for a team.",
+        "parameters": {
+            "team_id": {"type": "string", "required": True, "description": "Team UUID"},
+        },
+    },
+    "team_cancel_invite": {
+        "function": team_cancel_invite,
+        "description": "Cancel a pending team invitation. Only owners and admins can cancel.",
+        "parameters": {
+            "team_id": {"type": "string", "required": True, "description": "Team UUID"},
+            "invite_id": {"type": "string", "required": True, "description": "Invite UUID to cancel"},
         },
     },
 }

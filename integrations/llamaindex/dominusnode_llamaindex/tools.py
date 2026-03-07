@@ -1396,3 +1396,564 @@ class DominusNodeClient:
             "/api/wallet/topup/crypto",
             {"amountUsd": amount_usd, "currency": currency.lower()},
         )
+
+    # ----- Proxy status ----------------------------------------------------
+
+    def get_proxy_status(self) -> Dict[str, Any]:
+        """Get the current status of the proxy gateway.
+
+        Returns:
+            Dict with proxy gateway status information.
+        """
+        return self._api_request("GET", "/api/proxy/status")
+
+    # ----- Wallet transaction history & forecast ---------------------------
+
+    def get_transactions(self, limit: int = 20) -> Dict[str, Any]:
+        """Get wallet transaction history.
+
+        Args:
+            limit: Maximum number of transactions to return (1-100, default 20).
+
+        Returns:
+            Dict with wallet transaction history.
+        """
+        if not isinstance(limit, int) or isinstance(limit, bool) or limit < 1 or limit > 100:
+            return {"error": "limit must be an integer between 1 and 100"}
+
+        return self._api_request(
+            "GET", f"/api/wallet/transactions?limit={limit}"
+        )
+
+    def get_forecast(self) -> Dict[str, Any]:
+        """Get wallet balance forecast based on recent usage trends.
+
+        Returns:
+            Dict with wallet balance forecast information.
+        """
+        return self._api_request("GET", "/api/wallet/forecast")
+
+    def check_payment(self, invoice_id: str) -> Dict[str, Any]:
+        """Check the status of a crypto top-up payment.
+
+        Args:
+            invoice_id: The invoice ID from a previous ``topup_crypto`` call.
+
+        Returns:
+            Dict with payment status information.
+        """
+        if not invoice_id or not isinstance(invoice_id, str):
+            return {"error": "invoice_id is required and must be a string"}
+
+        return self._api_request(
+            "GET",
+            f"/api/wallet/topup/crypto/{quote(invoice_id, safe='')}/status",
+        )
+
+    # ----- Usage breakdown -------------------------------------------------
+
+    def get_daily_usage(self, days: int = 30) -> Dict[str, Any]:
+        """Get daily usage breakdown.
+
+        Args:
+            days: Number of days of history to retrieve (1-90, default 30).
+
+        Returns:
+            Dict with daily usage breakdown.
+        """
+        if not isinstance(days, int) or isinstance(days, bool) or days < 1 or days > 90:
+            return {"error": "days must be an integer between 1 and 90"}
+
+        return self._api_request(
+            "GET", f"/api/usage/daily?days={days}"
+        )
+
+    def get_top_hosts(self, limit: int = 10) -> Dict[str, Any]:
+        """Get the top hosts by bandwidth usage.
+
+        Args:
+            limit: Maximum number of hosts to return (1-50, default 10).
+
+        Returns:
+            Dict with top hosts by usage.
+        """
+        if not isinstance(limit, int) or isinstance(limit, bool) or limit < 1 or limit > 50:
+            return {"error": "limit must be an integer between 1 and 50"}
+
+        return self._api_request(
+            "GET", f"/api/usage/top-hosts?limit={limit}"
+        )
+
+    # ----- Account (unauthenticated) ---------------------------------------
+
+    _BASIC_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+    def _unauth_request(
+        self,
+        method: str,
+        path: str,
+        body: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Make an unauthenticated API request (for register, login, verify-email).
+
+        Args:
+            method: HTTP method.
+            path: API path.
+            body: Optional JSON body.
+
+        Returns:
+            Parsed JSON response.
+
+        Raises:
+            RuntimeError: On API errors.
+        """
+        with httpx.Client(
+            timeout=self._timeout,
+            follow_redirects=False,
+        ) as client:
+            headers: Dict[str, str] = {
+                "User-Agent": USER_AGENT,
+                "Content-Type": "application/json",
+            }
+            if self._agent_secret:
+                headers["X-DominusNode-Agent"] = "mcp"
+                headers["X-DominusNode-Agent-Secret"] = self._agent_secret
+
+            kwargs: Dict[str, Any] = {"headers": headers}
+            if body is not None:
+                kwargs["json"] = body
+
+            resp = client.request(method, f"{self._base_url}{path}", **kwargs)
+
+            if len(resp.content) > MAX_RESPONSE_BYTES:
+                raise RuntimeError("Response body too large (exceeds 10 MB)")
+
+            if resp.status_code >= 400:
+                try:
+                    err_data = resp.json()
+                    msg = err_data.get("error", resp.text)
+                except Exception:
+                    msg = resp.text
+                msg = str(msg)[:500]
+                raise RuntimeError(
+                    f"API error {resp.status_code}: {sanitize_error(msg)}"
+                )
+
+            if resp.text:
+                data = resp.json()
+                strip_dangerous_keys(data)
+                return data
+            return {}
+
+    def register(self, email: str, password: str) -> Dict[str, Any]:
+        """Register a new Dominus Node account.
+
+        This is an unauthenticated endpoint -- no API key or token needed.
+
+        Args:
+            email: Email address for the new account.
+            password: Password for the new account (8-128 characters).
+
+        Returns:
+            Dict with registration result.
+        """
+        if not email or not isinstance(email, str):
+            return {"error": "email is required and must be a string"}
+        if not self._BASIC_EMAIL_RE.match(email):
+            return {"error": "email must be a valid email address"}
+        if len(email) > 254:
+            return {"error": "email must be 254 characters or fewer"}
+
+        if not password or not isinstance(password, str):
+            return {"error": "password is required and must be a string"}
+        if len(password) < 8:
+            return {"error": "password must be at least 8 characters"}
+        if len(password) > 128:
+            return {"error": "password must be 128 characters or fewer"}
+
+        try:
+            return self._unauth_request(
+                "POST",
+                "/api/auth/register",
+                {"email": email, "password": password},
+            )
+        except Exception as e:
+            return {"error": sanitize_error(str(e))}
+
+    def login(self, email: str, password: str) -> Dict[str, Any]:
+        """Log in to a Dominus Node account.
+
+        This is an unauthenticated endpoint -- no API key or token needed.
+
+        Args:
+            email: Account email address.
+            password: Account password.
+
+        Returns:
+            Dict with login result (tokens).
+        """
+        if not email or not isinstance(email, str):
+            return {"error": "email is required and must be a string"}
+        if not self._BASIC_EMAIL_RE.match(email):
+            return {"error": "email must be a valid email address"}
+        if len(email) > 254:
+            return {"error": "email must be 254 characters or fewer"}
+
+        if not password or not isinstance(password, str):
+            return {"error": "password is required and must be a string"}
+        if len(password) < 8:
+            return {"error": "password must be at least 8 characters"}
+        if len(password) > 128:
+            return {"error": "password must be 128 characters or fewer"}
+
+        try:
+            return self._unauth_request(
+                "POST",
+                "/api/auth/login",
+                {"email": email, "password": password},
+            )
+        except Exception as e:
+            return {"error": sanitize_error(str(e))}
+
+    def get_account_info(self) -> Dict[str, Any]:
+        """Get current account information.
+
+        Returns:
+            Dict with account details (email, plan, verification status).
+        """
+        return self._api_request("GET", "/api/auth/me")
+
+    def verify_email(self, token: str) -> Dict[str, Any]:
+        """Verify an email address using a verification token.
+
+        This is an unauthenticated endpoint -- no API key or token needed.
+
+        Args:
+            token: The email verification token received via email.
+
+        Returns:
+            Dict confirming email verification.
+        """
+        if not token or not isinstance(token, str):
+            return {"error": "token is required and must be a string"}
+        if len(token) > 512:
+            return {"error": "token must be 512 characters or fewer"}
+
+        try:
+            return self._unauth_request(
+                "POST",
+                "/api/auth/verify-email",
+                {"token": token},
+            )
+        except Exception as e:
+            return {"error": sanitize_error(str(e))}
+
+    def resend_verification(self) -> Dict[str, Any]:
+        """Resend the email verification link.
+
+        Returns:
+            Dict confirming the verification email was resent.
+        """
+        return self._api_request("POST", "/api/auth/resend-verification")
+
+    def update_password(
+        self, current_password: str, new_password: str
+    ) -> Dict[str, Any]:
+        """Change the account password.
+
+        Args:
+            current_password: The current account password.
+            new_password: The new password (8-128 characters).
+
+        Returns:
+            Dict confirming the password change.
+        """
+        if not current_password or not isinstance(current_password, str):
+            return {"error": "current_password is required and must be a string"}
+        if not new_password or not isinstance(new_password, str):
+            return {"error": "new_password is required and must be a string"}
+        if len(new_password) < 8:
+            return {"error": "new_password must be at least 8 characters"}
+        if len(new_password) > 128:
+            return {"error": "new_password must be 128 characters or fewer"}
+
+        return self._api_request(
+            "POST",
+            "/api/auth/change-password",
+            {"currentPassword": current_password, "newPassword": new_password},
+        )
+
+    # ----- API Keys --------------------------------------------------------
+
+    def list_keys(self) -> Dict[str, Any]:
+        """List all API keys for the current account.
+
+        Returns:
+            Dict with a list of API keys.
+        """
+        return self._api_request("GET", "/api/keys")
+
+    def create_key(self, label: str) -> Dict[str, Any]:
+        """Create a new API key.
+
+        Args:
+            label: Human-readable label for the key (max 100 chars, no control characters).
+
+        Returns:
+            Dict with the created API key (shown once).
+        """
+        err = _validate_label(label, "label")
+        if err:
+            return {"error": err}
+
+        return self._api_request(
+            "POST", "/api/keys", {"label": label}
+        )
+
+    def revoke_key(self, key_id: str) -> Dict[str, Any]:
+        """Revoke (delete) an API key.
+
+        Args:
+            key_id: ID of the API key to revoke.
+
+        Returns:
+            Dict confirming the key revocation.
+        """
+        if not key_id or not isinstance(key_id, str):
+            return {"error": "key_id is required and must be a string"}
+
+        return self._api_request(
+            "DELETE", f"/api/keys/{quote(key_id, safe='')}"
+        )
+
+    # ----- Plans -----------------------------------------------------------
+
+    def get_plan(self) -> Dict[str, Any]:
+        """Get the current user's plan.
+
+        Returns:
+            Dict with the user's current plan details.
+        """
+        return self._api_request("GET", "/api/plans/user/plan")
+
+    def list_plans(self) -> Dict[str, Any]:
+        """List all available plans.
+
+        Returns:
+            Dict with a list of available plans.
+        """
+        return self._api_request("GET", "/api/plans")
+
+    def change_plan(self, plan_id: str) -> Dict[str, Any]:
+        """Change the user's plan.
+
+        Args:
+            plan_id: UUID of the plan to switch to.
+
+        Returns:
+            Dict with the updated plan details.
+        """
+        err = _validate_uuid(plan_id, "plan_id")
+        if err:
+            return {"error": err}
+
+        return self._api_request(
+            "PUT", "/api/plans/user/plan", {"planId": plan_id}
+        )
+
+    # ----- Extended Team methods -------------------------------------------
+
+    def team_delete(self, team_id: str) -> Dict[str, Any]:
+        """Delete a team.
+
+        Args:
+            team_id: UUID of the team to delete.
+
+        Returns:
+            Dict confirming team deletion.
+        """
+        err = _validate_uuid(team_id, "team_id")
+        if err:
+            return {"error": err}
+
+        return self._api_request(
+            "DELETE", f"/api/teams/{quote(team_id, safe='')}"
+        )
+
+    def team_revoke_key(self, team_id: str, key_id: str) -> Dict[str, Any]:
+        """Revoke (delete) an API key from a team.
+
+        Args:
+            team_id: UUID of the team.
+            key_id: ID of the API key to revoke.
+
+        Returns:
+            Dict confirming the key revocation.
+        """
+        err = _validate_uuid(team_id, "team_id")
+        if err:
+            return {"error": err}
+
+        if not key_id or not isinstance(key_id, str):
+            return {"error": "key_id is required and must be a string"}
+
+        return self._api_request(
+            "DELETE",
+            f"/api/teams/{quote(team_id, safe='')}/keys/{quote(key_id, safe='')}",
+        )
+
+    def team_list_keys(self, team_id: str) -> Dict[str, Any]:
+        """List all API keys for a team.
+
+        Args:
+            team_id: UUID of the team.
+
+        Returns:
+            Dict with a list of team API keys.
+        """
+        err = _validate_uuid(team_id, "team_id")
+        if err:
+            return {"error": err}
+
+        return self._api_request(
+            "GET", f"/api/teams/{quote(team_id, safe='')}/keys"
+        )
+
+    def team_list_members(self, team_id: str) -> Dict[str, Any]:
+        """List all members of a team.
+
+        Args:
+            team_id: UUID of the team.
+
+        Returns:
+            Dict with a list of team members.
+        """
+        err = _validate_uuid(team_id, "team_id")
+        if err:
+            return {"error": err}
+
+        return self._api_request(
+            "GET", f"/api/teams/{quote(team_id, safe='')}/members"
+        )
+
+    def team_add_member(self, team_id: str, user_id: str) -> Dict[str, Any]:
+        """Add a member to a team by user ID.
+
+        Args:
+            team_id: UUID of the team.
+            user_id: UUID of the user to add.
+
+        Returns:
+            Dict confirming the member addition.
+        """
+        err = _validate_uuid(team_id, "team_id")
+        if err:
+            return {"error": err}
+
+        err = _validate_uuid(user_id, "user_id")
+        if err:
+            return {"error": err}
+
+        return self._api_request(
+            "POST",
+            f"/api/teams/{quote(team_id, safe='')}/members",
+            {"userId": user_id},
+        )
+
+    def team_remove_member(self, team_id: str, user_id: str) -> Dict[str, Any]:
+        """Remove a member from a team.
+
+        Args:
+            team_id: UUID of the team.
+            user_id: UUID of the user to remove.
+
+        Returns:
+            Dict confirming the member removal.
+        """
+        err = _validate_uuid(team_id, "team_id")
+        if err:
+            return {"error": err}
+
+        err = _validate_uuid(user_id, "user_id")
+        if err:
+            return {"error": err}
+
+        return self._api_request(
+            "DELETE",
+            f"/api/teams/{quote(team_id, safe='')}/members/{quote(user_id, safe='')}",
+        )
+
+    def team_invite_member(
+        self, team_id: str, email: str, role: str = "member"
+    ) -> Dict[str, Any]:
+        """Invite a user to a team by email.
+
+        Args:
+            team_id: UUID of the team.
+            email: Email address of the user to invite.
+            role: Role for the invited user (``member`` or ``admin``). Default: ``member``.
+
+        Returns:
+            Dict with the created invite details.
+        """
+        err = _validate_uuid(team_id, "team_id")
+        if err:
+            return {"error": err}
+
+        if not email or not isinstance(email, str):
+            return {"error": "email is required and must be a string"}
+        if not self._BASIC_EMAIL_RE.match(email):
+            return {"error": "email must be a valid email address"}
+        if len(email) > 254:
+            return {"error": "email must be 254 characters or fewer"}
+
+        if not role or not isinstance(role, str):
+            return {"error": "role is required and must be a string"}
+        if role not in ("member", "admin"):
+            return {"error": "role must be 'member' or 'admin'"}
+
+        return self._api_request(
+            "POST",
+            f"/api/teams/{quote(team_id, safe='')}/invites",
+            {"email": email, "role": role},
+        )
+
+    def team_list_invites(self, team_id: str) -> Dict[str, Any]:
+        """List pending invites for a team.
+
+        Args:
+            team_id: UUID of the team.
+
+        Returns:
+            Dict with a list of pending team invites.
+        """
+        err = _validate_uuid(team_id, "team_id")
+        if err:
+            return {"error": err}
+
+        return self._api_request(
+            "GET", f"/api/teams/{quote(team_id, safe='')}/invites"
+        )
+
+    def team_cancel_invite(self, team_id: str, invite_id: str) -> Dict[str, Any]:
+        """Cancel a pending team invite.
+
+        Args:
+            team_id: UUID of the team.
+            invite_id: UUID of the invite to cancel.
+
+        Returns:
+            Dict confirming the invite cancellation.
+        """
+        err = _validate_uuid(team_id, "team_id")
+        if err:
+            return {"error": err}
+
+        err = _validate_uuid(invite_id, "invite_id")
+        if err:
+            return {"error": err}
+
+        return self._api_request(
+            "DELETE",
+            f"/api/teams/{quote(team_id, safe='')}/invites/{quote(invite_id, safe='')}",
+        )

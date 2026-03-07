@@ -1,6 +1,9 @@
 /**
  * Dominus Node OpenAI-compatible function calling handler (TypeScript).
  *
+ * 53 tools covering proxy, wallet, usage, account lifecycle, API keys,
+ * plans, and teams.
+ *
  * Provides a factory function that creates a handler for dispatching
  * OpenAI function calls to the Dominus Node REST API. Works with any
  * function-calling LLM system: OpenAI GPT, Anthropic Claude tool_use,
@@ -1244,6 +1247,517 @@ export function createDominusNodeFunctionHandler(
   }
 
   // -----------------------------------------------------------------------
+  // Proxy extended
+  // -----------------------------------------------------------------------
+
+  async function handleGetProxyStatus(): Promise<string> {
+    const result = await api("GET", "/api/proxy/status");
+    return JSON.stringify(result);
+  }
+
+  // -----------------------------------------------------------------------
+  // Wallet extended
+  // -----------------------------------------------------------------------
+
+  async function handleGetTransactions(args: Record<string, unknown>): Promise<string> {
+    const params = new URLSearchParams();
+    if (args.limit !== undefined) {
+      const limit = args.limit as number;
+      if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
+        return JSON.stringify({ error: "limit must be an integer between 1 and 100" });
+      }
+      params.set("limit", String(limit));
+    }
+    const qs = params.toString();
+    const result = await api("GET", `/api/wallet/transactions${qs ? `?${qs}` : ""}`);
+    return JSON.stringify(result);
+  }
+
+  async function handleGetForecast(): Promise<string> {
+    const result = await api("GET", "/api/wallet/forecast");
+    return JSON.stringify(result);
+  }
+
+  async function handleCheckPayment(args: Record<string, unknown>): Promise<string> {
+    const invoiceId = args.invoice_id as string;
+    if (!invoiceId || typeof invoiceId !== "string") {
+      return JSON.stringify({ error: "invoice_id is required and must be a string" });
+    }
+    const result = await api(
+      "GET",
+      `/api/wallet/topup/crypto/${encodeURIComponent(invoiceId)}/status`,
+    );
+    return JSON.stringify(result);
+  }
+
+  // -----------------------------------------------------------------------
+  // Usage extended
+  // -----------------------------------------------------------------------
+
+  async function handleGetDailyUsage(args: Record<string, unknown>): Promise<string> {
+    const days = (args.days as number) ?? 30;
+    if (!Number.isInteger(days) || days < 1 || days > 90) {
+      return JSON.stringify({ error: "days must be an integer between 1 and 90" });
+    }
+    const params = new URLSearchParams({ days: String(days) });
+    const result = await api("GET", `/api/usage/daily?${params.toString()}`);
+    return JSON.stringify(result);
+  }
+
+  async function handleGetTopHosts(args: Record<string, unknown>): Promise<string> {
+    const params = new URLSearchParams();
+    if (args.limit !== undefined) {
+      const limit = args.limit as number;
+      if (!Number.isInteger(limit) || limit < 1 || limit > 50) {
+        return JSON.stringify({ error: "limit must be an integer between 1 and 50" });
+      }
+      params.set("limit", String(limit));
+    }
+    const qs = params.toString();
+    const result = await api("GET", `/api/usage/top-hosts${qs ? `?${qs}` : ""}`);
+    return JSON.stringify(result);
+  }
+
+  // -----------------------------------------------------------------------
+  // Account lifecycle
+  // -----------------------------------------------------------------------
+
+  async function handleRegister(args: Record<string, unknown>): Promise<string> {
+    const email = args.email as string;
+    const password = args.password as string;
+
+    if (!email || typeof email !== "string") {
+      return JSON.stringify({ error: "email is required and must be a string" });
+    }
+    if (!/^[^@]+@[^@]+\.[^@]+$/.test(email)) {
+      return JSON.stringify({ error: "email must be a valid email address" });
+    }
+    if (!password || typeof password !== "string") {
+      return JSON.stringify({ error: "password is required and must be a string" });
+    }
+    if (password.length < 8 || password.length > 128) {
+      return JSON.stringify({ error: "password must be between 8 and 128 characters" });
+    }
+
+    const headers: Record<string, string> = {
+      "User-Agent": "dominusnode-openai-functions/1.0.0",
+      "Content-Type": "application/json",
+    };
+    if (agentSecret) {
+      headers["X-DominusNode-Agent"] = "mcp";
+      headers["X-DominusNode-Agent-Secret"] = agentSecret;
+    }
+
+    const response = await fetch(`${baseUrl}/api/auth/register`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ email, password }),
+      signal: AbortSignal.timeout(timeoutMs),
+      redirect: "error",
+    });
+
+    const text = await response.text();
+    if (text.length > MAX_RESPONSE_BYTES) {
+      return JSON.stringify({ error: "Response body exceeds size limit" });
+    }
+    if (!response.ok) {
+      let message: string;
+      try {
+        const parsed = JSON.parse(text);
+        message = parsed.error ?? parsed.message ?? text;
+      } catch {
+        message = text;
+      }
+      if (message.length > 500) message = message.slice(0, 500) + "... [truncated]";
+      return JSON.stringify({ error: `Registration failed: ${sanitizeError(message)}` });
+    }
+
+    const data = safeJsonParse<{ userId?: string; email?: string; message?: string }>(text);
+    stripDangerousKeys(data);
+    return JSON.stringify({ userId: data.userId, email: data.email, message: data.message });
+  }
+
+  async function handleLogin(args: Record<string, unknown>): Promise<string> {
+    const email = args.email as string;
+    const password = args.password as string;
+
+    if (!email || typeof email !== "string") {
+      return JSON.stringify({ error: "email is required and must be a string" });
+    }
+    if (!/^[^@]+@[^@]+\.[^@]+$/.test(email)) {
+      return JSON.stringify({ error: "email must be a valid email address" });
+    }
+    if (!password || typeof password !== "string") {
+      return JSON.stringify({ error: "password is required and must be a string" });
+    }
+    if (password.length < 8 || password.length > 128) {
+      return JSON.stringify({ error: "password must be between 8 and 128 characters" });
+    }
+
+    const headers: Record<string, string> = {
+      "User-Agent": "dominusnode-openai-functions/1.0.0",
+      "Content-Type": "application/json",
+    };
+    if (agentSecret) {
+      headers["X-DominusNode-Agent"] = "mcp";
+      headers["X-DominusNode-Agent-Secret"] = agentSecret;
+    }
+
+    const response = await fetch(`${baseUrl}/api/auth/login`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ email, password }),
+      signal: AbortSignal.timeout(timeoutMs),
+      redirect: "error",
+    });
+
+    const text = await response.text();
+    if (text.length > MAX_RESPONSE_BYTES) {
+      return JSON.stringify({ error: "Response body exceeds size limit" });
+    }
+    if (!response.ok) {
+      let message: string;
+      try {
+        const parsed = JSON.parse(text);
+        message = parsed.error ?? parsed.message ?? text;
+      } catch {
+        message = text;
+      }
+      if (message.length > 500) message = message.slice(0, 500) + "... [truncated]";
+      return JSON.stringify({ error: `Login failed: ${sanitizeError(message)}` });
+    }
+
+    const data = safeJsonParse<{ token?: string; message?: string }>(text);
+    stripDangerousKeys(data);
+    return JSON.stringify({ token: data.token, message: data.message });
+  }
+
+  async function handleGetAccountInfo(): Promise<string> {
+    const result = await api("GET", "/api/auth/me");
+    return JSON.stringify(result);
+  }
+
+  async function handleVerifyEmail(args: Record<string, unknown>): Promise<string> {
+    const token = args.token as string;
+    if (!token || typeof token !== "string") {
+      return JSON.stringify({ error: "token is required and must be a string" });
+    }
+
+    const headers: Record<string, string> = {
+      "User-Agent": "dominusnode-openai-functions/1.0.0",
+      "Content-Type": "application/json",
+    };
+    if (agentSecret) {
+      headers["X-DominusNode-Agent"] = "mcp";
+      headers["X-DominusNode-Agent-Secret"] = agentSecret;
+    }
+
+    const response = await fetch(`${baseUrl}/api/auth/verify-email`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ token }),
+      signal: AbortSignal.timeout(timeoutMs),
+      redirect: "error",
+    });
+
+    const text = await response.text();
+    if (text.length > MAX_RESPONSE_BYTES) {
+      return JSON.stringify({ error: "Response body exceeds size limit" });
+    }
+    if (!response.ok) {
+      let message: string;
+      try {
+        const parsed = JSON.parse(text);
+        message = parsed.error ?? parsed.message ?? text;
+      } catch {
+        message = text;
+      }
+      if (message.length > 500) message = message.slice(0, 500) + "... [truncated]";
+      return JSON.stringify({ error: `Email verification failed: ${sanitizeError(message)}` });
+    }
+
+    const data = safeJsonParse<Record<string, unknown>>(text);
+    stripDangerousKeys(data);
+    return JSON.stringify(data);
+  }
+
+  async function handleResendVerification(): Promise<string> {
+    const result = await api("POST", "/api/auth/resend-verification");
+    return JSON.stringify(result);
+  }
+
+  async function handleUpdatePassword(args: Record<string, unknown>): Promise<string> {
+    const currentPassword = args.current_password as string;
+    const newPassword = args.new_password as string;
+
+    if (!currentPassword || typeof currentPassword !== "string") {
+      return JSON.stringify({ error: "current_password is required and must be a string" });
+    }
+    if (!newPassword || typeof newPassword !== "string") {
+      return JSON.stringify({ error: "new_password is required and must be a string" });
+    }
+    if (newPassword.length < 8 || newPassword.length > 128) {
+      return JSON.stringify({ error: "new_password must be between 8 and 128 characters" });
+    }
+
+    const result = await api("POST", "/api/auth/change-password", {
+      currentPassword,
+      newPassword,
+    });
+    return JSON.stringify(result);
+  }
+
+  // -----------------------------------------------------------------------
+  // API Keys
+  // -----------------------------------------------------------------------
+
+  async function handleListKeys(): Promise<string> {
+    const result = await api("GET", "/api/keys");
+    return JSON.stringify(result);
+  }
+
+  async function handleCreateKey(args: Record<string, unknown>): Promise<string> {
+    const label = args.label as string;
+    if (!label || typeof label !== "string") {
+      return JSON.stringify({ error: "label is required and must be a string" });
+    }
+    if (label.length > 100) {
+      return JSON.stringify({ error: "label must be 100 characters or fewer" });
+    }
+    if (/[\x00-\x1f\x7f]/.test(label)) {
+      return JSON.stringify({ error: "label contains invalid control characters" });
+    }
+
+    const result = await api("POST", "/api/keys", { label });
+    return JSON.stringify(result);
+  }
+
+  async function handleRevokeKey(args: Record<string, unknown>): Promise<string> {
+    const keyId = args.key_id as string;
+    if (!keyId || typeof keyId !== "string") {
+      return JSON.stringify({ error: "key_id is required and must be a string" });
+    }
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(keyId)) {
+      return JSON.stringify({ error: "key_id must be a valid UUID" });
+    }
+
+    const result = await api("DELETE", `/api/keys/${encodeURIComponent(keyId)}`);
+    return JSON.stringify(result);
+  }
+
+  // -----------------------------------------------------------------------
+  // Plans
+  // -----------------------------------------------------------------------
+
+  async function handleGetPlan(): Promise<string> {
+    const result = await api("GET", "/api/plans/user/plan");
+    return JSON.stringify(result);
+  }
+
+  async function handleListPlans(): Promise<string> {
+    const result = await api("GET", "/api/plans");
+    return JSON.stringify(result);
+  }
+
+  async function handleChangePlan(args: Record<string, unknown>): Promise<string> {
+    const planId = args.plan_id as string;
+    if (!planId || typeof planId !== "string") {
+      return JSON.stringify({ error: "plan_id is required and must be a string" });
+    }
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(planId)) {
+      return JSON.stringify({ error: "plan_id must be a valid UUID" });
+    }
+
+    const result = await api("PUT", "/api/plans/user/plan", { planId });
+    return JSON.stringify(result);
+  }
+
+  // -----------------------------------------------------------------------
+  // Teams extended
+  // -----------------------------------------------------------------------
+
+  async function handleTeamDelete(args: Record<string, unknown>): Promise<string> {
+    const teamId = args.team_id as string;
+    if (!teamId || typeof teamId !== "string") {
+      return JSON.stringify({ error: "team_id is required and must be a string" });
+    }
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(teamId)) {
+      return JSON.stringify({ error: "team_id must be a valid UUID" });
+    }
+
+    const result = await api("DELETE", `/api/teams/${encodeURIComponent(teamId)}`);
+    return JSON.stringify(result);
+  }
+
+  async function handleTeamRevokeKey(args: Record<string, unknown>): Promise<string> {
+    const teamId = args.team_id as string;
+    const keyId = args.key_id as string;
+
+    if (!teamId || typeof teamId !== "string") {
+      return JSON.stringify({ error: "team_id is required and must be a string" });
+    }
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(teamId)) {
+      return JSON.stringify({ error: "team_id must be a valid UUID" });
+    }
+    if (!keyId || typeof keyId !== "string") {
+      return JSON.stringify({ error: "key_id is required and must be a string" });
+    }
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(keyId)) {
+      return JSON.stringify({ error: "key_id must be a valid UUID" });
+    }
+
+    const result = await api(
+      "DELETE",
+      `/api/teams/${encodeURIComponent(teamId)}/keys/${encodeURIComponent(keyId)}`,
+    );
+    return JSON.stringify(result);
+  }
+
+  async function handleTeamListKeys(args: Record<string, unknown>): Promise<string> {
+    const teamId = args.team_id as string;
+    if (!teamId || typeof teamId !== "string") {
+      return JSON.stringify({ error: "team_id is required and must be a string" });
+    }
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(teamId)) {
+      return JSON.stringify({ error: "team_id must be a valid UUID" });
+    }
+
+    const result = await api("GET", `/api/teams/${encodeURIComponent(teamId)}/keys`);
+    return JSON.stringify(result);
+  }
+
+  async function handleTeamListMembers(args: Record<string, unknown>): Promise<string> {
+    const teamId = args.team_id as string;
+    if (!teamId || typeof teamId !== "string") {
+      return JSON.stringify({ error: "team_id is required and must be a string" });
+    }
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(teamId)) {
+      return JSON.stringify({ error: "team_id must be a valid UUID" });
+    }
+
+    const result = await api("GET", `/api/teams/${encodeURIComponent(teamId)}/members`);
+    return JSON.stringify(result);
+  }
+
+  async function handleTeamAddMember(args: Record<string, unknown>): Promise<string> {
+    const teamId = args.team_id as string;
+    const userId = args.user_id as string;
+
+    if (!teamId || typeof teamId !== "string") {
+      return JSON.stringify({ error: "team_id is required and must be a string" });
+    }
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(teamId)) {
+      return JSON.stringify({ error: "team_id must be a valid UUID" });
+    }
+    if (!userId || typeof userId !== "string") {
+      return JSON.stringify({ error: "user_id is required and must be a string" });
+    }
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(userId)) {
+      return JSON.stringify({ error: "user_id must be a valid UUID" });
+    }
+
+    const result = await api(
+      "POST",
+      `/api/teams/${encodeURIComponent(teamId)}/members`,
+      { userId },
+    );
+    return JSON.stringify(result);
+  }
+
+  async function handleTeamRemoveMember(args: Record<string, unknown>): Promise<string> {
+    const teamId = args.team_id as string;
+    const userId = args.user_id as string;
+
+    if (!teamId || typeof teamId !== "string") {
+      return JSON.stringify({ error: "team_id is required and must be a string" });
+    }
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(teamId)) {
+      return JSON.stringify({ error: "team_id must be a valid UUID" });
+    }
+    if (!userId || typeof userId !== "string") {
+      return JSON.stringify({ error: "user_id is required and must be a string" });
+    }
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(userId)) {
+      return JSON.stringify({ error: "user_id must be a valid UUID" });
+    }
+
+    const result = await api(
+      "DELETE",
+      `/api/teams/${encodeURIComponent(teamId)}/members/${encodeURIComponent(userId)}`,
+    );
+    return JSON.stringify(result);
+  }
+
+  async function handleTeamInviteMember(args: Record<string, unknown>): Promise<string> {
+    const teamId = args.team_id as string;
+    const email = args.email as string;
+    const role = args.role as string;
+
+    if (!teamId || typeof teamId !== "string") {
+      return JSON.stringify({ error: "team_id is required and must be a string" });
+    }
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(teamId)) {
+      return JSON.stringify({ error: "team_id must be a valid UUID" });
+    }
+    if (!email || typeof email !== "string") {
+      return JSON.stringify({ error: "email is required and must be a string" });
+    }
+    if (!/^[^@]+@[^@]+\.[^@]+$/.test(email)) {
+      return JSON.stringify({ error: "email must be a valid email address" });
+    }
+    if (!role || typeof role !== "string") {
+      return JSON.stringify({ error: "role is required and must be a string" });
+    }
+    if (role !== "member" && role !== "admin") {
+      return JSON.stringify({ error: "role must be 'member' or 'admin'" });
+    }
+
+    const result = await api(
+      "POST",
+      `/api/teams/${encodeURIComponent(teamId)}/invites`,
+      { email, role },
+    );
+    return JSON.stringify(result);
+  }
+
+  async function handleTeamListInvites(args: Record<string, unknown>): Promise<string> {
+    const teamId = args.team_id as string;
+    if (!teamId || typeof teamId !== "string") {
+      return JSON.stringify({ error: "team_id is required and must be a string" });
+    }
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(teamId)) {
+      return JSON.stringify({ error: "team_id must be a valid UUID" });
+    }
+
+    const result = await api("GET", `/api/teams/${encodeURIComponent(teamId)}/invites`);
+    return JSON.stringify(result);
+  }
+
+  async function handleTeamCancelInvite(args: Record<string, unknown>): Promise<string> {
+    const teamId = args.team_id as string;
+    const inviteId = args.invite_id as string;
+
+    if (!teamId || typeof teamId !== "string") {
+      return JSON.stringify({ error: "team_id is required and must be a string" });
+    }
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(teamId)) {
+      return JSON.stringify({ error: "team_id must be a valid UUID" });
+    }
+    if (!inviteId || typeof inviteId !== "string") {
+      return JSON.stringify({ error: "invite_id is required and must be a string" });
+    }
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(inviteId)) {
+      return JSON.stringify({ error: "invite_id must be a valid UUID" });
+    }
+
+    const result = await api(
+      "DELETE",
+      `/api/teams/${encodeURIComponent(teamId)}/invites/${encodeURIComponent(inviteId)}`,
+    );
+    return JSON.stringify(result);
+  }
+
+  // -----------------------------------------------------------------------
   // Dispatch table
   // -----------------------------------------------------------------------
 
@@ -1251,11 +1765,40 @@ export function createDominusNodeFunctionHandler(
     string,
     (args: Record<string, unknown>) => Promise<string>
   > = {
+    // Proxy (3)
     dominusnode_proxied_fetch: handleProxiedFetch,
-    dominusnode_check_balance: handleCheckBalance,
-    dominusnode_check_usage: handleCheckUsage,
     dominusnode_get_proxy_config: handleGetProxyConfig,
+    dominusnode_get_proxy_status: handleGetProxyStatus,
+    // Wallet (7)
+    dominusnode_check_balance: handleCheckBalance,
+    dominusnode_get_transactions: handleGetTransactions,
+    dominusnode_get_forecast: handleGetForecast,
+    dominusnode_check_payment: handleCheckPayment,
+    dominusnode_topup_paypal: handleTopupPaypal,
+    dominusnode_topup_stripe: handleTopupStripe,
+    dominusnode_topup_crypto: handleTopupCrypto,
+    // Usage (3)
+    dominusnode_check_usage: handleCheckUsage,
+    dominusnode_get_daily_usage: handleGetDailyUsage,
+    dominusnode_get_top_hosts: handleGetTopHosts,
+    // Sessions (1)
     dominusnode_list_sessions: handleListSessions,
+    // Account lifecycle (6)
+    dominusnode_register: handleRegister,
+    dominusnode_login: handleLogin,
+    dominusnode_get_account_info: handleGetAccountInfo,
+    dominusnode_verify_email: handleVerifyEmail,
+    dominusnode_resend_verification: handleResendVerification,
+    dominusnode_update_password: handleUpdatePassword,
+    // API Keys (3)
+    dominusnode_list_keys: handleListKeys,
+    dominusnode_create_key: handleCreateKey,
+    dominusnode_revoke_key: handleRevokeKey,
+    // Plans (3)
+    dominusnode_get_plan: handleGetPlan,
+    dominusnode_list_plans: handleListPlans,
+    dominusnode_change_plan: handleChangePlan,
+    // Agentic wallets (7)
     dominusnode_create_agentic_wallet: handleCreateAgenticWallet,
     dominusnode_fund_agentic_wallet: handleFundAgenticWallet,
     dominusnode_agentic_wallet_balance: handleAgenticWalletBalance,
@@ -1265,6 +1808,7 @@ export function createDominusNodeFunctionHandler(
     dominusnode_unfreeze_agentic_wallet: handleUnfreezeAgenticWallet,
     dominusnode_delete_agentic_wallet: handleDeleteAgenticWallet,
     dominusnode_update_wallet_policy: handleUpdateWalletPolicy,
+    // Teams (17)
     dominusnode_create_team: handleCreateTeam,
     dominusnode_list_teams: handleListTeams,
     dominusnode_team_details: handleTeamDetails,
@@ -1273,9 +1817,16 @@ export function createDominusNodeFunctionHandler(
     dominusnode_team_usage: handleTeamUsage,
     dominusnode_update_team: handleUpdateTeam,
     dominusnode_update_team_member_role: handleUpdateTeamMemberRole,
-    dominusnode_topup_paypal: handleTopupPaypal,
-    dominusnode_topup_stripe: handleTopupStripe,
-    dominusnode_topup_crypto: handleTopupCrypto,
+    dominusnode_team_delete: handleTeamDelete,
+    dominusnode_team_revoke_key: handleTeamRevokeKey,
+    dominusnode_team_list_keys: handleTeamListKeys,
+    dominusnode_team_list_members: handleTeamListMembers,
+    dominusnode_team_add_member: handleTeamAddMember,
+    dominusnode_team_remove_member: handleTeamRemoveMember,
+    dominusnode_team_invite_member: handleTeamInviteMember,
+    dominusnode_team_list_invites: handleTeamListInvites,
+    dominusnode_team_cancel_invite: handleTeamCancelInvite,
+    // x402 (1)
     dominusnode_x402_info: handleX402Info,
   };
 

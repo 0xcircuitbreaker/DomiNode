@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "dominusnode-agent-zero"
-version = "1.1.0"
+version = "1.2.0"
 description = "Dominus Node tools for Agent Zero -- 22 proxy, wallet, and team management tools"
 readme = "README.md"
 license = {text = "MIT"}

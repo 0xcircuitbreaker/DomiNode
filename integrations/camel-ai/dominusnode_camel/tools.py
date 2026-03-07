@@ -1,15 +1,19 @@
-"""Dominus Node CAMEL-AI toolkit -- 26 proxy, wallet, team, and payment tools.
+"""Dominus Node CAMEL-AI toolkit -- 53 proxy, wallet, team, and payment tools.
 
-Provides a CAMEL-AI compatible toolkit class that exposes 26 tools as
+Provides a CAMEL-AI compatible toolkit class that exposes 53 tools as
 ``FunctionTool`` objects for use with CAMEL agents.
 
 Tools cover:
   - Proxied HTTP fetching through rotating proxies
-  - Wallet balance and usage monitoring
-  - Proxy configuration and session listing
+  - Wallet balance, transactions, forecast, and usage monitoring
+  - Proxy configuration, status, and session listing
   - Agentic wallet management (create, fund, freeze, unfreeze, delete)
-  - Team management (create, list, fund, keys, usage, update, role changes)
-  - PayPal top-up
+  - Team management (create, list, fund, keys, usage, update, role changes,
+    members, invites, delete)
+  - Account management (register, login, info, email verification, password)
+  - API key management (list, create, revoke)
+  - Plan management (get, list, change)
+  - PayPal, Stripe, and crypto top-up
   - x402 micropayment info
 
 Security:
@@ -495,6 +499,53 @@ def _validate_domains(domains: Any) -> Optional[str]:
     return None
 
 
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+def _validate_email(value: Any, field_name: str = "email") -> Optional[str]:
+    """Validate an email string, returning an error message or None."""
+    if not value or not isinstance(value, str):
+        return f"{field_name} is required and must be a string"
+    if len(value) > 254:
+        return f"{field_name} must be 254 characters or fewer"
+    if not _EMAIL_RE.match(value):
+        return f"{field_name} must be a valid email address"
+    return None
+
+
+def _validate_password(value: Any, field_name: str = "password") -> Optional[str]:
+    """Validate a password string, returning an error message or None."""
+    if not value or not isinstance(value, str):
+        return f"{field_name} is required and must be a string"
+    if len(value) < 8:
+        return f"{field_name} must be at least 8 characters"
+    if len(value) > 128:
+        return f"{field_name} must be 128 characters or fewer"
+    return None
+
+
+def _validate_finite_int(
+    value: Any,
+    field_name: str,
+    min_value: int = 1,
+    max_value: int = 2_147_483_647,
+) -> Optional[str]:
+    """Validate integer with NaN/Infinity guards (Python: float('nan') etc.)."""
+    if isinstance(value, bool):
+        return f"{field_name} must be an integer"
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            return f"{field_name} must be a finite number"
+        if value != int(value):
+            return f"{field_name} must be an integer"
+        value = int(value)
+    if not isinstance(value, int):
+        return f"{field_name} must be an integer"
+    if value < min_value or value > max_value:
+        return f"{field_name} must be between {min_value} and {max_value}"
+    return None
+
+
 # ===========================================================================
 # DominusNodeToolkit -- main toolkit class
 # ===========================================================================
@@ -503,9 +554,10 @@ def _validate_domains(domains: Any) -> Optional[str]:
 class DominusNodeToolkit:
     """CAMEL-AI toolkit providing Dominus Node rotating proxy tools.
 
-    Authenticates using a Dominus Node API key and exposes 22 tools as CAMEL
-    ``FunctionTool`` objects for proxy, wallet, team, and payment management.
-    All tool methods return dicts suitable for JSON serialization.
+    Authenticates using a Dominus Node API key and exposes 53 tools as CAMEL
+    ``FunctionTool`` objects for proxy, wallet, team, account, key, plan,
+    and payment management.  All tool methods return dicts suitable for JSON
+    serialization.
 
     Args:
         api_key: Dominus Node API key (``dn_live_...`` or ``dn_test_...``).
@@ -596,7 +648,69 @@ class DominusNodeToolkit:
             self._authenticate()
 
     # ------------------------------------------------------------------
-    # API request helper
+    # Unauthenticated API request helper
+    # ------------------------------------------------------------------
+
+    def _unauthenticated_request(
+        self,
+        method: str,
+        path: str,
+        body: Optional[Dict[str, Any]] = None,
+    ) -> Any:
+        """Make an unauthenticated API request (for register, login, verify-email).
+
+        Args:
+            method: HTTP method (GET, POST).
+            path: API path (e.g., ``/api/auth/register``).
+            body: Optional JSON body.
+
+        Returns:
+            Parsed JSON response (with dangerous keys stripped).
+
+        Raises:
+            RuntimeError: On API errors or oversized responses.
+        """
+        with httpx.Client(
+            timeout=self.timeout,
+            follow_redirects=False,
+        ) as client:
+            headers: Dict[str, str] = {
+                "User-Agent": "dominusnode-camel/1.0.0",
+                "Content-Type": "application/json",
+            }
+            if self.agent_secret:
+                headers["X-DominusNode-Agent"] = "mcp"
+                headers["X-DominusNode-Agent-Secret"] = self.agent_secret
+
+            kwargs: Dict[str, Any] = {"headers": headers}
+
+            if body is not None and method.upper() not in ("GET", "HEAD", "OPTIONS"):
+                kwargs["json"] = body
+
+            resp = client.request(method, f"{self.base_url}{path}", **kwargs)
+
+            if len(resp.content) > MAX_RESPONSE_BYTES:
+                raise RuntimeError("Response body too large")
+
+            if resp.status_code >= 400:
+                try:
+                    err_data = resp.json()
+                    msg = err_data.get("error", resp.text)
+                except Exception:
+                    msg = resp.text
+                msg = str(msg)[:500]
+                raise RuntimeError(
+                    f"API error {resp.status_code}: {_sanitize_error(msg)}"
+                )
+
+            if resp.text:
+                data = resp.json()
+                _strip_dangerous_keys(data)
+                return data
+            return {}
+
+    # ------------------------------------------------------------------
+    # Authenticated API request helper
     # ------------------------------------------------------------------
 
     def _api_request(
@@ -1547,26 +1661,745 @@ class DominusNodeToolkit:
             return {"error": _sanitize_error(str(e))}
 
     # ==================================================================
+    # Tool 27: get_proxy_status
+    # ==================================================================
+
+    def get_proxy_status(self) -> Dict[str, Any]:
+        """Get the current status of the proxy gateway.
+
+        Returns:
+            Dict with proxy gateway status information including uptime,
+            active connections, and health metrics.
+        """
+        try:
+            result = self._request_with_retry("GET", "/api/proxy/status")
+            return result
+        except Exception as e:
+            return {"error": _sanitize_error(str(e))}
+
+    # ==================================================================
+    # Tool 28: get_transactions
+    # ==================================================================
+
+    def get_transactions(self, limit: int = 20) -> Dict[str, Any]:
+        """Get wallet transaction history.
+
+        Args:
+            limit: Maximum number of transactions to return (1 to 100,
+                default 20).
+
+        Returns:
+            Dict with wallet transaction history.
+        """
+        err = _validate_finite_int(limit, "limit", min_value=1, max_value=100)
+        if err:
+            return {"error": err}
+        limit = int(limit)
+
+        qs = f"?limit={limit}" if limit != 20 else ""
+
+        try:
+            result = self._request_with_retry("GET", f"/api/wallet/transactions{qs}")
+            return result
+        except Exception as e:
+            return {"error": _sanitize_error(str(e))}
+
+    # ==================================================================
+    # Tool 29: get_forecast
+    # ==================================================================
+
+    def get_forecast(self) -> Dict[str, Any]:
+        """Get wallet balance forecast based on current usage patterns.
+
+        Returns:
+            Dict with forecast data including estimated depletion date
+            and projected daily spend.
+        """
+        try:
+            result = self._request_with_retry("GET", "/api/wallet/forecast")
+            return result
+        except Exception as e:
+            return {"error": _sanitize_error(str(e))}
+
+    # ==================================================================
+    # Tool 30: check_payment
+    # ==================================================================
+
+    def check_payment(self, invoice_id: str) -> Dict[str, Any]:
+        """Check the status of a crypto payment invoice.
+
+        Args:
+            invoice_id: The invoice ID returned from topup_crypto.
+
+        Returns:
+            Dict with the payment status and details.
+        """
+        if not invoice_id or not isinstance(invoice_id, str):
+            return {"error": "invoice_id is required and must be a string"}
+        if len(invoice_id) > 200:
+            return {"error": "invoice_id must be 200 characters or fewer"}
+
+        try:
+            result = self._request_with_retry(
+                "GET",
+                f"/api/wallet/topup/crypto/{quote(invoice_id, safe='')}/status",
+            )
+            return result
+        except Exception as e:
+            return {"error": _sanitize_error(str(e))}
+
+    # ==================================================================
+    # Tool 31: get_daily_usage
+    # ==================================================================
+
+    def get_daily_usage(self, days: int = 30) -> Dict[str, Any]:
+        """Get daily usage breakdown for recent days.
+
+        Args:
+            days: Number of days to retrieve (1 to 90, default 30).
+
+        Returns:
+            Dict with per-day usage statistics.
+        """
+        err = _validate_finite_int(days, "days", min_value=1, max_value=90)
+        if err:
+            return {"error": err}
+        days = int(days)
+
+        try:
+            result = self._request_with_retry(
+                "GET", f"/api/usage/daily?days={days}"
+            )
+            return result
+        except Exception as e:
+            return {"error": _sanitize_error(str(e))}
+
+    # ==================================================================
+    # Tool 32: get_top_hosts
+    # ==================================================================
+
+    def get_top_hosts(self, limit: int = 10) -> Dict[str, Any]:
+        """Get top destination hosts by bandwidth usage.
+
+        Args:
+            limit: Maximum number of hosts to return (1 to 50, default 10).
+
+        Returns:
+            Dict with top hosts and their bandwidth consumption.
+        """
+        err = _validate_finite_int(limit, "limit", min_value=1, max_value=50)
+        if err:
+            return {"error": err}
+        limit = int(limit)
+
+        try:
+            result = self._request_with_retry(
+                "GET", f"/api/usage/top-hosts?limit={limit}"
+            )
+            return result
+        except Exception as e:
+            return {"error": _sanitize_error(str(e))}
+
+    # ==================================================================
+    # Tool 33: register_account (unauthenticated)
+    # ==================================================================
+
+    def register_account(self, email: str, password: str) -> Dict[str, Any]:
+        """Register a new Dominus Node account.
+
+        This is an unauthenticated operation. After registration, verify
+        the email address to activate the account.
+
+        Args:
+            email: Email address for the new account (max 254 characters).
+            password: Password (8 to 128 characters).
+
+        Returns:
+            Dict with the registered account details.
+        """
+        err = _validate_email(email, "email")
+        if err:
+            return {"error": err}
+
+        err = _validate_password(password, "password")
+        if err:
+            return {"error": err}
+
+        try:
+            result = self._unauthenticated_request(
+                "POST",
+                "/api/auth/register",
+                {"email": email, "password": password},
+            )
+            return result
+        except Exception as e:
+            return {"error": _sanitize_error(str(e))}
+
+    # ==================================================================
+    # Tool 34: login_account (unauthenticated)
+    # ==================================================================
+
+    def login_account(self, email: str, password: str) -> Dict[str, Any]:
+        """Log in to an existing Dominus Node account.
+
+        This is an unauthenticated operation. Returns JWT tokens on success.
+
+        Args:
+            email: Account email address.
+            password: Account password.
+
+        Returns:
+            Dict with ``accessToken`` and ``refreshToken`` on success,
+            or ``mfaRequired`` if MFA is enabled.
+        """
+        err = _validate_email(email, "email")
+        if err:
+            return {"error": err}
+
+        err = _validate_password(password, "password")
+        if err:
+            return {"error": err}
+
+        try:
+            result = self._unauthenticated_request(
+                "POST",
+                "/api/auth/login",
+                {"email": email, "password": password},
+            )
+            # Surface MFA requirement if present
+            if isinstance(result, dict) and result.get("mfaRequired"):
+                return {"mfaRequired": True, "message": "MFA verification required"}
+            return result
+        except Exception as e:
+            return {"error": _sanitize_error(str(e))}
+
+    # ==================================================================
+    # Tool 35: get_account_info
+    # ==================================================================
+
+    def get_account_info(self) -> Dict[str, Any]:
+        """Get current account information.
+
+        Returns:
+            Dict with account details including email, plan, and
+            verification status.
+        """
+        try:
+            result = self._request_with_retry("GET", "/api/auth/me")
+            return result
+        except Exception as e:
+            return {"error": _sanitize_error(str(e))}
+
+    # ==================================================================
+    # Tool 36: verify_email (unauthenticated)
+    # ==================================================================
+
+    def verify_email(self, token: str) -> Dict[str, Any]:
+        """Verify an email address using the verification token.
+
+        This is an unauthenticated operation. The token is sent to the
+        registered email address.
+
+        Args:
+            token: Email verification token from the verification email.
+
+        Returns:
+            Dict confirming email verification.
+        """
+        if not token or not isinstance(token, str):
+            return {"error": "token is required and must be a string"}
+        if len(token) > 500:
+            return {"error": "token must be 500 characters or fewer"}
+
+        try:
+            result = self._unauthenticated_request(
+                "POST",
+                "/api/auth/verify-email",
+                {"token": token},
+            )
+            return result
+        except Exception as e:
+            return {"error": _sanitize_error(str(e))}
+
+    # ==================================================================
+    # Tool 37: resend_verification
+    # ==================================================================
+
+    def resend_verification(self) -> Dict[str, Any]:
+        """Resend the email verification message.
+
+        Returns:
+            Dict confirming the verification email was resent.
+        """
+        try:
+            result = self._request_with_retry(
+                "POST", "/api/auth/resend-verification"
+            )
+            return result
+        except Exception as e:
+            return {"error": _sanitize_error(str(e))}
+
+    # ==================================================================
+    # Tool 38: update_password
+    # ==================================================================
+
+    def update_password(
+        self, current_password: str, new_password: str
+    ) -> Dict[str, Any]:
+        """Update the account password.
+
+        Args:
+            current_password: The current account password.
+            new_password: The new password (8 to 128 characters).
+
+        Returns:
+            Dict confirming the password was updated.
+        """
+        err = _validate_password(current_password, "current_password")
+        if err:
+            return {"error": err}
+
+        err = _validate_password(new_password, "new_password")
+        if err:
+            return {"error": err}
+
+        try:
+            result = self._request_with_retry(
+                "POST",
+                "/api/auth/change-password",
+                {
+                    "currentPassword": current_password,
+                    "newPassword": new_password,
+                },
+            )
+            return result
+        except Exception as e:
+            return {"error": _sanitize_error(str(e))}
+
+    # ==================================================================
+    # Tool 39: list_keys
+    # ==================================================================
+
+    def list_keys(self) -> Dict[str, Any]:
+        """List all API keys for the current account.
+
+        Returns:
+            Dict with a list of API keys and their metadata (labels,
+            creation dates, last used).
+        """
+        try:
+            result = self._request_with_retry("GET", "/api/keys")
+            return result
+        except Exception as e:
+            return {"error": _sanitize_error(str(e))}
+
+    # ==================================================================
+    # Tool 40: create_key
+    # ==================================================================
+
+    def create_key(self, label: str) -> Dict[str, Any]:
+        """Create a new API key for the current account.
+
+        Args:
+            label: Human-readable label for the key (max 100 characters).
+
+        Returns:
+            Dict with the created API key (shown once -- save it).
+        """
+        err = _validate_label(label, "label")
+        if err:
+            return {"error": err}
+
+        try:
+            result = self._request_with_retry(
+                "POST", "/api/keys", {"label": label}
+            )
+            return result
+        except Exception as e:
+            return {"error": _sanitize_error(str(e))}
+
+    # ==================================================================
+    # Tool 41: revoke_key
+    # ==================================================================
+
+    def revoke_key(self, key_id: str) -> Dict[str, Any]:
+        """Revoke (delete) an API key.
+
+        Args:
+            key_id: UUID of the API key to revoke.
+
+        Returns:
+            Dict confirming the key has been revoked.
+        """
+        err = _validate_uuid(key_id, "key_id")
+        if err:
+            return {"error": err}
+
+        try:
+            result = self._request_with_retry(
+                "DELETE", f"/api/keys/{quote(key_id, safe='')}"
+            )
+            return result
+        except Exception as e:
+            return {"error": _sanitize_error(str(e))}
+
+    # ==================================================================
+    # Tool 42: get_plan
+    # ==================================================================
+
+    def get_plan(self) -> Dict[str, Any]:
+        """Get the current user's active plan.
+
+        Returns:
+            Dict with the user's current plan details including tier,
+            limits, and pricing.
+        """
+        try:
+            result = self._request_with_retry("GET", "/api/plans/user/plan")
+            return result
+        except Exception as e:
+            return {"error": _sanitize_error(str(e))}
+
+    # ==================================================================
+    # Tool 43: list_plans
+    # ==================================================================
+
+    def list_plans(self) -> Dict[str, Any]:
+        """List all available subscription plans.
+
+        Returns:
+            Dict with a list of available plans and their features.
+        """
+        try:
+            result = self._request_with_retry("GET", "/api/plans")
+            return result
+        except Exception as e:
+            return {"error": _sanitize_error(str(e))}
+
+    # ==================================================================
+    # Tool 44: change_plan
+    # ==================================================================
+
+    def change_plan(self, plan_id: str) -> Dict[str, Any]:
+        """Change the user's subscription plan.
+
+        Args:
+            plan_id: UUID of the plan to switch to.
+
+        Returns:
+            Dict with the updated plan details.
+        """
+        err = _validate_uuid(plan_id, "plan_id")
+        if err:
+            return {"error": err}
+
+        try:
+            result = self._request_with_retry(
+                "PUT",
+                "/api/plans/user/plan",
+                {"planId": plan_id},
+            )
+            return result
+        except Exception as e:
+            return {"error": _sanitize_error(str(e))}
+
+    # ==================================================================
+    # Tool 45: team_delete
+    # ==================================================================
+
+    def team_delete(self, team_id: str) -> Dict[str, Any]:
+        """Delete a team.
+
+        Args:
+            team_id: UUID of the team to delete.
+
+        Returns:
+            Dict confirming the team has been deleted.
+        """
+        err = _validate_uuid(team_id, "team_id")
+        if err:
+            return {"error": err}
+
+        try:
+            result = self._request_with_retry(
+                "DELETE", f"/api/teams/{quote(team_id, safe='')}"
+            )
+            return result
+        except Exception as e:
+            return {"error": _sanitize_error(str(e))}
+
+    # ==================================================================
+    # Tool 46: team_revoke_key
+    # ==================================================================
+
+    def team_revoke_key(self, team_id: str, key_id: str) -> Dict[str, Any]:
+        """Revoke (delete) an API key from a team.
+
+        Args:
+            team_id: UUID of the team.
+            key_id: UUID of the API key to revoke.
+
+        Returns:
+            Dict confirming the team API key has been revoked.
+        """
+        err = _validate_uuid(team_id, "team_id")
+        if err:
+            return {"error": err}
+
+        err = _validate_uuid(key_id, "key_id")
+        if err:
+            return {"error": err}
+
+        try:
+            result = self._request_with_retry(
+                "DELETE",
+                f"/api/teams/{quote(team_id, safe='')}/keys/{quote(key_id, safe='')}",
+            )
+            return result
+        except Exception as e:
+            return {"error": _sanitize_error(str(e))}
+
+    # ==================================================================
+    # Tool 47: team_list_keys
+    # ==================================================================
+
+    def team_list_keys(self, team_id: str) -> Dict[str, Any]:
+        """List all API keys for a team.
+
+        Args:
+            team_id: UUID of the team.
+
+        Returns:
+            Dict with a list of the team's API keys and their metadata.
+        """
+        err = _validate_uuid(team_id, "team_id")
+        if err:
+            return {"error": err}
+
+        try:
+            result = self._request_with_retry(
+                "GET", f"/api/teams/{quote(team_id, safe='')}/keys"
+            )
+            return result
+        except Exception as e:
+            return {"error": _sanitize_error(str(e))}
+
+    # ==================================================================
+    # Tool 48: team_list_members
+    # ==================================================================
+
+    def team_list_members(self, team_id: str) -> Dict[str, Any]:
+        """List all members of a team.
+
+        Args:
+            team_id: UUID of the team.
+
+        Returns:
+            Dict with a list of team members and their roles.
+        """
+        err = _validate_uuid(team_id, "team_id")
+        if err:
+            return {"error": err}
+
+        try:
+            result = self._request_with_retry(
+                "GET", f"/api/teams/{quote(team_id, safe='')}/members"
+            )
+            return result
+        except Exception as e:
+            return {"error": _sanitize_error(str(e))}
+
+    # ==================================================================
+    # Tool 49: team_add_member
+    # ==================================================================
+
+    def team_add_member(
+        self, team_id: str, user_id: str, role: str = "member"
+    ) -> Dict[str, Any]:
+        """Add a member to a team.
+
+        Args:
+            team_id: UUID of the team.
+            user_id: UUID of the user to add.
+            role: Role to assign -- ``member`` or ``admin`` (default ``member``).
+
+        Returns:
+            Dict confirming the member was added.
+        """
+        err = _validate_uuid(team_id, "team_id")
+        if err:
+            return {"error": err}
+
+        err = _validate_uuid(user_id, "user_id")
+        if err:
+            return {"error": err}
+
+        if not role or not isinstance(role, str):
+            return {"error": "role is required and must be a string"}
+        if role not in ("member", "admin"):
+            return {"error": "role must be 'member' or 'admin'"}
+
+        try:
+            result = self._request_with_retry(
+                "POST",
+                f"/api/teams/{quote(team_id, safe='')}/members",
+                {"userId": user_id, "role": role},
+            )
+            return result
+        except Exception as e:
+            return {"error": _sanitize_error(str(e))}
+
+    # ==================================================================
+    # Tool 50: team_remove_member
+    # ==================================================================
+
+    def team_remove_member(self, team_id: str, user_id: str) -> Dict[str, Any]:
+        """Remove a member from a team.
+
+        Args:
+            team_id: UUID of the team.
+            user_id: UUID of the user to remove.
+
+        Returns:
+            Dict confirming the member was removed.
+        """
+        err = _validate_uuid(team_id, "team_id")
+        if err:
+            return {"error": err}
+
+        err = _validate_uuid(user_id, "user_id")
+        if err:
+            return {"error": err}
+
+        try:
+            result = self._request_with_retry(
+                "DELETE",
+                f"/api/teams/{quote(team_id, safe='')}/members/{quote(user_id, safe='')}",
+            )
+            return result
+        except Exception as e:
+            return {"error": _sanitize_error(str(e))}
+
+    # ==================================================================
+    # Tool 51: team_invite_member
+    # ==================================================================
+
+    def team_invite_member(
+        self, team_id: str, email: str, role: str = "member"
+    ) -> Dict[str, Any]:
+        """Invite a user to a team by email.
+
+        Args:
+            team_id: UUID of the team.
+            email: Email address of the user to invite.
+            role: Role to assign on acceptance -- ``member`` or ``admin``
+                (default ``member``).
+
+        Returns:
+            Dict with the invite details.
+        """
+        err = _validate_uuid(team_id, "team_id")
+        if err:
+            return {"error": err}
+
+        err = _validate_email(email, "email")
+        if err:
+            return {"error": err}
+
+        if not role or not isinstance(role, str):
+            return {"error": "role is required and must be a string"}
+        if role not in ("member", "admin"):
+            return {"error": "role must be 'member' or 'admin'"}
+
+        try:
+            result = self._request_with_retry(
+                "POST",
+                f"/api/teams/{quote(team_id, safe='')}/invites",
+                {"email": email, "role": role},
+            )
+            return result
+        except Exception as e:
+            return {"error": _sanitize_error(str(e))}
+
+    # ==================================================================
+    # Tool 52: team_list_invites
+    # ==================================================================
+
+    def team_list_invites(self, team_id: str) -> Dict[str, Any]:
+        """List pending invites for a team.
+
+        Args:
+            team_id: UUID of the team.
+
+        Returns:
+            Dict with a list of pending team invites.
+        """
+        err = _validate_uuid(team_id, "team_id")
+        if err:
+            return {"error": err}
+
+        try:
+            result = self._request_with_retry(
+                "GET", f"/api/teams/{quote(team_id, safe='')}/invites"
+            )
+            return result
+        except Exception as e:
+            return {"error": _sanitize_error(str(e))}
+
+    # ==================================================================
+    # Tool 53: team_cancel_invite
+    # ==================================================================
+
+    def team_cancel_invite(self, team_id: str, invite_id: str) -> Dict[str, Any]:
+        """Cancel a pending team invite.
+
+        Args:
+            team_id: UUID of the team.
+            invite_id: UUID of the invite to cancel.
+
+        Returns:
+            Dict confirming the invite has been cancelled.
+        """
+        err = _validate_uuid(team_id, "team_id")
+        if err:
+            return {"error": err}
+
+        err = _validate_uuid(invite_id, "invite_id")
+        if err:
+            return {"error": err}
+
+        try:
+            result = self._request_with_retry(
+                "DELETE",
+                f"/api/teams/{quote(team_id, safe='')}/invites/{quote(invite_id, safe='')}",
+            )
+            return result
+        except Exception as e:
+            return {"error": _sanitize_error(str(e))}
+
+    # ==================================================================
     # get_tools -- return CAMEL FunctionTool objects
     # ==================================================================
 
     def get_tools(self) -> list:
-        """Return CAMEL FunctionTool objects for all 26 Dominus Node operations.
+        """Return CAMEL FunctionTool objects for all 53 Dominus Node operations.
 
         Each method is wrapped in a ``camel.toolkits.FunctionTool`` so that
         CAMEL agents can discover and invoke them automatically.
 
         Returns:
-            A list of 26 ``FunctionTool`` instances.
+            A list of 53 ``FunctionTool`` instances.
         """
         from camel.toolkits import FunctionTool
 
         return [
+            # Proxy tools (1-5)
             FunctionTool(self.proxied_fetch),
             FunctionTool(self.check_balance),
             FunctionTool(self.check_usage),
             FunctionTool(self.get_proxy_config),
             FunctionTool(self.list_sessions),
+            # Agentic wallet tools (6-13)
             FunctionTool(self.create_agentic_wallet),
             FunctionTool(self.fund_agentic_wallet),
             FunctionTool(self.agentic_wallet_balance),
@@ -1575,6 +2408,7 @@ class DominusNodeToolkit:
             FunctionTool(self.freeze_agentic_wallet),
             FunctionTool(self.unfreeze_agentic_wallet),
             FunctionTool(self.delete_agentic_wallet),
+            # Team tools (14-21)
             FunctionTool(self.create_team),
             FunctionTool(self.list_teams),
             FunctionTool(self.team_details),
@@ -1583,9 +2417,44 @@ class DominusNodeToolkit:
             FunctionTool(self.team_usage),
             FunctionTool(self.update_team),
             FunctionTool(self.update_team_member_role),
+            # Payment tools (22-26)
             FunctionTool(self.x402_info),
             FunctionTool(self.topup_paypal),
             FunctionTool(self.topup_stripe),
             FunctionTool(self.topup_crypto),
             FunctionTool(self.update_wallet_policy),
+            # Proxy status (27)
+            FunctionTool(self.get_proxy_status),
+            # Wallet extras (28-30)
+            FunctionTool(self.get_transactions),
+            FunctionTool(self.get_forecast),
+            FunctionTool(self.check_payment),
+            # Usage extras (31-32)
+            FunctionTool(self.get_daily_usage),
+            FunctionTool(self.get_top_hosts),
+            # Account management (33-38)
+            FunctionTool(self.register_account),
+            FunctionTool(self.login_account),
+            FunctionTool(self.get_account_info),
+            FunctionTool(self.verify_email),
+            FunctionTool(self.resend_verification),
+            FunctionTool(self.update_password),
+            # API key management (39-41)
+            FunctionTool(self.list_keys),
+            FunctionTool(self.create_key),
+            FunctionTool(self.revoke_key),
+            # Plan management (42-44)
+            FunctionTool(self.get_plan),
+            FunctionTool(self.list_plans),
+            FunctionTool(self.change_plan),
+            # Extended team management (45-53)
+            FunctionTool(self.team_delete),
+            FunctionTool(self.team_revoke_key),
+            FunctionTool(self.team_list_keys),
+            FunctionTool(self.team_list_members),
+            FunctionTool(self.team_add_member),
+            FunctionTool(self.team_remove_member),
+            FunctionTool(self.team_invite_member),
+            FunctionTool(self.team_list_invites),
+            FunctionTool(self.team_cancel_invite),
         ]

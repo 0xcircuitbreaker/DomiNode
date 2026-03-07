@@ -1,16 +1,20 @@
-"""Dominus Node Semantic Kernel plugin -- 26 proxy, wallet, team, and payment management functions.
+"""Dominus Node Semantic Kernel plugin -- 53 proxy, wallet, team, and payment management functions.
 
-Provides a Semantic Kernel plugin class that exposes 26 kernel functions for
+Provides a Semantic Kernel plugin class that exposes 53 kernel functions for
 interacting with the Dominus Node rotating proxy-as-a-service platform.
 
 Functions cover:
   - Proxied HTTP fetching through rotating proxies
-  - Wallet balance and usage monitoring
-  - Proxy configuration and session listing
-  - Agentic wallet management (create, fund, freeze, unfreeze, delete)
-  - Team management (create, list, fund, keys, usage, update, role changes)
+  - Wallet balance, transactions, forecast, and usage monitoring
+  - Proxy configuration, status, and session listing
+  - Account management (register, login, verify email, change password)
+  - API key management (list, create, revoke)
+  - Plan management (get, list, change)
+  - Agentic wallet management (create, fund, freeze, unfreeze, delete, policy)
+  - Team management (create, list, fund, keys, usage, update, role changes,
+    members, invites, delete)
   - x402 micropayment protocol information
-  - PayPal top-up
+  - PayPal, Stripe, and crypto top-up
 
 Security:
   - Full SSRF prevention (private IP blocking, DNS rebinding, Teredo/6to4,
@@ -507,9 +511,9 @@ def _validate_domains(domains: Any) -> Optional[str]:
 class DominusNodePlugin:
     """Semantic Kernel plugin providing Dominus Node rotating proxy functions.
 
-    Authenticates using a Dominus Node API key and exposes 22 kernel functions for
-    proxy, wallet, team, and payment management.  All functions return JSON
-    strings suitable for consumption by an LLM.
+    Authenticates using a Dominus Node API key and exposes 53 kernel functions for
+    proxy, wallet, account, API key, plan, team, and payment management.  All
+    functions return JSON strings suitable for consumption by an LLM.
 
     Args:
         api_key: Dominus Node API key (``dn_live_...`` or ``dn_test_...``).
@@ -685,6 +689,70 @@ class DominusNodePlugin:
                 self._ensure_auth()
                 return self._api_request(method, path, body)
             raise
+
+    # ------------------------------------------------------------------
+    # Unauthenticated API request helper
+    # ------------------------------------------------------------------
+
+    def _unauth_request(
+        self,
+        method: str,
+        path: str,
+        body: Optional[Dict[str, Any]] = None,
+    ) -> Any:
+        """Make an unauthenticated API request to the Dominus Node REST API.
+
+        Used for public endpoints such as register, login, and verify-email.
+
+        Args:
+            method: HTTP method (GET, POST).
+            path: API path (e.g., ``/api/auth/register``).
+            body: Optional JSON body.
+
+        Returns:
+            Parsed JSON response (with dangerous keys stripped).
+
+        Raises:
+            RuntimeError: On API errors or oversized responses.
+        """
+        with httpx.Client(
+            timeout=self.timeout,
+            follow_redirects=False,
+        ) as client:
+            req_headers: Dict[str, str] = {
+                "User-Agent": "dominusnode-semantic-kernel/1.0.0",
+                "Content-Type": "application/json",
+            }
+            if self.agent_secret:
+                req_headers["X-DominusNode-Agent"] = "mcp"
+                req_headers["X-DominusNode-Agent-Secret"] = self.agent_secret
+
+            kwargs: Dict[str, Any] = {"headers": req_headers}
+
+            if body is not None and method.upper() not in ("GET", "HEAD", "OPTIONS"):
+                kwargs["json"] = body
+
+            resp = client.request(method, f"{self.base_url}{path}", **kwargs)
+
+            if len(resp.content) > MAX_RESPONSE_BYTES:
+                raise RuntimeError("Response body too large")
+
+            if resp.status_code >= 400:
+                try:
+                    err_data = resp.json()
+                    msg = err_data.get("error", resp.text)
+                except Exception:
+                    msg = resp.text
+                msg = str(msg)[:500]
+                raise RuntimeError(
+                    f"API error {resp.status_code}: {_sanitize_error(msg)}"
+                )
+
+            if resp.text:
+                data = resp.json()
+                _strip_dangerous_keys(data)
+                return data
+            return {}
 
     # ==================================================================
     # Function 1: proxied_fetch
@@ -1641,6 +1709,847 @@ class DominusNodePlugin:
                 "PATCH",
                 f"/api/agent-wallet/{quote(wallet_id, safe='')}/policy",
                 body,
+            )
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Function 27: get_proxy_status
+    # ==================================================================
+
+    @kernel_function(
+        name="get_proxy_status",
+        description="Get the current proxy gateway status including pool health and active connections",
+    )
+    def get_proxy_status(self) -> str:
+        """Get the current proxy gateway status.
+
+        Returns:
+            JSON string with proxy status (pool health, active connections).
+        """
+        try:
+            result = self._request_with_retry("GET", "/api/proxy/status")
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Function 28: get_transactions
+    # ==================================================================
+
+    @kernel_function(
+        name="get_transactions",
+        description="Get wallet transaction history with an optional limit",
+    )
+    def get_transactions(self, limit: int = 20) -> str:
+        """Get wallet transaction history.
+
+        Args:
+            limit: Maximum number of transactions to return (1-100, default 20).
+
+        Returns:
+            JSON string with transaction history.
+        """
+        if not isinstance(limit, int) or isinstance(limit, bool) or limit < 1 or limit > 100:
+            return json.dumps(
+                {"error": "limit must be an integer between 1 and 100"}
+            )
+
+        qs = f"?limit={limit}" if limit != 20 else ""
+
+        try:
+            result = self._request_with_retry(
+                "GET", f"/api/wallet/transactions{qs}"
+            )
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Function 29: get_forecast
+    # ==================================================================
+
+    @kernel_function(
+        name="get_forecast",
+        description="Get wallet balance forecast based on current usage trends",
+    )
+    def get_forecast(self) -> str:
+        """Get wallet balance forecast based on current usage trends.
+
+        Returns:
+            JSON string with forecast data (projected depletion date, daily burn rate).
+        """
+        try:
+            result = self._request_with_retry("GET", "/api/wallet/forecast")
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Function 30: check_payment
+    # ==================================================================
+
+    @kernel_function(
+        name="check_payment",
+        description="Check the status of a crypto top-up payment by invoice ID",
+    )
+    def check_payment(self, payment_id: str) -> str:
+        """Check the status of a crypto top-up payment.
+
+        Args:
+            payment_id: The crypto invoice/payment ID to check.
+
+        Returns:
+            JSON string with payment status details.
+        """
+        if not payment_id or not isinstance(payment_id, str):
+            return json.dumps({"error": "payment_id is required and must be a string"})
+
+        if len(payment_id) > 200:
+            return json.dumps({"error": "payment_id is too long"})
+
+        try:
+            result = self._request_with_retry(
+                "GET",
+                f"/api/wallet/topup/crypto/{quote(payment_id, safe='')}/status",
+            )
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Function 31: get_daily_usage
+    # ==================================================================
+
+    @kernel_function(
+        name="get_daily_usage",
+        description="Get daily usage breakdown for a specified number of days",
+    )
+    def get_daily_usage(self, days: int = 7) -> str:
+        """Get daily usage breakdown.
+
+        Args:
+            days: Number of days to retrieve (1-90, default 7).
+
+        Returns:
+            JSON string with daily usage data.
+        """
+        if not isinstance(days, int) or isinstance(days, bool) or days < 1 or days > 90:
+            return json.dumps(
+                {"error": "days must be an integer between 1 and 90"}
+            )
+
+        try:
+            result = self._request_with_retry(
+                "GET", f"/api/usage/daily?days={days}"
+            )
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Function 32: get_top_hosts
+    # ==================================================================
+
+    @kernel_function(
+        name="get_top_hosts",
+        description="Get the top-accessed hosts by bandwidth usage",
+    )
+    def get_top_hosts(self, limit: int = 10) -> str:
+        """Get the top-accessed hosts by bandwidth usage.
+
+        Args:
+            limit: Maximum number of hosts to return (1-100, default 10).
+
+        Returns:
+            JSON string with top hosts ranked by bandwidth.
+        """
+        if not isinstance(limit, int) or isinstance(limit, bool) or limit < 1 or limit > 100:
+            return json.dumps(
+                {"error": "limit must be an integer between 1 and 100"}
+            )
+
+        try:
+            result = self._request_with_retry(
+                "GET", f"/api/usage/top-hosts?limit={limit}"
+            )
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Function 33: register
+    # ==================================================================
+
+    @kernel_function(
+        name="register",
+        description="Register a new Dominus Node account (unauthenticated)",
+    )
+    def register(self, email: str, password: str) -> str:
+        """Register a new Dominus Node account.
+
+        This is an unauthenticated endpoint. After registration, verify the
+        email address using the ``verify_email`` function.
+
+        Args:
+            email: Email address for the new account.
+            password: Password (minimum 8 characters).
+
+        Returns:
+            JSON string with registration result.
+        """
+        if not email or not isinstance(email, str):
+            return json.dumps({"error": "email is required and must be a string"})
+        if len(email) > 254:
+            return json.dumps({"error": "email must be 254 characters or fewer"})
+
+        if not password or not isinstance(password, str):
+            return json.dumps({"error": "password is required and must be a string"})
+        if len(password) < 8:
+            return json.dumps({"error": "password must be at least 8 characters"})
+        if len(password) > 128:
+            return json.dumps({"error": "password must be 128 characters or fewer"})
+
+        try:
+            result = self._unauth_request(
+                "POST",
+                "/api/auth/register",
+                {"email": email, "password": password},
+            )
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Function 34: login
+    # ==================================================================
+
+    @kernel_function(
+        name="login",
+        description="Log in to a Dominus Node account and obtain a JWT token (unauthenticated)",
+    )
+    def login(self, email: str, password: str) -> str:
+        """Log in to a Dominus Node account.
+
+        This is an unauthenticated endpoint. On success, stores the JWT
+        token for subsequent authenticated requests.
+
+        Args:
+            email: Account email address.
+            password: Account password.
+
+        Returns:
+            JSON string with login result (token, user info). If MFA is
+            required, returns ``mfaRequired: true`` with a challenge token.
+        """
+        if not email or not isinstance(email, str):
+            return json.dumps({"error": "email is required and must be a string"})
+        if len(email) > 254:
+            return json.dumps({"error": "email must be 254 characters or fewer"})
+
+        if not password or not isinstance(password, str):
+            return json.dumps({"error": "password is required and must be a string"})
+        if len(password) > 128:
+            return json.dumps({"error": "password must be 128 characters or fewer"})
+
+        try:
+            result = self._unauth_request(
+                "POST",
+                "/api/auth/login",
+                {"email": email, "password": password},
+            )
+            # Detect MFA response
+            if isinstance(result, dict) and result.get("mfaRequired"):
+                return json.dumps(result)
+            # Store token if returned
+            if isinstance(result, dict) and result.get("token"):
+                self._token = result["token"]
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Function 35: get_account_info
+    # ==================================================================
+
+    @kernel_function(
+        name="get_account_info",
+        description="Get the current authenticated user's account information",
+    )
+    def get_account_info(self) -> str:
+        """Get the current authenticated user's account information.
+
+        Returns:
+            JSON string with account details (email, plan, status, etc.).
+        """
+        try:
+            result = self._request_with_retry("GET", "/api/auth/me")
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Function 36: verify_email
+    # ==================================================================
+
+    @kernel_function(
+        name="verify_email",
+        description="Verify an email address using a verification token (unauthenticated)",
+    )
+    def verify_email(self, token: str) -> str:
+        """Verify an email address using a verification token.
+
+        This is an unauthenticated endpoint. The token is sent to the
+        user's email after registration.
+
+        Args:
+            token: The email verification token.
+
+        Returns:
+            JSON string confirming email verification.
+        """
+        if not token or not isinstance(token, str):
+            return json.dumps({"error": "token is required and must be a string"})
+        if len(token) > 512:
+            return json.dumps({"error": "token is too long"})
+
+        try:
+            result = self._unauth_request(
+                "POST",
+                "/api/auth/verify-email",
+                {"token": token},
+            )
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Function 37: resend_verification
+    # ==================================================================
+
+    @kernel_function(
+        name="resend_verification",
+        description="Resend the email verification link to the authenticated user's email",
+    )
+    def resend_verification(self) -> str:
+        """Resend the email verification link.
+
+        Returns:
+            JSON string confirming the verification email was resent.
+        """
+        try:
+            result = self._request_with_retry(
+                "POST", "/api/auth/resend-verification"
+            )
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Function 38: update_password
+    # ==================================================================
+
+    @kernel_function(
+        name="update_password",
+        description="Update the authenticated user's password",
+    )
+    def update_password(
+        self, current_password: str, new_password: str
+    ) -> str:
+        """Update the authenticated user's password.
+
+        Args:
+            current_password: The user's current password.
+            new_password: The new password (minimum 8 characters).
+
+        Returns:
+            JSON string confirming the password was updated.
+        """
+        if not current_password or not isinstance(current_password, str):
+            return json.dumps({"error": "current_password is required and must be a string"})
+        if len(current_password) > 128:
+            return json.dumps({"error": "current_password must be 128 characters or fewer"})
+
+        if not new_password or not isinstance(new_password, str):
+            return json.dumps({"error": "new_password is required and must be a string"})
+        if len(new_password) < 8:
+            return json.dumps({"error": "new_password must be at least 8 characters"})
+        if len(new_password) > 128:
+            return json.dumps({"error": "new_password must be 128 characters or fewer"})
+
+        try:
+            result = self._request_with_retry(
+                "POST",
+                "/api/auth/change-password",
+                {
+                    "currentPassword": current_password,
+                    "newPassword": new_password,
+                },
+            )
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Function 39: list_keys
+    # ==================================================================
+
+    @kernel_function(
+        name="list_keys",
+        description="List all API keys for the authenticated user",
+    )
+    def list_keys(self) -> str:
+        """List all API keys for the authenticated user.
+
+        Returns:
+            JSON string with a list of API keys (key hashes, labels, dates).
+        """
+        try:
+            result = self._request_with_retry("GET", "/api/keys")
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Function 40: create_key
+    # ==================================================================
+
+    @kernel_function(
+        name="create_key",
+        description="Create a new API key for the authenticated user",
+    )
+    def create_key(self, label: str = "") -> str:
+        """Create a new API key for the authenticated user.
+
+        Args:
+            label: Optional human-readable label for the key (max 100 chars).
+
+        Returns:
+            JSON string with the created API key (shown once, store securely).
+        """
+        if label:
+            err = _validate_label(label, "label")
+            if err:
+                return json.dumps({"error": err})
+
+        try:
+            body: Dict[str, Any] = {}
+            if label:
+                body["label"] = label
+            result = self._request_with_retry("POST", "/api/keys", body)
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Function 41: revoke_key
+    # ==================================================================
+
+    @kernel_function(
+        name="revoke_key",
+        description="Revoke (delete) an API key by its ID",
+    )
+    def revoke_key(self, key_id: str) -> str:
+        """Revoke (delete) an API key.
+
+        Args:
+            key_id: UUID of the API key to revoke.
+
+        Returns:
+            JSON string confirming key revocation.
+        """
+        err = _validate_uuid(key_id, "key_id")
+        if err:
+            return json.dumps({"error": err})
+
+        try:
+            result = self._request_with_retry(
+                "DELETE", f"/api/keys/{quote(key_id, safe='')}"
+            )
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Function 42: get_plan
+    # ==================================================================
+
+    @kernel_function(
+        name="get_plan",
+        description="Get the authenticated user's current plan details",
+    )
+    def get_plan(self) -> str:
+        """Get the authenticated user's current plan.
+
+        Returns:
+            JSON string with plan details (name, limits, pricing).
+        """
+        try:
+            result = self._request_with_retry("GET", "/api/plans/user/plan")
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Function 43: list_plans
+    # ==================================================================
+
+    @kernel_function(
+        name="list_plans",
+        description="List all available subscription plans",
+    )
+    def list_plans(self) -> str:
+        """List all available subscription plans.
+
+        Returns:
+            JSON string with a list of available plans and their features.
+        """
+        try:
+            result = self._request_with_retry("GET", "/api/plans")
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Function 44: change_plan
+    # ==================================================================
+
+    @kernel_function(
+        name="change_plan",
+        description="Change the authenticated user's subscription plan",
+    )
+    def change_plan(self, plan_id: str) -> str:
+        """Change the authenticated user's subscription plan.
+
+        Args:
+            plan_id: UUID of the target plan.
+
+        Returns:
+            JSON string with updated plan details.
+        """
+        err = _validate_uuid(plan_id, "plan_id")
+        if err:
+            return json.dumps({"error": err})
+
+        try:
+            result = self._request_with_retry(
+                "PUT",
+                "/api/plans/user/plan",
+                {"planId": plan_id},
+            )
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Function 45: team_delete
+    # ==================================================================
+
+    @kernel_function(
+        name="team_delete",
+        description="Delete a team (must be the team owner)",
+    )
+    def team_delete(self, team_id: str) -> str:
+        """Delete a team.
+
+        Only the team owner can delete a team. All team keys, members,
+        and invites are removed.
+
+        Args:
+            team_id: UUID of the team to delete.
+
+        Returns:
+            JSON string confirming team deletion.
+        """
+        err = _validate_uuid(team_id, "team_id")
+        if err:
+            return json.dumps({"error": err})
+
+        try:
+            result = self._request_with_retry(
+                "DELETE", f"/api/teams/{quote(team_id, safe='')}"
+            )
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Function 46: team_revoke_key
+    # ==================================================================
+
+    @kernel_function(
+        name="team_revoke_key",
+        description="Revoke (delete) an API key from a team",
+    )
+    def team_revoke_key(self, team_id: str, key_id: str) -> str:
+        """Revoke (delete) an API key from a team.
+
+        Args:
+            team_id: UUID of the team.
+            key_id: UUID of the team API key to revoke.
+
+        Returns:
+            JSON string confirming key revocation.
+        """
+        err = _validate_uuid(team_id, "team_id")
+        if err:
+            return json.dumps({"error": err})
+
+        err = _validate_uuid(key_id, "key_id")
+        if err:
+            return json.dumps({"error": err})
+
+        try:
+            result = self._request_with_retry(
+                "DELETE",
+                f"/api/teams/{quote(team_id, safe='')}/keys/{quote(key_id, safe='')}",
+            )
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Function 47: team_list_keys
+    # ==================================================================
+
+    @kernel_function(
+        name="team_list_keys",
+        description="List all API keys for a team",
+    )
+    def team_list_keys(self, team_id: str) -> str:
+        """List all API keys for a team.
+
+        Args:
+            team_id: UUID of the team.
+
+        Returns:
+            JSON string with a list of team API keys.
+        """
+        err = _validate_uuid(team_id, "team_id")
+        if err:
+            return json.dumps({"error": err})
+
+        try:
+            result = self._request_with_retry(
+                "GET", f"/api/teams/{quote(team_id, safe='')}/keys"
+            )
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Function 48: team_list_members
+    # ==================================================================
+
+    @kernel_function(
+        name="team_list_members",
+        description="List all members of a team",
+    )
+    def team_list_members(self, team_id: str) -> str:
+        """List all members of a team.
+
+        Args:
+            team_id: UUID of the team.
+
+        Returns:
+            JSON string with a list of team members and their roles.
+        """
+        err = _validate_uuid(team_id, "team_id")
+        if err:
+            return json.dumps({"error": err})
+
+        try:
+            result = self._request_with_retry(
+                "GET", f"/api/teams/{quote(team_id, safe='')}/members"
+            )
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Function 49: team_add_member
+    # ==================================================================
+
+    @kernel_function(
+        name="team_add_member",
+        description="Add a member to a team by user ID",
+    )
+    def team_add_member(
+        self, team_id: str, user_id: str, role: str = "member"
+    ) -> str:
+        """Add a member to a team.
+
+        Args:
+            team_id: UUID of the team.
+            user_id: UUID of the user to add.
+            role: Role for the new member (``member`` or ``admin``, default ``member``).
+
+        Returns:
+            JSON string confirming the member was added.
+        """
+        err = _validate_uuid(team_id, "team_id")
+        if err:
+            return json.dumps({"error": err})
+
+        err = _validate_uuid(user_id, "user_id")
+        if err:
+            return json.dumps({"error": err})
+
+        if not role or not isinstance(role, str):
+            return json.dumps({"error": "role is required and must be a string"})
+        if role not in ("member", "admin"):
+            return json.dumps({"error": "role must be 'member' or 'admin'"})
+
+        try:
+            result = self._request_with_retry(
+                "POST",
+                f"/api/teams/{quote(team_id, safe='')}/members",
+                {"userId": user_id, "role": role},
+            )
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Function 50: team_remove_member
+    # ==================================================================
+
+    @kernel_function(
+        name="team_remove_member",
+        description="Remove a member from a team",
+    )
+    def team_remove_member(self, team_id: str, user_id: str) -> str:
+        """Remove a member from a team.
+
+        Args:
+            team_id: UUID of the team.
+            user_id: UUID of the user to remove.
+
+        Returns:
+            JSON string confirming the member was removed.
+        """
+        err = _validate_uuid(team_id, "team_id")
+        if err:
+            return json.dumps({"error": err})
+
+        err = _validate_uuid(user_id, "user_id")
+        if err:
+            return json.dumps({"error": err})
+
+        try:
+            result = self._request_with_retry(
+                "DELETE",
+                f"/api/teams/{quote(team_id, safe='')}/members/{quote(user_id, safe='')}",
+            )
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Function 51: team_invite_member
+    # ==================================================================
+
+    @kernel_function(
+        name="team_invite_member",
+        description="Invite a user to a team by email address",
+    )
+    def team_invite_member(
+        self, team_id: str, email: str, role: str = "member"
+    ) -> str:
+        """Invite a user to a team by email.
+
+        Args:
+            team_id: UUID of the team.
+            email: Email address of the user to invite.
+            role: Role for the invited user (``member`` or ``admin``, default ``member``).
+
+        Returns:
+            JSON string with invite details.
+        """
+        err = _validate_uuid(team_id, "team_id")
+        if err:
+            return json.dumps({"error": err})
+
+        if not email or not isinstance(email, str):
+            return json.dumps({"error": "email is required and must be a string"})
+        if len(email) > 254:
+            return json.dumps({"error": "email must be 254 characters or fewer"})
+
+        if not role or not isinstance(role, str):
+            return json.dumps({"error": "role is required and must be a string"})
+        if role not in ("member", "admin"):
+            return json.dumps({"error": "role must be 'member' or 'admin'"})
+
+        try:
+            result = self._request_with_retry(
+                "POST",
+                f"/api/teams/{quote(team_id, safe='')}/invites",
+                {"email": email, "role": role},
+            )
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Function 52: team_list_invites
+    # ==================================================================
+
+    @kernel_function(
+        name="team_list_invites",
+        description="List all pending invites for a team",
+    )
+    def team_list_invites(self, team_id: str) -> str:
+        """List all pending invites for a team.
+
+        Args:
+            team_id: UUID of the team.
+
+        Returns:
+            JSON string with a list of pending team invites.
+        """
+        err = _validate_uuid(team_id, "team_id")
+        if err:
+            return json.dumps({"error": err})
+
+        try:
+            result = self._request_with_retry(
+                "GET", f"/api/teams/{quote(team_id, safe='')}/invites"
+            )
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Function 53: team_cancel_invite
+    # ==================================================================
+
+    @kernel_function(
+        name="team_cancel_invite",
+        description="Cancel a pending team invite",
+    )
+    def team_cancel_invite(self, team_id: str, invite_id: str) -> str:
+        """Cancel a pending team invite.
+
+        Args:
+            team_id: UUID of the team.
+            invite_id: UUID of the invite to cancel.
+
+        Returns:
+            JSON string confirming the invite was cancelled.
+        """
+        err = _validate_uuid(team_id, "team_id")
+        if err:
+            return json.dumps({"error": err})
+
+        err = _validate_uuid(invite_id, "invite_id")
+        if err:
+            return json.dumps({"error": err})
+
+        try:
+            result = self._request_with_retry(
+                "DELETE",
+                f"/api/teams/{quote(team_id, safe='')}/invites/{quote(invite_id, safe='')}",
             )
             return json.dumps(result)
         except Exception as e:

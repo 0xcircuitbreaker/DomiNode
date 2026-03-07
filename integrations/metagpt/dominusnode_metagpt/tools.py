@@ -1,15 +1,19 @@
-"""Dominus Node tools for MetaGPT -- 26 proxy, wallet, team, and payment commands.
+"""Dominus Node tools for MetaGPT -- 53 proxy, wallet, team, and payment commands.
 
-Provides a MetaGPT-compatible toolkit class that exposes 26 tool functions for
+Provides a MetaGPT-compatible toolkit class that exposes 53 tool functions for
 interacting with the Dominus Node rotating proxy-as-a-service platform.
 
 Tools cover:
   - Proxied HTTP fetching through rotating proxies
-  - Wallet balance and usage monitoring
-  - Proxy configuration and session listing
+  - Wallet balance, transactions, forecast, and usage monitoring
+  - Proxy configuration, status, and session listing
   - Agentic wallet management (create, fund, freeze, unfreeze, delete)
-  - Team management (create, list, fund, keys, usage, update, role changes)
-  - PayPal top-up
+  - Team management (create, list, fund, keys, usage, update, role changes,
+    members, invites, deletion)
+  - Account management (register, login, verify email, password change)
+  - API key management (list, create, revoke)
+  - Plan management (get, list, change)
+  - PayPal, Stripe, and crypto top-up with payment status checking
 
 Security:
   - Full SSRF prevention (private IP blocking, DNS rebinding, Teredo/6to4,
@@ -417,6 +421,8 @@ _DOMAIN_RE = re.compile(
     r"^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?)*$"
 )
 
+_BASIC_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
 
 # ---------------------------------------------------------------------------
 # Period to date range helper
@@ -501,7 +507,7 @@ def _validate_allowed_domains(domains: Any) -> Optional[str]:
 class DominusNodeToolkit:
     """MetaGPT toolkit providing Dominus Node rotating proxy commands.
 
-    All 24 commands are exposed as methods with Google-style docstrings for
+    All 53 commands are exposed as methods with Google-style docstrings for
     automatic schema extraction by MetaGPT's tool system.  Use
     ``get_tool_functions()`` to retrieve a list of bound method references
     suitable for registration with MetaGPT's ``@register_tool`` or
@@ -675,6 +681,67 @@ class DominusNodeToolkit:
                 self._ensure_auth()
                 return self._api_request(method, path, body)
             raise
+
+    # ------------------------------------------------------------------
+    # Unauthenticated request helper
+    # ------------------------------------------------------------------
+
+    def _unauth_request(
+        self,
+        method: str,
+        path: str,
+        body: Optional[Dict[str, Any]] = None,
+    ) -> Any:
+        """Make an unauthenticated API request (register, login, verify-email).
+
+        Args:
+            method: HTTP method.
+            path: API path.
+            body: Optional JSON body.
+
+        Returns:
+            Parsed JSON response (with dangerous keys stripped).
+
+        Raises:
+            RuntimeError: On API errors or oversized responses.
+        """
+        headers: Dict[str, str] = {
+            "User-Agent": "dominusnode-metagpt/1.0.0",
+            "Content-Type": "application/json",
+        }
+        if self.agent_secret:
+            headers["X-DominusNode-Agent"] = "mcp"
+            headers["X-DominusNode-Agent-Secret"] = self.agent_secret
+
+        with httpx.Client(
+            timeout=self.timeout,
+            follow_redirects=False,
+        ) as client:
+            kwargs: Dict[str, Any] = {"headers": headers}
+            if body is not None and method.upper() not in ("GET", "HEAD", "OPTIONS"):
+                kwargs["json"] = body
+
+            resp = client.request(method, f"{self.base_url}{path}", **kwargs)
+
+            if len(resp.content) > MAX_RESPONSE_BYTES:
+                raise RuntimeError("Response body too large")
+
+            if resp.status_code >= 400:
+                try:
+                    err_data = resp.json()
+                    msg = err_data.get("error", resp.text)
+                except Exception:
+                    msg = resp.text
+                msg = str(msg)[:500]
+                raise RuntimeError(
+                    f"API error {resp.status_code}: {_sanitize_error(msg)}"
+                )
+
+            if resp.text:
+                data = resp.json()
+                _strip_dangerous_keys(data)
+                return data
+            return {}
 
     # ==================================================================
     # Tool 1: proxied_fetch
@@ -1551,13 +1618,718 @@ class DominusNodeToolkit:
             return json.dumps({"error": _sanitize_error(str(e))})
 
     # ==================================================================
+    # Tool 27: get_proxy_status
+    # ==================================================================
+
+    def get_proxy_status(self) -> str:
+        """Get the current status of the proxy gateway.
+
+        Returns:
+            JSON string with proxy gateway status information.
+        """
+        try:
+            result = self._request_with_retry("GET", "/api/proxy/status")
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Tool 28: get_transactions
+    # ==================================================================
+
+    def get_transactions(self, limit: int = 20) -> str:
+        """Get wallet transaction history.
+
+        Args:
+            limit: Maximum number of transactions to return (1-100, default 20).
+
+        Returns:
+            JSON string with wallet transaction history.
+        """
+        if isinstance(limit, float) and not math.isfinite(limit):
+            return json.dumps({"error": "limit must be an integer between 1 and 100"})
+        if not isinstance(limit, int) or isinstance(limit, bool) or limit < 1 or limit > 100:
+            return json.dumps(
+                {"error": "limit must be an integer between 1 and 100"}
+            )
+
+        try:
+            result = self._request_with_retry(
+                "GET", f"/api/wallet/transactions?limit={limit}"
+            )
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Tool 29: get_forecast
+    # ==================================================================
+
+    def get_forecast(self) -> str:
+        """Get wallet balance forecast based on recent usage trends.
+
+        Returns:
+            JSON string with wallet balance forecast information.
+        """
+        try:
+            result = self._request_with_retry("GET", "/api/wallet/forecast")
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Tool 30: check_payment
+    # ==================================================================
+
+    def check_payment(self, invoice_id: str) -> str:
+        """Check the status of a crypto top-up payment.
+
+        Args:
+            invoice_id: The invoice ID from a previous ``topup_crypto`` call.
+
+        Returns:
+            JSON string with payment status information.
+        """
+        if not invoice_id or not isinstance(invoice_id, str):
+            return json.dumps({"error": "invoice_id is required and must be a string"})
+
+        try:
+            result = self._request_with_retry(
+                "GET",
+                f"/api/wallet/topup/crypto/{quote(invoice_id, safe='')}/status",
+            )
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Tool 31: get_daily_usage
+    # ==================================================================
+
+    def get_daily_usage(self, days: int = 30) -> str:
+        """Get daily usage breakdown.
+
+        Args:
+            days: Number of days of history to retrieve (1-90, default 30).
+
+        Returns:
+            JSON string with daily usage breakdown.
+        """
+        if isinstance(days, float) and not math.isfinite(days):
+            return json.dumps({"error": "days must be an integer between 1 and 90"})
+        if not isinstance(days, int) or isinstance(days, bool) or days < 1 or days > 90:
+            return json.dumps(
+                {"error": "days must be an integer between 1 and 90"}
+            )
+
+        try:
+            result = self._request_with_retry(
+                "GET", f"/api/usage/daily?days={days}"
+            )
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Tool 32: get_top_hosts
+    # ==================================================================
+
+    def get_top_hosts(self, limit: int = 10) -> str:
+        """Get the top hosts by bandwidth usage.
+
+        Args:
+            limit: Maximum number of hosts to return (1-50, default 10).
+
+        Returns:
+            JSON string with top hosts by usage.
+        """
+        if isinstance(limit, float) and not math.isfinite(limit):
+            return json.dumps({"error": "limit must be an integer between 1 and 50"})
+        if not isinstance(limit, int) or isinstance(limit, bool) or limit < 1 or limit > 50:
+            return json.dumps(
+                {"error": "limit must be an integer between 1 and 50"}
+            )
+
+        try:
+            result = self._request_with_retry(
+                "GET", f"/api/usage/top-hosts?limit={limit}"
+            )
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Tool 33: register_account
+    # ==================================================================
+
+    def register_account(self, email: str, password: str) -> str:
+        """Register a new Dominus Node account.
+
+        This is an unauthenticated endpoint -- no API key or token needed.
+
+        Args:
+            email: Email address for the new account.
+            password: Password for the new account (8-128 characters).
+
+        Returns:
+            JSON string with registration result.
+        """
+        if not email or not isinstance(email, str):
+            return json.dumps({"error": "email is required and must be a string"})
+        if not _BASIC_EMAIL_RE.match(email):
+            return json.dumps({"error": "email must be a valid email address"})
+        if len(email) > 254:
+            return json.dumps({"error": "email must be 254 characters or fewer"})
+
+        if not password or not isinstance(password, str):
+            return json.dumps({"error": "password is required and must be a string"})
+        if len(password) < 8:
+            return json.dumps({"error": "password must be at least 8 characters"})
+        if len(password) > 128:
+            return json.dumps({"error": "password must be 128 characters or fewer"})
+
+        try:
+            result = self._unauth_request(
+                "POST",
+                "/api/auth/register",
+                {"email": email, "password": password},
+            )
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Tool 34: login_account
+    # ==================================================================
+
+    def login_account(self, email: str, password: str) -> str:
+        """Log in to a Dominus Node account.
+
+        This is an unauthenticated endpoint -- no API key or token needed.
+
+        Args:
+            email: Account email address.
+            password: Account password.
+
+        Returns:
+            JSON string with login result (tokens).
+        """
+        if not email or not isinstance(email, str):
+            return json.dumps({"error": "email is required and must be a string"})
+        if not _BASIC_EMAIL_RE.match(email):
+            return json.dumps({"error": "email must be a valid email address"})
+        if len(email) > 254:
+            return json.dumps({"error": "email must be 254 characters or fewer"})
+
+        if not password or not isinstance(password, str):
+            return json.dumps({"error": "password is required and must be a string"})
+        if len(password) < 8:
+            return json.dumps({"error": "password must be at least 8 characters"})
+        if len(password) > 128:
+            return json.dumps({"error": "password must be 128 characters or fewer"})
+
+        try:
+            result = self._unauth_request(
+                "POST",
+                "/api/auth/login",
+                {"email": email, "password": password},
+            )
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Tool 35: get_account_info
+    # ==================================================================
+
+    def get_account_info(self) -> str:
+        """Get current account information.
+
+        Returns:
+            JSON string with account details (email, plan, verification status).
+        """
+        try:
+            result = self._request_with_retry("GET", "/api/auth/me")
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Tool 36: verify_email
+    # ==================================================================
+
+    def verify_email(self, token: str) -> str:
+        """Verify an email address using a verification token.
+
+        This is an unauthenticated endpoint -- no API key or token needed.
+
+        Args:
+            token: The email verification token received via email.
+
+        Returns:
+            JSON string confirming email verification.
+        """
+        if not token or not isinstance(token, str):
+            return json.dumps({"error": "token is required and must be a string"})
+        if len(token) > 512:
+            return json.dumps({"error": "token must be 512 characters or fewer"})
+
+        try:
+            result = self._unauth_request(
+                "POST",
+                "/api/auth/verify-email",
+                {"token": token},
+            )
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Tool 37: resend_verification
+    # ==================================================================
+
+    def resend_verification(self) -> str:
+        """Resend the email verification link.
+
+        Returns:
+            JSON string confirming the verification email was resent.
+        """
+        try:
+            result = self._request_with_retry("POST", "/api/auth/resend-verification")
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Tool 38: update_password
+    # ==================================================================
+
+    def update_password(self, current_password: str, new_password: str) -> str:
+        """Change the account password.
+
+        Args:
+            current_password: The current account password.
+            new_password: The new password (8-128 characters).
+
+        Returns:
+            JSON string confirming the password change.
+        """
+        if not current_password or not isinstance(current_password, str):
+            return json.dumps({"error": "current_password is required and must be a string"})
+        if not new_password or not isinstance(new_password, str):
+            return json.dumps({"error": "new_password is required and must be a string"})
+        if len(new_password) < 8:
+            return json.dumps({"error": "new_password must be at least 8 characters"})
+        if len(new_password) > 128:
+            return json.dumps({"error": "new_password must be 128 characters or fewer"})
+
+        try:
+            result = self._request_with_retry(
+                "POST",
+                "/api/auth/change-password",
+                {"currentPassword": current_password, "newPassword": new_password},
+            )
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Tool 39: list_keys
+    # ==================================================================
+
+    def list_keys(self) -> str:
+        """List all API keys for the current account.
+
+        Returns:
+            JSON string with a list of API keys.
+        """
+        try:
+            result = self._request_with_retry("GET", "/api/keys")
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Tool 40: create_key
+    # ==================================================================
+
+    def create_key(self, label: str) -> str:
+        """Create a new API key.
+
+        Args:
+            label: Human-readable label for the key (max 100 chars, no control characters).
+
+        Returns:
+            JSON string with the created API key (shown once).
+        """
+        err = _validate_label(label, "label")
+        if err:
+            return json.dumps({"error": err})
+
+        try:
+            result = self._request_with_retry(
+                "POST", "/api/keys", {"label": label}
+            )
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Tool 41: revoke_key
+    # ==================================================================
+
+    def revoke_key(self, key_id: str) -> str:
+        """Revoke (delete) an API key.
+
+        Args:
+            key_id: ID of the API key to revoke.
+
+        Returns:
+            JSON string confirming the key revocation.
+        """
+        if not key_id or not isinstance(key_id, str):
+            return json.dumps({"error": "key_id is required and must be a string"})
+
+        try:
+            result = self._request_with_retry(
+                "DELETE", f"/api/keys/{quote(key_id, safe='')}"
+            )
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Tool 42: get_plan
+    # ==================================================================
+
+    def get_plan(self) -> str:
+        """Get the current user's plan.
+
+        Returns:
+            JSON string with the user's current plan details.
+        """
+        try:
+            result = self._request_with_retry("GET", "/api/plans/user/plan")
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Tool 43: list_plans
+    # ==================================================================
+
+    def list_plans(self) -> str:
+        """List all available plans.
+
+        Returns:
+            JSON string with a list of available plans.
+        """
+        try:
+            result = self._request_with_retry("GET", "/api/plans")
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Tool 44: change_plan
+    # ==================================================================
+
+    def change_plan(self, plan_id: str) -> str:
+        """Change the user's plan.
+
+        Args:
+            plan_id: UUID of the plan to switch to.
+
+        Returns:
+            JSON string with the updated plan details.
+        """
+        err = _validate_uuid(plan_id, "plan_id")
+        if err:
+            return json.dumps({"error": err})
+
+        try:
+            result = self._request_with_retry(
+                "PUT", "/api/plans/user/plan", {"planId": plan_id}
+            )
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Tool 45: team_delete
+    # ==================================================================
+
+    def team_delete(self, team_id: str) -> str:
+        """Delete a team.
+
+        Args:
+            team_id: UUID of the team to delete.
+
+        Returns:
+            JSON string confirming team deletion.
+        """
+        err = _validate_uuid(team_id, "team_id")
+        if err:
+            return json.dumps({"error": err})
+
+        try:
+            result = self._request_with_retry(
+                "DELETE", f"/api/teams/{quote(team_id, safe='')}"
+            )
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Tool 46: team_revoke_key
+    # ==================================================================
+
+    def team_revoke_key(self, team_id: str, key_id: str) -> str:
+        """Revoke (delete) an API key from a team.
+
+        Args:
+            team_id: UUID of the team.
+            key_id: ID of the API key to revoke.
+
+        Returns:
+            JSON string confirming the key revocation.
+        """
+        err = _validate_uuid(team_id, "team_id")
+        if err:
+            return json.dumps({"error": err})
+
+        if not key_id or not isinstance(key_id, str):
+            return json.dumps({"error": "key_id is required and must be a string"})
+
+        try:
+            result = self._request_with_retry(
+                "DELETE",
+                f"/api/teams/{quote(team_id, safe='')}/keys/{quote(key_id, safe='')}",
+            )
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Tool 47: team_list_keys
+    # ==================================================================
+
+    def team_list_keys(self, team_id: str) -> str:
+        """List all API keys for a team.
+
+        Args:
+            team_id: UUID of the team.
+
+        Returns:
+            JSON string with a list of team API keys.
+        """
+        err = _validate_uuid(team_id, "team_id")
+        if err:
+            return json.dumps({"error": err})
+
+        try:
+            result = self._request_with_retry(
+                "GET", f"/api/teams/{quote(team_id, safe='')}/keys"
+            )
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Tool 48: team_list_members
+    # ==================================================================
+
+    def team_list_members(self, team_id: str) -> str:
+        """List all members of a team.
+
+        Args:
+            team_id: UUID of the team.
+
+        Returns:
+            JSON string with a list of team members.
+        """
+        err = _validate_uuid(team_id, "team_id")
+        if err:
+            return json.dumps({"error": err})
+
+        try:
+            result = self._request_with_retry(
+                "GET", f"/api/teams/{quote(team_id, safe='')}/members"
+            )
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Tool 49: team_add_member
+    # ==================================================================
+
+    def team_add_member(self, team_id: str, user_id: str) -> str:
+        """Add a member to a team by user ID.
+
+        Args:
+            team_id: UUID of the team.
+            user_id: UUID of the user to add.
+
+        Returns:
+            JSON string confirming the member addition.
+        """
+        err = _validate_uuid(team_id, "team_id")
+        if err:
+            return json.dumps({"error": err})
+
+        err = _validate_uuid(user_id, "user_id")
+        if err:
+            return json.dumps({"error": err})
+
+        try:
+            result = self._request_with_retry(
+                "POST",
+                f"/api/teams/{quote(team_id, safe='')}/members",
+                {"userId": user_id},
+            )
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Tool 50: team_remove_member
+    # ==================================================================
+
+    def team_remove_member(self, team_id: str, user_id: str) -> str:
+        """Remove a member from a team.
+
+        Args:
+            team_id: UUID of the team.
+            user_id: UUID of the user to remove.
+
+        Returns:
+            JSON string confirming the member removal.
+        """
+        err = _validate_uuid(team_id, "team_id")
+        if err:
+            return json.dumps({"error": err})
+
+        err = _validate_uuid(user_id, "user_id")
+        if err:
+            return json.dumps({"error": err})
+
+        try:
+            result = self._request_with_retry(
+                "DELETE",
+                f"/api/teams/{quote(team_id, safe='')}/members/{quote(user_id, safe='')}",
+            )
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Tool 51: team_invite_member
+    # ==================================================================
+
+    def team_invite_member(
+        self, team_id: str, email: str, role: str = "member"
+    ) -> str:
+        """Invite a user to a team by email.
+
+        Args:
+            team_id: UUID of the team.
+            email: Email address of the user to invite.
+            role: Role for the invited user (``member`` or ``admin``). Default: ``member``.
+
+        Returns:
+            JSON string with the created invite details.
+        """
+        err = _validate_uuid(team_id, "team_id")
+        if err:
+            return json.dumps({"error": err})
+
+        if not email or not isinstance(email, str):
+            return json.dumps({"error": "email is required and must be a string"})
+        if not _BASIC_EMAIL_RE.match(email):
+            return json.dumps({"error": "email must be a valid email address"})
+        if len(email) > 254:
+            return json.dumps({"error": "email must be 254 characters or fewer"})
+
+        if not role or not isinstance(role, str):
+            return json.dumps({"error": "role is required and must be a string"})
+        if role not in ("member", "admin"):
+            return json.dumps({"error": "role must be 'member' or 'admin'"})
+
+        try:
+            result = self._request_with_retry(
+                "POST",
+                f"/api/teams/{quote(team_id, safe='')}/invites",
+                {"email": email, "role": role},
+            )
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Tool 52: team_list_invites
+    # ==================================================================
+
+    def team_list_invites(self, team_id: str) -> str:
+        """List pending invites for a team.
+
+        Args:
+            team_id: UUID of the team.
+
+        Returns:
+            JSON string with a list of pending team invites.
+        """
+        err = _validate_uuid(team_id, "team_id")
+        if err:
+            return json.dumps({"error": err})
+
+        try:
+            result = self._request_with_retry(
+                "GET", f"/api/teams/{quote(team_id, safe='')}/invites"
+            )
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Tool 53: team_cancel_invite
+    # ==================================================================
+
+    def team_cancel_invite(self, team_id: str, invite_id: str) -> str:
+        """Cancel a pending team invite.
+
+        Args:
+            team_id: UUID of the team.
+            invite_id: UUID of the invite to cancel.
+
+        Returns:
+            JSON string confirming the invite cancellation.
+        """
+        err = _validate_uuid(team_id, "team_id")
+        if err:
+            return json.dumps({"error": err})
+
+        err = _validate_uuid(invite_id, "invite_id")
+        if err:
+            return json.dumps({"error": err})
+
+        try:
+            result = self._request_with_retry(
+                "DELETE",
+                f"/api/teams/{quote(team_id, safe='')}/invites/{quote(invite_id, safe='')}",
+            )
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
     # Tool function list for MetaGPT registration
     # ==================================================================
 
     def get_tool_functions(self) -> list:
         """Return list of bound method references for tool registration.
 
-        Use this to register all 26 Dominus Node tools with MetaGPT's
+        Use this to register all 53 Dominus Node tools with MetaGPT's
         DataInterpreter or any custom tool registry.
 
         Returns:
@@ -1596,4 +2368,31 @@ class DominusNodeToolkit:
             self.topup_paypal,
             self.topup_stripe,
             self.topup_crypto,
+            self.get_proxy_status,
+            self.get_transactions,
+            self.get_forecast,
+            self.check_payment,
+            self.get_daily_usage,
+            self.get_top_hosts,
+            self.register_account,
+            self.login_account,
+            self.get_account_info,
+            self.verify_email,
+            self.resend_verification,
+            self.update_password,
+            self.list_keys,
+            self.create_key,
+            self.revoke_key,
+            self.get_plan,
+            self.list_plans,
+            self.change_plan,
+            self.team_delete,
+            self.team_revoke_key,
+            self.team_list_keys,
+            self.team_list_members,
+            self.team_add_member,
+            self.team_remove_member,
+            self.team_invite_member,
+            self.team_list_invites,
+            self.team_cancel_invite,
         ]

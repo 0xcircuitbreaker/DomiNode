@@ -701,7 +701,7 @@ export function createX402InfoTool(client: DominusNodeClient) {
 /** Make an authenticated JSON request to the Dominus Node REST API. */
 async function apiRequest(
   client: DominusNodeClient,
-  method: "GET" | "POST" | "DELETE" | "PATCH",
+  method: "GET" | "POST" | "PUT" | "DELETE" | "PATCH",
   path: string,
   body?: Record<string, unknown>,
   agentSecret?: string,
@@ -937,6 +937,815 @@ export function createUpdateWalletPolicyTool(client: DominusNodeClient, agentSec
         return await apiRequest(client, "PATCH", `/api/agent-wallet/${encodeURIComponent(wallet_id)}/policy`, body, agentSecret);
       } catch (err) {
         return { error: `Failed to update policy: ${sanitizeError(err instanceof Error ? err.message : "Unknown error")}` };
+      }
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Account lifecycle tools
+// ---------------------------------------------------------------------------
+
+/**
+ * Creates a tool to register a new DomiNode account.
+ */
+export function createRegisterTool(agentSecret?: string) {
+  return (tool as any)({
+    description:
+      "Register a new Dominus Node account. Returns user info and JWT tokens. " +
+      "After registering, use verifyEmail or rely on MCP agent auto-verification.",
+    parameters: z.object({
+      email: z.string().email().describe("Email address for the new account"),
+      password: z.string().min(8).max(128).describe("Password (min 8 characters)"),
+    }),
+    execute: async ({ email, password }: { email: string; password: string }) => {
+      try {
+        const baseUrl = process.env.DOMINUSNODE_BASE_URL || "https://api.dominusnode.com";
+        const headers: Record<string, string> = { "Content-Type": "application/json" };
+        if (agentSecret) {
+          headers["X-DominusNode-Agent"] = "mcp";
+          headers["X-DominusNode-Agent-Secret"] = agentSecret;
+        }
+        const resp = await fetch(`${baseUrl}/api/auth/register`, {
+          method: "POST", headers, body: JSON.stringify({ email, password }), redirect: "error",
+        });
+        if (!resp.ok) {
+          const text = await resp.text().catch(() => "");
+          throw new Error(`Registration failed (${resp.status}): ${text.slice(0, 200)}`);
+        }
+        const data = JSON.parse(await resp.text());
+        stripDangerousKeys(data);
+        return { userId: data.user?.id, email: data.user?.email, message: "Account created. Verify email to unlock financial features." };
+      } catch (err) {
+        return { error: `Failed to register: ${sanitizeError(err instanceof Error ? err.message : "Unknown error")}` };
+      }
+    },
+  });
+}
+
+/**
+ * Creates a tool to log into an existing DomiNode account.
+ */
+export function createLoginTool(agentSecret?: string) {
+  return (tool as any)({
+    description:
+      "Log into an existing Dominus Node account. Returns JWT access and refresh tokens.",
+    parameters: z.object({
+      email: z.string().email().describe("Account email address"),
+      password: z.string().min(1).describe("Account password"),
+    }),
+    execute: async ({ email, password }: { email: string; password: string }) => {
+      try {
+        const baseUrl = process.env.DOMINUSNODE_BASE_URL || "https://api.dominusnode.com";
+        const headers: Record<string, string> = { "Content-Type": "application/json" };
+        if (agentSecret) {
+          headers["X-DominusNode-Agent"] = "mcp";
+          headers["X-DominusNode-Agent-Secret"] = agentSecret;
+        }
+        const resp = await fetch(`${baseUrl}/api/auth/login`, {
+          method: "POST", headers, body: JSON.stringify({ email, password }), redirect: "error",
+        });
+        if (!resp.ok) {
+          const text = await resp.text().catch(() => "");
+          throw new Error(`Login failed (${resp.status}): ${sanitizeError(text.slice(0, 200))}`);
+        }
+        const data = JSON.parse(await resp.text());
+        stripDangerousKeys(data);
+        if (data.mfaRequired) {
+          return { mfaRequired: true, challengeToken: data.challengeToken, message: "MFA verification required" };
+        }
+        return { accessToken: data.accessToken ? "[REDACTED]" : undefined, message: "Login successful" };
+      } catch (err) {
+        return { error: `Failed to login: ${sanitizeError(err instanceof Error ? err.message : "Unknown error")}` };
+      }
+    },
+  });
+}
+
+/**
+ * Creates a tool to get the current authenticated account information.
+ */
+export function createGetAccountInfoTool(client: DominusNodeClient, agentSecret?: string) {
+  return (tool as any)({
+    description: "Get the current authenticated Dominus Node account information including email, plan, and verification status.",
+    parameters: z.object({}),
+    execute: async () => {
+      try {
+        const result = await apiRequest(client, "GET", "/api/auth/me", undefined, agentSecret);
+        const user = result.user as Record<string, unknown> | undefined;
+        return {
+          id: user?.id,
+          email: user?.email,
+          plan: user?.plan,
+          emailVerified: user?.emailVerified,
+          status: user?.status,
+          createdAt: user?.createdAt,
+        };
+      } catch (err) {
+        return { error: `Failed to get account info: ${sanitizeError(err instanceof Error ? err.message : "Unknown error")}` };
+      }
+    },
+  });
+}
+
+/**
+ * Creates a tool to verify an email address with a token.
+ */
+export function createVerifyEmailTool(agentSecret?: string) {
+  return (tool as any)({
+    description: "Verify email address using the verification token sent to email. MCP agents are auto-verified.",
+    parameters: z.object({
+      token: z.string().min(1).describe("Email verification token from the verification email"),
+    }),
+    execute: async ({ token }: { token: string }) => {
+      try {
+        const baseUrl = process.env.DOMINUSNODE_BASE_URL || "https://api.dominusnode.com";
+        const headers: Record<string, string> = { "Content-Type": "application/json" };
+        if (agentSecret) {
+          headers["X-DominusNode-Agent"] = "mcp";
+          headers["X-DominusNode-Agent-Secret"] = agentSecret;
+        }
+        const resp = await fetch(`${baseUrl}/api/auth/verify-email`, {
+          method: "POST", headers, body: JSON.stringify({ token }), redirect: "error",
+        });
+        if (!resp.ok) {
+          const text = await resp.text().catch(() => "");
+          throw new Error(`Verification failed (${resp.status}): ${text.slice(0, 200)}`);
+        }
+        return { success: true, message: "Email verified successfully" };
+      } catch (err) {
+        return { error: `Failed to verify email: ${sanitizeError(err instanceof Error ? err.message : "Unknown error")}` };
+      }
+    },
+  });
+}
+
+/**
+ * Creates a tool to resend the email verification token.
+ */
+export function createResendVerificationTool(client: DominusNodeClient, agentSecret?: string) {
+  return (tool as any)({
+    description: "Resend the email verification token to the account's email address.",
+    parameters: z.object({}),
+    execute: async () => {
+      try {
+        await apiRequest(client, "POST", "/api/auth/resend-verification", undefined, agentSecret);
+        return { success: true, message: "Verification email sent" };
+      } catch (err) {
+        return { error: `Failed to resend verification: ${sanitizeError(err instanceof Error ? err.message : "Unknown error")}` };
+      }
+    },
+  });
+}
+
+/**
+ * Creates a tool to change the account password.
+ */
+export function createUpdatePasswordTool(client: DominusNodeClient, agentSecret?: string) {
+  return (tool as any)({
+    description: "Change the password for the current Dominus Node account.",
+    parameters: z.object({
+      current_password: z.string().min(1).describe("Current password"),
+      new_password: z.string().min(8).max(128).describe("New password (min 8 characters)"),
+    }),
+    execute: async ({ current_password, new_password }: { current_password: string; new_password: string }) => {
+      try {
+        await apiRequest(client, "POST", "/api/auth/change-password", {
+          currentPassword: current_password,
+          newPassword: new_password,
+        }, agentSecret);
+        return { success: true, message: "Password updated" };
+      } catch (err) {
+        return { error: `Failed to update password: ${sanitizeError(err instanceof Error ? err.message : "Unknown error")}` };
+      }
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// API key management tools
+// ---------------------------------------------------------------------------
+
+/**
+ * Creates a tool to list all API keys for the current account.
+ */
+export function createListKeysTool(client: DominusNodeClient, agentSecret?: string) {
+  return (tool as any)({
+    description: "List all API keys for the current Dominus Node account. Shows key ID, label, prefix, and creation date.",
+    parameters: z.object({}),
+    execute: async () => {
+      try {
+        return await apiRequest(client, "GET", "/api/keys", undefined, agentSecret);
+      } catch (err) {
+        return { error: `Failed to list keys: ${sanitizeError(err instanceof Error ? err.message : "Unknown error")}` };
+      }
+    },
+  });
+}
+
+/**
+ * Creates a tool to create a new API key.
+ */
+export function createCreateKeyTool(client: DominusNodeClient, agentSecret?: string) {
+  return (tool as any)({
+    description:
+      "Create a new Dominus Node API key. The full key is shown only once — store it securely. " +
+      "WARNING: API keys are secret credentials. Never log or share them.",
+    parameters: z.object({
+      label: z.string().min(1).max(100).optional().describe("Human-readable label for the key"),
+    }),
+    execute: async ({ label }: { label?: string }) => {
+      if (label && /[\x00-\x1F\x7F]/.test(label)) {
+        return { error: "label contains invalid control characters" };
+      }
+      try {
+        const body: Record<string, unknown> = {};
+        if (label) body.label = label;
+        return await apiRequest(client, "POST", "/api/keys", body, agentSecret);
+      } catch (err) {
+        return { error: `Failed to create key: ${sanitizeError(err instanceof Error ? err.message : "Unknown error")}` };
+      }
+    },
+  });
+}
+
+/**
+ * Creates a tool to revoke (delete) an API key.
+ */
+export function createRevokeKeyTool(client: DominusNodeClient, agentSecret?: string) {
+  return (tool as any)({
+    description: "Revoke (permanently delete) a Dominus Node API key. This cannot be undone.",
+    parameters: z.object({
+      key_id: z.string().regex(UUID_RE, "Must be a valid UUID").describe("UUID of the API key to revoke"),
+    }),
+    execute: async ({ key_id }: { key_id: string }) => {
+      try {
+        await apiRequest(client, "DELETE", `/api/keys/${encodeURIComponent(key_id)}`, undefined, agentSecret);
+        return { success: true, message: "API key revoked" };
+      } catch (err) {
+        return { error: `Failed to revoke key: ${sanitizeError(err instanceof Error ? err.message : "Unknown error")}` };
+      }
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Wallet extended tools
+// ---------------------------------------------------------------------------
+
+/**
+ * Creates a tool to get wallet transaction history.
+ */
+export function createGetTransactionsTool(client: DominusNodeClient, agentSecret?: string) {
+  return (tool as any)({
+    description: "Get wallet transaction history showing top-ups, usage charges, and transfers.",
+    parameters: z.object({
+      limit: z.number().int().min(1).max(100).optional().describe("Maximum transactions to return (default 50)"),
+      offset: z.number().int().min(0).optional().describe("Offset for pagination"),
+    }),
+    execute: async ({ limit, offset }: { limit?: number; offset?: number }) => {
+      try {
+        const params = new URLSearchParams();
+        if (limit !== undefined) params.set("limit", String(limit));
+        if (offset !== undefined) params.set("offset", String(offset));
+        const qs = params.toString() ? `?${params.toString()}` : "";
+        return await apiRequest(client, "GET", `/api/wallet/transactions${qs}`, undefined, agentSecret);
+      } catch (err) {
+        return { error: `Failed to get transactions: ${sanitizeError(err instanceof Error ? err.message : "Unknown error")}` };
+      }
+    },
+  });
+}
+
+/**
+ * Creates a tool to get wallet balance forecast.
+ */
+export function createGetForecastTool(client: DominusNodeClient, agentSecret?: string) {
+  return (tool as any)({
+    description: "Get a wallet balance forecast based on recent usage patterns. Shows estimated days until balance depletion.",
+    parameters: z.object({}),
+    execute: async () => {
+      try {
+        return await apiRequest(client, "GET", "/api/wallet/forecast", undefined, agentSecret);
+      } catch (err) {
+        return { error: `Failed to get forecast: ${sanitizeError(err instanceof Error ? err.message : "Unknown error")}` };
+      }
+    },
+  });
+}
+
+/**
+ * Creates a tool to check the status of a crypto payment invoice.
+ */
+export function createCheckPaymentTool(client: DominusNodeClient, agentSecret?: string) {
+  return (tool as any)({
+    description: "Check the status of a cryptocurrency payment invoice. Use after creating a crypto top-up.",
+    parameters: z.object({
+      invoice_id: z.string().min(1).describe("The invoice ID from the crypto top-up creation"),
+    }),
+    execute: async ({ invoice_id }: { invoice_id: string }) => {
+      try {
+        return await apiRequest(client, "GET", `/api/wallet/crypto/status/${encodeURIComponent(invoice_id)}`, undefined, agentSecret);
+      } catch (err) {
+        return { error: `Failed to check payment: ${sanitizeError(err instanceof Error ? err.message : "Unknown error")}` };
+      }
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Usage extended tools
+// ---------------------------------------------------------------------------
+
+/**
+ * Creates a tool to get daily usage breakdown.
+ */
+export function createGetDailyUsageTool(client: DominusNodeClient, agentSecret?: string) {
+  return (tool as any)({
+    description: "Get daily proxy usage breakdown showing bytes, cost, and request count per day.",
+    parameters: z.object({
+      since: z.string().optional().describe("Start date (ISO 8601). Defaults to 30 days ago."),
+      until: z.string().optional().describe("End date (ISO 8601). Defaults to now."),
+    }),
+    execute: async ({ since, until }: { since?: string; until?: string }) => {
+      try {
+        const params = new URLSearchParams();
+        if (since) params.set("since", since);
+        if (until) params.set("until", until);
+        const qs = params.toString() ? `?${params.toString()}` : "";
+        return await apiRequest(client, "GET", `/api/usage/daily${qs}`, undefined, agentSecret);
+      } catch (err) {
+        return { error: `Failed to get daily usage: ${sanitizeError(err instanceof Error ? err.message : "Unknown error")}` };
+      }
+    },
+  });
+}
+
+/**
+ * Creates a tool to get the top accessed hosts through the proxy.
+ */
+export function createGetTopHostsTool(client: DominusNodeClient, agentSecret?: string) {
+  return (tool as any)({
+    description: "Get the top accessed hosts (domains) through the proxy, ranked by total bytes transferred.",
+    parameters: z.object({
+      since: z.string().optional().describe("Start date (ISO 8601). Defaults to 30 days ago."),
+      until: z.string().optional().describe("End date (ISO 8601). Defaults to now."),
+      limit: z.number().int().min(1).max(100).optional().describe("Max hosts to return (default 10)"),
+    }),
+    execute: async ({ since, until, limit }: { since?: string; until?: string; limit?: number }) => {
+      try {
+        const params = new URLSearchParams();
+        if (since) params.set("since", since);
+        if (until) params.set("until", until);
+        if (limit !== undefined) params.set("limit", String(limit));
+        const qs = params.toString() ? `?${params.toString()}` : "";
+        return await apiRequest(client, "GET", `/api/usage/top-hosts${qs}`, undefined, agentSecret);
+      } catch (err) {
+        return { error: `Failed to get top hosts: ${sanitizeError(err instanceof Error ? err.message : "Unknown error")}` };
+      }
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Plan management tools
+// ---------------------------------------------------------------------------
+
+/**
+ * Creates a tool to get the current user's plan.
+ */
+export function createGetPlanTool(client: DominusNodeClient, agentSecret?: string) {
+  return (tool as any)({
+    description: "Get the current user's plan details including bandwidth limits, pricing tier, and features.",
+    parameters: z.object({}),
+    execute: async () => {
+      try {
+        return await apiRequest(client, "GET", "/api/plans/user/plan", undefined, agentSecret);
+      } catch (err) {
+        return { error: `Failed to get plan: ${sanitizeError(err instanceof Error ? err.message : "Unknown error")}` };
+      }
+    },
+  });
+}
+
+/**
+ * Creates a tool to list all available plans.
+ */
+export function createListPlansTool(client: DominusNodeClient, agentSecret?: string) {
+  return (tool as any)({
+    description: "List all available Dominus Node plans with pricing, bandwidth limits, and features.",
+    parameters: z.object({}),
+    execute: async () => {
+      try {
+        return await apiRequest(client, "GET", "/api/plans", undefined, agentSecret);
+      } catch (err) {
+        return { error: `Failed to list plans: ${sanitizeError(err instanceof Error ? err.message : "Unknown error")}` };
+      }
+    },
+  });
+}
+
+/**
+ * Creates a tool to change the current user's plan.
+ */
+export function createChangePlanTool(client: DominusNodeClient, agentSecret?: string) {
+  return (tool as any)({
+    description: "Change the current user's plan. Requires email verification.",
+    parameters: z.object({
+      plan_id: z.string().min(1).describe("ID of the plan to switch to"),
+    }),
+    execute: async ({ plan_id }: { plan_id: string }) => {
+      try {
+        return await apiRequest(client, "PUT", "/api/plans/user/plan", { planId: plan_id }, agentSecret);
+      } catch (err) {
+        return { error: `Failed to change plan: ${sanitizeError(err instanceof Error ? err.message : "Unknown error")}` };
+      }
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Proxy extended tools
+// ---------------------------------------------------------------------------
+
+/**
+ * Creates a tool to get proxy health/status information.
+ */
+export function createGetProxyStatusTool(client: DominusNodeClient, agentSecret?: string) {
+  return (tool as any)({
+    description: "Get proxy health and status information including uptime, active connections, and provider status.",
+    parameters: z.object({}),
+    execute: async () => {
+      try {
+        return await apiRequest(client, "GET", "/api/proxy/status", undefined, agentSecret);
+      } catch (err) {
+        return { error: `Failed to get proxy status: ${sanitizeError(err instanceof Error ? err.message : "Unknown error")}` };
+      }
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Team management tools (full suite — 17 tools)
+// ---------------------------------------------------------------------------
+
+/**
+ * Creates a tool to create a new team.
+ */
+export function createCreateTeamTool(client: DominusNodeClient, agentSecret?: string) {
+  return (tool as any)({
+    description: "Create a new Dominus Node team with a shared wallet for collaborative proxy usage.",
+    parameters: z.object({
+      name: z.string().min(1).max(100).describe("Team name"),
+      max_members: z.number().int().min(2).max(100).optional().describe("Maximum team members (default 10)"),
+    }),
+    execute: async ({ name, max_members }: { name: string; max_members?: number }) => {
+      if (/[\x00-\x1F\x7F]/.test(name)) {
+        return { error: "name contains invalid control characters" };
+      }
+      try {
+        const body: Record<string, unknown> = { name };
+        if (max_members !== undefined) body.maxMembers = max_members;
+        return await apiRequest(client, "POST", "/api/teams", body, agentSecret);
+      } catch (err) {
+        return { error: `Failed to create team: ${sanitizeError(err instanceof Error ? err.message : "Unknown error")}` };
+      }
+    },
+  });
+}
+
+/**
+ * Creates a tool to list all teams the user belongs to.
+ */
+export function createListTeamsTool(client: DominusNodeClient, agentSecret?: string) {
+  return (tool as any)({
+    description: "List all teams the current user belongs to (as owner, admin, or member).",
+    parameters: z.object({}),
+    execute: async () => {
+      try {
+        return await apiRequest(client, "GET", "/api/teams", undefined, agentSecret);
+      } catch (err) {
+        return { error: `Failed to list teams: ${sanitizeError(err instanceof Error ? err.message : "Unknown error")}` };
+      }
+    },
+  });
+}
+
+/**
+ * Creates a tool to get detailed information about a team.
+ */
+export function createTeamDetailsTool(client: DominusNodeClient, agentSecret?: string) {
+  return (tool as any)({
+    description: "Get detailed information about a team including wallet balance, members count, and settings.",
+    parameters: z.object({
+      team_id: z.string().regex(UUID_RE, "Must be a valid UUID").describe("UUID of the team"),
+    }),
+    execute: async ({ team_id }: { team_id: string }) => {
+      try {
+        return await apiRequest(client, "GET", `/api/teams/${encodeURIComponent(team_id)}`, undefined, agentSecret);
+      } catch (err) {
+        return { error: `Failed to get team details: ${sanitizeError(err instanceof Error ? err.message : "Unknown error")}` };
+      }
+    },
+  });
+}
+
+/**
+ * Creates a tool to update team settings.
+ */
+export function createUpdateTeamTool(client: DominusNodeClient, agentSecret?: string) {
+  return (tool as any)({
+    description: "Update team settings such as name or max members. Requires owner or admin role.",
+    parameters: z.object({
+      team_id: z.string().regex(UUID_RE, "Must be a valid UUID").describe("UUID of the team"),
+      name: z.string().min(1).max(100).optional().describe("New team name"),
+      max_members: z.number().int().min(2).max(100).optional().describe("New max members limit"),
+    }),
+    execute: async ({ team_id, name, max_members }: { team_id: string; name?: string; max_members?: number }) => {
+      if (name && /[\x00-\x1F\x7F]/.test(name)) {
+        return { error: "name contains invalid control characters" };
+      }
+      const body: Record<string, unknown> = {};
+      if (name !== undefined) body.name = name;
+      if (max_members !== undefined) body.maxMembers = max_members;
+      if (Object.keys(body).length === 0) {
+        return { error: "At least one field (name or max_members) must be provided" };
+      }
+      try {
+        return await apiRequest(client, "PATCH", `/api/teams/${encodeURIComponent(team_id)}`, body, agentSecret);
+      } catch (err) {
+        return { error: `Failed to update team: ${sanitizeError(err instanceof Error ? err.message : "Unknown error")}` };
+      }
+    },
+  });
+}
+
+/**
+ * Creates a tool to delete a team. Requires owner role.
+ */
+export function createTeamDeleteTool(client: DominusNodeClient, agentSecret?: string) {
+  return (tool as any)({
+    description: "Delete a team permanently. Requires owner role. Remaining team wallet balance is NOT refunded.",
+    parameters: z.object({
+      team_id: z.string().regex(UUID_RE, "Must be a valid UUID").describe("UUID of the team to delete"),
+    }),
+    execute: async ({ team_id }: { team_id: string }) => {
+      try {
+        await apiRequest(client, "DELETE", `/api/teams/${encodeURIComponent(team_id)}`, undefined, agentSecret);
+        return { success: true, message: "Team deleted" };
+      } catch (err) {
+        return { error: `Failed to delete team: ${sanitizeError(err instanceof Error ? err.message : "Unknown error")}` };
+      }
+    },
+  });
+}
+
+/**
+ * Creates a tool to fund a team wallet from the user's personal wallet.
+ */
+export function createTeamFundTool(client: DominusNodeClient, agentSecret?: string) {
+  return (tool as any)({
+    description: "Fund a team wallet by transferring from your personal wallet. Requires owner or admin role.",
+    parameters: z.object({
+      team_id: z.string().regex(UUID_RE, "Must be a valid UUID").describe("UUID of the team"),
+      amount_cents: z.number().int().min(1).max(2147483647).describe("Amount in cents to transfer"),
+    }),
+    execute: async ({ team_id, amount_cents }: { team_id: string; amount_cents: number }) => {
+      try {
+        return await apiRequest(client, "POST", `/api/teams/${encodeURIComponent(team_id)}/wallet/fund`, { amountCents: amount_cents }, agentSecret);
+      } catch (err) {
+        return { error: `Failed to fund team: ${sanitizeError(err instanceof Error ? err.message : "Unknown error")}` };
+      }
+    },
+  });
+}
+
+/**
+ * Creates a tool to create a team API key.
+ */
+export function createTeamCreateKeyTool(client: DominusNodeClient, agentSecret?: string) {
+  return (tool as any)({
+    description: "Create an API key for a team. Team keys bill to the team wallet. Requires owner or admin role.",
+    parameters: z.object({
+      team_id: z.string().regex(UUID_RE, "Must be a valid UUID").describe("UUID of the team"),
+      label: z.string().min(1).max(100).optional().describe("Label for the team API key"),
+    }),
+    execute: async ({ team_id, label }: { team_id: string; label?: string }) => {
+      if (label && /[\x00-\x1F\x7F]/.test(label)) {
+        return { error: "label contains invalid control characters" };
+      }
+      try {
+        const body: Record<string, unknown> = {};
+        if (label) body.label = label;
+        return await apiRequest(client, "POST", `/api/teams/${encodeURIComponent(team_id)}/keys`, body, agentSecret);
+      } catch (err) {
+        return { error: `Failed to create team key: ${sanitizeError(err instanceof Error ? err.message : "Unknown error")}` };
+      }
+    },
+  });
+}
+
+/**
+ * Creates a tool to revoke a team API key.
+ */
+export function createTeamRevokeKeyTool(client: DominusNodeClient, agentSecret?: string) {
+  return (tool as any)({
+    description: "Revoke (delete) a team API key. Requires owner or admin role.",
+    parameters: z.object({
+      team_id: z.string().regex(UUID_RE, "Must be a valid UUID").describe("UUID of the team"),
+      key_id: z.string().regex(UUID_RE, "Must be a valid UUID").describe("UUID of the team key to revoke"),
+    }),
+    execute: async ({ team_id, key_id }: { team_id: string; key_id: string }) => {
+      try {
+        await apiRequest(client, "DELETE", `/api/teams/${encodeURIComponent(team_id)}/keys/${encodeURIComponent(key_id)}`, undefined, agentSecret);
+        return { success: true, message: "Team key revoked" };
+      } catch (err) {
+        return { error: `Failed to revoke team key: ${sanitizeError(err instanceof Error ? err.message : "Unknown error")}` };
+      }
+    },
+  });
+}
+
+/**
+ * Creates a tool to list all API keys for a team.
+ */
+export function createTeamListKeysTool(client: DominusNodeClient, agentSecret?: string) {
+  return (tool as any)({
+    description: "List all API keys for a team. Shows key ID, label, prefix, and creation date.",
+    parameters: z.object({
+      team_id: z.string().regex(UUID_RE, "Must be a valid UUID").describe("UUID of the team"),
+    }),
+    execute: async ({ team_id }: { team_id: string }) => {
+      try {
+        return await apiRequest(client, "GET", `/api/teams/${encodeURIComponent(team_id)}/keys`, undefined, agentSecret);
+      } catch (err) {
+        return { error: `Failed to list team keys: ${sanitizeError(err instanceof Error ? err.message : "Unknown error")}` };
+      }
+    },
+  });
+}
+
+/**
+ * Creates a tool to get team usage statistics.
+ */
+export function createTeamUsageTool(client: DominusNodeClient, agentSecret?: string) {
+  return (tool as any)({
+    description: "Get proxy usage statistics for a team including total bytes, cost, and per-member breakdown.",
+    parameters: z.object({
+      team_id: z.string().regex(UUID_RE, "Must be a valid UUID").describe("UUID of the team"),
+    }),
+    execute: async ({ team_id }: { team_id: string }) => {
+      try {
+        return await apiRequest(client, "GET", `/api/teams/${encodeURIComponent(team_id)}/usage`, undefined, agentSecret);
+      } catch (err) {
+        return { error: `Failed to get team usage: ${sanitizeError(err instanceof Error ? err.message : "Unknown error")}` };
+      }
+    },
+  });
+}
+
+/**
+ * Creates a tool to list all members of a team.
+ */
+export function createTeamListMembersTool(client: DominusNodeClient, agentSecret?: string) {
+  return (tool as any)({
+    description: "List all members of a team with their roles (owner/admin/member) and join dates.",
+    parameters: z.object({
+      team_id: z.string().regex(UUID_RE, "Must be a valid UUID").describe("UUID of the team"),
+    }),
+    execute: async ({ team_id }: { team_id: string }) => {
+      try {
+        return await apiRequest(client, "GET", `/api/teams/${encodeURIComponent(team_id)}/members`, undefined, agentSecret);
+      } catch (err) {
+        return { error: `Failed to list team members: ${sanitizeError(err instanceof Error ? err.message : "Unknown error")}` };
+      }
+    },
+  });
+}
+
+/**
+ * Creates a tool to add a member directly to a team (by user ID or email).
+ */
+export function createTeamAddMemberTool(client: DominusNodeClient, agentSecret?: string) {
+  return (tool as any)({
+    description: "Add a member directly to a team by email. Requires owner or admin role.",
+    parameters: z.object({
+      team_id: z.string().regex(UUID_RE, "Must be a valid UUID").describe("UUID of the team"),
+      email: z.string().email().describe("Email of the user to add"),
+      role: z.enum(["admin", "member"]).optional().describe("Role to assign (default: member)"),
+    }),
+    execute: async ({ team_id, email, role }: { team_id: string; email: string; role?: string }) => {
+      try {
+        const body: Record<string, unknown> = { email };
+        if (role) body.role = role;
+        return await apiRequest(client, "POST", `/api/teams/${encodeURIComponent(team_id)}/members`, body, agentSecret);
+      } catch (err) {
+        return { error: `Failed to add member: ${sanitizeError(err instanceof Error ? err.message : "Unknown error")}` };
+      }
+    },
+  });
+}
+
+/**
+ * Creates a tool to remove a member from a team.
+ */
+export function createTeamRemoveMemberTool(client: DominusNodeClient, agentSecret?: string) {
+  return (tool as any)({
+    description: "Remove a member from a team. Requires owner or admin role. Cannot remove the owner.",
+    parameters: z.object({
+      team_id: z.string().regex(UUID_RE, "Must be a valid UUID").describe("UUID of the team"),
+      user_id: z.string().regex(UUID_RE, "Must be a valid UUID").describe("UUID of the member to remove"),
+    }),
+    execute: async ({ team_id, user_id }: { team_id: string; user_id: string }) => {
+      try {
+        await apiRequest(client, "DELETE", `/api/teams/${encodeURIComponent(team_id)}/members/${encodeURIComponent(user_id)}`, undefined, agentSecret);
+        return { success: true, message: "Member removed" };
+      } catch (err) {
+        return { error: `Failed to remove member: ${sanitizeError(err instanceof Error ? err.message : "Unknown error")}` };
+      }
+    },
+  });
+}
+
+/**
+ * Creates a tool to update a team member's role.
+ */
+export function createUpdateTeamMemberRoleTool(client: DominusNodeClient, agentSecret?: string) {
+  return (tool as any)({
+    description: "Update a team member's role (admin or member). Requires owner role.",
+    parameters: z.object({
+      team_id: z.string().regex(UUID_RE, "Must be a valid UUID").describe("UUID of the team"),
+      user_id: z.string().regex(UUID_RE, "Must be a valid UUID").describe("UUID of the member"),
+      role: z.enum(["admin", "member"]).describe("New role for the member"),
+    }),
+    execute: async ({ team_id, user_id, role }: { team_id: string; user_id: string; role: string }) => {
+      try {
+        return await apiRequest(client, "PATCH", `/api/teams/${encodeURIComponent(team_id)}/members/${encodeURIComponent(user_id)}`, { role }, agentSecret);
+      } catch (err) {
+        return { error: `Failed to update member role: ${sanitizeError(err instanceof Error ? err.message : "Unknown error")}` };
+      }
+    },
+  });
+}
+
+/**
+ * Creates a tool to invite a member to a team via email.
+ */
+export function createTeamInviteMemberTool(client: DominusNodeClient, agentSecret?: string) {
+  return (tool as any)({
+    description: "Invite a user to join a team via email. They receive an invitation link. Requires owner or admin role.",
+    parameters: z.object({
+      team_id: z.string().regex(UUID_RE, "Must be a valid UUID").describe("UUID of the team"),
+      email: z.string().email().describe("Email address to invite"),
+      role: z.enum(["admin", "member"]).optional().describe("Role to assign when they accept (default: member)"),
+    }),
+    execute: async ({ team_id, email, role }: { team_id: string; email: string; role?: string }) => {
+      try {
+        const body: Record<string, unknown> = { email };
+        if (role) body.role = role;
+        return await apiRequest(client, "POST", `/api/teams/${encodeURIComponent(team_id)}/invites`, body, agentSecret);
+      } catch (err) {
+        return { error: `Failed to invite member: ${sanitizeError(err instanceof Error ? err.message : "Unknown error")}` };
+      }
+    },
+  });
+}
+
+/**
+ * Creates a tool to list pending team invitations.
+ */
+export function createTeamListInvitesTool(client: DominusNodeClient, agentSecret?: string) {
+  return (tool as any)({
+    description: "List all pending invitations for a team.",
+    parameters: z.object({
+      team_id: z.string().regex(UUID_RE, "Must be a valid UUID").describe("UUID of the team"),
+    }),
+    execute: async ({ team_id }: { team_id: string }) => {
+      try {
+        return await apiRequest(client, "GET", `/api/teams/${encodeURIComponent(team_id)}/invites`, undefined, agentSecret);
+      } catch (err) {
+        return { error: `Failed to list invites: ${sanitizeError(err instanceof Error ? err.message : "Unknown error")}` };
+      }
+    },
+  });
+}
+
+/**
+ * Creates a tool to cancel a pending team invitation.
+ */
+export function createTeamCancelInviteTool(client: DominusNodeClient, agentSecret?: string) {
+  return (tool as any)({
+    description: "Cancel a pending team invitation. Requires owner or admin role.",
+    parameters: z.object({
+      team_id: z.string().regex(UUID_RE, "Must be a valid UUID").describe("UUID of the team"),
+      invite_id: z.string().regex(UUID_RE, "Must be a valid UUID").describe("UUID of the invitation to cancel"),
+    }),
+    execute: async ({ team_id, invite_id }: { team_id: string; invite_id: string }) => {
+      try {
+        await apiRequest(client, "DELETE", `/api/teams/${encodeURIComponent(team_id)}/invites/${encodeURIComponent(invite_id)}`, undefined, agentSecret);
+        return { success: true, message: "Invitation cancelled" };
+      } catch (err) {
+        return { error: `Failed to cancel invite: ${sanitizeError(err instanceof Error ? err.message : "Unknown error")}` };
       }
     },
   });

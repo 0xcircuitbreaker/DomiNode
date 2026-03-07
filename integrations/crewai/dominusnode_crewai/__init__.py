@@ -1,8 +1,8 @@
-"""CrewAI tools for Dominus Node rotating proxy service.
+"""CrewAI tools for Dominus Node rotating proxy service (53 tools).
 
 Provides CrewAI-compatible tools for fetching web content through rotating
-proxies, checking wallet balance, and listing available geo-targeting options
-through the Dominus Node platform.
+proxies, managing wallets, teams, API keys, plans, usage tracking, and
+account management through the Dominus Node platform.
 
 Example::
 
@@ -26,32 +26,106 @@ Example::
 """
 
 from .tools import (
-    DominusNodeAgenticTransactionsTool,
-    DominusNodeAgenticWalletBalanceTool,
-    DominusNodeBalanceTool,
-    DominusNodeCreateAgenticWalletTool,
-    DominusNodeDeleteAgenticWalletTool,
-    DominusNodeFreezeAgenticWalletTool,
-    DominusNodeFundAgenticWalletTool,
+    # Proxy (3)
+    DominusNodeWebScrapeTool,
     DominusNodeGeoTargetTool,
-    DominusNodeListAgenticWalletsTool,
-    DominusNodeTopupCryptoTool,
+    DominusNodeProxyStatusTool,
+    # Sessions (1)
+    DominusNodeListSessionsTool,
+    # Wallet (8)
+    DominusNodeBalanceTool,
+    DominusNodeGetTransactionsTool,
+    DominusNodeGetForecastTool,
     DominusNodeTopupPaypalTool,
     DominusNodeTopupStripeTool,
-    DominusNodeUnfreezeAgenticWalletTool,
-    DominusNodeUpdateWalletPolicyTool,
-    DominusNodeWebScrapeTool,
+    DominusNodeTopupCryptoTool,
+    DominusNodeCheckPaymentTool,
     DominusNodeX402InfoTool,
+    # Usage (3)
+    DominusNodeCheckUsageTool,
+    DominusNodeGetDailyUsageTool,
+    DominusNodeGetTopHostsTool,
+    # Account (6)
+    DominusNodeRegisterTool,
+    DominusNodeLoginTool,
+    DominusNodeGetAccountInfoTool,
+    DominusNodeVerifyEmailTool,
+    DominusNodeResendVerificationTool,
+    DominusNodeUpdatePasswordTool,
+    # API Keys (3)
+    DominusNodeListKeysTool,
+    DominusNodeCreateKeyTool,
+    DominusNodeRevokeKeyTool,
+    # Plans (3)
+    DominusNodeGetPlanTool,
+    DominusNodeListPlansTool,
+    DominusNodeChangePlanTool,
+    # Agentic Wallets (9)
+    DominusNodeCreateAgenticWalletTool,
+    DominusNodeFundAgenticWalletTool,
+    DominusNodeAgenticWalletBalanceTool,
+    DominusNodeListAgenticWalletsTool,
+    DominusNodeAgenticTransactionsTool,
+    DominusNodeFreezeAgenticWalletTool,
+    DominusNodeUnfreezeAgenticWalletTool,
+    DominusNodeDeleteAgenticWalletTool,
+    DominusNodeUpdateWalletPolicyTool,
+    # Teams (17)
+    DominusNodeCreateTeamTool,
+    DominusNodeListTeamsTool,
+    DominusNodeTeamDetailsTool,
+    DominusNodeUpdateTeamTool,
+    DominusNodeTeamDeleteTool,
+    DominusNodeTeamFundTool,
+    DominusNodeTeamCreateKeyTool,
+    DominusNodeTeamRevokeKeyTool,
+    DominusNodeTeamListKeysTool,
+    DominusNodeTeamUsageTool,
+    DominusNodeTeamListMembersTool,
+    DominusNodeTeamAddMemberTool,
+    DominusNodeTeamRemoveMemberTool,
+    DominusNodeUpdateTeamMemberRoleTool,
+    DominusNodeTeamInviteMemberTool,
+    DominusNodeTeamListInvitesTool,
+    DominusNodeTeamCancelInviteTool,
 )
 
 __all__ = [
+    # Proxy (3)
     "DominusNodeWebScrapeTool",
-    "DominusNodeBalanceTool",
     "DominusNodeGeoTargetTool",
+    "DominusNodeProxyStatusTool",
+    # Sessions (1)
+    "DominusNodeListSessionsTool",
+    # Wallet (8)
+    "DominusNodeBalanceTool",
+    "DominusNodeGetTransactionsTool",
+    "DominusNodeGetForecastTool",
     "DominusNodeTopupPaypalTool",
     "DominusNodeTopupStripeTool",
     "DominusNodeTopupCryptoTool",
+    "DominusNodeCheckPaymentTool",
     "DominusNodeX402InfoTool",
+    # Usage (3)
+    "DominusNodeCheckUsageTool",
+    "DominusNodeGetDailyUsageTool",
+    "DominusNodeGetTopHostsTool",
+    # Account (6)
+    "DominusNodeRegisterTool",
+    "DominusNodeLoginTool",
+    "DominusNodeGetAccountInfoTool",
+    "DominusNodeVerifyEmailTool",
+    "DominusNodeResendVerificationTool",
+    "DominusNodeUpdatePasswordTool",
+    # API Keys (3)
+    "DominusNodeListKeysTool",
+    "DominusNodeCreateKeyTool",
+    "DominusNodeRevokeKeyTool",
+    # Plans (3)
+    "DominusNodeGetPlanTool",
+    "DominusNodeListPlansTool",
+    "DominusNodeChangePlanTool",
+    # Agentic Wallets (9)
     "DominusNodeCreateAgenticWalletTool",
     "DominusNodeFundAgenticWalletTool",
     "DominusNodeAgenticWalletBalanceTool",
@@ -61,4 +135,22 @@ __all__ = [
     "DominusNodeUnfreezeAgenticWalletTool",
     "DominusNodeDeleteAgenticWalletTool",
     "DominusNodeUpdateWalletPolicyTool",
+    # Teams (17)
+    "DominusNodeCreateTeamTool",
+    "DominusNodeListTeamsTool",
+    "DominusNodeTeamDetailsTool",
+    "DominusNodeUpdateTeamTool",
+    "DominusNodeTeamDeleteTool",
+    "DominusNodeTeamFundTool",
+    "DominusNodeTeamCreateKeyTool",
+    "DominusNodeTeamRevokeKeyTool",
+    "DominusNodeTeamListKeysTool",
+    "DominusNodeTeamUsageTool",
+    "DominusNodeTeamListMembersTool",
+    "DominusNodeTeamAddMemberTool",
+    "DominusNodeTeamRemoveMemberTool",
+    "DominusNodeUpdateTeamMemberRoleTool",
+    "DominusNodeTeamInviteMemberTool",
+    "DominusNodeTeamListInvitesTool",
+    "DominusNodeTeamCancelInviteTool",
 ]

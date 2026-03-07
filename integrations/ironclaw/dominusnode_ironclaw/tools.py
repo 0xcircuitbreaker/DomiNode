@@ -1,16 +1,21 @@
-"""Dominus Node IronClaw toolkit -- 26 proxy, wallet, team, and payment management tools.
+"""Dominus Node IronClaw toolkit -- 53 proxy, wallet, team, and payment management tools.
 
-Provides an IronClaw-compatible toolkit class that exposes 26 tools for
+Provides an IronClaw-compatible toolkit class that exposes 53 tools for
 interacting with the Dominus Node rotating proxy-as-a-service platform.
 
 Tools cover:
   - Proxied HTTP fetching through rotating proxies
-  - Wallet balance and usage monitoring
-  - Proxy configuration and session listing
+  - Wallet balance, transactions, forecast, and usage monitoring
+  - Proxy configuration, status, and session listing
+  - Daily usage and top hosts analytics
+  - Account management (register, login, verify, password)
+  - API key management (list, create, revoke)
+  - Plan management (get, list, change)
   - Agentic wallet management (create, fund, freeze, unfreeze, delete)
-  - Team management (create, list, fund, keys, usage, update, role changes)
+  - Team management (create, list, fund, keys, usage, update, role changes,
+    members, invites, delete)
   - x402 micropayment protocol information
-  - PayPal top-up
+  - PayPal, Stripe, and crypto top-up
 
 Security:
   - Full SSRF prevention (private IP blocking, DNS rebinding, Teredo/6to4,
@@ -505,11 +510,11 @@ def _validate_allowed_domains(domains: Any) -> Optional[str]:
 class DominusNodeToolkit:
     """IronClaw toolkit providing Dominus Node rotating proxy tools.
 
-    Authenticates using a Dominus Node API key and exposes 26 tools for proxy,
-    wallet, team, and payment management.  All tool methods return JSON strings
-    suitable for consumption by an LLM.  Additionally provides
-    ``get_tool_definitions()`` for IronClaw tool registration and
-    ``get_mcp_config()`` for IronClaw's native MCP bridge.
+    Authenticates using a Dominus Node API key and exposes 53 tools for proxy,
+    wallet, team, account, API key, plan, usage, and payment management.  All
+    tool methods return JSON strings suitable for consumption by an LLM.
+    Additionally provides ``get_tool_definitions()`` for IronClaw tool
+    registration and ``get_mcp_config()`` for IronClaw's native MCP bridge.
 
     Args:
         api_key: Dominus Node API key (``dn_live_...`` or ``dn_test_...``).
@@ -686,6 +691,67 @@ class DominusNodeToolkit:
                 self._ensure_auth()
                 return self._api_request(method, path, body)
             raise
+
+    # ------------------------------------------------------------------
+    # Unauthenticated API request helper
+    # ------------------------------------------------------------------
+
+    def _unauth_request(
+        self,
+        method: str,
+        path: str,
+        body: Optional[Dict[str, Any]] = None,
+    ) -> Any:
+        """Make an unauthenticated API request (for register, login, verify-email).
+
+        Args:
+            method: HTTP method (GET, POST).
+            path: API path (e.g., ``/api/auth/register``).
+            body: Optional JSON body.
+
+        Returns:
+            Parsed JSON response (with dangerous keys stripped).
+
+        Raises:
+            RuntimeError: On API errors or oversized responses.
+        """
+        with httpx.Client(
+            timeout=self.timeout,
+            follow_redirects=False,
+        ) as client:
+            req_headers: Dict[str, str] = {
+                "User-Agent": "dominusnode-ironclaw/1.0.0",
+                "Content-Type": "application/json",
+            }
+            if self.agent_secret:
+                req_headers["X-DominusNode-Agent"] = "mcp"
+                req_headers["X-DominusNode-Agent-Secret"] = self.agent_secret
+
+            kwargs: Dict[str, Any] = {"headers": req_headers}
+            if body is not None and method.upper() not in ("GET", "HEAD", "OPTIONS"):
+                kwargs["json"] = body
+
+            resp = client.request(method, f"{self.base_url}{path}", **kwargs)
+
+            if len(resp.content) > MAX_RESPONSE_BYTES:
+                raise RuntimeError("Response body too large")
+
+            if resp.status_code >= 400:
+                try:
+                    err_data = resp.json()
+                    msg = err_data.get("error", resp.text)
+                except Exception:
+                    msg = resp.text
+                msg = str(msg)[:500]
+                raise RuntimeError(
+                    f"API error {resp.status_code}: {_sanitize_error(msg)}"
+                )
+
+            if resp.text:
+                data = resp.json()
+                _strip_dangerous_keys(data)
+                return data
+            return {}
 
     # ==================================================================
     # Tool 1: proxied_fetch
@@ -1562,11 +1628,724 @@ class DominusNodeToolkit:
             return json.dumps({"error": _sanitize_error(str(e))})
 
     # ==================================================================
+    # Tool 27: get_proxy_status
+    # ==================================================================
+
+    def get_proxy_status(self) -> str:
+        """Get current proxy gateway status.
+
+        Returns:
+            JSON string with proxy gateway status information.
+        """
+        try:
+            result = self._request_with_retry("GET", "/api/proxy/status")
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Tool 28: get_transactions
+    # ==================================================================
+
+    def get_transactions(self, limit: int = 20) -> str:
+        """Get wallet transaction history.
+
+        Args:
+            limit: Maximum number of transactions to return (1-100, default 20).
+
+        Returns:
+            JSON string with wallet transaction history.
+        """
+        if not isinstance(limit, int) or isinstance(limit, bool) or limit < 1 or limit > 100:
+            return json.dumps(
+                {"error": "limit must be an integer between 1 and 100"}
+            )
+
+        try:
+            result = self._request_with_retry(
+                "GET",
+                f"/api/wallet/transactions?limit={limit}",
+            )
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Tool 29: get_forecast
+    # ==================================================================
+
+    def get_forecast(self) -> str:
+        """Get wallet balance forecast based on current usage patterns.
+
+        Returns:
+            JSON string with wallet forecast information.
+        """
+        try:
+            result = self._request_with_retry("GET", "/api/wallet/forecast")
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Tool 30: check_payment
+    # ==================================================================
+
+    def check_payment(self, invoice_id: str) -> str:
+        """Check the status of a crypto payment invoice.
+
+        Args:
+            invoice_id: The crypto payment invoice ID.
+
+        Returns:
+            JSON string with payment status information.
+        """
+        if not invoice_id or not isinstance(invoice_id, str):
+            return json.dumps({"error": "invoice_id is required and must be a string"})
+        if len(invoice_id) > 200:
+            return json.dumps({"error": "invoice_id is too long"})
+
+        try:
+            result = self._request_with_retry(
+                "GET",
+                f"/api/wallet/topup/crypto/{quote(invoice_id, safe='')}/status",
+            )
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Tool 31: get_daily_usage
+    # ==================================================================
+
+    def get_daily_usage(self, days: int = 30) -> str:
+        """Get daily usage breakdown.
+
+        Args:
+            days: Number of days to look back (1-90, default 30).
+
+        Returns:
+            JSON string with daily usage data.
+        """
+        if not isinstance(days, int) or isinstance(days, bool) or days < 1 or days > 90:
+            return json.dumps(
+                {"error": "days must be an integer between 1 and 90"}
+            )
+
+        try:
+            result = self._request_with_retry(
+                "GET",
+                f"/api/usage/daily?days={days}",
+            )
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Tool 32: get_top_hosts
+    # ==================================================================
+
+    def get_top_hosts(self, limit: int = 10) -> str:
+        """Get the most-accessed hosts through the proxy.
+
+        Args:
+            limit: Maximum number of hosts to return (1-50, default 10).
+
+        Returns:
+            JSON string with top hosts usage data.
+        """
+        if not isinstance(limit, int) or isinstance(limit, bool) or limit < 1 or limit > 50:
+            return json.dumps(
+                {"error": "limit must be an integer between 1 and 50"}
+            )
+
+        try:
+            result = self._request_with_retry(
+                "GET",
+                f"/api/usage/top-hosts?limit={limit}",
+            )
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Tool 33: register
+    # ==================================================================
+
+    def register(self, email: str, password: str) -> str:
+        """Register a new Dominus Node account.
+
+        Args:
+            email: Email address for the new account.
+            password: Password for the new account (min 8 chars).
+
+        Returns:
+            JSON string with registration result.
+        """
+        if not email or not isinstance(email, str):
+            return json.dumps({"error": "email is required and must be a string"})
+        if len(email) > 254:
+            return json.dumps({"error": "email is too long"})
+        if not password or not isinstance(password, str):
+            return json.dumps({"error": "password is required and must be a string"})
+        if len(password) < 8:
+            return json.dumps({"error": "password must be at least 8 characters"})
+        if len(password) > 128:
+            return json.dumps({"error": "password must be at most 128 characters"})
+
+        try:
+            result = self._unauth_request(
+                "POST",
+                "/api/auth/register",
+                {"email": email, "password": password},
+            )
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Tool 34: login
+    # ==================================================================
+
+    def login(self, email: str, password: str) -> str:
+        """Log in to a Dominus Node account.
+
+        Args:
+            email: Account email address.
+            password: Account password.
+
+        Returns:
+            JSON string with login result (tokens). Detects MFA challenges.
+        """
+        if not email or not isinstance(email, str):
+            return json.dumps({"error": "email is required and must be a string"})
+        if len(email) > 254:
+            return json.dumps({"error": "email is too long"})
+        if not password or not isinstance(password, str):
+            return json.dumps({"error": "password is required and must be a string"})
+        if len(password) > 128:
+            return json.dumps({"error": "password must be at most 128 characters"})
+
+        try:
+            result = self._unauth_request(
+                "POST",
+                "/api/auth/login",
+                {"email": email, "password": password},
+            )
+            # Detect MFA challenge
+            if isinstance(result, dict) and result.get("mfaRequired"):
+                return json.dumps({
+                    "mfaRequired": True,
+                    "message": "MFA verification is required to complete login",
+                    "challengeId": result.get("challengeId", ""),
+                })
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Tool 35: get_account_info
+    # ==================================================================
+
+    def get_account_info(self) -> str:
+        """Get the current authenticated user's account information.
+
+        Returns:
+            JSON string with account details.
+        """
+        try:
+            result = self._request_with_retry("GET", "/api/auth/me")
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Tool 36: verify_email
+    # ==================================================================
+
+    def verify_email(self, token: str) -> str:
+        """Verify an email address using a verification token.
+
+        Args:
+            token: The email verification token received via email.
+
+        Returns:
+            JSON string confirming email verification.
+        """
+        if not token or not isinstance(token, str):
+            return json.dumps({"error": "token is required and must be a string"})
+        if len(token) > 512:
+            return json.dumps({"error": "token is too long"})
+
+        try:
+            result = self._unauth_request(
+                "POST",
+                "/api/auth/verify-email",
+                {"token": token},
+            )
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Tool 37: resend_verification
+    # ==================================================================
+
+    def resend_verification(self) -> str:
+        """Resend the email verification message.
+
+        Returns:
+            JSON string confirming the verification email was resent.
+        """
+        try:
+            result = self._request_with_retry("POST", "/api/auth/resend-verification")
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Tool 38: update_password
+    # ==================================================================
+
+    def update_password(self, current_password: str, new_password: str) -> str:
+        """Change the account password.
+
+        Args:
+            current_password: The current account password.
+            new_password: The new password (min 8 chars).
+
+        Returns:
+            JSON string confirming the password change.
+        """
+        if not current_password or not isinstance(current_password, str):
+            return json.dumps({"error": "current_password is required and must be a string"})
+        if len(current_password) > 128:
+            return json.dumps({"error": "current_password must be at most 128 characters"})
+        if not new_password or not isinstance(new_password, str):
+            return json.dumps({"error": "new_password is required and must be a string"})
+        if len(new_password) < 8:
+            return json.dumps({"error": "new_password must be at least 8 characters"})
+        if len(new_password) > 128:
+            return json.dumps({"error": "new_password must be at most 128 characters"})
+
+        try:
+            result = self._request_with_retry(
+                "POST",
+                "/api/auth/change-password",
+                {"currentPassword": current_password, "newPassword": new_password},
+            )
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Tool 39: list_keys
+    # ==================================================================
+
+    def list_keys(self) -> str:
+        """List all API keys for the current account.
+
+        Returns:
+            JSON string with a list of API keys (hashed, not plaintext).
+        """
+        try:
+            result = self._request_with_retry("GET", "/api/keys")
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Tool 40: create_key
+    # ==================================================================
+
+    def create_key(self, label: str | None = None) -> str:
+        """Create a new API key.
+
+        Args:
+            label: Optional human-readable label for the key (max 100 chars).
+
+        Returns:
+            JSON string with the created API key (shown once).
+        """
+        if label is not None:
+            err = _validate_label(label, "label")
+            if err:
+                return json.dumps({"error": err})
+
+        body: Dict[str, Any] = {}
+        if label is not None:
+            body["label"] = label
+
+        try:
+            result = self._request_with_retry("POST", "/api/keys", body)
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Tool 41: revoke_key
+    # ==================================================================
+
+    def revoke_key(self, key_id: str) -> str:
+        """Revoke (delete) an API key.
+
+        Args:
+            key_id: UUID of the API key to revoke.
+
+        Returns:
+            JSON string confirming the key was revoked.
+        """
+        err = _validate_uuid(key_id, "key_id")
+        if err:
+            return json.dumps({"error": err})
+
+        try:
+            result = self._request_with_retry(
+                "DELETE",
+                f"/api/keys/{quote(key_id, safe='')}",
+            )
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Tool 42: get_plan
+    # ==================================================================
+
+    def get_plan(self) -> str:
+        """Get the current user's plan details.
+
+        Returns:
+            JSON string with the user's current plan information.
+        """
+        try:
+            result = self._request_with_retry("GET", "/api/plans/user/plan")
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Tool 43: list_plans
+    # ==================================================================
+
+    def list_plans(self) -> str:
+        """List all available plans.
+
+        Returns:
+            JSON string with available plan options.
+        """
+        try:
+            result = self._request_with_retry("GET", "/api/plans")
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Tool 44: change_plan
+    # ==================================================================
+
+    def change_plan(self, plan_id: str) -> str:
+        """Change the user's current plan.
+
+        Args:
+            plan_id: UUID of the plan to switch to.
+
+        Returns:
+            JSON string with the updated plan details.
+        """
+        err = _validate_uuid(plan_id, "plan_id")
+        if err:
+            return json.dumps({"error": err})
+
+        try:
+            result = self._request_with_retry(
+                "PUT",
+                "/api/plans/user/plan",
+                {"planId": plan_id},
+            )
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Tool 45: team_delete
+    # ==================================================================
+
+    def team_delete(self, team_id: str) -> str:
+        """Delete a team.
+
+        Args:
+            team_id: UUID of the team to delete.
+
+        Returns:
+            JSON string confirming team deletion.
+        """
+        err = _validate_uuid(team_id, "team_id")
+        if err:
+            return json.dumps({"error": err})
+
+        try:
+            result = self._request_with_retry(
+                "DELETE",
+                f"/api/teams/{quote(team_id, safe='')}",
+            )
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Tool 46: team_revoke_key
+    # ==================================================================
+
+    def team_revoke_key(self, team_id: str, key_id: str) -> str:
+        """Revoke (delete) a team API key.
+
+        Args:
+            team_id: UUID of the team.
+            key_id: UUID of the API key to revoke.
+
+        Returns:
+            JSON string confirming the team key was revoked.
+        """
+        err = _validate_uuid(team_id, "team_id")
+        if err:
+            return json.dumps({"error": err})
+
+        err = _validate_uuid(key_id, "key_id")
+        if err:
+            return json.dumps({"error": err})
+
+        try:
+            result = self._request_with_retry(
+                "DELETE",
+                f"/api/teams/{quote(team_id, safe='')}/keys/{quote(key_id, safe='')}",
+            )
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Tool 47: team_list_keys
+    # ==================================================================
+
+    def team_list_keys(self, team_id: str) -> str:
+        """List all API keys for a team.
+
+        Args:
+            team_id: UUID of the team.
+
+        Returns:
+            JSON string with a list of the team's API keys.
+        """
+        err = _validate_uuid(team_id, "team_id")
+        if err:
+            return json.dumps({"error": err})
+
+        try:
+            result = self._request_with_retry(
+                "GET",
+                f"/api/teams/{quote(team_id, safe='')}/keys",
+            )
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Tool 48: team_list_members
+    # ==================================================================
+
+    def team_list_members(self, team_id: str) -> str:
+        """List all members of a team.
+
+        Args:
+            team_id: UUID of the team.
+
+        Returns:
+            JSON string with a list of team members and their roles.
+        """
+        err = _validate_uuid(team_id, "team_id")
+        if err:
+            return json.dumps({"error": err})
+
+        try:
+            result = self._request_with_retry(
+                "GET",
+                f"/api/teams/{quote(team_id, safe='')}/members",
+            )
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Tool 49: team_add_member
+    # ==================================================================
+
+    def team_add_member(self, team_id: str, user_id: str, role: str = "member") -> str:
+        """Add a member to a team.
+
+        Args:
+            team_id: UUID of the team.
+            user_id: UUID of the user to add.
+            role: Role for the new member (``member`` or ``admin``, default ``member``).
+
+        Returns:
+            JSON string confirming the member was added.
+        """
+        err = _validate_uuid(team_id, "team_id")
+        if err:
+            return json.dumps({"error": err})
+
+        err = _validate_uuid(user_id, "user_id")
+        if err:
+            return json.dumps({"error": err})
+
+        if not role or not isinstance(role, str):
+            return json.dumps({"error": "role is required and must be a string"})
+        if role not in ("member", "admin"):
+            return json.dumps({"error": "role must be 'member' or 'admin'"})
+
+        try:
+            result = self._request_with_retry(
+                "POST",
+                f"/api/teams/{quote(team_id, safe='')}/members",
+                {"userId": user_id, "role": role},
+            )
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Tool 50: team_remove_member
+    # ==================================================================
+
+    def team_remove_member(self, team_id: str, user_id: str) -> str:
+        """Remove a member from a team.
+
+        Args:
+            team_id: UUID of the team.
+            user_id: UUID of the user to remove.
+
+        Returns:
+            JSON string confirming the member was removed.
+        """
+        err = _validate_uuid(team_id, "team_id")
+        if err:
+            return json.dumps({"error": err})
+
+        err = _validate_uuid(user_id, "user_id")
+        if err:
+            return json.dumps({"error": err})
+
+        try:
+            result = self._request_with_retry(
+                "DELETE",
+                f"/api/teams/{quote(team_id, safe='')}/members/{quote(user_id, safe='')}",
+            )
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Tool 51: team_invite_member
+    # ==================================================================
+
+    def team_invite_member(self, team_id: str, email: str, role: str = "member") -> str:
+        """Invite a user to a team by email.
+
+        Args:
+            team_id: UUID of the team.
+            email: Email address of the user to invite.
+            role: Role for the invited member (``member`` or ``admin``, default ``member``).
+
+        Returns:
+            JSON string with the invite details.
+        """
+        err = _validate_uuid(team_id, "team_id")
+        if err:
+            return json.dumps({"error": err})
+
+        if not email or not isinstance(email, str):
+            return json.dumps({"error": "email is required and must be a string"})
+        if len(email) > 254:
+            return json.dumps({"error": "email is too long"})
+
+        if not role or not isinstance(role, str):
+            return json.dumps({"error": "role is required and must be a string"})
+        if role not in ("member", "admin"):
+            return json.dumps({"error": "role must be 'member' or 'admin'"})
+
+        try:
+            result = self._request_with_retry(
+                "POST",
+                f"/api/teams/{quote(team_id, safe='')}/invites",
+                {"email": email, "role": role},
+            )
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Tool 52: team_list_invites
+    # ==================================================================
+
+    def team_list_invites(self, team_id: str) -> str:
+        """List pending invites for a team.
+
+        Args:
+            team_id: UUID of the team.
+
+        Returns:
+            JSON string with a list of pending team invites.
+        """
+        err = _validate_uuid(team_id, "team_id")
+        if err:
+            return json.dumps({"error": err})
+
+        try:
+            result = self._request_with_retry(
+                "GET",
+                f"/api/teams/{quote(team_id, safe='')}/invites",
+            )
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Tool 53: team_cancel_invite
+    # ==================================================================
+
+    def team_cancel_invite(self, team_id: str, invite_id: str) -> str:
+        """Cancel a pending team invite.
+
+        Args:
+            team_id: UUID of the team.
+            invite_id: UUID of the invite to cancel.
+
+        Returns:
+            JSON string confirming the invite was cancelled.
+        """
+        err = _validate_uuid(team_id, "team_id")
+        if err:
+            return json.dumps({"error": err})
+
+        err = _validate_uuid(invite_id, "invite_id")
+        if err:
+            return json.dumps({"error": err})
+
+        try:
+            result = self._request_with_retry(
+                "DELETE",
+                f"/api/teams/{quote(team_id, safe='')}/invites/{quote(invite_id, safe='')}",
+            )
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
     # IronClaw tool definitions
     # ==================================================================
 
     def get_tool_definitions(self) -> List[Dict[str, Any]]:
-        """Return IronClaw-compatible tool definitions for all 26 tools.
+        """Return IronClaw-compatible tool definitions for all 53 tools.
 
         Each definition includes:
           - ``name``: Tool identifier.
@@ -1575,7 +2354,7 @@ class DominusNodeToolkit:
           - ``handler``: Reference to the bound method.
 
         Returns:
-            A list of 26 tool definition dicts.
+            A list of 53 tool definition dicts.
         """
         return [
             {
@@ -1897,6 +2676,333 @@ class DominusNodeToolkit:
                     "required": ["amount_usd", "currency"],
                 },
                 "handler": self.topup_crypto,
+            },
+            # -- Proxy status --
+            {
+                "name": "get_proxy_status",
+                "description": "Get current proxy gateway status",
+                "parameters": {
+                    "type": "object",
+                    "properties": {},
+                    "required": [],
+                },
+                "handler": self.get_proxy_status,
+            },
+            # -- Wallet: transactions, forecast, check_payment --
+            {
+                "name": "get_transactions",
+                "description": "Get wallet transaction history",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "limit": {"type": "integer", "description": "Max results (1-100)", "default": 20},
+                    },
+                    "required": [],
+                },
+                "handler": self.get_transactions,
+            },
+            {
+                "name": "get_forecast",
+                "description": "Get wallet balance forecast based on current usage patterns",
+                "parameters": {
+                    "type": "object",
+                    "properties": {},
+                    "required": [],
+                },
+                "handler": self.get_forecast,
+            },
+            {
+                "name": "check_payment",
+                "description": "Check the status of a crypto payment invoice",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "invoice_id": {"type": "string", "description": "Crypto payment invoice ID"},
+                    },
+                    "required": ["invoice_id"],
+                },
+                "handler": self.check_payment,
+            },
+            # -- Usage: daily, top hosts --
+            {
+                "name": "get_daily_usage",
+                "description": "Get daily usage breakdown",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "days": {"type": "integer", "description": "Days to look back (1-90)", "default": 30},
+                    },
+                    "required": [],
+                },
+                "handler": self.get_daily_usage,
+            },
+            {
+                "name": "get_top_hosts",
+                "description": "Get the most-accessed hosts through the proxy",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "limit": {"type": "integer", "description": "Max results (1-50)", "default": 10},
+                    },
+                    "required": [],
+                },
+                "handler": self.get_top_hosts,
+            },
+            # -- Account (6) --
+            {
+                "name": "register",
+                "description": "Register a new Dominus Node account",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "email": {"type": "string", "description": "Email address"},
+                        "password": {"type": "string", "description": "Password (min 8 chars)"},
+                    },
+                    "required": ["email", "password"],
+                },
+                "handler": self.register,
+            },
+            {
+                "name": "login",
+                "description": "Log in to a Dominus Node account",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "email": {"type": "string", "description": "Account email"},
+                        "password": {"type": "string", "description": "Account password"},
+                    },
+                    "required": ["email", "password"],
+                },
+                "handler": self.login,
+            },
+            {
+                "name": "get_account_info",
+                "description": "Get current user account information",
+                "parameters": {
+                    "type": "object",
+                    "properties": {},
+                    "required": [],
+                },
+                "handler": self.get_account_info,
+            },
+            {
+                "name": "verify_email",
+                "description": "Verify email address using a verification token",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "token": {"type": "string", "description": "Email verification token"},
+                    },
+                    "required": ["token"],
+                },
+                "handler": self.verify_email,
+            },
+            {
+                "name": "resend_verification",
+                "description": "Resend the email verification message",
+                "parameters": {
+                    "type": "object",
+                    "properties": {},
+                    "required": [],
+                },
+                "handler": self.resend_verification,
+            },
+            {
+                "name": "update_password",
+                "description": "Change the account password",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "current_password": {"type": "string", "description": "Current password"},
+                        "new_password": {"type": "string", "description": "New password (min 8 chars)"},
+                    },
+                    "required": ["current_password", "new_password"],
+                },
+                "handler": self.update_password,
+            },
+            # -- API Keys (3) --
+            {
+                "name": "list_keys",
+                "description": "List all API keys for the current account",
+                "parameters": {
+                    "type": "object",
+                    "properties": {},
+                    "required": [],
+                },
+                "handler": self.list_keys,
+            },
+            {
+                "name": "create_key",
+                "description": "Create a new API key",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "label": {"type": "string", "description": "Optional key label (max 100 chars)"},
+                    },
+                    "required": [],
+                },
+                "handler": self.create_key,
+            },
+            {
+                "name": "revoke_key",
+                "description": "Revoke (delete) an API key",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "key_id": {"type": "string", "description": "API key UUID"},
+                    },
+                    "required": ["key_id"],
+                },
+                "handler": self.revoke_key,
+            },
+            # -- Plans (3) --
+            {
+                "name": "get_plan",
+                "description": "Get the current user's plan details",
+                "parameters": {
+                    "type": "object",
+                    "properties": {},
+                    "required": [],
+                },
+                "handler": self.get_plan,
+            },
+            {
+                "name": "list_plans",
+                "description": "List all available plans",
+                "parameters": {
+                    "type": "object",
+                    "properties": {},
+                    "required": [],
+                },
+                "handler": self.list_plans,
+            },
+            {
+                "name": "change_plan",
+                "description": "Change the user's current plan",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "plan_id": {"type": "string", "description": "Plan UUID to switch to"},
+                    },
+                    "required": ["plan_id"],
+                },
+                "handler": self.change_plan,
+            },
+            # -- Teams (9 additional) --
+            {
+                "name": "team_delete",
+                "description": "Delete a team",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "team_id": {"type": "string", "description": "Team UUID"},
+                    },
+                    "required": ["team_id"],
+                },
+                "handler": self.team_delete,
+            },
+            {
+                "name": "team_revoke_key",
+                "description": "Revoke a team API key",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "team_id": {"type": "string", "description": "Team UUID"},
+                        "key_id": {"type": "string", "description": "API key UUID"},
+                    },
+                    "required": ["team_id", "key_id"],
+                },
+                "handler": self.team_revoke_key,
+            },
+            {
+                "name": "team_list_keys",
+                "description": "List all API keys for a team",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "team_id": {"type": "string", "description": "Team UUID"},
+                    },
+                    "required": ["team_id"],
+                },
+                "handler": self.team_list_keys,
+            },
+            {
+                "name": "team_list_members",
+                "description": "List all members of a team",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "team_id": {"type": "string", "description": "Team UUID"},
+                    },
+                    "required": ["team_id"],
+                },
+                "handler": self.team_list_members,
+            },
+            {
+                "name": "team_add_member",
+                "description": "Add a member to a team",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "team_id": {"type": "string", "description": "Team UUID"},
+                        "user_id": {"type": "string", "description": "User UUID to add"},
+                        "role": {"type": "string", "description": "member or admin", "default": "member"},
+                    },
+                    "required": ["team_id", "user_id"],
+                },
+                "handler": self.team_add_member,
+            },
+            {
+                "name": "team_remove_member",
+                "description": "Remove a member from a team",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "team_id": {"type": "string", "description": "Team UUID"},
+                        "user_id": {"type": "string", "description": "User UUID to remove"},
+                    },
+                    "required": ["team_id", "user_id"],
+                },
+                "handler": self.team_remove_member,
+            },
+            {
+                "name": "team_invite_member",
+                "description": "Invite a user to a team by email",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "team_id": {"type": "string", "description": "Team UUID"},
+                        "email": {"type": "string", "description": "Email address to invite"},
+                        "role": {"type": "string", "description": "member or admin", "default": "member"},
+                    },
+                    "required": ["team_id", "email"],
+                },
+                "handler": self.team_invite_member,
+            },
+            {
+                "name": "team_list_invites",
+                "description": "List pending invites for a team",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "team_id": {"type": "string", "description": "Team UUID"},
+                    },
+                    "required": ["team_id"],
+                },
+                "handler": self.team_list_invites,
+            },
+            {
+                "name": "team_cancel_invite",
+                "description": "Cancel a pending team invite",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "team_id": {"type": "string", "description": "Team UUID"},
+                        "invite_id": {"type": "string", "description": "Invite UUID"},
+                    },
+                    "required": ["team_id", "invite_id"],
+                },
+                "handler": self.team_cancel_invite,
             },
         ]
 

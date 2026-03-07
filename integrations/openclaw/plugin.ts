@@ -1,7 +1,7 @@
 /**
  * Dominus Node OpenClaw Plugin
  *
- * Implements 26 tools for interacting with Dominus Node's rotating proxy service
+ * Implements 53 tools for interacting with Dominus Node's rotating proxy service
  * directly from OpenClaw AI coding sessions.
  *
  * Uses native fetch (no external dependencies). Runs via jiti runtime.
@@ -544,6 +544,96 @@ async function apiPatch<T = unknown>(
   body?: Record<string, unknown>,
 ): Promise<T> {
   return apiRequest<T>("PATCH", path, body);
+}
+
+async function apiPut<T = unknown>(
+  path: string,
+  body?: Record<string, unknown>,
+): Promise<T> {
+  return apiRequest<T>("PUT", path, body);
+}
+
+/**
+ * Make an unauthenticated API request (for register, login, verify-email).
+ * Does NOT call ensureAuth(). Includes agent headers if available.
+ */
+async function unauthenticatedRequest<T = unknown>(
+  method: string,
+  path: string,
+  body?: Record<string, unknown>,
+): Promise<T> {
+  const baseUrl = getBaseUrl();
+  const url = `${baseUrl}${path}`;
+
+  const headers: Record<string, string> = {
+    "Accept": "application/json",
+    "User-Agent": "dominusnode-openclaw-plugin/1.0.0",
+  };
+  const agentSecret = getAgentSecret();
+  if (agentSecret) {
+    headers["X-DominusNode-Agent"] = "mcp";
+    headers["X-DominusNode-Agent-Secret"] = agentSecret;
+  }
+
+  const init: RequestInit = {
+    method,
+    headers,
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    redirect: "error",
+  };
+
+  if (body && (method === "POST" || method === "PUT" || method === "PATCH")) {
+    headers["Content-Type"] = "application/json";
+    init.body = JSON.stringify(body);
+  }
+
+  let res: Response;
+  try {
+    res = await fetch(url, init);
+  } catch (err) {
+    throw new Error(`API request failed: ${safeError(err)}`);
+  }
+
+  let rawText: string;
+  try {
+    rawText = await res.text();
+  } catch {
+    rawText = "";
+  }
+
+  if (new TextEncoder().encode(rawText).length > MAX_RESPONSE_BYTES) {
+    throw new Error("API response too large");
+  }
+
+  if (!res.ok) {
+    let errorMsg = `API error ${res.status}`;
+    if (rawText) {
+      try {
+        const parsed = JSON.parse(rawText);
+        stripDangerousKeys(parsed);
+        if (parsed.error) {
+          errorMsg = `API error ${res.status}: ${scrubCredentials(String(parsed.error))}`;
+        } else if (parsed.message) {
+          errorMsg = `API error ${res.status}: ${scrubCredentials(String(parsed.message))}`;
+        }
+      } catch {
+        errorMsg = `API error ${res.status}: ${scrubCredentials(rawText.slice(0, 200))}`;
+      }
+    }
+    throw new Error(errorMsg);
+  }
+
+  if (!rawText || rawText.trim().length === 0) {
+    return {} as T;
+  }
+
+  try {
+    const parsed = JSON.parse(rawText);
+    stripDangerousKeys(parsed);
+    return parsed as T;
+  } catch {
+    throw new Error("Failed to parse API response as JSON");
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -2021,16 +2111,1252 @@ const updateWalletPolicyTool: ToolDefinition = {
   },
 };
 
+// 27. get_proxy_status
+const getProxyStatusTool: ToolDefinition = {
+  name: "get_proxy_status",
+  description:
+    "Get the current status of the proxy gateway including uptime, active connections, and pool health.",
+  parameters: {},
+  execute: async () => {
+    try {
+      const data = await apiGet<{
+        status: string;
+        uptime: number;
+        activeConnections: number;
+        pools: Array<{
+          name: string;
+          healthy: boolean;
+          activeIps: number;
+        }>;
+      }>("/api/proxy/status");
+
+      const lines = [
+        "Proxy Gateway Status",
+        "",
+        `Status: ${data.status ?? "unknown"}`,
+        `Uptime: ${data.uptime != null ? `${Math.floor(data.uptime / 3600)}h ${Math.floor((data.uptime % 3600) / 60)}m` : "unknown"}`,
+        `Active Connections: ${data.activeConnections ?? 0}`,
+      ];
+
+      const pools = data.pools ?? [];
+      if (pools.length > 0) {
+        lines.push("", "Pool Health:");
+        for (const p of pools) {
+          lines.push(`  ${p.name}: ${p.healthy ? "healthy" : "unhealthy"} (${p.activeIps} IPs)`);
+        }
+      }
+
+      return lines.join("\n");
+    } catch (err) {
+      return `Error: ${safeError(err)}`;
+    }
+  },
+};
+
+// 28. get_transactions
+const getTransactionsTool: ToolDefinition = {
+  name: "get_transactions",
+  description:
+    "Get your main wallet transaction history including top-ups, usage charges, and refunds.",
+  parameters: {
+    limit: {
+      type: "number",
+      description: "Number of transactions to return (1-100, default 20)",
+      required: false,
+      default: 20,
+    },
+  },
+  execute: async (args) => {
+    try {
+      const limit = Math.min(Math.max(Number(args.limit ?? 20), 1), 100);
+
+      const data = await apiGet<{
+        transactions: Array<{
+          id: string;
+          type: string;
+          amountCents: number;
+          description: string;
+          createdAt: string;
+        }>;
+      }>(`/api/wallet/transactions?limit=${limit}`);
+
+      const txs = data.transactions ?? [];
+      if (txs.length === 0) {
+        return "No wallet transactions found.";
+      }
+
+      const lines = [`Wallet Transactions (${txs.length})`, ""];
+      for (const tx of txs) {
+        const sign = tx.type === "topup" || tx.type === "refund" || tx.type === "fund" ? "+" : "-";
+        lines.push(`  ${sign}${formatCents(Math.abs(tx.amountCents))} [${tx.type}] ${tx.description}`);
+        lines.push(`    ${tx.createdAt}`);
+      }
+
+      return truncate(lines.join("\n"));
+    } catch (err) {
+      return `Error: ${safeError(err)}`;
+    }
+  },
+};
+
+// 29. get_forecast
+const getForecastTool: ToolDefinition = {
+  name: "get_forecast",
+  description:
+    "Get a spending forecast based on recent usage patterns. Shows projected balance depletion date and daily burn rate.",
+  parameters: {},
+  execute: async () => {
+    try {
+      const data = await apiGet<{
+        currentBalanceCents: number;
+        dailyBurnCents: number;
+        estimatedDaysRemaining: number;
+        projectedDepletionDate: string | null;
+        avgDailyBytes: number;
+      }>("/api/wallet/forecast");
+
+      const lines = [
+        "Spending Forecast",
+        "",
+        `Current Balance: ${formatCents(data.currentBalanceCents ?? 0)}`,
+        `Daily Burn Rate: ${formatCents(data.dailyBurnCents ?? 0)}/day`,
+        `Avg Daily Bandwidth: ${formatBytes(data.avgDailyBytes ?? 0)}`,
+        `Estimated Days Remaining: ${data.estimatedDaysRemaining ?? "N/A"}`,
+        `Projected Depletion: ${data.projectedDepletionDate ?? "N/A"}`,
+        "",
+        "Use topup_stripe, topup_paypal, or topup_crypto to add funds.",
+      ];
+
+      return lines.join("\n");
+    } catch (err) {
+      return `Error: ${safeError(err)}`;
+    }
+  },
+};
+
+// 30. check_payment
+const checkPaymentTool: ToolDefinition = {
+  name: "check_payment",
+  description:
+    "Check the status of a crypto payment invoice. Use the invoice ID returned by topup_crypto.",
+  parameters: {
+    invoice_id: {
+      type: "string",
+      description: "Crypto invoice ID to check",
+      required: true,
+    },
+  },
+  execute: async (args) => {
+    try {
+      const invoiceId = String(args.invoice_id ?? "").trim();
+      if (!invoiceId || invoiceId.length === 0 || invoiceId.length > 200) {
+        return "Error: invoice_id is required (max 200 characters).";
+      }
+      if (/[\x00-\x1f\x7f]/.test(invoiceId)) {
+        return "Error: invoice_id contains invalid control characters.";
+      }
+
+      const data = await apiGet<{
+        invoiceId: string;
+        status: string;
+        amountUsd: number;
+        payCurrency: string;
+        paidAmount: number | null;
+        createdAt: string;
+        updatedAt: string;
+      }>(`/api/wallet/topup/crypto/${encodeURIComponent(invoiceId)}/status`);
+
+      const lines = [
+        "Crypto Payment Status",
+        "",
+        `Invoice ID: ${data.invoiceId ?? invoiceId}`,
+        `Status: ${data.status}`,
+        `Amount: $${data.amountUsd}`,
+        `Currency: ${data.payCurrency?.toUpperCase() ?? "N/A"}`,
+      ];
+
+      if (data.paidAmount != null) {
+        lines.push(`Paid: ${data.paidAmount} ${data.payCurrency?.toUpperCase() ?? ""}`);
+      }
+
+      lines.push(`Created: ${data.createdAt}`, `Updated: ${data.updatedAt}`);
+
+      return lines.join("\n");
+    } catch (err) {
+      return `Error: ${safeError(err)}`;
+    }
+  },
+};
+
+// 31. get_daily_usage
+const getDailyUsageTool: ToolDefinition = {
+  name: "get_daily_usage",
+  description:
+    "Get daily bandwidth usage breakdown for the specified number of days. Shows per-day bytes, cost, and request count.",
+  parameters: {
+    days: {
+      type: "number",
+      description: "Number of days to look back (1-90, default 7)",
+      required: false,
+      default: 7,
+    },
+  },
+  execute: async (args) => {
+    try {
+      const days = Math.min(Math.max(Number(args.days ?? 7), 1), 90);
+
+      const data = await apiGet<{
+        daily: Array<{
+          date: string;
+          totalBytes: number;
+          totalCostCents: number;
+          requestCount: number;
+        }>;
+      }>(`/api/usage/daily?days=${days}`);
+
+      const daily = data.daily ?? [];
+      if (daily.length === 0) {
+        return `No daily usage data found for the last ${days} days.`;
+      }
+
+      const lines = [`Daily Usage (last ${days} days)`, ""];
+      for (const d of daily) {
+        lines.push(`  ${d.date}: ${formatBytes(d.totalBytes)} | ${formatCents(d.totalCostCents)} | ${d.requestCount} reqs`);
+      }
+
+      return truncate(lines.join("\n"));
+    } catch (err) {
+      return `Error: ${safeError(err)}`;
+    }
+  },
+};
+
+// 32. get_top_hosts
+const getTopHostsTool: ToolDefinition = {
+  name: "get_top_hosts",
+  description:
+    "Get the top hosts by bandwidth usage. Shows which domains consume the most proxy bandwidth.",
+  parameters: {
+    limit: {
+      type: "number",
+      description: "Number of top hosts to return (1-100, default 10)",
+      required: false,
+      default: 10,
+    },
+  },
+  execute: async (args) => {
+    try {
+      const limit = Math.min(Math.max(Number(args.limit ?? 10), 1), 100);
+
+      const data = await apiGet<{
+        hosts: Array<{
+          host: string;
+          totalBytes: number;
+          requestCount: number;
+          lastSeen: string;
+        }>;
+      }>(`/api/usage/top-hosts?limit=${limit}`);
+
+      const hosts = data.hosts ?? [];
+      if (hosts.length === 0) {
+        return "No host usage data found.";
+      }
+
+      const lines = [`Top Hosts by Bandwidth (${hosts.length})`, ""];
+      for (let i = 0; i < hosts.length; i++) {
+        const h = hosts[i];
+        lines.push(`  ${i + 1}. ${h.host}: ${formatBytes(h.totalBytes)} | ${h.requestCount} reqs | Last: ${h.lastSeen}`);
+      }
+
+      return truncate(lines.join("\n"));
+    } catch (err) {
+      return `Error: ${safeError(err)}`;
+    }
+  },
+};
+
+// 33. register
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+const registerTool: ToolDefinition = {
+  name: "register",
+  description:
+    "Register a new Dominus Node account. Returns user info and instructions for email verification. " +
+    "This is an unauthenticated endpoint -- no API key required.",
+  parameters: {
+    email: {
+      type: "string",
+      description: "Email address for the new account",
+      required: true,
+    },
+    password: {
+      type: "string",
+      description: "Password for the new account (8-128 characters)",
+      required: true,
+    },
+  },
+  execute: async (args) => {
+    try {
+      const email = String(args.email ?? "").trim();
+      if (!email || !EMAIL_RE.test(email)) {
+        return "Error: A valid email address is required.";
+      }
+      if (email.length > 254) {
+        return "Error: Email address is too long (max 254 characters).";
+      }
+
+      const password = String(args.password ?? "");
+      if (password.length < 8 || password.length > 128) {
+        return "Error: Password must be 8-128 characters.";
+      }
+
+      const data = await unauthenticatedRequest<{
+        id: string;
+        email: string;
+        emailVerified: boolean;
+        createdAt: string;
+      }>("POST", "/api/auth/register", { email, password });
+
+      return [
+        "Account Registered",
+        "",
+        `User ID: ${data.id}`,
+        `Email: ${data.email}`,
+        `Email Verified: ${data.emailVerified ? "Yes" : "No"}`,
+        `Created: ${data.createdAt}`,
+        "",
+        "Next steps:",
+        "  1. Check your email for a verification code",
+        "  2. Use verify_email to verify your email address",
+        "  3. Set DOMINUSNODE_API_KEY to start using the proxy",
+      ].join("\n");
+    } catch (err) {
+      return `Error: ${safeError(err)}`;
+    }
+  },
+};
+
+// 34. login
+const loginTool: ToolDefinition = {
+  name: "login",
+  description:
+    "Log in to a Dominus Node account and receive access/refresh tokens. " +
+    "This is an unauthenticated endpoint -- no API key required.",
+  parameters: {
+    email: {
+      type: "string",
+      description: "Account email address",
+      required: true,
+    },
+    password: {
+      type: "string",
+      description: "Account password (8-128 characters)",
+      required: true,
+    },
+  },
+  execute: async (args) => {
+    try {
+      const email = String(args.email ?? "").trim();
+      if (!email || !EMAIL_RE.test(email)) {
+        return "Error: A valid email address is required.";
+      }
+      if (email.length > 254) {
+        return "Error: Email address is too long (max 254 characters).";
+      }
+
+      const password = String(args.password ?? "");
+      if (password.length < 8 || password.length > 128) {
+        return "Error: Password must be 8-128 characters.";
+      }
+
+      const data = await unauthenticatedRequest<{
+        accessToken: string;
+        refreshToken: string;
+        expiresIn: number;
+        mfaRequired?: boolean;
+      }>("POST", "/api/auth/login", { email, password });
+
+      if (data.mfaRequired) {
+        return [
+          "MFA Required",
+          "",
+          "This account has multi-factor authentication enabled.",
+          "Please complete MFA verification to continue.",
+        ].join("\n");
+      }
+
+      return [
+        "Login Successful",
+        "",
+        `Access Token: ${scrubCredentials(data.accessToken ?? "")}`,
+        `Refresh Token: ${scrubCredentials(data.refreshToken ?? "")}`,
+        `Expires In: ${data.expiresIn ?? 900} seconds`,
+        "",
+        "Use these tokens for authenticated API requests.",
+      ].join("\n");
+    } catch (err) {
+      return `Error: ${safeError(err)}`;
+    }
+  },
+};
+
+// 35. get_account_info
+const getAccountInfoTool: ToolDefinition = {
+  name: "get_account_info",
+  description:
+    "Get your Dominus Node account information including email, plan, verification status, and creation date.",
+  parameters: {},
+  execute: async () => {
+    try {
+      const data = await apiGet<{
+        id: string;
+        email: string;
+        emailVerified: boolean;
+        plan: string;
+        status: string;
+        createdAt: string;
+        mfaEnabled?: boolean;
+      }>("/api/auth/me");
+
+      return [
+        "Account Info",
+        "",
+        `User ID: ${data.id}`,
+        `Email: ${data.email}`,
+        `Email Verified: ${data.emailVerified ? "Yes" : "No"}`,
+        `Plan: ${data.plan}`,
+        `Status: ${data.status}`,
+        `MFA Enabled: ${data.mfaEnabled ? "Yes" : "No"}`,
+        `Created: ${data.createdAt}`,
+      ].join("\n");
+    } catch (err) {
+      return `Error: ${safeError(err)}`;
+    }
+  },
+};
+
+// 36. verify_email
+const verifyEmailTool: ToolDefinition = {
+  name: "verify_email",
+  description:
+    "Verify your email address using the code sent during registration. " +
+    "This is an unauthenticated endpoint -- no API key required.",
+  parameters: {
+    email: {
+      type: "string",
+      description: "Email address to verify",
+      required: true,
+    },
+    code: {
+      type: "string",
+      description: "Verification code from email",
+      required: true,
+    },
+  },
+  execute: async (args) => {
+    try {
+      const email = String(args.email ?? "").trim();
+      if (!email || !EMAIL_RE.test(email)) {
+        return "Error: A valid email address is required.";
+      }
+      if (email.length > 254) {
+        return "Error: Email address is too long (max 254 characters).";
+      }
+
+      const code = String(args.code ?? "").trim();
+      if (!code || code.length === 0 || code.length > 100) {
+        return "Error: Verification code is required (max 100 characters).";
+      }
+      if (/[\x00-\x1f\x7f]/.test(code)) {
+        return "Error: Verification code contains invalid control characters.";
+      }
+
+      await unauthenticatedRequest("POST", "/api/auth/verify-email", { email, code });
+
+      return [
+        "Email Verified Successfully",
+        "",
+        `Email: ${email}`,
+        "",
+        "Your account is now fully activated. You can start using the proxy.",
+      ].join("\n");
+    } catch (err) {
+      return `Error: ${safeError(err)}`;
+    }
+  },
+};
+
+// 37. resend_verification
+const resendVerificationTool: ToolDefinition = {
+  name: "resend_verification",
+  description:
+    "Resend the email verification code. Requires authentication.",
+  parameters: {},
+  execute: async () => {
+    try {
+      await apiPost("/api/auth/resend-verification");
+
+      return [
+        "Verification Email Resent",
+        "",
+        "A new verification code has been sent to your registered email address.",
+        "Use verify_email with the new code to complete verification.",
+      ].join("\n");
+    } catch (err) {
+      return `Error: ${safeError(err)}`;
+    }
+  },
+};
+
+// 38. update_password
+const updatePasswordTool: ToolDefinition = {
+  name: "update_password",
+  description:
+    "Change your account password. Requires your current password for verification.",
+  parameters: {
+    current_password: {
+      type: "string",
+      description: "Your current password (8-128 characters)",
+      required: true,
+    },
+    new_password: {
+      type: "string",
+      description: "Your new password (8-128 characters)",
+      required: true,
+    },
+  },
+  execute: async (args) => {
+    try {
+      const currentPassword = String(args.current_password ?? "");
+      if (currentPassword.length < 8 || currentPassword.length > 128) {
+        return "Error: Current password must be 8-128 characters.";
+      }
+
+      const newPassword = String(args.new_password ?? "");
+      if (newPassword.length < 8 || newPassword.length > 128) {
+        return "Error: New password must be 8-128 characters.";
+      }
+
+      await apiPost("/api/auth/change-password", {
+        currentPassword,
+        newPassword,
+      });
+
+      return [
+        "Password Updated Successfully",
+        "",
+        "Your password has been changed.",
+        "All existing sessions remain valid.",
+      ].join("\n");
+    } catch (err) {
+      return `Error: ${safeError(err)}`;
+    }
+  },
+};
+
+// 39. list_keys
+const listKeysTool: ToolDefinition = {
+  name: "list_keys",
+  description:
+    "List all your personal API keys. Shows key prefix, label, status, and creation date.",
+  parameters: {},
+  execute: async () => {
+    try {
+      const data = await apiGet<{
+        keys: Array<{
+          id: string;
+          prefix: string;
+          label: string;
+          status: string;
+          createdAt: string;
+          lastUsedAt: string | null;
+        }>;
+      }>("/api/keys");
+
+      const keys = data.keys ?? [];
+      if (keys.length === 0) {
+        return "No API keys found. Use create_key to create one.";
+      }
+
+      const lines = [`API Keys (${keys.length})`, ""];
+      for (const k of keys) {
+        const lastUsed = k.lastUsedAt ? ` | Last used: ${k.lastUsedAt}` : "";
+        lines.push(`  ${k.prefix}... | ${k.label} | ${k.status}${lastUsed}`);
+        lines.push(`    ID: ${k.id} | Created: ${k.createdAt}`);
+        lines.push("");
+      }
+
+      return truncate(lines.join("\n"));
+    } catch (err) {
+      return `Error: ${safeError(err)}`;
+    }
+  },
+};
+
+// 40. create_key
+const createKeyTool: ToolDefinition = {
+  name: "create_key",
+  description:
+    "Create a new personal API key. The full key is shown only once -- save it immediately.",
+  parameters: {
+    label: {
+      type: "string",
+      description: 'Label for the API key (e.g., "production", "dev")',
+      required: true,
+    },
+  },
+  execute: async (args) => {
+    try {
+      const label = String(args.label ?? "").trim();
+      if (!label || label.length === 0 || label.length > 100) {
+        return "Error: label is required and must be 1-100 characters.";
+      }
+      if (/[\x00-\x1f\x7f]/.test(label)) {
+        return "Error: label contains invalid control characters.";
+      }
+
+      const data = await apiPost<{
+        id: string;
+        key: string;
+        prefix: string;
+        label: string;
+        createdAt: string;
+      }>("/api/keys", { label });
+
+      return [
+        "API Key Created",
+        "",
+        `Key ID: ${data.id}`,
+        `API Key: ${data.key}`,
+        `Prefix: ${data.prefix}`,
+        `Label: ${data.label}`,
+        `Created: ${data.createdAt}`,
+        "",
+        "IMPORTANT: Save this API key now -- it will not be shown again.",
+      ].join("\n");
+    } catch (err) {
+      return `Error: ${safeError(err)}`;
+    }
+  },
+};
+
+// 41. revoke_key
+const revokeKeyTool: ToolDefinition = {
+  name: "revoke_key",
+  description:
+    "Revoke (delete) a personal API key. This immediately invalidates the key.",
+  parameters: {
+    key_id: {
+      type: "string",
+      description: "API key ID (UUID) to revoke",
+      required: true,
+    },
+  },
+  execute: async (args) => {
+    try {
+      const keyId = validateUuid(String(args.key_id ?? ""), "key_id");
+
+      await apiDelete(`/api/keys/${encodeURIComponent(keyId)}`);
+
+      return [
+        "API Key Revoked",
+        "",
+        `Key ID: ${keyId}`,
+        "",
+        "The key has been permanently revoked and can no longer be used.",
+      ].join("\n");
+    } catch (err) {
+      return `Error: ${safeError(err)}`;
+    }
+  },
+};
+
+// 42. get_plan
+const getPlanTool: ToolDefinition = {
+  name: "get_plan",
+  description:
+    "Get your current plan details including limits, pricing, and features.",
+  parameters: {},
+  execute: async () => {
+    try {
+      const data = await apiGet<{
+        plan: string;
+        displayName: string;
+        bandwidthLimitBytes: number | null;
+        requestsPerMinute: number;
+        maxApiKeys: number;
+        maxAgenticWallets: number;
+        maxTeams: number;
+        features: string[];
+      }>("/api/plans/user/plan");
+
+      const lines = [
+        "Current Plan",
+        "",
+        `Plan: ${data.displayName ?? data.plan}`,
+        `Bandwidth Limit: ${data.bandwidthLimitBytes != null ? formatBytes(data.bandwidthLimitBytes) : "Unlimited"}`,
+        `Rate Limit: ${data.requestsPerMinute} req/min`,
+        `Max API Keys: ${data.maxApiKeys}`,
+        `Max Agentic Wallets: ${data.maxAgenticWallets}`,
+        `Max Teams: ${data.maxTeams}`,
+      ];
+
+      const features = data.features ?? [];
+      if (features.length > 0) {
+        lines.push("", "Features:");
+        for (const f of features) {
+          lines.push(`  - ${f}`);
+        }
+      }
+
+      lines.push("", "Use list_plans to see available plan options.");
+
+      return lines.join("\n");
+    } catch (err) {
+      return `Error: ${safeError(err)}`;
+    }
+  },
+};
+
+// 43. list_plans
+const listPlansTool: ToolDefinition = {
+  name: "list_plans",
+  description:
+    "List all available plans with pricing, limits, and features.",
+  parameters: {},
+  execute: async () => {
+    try {
+      const data = await apiGet<{
+        plans: Array<{
+          id: string;
+          name: string;
+          displayName: string;
+          priceMonthly: number;
+          bandwidthLimitBytes: number | null;
+          requestsPerMinute: number;
+          maxApiKeys: number;
+          features: string[];
+        }>;
+      }>("/api/plans");
+
+      const plans = data.plans ?? [];
+      if (plans.length === 0) {
+        return "No plans available.";
+      }
+
+      const lines = [`Available Plans (${plans.length})`, ""];
+      for (const p of plans) {
+        lines.push(`  ${p.displayName ?? p.name} ($${(p.priceMonthly / 100).toFixed(2)}/mo)`);
+        lines.push(`    Bandwidth: ${p.bandwidthLimitBytes != null ? formatBytes(p.bandwidthLimitBytes) : "Unlimited"} | Rate: ${p.requestsPerMinute} req/min | Keys: ${p.maxApiKeys}`);
+        if (p.features && p.features.length > 0) {
+          lines.push(`    Features: ${p.features.join(", ")}`);
+        }
+        lines.push("");
+      }
+
+      lines.push("Use change_plan to switch plans.");
+
+      return truncate(lines.join("\n"));
+    } catch (err) {
+      return `Error: ${safeError(err)}`;
+    }
+  },
+};
+
+// 44. change_plan
+const changePlanTool: ToolDefinition = {
+  name: "change_plan",
+  description:
+    "Change your account plan. Use list_plans to see available options first.",
+  parameters: {
+    plan: {
+      type: "string",
+      description: "Plan name/ID to switch to",
+      required: true,
+    },
+  },
+  execute: async (args) => {
+    try {
+      const plan = String(args.plan ?? "").trim();
+      if (!plan || plan.length === 0 || plan.length > 100) {
+        return "Error: plan is required and must be 1-100 characters.";
+      }
+      if (/[\x00-\x1f\x7f]/.test(plan)) {
+        return "Error: plan name contains invalid control characters.";
+      }
+
+      const data = await apiPut<{
+        plan: string;
+        displayName: string;
+        effectiveAt: string;
+      }>("/api/plans/user/plan", { plan });
+
+      return [
+        "Plan Changed Successfully",
+        "",
+        `New Plan: ${data.displayName ?? data.plan}`,
+        `Effective: ${data.effectiveAt ?? "immediately"}`,
+        "",
+        "Use get_plan to view your updated plan details.",
+      ].join("\n");
+    } catch (err) {
+      return `Error: ${safeError(err)}`;
+    }
+  },
+};
+
+// 45. team_delete
+const teamDeleteTool: ToolDefinition = {
+  name: "team_delete",
+  description:
+    "Delete a team. Only the team owner can delete a team. Any remaining team balance is refunded.",
+  parameters: {
+    team_id: {
+      type: "string",
+      description: "Team ID (UUID) to delete",
+      required: true,
+    },
+  },
+  execute: async (args) => {
+    try {
+      const teamId = validateUuid(String(args.team_id ?? ""), "team_id");
+
+      await apiDelete(`/api/teams/${encodeURIComponent(teamId)}`);
+
+      return [
+        "Team Deleted",
+        "",
+        `Team ID: ${teamId}`,
+        "",
+        "The team has been permanently deleted.",
+        "Any remaining balance has been refunded to the owner's wallet.",
+      ].join("\n");
+    } catch (err) {
+      return `Error: ${safeError(err)}`;
+    }
+  },
+};
+
+// 46. team_revoke_key
+const teamRevokeKeyTool: ToolDefinition = {
+  name: "team_revoke_key",
+  description:
+    "Revoke a shared API key for a team. Only owners and admins can revoke keys.",
+  parameters: {
+    team_id: {
+      type: "string",
+      description: "Team ID (UUID)",
+      required: true,
+    },
+    key_id: {
+      type: "string",
+      description: "API key ID (UUID) to revoke",
+      required: true,
+    },
+  },
+  execute: async (args) => {
+    try {
+      const teamId = validateUuid(String(args.team_id ?? ""), "team_id");
+      const keyId = validateUuid(String(args.key_id ?? ""), "key_id");
+
+      await apiDelete(`/api/teams/${encodeURIComponent(teamId)}/keys/${encodeURIComponent(keyId)}`);
+
+      return [
+        "Team API Key Revoked",
+        "",
+        `Team ID: ${teamId}`,
+        `Key ID: ${keyId}`,
+        "",
+        "The key has been permanently revoked and can no longer be used.",
+      ].join("\n");
+    } catch (err) {
+      return `Error: ${safeError(err)}`;
+    }
+  },
+};
+
+// 47. team_list_keys
+const teamListKeysTool: ToolDefinition = {
+  name: "team_list_keys",
+  description:
+    "List all API keys for a team. Shows key prefix, label, status, and creation date.",
+  parameters: {
+    team_id: {
+      type: "string",
+      description: "Team ID (UUID)",
+      required: true,
+    },
+  },
+  execute: async (args) => {
+    try {
+      const teamId = validateUuid(String(args.team_id ?? ""), "team_id");
+
+      const data = await apiGet<{
+        keys: Array<{
+          id: string;
+          prefix: string;
+          label: string;
+          status: string;
+          createdAt: string;
+          lastUsedAt: string | null;
+        }>;
+      }>(`/api/teams/${encodeURIComponent(teamId)}/keys`);
+
+      const keys = data.keys ?? [];
+      if (keys.length === 0) {
+        return "No API keys found for this team. Use team_create_key to create one.";
+      }
+
+      const lines = [`Team API Keys (${keys.length})`, ""];
+      for (const k of keys) {
+        const lastUsed = k.lastUsedAt ? ` | Last used: ${k.lastUsedAt}` : "";
+        lines.push(`  ${k.prefix}... | ${k.label} | ${k.status}${lastUsed}`);
+        lines.push(`    ID: ${k.id} | Created: ${k.createdAt}`);
+        lines.push("");
+      }
+
+      return truncate(lines.join("\n"));
+    } catch (err) {
+      return `Error: ${safeError(err)}`;
+    }
+  },
+};
+
+// 48. team_list_members
+const teamListMembersTool: ToolDefinition = {
+  name: "team_list_members",
+  description:
+    "List all members of a team with their roles and join dates.",
+  parameters: {
+    team_id: {
+      type: "string",
+      description: "Team ID (UUID)",
+      required: true,
+    },
+  },
+  execute: async (args) => {
+    try {
+      const teamId = validateUuid(String(args.team_id ?? ""), "team_id");
+
+      const data = await apiGet<{
+        members: Array<{
+          userId: string;
+          email: string;
+          role: string;
+          joinedAt: string;
+        }>;
+      }>(`/api/teams/${encodeURIComponent(teamId)}/members`);
+
+      const members = data.members ?? [];
+      if (members.length === 0) {
+        return "No members found in this team.";
+      }
+
+      const lines = [`Team Members (${members.length})`, ""];
+      for (const m of members) {
+        lines.push(`  ${m.email} | ${m.role} | Joined: ${m.joinedAt}`);
+        lines.push(`    User ID: ${m.userId}`);
+        lines.push("");
+      }
+
+      return truncate(lines.join("\n"));
+    } catch (err) {
+      return `Error: ${safeError(err)}`;
+    }
+  },
+};
+
+// 49. team_add_member
+const teamAddMemberTool: ToolDefinition = {
+  name: "team_add_member",
+  description:
+    "Add a member directly to a team by user ID. Only owners and admins can add members.",
+  parameters: {
+    team_id: {
+      type: "string",
+      description: "Team ID (UUID)",
+      required: true,
+    },
+    user_id: {
+      type: "string",
+      description: "User ID (UUID) of the person to add",
+      required: true,
+    },
+    role: {
+      type: "string",
+      description: "Role for the new member",
+      required: false,
+      enum: ["member", "admin"],
+      default: "member",
+    },
+  },
+  execute: async (args) => {
+    try {
+      const teamId = validateUuid(String(args.team_id ?? ""), "team_id");
+      const userId = validateUuid(String(args.user_id ?? ""), "user_id");
+      const role = String(args.role ?? "member").trim();
+
+      if (role !== "member" && role !== "admin") {
+        return "Error: role must be 'member' or 'admin'.";
+      }
+
+      const data = await apiPost<{
+        userId: string;
+        teamId: string;
+        role: string;
+        joinedAt: string;
+      }>(`/api/teams/${encodeURIComponent(teamId)}/members`, {
+        userId,
+        role,
+      });
+
+      return [
+        "Team Member Added",
+        "",
+        `Team ID: ${data.teamId ?? teamId}`,
+        `User ID: ${data.userId ?? userId}`,
+        `Role: ${data.role ?? role}`,
+        `Joined: ${data.joinedAt ?? "now"}`,
+      ].join("\n");
+    } catch (err) {
+      return `Error: ${safeError(err)}`;
+    }
+  },
+};
+
+// 50. team_remove_member
+const teamRemoveMemberTool: ToolDefinition = {
+  name: "team_remove_member",
+  description:
+    "Remove a member from a team. Only owners and admins can remove members.",
+  parameters: {
+    team_id: {
+      type: "string",
+      description: "Team ID (UUID)",
+      required: true,
+    },
+    user_id: {
+      type: "string",
+      description: "User ID (UUID) of the member to remove",
+      required: true,
+    },
+  },
+  execute: async (args) => {
+    try {
+      const teamId = validateUuid(String(args.team_id ?? ""), "team_id");
+      const userId = validateUuid(String(args.user_id ?? ""), "user_id");
+
+      await apiDelete(`/api/teams/${encodeURIComponent(teamId)}/members/${encodeURIComponent(userId)}`);
+
+      return [
+        "Team Member Removed",
+        "",
+        `Team ID: ${teamId}`,
+        `User ID: ${userId}`,
+        "",
+        "The member has been removed from the team.",
+      ].join("\n");
+    } catch (err) {
+      return `Error: ${safeError(err)}`;
+    }
+  },
+};
+
+// 51. team_invite_member
+const teamInviteMemberTool: ToolDefinition = {
+  name: "team_invite_member",
+  description:
+    "Send an invitation to join a team by email. The invitee receives an email with a link to accept.",
+  parameters: {
+    team_id: {
+      type: "string",
+      description: "Team ID (UUID)",
+      required: true,
+    },
+    email: {
+      type: "string",
+      description: "Email address of the person to invite",
+      required: true,
+    },
+    role: {
+      type: "string",
+      description: "Role for the invited member",
+      required: false,
+      enum: ["member", "admin"],
+      default: "member",
+    },
+  },
+  execute: async (args) => {
+    try {
+      const teamId = validateUuid(String(args.team_id ?? ""), "team_id");
+      const email = String(args.email ?? "").trim();
+      if (!email || !EMAIL_RE.test(email)) {
+        return "Error: A valid email address is required.";
+      }
+      if (email.length > 254) {
+        return "Error: Email address is too long (max 254 characters).";
+      }
+
+      const role = String(args.role ?? "member").trim();
+      if (role !== "member" && role !== "admin") {
+        return "Error: role must be 'member' or 'admin'.";
+      }
+
+      const data = await apiPost<{
+        id: string;
+        teamId: string;
+        email: string;
+        role: string;
+        status: string;
+        expiresAt: string;
+        createdAt: string;
+      }>(`/api/teams/${encodeURIComponent(teamId)}/invites`, {
+        email,
+        role,
+      });
+
+      return [
+        "Team Invitation Sent",
+        "",
+        `Invite ID: ${data.id}`,
+        `Team ID: ${data.teamId ?? teamId}`,
+        `Email: ${data.email ?? email}`,
+        `Role: ${data.role ?? role}`,
+        `Status: ${data.status ?? "pending"}`,
+        `Expires: ${data.expiresAt}`,
+        "",
+        "The invitee will receive an email with instructions to accept.",
+      ].join("\n");
+    } catch (err) {
+      return `Error: ${safeError(err)}`;
+    }
+  },
+};
+
+// 52. team_list_invites
+const teamListInvitesTool: ToolDefinition = {
+  name: "team_list_invites",
+  description:
+    "List all pending invitations for a team.",
+  parameters: {
+    team_id: {
+      type: "string",
+      description: "Team ID (UUID)",
+      required: true,
+    },
+  },
+  execute: async (args) => {
+    try {
+      const teamId = validateUuid(String(args.team_id ?? ""), "team_id");
+
+      const data = await apiGet<{
+        invites: Array<{
+          id: string;
+          email: string;
+          role: string;
+          status: string;
+          expiresAt: string;
+          createdAt: string;
+        }>;
+      }>(`/api/teams/${encodeURIComponent(teamId)}/invites`);
+
+      const invites = data.invites ?? [];
+      if (invites.length === 0) {
+        return "No pending invitations for this team.";
+      }
+
+      const lines = [`Team Invitations (${invites.length})`, ""];
+      for (const inv of invites) {
+        lines.push(`  ${inv.email} | ${inv.role} | ${inv.status}`);
+        lines.push(`    ID: ${inv.id} | Expires: ${inv.expiresAt}`);
+        lines.push("");
+      }
+
+      return truncate(lines.join("\n"));
+    } catch (err) {
+      return `Error: ${safeError(err)}`;
+    }
+  },
+};
+
+// 53. team_cancel_invite
+const teamCancelInviteTool: ToolDefinition = {
+  name: "team_cancel_invite",
+  description:
+    "Cancel a pending team invitation. Only owners and admins can cancel invites.",
+  parameters: {
+    team_id: {
+      type: "string",
+      description: "Team ID (UUID)",
+      required: true,
+    },
+    invite_id: {
+      type: "string",
+      description: "Invite ID (UUID) to cancel",
+      required: true,
+    },
+  },
+  execute: async (args) => {
+    try {
+      const teamId = validateUuid(String(args.team_id ?? ""), "team_id");
+      const inviteId = validateUuid(String(args.invite_id ?? ""), "invite_id");
+
+      await apiDelete(`/api/teams/${encodeURIComponent(teamId)}/invites/${encodeURIComponent(inviteId)}`);
+
+      return [
+        "Team Invitation Cancelled",
+        "",
+        `Team ID: ${teamId}`,
+        `Invite ID: ${inviteId}`,
+        "",
+        "The invitation has been cancelled.",
+      ].join("\n");
+    } catch (err) {
+      return `Error: ${safeError(err)}`;
+    }
+  },
+};
+
 // ---------------------------------------------------------------------------
 // Plugin export — the tools array that OpenClaw discovers
 // ---------------------------------------------------------------------------
 
 export const tools: ToolDefinition[] = [
+  // Proxy (3)
   proxiedFetchTool,
-  checkBalanceTool,
-  checkUsageTool,
   getProxyConfigTool,
+  getProxyStatusTool,
+  // Sessions (1)
   listSessionsTool,
+  // Wallet (8)
+  checkBalanceTool,
+  getTransactionsTool,
+  getForecastTool,
+  topupPaypalTool,
+  topupStripeTool,
+  topupCryptoTool,
+  checkPaymentTool,
+  x402InfoTool,
+  // Usage (3)
+  checkUsageTool,
+  getDailyUsageTool,
+  getTopHostsTool,
+  // Account (6)
+  registerTool,
+  loginTool,
+  getAccountInfoTool,
+  verifyEmailTool,
+  resendVerificationTool,
+  updatePasswordTool,
+  // API Keys (3)
+  listKeysTool,
+  createKeyTool,
+  revokeKeyTool,
+  // Plans (3)
+  getPlanTool,
+  listPlansTool,
+  changePlanTool,
+  // Agentic Wallets (9)
   createAgenticWalletTool,
   fundAgenticWalletTool,
   checkAgenticBalanceTool,
@@ -2039,19 +3365,25 @@ export const tools: ToolDefinition[] = [
   freezeAgenticWalletTool,
   unfreezeAgenticWalletTool,
   deleteAgenticWalletTool,
+  updateWalletPolicyTool,
+  // Teams (17)
   createTeamTool,
   listTeamsTool,
   teamDetailsTool,
+  updateTeamTool,
+  teamDeleteTool,
   teamFundTool,
   teamCreateKeyTool,
+  teamRevokeKeyTool,
+  teamListKeysTool,
   teamUsageTool,
-  updateTeamTool,
+  teamListMembersTool,
+  teamAddMemberTool,
+  teamRemoveMemberTool,
   updateTeamMemberRoleTool,
-  topupPaypalTool,
-  topupStripeTool,
-  topupCryptoTool,
-  x402InfoTool,
-  updateWalletPolicyTool,
+  teamInviteMemberTool,
+  teamListInvitesTool,
+  teamCancelInviteTool,
 ];
 
 /**

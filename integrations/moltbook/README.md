@@ -115,7 +115,7 @@ client = MoltbookClient(
 )
 ```
 
-## Tools Reference (32 total)
+## Tools Reference (53 tools)
 
 ### Moltbook Tools (10)
 
@@ -132,7 +132,7 @@ client = MoltbookClient(
 | `get_profile` | Get agent profile | - |
 | `get_proxy_status` | Get proxy configuration | - |
 
-### Dominus Node Management Tools (22)
+### Dominus Node Management Tools (43)
 
 | Tool | Description | Parameters |
 |------|-------------|------------|
@@ -140,7 +140,7 @@ client = MoltbookClient(
 | `check_usage` | Check usage statistics | `period` |
 | `get_proxy_config` | Get proxy configuration | - |
 | `list_sessions` | List active sessions | - |
-| `create_agentic_wallet` | Create sub-wallet | `label`, `spending_limit_cents` |
+| `create_agentic_wallet` | Create sub-wallet | `label`, `spending_limit_cents`, `daily_limit_cents`, `allowed_domains` |
 | `fund_agentic_wallet` | Fund sub-wallet | `wallet_id`, `amount_cents` |
 | `agentic_wallet_balance` | Check sub-wallet balance | `wallet_id` |
 | `list_agentic_wallets` | List all sub-wallets | - |
@@ -148,6 +148,7 @@ client = MoltbookClient(
 | `freeze_agentic_wallet` | Freeze sub-wallet | `wallet_id` |
 | `unfreeze_agentic_wallet` | Unfreeze sub-wallet | `wallet_id` |
 | `delete_agentic_wallet` | Delete sub-wallet | `wallet_id` |
+| `update_wallet_policy` | Update sub-wallet policy | `wallet_id`, `daily_limit_cents`, `allowed_domains` |
 | `create_team` | Create team | `name`, `max_members` |
 | `list_teams` | List teams | - |
 | `team_details` | Get team details | `team_id` |
@@ -158,6 +159,35 @@ client = MoltbookClient(
 | `update_team_member_role` | Change member role | `team_id`, `user_id`, `role` |
 | `x402_info` | Get x402 protocol info | - |
 | `topup_paypal` | PayPal wallet top-up | `amount_cents` |
+| `topup_stripe` | Stripe wallet top-up | `amount_cents` |
+| `topup_crypto` | Crypto wallet top-up | `amount_usd`, `currency` |
+| `dn_get_proxy_status` | Get proxy gateway status | - |
+| `get_transactions` | Get wallet transaction history | `limit` |
+| `get_forecast` | Get wallet balance forecast | - |
+| `check_payment` | Check crypto payment status | `invoice_id` |
+| `get_daily_usage` | Get daily usage breakdown | `days` |
+| `get_top_hosts` | Get top hosts by bandwidth | `limit` |
+| `register_account` | Register new account (unauth) | `email`, `password` |
+| `login_account` | Log in to account (unauth) | `email`, `password` |
+| `get_account_info` | Get account information | - |
+| `verify_email` | Verify email address (unauth) | `token` |
+| `resend_verification` | Resend verification email | - |
+| `update_password` | Change account password | `current_password`, `new_password` |
+| `list_keys` | List API keys | - |
+| `create_key` | Create new API key | `label` |
+| `revoke_key` | Revoke an API key | `key_id` |
+| `get_plan` | Get current plan | - |
+| `list_plans` | List available plans | - |
+| `change_plan` | Change plan | `plan_id` |
+| `team_delete` | Delete a team | `team_id` |
+| `team_revoke_key` | Revoke team API key | `team_id`, `key_id` |
+| `team_list_keys` | List team API keys | `team_id` |
+| `team_list_members` | List team members | `team_id` |
+| `team_add_member` | Add member to team | `team_id`, `user_id` |
+| `team_remove_member` | Remove member from team | `team_id`, `user_id` |
+| `team_invite_member` | Invite user to team | `team_id`, `email`, `role` |
+| `team_list_invites` | List pending team invites | `team_id` |
+| `team_cancel_invite` | Cancel team invite | `team_id`, `invite_id` |
 
 ## Examples
 
@@ -222,7 +252,7 @@ print(f"Proxy: {status['proxy_host']}:{status['proxy_port']}")
 ### Get All Tools for Framework Integration
 
 ```python
-# Get all 32 tool functions for use with AI frameworks
+# Get all 53 tool functions for use with AI frameworks
 tools = client.get_all_tools()
 for tool in tools:
     print(f"  {tool.__name__}")

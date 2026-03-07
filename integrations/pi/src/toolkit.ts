@@ -1,7 +1,7 @@
 /**
  * Dominus Node Pi Extension Toolkit
  *
- * Provides 26 tools for the pi-mono agent framework (github.com/badlogic/pi-mono).
+ * Provides 53 tools for the pi-mono agent framework (github.com/badlogic/pi-mono).
  * Covers proxied fetching, wallet management, agentic wallets, teams,
  * Stripe/PayPal/crypto top-up, and x402 micropayment info.
  *
@@ -724,7 +724,7 @@ export class DominusNodeToolkit {
       const id = validateUuid(walletId, "walletId");
       const amount = Math.floor(Number(amountCents));
       if (isNaN(amount) || amount < 1 || amount > 1000000) return err("amountCents must be between 1 and 1,000,000");
-      const data = await this._req("POST", `/api/agent-wallet/${id}/fund`, { amountCents: amount });
+      const data = await this._req("POST", `/api/agent-wallet/${encodeURIComponent(id)}/fund`, { amountCents: amount });
       return ok(JSON.stringify(data, null, 2));
     } catch (e) { return err(e); }
   }
@@ -736,7 +736,7 @@ export class DominusNodeToolkit {
   async checkAgenticBalance(walletId: string): Promise<PiToolResult> {
     try {
       const id = validateUuid(walletId, "walletId");
-      const data = await this._req("GET", `/api/agent-wallet/${id}`);
+      const data = await this._req("GET", `/api/agent-wallet/${encodeURIComponent(id)}`);
       return ok(JSON.stringify(data, null, 2));
     } catch (e) { return err(e); }
   }
@@ -762,7 +762,7 @@ export class DominusNodeToolkit {
       const rawLim = Number(limit);
       if (!Number.isFinite(rawLim)) return err("limit must be a finite number");
       const lim = Math.max(1, Math.min(100, Math.floor(rawLim)));
-      const data = await this._req("GET", `/api/agent-wallet/${id}/transactions?limit=${lim}`);
+      const data = await this._req("GET", `/api/agent-wallet/${encodeURIComponent(id)}/transactions?limit=${lim}`);
       return ok(JSON.stringify(data, null, 2));
     } catch (e) { return err(e); }
   }
@@ -774,7 +774,7 @@ export class DominusNodeToolkit {
   async freezeAgenticWallet(walletId: string): Promise<PiToolResult> {
     try {
       const id = validateUuid(walletId, "walletId");
-      const data = await this._req("POST", `/api/agent-wallet/${id}/freeze`);
+      const data = await this._req("POST", `/api/agent-wallet/${encodeURIComponent(id)}/freeze`);
       return ok(JSON.stringify(data, null, 2));
     } catch (e) { return err(e); }
   }
@@ -786,7 +786,7 @@ export class DominusNodeToolkit {
   async unfreezeAgenticWallet(walletId: string): Promise<PiToolResult> {
     try {
       const id = validateUuid(walletId, "walletId");
-      const data = await this._req("POST", `/api/agent-wallet/${id}/unfreeze`);
+      const data = await this._req("POST", `/api/agent-wallet/${encodeURIComponent(id)}/unfreeze`);
       return ok(JSON.stringify(data, null, 2));
     } catch (e) { return err(e); }
   }
@@ -798,7 +798,7 @@ export class DominusNodeToolkit {
   async deleteAgenticWallet(walletId: string): Promise<PiToolResult> {
     try {
       const id = validateUuid(walletId, "walletId");
-      const data = await this._req("DELETE", `/api/agent-wallet/${id}`);
+      const data = await this._req("DELETE", `/api/agent-wallet/${encodeURIComponent(id)}`);
       return ok(JSON.stringify(data, null, 2));
     } catch (e) { return err(e); }
   }
@@ -839,7 +839,7 @@ export class DominusNodeToolkit {
   async teamDetails(teamId: string): Promise<PiToolResult> {
     try {
       const id = validateUuid(teamId, "teamId");
-      const data = await this._req("GET", `/api/teams/${id}`);
+      const data = await this._req("GET", `/api/teams/${encodeURIComponent(id)}`);
       return ok(JSON.stringify(data, null, 2));
     } catch (e) { return err(e); }
   }
@@ -853,7 +853,7 @@ export class DominusNodeToolkit {
       const id = validateUuid(teamId, "teamId");
       const amount = Math.floor(Number(amountCents));
       if (isNaN(amount) || amount < 1 || amount > 1000000) return err("amountCents must be between 1 and 1,000,000");
-      const data = await this._req("POST", `/api/teams/${id}/wallet/fund`, { amountCents: amount });
+      const data = await this._req("POST", `/api/teams/${encodeURIComponent(id)}/wallet/fund`, { amountCents: amount });
       return ok(JSON.stringify(data, null, 2));
     } catch (e) { return err(e); }
   }
@@ -867,7 +867,7 @@ export class DominusNodeToolkit {
       const id = validateUuid(teamId, "teamId");
       const labelErr = validateLabel(label);
       if (labelErr) return err(labelErr);
-      const data = await this._req("POST", `/api/teams/${id}/keys`, { label: label.trim() });
+      const data = await this._req("POST", `/api/teams/${encodeURIComponent(id)}/keys`, { label: label.trim() });
       return ok(JSON.stringify(data, null, 2) + "\n\nIMPORTANT: Store this API key securely — it will not be shown again.");
     } catch (e) { return err(e); }
   }
@@ -884,7 +884,7 @@ export class DominusNodeToolkit {
       const d = Math.max(1, Math.min(365, Math.floor(rawDays)));
       const until = new Date().toISOString();
       const since = new Date(Date.now() - d * 86400000).toISOString();
-      const data = await this._req("GET", `/api/teams/${id}/usage?since=${encodeURIComponent(since)}&until=${encodeURIComponent(until)}`);
+      const data = await this._req("GET", `/api/teams/${encodeURIComponent(id)}/usage?since=${encodeURIComponent(since)}&until=${encodeURIComponent(until)}`);
       return ok(JSON.stringify(data, null, 2));
     } catch (e) { return err(e); }
   }
@@ -908,7 +908,7 @@ export class DominusNodeToolkit {
         body.maxMembers = max;
       }
       if (!Object.keys(body).length) return err("At least one of name or maxMembers must be provided");
-      const data = await this._req("PATCH", `/api/teams/${id}`, body);
+      const data = await this._req("PATCH", `/api/teams/${encodeURIComponent(id)}`, body);
       return ok(JSON.stringify(data, null, 2));
     } catch (e) { return err(e); }
   }
@@ -1007,7 +1007,440 @@ export class DominusNodeToolkit {
         body.allowedDomains = allowedDomains.map((d) => String(d).trim().toLowerCase());
       }
       if (!Object.keys(body).length) return err("At least one of dailyLimitCents or allowedDomains must be provided");
-      const data = await this._req("PATCH", `/api/agent-wallet/${id}/policy`, body);
+      const data = await this._req("PATCH", `/api/agent-wallet/${encodeURIComponent(id)}/policy`, body);
+      return ok(JSON.stringify(data, null, 2));
+    } catch (e) { return err(e); }
+  }
+
+  // -----------------------------------------------------------------------
+  // Unauthenticated request helper (register, login, verify-email)
+  // -----------------------------------------------------------------------
+
+  private async _rawRequest<T = unknown>(method: string, path: string, body?: Record<string, unknown>): Promise<T> {
+    const url = `${this.baseUrl}${path}`;
+    const headers: Record<string, string> = {
+      Accept: "application/json",
+      "User-Agent": "dominusnode-pi/1.0.0",
+    };
+    if (this.agentSecret) {
+      headers["X-DominusNode-Agent"] = "mcp";
+      headers["X-DominusNode-Agent-Secret"] = this.agentSecret;
+    }
+    const init: RequestInit = { method, headers, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS), redirect: "error" };
+    if (body && ["POST", "PUT", "PATCH", "DELETE"].includes(method)) {
+      headers["Content-Type"] = "application/json";
+      init.body = JSON.stringify(body);
+    }
+    let res: Response;
+    try {
+      res = await fetch(url, init);
+    } catch (e) {
+      throw new Error(`API request failed: ${safeError(e)}`);
+    }
+    let rawText = "";
+    if (res.body) {
+      const reader = res.body.getReader();
+      const chunks: Uint8Array[] = [];
+      let totalBytes = 0;
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          totalBytes += value.length;
+          if (totalBytes > MAX_RESPONSE_BYTES) {
+            reader.cancel().catch(() => {});
+            throw new Error("API response too large");
+          }
+          chunks.push(value);
+        }
+      } catch (e) {
+        reader.cancel().catch(() => {});
+        throw e;
+      }
+      rawText = Buffer.concat(chunks).toString("utf-8");
+    }
+    if (!res.ok) {
+      let msg = `API error ${res.status}`;
+      try {
+        const parsed = JSON.parse(rawText);
+        stripDangerousKeys(parsed);
+        const detail = parsed.error ?? parsed.message;
+        if (detail) msg = `API error ${res.status}: ${scrubCredentials(String(detail))}`;
+      } catch { if (rawText) msg = `API error ${res.status}: ${scrubCredentials(rawText.slice(0, 200))}`; }
+      throw new Error(msg);
+    }
+    if (!rawText || !rawText.trim()) return {} as T;
+    try {
+      const parsed = JSON.parse(rawText);
+      stripDangerousKeys(parsed);
+      return parsed as T;
+    } catch {
+      throw new Error("Failed to parse API response as JSON");
+    }
+  }
+
+  // -----------------------------------------------------------------------
+  // Validation helpers for account tools
+  // -----------------------------------------------------------------------
+
+  private static readonly EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+  private static validateEmail(email: string): string {
+    const trimmed = email.trim();
+    if (!trimmed || !DominusNodeToolkit.EMAIL_RE.test(trimmed)) {
+      throw new Error("Invalid email address.");
+    }
+    if (trimmed.length > 254) {
+      throw new Error("Email address too long (max 254 characters).");
+    }
+    return trimmed;
+  }
+
+  private static validatePassword(password: string): string {
+    if (!password || password.length < 8) {
+      throw new Error("Password must be at least 8 characters.");
+    }
+    if (password.length > 128) {
+      throw new Error("Password must be at most 128 characters.");
+    }
+    return password;
+  }
+
+  // -----------------------------------------------------------------------
+  // Tool 27: getProxyStatus
+  // -----------------------------------------------------------------------
+
+  async getProxyStatus(): Promise<PiToolResult> {
+    try {
+      const data = await this._req("GET", "/api/proxy/status");
+      return ok(JSON.stringify(data, null, 2));
+    } catch (e) { return err(e); }
+  }
+
+  // -----------------------------------------------------------------------
+  // Tool 28: getTransactions
+  // -----------------------------------------------------------------------
+
+  async getTransactions(limit = 20): Promise<PiToolResult> {
+    try {
+      const rawLim = Number(limit);
+      if (!Number.isFinite(rawLim)) return err("limit must be a finite number");
+      const lim = Math.max(1, Math.min(100, Math.floor(rawLim)));
+      const data = await this._req("GET", `/api/wallet/transactions?limit=${lim}`);
+      return ok(JSON.stringify(data, null, 2));
+    } catch (e) { return err(e); }
+  }
+
+  // -----------------------------------------------------------------------
+  // Tool 29: getForecast
+  // -----------------------------------------------------------------------
+
+  async getForecast(): Promise<PiToolResult> {
+    try {
+      const data = await this._req("GET", "/api/wallet/forecast");
+      return ok(JSON.stringify(data, null, 2));
+    } catch (e) { return err(e); }
+  }
+
+  // -----------------------------------------------------------------------
+  // Tool 30: checkPayment
+  // -----------------------------------------------------------------------
+
+  async checkPayment(invoiceId: string): Promise<PiToolResult> {
+    try {
+      const id = validateUuid(invoiceId, "invoiceId");
+      const data = await this._req("GET", `/api/wallet/topup/crypto/${encodeURIComponent(id)}/status`);
+      return ok(JSON.stringify(data, null, 2));
+    } catch (e) { return err(e); }
+  }
+
+  // -----------------------------------------------------------------------
+  // Tool 31: getDailyUsage
+  // -----------------------------------------------------------------------
+
+  async getDailyUsage(days = 7): Promise<PiToolResult> {
+    try {
+      const rawDays = Number(days);
+      if (!Number.isFinite(rawDays)) return err("days must be a finite number between 1 and 365");
+      const d = Math.max(1, Math.min(365, Math.floor(rawDays)));
+      const data = await this._req("GET", `/api/usage/daily?days=${d}`);
+      return ok(JSON.stringify(data, null, 2));
+    } catch (e) { return err(e); }
+  }
+
+  // -----------------------------------------------------------------------
+  // Tool 32: getTopHosts
+  // -----------------------------------------------------------------------
+
+  async getTopHosts(limit = 10): Promise<PiToolResult> {
+    try {
+      const rawLim = Number(limit);
+      if (!Number.isFinite(rawLim)) return err("limit must be a finite number");
+      const lim = Math.max(1, Math.min(100, Math.floor(rawLim)));
+      const data = await this._req("GET", `/api/usage/top-hosts?limit=${lim}`);
+      return ok(JSON.stringify(data, null, 2));
+    } catch (e) { return err(e); }
+  }
+
+  // -----------------------------------------------------------------------
+  // Tool 33: register
+  // -----------------------------------------------------------------------
+
+  async register(email: string, password: string): Promise<PiToolResult> {
+    try {
+      const safeEmail = DominusNodeToolkit.validateEmail(email);
+      const safePassword = DominusNodeToolkit.validatePassword(password);
+      const data = await this._rawRequest("POST", "/api/auth/register", { email: safeEmail, password: safePassword });
+      return ok(JSON.stringify(data, null, 2));
+    } catch (e) { return err(e); }
+  }
+
+  // -----------------------------------------------------------------------
+  // Tool 34: login
+  // -----------------------------------------------------------------------
+
+  async login(email: string, password: string): Promise<PiToolResult> {
+    try {
+      const safeEmail = DominusNodeToolkit.validateEmail(email);
+      const safePassword = DominusNodeToolkit.validatePassword(password);
+      const data = await this._rawRequest("POST", "/api/auth/login", { email: safeEmail, password: safePassword });
+      return ok(JSON.stringify(data, null, 2));
+    } catch (e) { return err(e); }
+  }
+
+  // -----------------------------------------------------------------------
+  // Tool 35: getAccountInfo
+  // -----------------------------------------------------------------------
+
+  async getAccountInfo(): Promise<PiToolResult> {
+    try {
+      const data = await this._req("GET", "/api/auth/me");
+      return ok(JSON.stringify(data, null, 2));
+    } catch (e) { return err(e); }
+  }
+
+  // -----------------------------------------------------------------------
+  // Tool 36: verifyEmail
+  // -----------------------------------------------------------------------
+
+  async verifyEmail(token: string): Promise<PiToolResult> {
+    try {
+      if (!token || typeof token !== "string" || token.trim().length === 0) {
+        return err("Verification token is required.");
+      }
+      if (/[\x00-\x1f\x7f]/.test(token)) {
+        return err("Token contains invalid control characters.");
+      }
+      const data = await this._rawRequest("POST", "/api/auth/verify-email", { token: token.trim() });
+      return ok(JSON.stringify(data, null, 2));
+    } catch (e) { return err(e); }
+  }
+
+  // -----------------------------------------------------------------------
+  // Tool 37: resendVerification
+  // -----------------------------------------------------------------------
+
+  async resendVerification(): Promise<PiToolResult> {
+    try {
+      const data = await this._req("POST", "/api/auth/resend-verification");
+      return ok(JSON.stringify(data, null, 2));
+    } catch (e) { return err(e); }
+  }
+
+  // -----------------------------------------------------------------------
+  // Tool 38: updatePassword
+  // -----------------------------------------------------------------------
+
+  async updatePassword(currentPassword: string, newPassword: string): Promise<PiToolResult> {
+    try {
+      DominusNodeToolkit.validatePassword(currentPassword);
+      DominusNodeToolkit.validatePassword(newPassword);
+      const data = await this._req("POST", "/api/auth/change-password", { currentPassword, newPassword });
+      return ok(JSON.stringify(data, null, 2));
+    } catch (e) { return err(e); }
+  }
+
+  // -----------------------------------------------------------------------
+  // Tool 39: listKeys
+  // -----------------------------------------------------------------------
+
+  async listKeys(): Promise<PiToolResult> {
+    try {
+      const data = await this._req("GET", "/api/keys");
+      return ok(JSON.stringify(data, null, 2));
+    } catch (e) { return err(e); }
+  }
+
+  // -----------------------------------------------------------------------
+  // Tool 40: createKey
+  // -----------------------------------------------------------------------
+
+  async createKey(label: string): Promise<PiToolResult> {
+    try {
+      const labelErr = validateLabel(label);
+      if (labelErr) return err(labelErr);
+      const data = await this._req("POST", "/api/keys", { label: label.trim() });
+      return ok(JSON.stringify(data, null, 2) + "\n\nIMPORTANT: Store this API key securely — it will not be shown again.");
+    } catch (e) { return err(e); }
+  }
+
+  // -----------------------------------------------------------------------
+  // Tool 41: revokeKey
+  // -----------------------------------------------------------------------
+
+  async revokeKey(keyId: string): Promise<PiToolResult> {
+    try {
+      const id = validateUuid(keyId, "keyId");
+      const data = await this._req("DELETE", `/api/keys/${encodeURIComponent(id)}`);
+      return ok(JSON.stringify(data, null, 2));
+    } catch (e) { return err(e); }
+  }
+
+  // -----------------------------------------------------------------------
+  // Tool 42: getPlan
+  // -----------------------------------------------------------------------
+
+  async getPlan(): Promise<PiToolResult> {
+    try {
+      const data = await this._req("GET", "/api/plans/user/plan");
+      return ok(JSON.stringify(data, null, 2));
+    } catch (e) { return err(e); }
+  }
+
+  // -----------------------------------------------------------------------
+  // Tool 43: listPlans
+  // -----------------------------------------------------------------------
+
+  async listPlans(): Promise<PiToolResult> {
+    try {
+      const data = await this._req("GET", "/api/plans");
+      return ok(JSON.stringify(data, null, 2));
+    } catch (e) { return err(e); }
+  }
+
+  // -----------------------------------------------------------------------
+  // Tool 44: changePlan
+  // -----------------------------------------------------------------------
+
+  async changePlan(planId: string): Promise<PiToolResult> {
+    try {
+      const id = validateUuid(planId, "planId");
+      const data = await this._req("PUT", "/api/plans/user/plan", { planId: id });
+      return ok(JSON.stringify(data, null, 2));
+    } catch (e) { return err(e); }
+  }
+
+  // -----------------------------------------------------------------------
+  // Tool 45: teamDelete
+  // -----------------------------------------------------------------------
+
+  async teamDelete(teamId: string): Promise<PiToolResult> {
+    try {
+      const id = validateUuid(teamId, "teamId");
+      const data = await this._req("DELETE", `/api/teams/${encodeURIComponent(id)}`);
+      return ok(JSON.stringify(data, null, 2));
+    } catch (e) { return err(e); }
+  }
+
+  // -----------------------------------------------------------------------
+  // Tool 46: teamRevokeKey
+  // -----------------------------------------------------------------------
+
+  async teamRevokeKey(teamId: string, keyId: string): Promise<PiToolResult> {
+    try {
+      const tid = validateUuid(teamId, "teamId");
+      const kid = validateUuid(keyId, "keyId");
+      const data = await this._req("DELETE", `/api/teams/${encodeURIComponent(tid)}/keys/${encodeURIComponent(kid)}`);
+      return ok(JSON.stringify(data, null, 2));
+    } catch (e) { return err(e); }
+  }
+
+  // -----------------------------------------------------------------------
+  // Tool 47: teamListKeys
+  // -----------------------------------------------------------------------
+
+  async teamListKeys(teamId: string): Promise<PiToolResult> {
+    try {
+      const id = validateUuid(teamId, "teamId");
+      const data = await this._req("GET", `/api/teams/${encodeURIComponent(id)}/keys`);
+      return ok(JSON.stringify(data, null, 2));
+    } catch (e) { return err(e); }
+  }
+
+  // -----------------------------------------------------------------------
+  // Tool 48: teamListMembers
+  // -----------------------------------------------------------------------
+
+  async teamListMembers(teamId: string): Promise<PiToolResult> {
+    try {
+      const id = validateUuid(teamId, "teamId");
+      const data = await this._req("GET", `/api/teams/${encodeURIComponent(id)}/members`);
+      return ok(JSON.stringify(data, null, 2));
+    } catch (e) { return err(e); }
+  }
+
+  // -----------------------------------------------------------------------
+  // Tool 49: teamAddMember
+  // -----------------------------------------------------------------------
+
+  async teamAddMember(teamId: string, userId: string, role = "member"): Promise<PiToolResult> {
+    try {
+      const tid = validateUuid(teamId, "teamId");
+      const uid = validateUuid(userId, "userId");
+      if (role !== "member" && role !== "admin") return err("role must be 'member' or 'admin'");
+      const data = await this._req("POST", `/api/teams/${encodeURIComponent(tid)}/members`, { userId: uid, role });
+      return ok(JSON.stringify(data, null, 2));
+    } catch (e) { return err(e); }
+  }
+
+  // -----------------------------------------------------------------------
+  // Tool 50: teamRemoveMember
+  // -----------------------------------------------------------------------
+
+  async teamRemoveMember(teamId: string, userId: string): Promise<PiToolResult> {
+    try {
+      const tid = validateUuid(teamId, "teamId");
+      const uid = validateUuid(userId, "userId");
+      const data = await this._req("DELETE", `/api/teams/${encodeURIComponent(tid)}/members/${encodeURIComponent(uid)}`);
+      return ok(JSON.stringify(data, null, 2));
+    } catch (e) { return err(e); }
+  }
+
+  // -----------------------------------------------------------------------
+  // Tool 51: teamInviteMember
+  // -----------------------------------------------------------------------
+
+  async teamInviteMember(teamId: string, email: string, role = "member"): Promise<PiToolResult> {
+    try {
+      const id = validateUuid(teamId, "teamId");
+      const safeEmail = DominusNodeToolkit.validateEmail(email);
+      if (role !== "member" && role !== "admin") return err("role must be 'member' or 'admin'");
+      const data = await this._req("POST", `/api/teams/${encodeURIComponent(id)}/invites`, { email: safeEmail, role });
+      return ok(JSON.stringify(data, null, 2));
+    } catch (e) { return err(e); }
+  }
+
+  // -----------------------------------------------------------------------
+  // Tool 52: teamListInvites
+  // -----------------------------------------------------------------------
+
+  async teamListInvites(teamId: string): Promise<PiToolResult> {
+    try {
+      const id = validateUuid(teamId, "teamId");
+      const data = await this._req("GET", `/api/teams/${encodeURIComponent(id)}/invites`);
+      return ok(JSON.stringify(data, null, 2));
+    } catch (e) { return err(e); }
+  }
+
+  // -----------------------------------------------------------------------
+  // Tool 53: teamCancelInvite
+  // -----------------------------------------------------------------------
+
+  async teamCancelInvite(teamId: string, inviteId: string): Promise<PiToolResult> {
+    try {
+      const tid = validateUuid(teamId, "teamId");
+      const iid = validateUuid(inviteId, "inviteId");
+      const data = await this._req("DELETE", `/api/teams/${encodeURIComponent(tid)}/invites/${encodeURIComponent(iid)}`);
       return ok(JSON.stringify(data, null, 2));
     } catch (e) { return err(e); }
   }

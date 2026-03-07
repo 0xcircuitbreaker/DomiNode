@@ -1,4 +1,4 @@
-"""Agent Zero tools: wallet balance, usage statistics, payment top-ups.
+"""Agent Zero tools: wallet balance, usage statistics, payment top-ups, analytics.
 
 Tools:
     - ``check_balance`` -- Get current wallet balance
@@ -6,24 +6,35 @@ Tools:
     - ``topup_paypal`` -- Create a PayPal checkout session for wallet top-up
     - ``topup_stripe`` -- Create a Stripe checkout session for wallet top-up
     - ``topup_crypto`` -- Create a crypto invoice for wallet top-up
+    - ``x402_info`` -- Get x402 micropayment protocol information
+    - ``get_transactions`` -- Get wallet transaction history
+    - ``get_forecast`` -- Get spending forecast based on recent usage
+    - ``check_payment`` -- Check the status of a crypto payment invoice
+    - ``get_daily_usage`` -- Get daily bandwidth usage breakdown
+    - ``get_top_hosts`` -- Get top hosts by bandwidth consumption
 
 Security:
     - Credential scrubbing in all error messages
     - Amount validation for all top-up methods
     - Currency validation for crypto top-up
     - Period-to-date-range conversion (backend uses since/until ISO dates)
+    - UUID validation for invoice IDs
+    - NaN/Infinity guards on numeric inputs
 """
 
 from __future__ import annotations
 
 import json
 import math
+import re
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict
 from urllib.parse import quote
 
 from shared import DominusNodeAuth
 from shared.constants import CREDENTIAL_RE
+
+_UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.IGNORECASE)
 
 # ---------------------------------------------------------------------------
 # Helper: sanitise error messages
@@ -315,6 +326,183 @@ def x402_info(
 
 
 # ---------------------------------------------------------------------------
+# Tool: get_transactions
+# ---------------------------------------------------------------------------
+
+
+def get_transactions(
+    auth: DominusNodeAuth,
+    args: Dict[str, Any],
+) -> str:
+    """Get wallet transaction history.
+
+    Returns a list of wallet transactions including top-ups, proxy usage
+    charges, and agentic wallet transfers.
+
+    Args:
+        auth: Authenticated Dominus Node helper.
+        args: Tool arguments:
+            - ``limit`` (int, optional): Maximum transactions to return
+              (1-100). Default: 20.
+
+    Returns:
+        JSON string with transaction history.
+    """
+    limit = args.get("limit")
+    qs = ""
+    if limit is not None:
+        if not isinstance(limit, int) or isinstance(limit, bool) or limit < 1 or limit > 100:
+            return json.dumps(
+                {"error": "limit must be an integer between 1 and 100"}
+            )
+        qs = f"?limit={limit}"
+
+    try:
+        result = auth.api_request("GET", f"/api/wallet/transactions{qs}")
+        return json.dumps(result)
+    except Exception as e:
+        return json.dumps({"error": _sanitize_error(str(e))})
+
+
+# ---------------------------------------------------------------------------
+# Tool: get_forecast
+# ---------------------------------------------------------------------------
+
+
+def get_forecast(
+    auth: DominusNodeAuth,
+    args: Dict[str, Any],
+) -> str:
+    """Get a spending forecast based on recent usage patterns.
+
+    Returns projected bandwidth consumption and costs based on
+    historical usage trends.
+
+    Args:
+        auth: Authenticated Dominus Node helper.
+        args: Tool arguments (none required).
+
+    Returns:
+        JSON string with spending forecast data.
+    """
+    try:
+        result = auth.api_request("GET", "/api/wallet/forecast")
+        return json.dumps(result)
+    except Exception as e:
+        return json.dumps({"error": _sanitize_error(str(e))})
+
+
+# ---------------------------------------------------------------------------
+# Tool: check_payment
+# ---------------------------------------------------------------------------
+
+
+def check_payment(
+    auth: DominusNodeAuth,
+    args: Dict[str, Any],
+) -> str:
+    """Check the status of a crypto payment invoice.
+
+    Queries the payment status for a previously created crypto top-up
+    invoice via NOWPayments.
+
+    Args:
+        auth: Authenticated Dominus Node helper.
+        args: Tool arguments:
+            - ``invoice_id`` (str, required): Invoice UUID to check.
+
+    Returns:
+        JSON string with the invoice payment status.
+    """
+    invoice_id = args.get("invoice_id")
+    if not invoice_id or not isinstance(invoice_id, str):
+        return json.dumps({"error": "invoice_id is required and must be a string"})
+    if not _UUID_RE.match(invoice_id):
+        return json.dumps({"error": "invoice_id must be a valid UUID"})
+
+    try:
+        result = auth.api_request(
+            "GET",
+            f"/api/wallet/topup/crypto/{quote(invoice_id, safe='')}/status",
+        )
+        return json.dumps(result)
+    except Exception as e:
+        return json.dumps({"error": _sanitize_error(str(e))})
+
+
+# ---------------------------------------------------------------------------
+# Tool: get_daily_usage
+# ---------------------------------------------------------------------------
+
+
+def get_daily_usage(
+    auth: DominusNodeAuth,
+    args: Dict[str, Any],
+) -> str:
+    """Get daily bandwidth usage breakdown.
+
+    Returns per-day bandwidth consumption for the specified number of
+    trailing days, broken down by proxy type.
+
+    Args:
+        auth: Authenticated Dominus Node helper.
+        args: Tool arguments:
+            - ``days`` (int, optional): Number of trailing days (1-365).
+              Default: 7.
+
+    Returns:
+        JSON string with daily usage breakdown.
+    """
+    days = args.get("days", 7)
+    if not isinstance(days, int) or isinstance(days, bool):
+        return json.dumps({"error": "days must be an integer between 1 and 365"})
+    if math.isnan(days) if isinstance(days, float) else False:
+        return json.dumps({"error": "days must be an integer between 1 and 365"})
+    days = max(1, min(days, 365))
+
+    try:
+        result = auth.api_request("GET", f"/api/usage/daily?days={days}")
+        return json.dumps(result)
+    except Exception as e:
+        return json.dumps({"error": _sanitize_error(str(e))})
+
+
+# ---------------------------------------------------------------------------
+# Tool: get_top_hosts
+# ---------------------------------------------------------------------------
+
+
+def get_top_hosts(
+    auth: DominusNodeAuth,
+    args: Dict[str, Any],
+) -> str:
+    """Get the top hosts by bandwidth usage.
+
+    Shows which target domains consume the most proxy traffic, useful
+    for cost analysis and optimisation.
+
+    Args:
+        auth: Authenticated Dominus Node helper.
+        args: Tool arguments:
+            - ``limit`` (int, optional): Number of top hosts to return
+              (1-100). Default: 10.
+
+    Returns:
+        JSON string with top hosts by bandwidth.
+    """
+    limit = args.get("limit", 10)
+    if not isinstance(limit, int) or isinstance(limit, bool):
+        return json.dumps({"error": "limit must be an integer between 1 and 100"})
+    limit = max(1, min(limit, 100))
+
+    try:
+        result = auth.api_request("GET", f"/api/usage/top-hosts?limit={limit}")
+        return json.dumps(result)
+    except Exception as e:
+        return json.dumps({"error": _sanitize_error(str(e))})
+
+
+# ---------------------------------------------------------------------------
 # Dispatch table
 # ---------------------------------------------------------------------------
 
@@ -396,5 +584,69 @@ TOOLS = {
             "facilitators, pricing, and payment options."
         ),
         "parameters": {},
+    },
+    "get_transactions": {
+        "function": get_transactions,
+        "description": (
+            "Get wallet transaction history including top-ups, proxy charges, "
+            "and agentic wallet transfers."
+        ),
+        "parameters": {
+            "limit": {
+                "type": "integer",
+                "required": False,
+                "description": "Max transactions to return (1-100, default 20)",
+            },
+        },
+    },
+    "get_forecast": {
+        "function": get_forecast,
+        "description": (
+            "Get a spending forecast based on recent usage patterns. "
+            "Projects future bandwidth consumption and costs."
+        ),
+        "parameters": {},
+    },
+    "check_payment": {
+        "function": check_payment,
+        "description": (
+            "Check the status of a crypto payment invoice created via "
+            "topup_crypto. Returns payment status and confirmation details."
+        ),
+        "parameters": {
+            "invoice_id": {
+                "type": "string",
+                "required": True,
+                "description": "Invoice UUID to check",
+            },
+        },
+    },
+    "get_daily_usage": {
+        "function": get_daily_usage,
+        "description": (
+            "Get daily bandwidth usage breakdown for the specified number of "
+            "trailing days, broken down by proxy type."
+        ),
+        "parameters": {
+            "days": {
+                "type": "integer",
+                "required": False,
+                "description": "Number of trailing days (1-365, default 7)",
+            },
+        },
+    },
+    "get_top_hosts": {
+        "function": get_top_hosts,
+        "description": (
+            "Get the top hosts by bandwidth usage. Shows which domains "
+            "consume the most proxy traffic."
+        ),
+        "parameters": {
+            "limit": {
+                "type": "integer",
+                "required": False,
+                "description": "Number of top hosts to return (1-100, default 10)",
+            },
+        },
     },
 }

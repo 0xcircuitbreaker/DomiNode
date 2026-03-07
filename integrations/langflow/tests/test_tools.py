@@ -486,10 +486,10 @@ class TestToolkitInit:
 class TestGetTools:
     """Test the get_tools method returns correct StructuredTool objects."""
 
-    def test_returns_26_tools(self):
+    def test_returns_53_tools(self):
         toolkit = DominusNodeToolkit(api_key="dn_test_key123")
         tools = toolkit.get_tools()
-        assert len(tools) == 26
+        assert len(tools) == 53
 
     def test_tool_names(self):
         toolkit = DominusNodeToolkit(api_key="dn_test_key123")
@@ -522,6 +522,33 @@ class TestGetTools:
             "dominusnode_topup_stripe",
             "dominusnode_topup_crypto",
             "dominusnode_update_wallet_policy",
+            "dominusnode_get_proxy_status",
+            "dominusnode_get_transactions",
+            "dominusnode_get_forecast",
+            "dominusnode_check_payment",
+            "dominusnode_get_daily_usage",
+            "dominusnode_get_top_hosts",
+            "dominusnode_register_account",
+            "dominusnode_login_account",
+            "dominusnode_get_account_info",
+            "dominusnode_verify_email",
+            "dominusnode_resend_verification",
+            "dominusnode_update_password",
+            "dominusnode_list_keys",
+            "dominusnode_create_key",
+            "dominusnode_revoke_key",
+            "dominusnode_get_plan",
+            "dominusnode_list_plans",
+            "dominusnode_change_plan",
+            "dominusnode_team_delete",
+            "dominusnode_team_revoke_key",
+            "dominusnode_team_list_keys",
+            "dominusnode_team_list_members",
+            "dominusnode_team_add_member",
+            "dominusnode_team_remove_member",
+            "dominusnode_team_invite_member",
+            "dominusnode_team_list_invites",
+            "dominusnode_team_cancel_invite",
         ]
         assert names == expected
 

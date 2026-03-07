@@ -1,4 +1,4 @@
-"""Dominus Node LlamaIndex integration -- 24 proxy, wallet, agentic wallet, team, and payment tools."""
+"""Dominus Node LlamaIndex integration -- 53 proxy, wallet, usage, account, API key, plan, team, and payment tools."""
 
 from .tools import (
     DominusNodeClient,

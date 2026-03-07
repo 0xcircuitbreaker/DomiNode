@@ -14,10 +14,10 @@
  *   mastra | flowise | openclaw | vercel-ai | openai-functions | n8n | gemini | pi
  *
  * Output JSON:
- *   { balance?, fetch?, usage?, error? }
- *   - balance: stringified balance info
- *   - fetch: stringified {status, bytes, body} or error
- *   - usage: stringified usage info
+ *   { balance?, fetch?, usage?, ..., _stats: {ok, err, total}, _categories: {...}, error? }
+ *   - Each key is a tool result (stringified)
+ *   - _stats: {ok, err, total} — success/failure counts
+ *   - _categories: {account, billing, proxy, usage, keys, plans, wallets, teams} — per-category pass/fail
  *   - error: credential-scrubbed error message (only set on fatal failure)
  *
  * Security:
@@ -106,157 +106,208 @@ if (!apiKey.startsWith("dn_live_") && !apiKey.startsWith("dn_test_")) {
   outputError("SHOWCASE_API_KEY must start with dn_live_ or dn_test_");
 }
 
-// ── Runner: Mastra ────────────────────────────────────────────────────────────
-async function runMastra() {
-  const { DominusNodeToolkit } = require(
-    path.join(INTEGRATIONS_DIR, "mastra/dist/index.js")
-  );
-  const tk = new DominusNodeToolkit({
-    apiKey,
-    baseUrl: apiBase,
-    proxyHost,
-    proxyPort,
-  });
-
-  const [bal, fet, usg] = await Promise.allSettled([
-    tk.checkBalance(),
-    tk.proxiedFetch(targetUrl, "GET", "US", proxyType),
-    tk.checkUsage(1),
-  ]);
-
-  const fetchVal = settled(fet);
-  return {
-    balance: bal.status === "fulfilled" ? JSON.stringify(settled(bal)) : null,
-    fetch: fetchVal
-      ? JSON.stringify({
-          status:  fetchVal.status ?? 0,
-          bytes:   String(fetchVal.body ?? "").length,
-          body:    String(fetchVal.body ?? "").slice(0, 200),
-          pool:    fetchVal.pool,
-          country: fetchVal.country,
-        })
-      : null,
-    usage:  usg.status === "fulfilled" ? JSON.stringify(settled(usg)) : null,
-    error:  settledErr(bal),
-  };
+// ── Full-lifecycle helper for function-handler integrations ──────────────────
+// (OpenAI Functions, Gemini — dispatch by string name)
+const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
+function extractUuid(text) {
+  const m = String(text).match(UUID_RE);
+  return m ? m[0] : null;
 }
 
-// ── Runner: Flowise ───────────────────────────────────────────────────────────
-async function runFlowise() {
-  const { DominusNodeToolkit } = require(
-    path.join(INTEGRATIONS_DIR, "flowise/dist/index.js")
-  );
-  const tk = new DominusNodeToolkit({
-    apiKey,
-    baseUrl: apiBase,
-    proxyHost,
-    proxyPort,
-  });
+async function lifecycleHandler(handler) {
+  const res = {};
+  let ok = 0, err = 0;
+  const categories = {};
 
-  const [bal, fet, usg] = await Promise.allSettled([
-    tk.checkBalance(),
-    tk.proxiedFetch(targetUrl, "GET", "US", proxyType),
-    tk.checkUsage(1),
-  ]);
+  async function call(key, category, name, args) {
+    try {
+      const r = await handler(name, args || {});
+      res[key] = String(r).slice(0, 500);
+      ok++;
+      if (!(category in categories)) categories[category] = true;
+      return String(r);
+    } catch (e) {
+      res[key] = `ERROR: ${scrub(e instanceof Error ? e.message : String(e)).slice(0, 200)}`;
+      err++;
+      if (!(category in categories)) categories[category] = false;
+      return "";
+    }
+  }
 
-  const fetchVal = settled(fet);
-  return {
-    balance: bal.status === "fulfilled" ? JSON.stringify(settled(bal)) : null,
-    fetch: fetchVal
-      ? JSON.stringify({
-          status:  fetchVal.status ?? 0,
-          bytes:   String(fetchVal.body ?? "").length,
-          body:    String(fetchVal.body ?? "").slice(0, 200),
-          pool:    fetchVal.pool,
-          country: fetchVal.country,
-        })
-      : null,
-    usage:  usg.status === "fulfilled" ? JSON.stringify(settled(usg)) : null,
-    error:  settledErr(bal),
-  };
+  // Account
+  await call("account_info", "account", "dominusnode_get_account_info");
+  await call("resend_verify", "account", "dominusnode_resend_verification");
+  // Billing
+  await call("balance", "billing", "dominusnode_check_balance");
+  await call("transactions", "billing", "dominusnode_get_transactions");
+  await call("forecast", "billing", "dominusnode_get_forecast");
+  await call("topup_paypal", "billing", "dominusnode_topup_paypal", { amount_cents: 100 });
+  await call("topup_stripe", "billing", "dominusnode_topup_stripe", { amount_cents: 100 });
+  await call("topup_crypto", "billing", "dominusnode_topup_crypto", { amount_usd: 1.0, currency: "BTC" });
+  await call("x402_info", "billing", "dominusnode_x402_info");
+  // Proxy
+  await call("fetch", "proxy", "dominusnode_proxied_fetch", { url: targetUrl, method: "GET", country: "US", proxy_type: proxyType });
+  await call("proxy_config", "proxy", "dominusnode_get_proxy_config");
+  await call("proxy_status", "proxy", "dominusnode_get_proxy_status");
+  await call("sessions", "proxy", "dominusnode_list_sessions");
+  // Usage
+  await call("usage", "usage", "dominusnode_check_usage", { days: 7 });
+  await call("daily_usage", "usage", "dominusnode_get_daily_usage", { days: 7 });
+  await call("top_hosts", "usage", "dominusnode_get_top_hosts", { limit: 5 });
+  // Keys
+  await call("list_keys", "keys", "dominusnode_list_keys");
+  const kr = await call("create_key", "keys", "dominusnode_create_key", { label: "showcase-key" });
+  const kid = extractUuid(kr);
+  if (kid) await call("revoke_key", "keys", "dominusnode_revoke_key", { key_id: kid });
+  // Plans
+  await call("get_plan", "plans", "dominusnode_get_plan");
+  await call("list_plans", "plans", "dominusnode_list_plans");
+  // Agentic Wallets
+  const wr = await call("create_wallet", "wallets", "dominusnode_create_agentic_wallet", { label: "showcase-wallet", spending_limit_cents: 10000 });
+  const wid = extractUuid(wr);
+  if (wid) {
+    await call("fund_wallet", "wallets", "dominusnode_fund_agentic_wallet", { wallet_id: wid, amount_cents: 100 });
+    await call("wallet_balance", "wallets", "dominusnode_agentic_wallet_balance", { wallet_id: wid });
+    await call("list_wallets", "wallets", "dominusnode_list_agentic_wallets");
+    await call("wallet_txns", "wallets", "dominusnode_agentic_transactions", { wallet_id: wid });
+    await call("wallet_policy", "wallets", "dominusnode_update_wallet_policy", { wallet_id: wid, daily_limit_cents: 5000 });
+    await call("freeze_wallet", "wallets", "dominusnode_freeze_agentic_wallet", { wallet_id: wid });
+    await call("unfreeze_wallet", "wallets", "dominusnode_unfreeze_agentic_wallet", { wallet_id: wid });
+    await call("delete_wallet", "wallets", "dominusnode_delete_agentic_wallet", { wallet_id: wid });
+  }
+  // Teams
+  const tr = await call("create_team", "teams", "dominusnode_create_team", { name: "showcase-team" });
+  const tid = extractUuid(tr);
+  if (tid) {
+    await call("list_teams", "teams", "dominusnode_list_teams");
+    await call("team_details", "teams", "dominusnode_team_details", { team_id: tid });
+    await call("update_team", "teams", "dominusnode_update_team", { team_id: tid, name: "updated-showcase" });
+    await call("team_fund", "teams", "dominusnode_team_fund", { team_id: tid, amount_cents: 50 });
+    const tkr = await call("team_create_key", "teams", "dominusnode_team_create_key", { team_id: tid, label: "team-key" });
+    const tkid = extractUuid(tkr);
+    await call("team_list_keys", "teams", "dominusnode_team_list_keys", { team_id: tid });
+    await call("team_usage", "teams", "dominusnode_team_usage", { team_id: tid });
+    await call("team_members", "teams", "dominusnode_team_list_members", { team_id: tid });
+    const ir = await call("team_invite", "teams", "dominusnode_team_invite_member", { team_id: tid, email: "invite-test@dominusnode.bot" });
+    const iid = extractUuid(ir);
+    await call("team_invites", "teams", "dominusnode_team_list_invites", { team_id: tid });
+    if (iid) await call("team_cancel_invite", "teams", "dominusnode_team_cancel_invite", { team_id: tid, invite_id: iid });
+    if (tkid) await call("team_revoke_key", "teams", "dominusnode_team_revoke_key", { team_id: tid, key_id: tkid });
+    await call("team_delete", "teams", "dominusnode_team_delete", { team_id: tid });
+  }
+
+  res._stats = { ok, err, total: ok + err };
+  res._categories = categories;
+  return res;
 }
 
-// ── Runner: OpenClaw ──────────────────────────────────────────────────────────
-async function runOpenClaw() {
-  // OpenClaw reads config from environment variables
-  process.env.DOMINUSNODE_API_KEY    = apiKey;
-  process.env.DOMINUSNODE_BASE_URL   = apiBase;
-  process.env.DOMINUSNODE_PROXY_HOST = proxyHost;
-  process.env.DOMINUSNODE_PROXY_PORT = String(proxyPort);
+// ── Full-lifecycle helper for REST-based integrations ────────────────────────
+// (n8n, Pi — use auth.apiRequest or raw HTTP)
+async function lifecycleRest(authOrFetch) {
+  // authOrFetch: { get(path), post(path, body), patch(path, body), del(path), proxyFetch() }
+  const res = {};
+  let ok = 0, err = 0;
+  const categories = {};
 
-  // ESM module — use dynamic import()
-  const pluginUrl = pathToFileURL(
-    path.join(INTEGRATIONS_DIR, "openclaw/dist/plugin.js")
-  ).href;
-  const mod = await import(pluginUrl);
-  const tools = mod.tools || (mod.default && mod.default.tools) || [];
-  const byName = Object.fromEntries(tools.map(t => [t.name, t]));
+  async function call(key, category, fn) {
+    try {
+      const r = await fn();
+      const val = typeof r === "string" ? r : JSON.stringify(r);
+      res[key] = val.slice(0, 500);
+      ok++;
+      if (!(category in categories)) categories[category] = true;
+      return val;
+    } catch (e) {
+      res[key] = `ERROR: ${scrub(e instanceof Error ? e.message : String(e)).slice(0, 200)}`;
+      err++;
+      if (!(category in categories)) categories[category] = false;
+      return "";
+    }
+  }
 
-  const [bal, fet] = await Promise.allSettled([
-    byName.check_balance
-      ? byName.check_balance.execute({})
-      : Promise.reject(new Error("check_balance tool not found")),
-    byName.proxied_fetch
-      ? byName.proxied_fetch.execute({ url: targetUrl, method: "GET", country: "US" })
-      : Promise.reject(new Error("proxied_fetch tool not found")),
-  ]);
+  const { get, post, patch, del, proxyFetch } = authOrFetch;
 
-  const fetchRaw = settled(fet);
-  return {
-    balance: bal.status === "fulfilled"
-      ? String(settled(bal)).slice(0, 500)
-      : null,
-    fetch: fetchRaw !== null
-      ? String(fetchRaw).slice(0, 500)
-      : null,
-    error: settledErr(bal),
-  };
+  await call("account_info", "account", () => get("/api/auth/me"));
+  await call("resend_verify", "account", () => post("/api/auth/resend-verification"));
+  await call("balance", "billing", () => get("/api/wallet"));
+  await call("transactions", "billing", () => get("/api/wallet/transactions?limit=5"));
+  await call("forecast", "billing", () => get("/api/wallet/forecast"));
+  await call("topup_paypal", "billing", () => post("/api/billing/paypal/create-order", { amountCents: 100 }));
+  await call("topup_stripe", "billing", () => post("/api/billing/stripe/create-session", { amountCents: 100 }));
+  await call("topup_crypto", "billing", () => post("/api/billing/crypto/create-invoice", { amountUsd: 1.0, currency: "BTC" }));
+  await call("x402_info", "billing", () => get("/api/x402/info"));
+  await call("fetch", "proxy", proxyFetch);
+  await call("proxy_config", "proxy", () => get("/api/proxy/config"));
+  await call("proxy_status", "proxy", () => get("/api/proxy/status"));
+  await call("sessions", "proxy", () => get("/api/sessions/active"));
+  await call("usage", "usage", () => get("/api/usage"));
+  await call("daily_usage", "usage", () => get("/api/usage/daily?days=7"));
+  await call("top_hosts", "usage", () => get("/api/usage/top-hosts?limit=5"));
+  await call("list_keys", "keys", () => get("/api/keys"));
+  const kr = await call("create_key", "keys", () => post("/api/keys", { label: "showcase-key" }));
+  const kid = extractUuid(kr);
+  if (kid) await call("revoke_key", "keys", () => del(`/api/keys/${kid}`));
+  await call("get_plan", "plans", () => get("/api/plans/current"));
+  await call("list_plans", "plans", () => get("/api/plans"));
+  const wr = await call("create_wallet", "wallets", () => post("/api/agent-wallet", { label: "showcase-wallet", spendingLimitCents: 10000 }));
+  const wid = extractUuid(wr);
+  if (wid) {
+    await call("fund_wallet", "wallets", () => post(`/api/agent-wallet/${wid}/fund`, { amountCents: 100 }));
+    await call("wallet_balance", "wallets", () => get(`/api/agent-wallet/${wid}`));
+    await call("list_wallets", "wallets", () => get("/api/agent-wallet"));
+    await call("wallet_txns", "wallets", () => get(`/api/agent-wallet/${wid}/transactions`));
+    await call("wallet_policy", "wallets", () => patch(`/api/agent-wallet/${wid}/policy`, { dailyLimitCents: 5000 }));
+    await call("freeze_wallet", "wallets", () => post(`/api/agent-wallet/${wid}/freeze`));
+    await call("unfreeze_wallet", "wallets", () => post(`/api/agent-wallet/${wid}/unfreeze`));
+    await call("delete_wallet", "wallets", () => del(`/api/agent-wallet/${wid}`));
+  }
+  const tr = await call("create_team", "teams", () => post("/api/teams", { name: "showcase-team" }));
+  const tid = extractUuid(tr);
+  if (tid) {
+    await call("list_teams", "teams", () => get("/api/teams"));
+    await call("team_details", "teams", () => get(`/api/teams/${tid}`));
+    await call("update_team", "teams", () => patch(`/api/teams/${tid}`, { name: "updated-showcase" }));
+    await call("team_fund", "teams", () => post(`/api/teams/${tid}/fund`, { amountCents: 50 }));
+    const tkr = await call("team_create_key", "teams", () => post(`/api/teams/${tid}/keys`, { label: "team-key" }));
+    const tkid = extractUuid(tkr);
+    await call("team_list_keys", "teams", () => get(`/api/teams/${tid}/keys`));
+    await call("team_usage", "teams", () => get(`/api/teams/${tid}/usage`));
+    await call("team_members", "teams", () => get(`/api/teams/${tid}/members`));
+    const ir = await call("team_invite", "teams", () => post(`/api/teams/${tid}/invites`, { email: "invite-test@dominusnode.bot", role: "member" }));
+    const iid = extractUuid(ir);
+    await call("team_invites", "teams", () => get(`/api/teams/${tid}/invites`));
+    if (iid) await call("team_cancel_invite", "teams", () => del(`/api/teams/${tid}/invites/${iid}`));
+    if (tkid) await call("team_revoke_key", "teams", () => del(`/api/teams/${tid}/keys/${tkid}`));
+    await call("team_delete", "teams", () => del(`/api/teams/${tid}`));
+  }
+
+  res._stats = { ok, err, total: ok + err };
+  res._categories = categories;
+  return res;
 }
 
-// ── Runner: Vercel AI ─────────────────────────────────────────────────────────
-async function runVercelAI() {
-  // Vercel AI SDK is ESM — dynamic import()
-  const modUrl = pathToFileURL(
-    path.join(INTEGRATIONS_DIR, "vercel-ai/dist/index.js")
-  ).href;
-  const mod = await import(modUrl);
-
-  const tools = await mod.createDominusNodeTools({
-    apiKey,
-    baseUrl:   apiBase,
-    proxyHost,
-    proxyPort,
-  });
-
-  // Vercel AI tools have an `execute` function at tool.execute(params, options)
-  // options is optional in standalone use
-  const [bal, fet] = await Promise.allSettled([
-    tools.checkBalance
-      ? tools.checkBalance.execute({})
-      : Promise.reject(new Error("checkBalance tool not found")),
-    tools.proxiedFetch
-      ? tools.proxiedFetch.execute({
-          url:       targetUrl,
-          method:    "GET",
-          country:   "US",
-          proxyType,
-        })
-      : Promise.reject(new Error("proxiedFetch tool not found")),
-  ]);
-
-  const fetchVal = settled(fet);
-  return {
-    balance: bal.status === "fulfilled"
-      ? JSON.stringify(settled(bal))
-      : null,
-    fetch: fetchVal
-      ? JSON.stringify({
-          status:  fetchVal.status ?? fetchVal.error ?? 0,
-          bytes:   String(fetchVal.body ?? "").length,
-          body:    String(fetchVal.body ?? "").slice(0, 200),
-        })
-      : null,
-    error: settledErr(bal),
+// ── Proxy fetch helper (raw HTTP through gateway) ────────────────────────────
+function makeProxyFetcher(userAgent) {
+  return async () => {
+    const http = require("node:http");
+    const proxyAuth = "Basic " + Buffer.from(
+      `${proxyType}-country-US:${apiKey}`
+    ).toString("base64");
+    const targetParsed = new URL(targetUrl);
+    return new Promise((resolve, reject) => {
+      const req = http.request({
+        hostname: proxyHost, port: proxyPort, method: "GET", path: targetUrl,
+        headers: { Host: targetParsed.host, "Proxy-Authorization": proxyAuth, "User-Agent": userAgent },
+      }, (res) => {
+        const chunks = []; let bytes = 0;
+        res.on("data", (c) => { bytes += c.length; chunks.push(c); });
+        res.on("end", () => resolve(JSON.stringify({ status: res.statusCode ?? 0, bytes, body: Buffer.concat(chunks).toString("utf-8").slice(0, 200) })));
+        res.on("error", reject);
+      });
+      req.on("error", reject);
+      req.setTimeout(20_000, () => { req.destroy(); reject(new Error("proxy request timed out")); });
+      req.end();
+    });
   };
 }
 
@@ -265,220 +316,147 @@ async function runOpenAIFunctions() {
   const { createDominusNodeFunctionHandler } = require(
     path.join(INTEGRATIONS_DIR, "openai-functions/dist/handler.js")
   );
-  const handler = createDominusNodeFunctionHandler({
-    apiKey,
-    baseUrl: apiBase,
-  });
-
-  const [bal, fet, usg] = await Promise.allSettled([
-    handler("dominusnode_check_balance", {}),
-    handler("dominusnode_proxied_fetch", {
-      url:        targetUrl,
-      method:     "GET",
-      country:    "US",
-      proxy_type: proxyType,
-    }),
-    handler("dominusnode_check_usage", { days: 1 }),
-  ]);
-
-  return {
-    balance: bal.status === "fulfilled" ? String(settled(bal)).slice(0, 500) : null,
-    fetch:   fet.status === "fulfilled" ? String(settled(fet)).slice(0, 500) : null,
-    usage:   usg.status === "fulfilled" ? String(settled(usg)).slice(0, 500) : null,
-    error:   settledErr(bal),
-  };
-}
-
-// ── Runner: n8n ───────────────────────────────────────────────────────────────
-// The n8n nodes require the n8n-workflow framework to run. We instead use
-// the shared DominusNodeAuth client directly — same auth/API logic, just
-// without the n8n execution context wrapper.
-async function runN8n() {
-  const { DominusNodeAuth } = require(
-    path.join(INTEGRATIONS_DIR, "n8n/dist/shared/auth.js")
-  );
-  const auth = new DominusNodeAuth(apiKey, apiBase);
-
-  const since = new Date(Date.now() - 86_400_000).toISOString();
-  const until = new Date().toISOString();
-
-  const [bal, usg] = await Promise.allSettled([
-    auth.apiRequest("GET", "/api/wallet"),
-    auth.apiRequest("GET", `/api/usage?since=${encodeURIComponent(since)}&until=${encodeURIComponent(until)}`),
-  ]);
-
-  // Make a proxied HTTP request using node:http (mirrors DominusNodeProxy node behaviour)
-  let fetchResult = null;
-  try {
-    const http = require("node:http");
-    const proxyAuth = "Basic " + Buffer.from(
-      `${proxyType}-country-US:${apiKey}`
-    ).toString("base64");
-    const targetParsed = new URL(targetUrl);
-
-    fetchResult = await new Promise((resolve, reject) => {
-      const req = http.request(
-        {
-          hostname: proxyHost,
-          port:     proxyPort,
-          method:   "GET",
-          path:     targetUrl,          // full URL in request-path for HTTP proxy
-          headers: {
-            Host:                  targetParsed.host,
-            "Proxy-Authorization": proxyAuth,
-            "User-Agent":          "n8n-nodes-dominusnode/1.0.0",
-          },
-        },
-        (res) => {
-          let bytes = 0;
-          res.on("data", (c) => { bytes += c.length; });
-          res.on("end",   () => resolve({ status: res.statusCode ?? 0, bytes }));
-          res.on("error", reject);
-        }
-      );
-      req.on("error", reject);
-      req.setTimeout(20_000, () => {
-        req.destroy();
-        reject(new Error("proxy request timed out (20s)"));
-      });
-      req.end();
-    });
-  } catch (e) {
-    fetchResult = { error: scrub(e instanceof Error ? e.message : String(e)) };
-  }
-
-  return {
-    balance: bal.status === "fulfilled"
-      ? JSON.stringify(settled(bal)).slice(0, 500)
-      : null,
-    fetch:   JSON.stringify(fetchResult),
-    usage:   usg.status === "fulfilled"
-      ? JSON.stringify(settled(usg)).slice(0, 500)
-      : null,
-    error:   settledErr(bal),
-  };
+  const handler = createDominusNodeFunctionHandler({ apiKey, baseUrl: apiBase });
+  return lifecycleHandler(handler);
 }
 
 // ── Runner: Gemini / Vertex AI ────────────────────────────────────────────────
-// Gemini uses the same function-handler pattern as openai-functions.
-// ESM module — use dynamic import() with pathToFileURL.
 async function runGemini() {
-  const handlerUrl = pathToFileURL(
-    path.join(INTEGRATIONS_DIR, "gemini/dist/handler.js")
-  ).href;
+  const handlerUrl = pathToFileURL(path.join(INTEGRATIONS_DIR, "gemini/dist/handler.js")).href;
   const mod = await import(handlerUrl);
+  const createHandler = mod.createDominusNodeFunctionHandler || (mod.default && mod.default.createDominusNodeFunctionHandler);
+  if (!createHandler) throw new Error("createDominusNodeFunctionHandler not found in gemini handler");
+  const handler = createHandler({ apiKey, baseUrl: apiBase });
+  return lifecycleHandler(handler);
+}
 
-  const createHandler =
-    mod.createDominusNodeFunctionHandler ||
-    (mod.default && mod.default.createDominusNodeFunctionHandler);
+// ── Runner: OpenClaw ──────────────────────────────────────────────────────────
+async function runOpenClaw() {
+  process.env.DOMINUSNODE_API_KEY    = apiKey;
+  process.env.DOMINUSNODE_BASE_URL   = apiBase;
+  process.env.DOMINUSNODE_PROXY_HOST = proxyHost;
+  process.env.DOMINUSNODE_PROXY_PORT = String(proxyPort);
 
-  if (!createHandler) {
-    throw new Error("createDominusNodeFunctionHandler not found in gemini handler");
+  const pluginUrl = pathToFileURL(path.join(INTEGRATIONS_DIR, "openclaw/dist/plugin.js")).href;
+  const mod = await import(pluginUrl);
+  const tools = mod.tools || (mod.default && mod.default.tools) || [];
+  const byName = Object.fromEntries(tools.map(t => [t.name, t]));
+
+  // Adapt OpenClaw tool.execute({}) into a handler(name, args) interface
+  async function handler(name, args) {
+    // OpenClaw uses snake_case names without "dominusnode_" prefix
+    const shortName = name.replace("dominusnode_", "");
+    const tool = byName[shortName] || byName[name];
+    if (!tool) throw new Error(`tool ${name} not found`);
+    return tool.execute(args || {});
+  }
+  return lifecycleHandler(handler);
+}
+
+// ── Runner: Vercel AI ─────────────────────────────────────────────────────────
+async function runVercelAI() {
+  const modUrl = pathToFileURL(path.join(INTEGRATIONS_DIR, "vercel-ai/dist/index.js")).href;
+  const mod = await import(modUrl);
+  const tools = await mod.createDominusNodeTools({ apiKey, baseUrl: apiBase, proxyHost, proxyPort });
+
+  // Map camelCase tool names to dominusnode_snake_case handler calls
+  const toolMap = {};
+  for (const [k, v] of Object.entries(tools)) {
+    if (v && typeof v.execute === "function") {
+      toolMap[k] = v;
+    }
   }
 
-  const handler = createHandler({ apiKey, baseUrl: apiBase });
+  // Build a snake_case → camelCase mapping
+  function toCamel(s) {
+    return s.replace("dominusnode_", "").replace(/_([a-z])/g, (_, c) => c.toUpperCase());
+  }
 
-  const [bal, fet] = await Promise.allSettled([
-    handler("dominusnode_check_balance", {}),
-    handler("dominusnode_proxied_fetch", {
-      url:        targetUrl,
-      method:     "GET",
-      country:    "US",
-      proxy_type: proxyType,
-    }),
-  ]);
+  async function handler(name, args) {
+    const camel = toCamel(name);
+    const tool = toolMap[camel] || toolMap[name];
+    if (!tool) throw new Error(`tool ${name} (${camel}) not found`);
+    return JSON.stringify(await tool.execute(args || {}));
+  }
+  return lifecycleHandler(handler);
+}
 
-  return {
-    balance: bal.status === "fulfilled" ? String(settled(bal)).slice(0, 500) : null,
-    fetch:   fet.status === "fulfilled" ? String(settled(fet)).slice(0, 500) : null,
-    error:   settledErr(bal),
-  };
+// ── Runner: Mastra ────────────────────────────────────────────────────────────
+async function runMastra() {
+  const { DominusNodeToolkit } = require(path.join(INTEGRATIONS_DIR, "mastra/dist/index.js"));
+  const tk = new DominusNodeToolkit({ apiKey, baseUrl: apiBase, proxyHost, proxyPort });
+
+  // Mastra toolkit has methods directly — wrap them as a handler
+  function toCamel(s) {
+    return s.replace("dominusnode_", "").replace(/_([a-z])/g, (_, c) => c.toUpperCase());
+  }
+  async function handler(name, args) {
+    const method = toCamel(name);
+    if (typeof tk[method] !== "function") throw new Error(`method ${method} not found on Mastra toolkit`);
+    const r = await tk[method](...Object.values(args || {}));
+    return typeof r === "string" ? r : JSON.stringify(r);
+  }
+  return lifecycleHandler(handler);
+}
+
+// ── Runner: Flowise ───────────────────────────────────────────────────────────
+async function runFlowise() {
+  const { DominusNodeToolkit } = require(path.join(INTEGRATIONS_DIR, "flowise/dist/index.js"));
+  const tk = new DominusNodeToolkit({ apiKey, baseUrl: apiBase, proxyHost, proxyPort });
+
+  function toCamel(s) {
+    return s.replace("dominusnode_", "").replace(/_([a-z])/g, (_, c) => c.toUpperCase());
+  }
+  async function handler(name, args) {
+    const method = toCamel(name);
+    if (typeof tk[method] !== "function") throw new Error(`method ${method} not found on Flowise toolkit`);
+    const r = await tk[method](...Object.values(args || {}));
+    return typeof r === "string" ? r : JSON.stringify(r);
+  }
+  return lifecycleHandler(handler);
+}
+
+// ── Runner: n8n ───────────────────────────────────────────────────────────────
+async function runN8n() {
+  const { DominusNodeAuth } = require(path.join(INTEGRATIONS_DIR, "n8n/dist/shared/auth.js"));
+  const auth = new DominusNodeAuth(apiKey, apiBase);
+
+  return lifecycleRest({
+    get:   (p) => auth.apiRequest("GET", p),
+    post:  (p, b) => auth.apiRequest("POST", p, b),
+    patch: (p, b) => auth.apiRequest("PATCH", p, b),
+    del:   (p) => auth.apiRequest("DELETE", p),
+    proxyFetch: makeProxyFetcher("n8n-nodes-dominusnode/1.0.0"),
+  });
 }
 
 // ── Runner: Pi (pi-mono) ──────────────────────────────────────────────────────
-// Pi toolkit returns PiToolResult: { content: [{ type:"text", text:string }], details:{} }
-// The Pi constructor rejects private/loopback proxyHost values (security hardening).
-// Strategy: use DominusNodeToolkit for API calls (checkBalance, checkUsage) which
-// do not require a proxy host, and make the proxy fetch via raw Node.js HTTP (same
-// pattern as the n8n runner) to exercise the gateway independently.
 async function runPi() {
-  const { DominusNodeToolkit } = require(
-    path.join(INTEGRATIONS_DIR, "pi/dist/index.js")
-  );
+  const { DominusNodeToolkit } = require(path.join(INTEGRATIONS_DIR, "pi/dist/index.js"));
+  const tk = new DominusNodeToolkit({ apiKey, baseUrl: apiBase });
 
-  // Construct without proxyHost/proxyPort — only API methods are called on this instance.
-  // This avoids the private-IP guard that blocks localhost in local dev setups.
-  const tk = new DominusNodeToolkit({
-    apiKey,
-    baseUrl: apiBase,
-  });
-
-  // Pi returns { content: [{type:"text", text:string}], details:{} }
-  function extractText(r) {
-    if (r.status !== "fulfilled") return null;
-    const v = r.value;
-    if (v && v.content && Array.isArray(v.content) && v.content[0]) {
-      return String(v.content[0].text || "");
+  function extractPiText(val) {
+    if (val && val.content && Array.isArray(val.content) && val.content[0]) {
+      return String(val.content[0].text || "");
     }
-    return String(v || "");
+    return typeof val === "string" ? val : JSON.stringify(val);
   }
 
-  const [bal, usg] = await Promise.allSettled([
-    tk.checkBalance(),
-    tk.checkUsage(1),
-  ]);
-
-  // Proxy fetch: raw HTTP through the gateway (same pattern as n8n runner)
-  let fetchResult = null;
-  try {
-    const http = require("node:http");
-    const proxyAuth = "Basic " + Buffer.from(
-      `${proxyType}-country-US:${apiKey}`
-    ).toString("base64");
-    const targetParsed = new URL(targetUrl);
-
-    fetchResult = await new Promise((resolve, reject) => {
-      const req = http.request(
-        {
-          hostname: proxyHost,
-          port:     proxyPort,
-          method:   "GET",
-          path:     targetUrl,          // full URL for HTTP proxy
-          headers: {
-            Host:                  targetParsed.host,
-            "Proxy-Authorization": proxyAuth,
-            "User-Agent":          "dominusnode-pi/1.0.0",
-          },
-        },
-        (res) => {
-          const chunks = [];
-          let bytes = 0;
-          res.on("data", (c) => { bytes += c.length; chunks.push(c); });
-          res.on("end", () => resolve({
-            status: res.statusCode ?? 0,
-            bytes,
-            body:   Buffer.concat(chunks).toString("utf-8").slice(0, 200),
-          }));
-          res.on("error", reject);
-        }
-      );
-      req.on("error", reject);
-      req.setTimeout(20_000, () => {
-        req.destroy();
-        reject(new Error("proxy request timed out (20s)"));
-      });
-      req.end();
-    });
-  } catch (e) {
-    fetchResult = { error: scrub(e instanceof Error ? e.message : String(e)) };
+  // Pi methods return PiToolResult, adapt to handler interface
+  function toCamel(s) {
+    return s.replace("dominusnode_", "").replace(/_([a-z])/g, (_, c) => c.toUpperCase());
   }
-
-  return {
-    balance: extractText(bal),
-    fetch:   JSON.stringify(fetchResult),
-    usage:   extractText(usg),
-    error:   settledErr(bal),
-  };
+  async function handler(name, args) {
+    // Proxy fetch goes through raw HTTP (Pi blocks private IPs)
+    if (name === "dominusnode_proxied_fetch") {
+      return makeProxyFetcher("dominusnode-pi/1.0.0")();
+    }
+    const method = toCamel(name);
+    if (typeof tk[method] !== "function") throw new Error(`method ${method} not found on Pi toolkit`);
+    const r = await tk[method](...Object.values(args || {}));
+    return extractPiText(r);
+  }
+  return lifecycleHandler(handler);
 }
 
 // ── Dispatch ──────────────────────────────────────────────────────────────────
@@ -503,10 +481,10 @@ const RUNNERS = {
     return;
   }
 
-  // Enforce a 30 s hard timeout across the entire runner
+  // Enforce a 120 s hard timeout across the entire lifecycle runner
   const timeout = setTimeout(() => {
-    outputError(`Runner timed out after 30s (integration: ${integrationId})`);
-  }, 30_000).unref();
+    outputError(`Runner timed out after 120s (integration: ${integrationId})`);
+  }, 120_000).unref();
 
   try {
     const result = await runner();

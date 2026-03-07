@@ -1339,10 +1339,10 @@ class TestAuthentication:
 class TestGetAllTools:
     """Test the get_all_tools method."""
 
-    def test_returns_35_tools(self):
+    def test_returns_62_tools(self):
         client = _make_client()
         tools = client.get_all_tools()
-        assert len(tools) == 35
+        assert len(tools) == 62
 
     def test_all_tools_are_callable(self):
         client = _make_client()
@@ -1373,6 +1373,45 @@ class TestGetAllTools:
         assert "create_team" in tool_names
         assert "topup_paypal" in tool_names
         assert "x402_info" in tool_names
+
+    def test_tools_include_new_dominusnode_tools(self):
+        client = _make_client()
+        tools = client.get_all_tools()
+        tool_names = [t.__name__ for t in tools]
+        # Proxy
+        assert "dn_get_proxy_status" in tool_names
+        # Wallet
+        assert "get_transactions" in tool_names
+        assert "get_forecast" in tool_names
+        assert "check_payment" in tool_names
+        # Usage
+        assert "get_daily_usage" in tool_names
+        assert "get_top_hosts" in tool_names
+        # Account
+        assert "register_account" in tool_names
+        assert "login_account" in tool_names
+        assert "get_account_info" in tool_names
+        assert "verify_email" in tool_names
+        assert "resend_verification" in tool_names
+        assert "update_password" in tool_names
+        # API Keys
+        assert "list_keys" in tool_names
+        assert "create_key" in tool_names
+        assert "revoke_key" in tool_names
+        # Plans
+        assert "get_plan" in tool_names
+        assert "list_plans" in tool_names
+        assert "change_plan" in tool_names
+        # Teams (new)
+        assert "team_delete" in tool_names
+        assert "team_revoke_key" in tool_names
+        assert "team_list_keys" in tool_names
+        assert "team_list_members" in tool_names
+        assert "team_add_member" in tool_names
+        assert "team_remove_member" in tool_names
+        assert "team_invite_member" in tool_names
+        assert "team_list_invites" in tool_names
+        assert "team_cancel_invite" in tool_names
 
 
 # ===========================================================================

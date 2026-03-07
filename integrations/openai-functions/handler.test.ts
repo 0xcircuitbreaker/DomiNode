@@ -462,19 +462,48 @@ describe("handler dispatching", () => {
     expect(JSON.parse(result)).toHaveProperty("success");
   });
 
-  it("handler has all 26 functions", async () => {
+  it("handler has all 53 functions", async () => {
     const result = JSON.parse(await handler("nonexistent", {}));
-    expect(result.available).toHaveLength(26);
+    expect(result.available).toHaveLength(53);
   });
 
   it("handler available list includes all expected names", async () => {
     const result = JSON.parse(await handler("nonexistent", {}));
     const expected = [
+      // Proxy (3)
       "dominusnode_proxied_fetch",
-      "dominusnode_check_balance",
-      "dominusnode_check_usage",
       "dominusnode_get_proxy_config",
+      "dominusnode_get_proxy_status",
+      // Wallet (7)
+      "dominusnode_check_balance",
+      "dominusnode_get_transactions",
+      "dominusnode_get_forecast",
+      "dominusnode_check_payment",
+      "dominusnode_topup_paypal",
+      "dominusnode_topup_stripe",
+      "dominusnode_topup_crypto",
+      // Usage (3)
+      "dominusnode_check_usage",
+      "dominusnode_get_daily_usage",
+      "dominusnode_get_top_hosts",
+      // Sessions (1)
       "dominusnode_list_sessions",
+      // Account lifecycle (6)
+      "dominusnode_register",
+      "dominusnode_login",
+      "dominusnode_get_account_info",
+      "dominusnode_verify_email",
+      "dominusnode_resend_verification",
+      "dominusnode_update_password",
+      // API Keys (3)
+      "dominusnode_list_keys",
+      "dominusnode_create_key",
+      "dominusnode_revoke_key",
+      // Plans (3)
+      "dominusnode_get_plan",
+      "dominusnode_list_plans",
+      "dominusnode_change_plan",
+      // Agentic wallets (7)
       "dominusnode_create_agentic_wallet",
       "dominusnode_fund_agentic_wallet",
       "dominusnode_agentic_wallet_balance",
@@ -483,6 +512,8 @@ describe("handler dispatching", () => {
       "dominusnode_freeze_agentic_wallet",
       "dominusnode_unfreeze_agentic_wallet",
       "dominusnode_delete_agentic_wallet",
+      "dominusnode_update_wallet_policy",
+      // Teams (17)
       "dominusnode_create_team",
       "dominusnode_list_teams",
       "dominusnode_team_details",
@@ -491,10 +522,17 @@ describe("handler dispatching", () => {
       "dominusnode_team_usage",
       "dominusnode_update_team",
       "dominusnode_update_team_member_role",
-      "dominusnode_topup_paypal",
-      "dominusnode_topup_stripe",
-      "dominusnode_topup_crypto",
-      "dominusnode_update_wallet_policy",
+      "dominusnode_team_delete",
+      "dominusnode_team_revoke_key",
+      "dominusnode_team_list_keys",
+      "dominusnode_team_list_members",
+      "dominusnode_team_add_member",
+      "dominusnode_team_remove_member",
+      "dominusnode_team_invite_member",
+      "dominusnode_team_list_invites",
+      "dominusnode_team_cancel_invite",
+      // x402 (1)
+      "dominusnode_x402_info",
     ];
     for (const name of expected) {
       expect(result.available).toContain(name);

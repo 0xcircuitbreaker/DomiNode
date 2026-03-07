@@ -826,10 +826,10 @@ class TestToolkitRegistration:
         toolkit = DominusNodeToolkit()
         assert "proxy" in toolkit.description.lower()
 
-    def test_get_tools_returns_26(self):
+    def test_get_tools_returns_53(self):
         toolkit = DominusNodeToolkit()
         tools = toolkit.get_tools()
-        assert len(tools) == 26
+        assert len(tools) == 53
 
     def test_get_tools_all_are_base_tool(self):
         toolkit = DominusNodeToolkit()

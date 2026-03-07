@@ -1,6 +1,6 @@
 {
   "name": "@dominusnode/openai-functions",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Dominus Node OpenAI-compatible function calling handler — dispatches LLM function calls to the Dominus Node REST API",
   "main": "dist/handler.js",
   "types": "dist/handler.d.ts",

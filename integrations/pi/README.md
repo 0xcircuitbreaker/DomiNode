@@ -1,6 +1,6 @@
 # @dominusnode/pi-extension
 
-[Pi](https://github.com/badlogic/pi-mono) extension providing **26 tools** for the [Dominus Node](https://dominusnode.com) rotating proxy and management platform.
+[Pi](https://github.com/badlogic/pi-mono) extension providing **53 tools** for the [Dominus Node](https://dominusnode.com) rotating proxy and management platform.
 
 ## What is Pi?
 
@@ -39,7 +39,7 @@ export DOMINUSNODE_API_KEY="dn_live_your_key_here"
 
 Get your API key at [dominusnode.com](https://dominusnode.com) → Dashboard → API Keys.
 
-## Available Tools (26 total)
+## Available Tools (53 total)
 
 | Tool | Description |
 |------|-------------|
@@ -69,6 +69,33 @@ Get your API key at [dominusnode.com](https://dominusnode.com) → Dashboard →
 | `dominusnode_topup_crypto` | Top up via crypto (BTC/ETH/USDC/...) |
 | `dominusnode_x402_info` | x402 micropayment config |
 | `dominusnode_update_wallet_policy` | Set spending limits/domain restrictions |
+| `dominusnode_get_proxy_status` | Proxy gateway status and pool health |
+| `dominusnode_get_transactions` | Wallet transaction history |
+| `dominusnode_get_forecast` | Spending forecast and projected costs |
+| `dominusnode_check_payment` | Check crypto payment status by invoice ID |
+| `dominusnode_get_daily_usage` | Daily bandwidth usage breakdown |
+| `dominusnode_get_top_hosts` | Top hosts by bandwidth usage |
+| `dominusnode_register` | Register a new account |
+| `dominusnode_login` | Log in to an existing account |
+| `dominusnode_get_account_info` | Get account profile information |
+| `dominusnode_verify_email` | Verify email with token |
+| `dominusnode_resend_verification` | Resend email verification link |
+| `dominusnode_update_password` | Change account password |
+| `dominusnode_list_keys` | List personal API keys |
+| `dominusnode_create_key` | Create a new personal API key |
+| `dominusnode_revoke_key` | Revoke a personal API key |
+| `dominusnode_get_plan` | Get current subscription plan |
+| `dominusnode_list_plans` | List available plans |
+| `dominusnode_change_plan` | Change subscription plan |
+| `dominusnode_team_delete` | Delete a team |
+| `dominusnode_team_revoke_key` | Revoke a team API key |
+| `dominusnode_team_list_keys` | List team API keys |
+| `dominusnode_team_list_members` | List team members |
+| `dominusnode_team_add_member` | Add a member to a team |
+| `dominusnode_team_remove_member` | Remove a member from a team |
+| `dominusnode_team_invite_member` | Invite a user to a team by email |
+| `dominusnode_team_list_invites` | List pending team invitations |
+| `dominusnode_team_cancel_invite` | Cancel a pending team invitation |
 
 ## Proxy Usage
 

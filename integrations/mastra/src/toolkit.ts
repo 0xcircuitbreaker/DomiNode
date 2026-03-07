@@ -1,7 +1,7 @@
 /**
  * Dominus Node Mastra AI Toolkit
  *
- * Implements 26 tools for interacting with Dominus Node's rotating proxy service
+ * Implements 53 tools for interacting with Dominus Node's rotating proxy service
  * from Mastra AI agents and workflows.
  *
  * Uses createTool() from @mastra/core/tools with Zod schemas.
@@ -538,6 +538,82 @@ export class DominusNodeToolkit {
     return this.apiRequest<T>("PATCH", path, body);
   }
 
+  private async apiPut<T = unknown>(path: string, body?: Record<string, unknown>): Promise<T> {
+    return this.apiRequest<T>("PUT", path, body);
+  }
+
+  /**
+   * Raw POST/GET for unauthenticated endpoints (register, login, verify-email).
+   * Does NOT use ensureAuth(). Includes agent headers if configured.
+   */
+  private async rawRequest<T = unknown>(
+    method: string,
+    path: string,
+    body?: Record<string, unknown>,
+  ): Promise<T> {
+    const url = `${this.baseUrl}${path}`;
+    const headers: Record<string, string> = {
+      Accept: "application/json",
+      "User-Agent": "dominusnode-mastra/1.0.0",
+    };
+    if (this.agentSecret) {
+      headers["X-DominusNode-Agent"] = "mcp";
+      headers["X-DominusNode-Agent-Secret"] = this.agentSecret;
+    }
+    const init: RequestInit = {
+      method,
+      headers,
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      redirect: "error",
+    };
+    if (body && (method === "POST" || method === "PUT" || method === "PATCH")) {
+      headers["Content-Type"] = "application/json";
+      init.body = JSON.stringify(body);
+    }
+    let res: Response;
+    try {
+      res = await fetch(url, init);
+    } catch (err) {
+      throw new Error(`API request failed: ${safeError(err)}`);
+    }
+    let rawText: string;
+    try {
+      rawText = await res.text();
+    } catch {
+      rawText = "";
+    }
+    if (new TextEncoder().encode(rawText).length > MAX_RESPONSE_BYTES) {
+      throw new Error("API response too large");
+    }
+    if (!res.ok) {
+      let errorMsg = `API error ${res.status}`;
+      if (rawText) {
+        try {
+          const parsed = JSON.parse(rawText);
+          stripDangerousKeys(parsed);
+          if (parsed.error) {
+            errorMsg = `API error ${res.status}: ${scrubCredentials(String(parsed.error))}`;
+          } else if (parsed.message) {
+            errorMsg = `API error ${res.status}: ${scrubCredentials(String(parsed.message))}`;
+          }
+        } catch {
+          errorMsg = `API error ${res.status}: ${scrubCredentials(rawText.slice(0, 200))}`;
+        }
+      }
+      throw new Error(errorMsg);
+    }
+    if (!rawText || rawText.trim().length === 0) {
+      return {} as T;
+    }
+    try {
+      const parsed = JSON.parse(rawText);
+      stripDangerousKeys(parsed);
+      return parsed as T;
+    } catch {
+      throw new Error("Failed to parse API response as JSON");
+    }
+  }
+
   // -----------------------------------------------------------------------
   // Tool implementations
   // -----------------------------------------------------------------------
@@ -936,8 +1012,200 @@ export class DominusNodeToolkit {
     return this.apiGet("/api/x402/info");
   }
 
+  // -- Proxy --
+
+  async getProxyStatus(): Promise<Record<string, unknown>> {
+    return this.apiGet("/api/proxy/status");
+  }
+
+  // -- Wallet --
+
+  async getTransactions(limit: number = 20): Promise<Record<string, unknown>> {
+    const safeLimit = Math.min(Math.max(limit, 1), 100);
+    return this.apiGet(`/api/wallet/transactions?limit=${safeLimit}`);
+  }
+
+  async getForecast(): Promise<Record<string, unknown>> {
+    return this.apiGet("/api/wallet/forecast");
+  }
+
+  async checkPayment(invoiceId: string): Promise<Record<string, unknown>> {
+    validateUuid(invoiceId, "invoice_id");
+    return this.apiGet(`/api/wallet/topup/crypto/${encodeURIComponent(invoiceId)}/status`);
+  }
+
+  // -- Usage --
+
+  async getDailyUsage(days: number = 7): Promise<Record<string, unknown>> {
+    const safeDays = Math.min(Math.max(days, 1), 365);
+    return this.apiGet(`/api/usage/daily?days=${safeDays}`);
+  }
+
+  async getTopHosts(limit: number = 10): Promise<Record<string, unknown>> {
+    const safeLimit = Math.min(Math.max(limit, 1), 100);
+    return this.apiGet(`/api/usage/top-hosts?limit=${safeLimit}`);
+  }
+
+  // -- Account (unauthenticated) --
+
+  private static readonly EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+  private static validateEmail(email: string): string {
+    const trimmed = email.trim();
+    if (!trimmed || !DominusNodeToolkit.EMAIL_RE.test(trimmed)) {
+      throw new Error("Invalid email address.");
+    }
+    if (trimmed.length > 254) {
+      throw new Error("Email address too long (max 254 characters).");
+    }
+    return trimmed;
+  }
+
+  private static validatePassword(password: string): string {
+    if (!password || password.length < 8) {
+      throw new Error("Password must be at least 8 characters.");
+    }
+    if (password.length > 128) {
+      throw new Error("Password must be at most 128 characters.");
+    }
+    return password;
+  }
+
+  async register(email: string, password: string): Promise<Record<string, unknown>> {
+    const safeEmail = DominusNodeToolkit.validateEmail(email);
+    const safePassword = DominusNodeToolkit.validatePassword(password);
+    return this.rawRequest("POST", "/api/auth/register", { email: safeEmail, password: safePassword });
+  }
+
+  async login(email: string, password: string): Promise<Record<string, unknown>> {
+    const safeEmail = DominusNodeToolkit.validateEmail(email);
+    const safePassword = DominusNodeToolkit.validatePassword(password);
+    return this.rawRequest("POST", "/api/auth/login", { email: safeEmail, password: safePassword });
+  }
+
+  async getAccountInfo(): Promise<Record<string, unknown>> {
+    return this.apiGet("/api/auth/me");
+  }
+
+  async verifyEmail(token: string): Promise<Record<string, unknown>> {
+    if (!token || typeof token !== "string" || token.trim().length === 0) {
+      throw new Error("Verification token is required.");
+    }
+    if (/[\x00-\x1f\x7f]/.test(token)) {
+      throw new Error("Token contains invalid control characters.");
+    }
+    return this.rawRequest("POST", "/api/auth/verify-email", { token: token.trim() });
+  }
+
+  async resendVerification(): Promise<Record<string, unknown>> {
+    return this.apiPost("/api/auth/resend-verification");
+  }
+
+  async updatePassword(currentPassword: string, newPassword: string): Promise<Record<string, unknown>> {
+    DominusNodeToolkit.validatePassword(currentPassword);
+    DominusNodeToolkit.validatePassword(newPassword);
+    return this.apiPost("/api/auth/change-password", {
+      currentPassword,
+      newPassword,
+    });
+  }
+
+  // -- API Keys --
+
+  async listKeys(): Promise<Record<string, unknown>> {
+    return this.apiGet("/api/keys");
+  }
+
+  async createKey(label: string): Promise<Record<string, unknown>> {
+    if (!label || label.length === 0 || label.length > 100) {
+      throw new Error("label is required and must be 1-100 characters.");
+    }
+    if (/[\x00-\x1f\x7f]/.test(label)) {
+      throw new Error("label contains invalid control characters.");
+    }
+    return this.apiPost("/api/keys", { label });
+  }
+
+  async revokeKey(keyId: string): Promise<Record<string, unknown>> {
+    validateUuid(keyId, "key_id");
+    return this.apiDelete(`/api/keys/${encodeURIComponent(keyId)}`);
+  }
+
+  // -- Plans --
+
+  async getPlan(): Promise<Record<string, unknown>> {
+    return this.apiGet("/api/plans/user/plan");
+  }
+
+  async listPlans(): Promise<Record<string, unknown>> {
+    return this.apiGet("/api/plans");
+  }
+
+  async changePlan(planId: string): Promise<Record<string, unknown>> {
+    validateUuid(planId, "plan_id");
+    return this.apiPut("/api/plans/user/plan", { planId });
+  }
+
+  // -- Teams (additional) --
+
+  async teamDelete(teamId: string): Promise<Record<string, unknown>> {
+    validateUuid(teamId, "team_id");
+    return this.apiDelete(`/api/teams/${encodeURIComponent(teamId)}`);
+  }
+
+  async teamRevokeKey(teamId: string, keyId: string): Promise<Record<string, unknown>> {
+    validateUuid(teamId, "team_id");
+    validateUuid(keyId, "key_id");
+    return this.apiDelete(`/api/teams/${encodeURIComponent(teamId)}/keys/${encodeURIComponent(keyId)}`);
+  }
+
+  async teamListKeys(teamId: string): Promise<Record<string, unknown>> {
+    validateUuid(teamId, "team_id");
+    return this.apiGet(`/api/teams/${encodeURIComponent(teamId)}/keys`);
+  }
+
+  async teamListMembers(teamId: string): Promise<Record<string, unknown>> {
+    validateUuid(teamId, "team_id");
+    return this.apiGet(`/api/teams/${encodeURIComponent(teamId)}/members`);
+  }
+
+  async teamAddMember(teamId: string, userId: string, role: string = "member"): Promise<Record<string, unknown>> {
+    validateUuid(teamId, "team_id");
+    validateUuid(userId, "user_id");
+    if (role !== "member" && role !== "admin") {
+      throw new Error("role must be 'member' or 'admin'.");
+    }
+    return this.apiPost(`/api/teams/${encodeURIComponent(teamId)}/members`, { userId, role });
+  }
+
+  async teamRemoveMember(teamId: string, userId: string): Promise<Record<string, unknown>> {
+    validateUuid(teamId, "team_id");
+    validateUuid(userId, "user_id");
+    return this.apiDelete(`/api/teams/${encodeURIComponent(teamId)}/members/${encodeURIComponent(userId)}`);
+  }
+
+  async teamInviteMember(teamId: string, email: string, role: string = "member"): Promise<Record<string, unknown>> {
+    validateUuid(teamId, "team_id");
+    const safeEmail = DominusNodeToolkit.validateEmail(email);
+    if (role !== "member" && role !== "admin") {
+      throw new Error("role must be 'member' or 'admin'.");
+    }
+    return this.apiPost(`/api/teams/${encodeURIComponent(teamId)}/invites`, { email: safeEmail, role });
+  }
+
+  async teamListInvites(teamId: string): Promise<Record<string, unknown>> {
+    validateUuid(teamId, "team_id");
+    return this.apiGet(`/api/teams/${encodeURIComponent(teamId)}/invites`);
+  }
+
+  async teamCancelInvite(teamId: string, inviteId: string): Promise<Record<string, unknown>> {
+    validateUuid(teamId, "team_id");
+    validateUuid(inviteId, "invite_id");
+    return this.apiDelete(`/api/teams/${encodeURIComponent(teamId)}/invites/${encodeURIComponent(inviteId)}`);
+  }
+
   // -----------------------------------------------------------------------
-  // getTools() -- returns Mastra createTool() instances for all 26 tools
+  // getTools() -- returns Mastra createTool() instances for all 53 tools
   // -----------------------------------------------------------------------
 
   getTools() {
@@ -1520,6 +1788,583 @@ export class DominusNodeToolkit {
         execute: async () => {
           try {
             return { data: await this.x402Info() };
+          } catch (err) {
+            return { data: null, error: safeError(err) };
+          }
+        },
+      }),
+
+      // 27. get_proxy_status
+      createTool({
+        id: "dominusnode_get_proxy_status",
+        description:
+          "Get the current status of the proxy gateway including uptime, active connections, " +
+          "and pool health.",
+        inputSchema: z.object({}) as any,
+        outputSchema: z.object({
+          data: z.unknown(),
+          error: z.string().optional(),
+        }),
+        execute: async () => {
+          try {
+            return { data: await this.getProxyStatus() };
+          } catch (err) {
+            return { data: null, error: safeError(err) };
+          }
+        },
+      }),
+
+      // 28. get_transactions
+      createTool({
+        id: "dominusnode_get_transactions",
+        description:
+          "Get wallet transaction history showing top-ups, charges, and refunds.",
+        inputSchema: z.object({
+          limit: z.number().int().min(1).max(100).default(20).describe("Number of transactions to return (1-100, default 20)"),
+        }) as any,
+        outputSchema: z.object({
+          data: z.unknown(),
+          error: z.string().optional(),
+        }),
+        execute: async ({ context }: { context: any }) => {
+          try {
+            return { data: await this.getTransactions(context.limit) };
+          } catch (err) {
+            return { data: null, error: safeError(err) };
+          }
+        },
+      }),
+
+      // 29. get_forecast
+      createTool({
+        id: "dominusnode_get_forecast",
+        description:
+          "Get a spending forecast based on recent usage patterns. " +
+          "Shows estimated days until balance runs out and projected monthly cost.",
+        inputSchema: z.object({}) as any,
+        outputSchema: z.object({
+          data: z.unknown(),
+          error: z.string().optional(),
+        }),
+        execute: async () => {
+          try {
+            return { data: await this.getForecast() };
+          } catch (err) {
+            return { data: null, error: safeError(err) };
+          }
+        },
+      }),
+
+      // 30. check_payment
+      createTool({
+        id: "dominusnode_check_payment",
+        description:
+          "Check the status of a crypto top-up payment by invoice ID. " +
+          "Returns payment status (pending, confirming, completed, expired).",
+        inputSchema: z.object({
+          invoiceId: z.string().describe("Crypto invoice ID (UUID) returned from topup_crypto"),
+        }) as any,
+        outputSchema: z.object({
+          data: z.unknown(),
+          error: z.string().optional(),
+        }),
+        execute: async ({ context }: { context: any }) => {
+          try {
+            return { data: await this.checkPayment(context.invoiceId) };
+          } catch (err) {
+            return { data: null, error: safeError(err) };
+          }
+        },
+      }),
+
+      // 31. get_daily_usage
+      createTool({
+        id: "dominusnode_get_daily_usage",
+        description:
+          "Get daily bandwidth usage breakdown for the specified number of days. " +
+          "Returns per-day bytes transferred and cost.",
+        inputSchema: z.object({
+          days: z.number().int().min(1).max(365).default(7).describe("Number of days to look back (1-365, default 7)"),
+        }) as any,
+        outputSchema: z.object({
+          data: z.unknown(),
+          error: z.string().optional(),
+        }),
+        execute: async ({ context }: { context: any }) => {
+          try {
+            return { data: await this.getDailyUsage(context.days) };
+          } catch (err) {
+            return { data: null, error: safeError(err) };
+          }
+        },
+      }),
+
+      // 32. get_top_hosts
+      createTool({
+        id: "dominusnode_get_top_hosts",
+        description:
+          "Get the top hosts by bandwidth usage. Shows which domains consume the most proxy traffic.",
+        inputSchema: z.object({
+          limit: z.number().int().min(1).max(100).default(10).describe("Number of top hosts to return (1-100, default 10)"),
+        }) as any,
+        outputSchema: z.object({
+          data: z.unknown(),
+          error: z.string().optional(),
+        }),
+        execute: async ({ context }: { context: any }) => {
+          try {
+            return { data: await this.getTopHosts(context.limit) };
+          } catch (err) {
+            return { data: null, error: safeError(err) };
+          }
+        },
+      }),
+
+      // 33. register
+      createTool({
+        id: "dominusnode_register",
+        description:
+          "Register a new Dominus Node account. Does not require authentication. " +
+          "Returns user info and initial API key.",
+        inputSchema: z.object({
+          email: z.string().describe("Email address for the new account"),
+          password: z.string().min(8).max(128).describe("Password (8-128 characters)"),
+        }) as any,
+        outputSchema: z.object({
+          data: z.unknown(),
+          error: z.string().optional(),
+        }),
+        execute: async ({ context }: { context: any }) => {
+          try {
+            return { data: await this.register(context.email, context.password) };
+          } catch (err) {
+            return { data: null, error: safeError(err) };
+          }
+        },
+      }),
+
+      // 34. login
+      createTool({
+        id: "dominusnode_login",
+        description:
+          "Log in to an existing Dominus Node account. Does not require authentication. " +
+          "Returns JWT access and refresh tokens.",
+        inputSchema: z.object({
+          email: z.string().describe("Account email address"),
+          password: z.string().min(8).max(128).describe("Account password"),
+        }) as any,
+        outputSchema: z.object({
+          data: z.unknown(),
+          error: z.string().optional(),
+        }),
+        execute: async ({ context }: { context: any }) => {
+          try {
+            return { data: await this.login(context.email, context.password) };
+          } catch (err) {
+            return { data: null, error: safeError(err) };
+          }
+        },
+      }),
+
+      // 35. get_account_info
+      createTool({
+        id: "dominusnode_get_account_info",
+        description:
+          "Get your account profile information including email, plan, verification status, and creation date.",
+        inputSchema: z.object({}) as any,
+        outputSchema: z.object({
+          data: z.unknown(),
+          error: z.string().optional(),
+        }),
+        execute: async () => {
+          try {
+            return { data: await this.getAccountInfo() };
+          } catch (err) {
+            return { data: null, error: safeError(err) };
+          }
+        },
+      }),
+
+      // 36. verify_email
+      createTool({
+        id: "dominusnode_verify_email",
+        description:
+          "Verify an email address using the verification token sent to the user's email. " +
+          "Does not require authentication.",
+        inputSchema: z.object({
+          token: z.string().describe("Email verification token from the verification email"),
+        }) as any,
+        outputSchema: z.object({
+          data: z.unknown(),
+          error: z.string().optional(),
+        }),
+        execute: async ({ context }: { context: any }) => {
+          try {
+            return { data: await this.verifyEmail(context.token) };
+          } catch (err) {
+            return { data: null, error: safeError(err) };
+          }
+        },
+      }),
+
+      // 37. resend_verification
+      createTool({
+        id: "dominusnode_resend_verification",
+        description:
+          "Resend the email verification link. Requires authentication.",
+        inputSchema: z.object({}) as any,
+        outputSchema: z.object({
+          data: z.unknown(),
+          error: z.string().optional(),
+        }),
+        execute: async () => {
+          try {
+            return { data: await this.resendVerification() };
+          } catch (err) {
+            return { data: null, error: safeError(err) };
+          }
+        },
+      }),
+
+      // 38. update_password
+      createTool({
+        id: "dominusnode_update_password",
+        description:
+          "Change your account password. Requires current password for verification.",
+        inputSchema: z.object({
+          currentPassword: z.string().min(8).max(128).describe("Current account password"),
+          newPassword: z.string().min(8).max(128).describe("New password (8-128 characters)"),
+        }) as any,
+        outputSchema: z.object({
+          data: z.unknown(),
+          error: z.string().optional(),
+        }),
+        execute: async ({ context }: { context: any }) => {
+          try {
+            return { data: await this.updatePassword(context.currentPassword, context.newPassword) };
+          } catch (err) {
+            return { data: null, error: safeError(err) };
+          }
+        },
+      }),
+
+      // 39. list_keys
+      createTool({
+        id: "dominusnode_list_keys",
+        description:
+          "List all your personal API keys with their labels, creation dates, and last-used timestamps.",
+        inputSchema: z.object({}) as any,
+        outputSchema: z.object({
+          data: z.unknown(),
+          error: z.string().optional(),
+        }),
+        execute: async () => {
+          try {
+            return { data: await this.listKeys() };
+          } catch (err) {
+            return { data: null, error: safeError(err) };
+          }
+        },
+      }),
+
+      // 40. create_key
+      createTool({
+        id: "dominusnode_create_key",
+        description:
+          "Create a new personal API key. The key is shown only once -- save it immediately. " +
+          "Usage is billed against your personal wallet.",
+        inputSchema: z.object({
+          label: z.string().min(1).max(100).describe('Label for the API key (e.g., "production", "dev-testing")'),
+        }) as any,
+        outputSchema: z.object({
+          data: z.unknown(),
+          error: z.string().optional(),
+        }),
+        execute: async ({ context }: { context: any }) => {
+          try {
+            return { data: await this.createKey(context.label) };
+          } catch (err) {
+            return { data: null, error: safeError(err) };
+          }
+        },
+      }),
+
+      // 41. revoke_key
+      createTool({
+        id: "dominusnode_revoke_key",
+        description:
+          "Revoke (delete) a personal API key. This action is irreversible -- " +
+          "any applications using this key will lose access immediately.",
+        inputSchema: z.object({
+          keyId: z.string().describe("API key ID (UUID) to revoke"),
+        }) as any,
+        outputSchema: z.object({
+          data: z.unknown(),
+          error: z.string().optional(),
+        }),
+        execute: async ({ context }: { context: any }) => {
+          try {
+            return { data: await this.revokeKey(context.keyId) };
+          } catch (err) {
+            return { data: null, error: safeError(err) };
+          }
+        },
+      }),
+
+      // 42. get_plan
+      createTool({
+        id: "dominusnode_get_plan",
+        description:
+          "Get your current subscription plan including tier, bandwidth limits, and pricing.",
+        inputSchema: z.object({}) as any,
+        outputSchema: z.object({
+          data: z.unknown(),
+          error: z.string().optional(),
+        }),
+        execute: async () => {
+          try {
+            return { data: await this.getPlan() };
+          } catch (err) {
+            return { data: null, error: safeError(err) };
+          }
+        },
+      }),
+
+      // 43. list_plans
+      createTool({
+        id: "dominusnode_list_plans",
+        description:
+          "List all available subscription plans with features, pricing, and bandwidth limits.",
+        inputSchema: z.object({}) as any,
+        outputSchema: z.object({
+          data: z.unknown(),
+          error: z.string().optional(),
+        }),
+        execute: async () => {
+          try {
+            return { data: await this.listPlans() };
+          } catch (err) {
+            return { data: null, error: safeError(err) };
+          }
+        },
+      }),
+
+      // 44. change_plan
+      createTool({
+        id: "dominusnode_change_plan",
+        description:
+          "Change your subscription plan. Takes effect immediately. " +
+          "Use list_plans to see available options.",
+        inputSchema: z.object({
+          planId: z.string().describe("Plan ID (UUID) to switch to"),
+        }) as any,
+        outputSchema: z.object({
+          data: z.unknown(),
+          error: z.string().optional(),
+        }),
+        execute: async ({ context }: { context: any }) => {
+          try {
+            return { data: await this.changePlan(context.planId) };
+          } catch (err) {
+            return { data: null, error: safeError(err) };
+          }
+        },
+      }),
+
+      // 45. team_delete
+      createTool({
+        id: "dominusnode_team_delete",
+        description:
+          "Delete a team. Only the team owner can delete. " +
+          "All team keys are revoked and remaining balance is refunded.",
+        inputSchema: z.object({
+          teamId: z.string().describe("Team ID (UUID) to delete"),
+        }) as any,
+        outputSchema: z.object({
+          data: z.unknown(),
+          error: z.string().optional(),
+        }),
+        execute: async ({ context }: { context: any }) => {
+          try {
+            return { data: await this.teamDelete(context.teamId) };
+          } catch (err) {
+            return { data: null, error: safeError(err) };
+          }
+        },
+      }),
+
+      // 46. team_revoke_key
+      createTool({
+        id: "dominusnode_team_revoke_key",
+        description:
+          "Revoke a team API key. Only owners and admins can revoke keys. " +
+          "Applications using this key will lose access immediately.",
+        inputSchema: z.object({
+          teamId: z.string().describe("Team ID (UUID)"),
+          keyId: z.string().describe("API key ID (UUID) to revoke"),
+        }) as any,
+        outputSchema: z.object({
+          data: z.unknown(),
+          error: z.string().optional(),
+        }),
+        execute: async ({ context }: { context: any }) => {
+          try {
+            return { data: await this.teamRevokeKey(context.teamId, context.keyId) };
+          } catch (err) {
+            return { data: null, error: safeError(err) };
+          }
+        },
+      }),
+
+      // 47. team_list_keys
+      createTool({
+        id: "dominusnode_team_list_keys",
+        description:
+          "List all API keys for a team with labels, creation dates, and last-used timestamps.",
+        inputSchema: z.object({
+          teamId: z.string().describe("Team ID (UUID)"),
+        }) as any,
+        outputSchema: z.object({
+          data: z.unknown(),
+          error: z.string().optional(),
+        }),
+        execute: async ({ context }: { context: any }) => {
+          try {
+            return { data: await this.teamListKeys(context.teamId) };
+          } catch (err) {
+            return { data: null, error: safeError(err) };
+          }
+        },
+      }),
+
+      // 48. team_list_members
+      createTool({
+        id: "dominusnode_team_list_members",
+        description:
+          "List all members of a team with their roles and join dates.",
+        inputSchema: z.object({
+          teamId: z.string().describe("Team ID (UUID)"),
+        }) as any,
+        outputSchema: z.object({
+          data: z.unknown(),
+          error: z.string().optional(),
+        }),
+        execute: async ({ context }: { context: any }) => {
+          try {
+            return { data: await this.teamListMembers(context.teamId) };
+          } catch (err) {
+            return { data: null, error: safeError(err) };
+          }
+        },
+      }),
+
+      // 49. team_add_member
+      createTool({
+        id: "dominusnode_team_add_member",
+        description:
+          "Add a user directly to a team by user ID. " +
+          "Only owners and admins can add members.",
+        inputSchema: z.object({
+          teamId: z.string().describe("Team ID (UUID)"),
+          userId: z.string().describe("User ID (UUID) of the user to add"),
+          role: z.enum(["member", "admin"]).default("member").describe("Role for the new member"),
+        }) as any,
+        outputSchema: z.object({
+          data: z.unknown(),
+          error: z.string().optional(),
+        }),
+        execute: async ({ context }: { context: any }) => {
+          try {
+            return { data: await this.teamAddMember(context.teamId, context.userId, context.role) };
+          } catch (err) {
+            return { data: null, error: safeError(err) };
+          }
+        },
+      }),
+
+      // 50. team_remove_member
+      createTool({
+        id: "dominusnode_team_remove_member",
+        description:
+          "Remove a member from a team. Only owners and admins can remove members.",
+        inputSchema: z.object({
+          teamId: z.string().describe("Team ID (UUID)"),
+          userId: z.string().describe("User ID (UUID) of the member to remove"),
+        }) as any,
+        outputSchema: z.object({
+          data: z.unknown(),
+          error: z.string().optional(),
+        }),
+        execute: async ({ context }: { context: any }) => {
+          try {
+            return { data: await this.teamRemoveMember(context.teamId, context.userId) };
+          } catch (err) {
+            return { data: null, error: safeError(err) };
+          }
+        },
+      }),
+
+      // 51. team_invite_member
+      createTool({
+        id: "dominusnode_team_invite_member",
+        description:
+          "Invite a user to join a team by email address. " +
+          "The user will receive an invitation email.",
+        inputSchema: z.object({
+          teamId: z.string().describe("Team ID (UUID)"),
+          email: z.string().describe("Email address of the user to invite"),
+          role: z.enum(["member", "admin"]).default("member").describe("Role for the invited member"),
+        }) as any,
+        outputSchema: z.object({
+          data: z.unknown(),
+          error: z.string().optional(),
+        }),
+        execute: async ({ context }: { context: any }) => {
+          try {
+            return { data: await this.teamInviteMember(context.teamId, context.email, context.role) };
+          } catch (err) {
+            return { data: null, error: safeError(err) };
+          }
+        },
+      }),
+
+      // 52. team_list_invites
+      createTool({
+        id: "dominusnode_team_list_invites",
+        description:
+          "List all pending invitations for a team.",
+        inputSchema: z.object({
+          teamId: z.string().describe("Team ID (UUID)"),
+        }) as any,
+        outputSchema: z.object({
+          data: z.unknown(),
+          error: z.string().optional(),
+        }),
+        execute: async ({ context }: { context: any }) => {
+          try {
+            return { data: await this.teamListInvites(context.teamId) };
+          } catch (err) {
+            return { data: null, error: safeError(err) };
+          }
+        },
+      }),
+
+      // 53. team_cancel_invite
+      createTool({
+        id: "dominusnode_team_cancel_invite",
+        description:
+          "Cancel a pending team invitation. Only owners and admins can cancel invites.",
+        inputSchema: z.object({
+          teamId: z.string().describe("Team ID (UUID)"),
+          inviteId: z.string().describe("Invite ID (UUID) to cancel"),
+        }) as any,
+        outputSchema: z.object({
+          data: z.unknown(),
+          error: z.string().optional(),
+        }),
+        execute: async ({ context }: { context: any }) => {
+          try {
+            return { data: await this.teamCancelInvite(context.teamId, context.inviteId) };
           } catch (err) {
             return { data: null, error: safeError(err) };
           }

@@ -1,9 +1,10 @@
 /**
  * Dominus Node Flowise Toolkit
  *
- * Provides 26 LangChain-compatible DynamicStructuredTool instances for use
+ * Provides 53 LangChain-compatible DynamicStructuredTool instances for use
  * inside Flowise AI workflows. Covers proxied fetching, wallet management,
- * agentic wallets, teams, Stripe/PayPal/crypto top-up, and x402 micropayment info.
+ * agentic wallets, teams, Stripe/PayPal/crypto top-up, x402 micropayment info,
+ * account management, API key management, plans, sessions, and usage analytics.
  *
  * Security:
  *  - Full SSRF protection (private IP blocking, DNS rebinding, Teredo/6to4,
@@ -538,6 +539,85 @@ export class DominusNodeToolkit {
         return await this._apiRequest<T>(method, path, body);
       }
       throw err;
+    }
+  }
+
+  // -----------------------------------------------------------------------
+  // Unauthenticated request helper (register, login, verifyEmail)
+  // -----------------------------------------------------------------------
+
+  private async _unauthenticatedRequest<T = unknown>(
+    method: string,
+    path: string,
+    body?: Record<string, unknown>,
+  ): Promise<T> {
+    const url = `${this.baseUrl}${path}`;
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      "User-Agent": "dominusnode-flowise/1.0.0",
+    };
+    if (this.agentSecret) {
+      headers["X-DominusNode-Agent"] = "mcp";
+      headers["X-DominusNode-Agent-Secret"] = this.agentSecret;
+    }
+
+    const init: RequestInit = {
+      method,
+      headers,
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      redirect: "error",
+    };
+
+    if (body) {
+      init.body = JSON.stringify(body);
+    }
+
+    let res: Response;
+    try {
+      res = await fetch(url, init);
+    } catch (err) {
+      throw new Error(`Request failed: ${safeError(err)}`);
+    }
+
+    let rawText: string;
+    try {
+      rawText = await res.text();
+    } catch {
+      rawText = "";
+    }
+
+    if (new TextEncoder().encode(rawText).length > MAX_RESPONSE_BYTES) {
+      throw new Error("Response too large");
+    }
+
+    if (!res.ok) {
+      let errorMsg = `Error ${res.status}`;
+      if (rawText) {
+        try {
+          const parsed = JSON.parse(rawText);
+          stripDangerousKeys(parsed);
+          if (parsed.error) {
+            errorMsg = `Error ${res.status}: ${scrubCredentials(String(parsed.error))}`;
+          } else if (parsed.message) {
+            errorMsg = `Error ${res.status}: ${scrubCredentials(String(parsed.message))}`;
+          }
+        } catch {
+          errorMsg = `Error ${res.status}: ${scrubCredentials(rawText.slice(0, 200))}`;
+        }
+      }
+      throw new Error(errorMsg);
+    }
+
+    if (!rawText || rawText.trim().length === 0) {
+      return {} as T;
+    }
+
+    try {
+      const parsed = JSON.parse(rawText);
+      stripDangerousKeys(parsed);
+      return parsed as T;
+    } catch {
+      throw new Error("Failed to parse response as JSON");
     }
   }
 
@@ -1742,6 +1822,853 @@ export class DominusNodeToolkit {
   }
 
   // -----------------------------------------------------------------------
+  // Tool 26: getProxyStatus
+  // -----------------------------------------------------------------------
+
+  async getProxyStatus(): Promise<string> {
+    try {
+      const data = await this._requestWithRetry<Record<string, unknown>>("GET", "/api/proxy/status");
+
+      const lines = [
+        "Proxy Status",
+        "",
+      ];
+      if (data.status) lines.push(`Status: ${data.status}`);
+      if (data.uptime !== undefined) lines.push(`Uptime: ${data.uptime}`);
+      if (data.activeConnections !== undefined) lines.push(`Active Connections: ${data.activeConnections}`);
+      if (data.providerStatus) lines.push(`Provider Status: ${JSON.stringify(data.providerStatus)}`);
+      if (Object.keys(data).length === 0) {
+        lines.push("No status data available.");
+      }
+
+      return truncate(lines.join("\n"));
+    } catch (err) {
+      return `Error: ${safeError(err)}`;
+    }
+  }
+
+  // -----------------------------------------------------------------------
+  // Tool 27: getTransactions
+  // -----------------------------------------------------------------------
+
+  async getTransactions(limit: number = 20): Promise<string> {
+    try {
+      const lim = Math.min(Math.max(Math.floor(limit), 1), 100);
+
+      const data = await this._requestWithRetry<{
+        transactions: Array<{
+          id: string;
+          type: string;
+          amountCents: number;
+          description: string;
+          createdAt: string;
+        }>;
+      }>("GET", `/api/wallet/transactions?limit=${lim}`);
+
+      const txs = data.transactions ?? [];
+      if (txs.length === 0) {
+        return "No wallet transactions found.";
+      }
+
+      const lines = [`Wallet Transactions (${txs.length})`, ""];
+      for (const tx of txs) {
+        const sign = tx.type === "topup" || tx.type === "fund" || tx.type === "refund" ? "+" : "-";
+        lines.push(`  ${sign}${formatCents(tx.amountCents)} [${tx.type}] ${tx.description}`);
+        lines.push(`    ${tx.createdAt}`);
+      }
+
+      return truncate(lines.join("\n"));
+    } catch (err) {
+      return `Error: ${safeError(err)}`;
+    }
+  }
+
+  // -----------------------------------------------------------------------
+  // Tool 28: getForecast
+  // -----------------------------------------------------------------------
+
+  async getForecast(): Promise<string> {
+    try {
+      const data = await this._requestWithRetry<{
+        daysRemaining: number;
+        avgDailySpendCents: number;
+        balanceCents: number;
+        estimatedDepletionDate: string;
+      }>("GET", "/api/wallet/forecast");
+
+      const lines = [
+        "Wallet Balance Forecast",
+        "",
+        `Current Balance: ${formatCents(data.balanceCents ?? 0)}`,
+        `Average Daily Spend: ${formatCents(data.avgDailySpendCents ?? 0)}`,
+        `Estimated Days Remaining: ${data.daysRemaining ?? "N/A"}`,
+      ];
+      if (data.estimatedDepletionDate) {
+        lines.push(`Estimated Depletion Date: ${data.estimatedDepletionDate}`);
+      }
+
+      return lines.join("\n");
+    } catch (err) {
+      return `Error: ${safeError(err)}`;
+    }
+  }
+
+  // -----------------------------------------------------------------------
+  // Tool 29: checkPayment
+  // -----------------------------------------------------------------------
+
+  async checkPayment(invoiceId: string): Promise<string> {
+    try {
+      if (!invoiceId || invoiceId.trim().length === 0) {
+        return "Error: invoice_id is required.";
+      }
+      if (/[\x00-\x1f\x7f]/.test(invoiceId)) {
+        return "Error: invoice_id contains invalid control characters.";
+      }
+
+      const data = await this._requestWithRetry<{
+        invoiceId: string;
+        status: string;
+        amountUsd: number;
+        payCurrency: string;
+        paidAt: string | null;
+      }>("GET", `/api/wallet/topup/crypto/${encodeURIComponent(invoiceId.trim())}/status`);
+
+      const lines = [
+        "Crypto Payment Status",
+        "",
+        `Invoice ID: ${data.invoiceId ?? invoiceId}`,
+        `Status: ${data.status ?? "unknown"}`,
+        `Amount: $${data.amountUsd ?? "N/A"}`,
+        `Currency: ${data.payCurrency?.toUpperCase() ?? "N/A"}`,
+      ];
+      if (data.paidAt) {
+        lines.push(`Paid At: ${data.paidAt}`);
+      }
+
+      return lines.join("\n");
+    } catch (err) {
+      return `Error: ${safeError(err)}`;
+    }
+  }
+
+  // -----------------------------------------------------------------------
+  // Tool 30: getDailyUsage
+  // -----------------------------------------------------------------------
+
+  async getDailyUsage(days: number = 7): Promise<string> {
+    try {
+      const d = Math.min(Math.max(Math.floor(days), 1), 365);
+
+      const data = await this._requestWithRetry<{
+        days: Array<{
+          date: string;
+          bytes: number;
+          costCents: number;
+          requests: number;
+        }>;
+      }>("GET", `/api/usage/daily?days=${d}`);
+
+      const dayEntries = data.days ?? [];
+      if (dayEntries.length === 0) {
+        return "No daily usage data available.";
+      }
+
+      const lines = [`Daily Usage (last ${d} days)`, ""];
+      for (const day of dayEntries) {
+        lines.push(`  ${day.date}: ${formatBytes(day.bytes)} | ${formatCents(day.costCents)} | ${day.requests} reqs`);
+      }
+
+      return truncate(lines.join("\n"));
+    } catch (err) {
+      return `Error: ${safeError(err)}`;
+    }
+  }
+
+  // -----------------------------------------------------------------------
+  // Tool 31: getTopHosts
+  // -----------------------------------------------------------------------
+
+  async getTopHosts(limit: number = 10): Promise<string> {
+    try {
+      const lim = Math.min(Math.max(Math.floor(limit), 1), 100);
+
+      const data = await this._requestWithRetry<{
+        hosts: Array<{
+          host: string;
+          bytes: number;
+          requests: number;
+          costCents: number;
+        }>;
+      }>("GET", `/api/usage/top-hosts?limit=${lim}`);
+
+      const hosts = data.hosts ?? [];
+      if (hosts.length === 0) {
+        return "No top hosts data available.";
+      }
+
+      const lines = [`Top Hosts by Bandwidth (${hosts.length})`, ""];
+      for (const h of hosts) {
+        lines.push(`  ${h.host}: ${formatBytes(h.bytes)} | ${formatCents(h.costCents)} | ${h.requests} reqs`);
+      }
+
+      return truncate(lines.join("\n"));
+    } catch (err) {
+      return `Error: ${safeError(err)}`;
+    }
+  }
+
+  // -----------------------------------------------------------------------
+  // Tool 32: register (unauthenticated)
+  // -----------------------------------------------------------------------
+
+  async register(email: string, password: string): Promise<string> {
+    try {
+      if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        return "Error: a valid email address is required.";
+      }
+      if (!password || password.length < 8 || password.length > 128) {
+        return "Error: password must be between 8 and 128 characters.";
+      }
+
+      const data = await this._unauthenticatedRequest<{
+        user: { id: string; email: string };
+        accessToken?: string;
+        refreshToken?: string;
+      }>("POST", "/api/auth/register", { email, password });
+
+      return [
+        "Account Created",
+        "",
+        `User ID: ${data.user?.id ?? "N/A"}`,
+        `Email: ${data.user?.email ?? email}`,
+        "",
+        "Verify your email to unlock financial features.",
+        "MCP agents are auto-verified via agent headers.",
+      ].join("\n");
+    } catch (err) {
+      return `Error: ${safeError(err)}`;
+    }
+  }
+
+  // -----------------------------------------------------------------------
+  // Tool 33: login (unauthenticated)
+  // -----------------------------------------------------------------------
+
+  async login(email: string, password: string): Promise<string> {
+    try {
+      if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        return "Error: a valid email address is required.";
+      }
+      if (!password || password.length < 1) {
+        return "Error: password is required.";
+      }
+
+      const data = await this._unauthenticatedRequest<{
+        accessToken?: string;
+        refreshToken?: string;
+        mfaRequired?: boolean;
+        challengeToken?: string;
+      }>("POST", "/api/auth/login", { email, password });
+
+      if (data.mfaRequired) {
+        return [
+          "MFA Required",
+          "",
+          `Challenge Token: ${data.challengeToken ?? "N/A"}`,
+          "",
+          "Multi-factor authentication is required. Complete the MFA challenge to proceed.",
+        ].join("\n");
+      }
+
+      return [
+        "Login Successful",
+        "",
+        "Access and refresh tokens have been issued.",
+        "Use get_account_info to view your account details.",
+      ].join("\n");
+    } catch (err) {
+      return `Error: ${safeError(err)}`;
+    }
+  }
+
+  // -----------------------------------------------------------------------
+  // Tool 34: getAccountInfo
+  // -----------------------------------------------------------------------
+
+  async getAccountInfo(): Promise<string> {
+    try {
+      const data = await this._requestWithRetry<{
+        user: {
+          id: string;
+          email: string;
+          plan: string;
+          emailVerified: boolean;
+          status: string;
+          createdAt: string;
+        };
+      }>("GET", "/api/auth/me");
+
+      const user = data.user;
+      return [
+        "Account Information",
+        "",
+        `User ID: ${user?.id ?? "N/A"}`,
+        `Email: ${user?.email ?? "N/A"}`,
+        `Plan: ${user?.plan ?? "N/A"}`,
+        `Email Verified: ${user?.emailVerified ?? false}`,
+        `Status: ${user?.status ?? "N/A"}`,
+        `Created: ${user?.createdAt ?? "N/A"}`,
+      ].join("\n");
+    } catch (err) {
+      return `Error: ${safeError(err)}`;
+    }
+  }
+
+  // -----------------------------------------------------------------------
+  // Tool 35: verifyEmail (unauthenticated)
+  // -----------------------------------------------------------------------
+
+  async verifyEmail(token: string): Promise<string> {
+    try {
+      if (!token || token.trim().length === 0) {
+        return "Error: verification token is required.";
+      }
+      if (/[\x00-\x1f\x7f]/.test(token)) {
+        return "Error: token contains invalid control characters.";
+      }
+
+      await this._unauthenticatedRequest("POST", "/api/auth/verify-email", {
+        token: token.trim(),
+      });
+
+      return "Email verified successfully. Financial features are now unlocked.";
+    } catch (err) {
+      return `Error: ${safeError(err)}`;
+    }
+  }
+
+  // -----------------------------------------------------------------------
+  // Tool 36: resendVerification
+  // -----------------------------------------------------------------------
+
+  async resendVerification(): Promise<string> {
+    try {
+      await this._requestWithRetry("POST", "/api/auth/resend-verification");
+      return "Verification email sent. Check your inbox for the verification link.";
+    } catch (err) {
+      return `Error: ${safeError(err)}`;
+    }
+  }
+
+  // -----------------------------------------------------------------------
+  // Tool 37: updatePassword
+  // -----------------------------------------------------------------------
+
+  async updatePassword(currentPassword: string, newPassword: string): Promise<string> {
+    try {
+      if (!currentPassword || currentPassword.length < 1) {
+        return "Error: current password is required.";
+      }
+      if (!newPassword || newPassword.length < 8 || newPassword.length > 128) {
+        return "Error: new password must be between 8 and 128 characters.";
+      }
+
+      await this._requestWithRetry("POST", "/api/auth/change-password", {
+        currentPassword,
+        newPassword,
+      });
+
+      return "Password updated successfully.";
+    } catch (err) {
+      return `Error: ${safeError(err)}`;
+    }
+  }
+
+  // -----------------------------------------------------------------------
+  // Tool 38: listKeys
+  // -----------------------------------------------------------------------
+
+  async listKeys(): Promise<string> {
+    try {
+      const data = await this._requestWithRetry<{
+        keys: Array<{
+          id: string;
+          label: string;
+          prefix: string;
+          createdAt: string;
+        }>;
+      }>("GET", "/api/keys");
+
+      const keys = data.keys ?? [];
+      if (keys.length === 0) {
+        return "No API keys found. Use create_key to create one.";
+      }
+
+      const lines = [`API Keys (${keys.length})`, ""];
+      for (const k of keys) {
+        lines.push(`  ${k.label ?? "unlabeled"} (${k.id.slice(0, 8)}...)`);
+        lines.push(`    Prefix: ${k.prefix} | Created: ${k.createdAt}`);
+      }
+
+      return truncate(lines.join("\n"));
+    } catch (err) {
+      return `Error: ${safeError(err)}`;
+    }
+  }
+
+  // -----------------------------------------------------------------------
+  // Tool 39: createKey
+  // -----------------------------------------------------------------------
+
+  async createKey(label?: string): Promise<string> {
+    try {
+      if (label !== undefined) {
+        if (label.length === 0 || label.length > 100) {
+          return "Error: label must be 1-100 characters.";
+        }
+        if (/[\x00-\x1f\x7f]/.test(label)) {
+          return "Error: label contains invalid control characters.";
+        }
+      }
+
+      const body: Record<string, unknown> = {};
+      if (label) body.label = label.trim();
+
+      const data = await this._requestWithRetry<{
+        id: string;
+        key: string;
+        prefix: string;
+        label: string;
+        createdAt: string;
+      }>("POST", "/api/keys", body);
+
+      return [
+        "API Key Created",
+        "",
+        `Key ID: ${data.id}`,
+        `API Key: ${data.key}`,
+        `Prefix: ${data.prefix}`,
+        `Label: ${data.label ?? ""}`,
+        `Created: ${data.createdAt}`,
+        "",
+        "IMPORTANT: Save this API key now -- it will not be shown again.",
+      ].join("\n");
+    } catch (err) {
+      return `Error: ${safeError(err)}`;
+    }
+  }
+
+  // -----------------------------------------------------------------------
+  // Tool 40: revokeKey
+  // -----------------------------------------------------------------------
+
+  async revokeKey(keyId: string): Promise<string> {
+    try {
+      const kid = validateUuid(keyId, "key_id");
+
+      await this._requestWithRetry("DELETE", `/api/keys/${encodeURIComponent(kid)}`);
+
+      return [
+        "API Key Revoked",
+        "",
+        `Key ID: ${kid}`,
+        "",
+        "The key is now permanently deactivated and cannot be used.",
+      ].join("\n");
+    } catch (err) {
+      return `Error: ${safeError(err)}`;
+    }
+  }
+
+  // -----------------------------------------------------------------------
+  // Tool 41: getPlan
+  // -----------------------------------------------------------------------
+
+  async getPlan(): Promise<string> {
+    try {
+      const data = await this._requestWithRetry<{
+        id: string;
+        name: string;
+        bandwidthLimitBytes: number;
+        pricePerGbCents: number;
+        features: string[];
+      }>("GET", "/api/plans/user/plan");
+
+      const lines = [
+        "Current Plan",
+        "",
+        `Plan ID: ${data.id ?? "N/A"}`,
+        `Name: ${data.name ?? "N/A"}`,
+      ];
+      if (data.bandwidthLimitBytes !== undefined) {
+        lines.push(`Bandwidth Limit: ${formatBytes(data.bandwidthLimitBytes)}`);
+      }
+      if (data.pricePerGbCents !== undefined) {
+        lines.push(`Price Per GB: ${formatCents(data.pricePerGbCents)}`);
+      }
+      if (data.features && data.features.length > 0) {
+        lines.push(`Features: ${data.features.join(", ")}`);
+      }
+
+      return lines.join("\n");
+    } catch (err) {
+      return `Error: ${safeError(err)}`;
+    }
+  }
+
+  // -----------------------------------------------------------------------
+  // Tool 42: listPlans
+  // -----------------------------------------------------------------------
+
+  async listPlans(): Promise<string> {
+    try {
+      const data = await this._requestWithRetry<{
+        plans: Array<{
+          id: string;
+          name: string;
+          bandwidthLimitBytes: number;
+          pricePerGbCents: number;
+          features: string[];
+        }>;
+      }>("GET", "/api/plans");
+
+      const plans = data.plans ?? [];
+      if (plans.length === 0) {
+        return "No plans available.";
+      }
+
+      const lines = [`Available Plans (${plans.length})`, ""];
+      for (const p of plans) {
+        lines.push(`  ${p.name} (${p.id})`);
+        if (p.bandwidthLimitBytes !== undefined) {
+          lines.push(`    Bandwidth: ${formatBytes(p.bandwidthLimitBytes)} | Price: ${formatCents(p.pricePerGbCents)}/GB`);
+        }
+        if (p.features && p.features.length > 0) {
+          lines.push(`    Features: ${p.features.join(", ")}`);
+        }
+        lines.push("");
+      }
+
+      return truncate(lines.join("\n"));
+    } catch (err) {
+      return `Error: ${safeError(err)}`;
+    }
+  }
+
+  // -----------------------------------------------------------------------
+  // Tool 43: changePlan
+  // -----------------------------------------------------------------------
+
+  async changePlan(planId: string): Promise<string> {
+    try {
+      if (!planId || planId.trim().length === 0) {
+        return "Error: plan_id is required.";
+      }
+      if (/[\x00-\x1f\x7f]/.test(planId)) {
+        return "Error: plan_id contains invalid control characters.";
+      }
+
+      const data = await this._requestWithRetry<{
+        id: string;
+        name: string;
+        message: string;
+      }>("PUT", "/api/plans/user/plan", { planId: planId.trim() });
+
+      return [
+        "Plan Changed",
+        "",
+        `New Plan: ${data.name ?? data.id ?? planId}`,
+        data.message ? `Message: ${data.message}` : "",
+      ].filter(Boolean).join("\n");
+    } catch (err) {
+      return `Error: ${safeError(err)}`;
+    }
+  }
+
+  // -----------------------------------------------------------------------
+  // Tool 44: teamDelete
+  // -----------------------------------------------------------------------
+
+  async teamDelete(teamId: string): Promise<string> {
+    try {
+      const tid = validateUuid(teamId, "team_id");
+
+      await this._requestWithRetry("DELETE", `/api/teams/${encodeURIComponent(tid)}`);
+
+      return [
+        "Team Deleted",
+        "",
+        `Team ID: ${tid}`,
+        "",
+        "The team has been permanently deleted.",
+      ].join("\n");
+    } catch (err) {
+      return `Error: ${safeError(err)}`;
+    }
+  }
+
+  // -----------------------------------------------------------------------
+  // Tool 45: teamRevokeKey
+  // -----------------------------------------------------------------------
+
+  async teamRevokeKey(teamId: string, keyId: string): Promise<string> {
+    try {
+      const tid = validateUuid(teamId, "team_id");
+      const kid = validateUuid(keyId, "key_id");
+
+      await this._requestWithRetry(
+        "DELETE",
+        `/api/teams/${encodeURIComponent(tid)}/keys/${encodeURIComponent(kid)}`,
+      );
+
+      return [
+        "Team API Key Revoked",
+        "",
+        `Team ID: ${tid}`,
+        `Key ID: ${kid}`,
+        "",
+        "The team key is now permanently deactivated.",
+      ].join("\n");
+    } catch (err) {
+      return `Error: ${safeError(err)}`;
+    }
+  }
+
+  // -----------------------------------------------------------------------
+  // Tool 46: teamListKeys
+  // -----------------------------------------------------------------------
+
+  async teamListKeys(teamId: string): Promise<string> {
+    try {
+      const tid = validateUuid(teamId, "team_id");
+
+      const data = await this._requestWithRetry<{
+        keys: Array<{
+          id: string;
+          label: string;
+          prefix: string;
+          createdAt: string;
+        }>;
+      }>("GET", `/api/teams/${encodeURIComponent(tid)}/keys`);
+
+      const keys = data.keys ?? [];
+      if (keys.length === 0) {
+        return "No API keys found for this team. Use team_create_key to create one.";
+      }
+
+      const lines = [`Team API Keys (${keys.length})`, ""];
+      for (const k of keys) {
+        lines.push(`  ${k.label ?? "unlabeled"} (${k.id.slice(0, 8)}...)`);
+        lines.push(`    Prefix: ${k.prefix} | Created: ${k.createdAt}`);
+      }
+
+      return truncate(lines.join("\n"));
+    } catch (err) {
+      return `Error: ${safeError(err)}`;
+    }
+  }
+
+  // -----------------------------------------------------------------------
+  // Tool 47: teamListMembers
+  // -----------------------------------------------------------------------
+
+  async teamListMembers(teamId: string): Promise<string> {
+    try {
+      const tid = validateUuid(teamId, "team_id");
+
+      const data = await this._requestWithRetry<{
+        members: Array<{
+          userId: string;
+          email: string;
+          role: string;
+          joinedAt: string;
+        }>;
+      }>("GET", `/api/teams/${encodeURIComponent(tid)}/members`);
+
+      const members = data.members ?? [];
+      if (members.length === 0) {
+        return "No members found for this team.";
+      }
+
+      const lines = [`Team Members (${members.length})`, ""];
+      for (const m of members) {
+        lines.push(`  ${m.email} -- ${m.role}`);
+        lines.push(`    User ID: ${m.userId} | Joined: ${m.joinedAt}`);
+      }
+
+      return truncate(lines.join("\n"));
+    } catch (err) {
+      return `Error: ${safeError(err)}`;
+    }
+  }
+
+  // -----------------------------------------------------------------------
+  // Tool 48: teamAddMember
+  // -----------------------------------------------------------------------
+
+  async teamAddMember(teamId: string, email: string, role?: string): Promise<string> {
+    try {
+      const tid = validateUuid(teamId, "team_id");
+
+      if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        return "Error: a valid email address is required.";
+      }
+
+      if (role !== undefined && role !== "member" && role !== "admin") {
+        return "Error: role must be 'member' or 'admin'.";
+      }
+
+      const body: Record<string, unknown> = { email };
+      if (role) body.role = role;
+
+      const data = await this._requestWithRetry<{
+        userId: string;
+        email: string;
+        role: string;
+        teamId: string;
+      }>("POST", `/api/teams/${encodeURIComponent(tid)}/members`, body);
+
+      return [
+        "Team Member Added",
+        "",
+        `Team ID: ${tid}`,
+        `Email: ${data.email ?? email}`,
+        `Role: ${data.role ?? role ?? "member"}`,
+      ].join("\n");
+    } catch (err) {
+      return `Error: ${safeError(err)}`;
+    }
+  }
+
+  // -----------------------------------------------------------------------
+  // Tool 49: teamRemoveMember
+  // -----------------------------------------------------------------------
+
+  async teamRemoveMember(teamId: string, userId: string): Promise<string> {
+    try {
+      const tid = validateUuid(teamId, "team_id");
+      const uid = validateUuid(userId, "user_id");
+
+      await this._requestWithRetry(
+        "DELETE",
+        `/api/teams/${encodeURIComponent(tid)}/members/${encodeURIComponent(uid)}`,
+      );
+
+      return [
+        "Team Member Removed",
+        "",
+        `Team ID: ${tid}`,
+        `User ID: ${uid}`,
+      ].join("\n");
+    } catch (err) {
+      return `Error: ${safeError(err)}`;
+    }
+  }
+
+  // -----------------------------------------------------------------------
+  // Tool 50: teamInviteMember
+  // -----------------------------------------------------------------------
+
+  async teamInviteMember(teamId: string, email: string, role?: string): Promise<string> {
+    try {
+      const tid = validateUuid(teamId, "team_id");
+
+      if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        return "Error: a valid email address is required.";
+      }
+
+      if (role !== undefined && role !== "member" && role !== "admin") {
+        return "Error: role must be 'member' or 'admin'.";
+      }
+
+      const body: Record<string, unknown> = { email };
+      if (role) body.role = role;
+
+      const data = await this._requestWithRetry<{
+        id: string;
+        email: string;
+        role: string;
+        teamId: string;
+        expiresAt: string;
+      }>("POST", `/api/teams/${encodeURIComponent(tid)}/invites`, body);
+
+      return [
+        "Team Invitation Sent",
+        "",
+        `Invite ID: ${data.id ?? "N/A"}`,
+        `Team ID: ${tid}`,
+        `Email: ${data.email ?? email}`,
+        `Role: ${data.role ?? role ?? "member"}`,
+        data.expiresAt ? `Expires: ${data.expiresAt}` : "",
+      ].filter(Boolean).join("\n");
+    } catch (err) {
+      return `Error: ${safeError(err)}`;
+    }
+  }
+
+  // -----------------------------------------------------------------------
+  // Tool 51: teamListInvites
+  // -----------------------------------------------------------------------
+
+  async teamListInvites(teamId: string): Promise<string> {
+    try {
+      const tid = validateUuid(teamId, "team_id");
+
+      const data = await this._requestWithRetry<{
+        invites: Array<{
+          id: string;
+          email: string;
+          role: string;
+          status: string;
+          createdAt: string;
+          expiresAt: string;
+        }>;
+      }>("GET", `/api/teams/${encodeURIComponent(tid)}/invites`);
+
+      const invites = data.invites ?? [];
+      if (invites.length === 0) {
+        return "No pending invitations for this team.";
+      }
+
+      const lines = [`Team Invitations (${invites.length})`, ""];
+      for (const inv of invites) {
+        lines.push(`  ${inv.email} -- ${inv.role} [${inv.status}]`);
+        lines.push(`    Invite ID: ${inv.id.slice(0, 8)}... | Created: ${inv.createdAt}`);
+      }
+
+      return truncate(lines.join("\n"));
+    } catch (err) {
+      return `Error: ${safeError(err)}`;
+    }
+  }
+
+  // -----------------------------------------------------------------------
+  // Tool 52: teamCancelInvite
+  // -----------------------------------------------------------------------
+
+  async teamCancelInvite(teamId: string, inviteId: string): Promise<string> {
+    try {
+      const tid = validateUuid(teamId, "team_id");
+      const iid = validateUuid(inviteId, "invite_id");
+
+      await this._requestWithRetry(
+        "DELETE",
+        `/api/teams/${encodeURIComponent(tid)}/invites/${encodeURIComponent(iid)}`,
+      );
+
+      return [
+        "Team Invitation Cancelled",
+        "",
+        `Team ID: ${tid}`,
+        `Invite ID: ${iid}`,
+      ].join("\n");
+    } catch (err) {
+      return `Error: ${safeError(err)}`;
+    }
+  }
+
+  // -----------------------------------------------------------------------
   // getTools() -- returns LangChain DynamicStructuredTool[] for Flowise
   // -----------------------------------------------------------------------
 
@@ -2115,6 +3042,356 @@ export class DominusNodeToolkit {
         schema: z.object({}),
         func: async () => {
           return this.x402Info();
+        },
+      }),
+
+      // 26. get_proxy_status
+      new DynamicStructuredTool({
+        name: "dominusnode_get_proxy_status",
+        description:
+          "Get proxy health and status information including uptime, active connections, and provider status.",
+        schema: z.object({}),
+        func: async () => {
+          return this.getProxyStatus();
+        },
+      }),
+
+      // 27. get_transactions
+      new DynamicStructuredTool({
+        name: "dominusnode_get_transactions",
+        description:
+          "Get wallet transaction history including top-ups, usage charges, and refunds.",
+        schema: z.object({
+          limit: z.number().int().min(1).max(100).default(20).describe("Number of transactions to return (1-100)"),
+        }),
+        func: async ({ limit }: Record<string, any>) => {
+          return this.getTransactions(limit);
+        },
+      }),
+
+      // 28. get_forecast
+      new DynamicStructuredTool({
+        name: "dominusnode_get_forecast",
+        description:
+          "Get a wallet balance forecast based on recent usage patterns. Shows estimated days until balance depletion.",
+        schema: z.object({}),
+        func: async () => {
+          return this.getForecast();
+        },
+      }),
+
+      // 29. check_payment
+      new DynamicStructuredTool({
+        name: "dominusnode_check_payment",
+        description:
+          "Check the status of a cryptocurrency payment invoice. Use after creating a crypto top-up.",
+        schema: z.object({
+          invoiceId: z.string().min(1).describe("The invoice ID from the crypto top-up creation"),
+        }),
+        func: async ({ invoiceId }: Record<string, any>) => {
+          return this.checkPayment(invoiceId);
+        },
+      }),
+
+      // 30. get_daily_usage
+      new DynamicStructuredTool({
+        name: "dominusnode_get_daily_usage",
+        description:
+          "Get daily usage breakdown showing bandwidth, cost, and request count per day.",
+        schema: z.object({
+          days: z.number().int().min(1).max(365).default(7).describe("Number of days to look back (1-365)"),
+        }),
+        func: async ({ days }: Record<string, any>) => {
+          return this.getDailyUsage(days);
+        },
+      }),
+
+      // 31. get_top_hosts
+      new DynamicStructuredTool({
+        name: "dominusnode_get_top_hosts",
+        description:
+          "Get the top accessed hosts ranked by bandwidth usage. Useful for understanding proxy usage patterns.",
+        schema: z.object({
+          limit: z.number().int().min(1).max(100).default(10).describe("Number of top hosts to return (1-100)"),
+        }),
+        func: async ({ limit }: Record<string, any>) => {
+          return this.getTopHosts(limit);
+        },
+      }),
+
+      // 32. register
+      new DynamicStructuredTool({
+        name: "dominusnode_register",
+        description:
+          "Register a new Dominus Node account. Returns user info. " +
+          "After registering, verify email or rely on MCP agent auto-verification.",
+        schema: z.object({
+          email: z.string().email().describe("Email address for the new account"),
+          password: z.string().min(8).max(128).describe("Password (min 8, max 128 characters)"),
+        }),
+        func: async ({ email, password }: Record<string, any>) => {
+          return this.register(email, password);
+        },
+      }),
+
+      // 33. login
+      new DynamicStructuredTool({
+        name: "dominusnode_login",
+        description:
+          "Log into an existing Dominus Node account. Returns login status. " +
+          "Detects MFA requirements and surfaces challenge tokens.",
+        schema: z.object({
+          email: z.string().email().describe("Account email address"),
+          password: z.string().min(1).describe("Account password"),
+        }),
+        func: async ({ email, password }: Record<string, any>) => {
+          return this.login(email, password);
+        },
+      }),
+
+      // 34. get_account_info
+      new DynamicStructuredTool({
+        name: "dominusnode_get_account_info",
+        description:
+          "Get the current authenticated account information including email, plan, verification status, and creation date.",
+        schema: z.object({}),
+        func: async () => {
+          return this.getAccountInfo();
+        },
+      }),
+
+      // 35. verify_email
+      new DynamicStructuredTool({
+        name: "dominusnode_verify_email",
+        description:
+          "Verify email address using the verification token sent to email. " +
+          "MCP agents are auto-verified via agent headers.",
+        schema: z.object({
+          token: z.string().min(1).describe("Email verification token from the verification email"),
+        }),
+        func: async ({ token }: Record<string, any>) => {
+          return this.verifyEmail(token);
+        },
+      }),
+
+      // 36. resend_verification
+      new DynamicStructuredTool({
+        name: "dominusnode_resend_verification",
+        description:
+          "Resend the email verification token to the account's email address.",
+        schema: z.object({}),
+        func: async () => {
+          return this.resendVerification();
+        },
+      }),
+
+      // 37. update_password
+      new DynamicStructuredTool({
+        name: "dominusnode_update_password",
+        description:
+          "Change the password for the current Dominus Node account. Requires the current password.",
+        schema: z.object({
+          currentPassword: z.string().min(1).describe("Current account password"),
+          newPassword: z.string().min(8).max(128).describe("New password (min 8, max 128 characters)"),
+        }),
+        func: async ({ currentPassword, newPassword }: Record<string, any>) => {
+          return this.updatePassword(currentPassword, newPassword);
+        },
+      }),
+
+      // 38. list_keys
+      new DynamicStructuredTool({
+        name: "dominusnode_list_keys",
+        description:
+          "List all API keys for the current account. Shows key ID, label, prefix, and creation date.",
+        schema: z.object({}),
+        func: async () => {
+          return this.listKeys();
+        },
+      }),
+
+      // 39. create_key
+      new DynamicStructuredTool({
+        name: "dominusnode_create_key",
+        description:
+          "Create a new API key for the current account. The key is shown only once on creation.",
+        schema: z.object({
+          label: z.string().min(1).max(100).optional().describe('Optional label for the API key (e.g., "production")'),
+        }),
+        func: async ({ label }: Record<string, any>) => {
+          return this.createKey(label);
+        },
+      }),
+
+      // 40. revoke_key
+      new DynamicStructuredTool({
+        name: "dominusnode_revoke_key",
+        description:
+          "Revoke (permanently delete) an API key. The key will immediately stop working.",
+        schema: z.object({
+          keyId: z.string().uuid().describe("UUID of the API key to revoke"),
+        }),
+        func: async ({ keyId }: Record<string, any>) => {
+          return this.revokeKey(keyId);
+        },
+      }),
+
+      // 41. get_plan
+      new DynamicStructuredTool({
+        name: "dominusnode_get_plan",
+        description:
+          "Get the current user's plan details including bandwidth limits, pricing tier, and features.",
+        schema: z.object({}),
+        func: async () => {
+          return this.getPlan();
+        },
+      }),
+
+      // 42. list_plans
+      new DynamicStructuredTool({
+        name: "dominusnode_list_plans",
+        description:
+          "List all available Dominus Node plans with pricing, bandwidth limits, and features.",
+        schema: z.object({}),
+        func: async () => {
+          return this.listPlans();
+        },
+      }),
+
+      // 43. change_plan
+      new DynamicStructuredTool({
+        name: "dominusnode_change_plan",
+        description:
+          "Change the current user's plan. Provide the plan ID of the desired plan from list_plans.",
+        schema: z.object({
+          planId: z.string().min(1).describe("ID of the plan to switch to"),
+        }),
+        func: async ({ planId }: Record<string, any>) => {
+          return this.changePlan(planId);
+        },
+      }),
+
+      // 44. team_delete
+      new DynamicStructuredTool({
+        name: "dominusnode_team_delete",
+        description:
+          "Delete a team permanently. Requires owner role. All team keys are revoked and members removed.",
+        schema: z.object({
+          teamId: z.string().uuid().describe("Team ID (UUID) to delete"),
+        }),
+        func: async ({ teamId }: Record<string, any>) => {
+          return this.teamDelete(teamId);
+        },
+      }),
+
+      // 45. team_revoke_key
+      new DynamicStructuredTool({
+        name: "dominusnode_team_revoke_key",
+        description:
+          "Revoke (delete) a team API key. Requires owner or admin role.",
+        schema: z.object({
+          teamId: z.string().uuid().describe("Team ID (UUID)"),
+          keyId: z.string().uuid().describe("UUID of the team key to revoke"),
+        }),
+        func: async ({ teamId, keyId }: Record<string, any>) => {
+          return this.teamRevokeKey(teamId, keyId);
+        },
+      }),
+
+      // 46. team_list_keys
+      new DynamicStructuredTool({
+        name: "dominusnode_team_list_keys",
+        description:
+          "List all API keys for a team. Shows key ID, label, prefix, and creation date.",
+        schema: z.object({
+          teamId: z.string().uuid().describe("Team ID (UUID)"),
+        }),
+        func: async ({ teamId }: Record<string, any>) => {
+          return this.teamListKeys(teamId);
+        },
+      }),
+
+      // 47. team_list_members
+      new DynamicStructuredTool({
+        name: "dominusnode_team_list_members",
+        description:
+          "List all members of a team with their roles and join dates.",
+        schema: z.object({
+          teamId: z.string().uuid().describe("Team ID (UUID)"),
+        }),
+        func: async ({ teamId }: Record<string, any>) => {
+          return this.teamListMembers(teamId);
+        },
+      }),
+
+      // 48. team_add_member
+      new DynamicStructuredTool({
+        name: "dominusnode_team_add_member",
+        description:
+          "Add a member to a team by email address. Optionally specify their role (member or admin).",
+        schema: z.object({
+          teamId: z.string().uuid().describe("Team ID (UUID)"),
+          email: z.string().email().describe("Email address of the user to add"),
+          role: z.enum(["member", "admin"]).optional().describe("Role for the new member (default: member)"),
+        }),
+        func: async ({ teamId, email, role }: Record<string, any>) => {
+          return this.teamAddMember(teamId, email, role);
+        },
+      }),
+
+      // 49. team_remove_member
+      new DynamicStructuredTool({
+        name: "dominusnode_team_remove_member",
+        description:
+          "Remove a member from a team. Requires owner or admin role. Cannot remove the owner.",
+        schema: z.object({
+          teamId: z.string().uuid().describe("Team ID (UUID)"),
+          userId: z.string().uuid().describe("User ID (UUID) of the member to remove"),
+        }),
+        func: async ({ teamId, userId }: Record<string, any>) => {
+          return this.teamRemoveMember(teamId, userId);
+        },
+      }),
+
+      // 50. team_invite_member
+      new DynamicStructuredTool({
+        name: "dominusnode_team_invite_member",
+        description:
+          "Send a team invitation to an email address. Invited users can accept to join the team.",
+        schema: z.object({
+          teamId: z.string().uuid().describe("Team ID (UUID)"),
+          email: z.string().email().describe("Email address to invite"),
+          role: z.enum(["member", "admin"]).optional().describe("Role for the invited member (default: member)"),
+        }),
+        func: async ({ teamId, email, role }: Record<string, any>) => {
+          return this.teamInviteMember(teamId, email, role);
+        },
+      }),
+
+      // 51. team_list_invites
+      new DynamicStructuredTool({
+        name: "dominusnode_team_list_invites",
+        description:
+          "List all pending invitations for a team. Shows invite ID, email, role, and status.",
+        schema: z.object({
+          teamId: z.string().uuid().describe("Team ID (UUID)"),
+        }),
+        func: async ({ teamId }: Record<string, any>) => {
+          return this.teamListInvites(teamId);
+        },
+      }),
+
+      // 52. team_cancel_invite
+      new DynamicStructuredTool({
+        name: "dominusnode_team_cancel_invite",
+        description:
+          "Cancel a pending team invitation. Requires owner or admin role.",
+        schema: z.object({
+          teamId: z.string().uuid().describe("Team ID (UUID)"),
+          inviteId: z.string().uuid().describe("UUID of the invitation to cancel"),
+        }),
+        func: async ({ teamId, inviteId }: Record<string, any>) => {
+          return this.teamCancelInvite(teamId, inviteId);
         },
       }),
     ];

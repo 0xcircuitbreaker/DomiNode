@@ -1,6 +1,6 @@
 {
   "name": "@dominusnode/ai-tools",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Vercel AI SDK tools for Dominus Node rotating proxy service",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -12,7 +12,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@dominusnode/sdk": "file:../../sdks/node",
+    "@dominusnode/sdk": "^1.1.1",
     "ai": ">=3.0.0",
     "zod": ">=3.22.0"
   },

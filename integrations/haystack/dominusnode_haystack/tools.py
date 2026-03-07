@@ -1,14 +1,18 @@
-"""Dominus Node Haystack toolkit -- 26 proxy, wallet, team, and payment tools.
+"""Dominus Node Haystack toolkit -- 53 proxy, wallet, team, and payment tools.
 
-Provides a Haystack-compatible toolkit class that exposes 26 Tool objects for
+Provides a Haystack-compatible toolkit class that exposes 53 Tool objects for
 interacting with the Dominus Node rotating proxy-as-a-service platform.
 
 Tools cover:
   - Proxied HTTP fetching through rotating proxies
-  - Wallet balance and usage monitoring
-  - Proxy configuration and session listing
+  - Wallet balance, transactions, forecast, and usage monitoring
+  - Proxy configuration, status, and session listing
   - Agentic wallet management (create, fund, freeze, unfreeze, delete)
-  - Team management (create, list, fund, keys, usage, update, role changes)
+  - Team management (create, list, fund, keys, usage, update, role changes,
+    members, invites)
+  - Account lifecycle (register, login, info, email verification, password)
+  - API key management (list, create, revoke)
+  - Plan management (get, list, change)
   - PayPal, Stripe, and crypto top-up
 
 Security:
@@ -496,6 +500,86 @@ def _validate_domains(domains: Any) -> Optional[str]:
     return None
 
 
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+def _validate_email(value: Any, field_name: str = "email") -> Optional[str]:
+    """Validate an email string, returning an error message or None."""
+    if not value or not isinstance(value, str):
+        return f"{field_name} is required and must be a string"
+    if len(value) > 254:
+        return f"{field_name} must be 254 characters or fewer"
+    if not _EMAIL_RE.match(value):
+        return f"{field_name} must be a valid email address"
+    return None
+
+
+def _validate_password(value: Any, field_name: str = "password") -> Optional[str]:
+    """Validate a password string, returning an error message or None."""
+    if not value or not isinstance(value, str):
+        return f"{field_name} is required and must be a string"
+    if len(value) < 8:
+        return f"{field_name} must be at least 8 characters"
+    if len(value) > 128:
+        return f"{field_name} must be 128 characters or fewer"
+    return None
+
+
+def _validate_finite_int(
+    value: Any,
+    field_name: str,
+    min_value: int = 1,
+    max_value: int = 2_147_483_647,
+) -> Optional[str]:
+    """Validate integer with NaN/Infinity guards (Python: float('nan') etc.)."""
+    if isinstance(value, bool):
+        return f"{field_name} must be an integer"
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            return f"{field_name} must be a finite number"
+        if value != int(value):
+            return f"{field_name} must be an integer"
+        value = int(value)
+    if not isinstance(value, int):
+        return f"{field_name} must be an integer"
+    if value < min_value or value > max_value:
+        return f"{field_name} must be between {min_value} and {max_value}"
+    return None
+
+
+def _validate_code(value: Any, field_name: str = "code") -> Optional[str]:
+    """Validate a verification code string, returning error or None."""
+    if not value or not isinstance(value, str):
+        return f"{field_name} is required and must be a string"
+    if len(value) > 100:
+        return f"{field_name} must be 100 characters or fewer"
+    if any(0 <= ord(c) <= 0x1F or ord(c) == 0x7F for c in value):
+        return f"{field_name} contains invalid control characters"
+    return None
+
+
+def _validate_plan_name(value: Any, field_name: str = "plan") -> Optional[str]:
+    """Validate a plan name string, returning error or None."""
+    if not value or not isinstance(value, str):
+        return f"{field_name} is required and must be a string"
+    if len(value) > 100:
+        return f"{field_name} must be 100 characters or fewer"
+    if any(0 <= ord(c) <= 0x1F or ord(c) == 0x7F for c in value):
+        return f"{field_name} contains invalid control characters"
+    return None
+
+
+def _validate_invoice_id(value: Any, field_name: str = "invoice_id") -> Optional[str]:
+    """Validate an invoice ID string, returning error or None."""
+    if not value or not isinstance(value, str):
+        return f"{field_name} is required and must be a string"
+    if len(value) > 200:
+        return f"{field_name} must be 200 characters or fewer"
+    if any(0 <= ord(c) <= 0x1F or ord(c) == 0x7F for c in value):
+        return f"{field_name} contains invalid control characters"
+    return None
+
+
 # ===========================================================================
 # DominusNodeToolkit -- main toolkit class
 # ===========================================================================
@@ -504,9 +588,9 @@ def _validate_domains(domains: Any) -> Optional[str]:
 class DominusNodeToolkit:
     """Haystack toolkit providing Dominus Node rotating proxy tools.
 
-    Authenticates using a Dominus Node API key and exposes 26 tools for proxy,
-    wallet, team, and payment management.  All tool methods return dicts
-    suitable for Haystack pipeline consumption.
+    Authenticates using a Dominus Node API key and exposes 53 tools for proxy,
+    wallet, team, account, key, plan, and payment management.  All tool
+    methods return dicts suitable for Haystack pipeline consumption.
 
     Args:
         api_key: Dominus Node API key (``dn_live_...`` or ``dn_test_...``).
@@ -678,6 +762,71 @@ class DominusNodeToolkit:
                 self._ensure_auth()
                 return self._api_request(method, path, body)
             raise
+
+    # ------------------------------------------------------------------
+    # Public (unauthenticated) request helper
+    # ------------------------------------------------------------------
+
+    def _api_request_public(
+        self,
+        method: str,
+        path: str,
+        body: Optional[Dict[str, Any]] = None,
+    ) -> Any:
+        """Make an unauthenticated API request to the Dominus Node REST API.
+
+        Used for public endpoints like register, login, and verify-email
+        that do not require an API key or JWT token.
+
+        Args:
+            method: HTTP method (POST, GET, etc.).
+            path: API path (e.g., ``/api/auth/register``).
+            body: Optional JSON body.
+
+        Returns:
+            Parsed JSON response (with dangerous keys stripped).
+
+        Raises:
+            RuntimeError: On API errors or oversized responses.
+        """
+        with httpx.Client(
+            timeout=self.timeout,
+            follow_redirects=False,
+        ) as client:
+            kwargs: Dict[str, Any] = {
+                "headers": {
+                    "User-Agent": "dominusnode-haystack/1.0.0",
+                    "Content-Type": "application/json",
+                },
+            }
+            if self.agent_secret:
+                kwargs["headers"]["X-DominusNode-Agent"] = "mcp"
+                kwargs["headers"]["X-DominusNode-Agent-Secret"] = self.agent_secret
+
+            if body is not None and method.upper() not in ("GET", "HEAD", "OPTIONS"):
+                kwargs["json"] = body
+
+            resp = client.request(method, f"{self.base_url}{path}", **kwargs)
+
+            if len(resp.content) > MAX_RESPONSE_BYTES:
+                raise RuntimeError("Response body too large")
+
+            if resp.status_code >= 400:
+                try:
+                    err_data = resp.json()
+                    msg = err_data.get("error", resp.text)
+                except Exception:
+                    msg = resp.text
+                msg = str(msg)[:500]
+                raise RuntimeError(
+                    f"API error {resp.status_code}: {_sanitize_error(msg)}"
+                )
+
+            if resp.text:
+                data = resp.json()
+                _strip_dangerous_keys(data)
+                return data
+            return {}
 
     # ==================================================================
     # Tool 1: proxied_fetch
@@ -1544,11 +1693,732 @@ class DominusNodeToolkit:
             return {"error": _sanitize_error(str(e))}
 
     # ==================================================================
+    # Tool 27: get_proxy_status
+    # ==================================================================
+
+    def get_proxy_status(self) -> Dict[str, Any]:
+        """Get the current status of the proxy gateway.
+
+        Returns:
+            Dict with proxy gateway status including uptime, active
+            connections, and pool health.
+        """
+        try:
+            result = self._request_with_retry("GET", "/api/proxy/status")
+            return result
+        except Exception as e:
+            return {"error": _sanitize_error(str(e))}
+
+    # ==================================================================
+    # Tool 28: get_transactions
+    # ==================================================================
+
+    def get_transactions(self, limit: int = 20) -> Dict[str, Any]:
+        """Get main wallet transaction history.
+
+        Args:
+            limit: Maximum number of transactions to return (1-100,
+                default 20).
+
+        Returns:
+            Dict with transaction history including top-ups, usage
+            charges, and refunds.
+        """
+        err = _validate_finite_int(limit, "limit", min_value=1, max_value=100)
+        if err:
+            return {"error": err}
+
+        qs = f"?limit={int(limit)}" if limit != 20 else ""
+
+        try:
+            result = self._request_with_retry(
+                "GET", f"/api/wallet/transactions{qs}"
+            )
+            return result
+        except Exception as e:
+            return {"error": _sanitize_error(str(e))}
+
+    # ==================================================================
+    # Tool 29: get_forecast
+    # ==================================================================
+
+    def get_forecast(self) -> Dict[str, Any]:
+        """Get a spending forecast based on recent usage patterns.
+
+        Returns:
+            Dict with projected balance depletion date, daily burn
+            rate, and average daily bandwidth.
+        """
+        try:
+            result = self._request_with_retry("GET", "/api/wallet/forecast")
+            return result
+        except Exception as e:
+            return {"error": _sanitize_error(str(e))}
+
+    # ==================================================================
+    # Tool 30: check_payment
+    # ==================================================================
+
+    def check_payment(self, invoice_id: str) -> Dict[str, Any]:
+        """Check the status of a crypto payment invoice.
+
+        Args:
+            invoice_id: Crypto invoice ID returned by topup_crypto.
+
+        Returns:
+            Dict with payment status, amount, currency, and timestamps.
+        """
+        err = _validate_invoice_id(invoice_id, "invoice_id")
+        if err:
+            return {"error": err}
+
+        try:
+            result = self._request_with_retry(
+                "GET",
+                f"/api/wallet/topup/crypto/{quote(invoice_id, safe='')}/status",
+            )
+            return result
+        except Exception as e:
+            return {"error": _sanitize_error(str(e))}
+
+    # ==================================================================
+    # Tool 31: get_daily_usage
+    # ==================================================================
+
+    def get_daily_usage(self, days: int = 7) -> Dict[str, Any]:
+        """Get daily bandwidth usage breakdown.
+
+        Args:
+            days: Number of days to look back (1-90, default 7).
+
+        Returns:
+            Dict with per-day bytes, cost, and request count.
+        """
+        err = _validate_finite_int(days, "days", min_value=1, max_value=90)
+        if err:
+            return {"error": err}
+
+        qs = f"?days={int(days)}" if days != 7 else ""
+
+        try:
+            result = self._request_with_retry(
+                "GET", f"/api/usage/daily{qs}"
+            )
+            return result
+        except Exception as e:
+            return {"error": _sanitize_error(str(e))}
+
+    # ==================================================================
+    # Tool 32: get_top_hosts
+    # ==================================================================
+
+    def get_top_hosts(self, limit: int = 10) -> Dict[str, Any]:
+        """Get the top hosts by bandwidth usage.
+
+        Args:
+            limit: Number of top hosts to return (1-50, default 10).
+
+        Returns:
+            Dict with top hosts by bandwidth consumption.
+        """
+        err = _validate_finite_int(limit, "limit", min_value=1, max_value=50)
+        if err:
+            return {"error": err}
+
+        qs = f"?limit={int(limit)}" if limit != 10 else ""
+
+        try:
+            result = self._request_with_retry(
+                "GET", f"/api/usage/top-hosts{qs}"
+            )
+            return result
+        except Exception as e:
+            return {"error": _sanitize_error(str(e))}
+
+    # ==================================================================
+    # Tool 33: register_account
+    # ==================================================================
+
+    def register_account(self, email: str, password: str) -> Dict[str, Any]:
+        """Register a new Dominus Node account (unauthenticated).
+
+        Args:
+            email: Email address for the new account.
+            password: Password (8-128 characters).
+
+        Returns:
+            Dict with user details and verification instructions.
+        """
+        err = _validate_email(email, "email")
+        if err:
+            return {"error": err}
+
+        err = _validate_password(password, "password")
+        if err:
+            return {"error": err}
+
+        try:
+            result = self._api_request_public(
+                "POST",
+                "/api/auth/register",
+                {"email": email, "password": password},
+            )
+            return result
+        except Exception as e:
+            return {"error": _sanitize_error(str(e))}
+
+    # ==================================================================
+    # Tool 34: login_account
+    # ==================================================================
+
+    def login_account(self, email: str, password: str) -> Dict[str, Any]:
+        """Log in to a Dominus Node account (unauthenticated).
+
+        Returns access and refresh tokens. Detects MFA requirement.
+
+        Args:
+            email: Account email address.
+            password: Account password (8-128 characters).
+
+        Returns:
+            Dict with tokens or MFA challenge information.
+        """
+        err = _validate_email(email, "email")
+        if err:
+            return {"error": err}
+
+        err = _validate_password(password, "password")
+        if err:
+            return {"error": err}
+
+        try:
+            result = self._api_request_public(
+                "POST",
+                "/api/auth/login",
+                {"email": email, "password": password},
+            )
+            # Surface MFA requirement per SDK rules
+            if isinstance(result, dict) and result.get("mfaRequired"):
+                return {
+                    "mfaRequired": True,
+                    "message": "Multi-factor authentication is required. "
+                    "Complete MFA verification to continue.",
+                }
+            return result
+        except Exception as e:
+            return {"error": _sanitize_error(str(e))}
+
+    # ==================================================================
+    # Tool 35: get_account_info
+    # ==================================================================
+
+    def get_account_info(self) -> Dict[str, Any]:
+        """Get current account information.
+
+        Returns:
+            Dict with account details including email, plan,
+            verification status, and creation date.
+        """
+        try:
+            result = self._request_with_retry("GET", "/api/auth/me")
+            return result
+        except Exception as e:
+            return {"error": _sanitize_error(str(e))}
+
+    # ==================================================================
+    # Tool 36: verify_email
+    # ==================================================================
+
+    def verify_email(self, email: str, code: str) -> Dict[str, Any]:
+        """Verify email address using the code sent during registration (unauthenticated).
+
+        Args:
+            email: Email address to verify.
+            code: Verification code from the email.
+
+        Returns:
+            Dict confirming email verification.
+        """
+        err = _validate_email(email, "email")
+        if err:
+            return {"error": err}
+
+        err = _validate_code(code, "code")
+        if err:
+            return {"error": err}
+
+        try:
+            result = self._api_request_public(
+                "POST",
+                "/api/auth/verify-email",
+                {"email": email, "code": code},
+            )
+            return result if result else {"message": "Email verified successfully"}
+        except Exception as e:
+            return {"error": _sanitize_error(str(e))}
+
+    # ==================================================================
+    # Tool 37: resend_verification
+    # ==================================================================
+
+    def resend_verification(self) -> Dict[str, Any]:
+        """Resend the email verification code (authenticated).
+
+        Returns:
+            Dict confirming the verification email was resent.
+        """
+        try:
+            result = self._request_with_retry(
+                "POST", "/api/auth/resend-verification"
+            )
+            return result if result else {"message": "Verification email resent"}
+        except Exception as e:
+            return {"error": _sanitize_error(str(e))}
+
+    # ==================================================================
+    # Tool 38: update_password
+    # ==================================================================
+
+    def update_password(
+        self, current_password: str, new_password: str
+    ) -> Dict[str, Any]:
+        """Change account password (authenticated).
+
+        Args:
+            current_password: Current password (8-128 characters).
+            new_password: New password (8-128 characters).
+
+        Returns:
+            Dict confirming password update.
+        """
+        err = _validate_password(current_password, "current_password")
+        if err:
+            return {"error": err}
+
+        err = _validate_password(new_password, "new_password")
+        if err:
+            return {"error": err}
+
+        try:
+            result = self._request_with_retry(
+                "POST",
+                "/api/auth/change-password",
+                {
+                    "currentPassword": current_password,
+                    "newPassword": new_password,
+                },
+            )
+            return result if result else {"message": "Password updated successfully"}
+        except Exception as e:
+            return {"error": _sanitize_error(str(e))}
+
+    # ==================================================================
+    # Tool 39: list_keys
+    # ==================================================================
+
+    def list_keys(self) -> Dict[str, Any]:
+        """List all personal API keys.
+
+        Returns:
+            Dict with API keys including prefix, label, status, and
+            creation date.
+        """
+        try:
+            result = self._request_with_retry("GET", "/api/keys")
+            return result
+        except Exception as e:
+            return {"error": _sanitize_error(str(e))}
+
+    # ==================================================================
+    # Tool 40: create_key
+    # ==================================================================
+
+    def create_key(self, label: str) -> Dict[str, Any]:
+        """Create a new personal API key.
+
+        The full key is shown only once -- save it immediately.
+
+        Args:
+            label: Human-readable label for the key (max 100 chars).
+
+        Returns:
+            Dict with the created API key details.
+        """
+        err = _validate_label(label, "label")
+        if err:
+            return {"error": err}
+
+        try:
+            result = self._request_with_retry(
+                "POST", "/api/keys", {"label": label}
+            )
+            return result
+        except Exception as e:
+            return {"error": _sanitize_error(str(e))}
+
+    # ==================================================================
+    # Tool 41: revoke_key
+    # ==================================================================
+
+    def revoke_key(self, key_id: str) -> Dict[str, Any]:
+        """Revoke (delete) a personal API key.
+
+        Args:
+            key_id: UUID of the API key to revoke.
+
+        Returns:
+            Dict confirming the key has been revoked.
+        """
+        err = _validate_uuid(key_id, "key_id")
+        if err:
+            return {"error": err}
+
+        try:
+            result = self._request_with_retry(
+                "DELETE", f"/api/keys/{quote(key_id, safe='')}"
+            )
+            return result if result else {"message": "API key revoked"}
+        except Exception as e:
+            return {"error": _sanitize_error(str(e))}
+
+    # ==================================================================
+    # Tool 42: get_plan
+    # ==================================================================
+
+    def get_plan(self) -> Dict[str, Any]:
+        """Get current plan details.
+
+        Returns:
+            Dict with plan name, limits, pricing, and features.
+        """
+        try:
+            result = self._request_with_retry("GET", "/api/plans/user/plan")
+            return result
+        except Exception as e:
+            return {"error": _sanitize_error(str(e))}
+
+    # ==================================================================
+    # Tool 43: list_plans
+    # ==================================================================
+
+    def list_plans(self) -> Dict[str, Any]:
+        """List all available plans with pricing and limits.
+
+        Returns:
+            Dict with available plans.
+        """
+        try:
+            result = self._request_with_retry("GET", "/api/plans")
+            return result
+        except Exception as e:
+            return {"error": _sanitize_error(str(e))}
+
+    # ==================================================================
+    # Tool 44: change_plan
+    # ==================================================================
+
+    def change_plan(self, plan: str) -> Dict[str, Any]:
+        """Change the current account plan.
+
+        Use list_plans to see available options first.
+
+        Args:
+            plan: Plan name/ID to switch to.
+
+        Returns:
+            Dict with the updated plan details.
+        """
+        err = _validate_plan_name(plan, "plan")
+        if err:
+            return {"error": err}
+
+        try:
+            result = self._request_with_retry(
+                "PUT", "/api/plans/user/plan", {"planId": plan}
+            )
+            return result
+        except Exception as e:
+            return {"error": _sanitize_error(str(e))}
+
+    # ==================================================================
+    # Tool 45: team_delete
+    # ==================================================================
+
+    def team_delete(self, team_id: str) -> Dict[str, Any]:
+        """Delete a team (owner only). Remaining balance is refunded.
+
+        Args:
+            team_id: UUID of the team to delete.
+
+        Returns:
+            Dict confirming team deletion.
+        """
+        err = _validate_uuid(team_id, "team_id")
+        if err:
+            return {"error": err}
+
+        try:
+            result = self._request_with_retry(
+                "DELETE", f"/api/teams/{quote(team_id, safe='')}"
+            )
+            return result if result else {"message": "Team deleted"}
+        except Exception as e:
+            return {"error": _sanitize_error(str(e))}
+
+    # ==================================================================
+    # Tool 46: team_revoke_key
+    # ==================================================================
+
+    def team_revoke_key(self, team_id: str, key_id: str) -> Dict[str, Any]:
+        """Revoke a shared API key for a team.
+
+        Args:
+            team_id: UUID of the team.
+            key_id: UUID of the API key to revoke.
+
+        Returns:
+            Dict confirming the team key has been revoked.
+        """
+        err = _validate_uuid(team_id, "team_id")
+        if err:
+            return {"error": err}
+
+        err = _validate_uuid(key_id, "key_id")
+        if err:
+            return {"error": err}
+
+        try:
+            result = self._request_with_retry(
+                "DELETE",
+                f"/api/teams/{quote(team_id, safe='')}/keys/{quote(key_id, safe='')}",
+            )
+            return result if result else {"message": "Team API key revoked"}
+        except Exception as e:
+            return {"error": _sanitize_error(str(e))}
+
+    # ==================================================================
+    # Tool 47: team_list_keys
+    # ==================================================================
+
+    def team_list_keys(self, team_id: str) -> Dict[str, Any]:
+        """List all API keys for a team.
+
+        Args:
+            team_id: UUID of the team.
+
+        Returns:
+            Dict with team API keys.
+        """
+        err = _validate_uuid(team_id, "team_id")
+        if err:
+            return {"error": err}
+
+        try:
+            result = self._request_with_retry(
+                "GET", f"/api/teams/{quote(team_id, safe='')}/keys"
+            )
+            return result
+        except Exception as e:
+            return {"error": _sanitize_error(str(e))}
+
+    # ==================================================================
+    # Tool 48: team_list_members
+    # ==================================================================
+
+    def team_list_members(self, team_id: str) -> Dict[str, Any]:
+        """List all members of a team with their roles.
+
+        Args:
+            team_id: UUID of the team.
+
+        Returns:
+            Dict with team members and their roles.
+        """
+        err = _validate_uuid(team_id, "team_id")
+        if err:
+            return {"error": err}
+
+        try:
+            result = self._request_with_retry(
+                "GET", f"/api/teams/{quote(team_id, safe='')}/members"
+            )
+            return result
+        except Exception as e:
+            return {"error": _sanitize_error(str(e))}
+
+    # ==================================================================
+    # Tool 49: team_add_member
+    # ==================================================================
+
+    def team_add_member(
+        self, team_id: str, user_id: str, role: str = "member"
+    ) -> Dict[str, Any]:
+        """Add a member directly to a team by user ID.
+
+        Args:
+            team_id: UUID of the team.
+            user_id: UUID of the user to add.
+            role: Role for the new member (``member`` or ``admin``).
+
+        Returns:
+            Dict with the added member details.
+        """
+        err = _validate_uuid(team_id, "team_id")
+        if err:
+            return {"error": err}
+
+        err = _validate_uuid(user_id, "user_id")
+        if err:
+            return {"error": err}
+
+        if not role or not isinstance(role, str):
+            return {"error": "role is required and must be a string"}
+        if role not in ("member", "admin"):
+            return {"error": "role must be 'member' or 'admin'"}
+
+        try:
+            result = self._request_with_retry(
+                "POST",
+                f"/api/teams/{quote(team_id, safe='')}/members",
+                {"userId": user_id, "role": role},
+            )
+            return result
+        except Exception as e:
+            return {"error": _sanitize_error(str(e))}
+
+    # ==================================================================
+    # Tool 50: team_remove_member
+    # ==================================================================
+
+    def team_remove_member(self, team_id: str, user_id: str) -> Dict[str, Any]:
+        """Remove a member from a team.
+
+        Args:
+            team_id: UUID of the team.
+            user_id: UUID of the member to remove.
+
+        Returns:
+            Dict confirming member removal.
+        """
+        err = _validate_uuid(team_id, "team_id")
+        if err:
+            return {"error": err}
+
+        err = _validate_uuid(user_id, "user_id")
+        if err:
+            return {"error": err}
+
+        try:
+            result = self._request_with_retry(
+                "DELETE",
+                f"/api/teams/{quote(team_id, safe='')}/members/{quote(user_id, safe='')}",
+            )
+            return result if result else {"message": "Team member removed"}
+        except Exception as e:
+            return {"error": _sanitize_error(str(e))}
+
+    # ==================================================================
+    # Tool 51: team_invite_member
+    # ==================================================================
+
+    def team_invite_member(
+        self, team_id: str, email: str, role: str = "member"
+    ) -> Dict[str, Any]:
+        """Send an invitation to join a team by email.
+
+        Args:
+            team_id: UUID of the team.
+            email: Email address of the person to invite.
+            role: Role for the invited member (``member`` or ``admin``).
+
+        Returns:
+            Dict with invitation details including invite ID and expiry.
+        """
+        err = _validate_uuid(team_id, "team_id")
+        if err:
+            return {"error": err}
+
+        err = _validate_email(email, "email")
+        if err:
+            return {"error": err}
+
+        if not role or not isinstance(role, str):
+            return {"error": "role is required and must be a string"}
+        if role not in ("member", "admin"):
+            return {"error": "role must be 'member' or 'admin'"}
+
+        try:
+            result = self._request_with_retry(
+                "POST",
+                f"/api/teams/{quote(team_id, safe='')}/invites",
+                {"email": email, "role": role},
+            )
+            return result
+        except Exception as e:
+            return {"error": _sanitize_error(str(e))}
+
+    # ==================================================================
+    # Tool 52: team_list_invites
+    # ==================================================================
+
+    def team_list_invites(self, team_id: str) -> Dict[str, Any]:
+        """List all pending invitations for a team.
+
+        Args:
+            team_id: UUID of the team.
+
+        Returns:
+            Dict with pending team invitations.
+        """
+        err = _validate_uuid(team_id, "team_id")
+        if err:
+            return {"error": err}
+
+        try:
+            result = self._request_with_retry(
+                "GET", f"/api/teams/{quote(team_id, safe='')}/invites"
+            )
+            return result
+        except Exception as e:
+            return {"error": _sanitize_error(str(e))}
+
+    # ==================================================================
+    # Tool 53: team_cancel_invite
+    # ==================================================================
+
+    def team_cancel_invite(self, team_id: str, invite_id: str) -> Dict[str, Any]:
+        """Cancel a pending team invitation.
+
+        Args:
+            team_id: UUID of the team.
+            invite_id: UUID of the invitation to cancel.
+
+        Returns:
+            Dict confirming the invitation has been cancelled.
+        """
+        err = _validate_uuid(team_id, "team_id")
+        if err:
+            return {"error": err}
+
+        err = _validate_uuid(invite_id, "invite_id")
+        if err:
+            return {"error": err}
+
+        try:
+            result = self._request_with_retry(
+                "DELETE",
+                f"/api/teams/{quote(team_id, safe='')}/invites/{quote(invite_id, safe='')}",
+            )
+            return result if result else {"message": "Team invitation cancelled"}
+        except Exception as e:
+            return {"error": _sanitize_error(str(e))}
+
+    # ==================================================================
     # Haystack Tool list
     # ==================================================================
 
     def get_tools(self) -> List[Any]:
-        """Return list of Haystack Tool objects for all 26 Dominus Node functions.
+        """Return list of Haystack Tool objects for all 53 Dominus Node functions.
 
         Each Tool wraps one of the toolkit methods with a name, description,
         and JSON Schema parameter definition compatible with Haystack's
@@ -1989,6 +2859,513 @@ class DominusNodeToolkit:
                         },
                     },
                     "required": ["wallet_id"],
+                },
+            ),
+            # -- Tool 27: get_proxy_status --
+            Tool(
+                name="dominusnode_get_proxy_status",
+                description=(
+                    "Get the current status of the Dominus Node proxy gateway "
+                    "including uptime, active connections, and pool health."
+                ),
+                function=self.get_proxy_status,
+                parameters={
+                    "type": "object",
+                    "properties": {},
+                },
+            ),
+            # -- Tool 28: get_transactions --
+            Tool(
+                name="dominusnode_get_transactions",
+                description=(
+                    "Get main wallet transaction history including top-ups, "
+                    "usage charges, and refunds."
+                ),
+                function=self.get_transactions,
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "limit": {
+                            "type": "integer",
+                            "description": "Number of transactions to return (1-100)",
+                            "default": 20,
+                        },
+                    },
+                },
+            ),
+            # -- Tool 29: get_forecast --
+            Tool(
+                name="dominusnode_get_forecast",
+                description=(
+                    "Get a spending forecast based on recent usage patterns. "
+                    "Shows projected balance depletion date and daily burn rate."
+                ),
+                function=self.get_forecast,
+                parameters={
+                    "type": "object",
+                    "properties": {},
+                },
+            ),
+            # -- Tool 30: check_payment --
+            Tool(
+                name="dominusnode_check_payment",
+                description=(
+                    "Check the status of a crypto payment invoice. "
+                    "Use the invoice ID returned by topup_crypto."
+                ),
+                function=self.check_payment,
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "invoice_id": {
+                            "type": "string",
+                            "description": "Crypto invoice ID to check",
+                        },
+                    },
+                    "required": ["invoice_id"],
+                },
+            ),
+            # -- Tool 31: get_daily_usage --
+            Tool(
+                name="dominusnode_get_daily_usage",
+                description=(
+                    "Get daily bandwidth usage breakdown for the specified "
+                    "number of days. Shows per-day bytes, cost, and request count."
+                ),
+                function=self.get_daily_usage,
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "days": {
+                            "type": "integer",
+                            "description": "Number of days to look back (1-90)",
+                            "default": 7,
+                        },
+                    },
+                },
+            ),
+            # -- Tool 32: get_top_hosts --
+            Tool(
+                name="dominusnode_get_top_hosts",
+                description=(
+                    "Get the top hosts by bandwidth usage. Shows which domains "
+                    "consume the most proxy bandwidth."
+                ),
+                function=self.get_top_hosts,
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "limit": {
+                            "type": "integer",
+                            "description": "Number of top hosts to return (1-50)",
+                            "default": 10,
+                        },
+                    },
+                },
+            ),
+            # -- Tool 33: register_account --
+            Tool(
+                name="dominusnode_register_account",
+                description=(
+                    "Register a new Dominus Node account. "
+                    "This is an unauthenticated endpoint -- no API key required."
+                ),
+                function=self.register_account,
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "email": {
+                            "type": "string",
+                            "description": "Email address for the new account",
+                        },
+                        "password": {
+                            "type": "string",
+                            "description": "Password (8-128 characters)",
+                        },
+                    },
+                    "required": ["email", "password"],
+                },
+            ),
+            # -- Tool 34: login_account --
+            Tool(
+                name="dominusnode_login_account",
+                description=(
+                    "Log in to a Dominus Node account and receive access/refresh tokens. "
+                    "This is an unauthenticated endpoint -- no API key required."
+                ),
+                function=self.login_account,
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "email": {
+                            "type": "string",
+                            "description": "Account email address",
+                        },
+                        "password": {
+                            "type": "string",
+                            "description": "Account password (8-128 characters)",
+                        },
+                    },
+                    "required": ["email", "password"],
+                },
+            ),
+            # -- Tool 35: get_account_info --
+            Tool(
+                name="dominusnode_get_account_info",
+                description=(
+                    "Get your Dominus Node account information including email, "
+                    "plan, verification status, and creation date."
+                ),
+                function=self.get_account_info,
+                parameters={
+                    "type": "object",
+                    "properties": {},
+                },
+            ),
+            # -- Tool 36: verify_email --
+            Tool(
+                name="dominusnode_verify_email",
+                description=(
+                    "Verify your email address using the code sent during registration. "
+                    "This is an unauthenticated endpoint -- no API key required."
+                ),
+                function=self.verify_email,
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "email": {
+                            "type": "string",
+                            "description": "Email address to verify",
+                        },
+                        "code": {
+                            "type": "string",
+                            "description": "Verification code from email",
+                        },
+                    },
+                    "required": ["email", "code"],
+                },
+            ),
+            # -- Tool 37: resend_verification --
+            Tool(
+                name="dominusnode_resend_verification",
+                description=(
+                    "Resend the email verification code. Requires authentication."
+                ),
+                function=self.resend_verification,
+                parameters={
+                    "type": "object",
+                    "properties": {},
+                },
+            ),
+            # -- Tool 38: update_password --
+            Tool(
+                name="dominusnode_update_password",
+                description=(
+                    "Change your account password. Requires your current "
+                    "password for verification."
+                ),
+                function=self.update_password,
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "current_password": {
+                            "type": "string",
+                            "description": "Your current password (8-128 characters)",
+                        },
+                        "new_password": {
+                            "type": "string",
+                            "description": "Your new password (8-128 characters)",
+                        },
+                    },
+                    "required": ["current_password", "new_password"],
+                },
+            ),
+            # -- Tool 39: list_keys --
+            Tool(
+                name="dominusnode_list_keys",
+                description=(
+                    "List all your personal API keys. Shows key prefix, "
+                    "label, status, and creation date."
+                ),
+                function=self.list_keys,
+                parameters={
+                    "type": "object",
+                    "properties": {},
+                },
+            ),
+            # -- Tool 40: create_key --
+            Tool(
+                name="dominusnode_create_key",
+                description=(
+                    "Create a new personal API key. The full key is shown "
+                    "only once -- save it immediately."
+                ),
+                function=self.create_key,
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "label": {
+                            "type": "string",
+                            "description": "Label for the API key (max 100 chars)",
+                        },
+                    },
+                    "required": ["label"],
+                },
+            ),
+            # -- Tool 41: revoke_key --
+            Tool(
+                name="dominusnode_revoke_key",
+                description=(
+                    "Revoke (delete) a personal API key. This immediately "
+                    "invalidates the key."
+                ),
+                function=self.revoke_key,
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "key_id": {
+                            "type": "string",
+                            "description": "API key ID (UUID) to revoke",
+                        },
+                    },
+                    "required": ["key_id"],
+                },
+            ),
+            # -- Tool 42: get_plan --
+            Tool(
+                name="dominusnode_get_plan",
+                description=(
+                    "Get your current plan details including limits, "
+                    "pricing, and features."
+                ),
+                function=self.get_plan,
+                parameters={
+                    "type": "object",
+                    "properties": {},
+                },
+            ),
+            # -- Tool 43: list_plans --
+            Tool(
+                name="dominusnode_list_plans",
+                description="List all available plans with pricing, limits, and features.",
+                function=self.list_plans,
+                parameters={
+                    "type": "object",
+                    "properties": {},
+                },
+            ),
+            # -- Tool 44: change_plan --
+            Tool(
+                name="dominusnode_change_plan",
+                description=(
+                    "Change your account plan. Use list_plans to see "
+                    "available options first."
+                ),
+                function=self.change_plan,
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "plan": {
+                            "type": "string",
+                            "description": "Plan name/ID to switch to",
+                        },
+                    },
+                    "required": ["plan"],
+                },
+            ),
+            # -- Tool 45: team_delete --
+            Tool(
+                name="dominusnode_team_delete",
+                description=(
+                    "Delete a team. Only the team owner can delete a team. "
+                    "Any remaining balance is refunded."
+                ),
+                function=self.team_delete,
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "team_id": {
+                            "type": "string",
+                            "description": "Team UUID to delete",
+                        },
+                    },
+                    "required": ["team_id"],
+                },
+            ),
+            # -- Tool 46: team_revoke_key --
+            Tool(
+                name="dominusnode_team_revoke_key",
+                description=(
+                    "Revoke a shared API key for a team. Only owners and "
+                    "admins can revoke keys."
+                ),
+                function=self.team_revoke_key,
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "team_id": {
+                            "type": "string",
+                            "description": "Team UUID",
+                        },
+                        "key_id": {
+                            "type": "string",
+                            "description": "API key ID (UUID) to revoke",
+                        },
+                    },
+                    "required": ["team_id", "key_id"],
+                },
+            ),
+            # -- Tool 47: team_list_keys --
+            Tool(
+                name="dominusnode_team_list_keys",
+                description=(
+                    "List all API keys for a team. Shows key prefix, "
+                    "label, status, and creation date."
+                ),
+                function=self.team_list_keys,
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "team_id": {
+                            "type": "string",
+                            "description": "Team UUID",
+                        },
+                    },
+                    "required": ["team_id"],
+                },
+            ),
+            # -- Tool 48: team_list_members --
+            Tool(
+                name="dominusnode_team_list_members",
+                description="List all members of a team with their roles and join dates.",
+                function=self.team_list_members,
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "team_id": {
+                            "type": "string",
+                            "description": "Team UUID",
+                        },
+                    },
+                    "required": ["team_id"],
+                },
+            ),
+            # -- Tool 49: team_add_member --
+            Tool(
+                name="dominusnode_team_add_member",
+                description=(
+                    "Add a member directly to a team by user ID. Only owners "
+                    "and admins can add members."
+                ),
+                function=self.team_add_member,
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "team_id": {
+                            "type": "string",
+                            "description": "Team UUID",
+                        },
+                        "user_id": {
+                            "type": "string",
+                            "description": "User UUID of the person to add",
+                        },
+                        "role": {
+                            "type": "string",
+                            "description": "Role: member or admin",
+                            "default": "member",
+                        },
+                    },
+                    "required": ["team_id", "user_id"],
+                },
+            ),
+            # -- Tool 50: team_remove_member --
+            Tool(
+                name="dominusnode_team_remove_member",
+                description=(
+                    "Remove a member from a team. Only owners and admins "
+                    "can remove members."
+                ),
+                function=self.team_remove_member,
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "team_id": {
+                            "type": "string",
+                            "description": "Team UUID",
+                        },
+                        "user_id": {
+                            "type": "string",
+                            "description": "User UUID of the member to remove",
+                        },
+                    },
+                    "required": ["team_id", "user_id"],
+                },
+            ),
+            # -- Tool 51: team_invite_member --
+            Tool(
+                name="dominusnode_team_invite_member",
+                description=(
+                    "Send an invitation to join a team by email. The invitee "
+                    "receives an email with a link to accept."
+                ),
+                function=self.team_invite_member,
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "team_id": {
+                            "type": "string",
+                            "description": "Team UUID",
+                        },
+                        "email": {
+                            "type": "string",
+                            "description": "Email address of the person to invite",
+                        },
+                        "role": {
+                            "type": "string",
+                            "description": "Role: member or admin",
+                            "default": "member",
+                        },
+                    },
+                    "required": ["team_id", "email"],
+                },
+            ),
+            # -- Tool 52: team_list_invites --
+            Tool(
+                name="dominusnode_team_list_invites",
+                description="List all pending invitations for a team.",
+                function=self.team_list_invites,
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "team_id": {
+                            "type": "string",
+                            "description": "Team UUID",
+                        },
+                    },
+                    "required": ["team_id"],
+                },
+            ),
+            # -- Tool 53: team_cancel_invite --
+            Tool(
+                name="dominusnode_team_cancel_invite",
+                description=(
+                    "Cancel a pending team invitation. Only owners and "
+                    "admins can cancel invites."
+                ),
+                function=self.team_cancel_invite,
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "team_id": {
+                            "type": "string",
+                            "description": "Team UUID",
+                        },
+                        "invite_id": {
+                            "type": "string",
+                            "description": "Invite ID (UUID) to cancel",
+                        },
+                    },
+                    "required": ["team_id", "invite_id"],
                 },
             ),
         ]

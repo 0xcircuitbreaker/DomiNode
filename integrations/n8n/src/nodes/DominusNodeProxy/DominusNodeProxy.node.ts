@@ -1,10 +1,11 @@
 /**
  * Dominus Node Proxy n8n community node.
  *
- * Operations:
+ * Operations (4 tools):
  * - Proxied Fetch: Make HTTP requests through Dominus Node's rotating proxy network
  * - Get Proxy Config: Retrieve proxy endpoint configuration
  * - List Active Sessions: List currently active proxy sessions
+ * - Get Proxy Status: Get proxy pool health and availability status
  *
  * Security:
  * - Full SSRF prevention (private IPs, hex/octal/decimal, IPv6 variants,
@@ -85,6 +86,12 @@ export class DominusNodeProxy implements INodeType {
             value: "listActiveSessions",
             description: "List currently active proxy sessions",
             action: "List active sessions",
+          },
+          {
+            name: "Get Proxy Status",
+            value: "getProxyStatus",
+            description: "Get proxy pool health and availability status",
+            action: "Get proxy status",
           },
         ],
         default: "proxiedFetch",
@@ -436,6 +443,9 @@ export class DominusNodeProxy implements INodeType {
           returnData.push({ json: result as IDataObject });
         } else if (operation === "listActiveSessions") {
           const result = await auth.apiRequest("GET", "/api/sessions/active");
+          returnData.push({ json: result as IDataObject });
+        } else if (operation === "getProxyStatus") {
+          const result = await auth.apiRequest("GET", "/api/proxy/status");
           returnData.push({ json: result as IDataObject });
         }
       } catch (err) {

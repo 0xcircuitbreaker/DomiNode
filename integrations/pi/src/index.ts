@@ -1,7 +1,7 @@
 /**
  * Dominus Node — Pi Extension
  *
- * Pi-mono extension providing 26 tools for the Dominus Node rotating proxy
+ * Pi-mono extension providing 53 tools for the Dominus Node rotating proxy
  * and management platform. Loaded by the pi coding agent from:
  *   ~/.pi/agent/extensions/dominusnode/   (global)
  *   .pi/extensions/dominusnode/           (project-local)
@@ -487,6 +487,411 @@ export default function dominusNodeExtension(pi: ExtensionAPI): void {
         params.dailyLimitCents !== undefined ? Number(params.dailyLimitCents) : undefined,
         params.allowedDomains !== undefined ? (params.allowedDomains as string[]) : undefined,
       );
+    },
+  });
+
+  // ── Tool 27: get_proxy_status ───────────────────────────────────────────
+
+  pi.registerTool({
+    name: "dominusnode_get_proxy_status",
+    label: "DominusNode: Get Proxy Status",
+    description:
+      "Get the current status of the proxy gateway including uptime, active connections, and pool health.",
+    parameters: Type.Object({}),
+    async execute(_id, _params, _signal, _onUpdate, _ctx) {
+      return toolkit.getProxyStatus();
+    },
+  });
+
+  // ── Tool 28: get_transactions ───────────────────────────────────────────
+
+  pi.registerTool({
+    name: "dominusnode_get_transactions",
+    label: "DominusNode: Get Wallet Transactions",
+    description: "Get wallet transaction history showing top-ups, charges, and refunds.",
+    parameters: Type.Object({
+      limit: Type.Optional(Type.Number({ description: "Number of transactions to return (default: 20, max: 100)", minimum: 1, maximum: 100 })),
+    }),
+    async execute(_id, params, _signal, _onUpdate, _ctx) {
+      return toolkit.getTransactions(params.limit !== undefined ? Number(params.limit) : 20);
+    },
+  });
+
+  // ── Tool 29: get_forecast ──────────────────────────────────────────────
+
+  pi.registerTool({
+    name: "dominusnode_get_forecast",
+    label: "DominusNode: Get Spending Forecast",
+    description:
+      "Get a spending forecast based on recent usage patterns. " +
+      "Shows estimated days until balance runs out and projected monthly cost.",
+    parameters: Type.Object({}),
+    async execute(_id, _params, _signal, _onUpdate, _ctx) {
+      return toolkit.getForecast();
+    },
+  });
+
+  // ── Tool 30: check_payment ─────────────────────────────────────────────
+
+  pi.registerTool({
+    name: "dominusnode_check_payment",
+    label: "DominusNode: Check Crypto Payment Status",
+    description:
+      "Check the status of a crypto top-up payment by invoice ID. " +
+      "Returns payment status (pending, confirming, completed, expired).",
+    parameters: Type.Object({
+      invoiceId: Type.String({ description: "Crypto invoice ID (UUID) returned from topup_crypto" }),
+    }),
+    async execute(_id, params, _signal, _onUpdate, _ctx) {
+      return toolkit.checkPayment(String(params.invoiceId ?? ""));
+    },
+  });
+
+  // ── Tool 31: get_daily_usage ───────────────────────────────────────────
+
+  pi.registerTool({
+    name: "dominusnode_get_daily_usage",
+    label: "DominusNode: Get Daily Usage Breakdown",
+    description:
+      "Get daily bandwidth usage breakdown for the specified number of days. " +
+      "Returns per-day bytes transferred and cost.",
+    parameters: Type.Object({
+      days: Type.Optional(Type.Number({ description: "Number of days to look back (default: 7, max: 365)", minimum: 1, maximum: 365 })),
+    }),
+    async execute(_id, params, _signal, _onUpdate, _ctx) {
+      return toolkit.getDailyUsage(params.days !== undefined ? Number(params.days) : 7);
+    },
+  });
+
+  // ── Tool 32: get_top_hosts ─────────────────────────────────────────────
+
+  pi.registerTool({
+    name: "dominusnode_get_top_hosts",
+    label: "DominusNode: Get Top Hosts by Usage",
+    description: "Get the top hosts by bandwidth usage. Shows which domains consume the most proxy traffic.",
+    parameters: Type.Object({
+      limit: Type.Optional(Type.Number({ description: "Number of top hosts to return (default: 10, max: 100)", minimum: 1, maximum: 100 })),
+    }),
+    async execute(_id, params, _signal, _onUpdate, _ctx) {
+      return toolkit.getTopHosts(params.limit !== undefined ? Number(params.limit) : 10);
+    },
+  });
+
+  // ── Tool 33: register ──────────────────────────────────────────────────
+
+  pi.registerTool({
+    name: "dominusnode_register",
+    label: "DominusNode: Register Account",
+    description:
+      "Register a new Dominus Node account. Does not require authentication. " +
+      "Returns user info and initial API key.",
+    parameters: Type.Object({
+      email: Type.String({ description: "Email address for the new account" }),
+      password: Type.String({ description: "Password (8-128 characters)" }),
+    }),
+    async execute(_id, params, _signal, _onUpdate, _ctx) {
+      return toolkit.register(String(params.email ?? ""), String(params.password ?? ""));
+    },
+  });
+
+  // ── Tool 34: login ─────────────────────────────────────────────────────
+
+  pi.registerTool({
+    name: "dominusnode_login",
+    label: "DominusNode: Login",
+    description:
+      "Log in to an existing Dominus Node account. Does not require authentication. " +
+      "Returns JWT access and refresh tokens.",
+    parameters: Type.Object({
+      email: Type.String({ description: "Account email address" }),
+      password: Type.String({ description: "Account password" }),
+    }),
+    async execute(_id, params, _signal, _onUpdate, _ctx) {
+      return toolkit.login(String(params.email ?? ""), String(params.password ?? ""));
+    },
+  });
+
+  // ── Tool 35: get_account_info ──────────────────────────────────────────
+
+  pi.registerTool({
+    name: "dominusnode_get_account_info",
+    label: "DominusNode: Get Account Info",
+    description: "Get your account profile information including email, plan, verification status, and creation date.",
+    parameters: Type.Object({}),
+    async execute(_id, _params, _signal, _onUpdate, _ctx) {
+      return toolkit.getAccountInfo();
+    },
+  });
+
+  // ── Tool 36: verify_email ──────────────────────────────────────────────
+
+  pi.registerTool({
+    name: "dominusnode_verify_email",
+    label: "DominusNode: Verify Email",
+    description:
+      "Verify an email address using the verification token sent to the user's email. " +
+      "Does not require authentication.",
+    parameters: Type.Object({
+      token: Type.String({ description: "Email verification token from the verification email" }),
+    }),
+    async execute(_id, params, _signal, _onUpdate, _ctx) {
+      return toolkit.verifyEmail(String(params.token ?? ""));
+    },
+  });
+
+  // ── Tool 37: resend_verification ───────────────────────────────────────
+
+  pi.registerTool({
+    name: "dominusnode_resend_verification",
+    label: "DominusNode: Resend Verification Email",
+    description: "Resend the email verification link. Requires authentication.",
+    parameters: Type.Object({}),
+    async execute(_id, _params, _signal, _onUpdate, _ctx) {
+      return toolkit.resendVerification();
+    },
+  });
+
+  // ── Tool 38: update_password ───────────────────────────────────────────
+
+  pi.registerTool({
+    name: "dominusnode_update_password",
+    label: "DominusNode: Update Password",
+    description: "Change your account password. Requires current password for verification.",
+    parameters: Type.Object({
+      currentPassword: Type.String({ description: "Current account password" }),
+      newPassword: Type.String({ description: "New password (8-128 characters)" }),
+    }),
+    async execute(_id, params, _signal, _onUpdate, _ctx) {
+      return toolkit.updatePassword(String(params.currentPassword ?? ""), String(params.newPassword ?? ""));
+    },
+  });
+
+  // ── Tool 39: list_keys ─────────────────────────────────────────────────
+
+  pi.registerTool({
+    name: "dominusnode_list_keys",
+    label: "DominusNode: List API Keys",
+    description: "List all your personal API keys with their labels, creation dates, and last-used timestamps.",
+    parameters: Type.Object({}),
+    async execute(_id, _params, _signal, _onUpdate, _ctx) {
+      return toolkit.listKeys();
+    },
+  });
+
+  // ── Tool 40: create_key ────────────────────────────────────────────────
+
+  pi.registerTool({
+    name: "dominusnode_create_key",
+    label: "DominusNode: Create API Key",
+    description:
+      "Create a new personal API key. The key is shown only once -- save it immediately. " +
+      "Usage is billed against your personal wallet.",
+    parameters: Type.Object({
+      label: Type.String({ description: "Label for the API key (e.g. 'production', 'dev-testing')" }),
+    }),
+    async execute(_id, params, _signal, _onUpdate, _ctx) {
+      return toolkit.createKey(String(params.label ?? ""));
+    },
+  });
+
+  // ── Tool 41: revoke_key ────────────────────────────────────────────────
+
+  pi.registerTool({
+    name: "dominusnode_revoke_key",
+    label: "DominusNode: Revoke API Key",
+    description:
+      "Revoke (delete) a personal API key. This action is irreversible -- " +
+      "any applications using this key will lose access immediately.",
+    parameters: Type.Object({
+      keyId: Type.String({ description: "API key ID (UUID) to revoke" }),
+    }),
+    async execute(_id, params, _signal, _onUpdate, _ctx) {
+      return toolkit.revokeKey(String(params.keyId ?? ""));
+    },
+  });
+
+  // ── Tool 42: get_plan ──────────────────────────────────────────────────
+
+  pi.registerTool({
+    name: "dominusnode_get_plan",
+    label: "DominusNode: Get Current Plan",
+    description: "Get your current subscription plan including tier, bandwidth limits, and pricing.",
+    parameters: Type.Object({}),
+    async execute(_id, _params, _signal, _onUpdate, _ctx) {
+      return toolkit.getPlan();
+    },
+  });
+
+  // ── Tool 43: list_plans ────────────────────────────────────────────────
+
+  pi.registerTool({
+    name: "dominusnode_list_plans",
+    label: "DominusNode: List Available Plans",
+    description: "List all available subscription plans with features, pricing, and bandwidth limits.",
+    parameters: Type.Object({}),
+    async execute(_id, _params, _signal, _onUpdate, _ctx) {
+      return toolkit.listPlans();
+    },
+  });
+
+  // ── Tool 44: change_plan ───────────────────────────────────────────────
+
+  pi.registerTool({
+    name: "dominusnode_change_plan",
+    label: "DominusNode: Change Subscription Plan",
+    description:
+      "Change your subscription plan. Takes effect immediately. " +
+      "Use list_plans to see available options.",
+    parameters: Type.Object({
+      planId: Type.String({ description: "Plan ID (UUID) to switch to" }),
+    }),
+    async execute(_id, params, _signal, _onUpdate, _ctx) {
+      return toolkit.changePlan(String(params.planId ?? ""));
+    },
+  });
+
+  // ── Tool 45: team_delete ───────────────────────────────────────────────
+
+  pi.registerTool({
+    name: "dominusnode_team_delete",
+    label: "DominusNode: Delete Team",
+    description:
+      "Delete a team. Only the team owner can delete. " +
+      "All team keys are revoked and remaining balance is refunded.",
+    parameters: Type.Object({
+      teamId: Type.String({ description: "Team ID (UUID) to delete" }),
+    }),
+    async execute(_id, params, _signal, _onUpdate, _ctx) {
+      return toolkit.teamDelete(String(params.teamId ?? ""));
+    },
+  });
+
+  // ── Tool 46: team_revoke_key ───────────────────────────────────────────
+
+  pi.registerTool({
+    name: "dominusnode_team_revoke_key",
+    label: "DominusNode: Revoke Team API Key",
+    description:
+      "Revoke a team API key. Only owners and admins can revoke keys. " +
+      "Applications using this key will lose access immediately.",
+    parameters: Type.Object({
+      teamId: Type.String({ description: "Team ID (UUID)" }),
+      keyId: Type.String({ description: "API key ID (UUID) to revoke" }),
+    }),
+    async execute(_id, params, _signal, _onUpdate, _ctx) {
+      return toolkit.teamRevokeKey(String(params.teamId ?? ""), String(params.keyId ?? ""));
+    },
+  });
+
+  // ── Tool 47: team_list_keys ────────────────────────────────────────────
+
+  pi.registerTool({
+    name: "dominusnode_team_list_keys",
+    label: "DominusNode: List Team API Keys",
+    description: "List all API keys for a team with labels, creation dates, and last-used timestamps.",
+    parameters: Type.Object({
+      teamId: Type.String({ description: "Team ID (UUID)" }),
+    }),
+    async execute(_id, params, _signal, _onUpdate, _ctx) {
+      return toolkit.teamListKeys(String(params.teamId ?? ""));
+    },
+  });
+
+  // ── Tool 48: team_list_members ─────────────────────────────────────────
+
+  pi.registerTool({
+    name: "dominusnode_team_list_members",
+    label: "DominusNode: List Team Members",
+    description: "List all members of a team with their roles and join dates.",
+    parameters: Type.Object({
+      teamId: Type.String({ description: "Team ID (UUID)" }),
+    }),
+    async execute(_id, params, _signal, _onUpdate, _ctx) {
+      return toolkit.teamListMembers(String(params.teamId ?? ""));
+    },
+  });
+
+  // ── Tool 49: team_add_member ───────────────────────────────────────────
+
+  pi.registerTool({
+    name: "dominusnode_team_add_member",
+    label: "DominusNode: Add Team Member",
+    description: "Add a user directly to a team by user ID. Only owners and admins can add members.",
+    parameters: Type.Object({
+      teamId: Type.String({ description: "Team ID (UUID)" }),
+      userId: Type.String({ description: "User ID (UUID) of the user to add" }),
+      role: Type.Optional(Type.Union([Type.Literal("member"), Type.Literal("admin")], { description: "Role for the new member (default: 'member')" })),
+    }),
+    async execute(_id, params, _signal, _onUpdate, _ctx) {
+      return toolkit.teamAddMember(
+        String(params.teamId ?? ""),
+        String(params.userId ?? ""),
+        params.role !== undefined ? String(params.role) : "member",
+      );
+    },
+  });
+
+  // ── Tool 50: team_remove_member ────────────────────────────────────────
+
+  pi.registerTool({
+    name: "dominusnode_team_remove_member",
+    label: "DominusNode: Remove Team Member",
+    description: "Remove a member from a team. Only owners and admins can remove members.",
+    parameters: Type.Object({
+      teamId: Type.String({ description: "Team ID (UUID)" }),
+      userId: Type.String({ description: "User ID (UUID) of the member to remove" }),
+    }),
+    async execute(_id, params, _signal, _onUpdate, _ctx) {
+      return toolkit.teamRemoveMember(String(params.teamId ?? ""), String(params.userId ?? ""));
+    },
+  });
+
+  // ── Tool 51: team_invite_member ────────────────────────────────────────
+
+  pi.registerTool({
+    name: "dominusnode_team_invite_member",
+    label: "DominusNode: Invite Team Member",
+    description: "Invite a user to join a team by email address. The user will receive an invitation email.",
+    parameters: Type.Object({
+      teamId: Type.String({ description: "Team ID (UUID)" }),
+      email: Type.String({ description: "Email address of the user to invite" }),
+      role: Type.Optional(Type.Union([Type.Literal("member"), Type.Literal("admin")], { description: "Role for the invited member (default: 'member')" })),
+    }),
+    async execute(_id, params, _signal, _onUpdate, _ctx) {
+      return toolkit.teamInviteMember(
+        String(params.teamId ?? ""),
+        String(params.email ?? ""),
+        params.role !== undefined ? String(params.role) : "member",
+      );
+    },
+  });
+
+  // ── Tool 52: team_list_invites ─────────────────────────────────────────
+
+  pi.registerTool({
+    name: "dominusnode_team_list_invites",
+    label: "DominusNode: List Team Invites",
+    description: "List all pending invitations for a team.",
+    parameters: Type.Object({
+      teamId: Type.String({ description: "Team ID (UUID)" }),
+    }),
+    async execute(_id, params, _signal, _onUpdate, _ctx) {
+      return toolkit.teamListInvites(String(params.teamId ?? ""));
+    },
+  });
+
+  // ── Tool 53: team_cancel_invite ────────────────────────────────────────
+
+  pi.registerTool({
+    name: "dominusnode_team_cancel_invite",
+    label: "DominusNode: Cancel Team Invite",
+    description: "Cancel a pending team invitation. Only owners and admins can cancel invites.",
+    parameters: Type.Object({
+      teamId: Type.String({ description: "Team ID (UUID)" }),
+      inviteId: Type.String({ description: "Invite ID (UUID) to cancel" }),
+    }),
+    async execute(_id, params, _signal, _onUpdate, _ctx) {
+      return toolkit.teamCancelInvite(String(params.teamId ?? ""), String(params.inviteId ?? ""));
     },
   });
 }

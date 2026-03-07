@@ -1,10 +1,11 @@
-"""Dominus Node LlamaIndex ToolSpec -- exposes all 24 functions as LlamaIndex tools.
+"""Dominus Node LlamaIndex ToolSpec -- exposes all 53 functions as LlamaIndex tools.
 
 The :class:`DominusNodeToolSpec` subclasses
 :class:`llama_index.core.tools.tool_spec.base.BaseToolSpec` and delegates
 every method to an internal :class:`DominusNodeClient`.  This allows
 LlamaIndex agents to call Dominus Node proxy, wallet, agentic wallet, team,
-and PayPal tools through a unified interface.
+account lifecycle, API key, plan, and payment tools through a unified
+interface.
 
 Example::
 
@@ -30,8 +31,9 @@ from .tools import DominusNodeClient
 class DominusNodeToolSpec(BaseToolSpec):
     """LlamaIndex tool spec for the Dominus Node rotating proxy service.
 
-    Provides 25 tools covering proxy operations, wallet management,
-    agentic wallets, team management, payment top-ups, and x402 info.
+    Provides 53 tools covering proxy operations, wallet management,
+    agentic wallets, team management, account lifecycle, API keys,
+    plans, payment top-ups, and x402 info.
 
     Args:
         api_key: Dominus Node API key (``dn_live_...``).  Falls back to the
@@ -45,11 +47,14 @@ class DominusNodeToolSpec(BaseToolSpec):
     """
 
     spec_functions: List[str] = [
+        # Proxy (6)
         "proxied_fetch",
         "check_balance",
         "check_usage",
         "get_proxy_config",
         "list_sessions",
+        "get_proxy_status",
+        # Agentic Wallet (9)
         "create_agentic_wallet",
         "fund_agentic_wallet",
         "agentic_wallet_balance",
@@ -59,6 +64,7 @@ class DominusNodeToolSpec(BaseToolSpec):
         "unfreeze_agentic_wallet",
         "delete_agentic_wallet",
         "update_wallet_policy",
+        # Team (17)
         "create_team",
         "list_teams",
         "team_details",
@@ -67,10 +73,43 @@ class DominusNodeToolSpec(BaseToolSpec):
         "team_usage",
         "update_team",
         "update_team_member_role",
+        "team_delete",
+        "team_revoke_key",
+        "team_list_keys",
+        "team_list_members",
+        "team_add_member",
+        "team_remove_member",
+        "team_invite_member",
+        "team_list_invites",
+        "team_cancel_invite",
+        # Payments (3)
         "topup_paypal",
         "topup_stripe",
         "topup_crypto",
+        # x402 (1)
         "x402_info",
+        # Wallet extended (3)
+        "get_transactions",
+        "get_forecast",
+        "check_payment",
+        # Usage extended (2)
+        "get_daily_usage",
+        "get_top_hosts",
+        # Account (6)
+        "register",
+        "login",
+        "get_account_info",
+        "verify_email",
+        "resend_verification",
+        "update_password",
+        # API Keys (3)
+        "list_keys",
+        "create_key",
+        "revoke_key",
+        # Plans (3)
+        "get_plan",
+        "list_plans",
+        "change_plan",
     ]
 
     def __init__(
@@ -516,4 +555,400 @@ class DominusNodeToolSpec(BaseToolSpec):
         """
         return self._client.topup_crypto(
             amount_usd=amount_usd, currency=currency
+        )
+
+    # ----- Proxy status ----------------------------------------------------
+
+    def get_proxy_status(self) -> Dict[str, Any]:
+        """Get the current status of the proxy gateway.
+
+        Returns operational status, uptime, and health information for
+        the Dominus Node proxy gateway.
+
+        Returns:
+            Dict with proxy gateway status information.
+        """
+        return self._client.get_proxy_status()
+
+    # ----- Wallet extended -------------------------------------------------
+
+    def get_transactions(self, limit: int = 20) -> Dict[str, Any]:
+        """Get wallet transaction history.
+
+        Returns recent wallet transactions including top-ups, proxy usage
+        charges, team transfers, and agentic wallet funding.
+
+        Args:
+            limit: Maximum number of transactions to return (1-100, default 20).
+
+        Returns:
+            Dict with wallet transaction history.
+        """
+        return self._client.get_transactions(limit=limit)
+
+    def get_forecast(self) -> Dict[str, Any]:
+        """Get wallet balance forecast based on recent usage trends.
+
+        Predicts when the wallet balance will reach zero based on
+        current spending patterns.
+
+        Returns:
+            Dict with wallet balance forecast information.
+        """
+        return self._client.get_forecast()
+
+    def check_payment(self, invoice_id: str) -> Dict[str, Any]:
+        """Check the status of a crypto top-up payment.
+
+        Use after ``topup_crypto`` to poll whether the payment has been
+        confirmed on-chain and the wallet has been credited.
+
+        Args:
+            invoice_id: The invoice ID from a previous ``topup_crypto`` call.
+
+        Returns:
+            Dict with payment status information.
+        """
+        return self._client.check_payment(invoice_id=invoice_id)
+
+    # ----- Usage extended --------------------------------------------------
+
+    def get_daily_usage(self, days: int = 30) -> Dict[str, Any]:
+        """Get daily usage breakdown.
+
+        Returns per-day bandwidth, cost, and request counts for the
+        specified number of recent days.
+
+        Args:
+            days: Number of days of history to retrieve (1-90, default 30).
+
+        Returns:
+            Dict with daily usage breakdown.
+        """
+        return self._client.get_daily_usage(days=days)
+
+    def get_top_hosts(self, limit: int = 10) -> Dict[str, Any]:
+        """Get the top hosts by bandwidth usage.
+
+        Returns the most frequently accessed hosts ranked by total
+        bandwidth consumed through the proxy.
+
+        Args:
+            limit: Maximum number of hosts to return (1-50, default 10).
+
+        Returns:
+            Dict with top hosts by usage.
+        """
+        return self._client.get_top_hosts(limit=limit)
+
+    # ----- Account tools ---------------------------------------------------
+
+    def register(self, email: str, password: str) -> Dict[str, Any]:
+        """Register a new Dominus Node account.
+
+        This is an unauthenticated endpoint -- no API key or token needed.
+        After registration, the user must verify their email before
+        accessing financial endpoints.
+
+        Args:
+            email: Email address for the new account.
+            password: Password for the new account (8-128 characters).
+
+        Returns:
+            Dict with registration result.
+        """
+        return self._client.register(email=email, password=password)
+
+    def login(self, email: str, password: str) -> Dict[str, Any]:
+        """Log in to a Dominus Node account.
+
+        This is an unauthenticated endpoint -- no API key or token needed.
+        Returns JWT access and refresh tokens on success.
+
+        Args:
+            email: Account email address.
+            password: Account password.
+
+        Returns:
+            Dict with login result (access and refresh tokens).
+        """
+        return self._client.login(email=email, password=password)
+
+    def get_account_info(self) -> Dict[str, Any]:
+        """Get current account information.
+
+        Returns the authenticated user's email, plan, verification status,
+        and other profile details.
+
+        Returns:
+            Dict with account details.
+        """
+        return self._client.get_account_info()
+
+    def verify_email(self, token: str) -> Dict[str, Any]:
+        """Verify an email address using a verification token.
+
+        This is an unauthenticated endpoint -- no API key or token needed.
+        The token is received via the email sent after registration.
+
+        Args:
+            token: The email verification token received via email.
+
+        Returns:
+            Dict confirming email verification.
+        """
+        return self._client.verify_email(token=token)
+
+    def resend_verification(self) -> Dict[str, Any]:
+        """Resend the email verification link.
+
+        Sends a new verification email to the authenticated user's
+        email address if not yet verified.
+
+        Returns:
+            Dict confirming the verification email was resent.
+        """
+        return self._client.resend_verification()
+
+    def update_password(
+        self, current_password: str, new_password: str
+    ) -> Dict[str, Any]:
+        """Change the account password.
+
+        Requires the current password for verification before setting
+        the new password.
+
+        Args:
+            current_password: The current account password.
+            new_password: The new password (8-128 characters).
+
+        Returns:
+            Dict confirming the password change.
+        """
+        return self._client.update_password(
+            current_password=current_password,
+            new_password=new_password,
+        )
+
+    # ----- API Key tools ---------------------------------------------------
+
+    def list_keys(self) -> Dict[str, Any]:
+        """List all API keys for the current account.
+
+        Returns key IDs, labels, creation dates, and last-used timestamps.
+        The actual key values are not returned (they are shown only at
+        creation time).
+
+        Returns:
+            Dict with a list of API keys.
+        """
+        return self._client.list_keys()
+
+    def create_key(self, label: str) -> Dict[str, Any]:
+        """Create a new API key.
+
+        The key value is returned once in the response and cannot be
+        retrieved later.  Store it securely.
+
+        Args:
+            label: Human-readable label for the key (max 100 chars, no control characters).
+
+        Returns:
+            Dict with the created API key (shown once) and key ID.
+        """
+        return self._client.create_key(label=label)
+
+    def revoke_key(self, key_id: str) -> Dict[str, Any]:
+        """Revoke (delete) an API key.
+
+        The key will immediately stop working for authentication.
+
+        Args:
+            key_id: ID of the API key to revoke.
+
+        Returns:
+            Dict confirming the key revocation.
+        """
+        return self._client.revoke_key(key_id=key_id)
+
+    # ----- Plan tools ------------------------------------------------------
+
+    def get_plan(self) -> Dict[str, Any]:
+        """Get the current user's plan.
+
+        Returns the plan name, limits, pricing tier, and features.
+
+        Returns:
+            Dict with the user's current plan details.
+        """
+        return self._client.get_plan()
+
+    def list_plans(self) -> Dict[str, Any]:
+        """List all available plans.
+
+        Returns all plans that can be subscribed to, with their
+        features, limits, and pricing.
+
+        Returns:
+            Dict with a list of available plans.
+        """
+        return self._client.list_plans()
+
+    def change_plan(self, plan_id: str) -> Dict[str, Any]:
+        """Change the user's plan.
+
+        Switches the authenticated user's subscription to the specified
+        plan.  May adjust rate limits and feature access immediately.
+
+        Args:
+            plan_id: UUID of the plan to switch to.
+
+        Returns:
+            Dict with the updated plan details.
+        """
+        return self._client.change_plan(plan_id=plan_id)
+
+    # ----- Extended Team tools ---------------------------------------------
+
+    def team_delete(self, team_id: str) -> Dict[str, Any]:
+        """Delete a team.
+
+        Permanently removes the team, revokes all team API keys, and
+        removes all members.  Only the team owner can delete a team.
+
+        Args:
+            team_id: UUID of the team to delete.
+
+        Returns:
+            Dict confirming team deletion.
+        """
+        return self._client.team_delete(team_id=team_id)
+
+    def team_revoke_key(self, team_id: str, key_id: str) -> Dict[str, Any]:
+        """Revoke (delete) an API key from a team.
+
+        The key will immediately stop working for authentication.
+
+        Args:
+            team_id: UUID of the team.
+            key_id: ID of the API key to revoke.
+
+        Returns:
+            Dict confirming the key revocation.
+        """
+        return self._client.team_revoke_key(
+            team_id=team_id, key_id=key_id
+        )
+
+    def team_list_keys(self, team_id: str) -> Dict[str, Any]:
+        """List all API keys for a team.
+
+        Returns key IDs, labels, and creation dates for all keys
+        scoped to the team.
+
+        Args:
+            team_id: UUID of the team.
+
+        Returns:
+            Dict with a list of team API keys.
+        """
+        return self._client.team_list_keys(team_id=team_id)
+
+    def team_list_members(self, team_id: str) -> Dict[str, Any]:
+        """List all members of a team.
+
+        Returns user IDs, emails, roles (owner/admin/member), and
+        join dates for all team members.
+
+        Args:
+            team_id: UUID of the team.
+
+        Returns:
+            Dict with a list of team members.
+        """
+        return self._client.team_list_members(team_id=team_id)
+
+    def team_add_member(self, team_id: str, user_id: str) -> Dict[str, Any]:
+        """Add a member to a team by user ID.
+
+        The user must have an existing Dominus Node account.  They
+        will be added with the default 'member' role.
+
+        Args:
+            team_id: UUID of the team.
+            user_id: UUID of the user to add.
+
+        Returns:
+            Dict confirming the member addition.
+        """
+        return self._client.team_add_member(
+            team_id=team_id, user_id=user_id
+        )
+
+    def team_remove_member(self, team_id: str, user_id: str) -> Dict[str, Any]:
+        """Remove a member from a team.
+
+        The user will lose access to team resources and API keys.
+        Cannot remove the team owner.
+
+        Args:
+            team_id: UUID of the team.
+            user_id: UUID of the user to remove.
+
+        Returns:
+            Dict confirming the member removal.
+        """
+        return self._client.team_remove_member(
+            team_id=team_id, user_id=user_id
+        )
+
+    def team_invite_member(
+        self, team_id: str, email: str, role: str = "member"
+    ) -> Dict[str, Any]:
+        """Invite a user to a team by email.
+
+        Sends an invitation email.  The user can accept or decline
+        the invite.  If they don't have an account, they will be
+        prompted to register first.
+
+        Args:
+            team_id: UUID of the team.
+            email: Email address of the user to invite.
+            role: Role for the invited user ('member' or 'admin'). Default: 'member'.
+
+        Returns:
+            Dict with the created invite details.
+        """
+        return self._client.team_invite_member(
+            team_id=team_id, email=email, role=role
+        )
+
+    def team_list_invites(self, team_id: str) -> Dict[str, Any]:
+        """List pending invites for a team.
+
+        Returns all invitations that have not yet been accepted,
+        declined, or cancelled.
+
+        Args:
+            team_id: UUID of the team.
+
+        Returns:
+            Dict with a list of pending team invites.
+        """
+        return self._client.team_list_invites(team_id=team_id)
+
+    def team_cancel_invite(self, team_id: str, invite_id: str) -> Dict[str, Any]:
+        """Cancel a pending team invite.
+
+        The invite link will no longer be valid.
+
+        Args:
+            team_id: UUID of the team.
+            invite_id: UUID of the invite to cancel.
+
+        Returns:
+            Dict confirming the invite cancellation.
+        """
+        return self._client.team_cancel_invite(
+            team_id=team_id, invite_id=invite_id
         )

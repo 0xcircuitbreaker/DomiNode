@@ -1,9 +1,10 @@
-"""Agent Zero tools: proxied HTTP fetch, proxy config, active sessions.
+"""Agent Zero tools: proxied HTTP fetch, proxy config, active sessions, proxy status.
 
 Tools:
     - ``proxied_fetch`` -- Fetch a URL through the Dominus Node proxy gateway
     - ``get_proxy_config`` -- Retrieve proxy endpoint configuration
     - ``list_sessions`` -- List active proxy sessions
+    - ``get_proxy_status`` -- Get proxy gateway health and pool status
 
 Security:
     - SSRF validation on all URLs (private IPs, hex/octal, DNS rebinding)
@@ -242,6 +243,34 @@ def list_sessions(
 
 
 # ---------------------------------------------------------------------------
+# Tool: get_proxy_status
+# ---------------------------------------------------------------------------
+
+
+def get_proxy_status(
+    auth: DominusNodeAuth,
+    args: Dict[str, Any],
+) -> str:
+    """Get the Dominus Node proxy gateway health and pool status.
+
+    Returns overall gateway health, pool sizes for datacenter and residential
+    proxies, rotation interval, and any degraded-state indicators.
+
+    Args:
+        auth: Authenticated Dominus Node helper.
+        args: Tool arguments (none required).
+
+    Returns:
+        JSON string with proxy status data.
+    """
+    try:
+        result = auth.api_request("GET", "/api/proxy/status")
+        return json.dumps(result)
+    except Exception as e:
+        return json.dumps({"error": _sanitize_error(str(e))})
+
+
+# ---------------------------------------------------------------------------
 # Dispatch table (used by Agent Zero's tool loader)
 # ---------------------------------------------------------------------------
 
@@ -274,6 +303,14 @@ TOOLS = {
         "function": list_sessions,
         "description": (
             "List currently active proxy sessions with byte transfer stats."
+        ),
+        "parameters": {},
+    },
+    "get_proxy_status": {
+        "function": get_proxy_status,
+        "description": (
+            "Get proxy gateway health and pool status including datacenter "
+            "and residential pool sizes and rotation interval."
         ),
         "parameters": {},
     },

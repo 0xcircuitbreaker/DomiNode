@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.1.0
+
+- Expand to 53 tools: add 27 new Dominus Node management tools
+- New proxy: dn_get_proxy_status (GET /api/proxy/status)
+- New wallet: get_transactions, get_forecast, check_payment
+- New usage: get_daily_usage, get_top_hosts
+- New account: register_account, login_account, get_account_info, verify_email, resend_verification, update_password
+- New API keys: list_keys, create_key, revoke_key
+- New plans: get_plan, list_plans, change_plan
+- New teams: team_delete, team_revoke_key, team_list_keys, team_list_members, team_add_member, team_remove_member, team_invite_member, team_list_invites, team_cancel_invite
+
 ## 1.0.1
 
 - Fix branding: replace "DomiNode" with "Dominus Node" throughout

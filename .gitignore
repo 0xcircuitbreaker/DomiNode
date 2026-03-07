@@ -31,6 +31,7 @@ Thumbs.db
 __pycache__/
 *.pyc
 *.pyo
+.showcase-venv/
 
 # Rust
 target/

@@ -1,15 +1,19 @@
-"""Dominus Node TaskWeaver plugin -- 26 proxy, wallet, team, and payment commands.
+"""Dominus Node TaskWeaver plugin -- 53 proxy, wallet, team, and payment commands.
 
-Provides a TaskWeaver-compatible plugin class that exposes 26 commands for
+Provides a TaskWeaver-compatible plugin class that exposes 53 commands for
 interacting with the Dominus Node rotating proxy-as-a-service platform.
 
 Commands cover:
   - Proxied HTTP fetching through rotating proxies
-  - Wallet balance and usage monitoring
-  - Proxy configuration and session listing
+  - Wallet balance, usage monitoring, transactions, and forecast
+  - Proxy configuration, session listing, and proxy status
   - Agentic wallet management (create, fund, freeze, unfreeze, delete)
-  - Team management (create, list, fund, keys, usage, update, role changes)
-  - PayPal top-up
+  - Team management (create, list, fund, keys, usage, update, role changes,
+    members, invites, delete)
+  - Account lifecycle (register, login, verify email, change password)
+  - API key management (list, create, revoke)
+  - Plan management (get, list, change)
+  - PayPal, Stripe, and crypto top-up with payment status checking
 
 Security:
   - Full SSRF prevention (private IP blocking, DNS rebinding, Teredo/6to4,
@@ -502,9 +506,9 @@ def _validate_domains(domains: Any) -> Optional[str]:
 class DominusNodePlugin:
     """TaskWeaver plugin providing Dominus Node rotating proxy commands.
 
-    Authenticates using a Dominus Node API key and exposes 26 commands for proxy,
-    wallet, team, and payment management.  All commands return JSON strings
-    suitable for consumption by an LLM.
+    Authenticates using a Dominus Node API key and exposes 53 commands for proxy,
+    wallet, team, account, API key, plan, and payment management.  All commands
+    return JSON strings suitable for consumption by an LLM.
 
     This plugin follows the TaskWeaver plugin pattern: it can be invoked via
     ``__call__(command, **kwargs)`` as a dispatcher, or individual command
@@ -1557,6 +1561,785 @@ class DominusNodePlugin:
             return json.dumps({"error": _sanitize_error(str(e))})
 
     # ==================================================================
+    # Command 27: get_proxy_status
+    # ==================================================================
+
+    def get_proxy_status(self) -> str:
+        """Get the current status of the proxy gateway.
+
+        Returns:
+            JSON string with proxy gateway status information.
+        """
+        try:
+            result = self._request_with_retry("GET", "/api/proxy/status")
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Command 28: get_transactions
+    # ==================================================================
+
+    def get_transactions(self, limit: int = 20) -> str:
+        """Get wallet transaction history.
+
+        Args:
+            limit: Maximum number of transactions to return (1-100, default 20).
+
+        Returns:
+            JSON string with wallet transaction history.
+        """
+        if isinstance(limit, float) and not math.isfinite(limit):
+            return json.dumps({"error": "limit must be an integer between 1 and 100"})
+        if not isinstance(limit, int) or isinstance(limit, bool) or limit < 1 or limit > 100:
+            return json.dumps(
+                {"error": "limit must be an integer between 1 and 100"}
+            )
+
+        try:
+            result = self._request_with_retry(
+                "GET", f"/api/wallet/transactions?limit={limit}"
+            )
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Command 29: get_forecast
+    # ==================================================================
+
+    def get_forecast(self) -> str:
+        """Get wallet balance forecast based on recent usage trends.
+
+        Returns:
+            JSON string with wallet balance forecast information.
+        """
+        try:
+            result = self._request_with_retry("GET", "/api/wallet/forecast")
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Command 30: check_payment
+    # ==================================================================
+
+    def check_payment(self, invoice_id: str) -> str:
+        """Check the status of a crypto top-up payment.
+
+        Args:
+            invoice_id: The invoice ID from a previous ``topup_crypto`` call.
+
+        Returns:
+            JSON string with payment status information.
+        """
+        if not invoice_id or not isinstance(invoice_id, str):
+            return json.dumps({"error": "invoice_id is required and must be a string"})
+
+        try:
+            result = self._request_with_retry(
+                "GET",
+                f"/api/wallet/topup/crypto/{quote(invoice_id, safe='')}/status",
+            )
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Command 31: get_daily_usage
+    # ==================================================================
+
+    def get_daily_usage(self, days: int = 30) -> str:
+        """Get daily usage breakdown.
+
+        Args:
+            days: Number of days of history to retrieve (1-90, default 30).
+
+        Returns:
+            JSON string with daily usage breakdown.
+        """
+        if isinstance(days, float) and not math.isfinite(days):
+            return json.dumps({"error": "days must be an integer between 1 and 90"})
+        if not isinstance(days, int) or isinstance(days, bool) or days < 1 or days > 90:
+            return json.dumps(
+                {"error": "days must be an integer between 1 and 90"}
+            )
+
+        try:
+            result = self._request_with_retry(
+                "GET", f"/api/usage/daily?days={days}"
+            )
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Command 32: get_top_hosts
+    # ==================================================================
+
+    def get_top_hosts(self, limit: int = 10) -> str:
+        """Get the top hosts by bandwidth usage.
+
+        Args:
+            limit: Maximum number of hosts to return (1-50, default 10).
+
+        Returns:
+            JSON string with top hosts by usage.
+        """
+        if isinstance(limit, float) and not math.isfinite(limit):
+            return json.dumps({"error": "limit must be an integer between 1 and 50"})
+        if not isinstance(limit, int) or isinstance(limit, bool) or limit < 1 or limit > 50:
+            return json.dumps(
+                {"error": "limit must be an integer between 1 and 50"}
+            )
+
+        try:
+            result = self._request_with_retry(
+                "GET", f"/api/usage/top-hosts?limit={limit}"
+            )
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Command 33: register_account
+    # ==================================================================
+
+    _BASIC_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+    def register_account(self, email: str, password: str) -> str:
+        """Register a new Dominus Node account.
+
+        This is an unauthenticated endpoint -- no API key or token needed.
+
+        Args:
+            email: Email address for the new account.
+            password: Password for the new account (8-128 characters).
+
+        Returns:
+            JSON string with registration result.
+        """
+        if not email or not isinstance(email, str):
+            return json.dumps({"error": "email is required and must be a string"})
+        if not self._BASIC_EMAIL_RE.match(email):
+            return json.dumps({"error": "email must be a valid email address"})
+        if len(email) > 254:
+            return json.dumps({"error": "email must be 254 characters or fewer"})
+
+        if not password or not isinstance(password, str):
+            return json.dumps({"error": "password is required and must be a string"})
+        if len(password) < 8:
+            return json.dumps({"error": "password must be at least 8 characters"})
+        if len(password) > 128:
+            return json.dumps({"error": "password must be 128 characters or fewer"})
+
+        try:
+            headers = {
+                "User-Agent": "dominusnode-taskweaver/1.0.0",
+                "Content-Type": "application/json",
+            }
+            if self.agent_secret:
+                headers["X-DominusNode-Agent"] = "mcp"
+                headers["X-DominusNode-Agent-Secret"] = self.agent_secret
+            with httpx.Client(
+                timeout=self.timeout,
+                follow_redirects=False,
+            ) as client:
+                resp = client.post(
+                    f"{self.base_url}/api/auth/register",
+                    json={"email": email, "password": password},
+                    headers=headers,
+                )
+                if len(resp.content) > MAX_RESPONSE_BYTES:
+                    return json.dumps({"error": "Response body too large"})
+                if resp.status_code >= 400:
+                    try:
+                        err_data = resp.json()
+                        msg = err_data.get("error", resp.text)
+                    except Exception:
+                        msg = resp.text
+                    return json.dumps({"error": _sanitize_error(str(msg)[:500])})
+                if resp.text:
+                    data = resp.json()
+                    _strip_dangerous_keys(data)
+                    return json.dumps(data)
+                return json.dumps({})
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Command 34: login_account
+    # ==================================================================
+
+    def login_account(self, email: str, password: str) -> str:
+        """Log in to a Dominus Node account.
+
+        This is an unauthenticated endpoint -- no API key or token needed.
+
+        Args:
+            email: Account email address.
+            password: Account password.
+
+        Returns:
+            JSON string with login result (tokens).
+        """
+        if not email or not isinstance(email, str):
+            return json.dumps({"error": "email is required and must be a string"})
+        if not self._BASIC_EMAIL_RE.match(email):
+            return json.dumps({"error": "email must be a valid email address"})
+        if len(email) > 254:
+            return json.dumps({"error": "email must be 254 characters or fewer"})
+
+        if not password or not isinstance(password, str):
+            return json.dumps({"error": "password is required and must be a string"})
+        if len(password) < 8:
+            return json.dumps({"error": "password must be at least 8 characters"})
+        if len(password) > 128:
+            return json.dumps({"error": "password must be 128 characters or fewer"})
+
+        try:
+            headers = {
+                "User-Agent": "dominusnode-taskweaver/1.0.0",
+                "Content-Type": "application/json",
+            }
+            if self.agent_secret:
+                headers["X-DominusNode-Agent"] = "mcp"
+                headers["X-DominusNode-Agent-Secret"] = self.agent_secret
+            with httpx.Client(
+                timeout=self.timeout,
+                follow_redirects=False,
+            ) as client:
+                resp = client.post(
+                    f"{self.base_url}/api/auth/login",
+                    json={"email": email, "password": password},
+                    headers=headers,
+                )
+                if len(resp.content) > MAX_RESPONSE_BYTES:
+                    return json.dumps({"error": "Response body too large"})
+                if resp.status_code >= 400:
+                    try:
+                        err_data = resp.json()
+                        msg = err_data.get("error", resp.text)
+                    except Exception:
+                        msg = resp.text
+                    return json.dumps({"error": _sanitize_error(str(msg)[:500])})
+                if resp.text:
+                    data = resp.json()
+                    _strip_dangerous_keys(data)
+                    return json.dumps(data)
+                return json.dumps({})
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Command 35: get_account_info
+    # ==================================================================
+
+    def get_account_info(self) -> str:
+        """Get current account information.
+
+        Returns:
+            JSON string with account details (email, plan, verification status).
+        """
+        try:
+            result = self._request_with_retry("GET", "/api/auth/me")
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Command 36: verify_email
+    # ==================================================================
+
+    def verify_email(self, token: str) -> str:
+        """Verify an email address using a verification token.
+
+        This is an unauthenticated endpoint -- no API key or token needed.
+
+        Args:
+            token: The email verification token received via email.
+
+        Returns:
+            JSON string confirming email verification.
+        """
+        if not token or not isinstance(token, str):
+            return json.dumps({"error": "token is required and must be a string"})
+        if len(token) > 512:
+            return json.dumps({"error": "token must be 512 characters or fewer"})
+
+        try:
+            headers = {
+                "User-Agent": "dominusnode-taskweaver/1.0.0",
+                "Content-Type": "application/json",
+            }
+            if self.agent_secret:
+                headers["X-DominusNode-Agent"] = "mcp"
+                headers["X-DominusNode-Agent-Secret"] = self.agent_secret
+            with httpx.Client(
+                timeout=self.timeout,
+                follow_redirects=False,
+            ) as client:
+                resp = client.post(
+                    f"{self.base_url}/api/auth/verify-email",
+                    json={"token": token},
+                    headers=headers,
+                )
+                if len(resp.content) > MAX_RESPONSE_BYTES:
+                    return json.dumps({"error": "Response body too large"})
+                if resp.status_code >= 400:
+                    try:
+                        err_data = resp.json()
+                        msg = err_data.get("error", resp.text)
+                    except Exception:
+                        msg = resp.text
+                    return json.dumps({"error": _sanitize_error(str(msg)[:500])})
+                if resp.text:
+                    data = resp.json()
+                    _strip_dangerous_keys(data)
+                    return json.dumps(data)
+                return json.dumps({})
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Command 37: resend_verification
+    # ==================================================================
+
+    def resend_verification(self) -> str:
+        """Resend the email verification link.
+
+        Returns:
+            JSON string confirming the verification email was resent.
+        """
+        try:
+            result = self._request_with_retry("POST", "/api/auth/resend-verification")
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Command 38: update_password
+    # ==================================================================
+
+    def update_password(self, current_password: str, new_password: str) -> str:
+        """Change the account password.
+
+        Args:
+            current_password: The current account password.
+            new_password: The new password (8-128 characters).
+
+        Returns:
+            JSON string confirming the password change.
+        """
+        if not current_password or not isinstance(current_password, str):
+            return json.dumps({"error": "current_password is required and must be a string"})
+        if not new_password or not isinstance(new_password, str):
+            return json.dumps({"error": "new_password is required and must be a string"})
+        if len(new_password) < 8:
+            return json.dumps({"error": "new_password must be at least 8 characters"})
+        if len(new_password) > 128:
+            return json.dumps({"error": "new_password must be 128 characters or fewer"})
+
+        try:
+            result = self._request_with_retry(
+                "POST",
+                "/api/auth/change-password",
+                {"currentPassword": current_password, "newPassword": new_password},
+            )
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Command 39: list_keys
+    # ==================================================================
+
+    def list_keys(self) -> str:
+        """List all API keys for the current account.
+
+        Returns:
+            JSON string with a list of API keys.
+        """
+        try:
+            result = self._request_with_retry("GET", "/api/keys")
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Command 40: create_key
+    # ==================================================================
+
+    def create_key(self, label: str) -> str:
+        """Create a new API key.
+
+        Args:
+            label: Human-readable label for the key (max 100 chars, no control characters).
+
+        Returns:
+            JSON string with the created API key (shown once).
+        """
+        err = _validate_label(label, "label")
+        if err:
+            return json.dumps({"error": err})
+
+        try:
+            result = self._request_with_retry(
+                "POST", "/api/keys", {"label": label}
+            )
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Command 41: revoke_key
+    # ==================================================================
+
+    def revoke_key(self, key_id: str) -> str:
+        """Revoke (delete) an API key.
+
+        Args:
+            key_id: ID of the API key to revoke.
+
+        Returns:
+            JSON string confirming the key revocation.
+        """
+        if not key_id or not isinstance(key_id, str):
+            return json.dumps({"error": "key_id is required and must be a string"})
+
+        try:
+            result = self._request_with_retry(
+                "DELETE", f"/api/keys/{quote(key_id, safe='')}"
+            )
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Command 42: get_plan
+    # ==================================================================
+
+    def get_plan(self) -> str:
+        """Get the current user's plan.
+
+        Returns:
+            JSON string with the user's current plan details.
+        """
+        try:
+            result = self._request_with_retry("GET", "/api/plans/user/plan")
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Command 43: list_plans
+    # ==================================================================
+
+    def list_plans(self) -> str:
+        """List all available plans.
+
+        Returns:
+            JSON string with a list of available plans.
+        """
+        try:
+            result = self._request_with_retry("GET", "/api/plans")
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Command 44: change_plan
+    # ==================================================================
+
+    def change_plan(self, plan_id: str) -> str:
+        """Change the user's plan.
+
+        Args:
+            plan_id: UUID of the plan to switch to.
+
+        Returns:
+            JSON string with the updated plan details.
+        """
+        err = _validate_uuid(plan_id, "plan_id")
+        if err:
+            return json.dumps({"error": err})
+
+        try:
+            result = self._request_with_retry(
+                "PUT", "/api/plans/user/plan", {"planId": plan_id}
+            )
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Command 45: team_delete
+    # ==================================================================
+
+    def team_delete(self, team_id: str) -> str:
+        """Delete a team.
+
+        Args:
+            team_id: UUID of the team to delete.
+
+        Returns:
+            JSON string confirming team deletion.
+        """
+        err = _validate_uuid(team_id, "team_id")
+        if err:
+            return json.dumps({"error": err})
+
+        try:
+            result = self._request_with_retry(
+                "DELETE", f"/api/teams/{quote(team_id, safe='')}"
+            )
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Command 46: team_revoke_key
+    # ==================================================================
+
+    def team_revoke_key(self, team_id: str, key_id: str) -> str:
+        """Revoke (delete) an API key from a team.
+
+        Args:
+            team_id: UUID of the team.
+            key_id: ID of the API key to revoke.
+
+        Returns:
+            JSON string confirming the key revocation.
+        """
+        err = _validate_uuid(team_id, "team_id")
+        if err:
+            return json.dumps({"error": err})
+
+        if not key_id or not isinstance(key_id, str):
+            return json.dumps({"error": "key_id is required and must be a string"})
+
+        try:
+            result = self._request_with_retry(
+                "DELETE",
+                f"/api/teams/{quote(team_id, safe='')}/keys/{quote(key_id, safe='')}",
+            )
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Command 47: team_list_keys
+    # ==================================================================
+
+    def team_list_keys(self, team_id: str) -> str:
+        """List all API keys for a team.
+
+        Args:
+            team_id: UUID of the team.
+
+        Returns:
+            JSON string with a list of team API keys.
+        """
+        err = _validate_uuid(team_id, "team_id")
+        if err:
+            return json.dumps({"error": err})
+
+        try:
+            result = self._request_with_retry(
+                "GET", f"/api/teams/{quote(team_id, safe='')}/keys"
+            )
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Command 48: team_list_members
+    # ==================================================================
+
+    def team_list_members(self, team_id: str) -> str:
+        """List all members of a team.
+
+        Args:
+            team_id: UUID of the team.
+
+        Returns:
+            JSON string with a list of team members.
+        """
+        err = _validate_uuid(team_id, "team_id")
+        if err:
+            return json.dumps({"error": err})
+
+        try:
+            result = self._request_with_retry(
+                "GET", f"/api/teams/{quote(team_id, safe='')}/members"
+            )
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Command 49: team_add_member
+    # ==================================================================
+
+    def team_add_member(self, team_id: str, user_id: str) -> str:
+        """Add a member to a team by user ID.
+
+        Args:
+            team_id: UUID of the team.
+            user_id: UUID of the user to add.
+
+        Returns:
+            JSON string confirming the member addition.
+        """
+        err = _validate_uuid(team_id, "team_id")
+        if err:
+            return json.dumps({"error": err})
+
+        err = _validate_uuid(user_id, "user_id")
+        if err:
+            return json.dumps({"error": err})
+
+        try:
+            result = self._request_with_retry(
+                "POST",
+                f"/api/teams/{quote(team_id, safe='')}/members",
+                {"userId": user_id},
+            )
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Command 50: team_remove_member
+    # ==================================================================
+
+    def team_remove_member(self, team_id: str, user_id: str) -> str:
+        """Remove a member from a team.
+
+        Args:
+            team_id: UUID of the team.
+            user_id: UUID of the user to remove.
+
+        Returns:
+            JSON string confirming the member removal.
+        """
+        err = _validate_uuid(team_id, "team_id")
+        if err:
+            return json.dumps({"error": err})
+
+        err = _validate_uuid(user_id, "user_id")
+        if err:
+            return json.dumps({"error": err})
+
+        try:
+            result = self._request_with_retry(
+                "DELETE",
+                f"/api/teams/{quote(team_id, safe='')}/members/{quote(user_id, safe='')}",
+            )
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Command 51: team_invite_member
+    # ==================================================================
+
+    def team_invite_member(
+        self, team_id: str, email: str, role: str = "member"
+    ) -> str:
+        """Invite a user to a team by email.
+
+        Args:
+            team_id: UUID of the team.
+            email: Email address of the user to invite.
+            role: Role for the invited user (``member`` or ``admin``). Default: ``member``.
+
+        Returns:
+            JSON string with the created invite details.
+        """
+        err = _validate_uuid(team_id, "team_id")
+        if err:
+            return json.dumps({"error": err})
+
+        if not email or not isinstance(email, str):
+            return json.dumps({"error": "email is required and must be a string"})
+        if not self._BASIC_EMAIL_RE.match(email):
+            return json.dumps({"error": "email must be a valid email address"})
+        if len(email) > 254:
+            return json.dumps({"error": "email must be 254 characters or fewer"})
+
+        if not role or not isinstance(role, str):
+            return json.dumps({"error": "role is required and must be a string"})
+        if role not in ("member", "admin"):
+            return json.dumps({"error": "role must be 'member' or 'admin'"})
+
+        try:
+            result = self._request_with_retry(
+                "POST",
+                f"/api/teams/{quote(team_id, safe='')}/invites",
+                {"email": email, "role": role},
+            )
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Command 52: team_list_invites
+    # ==================================================================
+
+    def team_list_invites(self, team_id: str) -> str:
+        """List pending invites for a team.
+
+        Args:
+            team_id: UUID of the team.
+
+        Returns:
+            JSON string with a list of pending team invites.
+        """
+        err = _validate_uuid(team_id, "team_id")
+        if err:
+            return json.dumps({"error": err})
+
+        try:
+            result = self._request_with_retry(
+                "GET", f"/api/teams/{quote(team_id, safe='')}/invites"
+            )
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Command 53: team_cancel_invite
+    # ==================================================================
+
+    def team_cancel_invite(self, team_id: str, invite_id: str) -> str:
+        """Cancel a pending team invite.
+
+        Args:
+            team_id: UUID of the team.
+            invite_id: UUID of the invite to cancel.
+
+        Returns:
+            JSON string confirming the invite cancellation.
+        """
+        err = _validate_uuid(team_id, "team_id")
+        if err:
+            return json.dumps({"error": err})
+
+        err = _validate_uuid(invite_id, "invite_id")
+        if err:
+            return json.dumps({"error": err})
+
+        try:
+            result = self._request_with_retry(
+                "DELETE",
+                f"/api/teams/{quote(team_id, safe='')}/invites/{quote(invite_id, safe='')}",
+            )
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
     # TaskWeaver __call__ dispatcher
     # ==================================================================
 
@@ -1600,6 +2383,34 @@ class DominusNodePlugin:
             "topup_stripe": self._dispatch_topup_stripe,
             "topup_crypto": self._dispatch_topup_crypto,
             "update_wallet_policy": self._dispatch_update_wallet_policy,
+            # --- Commands 27-53 ---
+            "get_proxy_status": self._dispatch_get_proxy_status,
+            "get_transactions": self._dispatch_get_transactions,
+            "get_forecast": self._dispatch_get_forecast,
+            "check_payment": self._dispatch_check_payment,
+            "get_daily_usage": self._dispatch_get_daily_usage,
+            "get_top_hosts": self._dispatch_get_top_hosts,
+            "register_account": self._dispatch_register_account,
+            "login_account": self._dispatch_login_account,
+            "get_account_info": self._dispatch_get_account_info,
+            "verify_email": self._dispatch_verify_email,
+            "resend_verification": self._dispatch_resend_verification,
+            "update_password": self._dispatch_update_password,
+            "list_keys": self._dispatch_list_keys,
+            "create_key": self._dispatch_create_key,
+            "revoke_key": self._dispatch_revoke_key,
+            "get_plan": self._dispatch_get_plan,
+            "list_plans": self._dispatch_list_plans,
+            "change_plan": self._dispatch_change_plan,
+            "team_delete": self._dispatch_team_delete,
+            "team_revoke_key": self._dispatch_team_revoke_key,
+            "team_list_keys": self._dispatch_team_list_keys,
+            "team_list_members": self._dispatch_team_list_members,
+            "team_add_member": self._dispatch_team_add_member,
+            "team_remove_member": self._dispatch_team_remove_member,
+            "team_invite_member": self._dispatch_team_invite_member,
+            "team_list_invites": self._dispatch_team_list_invites,
+            "team_cancel_invite": self._dispatch_team_cancel_invite,
         }
 
         handler = dispatch.get(command)
@@ -1802,3 +2613,173 @@ class DominusNodePlugin:
             daily_limit_cents=args.get("daily_limit_cents"),
             allowed_domains=args.get("allowed_domains"),
         )
+
+    # ------------------------------------------------------------------
+    # Dispatch handlers for commands 27-53
+    # ------------------------------------------------------------------
+
+    def _dispatch_get_proxy_status(self, args: dict) -> str:
+        return self.get_proxy_status()
+
+    def _dispatch_get_transactions(self, args: dict) -> str:
+        limit = args.get("limit", 20)
+        return self.get_transactions(limit=limit)
+
+    def _dispatch_get_forecast(self, args: dict) -> str:
+        return self.get_forecast()
+
+    def _dispatch_check_payment(self, args: dict) -> str:
+        invoice_id = args.get("invoice_id")
+        if not invoice_id:
+            return json.dumps({"error": "invoice_id is required"})
+        return self.check_payment(invoice_id=invoice_id)
+
+    def _dispatch_get_daily_usage(self, args: dict) -> str:
+        days = args.get("days", 30)
+        return self.get_daily_usage(days=days)
+
+    def _dispatch_get_top_hosts(self, args: dict) -> str:
+        limit = args.get("limit", 10)
+        return self.get_top_hosts(limit=limit)
+
+    def _dispatch_register_account(self, args: dict) -> str:
+        email = args.get("email")
+        password = args.get("password")
+        if email is None or password is None:
+            return json.dumps({
+                "error": "email and password are required"
+            })
+        return self.register_account(email=email, password=password)
+
+    def _dispatch_login_account(self, args: dict) -> str:
+        email = args.get("email")
+        password = args.get("password")
+        if email is None or password is None:
+            return json.dumps({
+                "error": "email and password are required"
+            })
+        return self.login_account(email=email, password=password)
+
+    def _dispatch_get_account_info(self, args: dict) -> str:
+        return self.get_account_info()
+
+    def _dispatch_verify_email(self, args: dict) -> str:
+        token = args.get("token")
+        if not token:
+            return json.dumps({"error": "token is required"})
+        return self.verify_email(token=token)
+
+    def _dispatch_resend_verification(self, args: dict) -> str:
+        return self.resend_verification()
+
+    def _dispatch_update_password(self, args: dict) -> str:
+        current_password = args.get("current_password")
+        new_password = args.get("new_password")
+        if current_password is None or new_password is None:
+            return json.dumps({
+                "error": "current_password and new_password are required"
+            })
+        return self.update_password(
+            current_password=current_password,
+            new_password=new_password,
+        )
+
+    def _dispatch_list_keys(self, args: dict) -> str:
+        return self.list_keys()
+
+    def _dispatch_create_key(self, args: dict) -> str:
+        label = args.get("label")
+        if not label:
+            return json.dumps({"error": "label is required"})
+        return self.create_key(label=label)
+
+    def _dispatch_revoke_key(self, args: dict) -> str:
+        key_id = args.get("key_id")
+        if not key_id:
+            return json.dumps({"error": "key_id is required"})
+        return self.revoke_key(key_id=key_id)
+
+    def _dispatch_get_plan(self, args: dict) -> str:
+        return self.get_plan()
+
+    def _dispatch_list_plans(self, args: dict) -> str:
+        return self.list_plans()
+
+    def _dispatch_change_plan(self, args: dict) -> str:
+        plan_id = args.get("plan_id")
+        if not plan_id:
+            return json.dumps({"error": "plan_id is required"})
+        return self.change_plan(plan_id=plan_id)
+
+    def _dispatch_team_delete(self, args: dict) -> str:
+        team_id = args.get("team_id")
+        if not team_id:
+            return json.dumps({"error": "team_id is required"})
+        return self.team_delete(team_id=team_id)
+
+    def _dispatch_team_revoke_key(self, args: dict) -> str:
+        team_id = args.get("team_id")
+        key_id = args.get("key_id")
+        if team_id is None or key_id is None:
+            return json.dumps({
+                "error": "team_id and key_id are required"
+            })
+        return self.team_revoke_key(team_id=team_id, key_id=key_id)
+
+    def _dispatch_team_list_keys(self, args: dict) -> str:
+        team_id = args.get("team_id")
+        if not team_id:
+            return json.dumps({"error": "team_id is required"})
+        return self.team_list_keys(team_id=team_id)
+
+    def _dispatch_team_list_members(self, args: dict) -> str:
+        team_id = args.get("team_id")
+        if not team_id:
+            return json.dumps({"error": "team_id is required"})
+        return self.team_list_members(team_id=team_id)
+
+    def _dispatch_team_add_member(self, args: dict) -> str:
+        team_id = args.get("team_id")
+        user_id = args.get("user_id")
+        if team_id is None or user_id is None:
+            return json.dumps({
+                "error": "team_id and user_id are required"
+            })
+        return self.team_add_member(team_id=team_id, user_id=user_id)
+
+    def _dispatch_team_remove_member(self, args: dict) -> str:
+        team_id = args.get("team_id")
+        user_id = args.get("user_id")
+        if team_id is None or user_id is None:
+            return json.dumps({
+                "error": "team_id and user_id are required"
+            })
+        return self.team_remove_member(team_id=team_id, user_id=user_id)
+
+    def _dispatch_team_invite_member(self, args: dict) -> str:
+        team_id = args.get("team_id")
+        email = args.get("email")
+        if team_id is None or email is None:
+            return json.dumps({
+                "error": "team_id and email are required"
+            })
+        return self.team_invite_member(
+            team_id=team_id,
+            email=email,
+            role=args.get("role", "member"),
+        )
+
+    def _dispatch_team_list_invites(self, args: dict) -> str:
+        team_id = args.get("team_id")
+        if not team_id:
+            return json.dumps({"error": "team_id is required"})
+        return self.team_list_invites(team_id=team_id)
+
+    def _dispatch_team_cancel_invite(self, args: dict) -> str:
+        team_id = args.get("team_id")
+        invite_id = args.get("invite_id")
+        if team_id is None or invite_id is None:
+            return json.dumps({
+                "error": "team_id and invite_id are required"
+            })
+        return self.team_cancel_invite(team_id=team_id, invite_id=invite_id)

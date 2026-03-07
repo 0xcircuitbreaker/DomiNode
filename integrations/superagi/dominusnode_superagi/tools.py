@@ -1,16 +1,21 @@
-"""Dominus Node SuperAGI tools -- 26 proxy, wallet, team, and payment management tools.
+"""Dominus Node SuperAGI tools -- 53 proxy, wallet, team, and payment management tools.
 
-Provides SuperAGI-compatible tool classes that expose 26 tools for
+Provides SuperAGI-compatible tool classes that expose 53 tools for
 interacting with the Dominus Node rotating proxy-as-a-service platform.
 
 Tools cover:
   - Proxied HTTP fetching through rotating proxies
-  - Wallet balance and usage monitoring
-  - Proxy configuration and session listing
+  - Wallet balance, transactions, forecast, and usage monitoring
+  - Proxy configuration, status, and session listing
   - Agentic wallet management (create, fund, freeze, unfreeze, delete)
-  - Team management (create, list, fund, keys, usage, update, role changes)
+  - Team management (create, list, fund, keys, usage, update, role changes,
+    members, invites, delete)
+  - Account lifecycle (register, login, account info, email verification,
+    password change)
+  - API key management (list, create, revoke)
+  - Plan management (get, list, change)
   - x402 micropayment info
-  - PayPal top-up
+  - PayPal, Stripe, and crypto top-up
 
 Security:
   - Full SSRF prevention (private IP blocking, DNS rebinding, Teredo/6to4,
@@ -412,6 +417,8 @@ _DOMAIN_RE = re.compile(
     r"^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?)*$"
 )
 
+_EMAIL_RE = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
+
 
 # ---------------------------------------------------------------------------
 # Period to date range helper
@@ -485,6 +492,27 @@ def _validate_allowed_domains(domains: Any) -> Optional[str]:
             return f"allowed_domains[{i}] exceeds maximum length of 253 characters"
         if not _DOMAIN_RE.match(domain):
             return f"allowed_domains[{i}] is not a valid domain format"
+    return None
+
+
+def _validate_email(email: Any, field_name: str = "email") -> Optional[str]:
+    """Validate an email address, returning an error message or None."""
+    if not email or not isinstance(email, str):
+        return f"{field_name} is required and must be a string"
+    email = email.strip()
+    if not _EMAIL_RE.match(email):
+        return f"{field_name} must be a valid email address"
+    if len(email) > 254:
+        return f"{field_name} exceeds maximum length of 254 characters"
+    return None
+
+
+def _validate_password(password: Any, field_name: str = "password") -> Optional[str]:
+    """Validate a password string, returning an error message or None."""
+    if not password or not isinstance(password, str):
+        return f"{field_name} is required and must be a string"
+    if len(password) < 8 or len(password) > 128:
+        return f"{field_name} must be between 8 and 128 characters"
     return None
 
 
@@ -688,6 +716,60 @@ class _DominusNodeClient:
                 self._ensure_auth()
                 return self._api_request(method, path, body)
             raise
+
+    def _unauthenticated_request(
+        self,
+        method: str,
+        path: str,
+        body: Optional[Dict[str, Any]] = None,
+    ) -> Any:
+        """Make an unauthenticated API request (for register, login, verify-email).
+
+        Args:
+            method: HTTP method.
+            path: API path.
+            body: Optional JSON body.
+
+        Returns:
+            Parsed JSON response (with dangerous keys stripped).
+        """
+        with httpx.Client(
+            timeout=self.timeout,
+            follow_redirects=False,
+        ) as client:
+            req_headers = {
+                "User-Agent": "dominusnode-superagi/1.0.0",
+                "Content-Type": "application/json",
+            }
+            if self.agent_secret:
+                req_headers["X-DominusNode-Agent"] = "mcp"
+                req_headers["X-DominusNode-Agent-Secret"] = self.agent_secret
+
+            kwargs: Dict[str, Any] = {"headers": req_headers}
+            if body is not None and method.upper() not in ("GET", "HEAD", "OPTIONS"):
+                kwargs["json"] = body
+
+            resp = client.request(method, f"{self.base_url}{path}", **kwargs)
+
+            if len(resp.content) > MAX_RESPONSE_BYTES:
+                raise RuntimeError("Response body too large")
+
+            if resp.status_code >= 400:
+                try:
+                    err_data = resp.json()
+                    msg = err_data.get("error", resp.text)
+                except Exception:
+                    msg = resp.text
+                msg = str(msg)[:500]
+                raise RuntimeError(
+                    f"API error {resp.status_code}: {_sanitize_error(msg)}"
+                )
+
+            if resp.text:
+                data = resp.json()
+                _strip_dangerous_keys(data)
+                return data
+            return {}
 
     # ==================================================================
     # Command 1: proxied_fetch
@@ -1539,6 +1621,714 @@ class _DominusNodeClient:
         except Exception as e:
             return json.dumps({"error": _sanitize_error(str(e))})
 
+    # ==================================================================
+    # Command 26: get_proxy_status
+    # ==================================================================
+
+    def get_proxy_status(self) -> str:
+        """Get the current status of the proxy gateway.
+
+        Returns:
+            JSON string with proxy gateway status, uptime, and pool health.
+        """
+        try:
+            result = self._request_with_retry("GET", "/api/proxy/status")
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Command 27: get_transactions
+    # ==================================================================
+
+    def get_transactions(self, limit: int = 20) -> str:
+        """Get main wallet transaction history.
+
+        Args:
+            limit: Maximum number of transactions to return (1-100, default 20).
+
+        Returns:
+            JSON string with wallet transaction history.
+        """
+        if not isinstance(limit, int) or isinstance(limit, bool) or limit < 1 or limit > 100:
+            return json.dumps(
+                {"error": "limit must be an integer between 1 and 100"}
+            )
+
+        qs = f"?limit={limit}" if limit != 20 else ""
+
+        try:
+            result = self._request_with_retry(
+                "GET", f"/api/wallet/transactions{qs}"
+            )
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Command 28: get_forecast
+    # ==================================================================
+
+    def get_forecast(self) -> str:
+        """Get a spending forecast based on recent usage patterns.
+
+        Returns:
+            JSON string with projected balance depletion and daily burn rate.
+        """
+        try:
+            result = self._request_with_retry("GET", "/api/wallet/forecast")
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Command 29: check_payment
+    # ==================================================================
+
+    def check_payment(self, invoice_id: str) -> str:
+        """Check the status of a crypto payment invoice.
+
+        Args:
+            invoice_id: Crypto invoice ID to check.
+
+        Returns:
+            JSON string with payment status details.
+        """
+        if not invoice_id or not isinstance(invoice_id, str):
+            return json.dumps({"error": "invoice_id is required and must be a string"})
+        invoice_id = invoice_id.strip()
+        if len(invoice_id) == 0 or len(invoice_id) > 200:
+            return json.dumps({"error": "invoice_id must be 1-200 characters"})
+        if any(0 <= ord(c) <= 0x1F or ord(c) == 0x7F for c in invoice_id):
+            return json.dumps({"error": "invoice_id contains invalid control characters"})
+
+        try:
+            result = self._request_with_retry(
+                "GET",
+                f"/api/wallet/topup/crypto/{quote(invoice_id, safe='')}/status",
+            )
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Command 30: get_daily_usage
+    # ==================================================================
+
+    def get_daily_usage(self, days: int = 7) -> str:
+        """Get daily bandwidth usage breakdown.
+
+        Args:
+            days: Number of days to look back (1-90, default 7).
+
+        Returns:
+            JSON string with per-day bandwidth, cost, and request counts.
+        """
+        if not isinstance(days, int) or isinstance(days, bool) or days < 1 or days > 90:
+            return json.dumps(
+                {"error": "days must be an integer between 1 and 90"}
+            )
+
+        try:
+            result = self._request_with_retry(
+                "GET", f"/api/usage/daily?days={days}"
+            )
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Command 31: get_top_hosts
+    # ==================================================================
+
+    def get_top_hosts(self, limit: int = 10) -> str:
+        """Get top hosts by bandwidth usage.
+
+        Args:
+            limit: Number of top hosts to return (1-100, default 10).
+
+        Returns:
+            JSON string with top hosts ranked by bandwidth consumption.
+        """
+        if not isinstance(limit, int) or isinstance(limit, bool) or limit < 1 or limit > 100:
+            return json.dumps(
+                {"error": "limit must be an integer between 1 and 100"}
+            )
+
+        try:
+            result = self._request_with_retry(
+                "GET", f"/api/usage/top-hosts?limit={limit}"
+            )
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Command 32: register
+    # ==================================================================
+
+    def register(self, email: str, password: str) -> str:
+        """Register a new Dominus Node account (unauthenticated).
+
+        Args:
+            email: Email address for the new account.
+            password: Password (8-128 characters).
+
+        Returns:
+            JSON string with the created account info.
+        """
+        err = _validate_email(email, "email")
+        if err:
+            return json.dumps({"error": err})
+
+        err = _validate_password(password, "password")
+        if err:
+            return json.dumps({"error": err})
+
+        try:
+            result = self._unauthenticated_request(
+                "POST",
+                "/api/auth/register",
+                {"email": email.strip(), "password": password},
+            )
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Command 33: login
+    # ==================================================================
+
+    def login(self, email: str, password: str) -> str:
+        """Log in to a Dominus Node account (unauthenticated).
+
+        Args:
+            email: Account email address.
+            password: Account password (8-128 characters).
+
+        Returns:
+            JSON string with access/refresh tokens, or MFA required indicator.
+        """
+        err = _validate_email(email, "email")
+        if err:
+            return json.dumps({"error": err})
+
+        err = _validate_password(password, "password")
+        if err:
+            return json.dumps({"error": err})
+
+        try:
+            result = self._unauthenticated_request(
+                "POST",
+                "/api/auth/login",
+                {"email": email.strip(), "password": password},
+            )
+            # Surface MFA requirement
+            if isinstance(result, dict) and result.get("mfaRequired"):
+                return json.dumps({
+                    "mfaRequired": True,
+                    "message": "Multi-factor authentication is required. Complete MFA to continue.",
+                })
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Command 34: get_account_info
+    # ==================================================================
+
+    def get_account_info(self) -> str:
+        """Get account information for the authenticated user.
+
+        Returns:
+            JSON string with account details (email, plan, status, etc.).
+        """
+        try:
+            result = self._request_with_retry("GET", "/api/auth/me")
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Command 35: verify_email
+    # ==================================================================
+
+    def verify_email(self, email: str, code: str) -> str:
+        """Verify an email address using a verification code (unauthenticated).
+
+        Args:
+            email: Email address to verify.
+            code: Verification code from email (max 100 chars).
+
+        Returns:
+            JSON string confirming verification.
+        """
+        err = _validate_email(email, "email")
+        if err:
+            return json.dumps({"error": err})
+
+        if not code or not isinstance(code, str):
+            return json.dumps({"error": "code is required and must be a string"})
+        code = code.strip()
+        if len(code) == 0 or len(code) > 100:
+            return json.dumps({"error": "code must be 1-100 characters"})
+        if any(0 <= ord(c) <= 0x1F or ord(c) == 0x7F for c in code):
+            return json.dumps({"error": "code contains invalid control characters"})
+
+        try:
+            result = self._unauthenticated_request(
+                "POST",
+                "/api/auth/verify-email",
+                {"email": email.strip(), "code": code},
+            )
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Command 36: resend_verification
+    # ==================================================================
+
+    def resend_verification(self) -> str:
+        """Resend the email verification code (authenticated).
+
+        Returns:
+            JSON string confirming the verification email was resent.
+        """
+        try:
+            result = self._request_with_retry("POST", "/api/auth/resend-verification")
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Command 37: update_password
+    # ==================================================================
+
+    def update_password(self, current_password: str, new_password: str) -> str:
+        """Change the account password (authenticated).
+
+        Args:
+            current_password: Current password (8-128 characters).
+            new_password: New password (8-128 characters).
+
+        Returns:
+            JSON string confirming the password change.
+        """
+        err = _validate_password(current_password, "current_password")
+        if err:
+            return json.dumps({"error": err})
+
+        err = _validate_password(new_password, "new_password")
+        if err:
+            return json.dumps({"error": err})
+
+        try:
+            result = self._request_with_retry(
+                "POST",
+                "/api/auth/change-password",
+                {"currentPassword": current_password, "newPassword": new_password},
+            )
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Command 38: list_keys
+    # ==================================================================
+
+    def list_keys(self) -> str:
+        """List all personal API keys.
+
+        Returns:
+            JSON string with a list of API keys (prefix, label, status).
+        """
+        try:
+            result = self._request_with_retry("GET", "/api/keys")
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Command 39: create_key
+    # ==================================================================
+
+    def create_key(self, label: str) -> str:
+        """Create a new personal API key.
+
+        Args:
+            label: Human-readable label for the key (max 100 chars).
+
+        Returns:
+            JSON string with the created API key (shown once).
+        """
+        err = _validate_label(label, "label")
+        if err:
+            return json.dumps({"error": err})
+
+        try:
+            result = self._request_with_retry(
+                "POST", "/api/keys", {"label": label}
+            )
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Command 40: revoke_key
+    # ==================================================================
+
+    def revoke_key(self, key_id: str) -> str:
+        """Revoke (delete) a personal API key.
+
+        Args:
+            key_id: UUID of the API key to revoke.
+
+        Returns:
+            JSON string confirming revocation.
+        """
+        err = _validate_uuid(key_id, "key_id")
+        if err:
+            return json.dumps({"error": err})
+
+        try:
+            result = self._request_with_retry(
+                "DELETE", f"/api/keys/{quote(key_id, safe='')}"
+            )
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Command 41: get_plan
+    # ==================================================================
+
+    def get_plan(self) -> str:
+        """Get the current plan details for the authenticated user.
+
+        Returns:
+            JSON string with plan limits, pricing, and features.
+        """
+        try:
+            result = self._request_with_retry("GET", "/api/plans/user/plan")
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Command 42: list_plans
+    # ==================================================================
+
+    def list_plans(self) -> str:
+        """List all available plans with pricing and limits.
+
+        Returns:
+            JSON string with a list of all available plans.
+        """
+        try:
+            result = self._request_with_retry("GET", "/api/plans")
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Command 43: change_plan
+    # ==================================================================
+
+    def change_plan(self, plan: str) -> str:
+        """Change the account plan.
+
+        Args:
+            plan: Plan name/ID to switch to (max 100 chars).
+
+        Returns:
+            JSON string with the updated plan details.
+        """
+        err = _validate_label(plan, "plan")
+        if err:
+            return json.dumps({"error": err})
+
+        try:
+            result = self._request_with_retry(
+                "PUT", "/api/plans/user/plan", {"planId": plan}
+            )
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Command 44: team_delete
+    # ==================================================================
+
+    def team_delete(self, team_id: str) -> str:
+        """Delete a team. Only the owner can delete. Remaining balance is refunded.
+
+        Args:
+            team_id: UUID of the team to delete.
+
+        Returns:
+            JSON string confirming deletion.
+        """
+        err = _validate_uuid(team_id, "team_id")
+        if err:
+            return json.dumps({"error": err})
+
+        try:
+            result = self._request_with_retry(
+                "DELETE", f"/api/teams/{quote(team_id, safe='')}"
+            )
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Command 45: team_revoke_key
+    # ==================================================================
+
+    def team_revoke_key(self, team_id: str, key_id: str) -> str:
+        """Revoke a shared API key for a team.
+
+        Args:
+            team_id: UUID of the team.
+            key_id: UUID of the API key to revoke.
+
+        Returns:
+            JSON string confirming revocation.
+        """
+        err = _validate_uuid(team_id, "team_id")
+        if err:
+            return json.dumps({"error": err})
+
+        err = _validate_uuid(key_id, "key_id")
+        if err:
+            return json.dumps({"error": err})
+
+        try:
+            result = self._request_with_retry(
+                "DELETE",
+                f"/api/teams/{quote(team_id, safe='')}/keys/{quote(key_id, safe='')}",
+            )
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Command 46: team_list_keys
+    # ==================================================================
+
+    def team_list_keys(self, team_id: str) -> str:
+        """List all API keys for a team.
+
+        Args:
+            team_id: UUID of the team.
+
+        Returns:
+            JSON string with the team's API keys.
+        """
+        err = _validate_uuid(team_id, "team_id")
+        if err:
+            return json.dumps({"error": err})
+
+        try:
+            result = self._request_with_retry(
+                "GET", f"/api/teams/{quote(team_id, safe='')}/keys"
+            )
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Command 47: team_list_members
+    # ==================================================================
+
+    def team_list_members(self, team_id: str) -> str:
+        """List all members of a team.
+
+        Args:
+            team_id: UUID of the team.
+
+        Returns:
+            JSON string with team members and their roles.
+        """
+        err = _validate_uuid(team_id, "team_id")
+        if err:
+            return json.dumps({"error": err})
+
+        try:
+            result = self._request_with_retry(
+                "GET", f"/api/teams/{quote(team_id, safe='')}/members"
+            )
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Command 48: team_add_member
+    # ==================================================================
+
+    def team_add_member(
+        self, team_id: str, user_id: str, role: str = "member"
+    ) -> str:
+        """Add a member directly to a team by user ID.
+
+        Args:
+            team_id: UUID of the team.
+            user_id: UUID of the user to add.
+            role: Role for the new member (``member`` or ``admin``).
+
+        Returns:
+            JSON string with the added member details.
+        """
+        err = _validate_uuid(team_id, "team_id")
+        if err:
+            return json.dumps({"error": err})
+
+        err = _validate_uuid(user_id, "user_id")
+        if err:
+            return json.dumps({"error": err})
+
+        if not role or not isinstance(role, str):
+            return json.dumps({"error": "role is required and must be a string"})
+        if role not in ("member", "admin"):
+            return json.dumps({"error": "role must be 'member' or 'admin'"})
+
+        try:
+            result = self._request_with_retry(
+                "POST",
+                f"/api/teams/{quote(team_id, safe='')}/members",
+                {"userId": user_id, "role": role},
+            )
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Command 49: team_remove_member
+    # ==================================================================
+
+    def team_remove_member(self, team_id: str, user_id: str) -> str:
+        """Remove a member from a team.
+
+        Args:
+            team_id: UUID of the team.
+            user_id: UUID of the member to remove.
+
+        Returns:
+            JSON string confirming removal.
+        """
+        err = _validate_uuid(team_id, "team_id")
+        if err:
+            return json.dumps({"error": err})
+
+        err = _validate_uuid(user_id, "user_id")
+        if err:
+            return json.dumps({"error": err})
+
+        try:
+            result = self._request_with_retry(
+                "DELETE",
+                f"/api/teams/{quote(team_id, safe='')}/members/{quote(user_id, safe='')}",
+            )
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Command 50: team_invite_member
+    # ==================================================================
+
+    def team_invite_member(
+        self, team_id: str, email: str, role: str = "member"
+    ) -> str:
+        """Send an invitation to join a team by email.
+
+        Args:
+            team_id: UUID of the team.
+            email: Email address of the person to invite.
+            role: Role for the invited member (``member`` or ``admin``).
+
+        Returns:
+            JSON string with the created invitation details.
+        """
+        err = _validate_uuid(team_id, "team_id")
+        if err:
+            return json.dumps({"error": err})
+
+        err = _validate_email(email, "email")
+        if err:
+            return json.dumps({"error": err})
+
+        if not role or not isinstance(role, str):
+            return json.dumps({"error": "role is required and must be a string"})
+        if role not in ("member", "admin"):
+            return json.dumps({"error": "role must be 'member' or 'admin'"})
+
+        try:
+            result = self._request_with_retry(
+                "POST",
+                f"/api/teams/{quote(team_id, safe='')}/invites",
+                {"email": email.strip(), "role": role},
+            )
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Command 51: team_list_invites
+    # ==================================================================
+
+    def team_list_invites(self, team_id: str) -> str:
+        """List all pending invitations for a team.
+
+        Args:
+            team_id: UUID of the team.
+
+        Returns:
+            JSON string with pending invitations.
+        """
+        err = _validate_uuid(team_id, "team_id")
+        if err:
+            return json.dumps({"error": err})
+
+        try:
+            result = self._request_with_retry(
+                "GET", f"/api/teams/{quote(team_id, safe='')}/invites"
+            )
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
+    # Command 52: team_cancel_invite
+    # ==================================================================
+
+    def team_cancel_invite(self, team_id: str, invite_id: str) -> str:
+        """Cancel a pending team invitation.
+
+        Args:
+            team_id: UUID of the team.
+            invite_id: UUID of the invitation to cancel.
+
+        Returns:
+            JSON string confirming cancellation.
+        """
+        err = _validate_uuid(team_id, "team_id")
+        if err:
+            return json.dumps({"error": err})
+
+        err = _validate_uuid(invite_id, "invite_id")
+        if err:
+            return json.dumps({"error": err})
+
+        try:
+            result = self._request_with_retry(
+                "DELETE",
+                f"/api/teams/{quote(team_id, safe='')}/invites/{quote(invite_id, safe='')}",
+            )
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
 
 # ===========================================================================
 # Pydantic Schemas for SuperAGI tool args
@@ -1668,8 +2458,127 @@ class TopupCryptoSchema(BaseModel):
     currency: str = Field(description="Cryptocurrency: BTC, ETH, LTC, XMR, ZEC, USDC, SOL, USDT, DAI, BNB, or LINK")
 
 
+class ProxyStatusSchema(BaseModel):
+    pass
+
+
+class TransactionsSchema(BaseModel):
+    limit: int = Field(default=20, description="Max transactions to return (1-100)")
+
+
+class ForecastSchema(BaseModel):
+    pass
+
+
+class CheckPaymentSchema(BaseModel):
+    invoice_id: str = Field(description="Crypto invoice ID to check")
+
+
+class DailyUsageSchema(BaseModel):
+    days: int = Field(default=7, description="Number of days to look back (1-90)")
+
+
+class TopHostsSchema(BaseModel):
+    limit: int = Field(default=10, description="Number of top hosts to return (1-100)")
+
+
+class RegisterSchema(BaseModel):
+    email: str = Field(description="Email address for the new account")
+    password: str = Field(description="Password for the new account (8-128 characters)")
+
+
+class LoginSchema(BaseModel):
+    email: str = Field(description="Account email address")
+    password: str = Field(description="Account password (8-128 characters)")
+
+
+class AccountInfoSchema(BaseModel):
+    pass
+
+
+class VerifyEmailSchema(BaseModel):
+    email: str = Field(description="Email address to verify")
+    code: str = Field(description="Verification code from email (max 100 characters)")
+
+
+class ResendVerificationSchema(BaseModel):
+    pass
+
+
+class UpdatePasswordSchema(BaseModel):
+    current_password: str = Field(description="Your current password (8-128 characters)")
+    new_password: str = Field(description="Your new password (8-128 characters)")
+
+
+class ListKeysSchema(BaseModel):
+    pass
+
+
+class CreateKeySchema(BaseModel):
+    label: str = Field(description="Human-readable label for the API key (max 100 chars)")
+
+
+class RevokeKeySchema(BaseModel):
+    key_id: str = Field(description="API key ID (UUID) to revoke")
+
+
+class GetPlanSchema(BaseModel):
+    pass
+
+
+class ListPlansSchema(BaseModel):
+    pass
+
+
+class ChangePlanSchema(BaseModel):
+    plan: str = Field(description="Plan name/ID to switch to (max 100 chars)")
+
+
+class TeamDeleteSchema(BaseModel):
+    team_id: str = Field(description="Team ID (UUID) to delete")
+
+
+class TeamRevokeKeySchema(BaseModel):
+    team_id: str = Field(description="Team ID (UUID)")
+    key_id: str = Field(description="API key ID (UUID) to revoke")
+
+
+class TeamListKeysSchema(BaseModel):
+    team_id: str = Field(description="Team ID (UUID)")
+
+
+class TeamListMembersSchema(BaseModel):
+    team_id: str = Field(description="Team ID (UUID)")
+
+
+class TeamAddMemberSchema(BaseModel):
+    team_id: str = Field(description="Team ID (UUID)")
+    user_id: str = Field(description="User ID (UUID) of the person to add")
+    role: str = Field(default="member", description="Role for the new member: 'member' or 'admin'")
+
+
+class TeamRemoveMemberSchema(BaseModel):
+    team_id: str = Field(description="Team ID (UUID)")
+    user_id: str = Field(description="User ID (UUID) of the member to remove")
+
+
+class TeamInviteMemberSchema(BaseModel):
+    team_id: str = Field(description="Team ID (UUID)")
+    email: str = Field(description="Email address of the person to invite")
+    role: str = Field(default="member", description="Role for the invited member: 'member' or 'admin'")
+
+
+class TeamListInvitesSchema(BaseModel):
+    team_id: str = Field(description="Team ID (UUID)")
+
+
+class TeamCancelInviteSchema(BaseModel):
+    team_id: str = Field(description="Team ID (UUID)")
+    invite_id: str = Field(description="Invite ID (UUID) to cancel")
+
+
 # ===========================================================================
-# SuperAGI Tool Classes (26 tools)
+# SuperAGI Tool Classes (53 tools)
 # ===========================================================================
 
 
@@ -2077,3 +2986,411 @@ class DominusNodeTopupCryptoTool(BaseTool):
     def _execute(self, amount_usd: float, currency: str) -> str:
         client = _get_client(self)
         return client.topup_crypto(amount_usd=amount_usd, currency=currency)
+
+
+class DominusNodeProxyStatusTool(BaseTool):
+    """Get the current status of the Dominus Node proxy gateway."""
+
+    name: str = "Dominus Node Proxy Status"
+    description: str = (
+        "Get the proxy gateway status including uptime, active connections, "
+        "and pool health information."
+    )
+    args_schema: type[BaseModel] = ProxyStatusSchema
+
+    def _execute(self) -> str:
+        client = _get_client(self)
+        return client.get_proxy_status()
+
+
+class DominusNodeTransactionsTool(BaseTool):
+    """Get main wallet transaction history."""
+
+    name: str = "Dominus Node Get Transactions"
+    description: str = (
+        "Get your main wallet transaction history including top-ups, "
+        "usage charges, and refunds."
+    )
+    args_schema: type[BaseModel] = TransactionsSchema
+
+    def _execute(self, limit: int = 20) -> str:
+        client = _get_client(self)
+        return client.get_transactions(limit=limit)
+
+
+class DominusNodeForecastTool(BaseTool):
+    """Get a spending forecast based on recent usage patterns."""
+
+    name: str = "Dominus Node Get Forecast"
+    description: str = (
+        "Get a spending forecast showing projected balance depletion date, "
+        "daily burn rate, and average daily bandwidth consumption."
+    )
+    args_schema: type[BaseModel] = ForecastSchema
+
+    def _execute(self) -> str:
+        client = _get_client(self)
+        return client.get_forecast()
+
+
+class DominusNodeCheckPaymentTool(BaseTool):
+    """Check the status of a crypto payment invoice."""
+
+    name: str = "Dominus Node Check Payment"
+    description: str = (
+        "Check the status of a crypto payment invoice. "
+        "Use the invoice ID returned by topup_crypto."
+    )
+    args_schema: type[BaseModel] = CheckPaymentSchema
+
+    def _execute(self, invoice_id: str) -> str:
+        client = _get_client(self)
+        return client.check_payment(invoice_id=invoice_id)
+
+
+class DominusNodeDailyUsageTool(BaseTool):
+    """Get daily bandwidth usage breakdown."""
+
+    name: str = "Dominus Node Daily Usage"
+    description: str = (
+        "Get daily bandwidth usage breakdown showing per-day bytes, "
+        "cost, and request counts for the specified number of days."
+    )
+    args_schema: type[BaseModel] = DailyUsageSchema
+
+    def _execute(self, days: int = 7) -> str:
+        client = _get_client(self)
+        return client.get_daily_usage(days=days)
+
+
+class DominusNodeTopHostsTool(BaseTool):
+    """Get top hosts by bandwidth usage."""
+
+    name: str = "Dominus Node Top Hosts"
+    description: str = (
+        "Get the top hosts by bandwidth usage. Shows which domains "
+        "consume the most proxy bandwidth."
+    )
+    args_schema: type[BaseModel] = TopHostsSchema
+
+    def _execute(self, limit: int = 10) -> str:
+        client = _get_client(self)
+        return client.get_top_hosts(limit=limit)
+
+
+class DominusNodeRegisterTool(BaseTool):
+    """Register a new Dominus Node account."""
+
+    name: str = "Dominus Node Register"
+    description: str = (
+        "Register a new Dominus Node account. This is an unauthenticated "
+        "endpoint. Returns user info and instructions for email verification."
+    )
+    args_schema: type[BaseModel] = RegisterSchema
+
+    def _execute(self, email: str, password: str) -> str:
+        client = _get_client(self)
+        return client.register(email=email, password=password)
+
+
+class DominusNodeLoginTool(BaseTool):
+    """Log in to a Dominus Node account."""
+
+    name: str = "Dominus Node Login"
+    description: str = (
+        "Log in to a Dominus Node account and receive access/refresh tokens. "
+        "This is an unauthenticated endpoint. Detects MFA requirements."
+    )
+    args_schema: type[BaseModel] = LoginSchema
+
+    def _execute(self, email: str, password: str) -> str:
+        client = _get_client(self)
+        return client.login(email=email, password=password)
+
+
+class DominusNodeAccountInfoTool(BaseTool):
+    """Get Dominus Node account information."""
+
+    name: str = "Dominus Node Account Info"
+    description: str = (
+        "Get your account information including email, plan, "
+        "verification status, MFA status, and creation date."
+    )
+    args_schema: type[BaseModel] = AccountInfoSchema
+
+    def _execute(self) -> str:
+        client = _get_client(self)
+        return client.get_account_info()
+
+
+class DominusNodeVerifyEmailTool(BaseTool):
+    """Verify an email address using a verification code."""
+
+    name: str = "Dominus Node Verify Email"
+    description: str = (
+        "Verify your email address using the code sent during registration. "
+        "This is an unauthenticated endpoint."
+    )
+    args_schema: type[BaseModel] = VerifyEmailSchema
+
+    def _execute(self, email: str, code: str) -> str:
+        client = _get_client(self)
+        return client.verify_email(email=email, code=code)
+
+
+class DominusNodeResendVerificationTool(BaseTool):
+    """Resend the email verification code."""
+
+    name: str = "Dominus Node Resend Verification"
+    description: str = (
+        "Resend the email verification code to your registered email address. "
+        "Requires authentication."
+    )
+    args_schema: type[BaseModel] = ResendVerificationSchema
+
+    def _execute(self) -> str:
+        client = _get_client(self)
+        return client.resend_verification()
+
+
+class DominusNodeUpdatePasswordTool(BaseTool):
+    """Change your Dominus Node account password."""
+
+    name: str = "Dominus Node Update Password"
+    description: str = (
+        "Change your account password. Requires your current password "
+        "for verification."
+    )
+    args_schema: type[BaseModel] = UpdatePasswordSchema
+
+    def _execute(self, current_password: str, new_password: str) -> str:
+        client = _get_client(self)
+        return client.update_password(
+            current_password=current_password,
+            new_password=new_password,
+        )
+
+
+class DominusNodeListKeysTool(BaseTool):
+    """List all personal Dominus Node API keys."""
+
+    name: str = "Dominus Node List Keys"
+    description: str = (
+        "List all your personal API keys showing key prefix, label, "
+        "status, and creation date."
+    )
+    args_schema: type[BaseModel] = ListKeysSchema
+
+    def _execute(self) -> str:
+        client = _get_client(self)
+        return client.list_keys()
+
+
+class DominusNodeCreateKeyTool(BaseTool):
+    """Create a new personal Dominus Node API key."""
+
+    name: str = "Dominus Node Create Key"
+    description: str = (
+        "Create a new personal API key. The full key is shown only once "
+        "and cannot be retrieved later."
+    )
+    args_schema: type[BaseModel] = CreateKeySchema
+
+    def _execute(self, label: str) -> str:
+        client = _get_client(self)
+        return client.create_key(label=label)
+
+
+class DominusNodeRevokeKeyTool(BaseTool):
+    """Revoke a personal Dominus Node API key."""
+
+    name: str = "Dominus Node Revoke Key"
+    description: str = (
+        "Revoke (delete) a personal API key. This immediately "
+        "invalidates the key."
+    )
+    args_schema: type[BaseModel] = RevokeKeySchema
+
+    def _execute(self, key_id: str) -> str:
+        client = _get_client(self)
+        return client.revoke_key(key_id=key_id)
+
+
+class DominusNodeGetPlanTool(BaseTool):
+    """Get your current Dominus Node plan details."""
+
+    name: str = "Dominus Node Get Plan"
+    description: str = (
+        "Get your current plan details including limits, pricing, "
+        "and features."
+    )
+    args_schema: type[BaseModel] = GetPlanSchema
+
+    def _execute(self) -> str:
+        client = _get_client(self)
+        return client.get_plan()
+
+
+class DominusNodeListPlansTool(BaseTool):
+    """List all available Dominus Node plans."""
+
+    name: str = "Dominus Node List Plans"
+    description: str = (
+        "List all available plans with pricing, bandwidth limits, "
+        "rate limits, and features."
+    )
+    args_schema: type[BaseModel] = ListPlansSchema
+
+    def _execute(self) -> str:
+        client = _get_client(self)
+        return client.list_plans()
+
+
+class DominusNodeChangePlanTool(BaseTool):
+    """Change your Dominus Node account plan."""
+
+    name: str = "Dominus Node Change Plan"
+    description: str = (
+        "Change your account plan. Use list_plans to see available "
+        "options first."
+    )
+    args_schema: type[BaseModel] = ChangePlanSchema
+
+    def _execute(self, plan: str) -> str:
+        client = _get_client(self)
+        return client.change_plan(plan=plan)
+
+
+class DominusNodeTeamDeleteTool(BaseTool):
+    """Delete a Dominus Node team."""
+
+    name: str = "Dominus Node Team Delete"
+    description: str = (
+        "Delete a team. Only the team owner can delete. Any remaining "
+        "team balance is refunded to the owner's wallet."
+    )
+    args_schema: type[BaseModel] = TeamDeleteSchema
+
+    def _execute(self, team_id: str) -> str:
+        client = _get_client(self)
+        return client.team_delete(team_id=team_id)
+
+
+class DominusNodeTeamRevokeKeyTool(BaseTool):
+    """Revoke a shared API key for a Dominus Node team."""
+
+    name: str = "Dominus Node Team Revoke Key"
+    description: str = (
+        "Revoke a shared API key for a team. Only owners and admins "
+        "can revoke keys."
+    )
+    args_schema: type[BaseModel] = TeamRevokeKeySchema
+
+    def _execute(self, team_id: str, key_id: str) -> str:
+        client = _get_client(self)
+        return client.team_revoke_key(team_id=team_id, key_id=key_id)
+
+
+class DominusNodeTeamListKeysTool(BaseTool):
+    """List all API keys for a Dominus Node team."""
+
+    name: str = "Dominus Node Team List Keys"
+    description: str = (
+        "List all API keys for a team showing key prefix, label, "
+        "status, and creation date."
+    )
+    args_schema: type[BaseModel] = TeamListKeysSchema
+
+    def _execute(self, team_id: str) -> str:
+        client = _get_client(self)
+        return client.team_list_keys(team_id=team_id)
+
+
+class DominusNodeTeamListMembersTool(BaseTool):
+    """List all members of a Dominus Node team."""
+
+    name: str = "Dominus Node Team List Members"
+    description: str = (
+        "List all members of a team with their roles and join dates."
+    )
+    args_schema: type[BaseModel] = TeamListMembersSchema
+
+    def _execute(self, team_id: str) -> str:
+        client = _get_client(self)
+        return client.team_list_members(team_id=team_id)
+
+
+class DominusNodeTeamAddMemberTool(BaseTool):
+    """Add a member directly to a Dominus Node team."""
+
+    name: str = "Dominus Node Team Add Member"
+    description: str = (
+        "Add a member directly to a team by user ID. Only owners and "
+        "admins can add members."
+    )
+    args_schema: type[BaseModel] = TeamAddMemberSchema
+
+    def _execute(self, team_id: str, user_id: str, role: str = "member") -> str:
+        client = _get_client(self)
+        return client.team_add_member(
+            team_id=team_id, user_id=user_id, role=role,
+        )
+
+
+class DominusNodeTeamRemoveMemberTool(BaseTool):
+    """Remove a member from a Dominus Node team."""
+
+    name: str = "Dominus Node Team Remove Member"
+    description: str = (
+        "Remove a member from a team. Only owners and admins can "
+        "remove members."
+    )
+    args_schema: type[BaseModel] = TeamRemoveMemberSchema
+
+    def _execute(self, team_id: str, user_id: str) -> str:
+        client = _get_client(self)
+        return client.team_remove_member(team_id=team_id, user_id=user_id)
+
+
+class DominusNodeTeamInviteMemberTool(BaseTool):
+    """Send an invitation to join a Dominus Node team."""
+
+    name: str = "Dominus Node Team Invite Member"
+    description: str = (
+        "Send an invitation to join a team by email. The invitee receives "
+        "an email with a link to accept."
+    )
+    args_schema: type[BaseModel] = TeamInviteMemberSchema
+
+    def _execute(self, team_id: str, email: str, role: str = "member") -> str:
+        client = _get_client(self)
+        return client.team_invite_member(
+            team_id=team_id, email=email, role=role,
+        )
+
+
+class DominusNodeTeamListInvitesTool(BaseTool):
+    """List all pending invitations for a Dominus Node team."""
+
+    name: str = "Dominus Node Team List Invites"
+    description: str = "List all pending invitations for a team."
+    args_schema: type[BaseModel] = TeamListInvitesSchema
+
+    def _execute(self, team_id: str) -> str:
+        client = _get_client(self)
+        return client.team_list_invites(team_id=team_id)
+
+
+class DominusNodeTeamCancelInviteTool(BaseTool):
+    """Cancel a pending Dominus Node team invitation."""
+
+    name: str = "Dominus Node Team Cancel Invite"
+    description: str = (
+        "Cancel a pending team invitation. Only owners and admins "
+        "can cancel invites."
+    )
+    args_schema: type[BaseModel] = TeamCancelInviteSchema
+
+    def _execute(self, team_id: str, invite_id: str) -> str:
+        client = _get_client(self)
+        return client.team_cancel_invite(team_id=team_id, invite_id=invite_id)

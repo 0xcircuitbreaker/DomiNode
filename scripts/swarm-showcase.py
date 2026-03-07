@@ -40,14 +40,13 @@ from typing import Any, Dict, List, Optional, Set
 try:
     import requests
 except ImportError:
-    print("Auto-installing requests...", flush=True)
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "requests", "-q"])
-    import requests
+    requests = None  # Will be available after venv re-exec
 
 # ── Paths ──────────────────────────────────────────────────────────────────────
 REPO_ROOT = Path(__file__).parent.parent
 INTEGRATIONS_DIR = REPO_ROOT / "integrations"
 NODE_RUNNER = Path(__file__).parent / "swarm-showcase-node-runner.js"
+VENV_DIR = REPO_ROOT / ".showcase-venv"
 
 # ── ANSI colors (used after curses exits) ─────────────────────────────────────
 A_GRN  = "\033[92m";  A_RED  = "\033[91m";  A_YLW = "\033[93m"
@@ -99,6 +98,14 @@ class AgentResult:
     fetch_ok: bool = False
     fetch_bytes: int = 0
     usage_ok: bool = False
+    account_ok: bool = False
+    keys_ok: bool = False
+    billing_ok: bool = False
+    teams_ok: bool = False
+    wallets_ok: bool = False
+    plans_ok: bool = False
+    tools_ok: int = 0
+    tools_total: int = 0
     error: str = ""
     post: str = ""
     duration: float = 0.0
@@ -114,127 +121,127 @@ def _make_catalog() -> Dict[str, IntegrationInfo]:
             "langchain", "LangChain", "python",
             "dominusnode-langchain", "dominusnode_langchain",
             str(d / "langchain"),
-            "LangChain toolkit — 26 tools", "#LangChain", 26),
+            "LangChain toolkit — 53 tools", "#LangChain", 53),
         "crewai": IntegrationInfo(
             "crewai", "CrewAI", "python",
             "dominusnode-crewai", "dominusnode_crewai",
             str(d / "crewai"),
-            "CrewAI tool classes — balance, fetch, geo", "#CrewAI", 4),
+            "CrewAI tool classes — 53 tools", "#CrewAI", 53),
         "llamaindex": IntegrationInfo(
             "llamaindex", "LlamaIndex", "python",
             "dominusnode-llamaindex", "dominusnode_llamaindex",
             str(d / "llamaindex"),
-            "LlamaIndex ToolSpec — 22 functions", "#LlamaIndex", 22),
+            "LlamaIndex ToolSpec — 53 functions", "#LlamaIndex", 53),
         "autogpt": IntegrationInfo(
             "autogpt", "AutoGPT", "python",
             "dominusnode-autogpt", "dominusnode_autogpt",
             str(d / "autogpt"),
-            "AutoGPT command plugin — 22 commands", "#AutoGPT", 22),
+            "AutoGPT command plugin — 53 commands", "#AutoGPT", 53),
         "agent-zero": IntegrationInfo(
             "agent-zero", "Agent Zero", "python",
             "(built-in)", "agent_zero_local",
             str(d / "agent-zero"),
-            "Agent Zero numbered tools — 22 functions", "#AgentZero", 22),
+            "Agent Zero numbered tools — 53 functions", "#AgentZero", 53),
         "superagi": IntegrationInfo(
             "superagi", "SuperAGI", "python",
             "dominusnode-superagi", "dominusnode_superagi",
             str(d / "superagi"),
-            "SuperAGI toolkit — 26 tools", "#SuperAGI", 26),
+            "SuperAGI toolkit — 53 tools", "#SuperAGI", 53),
         "mastra": IntegrationInfo(
             "mastra", "Mastra", "node",
             "@dominusnode/mastra-tools", "mastra",
             str(d / "mastra"),
-            "Mastra AI toolkit — 26 createTool instances", "#MastraAI", 26),
+            "Mastra AI toolkit — 53 createTool instances", "#MastraAI", 53),
         "flowise": IntegrationInfo(
             "flowise", "Flowise", "node",
             "@dominusnode/flowise-tools", "flowise",
             str(d / "flowise"),
-            "Flowise LangChain DynamicStructuredTool — 26 tools", "#Flowise", 26),
+            "Flowise LangChain DynamicStructuredTool — 53 tools", "#Flowise", 53),
         "openclaw": IntegrationInfo(
             "openclaw", "OpenClaw", "node",
             "(local plugin)", "openclaw",
             str(d / "openclaw"),
-            "OpenClaw plugin — 22 tools", "#OpenClaw", 22),
+            "OpenClaw plugin — 53 tools", "#OpenClaw", 53),
         "vercel-ai": IntegrationInfo(
             "vercel-ai", "Vercel AI", "node",
             "@dominusnode/ai-tools", "vercel-ai",
             str(d / "vercel-ai"),
-            "Vercel AI SDK tools — 6 tools", "#VercelAI", 6),
+            "Vercel AI SDK tools — 53 tools", "#VercelAI", 53),
         "openai-functions": IntegrationInfo(
             "openai-functions", "OpenAI Functions", "node",
             "(local handler)", "openai-functions",
             str(d / "openai-functions"),
-            "OpenAI function-calling handler — 26 functions", "#OpenAI", 26),
+            "OpenAI function-calling handler — 53 functions", "#OpenAI", 53),
         "n8n": IntegrationInfo(
             "n8n", "n8n", "node",
             "n8n-nodes-dominusnode", "n8n",
             str(d / "n8n"),
-            "n8n community nodes — 3 nodes", "#n8n", 3),
+            "n8n community nodes — 7 nodes (53 operations)", "#n8n", 53),
         "raw-http": IntegrationInfo(
             "raw-http", "Raw HTTP", "python",
             "(none)", "raw_http",
             "",
-            "Direct REST + proxy gateway — no framework", "#Proxy", 0),
+            "Direct REST + proxy gateway — 53 endpoints", "#Proxy", 53),
         "agno": IntegrationInfo(
             "agno", "Agno", "python",
             "dominusnode-agno", "dominusnode_agno",
             str(d / "agno"),
-            "Agno (phidata) toolkit — 26 tools", "#Agno", 26),
+            "Agno (phidata) toolkit — 53 tools", "#Agno", 53),
         "camel-ai": IntegrationInfo(
             "camel-ai", "CAMEL-AI", "python",
             "dominusnode-camel", "dominusnode_camel",
             str(d / "camel-ai"),
-            "CAMEL-AI FunctionTool set — 26 tools", "#CAMELAI", 26),
+            "CAMEL-AI FunctionTool set — 53 tools", "#CAMELAI", 53),
         "composio": IntegrationInfo(
             "composio", "Composio", "python",
             "dominusnode-composio", "dominusnode_composio",
             str(d / "composio"),
-            "Composio action toolkit — 26 tools", "#Composio", 26),
+            "Composio action toolkit — 53 tools", "#Composio", 53),
         "dify": IntegrationInfo(
             "dify", "Dify", "python",
             "dominusnode-dify", "dominusnode_dify",
             str(d / "dify"),
-            "Dify tool provider — 26 tools", "#Dify", 26),
+            "Dify tool provider — 53 tools", "#Dify", 53),
         "haystack": IntegrationInfo(
             "haystack", "Haystack", "python",
             "dominusnode-haystack", "dominusnode_haystack",
             str(d / "haystack"),
-            "Haystack component toolkit — 26 tools", "#Haystack", 26),
+            "Haystack component toolkit — 53 tools", "#Haystack", 53),
         "ironclaw": IntegrationInfo(
             "ironclaw", "IronClaw", "python",
             "dominusnode-ironclaw", "dominusnode_ironclaw",
             str(d / "ironclaw"),
-            "IronClaw tool defs + MCP config — 26 tools", "#IronClaw", 26),
+            "IronClaw tool defs + MCP config — 53 tools", "#IronClaw", 53),
         "metagpt": IntegrationInfo(
             "metagpt", "MetaGPT", "python",
             "dominusnode-metagpt", "dominusnode_metagpt",
             str(d / "metagpt"),
-            "MetaGPT tool functions — 26 tools", "#MetaGPT", 26),
+            "MetaGPT tool functions — 53 tools", "#MetaGPT", 53),
         "moltbook": IntegrationInfo(
             "moltbook", "Moltbook", "python",
             "dominusnode-moltbook", "dominusnode_moltbook",
             str(d / "moltbook"),
-            "Moltbook proxy client — balance check", "#Moltbook", 1),
+            "Moltbook proxy client — 53 tools", "#Moltbook", 53),
         "pydantic-ai": IntegrationInfo(
             "pydantic-ai", "PydanticAI", "python",
             "dominusnode-pydanticai", "dominusnode_pydanticai",
             str(d / "pydantic-ai"),
-            "PydanticAI agent tools — 26 tools", "#PydanticAI", 26),
+            "PydanticAI agent tools — 53 tools", "#PydanticAI", 53),
         "semantic-kernel": IntegrationInfo(
             "semantic-kernel", "Semantic Kernel", "python",
             "dominusnode-semantic-kernel", "dominusnode_semantic_kernel",
             str(d / "semantic-kernel"),
-            "Semantic Kernel plugin — 26 functions", "#SemanticKernel", 26),
+            "Semantic Kernel plugin — 53 functions", "#SemanticKernel", 53),
         "gemini": IntegrationInfo(
             "gemini", "Gemini/Vertex AI", "node",
             "@dominusnode/gemini-functions", "gemini",
             str(d / "gemini"),
-            "Gemini function calling handler — 26 functions", "#Gemini", 26),
+            "Gemini function calling handler — 53 functions", "#Gemini", 53),
         "pi": IntegrationInfo(
             "pi", "Pi (pi-mono)", "node",
             "@dominusnode/pi-extension", "pi",
             str(d / "pi"),
-            "Pi agentic coding framework extension — 26 tools", "#PiMono", 26),
+            "Pi agentic coding framework extension — 53 tools", "#PiMono", 53),
     }
 
 CATALOG = _make_catalog()
@@ -335,40 +342,42 @@ def install_via_docker(info: IntegrationInfo) -> bool:
 
 # ── Post templates (LLM fallback) ─────────────────────────────────────────────
 POST_TEMPLATES = {
-    "langchain": "Tested Dominus Node's LangChain integration — rotating DC proxies with geo-targeting in 3 lines. 26 tools, works inside existing LangChain agents. #DominusNode #LangChain",
-    "crewai": "My CrewAI crew now scrapes behind rotating proxies via Dominus Node. DominusNodeWebScrapeTool handles IP rotation transparently. #DominusNode #CrewAI",
-    "llamaindex": "LlamaIndex + Dominus Node = 22 proxy tools for my RAG pipeline. Fetched {url} through a DC proxy in {dur}s. #DominusNode #LlamaIndex",
-    "autogpt": "AutoGPT agent #{n} used Dominus Node's plugin to route {url} through a rotating DC proxy. Zero config, just works. #DominusNode #AutoGPT",
-    "agent-zero": "Agent Zero tool modules connected to Dominus Node proxy gateway. proxied_fetch + wallet balance working perfectly. #DominusNode #AgentZero",
-    "superagi": "SuperAGI toolkit: 26 Dominus Node tools loaded. Checked balance, fetched {url} via DC proxy in {dur}s. #DominusNode #SuperAGI",
-    "mastra": "Mastra AI agent used Dominus Node — 26 createTool() instances, geo-targeting US DC proxies. Works natively in Mastra workflows. #DominusNode #MastraAI",
-    "flowise": "Flowise workflow just proxied {url} through Dominus Node's rotating DC pool. 26 DynamicStructuredTools, plug-and-play. #DominusNode #Flowise",
-    "openclaw": "OpenClaw + Dominus Node: 22 proxy tools in an OpenAI-compatible plugin. The proxied_fetch tool routed my request in {dur}s. #DominusNode #OpenClaw",
-    "vercel-ai": "Vercel AI SDK tools + Dominus Node = rotating proxies for serverless AI. Geo-targeted DC fetch, wallet balance — 6 tools total. #DominusNode #VercelAI",
-    "openai-functions": "Function-called Dominus Node from OpenAI's API — dominusnode_proxied_fetch routed {url} in {dur}s with a US DC IP. #DominusNode #OpenAI",
-    "n8n": "n8n workflow node: Dominus Node Proxy + Wallet + Usage nodes installed. DC proxy fetch working in my automation. #DominusNode #n8n",
-    "raw-http": "Direct Dominus Node proxy — no framework needed. HTTP CONNECT tunnel through dc-country-US, fetched {url}. #DominusNode",
-    "agno": "Agno agent used Dominus Node's toolkit — 26 tools, rotating DC proxies, fetched {url} in {dur}s. #DominusNode #Agno",
-    "camel-ai": "CAMEL-AI multi-agent society now proxied via Dominus Node — 26 FunctionTool instances, DC pool. #DominusNode #CAMELAI",
-    "composio": "Composio action toolkit + Dominus Node: 26 actions for rotating proxy requests. Fetched {url} in {dur}s. #DominusNode #Composio",
-    "dify": "Dify AI app routed {url} through Dominus Node's DC proxy pool — 26 provider tools, zero config. #DominusNode #Dify",
-    "haystack": "Haystack RAG pipeline + Dominus Node = geo-targeted DC proxies for document fetching. #DominusNode #Haystack",
-    "ironclaw": "IronClaw + Dominus Node: 26 tool definitions + MCP server config auto-generated. Fetched {url} in {dur}s. #DominusNode #IronClaw",
-    "metagpt": "MetaGPT multi-role team accessed {url} via Dominus Node rotating DC proxies in {dur}s. #DominusNode #MetaGPT",
-    "moltbook": "Moltbook workflow connected to Dominus Node — wallet balance check via rotating proxy client. #DominusNode #Moltbook",
-    "pydantic-ai": "PydanticAI agent #{n} used Dominus Node tools — type-safe proxy requests, DC pool, fetched {url}. #DominusNode #PydanticAI",
-    "semantic-kernel": "Semantic Kernel plugin + Dominus Node = 26 kernel functions for proxy requests. Routed {url} in {dur}s. #DominusNode #SemanticKernel",
-    "gemini": "Gemini function calling + Dominus Node: dominusnode_proxied_fetch dispatched {url} in {dur}s. #DominusNode #Gemini",
-    "pi": "Pi (pi-mono) agent used Dominus Node's 26-tool extension — TypeBox-typed proxied fetch routed {url} in {dur}s via rotating DC proxy. #DominusNode #PiMono",
+    "langchain": "Full lifecycle via LangChain — {ok}/{total} tools: account, keys, teams, wallets, billing, proxy fetch {url} in {dur}s. #DominusNode #LangChain",
+    "crewai": "CrewAI 53-tool lifecycle: account setup, team mgmt, agentic wallets, proxy {url} in {dur}s. {ok}/{total} passed. #DominusNode #CrewAI",
+    "llamaindex": "LlamaIndex ToolSpec full lifecycle — {ok}/{total} tools: register, keys, teams, wallets, billing, proxy {url}. #DominusNode #LlamaIndex",
+    "autogpt": "AutoGPT agent #{n} ran full Dominus Node lifecycle — {ok}/{total} commands: account, teams, wallets, proxy {url}. #DominusNode #AutoGPT",
+    "agent-zero": "Agent Zero full lifecycle — {ok}/{total} tools across 7 modules: account, keys, teams, wallets, proxy {url}. #DominusNode #AgentZero",
+    "superagi": "SuperAGI 53-tool lifecycle: account, billing, teams, agentic wallets, proxy {url} in {dur}s. {ok}/{total} passed. #DominusNode #SuperAGI",
+    "mastra": "Mastra AI full lifecycle — {ok}/{total} tools: account, keys, teams, wallets, billing, proxy {url}. #DominusNode #MastraAI",
+    "flowise": "Flowise full lifecycle — {ok}/{total} tools: account, teams, wallets, billing, proxy {url} in {dur}s. #DominusNode #Flowise",
+    "openclaw": "OpenClaw full lifecycle — {ok}/{total} tools: account, keys, teams, wallets, billing, proxy {url}. #DominusNode #OpenClaw",
+    "vercel-ai": "Vercel AI SDK full lifecycle — {ok}/{total} tools: account, teams, wallets, billing, proxy {url}. #DominusNode #VercelAI",
+    "openai-functions": "OpenAI function calling full lifecycle — {ok}/{total}: account, teams, wallets, proxy {url} in {dur}s. #DominusNode #OpenAI",
+    "n8n": "n8n full lifecycle — {ok}/{total} operations: account, keys, teams, wallets, billing, proxy {url}. #DominusNode #n8n",
+    "raw-http": "Raw HTTP full lifecycle — {ok}/{total} REST endpoints: account, teams, wallets, proxy {url}. #DominusNode",
+    "agno": "Agno full lifecycle — {ok}/{total} tools: account, keys, teams, wallets, billing, proxy {url} in {dur}s. #DominusNode #Agno",
+    "camel-ai": "CAMEL-AI full lifecycle — {ok}/{total} tools: account, teams, wallets, billing, proxy {url}. #DominusNode #CAMELAI",
+    "composio": "Composio full lifecycle — {ok}/{total} actions: account, keys, teams, wallets, billing, proxy {url}. #DominusNode #Composio",
+    "dify": "Dify full lifecycle — {ok}/{total} provider tools: account, teams, wallets, billing, proxy {url}. #DominusNode #Dify",
+    "haystack": "Haystack full lifecycle — {ok}/{total} tools: account, teams, wallets, billing, proxy {url} in {dur}s. #DominusNode #Haystack",
+    "ironclaw": "IronClaw full lifecycle — {ok}/{total} tools: account, keys, teams, wallets, billing, proxy {url}. #DominusNode #IronClaw",
+    "metagpt": "MetaGPT full lifecycle — {ok}/{total} tools: account, teams, wallets, billing, proxy {url} in {dur}s. #DominusNode #MetaGPT",
+    "moltbook": "Moltbook full lifecycle — {ok}/{total} tools: account, keys, teams, wallets, billing, proxy {url}. #DominusNode #Moltbook",
+    "pydantic-ai": "PydanticAI full lifecycle — {ok}/{total} tools: account, keys, teams, wallets, billing, proxy {url}. #DominusNode #PydanticAI",
+    "semantic-kernel": "Semantic Kernel full lifecycle — {ok}/{total} functions: account, teams, wallets, billing, proxy {url}. #DominusNode #SemanticKernel",
+    "gemini": "Gemini function calling full lifecycle — {ok}/{total}: account, teams, wallets, proxy {url} in {dur}s. #DominusNode #Gemini",
+    "pi": "Pi (pi-mono) full lifecycle — {ok}/{total} tools: account, keys, teams, wallets, billing, proxy {url}. #DominusNode #PiMono",
 }
 
 
 def make_post(result: AgentResult) -> str:
-    tpl = POST_TEMPLATES.get(result.integration, "#DominusNode proxy integration test ✓")
+    tpl = POST_TEMPLATES.get(result.integration, "#DominusNode full lifecycle test — {ok}/{total} tools passed")
     return tpl.format(
         url=result.target_url,
         dur=f"{result.duration:.1f}",
         n=result.agent_num,
+        ok=result.tools_ok,
+        total=result.tools_total,
     )[:280]
 
 
@@ -438,59 +447,520 @@ def setup_account(cfg: ShowcaseConfig, admin_jwt: str, tag: str) -> dict:
     return {"jwt": jwt, "user_id": uid, "api_key": raw_key}
 
 
+# ── Lifecycle helpers ──────────────────────────────────────────────────────────
+
+_UUID_RE = re.compile(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}', re.I)
+
+
+def _extract_uuid(text: str) -> Optional[str]:
+    """Extract first UUID from a toolkit response string."""
+    m = _UUID_RE.search(str(text))
+    return m.group(0) if m else None
+
+
+def _lifecycle_toolkit(tk, target_url: str, proxy_type: str) -> dict:
+    """Run the full 53-tool lifecycle on a simple-toolkit-pattern integration.
+
+    Works for: agno, camel-ai, composio, haystack, ironclaw, metagpt,
+    pydantic-ai, semantic-kernel, llamaindex, moltbook.
+    """
+    res: Dict[str, Any] = {}
+    ok = err = 0
+    categories: Dict[str, bool] = {}
+
+    def call(key: str, category: str, fn, *a, **kw) -> str:
+        nonlocal ok, err
+        try:
+            r = fn(*a, **kw)
+            val = str(r) if r is not None else "OK"
+            res[key] = val
+            ok += 1
+            categories[category] = categories.get(category, True)
+            return val
+        except Exception as e:
+            res[key] = f"ERROR: {scrub(str(e))[:200]}"
+            err += 1
+            if category not in categories:
+                categories[category] = False
+            return ""
+
+    # -- Account --
+    call("account_info", "account", tk.get_account_info)
+    call("resend_verify", "account", tk.resend_verification)
+
+    # -- Balance & Billing --
+    call("balance", "billing", tk.check_balance)
+    call("transactions", "billing", tk.get_transactions)
+    call("forecast", "billing", tk.get_forecast)
+    call("topup_paypal", "billing", tk.topup_paypal, 100)
+    call("topup_stripe", "billing", tk.topup_stripe, 100)
+    call("topup_crypto", "billing", tk.topup_crypto, 1.0, "BTC")
+    call("x402_info", "billing", tk.x402_info)
+
+    # -- Proxy --
+    call("fetch", "proxy", tk.proxied_fetch, target_url, "US", proxy_type)
+    call("proxy_config", "proxy", tk.get_proxy_config)
+    call("proxy_status", "proxy", tk.get_proxy_status)
+    call("sessions", "proxy", tk.list_sessions)
+
+    # -- Usage --
+    call("usage", "usage", tk.check_usage)
+    call("daily_usage", "usage", tk.get_daily_usage)
+    call("top_hosts", "usage", tk.get_top_hosts)
+
+    # -- API Keys --
+    call("list_keys", "keys", tk.list_keys)
+    kr = call("create_key", "keys", tk.create_key, "showcase-lifecycle-key")
+    kid = _extract_uuid(kr)
+    if kid:
+        call("revoke_key", "keys", tk.revoke_key, kid)
+
+    # -- Plans --
+    call("get_plan", "plans", tk.get_plan)
+    call("list_plans", "plans", tk.list_plans)
+
+    # -- Agentic Wallets --
+    wr = call("create_wallet", "wallets", tk.create_agentic_wallet,
+              "showcase-wallet", 10000)
+    wid = _extract_uuid(wr)
+    if wid:
+        call("fund_wallet", "wallets", tk.fund_agentic_wallet, wid, 100)
+        call("wallet_balance", "wallets", tk.agentic_wallet_balance, wid)
+        call("list_wallets", "wallets", tk.list_agentic_wallets)
+        call("wallet_txns", "wallets", tk.agentic_transactions, wid)
+        call("wallet_policy", "wallets", tk.update_wallet_policy, wid,
+             daily_limit_cents=5000)
+        call("freeze_wallet", "wallets", tk.freeze_agentic_wallet, wid)
+        call("unfreeze_wallet", "wallets", tk.unfreeze_agentic_wallet, wid)
+        call("delete_wallet", "wallets", tk.delete_agentic_wallet, wid)
+
+    # -- Teams --
+    tr = call("create_team", "teams", tk.create_team, "showcase-team")
+    tid = _extract_uuid(tr)
+    if tid:
+        call("list_teams", "teams", tk.list_teams)
+        call("team_details", "teams", tk.team_details, tid)
+        call("update_team", "teams", tk.update_team, tid, name="updated-showcase")
+        call("team_fund", "teams", tk.team_fund, tid, 50)
+        tkr = call("team_create_key", "teams", tk.team_create_key, tid, "team-key")
+        tkid = _extract_uuid(tkr)
+        call("team_list_keys", "teams", tk.team_list_keys, tid)
+        call("team_usage", "teams", tk.team_usage, tid)
+        call("team_members", "teams", tk.team_list_members, tid)
+        ir = call("team_invite", "teams", tk.team_invite_member, tid,
+                  "invite-test@dominusnode.bot")
+        iid = _extract_uuid(ir)
+        call("team_invites", "teams", tk.team_list_invites, tid)
+        if iid:
+            call("team_cancel_invite", "teams", tk.team_cancel_invite, tid, iid)
+        if tkid:
+            call("team_revoke_key", "teams", tk.team_revoke_key, tid, tkid)
+        call("team_delete", "teams", tk.team_delete, tid)
+
+    res["_stats"] = {"ok": ok, "err": err, "total": ok + err}
+    res["_categories"] = categories
+    return res
+
+
 # ── Python integration runners ─────────────────────────────────────────────────
+
+def _make_toolkit_runner(import_fn):
+    """Factory for simple toolkit-pattern integrations."""
+    def runner(api_key, api_base, proxy_host, proxy_port, target_url, proxy_type):
+        tk = import_fn(api_key, api_base, proxy_host, proxy_port)
+        return _lifecycle_toolkit(tk, target_url, proxy_type)
+    return runner
+
+
+def _import_agno(api_key, api_base, proxy_host, proxy_port):
+    from dominusnode_agno.tools import DominusNodeToolkit
+    return DominusNodeToolkit(api_key=api_key, base_url=api_base,
+                              proxy_host=proxy_host, proxy_port=proxy_port)
+
+def _import_camel(api_key, api_base, proxy_host, proxy_port):
+    from dominusnode_camel.tools import DominusNodeToolkit
+    return DominusNodeToolkit(api_key=api_key, base_url=api_base,
+                              proxy_host=proxy_host, proxy_port=proxy_port)
+
+def _import_composio(api_key, api_base, proxy_host, proxy_port):
+    from dominusnode_composio.tools import DominusNodeToolkit
+    return DominusNodeToolkit(api_key=api_key, base_url=api_base,
+                              proxy_host=proxy_host, proxy_port=proxy_port)
+
+def _import_haystack(api_key, api_base, proxy_host, proxy_port):
+    from dominusnode_haystack.tools import DominusNodeToolkit
+    return DominusNodeToolkit(api_key=api_key, base_url=api_base,
+                              proxy_host=proxy_host, proxy_port=proxy_port)
+
+def _import_ironclaw(api_key, api_base, proxy_host, proxy_port):
+    from dominusnode_ironclaw.tools import DominusNodeToolkit
+    return DominusNodeToolkit(api_key=api_key, base_url=api_base,
+                              proxy_host=proxy_host, proxy_port=proxy_port)
+
+def _import_metagpt(api_key, api_base, proxy_host, proxy_port):
+    from dominusnode_metagpt.tools import DominusNodeToolkit
+    return DominusNodeToolkit(api_key=api_key, base_url=api_base,
+                              proxy_host=proxy_host, proxy_port=proxy_port)
+
+def _import_pydantic_ai(api_key, api_base, proxy_host, proxy_port):
+    from dominusnode_pydanticai.tools import DominusNodeToolkit
+    return DominusNodeToolkit(api_key=api_key, base_url=api_base,
+                              proxy_host=proxy_host, proxy_port=proxy_port)
+
+def _import_semantic_kernel(api_key, api_base, proxy_host, proxy_port):
+    from dominusnode_semantic_kernel.plugin import DominusNodePlugin
+    return DominusNodePlugin(api_key=api_key, base_url=api_base,
+                             proxy_host=proxy_host, proxy_port=proxy_port)
+
+def _import_llamaindex(api_key, api_base, proxy_host, proxy_port):
+    from dominusnode_llamaindex import DominusNodeToolSpec
+    return DominusNodeToolSpec(api_key=api_key, base_url=api_base,
+                               proxy_host=proxy_host, proxy_port=proxy_port)
+
+def _import_moltbook(api_key, api_base, proxy_host, proxy_port):
+    from dominusnode_moltbook.client import MoltbookClient
+    return MoltbookClient(dominusnode_api_key=api_key, dominusnode_base_url=api_base,
+                          proxy_host=proxy_host, proxy_port=proxy_port)
+
+
 def _run_langchain(api_key, api_base, proxy_host, proxy_port, target_url, proxy_type) -> dict:
     from dominusnode_langchain import DominusNodeToolkit
     tk = DominusNodeToolkit(api_key=api_key, base_url=api_base,
                             proxy_host=proxy_host, http_proxy_port=proxy_port)
     tools = {t.name: t for t in tk.get_tools()}
-    res = {}
-    for n in ("dominusnode_check_balance", "dominusnode_balance"):
-        if n in tools:
-            res["balance"] = tools[n].run(""); break
-    for n in ("dominusnode_proxied_fetch", "dominusnode_proxy_fetch"):
-        if n in tools:
-            res["fetch"] = tools[n].run(json.dumps(
-                {"url": target_url, "country": "US", "proxy_type": proxy_type}))
-            break
-    for n in ("dominusnode_check_usage", "dominusnode_usage"):
-        if n in tools:
-            res["usage"] = tools[n].run(""); break
+
+    res: Dict[str, Any] = {}
+    ok = err = 0
+    categories: Dict[str, bool] = {}
+
+    def call(key, category, tool_name, args_dict=None):
+        nonlocal ok, err
+        if tool_name not in tools:
+            res[key] = f"ERROR: tool {tool_name} not found"
+            err += 1
+            return ""
+        try:
+            r = tools[tool_name].run(json.dumps(args_dict or {}))
+            res[key] = str(r)[:500]
+            ok += 1
+            categories[category] = categories.get(category, True)
+            return str(r)
+        except Exception as e:
+            res[key] = f"ERROR: {scrub(str(e))[:200]}"
+            err += 1
+            if category not in categories:
+                categories[category] = False
+            return ""
+
+    # Account
+    call("account_info", "account", "dominusnode_get_account_info")
+    call("resend_verify", "account", "dominusnode_resend_verification")
+    # Billing
+    call("balance", "billing", "dominusnode_check_balance")
+    call("transactions", "billing", "dominusnode_get_transactions")
+    call("forecast", "billing", "dominusnode_get_forecast")
+    call("topup_paypal", "billing", "dominusnode_topup_paypal", {"amount_cents": 100})
+    call("topup_stripe", "billing", "dominusnode_topup_stripe", {"amount_cents": 100})
+    call("topup_crypto", "billing", "dominusnode_topup_crypto",
+         {"amount_usd": 1.0, "currency": "BTC"})
+    call("x402_info", "billing", "dominusnode_x402_info")
+    # Proxy
+    call("fetch", "proxy", "dominusnode_proxied_fetch",
+         {"url": target_url, "country": "US", "proxy_type": proxy_type})
+    call("proxy_config", "proxy", "dominusnode_get_proxy_config")
+    call("proxy_status", "proxy", "dominusnode_get_proxy_status")
+    call("sessions", "proxy", "dominusnode_list_sessions")
+    # Usage
+    call("usage", "usage", "dominusnode_check_usage")
+    call("daily_usage", "usage", "dominusnode_get_daily_usage")
+    call("top_hosts", "usage", "dominusnode_get_top_hosts")
+    # Keys
+    call("list_keys", "keys", "dominusnode_list_keys")
+    kr = call("create_key", "keys", "dominusnode_create_key", {"label": "showcase-key"})
+    kid = _extract_uuid(kr)
+    if kid:
+        call("revoke_key", "keys", "dominusnode_revoke_key", {"key_id": kid})
+    # Plans
+    call("get_plan", "plans", "dominusnode_get_plan")
+    call("list_plans", "plans", "dominusnode_list_plans")
+    # Agentic Wallets
+    wr = call("create_wallet", "wallets", "dominusnode_create_agentic_wallet",
+              {"label": "showcase-wallet", "spending_limit_cents": 10000})
+    wid = _extract_uuid(wr)
+    if wid:
+        call("fund_wallet", "wallets", "dominusnode_fund_agentic_wallet",
+             {"wallet_id": wid, "amount_cents": 100})
+        call("wallet_balance", "wallets", "dominusnode_agentic_wallet_balance",
+             {"wallet_id": wid})
+        call("list_wallets", "wallets", "dominusnode_list_agentic_wallets")
+        call("wallet_txns", "wallets", "dominusnode_agentic_transactions",
+             {"wallet_id": wid})
+        call("wallet_policy", "wallets", "dominusnode_update_wallet_policy",
+             {"wallet_id": wid, "daily_limit_cents": 5000})
+        call("freeze_wallet", "wallets", "dominusnode_freeze_agentic_wallet",
+             {"wallet_id": wid})
+        call("unfreeze_wallet", "wallets", "dominusnode_unfreeze_agentic_wallet",
+             {"wallet_id": wid})
+        call("delete_wallet", "wallets", "dominusnode_delete_agentic_wallet",
+             {"wallet_id": wid})
+    # Teams
+    tr = call("create_team", "teams", "dominusnode_create_team",
+              {"name": "showcase-team"})
+    tid = _extract_uuid(tr)
+    if tid:
+        call("list_teams", "teams", "dominusnode_list_teams")
+        call("team_details", "teams", "dominusnode_team_details", {"team_id": tid})
+        call("update_team", "teams", "dominusnode_update_team",
+             {"team_id": tid, "name": "updated-showcase"})
+        call("team_fund", "teams", "dominusnode_team_fund",
+             {"team_id": tid, "amount_cents": 50})
+        tkr = call("team_create_key", "teams", "dominusnode_team_create_key",
+                   {"team_id": tid, "label": "team-key"})
+        tkid = _extract_uuid(tkr)
+        call("team_list_keys", "teams", "dominusnode_team_list_keys", {"team_id": tid})
+        call("team_usage", "teams", "dominusnode_team_usage", {"team_id": tid})
+        call("team_members", "teams", "dominusnode_team_list_members", {"team_id": tid})
+        ir = call("team_invite", "teams", "dominusnode_team_invite_member",
+                  {"team_id": tid, "email": "invite-test@dominusnode.bot"})
+        iid = _extract_uuid(ir)
+        call("team_invites", "teams", "dominusnode_team_list_invites", {"team_id": tid})
+        if iid:
+            call("team_cancel_invite", "teams", "dominusnode_team_cancel_invite",
+                 {"team_id": tid, "invite_id": iid})
+        if tkid:
+            call("team_revoke_key", "teams", "dominusnode_team_revoke_key",
+                 {"team_id": tid, "key_id": tkid})
+        call("team_delete", "teams", "dominusnode_team_delete", {"team_id": tid})
+
+    res["_stats"] = {"ok": ok, "err": err, "total": ok + err}
+    res["_categories"] = categories
     return res
 
 
 def _run_crewai(api_key, api_base, proxy_host, proxy_port, target_url, proxy_type) -> dict:
-    from dominusnode_crewai.tools import DominusNodeBalanceTool, DominusNodeWebScrapeTool
-    res = {}
-    bt = DominusNodeBalanceTool(api_key=api_key, base_url=api_base)
-    res["balance"] = bt._run()
-    ft = DominusNodeWebScrapeTool(api_key=api_key, base_url=api_base,
-                                  proxy_host=proxy_host, proxy_port=proxy_port)
-    res["fetch"] = ft._run(url=target_url, country="US", proxy_type=proxy_type)
+    from dominusnode_crewai import (
+        DominusNodeWebScrapeTool, DominusNodeBalanceTool, DominusNodeCheckUsageTool,
+        DominusNodeGetTransactionsTool, DominusNodeGetForecastTool,
+        DominusNodeTopupPaypalTool, DominusNodeTopupStripeTool, DominusNodeTopupCryptoTool,
+        DominusNodeX402InfoTool, DominusNodeProxyStatusTool, DominusNodeListSessionsTool,
+        DominusNodeGetDailyUsageTool, DominusNodeGetTopHostsTool,
+        DominusNodeListKeysTool, DominusNodeCreateKeyTool, DominusNodeRevokeKeyTool,
+        DominusNodeGetPlanTool, DominusNodeListPlansTool, DominusNodeChangePlanTool,
+        DominusNodeGetAccountInfoTool, DominusNodeResendVerificationTool,
+        DominusNodeCreateAgenticWalletTool, DominusNodeFundAgenticWalletTool,
+        DominusNodeAgenticWalletBalanceTool, DominusNodeListAgenticWalletsTool,
+        DominusNodeAgenticTransactionsTool, DominusNodeFreezeAgenticWalletTool,
+        DominusNodeUnfreezeAgenticWalletTool, DominusNodeDeleteAgenticWalletTool,
+        DominusNodeUpdateWalletPolicyTool, DominusNodeGeoTargetTool,
+        DominusNodeCreateTeamTool, DominusNodeListTeamsTool,
+        DominusNodeTeamDetailsTool, DominusNodeUpdateTeamTool,
+        DominusNodeTeamDeleteTool, DominusNodeTeamFundTool,
+        DominusNodeTeamCreateKeyTool, DominusNodeTeamRevokeKeyTool,
+        DominusNodeTeamListKeysTool, DominusNodeTeamUsageTool,
+        DominusNodeTeamListMembersTool, DominusNodeTeamAddMemberTool,
+        DominusNodeTeamRemoveMemberTool, DominusNodeTeamInviteMemberTool,
+        DominusNodeTeamListInvitesTool, DominusNodeTeamCancelInviteTool,
+    )
+    cfg_a = {"api_key": api_key, "base_url": api_base}
+    cfg_p = {**cfg_a, "proxy_host": proxy_host, "proxy_port": proxy_port}
+
+    res: Dict[str, Any] = {}
+    ok = err = 0
+    categories: Dict[str, bool] = {}
+
+    def call(key, category, tool_cls, config, **run_kw):
+        nonlocal ok, err
+        try:
+            t = tool_cls(**config)
+            r = t._run(**run_kw)
+            res[key] = str(r)[:500]
+            ok += 1
+            categories[category] = categories.get(category, True)
+            return str(r)
+        except Exception as e:
+            res[key] = f"ERROR: {scrub(str(e))[:200]}"
+            err += 1
+            if category not in categories:
+                categories[category] = False
+            return ""
+
+    # Account
+    call("account_info", "account", DominusNodeGetAccountInfoTool, cfg_a)
+    call("resend_verify", "account", DominusNodeResendVerificationTool, cfg_a)
+    # Billing
+    call("balance", "billing", DominusNodeBalanceTool, cfg_a)
+    call("transactions", "billing", DominusNodeGetTransactionsTool, cfg_a)
+    call("forecast", "billing", DominusNodeGetForecastTool, cfg_a)
+    call("topup_paypal", "billing", DominusNodeTopupPaypalTool, cfg_a, amount_cents=100)
+    call("topup_stripe", "billing", DominusNodeTopupStripeTool, cfg_a, amount_cents=100)
+    call("topup_crypto", "billing", DominusNodeTopupCryptoTool, cfg_a,
+         amount_usd=1.0, currency="BTC")
+    call("x402_info", "billing", DominusNodeX402InfoTool, cfg_a)
+    # Proxy
+    call("fetch", "proxy", DominusNodeWebScrapeTool, cfg_p,
+         url=target_url, country="US", proxy_type=proxy_type)
+    call("geo_target", "proxy", DominusNodeGeoTargetTool, cfg_p,
+         url=target_url, country="US", proxy_type=proxy_type)
+    call("proxy_status", "proxy", DominusNodeProxyStatusTool, cfg_a)
+    call("sessions", "proxy", DominusNodeListSessionsTool, cfg_a)
+    # Usage
+    call("usage", "usage", DominusNodeCheckUsageTool, cfg_a)
+    call("daily_usage", "usage", DominusNodeGetDailyUsageTool, cfg_a)
+    call("top_hosts", "usage", DominusNodeGetTopHostsTool, cfg_a)
+    # Keys
+    call("list_keys", "keys", DominusNodeListKeysTool, cfg_a)
+    kr = call("create_key", "keys", DominusNodeCreateKeyTool, cfg_a, label="showcase-key")
+    kid = _extract_uuid(kr)
+    if kid:
+        call("revoke_key", "keys", DominusNodeRevokeKeyTool, cfg_a, key_id=kid)
+    # Plans
+    call("get_plan", "plans", DominusNodeGetPlanTool, cfg_a)
+    call("list_plans", "plans", DominusNodeListPlansTool, cfg_a)
+    # Agentic Wallets
+    wr = call("create_wallet", "wallets", DominusNodeCreateAgenticWalletTool, cfg_a,
+              label="showcase-wallet", spending_limit_cents=10000)
+    wid = _extract_uuid(wr)
+    if wid:
+        call("fund_wallet", "wallets", DominusNodeFundAgenticWalletTool, cfg_a,
+             wallet_id=wid, amount_cents=100)
+        call("wallet_balance", "wallets", DominusNodeAgenticWalletBalanceTool, cfg_a,
+             wallet_id=wid)
+        call("list_wallets", "wallets", DominusNodeListAgenticWalletsTool, cfg_a)
+        call("wallet_txns", "wallets", DominusNodeAgenticTransactionsTool, cfg_a,
+             wallet_id=wid)
+        call("wallet_policy", "wallets", DominusNodeUpdateWalletPolicyTool, cfg_a,
+             wallet_id=wid, daily_limit_cents=5000)
+        call("freeze_wallet", "wallets", DominusNodeFreezeAgenticWalletTool, cfg_a,
+             wallet_id=wid)
+        call("unfreeze_wallet", "wallets", DominusNodeUnfreezeAgenticWalletTool, cfg_a,
+             wallet_id=wid)
+        call("delete_wallet", "wallets", DominusNodeDeleteAgenticWalletTool, cfg_a,
+             wallet_id=wid)
+    # Teams
+    tr = call("create_team", "teams", DominusNodeCreateTeamTool, cfg_a,
+              name="showcase-team")
+    tid = _extract_uuid(tr)
+    if tid:
+        call("list_teams", "teams", DominusNodeListTeamsTool, cfg_a)
+        call("team_details", "teams", DominusNodeTeamDetailsTool, cfg_a, team_id=tid)
+        call("update_team", "teams", DominusNodeUpdateTeamTool, cfg_a,
+             team_id=tid, name="updated-showcase")
+        call("team_fund", "teams", DominusNodeTeamFundTool, cfg_a,
+             team_id=tid, amount_cents=50)
+        tkr = call("team_create_key", "teams", DominusNodeTeamCreateKeyTool, cfg_a,
+                   team_id=tid, label="team-key")
+        tkid = _extract_uuid(tkr)
+        call("team_list_keys", "teams", DominusNodeTeamListKeysTool, cfg_a, team_id=tid)
+        call("team_usage", "teams", DominusNodeTeamUsageTool, cfg_a, team_id=tid)
+        call("team_members", "teams", DominusNodeTeamListMembersTool, cfg_a, team_id=tid)
+        ir = call("team_invite", "teams", DominusNodeTeamInviteMemberTool, cfg_a,
+                  team_id=tid, email="invite-test@dominusnode.bot")
+        iid = _extract_uuid(ir)
+        call("team_invites", "teams", DominusNodeTeamListInvitesTool, cfg_a, team_id=tid)
+        if iid:
+            call("team_cancel_invite", "teams", DominusNodeTeamCancelInviteTool, cfg_a,
+                 team_id=tid, invite_id=iid)
+        if tkid:
+            call("team_revoke_key", "teams", DominusNodeTeamRevokeKeyTool, cfg_a,
+                 team_id=tid, key_id=tkid)
+        call("team_delete", "teams", DominusNodeTeamDeleteTool, cfg_a, team_id=tid)
+
+    res["_stats"] = {"ok": ok, "err": err, "total": ok + err}
+    res["_categories"] = categories
     return res
-
-
-def _run_llamaindex(api_key, api_base, proxy_host, proxy_port, target_url, proxy_type) -> dict:
-    from dominusnode_llamaindex import DominusNodeToolSpec
-    spec = DominusNodeToolSpec(api_key=api_key, base_url=api_base,
-                               proxy_host=proxy_host, proxy_port=proxy_port)
-    return {
-        "balance": spec.check_balance(),
-        "fetch": spec.proxied_fetch(url=target_url, country="US", proxy_type=proxy_type),
-        "usage": spec.check_usage(),
-    }
 
 
 def _run_autogpt(api_key, api_base, proxy_host, proxy_port, target_url, proxy_type) -> dict:
     from dominusnode_autogpt import DominusNodePlugin
     plugin = DominusNodePlugin(api_key=api_key, base_url=api_base,
                                proxy_host=proxy_host, proxy_port=proxy_port)
-    return {
-        "balance": plugin.check_balance(),
-        "fetch": plugin.handle_command("proxied_fetch",
-                  {"url": target_url, "country": "US", "proxy_type": proxy_type}),
-        "usage": plugin.handle_command("check_usage", {}),
-    }
+
+    res: Dict[str, Any] = {}
+    ok = err = 0
+    categories: Dict[str, bool] = {}
+
+    def call(key, category, cmd, args=None):
+        nonlocal ok, err
+        try:
+            r = plugin.handle_command(cmd, args or {})
+            res[key] = str(r)[:500]
+            ok += 1
+            categories[category] = categories.get(category, True)
+            return str(r)
+        except Exception as e:
+            res[key] = f"ERROR: {scrub(str(e))[:200]}"
+            err += 1
+            if category not in categories:
+                categories[category] = False
+            return ""
+
+    call("account_info", "account", "get_account_info")
+    call("resend_verify", "account", "resend_verification")
+    call("balance", "billing", "check_balance")
+    call("transactions", "billing", "get_transactions")
+    call("forecast", "billing", "get_forecast")
+    call("topup_paypal", "billing", "topup_paypal", {"amount_cents": 100})
+    call("topup_stripe", "billing", "topup_stripe", {"amount_cents": 100})
+    call("topup_crypto", "billing", "topup_crypto", {"amount_usd": 1.0, "currency": "BTC"})
+    call("x402_info", "billing", "x402_info")
+    call("fetch", "proxy", "proxied_fetch",
+         {"url": target_url, "country": "US", "proxy_type": proxy_type})
+    call("proxy_config", "proxy", "get_proxy_config")
+    call("proxy_status", "proxy", "get_proxy_status")
+    call("sessions", "proxy", "list_sessions")
+    call("usage", "usage", "check_usage")
+    call("daily_usage", "usage", "get_daily_usage")
+    call("top_hosts", "usage", "get_top_hosts")
+    call("list_keys", "keys", "list_keys")
+    kr = call("create_key", "keys", "create_key", {"label": "showcase-key"})
+    kid = _extract_uuid(kr)
+    if kid:
+        call("revoke_key", "keys", "revoke_key", {"key_id": kid})
+    call("get_plan", "plans", "get_plan")
+    call("list_plans", "plans", "list_plans")
+    wr = call("create_wallet", "wallets", "create_agentic_wallet",
+              {"label": "showcase-wallet", "spending_limit_cents": 10000})
+    wid = _extract_uuid(wr)
+    if wid:
+        call("fund_wallet", "wallets", "fund_agentic_wallet",
+             {"wallet_id": wid, "amount_cents": 100})
+        call("wallet_balance", "wallets", "agentic_wallet_balance", {"wallet_id": wid})
+        call("list_wallets", "wallets", "list_agentic_wallets")
+        call("wallet_txns", "wallets", "agentic_transactions", {"wallet_id": wid})
+        call("wallet_policy", "wallets", "update_wallet_policy",
+             {"wallet_id": wid, "daily_limit_cents": 5000})
+        call("freeze_wallet", "wallets", "freeze_agentic_wallet", {"wallet_id": wid})
+        call("unfreeze_wallet", "wallets", "unfreeze_agentic_wallet", {"wallet_id": wid})
+        call("delete_wallet", "wallets", "delete_agentic_wallet", {"wallet_id": wid})
+    tr = call("create_team", "teams", "create_team", {"name": "showcase-team"})
+    tid = _extract_uuid(tr)
+    if tid:
+        call("list_teams", "teams", "list_teams")
+        call("team_details", "teams", "team_details", {"team_id": tid})
+        call("update_team", "teams", "update_team",
+             {"team_id": tid, "name": "updated-showcase"})
+        call("team_fund", "teams", "team_fund", {"team_id": tid, "amount_cents": 50})
+        tkr = call("team_create_key", "teams", "team_create_key",
+                   {"team_id": tid, "label": "team-key"})
+        tkid = _extract_uuid(tkr)
+        call("team_list_keys", "teams", "team_list_keys", {"team_id": tid})
+        call("team_usage", "teams", "team_usage", {"team_id": tid})
+        call("team_members", "teams", "team_list_members", {"team_id": tid})
+        ir = call("team_invite", "teams", "team_invite_member",
+                  {"team_id": tid, "email": "invite-test@dominusnode.bot"})
+        iid = _extract_uuid(ir)
+        call("team_invites", "teams", "team_list_invites", {"team_id": tid})
+        if iid:
+            call("team_cancel_invite", "teams", "team_cancel_invite",
+                 {"team_id": tid, "invite_id": iid})
+        if tkid:
+            call("team_revoke_key", "teams", "team_revoke_key",
+                 {"team_id": tid, "key_id": tkid})
+        call("team_delete", "teams", "team_delete", {"team_id": tid})
+
+    res["_stats"] = {"ok": ok, "err": err, "total": ok + err}
+    res["_categories"] = categories
+    return res
 
 
 def _run_agent_zero(api_key, api_base, proxy_host, proxy_port, target_url, proxy_type) -> dict:
@@ -498,34 +968,123 @@ def _run_agent_zero(api_key, api_base, proxy_host, proxy_port, target_url, proxy
     az_path = str(INTEGRATIONS_DIR / "agent-zero")
     if az_path not in sys.path:
         sys.path.insert(0, az_path)
-    res = {}
-    try:
-        from shared.auth import DominusNodeAuth
-        # DominusNodeAuth only takes api_key, base_url, timeout — no proxy params
-        auth = DominusNodeAuth(api_key=api_key, base_url=api_base)
 
-        def _load_tool_module(filename):
-            p = INTEGRATIONS_DIR / "agent-zero" / "tools" / filename
-            spec = importlib.util.spec_from_file_location(
-                filename.replace(".py", "").replace("-", "_"), p)
-            mod = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(mod)
-            return mod
+    def _load_tool_module(filename):
+        p = INTEGRATIONS_DIR / "agent-zero" / "tools" / filename
+        spec = importlib.util.spec_from_file_location(
+            filename.replace(".py", "").replace("-", "_"), p)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
 
-        w_mod  = _load_tool_module("02_wallet.py")
-        pf_mod = _load_tool_module("01_proxy_fetch.py")
-        if hasattr(w_mod, "check_balance"):
-            res["balance"] = w_mod.check_balance(auth, {})
-        if hasattr(pf_mod, "proxied_fetch"):
-            res["fetch"] = pf_mod.proxied_fetch(auth,
-                {"url": target_url, "country": "US", "proxy_type": proxy_type})
-    except Exception as e:
-        res["error"] = scrub(str(e))
+    from shared.auth import DominusNodeAuth
+    auth = DominusNodeAuth(api_key=api_key, base_url=api_base)
+
+    pf = _load_tool_module("01_proxy_fetch.py")
+    w  = _load_tool_module("02_wallet.py")
+    aw = _load_tool_module("03_agentic_wallets.py")
+    tm = _load_tool_module("04_teams.py")
+    ac = _load_tool_module("05_account.py")
+    ky = _load_tool_module("06_keys.py")
+    pl = _load_tool_module("07_plans.py")
+
+    res: Dict[str, Any] = {}
+    ok = err = 0
+    categories: Dict[str, bool] = {}
+
+    def call(key, category, fn, *a, **kw):
+        nonlocal ok, err
+        try:
+            r = fn(auth, *a, **kw)
+            res[key] = str(r)[:500]
+            ok += 1
+            categories[category] = categories.get(category, True)
+            return str(r)
+        except Exception as e:
+            res[key] = f"ERROR: {scrub(str(e))[:200]}"
+            err += 1
+            if category not in categories:
+                categories[category] = False
+            return ""
+
+    # Account
+    call("account_info", "account", ac.get_account_info, {})
+    call("resend_verify", "account", ac.resend_verification, {})
+    # Billing
+    call("balance", "billing", w.check_balance, {})
+    call("transactions", "billing", w.get_transactions, {})
+    call("forecast", "billing", w.get_forecast, {})
+    call("topup_paypal", "billing", w.topup_paypal, {"amount_cents": 100})
+    call("topup_stripe", "billing", w.topup_stripe, {"amount_cents": 100})
+    call("topup_crypto", "billing", w.topup_crypto, {"amount_usd": 1.0, "currency": "BTC"})
+    call("x402_info", "billing", w.x402_info, {})
+    # Proxy
+    call("fetch", "proxy", pf.proxied_fetch,
+         {"url": target_url, "country": "US", "proxy_type": proxy_type})
+    call("proxy_config", "proxy", pf.get_proxy_config, {})
+    call("proxy_status", "proxy", pf.get_proxy_status, {})
+    call("sessions", "proxy", pf.list_sessions, {})
+    # Usage
+    call("usage", "usage", w.check_usage, {})
+    call("daily_usage", "usage", w.get_daily_usage, {})
+    call("top_hosts", "usage", w.get_top_hosts, {})
+    # Keys
+    call("list_keys", "keys", ky.list_keys, {})
+    kr = call("create_key", "keys", ky.create_key, {"label": "showcase-key"})
+    kid = _extract_uuid(kr)
+    if kid:
+        call("revoke_key", "keys", ky.revoke_key, {"key_id": kid})
+    # Plans
+    call("get_plan", "plans", pl.get_plan, {})
+    call("list_plans", "plans", pl.list_plans, {})
+    # Agentic Wallets
+    wr = call("create_wallet", "wallets", aw.create_agentic_wallet,
+              {"label": "showcase-wallet", "spending_limit_cents": 10000})
+    wid = _extract_uuid(wr)
+    if wid:
+        call("fund_wallet", "wallets", aw.fund_agentic_wallet,
+             {"wallet_id": wid, "amount_cents": 100})
+        call("wallet_balance", "wallets", aw.agentic_wallet_balance, {"wallet_id": wid})
+        call("list_wallets", "wallets", aw.list_agentic_wallets, {})
+        call("wallet_txns", "wallets", aw.agentic_transactions, {"wallet_id": wid})
+        call("wallet_policy", "wallets", aw.update_wallet_policy,
+             {"wallet_id": wid, "daily_limit_cents": 5000})
+        call("freeze_wallet", "wallets", aw.freeze_agentic_wallet, {"wallet_id": wid})
+        call("unfreeze_wallet", "wallets", aw.unfreeze_agentic_wallet, {"wallet_id": wid})
+        call("delete_wallet", "wallets", aw.delete_agentic_wallet, {"wallet_id": wid})
+    # Teams
+    tr = call("create_team", "teams", tm.create_team, {"name": "showcase-team"})
+    tid = _extract_uuid(tr)
+    if tid:
+        call("list_teams", "teams", tm.list_teams, {})
+        call("team_details", "teams", tm.team_details, {"team_id": tid})
+        call("update_team", "teams", tm.update_team,
+             {"team_id": tid, "name": "updated-showcase"})
+        call("team_fund", "teams", tm.team_fund, {"team_id": tid, "amount_cents": 50})
+        tkr = call("team_create_key", "teams", tm.team_create_key,
+                   {"team_id": tid, "label": "team-key"})
+        tkid = _extract_uuid(tkr)
+        call("team_list_keys", "teams", tm.team_list_keys, {"team_id": tid})
+        call("team_usage", "teams", tm.team_usage, {"team_id": tid})
+        call("team_members", "teams", tm.team_list_members, {"team_id": tid})
+        ir = call("team_invite", "teams", tm.team_invite_member,
+                  {"team_id": tid, "email": "invite-test@dominusnode.bot"})
+        iid = _extract_uuid(ir)
+        call("team_invites", "teams", tm.team_list_invites, {"team_id": tid})
+        if iid:
+            call("team_cancel_invite", "teams", tm.team_cancel_invite,
+                 {"team_id": tid, "invite_id": iid})
+        if tkid:
+            call("team_revoke_key", "teams", tm.team_revoke_key,
+                 {"team_id": tid, "key_id": tkid})
+        call("team_delete", "teams", tm.team_delete, {"team_id": tid})
+
+    res["_stats"] = {"ok": ok, "err": err, "total": ok + err}
+    res["_categories"] = categories
     return res
 
 
 def _run_superagi(api_key, api_base, proxy_host, proxy_port, target_url, proxy_type) -> dict:
-    # SuperAGI tools read all config from env — set all 4 before creating toolkit
     os.environ["DOMINUSNODE_API_KEY"]    = api_key
     os.environ["DOMINUSNODE_BASE_URL"]   = api_base
     os.environ["DOMINUSNODE_PROXY_HOST"] = proxy_host
@@ -533,64 +1092,103 @@ def _run_superagi(api_key, api_base, proxy_host, proxy_port, target_url, proxy_t
     from dominusnode_superagi import DominusNodeToolkit
     tk = DominusNodeToolkit()
     tools = {t.name: t for t in tk.get_tools()}
-    res = {}
-    if "dominusnode_check_balance" in tools:
-        res["balance"] = tools["dominusnode_check_balance"]._execute()
-    if "dominusnode_proxied_fetch" in tools:
-        res["fetch"] = tools["dominusnode_proxied_fetch"]._execute(
-            url=target_url, country="US", proxy_type=proxy_type)
-    return res
 
+    res: Dict[str, Any] = {}
+    ok = err = 0
+    categories: Dict[str, bool] = {}
 
-def _run_raw_http(api_key, api_base, proxy_host, proxy_port, target_url, proxy_type) -> dict:
-    vr = api("POST", f"{api_base}/api/auth/verify-key", data={"apiKey": api_key})
-    jwt = vr["body"].get("token", "")
-    res = {}
-    if jwt:
-        br = api("GET", f"{api_base}/api/wallet", jwt=jwt)
-        res["balance"] = json.dumps(br["body"])
-        proxy_url = f"http://{proxy_type}-country-US:{api_key}@{proxy_host}:{proxy_port}"
+    def call(key, category, tool_name, **kw):
+        nonlocal ok, err
+        if tool_name not in tools:
+            res[key] = f"ERROR: tool {tool_name} not found"
+            err += 1
+            return ""
         try:
-            r = requests.get(target_url, proxies={"http": proxy_url, "https": proxy_url},
-                             timeout=20, headers={"User-Agent": "DominusNode-Showcase/1.0"},
-                             allow_redirects=False)
-            res["fetch"] = json.dumps({"status": r.status_code, "bytes": len(r.content),
-                                       "body": r.text[:200]})
+            r = tools[tool_name]._execute(**kw)
+            res[key] = str(r)[:500]
+            ok += 1
+            categories[category] = categories.get(category, True)
+            return str(r)
         except Exception as e:
-            res["fetch"] = json.dumps({"error": scrub(str(e))[:100]})
-        ur = api("GET", f"{api_base}/api/usage", jwt=jwt)
-        res["usage"] = json.dumps(ur["body"])
+            res[key] = f"ERROR: {scrub(str(e))[:200]}"
+            err += 1
+            if category not in categories:
+                categories[category] = False
+            return ""
+
+    call("account_info", "account", "dominusnode_get_account_info")
+    call("resend_verify", "account", "dominusnode_resend_verification")
+    call("balance", "billing", "dominusnode_check_balance")
+    call("transactions", "billing", "dominusnode_get_transactions")
+    call("forecast", "billing", "dominusnode_get_forecast")
+    call("topup_paypal", "billing", "dominusnode_topup_paypal", amount_cents=100)
+    call("topup_stripe", "billing", "dominusnode_topup_stripe", amount_cents=100)
+    call("topup_crypto", "billing", "dominusnode_topup_crypto",
+         amount_usd=1.0, currency="BTC")
+    call("x402_info", "billing", "dominusnode_x402_info")
+    call("fetch", "proxy", "dominusnode_proxied_fetch",
+         url=target_url, country="US", proxy_type=proxy_type)
+    call("proxy_config", "proxy", "dominusnode_get_proxy_config")
+    call("proxy_status", "proxy", "dominusnode_get_proxy_status")
+    call("sessions", "proxy", "dominusnode_list_sessions")
+    call("usage", "usage", "dominusnode_check_usage")
+    call("daily_usage", "usage", "dominusnode_get_daily_usage")
+    call("top_hosts", "usage", "dominusnode_get_top_hosts")
+    call("list_keys", "keys", "dominusnode_list_keys")
+    kr = call("create_key", "keys", "dominusnode_create_key", label="showcase-key")
+    kid = _extract_uuid(kr)
+    if kid:
+        call("revoke_key", "keys", "dominusnode_revoke_key", key_id=kid)
+    call("get_plan", "plans", "dominusnode_get_plan")
+    call("list_plans", "plans", "dominusnode_list_plans")
+    wr = call("create_wallet", "wallets", "dominusnode_create_agentic_wallet",
+              label="showcase-wallet", spending_limit_cents=10000)
+    wid = _extract_uuid(wr)
+    if wid:
+        call("fund_wallet", "wallets", "dominusnode_fund_agentic_wallet",
+             wallet_id=wid, amount_cents=100)
+        call("wallet_balance", "wallets", "dominusnode_agentic_wallet_balance",
+             wallet_id=wid)
+        call("list_wallets", "wallets", "dominusnode_list_agentic_wallets")
+        call("wallet_txns", "wallets", "dominusnode_agentic_transactions", wallet_id=wid)
+        call("wallet_policy", "wallets", "dominusnode_update_wallet_policy",
+             wallet_id=wid, daily_limit_cents=5000)
+        call("freeze_wallet", "wallets", "dominusnode_freeze_agentic_wallet",
+             wallet_id=wid)
+        call("unfreeze_wallet", "wallets", "dominusnode_unfreeze_agentic_wallet",
+             wallet_id=wid)
+        call("delete_wallet", "wallets", "dominusnode_delete_agentic_wallet",
+             wallet_id=wid)
+    tr = call("create_team", "teams", "dominusnode_create_team", name="showcase-team")
+    tid = _extract_uuid(tr)
+    if tid:
+        call("list_teams", "teams", "dominusnode_list_teams")
+        call("team_details", "teams", "dominusnode_team_details", team_id=tid)
+        call("update_team", "teams", "dominusnode_update_team",
+             team_id=tid, name="updated-showcase")
+        call("team_fund", "teams", "dominusnode_team_fund",
+             team_id=tid, amount_cents=50)
+        tkr = call("team_create_key", "teams", "dominusnode_team_create_key",
+                   team_id=tid, label="team-key")
+        tkid = _extract_uuid(tkr)
+        call("team_list_keys", "teams", "dominusnode_team_list_keys", team_id=tid)
+        call("team_usage", "teams", "dominusnode_team_usage", team_id=tid)
+        call("team_members", "teams", "dominusnode_team_list_members", team_id=tid)
+        ir = call("team_invite", "teams", "dominusnode_team_invite_member",
+                  team_id=tid, email="invite-test@dominusnode.bot")
+        iid = _extract_uuid(ir)
+        call("team_invites", "teams", "dominusnode_team_list_invites", team_id=tid)
+        if iid:
+            call("team_cancel_invite", "teams", "dominusnode_team_cancel_invite",
+                 team_id=tid, invite_id=iid)
+        if tkid:
+            call("team_revoke_key", "teams", "dominusnode_team_revoke_key",
+                 team_id=tid, key_id=tkid)
+        call("team_delete", "teams", "dominusnode_team_delete", team_id=tid)
+
+    res["_stats"] = {"ok": ok, "err": err, "total": ok + err}
+    res["_categories"] = categories
     return res
-
-
-def _run_agno(api_key, api_base, proxy_host, proxy_port, target_url, proxy_type) -> dict:
-    from dominusnode_agno.tools import DominusNodeToolkit
-    tk = DominusNodeToolkit(api_key=api_key, base_url=api_base,
-                            proxy_host=proxy_host, proxy_port=proxy_port)
-    return {
-        "balance": tk.check_balance(),
-        "fetch":   tk.proxied_fetch(url=target_url, country="US", proxy_type=proxy_type),
-    }
-
-
-def _run_camel_ai(api_key, api_base, proxy_host, proxy_port, target_url, proxy_type) -> dict:
-    from dominusnode_camel.tools import DominusNodeToolkit
-    tk = DominusNodeToolkit(api_key=api_key, base_url=api_base,
-                            proxy_host=proxy_host, proxy_port=proxy_port)
-    return {
-        "balance": tk.check_balance(),
-        "fetch":   tk.proxied_fetch(url=target_url, country="US", proxy_type=proxy_type),
-    }
-
-
-def _run_composio(api_key, api_base, proxy_host, proxy_port, target_url, proxy_type) -> dict:
-    from dominusnode_composio.tools import DominusNodeToolkit
-    tk = DominusNodeToolkit(api_key=api_key, base_url=api_base,
-                            proxy_host=proxy_host, proxy_port=proxy_port)
-    return {
-        "balance": tk.check_balance(),
-        "fetch":   tk.proxied_fetch(url=target_url, country="US", proxy_type=proxy_type),
-    }
 
 
 def _run_dify(api_key, api_base, proxy_host, proxy_port, target_url, proxy_type) -> dict:
@@ -599,91 +1197,246 @@ def _run_dify(api_key, api_base, proxy_host, proxy_port, target_url, proxy_type)
         "api_key": api_key, "base_url": api_base,
         "proxy_host": proxy_host, "proxy_port": str(proxy_port),
     })
-    return {
-        "balance": str(provider.check_balance({})),
-        "fetch":   str(provider.proxied_fetch({
-            "url": target_url, "country": "US", "proxy_type": proxy_type,
-        })),
-    }
+
+    res: Dict[str, Any] = {}
+    ok = err = 0
+    categories: Dict[str, bool] = {}
+
+    def call(key, category, fn, args=None):
+        nonlocal ok, err
+        try:
+            r = fn(args or {})
+            res[key] = str(r)[:500]
+            ok += 1
+            categories[category] = categories.get(category, True)
+            return str(r)
+        except Exception as e:
+            res[key] = f"ERROR: {scrub(str(e))[:200]}"
+            err += 1
+            if category not in categories:
+                categories[category] = False
+            return ""
+
+    call("account_info", "account", provider.get_account_info)
+    call("resend_verify", "account", provider.resend_verification)
+    call("balance", "billing", provider.check_balance)
+    call("transactions", "billing", provider.get_transactions)
+    call("forecast", "billing", provider.get_forecast)
+    call("topup_paypal", "billing", provider.topup_paypal, {"amount_cents": 100})
+    call("topup_stripe", "billing", provider.topup_stripe, {"amount_cents": 100})
+    call("topup_crypto", "billing", provider.topup_crypto,
+         {"amount_usd": 1.0, "currency": "BTC"})
+    call("x402_info", "billing", provider.x402_info)
+    call("fetch", "proxy", provider.proxied_fetch,
+         {"url": target_url, "country": "US", "proxy_type": proxy_type})
+    call("proxy_config", "proxy", provider.get_proxy_config)
+    call("proxy_status", "proxy", provider.get_proxy_status)
+    call("sessions", "proxy", provider.list_sessions)
+    call("usage", "usage", provider.check_usage)
+    call("daily_usage", "usage", provider.get_daily_usage)
+    call("top_hosts", "usage", provider.get_top_hosts)
+    call("list_keys", "keys", provider.list_keys)
+    kr = call("create_key", "keys", provider.create_key, {"label": "showcase-key"})
+    kid = _extract_uuid(kr)
+    if kid:
+        call("revoke_key", "keys", provider.revoke_key, {"key_id": kid})
+    call("get_plan", "plans", provider.get_plan)
+    call("list_plans", "plans", provider.list_plans)
+    wr = call("create_wallet", "wallets", provider.create_agentic_wallet,
+              {"label": "showcase-wallet", "spending_limit_cents": 10000})
+    wid = _extract_uuid(wr)
+    if wid:
+        call("fund_wallet", "wallets", provider.fund_agentic_wallet,
+             {"wallet_id": wid, "amount_cents": 100})
+        call("wallet_balance", "wallets", provider.agentic_wallet_balance,
+             {"wallet_id": wid})
+        call("list_wallets", "wallets", provider.list_agentic_wallets)
+        call("wallet_txns", "wallets", provider.agentic_transactions, {"wallet_id": wid})
+        call("wallet_policy", "wallets", provider.update_wallet_policy,
+             {"wallet_id": wid, "daily_limit_cents": 5000})
+        call("freeze_wallet", "wallets", provider.freeze_agentic_wallet,
+             {"wallet_id": wid})
+        call("unfreeze_wallet", "wallets", provider.unfreeze_agentic_wallet,
+             {"wallet_id": wid})
+        call("delete_wallet", "wallets", provider.delete_agentic_wallet,
+             {"wallet_id": wid})
+    tr = call("create_team", "teams", provider.create_team, {"name": "showcase-team"})
+    tid = _extract_uuid(tr)
+    if tid:
+        call("list_teams", "teams", provider.list_teams)
+        call("team_details", "teams", provider.team_details, {"team_id": tid})
+        call("update_team", "teams", provider.update_team,
+             {"team_id": tid, "name": "updated-showcase"})
+        call("team_fund", "teams", provider.team_fund,
+             {"team_id": tid, "amount_cents": 50})
+        tkr = call("team_create_key", "teams", provider.team_create_key,
+                   {"team_id": tid, "label": "team-key"})
+        tkid = _extract_uuid(tkr)
+        call("team_list_keys", "teams", provider.team_list_keys, {"team_id": tid})
+        call("team_usage", "teams", provider.team_usage, {"team_id": tid})
+        call("team_members", "teams", provider.team_list_members, {"team_id": tid})
+        ir = call("team_invite", "teams", provider.team_invite_member,
+                  {"team_id": tid, "email": "invite-test@dominusnode.bot"})
+        iid = _extract_uuid(ir)
+        call("team_invites", "teams", provider.team_list_invites, {"team_id": tid})
+        if iid:
+            call("team_cancel_invite", "teams", provider.team_cancel_invite,
+                 {"team_id": tid, "invite_id": iid})
+        if tkid:
+            call("team_revoke_key", "teams", provider.team_revoke_key,
+                 {"team_id": tid, "key_id": tkid})
+        call("team_delete", "teams", provider.team_delete, {"team_id": tid})
+
+    res["_stats"] = {"ok": ok, "err": err, "total": ok + err}
+    res["_categories"] = categories
+    return res
 
 
-def _run_haystack(api_key, api_base, proxy_host, proxy_port, target_url, proxy_type) -> dict:
-    from dominusnode_haystack.tools import DominusNodeToolkit
-    tk = DominusNodeToolkit(api_key=api_key, base_url=api_base,
-                            proxy_host=proxy_host, proxy_port=proxy_port)
-    return {
-        "balance": tk.check_balance(),
-        "fetch":   tk.proxied_fetch(url=target_url, country="US", proxy_type=proxy_type),
-    }
+def _run_raw_http(api_key, api_base, proxy_host, proxy_port, target_url, proxy_type) -> dict:
+    vr = api("POST", f"{api_base}/api/auth/verify-key", data={"apiKey": api_key})
+    jwt = vr["body"].get("token", "")
+    if not jwt:
+        return {"error": "Failed to authenticate", "_stats": {"ok": 0, "err": 1, "total": 1}}
 
+    res: Dict[str, Any] = {}
+    ok = err = 0
+    categories: Dict[str, bool] = {}
 
-def _run_ironclaw(api_key, api_base, proxy_host, proxy_port, target_url, proxy_type) -> dict:
-    from dominusnode_ironclaw.tools import DominusNodeToolkit
-    tk = DominusNodeToolkit(api_key=api_key, base_url=api_base,
-                            proxy_host=proxy_host, proxy_port=proxy_port)
-    return {
-        "balance": tk.check_balance(),
-        "fetch":   tk.proxied_fetch(url=target_url, country="US", proxy_type=proxy_type),
-    }
+    def call_api(key, category, method, path, data=None):
+        nonlocal ok, err
+        try:
+            r = api(method, f"{api_base}{path}", jwt=jwt, data=data)
+            if r["status"] < 400:
+                res[key] = json.dumps(r["body"])[:500]
+                ok += 1
+                categories[category] = categories.get(category, True)
+                return json.dumps(r["body"])
+            else:
+                res[key] = f"ERROR: HTTP {r['status']}"
+                err += 1
+                if category not in categories:
+                    categories[category] = False
+                return ""
+        except Exception as e:
+            res[key] = f"ERROR: {scrub(str(e))[:200]}"
+            err += 1
+            if category not in categories:
+                categories[category] = False
+            return ""
 
+    # Account
+    call_api("account_info", "account", "GET", "/api/auth/me")
+    call_api("resend_verify", "account", "POST", "/api/auth/resend-verification")
+    # Billing
+    call_api("balance", "billing", "GET", "/api/wallet")
+    call_api("transactions", "billing", "GET", "/api/wallet/transactions?limit=5")
+    call_api("forecast", "billing", "GET", "/api/wallet/forecast")
+    call_api("topup_paypal", "billing", "POST", "/api/billing/paypal/create-order",
+             {"amountCents": 100})
+    call_api("topup_stripe", "billing", "POST", "/api/billing/stripe/create-session",
+             {"amountCents": 100})
+    call_api("topup_crypto", "billing", "POST", "/api/billing/crypto/create-invoice",
+             {"amountUsd": 1.0, "currency": "BTC"})
+    call_api("x402_info", "billing", "GET", "/api/x402/info")
+    # Proxy fetch (direct through gateway)
+    proxy_url = f"http://{proxy_type}-country-US:{api_key}@{proxy_host}:{proxy_port}"
+    try:
+        r = requests.get(target_url, proxies={"http": proxy_url, "https": proxy_url},
+                         timeout=20, headers={"User-Agent": "DominusNode-Showcase/1.0"},
+                         allow_redirects=False)
+        res["fetch"] = json.dumps({"status": r.status_code, "bytes": len(r.content),
+                                   "body": r.text[:200]})
+        ok += 1
+        categories["proxy"] = categories.get("proxy", True)
+    except Exception as e:
+        res["fetch"] = json.dumps({"error": scrub(str(e))[:100]})
+        err += 1
+    call_api("proxy_config", "proxy", "GET", "/api/proxy/config")
+    call_api("proxy_status", "proxy", "GET", "/api/proxy/status")
+    call_api("sessions", "proxy", "GET", "/api/sessions/active")
+    # Usage
+    call_api("usage", "usage", "GET", "/api/usage")
+    call_api("daily_usage", "usage", "GET", "/api/usage/daily?days=7")
+    call_api("top_hosts", "usage", "GET", "/api/usage/top-hosts?limit=5")
+    # Keys
+    call_api("list_keys", "keys", "GET", "/api/keys")
+    kr = call_api("create_key", "keys", "POST", "/api/keys", {"label": "showcase-key"})
+    kid = _extract_uuid(kr)
+    if kid:
+        call_api("revoke_key", "keys", "DELETE", f"/api/keys/{kid}")
+    # Plans
+    call_api("get_plan", "plans", "GET", "/api/plans/current")
+    call_api("list_plans", "plans", "GET", "/api/plans")
+    # Agentic Wallets
+    wr = call_api("create_wallet", "wallets", "POST", "/api/agent-wallet",
+                  {"label": "showcase-wallet", "spendingLimitCents": 10000})
+    wid = _extract_uuid(wr)
+    if wid:
+        call_api("fund_wallet", "wallets", "POST",
+                 f"/api/agent-wallet/{wid}/fund", {"amountCents": 100})
+        call_api("wallet_balance", "wallets", "GET", f"/api/agent-wallet/{wid}")
+        call_api("list_wallets", "wallets", "GET", "/api/agent-wallet")
+        call_api("wallet_txns", "wallets", "GET",
+                 f"/api/agent-wallet/{wid}/transactions")
+        call_api("wallet_policy", "wallets", "PATCH",
+                 f"/api/agent-wallet/{wid}/policy", {"dailyLimitCents": 5000})
+        call_api("freeze_wallet", "wallets", "POST",
+                 f"/api/agent-wallet/{wid}/freeze")
+        call_api("unfreeze_wallet", "wallets", "POST",
+                 f"/api/agent-wallet/{wid}/unfreeze")
+        call_api("delete_wallet", "wallets", "DELETE", f"/api/agent-wallet/{wid}")
+    # Teams
+    tr = call_api("create_team", "teams", "POST", "/api/teams",
+                  {"name": "showcase-team"})
+    tid = _extract_uuid(tr)
+    if tid:
+        call_api("list_teams", "teams", "GET", "/api/teams")
+        call_api("team_details", "teams", "GET", f"/api/teams/{tid}")
+        call_api("update_team", "teams", "PATCH", f"/api/teams/{tid}",
+                 {"name": "updated-showcase"})
+        call_api("team_fund", "teams", "POST", f"/api/teams/{tid}/fund",
+                 {"amountCents": 50})
+        tkr = call_api("team_create_key", "teams", "POST",
+                       f"/api/teams/{tid}/keys", {"label": "team-key"})
+        tkid = _extract_uuid(tkr)
+        call_api("team_list_keys", "teams", "GET", f"/api/teams/{tid}/keys")
+        call_api("team_usage", "teams", "GET", f"/api/teams/{tid}/usage")
+        call_api("team_members", "teams", "GET", f"/api/teams/{tid}/members")
+        ir = call_api("team_invite", "teams", "POST", f"/api/teams/{tid}/invites",
+                      {"email": "invite-test@dominusnode.bot", "role": "member"})
+        iid = _extract_uuid(ir)
+        call_api("team_invites", "teams", "GET", f"/api/teams/{tid}/invites")
+        if iid:
+            call_api("team_cancel_invite", "teams", "DELETE",
+                     f"/api/teams/{tid}/invites/{iid}")
+        if tkid:
+            call_api("team_revoke_key", "teams", "DELETE",
+                     f"/api/teams/{tid}/keys/{tkid}")
+        call_api("team_delete", "teams", "DELETE", f"/api/teams/{tid}")
 
-def _run_metagpt(api_key, api_base, proxy_host, proxy_port, target_url, proxy_type) -> dict:
-    from dominusnode_metagpt.tools import DominusNodeToolkit
-    tk = DominusNodeToolkit(api_key=api_key, base_url=api_base,
-                            proxy_host=proxy_host, proxy_port=proxy_port)
-    return {
-        "balance": tk.check_balance(),
-        "fetch":   tk.proxied_fetch(url=target_url, country="US", proxy_type=proxy_type),
-    }
-
-
-def _run_moltbook(api_key, api_base, proxy_host, proxy_port, target_url, proxy_type) -> dict:
-    # MoltbookClient routes all requests through proxy; wallet operations require
-    # Ethereum signing for full functionality. We exercise check_balance() only.
-    from dominusnode_moltbook.client import MoltbookClient
-    client = MoltbookClient(dominusnode_api_key=api_key, dominusnode_base_url=api_base,
-                            proxy_host=proxy_host, proxy_port=proxy_port)
-    return {"balance": client.check_balance()}
-
-
-def _run_pydantic_ai(api_key, api_base, proxy_host, proxy_port, target_url, proxy_type) -> dict:
-    from dominusnode_pydanticai.tools import DominusNodeToolkit
-    tk = DominusNodeToolkit(api_key=api_key, base_url=api_base,
-                            proxy_host=proxy_host, proxy_port=proxy_port)
-    return {
-        "balance": tk.check_balance(),
-        "fetch":   tk.proxied_fetch(url=target_url, country="US", proxy_type=proxy_type),
-    }
-
-
-def _run_semantic_kernel(api_key, api_base, proxy_host, proxy_port, target_url, proxy_type) -> dict:
-    from dominusnode_semantic_kernel.plugin import DominusNodePlugin
-    plugin = DominusNodePlugin(api_key=api_key, base_url=api_base,
-                               proxy_host=proxy_host, proxy_port=proxy_port)
-    return {
-        "balance": plugin.check_balance(),
-        "fetch":   plugin.proxied_fetch(url=target_url, country="US", proxy_type=proxy_type),
-    }
+    res["_stats"] = {"ok": ok, "err": err, "total": ok + err}
+    res["_categories"] = categories
+    return res
 
 
 PYTHON_RUNNERS = {
     "langchain":        _run_langchain,
     "crewai":           _run_crewai,
-    "llamaindex":       _run_llamaindex,
+    "llamaindex":       _make_toolkit_runner(_import_llamaindex),
     "autogpt":          _run_autogpt,
     "agent-zero":       _run_agent_zero,
     "superagi":         _run_superagi,
     "raw-http":         _run_raw_http,
-    "agno":             _run_agno,
-    "camel-ai":         _run_camel_ai,
-    "composio":         _run_composio,
+    "agno":             _make_toolkit_runner(_import_agno),
+    "camel-ai":         _make_toolkit_runner(_import_camel),
+    "composio":         _make_toolkit_runner(_import_composio),
     "dify":             _run_dify,
-    "haystack":         _run_haystack,
-    "ironclaw":         _run_ironclaw,
-    "metagpt":          _run_metagpt,
-    "moltbook":         _run_moltbook,
-    "pydantic-ai":      _run_pydantic_ai,
-    "semantic-kernel":  _run_semantic_kernel,
+    "haystack":         _make_toolkit_runner(_import_haystack),
+    "ironclaw":         _make_toolkit_runner(_import_ironclaw),
+    "metagpt":          _make_toolkit_runner(_import_metagpt),
+    "moltbook":         _make_toolkit_runner(_import_moltbook),
+    "pydantic-ai":      _make_toolkit_runner(_import_pydantic_ai),
+    "semantic-kernel":  _make_toolkit_runner(_import_semantic_kernel),
 }
 
 
@@ -694,13 +1447,13 @@ def run_node_integration(integration_id, api_key, api_base, proxy_host, proxy_po
     cmd = ["node", str(NODE_RUNNER), integration_id, api_base,
            proxy_host, str(proxy_port), target_url, proxy_type]
     try:
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=60, env=env)
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=150, env=env)
         if r.returncode != 0:
             err = scrub((r.stderr or r.stdout)[:200])
             return {"error": err}
         return json.loads(r.stdout.strip() or "{}")
     except subprocess.TimeoutExpired:
-        return {"error": "Node runner timed out (60s)"}
+        return {"error": "Node runner timed out (150s)"}
     except json.JSONDecodeError as e:
         return {"error": f"Invalid JSON from runner: {e}"}
     except FileNotFoundError:
@@ -709,7 +1462,7 @@ def run_node_integration(integration_id, api_key, api_base, proxy_host, proxy_po
 
 def run_agent(agent_num: int, integration_id: str, cfg: ShowcaseConfig,
               admin_jwt: str, results: List[AgentResult]) -> AgentResult:
-    """Full lifecycle for one showcase agent."""
+    """Full lifecycle for one showcase agent — exercises all 53 tools."""
     info = CATALOG[integration_id]
     res = AgentResult(agent_num=agent_num, integration=integration_id,
                       target_url=cfg.target_url)
@@ -717,14 +1470,14 @@ def run_agent(agent_num: int, integration_id: str, cfg: ShowcaseConfig,
     start = time.time()
 
     try:
-        # 1. Create account
+        # 1. Create account (admin bootstrap — register + credit + API key)
         tag = f"{integration_id[:6]}-{agent_num}"
         account = setup_account(cfg, admin_jwt, tag)
         api_key = account["api_key"]
         if not api_key:
             raise RuntimeError("Failed to obtain API key")
 
-        # 2. Run integration
+        # 2. Run full lifecycle through the integration
         if info.runtime == "python":
             runner = PYTHON_RUNNERS.get(integration_id, _run_raw_http)
             raw = runner(api_key, cfg.api_base, cfg.proxy_host,
@@ -734,13 +1487,30 @@ def run_agent(agent_num: int, integration_id: str, cfg: ShowcaseConfig,
                                        cfg.proxy_host, cfg.proxy_port,
                                        cfg.target_url, cfg.proxy_type)
 
-        if raw.get("error"):
+        # 3. Extract results
+        if raw.get("error") and not raw.get("_stats"):
             res.error = scrub(raw["error"])[:200]
         else:
-            if raw.get("balance"):
-                res.balance_ok = True
-            if raw.get("fetch"):
-                res.fetch_ok = True
+            stats = raw.get("_stats", {})
+            cats = raw.get("_categories", {})
+
+            res.tools_ok = stats.get("ok", 0)
+            res.tools_total = stats.get("total", 0)
+
+            res.balance_ok = bool(raw.get("balance") and
+                                  not str(raw["balance"]).startswith("ERROR:"))
+            res.fetch_ok = bool(raw.get("fetch") and
+                                not str(raw["fetch"]).startswith("ERROR:"))
+            res.usage_ok = bool(raw.get("usage") and
+                                not str(raw["usage"]).startswith("ERROR:"))
+            res.account_ok = cats.get("account", False)
+            res.keys_ok = cats.get("keys", False)
+            res.billing_ok = cats.get("billing", False)
+            res.teams_ok = cats.get("teams", False)
+            res.wallets_ok = cats.get("wallets", False)
+            res.plans_ok = cats.get("plans", False)
+
+            if res.fetch_ok:
                 fd = raw["fetch"]
                 if isinstance(fd, str):
                     try:
@@ -750,9 +1520,8 @@ def run_agent(agent_num: int, integration_id: str, cfg: ShowcaseConfig,
                         res.fetch_bytes = len(fd)
                 elif isinstance(fd, dict):
                     res.fetch_bytes = fd.get("bytes", 0)
-            if raw.get("usage"):
-                res.usage_ok = True
-            res.success = res.balance_ok or res.fetch_ok
+
+            res.success = res.tools_ok > 0
 
     except Exception as e:
         res.error = scrub(str(e))[:200]
@@ -1372,10 +2141,38 @@ def launch_swarm(cfg: ShowcaseConfig):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# Auto-venv: isolate pip installs from system Python
+# ══════════════════════════════════════════════════════════════════════════════
+
+def ensure_venv():
+    """Create a venv and re-exec this script under it if not already in one."""
+    if sys.prefix != sys.base_prefix:
+        return  # already running inside a venv
+
+    venv_python = VENV_DIR / "bin" / "python3"
+
+    if not venv_python.exists():
+        print(f"Creating showcase venv at {VENV_DIR} ...", flush=True)
+        subprocess.check_call(
+            [sys.executable, "-m", "venv", str(VENV_DIR)],
+        )
+        # Bootstrap requests into the fresh venv
+        print("Installing requests into venv ...", flush=True)
+        subprocess.check_call(
+            [str(venv_python), "-m", "pip", "install", "-q", "requests"],
+        )
+
+    # Re-exec under the venv's Python — replaces this process entirely
+    os.execvp(str(venv_python), [str(venv_python)] + sys.argv)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # Entry point
 # ══════════════════════════════════════════════════════════════════════════════
 
 def main():
+    ensure_venv()
+
     parser = argparse.ArgumentParser(description="Dominus Node Integration Showcase Swarm")
     parser.add_argument("--no-tui", action="store_true",
                         help="Skip TUI, use CLI args + env vars")

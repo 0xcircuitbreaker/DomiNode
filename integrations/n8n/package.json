@@ -1,7 +1,7 @@
 {
   "name": "n8n-nodes-dominusnode",
-  "version": "1.1.0",
-  "description": "n8n community nodes for Dominus Node rotating proxy service",
+  "version": "1.2.0",
+  "description": "n8n community nodes for Dominus Node rotating proxy service (53 tools across 7 nodes)",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "n8n": {
@@ -12,7 +12,11 @@
     "nodes": [
       "dist/nodes/DominusNodeProxy/DominusNodeProxy.node.js",
       "dist/nodes/DominusNodeWallet/DominusNodeWallet.node.js",
-      "dist/nodes/DominusNodeUsage/DominusNodeUsage.node.js"
+      "dist/nodes/DominusNodeUsage/DominusNodeUsage.node.js",
+      "dist/nodes/DominusNodeAccount/DominusNodeAccount.node.js",
+      "dist/nodes/DominusNodeKeys/DominusNodeKeys.node.js",
+      "dist/nodes/DominusNodePlans/DominusNodePlans.node.js",
+      "dist/nodes/DominusNodeTeams/DominusNodeTeams.node.js"
     ]
   },
   "scripts": {

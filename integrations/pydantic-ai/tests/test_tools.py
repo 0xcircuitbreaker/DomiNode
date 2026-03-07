@@ -452,19 +452,73 @@ class TestToolkitInit:
         )
         assert toolkit.base_url == "https://api.example.com"
 
-    def test_get_tools_returns_26(self):
+    def test_get_tools_returns_53(self):
         toolkit = DominusNodeToolkit(api_key="dn_test_key123")
         tools = toolkit.get_tools()
-        assert len(tools) == 26
+        assert len(tools) == 53
         names = [t.__name__ for t in tools]
+        # Proxy (3)
         assert "proxied_fetch" in names
+        assert "get_proxy_config" in names
+        assert "get_proxy_status" in names
+        # Sessions (1)
+        assert "list_sessions" in names
+        # Wallet (8)
         assert "check_balance" in names
+        assert "get_transactions" in names
+        assert "get_forecast" in names
         assert "topup_paypal" in names
         assert "topup_stripe" in names
         assert "topup_crypto" in names
-        assert "update_team_member_role" in names
+        assert "check_payment" in names
         assert "x402_info" in names
+        # Usage (3)
+        assert "check_usage" in names
+        assert "get_daily_usage" in names
+        assert "get_top_hosts" in names
+        # Account (6)
+        assert "register" in names
+        assert "login" in names
+        assert "get_account_info" in names
+        assert "verify_email" in names
+        assert "resend_verification" in names
+        assert "update_password" in names
+        # API Keys (3)
+        assert "list_keys" in names
+        assert "create_key" in names
+        assert "revoke_key" in names
+        # Plans (3)
+        assert "get_plan" in names
+        assert "list_plans" in names
+        assert "change_plan" in names
+        # Agentic Wallets (9)
+        assert "create_agentic_wallet" in names
+        assert "fund_agentic_wallet" in names
+        assert "agentic_wallet_balance" in names
+        assert "list_agentic_wallets" in names
+        assert "agentic_transactions" in names
+        assert "freeze_agentic_wallet" in names
+        assert "unfreeze_agentic_wallet" in names
+        assert "delete_agentic_wallet" in names
         assert "update_wallet_policy" in names
+        # Teams (17)
+        assert "create_team" in names
+        assert "list_teams" in names
+        assert "team_details" in names
+        assert "team_fund" in names
+        assert "team_create_key" in names
+        assert "team_revoke_key" in names
+        assert "team_list_keys" in names
+        assert "team_usage" in names
+        assert "update_team" in names
+        assert "update_team_member_role" in names
+        assert "team_list_members" in names
+        assert "team_add_member" in names
+        assert "team_remove_member" in names
+        assert "team_invite_member" in names
+        assert "team_list_invites" in names
+        assert "team_cancel_invite" in names
+        assert "delete_team" in names
 
     def test_get_tools_are_callable(self):
         toolkit = DominusNodeToolkit(api_key="dn_test_key123")

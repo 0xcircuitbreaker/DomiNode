@@ -1,4 +1,4 @@
-"""Dominus Node LangChain Toolkit -- bundles all Dominus Node tools for agent use.
+"""Dominus Node LangChain Toolkit -- bundles all 53 Dominus Node tools for agent use.
 
 The :class:`DominusNodeToolkit` creates a :class:`DominusNodeClient` internally
 and injects it into each tool so that a single authenticated session is shared
@@ -25,28 +25,73 @@ from langchain_core.tools import BaseTool, BaseToolkit
 from dominusnode import AsyncDominusNodeClient, DominusNodeClient
 
 from .tools import (
-    DominusNodeAgenticTransactionsTool,
-    DominusNodeAgenticWalletBalanceTool,
-    DominusNodeBalanceTool,
-    DominusNodeCreateAgenticWalletTool,
-    DominusNodeDeleteAgenticWalletTool,
-    DominusNodeFreezeAgenticWalletTool,
-    DominusNodeFundAgenticWalletTool,
-    DominusNodeListAgenticWalletsTool,
+    # Proxy (3)
     DominusNodeProxiedFetchTool,
     DominusNodeProxyConfigTool,
-    DominusNodeTopupCryptoTool,
+    DominusNodeProxyStatusTool,
+    # Sessions (1)
+    DominusNodeListSessionsTool,
+    # Wallet (8)
+    DominusNodeBalanceTool,
+    DominusNodeGetTransactionsTool,
+    DominusNodeGetForecastTool,
     DominusNodeTopupPaypalTool,
     DominusNodeTopupStripeTool,
-    DominusNodeUnfreezeAgenticWalletTool,
-    DominusNodeUpdateWalletPolicyTool,
-    DominusNodeUsageTool,
+    DominusNodeTopupCryptoTool,
+    DominusNodeCheckPaymentTool,
     DominusNodeX402InfoTool,
+    # Usage (3)
+    DominusNodeUsageTool,
+    DominusNodeDailyUsageTool,
+    DominusNodeTopHostsTool,
+    # Account (6)
+    DominusNodeRegisterTool,
+    DominusNodeLoginTool,
+    DominusNodeGetAccountInfoTool,
+    DominusNodeVerifyEmailTool,
+    DominusNodeResendVerificationTool,
+    DominusNodeUpdatePasswordTool,
+    # API Keys (3)
+    DominusNodeListKeysTool,
+    DominusNodeCreateKeyTool,
+    DominusNodeRevokeKeyTool,
+    # Plans (3)
+    DominusNodeGetPlanTool,
+    DominusNodeListPlansTool,
+    DominusNodeChangePlanTool,
+    # Agentic Wallets (9)
+    DominusNodeCreateAgenticWalletTool,
+    DominusNodeFundAgenticWalletTool,
+    DominusNodeAgenticWalletBalanceTool,
+    DominusNodeListAgenticWalletsTool,
+    DominusNodeAgenticTransactionsTool,
+    DominusNodeFreezeAgenticWalletTool,
+    DominusNodeUnfreezeAgenticWalletTool,
+    DominusNodeDeleteAgenticWalletTool,
+    DominusNodeUpdateWalletPolicyTool,
+    # Teams (17)
+    DominusNodeCreateTeamTool,
+    DominusNodeListTeamsTool,
+    DominusNodeTeamDetailsTool,
+    DominusNodeUpdateTeamTool,
+    DominusNodeTeamDeleteTool,
+    DominusNodeTeamFundTool,
+    DominusNodeTeamCreateKeyTool,
+    DominusNodeTeamRevokeKeyTool,
+    DominusNodeTeamListKeysTool,
+    DominusNodeTeamUsageTool,
+    DominusNodeTeamListMembersTool,
+    DominusNodeTeamAddMemberTool,
+    DominusNodeTeamRemoveMemberTool,
+    DominusNodeUpdateTeamMemberRoleTool,
+    DominusNodeTeamInviteMemberTool,
+    DominusNodeTeamListInvitesTool,
+    DominusNodeTeamCancelInviteTool,
 )
 
 
 class DominusNodeToolkit(BaseToolkit):
-    """LangChain toolkit that provides all Dominus Node proxy service tools.
+    """LangChain toolkit that provides all 53 Dominus Node proxy service tools.
 
     Creates and manages a :class:`DominusNodeClient` (sync) and optionally
     an :class:`AsyncDominusNodeClient` (async) for use by LangChain agents.
@@ -98,7 +143,7 @@ class DominusNodeToolkit(BaseToolkit):
             "DOMINUSNODE_PROXY_HOST", "proxy.dominusnode.com"
         )
 
-        # Store credentials for agentic wallet tools (direct REST API calls)
+        # Store credentials for direct REST API tools
         self._api_key = resolved_key
         self._base_url = resolved_base
         self._agent_secret = agent_secret or os.environ.get("DOMINUSNODE_AGENT_SECRET")
@@ -127,76 +172,92 @@ class DominusNodeToolkit(BaseToolkit):
         self._tools = self._build_tools()
 
     def _build_tools(self) -> List[BaseTool]:
-        """Construct tool instances with injected clients."""
-        fetch_tool = DominusNodeProxiedFetchTool(
-            sync_client=self._sync_client,
-            async_client=self._async_client,
-        )
-        balance_tool = DominusNodeBalanceTool(
-            sync_client=self._sync_client,
-            async_client=self._async_client,
-        )
-        usage_tool = DominusNodeUsageTool(
-            sync_client=self._sync_client,
-            async_client=self._async_client,
-        )
-        config_tool = DominusNodeProxyConfigTool(
-            sync_client=self._sync_client,
-            async_client=self._async_client,
-        )
-        topup_paypal_tool = DominusNodeTopupPaypalTool(
-            sync_client=self._sync_client,
-            async_client=self._async_client,
-        )
-        topup_stripe_tool = DominusNodeTopupStripeTool(
-            sync_client=self._sync_client,
-            async_client=self._async_client,
-        )
-        topup_crypto_tool = DominusNodeTopupCryptoTool(
-            sync_client=self._sync_client,
-            async_client=self._async_client,
-        )
-        x402_info_tool = DominusNodeX402InfoTool(
-            sync_client=self._sync_client,
-            async_client=self._async_client,
-        )
-
-        # Agentic wallet tools use direct REST API calls
+        """Construct all 53 tool instances with injected clients."""
+        sc = self._sync_client
+        ac = self._async_client
         _ak = self._api_key
         _bu = self._base_url
         _as = self._agent_secret
-        create_wallet_tool = DominusNodeCreateAgenticWalletTool(api_key=_ak, base_url=_bu, agent_secret=_as)
-        fund_wallet_tool = DominusNodeFundAgenticWalletTool(api_key=_ak, base_url=_bu, agent_secret=_as)
-        wallet_balance_tool = DominusNodeAgenticWalletBalanceTool(api_key=_ak, base_url=_bu, agent_secret=_as)
-        list_wallets_tool = DominusNodeListAgenticWalletsTool(api_key=_ak, base_url=_bu, agent_secret=_as)
-        transactions_tool = DominusNodeAgenticTransactionsTool(api_key=_ak, base_url=_bu, agent_secret=_as)
-        freeze_tool = DominusNodeFreezeAgenticWalletTool(api_key=_ak, base_url=_bu, agent_secret=_as)
-        unfreeze_tool = DominusNodeUnfreezeAgenticWalletTool(api_key=_ak, base_url=_bu, agent_secret=_as)
-        delete_wallet_tool = DominusNodeDeleteAgenticWalletTool(api_key=_ak, base_url=_bu, agent_secret=_as)
-        update_policy_tool = DominusNodeUpdateWalletPolicyTool(api_key=_ak, base_url=_bu, agent_secret=_as)
+
+        # Helper for SDK-client-based tools
+        def _sdk(cls: type) -> BaseTool:
+            return cls(sync_client=sc, async_client=ac)
+
+        # Helper for REST-API-based tools (authenticated)
+        def _rest(cls: type) -> BaseTool:
+            return cls(api_key=_ak, base_url=_bu, agent_secret=_as)
+
+        # Helper for unauthenticated tools
+        def _unauth(cls: type) -> BaseTool:
+            return cls(base_url=_bu, agent_secret=_as)
 
         return [
-            fetch_tool,
-            balance_tool,
-            usage_tool,
-            config_tool,
-            topup_paypal_tool,
-            topup_stripe_tool,
-            topup_crypto_tool,
-            x402_info_tool,
-            create_wallet_tool,
-            fund_wallet_tool,
-            wallet_balance_tool,
-            list_wallets_tool,
-            transactions_tool,
-            freeze_tool,
-            unfreeze_tool,
-            delete_wallet_tool,
-            update_policy_tool,
+            # Proxy (3)
+            _sdk(DominusNodeProxiedFetchTool),
+            _sdk(DominusNodeProxyConfigTool),
+            _sdk(DominusNodeProxyStatusTool),
+            # Sessions (1)
+            _sdk(DominusNodeListSessionsTool),
+            # Wallet (8)
+            _sdk(DominusNodeBalanceTool),
+            _rest(DominusNodeGetTransactionsTool),
+            _rest(DominusNodeGetForecastTool),
+            _sdk(DominusNodeTopupPaypalTool),
+            _sdk(DominusNodeTopupStripeTool),
+            _sdk(DominusNodeTopupCryptoTool),
+            _rest(DominusNodeCheckPaymentTool),
+            _sdk(DominusNodeX402InfoTool),
+            # Usage (3)
+            _sdk(DominusNodeUsageTool),
+            _rest(DominusNodeDailyUsageTool),
+            _rest(DominusNodeTopHostsTool),
+            # Account (6) -- register, login, verify_email are unauthenticated
+            _unauth(DominusNodeRegisterTool),
+            _unauth(DominusNodeLoginTool),
+            _rest(DominusNodeGetAccountInfoTool),
+            _unauth(DominusNodeVerifyEmailTool),
+            _rest(DominusNodeResendVerificationTool),
+            _rest(DominusNodeUpdatePasswordTool),
+            # API Keys (3)
+            _rest(DominusNodeListKeysTool),
+            _rest(DominusNodeCreateKeyTool),
+            _rest(DominusNodeRevokeKeyTool),
+            # Plans (3)
+            _rest(DominusNodeGetPlanTool),
+            _rest(DominusNodeListPlansTool),
+            _rest(DominusNodeChangePlanTool),
+            # Agentic Wallets (9)
+            _rest(DominusNodeCreateAgenticWalletTool),
+            _rest(DominusNodeFundAgenticWalletTool),
+            _rest(DominusNodeAgenticWalletBalanceTool),
+            _rest(DominusNodeListAgenticWalletsTool),
+            _rest(DominusNodeAgenticTransactionsTool),
+            _rest(DominusNodeFreezeAgenticWalletTool),
+            _rest(DominusNodeUnfreezeAgenticWalletTool),
+            _rest(DominusNodeDeleteAgenticWalletTool),
+            _rest(DominusNodeUpdateWalletPolicyTool),
+            # Teams (17)
+            _rest(DominusNodeCreateTeamTool),
+            _rest(DominusNodeListTeamsTool),
+            _rest(DominusNodeTeamDetailsTool),
+            _rest(DominusNodeUpdateTeamTool),
+            _rest(DominusNodeTeamDeleteTool),
+            _rest(DominusNodeTeamFundTool),
+            _rest(DominusNodeTeamCreateKeyTool),
+            _rest(DominusNodeTeamRevokeKeyTool),
+            _rest(DominusNodeTeamListKeysTool),
+            _rest(DominusNodeTeamUsageTool),
+            _rest(DominusNodeTeamListMembersTool),
+            _rest(DominusNodeTeamAddMemberTool),
+            _rest(DominusNodeTeamRemoveMemberTool),
+            _rest(DominusNodeUpdateTeamMemberRoleTool),
+            _rest(DominusNodeTeamInviteMemberTool),
+            _rest(DominusNodeTeamListInvitesTool),
+            _rest(DominusNodeTeamCancelInviteTool),
         ]
 
     def get_tools(self) -> List[BaseTool]:
-        """Return the list of Dominus Node LangChain tools."""
+        """Return the list of 53 Dominus Node LangChain tools."""
         if self._tools is None:
             self._tools = self._build_tools()
         return list(self._tools)

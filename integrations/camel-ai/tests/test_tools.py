@@ -979,8 +979,8 @@ class TestToolMethods:
 class TestGetTools:
     """Test the get_tools method returns correct FunctionTool objects."""
 
-    def test_get_tools_returns_26_tools(self):
-        """get_tools should return 26 FunctionTool objects."""
+    def test_get_tools_returns_53_tools(self):
+        """get_tools should return 53 FunctionTool objects."""
         toolkit = DominusNodeToolkit(api_key="dn_test_key123")
 
         # Mock FunctionTool since camel-ai may not be installed in test env
@@ -996,8 +996,9 @@ class TestGetTools:
         with patch("camel.toolkits.FunctionTool", side_effect=mock_function_tool):
             tools = toolkit.get_tools()
 
-        assert len(tools) == 26
+        assert len(tools) == 53
         tool_names = [t.name for t in tools]
+        # Original 26 tools
         assert "proxied_fetch" in tool_names
         assert "check_balance" in tool_names
         assert "check_usage" in tool_names
@@ -1024,6 +1025,34 @@ class TestGetTools:
         assert "topup_stripe" in tool_names
         assert "topup_crypto" in tool_names
         assert "update_wallet_policy" in tool_names
+        # New 27 tools
+        assert "get_proxy_status" in tool_names
+        assert "get_transactions" in tool_names
+        assert "get_forecast" in tool_names
+        assert "check_payment" in tool_names
+        assert "get_daily_usage" in tool_names
+        assert "get_top_hosts" in tool_names
+        assert "register_account" in tool_names
+        assert "login_account" in tool_names
+        assert "get_account_info" in tool_names
+        assert "verify_email" in tool_names
+        assert "resend_verification" in tool_names
+        assert "update_password" in tool_names
+        assert "list_keys" in tool_names
+        assert "create_key" in tool_names
+        assert "revoke_key" in tool_names
+        assert "get_plan" in tool_names
+        assert "list_plans" in tool_names
+        assert "change_plan" in tool_names
+        assert "team_delete" in tool_names
+        assert "team_revoke_key" in tool_names
+        assert "team_list_keys" in tool_names
+        assert "team_list_members" in tool_names
+        assert "team_add_member" in tool_names
+        assert "team_remove_member" in tool_names
+        assert "team_invite_member" in tool_names
+        assert "team_list_invites" in tool_names
+        assert "team_cancel_invite" in tool_names
 
 
 # ===========================================================================

@@ -1,6 +1,6 @@
 {
   "name": "@dominusnode/pi-extension",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Dominus Node pi-mono extension — 26 tools for rotating proxy, wallet, agentic wallets, teams, and payments",
   "keywords": [
     "pi-package",

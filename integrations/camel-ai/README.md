@@ -1,6 +1,6 @@
 # dominusnode-camel
 
-CAMEL-AI toolkit for the [Dominus Node](https://dominusnode.com) rotating proxy-as-a-service platform. Provides 22 tools as CAMEL `FunctionTool` objects for proxy management, wallet operations, team administration, and payment processing.
+CAMEL-AI toolkit for the [Dominus Node](https://dominusnode.com) rotating proxy-as-a-service platform. Provides 53 tools as CAMEL `FunctionTool` objects for proxy management, wallet operations, team administration, account management, API key management, plan management, and payment processing.
 
 ## Installation
 

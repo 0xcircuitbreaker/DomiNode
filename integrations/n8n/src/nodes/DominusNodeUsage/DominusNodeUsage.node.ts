@@ -1,8 +1,10 @@
 /**
  * Dominus Node Usage n8n community node.
  *
- * Operations:
+ * Operations (3 tools):
  * - Check Usage: Get proxy usage statistics for a given period
+ * - Get Daily Usage: Get daily usage breakdown for the last N days
+ * - Get Top Hosts: Get top accessed hosts by bandwidth
  *
  * @module
  */
@@ -46,6 +48,18 @@ export class DominusNodeUsage implements INodeType {
             description: "Get proxy usage statistics for a given period",
             action: "Check usage",
           },
+          {
+            name: "Get Daily Usage",
+            value: "getDailyUsage",
+            description: "Get daily usage breakdown for the last N days",
+            action: "Get daily usage",
+          },
+          {
+            name: "Get Top Hosts",
+            value: "getTopHosts",
+            description: "Get top accessed hosts by bandwidth",
+            action: "Get top hosts",
+          },
         ],
         default: "checkUsage",
       },
@@ -61,6 +75,22 @@ export class DominusNodeUsage implements INodeType {
         default: "month",
         description: "Time period for usage statistics",
         displayOptions: { show: { operation: ["checkUsage"] } },
+      },
+      {
+        displayName: "Days",
+        name: "days",
+        type: "number",
+        default: 7,
+        description: "Number of days of daily usage to return (1-365)",
+        displayOptions: { show: { operation: ["getDailyUsage"] } },
+      },
+      {
+        displayName: "Limit",
+        name: "topHostsLimit",
+        type: "number",
+        default: 10,
+        description: "Number of top hosts to return (1-100)",
+        displayOptions: { show: { operation: ["getTopHosts"] } },
       },
     ],
   };
@@ -100,6 +130,28 @@ export class DominusNodeUsage implements INodeType {
           const params = new URLSearchParams({ since, until });
           const result = await auth.apiRequest("GET", `/api/usage?${params.toString()}`);
 
+          returnData.push({ json: (result ?? {}) as IDataObject });
+        } else if (operation === "getDailyUsage") {
+          const days = this.getNodeParameter("days", i, 7) as number;
+          if (!Number.isInteger(days) || days < 1 || days > 365) {
+            throw new NodeOperationError(
+              this.getNode(),
+              "Days must be an integer between 1 and 365",
+              { itemIndex: i },
+            );
+          }
+          const result = await auth.apiRequest("GET", `/api/usage/daily?days=${days}`);
+          returnData.push({ json: (result ?? {}) as IDataObject });
+        } else if (operation === "getTopHosts") {
+          const limit = this.getNodeParameter("topHostsLimit", i, 10) as number;
+          if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
+            throw new NodeOperationError(
+              this.getNode(),
+              "Limit must be an integer between 1 and 100",
+              { itemIndex: i },
+            );
+          }
+          const result = await auth.apiRequest("GET", `/api/usage/top-hosts?limit=${limit}`);
           returnData.push({ json: (result ?? {}) as IDataObject });
         } else {
           throw new NodeOperationError(

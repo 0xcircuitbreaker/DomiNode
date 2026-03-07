@@ -13,37 +13,41 @@ Use it to:
 
 ---
 
-## Integrations Covered (24 total)
+## Integrations Covered (25 total — 53 tools each)
+
+Each integration exercises the **full DomiNode lifecycle**: account management,
+API key operations, billing (Stripe/PayPal/crypto), proxy fetch with
+geo-targeting, usage analytics, agentic wallet management (create/fund/freeze/
+unfreeze/delete/policy), and complete team management (17 team operations
+including invites, keys, members, roles).
 
 | # | ID | Name | Runtime | Package | Tools |
 |---|-----|------|---------|---------|-------|
-| 1 | `langchain` | LangChain | Python | `dominusnode-langchain` | 26 |
-| 2 | `crewai` | CrewAI | Python | `dominusnode-crewai` | 4 |
-| 3 | `llamaindex` | LlamaIndex | Python | `dominusnode-llamaindex` | 22 |
-| 4 | `autogpt` | AutoGPT | Python | `dominusnode-autogpt` | 22 |
-| 5 | `agent-zero` | Agent Zero | Python | *(built-in)* | 22 |
-| 6 | `superagi` | SuperAGI | Python | `dominusnode-superagi` | 26 |
-| 7 | `agno` | Agno | Python | `dominusnode-agno` | 26 |
-| 8 | `camel-ai` | CAMEL-AI | Python | `dominusnode-camel` | 26 |
-| 9 | `composio` | Composio | Python | `dominusnode-composio` | 26 |
-| 10 | `dify` | Dify | Python | `dominusnode-dify` | 26 |
-| 11 | `haystack` | Haystack | Python | `dominusnode-haystack` | 26 |
-| 12 | `ironclaw` | IronClaw | Python | `dominusnode-ironclaw` | 26 |
-| 13 | `metagpt` | MetaGPT | Python | `dominusnode-metagpt` | 26 |
-| 14 | `moltbook` | Moltbook | Python | `dominusnode-moltbook` | 1† |
-| 15 | `pydantic-ai` | PydanticAI | Python | `dominusnode-pydanticai` | 26 |
-| 16 | `semantic-kernel` | Semantic Kernel | Python | `dominusnode-semantic-kernel` | 26 |
-| 17 | `raw-http` | Raw HTTP | Python | *(none)* | — |
-| 18 | `mastra` | Mastra | Node.js | `@dominusnode/mastra-tools` | 26 |
-| 19 | `flowise` | Flowise | Node.js | `@dominusnode/flowise-tools` | 26 |
-| 20 | `openclaw` | OpenClaw | Node.js | *(local plugin)* | 22 |
-| 21 | `vercel-ai` | Vercel AI | Node.js | `@dominusnode/ai-tools` | 6 |
-| 22 | `openai-functions` | OpenAI Functions | Node.js | *(local handler)* | 26 |
-| 23 | `n8n` | n8n | Node.js | `n8n-nodes-dominusnode` | 3 |
-| 24 | `gemini` | Gemini/Vertex AI | Node.js | `@dominusnode/gemini-functions` | 26 |
-
-†Moltbook requires Ethereum signing for full operations; the swarm exercises
-`check_balance()` only. Full proxy operations require a configured wallet.
+| 1 | `langchain` | LangChain | Python | `dominusnode-langchain` | 53 |
+| 2 | `crewai` | CrewAI | Python | `dominusnode-crewai` | 53 |
+| 3 | `llamaindex` | LlamaIndex | Python | `dominusnode-llamaindex` | 53 |
+| 4 | `autogpt` | AutoGPT | Python | `dominusnode-autogpt` | 53 |
+| 5 | `agent-zero` | Agent Zero | Python | *(built-in)* | 53 |
+| 6 | `superagi` | SuperAGI | Python | `dominusnode-superagi` | 53 |
+| 7 | `agno` | Agno | Python | `dominusnode-agno` | 53 |
+| 8 | `camel-ai` | CAMEL-AI | Python | `dominusnode-camel` | 53 |
+| 9 | `composio` | Composio | Python | `dominusnode-composio` | 53 |
+| 10 | `dify` | Dify | Python | `dominusnode-dify` | 53 |
+| 11 | `haystack` | Haystack | Python | `dominusnode-haystack` | 53 |
+| 12 | `ironclaw` | IronClaw | Python | `dominusnode-ironclaw` | 53 |
+| 13 | `metagpt` | MetaGPT | Python | `dominusnode-metagpt` | 53 |
+| 14 | `moltbook` | Moltbook | Python | `dominusnode-moltbook` | 53 |
+| 15 | `pydantic-ai` | PydanticAI | Python | `dominusnode-pydanticai` | 53 |
+| 16 | `semantic-kernel` | Semantic Kernel | Python | `dominusnode-semantic-kernel` | 53 |
+| 17 | `raw-http` | Raw HTTP | Python | *(none)* | 53 |
+| 18 | `mastra` | Mastra | Node.js | `@dominusnode/mastra-tools` | 53 |
+| 19 | `flowise` | Flowise | Node.js | `@dominusnode/flowise-tools` | 53 |
+| 20 | `openclaw` | OpenClaw | Node.js | *(local plugin)* | 53 |
+| 21 | `vercel-ai` | Vercel AI | Node.js | `@dominusnode/ai-tools` | 53 |
+| 22 | `openai-functions` | OpenAI Functions | Node.js | *(local handler)* | 53 |
+| 23 | `n8n` | n8n | Node.js | `n8n-nodes-dominusnode` | 53 |
+| 24 | `gemini` | Gemini/Vertex AI | Node.js | `@dominusnode/gemini-functions` | 53 |
+| 25 | `pi` | Pi (pi-mono) | Node.js | `@dominusnode/pi-extension` | 53 |
 
 ---
 
@@ -61,19 +65,14 @@ Use it to:
 - **npm** — check with `npm --version`
 
 ### Python framework packages
-Pre-install for faster startup (optional — the swarm will `pip install -e` each
-integration on first use):
+**Automatic** — the swarm creates an isolated `.showcase-venv/` virtualenv on
+first run and installs all Python dependencies there. No manual `pip install`
+needed; your system Python stays untouched.
 
+To force a clean venv, delete it and re-run:
 ```bash
-# Install core deps
-pip install -r scripts/requirements-swarm-showcase.txt
-
-# Install all local Python integration packages
-for pkg in langchain crewai llamaindex autogpt superagi agno camel-ai \
-            composio dify haystack ironclaw metagpt moltbook pydantic-ai \
-            semantic-kernel; do
-  pip install -e integrations/$pkg
-done
+rm -rf .showcase-venv
+python3 scripts/swarm-showcase.py
 ```
 
 ### Node.js integration builds
@@ -265,9 +264,22 @@ Check that the integration source directory exists:
 ```bash
 ls integrations/<name>/
 ```
-For missing framework deps, install manually:
+For missing framework deps, delete the venv and retry:
 ```bash
-pip install langchain crewai llama-index-core agno camel-ai haystack-ai pydantic semantic-kernel
+rm -rf .showcase-venv
+python3 scripts/swarm-showcase.py
+```
+
+### Venv creation fails
+Ensure `python3 -m venv` works on your system. On Debian/Ubuntu you may need:
+```bash
+sudo apt install python3-venv
+```
+
+### Stale venv (wrong Python version, broken packages)
+```bash
+rm -rf .showcase-venv
+python3 scripts/swarm-showcase.py
 ```
 
 ### "Failed to obtain API key"
