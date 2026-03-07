@@ -1,273 +1,129 @@
-# Dominus Node
+# DomiNode
 
-## Project Overview
+Rotating proxy-as-a-service SaaS. Users connect, get assigned a proxy IP, traffic is metered by bandwidth and billed per-GB. Burned IPs are auto-replaced.
 
-Dominus Node is a **rotating proxy-as-a-service (PaaS)** SaaS platform. Users connect to Dominus Node, are automatically assigned a proxy IP from a managed pool, and their traffic is routed through it. Usage is metered by data (bandwidth) and billed accordingly. Burned/blocked IPs are automatically discarded and replaced with fresh ones from the pool.
+Think: Bright Data / SmartProxy, but self-hosted and operator-controlled.
 
-## Core Concept
+## Quick Start
 
-- **NOT a PiHole fork.** The original idea referenced PiHole, but PiHole is a DNS ad-blocker — it has no IP pool or proxy capability. Dominus Node is a proxy network service built from scratch.
-- Think: Bright Data / SmartProxy / Oxylabs, but self-hosted and operator-controlled.
-- **You cannot "grab" IPs from a network and use them as proxies.** A device must be running proxy software to act as a proxy — an IP alone is useless. ARP spoofing, IP aliasing, and similar tricks are illegal and don't produce usable proxies.
-
-## IP Sourcing Strategy
-
-### Dead Ends (Do NOT Pursue)
-| Approach | Why It's Dead |
-|---|---|
-| 911 S5 | **Shut down.** US Treasury sanctioned, DOJ seized infrastructure. Operators face criminal charges. |
-| IPIDEA | **Dismantled by Google (Jan 2026).** Used by 550+ threat groups. Trojanized SDKs. Legal action taken. |
-| "Grabbing" LAN IPs | Devices must run proxy software — knowing an IP gives zero proxy capability. |
-| ARP spoofing / IP aliasing | Illegal under CFAA. Doesn't produce usable proxy exit nodes anyway. |
-| Open proxy lists | 90%+ are honeypots, dead, or logging credentials. Unusable for production. |
-
-### Recommended Sourcing (Cheapest → Most Expensive)
-
-#### Tier 0: Free (MVP / Development)
-- **Oracle Cloud Free Tier** — 4 ARM VMs, 24GB RAM, 2 IPv4s. Free forever.
-- **GCP Free Tier** — 1 e2-micro VM, 1 IPv4. Free forever.
-- **AWS/Azure** — 1 micro VM each, 12-month free trial.
-- Total: ~4-6 datacenter IPs at $0/month. Enough for development & MVP testing.
-
-#### Tier 1: Resell Existing Proxy Networks ($0.45-$1.00/GB)
-Best for getting started with zero infrastructure investment.
-- **Geonode** — $0.45/GB at 50TB+, $0.50/GB at 10TB+. Full reseller API + white-label.
-- **PacketStream** — $1.00/GB. Reseller API available. Min purchase 50GB ($50).
-- **DataImpulse** — $0.80/GB at 1TB+. Reseller API at $1.00/GB.
-- **IPRoyal** — $1.00/GB via reseller API.
-- **Strategy:** Buy at $0.50-1.00/GB, resell at $3-7/GB. 75-93% gross margin.
-
-#### Tier 2: Cheap Datacenter & ISP Proxies ($0.02-$0.30/IP/month)
-- **Webshare** — 100 shared datacenter IPs for $2.99/mo ($0.03/IP). Dedicated: $0.05-$0.12/IP.
-- **Decodo (Smartproxy)** — $0.02/IP datacenter (shared rotating). $0.27/IP for ISP proxies.
-- **Webshare ISP proxies** — $0.23/IP at bulk. 1,000 IPs = $230/month. Look residential to targets.
-
-#### Tier 3: Cheap VPS Fleet ($0.50-$1.00/IP/month)
-- **RackNerd** — $10.98/year per VPS, each with 1 dedicated IPv4. = $0.91/IP/month.
-- **Hetzner Cloud** — Extra IPv4s at $0.50/month each.
-- **BuyVM** — $2/month base VPS + $1-3/IP.
-- **Strategy:** Buy 50x RackNerd VPS = 50 IPs for $549/year ($0.91/IP/month).
-
-#### Tier 4: Own IPv4 Block (Lease or Buy)
-- **Lease via IPXO** — $0.38-$0.45/IP/month. /24 block (256 IPs) ≈ $102/month.
-- **Buy via IPv4.Global** — $28-35/IP one-time. /24 block ≈ $7,168-$8,960. Prices falling.
-- Requires BGP announcement infrastructure (hosting provider with BGP peering).
-
-#### Tier 5: DIY Mobile Proxy Farm (Highest Value IPs)
-Mobile IPs are hardest to block and most valuable ($7-20/GB retail).
-- **Hardware:** 4G USB dongle ($25-40 each) + Raspberry Pi/Mini PC ($35-200) + USB hub ($30-60)
-- **Software:** Proxidize (free/open-source), iProxy.online ($6-10/device/month)
-- **Data SIMs:** $15-50/month per SIM depending on plan
-- **Total per mobile proxy:** $15-25/month ongoing. Sell at $30-50/month each.
-- **Starter kit:** 10 dongles + Pi + hub ≈ $350 hardware + $150/month data = 10 mobile proxies.
-
-### Recommended Launch Strategy
-1. **MVP (now):** Use free cloud VMs (Oracle + GCP) for dev/testing
-2. **Alpha:** Resell Webshare bandwidth (DC + residential pools) — minimal infra cost
-3. **Beta:** Scale Webshare ISP proxies ($230/mo for 1,000 IPs) for dedicated pool
-4. **Scale:** Build DIY mobile farm (10-50 dongles) + lease IPv4 block via IPXO
-
-## Architecture (Target)
-
+```bash
+docker compose up -d       # Start PostgreSQL
+npm run db:migrate          # Apply schema
+npm run build               # Compile all packages
+npm run start:api           # REST API on :3000
+npm run start:proxy         # Proxy gateway on :8080 (HTTP) + :1080 (SOCKS5)
 ```
-┌─────────────┐     ┌──────────────────┐     ┌──────────────┐
-│  User/App   │────▶│  Dominus Node Proxy   │────▶│  Target Site │
-│  (client)   │◀────│  Gateway (core)   │◀────│              │
-└─────────────┘     └──────────────────┘     └──────────────┘
-                           │
-                    ┌──────┴──────┐
-                    │             │
-              ┌─────▼─────┐ ┌────▼────┐
-              │  IP Pool   │ │ Metering │
-              │  Manager   │ │ & Billing│
-              └───────────┘ └─────────┘
-```
-
-### Core Components
-
-1. **Proxy Gateway** — The main proxy server (HTTP/HTTPS/SOCKS5) that accepts user connections, authenticates them, and routes traffic through assigned IPs.
-2. **IP Pool Manager** — Manages a pool of upstream proxy IPs (residential, datacenter, mobile). Handles assignment, rotation, health checks, and burn detection.
-3. **Metering Engine** — Tracks bytes in/out per user session. Records usage for billing.
-4. **Billing Service** — Charges users based on data consumed (per GB pricing tiers). Integrates with Stripe or similar.
-5. **User Dashboard (Web UI)** — User-facing portal: signup, API key management, usage stats, billing history, proxy endpoint configuration.
-6. **Admin Panel** — Operator-facing: IP pool health, user management, revenue metrics, burned IP logs.
-
-### Key Features
-
-- **Auto IP Assignment** — Users never pick IPs. System assigns optimal IP based on availability, geo, health score.
-- **Burn Detection & Rotation** — If a proxy IP gets blocked/flagged (detected via response codes, CAPTCHAs, timeouts), it's marked burned, pulled from pool, and replaced automatically.
-- **Data Metering** — Every byte routed through the proxy is counted per-user. Real-time usage tracking.
-- **Usage-Based Billing** — Pay-per-GB model. Tiered pricing possible (e.g., residential vs datacenter).
-- **IP Pool Sourcing** — Operator sources IPs via: purchased IP blocks, partnerships, VPS/cloud providers, or residential SDK networks.
-
-## Tech Stack (Planned)
-
-- **Language:** TypeScript (Node.js)
-- **Proxy Engine:** Custom proxy server (using `net`, `http`, `https`, `tls` modules) or leveraging a proxy framework
-- **Database:** PostgreSQL (users, billing, usage logs) + Redis (sessions, real-time counters, IP pool state)
-- **Billing:** Stripe API
-- **Web UI:** Next.js or React SPA
-- **Deployment:** Docker containers, orchestrated with Docker Compose (dev) / Kubernetes (prod)
-- **Monitoring:** Prometheus + Grafana for proxy health, throughput, IP pool metrics
-
-## Project Structure
-
-```
-Dominus Node/
-├── CLAUDE.md                    # This file
-├── ARCHITECTURE.md              # Full implementation plan
-├── package.json                 # Root workspace config (npm workspaces)
-├── tsconfig.json                # Root TS config with project references
-├── docker-compose.yml           # PostgreSQL 16 for local dev
-├── .env.example                 # All environment variables
-├── packages/
-│   ├── shared/src/
-│   │   ├── types.ts             # User, ApiKey, Wallet, Session, UsageRecord, constants
-│   │   ├── db.ts                # pg.Pool singleton, query() helper
-│   │   ├── auth.ts              # API key gen (SHA-256), bcrypt passwords, JWT
-│   │   ├── schema.sql           # Full PostgreSQL DDL
-│   │   ├── migrate.ts           # Schema migration script
-│   │   ├── logger.ts            # JSON structured logger
-│   │   ├── validation.ts        # Input validators
-│   │   └── repositories/        # user-repo, wallet-repo, usage-repo
-│   ├── pool-manager/src/
-│   │   ├── webshare.ts          # Webshare config, proxy URL builder (DC + residential), bandwidth API
-│   │   ├── webshare-provider.ts # WebshareDCProvider + WebshareResidentialProvider
-│   │   └── index.ts             # Re-exports
-│   ├── proxy-gateway/src/
-│   │   ├── server.ts            # HTTP proxy + HTTPS double-CONNECT through Webshare
-│   │   ├── auth.ts              # Proxy-Authorization header parser
-│   │   ├── balance-check.ts     # Wallet balance check with 30s cache
-│   │   ├── counting-stream.ts   # Byte counters for billing
-│   │   ├── session-manager.ts   # In-memory session tracking, usage recording, wallet debit
-│   │   └── main.ts              # Entrypoint with graceful shutdown
-│   ├── metering/src/
-│   │   └── index.ts             # computeCostCents (DC $3/GB, residential $5/GB), recordUsage, debitForUsage
-│   ├── billing/src/
-│   │   ├── stripe.ts            # Checkout sessions, webhook handling
-│   │   ├── nowpayments.ts       # Crypto invoices (BTC/ETH/LTC/XMR/ZEC/USDC/SOL/USDT/DAI/BNB/LINK), IPN verification
-│   │   └── index.ts             # Re-exports
-│   └── dashboard/src/
-│       ├── server.ts            # Express API server
-│       ├── main.ts              # Entrypoint with graceful shutdown
-│       ├── middleware/auth.ts    # JWT verification middleware
-│       └── routes/              # auth, keys, usage, wallet, webhooks
-├── infra/docker/                # (Dockerfiles — future)
-├── scripts/
-└── tests/
-```
-
-## Development Guidelines
-
-- Use TypeScript strict mode everywhere
-- All services communicate via internal REST APIs or message queues
-- Every PR needs tests — unit for logic, integration for service boundaries
-- Proxy gateway must be high-performance: minimize per-request overhead
-- Security-critical: user auth tokens, proxy credentials, and billing data must be handled with care
-- IP pool data is sensitive — never expose upstream proxy credentials to end users
-
-## Key Business Logic
-
-### IP Lifecycle
-```
-AVAILABLE → ASSIGNED → IN_USE → (HEALTHY → re-pool | BURNED → discard)
-```
-
-### Billing Model
-- Tiered pricing: **$3.00/GB** datacenter (cost: $0.012/GB = 99.6% margin), **$5.00/GB** residential (cost: $4.00/GB = 20% margin)
-- Prepaid wallet system — users top up, usage debits automatically
-- Payments: Stripe (fiat) + NOWPayments (BTC, ETH, XMR, SOL, ZEC)
-- Balance stored in cents (integer) with DB CHECK constraint preventing negative
-
-### Burn Detection Heuristics
-- HTTP 403/429 response rate exceeds threshold
-- CAPTCHA pages detected in response body
-- Connection timeout rate spikes
-- Target-specific signature detection (Cloudflare challenge, etc.)
-
-## Current Status
-
-**Backend MVP COMPLETE — all 6 packages compile, zero errors.**
-
-### What's built:
-- `@dominusnode/shared` — Types, PostgreSQL schema, db client, auth (API keys + JWT), repositories (user, wallet, usage)
-- `@dominusnode/pool-manager` — Webshare dual-pool (DC + residential) integration with geo targeting + sticky sessions
-- `@dominusnode/proxy-gateway` — Full HTTP/HTTPS proxy with API key auth, balance checks, Webshare chaining, byte counting, session tracking, wallet debiting
-- `@dominusnode/metering` — Cost calculation (DC $3/GB, residential $5/GB), usage recording, wallet debiting
-- `@dominusnode/billing` — Stripe Checkout for wallet top-ups, NOWPayments for crypto (BTC/ETH/LTC/XMR/ZEC/USDC/SOL/USDT/DAI/BNB/LINK), PayPal + Link via Stripe
-- `@dominusnode/dashboard` — Express REST API with auth, API key management, wallet, usage, and webhook endpoints
-
-### To launch:
-1. `docker compose up -d` — start PostgreSQL
-2. `npm run db:migrate` — apply schema
-3. `npm run build` — compile
-4. Set `.env` with Webshare, Stripe, NOWPayments credentials
-5. `npm run start:api` — REST API on :3000
-6. `npm run start:proxy` — proxy gateway on :8080
-
-### Next steps:
-- Build frontend UI (dashboard, account management)
-- Add health monitoring / burn detection
-- Dockerize both processes
-
-## Phases
-
-1. ~~**Phase 1 — Foundation**~~ DONE
-2. ~~**Phase 2 — Backend MVP**~~ DONE (Webshare, auth, billing, API)
-3. **Phase 3 — Frontend Dashboard:** User web UI (usage, billing, API keys)
-4. ~~**Phase 4 — ISP Proxy Pool:**~~ DONE (Webshare DC + residential dual-pool)
-5. **Phase 5 — Scale & Harden:** Rate limiting, abuse prevention, Kubernetes, monitoring
-
-## Git Commit Rules
-
-- **NEVER add `Co-Authored-By:` trailers to commit messages.** Do not include any `Co-Authored-By`, `Signed-off-by`, or attribution lines referencing Claude, Anthropic, or any AI tool.
-- Commit messages should contain only the subject line and optional body describing the change — nothing else.
 
 ## Commands
 
 ```bash
-npm install              # Install all workspace dependencies
-npm run build            # Build all packages (tsc --build)
-npm run clean            # Clean all build output
-npm run start:proxy      # Start proxy gateway on :8080
-npm run start:api        # Start REST API server on :3000
-npm run db:migrate       # Apply PostgreSQL schema
-npm run lint             # Lint all packages
-npm run format           # Format with Prettier
-docker compose up -d     # Start PostgreSQL (local dev)
+npm install                 # Install all workspace dependencies
+npm run build               # Build all packages (tsc --build)
+npm run clean               # Clean all build output
+npm run lint                # Lint all packages
+npm run format              # Format with Prettier
+npx vitest run              # Run all tests
+npx vitest run --coverage   # Tests with coverage
 ```
 
-## API Endpoints
+## Architecture
 
-| Method | Path | Auth | Description |
-|--------|------|------|-------------|
-| POST | /api/auth/register | None | Create account |
-| POST | /api/auth/login | None | Get JWT token |
-| POST | /api/keys | JWT | Create API key (shown once) |
-| GET | /api/keys | JWT | List API keys |
-| DELETE | /api/keys/:id | JWT | Revoke API key |
-| GET | /api/wallet | JWT | Get balance |
-| GET | /api/wallet/transactions | JWT | Transaction history |
-| POST | /api/wallet/topup/stripe | JWT | Create Stripe checkout |
-| POST | /api/wallet/topup/crypto | JWT | Create crypto invoice |
-| GET | /api/usage | JWT | Usage stats |
-| POST | /api/webhooks/stripe | Signature | Stripe webhook |
-| POST | /api/webhooks/nowpayments | Signature | NOWPayments IPN |
-| POST | /api/auth/wallet/challenge | None | Request wallet signature challenge |
-| POST | /api/auth/wallet/verify | None | Submit signed challenge (create/login) |
-| POST | /api/auth/wallet/link | JWT | Link wallet to existing account |
-| GET | /api/health | None | Health check |
+9 packages + frontend + extension + 6 SDKs + 25 AI integrations.
+
+| Package | Purpose |
+|---------|---------|
+| `packages/shared` | Types, DB, auth, schema, repositories |
+| `packages/proxy-gateway` | HTTP/HTTPS/SOCKS5 proxy server |
+| `packages/pool-manager` | Webshare DC + residential upstream |
+| `packages/metering` | Cost calculation, usage recording |
+| `packages/billing` | Stripe + PayPal + NOWPayments crypto |
+| `packages/dashboard` | Express REST API |
+| `packages/mcp-server` | 76 MCP tools for AI agents |
+| `packages/frontend` | React 18 + Vite + Tailwind dashboard |
+| `packages/extension` | MV3 browser extension |
+
+## Teams
+
+Each area has its own `CLAUDE.md` with domain-specific rules:
+
+| Team | Scope | Key Files |
+|------|-------|-----------|
+| **Core Platform** | shared, proxy-gateway, pool-manager, metering | packages/{shared,proxy-gateway,pool-manager,metering}/ |
+| **Billing & Payments** | billing, wallets, x402 | packages/billing/ |
+| **API & Dashboard** | REST API, auth, routes | packages/dashboard/ |
+| **Frontend** | React UI, browser extension | packages/{frontend,extension}/ |
+| **SDK** | All 6 language SDKs | sdks/{node,python,cpp,rust,go,java}/ |
+| **AI & Integrations** | MCP server, 25 AI integrations | packages/mcp-server/, integrations/ |
+| **Infrastructure** | Docker, nginx, Caddy, CI/CD, scripts | infra/, scripts/, .github/ |
+
+## Rules System
+
+Detailed rules are in `.claude/rules/`:
+- `security.md` — SSRF, auth, credentials, GDPR, prototype pollution
+- `database.md` — PostgreSQL conventions, TOCTOU prevention, repository patterns
+- `testing.md` — Test conventions, verification loop
+- `sdk-patterns.md` — Cross-SDK requirements, language-specific rules
+- `integration-patterns.md` — AI integration security, auth, proxy routing
+
+## Agents (`.claude/agents/`)
+
+- `security-auditor.md` — Reviews changes for OWASP/SSRF/TOCTOU/credential leaks
+- `code-reviewer.md` — Staff-engineer-level PR review
+- `build-validator.md` — Verifies build + tests + lint pass
+- `sdk-parity-checker.md` — Ensures all 6 SDKs stay in sync
+- `integration-parity-checker.md` — Ensures all 25 integrations maintain security parity
+
+## Slash Commands (`.claude/commands/`)
+
+- `/audit` — Security audit on recent changes
+- `/build-test` — Build + test all packages
+- `/deploy-check` — Pre-deployment checklist
+- `/techdebt` — Find and report technical debt
+- `/add-lesson` — Add a lesson to the appropriate rules file
+
+## Verification (Most Important Rule)
+
+Always give yourself a way to verify your work. After every change:
+1. `npm run build` — must compile
+2. `npx vitest run` — tests must pass
+3. If touching proxy/API: test with actual curl commands
+4. If touching frontend: verify in browser
+
+## Key Conventions
+
+- TypeScript strict mode everywhere
+- Prepaid wallet billing: Stripe + PayPal + crypto (10 currencies)
+- DC $3/GB, Residential $5/GB pricing
+- API key auth: SHA-256 hash, `dn_live_` prefix
+- JWT: 15min access + 7d refresh tokens (family rotation)
+- OFAC sanctioned countries blocked: Cuba, Iran, North Korea, Russia, Syria
+
+## Self-Improvement Protocol
+
+After EVERY mistake or correction:
+1. Identify the correct pattern
+2. Add it to the appropriate `.claude/rules/` file or package `CLAUDE.md`
+3. If it's a new category, create a new rules file
+4. Never repeat the same mistake twice
+
+## Git Commit Rules
+
+- **NEVER** add `Co-Authored-By:` trailers referencing Claude, Anthropic, or any AI tool
+- Commit messages: subject line + optional body describing the change — nothing else
 
 ## Proxy Usage
 
 ```bash
-# After creating an account and API key via the REST API:
 # Default (auto): tries DC first, falls back to residential
-curl -x http://anything:dn_live_YOUR_KEY@localhost:8080 http://httpbin.org/ip
+curl -x http://anything:dn_live_KEY@localhost:8080 http://httpbin.org/ip
 
-# Explicit DC pool (cheapest, $3/GB):
-curl -x http://dc-country-US:dn_live_YOUR_KEY@localhost:8080 https://httpbin.org/ip
+# Explicit DC ($3/GB):
+curl -x http://dc-country-US:dn_live_KEY@localhost:8080 https://httpbin.org/ip
 
-# Explicit residential pool (premium, $5/GB):
-curl -x http://residential-country-US:dn_live_YOUR_KEY@localhost:8080 https://httpbin.org/ip
+# Explicit residential ($5/GB):
+curl -x http://residential-country-US:dn_live_KEY@localhost:8080 https://httpbin.org/ip
 ```
+
+## Current Status
+
+Alpha production ready. All packages compile. 2,388+ tests passing. 48 security audit rounds completed (376+ CRITICAL, 818+ HIGH findings addressed). See ARCHITECTURE.md for full implementation plan and IP sourcing strategy.
