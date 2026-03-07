@@ -569,8 +569,8 @@ describe("DominusNodeToolkit structure", () => {
   const toolkit = new DominusNodeToolkit({ apiKey: "dn_test_abc123" });
   const tools = toolkit.getTools();
 
-  it("exports exactly 26 tools", () => {
-    expect(tools).toHaveLength(26);
+  it("exports exactly 53 tools", () => {
+    expect(tools).toHaveLength(53);
   });
 
   it("all tools have id, description, and execute", () => {

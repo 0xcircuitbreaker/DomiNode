@@ -304,9 +304,6 @@ class DominusNodeProxiedFetchTool(BaseTool):
     proxy_host: Optional[str] = None
     proxy_port: int = 8080
     agent_secret: Optional[str] = None
-    # Legacy SDK client fields (kept for backward compat)
-    sync_client: Optional[Any] = None
-    async_client: Optional[Any] = None
 
     model_config = {"arbitrary_types_allowed": True}
 
@@ -452,9 +449,6 @@ class DominusNodeBalanceTool(BaseTool):
     api_key: Optional[str] = None
     base_url: Optional[str] = None
     agent_secret: Optional[str] = None
-    # Legacy SDK client fields (kept for backward compat)
-    sync_client: Optional[Any] = None
-    async_client: Optional[Any] = None
 
     model_config = {"arbitrary_types_allowed": True}
 
@@ -510,8 +504,6 @@ class DominusNodeUsageTool(BaseTool):
     api_key: Optional[str] = None
     base_url: Optional[str] = None
     agent_secret: Optional[str] = None
-    sync_client: Optional[Any] = None
-    async_client: Optional[Any] = None
 
     model_config = {"arbitrary_types_allowed": True}
 
@@ -586,8 +578,6 @@ class DominusNodeTopupPaypalTool(BaseTool):
     api_key: Optional[str] = None
     base_url: Optional[str] = None
     agent_secret: Optional[str] = None
-    sync_client: Optional[Any] = None
-    async_client: Optional[Any] = None
 
     model_config = {"arbitrary_types_allowed": True}
 
@@ -644,8 +634,6 @@ class DominusNodeTopupStripeTool(BaseTool):
     api_key: Optional[str] = None
     base_url: Optional[str] = None
     agent_secret: Optional[str] = None
-    sync_client: Optional[Any] = None
-    async_client: Optional[Any] = None
 
     model_config = {"arbitrary_types_allowed": True}
 
@@ -709,8 +697,6 @@ class DominusNodeTopupCryptoTool(BaseTool):
     api_key: Optional[str] = None
     base_url: Optional[str] = None
     agent_secret: Optional[str] = None
-    sync_client: Optional[Any] = None
-    async_client: Optional[Any] = None
 
     model_config = {"arbitrary_types_allowed": True}
 
@@ -774,8 +760,6 @@ class DominusNodeProxyConfigTool(BaseTool):
     api_key: Optional[str] = None
     base_url: Optional[str] = None
     agent_secret: Optional[str] = None
-    sync_client: Optional[Any] = None
-    async_client: Optional[Any] = None
 
     model_config = {"arbitrary_types_allowed": True}
 
@@ -813,8 +797,6 @@ class DominusNodeX402InfoTool(BaseTool):
     api_key: Optional[str] = None
     base_url: Optional[str] = None
     agent_secret: Optional[str] = None
-    sync_client: Optional[Any] = None
-    async_client: Optional[Any] = None
 
     model_config = {"arbitrary_types_allowed": True}
 
@@ -2030,8 +2012,6 @@ class DominusNodeProxyStatusTool(BaseTool):
     api_key: Optional[str] = None
     base_url: Optional[str] = None
     agent_secret: Optional[str] = None
-    sync_client: Optional[Any] = None
-    async_client: Optional[Any] = None
     model_config = {"arbitrary_types_allowed": True}
 
     def _run(self, run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
@@ -2073,8 +2053,6 @@ class DominusNodeListSessionsTool(BaseTool):
     api_key: Optional[str] = None
     base_url: Optional[str] = None
     agent_secret: Optional[str] = None
-    sync_client: Optional[Any] = None
-    async_client: Optional[Any] = None
     model_config = {"arbitrary_types_allowed": True}
 
     def _run(self, run_manager: Optional[CallbackManagerForToolRun] = None) -> str:

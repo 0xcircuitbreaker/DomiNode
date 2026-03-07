@@ -50,7 +50,15 @@ from pydantic import BaseModel, Field
 try:
     from superagi.tools.base_tool import BaseTool
 except ImportError:
-    from pydantic import BaseModel as BaseTool  # Standalone mode
+    # Standalone mode — SuperAGI framework not installed.
+    # Provide a minimal stub so tool classes can be imported and instantiated.
+    class BaseTool:  # type: ignore[no-redef]
+        """Minimal BaseTool stub for standalone use without SuperAGI."""
+        def __init__(self, **kwargs: Any) -> None:
+            for k, v in kwargs.items():
+                setattr(self, k, v)
+        def _execute(self, **kwargs: Any) -> str:
+            raise NotImplementedError("SuperAGI framework not installed")
 
 # ---------------------------------------------------------------------------
 # SSRF Prevention -- blocked hostnames

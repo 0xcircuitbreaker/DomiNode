@@ -1,8 +1,8 @@
 """Dominus Node LangChain Toolkit -- bundles all 53 Dominus Node tools for agent use.
 
-The :class:`DominusNodeToolkit` creates a :class:`DominusNodeClient` internally
-and injects it into each tool so that a single authenticated session is shared
-across all tools in a LangChain agent.
+The :class:`DominusNodeToolkit` injects API credentials into each tool so that
+a single authenticated configuration is shared across all tools in a LangChain
+agent.  All tools use direct REST calls (no SDK dependency).
 
 Example::
 
@@ -91,8 +91,7 @@ from .tools import (
 class DominusNodeToolkit(BaseToolkit):
     """LangChain toolkit that provides all 53 Dominus Node proxy service tools.
 
-    Creates and manages a :class:`DominusNodeClient` (sync) and optionally
-    an :class:`AsyncDominusNodeClient` (async) for use by LangChain agents.
+    Injects API key and base URL into each tool for direct REST API calls.
 
     Args:
         api_key: Dominus Node API key (``dn_live_...``).  Falls back to the
