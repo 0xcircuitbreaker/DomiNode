@@ -22,7 +22,13 @@ const parsedRateMax = parseInt(process.env["X402_RATE_LIMIT_MAX"] ?? "60", 10);
 if (isNaN(parsedRateMax) || parsedRateMax < 1 || parsedRateMax > 10_000) {
   throw new Error("X402_RATE_LIMIT_MAX must be an integer between 1 and 10000");
 }
-const X402_RATE_LIMIT_MAX = parsedRateMax;
+
+// All x402 traffic is AI agent traffic — apply multiplier to give agents higher throughput
+const AGENT_MULTIPLIER = parseInt(process.env["AGENT_RATE_LIMIT_MULTIPLIER"] ?? "10", 10);
+if (isNaN(AGENT_MULTIPLIER) || AGENT_MULTIPLIER < 1 || AGENT_MULTIPLIER > 100) {
+  throw new Error("AGENT_RATE_LIMIT_MULTIPLIER must be between 1 and 100");
+}
+const X402_RATE_LIMIT_MAX = parsedRateMax * AGENT_MULTIPLIER;
 const X402_RATE_LIMIT_WINDOW_MS = 60_000;
 const MAX_RATE_LIMIT_ENTRIES = 100_000;
 

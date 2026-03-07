@@ -38,6 +38,12 @@ const MAX_SESSIONS_PER_MINUTE = parseInt(process.env["MAX_SESSIONS_PER_MINUTE"] 
 if (isNaN(MAX_SESSIONS_PER_MINUTE) || MAX_SESSIONS_PER_MINUTE <= 0) {
   throw new Error("MAX_SESSIONS_PER_MINUTE must be a positive integer");
 }
+
+// AI agents get higher session rate limits (default 10x)
+const AGENT_RATE_LIMIT_MULTIPLIER = parseInt(process.env["AGENT_RATE_LIMIT_MULTIPLIER"] ?? "10", 10);
+if (isNaN(AGENT_RATE_LIMIT_MULTIPLIER) || AGENT_RATE_LIMIT_MULTIPLIER < 1 || AGENT_RATE_LIMIT_MULTIPLIER > 100) {
+  throw new Error("AGENT_RATE_LIMIT_MULTIPLIER must be between 1 and 100");
+}
 const MAX_RATE_LIMIT_MAP_SIZE = 50_000;
 const sessionCreationLog = new Map<string, number[]>(); // userId -> timestamps
 
@@ -107,8 +113,9 @@ setInterval(() => {
   }
 }, 300_000).unref();
 
-export function checkSessionRateLimit(userId: string, planLimit?: number): boolean {
-  const limit = planLimit ?? MAX_SESSIONS_PER_MINUTE;
+export function checkSessionRateLimit(userId: string, planLimit?: number, isAgent?: boolean): boolean {
+  const baseLimit = planLimit ?? MAX_SESSIONS_PER_MINUTE;
+  const limit = isAgent ? baseLimit * AGENT_RATE_LIMIT_MULTIPLIER : baseLimit;
   const now = Date.now();
   const windowMs = 60_000;
   let timestamps = sessionCreationLog.get(userId);
@@ -223,6 +230,7 @@ export async function startSession(
   preloadedPlan?: Plan, // Accept pre-fetched plan to prevent TOCTOU double-fetch
   logTargetHosts: boolean = false, // Privacy-first: only store targetHost when user opts in
   teamId?: string | null, // When set, billing goes to team wallet
+  isAgent?: boolean, // AI agents get higher rate limits via AGENT_RATE_LIMIT_MULTIPLIER
 ): Promise<string> {
   let proxyType = requestedProxyType;
   // Per-user bandwidth velocity check: prevent monopolizing upstream
@@ -285,7 +293,8 @@ export async function startSession(
   }
 
   // Per-user session rate limiting — uses plan-specific limit when available
-  if (!checkSessionRateLimit(userId, planSessionLimit)) {
+  // AI agents (agentic wallet users) get higher limits via AGENT_RATE_LIMIT_MULTIPLIER
+  if (!checkSessionRateLimit(userId, planSessionLimit, isAgent)) {
     throw new Error("Session rate limit exceeded");
   }
 

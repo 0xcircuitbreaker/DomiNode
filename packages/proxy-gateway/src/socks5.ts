@@ -496,7 +496,8 @@ async function handleSocks5Connection(clientSocket: net.Socket, providerSelector
       // Pass connectLatencyMs and proxyType derived from provider name
       // Pass pre-fetched plan to prevent TOCTOU double-fetch
       const poolType = providerName.includes("dc") ? "dc" : "residential";
-      sessionId = await startSession(userId, targetHost, counter, connectLatencyMs, poolType, socksUserPlan, logTargetHosts, teamId);
+      const socksIsAgent = !!proxyOptions.walletId;
+      sessionId = await startSession(userId, targetHost, counter, connectLatencyMs, poolType, socksUserPlan, logTargetHosts, teamId, socksIsAgent);
     } catch (err) {
       log.error("SOCKS5 failed to start session", { error: err instanceof Error ? err.message : String(err) });
       // Guard against writing to destroyed socket

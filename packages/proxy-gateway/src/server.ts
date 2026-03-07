@@ -406,7 +406,8 @@ async function handleRequest(
     // Pass proxyType derived from provider name
     // Pass pre-fetched plan to prevent TOCTOU double-fetch
     const fwdPoolType = provider.name.includes("dc") ? "dc" : "residential";
-    sessionId = await startSession(auth!.userId, targetHost, counter, 0, fwdPoolType, userPlan, auth!.user.log_target_hosts ?? false, auth!.teamId);
+    const isAgentRequest = !!auth!.proxyOptions.walletId;
+    sessionId = await startSession(auth!.userId, targetHost, counter, 0, fwdPoolType, userPlan, auth!.user.log_target_hosts ?? false, auth!.teamId, isAgentRequest);
   } catch (err) {
     decrementUserConns(auth!.userId);
     const msg = err instanceof Error ? err.message : String(err);
@@ -599,6 +600,7 @@ async function handleConnect(
   const userId = auth.userId;
   const connectTeamId = auth.teamId;
   const connectLogTargetHosts = auth.user.log_target_hosts ?? false;
+  const connectIsAgent = !!auth.proxyOptions.walletId;
 
   // Fetch plan BEFORE provider selection to enforce pool restrictions
   // Team API keys use the team's plan (e.g. payg/unrestricted) not the creator's personal plan
@@ -820,7 +822,7 @@ async function handleConnect(
       // Pass connectLatencyMs and proxyType derived from provider name
       // Pass pre-fetched plan to prevent TOCTOU double-fetch
       const poolType = providerName.includes("dc") ? "dc" : "residential";
-      sessionId = await startSession(userId, targetHost ?? "unknown", counter, connectLatencyMs, poolType, connectPlan, connectLogTargetHosts, connectTeamId);
+      sessionId = await startSession(userId, targetHost ?? "unknown", counter, connectLatencyMs, poolType, connectPlan, connectLogTargetHosts, connectTeamId, connectIsAgent);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       if (msg.includes("Insufficient balance")) {

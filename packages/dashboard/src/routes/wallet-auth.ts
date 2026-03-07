@@ -25,8 +25,12 @@ import { recoverSignerAddress } from "../helpers/verify-signature.js";
 import { requireAuth, type AuthenticatedRequest } from "../middleware/auth.js";
 import { setAuthCookies } from "../helpers/cookies.js";
 
+import { isVerifiedAgent, getAgentMultiplier } from "../helpers/agent-rate-limit.js";
+
 const router = Router();
 const log = createLogger("api:wallet-auth");
+
+const AGENT_RATE_LIMIT_MULTIPLIER = getAgentMultiplier();
 
 // Validate domain format at startup to prevent cross-site signature replay
 const DOMINUSNODE_DOMAIN = process.env["DOMINUSNODE_DOMAIN"] ?? "dominusnode.com";
@@ -51,8 +55,9 @@ const CHALLENGE_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
 const MAX_CHALLENGE_MAP_SIZE = 50_000;
 const challengeRateMap = new Map<string, { count: number; windowStart: number }>();
 
-function checkChallengeRateLimit(ip: string): boolean {
+function checkChallengeRateLimit(ip: string, isAgent: boolean = false): boolean {
   const now = Date.now();
+  const limit = isAgent ? MAX_CHALLENGES_PER_IP * AGENT_RATE_LIMIT_MULTIPLIER : MAX_CHALLENGES_PER_IP;
   const entry = challengeRateMap.get(ip);
   if (!entry || now - entry.windowStart > CHALLENGE_WINDOW_MS) {
     if (challengeRateMap.size >= MAX_CHALLENGE_MAP_SIZE) {
@@ -63,7 +68,7 @@ function checkChallengeRateLimit(ip: string): boolean {
     return true;
   }
   entry.count++;
-  return entry.count <= MAX_CHALLENGES_PER_IP;
+  return entry.count <= limit;
 }
 
 // ─── In-memory rate limiting for /verify endpoint ───────────────────
@@ -72,8 +77,9 @@ const VERIFY_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
 const MAX_VERIFY_MAP_SIZE = 50_000;
 const verifyRateMap = new Map<string, { count: number; windowStart: number }>();
 
-function checkVerifyRateLimit(ip: string): boolean {
+function checkVerifyRateLimit(ip: string, isAgent: boolean = false): boolean {
   const now = Date.now();
+  const limit = isAgent ? MAX_VERIFY_PER_IP * AGENT_RATE_LIMIT_MULTIPLIER : MAX_VERIFY_PER_IP;
   const entry = verifyRateMap.get(ip);
   if (!entry || now - entry.windowStart > VERIFY_WINDOW_MS) {
     if (verifyRateMap.size >= MAX_VERIFY_MAP_SIZE) {
@@ -84,7 +90,7 @@ function checkVerifyRateLimit(ip: string): boolean {
     return true;
   }
   entry.count++;
-  return entry.count <= MAX_VERIFY_PER_IP;
+  return entry.count <= limit;
 }
 
 // ─── In-memory rate limiting for /link endpoint ─────────────────────
@@ -93,8 +99,9 @@ const LINK_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
 const MAX_LINK_MAP_SIZE = 50_000;
 const linkRateMap = new Map<string, { count: number; windowStart: number }>();
 
-function checkLinkRateLimit(ip: string): boolean {
+function checkLinkRateLimit(ip: string, isAgent: boolean = false): boolean {
   const now = Date.now();
+  const limit = isAgent ? MAX_LINK_PER_IP * AGENT_RATE_LIMIT_MULTIPLIER : MAX_LINK_PER_IP;
   const entry = linkRateMap.get(ip);
   if (!entry || now - entry.windowStart > LINK_WINDOW_MS) {
     if (linkRateMap.size >= MAX_LINK_MAP_SIZE) {
@@ -105,7 +112,7 @@ function checkLinkRateLimit(ip: string): boolean {
     return true;
   }
   entry.count++;
-  return entry.count <= MAX_LINK_PER_IP;
+  return entry.count <= limit;
 }
 
 // Per-IP registration rate limit for wallet auth (matches email registration limit)
@@ -114,8 +121,9 @@ const WALLET_REG_WINDOW_MS = 60 * 60 * 1000;
 const MAX_WALLET_REG_MAP_SIZE = 50_000;
 const walletRegistrationLog = new Map<string, number[]>();
 
-function checkWalletRegistrationRateLimit(ip: string): boolean {
+function checkWalletRegistrationRateLimit(ip: string, isAgent: boolean = false): boolean {
   const now = Date.now();
+  const limit = isAgent ? MAX_WALLET_REGISTRATIONS_PER_IP * AGENT_RATE_LIMIT_MULTIPLIER : MAX_WALLET_REGISTRATIONS_PER_IP;
   let timestamps = walletRegistrationLog.get(ip);
   if (!timestamps) {
     if (walletRegistrationLog.size >= MAX_WALLET_REG_MAP_SIZE) {
@@ -128,7 +136,7 @@ function checkWalletRegistrationRateLimit(ip: string): boolean {
   while (timestamps.length > 0 && timestamps[0]! < now - WALLET_REG_WINDOW_MS) {
     timestamps.shift();
   }
-  if (timestamps.length >= MAX_WALLET_REGISTRATIONS_PER_IP) return false;
+  if (timestamps.length >= limit) return false;
   timestamps.push(now);
   return true;
 }
@@ -203,14 +211,16 @@ router.post("/challenge", async (req, res) => {
     }
 
     // In-memory rate limit
-    if (!checkChallengeRateLimit(clientIp)) {
+    const isAgentChallenge = isVerifiedAgent(req);
+    if (!checkChallengeRateLimit(clientIp, isAgentChallenge)) {
       res.status(429).json({ error: "Too many challenge requests. Try again later." });
       return;
     }
 
     // DB-level defense in depth: per-IP limit
+    const challengeIpLimit = isAgentChallenge ? MAX_CHALLENGES_PER_IP * AGENT_RATE_LIMIT_MULTIPLIER : MAX_CHALLENGES_PER_IP;
     const activeCount = await walletChallengeRepo.countActiveChallengesForIp(clientIp);
-    if (activeCount >= MAX_CHALLENGES_PER_IP) {
+    if (activeCount >= challengeIpLimit) {
       res.status(429).json({ error: "Too many pending challenges. Try again later." });
       return;
     }
@@ -251,7 +261,8 @@ router.post("/verify", async (req, res) => {
     }
 
     // Rate limit signature verification per IP (CPU-intensive ecrecover)
-    if (!checkVerifyRateLimit(clientIp)) {
+    const isAgentVerify = isVerifiedAgent(req);
+    if (!checkVerifyRateLimit(clientIp, isAgentVerify)) {
       res.status(429).json({ error: "Too many verification attempts. Try again later." });
       return;
     }
@@ -297,7 +308,7 @@ router.post("/verify", async (req, res) => {
 
     if (!user) {
       // Per-IP registration rate limit for wallet auth
-      if (!checkWalletRegistrationRateLimit(clientIp)) {
+      if (!checkWalletRegistrationRateLimit(clientIp, isAgentVerify)) {
         res.status(429).json({ error: "Too many new accounts from this IP. Try again later." });
         return;
       }
@@ -447,7 +458,8 @@ router.post("/link", requireAuth, async (req, res) => {
       res.status(400).json({ error: "Unable to determine client IP" });
       return;
     }
-    if (!checkLinkRateLimit(clientIp)) {
+    const isAgentLink = isVerifiedAgent(req);
+    if (!checkLinkRateLimit(clientIp, isAgentLink)) {
       res.status(429).json({ error: "Too many verification attempts. Try again later." });
       return;
     }

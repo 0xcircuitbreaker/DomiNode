@@ -33,11 +33,12 @@ import {
 } from "@dominusnode/shared";
 import { requireAuth, type AuthenticatedRequest } from "../middleware/auth.js";
 import { setAuthCookies, clearAuthCookies, getRefreshCookieName } from "../helpers/cookies.js";
-import { isVerifiedAgent } from "../helpers/agent-rate-limit.js";
+import { isVerifiedAgent, getAgentMultiplier } from "../helpers/agent-rate-limit.js";
 
 const router = Router();
 const log = createLogger("api:auth");
 
+const AGENT_RATE_LIMIT_MULTIPLIER = getAgentMultiplier();
 
 // Determine if the request is from the browser frontend (uses cookies, no tokens needed in body)
 const ALLOWED_ORIGINS = (process.env["CORS_ORIGINS"] ?? "http://localhost:5173")
@@ -62,13 +63,14 @@ const loginAttempts = new Map<string, { count: number; lockedUntil: number }>();
 const MAX_LOGIN_ATTEMPTS_PER_IP = 20; // 20 total login attempts per IP per 15 min
 const ipLoginAttempts = new Map<string, { count: number; windowStart: number }>();
 
-function checkIpLoginLimit(ip: string): string | null {
+function checkIpLoginLimit(ip: string, isAgent: boolean = false): string | null {
   const now = Date.now();
   const entry = ipLoginAttempts.get(ip);
   if (!entry || now - entry.windowStart > LOCKOUT_DURATION_MS) {
     return null; // window expired or new IP
   }
-  if (entry.count >= MAX_LOGIN_ATTEMPTS_PER_IP) {
+  const limit = isAgent ? MAX_LOGIN_ATTEMPTS_PER_IP * AGENT_RATE_LIMIT_MULTIPLIER : MAX_LOGIN_ATTEMPTS_PER_IP;
+  if (entry.count >= limit) {
     const remainSec = Math.ceil((entry.windowStart + LOCKOUT_DURATION_MS - now) / 1000);
     return `Too many login attempts from this IP. Try again in ${remainSec} seconds.`;
   }
@@ -94,8 +96,9 @@ const MAX_VERIFY_KEY_PER_IP = 10; // 10 attempts per IP per 5-min window
 const VERIFY_KEY_WINDOW_MS = 5 * 60 * 1000;
 const verifyKeyAttempts = new Map<string, { count: number; windowStart: number }>();
 
-function checkVerifyKeyRateLimit(ip: string): boolean {
+function checkVerifyKeyRateLimit(ip: string, isAgent: boolean = false): boolean {
   const now = Date.now();
+  const limit = isAgent ? MAX_VERIFY_KEY_PER_IP * AGENT_RATE_LIMIT_MULTIPLIER : MAX_VERIFY_KEY_PER_IP;
   const entry = verifyKeyAttempts.get(ip);
   if (!entry || now - entry.windowStart > VERIFY_KEY_WINDOW_MS) {
     if (verifyKeyAttempts.size >= MAX_LOCKOUT_MAP_SIZE) {
@@ -106,7 +109,7 @@ function checkVerifyKeyRateLimit(ip: string): boolean {
     return true;
   }
   entry.count++;
-  return entry.count <= MAX_VERIFY_KEY_PER_IP;
+  return entry.count <= limit;
 }
 
 // Periodic cleanup of expired IP login attempt entries (every 5 min)
@@ -133,30 +136,32 @@ function lockoutKey(ip: string, email: string): string {
   return `${ip}:${email}`;
 }
 
-function checkLoginLockout(ip: string, email: string): string | null {
+function checkLoginLockout(ip: string, email: string, isAgent: boolean = false): string | null {
   const key = lockoutKey(ip, email);
   const entry = loginAttempts.get(key);
   if (!entry) return null;
+  const limit = isAgent ? MAX_LOGIN_ATTEMPTS * AGENT_RATE_LIMIT_MULTIPLIER : MAX_LOGIN_ATTEMPTS;
   if (entry.lockedUntil > Date.now()) {
     const remainSec = Math.ceil((entry.lockedUntil - Date.now()) / 1000);
     return `Account temporarily locked. Try again in ${remainSec} seconds.`;
   }
-  if (entry.lockedUntil <= Date.now() && entry.count >= MAX_LOGIN_ATTEMPTS) {
+  if (entry.lockedUntil <= Date.now() && entry.count >= limit) {
     loginAttempts.delete(key);
   }
   return null;
 }
 
-function recordLoginFailure(ip: string, email: string): void {
+function recordLoginFailure(ip: string, email: string, isAgent: boolean = false): void {
   const key = lockoutKey(ip, email);
   // Evict oldest entries if map is too large
   if (loginAttempts.size >= MAX_LOCKOUT_MAP_SIZE) {
     const firstKey = loginAttempts.keys().next().value;
     if (firstKey) loginAttempts.delete(firstKey);
   }
+  const limit = isAgent ? MAX_LOGIN_ATTEMPTS * AGENT_RATE_LIMIT_MULTIPLIER : MAX_LOGIN_ATTEMPTS;
   const entry = loginAttempts.get(key) ?? { count: 0, lockedUntil: 0 };
   entry.count++;
-  if (entry.count >= MAX_LOGIN_ATTEMPTS) {
+  if (entry.count >= limit) {
     entry.lockedUntil = Date.now() + LOCKOUT_DURATION_MS;
     log.warn("login locked due to failed attempts", { email, count: entry.count });
   }
@@ -231,8 +236,9 @@ const REGISTRATION_WINDOW_MS = 60 * 60 * 1000; // 1 hour
 const MAX_REG_RATE_MAP_SIZE = 50_000;
 const registrationLog = new Map<string, number[]>(); // IP -> timestamps
 
-function checkRegistrationRateLimit(ip: string): boolean {
+function checkRegistrationRateLimit(ip: string, isAgent: boolean = false): boolean {
   const now = Date.now();
+  const limit = isAgent ? MAX_REGISTRATIONS_PER_IP * AGENT_RATE_LIMIT_MULTIPLIER : MAX_REGISTRATIONS_PER_IP;
   let timestamps = registrationLog.get(ip);
   if (!timestamps) {
     if (registrationLog.size >= MAX_REG_RATE_MAP_SIZE) {
@@ -245,7 +251,7 @@ function checkRegistrationRateLimit(ip: string): boolean {
   while (timestamps.length > 0 && timestamps[0] < now - REGISTRATION_WINDOW_MS) {
     timestamps.shift();
   }
-  if (timestamps.length >= MAX_REGISTRATIONS_PER_IP) {
+  if (timestamps.length >= limit) {
     return false;
   }
   timestamps.push(now);
@@ -311,7 +317,7 @@ router.post("/register", async (req, res) => {
 
     // Per-IP registration rate limit: 3 accounts per IP per hour
     const clientIp = req.ip ?? "unknown";
-    if (!checkRegistrationRateLimit(clientIp)) {
+    if (!checkRegistrationRateLimit(clientIp, isMcpAgentReg)) {
       res.status(429).json({ error: "Too many registrations from this IP. Please try again later." });
       return;
     }
@@ -456,14 +462,14 @@ router.post("/login", async (req, res) => {
     }
 
     // Per-IP global login limit (prevents credential stuffing across emails)
-    const ipLimitMsg = checkIpLoginLimit(clientIp);
+    const ipLimitMsg = checkIpLoginLimit(clientIp, isMcpAgentLogin);
     if (ipLimitMsg) {
       res.status(429).json({ error: ipLimitMsg });
       return;
     }
 
     // Check account lockout (keyed on IP+email to prevent DoS)
-    const lockoutMsg = checkLoginLockout(clientIp, email);
+    const lockoutMsg = checkLoginLockout(clientIp, email, isMcpAgentLogin);
     if (lockoutMsg) {
       res.status(429).json({ error: lockoutMsg });
       return;
@@ -471,7 +477,7 @@ router.post("/login", async (req, res) => {
 
     const user = await userRepo.findUserForAuth(email);
     if (!user) {
-      recordLoginFailure(clientIp, email);
+      recordLoginFailure(clientIp, email, isMcpAgentLogin);
       recordIpLoginAttempt(clientIp); // Track IP-wide attempts
       res.status(401).json({ error: "Invalid email or password" });
       return;
@@ -480,7 +486,7 @@ router.post("/login", async (req, res) => {
     // Check password BEFORE revealing account status (prevents enumeration)
     const valid = await verifyPassword(password, user.password_hash);
     if (!valid) {
-      recordLoginFailure(clientIp, email);
+      recordLoginFailure(clientIp, email, isMcpAgentLogin);
       recordIpLoginAttempt(clientIp); // Track IP-wide attempts
       res.status(401).json({ error: "Invalid email or password" });
       return;
@@ -655,7 +661,8 @@ router.post("/change-password", requireAuth, async (req, res) => {
     const clientIp = (req.ip ?? req.socket.remoteAddress ?? "").replace(/^::ffff:/, "");
 
     // Rate limit password change attempts to prevent brute force on current password
-    const lockoutMsg = checkLoginLockout(clientIp, email);
+    const isAgentChangePw = isVerifiedAgent(req);
+    const lockoutMsg = checkLoginLockout(clientIp, email, isAgentChangePw);
     if (lockoutMsg) {
       res.status(429).json({ error: lockoutMsg });
       return;
@@ -702,7 +709,7 @@ router.post("/change-password", requireAuth, async (req, res) => {
 
     const valid = await verifyPassword(currentPassword, user.password_hash);
     if (!valid) {
-      recordLoginFailure(clientIp, email); // Track failed password attempts
+      recordLoginFailure(clientIp, email, isAgentChangePw); // Track failed password attempts
       res.status(401).json({ error: "Current password is incorrect" });
       return;
     }
@@ -780,7 +787,8 @@ router.post("/verify-key", async (req, res) => {
   try {
     // Rate limit verify-key per IP to prevent brute force / timing oracle
     const clientIp = (req.ip ?? req.socket.remoteAddress ?? "").replace(/^::ffff:/, "");
-    if (!checkVerifyKeyRateLimit(clientIp)) {
+    const isAgentVerifyKey = isVerifiedAgent(req);
+    if (!checkVerifyKeyRateLimit(clientIp, isAgentVerifyKey)) {
       res.status(429).json({ valid: false, error: "Too many verification attempts. Try again later." });
       return;
     }
@@ -919,7 +927,8 @@ router.post("/mfa/verify", async (req, res) => {
   try {
     // Per-IP rate limiting for MFA verification (prevents distributed brute force)
     const clientIp = (req.ip ?? req.socket.remoteAddress ?? "").replace(/^::ffff:/, "");
-    const ipLimitMsg = checkIpLoginLimit(clientIp);
+    const isAgentMfa = isVerifiedAgent(req);
+    const ipLimitMsg = checkIpLoginLimit(clientIp, isAgentMfa);
     if (ipLimitMsg) {
       res.status(429).json({ error: ipLimitMsg });
       return;
