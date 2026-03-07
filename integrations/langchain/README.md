@@ -80,7 +80,7 @@ tools = toolkit.get_tools()
 
 # Get tools by name
 fetch_tool = next(t for t in tools if t.name == "dominusnode_proxied_fetch")
-balance_tool = next(t for t in tools if t.name == "dominusnode_balance")
+balance_tool = next(t for t in tools if t.name == "dominusnode_check_balance")
 
 # Check balance
 print(balance_tool.run({}))
@@ -119,19 +119,19 @@ Makes HTTP requests through the Dominus Node rotating proxy network.
 - `file://`, `ftp://`, and other non-HTTP schemes are rejected
 - URLs with embedded credentials are rejected
 
-### `dominusnode_balance`
+### `dominusnode_check_balance`
 
 Check your Dominus Node wallet balance. No input required.
 
 Returns the balance in both USD and cents.
 
-### `dominusnode_usage`
+### `dominusnode_check_usage`
 
 Check your Dominus Node proxy usage statistics. No input required.
 
 Returns total bandwidth used (GB), total cost, and request count.
 
-### `dominusnode_proxy_config`
+### `dominusnode_get_proxy_config`
 
 Get the Dominus Node proxy configuration. No input required.
 
@@ -149,7 +149,7 @@ async def main():
     toolkit = DominusNodeToolkit(api_key="dn_live_your_key")
     tools = toolkit.get_tools()
 
-    balance_tool = next(t for t in tools if t.name == "dominusnode_balance")
+    balance_tool = next(t for t in tools if t.name == "dominusnode_check_balance")
     fetch_tool = next(t for t in tools if t.name == "dominusnode_proxied_fetch")
 
     # Async balance check

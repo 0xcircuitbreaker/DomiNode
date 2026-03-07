@@ -1108,7 +1108,12 @@ def _run_superagi(api_key, api_base, proxy_host, proxy_port, target_url, proxy_t
     try:
         from dominusnode_superagi import DominusNodeToolkit
         tk = DominusNodeToolkit()
-        tools = {t.name: t for t in tk.get_tools()}
+        tools = {}
+        for t in tk.get_tools():
+            tools[t.name] = t
+            # Also index by snake_case: "Dominus Node Check Balance" -> "dominusnode_check_balance"
+            snake = t.name.lower().replace(" ", "_").replace("dominus_node_", "dominusnode_")
+            tools[snake] = t
     except ImportError:
         # SuperAGI framework not installed — inject stubs and load client
         import types

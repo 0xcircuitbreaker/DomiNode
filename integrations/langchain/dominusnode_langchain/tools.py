@@ -439,7 +439,7 @@ class DominusNodeBalanceTool(BaseTool):
     spend before making proxied requests.
     """
 
-    name: str = "dominusnode_balance"
+    name: str = "dominusnode_check_balance"
     description: str = (
         "Check your Dominus Node wallet balance. Returns the current balance "
         "in dollars and cents. No input required."
@@ -494,7 +494,7 @@ class DominusNodeUsageTool(BaseTool):
     cost, and request count.
     """
 
-    name: str = "dominusnode_usage"
+    name: str = "dominusnode_check_usage"
     description: str = (
         "Check your Dominus Node proxy usage statistics. Returns total bandwidth "
         "used (in GB), total cost, and request count. No input required."
@@ -608,8 +608,6 @@ class TopupStripeInput(BaseModel):
     """Input schema for the Dominus Node Stripe top-up tool."""
 
     amount_cents: int = Field(
-        ge=500,
-        le=100000,
         description="Amount in cents to top up via Stripe (min 500 = $5, max 100000 = $1,000).",
     )
 
@@ -664,8 +662,6 @@ class TopupCryptoInput(BaseModel):
     """Input schema for the Dominus Node crypto top-up tool."""
 
     amount_usd: float = Field(
-        ge=5,
-        le=1000,
         description="Amount in USD to top up with cryptocurrency (min 5, max 1000).",
     )
     currency: str = Field(
@@ -750,7 +746,7 @@ class DominusNodeProxyConfigTool(BaseTool):
     and available geo-targeting features.
     """
 
-    name: str = "dominusnode_proxy_config"
+    name: str = "dominusnode_get_proxy_config"
     description: str = (
         "Get the Dominus Node proxy configuration including supported countries, "
         "proxy endpoints, and geo-targeting capabilities. No input required."
@@ -2003,7 +1999,7 @@ def _validate_team_id(team_id: Any) -> Optional[str]:
 class DominusNodeProxyStatusTool(BaseTool):
     """Get live proxy network status."""
 
-    name: str = "dominusnode_proxy_status"
+    name: str = "dominusnode_get_proxy_status"
     description: str = (
         "Get live proxy network status including latency, active session count, "
         "and uptime. No input required."
@@ -2227,7 +2223,7 @@ class DominusNodeCheckPaymentTool(BaseTool):
 class DominusNodeDailyUsageTool(BaseTool):
     """Get daily bandwidth breakdown."""
 
-    name: str = "dominusnode_daily_usage"
+    name: str = "dominusnode_get_daily_usage"
     description: str = "Get daily bandwidth breakdown. Input: optional days (1-90, default 7)."
     args_schema: Type[BaseModel] = GetDailyUsageInput
     api_key: Optional[str] = None
@@ -2285,7 +2281,7 @@ class DominusNodeDailyUsageTool(BaseTool):
 class DominusNodeTopHostsTool(BaseTool):
     """Get top target hosts by bandwidth."""
 
-    name: str = "dominusnode_top_hosts"
+    name: str = "dominusnode_get_top_hosts"
     description: str = "Get top target hosts by bandwidth usage. Input: optional limit (1-50), days (1-365)."
     args_schema: Type[BaseModel] = GetTopHostsInput
     api_key: Optional[str] = None
