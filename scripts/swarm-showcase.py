@@ -1101,135 +1101,14 @@ def _run_agent_zero(api_key, api_base, proxy_host, proxy_port, target_url, proxy
 
 
 def _run_superagi(api_key, api_base, proxy_host, proxy_port, target_url, proxy_type) -> dict:
-    os.environ["DOMINUSNODE_API_KEY"]    = api_key
-    os.environ["DOMINUSNODE_BASE_URL"]   = api_base
-    os.environ["DOMINUSNODE_PROXY_HOST"] = proxy_host
-    os.environ["DOMINUSNODE_PROXY_PORT"] = str(proxy_port)
-    try:
-        from dominusnode_superagi import DominusNodeToolkit
-        tk = DominusNodeToolkit()
-        tools = {}
-        for t in tk.get_tools():
-            tools[t.name] = t
-            # Also index by snake_case: "Dominus Node Check Balance" -> "dominusnode_check_balance"
-            snake = t.name.lower().replace(" ", "_").replace("dominus_node_", "dominusnode_")
-            tools[snake] = t
-    except ImportError:
-        # SuperAGI framework not installed — inject stubs and load client
-        import types
-        sa_mod = types.ModuleType("superagi")
-        sa_tools = types.ModuleType("superagi.tools")
-        sa_base = types.ModuleType("superagi.tools.base_tool")
-        sa_base.BaseTool = type("BaseTool", (), {})
-        sa_base.BaseToolkit = type("BaseToolkit", (), {})
-        sa_mod.tools = sa_tools
-        sa_tools.base_tool = sa_base
-        sys.modules.setdefault("superagi", sa_mod)
-        sys.modules.setdefault("superagi.tools", sa_tools)
-        sys.modules.setdefault("superagi.tools.base_tool", sa_base)
-        from dominusnode_superagi.tools import _DominusNodeClient
-        _DominusNodeClient.reset_instance()
-        client = _DominusNodeClient(
-            api_key=api_key, base_url=api_base,
-            proxy_host=proxy_host, proxy_port=proxy_port)
-        return _lifecycle_toolkit(client, target_url, proxy_type)
-
-    res: Dict[str, Any] = {}
-    ok = err = 0
-    categories: Dict[str, bool] = {}
-
-    def call(key, category, tool_name, **kw):
-        nonlocal ok, err
-        if tool_name not in tools:
-            res[key] = f"ERROR: tool {tool_name} not found"
-            err += 1
-            return ""
-        try:
-            r = tools[tool_name]._execute(**kw)
-            res[key] = str(r)[:500]
-            ok += 1
-            categories[category] = categories.get(category, True)
-            return str(r)
-        except Exception as e:
-            res[key] = f"ERROR: {scrub(str(e))[:200]}"
-            err += 1
-            if category not in categories:
-                categories[category] = False
-            return ""
-
-    call("account_info", "account", "dominusnode_get_account_info")
-    call("resend_verify", "account", "dominusnode_resend_verification")
-    call("balance", "billing", "dominusnode_check_balance")
-    call("transactions", "billing", "dominusnode_get_transactions")
-    call("forecast", "billing", "dominusnode_get_forecast")
-    call("topup_paypal", "billing", "dominusnode_topup_paypal", amount_cents=100)
-    call("topup_stripe", "billing", "dominusnode_topup_stripe", amount_cents=100)
-    call("topup_crypto", "billing", "dominusnode_topup_crypto",
-         amount_usd=1.0, currency="BTC")
-    call("x402_info", "billing", "dominusnode_x402_info")
-    call("fetch", "proxy", "dominusnode_proxied_fetch",
-         url=target_url, country="US", proxy_type=proxy_type)
-    call("proxy_config", "proxy", "dominusnode_get_proxy_config")
-    call("proxy_status", "proxy", "dominusnode_get_proxy_status")
-    call("sessions", "proxy", "dominusnode_list_sessions")
-    call("usage", "usage", "dominusnode_check_usage")
-    call("daily_usage", "usage", "dominusnode_get_daily_usage")
-    call("top_hosts", "usage", "dominusnode_get_top_hosts")
-    call("list_keys", "keys", "dominusnode_list_keys")
-    kr = call("create_key", "keys", "dominusnode_create_key", label="showcase-key")
-    kid = _extract_uuid(kr)
-    if kid:
-        call("revoke_key", "keys", "dominusnode_revoke_key", key_id=kid)
-    call("get_plan", "plans", "dominusnode_get_plan")
-    call("list_plans", "plans", "dominusnode_list_plans")
-    wr = call("create_wallet", "wallets", "dominusnode_create_agentic_wallet",
-              label="showcase-wallet", spending_limit_cents=10000)
-    wid = _extract_uuid(wr)
-    if wid:
-        call("fund_wallet", "wallets", "dominusnode_fund_agentic_wallet",
-             wallet_id=wid, amount_cents=100)
-        call("wallet_balance", "wallets", "dominusnode_agentic_wallet_balance",
-             wallet_id=wid)
-        call("list_wallets", "wallets", "dominusnode_list_agentic_wallets")
-        call("wallet_txns", "wallets", "dominusnode_agentic_transactions", wallet_id=wid)
-        call("wallet_policy", "wallets", "dominusnode_update_wallet_policy",
-             wallet_id=wid, daily_limit_cents=5000)
-        call("freeze_wallet", "wallets", "dominusnode_freeze_agentic_wallet",
-             wallet_id=wid)
-        call("unfreeze_wallet", "wallets", "dominusnode_unfreeze_agentic_wallet",
-             wallet_id=wid)
-        call("delete_wallet", "wallets", "dominusnode_delete_agentic_wallet",
-             wallet_id=wid)
-    tr = call("create_team", "teams", "dominusnode_create_team", name="showcase-team")
-    tid = _extract_uuid(tr)
-    if tid:
-        call("list_teams", "teams", "dominusnode_list_teams")
-        call("team_details", "teams", "dominusnode_team_details", team_id=tid)
-        call("update_team", "teams", "dominusnode_update_team",
-             team_id=tid, name="updated-showcase")
-        call("team_fund", "teams", "dominusnode_team_fund",
-             team_id=tid, amount_cents=50)
-        tkr = call("team_create_key", "teams", "dominusnode_team_create_key",
-                   team_id=tid, label="team-key")
-        tkid = _extract_uuid(tkr)
-        call("team_list_keys", "teams", "dominusnode_team_list_keys", team_id=tid)
-        call("team_usage", "teams", "dominusnode_team_usage", team_id=tid)
-        call("team_members", "teams", "dominusnode_team_list_members", team_id=tid)
-        ir = call("team_invite", "teams", "dominusnode_team_invite_member",
-                  team_id=tid, email="invite-test@dominusnode.bot")
-        iid = _extract_uuid(ir)
-        call("team_invites", "teams", "dominusnode_team_list_invites", team_id=tid)
-        if iid:
-            call("team_cancel_invite", "teams", "dominusnode_team_cancel_invite",
-                 team_id=tid, invite_id=iid)
-        if tkid:
-            call("team_revoke_key", "teams", "dominusnode_team_revoke_key",
-                 team_id=tid, key_id=tkid)
-        call("team_delete", "teams", "dominusnode_team_delete", team_id=tid)
-
-    res["_stats"] = {"ok": ok, "err": err, "total": ok + err}
-    res["_categories"] = categories
-    return res
+    # Use the internal _DominusNodeClient directly — it has the full lifecycle
+    # methods and doesn't require the SuperAGI framework runtime (get_tool_config).
+    from dominusnode_superagi.tools import _DominusNodeClient
+    _DominusNodeClient.reset_instance()
+    client = _DominusNodeClient(
+        api_key=api_key, base_url=api_base,
+        proxy_host=proxy_host, proxy_port=proxy_port)
+    return _lifecycle_toolkit(client, target_url, proxy_type)
 
 
 def _run_dify(api_key, api_base, proxy_host, proxy_port, target_url, proxy_type) -> dict:
