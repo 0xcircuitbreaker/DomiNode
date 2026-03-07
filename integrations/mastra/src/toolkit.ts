@@ -623,132 +623,147 @@ export class DominusNodeToolkit {
     method: string = "GET",
     country?: string,
     proxyType: string = "dc",
-  ): Promise<{ status: number; headers: Record<string, string>; body: string; pool: string; country: string }> {
-    const parsedUrl = validateTargetUrl(url);
-    await checkDnsRebinding(parsedUrl.hostname);
-    const validCountry = validateCountry(country);
+  ): Promise<{ status: number; headers: Record<string, string>; body: string; bytes: number; pool: string; country: string; error?: string }> {
+    try {
+      const parsedUrl = validateTargetUrl(url);
+      await checkDnsRebinding(parsedUrl.hostname);
+      const validCountry = validateCountry(country);
 
-    const ALLOWED_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
-    const methodUpper = method.toUpperCase();
-    if (!ALLOWED_METHODS.has(methodUpper)) {
-      throw new Error(`HTTP method "${methodUpper}" is not allowed. Only GET, HEAD, and OPTIONS are permitted.`);
-    }
+      const ALLOWED_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
+      const methodUpper = method.toUpperCase();
+      if (!ALLOWED_METHODS.has(methodUpper)) {
+        return { status: 0, headers: {}, body: "", bytes: 0, pool: proxyType, country: country ?? "auto", error: `HTTP method "${methodUpper}" is not allowed. Only GET, HEAD, and OPTIONS are permitted.` };
+      }
 
-    const apiKey = this.getApiKey();
-    const parts: string[] = [];
-    if (proxyType && proxyType !== "auto") parts.push(proxyType);
-    if (validCountry) parts.push(`country-${validCountry.toUpperCase()}`);
-    const username = parts.length > 0 ? parts.join("-") : "auto";
-    const proxyAuth = "Basic " + Buffer.from(`${username}:${apiKey}`).toString("base64");
+      const apiKey = this.getApiKey();
+      const parts: string[] = [];
+      if (proxyType && proxyType !== "auto") parts.push(proxyType);
+      if (validCountry) parts.push(`country-${validCountry.toUpperCase()}`);
+      const username = parts.length > 0 ? parts.join("-") : "auto";
+      const proxyAuth = "Basic " + Buffer.from(`${username}:${apiKey}`).toString("base64");
 
-    const parsed = new URL(url);
-    const MAX_RESP = 1_048_576; // 1MB
+      const parsed = new URL(url);
+      const MAX_RESP = 1_048_576; // 1MB
 
-    const result = await new Promise<{ status: number; headers: Record<string, string>; body: string }>((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error("Proxy request timed out")), REQUEST_TIMEOUT_MS);
+      const result = await new Promise<{ status: number; headers: Record<string, string>; body: string; bytes: number }>((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error("Proxy request timed out")), REQUEST_TIMEOUT_MS);
 
-      if (parsed.protocol === "https:") {
-        const connectHost = parsed.hostname.includes(":") ? `[${parsed.hostname}]` : parsed.hostname;
-        const connectReq = http.request({
-          hostname: this.proxyHost,
-          port: this.proxyPort,
-          method: "CONNECT",
-          path: `${connectHost}:${parsed.port || 443}`,
-          headers: { "Proxy-Authorization": proxyAuth, Host: `${connectHost}:${parsed.port || 443}` },
-        });
-        connectReq.on("connect", (_res, sock) => {
-          if (_res.statusCode !== 200) {
-            clearTimeout(timer);
-            sock.destroy();
-            reject(new Error(`CONNECT failed: ${_res.statusCode}`));
-            return;
-          }
-          const tlsSock = tls.connect(
-            { host: parsed.hostname, socket: sock as net.Socket, servername: parsed.hostname, minVersion: "TLSv1.2" },
-            () => {
-              const reqLine = `${methodUpper} ${parsed.pathname + parsed.search} HTTP/1.1\r\nHost: ${parsed.host}\r\nUser-Agent: dominusnode-mastra/1.0.0\r\nConnection: close\r\n\r\n`;
-              tlsSock.write(reqLine);
+        if (parsed.protocol === "https:") {
+          const connectHost = parsed.hostname.includes(":") ? `[${parsed.hostname}]` : parsed.hostname;
+          const connectReq = http.request({
+            hostname: this.proxyHost,
+            port: this.proxyPort,
+            method: "CONNECT",
+            path: `${connectHost}:${parsed.port || 443}`,
+            headers: { "Proxy-Authorization": proxyAuth, Host: `${connectHost}:${parsed.port || 443}` },
+          });
+          connectReq.on("connect", (_res, sock) => {
+            if (_res.statusCode !== 200) {
+              clearTimeout(timer);
+              sock.destroy();
+              reject(new Error(`CONNECT failed: ${_res.statusCode}`));
+              return;
+            }
+            const tlsSock = tls.connect(
+              { host: parsed.hostname, socket: sock as net.Socket, servername: parsed.hostname, minVersion: "TLSv1.2" },
+              () => {
+                const reqLine = `${methodUpper} ${parsed.pathname + parsed.search} HTTP/1.1\r\nHost: ${parsed.host}\r\nUser-Agent: dominusnode-mastra/1.0.0\r\nConnection: close\r\n\r\n`;
+                tlsSock.write(reqLine);
+                const chunks: Buffer[] = [];
+                let bytes = 0;
+                tlsSock.on("data", (c: Buffer) => {
+                  bytes += c.length;
+                  if (bytes <= MAX_RESP + 16384) chunks.push(c);
+                });
+                let done = false;
+                const fin = () => {
+                  if (done) return;
+                  done = true;
+                  clearTimeout(timer);
+                  const raw = Buffer.concat(chunks).toString("utf-8");
+                  const hEnd = raw.indexOf("\r\n\r\n");
+                  if (hEnd === -1) {
+                    reject(new Error("Malformed response"));
+                    return;
+                  }
+                  const hdr = raw.substring(0, hEnd);
+                  const body = raw.substring(hEnd + 4).substring(0, MAX_RESP);
+                  const bodyBytes = new TextEncoder().encode(body).length;
+                  const sm = hdr.split("\r\n")[0].match(/^HTTP\/\d\.\d\s+(\d+)/);
+                  const hdrs: Record<string, string> = {};
+                  for (const l of hdr.split("\r\n").slice(1)) {
+                    const ci = l.indexOf(":");
+                    if (ci > 0) hdrs[l.substring(0, ci).trim().toLowerCase()] = l.substring(ci + 1).trim();
+                  }
+                  resolve({ status: sm ? parseInt(sm[1], 10) : 0, headers: hdrs, body, bytes: bodyBytes });
+                };
+                tlsSock.on("end", fin);
+                tlsSock.on("close", fin);
+                tlsSock.on("error", (e) => { clearTimeout(timer); reject(e); });
+              },
+            );
+            tlsSock.on("error", (e) => { clearTimeout(timer); reject(e); });
+          });
+          connectReq.on("error", (e) => { clearTimeout(timer); reject(e); });
+          connectReq.end();
+        } else {
+          const req = http.request(
+            {
+              hostname: this.proxyHost,
+              port: this.proxyPort,
+              method: methodUpper,
+              path: url,
+              headers: { "Proxy-Authorization": proxyAuth, Host: parsed.host ?? "" },
+            },
+            (res) => {
               const chunks: Buffer[] = [];
               let bytes = 0;
-              tlsSock.on("data", (c: Buffer) => {
+              res.on("data", (c: Buffer) => {
                 bytes += c.length;
-                if (bytes <= MAX_RESP + 16384) chunks.push(c);
+                if (bytes <= MAX_RESP) chunks.push(c);
               });
               let done = false;
               const fin = () => {
                 if (done) return;
                 done = true;
                 clearTimeout(timer);
-                const raw = Buffer.concat(chunks).toString("utf-8");
-                const hEnd = raw.indexOf("\r\n\r\n");
-                if (hEnd === -1) {
-                  reject(new Error("Malformed response"));
-                  return;
-                }
-                const hdr = raw.substring(0, hEnd);
-                const body = raw.substring(hEnd + 4).substring(0, MAX_RESP);
-                const sm = hdr.split("\r\n")[0].match(/^HTTP\/\d\.\d\s+(\d+)/);
+                const body = Buffer.concat(chunks).toString("utf-8").substring(0, MAX_RESP);
+                const bodyBytes = new TextEncoder().encode(body).length;
                 const hdrs: Record<string, string> = {};
-                for (const l of hdr.split("\r\n").slice(1)) {
-                  const ci = l.indexOf(":");
-                  if (ci > 0) hdrs[l.substring(0, ci).trim().toLowerCase()] = l.substring(ci + 1).trim();
+                for (const [k, v] of Object.entries(res.headers)) {
+                  if (v) hdrs[k] = Array.isArray(v) ? v.join(", ") : v;
                 }
-                resolve({ status: sm ? parseInt(sm[1], 10) : 0, headers: hdrs, body });
+                resolve({ status: res.statusCode ?? 0, headers: hdrs, body, bytes: bodyBytes });
               };
-              tlsSock.on("end", fin);
-              tlsSock.on("close", fin);
-              tlsSock.on("error", (e) => { clearTimeout(timer); reject(e); });
+              res.on("end", fin);
+              res.on("close", fin);
+              res.on("error", (e) => { clearTimeout(timer); reject(e); });
             },
           );
-          tlsSock.on("error", (e) => { clearTimeout(timer); reject(e); });
-        });
-        connectReq.on("error", (e) => { clearTimeout(timer); reject(e); });
-        connectReq.end();
-      } else {
-        const req = http.request(
-          {
-            hostname: this.proxyHost,
-            port: this.proxyPort,
-            method: methodUpper,
-            path: url,
-            headers: { "Proxy-Authorization": proxyAuth, Host: parsed.host ?? "" },
-          },
-          (res) => {
-            const chunks: Buffer[] = [];
-            let bytes = 0;
-            res.on("data", (c: Buffer) => {
-              bytes += c.length;
-              if (bytes <= MAX_RESP) chunks.push(c);
-            });
-            let done = false;
-            const fin = () => {
-              if (done) return;
-              done = true;
-              clearTimeout(timer);
-              const body = Buffer.concat(chunks).toString("utf-8").substring(0, MAX_RESP);
-              const hdrs: Record<string, string> = {};
-              for (const [k, v] of Object.entries(res.headers)) {
-                if (v) hdrs[k] = Array.isArray(v) ? v.join(", ") : v;
-              }
-              resolve({ status: res.statusCode ?? 0, headers: hdrs, body });
-            };
-            res.on("end", fin);
-            res.on("close", fin);
-            res.on("error", (e) => { clearTimeout(timer); reject(e); });
-          },
-        );
-        req.on("error", (e) => { clearTimeout(timer); reject(e); });
-        req.end();
-      }
-    });
+          req.on("error", (e) => { clearTimeout(timer); reject(e); });
+          req.end();
+        }
+      });
 
-    return {
-      status: result.status,
-      headers: result.headers,
-      body: truncate(scrubCredentials(result.body)),
-      pool: proxyType,
-      country: validCountry ?? "auto",
-    };
+      return {
+        status: result.status,
+        headers: result.headers,
+        body: truncate(scrubCredentials(result.body)),
+        bytes: result.bytes,
+        pool: proxyType,
+        country: validCountry ?? "auto",
+      };
+    } catch (err) {
+      return {
+        status: 0,
+        headers: {},
+        body: "",
+        bytes: 0,
+        pool: proxyType,
+        country: country ?? "auto",
+        error: safeError(err),
+      };
+    }
   }
 
   async checkBalance(): Promise<{ balanceCents: number; balanceUsd: number; dcGbRemaining: string; resGbRemaining: string }> {
@@ -1227,16 +1242,13 @@ export class DominusNodeToolkit {
           status: z.number(),
           headers: z.record(z.string()),
           body: z.string(),
+          bytes: z.number(),
           pool: z.string(),
           country: z.string(),
           error: z.string().optional(),
         }),
         execute: async ({ context }: { context: any }) => {
-          try {
-            return await this.proxiedFetch(context.url, context.method, context.country, context.proxyType);
-          } catch (err) {
-            return { status: 0, headers: {}, body: "", pool: context.proxyType ?? "dc", country: context.country ?? "auto", error: safeError(err) };
-          }
+          return await this.proxiedFetch(context.url, context.method, context.country, context.proxyType);
         },
       }),
 
