@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: dominusnode-pydanticai
-Version: 1.1.0
+Version: 1.2.0
 Summary: Dominus Node rotating proxy tools for PydanticAI agents
 License: MIT
 Requires-Python: >=3.9
@@ -15,7 +15,7 @@ Dynamic: license-file
 
 # dominusnode-pydanticai
 
-PydanticAI tools for the [Dominus Node](https://dominusnode.com) rotating proxy-as-a-service platform. Provides 22 tool functions for proxy management, wallet operations, team administration, and payment processing -- designed for direct registration with PydanticAI agents.
+PydanticAI tools for the [Dominus Node](https://dominusnode.com) rotating proxy-as-a-service platform. Provides 53 tool functions covering proxy management, wallet operations, usage analytics, account lifecycle, API keys, plans, agentic wallets, team administration, and payment processing -- designed for direct registration with PydanticAI agents.
 
 ## Installation
 
@@ -84,26 +84,71 @@ wallet = toolkit.create_agentic_wallet(label="Agent", spending_limit_cents=1000)
 print(wallet)
 ```
 
-## Tools (22 total)
+## Tools (53 total)
 
-### Proxy Tools
+### Proxy Tools (3)
 
 | Tool | Description | Required Parameters |
 |------|-------------|-------------------|
 | `proxied_fetch` | Fetch URL through rotating proxy | `url` |
 | `get_proxy_config` | Get proxy configuration | - |
+| `get_proxy_status` | Get proxy gateway status | - |
+
+### Sessions (1)
+
+| Tool | Description | Required Parameters |
+|------|-------------|-------------------|
 | `list_sessions` | List active proxy sessions | - |
 
-### Wallet Tools
+### Wallet Tools (8)
 
 | Tool | Description | Required Parameters |
 |------|-------------|-------------------|
 | `check_balance` | Check wallet balance | - |
-| `check_usage` | Check usage statistics | - |
+| `get_transactions` | Get wallet transaction history | - |
+| `get_forecast` | Get spending forecast | - |
 | `topup_paypal` | Create PayPal top-up order | `amount_cents` |
+| `topup_stripe` | Create Stripe checkout session | `amount_cents` |
+| `topup_crypto` | Create crypto payment invoice | `amount_usd`, `currency` |
+| `check_payment` | Check crypto payment status | `invoice_id` |
 | `x402_info` | Get x402 micropayment info | - |
 
-### Agentic Wallet Tools
+### Usage Tools (3)
+
+| Tool | Description | Required Parameters |
+|------|-------------|-------------------|
+| `check_usage` | Check usage statistics | - |
+| `get_daily_usage` | Get daily bandwidth breakdown | - |
+| `get_top_hosts` | Get top hosts by bandwidth | - |
+
+### Account Tools (6)
+
+| Tool | Description | Required Parameters |
+|------|-------------|-------------------|
+| `register` | Register a new account | `email`, `password` |
+| `login` | Log in to an account | `email`, `password` |
+| `get_account_info` | Get account profile info | - |
+| `verify_email` | Verify email with token | `token` |
+| `resend_verification` | Resend verification email | - |
+| `update_password` | Change account password | `current_password`, `new_password` |
+
+### API Key Tools (3)
+
+| Tool | Description | Required Parameters |
+|------|-------------|-------------------|
+| `list_keys` | List personal API keys | - |
+| `create_key` | Create a new API key | `label` |
+| `revoke_key` | Revoke an API key | `key_id` |
+
+### Plan Tools (3)
+
+| Tool | Description | Required Parameters |
+|------|-------------|-------------------|
+| `get_plan` | Get current subscription plan | - |
+| `list_plans` | List available plans | - |
+| `change_plan` | Change subscription plan | `plan_id` |
+
+### Agentic Wallet Tools (9)
 
 | Tool | Description | Required Parameters |
 |------|-------------|-------------------|
@@ -115,8 +160,9 @@ print(wallet)
 | `freeze_agentic_wallet` | Freeze agentic wallet | `wallet_id` |
 | `unfreeze_agentic_wallet` | Unfreeze agentic wallet | `wallet_id` |
 | `delete_agentic_wallet` | Delete agentic wallet | `wallet_id` |
+| `update_wallet_policy` | Update agentic wallet policy | `wallet_id` |
 
-### Team Tools
+### Team Tools (17)
 
 | Tool | Description | Required Parameters |
 |------|-------------|-------------------|
@@ -125,9 +171,18 @@ print(wallet)
 | `team_details` | Get team details | `team_id` |
 | `team_fund` | Fund team wallet | `team_id`, `amount_cents` |
 | `team_create_key` | Create team API key | `team_id`, `label` |
+| `team_revoke_key` | Revoke team API key | `team_id`, `key_id` |
+| `team_list_keys` | List team API keys | `team_id` |
 | `team_usage` | Get team usage history | `team_id` |
 | `update_team` | Update team settings | `team_id` |
 | `update_team_member_role` | Change member role | `team_id`, `user_id`, `role` |
+| `team_list_members` | List team members | `team_id` |
+| `team_add_member` | Add member to team | `team_id`, `user_id` |
+| `team_remove_member` | Remove member from team | `team_id`, `user_id` |
+| `team_invite_member` | Invite user by email | `team_id`, `email` |
+| `team_list_invites` | List pending invitations | `team_id` |
+| `team_cancel_invite` | Cancel pending invitation | `team_id`, `invite_id` |
+| `delete_team` | Delete a team | `team_id` |
 
 ## Usage Examples
 
@@ -200,7 +255,7 @@ agent = Agent(
     system_prompt="You are a proxy management assistant.",
 )
 
-# The agent can now use all 22 Dominus Node tools
+# The agent can now use all 53 Dominus Node tools
 result = agent.run_sync("Fetch https://httpbin.org/ip through a US proxy")
 print(result.data)
 

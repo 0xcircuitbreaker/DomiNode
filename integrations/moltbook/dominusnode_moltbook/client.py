@@ -1267,6 +1267,71 @@ class MoltbookClient:
             return json.dumps({"error": _sanitize_error(str(e))})
 
     # ==================================================================
+    # Dominus Node Tool 4b: proxied_fetch
+    # ==================================================================
+
+    def proxied_fetch(
+        self,
+        url: str,
+        country: str = "US",
+        proxy_type: str = "dc",
+    ) -> str:
+        """Fetch a URL through Dominus Node's rotating proxy gateway.
+
+        Routes the request through the proxy gateway using HTTP CONNECT for
+        HTTPS URLs and full-URL path for HTTP URLs.  Only GET requests are
+        supported.
+
+        Args:
+            url: Target URL to fetch (http or https).
+            country: ISO 3166-1 alpha-2 country code for geo-targeting.
+            proxy_type: Proxy pool type -- ``dc`` (datacenter, $3/GB) or
+                ``residential`` ($5/GB).
+
+        Returns:
+            JSON string with ``status``, ``body`` (truncated to 4000 chars),
+            and ``bytes`` keys.
+        """
+        try:
+            validated = validate_url(url)
+        except ValueError as e:
+            return json.dumps({"error": str(e)})
+
+        if country and country.upper() in SANCTIONED_COUNTRIES:
+            return json.dumps({"error": f"Country '{country.upper()}' is blocked (OFAC sanctioned)"})
+
+        if proxy_type not in ("dc", "residential"):
+            return json.dumps({"error": "proxy_type must be 'dc' or 'residential'"})
+
+        try:
+            parts = []
+            if proxy_type and proxy_type != "auto":
+                parts.append(proxy_type)
+            if country:
+                parts.append(f"country-{country.upper()}")
+            username = "-".join(parts) if parts else "auto"
+
+            with httpx.Client(
+                proxy=f"http://{username}:{self.dominusnode_api_key}@{self.proxy_host}:{self.proxy_port}",
+                timeout=self.timeout,
+                follow_redirects=False,
+            ) as client:
+                resp = client.get(validated)
+
+            body_bytes = len(resp.content)
+            if body_bytes > 10 * 1024 * 1024:
+                return json.dumps({"error": "Response too large (exceeds 10MB limit)"})
+
+            body_text = resp.text[:4000]
+            return json.dumps({
+                "status": resp.status_code,
+                "body": body_text,
+                "bytes": body_bytes,
+            })
+        except Exception as e:
+            return json.dumps({"error": _sanitize_error(str(e))})
+
+    # ==================================================================
     # Dominus Node Tool 5: create_agentic_wallet
     # ==================================================================
 

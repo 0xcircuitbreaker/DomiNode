@@ -46,7 +46,11 @@ from urllib.parse import quote, urlparse
 
 import httpx
 from pydantic import BaseModel, Field
-from superagi.tools.base_tool import BaseTool
+
+try:
+    from superagi.tools.base_tool import BaseTool
+except ImportError:
+    from pydantic import BaseModel as BaseTool  # Standalone mode
 
 # ---------------------------------------------------------------------------
 # SSRF Prevention -- blocked hostnames

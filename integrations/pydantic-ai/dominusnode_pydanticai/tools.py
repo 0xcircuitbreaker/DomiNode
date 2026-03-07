@@ -2056,6 +2056,9 @@ class DominusNodeToolkit:
         except Exception as e:
             return {"error": _sanitize_error(str(e))}
 
+    # Alias for naming consistency with other integrations
+    team_delete = delete_team
+
     # ==================================================================
     # Tool 46: team_revoke_key
     # ==================================================================

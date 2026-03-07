@@ -31,9 +31,6 @@ from langchain_core.callbacks import (
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field
 
-from dominusnode import AsyncDominusNodeClient, DominusNodeClient
-from dominusnode.types import ProxyUrlOptions
-
 # ──────────────────────────────────────────────────────────────────────
 # Constants
 # ──────────────────────────────────────────────────────────────────────
@@ -302,11 +299,27 @@ class DominusNodeProxiedFetchTool(BaseTool):
     )
     args_schema: Type[BaseModel] = ProxiedFetchInput
 
-    # Client instances -- set after construction via toolkit
+    api_key: Optional[str] = None
+    base_url: Optional[str] = None
+    proxy_host: Optional[str] = None
+    proxy_port: int = 8080
+    agent_secret: Optional[str] = None
+    # Legacy SDK client fields (kept for backward compat)
     sync_client: Optional[Any] = None
     async_client: Optional[Any] = None
 
     model_config = {"arbitrary_types_allowed": True}
+
+    def _build_proxy_url(self, country: Optional[str], proxy_type: str) -> str:
+        parts = []
+        if proxy_type and proxy_type != "auto":
+            parts.append(proxy_type)
+        if country:
+            parts.append(f"country-{country.upper()}")
+        username = "-".join(parts) if parts else "auto"
+        host = self.proxy_host or os.environ.get("DOMINUSNODE_PROXY_HOST", "localhost")
+        port = self.proxy_port
+        return f"http://{username}:{self.api_key}@{host}:{port}"
 
     def _run(
         self,
@@ -316,7 +329,6 @@ class DominusNodeProxiedFetchTool(BaseTool):
         proxy_type: str = "dc",
         run_manager: Optional[CallbackManagerForToolRun] = None,
     ) -> str:
-        """Execute the tool synchronously."""
         try:
             validated_url = _validate_url(url)
         except ValueError as exc:
@@ -329,19 +341,17 @@ class DominusNodeProxiedFetchTool(BaseTool):
                 f"Permitted methods: {', '.join(sorted(_ALLOWED_METHODS))}."
             )
 
-        # OFAC sanctioned country check
         if country and country.upper() in _SANCTIONED_COUNTRIES:
             return f"Error: Country '{country.upper()}' is blocked (OFAC sanctioned)"
 
         if proxy_type not in ("dc", "residential"):
             return "Error: proxy_type must be 'dc' or 'residential'."
 
-        if self.sync_client is None:
-            return "Error: No Dominus Node client configured. Initialize the toolkit first."
+        if not self.api_key:
+            return "Error: No Dominus Node API key configured."
 
         try:
-            options = ProxyUrlOptions(country=country, proxy_type=proxy_type)
-            proxy_url = self.sync_client.proxy.build_url(options)
+            proxy_url = self._build_proxy_url(country, proxy_type)
 
             with httpx.Client(
                 proxy=proxy_url,
@@ -350,13 +360,6 @@ class DominusNodeProxiedFetchTool(BaseTool):
             ) as http_client:
                 response = http_client.request(method_upper, validated_url)
 
-            # Response body size cap (H-9)
-            content_length = response.headers.get("content-length", "0")
-            try:
-                if int(content_length) > _MAX_RESPONSE_BODY_BYTES:
-                    return "Error: Response too large (exceeds 10MB limit)"
-            except ValueError:
-                pass
             if len(response.content) > _MAX_RESPONSE_BODY_BYTES:
                 return "Error: Response too large (exceeds 10MB limit)"
 
@@ -395,21 +398,17 @@ class DominusNodeProxiedFetchTool(BaseTool):
                 f"Permitted methods: {', '.join(sorted(_ALLOWED_METHODS))}."
             )
 
-        # OFAC sanctioned country check
         if country and country.upper() in _SANCTIONED_COUNTRIES:
             return f"Error: Country '{country.upper()}' is blocked (OFAC sanctioned)"
 
         if proxy_type not in ("dc", "residential"):
             return "Error: proxy_type must be 'dc' or 'residential'."
 
-        if self.async_client is None and self.sync_client is None:
-            return "Error: No Dominus Node client configured. Initialize the toolkit first."
+        if not self.api_key:
+            return "Error: No Dominus Node API key configured."
 
         try:
-            # build_url is synchronous even on the async client
-            client_for_url = self.async_client or self.sync_client
-            options = ProxyUrlOptions(country=country, proxy_type=proxy_type)
-            proxy_url = client_for_url.proxy.build_url(options)
+            proxy_url = self._build_proxy_url(country, proxy_type)
 
             async with httpx.AsyncClient(
                 proxy=proxy_url,
@@ -418,13 +417,6 @@ class DominusNodeProxiedFetchTool(BaseTool):
             ) as http_client:
                 response = await http_client.request(method_upper, validated_url)
 
-            # Response body size cap (H-9)
-            content_length = response.headers.get("content-length", "0")
-            try:
-                if int(content_length) > _MAX_RESPONSE_BODY_BYTES:
-                    return "Error: Response too large (exceeds 10MB limit)"
-            except ValueError:
-                pass
             if len(response.content) > _MAX_RESPONSE_BODY_BYTES:
                 return "Error: Response too large (exceeds 10MB limit)"
 
@@ -457,6 +449,10 @@ class DominusNodeBalanceTool(BaseTool):
     )
     args_schema: Type[BaseModel] = EmptyInput
 
+    api_key: Optional[str] = None
+    base_url: Optional[str] = None
+    agent_secret: Optional[str] = None
+    # Legacy SDK client fields (kept for backward compat)
     sync_client: Optional[Any] = None
     async_client: Optional[Any] = None
 
@@ -466,13 +462,15 @@ class DominusNodeBalanceTool(BaseTool):
         self,
         run_manager: Optional[CallbackManagerForToolRun] = None,
     ) -> str:
-        if self.sync_client is None:
-            return "Error: No Dominus Node client configured. Initialize the toolkit first."
+        if not self.api_key or not self.base_url:
+            return "Error: No Dominus Node API credentials configured."
         try:
-            wallet = self.sync_client.wallet.get_balance()
+            data = _api_request_sync(self.base_url, self.api_key, "GET", "/api/wallet/balance", agent_secret=self.agent_secret)
+            cents = data.get("balanceCents", data.get("balance_cents", 0))
+            usd = cents / 100
             return (
-                f"Balance: ${wallet.balance_usd:.2f} ({wallet.balance_cents} cents)\n"
-                f"Currency: {wallet.currency}"
+                f"Balance: ${usd:.2f} ({cents} cents)\n"
+                f"Currency: USD"
             )
         except Exception as exc:
             return f"Error: {_sanitize_error(str(exc))}"
@@ -481,20 +479,18 @@ class DominusNodeBalanceTool(BaseTool):
         self,
         run_manager: Optional[AsyncCallbackManagerForToolRun] = None,
     ) -> str:
-        if self.async_client is not None:
-            try:
-                wallet = await self.async_client.wallet.get_balance()
-                return (
-                    f"Balance: ${wallet.balance_usd:.2f} ({wallet.balance_cents} cents)\n"
-                    f"Currency: {wallet.currency}"
-                )
-            except Exception as exc:
-                return f"Error: {_sanitize_error(str(exc))}"
-
-        if self.sync_client is not None:
-            return self._run()
-
-        return "Error: No Dominus Node client configured. Initialize the toolkit first."
+        if not self.api_key or not self.base_url:
+            return "Error: No Dominus Node API credentials configured."
+        try:
+            data = await _api_request_async(self.base_url, self.api_key, "GET", "/api/wallet/balance", agent_secret=self.agent_secret)
+            cents = data.get("balanceCents", data.get("balance_cents", 0))
+            usd = cents / 100
+            return (
+                f"Balance: ${usd:.2f} ({cents} cents)\n"
+                f"Currency: USD"
+            )
+        except Exception as exc:
+            return f"Error: {_sanitize_error(str(exc))}"
 
 
 class DominusNodeUsageTool(BaseTool):
@@ -511,6 +507,9 @@ class DominusNodeUsageTool(BaseTool):
     )
     args_schema: Type[BaseModel] = EmptyInput
 
+    api_key: Optional[str] = None
+    base_url: Optional[str] = None
+    agent_secret: Optional[str] = None
     sync_client: Optional[Any] = None
     async_client: Optional[Any] = None
 
@@ -520,17 +519,20 @@ class DominusNodeUsageTool(BaseTool):
         self,
         run_manager: Optional[CallbackManagerForToolRun] = None,
     ) -> str:
-        if self.sync_client is None:
-            return "Error: No Dominus Node client configured. Initialize the toolkit first."
+        if not self.api_key or not self.base_url:
+            return "Error: No Dominus Node API credentials configured."
         try:
-            usage_resp = self.sync_client.usage.get()
-            s = usage_resp.summary
+            data = _api_request_sync(self.base_url, self.api_key, "GET", "/api/usage", agent_secret=self.agent_secret)
+            s = data.get("summary", data)
+            total_bytes = s.get("totalBytes", s.get("total_bytes", 0))
+            total_gb = total_bytes / (1024 ** 3)
+            cost_cents = s.get("totalCostCents", s.get("total_cost_cents", 0))
+            requests = s.get("requestCount", s.get("request_count", 0))
             return (
                 f"Usage Summary:\n"
-                f"  Total Data: {s.total_gb:.4f} GB ({s.total_bytes:,} bytes)\n"
-                f"  Total Cost: ${s.total_cost_usd:.2f} ({s.total_cost_cents} cents)\n"
-                f"  Requests: {s.request_count:,}\n"
-                f"Period: {usage_resp.period.since} to {usage_resp.period.until}"
+                f"  Total Data: {total_gb:.4f} GB ({total_bytes:,} bytes)\n"
+                f"  Total Cost: ${cost_cents / 100:.2f} ({cost_cents} cents)\n"
+                f"  Requests: {requests:,}"
             )
         except Exception as exc:
             return f"Error: {_sanitize_error(str(exc))}"
@@ -539,24 +541,23 @@ class DominusNodeUsageTool(BaseTool):
         self,
         run_manager: Optional[AsyncCallbackManagerForToolRun] = None,
     ) -> str:
-        if self.async_client is not None:
-            try:
-                usage_resp = await self.async_client.usage.get()
-                s = usage_resp.summary
-                return (
-                    f"Usage Summary:\n"
-                    f"  Total Data: {s.total_gb:.4f} GB ({s.total_bytes:,} bytes)\n"
-                    f"  Total Cost: ${s.total_cost_usd:.2f} ({s.total_cost_cents} cents)\n"
-                    f"  Requests: {s.request_count:,}\n"
-                    f"Period: {usage_resp.period.since} to {usage_resp.period.until}"
-                )
-            except Exception as exc:
-                return f"Error: {_sanitize_error(str(exc))}"
-
-        if self.sync_client is not None:
-            return self._run()
-
-        return "Error: No Dominus Node client configured. Initialize the toolkit first."
+        if not self.api_key or not self.base_url:
+            return "Error: No Dominus Node API credentials configured."
+        try:
+            data = await _api_request_async(self.base_url, self.api_key, "GET", "/api/usage", agent_secret=self.agent_secret)
+            s = data.get("summary", data)
+            total_bytes = s.get("totalBytes", s.get("total_bytes", 0))
+            total_gb = total_bytes / (1024 ** 3)
+            cost_cents = s.get("totalCostCents", s.get("total_cost_cents", 0))
+            requests = s.get("requestCount", s.get("request_count", 0))
+            return (
+                f"Usage Summary:\n"
+                f"  Total Data: {total_gb:.4f} GB ({total_bytes:,} bytes)\n"
+                f"  Total Cost: ${cost_cents / 100:.2f} ({cost_cents} cents)\n"
+                f"  Requests: {requests:,}"
+            )
+        except Exception as exc:
+            return f"Error: {_sanitize_error(str(exc))}"
 
 
 class TopupPaypalInput(BaseModel):
@@ -582,59 +583,35 @@ class DominusNodeTopupPaypalTool(BaseTool):
     )
     args_schema: Type[BaseModel] = TopupPaypalInput
 
+    api_key: Optional[str] = None
+    base_url: Optional[str] = None
+    agent_secret: Optional[str] = None
     sync_client: Optional[Any] = None
     async_client: Optional[Any] = None
 
     model_config = {"arbitrary_types_allowed": True}
 
-    def _run(
-        self,
-        amount_cents: int,
-        run_manager: Optional[CallbackManagerForToolRun] = None,
-    ) -> str:
-        if self.sync_client is None:
-            return "Error: No Dominus Node client configured. Initialize the toolkit first."
-
+    def _run(self, amount_cents: int, run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
+        if not self.api_key or not self.base_url:
+            return "Error: No Dominus Node API credentials configured."
         if not isinstance(amount_cents, int) or amount_cents < 500 or amount_cents > 100000:
             return "Error: amount_cents must be an integer between 500 ($5) and 100000 ($1,000)."
-
         try:
-            result = self.sync_client.wallet.topup_paypal(amount_cents=amount_cents)
-            return (
-                f"PayPal Top-Up Order Created\n"
-                f"Order ID: {result.order_id}\n"
-                f"Amount: ${amount_cents / 100:.2f}\n"
-                f"Approval URL: {result.approval_url}\n\n"
-                f"Open the approval URL in a browser to complete payment."
-            )
+            data = _api_request_sync(self.base_url, self.api_key, "POST", "/api/billing/paypal/create-order", body={"amountCents": amount_cents}, agent_secret=self.agent_secret)
+            return f"PayPal Top-Up Order Created\nOrder ID: {data.get('orderId', '?')}\nAmount: ${amount_cents / 100:.2f}\nApproval URL: {data.get('approvalUrl', '?')}\n\nOpen the approval URL in a browser to complete payment."
         except Exception as exc:
             return f"Error: {_sanitize_error(str(exc))}"
 
-    async def _arun(
-        self,
-        amount_cents: int,
-        run_manager: Optional[AsyncCallbackManagerForToolRun] = None,
-    ) -> str:
+    async def _arun(self, amount_cents: int, run_manager: Optional[AsyncCallbackManagerForToolRun] = None) -> str:
+        if not self.api_key or not self.base_url:
+            return "Error: No Dominus Node API credentials configured."
         if not isinstance(amount_cents, int) or amount_cents < 500 or amount_cents > 100000:
             return "Error: amount_cents must be an integer between 500 ($5) and 100000 ($1,000)."
-
-        if self.async_client is not None:
-            try:
-                result = await self.async_client.wallet.topup_paypal(amount_cents=amount_cents)
-                return (
-                    f"PayPal Top-Up Order Created\n"
-                    f"Order ID: {result.order_id}\n"
-                    f"Amount: ${amount_cents / 100:.2f}\n"
-                    f"Approval URL: {result.approval_url}\n\n"
-                    f"Open the approval URL in a browser to complete payment."
-                )
-            except Exception as exc:
-                return f"Error: {_sanitize_error(str(exc))}"
-
-        if self.sync_client is not None:
-            return self._run(amount_cents=amount_cents)
-
-        return "Error: No Dominus Node client configured. Initialize the toolkit first."
+        try:
+            data = await _api_request_async(self.base_url, self.api_key, "POST", "/api/billing/paypal/create-order", body={"amountCents": amount_cents}, agent_secret=self.agent_secret)
+            return f"PayPal Top-Up Order Created\nOrder ID: {data.get('orderId', '?')}\nAmount: ${amount_cents / 100:.2f}\nApproval URL: {data.get('approvalUrl', '?')}\n\nOpen the approval URL in a browser to complete payment."
+        except Exception as exc:
+            return f"Error: {_sanitize_error(str(exc))}"
 
 
 class TopupStripeInput(BaseModel):
@@ -664,59 +641,35 @@ class DominusNodeTopupStripeTool(BaseTool):
     )
     args_schema: Type[BaseModel] = TopupStripeInput
 
+    api_key: Optional[str] = None
+    base_url: Optional[str] = None
+    agent_secret: Optional[str] = None
     sync_client: Optional[Any] = None
     async_client: Optional[Any] = None
 
     model_config = {"arbitrary_types_allowed": True}
 
-    def _run(
-        self,
-        amount_cents: int,
-        run_manager: Optional[CallbackManagerForToolRun] = None,
-    ) -> str:
-        if self.sync_client is None:
-            return "Error: No Dominus Node client configured. Initialize the toolkit first."
-
+    def _run(self, amount_cents: int, run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
+        if not self.api_key or not self.base_url:
+            return "Error: No Dominus Node API credentials configured."
         if not isinstance(amount_cents, int) or amount_cents < 500 or amount_cents > 100000:
             return "Error: amount_cents must be an integer between 500 ($5) and 100000 ($1,000)."
-
         try:
-            result = self.sync_client.wallet.topup_stripe(amount_cents=amount_cents)
-            return (
-                f"Stripe Checkout Session Created\n"
-                f"Session ID: {result.session_id}\n"
-                f"Amount: ${amount_cents / 100:.2f}\n"
-                f"Checkout URL: {result.url}\n\n"
-                f"Open the checkout URL in a browser to complete payment."
-            )
+            data = _api_request_sync(self.base_url, self.api_key, "POST", "/api/billing/stripe/create-session", body={"amountCents": amount_cents}, agent_secret=self.agent_secret)
+            return f"Stripe Checkout Session Created\nSession ID: {data.get('sessionId', '?')}\nAmount: ${amount_cents / 100:.2f}\nCheckout URL: {data.get('url', '?')}\n\nOpen the checkout URL in a browser to complete payment."
         except Exception as exc:
             return f"Error: {_sanitize_error(str(exc))}"
 
-    async def _arun(
-        self,
-        amount_cents: int,
-        run_manager: Optional[AsyncCallbackManagerForToolRun] = None,
-    ) -> str:
+    async def _arun(self, amount_cents: int, run_manager: Optional[AsyncCallbackManagerForToolRun] = None) -> str:
+        if not self.api_key or not self.base_url:
+            return "Error: No Dominus Node API credentials configured."
         if not isinstance(amount_cents, int) or amount_cents < 500 or amount_cents > 100000:
             return "Error: amount_cents must be an integer between 500 ($5) and 100000 ($1,000)."
-
-        if self.async_client is not None:
-            try:
-                result = await self.async_client.wallet.topup_stripe(amount_cents=amount_cents)
-                return (
-                    f"Stripe Checkout Session Created\n"
-                    f"Session ID: {result.session_id}\n"
-                    f"Amount: ${amount_cents / 100:.2f}\n"
-                    f"Checkout URL: {result.url}\n\n"
-                    f"Open the checkout URL in a browser to complete payment."
-                )
-            except Exception as exc:
-                return f"Error: {_sanitize_error(str(exc))}"
-
-        if self.sync_client is not None:
-            return self._run(amount_cents=amount_cents)
-
-        return "Error: No Dominus Node client configured. Initialize the toolkit first."
+        try:
+            data = await _api_request_async(self.base_url, self.api_key, "POST", "/api/billing/stripe/create-session", body={"amountCents": amount_cents}, agent_secret=self.agent_secret)
+            return f"Stripe Checkout Session Created\nSession ID: {data.get('sessionId', '?')}\nAmount: ${amount_cents / 100:.2f}\nCheckout URL: {data.get('url', '?')}\n\nOpen the checkout URL in a browser to complete payment."
+        except Exception as exc:
+            return f"Error: {_sanitize_error(str(exc))}"
 
 
 class TopupCryptoInput(BaseModel):
@@ -753,6 +706,9 @@ class DominusNodeTopupCryptoTool(BaseTool):
     )
     args_schema: Type[BaseModel] = TopupCryptoInput
 
+    api_key: Optional[str] = None
+    base_url: Optional[str] = None
+    agent_secret: Optional[str] = None
     sync_client: Optional[Any] = None
     async_client: Optional[Any] = None
 
@@ -762,82 +718,43 @@ class DominusNodeTopupCryptoTool(BaseTool):
         "btc", "eth", "ltc", "xmr", "zec", "usdc", "sol", "usdt", "dai", "bnb", "link",
     })
 
-    def _run(
-        self,
-        amount_usd: float,
-        currency: str,
-        run_manager: Optional[CallbackManagerForToolRun] = None,
-    ) -> str:
-        if self.sync_client is None:
-            return "Error: No Dominus Node client configured. Initialize the toolkit first."
-
+    def _validate_crypto_input(self, amount_usd: float, currency: str) -> Optional[str]:
         if not isinstance(amount_usd, (int, float)) or isinstance(amount_usd, bool):
             return "Error: amount_usd must be a number between 5 ($5) and 1000 ($1,000)."
-        if not math.isfinite(amount_usd):
+        if not math.isfinite(amount_usd) or amount_usd < 5 or amount_usd > 1000:
             return "Error: amount_usd must be a number between 5 ($5) and 1000 ($1,000)."
-        if amount_usd < 5 or amount_usd > 1000:
-            return "Error: amount_usd must be a number between 5 ($5) and 1000 ($1,000)."
-
         if not isinstance(currency, str) or currency.lower() not in self._VALID_CURRENCIES:
-            return (
-                f"Error: currency must be one of: "
-                f"{', '.join(sorted(self._VALID_CURRENCIES)).upper()}."
-            )
+            return f"Error: currency must be one of: {', '.join(sorted(self._VALID_CURRENCIES)).upper()}."
+        return None
 
+    def _format_crypto_result(self, data: dict, amount_usd: float) -> str:
+        return (f"Crypto Invoice Created\nInvoice ID: {data.get('invoiceId', data.get('invoice_id', '?'))}\n"
+                f"Amount: ${amount_usd:.2f}\nCurrency: {data.get('payCurrency', data.get('pay_currency', '?')).upper()}\n"
+                f"Payment URL: {data.get('invoiceUrl', data.get('invoice_url', '?'))}\n\nOpen the payment URL in a browser to complete payment.")
+
+    def _run(self, amount_usd: float, currency: str, run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
+        if not self.api_key or not self.base_url:
+            return "Error: No Dominus Node API credentials configured."
+        err = self._validate_crypto_input(amount_usd, currency)
+        if err:
+            return err
         try:
-            result = self.sync_client.wallet.topup_crypto(
-                amount_usd=amount_usd, currency=currency.lower(),
-            )
-            return (
-                f"Crypto Invoice Created\n"
-                f"Invoice ID: {result.invoice_id}\n"
-                f"Amount: ${amount_usd:.2f}\n"
-                f"Currency: {result.pay_currency.upper()}\n"
-                f"Payment URL: {result.invoice_url}\n\n"
-                f"Open the payment URL in a browser to complete payment."
-            )
+            data = _api_request_sync(self.base_url, self.api_key, "POST", "/api/billing/crypto/create-invoice", body={"amountUsd": amount_usd, "currency": currency.lower()}, agent_secret=self.agent_secret)
+            return self._format_crypto_result(data, amount_usd)
         except Exception as exc:
             return f"Error: {_sanitize_error(str(exc))}"
 
-    async def _arun(
-        self,
-        amount_usd: float,
-        currency: str,
-        run_manager: Optional[AsyncCallbackManagerForToolRun] = None,
-    ) -> str:
-        if not isinstance(amount_usd, (int, float)) or isinstance(amount_usd, bool):
-            return "Error: amount_usd must be a number between 5 ($5) and 1000 ($1,000)."
-        if not math.isfinite(amount_usd):
-            return "Error: amount_usd must be a number between 5 ($5) and 1000 ($1,000)."
-        if amount_usd < 5 or amount_usd > 1000:
-            return "Error: amount_usd must be a number between 5 ($5) and 1000 ($1,000)."
-
-        if not isinstance(currency, str) or currency.lower() not in self._VALID_CURRENCIES:
-            return (
-                f"Error: currency must be one of: "
-                f"{', '.join(sorted(self._VALID_CURRENCIES)).upper()}."
-            )
-
-        if self.async_client is not None:
-            try:
-                result = await self.async_client.wallet.topup_crypto(
-                    amount_usd=amount_usd, currency=currency.lower(),
-                )
-                return (
-                    f"Crypto Invoice Created\n"
-                    f"Invoice ID: {result.invoice_id}\n"
-                    f"Amount: ${amount_usd:.2f}\n"
-                    f"Currency: {result.pay_currency.upper()}\n"
-                    f"Payment URL: {result.invoice_url}\n\n"
-                    f"Open the payment URL in a browser to complete payment."
-                )
-            except Exception as exc:
-                return f"Error: {_sanitize_error(str(exc))}"
-
-        if self.sync_client is not None:
-            return self._run(amount_usd=amount_usd, currency=currency)
-
-        return "Error: No Dominus Node client configured. Initialize the toolkit first."
+    async def _arun(self, amount_usd: float, currency: str, run_manager: Optional[AsyncCallbackManagerForToolRun] = None) -> str:
+        if not self.api_key or not self.base_url:
+            return "Error: No Dominus Node API credentials configured."
+        err = self._validate_crypto_input(amount_usd, currency)
+        if err:
+            return err
+        try:
+            data = await _api_request_async(self.base_url, self.api_key, "POST", "/api/billing/crypto/create-invoice", body={"amountUsd": amount_usd, "currency": currency.lower()}, agent_secret=self.agent_secret)
+            return self._format_crypto_result(data, amount_usd)
+        except Exception as exc:
+            return f"Error: {_sanitize_error(str(exc))}"
 
 
 class DominusNodeProxyConfigTool(BaseTool):
@@ -854,73 +771,37 @@ class DominusNodeProxyConfigTool(BaseTool):
     )
     args_schema: Type[BaseModel] = EmptyInput
 
+    api_key: Optional[str] = None
+    base_url: Optional[str] = None
+    agent_secret: Optional[str] = None
     sync_client: Optional[Any] = None
     async_client: Optional[Any] = None
 
     model_config = {"arbitrary_types_allowed": True}
 
-    def _run(
-        self,
-        run_manager: Optional[CallbackManagerForToolRun] = None,
-    ) -> str:
-        if self.sync_client is None:
-            return "Error: No Dominus Node client configured. Initialize the toolkit first."
+    def _run(self, run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
+        if not self.api_key or not self.base_url:
+            return "Error: No Dominus Node API credentials configured."
         try:
-            config = self.sync_client.proxy.get_config()
-            countries = ", ".join(config.supported_countries) if config.supported_countries else "none listed"
-            gt = config.geo_targeting
-            return (
-                f"Proxy Configuration:\n"
-                f"  HTTP Proxy: {config.http_proxy.host}:{config.http_proxy.port}\n"
-                f"  SOCKS5 Proxy: {config.socks5_proxy.host}:{config.socks5_proxy.port}\n"
-                f"  Supported Countries: {countries}\n"
-                f"  Blocked Countries: {', '.join(config.blocked_countries) if config.blocked_countries else 'none'}\n"
-                f"  Rotation Interval: {config.min_rotation_interval_minutes}-{config.max_rotation_interval_minutes} minutes\n"
-                f"Geo-Targeting Features:\n"
-                f"  State targeting: {'yes' if gt.state_support else 'no'}\n"
-                f"  City targeting: {'yes' if gt.city_support else 'no'}\n"
-                f"  ASN targeting: {'yes' if gt.asn_support else 'no'}"
-            )
+            data = _api_request_sync(self.base_url, self.api_key, "GET", "/api/proxy/config", agent_secret=self.agent_secret)
+            import json as _json
+            return f"Proxy Configuration:\n{_json.dumps(data, indent=2)[:MAX_RESPONSE_CHARS]}"
         except Exception as exc:
             return f"Error: {_sanitize_error(str(exc))}"
 
-    async def _arun(
-        self,
-        run_manager: Optional[AsyncCallbackManagerForToolRun] = None,
-    ) -> str:
-        if self.async_client is not None:
-            try:
-                config = await self.async_client.proxy.get_config()
-                countries = ", ".join(config.supported_countries) if config.supported_countries else "none listed"
-                gt = config.geo_targeting
-                return (
-                    f"Proxy Configuration:\n"
-                    f"  HTTP Proxy: {config.http_proxy.host}:{config.http_proxy.port}\n"
-                    f"  SOCKS5 Proxy: {config.socks5_proxy.host}:{config.socks5_proxy.port}\n"
-                    f"  Supported Countries: {countries}\n"
-                    f"  Blocked Countries: {', '.join(config.blocked_countries) if config.blocked_countries else 'none'}\n"
-                    f"  Rotation Interval: {config.min_rotation_interval_minutes}-{config.max_rotation_interval_minutes} minutes\n"
-                    f"Geo-Targeting Features:\n"
-                    f"  State targeting: {'yes' if gt.state_support else 'no'}\n"
-                    f"  City targeting: {'yes' if gt.city_support else 'no'}\n"
-                    f"  ASN targeting: {'yes' if gt.asn_support else 'no'}"
-                )
-            except Exception as exc:
-                return f"Error: {_sanitize_error(str(exc))}"
-
-        if self.sync_client is not None:
-            return self._run()
-
-        return "Error: No Dominus Node client configured. Initialize the toolkit first."
+    async def _arun(self, run_manager: Optional[AsyncCallbackManagerForToolRun] = None) -> str:
+        if not self.api_key or not self.base_url:
+            return "Error: No Dominus Node API credentials configured."
+        try:
+            data = await _api_request_async(self.base_url, self.api_key, "GET", "/api/proxy/config", agent_secret=self.agent_secret)
+            import json as _json
+            return f"Proxy Configuration:\n{_json.dumps(data, indent=2)[:MAX_RESPONSE_CHARS]}"
+        except Exception as exc:
+            return f"Error: {_sanitize_error(str(exc))}"
 
 
 class DominusNodeX402InfoTool(BaseTool):
-    """Get x402 micropayment protocol information.
-
-    Returns details about x402 HTTP 402 Payment Required protocol support
-    including facilitators, pricing, supported currencies, and payment options
-    for AI agent micropayments.
-    """
+    """Get x402 micropayment protocol information."""
 
     name: str = "dominusnode_x402_info"
     description: str = (
@@ -929,60 +810,33 @@ class DominusNodeX402InfoTool(BaseTool):
     )
     args_schema: Type[BaseModel] = EmptyInput
 
+    api_key: Optional[str] = None
+    base_url: Optional[str] = None
+    agent_secret: Optional[str] = None
     sync_client: Optional[Any] = None
     async_client: Optional[Any] = None
 
     model_config = {"arbitrary_types_allowed": True}
 
-    def _run(
-        self,
-        run_manager: Optional[CallbackManagerForToolRun] = None,
-    ) -> str:
-        if self.sync_client is None:
-            return "Error: No Dominus Node client configured. Initialize the toolkit first."
+    def _run(self, run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
+        if not self.api_key or not self.base_url:
+            return "Error: No Dominus Node API credentials configured."
         try:
-            info = self.sync_client.x402.get_info()
-            return (
-                f"x402 Protocol Information:\n"
-                f"  Supported: {info.supported}\n"
-                f"  Enabled: {info.enabled}\n"
-                f"  Protocol: {info.protocol}\n"
-                f"  Version: {info.version}\n"
-                f"  Currencies: {', '.join(info.currencies)}\n"
-                f"  Wallet Type: {info.wallet_type}\n"
-                f"  Agentic Wallets: {info.agentic_wallets}\n"
-                f"  Pricing: {info.pricing.per_request_cents} cents/request, "
-                f"{info.pricing.per_gb_cents} cents/GB ({info.pricing.currency})"
-            )
+            data = _api_request_sync(self.base_url, self.api_key, "GET", "/api/x402/info", agent_secret=self.agent_secret)
+            import json as _json
+            return f"x402 Protocol Information:\n{_json.dumps(data, indent=2)[:MAX_RESPONSE_CHARS]}"
         except Exception as exc:
             return f"Error: {_sanitize_error(str(exc))}"
 
-    async def _arun(
-        self,
-        run_manager: Optional[AsyncCallbackManagerForToolRun] = None,
-    ) -> str:
-        if self.async_client is not None:
-            try:
-                info = await self.async_client.x402.get_info()
-                return (
-                    f"x402 Protocol Information:\n"
-                    f"  Supported: {info.supported}\n"
-                    f"  Enabled: {info.enabled}\n"
-                    f"  Protocol: {info.protocol}\n"
-                    f"  Version: {info.version}\n"
-                    f"  Currencies: {', '.join(info.currencies)}\n"
-                    f"  Wallet Type: {info.wallet_type}\n"
-                    f"  Agentic Wallets: {info.agentic_wallets}\n"
-                    f"  Pricing: {info.pricing.per_request_cents} cents/request, "
-                    f"{info.pricing.per_gb_cents} cents/GB ({info.pricing.currency})"
-                )
-            except Exception as exc:
-                return f"Error: {_sanitize_error(str(exc))}"
-
-        if self.sync_client is not None:
-            return self._run()
-
-        return "Error: No Dominus Node client configured. Initialize the toolkit first."
+    async def _arun(self, run_manager: Optional[AsyncCallbackManagerForToolRun] = None) -> str:
+        if not self.api_key or not self.base_url:
+            return "Error: No Dominus Node API credentials configured."
+        try:
+            data = await _api_request_async(self.base_url, self.api_key, "GET", "/api/x402/info", agent_secret=self.agent_secret)
+            import json as _json
+            return f"x402 Protocol Information:\n{_json.dumps(data, indent=2)[:MAX_RESPONSE_CHARS]}"
+        except Exception as exc:
+            return f"Error: {_sanitize_error(str(exc))}"
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -2173,39 +2027,36 @@ class DominusNodeProxyStatusTool(BaseTool):
         "and uptime. No input required."
     )
     args_schema: Type[BaseModel] = GetProxyStatusInput
+    api_key: Optional[str] = None
+    base_url: Optional[str] = None
+    agent_secret: Optional[str] = None
     sync_client: Optional[Any] = None
     async_client: Optional[Any] = None
     model_config = {"arbitrary_types_allowed": True}
 
     def _run(self, run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
-        if self.sync_client is None:
-            return "Error: No Dominus Node client configured. Initialize the toolkit first."
+        if not self.api_key or not self.base_url:
+            return "Error: No Dominus Node API credentials configured."
         try:
-            status = self.sync_client.proxy.get_status()
-            return (
-                f"Proxy Status:\n  Status: {status.status}\n"
-                f"  Latency: {getattr(status, 'avg_latency_ms', 0)}ms\n"
-                f"  Active Sessions: {status.active_sessions}\n"
-                f"  Uptime: {getattr(status, 'uptime_seconds', 0)}s"
-            )
+            data = _api_request_sync(self.base_url, self.api_key, "GET", "/api/proxy/status", agent_secret=self.agent_secret)
+            return (f"Proxy Status:\n  Status: {data.get('status', '?')}\n"
+                    f"  Latency: {data.get('avgLatencyMs', data.get('avg_latency_ms', 0))}ms\n"
+                    f"  Active Sessions: {data.get('activeSessions', data.get('active_sessions', 0))}\n"
+                    f"  Uptime: {data.get('uptimeSeconds', data.get('uptime_seconds', 0))}s")
         except Exception as exc:
             return f"Error: {_sanitize_error(str(exc))}"
 
     async def _arun(self, run_manager: Optional[AsyncCallbackManagerForToolRun] = None) -> str:
-        if self.async_client is not None:
-            try:
-                status = await self.async_client.proxy.get_status()
-                return (
-                    f"Proxy Status:\n  Status: {status.status}\n"
-                    f"  Latency: {getattr(status, 'avg_latency_ms', 0)}ms\n"
-                    f"  Active Sessions: {status.active_sessions}\n"
-                    f"  Uptime: {getattr(status, 'uptime_seconds', 0)}s"
-                )
-            except Exception as exc:
-                return f"Error: {_sanitize_error(str(exc))}"
-        if self.sync_client is not None:
-            return self._run()
-        return "Error: No Dominus Node client configured."
+        if not self.api_key or not self.base_url:
+            return "Error: No Dominus Node API credentials configured."
+        try:
+            data = await _api_request_async(self.base_url, self.api_key, "GET", "/api/proxy/status", agent_secret=self.agent_secret)
+            return (f"Proxy Status:\n  Status: {data.get('status', '?')}\n"
+                    f"  Latency: {data.get('avgLatencyMs', data.get('avg_latency_ms', 0))}ms\n"
+                    f"  Active Sessions: {data.get('activeSessions', data.get('active_sessions', 0))}\n"
+                    f"  Uptime: {data.get('uptimeSeconds', data.get('uptime_seconds', 0))}s")
+        except Exception as exc:
+            return f"Error: {_sanitize_error(str(exc))}"
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -2219,41 +2070,46 @@ class DominusNodeListSessionsTool(BaseTool):
     name: str = "dominusnode_list_sessions"
     description: str = "List all active proxy sessions. No input required."
     args_schema: Type[BaseModel] = ListSessionsInput
+    api_key: Optional[str] = None
+    base_url: Optional[str] = None
+    agent_secret: Optional[str] = None
     sync_client: Optional[Any] = None
     async_client: Optional[Any] = None
     model_config = {"arbitrary_types_allowed": True}
 
     def _run(self, run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
-        if self.sync_client is None:
-            return "Error: No Dominus Node client configured. Initialize the toolkit first."
+        if not self.api_key or not self.base_url:
+            return "Error: No Dominus Node API credentials configured."
         try:
-            data = self.sync_client.sessions.list_active()
-            sessions = data.sessions if hasattr(data, 'sessions') else data
+            data = _api_request_sync(self.base_url, self.api_key, "GET", "/api/sessions/active", agent_secret=self.agent_secret)
+            sessions = data.get("sessions", data if isinstance(data, list) else [])
             if not sessions:
                 return "No active proxy sessions."
             lines = [f"Active Sessions ({len(sessions)}):"]
             for s in sessions:
-                lines.append(f"  {getattr(s, 'id', s)} | Status: {getattr(s, 'status', '?')} | Since: {getattr(s, 'started_at', '?')}")
+                sid = s.get("id", "?") if isinstance(s, dict) else str(s)
+                st = s.get("status", "?") if isinstance(s, dict) else "?"
+                lines.append(f"  {sid} | Status: {st}")
             return "\n".join(lines)
         except Exception as exc:
             return f"Error: {_sanitize_error(str(exc))}"
 
     async def _arun(self, run_manager: Optional[AsyncCallbackManagerForToolRun] = None) -> str:
-        if self.async_client is not None:
-            try:
-                data = await self.async_client.sessions.list_active()
-                sessions = data.sessions if hasattr(data, 'sessions') else data
-                if not sessions:
-                    return "No active proxy sessions."
-                lines = [f"Active Sessions ({len(sessions)}):"]
-                for s in sessions:
-                    lines.append(f"  {getattr(s, 'id', s)} | Status: {getattr(s, 'status', '?')} | Since: {getattr(s, 'started_at', '?')}")
-                return "\n".join(lines)
-            except Exception as exc:
-                return f"Error: {_sanitize_error(str(exc))}"
-        if self.sync_client is not None:
-            return self._run()
-        return "Error: No Dominus Node client configured."
+        if not self.api_key or not self.base_url:
+            return "Error: No Dominus Node API credentials configured."
+        try:
+            data = await _api_request_async(self.base_url, self.api_key, "GET", "/api/sessions/active", agent_secret=self.agent_secret)
+            sessions = data.get("sessions", data if isinstance(data, list) else [])
+            if not sessions:
+                return "No active proxy sessions."
+            lines = [f"Active Sessions ({len(sessions)}):"]
+            for s in sessions:
+                sid = s.get("id", "?") if isinstance(s, dict) else str(s)
+                st = s.get("status", "?") if isinstance(s, dict) else "?"
+                lines.append(f"  {sid} | Status: {st}")
+            return "\n".join(lines)
+        except Exception as exc:
+            return f"Error: {_sanitize_error(str(exc))}"
 
 
 # ──────────────────────────────────────────────────────────────────────

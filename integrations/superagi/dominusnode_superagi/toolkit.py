@@ -22,7 +22,10 @@ SuperAGI's tool configuration.
 
 from __future__ import annotations
 
-from superagi.tools.base_tool import BaseToolkit
+try:
+    from superagi.tools.base_tool import BaseToolkit
+except ImportError:
+    BaseToolkit = object  # Standalone mode — SuperAGI framework not installed
 
 from dominusnode_superagi.tools import (
     DominusNodeAccountInfoTool,

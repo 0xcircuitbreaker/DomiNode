@@ -22,8 +22,6 @@ from typing import List, Optional
 
 from langchain_core.tools import BaseTool, BaseToolkit
 
-from dominusnode import AsyncDominusNodeClient, DominusNodeClient
-
 from .tools import (
     # Proxy (3)
     DominusNodeProxiedFetchTool,
@@ -110,9 +108,6 @@ class DominusNodeToolkit(BaseToolkit):
         ValueError: If no API key is provided or found in environment.
     """
 
-    # Stored so tools can reference them; not exposed to LLM
-    _sync_client: Optional[DominusNodeClient] = None
-    _async_client: Optional[AsyncDominusNodeClient] = None
     _tools: Optional[List[BaseTool]] = None
 
     model_config = {"arbitrary_types_allowed": True}
@@ -143,49 +138,33 @@ class DominusNodeToolkit(BaseToolkit):
             "DOMINUSNODE_PROXY_HOST", "proxy.dominusnode.com"
         )
 
-        # Store credentials for direct REST API tools
         self._api_key = resolved_key
         self._base_url = resolved_base
         self._agent_secret = agent_secret or os.environ.get("DOMINUSNODE_AGENT_SECRET")
 
-        # Create sync client
-        self._sync_client = DominusNodeClient(
-            base_url=resolved_base,
-            api_key=resolved_key,
-            proxy_host=resolved_proxy_host,
-            http_proxy_port=http_proxy_port,
-            socks5_proxy_port=socks5_proxy_port,
-            agent_secret=self._agent_secret,
-        )
-
-        # Create async client (deferred connect -- will connect in __aenter__)
-        self._async_client = AsyncDominusNodeClient(
-            base_url=resolved_base,
-            api_key=resolved_key,
-            proxy_host=resolved_proxy_host,
-            http_proxy_port=http_proxy_port,
-            socks5_proxy_port=socks5_proxy_port,
-            agent_secret=self._agent_secret,
-        )
+        # Store proxy host/port for env-based tools
+        os.environ.setdefault("DOMINUSNODE_PROXY_HOST", resolved_proxy_host)
+        os.environ.setdefault("DOMINUSNODE_PROXY_PORT", str(http_proxy_port))
 
         # Build tools once
         self._tools = self._build_tools()
 
     def _build_tools(self) -> List[BaseTool]:
-        """Construct all 53 tool instances with injected clients."""
-        sc = self._sync_client
-        ac = self._async_client
+        """Construct all 53 tool instances with injected credentials."""
         _ak = self._api_key
         _bu = self._base_url
         _as = self._agent_secret
-
-        # Helper for SDK-client-based tools
-        def _sdk(cls: type) -> BaseTool:
-            return cls(sync_client=sc, async_client=ac)
+        _ph = os.environ.get("DOMINUSNODE_PROXY_HOST", "localhost")
+        _pp = int(os.environ.get("DOMINUSNODE_PROXY_PORT", "8080"))
 
         # Helper for REST-API-based tools (authenticated)
         def _rest(cls: type) -> BaseTool:
             return cls(api_key=_ak, base_url=_bu, agent_secret=_as)
+
+        # Helper for proxy tools that need proxy host/port
+        def _proxy(cls: type) -> BaseTool:
+            return cls(api_key=_ak, base_url=_bu, agent_secret=_as,
+                       proxy_host=_ph, proxy_port=_pp)
 
         # Helper for unauthenticated tools
         def _unauth(cls: type) -> BaseTool:
@@ -193,22 +172,22 @@ class DominusNodeToolkit(BaseToolkit):
 
         return [
             # Proxy (3)
-            _sdk(DominusNodeProxiedFetchTool),
-            _sdk(DominusNodeProxyConfigTool),
-            _sdk(DominusNodeProxyStatusTool),
+            _proxy(DominusNodeProxiedFetchTool),
+            _rest(DominusNodeProxyConfigTool),
+            _rest(DominusNodeProxyStatusTool),
             # Sessions (1)
-            _sdk(DominusNodeListSessionsTool),
+            _rest(DominusNodeListSessionsTool),
             # Wallet (8)
-            _sdk(DominusNodeBalanceTool),
+            _rest(DominusNodeBalanceTool),
             _rest(DominusNodeGetTransactionsTool),
             _rest(DominusNodeGetForecastTool),
-            _sdk(DominusNodeTopupPaypalTool),
-            _sdk(DominusNodeTopupStripeTool),
-            _sdk(DominusNodeTopupCryptoTool),
+            _rest(DominusNodeTopupPaypalTool),
+            _rest(DominusNodeTopupStripeTool),
+            _rest(DominusNodeTopupCryptoTool),
             _rest(DominusNodeCheckPaymentTool),
-            _sdk(DominusNodeX402InfoTool),
+            _rest(DominusNodeX402InfoTool),
             # Usage (3)
-            _sdk(DominusNodeUsageTool),
+            _rest(DominusNodeUsageTool),
             _rest(DominusNodeDailyUsageTool),
             _rest(DominusNodeTopHostsTool),
             # Account (6) -- register, login, verify_email are unauthenticated
@@ -263,11 +242,5 @@ class DominusNodeToolkit(BaseToolkit):
         return list(self._tools)
 
     def close(self) -> None:
-        """Close the underlying SDK clients and release resources."""
-        if self._sync_client is not None:
-            self._sync_client.close()
-            self._sync_client = None
-        if self._async_client is not None:
-            self._async_client.close()
-            self._async_client = None
+        """Release resources."""
         self._tools = None
