@@ -26,6 +26,7 @@ import x402Routes from "./routes/x402.js";
 import teamsRoutes from "./routes/teams.js";
 import bugReportRoutes from "./routes/bug-reports.js";
 import referralRoutes from "./routes/referrals.js";
+import agentSecretRoutes from "./routes/agent-secret.js";
 
 const log = createLogger("api:server");
 
@@ -231,6 +232,7 @@ export function startApiServer(port: number = 3000): ReturnType<express.Express[
   app.use("/api/teams", teamsRoutes);
   app.use("/api/bug-reports", bugReportRoutes);
   app.use("/api/referrals", referralRoutes);
+  app.use("/api/agent/secret", agentSecretRoutes);
 
   // RFC 9116: security.txt
   app.get("/.well-known/security.txt", (_req, res) => {

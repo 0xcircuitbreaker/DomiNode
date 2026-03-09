@@ -144,8 +144,8 @@ describe("MCP Server Integration", () => {
     expect(toolNames).toContain("dominusnode_agent_wallet_delete");
     expect(toolNames).toContain("dominusnode_update_wallet_policy");
 
-    // Total: 58 tools (54 + team_update + team_update_member_role + update_wallet_policy + change_plan)
-    expect(toolNames.length).toBe(58);
+    // Total: 59 tools (54 + team_update + team_update_member_role + update_wallet_policy + change_plan + create_agent_secret)
+    expect(toolNames.length).toBe(59);
   });
 
   it("registers only bootstrap tools when no API key", async () => {
@@ -180,7 +180,7 @@ describe("MCP Server Integration", () => {
     const tools = (server as any)._registeredTools;
     const toolNames = Object.keys(tools);
 
-    // account(7) + crypto(2, check_payment re-enabled) + wallet-auth(3) + slots(3) = 15
+    // account(8) + crypto(2, check_payment re-enabled) + wallet-auth(3) + slots(3) = 16
     expect(toolNames).toContain("dominusnode_get_account_info");
     expect(toolNames).toContain("dominusnode_register");
     expect(toolNames).toContain("dominusnode_login");
@@ -188,6 +188,7 @@ describe("MCP Server Integration", () => {
     expect(toolNames).toContain("dominusnode_update_password");
     expect(toolNames).toContain("dominusnode_verify_email");
     expect(toolNames).toContain("dominusnode_resend_verification");
+    expect(toolNames).toContain("dominusnode_create_agent_secret");
     expect(toolNames).toContain("dominusnode_pay_crypto");
     // check_payment re-enabled
     expect(toolNames).toContain("dominusnode_check_payment");
@@ -201,7 +202,7 @@ describe("MCP Server Integration", () => {
     expect(toolNames).toContain("dominusnode_check_slots");
     expect(toolNames).toContain("dominusnode_join_waitlist");
     expect(toolNames).toContain("dominusnode_get_waitlist_count");
-    expect(toolNames.length).toBe(15);
+    expect(toolNames.length).toBe(16);
   });
 
   it("tool error handling returns isError without throwing", async () => {

@@ -1035,3 +1035,55 @@ ON CONFLICT (table_name) DO NOTHING;
 INSERT INTO schema_migrations (version, description) VALUES
   ('1.5.0', 'Add referral codes, affiliate commissions, promo codes, loyalty tiers/rewards tables')
 ON CONFLICT (version) DO NOTHING;
+
+-- ─── Proof-of-Work Challenges ──────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS pow_challenges (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  prefix      TEXT NOT NULL,
+  difficulty  INTEGER NOT NULL DEFAULT 20
+              CHECK (difficulty >= 10 AND difficulty <= 32),
+  ip_address  TEXT NOT NULL
+              CHECK (length(ip_address) <= 45),
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  consumed    BOOLEAN NOT NULL DEFAULT false
+);
+
+-- Partial index for fast lookup of unconsumed challenges
+CREATE INDEX IF NOT EXISTS idx_pow_challenges_created
+  ON pow_challenges(created_at);
+CREATE INDEX IF NOT EXISTS idx_pow_challenges_ip_active
+  ON pow_challenges(ip_address) WHERE NOT consumed;
+
+ALTER TABLE pow_challenges ADD CONSTRAINT chk_pow_prefix_length
+  CHECK (length(prefix) >= 16 AND length(prefix) <= 128);
+
+-- ─── Per-Agent Secrets ─────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS agent_secrets (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  secret_hash TEXT NOT NULL
+              CHECK (length(secret_hash) = 64),
+  label       TEXT NOT NULL DEFAULT ''
+              CHECK (length(label) <= 100),
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  revoked_at  TIMESTAMPTZ,
+  last_used   TIMESTAMPTZ
+);
+
+-- Fast lookup by hash for per-request auth (only active secrets)
+CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_secrets_hash
+  ON agent_secrets(secret_hash) WHERE revoked_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_agent_secrets_user
+  ON agent_secrets(user_id);
+
+-- Retention policies for new tables
+INSERT INTO data_retention_policies (table_name, retention_days, description) VALUES
+  ('pow_challenges',  1, 'PoW challenges purged after 1 day'),
+  ('agent_secrets', 730, 'Agent secrets retained for 2 years')
+ON CONFLICT (table_name) DO NOTHING;
+
+INSERT INTO schema_migrations (version, description) VALUES
+  ('1.6.0', 'Add PoW challenges and per-agent secrets tables for autonomous AI agent registration')
+ON CONFLICT (version) DO NOTHING;

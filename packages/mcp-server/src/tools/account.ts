@@ -1,7 +1,64 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import * as crypto from "node:crypto";
 import { z } from "zod";
 import type { HttpClient } from "../http-client.js";
 import type { AccountInfo } from "../types.js";
+
+// ─── Proof-of-Work solver ──────────────────────────────────────────
+// Solves SHA-256 hash puzzles for CAPTCHA-free registration.
+// Difficulty 20 = ~1M hashes = ~2-5 seconds on modern CPU.
+interface PowChallenge {
+  challengeId: string;
+  prefix: string;
+  difficulty: number;
+  algorithm: string;
+  expiresAt: string;
+}
+
+function countLeadingZeroBits(buf: Buffer): number {
+  let bits = 0;
+  for (let i = 0; i < buf.length; i++) {
+    if (buf[i] === 0) {
+      bits += 8;
+    } else {
+      let byte = buf[i];
+      for (let b = 7; b >= 0; b--) {
+        if ((byte & (1 << b)) === 0) bits++;
+        else return bits;
+      }
+      return bits;
+    }
+  }
+  return bits;
+}
+
+function solvePoW(prefix: string, difficulty: number): string {
+  let nonce = 0;
+  while (nonce < 100_000_000) { // Hard cap to prevent infinite loop
+    const hash = crypto.createHash("sha256")
+      .update(prefix + nonce.toString())
+      .digest();
+    if (countLeadingZeroBits(hash) >= difficulty) {
+      return nonce.toString();
+    }
+    nonce++;
+  }
+  throw new Error("PoW solution not found within iteration limit");
+}
+
+/**
+ * Get a PoW challenge from the server and solve it.
+ * Returns the pow object to include in the registration request body.
+ */
+async function solveRegistrationPoW(httpClient: HttpClient): Promise<{ challengeId: string; nonce: string }> {
+  const challenge = await httpClient.post<PowChallenge>(
+    "/api/auth/pow/challenge",
+    {},
+    false, // bootstrap mode, no auth required
+  );
+  const nonce = solvePoW(challenge.prefix, challenge.difficulty);
+  return { challengeId: challenge.challengeId, nonce };
+}
 
 // Stricter rate limit for account creation in bootstrap mode.
 // The backend has per-IP limits (3 accounts/hour) but the MCP server should
@@ -83,9 +140,17 @@ export function registerAccountTools(server: McpServer, httpClient: HttpClient):
         if (!checkBootstrapSignupLimit()) {
           return { isError: true, content: [{ type: "text", text: "Account creation rate limit exceeded (max 5 per hour). Please try again later." }] };
         }
+        // Solve PoW for CAPTCHA-free registration (works with or without MCP_AGENT_SECRET)
+        let pow: { challengeId: string; nonce: string } | undefined;
+        try {
+          pow = await solveRegistrationPoW(httpClient);
+        } catch {
+          // PoW challenge fetch failed — proceed without it (will use MCP_AGENT_SECRET if available)
+        }
+
         const data = await httpClient.post<{ token: string; refreshToken: string; user: { id: string; email: string } }>(
           "/api/auth/register",
-          { email: args.email, password: args.password },
+          { email: args.email, password: args.password, ...(pow ? { pow } : {}) },
           false,
         );
         // Store tokens so subsequent authenticated calls work (bootstrap mode)
@@ -93,13 +158,13 @@ export function registerAccountTools(server: McpServer, httpClient: HttpClient):
           httpClient.storeTokens(data.token, data.refreshToken);
         }
 
-        // Email is auto-verified server-side for MCP agents (X-DominusNode-Agent header).
+        // Email is auto-verified server-side for MCP/PoW-verified agents.
         // Payments (crypto) are immediately available. Stripe requires browser checkout.
         const text = [
           `Account created successfully!`,
           `Email: ${data.user.email}`,
           `User ID: ${data.user.id}`,
-          `Email: auto-verified (MCP agent)`,
+          `Email: auto-verified (AI agent)`,
           ``,
           `You are now authenticated. Crypto payments enabled (11 currencies).`,
           `Next steps:`,
@@ -179,11 +244,19 @@ export function registerAccountTools(server: McpServer, httpClient: HttpClient):
         if (!checkBootstrapSignupLimit()) {
           return { isError: true, content: [{ type: "text", text: "Account creation rate limit exceeded (max 5 per hour). Please try again later." }] };
         }
-        // Step 1: Register
-        // Email is auto-verified server-side for MCP agents (X-DominusNode-Agent header)
+        // Step 1: Solve PoW for CAPTCHA-free registration
+        let pow: { challengeId: string; nonce: string } | undefined;
+        try {
+          pow = await solveRegistrationPoW(httpClient);
+        } catch {
+          // PoW challenge failed — proceed without it (will use MCP_AGENT_SECRET if available)
+        }
+
+        // Step 2: Register
+        // Email is auto-verified server-side for MCP/PoW-verified agents
         const reg = await httpClient.post<{ token: string; refreshToken: string; user: { id: string; email: string } }>(
           "/api/auth/register",
-          { email: args.email, password: args.password },
+          { email: args.email, password: args.password, ...(pow ? { pow } : {}) },
           false,
         );
 
@@ -373,6 +446,50 @@ export function registerAccountTools(server: McpServer, httpClient: HttpClient):
         return {
           content: [{ type: "text", text: data.message }],
         };
+      } catch (err) {
+        return {
+          isError: true,
+          content: [{ type: "text", text: `Error: ${err instanceof Error ? err.message : String(err)}` }],
+        };
+      }
+    },
+  );
+
+  server.tool(
+    "dominusnode_create_agent_secret",
+    "Generate a per-agent secret (das_xxx) for autonomous operation. The secret replaces MCP_AGENT_SECRET for this agent's subsequent requests — enables CAPTCHA bypass, email auto-verify, and elevated rate limits. Requires authentication. Save the returned secret — it is shown only once.",
+    {
+      label: z.string().max(100).default("mcp-agent").describe("Human-readable label for the agent secret"),
+    },
+    async (args) => {
+      try {
+        const data = await httpClient.post<{
+          id: string;
+          agentSecret: string;
+          label: string;
+          createdAt: string;
+        }>("/api/agent/secret", { label: args.label });
+
+        const text = [
+          `Agent secret created!`,
+          ``,
+          `Secret (save now — shown only once):`,
+          `  ${data.agentSecret}`,
+          ``,
+          `ID: ${data.id}`,
+          `Label: ${data.label}`,
+          ``,
+          `Usage:`,
+          `  Set DOMINUSNODE_AGENT_SECRET=${data.agentSecret} in your environment`,
+          `  Or pass as X-DominusNode-Agent-Secret header with X-DominusNode-Agent: mcp`,
+          ``,
+          `This secret is unique to your agent. It enables:`,
+          `  - CAPTCHA bypass on all endpoints`,
+          `  - Email auto-verification on registration`,
+          `  - Elevated rate limits`,
+          `  - Max 5 active secrets per account (oldest auto-revoked)`,
+        ].join("\n");
+        return { content: [{ type: "text", text }] };
       } catch (err) {
         return {
           isError: true,

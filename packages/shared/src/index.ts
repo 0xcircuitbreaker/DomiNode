@@ -109,6 +109,12 @@ export type {
   TeamStatus,
 } from "./types.js";
 
+export * as powChallengeRepo from "./repositories/pow-challenge-repo.js";
+export type { PowChallenge } from "./repositories/pow-challenge-repo.js";
+
+export * as agentSecretRepo from "./repositories/agent-secret-repo.js";
+export type { AgentSecret, GeneratedAgentSecret } from "./repositories/agent-secret-repo.js";
+
 export * as referralRepo from "./repositories/referral-repo.js";
 export type {
   ReferralCode,

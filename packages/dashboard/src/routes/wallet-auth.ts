@@ -25,7 +25,7 @@ import { recoverSignerAddress } from "../helpers/verify-signature.js";
 import { requireAuth, type AuthenticatedRequest } from "../middleware/auth.js";
 import { setAuthCookies } from "../helpers/cookies.js";
 
-import { isVerifiedAgent, getAgentMultiplier } from "../helpers/agent-rate-limit.js";
+import { isVerifiedAgent, isVerifiedAgentAsync, getAgentMultiplier } from "../helpers/agent-rate-limit.js";
 
 const router = Router();
 const log = createLogger("api:wallet-auth");
@@ -210,8 +210,8 @@ router.post("/challenge", async (req, res) => {
       return;
     }
 
-    // In-memory rate limit — verified MCP agents skip entirely
-    const isAgentChallenge = isVerifiedAgent(req);
+    // In-memory rate limit — verified MCP agents (global secret or per-agent das_) skip
+    const { verified: isAgentChallenge } = await isVerifiedAgentAsync(req);
     if (!isAgentChallenge && !checkChallengeRateLimit(clientIp)) {
       res.status(429).json({ error: "Too many challenge requests. Try again later." });
       return;

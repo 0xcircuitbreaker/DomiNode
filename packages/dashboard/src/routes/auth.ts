@@ -6,6 +6,7 @@ import {
   walletRepo,
   refreshTokenRepo,
   mfaRepo,
+  powChallengeRepo,
   hashPassword,
   verifyPassword,
   createTokenPair,
@@ -33,7 +34,7 @@ import {
 } from "@dominusnode/shared";
 import { requireAuth, type AuthenticatedRequest } from "../middleware/auth.js";
 import { setAuthCookies, clearAuthCookies, getRefreshCookieName } from "../helpers/cookies.js";
-import { isVerifiedAgent, getAgentMultiplier } from "../helpers/agent-rate-limit.js";
+import { isVerifiedAgent, isVerifiedAgentAsync, getAgentMultiplier } from "../helpers/agent-rate-limit.js";
 
 const router = Router();
 const log = createLogger("api:auth");
@@ -269,6 +270,108 @@ setInterval(() => {
   }
 }, 300_000).unref();
 
+// ─── Proof-of-Work challenge ─────────────────────────────────────
+// AI agents can solve PoW instead of CAPTCHA for autonomous registration.
+// Default difficulty 20 = ~1M hashes = ~2-5 seconds on a modern CPU.
+const _parsedPowDifficulty = parseInt(process.env["POW_DIFFICULTY"] ?? "20", 10);
+const POW_DIFFICULTY = Number.isFinite(_parsedPowDifficulty) && _parsedPowDifficulty >= 10 && _parsedPowDifficulty <= 32
+  ? _parsedPowDifficulty : 20;
+
+// Per-IP PoW challenge rate limit: 10 per minute
+const MAX_POW_CHALLENGES_PER_IP = 10;
+const POW_CHALLENGE_WINDOW_MS = 60_000;
+const MAX_POW_MAP_SIZE = 50_000;
+const powChallengeRateMap = new Map<string, number[]>();
+
+function checkPowChallengeRateLimit(ip: string): boolean {
+  const now = Date.now();
+  let timestamps = powChallengeRateMap.get(ip);
+  if (!timestamps) {
+    if (powChallengeRateMap.size >= MAX_POW_MAP_SIZE) {
+      const firstKey = powChallengeRateMap.keys().next().value;
+      if (firstKey) powChallengeRateMap.delete(firstKey);
+    }
+    timestamps = [];
+    powChallengeRateMap.set(ip, timestamps);
+  }
+  while (timestamps.length > 0 && timestamps[0] < now - POW_CHALLENGE_WINDOW_MS) {
+    timestamps.shift();
+  }
+  if (timestamps.length >= MAX_POW_CHALLENGES_PER_IP) return false;
+  timestamps.push(now);
+  return true;
+}
+
+// Cleanup PoW rate limit map every 5 min
+setInterval(() => {
+  const now = Date.now();
+  for (const [ip, ts] of powChallengeRateMap) {
+    while (ts.length > 0 && ts[0] < now - POW_CHALLENGE_WINDOW_MS) ts.shift();
+    if (ts.length === 0) powChallengeRateMap.delete(ip);
+  }
+}, 300_000).unref();
+
+/** Count the number of leading zero bits in a buffer */
+function countLeadingZeroBits(buf: Buffer): number {
+  let bits = 0;
+  for (let i = 0; i < buf.length; i++) {
+    if (buf[i] === 0) {
+      bits += 8;
+    } else {
+      // Count leading zeros of this byte
+      let byte = buf[i];
+      for (let b = 7; b >= 0; b--) {
+        if ((byte & (1 << b)) === 0) {
+          bits++;
+        } else {
+          return bits;
+        }
+      }
+      return bits;
+    }
+  }
+  return bits;
+}
+
+// POST /api/auth/pow/challenge — request a PoW puzzle for registration
+router.post("/pow/challenge", async (req, res) => {
+  try {
+    const clientIp = req.ip;
+    if (!clientIp) {
+      res.status(400).json({ error: "Unable to determine client IP" });
+      return;
+    }
+    if (!checkPowChallengeRateLimit(clientIp)) {
+      res.status(429).json({ error: "Too many challenge requests. Try again later." });
+      return;
+    }
+
+    // DB-level defense in depth: cap active challenges per IP (matches wallet-auth pattern)
+    const activeCount = await powChallengeRepo.countActiveChallengesForIp(clientIp);
+    if (activeCount >= 5) {
+      res.status(429).json({ error: "Too many pending challenges. Try again later." });
+      return;
+    }
+
+    const prefix = crypto.randomBytes(16).toString("hex"); // 32 hex chars
+    const difficulty = POW_DIFFICULTY;
+
+    const challenge = await powChallengeRepo.createChallenge(prefix, difficulty, clientIp);
+    const expiresAt = new Date(challenge.created_at.getTime() + powChallengeRepo.POW_CHALLENGE_TTL_MS);
+
+    res.json({
+      challengeId: challenge.id,
+      prefix: challenge.prefix,
+      difficulty: challenge.difficulty,
+      algorithm: "sha256",
+      expiresAt: expiresAt.toISOString(),
+    });
+  } catch (err) {
+    log.error("PoW challenge creation failed", { error: err instanceof Error ? err.message : String(err) });
+    res.status(500).json({ error: "Failed to create challenge" });
+  }
+});
+
 // POST /api/auth/register
 router.post("/register", async (req, res) => {
   try {
@@ -287,15 +390,54 @@ router.post("/register", async (req, res) => {
     }
 
     // MCP agent detection: skip reCAPTCHA for authenticated MCP agents
-    const isMcpAgentReg = isVerifiedAgent(req);
+    // Supports both global MCP_AGENT_SECRET and per-agent secrets (das_)
+    const agentResult = await isVerifiedAgentAsync(req);
+    const isMcpAgentReg = agentResult.verified;
 
-    // reCAPTCHA v3 verification (anti-bot)
+    // Proof-of-Work: AI agents can solve PoW instead of CAPTCHA
+    let isPowVerified = false;
+    const powChallengeId = typeof req.body?.pow?.challengeId === "string" ? req.body.pow.challengeId : "";
+    const powNonce = req.body?.pow?.nonce != null ? String(req.body.pow.nonce) : "";
+    if (powChallengeId && powNonce) {
+      // Validate UUID format before DB query
+      if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(powChallengeId)) {
+        res.status(400).json({ error: "Invalid PoW challenge ID" });
+        return;
+      }
+      // Validate nonce length to prevent abuse
+      if (powNonce.length > 32) {
+        res.status(400).json({ error: "PoW nonce too long" });
+        return;
+      }
+      const clientIp = req.ip;
+      if (!clientIp) {
+        res.status(400).json({ error: "Unable to determine client IP" });
+        return;
+      }
+      const challenge = await powChallengeRepo.consumeChallenge(powChallengeId, clientIp);
+      if (!challenge) {
+        res.status(400).json({ error: "Invalid or expired PoW challenge" });
+        return;
+      }
+      const hash = crypto.createHash("sha256")
+        .update(challenge.prefix + powNonce)
+        .digest();
+      const zeroBits = countLeadingZeroBits(hash);
+      if (zeroBits < challenge.difficulty) {
+        res.status(400).json({ error: "PoW solution invalid" });
+        return;
+      }
+      isPowVerified = true;
+      log.info("PoW verified for registration", { difficulty: challenge.difficulty, ip: clientIp });
+    }
+
+    // reCAPTCHA v3 verification (anti-bot) — skip if MCP agent or PoW verified
     const captchaToken = req.body.captchaToken ?? "";
-    if (RECAPTCHA_SECRET_KEY && !captchaToken && !isMcpAgentReg) {
+    if (RECAPTCHA_SECRET_KEY && !captchaToken && !isMcpAgentReg && !isPowVerified) {
       res.status(400).json({ error: "CAPTCHA verification required" });
       return;
     }
-    if (RECAPTCHA_SECRET_KEY && !isMcpAgentReg) {
+    if (RECAPTCHA_SECRET_KEY && !isMcpAgentReg && !isPowVerified) {
       const captchaValid = await verifyRecaptcha(captchaToken, req.ip ?? "", "register");
       if (!captchaValid) {
         res.status(400).json({ error: "CAPTCHA verification failed. Please try again." });
@@ -316,9 +458,9 @@ router.post("/register", async (req, res) => {
     }
 
     // Per-IP registration rate limit: 3 accounts per IP per hour
-    // Verified MCP agents skip — they're authenticated by shared secret
+    // PoW-verified and MCP agents get elevated limits (3 * multiplier), not unlimited
     const clientIp = req.ip ?? "unknown";
-    if (!isMcpAgentReg && !checkRegistrationRateLimit(clientIp)) {
+    if (!checkRegistrationRateLimit(clientIp, isMcpAgentReg || isPowVerified)) {
       res.status(429).json({ error: "Too many registrations from this IP. Please try again later." });
       return;
     }
@@ -386,12 +528,11 @@ router.post("/register", async (req, res) => {
       log.error("failed to mark waitlist registered", { error: err instanceof Error ? err.message : String(err) });
     });
 
-    // MCP/AI agent auto-verification: if the request comes from an MCP server,
-    // auto-verify the email so AI agents can immediately use payment features.
-    // This is MCP-only — general SDK/API users must verify via email link.
+    // AI agent auto-verification: auto-verify email for MCP agents and PoW-verified
+    // registrations so AI agents can immediately use payment features.
+    // This is agent-only — general SDK/API users must verify via email link.
     // Mass signups are still blocked by reCAPTCHA + rate limits + alpha cap.
-    // Require shared secret alongside header to prevent trivial spoofing
-    const isMcpAgent = isVerifiedAgent(req);
+    const isMcpAgent = isMcpAgentReg || isPowVerified;
     if (isMcpAgent) {
       await userRepo.markEmailVerified(user.id);
       log.info("auto-verified email for MCP agent", { userId: user.id });
