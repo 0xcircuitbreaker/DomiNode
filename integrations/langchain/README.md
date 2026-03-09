@@ -193,12 +193,12 @@ pip install -e ".[dev]"
 pytest tests/ -v
 ```
 
-## Pricing Reference
+## Pricing
 
-| Proxy Type | Cost to You | Sell Price | Margin |
-|-----------|-------------|------------|--------|
-| Datacenter | $0.012/GB | $3.00/GB | 99.6% |
-| Residential | $4.00/GB | $5.00/GB | 20% |
+| Proxy Type | Price |
+|-----------|-------|
+| Datacenter | $3/GB |
+| Residential | $5/GB |
 
 ## License
 

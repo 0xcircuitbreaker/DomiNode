@@ -81,10 +81,10 @@ All nodes include comprehensive security measures:
 
 ## Pricing
 
-| Pool Type | Price | Cost | Margin |
-|-----------|-------|------|--------|
-| Datacenter | $3/GB | $0.012/GB | 99.6% |
-| Residential | $5/GB | $4.00/GB | 20% |
+| Pool Type | Price |
+|-----------|-------|
+| Datacenter | $3/GB |
+| Residential | $5/GB |
 
 ## Development
 
