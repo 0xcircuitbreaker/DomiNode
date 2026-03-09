@@ -337,6 +337,10 @@ curl -x http://residential-country-DE:dn_live_KEY@proxy.dominusnode.com:8080 htt
 curl -x http://residential-country-US-session-mybot42:dn_live_KEY@proxy.dominusnode.com:8080 \\
   https://httpbin.org/ip` },
         { type: "note", variant: "warning", text: "Country codes must be valid ISO 3166-1 alpha-2 codes (e.g., US, GB, DE). OFAC-sanctioned countries (CU, IR, KP, RU, SY) are blocked." },
+        { type: "heading", level: 4, text: "Wallet Proxy Authentication" },
+        { type: "text", text: "Wallet users can skip API keys entirely. Generate a proxy session token from the API Keys page and use it in the password field instead of a dn_live_ key. Tokens use HMAC-SHA256 verification at the same speed as API keys." },
+        { type: "code", lang: "bash", label: "Wallet proxy session token", code: `# Use a dn_proxy_ session token instead of a dn_live_ API key
+curl -x http://dc-country-US:dn_proxy_SESSION_TOKEN@proxy.dominusnode.com:8080 https://httpbin.org/ip` },
       ],
     },
     {
@@ -442,15 +446,26 @@ const apiReference: DocSection = {
     {
       id: "api-wallet-auth",
       title: "Wallet Authentication",
-      searchTerms: ["wallet", "eip-191", "ethereum", "challenge", "link"],
+      searchTerms: ["wallet", "eip-191", "ethereum", "challenge", "link", "proxy session", "dn_proxy"],
       content: [
         {
           type: "endpoint-table", endpoints: [
             { method: "POST", path: "/api/auth/wallet/challenge", auth: "Public", description: "Request an EIP-191 signature challenge for a wallet address" },
             { method: "POST", path: "/api/auth/wallet/verify", auth: "Public", description: "Submit signed challenge to create account or login" },
             { method: "POST", path: "/api/auth/wallet/link", auth: "JWT", description: "Link an Ethereum wallet to an existing account" },
+            { method: "POST", path: "/api/auth/wallet/proxy-session", auth: "JWT", description: "Generate an HMAC proxy session token (use instead of API key)" },
           ],
         },
+        { type: "heading", level: 4, text: "Wallet Proxy Authentication" },
+        { type: "text", text: "Wallet users can authenticate to the proxy without API keys. Generate a session token from the API Keys page or via the proxy-session endpoint, then use it in place of an API key." },
+        { type: "code", lang: "bash", label: "Generate proxy session token", code: `curl -X POST https://api.dominusnode.com/api/auth/wallet/proxy-session \\
+  -H "Cookie: access_token=YOUR_JWT" \\
+  -H "Content-Type: application/json" \\
+  -d '{"ttlMinutes": 60}'` },
+        { type: "code", lang: "bash", label: "Use proxy session token", code: `# Use dn_proxy_ token in place of dn_live_ API key
+curl -x http://country-US:dn_proxy_TOKEN@proxy.dominusnode.com:8080 \\
+  https://httpbin.org/ip` },
+        { type: "note", variant: "info", text: "Proxy session tokens use HMAC-SHA256 verification (~3-5\u00B5s) \u2014 same speed as API key authentication. Tokens are valid for 1-24 hours and are tied to your wallet address." },
       ],
     },
     {
@@ -1478,6 +1493,7 @@ curl -X POST https://api.dominusnode.com/api/keys \\
             { name: "Promo redeem", type: "5/hour per user", required: false, description: "Promo code redemption attempts" },
             { name: "Crypto status", type: "30/min per user", required: false, description: "Invoice status polling" },
             { name: "Invite accept", type: "10/hour per IP", required: false, description: "Team invite acceptance" },
+            { name: "Proxy session", type: "10/15min per IP + 20/hour per user", required: false, description: "Wallet proxy session token generation" },
           ],
         },
         { type: "note", variant: "info", text: "Verified AI agents (via MCP_AGENT_SECRET or per-agent das_ secrets) receive a 10x rate limit multiplier on all endpoints. PoW-verified registrations also receive elevated limits. This prevents 429 errors during multi-agent swarm operations." },
@@ -1495,6 +1511,7 @@ curl -X POST https://api.dominusnode.com/api/keys \\
             { name: "MFA challenge token", type: "5 min, single-use", required: true, description: "Issued after password check; used once to complete MFA verification" },
             { name: "Cookie auth", type: "HttpOnly + Secure + SameSite=Lax", required: true, description: "Web client auth via secure cookies" },
             { name: "CSRF protection", type: "Origin header validation", required: true, description: "Requests to cookie-based auth endpoints are validated against the expected origin" },
+            { name: "Proxy session token", type: "1-1440 min, HMAC-SHA256", required: false, description: "Stateless wallet-bound proxy auth token (dn_proxy_ prefix). Verified in ~3-5μs per request." },
           ],
         },
       ],
