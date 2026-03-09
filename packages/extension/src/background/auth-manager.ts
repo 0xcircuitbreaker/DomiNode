@@ -111,10 +111,13 @@ export async function logout(): Promise<void> {
   // Clear auth state FIRST to prevent alarm handlers from using stale tokens
   await updateState({
     apiKey: null,
+    proxyToken: null,
+    proxyTokenExpiry: null,
     accessToken: null,
     refreshToken: null,
     userId: null,
     email: null,
+    walletAddress: null,
     mfaPending: false,
     mfaChallengeToken: null,
     proxyEnabled: false,

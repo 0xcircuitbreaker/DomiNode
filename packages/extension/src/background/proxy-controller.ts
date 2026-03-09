@@ -45,7 +45,15 @@ async function initAdapter(): Promise<ProxyAdapter> {
 
 export async function enableProxy(): Promise<void> {
   const state = await loadState();
-  if (!state.apiKey) throw new Error("No API key configured");
+
+  // Accept either API key or proxy session token
+  const proxyPassword = state.proxyToken ?? state.apiKey;
+  if (!proxyPassword) throw new Error("No API key or proxy token configured");
+
+  // Check proxy token expiry
+  if (state.proxyToken && state.proxyTokenExpiry && Date.now() >= state.proxyTokenExpiry) {
+    throw new Error("Proxy token has expired. Generate a new one from the dashboard.");
+  }
 
   // Pre-check balance: refuse to enable proxy with zero balance
   if (state.balanceCents <= 0) {
@@ -72,7 +80,7 @@ export async function enableProxy(): Promise<void> {
     port,
     protocol: state.proxyProtocol,
     username,
-    password: state.apiKey,
+    password: proxyPassword,
   };
 
   proxyAdapter.enable(config);

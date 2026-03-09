@@ -1,190 +1,164 @@
-# Dominus Node -- ChatGPT Custom GPT Integration
+# Dominus Node -- ChatGPT Integration
 
-Schema-only integration for ChatGPT Custom GPTs. ChatGPT calls the Dominus Node REST API directly using the OpenAPI 3.1.0 specification -- no additional code or middleware is required.
+Full integration for ChatGPT Custom GPTs and OpenAI Assistants API. Includes both an OpenAPI 3.1.0 spec for direct API actions and a TypeScript function handler with 53 tools, PoW solver, SSRF protection, and credential scrubbing.
 
-## Overview
+## Two Usage Modes
 
-This integration enables ChatGPT Custom GPTs to:
+### Mode 1: Custom GPT Actions (Schema-Only)
 
-- Register accounts and authenticate with JWT tokens
-- Create and manage proxy API keys
-- Check wallet balance and transaction history
-- Top up wallet via Stripe, cryptocurrency, or PayPal
-- Monitor bandwidth usage and active sessions
-- Create and manage agentic sub-wallets for AI agents
-- Manage teams with shared wallet billing
-- Retrieve proxy server configuration
+Paste `openapi.yaml` into your Custom GPT action schema. ChatGPT calls the Dominus Node REST API directly.
 
-## Setup Guide
+### Mode 2: Programmatic Handler (Recommended)
 
-### Step 1: Get Your JWT Token
+Use the TypeScript handler for full security and PoW support:
 
-Before configuring the Custom GPT, you need a JWT access token. Obtain one by logging in:
+```ts
+import { createDominusNodeFunctionHandler } from "@dominusnode/chatgpt";
+
+const handler = createDominusNodeFunctionHandler({
+  apiKey: "dn_live_...",
+  baseUrl: "https://api.dominusnode.com",
+});
+
+// Dispatch function calls from ChatGPT
+const balance = await handler("dominusnode_check_balance", {});
+const usage = await handler("dominusnode_check_usage", { period: "week" });
+const fetch = await handler("dominusnode_proxied_fetch", {
+  url: "https://httpbin.org/ip",
+  country: "US",
+  proxy_type: "dc",
+});
+```
+
+## Installation
 
 ```bash
-curl -X POST https://api.dominusnode.com/api/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"email": "you@example.com", "password": "your-password"}'
+npm install @dominusnode/chatgpt
+# or install from GitHub
+npm install github:Dominus-Node/dominusnode#main --workspace=integrations/chatgpt
 ```
 
-The response includes a `token` field (JWT, valid 15 minutes) and a `refreshToken` field (valid 7 days).
+## 53 Tools
 
-Alternatively, if you have an API key, exchange it for a JWT:
+### Proxy (3)
+| Tool | Description |
+|------|-------------|
+| `dominusnode_proxied_fetch` | Fetch URL through rotating proxy with geo-targeting |
+| `dominusnode_get_proxy_config` | Get proxy endpoints and supported countries |
+| `dominusnode_get_proxy_status` | Get proxy service status |
 
-```bash
-curl -X POST https://api.dominusnode.com/api/auth/verify-key \
-  -H "Content-Type: application/json" \
-  -d '{"apiKey": "dn_live_your_key_here"}'
-```
+### Wallet (7)
+| Tool | Description |
+|------|-------------|
+| `dominusnode_check_balance` | Check wallet balance |
+| `dominusnode_get_transactions` | View transaction history |
+| `dominusnode_get_forecast` | Get spending forecast |
+| `dominusnode_check_payment` | Check crypto invoice status |
+| `dominusnode_topup_stripe` | Create Stripe checkout ($5-$1,000) |
+| `dominusnode_topup_paypal` | Create PayPal order ($5-$1,000) |
+| `dominusnode_topup_crypto` | Create crypto invoice (10 currencies) |
 
-### Step 2: Create a Custom GPT
+### Usage (3)
+| Tool | Description |
+|------|-------------|
+| `dominusnode_check_usage` | Get usage stats for period |
+| `dominusnode_get_daily_usage` | Get daily breakdown (1-90 days) |
+| `dominusnode_get_top_hosts` | Get most-accessed domains |
 
-1. Go to [ChatGPT](https://chat.openai.com) and click **Explore GPTs** > **Create a GPT**
-2. In the **Configure** tab:
-   - **Name:** Dominus Node Proxy Manager (or your preferred name)
-   - **Description:** Manage rotating proxies, wallet balance, API keys, and team billing on Dominus Node
-   - **Instructions:** Paste the following:
+### Sessions (1)
+| Tool | Description |
+|------|-------------|
+| `dominusnode_list_sessions` | List active proxy sessions |
 
-```
-You are a Dominus Node proxy management assistant. You help users manage their rotating proxy service.
+### Account (6)
+| Tool | Description |
+|------|-------------|
+| `dominusnode_register` | Create account (with PoW solver) |
+| `dominusnode_login` | Login with email/password |
+| `dominusnode_get_account_info` | Get account details |
+| `dominusnode_verify_email` | Verify email with token |
+| `dominusnode_resend_verification` | Resend verification email |
+| `dominusnode_update_password` | Change password |
 
-Key facts:
-- Datacenter proxies cost $3/GB, residential proxies cost $5/GB
-- Users must top up their prepaid wallet before using proxies
-- API keys starting with dn_live_ are used for proxy authentication
-- Supported crypto: BTC, ETH, LTC, XMR, ZEC, USDC, SOL, USDT, DAI, BNB
-- OFAC-sanctioned countries (CU, IR, KP, RU, SY) are blocked
+### API Keys (3)
+| Tool | Description |
+|------|-------------|
+| `dominusnode_list_keys` | List API keys |
+| `dominusnode_create_key` | Create API key |
+| `dominusnode_revoke_key` | Revoke API key |
 
-When users ask about their balance, call getWalletBalance.
-When users want to create an API key, call createApiKey.
-When users ask about usage, call getUsage with appropriate date ranges.
-Always confirm financial operations before executing them.
-```
+### Plans (3)
+| Tool | Description |
+|------|-------------|
+| `dominusnode_get_plan` | Get current plan |
+| `dominusnode_list_plans` | List available plans |
+| `dominusnode_change_plan` | Switch plan |
 
-### Step 3: Add the API Action
+### Agentic Wallets (9)
+| Tool | Description |
+|------|-------------|
+| `dominusnode_create_agentic_wallet` | Create sub-wallet for AI agent |
+| `dominusnode_fund_agentic_wallet` | Fund from main wallet |
+| `dominusnode_agentic_wallet_balance` | Check sub-wallet balance |
+| `dominusnode_list_agentic_wallets` | List all sub-wallets |
+| `dominusnode_agentic_transactions` | View sub-wallet transactions |
+| `dominusnode_freeze_agentic_wallet` | Freeze sub-wallet |
+| `dominusnode_unfreeze_agentic_wallet` | Unfreeze sub-wallet |
+| `dominusnode_delete_agentic_wallet` | Delete sub-wallet |
+| `dominusnode_update_wallet_policy` | Update daily limits/domains |
 
-1. In the **Configure** tab, scroll to **Actions** and click **Create new action**
-2. Set **Authentication** to **API Key** with:
-   - **Auth Type:** Bearer
-   - **API Key:** Paste your JWT token
-3. In the **Schema** field, paste the contents of `openapi.yaml` from this directory
-4. Alternatively, set the schema URL to: `https://api.dominusnode.com/.well-known/openapi.yaml`
-5. Click **Save**
+### Teams (17)
+| Tool | Description |
+|------|-------------|
+| `dominusnode_create_team` | Create team |
+| `dominusnode_list_teams` | List teams |
+| `dominusnode_team_details` | Get team details |
+| `dominusnode_team_fund` | Fund team wallet |
+| `dominusnode_team_create_key` | Create team API key |
+| `dominusnode_team_usage` | View team transactions |
+| `dominusnode_update_team` | Update team settings |
+| `dominusnode_update_team_member_role` | Change member role |
+| `dominusnode_team_delete` | Delete team |
+| `dominusnode_team_revoke_key` | Revoke team API key |
+| `dominusnode_team_list_keys` | List team API keys |
+| `dominusnode_team_list_members` | List team members |
+| `dominusnode_team_add_member` | Add team member |
+| `dominusnode_team_remove_member` | Remove team member |
+| `dominusnode_team_invite_member` | Invite member by email |
+| `dominusnode_team_list_invites` | List pending invites |
+| `dominusnode_team_cancel_invite` | Cancel invite |
 
-### Step 4: Test the GPT
+### x402 (1)
+| Tool | Description |
+|------|-------------|
+| `dominusnode_x402_info` | Get x402 micropayment info |
 
-Try these prompts:
+## Security
 
-- "What's my wallet balance?"
-- "Show me my usage for the last 7 days"
-- "Create a new API key labeled 'Scraping Bot'"
-- "List my API keys"
-- "Create an agentic wallet called 'Research Agent' with a $50 spending limit"
-- "Show me my teams"
-- "What proxy configuration should I use?"
+- SSRF: DNS rebinding protection, private IP blocking, hex/octal/decimal normalization
+- OFAC: Sanctioned countries (CU, IR, KP, RU, SY) blocked
+- Credential scrubbing: `dn_live_*`, `dn_test_*`, `dn_proxy_*` redacted from errors
+- Prototype pollution: Recursive `stripDangerousKeys` on all JSON parsing
+- Response size cap: 10MB max
+- HTTP methods: Only GET, HEAD, OPTIONS for proxied fetch
+- PoW solver: SHA-256 challenge solver for CAPTCHA-free registration
 
-## Authentication Notes
+## Custom GPT Setup (Schema-Only Mode)
 
-- JWT access tokens expire after **15 minutes**
-- When a token expires, you will need to update the API Key in the GPT action settings with a fresh token
-- For longer sessions, consider using the refresh token flow (POST /api/auth/refresh)
-- The `ai-plugin.json` file is provided for legacy ChatGPT plugin compatibility but is not required for Custom GPTs
-
-## Available Operations
-
-### Auth (no auth required)
-| Operation | Description |
-|-----------|-------------|
-| `register` | Create a new account |
-| `login` | Log in and get JWT tokens |
-
-### API Keys
-| Operation | Description |
-|-----------|-------------|
-| `createApiKey` | Create a new proxy API key (shown once) |
-| `listApiKeys` | List all API keys with prefixes and status |
-| `revokeApiKey` | Revoke an API key by ID |
-
-### Wallet
-| Operation | Description |
-|-----------|-------------|
-| `getWalletBalance` | Check current wallet balance |
-| `getWalletTransactions` | View transaction history |
-| `topUpStripe` | Create Stripe checkout for top-up |
-| `topUpCrypto` | Create crypto invoice (10 currencies) |
-| `topUpPaypal` | Create PayPal order for top-up |
-| `capturePaypalOrder` | Capture approved PayPal payment |
-| `getPaypalOrderStatus` | Check PayPal order status |
-| `getCryptoInvoiceStatus` | Check crypto invoice status |
-
-### Usage
-| Operation | Description |
-|-----------|-------------|
-| `getUsage` | Get bandwidth usage with summary and records |
-
-### Agentic Wallets
-| Operation | Description |
-|-----------|-------------|
-| `createAgenticWallet` | Create sub-wallet for AI agent |
-| `listAgenticWallets` | List all agentic wallets |
-| `getAgenticWallet` | Get wallet details and balance |
-| `fundAgenticWallet` | Transfer funds from main wallet |
-| `getAgenticWalletTransactions` | View wallet transaction history |
-| `freezeAgenticWallet` | Freeze wallet to prevent spending |
-| `unfreezeAgenticWallet` | Unfreeze a frozen wallet |
-| `deleteAgenticWallet` | Delete wallet and refund balance |
-
-### Teams
-| Operation | Description |
-|-----------|-------------|
-| `createTeam` | Create team with shared wallet |
-| `listTeams` | List teams you belong to |
-| `getTeam` | Get team details and balance |
-| `updateTeam` | Update team name or member limit |
-| `fundTeamWallet` | Fund team wallet from personal wallet |
-| `createTeamApiKey` | Create API key billed to team |
-| `getTeamWalletTransactions` | View team wallet transactions |
-| `listTeamMembers` | List team members and roles |
-| `updateTeamMemberRole` | Change a member's role |
-
-### Proxy & Sessions
-| Operation | Description |
-|-----------|-------------|
-| `getProxyConfig` | Get proxy host/port and geo-targeting options |
-| `getActiveSessions` | List active proxy sessions |
-
-### Health
-| Operation | Description |
-|-----------|-------------|
-| `healthCheck` | Check API service health |
-
-## Proxy Usage After Setup
-
-Once you have an API key (created via `createApiKey`), configure your proxy client:
-
-```bash
-# HTTP proxy (datacenter, auto-routing)
-curl -x http://anything:dn_live_YOUR_KEY@proxy.dominusnode.com:8080 http://httpbin.org/ip
-
-# Explicit datacenter pool ($3/GB)
-curl -x http://dc-country-US:dn_live_YOUR_KEY@proxy.dominusnode.com:8080 https://httpbin.org/ip
-
-# Explicit residential pool ($5/GB)
-curl -x http://residential-country-US:dn_live_YOUR_KEY@proxy.dominusnode.com:8080 https://httpbin.org/ip
-
-# SOCKS5 proxy
-curl --socks5 proxy.dominusnode.com:1080 --proxy-user "dc-country-US:dn_live_YOUR_KEY" https://httpbin.org/ip
-```
+1. Go to [ChatGPT](https://chat.openai.com) > **Explore GPTs** > **Create a GPT**
+2. In **Actions**, paste the contents of `openapi.yaml`
+3. Set auth to **Bearer** and paste your JWT token
+4. JWT tokens expire in 15 minutes; refresh via POST `/api/auth/refresh`
 
 ## Files
 
 | File | Description |
 |------|-------------|
-| `openapi.yaml` | OpenAPI 3.1.0 spec -- paste into Custom GPT action schema |
-| `ai-plugin.json` | Legacy ChatGPT plugin manifest (for `.well-known` hosting) |
-| `README.md` | This setup guide |
-| `LICENSE` | MIT license |
-| `CHANGELOG.md` | Version history |
+| `handler.ts` | 53-tool function handler with full security |
+| `handler.test.ts` | 131 test cases (SSRF, validation, dispatch) |
+| `functions.json` | Tool definitions for LLM function calling |
+| `openapi.yaml` | OpenAPI 3.1.0 spec for Custom GPT actions |
+| `ai-plugin.json` | Legacy ChatGPT plugin manifest |
 
 ## License
 

@@ -63,9 +63,9 @@ function isOwnExtension(sender: chrome.runtime.MessageSender): boolean {
 }
 
 // ─── State sanitization ─────────────────────────────────────────
-function sanitizeStateForUI(state: ExtensionState): Omit<ExtensionState, "accessToken" | "refreshToken" | "apiKey" | "mfaChallengeToken"> & { isAuthenticated: boolean } {
-  const { accessToken: _a, refreshToken: _r, apiKey: _k, mfaChallengeToken: _m, ...rest } = state;
-  return { ...rest, isAuthenticated: !!(state.accessToken || state.apiKey) };
+function sanitizeStateForUI(state: ExtensionState): Omit<ExtensionState, "accessToken" | "refreshToken" | "apiKey" | "proxyToken" | "mfaChallengeToken"> & { isAuthenticated: boolean; hasProxyToken: boolean } {
+  const { accessToken: _a, refreshToken: _r, apiKey: _k, proxyToken: _pt, mfaChallengeToken: _m, ...rest } = state;
+  return { ...rest, isAuthenticated: !!(state.accessToken || state.apiKey), hasProxyToken: !!state.proxyToken };
 }
 
 // ─── Message handler ──────────────────────────────────────────────
@@ -240,6 +240,43 @@ async function handleMessage(message: ExtensionMessage): Promise<MessageResponse
         return { success: true, data: sanitizeStateForUI(state) };
       }
 
+      case "SET_PROXY_TOKEN": {
+        const token = message.payload as string;
+        if (typeof token !== "string" || !token.startsWith("dn_proxy_")) {
+          return { success: false, error: "Invalid proxy token: must start with dn_proxy_" };
+        }
+        if (token.length > 2000) {
+          return { success: false, error: "Proxy token too long" };
+        }
+        // Parse expiry from the token payload (base64url between dn_proxy_ and last .)
+        let expiry: number | null = null;
+        try {
+          const withoutPrefix = token.slice(9); // Remove "dn_proxy_"
+          const dotIdx = withoutPrefix.lastIndexOf(".");
+          if (dotIdx > 0) {
+            const payloadB64 = withoutPrefix.slice(0, dotIdx);
+            const payloadJson = atob(payloadB64.replace(/-/g, "+").replace(/_/g, "/"));
+            const payload = JSON.parse(payloadJson);
+            if (typeof payload === "object" && payload !== null && typeof payload.expiresAt === "number") {
+              expiry = payload.expiresAt;
+            }
+          }
+        } catch {
+          // Token expiry parsing is best-effort
+        }
+        await updateState({ proxyToken: token, proxyTokenExpiry: expiry });
+        await reconfigureProxy();
+        const state = await loadState();
+        return { success: true, data: sanitizeStateForUI(state) };
+      }
+
+      case "CLEAR_PROXY_TOKEN": {
+        await updateState({ proxyToken: null, proxyTokenExpiry: null });
+        await reconfigureProxy();
+        const state = await loadState();
+        return { success: true, data: sanitizeStateForUI(state) };
+      }
+
       default:
         return { success: false, error: `Unknown message type: ${message.type}` };
     }
@@ -299,7 +336,7 @@ chrome.runtime.onStartup.addListener(async () => {
   const state = await loadState();
 
   // Auto-reconnect if proxy was enabled before browser restart
-  if (state.proxyEnabled && state.apiKey && state.balanceCents > 0) {
+  if (state.proxyEnabled && (state.apiKey || state.proxyToken) && state.balanceCents > 0) {
     try {
       await enableProxy();
     } catch {

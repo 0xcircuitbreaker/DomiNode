@@ -237,6 +237,8 @@ interface AuthenticatedViewProps {
 
 function AuthenticatedView({ state, error, sendMessage }: AuthenticatedViewProps) {
   const [toggling, setToggling] = useState(false);
+  const [proxyTokenInput, setProxyTokenInput] = useState("");
+  const [showTokenInput, setShowTokenInput] = useState(false);
 
   const balanceDollars = (state.balanceCents / 100).toFixed(2);
   const balanceClass =
@@ -408,6 +410,59 @@ function AuthenticatedView({ state, error, sendMessage }: AuthenticatedViewProps
             />
             <span class="toggle-slider" />
           </label>
+        </div>
+
+        {/* Wallet Proxy Token */}
+        <div style={{ borderTop: "1px solid var(--border)", paddingTop: "8px", marginTop: "4px" }}>
+          <div class="row-between">
+            <label class="text-sm text-muted">Proxy Token</label>
+            {(state as any).hasProxyToken ? (
+              <button
+                class="btn btn-danger btn-sm"
+                onClick={() => sendMessage("CLEAR_PROXY_TOKEN")}
+              >
+                Clear
+              </button>
+            ) : (
+              <button
+                class="btn btn-secondary btn-sm"
+                onClick={() => setShowTokenInput(!showTokenInput)}
+              >
+                {showTokenInput ? "Cancel" : "Set Token"}
+              </button>
+            )}
+          </div>
+          {(state as any).hasProxyToken && (
+            <div class="text-sm" style={{ color: "var(--success)", marginTop: "4px" }}>
+              Active{state.proxyTokenExpiry ? ` (expires ${new Date(state.proxyTokenExpiry).toLocaleTimeString()})` : ""}
+            </div>
+          )}
+          {showTokenInput && !(state as any).hasProxyToken && (
+            <div style={{ marginTop: "6px" }}>
+              <input
+                class="input"
+                type="text"
+                placeholder="dn_proxy_..."
+                value={proxyTokenInput}
+                onInput={(e) => setProxyTokenInput((e.target as HTMLInputElement).value)}
+              />
+              <button
+                class="btn btn-primary btn-full"
+                style={{ marginTop: "4px" }}
+                disabled={!proxyTokenInput.startsWith("dn_proxy_")}
+                onClick={() => {
+                  sendMessage("SET_PROXY_TOKEN", proxyTokenInput);
+                  setProxyTokenInput("");
+                  setShowTokenInput(false);
+                }}
+              >
+                Apply Token
+              </button>
+              <div class="text-sm text-muted" style={{ marginTop: "4px" }}>
+                Generate from dashboard API Keys page
+              </div>
+            </div>
+          )}
         </div>
       </div>
 

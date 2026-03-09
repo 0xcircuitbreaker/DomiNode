@@ -10,25 +10,31 @@ const listeners: StateListener[] = [];
 let stateLock: Promise<void> = Promise.resolve();
 
 // Auth fields stored in chrome.storage.session (ephemeral, cleared on browser close)
-const AUTH_FIELDS = ["apiKey", "accessToken", "refreshToken", "userId", "email", "mfaChallengeToken"] as const;
+const AUTH_FIELDS = ["apiKey", "proxyToken", "proxyTokenExpiry", "accessToken", "refreshToken", "userId", "email", "walletAddress", "mfaChallengeToken"] as const;
 type AuthField = (typeof AUTH_FIELDS)[number];
 
 interface AuthData {
   apiKey: string | null;
+  proxyToken: string | null;
+  proxyTokenExpiry: number | null;
   accessToken: string | null;
   refreshToken: string | null;
   userId: string | null;
   email: string | null;
+  walletAddress: string | null;
   mfaChallengeToken: string | null;
 }
 
 function extractAuth(state: ExtensionState): AuthData {
   return {
     apiKey: state.apiKey,
+    proxyToken: state.proxyToken,
+    proxyTokenExpiry: state.proxyTokenExpiry,
     accessToken: state.accessToken,
     refreshToken: state.refreshToken,
     userId: state.userId,
     email: state.email,
+    walletAddress: state.walletAddress,
     mfaChallengeToken: state.mfaChallengeToken ?? null,
   };
 }
@@ -65,10 +71,13 @@ export async function loadState(): Promise<ExtensionState> {
       // across browser restarts and exposure to other extensions/sync
       savedAuth = {
         apiKey: null,
+        proxyToken: null,
+        proxyTokenExpiry: null,
         accessToken: null,
         refreshToken: null,
         userId: null,
         email: null,
+        walletAddress: null,
         mfaChallengeToken: null, // Prevent stale MFA token from persisted state
       };
     }
@@ -103,7 +112,7 @@ export async function saveState(state: ExtensionState): Promise<void> {
     } else {
       // Fallback: save config-only to local storage (no auth data, no PII)
       // Also strip userId and email — PII should not persist in non-session storage
-      const { accessToken: _a, refreshToken: _r, apiKey: _k, mfaChallengeToken: _m, userId: _u, email: _e, ...safeConfig } = state;
+      const { accessToken: _a, refreshToken: _r, apiKey: _k, proxyToken: _pt, proxyTokenExpiry: _pe, mfaChallengeToken: _m, userId: _u, email: _e, walletAddress: _w, ...safeConfig } = state;
       await chrome.storage.local.set({ [STORAGE_KEYS.STATE]: safeConfig });
     }
   } catch {

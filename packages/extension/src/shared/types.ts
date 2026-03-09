@@ -2,10 +2,13 @@
 export interface ExtensionState {
   // Auth
   apiKey: string | null;
+  proxyToken: string | null; // dn_proxy_ wallet session token for proxy auth
+  proxyTokenExpiry: number | null; // epoch ms when proxy token expires
   accessToken: string | null;
   refreshToken: string | null;
   userId: string | null;
   email: string | null;
+  walletAddress: string | null; // linked wallet address for display
 
   // MFA
   mfaPending: boolean;
@@ -30,10 +33,13 @@ export interface ExtensionState {
 
 export const DEFAULT_STATE: ExtensionState = {
   apiKey: null,
+  proxyToken: null,
+  proxyTokenExpiry: null,
   accessToken: null,
   refreshToken: null,
   userId: null,
   email: null,
+  walletAddress: null,
   mfaPending: false,
   mfaChallengeToken: null,
   proxyEnabled: false,
@@ -66,7 +72,9 @@ export type MessageType =
   | "SET_ROTATION"
   | "GET_STATE"
   | "ROTATE_SESSION"
-  | "REFRESH_BALANCE";
+  | "REFRESH_BALANCE"
+  | "SET_PROXY_TOKEN"
+  | "CLEAR_PROXY_TOKEN";
 
 export interface ExtensionMessage {
   type: MessageType;

@@ -17,14 +17,11 @@ Key: DNS rebinding protection, GET/HEAD/OPTIONS only, credential scrubbing, redi
 
 ## Integration Categories
 
-### TypeScript (7)
-mastra, flowise, openclaw, vercel-ai, openai-functions, n8n, gemini
+### TypeScript (8)
+mastra, flowise, openclaw, vercel-ai, openai-functions, chatgpt, n8n, gemini
 
 ### Python (17+)
 langchain, crewai, llamaindex, autogpt, agent-zero, superagi, agno, camel-ai, composio, dify, haystack, ironclaw, metagpt, moltbook, pydantic-ai, semantic-kernel
-
-### Schema-only
-chatgpt (OpenAPI 3.1.0 YAML + ai-plugin.json)
 
 ## Common Mistakes
 - Adding SSRF protection to one integration but missing others
