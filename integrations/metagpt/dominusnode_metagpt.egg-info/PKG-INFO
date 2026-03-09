@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: dominusnode-metagpt
-Version: 1.1.0
+Version: 1.2.1
 Summary: Dominus Node toolkit for MetaGPT -- 22 proxy, wallet, and team management tools
 License: MIT
 Requires-Python: >=3.10

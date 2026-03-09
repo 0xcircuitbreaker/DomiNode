@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: dominusnode-composio
-Version: 1.1.0
+Version: 1.2.1
 Summary: Dominus Node tools for Composio -- 22 proxy, wallet, and team management actions
 License: MIT
 Requires-Python: >=3.10

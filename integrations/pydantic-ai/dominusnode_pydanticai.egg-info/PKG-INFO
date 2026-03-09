@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: dominusnode-pydanticai
-Version: 1.2.0
+Version: 1.2.3
 Summary: Dominus Node rotating proxy tools for PydanticAI agents
 License: MIT
 Requires-Python: >=3.9
