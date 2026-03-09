@@ -374,7 +374,7 @@ MAX_RESPONSE_CHARS = 4000
 # Credential sanitization
 # ---------------------------------------------------------------------------
 
-_CREDENTIAL_RE = re.compile(r"dn_(live|test)_[a-zA-Z0-9]+")
+_CREDENTIAL_RE = re.compile(r"dn_(live|test|proxy)_[a-zA-Z0-9]+")
 
 
 def _sanitize_error(message: str) -> str:

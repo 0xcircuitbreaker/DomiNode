@@ -3,6 +3,8 @@ import * as http from "node:http";
 
 // Mock @dominusnode/shared
 const mockFindUserByApiKeyHash = vi.fn();
+const mockFindUserById = vi.fn();
+const mockVerifyProxySessionToken = vi.fn();
 
 vi.mock("@dominusnode/shared", () => ({
   hashApiKey: (raw: string) => {
@@ -10,8 +12,10 @@ vi.mock("@dominusnode/shared", () => ({
     const crypto = require("node:crypto");
     return crypto.createHash("sha256").update(raw).digest("hex");
   },
+  verifyProxySessionToken: (...args: unknown[]) => mockVerifyProxySessionToken(...args),
   userRepo: {
     findUserByApiKeyHash: (...args: unknown[]) => mockFindUserByApiKeyHash(...args),
+    findUserById: (...args: unknown[]) => mockFindUserById(...args),
   },
   createLogger: () => ({
     debug: vi.fn(),
@@ -148,6 +152,95 @@ describe("proxy-gateway/auth", () => {
       mockFindUserByApiKeyHash.mockRejectedValueOnce(new Error("connection refused"));
 
       const req = makeRequest(encodeBasic("user", "dn_live_key123"));
+      const result = await authenticateRequest(req);
+      expect(result).toBeNull();
+    });
+
+    // ─── Proxy Session Token Auth ─────────────────────────────────────
+
+    it("should authenticate with a valid proxy session token", async () => {
+      const mockUser = {
+        id: "wallet-user-1",
+        email: "0xabc@wallet.dominusnode.com",
+        status: "active",
+        email_verified: true,
+        wallet_address: "0xabc123",
+      };
+      mockVerifyProxySessionToken.mockReturnValueOnce({
+        userId: "wallet-user-1",
+        walletAddress: "0xabc123",
+        expiresAt: Date.now() + 3600000,
+        nonce: "abc123",
+      });
+      mockFindUserById.mockResolvedValueOnce(mockUser);
+
+      const req = makeRequest(encodeBasic("country-US", "dn_proxy_payload.hmac"));
+      const result = await authenticateRequest(req);
+
+      expect(result).not.toBeNull();
+      expect(result!.userId).toBe("wallet-user-1");
+      expect(result!.proxyOptions.country).toBe("US");
+      expect(result!.teamId).toBeNull();
+    });
+
+    it("should return null for invalid proxy session token", async () => {
+      mockVerifyProxySessionToken.mockReturnValueOnce(null);
+
+      const req = makeRequest(encodeBasic("user", "dn_proxy_invalid.token"));
+      const result = await authenticateRequest(req);
+      expect(result).toBeNull();
+    });
+
+    it("should reject proxy session for suspended user", async () => {
+      mockVerifyProxySessionToken.mockReturnValueOnce({
+        userId: "suspended-user",
+        walletAddress: "0xdef",
+        expiresAt: Date.now() + 3600000,
+        nonce: "xyz",
+      });
+      mockFindUserById.mockResolvedValueOnce({
+        id: "suspended-user",
+        status: "suspended",
+        wallet_address: "0xdef",
+      });
+
+      const req = makeRequest(encodeBasic("user", "dn_proxy_payload.hmac"));
+      const result = await authenticateRequest(req);
+      expect(result).toBeNull();
+    });
+
+    it("should reject proxy session when wallet address no longer matches", async () => {
+      mockVerifyProxySessionToken.mockReturnValueOnce({
+        userId: "user-1",
+        walletAddress: "0xold_wallet",
+        expiresAt: Date.now() + 3600000,
+        nonce: "abc",
+      });
+      mockFindUserById.mockResolvedValueOnce({
+        id: "user-1",
+        status: "active",
+        wallet_address: "0xnew_wallet",
+      });
+
+      const req = makeRequest(encodeBasic("user", "dn_proxy_payload.hmac"));
+      const result = await authenticateRequest(req);
+      expect(result).toBeNull();
+    });
+
+    it("should reject proxy session when user has no wallet", async () => {
+      mockVerifyProxySessionToken.mockReturnValueOnce({
+        userId: "user-1",
+        walletAddress: "0xabc",
+        expiresAt: Date.now() + 3600000,
+        nonce: "abc",
+      });
+      mockFindUserById.mockResolvedValueOnce({
+        id: "user-1",
+        status: "active",
+        wallet_address: null,
+      });
+
+      const req = makeRequest(encodeBasic("user", "dn_proxy_payload.hmac"));
       const result = await authenticateRequest(req);
       expect(result).toBeNull();
     });

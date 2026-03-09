@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useApi } from "../hooks/useApi";
+import { useAuth } from "../context/AuthContext";
 import { get, post, del } from "../api/client";
 import Modal from "../components/Modal";
 import ResponsiveTable from "../components/ResponsiveTable";
@@ -23,7 +24,15 @@ interface CreateKeyResponse {
   label: string;
 }
 
+interface ProxySessionResponse {
+  proxyToken: string;
+  expiresAt: string;
+  ttlMinutes: number;
+  usage: string;
+}
+
 export default function ApiKeysPage() {
+  const { user } = useAuth();
   const { data, loading, error, refetch } = useApi<KeysResponse>(() => get("/api/keys"));
   const [showCreate, setShowCreate] = useState(false);
   const [newLabel, setNewLabel] = useState("Default");
@@ -32,6 +41,15 @@ export default function ApiKeysPage() {
   const [copied, setCopied] = useState(false);
   const [revoking, setRevoking] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+
+  // Proxy session token state
+  const [proxyToken, setProxyToken] = useState<string | null>(null);
+  const [proxyExpiry, setProxyExpiry] = useState<string | null>(null);
+  const [proxyTtl, setProxyTtl] = useState("60");
+  const [generatingProxy, setGeneratingProxy] = useState(false);
+  const [proxyCopied, setProxyCopied] = useState(false);
+
+  const hasWallet = !!user?.wallet_address;
 
   async function handleCreate() {
     const labelPattern = /^[a-zA-Z0-9 _-]+$/;
@@ -87,6 +105,29 @@ export default function ApiKeysPage() {
     if (newKey) refetch();
   }
 
+  async function handleGenerateProxyToken() {
+    setGeneratingProxy(true);
+    setActionError(null);
+    try {
+      const ttlMinutes = Math.max(1, Math.min(1440, parseInt(proxyTtl, 10) || 60));
+      const res = await post<ProxySessionResponse>("/api/auth/wallet/proxy-session", { ttlMinutes });
+      setProxyToken(res.proxyToken);
+      setProxyExpiry(res.expiresAt);
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Failed to generate proxy token.");
+    } finally {
+      setGeneratingProxy(false);
+    }
+  }
+
+  function handleCopyProxyToken() {
+    if (proxyToken) {
+      navigator.clipboard.writeText(proxyToken);
+      setProxyCopied(true);
+      setTimeout(() => setProxyCopied(false), 2000);
+    }
+  }
+
   const activeKeys = data?.keys.filter((k) => !k.revoked_at) ?? [];
   const revokedKeys = data?.keys.filter((k) => k.revoked_at) ?? [];
 
@@ -105,6 +146,78 @@ export default function ApiKeysPage() {
       {(error || actionError) && (
         <div className="bg-red-500/10 border border-red-500/20 rounded-lg px-4 py-3 text-sm text-red-400">
           {actionError || error}
+        </div>
+      )}
+
+      {/* Wallet Proxy Session Token */}
+      {hasWallet && (
+        <div className="bg-gray-900 border border-emerald-800/50 rounded-xl p-4 sm:p-5 space-y-4">
+          <div className="flex items-center gap-2">
+            <div className="w-2 h-2 rounded-full bg-emerald-500"></div>
+            <h2 className="text-sm font-semibold text-emerald-400">Wallet Proxy Authentication</h2>
+          </div>
+          <p className="text-sm text-gray-400">
+            Use your linked wallet ({user?.wallet_address?.slice(0, 6)}...{user?.wallet_address?.slice(-4)}) to authenticate proxy requests without API keys. Generate a session token that works just like an API key.
+          </p>
+
+          <div className="flex flex-wrap items-end gap-3">
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Duration (minutes)</label>
+              <select
+                value={proxyTtl}
+                onChange={(e) => setProxyTtl(e.target.value)}
+                className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-emerald-500"
+              >
+                <option value="15">15 min</option>
+                <option value="60">1 hour</option>
+                <option value="240">4 hours</option>
+                <option value="480">8 hours</option>
+                <option value="1440">24 hours</option>
+              </select>
+            </div>
+            <button
+              onClick={handleGenerateProxyToken}
+              disabled={generatingProxy}
+              className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+            >
+              {generatingProxy ? "Generating..." : "Generate Proxy Token"}
+            </button>
+          </div>
+
+          {proxyToken && (
+            <div className="space-y-3 border-t border-gray-800 pt-3">
+              <div className="bg-yellow-500/10 border border-yellow-500/20 rounded-lg px-3 py-2 text-sm text-yellow-300">
+                Copy this token now. It cannot be retrieved later. Expires {proxyExpiry ? new Date(proxyExpiry).toLocaleString() : "soon"}.
+              </div>
+              <div className="flex gap-2">
+                <input
+                  readOnly
+                  value={proxyToken}
+                  autoComplete="off"
+                  data-lpignore="true"
+                  className="flex-1 min-w-0 bg-gray-800 border border-gray-700 rounded-lg px-2 sm:px-3 py-2 text-xs font-mono"
+                />
+                <button
+                  onClick={handleCopyProxyToken}
+                  className="bg-gray-700 hover:bg-gray-600 px-3 py-2 rounded-lg text-sm transition-colors flex-shrink-0"
+                >
+                  {proxyCopied ? "Copied!" : "Copy"}
+                </button>
+              </div>
+              <div className="bg-gray-800 rounded-lg px-3 py-2">
+                <p className="text-xs text-gray-500 mb-1">Usage example:</p>
+                <code className="text-xs text-emerald-400 break-all">
+                  curl -x http://country-US:{proxyToken.slice(0, 20)}...@proxy:8080 https://httpbin.org/ip
+                </code>
+              </div>
+              <button
+                onClick={() => { setProxyToken(null); setProxyExpiry(null); }}
+                className="w-full bg-gray-800 hover:bg-gray-700 text-gray-400 text-sm font-medium py-2 rounded-lg transition-colors"
+              >
+                Dismiss
+              </button>
+            </div>
+          )}
         </div>
       )}
 

@@ -1,5 +1,5 @@
 import * as http from "node:http";
-import { hashApiKey, userRepo, createLogger } from "@dominusnode/shared";
+import { hashApiKey, verifyProxySessionToken, userRepo, createLogger } from "@dominusnode/shared";
 import type { User } from "@dominusnode/shared";
 
 const log = createLogger("proxy:auth");
@@ -94,21 +94,66 @@ export async function authenticateRequest(
     return null;
   }
 
-  // Format: [options]:dn_live_xxxx (password is the API key, username has routing options)
+  // Format: [options]:dn_live_xxxx (API key) or [options]:dn_proxy_xxxx (session token)
   const colonIdx = decoded.indexOf(":");
   if (colonIdx === -1) return null;
 
   const username = decoded.slice(0, colonIdx);
-  const apiKey = decoded.slice(colonIdx + 1);
-  if (!apiKey.startsWith("dn_live_")) return null;
+  const credential = decoded.slice(colonIdx + 1);
 
-  const keyHash = hashApiKey(apiKey);
+  // ─── Path A: Wallet proxy session token (HMAC, ~3-5μs) ────────────
+  if (credential.startsWith("dn_proxy_")) {
+    const session = verifyProxySessionToken(credential);
+    if (!session) {
+      log.warn("invalid proxy session token");
+      return null;
+    }
+
+    try {
+      // Look up user by ID (from the HMAC-verified payload)
+      const user = await userRepo.findUserById(session.userId);
+      if (!user) {
+        log.warn("proxy session user not found", { userId: session.userId });
+        return null;
+      }
+
+      // Reject suspended/deleted users
+      if (user.status !== "active") {
+        log.warn("rejected non-active user (session)", { userId: user.id, status: user.status });
+        return null;
+      }
+
+      // Reject users who haven't verified their email
+      if (!user.email_verified) {
+        log.warn("rejected unverified email (session)", { userId: user.id });
+        return null;
+      }
+
+      // Verify wallet address still matches (user hasn't unlinked wallet)
+      // Case-insensitive comparison for defense-in-depth
+      if (!user.wallet_address || user.wallet_address.toLowerCase() !== session.walletAddress.toLowerCase()) {
+        log.warn("wallet address mismatch", { userId: user.id });
+        return null;
+      }
+
+      const proxyOptions = parseProxyOptions(username);
+      return { userId: user.id, user, proxyOptions, teamId: null };
+    } catch (err) {
+      log.error("session auth DB error", { error: err instanceof Error ? err.message : String(err) });
+      return null;
+    }
+  }
+
+  // ─── Path B: Traditional API key (SHA-256 hash, ~5μs) ─────────────
+  if (!credential.startsWith("dn_live_")) return null;
+
+  const keyHash = hashApiKey(credential);
 
   try {
     const result = await userRepo.findUserByApiKeyHash(keyHash);
     if (!result) {
       // Only log static prefix — don't leak key material
-      log.warn("invalid API key", { prefix: apiKey.slice(0, 8) });
+      log.warn("invalid API key", { prefix: credential.slice(0, 8) });
       return null;
     }
 

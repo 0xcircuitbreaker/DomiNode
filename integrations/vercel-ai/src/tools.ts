@@ -249,7 +249,7 @@ async function checkDnsRebinding(hostname: string): Promise<void> {
 // Credential sanitization for error messages
 // ---------------------------------------------------------------------------
 
-const CREDENTIAL_RE = /dn_(live|test)_[a-zA-Z0-9]+|eyJ[a-zA-Z0-9_-]+\.eyJ[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+/g;
+const CREDENTIAL_RE = /dn_(live|test|proxy)_[a-zA-Z0-9]+|eyJ[a-zA-Z0-9_-]+\.eyJ[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+/g;
 
 function sanitizeError(message: string): string {
   return message.replace(CREDENTIAL_RE, "***");

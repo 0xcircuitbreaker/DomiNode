@@ -66,7 +66,7 @@ export interface DominusNodeToolkitConfig {
 
 /** Remove any dn_live_* or dn_test_* tokens from error messages. */
 export function scrubCredentials(msg: string): string {
-  return msg.replace(/dn_(live|test)_[A-Za-z0-9_-]+/g, "dn_$1_***REDACTED***");
+  return msg.replace(/dn_(live|test|proxy)_[A-Za-z0-9_-]+/g, "dn_$1_***REDACTED***");
 }
 
 function safeError(err: unknown): string {

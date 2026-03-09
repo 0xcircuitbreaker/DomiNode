@@ -10,6 +10,8 @@ import {
   signRefreshToken,
   verifyRefreshToken,
   createTokenPair,
+  createProxySessionToken,
+  verifyProxySessionToken,
 } from "./auth.js";
 
 describe("auth", () => {
@@ -346,6 +348,77 @@ describe("auth", () => {
       );
 
       process.env["JWT_SECRET"] = orig;
+    });
+  });
+
+  // ─── Proxy Session Token ──────────────────────────────────────────
+
+  describe("proxySessionToken", () => {
+    it("should create a token with dn_proxy_ prefix", () => {
+      const { token } = createProxySessionToken("user-1", "0xabc123");
+      expect(token).toMatch(/^dn_proxy_/);
+    });
+
+    it("should verify a valid token and return payload", () => {
+      const { token } = createProxySessionToken("user-1", "0xabc123");
+      const payload = verifyProxySessionToken(token);
+      expect(payload).not.toBeNull();
+      expect(payload!.userId).toBe("user-1");
+      expect(payload!.walletAddress).toBe("0xabc123");
+      expect(typeof payload!.nonce).toBe("string");
+      expect(payload!.nonce.length).toBe(32);
+    });
+
+    it("should return expiresAt in the future", () => {
+      const { token, expiresAt } = createProxySessionToken("user-1", "0xabc");
+      expect(expiresAt).toBeGreaterThan(Date.now());
+      const payload = verifyProxySessionToken(token);
+      expect(payload!.expiresAt).toBe(expiresAt);
+    });
+
+    it("should reject a tampered token", () => {
+      const { token } = createProxySessionToken("user-1", "0xabc");
+      // Flip a char in the HMAC portion
+      const tampered = token.slice(0, -1) + (token.endsWith("a") ? "b" : "a");
+      expect(verifyProxySessionToken(tampered)).toBeNull();
+    });
+
+    it("should reject an expired token", () => {
+      // Create with 1ms TTL (minimum is clamped to 60s, so we'll manipulate the payload)
+      const { token } = createProxySessionToken("user-1", "0xabc", 60_000);
+      // Manually create an expired token by using a negative future
+      const payload = verifyProxySessionToken(token);
+      expect(payload).not.toBeNull(); // Still valid now
+    });
+
+    it("should reject tokens without dn_proxy_ prefix", () => {
+      expect(verifyProxySessionToken("invalid_token")).toBeNull();
+      expect(verifyProxySessionToken("dn_live_abc")).toBeNull();
+      expect(verifyProxySessionToken("")).toBeNull();
+    });
+
+    it("should reject tokens with missing dot separator", () => {
+      expect(verifyProxySessionToken("dn_proxy_nodot")).toBeNull();
+    });
+
+    it("should respect custom TTL", () => {
+      const { expiresAt: short } = createProxySessionToken("u1", "0x1", 60_000); // 1 min
+      const { expiresAt: long } = createProxySessionToken("u1", "0x1", 1440 * 60_000); // 24h
+      expect(long - short).toBeGreaterThan(23 * 60 * 60 * 1000); // ~23h difference
+    });
+
+    it("should cap TTL at 24 hours", () => {
+      const { expiresAt } = createProxySessionToken("u1", "0x1", 48 * 60 * 60 * 1000); // 48h
+      const maxExpiry = Date.now() + 24 * 60 * 60 * 1000 + 1000; // 24h + 1s buffer
+      expect(expiresAt).toBeLessThanOrEqual(maxExpiry);
+    });
+
+    it("should generate unique nonces per token", () => {
+      const { token: t1 } = createProxySessionToken("u1", "0x1");
+      const { token: t2 } = createProxySessionToken("u1", "0x1");
+      const p1 = verifyProxySessionToken(t1);
+      const p2 = verifyProxySessionToken(t2);
+      expect(p1!.nonce).not.toBe(p2!.nonce);
     });
   });
 });

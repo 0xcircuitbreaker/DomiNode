@@ -32,7 +32,7 @@ These rules apply to ALL code changes across the DomiNode codebase.
 
 ## Credential Handling
 
-- Scrub dn_live_*/dn_test_*/JWT patterns from ALL error messages returned to clients
+- Scrub dn_live_*/dn_test_*/dn_proxy_*/JWT patterns from ALL error messages returned to clients
 - Shell scripts: use `printf | curl --data @-` not `curl -d '{"password":"$PWD"}'` — args visible in ps
 - Shell scripts: pass API keys via env var, NOT command-line arguments
 - Log redaction: only show 8 chars of API key prefix

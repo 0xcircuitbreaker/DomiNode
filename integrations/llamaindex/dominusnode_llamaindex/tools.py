@@ -19,7 +19,7 @@ Security:
     - OFAC: CU, IR, KP, RU, SY blocked
     - Redirects: disabled (follow_redirects=False)
     - Prototype pollution: strip __proto__/constructor/prototype
-    - Credential scrubbing: dn_(live|test)_[a-zA-Z0-9]+ -> ***
+    - Credential scrubbing: dn_(live|test|proxy)_[a-zA-Z0-9]+ -> ***
 """
 
 from __future__ import annotations
@@ -56,7 +56,7 @@ ALLOWED_FETCH_METHODS: frozenset[str] = frozenset({"GET", "HEAD", "OPTIONS"})
 SANCTIONED_COUNTRIES: frozenset[str] = frozenset({"CU", "IR", "KP", "RU", "SY"})
 """OFAC sanctioned countries -- requests geo-targeting these are blocked."""
 
-_CREDENTIAL_RE = re.compile(r"dn_(live|test)_[a-zA-Z0-9]+")
+_CREDENTIAL_RE = re.compile(r"dn_(live|test|proxy)_[a-zA-Z0-9]+")
 """Regex to match Dominus Node API key patterns for scrubbing."""
 
 _DANGEROUS_KEYS: frozenset[str] = frozenset({"__proto__", "constructor", "prototype"})

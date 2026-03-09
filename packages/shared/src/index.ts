@@ -50,8 +50,10 @@ export {
   verifyRefreshToken,
   signMfaChallengeToken,
   verifyMfaChallengeToken,
+  createProxySessionToken,
+  verifyProxySessionToken,
 } from "./auth.js";
-export type { GeneratedApiKey, JwtPayload, TokenPair, MfaChallengePayload } from "./auth.js";
+export type { GeneratedApiKey, JwtPayload, TokenPair, MfaChallengePayload, ProxySessionPayload } from "./auth.js";
 
 // Logger
 export { createLogger } from "./logger.js";

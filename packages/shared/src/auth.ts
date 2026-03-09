@@ -172,6 +172,105 @@ export function verifyMfaChallengeToken(token: string): MfaChallengePayload | nu
   }
 }
 
+// ─── Proxy Session Token ─────────────────────────────────────────────
+// Wallet users can authenticate to the proxy without API keys.
+// Sign once with wallet → get HMAC session token → use for proxy requests.
+// HMAC-SHA256 verification is ~3-5μs (same speed as API key hash lookup).
+
+const PROXY_SESSION_TTL_MS = 60 * 60 * 1000; // 1 hour default
+const MAX_PROXY_SESSION_TTL_MS = 24 * 60 * 60 * 1000; // 24 hour max
+
+function getProxySessionSecret(): string {
+  const base = getJwtSecret();
+  return crypto.createHmac("sha256", base).update("proxy-session").digest("hex");
+}
+
+export interface ProxySessionPayload {
+  userId: string;
+  walletAddress: string;
+  expiresAt: number; // Unix ms
+  nonce: string; // Unique per token for revocation
+}
+
+/**
+ * Create a stateless HMAC-based proxy session token.
+ * Format: base64url(payload).base64url(hmac)
+ * Verification: ~3-5μs (same as SHA-256 hash lookup).
+ */
+export function createProxySessionToken(
+  userId: string,
+  walletAddress: string,
+  ttlMs?: number,
+): { token: string; expiresAt: number } {
+  const ttl = Math.min(Math.max(ttlMs ?? PROXY_SESSION_TTL_MS, 60_000), MAX_PROXY_SESSION_TTL_MS);
+  const expiresAt = Date.now() + ttl;
+  const nonce = crypto.randomBytes(16).toString("hex");
+  const payload: ProxySessionPayload = { userId, walletAddress, expiresAt, nonce };
+  const payloadStr = Buffer.from(JSON.stringify(payload)).toString("base64url");
+  const hmac = crypto.createHmac("sha256", getProxySessionSecret()).update(payloadStr).digest("base64url");
+  return { token: `dn_proxy_${payloadStr}.${hmac}`, expiresAt };
+}
+
+/**
+ * Verify a proxy session token. Returns payload or null.
+ * O(1) HMAC verification — no DB lookup needed.
+ */
+export function verifyProxySessionToken(token: string): ProxySessionPayload | null {
+  // Strip dn_proxy_ prefix
+  const stripped = token.startsWith("dn_proxy_") ? token.slice(9) : null;
+  if (!stripped) return null;
+
+  const dotIdx = stripped.lastIndexOf(".");
+  if (dotIdx === -1) return null;
+
+  const payloadStr = stripped.slice(0, dotIdx);
+  const providedHmac = stripped.slice(dotIdx + 1);
+
+  // Length sanity — reject absurdly large tokens (>4KB payload)
+  if (payloadStr.length > 4096 || providedHmac.length > 64) return null;
+
+  // Compute expected HMAC
+  const expectedHmac = crypto.createHmac("sha256", getProxySessionSecret()).update(payloadStr).digest("base64url");
+
+  // Timing-safe comparison
+  if (expectedHmac.length !== providedHmac.length) return null;
+  if (!crypto.timingSafeEqual(Buffer.from(expectedHmac), Buffer.from(providedHmac))) return null;
+
+  // Parse and validate payload
+  try {
+    const raw = JSON.parse(Buffer.from(payloadStr, "base64url").toString("utf-8"));
+    // Prototype pollution protection — strip dangerous keys from parsed payload
+    if (raw && typeof raw === "object") {
+      for (const key of Object.keys(raw)) {
+        if (key === "__proto__" || key === "constructor" || key === "prototype") {
+          delete raw[key];
+        }
+      }
+    }
+    if (
+      typeof raw.userId !== "string" || raw.userId.length === 0 ||
+      typeof raw.walletAddress !== "string" || raw.walletAddress.length === 0 ||
+      typeof raw.expiresAt !== "number" ||
+      typeof raw.nonce !== "string" || raw.nonce.length === 0
+    ) {
+      return null;
+    }
+    // Check expiry
+    if (Date.now() > raw.expiresAt) return null;
+    // Defense-in-depth: reject tokens with expiresAt too far in the future
+    if (raw.expiresAt > Date.now() + MAX_PROXY_SESSION_TTL_MS + 60_000) return null;
+
+    return {
+      userId: raw.userId,
+      walletAddress: raw.walletAddress,
+      expiresAt: raw.expiresAt,
+      nonce: raw.nonce,
+    };
+  } catch {
+    return null;
+  }
+}
+
 /** Verify a refresh token */
 export function verifyRefreshToken(token: string): (JwtPayload & { iat?: number }) | null {
   try {

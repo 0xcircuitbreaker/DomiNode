@@ -20,6 +20,7 @@ import {
   getPool,
   WALLET_CHALLENGE_TTL_MS,
   referralRepo,
+  createProxySessionToken,
 } from "@dominusnode/shared";
 import { recoverSignerAddress } from "../helpers/verify-signature.js";
 import { requireAuth, type AuthenticatedRequest } from "../middleware/auth.js";
@@ -165,6 +166,17 @@ setInterval(() => {
       timestamps.shift();
     }
     if (timestamps.length === 0) walletRegistrationLog.delete(ip);
+  }
+  // Cleanup expired proxy session rate limit entries
+  for (const [ip, entry] of proxySessionRateMap) {
+    if (now - entry.windowStart > PROXY_SESSION_WINDOW_MS) {
+      proxySessionRateMap.delete(ip);
+    }
+  }
+  for (const [uid, entry] of proxySessionUserRateMap) {
+    if (now - entry.windowStart > PROXY_SESSION_USER_WINDOW_MS) {
+      proxySessionUserRateMap.delete(uid);
+    }
   }
 }, 300_000).unref();
 
@@ -529,6 +541,128 @@ router.post("/link", requireAuth, async (req, res) => {
   } catch (err) {
     log.error("wallet link failed", { error: err instanceof Error ? err.message : String(err) });
     res.status(500).json({ error: "Wallet link failed" });
+  }
+});
+
+// ─── POST /proxy-session ─────────────────────────────────────────────
+// Issue an HMAC-based proxy session token for wallet users.
+// This lets wallet users authenticate to the proxy without API keys.
+// The token is verified via HMAC (~3-5μs), same speed as API key hash.
+
+// Rate limit: max 10 proxy session tokens per IP per 15 minutes + max 20 per user per hour
+const MAX_PROXY_SESSIONS_PER_IP = 10;
+const MAX_PROXY_SESSIONS_PER_USER = 20;
+const PROXY_SESSION_WINDOW_MS = 15 * 60 * 1000;
+const PROXY_SESSION_USER_WINDOW_MS = 60 * 60 * 1000; // 1 hour
+const MAX_PROXY_SESSION_MAP_SIZE = 50_000;
+const proxySessionRateMap = new Map<string, { count: number; windowStart: number }>();
+const proxySessionUserRateMap = new Map<string, { count: number; windowStart: number }>();
+
+function checkProxySessionRateLimit(ip: string): boolean {
+  const now = Date.now();
+  const entry = proxySessionRateMap.get(ip);
+  if (!entry || now - entry.windowStart > PROXY_SESSION_WINDOW_MS) {
+    if (proxySessionRateMap.size >= MAX_PROXY_SESSION_MAP_SIZE) {
+      let toDelete = Math.floor(MAX_PROXY_SESSION_MAP_SIZE / 2);
+      for (const key of proxySessionRateMap.keys()) {
+        if (toDelete <= 0) break;
+        proxySessionRateMap.delete(key);
+        toDelete--;
+      }
+    }
+    proxySessionRateMap.set(ip, { count: 1, windowStart: now });
+    return true;
+  }
+  if (entry.count >= MAX_PROXY_SESSIONS_PER_IP) return false;
+  entry.count++;
+  return true;
+}
+
+function checkProxySessionUserRateLimit(userId: string): boolean {
+  const now = Date.now();
+  const entry = proxySessionUserRateMap.get(userId);
+  if (!entry || now - entry.windowStart > PROXY_SESSION_USER_WINDOW_MS) {
+    if (proxySessionUserRateMap.size >= MAX_PROXY_SESSION_MAP_SIZE) {
+      let toDelete = Math.floor(MAX_PROXY_SESSION_MAP_SIZE / 2);
+      for (const key of proxySessionUserRateMap.keys()) {
+        if (toDelete <= 0) break;
+        proxySessionUserRateMap.delete(key);
+        toDelete--;
+      }
+    }
+    proxySessionUserRateMap.set(userId, { count: 1, windowStart: now });
+    return true;
+  }
+  if (entry.count >= MAX_PROXY_SESSIONS_PER_USER) return false;
+  entry.count++;
+  return true;
+}
+
+router.post("/proxy-session", requireAuth, async (req, res) => {
+  try {
+    const clientIp = req.ip;
+    if (!clientIp) {
+      res.status(400).json({ error: "Unable to determine client IP" });
+      return;
+    }
+    if (!checkProxySessionRateLimit(clientIp)) {
+      res.status(429).json({ error: "Too many proxy session requests. Try again later." });
+      return;
+    }
+
+    const { userId } = (req as AuthenticatedRequest).user;
+
+    // Per-user rate limit (max 20 tokens per hour)
+    if (!checkProxySessionUserRateLimit(userId)) {
+      res.status(429).json({ error: "Too many proxy session tokens generated. Try again later." });
+      return;
+    }
+
+    // Look up user to get wallet address
+    const user = await userRepo.findUserById(userId);
+    if (!user) {
+      res.status(404).json({ error: "User not found" });
+      return;
+    }
+    if (user.status !== "active") {
+      res.status(403).json({ error: "Account is not active" });
+      return;
+    }
+    if (!user.email_verified) {
+      res.status(403).json({ error: "Email verification required" });
+      return;
+    }
+    if (!user.wallet_address) {
+      res.status(400).json({ error: "No wallet linked to this account. Link a wallet first." });
+      return;
+    }
+
+    // Optional TTL in minutes (default 60, max 1440 = 24h)
+    const rawTtlMinutes = parseInt(String(req.body.ttlMinutes ?? "60"), 10);
+    const ttlMinutes = Number.isFinite(rawTtlMinutes) && rawTtlMinutes > 0
+      ? Math.min(rawTtlMinutes, 1440) : 60;
+    const ttlMs = ttlMinutes * 60 * 1000;
+
+    const { token, expiresAt } = createProxySessionToken(user.id, user.wallet_address, ttlMs);
+
+    log.info("proxy session token issued", {
+      userId: user.id,
+      walletPrefix: user.wallet_address.slice(0, 10) + "...",
+      ttlMinutes,
+      ip: clientIp,
+    });
+
+    // Usage example shows truncated token — full token only in proxyToken field
+    const tokenPreview = token.slice(0, 20) + "...";
+    res.json({
+      proxyToken: token,
+      expiresAt: new Date(expiresAt).toISOString(),
+      ttlMinutes,
+      usage: `curl -x http://country-US:${tokenPreview}@proxy:8080 https://httpbin.org/ip`,
+    });
+  } catch (err) {
+    log.error("proxy session creation failed", { error: err instanceof Error ? err.message : String(err) });
+    res.status(500).json({ error: "Failed to create proxy session" });
   }
 });
 

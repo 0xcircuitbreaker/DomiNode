@@ -52,7 +52,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
 /** Remove any dn_live_* or dn_test_* tokens from error messages. */
 export function scrubCredentials(msg: string): string {
-  return msg.replace(/dn_(live|test)_[A-Za-z0-9_-]+/g, "dn_$1_***REDACTED***");
+  return msg.replace(/dn_(live|test|proxy)_[A-Za-z0-9_-]+/g, "dn_$1_***REDACTED***");
 }
 
 function safeError(err: unknown): string {

@@ -53,7 +53,7 @@ MAX_BODY_TRUNCATE: int = 4000
 # Credential sanitisation
 # ---------------------------------------------------------------------------
 
-CREDENTIAL_RE: re.Pattern[str] = re.compile(r"dn_(live|test)_[a-zA-Z0-9]+")
+CREDENTIAL_RE: re.Pattern[str] = re.compile(r"dn_(live|test|proxy)_[a-zA-Z0-9]+")
 """Regex matching Dominus Node API key patterns (dn_live_xxx / dn_test_xxx)."""
 
 # ---------------------------------------------------------------------------

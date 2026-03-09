@@ -362,7 +362,7 @@ MAX_RESPONSE_CHARS = 4000
 # Credential sanitization
 # ---------------------------------------------------------------------------
 
-_CREDENTIAL_RE = re.compile(r"dn_(live|test)_[a-zA-Z0-9]+")
+_CREDENTIAL_RE = re.compile(r"dn_(live|test|proxy)_[a-zA-Z0-9]+")
 _ETH_PRIVATE_KEY_RE = re.compile(r"0x[0-9a-fA-F]{64}")
 
 

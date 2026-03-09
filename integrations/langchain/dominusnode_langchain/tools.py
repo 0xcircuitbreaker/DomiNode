@@ -53,7 +53,7 @@ _HOSTNAME_RE = re.compile(r"^[a-zA-Z0-9._-]+$")
 _SANCTIONED_COUNTRIES = frozenset({"CU", "IR", "KP", "RU", "SY"})
 
 # Credential scrubbing pattern
-_CREDENTIAL_RE = re.compile(r"dn_(live|test)_[a-zA-Z0-9]+|eyJ[a-zA-Z0-9_-]+\.eyJ[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+")
+_CREDENTIAL_RE = re.compile(r"dn_(live|test|proxy)_[a-zA-Z0-9]+|eyJ[a-zA-Z0-9_-]+\.eyJ[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+")
 
 # Maximum response body size (10 MB)
 _MAX_RESPONSE_BODY_BYTES = 10 * 1024 * 1024

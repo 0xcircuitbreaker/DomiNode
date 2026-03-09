@@ -17,7 +17,7 @@ import { isPrivateIp } from "./ssrf";
 // Constants
 // ---------------------------------------------------------------------------
 
-const CREDENTIAL_RE = /dn_(live|test)_[a-zA-Z0-9]+/g;
+const CREDENTIAL_RE = /dn_(live|test|proxy)_[a-zA-Z0-9]+/g;
 const DANGEROUS_KEYS = new Set(["__proto__", "constructor", "prototype"]);
 const MAX_RESPONSE_BYTES = 10 * 1024 * 1024; // 10 MB
 const SANCTIONED_COUNTRIES = new Set(["CU", "IR", "KP", "RU", "SY"]);
