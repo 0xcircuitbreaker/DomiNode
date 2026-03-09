@@ -3,6 +3,7 @@ import { useAuth } from "../context/AuthContext";
 import { useApi } from "../hooks/useApi";
 import { get, post, put, del } from "../api/client";
 import ResponsiveTable from "../components/ResponsiveTable";
+import Pagination from "../components/Pagination";
 
 // ─── Types ──────────────────────────────────────────────────────────
 
@@ -353,29 +354,7 @@ function UsersTab() {
         )}
 
         {/* Pagination */}
-        {totalPages > 1 && (
-          <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 border-t border-gray-800">
-            <p className="text-xs text-gray-500">
-              Page {page} of {totalPages} ({data?.pagination.total} users)
-            </p>
-            <div className="flex gap-2">
-              <button
-                onClick={() => setPage(Math.max(1, page - 1))}
-                disabled={page === 1}
-                className="px-4 py-2 rounded-lg text-xs bg-gray-800 text-gray-400 hover:bg-gray-700 disabled:opacity-50"
-              >
-                Previous
-              </button>
-              <button
-                onClick={() => setPage(Math.min(totalPages, page + 1))}
-                disabled={page >= totalPages}
-                className="px-4 py-2 rounded-lg text-xs bg-gray-800 text-gray-400 hover:bg-gray-700 disabled:opacity-50"
-              >
-                Next
-              </button>
-            </div>
-          </div>
-        )}
+        <Pagination page={page} totalPages={totalPages} totalItems={data?.pagination.total} itemLabel="users" onPageChange={setPage} />
       </div>
     </div>
   );
@@ -653,29 +632,7 @@ function WaitlistTab() {
         )}
 
         {/* Pagination */}
-        {totalPages > 1 && (
-          <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 border-t border-gray-800">
-            <p className="text-xs text-gray-500">
-              Page {page} of {totalPages}
-            </p>
-            <div className="flex gap-2">
-              <button
-                onClick={() => setPage(Math.max(1, page - 1))}
-                disabled={page === 1}
-                className="px-4 py-2 rounded-lg text-xs bg-gray-800 text-gray-400 hover:bg-gray-700 disabled:opacity-50"
-              >
-                Previous
-              </button>
-              <button
-                onClick={() => setPage(Math.min(totalPages, page + 1))}
-                disabled={page >= totalPages}
-                className="px-4 py-2 rounded-lg text-xs bg-gray-800 text-gray-400 hover:bg-gray-700 disabled:opacity-50"
-              >
-                Next
-              </button>
-            </div>
-          </div>
-        )}
+        <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
       </div>
     </div>
   );
@@ -838,17 +795,7 @@ function BountyTab() {
           />
         )}
 
-        {totalPages > 1 && (
-          <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 border-t border-gray-800">
-            <p className="text-xs text-gray-500">Page {page} of {totalPages}</p>
-            <div className="flex gap-2">
-              <button onClick={() => setPage(Math.max(1, page - 1))} disabled={page === 1}
-                className="px-4 py-2 rounded-lg text-xs bg-gray-800 text-gray-400 hover:bg-gray-700 disabled:opacity-50">Previous</button>
-              <button onClick={() => setPage(Math.min(totalPages, page + 1))} disabled={page >= totalPages}
-                className="px-4 py-2 rounded-lg text-xs bg-gray-800 text-gray-400 hover:bg-gray-700 disabled:opacity-50">Next</button>
-            </div>
-          </div>
-        )}
+        <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
       </div>
     </div>
   );

@@ -4,6 +4,12 @@
 // Response size limit to prevent OOM from oversized server responses
 const MAX_RESPONSE_BYTES = 5 * 1024 * 1024; // 5MB
 
+// Credential scrubbing — defense-in-depth to prevent leaking secrets in error messages
+const CREDENTIAL_PATTERNS = /dn_live_\S+|dn_test_\S+|dn_proxy_\S+|das_\S+|eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g;
+function scrubCredentials(msg: string): string {
+  return msg.replace(CREDENTIAL_PATTERNS, "[REDACTED]");
+}
+
 // Prototype pollution protection — strip dangerous keys from parsed JSON
 const DANGEROUS_KEYS = new Set(["__proto__", "constructor", "prototype"]);
 function stripDangerousKeys(obj: unknown, depth = 0): void {
@@ -164,7 +170,7 @@ async function apiFetch<T>(
 
   if (!res.ok) {
     const body = await safeJson<{ error?: string }>(res).catch(() => ({ error: res.statusText }));
-    throw new Error(body.error || `Request failed: ${res.status}`);
+    throw new Error(scrubCredentials(body.error || `Request failed: ${res.status}`));
   }
 
   return safeJson<T>(res);

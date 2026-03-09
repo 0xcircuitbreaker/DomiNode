@@ -6,6 +6,7 @@ import UsageChart from "../components/UsageChart";
 import TopHosts from "../components/TopHosts";
 import CsvExportButton from "../components/CsvExportButton";
 import ResponsiveTable from "../components/ResponsiveTable";
+import Pagination from "../components/Pagination";
 
 interface UsageRecord {
   id: string;
@@ -192,29 +193,7 @@ export default function UsagePage() {
           />
         )}
         {/* Pagination */}
-        {totalPages > 1 && (
-          <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 border-t border-gray-800">
-            <p className="text-xs text-gray-500">
-              Page {page + 1} of {totalPages} ({data?.pagination.total} records)
-            </p>
-            <div className="flex gap-2">
-              <button
-                onClick={() => { setPage(Math.max(0, page - 1)); refetch(); }}
-                disabled={page === 0}
-                className="px-4 py-2 rounded-lg text-xs bg-gray-800 text-gray-400 hover:bg-gray-700 disabled:opacity-50"
-              >
-                Previous
-              </button>
-              <button
-                onClick={() => { setPage(Math.min(totalPages - 1, page + 1)); refetch(); }}
-                disabled={page >= totalPages - 1}
-                className="px-4 py-2 rounded-lg text-xs bg-gray-800 text-gray-400 hover:bg-gray-700 disabled:opacity-50"
-              >
-                Next
-              </button>
-            </div>
-          </div>
-        )}
+        <Pagination page={page} totalPages={totalPages} totalItems={data?.pagination.total} itemLabel="records" zeroBased onPageChange={setPage} />
       </div>
     </div>
   );
