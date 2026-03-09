@@ -42,7 +42,7 @@ MAG = "\033[95m"
 API_BASE_DEFAULT = "https://api.dominusnode.com"
 PROXY_HOST_DEFAULT = "proxy.dominusnode.com"
 PROXY_PORT_DEFAULT = 8080
-MAX_WORKERS = 4
+MAX_WORKERS = 2  # conservative — avoids registration rate-limit storms
 OLLAMA_BASE = "http://localhost:11434/v1"
 OLLAMA_MODEL = "qwen3.5:27b"
 
@@ -85,7 +85,7 @@ INTEGRATIONS: Dict[str, IntegrationDef] = {
         "crewai", "CrewAI", "python",
         "crewai",
         "dominus-node/dominusnode-crewai",
-        "dominusnode_crewai.tools", "DominusNodeToolkit",
+        "dominusnode_crewai.tools", "_CREWAI_WRAPPER_",
         "llm-agent"),
     "agno": IntegrationDef(
         "agno", "Agno", "python",
@@ -135,14 +135,14 @@ INTEGRATIONS: Dict[str, IntegrationDef] = {
         "agent-zero", "Agent Zero", "python",
         "",
         "dominus-node/dominusnode-agent--zero",
-        "agent_zero_dominusnode.tools", "DominusNodeToolkit",
+        "shared.auth", "_AGENT_ZERO_WRAPPER_",
         "direct",
-        notes="Shared utility approach, no unified toolkit"),
+        notes="Function-based tools, DominusNodeAuth + tool modules"),
     "superagi": IntegrationDef(
         "superagi", "SuperAGI", "python",
         "",  # framework not pip-installable, stubs injected
         "dominus-node/dominusnode-superagi",
-        "dominusnode_superagi.tools", "DominusNodeToolkit",
+        "dominusnode_superagi.tools", "_SUPERAGI_WRAPPER_",
         "direct"),
     "composio": IntegrationDef(
         "composio", "Composio", "python",
@@ -342,38 +342,77 @@ def _solve_pow(api_base: str) -> Optional[dict]:
     return None
 
 
+_REG_LOCK = __import__("threading").Lock()
+_LAST_REG_TIME = 0.0
+
 def _register_login_key(api_base: str, admin_jwt: str = "", credit_cents: int = 200) -> Tuple[str, str, str, str]:
-    """Common registration flow. Returns (email, password, jwt, api_key) or raises."""
+    """Common registration flow with rate-limit spacing. Returns (email, password, jwt, api_key) or raises."""
     import httpx
+    global _LAST_REG_TIME
     email = _rand_email()
     password = _rand_password()
 
+    # Build headers — include agent secret + Origin (server requires Origin on auth endpoints)
+    agent_secret = os.environ.get("DOMINUSNODE_AGENT_SECRET", "")
+    base_headers: dict = {
+        "Content-Type": "application/json",
+        "Origin": api_base,
+    }
+    if agent_secret:
+        base_headers["X-DominusNode-Agent"] = "mcp"
+        base_headers["X-DominusNode-Agent-Secret"] = agent_secret
+
     with httpx.Client(timeout=30.0, follow_redirects=False) as client:
-        # Register with PoW
+        # Stagger registrations to avoid 429 rate limits
+        with _REG_LOCK:
+            elapsed = time.time() - _LAST_REG_TIME
+            if elapsed < 4.0:
+                time.sleep(4.0 - elapsed + random.uniform(0.5, 1.5))
+            _LAST_REG_TIME = time.time()
+
+        # Register with PoW — retry on 429 with exponential backoff
         pow_data = _solve_pow(api_base)
         reg_body: dict = {"email": email, "password": password}
         if pow_data:
             reg_body["pow"] = pow_data
-        resp = client.post(
-            f"{api_base}/api/auth/register",
-            json=reg_body,
-            headers={"Content-Type": "application/json"},
-        )
+
+        for attempt in range(5):
+            resp = client.post(
+                f"{api_base}/api/auth/register",
+                json=reg_body,
+                headers=base_headers,
+            )
+            if resp.status_code == 429:
+                wait = min(30, 5 * (2 ** attempt))
+                time.sleep(wait + random.uniform(1.0, 3.0))
+                # Get fresh PoW for retry
+                pow_data = _solve_pow(api_base)
+                if pow_data:
+                    reg_body["pow"] = pow_data
+                continue
+            break
+
         if resp.status_code not in (200, 201):
             raise RuntimeError(f"Register failed: {resp.status_code} {resp.text[:200]}")
 
-        # Login
-        resp = client.post(
-            f"{api_base}/api/auth/login",
-            json={"email": email, "password": password},
-            headers={"Content-Type": "application/json"},
-        )
-        if resp.status_code != 200:
-            raise RuntimeError(f"Login failed: {resp.status_code}")
-        login_data = resp.json()
-        jwt = login_data.get("token") or login_data.get("accessToken", "")
+        # Use token from register response (no separate login needed)
+        reg_data = resp.json()
+        jwt = reg_data.get("token") or reg_data.get("accessToken", "")
+
+        # Fallback: explicit login if register didn't return a token
         if not jwt:
-            raise RuntimeError("Login failed: no token")
+            resp = client.post(
+                f"{api_base}/api/auth/login",
+                json={"email": email, "password": password},
+                headers=base_headers,
+            )
+            if resp.status_code != 200:
+                raise RuntimeError(f"Login failed: {resp.status_code} {resp.text[:200]}")
+            login_data = resp.json()
+            jwt = login_data.get("token") or login_data.get("accessToken", "")
+
+        if not jwt:
+            raise RuntimeError("Login failed: no token from register or login")
 
         # Credit account if admin available
         if admin_jwt and credit_cents > 0:
@@ -381,7 +420,7 @@ def _register_login_key(api_base: str, admin_jwt: str = "", credit_cents: int = 
                 client.post(
                     f"{api_base}/api/admin/credit",
                     json={"email": email, "amountCents": credit_cents},
-                    headers={"Authorization": f"Bearer {admin_jwt}", "Content-Type": "application/json"},
+                    headers={**base_headers, "Authorization": f"Bearer {admin_jwt}"},
                 )
             except Exception:
                 pass
@@ -390,7 +429,7 @@ def _register_login_key(api_base: str, admin_jwt: str = "", credit_cents: int = 
         resp = client.post(
             f"{api_base}/api/keys",
             json={"name": "swarm-native-agent"},
-            headers={"Authorization": f"Bearer {jwt}", "Content-Type": "application/json"},
+            headers={**base_headers, "Authorization": f"Bearer {jwt}"},
         )
         if resp.status_code not in (200, 201):
             raise RuntimeError(f"Create key failed: {resp.status_code}")
@@ -783,8 +822,18 @@ def run_python_agent(
 
     # ── Stage 2: Import the integration plugin ───────────────────────
     try:
+        # For integrations without pip packages, add their dir to sys.path
+        mono_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        integ_dir = os.path.join(mono_root, "integrations", integ.id)
+        if integ_dir not in sys.path and os.path.isdir(integ_dir):
+            sys.path.insert(0, integ_dir)
+
         mod = importlib.import_module(integ.plugin_import)
-        ToolkitClass = getattr(mod, integ.toolkit_class)
+        # Some integrations use wrapper builders instead of a single toolkit class
+        if integ.toolkit_class.startswith("_") and integ.toolkit_class.endswith("_"):
+            ToolkitClass = None  # handled in stage 6
+        else:
+            ToolkitClass = getattr(mod, integ.toolkit_class)
         res.import_ok = True
         res.stages_passed += 1
     except Exception as e:
@@ -817,13 +866,13 @@ def run_python_agent(
 
     # ── Stage 6: Instantiate toolkit and run framework ───────────────
     try:
-        # Build toolkit with API key
+        # Build toolkit with API key — each integration has its own constructor
         if integ.id == "moltbook":
             toolkit = ToolkitClass(
                 dominusnode_api_key=api_key,
                 dominusnode_base_url=api_base,
-                dominusnode_proxy_host=proxy_host,
-                dominusnode_proxy_port=proxy_port,
+                proxy_host=proxy_host,
+                proxy_port=proxy_port,
             )
         elif integ.id == "dify":
             toolkit = ToolkitClass(credentials={
@@ -832,6 +881,22 @@ def run_python_agent(
                 "proxy_host": proxy_host,
                 "proxy_port": proxy_port,
             })
+        elif integ.id == "langchain":
+            toolkit = ToolkitClass(
+                api_key=api_key,
+                base_url=api_base,
+                proxy_host=proxy_host,
+                http_proxy_port=proxy_port,
+            )
+        elif integ.id == "crewai":
+            # CrewAI has no unified toolkit — build a wrapper with individual tools
+            toolkit = _build_crewai_toolkit(mod, api_key, api_base, proxy_host, proxy_port)
+        elif integ.id == "superagi":
+            # SuperAGI has _DominusNodeClient singleton + individual tool classes
+            toolkit = _build_superagi_toolkit(mod, api_key, api_base, proxy_host, proxy_port)
+        elif integ.id == "agent-zero":
+            # Agent Zero uses shared.auth.DominusNodeAuth + function modules
+            toolkit = _build_agent_zero_toolkit(api_key, api_base, proxy_host, proxy_port)
         else:
             toolkit = ToolkitClass(
                 api_key=api_key,
@@ -886,6 +951,104 @@ def run_python_agent(
     res.success = res.stages_passed >= 5
     res.duration = round(time.time() - start, 2)
     return res
+
+
+def _build_crewai_toolkit(mod: Any, api_key: str, api_base: str, proxy_host: str, proxy_port: int) -> Any:
+    """Build a wrapper around CrewAI's individual tool classes."""
+    class _CrewAIToolkitWrapper:
+        def __init__(self):
+            self._tools = []
+            self._tool_map = {}
+            # Instantiate all tool classes from the module
+            for name in dir(mod):
+                obj = getattr(mod, name)
+                if isinstance(obj, type) and name.startswith("DominusNode") and name.endswith("Tool"):
+                    try:
+                        tool = obj(api_key=api_key, base_url=api_base,
+                                   proxy_host=proxy_host, proxy_port=proxy_port)
+                        self._tools.append(tool)
+                        self._tool_map[name] = tool
+                    except Exception:
+                        pass
+        def get_tools(self):
+            return self._tools
+        def check_balance(self):
+            t = self._tool_map.get("DominusNodeBalanceTool")
+            return t._run() if t else None
+        def proxied_fetch(self, **kwargs):
+            t = self._tool_map.get("DominusNodeWebScrapeTool") or self._tool_map.get("DominusNodeProxiedFetchTool")
+            return t._run(**kwargs) if t else None
+        def get_proxy_status(self):
+            t = self._tool_map.get("DominusNodeProxyStatusTool")
+            return t._run() if t else None
+    return _CrewAIToolkitWrapper()
+
+
+def _build_superagi_toolkit(mod: Any, api_key: str, api_base: str, proxy_host: str, proxy_port: int) -> Any:
+    """Build a wrapper around SuperAGI's individual tool classes."""
+    class _SuperAGIToolkitWrapper:
+        def __init__(self):
+            self._tools = {}
+            for name in dir(mod):
+                obj = getattr(mod, name)
+                if isinstance(obj, type) and name.startswith("DominusNode") and name.endswith("Tool"):
+                    try:
+                        tool = obj()
+                        self._tools[name] = tool
+                    except Exception:
+                        pass
+            # Also try the singleton client
+            client_cls = getattr(mod, '_DominusNodeClient', None)
+            if client_cls:
+                self._client = client_cls(api_key=api_key, base_url=api_base,
+                                          proxy_host=proxy_host, proxy_port=proxy_port)
+            else:
+                self._client = None
+        def check_balance(self):
+            if self._client and hasattr(self._client, 'check_balance'):
+                return self._client.check_balance()
+            t = self._tools.get("DominusNodeBalanceTool")
+            return t.execute() if t else None
+        def proxied_fetch(self, **kwargs):
+            if self._client and hasattr(self._client, 'proxied_fetch'):
+                return self._client.proxied_fetch(**kwargs)
+            return None
+        def get_proxy_status(self):
+            if self._client and hasattr(self._client, 'get_proxy_status'):
+                return self._client.get_proxy_status()
+            return None
+    return _SuperAGIToolkitWrapper()
+
+
+def _build_agent_zero_toolkit(api_key: str, api_base: str, proxy_host: str, proxy_port: int) -> Any:
+    """Build a wrapper around Agent Zero's function-based tools."""
+    class _AgentZeroToolkitWrapper:
+        def __init__(self):
+            from shared.auth import DominusNodeAuth
+            self._auth = DominusNodeAuth(api_key=api_key, base_url=api_base)
+            self._proxy_host = proxy_host
+            self._proxy_port = proxy_port
+        def check_balance(self):
+            try:
+                from tools import _02_wallet
+                return _02_wallet.check_balance(self._auth)
+            except Exception:
+                # Fallback: direct HTTP
+                import httpx
+                with httpx.Client(timeout=15, follow_redirects=False) as c:
+                    r = c.get(f"{self._auth._base_url}/api/wallet/balance",
+                              headers={"Authorization": f"Bearer {self._auth._token}",
+                                       "Origin": self._auth._base_url})
+                    return r.json() if r.status_code == 200 else {"error": r.status_code}
+        def proxied_fetch(self, **kwargs):
+            try:
+                from tools import _01_proxy_fetch
+                return _01_proxy_fetch.proxied_fetch(self._auth, **kwargs)
+            except Exception:
+                return None
+        def get_proxy_status(self):
+            return None
+    return _AgentZeroToolkitWrapper()
 
 
 def _inject_superagi_stubs():
