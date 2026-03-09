@@ -513,7 +513,7 @@ router.post("/register", async (req, res) => {
       });
     }
 
-    const tokens = createTokenPair({ userId: user.id, email: user.email, isAdmin: user.is_admin });
+    const tokens = createTokenPair({ userId: user.id, email: user.email, isAdmin: user.is_admin, adminRole: user.admin_role ?? "none" });
 
     // Store refresh token in DB for rotation tracking
     const familyId = refreshTokenRepo.newFamilyId();
@@ -554,6 +554,7 @@ router.post("/register", async (req, res) => {
       email: user.email,
       created_at: user.created_at,
       is_admin: user.is_admin ?? false,
+      admin_role: user.admin_role ?? "none",
     };
 
     // Browser clients get tokens via httpOnly cookies only (XSS-safe).
@@ -673,7 +674,7 @@ router.post("/login", async (req, res) => {
       return;
     }
 
-    const tokens = createTokenPair({ userId: user.id, email: user.email, isAdmin: user.is_admin });
+    const tokens = createTokenPair({ userId: user.id, email: user.email, isAdmin: user.is_admin, adminRole: user.admin_role ?? "none" });
 
     // Store refresh token in DB for rotation tracking
     const familyId = refreshTokenRepo.newFamilyId();
@@ -690,6 +691,7 @@ router.post("/login", async (req, res) => {
       email: user.email,
       created_at: user.created_at,
       is_admin: user.is_admin ?? false,
+      admin_role: user.admin_role ?? "none",
     };
 
     if (isBrowserClient(req)) {
@@ -780,7 +782,7 @@ router.post("/refresh", async (req, res) => {
     await refreshTokenRepo.revokeToken(incomingHash);
 
     // Issue new token pair (rotation) — same family
-    const tokens = createTokenPair({ userId: user.id, email: user.email, isAdmin: user.is_admin });
+    const tokens = createTokenPair({ userId: user.id, email: user.email, isAdmin: user.is_admin, adminRole: user.admin_role ?? "none" });
     const newHash = refreshTokenRepo.hashToken(tokens.refreshToken);
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
     await refreshTokenRepo.storeToken(user.id, newHash, storedToken.family_id, expiresAt);
@@ -875,7 +877,7 @@ router.post("/change-password", requireAuth, async (req, res) => {
     await userRepo.revokeAllApiKeys(userId);
 
     // Issue new token pair with fresh family
-    const tokens = createTokenPair({ userId, email, isAdmin: user.is_admin });
+    const tokens = createTokenPair({ userId, email, isAdmin: user.is_admin, adminRole: user.admin_role ?? "none" });
     const familyId = refreshTokenRepo.newFamilyId();
     const tokenHash = refreshTokenRepo.hashToken(tokens.refreshToken);
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
@@ -917,6 +919,7 @@ router.get("/me", requireAuth, async (req, res) => {
         id: userId,
         email,
         is_admin: isAdmin,
+        admin_role: fullUser?.admin_role ?? "none",
         wallet_address: fullUser?.wallet_address ?? null,
         log_target_hosts: fullUser?.log_target_hosts ?? false,
         email_verified: fullUser?.email_verified ?? false,
@@ -974,6 +977,7 @@ router.post("/verify-key", async (req, res) => {
       userId: result.user.id,
       email: result.user.email,
       isAdmin: result.user.is_admin,
+      adminRole: result.user.admin_role ?? "none",
     });
 
     // Store refresh token for rotation tracking
@@ -1179,7 +1183,7 @@ router.post("/mfa/verify", async (req, res) => {
       return;
     }
 
-    const tokens = createTokenPair({ userId: user.id, email: user.email, isAdmin: user.is_admin });
+    const tokens = createTokenPair({ userId: user.id, email: user.email, isAdmin: user.is_admin, adminRole: user.admin_role ?? "none" });
     const familyId = refreshTokenRepo.newFamilyId();
     const rtHash = refreshTokenRepo.hashToken(tokens.refreshToken);
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
@@ -1196,6 +1200,7 @@ router.post("/mfa/verify", async (req, res) => {
       email: user.email,
       created_at: user.created_at,
       is_admin: user.is_admin ?? false,
+      admin_role: user.admin_role ?? "none",
     };
 
     if (isBrowserClient(req)) {

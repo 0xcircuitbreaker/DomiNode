@@ -19,6 +19,22 @@ export interface ProxyIP {
 
 export type UserStatus = "active" | "suspended" | "deleted";
 
+/** Admin role hierarchy: root_admin > cybersecurity_admin > admin > none */
+export type AdminRole = "none" | "admin" | "cybersecurity_admin" | "root_admin";
+
+/** Ordered hierarchy for comparison — higher index = more privilege */
+const ADMIN_ROLE_RANK: Record<AdminRole, number> = {
+  none: 0,
+  admin: 1,
+  cybersecurity_admin: 2,
+  root_admin: 3,
+};
+
+/** Check if a role meets a minimum required level */
+export function hasMinRole(userRole: AdminRole, requiredRole: AdminRole): boolean {
+  return ADMIN_ROLE_RANK[userRole] >= ADMIN_ROLE_RANK[requiredRole];
+}
+
 export interface User {
   id: string;
   email: string;
@@ -27,6 +43,7 @@ export interface User {
   status: UserStatus;
   password_changed_at: Date | null;
   is_admin: boolean;
+  admin_role: AdminRole;
   wallet_address: string | null;
   log_target_hosts: boolean;
   email_verified: boolean;
@@ -188,6 +205,7 @@ export interface AdminUserView {
   balanceCents: number;
   createdAt: Date;
   isAdmin: boolean;
+  adminRole: AdminRole;
 }
 
 export interface AdminUserDetail extends AdminUserView {

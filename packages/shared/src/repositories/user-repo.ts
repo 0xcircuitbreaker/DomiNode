@@ -8,7 +8,7 @@ export async function createUser(
   const result = await query<User>(
     `INSERT INTO users (email, password_hash)
      VALUES ($1, $2)
-     RETURNING id, email, created_at, status, password_changed_at, is_admin, wallet_address, log_target_hosts, email_verified`,
+     RETURNING id, email, created_at, status, password_changed_at, is_admin, admin_role, wallet_address, log_target_hosts, email_verified`,
     [email, passwordHash],
   );
   return { ...result.rows[0], password_hash: "", wallet_address: result.rows[0].wallet_address ?? null, log_target_hosts: result.rows[0].log_target_hosts ?? false, email_verified: result.rows[0].email_verified ?? false };
@@ -20,7 +20,7 @@ export async function createUser(
  */
 export async function findUserForAuth(email: string): Promise<User | null> {
   const result = await query<User>(
-    `SELECT id, email, password_hash, created_at, status, password_changed_at, is_admin, wallet_address, log_target_hosts, email_verified FROM users WHERE email = $1 AND status = 'active'`,
+    `SELECT id, email, password_hash, created_at, status, password_changed_at, is_admin, admin_role, wallet_address, log_target_hosts, email_verified FROM users WHERE email = $1 AND status = 'active'`,
     [email],
   );
   return result.rows[0] ?? null;
@@ -32,7 +32,7 @@ export async function findUserForAuth(email: string): Promise<User | null> {
  */
 export async function findUserByEmail(email: string): Promise<User | null> {
   const result = await query<User>(
-    `SELECT id, email, created_at, status, password_changed_at, is_admin, wallet_address, log_target_hosts, email_verified FROM users WHERE email = $1`,
+    `SELECT id, email, created_at, status, password_changed_at, is_admin, admin_role, wallet_address, log_target_hosts, email_verified FROM users WHERE email = $1`,
     [email],
   );
   const row = result.rows[0];
@@ -53,7 +53,7 @@ export async function countActiveUsers(): Promise<number> {
 
 export async function findUserById(id: string): Promise<User | null> {
   const result = await query<User>(
-    `SELECT id, email, created_at, status, password_changed_at, is_admin, wallet_address, log_target_hosts, email_verified FROM users WHERE id = $1`,
+    `SELECT id, email, created_at, status, password_changed_at, is_admin, admin_role, wallet_address, log_target_hosts, email_verified FROM users WHERE id = $1`,
     [id],
   );
   const row = result.rows[0];
@@ -65,7 +65,7 @@ export async function findUserByApiKeyHash(
   keyHash: string,
 ): Promise<{ user: User; apiKey: ApiKey } | null> {
   const result = await query<User & { ak_id: string; ak_key_prefix: string; ak_label: string; ak_created_at: Date; ak_revoked_at: Date | null; ak_team_id: string | null }>(
-    `SELECT u.id, u.email, u.created_at, u.status, u.password_changed_at, u.is_admin, u.wallet_address, u.log_target_hosts, u.email_verified, u.plan_id,
+    `SELECT u.id, u.email, u.created_at, u.status, u.password_changed_at, u.is_admin, u.admin_role, u.wallet_address, u.log_target_hosts, u.email_verified, u.plan_id,
             k.id AS ak_id,
             k.key_prefix AS ak_key_prefix,
             k.label AS ak_label,
@@ -92,6 +92,7 @@ export async function findUserByApiKeyHash(
     status: row.status,
     password_changed_at: row.password_changed_at,
     is_admin: row.is_admin ?? false,
+    admin_role: (row as unknown as { admin_role?: string }).admin_role as import("../types.js").AdminRole ?? "none",
     wallet_address: row.wallet_address ?? null,
     log_target_hosts: row.log_target_hosts ?? false,
     email_verified: row.email_verified ?? false,
@@ -120,7 +121,7 @@ export async function createWalletUser(
   const result = await query<User>(
     `INSERT INTO users (email, password_hash, wallet_address, email_verified)
      VALUES ($1, $2, $3, true)
-     RETURNING id, email, created_at, status, password_changed_at, is_admin, wallet_address, log_target_hosts, email_verified`,
+     RETURNING id, email, created_at, status, password_changed_at, is_admin, admin_role, wallet_address, log_target_hosts, email_verified`,
     [syntheticEmail, randomHash, walletAddress.toLowerCase()],
   );
   return { ...result.rows[0], password_hash: "", wallet_address: result.rows[0].wallet_address ?? null, log_target_hosts: result.rows[0].log_target_hosts ?? false, email_verified: result.rows[0].email_verified ?? false };
@@ -132,7 +133,7 @@ export async function createWalletUser(
  */
 export async function findWalletUserForAuth(address: string): Promise<User | null> {
   const result = await query<User>(
-    `SELECT id, email, password_hash, created_at, status, password_changed_at, is_admin, wallet_address, log_target_hosts, email_verified FROM users WHERE wallet_address = $1 AND status = 'active'`,
+    `SELECT id, email, password_hash, created_at, status, password_changed_at, is_admin, admin_role, wallet_address, log_target_hosts, email_verified FROM users WHERE wallet_address = $1 AND status = 'active'`,
     [address.toLowerCase()],
   );
   return result.rows[0] ?? null;
@@ -141,7 +142,7 @@ export async function findWalletUserForAuth(address: string): Promise<User | nul
 /** Find a user by their linked wallet address (safe — redacts password_hash) */
 export async function findUserByWalletAddress(address: string): Promise<User | null> {
   const result = await query<User>(
-    `SELECT id, email, created_at, status, password_changed_at, is_admin, wallet_address, log_target_hosts, email_verified FROM users WHERE wallet_address = $1`,
+    `SELECT id, email, created_at, status, password_changed_at, is_admin, admin_role, wallet_address, log_target_hosts, email_verified FROM users WHERE wallet_address = $1`,
     [address.toLowerCase()],
   );
   const row = result.rows[0];

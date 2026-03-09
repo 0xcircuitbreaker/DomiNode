@@ -148,6 +148,7 @@ describe("user-repo", () => {
         status: "active",
         password_changed_at: null,
         is_admin: false,
+        admin_role: "none",
         wallet_address: null,
         log_target_hosts: false,
         email_verified: false,
@@ -167,7 +168,7 @@ describe("user-repo", () => {
       const result = await findUserById("u1");
       expect(result).toEqual({ ...user, password_hash: "", wallet_address: null, log_target_hosts: false, email_verified: false });
       expect(mockQuery).toHaveBeenCalledWith(
-        expect.stringContaining("SELECT id, email, created_at, status, password_changed_at, is_admin, wallet_address, log_target_hosts, email_verified FROM users WHERE id = $1"),
+        expect.stringContaining("SELECT id, email, created_at, status, password_changed_at, is_admin, admin_role, wallet_address, log_target_hosts, email_verified FROM users WHERE id = $1"),
         ["u1"],
       );
     });

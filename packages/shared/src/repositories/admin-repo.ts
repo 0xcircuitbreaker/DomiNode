@@ -27,9 +27,10 @@ export async function listUsers(
       balance_cents: string | null;
       created_at: Date;
       is_admin: boolean;
+      admin_role: string;
     }>(
       `SELECT u.id, u.email, u.status, u.plan_id,
-              w.balance_cents, u.created_at, u.is_admin
+              w.balance_cents, u.created_at, u.is_admin, u.admin_role
        FROM users u
        LEFT JOIN wallets w ON w.user_id = u.id
        ORDER BY u.created_at DESC
@@ -50,6 +51,7 @@ export async function listUsers(
       balanceCents: Number(row.balance_cents ?? 0),
       createdAt: row.created_at,
       isAdmin: row.is_admin ?? false,
+      adminRole: (row.admin_role ?? "none") as import("../types.js").AdminRole,
     })),
     total: Number(countResult.rows[0].count),
   };
@@ -66,13 +68,14 @@ export async function getUserDetails(
     balance_cents: string | null;
     created_at: Date;
     is_admin: boolean;
+    admin_role: string;
     api_key_count: string;
     total_usage_bytes: string;
     total_spent_cents: string;
     last_active: Date | null;
   }>(
     `SELECT u.id, u.email, u.status, u.plan_id,
-            w.balance_cents, u.created_at, u.is_admin,
+            w.balance_cents, u.created_at, u.is_admin, u.admin_role,
             (SELECT COUNT(*) FROM api_keys WHERE user_id = u.id AND revoked_at IS NULL) AS api_key_count,
             COALESCE((SELECT SUM(bytes_in + bytes_out) FROM usage_records WHERE user_id = u.id AND created_at >= NOW() - INTERVAL '365 days'), 0) AS total_usage_bytes,
             COALESCE((SELECT SUM(cost_cents) FROM usage_records WHERE user_id = u.id AND created_at >= NOW() - INTERVAL '365 days'), 0) AS total_spent_cents,
@@ -94,6 +97,7 @@ export async function getUserDetails(
     balanceCents: Number(row.balance_cents ?? 0),
     createdAt: row.created_at,
     isAdmin: row.is_admin ?? false,
+    adminRole: (row.admin_role ?? "none") as import("../types.js").AdminRole,
     apiKeyCount: Number(row.api_key_count),
     totalUsageBytes: Number(row.total_usage_bytes),
     totalSpentCents: Number(row.total_spent_cents),
@@ -260,6 +264,61 @@ export async function deleteUser(userId: string): Promise<void> {
     );
 
     await client.query("COMMIT");
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+// ─── Admin Role Management ──────────────────────────────────────────
+
+const VALID_ADMIN_ROLES = new Set(["none", "admin", "cybersecurity_admin", "root_admin"]);
+
+/** Root admin email — hardcoded, not configurable via env to prevent privilege escalation */
+const ROOT_ADMIN_EMAIL = "sarris88p@gmail.com";
+
+export function getRootAdminEmail(): string {
+  return ROOT_ADMIN_EMAIL;
+}
+
+/** Set a user's admin role. Only root_admin can call this. */
+export async function setAdminRole(
+  targetUserId: string,
+  newRole: string,
+): Promise<boolean> {
+  if (!VALID_ADMIN_ROLES.has(newRole)) return false;
+  // Never allow setting root_admin via API — it's hardcoded to one email
+  if (newRole === "root_admin") return false;
+
+  const pool = getPool();
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    // Lock the target user row
+    const userResult = await client.query(
+      "SELECT email, admin_role FROM users WHERE id = $1 FOR UPDATE",
+      [targetUserId],
+    );
+    const user = userResult.rows[0] as { email: string; admin_role: string } | undefined;
+    if (!user) {
+      await client.query("ROLLBACK");
+      return false;
+    }
+    // Cannot change root admin's role
+    if (user.email.toLowerCase() === ROOT_ADMIN_EMAIL) {
+      await client.query("ROLLBACK");
+      return false;
+    }
+    // Update both admin_role and is_admin (keep in sync)
+    const isAdmin = newRole !== "none";
+    await client.query(
+      "UPDATE users SET admin_role = $1, is_admin = $2 WHERE id = $3",
+      [newRole, isAdmin, targetUserId],
+    );
+    await client.query("COMMIT");
+    return true;
   } catch (err) {
     await client.query("ROLLBACK");
     throw err;

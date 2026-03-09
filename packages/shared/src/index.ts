@@ -5,6 +5,7 @@ export type {
   ProxyIPStatus,
   User,
   UserStatus,
+  AdminRole,
   ApiKey,
   Wallet,
   WalletTransaction,
@@ -30,6 +31,7 @@ export {
   COST_PER_GB_CENTS,
   BYTES_PER_GB,
   SUPPORTED_CRYPTO,
+  hasMinRole,
 } from "./types.js";
 
 // Database

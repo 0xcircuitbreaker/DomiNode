@@ -75,6 +75,7 @@ export interface JwtPayload {
   userId: string;
   email: string;
   isAdmin?: boolean;
+  adminRole?: string; // AdminRole carried in JWT
 }
 
 export interface TokenPair {
@@ -103,6 +104,8 @@ export function createTokenPair(payload: JwtPayload): TokenPair {
   };
 }
 
+const VALID_ADMIN_ROLES = new Set(["none", "admin", "cybersecurity_admin", "root_admin"]);
+
 /** Verify an access token — rejects MFA challenge tokens */
 export function verifyJwt(token: string): JwtPayload | null {
   try {
@@ -110,7 +113,12 @@ export function verifyJwt(token: string): JwtPayload | null {
     // Reject MFA challenge tokens from being used as access tokens
     if (decoded.mfaPending === true) return null;
     if (typeof decoded.userId === "string" && typeof decoded.email === "string") {
-      return { userId: decoded.userId, email: decoded.email, isAdmin: decoded.isAdmin === true };
+      return {
+        userId: decoded.userId,
+        email: decoded.email,
+        isAdmin: decoded.isAdmin === true,
+        adminRole: typeof decoded.adminRole === "string" && VALID_ADMIN_ROLES.has(decoded.adminRole) ? decoded.adminRole : undefined,
+      };
     }
     return null;
   } catch {
@@ -173,7 +181,13 @@ export function verifyRefreshToken(token: string): (JwtPayload & { iat?: number 
       typeof decoded.email === "string" &&
       decoded.type === "refresh"
     ) {
-      return { userId: decoded.userId, email: decoded.email, isAdmin: decoded.isAdmin === true, iat: decoded.iat };
+      return {
+        userId: decoded.userId,
+        email: decoded.email,
+        isAdmin: decoded.isAdmin === true,
+        adminRole: typeof decoded.adminRole === "string" && VALID_ADMIN_ROLES.has(decoded.adminRole) ? decoded.adminRole : undefined,
+        iat: decoded.iat,
+      };
     }
     return null;
   } catch {

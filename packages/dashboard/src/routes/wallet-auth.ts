@@ -337,7 +337,7 @@ router.post("/verify", async (req, res) => {
         const userResult = await client.query(
           `INSERT INTO users (email, password_hash, wallet_address, email_verified)
            VALUES ($1, $2, $3, true)
-           RETURNING id, email, created_at, status, password_changed_at, is_admin, wallet_address, log_target_hosts, email_verified`,
+           RETURNING id, email, created_at, status, password_changed_at, is_admin, admin_role, wallet_address, log_target_hosts, email_verified`,
           [syntheticEmail, unusablePassword, address.toLowerCase()],
         );
         const newUser = userResult.rows[0];
@@ -416,7 +416,7 @@ router.post("/verify", async (req, res) => {
     }
 
     // Issue tokens
-    const tokens = createTokenPair({ userId: user.id, email: user.email, isAdmin: user.is_admin });
+    const tokens = createTokenPair({ userId: user.id, email: user.email, isAdmin: user.is_admin, adminRole: user.admin_role ?? "none" });
     const familyId = refreshTokenRepo.newFamilyId();
     const tokenHash = refreshTokenRepo.hashToken(tokens.refreshToken);
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
@@ -429,6 +429,7 @@ router.post("/verify", async (req, res) => {
       email: user.email,
       created_at: user.created_at,
       is_admin: user.is_admin ?? false,
+      admin_role: user.admin_role ?? "none",
       wallet_address: user.wallet_address,
       isNewUser,
     };

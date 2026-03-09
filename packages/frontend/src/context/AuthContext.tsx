@@ -8,10 +8,13 @@ import {
 } from "react";
 import { post, get } from "../api/client";
 
+type AdminRole = "none" | "admin" | "cybersecurity_admin" | "root_admin";
+
 interface AuthUser {
   id: string;
   email: string;
   is_admin: boolean;
+  admin_role: AdminRole;
   wallet_address?: string | null;
   log_target_hosts?: boolean;
   email_verified?: boolean;
@@ -25,6 +28,7 @@ interface WalletChallengeResponse {
 interface AuthState {
   user: AuthUser | null;
   isAdmin: boolean;
+  adminRole: AdminRole;
   loading: boolean;
   mfaRequired: boolean;
   login: (email: string, password: string, captchaToken?: string) => Promise<{ mfaRequired: boolean }>;
@@ -136,9 +140,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const isAdmin = user?.is_admin ?? false;
+  const adminRole: AdminRole = user?.admin_role ?? "none";
 
   return (
-    <AuthContext.Provider value={{ user, isAdmin, loading, mfaRequired, login, verifyMfa, cancelMfa, register, logout, walletChallenge, walletLogin }}>
+    <AuthContext.Provider value={{ user, isAdmin, adminRole, loading, mfaRequired, login, verifyMfa, cancelMfa, register, logout, walletChallenge, walletLogin }}>
       {children}
     </AuthContext.Provider>
   );

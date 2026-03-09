@@ -27,6 +27,8 @@ vi.mock("@dominusnode/shared", () => ({
     getRevenueStats: (...args: unknown[]) => mockGetRevenueStats(...args),
     getDailyRevenue: (...args: unknown[]) => mockGetDailyRevenue(...args),
     getSystemStats: (...args: unknown[]) => mockGetSystemStats(...args),
+    getRootAdminEmail: () => "sarris88p@gmail.com",
+    setAdminRole: vi.fn(),
   },
   userRepo: {
     findUserById: (...args: unknown[]) => mockFindUserById(...args),
@@ -37,6 +39,10 @@ vi.mock("@dominusnode/shared", () => ({
   },
   mfaRepo: {
     deleteMfaConfig: (...args: unknown[]) => mockDeleteMfaConfig(...args),
+  },
+  hasMinRole: (userRole: string, requiredRole: string) => {
+    const ranks: Record<string, number> = { none: 0, admin: 1, cybersecurity_admin: 2, root_admin: 3 };
+    return (ranks[userRole] ?? 0) >= (ranks[requiredRole] ?? 0);
   },
   createLogger: () => ({
     info: vi.fn(),
@@ -54,25 +60,25 @@ vi.mock("../middleware/auth.js", () => ({
     _res: express.Response,
     next: express.NextFunction,
   ) => {
-    (req as unknown as { user: { userId: string; email: string; isAdmin: boolean } }).user = {
+    (req as unknown as { user: { userId: string; email: string; isAdmin: boolean; adminRole: string } }).user = {
       userId: mockUserId,
       email: "admin@example.com",
       isAdmin: true,
+      adminRole: "admin",
     };
     next();
   },
 }));
 
-// Mock the requireAdmin middleware to just call next
-vi.mock("../middleware/admin.js", () => ({
-  requireAdmin: (
-    _req: express.Request,
-    _res: express.Response,
-    next: express.NextFunction,
-  ) => {
-    next();
-  },
-}));
+// Mock the admin middleware to just call next (all role checks pass in tests)
+vi.mock("../middleware/admin.js", () => {
+  const pt = (_req: unknown, _res: unknown, next: () => void) => { next(); };
+  return {
+    requireAdmin: pt,
+    requireCybersecurityAdmin: pt,
+    requireRootAdmin: pt,
+  };
+});
 
 import adminRouter from "./admin.js";
 
@@ -148,6 +154,7 @@ describe("admin routes", () => {
         email: "other-admin@example.com",
         status: "active",
         is_admin: true,
+        admin_role: "admin",
         password_hash: "",
         created_at: new Date(),
         password_changed_at: null,
@@ -157,7 +164,7 @@ describe("admin routes", () => {
       const res = await request(app, "PUT", `/api/admin/users/${VALID_UUID}/suspend`);
 
       expect(res.status).toBe(403);
-      expect(res.body.error).toBe("Cannot suspend another admin account");
+      expect(res.body.error).toBe("Only root admin can suspend another admin account");
       expect(mockSuspendUser).not.toHaveBeenCalled();
     });
 
@@ -167,6 +174,7 @@ describe("admin routes", () => {
         email: "user@example.com",
         status: "active",
         is_admin: false,
+        admin_role: "none",
         password_hash: "",
         created_at: new Date(),
         password_changed_at: null,
@@ -214,6 +222,7 @@ describe("admin routes", () => {
         email: "other-admin@example.com",
         status: "active",
         is_admin: true,
+        admin_role: "admin",
         password_hash: "",
         created_at: new Date(),
         password_changed_at: null,
@@ -223,7 +232,7 @@ describe("admin routes", () => {
       const res = await request(app, "DELETE", `/api/admin/users/${VALID_UUID}`);
 
       expect(res.status).toBe(403);
-      expect(res.body.error).toBe("Cannot delete another admin account");
+      expect(res.body.error).toBe("Only root admin can delete another admin account");
       expect(mockDeleteUser).not.toHaveBeenCalled();
     });
 
@@ -233,6 +242,7 @@ describe("admin routes", () => {
         email: "user@example.com",
         status: "active",
         is_admin: false,
+        admin_role: "none",
         password_hash: "",
         created_at: new Date(),
         password_changed_at: null,

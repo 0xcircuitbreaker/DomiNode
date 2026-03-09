@@ -260,6 +260,41 @@ DO $$ BEGIN
 EXCEPTION WHEN duplicate_column THEN NULL;
 END $$;
 
+-- Add admin_role column for three-tier admin hierarchy (idempotent)
+-- root_admin: only sarris88p@gmail.com — can grant/revoke all admin roles
+-- cybersecurity_admin: manages bug bounties, credits, plus all admin duties
+-- admin: user management, waitlist, revenue, stats, plans
+DO $$ BEGIN
+  ALTER TABLE users ADD COLUMN admin_role TEXT NOT NULL DEFAULT 'none'
+    CHECK (admin_role IN ('none', 'admin', 'cybersecurity_admin', 'root_admin'));
+EXCEPTION WHEN duplicate_column THEN NULL;
+END $$;
+
+-- Backfill: sync admin_role from is_admin for existing admins
+UPDATE users SET admin_role = 'admin' WHERE is_admin = true AND admin_role = 'none';
+
+-- Set root admin (hardcoded — only this email can ever be root_admin)
+UPDATE users SET admin_role = 'root_admin', is_admin = true
+  WHERE LOWER(email) = 'sarris88p@gmail.com' AND status = 'active';
+
+-- DB trigger: enforce root_admin role restricted to root admin email + keep is_admin in sync
+CREATE OR REPLACE FUNCTION enforce_admin_role_constraints() RETURNS TRIGGER AS $$
+BEGIN
+  -- Prevent assigning root_admin to any email other than the hardcoded root admin
+  IF NEW.admin_role = 'root_admin' AND LOWER(NEW.email) != 'sarris88p@gmail.com' THEN
+    RAISE EXCEPTION 'root_admin role restricted to sarris88p@gmail.com';
+  END IF;
+  -- Keep is_admin in sync with admin_role
+  NEW.is_admin := (NEW.admin_role != 'none');
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_enforce_admin_role ON users;
+CREATE TRIGGER trg_enforce_admin_role
+  BEFORE INSERT OR UPDATE ON users
+  FOR EACH ROW EXECUTE FUNCTION enforce_admin_role_constraints();
+
 -- Add connect latency to usage records (idempotent)
 DO $$ BEGIN
   ALTER TABLE usage_records ADD COLUMN connect_latency_ms INTEGER;

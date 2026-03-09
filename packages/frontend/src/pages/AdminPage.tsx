@@ -6,6 +6,8 @@ import ResponsiveTable from "../components/ResponsiveTable";
 
 // ─── Types ──────────────────────────────────────────────────────────
 
+type AdminRole = "none" | "admin" | "cybersecurity_admin" | "root_admin";
+
 interface AdminUser {
   id: string;
   email: string;
@@ -14,6 +16,7 @@ interface AdminUser {
   balanceCents: number;
   createdAt: string;
   isAdmin: boolean;
+  adminRole: AdminRole;
 }
 
 interface UsersResponse {
@@ -70,7 +73,7 @@ interface SystemStatsResponse {
   activeSessions: number;
 }
 
-type Tab = "users" | "revenue" | "system" | "waitlist";
+type Tab = "users" | "revenue" | "system" | "waitlist" | "bounties" | "credits" | "roles";
 
 // ─── Helpers ────────────────────────────────────────────────────────
 
@@ -288,7 +291,17 @@ function UsersTab() {
               { key: "email", header: "Email", primary: true, render: (u) => (
                 <div className="flex items-center gap-2">
                   <span className="truncate">{u.email}</span>
-                  {u.isAdmin && (
+                  {u.adminRole === "root_admin" && (
+                    <span className="px-1.5 py-0.5 rounded text-xs bg-red-500/10 text-red-400 border border-red-500/20 flex-shrink-0">
+                      root
+                    </span>
+                  )}
+                  {u.adminRole === "cybersecurity_admin" && (
+                    <span className="px-1.5 py-0.5 rounded text-xs bg-amber-500/10 text-amber-400 border border-amber-500/20 flex-shrink-0">
+                      cybersec
+                    </span>
+                  )}
+                  {u.adminRole === "admin" && (
                     <span className="px-1.5 py-0.5 rounded text-xs bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 flex-shrink-0">
                       admin
                     </span>
@@ -668,10 +681,412 @@ function WaitlistTab() {
   );
 }
 
+// ─── Bug Bounty Tab (cybersecurity_admin+) ─────────────────────────
+
+interface BugReport {
+  id: string;
+  user_id: string;
+  category: string;
+  priority: string;
+  title: string;
+  integration: string | null;
+  status: string;
+  credit_amount_cents: number;
+  created_at: string;
+  reviewed_at: string | null;
+}
+
+interface BugReportsResponse {
+  reports: BugReport[];
+  pagination: { page: number; limit: number; total: number; totalPages: number };
+}
+
+function BugBountyStatusBadge({ status }: { status: string }) {
+  const colors: Record<string, string> = {
+    pending: "bg-yellow-500/10 text-yellow-400 border-yellow-500/20",
+    approved: "bg-blue-500/10 text-blue-400 border-blue-500/20",
+    credited: "bg-green-500/10 text-green-400 border-green-500/20",
+    rejected: "bg-red-500/10 text-red-400 border-red-500/20",
+  };
+  return (
+    <span className={`px-2 py-0.5 rounded-full text-xs font-medium border ${colors[status] ?? "bg-gray-500/10 text-gray-400 border-gray-500/20"}`}>
+      {status}
+    </span>
+  );
+}
+
+function PriorityBadge({ priority }: { priority: string }) {
+  const colors: Record<string, string> = {
+    p1: "bg-red-500/10 text-red-400 border-red-500/20",
+    p2: "bg-yellow-500/10 text-yellow-400 border-yellow-500/20",
+    p3: "bg-blue-500/10 text-blue-400 border-blue-500/20",
+  };
+  return (
+    <span className={`px-2 py-0.5 rounded-full text-xs font-medium border ${colors[priority] ?? "bg-gray-500/10 text-gray-400 border-gray-500/20"}`}>
+      {priority.toUpperCase()}
+    </span>
+  );
+}
+
+function BountyTab() {
+  const [page, setPage] = useState(1);
+  const [statusFilter, setStatusFilter] = useState("");
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [creditAmount, setCreditAmount] = useState<Record<string, string>>({});
+  const pageSize = 20;
+
+  const filterParam = statusFilter ? `&status=${encodeURIComponent(statusFilter)}` : "";
+  const { data, loading, refetch } = useApi<BugReportsResponse>(
+    () => get(`/api/admin/bug-reports?page=${page}&limit=${pageSize}${filterParam}`),
+    [page, statusFilter],
+  );
+
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+  const handleApprove = useCallback(async (id: string) => {
+    if (!UUID_RE.test(id)) return;
+    const cents = parseInt(creditAmount[id] ?? "0", 10);
+    if (cents > 0 && !window.confirm(`Award $${(cents / 100).toFixed(2)} credit for this bug report?`)) return;
+    setActionError(null);
+    try {
+      await post(`/api/admin/bug-reports/${id}/approve`, { creditAmountCents: cents > 0 ? cents : undefined });
+      refetch();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Failed to approve");
+    }
+  }, [creditAmount, refetch]);
+
+  const handleReject = useCallback(async (id: string) => {
+    if (!UUID_RE.test(id)) return;
+    if (!window.confirm("Reject this bug report?")) return;
+    setActionError(null);
+    try {
+      await post(`/api/admin/bug-reports/${id}/reject`);
+      refetch();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Failed to reject");
+    }
+  }, [refetch]);
+
+  const totalPages = data?.pagination.totalPages ?? 0;
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-sm text-gray-400">
+          Total Reports: <span className="font-semibold">{data?.pagination.total ?? 0}</span>
+        </p>
+        <select
+          value={statusFilter}
+          onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
+          className="bg-gray-800 text-gray-300 text-sm rounded-lg px-3 py-1.5 border border-gray-700"
+        >
+          <option value="">All statuses</option>
+          <option value="pending">Pending</option>
+          <option value="approved">Approved</option>
+          <option value="credited">Credited</option>
+          <option value="rejected">Rejected</option>
+        </select>
+      </div>
+
+      {actionError && (
+        <div className="bg-red-500/10 border border-red-500/20 rounded-lg px-4 py-3 text-sm text-red-400 flex items-center justify-between">
+          <span>{actionError}</span>
+          <button onClick={() => setActionError(null)} className="text-red-400 hover:text-red-300 ml-3">Dismiss</button>
+        </div>
+      )}
+
+      <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
+        {loading ? (
+          <p className="px-4 py-8 text-center text-gray-500 text-sm">Loading...</p>
+        ) : (
+          <ResponsiveTable<BugReport>
+            columns={[
+              { key: "title", header: "Title", primary: true, render: (r) => (
+                <div className="max-w-xs">
+                  <p className="truncate font-medium text-sm">{r.title}</p>
+                  <p className="text-xs text-gray-500">{r.category} {r.integration ? `| ${r.integration}` : ""}</p>
+                </div>
+              )},
+              { key: "priority", header: "Priority", render: (r) => <PriorityBadge priority={r.priority} /> },
+              { key: "status", header: "Status", render: (r) => <BugBountyStatusBadge status={r.status} /> },
+              { key: "credit", header: "Credit", render: (r) => r.credit_amount_cents > 0 ? (
+                <span className="text-green-400 text-sm">${(r.credit_amount_cents / 100).toFixed(2)}</span>
+              ) : <span className="text-gray-500 text-sm">-</span> },
+              { key: "date", header: "Date", hideOnMobile: true, render: (r) => (
+                <span className="text-gray-400 text-sm">{new Date(r.created_at).toLocaleDateString()}</span>
+              )},
+              { key: "actions", header: "Actions", align: "right", render: (r) => r.status === "pending" ? (
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    placeholder="cents"
+                    min={0}
+                    max={50000}
+                    value={creditAmount[r.id] ?? ""}
+                    onChange={(e) => setCreditAmount((prev) => ({ ...prev, [r.id]: e.target.value }))}
+                    className="bg-gray-800 text-gray-300 text-xs rounded px-2 py-1 border border-gray-700 w-20"
+                  />
+                  <button onClick={() => handleApprove(r.id)} className="text-xs text-green-400 hover:text-green-300">Approve</button>
+                  <button onClick={() => handleReject(r.id)} className="text-xs text-red-400 hover:text-red-300">Reject</button>
+                </div>
+              ) : null },
+            ]}
+            data={data?.reports ?? []}
+            keyExtractor={(r) => r.id}
+            emptyMessage="No bug reports."
+          />
+        )}
+
+        {totalPages > 1 && (
+          <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 border-t border-gray-800">
+            <p className="text-xs text-gray-500">Page {page} of {totalPages}</p>
+            <div className="flex gap-2">
+              <button onClick={() => setPage(Math.max(1, page - 1))} disabled={page === 1}
+                className="px-4 py-2 rounded-lg text-xs bg-gray-800 text-gray-400 hover:bg-gray-700 disabled:opacity-50">Previous</button>
+              <button onClick={() => setPage(Math.min(totalPages, page + 1))} disabled={page >= totalPages}
+                className="px-4 py-2 rounded-lg text-xs bg-gray-800 text-gray-400 hover:bg-gray-700 disabled:opacity-50">Next</button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Credits Tab (cybersecurity_admin+) ─────────────────────────────
+
+function CreditsTab() {
+  const [targetUserId, setTargetUserId] = useState("");
+  const [teamId, setTeamId] = useState("");
+  const [amountCents, setAmountCents] = useState("");
+  const [reason, setReason] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+  const handleCredit = useCallback(async () => {
+    setError(null);
+    setSuccess(null);
+
+    const hasUser = targetUserId.trim().length > 0;
+    const hasTeam = teamId.trim().length > 0;
+    if (!hasUser && !hasTeam) { setError("Specify a user ID or team ID"); return; }
+    if (hasUser && hasTeam) { setError("Specify either user or team, not both"); return; }
+    if (hasUser && !UUID_RE.test(targetUserId.trim())) { setError("Invalid user ID format"); return; }
+    if (hasTeam && !UUID_RE.test(teamId.trim())) { setError("Invalid team ID format"); return; }
+
+    const cents = parseInt(amountCents, 10);
+    if (!Number.isFinite(cents) || cents <= 0) { setError("Amount must be a positive number"); return; }
+    if (cents > 50000) { setError("Maximum $500.00 per operation"); return; }
+
+    if (!window.confirm(`Credit $${(cents / 100).toFixed(2)} to ${hasUser ? "user" : "team"}?`)) return;
+
+    setSubmitting(true);
+    try {
+      const body: Record<string, unknown> = { amountCents: cents, reason: reason.trim() || "Admin credit" };
+      if (hasUser) body.targetUserId = targetUserId.trim();
+      if (hasTeam) body.teamId = teamId.trim();
+      await post("/api/admin/credit-wallet", body);
+      setSuccess(`Credited $${(cents / 100).toFixed(2)} successfully`);
+      setAmountCents("");
+      setReason("");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to credit wallet");
+    } finally {
+      setSubmitting(false);
+    }
+  }, [targetUserId, teamId, amountCents, reason]);
+
+  return (
+    <div className="max-w-lg space-y-6">
+      <div className="bg-gray-900 border border-gray-800 rounded-xl p-6 space-y-4">
+        <h2 className="font-semibold text-lg">Grant Account Credits</h2>
+        <p className="text-sm text-gray-400">Credit a user or team wallet. Maximum $500 per operation.</p>
+
+        <div>
+          <label className="block text-xs text-gray-500 mb-1">User ID (leave empty for team credit)</label>
+          <input type="text" value={targetUserId} onChange={(e) => setTargetUserId(e.target.value)}
+            placeholder="UUID" className="w-full bg-gray-800 text-gray-300 text-sm rounded-lg px-3 py-2 border border-gray-700" />
+        </div>
+        <div>
+          <label className="block text-xs text-gray-500 mb-1">Team ID (leave empty for user credit)</label>
+          <input type="text" value={teamId} onChange={(e) => setTeamId(e.target.value)}
+            placeholder="UUID" className="w-full bg-gray-800 text-gray-300 text-sm rounded-lg px-3 py-2 border border-gray-700" />
+        </div>
+        <div>
+          <label className="block text-xs text-gray-500 mb-1">Amount (cents)</label>
+          <input type="number" value={amountCents} onChange={(e) => setAmountCents(e.target.value)}
+            min={1} max={50000} placeholder="e.g. 500 = $5.00"
+            className="w-full bg-gray-800 text-gray-300 text-sm rounded-lg px-3 py-2 border border-gray-700" />
+        </div>
+        <div>
+          <label className="block text-xs text-gray-500 mb-1">Reason</label>
+          <input type="text" value={reason} onChange={(e) => setReason(e.target.value)}
+            placeholder="Bug bounty, promo, etc." maxLength={200}
+            className="w-full bg-gray-800 text-gray-300 text-sm rounded-lg px-3 py-2 border border-gray-700" />
+        </div>
+
+        {error && (
+          <div className="bg-red-500/10 border border-red-500/20 rounded-lg px-4 py-3 text-sm text-red-400">{error}</div>
+        )}
+        {success && (
+          <div className="bg-green-500/10 border border-green-500/20 rounded-lg px-4 py-3 text-sm text-green-400">{success}</div>
+        )}
+
+        <button onClick={handleCredit} disabled={submitting}
+          className="w-full px-4 py-2 rounded-lg text-sm font-medium bg-indigo-600 text-white hover:bg-indigo-500 disabled:opacity-50">
+          {submitting ? "Processing..." : "Grant Credit"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Role Management Tab (root_admin only) ──────────────────────────
+
+interface AdminRoleEntry {
+  id: string;
+  email: string;
+  adminRole: string;
+  status: string;
+  createdAt: string;
+}
+
+interface RolesResponse {
+  admins: AdminRoleEntry[];
+}
+
+function RolesTab() {
+  const { data, loading, refetch } = useApi<RolesResponse>(
+    () => get("/api/admin/roles"),
+  );
+  const [assignUserId, setAssignUserId] = useState("");
+  const [assignRole, setAssignRole] = useState<string>("admin");
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [actionSuccess, setActionSuccess] = useState<string | null>(null);
+
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+  const handleSetRole = useCallback(async (userId: string, role: string) => {
+    if (!UUID_RE.test(userId)) { setActionError("Invalid user ID format"); return; }
+    const roleLabel = role === "none" ? "remove admin access from" : `set ${role} role for`;
+    if (!window.confirm(`${roleLabel} this user?`)) return;
+    setActionError(null);
+    setActionSuccess(null);
+    try {
+      await put(`/api/admin/roles/${userId}`, { role });
+      setActionSuccess(`Role updated to ${role}`);
+      refetch();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Failed to update role");
+    }
+  }, [refetch]);
+
+  const handleAssignNew = useCallback(async () => {
+    if (!assignUserId.trim()) { setActionError("Enter a user ID"); return; }
+    await handleSetRole(assignUserId.trim(), assignRole);
+    if (assignUserId.trim()) setAssignUserId("");
+  }, [assignUserId, assignRole, handleSetRole]);
+
+  const roleLabel = (role: string) => {
+    switch (role) {
+      case "root_admin": return "Root Admin";
+      case "cybersecurity_admin": return "Cybersecurity Admin";
+      case "admin": return "Admin";
+      default: return role;
+    }
+  };
+
+  const roleBadgeColor = (role: string) => {
+    switch (role) {
+      case "root_admin": return "bg-red-500/10 text-red-400 border-red-500/20";
+      case "cybersecurity_admin": return "bg-amber-500/10 text-amber-400 border-amber-500/20";
+      case "admin": return "bg-indigo-500/10 text-indigo-400 border-indigo-500/20";
+      default: return "bg-gray-500/10 text-gray-400 border-gray-500/20";
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Assign New Admin */}
+      <div className="bg-gray-900 border border-gray-800 rounded-xl p-6 space-y-4">
+        <h2 className="font-semibold text-lg">Assign Admin Role</h2>
+        <p className="text-sm text-gray-400">Only the root admin can grant or revoke admin roles. Root admin role cannot be assigned via the UI.</p>
+
+        <div className="flex flex-wrap gap-3">
+          <input type="text" value={assignUserId} onChange={(e) => setAssignUserId(e.target.value)}
+            placeholder="User ID (UUID)" className="flex-1 min-w-[200px] bg-gray-800 text-gray-300 text-sm rounded-lg px-3 py-2 border border-gray-700" />
+          <select value={assignRole} onChange={(e) => setAssignRole(e.target.value)}
+            className="bg-gray-800 text-gray-300 text-sm rounded-lg px-3 py-2 border border-gray-700">
+            <option value="admin">Admin</option>
+            <option value="cybersecurity_admin">Cybersecurity Admin</option>
+            <option value="none">Remove Admin</option>
+          </select>
+          <button onClick={handleAssignNew}
+            className="px-4 py-2 rounded-lg text-sm font-medium bg-indigo-600 text-white hover:bg-indigo-500">
+            Assign
+          </button>
+        </div>
+
+        {actionError && (
+          <div className="bg-red-500/10 border border-red-500/20 rounded-lg px-4 py-3 text-sm text-red-400">{actionError}</div>
+        )}
+        {actionSuccess && (
+          <div className="bg-green-500/10 border border-green-500/20 rounded-lg px-4 py-3 text-sm text-green-400">{actionSuccess}</div>
+        )}
+      </div>
+
+      {/* Current Admins */}
+      <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
+        <div className="px-4 py-3 border-b border-gray-800">
+          <h3 className="font-semibold">Current Admins</h3>
+        </div>
+        {loading ? (
+          <p className="px-4 py-8 text-center text-gray-500 text-sm">Loading...</p>
+        ) : (
+          <ResponsiveTable<AdminRoleEntry>
+            columns={[
+              { key: "email", header: "Email", primary: true, render: (a) => <span className="truncate">{a.email}</span> },
+              { key: "role", header: "Role", render: (a) => (
+                <span className={`px-2 py-0.5 rounded-full text-xs font-medium border ${roleBadgeColor(a.adminRole)}`}>
+                  {roleLabel(a.adminRole)}
+                </span>
+              )},
+              { key: "status", header: "Status", render: (a) => <StatusBadge status={a.status} /> },
+              { key: "actions", header: "Actions", align: "right", render: (a) => a.adminRole !== "root_admin" ? (
+                <div className="flex gap-2">
+                  {a.adminRole !== "cybersecurity_admin" && (
+                    <button onClick={() => handleSetRole(a.id, "cybersecurity_admin")}
+                      className="text-xs text-amber-400 hover:text-amber-300">Promote Cybersec</button>
+                  )}
+                  {a.adminRole !== "admin" && (
+                    <button onClick={() => handleSetRole(a.id, "admin")}
+                      className="text-xs text-indigo-400 hover:text-indigo-300">Set Admin</button>
+                  )}
+                  <button onClick={() => handleSetRole(a.id, "none")}
+                    className="text-xs text-red-400 hover:text-red-300">Revoke</button>
+                </div>
+              ) : (
+                <span className="text-xs text-gray-500">Protected</span>
+              )},
+            ]}
+            data={data?.admins ?? []}
+            keyExtractor={(a) => a.id}
+            emptyMessage="No admins configured."
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── Main Admin Page ────────────────────────────────────────────────
 
 export default function AdminPage() {
-  const { isAdmin } = useAuth();
+  const { isAdmin, adminRole } = useAuth();
   const [activeTab, setActiveTab] = useState<Tab>("users");
 
   if (!isAdmin) {
@@ -685,19 +1100,43 @@ export default function AdminPage() {
     );
   }
 
+  const isCybersec = adminRole === "cybersecurity_admin" || adminRole === "root_admin";
+  const isRoot = adminRole === "root_admin";
+
+  // Build tabs based on role
   const tabs: { key: Tab; label: string }[] = [
     { key: "users", label: "Users" },
     { key: "waitlist", label: "Waitlist" },
     { key: "revenue", label: "Revenue" },
     { key: "system", label: "System" },
   ];
+  if (isCybersec) {
+    tabs.push({ key: "bounties", label: "Bug Bounties" });
+    tabs.push({ key: "credits", label: "Credits" });
+  }
+  if (isRoot) {
+    tabs.push({ key: "roles", label: "Roles" });
+  }
+
+  // Reset tab if no longer visible for current role
+  const validTabKeys = tabs.map((t) => t.key);
+  if (!validTabKeys.includes(activeTab)) {
+    setActiveTab("users");
+  }
+
+  const roleLabel = adminRole === "root_admin" ? "Root Admin"
+    : adminRole === "cybersecurity_admin" ? "Cybersecurity Admin"
+    : "Admin";
+  const roleBadgeColor = adminRole === "root_admin" ? "bg-red-500/10 text-red-400 border border-red-500/20"
+    : adminRole === "cybersecurity_admin" ? "bg-amber-500/10 text-amber-400 border border-amber-500/20"
+    : "bg-indigo-500/10 text-indigo-400 border border-indigo-500/20";
 
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-2xl font-bold">Admin Dashboard</h1>
-        <span className="px-2 py-1 rounded text-xs bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
-          Admin
+        <span className={`px-2 py-1 rounded text-xs ${roleBadgeColor}`}>
+          {roleLabel}
         </span>
       </div>
 
@@ -725,6 +1164,9 @@ export default function AdminPage() {
       {activeTab === "waitlist" && <WaitlistTab />}
       {activeTab === "revenue" && <RevenueTab />}
       {activeTab === "system" && <SystemTab />}
+      {activeTab === "bounties" && isCybersec && <BountyTab />}
+      {activeTab === "credits" && isCybersec && <CreditsTab />}
+      {activeTab === "roles" && isRoot && <RolesTab />}
     </div>
   );
 }

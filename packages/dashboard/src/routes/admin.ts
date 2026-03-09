@@ -1,8 +1,9 @@
 import { Router } from "express";
 import * as crypto from "node:crypto";
-import { adminRepo, createLogger, userRepo, refreshTokenRepo, waitlistRepo, walletRepo, teamRepo, planRepo, referralRepo, sendWaitlistApprovalEmail, sanitizeString, query as dbQuery } from "@dominusnode/shared";
+import { adminRepo, createLogger, userRepo, refreshTokenRepo, waitlistRepo, walletRepo, teamRepo, planRepo, referralRepo, sendWaitlistApprovalEmail, sanitizeString, hasMinRole, query as dbQuery } from "@dominusnode/shared";
+import type { AdminRole } from "@dominusnode/shared";
 import { requireAuth, type AuthenticatedRequest } from "../middleware/auth.js";
-import { requireAdmin } from "../middleware/admin.js";
+import { requireAdmin, requireCybersecurityAdmin, requireRootAdmin } from "../middleware/admin.js";
 import rateLimit from "express-rate-limit";
 
 const router = Router();
@@ -10,25 +11,18 @@ const log = createLogger("api:admin");
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-// Admin emails authorized for wallet credit operations (security-critical)
-// Only these admins can mint credits. MUST be set via environment variable.
-const ADMIN_CREDIT_EMAILS = new Set(
-  (process.env["ADMIN_CREDIT_EMAILS"] ?? "")
-    .split(",")
-    .map((e) => e.trim().toLowerCase())
-    .filter(Boolean),
-);
-
 // Max single credit operation: $500 (50000 cents) — prevents fat-finger mistakes
 const MAX_CREDIT_AMOUNT_CENTS = parseInt(process.env["ADMIN_MAX_CREDIT_CENTS"] ?? "50000", 10);
 const SAFE_MAX_CREDIT = Number.isFinite(MAX_CREDIT_AMOUNT_CENTS) && MAX_CREDIT_AMOUNT_CENTS > 0
   ? MAX_CREDIT_AMOUNT_CENTS : 50000;
 
+const VALID_ASSIGNABLE_ROLES = new Set(["none", "admin", "cybersecurity_admin"]);
+
 function isValidUuid(id: string): boolean {
   return UUID_REGEX.test(id);
 }
 
-// All admin routes require auth + admin
+// All admin routes require auth + admin (base level)
 router.use(requireAuth);
 router.use(requireAdmin);
 
@@ -88,10 +82,16 @@ router.put("/users/:id/suspend", async (req, res) => {
     return;
   }
   try {
-    // Prevent admin-to-admin attacks
+    // Prevent admin-to-admin attacks — only root_admin can act on other admins
     const targetUser = await userRepo.findUserById(req.params.id);
-    if (targetUser?.is_admin) {
-      res.status(403).json({ error: "Cannot suspend another admin account" });
+    const callerRole = (req as unknown as AuthenticatedRequest).user.adminRole as AdminRole ?? "none";
+    if (targetUser?.is_admin && !hasMinRole(callerRole, "root_admin")) {
+      res.status(403).json({ error: "Only root admin can suspend another admin account" });
+      return;
+    }
+    // Root admin account (sarris88p@gmail.com) can never be suspended
+    if (targetUser?.email.toLowerCase() === adminRepo.getRootAdminEmail()) {
+      res.status(403).json({ error: "Root admin account cannot be suspended" });
       return;
     }
     await adminRepo.suspendUser(req.params.id);
@@ -159,9 +159,10 @@ router.put("/users/:id/activate", async (req, res) => {
       res.status(400).json({ error: "User is already active" });
       return;
     }
-    // Prevent admin-to-admin attacks
-    if (targetUser.is_admin) {
-      res.status(403).json({ error: "Cannot reactivate another admin account" });
+    // Prevent admin-to-admin attacks — only root_admin can act on other admins
+    const activateCallerRole = (req as unknown as AuthenticatedRequest).user.adminRole as AdminRole ?? "none";
+    if (targetUser.is_admin && !hasMinRole(activateCallerRole, "root_admin")) {
+      res.status(403).json({ error: "Only root admin can reactivate another admin account" });
       return;
     }
     await adminRepo.reactivateUser(req.params.id);
@@ -185,10 +186,16 @@ router.delete("/users/:id", async (req, res) => {
     return;
   }
   try {
-    // Prevent admin-to-admin attacks
+    // Prevent admin-to-admin attacks — only root_admin can act on other admins
     const targetUser = await userRepo.findUserById(req.params.id);
-    if (targetUser?.is_admin) {
-      res.status(403).json({ error: "Cannot delete another admin account" });
+    const deleteCallerRole = (req as unknown as AuthenticatedRequest).user.adminRole as AdminRole ?? "none";
+    if (targetUser?.is_admin && !hasMinRole(deleteCallerRole, "root_admin")) {
+      res.status(403).json({ error: "Only root admin can delete another admin account" });
+      return;
+    }
+    // Root admin account (sarris88p@gmail.com) can never be deleted
+    if (targetUser?.email.toLowerCase() === adminRepo.getRootAdminEmail()) {
+      res.status(403).json({ error: "Root admin account cannot be deleted" });
       return;
     }
     // API key/refresh token/MFA revocation moved inside adminRepo.deleteUser() transaction
@@ -486,17 +493,9 @@ const creditLimiter = rateLimit({
 });
 
 // POST /api/admin/credit-wallet — mint credits into a user or team wallet
-// Restricted to ADMIN_CREDIT_EMAILS (default: sarris88p@gmail.com)
-router.post("/credit-wallet", creditLimiter, async (req, res) => {
+// Restricted to cybersecurity_admin+ role (cybersecurity admins and root admin)
+router.post("/credit-wallet", requireCybersecurityAdmin, creditLimiter, async (req, res) => {
   const { userId: adminId } = (req as unknown as AuthenticatedRequest).user;
-
-  // Double-check: only authorized admin emails can mint credits
-  const adminUser = await userRepo.findUserById(adminId);
-  if (!adminUser || !ADMIN_CREDIT_EMAILS.has(adminUser.email.toLowerCase())) {
-    log.warn("unauthorized credit attempt", { adminId, email: adminUser?.email });
-    res.status(403).json({ error: "Your admin account is not authorized for credit operations" });
-    return;
-  }
 
   const { targetUserId, teamId, amountCents, reason } = req.body as {
     targetUserId?: string;
@@ -592,20 +591,14 @@ const BUG_PRIORITIES = new Set(["p1", "p2", "p3"]);
 const BUG_CATEGORIES = new Set(["quality", "security"]);
 const BUG_STATUSES = new Set(["pending", "approved", "rejected", "credited"]);
 
-// POST /api/admin/bug-reports/:id/approve — approve and optionally credit
-router.post("/bug-reports/:id/approve", async (req, res) => {
-  if (!isValidUuid(req.params.id)) {
+// POST /api/admin/bug-reports/:id/approve — approve and optionally credit (cybersecurity_admin+)
+router.post("/bug-reports/:id/approve", requireCybersecurityAdmin, async (req, res) => {
+  if (!isValidUuid(req.params.id as string)) {
     res.status(400).json({ error: "Invalid report ID" });
     return;
   }
 
   const { userId: adminId } = (req as unknown as AuthenticatedRequest).user;
-  // Only authorized credit admins can approve bug reports with credits
-  const adminUser = await userRepo.findUserById(adminId);
-  if (!adminUser || !ADMIN_CREDIT_EMAILS.has(adminUser.email.toLowerCase())) {
-    res.status(403).json({ error: "Not authorized to approve bug reports" });
-    return;
-  }
 
   const { creditAmountCents } = req.body as { creditAmountCents?: number };
   if (creditAmountCents !== undefined) {
@@ -661,9 +654,9 @@ router.post("/bug-reports/:id/approve", async (req, res) => {
   }
 });
 
-// POST /api/admin/bug-reports/:id/reject — reject a bug report
-router.post("/bug-reports/:id/reject", async (req, res) => {
-  if (!isValidUuid(req.params.id)) {
+// POST /api/admin/bug-reports/:id/reject — reject a bug report (cybersecurity_admin+)
+router.post("/bug-reports/:id/reject", requireCybersecurityAdmin, async (req, res) => {
+  if (!isValidUuid(req.params.id as string)) {
     res.status(400).json({ error: "Invalid report ID" });
     return;
   }
@@ -732,18 +725,10 @@ function hashPromoCode(code: string): string {
 }
 
 // POST /api/admin/promo — create promo code
-// Promo code creation restricted to ADMIN_CREDIT_EMAILS (same as credit-wallet)
-// because promo codes mint credits — any admin creating promos is equivalent to minting money
-router.post("/promo", async (req, res) => {
+// Promo code creation restricted to cybersecurity_admin+ (promos mint credits)
+router.post("/promo", requireCybersecurityAdmin, async (req, res) => {
   try {
     const authReq = req as AuthenticatedRequest;
-    // Only authorized admin emails can create promo codes (they mint credits)
-    const promoAdmin = await userRepo.findUserById(authReq.user.userId);
-    if (!promoAdmin || !ADMIN_CREDIT_EMAILS.has(promoAdmin.email.toLowerCase())) {
-      log.warn("unauthorized promo creation attempt", { adminId: authReq.user.userId });
-      res.status(403).json({ error: "Your admin account is not authorized to create promo codes" });
-      return;
-    }
     const { code, creditCents, maxUses, expiresAt } = req.body ?? {};
 
     if (!code || typeof code !== "string" || !PROMO_CODE_REGEX.test(code.trim())) {
@@ -957,6 +942,96 @@ router.post("/commissions/process", commissionProcessLimiter, async (req, res) =
   } catch (err) {
     log.error("admin commission process failed", { error: err instanceof Error ? err.message : String(err) });
     res.status(500).json({ error: "Failed to process commissions" });
+  }
+});
+
+// ─── Admin Role Management (Root Admin Only) ───────────────────────
+
+// GET /api/admin/roles — list all admin users with their roles
+router.get("/roles", requireRootAdmin, async (_req, res) => {
+  try {
+    const result = await dbQuery(
+      `SELECT id, email, admin_role, is_admin, status, created_at
+       FROM users
+       WHERE admin_role != 'none'
+       ORDER BY
+         CASE admin_role
+           WHEN 'root_admin' THEN 1
+           WHEN 'cybersecurity_admin' THEN 2
+           WHEN 'admin' THEN 3
+           ELSE 4
+         END,
+         created_at ASC`,
+    );
+    res.json({
+      admins: (result?.rows ?? []).map((r: Record<string, unknown>) => ({
+        id: r.id,
+        email: r.email,
+        adminRole: r.admin_role,
+        status: r.status,
+        createdAt: r.created_at,
+      })),
+    });
+  } catch (err) {
+    log.error("failed to list admin roles", { error: err instanceof Error ? err.message : String(err) });
+    res.status(500).json({ error: "Failed to list admin roles" });
+  }
+});
+
+// PUT /api/admin/roles/:userId — assign admin role to a user (root_admin only)
+// Only root admin can promote/demote other users
+// root_admin role cannot be assigned via API — it's hardcoded to one email
+router.put("/roles/:userId", requireRootAdmin, async (req, res) => {
+  const targetId = req.params.userId as string;
+  if (!isValidUuid(targetId)) {
+    res.status(400).json({ error: "Invalid user ID format" });
+    return;
+  }
+
+  const { userId: adminId } = (req as unknown as AuthenticatedRequest).user;
+  if (targetId === adminId) {
+    res.status(400).json({ error: "Cannot change your own role" });
+    return;
+  }
+
+  const { role } = req.body as { role?: string };
+  if (!role || typeof role !== "string" || !VALID_ASSIGNABLE_ROLES.has(role)) {
+    res.status(400).json({ error: "Invalid role. Must be: none, admin, or cybersecurity_admin" });
+    return;
+  }
+
+  try {
+    const targetUser = await userRepo.findUserById(targetId);
+    if (!targetUser) {
+      res.status(404).json({ error: "User not found" });
+      return;
+    }
+    if (targetUser.status !== "active") {
+      res.status(400).json({ error: "Cannot assign roles to inactive accounts" });
+      return;
+    }
+
+    const success = await adminRepo.setAdminRole(targetId, role);
+    if (!success) {
+      res.status(400).json({ error: "Cannot modify this user's role" });
+      return;
+    }
+
+    log.info("admin role changed", {
+      adminId,
+      targetUserId: targetId,
+      targetEmail: targetUser.email.slice(0, 3) + "***",
+      newRole: role,
+      previousRole: targetUser.admin_role,
+    });
+    res.json({
+      message: `Role updated to ${role}`,
+      userId: targetId,
+      role,
+    });
+  } catch (err) {
+    log.error("failed to set admin role", { error: err instanceof Error ? err.message : String(err) });
+    res.status(500).json({ error: "Failed to update admin role" });
   }
 });
 

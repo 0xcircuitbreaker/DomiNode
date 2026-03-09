@@ -43,8 +43,9 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
       res.status(401).json({ error: "Account is no longer active" });
       return;
     }
-    // Refresh isAdmin from DB to prevent stale JWT claims (up to 15 min lag)
+    // Refresh isAdmin and adminRole from DB to prevent stale JWT claims (up to 15 min lag)
     payload.isAdmin = user.is_admin === true;
+    payload.adminRole = user.admin_role ?? "none";
   } catch {
     res.status(500).json({ error: "Authentication check failed" });
     return;
