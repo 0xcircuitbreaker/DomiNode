@@ -116,6 +116,7 @@ class AgentResult:
     duration: float = 0.0
     status: str = "pending"   # pending | running | done | failed
     target_url: str = "https://httpbin.org/ip"
+    proxy_type: str = "residential"
 
 
 # ── Integration catalog ────────────────────────────────────────────────────────
@@ -375,7 +376,8 @@ POST_TEMPLATES = {
 }
 
 
-def make_post(result: AgentResult) -> str:
+def make_post_short(result: AgentResult) -> str:
+    """Short-form post (≤280 chars) — Twitter/X style."""
     tpl = POST_TEMPLATES.get(result.integration, "#DominusNode full lifecycle test — {ok}/{total} tools passed")
     return tpl.format(
         url=result.target_url,
@@ -384,6 +386,91 @@ def make_post(result: AgentResult) -> str:
         ok=result.tools_ok,
         total=result.tools_total,
     )[:280]
+
+
+# Long-form narrative templates — Moltbook / blog style
+LONG_POST_TEMPLATES = {
+    "default": (
+        "Ran {name} through the full Dominus Node lifecycle — {ok}/{total} tools "
+        "executed in {dur}s. The agent autonomously registered an account, funded "
+        "an agentic wallet, created API keys, set up team permissions, configured "
+        "proxy routes, and fetched data through rotating {proxy_type} IPs.\n\n"
+        "Proxy fetch: {fetch_bytes}B from {url} via {proxy_type} proxy. Every "
+        "request exits through a rotating residential IP — the agent doesn't know "
+        "or care which IP it gets. When a scrape returns 403, the system rotates "
+        "to a fresh IP automatically.\n\n"
+        "The agentic wallet system is the real differentiator: each AI agent gets "
+        "its own spending limit and transaction log. The parent account can freeze "
+        "wallets, set daily caps, and audit every byte consumed. Financial "
+        "guardrails enforced at the infrastructure level — no prompt injection can "
+        "overspend.\n\n"
+        "{ok}/{total} lifecycle operations. Zero human intervention. "
+        "#DominusNode #{tag} #AIProxy #AgenticInfra"
+    ),
+    "privacy-focus": (
+        "Privacy test with {name}: routed {fetch_bytes}B through Dominus Node's "
+        "{proxy_type} proxy network in {dur}s. Exit IP rotated automatically — "
+        "no fingerprinting, no IP persistence across requests.\n\n"
+        "The full agent lifecycle ran {ok}/{total} operations: account creation, "
+        "wallet funding, team isolation, API key rotation, geo-targeted proxy "
+        "fetch from {url}, usage metering, and cleanup. All programmatic, all "
+        "via SDK.\n\n"
+        "Why this matters: when your AI agent is researching competitors, "
+        "monitoring prices, or gathering training data, you don't want every "
+        "request traced back to your office IP. Dominus Node's rotating "
+        "{proxy_type} proxies with automatic burn detection solve this at the "
+        "infrastructure level.\n\n"
+        "#DominusNode #{tag} #Privacy #AgenticAI"
+    ),
+    "infra-focus": (
+        "Infrastructure stress test: {name} agent #{n} completed {ok}/{total} "
+        "Dominus Node lifecycle operations in {dur}s.\n\n"
+        "What the agent did autonomously:\n"
+        "• Registered account + verified email (MCP agent bypass)\n"
+        "• Funded agentic wallet with spending caps\n"
+        "• Created team, set permissions, generated API keys\n"
+        "• Configured {proxy_type} proxy routing (geo: US)\n"
+        "• Fetched {fetch_bytes}B from {url}\n"
+        "• Checked usage stats + billing\n"
+        "• Cleaned up: revoked keys, deleted team\n\n"
+        "53 SDK tools available. The agent self-provisions everything — "
+        "account creation to billing to proxy routing — zero human bottleneck. "
+        "This is what sovereign AI infrastructure looks like.\n\n"
+        "#DominusNode #{tag} #AIInfra #AutonomousAgents"
+    ),
+}
+
+
+def make_post_long(result: AgentResult, variant: str = "default") -> str:
+    """Long-form narrative post (800-1500 chars) — Moltbook / blog style."""
+    info = CATALOG.get(result.integration)
+    name = info.name if info else result.integration
+    tag = info.hashtag.lstrip("#") if info else result.integration.replace("-", "")
+
+    tpl = LONG_POST_TEMPLATES.get(variant, LONG_POST_TEMPLATES["default"])
+    return tpl.format(
+        name=name,
+        url=result.target_url,
+        dur=f"{result.duration:.1f}",
+        n=result.agent_num,
+        ok=result.tools_ok,
+        total=result.tools_total,
+        fetch_bytes=result.fetch_bytes,
+        proxy_type=result.proxy_type,
+        tag=tag,
+    )
+
+
+def make_post(result: AgentResult) -> str:
+    """Auto-assign short or long-form post based on agent number and data richness."""
+    # Agents with successful fetch data and good tool coverage get long-form
+    # Cycle through: every 3rd agent gets a different long-form variant
+    if result.fetch_ok and result.tools_ok >= 15:
+        variants = ["default", "privacy-focus", "infra-focus"]
+        variant = variants[result.agent_num % 3]
+        return make_post_long(result, variant)
+    else:
+        return make_post_short(result)
 
 
 # ── API helpers ────────────────────────────────────────────────────────────────
@@ -1385,7 +1472,7 @@ def run_agent(agent_num: int, integration_id: str, cfg: ShowcaseConfig,
     """Full lifecycle for one showcase agent — exercises all 53 tools."""
     info = CATALOG[integration_id]
     res = AgentResult(agent_num=agent_num, integration=integration_id,
-                      target_url=cfg.target_url)
+                      target_url=cfg.target_url, proxy_type=cfg.proxy_type)
     res.status = "running"
     start = time.time()
 
@@ -1944,16 +2031,30 @@ def launch_swarm(cfg: ShowcaseConfig):
     print(f"{A_BLD}  DOMINUS NODE Integration Showcase Swarm{A_RST}")
     print(f"{A_CYN}{'═' * 60}{A_RST}\n")
 
-    # Build assignment list
+    # Build assignment list — ensure every integration gets at least 1 agent
+    # before distributing extras.  The ThreadPoolExecutor (max_workers=8) already
+    # cycles through them: 8 run concurrently, as each finishes the next starts.
     assignments: List[tuple] = []  # (agent_num, integration_id)
+
+    # Round 1: guarantee 1 agent per integration
     for iid in sel:
-        count = cfg.agents_per_integ
-        for j in range(count):
-            if len(assignments) >= cfg.total_agents:
+        assignments.append((len(assignments) + 1, iid))
+
+    # Round 2+: fill remaining slots round-robin up to total_agents
+    if len(assignments) < cfg.total_agents:
+        remaining = cfg.total_agents - len(assignments)
+        extra_round = 1
+        while remaining > 0:
+            for iid in sel:
+                if extra_round + 1 > cfg.agents_per_integ:
+                    break
+                if remaining <= 0:
+                    break
+                assignments.append((len(assignments) + 1, iid))
+                remaining -= 1
+            extra_round += 1
+            if extra_round + 1 > cfg.agents_per_integ:
                 break
-            assignments.append((len(assignments) + 1, iid))
-        if len(assignments) >= cfg.total_agents:
-            break
 
     if not assignments:
         print(f"{A_RED}No agents to launch.{A_RST}")
@@ -2023,12 +2124,17 @@ def launch_swarm(cfg: ShowcaseConfig):
     posts = [r.post for r in results if r and r.post]
     if posts:
         print(f"\n{A_BLD}  Generated Social Posts:{A_RST}")
+        print(f"  {A_DIM}AI model: template-based (no LLM) — deterministic post generation{A_RST}")
         print(f"{A_CYN}{'─' * 60}{A_RST}")
         for r in results:
             if r and r.post:
                 info = CATALOG[r.integration]
                 runtime_col = A_YLW if info.runtime == "python" else A_CYN
-                print(f"  {runtime_col}[{info.name} #{r.agent_num}]{A_RST}")
+                is_long = len(r.post) > 300
+                style = "LONG" if is_long else "SHORT"
+                style_col = A_GRN if is_long else A_YLW
+                print(f"  {runtime_col}[{info.name} #{r.agent_num}]{A_RST}"
+                      f"  {style_col}[{style} — {len(r.post)} chars]{A_RST}")
                 print(f"  {A_DIM}{r.post}{A_RST}\n")
 
     # Save results
