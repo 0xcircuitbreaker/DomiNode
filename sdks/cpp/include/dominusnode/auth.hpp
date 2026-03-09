@@ -1,5 +1,7 @@
 #pragma once
 
+#include <optional>
+#include <nlohmann/json.hpp>
 #include "dominusnode/types.hpp"
 
 namespace dominusnode {
@@ -51,6 +53,10 @@ public:
 
 private:
     HttpClient& http_;
+
+    /// Solve a Proof-of-Work challenge for bot-free registration.
+    /// Returns a JSON object with challengeId and nonce, or nullopt on failure.
+    std::optional<nlohmann::json> solve_pow();
 };
 
 } // namespace dominusnode

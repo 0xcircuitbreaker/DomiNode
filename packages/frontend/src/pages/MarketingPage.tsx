@@ -63,8 +63,8 @@ const AI_AGENT_FEATURES = [
   },
   {
     title: "Agent Authorization",
-    detail: "dominusnode_setup",
-    summary: "AI agents create accounts, generate API keys, and start proxying through a verified MCP bootstrap flow — subject to spend controls and usage policies.",
+    detail: "Zero-config PoW bootstrap",
+    summary: "AI agents register autonomously via Proof-of-Work (no CAPTCHA, no shared secrets). Per-agent secrets with elevated rate limits, spend controls, and usage policies.",
   },
   {
     title: "x402 Micropayments",

@@ -19,6 +19,7 @@
  *  - DNS rebinding protection on all proxied requests
  */
 
+import * as crypto from "node:crypto";
 import * as http from "node:http";
 import * as net from "node:net";
 import * as tls from "node:tls";
@@ -396,6 +397,48 @@ export class DominusNodeToolkit {
     const tVal = Number(options.timeout ?? 30000);
     this.timeout = Number.isFinite(tVal) && tVal >= 1000 && tVal <= 120000 ? tVal : 30000;
     this.agentSecret = options.agentSecret || process.env["DOMINUSNODE_AGENT_SECRET"];
+  }
+
+  // -----------------------------------------------------------------------
+  // SHA-256 Proof-of-Work solver
+  // -----------------------------------------------------------------------
+
+  private static _countLeadingZeroBits(buf: Buffer): number {
+    let count = 0;
+    for (const byte of buf) {
+      if (byte === 0) { count += 8; continue; }
+      let mask = 0x80;
+      while (mask && !(byte & mask)) { count++; mask >>= 1; }
+      break;
+    }
+    return count;
+  }
+
+  private async _solvePoW(): Promise<{ challengeId: string; nonce: string } | null> {
+    try {
+      const resp = await fetch(`${this.baseUrl}/api/auth/pow/challenge`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        redirect: "error",
+      });
+      if (!resp.ok) return null;
+      const text = await resp.text();
+      if (text.length > 10_485_760) return null;
+      const challenge = JSON.parse(text);
+      const prefix: string = challenge.prefix ?? "";
+      const difficulty: number = challenge.difficulty ?? 20;
+      const challengeId: string = challenge.challengeId ?? "";
+      if (!prefix || !challengeId) return null;
+      for (let nonce = 0; nonce < 100_000_000; nonce++) {
+        const hash = crypto.createHash("sha256").update(prefix + nonce.toString()).digest();
+        if (DominusNodeToolkit._countLeadingZeroBits(hash) >= difficulty) {
+          return { challengeId, nonce: nonce.toString() };
+        }
+      }
+      return null;
+    } catch {
+      return null;
+    }
   }
 
   // -----------------------------------------------------------------------
@@ -1190,7 +1233,11 @@ export class DominusNodeToolkit {
     try {
       const safeEmail = DominusNodeToolkit.validateEmail(email);
       const safePassword = DominusNodeToolkit.validatePassword(password);
-      const data = await this._rawRequest("POST", "/api/auth/register", { email: safeEmail, password: safePassword });
+      // Solve PoW for CAPTCHA-free registration
+      const pow = await this._solvePoW();
+      const regBody: Record<string, unknown> = { email: safeEmail, password: safePassword };
+      if (pow) regBody.pow = pow;
+      const data = await this._rawRequest("POST", "/api/auth/register", regBody);
       return ok(JSON.stringify(data, null, 2));
     } catch (e) { return err(e); }
   }

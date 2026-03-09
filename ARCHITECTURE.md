@@ -720,6 +720,34 @@ mfa_backup_codes
    └── Sets new httpOnly cookies
 ```
 
+### AI Agent Authentication (Three-Tier)
+
+```
+Path 1 — Proof-of-Work (no shared secrets):
+  POST /api/auth/pow/challenge
+  ├── Server generates random prefix + difficulty (default 20)
+  ├── Agent finds nonce where SHA-256(prefix + nonce) has N leading zero bits
+  └── ~1M hashes, 2-5 seconds CPU
+
+  POST /api/auth/register { email, password, pow: { challengeId, nonce } }
+  ├── Server verifies PoW solution (atomic consume — single use)
+  ├── Bypasses reCAPTCHA
+  ├── Auto-verifies email
+  └── Issues JWT tokens
+
+Path 2 — Wallet Auth (EIP-191):
+  POST /api/auth/wallet/challenge { address }
+  POST /api/auth/wallet/verify { address, signature }
+  └── No email, no password, no CAPTCHA
+
+Path 3 — Per-Agent Secrets (das_ prefix):
+  POST /api/agent/secret { label } (requires JWT + email_verified)
+  ├── Server generates das_<random> secret, stores SHA-256 hash
+  ├── Max 5 per user (oldest auto-revoked on overflow)
+  ├── Grants: CAPTCHA bypass, 10x rate limits, email auto-verify
+  └── Used via X-DominusNode-Agent-Secret header
+```
+
 ### Extension / SDK Authentication
 
 ```

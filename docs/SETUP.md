@@ -933,6 +933,23 @@ npx @dominusnode/mcp-server --bootstrap
 
 When `MCP_AGENT_SECRET` is set, AI agents that include the header `X-DominusNode-Agent: mcp` + `X-DominusNode-Agent-Secret: <secret>` are automatically marked as email-verified on registration — no email confirmation needed for agent accounts.
 
+### Three-Tier Agent Authentication
+
+Agents can register autonomously through three independent paths (no shared secrets required):
+
+1. **Proof-of-Work (PoW)**: Agents request a SHA-256 hash puzzle from `POST /api/auth/pow/challenge`, solve it locally (~2-5s CPU), and include the solution in their registration request. This bypasses reCAPTCHA and auto-verifies the email. All SDKs and integrations include a built-in PoW solver.
+
+2. **Wallet Auth (EIP-191)**: Agents register with an Ethereum wallet signature — no email, no password, no CAPTCHA.
+
+3. **Per-Agent Secrets (`das_` prefix)**: After registration, agents create per-agent secrets via `POST /api/agent/secret`. These grant CAPTCHA bypass and 10x rate limits on subsequent operations. Max 5 per user, oldest auto-revoked on overflow.
+
+Environment variables for tuning:
+
+```env
+POW_DIFFICULTY=20                    # SHA-256 leading zero bits (10-32, default 20)
+AGENT_RATE_LIMIT_MULTIPLIER=10       # Rate limit multiplier for verified agents (1-100)
+```
+
 ---
 
 ## 13. AI Integrations

@@ -32,31 +32,34 @@ function countLeadingZeroBits(buf: Buffer): number {
   return bits;
 }
 
-function solvePoW(prefix: string, difficulty: number): string {
+function solvePoW(prefix: string, difficulty: number): string | null {
+  // Cap difficulty to prevent wasting CPU on impossible challenges
+  const cappedDifficulty = Math.min(difficulty, 32);
   let nonce = 0;
   while (nonce < 100_000_000) { // Hard cap to prevent infinite loop
     const hash = crypto.createHash("sha256")
       .update(prefix + nonce.toString())
       .digest();
-    if (countLeadingZeroBits(hash) >= difficulty) {
+    if (countLeadingZeroBits(hash) >= cappedDifficulty) {
       return nonce.toString();
     }
     nonce++;
   }
-  throw new Error("PoW solution not found within iteration limit");
+  return null; // Exhausted — caller falls back to other auth methods
 }
 
 /**
  * Get a PoW challenge from the server and solve it.
  * Returns the pow object to include in the registration request body.
  */
-async function solveRegistrationPoW(httpClient: HttpClient): Promise<{ challengeId: string; nonce: string }> {
+async function solveRegistrationPoW(httpClient: HttpClient): Promise<{ challengeId: string; nonce: string } | undefined> {
   const challenge = await httpClient.post<PowChallenge>(
     "/api/auth/pow/challenge",
     {},
     false, // bootstrap mode, no auth required
   );
   const nonce = solvePoW(challenge.prefix, challenge.difficulty);
+  if (!nonce) return undefined;
   return { challengeId: challenge.challengeId, nonce };
 }
 

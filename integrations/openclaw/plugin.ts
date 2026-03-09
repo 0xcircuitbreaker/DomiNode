@@ -13,10 +13,53 @@
  *  - OFAC sanctioned country validation
  */
 
+import * as crypto from "node:crypto";
 import * as http from "node:http";
 import * as net from "node:net";
 import * as tls from "node:tls";
 import * as dns from "dns/promises";
+
+// ---------------------------------------------------------------------------
+// SHA-256 Proof-of-Work solver
+// ---------------------------------------------------------------------------
+
+function countLeadingZeroBits(buf: Buffer): number {
+  let count = 0;
+  for (const byte of buf) {
+    if (byte === 0) { count += 8; continue; }
+    let mask = 0x80;
+    while (mask && !(byte & mask)) { count++; mask >>= 1; }
+    break;
+  }
+  return count;
+}
+
+async function solvePoW(solveBaseUrl: string): Promise<{ challengeId: string; nonce: string } | null> {
+  try {
+    const resp = await fetch(`${solveBaseUrl}/api/auth/pow/challenge`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      redirect: "error",
+    });
+    if (!resp.ok) return null;
+    const text = await resp.text();
+    if (text.length > 10_485_760) return null;
+    const challenge = JSON.parse(text);
+    const prefix: string = challenge.prefix ?? "";
+    const difficulty: number = challenge.difficulty ?? 20;
+    const challengeId: string = challenge.challengeId ?? "";
+    if (!prefix || !challengeId) return null;
+    for (let nonce = 0; nonce < 100_000_000; nonce++) {
+      const hash = crypto.createHash("sha256").update(prefix + nonce.toString()).digest();
+      if (countLeadingZeroBits(hash) >= difficulty) {
+        return { challengeId, nonce: nonce.toString() };
+      }
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -2410,12 +2453,16 @@ const registerTool: ToolDefinition = {
         return "Error: Password must be 8-128 characters.";
       }
 
+      // Solve PoW for CAPTCHA-free registration
+      const pow = await solvePoW(getBaseUrl());
+      const regBody: Record<string, unknown> = { email, password };
+      if (pow) regBody.pow = pow;
       const data = await unauthenticatedRequest<{
         id: string;
         email: string;
         emailVerified: boolean;
         createdAt: string;
-      }>("POST", "/api/auth/register", { email, password });
+      }>("POST", "/api/auth/register", regBody);
 
       return [
         "Account Registered",

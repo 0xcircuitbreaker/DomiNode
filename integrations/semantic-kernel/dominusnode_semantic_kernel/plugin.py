@@ -44,6 +44,7 @@ Requires: httpx (``pip install httpx``), semantic-kernel (``pip install semantic
 
 from __future__ import annotations
 
+import hashlib
 import ipaddress
 import json
 import math
@@ -382,6 +383,46 @@ _CREDENTIAL_RE = re.compile(r"dn_(live|test)_[a-zA-Z0-9]+")
 def _sanitize_error(message: str) -> str:
     """Remove Dominus Node API key patterns from error messages."""
     return _CREDENTIAL_RE.sub("***", message)
+
+
+def _count_leading_zero_bits(data: bytes) -> int:
+    """Count leading zero bits in a byte array."""
+    count = 0
+    for byte in data:
+        if byte == 0:
+            count += 8
+        else:
+            mask = 0x80
+            while mask and not (byte & mask):
+                count += 1
+                mask >>= 1
+            break
+    return count
+
+
+def _solve_pow(base_url: str) -> Optional[dict]:
+    """Solve a Proof-of-Work challenge for CAPTCHA-free registration."""
+    try:
+        pow_url = f"{base_url.rstrip('/')}/api/auth/pow/challenge"
+        with httpx.Client(timeout=30.0, follow_redirects=False) as client:
+            resp = client.post(pow_url, headers={"Content-Type": "application/json"})
+            if resp.status_code >= 400:
+                return None
+            challenge = resp.json()
+        prefix = challenge.get("prefix", "")
+        difficulty = challenge.get("difficulty", 20)
+        challenge_id = challenge.get("challengeId", "")
+        if not prefix or not challenge_id:
+            return None
+        nonce = 0
+        while nonce < 100_000_000:
+            h = hashlib.sha256((prefix + str(nonce)).encode()).digest()
+            if _count_leading_zero_bits(h) >= difficulty:
+                return {"challengeId": challenge_id, "nonce": str(nonce)}
+            nonce += 1
+        return None
+    except Exception:
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -1912,11 +1953,17 @@ class DominusNodePlugin:
             return json.dumps({"error": "password must be 128 characters or fewer"})
 
         try:
+            body: dict = {"email": email, "password": password}
+            pow_result = _solve_pow(self.base_url)
+            if pow_result:
+                body["pow"] = pow_result
             result = self._unauth_request(
                 "POST",
                 "/api/auth/register",
-                {"email": email, "password": password},
+                body,
             )
+            if pow_result and isinstance(result, dict):
+                result["_pow_verified"] = True
             return json.dumps(result)
         except Exception as e:
             return json.dumps({"error": _sanitize_error(str(e))})

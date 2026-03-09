@@ -2,11 +2,29 @@
 
 from __future__ import annotations
 
+import hashlib
 from typing import Optional
 
 from .http_client import AsyncHttpClient, SyncHttpClient
 from .token_manager import AsyncTokenManager, TokenManager
 from .types import LoginResult, MfaSetup, MfaStatus, User
+
+_POW_MAX_NONCE = 100_000_000
+
+
+def _count_leading_zero_bits(hash_bytes: bytes) -> int:
+    """Count leading zero bits in a hash digest."""
+    count = 0
+    for byte in hash_bytes:
+        if byte == 0:
+            count += 8
+        else:
+            mask = 0x80
+            while mask and not (byte & mask):
+                count += 1
+                mask >>= 1
+            break
+    return count
 
 
 def _parse_login_result(data: dict) -> LoginResult:
@@ -46,9 +64,29 @@ class AuthResource:
         self._http = http
         self._tokens = tokens
 
+    def _solve_pow(self) -> dict | None:
+        """Request a PoW challenge and solve it. Returns {challengeId, nonce} or None."""
+        try:
+            challenge = self._http.post("/api/auth/pow/challenge", json={})
+            challenge_id: str = challenge["challengeId"]
+            prefix: str = challenge["prefix"]
+            difficulty: int = challenge["difficulty"]
+
+            for nonce in range(_POW_MAX_NONCE):
+                digest = hashlib.sha256((prefix + str(nonce)).encode()).digest()
+                if _count_leading_zero_bits(digest) >= difficulty:
+                    return {"challengeId": challenge_id, "nonce": nonce}
+            return None
+        except Exception:
+            return None
+
     def register(self, email: str, password: str) -> LoginResult:
         """Create a new account and return tokens."""
-        data = self._http.post("/api/auth/register", json={"email": email, "password": password})
+        body: dict = {"email": email, "password": password}
+        pow_result = self._solve_pow()
+        if pow_result is not None:
+            body["pow"] = pow_result
+        data = self._http.post("/api/auth/register", json=body)
         result = _parse_login_result(data)
         if result.token and result.refresh_token:
             self._tokens.set_tokens(result.token, result.refresh_token)
@@ -172,8 +210,28 @@ class AsyncAuthResource:
         self._http = http
         self._tokens = tokens
 
+    async def _solve_pow(self) -> dict | None:
+        """Request a PoW challenge and solve it. Returns {challengeId, nonce} or None."""
+        try:
+            challenge = await self._http.post("/api/auth/pow/challenge", json={})
+            challenge_id: str = challenge["challengeId"]
+            prefix: str = challenge["prefix"]
+            difficulty: int = challenge["difficulty"]
+
+            for nonce in range(_POW_MAX_NONCE):
+                digest = hashlib.sha256((prefix + str(nonce)).encode()).digest()
+                if _count_leading_zero_bits(digest) >= difficulty:
+                    return {"challengeId": challenge_id, "nonce": nonce}
+            return None
+        except Exception:
+            return None
+
     async def register(self, email: str, password: str) -> LoginResult:
-        data = await self._http.post("/api/auth/register", json={"email": email, "password": password})
+        body: dict = {"email": email, "password": password}
+        pow_result = await self._solve_pow()
+        if pow_result is not None:
+            body["pow"] = pow_result
+        data = await self._http.post("/api/auth/register", json=body)
         result = _parse_login_result(data)
         if result.token and result.refresh_token:
             self._tokens.set_tokens(result.token, result.refresh_token)

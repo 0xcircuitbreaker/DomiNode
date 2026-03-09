@@ -18,9 +18,10 @@ Security:
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from shared import DominusNodeAuth
 from shared.constants import CREDENTIAL_RE
@@ -58,6 +59,47 @@ def _validate_password(password: Any) -> str | None:
     if len(password) > 128:
         return "Password must be at most 128 characters"
     return None
+
+
+def _count_leading_zero_bits(data: bytes) -> int:
+    """Count leading zero bits in a byte array."""
+    count = 0
+    for byte in data:
+        if byte == 0:
+            count += 8
+        else:
+            mask = 0x80
+            while mask and not (byte & mask):
+                count += 1
+                mask >>= 1
+            break
+    return count
+
+
+def _solve_pow(base_url: str) -> Optional[dict]:
+    """Solve a Proof-of-Work challenge for CAPTCHA-free registration."""
+    try:
+        import httpx as _httpx
+        pow_url = f"{base_url.rstrip('/')}/api/auth/pow/challenge"
+        with _httpx.Client(timeout=30.0, follow_redirects=False) as client:
+            resp = client.post(pow_url, headers={"Content-Type": "application/json"})
+            if resp.status_code >= 400:
+                return None
+            challenge = resp.json()
+        prefix = challenge.get("prefix", "")
+        difficulty = challenge.get("difficulty", 20)
+        challenge_id = challenge.get("challengeId", "")
+        if not prefix or not challenge_id:
+            return None
+        nonce = 0
+        while nonce < 100_000_000:
+            h = hashlib.sha256((prefix + str(nonce)).encode()).digest()
+            if _count_leading_zero_bits(h) >= difficulty:
+                return {"challengeId": challenge_id, "nonce": str(nonce)}
+            nonce += 1
+        return None
+    except Exception:
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -98,18 +140,26 @@ def register(
         import httpx
         from shared.auth import _USER_AGENT
 
+        body: dict = {"email": email.strip(), "password": password}
+        pow_result = _solve_pow(auth.base_url)
+        if pow_result:
+            body["pow"] = pow_result
+
         with httpx.Client(timeout=auth.timeout, follow_redirects=False) as client:
             resp = client.post(
                 f"{auth.base_url}/api/auth/register",
-                json={"email": email.strip(), "password": password},
+                json=body,
                 headers={"User-Agent": _USER_AGENT, "Content-Type": "application/json"},
             )
             if resp.status_code >= 400:
-                body = auth.sanitize_error(resp.text[:500])
-                return json.dumps({"error": f"Registration failed ({resp.status_code}): {body}"})
+                err_body = auth.sanitize_error(resp.text[:500])
+                return json.dumps({"error": f"Registration failed ({resp.status_code}): {err_body}"})
             if resp.text:
-                return json.dumps(auth.safe_json_parse(resp.text))
-            return json.dumps({"success": True})
+                data = auth.safe_json_parse(resp.text)
+                if pow_result and isinstance(data, dict):
+                    data["_pow_verified"] = True
+                return json.dumps(data)
+            return json.dumps({"success": True, "_pow_verified": True} if pow_result else {"success": True})
     except Exception as e:
         return json.dumps({"error": _sanitize_error(str(e))})
 

@@ -9,6 +9,9 @@ import io.dominusnode.sdk.types.MfaStatus;
 import io.dominusnode.sdk.types.TokenPair;
 import io.dominusnode.sdk.types.User;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -16,6 +19,8 @@ import java.util.Map;
  * Authentication operations: register, login, MFA, token refresh, and account management.
  */
 public final class AuthResource {
+
+    private static final long POW_MAX_NONCE = 100_000_000L;
 
     private final HttpClient http;
     private final TokenManager tokenManager;
@@ -29,8 +34,56 @@ public final class AuthResource {
         this.tokenManager = tokenManager;
     }
 
+    private static int countLeadingZeroBits(byte[] hash) {
+        int count = 0;
+        for (byte b : hash) {
+            int unsigned = b & 0xFF;
+            if (unsigned == 0) {
+                count += 8;
+            } else {
+                int mask = 0x80;
+                while (mask != 0 && (unsigned & mask) == 0) {
+                    count++;
+                    mask >>= 1;
+                }
+                break;
+            }
+        }
+        return count;
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> solvePoW() {
+        try {
+            Map<String, Object> challenge = http.post(
+                    "/api/auth/pow/challenge", new HashMap<>(), Map.class, false);
+            String challengeId = (String) challenge.get("challengeId");
+            String prefix = (String) challenge.get("prefix");
+            int difficulty = ((Number) challenge.get("difficulty")).intValue();
+
+            MessageDigest md = MessageDigest.getInstance("SHA-256");
+
+            for (long nonce = 0; nonce < POW_MAX_NONCE; nonce++) {
+                md.reset();
+                byte[] hash = md.digest((prefix + nonce).getBytes(StandardCharsets.UTF_8));
+                if (countLeadingZeroBits(hash) >= difficulty) {
+                    Map<String, Object> solution = new HashMap<>();
+                    solution.put("challengeId", challengeId);
+                    solution.put("nonce", nonce);
+                    return solution;
+                }
+            }
+            return null;
+        } catch (DominusNodeException | NoSuchAlgorithmException e) {
+            return null;
+        }
+    }
+
     /**
      * Register a new user account.
+     *
+     * <p>Automatically solves a Proof-of-Work challenge so SDKs can register
+     * without reCAPTCHA.</p>
      *
      * @param email    the user's email address
      * @param password the user's password
@@ -41,6 +94,10 @@ public final class AuthResource {
         Map<String, Object> body = new HashMap<>();
         body.put("email", email);
         body.put("password", password);
+        Map<String, Object> pow = solvePoW();
+        if (pow != null) {
+            body.put("pow", pow);
+        }
         LoginResult result = http.post("/api/auth/register", body, LoginResult.class, false);
         if (result.getToken() != null) {
             tokenManager.setTokens(result.getToken(), result.getRefreshToken());

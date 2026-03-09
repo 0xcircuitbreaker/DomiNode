@@ -6,12 +6,14 @@ MCP (Model Context Protocol) server for Dominus Node — rotating proxy tools fo
 
 ## Features
 
-- **24 tools** for proxy access, account management, billing, crypto payments, and usage monitoring
+- **59 tools** for proxy access, account management, billing, crypto payments, teams, agentic wallets, and usage monitoring
 - **dominusnode_fetch** — fetch any URL through rotating residential/datacenter proxies
 - **Geo-targeting** — route requests through specific countries, states, or cities
-- **Bootstrap mode** — start with no API key, let the agent create its own account
+- **Proof-of-Work registration** — agents solve a SHA-256 hash puzzle to register without CAPTCHA or shared secrets
+- **Per-agent secrets** — `das_` prefix tokens with elevated rate limits and CAPTCHA bypass
+- **Bootstrap mode** — start with no API key, let the agent create its own account autonomously
 - **Crypto payments** — pay with BTC, ETH, LTC, XMR, ZEC, USDC, SOL, USDT, DAI, BNB, LINK — or card/PayPal via Stripe
-- **x402 ready** — machine-to-machine USDC micropayments (Coinbase Agentic Wallets)
+- **x402 ready** — machine-to-machine USDC micropayments (Coinbase + PayAI)
 - **Free tier** — 1GB bandwidth, 10 connections, no payment required
 
 ## Quick Install
@@ -20,7 +22,7 @@ MCP (Model Context Protocol) server for Dominus Node — rotating proxy tools fo
 npx @dominusnode/mcp-server
 ```
 
-No API key? No problem — the server starts in **bootstrap mode** with tools to create an account and start using proxies immediately.
+No API key? No problem — the server starts in **bootstrap mode** with tools to create an account and start using proxies immediately. Registration uses a built-in Proof-of-Work solver (SHA-256, ~2-5s CPU) — no CAPTCHA, no shared secrets, fully autonomous.
 
 ## Setup by Platform
 
@@ -161,13 +163,14 @@ Start without any configuration — the agent creates its own account:
 ```
 
 Available bootstrap tools:
-- `dominusnode_setup` — one-shot account creation
-- `dominusnode_register` / `dominusnode_login` — step-by-step
+- `dominusnode_setup` — one-shot: solve PoW, register, verify email, create API key
+- `dominusnode_register` / `dominusnode_login` — step-by-step (auto-solves PoW)
+- `dominusnode_create_agent_secret` — create a per-agent secret (`das_*`) for elevated privileges
 - `dominusnode_pay_crypto` — fund with crypto
 - `dominusnode_x402_info` — machine-to-machine payment info
-- `dominusnode_agent_wallet_create` / `dominusnode_agent_wallet_balance` — Coinbase Agentic Wallet
+- `dominusnode_agent_wallet_create` / `dominusnode_agent_wallet_balance` — agentic sub-wallets
 
-## Tools Reference (24 total)
+## Tools Reference (59 authenticated + 16 bootstrap)
 
 ### Proxy
 
@@ -181,10 +184,11 @@ Available bootstrap tools:
 
 | Tool | Description |
 |------|-------------|
-| `dominusnode_register` | Create a new account (free tier, no payment needed) |
+| `dominusnode_register` | Create a new account (auto-solves PoW, no CAPTCHA needed) |
 | `dominusnode_login` | Login with email/password |
-| `dominusnode_setup` | One-shot: register + create API key + get proxy config |
+| `dominusnode_setup` | One-shot: solve PoW + register + verify email + create API key |
 | `dominusnode_get_account_info` | Account email, status, MFA |
+| `dominusnode_create_agent_secret` | Create per-agent secret (`das_*`) for elevated privileges |
 
 ### Billing
 
@@ -244,6 +248,7 @@ Available bootstrap tools:
 | `DOMINUSNODE_SOCKS5_PROXY_PORT` | No | `1080` | SOCKS5 proxy port |
 | `DOMINUSNODE_FETCH_TIMEOUT_MS` | No | `30000` | Proxy fetch timeout (max 120000) |
 | `DOMINUSNODE_FETCH_MAX_RESPONSE_BYTES` | No | `5242880` | Max response body (5MB) |
+| `MCP_AGENT_SECRET` | No | — | Global agent secret for first-party MCP agents |
 
 ## Pricing
 

@@ -20,6 +20,7 @@
 // @ts-ignore -- available when installed in Mastra project
 import { createTool } from "@mastra/core/tools";
 import { z } from "zod";
+import * as crypto from "node:crypto";
 import * as http from "node:http";
 import * as net from "node:net";
 import * as tls from "node:tls";
@@ -388,6 +389,48 @@ export class DominusNodeToolkit {
     const port = parseInt(portStr, 10);
     this.proxyPort = isNaN(port) || port < 1 || port > 65535 ? 8080 : port;
     this.agentSecret = config.agentSecret || process.env.DOMINUSNODE_AGENT_SECRET;
+  }
+
+  // -----------------------------------------------------------------------
+  // SHA-256 Proof-of-Work solver
+  // -----------------------------------------------------------------------
+
+  private static countLeadingZeroBits(buf: Buffer): number {
+    let count = 0;
+    for (const byte of buf) {
+      if (byte === 0) { count += 8; continue; }
+      let mask = 0x80;
+      while (mask && !(byte & mask)) { count++; mask >>= 1; }
+      break;
+    }
+    return count;
+  }
+
+  private async solvePoW(): Promise<{ challengeId: string; nonce: string } | null> {
+    try {
+      const resp = await fetch(`${this.baseUrl}/api/auth/pow/challenge`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        redirect: "error",
+      });
+      if (!resp.ok) return null;
+      const text = await resp.text();
+      if (text.length > 10_485_760) return null;
+      const challenge = JSON.parse(text);
+      const prefix: string = challenge.prefix ?? "";
+      const difficulty: number = challenge.difficulty ?? 20;
+      const challengeId: string = challenge.challengeId ?? "";
+      if (!prefix || !challengeId) return null;
+      for (let nonce = 0; nonce < 100_000_000; nonce++) {
+        const hash = crypto.createHash("sha256").update(prefix + nonce.toString()).digest();
+        if (DominusNodeToolkit.countLeadingZeroBits(hash) >= difficulty) {
+          return { challengeId, nonce: nonce.toString() };
+        }
+      }
+      return null;
+    } catch {
+      return null;
+    }
   }
 
   // -----------------------------------------------------------------------
@@ -1089,7 +1132,11 @@ export class DominusNodeToolkit {
   async register(email: string, password: string): Promise<Record<string, unknown>> {
     const safeEmail = DominusNodeToolkit.validateEmail(email);
     const safePassword = DominusNodeToolkit.validatePassword(password);
-    return this.rawRequest("POST", "/api/auth/register", { email: safeEmail, password: safePassword });
+    // Solve PoW for CAPTCHA-free registration
+    const pow = await this.solvePoW();
+    const body: Record<string, unknown> = { email: safeEmail, password: safePassword };
+    if (pow) body.pow = pow;
+    return this.rawRequest("POST", "/api/auth/register", body);
   }
 
   async login(email: string, password: string): Promise<Record<string, unknown>> {

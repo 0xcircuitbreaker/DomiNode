@@ -22,6 +22,7 @@
 // @ts-ignore
 import { DynamicStructuredTool } from "@langchain/core/tools";
 import { z } from "zod";
+import * as crypto from "node:crypto";
 import * as http from "node:http";
 import * as net from "node:net";
 import * as tls from "node:tls";
@@ -390,6 +391,48 @@ export class DominusNodeToolkit {
     this.proxyPort = isNaN(portVal) || portVal < 1 || portVal > 65535 ? 8080 : portVal;
     this.timeout = options.timeout || 30000;
     this.agentSecret = options.agentSecret || process.env.DOMINUSNODE_AGENT_SECRET;
+  }
+
+  // -----------------------------------------------------------------------
+  // SHA-256 Proof-of-Work solver
+  // -----------------------------------------------------------------------
+
+  private static _countLeadingZeroBits(buf: Buffer): number {
+    let count = 0;
+    for (const byte of buf) {
+      if (byte === 0) { count += 8; continue; }
+      let mask = 0x80;
+      while (mask && !(byte & mask)) { count++; mask >>= 1; }
+      break;
+    }
+    return count;
+  }
+
+  private async _solvePoW(): Promise<{ challengeId: string; nonce: string } | null> {
+    try {
+      const resp = await fetch(`${this.baseUrl}/api/auth/pow/challenge`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        redirect: "error",
+      });
+      if (!resp.ok) return null;
+      const text = await resp.text();
+      if (text.length > 10_485_760) return null;
+      const challenge = JSON.parse(text);
+      const prefix: string = challenge.prefix ?? "";
+      const difficulty: number = challenge.difficulty ?? 20;
+      const challengeId: string = challenge.challengeId ?? "";
+      if (!prefix || !challengeId) return null;
+      for (let nonce = 0; nonce < 100_000_000; nonce++) {
+        const hash = crypto.createHash("sha256").update(prefix + nonce.toString()).digest();
+        if (DominusNodeToolkit._countLeadingZeroBits(hash) >= difficulty) {
+          return { challengeId, nonce: nonce.toString() };
+        }
+      }
+      return null;
+    } catch {
+      return null;
+    }
   }
 
   // -----------------------------------------------------------------------
@@ -2031,11 +2074,15 @@ export class DominusNodeToolkit {
         return "Error: password must be between 8 and 128 characters.";
       }
 
+      // Solve PoW for CAPTCHA-free registration
+      const pow = await this._solvePoW();
+      const regBody: Record<string, unknown> = { email, password };
+      if (pow) regBody.pow = pow;
       const data = await this._unauthenticatedRequest<{
         user: { id: string; email: string };
         accessToken?: string;
         refreshToken?: string;
-      }>("POST", "/api/auth/register", { email, password });
+      }>("POST", "/api/auth/register", regBody);
 
       return [
         "Account Created",

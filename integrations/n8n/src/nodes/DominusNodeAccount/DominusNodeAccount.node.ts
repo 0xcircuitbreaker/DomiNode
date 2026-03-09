@@ -17,6 +17,8 @@
  * @module
  */
 
+import * as crypto from "node:crypto";
+
 import {
   IDataObject,
   IExecuteFunctions,
@@ -30,6 +32,48 @@ import { DominusNodeAuth, sanitizeError } from "../../shared/auth";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const CONTROL_CHAR_RE = /[\x00-\x1f\x7f]/;
+
+// ---------------------------------------------------------------------------
+// SHA-256 Proof-of-Work solver
+// ---------------------------------------------------------------------------
+
+function countLeadingZeroBits(buf: Buffer): number {
+  let count = 0;
+  for (const byte of buf) {
+    if (byte === 0) { count += 8; continue; }
+    let mask = 0x80;
+    while (mask && !(byte & mask)) { count++; mask >>= 1; }
+    break;
+  }
+  return count;
+}
+
+async function solvePoW(baseUrl: string): Promise<{ challengeId: string; nonce: string } | null> {
+  try {
+    const resp = await fetch(`${baseUrl}/api/auth/pow/challenge`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      redirect: "error",
+    });
+    if (!resp.ok) return null;
+    const text = await resp.text();
+    if (text.length > 10_485_760) return null;
+    const challenge = JSON.parse(text);
+    const prefix: string = challenge.prefix ?? "";
+    const difficulty: number = challenge.difficulty ?? 20;
+    const challengeId: string = challenge.challengeId ?? "";
+    if (!prefix || !challengeId) return null;
+    for (let nonce = 0; nonce < 100_000_000; nonce++) {
+      const hash = crypto.createHash("sha256").update(prefix + nonce.toString()).digest();
+      if (countLeadingZeroBits(hash) >= difficulty) {
+        return { challengeId, nonce: nonce.toString() };
+      }
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
 
 export class DominusNodeAccount implements INodeType {
   description: INodeTypeDescription = {
@@ -143,10 +187,14 @@ export class DominusNodeAccount implements INodeType {
             const password = this.getNodeParameter("password", i) as string;
             const safeEmail = validateEmail(this, email, i);
             const safePassword = validatePassword(this, password, i);
-            result = await auth.apiRequest("POST", "/api/auth/register", {
+            // Solve PoW for CAPTCHA-free registration
+            const pow = await solvePoW(baseUrl);
+            const regBody: Record<string, unknown> = {
               email: safeEmail,
               password: safePassword,
-            });
+            };
+            if (pow) regBody.pow = pow;
+            result = await auth.apiRequest("POST", "/api/auth/register", regBody);
             break;
           }
 

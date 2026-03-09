@@ -223,6 +223,64 @@ curl -X POST https://api.dominusnode.com/api/auth/mfa/challenge \\
         { type: "note", variant: "tip", text: "Backup codes can be used in place of TOTP. Each code is single-use. Generate new backup codes from the Security page at any time." },
       ],
     },
+    {
+      id: "auth-agent",
+      title: "Agent Authentication (PoW & Agent Secrets)",
+      searchTerms: ["agent", "pow", "proof of work", "captcha", "das_", "agent secret", "autonomous", "mcp", "register"],
+      content: [
+        { type: "text", text: "AI agents can register and authenticate autonomously without reCAPTCHA using a three-tier system:" },
+        {
+          type: "param-table", params: [
+            { name: "Tier 1: Proof-of-Work", type: "PoW", required: false, description: "Agents solve a SHA-256 hash puzzle (find nonce where hash has N leading zero bits). Replaces CAPTCHA — takes 2-5 seconds of CPU, no human interaction needed." },
+            { name: "Tier 2: Wallet Auth", type: "EIP-191", required: false, description: "Register with an Ethereum wallet signature — no email, no password, no CAPTCHA. Cryptographic proof of identity." },
+            { name: "Tier 3: Agent Secrets", type: "das_*", required: false, description: "Per-agent secrets (das_ prefix) grant elevated rate limits and CAPTCHA bypass. Created via MCP or API after account verification." },
+          ],
+        },
+        { type: "heading", level: 3, text: "Proof-of-Work Registration" },
+        { type: "text", text: "Agents request a PoW challenge, solve the hash puzzle locally, then register with the solution. No shared secrets or CAPTCHA tokens needed." },
+        { type: "code", lang: "bash", label: "Step 1: Request PoW challenge", code: `curl -X POST https://api.dominusnode.com/api/auth/pow/challenge
+# → {
+#   "challengeId": "uuid",
+#   "prefix": "a1b2c3...",
+#   "difficulty": 20,
+#   "algorithm": "sha256",
+#   "expiresAt": "2025-01-01T00:05:00Z"
+# }` },
+        { type: "code", lang: "bash", label: "Step 2: Solve puzzle (find nonce)", code: `# Find nonce where SHA-256(prefix + nonce) has 20 leading zero bits
+# ~1 million hashes, takes 2-5 seconds on modern CPU` },
+        { type: "code", lang: "bash", label: "Step 3: Register with PoW proof", code: `curl -X POST https://api.dominusnode.com/api/auth/register \\
+  -H 'Content-Type: application/json' \\
+  -d '{
+    "email": "agent@example.com",
+    "password": "secure-password",
+    "pow": {
+      "challengeId": "uuid-from-step-1",
+      "nonce": "solved-nonce"
+    }
+  }'` },
+        { type: "note", variant: "info", text: "PoW-verified registrations automatically verify the email address and receive elevated rate limits. The MCP server, all SDKs, and all integrations include a built-in PoW solver." },
+        { type: "heading", level: 3, text: "Per-Agent Secrets" },
+        { type: "text", text: "After registration, agents can create per-agent secrets (das_ prefix) that grant CAPTCHA bypass and elevated rate limits on all future requests." },
+        { type: "code", lang: "bash", label: "Create an agent secret", code: `curl -X POST https://api.dominusnode.com/api/agent/secret \\
+  -H 'Authorization: Bearer eyJ...' \\
+  -H 'Content-Type: application/json' \\
+  -d '{"label": "my-scraper-agent"}'
+# → { "id": "uuid", "agentSecret": "das_abc123...", "label": "my-scraper-agent" }` },
+        { type: "code", lang: "bash", label: "Use agent secret in requests", code: `curl -X POST https://api.dominusnode.com/api/auth/register \\
+  -H 'X-DominusNode-Agent: mcp' \\
+  -H 'X-DominusNode-Agent-Secret: das_abc123...' \\
+  -H 'Content-Type: application/json' \\
+  -d '{"email":"new-agent@example.com","password":"..."}'` },
+        { type: "code", lang: "bash", label: "List & revoke secrets", code: `# List active secrets
+curl https://api.dominusnode.com/api/agent/secret \\
+  -H 'Authorization: Bearer eyJ...'
+
+# Revoke a secret (immediate effect)
+curl -X DELETE https://api.dominusnode.com/api/agent/secret/SECRET_ID \\
+  -H 'Authorization: Bearer eyJ...'` },
+        { type: "note", variant: "warning", text: "Agent secrets are shown only once on creation — store them securely. Maximum 5 active secrets per account. The oldest is auto-revoked when you create a 6th." },
+      ],
+    },
   ],
 };
 
@@ -352,6 +410,10 @@ const apiReference: DocSection = {
             { method: "POST", path: "/api/auth/resend-verify", auth: "JWT", description: "Resend email verification link" },
             { method: "POST", path: "/api/auth/forgot-password", auth: "Public", description: "Request a password reset email" },
             { method: "POST", path: "/api/auth/reset-password", auth: "Public", description: "Reset password using token" },
+            { method: "POST", path: "/api/auth/pow/challenge", auth: "Public", description: "Request a PoW puzzle for CAPTCHA-free registration" },
+            { method: "POST", path: "/api/agent/secret", auth: "JWT", description: "Create a per-agent secret (das_*) — requires email verified" },
+            { method: "GET", path: "/api/agent/secret", auth: "JWT", description: "List active agent secrets (raw values not returned)" },
+            { method: "DELETE", path: "/api/agent/secret/:id", auth: "JWT", description: "Revoke an agent secret (immediate cache invalidation)" },
             { method: "GET", path: "/api/health", auth: "Public", description: "Health check — returns service status" },
           ],
         },
@@ -783,19 +845,20 @@ const mcpServer: DocSection = {
       title: "Bootstrap Mode (No API Key)",
       searchTerms: ["bootstrap", "register", "no api key", "autonomous", "agent onboarding"],
       content: [
-        { type: "text", text: "Without an API key, the MCP server exposes bootstrap tools that let AI agents create accounts and generate their own credentials." },
+        { type: "text", text: "Without an API key, the MCP server exposes bootstrap tools that let AI agents create accounts and generate their own credentials. Registration uses a built-in Proof-of-Work solver — no CAPTCHA, no shared secrets, fully autonomous." },
         {
           type: "param-table", params: [
-            { name: "dominusnode_setup", type: "tool", required: false, description: "Complete setup: register, verify email, create API key" },
-            { name: "dominusnode_register", type: "tool", required: false, description: "Create a new account with email/password" },
+            { name: "dominusnode_setup", type: "tool", required: false, description: "Complete setup: solve PoW, register, verify email, create API key — one command" },
+            { name: "dominusnode_register", type: "tool", required: false, description: "Create a new account with email/password (auto-solves PoW challenge)" },
             { name: "dominusnode_login", type: "tool", required: false, description: "Login to existing account" },
+            { name: "dominusnode_create_agent_secret", type: "tool", required: false, description: "Create a per-agent secret (das_*) for elevated privileges" },
             { name: "dominusnode_create_key", type: "tool", required: false, description: "Create an API key after authentication" },
             { name: "dominusnode_pay_stripe", type: "tool", required: false, description: "Create Stripe checkout for wallet top-up" },
             { name: "dominusnode_pay_paypal", type: "tool", required: false, description: "Create PayPal order for wallet top-up" },
             { name: "dominusnode_pay_crypto", type: "tool", required: false, description: "Create crypto invoice ($5 min, 10 currencies)" },
           ],
         },
-        { type: "note", variant: "info", text: "AI agents registering through the MCP server are automatically verified — no email confirmation required. Agents can start using the proxy immediately after account creation." },
+        { type: "note", variant: "info", text: "AI agents registering through the MCP server automatically solve a Proof-of-Work challenge (SHA-256, ~2-5 seconds CPU). This bypasses CAPTCHA and auto-verifies the email address. No human interaction required." },
       ],
     },
     {
@@ -1407,7 +1470,7 @@ curl -X POST https://api.dominusnode.com/api/keys \\
             { name: "Invite accept", type: "10/hour per IP", required: false, description: "Team invite acceptance" },
           ],
         },
-        { type: "note", variant: "info", text: "AI agents using the MCP server are automatically exempt from browser-based verification but are still subject to the same rate limits as any other client." },
+        { type: "note", variant: "info", text: "Verified AI agents (via MCP_AGENT_SECRET or per-agent das_ secrets) receive a 10x rate limit multiplier on all endpoints. PoW-verified registrations also receive elevated limits. This prevents 429 errors during multi-agent swarm operations." },
       ],
     },
     {

@@ -1,12 +1,60 @@
 #include "dominusnode/auth.hpp"
 #include "dominusnode/http_client.hpp"
 
+#include <openssl/sha.h>
+#include <cstdint>
+#include <string>
+
 namespace dominusnode {
+
+static const long POW_MAX_NONCE = 100000000L;
+
+static int count_leading_zero_bits(const unsigned char* hash, size_t len) {
+    int count = 0;
+    for (size_t i = 0; i < len; ++i) {
+        if (hash[i] == 0) {
+            count += 8;
+        } else {
+            uint8_t mask = 0x80;
+            while (mask && !(hash[i] & mask)) {
+                count++;
+                mask >>= 1;
+            }
+            break;
+        }
+    }
+    return count;
+}
 
 AuthResource::AuthResource(HttpClient& http) : http_(http) {}
 
+std::optional<nlohmann::json> AuthResource::solve_pow() {
+    try {
+        auto challenge = http_.post("/api/auth/pow/challenge", nlohmann::json::object(), false);
+        std::string challenge_id = challenge.at("challengeId").get<std::string>();
+        std::string prefix = challenge.at("prefix").get<std::string>();
+        int difficulty = challenge.at("difficulty").get<int>();
+
+        for (long nonce = 0; nonce < POW_MAX_NONCE; ++nonce) {
+            std::string input = prefix + std::to_string(nonce);
+            unsigned char hash[SHA256_DIGEST_LENGTH];
+            SHA256(reinterpret_cast<const unsigned char*>(input.data()), input.size(), hash);
+            if (count_leading_zero_bits(hash, SHA256_DIGEST_LENGTH) >= difficulty) {
+                return nlohmann::json{{"challengeId", challenge_id}, {"nonce", nonce}};
+            }
+        }
+        return std::nullopt;
+    } catch (...) {
+        return std::nullopt;
+    }
+}
+
 RegisterResult AuthResource::register_account(const std::string& email, const std::string& password) {
     nlohmann::json body = {{"email", email}, {"password", password}};
+    auto pow = solve_pow();
+    if (pow.has_value()) {
+        body["pow"] = pow.value();
+    }
     auto resp = http_.post("/api/auth/register", body, false);
     return resp.get<RegisterResult>();
 }

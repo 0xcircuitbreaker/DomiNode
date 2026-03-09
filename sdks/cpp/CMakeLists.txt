@@ -6,6 +6,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 find_package(CURL REQUIRED)
 find_package(nlohmann_json 3.11 REQUIRED)
+find_package(OpenSSL REQUIRED)
 
 add_library(dominusnode
   src/client.cpp
@@ -27,7 +28,7 @@ add_library(dominusnode
 )
 
 target_include_directories(dominusnode PUBLIC include)
-target_link_libraries(dominusnode PUBLIC CURL::libcurl nlohmann_json::nlohmann_json)
+target_link_libraries(dominusnode PUBLIC CURL::libcurl nlohmann_json::nlohmann_json OpenSSL::Crypto)
 
 # Tests
 enable_testing()

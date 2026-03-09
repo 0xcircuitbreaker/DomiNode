@@ -1,6 +1,10 @@
 package dominusnode
 
-import "context"
+import (
+	"context"
+	"crypto/sha256"
+	"fmt"
+)
 
 // AuthResource provides authentication and account management operations.
 type AuthResource struct {
@@ -13,10 +17,59 @@ func newAuthResource(http *httpClient, tm *tokenManager) *AuthResource {
 	return &AuthResource{http: http, tm: tm}
 }
 
+const powMaxNonce = 100_000_000
+
+type powChallenge struct {
+	ChallengeID string `json:"challengeId"`
+	Prefix      string `json:"prefix"`
+	Difficulty  int    `json:"difficulty"`
+}
+
+type powSolution struct {
+	ChallengeID string `json:"challengeId"`
+	Nonce       int    `json:"nonce"`
+}
+
+func countLeadingZeroBits(hash [32]byte) int {
+	count := 0
+	for _, b := range hash {
+		if b == 0 {
+			count += 8
+		} else {
+			mask := byte(0x80)
+			for mask != 0 && (b&mask) == 0 {
+				count++
+				mask >>= 1
+			}
+			break
+		}
+	}
+	return count
+}
+
+func (a *AuthResource) solvePoW(ctx context.Context) *powSolution {
+	var challenge powChallenge
+	if err := a.http.postPublic(ctx, "/api/auth/pow/challenge", map[string]string{}, &challenge); err != nil {
+		return nil
+	}
+
+	for nonce := 0; nonce < powMaxNonce; nonce++ {
+		input := fmt.Sprintf("%s%d", challenge.Prefix, nonce)
+		hash := sha256.Sum256([]byte(input))
+		if countLeadingZeroBits(hash) >= challenge.Difficulty {
+			return &powSolution{ChallengeID: challenge.ChallengeID, Nonce: nonce}
+		}
+	}
+	return nil
+}
+
 // Register creates a new user account with the given email and password.
 // On success, the client is automatically authenticated.
 func (a *AuthResource) Register(ctx context.Context, email, password string) (*LoginResult, error) {
-	body := map[string]string{"email": email, "password": password}
+	body := map[string]interface{}{"email": email, "password": password}
+	if pow := a.solvePoW(ctx); pow != nil {
+		body["pow"] = pow
+	}
 	var result LoginResult
 	if err := a.http.postPublic(ctx, "/api/auth/register", body, &result); err != nil {
 		return nil, err

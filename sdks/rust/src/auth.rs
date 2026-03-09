@@ -1,10 +1,13 @@
 use std::sync::Arc;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
+use sha2::{Sha256, Digest};
 
 use crate::errors::Result;
 use crate::http_client::HttpClient;
 use crate::types::{LoginResponse, LoginResult, MfaSetup, MfaStatus, User};
+
+const POW_MAX_NONCE: u64 = 100_000_000;
 
 // ---------------------------------------------------------------------------
 // Request bodies
@@ -14,6 +17,23 @@ use crate::types::{LoginResponse, LoginResult, MfaSetup, MfaStatus, User};
 struct RegisterBody<'a> {
     email: &'a str,
     password: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pow: Option<PowSolution>,
+}
+
+#[derive(Serialize)]
+struct PowSolution {
+    #[serde(rename = "challengeId")]
+    challenge_id: String,
+    nonce: u64,
+}
+
+#[derive(Deserialize)]
+struct PowChallenge {
+    #[serde(rename = "challengeId")]
+    challenge_id: String,
+    prefix: String,
+    difficulty: u32,
 }
 
 #[derive(Serialize)]
@@ -124,10 +144,39 @@ impl AuthResource {
         Self { http }
     }
 
+    /// Solve a Proof-of-Work challenge for bot-free registration.
+    async fn solve_pow(&self) -> Option<PowSolution> {
+        let challenge: PowChallenge = match self
+            .http
+            .post("/api/auth/pow/challenge", Some(&serde_json::json!({})), false)
+            .await
+        {
+            Ok(c) => c,
+            Err(_) => return None,
+        };
+
+        for nonce in 0..POW_MAX_NONCE {
+            let input = format!("{}{}", challenge.prefix, nonce);
+            let hash = Sha256::digest(input.as_bytes());
+            if count_leading_zero_bits(&hash) >= challenge.difficulty {
+                return Some(PowSolution {
+                    challenge_id: challenge.challenge_id,
+                    nonce,
+                });
+            }
+        }
+        None
+    }
+
     /// Register a new user account.
     pub async fn register(&self, email: &str, password: &str) -> Result<RegisterResponse> {
+        let pow = self.solve_pow().await;
         self.http
-            .post("/api/auth/register", Some(&RegisterBody { email, password }), false)
+            .post(
+                "/api/auth/register",
+                Some(&RegisterBody { email, password, pow }),
+                false,
+            )
             .await
     }
 
@@ -240,4 +289,22 @@ impl AuthResource {
     pub async fn mfa_status(&self) -> Result<MfaStatus> {
         self.http.get("/api/auth/mfa/status", true).await
     }
+}
+
+/// Count the number of leading zero bits in a hash digest.
+fn count_leading_zero_bits(hash: &[u8]) -> u32 {
+    let mut count: u32 = 0;
+    for &byte in hash {
+        if byte == 0 {
+            count += 8;
+        } else {
+            let mut mask: u8 = 0x80;
+            while mask != 0 && (byte & mask) == 0 {
+                count += 1;
+                mask >>= 1;
+            }
+            break;
+        }
+    }
+    count
 }

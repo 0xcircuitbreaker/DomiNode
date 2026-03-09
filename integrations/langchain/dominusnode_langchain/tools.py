@@ -15,6 +15,7 @@ Security:
 
 from __future__ import annotations
 
+import hashlib
 import ipaddress
 import math
 import os
@@ -61,6 +62,46 @@ _MAX_RESPONSE_BODY_BYTES = 10 * 1024 * 1024
 def _sanitize_error(message: str) -> str:
     """Remove Dominus Node API key patterns from error messages."""
     return _CREDENTIAL_RE.sub("***", message)
+
+
+def _count_leading_zero_bits(data: bytes) -> int:
+    """Count leading zero bits in a byte array."""
+    count = 0
+    for byte in data:
+        if byte == 0:
+            count += 8
+        else:
+            mask = 0x80
+            while mask and not (byte & mask):
+                count += 1
+                mask >>= 1
+            break
+    return count
+
+
+def _solve_pow(base_url: str) -> Optional[dict]:
+    """Solve a Proof-of-Work challenge for CAPTCHA-free registration."""
+    try:
+        pow_url = f"{base_url.rstrip('/')}/api/auth/pow/challenge"
+        with httpx.Client(timeout=30.0, follow_redirects=False) as client:
+            resp = client.post(pow_url, headers={"Content-Type": "application/json"})
+            if resp.status_code >= 400:
+                return None
+            challenge = resp.json()
+        prefix = challenge.get("prefix", "")
+        difficulty = challenge.get("difficulty", 20)
+        challenge_id = challenge.get("challengeId", "")
+        if not prefix or not challenge_id:
+            return None
+        nonce = 0
+        while nonce < 100_000_000:
+            h = hashlib.sha256((prefix + str(nonce)).encode()).digest()
+            if _count_leading_zero_bits(h) >= difficulty:
+                return {"challengeId": challenge_id, "nonce": str(nonce)}
+            nonce += 1
+        return None
+    except Exception:
+        return None
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -2363,9 +2404,14 @@ class DominusNodeRegisterTool(BaseTool):
         if not password or len(password) < 8 or len(password) > 128:
             return "Error: Password must be between 8 and 128 characters."
         try:
-            data = _api_request_unauth_sync(self.base_url, "POST", "/api/auth/register", {"email": email, "password": password}, agent_secret=self.agent_secret)
+            body: dict = {"email": email, "password": password}
+            pow_result = _solve_pow(self.base_url)
+            if pow_result:
+                body["pow"] = pow_result
+            data = _api_request_unauth_sync(self.base_url, "POST", "/api/auth/register", body, agent_secret=self.agent_secret)
             user = data.get("user", {})
-            return f"Account Created\n  Email: {user.get('email', email)}\n  User ID: {user.get('id', '?')}\n  Email auto-verified (MCP agent)"
+            pow_msg = "Email auto-verified via Proof-of-Work." if pow_result else "Email auto-verified (MCP agent)"
+            return f"Account Created\n  Email: {user.get('email', email)}\n  User ID: {user.get('id', '?')}\n  {pow_msg}"
         except Exception as exc:
             return f"Error: {_sanitize_error(str(exc))}"
 
@@ -2377,9 +2423,14 @@ class DominusNodeRegisterTool(BaseTool):
         if not password or len(password) < 8 or len(password) > 128:
             return "Error: Password must be between 8 and 128 characters."
         try:
-            data = await _api_request_unauth_async(self.base_url, "POST", "/api/auth/register", {"email": email, "password": password}, agent_secret=self.agent_secret)
+            body: dict = {"email": email, "password": password}
+            pow_result = _solve_pow(self.base_url)
+            if pow_result:
+                body["pow"] = pow_result
+            data = await _api_request_unauth_async(self.base_url, "POST", "/api/auth/register", body, agent_secret=self.agent_secret)
             user = data.get("user", {})
-            return f"Account Created\n  Email: {user.get('email', email)}\n  User ID: {user.get('id', '?')}\n  Email auto-verified (MCP agent)"
+            pow_msg = "Email auto-verified via Proof-of-Work." if pow_result else "Email auto-verified (MCP agent)"
+            return f"Account Created\n  Email: {user.get('email', email)}\n  User ID: {user.get('id', '?')}\n  {pow_msg}"
         except Exception as exc:
             return f"Error: {_sanitize_error(str(exc))}"
 
