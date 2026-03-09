@@ -1434,8 +1434,8 @@ def post_to_moltbook(
         client = MoltbookClient(
             dominusnode_api_key=api_key,
             dominusnode_base_url=api_base,
-            dominusnode_proxy_host=proxy_host,
-            dominusnode_proxy_port=proxy_port,
+            proxy_host=proxy_host,
+            proxy_port=proxy_port,
         )
 
         passed = sum(1 for r in results if r.success)
