@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "dominusnode-superagi"
-version = "1.2.2"
+version = "1.2.3"
 description = "Dominus Node toolkit for SuperAGI -- 22 proxy, wallet, and team management tools"
 readme = "README.md"
 license = {text = "MIT"}

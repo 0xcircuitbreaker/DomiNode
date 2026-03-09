@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "dominusnode-langchain"
-version = "1.2.3"
+version = "1.2.4"
 description = "LangChain tools for Dominus Node rotating proxy service"
 readme = "README.md"
 license = "MIT"

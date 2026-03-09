@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "dominusnode-haystack"
-version = "1.2.0"
+version = "1.2.1"
 description = "Dominus Node rotating proxy tools for Haystack AI pipelines"
 requires-python = ">=3.9"
 license = {text = "MIT"}

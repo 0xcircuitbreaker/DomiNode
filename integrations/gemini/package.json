@@ -1,6 +1,6 @@
 {
   "name": "@dominusnode/gemini-functions",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Dominus Node function declarations and handlers for Google Gemini / Vertex AI",
   "main": "dist/handler.js",
   "types": "dist/handler.d.ts",
