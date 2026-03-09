@@ -20,6 +20,7 @@
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json && tsc -p tsconfig.cjs.json && echo '{\"type\":\"commonjs\"}' > dist/cjs/package.json",
+    "prepare": "npm run build",
     "test": "vitest run",
     "clean": "rm -rf dist"
   },
@@ -27,6 +28,7 @@
     "node": ">=18.0.0"
   },
   "devDependencies": {
+    "@types/node": "^22.0.0",
     "typescript": "^5.3.0",
     "vitest": "^4.0.0"
   }
