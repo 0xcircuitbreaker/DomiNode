@@ -516,7 +516,7 @@ export default function MarketingPage() {
                 <Link to={registerHref} className="mk-button mk-button-solid">
                   Connect Your Agent
                 </Link>
-                <Link to={loginHref} className="mk-button mk-button-outline">
+                <Link to="/docs" className="mk-button mk-button-outline">
                   View Documentation
                 </Link>
               </div>
