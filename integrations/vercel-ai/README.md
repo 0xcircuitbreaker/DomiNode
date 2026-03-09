@@ -67,11 +67,11 @@ Make HTTP requests through Dominus Node's rotating proxy network with geo-target
 | Parameter   | Type                                    | Required | Description                                  |
 |-------------|-----------------------------------------|----------|----------------------------------------------|
 | `url`       | `string` (URL)                          | Yes      | The URL to fetch through the proxy           |
-| `method`    | `"GET" \| "POST" \| "PUT" \| "DELETE"` | No       | HTTP method (default: `GET`)                 |
+| `method`    | `"GET" \| "HEAD" \| "OPTIONS"` | No       | HTTP method (default: `GET`)                 |
 | `country`   | `string` (2-letter ISO)                 | No       | Country code for geo-targeting               |
 | `proxyType` | `"dc" \| "residential"`                 | No       | Proxy type (default: `dc`)                   |
 | `headers`   | `Record<string, string>`                | No       | Additional HTTP headers                      |
-| `body`      | `string`                                | No       | Request body for POST/PUT                    |
+| `body`      | `string`                                | No       | Not used (read-only methods only)            |
 
 **Returns:** `{ status, statusText, headers, body, proxyType, country }`
 

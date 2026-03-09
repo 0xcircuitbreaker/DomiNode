@@ -46,7 +46,7 @@ const proxyUrl = client.proxy.buildUrl('dn_live_your_key', {
   city: 'losangeles',
 });
 console.log(proxyUrl);
-// => http://user-country_US-state_california-city_losangeles:dn_live_your_key@proxy.dominusnode.com:8080
+// => http://user-country-US-state-california-city-losangeles:dn_live_your_key@proxy.dominusnode.com:8080
 ```
 
 ## Authentication
@@ -291,11 +291,11 @@ const geoUrl = client.proxy.buildUrl('dn_live_key', {
   city: 'losangeles',
   sessionId: 'sticky123',
 });
-// => http://user-country_US-state_california-city_losangeles-session_sticky123:dn_live_key@proxy.dominusnode.com:8080
+// => http://user-country-US-state-california-city-losangeles-session-sticky123:dn_live_key@proxy.dominusnode.com:8080
 
 // ASN targeting
 const asnUrl = client.proxy.buildUrl('dn_live_key', { asn: 7922 });
-// => http://user-asn_7922:dn_live_key@proxy.dominusnode.com:8080
+// => http://user-asn-7922:dn_live_key@proxy.dominusnode.com:8080
 
 // Proxy health (no auth required)
 const health = await client.proxy.getHealth();

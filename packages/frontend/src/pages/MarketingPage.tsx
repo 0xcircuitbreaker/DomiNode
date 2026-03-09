@@ -74,7 +74,7 @@ const AI_AGENT_FEATURES = [
   {
     title: "11 Cryptocurrencies",
     detail: "BTC / ETH / SOL / XMR + 7 more",
-    summary: "Pay with Bitcoin, Ethereum, Solana, Monero, Zcash, USDC, USDT, DAI, BNB, LINK, or Litecoin via NOWPayments. Privacy coins supported for anonymous billing.",
+    summary: "Pay with Bitcoin, Ethereum, Solana, Monero, Zcash, USDC, USDT, DAI, BNB, LINK, or Litecoin. Privacy coins supported for anonymous billing.",
   },
   {
     title: "Wallet-Verified Registration",
@@ -268,51 +268,51 @@ const INTEGRATION_CATEGORIES: IntegrationCategory[] = [
     name: "Agent Frameworks",
     description: "Drop-in toolkits for autonomous AI agent platforms",
     integrations: [
-      { name: "LangChain", lang: "Python", tools: 7, desc: "BaseToolSpec with native LangChain tools and async support" },
-      { name: "CrewAI", lang: "Python", tools: 6, desc: "Multi-agent crew orchestration with geo-targeting awareness" },
-      { name: "LlamaIndex", lang: "Python", tools: 24, desc: "BaseToolSpec with FunctionTool objects for RAG pipelines" },
-      { name: "AutoGPT", lang: "Python", tools: 24, desc: "Command plugin with dispatcher pattern for autonomous agents" },
-      { name: "Agent Zero", lang: "Python", tools: 24, desc: "Numbered tool modules with structured JSON output" },
-      { name: "PydanticAI", lang: "Python", tools: 24, desc: "Async tool functions with full type safety" },
-      { name: "CAMEL-AI", lang: "Python", tools: 24, desc: "FunctionTool objects for multi-agent orchestration" },
-      { name: "MetaGPT", lang: "Python", tools: 24, desc: "DataInterpreter compatible with docstring schema extraction" },
-      { name: "SuperAGI", lang: "Python", tools: 24, desc: "Registered toolkit with full command coverage" },
-      { name: "Agno", lang: "Python", tools: 24, desc: "Toolkit with x402 micropayment and agentic wallet support" },
-      { name: "Semantic Kernel", lang: "Python", tools: 25, desc: "Microsoft kernel functions as a native plugin" },
-      { name: "IronClaw", lang: "Python", tools: 25, desc: "NEAR AI Rust agent runtime with native MCP bridge" },
-      { name: "Pi (pi-mono)", lang: "TypeScript", tools: 26, desc: "TypeBox-typed tool extension for the pi-mono agentic coding framework" },
+      { name: "LangChain", lang: "Python", tools: 53, desc: "BaseTool instances with native LangChain tools and async support" },
+      { name: "CrewAI", lang: "Python", tools: 53, desc: "Multi-agent crew orchestration with geo-targeting awareness" },
+      { name: "LlamaIndex", lang: "Python", tools: 53, desc: "BaseToolSpec with FunctionTool objects for RAG pipelines" },
+      { name: "AutoGPT", lang: "Python", tools: 53, desc: "Command plugin with dispatcher pattern for autonomous agents" },
+      { name: "Agent Zero", lang: "Python", tools: 53, desc: "Numbered tool modules with structured JSON output" },
+      { name: "PydanticAI", lang: "Python", tools: 53, desc: "Async tool functions with full type safety" },
+      { name: "CAMEL-AI", lang: "Python", tools: 53, desc: "FunctionTool objects for multi-agent orchestration" },
+      { name: "MetaGPT", lang: "Python", tools: 53, desc: "DataInterpreter compatible with docstring schema extraction" },
+      { name: "SuperAGI", lang: "Python", tools: 53, desc: "Registered toolkit with full command coverage" },
+      { name: "Agno", lang: "Python", tools: 53, desc: "Toolkit with x402 micropayment and agentic wallet support" },
+      { name: "Semantic Kernel", lang: "Python", tools: 53, desc: "Microsoft kernel functions as a native plugin" },
+      { name: "IronClaw", lang: "Python", tools: 53, desc: "NEAR AI Rust agent runtime with native MCP bridge" },
+      { name: "Pi (pi-mono)", lang: "TypeScript", tools: 53, desc: "TypeBox-typed tool extension for the pi-mono agentic coding framework" },
     ],
   },
   {
     name: "Function Calling",
     description: "Schema definitions for LLM function calling APIs",
     integrations: [
-      { name: "OpenAI Functions", lang: "JSON / TS / Py", tools: 24, desc: "Cross-platform schemas \u2014 works with Claude, Gemini, Mistral, and Llama" },
-      { name: "Gemini / Vertex AI", lang: "TS / Python", tools: 24, desc: "FunctionDeclaration objects for Google Gemini and Vertex AI" },
+      { name: "OpenAI Functions", lang: "JSON / TS / Py", tools: 53, desc: "Cross-platform schemas \u2014 works with Claude, Gemini, Mistral, and Llama" },
+      { name: "Gemini / Vertex AI", lang: "TypeScript", tools: 53, desc: "FunctionDeclaration objects for Google Gemini and Vertex AI" },
       { name: "ChatGPT GPT Actions", lang: "OpenAPI", tools: 20, desc: "OpenAPI 3.1.0 spec \u2014 ChatGPT calls the REST API directly" },
-      { name: "OpenClaw", lang: "TypeScript", tools: 24, desc: "Runtime skill plugin with dynamic SKILL.md definitions" },
+      { name: "OpenClaw", lang: "TypeScript", tools: 53, desc: "Runtime skill plugin with dynamic SKILL.md definitions" },
     ],
   },
   {
     name: "AI SDKs & Pipelines",
     description: "Typed libraries for structured AI application development",
     integrations: [
-      { name: "Vercel AI SDK", lang: "TypeScript", tools: 8, desc: "Native Vercel AI tool objects with streaming and generateText" },
-      { name: "Haystack", lang: "Python", tools: 24, desc: "Pipeline Tool objects for search and retrieval workflows" },
-      { name: "Composio", lang: "Python", tools: 24, desc: "Action definitions with standardized DOMINUSNODE_* naming" },
-      { name: "Dify", lang: "Python", tools: 24, desc: "Tool provider with YAML definitions and credential management" },
+      { name: "Vercel AI SDK", lang: "TypeScript", tools: 53, desc: "Native Vercel AI tool objects with streaming and generateText" },
+      { name: "Haystack", lang: "Python", tools: 53, desc: "Pipeline Tool objects for search and retrieval workflows" },
+      { name: "Composio", lang: "Python", tools: 53, desc: "Action definitions with standardized DOMINUSNODE_* naming" },
+      { name: "Dify", lang: "Python", tools: 53, desc: "Tool provider with YAML definitions and credential management" },
     ],
   },
   {
     name: "Workflow & Low-Code",
     description: "Visual builders and automation platforms",
     integrations: [
-      { name: "n8n", lang: "TypeScript", tools: 3, desc: "Community nodes \u2014 Proxy, Wallet, and Usage node types" },
+      { name: "n8n", lang: "TypeScript", tools: 7, desc: "Community nodes \u2014 Proxy, Wallet, Keys, Usage, Account, Plans, and Teams" },
       { name: "Langflow", lang: "Visual", tools: null, desc: "Visual workflow builder with web scraping component" },
       { name: "Flowise", lang: "Visual", tools: null, desc: "Low-code LLM app builder with native Dominus Node node" },
       { name: "TaskWeaver", lang: "Python", tools: null, desc: "Agent coordination framework for complex task planning" },
       { name: "Mastra", lang: "TypeScript", tools: null, desc: "TypeScript AI framework with first-class proxy support" },
-      { name: "Moltbook", lang: "Python", tools: 34, desc: "Social network integration with EIP-191 wallet signing" },
+      { name: "Moltbook", lang: "Python", tools: 53, desc: "Social network integration with EIP-191 wallet signing" },
       { name: "Kustomai", lang: "Python", tools: null, desc: "Custom AI framework with proxy and billing support" },
     ],
   },
@@ -585,7 +585,7 @@ export default function MarketingPage() {
             </article>
             <article className="mk-card mk-animate-up mk-delay-3">
               <h3>Resilience by design</h3>
-              <p>Provider selection, retry strategies, and cooldown logic for graceful recovery under upstream instability.</p>
+              <p>Provider selection, retry strategies, and cooldown logic for graceful recovery under network instability.</p>
             </article>
             <article className="mk-card mk-animate-up mk-delay-4">
               <h3>Operator tooling</h3>
@@ -799,7 +799,7 @@ export default function MarketingPage() {
           <div className="mk-payment-category mk-animate-up mk-delay-2">
             <div className="mk-payment-category-head">
               <div className="mk-payment-category-title">
-                <span className="mk-payment-proto-badge mk-payment-proto-crypto">NOWPayments</span>
+                <span className="mk-payment-proto-badge mk-payment-proto-crypto">Crypto</span>
                 <h3>Crypto Wallet Top-Up &mdash; 11 currencies</h3>
               </div>
               <p>Fund your Dominus Node wallet with any major cryptocurrency. Payments are converted to

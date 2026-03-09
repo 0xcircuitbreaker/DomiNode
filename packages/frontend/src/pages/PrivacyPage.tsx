@@ -26,7 +26,7 @@ export default function PrivacyPage() {
             <p className="mb-3">We collect the minimum data necessary to operate the service and bill you accurately:</p>
             <p className="mb-2"><strong className="text-gray-200">Account Information:</strong> Email address and hashed password (bcrypt) when you create an account. If you use wallet authentication, your Ethereum wallet address. We cannot see or recover your password.</p>
             <p className="mb-2"><strong className="text-gray-200">Bandwidth Metering:</strong> We track the total number of bytes transferred per session for billing purposes only. This is an aggregate number — we do not log which websites or services generated that traffic.</p>
-            <p className="mb-2"><strong className="text-gray-200">Payment Data:</strong> Transaction records, payment provider reference IDs, and invoice amounts. We do not store credit card numbers — payment processing is handled entirely by Stripe and NOWPayments.</p>
+            <p className="mb-2"><strong className="text-gray-200">Payment Data:</strong> Transaction records, payment provider reference IDs, and invoice amounts. We do not store credit card numbers — payment processing is handled entirely by Stripe and our crypto payment processor.</p>
             <p><strong className="text-gray-200">Security Data:</strong> IP addresses are used transiently for rate limiting and abuse prevention. API key metadata (prefix, creation date) is stored for your key management dashboard.</p>
           </section>
 
@@ -88,8 +88,8 @@ export default function PrivacyPage() {
             <h2 className="text-xl font-semibold text-white mb-3">7. Data Sharing</h2>
             <p className="mb-2">We do not sell, rent, or trade your personal data. We share data only with:</p>
             <ul className="list-disc list-inside space-y-1 mt-2">
-              <li><strong className="text-gray-200">Payment processors</strong> (Stripe, NOWPayments) — to process your payments only</li>
-              <li><strong className="text-gray-200">Upstream proxy providers</strong> (Webshare) — only connection routing data, never traffic content</li>
+              <li><strong className="text-gray-200">Payment processors</strong> (Stripe, Crypto) — to process your payments only</li>
+              <li><strong className="text-gray-200">Infrastructure providers</strong> — only connection routing data, never traffic content</li>
               <li><strong className="text-gray-200">Law enforcement</strong> — only when legally compelled, and only the limited account data we have (we cannot provide traffic logs because they do not exist)</li>
             </ul>
           </section>

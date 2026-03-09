@@ -58,7 +58,7 @@ export default function TermsPage() {
             <ul className="list-disc list-inside space-y-1">
               <li>Dominus Node uses a prepaid wallet system. You must maintain a positive balance to use paid proxy services.</li>
               <li>Datacenter proxies are billed at the current rate (see Plans page). Residential proxies are billed at a separate rate.</li>
-              <li>Payments are accepted via Stripe (credit/debit card) and cryptocurrency (BTC, ETH, XMR, SOL, ZEC via NOWPayments).</li>
+              <li>Payments are accepted via Stripe (credit/debit card), PayPal, and cryptocurrency (BTC, ETH, SOL, XMR, ZEC, USDC, USDT, DAI, BNB, LINK, LTC).</li>
               <li>All payments are final. Refunds are issued at our sole discretion for service outages or billing errors only.</li>
               <li>Free tier bandwidth is subject to monthly limits and may be reduced or discontinued at any time.</li>
             </ul>

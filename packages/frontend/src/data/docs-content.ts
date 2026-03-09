@@ -53,14 +53,14 @@ const quickStart: DocSection = {
       searchTerms: ["install", "npm", "pip", "go get", "cargo", "maven"],
       content: [
         { type: "text", text: "Choose your language to get started in minutes. All SDKs are zero-dependency (or minimal) and support both test and live API keys." },
-        { type: "code", lang: "bash", label: "Node.js", code: "npm install @dominusnode/node-sdk" },
+        { type: "code", lang: "bash", label: "Node.js", code: "npm install @dominusnode/sdk" },
         { type: "code", lang: "bash", label: "Python", code: "pip install dominusnode" },
-        { type: "code", lang: "bash", label: "Go", code: "go get github.com/Dominus-Node/dominusnode-go" },
+        { type: "code", lang: "bash", label: "Go", code: "go get github.com/dominus-node/dominusnode-go" },
         { type: "code", lang: "bash", label: "Rust", code: "cargo add dominusnode" },
         { type: "code", lang: "bash", label: "Java (Maven)", code: `<dependency>
-  <groupId>com.dominusnode</groupId>
-  <artifactId>dominusnode-java</artifactId>
-  <version>1.0.0</version>
+  <groupId>io.dominusnode</groupId>
+  <artifactId>dominusnode-sdk</artifactId>
+  <version>1.0.1</version>
 </dependency>` },
         { type: "code", lang: "bash", label: "C++", code: "# Copy sdk/dominusnode.hpp into your project\n# Requires: libcurl with TLS" },
       ],
@@ -100,9 +100,10 @@ const quickStart: DocSection = {
   https://httpbin.org/ip` },
         { type: "code", lang: "bash", label: "SOCKS5", code: `curl --socks5 socks5://anything:dn_live_YOUR_KEY@proxy.dominusnode.com:1080 \\
   https://httpbin.org/ip` },
-        { type: "code", lang: "javascript", label: "Node.js SDK", code: `import { DominusNodeClient } from '@dominusnode/node-sdk';
+        { type: "code", lang: "javascript", label: "Node.js SDK", code: `import { DominusNodeClient } from '@dominusnode/sdk';
 
-const client = new DominusNodeClient({ apiKey: process.env.DOMINUSNODE_API_KEY });
+const client = new DominusNodeClient();
+await client.connectWithKey(process.env.DOMINUSNODE_API_KEY);
 
 // Get your proxy config
 const config = await client.proxy.getConfig();
@@ -344,24 +345,26 @@ curl -x http://residential-country-US-session-mybot42:dn_live_KEY@proxy.dominusn
       searchTerms: ["sdk", "proxy config", "http client", "agent", "urllib", "requests"],
       content: [
         { type: "text", text: "Each SDK provides a proxy configuration helper that returns the correct HTTP proxy URL and credentials for use with any HTTP client." },
-        { type: "code", lang: "javascript", label: "Node.js", code: `import { DominusNodeClient } from '@dominusnode/node-sdk';
+        { type: "code", lang: "javascript", label: "Node.js", code: `import { DominusNodeClient } from '@dominusnode/sdk';
 import fetch from 'node-fetch';
 import { HttpsProxyAgent } from 'https-proxy-agent';
 
-const client = new DominusNodeClient({ apiKey: process.env.DOMINUSNODE_API_KEY });
+const client = new DominusNodeClient();
+await client.connectWithKey(process.env.DOMINUSNODE_API_KEY);
 const { httpProxy } = await client.proxy.getConfig();
 const proxyUrl = \`http://dc-country-US:\${process.env.DOMINUSNODE_API_KEY}@\${httpProxy.host}:\${httpProxy.port}\`;
 
 const agent = new HttpsProxyAgent(proxyUrl);
 const resp = await fetch('https://httpbin.org/ip', { agent });` },
-        { type: "code", lang: "python", label: "Python", code: `import os, requests
+        { type: "code", lang: "python", label: "Python", code: `import os
 from dominusnode import DominusNodeClient
 
 client = DominusNodeClient(api_key=os.environ["DOMINUSNODE_API_KEY"])
 config = client.proxy.get_config()
-proxy_url = f"http://dc-country-US:{os.environ['DOMINUSNODE_API_KEY']}@{config['httpProxy']['host']}:{config['httpProxy']['port']}"
+proxy_url = f"http://dc-country-US:{os.environ['DOMINUSNODE_API_KEY']}@{config.http_endpoint.host}:{config.http_endpoint.port}"
 
-resp = requests.get("https://httpbin.org/ip", proxies={"https": proxy_url})
+import httpx
+resp = httpx.get("https://httpbin.org/ip", proxy=proxy_url)
 print(resp.json())` },
       ],
     },
@@ -476,10 +479,10 @@ const apiReference: DocSection = {
             { method: "POST", path: "/api/wallet/topup/stripe", auth: "JWT", description: "Create Stripe Checkout session for wallet top-up" },
             { method: "POST", path: "/api/wallet/topup/paypal", auth: "JWT", description: "Create PayPal order for wallet top-up" },
             { method: "POST", path: "/api/wallet/topup/paypal/:orderId/capture", auth: "JWT", description: "Capture an approved PayPal order" },
-            { method: "POST", path: "/api/wallet/topup/crypto", auth: "JWT", description: "Create NOWPayments crypto invoice (BTC/ETH/SOL/XMR/ZEC/USDC/USDT/DAI/BNB/LINK/LTC)" },
+            { method: "POST", path: "/api/wallet/topup/crypto", auth: "JWT", description: "Create Crypto crypto invoice (BTC/ETH/SOL/XMR/ZEC/USDC/USDT/DAI/BNB/LINK/LTC)" },
             { method: "GET", path: "/api/wallet/crypto/status/:invoiceId", auth: "JWT", description: "Check crypto invoice payment status" },
             { method: "POST", path: "/api/webhooks/stripe", auth: "Signature", description: "Stripe webhook (stripe-signature header)" },
-            { method: "POST", path: "/api/webhooks/nowpayments", auth: "Signature", description: "NOWPayments IPN webhook" },
+            { method: "POST", path: "/api/webhooks/nowpayments", auth: "Signature", description: "Crypto IPN webhook" },
           ],
         },
       ],
@@ -560,7 +563,7 @@ const apiReference: DocSection = {
             { method: "DELETE", path: "/api/agent-wallet/:walletId", auth: "JWT | API Key", description: "Delete wallet and refund balance to main wallet" },
           ],
         },
-        { type: "note", variant: "tip", text: "Use agentic wallets to give AI agents limited, auditable spending authority. Each wallet has a per-transaction spending limit. Maximum balance: $100.00." },
+        { type: "note", variant: "tip", text: "Use agentic wallets to give AI agents limited, auditable spending authority. Each wallet has a per-transaction spending limit. Maximum balance: $10,000.00 per wallet." },
       ],
     },
     {
@@ -631,17 +634,15 @@ const sdkReference: DocSection = {
       title: "Node.js SDK",
       searchTerms: ["node", "typescript", "javascript", "npm", "cjs", "esm"],
       content: [
-        { type: "code", lang: "bash", label: "Install", code: "npm install @dominusnode/node-sdk" },
-        { type: "code", lang: "javascript", label: "Quick start", code: `import { DominusNodeClient } from '@dominusnode/node-sdk';
+        { type: "code", lang: "bash", label: "Install", code: "npm install @dominusnode/sdk" },
+        { type: "code", lang: "javascript", label: "Quick start", code: `import { DominusNodeClient } from '@dominusnode/sdk';
 
-const client = new DominusNodeClient({
-  apiKey: process.env.DOMINUSNODE_API_KEY,
-  // Optional: baseUrl, proxyHost, proxyPort
-});
+const client = new DominusNodeClient();
+await client.connectWithKey(process.env.DOMINUSNODE_API_KEY);
 
 // Wallet
 const wallet = await client.wallet.getBalance();
-const topup = await client.wallet.topupStripe({ amountCents: 1000 });
+const topup = await client.wallet.topUpStripe(1000);
 
 // API Keys
 const key = await client.keys.create({ label: 'my-agent' });
@@ -649,15 +650,15 @@ const keys = await client.keys.list();
 await client.keys.revoke(keyId);
 
 // Usage
-const usage = await client.usage.getStats({ since: '2025-01-01', until: '2025-12-31' });
+const usage = await client.usage.get({ since: '2025-01-01', until: '2025-12-31' });
 
 // Agentic Wallets
-const agWallet = await client.agenticWallet.create({ label: 'agent-1', spendingLimitCents: 500 });
-await client.agenticWallet.fund(agWallet.id, { amountCents: 200 });
+const agWallet = await client.agenticWallets.create('agent-1', 500);
+await client.agenticWallets.fund(agWallet.id, 200);
 
 // Teams
 const team = await client.teams.create({ name: 'My Team' });
-await client.teams.inviteMember(team.id, { email: 'member@example.com' });` },
+await client.teams.createInvite(team.id, 'member@example.com');` },
         { type: "note", variant: "info", text: "Zero dependencies. Ships as dual CJS + ESM with TypeScript types. Requires Node.js 18+." },
       ],
     },
@@ -674,7 +675,7 @@ client = DominusNodeClient(api_key=os.environ["DOMINUSNODE_API_KEY"])
 
 # Wallet
 wallet = client.wallet.get_balance()
-topup = client.wallet.topup_stripe(amount_cents=1000)
+topup = client.wallet.top_up_stripe(amount_cents=1000)
 
 # API Keys
 key = client.keys.create(label="my-agent")
@@ -682,16 +683,16 @@ keys = client.keys.list()
 client.keys.revoke(key_id)
 
 # Usage
-usage = client.usage.get_stats(since="2025-01-01", until="2025-12-31")
+usage = client.usage.get(since="2025-01-01", until="2025-12-31")
 
 # Agentic Wallets
-ag_wallet = client.agentic_wallet.create(label="agent-1", spending_limit_cents=500)
-client.agentic_wallet.fund(ag_wallet["id"], amount_cents=200)
+ag_wallet = client.agentic_wallets.create(label="agent-1", spending_limit_cents=500)
+client.agentic_wallets.fund(ag_wallet.id, amount_cents=200)
 
 # Teams
 team = client.teams.create(name="My Team")
-client.teams.invite_member(team["id"], email="member@example.com")` },
-        { type: "note", variant: "info", text: "Minimal dependencies (requests, pydantic). Supports Python 3.8+." },
+client.teams.create_invite(team.id, email="member@example.com")` },
+        { type: "note", variant: "info", text: "Minimal dependencies (httpx). Supports Python 3.9+. Both sync and async clients available." },
       ],
     },
     {
@@ -699,26 +700,29 @@ client.teams.invite_member(team["id"], email="member@example.com")` },
       title: "Go SDK",
       searchTerms: ["go", "golang", "go get", "module"],
       content: [
-        { type: "code", lang: "bash", label: "Install", code: "go get github.com/Dominus-Node/dominusnode-go" },
+        { type: "code", lang: "bash", label: "Install", code: "go get github.com/dominus-node/dominusnode-go" },
         { type: "code", lang: "go", label: "Quick start", code: `package main
 
 import (
+    "context"
     "fmt"
     "os"
-    dominusnode "github.com/Dominus-Node/dominusnode-go"
+    dominusnode "github.com/dominus-node/dominusnode-go"
 )
 
 func main() {
-    client := dominusnode.NewClient(os.Getenv("DOMINUSNODE_API_KEY"))
+    ctx := context.Background()
+    client := dominusnode.NewClient(dominusnode.Config{})
+    _ = client.ConnectWithKey(ctx, os.Getenv("DOMINUSNODE_API_KEY"))
 
-    wallet, _ := client.Wallet.GetBalance()
+    wallet, _ := client.Wallet.GetBalance(ctx)
     fmt.Printf("Balance: $%.2f\\n", float64(wallet.Balance)/100)
 
-    key, _ := client.Keys.Create("my-agent")
+    key, _ := client.Keys.Create(ctx, "my-agent")
     fmt.Println("API Key:", key.Label)
 
-    agWallet, _ := client.AgenticWallet.Create("agent-1", 500)
-    client.AgenticWallet.Fund(agWallet.ID, 200)
+    agWallet, _ := client.AgenticWallets.Create(ctx, "agent-1", 500, nil, nil)
+    client.AgenticWallets.Fund(ctx, agWallet.ID, 200)
 }` },
       ],
     },
@@ -730,12 +734,13 @@ func main() {
         { type: "code", lang: "toml", label: "Cargo.toml", code: `[dependencies]
 dominusnode = "1.0"
 tokio = { version = "1", features = ["full"] }` },
-        { type: "code", lang: "rust", label: "Quick start", code: `use dominusnode::DominusNodeClient;
+        { type: "code", lang: "rust", label: "Quick start", code: `use dominusnode::{DominusNodeClient, Config};
 use std::env;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let client = DominusNodeClient::new(env::var("DOMINUSNODE_API_KEY")?);
+    let client = DominusNodeClient::new(Config::default())?;
+    client.connect_with_key(&env::var("DOMINUSNODE_API_KEY")?).await?;
 
     let wallet = client.wallet().get_balance().await?;
     println!("Balance: {} cents", wallet.balance);
@@ -753,16 +758,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
       searchTerms: ["java", "maven", "gradle", "jvm", "okhttp"],
       content: [
         { type: "code", lang: "xml", label: "Maven dependency", code: `<dependency>
-  <groupId>com.dominusnode</groupId>
-  <artifactId>dominusnode-java</artifactId>
-  <version>1.0.0</version>
+  <groupId>io.dominusnode</groupId>
+  <artifactId>dominusnode-sdk</artifactId>
+  <version>1.0.1</version>
 </dependency>` },
         { type: "code", lang: "java", label: "Quick start", code: `import io.dominusnode.sdk.DominusNodeClient;
+import io.dominusnode.sdk.Config;
 import io.dominusnode.sdk.types.*;
 
 public class Example {
-    public static void main(String[] args) {
-        DominusNodeClient client = new DominusNodeClient(System.getenv("DOMINUSNODE_API_KEY"));
+    public static void main(String[] args) throws Exception {
+        DominusNodeClient client = new DominusNodeClient(new Config.Builder().build());
+        client.connectWithKey(System.getenv("DOMINUSNODE_API_KEY"));
 
         WalletBalance wallet = client.wallet().getBalance();
         System.out.println("Balance: " + wallet.getBalance() + " cents");
@@ -779,15 +786,15 @@ public class Example {
       searchTerms: ["c++", "cpp", "libcurl", "header-only"],
       content: [
         { type: "code", lang: "bash", label: "Install", code: "# Single header — copy into your project\ncp dominusnode.hpp /your/project/include/" },
-        { type: "code", lang: "cpp", label: "Quick start", code: `#include "dominusnode.hpp"
+        { type: "code", lang: "cpp", label: "Quick start", code: `#include "dominusnode/client.hpp"
 #include <cstdlib>
 #include <iostream>
 
 int main() {
-    std::string apiKey = std::getenv("DOMINUSNODE_API_KEY");
-    DominusNodeClient client(apiKey);
+    DominusNodeClient client;
+    client.connect_with_key(std::getenv("DOMINUSNODE_API_KEY"));
 
-    auto wallet = client.wallet().getBalance();
+    auto wallet = client.wallet().get_balance();
     std::cout << "Balance: " << wallet.balance << " cents" << std::endl;
 
     auto key = client.keys().create("my-agent");
@@ -917,13 +924,18 @@ const aiIntegrations: DocSection = {
       content: [
         { type: "code", lang: "bash", label: "Install", code: "pip install dominusnode-langchain" },
         { type: "code", lang: "python", label: "Usage", code: `from dominusnode_langchain import DominusNodeToolkit
-from langchain.agents import initialize_agent
+from langchain_openai import ChatOpenAI
+from langchain.agents import create_tool_calling_agent, AgentExecutor
+from langchain_core.prompts import ChatPromptTemplate
 
 toolkit = DominusNodeToolkit(api_key="dn_live_...")
-tools = toolkit.get_tools()  # Returns 7 LangChain BaseTool instances
+tools = toolkit.get_tools()  # Returns 53 LangChain BaseTool instances
 
-agent = initialize_agent(tools, llm, agent="zero-shot-react-description")
-agent.run("Check my proxy balance and fetch https://httpbin.org/ip")` },
+llm = ChatOpenAI(model="gpt-4o")
+prompt = ChatPromptTemplate.from_messages([("human", "{input}"), ("placeholder", "{agent_scratchpad}")])
+agent = create_tool_calling_agent(llm, tools, prompt)
+executor = AgentExecutor(agent=agent, tools=tools)
+executor.invoke({"input": "Check my proxy balance and fetch https://httpbin.org/ip"})` },
       ],
     },
     {
@@ -951,9 +963,9 @@ proxy_agent = Agent(
         { type: "code", lang: "bash", label: "Install", code: "npm install @dominusnode/ai-tools" },
         { type: "code", lang: "typescript", label: "Usage", code: `import { generateText } from 'ai';
 import { openai } from '@ai-sdk/openai';
-import { getDominusNodeTools } from '@dominusnode/ai-tools';
+import { createDominusNodeTools } from '@dominusnode/ai-tools';
 
-const tools = getDominusNodeTools({ apiKey: process.env.DOMINUSNODE_API_KEY });
+const tools = createDominusNodeTools({ apiKey: process.env.DOMINUSNODE_API_KEY });
 
 const result = await generateText({
   model: openai('gpt-4o'),
@@ -1002,17 +1014,18 @@ if (toolCall) {
       title: "Gemini / Vertex AI",
       searchTerms: ["gemini", "vertex ai", "google", "function declaration", "python"],
       content: [
-        { type: "code", lang: "python", label: "Usage", code: `from dominusnode_gemini import get_function_declarations, handle_function_call
-import google.generativeai as genai
+        { type: "code", lang: "bash", label: "Install", code: "npm install @dominusnode/gemini-tools" },
+        { type: "code", lang: "typescript", label: "Usage", code: `import { createDominusNodeFunctionHandler } from '@dominusnode/gemini-tools';
+import declarations from '@dominusnode/gemini-tools/functions.json';
 
-declarations = get_function_declarations()  # 24 FunctionDeclaration objects
+// Create the handler with your API key
+const handler = createDominusNodeFunctionHandler({
+  apiKey: process.env.DOMINUSNODE_API_KEY,
+});
 
-model = genai.GenerativeModel('gemini-1.5-pro', tools=declarations)
-response = model.generate_content("Check my proxy balance")
-
-if response.candidates[0].content.parts[0].function_call:
-    fc = response.candidates[0].content.parts[0].function_call
-    result = await handle_function_call(fc.name, dict(fc.args))` },
+// Pass declarations to Gemini as tools, then handle function calls:
+const result = await handler('dominusnode_check_balance', {});
+console.log(JSON.parse(result));` },
       ],
     },
     {
@@ -1021,7 +1034,7 @@ if response.candidates[0].content.parts[0].function_call:
       searchTerms: ["n8n", "workflow", "automation", "low-code", "node", "trigger"],
       content: [
         { type: "code", lang: "bash", label: "Install", code: "npm install n8n-nodes-dominusnode" },
-        { type: "text", text: "Adds 3 custom n8n nodes: Dominus Node Proxy (fetch via proxy), Dominus Node Wallet (balance/topup), and Dominus Node Keys (create/list/revoke). Supports Dominus Node credentials type for secure API key storage." },
+        { type: "text", text: "Adds 7 custom n8n nodes: Proxy, Wallet, Keys, Usage, Account, Plans, and Teams. Supports Dominus Node credentials type for secure API key storage." },
       ],
     },
     {
@@ -1178,10 +1191,10 @@ agent = ReActAgent.from_tools(tools)` },
             { name: "Semantic Kernel", type: "Python", required: false, description: "pip install dominusnode-sk — Microsoft SK native plugin (25 functions)" },
             { name: "IronClaw", type: "Python", required: false, description: "pip install dominusnode-ironclaw — NEAR AI with MCP bridge" },
             { name: "Haystack", type: "Python", required: false, description: "pip install dominusnode-haystack — Pipeline component" },
-            { name: "Composio", type: "TypeScript", required: false, description: "npm install @dominusnode/composio — Action toolkit" },
+            { name: "Composio", type: "Python", required: false, description: "pip install dominusnode-composio — Action toolkit" },
             { name: "Dify", type: "Python", required: false, description: "pip install dominusnode-dify — Dify tool provider" },
             { name: "Langflow", type: "Python", required: false, description: "pip install dominusnode-langflow — Custom Langflow component" },
-            { name: "n8n", type: "TypeScript", required: false, description: "npm install n8n-nodes-dominusnode — 3 custom nodes + credential type" },
+            { name: "n8n", type: "TypeScript", required: false, description: "npm install n8n-nodes-dominusnode — 7 custom nodes + credential type" },
             { name: "Mastra", type: "TypeScript", required: false, description: "npm install @dominusnode/mastra-tools — 26 createTool() instances" },
             { name: "Pi (pi-mono)", type: "TypeScript", required: false, description: "npm install @dominusnode/pi-extension — 26 tools via pi.registerTool() with TypeBox schemas" },
           ],
@@ -1308,7 +1321,7 @@ const plansBilling: DocSection = {
           type: "param-table", params: [
             { name: "Balance format", type: "integer cents", required: true, description: "API responses return balance as an integer number of cents — divide by 100 for the dollar amount (e.g., 1000 = $10.00)" },
             { name: "Minimum session", type: "$0.50", required: true, description: "$0.50 reservation required to open a new proxy session" },
-            { name: "Maximum balance", type: "$100.00", required: true, description: "Application-level cap of $100.00 (10,000 cents) per wallet" },
+            { name: "Maximum balance", type: "$10,000.00", required: true, description: "Application-level cap of $10,000.00 (1,000,000 cents) per wallet" },
             { name: "Overspend protection", type: "guaranteed", required: true, description: "Your balance can never go below $0.00 — all transactions are validated before they are processed" },
           ],
         },
@@ -1327,7 +1340,7 @@ const plansBilling: DocSection = {
 # → { "sessionId": "cs_...", "url": "https://checkout.stripe.com/..." }` },
         { type: "heading", level: 3, text: "PayPal (Direct Integration)" },
         { type: "text", text: "Lower fees than card. Supports PayPal balance, linked bank account, and PayPal credit. Two-step: create order → capture after approval." },
-        { type: "heading", level: 3, text: "NOWPayments (11 Cryptocurrencies)" },
+        { type: "heading", level: 3, text: "Crypto (11 Cryptocurrencies)" },
         {
           type: "param-table", params: [
             { name: "BTC", type: "Bitcoin", required: false, description: "Bitcoin — standard on-chain" },
@@ -1343,7 +1356,7 @@ const plansBilling: DocSection = {
             { name: "LTC", type: "Litecoin", required: false, description: "Fast, low-fee Bitcoin alternative" },
           ],
         },
-        { type: "note", variant: "info", text: "Minimum crypto top-up: $5.00. Payments auto-convert to wallet credits via NOWPayments." },
+        { type: "note", variant: "info", text: "Minimum crypto top-up: $5.00. Payments auto-convert to wallet credits via Crypto." },
       ],
     },
     {
@@ -1355,21 +1368,18 @@ const plansBilling: DocSection = {
         { type: "code", lang: "javascript", label: "Create and fund an agentic wallet", code: `const client = new DominusNodeClient({ apiKey: 'dn_live_...' });
 
 // Create with $5 per-transaction limit
-const wallet = await client.agenticWallet.create({
-  label: 'scraper-agent-1',
-  spendingLimitCents: 500,  // $5.00 max per spend
-});
+const wallet = await client.agenticWallets.create('scraper-agent-1', 500);
 
 // Fund it with $20
-await client.agenticWallet.fund(wallet.id, { amountCents: 2000 });
+await client.agenticWallets.fund(wallet.id, 2000);
 
 // Agent uses walletId as its spending identity
 // Freeze if compromised
-await client.agenticWallet.freeze(wallet.id);` },
+await client.agenticWallets.freeze(wallet.id);` },
         {
           type: "param-table", params: [
             { name: "spendingLimitCents", type: "integer", required: true, description: "Maximum spend allowed per transaction, enforced server-side for every debit against this wallet." },
-            { name: "Maximum balance", type: "$100.00", required: true, description: "Same cap as main wallet — maximum $100.00 per agentic wallet." },
+            { name: "Maximum balance", type: "$10,000.00", required: true, description: "Same cap as main wallet — maximum $10,000.00 per agentic wallet." },
           ],
         },
       ],
