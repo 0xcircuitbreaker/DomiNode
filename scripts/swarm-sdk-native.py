@@ -1425,42 +1425,48 @@ def admin_login(api_base: str) -> str:
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# ETH Wallet + EIP-191 Signing (for Moltbook auth)
+# Moltbook Direct API (single claimed agent — /api/v1/ endpoints)
 # ═══════════════════════════════════════════════════════════════════════
 
-def _generate_eth_wallet() -> Tuple[str, str]:
-    """Generate a fresh Ethereum wallet. Returns (address, private_key_hex)."""
-    from eth_account import Account
-    acct = Account.create()
-    return acct.address, acct.key.hex()
+MOLTBOOK_BASE = os.environ.get("MOLTBOOK_BASE_URL", "https://moltbook.com")
+MOLTBOOK_KEY = os.environ.get("MOLTBOOK_API_KEY", "")
 
 
-def _eip191_sign_fn(message: str, private_key: str) -> str:
-    """EIP-191 personal_sign: sign a message with an ETH private key."""
-    from eth_account import Account
-    from eth_account.messages import encode_defunct
-    msg = encode_defunct(text=message)
-    signed = Account.sign_message(msg, private_key)
-    return "0x" + signed.signature.hex()
+def _moltbook_post(title: str, content: str, submolt: str = "general") -> Optional[Dict]:
+    """Create a post on Moltbook using the claimed agent's API key."""
+    if not MOLTBOOK_KEY:
+        return {"error": "MOLTBOOK_API_KEY not set in env"}
+    import httpx
+    try:
+        with httpx.Client(timeout=30.0) as c:
+            resp = c.post(
+                f"{MOLTBOOK_BASE}/api/v1/posts",
+                json={"title": title[:300], "content": content[:40000], "submolt": submolt},
+                headers={"Authorization": f"Bearer {MOLTBOOK_KEY}"},
+            )
+            if resp.status_code in (200, 201):
+                data = resp.json()
+                post = data.get("post", data)
+                return {"id": post.get("id", ""), "title": title, "url": f"https://moltbook.com/post/{post.get('id', '')}"}
+            return {"error": f"Moltbook {resp.status_code}: {resp.text[:200]}"}
+    except Exception as e:
+        return {"error": f"Moltbook request failed: {_scrub(str(e))}"}
 
 
-def _create_moltbook_client(
-    api_key: str, api_base: str, proxy_host: str, proxy_port: int,
-) -> Any:
-    """Create a MoltbookClient with a fresh ETH wallet and real EIP-191 signing."""
-    from dominusnode_moltbook.client import MoltbookClient
-    eth_address, eth_private_key = _generate_eth_wallet()
-    agent_secret = os.environ.get("DOMINUSNODE_AGENT_SECRET", "")
-    return MoltbookClient(
-        dominusnode_api_key=api_key,
-        dominusnode_base_url=api_base,
-        proxy_host=proxy_host,
-        proxy_port=proxy_port,
-        eth_address=eth_address,
-        eth_private_key=eth_private_key,
-        sign_fn=_eip191_sign_fn,
-        agent_secret=agent_secret or None,
-    ), eth_address
+def _moltbook_upvote(post_id: str) -> bool:
+    """Upvote a post on Moltbook using the claimed agent's API key."""
+    if not MOLTBOOK_KEY:
+        return False
+    import httpx
+    try:
+        with httpx.Client(timeout=15.0) as c:
+            resp = c.post(
+                f"{MOLTBOOK_BASE}/api/v1/posts/{post_id}/upvote",
+                headers={"Authorization": f"Bearer {MOLTBOOK_KEY}"},
+            )
+            return resp.status_code == 200
+    except Exception:
+        return False
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -1660,22 +1666,11 @@ def post_to_moltbook(
     proxy_port: int,
     admin_jwt: str = "",
 ) -> Optional[Dict]:
-    """Post swarm results to Moltbook. Only reports on SUCCESSFUL agents — no failures."""
+    """Post swarm summary to Moltbook via single claimed agent. Only successful agents."""
     try:
-        # Filter to successful agents only — never post about failures
         successful = [r for r in results if r.success]
         if not successful:
             return {"error": "No successful agents to post about"}
-
-        email, password, jwt, api_key = _register_login_key(api_base, admin_jwt)
-
-        client, eth_addr = _create_moltbook_client(api_key, api_base, proxy_host, proxy_port)
-
-        # Register agent on Moltbook
-        agent_name = f"DomiNode-Swarm-{random.randint(1000, 9999)}"
-        reg_result = client.register(agent_name)
-        if isinstance(reg_result, dict) and reg_result.get("error"):
-            print(f"    {YLW}Moltbook register: {reg_result['error'][:80]}{RST}")
 
         passed = len(successful)
         native_llm = sum(1 for r in successful if r.mode == "native-llm")
@@ -1684,22 +1679,18 @@ def post_to_moltbook(
         fetch_ips = list(set(r.fetch_ip for r in successful if r.fetch_ip))
         integ_names = [r.name for r in successful]
 
-        # LLM-generated summary post (falls back to template if Ollama unavailable)
         title, content = _generate_summary_post(
             passed, passed, native_llm, native_direct, fallback, fetch_ips, integ_names,
         )
 
-        post_result = client.create_post(title=title, content=content, submolt="ai-agents")
-
-        if isinstance(post_result, dict) and not post_result.get("error"):
-            post_id = post_result.get("id") or post_result.get("postId") or post_result.get("_id", "")
+        result = _moltbook_post(title, content, submolt="general")
+        if result and not result.get("error"):
+            post_id = result.get("id", "")
             if post_id:
                 with _MOLTBOOK_LOCK:
-                    _MOLTBOOK_POST_IDS.append(str(post_id))
-            return {"posted": True, "title": title, "post_id": post_id, "eth_address": eth_addr}
-        else:
-            err = post_result.get("error", "unknown") if isinstance(post_result, dict) else str(post_result)
-            return {"error": f"Moltbook create_post failed: {_scrub(str(err))}"}
+                    _MOLTBOOK_POST_IDS.append(post_id)
+            return {"posted": True, "title": title, "post_id": post_id, "url": result.get("url", "")}
+        return result
 
     except Exception as e:
         return {"error": f"Moltbook posting failed: {_scrub(str(e))}"}
@@ -1713,39 +1704,25 @@ def _agent_moltbook_post(
     proxy_port: int,
     admin_jwt: str = "",
 ) -> Optional[str]:
-    """Single agent posts its own POSITIVE experience on Moltbook. Returns post_id or None.
+    """Post a single agent's POSITIVE experience to Moltbook. Returns post_id or None.
 
-    Hard gate: refuses to post if the agent failed any stage. Only successful
-    agents get to post — we never let negative experiences reach Moltbook.
+    Uses the single claimed Moltbook agent account. Only successful agents post.
     """
     if not result.success:
-        return None  # Never post about failures
-    try:
-        # Reuse the agent's existing API key from the swarm run — no new registration needed.
-        # Each agent already has a working DomiNode account + key from the test phase.
-        # This routes through the proxy with a DIFFERENT IP per agent (rotating proxy).
-        api_key = result.api_key
-        if not api_key:
-            # Fallback: register new account if api_key wasn't saved
-            _, _, _, api_key = _register_login_key(api_base, admin_jwt, credit_cents=100)
-        client, _ = _create_moltbook_client(api_key, api_base, proxy_host, proxy_port)
-
-        agent_name = f"DN-{integ_name}-{random.randint(100, 999)}"
-        client.register(agent_name)
-
-        # LLM-generated unique post per agent
-        title, content = _generate_agent_post(integ_name, result)
-
-        post_result = client.create_post(title=title, content=content, submolt="ai-agents")
-        if isinstance(post_result, dict) and not post_result.get("error"):
-            post_id = str(post_result.get("id") or post_result.get("postId") or post_result.get("_id", ""))
-            if post_id:
-                with _MOLTBOOK_LOCK:
-                    _MOLTBOOK_POST_IDS.append(post_id)
-                return post_id
         return None
-    except Exception:
+
+    title, content = _generate_agent_post(integ_name, result)
+    if not title:
         return None
+
+    post_result = _moltbook_post(title, content, submolt="general")
+    if post_result and not post_result.get("error"):
+        post_id = post_result.get("id", "")
+        if post_id:
+            with _MOLTBOOK_LOCK:
+                _MOLTBOOK_POST_IDS.append(post_id)
+            return post_id
+    return None
 
 
 def boost_moltbook_posts(
@@ -1756,42 +1733,20 @@ def boost_moltbook_posts(
     admin_jwt: str = "",
     max_boosters: int = 8,
 ) -> Dict[str, Any]:
-    """Have agents upvote each other's Moltbook posts about DomiNode."""
-    successful = [r for r in results if r.success]
-    if not successful or not _MOLTBOOK_POST_IDS:
-        return {"boosted": 0, "reason": "no posts or no successful agents"}
+    """Upvote all collected Moltbook posts using the claimed agent account."""
+    with _MOLTBOOK_LOCK:
+        post_ids = list(_MOLTBOOK_POST_IDS)
 
-    boosted_count = 0
-    errors = 0
-    boosters = min(len(successful), max_boosters)
+    if not post_ids:
+        return {"boosted": 0, "reason": "no posts to boost"}
 
-    for i, result in enumerate(successful[:boosters]):
-        try:
-            # Reuse each agent's existing API key — routes through proxy with rotating IPs
-            api_key = result.api_key
-            if not api_key:
-                continue  # skip agents without saved keys
-            client, _ = _create_moltbook_client(api_key, api_base, proxy_host, proxy_port)
-            client.register(f"DN-Booster-{result.name[:10]}-{random.randint(100, 999)}")
+    boosted = 0
+    for pid in post_ids:
+        if _moltbook_upvote(pid):
+            boosted += 1
+        time.sleep(random.uniform(0.5, 1.5))
 
-            # Upvote all collected post IDs
-            with _MOLTBOOK_LOCK:
-                post_ids = list(_MOLTBOOK_POST_IDS)
-
-            for pid in post_ids:
-                try:
-                    vote_result = client.vote(target_id=pid, target_type="post", direction="up")
-                    if isinstance(vote_result, dict) and not vote_result.get("error"):
-                        boosted_count += 1
-                    time.sleep(random.uniform(0.5, 1.5))  # rate limiting
-                except Exception:
-                    errors += 1
-
-            time.sleep(random.uniform(1.0, 3.0))  # stagger between boosters
-        except Exception:
-            errors += 1
-
-    return {"boosted": boosted_count, "boosters": boosters, "posts": len(_MOLTBOOK_POST_IDS), "errors": errors}
+    return {"boosted": boosted, "posts": len(post_ids)}
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -1929,60 +1884,49 @@ def launch_swarm(
             f"{' → '.join(stages) if stages else RED + 'FAILED: ' + r.error[:50] + RST}"
         )
 
-    # ── Moltbook Post + Boost ─────────────────────────────────────────
+    # ── Moltbook Post + Boost (single claimed agent: dn-swarm-agent-88) ──
     if do_moltbook_post and passed > 0:
         print(f"\n{CYN}{'─' * 70}{RST}")
-        # Short cooldown: Phase 1 needs one new registration for the summary poster.
-        # Per-agent posts reuse existing API keys — no new registrations needed.
-        cooldown = 15
-        print(f"{BLD}  Waiting {cooldown}s for rate-limit cooldown...{RST}")
-        time.sleep(cooldown)
-
-        print(f"{BLD}  Phase 1: Summary post to Moltbook (ETH wallet auth)...{RST}")
-        post_result = post_to_moltbook(active, api_base, proxy_host, proxy_port, admin_jwt)
-        if post_result and not post_result.get("error"):
-            print(f"  {GRN}OK: Posted!{RST}  post_id={post_result.get('post_id', '?')}")
-            print(f"  {DIM}Title: {post_result.get('title', '')[:80]}{RST}")
+        if not MOLTBOOK_KEY:
+            print(f"  {YLW}MOLTBOOK_API_KEY not set — skipping Moltbook posting{RST}")
         else:
-            print(f"  {YLW}{post_result.get('error', 'unknown')[:80]}{RST}")
-
-        # Phase 2: Each successful agent posts its own experience
-        print(f"\n{BLD}  Phase 2: Per-agent Moltbook posts ({min(len([r for r in active if r.success]), 8)} agents)...{RST}")
-        successful_agents = [r for r in active if r.success][:8]  # cap at 8 to avoid rate limits
-        agent_post_count = 0
-        for r in successful_agents:
-            print(f"    {DIM}{r.name}...{RST}", end="", flush=True)
-            pid = _agent_moltbook_post(r.name, r, api_base, proxy_host, proxy_port, admin_jwt)
-            if pid:
-                agent_post_count += 1
-                print(f"  {GRN}posted (id={pid[:12]}...){RST}")
+            print(f"{BLD}  Phase 1: Summary post to Moltbook...{RST}")
+            post_result = post_to_moltbook(active, api_base, proxy_host, proxy_port, admin_jwt)
+            if post_result and not post_result.get("error"):
+                print(f"  {GRN}OK: Posted!{RST}  {post_result.get('url', '')}")
+                print(f"  {DIM}Title: {post_result.get('title', '')[:80]}{RST}")
             else:
-                print(f"  {YLW}failed{RST}")
-            time.sleep(random.uniform(5.0, 8.0))  # stagger agent posts (rate limit)
+                print(f"  {YLW}{post_result.get('error', 'unknown')[:80]}{RST}")
 
-        print(f"  {GRN}{agent_post_count}/{len(successful_agents)} agents posted{RST}")
+            # Phase 2: Each successful agent posts its own experience
+            successful_agents = [r for r in active if r.success][:10]
+            print(f"\n{BLD}  Phase 2: Per-agent Moltbook posts ({len(successful_agents)} agents)...{RST}")
+            agent_post_count = 0
+            for r in successful_agents:
+                print(f"    {DIM}{r.name}...{RST}", end="", flush=True)
+                pid = _agent_moltbook_post(r.name, r, api_base, proxy_host, proxy_port, admin_jwt)
+                if pid:
+                    agent_post_count += 1
+                    print(f"  {GRN}posted{RST} https://moltbook.com/post/{pid}")
+                else:
+                    print(f"  {YLW}failed{RST}")
+                time.sleep(random.uniform(2.0, 4.0))  # gentle stagger
 
-        # List all posted URLs
-        with _MOLTBOOK_LOCK:
-            all_post_ids = list(_MOLTBOOK_POST_IDS)
-        if all_post_ids:
-            print(f"\n{BLD}  Moltbook post links:{RST}")
-            for pid in all_post_ids:
-                print(f"    https://moltbook.com/post/{pid}")
+            print(f"  {GRN}{agent_post_count}/{len(successful_agents)} agents posted{RST}")
 
-        # Phase 3: Agents boost each other's posts
-        with _MOLTBOOK_LOCK:
-            total_posts = len(_MOLTBOOK_POST_IDS)
-        if total_posts > 0:
-            print(f"\n{BLD}  Phase 3: Cross-boosting {total_posts} posts...{RST}")
-            boost_result = boost_moltbook_posts(active, api_base, proxy_host, proxy_port, admin_jwt)
-            print(
-                f"  {GRN}{boost_result['boosted']} upvotes{RST} from "
-                f"{boost_result.get('boosters', 0)} boosters across "
-                f"{boost_result.get('posts', 0)} posts"
-            )
-            if boost_result.get("errors"):
-                print(f"  {YLW}({boost_result['errors']} vote errors){RST}")
+            # List all posted URLs
+            with _MOLTBOOK_LOCK:
+                all_post_ids = list(_MOLTBOOK_POST_IDS)
+            if all_post_ids:
+                print(f"\n{BLD}  All Moltbook posts:{RST}")
+                for pid in all_post_ids:
+                    print(f"    https://moltbook.com/post/{pid}")
+
+            # Phase 3: Upvote all posts
+            if all_post_ids:
+                print(f"\n{BLD}  Phase 3: Upvoting {len(all_post_ids)} posts...{RST}")
+                boost_result = boost_moltbook_posts(active, api_base, proxy_host, proxy_port, admin_jwt)
+                print(f"  {GRN}{boost_result['boosted']}/{boost_result.get('posts', 0)} upvoted{RST}")
 
     # ── Save Results ─────────────────────────────────────────────────
     log_dir = os.path.join(os.environ.get("TEMP", "/tmp"), "dominusnode-swarm")
