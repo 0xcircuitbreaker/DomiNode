@@ -26,6 +26,13 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+# Pre-import numpy in main thread to avoid segfaults when frameworks
+# lazily import it in worker threads (MINGW numpy on Windows is unstable)
+try:
+    import numpy  # noqa: F401
+except Exception:
+    pass
+
 # ═══════════════════════════════════════════════════════════════════════
 # Constants & Colors
 # ═══════════════════════════════════════════════════════════════════════
@@ -1914,6 +1921,12 @@ def launch_swarm(
     # ── Moltbook Post + Boost ─────────────────────────────────────────
     if do_moltbook_post and passed > 0:
         print(f"\n{CYN}{'─' * 70}{RST}")
+        # Cooldown: let the server's registration rate-limit window reset
+        # after all the swarm agent registrations
+        cooldown = 65
+        print(f"{BLD}  Waiting {cooldown}s for rate-limit cooldown before Moltbook posting...{RST}")
+        time.sleep(cooldown)
+
         print(f"{BLD}  Phase 1: Summary post to Moltbook (ETH wallet auth)...{RST}")
         post_result = post_to_moltbook(active, api_base, proxy_host, proxy_port, admin_jwt)
         if post_result and not post_result.get("error"):
@@ -1934,9 +1947,17 @@ def launch_swarm(
                 print(f"  {GRN}posted (id={pid[:12]}...){RST}")
             else:
                 print(f"  {YLW}failed{RST}")
-            time.sleep(random.uniform(2.0, 4.0))  # stagger agent posts
+            time.sleep(random.uniform(5.0, 8.0))  # stagger agent posts (rate limit)
 
         print(f"  {GRN}{agent_post_count}/{len(successful_agents)} agents posted{RST}")
+
+        # List all posted URLs
+        with _MOLTBOOK_LOCK:
+            all_post_ids = list(_MOLTBOOK_POST_IDS)
+        if all_post_ids:
+            print(f"\n{BLD}  Moltbook post links:{RST}")
+            for pid in all_post_ids:
+                print(f"    https://moltbook.com/post/{pid}")
 
         # Phase 3: Agents boost each other's posts
         with _MOLTBOOK_LOCK:
