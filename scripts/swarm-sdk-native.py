@@ -281,6 +281,7 @@ class AgentResult:
     error: str = ""
     stages_passed: int = 0
     stages_total: int = 7  # install, import, register, login, key, framework, fetch
+    api_key: str = ""       # stored for reuse in Moltbook posting (avoids re-registration)
     llm_response: str = ""  # what the LLM agent said
 
 
@@ -854,6 +855,7 @@ def run_python_agent(
         res.register_ok = True
         res.login_ok = True
         res.key_ok = True
+        res.api_key = api_key  # save for reuse in Moltbook posting
         res.stages_passed += 3
     except RuntimeError as e:
         msg = str(e)
@@ -1330,6 +1332,7 @@ def run_node_agent(
         res.register_ok = True
         res.login_ok = True
         res.key_ok = True
+        res.api_key = api_key  # save for reuse in Moltbook posting
         res.stages_passed += 3
     except RuntimeError as e:
         msg = str(e)
@@ -1718,7 +1721,13 @@ def _agent_moltbook_post(
     if not result.success:
         return None  # Never post about failures
     try:
-        email, password, jwt, api_key = _register_login_key(api_base, admin_jwt, credit_cents=100)
+        # Reuse the agent's existing API key from the swarm run — no new registration needed.
+        # Each agent already has a working DomiNode account + key from the test phase.
+        # This routes through the proxy with a DIFFERENT IP per agent (rotating proxy).
+        api_key = result.api_key
+        if not api_key:
+            # Fallback: register new account if api_key wasn't saved
+            _, _, _, api_key = _register_login_key(api_base, admin_jwt, credit_cents=100)
         client, _ = _create_moltbook_client(api_key, api_base, proxy_host, proxy_port)
 
         agent_name = f"DN-{integ_name}-{random.randint(100, 999)}"
@@ -1758,8 +1767,10 @@ def boost_moltbook_posts(
 
     for i, result in enumerate(successful[:boosters]):
         try:
-            # Each booster gets its own DomiNode account + ETH wallet
-            email, password, jwt, api_key = _register_login_key(api_base, admin_jwt, credit_cents=50)
+            # Reuse each agent's existing API key — routes through proxy with rotating IPs
+            api_key = result.api_key
+            if not api_key:
+                continue  # skip agents without saved keys
             client, _ = _create_moltbook_client(api_key, api_base, proxy_host, proxy_port)
             client.register(f"DN-Booster-{result.name[:10]}-{random.randint(100, 999)}")
 
@@ -1921,10 +1932,10 @@ def launch_swarm(
     # ── Moltbook Post + Boost ─────────────────────────────────────────
     if do_moltbook_post and passed > 0:
         print(f"\n{CYN}{'─' * 70}{RST}")
-        # Cooldown: let the server's registration rate-limit window reset
-        # after all the swarm agent registrations
-        cooldown = 65
-        print(f"{BLD}  Waiting {cooldown}s for rate-limit cooldown before Moltbook posting...{RST}")
+        # Short cooldown: Phase 1 needs one new registration for the summary poster.
+        # Per-agent posts reuse existing API keys — no new registrations needed.
+        cooldown = 15
+        print(f"{BLD}  Waiting {cooldown}s for rate-limit cooldown...{RST}")
         time.sleep(cooldown)
 
         print(f"{BLD}  Phase 1: Summary post to Moltbook (ETH wallet auth)...{RST}")
