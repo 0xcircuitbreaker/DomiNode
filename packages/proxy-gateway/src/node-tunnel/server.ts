@@ -60,6 +60,12 @@ export interface TunnelServerDeps {
   getNodeForTunnelAuth: (keyHash: string) => Promise<TunnelAuthNode | null>;
   markOnline: (nodeId: string, ip: string, country: string | null, asn: number | null, ipClass?: NodeIpClass | null) => Promise<boolean>;
   markOffline: (nodeId: string) => Promise<boolean>;
+  /**
+   * Promote a `pending` node to `active` (compare-and-set from 'pending' only).
+   * Called once a tunnel whose attestation meets the current policy minVersion
+   * has passed every handshake check. Returns false if the row was not pending.
+   */
+  activatePending?: (nodeId: string) => Promise<boolean>;
   /** Current policy snapshot (loaded by the caller every 30 s). */
   getPolicy: () => ActivePolicy;
   /** Peer IP geo; null = lookup unavailable (fail closed for public IPs). */
@@ -456,6 +462,20 @@ export class NodeTunnelServer {
     if (!ok) {
       this.registry.remove(t.node.id, t);
       return t.rejectAuth("NODE_UNAVAILABLE");
+    }
+    // A freshly registered (or re-attested) node starts as `pending`; the upgrade
+    // already required attestation_version >= policy minVersion, so a completed
+    // handshake is what makes it selectable. Failure leaves it pending (fail closed).
+    if (live.status === "pending" && this.deps.activatePending) {
+      try {
+        if (await this.deps.activatePending(t.node.id)) live.status = "active";
+      } catch {
+        /* stays pending: not selectable */
+      }
+      if (!t.isAuthorizing()) {
+        this.registry.remove(t.node.id, t);
+        return;
+      }
     }
     t.mux.maxStreams = Math.max(1, Math.min(live.maxStreams, policy.body.nodeDefaults.maxStreams));
     live.ready = true;

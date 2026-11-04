@@ -27,7 +27,7 @@ afterEach(async () => {
   server = null;
 });
 
-async function start(opts: { policy?: Partial<ActivePolicy["body"]>; geo?: GeoInfo | null; heartbeatMs?: number; deadline?: number } = {}) {
+async function start(opts: { policy?: Partial<ActivePolicy["body"]>; geo?: GeoInfo | null; heartbeatMs?: number; deadline?: number; activate?: (id: string) => Promise<boolean> } = {}) {
   const policy: ActivePolicy = { version: 3, sha256: "f".repeat(64), body: { ...DEFAULT_POLICY, ...opts.policy }, createdAt: null };
   const online: string[] = [];
   const offline: string[] = [];
@@ -36,6 +36,7 @@ async function start(opts: { policy?: Partial<ActivePolicy["body"]>; geo?: GeoIn
     getNodeForTunnelAuth: async (h) => NODES[h] ?? null,
     markOnline: async (id, ip) => { online.push(`${id}@${ip}`); return true; },
     markOffline: async (id) => { offline.push(id); return true; },
+    ...(opts.activate ? { activatePending: opts.activate } : {}),
     getPolicy: () => policy,
     geoLookup: () => (opts.geo === undefined ? { country: "US", asn: 64500 } : opts.geo),
   }, { port: 0, host: "127.0.0.1", heartbeatMs: opts.heartbeatMs, handshakeDeadlineMs: opts.deadline });
@@ -108,6 +109,40 @@ describe("NodeTunnelServer", () => {
     await new Promise((r) => setTimeout(r, 50));
     expect(registry.size).toBe(0);
     expect(offline).toHaveLength(1);
+  });
+
+  it("promotes a pending node to active after a completed handshake", async () => {
+    const id = "33333333-3333-4333-8333-333333333333";
+    const key = "dn_node_" + "dd".repeat(32);
+    NODES[hashNodeKey(key)] = { ...authNode(id), status: "pending" };
+    const activated: string[] = [];
+    try {
+      const { port, registry } = await start({ activate: async (n) => { activated.push(n); return true; } });
+      const c = connect(port, key);
+      await c.opened;
+      c.send(FrameType.HELLO, 0, hello(id));
+      await c.waitFor(FrameType.AUTH_OK);
+      expect(activated).toEqual([id]);
+      expect(registry.get(id)!.status).toBe("active");
+    } finally {
+      delete NODES[hashNodeKey(key)];
+    }
+  });
+
+  it("leaves a pending node pending (unselectable) when activation fails", async () => {
+    const id = "44444444-4444-4444-8444-444444444444";
+    const key = "dn_node_" + "ee".repeat(32);
+    NODES[hashNodeKey(key)] = { ...authNode(id), status: "pending" };
+    try {
+      const { port, registry } = await start({ activate: async () => { throw new Error("db down"); } });
+      const c = connect(port, key);
+      await c.opened;
+      c.send(FrameType.HELLO, 0, hello(id));
+      await c.waitFor(FrameType.AUTH_OK);
+      expect(registry.get(id)!.status).toBe("pending");
+    } finally {
+      delete NODES[hashNodeKey(key)];
+    }
   });
 
   it("rejects a sanctioned peer geo with AUTH_FAIL", async () => {

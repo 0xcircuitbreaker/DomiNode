@@ -69,6 +69,7 @@ async function main(): Promise<void> {
     getNodeForTunnelAuth: nodeRepo.getNodeForTunnelAuth,
     markOnline: nodeRepo.markOnline,
     markOffline: nodeRepo.markOffline,
+    activatePending: async (nodeId) => (await nodeRepo.setStatus(nodeId, "active", ["pending"])) !== null,
     getPolicy,
     geoLookup: lookupPeerGeo,
     onStreamClose: (nodeId, r) => {
