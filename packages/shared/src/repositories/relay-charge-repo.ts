@@ -28,6 +28,8 @@ export interface SettleRelayChargeInput {
   snapshot: ChargeSnapshot;
   destHost: string;
   destPort: number;
+  /** usage_records.target_host; "" unless the requester opted in to host logging. Defaults to destHost. */
+  usageTargetHost?: string;
   zeroReason?: Exclude<ZeroReason, "self_dealing"> | null;
   sessionStatus?: "completed" | "error";
 }
@@ -179,7 +181,7 @@ export async function settleRelayCharge(i: SettleRelayChargeInput): Promise<Sett
     await endSessionTx(client, i.sessionId, bytesTotal, i.sessionStatus ?? "completed");
     await createUsageRecordTx(client, {
       user_id: i.requesterUserId, session_id: i.sessionId, bytes_in: i.bytesIn, bytes_out: i.bytesOut,
-      cost_cents: debitCents, proxy_type: "relay", target_host: i.destHost.toLowerCase(),
+      cost_cents: debitCents, proxy_type: "relay", target_host: (i.usageTargetHost ?? i.destHost).toLowerCase(),
     });
 
     return { status: "settled", relayChargeId, paidInFull, grossMusd, nodeMusd, platformMusd, debitCents, zeroReason };

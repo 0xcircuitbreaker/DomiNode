@@ -15,6 +15,21 @@ export async function createSession(
   return result.rows[0];
 }
 
+/** Relay session bound to a node (DESIGN.md §8): sessions.node_id + dest_port. */
+export async function createRelaySession(
+  userId: string,
+  nodeId: string,
+  destPort: number,
+): Promise<Session> {
+  const result = await query<Session>(
+    `INSERT INTO sessions (user_id, proxy_ip, node_id, dest_port)
+     VALUES ($1, '', $2, $3)
+     RETURNING id, user_id, started_at, ended_at, bytes_total, status`,
+    [userId, nodeId, destPort],
+  );
+  return result.rows[0];
+}
+
 export async function endSession(
   sessionId: string,
   bytesTotal: number,
