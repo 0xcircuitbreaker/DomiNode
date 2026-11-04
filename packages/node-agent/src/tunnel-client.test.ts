@@ -2,9 +2,9 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import * as net from "node:net";
 import { WebSocketServer, type WebSocket } from "ws";
 import { TunnelClient, backoffDelay, scrub, type TunnelLogger } from "./tunnel-client.js";
-import { dial, type Connector } from "./dialer.js";
+import { dial, type Connector, type DialResult } from "./dialer.js";
 import { Limits } from "./limits.js";
-import { FrameDecoder, FrameType, encodeFrame, encodeControl, decodeControl, FLAG_FIN, type Frame } from "./shared.js";
+import { FrameDecoder, FrameType, encodeFrame, encodeControl, decodeControl, FLAG_FIN, FLAG_RST, type Frame } from "./shared.js";
 
 const NODE_KEY = "dn_node_" + "ab".repeat(32);
 const quiet: TunnelLogger = { info: () => undefined, warn: () => undefined };
@@ -74,6 +74,13 @@ class FakeGateway {
     for (const c of this.wss.clients) c.terminate();
     return new Promise((r) => this.wss.close(() => r()));
   }
+}
+
+/** Connect to a local port while reporting a public remote address (passes the floor re-check). */
+function fakePublic(port: number, halfOpen = false): net.Socket {
+  const s = net.connect({ host: "127.0.0.1", port, allowHalfOpen: halfOpen });
+  Object.defineProperty(s, "remoteAddress", { get: () => "93.184.216.34" });
+  return s;
 }
 
 const ctl = (f: Frame) => decodeControl<Record<string, unknown>>(f.payload);
@@ -294,6 +301,96 @@ describe("TunnelClient", () => {
   it("rejects malformed node keys", () => {
     expect(() => makeClient({ nodeKey: "dn_live_abc" })).toThrow();
   });
+
+  it("does not collide with or answer for dials left over from a previous connection", async () => {
+    let releaseStale!: (r: DialResult) => void;
+    let calls = 0;
+    const limits = new Limits({ maxStreams: 8, reqPerSec: 1000, gbPerDay: 5 });
+    const c = makeClient({
+      limits,
+      dial: (host, port, allowed) => {
+        calls++;
+        if (calls === 1) return new Promise<DialResult>((r) => { releaseStale = r; });
+        return dial(host, port, { allowedPorts: () => allowed, resolver: async () => ["93.184.216.34"],
+          connector: () => fakePublic(echoPort) });
+      },
+    });
+    await ready(c);
+    gw.send(FrameType.OPEN, 1, { host: "example.com", port: 443 });
+    await new Promise((r) => setTimeout(r, 30));
+    // Tunnel drops while stream 1 is still dialing; the new tunnel restarts at id 1.
+    const reconnected = new Promise<void>((r) => c.once("ready", () => r()));
+    gw.sock!.terminate();
+    await reconnected;
+    gw.frames.length = 0;
+    const closes: number[] = [];
+    gw.sock!.on("close", (code: number) => closes.push(code));
+    gw.send(FrameType.OPEN, 1, { host: "example.com", port: 443 });
+    await gw.next(onStream(FrameType.OPEN_OK, 1));
+    // The stale dial finishing must not send anything for id 1 nor delete the new entry.
+    const stale = net.connect({ host: "127.0.0.1", port: echoPort });
+    releaseStale({ ok: true, socket: stale, ip: "93.184.216.34" });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(closes).toEqual([]);
+    expect(gw.frames.filter((f) => f.streamId === 1 && f.type === FrameType.OPEN_OK)).toHaveLength(0);
+    expect(c.activeStreamCount).toBe(1);
+    expect(limits.activeStreams).toBe(1);
+  });
+
+  it("drops a dial the gateway reset while pending: no OPEN_OK, slot released", async () => {
+    let finish!: (r: DialResult) => void;
+    const limits = new Limits({ maxStreams: 8, reqPerSec: 1000, gbPerDay: 5 });
+    const c = makeClient({ limits, dial: () => new Promise<DialResult>((r) => { finish = r; }) });
+    await ready(c);
+    gw.send(FrameType.OPEN, 1, { host: "example.com", port: 443 });
+    await new Promise((r) => setTimeout(r, 30));
+    gw.send(FrameType.CLOSE, 1, { bytesIn: 0, bytesOut: 0, reason: "open_timeout" }, FLAG_RST);
+    await new Promise((r) => setTimeout(r, 30));
+    const sock = net.connect({ host: "127.0.0.1", port: echoPort });
+    sock.on("error", () => undefined);
+    finish({ ok: true, socket: sock, ip: "93.184.216.34" });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(gw.frames.some((f) => f.streamId === 1 && f.type === FrameType.OPEN_OK)).toBe(false);
+    expect(c.activeStreamCount).toBe(0);
+    expect(limits.activeStreams).toBe(0);
+    expect(sock.destroyed).toBe(true);
+  });
+
+  it("treats target EOF as a half-close: upload after the node FIN still reaches the target", async () => {
+    const received: Buffer[] = [];
+    const gotUpload = new Promise<void>((resolve) => {
+      const srv = net.createServer({ allowHalfOpen: true }, (s) => {
+        s.on("error", () => undefined);
+        s.end("bye"); // server half-closes first
+        s.on("data", (d: Buffer) => { received.push(d); if (Buffer.concat(received).toString() === "late") resolve(); });
+      });
+      srv.listen(0, "127.0.0.1", () => {
+        const port = (srv.address() as net.AddressInfo).port;
+        afterTarget.push(() => srv.close());
+        targetPort = port;
+        resolveListening();
+      });
+    });
+    let targetPort = 0;
+    let resolveListening!: () => void;
+    const listening = new Promise<void>((r) => { resolveListening = r; });
+    const afterTarget: Array<() => void> = [];
+    await listening;
+    const c = makeClient({
+      dial: (host, port, allowed) => dial(host, port, { allowedPorts: () => allowed, resolver: async () => ["93.184.216.34"],
+        connector: () => fakePublic(targetPort, true) }),
+    });
+    await ready(c);
+    gw.send(FrameType.OPEN, 1, { host: "example.com", port: 443 });
+    await gw.next(onStream(FrameType.OPEN_OK, 1));
+    const fin = await gw.next(onStream(FrameType.CLOSE, 1));
+    expect(fin.flags & FLAG_FIN).toBeTruthy();
+    expect(c.activeStreamCount).toBe(1);
+    gw.sendRaw(FrameType.DATA, 1, Buffer.from("late"));
+    await gotUpload;
+    for (const f of afterTarget) f();
+  });
+
 });
 
 describe("helpers", () => {

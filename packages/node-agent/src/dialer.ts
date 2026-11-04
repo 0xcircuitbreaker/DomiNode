@@ -33,7 +33,7 @@ export const defaultResolver: Resolver = async (host) => {
   return out;
 };
 
-export const defaultConnector: Connector = (ip, port) => net.connect({ host: ip, port, family: net.isIP(ip) });
+export const defaultConnector: Connector = (ip, port) => net.connect({ host: ip, port, family: net.isIP(ip), allowHalfOpen: true });
 
 function connectOnce(connector: Connector, ip: string, port: number, timeoutMs: number): Promise<net.Socket | null> {
   return new Promise((resolve) => {

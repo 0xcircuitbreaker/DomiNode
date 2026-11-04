@@ -74,6 +74,13 @@ interface Stream {
   bytesIn: number;
   bytesOut: number;
   closeSent: boolean;
+  /** Target sent EOF and we forwarded CLOSE FIN; upstream DATA may still drain. */
+  localFin: boolean;
+}
+
+/** An OPEN whose dial is still running; `cancelled` once the gateway gave up on it. */
+interface PendingOpen {
+  cancelled: boolean;
 }
 
 type State = "idle" | "connecting" | "handshake" | "ready" | "stopped";
@@ -99,7 +106,8 @@ export class TunnelClient extends EventEmitter {
   private state: State = "idle";
   private decoder = new FrameDecoder();
   private streams = new Map<number, Stream>();
-  private pendingOpens = new Set<number>();
+  /** Per-connection: replaced (never mutated across) on reconnect, so stale dials cannot collide. */
+  private pendingOpens = new Map<number, PendingOpen>();
   private policyPorts: number[];
   private initialWindow = STREAM_WINDOW;
   private heartbeatMs = 15_000;
@@ -149,6 +157,7 @@ export class TunnelClient extends EventEmitter {
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     this.reconnectTimer = null;
     this.resetStreams();
+    this.cancelPendingOpens();
     if (this.ws) {
       this.ws.removeAllListeners();
       this.ws.on("error", () => undefined);
@@ -163,6 +172,7 @@ export class TunnelClient extends EventEmitter {
     this.state = "connecting";
     this.decoder = new FrameDecoder();
     this.draining = false;
+    this.cancelPendingOpens();
     const pins = this.opts.spkiPins ?? [];
     const ws = new WebSocket(this.opts.url, {
       headers: { Authorization: `Bearer ${this.keyBuf.toString("utf8")}` },
@@ -229,6 +239,7 @@ export class TunnelClient extends EventEmitter {
   private onDisconnected(code: number): void {
     this.clearTimers();
     this.resetStreams();
+    this.cancelPendingOpens();
     this.emit("disconnected", code);
     if (this.state === "stopped") return;
     this.state = "idle";
@@ -258,6 +269,12 @@ export class TunnelClient extends EventEmitter {
   private clearTimers(): void {
     for (const t of [this.pingTimer, this.handshakeTimer, this.drainTimer]) if (t) clearTimeout(t);
     this.pingTimer = this.handshakeTimer = this.drainTimer = null;
+  }
+
+  /** Stale dials from a previous connection must never answer on (or collide with) a new one. */
+  private cancelPendingOpens(): void {
+    for (const p of this.pendingOpens.values()) p.cancelled = true;
+    this.pendingOpens = new Map();
   }
 
   private resetStreams(): void {
@@ -358,13 +375,18 @@ export class TunnelClient extends EventEmitter {
     if (this.streams.has(id) || this.pendingOpens.has(id)) throw new TunnelProtocolError("duplicate stream id");
     const req = decodeControl<{ host?: unknown; port?: unknown }>(f.payload);
     if (this.draining || !this.opts.limits.tryOpenStream()) return this.openErr(id, "CAP_EXCEEDED");
-    this.pendingOpens.add(id);
-    this.dialAndOpen(id, req).catch((e: unknown) => {
+    const pend = this.pendingOpens;
+    const entry: PendingOpen = { cancelled: false };
+    pend.set(id, entry);
+    this.dialAndOpen(id, req, entry).catch((e: unknown) => {
       this.log.warn("stream open failed", { stream: id, error: scrub(e instanceof Error ? e.message : String(e)) });
-    }).finally(() => this.pendingOpens.delete(id));
+    }).finally(() => {
+      // Only remove our own entry: the id may since belong to a newer open.
+      if (pend.get(id) === entry) pend.delete(id);
+    });
   }
 
-  private async dialAndOpen(id: number, req: { host?: unknown; port?: unknown }): Promise<void> {
+  private async dialAndOpen(id: number, req: { host?: unknown; port?: unknown }, entry: PendingOpen): Promise<void> {
     const host = typeof req.host === "string" ? req.host : "";
     const port = typeof req.port === "number" ? req.port : -1;
     const ws = this.ws;
@@ -373,6 +395,12 @@ export class TunnelClient extends EventEmitter {
       res = await this.opts.dial(host, port, this.allowedPorts);
     } catch {
       res = { ok: false, code: "DIAL_FAIL" };
+    }
+    if (entry.cancelled) {
+      // Gateway timed out / reset this open: it has forgotten the id. Free the slot, no OPEN_OK.
+      this.opts.limits.release();
+      if (res.ok) res.socket.destroy();
+      return;
     }
     if (this.ws !== ws || this.state !== "ready" || this.draining) {
       this.opts.limits.release();
@@ -387,14 +415,16 @@ export class TunnelClient extends EventEmitter {
     }
     const s: Stream = {
       id, socket: res.socket, host, port, sendCredit: this.initialWindow, pending: null,
-      recvOutstanding: 0, recvConsumed: 0, bytesIn: 0, bytesOut: 0, closeSent: false,
+      recvOutstanding: 0, recvConsumed: 0, bytesIn: 0, bytesOut: 0, closeSent: false, localFin: false,
     };
     this.streams.set(id, s);
     this.sendControl(FrameType.OPEN_OK, id, {});
     this.log.info("stream open", { stream: id, host: host.slice(0, 253), port });
     const sock = res.socket;
     sock.on("data", (chunk: Buffer) => this.onSocketData(s, chunk));
-    sock.on("end", () => this.closeStream(s, FLAG_FIN, "eof"));
+    // Target EOF is a one-way shutdown: forward FIN but keep the stream so the
+    // requester's remaining upload still drains to the target.
+    sock.on("end", () => this.halfCloseStream(s));
     sock.on("error", () => this.closeStream(s, FLAG_RST, "socket_error"));
     sock.on("close", () => this.closeStream(s, FLAG_FIN, "closed"));
   }
@@ -418,6 +448,11 @@ export class TunnelClient extends EventEmitter {
       s.bytesOut += n;
     }
     if (!this.streams.has(s.id)) return;
+    if (s.localFin && !s.pending && !s.closeSent) {
+      s.closeSent = true;
+      this.sendControl(FrameType.CLOSE, s.id, { bytesIn: s.bytesIn, bytesOut: s.bytesOut, reason: "eof" }, FLAG_FIN);
+      return;
+    }
     if (s.pending || s.sendCredit <= 0) {
       if (!s.socket.isPaused()) s.socket.pause();
     } else if (s.socket.isPaused()) {
@@ -454,9 +489,25 @@ export class TunnelClient extends EventEmitter {
     this.flushPending(s);
   }
 
+  private halfCloseStream(s: Stream): void {
+    if (!this.streams.has(s.id) || s.localFin) return;
+    s.localFin = true;
+    // Flush whatever credit allows; anything still pending is sent as credit arrives
+    // only if the stream is alive, so send FIN after the buffered tail when possible.
+    if (!s.pending && !s.closeSent) {
+      s.closeSent = true;
+      this.sendControl(FrameType.CLOSE, s.id, { bytesIn: s.bytesIn, bytesOut: s.bytesOut, reason: "eof" }, FLAG_FIN);
+    }
+  }
+
   private onRemoteClose(f: Frame): void {
     const s = this.streams.get(f.streamId);
-    if (!s) return;
+    if (!s) {
+      // OPEN still dialing: remember the cancel so a late success does not send OPEN_OK.
+      const p = this.pendingOpens.get(f.streamId);
+      if (p) p.cancelled = true;
+      return;
+    }
     if (f.flags & FLAG_RST) {
       s.closeSent = true; // peer reset: no reply
       return this.closeStream(s, FLAG_RST, "remote_rst");
