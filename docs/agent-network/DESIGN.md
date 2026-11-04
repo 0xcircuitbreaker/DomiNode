@@ -594,7 +594,7 @@ Each commit must pass `npm run build && npx vitest run && npm run lint`. **MVP =
 
 **End to end after commit 18:**
 1. Run `docker compose up -d`, `npm run db:migrate`, `start:api`, `start:proxy`.
-2. Run `node packages/node-agent/dist/main.js register`, then `run`.
+2. Run `node packages/node-agent/dist/src/main.js register`, then `run`.
 3. `curl -x http://country-US:dn_live_KEY@localhost:8080 https://httpbin.org/ip` should return the node's egress IP. Repeat through `socks5h://…@localhost:1080`.
 4. `curl -x … http://httpbin.org/ip` should return 400 `PLAINTEXT_DISABLED`. With the `allowhttp-1` username flag it should return 200.
 5. `curl -x … http://169.254.169.254/` should return 403 at the gateway. A test-only gateway bypass with a pinned node should get `OPEN_ERR FLOOR_BLOCKED`.
