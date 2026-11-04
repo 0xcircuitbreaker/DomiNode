@@ -162,6 +162,9 @@ export { sendVerificationEmail, sendPasswordResetEmail, sendWaitlistApprovalEmai
 export { US_STATES, MAJOR_US_CITIES } from "./geo-data.js";
 export type { USState, USCity } from "./geo-data.js";
 
+// Agent-network tunnel frame codec
+export * from "./tunnel/frame.js";
+
 // Net guard (SSRF floor)
 export {
   isValidHostname,
