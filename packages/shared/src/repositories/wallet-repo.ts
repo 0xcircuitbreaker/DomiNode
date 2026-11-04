@@ -1,3 +1,4 @@
+import type pg from "pg";
 import { query, getPool } from "../db.js";
 import type { Wallet, WalletTransaction } from "../types.js";
 
@@ -189,11 +190,89 @@ export async function reserveBalance(
   }
 }
 
+/** Outcome of an in-transaction settlement. */
+export type SettleTxResult = "ok" | "partial" | "no_wallet";
+
 /**
- * Settle a session: adjust from reserved amount to actual cost.
- * If actualCostCents > reservedCents, debit the difference (may fail if insufficient).
+ * Settle a personal-wallet session inside a caller-owned transaction.
+ * The caller must have issued BEGIN on `client` and owns COMMIT/ROLLBACK.
+ * "no_wallet" means nothing was written; "partial" means the remaining
+ * balance was charged but did not cover the overage.
+ */
+export async function settleSessionTx(
+  client: Pick<pg.PoolClient, "query">,
+  userId: string,
+  reservedCents: number,
+  actualCostCents: number,
+  sessionId: string,
+): Promise<SettleTxResult> {
+  const walletResult = await client.query<Wallet>(
+    `SELECT id, user_id, balance_cents, currency, last_topped_up FROM wallets WHERE user_id = $1 FOR UPDATE`,
+    [userId],
+  );
+
+  const wallet = walletResult.rows[0];
+  if (!wallet) return "no_wallet";
+
+  const diff = actualCostCents - reservedCents;
+  const sessionLabel = `session ${sessionId.slice(0, 8)}`;
+
+  if (diff > 0) {
+    // Need to charge more — check if balance allows
+    if (wallet.balance_cents < diff) {
+      // Charge whatever is left
+      const additional = wallet.balance_cents;
+      await client.query(
+        `UPDATE wallets SET balance_cents = 0 WHERE id = $1`,
+        [wallet.id],
+      );
+      // Record additional charge (reservation was already recorded)
+      if (additional > 0) {
+        await client.query(
+          `INSERT INTO wallet_transactions (wallet_id, type, amount_cents, description)
+           VALUES ($1, 'debit', $2, $3)`,
+          [wallet.id, additional, `Proxy usage overage (${sessionLabel})`],
+        );
+      }
+      return "partial";
+    }
+
+    await client.query(
+      `UPDATE wallets SET balance_cents = balance_cents - $1 WHERE id = $2`,
+      [diff, wallet.id],
+    );
+    await client.query(
+      `INSERT INTO wallet_transactions (wallet_id, type, amount_cents, description)
+       VALUES ($1, 'debit', $2, $3)`,
+      [wallet.id, diff, `Proxy usage settlement (${sessionLabel})`],
+    );
+  } else if (diff < 0) {
+    // Refund excess reservation in full. A reservation is the user's own money,
+    // so it must never be silently truncated by the balance cap.
+    const refund = -diff;
+    if (wallet.balance_cents + refund > MAX_BALANCE_CENTS) {
+      throw new Error(
+        `Reservation refund of ${refund} cents would exceed wallet balance cap (${sessionLabel}); settlement aborted to avoid fund loss`,
+      );
+    }
+    await client.query(
+      `UPDATE wallets SET balance_cents = balance_cents + $1 WHERE id = $2`,
+      [refund, wallet.id],
+    );
+    await client.query(
+      `INSERT INTO wallet_transactions (wallet_id, type, amount_cents, description)
+       VALUES ($1, 'refund', $2, $3)`,
+      [wallet.id, refund, `Reservation refund (${sessionLabel})`],
+    );
+  }
+  // diff == 0: reservation matched actual cost exactly
+  return "ok";
+}
+
+/**
+ * Settle a session: release reservation and charge actual cost.
+ * If actualCostCents > reservedCents, charge the difference (if balance allows).
  * If actualCostCents < reservedCents, refund the difference.
- * Records a debit transaction for the actual cost.
  */
 export async function settleSession(
   userId: string,
@@ -206,79 +285,13 @@ export async function settleSession(
   try {
     await client.query("BEGIN");
     await client.query("SET LOCAL lock_timeout = '5s'");
-
-    const walletResult = await client.query<Wallet>(
-      `SELECT id, user_id, balance_cents, currency, last_topped_up FROM wallets WHERE user_id = $1 FOR UPDATE`,
-      [userId],
-    );
-
-    const wallet = walletResult.rows[0];
-    if (!wallet) {
+    const r = await settleSessionTx(client, userId, reservedCents, actualCostCents, sessionId);
+    if (r === "no_wallet") {
       await client.query("ROLLBACK");
       return false;
     }
-
-    const diff = actualCostCents - reservedCents;
-    const sessionLabel = `session ${sessionId.slice(0, 8)}`;
-
-    if (diff > 0) {
-      // Need to charge more — check if balance allows
-      if (wallet.balance_cents < diff) {
-        // Charge whatever is left
-        const additional = wallet.balance_cents;
-        await client.query(
-          `UPDATE wallets SET balance_cents = 0 WHERE id = $1`,
-          [wallet.id],
-        );
-        // Record additional charge (reservation was already recorded)
-        if (additional > 0) {
-          await client.query(
-            `INSERT INTO wallet_transactions (wallet_id, type, amount_cents, description)
-             VALUES ($1, 'debit', $2, $3)`,
-            [wallet.id, additional, `Proxy usage overage (${sessionLabel})`],
-          );
-        }
-        await client.query("COMMIT");
-        return false; // partial payment
-      }
-
-      // Debit the additional amount
-      await client.query(
-        `UPDATE wallets SET balance_cents = balance_cents - $1 WHERE id = $2`,
-        [diff, wallet.id],
-      );
-      // Record additional charge (reservation was already recorded)
-      await client.query(
-        `INSERT INTO wallet_transactions (wallet_id, type, amount_cents, description)
-         VALUES ($1, 'debit', $2, $3)`,
-        [wallet.id, diff, `Proxy usage settlement (${sessionLabel})`],
-      );
-    } else if (diff < 0) {
-      // Refund excess reservation in full. A reservation is the user's own money,
-      // so it must never be silently truncated by the balance cap.
-      const refund = -diff;
-      if (wallet.balance_cents + refund > MAX_BALANCE_CENTS) {
-        throw new Error(
-          `Reservation refund of ${refund} cents would exceed wallet balance cap (${sessionLabel}); settlement aborted to avoid fund loss`,
-        );
-      }
-      {
-        await client.query(
-          `UPDATE wallets SET balance_cents = balance_cents + $1 WHERE id = $2`,
-          [refund, wallet.id],
-        );
-        // Record the refund transaction
-        await client.query(
-          `INSERT INTO wallet_transactions (wallet_id, type, amount_cents, description)
-           VALUES ($1, 'refund', $2, $3)`,
-          [wallet.id, refund, `Reservation refund (${sessionLabel})`],
-        );
-      }
-    }
-    // If diff == 0, reservation matched actual cost exactly — no additional transaction needed
-
     await client.query("COMMIT");
-    return true;
+    return r === "ok";
   } catch (err) {
     await client.query("ROLLBACK");
     throw err;

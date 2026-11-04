@@ -1,3 +1,4 @@
+import type pg from "pg";
 import { query } from "../db.js";
 import type { Session, SessionStatus, UsageRecord } from "../types.js";
 
@@ -20,6 +21,23 @@ export async function endSession(
   status: SessionStatus,
 ): Promise<void> {
   await query(
+    `UPDATE sessions
+     SET ended_at = now(),
+         bytes_total = $1,
+         status = $2
+     WHERE id = $3`,
+    [bytesTotal, status, sessionId],
+  );
+}
+
+/** endSession inside a caller-owned transaction. */
+export async function endSessionTx(
+  client: Pick<pg.PoolClient, "query">,
+  sessionId: string,
+  bytesTotal: number,
+  status: SessionStatus,
+): Promise<void> {
+  await client.query(
     `UPDATE sessions
      SET ended_at = now(),
          bytes_total = $1,
@@ -258,4 +276,46 @@ export async function getUsageSummary(
     total_cost_cents: Number(row.total_cost_cents),
     request_count: Number(row.request_count),
   };
+}
+
+/**
+ * Insert a usage record inside a caller-owned transaction (no RETURNING).
+ * Same validation as createUsageRecord.
+ */
+export async function createUsageRecordTx(
+  client: Pick<pg.PoolClient, "query">,
+  record: {
+    user_id: string;
+    session_id: string;
+    bytes_in: number;
+    bytes_out: number;
+    cost_cents: number;
+    proxy_type: string;
+    target_host: string;
+    connect_latency_ms?: number | null;
+  },
+): Promise<void> {
+  for (const [k, v] of [
+    ["bytes_in", record.bytes_in],
+    ["bytes_out", record.bytes_out],
+    ["cost_cents", record.cost_cents],
+  ] as const) {
+    if (!Number.isInteger(v) || v < 0 || v > MAX_INT) {
+      throw new Error(`${k} must be a non-negative integer within valid range`);
+    }
+  }
+  await client.query(
+    `INSERT INTO usage_records (user_id, session_id, bytes_in, bytes_out, cost_cents, proxy_type, target_host, connect_latency_ms)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+    [
+      record.user_id,
+      record.session_id,
+      record.bytes_in,
+      record.bytes_out,
+      record.cost_cents,
+      record.proxy_type,
+      record.target_host,
+      record.connect_latency_ms ?? null,
+    ],
+  );
 }
