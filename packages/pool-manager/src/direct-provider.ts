@@ -34,6 +34,15 @@ export class DirectProvider implements ProxyProvider {
       if (BLOCKED_COUNTRY_CODES.has(upper)) {
         throw new Error(`Country ${upper} is sanctioned and cannot be used as proxy exit`);
       }
+      // Static fallback cannot honor geo targeting -- fail closed rather than
+      // silently exit (and bill) from the wrong country.
+      throw new Error("Fallback provider does not support country targeting");
+    }
+    if (options?.state || options?.city || options?.asn !== undefined) {
+      throw new Error("Fallback provider does not support geo targeting");
+    }
+    if (options?.sticky || options?.sessionId) {
+      throw new Error("Fallback provider does not support sticky sessions");
     }
     const username = this.config.username ?? "";
     const password = this.config.password ?? "";

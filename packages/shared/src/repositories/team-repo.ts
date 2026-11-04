@@ -523,8 +523,12 @@ export async function releaseTeamReservation(
     );
     const wallet = walletResult.rows[0];
     if (!wallet) { await client.query("ROLLBACK"); return; }
-    const cappedRefund = Math.min(amountCents, MAX_BALANCE_CENTS - wallet.balance_cents);
-    if (cappedRefund <= 0) { await client.query("ROLLBACK"); return; }
+    if (wallet.balance_cents + amountCents > MAX_BALANCE_CENTS) {
+      throw new Error(
+        `Team reservation release of ${amountCents} cents would exceed wallet balance cap; release aborted to avoid fund loss`,
+      );
+    }
+    const cappedRefund = amountCents;
     await client.query(
       `UPDATE team_wallets SET balance_cents = balance_cents + $1 WHERE id = $2`,
       [cappedRefund, wallet.id],
@@ -569,9 +573,14 @@ export async function settleTeamSession(
 
     const diff = reservedCents - actualCostCents;
     if (diff > 0) {
-      // Refund excess reservation, capped at MAX_BALANCE_CENTS
-      const cappedRefund = Math.min(diff, MAX_BALANCE_CENTS - wallet.balance_cents);
-      if (cappedRefund > 0) {
+      // Refund excess reservation in full; never silently truncate at the cap.
+      if (wallet.balance_cents + diff > MAX_BALANCE_CENTS) {
+        throw new Error(
+          `Team reservation refund of ${diff} cents would exceed wallet balance cap (session ${sessionId.slice(0, 8)}); settlement aborted to avoid fund loss`,
+        );
+      }
+      const cappedRefund = diff;
+      {
         await client.query(
           `UPDATE team_wallets SET balance_cents = balance_cents + $1 WHERE id = $2`,
           [cappedRefund, wallet.id],
