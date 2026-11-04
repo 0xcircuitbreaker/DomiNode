@@ -1,0 +1,23 @@
+{
+  "name": "@dominusnode/node-agent",
+  "version": "0.1.0",
+  "private": true,
+  "description": "DomiNode relay node agent: dials out to the gateway and serves floor-checked TCP streams",
+  "main": "dist/src/index.js",
+  "types": "dist/src/index.d.ts",
+  "bin": {
+    "dominusnode-node": "dist/src/main.js"
+  },
+  "scripts": {
+    "build": "tsc --build",
+    "clean": "tsc --build --clean && rm -rf dist"
+  },
+  "dependencies": {
+    "@dominusnode/shared": "*",
+    "ethers": "^6.16.0",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.18.1"
+  }
+}

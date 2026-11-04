@@ -22,7 +22,8 @@
     { "path": "packages/metering" },
     { "path": "packages/billing" },
     { "path": "packages/dashboard" },
-    { "path": "packages/mcp-server" }
+    { "path": "packages/mcp-server" },
+    { "path": "packages/node-agent" }
   ],
   "files": []
 }
