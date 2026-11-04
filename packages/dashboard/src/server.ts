@@ -27,6 +27,8 @@ import teamsRoutes from "./routes/teams.js";
 import bugReportRoutes from "./routes/bug-reports.js";
 import referralRoutes from "./routes/referrals.js";
 import agentSecretRoutes from "./routes/agent-secret.js";
+import adminNetworkRoutes from "./routes/admin-network.js";
+import v1Routes from "./routes/v1/index.js";
 
 const log = createLogger("api:server");
 
@@ -221,6 +223,7 @@ export function startApiServer(port: number = 3000): ReturnType<express.Express[
   app.use("/api/wallet", walletRoutes);
   app.use("/api/plans", planRoutes);
   app.use("/api/sessions", sessionRoutes);
+  app.use("/api/admin/network", adminNetworkRoutes);
   app.use("/api/admin", adminRoutes);
   app.use("/api/proxy/config", proxyConfigRoutes);
   app.use("/api/proxy", proxyHealthRoutes);
@@ -233,6 +236,7 @@ export function startApiServer(port: number = 3000): ReturnType<express.Express[
   app.use("/api/bug-reports", bugReportRoutes);
   app.use("/api/referrals", referralRoutes);
   app.use("/api/agent/secret", agentSecretRoutes);
+  app.use("/v1", v1Routes);
 
   // RFC 9116: security.txt
   app.get("/.well-known/security.txt", (_req, res) => {
