@@ -32,6 +32,10 @@ export function attachByteCounters(
     counter.bytesIn += chunk.length;
     checkLimit();
   });
+  // Adding a 'data' listener switches the stream to flowing mode. Pause it so that
+  // client bytes arriving before the caller pipes to upstream stay buffered (and are
+  // delivered + counted once pipe() resumes) instead of being counted and dropped.
+  if (typeof (clientSocket as Readable).pause === "function") (clientSocket as Readable).pause();
 
   upstreamSocket.on("data", (chunk: Buffer) => {
     counter.bytesOut += chunk.length;

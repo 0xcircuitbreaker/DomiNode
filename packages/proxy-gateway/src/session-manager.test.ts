@@ -243,6 +243,22 @@ describe("proxy-gateway/session-manager", () => {
       await endSession(sessId);
     });
 
+    it("caps free-plan session bytes at the per-session reservation, not the whole remaining quota", async () => {
+      mockGetUserPlan.mockResolvedValueOnce({
+        id: "free", name: "Free", pricePerGbCents: 0, monthlyBandwidthBytes: 1073741824,
+        isDefault: true, maxConnections: 10, maxSessionsPerMinute: 30,
+      });
+      mockGetMonthlyUsage.mockResolvedValueOnce(0);
+      mockCreateSession.mockResolvedValueOnce({ id: "sess-free-cap" });
+
+      const counter = makeCounter();
+      const sessId = await startSession("user-free-cap", "example.com", counter);
+      expect(counter.maxBytes).toBe(50 * 1024 * 1024);
+
+      mockEndSessionRepo.mockResolvedValueOnce(undefined);
+      await endSession(sessId);
+    });
+
     it("should skip balance reservation for free plan (price=0)", async () => {
       mockGetUserPlan.mockResolvedValueOnce({
         id: "free",

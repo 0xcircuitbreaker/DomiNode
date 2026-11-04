@@ -207,12 +207,18 @@ setInterval(() => {
   for (const [id, session] of activeSessions) {
     if (now - session.startedAt.getTime() > SESSION_MAX_AGE_MS) {
       log.warn("cleaning up stale session", { sessionId: id });
+      // Close the sockets too: billing settles now, so any traffic after the
+      // sweep would otherwise flow unbilled up to counter.maxBytes.
+      const destroyFn = sessionDestroyCallbacks.get(id);
       endSession(id).catch((err) => {
         log.error("stale session cleanup failed", {
           sessionId: id,
           error: err instanceof Error ? err.message : String(err),
         });
       });
+      if (destroyFn) {
+        try { destroyFn(); } catch { /* best effort */ }
+      }
     }
   }
 }, STALE_CLEANUP_INTERVAL_MS).unref();
@@ -425,8 +431,10 @@ export async function startSession(
   } else if (isFreePlan && planMonthlyBandwidthBytes > 0) {
     // Free plan: cap session at remaining bandwidth
     // Don't give 1MB floor when bandwidth is exhausted — reject at session start instead
+    // Cap at this session's reservation so concurrent sessions cannot each
+    // consume the whole remaining quota.
     const remainingBytes = Math.max(0, planMonthlyBandwidthBytes - monthlyUsage);
-    counter.maxBytes = Math.max(remainingBytes, 1024); // at least 1KB (for small API responses)
+    counter.maxBytes = Math.max(Math.min(remainingBytes, FREE_TIER_RESERVATION_BYTES), 1024); // at least 1KB (for small API responses)
     counter.onLimitExceeded = () => {
       log.warn("free plan byte limit exceeded, terminating", { sessionId, userId, maxBytes: counter.maxBytes });
       endSession(sessionId).catch(() => {});
