@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-vi.mock("@dominusnode/shared", () => ({
+vi.mock("@dominusnode/shared", async () => ({
+  ...(await vi.importActual<Record<string, unknown>>("../../shared/src/net-guard.ts")),
   createLogger: () => ({
     debug: vi.fn(),
     info: vi.fn(),
@@ -14,7 +15,7 @@ const mockResolve6 = vi.fn();
 
 vi.mock("node:dns", () => ({
   promises: {
-    resolve: (...args: unknown[]) => mockResolve(...args),
+    resolve4: (...args: unknown[]) => mockResolve(...args),
     resolve6: (...args: unknown[]) => mockResolve6(...args),
   },
 }));
@@ -28,7 +29,11 @@ import {
 
 describe("proxy-gateway/target-validator", () => {
   beforeEach(() => {
+    mockResolve.mockReset();
+    mockResolve6.mockReset();
     vi.clearAllMocks();
+    // AAAA lookups run in parallel with A; default to "no AAAA records"
+    mockResolve6.mockRejectedValue(new Error("ENODATA"));
   });
 
   describe("isValidHostname", () => {

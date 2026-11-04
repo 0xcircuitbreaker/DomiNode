@@ -161,3 +161,18 @@ export { sendVerificationEmail, sendPasswordResetEmail, sendWaitlistApprovalEmai
 // Geo Data
 export { US_STATES, MAJOR_US_CITIES } from "./geo-data.js";
 export type { USState, USCity } from "./geo-data.js";
+
+// Net guard (SSRF floor)
+export {
+  isValidHostname,
+  isValidPort,
+  isBlockedIp,
+  isBlockedIPv4,
+  isBlockedIPv6,
+  expandIPv6,
+  isBlockedTarget,
+  isBlockedPort,
+  isPublicAddress,
+  resolveAndCheck,
+} from "./net-guard.js";
+export type { ResolveCheckResult } from "./net-guard.js";
