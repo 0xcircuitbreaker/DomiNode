@@ -164,6 +164,7 @@ export type { USState, USCity } from "./geo-data.js";
 
 // Agent-network tunnel frame codec
 export * from "./tunnel/frame.js";
+export * from "./tunnel/auth-sig.js";
 
 // Net guard (SSRF floor)
 export {

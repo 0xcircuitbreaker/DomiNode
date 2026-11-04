@@ -10,7 +10,7 @@ import { validateTarget, isValidHostname, isValidPort } from "./target-validator
 import { incrementUserConns, decrementUserConns } from "./connection-tracker.js";
 import { checkAuthRateLimit, recordAuthFailure } from "./auth-rate-limit.js";
 import { recordRequest, recordError, recordLatency } from "./stats.js";
-import { enforcePolicy, isPlaintextPort } from "./policy-enforcer.js";
+import { enforcePolicy, isPlaintextPort, isFreeRelayBlocked } from "./policy-enforcer.js";
 import { openRelayStream, RelayOpenError, type RelayRuntime, type RelayUpstream } from "./relay.js";
 
 const log = createLogger("proxy:socks5");
@@ -219,6 +219,14 @@ async function handleSocks5Connection(clientSocket: net.Socket, relay: RelayRunt
     ? await planRepo.getTeamPlan(teamId)
     : await planRepo.getUserPlan(userId);
 
+  if (isFreeRelayBlocked(relay.getPolicy(), socksUserPlan)) {
+    clearTimeout(totalHandshakeTimer);
+    log.info("SOCKS5 free plan rejected: PAID_PLAN_REQUIRED");
+    sendReply(clientSocket, REP_NOT_ALLOWED);
+    clientSocket.end();
+    return;
+  }
+
   // Per-user connection limit (plan-aware)
   if (!incrementUserConns(userId, socksUserPlan.maxConnections)) {
     clearTimeout(totalHandshakeTimer);
@@ -409,6 +417,10 @@ async function handleSocks5Connection(clientSocket: net.Socket, relay: RelayRunt
       nodeOwnerUserId: upstream.node.ownerUserId,
       destPort: targetPort,
       requesterWallet: walletAddress,
+      nodeBytes: () => {
+        const rep = (psStream as { nodeReport?: { bytesIn: number; bytesOut: number } | null }).nodeReport;
+        return rep ? BigInt(rep.bytesIn) + BigInt(rep.bytesOut) : null;
+      },
     }, socksUserPlan, logTargetHosts, teamId, walletPolicy.isAgent);
   } catch (err) {
     clearTimeout(totalHandshakeTimer);

@@ -35,6 +35,8 @@ export interface AgentConfig {
   denyDomains: string[];
   /** Extra SPKI pins (base64 SHA-256). Adding pins only makes TLS stricter. */
   spkiPins: string[];
+  /** Extra coordinator ed25519 pubkeys (hex). Can only add to the embedded pins. */
+  coordPins: string[];
 }
 
 export class ConfigError extends Error {
@@ -104,6 +106,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, flags: FlagMap 
     if (!/^[A-Za-z0-9+/]{43}=$/.test(p)) throw new ConfigError("DN_NODE_SPKI_PINS entries must be base64 SHA-256");
   }
 
+  const coordRaw = get("coord-pins", "DN_NODE_COORD_PINS") ?? "";
+  const coordPins = [...new Set(coordRaw.split(",").map((p) => p.trim().toLowerCase()).filter(Boolean))];
+  if (coordPins.length > 16) throw new ConfigError("DN_NODE_COORD_PINS has too many entries");
+  for (const p of coordPins) {
+    if (!/^[0-9a-f]{64}$/.test(p)) throw new ConfigError("DN_NODE_COORD_PINS entries must be 64 hex chars");
+  }
+
   const keyFile = (get("key-file", "DN_NODE_KEY_FILE") ?? "").trim() || defaultKeyFile(env);
 
   return {
@@ -117,6 +126,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, flags: FlagMap 
     maxMbps: num("max-mbps", "DN_NODE_MAX_MBPS", "maxMbps"),
     denyDomains,
     spkiPins,
+    coordPins,
   };
 }
 

@@ -24,6 +24,12 @@ import {
   type ActivePolicy,
   type TunnelAuthNode,
   type NodeIpClass,
+  type ChannelBinding,
+  challengeMessage,
+  authMessage,
+  verifyEd25519,
+  EXPORTER_LABEL,
+  EXPORTER_LENGTH,
 } from "@dominusnode/shared";
 import { TunnelMux, STREAM_WINDOW, type StreamCloseReport } from "./mux.js";
 import { NodeRegistry, ipPrefix, dayOf, type LiveNode, type NodeTunnelHandle } from "./registry.js";
@@ -70,7 +76,11 @@ export interface TunnelServerDeps {
   getPolicy: () => ActivePolicy;
   /** Peer IP geo; null = lookup unavailable (fail closed for public IPs). */
   geoLookup: (ip: string) => GeoInfo | null;
-  /** Optional ed25519 coordinator signature over nonce‖policyVersion‖serverTime (hex). */
+  /**
+   * ed25519 coordinator signature (hex) over challengeMessage(). Required in
+   * production (main.ts refuses to start without COORD_SIGNING_KEY_FILE); nodes
+   * reject an unsigned or mis-signed CHALLENGE.
+   */
   coordSign?: (msg: Buffer) => string;
   /** Known floorHash values; unknown ones lower selection weight. */
   knownFloorHashes?: ReadonlySet<string>;
@@ -114,7 +124,9 @@ interface HelloCaps {
 export class NodeTunnel implements NodeTunnelHandle {
   readonly mux: TunnelMux;
   private decoder = new FrameDecoder();
-  private state: "hello" | "authorizing" | "ready" | "closed" = "hello";
+  private state: "hello" | "challenged" | "authorizing" | "ready" | "closed" = "hello";
+  private nonce = "";
+  private caps: HelloCaps | null = null;
   private preAuthBytes = 0;
   private deadline: NodeJS.Timeout | null;
   private pingTimer: NodeJS.Timeout | null = null;
@@ -129,6 +141,8 @@ export class NodeTunnel implements NodeTunnelHandle {
     readonly node: TunnelAuthNode,
     readonly peerIp: string,
     private readonly server: NodeTunnelServer,
+    /** TLS exporter of this connection; null when TLS terminates upstream (binding "none"). */
+    private readonly exporter: Buffer | null = null,
   ) {
     this.mux = new TunnelMux({
       send: (b) => this.send(b),
@@ -209,21 +223,34 @@ export class NodeTunnel implements NodeTunnelHandle {
   private onFrame(f: Frame): void {
     if (this.state === "hello") {
       if (f.type !== FrameType.HELLO || f.streamId !== 0) throw new TunnelProtocolError("expected HELLO");
-      this.state = "authorizing";
+      this.state = "challenged";
       const caps = this.parseHello(decodeControl(f.payload));
       if (!caps) return this.authFail("BAD_HELLO");
+      if (!this.node.node_pubkey) return this.authFail("NO_PUBKEY");
+      this.caps = caps;
       this.sendChallenge();
+      return;
+    }
+    if (this.state === "challenged") {
+      if (f.type !== FrameType.AUTH || f.streamId !== 0) throw new TunnelProtocolError("expected AUTH");
+      const a = decodeControl<{ sig?: unknown }>(f.payload);
+      let ok = false;
+      try {
+        ok = verifyEd25519(this.node.node_pubkey ?? "", authMessage(this.nonce, this.node.id, this.exporter), a.sig);
+      } catch {
+        ok = false;
+      }
+      this.nonce = ""; // single use
+      if (!ok) return this.authFail("BAD_SIGNATURE");
+      this.state = "authorizing";
+      const caps = this.caps as HelloCaps;
       this.server.authorize(this, caps).catch((e: unknown) => {
         this.server.log.warn("tunnel authorize error", { nodeId: this.node.id, error: e instanceof Error ? e.message.slice(0, 200) : "error" });
         if (this.state === "authorizing") this.authFail("INTERNAL");
       });
       return;
     }
-    if (this.state === "authorizing") {
-      // AUTH (commit 20) is the only frame accepted here; ignore it in the MVP.
-      if (f.type === FrameType.AUTH && f.streamId === 0) return;
-      throw new TunnelProtocolError("unexpected pre-auth frame");
-    }
+    if (this.state === "authorizing") throw new TunnelProtocolError("unexpected pre-auth frame");
     if (f.streamId === 0) {
       switch (f.type) {
         case FrameType.PING:
@@ -270,9 +297,11 @@ export class NodeTunnel implements NodeTunnelHandle {
     const policy = this.server.deps.getPolicy();
     const nonce = randomBytes(32).toString("hex");
     const serverTime = Date.now();
-    const msg = Buffer.concat([Buffer.from(nonce, "hex"), Buffer.from(String(policy.version)), Buffer.from(String(serverTime))]);
+    const binding: ChannelBinding = this.exporter ? "tls-exporter" : "none";
+    this.nonce = nonce;
+    const msg = challengeMessage(nonce, policy.version, serverTime, binding);
     const coordSig = this.server.deps.coordSign ? this.server.deps.coordSign(msg) : "";
-    this.sendControl(FrameType.CHALLENGE, { nonce, policyVersion: policy.version, serverTime, coordSig });
+    this.sendControl(FrameType.CHALLENGE, { nonce, policyVersion: policy.version, serverTime, binding, coordSig });
   }
 
   /** Called by the server once all checks pass. */
@@ -340,6 +369,23 @@ export class NodeTunnel implements NodeTunnelHandle {
   }
 }
 
+/**
+ * RFC 5705 exporter for a directly-terminated TLS socket. Behind a
+ * TLS-terminating proxy (the default deployment: Caddy/nginx -> plain WS) there
+ * is no TLSSocket here, binding falls back to the signed single-use nonce, and
+ * the CHALLENGE announces binding "none".
+ */
+export function tlsExporter(sock: unknown): Buffer | null {
+  const s = sock as { encrypted?: boolean; exportKeyingMaterial?: (len: number, label: string) => Buffer };
+  if (!s || s.encrypted !== true || typeof s.exportKeyingMaterial !== "function") return null;
+  try {
+    const b = s.exportKeyingMaterial(EXPORTER_LENGTH, EXPORTER_LABEL);
+    return Buffer.isBuffer(b) && b.length === EXPORTER_LENGTH ? b : null;
+  } catch {
+    return null;
+  }
+}
+
 export class NodeTunnelServer {
   readonly http: http.Server;
   private readonly wss: WebSocketServer;
@@ -404,7 +450,7 @@ export class NodeTunnelServer {
     if (!peerIp) return rejectUpgrade(socket, 400, "Bad Request");
     this.wss.handleUpgrade(req, socket, head, (ws) => {
       ws.binaryType = "nodebuffer";
-      const t = new NodeTunnel(ws, node, peerIp, this);
+      const t = new NodeTunnel(ws, node, peerIp, this, tlsExporter(req.socket));
       this.tunnels.add(t);
     });
   }

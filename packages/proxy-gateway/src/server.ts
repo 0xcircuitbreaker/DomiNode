@@ -14,7 +14,7 @@ import { incrementUserConns, decrementUserConns } from "./connection-tracker.js"
 import { checkAuthRateLimit, recordAuthFailure } from "./auth-rate-limit.js";
 import { recordRequest, recordError, recordLatency } from "./stats.js";
 import { handleX402Http, handleX402Connect, settleX402ConnectRequest, settleX402HttpRequest, build402ResponseBody, build402ConnectResponse, isX402Verified, getX402Data } from "./x402-handler.js";
-import { enforcePolicy, isPlaintextPort, EXIT_VISIBLE_HEADER } from "./policy-enforcer.js";
+import { enforcePolicy, isFreeRelayBlocked, isPlaintextPort, EXIT_VISIBLE_HEADER } from "./policy-enforcer.js";
 import { openRelayStream, RelayOpenError, type RelayRuntime, type RelayUpstream } from "./relay.js";
 import type { SelectOpts } from "./node-tunnel/selector.js";
 import type { LiveNode } from "./node-tunnel/registry.js";
@@ -167,13 +167,17 @@ function relaySelectOpts(
   };
 }
 
-function relayBinding(auth: AuthResult, node: LiveNode, port: number): RelayBinding {
+function relayBinding(auth: AuthResult, node: LiveNode, port: number, stream?: Duplex): RelayBinding {
   return {
     nodeId: node.nodeId,
     ipClass: node.ipClass,
     nodeOwnerUserId: node.ownerUserId,
     destPort: port,
     requesterWallet: auth.user.wallet_address ?? null,
+    nodeBytes: () => {
+      const rep = (stream as { nodeReport?: { bytesIn: number; bytesOut: number } | null } | undefined)?.nodeReport;
+      return rep ? BigInt(rep.bytesIn) + BigInt(rep.bytesOut) : null;
+    },
   };
 }
 
@@ -406,6 +410,11 @@ async function handleRequest(
     ? await planRepo.getTeamPlan(a.teamId)
     : await planRepo.getUserPlan(a.userId);
 
+  if (isFreeRelayBlocked(relay.getPolicy(), userPlan)) {
+    sendError(clientRes, 402, "PAID_PLAN_REQUIRED", "The relay network requires a paid plan. Top up your wallet to continue.");
+    return;
+  }
+
   // SSRF protection: validate target is not a private/internal address
   const targetCheck = await validateTarget(targetHost, targetPort);
   if (!targetCheck.allowed) {
@@ -493,7 +502,7 @@ async function handleRequest(
 
   let sessionId: string;
   try {
-    sessionId = await startSession(a.userId, targetHost, counter, upstream.latencyMs, relayBinding(a, upstream.node, targetPort),
+    sessionId = await startSession(a.userId, targetHost, counter, upstream.latencyMs, relayBinding(a, upstream.node, targetPort, upstream.stream),
       userPlan, a.user.log_target_hosts ?? false, a.teamId, walletPolicy.isAgent);
   } catch (err) {
     upstream.stream.destroy();
@@ -619,6 +628,11 @@ async function handleConnect(
     ? await planRepo.getTeamPlan(connectTeamId)
     : await planRepo.getUserPlan(userId);
 
+  if (isFreeRelayBlocked(relay.getPolicy(), connectPlan)) {
+    safeSocketWrite(clientSocket, "HTTP/1.1 402 Payment Required\r\nX-DominusNode-Error: PAID_PLAN_REQUIRED\r\nConnection: close\r\n\r\n");
+    return;
+  }
+
   const parsed = parseConnectTarget(req.url ?? "");
   if (!parsed || !isValidHostname(parsed.host) || !isValidPort(parsed.port) || /[\x00-\x1f\x7f]/.test(parsed.host)) {
     safeSocketWrite(clientSocket, "HTTP/1.1 400 Bad Request\r\nX-DominusNode-Error: INVALID_TARGET\r\n\r\n");
@@ -710,7 +724,7 @@ async function handleConnect(
   // Start session BEFORE sending 200 to client (billing race condition fix)
   let sessionId: string;
   try {
-    sessionId = await startSession(userId, targetHost, counter, upstream.latencyMs, relayBinding(auth, upstream.node, targetPort),
+    sessionId = await startSession(userId, targetHost, counter, upstream.latencyMs, relayBinding(auth, upstream.node, targetPort, upstream.stream),
       connectPlan, auth.user.log_target_hosts ?? false, connectTeamId, connectWalletPolicy.isAgent);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

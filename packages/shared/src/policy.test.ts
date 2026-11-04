@@ -80,3 +80,11 @@ describe("validatePolicy", () => {
     expect(policySha256(a)).not.toBe(policySha256(validatePolicy({})));
   });
 });
+
+describe("freeTierRelay", () => {
+  it("defaults to false, accepts booleans, rejects others", () => {
+    expect(validatePolicy({}).freeTierRelay).toBe(false);
+    expect(validatePolicy({ freeTierRelay: true }).freeTierRelay).toBe(true);
+    expect(errs({ freeTierRelay: "yes" })).toContain("freeTierRelay: must be a boolean");
+  });
+});

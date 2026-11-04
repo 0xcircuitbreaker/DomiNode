@@ -22,3 +22,13 @@ export {
   FLAG_RST,
 } from "@dominusnode/shared/dist/src/tunnel/frame.js";
 export type { Frame } from "@dominusnode/shared/dist/src/tunnel/frame.js";
+export {
+  challengeMessage,
+  authMessage,
+  signEd25519,
+  verifyEd25519,
+  loadEd25519PrivateKey,
+  EXPORTER_LABEL,
+  EXPORTER_LENGTH,
+  type ChannelBinding,
+} from "@dominusnode/shared/dist/src/tunnel/auth-sig.js";

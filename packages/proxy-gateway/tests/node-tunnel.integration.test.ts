@@ -6,7 +6,8 @@
 import { describe, it, expect, afterEach } from "vitest";
 import * as net from "node:net";
 import type { Duplex } from "node:stream";
-import { DEFAULT_POLICY, hashNodeKey, type ActivePolicy, type TunnelAuthNode } from "@dominusnode/shared";
+import { generateKeyPairSync } from "node:crypto";
+import { DEFAULT_POLICY, hashNodeKey, signEd25519, ed25519PublicKeyHex, type ActivePolicy, type TunnelAuthNode } from "@dominusnode/shared";
 import { NodeTunnelServer } from "../src/node-tunnel/server.js";
 import { NodeRegistry } from "../src/node-tunnel/registry.js";
 import { NodeSelector } from "../src/node-tunnel/selector.js";
@@ -15,8 +16,10 @@ import { TunnelClient, type DialFn } from "../../node-agent/src/tunnel-client.js
 import { Limits } from "../../node-agent/src/limits.js";
 
 const KEY = "dn_node_" + "ab".repeat(32);
+const COORD = generateKeyPairSync("ed25519");
+const NODE_KP = generateKeyPairSync("ed25519");
 const NODE_ID = "33333333-3333-4333-8333-333333333333";
-const node: TunnelAuthNode = { id: NODE_ID, owner_user_id: "owner", owner_wallet: "0xo", owner_team_id: null, node_pubkey: null,
+const node: TunnelAuthNode = { id: NODE_ID, owner_user_id: "owner", owner_wallet: "0xo", owner_team_id: null, node_pubkey: ed25519PublicKeyHex(NODE_KP.publicKey),
   status: "active", attestation_version: 1, max_streams: 8, max_gb_day: 5, reputation: 5000 };
 const policy: ActivePolicy = { version: 1, sha256: "e".repeat(64), body: DEFAULT_POLICY, createdAt: null };
 const quiet = { info: () => undefined, warn: () => undefined };
@@ -42,6 +45,7 @@ async function setup(dialOverride?: DialFn) {
     getPolicy: () => policy,
     geoLookup: () => ({ country: "US", asn: 64500 }),
     onStreamClose: (_id, r) => reports.push(r),
+    coordSign: (m) => signEd25519(COORD.privateKey, m),
   }, { port: 0, host: "127.0.0.1" });
   const port = await server.listen();
   cleanup.push(() => server.close());
@@ -59,6 +63,8 @@ async function setup(dialOverride?: DialFn) {
     url: `ws://127.0.0.1:${port}/v1/tunnel`, nodeKey: KEY, nodeId: NODE_ID, agentVersion: "it",
     localPorts: [80, 443], caps: { maxStreams: 8, maxMbps: 100, gbPerDay: 5 },
     limits: new Limits({ maxStreams: 8, reqPerSec: 1000, gbPerDay: 5 }), dial, logger: quiet,
+    nodePrivateKeyPem: NODE_KP.privateKey.export({ format: "pem", type: "pkcs8" }).toString(),
+    coordPins: [ed25519PublicKeyHex(COORD.publicKey)],
   });
   cleanup.unshift(() => client.stop());
   const ready = new Promise<void>((r) => client.once("ready", () => r()));

@@ -130,3 +130,8 @@ export function _resetPolicyEnforcer(): void {
   reqLog.clear();
   spendLog.clear();
 }
+
+/** Free-plan requesters are kept off the relay unless policy.freeTierRelay (DESIGN.md §15 R1). */
+export function isFreeRelayBlocked(policy: NetworkPolicy, plan: { pricePerGbCents: number }): boolean {
+  return plan.pricePerGbCents <= 0 && policy.freeTierRelay !== true;
+}

@@ -7,6 +7,7 @@ import { startProxyServer } from "./server.js";
 import { initGeoCheck, lookupPeerGeo } from "./geo-check.js";
 import { NodeRegistry } from "./node-tunnel/registry.js";
 import { NodeSelector } from "./node-tunnel/selector.js";
+import { loadCoordSigner } from "./node-tunnel/coord-key.js";
 import { NodeTunnelServer, resolveTunnelPort } from "./node-tunnel/server.js";
 import { startSocks5Server } from "./socks5.js";
 import { getActiveSessionCount, terminateUserSessions, getActiveSessions } from "./session-manager.js";
@@ -65,7 +66,11 @@ async function main(): Promise<void> {
   const registry = new NodeRegistry();
   registry.startSweep();
   const selector = new NodeSelector(registry, { getPolicy: () => policy.body });
+  const coordSigner = loadCoordSigner(process.env);
+  if (coordSigner) log.info("coordinator signing key loaded", { publicKey: coordSigner.publicKeyHex });
+  else log.warn("COORD_SIGNING_KEY_FILE not set: CHALLENGE frames are unsigned (non-production only)");
   const tunnelServer = new NodeTunnelServer(registry, {
+    coordSign: coordSigner?.sign,
     getNodeForTunnelAuth: nodeRepo.getNodeForTunnelAuth,
     markOnline: nodeRepo.markOnline,
     markOffline: nodeRepo.markOffline,

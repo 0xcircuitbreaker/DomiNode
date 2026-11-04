@@ -43,6 +43,8 @@ export interface RelayBinding {
   nodeOwnerUserId: string;
   destPort: number;
   requesterWallet?: string | null;
+  /** Node-reported byte total from its CLOSE frame, once received (null until then). */
+  nodeBytes?: () => bigint | null;
 }
 
 type ChargeSnapshot = Awaited<ReturnType<typeof tierRepo.getChargeSnapshot>>;
@@ -502,6 +504,15 @@ export async function startSession(
  * If actual < reserved, refunds the difference.
  * If actual > reserved, charges the difference (may partially fail).
  */
+function readNodeBytes(relay: RelayBinding): bigint | null {
+  try {
+    const v = relay.nodeBytes?.() ?? null;
+    return v != null && v >= 0n && v <= 1_099_511_627_776n ? v : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function endSession(sessionId: string): Promise<void> {
   const session = activeSessions.get(sessionId);
   if (!session) return;
@@ -537,6 +548,7 @@ export async function endSession(sessionId: string): Promise<void> {
       reservedCents,
       nodeId: relay.nodeId,
       bytesGateway: BigInt(totalBytes),
+      bytesNode: readNodeBytes(relay),
       bytesIn: counter.bytesIn,
       bytesOut: counter.bytesOut,
       pricePerGbMusd: session.pricePerGbMusd,

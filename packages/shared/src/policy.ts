@@ -39,6 +39,8 @@ export interface NetworkPolicy {
   plaintext: PlaintextMode;
   logRetentionDays: number;
   nodeCapsPerPrefix: { per32: number; per24: number; perAsn: number };
+  /** Allow free-plan requesters on the relay network (default false: 402 PAID_PLAN_REQUIRED). */
+  freeTierRelay: boolean;
 }
 
 export const DEFAULT_POLICY: NetworkPolicy = {
@@ -53,6 +55,7 @@ export const DEFAULT_POLICY: NetworkPolicy = {
   plaintext: "opt_in",
   logRetentionDays: 90,
   nodeCapsPerPrefix: { per32: 2, per24: 8, perAsn: 500 },
+  freeTierRelay: false,
 };
 
 export class PolicyValidationError extends Error {
@@ -134,7 +137,7 @@ const COUNTRY_RE = /^[A-Z]{2}$/;
 const TOP_KEYS = [
   "ports", "categoriesVersion", "denyCategories", "denyDomains", "nodeDefaults",
   "requesterLimits", "sanctionedCountries", "attestation", "plaintext",
-  "logRetentionDays", "nodeCapsPerPrefix",
+  "logRetentionDays", "nodeCapsPerPrefix", "freeTierRelay",
 ] as const;
 
 export interface ValidatePolicyOptions {
@@ -230,6 +233,11 @@ export function validatePolicy(input: unknown, opts: ValidatePolicyOptions = {})
     checkInt(o, "reqPerSec", "requesterLimits", 1, 10000, errors);
     checkInt(o, "dailySpendMusd", "requesterLimits", 0, 100_000_000_000, errors);
     out.requesterLimits = { reqPerSec: o.reqPerSec as number, dailySpendMusd: o.dailySpendMusd as number };
+  }
+
+  if (b.freeTierRelay !== undefined) {
+    if (typeof b.freeTierRelay !== "boolean") errors.push("freeTierRelay: must be a boolean");
+    else out.freeTierRelay = b.freeTierRelay;
   }
 
   if (b.nodeCapsPerPrefix !== undefined && checkObject(b.nodeCapsPerPrefix, "nodeCapsPerPrefix", ["per32", "per24", "perAsn"], errors)) {
