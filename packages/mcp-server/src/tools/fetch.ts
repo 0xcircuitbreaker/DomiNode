@@ -11,7 +11,7 @@ export function registerFetchTools(server: McpServer, config: McpConfig): void {
     {
       url: z.string().max(8192).describe("URL to fetch (http: or https:)"),
       method: z.enum(["GET", "HEAD"]).default("GET").describe("HTTP method (read-only for safety)"),
-      headers: z.record(z.string().max(8192)).optional()
+      headers: z.record(z.string(), z.string().max(8192)).optional()
         .refine(
           (h) => !h || Object.keys(h).length <= 50,
           "Maximum 50 custom headers allowed"
