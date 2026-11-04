@@ -599,3 +599,50 @@ Each commit must pass `npm run build && npx vitest run && npm run lint`. **MVP =
 4. `curl -x … http://httpbin.org/ip` should return 400 `PLAINTEXT_DISABLED`. With the `allowhttp-1` username flag it should return 200.
 5. `curl -x … http://169.254.169.254/` should return 403 at the gateway. A test-only gateway bypass with a pinned node should get `OPEN_ERR FLOOR_BLOCKED`.
 6. `SELECT gross_musd,node_musd,platform_musd,payment_rail FROM relay_charges ORDER BY created_at DESC LIMIT 1;` should show the invariant holding and a matching `node_credit_transactions('earn')` row.
+
+## 15. Revision 1 — economics, tiers, payouts, policy (supersedes earlier sections where they conflict)
+
+Source research and citations: `ECONOMICS.md`.
+
+- **Pricing (§5):** `network_pricing` seeds `residential` = 500000 µUSD ($0.50/GB) and `dc` = 200000 µUSD ($0.20/GB). No minimum purchase. Admin-editable.
+- **Tiers (replaces the 7000 bps split seed):** new `node_tiers` table, per beneficial owner, recalculated daily, promote one step at a time, demote immediately on quality failure (3-day grace for uptime misses).
+
+  | Tier | Node share | Paid-tenure days | 30d uptime | Active IPs | Reputation | Hold |
+  |---|---|---|---|---|---|---|
+  | Probation | 25% | 0 | — | ≥1 | ≥0.30 | 14 d |
+  | Bronze | 30% | ≥7 | ≥80% | ≥1 | ≥0.50 | 7 d |
+  | Silver | 35% | ≥30 | ≥90% | ≥3 | ≥0.60 | 7 d |
+  | Gold | 40% | ≥60 | ≥93% | ≥10 | ≥0.70 | 5 d |
+  | Platinum | 45% | ≥90 | ≥95% | ≥25 | ≥0.80 | 3 d |
+  | Partner | 50% | ≥180 | ≥97% | ≥50 | ≥0.85, no clawback in 90 d | 3 d |
+
+  Hard ceiling: `CHECK (node_share_bps BETWEEN 0 AND 5000)`. Thresholds are admin-editable rows.
+  - Tenure days and active IPs count only matured, undisputed paid traffic from other principals.
+  - An active IP is a distinct /32 with at least 3 distinct paying requesters in 7 days.
+  - Tier inputs are aggregated per beneficial owner, linked by payout wallet, funding source or team.
+  - `relay_charges` snapshots both `tier_id` and `node_share_bps` at session start.
+  - `GET /v1/node/tier` returns the current tier, progress to the next tier and any demotion reason.
+- **Per-owner node cap (§4):** the flat cap of 5 is removed. Node caps scale by tier: Probation 10, Bronze 25, Silver 100, Gold 500, Platinum and Partner 2000. The per-/32, /24 and ASN sybil caps stay as they are.
+- **Payouts (replaces the §6.4 501):** off-chain earnings ledger, then a USDC push on Base.
+  - Daily automatic push once available credit is at least $1. The platform pays gas, and payouts are batched.
+  - `POST /v1/credits/withdraw` lets an agent withdraw on demand. Minimum $1, fresh wallet signature, idempotency key.
+  - Optional `auto_convert_pct` turns credit into requester balance.
+  - Payout wallets are OFAC-screened at registration and again before each payout.
+  - Changing the payout wallet needs a signature from the old wallet and a 72 h cooldown.
+  - Daily withdrawal limit per tier: $50 (Probation) up to $5,000 (Partner).
+  - Tax: request a W-9/W-8 at $1,500 cumulative per year, and hold payouts above $2,000 until it is received.
+  - New tables: `payout_wallets`, `node_payouts`.
+  - Credits are never transferable between users, and buyers' prepaid balances are never withdrawable.
+- **Plaintext HTTP (§1 T2):** this is policy-driven rather than fixed.
+  - `policy.plaintext` is one of `deny`, `opt_in` or `allow`. The default is `opt_in`.
+  - Opting in is a single `allowhttp-1` username flag, with no extra round-trip.
+  - The response carries `X-DominusNode-Exit-Visible: 1` so agents know the exit can read the traffic.
+  - All other abuse controls follow ABUSE_CONTROLS.md: coordinator rules are admin-editable, and the node floor is fixed.
+- **Rollout gate (§12.3):** there are two stages.
+  - Smoke gate: at least 3 healthy nodes for 2 h in staging, plus one full earn → mature → withdraw cycle with `maturation_hours=0` and a $0.10 minimum on Base Sepolia.
+  - Production soak gate: at least 20 nodes for 72 h.
+- **Plan (§13) additions:**
+  - 9b: `node_tiers`, `payout_wallets`, `node_payouts` schema and repositories.
+  - 22b: tier job and payout job.
+  - 27b: admin Tiers and Payouts tabs.
+  - Payouts stay disabled until counsel signs off on the open items in ECONOMICS.md §4.
