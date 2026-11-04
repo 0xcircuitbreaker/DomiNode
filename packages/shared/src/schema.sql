@@ -116,7 +116,8 @@ CREATE INDEX IF NOT EXISTS idx_usage_user_created
 CREATE INDEX IF NOT EXISTS idx_usage_session
   ON usage_records(session_id);
 
--- CHECK constraint on proxy_type
+-- CHECK constraint on proxy_type. Add-only (never drop): the relay migration
+-- later widens it to include 'relay'; on rerun duplicate_object keeps that.
 DO $$ BEGIN
   ALTER TABLE usage_records ADD CONSTRAINT chk_usage_proxy_type
     CHECK (proxy_type IN ('dc', 'residential'));
@@ -799,10 +800,17 @@ END $$;
 -- ─── x402 + PayPal provider migration ──────────────────────────────────
 
 DO $$ BEGIN
-  ALTER TABLE payment_invoices DROP CONSTRAINT IF EXISTS payment_invoices_provider_check;
-  ALTER TABLE payment_invoices ADD CONSTRAINT payment_invoices_provider_check
-    CHECK (provider IN ('stripe', 'nowpayments', 'paypal', 'x402'));
-EXCEPTION WHEN OTHERS THEN NULL;
+  -- Only widen when the constraint does not already allow x402. A rerun must
+  -- not narrow it again (the relay migration below adds 'tempo').
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'payment_invoices_provider_check'
+      AND pg_get_constraintdef(oid) LIKE '%x402%'
+  ) THEN
+    ALTER TABLE payment_invoices DROP CONSTRAINT IF EXISTS payment_invoices_provider_check;
+    ALTER TABLE payment_invoices ADD CONSTRAINT payment_invoices_provider_check
+      CHECK (provider IN ('stripe', 'nowpayments', 'paypal', 'x402'));
+  END IF;
 END $$;
 
 -- ─── Agentic wallet policy fields: daily budget + domain allowlist ────
@@ -1090,8 +1098,12 @@ CREATE INDEX IF NOT EXISTS idx_pow_challenges_created
 CREATE INDEX IF NOT EXISTS idx_pow_challenges_ip_active
   ON pow_challenges(ip_address) WHERE NOT consumed;
 
-ALTER TABLE pow_challenges ADD CONSTRAINT chk_pow_prefix_length
-  CHECK (length(prefix) >= 16 AND length(prefix) <= 128);
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'chk_pow_prefix_length') THEN
+    ALTER TABLE pow_challenges ADD CONSTRAINT chk_pow_prefix_length
+      CHECK (length(prefix) >= 16 AND length(prefix) <= 128);
+  END IF;
+END $$;
 
 -- ─── Per-Agent Secrets ─────────────────────────────────────────────
 
@@ -1121,4 +1133,330 @@ ON CONFLICT (table_name) DO NOTHING;
 
 INSERT INTO schema_migrations (version, description) VALUES
   ('1.6.0', 'Add PoW challenges and per-agent secrets tables for autonomous AI agent registration')
+ON CONFLICT (version) DO NOTHING;
+
+-- ═══════════════════════════════════════════════════════════════════
+-- Agent Relay Network (docs/agent-network/DESIGN.md §5, §6, §15 Rev 1)
+-- All money in integer µUSD (1 cent = 10_000 µUSD). Idempotent.
+-- ═══════════════════════════════════════════════════════════════════
+
+-- ─── Nodes ──────────────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS nodes (
+  id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  owner_user_id       UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  owner_wallet        TEXT NOT NULL CHECK (owner_wallet ~ '^0x[0-9a-f]{40}$'),
+  node_key_hash       TEXT NOT NULL UNIQUE CHECK (length(node_key_hash) = 64),
+  node_pubkey         TEXT UNIQUE CHECK (node_pubkey IS NULL OR node_pubkey ~ '^[0-9a-f]{64}$'),
+  status              TEXT NOT NULL DEFAULT 'pending'
+                      CHECK (status IN ('pending','active','cooldown','quarantined','suspended','revoked')),
+  attestation_version INTEGER NOT NULL CHECK (attestation_version BETWEEN 1 AND 100000),
+  attestation_sig     TEXT NOT NULL CHECK (length(attestation_sig) BETWEEN 132 AND 200),
+  observed_ip         INET,
+  ip_prefix24         CIDR,
+  asn                 BIGINT CHECK (asn IS NULL OR asn BETWEEN 0 AND 4294967295),
+  country             CHAR(2) CHECK (country IS NULL OR country ~ '^[A-Z]{2}$'),
+  ip_class            TEXT CHECK (ip_class IS NULL OR ip_class IN ('residential','dc','mobile','unknown')),
+  max_streams         INTEGER NOT NULL DEFAULT 32 CHECK (max_streams BETWEEN 1 AND 1024),
+  max_gb_day          INTEGER NOT NULL DEFAULT 5  CHECK (max_gb_day BETWEEN 1 AND 10000),
+  reputation          INTEGER NOT NULL DEFAULT 3000 CHECK (reputation BETWEEN 0 AND 10000),
+  byte_disputes       INTEGER NOT NULL DEFAULT 0 CHECK (byte_disputes BETWEEN 0 AND 1000000),
+  agent_version       TEXT CHECK (agent_version IS NULL OR length(agent_version) <= 32),
+  floor_hash          TEXT CHECK (floor_hash IS NULL OR length(floor_hash) = 64),
+  last_seen_at        TIMESTAMPTZ,
+  created_at          TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_nodes_owner ON nodes(owner_user_id);
+CREATE INDEX IF NOT EXISTS idx_nodes_select ON nodes(status, country, ip_class);
+CREATE INDEX IF NOT EXISTS idx_nodes_prefix ON nodes(ip_prefix24) WHERE status IN ('pending','active');
+
+-- Consumed atomically via DELETE ... RETURNING (like wallet_challenges)
+CREATE TABLE IF NOT EXISTS node_challenges (
+  nonce_hash   TEXT PRIMARY KEY CHECK (length(nonce_hash) = 64),
+  user_id      UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  expires_at   TIMESTAMPTZ NOT NULL,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_node_challenges_expires ON node_challenges(expires_at);
+
+CREATE TABLE IF NOT EXISTS node_daily_stats (
+  node_id   UUID NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
+  day       DATE NOT NULL,
+  bytes     BIGINT  NOT NULL DEFAULT 0 CHECK (bytes BETWEEN 0 AND 1000000000000000),
+  streams   INTEGER NOT NULL DEFAULT 0 CHECK (streams BETWEEN 0 AND 2000000000),
+  failures  INTEGER NOT NULL DEFAULT 0 CHECK (failures BETWEEN 0 AND 2000000000),
+  burns     INTEGER NOT NULL DEFAULT 0 CHECK (burns BETWEEN 0 AND 2000000000),
+  PRIMARY KEY (node_id, day)
+);
+
+CREATE TABLE IF NOT EXISTS node_reputation (
+  node_id        UUID NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
+  target_etld1   TEXT NOT NULL CHECK (length(target_etld1) BETWEEN 1 AND 253),
+  ok_count       INTEGER NOT NULL DEFAULT 0 CHECK (ok_count BETWEEN 0 AND 2147483647),
+  burn_count     INTEGER NOT NULL DEFAULT 0 CHECK (burn_count BETWEEN 0 AND 2147483647),
+  cooldown_until TIMESTAMPTZ,
+  PRIMARY KEY (node_id, target_etld1)
+);
+
+-- ─── Coordinator policy (published at /v1/policy) ───────────────────
+
+CREATE TABLE IF NOT EXISTS network_policy (
+  version      SERIAL PRIMARY KEY,
+  body         JSONB NOT NULL CHECK (pg_column_size(body) <= 262144),
+  body_sha256  TEXT NOT NULL CHECK (length(body_sha256) = 64),
+  created_by   UUID REFERENCES users(id),
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- ─── Pricing (per ip_class; 'any' = default) ────────────────────────
+
+CREATE TABLE IF NOT EXISTS network_pricing (
+  ip_class          TEXT PRIMARY KEY CHECK (ip_class IN ('any','residential','dc','mobile')),
+  price_per_gb_musd BIGINT NOT NULL CHECK (price_per_gb_musd BETWEEN 1000 AND 5000000),
+  updated_by        UUID REFERENCES users(id),
+  updated_at        TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+-- Rev 1 §15: residential $0.50/GB, dc $0.20/GB
+INSERT INTO network_pricing (ip_class, price_per_gb_musd) VALUES
+  ('any',         200000),
+  ('residential', 500000),
+  ('dc',          200000)
+ON CONFLICT (ip_class) DO NOTHING;
+
+-- ─── Revenue split config (append-only, versioned) ──────────────────
+-- Rev 1: the per-charge share comes from node_tiers; this table keeps
+-- maturation settings. node_share_bps capped at 5000 (§15 hard ceiling).
+
+CREATE TABLE IF NOT EXISTS revenue_split_config (
+  id                 SERIAL PRIMARY KEY,
+  node_share_bps     INTEGER NOT NULL CHECK (node_share_bps BETWEEN 0 AND 5000),
+  maturation_hours   INTEGER NOT NULL DEFAULT 168 CHECK (maturation_hours BETWEEN 0 AND 2160),
+  effective_from     TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by         UUID REFERENCES users(id),
+  note               TEXT CHECK (note IS NULL OR length(note) <= 500),
+  created_at         TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+INSERT INTO revenue_split_config (node_share_bps, note)
+  SELECT 2500, 'seed (probation default; per-owner share from node_tiers)'
+  WHERE NOT EXISTS (SELECT 1 FROM revenue_split_config);
+
+-- ─── Node tiers (Rev 1 §15) ─────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS node_tiers (
+  id                       SMALLINT PRIMARY KEY CHECK (id BETWEEN 1 AND 100),
+  name                     TEXT NOT NULL UNIQUE CHECK (length(name) BETWEEN 1 AND 32),
+  rank                     SMALLINT NOT NULL UNIQUE CHECK (rank BETWEEN 0 AND 100),
+  node_share_bps           INTEGER NOT NULL CHECK (node_share_bps BETWEEN 0 AND 5000),
+  min_tenure_days          INTEGER NOT NULL CHECK (min_tenure_days BETWEEN 0 AND 3650),
+  min_uptime_bps           INTEGER NOT NULL CHECK (min_uptime_bps BETWEEN 0 AND 10000),
+  min_active_ips           INTEGER NOT NULL CHECK (min_active_ips BETWEEN 0 AND 1000000),
+  min_reputation           INTEGER NOT NULL CHECK (min_reputation BETWEEN 0 AND 10000),
+  no_clawback_days         INTEGER NOT NULL DEFAULT 0 CHECK (no_clawback_days BETWEEN 0 AND 3650),
+  hold_days                INTEGER NOT NULL CHECK (hold_days BETWEEN 0 AND 90),
+  max_nodes                INTEGER NOT NULL CHECK (max_nodes BETWEEN 1 AND 100000),
+  daily_withdraw_limit_musd BIGINT NOT NULL CHECK (daily_withdraw_limit_musd BETWEEN 0 AND 100000000000),
+  updated_by               UUID REFERENCES users(id),
+  updated_at               TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+INSERT INTO node_tiers (id, name, rank, node_share_bps, min_tenure_days, min_uptime_bps,
+                        min_active_ips, min_reputation, no_clawback_days, hold_days,
+                        max_nodes, daily_withdraw_limit_musd) VALUES
+  (1, 'probation', 0, 2500,   0,    0,  1, 3000,  0, 14,   10,   50000000),
+  (2, 'bronze',    1, 3000,   7, 8000,  1, 5000,  0,  7,   25,  250000000),
+  (3, 'silver',    2, 3500,  30, 9000,  3, 6000,  0,  7,  100,  500000000),
+  (4, 'gold',      3, 4000,  60, 9300, 10, 7000,  0,  5,  500, 1000000000),
+  (5, 'platinum',  4, 4500,  90, 9500, 25, 8000,  0,  3, 2000, 2500000000),
+  (6, 'partner',   5, 5000, 180, 9700, 50, 8500, 90,  3, 2000, 5000000000)
+ON CONFLICT (id) DO NOTHING;
+
+-- Owner tier columns (per beneficial owner; recalculated daily)
+ALTER TABLE users ADD COLUMN IF NOT EXISTS node_tier_id SMALLINT REFERENCES node_tiers(id);
+ALTER TABLE users ADD COLUMN IF NOT EXISTS node_tier_changed_at TIMESTAMPTZ;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS node_tier_grace_until TIMESTAMPTZ;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS node_tier_demotion_reason TEXT;
+DO $$ BEGIN
+  ALTER TABLE users ADD CONSTRAINT chk_users_node_tier_demotion_reason
+    CHECK (node_tier_demotion_reason IS NULL OR length(node_tier_demotion_reason) <= 200);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+-- ─── Existing-table changes (must precede relay_charges FK use) ─────
+
+ALTER TABLE sessions ADD COLUMN IF NOT EXISTS node_id UUID REFERENCES nodes(id) ON DELETE SET NULL;
+ALTER TABLE sessions ADD COLUMN IF NOT EXISTS dest_port INTEGER;
+DO $$ BEGIN
+  ALTER TABLE sessions ADD CONSTRAINT chk_sessions_dest_port
+    CHECK (dest_port IS NULL OR dest_port BETWEEN 1 AND 65535);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+CREATE INDEX IF NOT EXISTS idx_sessions_node ON sessions(node_id) WHERE node_id IS NOT NULL;
+
+DO $$ BEGIN
+  ALTER TABLE usage_records DROP CONSTRAINT IF EXISTS chk_usage_proxy_type;
+  ALTER TABLE usage_records DROP CONSTRAINT IF EXISTS usage_records_proxy_type_check;
+  ALTER TABLE usage_records ADD CONSTRAINT chk_usage_proxy_type
+    CHECK (proxy_type IN ('dc', 'residential', 'relay'));
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'payment_invoices_provider_check'
+      AND pg_get_constraintdef(oid) LIKE '%tempo%'
+  ) THEN
+    ALTER TABLE payment_invoices DROP CONSTRAINT IF EXISTS payment_invoices_provider_check;
+    ALTER TABLE payment_invoices ADD CONSTRAINT payment_invoices_provider_check
+      CHECK (provider IN ('stripe', 'nowpayments', 'paypal', 'x402', 'tempo'));
+  END IF;
+END $$;
+
+-- ─── Per-charge split ledger ────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS relay_charges (
+  id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  -- GDPR: financial ledger rows are retained but anonymised; references to
+  -- deleted users/nodes/sessions become NULL. Writers must always set them.
+  session_id         UUID UNIQUE REFERENCES sessions(id) ON DELETE SET NULL,
+  requester_user_id  UUID REFERENCES users(id) ON DELETE SET NULL,
+  node_id            UUID REFERENCES nodes(id) ON DELETE SET NULL,
+  node_owner_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+  payment_rail       TEXT NOT NULL CHECK (payment_rail IN ('wallet','team','agentic_wallet','x402','mpp','free')),
+  bytes_gateway      BIGINT NOT NULL CHECK (bytes_gateway BETWEEN 0 AND 1099511627776),
+  bytes_node         BIGINT CHECK (bytes_node IS NULL OR bytes_node BETWEEN 0 AND 1099511627776),
+  price_per_gb_musd  BIGINT NOT NULL CHECK (price_per_gb_musd BETWEEN 1000 AND 5000000),
+  gross_musd         BIGINT NOT NULL CHECK (gross_musd BETWEEN 0 AND 2147483647000000),
+  node_musd          BIGINT NOT NULL CHECK (node_musd BETWEEN 0 AND 2147483647000000),
+  platform_musd      BIGINT NOT NULL CHECK (platform_musd BETWEEN 0 AND 2147483647000000),
+  split_config_id    INTEGER NOT NULL REFERENCES revenue_split_config(id),
+  tier_id            SMALLINT NOT NULL REFERENCES node_tiers(id),
+  node_share_bps     INTEGER NOT NULL CHECK (node_share_bps BETWEEN 0 AND 5000),
+  zero_reason        TEXT CHECK (zero_reason IS NULL OR zero_reason IN ('self_dealing','quarantined','collusion_hold','free_tier')),
+  disputed           BOOLEAN NOT NULL DEFAULT false,
+  matures_at         TIMESTAMPTZ NOT NULL,
+  matured            BOOLEAN NOT NULL DEFAULT false,
+  created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT chk_rc_split_sum CHECK (node_musd + platform_musd = gross_musd)
+);
+CREATE INDEX IF NOT EXISTS idx_rc_created ON relay_charges(created_at);
+CREATE INDEX IF NOT EXISTS idx_rc_node ON relay_charges(node_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_rc_owner ON relay_charges(node_owner_user_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_rc_mature ON relay_charges(matures_at) WHERE NOT matured AND NOT disputed;
+
+-- ─── Node credits (off-chain earnings ledger) ───────────────────────
+
+CREATE TABLE IF NOT EXISTS node_credit_accounts (
+  user_id          UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  pending_musd     BIGINT NOT NULL DEFAULT 0 CHECK (pending_musd   BETWEEN 0 AND 1000000000000000),
+  available_musd   BIGINT NOT NULL DEFAULT 0 CHECK (available_musd BETWEEN 0 AND 1000000000000000),
+  auto_convert_pct INTEGER NOT NULL DEFAULT 0 CHECK (auto_convert_pct BETWEEN 0 AND 100),
+  frozen           BOOLEAN NOT NULL DEFAULT false,
+  -- §15 tax: W-9/W-8 collected at $1,500 cumulative/year; payouts above
+  -- $2,000 held ('held_tax') until received.
+  tax_form_status       TEXT NOT NULL DEFAULT 'not_required'
+                        CHECK (tax_form_status IN ('not_required','requested','received','rejected')),
+  tax_form_type         TEXT CHECK (tax_form_type IS NULL OR tax_form_type IN ('W-9','W-8BEN','W-8BEN-E')),
+  tax_form_received_at  TIMESTAMPTZ,
+  tax_year              SMALLINT CHECK (tax_year IS NULL OR tax_year BETWEEN 2020 AND 2100),
+  ytd_paid_musd         BIGINT NOT NULL DEFAULT 0 CHECK (ytd_paid_musd BETWEEN 0 AND 1000000000000000),
+  updated_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT chk_nca_tax_received CHECK ((tax_form_status = 'received') = (tax_form_received_at IS NOT NULL))
+);
+-- FOLLOW-UP (repository commits): the GDPR deletion transaction must, in the
+-- same BEGIN/COMMIT, delete node_challenges/node_credit_transactions rows and
+-- rely on the SET NULL FKs above for relay_charges, node_payouts and sessions.
+
+CREATE TABLE IF NOT EXISTS node_credit_transactions (
+  id              BIGSERIAL PRIMARY KEY,
+  user_id         UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  type            TEXT NOT NULL CHECK (type IN ('earn','mature','clawback','convert_to_wallet','withdraw','withdraw_reversal')),
+  amount_musd     BIGINT NOT NULL CHECK (amount_musd BETWEEN 1 AND 1000000000000000),
+  relay_charge_id UUID REFERENCES relay_charges(id),
+  external_ref    TEXT CHECK (external_ref IS NULL OR length(external_ref) <= 128),
+  created_by      UUID REFERENCES users(id),
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_nct_user ON node_credit_transactions(user_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_nct_charge ON node_credit_transactions(relay_charge_id)
+  WHERE relay_charge_id IS NOT NULL;
+
+-- ─── Metadata-only abuse log: NO payload/url/path/query columns ─────
+
+CREATE TABLE IF NOT EXISTS relay_abuse_log (
+  id                BIGSERIAL PRIMARY KEY,
+  ts                TIMESTAMPTZ NOT NULL DEFAULT now(),
+  session_id        UUID NOT NULL,
+  requester_user_id UUID NOT NULL,
+  node_id           UUID NOT NULL,
+  dest_host         TEXT NOT NULL CHECK (length(dest_host) BETWEEN 1 AND 253),
+  dest_port         INTEGER NOT NULL CHECK (dest_port BETWEEN 1 AND 65535),
+  bytes             BIGINT NOT NULL CHECK (bytes BETWEEN 0 AND 1099511627776)
+);
+CREATE INDEX IF NOT EXISTS idx_ral_node_ts ON relay_abuse_log(node_id, ts);
+CREATE INDEX IF NOT EXISTS idx_ral_ts ON relay_abuse_log(ts);
+
+-- ─── MPP idempotency (x402 keeps x402_transactions) ─────────────────
+
+ALTER TABLE x402_transactions ADD COLUMN IF NOT EXISTS facilitator TEXT;
+DO $$ BEGIN
+  ALTER TABLE x402_transactions ADD CONSTRAINT x402_facilitator_chk
+    CHECK (facilitator IS NULL OR facilitator IN ('coinbase','payai','selfhosted'));
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+CREATE TABLE IF NOT EXISTS mpp_transactions (
+  id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  payment_hash TEXT NOT NULL UNIQUE CHECK (length(payment_hash) = 64),
+  user_id      UUID REFERENCES users(id),
+  amount_musd  BIGINT NOT NULL CHECK (amount_musd BETWEEN 1 AND 10000000000),
+  status       TEXT NOT NULL CHECK (status IN ('claimed','verified','settled','failed','released')),
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_mpp_user ON mpp_transactions(user_id) WHERE user_id IS NOT NULL;
+
+-- ─── Payouts (Rev 1 §15: USDC push on Base) ─────────────────────────
+
+CREATE TABLE IF NOT EXISTS payout_wallets (
+  id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id           UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  address           TEXT NOT NULL CHECK (address ~ '^0x[0-9a-f]{40}$'),
+  chain             TEXT NOT NULL DEFAULT 'base' CHECK (chain IN ('base','base-sepolia')),
+  status            TEXT NOT NULL DEFAULT 'pending'
+                    CHECK (status IN ('pending','active','superseded','blocked')),
+  ofac_checked_at   TIMESTAMPTZ,
+  change_sig        TEXT CHECK (change_sig IS NULL OR length(change_sig) BETWEEN 132 AND 200),
+  active_from       TIMESTAMPTZ NOT NULL DEFAULT now(),   -- +72h cooldown on change
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_payout_wallets_one_live
+  ON payout_wallets(user_id) WHERE status IN ('pending','active');
+CREATE INDEX IF NOT EXISTS idx_payout_wallets_address ON payout_wallets(address);
+
+CREATE TABLE IF NOT EXISTS node_payouts (
+  id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  -- GDPR: payout history retained (tax/audit) but anonymised on user deletion.
+  user_id           UUID REFERENCES users(id) ON DELETE SET NULL,
+  payout_wallet_id  UUID REFERENCES payout_wallets(id) ON DELETE SET NULL,
+  idempotency_key   TEXT NOT NULL CHECK (length(idempotency_key) BETWEEN 8 AND 128),
+  amount_musd       BIGINT NOT NULL CHECK (amount_musd BETWEEN 1 AND 100000000000),
+  trigger           TEXT NOT NULL CHECK (trigger IN ('auto','on_demand')),
+  status            TEXT NOT NULL DEFAULT 'pending'
+                    CHECK (status IN ('pending','held_tax','submitted','confirmed','failed','reversed')),
+  batch_id          UUID,
+  tx_hash           TEXT CHECK (tx_hash IS NULL OR tx_hash ~ '^0x[0-9a-f]{64}$'),
+  failure_reason    TEXT CHECK (failure_reason IS NULL OR length(failure_reason) <= 200),
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (user_id, idempotency_key)
+);
+CREATE INDEX IF NOT EXISTS idx_node_payouts_user ON node_payouts(user_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_node_payouts_status ON node_payouts(status) WHERE status IN ('pending','submitted');
+
+INSERT INTO data_retention_policies (table_name, retention_days, description) VALUES
+  ('node_challenges', 1,  'Node registration challenges purged after 1 day'),
+  ('relay_abuse_log', 90, 'Relay metadata-only abuse log (policy.logRetentionDays may shorten)')
+ON CONFLICT (table_name) DO NOTHING;
+
+INSERT INTO schema_migrations (version, description) VALUES
+  ('1.7.0', 'Agent relay network: nodes, pricing, tiers, relay charges, node credits, payouts')
 ON CONFLICT (version) DO NOTHING;
