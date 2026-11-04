@@ -55,30 +55,42 @@ export interface PublishResult {
  * version (grow-only sanctions, non-decreasing attestation) and the insert run
  * in one transaction under an advisory lock + FOR UPDATE on the latest row.
  */
+/** Publish on the caller's transaction client (lock + FOR UPDATE + validate + insert). */
+export async function publishPolicyTx(
+  client: { query<R>(text: string, values?: unknown[]): Promise<{ rows: R[] }> },
+  input: unknown,
+  createdBy: string | null,
+): Promise<PublishResult> {
+  await client.query("SELECT pg_advisory_xact_lock($1)", [POLICY_PUBLISH_LOCK]);
+  const cur = await client.query<PolicyRow>(
+    `SELECT version, body, body_sha256, created_at FROM network_policy ORDER BY version DESC LIMIT 1 FOR UPDATE`,
+  );
+  const currentRow = cur.rows[0];
+  const current = currentRow ? validatePolicy(currentRow.body) : DEFAULT_POLICY;
+  const body = validatePolicy(input, { current });
+  const sha256 = policySha256(body);
+  const ins = await client.query<{ version: number }>(
+    `INSERT INTO network_policy (body, body_sha256, created_by) VALUES ($1::jsonb, $2, $3) RETURNING version`,
+    [JSON.stringify(body), sha256, createdBy],
+  );
+  const insRow = ins.rows[0];
+  if (!insRow) throw new Error("policy insert returned no row");
+  return {
+    version: insRow.version,
+    sha256,
+    body,
+    previousVersion: currentRow?.version ?? 0,
+    attestationRaised: body.attestation.minVersion > current.attestation.minVersion,
+  };
+}
+
 export async function publishPolicy(input: unknown, createdBy: string | null): Promise<PublishResult> {
   const client = await getPool().connect();
   try {
     await client.query("BEGIN");
-    await client.query("SELECT pg_advisory_xact_lock($1)", [POLICY_PUBLISH_LOCK]);
-    const cur = await client.query<PolicyRow>(
-      `SELECT version, body, body_sha256, created_at FROM network_policy ORDER BY version DESC LIMIT 1 FOR UPDATE`,
-    );
-    const currentRow = cur.rows[0];
-    const current = currentRow ? validatePolicy(currentRow.body) : DEFAULT_POLICY;
-    const body = validatePolicy(input, { current });
-    const sha256 = policySha256(body);
-    const ins = await client.query<{ version: number }>(
-      `INSERT INTO network_policy (body, body_sha256, created_by) VALUES ($1::jsonb, $2, $3) RETURNING version`,
-      [JSON.stringify(body), sha256, createdBy],
-    );
+    const r = await publishPolicyTx(client, input, createdBy);
     await client.query("COMMIT");
-    return {
-      version: ins.rows[0].version,
-      sha256,
-      body,
-      previousVersion: currentRow?.version ?? 0,
-      attestationRaised: body.attestation.minVersion > current.attestation.minVersion,
-    };
+    return r;
   } catch (err) {
     await client.query("ROLLBACK").catch(() => {});
     throw err;
