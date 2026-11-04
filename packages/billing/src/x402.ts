@@ -292,7 +292,83 @@ export function buildX402Requirements(poolType: "dc" | "residential"): X402Requi
  * C-5: Hash the payment header for replay detection.
  */
 export function hashPaymentHeader(paymentHeader: string): string {
-  return crypto.createHash("sha256").update(paymentHeader).digest("hex");
+  const key = canonicalReplayKey(paymentHeader);
+  return crypto.createHash("sha256").update(key ?? `raw:${paymentHeader}`).digest("hex");
+}
+
+/**
+ * Derive a replay key from the SIGNED fields of the payment payload so that
+ * re-encodings (whitespace, key order, unsigned fields) map to the same key.
+ * Returns null if the header cannot be parsed (falls back to raw hashing).
+ */
+function canonicalReplayKey(paymentHeader: string): string | null {
+  let parsed: unknown;
+  const trimmed = paymentHeader.trim();
+  try {
+    parsed = JSON.parse(trimmed.startsWith("{") ? trimmed : Buffer.from(trimmed, "base64").toString("utf8"));
+  } catch {
+    return null;
+  }
+  if (typeof parsed !== "object" || parsed === null) return null;
+  const obj = parsed as Record<string, unknown>;
+  const network = typeof obj["network"] === "string" ? (obj["network"] as string).toLowerCase() : "";
+  const payload = obj["payload"];
+  if (typeof payload !== "object" || payload === null) return null;
+  const pl = payload as Record<string, unknown>;
+  const auth = pl["authorization"];
+  if (typeof auth === "object" && auth !== null) {
+    const a = auth as Record<string, unknown>;
+    if (typeof a["from"] === "string" && typeof a["nonce"] === "string") {
+      return `eip3009:${network}:${(a["from"] as string).toLowerCase()}:${(a["nonce"] as string).toLowerCase()}`;
+    }
+  }
+  if (typeof pl["signature"] === "string" && (pl["signature"] as string).length > 0) {
+    return `sig:${network}:${pl["signature"] as string}`;
+  }
+  if (typeof pl["transaction"] === "string" && (pl["transaction"] as string).length > 0) {
+    return `tx:${network}:${pl["transaction"] as string}`;
+  }
+  return null;
+}
+
+const TX_HASH_RE = /^(0x[0-9a-fA-F]{64}|[1-9A-HJ-NP-Za-km-z]{43,90})$/;
+
+/**
+ * Validate a facilitator settle response body. Throws unless the facilitator
+ * explicitly reports success with a well-formed tx hash and (when known)
+ * a settled amount covering the required amount.
+ */
+export function validateSettleResponse(
+  settleText: string,
+  facilitator: X402Facilitator,
+  requiredAmount?: string,
+): X402Settlement {
+  let result: { success?: unknown; txHash?: unknown; transaction?: unknown; amount?: unknown; errorReason?: unknown };
+  try {
+    result = JSON.parse(settleText);
+  } catch {
+    throw new Error(`${facilitator} settle response invalid`);
+  }
+  if (typeof result !== "object" || result === null || result.success !== true) {
+    log.error("x402 settle reported failure", {
+      facilitator,
+      errorReason: typeof result?.errorReason === "string" ? result.errorReason.slice(0, 200) : undefined,
+    });
+    throw new Error(`${facilitator} settlement not successful`);
+  }
+  const txHash = typeof result.txHash === "string" ? result.txHash : typeof result.transaction === "string" ? result.transaction : "";
+  if (!TX_HASH_RE.test(txHash)) {
+    throw new Error(`${facilitator} settlement missing valid txHash`);
+  }
+  const amount = typeof result.amount === "string" ? result.amount : "0";
+  if (requiredAmount !== undefined) {
+    const required = parseUsdcAmount(requiredAmount);
+    const settled = parseUsdcAmount(amount);
+    if (required === 0 || settled < required) {
+      throw new Error(`${facilitator} settled amount insufficient`);
+    }
+  }
+  return { txHash, amountSettled: amount, facilitator };
 }
 
 /**
@@ -543,15 +619,21 @@ async function verifyPayAIPayment(
 export async function settleX402Payment(
   paymentHeader: string,
   facilitator: X402Facilitator,
+  requirements?: X402Requirements,
 ): Promise<X402Settlement> {
+  const reqs = requirements?.accepts.find((a) => (a.extra as { facilitator?: string } | undefined)?.facilitator === facilitator)
+    ?? requirements?.accepts[0];
   if (facilitator === "coinbase") {
-    return settleCoinbasePayment(paymentHeader);
+    return settleCoinbasePayment(paymentHeader, reqs);
   } else {
-    return settlePayAIPayment(paymentHeader);
+    return settlePayAIPayment(paymentHeader, reqs);
   }
 }
 
-async function settleCoinbasePayment(paymentHeader: string): Promise<X402Settlement> {
+async function settleCoinbasePayment(
+  paymentHeader: string,
+  paymentRequirements?: X402Requirements["accepts"][number],
+): Promise<X402Settlement> {
   // H-3: Validate credentials exist before settlement
   const cdpKeyId = process.env["CDP_API_KEY_ID"];
   const cdpKeySecret = process.env["CDP_API_KEY_SECRET"];
@@ -560,7 +642,9 @@ async function settleCoinbasePayment(paymentHeader: string): Promise<X402Settlem
   }
 
   const settleUrl = "https://x402.org/facilitator/settle";
-  const body = JSON.stringify({ payment: paymentHeader });
+  const body = JSON.stringify(
+    paymentRequirements ? { payment: paymentHeader, paymentRequirements } : { payment: paymentHeader },
+  );
 
   // C-1: Include both key ID and secret
   const res = await fetch(settleUrl, {
@@ -586,15 +670,13 @@ async function settleCoinbasePayment(paymentHeader: string): Promise<X402Settlem
   // Size-limit settle response
   const settleText = await res.text();
   if (settleText.length > 10_000) throw new Error("Coinbase settle response too large");
-  const result = JSON.parse(settleText) as { txHash?: string; amount?: string };
-  return {
-    txHash: result.txHash ?? "",
-    amountSettled: result.amount ?? "0",
-    facilitator: "coinbase",
-  };
+  return validateSettleResponse(settleText, "coinbase", paymentRequirements?.maxAmountRequired);
 }
 
-async function settlePayAIPayment(paymentHeader: string): Promise<X402Settlement> {
+async function settlePayAIPayment(
+  paymentHeader: string,
+  paymentRequirements?: X402Requirements["accepts"][number],
+): Promise<X402Settlement> {
   const payaiKeyId = process.env["PAYAI_API_KEY_ID"];
   const payaiKeySecret = process.env["PAYAI_API_KEY_SECRET"];
   if (!payaiKeyId || !payaiKeySecret) {
@@ -602,7 +684,9 @@ async function settlePayAIPayment(paymentHeader: string): Promise<X402Settlement
   }
 
   const settleUrl = "https://api.payai.network/v1/x402/settle";
-  const body = JSON.stringify({ payment: paymentHeader });
+  const body = JSON.stringify(
+    paymentRequirements ? { payment: paymentHeader, paymentRequirements } : { payment: paymentHeader },
+  );
 
   const res = await fetch(settleUrl, {
     method: "POST",
@@ -626,12 +710,7 @@ async function settlePayAIPayment(paymentHeader: string): Promise<X402Settlement
   // Size-limit settle response
   const settleText = await res.text();
   if (settleText.length > 10_000) throw new Error("PayAI settle response too large");
-  const result = JSON.parse(settleText) as { txHash?: string; amount?: string };
-  return {
-    txHash: result.txHash ?? "",
-    amountSettled: result.amount ?? "0",
-    facilitator: "payai",
-  };
+  return validateSettleResponse(settleText, "payai", paymentRequirements?.maxAmountRequired);
 }
 
 // ─── Record Transaction ─────────────────────────────────────────────

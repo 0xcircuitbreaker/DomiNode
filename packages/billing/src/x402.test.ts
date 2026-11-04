@@ -409,11 +409,11 @@ describe("settleX402Payment", () => {
 
     mockFetch.mockResolvedValueOnce({
       ok: true,
-      text: () => Promise.resolve(JSON.stringify({ txHash: "0xTxHash123", amount: "1000" })),
+      text: () => Promise.resolve(JSON.stringify({ success: true, txHash: "0xabababababababababababababababababababababababababababababababab", amount: "1000" })),
     });
 
     const result = await settleX402Payment("payment-data", "coinbase");
-    expect(result.txHash).toBe("0xTxHash123");
+    expect(result.txHash).toBe("0xabababababababababababababababababababababababababababababababab");
     expect(result.facilitator).toBe("coinbase");
   });
 
@@ -423,11 +423,11 @@ describe("settleX402Payment", () => {
 
     mockFetch.mockResolvedValueOnce({
       ok: true,
-      text: () => Promise.resolve(JSON.stringify({ txHash: "SolTxHash456", amount: "5000" })),
+      text: () => Promise.resolve(JSON.stringify({ success: true, txHash: "5KKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKK", amount: "5000" })),
     });
 
     const result = await settleX402Payment("payment-data", "payai");
-    expect(result.txHash).toBe("SolTxHash456");
+    expect(result.txHash).toBe("5KKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKK");
     expect(result.facilitator).toBe("payai");
   });
 
@@ -463,6 +463,53 @@ describe("settleX402Payment", () => {
     });
 
     await expect(settleX402Payment("bad-data", "payai")).rejects.toThrow("PayAI settlement failed");
+  });
+});
+
+describe("settle response validation", () => {
+  beforeEach(() => {
+    process.env["CDP_API_KEY_ID"] = "test-key";
+    process.env["CDP_API_KEY_SECRET"] = "test-secret";
+  });
+  const ok = (body: unknown) => ({ ok: true, text: () => Promise.resolve(JSON.stringify(body)) });
+
+  it("throws on HTTP 200 with success:false", async () => {
+    mockFetch.mockResolvedValueOnce(ok({ success: false, errorReason: "nonce_used" }));
+    await expect(settleX402Payment("p", "coinbase")).rejects.toThrow("not successful");
+  });
+
+  it("throws when success flag missing", async () => {
+    mockFetch.mockResolvedValueOnce(ok({ txHash: "0xabababababababababababababababababababababababababababababababab", amount: "1000" }));
+    await expect(settleX402Payment("p", "coinbase")).rejects.toThrow("not successful");
+  });
+
+  it("throws on empty txHash", async () => {
+    mockFetch.mockResolvedValueOnce(ok({ success: true, txHash: "", amount: "1000" }));
+    await expect(settleX402Payment("p", "coinbase")).rejects.toThrow("txHash");
+  });
+
+  it("throws when settled amount below requirement and sends requirements", async () => {
+    mockFetch.mockResolvedValueOnce(ok({ success: true, txHash: "0xabababababababababababababababababababababababababababababababab", amount: "500" }));
+    const reqs = { version: "1", accepts: [{ maxAmountRequired: "1000", extra: { facilitator: "coinbase" } }] } as never;
+    await expect(settleX402Payment("p", "coinbase", reqs)).rejects.toThrow("insufficient");
+    const sent = JSON.parse(mockFetch.mock.calls[0][1].body);
+    expect(sent.paymentRequirements.maxAmountRequired).toBe("1000");
+  });
+});
+
+describe("hashPaymentHeader canonicalization", () => {
+  const auth = { from: "0xAAA", nonce: "0x01", to: "0xB", value: "1000" };
+  it("ignores whitespace, key order and unsigned fields", () => {
+    const a = JSON.stringify({ network: "base", payload: { authorization: auth, signature: "0xs" } });
+    const b = `  {"facilitator":"coinbase","payload":{"signature":"0xs","authorization":${JSON.stringify(auth)}},"network":"base"}`;
+    const c = Buffer.from(a).toString("base64");
+    expect(hashPaymentHeader(b)).toBe(hashPaymentHeader(a));
+    expect(hashPaymentHeader(c)).toBe(hashPaymentHeader(a));
+  });
+  it("differs for different nonces", () => {
+    const a = JSON.stringify({ network: "base", payload: { authorization: auth } });
+    const b = JSON.stringify({ network: "base", payload: { authorization: { ...auth, nonce: "0x02" } } });
+    expect(hashPaymentHeader(a)).not.toBe(hashPaymentHeader(b));
   });
 });
 
