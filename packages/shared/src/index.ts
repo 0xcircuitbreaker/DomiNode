@@ -179,3 +179,16 @@ export {
   resolveAndCheck,
 } from "./net-guard.js";
 export type { ResolveCheckResult } from "./net-guard.js";
+
+// Agent relay network
+export { validatePolicy, policySha256, canonicalJson, isFloorKey, PolicyValidationError, DEFAULT_POLICY, PLAINTEXT_MODES, FLOOR_ALLOWED_PORTS, HARD_DENY_PORTS, MAX_POLICY_BYTES } from "./policy.js";
+export type { NetworkPolicy, PlaintextMode, ValidatePolicyOptions } from "./policy.js";
+export * as policyRepo from "./repositories/policy-repo.js";
+export type { ActivePolicy, PublishResult, PricingClass, SplitConfig, NodeTier } from "./repositories/policy-repo.js";
+export * as nodeRepo from "./repositories/node-repo.js";
+export type { NodeRecord, NodeStatus, NodeIpClass, TunnelAuthNode, NodeChallenge, RegisterNodeInput, RegisterNodeResult, HealthUpdate, ListAdminOpts } from "./repositories/node-repo.js";
+export { hashNodeKey, generateNodeKey, NODE_KEY_PREFIX, NODE_CAP_BY_TIER } from "./repositories/node-repo.js";
+export * as relayChargeRepo from "./repositories/relay-charge-repo.js";
+export * as nodeCreditRepo from "./repositories/node-credit-repo.js";
+export * as tierRepo from "./repositories/tier-repo.js";
+export * as payoutRepo from "./repositories/payout-repo.js";
