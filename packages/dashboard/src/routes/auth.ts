@@ -31,10 +31,11 @@ import {
   sendVerificationEmail,
   sendPasswordResetEmail,
   referralRepo,
+  query as dbQuery,
 } from "@dominusnode/shared";
 import { requireAuth, type AuthenticatedRequest } from "../middleware/auth.js";
 import { setAuthCookies, clearAuthCookies, getRefreshCookieName } from "../helpers/cookies.js";
-import { isVerifiedAgent, isVerifiedAgentAsync, getAgentMultiplier } from "../helpers/agent-rate-limit.js";
+import { isGlobalVerifiedAgent, isVerifiedAgentAsync, getAgentMultiplier } from "../helpers/agent-rate-limit.js";
 
 const router = Router();
 const log = createLogger("api:auth");
@@ -588,7 +589,7 @@ router.post("/login", async (req, res) => {
     }
 
     // MCP agent detection: skip reCAPTCHA for authenticated MCP agents
-    const isMcpAgentLogin = isVerifiedAgent(req);
+    const isMcpAgentLogin = isGlobalVerifiedAgent(req);
 
     // reCAPTCHA v3 verification (anti-bot on login)
     const captchaToken = req.body.captchaToken ?? "";
@@ -778,8 +779,24 @@ router.post("/refresh", async (req, res) => {
       }
     }
 
-    // Revoke the old token
-    await refreshTokenRepo.revokeToken(incomingHash);
+    // Revoke the old token atomically. If another concurrent request already
+    // rotated it, no row comes back -> treat as reuse and revoke the family.
+    const rotated = await dbQuery<{ family_id: string }>(
+      "UPDATE refresh_tokens SET revoked = true WHERE token_hash = $1 AND revoked = false RETURNING family_id",
+      [incomingHash],
+    );
+    if (rotated.rowCount !== 1) {
+      const revoked = await refreshTokenRepo.revokeFamily(storedToken.family_id);
+      const keysRevoked = await userRepo.revokeAllApiKeys(storedToken.user_id);
+      log.warn("concurrent refresh token reuse detected — revoking family + API keys", {
+        userId: storedToken.user_id,
+        familyId: storedToken.family_id,
+        revokedTokens: revoked,
+        revokedKeys: keysRevoked,
+      });
+      res.status(401).json({ error: "Token reuse detected. All sessions revoked for security." });
+      return;
+    }
 
     // Issue new token pair (rotation) — same family
     const tokens = createTokenPair({ userId: user.id, email: user.email, isAdmin: user.is_admin, adminRole: user.admin_role ?? "none" });
@@ -809,7 +826,7 @@ router.post("/change-password", requireAuth, async (req, res) => {
     const clientIp = (req.ip ?? req.socket.remoteAddress ?? "").replace(/^::ffff:/, "");
 
     // Rate limit password change attempts to prevent brute force on current password
-    const isAgentChangePw = isVerifiedAgent(req);
+    const isAgentChangePw = isGlobalVerifiedAgent(req);
     const lockoutMsg = isAgentChangePw ? null : checkLoginLockout(clientIp, email);
     if (lockoutMsg) {
       res.status(429).json({ error: lockoutMsg });
@@ -936,7 +953,7 @@ router.post("/verify-key", async (req, res) => {
   try {
     // Rate limit verify-key per IP to prevent brute force / timing oracle
     const clientIp = (req.ip ?? req.socket.remoteAddress ?? "").replace(/^::ffff:/, "");
-    const isAgentVerifyKey = isVerifiedAgent(req);
+    const isAgentVerifyKey = isGlobalVerifiedAgent(req);
     if (!isAgentVerifyKey && !checkVerifyKeyRateLimit(clientIp)) {
       res.status(429).json({ valid: false, error: "Too many verification attempts. Try again later." });
       return;
@@ -1077,7 +1094,7 @@ router.post("/mfa/verify", async (req, res) => {
   try {
     // Per-IP rate limiting for MFA verification (prevents distributed brute force)
     const clientIp = (req.ip ?? req.socket.remoteAddress ?? "").replace(/^::ffff:/, "");
-    const isAgentMfa = isVerifiedAgent(req);
+    const isAgentMfa = isGlobalVerifiedAgent(req);
     const ipLimitMsg = isAgentMfa ? null : checkIpLoginLimit(clientIp);
     if (ipLimitMsg) {
       res.status(429).json({ error: ipLimitMsg });

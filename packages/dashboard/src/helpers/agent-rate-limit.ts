@@ -52,6 +52,25 @@ export function getAgentMultiplier(): number {
 }
 
 /**
+ * Strict check for credential-guessing protections (login lockout, MFA,
+ * verify-key, change-password, wallet verify). Only the global first-party
+ * MCP_AGENT_SECRET may bypass them. Per-agent das_ secrets are issued to any
+ * email-verified user and are not bound to the target account, so they must
+ * NOT bypass brute-force protections.
+ */
+export function isGlobalVerifiedAgent(req: Request): boolean {
+  if (req.headers["x-dominusnode-agent"] !== "mcp") return false;
+  const headerSecret = (req.headers["x-dominusnode-agent-secret"] ?? "") as string;
+  if (MCP_AGENT_SECRET.length === 0 || headerSecret.length !== MCP_AGENT_SECRET.length) {
+    return false;
+  }
+  return crypto.timingSafeEqual(
+    Buffer.from(headerSecret, "utf8"),
+    Buffer.from(MCP_AGENT_SECRET, "utf8"),
+  );
+}
+
+/**
  * Timing-safe check: is this request from a verified MCP agent?
  * Checks global MCP_AGENT_SECRET only (synchronous).
  * Requires both X-DominusNode-Agent: mcp header AND valid secret.

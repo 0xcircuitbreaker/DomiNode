@@ -26,7 +26,7 @@ import { recoverSignerAddress } from "../helpers/verify-signature.js";
 import { requireAuth, type AuthenticatedRequest } from "../middleware/auth.js";
 import { setAuthCookies } from "../helpers/cookies.js";
 
-import { isVerifiedAgent, isVerifiedAgentAsync, getAgentMultiplier } from "../helpers/agent-rate-limit.js";
+import { isVerifiedAgent, isGlobalVerifiedAgent, isVerifiedAgentAsync, getAgentMultiplier } from "../helpers/agent-rate-limit.js";
 
 const router = Router();
 const log = createLogger("api:wallet-auth");
@@ -274,7 +274,7 @@ router.post("/verify", async (req, res) => {
     }
 
     // Rate limit signature verification per IP — verified MCP agents skip
-    const isAgentVerify = isVerifiedAgent(req);
+    const isAgentVerify = isGlobalVerifiedAgent(req);
     if (!isAgentVerify && !checkVerifyRateLimit(clientIp)) {
       res.status(429).json({ error: "Too many verification attempts. Try again later." });
       return;

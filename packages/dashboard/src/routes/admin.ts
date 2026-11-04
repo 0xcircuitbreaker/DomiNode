@@ -590,6 +590,8 @@ router.post("/credit-wallet", requireCybersecurityAdmin, creditLimiter, async (r
 const BUG_PRIORITIES = new Set(["p1", "p2", "p3"]);
 const BUG_CATEGORIES = new Set(["quality", "security"]);
 const BUG_STATUSES = new Set(["pending", "approved", "rejected", "credited"]);
+// Must match MAX_BALANCE_CENTS in shared wallet-repo
+const BUG_BOUNTY_MAX_BALANCE_CENTS = 1_000_000;
 
 // POST /api/admin/bug-reports/:id/approve — approve and optionally credit (cybersecurity_admin+)
 router.post("/bug-reports/:id/approve", requireCybersecurityAdmin, async (req, res) => {
@@ -608,49 +610,73 @@ router.post("/bug-reports/:id/approve", requireCybersecurityAdmin, async (req, r
     }
   }
 
+  const reportId = req.params.id as string;
+  const amount = creditAmountCents ?? 0;
+  const { getPool } = await import("@dominusnode/shared");
+  const client = await getPool().connect();
   try {
-    const { query: dbQuery } = await import("@dominusnode/shared");
-    // Fetch the report
-    const reportResult = await dbQuery(
-      `SELECT id, user_id, status FROM bug_reports WHERE id = $1`,
-      [req.params.id],
+    // Single transaction: lock report, guard status, credit wallet, mark credited.
+    // Any failure rolls back so the report stays 'pending' and can be retried.
+    await client.query("BEGIN");
+    await client.query("SET LOCAL lock_timeout = '5s'");
+    const reportResult = await client.query(
+      `SELECT id, user_id, status FROM bug_reports WHERE id = $1 FOR UPDATE`,
+      [reportId],
     );
-    if (!reportResult || reportResult.rows.length === 0) {
+    if (reportResult.rows.length === 0) {
+      await client.query("ROLLBACK");
       res.status(404).json({ error: "Bug report not found" });
       return;
     }
     const report = reportResult.rows[0] as { id: string; user_id: string; status: string };
     if (report.status !== "pending") {
+      await client.query("ROLLBACK");
       res.status(400).json({ error: `Report is already ${report.status}` });
       return;
     }
 
-    // Approve the report
-    await dbQuery(
-      `UPDATE bug_reports SET status = 'approved', reviewed_by = $1, reviewed_at = now(), credit_amount_cents = $2 WHERE id = $3`,
-      [adminId, creditAmountCents ?? 0, req.params.id],
-    );
-
-    // Credit the reporter's wallet if credits awarded
-    if (creditAmountCents && creditAmountCents > 0) {
-      await walletRepo.creditWallet(
-        report.user_id,
-        creditAmountCents,
-        "bug_bounty",
-        `bug-${req.params.id}`,
-        `Bug bounty reward for report #${req.params.id.slice(0, 8)}`,
+    if (amount > 0) {
+      const walletResult = await client.query(
+        `SELECT id, balance_cents FROM wallets WHERE user_id = $1 FOR UPDATE`,
+        [report.user_id],
       );
-      await dbQuery(
-        `UPDATE bug_reports SET status = 'credited' WHERE id = $1`,
-        [req.params.id],
+      if (walletResult.rows.length === 0) {
+        await client.query("ROLLBACK");
+        res.status(404).json({ error: "Reporter wallet not found" });
+        return;
+      }
+      const wallet = walletResult.rows[0] as { id: string; balance_cents: number };
+      if (Number(wallet.balance_cents) + amount > BUG_BOUNTY_MAX_BALANCE_CENTS) {
+        await client.query("ROLLBACK");
+        res.status(400).json({ error: "Credit would exceed maximum wallet balance" });
+        return;
+      }
+      await client.query(
+        `UPDATE wallets SET balance_cents = balance_cents + $1, last_topped_up = now() WHERE id = $2`,
+        [amount, wallet.id],
+      );
+      await client.query(
+        `INSERT INTO wallet_transactions (wallet_id, type, amount_cents, description, payment_provider, payment_id)
+         VALUES ($1, 'topup', $2, $3, 'bug_bounty', $4)`,
+        [wallet.id, amount, `Bug bounty reward for report #${reportId.slice(0, 8)}`, `bug-${reportId}`],
       );
     }
+
+    await client.query(
+      `UPDATE bug_reports SET status = $1, reviewed_by = $2, reviewed_at = now(), credit_amount_cents = $3
+       WHERE id = $4 AND status = 'pending'`,
+      [amount > 0 ? "credited" : "approved", adminId, amount, reportId],
+    );
+    await client.query("COMMIT");
 
     log.info("bug report approved", { reportId: req.params.id, creditAmountCents, adminId });
     res.json({ message: "Report approved", creditAmountCents: creditAmountCents ?? 0 });
   } catch (err) {
+    await client.query("ROLLBACK").catch(() => {});
     log.error("failed to approve bug report", { error: err instanceof Error ? err.message : String(err) });
     res.status(500).json({ error: "Failed to approve bug report" });
+  } finally {
+    client.release();
   }
 });
 
