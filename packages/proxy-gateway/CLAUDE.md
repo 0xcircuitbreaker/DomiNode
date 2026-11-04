@@ -16,7 +16,7 @@ The high-performance proxy server handling HTTP/HTTPS/SOCKS5 connections.
 - Performance-critical: minimize per-request overhead
 - API key in PASSWORD field, routing options in USERNAME field (Basic auth)
 - Geo-targeting uses HYPHENS: `dc-country-US` not `dc_country_US`
-- Balance reservation: 50 cents minimum per session
+- Balance reservation: min(balance, ceil(relay price × RELAY_SESSION_BYTE_CAP)); session maxBytes = exactly what the reservation pays for (no overrun headroom)
 - getUserPlan: call ONCE per session (prevents TOCTOU)
 - Team API keys bill to team wallet; balance check uses teamId
 - x402 HTTP method restriction: GET/HEAD/OPTIONS only
@@ -29,5 +29,5 @@ The high-performance proxy server handling HTTP/HTTPS/SOCKS5 connections.
 
 ## Common Mistakes
 - Forgetting to count request body bytes (not just response)
-- HTTP header bytes not counted in forwarding mode (known deferred item)
+- HTTP forwarding must meter the relay stream itself (meterStream), not parsed body chunks — headers are billable bytes
 - CONNECT pipe pause/resume around async gaps (known deferred item)

@@ -41,6 +41,9 @@ vi.mock("./session-manager.js", () => ({
   startSession: (...args: unknown[]) => mockStartSession(...args),
   endSession: (...args: unknown[]) => mockEndSession(...args),
   getActiveSessionCount: () => mockGetActiveSessionCount(),
+  registerSessionDestroy: vi.fn(),
+  unregisterSessionDestroy: vi.fn(),
+  terminateUserSessions: vi.fn(),
 }));
 
 vi.mock("./geo-check.js", () => ({
@@ -75,11 +78,7 @@ vi.mock("./counting-stream.js", () => ({
   attachByteCounters: () => ({ bytesIn: 0, bytesOut: 0, maxBytes: 0, onLimitExceeded: null }),
 }));
 
-vi.mock("./retry.js", () => ({
-  executeWithRetry: vi.fn(),
-  promisifyRequest: vi.fn(),
-  DEFAULT_RETRY_OPTIONS: { maxRetries: 2, baseDelayMs: 200, maxDelayMs: 2000 },
-}));
+
 
 vi.mock("@dominusnode/shared", () => ({
   createLogger: () => ({
@@ -93,17 +92,31 @@ vi.mock("@dominusnode/shared", () => ({
   },
 }));
 
-vi.mock("@dominusnode/pool-manager", () => ({
-  createProviderSelector: () => ({
-    select: (...args: unknown[]) => mockSelect(...args),
-    recordSuccess: (...args: unknown[]) => mockRecordSuccess(...args),
-    recordFailure: (...args: unknown[]) => mockRecordFailure(...args),
-    getProviderCount: () => mockGetProviderCount(),
-    getStats: () => mockGetProviderStats(),
-  }),
-}));
-
 import { startProxyServer } from "./server.js";
+import { NodeSelectionError } from "./node-tunnel/selector.js";
+import { TunnelOpenError } from "./node-tunnel/mux.js";
+import { _resetPolicyEnforcer } from "./policy-enforcer.js";
+import { Duplex } from "node:stream";
+
+let policy: { ports: number[]; denyDomains: string[]; plaintext: string; requesterLimits: { reqPerSec: number; dailySpendMusd: number } };
+const mockOpenStream = vi.fn();
+
+/** Duplex that echoes everything written back to the reader. */
+function echoStream(): Duplex {
+  const d: Duplex = new Duplex({
+    read() { /* pushed on write */ },
+    write(chunk, _enc, cb) { d.push(chunk); cb(); },
+    final(cb) { d.push(null); cb(); },
+  });
+  return d;
+}
+
+function liveNode(id: string) {
+  return {
+    nodeId: id, ipClass: "residential", ownerUserId: "owner-" + id,
+    tunnel: { openStream: (h: string, p: number) => mockOpenStream(id, h, p) },
+  };
+}
 
 // ─── Helpers ───────────────────────────────────────────────────────
 
@@ -164,10 +177,10 @@ describe("proxy-gateway server", () => {
       user: { id: "user-123", email: "test@test.com", status: "active" },
       proxyOptions: {},
     });
-    mockSelect.mockReturnValue({
-      provider: { name: "webshare-dc" },
-      proxy: { host: "gw.test.io", port: 31112, proxyAuth: Buffer.from("u:p").toString("base64") },
-    });
+    _resetPolicyEnforcer();
+    policy = { ports: [80, 443], denyDomains: [], plaintext: "allow", requesterLimits: { reqPerSec: 1000, dailySpendMusd: 50_000_000 } };
+    mockSelect.mockImplementation((o: { excludeNodeIds?: string[] }) => liveNode(o.excludeNodeIds?.length ? "node-2" : "node-1"));
+    mockOpenStream.mockImplementation(async () => echoStream());
     mockGetUserPlan.mockResolvedValue({ id: "payg", name: "PAYG", pricePerGbCents: 500, monthlyBandwidthBytes: 0, isDefault: false, maxConnections: 100, maxSessionsPerMinute: 30 });
     mockIncrementUserConns.mockReturnValue(true);
     mockCheckBalance.mockResolvedValue(true);
@@ -187,16 +200,12 @@ describe("proxy-gateway server", () => {
     mockGetProviderStats.mockReturnValue([]);
     mockGetProviderCount.mockReturnValue(1);
 
-    // Create a mock provider selector
-    const mockProviderSelector = {
-      select: (...args: unknown[]) => mockSelect(...args),
-      recordSuccess: (...args: unknown[]) => mockRecordSuccess(...args),
-      recordFailure: (...args: unknown[]) => mockRecordFailure(...args),
-      getProviderCount: () => mockGetProviderCount(),
-      getStats: () => mockGetProviderStats(),
+    const relay = {
+      selector: { select: (o: unknown) => mockSelect(o) },
+      getPolicy: () => policy,
+      nodeCount: () => mockGetProviderCount(),
     };
-
-    server = await startProxyServer(0, mockProviderSelector as any);
+    server = await startProxyServer(0, relay as any);
     const addr = server.address();
     port = typeof addr === "object" && addr ? addr.port : 0;
   });
@@ -234,12 +243,11 @@ describe("proxy-gateway server", () => {
       expect(json.totalRequests).toBe(100);
     });
 
-    it("should include provider stats", async () => {
-      mockGetProviderStats.mockReturnValue([{ name: "webshare-dc", state: "closed" }]);
+    it("should include the live relay node count", async () => {
+      mockGetProviderCount.mockReturnValue(7);
       const res = await makeRequest(port, { path: "/internal/stats", method: "GET" });
       const json = JSON.parse(res.body);
-      expect(json.providers).toHaveLength(1);
-      expect(json.providers[0].name).toBe("webshare-dc");
+      expect(json.relayNodes).toBe(7);
     });
   });
 
@@ -278,7 +286,7 @@ describe("proxy-gateway server", () => {
 
     it("should return 503 when all providers are down", async () => {
       mockSelect.mockImplementation(() => {
-        throw new Error("All providers unavailable");
+        throw new NodeSelectionError("unavailable", "No nodes available");
       });
       const res = await makeRequest(port, {
         path: "http://httpbin.org/ip",
@@ -292,7 +300,7 @@ describe("proxy-gateway server", () => {
 
     it("should return 403 when provider says sanctioned", async () => {
       mockSelect.mockImplementation(() => {
-        throw new Error("Target in sanctioned country");
+        throw new NodeSelectionError("sanctioned", "Country IR is sanctioned");
       });
       const res = await makeRequest(port, {
         path: "http://httpbin.org/ip",
@@ -370,6 +378,98 @@ describe("proxy-gateway server", () => {
       expect(mockRecordRequest).toHaveBeenCalled();
     });
 
+    it("returns 400 PLAINTEXT_DISABLED under opt_in without allowhttp-1", async () => {
+      policy.plaintext = "opt_in";
+      const res = await makeRequest(port, { path: "http://httpbin.org/ip", method: "GET" });
+      expect(res.status).toBe(400);
+      expect(res.headers["x-dominusnode-error"]).toBe("PLAINTEXT_DISABLED");
+      expect(mockSelect).not.toHaveBeenCalled();
+    });
+
+    it("forwards plaintext over a node stream with allowhttp-1 and marks exit visible", async () => {
+      policy.plaintext = "opt_in";
+      mockAuthenticateRequest.mockResolvedValue({
+        userId: "user-123", user: { id: "user-123", status: "active" }, proxyOptions: { allowHttp: true }, teamId: null,
+      });
+      // Node stream acting as an origin server
+      mockOpenStream.mockImplementation(async () => {
+        const d: Duplex = new Duplex({
+          read() { /* */ },
+          write(_c, _e, cb) {
+            d.push("HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok");
+            d.push(null);
+            cb();
+          },
+        });
+        return d;
+      });
+      const res = await makeRequest(port, { path: "http://httpbin.org/ip", method: "GET" });
+      expect(res.status).toBe(200);
+      expect(res.body).toBe("ok");
+      expect(res.headers["x-dominusnode-exit-visible"]).toBe("1");
+      expect(mockOpenStream).toHaveBeenCalledWith("node-1", "httpbin.org", 80);
+      expect(mockStartSession.mock.calls[0][4]).toMatchObject({ nodeId: "node-1", ipClass: "residential", nodeOwnerUserId: "owner-node-1", destPort: 80 });
+    });
+
+    it("overwrites a spoofed Host header and meters request + response headers on the stream", async () => {
+      const written: Buffer[] = [];
+      const RESP = "HTTP/1.1 304 Not Modified\r\nETag: x\r\nConnection: close\r\n\r\n";
+      mockOpenStream.mockImplementation(async () => {
+        const d: Duplex = new Duplex({
+          read() { /* */ },
+          write(c, _e, cb) {
+            written.push(Buffer.from(c));
+            if (Buffer.concat(written).includes("\r\n\r\n") && written.length === 1) { d.push(RESP); d.push(null); }
+            cb();
+          },
+        });
+        return d;
+      });
+      const res = await makeRequest(port, {
+        path: "http://httpbin.org/ip", method: "HEAD", headers: { Host: "denied-bank.example", "X-Big": "a".repeat(4000) },
+      });
+      expect(res.status).toBe(304);
+      const sent = Buffer.concat(written).toString();
+      expect(sent).toMatch(/\r\nhost: httpbin\.org\r\n/i);
+      expect(sent).not.toContain("denied-bank.example");
+      await new Promise((r) => setTimeout(r, 20));
+      const counter = mockStartSession.mock.calls[0][2] as { bytesIn: number; bytesOut: number };
+      // No body either way, yet every relayed byte is billed.
+      expect(counter.bytesIn).toBe(Buffer.concat(written).length);
+      expect(counter.bytesIn).toBeGreaterThan(4000);
+      expect(counter.bytesOut).toBe(Buffer.byteLength(RESP));
+    });
+
+    it("refuses x402 payments on the relay before verifying/settling them", async () => {
+      mockAuthenticateRequest.mockResolvedValue(null);
+      const res = await makeRequest(port, { path: "http://httpbin.org/ip", method: "GET", headers: { "X-Payment": "abc" } });
+      expect(res.status).toBe(503);
+      expect(res.headers["x-dominusnode-error"]).toBe("X402_RELAY_UNAVAILABLE");
+      expect(mockSelect).not.toHaveBeenCalled();
+    });
+
+    it("blocks hostnames whose resolved addresses are in a sanctioned country", async () => {
+      mockValidateTarget.mockResolvedValue({ allowed: true, addresses: ["93.184.216.34", "5.0.0.1"] });
+      mockCheckSanctionedCountry.mockImplementation((ip: string) => (ip === "5.0.0.1" ? "IR" : null));
+      const res = await makeRequest(port, { path: "http://ir-hosted.example/", method: "GET" });
+      expect(res.status).toBe(403);
+      expect(res.headers["x-dominusnode-error"]).toBe("SANCTIONED_DESTINATION");
+      expect(mockSelect).not.toHaveBeenCalled();
+    });
+
+    it("returns 403 PORT_BLOCKED for ports outside policy", async () => {
+      const res = await makeRequest(port, { path: "http://httpbin.org:8080/ip", method: "GET" });
+      expect(res.status).toBe(403);
+      expect(res.headers["x-dominusnode-error"]).toBe("PORT_BLOCKED");
+    });
+
+    it("returns 403 DOMAIN_BLOCKED for denylisted domains (suffix match)", async () => {
+      policy.denyDomains = ["httpbin.org"];
+      const res = await makeRequest(port, { path: "http://api.httpbin.org/ip", method: "GET" });
+      expect(res.status).toBe(403);
+      expect(res.headers["x-dominusnode-error"]).toBe("DOMAIN_BLOCKED");
+    });
+
     it("should decrement user conns on balance check failure", async () => {
       mockCheckBalance.mockResolvedValue(false);
       await makeRequest(port, { path: "http://httpbin.org/ip", method: "GET" });
@@ -403,7 +503,7 @@ describe("proxy-gateway server", () => {
 
     it("should return 503 on CONNECT when all providers down", async () => {
       mockSelect.mockImplementation(() => {
-        throw new Error("All providers unavailable");
+        throw new NodeSelectionError("unavailable", "No nodes available");
       });
       const res = await makeConnect(port, "example.com:443");
       expect(res.status).toBe(503);
@@ -449,6 +549,55 @@ describe("proxy-gateway server", () => {
       mockAuthenticateRequest.mockResolvedValue(null);
       const res = await makeConnect(port, "example.com:443");
       expect(mockRecordRequest).toHaveBeenCalled();
+      res.socket.destroy();
+    });
+
+    it("treats CONNECT to a non-TLS port (8080) as plaintext under opt_in", async () => {
+      policy.ports = [80, 443, 8080];
+      policy.plaintext = "opt_in";
+      const res = await makeConnect(port, "example.com:8080");
+      expect(res.status).toBe(400);
+      expect(mockSelect).not.toHaveBeenCalled();
+      res.socket.destroy();
+    });
+
+    it("refuses x402 CONNECT on the relay", async () => {
+      mockAuthenticateRequest.mockResolvedValue(null);
+      const res = await makeConnect(port, "example.com:443", { "X-Payment": "abc" });
+      expect(res.status).toBe(503);
+      res.socket.destroy();
+    });
+
+    it("tunnels CONNECT through a node stream", async () => {
+      const res = await makeConnect(port, "example.com:443");
+      expect(res.status).toBe(200);
+      expect(mockOpenStream).toHaveBeenCalledWith("node-1", "example.com", 443);
+      const echoed = await new Promise<string>((resolve) => {
+        res.socket.once("data", (d) => resolve(d.toString()));
+        res.socket.write("ping");
+      });
+      expect(echoed).toBe("ping");
+      res.socket.destroy();
+    });
+
+    it("retries once on another node after DIAL_FAIL", async () => {
+      mockOpenStream.mockImplementation(async (id: string) => {
+        if (id === "node-1") throw new TunnelOpenError("DIAL_FAIL");
+        return echoStream();
+      });
+      const res = await makeConnect(port, "example.com:443");
+      expect(res.status).toBe(200);
+      expect(mockSelect).toHaveBeenCalledTimes(2);
+      expect(mockSelect.mock.calls[1][0]).toMatchObject({ excludeNodeIds: ["node-1"] });
+      res.socket.destroy();
+    });
+
+    it("returns 403 without retry on FLOOR_BLOCKED", async () => {
+      mockOpenStream.mockRejectedValue(new TunnelOpenError("FLOOR_BLOCKED"));
+      const res = await makeConnect(port, "example.com:443");
+      expect(res.status).toBe(403);
+      expect(mockSelect).toHaveBeenCalledTimes(1);
+      expect(mockDecrementUserConns).toHaveBeenCalledWith("user-123");
       res.socket.destroy();
     });
 

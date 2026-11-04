@@ -1,0 +1,507 @@
+/**
+ * Node tunnel server (DESIGN.md §2.1, §2.4, §2.5): WS upgrade on TUNNEL_PORT,
+ * Bearer dn_node_ auth, HELLO -> CHALLENGE -> AUTH_OK handshake with a 10 s
+ * deadline and 4 KiB pre-auth cap, peer-geo sanctions, per-/32,/24,ASN caps,
+ * heartbeat and POLICY_UPDATE push. Streams are carried by TunnelMux.
+ */
+import * as http from "node:http";
+import { randomBytes } from "node:crypto";
+import { isIP, type Socket, type AddressInfo } from "node:net";
+import type { Duplex } from "node:stream";
+import WebSocket, { WebSocketServer } from "ws";
+import {
+  FrameType,
+  FrameDecoder,
+  encodeFrame,
+  encodeControl,
+  decodeControl,
+  TunnelProtocolError,
+  MAX_FRAME_PAYLOAD,
+  hashNodeKey,
+  isBlockedCountry,
+  isPublicAddress,
+  type Frame,
+  type ActivePolicy,
+  type TunnelAuthNode,
+  type NodeIpClass,
+} from "@dominusnode/shared";
+import { TunnelMux, STREAM_WINDOW, type StreamCloseReport } from "./mux.js";
+import { NodeRegistry, ipPrefix, dayOf, type LiveNode, type NodeTunnelHandle } from "./registry.js";
+
+export const DEFAULT_TUNNEL_PORT = 8443;
+export const HANDSHAKE_DEADLINE_MS = 10_000;
+export const PRE_AUTH_MAX_BYTES = 4096;
+export const DEFAULT_HEARTBEAT_MS = 15_000;
+const MAX_MISSED_PONGS = 3;
+const NODE_KEY_RE = /^dn_node_[0-9a-f]{64}$/;
+const TUNNEL_PATH = "/v1/tunnel";
+
+/** TUNNEL_PORT with NaN and range validation; throws on invalid input. */
+export function resolveTunnelPort(raw: string | undefined): number {
+  if (raw === undefined || raw.trim() === "") return DEFAULT_TUNNEL_PORT;
+  if (!/^\d+$/.test(raw.trim())) throw new Error("TUNNEL_PORT must be an integer");
+  const n = parseInt(raw.trim(), 10);
+  if (Number.isNaN(n) || n < 1 || n > 65535) throw new Error("TUNNEL_PORT must be in 1..65535");
+  return n;
+}
+
+export interface GeoInfo {
+  country: string | null;
+  asn: number | null;
+  ipClass?: NodeIpClass | null;
+}
+
+export interface TunnelLogger {
+  info(msg: string, meta?: Record<string, unknown>): void;
+  warn(msg: string, meta?: Record<string, unknown>): void;
+}
+
+export interface TunnelServerDeps {
+  getNodeForTunnelAuth: (keyHash: string) => Promise<TunnelAuthNode | null>;
+  markOnline: (nodeId: string, ip: string, country: string | null, asn: number | null, ipClass?: NodeIpClass | null) => Promise<boolean>;
+  markOffline: (nodeId: string) => Promise<boolean>;
+  /** Current policy snapshot (loaded by the caller every 30 s). */
+  getPolicy: () => ActivePolicy;
+  /** Peer IP geo; null = lookup unavailable (fail closed for public IPs). */
+  geoLookup: (ip: string) => GeoInfo | null;
+  /** Optional ed25519 coordinator signature over nonce‖policyVersion‖serverTime (hex). */
+  coordSign?: (msg: Buffer) => string;
+  /** Known floorHash values; unknown ones lower selection weight. */
+  knownFloorHashes?: ReadonlySet<string>;
+  /** Byte reports for disputes (CLOSE frames vs gateway counts). */
+  onStreamClose?: (nodeId: string, r: StreamCloseReport) => void;
+}
+
+export interface TunnelServerOptions {
+  port?: number;
+  host?: string;
+  heartbeatMs?: number;
+  handshakeDeadlineMs?: number;
+  initialWindow?: number;
+  logger?: TunnelLogger;
+}
+
+const silent: TunnelLogger = { info: () => undefined, warn: () => undefined };
+
+function normalizeIp(ip: string | undefined): string {
+  if (!ip) return "";
+  return ip.startsWith("::ffff:") && isIP(ip.slice(7)) === 4 ? ip.slice(7) : ip;
+}
+
+function rejectUpgrade(socket: Socket | Duplex, status: number, text: string): void {
+  try {
+    socket.write(`HTTP/1.1 ${status} ${text}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`);
+  } catch {
+    /* ignore */
+  }
+  socket.destroy();
+}
+
+interface HelloCaps {
+  maxStreams: number;
+  ports: number[];
+  floorHash: string | null;
+  agentVersion: string | null;
+}
+
+/** One authenticated (or authenticating) node connection. */
+export class NodeTunnel implements NodeTunnelHandle {
+  readonly mux: TunnelMux;
+  private decoder = new FrameDecoder();
+  private state: "hello" | "authorizing" | "ready" | "closed" = "hello";
+  private preAuthBytes = 0;
+  private deadline: NodeJS.Timeout | null;
+  private pingTimer: NodeJS.Timeout | null = null;
+  private missedPongs = 0;
+  private pingSeq = 0;
+  private pingSent = new Map<number, number>();
+  rttMs: number | null = null;
+  live: LiveNode | null = null;
+
+  constructor(
+    private readonly ws: WebSocket,
+    readonly node: TunnelAuthNode,
+    readonly peerIp: string,
+    private readonly server: NodeTunnelServer,
+  ) {
+    this.mux = new TunnelMux({
+      send: (b) => this.send(b),
+      maxStreams: Math.max(1, node.max_streams),
+      initialWindow: server.initialWindow,
+      onStreamClose: (r) => server.reportStreamClose(node.id, r),
+    });
+    this.deadline = setTimeout(() => this.close("handshake timeout", 1008), server.handshakeDeadlineMs);
+    this.deadline.unref?.();
+    ws.on("message", (data: WebSocket.RawData, isBinary: boolean) => this.onMessage(data, isBinary));
+    ws.on("close", () => this.onClosed());
+    ws.on("error", () => undefined);
+  }
+
+  get isOpen(): boolean {
+    return this.state !== "closed";
+  }
+
+  get openStreams(): number {
+    return this.mux.openStreams;
+  }
+
+  openStream(host: string, port: number): Promise<Duplex> {
+    if (this.state !== "ready") return Promise.reject(new Error("tunnel not ready"));
+    return this.mux.openStream(host, port);
+  }
+
+  private send(buf: Buffer): void {
+    if (this.ws.readyState === WebSocket.OPEN) this.ws.send(buf, { binary: true });
+  }
+
+  sendControl(type: FrameType, obj: Record<string, unknown>): void {
+    this.send(encodeFrame(type, 0, 0, encodeControl(obj)));
+  }
+
+  close(reason = "closed", code = 1000): void {
+    if (this.state === "closed") return;
+    try {
+      this.ws.close(code, reason.slice(0, 100));
+    } catch {
+      this.ws.terminate();
+    }
+    const ws = this.ws;
+    setTimeout(() => ws.terminate(), 2000).unref();
+    this.onClosed();
+  }
+
+  private authFail(code: string): void {
+    this.server.log.warn("tunnel auth rejected", { nodeId: this.node.id, code });
+    this.sendControl(FrameType.AUTH_FAIL, { code });
+    this.close("auth failed", 1008);
+  }
+
+  private onMessage(data: WebSocket.RawData, isBinary: boolean): void {
+    if (this.state === "closed") return;
+    if (!isBinary) return this.close("text message", 1003);
+    const buf = Array.isArray(data) ? Buffer.concat(data) : Buffer.isBuffer(data) ? data : Buffer.from(data);
+    if (this.state !== "ready") {
+      this.preAuthBytes += buf.length;
+      if (this.preAuthBytes > PRE_AUTH_MAX_BYTES) return this.close("pre-auth cap", 1009);
+    }
+    let frames: Frame[];
+    try {
+      frames = this.decoder.push(buf);
+    } catch {
+      return this.close("protocol error", 1002);
+    }
+    for (const f of frames) {
+      if (!this.isOpen) return;
+      try {
+        this.onFrame(f);
+      } catch (e) {
+        return this.close(e instanceof TunnelProtocolError ? "protocol error" : "frame error", 1002);
+      }
+    }
+  }
+
+  private onFrame(f: Frame): void {
+    if (this.state === "hello") {
+      if (f.type !== FrameType.HELLO || f.streamId !== 0) throw new TunnelProtocolError("expected HELLO");
+      this.state = "authorizing";
+      const caps = this.parseHello(decodeControl(f.payload));
+      if (!caps) return this.authFail("BAD_HELLO");
+      this.sendChallenge();
+      this.server.authorize(this, caps).catch((e: unknown) => {
+        this.server.log.warn("tunnel authorize error", { nodeId: this.node.id, error: e instanceof Error ? e.message.slice(0, 200) : "error" });
+        if (this.state === "authorizing") this.authFail("INTERNAL");
+      });
+      return;
+    }
+    if (this.state === "authorizing") {
+      // AUTH (commit 20) is the only frame accepted here; ignore it in the MVP.
+      if (f.type === FrameType.AUTH && f.streamId === 0) return;
+      throw new TunnelProtocolError("unexpected pre-auth frame");
+    }
+    if (f.streamId === 0) {
+      switch (f.type) {
+        case FrameType.PING:
+          return this.send(encodeFrame(FrameType.PONG, 0, 0, encodeControl(decodeControl(f.payload))));
+        case FrameType.PONG: {
+          this.missedPongs = 0;
+          const p = decodeControl<{ seq?: unknown }>(f.payload);
+          const sent = typeof p.seq === "number" ? this.pingSent.get(p.seq) : undefined;
+          if (sent !== undefined) {
+            this.pingSent.delete(p.seq as number);
+            const rtt = Date.now() - sent;
+            this.rttMs = this.rttMs === null ? rtt : this.rttMs * 0.8 + rtt * 0.2;
+            if (this.live) {
+              const sample = rtt < 200 ? 1 : rtt < 1000 ? 0.8 : 0.5;
+              this.live.health = this.live.health * 0.9 + sample * 0.1;
+            }
+          }
+          return;
+        }
+        default:
+          throw new TunnelProtocolError("unexpected control frame");
+      }
+    }
+    this.mux.handleFrame(f);
+  }
+
+  private parseHello(h: Record<string, unknown>): HelloCaps | null {
+    if (typeof h.nodeId === "string" && h.nodeId !== this.node.id) return null;
+    const c = (h.caps && typeof h.caps === "object" ? h.caps : {}) as Record<string, unknown>;
+    const maxStreams = typeof c.maxStreams === "number" && Number.isInteger(c.maxStreams) && c.maxStreams > 0
+      ? Math.min(c.maxStreams, 4096) : this.node.max_streams;
+    const ports = Array.isArray(c.ports)
+      ? c.ports.filter((p): p is number => Number.isInteger(p) && (p as number) >= 1 && (p as number) <= 65535).slice(0, 64)
+      : [80, 443];
+    return {
+      maxStreams,
+      ports,
+      floorHash: typeof h.floorHash === "string" ? h.floorHash.slice(0, 128) : null,
+      agentVersion: typeof h.agentVersion === "string" ? h.agentVersion.slice(0, 64) : null,
+    };
+  }
+
+  private sendChallenge(): void {
+    const policy = this.server.deps.getPolicy();
+    const nonce = randomBytes(32).toString("hex");
+    const serverTime = Date.now();
+    const msg = Buffer.concat([Buffer.from(nonce, "hex"), Buffer.from(String(policy.version)), Buffer.from(String(serverTime))]);
+    const coordSig = this.server.deps.coordSign ? this.server.deps.coordSign(msg) : "";
+    this.sendControl(FrameType.CHALLENGE, { nonce, policyVersion: policy.version, serverTime, coordSig });
+  }
+
+  /** Called by the server once all checks pass. */
+  markReady(live: LiveNode): void {
+    if (this.deadline) clearTimeout(this.deadline);
+    this.deadline = null;
+    this.live = live;
+    this.state = "ready";
+    const policy = this.server.deps.getPolicy();
+    this.sendControl(FrameType.AUTH_OK, {
+      heartbeatMs: this.server.heartbeatMs, initialWindow: this.mux.initialWindow, policyHash: policy.sha256,
+    });
+    this.pushPolicy(policy);
+    this.startHeartbeat();
+  }
+
+  isAuthorizing(): boolean {
+    return this.state === "authorizing";
+  }
+
+  rejectAuth(code: string): void {
+    this.authFail(code);
+  }
+
+  pushPolicy(policy: ActivePolicy): void {
+    if (this.state !== "ready") return;
+    this.sendControl(FrameType.POLICY_UPDATE, {
+      policyVersion: policy.version, ports: policy.body.ports, categoriesVersion: policy.body.categoriesVersion,
+    });
+  }
+
+  drain(): void {
+    if (this.state === "ready") this.sendControl(FrameType.DRAIN, {});
+  }
+
+  private startHeartbeat(): void {
+    const tick = (): void => {
+      if (this.state !== "ready") return;
+      if (this.missedPongs >= MAX_MISSED_PONGS) return this.close("heartbeat timeout", 1001);
+      this.missedPongs++;
+      const seq = ++this.pingSeq;
+      const ts = Date.now();
+      this.pingSent.set(seq, ts);
+      if (this.pingSent.size > MAX_MISSED_PONGS + 1) {
+        const oldest = this.pingSent.keys().next().value;
+        if (oldest !== undefined) this.pingSent.delete(oldest);
+      }
+      this.sendControl(FrameType.PING, { seq, ts });
+      this.pingTimer = setTimeout(tick, this.server.heartbeatMs);
+      this.pingTimer.unref?.();
+    };
+    this.pingTimer = setTimeout(tick, this.server.heartbeatMs);
+    this.pingTimer.unref?.();
+  }
+
+  private onClosed(): void {
+    if (this.state === "closed") return;
+    const wasReady = this.state === "ready";
+    this.state = "closed";
+    if (this.deadline) clearTimeout(this.deadline);
+    if (this.pingTimer) clearTimeout(this.pingTimer);
+    this.deadline = this.pingTimer = null;
+    this.mux.closeAll("tunnel_closed");
+    this.server.onTunnelClosed(this, wasReady);
+  }
+}
+
+export class NodeTunnelServer {
+  readonly http: http.Server;
+  private readonly wss: WebSocketServer;
+  readonly log: TunnelLogger;
+  readonly heartbeatMs: number;
+  readonly handshakeDeadlineMs: number;
+  readonly initialWindow: number;
+  private tunnels = new Set<NodeTunnel>();
+
+  constructor(readonly registry: NodeRegistry, readonly deps: TunnelServerDeps, private readonly opts: TunnelServerOptions = {}) {
+    this.log = opts.logger ?? silent;
+    this.heartbeatMs = opts.heartbeatMs ?? DEFAULT_HEARTBEAT_MS;
+    this.handshakeDeadlineMs = opts.handshakeDeadlineMs ?? HANDSHAKE_DEADLINE_MS;
+    this.initialWindow = Math.min(STREAM_WINDOW, Math.max(MAX_FRAME_PAYLOAD, opts.initialWindow ?? STREAM_WINDOW));
+    this.wss = new WebSocketServer({ noServer: true, maxPayload: MAX_FRAME_PAYLOAD + 12, perMessageDeflate: false });
+    this.http = http.createServer((_req, res) => {
+      res.writeHead(426, { "Content-Type": "text/plain" });
+      res.end("Upgrade Required");
+    });
+    this.http.on("upgrade", (req, socket, head) => {
+      socket.on("error", () => undefined);
+      this.onUpgrade(req, socket, head).catch(() => {
+        if (!socket.destroyed) rejectUpgrade(socket, 500, "Internal Server Error");
+      });
+    });
+  }
+
+  get tunnelCount(): number {
+    return this.tunnels.size;
+  }
+
+  async listen(): Promise<number> {
+    const port = this.opts.port ?? DEFAULT_TUNNEL_PORT;
+    await new Promise<void>((resolve, reject) => {
+      this.http.once("error", reject);
+      this.http.listen(port, this.opts.host ?? "0.0.0.0", () => {
+        this.http.off("error", reject);
+        resolve();
+      });
+    });
+    return (this.http.address() as AddressInfo).port;
+  }
+
+  async close(): Promise<void> {
+    for (const t of [...this.tunnels]) t.close("server shutdown", 1001);
+    await new Promise<void>((r) => this.wss.close(() => r()));
+    await new Promise<void>((r) => this.http.close(() => r()));
+  }
+
+  private async onUpgrade(req: http.IncomingMessage, socket: Duplex, head: Buffer): Promise<void> {
+    const path = (req.url ?? "").split("?")[0];
+    if (path !== TUNNEL_PATH) return rejectUpgrade(socket, 404, "Not Found");
+    const auth = req.headers.authorization;
+    const m = typeof auth === "string" ? /^Bearer (\S+)$/.exec(auth) : null;
+    if (!m || !NODE_KEY_RE.test(m[1])) return rejectUpgrade(socket, 401, "Unauthorized");
+    const node = await this.deps.getNodeForTunnelAuth(hashNodeKey(m[1]));
+    if (socket.destroyed) return;
+    if (!node || (node.status !== "pending" && node.status !== "active")) return rejectUpgrade(socket, 401, "Unauthorized");
+    const policy = this.deps.getPolicy();
+    if (node.attestation_version < policy.body.attestation.minVersion) return rejectUpgrade(socket, 403, "Forbidden");
+    const peerIp = normalizeIp(req.socket.remoteAddress);
+    if (!peerIp) return rejectUpgrade(socket, 400, "Bad Request");
+    this.wss.handleUpgrade(req, socket, head, (ws) => {
+      ws.binaryType = "nodebuffer";
+      const t = new NodeTunnel(ws, node, peerIp, this);
+      this.tunnels.add(t);
+    });
+  }
+
+  /** Coordinator-side checks before AUTH_OK (§2.4 step 3). */
+  async authorize(t: NodeTunnel, caps: HelloCaps): Promise<void> {
+    const policy = this.deps.getPolicy();
+    const geo = this.deps.geoLookup(t.peerIp);
+    const isPublic = isPublicAddress(t.peerIp);
+    if (isPublic && geo === null) return t.rejectAuth("GEO_UNAVAILABLE");
+    const country = geo?.country ? geo.country.toUpperCase() : null;
+    if (country && (isBlockedCountry(country) || policy.body.sanctionedCountries.includes(country))) {
+      return t.rejectAuth("SANCTIONED");
+    }
+    const asn = geo?.asn ?? null;
+    const prefix = ipPrefix(t.peerIp);
+    const counts = this.registry.countPeers(t.peerIp, prefix, asn, t.node.id);
+    const lim = policy.body.nodeCapsPerPrefix;
+    // Per-ASN cap always holds for public peers: without ASN data every such
+    // peer shares one "unknown ASN" bucket (conservative, fail-closed cap).
+    const enforceAsn = asn !== null || isPublic;
+    if (counts.per32 >= lim.per32 || counts.per24 >= lim.per24 || (enforceAsn && counts.perAsn >= lim.perAsn)) {
+      return t.rejectAuth("IP_CAP");
+    }
+    const now = Date.now();
+    const live: LiveNode = {
+      nodeId: t.node.id, tunnel: t, ready: false, status: t.node.status, ip: t.peerIp, prefix24: prefix, asn, country,
+      // Unverified class is never assumed residential: "unknown" nodes are left out of
+      // explicit class-* selection and price at the "any" rate until classified.
+      ipClass: geo?.ipClass ?? "unknown", ownerUserId: t.node.owner_user_id, ownerWallet: t.node.owner_wallet,
+      ownerTeamId: t.node.owner_team_id, health: 1, reputation: t.node.reputation,
+      maxStreams: Math.min(t.node.max_streams, caps.maxStreams), maxGbDay: t.node.max_gb_day,
+      ports: caps.ports, bytesToday: 0, earningsTodayMusd: 0, day: dayOf(now), recentOpens: [], cooldownUntil: 0,
+      cooldowns: new Map(), floorHashKnown: caps.floorHash !== null && (this.deps.knownFloorHashes?.has(caps.floorHash) ?? false),
+      connectedAt: now,
+    };
+    // Reserve the slot synchronously so concurrent handshakes see it in countPeers().
+    let prev: LiveNode | null;
+    try {
+      prev = this.registry.add(live);
+    } catch {
+      return t.rejectAuth("REGISTRY_FULL");
+    }
+    if (prev && prev.tunnel !== t) prev.tunnel.close("replaced");
+    let ok = false;
+    try {
+      ok = await this.deps.markOnline(t.node.id, t.peerIp, country, asn, geo?.ipClass ?? null);
+    } catch {
+      ok = false;
+    }
+    if (!t.isAuthorizing()) {
+      this.registry.remove(t.node.id, t);
+      return;
+    }
+    if (!ok) {
+      this.registry.remove(t.node.id, t);
+      return t.rejectAuth("NODE_UNAVAILABLE");
+    }
+    t.mux.maxStreams = Math.max(1, Math.min(live.maxStreams, policy.body.nodeDefaults.maxStreams));
+    live.ready = true;
+    t.markReady(live);
+    this.log.info("node tunnel ready", { nodeId: t.node.id, country, agentVersion: caps.agentVersion });
+  }
+
+  reportStreamClose(nodeId: string, r: StreamCloseReport): void {
+    const live = this.registry.get(nodeId);
+    if (live) {
+      const today = dayOf(Date.now());
+      if (live.day !== today) {
+        live.day = today;
+        live.bytesToday = 0;
+        live.earningsTodayMusd = 0;
+      }
+      live.bytesToday += r.gatewayBytesIn + r.gatewayBytesOut;
+    }
+    if (r.nodeReport) {
+      const nodeTotal = r.nodeReport.bytesIn + r.nodeReport.bytesOut;
+      const gwTotal = r.gatewayBytesIn + r.gatewayBytesOut;
+      if (nodeTotal !== gwTotal) {
+        this.log.info("stream byte mismatch", { nodeId, stream: r.streamId, gatewayBytes: gwTotal, nodeBytes: nodeTotal });
+      }
+    }
+    try {
+      this.deps.onStreamClose?.(nodeId, r);
+    } catch {
+      /* never break the data path */
+    }
+  }
+
+  onTunnelClosed(t: NodeTunnel, wasReady: boolean): void {
+    this.tunnels.delete(t);
+    const removed = this.registry.remove(t.node.id, t);
+    if (wasReady && removed) {
+      this.deps.markOffline(t.node.id).catch(() => undefined);
+      this.log.info("node tunnel closed", { nodeId: t.node.id });
+    }
+  }
+
+  /** Push a new policy to every ready tunnel and tighten mux stream caps. */
+  pushPolicy(policy: ActivePolicy): void {
+    for (const t of this.tunnels) {
+      if (t.live) t.mux.maxStreams = Math.max(1, Math.min(t.live.maxStreams, policy.body.nodeDefaults.maxStreams));
+      t.pushPolicy(policy);
+    }
+  }
+}

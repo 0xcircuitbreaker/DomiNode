@@ -1,9 +1,13 @@
 import dotenv from "dotenv";
 dotenv.config();
 
-import { createLogger, closePool, usageRepo, connectWithRetry } from "@dominusnode/shared";
-import { validateConfig, createProviderSelector, getBandwidthUsage } from "@dominusnode/pool-manager";
+import { createLogger, closePool, usageRepo, connectWithRetry, nodeRepo, policyRepo } from "@dominusnode/shared";
+import type { ActivePolicy } from "@dominusnode/shared";
 import { startProxyServer } from "./server.js";
+import { initGeoCheck, lookupPeerGeo } from "./geo-check.js";
+import { NodeRegistry } from "./node-tunnel/registry.js";
+import { NodeSelector } from "./node-tunnel/selector.js";
+import { NodeTunnelServer, resolveTunnelPort } from "./node-tunnel/server.js";
 import { startSocks5Server } from "./socks5.js";
 import { getActiveSessionCount, terminateUserSessions, getActiveSessions } from "./session-manager.js";
 
@@ -52,12 +56,47 @@ async function main(): Promise<void> {
   // Ensure database is reachable before accepting connections
   await connectWithRetry();
 
-  validateConfig();
+  // ─── Policy snapshot (reloaded every 30 s, pushed to tunnels) ─────
+  let policy: ActivePolicy = await policyRepo.getActivePolicy();
+  const getPolicy = (): ActivePolicy => policy;
 
-  // Create provider selector with all configured providers
-  const providerSelector = createProviderSelector();
-  const providerCount = providerSelector.getProviderCount();
-  log.info(`initialized ${providerCount} proxy provider(s)`);
+  // ─── Node tunnel server + registry + selector ────────────────────
+  await initGeoCheck();
+  const registry = new NodeRegistry();
+  registry.startSweep();
+  const selector = new NodeSelector(registry, { getPolicy: () => policy.body });
+  const tunnelServer = new NodeTunnelServer(registry, {
+    getNodeForTunnelAuth: nodeRepo.getNodeForTunnelAuth,
+    markOnline: nodeRepo.markOnline,
+    markOffline: nodeRepo.markOffline,
+    getPolicy,
+    geoLookup: lookupPeerGeo,
+    onStreamClose: (nodeId, r) => {
+      if (r.nodeReport && (r.nodeReport.bytesIn !== r.gatewayBytesOut || r.nodeReport.bytesOut !== r.gatewayBytesIn)) {
+        log.warn("node byte report mismatch", { nodeId, gatewayOut: r.gatewayBytesOut, gatewayIn: r.gatewayBytesIn, nodeIn: r.nodeReport.bytesIn, nodeOut: r.nodeReport.bytesOut });
+      }
+    },
+  }, { port: resolveTunnelPort(process.env["TUNNEL_PORT"]), logger: log });
+  const tunnelPort = await tunnelServer.listen();
+  log.info(`node tunnel server listening on port ${tunnelPort}`);
+
+  const policyInterval = setInterval(async () => {
+    try {
+      const next = await policyRepo.getActivePolicy();
+      if (next.version !== policy.version || next.sha256 !== policy.sha256) {
+        policy = next;
+        tunnelServer.pushPolicy(next);
+        log.info("policy updated", { version: next.version });
+      }
+    } catch (err) {
+      // Keep the last good snapshot
+      log.warn("policy reload failed", { error: err instanceof Error ? err.message.slice(0, 100) : "unknown" });
+    }
+    selector.sweepSticky();
+  }, 30_000);
+  policyInterval.unref();
+
+  const relay = { selector, getPolicy: () => policy.body, nodeCount: () => registry.size };
 
   // Clean up orphaned sessions from previous crash
   const orphaned = await usageRepo.cleanupOrphanedSessions();
@@ -65,35 +104,8 @@ async function main(): Promise<void> {
     log.info(`cleaned up ${orphaned} orphaned sessions from previous run`);
   }
 
-  const httpServer = await startProxyServer(httpPort, providerSelector);
-  const socks5Server = await startSocks5Server(socks5Port, providerSelector);
-
-  // ─── Webshare bandwidth monitoring (every 5 min) ─────────────────
-  const BANDWIDTH_WARN_THRESHOLD = 0.80; // 80%
-  const BANDWIDTH_CRITICAL_THRESHOLD = 0.95; // 95%
-  const bandwidthMonitorInterval = setInterval(async () => {
-    try {
-      const usage = await getBandwidthUsage();
-      if (usage.totalBytes <= 0) return; // No limit configured
-
-      const ratio = usage.usedBytes / usage.totalBytes;
-      const usedGB = (usage.usedBytes / (1024 * 1024 * 1024)).toFixed(2);
-      const totalGB = (usage.totalBytes / (1024 * 1024 * 1024)).toFixed(2);
-      const pct = (ratio * 100).toFixed(1);
-
-      if (ratio >= BANDWIDTH_CRITICAL_THRESHOLD) {
-        log.error("CRITICAL: Webshare bandwidth near limit", { usedGB, totalGB, pct: `${pct}%` });
-      } else if (ratio >= BANDWIDTH_WARN_THRESHOLD) {
-        log.warn("Webshare bandwidth approaching limit", { usedGB, totalGB, pct: `${pct}%` });
-      } else {
-        log.info("Webshare bandwidth check", { usedGB, totalGB, pct: `${pct}%` });
-      }
-    } catch (err) {
-      // Don't log full error — may contain API key or account details
-      log.warn("Webshare bandwidth check failed", { error: err instanceof Error ? err.message.slice(0, 100) : "unknown" });
-    }
-  }, 300_000); // 5 minutes
-  bandwidthMonitorInterval.unref();
+  const httpServer = await startProxyServer(httpPort, relay);
+  const socks5Server = await startSocks5Server(socks5Port, relay);
 
   // Graceful shutdown
   async function shutdown(signal: string): Promise<void> {
@@ -101,6 +113,7 @@ async function main(): Promise<void> {
 
     httpServer.close();
     socks5Server.close();
+    clearInterval(policyInterval);
 
     // Wait for active sessions to finish (max 30s)
     const start = Date.now();
@@ -118,6 +131,8 @@ async function main(): Promise<void> {
       }
     }
 
+    registry.stopSweep();
+    try { await tunnelServer.close(); } catch { /* best effort */ }
     await closePool();
     process.exit(0);
   }

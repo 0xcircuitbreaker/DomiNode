@@ -25,7 +25,7 @@ const log = createLogger("proxy:target-validator");
 export async function validateTarget(
   host: string,
   port: number,
-): Promise<{ allowed: boolean; reason?: string }> {
+): Promise<{ allowed: boolean; reason?: string; addresses?: string[] }> {
   if (!isValidHostname(host)) {
     return { allowed: false, reason: "Invalid hostname characters" };
   }
@@ -36,7 +36,7 @@ export async function validateTarget(
     if (isBlockedIp(host)) {
       return { allowed: false, reason: "Blocked: target is a private/internal address" };
     }
-    return { allowed: true };
+    return { allowed: true, addresses: [host] };
   }
 
   const first = await resolveAndCheck(host);
@@ -63,5 +63,7 @@ export async function validateTarget(
     }
   }
 
-  return { allowed: true };
+  // Union of both resolutions: callers geo-check every address (OFAC destination).
+  const addresses = [...new Set([...(first.addresses ?? []), ...(second.addresses ?? [])])];
+  return { allowed: true, addresses };
 }

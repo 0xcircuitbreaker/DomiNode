@@ -1,7 +1,7 @@
-import { usageRepo, walletRepo, planRepo, teamRepo, createLogger } from "@dominusnode/shared";
-import type { Plan } from "@dominusnode/shared";
-import { computeCostCents, recordUsage } from "@dominusnode/metering";
+import { usageRepo, walletRepo, planRepo, teamRepo, policyRepo, tierRepo, relayChargeRepo, createLogger } from "@dominusnode/shared";
+import type { Plan, NodeIpClass } from "@dominusnode/shared";
 import { BYTES_PER_GB } from "@dominusnode/shared";
+import { recordRequesterSpend } from "./policy-enforcer.js";
 import { invalidateBalanceCache, invalidateTeamBalanceCache } from "./balance-check.js";
 import { recordBytes, recordSessionStart } from "./stats.js";
 import type { ByteCounter } from "./counting-stream.js";
@@ -9,9 +9,44 @@ import { getUserConnCount } from "./connection-tracker.js";
 
 const log = createLogger("proxy:session");
 
-// Minimum reservation per session: 50 cents (~100MB at $5/GB)
-// Increased from 10c to limit financial exposure from concurrent sessions
-const MIN_RESERVATION_CENTS = 50;
+const MUSD_PER_CENT = 10_000;
+
+// Per-session byte cap (DESIGN.md §8). The reservation is sized to cover this
+// cap at the locked relay price, capped at the available balance:
+//   reserveCents = min(balance, ceil(price × byteCap))
+// and the session may never carry more bytes than its reservation pays for.
+const SESSION_BYTE_CAP = parseInt(process.env["RELAY_SESSION_BYTE_CAP"] ?? "1073741824", 10); // default 1 GiB (= BYTES_PER_GB)
+if (isNaN(SESSION_BYTE_CAP) || SESSION_BYTE_CAP < 1024 * 1024 || SESSION_BYTE_CAP > 100 * 1024 * 1024 * 1024) {
+  throw new Error("RELAY_SESSION_BYTE_CAP must be between 1MB and 100GB");
+}
+
+/** ceil(price × byteCap) in cents; at least 1 cent for a non-zero price. */
+export function reservationCentsFor(pricePerGbMusd: bigint, byteCap: number = SESSION_BYTE_CAP): number {
+  if (pricePerGbMusd <= 0n) return 0;
+  const num = pricePerGbMusd * BigInt(byteCap);
+  const den = BigInt(BYTES_PER_GB) * BigInt(MUSD_PER_CENT);
+  const cents = (num + den - 1n) / den;
+  return Number(cents > 0n ? cents : 1n);
+}
+
+/** Bytes a reservation pays for at the locked price (floor; no overrun headroom). */
+export function maxBytesForReservation(reservedCents: number, pricePerGbMusd: bigint): number {
+  if (pricePerGbMusd <= 0n || reservedCents <= 0) return 0;
+  const b = (BigInt(reservedCents) * BigInt(MUSD_PER_CENT) * BigInt(BYTES_PER_GB)) / pricePerGbMusd;
+  return Number(b > BigInt(Number.MAX_SAFE_INTEGER) ? BigInt(Number.MAX_SAFE_INTEGER) : b);
+}
+
+/** Node binding for a relay session (DESIGN.md §8). */
+export interface RelayBinding {
+  nodeId: string;
+  ipClass: NodeIpClass;
+  nodeOwnerUserId: string;
+  destPort: number;
+  requesterWallet?: string | null;
+}
+
+type ChargeSnapshot = Awaited<ReturnType<typeof tierRepo.getChargeSnapshot>>;
+
 
 interface ActiveSession {
   sessionId: string;
@@ -25,6 +60,10 @@ interface ActiveSession {
   pricePerGbCents: number; // Locked at session start to prevent plan-switch gaming
   proxyType: string; // Track provider pool type (dc/residential) for usage records
   teamId: string | null; // When set, billing goes to team wallet
+  relay: RelayBinding;
+  destHost: string; // Bare host for relay_abuse_log (metadata only)
+  pricePerGbMusd: bigint; // network_pricing for the node class, locked at start
+  snapshot: ChargeSnapshot; // owner tier share + split config, locked at start
 }
 
 const activeSessions = new Map<string, ActiveSession>();
@@ -232,13 +271,13 @@ export async function startSession(
   targetHost: string,
   counter: ByteCounter,
   connectLatencyMs: number = 0,
-  requestedProxyType: string = "residential", // Provider pool type from server.ts/socks5.ts
+  relay: RelayBinding, // Selected node; price + tier share are locked from it
   preloadedPlan?: Plan, // Accept pre-fetched plan to prevent TOCTOU double-fetch
   logTargetHosts: boolean = false, // Privacy-first: only store targetHost when user opts in
   teamId?: string | null, // When set, billing goes to team wallet
   isAgent?: boolean, // AI agents get higher rate limits via AGENT_RATE_LIMIT_MULTIPLIER
 ): Promise<string> {
-  let proxyType = requestedProxyType;
+  const proxyType = "relay";
   // Per-user bandwidth velocity check: prevent monopolizing upstream
   const velocity = checkBandwidthVelocity(userId);
   if (!velocity.allowed) {
@@ -260,24 +299,6 @@ export async function startSession(
     planMaxConns = plan.maxConnections;
     planMonthlyBandwidthBytes = plan.monthlyBandwidthBytes;
 
-    // Enforce pool restriction from plan (Beta free-tier restructure)
-    // 'all' means unrestricted — skip the guard (truthy but should not restrict)
-    if (plan.allowedProxyTypes && plan.allowedProxyTypes !== 'all') {
-      // Determine the requested pool from proxyType prefix
-      const requestedPool = proxyType.startsWith("dc") ? "dc"
-        : proxyType.startsWith("residential") ? "residential"
-        : null; // "auto" or unrecognized
-
-      if (requestedPool && requestedPool !== plan.allowedProxyTypes) {
-        throw new Error(`Your plan only allows ${plan.allowedProxyTypes} proxies`);
-      }
-
-      // For "auto" prefix, force to the allowed pool
-      if (!requestedPool || proxyType === "auto") {
-        proxyType = plan.allowedProxyTypes;
-      }
-    }
-
     // Check plan bandwidth limit before allowing session
     if (plan.monthlyBandwidthBytes > 0) {
       monthlyUsage = await planRepo.getMonthlyUsage(userId);
@@ -286,7 +307,7 @@ export async function startSession(
       }
     }
   } catch (err) {
-    if (err instanceof Error && (err.message.includes("bandwidth limit") || err.message.includes("only allows"))) {
+    if (err instanceof Error && err.message.includes("bandwidth limit")) {
       throw err;
     }
     // FAIL CLOSED — do not allow sessions when plan cannot be determined
@@ -296,6 +317,21 @@ export async function startSession(
       error: err instanceof Error ? err.message : String(err),
     });
     throw new Error("Unable to verify plan. Please try again.");
+  }
+
+  // Lock relay price (per node class) and owner tier share at session start.
+  // FAIL CLOSED: no session without a price and a split snapshot.
+  let pricePerGbMusd: bigint;
+  let snapshot: ChargeSnapshot;
+  try {
+    pricePerGbMusd = await policyRepo.getPricing(relay.ipClass === "unknown" ? "any" : relay.ipClass);
+    snapshot = await tierRepo.getChargeSnapshot(relay.nodeOwnerUserId);
+  } catch (err) {
+    log.error("failed to lock relay pricing, rejecting session", {
+      userId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    throw new Error("Unable to lock relay pricing. Please try again.");
   }
 
   // Per-user session rate limiting — uses plan-specific limit when available
@@ -338,28 +374,32 @@ export async function startSession(
     }
   } else if (teamId) {
     // Team billing: reserve from team wallet instead of personal wallet
-    const teamWalletId = await teamRepo.reserveTeamBalance(teamId, MIN_RESERVATION_CENTS);
+    const balance = await teamRepo.getTeamBalance(teamId);
+    const want = Math.min(balance, reservationCentsFor(pricePerGbMusd));
+    const teamWalletId = want > 0 ? await teamRepo.reserveTeamBalance(teamId, want) : null;
     if (!teamWalletId) {
       invalidateTeamBalanceCache(teamId);
       throw new Error("Insufficient balance for reservation");
     }
-    reservedCents = MIN_RESERVATION_CENTS;
+    reservedCents = want;
     invalidateTeamBalanceCache(teamId);
   } else {
     // C1 fix: Reserve balance BEFORE creating session — no free proxy usage
-    const walletId = await walletRepo.reserveBalance(userId, MIN_RESERVATION_CENTS);
+    const balance = await walletRepo.getBalance(userId);
+    const want = Math.min(balance, reservationCentsFor(pricePerGbMusd));
+    const walletId = want > 0 ? await walletRepo.reserveBalance(userId, want) : null;
     if (!walletId) {
       // Invalidate stale balance cache so next request re-checks DB
       invalidateBalanceCache(userId);
       throw new Error("Insufficient balance for reservation");
     }
-    reservedCents = MIN_RESERVATION_CENTS;
+    reservedCents = want;
     invalidateBalanceCache(userId);
   }
 
   let dbSession;
   try {
-    dbSession = await usageRepo.createSession(userId, "webshare");
+    dbSession = await usageRepo.createRelaySession(userId, relay.nodeId, relay.destPort);
   } catch (err) {
     // If DB session creation fails, release the reservation
     if (reservedCents > 0) {
@@ -411,14 +451,18 @@ export async function startSession(
     pricePerGbCents,
     proxyType,
     teamId: teamId ?? null,
+    relay,
+    destHost: targetHost.includes(":") && !targetHost.startsWith("[") ? `[${targetHost}]` : (targetHost || "unknown"),
+    pricePerGbMusd,
+    snapshot,
   });
 
   // Set per-session byte limit to prevent unbounded usage beyond reservation
-  // Paid sessions: cap at what the reservation covers (with 10% headroom for settlement)
+  // Paid sessions: cap at exactly what the reservation covers (no overrun headroom,
+  // so settlement is never partial and the node is paid for every byte it carried)
   // Free sessions: cap at remaining plan bandwidth
   if (!isFreePlan && pricePerGbCents > 0) {
-    const maxBytesForReservation = Math.floor((reservedCents / pricePerGbCents) * BYTES_PER_GB * 1.1);
-    counter.maxBytes = Math.max(maxBytesForReservation, 1024 * 1024); // at least 1MB
+    counter.maxBytes = Math.max(maxBytesForReservation(reservedCents, pricePerGbMusd), 1); // 0 would mean unlimited
     counter.onLimitExceeded = () => {
       log.warn("session byte limit exceeded, terminating", { sessionId, userId, maxBytes: counter.maxBytes });
       endSession(sessionId).catch(() => {});
@@ -465,7 +509,7 @@ export async function endSession(sessionId: string): Promise<void> {
   // Fix #8: Atomic check-and-remove to prevent TOCTOU race
   if (!activeSessions.delete(sessionId)) return;
 
-  const { userId, counter, targetHost, reservedCents, connectLatencyMs, pricePerGbCents, proxyType, teamId } = session;
+  const { userId, counter, reservedCents, pricePerGbCents, teamId, relay } = session;
   const totalBytes = counter.bytesIn + counter.bytesOut;
 
   // Record bandwidth for velocity tracking (prevents single user from monopolizing)
@@ -479,50 +523,42 @@ export async function endSession(sessionId: string): Promise<void> {
     releaseFreeBandwidth(userId);
   }
 
-  const actualCostCents = computeCostCents(totalBytes, pricePerGbCents);
+  const rail = pricePerGbCents === 0 ? "free" : teamId ? "team" : "wallet";
 
   try {
-    // Record usage in DB (even for free plan — tracks bandwidth)
-    await recordUsage(userId, sessionId, counter.bytesIn, counter.bytesOut, targetHost, pricePerGbCents, connectLatencyMs, proxyType);
+    // One transaction: requester settle, relay_charges, node earn, abuse log,
+    // session end and usage record (DESIGN.md §6.3). Bytes are gateway-measured.
+    const r = await relayChargeRepo.settleRelayCharge({
+      sessionId,
+      requesterUserId: userId,
+      requesterWallet: relay.requesterWallet ?? null,
+      requesterTeamId: teamId,
+      rail,
+      reservedCents,
+      nodeId: relay.nodeId,
+      bytesGateway: BigInt(totalBytes),
+      bytesIn: counter.bytesIn,
+      bytesOut: counter.bytesOut,
+      pricePerGbMusd: session.pricePerGbMusd,
+      snapshot: session.snapshot,
+      destHost: session.destHost,
+      destPort: relay.destPort,
+      usageTargetHost: session.targetHost, // "" unless logTargetHosts (privacy-first)
+    });
+    if (teamId) invalidateTeamBalanceCache(teamId);
+    else invalidateBalanceCache(userId);
+    recordRequesterSpend(userId, r.grossMusd);
 
-    // Free plan: no wallet settlement needed (no reservation, no cost)
-    if (reservedCents === 0 && actualCostCents === 0) {
-      await usageRepo.endSession(sessionId, totalBytes, "completed");
-      log.info("session ended (free)", { sessionId, userId, totalBytes });
+    if (!r.paidInFull) {
+      log.error("session settlement partial — unpaid usage", { sessionId, userId, totalBytes, debitCents: r.debitCents, reservedCents });
       return;
     }
-
-    // C1 fix: Settle — adjust from reserved amount to actual cost
-    let settled: boolean;
-    if (teamId) {
-      settled = await teamRepo.settleTeamSession(teamId, reservedCents, actualCostCents, sessionId);
-      invalidateTeamBalanceCache(teamId);
-    } else {
-      settled = await walletRepo.settleSession(userId, reservedCents, actualCostCents, sessionId);
-      invalidateBalanceCache(userId);
-    }
-
-    if (!settled) {
-      // Partial payment — user ran out of balance during overage
-      log.error("session settlement partial — unpaid usage", {
-        sessionId,
-        userId,
-        totalBytes,
-        actualCostCents,
-        reservedCents,
-      });
-      await usageRepo.endSession(sessionId, totalBytes, "error");
-      return;
-    }
-
-    await usageRepo.endSession(sessionId, totalBytes, "completed");
-    log.info("session ended", { sessionId, userId, totalBytes, actualCostCents, reservedCents });
+    log.info("session ended", { sessionId, userId, totalBytes, debitCents: r.debitCents, reservedCents, rail });
   } catch (err) {
     log.error("session end failed", {
       sessionId,
       userId,
       totalBytes,
-      actualCostCents,
       reservedCents,
       error: err instanceof Error ? err.message : String(err),
     });
