@@ -18,7 +18,6 @@
   "references": [
     { "path": "packages/shared" },
     { "path": "packages/proxy-gateway" },
-    { "path": "packages/pool-manager" },
     { "path": "packages/metering" },
     { "path": "packages/billing" },
     { "path": "packages/dashboard" },

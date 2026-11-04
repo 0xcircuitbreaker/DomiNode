@@ -12,7 +12,7 @@
 #
 # Usage:
 #   bash scripts/e2e-test.sh
-#   bash scripts/e2e-test.sh --skip-proxy   # skip proxy test if Webshare not configured
+#   bash scripts/e2e-test.sh --skip-proxy   # skip proxy test if no relay nodes are connected
 #   bash scripts/e2e-test.sh --skip-payments # skip Stripe/crypto (if keys not set)
 
 set -euo pipefail

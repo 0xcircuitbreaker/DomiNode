@@ -66,12 +66,6 @@ services:
       DATABASE_URL: postgresql://dominusnode:dominusnode_dev@postgres:5432/dominusnode
       PROXY_LISTEN_PORT: "8080"
       SOCKS5_LISTEN_PORT: "1080"
-      WEBSHARE_DC_USERNAME: stress_dc_user
-      WEBSHARE_DC_PASSWORD: stress_dc_pass
-      WEBSHARE_RES_USERNAME: stress_res_user
-      WEBSHARE_RES_PASSWORD: stress_res_pass
-      WEBSHARE_PROXY_HOST: mock-upstream
-      WEBSHARE_HTTP_PORT: "31112"
       JWT_SECRET: stress-test-jwt-secret-do-not-use-in-production
       SKIP_GEOIP: "1"
       MAX_SESSIONS_PER_MINUTE: "1000"
