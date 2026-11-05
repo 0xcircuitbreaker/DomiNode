@@ -18,7 +18,6 @@ export const JOB_LOCK_KEYS = {
   retention: 0x444e_0002,
   tiers: 0x444e_0003,
   payouts: 0x444e_0004,
-  probes: 0x444e_0005,
 } as const;
 
 /**

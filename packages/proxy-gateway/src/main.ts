@@ -17,6 +17,7 @@ import * as tiersJob from "./jobs/tiers.js";
 import * as payoutsJob from "./jobs/payouts.js";
 import * as reputationFlushJob from "./jobs/reputation-flush.js";
 import { loadSdnFile } from "./jobs/sdn.js";
+import * as probesJob from "./jobs/probes.js";
 import { createEthersPayoutSender } from "./jobs/payout-sender-ethers.js";
 import { getActiveSessionCount, terminateUserSessions, getActiveSessions } from "./session-manager.js";
 
@@ -193,6 +194,27 @@ function startJobs(registry: NodeRegistry, getPolicy: () => ActivePolicy): Job[]
       },
     },
   }));
+  const probeTarget = probesJob.parseProbeUrl(process.env["PROBE_URL"]);
+  if (probeTarget) {
+    jobs.push(probesJob.start({
+      logger: jobLog, intervalMs: envInt(process.env, "PROBE_INTERVAL_MS", 900_000, 60_000, 86_400_000),
+      deps: {
+        target: probeTarget,
+        sampleSize: envInt(process.env, "PROBE_SAMPLE_SIZE", 20, 1, 1000),
+        timeoutMs: envInt(process.env, "PROBE_TIMEOUT_MS", 10_000, 1000, 60_000),
+        listNodes: () => [...registry.all()]
+          .filter((n) => n.ready && n.status === "active" && n.tunnel.isOpen)
+          .map((n) => ({ nodeId: n.nodeId, ip: n.ip, openStream: (h, p) => n.tunnel.openStream(h, p) })),
+        quarantine: async (nodeId, reason) => {
+          await nodeRepo.setStatus(nodeId, "quarantined", ["active", "pending", "cooldown"]);
+          registry.get(nodeId)?.tunnel.close(`probe: ${reason}`);
+        },
+        logger: jobLog,
+      },
+    }));
+  } else {
+    jobLog.warn("PROBE_URL not set: canary probes disabled");
+  }
   if (payoutRepo.payoutsEnabled()) {
     const capUsd = envInt(process.env, "PAYOUT_RUN_CAP_USD", 10_000, 1, 1_000_000);
     jobs.push(payoutsJob.start({
