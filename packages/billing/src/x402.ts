@@ -177,14 +177,26 @@ export function detectFacilitator(paymentHeader: string): X402Facilitator {
  * Build x402 payment requirements for a given pool type.
  * Returns the JSON structure that goes in the 402 response body.
  */
-export function buildX402Requirements(poolType: "dc" | "residential"): X402Requirements {
-  const priceUsd = poolType === "dc" ? getDcPricePerRequestUsd() : getResPricePerRequestUsd();
-  // Convert USD string to USDC base units (6 decimals)
-  const priceFloat = parseFloat(priceUsd);
-  if (isNaN(priceFloat) || priceFloat <= 0) {
-    throw new Error(`Invalid x402 price for ${poolType}: ${priceUsd}`);
+export const MAX_X402_AMOUNT_MUSD = 10_000_000_000n; // $10,000 sanity ceiling
+
+export function buildX402Requirements(arg: "dc" | "residential" | { amountMusd: bigint }): X402Requirements {
+  let amountUsdc: string;
+  if (typeof arg === "object") {
+    // Relay pricing (DESIGN.md §7): USDC has 6 decimals, so 1 µUSD == 1 base unit.
+    if (typeof arg.amountMusd !== "bigint" || arg.amountMusd < 1n || arg.amountMusd > MAX_X402_AMOUNT_MUSD) {
+      throw new Error("Invalid x402 amount");
+    }
+    amountUsdc = arg.amountMusd.toString();
+  } else {
+    const poolType = arg;
+    const priceUsd = poolType === "dc" ? getDcPricePerRequestUsd() : getResPricePerRequestUsd();
+    // Convert USD string to USDC base units (6 decimals)
+    const priceFloat = parseFloat(priceUsd);
+    if (isNaN(priceFloat) || priceFloat <= 0) {
+      throw new Error(`Invalid x402 price for ${poolType}: ${priceUsd}`);
+    }
+    amountUsdc = Math.ceil(priceFloat * 1_000_000).toString();
   }
-  const amountUsdc = Math.ceil(priceFloat * 1_000_000).toString();
 
   const accepts: X402PaymentOption[] = [];
   const resourceUrl = `https://${process.env["PROXY_PUBLIC_HOST"] ?? "proxy.dominusnode.com"}`;
