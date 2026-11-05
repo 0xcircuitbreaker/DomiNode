@@ -1460,3 +1460,30 @@ ON CONFLICT (table_name) DO NOTHING;
 INSERT INTO schema_migrations (version, description) VALUES
   ('1.7.0', 'Agent relay network: nodes, pricing, tiers, relay charges, node credits, payouts')
 ON CONFLICT (version) DO NOTHING;
+
+-- ─── Relay follow-ups: sub-cent carry, byte disputes, node signing key ───
+-- Fractional µUSD owed by a payer below one cent (DESIGN.md §6, ECONOMICS.md).
+ALTER TABLE wallets ADD COLUMN IF NOT EXISTS carry_musd BIGINT NOT NULL DEFAULT 0;
+DO $$ BEGIN
+  ALTER TABLE wallets ADD CONSTRAINT chk_wallets_carry_musd CHECK (carry_musd BETWEEN 0 AND 9999);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+ALTER TABLE team_wallets ADD COLUMN IF NOT EXISTS carry_musd BIGINT NOT NULL DEFAULT 0;
+DO $$ BEGIN
+  ALTER TABLE team_wallets ADD CONSTRAINT chk_team_wallets_carry_musd CHECK (carry_musd BETWEEN 0 AND 9999);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+CREATE TABLE IF NOT EXISTS byte_disputes (
+  id               BIGSERIAL PRIMARY KEY,
+  relay_charge_id  UUID REFERENCES relay_charges(id) ON DELETE SET NULL,
+  node_id          UUID REFERENCES nodes(id) ON DELETE SET NULL,
+  bytes_gateway    BIGINT NOT NULL CHECK (bytes_gateway BETWEEN 0 AND 1099511627776),
+  bytes_node       BIGINT NOT NULL CHECK (bytes_node BETWEEN 0 AND 1099511627776),
+  status           TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open','resolved_gateway','resolved_node','dismissed')),
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+  resolved_at      TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_byte_disputes_node ON byte_disputes(node_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_byte_disputes_open ON byte_disputes(created_at) WHERE status = 'open';
+

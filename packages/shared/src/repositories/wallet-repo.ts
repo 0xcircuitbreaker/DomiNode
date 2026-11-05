@@ -442,3 +442,29 @@ export async function getTransactions(
   );
   return result.rows;
 }
+
+const MUSD_PER_CENT_BIG = 10_000n;
+
+/**
+ * Sub-cent accrual (ECONOMICS.md): lock the wallet row, add `grossMusd` to the
+ * payer's carry, and return the whole cents now due; the remainder (0..9999 µUSD)
+ * stays in wallets.carry_musd. Must run inside the settle transaction.
+ */
+export async function accrueCarryTx(
+  client: Pick<pg.PoolClient, "query">,
+  userId: string,
+  grossMusd: bigint,
+): Promise<{ cents: bigint; carryMusd: bigint } | null> {
+  if (grossMusd < 0n) throw new Error("grossMusd must be >= 0");
+  const r = await client.query<{ id: string; carry_musd: string }>(
+    `SELECT id, carry_musd FROM wallets WHERE user_id = $1 FOR UPDATE`,
+    [userId],
+  );
+  const w = r.rows[0];
+  if (!w) return null;
+  const total = BigInt(w.carry_musd ?? "0") + grossMusd;
+  const cents = total / MUSD_PER_CENT_BIG;
+  const carryMusd = total % MUSD_PER_CENT_BIG;
+  await client.query(`UPDATE wallets SET carry_musd = $1 WHERE id = $2`, [carryMusd.toString(), w.id]);
+  return { cents, carryMusd };
+}

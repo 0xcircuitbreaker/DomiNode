@@ -3,7 +3,11 @@ import WebSocket from "ws";
 import {
   DEFAULT_POLICY, FrameDecoder, FrameType, encodeFrame, encodeControl, decodeControl, hashNodeKey,
   type ActivePolicy, type TunnelAuthNode, type Frame,
+  authMessage, challengeMessage, signEd25519, verifyEd25519, ed25519PublicKeyHex,
 } from "@dominusnode/shared";
+import { generateKeyPairSync, type KeyObject } from "node:crypto";
+
+const NODE_KEYS = new Map<string, KeyObject>();
 import { NodeTunnelServer, resolveTunnelPort, type GeoInfo } from "./server.js";
 import { NodeRegistry } from "./registry.js";
 
@@ -14,7 +18,9 @@ const NODES: Record<string, TunnelAuthNode> = {
   [hashNodeKey(KEY_B)]: authNode("22222222-2222-4222-8222-222222222222"),
 };
 function authNode(id: string): TunnelAuthNode {
-  return { id, owner_user_id: "u-" + id, owner_wallet: "0xw", owner_team_id: null, node_pubkey: null, status: "active",
+  const kp = generateKeyPairSync("ed25519");
+  NODE_KEYS.set(id, kp.privateKey);
+  return { id, owner_user_id: "u-" + id, owner_wallet: "0xw", owner_team_id: null, node_pubkey: ed25519PublicKeyHex(kp.publicKey), status: "active",
     attestation_version: 1, max_streams: 8, max_gb_day: 5, reputation: 3000 };
 }
 
@@ -27,7 +33,7 @@ afterEach(async () => {
   server = null;
 });
 
-async function start(opts: { policy?: Partial<ActivePolicy["body"]>; geo?: GeoInfo | null; heartbeatMs?: number; deadline?: number; activate?: (id: string) => Promise<boolean> } = {}) {
+async function start(opts: { policy?: Partial<ActivePolicy["body"]>; geo?: GeoInfo | null; heartbeatMs?: number; deadline?: number; activate?: (id: string) => Promise<boolean>; coordSign?: (m: Buffer) => string } = {}) {
   const policy: ActivePolicy = { version: 3, sha256: "f".repeat(64), body: { ...DEFAULT_POLICY, ...opts.policy }, createdAt: null };
   const online: string[] = [];
   const offline: string[] = [];
@@ -38,18 +44,30 @@ async function start(opts: { policy?: Partial<ActivePolicy["body"]>; geo?: GeoIn
     markOffline: async (id) => { offline.push(id); return true; },
     ...(opts.activate ? { activatePending: opts.activate } : {}),
     getPolicy: () => policy,
+    ...(opts.coordSign ? { coordSign: opts.coordSign } : {}),
     geoLookup: () => (opts.geo === undefined ? { country: "US", asn: 64500 } : opts.geo),
   }, { port: 0, host: "127.0.0.1", heartbeatMs: opts.heartbeatMs, handshakeDeadlineMs: opts.deadline });
   const port = await server.listen();
   return { port, registry, online, offline };
 }
 
-function connect(port: number, key = KEY_A, path = "/v1/tunnel") {
+/** authSig: "auto" signs AUTH with the node's key; "bad" signs with a stranger's; "none" sends nothing. */
+function connect(port: number, key = KEY_A, path = "/v1/tunnel", authSig: "auto" | "bad" | "none" = "auto") {
   const ws = new WebSocket(`ws://127.0.0.1:${port}${path}`, { headers: { Authorization: `Bearer ${key}` } });
   sockets.push(ws);
   const frames: Frame[] = [];
   const dec = new FrameDecoder();
-  ws.on("message", (d: Buffer) => frames.push(...dec.push(d)));
+  const nodeId = NODES[hashNodeKey(key)]?.id;
+  ws.on("message", (d: Buffer) => {
+    for (const f of dec.push(d)) {
+      frames.push(f);
+      if (f.type === FrameType.CHALLENGE && authSig !== "none" && nodeId) {
+        const ch = decodeControl<{ nonce: string }>(f.payload);
+        const k = authSig === "auto" ? NODE_KEYS.get(nodeId)! : generateKeyPairSync("ed25519").privateKey;
+        ws.send(encodeFrame(FrameType.AUTH, 0, 0, encodeControl({ sig: signEd25519(k, authMessage(ch.nonce, nodeId, null)) })));
+      }
+    }
+  });
   ws.on("error", () => undefined);
   const closed = new Promise<number>((r) => ws.on("close", (c) => r(c)));
   const status = new Promise<number>((r) => ws.on("unexpected-response", (_q, res) => r(res.statusCode ?? 0)));
@@ -74,6 +92,52 @@ describe("resolveTunnelPort", () => {
     expect(resolveTunnelPort(undefined)).toBe(8443);
     expect(resolveTunnelPort("9000")).toBe(9000);
     for (const bad of ["abc", "0", "70000", "-1", "1e3", "NaN"]) expect(() => resolveTunnelPort(bad)).toThrow();
+  });
+});
+
+describe("NodeTunnelServer AUTH (commit 20)", () => {
+  it("signs CHALLENGE with the coordinator key and announces binding none on plain WS", async () => {
+    const coord = generateKeyPairSync("ed25519");
+    const { port } = await start({ coordSign: (m) => signEd25519(coord.privateKey, m) });
+    const c = connect(port);
+    await c.opened;
+    c.send(FrameType.HELLO, 0, hello());
+    const ch = decodeControl<{ nonce: string; policyVersion: number; serverTime: number; binding: string; coordSig: string }>(
+      (await c.waitFor(FrameType.CHALLENGE)).payload);
+    expect(ch.binding).toBe("none");
+    expect(verifyEd25519(ed25519PublicKeyHex(coord.publicKey), challengeMessage(ch.nonce, ch.policyVersion, ch.serverTime, "none"), ch.coordSig)).toBe(true);
+    await c.waitFor(FrameType.AUTH_OK);
+  });
+
+  it("rejects an AUTH signed by the wrong key", async () => {
+    const { port, online } = await start();
+    const c = connect(port, KEY_A, "/v1/tunnel", "bad");
+    await c.opened;
+    c.send(FrameType.HELLO, 0, hello());
+    expect(decodeControl((await c.waitFor(FrameType.AUTH_FAIL)).payload)).toEqual({ code: "BAD_SIGNATURE" });
+    expect(online).toHaveLength(0);
+  });
+
+  it("rejects non-AUTH frames after CHALLENGE and nodes without a registered pubkey", async () => {
+    const { port } = await start();
+    const c = connect(port, KEY_A, "/v1/tunnel", "none");
+    await c.opened;
+    c.send(FrameType.HELLO, 0, hello());
+    await c.waitFor(FrameType.CHALLENGE);
+    c.send(FrameType.PING, 0, { seq: 1 });
+    expect(await c.closed).toBe(1002);
+
+    const n = NODES[hashNodeKey(KEY_B)];
+    const saved = n.node_pubkey;
+    n.node_pubkey = null;
+    try {
+      const d = connect(port, KEY_B);
+      await d.opened;
+      d.send(FrameType.HELLO, 0, hello(n.id));
+      expect(decodeControl((await d.waitFor(FrameType.AUTH_FAIL)).payload)).toEqual({ code: "NO_PUBKEY" });
+    } finally {
+      n.node_pubkey = saved;
+    }
   });
 });
 

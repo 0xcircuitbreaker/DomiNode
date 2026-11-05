@@ -4,7 +4,17 @@ import { WebSocketServer, type WebSocket } from "ws";
 import { TunnelClient, backoffDelay, scrub, type TunnelLogger } from "./tunnel-client.js";
 import { dial, type Connector, type DialResult } from "./dialer.js";
 import { Limits } from "./limits.js";
-import { FrameDecoder, FrameType, encodeFrame, encodeControl, decodeControl, FLAG_FIN, FLAG_RST, type Frame } from "./shared.js";
+import { FrameDecoder, FrameType, encodeFrame, encodeControl, decodeControl, FLAG_FIN, FLAG_RST, type Frame,
+  challengeMessage, authMessage, signEd25519, verifyEd25519 } from "./shared.js";
+import { generateKeyPairSync, type KeyObject } from "node:crypto";
+
+const rawPub = (k: KeyObject) => (k.export({ format: "der", type: "spki" }) as Buffer).subarray(-32).toString("hex");
+const COORD = generateKeyPairSync("ed25519");
+const COORD_PUB = rawPub(COORD.publicKey);
+const NODE = generateKeyPairSync("ed25519");
+const NODE_PUB = rawPub(NODE.publicKey);
+const NODE_PEM = NODE.privateKey.export({ format: "pem", type: "pkcs8" }).toString();
+const NODE_ID = "11111111-2222-3333-4444-555555555555";
 
 const NODE_KEY = "dn_node_" + "ab".repeat(32);
 const quiet: TunnelLogger = { info: () => undefined, warn: () => undefined };
@@ -17,6 +27,10 @@ class FakeGateway {
   frames: Frame[] = [];
   authHeaders: (string | undefined)[] = [];
   rejectAuth = false;
+  /** Sign CHALLENGE with this key (null = unsigned). */
+  coordKey: KeyObject | null = COORD.privateKey;
+  authSigOk: boolean | null = null;
+  private nonce = "cd".repeat(32);
   initialWindow = 262144;
   private waiters: Array<{ pred: (f: Frame) => boolean; resolve: (f: Frame) => void }> = [];
 
@@ -40,8 +54,15 @@ class FakeGateway {
         for (const f of dec.push(d)) {
           this.frames.push(f);
           if (f.type === FrameType.HELLO) {
-            this.send(FrameType.CHALLENGE, 0, { nonce: "cd".repeat(32), policyVersion: 1, serverTime: Date.now(), coordSig: "" });
-            this.send(FrameType.AUTH_OK, 0, { heartbeatMs: 15000, initialWindow: this.initialWindow, policyHash: "x" });
+            const serverTime = Date.now();
+            const coordSig = this.coordKey ? signEd25519(this.coordKey, challengeMessage(this.nonce, 1, serverTime, "none")) : "";
+            this.send(FrameType.CHALLENGE, 0, { nonce: this.nonce, policyVersion: 1, serverTime, binding: "none", coordSig });
+          }
+          if (f.type === FrameType.AUTH) {
+            const a = decodeControl<{ sig?: unknown }>(f.payload);
+            this.authSigOk = verifyEd25519(NODE_PUB, authMessage(this.nonce, NODE_ID, null), a.sig);
+            if (this.authSigOk) this.send(FrameType.AUTH_OK, 0, { heartbeatMs: 15000, initialWindow: this.initialWindow, policyHash: "x" });
+            else this.send(FrameType.AUTH_FAIL, 0, { code: "BAD_SIGNATURE" });
           }
           const i = this.waiters.findIndex((w) => w.pred(f));
           if (i !== -1) this.waiters.splice(i, 1)[0].resolve(f);
@@ -120,7 +141,9 @@ describe("TunnelClient", () => {
     client = new TunnelClient({
       url: `ws://127.0.0.1:${gw.port}/v1/tunnel`,
       nodeKey: NODE_KEY,
-      nodeId: "node-1",
+      nodeId: NODE_ID,
+      nodePrivateKeyPem: NODE_PEM,
+      coordPins: [COORD_PUB],
       agentVersion: "test",
       localPorts: [80, 443],
       caps: { maxStreams: 8, maxMbps: 100, gbPerDay: 5 },
@@ -148,9 +171,30 @@ describe("TunnelClient", () => {
     expect(gw.authHeaders[0]).toBe(`Bearer ${NODE_KEY}`);
     const hello = await gw.next((f) => f.type === FrameType.HELLO);
     const h = ctl(hello) as { nodeId: string; caps: { ports: number[] }; floorHash: string };
-    expect(h.nodeId).toBe("node-1");
+    expect(h.nodeId).toBe(NODE_ID);
+    expect(gw.authSigOk).toBe(true);
     expect(h.caps.ports).toEqual([80, 443]);
     expect(h.floorHash).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it("refuses an unsigned or wrongly-signed CHALLENGE and never sends AUTH", async () => {
+    for (const key of [null, generateKeyPairSync("ed25519").privateKey]) {
+      gw.coordKey = key;
+      gw.frames.length = 0;
+      const c = makeClient({ backoffMinMs: 5000, backoffMaxMs: 5000 });
+      const fail = new Promise<string>((r) => c.once("authFail", (code: string) => r(code)));
+      c.start();
+      expect(await fail).toBe("COORD_SIGNATURE");
+      expect(gw.frames.some((f) => f.type === FrameType.AUTH)).toBe(false);
+      c.stop();
+    }
+  });
+
+  it("refuses to authenticate with no coordinator pins", async () => {
+    const c = makeClient({ coordPins: [], backoffMinMs: 5000, backoffMaxMs: 5000 });
+    const fail = new Promise<string>((r) => c.once("authFail", (code: string) => r(code)));
+    c.start();
+    expect(await fail).toBe("COORD_SIGNATURE");
   });
 
   it("relays a stream end to end with WINDOW/CLOSE accounting", async () => {

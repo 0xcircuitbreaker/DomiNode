@@ -1,6 +1,6 @@
 import { withTx, earnTx, MUSD_PER_CENT } from "./node-credit-repo.js";
-import { settleSessionTx } from "./wallet-repo.js";
-import { settleTeamSessionTx } from "./team-repo.js";
+import { settleSessionTx, accrueCarryTx } from "./wallet-repo.js";
+import { settleTeamSessionTx, accrueTeamCarryTx } from "./team-repo.js";
 import { endSessionTx, createUsageRecordTx } from "./usage-repo.js";
 import type { ChargeSnapshot } from "./tier-repo.js";
 
@@ -43,16 +43,28 @@ export interface SettleRelayChargeResult {
   platformMusd: bigint;
   debitCents: number;
   zeroReason: ZeroReason | null;
+  disputed: boolean;
 }
 
-/** Pure charge math (mirrors metering/relay.ts). */
-export function computeSplit(bytes: bigint, pricePerGbMusd: bigint, nodeShareBps: number, rail: RelayRail) {
+/** Byte-report dispute threshold: mismatch > 10% of gateway bytes AND > 1 MiB. */
+export const DISPUTE_MIN_BYTES = 1_048_576n;
+export function isByteDispute(gateway: bigint, node: bigint | null | undefined): boolean {
+  if (node == null) return false;
+  const diff = gateway > node ? gateway - node : node - gateway;
+  return diff > DISPUTE_MIN_BYTES && diff * 10n > gateway;
+}
+
+/**
+ * Pure charge math. gross is the true charge, ceil'd to 1 µUSD only; cent
+ * rounding happens per payer via the carry (accrueCarryTx), never per session.
+ * `debitCents` is the standalone ceil-to-cent figure (no carry), kept for
+ * rails that cannot carry (agentic_wallet reservations).
+ */
+export function computeSplit(bytes: bigint, pricePerGbMusd: bigint, nodeShareBps: number, _rail: RelayRail) {
   const raw = (bytes * pricePerGbMusd + 999_999_999n) / 1_000_000_000n;
   const debitCents = (raw + MUSD_PER_CENT - 1n) / MUSD_PER_CENT;
-  const prepaidInCents = rail === "wallet" || rail === "team" || rail === "agentic_wallet";
-  const gross = prepaidInCents ? debitCents * MUSD_PER_CENT : raw;
-  const node = (raw * BigInt(nodeShareBps)) / 10_000n; // on un-rounded gross
-  return { rawMusd: raw, grossMusd: gross, nodeMusd: node, platformMusd: gross - node, debitCents };
+  const node = (raw * BigInt(nodeShareBps)) / 10_000n;
+  return { rawMusd: raw, grossMusd: raw, nodeMusd: node, platformMusd: raw - node, debitCents };
 }
 
 function validate(i: SettleRelayChargeInput): void {
@@ -91,23 +103,32 @@ export async function settleRelayCharge(i: SettleRelayChargeInput): Promise<Sett
       return {
         status: "duplicate", relayChargeId: e.id, paidInFull: true,
         grossMusd: BigInt(e.gross_musd), nodeMusd: BigInt(e.node_musd), platformMusd: BigInt(e.platform_musd),
-        debitCents: 0, zeroReason: e.zero_reason,
+        debitCents: 0, zeroReason: e.zero_reason, disputed: false,
       };
     }
 
     if (session.status !== "active") throw new Error("Session already ended");
 
     const split = computeSplit(i.bytesGateway, i.pricePerGbMusd, i.snapshot.nodeShareBps, i.rail);
-    if (split.debitCents > BigInt(MAX_INT)) throw new Error("charge exceeds maximum");
-    const debitCents = i.rail === "free" ? 0 : Number(split.debitCents);
+    if (split.grossMusd > BigInt(MAX_INT) * MUSD_PER_CENT) throw new Error("charge exceeds maximum");
+    let debitCents = 0;
 
-    // Requester settle
+    // Requester settle: whole cents due after adding gross to the payer's
+    // sub-cent carry (same row lock as the balance update).
     let paidInFull = true;
     if (i.rail === "wallet") {
+      const c = await accrueCarryTx(client, i.requesterUserId, split.grossMusd);
+      if (!c) throw new Error("Requester wallet not found");
+      if (c.cents > BigInt(MAX_INT)) throw new Error("charge exceeds maximum");
+      debitCents = Number(c.cents);
       const r = await settleSessionTx(client, i.requesterUserId, i.reservedCents, debitCents, i.sessionId);
       if (r === "no_wallet") throw new Error("Requester wallet not found");
       paidInFull = r === "ok";
     } else if (i.rail === "team") {
+      const c = await accrueTeamCarryTx(client, i.requesterTeamId as string, split.grossMusd);
+      if (!c) throw new Error("Team settlement failed");
+      if (c.cents > BigInt(MAX_INT)) throw new Error("charge exceeds maximum");
+      debitCents = Number(c.cents);
       const r = await settleTeamSessionTx(client, i.requesterTeamId as string, i.reservedCents, debitCents, i.sessionId);
       if (r === "no_wallet" || r === "invalid") throw new Error("Team settlement failed");
       paidInFull = r === "ok";
@@ -153,20 +174,33 @@ export async function settleRelayCharge(i: SettleRelayChargeInput): Promise<Sett
     const nodeMusd = zeroReason ? 0n : split.nodeMusd;
     const platformMusd = grossMusd - nodeMusd;
 
+    const disputed = isByteDispute(i.bytesGateway, i.bytesNode);
     const ins = await client.query<{ id: string }>(
       `INSERT INTO relay_charges (session_id, requester_user_id, node_id, node_owner_user_id, payment_rail,
          bytes_gateway, bytes_node, price_per_gb_musd, gross_musd, node_musd, platform_musd,
-         split_config_id, tier_id, node_share_bps, zero_reason, matures_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15, now() + make_interval(days => $16))
+         split_config_id, tier_id, node_share_bps, zero_reason, matures_at, disputed)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15, now() + make_interval(days => $16), $17)
        RETURNING id`,
       [
         i.sessionId, i.requesterUserId, i.nodeId, node.owner_user_id, i.rail,
         i.bytesGateway.toString(), i.bytesNode == null ? null : i.bytesNode.toString(),
         i.pricePerGbMusd.toString(), grossMusd.toString(), nodeMusd.toString(), platformMusd.toString(),
         i.snapshot.splitConfigId, i.snapshot.tierId, i.snapshot.nodeShareBps, zeroReason, i.snapshot.holdDays,
+        disputed,
       ],
     );
     const relayChargeId = ins.rows[0].id;
+
+    if (disputed) {
+      await client.query(
+        `INSERT INTO byte_disputes (relay_charge_id, node_id, bytes_gateway, bytes_node) VALUES ($1, $2, $3, $4)`,
+        [relayChargeId, i.nodeId, i.bytesGateway.toString(), (i.bytesNode as bigint).toString()],
+      );
+      await client.query(
+        `UPDATE nodes SET byte_disputes = LEAST(byte_disputes + 1, 1000000) WHERE id = $1`,
+        [i.nodeId],
+      );
+    }
 
     if (nodeMusd > 0n) await earnTx(client, node.owner_user_id, nodeMusd, relayChargeId);
 
@@ -184,6 +218,6 @@ export async function settleRelayCharge(i: SettleRelayChargeInput): Promise<Sett
       cost_cents: debitCents, proxy_type: "relay", target_host: (i.usageTargetHost ?? i.destHost).toLowerCase(),
     });
 
-    return { status: "settled", relayChargeId, paidInFull, grossMusd, nodeMusd, platformMusd, debitCents, zeroReason };
+    return { status: "settled", relayChargeId, paidInFull, grossMusd, nodeMusd, platformMusd, debitCents, zeroReason, disputed };
   });
 }

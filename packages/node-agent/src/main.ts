@@ -9,6 +9,7 @@ import { loadConfig, ConfigError, type FlagMap } from "./config.js";
 import { dial } from "./dialer.js";
 import { Limits } from "./limits.js";
 import { readNodeFile, registerNode } from "./register.js";
+import { effectiveCoordPins } from "./coord-pins.js";
 import { TunnelClient, scrub, stderrLogger } from "./tunnel-client.js";
 
 export const AGENT_VERSION = "0.1.0";
@@ -67,6 +68,8 @@ async function main(argv: string[]): Promise<number> {
     caps: { maxStreams: cfg.maxStreams, maxMbps: cfg.maxMbps, gbPerDay: cfg.gbPerDay },
     limits,
     spkiPins: cfg.spkiPins,
+    nodePrivateKeyPem: stored.nodePrivateKeyPem,
+    coordPins: effectiveCoordPins(cfg.coordPins),
     dial: (host, port, allowedPorts) => dial(host, port, { allowedPorts: () => allowedPorts, denyDomains: cfg.denyDomains }),
   });
   stored.nodeKey = "";

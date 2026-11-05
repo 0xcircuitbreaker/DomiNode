@@ -3,7 +3,7 @@ import { routedClient, type Route } from "./relay-net-test-helpers.js";
 
 const mockConnect = vi.fn();
 vi.mock("../db.js", () => ({ query: vi.fn(), getPool: () => ({ connect: () => mockConnect() }) }));
-import { settleRelayCharge, computeSplit, type SettleRelayChargeInput } from "./relay-charge-repo.js";
+import { settleRelayCharge, computeSplit, isByteDispute, type SettleRelayChargeInput } from "./relay-charge-repo.js";
 
 const base: SettleRelayChargeInput = {
   sessionId: "s1", requesterUserId: "req", requesterWallet: null, rail: "wallet", reservedCents: 10,
@@ -17,12 +17,66 @@ const nodeRow = (owner = "own", status = "active") => ({ rows: [{ owner_user_id:
 describe("relay-charge-repo", () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it("computeSplit: wallet gross rounded to cents, node share on raw", () => {
+  it("computeSplit: gross is the true charge ceil'd to 1 µUSD, never to a cent", () => {
     const s = computeSplit(1n, 500_000n, 2500, "wallet");
     expect(s.rawMusd).toBe(1n);
-    expect(s.debitCents).toBe(1n);
-    expect(s.grossMusd).toBe(10_000n);
+    expect(s.grossMusd).toBe(1n);
     expect(s.nodeMusd + s.platformMusd).toBe(s.grossMusd);
+    const k = computeSplit(4096n, 500_000n, 2500, "wallet");
+    expect(k.grossMusd).toBe(3n); // 4096 * 0.0005 µUSD/B = 2.048 -> 3
+  });
+
+  it("1000 x 4KB sessions at $0.50/GB accrue sub-cent carry (~0.3c total, not 1000c)", async () => {
+    let carry = 0n;
+    let debited = 0;
+    let grossTotal = 0n;
+    for (let k = 0; k < 1000; k++) {
+      setup([
+        [/SELECT id, carry_musd FROM wallets/, () => ({ rows: [{ id: "w1", carry_musd: carry.toString() }] })],
+        [/UPDATE wallets SET carry_musd/, (p) => { carry = BigInt(p[0] as string); return { rows: [] }; }],
+        [/FROM wallets WHERE user_id/, () => ({ rows: [{ id: "w1", balance_cents: 1000 }] })],
+        [/FROM nodes WHERE id/, () => nodeRow()],
+        [/INSERT INTO relay_charges/, () => ({ rows: [{ id: "rc" }] })],
+      ]);
+      const r = await settleRelayCharge({ ...base, reservedCents: 0, bytesGateway: 4096n });
+      debited += r.debitCents;
+      grossTotal += r.grossMusd;
+      expect(r.nodeMusd + r.platformMusd).toBe(r.grossMusd);
+      expect(carry).toBeGreaterThanOrEqual(0n);
+      expect(carry).toBeLessThan(10_000n);
+    }
+    // True cost: 1000 * 4096 B * $0.50/GB = 2048 µUSD ≈ 0.2c; ceil-to-µUSD gives 3000 µUSD.
+    expect(grossTotal).toBe(3000n);
+    expect(debited).toBe(0);
+    expect(BigInt(debited) * 10_000n + carry).toBe(grossTotal);
+  });
+
+  it("carry rolls over into whole cents", async () => {
+    setup([
+      [/SELECT id, carry_musd FROM wallets/, () => ({ rows: [{ id: "w1", carry_musd: "9999" }] })],
+      [/FROM wallets WHERE user_id/, () => ({ rows: [{ id: "w1", balance_cents: 1000 }] })],
+      [/FROM nodes WHERE id/, () => nodeRow()],
+      [/INSERT INTO relay_charges/, () => ({ rows: [{ id: "rc" }] })],
+    ]);
+    const r = await settleRelayCharge({ ...base, reservedCents: 0, bytesGateway: 4096n });
+    expect(r.debitCents).toBe(1);
+  });
+
+  it("marks disputed + records byte_disputes when node bytes differ >10% and >1MiB", async () => {
+    const r = setup([
+      [/FROM wallets WHERE user_id/, () => ({ rows: [{ id: "w1", balance_cents: 1000 }] })],
+      [/FROM nodes WHERE id/, () => nodeRow()],
+      [/INSERT INTO relay_charges/, () => ({ rows: [{ id: "rcd" }] })],
+    ]);
+    const res = await settleRelayCharge({ ...base, bytesGateway: 10_000_000n, bytesNode: 5_000_000n });
+    expect(res.disputed).toBe(true);
+    const ins = r.calls.find((c) => /INSERT INTO relay_charges/.test(c.sql))!;
+    expect(ins.params[6]).toBe("5000000");
+    expect(ins.params[16]).toBe(true);
+    expect(r.sqls().some((x) => /INSERT INTO byte_disputes/.test(x))).toBe(true);
+    expect(isByteDispute(10_000_000n, 9_500_000n)).toBe(false); // 5%
+    expect(isByteDispute(1_000_000n, 0n)).toBe(false); // <1MiB
+    expect(isByteDispute(100_000_000n, null)).toBe(false);
   });
 
   it("settles wallet rail in one tx and credits node pending", async () => {
@@ -40,7 +94,7 @@ describe("relay-charge-repo", () => {
     expect(s.some((x) => /RETURNING \*/.test(x))).toBe(false);
     expect(s.some((x) => /'earn'/.test(x))).toBe(true);
     const ins = r.calls.find((c) => /INSERT INTO relay_charges/.test(c.sql))!;
-    expect(ins.params.slice(11)).toEqual([1, 1, 2500, null, 14]);
+    expect(ins.params.slice(11)).toEqual([1, 1, 2500, null, 14, false]);
     const log = r.calls.find((c) => /relay_abuse_log/.test(c.sql))!;
     expect(log.params[3]).toBe("example.com");
     expect(r.calls.find((c) => /INSERT INTO usage_records/.test(c.sql))!.params[5]).toBe("relay");

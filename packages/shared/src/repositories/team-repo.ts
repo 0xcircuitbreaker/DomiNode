@@ -1166,3 +1166,23 @@ export async function revokeTeamApiKey(
     client.release();
   }
 }
+
+/** Team-wallet twin of wallet-repo accrueCarryTx (sub-cent carry under the row lock). */
+export async function accrueTeamCarryTx(
+  client: Pick<pg.PoolClient, "query">,
+  teamId: string,
+  grossMusd: bigint,
+): Promise<{ cents: bigint; carryMusd: bigint } | null> {
+  if (grossMusd < 0n) throw new Error("grossMusd must be >= 0");
+  const r = await client.query<{ id: string; carry_musd: string }>(
+    `SELECT id, carry_musd FROM team_wallets WHERE team_id = $1 FOR UPDATE`,
+    [teamId],
+  );
+  const w = r.rows[0];
+  if (!w) return null;
+  const total = BigInt(w.carry_musd ?? "0") + grossMusd;
+  const cents = total / 10_000n;
+  const carryMusd = total % 10_000n;
+  await client.query(`UPDATE team_wallets SET carry_musd = $1 WHERE id = $2`, [carryMusd.toString(), w.id]);
+  return { cents, carryMusd };
+}

@@ -14,7 +14,10 @@ import WebSocket from "ws";
 import {
   FrameType, FrameDecoder, encodeFrame, encodeControl, decodeControl, TunnelProtocolError,
   MAX_FRAME_PAYLOAD, FLAG_FIN, FLAG_RST, type Frame,
+  challengeMessage, authMessage, signEd25519, verifyEd25519, loadEd25519PrivateKey,
+  EXPORTER_LABEL, EXPORTER_LENGTH,
 } from "./shared.js";
+import type { KeyObject } from "node:crypto";
 import { effectivePorts, floorHash } from "./floor.js";
 import type { Limits } from "./limits.js";
 import type { DialResult, OpenErrCode } from "./dialer.js";
@@ -52,6 +55,10 @@ export interface TunnelClientOptions {
   limits: Limits;
   dial: DialFn;
   logger?: TunnelLogger;
+  /** PEM (pkcs8) ed25519 node key generated at registration; signs AUTH. */
+  nodePrivateKeyPem: string;
+  /** Coordinator ed25519 pubkeys (hex); CHALLENGE must be signed by one. Empty = refuse to auth. */
+  coordPins: readonly string[];
   /** Base64 SHA-256 SPKI pins; when non-empty the server key must match one. */
   spkiPins?: readonly string[];
   backoffMinMs?: number;
@@ -120,12 +127,15 @@ export class TunnelClient extends EventEmitter {
   private attempt = 0;
   private draining = false;
   private keyBuf: Buffer;
+  private readonly signKey: KeyObject;
+  private challenged = false;
   private readonly log: TunnelLogger;
 
   constructor(private readonly opts: TunnelClientOptions) {
     super();
     if (!/^dn_node_[0-9a-f]{64}$/.test(opts.nodeKey)) throw new Error("invalid node key format");
     this.keyBuf = Buffer.from(opts.nodeKey, "utf8");
+    this.signKey = loadEd25519PrivateKey(opts.nodePrivateKeyPem);
     this.log = opts.logger ?? stderrLogger;
     // Until the gateway says otherwise, the policy side admits only the floor ports.
     this.policyPorts = [80, 443];
@@ -168,6 +178,18 @@ export class TunnelClient extends EventEmitter {
     this.emit("stopped");
   }
 
+  /** RFC 5705 exporter of the live WSS connection (same label as the gateway). */
+  private tlsExporter(): Buffer | null {
+    const sock = (this.ws as unknown as { _socket?: { exportKeyingMaterial?: (n: number, l: string) => Buffer } } | null)?._socket;
+    if (!sock || typeof sock.exportKeyingMaterial !== "function") return null;
+    try {
+      const b = sock.exportKeyingMaterial(EXPORTER_LENGTH, EXPORTER_LABEL);
+      return b.length === EXPORTER_LENGTH ? b : null;
+    } catch {
+      return null;
+    }
+  }
+
   private connect(): void {
     this.state = "connecting";
     this.decoder = new FrameDecoder();
@@ -196,6 +218,7 @@ export class TunnelClient extends EventEmitter {
 
     ws.on("open", () => {
       this.state = "handshake";
+      this.challenged = false;
       this.sendControl(FrameType.HELLO, 0, {
         nodeId: this.opts.nodeId,
         agentVersion: this.opts.agentVersion,
@@ -319,9 +342,30 @@ export class TunnelClient extends EventEmitter {
   private onHandshakeFrame(f: Frame): void {
     if (f.streamId !== 0) throw new TunnelProtocolError("handshake frame on stream");
     if (f.type === FrameType.CHALLENGE) {
-      const c = decodeControl<{ nonce?: unknown }>(f.payload);
+      if (this.challenged) throw new TunnelProtocolError("duplicate challenge");
+      this.challenged = true;
+      const c = decodeControl<{ nonce?: unknown; policyVersion?: unknown; serverTime?: unknown; binding?: unknown; coordSig?: unknown }>(f.payload);
       if (typeof c.nonce !== "string" || !/^[0-9a-f]{64}$/.test(c.nonce)) throw new TunnelProtocolError("bad challenge");
-      // AUTH (ed25519 channel binding) lands in commit 20; MVP waits for AUTH_OK.
+      if (typeof c.policyVersion !== "number" || !Number.isSafeInteger(c.policyVersion) || c.policyVersion < 0 ||
+          typeof c.serverTime !== "number" || !Number.isSafeInteger(c.serverTime) || c.serverTime < 0) {
+        throw new TunnelProtocolError("bad challenge");
+      }
+      const binding = c.binding === "tls-exporter" ? "tls-exporter" : c.binding === "none" ? "none" : null;
+      if (!binding) throw new TunnelProtocolError("bad challenge binding");
+      const msg = challengeMessage(c.nonce, c.policyVersion, c.serverTime, binding);
+      const pins = this.opts.coordPins;
+      if (pins.length === 0 || !pins.some((p) => verifyEd25519(p, msg, c.coordSig))) {
+        this.log.warn("coordinator signature rejected");
+        this.emit("authFail", "COORD_SIGNATURE");
+        return this.fail("coordinator signature invalid");
+      }
+      let exporter: Buffer | null = null;
+      if (binding === "tls-exporter") {
+        exporter = this.tlsExporter();
+        if (!exporter) return this.fail("tls exporter unavailable");
+      }
+      const sig = signEd25519(this.signKey, authMessage(c.nonce, this.opts.nodeId, exporter));
+      this.sendControl(FrameType.AUTH, 0, { sig });
       return;
     }
     if (f.type === FrameType.AUTH_FAIL) {
