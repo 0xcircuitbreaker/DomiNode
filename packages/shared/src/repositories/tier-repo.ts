@@ -203,3 +203,29 @@ export async function applyOwnerTier(userId: string, stats: OwnerTierStats, now:
     return d;
   });
 }
+
+/** Node owners for the daily tier job, keyset-paginated by user id (≤1000 per page). */
+export async function listTierOwners(afterUserId: string | null, limit = 1000): Promise<string[]> {
+  const lim = Number.isInteger(limit) && limit > 0 && limit <= 1000 ? limit : 1000;
+  const r = await query<{ owner_user_id: string }>(
+    `SELECT DISTINCT owner_user_id FROM nodes
+     WHERE status <> 'revoked' AND ($1::uuid IS NULL OR owner_user_id > $1::uuid)
+     ORDER BY owner_user_id LIMIT $2`,
+    [afterUserId, lim],
+  );
+  return r.rows.map((x) => x.owner_user_id);
+}
+
+/**
+ * 30-day uptime approximation in basis points: share of the last 30 days on
+ * which at least one of the owner's nodes carried a stream (node_daily_stats).
+ */
+export async function getOwnerUptimeBps(userId: string): Promise<number> {
+  const r = await query<{ days: string }>(
+    `SELECT COUNT(DISTINCT s.day) AS days FROM node_daily_stats s JOIN nodes n ON n.id = s.node_id
+     WHERE n.owner_user_id = $1 AND s.day > current_date - 30 AND s.streams > 0`,
+    [userId],
+  );
+  const days = Math.min(30, Math.max(0, Number(r.rows[0]?.days ?? 0)));
+  return Math.round((days * 10_000) / 30);
+}
