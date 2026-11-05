@@ -322,3 +322,101 @@ export async function markPayoutReversed(payoutId: string, reason: string): Prom
     return mapNp(u.rows[0]);
   });
 }
+
+// ─── Payout job support (commit 22b) ─────────────────────────────────
+
+export const PAYOUT_JOB_LIMIT = 1000;
+const lim1000 = (n: number) => (Number.isInteger(n) && n > 0 && n <= PAYOUT_JOB_LIMIT ? n : PAYOUT_JOB_LIMIT);
+
+/** Accounts eligible for the daily auto push: available ≥ $1, not frozen, active (non-blocked) wallet. */
+export async function listAutoPayoutCandidates(limit = PAYOUT_JOB_LIMIT): Promise<{ userId: string; availableMusd: bigint }[]> {
+  const r = await query<{ user_id: string; available_musd: string }>(
+    `SELECT a.user_id, a.available_musd FROM node_credit_accounts a
+     JOIN payout_wallets w ON w.user_id = a.user_id AND w.status IN ('pending','active') AND w.active_from <= now()
+     WHERE NOT a.frozen AND a.available_musd >= $1
+     ORDER BY a.user_id LIMIT $2`,
+    [MIN_WITHDRAW_MUSD.toString(), lim1000(limit)],
+  );
+  return r.rows.map((x) => ({ userId: x.user_id, availableMusd: BigInt(x.available_musd) }));
+}
+
+export interface DuePayout {
+  id: string;
+  userId: string;
+  payoutWalletId: string;
+  address: string;
+  chain: PayoutChain;
+  amountMusd: bigint;
+}
+
+/** Pending payouts whose wallet is active (blocked/superseded wallets are left for an admin). */
+export async function listDuePayouts(limit = PAYOUT_JOB_LIMIT): Promise<DuePayout[]> {
+  const r = await query<{ id: string; user_id: string; payout_wallet_id: string; address: string; chain: PayoutChain; amount_musd: string }>(
+    `SELECT p.id, p.user_id, p.payout_wallet_id, w.address, w.chain, p.amount_musd
+     FROM node_payouts p JOIN payout_wallets w ON w.id = p.payout_wallet_id
+     WHERE p.status = 'pending' AND p.user_id IS NOT NULL AND w.status = 'active'
+     ORDER BY p.created_at LIMIT $1`,
+    [lim1000(limit)],
+  );
+  return r.rows.map((x) => ({
+    id: x.id, userId: x.user_id, payoutWalletId: x.payout_wallet_id, address: x.address, chain: x.chain, amountMusd: BigInt(x.amount_musd),
+  }));
+}
+
+/**
+ * Claim a pending payout for sending (pending → submitted, compare-and-set).
+ * Returns false if another worker/run already claimed it: the send is skipped,
+ * so one payout id is broadcast at most once.
+ */
+export async function claimPayoutForSend(payoutId: string): Promise<boolean> {
+  const r = await query(
+    `UPDATE node_payouts SET status = 'submitted', updated_at = now()
+     WHERE id = $1 AND status = 'pending' AND tx_hash IS NULL`,
+    [payoutId],
+  );
+  return (r.rowCount ?? 0) === 1;
+}
+
+/** Record the broadcast tx hash on a claimed payout (only once). */
+export async function recordPayoutTx(payoutId: string, txHash: string): Promise<boolean> {
+  const hash = typeof txHash === "string" ? txHash.toLowerCase() : "";
+  if (!TX_HASH_RE.test(hash)) throw new Error("Invalid tx hash");
+  const r = await query(
+    `UPDATE node_payouts SET tx_hash = $2, updated_at = now()
+     WHERE id = $1 AND status = 'submitted' AND tx_hash IS NULL`,
+    [payoutId, hash],
+  );
+  return (r.rowCount ?? 0) === 1;
+}
+
+/**
+ * Return a claimed payout to 'pending' when the sender proved nothing was
+ * broadcast (no tx hash recorded). Ambiguous failures must NOT use this.
+ */
+export async function releaseUnbroadcastPayout(payoutId: string): Promise<boolean> {
+  const r = await query(
+    `UPDATE node_payouts SET status = 'pending', updated_at = now()
+     WHERE id = $1 AND status = 'submitted' AND tx_hash IS NULL`,
+    [payoutId],
+  );
+  return (r.rowCount ?? 0) === 1;
+}
+
+/** SDN hit: block the payout wallet and freeze the owner's credit account (admin case). */
+export async function blockWalletForSanctions(payoutWalletId: string, userId: string): Promise<void> {
+  await withTx(async (client) => {
+    await lockAccountTx(client, userId);
+    await client.query(`UPDATE payout_wallets SET status = 'blocked' WHERE id = $1 AND user_id = $2`, [payoutWalletId, userId]);
+    await client.query(`UPDATE node_credit_accounts SET frozen = true, updated_at = now() WHERE user_id = $1`, [userId]);
+  });
+}
+
+/** Submitted payouts with a broadcast tx awaiting a final receipt (reconciled each run). */
+export async function listSubmittedPayouts(limit = PAYOUT_JOB_LIMIT): Promise<{ id: string; txHash: string }[]> {
+  const r = await query<{ id: string; tx_hash: string }>(
+    `SELECT id, tx_hash FROM node_payouts WHERE status = 'submitted' AND tx_hash IS NOT NULL
+     ORDER BY updated_at LIMIT $1`,
+    [lim1000(limit)],
+  );
+  return r.rows.map((x) => ({ id: x.id, txHash: x.tx_hash }));
+}

@@ -1,7 +1,7 @@
 import dotenv from "dotenv";
 dotenv.config();
 
-import { createLogger, closePool, usageRepo, connectWithRetry, nodeRepo, policyRepo } from "@dominusnode/shared";
+import { createLogger, closePool, getPool, usageRepo, connectWithRetry, nodeRepo, policyRepo, nodeCreditRepo, retentionRepo, tierRepo, payoutRepo } from "@dominusnode/shared";
 import type { ActivePolicy } from "@dominusnode/shared";
 import { startProxyServer } from "./server.js";
 import { initGeoCheck, lookupPeerGeo } from "./geo-check.js";
@@ -10,6 +10,14 @@ import { NodeSelector } from "./node-tunnel/selector.js";
 import { loadCoordSigner } from "./node-tunnel/coord-key.js";
 import { NodeTunnelServer, resolveTunnelPort } from "./node-tunnel/server.js";
 import { startSocks5Server } from "./socks5.js";
+import { envInt, type Job, type LockPool } from "./jobs/runner.js";
+import * as maturityJob from "./jobs/maturity.js";
+import * as retentionJob from "./jobs/retention.js";
+import * as tiersJob from "./jobs/tiers.js";
+import * as payoutsJob from "./jobs/payouts.js";
+import * as reputationFlushJob from "./jobs/reputation-flush.js";
+import { loadSdnFile } from "./jobs/sdn.js";
+import { createEthersPayoutSender } from "./jobs/payout-sender-ethers.js";
 import { getActiveSessionCount, terminateUserSessions, getActiveSessions } from "./session-manager.js";
 
 const log = createLogger("proxy:main");
@@ -110,6 +118,9 @@ async function main(): Promise<void> {
     log.info(`cleaned up ${orphaned} orphaned sessions from previous run`);
   }
 
+  // ─── Background jobs (DESIGN.md §6.4, §15) ─────────────────────────
+  const jobs = startJobs(registry, getPolicy);
+
   const httpServer = await startProxyServer(httpPort, relay);
   const socks5Server = await startSocks5Server(socks5Port, relay);
 
@@ -120,6 +131,7 @@ async function main(): Promise<void> {
     httpServer.close();
     socks5Server.close();
     clearInterval(policyInterval);
+    await Promise.all(jobs.map((j) => j.stop().catch(() => {})));
 
     // Wait for active sessions to finish (max 30s)
     const start = Date.now();
@@ -145,6 +157,69 @@ async function main(): Promise<void> {
 
   process.on("SIGTERM", () => shutdown("SIGTERM"));
   process.on("SIGINT", () => shutdown("SIGINT"));
+}
+
+function startJobs(registry: NodeRegistry, getPolicy: () => ActivePolicy): Job[] {
+  const pool = getPool() as unknown as LockPool;
+  const jobLog = createLogger("proxy:jobs");
+  const jobs: Job[] = [];
+  if (process.env["JOBS_ENABLED"] === "false") {
+    jobLog.warn("JOBS_ENABLED=false: background jobs disabled on this instance");
+    return jobs;
+  }
+  jobs.push(maturityJob.start({
+    pool, logger: jobLog, intervalMs: envInt(process.env, "MATURITY_JOB_INTERVAL_MS", 3_600_000, 60_000, 86_400_000),
+    deps: { matureDue: nodeCreditRepo.matureDue },
+  }));
+  jobs.push(retentionJob.start({
+    pool, logger: jobLog, intervalMs: envInt(process.env, "RETENTION_JOB_INTERVAL_MS", 3_600_000, 60_000, 86_400_000),
+    deps: { getRetentionDays: () => getPolicy().body.logRetentionDays, purgeBatch: retentionRepo.purgeRelayAbuseLogBatch },
+  }));
+  jobs.push(tiersJob.start({
+    pool, logger: jobLog, intervalMs: envInt(process.env, "TIER_JOB_INTERVAL_MS", 86_400_000, 3_600_000, 7 * 86_400_000),
+    deps: {
+      listOwners: tierRepo.listTierOwners, getUptimeBps: tierRepo.getOwnerUptimeBps,
+      getStats: tierRepo.getOwnerTierStats, apply: (u, s) => tierRepo.applyOwnerTier(u, s),
+    },
+  }));
+  jobs.push(reputationFlushJob.start({
+    logger: jobLog, intervalMs: envInt(process.env, "REPUTATION_FLUSH_INTERVAL_MS", 60_000, 10_000, 3_600_000),
+    deps: {
+      drain: () => registry.drainCounters(),
+      flushHealth: nodeRepo.flushHealth,
+      quarantine: async (nodeId) => {
+        await nodeRepo.setStatus(nodeId, "quarantined", ["active", "pending", "cooldown"]);
+        registry.get(nodeId)?.tunnel.close("quarantined");
+      },
+    },
+  }));
+  if (payoutRepo.payoutsEnabled()) {
+    const capUsd = envInt(process.env, "PAYOUT_RUN_CAP_USD", 10_000, 1, 1_000_000);
+    jobs.push(payoutsJob.start({
+      pool, logger: jobLog, intervalMs: envInt(process.env, "PAYOUT_JOB_INTERVAL_MS", 86_400_000, 3_600_000, 7 * 86_400_000),
+      deps: {
+        enabled: payoutRepo.payoutsEnabled,
+        loadSdn: () => loadSdnFile(process.env["PAYOUT_SDN_FILE"]),
+        listAutoCandidates: () => payoutRepo.listAutoPayoutCandidates(),
+        requestWithdraw: payoutRepo.requestWithdraw,
+        listDue: () => payoutRepo.listDuePayouts(),
+        listSubmitted: () => payoutRepo.listSubmittedPayouts(),
+        claim: payoutRepo.claimPayoutForSend,
+        recordTx: payoutRepo.recordPayoutTx,
+        releaseUnbroadcast: payoutRepo.releaseUnbroadcastPayout,
+        markConfirmed: payoutRepo.markPayoutConfirmed,
+        markFailed: payoutRepo.markPayoutFailed,
+        markReversed: payoutRepo.markPayoutReversed,
+        blockWallet: payoutRepo.blockWalletForSanctions,
+        sender: createEthersPayoutSender(process.env),
+        runCapMusd: BigInt(capUsd) * 1_000_000n,
+        logger: jobLog,
+      },
+    }));
+  } else {
+    jobLog.info("PAYOUTS_ENABLED is not true: payout job not started");
+  }
+  return jobs;
 }
 
 main().catch((err) => {

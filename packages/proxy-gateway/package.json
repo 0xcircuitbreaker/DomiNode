@@ -10,10 +10,11 @@
     "clean": "tsc --build --clean && rm -rf dist"
   },
   "dependencies": {
-    "@dominusnode/shared": "*",
-    "@dominusnode/metering": "*",
     "@dominusnode/billing": "*",
+    "@dominusnode/metering": "*",
+    "@dominusnode/shared": "*",
     "dotenv": "^16.4.7",
+    "ethers": "^6.16.0",
     "geoip-lite": "^1.4.10",
     "ws": "^8.18.0"
   },
