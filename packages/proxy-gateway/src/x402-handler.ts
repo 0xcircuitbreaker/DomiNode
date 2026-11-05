@@ -1,6 +1,6 @@
 import * as http from "node:http";
 import * as net from "node:net";
-import { createLogger } from "@dominusnode/shared";
+import { createLogger, userRepo, policyRepo, BYTES_PER_GB } from "@dominusnode/shared";
 import {
   isX402Enabled,
   buildX402Requirements,
@@ -10,6 +10,7 @@ import {
   releasePaymentHash,
   hashPaymentHeader,
   getX402MaxResponseBytes,
+  usdStringToMusd,
 } from "@dominusnode/billing";
 import type { X402Facilitator } from "@dominusnode/billing";
 
@@ -90,6 +91,76 @@ function getPoolTypeFromRequest(req: http.IncomingMessage): "dc" | "residential"
   return "dc";
 }
 
+// ─── Relay pricing (DESIGN.md §7) ───────────────────────────────────
+
+/** Bytes one x402 payment buys: price_per_gb × X402_BYTES_PER_REQUEST (default 10 MB). */
+const X402_BYTES_PER_REQUEST = parseInt(process.env["X402_BYTES_PER_REQUEST"] ?? "10485760", 10);
+if (isNaN(X402_BYTES_PER_REQUEST) || X402_BYTES_PER_REQUEST < 65_536 || X402_BYTES_PER_REQUEST > 1_073_741_824) {
+  throw new Error("X402_BYTES_PER_REQUEST must be between 65536 and 1073741824");
+}
+
+/** ceil(price × bytes / GB) in µUSD, at least 1. */
+export function x402AmountMusd(pricePerGbMusd: bigint, bytes: number = X402_BYTES_PER_REQUEST): bigint {
+  const gb = BigInt(BYTES_PER_GB);
+  const v = (pricePerGbMusd * BigInt(bytes) + gb - 1n) / gb;
+  return v > 0n ? v : 1n;
+}
+
+interface X402Quote {
+  poolType: "dc" | "residential";
+  pricePerGbMusd: bigint;
+  amountMusd: bigint;
+}
+
+const lastQuote = new Map<"dc" | "residential", X402Quote>(); // ≤2 entries
+
+async function quote(poolType: "dc" | "residential"): Promise<X402Quote> {
+  const pricePerGbMusd = await policyRepo.getPricing(poolType);
+  const q = { poolType, pricePerGbMusd, amountMusd: x402AmountMusd(pricePerGbMusd) };
+  lastQuote.set(poolType, q);
+  return q;
+}
+
+/** Requirements for a 402 advertisement: relay quote when known (refreshed in the background). */
+function advertisedRequirements(poolType: "dc" | "residential") {
+  quote(poolType).catch(() => undefined);
+  const q = lastQuote.get(poolType);
+  return q ? buildX402Requirements({ amountMusd: q.amountMusd }) : buildX402Requirements(poolType);
+}
+
+/** Bytes this payment may carry: min(X402_MAX_RESPONSE_BYTES, bytes the paid amount buys). */
+function paidByteCap(q: X402Quote): number {
+  const bought = (q.amountMusd * BigInt(BYTES_PER_GB)) / q.pricePerGbMusd;
+  return Math.max(1, Math.min(getX402MaxResponseBytes(), Number(bought > 2_000_000_000_000n ? 2_000_000_000_000n : bought)));
+}
+
+type PayerResolution = { ok: true; userId: string } | { ok: false; status: number; code: string; message: string };
+
+/**
+ * Map a verified x402 payer to its wallet-identity user (create or reuse).
+ * Must run BEFORE settlement so a suspended/unsupported payer is never charged.
+ */
+async function resolvePayer(payer: string): Promise<PayerResolution> {
+  try {
+    const u = await userRepo.findOrCreateX402User(payer);
+    if (u.status !== "active") return { ok: false, status: 403, code: "ACCOUNT_SUSPENDED", message: "Payer account is not active" };
+    return { ok: true, userId: u.id };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "";
+    if (msg.includes("EVM address")) {
+      return { ok: false, status: 402, code: "X402_PAYER_UNSUPPORTED", message: "The relay network accepts x402 payments from EVM payers only" };
+    }
+    log.error("x402 payer mapping failed", { error: msg.slice(0, 120) });
+    return { ok: false, status: 503, code: "SERVICE_UNAVAILABLE", message: "Payment identity temporarily unavailable" };
+  }
+}
+
+/** Paid amount from the facilitator, never less than the quote. */
+function paidAtLeastQuote(amountUsd: string, q: X402Quote): boolean {
+  const paid = usdStringToMusd(amountUsd);
+  return paid !== null && paid >= q.amountMusd;
+}
+
 // ─── HTTP x402 Handler ──────────────────────────────────────────────
 
 /**
@@ -125,9 +196,17 @@ export async function handleX402Http(
   }
 
   const poolType = getPoolTypeFromRequest(req);
-  const requirements = buildX402Requirements(poolType);
+  let q: X402Quote;
+  try {
+    q = await quote(poolType);
+  } catch {
+    res.writeHead(503, { "Content-Type": "application/json", "X-DominusNode-Error": "SERVICE_UNAVAILABLE", "Retry-After": "30" });
+    res.end(JSON.stringify({ error: "SERVICE_UNAVAILABLE", message: "Pricing temporarily unavailable" }));
+    return true;
+  }
+  const requirements = buildX402Requirements({ amountMusd: q.amountMusd });
 
-  // Verify the payment
+  // Verify the payment (claims the payment hash first: replays are rejected)
   const verifyResult = await verifyX402Payment(paymentHeader, requirements);
 
   if (!verifyResult.valid) {
@@ -144,6 +223,19 @@ export async function handleX402Http(
       message: verifyResult.error ?? "Payment verification failed",
       x402: requirements,
     }));
+    return true;
+  }
+
+  // Payer → wallet-identity user, and amount check, BEFORE settlement
+  const amountOk = paidAtLeastQuote(verifyResult.amountUsd, q);
+  const who = amountOk ? await resolvePayer(verifyResult.payer) : null;
+  if (!amountOk || !who || !who.ok) {
+    await releasePaymentHash(hashPaymentHeader(paymentHeader)).catch(() => {});
+    const e = !amountOk || !who
+      ? { status: 402, code: "X402_PAYMENT_INVALID", message: "Payment amount insufficient" }
+      : (who as Extract<PayerResolution, { ok: false }>);
+    res.writeHead(e.status, { "Content-Type": "application/json", "X-DominusNode-Error": e.code });
+    res.end(JSON.stringify({ error: e.code, message: e.message }));
     return true;
   }
 
@@ -167,7 +259,7 @@ export async function handleX402Http(
   // C-2: Settle BEFORE proxying to prevent free service on settlement failure
   let settlement;
   try {
-    settlement = await settleX402Payment(paymentHeader, verifyResult.facilitator);
+    settlement = await settleX402Payment(paymentHeader, verifyResult.facilitator, requirements);
   } catch (err) {
     log.error("x402 settlement failed — rejecting request", {
       payer: verifyResult.payer.slice(0, 10) + "...",
@@ -200,11 +292,14 @@ export async function handleX402Http(
   (req as any).__x402 = {
     verified: true,
     payer: verifyResult.payer,
+    userId: who.userId,
     amountUsd: verifyResult.amountUsd,
+    amountMusd: q.amountMusd,
+    pricePerGbMusd: q.pricePerGbMusd,
     facilitator: verifyResult.facilitator,
     poolType,
     settled: true,
-    maxResponseBytes: getX402MaxResponseBytes(),
+    maxResponseBytes: paidByteCap(q),
   };
 
   log.info("x402 payment settled", {
@@ -243,6 +338,10 @@ export interface X402ConnectResult {
   amountUsd: string;
   /** C-4: Max bytes for this x402 tunnel to prevent bandwidth theft */
   maxResponseBytes: number;
+  /** Wallet-identity user of the payer (relay_charges.requester_user_id). */
+  userId?: string;
+  amountMusd?: bigint;
+  pricePerGbMusd?: bigint;
 }
 
 /**
@@ -270,7 +369,20 @@ export async function handleX402Connect(
   }
 
   const poolType = getPoolTypeFromRequest(req);
-  const requirements = buildX402Requirements(poolType);
+  const fail = (line: string): X402ConnectResult => {
+    if (!clientSocket.destroyed) {
+      clientSocket.write(line);
+      clientSocket.end();
+    }
+    return { handled: true, verified: false, payer: "", facilitator: "coinbase", poolType, paymentHeader: "", amountUsd: "0", maxResponseBytes: 0 };
+  };
+  let q: X402Quote;
+  try {
+    q = await quote(poolType);
+  } catch {
+    return fail("HTTP/1.1 503 Service Unavailable\r\nX-DominusNode-Error: SERVICE_UNAVAILABLE\r\nRetry-After: 30\r\n\r\n");
+  }
+  const requirements = buildX402Requirements({ amountMusd: q.amountMusd });
 
   const verifyResult = await verifyX402Payment(paymentHeader, requirements);
 
@@ -294,6 +406,16 @@ export async function handleX402Connect(
     return { handled: true, verified: false, payer: "", facilitator: "coinbase", poolType, paymentHeader: "", amountUsd: "0", maxResponseBytes: 0 };
   }
 
+  const connAmountOk = paidAtLeastQuote(verifyResult.amountUsd, q);
+  const connWho = connAmountOk ? await resolvePayer(verifyResult.payer) : null;
+  if (!connAmountOk || !connWho || !connWho.ok) {
+    await releasePaymentHash(hashPaymentHeader(paymentHeader)).catch(() => {});
+    const e = !connAmountOk || !connWho
+      ? { status: 402, code: "X402_PAYMENT_INVALID" }
+      : (connWho as Extract<PayerResolution, { ok: false }>);
+    return fail(`HTTP/1.1 ${e.status} ${http.STATUS_CODES[e.status] ?? "Error"}\r\nX-DominusNode-Error: ${e.code}\r\n\r\n`);
+  }
+
   if (!checkX402RateLimit(`payer:${verifyResult.payer}`)) {
     // Release the claimed hash since we're rejecting before settlement
     const payHashRL = hashPaymentHeader(paymentHeader);
@@ -310,7 +432,7 @@ export async function handleX402Connect(
   // C-2: Settle BEFORE establishing tunnel
   let settlement;
   try {
-    settlement = await settleX402Payment(paymentHeader, verifyResult.facilitator);
+    settlement = await settleX402Payment(paymentHeader, verifyResult.facilitator, requirements);
   } catch (err) {
     log.error("x402 CONNECT settlement failed — rejecting", {
       payer: verifyResult.payer.slice(0, 10) + "...",
@@ -357,7 +479,10 @@ export async function handleX402Connect(
     poolType,
     paymentHeader: "",
     amountUsd: verifyResult.amountUsd,
-    maxResponseBytes: getX402MaxResponseBytes(),
+    maxResponseBytes: paidByteCap(q),
+    userId: connWho.userId,
+    amountMusd: q.amountMusd,
+    pricePerGbMusd: q.pricePerGbMusd,
   };
 }
 
@@ -384,7 +509,7 @@ export function build402ResponseBody(poolType?: "dc" | "residential"): string {
     return "Insufficient balance. Top up your wallet at the Dominus Node dashboard.";
   }
 
-  const requirements = buildX402Requirements(poolType ?? "dc");
+  const requirements = advertisedRequirements(poolType ?? "dc");
   return JSON.stringify({
     error: "INSUFFICIENT_BALANCE",
     message: "Insufficient balance. Pay with x402 micropayment or top up your wallet.",
@@ -403,7 +528,7 @@ export function build402ConnectResponse(poolType?: "dc" | "residential"): string
   const body = JSON.stringify({
     error: "INSUFFICIENT_BALANCE",
     message: "Insufficient balance. Pay with x402 micropayment or top up your wallet.",
-    x402: buildX402Requirements(poolType ?? "dc"),
+    x402: advertisedRequirements(poolType ?? "dc"),
   });
 
   return `HTTP/1.1 402 Payment Required\r\nContent-Type: application/json\r\nContent-Length: ${Buffer.byteLength(body)}\r\nX-DominusNode-Error: INSUFFICIENT_BALANCE\r\n\r\n${body}`;
@@ -425,6 +550,9 @@ export function getX402Data(req: http.IncomingMessage): {
   facilitator: X402Facilitator;
   poolType: "dc" | "residential";
   maxResponseBytes: number;
+  userId: string;
+  amountMusd: bigint;
+  pricePerGbMusd: bigint;
 } | null {
   const data = (req as any).__x402;
   if (!data?.verified) return null;
@@ -434,5 +562,8 @@ export function getX402Data(req: http.IncomingMessage): {
     facilitator: data.facilitator,
     poolType: data.poolType,
     maxResponseBytes: data.maxResponseBytes ?? 10_485_760,
+    userId: data.userId,
+    amountMusd: data.amountMusd,
+    pricePerGbMusd: data.pricePerGbMusd,
   };
 }

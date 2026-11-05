@@ -173,4 +173,26 @@ describe("relay-charge-repo", () => {
     const q = r.calls.find((c) => /team_members a JOIN/.test(c.sql))!;
     expect(q.params).toEqual(["req", "teammate"]);
   });
+
+  it("x402 rail: gross = prepaid µUSD, split by locked bps, no wallet movement", async () => {
+    const r = setup([
+      [/FROM nodes WHERE id/, () => nodeRow()],
+      [/INSERT INTO relay_charges/, () => ({ rows: [{ id: "rcx" }] })],
+    ]);
+    const res = await settleRelayCharge({ ...base, rail: "x402", reservedCents: 0, bytesGateway: 4096n, prepaidGrossMusd: 4883n });
+    expect(res.grossMusd).toBe(4883n);
+    expect(res.nodeMusd).toBe(1220n); // floor(4883 * 2500 / 10000)
+    expect(res.nodeMusd + res.platformMusd).toBe(4883n);
+    expect(res.debitCents).toBe(0);
+    expect(r.sqls().some((x) => /wallets/.test(x))).toBe(false);
+    const ins = r.calls.find((c) => /INSERT INTO relay_charges/.test(c.sql))!;
+    expect(ins.params[1]).toBe("req"); // requester_user_id is the payer's wallet-identity user
+    expect(ins.params[4]).toBe("x402");
+    expect(ins.params[8]).toBe("4883");
+  });
+
+  it("rejects prepaidGrossMusd on wallet rails or out of range", async () => {
+    await expect(settleRelayCharge({ ...base, prepaidGrossMusd: 10n })).rejects.toThrow(/only valid/);
+    await expect(settleRelayCharge({ ...base, rail: "x402", prepaidGrossMusd: 0n })).rejects.toThrow(/range/);
+  });
 });

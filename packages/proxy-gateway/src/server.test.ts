@@ -28,6 +28,20 @@ const mockRecordFailure = vi.fn();
 const mockGetProviderCount = vi.fn();
 const mockGetProviderStats = vi.fn();
 const mockGetUserPlan = vi.fn();
+const mockStartPrepaidSession = vi.fn();
+const mockX402Http = vi.fn();
+const mockX402Connect = vi.fn();
+const X402_PAYER = "0x" + "9".repeat(40);
+const x402Data = { payer: X402_PAYER, userId: "x402-user", amountUsd: "0.005243", amountMusd: 5243n, pricePerGbMusd: 500000n, facilitator: "coinbase", poolType: "residential", maxResponseBytes: 10_485_760 };
+
+vi.mock("./x402-handler.js", () => ({
+  handleX402Http: (req: { __x402?: unknown }, ...rest: unknown[]) => mockX402Http(req, ...rest),
+  handleX402Connect: (...args: unknown[]) => mockX402Connect(...args),
+  build402ResponseBody: () => "Insufficient balance",
+  build402ConnectResponse: () => "HTTP/1.1 402 Payment Required\r\n\r\n",
+  isX402Verified: (req: { __x402?: unknown }) => !!req.__x402,
+  getX402Data: (req: { __x402?: unknown }) => (req.__x402 ? x402Data : null),
+}));
 
 vi.mock("./auth.js", () => ({
   authenticateRequest: (...args: unknown[]) => mockAuthenticateRequest(...args),
@@ -39,6 +53,7 @@ vi.mock("./balance-check.js", () => ({
 
 vi.mock("./session-manager.js", () => ({
   startSession: (...args: unknown[]) => mockStartSession(...args),
+  startPrepaidSession: (...args: unknown[]) => mockStartPrepaidSession(...args),
   endSession: (...args: unknown[]) => mockEndSession(...args),
   getActiveSessionCount: () => mockGetActiveSessionCount(),
   registerSessionDestroy: vi.fn(),
@@ -188,6 +203,9 @@ describe("proxy-gateway server", () => {
     mockIsValidHostname.mockReturnValue(true);
     mockIsValidPort.mockReturnValue(true);
     mockStartSession.mockResolvedValue("session-abc");
+    mockStartPrepaidSession.mockResolvedValue("session-x402");
+    mockX402Http.mockImplementation(async (req: { __x402?: unknown }) => { req.__x402 = x402Data; return true; });
+    mockX402Connect.mockResolvedValue({ handled: true, verified: true, ...x402Data, paymentHeader: "" });
     mockEndSession.mockResolvedValue(undefined);
     mockGetStats.mockReturnValue({
       status: "operational",
@@ -440,12 +458,33 @@ describe("proxy-gateway server", () => {
       expect(counter.bytesOut).toBe(Buffer.byteLength(RESP));
     });
 
-    it("refuses x402 payments on the relay before verifying/settling them", async () => {
+    it("relays an x402-paid request as the payer's wallet-identity user and settles as rail x402", async () => {
       mockAuthenticateRequest.mockResolvedValue(null);
+      mockOpenStream.mockImplementation(async () => {
+        const d: Duplex = new Duplex({
+          read() { /* */ },
+          write(_c, _e, cb) { d.push("HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok"); d.push(null); cb(); },
+        });
+        return d;
+      });
       const res = await makeRequest(port, { path: "http://httpbin.org/ip", method: "GET", headers: { "X-Payment": "abc" } });
-      expect(res.status).toBe(503);
-      expect(res.headers["x-dominusnode-error"]).toBe("X402_RELAY_UNAVAILABLE");
+      expect(res.status).toBe(200);
+      expect(mockSelect).toHaveBeenCalledWith(expect.objectContaining({ requesterUserId: "x402-user", requesterWallet: X402_PAYER }));
+      expect(mockStartPrepaidSession).toHaveBeenCalledWith(expect.objectContaining({
+        userId: "x402-user", rail: "x402", paidMusd: 5243n, quotedPricePerGbMusd: 500000n, maxBytes: 10_485_760,
+      }));
+      expect(mockStartSession).not.toHaveBeenCalled();
+      await new Promise((r) => setTimeout(r, 20));
+      expect(mockEndSession).toHaveBeenCalledWith("session-x402");
+    });
+
+    it("does not relay when the x402 handler rejected the payment", async () => {
+      mockAuthenticateRequest.mockResolvedValue(null);
+      mockX402Http.mockImplementation(async (_req: unknown, res: http.ServerResponse) => { res.writeHead(402); res.end(); return true; });
+      const res = await makeRequest(port, { path: "http://httpbin.org/ip", method: "GET", headers: { "X-Payment": "abc" } });
+      expect(res.status).toBe(402);
       expect(mockSelect).not.toHaveBeenCalled();
+      expect(mockStartPrepaidSession).not.toHaveBeenCalled();
     });
 
     it("blocks hostnames whose resolved addresses are in a sanctioned country", async () => {
@@ -561,11 +600,14 @@ describe("proxy-gateway server", () => {
       res.socket.destroy();
     });
 
-    it("refuses x402 CONNECT on the relay", async () => {
+    it("tunnels an x402-paid CONNECT as a prepaid relay session", async () => {
       mockAuthenticateRequest.mockResolvedValue(null);
       const res = await makeConnect(port, "example.com:443", { "X-Payment": "abc" });
-      expect(res.status).toBe(503);
+      expect(res.status).toBe(200);
+      expect(mockStartPrepaidSession).toHaveBeenCalledWith(expect.objectContaining({ userId: "x402-user", rail: "x402", paidMusd: 5243n }));
       res.socket.destroy();
+      await new Promise((r) => setTimeout(r, 20));
+      expect(mockEndSession).toHaveBeenCalledWith("session-x402");
     });
 
     it("tunnels CONNECT through a node stream", async () => {

@@ -21,8 +21,14 @@ vi.mock("@dominusnode/billing", () => ({
   releasePaymentHash: (...args: unknown[]) => mockReleasePaymentHash(...args),
   hashPaymentHeader: (...args: unknown[]) => mockHashPaymentHeader(...args),
   getX402MaxResponseBytes: (...args: unknown[]) => mockGetX402MaxResponseBytes(...args),
+  usdStringToMusd: (v: string) => {
+    const m = /^(\d{1,9})(?:\.(\d{1,6}))?$/.exec(v);
+    return m ? BigInt(m[1]) * 1_000_000n + BigInt((m[2] ?? "").padEnd(6, "0")) : null;
+  },
 }));
 
+const mockFindOrCreateX402User = vi.fn();
+const mockGetPricing = vi.fn();
 vi.mock("@dominusnode/shared", () => ({
   createLogger: () => ({
     debug: vi.fn(),
@@ -30,6 +36,9 @@ vi.mock("@dominusnode/shared", () => ({
     warn: vi.fn(),
     error: vi.fn(),
   }),
+  BYTES_PER_GB: 1_073_741_824,
+  userRepo: { findOrCreateX402User: (...a: unknown[]) => mockFindOrCreateX402User(...a) },
+  policyRepo: { getPricing: (...a: unknown[]) => mockGetPricing(...a) },
 }));
 
 const origEnv = { ...process.env };
@@ -41,6 +50,9 @@ beforeEach(() => {
   mockUpdateX402Transaction.mockResolvedValue(undefined);
   mockReleasePaymentHash.mockResolvedValue(undefined);
   mockGetX402MaxResponseBytes.mockReturnValue(10_485_760);
+  // $0.05/GB → 10 MiB quote = ceil(50000 * 10485760 / 2^30) = 489 µUSD (< "0.001")
+  mockGetPricing.mockResolvedValue(50_000n);
+  mockFindOrCreateX402User.mockResolvedValue({ id: "user-x402", status: "active", created: false });
 });
 
 afterEach(() => {
@@ -199,6 +211,103 @@ describe("handleX402Http", () => {
 
     const data = getX402Data(req);
     expect(data!.poolType).toBe("residential");
+  });
+});
+
+// ─── Relay pricing + payer identity (DESIGN.md §7) ──────────────────
+
+describe("x402 relay identity and pricing", () => {
+  const valid = { valid: true, payer: "0x" + "a".repeat(40), amountUsd: "0.001", facilitator: "coinbase" };
+  beforeEach(() => {
+    mockIsX402Enabled.mockReturnValue(true);
+    mockBuildX402Requirements.mockReturnValue(mockRequirements);
+    mockSettleX402Payment.mockResolvedValue({ txHash: "0xTx", amountSettled: "1000", facilitator: "coinbase" });
+  });
+
+  it("quotes price_per_gb × X402_BYTES_PER_REQUEST in µUSD", async () => {
+    const { x402AmountMusd } = await import("./x402-handler.js");
+    expect(x402AmountMusd(500_000n, 10_485_760)).toBe(4883n); // ceil(500000*10485760/2^30)
+    expect(x402AmountMusd(1n, 1)).toBe(1n);
+    mockVerifyX402Payment.mockResolvedValue(valid);
+    await handleX402Http(makeRequest({ "x-payment": "p" }), makeResponse());
+    expect(mockBuildX402Requirements).toHaveBeenCalledWith({ amountMusd: 489n });
+  });
+
+  it("maps the payer to a wallet-identity user before settling", async () => {
+    mockVerifyX402Payment.mockResolvedValue(valid);
+    const req = makeRequest({ "x-payment": "p" });
+    await handleX402Http(req, makeResponse());
+    expect(mockFindOrCreateX402User).toHaveBeenCalledWith(valid.payer);
+    expect(mockFindOrCreateX402User.mock.invocationCallOrder[0]).toBeLessThan(mockSettleX402Payment.mock.invocationCallOrder[0]);
+    const d = getX402Data(req)!;
+    expect(d.userId).toBe("user-x402");
+    expect(d.amountMusd).toBe(489n);
+    expect(d.pricePerGbMusd).toBe(50_000n);
+  });
+
+  it("refuses a suspended payer without settling and releases the hash", async () => {
+    mockVerifyX402Payment.mockResolvedValue(valid);
+    mockFindOrCreateX402User.mockResolvedValue({ id: "u", status: "suspended", created: false });
+    const res = makeResponse();
+    const req = makeRequest({ "x-payment": "p" });
+    await handleX402Http(req, res);
+    expect(res._statusCode).toBe(403);
+    expect(mockSettleX402Payment).not.toHaveBeenCalled();
+    expect(mockReleasePaymentHash).toHaveBeenCalledWith("fakehash123");
+    expect(isX402Verified(req)).toBe(false);
+  });
+
+  it("refuses a non-EVM payer without settling", async () => {
+    mockVerifyX402Payment.mockResolvedValue({ ...valid, payer: "So1anaPayer" });
+    mockFindOrCreateX402User.mockRejectedValue(new Error("x402 payer must be an EVM address"));
+    const res = makeResponse();
+    await handleX402Http(makeRequest({ "x-payment": "p" }), res);
+    expect(res._statusCode).toBe(402);
+    expect(res._written).toContain("X402_PAYER_UNSUPPORTED");
+    expect(mockSettleX402Payment).not.toHaveBeenCalled();
+  });
+
+  it("refuses an underpaid payment without settling", async () => {
+    mockVerifyX402Payment.mockResolvedValue({ ...valid, amountUsd: "0.000488" });
+    const res = makeResponse();
+    await handleX402Http(makeRequest({ "x-payment": "p" }), res);
+    expect(res._statusCode).toBe(402);
+    expect(mockSettleX402Payment).not.toHaveBeenCalled();
+    expect(mockFindOrCreateX402User).not.toHaveBeenCalled();
+  });
+
+  it("rejects a replayed payment (claimed hash) without identity or settlement", async () => {
+    mockVerifyX402Payment.mockResolvedValue({ valid: false, payer: "", amountUsd: "0", facilitator: "coinbase", error: "Payment already used" });
+    const res = makeResponse();
+    await handleX402Http(makeRequest({ "x-payment": "p" }), res);
+    expect(res._statusCode).toBe(402);
+    expect(res._written).toContain("Payment already used");
+    expect(mockFindOrCreateX402User).not.toHaveBeenCalled();
+    expect(mockSettleX402Payment).not.toHaveBeenCalled();
+  });
+
+  it("settles against the relay-priced requirements", async () => {
+    mockVerifyX402Payment.mockResolvedValue(valid);
+    await handleX402Http(makeRequest({ "x-payment": "p" }), makeResponse());
+    expect(mockSettleX402Payment).toHaveBeenCalledWith("p", "coinbase", mockRequirements);
+  });
+
+  it("CONNECT: suspended payer is refused before settlement", async () => {
+    mockVerifyX402Payment.mockResolvedValue(valid);
+    mockFindOrCreateX402User.mockResolvedValue({ id: "u", status: "suspended", created: false });
+    const socket = makeSocket();
+    const r = await handleX402Connect(makeRequest({ "x-payment": "p" }), socket);
+    expect(r!.verified).toBe(false);
+    expect(socket._written).toContain("ACCOUNT_SUSPENDED");
+    expect(mockSettleX402Payment).not.toHaveBeenCalled();
+  });
+
+  it("returns 503 when pricing is unavailable (no verify, no charge)", async () => {
+    mockGetPricing.mockRejectedValue(new Error("db down"));
+    const res = makeResponse();
+    await handleX402Http(makeRequest({ "x-payment": "p" }), res);
+    expect(res._statusCode).toBe(503);
+    expect(mockVerifyX402Payment).not.toHaveBeenCalled();
   });
 });
 

@@ -59,7 +59,7 @@ vi.mock("./balance-check.js", () => ({
   invalidateBalanceCache: vi.fn(),
 }));
 
-import { startSession, endSession, getActiveSessionCount, checkSessionRateLimit, checkBandwidthVelocity, recordBandwidthUsage, reservationCentsFor, maxBytesForReservation } from "./session-manager.js";
+import { startSession, endSession, getActiveSessionCount, checkSessionRateLimit, checkBandwidthVelocity, recordBandwidthUsage, reservationCentsFor, maxBytesForReservation, startPrepaidSession, maxBytesForPrepaid } from "./session-manager.js";
 import type { ByteCounter } from "./counting-stream.js";
 const BYTES_PER_GB = 1_073_741_824;
 
@@ -350,6 +350,36 @@ describe("proxy-gateway/session-manager", () => {
       await expect(
         startSession("user-err", "example.com", counter, 0, RELAY),
       ).rejects.toThrow("Unable to verify plan. Please try again.");
+    });
+  });
+
+  describe("startPrepaidSession (x402)", () => {
+    it("reserves nothing, caps bytes at what the payment bought, and settles as x402 with gross = paid", async () => {
+      mockCreateSession.mockResolvedValueOnce({ id: "sess-x402" });
+      const counter = makeCounter(100, 200);
+      const id = await startPrepaidSession({
+        userId: "x402-user", targetHost: "example.com", counter, connectLatencyMs: 0, relay: RELAY,
+        rail: "x402", paidMusd: 4883n, quotedPricePerGbMusd: 500_000n, maxBytes: 10_485_760,
+      });
+      expect(id).toBe("sess-x402");
+      expect(mockReserveBalance).not.toHaveBeenCalled();
+      expect(mockGetBalance).not.toHaveBeenCalled();
+      expect(counter.maxBytes).toBe(Math.min(maxBytesForPrepaid(4883n, 500_000n), 10_485_760));
+      expect(counter.maxBytes).toBeLessThanOrEqual(10_485_760);
+      mockSettleRelayCharge.mockResolvedValueOnce({ status: "settled", paidInFull: true, grossMusd: 4883n, debitCents: 0 });
+      await endSession(id);
+      expect(mockSettleRelayCharge).toHaveBeenCalledWith(expect.objectContaining({
+        sessionId: "sess-x402", requesterUserId: "x402-user", rail: "x402", reservedCents: 0, prepaidGrossMusd: 4883n,
+        pricePerGbMusd: 500_000n, bytesGateway: 300n,
+      }));
+    });
+
+    it("refuses a non-positive prepaid amount", async () => {
+      await expect(startPrepaidSession({
+        userId: "u", targetHost: "example.com", counter: makeCounter(), connectLatencyMs: 0, relay: RELAY,
+        rail: "x402", paidMusd: 0n, quotedPricePerGbMusd: 500_000n, maxBytes: 1000,
+      })).rejects.toThrow();
+      expect(mockCreateSession).not.toHaveBeenCalled();
     });
   });
 

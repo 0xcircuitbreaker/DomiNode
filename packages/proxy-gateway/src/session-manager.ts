@@ -66,6 +66,8 @@ interface ActiveSession {
   destHost: string; // Bare host for relay_abuse_log (metadata only)
   pricePerGbMusd: bigint; // network_pricing for the node class, locked at start
   snapshot: ChargeSnapshot; // owner tier share + split config, locked at start
+  /** x402/mpp: paid up front; settled as gross = paidMusd, no wallet movement. */
+  prepaid?: { rail: "x402" | "mpp"; paidMusd: bigint };
 }
 
 const activeSessions = new Map<string, ActiveSession>();
@@ -499,6 +501,77 @@ export async function startSession(
   return sessionId;
 }
 
+/** Bytes a prepaid amount buys at the locked price (floor). */
+export function maxBytesForPrepaid(paidMusd: bigint, pricePerGbMusd: bigint): number {
+  if (pricePerGbMusd <= 0n || paidMusd <= 0n) return 0;
+  const b = (paidMusd * BigInt(BYTES_PER_GB)) / pricePerGbMusd;
+  return Number(b > BigInt(Number.MAX_SAFE_INTEGER) ? BigInt(Number.MAX_SAFE_INTEGER) : b);
+}
+
+export interface PrepaidSessionInput {
+  userId: string;
+  targetHost: string;
+  counter: ByteCounter;
+  connectLatencyMs: number;
+  relay: RelayBinding;
+  rail: "x402" | "mpp";
+  paidMusd: bigint;
+  /** Price the payment was quoted at; the session byte cap is derived from it. */
+  quotedPricePerGbMusd: bigint;
+  /** Additional hard byte cap (e.g. X402_MAX_RESPONSE_BYTES). */
+  maxBytes: number;
+}
+
+/**
+ * Start a relay session that was paid per request (x402/mpp). No balance is
+ * reserved; relay_charges records gross = paid µUSD (DESIGN.md §7) and the
+ * session may carry at most the bytes the payment bought.
+ */
+export async function startPrepaidSession(i: PrepaidSessionInput): Promise<string> {
+  if (typeof i.paidMusd !== "bigint" || i.paidMusd < 1n) throw new Error("Invalid prepaid amount");
+  let snapshot: ChargeSnapshot;
+  try {
+    snapshot = await tierRepo.getChargeSnapshot(i.relay.nodeOwnerUserId);
+  } catch {
+    throw new Error("Unable to lock relay pricing. Please try again.");
+  }
+  if (activeSessions.size >= MAX_ACTIVE_SESSIONS) throw new Error("Server at capacity. Please try again later.");
+  const dbSession = await usageRepo.createRelaySession(i.userId, i.relay.nodeId, i.relay.destPort);
+  const sessionId = dbSession.id;
+  const host = i.targetHost;
+  activeSessions.set(sessionId, {
+    sessionId,
+    userId: i.userId,
+    targetHost: "", // x402 identities never opt in to host logging
+    startedAt: new Date(),
+    counter: i.counter,
+    reservedCents: 0,
+    connectLatencyMs: i.connectLatencyMs,
+    errorCount: 0,
+    pricePerGbCents: 1, // non-free marker
+    proxyType: "relay",
+    teamId: null,
+    relay: i.relay,
+    destHost: host.includes(":") && !host.startsWith("[") ? `[${host}]` : (host || "unknown"),
+    pricePerGbMusd: i.quotedPricePerGbMusd,
+    snapshot,
+    prepaid: { rail: i.rail, paidMusd: i.paidMusd },
+  });
+  const paidBytes = maxBytesForPrepaid(i.paidMusd, i.quotedPricePerGbMusd);
+  i.counter.maxBytes = Math.max(1, Math.min(paidBytes, i.maxBytes)); // 0 would mean unlimited
+  i.counter.onLimitExceeded = () => {
+    log.warn("prepaid session byte cap reached", { sessionId, maxBytes: i.counter.maxBytes });
+    endSession(sessionId).catch(() => {});
+    const destroyFn = sessionDestroyCallbacks.get(sessionId);
+    if (destroyFn) {
+      try { destroyFn(); } catch { /* best effort */ }
+    }
+  };
+  recordSessionStart();
+  log.info("prepaid session started", { sessionId, rail: i.rail, paidMusd: i.paidMusd.toString() });
+  return sessionId;
+}
+
 /**
  * End a proxy session: settle reservation vs actual cost.
  * If actual < reserved, refunds the difference.
@@ -534,7 +607,7 @@ export async function endSession(sessionId: string): Promise<void> {
     releaseFreeBandwidth(userId);
   }
 
-  const rail = pricePerGbCents === 0 ? "free" : teamId ? "team" : "wallet";
+  const rail = session.prepaid ? session.prepaid.rail : pricePerGbCents === 0 ? "free" : teamId ? "team" : "wallet";
 
   try {
     // One transaction: requester settle, relay_charges, node earn, abuse log,
@@ -556,8 +629,10 @@ export async function endSession(sessionId: string): Promise<void> {
       destHost: session.destHost,
       destPort: relay.destPort,
       usageTargetHost: session.targetHost, // "" unless logTargetHosts (privacy-first)
+      ...(session.prepaid ? { prepaidGrossMusd: session.prepaid.paidMusd } : {}),
     });
-    if (teamId) invalidateTeamBalanceCache(teamId);
+    if (session.prepaid) { /* no wallet movement */ }
+    else if (teamId) invalidateTeamBalanceCache(teamId);
     else invalidateBalanceCache(userId);
     recordRequesterSpend(userId, r.grossMusd);
 

@@ -32,6 +32,11 @@ export interface SettleRelayChargeInput {
   usageTargetHost?: string;
   zeroReason?: Exclude<ZeroReason, "self_dealing"> | null;
   sessionStatus?: "completed" | "error";
+  /**
+   * x402/mpp only: the µUSD actually paid up front. gross is the paid amount
+   * (DESIGN.md §7: unused bytes are not refunded in v1), split by the locked bps.
+   */
+  prepaidGrossMusd?: bigint;
 }
 
 export interface SettleRelayChargeResult {
@@ -81,6 +86,12 @@ function validate(i: SettleRelayChargeInput): void {
     throw new Error("destHost must be a bare hostname");
   }
   if (i.rail === "team" && !i.requesterTeamId) throw new Error("team rail requires requesterTeamId");
+  if (i.prepaidGrossMusd !== undefined) {
+    if (i.rail !== "x402" && i.rail !== "mpp") throw new Error("prepaidGrossMusd is only valid for x402/mpp rails");
+    if (typeof i.prepaidGrossMusd !== "bigint" || i.prepaidGrossMusd < 1n || i.prepaidGrossMusd > 10_000_000_000n) {
+      throw new Error("prepaidGrossMusd out of range");
+    }
+  }
 }
 
 export async function settleRelayCharge(i: SettleRelayChargeInput): Promise<SettleRelayChargeResult> {
@@ -109,7 +120,13 @@ export async function settleRelayCharge(i: SettleRelayChargeInput): Promise<Sett
 
     if (session.status !== "active") throw new Error("Session already ended");
 
-    const split = computeSplit(i.bytesGateway, i.pricePerGbMusd, i.snapshot.nodeShareBps, i.rail);
+    const split = i.prepaidGrossMusd !== undefined
+      ? (() => {
+          const g = i.prepaidGrossMusd as bigint;
+          const n = (g * BigInt(i.snapshot.nodeShareBps)) / 10_000n;
+          return { rawMusd: g, grossMusd: g, nodeMusd: n, platformMusd: g - n, debitCents: 0n };
+        })()
+      : computeSplit(i.bytesGateway, i.pricePerGbMusd, i.snapshot.nodeShareBps, i.rail);
     if (split.grossMusd > BigInt(MAX_INT) * MUSD_PER_CENT) throw new Error("charge exceeds maximum");
     let debitCents = 0;
 

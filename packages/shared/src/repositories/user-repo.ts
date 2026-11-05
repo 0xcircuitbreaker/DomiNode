@@ -1,4 +1,6 @@
 import { query, getPool } from "../db.js";
+import { hashPassword } from "../auth.js";
+import { randomBytes } from "node:crypto";
 import type { User, ApiKey } from "../types.js";
 
 export async function createUser(
@@ -325,4 +327,35 @@ export async function consumePasswordResetToken(tokenHash: string): Promise<{ us
   const row = result.rows[0];
   if (!row) return null;
   return { userId: row.user_id, expiresAt: row.expires_at };
+}
+
+const EVM_ADDRESS_RE = /^0x[0-9a-f]{40}$/;
+
+/**
+ * x402 payer → wallet-identity user (DESIGN.md §7): reuse the user bound to
+ * this payer address, or create one (synthetic email, unusable bcrypt password,
+ * same identity wallet-auth would create). Race-safe: concurrent creates
+ * collapse onto the unique wallet_address/email indexes via ON CONFLICT DO NOTHING.
+ * Only EVM payers can be mapped (users.wallet_address is 0x + 40 hex).
+ */
+export async function findOrCreateX402User(payer: string): Promise<{ id: string; status: string; created: boolean }> {
+  const addr = typeof payer === "string" ? payer.toLowerCase() : "";
+  if (!EVM_ADDRESS_RE.test(addr)) throw new Error("x402 payer must be an EVM address");
+  const find = async () => (await query<{ id: string; status: string }>(
+    `SELECT id, status FROM users WHERE wallet_address = $1`, [addr],
+  )).rows[0];
+  const existing = await find();
+  if (existing) return { ...existing, created: false };
+  const unusable = await hashPassword(randomBytes(64).toString("hex"));
+  const ins = await query<{ id: string; status: string }>(
+    `INSERT INTO users (email, password_hash, wallet_address, email_verified)
+     VALUES ($1, $2, $3, true)
+     ON CONFLICT DO NOTHING
+     RETURNING id, status`,
+    [`${addr}@wallet.dominusnode.com`, unusable, addr],
+  );
+  if (ins.rows[0]) return { ...ins.rows[0], created: true };
+  const raced = await find();
+  if (!raced) throw new Error("x402 payer identity conflict");
+  return { ...raced, created: false };
 }

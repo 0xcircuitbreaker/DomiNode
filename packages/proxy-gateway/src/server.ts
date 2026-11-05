@@ -7,13 +7,13 @@ import type { Duplex } from "node:stream";
 import { authenticateRequest, type AuthResult } from "./auth.js";
 import { checkBalance, checkTeamBalance } from "./balance-check.js";
 import { attachByteCounters, type ByteCounter } from "./counting-stream.js";
-import { startSession, endSession, registerSessionDestroy, unregisterSessionDestroy, type RelayBinding } from "./session-manager.js";
+import { startSession, startPrepaidSession, endSession, registerSessionDestroy, unregisterSessionDestroy, type RelayBinding } from "./session-manager.js";
 import { checkSanctionedCountry, initGeoCheck } from "./geo-check.js";
 import { validateTarget, isValidHostname, isValidPort } from "./target-validator.js";
 import { incrementUserConns, decrementUserConns } from "./connection-tracker.js";
 import { checkAuthRateLimit, recordAuthFailure } from "./auth-rate-limit.js";
 import { recordRequest, recordError, recordLatency } from "./stats.js";
-import { handleX402Http, handleX402Connect, settleX402ConnectRequest, settleX402HttpRequest, build402ResponseBody, build402ConnectResponse, isX402Verified, getX402Data } from "./x402-handler.js";
+import { handleX402Http, handleX402Connect, build402ResponseBody, build402ConnectResponse, isX402Verified, getX402Data } from "./x402-handler.js";
 import { enforcePolicy, isFreeRelayBlocked, isPlaintextPort, EXIT_VISIBLE_HEADER } from "./policy-enforcer.js";
 import { openRelayStream, RelayOpenError, type RelayRuntime, type RelayUpstream } from "./relay.js";
 import type { SelectOpts } from "./node-tunnel/selector.js";
@@ -81,12 +81,26 @@ function sendError(
 // ─── Relay helpers ───────────────────────────────────────────────────
 
 /**
- * x402 traffic is kept off the community-node relay until it has its own
- * relay session + settleRelayCharge(rail "x402") path (DESIGN.md §7): without
- * it the node earns nothing and no relay_charges / abuse-log row is written.
- * Requests are refused BEFORE payment verification so payers are never charged.
+ * x402 on the relay (DESIGN.md §7): the payer is mapped to a wallet-identity
+ * user, the request runs as a prepaid relay session and settles through
+ * settleRelayCharge(rail "x402"). X402_RELAY_ENABLED=false is a kill switch
+ * that refuses x402 BEFORE verification so payers are never charged.
  */
-export const X402_RELAY_ENABLED = false;
+export const X402_RELAY_ENABLED = process.env["X402_RELAY_ENABLED"] !== "false";
+
+function x402Binding(node: LiveNode, port: number, payer: string, stream: Duplex): RelayBinding {
+  return {
+    nodeId: node.nodeId,
+    ipClass: node.ipClass,
+    nodeOwnerUserId: node.ownerUserId,
+    destPort: port,
+    requesterWallet: /^0x[0-9a-fA-F]{40}$/.test(payer) ? payer.toLowerCase() : null,
+    nodeBytes: () => {
+      const rep = (stream as { nodeReport?: { bytesIn: number; bytesOut: number } | null }).nodeReport;
+      return rep ? BigInt(rep.bytesIn) + BigInt(rep.bytesOut) : null;
+    },
+  };
+}
 
 function x402RelayUnavailableBody(): string {
   return JSON.stringify({
@@ -334,9 +348,9 @@ async function handleRequest(
       sendError(clientRes, 403, "TARGET_BLOCKED", targetCheck.reason || "Blocked: target is a private/internal address");
       return;
     }
-    const requesterKey = `x402:${x402Data.payer.toLowerCase()}`;
+    const x402User = x402Data.userId;
     const enforced = enforcePolicy(relay.getPolicy(), {
-      userId: requesterKey, host: targetHost, port: targetPort, plaintext: true, allowHttp: false, resolvedIps: targetCheck.addresses,
+      userId: x402User, host: targetHost, port: targetPort, plaintext: true, allowHttp: false, resolvedIps: targetCheck.addresses,
     });
     if (!enforced.allowed) {
       sendError(clientRes, enforced.status, enforced.code, enforced.message);
@@ -357,14 +371,48 @@ async function handleRequest(
 
     let upstream: RelayUpstream;
     try {
-      upstream = await openRelayStream(relay, relaySelectOpts(null, requesterKey, clientIp, targetHost, targetPort, x402Data.poolType));
+      upstream = await openRelayStream(relay, {
+        ...relaySelectOpts(null, x402User, clientIp, targetHost, targetPort, x402Data.poolType),
+        requesterWallet: x402Data.payer.toLowerCase(),
+      });
     } catch (err) {
       const e = relayErrorOf(err);
       recordError();
+      log.error("x402 paid request could not be relayed", { code: e.code, payer: x402Data.payer.slice(0, 10) + "..." });
       sendError(clientRes, e.status, e.code, e.message, e.status === 503 ? { "Retry-After": "30" } : undefined);
       return;
     }
     recordLatency(upstream.latencyMs);
+
+    const x402Counter: ByteCounter = { bytesIn: 0, bytesOut: 0, maxBytes: 0, onLimitExceeded: null };
+    let x402SessionId: string;
+    try {
+      x402SessionId = await startPrepaidSession({
+        userId: x402User, targetHost, counter: x402Counter, connectLatencyMs: upstream.latencyMs,
+        relay: x402Binding(upstream.node, targetPort, x402Data.payer, upstream.stream),
+        rail: "x402", paidMusd: x402Data.amountMusd, quotedPricePerGbMusd: x402Data.pricePerGbMusd, maxBytes: x402Data.maxResponseBytes,
+      });
+    } catch (err) {
+      upstream.stream.destroy();
+      log.error("x402 session start failed", { error: err instanceof Error ? err.message.slice(0, 120) : "unknown" });
+      sendError(clientRes, 500, "INTERNAL_ERROR", "Internal proxy error");
+      return;
+    }
+
+    let x402Done = false;
+    const x402Cleanup = () => {
+      if (x402Done) return;
+      x402Done = true;
+      unregisterSessionDestroy(x402SessionId);
+      if (!upstream.stream.destroyed) upstream.stream.destroy();
+      endSession(x402SessionId).catch((e) => log.error("x402 session end failed", { error: e instanceof Error ? e.message : String(e) }));
+    };
+    registerSessionDestroy(x402SessionId, () => {
+      if (!clientRes.headersSent) clientRes.writeHead(413, { "Content-Type": "text/plain" });
+      clientRes.end();
+      x402Cleanup();
+    });
+    meterStream(upstream.stream, x402Counter);
 
     try {
       const proxyRes = await requestOverStream(upstream.stream, clientReq.method ?? "GET", target.path, x402Headers, x402Body);
@@ -372,32 +420,21 @@ async function handleRequest(
       for (const h of HOP_BY_HOP_RESPONSE) delete responseHeaders[h];
       if (enforced.exitVisible) responseHeaders[EXIT_VISIBLE_HEADER.toLowerCase()] = "1";
 
-      const x402MaxResp = x402Data.maxResponseBytes;
-      let x402TotalBytes = x402Body.length;
-      proxyRes.on("data", (chunk: Buffer) => {
-        x402TotalBytes += chunk.length;
-        if (x402TotalBytes > x402MaxResp) {
-          log.warn("x402 HTTP total byte cap reached", { bytes: x402TotalBytes, max: x402MaxResp });
-          proxyRes.destroy();
-        }
-      });
-
       clientRes.writeHead(proxyRes.statusCode ?? 502, responseHeaders);
       proxyRes.pipe(clientRes, { end: true });
       clientRes.on("close", () => {
         if (!proxyRes.destroyed) proxyRes.destroy();
-        upstream.stream.destroy();
+        x402Cleanup();
       });
-      proxyRes.on("end", () => {
-        settleX402HttpRequest(clientReq, targetHost).catch(e =>
-          log.error("x402 settle error", { error: e instanceof Error ? e.message : String(e) }));
-      });
+      proxyRes.on("end", x402Cleanup);
+      proxyRes.on("error", x402Cleanup);
+      proxyRes.on("close", x402Cleanup);
     } catch (err) {
-      upstream.stream.destroy();
       recordError();
       const errMsg = err instanceof Error ? err.message : String(err);
       log.error("x402 upstream error", { error: sanitizeUpstreamMsg(errMsg) });
       if (!clientRes.headersSent) sendError(clientRes, 502, "UPSTREAM_UNAVAILABLE", "Bad gateway");
+      x402Cleanup();
     }
     return;
   }
@@ -810,9 +847,13 @@ async function handleX402ConnectTunnel(
     return;
   }
 
-  const requesterKey = `x402:${x402Result.payer.toLowerCase()}`;
+  const x402User = x402Result.userId;
+  if (!x402User || x402Result.amountMusd === undefined || x402Result.pricePerGbMusd === undefined) {
+    safeSocketWrite(clientSocket, "HTTP/1.1 500 Internal Server Error\r\n\r\n");
+    return;
+  }
   const enforced = enforcePolicy(relay.getPolicy(), {
-    userId: requesterKey, host: targetHost, port: targetPort, plaintext: isPlaintextPort(targetPort), allowHttp: false,
+    userId: x402User, host: targetHost, port: targetPort, plaintext: isPlaintextPort(targetPort), allowHttp: false,
     resolvedIps: targetCheck.addresses,
   });
   if (!enforced.allowed) {
@@ -822,7 +863,10 @@ async function handleX402ConnectTunnel(
 
   let upstream: RelayUpstream;
   try {
-    upstream = await openRelayStream(relay, relaySelectOpts(null, requesterKey, clientIpOf(clientSocket), targetHost, targetPort, x402Result.poolType));
+    upstream = await openRelayStream(relay, {
+      ...relaySelectOpts(null, x402User, clientIpOf(clientSocket), targetHost, targetPort, x402Result.poolType),
+      requesterWallet: x402Result.payer.toLowerCase(),
+    });
   } catch (err) {
     recordError();
     safeSocketWrite(clientSocket, connectErrorLine(relayErrorOf(err)));
@@ -836,20 +880,41 @@ async function handleX402ConnectTunnel(
     return;
   }
 
-  clientSocket.write("HTTP/1.1 200 Connection Established\r\n\r\n");
-
-  // C-4: bandwidth cap for x402 CONNECT tunnel
   const x402Counter = attachByteCounters(clientSocket, psStream);
-  x402Counter.maxBytes = x402Result.maxResponseBytes;
-  x402Counter.onLimitExceeded = () => {
-    log.warn("x402 CONNECT bandwidth cap reached", {
-      bytes: x402Counter.bytesIn + x402Counter.bytesOut,
-      max: x402Result.maxResponseBytes,
-      payer: x402Result.payer.slice(0, 10) + "...",
+  let sessionId: string;
+  try {
+    sessionId = await startPrepaidSession({
+      userId: x402User, targetHost, counter: x402Counter, connectLatencyMs: upstream.latencyMs,
+      relay: x402Binding(upstream.node, targetPort, x402Result.payer, psStream),
+      rail: "x402", paidMusd: x402Result.amountMusd, quotedPricePerGbMusd: x402Result.pricePerGbMusd, maxBytes: x402Result.maxResponseBytes,
     });
+  } catch (err) {
+    log.error("x402 CONNECT session start failed", { error: err instanceof Error ? err.message.slice(0, 120) : "unknown" });
+    safeSocketWrite(clientSocket, "HTTP/1.1 500 Internal Server Error\r\n\r\n");
+    psStream.destroy();
+    return;
+  }
+
+  let tunnelCleanedUp = false;
+  const x402Cleanup = () => {
+    if (tunnelCleanedUp) return;
+    tunnelCleanedUp = true;
+    unregisterSessionDestroy(sessionId);
+    if (!clientSocket.destroyed) clientSocket.destroy();
+    if (!psStream.destroyed) psStream.destroy();
+    endSession(sessionId).catch((e) => log.error("x402 CONNECT session end failed", { error: e instanceof Error ? e.message : String(e) }));
+  };
+  registerSessionDestroy(sessionId, () => {
     clientSocket.destroy();
     psStream.destroy();
-  };
+  });
+  if (clientSocket.destroyed) {
+    x402Cleanup();
+    return;
+  }
+
+  const visible = enforced.exitVisible ? `${EXIT_VISIBLE_HEADER}: 1\r\n` : "";
+  clientSocket.write(`HTTP/1.1 200 Connection Established\r\n${visible}\r\n`);
 
   if (head.length > 0) {
     x402Counter.bytesIn += head.length;
@@ -861,16 +926,6 @@ async function handleX402ConnectTunnel(
 
   clientSocket.setTimeout(TUNNEL_IDLE_TIMEOUT_MS);
   clientSocket.on("timeout", () => clientSocket.destroy());
-
-  let tunnelCleanedUp = false;
-  const x402Cleanup = () => {
-    if (tunnelCleanedUp) return;
-    tunnelCleanedUp = true;
-    if (!clientSocket.destroyed) clientSocket.destroy();
-    if (!psStream.destroyed) psStream.destroy();
-    settleX402ConnectRequest(x402Result, targetHost).catch(e =>
-      log.error("x402 CONNECT settle error", { error: e instanceof Error ? e.message : String(e) }));
-  };
 
   clientSocket.on("end", x402Cleanup);
   clientSocket.on("error", x402Cleanup);
