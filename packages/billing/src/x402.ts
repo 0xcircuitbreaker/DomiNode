@@ -1,23 +1,11 @@
 import * as crypto from "node:crypto";
 import { createLogger, query } from "@dominusnode/shared";
+import { stripDangerousKeys, validateSettleResponse } from "./adapters/x402-util.js";
+import { getFacilitator, facilitatorOverride } from "./adapters/facilitators/index.js";
+
+export { validateSettleResponse };
 
 const log = createLogger("billing:x402");
-
-// ─── Prototype Pollution Protection ─────────────────────────────────
-
-const DANGEROUS_KEYS = new Set(["__proto__", "constructor", "prototype"]);
-
-/** Recursively strip dangerous keys to prevent prototype pollution */
-function stripDangerousKeys(obj: Record<string, unknown>, depth = 0): void {
-  if (depth > 5) return; // prevent deep recursion
-  for (const key of Object.keys(obj)) {
-    if (DANGEROUS_KEYS.has(key)) {
-      delete obj[key];
-    } else if (typeof obj[key] === "object" && obj[key] !== null && !Array.isArray(obj[key])) {
-      stripDangerousKeys(obj[key] as Record<string, unknown>, depth + 1);
-    }
-  }
-}
 
 // ─── Types ──────────────────────────────────────────────────────────
 
@@ -139,6 +127,9 @@ function getMaxRequestBodyBytes(): number {
  * Falls back to coinbase if ambiguous.
  */
 export function detectFacilitator(paymentHeader: string): X402Facilitator {
+  // X402_FACILITATOR env (allowlisted values only) overrides detection.
+  const forced = facilitatorOverride();
+  if (forced) return forced;
   if (!paymentHeader || paymentHeader.length === 0) {
     return "coinbase"; // default
   }
@@ -179,14 +170,6 @@ export function detectFacilitator(paymentHeader: string): X402Facilitator {
 }
 
 // ─── USDC Amount Helpers ────────────────────────────────────────────
-
-/** Parse USDC base units from facilitator response, returning 0 on invalid input */
-function parseUsdcAmount(raw: string | undefined): number {
-  if (!raw || !/^\d+$/.test(raw)) return 0;
-  const val = parseInt(raw, 10);
-  if (!Number.isSafeInteger(val) || val < 0) return 0;
-  return val;
-}
 
 // ─── Build Requirements ─────────────────────────────────────────────
 
@@ -331,46 +314,6 @@ function canonicalReplayKey(paymentHeader: string): string | null {
   return null;
 }
 
-const TX_HASH_RE = /^(0x[0-9a-fA-F]{64}|[1-9A-HJ-NP-Za-km-z]{43,90})$/;
-
-/**
- * Validate a facilitator settle response body. Throws unless the facilitator
- * explicitly reports success with a well-formed tx hash and (when known)
- * a settled amount covering the required amount.
- */
-export function validateSettleResponse(
-  settleText: string,
-  facilitator: X402Facilitator,
-  requiredAmount?: string,
-): X402Settlement {
-  let result: { success?: unknown; txHash?: unknown; transaction?: unknown; amount?: unknown; errorReason?: unknown };
-  try {
-    result = JSON.parse(settleText);
-  } catch {
-    throw new Error(`${facilitator} settle response invalid`);
-  }
-  if (typeof result !== "object" || result === null || result.success !== true) {
-    log.error("x402 settle reported failure", {
-      facilitator,
-      errorReason: typeof result?.errorReason === "string" ? result.errorReason.slice(0, 200) : undefined,
-    });
-    throw new Error(`${facilitator} settlement not successful`);
-  }
-  const txHash = typeof result.txHash === "string" ? result.txHash : typeof result.transaction === "string" ? result.transaction : "";
-  if (!TX_HASH_RE.test(txHash)) {
-    throw new Error(`${facilitator} settlement missing valid txHash`);
-  }
-  const amount = typeof result.amount === "string" ? result.amount : "0";
-  if (requiredAmount !== undefined) {
-    const required = parseUsdcAmount(requiredAmount);
-    const settled = parseUsdcAmount(amount);
-    if (required === 0 || settled < required) {
-      throw new Error(`${facilitator} settled amount insufficient`);
-    }
-  }
-  return { txHash, amountSettled: amount, facilitator };
-}
-
 /**
  * Atomic replay guard — INSERT with ON CONFLICT to prevent TOCTOU race.
  * Returns true if the hash was claimed (proceed), false if already used (replay).
@@ -426,12 +369,7 @@ export async function verifyX402Payment(
   const facilitator = detectFacilitator(paymentHeader);
 
   try {
-    let result: X402VerifyResult;
-    if (facilitator === "coinbase") {
-      result = await verifyCoinbasePayment(paymentHeader, requirements);
-    } else {
-      result = await verifyPayAIPayment(paymentHeader, requirements);
-    }
+    const result: X402VerifyResult = await getFacilitator(facilitator).verify(paymentHeader, requirements);
     // If verification returned invalid, release the claimed hash so
     // the same payment can be retried (e.g., after transient facilitator error)
     if (!result.valid) {
@@ -448,168 +386,6 @@ export async function verifyX402Payment(
   }
 }
 
-// ─── Coinbase Facilitator ───────────────────────────────────────────
-
-async function verifyCoinbasePayment(
-  paymentHeader: string,
-  requirements: X402Requirements,
-): Promise<X402VerifyResult> {
-  const cdpKeyId = process.env["CDP_API_KEY_ID"];
-  const cdpKeySecret = process.env["CDP_API_KEY_SECRET"];
-
-  if (!cdpKeyId || !cdpKeySecret) {
-    // H-2: Generic error to client
-    log.error("Coinbase CDP credentials not configured");
-    return { valid: false, payer: "", amountUsd: "0", facilitator: "coinbase", error: "Facilitator unavailable" };
-  }
-
-  // Find the coinbase accept entry from requirements
-  const coinbaseAccept = requirements.accepts.find(a => a.extra.facilitator === "coinbase");
-  if (!coinbaseAccept) {
-    return { valid: false, payer: "", amountUsd: "0", facilitator: "coinbase", error: "Facilitator unavailable" };
-  }
-
-  // Call Coinbase x402 facilitator verify endpoint
-  // C-1: Include both key ID and secret in auth headers
-  const verifyUrl = "https://x402.org/facilitator/verify";
-  const body = JSON.stringify({
-    payment: paymentHeader,
-    requirements: coinbaseAccept,
-  });
-
-  const res = await fetch(verifyUrl, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-CDP-API-KEY-ID": cdpKeyId,
-      "X-CDP-API-KEY-SECRET": cdpKeySecret,
-    },
-    body,
-    signal: AbortSignal.timeout(10_000),
-    redirect: "error",
-  });
-
-  if (!res.ok) {
-    const errText = await res.text().catch(() => "");
-    log.error("Coinbase verify failed", { status: res.status, error: errText.slice(0, 200) });
-    return { valid: false, payer: "", amountUsd: "0", facilitator: "coinbase", error: "Payment verification failed" };
-  }
-
-  // Size-limit facilitator response to prevent OOM
-  const resText = await res.text();
-  if (resText.length > 10_000) {
-    log.error("Coinbase verify response too large", { length: resText.length });
-    return { valid: false, payer: "", amountUsd: "0", facilitator: "coinbase", error: "Facilitator response too large" };
-  }
-  const result = JSON.parse(resText) as { valid?: boolean; payer?: string; amount?: string };
-  stripDangerousKeys(result as Record<string, unknown>);
-
-  if (!result.valid) {
-    return { valid: false, payer: result.payer ?? "", amountUsd: "0", facilitator: "coinbase", error: "Payment invalid" };
-  }
-
-  // H-5: Validate amount format
-  const amountUsdc = parseUsdcAmount(result.amount);
-  if (amountUsdc === 0) {
-    return { valid: false, payer: result.payer ?? "", amountUsd: "0", facilitator: "coinbase", error: "Invalid amount from facilitator" };
-  }
-
-  // C-4: Verify amount meets requirement
-  const requiredAmount = parseInt(coinbaseAccept.maxAmountRequired, 10);
-  if (amountUsdc < requiredAmount) {
-    return { valid: false, payer: result.payer ?? "", amountUsd: "0", facilitator: "coinbase", error: "Payment amount insufficient" };
-  }
-
-  const amountUsd = (amountUsdc / 1_000_000).toFixed(6);
-
-  return {
-    valid: true,
-    payer: result.payer ?? "",
-    amountUsd,
-    facilitator: "coinbase",
-  };
-}
-
-// ─── PayAI Facilitator ──────────────────────────────────────────────
-
-async function verifyPayAIPayment(
-  paymentHeader: string,
-  requirements: X402Requirements,
-): Promise<X402VerifyResult> {
-  const payaiKeyId = process.env["PAYAI_API_KEY_ID"];
-  const payaiKeySecret = process.env["PAYAI_API_KEY_SECRET"];
-
-  if (!payaiKeyId || !payaiKeySecret) {
-    log.error("PayAI credentials not configured");
-    return { valid: false, payer: "", amountUsd: "0", facilitator: "payai", error: "Facilitator unavailable" };
-  }
-
-  // Find the payai accept entry from requirements
-  const payaiAccept = requirements.accepts.find(a => a.extra.facilitator === "payai");
-  if (!payaiAccept) {
-    return { valid: false, payer: "", amountUsd: "0", facilitator: "payai", error: "Facilitator unavailable" };
-  }
-
-  // Call PayAI facilitator verify endpoint
-  const verifyUrl = "https://api.payai.network/v1/x402/verify";
-  const body = JSON.stringify({
-    payment: paymentHeader,
-    requirements: payaiAccept,
-  });
-
-  const res = await fetch(verifyUrl, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-PayAI-Key-ID": payaiKeyId,
-      "X-PayAI-Key-Secret": payaiKeySecret,
-    },
-    body,
-    signal: AbortSignal.timeout(10_000),
-    redirect: "error",
-  });
-
-  if (!res.ok) {
-    const errText = await res.text().catch(() => "");
-    log.error("PayAI verify failed", { status: res.status, error: errText.slice(0, 200) });
-    return { valid: false, payer: "", amountUsd: "0", facilitator: "payai", error: "Payment verification failed" };
-  }
-
-  // Size-limit facilitator response to prevent OOM
-  const resText = await res.text();
-  if (resText.length > 10_000) {
-    log.error("PayAI verify response too large", { length: resText.length });
-    return { valid: false, payer: "", amountUsd: "0", facilitator: "payai", error: "Facilitator response too large" };
-  }
-  const result = JSON.parse(resText) as { valid?: boolean; payer?: string; amount?: string };
-  stripDangerousKeys(result as Record<string, unknown>);
-
-  if (!result.valid) {
-    return { valid: false, payer: result.payer ?? "", amountUsd: "0", facilitator: "payai", error: "Payment invalid" };
-  }
-
-  // H-5: Validate amount format
-  const amountUsdc = parseUsdcAmount(result.amount);
-  if (amountUsdc === 0) {
-    return { valid: false, payer: result.payer ?? "", amountUsd: "0", facilitator: "payai", error: "Invalid amount from facilitator" };
-  }
-
-  // C-4: Verify amount meets requirement
-  const requiredAmount = parseInt(payaiAccept.maxAmountRequired, 10);
-  if (amountUsdc < requiredAmount) {
-    return { valid: false, payer: result.payer ?? "", amountUsd: "0", facilitator: "payai", error: "Payment amount insufficient" };
-  }
-
-  const amountUsd = (amountUsdc / 1_000_000).toFixed(6);
-
-  return {
-    valid: true,
-    payer: result.payer ?? "",
-    amountUsd,
-    facilitator: "payai",
-  };
-}
-
 // ─── Settle Payment ─────────────────────────────────────────────────
 
 /**
@@ -623,94 +399,7 @@ export async function settleX402Payment(
 ): Promise<X402Settlement> {
   const reqs = requirements?.accepts.find((a) => (a.extra as { facilitator?: string } | undefined)?.facilitator === facilitator)
     ?? requirements?.accepts[0];
-  if (facilitator === "coinbase") {
-    return settleCoinbasePayment(paymentHeader, reqs);
-  } else {
-    return settlePayAIPayment(paymentHeader, reqs);
-  }
-}
-
-async function settleCoinbasePayment(
-  paymentHeader: string,
-  paymentRequirements?: X402Requirements["accepts"][number],
-): Promise<X402Settlement> {
-  // H-3: Validate credentials exist before settlement
-  const cdpKeyId = process.env["CDP_API_KEY_ID"];
-  const cdpKeySecret = process.env["CDP_API_KEY_SECRET"];
-  if (!cdpKeyId || !cdpKeySecret) {
-    throw new Error("Coinbase CDP credentials not configured for settlement");
-  }
-
-  const settleUrl = "https://x402.org/facilitator/settle";
-  const body = JSON.stringify(
-    paymentRequirements ? { payment: paymentHeader, paymentRequirements } : { payment: paymentHeader },
-  );
-
-  // C-1: Include both key ID and secret
-  const res = await fetch(settleUrl, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-CDP-API-KEY-ID": cdpKeyId,
-      "X-CDP-API-KEY-SECRET": cdpKeySecret,
-    },
-    body,
-    signal: AbortSignal.timeout(15_000),
-    redirect: "error",
-  });
-
-  if (!res.ok) {
-    const errText = await res.text().catch(() => "");
-    // Log full facilitator error server-side but scrub from thrown error
-    // to prevent leaking internal facilitator details to callers/logs upstream
-    log.error("Coinbase settle failed", { status: res.status, body: errText.slice(0, 200) });
-    throw new Error(`Coinbase settlement failed (HTTP ${res.status})`);
-  }
-
-  // Size-limit settle response
-  const settleText = await res.text();
-  if (settleText.length > 10_000) throw new Error("Coinbase settle response too large");
-  return validateSettleResponse(settleText, "coinbase", paymentRequirements?.maxAmountRequired);
-}
-
-async function settlePayAIPayment(
-  paymentHeader: string,
-  paymentRequirements?: X402Requirements["accepts"][number],
-): Promise<X402Settlement> {
-  const payaiKeyId = process.env["PAYAI_API_KEY_ID"];
-  const payaiKeySecret = process.env["PAYAI_API_KEY_SECRET"];
-  if (!payaiKeyId || !payaiKeySecret) {
-    throw new Error("PayAI credentials not configured for settlement");
-  }
-
-  const settleUrl = "https://api.payai.network/v1/x402/settle";
-  const body = JSON.stringify(
-    paymentRequirements ? { payment: paymentHeader, paymentRequirements } : { payment: paymentHeader },
-  );
-
-  const res = await fetch(settleUrl, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-PayAI-Key-ID": payaiKeyId,
-      "X-PayAI-Key-Secret": payaiKeySecret,
-    },
-    body,
-    signal: AbortSignal.timeout(15_000),
-    redirect: "error",
-  });
-
-  if (!res.ok) {
-    const errText = await res.text().catch(() => "");
-    // Log full facilitator error server-side but scrub from thrown error
-    log.error("PayAI settle failed", { status: res.status, body: errText.slice(0, 200) });
-    throw new Error(`PayAI settlement failed (HTTP ${res.status})`);
-  }
-
-  // Size-limit settle response
-  const settleText = await res.text();
-  if (settleText.length > 10_000) throw new Error("PayAI settle response too large");
-  return validateSettleResponse(settleText, "payai", paymentRequirements?.maxAmountRequired);
+  return getFacilitator(facilitator).settle(paymentHeader, reqs);
 }
 
 // ─── Record Transaction ─────────────────────────────────────────────
