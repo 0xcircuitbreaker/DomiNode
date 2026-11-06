@@ -83,7 +83,7 @@ export interface ProxyEndpoint {
    * TLS, then CONNECT runs inside that channel. The gateway certificate is always
    * verified (system roots, or `ca` when given).
    */
-  tls?: { ca?: string | Buffer; servername?: string };
+  tls?: { ca?: string | Buffer | Array<string | Buffer>; servername?: string };
 }
 
 /** Open a request to the gateway: plain TCP, or TLS when the endpoint has `tls`. */

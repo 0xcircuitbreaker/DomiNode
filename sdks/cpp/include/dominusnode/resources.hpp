@@ -298,6 +298,10 @@ struct ProxySettings {
 
 std::string build_proxy_username(const ProxyRoutingOptions& opts);
 
+/// Trust bundle for the gateway TLS connection: the system bundle with ca_pem APPENDED
+/// (gatewayTls.ca adds to the system roots in every SDK; it never replaces them).
+std::string gateway_trust_bundle(const std::string& system_bundle, const std::string& ca_pem);
+
 class ProxyResource {
 public:
     ProxyResource(HttpClient& h, ProxySettings s, std::function<std::string()> api_key);

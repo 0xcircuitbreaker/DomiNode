@@ -10,10 +10,20 @@
 #include <curl/curl.h>
 
 #include <algorithm>
+#include <fstream>
 #include <memory>
+#include <sstream>
+#include <vector>
 #include <regex>
 
 namespace dominusnode {
+
+std::string gateway_trust_bundle(const std::string& system_bundle, const std::string& ca_pem) {
+    std::string out = system_bundle;
+    if (!out.empty() && out.back() != '\n') out.push_back('\n');
+    out += ca_pem;
+    return out;
+}
 
 std::string build_proxy_username(const ProxyRoutingOptions& o) {
     std::vector<std::string> parts;
@@ -137,6 +147,27 @@ size_t fetch_write_cb(char* ptr, size_t size, size_t n, void* ud) {
     return total;
 }
 
+/// Contents of libcurl's default CA bundle (empty if none can be read).
+std::string default_ca_bundle(CURL* c) {
+    std::vector<std::string> paths;
+#if LIBCURL_VERSION_NUM >= 0x075400
+    char* p = nullptr;
+    if (curl_easy_getinfo(c, CURLINFO_CAINFO, &p) == CURLE_OK && p) paths.emplace_back(p);
+#else
+    (void)c;
+#endif
+    for (const char* f : {"/etc/ssl/certs/ca-certificates.crt", "/etc/pki/tls/certs/ca-bundle.crt",
+                          "/etc/ssl/cert.pem", "/etc/ssl/ca-bundle.pem"}) paths.emplace_back(f);
+    for (const auto& path : paths) {
+        std::ifstream in(path, std::ios::binary);
+        if (!in) continue;
+        std::ostringstream ss;
+        ss << in.rdbuf();
+        if (ss.str().find("-----BEGIN CERTIFICATE-----") != std::string::npos) return ss.str();
+    }
+    return {};
+}
+
 bool is_ip_literal(const std::string& h) {
     if (!h.empty() && h.front() == '[') return true;
     unsigned char buf[sizeof(in6_addr)];
@@ -228,7 +259,10 @@ ProxyFetchResponse ProxyResource::fetch(const std::string& url, const ProxyFetch
         curl_easy_setopt(c, CURLOPT_PROXY_SSL_VERIFYHOST, 2L);
         curl_easy_setopt(c, CURLOPT_PROXY_SSLVERSION, static_cast<long>(CURL_SSLVERSION_TLSv1_2));
         if (g.ca_pem) {
-            curl_blob blob{const_cast<char*>(g.ca_pem->data()), g.ca_pem->size(), CURL_BLOB_COPY};
+            // CAINFO_BLOB replaces the trust store; ca is ADDED to the system roots
+            // (cross-SDK contract), so prepend the default bundle.
+            const std::string bundle = gateway_trust_bundle(default_ca_bundle(c), *g.ca_pem);
+            curl_blob blob{const_cast<char*>(bundle.data()), bundle.size(), CURL_BLOB_COPY};
             curl_easy_setopt(c, CURLOPT_PROXY_CAINFO_BLOB, &blob);
         }
     }

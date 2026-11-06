@@ -86,3 +86,16 @@ describe("gatewayTls (HTTPS proxy)", () => {
     expect(() => new DominusNodeClient({ gatewayTls: "yes" as unknown as boolean })).toThrow(ValidationError);
   });
 });
+
+describe("gatewayTls.ca trust semantics", () => {
+  it("adds the CA to the system roots instead of replacing them", async () => {
+    const { gatewayTrustRoots } = await import("../src/resources/proxy.js");
+    const pem = "-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----\n";
+    const roots = gatewayTrustRoots(pem)!;
+    expect(roots.length).toBe(tls.rootCertificates.length + 1);
+    expect(roots.slice(0, -1)).toEqual([...tls.rootCertificates]);
+    expect(roots.at(-1)).toBe(pem);
+    expect(gatewayTrustRoots(Buffer.from(pem))!.at(-1)).toBe(pem);
+    expect(gatewayTrustRoots(undefined)).toBeUndefined();
+  });
+});
