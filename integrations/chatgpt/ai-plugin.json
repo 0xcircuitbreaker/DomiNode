@@ -1,9 +1,9 @@
 {
   "schema_version": "v1",
-  "name_for_human": "Dominus Node Proxy",
+  "name_for_human": "DominusNode Relay",
   "name_for_model": "dominusnode",
-  "description_for_human": "Access rotating proxy network for web scraping with geo-targeting, wallet management, and team billing.",
-  "description_for_model": "Dominus Node provides rotating proxy-as-a-service with datacenter ($3/GB) and residential ($5/GB) proxies. Use this to manage proxy API keys, check wallet balance, monitor usage, create agentic sub-wallets for AI agents, manage teams with shared billing, and top up via Stripe, crypto, or PayPal.",
+  "description_for_human": "AI-agent relay network: live pricing, network stats, node earnings and payouts.",
+  "description_for_model": "DominusNode is a relay network for AI agents: web requests exit through residential, datacenter and mobile IPs contributed by node operators, billed per GB. Use network_pricing for live prices (never assume them), network_stats for capacity by country/class, network_policy for the rules, node_list/node_tier/credits_balance/credits_convert/payouts_list for node-operator earnings, report_session to report a bad exit, and x402_info for micropayments.",
   "auth": {
     "type": "user_http",
     "authorization_type": "bearer"

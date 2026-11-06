@@ -1,165 +1,95 @@
-# Dominus Node -- ChatGPT Integration
+# @dominusnode/chatgpt
 
-Full integration for ChatGPT Custom GPTs and OpenAI Assistants API. Includes both an OpenAPI 3.1.0 spec for direct API actions and a TypeScript function handler with 53 tools, PoW solver, SSRF protection, and credential scrubbing.
+DominusNode for ChatGPT and the OpenAI API. DominusNode is a relay network for AI agents:
+requests exit through residential, datacenter and mobile IPs contributed by node operators,
+billed per GB from a prepaid wallet; operators earn a share by running the node agent.
 
-## Two Usage Modes
+Built on [`@dominusnode/sdk`](https://www.npmjs.com/package/@dominusnode/sdk) v2.
 
-### Mode 1: Custom GPT Actions (Schema-Only)
+## Two ways to use it
 
-Paste `openapi.yaml` into your Custom GPT action schema. ChatGPT calls the Dominus Node REST API directly.
-
-### Mode 2: Programmatic Handler (Recommended)
-
-Use the TypeScript handler for full security and PoW support:
-
-```ts
-import { createDominusNodeFunctionHandler } from "@dominusnode/chatgpt";
-
-const handler = createDominusNodeFunctionHandler({
-  apiKey: "dn_live_...",
-  baseUrl: "https://api.dominusnode.com",
-});
-
-// Dispatch function calls from ChatGPT
-const balance = await handler("dominusnode_check_balance", {});
-const usage = await handler("dominusnode_check_usage", { period: "week" });
-const fetch = await handler("dominusnode_proxied_fetch", {
-  url: "https://httpbin.org/ip",
-  country: "US",
-  proxy_type: "dc",
-});
-```
-
-## Installation
+### 1. Function-calling handler (all 19 tools)
 
 ```bash
 npm install @dominusnode/chatgpt
-# or install from GitHub
-npm install github:Dominus-Node/dominusnode#main --workspace=integrations/chatgpt
+export DOMINUSNODE_API_KEY=dn_live_...
 ```
 
-## 53 Tools
+```ts
+import OpenAI from "openai";
+import { createDominusNodeFunctionHandler, openAIFunctions } from "@dominusnode/chatgpt";
 
-### Proxy (3)
-| Tool | Description |
-|------|-------------|
-| `dominusnode_proxied_fetch` | Fetch URL through rotating proxy with geo-targeting |
-| `dominusnode_get_proxy_config` | Get proxy endpoints and supported countries |
-| `dominusnode_get_proxy_status` | Get proxy service status |
+const handler = createDominusNodeFunctionHandler(); // reads DOMINUSNODE_API_KEY
+const openai = new OpenAI();
+const res = await openai.chat.completions.create({ model, messages, tools: openAIFunctions() });
+for (const call of res.choices[0].message.tool_calls ?? []) {
+  const text = await handler(call.function.name, call.function.arguments); // JSON string or "Error: ..."
+}
+```
 
-### Wallet (7)
-| Tool | Description |
-|------|-------------|
-| `dominusnode_check_balance` | Check wallet balance |
-| `dominusnode_get_transactions` | View transaction history |
-| `dominusnode_get_forecast` | Get spending forecast |
-| `dominusnode_check_payment` | Check crypto invoice status |
-| `dominusnode_topup_stripe` | Create Stripe checkout ($5-$1,000) |
-| `dominusnode_topup_paypal` | Create PayPal order ($5-$1,000) |
-| `dominusnode_topup_crypto` | Create crypto invoice (10 currencies) |
+`functions.json` holds the same definitions (`{ name, description, parameters }`) for
+Assistants / Responses tool configs; regenerate it with `npm run build && npm run gen:functions`.
 
-### Usage (3)
-| Tool | Description |
-|------|-------------|
-| `dominusnode_check_usage` | Get usage stats for period |
-| `dominusnode_get_daily_usage` | Get daily breakdown (1-90 days) |
-| `dominusnode_get_top_hosts` | Get most-accessed domains |
+### 2. Custom GPT Actions (schema only)
 
-### Sessions (1)
-| Tool | Description |
-|------|-------------|
-| `dominusnode_list_sessions` | List active proxy sessions |
+Paste `openapi.yaml` into the GPT's Action schema and set **Authentication: API Key, Bearer**
+with a personal `dn_live_` key. The schema covers only routes that accept the raw key:
 
-### Account (6)
-| Tool | Description |
-|------|-------------|
-| `dominusnode_register` | Create account (with PoW solver) |
-| `dominusnode_login` | Login with email/password |
-| `dominusnode_get_account_info` | Get account details |
-| `dominusnode_verify_email` | Verify email with token |
-| `dominusnode_resend_verification` | Resend verification email |
-| `dominusnode_update_password` | Change password |
+| operationId | Route |
+|---|---|
+| `network_policy` | `GET /v1/policy` |
+| `network_pricing` | `GET /v1/pricing` |
+| `network_stats` | `GET /v1/network/stats` |
+| `node_list` | `GET /v1/nodes` |
+| `node_tier` | `GET /v1/node/tier` |
+| `credits_balance` | `GET /v1/credits` |
+| `credits_convert` | `POST /v1/credits/convert` (Idempotency-Key header) |
+| `payouts_list` | `GET /v1/payouts` |
+| `report_session` | `POST /v1/sessions/{id}/report` |
+| `x402_info` | `GET /api/x402/info` |
 
-### API Keys (3)
-| Tool | Description |
-|------|-------------|
-| `dominusnode_list_keys` | List API keys |
-| `dominusnode_create_key` | Create API key |
-| `dominusnode_revoke_key` | Revoke API key |
+`fetch` and `proxy_url` go through the proxy gateway, and the wallet/usage/session routes
+under `/api` need a JWT, so those tools are only available through the handler (mode 1), for
+example behind your own Action server. `ai-plugin.json` is the matching legacy plugin manifest.
 
-### Plans (3)
-| Tool | Description |
-|------|-------------|
-| `dominusnode_get_plan` | Get current plan |
-| `dominusnode_list_plans` | List available plans |
-| `dominusnode_change_plan` | Switch plan |
+## The 19 tools
 
-### Agentic Wallets (9)
-| Tool | Description |
-|------|-------------|
-| `dominusnode_create_agentic_wallet` | Create sub-wallet for AI agent |
-| `dominusnode_fund_agentic_wallet` | Fund from main wallet |
-| `dominusnode_agentic_wallet_balance` | Check sub-wallet balance |
-| `dominusnode_list_agentic_wallets` | List all sub-wallets |
-| `dominusnode_agentic_transactions` | View sub-wallet transactions |
-| `dominusnode_freeze_agentic_wallet` | Freeze sub-wallet |
-| `dominusnode_unfreeze_agentic_wallet` | Unfreeze sub-wallet |
-| `dominusnode_delete_agentic_wallet` | Delete sub-wallet |
-| `dominusnode_update_wallet_policy` | Update daily limits/domains |
+Function names are `dominusnode_<name>` (the handler also accepts the bare name).
 
-### Teams (17)
-| Tool | Description |
-|------|-------------|
-| `dominusnode_create_team` | Create team |
-| `dominusnode_list_teams` | List teams |
-| `dominusnode_team_details` | Get team details |
-| `dominusnode_team_fund` | Fund team wallet |
-| `dominusnode_team_create_key` | Create team API key |
-| `dominusnode_team_usage` | View team transactions |
-| `dominusnode_update_team` | Update team settings |
-| `dominusnode_update_team_member_role` | Change member role |
-| `dominusnode_team_delete` | Delete team |
-| `dominusnode_team_revoke_key` | Revoke team API key |
-| `dominusnode_team_list_keys` | List team API keys |
-| `dominusnode_team_list_members` | List team members |
-| `dominusnode_team_add_member` | Add team member |
-| `dominusnode_team_remove_member` | Remove team member |
-| `dominusnode_team_invite_member` | Invite member by email |
-| `dominusnode_team_list_invites` | List pending invites |
-| `dominusnode_team_cancel_invite` | Cancel invite |
-
-### x402 (1)
-| Tool | Description |
-|------|-------------|
-| `dominusnode_x402_info` | Get x402 micropayment info |
+| # | Tool | SDK call | What it does |
+|---|---|---|---|
+| 1 | `fetch` | `proxy.fetch` | GET/HEAD a public URL through the relay (country, ip_class, session_id, allow_http) |
+| 2 | `proxy_url` | `proxy.buildUrl` | Proxy URL for other clients; the key is replaced by `${DOMINUSNODE_API_KEY}` |
+| 3 | `network_policy` | `network.policy` | Acceptable-use policy and node floor guarantees (public) |
+| 4 | `network_pricing` | `network.pricing` | Live per-GB prices per IP class and node revenue shares (public) |
+| 5 | `network_stats` | `network.stats` | Online nodes by class and country (public) |
+| 6 | `balance` | `wallet.getBalance` | Prepaid wallet balance |
+| 7 | `transactions` | `wallet.getTransactions` | Wallet transaction history |
+| 8 | `topup_crypto` | `wallet.topUpCrypto` | Create a crypto top-up invoice |
+| 9 | `check_payment` | `wallet.getCryptoStatus` | Crypto invoice status |
+| 10 | `usage` | `usage.get` | Bandwidth/cost summary for a date range |
+| 11 | `active_sessions` | `sessions.getActive` | Open relay sessions |
+| 12 | `report_session` | `sessions.report` | Report a misbehaving exit node |
+| 13 | `node_list` | `nodes.list` | Your contributed relay nodes |
+| 14 | `node_tier` | `nodes.tier` | Your node-operator tier and progress |
+| 15 | `node_setup_guide` | static | How to earn by contributing an IP with the node agent |
+| 16 | `credits_balance` | `credits.balance` | Node earnings (pending/available/frozen) |
+| 17 | `credits_convert` | `credits.convert` | Convert node credit into wallet balance |
+| 18 | `payouts_list` | `payouts.list` | Payout history |
+| 19 | `x402_info` | `x402.getInfo` | x402 micropayment info (public) |
 
 ## Security
 
-- SSRF: DNS rebinding protection, private IP blocking, hex/octal/decimal normalization
-- OFAC: Sanctioned countries (CU, IR, KP, RU, SY) blocked
-- Credential scrubbing: `dn_live_*`, `dn_test_*`, `dn_proxy_*` redacted from errors
-- Prototype pollution: Recursive `stripDangerousKeys` on all JSON parsing
-- Response size cap: 10MB max
-- HTTP methods: Only GET, HEAD, OPTIONS for proxied fetch
-- PoW solver: SHA-256 challenge solver for CAPTCHA-free registration
+Enforced by the SDK: SSRF and DNS-rebinding checks on every resolved address, GET/HEAD only,
+ports 80/443, no redirects, 10 MB cap, OFAC countries (CU, IR, KP, RU, SY) refused, plaintext
+`http://` only with `allow_http` (visible to the exit node). Every result and error is scrubbed
+of `dn_live_`/`dn_test_`/`dn_node_`/`dn_proxy_` keys and JWTs; parsed arguments drop
+`__proto__`/`constructor`/`prototype`. The key is never a function argument or output.
+Prices are never hardcoded: use `network_pricing`. Signed flows (node registration,
+withdrawals, payout wallet) are not exposed; use the DominusNode MCP server or the SDK with a
+signer key file.
 
-## Custom GPT Setup (Schema-Only Mode)
+## Upgrading from 1.x
 
-1. Go to [ChatGPT](https://chat.openai.com) > **Explore GPTs** > **Create a GPT**
-2. In **Actions**, paste the contents of `openapi.yaml`
-3. Set auth to **Bearer** and paste your JWT token
-4. JWT tokens expire in 15 minutes; refresh via POST `/api/auth/refresh`
-
-## Files
-
-| File | Description |
-|------|-------------|
-| `handler.ts` | 53-tool function handler with full security |
-| `handler.test.ts` | 131 test cases (SSRF, validation, dispatch) |
-| `functions.json` | Tool definitions for LLM function calling |
-| `openapi.yaml` | OpenAPI 3.1.0 spec for Custom GPT actions |
-| `ai-plugin.json` | Legacy ChatGPT plugin manifest |
-
-## License
-
-MIT License. See [LICENSE](./LICENSE).
+2.0 removes Stripe/PayPal, plans, slots, account/MFA flows, key/team/agentic-wallet tools,
+`dc-`/`residential-` prefixes and hardcoded prices. Exit selection is `country` + `ip_class`.
