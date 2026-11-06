@@ -107,6 +107,8 @@ export interface TunnelServerOptions {
   tls?: { cert: Buffer; key: Buffer } | null;
   /** Production: peers resolving to non-public IPs are refused (misconfigured proxy front). */
   production?: boolean;
+  /** Refuse public peers whose ASN is unknown (production without ASN_DB_OPTIONAL). */
+  requireAsn?: boolean;
   preAuth?: PreAuthLimiterOptions;
 }
 
@@ -541,6 +543,7 @@ export class NodeTunnelServer {
       return t.rejectAuth("SANCTIONED");
     }
     const asn = geo?.asn ?? null;
+    if (isPublic && asn === null && this.opts.requireAsn) return t.rejectAuth("ASN_UNAVAILABLE");
     const prefix = ipPrefix(t.peerIp);
     const counts = this.registry.countPeers(t.peerIp, prefix, asn, t.node.id);
     const lim = policy.body.nodeCapsPerPrefix;
