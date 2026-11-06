@@ -609,6 +609,8 @@ async function handleRequest(
       clientRes.end(build402ResponseBody(upstream.node.ipClass === "dc" ? "dc" : "residential"));
     } else if (msg.includes("bandwidth limit")) {
       sendError(clientRes, 403, "BANDWIDTH_LIMIT_EXCEEDED", "Monthly bandwidth limit exceeded. Upgrade your plan at the Dominus Node dashboard.");
+    } else if (msg.includes("spend cap")) {
+      sendError(clientRes, 429, "SPEND_CAP_EXCEEDED", "Daily spend cap reached");
     } else if (msg.includes("rate limit")) {
       sendError(clientRes, 429, "TOO_MANY_CONNECTIONS", "Session rate limit exceeded. Please slow down.");
     } else {
@@ -845,6 +847,8 @@ async function handleConnect(
       safeSocketWrite(clientSocket, build402ConnectResponse(upstream.node.ipClass === "dc" ? "dc" : "residential"));
     } else if (msg.includes("bandwidth limit")) {
       safeSocketWrite(clientSocket, "HTTP/1.1 403 Forbidden\r\nX-DominusNode-Error: BANDWIDTH_LIMIT_EXCEEDED\r\n\r\n");
+    } else if (msg.includes("spend cap")) {
+      safeSocketWrite(clientSocket, "HTTP/1.1 429 Too Many Requests\r\nX-DominusNode-Error: SPEND_CAP_EXCEEDED\r\n\r\n");
     } else if (msg.includes("rate limit")) {
       safeSocketWrite(clientSocket, "HTTP/1.1 429 Too Many Requests\r\nX-DominusNode-Error: TOO_MANY_CONNECTIONS\r\nRetry-After: 60\r\n\r\n");
     } else {

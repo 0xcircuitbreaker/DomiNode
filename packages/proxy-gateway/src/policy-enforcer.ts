@@ -72,6 +72,48 @@ export function recordRequesterSpend(userId: string, musd: bigint, now = Date.no
   spendLog.set(userId, { day, musd });
 }
 
+/*
+ * In-flight reservations against the daily spend cap. Settled spend is only
+ * recorded when a session ends, so N concurrent sessions started under the
+ * cap could each reserve and together blow far past it. startSession reserves
+ * here (atomically: JS is single-threaded between check and add) and the
+ * amount is released at settle/abort, when the real spend is recorded.
+ *
+ * KNOWN LIMITATION: this state (like spendLog) is per gateway process. With
+ * several gateway instances each enforces the cap independently, so a
+ * requester spreading load across N instances can reach up to N x the cap
+ * (plus one reservation each). A shared store (DB/Redis) is needed to close that.
+ */
+const inflightSpend = new Map<string, bigint>();
+/** Daily cap from the most recent policy enforcePolicy saw (null until then). */
+let currentDailyCapMusd: bigint | null = null;
+
+export function getRequesterInflightSpend(userId: string): bigint {
+  return inflightSpend.get(userId) ?? 0n;
+}
+
+/**
+ * Reserve `musd` of in-flight spend. With enforceCap, refuses when settled +
+ * in-flight spend has already reached the daily cap (same >= semantics as
+ * enforcePolicy, so overshoot is bounded by a single reservation).
+ */
+export function reserveRequesterSpend(userId: string, musd: bigint, enforceCap = true, now = Date.now()): boolean {
+  if (musd <= 0n) return true;
+  if (enforceCap && currentDailyCapMusd !== null
+    && getRequesterSpend(userId, now) + getRequesterInflightSpend(userId) >= currentDailyCapMusd) {
+    return false;
+  }
+  inflightSpend.set(userId, getRequesterInflightSpend(userId) + musd);
+  return true;
+}
+
+export function releaseRequesterSpend(userId: string, musd: bigint): void {
+  if (musd <= 0n) return;
+  const left = getRequesterInflightSpend(userId) - musd;
+  if (left > 0n) inflightSpend.set(userId, left);
+  else inflightSpend.delete(userId);
+}
+
 export function getRequesterSpend(userId: string, now = Date.now()): bigint {
   const e = spendLog.get(userId);
   return e && e.day === Math.floor(now / DAY_MS) ? e.musd : 0n;
@@ -116,7 +158,8 @@ export function enforcePolicy(policy: NetworkPolicy, i: EnforceInput, now = Date
     }
     exitVisible = true;
   }
-  if (getRequesterSpend(i.userId, now) >= BigInt(policy.requesterLimits.dailySpendMusd)) {
+  currentDailyCapMusd = BigInt(policy.requesterLimits.dailySpendMusd);
+  if (getRequesterSpend(i.userId, now) + getRequesterInflightSpend(i.userId) >= currentDailyCapMusd) {
     return { allowed: false, status: 429, code: "SPEND_CAP_EXCEEDED", message: "Daily spend cap reached" };
   }
   if (!checkRate(i.userId, policy.requesterLimits.reqPerSec, now)) {
@@ -129,6 +172,8 @@ export function enforcePolicy(policy: NetworkPolicy, i: EnforceInput, now = Date
 export function _resetPolicyEnforcer(): void {
   reqLog.clear();
   spendLog.clear();
+  inflightSpend.clear();
+  currentDailyCapMusd = null;
 }
 
 /** Free-plan requesters are kept off the relay unless policy.freeTierRelay (DESIGN.md §15 R1). */

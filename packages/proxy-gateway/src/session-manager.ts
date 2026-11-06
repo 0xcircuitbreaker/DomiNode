@@ -1,7 +1,7 @@
 import { usageRepo, walletRepo, planRepo, teamRepo, policyRepo, tierRepo, relayChargeRepo, relaySettleRetryRepo, createLogger } from "@dominusnode/shared";
 import type { Plan, NodeIpClass } from "@dominusnode/shared";
 import { BYTES_PER_GB } from "@dominusnode/shared";
-import { recordRequesterSpend } from "./policy-enforcer.js";
+import { recordRequesterSpend, reserveRequesterSpend, releaseRequesterSpend } from "./policy-enforcer.js";
 import { invalidateBalanceCache, invalidateTeamBalanceCache } from "./balance-check.js";
 import { recordBytes, recordSessionStart } from "./stats.js";
 import type { ByteCounter } from "./counting-stream.js";
@@ -68,6 +68,8 @@ interface ActiveSession {
   snapshot: ChargeSnapshot; // owner tier share + split config, locked at start
   /** x402/mpp: paid up front; settled as gross = paidMusd, no wallet movement. */
   prepaid?: { rail: "x402" | "mpp"; paidMusd: bigint };
+  /** In-flight spend held against the daily cap until settle/abort. */
+  inflightMusd?: bigint;
 }
 
 const activeSessions = new Map<string, ActiveSession>();
@@ -358,6 +360,15 @@ export async function startSession(
   let reservedCents = 0;
   let freeReserved = false;
 
+  // Daily spend cap: count this session's reservation as in-flight spend so
+  // concurrent sessions cannot all start under the cap (see policy-enforcer).
+  let inflightMusd = isFreePlan ? 0n : BigInt(reservationCentsFor(pricePerGbMusd)) * BigInt(MUSD_PER_CENT);
+  if (!reserveRequesterSpend(userId, inflightMusd)) {
+    throw new Error("Daily spend cap reached");
+  }
+
+  let sessionId: string;
+  try {
   if (isFreePlan) {
     // Free plan MUST have a bandwidth limit — 0 = unlimited = abuse vector
     if (planMonthlyBandwidthBytes <= 0) {
@@ -401,6 +412,14 @@ export async function startSession(
     invalidateBalanceCache(userId);
   }
 
+  // Reconcile the in-flight hold to what was actually reserved.
+  const reservedMusd = BigInt(reservedCents) * BigInt(MUSD_PER_CENT);
+  if (reservedMusd !== inflightMusd) {
+    releaseRequesterSpend(userId, inflightMusd);
+    reserveRequesterSpend(userId, reservedMusd, false);
+    inflightMusd = reservedMusd;
+  }
+
   let dbSession;
   try {
     dbSession = await usageRepo.createRelaySession(userId, relay.nodeId, relay.destPort);
@@ -421,7 +440,7 @@ export async function startSession(
     throw err;
   }
 
-  const sessionId = dbSession.id;
+  sessionId = dbSession.id;
 
   // Privacy-first: only store actual targetHost when user has opted in
   const storedTargetHost = logTargetHosts ? targetHost : "";
@@ -459,7 +478,12 @@ export async function startSession(
     destHost: targetHost.includes(":") && !targetHost.startsWith("[") ? `[${targetHost}]` : (targetHost || "unknown"),
     pricePerGbMusd,
     snapshot,
+    inflightMusd,
   });
+  } catch (err) {
+    releaseRequesterSpend(userId, inflightMusd);
+    throw err;
+  }
 
   // Set per-session byte limit to prevent unbounded usage beyond reservation
   // Paid sessions: cap at exactly what the reservation covers (no overrun headroom,
@@ -536,7 +560,14 @@ export async function startPrepaidSession(i: PrepaidSessionInput): Promise<strin
     throw new Error("Unable to lock relay pricing. Please try again.");
   }
   if (activeSessions.size >= MAX_ACTIVE_SESSIONS) throw new Error("Server at capacity. Please try again later.");
-  const dbSession = await usageRepo.createRelaySession(i.userId, i.relay.nodeId, i.relay.destPort);
+  if (!reserveRequesterSpend(i.userId, i.paidMusd)) throw new Error("Daily spend cap reached");
+  let dbSession;
+  try {
+    dbSession = await usageRepo.createRelaySession(i.userId, i.relay.nodeId, i.relay.destPort);
+  } catch (err) {
+    releaseRequesterSpend(i.userId, i.paidMusd);
+    throw err;
+  }
   const sessionId = dbSession.id;
   const host = i.targetHost;
   activeSessions.set(sessionId, {
@@ -556,6 +587,7 @@ export async function startPrepaidSession(i: PrepaidSessionInput): Promise<strin
     pricePerGbMusd: i.quotedPricePerGbMusd,
     snapshot,
     prepaid: { rail: i.rail, paidMusd: i.paidMusd },
+    inflightMusd: i.paidMusd,
   });
   const paidBytes = maxBytesForPrepaid(i.paidMusd, i.quotedPricePerGbMusd);
   i.counter.maxBytes = Math.max(1, Math.min(paidBytes, i.maxBytes)); // 0 would mean unlimited
@@ -581,6 +613,7 @@ export async function abortPrepaidSession(sessionId: string): Promise<boolean> {
   if (!session || !session.prepaid) return false;
   if (!activeSessions.delete(sessionId)) return false;
   sessionDestroyCallbacks.delete(sessionId);
+  releaseRequesterSpend(session.userId, session.inflightMusd ?? 0n);
   try {
     await usageRepo.endSession(sessionId, 0, "error");
   } catch (err) {
@@ -722,6 +755,9 @@ async function settleSession(sessionId: string): Promise<void> {
     } catch {
       // Best effort
     }
+  } finally {
+    // The real spend was recorded above (or the settle is queued): drop the hold.
+    releaseRequesterSpend(userId, session.inflightMusd ?? 0n);
   }
 }
 

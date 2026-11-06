@@ -63,6 +63,7 @@ vi.mock("./balance-check.js", () => ({
 
 import { startSession, endSession, getActiveSessionCount, checkSessionRateLimit, checkBandwidthVelocity, recordBandwidthUsage, reservationCentsFor, maxBytesForReservation, startPrepaidSession, maxBytesForPrepaid, abortPrepaidSession, awaitInFlightSettlements, getInFlightSettlementCount } from "./session-manager.js";
 import type { ByteCounter } from "./counting-stream.js";
+import { enforcePolicy, _resetPolicyEnforcer, getRequesterInflightSpend, getRequesterSpend } from "./policy-enforcer.js";
 const BYTES_PER_GB = 1_073_741_824;
 
 function makeCounter(bytesIn = 0, bytesOut = 0): ByteCounter {
@@ -456,6 +457,35 @@ describe("proxy-gateway/session-manager", () => {
       expect(await awaitInFlightSettlements(20)).toBe(false);
       commit();
       await p;
+    });
+
+    it("counts in-flight reservations against the daily spend cap (no concurrency bypass)", async () => {
+      _resetPolicyEnforcer();
+      const policy = { ports: [443], denyDomains: [], plaintext: "allow", requesterLimits: { reqPerSec: 1000, dailySpendMusd: 1_000_000 } } as any;
+      expect(enforcePolicy(policy, { userId: "user-cap", host: "example.com", port: 443, plaintext: false, allowHttp: false }).allowed).toBe(true);
+      // 50c reservations = 500_000 µUSD each against a 1_000_000 µUSD cap
+      const a = await startTestSession("user-cap", "sess-cap-a", makeCounter(1, 1));
+      await startTestSession("user-cap", "sess-cap-b", makeCounter(1, 1));
+      expect(getRequesterInflightSpend("user-cap")).toBe(1_000_000n);
+      await expect(startSession("user-cap", "example.com", makeCounter(), 0, RELAY)).rejects.toThrow("Daily spend cap reached");
+      expect(enforcePolicy(policy, { userId: "user-cap", host: "example.com", port: 443, plaintext: false, allowHttp: false }))
+        .toMatchObject({ allowed: false, code: "SPEND_CAP_EXCEEDED" });
+      // Settle: the hold is replaced by the real (small) spend.
+      mockSettleRelayCharge.mockResolvedValueOnce(settled({ grossMusd: 1_000n }));
+      await endSession(a);
+      expect(getRequesterInflightSpend("user-cap")).toBe(500_000n);
+      expect(getRequesterSpend("user-cap")).toBe(1_000n);
+      await startTestSession("user-cap", "sess-cap-d", makeCounter());
+      _resetPolicyEnforcer();
+    });
+
+    it("releases the in-flight hold when session start fails", async () => {
+      _resetPolicyEnforcer();
+      mockReserveBalance.mockResolvedValueOnce("wallet-1");
+      mockCreateSession.mockRejectedValueOnce(new Error("db down"));
+      await expect(startSession("user-hold", "example.com", makeCounter(), 0, RELAY)).rejects.toThrow("db down");
+      expect(getRequesterInflightSpend("user-hold")).toBe(0n);
+      _resetPolicyEnforcer();
     });
 
     it("locks price per node class and owner tier at start", async () => {
