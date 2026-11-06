@@ -1576,3 +1576,29 @@ CREATE TABLE IF NOT EXISTS payer_identities (
   PRIMARY KEY (chain, address)
 );
 CREATE INDEX IF NOT EXISTS idx_payer_identities_user ON payer_identities(user_id);
+
+-- ─── Admin control panel (ADMIN_API.md): job heartbeats + read indexes ───
+-- One row per background job, upserted by the gateway job runner after each
+-- run (skipped advisory-lock ticks are not recorded).
+CREATE TABLE IF NOT EXISTS job_runs (
+  job_name          TEXT PRIMARY KEY CHECK (length(job_name) BETWEEN 1 AND 64),
+  instance_id       TEXT NOT NULL CHECK (length(instance_id) BETWEEN 1 AND 64),
+  last_started_at   TIMESTAMPTZ NOT NULL,
+  last_finished_at  TIMESTAMPTZ NOT NULL,
+  last_ok           BOOLEAN NOT NULL,
+  last_error        TEXT CHECK (last_error IS NULL OR length(last_error) <= 200),
+  last_duration_ms  INTEGER NOT NULL CHECK (last_duration_ms BETWEEN 0 AND 2147483647),
+  last_success_at   TIMESTAMPTZ,
+  run_count         BIGINT NOT NULL DEFAULT 0 CHECK (run_count BETWEEN 0 AND 9000000000000000000),
+  fail_count        BIGINT NOT NULL DEFAULT 0 CHECK (fail_count BETWEEN 0 AND 9000000000000000000)
+);
+
+CREATE INDEX IF NOT EXISTS idx_rc_requester ON relay_charges(requester_user_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_nodes_last_seen ON nodes(last_seen_at);
+CREATE INDEX IF NOT EXISTS idx_nodes_created ON nodes(created_at);
+CREATE INDEX IF NOT EXISTS idx_ral_requester_ts ON relay_abuse_log(requester_user_id, ts);
+CREATE INDEX IF NOT EXISTS idx_ral_host_ts ON relay_abuse_log(dest_host, ts);
+CREATE INDEX IF NOT EXISTS idx_node_payouts_status_created ON node_payouts(status, created_at);
+CREATE INDEX IF NOT EXISTS idx_byte_disputes_status_created ON byte_disputes(status, created_at);
+CREATE INDEX IF NOT EXISTS idx_audit_events_action_created ON audit_events(action, created_at);
+CREATE INDEX IF NOT EXISTS idx_nca_frozen ON node_credit_accounts(user_id) WHERE frozen;
