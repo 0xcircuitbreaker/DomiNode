@@ -1,3 +1,4 @@
+import type * as net from "node:net";
 import dotenv from "dotenv";
 dotenv.config();
 
@@ -12,6 +13,7 @@ import { NodeSelector } from "./node-tunnel/selector.js";
 import { loadCoordSigner } from "./node-tunnel/coord-key.js";
 import { NodeTunnelServer, resolveTunnelPort } from "./node-tunnel/server.js";
 import { startSocks5Server } from "./socks5.js";
+import { loadProxyTls, parseRequireTls, createPlaintextAuthGuard } from "./proxy-tls.js";
 import { envInt, setJobRunRecorder, JOB_RUN_UPSERT_SQL, type Job, type LockPool } from "./jobs/runner.js";
 import * as nodeStatusJob from "./jobs/node-status.js";
 import * as maturityJob from "./jobs/maturity.js";
@@ -148,8 +150,23 @@ async function main(): Promise<void> {
   // ─── Background jobs (DESIGN.md §6.4, §15) ─────────────────────────
   const jobs = startJobs(registry, getPolicy);
 
-  const httpServer = await startProxyServer(httpPort, relay);
-  const socks5Server = await startSocks5Server(socks5Port, relay);
+  // TLS proxy listener (DESIGN.md §15): Proxy-Authorization over TLS.
+  const proxyTls = loadProxyTls(process.env);
+  const requireTls = parseRequireTls(process.env);
+  if (requireTls && !proxyTls) throw new Error("PROXY_REQUIRE_TLS=true requires PROXY_TLS_PORT");
+  const plaintextAuth = createPlaintextAuthGuard({ production: isProduction, requireTls, warn: (m, meta) => log.warn(m, meta) });
+  if (isProduction && !requireTls) {
+    log.warn(proxyTls
+      ? "plaintext proxy listeners accept credentials; set PROXY_REQUIRE_TLS=true once clients use the TLS port"
+      : "PROXY_TLS_PORT not set: proxy credentials travel in plaintext");
+  }
+  const httpServer = await startProxyServer(httpPort, relay, { plaintextAuth });
+  const socks5Server = await startSocks5Server(socks5Port, relay, { plaintextAuth });
+  const tlsServers: net.Server[] = [];
+  if (proxyTls) {
+    tlsServers.push(await startProxyServer(proxyTls.port, relay, { tls: proxyTls }));
+    if (proxyTls.socks5Port !== null) tlsServers.push(await startSocks5Server(proxyTls.socks5Port, relay, { tls: proxyTls }));
+  }
 
   // Graceful shutdown
   async function shutdown(signal: string): Promise<void> {
@@ -157,6 +174,7 @@ async function main(): Promise<void> {
 
     httpServer.close();
     socks5Server.close();
+    for (const s of tlsServers) s.close();
     clearInterval(policyInterval);
     await Promise.all(jobs.map((j) => j.stop().catch(() => {})));
 

@@ -1,6 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import * as http from "node:http";
 import * as net from "node:net";
+import * as https from "node:https";
+import * as tls from "node:tls";
+import * as fs from "node:fs";
+import * as path from "node:path";
 
 // ─── Mocks ─────────────────────────────────────────────────────────
 
@@ -886,6 +890,91 @@ describe("proxy-gateway server", () => {
       mockCheckBalance.mockResolvedValue(false);
       const res = await makeConnect(port, "example.com:443");
       expect(mockDecrementUserConns).toHaveBeenCalledWith("user-123");
+      res.socket.destroy();
+    });
+  });
+
+  // ─── TLS listener + plaintext auth guard ──────────────────────
+
+  describe("TLS proxy listener", () => {
+    const fx = path.join(__dirname, "__fixtures__");
+    const tlsCreds = { cert: fs.readFileSync(path.join(fx, "test-proxy-tls.crt")), key: fs.readFileSync(path.join(fx, "test-proxy-tls.key")) };
+    let tlsServer: http.Server;
+    let tlsPort: number;
+
+    beforeEach(async () => {
+      const relay = { selector: { select: (o: unknown) => mockSelect(o) }, getPolicy: () => policy, nodeCount: () => 1 };
+      tlsServer = await startProxyServer(0, relay as any, { tls: tlsCreds, plaintextAuth: () => false });
+      await new Promise((r) => setImmediate(r));
+      const a = tlsServer.address();
+      tlsPort = typeof a === "object" && a ? a.port : 0;
+    });
+    afterEach(async () => {
+      await new Promise<void>((resolve) => tlsServer.close(() => resolve()));
+    });
+
+    it("accepts CONNECT inside TLS with Proxy-Authorization through the same auth path", async () => {
+      const sock = tls.connect({ host: "127.0.0.1", port: tlsPort, ca: tlsCreds.cert, servername: "localhost" });
+      await new Promise<void>((r, j) => { sock.once("secureConnect", () => r()); sock.once("error", j); });
+      const auth = Buffer.from("user:dn_live_testkey").toString("base64");
+      sock.write(`CONNECT example.com:443 HTTP/1.1\r\nHost: example.com:443\r\nProxy-Authorization: Basic ${auth}\r\n\r\n`);
+      let buf = "";
+      await new Promise<void>((r) => sock.on("data", (d) => { buf += d.toString(); if (buf.includes("\r\n\r\n")) r(); }));
+      expect(buf).toMatch(/^HTTP\/1\.1 200/);
+      expect(mockAuthenticateRequest).toHaveBeenCalled();
+      sock.write("ping");
+      const echoed = await new Promise<string>((r) => sock.once("data", (d) => r(d.toString())));
+      expect(echoed).toBe("ping");
+      sock.destroy();
+    });
+
+    it("ignores the plaintext guard on the TLS listener", async () => {
+      const res = await new Promise<number>((resolve, reject) => {
+        const req = https.request({ host: "127.0.0.1", port: tlsPort, ca: tlsCreds.cert, servername: "localhost", path: "/internal/stats", headers: { "Proxy-Authorization": "Basic eA==" } }, (r) => { r.resume(); resolve(r.statusCode ?? 0); });
+        req.on("error", reject);
+        req.end();
+      });
+      expect(res).toBe(200);
+    });
+  });
+
+  describe("plaintext auth guard (PROXY_REQUIRE_TLS)", () => {
+    let plain: http.Server;
+    let plainPort: number;
+    const guard = vi.fn();
+
+    beforeEach(async () => {
+      const relay = { selector: { select: (o: unknown) => mockSelect(o) }, getPolicy: () => policy, nodeCount: () => 1 };
+      plain = await startProxyServer(0, relay as any, { plaintextAuth: (l) => guard(l) });
+      await new Promise((r) => setImmediate(r));
+      const a = plain.address();
+      plainPort = typeof a === "object" && a ? a.port : 0;
+    });
+    afterEach(async () => {
+      await new Promise<void>((resolve) => plain.close(() => resolve()));
+    });
+
+    it("refuses HTTP requests carrying credentials when the guard says no", async () => {
+      guard.mockReturnValue(false);
+      const res = await makeRequest(plainPort, { path: "http://httpbin.org/ip", method: "GET", headers: { "Proxy-Authorization": "Basic eA==" } });
+      expect(res.status).toBe(403);
+      expect(res.body).toContain("TLS required");
+      expect(mockAuthenticateRequest).not.toHaveBeenCalled();
+    });
+
+    it("refuses CONNECT carrying credentials when the guard says no", async () => {
+      guard.mockReturnValue(false);
+      const res = await makeConnect(plainPort, "example.com:443", { "Proxy-Authorization": "Basic eA==" });
+      expect(res.status).toBe(403);
+      expect(mockAuthenticateRequest).not.toHaveBeenCalled();
+      res.socket.destroy();
+    });
+
+    it("lets credentials through when the guard allows (warn-only mode)", async () => {
+      guard.mockReturnValue(true);
+      const res = await makeConnect(plainPort, "example.com:443", { "Proxy-Authorization": "Basic eA==" });
+      expect(res.status).toBe(200);
+      expect(guard).toHaveBeenCalledWith("http");
       res.socket.destroy();
     });
   });
