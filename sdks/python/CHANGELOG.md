@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.0.0] - 2026-11-06
+
+Breaking: rewritten for the v2 relay-network contract (`sdks/SDK_SURFACE.md`, reference `sdks/node` 2.0.0).
+
+### Added
+- 15 resources and 71 methods, the same in `DominusNodeClient` and `AsyncDominusNodeClient`: `network`, `nodes` (with PoW and attestation registration), `credits` (µUSD convert and withdraw), `payout_wallet`, `payouts`, `sessions.report` and `wallet_auth.sign_in`.
+- EIP-191 signer callbacks. The SDK rebuilds the node-attestation, payout-wallet and withdrawal messages itself and refuses to sign a server message that differs (`ProtocolError`).
+- `proxy.build_username`/`build_url` with `country-XX` (OFAC refused), `class-…`, `session-…`, `wallet-<uuid>` and `allowhttp-1`.
+- `proxy.fetch` for GET/HEAD through the gateway, with an SSRF guard (private IPs in every spelling, local names) and a DNS-rebinding check.
+- `Secret` wrapper for one-time credentials, `ProtocolError` and `ProxyError`, error `code` and `details`.
+- Credential scrubbing now also covers `dn_node_`/`dn_proxy_` keys and JWTs.
+
+### Changed
+- Redirects are refused and API responses are capped at 10 MB, by Content-Length and by the bytes actually read.
+- 429 is retried once, waiting min(Retry-After, 10 s) ±10 % with a 100 ms floor. 401 triggers one JWT refresh, shared by concurrent callers.
+- `/v1` agent routes send the raw API key.
+- `disconnect()` clears the API key and both tokens. The token manager keeps its refresh callback.
+- Amounts must be integers. Floats, NaN, Infinity and bools are rejected.
+
+### Removed
+- Plans, slots and waitlist, admin, Stripe and PayPal top-ups, email/password login and registration, human MFA, `connect_with_credentials`, `complete_mfa`, `proxy.get_status`, the legacy `dc-`/`residential-`/`auto-` username prefixes, `state-`/`city-`/`asn-` targeting, and all hardcoded prices.
+- The `respx` dev dependency. Tests use `httpx.MockTransport`.
+
 ## [1.0.0] - 2026-02-19
 
 ### Added

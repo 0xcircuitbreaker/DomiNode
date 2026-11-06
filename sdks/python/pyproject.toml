@@ -4,17 +4,18 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "dominusnode"
-version = "1.1.1"
-description = "Official Dominus Node SDK for Python"
+version = "2.0.0"
+description = "Official DominusNode SDK for Python: AI-agent relay network (proxy, nodes, credits, payouts)"
 requires-python = ">=3.9"
 license = {text = "MIT"}
 dependencies = ["httpx>=0.24.0"]
 
 [project.optional-dependencies]
-dev = ["pytest>=7.0", "pytest-asyncio>=0.21", "respx>=0.20"]
+dev = ["pytest>=7.0", "pytest-asyncio>=0.21"]
 
 [tool.setuptools.packages.find]
 include = ["dominusnode*"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"

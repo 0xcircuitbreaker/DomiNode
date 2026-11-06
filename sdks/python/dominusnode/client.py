@@ -1,459 +1,190 @@
-"""Dominus Node SDK clients -- sync and async.
-
-Provides ``DominusNodeClient`` for synchronous usage and
-``AsyncDominusNodeClient`` for asyncio-based usage. Both share the same
-API surface and resource layout.
-
-Example (sync)::
-
-    from dominusnode import DominusNodeClient
-
-    with DominusNodeClient(base_url="http://localhost:3000") as client:
-        client.connect_with_credentials("user@example.com", "password123")
-        balance = client.wallet.get_balance()
-        print(f"Balance: ${balance.balance_usd}")
-
-Example (async)::
-
-    from dominusnode import AsyncDominusNodeClient
-
-    async with AsyncDominusNodeClient(base_url="http://localhost:3000") as client:
-        await client.connect_with_credentials("user@example.com", "password123")
-        balance = await client.wallet.get_balance()
-        print(f"Balance: ${balance.balance_usd}")
-"""
+"""DominusNode relay-network clients (sync and async, identical surface)."""
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Any, Dict, Generator, Optional
 
 import httpx
 
-from .admin import AdminResource, AsyncAdminResource
+from ._ops import drive_async, drive_sync
+from .constants import DEFAULT_BASE_URL, DEFAULT_HTTP_PROXY_PORT, DEFAULT_PROXY_HOST, DEFAULT_SOCKS5_PROXY_PORT
 from .errors import DominusNodeError
-from .auth import AsyncAuthResource, AuthResource
-from .constants import (
-    DEFAULT_BASE_URL,
-    DEFAULT_HTTP_PROXY_PORT,
-    DEFAULT_PROXY_HOST,
-    DEFAULT_SOCKS5_PROXY_PORT,
-)
 from .http_client import AsyncHttpClient, SyncHttpClient
-from .keys import AsyncKeysResource, KeysResource
-from .plans import AsyncPlansResource, PlansResource
-from .proxy import AsyncProxyResource, ProxyResource
-from .sessions import AsyncSessionsResource, SessionsResource
-from .slots import AsyncSlotsResource, SlotsResource
-from .agent_wallet import AgenticWalletResource, AsyncAgenticWalletResource
-from .teams import TeamsResource as TeamsRes, AsyncTeamsResource as AsyncTeamsRes
-from .x402 import X402Resource, AsyncX402Resource
-from .wallet_auth import WalletAuthResource, AsyncWalletAuthResource
+from .resources import (
+    AgenticWalletResource, AsyncAgenticWalletResource, AsyncAuthResource, AsyncCreditsResource,
+    AsyncKeysResource, AsyncNetworkResource, AsyncNodesResource, AsyncPayoutsResource,
+    AsyncPayoutWalletResource, AsyncProxyResource, AsyncSessionsResource, AsyncTeamsResource,
+    AsyncUsageResource, AsyncWalletAuthResource, AsyncWalletResource, AsyncX402Resource, AuthResource,
+    CreditsResource, KeysResource, NetworkResource, NodesResource, PayoutsResource, PayoutWalletResource,
+    ProxyResource, SessionsResource, TeamsResource, UsageResource, WalletAuthResource, WalletResource,
+    X402Resource, _AuthResource, _Ctx,
+)
 from .token_manager import AsyncTokenManager, TokenManager
-from .types import LoginResult, User
-from .usage import AsyncUsageResource, UsageResource
-from .wallet import AsyncWalletResource, WalletResource
+from .validation import validate_api_key
 
 
-# ──────────────────────────────────────────────────────────────────────
-# Sync Client
-# ──────────────────────────────────────────────────────────────────────
+def _connect_gen(ctx: _Ctx, auth: Any, api_key: str) -> Generator[Any, Any, Dict[str, Any]]:
+    validate_api_key(api_key)
+    try:
+        r = yield from _AuthResource.verify_key(auth, api_key)
+    except DominusNodeError as err:
+        if err.code == "MFA_REQUIRED":
+            ctx.api_key = api_key
+            return {"mfaRequired": True}
+        raise
+    ctx.api_key = api_key
+    ctx.tokens.set_tokens(r.get("token"), r.get("refreshToken"))
+    return {"mfaRequired": False, "userId": r.get("userId")}
 
 
-class DominusNodeClient:
-    """Synchronous Dominus Node API client.
+def _disconnect_gen(ctx: _Ctx, auth: Any) -> Generator[Any, Any, None]:
+    try:
+        if ctx.tokens.has_tokens():
+            try:
+                yield from _AuthResource.logout(auth)
+            except Exception:  # noqa: BLE001 - best effort
+                pass
+    finally:
+        ctx.api_key = None
+        ctx.tokens.clear()
 
-    Args:
-        base_url: Base URL of the Dominus Node API server.
-        api_key: API key for immediate connection (optional).
-        email: Email for credential-based connection (optional).
-        password: Password for credential-based connection (optional).
-        access_token: Pre-existing access token (optional).
-        refresh_token: Pre-existing refresh token (optional).
-        proxy_host: Hostname of the proxy server.
-        http_proxy_port: HTTP proxy port.
-        socks5_proxy_port: SOCKS5 proxy port.
-        timeout: HTTP request timeout in seconds.
+
+class _ClientBase:
+    _ctx: _Ctx
+
+    @property
+    def is_connected(self) -> bool:
+        """True when an API key or any JWT is held."""
+        return self._ctx.api_key is not None or self._ctx.tokens.has_tokens()
+
+    def __repr__(self) -> str:
+        return f"{type(self).__name__}(connected={'true' if self.is_connected else 'false'})"
+
+    __str__ = __repr__
+
+    def to_json(self) -> Dict[str, Any]:
+        return {"connected": self.is_connected}
+
+    def __reduce__(self) -> Any:
+        raise TypeError("client cannot be pickled")
+
+
+class DominusNodeClient(_ClientBase):
+    """Synchronous client::
+
+        with DominusNodeClient() as dn:
+            dn.connect_with_key(os.environ["DOMINUSNODE_API_KEY"])
+            res = dn.proxy.fetch("https://example.com", country="US")
     """
 
     def __init__(
         self,
         base_url: str = DEFAULT_BASE_URL,
-        *,
-        api_key: Optional[str] = None,
-        email: Optional[str] = None,
-        password: Optional[str] = None,
-        access_token: Optional[str] = None,
-        refresh_token: Optional[str] = None,
         proxy_host: str = DEFAULT_PROXY_HOST,
         http_proxy_port: int = DEFAULT_HTTP_PROXY_PORT,
         socks5_proxy_port: int = DEFAULT_SOCKS5_PROXY_PORT,
-        timeout: float = 30.0,
-        agent_secret: Optional[str] = None,
+        access_token: Optional[str] = None,
+        refresh_token: Optional[str] = None,
+        transport: Optional[httpx.BaseTransport] = None,
     ) -> None:
-        self._api_key: Optional[str] = api_key
-        self._proxy_host = proxy_host
-        self._http_proxy_port = http_proxy_port
-        self._socks5_proxy_port = socks5_proxy_port
+        tokens = TokenManager()
+        self._ctx = ctx = _Ctx(tokens)
+        self._http = http = SyncHttpClient(base_url, tokens, lambda: ctx.api_key, transport)
+        self.auth = AuthResource(http, ctx)
+        self.wallet_auth = WalletAuthResource(http, ctx)
+        self.keys = KeysResource(http, ctx)
+        self.wallet = WalletResource(http, ctx)
+        self.agentic_wallets = AgenticWalletResource(http, ctx)
+        self.teams = TeamsResource(http, ctx)
+        self.usage = UsageResource(http, ctx)
+        self.sessions = SessionsResource(http, ctx)
+        self.x402 = X402Resource(http, ctx)
+        self.network = NetworkResource(http, ctx)
+        self.nodes = NodesResource(http, ctx)
+        self.credits = CreditsResource(http, ctx)
+        self.payout_wallet = PayoutWalletResource(http, ctx)
+        self.payouts = PayoutsResource(http, ctx)
+        self.proxy = ProxyResource(http, ctx, proxy_host, http_proxy_port, socks5_proxy_port)
 
-        # Token management
-        self._token_manager = TokenManager()
+        def refresh(rt: str) -> Any:
+            r = self.auth.refresh(rt)
+            return r.get("token"), r.get("refreshToken")
 
-        # Wire up the token refresh function
-        def _sync_refresh(rt: str) -> tuple[str, str]:
-            return self.auth.refresh(rt)
+        tokens.set_refresh_function(refresh)  # never cleared
+        if access_token:
+            tokens.set_tokens(access_token, refresh_token)
 
-        self._token_manager.set_refresh_fn(_sync_refresh)
-
-        if access_token and refresh_token:
-            self._token_manager.set_tokens(access_token, refresh_token)
-
-        # HTTP client
-        self._http = SyncHttpClient(base_url, self._token_manager, timeout=timeout, agent_secret=agent_secret)
-
-        # Resource instances
-        self._auth = AuthResource(self._http, self._token_manager)
-        self._keys = KeysResource(self._http)
-        self._wallet = WalletResource(self._http)
-        self._usage = UsageResource(self._http)
-        self._plans = PlansResource(self._http)
-        self._sessions = SessionsResource(self._http)
-        self._proxy = ProxyResource(
-            self._http,
-            proxy_host=proxy_host,
-            http_proxy_port=http_proxy_port,
-            socks5_proxy_port=socks5_proxy_port,
-            get_api_key=lambda: self._api_key,
-        )
-        self._admin = AdminResource(self._http)
-        self._slots = SlotsResource(self._http)
-        self._agentic_wallets = AgenticWalletResource(self._http)
-        self._teams = TeamsRes(self._http)
-        self._x402 = X402Resource(self._http)
-        self._wallet_auth = WalletAuthResource(self._http, self._token_manager)
-
-        # Auto-connect if credentials provided.
-        # On failure, clear credentials to prevent retention in a partial object.
-        try:
-            if api_key:
-                self.connect_with_key(api_key)
-            elif email and password:
-                self.connect_with_credentials(email, password)
-        except Exception:
-            self._api_key = None
-            self._token_manager.clear()
-            raise
-
-    # ── Resource properties ──────────────────────────────────────────
-
-    @property
-    def auth(self) -> AuthResource:
-        """Auth operations (register, login, MFA, etc.)."""
-        return self._auth
-
-    @property
-    def keys(self) -> KeysResource:
-        """API key management."""
-        return self._keys
-
-    @property
-    def wallet(self) -> WalletResource:
-        """Wallet operations (balance, transactions, top-ups)."""
-        return self._wallet
-
-    @property
-    def usage(self) -> UsageResource:
-        """Usage statistics and data export."""
-        return self._usage
-
-    @property
-    def plans(self) -> PlansResource:
-        """Plan management."""
-        return self._plans
-
-    @property
-    def sessions(self) -> SessionsResource:
-        """Active proxy sessions."""
-        return self._sessions
-
-    @property
-    def proxy(self) -> ProxyResource:
-        """Proxy operations (URL building, health, status, config)."""
-        return self._proxy
-
-    @property
-    def admin(self) -> AdminResource:
-        """Admin operations (requires admin privileges)."""
-        return self._admin
-
-    @property
-    def slots(self) -> SlotsResource:
-        """Slots and waitlist operations (public, no auth required)."""
-        return self._slots
-
-    @property
-    def agentic_wallets(self) -> AgenticWalletResource:
-        """Agentic wallet operations (sub-wallets with spending limits)."""
-        return self._agentic_wallets
-
-    @property
-    def teams(self) -> TeamsRes:
-        """Team operations (shared wallets, members, invites, keys)."""
-        return self._teams
-
-    @property
-    def x402(self) -> X402Resource:
-        """x402 protocol information (HTTP 402 micropayments)."""
-        return self._x402
-
-    @property
-    def wallet_auth(self) -> WalletAuthResource:
-        """Wallet-based authentication (EIP-191 signed messages)."""
-        return self._wallet_auth
-
-    # ── Connection methods ───────────────────────────────────────────
-
-    def connect_with_key(self, api_key: str) -> LoginResult:
-        """Authenticate using an API key.
-
-        Verifies the key with the server and stores the resulting JWT tokens.
-        """
-        self._api_key = api_key
-        return self._auth.verify_key(api_key)
-
-    def connect_with_credentials(self, email: str, password: str) -> LoginResult:
-        """Authenticate using email and password.
-
-        If MFA is required, the returned LoginResult will have
-        ``mfa_required=True``. Call ``complete_mfa()`` to finish.
-        """
-        return self._auth.login(email, password)
-
-    def complete_mfa(
-        self,
-        code: str,
-        *,
-        mfa_challenge_token: Optional[str] = None,
-        is_backup_code: bool = False,
-    ) -> LoginResult:
-        """Complete MFA verification after login."""
-        return self._auth.verify_mfa(
-            code,
-            mfa_challenge_token=mfa_challenge_token,
-            is_backup_code=is_backup_code,
-        )
+    def connect_with_key(self, api_key: str) -> Dict[str, Any]:
+        """Returns {mfaRequired: False, userId} or {mfaRequired: True} (key-auth routes still work)."""
+        return drive_sync(self._http, _connect_gen(self._ctx, self.auth, api_key))
 
     def disconnect(self) -> None:
-        """Log out and clear stored tokens."""
-        try:
-            self._auth.logout()
-        except (OSError, httpx.HTTPError, DominusNodeError):
-            pass  # Best-effort — server may be unreachable
-        self._token_manager.clear()
-        self._api_key = None
+        """Best-effort logout, then clear the API key, access token and refresh token."""
+        drive_sync(self._http, _disconnect_gen(self._ctx, self.auth))
 
     def close(self) -> None:
-        """Close the underlying HTTP client."""
+        self.disconnect()
         self._http.close()
 
-    def __enter__(self) -> DominusNodeClient:
+    def __enter__(self) -> "DominusNodeClient":
         return self
 
-    def __exit__(self, *args: object) -> None:
+    def __exit__(self, *exc: object) -> None:
         self.close()
 
 
-# ──────────────────────────────────────────────────────────────────────
-# Async Client
-# ──────────────────────────────────────────────────────────────────────
-
-
-class AsyncDominusNodeClient:
-    """Asynchronous Dominus Node API client.
-
-    Args:
-        base_url: Base URL of the Dominus Node API server.
-        api_key: API key for immediate connection (optional).
-        email: Email for credential-based connection (optional).
-        password: Password for credential-based connection (optional).
-        access_token: Pre-existing access token (optional).
-        refresh_token: Pre-existing refresh token (optional).
-        proxy_host: Hostname of the proxy server.
-        http_proxy_port: HTTP proxy port.
-        socks5_proxy_port: SOCKS5 proxy port.
-        timeout: HTTP request timeout in seconds.
-    """
+class AsyncDominusNodeClient(_ClientBase):
+    """asyncio client with the same surface; every resource method is a coroutine (signers may be async)."""
 
     def __init__(
         self,
         base_url: str = DEFAULT_BASE_URL,
-        *,
-        api_key: Optional[str] = None,
-        email: Optional[str] = None,
-        password: Optional[str] = None,
-        access_token: Optional[str] = None,
-        refresh_token: Optional[str] = None,
         proxy_host: str = DEFAULT_PROXY_HOST,
         http_proxy_port: int = DEFAULT_HTTP_PROXY_PORT,
         socks5_proxy_port: int = DEFAULT_SOCKS5_PROXY_PORT,
-        timeout: float = 30.0,
-        agent_secret: Optional[str] = None,
+        access_token: Optional[str] = None,
+        refresh_token: Optional[str] = None,
+        transport: Optional[httpx.AsyncBaseTransport] = None,
     ) -> None:
-        self._api_key: Optional[str] = api_key
-        self._proxy_host = proxy_host
-        self._http_proxy_port = http_proxy_port
-        self._socks5_proxy_port = socks5_proxy_port
-        self._deferred_api_key = api_key
-        self._deferred_email = email
-        self._deferred_password = password
+        tokens = AsyncTokenManager()
+        self._ctx = ctx = _Ctx(tokens)
+        self._http = http = AsyncHttpClient(base_url, tokens, lambda: ctx.api_key, transport)
+        self.auth = AsyncAuthResource(http, ctx)
+        self.wallet_auth = AsyncWalletAuthResource(http, ctx)
+        self.keys = AsyncKeysResource(http, ctx)
+        self.wallet = AsyncWalletResource(http, ctx)
+        self.agentic_wallets = AsyncAgenticWalletResource(http, ctx)
+        self.teams = AsyncTeamsResource(http, ctx)
+        self.usage = AsyncUsageResource(http, ctx)
+        self.sessions = AsyncSessionsResource(http, ctx)
+        self.x402 = AsyncX402Resource(http, ctx)
+        self.network = AsyncNetworkResource(http, ctx)
+        self.nodes = AsyncNodesResource(http, ctx)
+        self.credits = AsyncCreditsResource(http, ctx)
+        self.payout_wallet = AsyncPayoutWalletResource(http, ctx)
+        self.payouts = AsyncPayoutsResource(http, ctx)
+        self.proxy = AsyncProxyResource(http, ctx, proxy_host, http_proxy_port, socks5_proxy_port)
 
-        # Token management
-        self._token_manager = AsyncTokenManager()
+        async def refresh(rt: str) -> Any:
+            r = await self.auth.refresh(rt)
+            return r.get("token"), r.get("refreshToken")
 
-        # Wire up the async token refresh function
-        async def _async_refresh(rt: str) -> tuple[str, str]:
-            return await self.auth.refresh(rt)
+        tokens.set_refresh_function(refresh)
+        if access_token:
+            tokens.set_tokens(access_token, refresh_token)
 
-        self._token_manager.set_refresh_fn(_async_refresh)
-
-        if access_token and refresh_token:
-            self._token_manager.set_tokens(access_token, refresh_token)
-
-        # HTTP client
-        self._http = AsyncHttpClient(base_url, self._token_manager, timeout=timeout, agent_secret=agent_secret)
-
-        # Resource instances
-        self._auth = AsyncAuthResource(self._http, self._token_manager)
-        self._keys = AsyncKeysResource(self._http)
-        self._wallet = AsyncWalletResource(self._http)
-        self._usage = AsyncUsageResource(self._http)
-        self._plans = AsyncPlansResource(self._http)
-        self._sessions = AsyncSessionsResource(self._http)
-        self._proxy = AsyncProxyResource(
-            self._http,
-            proxy_host=proxy_host,
-            http_proxy_port=http_proxy_port,
-            socks5_proxy_port=socks5_proxy_port,
-            get_api_key=lambda: self._api_key,
-        )
-        self._admin = AsyncAdminResource(self._http)
-        self._slots = AsyncSlotsResource(self._http)
-        self._agentic_wallets = AsyncAgenticWalletResource(self._http)
-        self._teams = AsyncTeamsRes(self._http)
-        self._x402 = AsyncX402Resource(self._http)
-        self._wallet_auth = AsyncWalletAuthResource(self._http, self._token_manager)
-
-    # ── Resource properties ──────────────────────────────────────────
-
-    @property
-    def auth(self) -> AsyncAuthResource:
-        return self._auth
-
-    @property
-    def keys(self) -> AsyncKeysResource:
-        return self._keys
-
-    @property
-    def wallet(self) -> AsyncWalletResource:
-        return self._wallet
-
-    @property
-    def usage(self) -> AsyncUsageResource:
-        return self._usage
-
-    @property
-    def plans(self) -> AsyncPlansResource:
-        return self._plans
-
-    @property
-    def sessions(self) -> AsyncSessionsResource:
-        return self._sessions
-
-    @property
-    def proxy(self) -> AsyncProxyResource:
-        return self._proxy
-
-    @property
-    def admin(self) -> AsyncAdminResource:
-        return self._admin
-
-    @property
-    def slots(self) -> AsyncSlotsResource:
-        return self._slots
-
-    @property
-    def agentic_wallets(self) -> AsyncAgenticWalletResource:
-        return self._agentic_wallets
-
-    @property
-    def teams(self) -> AsyncTeamsRes:
-        """Team operations (shared wallets, members, invites, keys)."""
-        return self._teams
-
-    @property
-    def x402(self) -> AsyncX402Resource:
-        """x402 protocol information (HTTP 402 micropayments)."""
-        return self._x402
-
-    @property
-    def wallet_auth(self) -> AsyncWalletAuthResource:
-        """Wallet-based authentication (EIP-191 signed messages)."""
-        return self._wallet_auth
-
-    # ── Connection methods ───────────────────────────────────────────
-
-    async def connect_with_key(self, api_key: str) -> LoginResult:
-        """Authenticate using an API key."""
-        self._api_key = api_key
-        return await self._auth.verify_key(api_key)
-
-    async def connect_with_credentials(self, email: str, password: str) -> LoginResult:
-        """Authenticate using email and password."""
-        return await self._auth.login(email, password)
-
-    async def complete_mfa(
-        self,
-        code: str,
-        *,
-        mfa_challenge_token: Optional[str] = None,
-        is_backup_code: bool = False,
-    ) -> LoginResult:
-        """Complete MFA verification after login."""
-        return await self._auth.verify_mfa(
-            code,
-            mfa_challenge_token=mfa_challenge_token,
-            is_backup_code=is_backup_code,
-        )
+    async def connect_with_key(self, api_key: str) -> Dict[str, Any]:
+        return await drive_async(self._http, _connect_gen(self._ctx, self.auth, api_key))
 
     async def disconnect(self) -> None:
-        """Log out and clear stored tokens."""
-        try:
-            await self._auth.logout()
-        except (OSError, httpx.HTTPError, DominusNodeError):
-            pass  # Best-effort — server may be unreachable
-        self._token_manager.clear()
-        self._api_key = None
-        # Clear deferred credentials to prevent retention after disconnect
-        self._deferred_api_key = None
-        self._deferred_email = None
-        self._deferred_password = None
+        await drive_async(self._http, _disconnect_gen(self._ctx, self.auth))
 
     async def close(self) -> None:
-        """Close the underlying HTTP client."""
+        await self.disconnect()
         await self._http.close()
 
-    async def __aenter__(self) -> AsyncDominusNodeClient:
-        # Handle deferred auto-connect for async
-        # Clear credentials in finally to prevent retention on failure
-        try:
-            if self._deferred_api_key and not self._token_manager.has_tokens:
-                await self.connect_with_key(self._deferred_api_key)
-            elif self._deferred_email and self._deferred_password and not self._token_manager.has_tokens:
-                await self.connect_with_credentials(self._deferred_email, self._deferred_password)
-        finally:
-            self._deferred_api_key = None
-            self._deferred_email = None
-            self._deferred_password = None
+    async def __aenter__(self) -> "AsyncDominusNodeClient":
         return self
 
-    async def __aexit__(self, *args: object) -> None:
+    async def __aexit__(self, *exc: object) -> None:
         await self.close()

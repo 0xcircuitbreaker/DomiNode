@@ -1,91 +1,153 @@
-"""Dominus Node SDK error hierarchy.
+"""Error hierarchy.
 
-All SDK errors inherit from DominusNodeError. HTTP status codes are mapped
-to specific exception types for easy catch-and-handle patterns.
+Every message passes through :func:`scrub_credentials` so API keys
+(dn_live_/dn_test_/dn_node_/dn_proxy_) and JWTs never reach logs or callers
+via error strings.
 """
 
 from __future__ import annotations
 
+import re
+from typing import Dict, Optional, Union
+
+_CREDENTIAL_PATTERNS = [
+    re.compile(r"dn_(?:live|test|node|proxy)_[A-Za-z0-9_-]+"),
+    re.compile(r"eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*"),
+]
+
+Details = Dict[str, Union[int, float, str]]
+
+
+def scrub_credentials(message: object) -> str:
+    out = str(message)
+    for pattern in _CREDENTIAL_PATTERNS:
+        out = pattern.sub("[REDACTED]", out)
+    return out
+
 
 class DominusNodeError(Exception):
-    """Base exception for all Dominus Node SDK errors."""
+    """Base class. ``code`` is the server's error code (e.g. ``INVALID_CHALLENGE``)."""
 
-    def __init__(self, message: str, status_code: int | None = None) -> None:
-        super().__init__(message)
-        self.message = message
-        self.status_code = status_code
-
-
-class AuthenticationError(DominusNodeError):
-    """Raised on HTTP 401 -- invalid credentials or expired token."""
-
-    def __init__(self, message: str = "Authentication failed") -> None:
-        super().__init__(message, status_code=401)
-
-
-class AuthorizationError(DominusNodeError):
-    """Raised on HTTP 403 -- insufficient permissions."""
-
-    def __init__(self, message: str = "Forbidden") -> None:
-        super().__init__(message, status_code=403)
-
-
-class RateLimitError(DominusNodeError):
-    """Raised on HTTP 429 -- too many requests."""
+    default_message = "DominusNode error"
 
     def __init__(
         self,
-        message: str = "Rate limit exceeded",
-        retry_after_seconds: int = 60,
+        message: Optional[str] = None,
+        status_code: Optional[int] = None,
+        code: Optional[str] = None,
+        details: Optional[Details] = None,
     ) -> None:
-        super().__init__(message, status_code=429)
-        self.retry_after_seconds = retry_after_seconds
+        self.message = scrub_credentials(message if message is not None else self.default_message)
+        self.status_code = status_code
+        self.code = code
+        self.details = details
+        super().__init__(self.message)
+
+    def __str__(self) -> str:
+        return self.message
+
+    def __repr__(self) -> str:
+        return f"{type(self).__name__}({self.message!r}, status_code={self.status_code!r}, code={self.code!r})"
+
+
+class AuthenticationError(DominusNodeError):
+    default_message = "Authentication failed"
+
+    def __init__(self, message: Optional[str] = None, code: Optional[str] = None, details: Optional[Details] = None) -> None:
+        super().__init__(message, 401, code, details)
 
 
 class InsufficientBalanceError(DominusNodeError):
-    """Raised on HTTP 402 -- wallet balance too low."""
+    default_message = "Insufficient balance"
 
-    def __init__(self, message: str = "Insufficient balance") -> None:
-        super().__init__(message, status_code=402)
+    def __init__(self, message: Optional[str] = None, code: Optional[str] = None, details: Optional[Details] = None) -> None:
+        super().__init__(message, 402, code, details)
 
 
-class ValidationError(DominusNodeError):
-    """Raised on HTTP 400 -- bad request / validation failure."""
+class AuthorizationError(DominusNodeError):
+    default_message = "Access denied"
 
-    def __init__(self, message: str = "Validation error") -> None:
-        super().__init__(message, status_code=400)
+    def __init__(self, message: Optional[str] = None, code: Optional[str] = None, details: Optional[Details] = None) -> None:
+        super().__init__(message, 403, code, details)
 
 
 class NotFoundError(DominusNodeError):
-    """Raised on HTTP 404 -- resource not found."""
+    default_message = "Resource not found"
 
-    def __init__(self, message: str = "Not found") -> None:
-        super().__init__(message, status_code=404)
+    def __init__(self, message: Optional[str] = None, code: Optional[str] = None, details: Optional[Details] = None) -> None:
+        super().__init__(message, 404, code, details)
 
 
 class ConflictError(DominusNodeError):
-    """Raised on HTTP 409 -- conflict (e.g. duplicate registration)."""
+    default_message = "Resource conflict"
 
-    def __init__(self, message: str = "Conflict") -> None:
-        super().__init__(message, status_code=409)
+    def __init__(self, message: Optional[str] = None, code: Optional[str] = None, details: Optional[Details] = None) -> None:
+        super().__init__(message, 409, code, details)
+
+
+class RateLimitError(DominusNodeError):
+    default_message = "Rate limit exceeded"
+
+    def __init__(
+        self,
+        message: Optional[str] = None,
+        retry_after_seconds: int = 60,
+        code: Optional[str] = None,
+        details: Optional[Details] = None,
+    ) -> None:
+        super().__init__(message, 429, code, details)
+        self.retry_after_seconds = retry_after_seconds
 
 
 class ServerError(DominusNodeError):
-    """Raised on HTTP 500+ -- server-side error."""
+    default_message = "Server error"
 
-    def __init__(self, message: str = "Internal server error", status_code: int = 500) -> None:
-        super().__init__(message, status_code=status_code)
+    def __init__(
+        self,
+        message: Optional[str] = None,
+        status_code: int = 500,
+        code: Optional[str] = None,
+        details: Optional[Details] = None,
+    ) -> None:
+        super().__init__(message, status_code, code, details)
+
+
+class ValidationError(DominusNodeError):
+    """HTTP 400, or a client-side argument check (status_code None, code INVALID_ARGUMENT)."""
+
+    default_message = "Validation failed"
+
+    def __init__(
+        self,
+        message: Optional[str] = None,
+        status_code: Optional[int] = 400,
+        code: Optional[str] = None,
+        details: Optional[Details] = None,
+    ) -> None:
+        super().__init__(message, status_code, code, details)
 
 
 class NetworkError(DominusNodeError):
-    """Raised on connection failures, timeouts, and DNS errors."""
+    default_message = "Network error"
 
-    def __init__(self, message: str = "Network error") -> None:
-        super().__init__(message, status_code=None)
+    def __init__(self, message: Optional[str] = None) -> None:
+        super().__init__(message)
+
+
+class ProtocolError(DominusNodeError):
+    """The server sent something the SDK refuses to act on, or a signer failed."""
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message)
 
 
 class ProxyError(DominusNodeError):
-    """Raised on proxy connection or configuration errors."""
+    """Failure inside proxy.fetch(): blocked target, refused tunnel, timeout."""
 
-    def __init__(self, message: str = "Proxy error") -> None:
-        super().__init__(message, status_code=None)
+    def __init__(self, message: str, status_code: Optional[int] = None) -> None:
+        super().__init__(message, status_code)
+
+
+def invalid_arg(message: str) -> ValidationError:
+    """Client-side argument validation failure (no request sent)."""
+    return ValidationError(message, None, "INVALID_ARGUMENT")
