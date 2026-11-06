@@ -100,6 +100,8 @@ services:
     cap_drop:
       - ALL
     read_only: true
+    volumes:
+      - ./data:/app/data:ro
     tmpfs:
       - /tmp
     deploy:
@@ -122,7 +124,8 @@ services:
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       PROXY_LISTEN_PORT: "8080"
       SOCKS5_LISTEN_PORT: "1080"
-      SKIP_GEOIP: ${SKIP_GEOIP:-0}
+      # Offline ip2asn country+ASN DB (scripts/update-asn-db.sh). Missing = all public traffic refused.
+      ASN_DB_FILE: /app/data/ip2asn-combined.tsv.gz
       AGENT_RATE_LIMIT_MULTIPLIER: ${AGENT_RATE_LIMIT_MULTIPLIER:-10}
       NODE_ENV: production
     # IMPORTANT: In production, use a firewall (ufw/iptables/security group) to restrict

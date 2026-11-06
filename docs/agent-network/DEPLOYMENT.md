@@ -59,8 +59,10 @@ upgrade as lost.
 ## 4. ASN database
 
 The gateway uses the iptoasn.com `ip2asn-combined.tsv.gz` dataset (Public
-Domain, PDDL v1.0). It needs no license key and makes no runtime calls. The
-per-ASN node cap and dc/residential classification depend on it.
+Domain, PDDL v1.0). It needs no license key and makes no runtime calls. It is
+the only geo source: its country column drives the OFAC sanctions check on
+destinations and node peers, and its ASN column drives the per-ASN node cap
+and dc/residential classification. There is no separate GeoIP library.
 
 ```bash
 scripts/update-asn-db.sh            # writes data/ip2asn-combined.tsv.gz (or $ASN_DB_FILE)
@@ -73,6 +75,17 @@ scripts/update-asn-db.sh            # writes data/ip2asn-combined.tsv.gz (or $AS
   (`ASN_UNAVAILABLE`). This applies when the file is missing or the address
   is unrouted. Set `ASN_DB_OPTIONAL=true` to fall back to the shared
   unknown-ASN bucket.
+- The file is required for traffic. If it is missing or corrupt, every public
+  destination is refused (`UNKNOWN`) and every public node peer is refused
+  (`GEO_UNAVAILABLE`), in every environment. `ASN_DB_OPTIONAL` does not relax
+  this.
+- In production, a public destination or peer with no country in the dataset
+  (unrouted, or country `None`) is refused. Outside production such
+  destinations are allowed.
+- `SKIP_GEOIP=1` skips the file and disables geo checks for local dev and
+  stress tests. It is ignored when `NODE_ENV=production`.
+- `docker-compose.prod.yml` mounts `./data` read-only at `/app/data`; run the
+  script on the host before starting the proxy.
 - `HOSTING_ASNS=1,2,3` adds ASNs to the built-in hosting list in
   `packages/proxy-gateway/src/asn-db.ts`. Peers on those ASNs are classified
   `dc`.
