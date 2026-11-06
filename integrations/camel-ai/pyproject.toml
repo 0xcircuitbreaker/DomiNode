@@ -11,6 +11,7 @@ license = {text = "MIT"}
 requires-python = ">=3.10"
 dependencies = [
     "camel-ai>=0.2.0",
+    "mcp<2",  # camel-ai 0.2.x imports mcp.server.FastMCP, removed in mcp 2
     "dominusnode>=2.0.0,<3",
 ]
 
