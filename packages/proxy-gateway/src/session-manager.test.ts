@@ -59,7 +59,7 @@ vi.mock("./balance-check.js", () => ({
   invalidateBalanceCache: vi.fn(),
 }));
 
-import { startSession, endSession, getActiveSessionCount, checkSessionRateLimit, checkBandwidthVelocity, recordBandwidthUsage, reservationCentsFor, maxBytesForReservation, startPrepaidSession, maxBytesForPrepaid } from "./session-manager.js";
+import { startSession, endSession, getActiveSessionCount, checkSessionRateLimit, checkBandwidthVelocity, recordBandwidthUsage, reservationCentsFor, maxBytesForReservation, startPrepaidSession, maxBytesForPrepaid, abortPrepaidSession } from "./session-manager.js";
 import type { ByteCounter } from "./counting-stream.js";
 const BYTES_PER_GB = 1_073_741_824;
 
@@ -372,6 +372,20 @@ describe("proxy-gateway/session-manager", () => {
         sessionId: "sess-x402", requesterUserId: "x402-user", rail: "x402", reservedCents: 0, prepaidGrossMusd: 4883n,
         pricePerGbMusd: 500_000n, bytesGateway: 300n,
       }));
+    });
+
+    it("abortPrepaidSession closes the session with no relay charge, once", async () => {
+      mockCreateSession.mockResolvedValueOnce({ id: "sess-abort" });
+      const id = await startPrepaidSession({
+        userId: "x402-user", targetHost: "example.com", counter: makeCounter(10, 10), connectLatencyMs: 0, relay: RELAY,
+        rail: "x402", paidMusd: 4883n, quotedPricePerGbMusd: 500_000n, maxBytes: 10_485_760,
+      });
+      mockEndSessionRepo.mockResolvedValueOnce(undefined);
+      expect(await abortPrepaidSession(id)).toBe(true);
+      expect(await abortPrepaidSession(id)).toBe(false);
+      await endSession(id);
+      expect(mockSettleRelayCharge).not.toHaveBeenCalled();
+      expect(mockEndSessionRepo).toHaveBeenCalledWith("sess-abort", 0, "error");
     });
 
     it("refuses a non-positive prepaid amount", async () => {

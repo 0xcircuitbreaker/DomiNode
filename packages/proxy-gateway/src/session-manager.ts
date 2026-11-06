@@ -573,6 +573,23 @@ export async function startPrepaidSession(i: PrepaidSessionInput): Promise<strin
 }
 
 /**
+ * Abort a prepaid session whose payment never settled or was refunded: no
+ * relay charge, no node earnings; the DB session is closed as "error".
+ */
+export async function abortPrepaidSession(sessionId: string): Promise<boolean> {
+  const session = activeSessions.get(sessionId);
+  if (!session || !session.prepaid) return false;
+  if (!activeSessions.delete(sessionId)) return false;
+  sessionDestroyCallbacks.delete(sessionId);
+  try {
+    await usageRepo.endSession(sessionId, 0, "error");
+  } catch (err) {
+    log.error("prepaid session abort failed", { sessionId, error: err instanceof Error ? err.message.slice(0, 120) : "unknown" });
+  }
+  return true;
+}
+
+/**
  * End a proxy session: settle reservation vs actual cost.
  * If actual < reserved, refunds the difference.
  * If actual > reserved, charges the difference (may partially fail).

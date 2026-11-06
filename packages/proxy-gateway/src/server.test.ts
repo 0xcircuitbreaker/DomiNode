@@ -32,7 +32,12 @@ const mockStartPrepaidSession = vi.fn();
 const mockX402Http = vi.fn();
 const mockX402Connect = vi.fn();
 const X402_PAYER = "0x" + "9".repeat(40);
-const x402Data = { payer: X402_PAYER, userId: "x402-user", amountUsd: "0.005243", amountMusd: 5243n, pricePerGbMusd: 500000n, facilitator: "coinbase", poolType: "residential", maxResponseBytes: 10_485_760 };
+const mockSettlePending = vi.fn();
+const mockReleasePending = vi.fn();
+const mockRefundPayer = vi.fn();
+const mockAbortPrepaid = vi.fn();
+const x402Pending = { state: "verified" };
+const x402Data = { pending: x402Pending, payer: X402_PAYER, userId: "x402-user", amountUsd: "0.005243", amountMusd: 5243n, pricePerGbMusd: 500000n, facilitator: "coinbase", poolType: "residential", maxResponseBytes: 10_485_760 };
 
 vi.mock("./x402-handler.js", () => ({
   handleX402Http: (req: { __x402?: unknown }, ...rest: unknown[]) => mockX402Http(req, ...rest),
@@ -41,6 +46,9 @@ vi.mock("./x402-handler.js", () => ({
   build402ConnectResponse: () => "HTTP/1.1 402 Payment Required\r\n\r\n",
   isX402Verified: (req: { __x402?: unknown }) => !!req.__x402,
   getX402Data: (req: { __x402?: unknown }) => (req.__x402 ? x402Data : null),
+  settleX402Pending: (...a: unknown[]) => mockSettlePending(...a),
+  releaseX402Pending: (...a: unknown[]) => mockReleasePending(...a),
+  refundX402Payer: (...a: unknown[]) => mockRefundPayer(...a),
 }));
 
 vi.mock("./auth.js", () => ({
@@ -54,6 +62,7 @@ vi.mock("./balance-check.js", () => ({
 vi.mock("./session-manager.js", () => ({
   startSession: (...args: unknown[]) => mockStartSession(...args),
   startPrepaidSession: (...args: unknown[]) => mockStartPrepaidSession(...args),
+  abortPrepaidSession: (...args: unknown[]) => mockAbortPrepaid(...args),
   endSession: (...args: unknown[]) => mockEndSession(...args),
   getActiveSessionCount: () => mockGetActiveSessionCount(),
   registerSessionDestroy: vi.fn(),
@@ -204,6 +213,10 @@ describe("proxy-gateway server", () => {
     mockIsValidPort.mockReturnValue(true);
     mockStartSession.mockResolvedValue("session-abc");
     mockStartPrepaidSession.mockResolvedValue("session-x402");
+    mockSettlePending.mockResolvedValue(true);
+    mockReleasePending.mockResolvedValue(undefined);
+    mockRefundPayer.mockResolvedValue(true);
+    mockAbortPrepaid.mockResolvedValue(true);
     mockX402Http.mockImplementation(async (req: { __x402?: unknown }) => { req.__x402 = x402Data; return true; });
     mockX402Connect.mockResolvedValue({ handled: true, verified: true, ...x402Data, paymentHeader: "" });
     mockEndSession.mockResolvedValue(undefined);
@@ -478,6 +491,79 @@ describe("proxy-gateway server", () => {
       expect(mockEndSession).toHaveBeenCalledWith("session-x402");
     });
 
+    it("x402: settles only after the node stream is open and the session (snapshot) is started", async () => {
+      mockAuthenticateRequest.mockResolvedValue(null);
+      mockOpenStream.mockImplementation(async () => {
+        const d: Duplex = new Duplex({
+          read() { /* */ },
+          write(_c, _e, cb) { d.push("HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok"); d.push(null); cb(); },
+        });
+        return d;
+      });
+      const res = await makeRequest(port, { path: "http://httpbin.org/ip", method: "GET", headers: { "X-Payment": "abc" } });
+      expect(res.status).toBe(200);
+      expect(mockSettlePending).toHaveBeenCalledWith(x402Pending);
+      expect(mockOpenStream.mock.invocationCallOrder[0]).toBeLessThan(mockSettlePending.mock.invocationCallOrder[0]);
+      expect(mockStartPrepaidSession.mock.invocationCallOrder[0]).toBeLessThan(mockSettlePending.mock.invocationCallOrder[0]);
+      expect(mockRefundPayer).not.toHaveBeenCalled();
+    });
+
+    it("x402: no node available → payment released, never settled", async () => {
+      mockAuthenticateRequest.mockResolvedValue(null);
+      mockSelect.mockReturnValue(null);
+      const res = await makeRequest(port, { path: "http://httpbin.org/ip", method: "GET", headers: { "X-Payment": "abc" } });
+      expect(res.status).toBeGreaterThanOrEqual(500);
+      expect(mockSettlePending).not.toHaveBeenCalled();
+      expect(mockReleasePending).toHaveBeenCalledWith(x402Pending);
+      expect(mockStartPrepaidSession).not.toHaveBeenCalled();
+    });
+
+    it("x402: session start (snapshot) failure → released, never settled", async () => {
+      mockAuthenticateRequest.mockResolvedValue(null);
+      mockStartPrepaidSession.mockRejectedValue(new Error("Unable to lock relay pricing"));
+      const res = await makeRequest(port, { path: "http://httpbin.org/ip", method: "GET", headers: { "X-Payment": "abc" } });
+      expect(res.status).toBe(500);
+      expect(mockSettlePending).not.toHaveBeenCalled();
+      expect(mockReleasePending).toHaveBeenCalledWith(x402Pending);
+    });
+
+    it("x402: settlement failure tears down the stream and aborts the session without charging", async () => {
+      mockAuthenticateRequest.mockResolvedValue(null);
+      mockSettlePending.mockResolvedValue(false);
+      const res = await makeRequest(port, { path: "http://httpbin.org/ip", method: "GET", headers: { "X-Payment": "abc" } });
+      expect(res.status).toBe(402);
+      expect(res.headers["x-dominusnode-error"]).toBe("X402_SETTLEMENT_FAILED");
+      expect(mockAbortPrepaid).toHaveBeenCalledWith("session-x402");
+      expect(mockEndSession).not.toHaveBeenCalled();
+      expect(mockRefundPayer).not.toHaveBeenCalled();
+    });
+
+    it("x402: upstream failure after settlement refunds the payer's wallet", async () => {
+      mockAuthenticateRequest.mockResolvedValue(null);
+      mockOpenStream.mockImplementation(async () => {
+        const d: Duplex = new Duplex({
+          read() { /* */ },
+          write(_c, _e, cb) { cb(); setImmediate(() => d.destroy(new Error("node reset"))); },
+        });
+        return d;
+      });
+      const res = await makeRequest(port, { path: "http://httpbin.org/ip", method: "GET", headers: { "X-Payment": "abc" } });
+      expect(res.status).toBe(502);
+      expect(mockSettlePending).toHaveBeenCalled();
+      expect(mockAbortPrepaid).toHaveBeenCalledWith("session-x402");
+      expect(mockRefundPayer).toHaveBeenCalledWith(x402Pending, expect.any(String));
+      expect(mockEndSession).not.toHaveBeenCalled();
+    });
+
+    it("x402: blocked target releases the payment without settling", async () => {
+      mockAuthenticateRequest.mockResolvedValue(null);
+      mockValidateTarget.mockResolvedValue({ allowed: false, reason: "private" });
+      const res = await makeRequest(port, { path: "http://10.0.0.1/", method: "GET", headers: { "X-Payment": "abc" } });
+      expect(res.status).toBe(403);
+      expect(mockReleasePending).toHaveBeenCalledWith(x402Pending);
+      expect(mockSettlePending).not.toHaveBeenCalled();
+    });
+
     it("does not relay when the x402 handler rejected the payment", async () => {
       mockAuthenticateRequest.mockResolvedValue(null);
       mockX402Http.mockImplementation(async (_req: unknown, res: http.ServerResponse) => { res.writeHead(402); res.end(); return true; });
@@ -608,6 +694,27 @@ describe("proxy-gateway server", () => {
       res.socket.destroy();
       await new Promise((r) => setTimeout(r, 20));
       expect(mockEndSession).toHaveBeenCalledWith("session-x402");
+    });
+
+    it("x402 CONNECT: settles after the stream opens; settlement failure → 402, session aborted", async () => {
+      mockAuthenticateRequest.mockResolvedValue(null);
+      mockSettlePending.mockResolvedValue(false);
+      const res = await makeConnect(port, "example.com:443", { "X-Payment": "abc" });
+      expect(res.status).toBe(402);
+      expect(mockOpenStream.mock.invocationCallOrder[0]).toBeLessThan(mockSettlePending.mock.invocationCallOrder[0]);
+      expect(mockAbortPrepaid).toHaveBeenCalledWith("session-x402");
+      expect(mockEndSession).not.toHaveBeenCalled();
+      res.socket.destroy();
+    });
+
+    it("x402 CONNECT: no node → released, never settled", async () => {
+      mockAuthenticateRequest.mockResolvedValue(null);
+      mockSelect.mockReturnValue(null);
+      const res = await makeConnect(port, "example.com:443", { "X-Payment": "abc" });
+      expect(res.status).toBeGreaterThanOrEqual(500);
+      expect(mockSettlePending).not.toHaveBeenCalled();
+      expect(mockReleasePending).toHaveBeenCalledWith(x402Pending);
+      res.socket.destroy();
     });
 
     it("tunnels CONNECT through a node stream", async () => {

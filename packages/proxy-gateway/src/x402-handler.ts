@@ -1,6 +1,6 @@
 import * as http from "node:http";
 import * as net from "node:net";
-import { createLogger, userRepo, policyRepo, BYTES_PER_GB } from "@dominusnode/shared";
+import { createLogger, userRepo, policyRepo, walletRepo, BYTES_PER_GB } from "@dominusnode/shared";
 import {
   isX402Enabled,
   buildX402Requirements,
@@ -129,8 +129,8 @@ function advertisedRequirements(poolType: "dc" | "residential") {
 }
 
 /** Bytes this payment may carry: min(X402_MAX_RESPONSE_BYTES, bytes the paid amount buys). */
-function paidByteCap(q: X402Quote): number {
-  const bought = (q.amountMusd * BigInt(BYTES_PER_GB)) / q.pricePerGbMusd;
+function paidByteCap(q: X402Quote, paidMusd: bigint = q.amountMusd): number {
+  const bought = (paidMusd * BigInt(BYTES_PER_GB)) / q.pricePerGbMusd;
   return Math.max(1, Math.min(getX402MaxResponseBytes(), Number(bought > 2_000_000_000_000n ? 2_000_000_000_000n : bought)));
 }
 
@@ -158,7 +158,115 @@ async function resolvePayer(payer: string): Promise<PayerResolution> {
 /** Paid amount from the facilitator, never less than the quote. */
 function paidAtLeastQuote(amountUsd: string, q: X402Quote): boolean {
   const paid = usdStringToMusd(amountUsd);
-  return paid !== null && paid >= q.amountMusd;
+  return paid !== null && paid >= q.amountMusd && paid <= maxPaidMusd(q);
+}
+
+/**
+ * Sanity cap on a single x402 payment: X402_MAX_OVERPAY_FACTOR × quote (default
+ * 100×). Payments above it are rejected before settlement; within it, the full
+ * paid amount is recorded as gross (cash collected == gross).
+ */
+const X402_MAX_OVERPAY_FACTOR = parseInt(process.env["X402_MAX_OVERPAY_FACTOR"] ?? "100", 10);
+if (isNaN(X402_MAX_OVERPAY_FACTOR) || X402_MAX_OVERPAY_FACTOR < 1 || X402_MAX_OVERPAY_FACTOR > 10_000) {
+  throw new Error("X402_MAX_OVERPAY_FACTOR must be an integer between 1 and 10000");
+}
+function maxPaidMusd(q: X402Quote): bigint {
+  return q.amountMusd * BigInt(X402_MAX_OVERPAY_FACTOR);
+}
+
+// ─── Pending (verified, unsettled) payments ─────────────────────────
+
+export interface X402Pending {
+  /** Raw header; needed to settle. Cleared once settled or released. */
+  paymentHeader: string;
+  payHash: string;
+  facilitator: X402Facilitator;
+  requirements: ReturnType<typeof buildX402Requirements>;
+  payer: string;
+  amountUsd: string;
+  poolType: "dc" | "residential";
+  userId: string;
+  paidMusd: bigint;
+  state: "verified" | "settled" | "released" | "refunded";
+}
+
+function makePending(
+  paymentHeader: string,
+  v: { facilitator: X402Facilitator; payer: string; amountUsd: string },
+  requirements: ReturnType<typeof buildX402Requirements>,
+  poolType: "dc" | "residential",
+  userId: string,
+  paidMusd: bigint,
+): X402Pending {
+  return {
+    paymentHeader, payHash: hashPaymentHeader(paymentHeader), facilitator: v.facilitator, requirements,
+    payer: v.payer, amountUsd: v.amountUsd, poolType, userId, paidMusd, state: "verified",
+  };
+}
+
+/** Reject before settlement: release the claimed hash so the payer can retry. */
+export async function releaseX402Pending(p: X402Pending | undefined): Promise<void> {
+  if (!p || p.state !== "verified") return;
+  p.state = "released";
+  p.paymentHeader = "";
+  await releasePaymentHash(p.payHash).catch(() => {});
+}
+
+/**
+ * Settle on-chain. Call only once the request can be served (node selected,
+ * snapshot locked, stream open). Returns false (hash released) on failure.
+ */
+export async function settleX402Pending(p: X402Pending): Promise<boolean> {
+  if (p.state !== "verified") return p.state === "settled";
+  let settlement: { txHash: string };
+  try {
+    settlement = await settleX402Payment(p.paymentHeader, p.facilitator, p.requirements);
+  } catch (err) {
+    log.error("x402 settlement failed — rejecting request", {
+      payer: p.payer.slice(0, 10) + "...",
+      facilitator: p.facilitator,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    await releaseX402Pending(p);
+    return false;
+  }
+  p.state = "settled";
+  p.paymentHeader = "";
+  await updateX402Transaction(
+    p.payHash, p.facilitator, p.payer, p.amountUsd, settlement.txHash, p.poolType, "unknown", "settled",
+  ).catch(e => log.error("failed to update x402 tx", { error: e instanceof Error ? e.message : String(e) }));
+  log.info("x402 payment settled", {
+    payer: p.payer.slice(0, 10) + "...", amountUsd: p.amountUsd, facilitator: p.facilitator, poolType: p.poolType,
+    txHash: settlement.txHash.slice(0, 10) + "...",
+  });
+  return true;
+}
+
+/**
+ * A settled payment whose request could not be served: credit the payer's
+ * wallet-identity user wallet (ceil to cents; one recorded transaction).
+ */
+export async function refundX402Payer(p: X402Pending, reason: string): Promise<boolean> {
+  if (p.state !== "settled") return false;
+  p.state = "refunded";
+  const cents = Number((p.paidMusd + 9_999n) / 10_000n);
+  try {
+    if (!(await walletRepo.getWallet(p.userId))) {
+      await walletRepo.createWallet(p.userId).catch(() => undefined); // raced create is fine
+    }
+    await walletRepo.creditWallet(
+      p.userId, Math.max(1, cents), "x402", `x402-refund:${p.payHash}`,
+      `x402 refund: ${reason.slice(0, 80)}`,
+    );
+    log.warn("x402 payment refunded to wallet", { payer: p.payer.slice(0, 10) + "...", cents, reason });
+    return true;
+  } catch (err) {
+    log.error("x402 REFUND FAILED — manual reconciliation required", {
+      payer: p.payer.slice(0, 10) + "...", payHash: p.payHash.slice(0, 16), paidMusd: p.paidMusd.toString(), reason,
+      error: err instanceof Error ? err.message.slice(0, 120) : "unknown",
+    });
+    return false;
+  }
 }
 
 // ─── HTTP x402 Handler ──────────────────────────────────────────────
@@ -256,59 +364,24 @@ export async function handleX402Http(
     return true;
   }
 
-  // C-2: Settle BEFORE proxying to prevent free service on settlement failure
-  let settlement;
-  try {
-    settlement = await settleX402Payment(paymentHeader, verifyResult.facilitator, requirements);
-  } catch (err) {
-    log.error("x402 settlement failed — rejecting request", {
-      payer: verifyResult.payer.slice(0, 10) + "...",
-      facilitator: verifyResult.facilitator,
-      error: err instanceof Error ? err.message : String(err),
-    });
-    // C-3: Release the pending hash so the payment can be retried
-    const payHash = hashPaymentHeader(paymentHeader);
-    await releasePaymentHash(payHash).catch(() => {});
-    res.writeHead(402, {
-      "Content-Type": "application/json",
-      "X-DominusNode-Error": "X402_SETTLEMENT_FAILED",
-    });
-    res.end(JSON.stringify({
-      error: "X402_SETTLEMENT_FAILED",
-      message: "Payment settlement failed. Please try again.",
-      x402: requirements,
-    }));
-    return true;
-  }
-
-  // C-2: Update the pending transaction (claimed during verify) with settlement result
-  const payHash = hashPaymentHeader(paymentHeader);
-  await updateX402Transaction(
-    payHash, verifyResult.facilitator, verifyResult.payer, verifyResult.amountUsd,
-    settlement.txHash, poolType, "unknown", "settled",
-  ).catch(e => log.error("failed to update x402 tx", { error: e instanceof Error ? e.message : String(e) }));
-
-  // Payment settled — store info on request for the proxy handler
+  // Verified only. Settlement happens in the proxy handler AFTER a node is
+  // selected, the price/tier snapshot is locked and the stream is open
+  // (settleX402Pending), so a payer is never charged for a request that
+  // cannot be served.
+  const paidMusd = usdStringToMusd(verifyResult.amountUsd)!;
   (req as any).__x402 = {
     verified: true,
     payer: verifyResult.payer,
     userId: who.userId,
     amountUsd: verifyResult.amountUsd,
-    amountMusd: q.amountMusd,
+    amountMusd: paidMusd,
     pricePerGbMusd: q.pricePerGbMusd,
     facilitator: verifyResult.facilitator,
     poolType,
-    settled: true,
-    maxResponseBytes: paidByteCap(q),
+    settled: false,
+    maxResponseBytes: paidByteCap(q, paidMusd),
+    pending: makePending(paymentHeader, verifyResult, requirements, poolType, who.userId, paidMusd),
   };
-
-  log.info("x402 payment settled", {
-    payer: verifyResult.payer.slice(0, 10) + "...",
-    amountUsd: verifyResult.amountUsd,
-    facilitator: verifyResult.facilitator,
-    poolType,
-    txHash: settlement.txHash.slice(0, 10) + "...",
-  });
 
   return true; // req.__x402.verified = true means proceed with proxying
 }
@@ -342,6 +415,8 @@ export interface X402ConnectResult {
   userId?: string;
   amountMusd?: bigint;
   pricePerGbMusd?: bigint;
+  /** Verified, not yet settled payment (settle with settleX402Pending). */
+  pending?: X402Pending;
 }
 
 /**
@@ -429,48 +504,8 @@ export async function handleX402Connect(
     return { handled: true, verified: false, payer: "", facilitator: "coinbase", poolType, paymentHeader: "", amountUsd: "0", maxResponseBytes: 0 };
   }
 
-  // C-2: Settle BEFORE establishing tunnel
-  let settlement;
-  try {
-    settlement = await settleX402Payment(paymentHeader, verifyResult.facilitator, requirements);
-  } catch (err) {
-    log.error("x402 CONNECT settlement failed — rejecting", {
-      payer: verifyResult.payer.slice(0, 10) + "...",
-      facilitator: verifyResult.facilitator,
-      error: err instanceof Error ? err.message : String(err),
-    });
-    // C-3: Release the pending hash so the payment can be retried
-    const payHash = hashPaymentHeader(paymentHeader);
-    await releasePaymentHash(payHash).catch(() => {});
-    const errBody = JSON.stringify({
-      error: "X402_SETTLEMENT_FAILED",
-      message: "Payment settlement failed. Please try again.",
-      x402: requirements,
-    });
-    if (!clientSocket.destroyed) {
-      clientSocket.write(
-        `HTTP/1.1 402 Payment Required\r\nContent-Type: application/json\r\nContent-Length: ${Buffer.byteLength(errBody)}\r\nX-DominusNode-Error: X402_SETTLEMENT_FAILED\r\n\r\n${errBody}`,
-      );
-      clientSocket.end();
-    }
-    return { handled: true, verified: false, payer: "", facilitator: "coinbase", poolType, paymentHeader: "", amountUsd: "0", maxResponseBytes: 0 };
-  }
-
-  // C-2: Update the pending transaction (claimed during verify) with settlement result
-  const payHash = hashPaymentHeader(paymentHeader);
-  await updateX402Transaction(
-    payHash, verifyResult.facilitator, verifyResult.payer, verifyResult.amountUsd,
-    settlement.txHash, poolType, "unknown", "settled",
-  ).catch(e => log.error("failed to update x402 tx", { error: e instanceof Error ? e.message : String(e) }));
-
-  log.info("x402 CONNECT payment settled", {
-    payer: verifyResult.payer.slice(0, 10) + "...",
-    amountUsd: verifyResult.amountUsd,
-    facilitator: verifyResult.facilitator,
-    poolType,
-  });
-
-  // Do not store full paymentHeader in result struct (settlement is done, no longer needed)
+  // Verified only: the tunnel handler settles once the relay stream is open.
+  const connPaidMusd = usdStringToMusd(verifyResult.amountUsd)!;
   return {
     handled: true,
     verified: true,
@@ -479,10 +514,11 @@ export async function handleX402Connect(
     poolType,
     paymentHeader: "",
     amountUsd: verifyResult.amountUsd,
-    maxResponseBytes: paidByteCap(q),
+    maxResponseBytes: paidByteCap(q, connPaidMusd),
     userId: connWho.userId,
-    amountMusd: q.amountMusd,
+    amountMusd: connPaidMusd,
     pricePerGbMusd: q.pricePerGbMusd,
+    pending: makePending(paymentHeader, verifyResult, requirements, poolType, connWho.userId, connPaidMusd),
   };
 }
 
@@ -553,6 +589,7 @@ export function getX402Data(req: http.IncomingMessage): {
   userId: string;
   amountMusd: bigint;
   pricePerGbMusd: bigint;
+  pending?: X402Pending;
 } | null {
   const data = (req as any).__x402;
   if (!data?.verified) return null;
@@ -565,5 +602,6 @@ export function getX402Data(req: http.IncomingMessage): {
     userId: data.userId,
     amountMusd: data.amountMusd,
     pricePerGbMusd: data.pricePerGbMusd,
+    pending: data.pending,
   };
 }
