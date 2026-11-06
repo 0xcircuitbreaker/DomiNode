@@ -1,9 +1,10 @@
-import { ICredentialType, INodeProperties } from "n8n-workflow";
+import type { ICredentialType, INodeProperties } from "n8n-workflow";
 
+/** Stored in n8n's encrypted credentials store; the key is never a node parameter. */
 export class DominusNodeApi implements ICredentialType {
   name = "dominusNodeApi";
-  displayName = "Dominus Node API";
-  documentationUrl = "https://docs.dominusnode.com";
+  displayName = "DominusNode API";
+  documentationUrl = "https://github.com/0xcircuitbreaker/DomiNode/tree/master/integrations/n8n";
   properties: INodeProperties[] = [
     {
       displayName: "API Key",
@@ -12,37 +13,28 @@ export class DominusNodeApi implements ICredentialType {
       typeOptions: { password: true },
       default: "",
       required: true,
-      description: 'Dominus Node API key (starts with dn_live_ or dn_test_)',
+      description: "DominusNode API key (dn_live_... or dn_test_...)",
     },
     {
       displayName: "Base URL",
       name: "baseUrl",
       type: "string",
       default: "https://api.dominusnode.com",
-      description: "Dominus Node API base URL",
+      description: "DominusNode API base URL",
     },
     {
       displayName: "Proxy Host",
       name: "proxyHost",
       type: "string",
       default: "proxy.dominusnode.com",
-      description: "Dominus Node proxy gateway hostname",
+      description: "Relay gateway hostname",
     },
     {
       displayName: "Proxy Port",
       name: "proxyPort",
       type: "number",
       default: 8080,
-      description: "Dominus Node proxy gateway port",
-    },
-    {
-      displayName: "Agent Secret",
-      name: "agentSecret",
-      type: "string",
-      typeOptions: { password: true },
-      default: "",
-      description:
-        "Optional agent secret for AI/MCP captcha bypass. When set, injects X-DominusNode-Agent and X-DominusNode-Agent-Secret headers.",
+      description: "Relay gateway HTTP port",
     },
   ];
 }

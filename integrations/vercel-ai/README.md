@@ -1,188 +1,81 @@
 # @dominusnode/ai-tools
 
-Vercel AI SDK tools for the [Dominus Node](https://dominusnode.com) rotating proxy-as-a-service platform. Gives AI agents the ability to make proxied HTTP requests, check wallet balance, monitor usage, and manage proxy sessions.
+Vercel AI SDK (v5+) tools for the DominusNode relay network: AI agents fetch the web through residential, datacenter and mobile IPs contributed by node operators, pay per GB from a prepaid wallet, and can earn credit by contributing their own IP.
 
-## Installation
+Built on [`@dominusnode/sdk`](https://www.npmjs.com/package/@dominusnode/sdk) v2: the
+integration only describes tools for the model and maps arguments to SDK calls.
+
+## Install
 
 ```bash
-npm install @dominusnode/ai-tools ai zod @dominusnode/sdk
+npm install @dominusnode/ai-tools ai
 ```
 
-## Quick Start
+## Configure
 
-### Next.js Route Handler
-
-```ts
-// app/api/chat/route.ts
-import { streamText } from "ai";
-import { openai } from "@ai-sdk/openai";
-import { createDominusNodeTools } from "@dominusnode/ai-tools";
-
-export async function POST(req: Request) {
-  const { messages } = await req.json();
-
-  const tools = await createDominusNodeTools({
-    apiKey: process.env.DOMINUSNODE_API_KEY!,
-    baseUrl: process.env.DOMINUSNODE_BASE_URL, // optional
-  });
-
-  const result = streamText({
-    model: openai("gpt-4o"),
-    messages,
-    tools,
-    maxSteps: 5,
-  });
-
-  return result.toDataStreamResponse();
-}
+```bash
+export DOMINUSNODE_API_KEY=dn_live_...          # required for account tools
+export DOMINUSNODE_BASE_URL=https://api.dominusnode.com   # optional
+export DOMINUSNODE_PROXY_HOST=proxy.dominusnode.com       # optional
 ```
 
-### Standalone with `generateText`
+## Usage
 
 ```ts
 import { generateText } from "ai";
-import { openai } from "@ai-sdk/openai";
 import { createDominusNodeTools } from "@dominusnode/ai-tools";
 
-const tools = await createDominusNodeTools({
-  apiKey: "dn_live_your_api_key_here",
-});
-
+const tools = createDominusNodeTools(); // reads DOMINUSNODE_API_KEY
 const { text } = await generateText({
-  model: openai("gpt-4o"),
+  model,
   tools,
-  maxSteps: 10,
-  prompt: "Fetch https://httpbin.org/ip through a US datacenter proxy and tell me the IP",
-});
-
-console.log(text);
-```
-
-## Tools
-
-### `proxiedFetch`
-
-Make HTTP requests through Dominus Node's rotating proxy network with geo-targeting support.
-
-| Parameter   | Type                                    | Required | Description                                  |
-|-------------|-----------------------------------------|----------|----------------------------------------------|
-| `url`       | `string` (URL)                          | Yes      | The URL to fetch through the proxy           |
-| `method`    | `"GET" \| "HEAD" \| "OPTIONS"` | No       | HTTP method (default: `GET`)                 |
-| `country`   | `string` (2-letter ISO)                 | No       | Country code for geo-targeting               |
-| `proxyType` | `"dc" \| "residential"`                 | No       | Proxy type (default: `dc`)                   |
-| `headers`   | `Record<string, string>`                | No       | Additional HTTP headers                      |
-| `body`      | `string`                                | No       | Not used (read-only methods only)            |
-
-**Returns:** `{ status, statusText, headers, body, proxyType, country }`
-
-**Security:** URLs are validated to prevent SSRF attacks. Blocked targets include localhost, private IP ranges (10.x, 172.16-31.x, 192.168.x), link-local (169.254.x), IPv6 loopback/ULA, and non-HTTP protocols. Response bodies are truncated to 4,000 characters. API keys are scrubbed from error messages.
-
-### `checkBalance`
-
-Check the current Dominus Node wallet balance.
-
-**Parameters:** None
-
-**Returns:** `{ balanceCents, balanceUsd, currency, lastToppedUp }`
-
-### `checkUsage`
-
-Check proxy usage statistics for a given time period.
-
-| Parameter | Type                            | Required | Description              |
-|-----------|---------------------------------|----------|--------------------------|
-| `period`  | `"day" \| "week" \| "month"`   | No       | Time window for stats    |
-
-**Returns:** `{ summary: { totalBytes, totalGB, totalCostCents, totalCostUsd, requestCount }, period, recordCount }`
-
-### `getProxyConfig`
-
-Get proxy endpoint configuration and supported countries.
-
-**Parameters:** None
-
-**Returns:** `{ endpoints: { http, socks5 }, supportedCountries, blockedCountries, geoTargeting }`
-
-### `listSessions`
-
-List all active proxy sessions.
-
-**Parameters:** None
-
-**Returns:** `{ sessions: [{ id, startedAt, status }], count }`
-
-## Advanced Usage
-
-### Using an Existing Client
-
-If you already manage a `DominusNodeClient` instance:
-
-```ts
-import { DominusNodeClient } from "@dominusnode/sdk";
-import { createDominusNodeToolsFromClient } from "@dominusnode/ai-tools";
-
-const client = new DominusNodeClient({ baseUrl: "http://localhost:3000" });
-await client.connectWithKey("dn_live_your_key");
-
-const tools = createDominusNodeToolsFromClient(client, "dn_live_your_key");
-```
-
-### Using Individual Tool Creators
-
-For fine-grained control, import individual tool factory functions:
-
-```ts
-import {
-  createProxiedFetchTool,
-  createCheckBalanceTool,
-} from "@dominusnode/ai-tools";
-import { DominusNodeClient } from "@dominusnode/sdk";
-
-const client = new DominusNodeClient();
-await client.connectWithKey("dn_live_your_key");
-
-// Only expose the tools you need
-const tools = {
-  proxiedFetch: createProxiedFetchTool(client, "dn_live_your_key"),
-  checkBalance: createCheckBalanceTool(client),
-};
-```
-
-### With Anthropic Claude
-
-```ts
-import { generateText } from "ai";
-import { anthropic } from "@ai-sdk/anthropic";
-import { createDominusNodeTools } from "@dominusnode/ai-tools";
-
-const tools = await createDominusNodeTools({
-  apiKey: process.env.DOMINUSNODE_API_KEY!,
-});
-
-const { text } = await generateText({
-  model: anthropic("claude-sonnet-4-20250514"),
-  tools,
-  maxSteps: 5,
-  prompt: "Check my balance, then fetch https://example.com through a German proxy",
+  prompt: "What does relay traffic cost per GB? Then fetch https://example.com from Germany.",
 });
 ```
 
-## Environment Variables
+Each tool is built with `tool({ description, inputSchema: jsonSchema(...), execute })` and returns a JSON string (or a scrubbed `Error: ...` string).
 
-| Variable                | Description                           | Default                         |
-|-------------------------|---------------------------------------|---------------------------------|
-| `DOMINUSNODE_API_KEY`   | Dominus Node API key                      | Required                        |
-| `DOMINUSNODE_BASE_URL`  | Dominus Node API base URL                 | `https://api.dominusnode.com`   |
+## The 19 tools
 
-## Pricing
+Tools are keyed `dominusnode_<name>` (e.g. `dominusnode_fetch`).
 
-Proxy usage is billed from your Dominus Node wallet:
+| # | Tool | SDK call | What it does |
+|---|---|---|---|
+| 1 | `fetch` | `proxy.fetch` | GET/HEAD a public URL through the relay (country, ip_class, session_id, allow_http) |
+| 2 | `proxy_url` | `proxy.buildUrl` | Proxy URL for other clients; the key is replaced by `${DOMINUSNODE_API_KEY}` |
+| 3 | `network_policy` | `network.policy` | Acceptable-use policy and node floor guarantees (public) |
+| 4 | `network_pricing` | `network.pricing` | Live per-GB prices per IP class and node revenue shares (public) |
+| 5 | `network_stats` | `network.stats` | Online nodes by class and country (public) |
+| 6 | `balance` | `wallet.getBalance` | Prepaid wallet balance |
+| 7 | `transactions` | `wallet.getTransactions` | Wallet transaction history |
+| 8 | `topup_crypto` | `wallet.topUpCrypto` | Create a crypto top-up invoice |
+| 9 | `check_payment` | `wallet.getCryptoStatus` | Crypto invoice status |
+| 10 | `usage` | `usage.get` | Bandwidth/cost summary for a date range |
+| 11 | `active_sessions` | `sessions.getActive` | Open relay sessions |
+| 12 | `report_session` | `sessions.report` | Report a misbehaving exit node |
+| 13 | `node_list` | `nodes.list` | Your contributed relay nodes |
+| 14 | `node_tier` | `nodes.tier` | Your node-operator tier and progress |
+| 15 | `node_setup_guide` | static | How to earn by contributing an IP with the node agent |
+| 16 | `credits_balance` | `credits.balance` | Node earnings (pending/available/frozen) |
+| 17 | `credits_convert` | `credits.convert` | Convert node credit into wallet balance |
+| 18 | `payouts_list` | `payouts.list` | Payout history |
+| 19 | `x402_info` | `x402.getInfo` | x402 micropayment info (public) |
 
-- **Datacenter (dc):** $3.00/GB
-- **Residential:** $5.00/GB
+Security is enforced by `@dominusnode/sdk`: SSRF and DNS-rebinding checks on every
+resolved address, GET/HEAD only, ports 80/443, no redirects, 10 MB cap, OFAC countries
+(CU, IR, KP, RU, SY) refused, plaintext `http://` only with `allow_http` (visible to the
+exit node). Every error and result is scrubbed of `dn_live_`/`dn_test_`/`dn_node_`/`dn_proxy_`
+keys and JWTs. The API key is read from `DOMINUSNODE_API_KEY` (or the framework's
+credentials store) and is never a tool argument or part of a tool result.
 
-Check your balance with the `checkBalance` tool before heavy usage.
+Prices are never hardcoded: ask the agent to call `network_pricing`.
 
-## License
+Signed flows (node registration, withdrawals, payout wallet) are not exposed as LLM tools.
+Use the DominusNode MCP server or `@dominusnode/sdk` with a local signer key file.
 
-MIT
+## Upgrading from 1.x
+
+2.0 is a breaking release. Removed: Stripe/PayPal top-ups, plans, slots, email/password and
+MFA flows, API key / team / agentic-wallet management tools, `dc-`/`residential-` pool
+prefixes, hardcoded $/GB prices and the integration's own HTTP/SSRF code. Exit selection is
+now `country` + `ip_class` (`residential`, `dc`, `mobile`) on the relay network.

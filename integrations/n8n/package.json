@@ -1,7 +1,7 @@
 {
   "name": "n8n-nodes-dominusnode",
-  "version": "1.2.1",
-  "description": "n8n community nodes for Dominus Node rotating proxy service (53 tools across 7 nodes)",
+  "version": "2.0.0",
+  "description": "n8n community node for the DominusNode AI-agent relay network (19 standard v2 operations, built on @dominusnode/sdk)",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "n8n": {
@@ -10,17 +10,11 @@
       "dist/credentials/DominusNodeApi.credentials.js"
     ],
     "nodes": [
-      "dist/nodes/DominusNodeProxy/DominusNodeProxy.node.js",
-      "dist/nodes/DominusNodeWallet/DominusNodeWallet.node.js",
-      "dist/nodes/DominusNodeUsage/DominusNodeUsage.node.js",
-      "dist/nodes/DominusNodeAccount/DominusNodeAccount.node.js",
-      "dist/nodes/DominusNodeKeys/DominusNodeKeys.node.js",
-      "dist/nodes/DominusNodePlans/DominusNodePlans.node.js",
-      "dist/nodes/DominusNodeTeams/DominusNodeTeams.node.js"
+      "dist/nodes/DominusNode/DominusNode.node.js"
     ]
   },
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && cp src/nodes/DominusNode/dominusnode.svg dist/nodes/DominusNode/",
     "prepare": "npm run build",
     "test": "vitest run",
     "lint": "tsc --noEmit"
@@ -29,18 +23,28 @@
     "n8n",
     "n8n-community-node-package",
     "dominusnode",
+    "relay",
     "proxy",
-    "rotating-proxy",
+    "ai-agent",
     "web-scraping"
   ],
   "license": "MIT",
+  "dependencies": {
+    "@dominusnode/sdk": "^2.0.0"
+  },
   "peerDependencies": {
     "n8n-workflow": ">=1.0.0"
   },
   "devDependencies": {
-    "n8n-workflow": "^1.70.0",
-    "vitest": "^3.0.0",
+    "n8n-workflow": "^2.16.0",
+    "vitest": "^3.2.0",
     "typescript": "^5.7.0",
     "@types/node": "^22.0.0"
-  }
+  },
+  "files": [
+    "dist/",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ]
 }

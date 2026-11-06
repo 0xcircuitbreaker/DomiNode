@@ -1,145 +1,71 @@
 # @dominusnode/pi-extension
 
-[Pi](https://github.com/badlogic/pi-mono) extension providing **53 tools** for the [Dominus Node](https://dominusnode.com) rotating proxy and management platform.
+[pi](https://github.com/badlogic/pi-mono) coding-agent extension for the DominusNode relay network: AI agents fetch the web through residential, datacenter and mobile IPs contributed by node operators, pay per GB from a prepaid wallet, and can earn credit by contributing their own IP.
 
-## What is Pi?
+Built on [`@dominusnode/sdk`](https://www.npmjs.com/package/@dominusnode/sdk) v2: the
+integration only describes tools for the model and maps arguments to SDK calls.
 
-Pi (pi-mono) is a TypeScript/Node.js agentic coding framework by Mario Zechner. It powers OpenClaw and supports building AI agent workflows with type-safe tool definitions using `@sinclair/typebox`.
-
-## Installation
-
-### As a Pi Package (recommended)
+## Install
 
 ```bash
-npm install @dominusnode/pi-extension
+pi install npm:@dominusnode/pi-extension
 ```
 
-Declare in your project's `package.json`:
-```json
-{
-  "pi": {
-    "extensions": ["./node_modules/@dominusnode/pi-extension/dist"]
-  }
-}
-```
-
-### Manual Extension
-
-Copy or symlink the `dist/` folder into your Pi extensions directory:
-```bash
-~/.pi/agent/extensions/dominusnode/   # global
-.pi/extensions/dominusnode/           # project-local
-```
-
-## Authentication
+## Configure
 
 ```bash
-export DOMINUSNODE_API_KEY="dn_live_your_key_here"
+export DOMINUSNODE_API_KEY=dn_live_...          # required for account tools
+export DOMINUSNODE_BASE_URL=https://api.dominusnode.com   # optional
+export DOMINUSNODE_PROXY_HOST=proxy.dominusnode.com       # optional
 ```
 
-Get your API key at [dominusnode.com](https://dominusnode.com) → Dashboard → API Keys.
+## Usage
 
-## Available Tools (53 total)
+`package.json` declares `pi.extensions` (`./dist/index.js`) and `pi.skills` (`./skills`). The default export `dominusNodeExtension(pi)` calls `pi.registerTool({ name, label, description, parameters, execute })` for each tool, with TypeBox (`typebox` 1.x) schemas. `execute(toolCallId, params, signal, onUpdate, ctx)` returns `{ content: [{ type: "text", text }], details }`.
 
-| Tool | Description |
-|------|-------------|
-| `dominusnode_proxied_fetch` | Fetch a URL through rotating IPs (DC or residential) |
-| `dominusnode_check_balance` | Get wallet balance |
-| `dominusnode_check_usage` | Bandwidth usage stats |
-| `dominusnode_get_proxy_config` | Proxy endpoint details |
-| `dominusnode_list_sessions` | Active proxy sessions |
-| `dominusnode_create_agentic_wallet` | Create agent sub-wallet |
-| `dominusnode_fund_agentic_wallet` | Fund agent sub-wallet |
-| `dominusnode_check_agentic_balance` | Sub-wallet balance |
-| `dominusnode_list_agentic_wallets` | All sub-wallets |
-| `dominusnode_agentic_transactions` | Sub-wallet transaction history |
-| `dominusnode_freeze_agentic_wallet` | Freeze sub-wallet |
-| `dominusnode_unfreeze_agentic_wallet` | Unfreeze sub-wallet |
-| `dominusnode_delete_agentic_wallet` | Delete sub-wallet |
-| `dominusnode_create_team` | Create team with shared wallet |
-| `dominusnode_list_teams` | List teams |
-| `dominusnode_team_details` | Team details and balance |
-| `dominusnode_team_fund` | Fund team wallet |
-| `dominusnode_team_create_api_key` | Create team API key |
-| `dominusnode_team_usage` | Team bandwidth stats |
-| `dominusnode_update_team` | Update team settings |
-| `dominusnode_update_team_member_role` | Change member role |
-| `dominusnode_topup_paypal` | Top up via PayPal |
-| `dominusnode_topup_stripe` | Top up via Stripe |
-| `dominusnode_topup_crypto` | Top up via crypto (BTC/ETH/USDC/...) |
-| `dominusnode_x402_info` | x402 micropayment config |
-| `dominusnode_update_wallet_policy` | Set spending limits/domain restrictions |
-| `dominusnode_get_proxy_status` | Proxy gateway status and pool health |
-| `dominusnode_get_transactions` | Wallet transaction history |
-| `dominusnode_get_forecast` | Spending forecast and projected costs |
-| `dominusnode_check_payment` | Check crypto payment status by invoice ID |
-| `dominusnode_get_daily_usage` | Daily bandwidth usage breakdown |
-| `dominusnode_get_top_hosts` | Top hosts by bandwidth usage |
-| `dominusnode_register` | Register a new account |
-| `dominusnode_login` | Log in to an existing account |
-| `dominusnode_get_account_info` | Get account profile information |
-| `dominusnode_verify_email` | Verify email with token |
-| `dominusnode_resend_verification` | Resend email verification link |
-| `dominusnode_update_password` | Change account password |
-| `dominusnode_list_keys` | List personal API keys |
-| `dominusnode_create_key` | Create a new personal API key |
-| `dominusnode_revoke_key` | Revoke a personal API key |
-| `dominusnode_get_plan` | Get current subscription plan |
-| `dominusnode_list_plans` | List available plans |
-| `dominusnode_change_plan` | Change subscription plan |
-| `dominusnode_team_delete` | Delete a team |
-| `dominusnode_team_revoke_key` | Revoke a team API key |
-| `dominusnode_team_list_keys` | List team API keys |
-| `dominusnode_team_list_members` | List team members |
-| `dominusnode_team_add_member` | Add a member to a team |
-| `dominusnode_team_remove_member` | Remove a member from a team |
-| `dominusnode_team_invite_member` | Invite a user to a team by email |
-| `dominusnode_team_list_invites` | List pending team invitations |
-| `dominusnode_team_cancel_invite` | Cancel a pending team invitation |
+The skill `skills/use-dominus-proxy.md` tells the agent when and how to use the tools.
 
-## Proxy Usage
+## The 19 tools
 
-```bash
-# Datacenter pool ($3/GB — fastest)
-curl -x "http://dc-country-US:${DOMINUSNODE_API_KEY}@proxy.dominusnode.com:8080" \
-  "https://target-site.com/page"
+Tool names are `dominusnode_<name>` (e.g. `dominusnode_fetch`).
 
-# Residential pool ($5/GB — appears as regular user)
-curl -x "http://residential-country-GB:${DOMINUSNODE_API_KEY}@proxy.dominusnode.com:8080" \
-  "https://target-site.com/page"
-```
+| # | Tool | SDK call | What it does |
+|---|---|---|---|
+| 1 | `fetch` | `proxy.fetch` | GET/HEAD a public URL through the relay (country, ip_class, session_id, allow_http) |
+| 2 | `proxy_url` | `proxy.buildUrl` | Proxy URL for other clients; the key is replaced by `${DOMINUSNODE_API_KEY}` |
+| 3 | `network_policy` | `network.policy` | Acceptable-use policy and node floor guarantees (public) |
+| 4 | `network_pricing` | `network.pricing` | Live per-GB prices per IP class and node revenue shares (public) |
+| 5 | `network_stats` | `network.stats` | Online nodes by class and country (public) |
+| 6 | `balance` | `wallet.getBalance` | Prepaid wallet balance |
+| 7 | `transactions` | `wallet.getTransactions` | Wallet transaction history |
+| 8 | `topup_crypto` | `wallet.topUpCrypto` | Create a crypto top-up invoice |
+| 9 | `check_payment` | `wallet.getCryptoStatus` | Crypto invoice status |
+| 10 | `usage` | `usage.get` | Bandwidth/cost summary for a date range |
+| 11 | `active_sessions` | `sessions.getActive` | Open relay sessions |
+| 12 | `report_session` | `sessions.report` | Report a misbehaving exit node |
+| 13 | `node_list` | `nodes.list` | Your contributed relay nodes |
+| 14 | `node_tier` | `nodes.tier` | Your node-operator tier and progress |
+| 15 | `node_setup_guide` | static | How to earn by contributing an IP with the node agent |
+| 16 | `credits_balance` | `credits.balance` | Node earnings (pending/available/frozen) |
+| 17 | `credits_convert` | `credits.convert` | Convert node credit into wallet balance |
+| 18 | `payouts_list` | `payouts.list` | Payout history |
+| 19 | `x402_info` | `x402.getInfo` | x402 micropayment info (public) |
 
-## Agentic Wallet Pattern (for Pi swarms)
+Security is enforced by `@dominusnode/sdk`: SSRF and DNS-rebinding checks on every
+resolved address, GET/HEAD only, ports 80/443, no redirects, 10 MB cap, OFAC countries
+(CU, IR, KP, RU, SY) refused, plaintext `http://` only with `allow_http` (visible to the
+exit node). Every error and result is scrubbed of `dn_live_`/`dn_test_`/`dn_node_`/`dn_proxy_`
+keys and JWTs. The API key is read from `DOMINUSNODE_API_KEY` (or the framework's
+credentials store) and is never a tool argument or part of a tool result.
 
-Give each sub-agent its own wallet with a spending cap:
+Prices are never hardcoded: ask the agent to call `network_pricing`.
 
-```
-1. dominusnode_create_agentic_wallet(label="research-agent-1", spendingLimitCents=500)
-2. dominusnode_fund_agentic_wallet(walletId=<id>, amountCents=1000)
-3. Sub-agent uses its wallet ID for proxy authentication
-4. dominusnode_check_agentic_balance(walletId=<id>) — monitor spend
-5. dominusnode_freeze_agentic_wallet(walletId=<id>) — suspend if needed
-```
+Signed flows (node registration, withdrawals, payout wallet) are not exposed as LLM tools.
+Use the DominusNode MCP server or `@dominusnode/sdk` with a local signer key file.
 
-## Security
+## Upgrading from 1.x
 
-- **SSRF protection**: Private IPs, RFC1918, CGNAT, loopback, link-local, Teredo/6to4, IPv4-mapped IPv6, hex/octal/decimal normalization, zone ID stripping
-- **DNS rebinding protection**: Hostname resolved before each request; private IPs in DNS results are blocked
-- **.localhost / .local / .internal / .arpa** TLDs blocked
-- **OFAC compliance**: Requests to sanctioned countries (CU, IR, KP, RU, SY) are rejected
-- **Credential scrubbing**: API keys redacted from all error messages
-- **Prototype pollution prevention**: Recursive key stripping on all parsed JSON
-- **HTTP method restriction**: Only GET, HEAD, OPTIONS permitted via `proxied_fetch`
-- **10 MB response cap** + 4000 character truncation
-- **Redirect following disabled** to prevent open redirect abuse
-
-## Pricing
-
-| Pool | Price | Best for |
-|------|-------|----------|
-| Datacenter | $3.00/GB | Fast scraping, APIs, speed-sensitive tasks |
-| Residential | $5.00/GB | Bypassing geo-blocks, appearing as real user |
-
-## License
-
-MIT — see [LICENSE](./LICENSE)
+2.0 is a breaking release. Removed: Stripe/PayPal top-ups, plans, slots, email/password and
+MFA flows, API key / team / agentic-wallet management tools, `dc-`/`residential-` pool
+prefixes, hardcoded $/GB prices and the integration's own HTTP/SSRF code. Exit selection is
+now `country` + `ip_class` (`residential`, `dc`, `mobile`) on the relay network.

@@ -1,20 +1,31 @@
 {
   "name": "@dominusnode/chatgpt",
-  "version": "1.2.1",
-  "description": "Dominus Node ChatGPT Actions handler — dispatches ChatGPT Custom GPT function calls to the Dominus Node REST API",
+  "version": "2.0.0",
+  "description": "DominusNode for ChatGPT: Custom GPT Actions schema for the /v1 agent API plus an OpenAI function-calling handler for the 19 standard v2 tools, built on @dominusnode/sdk",
   "main": "dist/handler.js",
   "types": "dist/handler.d.ts",
   "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/handler.d.ts",
+      "import": "./dist/handler.js"
+    }
+  },
   "license": "MIT",
   "scripts": {
     "build": "tsc",
     "prepare": "npm run build",
+    "gen:functions": "node scripts/gen-functions.mjs",
     "test": "vitest run"
+  },
+  "dependencies": {
+    "@dominusnode/sdk": "^2.0.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
     "typescript": "^5.4.0",
-    "vitest": "^1.6.0"
+    "vitest": "^3.2.0",
+    "yaml": "^2.8.0"
   },
   "keywords": [
     "chatgpt",
@@ -22,9 +33,8 @@
     "actions",
     "function-calling",
     "dominusnode",
-    "proxy",
-    "llm",
-    "ai"
+    "relay",
+    "ai-agent"
   ],
   "repository": {
     "type": "git",
@@ -39,6 +49,7 @@
     "openapi.yaml",
     "ai-plugin.json",
     "README.md",
+    "CHANGELOG.md",
     "LICENSE"
   ]
 }

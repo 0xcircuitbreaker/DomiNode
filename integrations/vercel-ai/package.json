@@ -1,7 +1,7 @@
 {
   "name": "@dominusnode/ai-tools",
-  "version": "1.2.1",
-  "description": "Vercel AI SDK tools for Dominus Node rotating proxy service",
+  "version": "2.0.0",
+  "description": "Vercel AI SDK tools for the DominusNode AI-agent relay network (19 standard v2 tools, built on @dominusnode/sdk)",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "type": "module",
@@ -13,22 +13,30 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@dominusnode/sdk": "^1.1.1",
-    "ai": ">=3.0.0",
-    "zod": ">=3.22.0"
+    "@dominusnode/sdk": "^2.0.0"
+  },
+  "peerDependencies": {
+    "ai": ">=5.0.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
+    "ai": "^7.0.0",
     "typescript": "^5.4.0",
-    "vitest": "^1.6.0"
+    "vitest": "^3.2.0"
   },
   "files": [
-    "dist/"
+    "dist/",
+    "README.md",
+    "CHANGELOG.md"
   ],
   "exports": {
     ".": {
-      "import": "./dist/index.js",
-      "types": "./dist/index.d.ts"
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
     }
-  }
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": ["vercel-ai", "ai-sdk", "dominusnode", "relay", "proxy", "ai-agent", "x402"]
 }
