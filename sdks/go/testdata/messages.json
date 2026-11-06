@@ -1,0 +1,48 @@
+{
+  "attestation": [
+    {
+      "in": {
+        "wallet": "0xAbCdEf0123456789abcdef0123456789ABCDEF01",
+        "nonce": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "attestationVersion": 3,
+        "attestationText": "I agree.\nLine two — ünïcode.",
+        "nodePubkey": "0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f"
+      },
+      "out": "DomiNode node attestation\nVersion: 3\nWallet: 0xabcdef0123456789abcdef0123456789abcdef01\nNonce: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\nNode pubkey: 0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f\n\nI agree.\nLine two — ünïcode."
+    },
+    {
+      "in": {
+        "wallet": "0x1111111111111111111111111111111111111111",
+        "nonce": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        "attestationVersion": 1,
+        "attestationText": "x",
+        "nodePubkey": null
+      },
+      "out": "DomiNode node attestation\nVersion: 1\nWallet: 0x1111111111111111111111111111111111111111\nNonce: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\nNode pubkey: none\n\nx"
+    }
+  ],
+  "payoutWallet": [
+    {
+      "in": {
+        "userId": "123e4567-e89b-42d3-a456-426614174000",
+        "wallet": "0xAbCdEf0123456789abcdef0123456789ABCDEF01",
+        "address": "0x2222222222222222222222222222222222222AbC",
+        "chain": "base",
+        "nonce": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      "out": "DominusNode payout wallet\nAction: payout_wallet_set\nUser: 123e4567-e89b-42d3-a456-426614174000\nAccount wallet: 0xabcdef0123456789abcdef0123456789abcdef01\nPayout address: 0x2222222222222222222222222222222222222abc\nChain: base\nNonce: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    }
+  ],
+  "withdraw": [
+    {
+      "in": {
+        "userId": "123e4567-e89b-42d3-a456-426614174000",
+        "wallet": "0xAbCdEf0123456789abcdef0123456789ABCDEF01",
+        "amountMusd": "2500000",
+        "idempotencyKey": "dn-key_12345678",
+        "nonce": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      },
+      "out": "DominusNode withdrawal\nAction: withdraw\nUser: 123e4567-e89b-42d3-a456-426614174000\nAccount wallet: 0xabcdef0123456789abcdef0123456789abcdef01\nAmount (µUSD): 2500000\nIdempotency key: dn-key_12345678\nNonce: cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    }
+  ]
+}
