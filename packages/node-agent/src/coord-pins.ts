@@ -4,11 +4,17 @@
  * production key(s) here; operators may only ADD pins (DN_NODE_COORD_PINS),
  * never remove embedded ones. With no pins at all the agent refuses to auth.
  */
-export const EMBEDDED_COORD_PUBKEYS: readonly string[] = Object.freeze([
-  // Populated at release time from the coordinator's COORD_SIGNING_KEY_FILE public half.
-]);
+import { GENERATED_COORD_PUBKEYS } from "./coord-pins.generated.js";
 
 const HEX64 = /^[0-9a-f]{64}$/;
+
+/**
+ * Embedded at build time by scripts/gen-coord-pins.mjs from DN_COORD_PUBKEYS
+ * (empty in dev). Re-validated here so a hand-edited file cannot add junk.
+ */
+export const EMBEDDED_COORD_PUBKEYS: readonly string[] = Object.freeze(
+  GENERATED_COORD_PUBKEYS.filter((p) => HEX64.test(p)),
+);
 
 export function effectiveCoordPins(extra: readonly string[]): string[] {
   const out = new Set<string>(EMBEDDED_COORD_PUBKEYS);

@@ -1,0 +1,7 @@
+1.0.0.0	1.0.0.255	13335	US	CLOUDFLARENET
+8.8.8.0	8.8.8.255	15169	US	GOOGLE
+10.0.0.0	10.255.255.255	0	None	Not routed
+81.2.69.0	81.2.69.255	20712	GB	ANDREWS-ARNOLD
+2001:4860::	2001:4860:ffff:ffff:ffff:ffff:ffff:ffff	15169	US	GOOGLE
+2a00:1450::	2a00:1450:4fff:ffff:ffff:ffff:ffff:ffff	15169	US	GOOGLE
+2003::	2003:3fff:ffff:ffff:ffff:ffff:ffff:ffff	3320	DE	DTAG

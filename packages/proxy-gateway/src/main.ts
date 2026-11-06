@@ -4,7 +4,9 @@ dotenv.config();
 import { createLogger, closePool, getPool, usageRepo, connectWithRetry, nodeRepo, policyRepo, nodeCreditRepo, retentionRepo, tierRepo, payoutRepo, relayChargeRepo, relaySettleRetryRepo } from "@dominusnode/shared";
 import type { ActivePolicy } from "@dominusnode/shared";
 import { startProxyServer } from "./server.js";
-import { initGeoCheck, lookupPeerGeo } from "./geo-check.js";
+import { initGeoCheck, lookupPeerGeo, setAsnDb } from "./geo-check.js";
+import { loadAsnDbFile, parseHostingAsns } from "./asn-db.js";
+import { installSharedLimits } from "./shared-limits.js";
 import { NodeRegistry } from "./node-tunnel/registry.js";
 import { NodeSelector } from "./node-tunnel/selector.js";
 import { loadCoordSigner } from "./node-tunnel/coord-key.js";
@@ -74,6 +76,18 @@ async function main(): Promise<void> {
 
   // ─── Node tunnel server + registry + selector ────────────────────
   await initGeoCheck();
+  const isProduction = process.env["NODE_ENV"] === "production";
+  const asnDbOptional = process.env["ASN_DB_OPTIONAL"] === "true";
+  const asnDbPath = process.env["ASN_DB_FILE"] ?? "data/ip2asn-combined.tsv.gz";
+  try {
+    const asnDb = loadAsnDbFile(asnDbPath);
+    setAsnDb(asnDb, parseHostingAsns(process.env["HOSTING_ASNS"]));
+    if (asnDb) log.info("ASN database loaded", { v4: asnDb.v4Count, v6: asnDb.v6Count });
+    else log.warn(`ASN database not found at ${asnDbPath} (run scripts/update-asn-db.sh)`, { failClosed: isProduction && !asnDbOptional });
+  } catch (err) {
+    log.error("ASN database failed to load", { error: err instanceof Error ? err.message.slice(0, 100) : "unknown" });
+  }
+  const shared = installSharedLimits(log);
   const registry = new NodeRegistry();
   registry.startSweep();
   const selector = new NodeSelector(registry, { getPolicy: () => policy.body });
@@ -85,6 +99,8 @@ async function main(): Promise<void> {
     getNodeForTunnelAuth: nodeRepo.getNodeForTunnelAuth,
     markOnline: nodeRepo.markOnline,
     markOffline: nodeRepo.markOffline,
+    claimIpSlot: shared.claimIpSlot,
+    releaseIpSlot: shared.releaseIpSlot,
     activatePending: async (nodeId) => (await nodeRepo.setStatus(nodeId, "active", ["pending"])) !== null,
     getPolicy,
     geoLookup: lookupPeerGeo,
@@ -98,7 +114,8 @@ async function main(): Promise<void> {
     logger: log,
     trustedProxyIps: parseTrustedProxyIps(process.env["TUNNEL_TRUSTED_PROXY_IPS"]),
     tls: loadTunnelTls(process.env),
-    production: process.env["NODE_ENV"] === "production",
+    production: isProduction,
+    requireAsn: isProduction && !asnDbOptional,
   });
   const tunnelPort = await tunnelServer.listen();
   log.info(`node tunnel server listening on port ${tunnelPort}`);
@@ -169,6 +186,7 @@ async function main(): Promise<void> {
 
     registry.stopSweep();
     try { await tunnelServer.close(); } catch { /* best effort */ }
+    await shared.stop();
     await closePool();
     process.exit(0);
   }

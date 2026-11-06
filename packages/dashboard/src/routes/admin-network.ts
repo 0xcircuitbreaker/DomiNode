@@ -9,6 +9,7 @@ import {
   validatePolicy,
   policySha256,
   DEFAULT_POLICY,
+  payoutRepo,
 } from "@dominusnode/shared";
 import type { AdminRole, NetworkPolicy } from "@dominusnode/shared";
 import { requireAuth, type AuthenticatedRequest } from "../middleware/auth.js";
@@ -263,6 +264,39 @@ router.put("/tiers/:id", async (req: Request, res: Response) => {
     log.info("node tier updated", { tierId: id, fields: Object.keys(b), by: uid });
     res.json({ tier: tier ? { ...tier, dailyWithdrawLimitMusd: tier.dailyWithdrawLimitMusd.toString() } : null });
   } catch (err) { fail(res, err, "Tier update"); }
+});
+
+// ─── Credit account unfreeze ────────────────────────────────────────
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * POST /accounts/:userId/unfreeze { payouts: "release" | "reverse" }
+ * Clears `frozen` and releases held_frozen payouts to pending or reverses them
+ * (re-crediting available). Role re-check, unfreeze and audit row share one tx.
+ */
+router.post("/accounts/:userId/unfreeze", async (req: Request, res: Response) => {
+  try {
+    const target = String(req.params["userId"] ?? "");
+    if (!UUID_RE.test(target)) throw new HttpError(400, "Invalid user id");
+    const b = (req.body ?? {}) as Record<string, unknown>;
+    const mode = b["payouts"];
+    if (mode !== "release" && mode !== "reverse") throw new HttpError(400, "payouts must be \"release\" or \"reverse\"");
+    const uid = adminId(req);
+    const out = await withAdminTx(uid, async (c) => {
+      const r = await payoutRepo.unfreezeAccountTx(c as unknown as Parameters<typeof payoutRepo.unfreezeAccountTx>[0], target, mode);
+      if (!r) throw new HttpError(404, "Credit account not found");
+      await c.query(
+        `INSERT INTO audit_events (user_id, action, resource, resource_id, ip_address, details)
+         VALUES ($1, 'node_credit_unfreeze', 'node_credit_account', $2, $3, $4)`,
+        [uid, target, (req.ip ?? "").slice(0, 64) || null,
+          JSON.stringify({ mode, wasFrozen: r.wasFrozen, payouts: r.payouts, musd: r.musd.toString() })],
+      );
+      return r;
+    });
+    log.info("node credit account unfrozen", { target, mode, payouts: out.payouts, by: uid });
+    res.json({ userId: target, mode, wasFrozen: out.wasFrozen, payouts: out.payouts, musd: out.musd.toString() });
+  } catch (err) { fail(res, err, "Account unfreeze"); }
 });
 
 export default router;

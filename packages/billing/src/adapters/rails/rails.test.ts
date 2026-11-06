@@ -22,8 +22,13 @@ vi.mock("@dominusnode/shared", async () => {
   };
 });
 
-import { createHmacMppVerifier, createMppRail, type MppStore } from "./mpp-rail.js";
-import { createTempoRail, verifyTempoSignature, TEMPO_MAX_BODY_BYTES } from "./tempo.js";
+import {
+  createTempoMppVerifier, createMppRail, buildMppChallenge, computeChallengeId, parseMppAuthorization, mppPaymentHash, jcs,
+  createTempoRpc, type MppStore, type MppConfig, type TempoRpc, type TempoReceipt,
+} from "./mpp-rail.js";
+import {
+  createTempoRail, verifyTempoSignature, TEMPO_MAX_BODY_BYTES, chargeIdToMemo, memoToChargeId, TIP20_TRANSFER_WITH_MEMO_TOPIC,
+} from "./tempo.js";
 import { x402Rail, usdStringToMusd } from "./x402-rail.js";
 import { nowpaymentsRail } from "./nowpayments.js";
 
@@ -31,103 +36,220 @@ const SECRET = "s".repeat(40);
 const PAYER = "0x" + "a".repeat(40);
 const NOW = 1_800_000_000;
 
-function mppCred(body: Record<string, unknown> | string, secret = SECRET): string {
-  const b64 = Buffer.from(typeof body === "string" ? body : JSON.stringify(body)).toString("base64url");
-  return `${b64}.${crypto.createHmac("sha256", secret).update(b64).digest("hex")}`;
-}
-const goodBody = { payer: PAYER, amountMusd: "5000", resource: "relay", expiresAt: NOW + 60, nonce: "n1" };
-const REQ = { amountMusd: 5000n, resource: "relay" };
-
 beforeEach(() => {
   vi.clearAllMocks();
-  mockQuery.mockReset();
-  mockFindInvoice.mockReset();
-  mockCredit.mockReset();
+  for (const m of [mockQuery, mockFindInvoice, mockCreateInvoice, mockFailInvoice, mockCredit]) m.mockReset();
 });
 
-describe("MPP HMAC verifier", () => {
-  const v = createHmacMppVerifier(SECRET);
-  it("accepts a valid credential", () => {
-    expect(v.verify(mppCred(goodBody), REQ, NOW)).toEqual({ ok: true, payer: PAYER, amountMusd: 5000n });
+// ─── MPP (Tempo charge) ─────────────────────────────────────────────
+
+const RECIP = "0x" + "b".repeat(40);
+const TOKEN = "0x20c0" + "0".repeat(36);
+const CFG: MppConfig = { secret: SECRET, realm: "dn", recipient: RECIP, currency: TOKEN, chainId: 42431 };
+const REQ = { amountMusd: 5000n, resource: "relay" };
+const TXH = "0x" + "c".repeat(64);
+const pad = (a: string) => "0x" + "0".repeat(24) + a.slice(2);
+
+function challengeFields(amount = 5000n, now = NOW) {
+  const { header: _h, ...c } = buildMppChallenge(CFG, amount, now);
+  return c;
+}
+function cred(o: { challenge?: Record<string, unknown>; payload?: Record<string, unknown>; source?: string } = {}): string {
+  return Buffer.from(JSON.stringify({
+    challenge: o.challenge ?? challengeFields(),
+    payload: o.payload ?? { type: "hash", hash: TXH },
+    ...(o.source !== undefined ? { source: o.source } : {}),
+  })).toString("base64url");
+}
+function receiptFor(challengeId: string, o: { amount?: bigint; to?: string; token?: string; memo?: string; status?: string; from?: string } = {}): TempoReceipt {
+  const memo = o.memo ?? "0x" + crypto.createHash("sha256").update(challengeId).digest("hex");
+  return {
+    status: o.status ?? "0x1",
+    logs: [{
+      address: o.token ?? TOKEN,
+      topics: [TIP20_TRANSFER_WITH_MEMO_TOPIC, pad(o.from ?? PAYER), pad(o.to ?? RECIP), memo],
+      data: "0x" + (o.amount ?? 5000n).toString(16).padStart(64, "0"),
+    }],
+  };
+}
+const rpcOf = (r: TempoReceipt | null | Error): TempoRpc => ({
+  getTransactionReceipt: vi.fn(async () => { if (r instanceof Error) throw r; return r; }),
+});
+
+describe("MPP challenge (draft-ryan-httpauth-payment)", () => {
+  it("emits a WWW-Authenticate Payment challenge with a JCS base64url request and HMAC-bound id", () => {
+    const c = buildMppChallenge(CFG, 5000n, NOW);
+    expect(c.header).toMatch(/^Payment id="[A-Za-z0-9_-]+", realm="dn", method="tempo", intent="charge", expires="[^"]+Z", request="[A-Za-z0-9_-]+"$/);
+    expect(JSON.parse(Buffer.from(c.request, "base64url").toString())).toEqual({
+      amount: "5000", currency: TOKEN, methodDetails: { chainId: 42431 }, recipient: RECIP,
+    });
+    expect(Buffer.from(c.request, "base64url").toString()).toBe(jcs({ recipient: RECIP, amount: "5000", methodDetails: { chainId: 42431 }, currency: TOKEN }));
+    const input = ["dn", "tempo", "charge", c.request, c.expires, "", ""].join("|");
+    expect(c.id).toBe(crypto.createHmac("sha256", SECRET).update(input).digest("base64url"));
+    expect(computeChallengeId(SECRET, c)).toBe(c.id);
   });
-  it("rejects a credential signed with another key", () => {
-    expect(v.verify(mppCred(goodBody, "x".repeat(40)), REQ, NOW)).toMatchObject({ ok: false, reason: "bad signature" });
+  it("parses Authorization / Proxy-Authorization Payment credentials, size-capped", () => {
+    expect(parseMppAuthorization({ authorization: "Payment abc_-1" })).toBe("abc_-1");
+    expect(parseMppAuthorization({ "proxy-authorization": "payment xyz" })).toBe("xyz");
+    expect(parseMppAuthorization({ authorization: "Basic abc" })).toBeNull();
+    expect(parseMppAuthorization({ authorization: "Payment " + "a".repeat(4097) })).toBeNull();
+    expect(parseMppAuthorization({ authorization: "Payment a.b" })).toBeNull();
   });
-  it("rejects a tampered body", () => {
-    const c = mppCred(goodBody);
-    const tampered = Buffer.from(JSON.stringify({ ...goodBody, amountMusd: "999999" })).toString("base64url") + c.slice(c.indexOf("."));
-    expect(v.verify(tampered, REQ, NOW).ok).toBe(false);
+});
+
+describe("Tempo MPP verifier", () => {
+  it("accepts a bound, unexpired challenge paid by a matching TransferWithMemo", async () => {
+    const c = challengeFields();
+    const rpc = rpcOf(receiptFor(c.id));
+    const v = await createTempoMppVerifier(CFG, rpc).verify(cred({ challenge: c }), REQ, NOW);
+    expect(v).toEqual({ ok: true, payer: PAYER, amountMusd: 5000n, proofRef: `tempo:42431:${TXH}` });
+    expect(rpc.getTransactionReceipt).toHaveBeenCalledWith(TXH);
   });
-  it("rejects malformed, expired, underpaid and wrong-resource credentials", () => {
-    expect(v.verify("nodot", REQ, NOW).ok).toBe(false);
-    expect(v.verify("abc.zz", REQ, NOW).ok).toBe(false);
-    expect(v.verify(mppCred({ ...goodBody, expiresAt: NOW - 1 }), REQ, NOW).reason).toBe("expired");
-    expect(v.verify(mppCred({ ...goodBody, amountMusd: "4999" }), REQ, NOW).reason).toBe("amount insufficient");
-    expect(v.verify(mppCred({ ...goodBody, resource: "other" }), REQ, NOW).reason).toBe("resource mismatch");
+  it("rejects a forged challenge id or a tampered request without an RPC call", async () => {
+    const rpc = rpcOf(null);
+    const v = createTempoMppVerifier(CFG, rpc);
+    const c = challengeFields();
+    expect((await v.verify(cred({ challenge: { ...c, id: "x" + c.id.slice(1) } }), REQ, NOW)).reason).toBe("invalid-challenge");
+    const cheaper = challengeFields(1n);
+    expect((await v.verify(cred({ challenge: { ...c, request: cheaper.request } }), REQ, NOW)).reason).toBe("invalid-challenge");
+    expect((await v.verify(cred({ challenge: challengeFields(5000n) }), REQ, NOW)).ok).toBe(false); // null receipt
+    expect(rpc.getTransactionReceipt).toHaveBeenCalledTimes(1);
   });
-  it("rejects far-future expiry, out-of-range amounts and array bodies", () => {
-    expect(v.verify(mppCred({ ...goodBody, expiresAt: NOW + 3601 }), REQ, NOW).ok).toBe(false);
-    expect(v.verify(mppCred({ ...goodBody, expiresAt: NOW + 3600 }), REQ, NOW).ok).toBe(true);
-    // above the mpp_transactions CHECK: rejected instead of a DB error at claim time
-    expect(v.verify(mppCred({ ...goodBody, amountMusd: "10000000001" }), REQ, NOW).reason).toBe("amount too large");
-    expect(v.verify(mppCred("[1,2]"), REQ, NOW).ok).toBe(false);
+  it("rejects an expired challenge and a challenge priced below the current quote", async () => {
+    const v = createTempoMppVerifier(CFG, rpcOf(null));
+    expect((await v.verify(cred({ challenge: challengeFields(5000n, NOW - 301) }), REQ, NOW)).reason).toBe("payment-expired");
+    expect((await v.verify(cred({ challenge: challengeFields(4999n) }), REQ, NOW)).reason).toBe("payment-insufficient");
   });
-  it("strips prototype-pollution keys", () => {
-    const raw = JSON.stringify(goodBody).replace(/}$/, ',"__proto__":{"admin":true}}');
-    const r = v.verify(mppCred(raw), REQ, NOW);
-    expect(r.ok).toBe(true);
-    expect(({} as Record<string, unknown>)["admin"]).toBeUndefined();
+  it("rejects wrong recipient, token, memo, underpayment and reverted tx", async () => {
+    const c = challengeFields();
+    for (const r of [
+      receiptFor(c.id, { to: "0x" + "d".repeat(40) }),
+      receiptFor(c.id, { token: "0x" + "e".repeat(40) }),
+      receiptFor(c.id, { memo: "0x" + "0".repeat(64) }),
+      receiptFor(c.id, { amount: 4999n }),
+      receiptFor(c.id, { status: "0x0" }),
+    ]) {
+      expect((await createTempoMppVerifier(CFG, rpcOf(r)).verify(cred({ challenge: c }), REQ, NOW)).ok).toBe(false);
+    }
   });
-  it("requires a long secret", () => {
-    expect(() => createHmacMppVerifier("short")).toThrow();
+  it("refuses pull-mode transaction payloads and other methods", async () => {
+    const v = createTempoMppVerifier(CFG, rpcOf(null));
+    expect((await v.verify(cred({ payload: { type: "transaction", signature: "0x00" } }), REQ, NOW)).reason).toBe("method-unsupported");
+    expect((await v.verify(cred({ challenge: { ...challengeFields(), method: "stripe" } }), REQ, NOW)).reason).toBe("method-unsupported");
+  });
+  it("binds the presenter when source is given", async () => {
+    const c = challengeFields();
+    const v = createTempoMppVerifier(CFG, rpcOf(receiptFor(c.id)));
+    expect((await v.verify(cred({ challenge: c, source: `did:pkh:eip155:42431:${PAYER}` }), REQ, NOW)).ok).toBe(true);
+    expect((await v.verify(cred({ challenge: c, source: `did:pkh:eip155:42431:0x${"f".repeat(40)}` }), REQ, NOW)).ok).toBe(false);
+  });
+  it("strips prototype-pollution keys and rejects malformed credentials", async () => {
+    const v = createTempoMppVerifier(CFG, rpcOf(null));
+    expect((await v.verify("!!notbase64", REQ, NOW)).ok).toBe(false);
+    const evil = Buffer.from('{"__proto__":{"ok":true},"challenge":{},"payload":{}}').toString("base64url");
+    expect((await v.verify(evil, REQ, NOW)).ok).toBe(false);
+    expect(({} as Record<string, unknown>)["ok"]).toBeUndefined();
+  });
+  it("RPC client: https only, size-capped, no redirects", async () => {
+    expect(() => createTempoRpc("http://rpc.example")).toThrow(/https/);
+    const f = vi.fn(async () => new Response("x".repeat(1024 * 1024 + 1)));
+    await expect(createTempoRpc("https://rpc.example", f as unknown as typeof fetch).getTransactionReceipt(TXH)).rejects.toThrow(/too large/);
+    expect((f.mock.calls[0] as unknown as [string, RequestInit])[1].redirect).toBe("manual");
   });
 });
 
 describe("MPP rail", () => {
-  function store(claimed = true): MppStore {
-    return { claim: vi.fn().mockResolvedValue(claimed), mark: vi.fn().mockResolvedValue(undefined), release: vi.fn().mockResolvedValue(undefined) };
-  }
-  it("is disabled without verifier/payTo", () => {
-    expect(createMppRail({ verifier: null, payTo: null, store: store() }).enabled()).toBe(false);
-  });
-  it("verifies, claims and settles", async () => {
+  const store = (claimOk = true): MppStore => ({ claim: vi.fn(async () => claimOk), mark: vi.fn(async () => {}), release: vi.fn(async () => {}) });
+  const okVerifier = { verify: vi.fn(async () => ({ ok: true, payer: PAYER, amountMusd: 5000n, proofRef: `tempo:42431:${TXH}` })) };
+
+  it("claims the proof (not the credential bytes) once, then settles", async () => {
     const s = store();
-    const rail = createMppRail({ verifier: createHmacMppVerifier(SECRET), payTo: PAYER, store: s, now: () => NOW });
-    const v = await rail.verify(mppCred(goodBody), REQ);
-    expect(v.ok).toBe(true);
-    expect(s.claim).toHaveBeenCalledWith(v.paymentHash, 5000n);
-    expect((await rail.settle("", REQ, v)).ok).toBe(true);
+    const rail = createMppRail({ verifier: okVerifier, config: CFG, store: s, now: () => NOW });
+    const v = await rail.verify("cred-a", REQ);
+    expect(v).toMatchObject({ ok: true, payer: PAYER, amountMusd: 5000n, paymentHash: mppPaymentHash(`tempo:42431:${TXH}`) });
+    expect(s.claim).toHaveBeenCalledWith(mppPaymentHash(`tempo:42431:${TXH}`), 5000n);
+    expect(await rail.settle("cred-a", REQ, v)).toEqual({ ok: true, txRef: `tempo:42431:${TXH}` });
+    expect(s.mark).toHaveBeenLastCalledWith(v.paymentHash, "settled");
   });
-  it("rejects a replayed credential", async () => {
-    const rail = createMppRail({ verifier: createHmacMppVerifier(SECRET), payTo: PAYER, store: store(false), now: () => NOW });
-    expect(await rail.verify(mppCred(goodBody), REQ)).toMatchObject({ ok: false, reason: "Payment already used" });
+  it("rejects a replayed proof even when re-wrapped in a different credential", async () => {
+    const rail = createMppRail({ verifier: okVerifier, config: CFG, store: store(false), now: () => NOW });
+    expect(await rail.verify("cred-b-rewrapped", REQ)).toMatchObject({ ok: false, reason: expect.stringMatching(/already used/) });
   });
-  it("never claims on a bad signature", async () => {
+  it("does not claim when verification fails, and is disabled without config", async () => {
     const s = store();
-    const rail = createMppRail({ verifier: createHmacMppVerifier(SECRET), payTo: PAYER, store: s, now: () => NOW });
-    expect((await rail.verify(mppCred(goodBody, "y".repeat(40)), REQ)).ok).toBe(false);
+    const bad = createMppRail({ verifier: { verify: async () => ({ ok: false, reason: "invalid-challenge" }) }, config: CFG, store: s });
+    expect((await bad.verify("x", REQ)).ok).toBe(false);
     expect(s.claim).not.toHaveBeenCalled();
+    const off = createMppRail({ verifier: null, config: null });
+    expect(off.enabled()).toBe(false);
+    expect(off.challenge(1n)).toBeNull();
+  });
+  it("settle refuses an unverified result", async () => {
+    const rail = createMppRail({ verifier: okVerifier, config: CFG, store: store() });
+    expect((await rail.settle("x", REQ, { ok: false, paymentHash: "h" })).ok).toBe(false);
   });
 });
+
+// ─── Tempo prepaid ──────────────────────────────────────────────────
 
 function tempoSig(body: Buffer, t: number, secret = SECRET): string {
   return `t=${t},v1=${crypto.createHmac("sha256", secret).update(`${t}.`).update(body).digest("hex")}`;
 }
 const CHARGE = "tempo_" + "1".repeat(8) + "-1111-1111-1111-" + "1".repeat(12);
 const TX = "0x" + "e".repeat(64);
-const tempoBody = (o: Record<string, unknown> = {}) => Buffer.from(JSON.stringify({ memo: CHARGE, status: "paid", amountCents: 500, txHash: TX, ...o }));
+const TCFG = { webhookSecret: SECRET, payTo: RECIP, token: TOKEN, chainId: 42431 };
+const tempoBody = (o: Record<string, unknown> = {}) => Buffer.from(JSON.stringify({
+  status: "paid", chainId: 42431, txHash: TX, token: TOKEN, from: PAYER, to: RECIP, amount: "5000000", memo: chargeIdToMemo(CHARGE), ...o,
+}));
+const signed = (b: Buffer) => ({ "x-tempo-signature": tempoSig(b, NOW) });
 
 describe("Tempo prepaid rail", () => {
-  const rail = createTempoRail({ webhookSecret: SECRET, payTo: PAYER }, () => NOW);
+  const rail = createTempoRail(TCFG, () => NOW);
   const invoice = { id: "inv1", user_id: "u1", amount_cents: 500, status: "pending" };
+
+  it("memo round-trips the charge id as bytes32", () => {
+    expect(chargeIdToMemo(CHARGE)).toMatch(/^0x[0-9a-f]{64}$/);
+    expect(memoToChargeId(chargeIdToMemo(CHARGE))).toBe(CHARGE);
+    expect(memoToChargeId("0x" + "f".repeat(64))).toBeNull();
+  });
 
   it("credits a correctly signed paid callback via atomicCompleteInvoiceAndCredit", async () => {
     mockFindInvoice.mockResolvedValue(invoice);
     mockCredit.mockResolvedValue({ claimed: true });
     const b = tempoBody();
-    const r = await rail.handleCallback(b, { "x-tempo-signature": tempoSig(b, NOW) });
+    const r = await rail.handleCallback(b, signed(b));
     expect(r).toMatchObject({ status: "paid", amountCents: 500, userId: "u1" });
-    expect(mockCredit).toHaveBeenCalledWith("inv1", "u1", 500, "tempo", TX, expect.any(String));
+    expect(mockFindInvoice).toHaveBeenCalledWith("tempo", CHARGE);
+    expect(mockCredit).toHaveBeenCalledWith("inv1", "u1", 500, "tempo", TX, expect.any(String), ["pending", "failed"]);
+  });
+
+  it("failed-then-paid: credits once via the single-tx claim from failed", async () => {
+    mockFindInvoice.mockResolvedValue({ ...invoice, status: "failed" });
+    mockCredit.mockResolvedValueOnce({ claimed: true }).mockResolvedValueOnce({ claimed: false });
+    const b = tempoBody();
+    expect(await rail.handleCallback(b, signed(b))).toMatchObject({ status: "paid" });
+    expect(mockCredit).toHaveBeenCalledTimes(1);
+    expect(mockCredit.mock.calls[0]![6]).toEqual(["pending", "failed"]);
+    const once = await mockCredit.mock.results[0]!.value;
+    expect(once).toEqual({ claimed: true });
+    // Redelivery: the invoice is completed now; the claim is idempotent (claimed:false).
+    mockFindInvoice.mockResolvedValue({ ...invoice, status: "completed" });
+    await rail.handleCallback(b, signed(b));
+    expect(mockFailInvoice).not.toHaveBeenCalled();
+  });
+
+  it("a failed event never downgrades a completed invoice", async () => {
+    mockFindInvoice.mockResolvedValue({ ...invoice, status: "completed" });
+    const b = tempoBody({ status: "failed" });
+    expect(await rail.handleCallback(b, signed(b))).toBeNull();
+    expect(mockFailInvoice).not.toHaveBeenCalled();
+  });
+
+  it("marks a pending invoice failed on a failed event", async () => {
+    mockFindInvoice.mockResolvedValue(invoice);
+    const b = tempoBody({ status: "failed" });
+    expect(await rail.handleCallback(b, signed(b))).toMatchObject({ status: "failed" });
+    expect(mockFailInvoice).toHaveBeenCalledWith("inv1");
   });
 
   it("rejects a wrong signature, missing signature and stale timestamp without touching the DB", async () => {
@@ -141,27 +263,38 @@ describe("Tempo prepaid rail", () => {
 
   it("rejects a body signed for different bytes", async () => {
     const b = tempoBody();
-    const other = tempoBody({ amountCents: 100000 });
-    expect(await rail.handleCallback(other, { "x-tempo-signature": tempoSig(b, NOW) })).toBeNull();
+    expect(await rail.handleCallback(tempoBody({ amount: "100000000" }), signed(b))).toBeNull();
   });
 
   it("enforces the body size limit", async () => {
     const big = Buffer.alloc(TEMPO_MAX_BODY_BYTES + 1, 0x20);
-    expect(await rail.handleCallback(big, { "x-tempo-signature": tempoSig(big, NOW) })).toBeNull();
+    expect(await rail.handleCallback(big, signed(big))).toBeNull();
   });
 
-  it("refuses an amount mismatch", async () => {
+  it("refuses amount mismatch, sub-cent amounts, wrong recipient/token/chain", async () => {
     mockFindInvoice.mockResolvedValue(invoice);
-    const b = tempoBody({ amountCents: 501 });
-    expect(await rail.handleCallback(b, { "x-tempo-signature": tempoSig(b, NOW) })).toBeNull();
+    for (const o of [
+      { amount: "5010000" }, { amount: "5000001" }, { to: "0x" + "d".repeat(40) }, { token: "0x" + "d".repeat(40) }, { chainId: 1 },
+    ]) {
+      const b = tempoBody(o);
+      expect(await rail.handleCallback(b, signed(b))).toBeNull();
+    }
     expect(mockCredit).not.toHaveBeenCalled();
   });
 
   it("is inert when not configured", async () => {
     const off = createTempoRail(null);
     const b = tempoBody();
-    expect(await off.handleCallback(b, { "x-tempo-signature": tempoSig(b, NOW) })).toBeNull();
+    expect(await off.handleCallback(b, signed(b))).toBeNull();
     await expect(off.createCharge("u1", 500)).rejects.toThrow(/not configured/);
+  });
+
+  it("createCharge returns the bytes32 memo and base-unit amount", async () => {
+    mockCreateInvoice.mockResolvedValue({});
+    const r = await rail.createCharge("u1", 500);
+    const i = r.instructions as Record<string, unknown>;
+    expect(i).toMatchObject({ chainId: 42431, token: TOKEN, payTo: RECIP, amount: "5000000" });
+    expect(memoToChargeId(i["memo"] as string)).toBe(r.chargeId);
   });
 
   it("verifyTempoSignature rejects malformed headers", () => {

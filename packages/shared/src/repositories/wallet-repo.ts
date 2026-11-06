@@ -362,6 +362,13 @@ export async function atomicCompleteInvoiceAndCredit(
   provider: string,
   paymentId: string,
   description: string,
+  /**
+   * Invoice states that may be claimed. Default pending only; a rail whose
+   * provider can report "paid" after "failed" for the same charge (Tempo)
+   * passes ["pending","failed"]. Claim + credit stay one transaction, and the
+   * claim moves the invoice to completed, so it can be credited at most once.
+   */
+  fromStatuses: ReadonlyArray<"pending" | "failed"> = ["pending"],
 ): Promise<{ claimed: boolean; transaction?: WalletTransaction }> {
   if (!Number.isInteger(amountCents) || amountCents <= 0 || amountCents > 2_147_483_647) {
     throw new Error("Credit amount must be a positive integer within valid range");
@@ -375,8 +382,8 @@ export async function atomicCompleteInvoiceAndCredit(
     // Step 1: Atomically claim the invoice (UPDATE WHERE status='pending')
     const claimResult = await client.query(
       `UPDATE payment_invoices SET status = 'completed'
-       WHERE id = $1 AND status = 'pending'`,
-      [invoiceId],
+       WHERE id = $1 AND status = ANY($2::text[])`,
+      [invoiceId, fromStatuses.filter((x) => x === "pending" || x === "failed")],
     );
     if ((claimResult.rowCount ?? 0) === 0) {
       // Already processed — idempotent return

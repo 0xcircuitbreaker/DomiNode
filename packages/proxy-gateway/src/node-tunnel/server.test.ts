@@ -33,7 +33,7 @@ afterEach(async () => {
   server = null;
 });
 
-async function start(opts: { policy?: Partial<ActivePolicy["body"]>; geo?: GeoInfo | null; heartbeatMs?: number; deadline?: number; activate?: (id: string) => Promise<boolean>; coordSign?: (m: Buffer) => string } = {}) {
+async function start(opts: { policy?: Partial<ActivePolicy["body"]>; geo?: GeoInfo | null; heartbeatMs?: number; deadline?: number; activate?: (id: string) => Promise<boolean>; coordSign?: (m: Buffer) => string; claimIpSlot?: (s: { nodeId: string }) => Promise<boolean>; releaseIpSlot?: (nodeId: string) => Promise<void> } = {}) {
   const policy: ActivePolicy = { version: 3, sha256: "f".repeat(64), body: { ...DEFAULT_POLICY, ...opts.policy }, createdAt: null };
   const online: string[] = [];
   const offline: string[] = [];
@@ -45,6 +45,8 @@ async function start(opts: { policy?: Partial<ActivePolicy["body"]>; geo?: GeoIn
     ...(opts.activate ? { activatePending: opts.activate } : {}),
     getPolicy: () => policy,
     ...(opts.coordSign ? { coordSign: opts.coordSign } : {}),
+    ...(opts.claimIpSlot ? { claimIpSlot: opts.claimIpSlot } : {}),
+    ...(opts.releaseIpSlot ? { releaseIpSlot: opts.releaseIpSlot } : {}),
     geoLookup: () => (opts.geo === undefined ? { country: "US", asn: 64500 } : opts.geo),
   }, { port: 0, host: "127.0.0.1", heartbeatMs: opts.heartbeatMs, handshakeDeadlineMs: opts.deadline });
   const port = await server.listen();
@@ -229,6 +231,42 @@ describe("NodeTunnelServer", () => {
     await b.opened;
     b.send(FrameType.HELLO, 0, hello(NODES[hashNodeKey(KEY_B)].id));
     expect(decodeControl((await b.waitFor(FrameType.AUTH_FAIL)).payload)).toEqual({ code: "IP_CAP" });
+  });
+
+  it("enforces fleet-wide caps via the shared slot store and releases on close", async () => {
+    let allow = false;
+    const released: string[] = [];
+    const claims: unknown[] = [];
+    const { port, registry } = await start({
+      claimIpSlot: async (s) => { claims.push(s); return allow; },
+      releaseIpSlot: async (id) => { released.push(id); },
+    });
+    const a = connect(port, KEY_A);
+    await a.opened;
+    a.send(FrameType.HELLO, 0, hello());
+    expect(decodeControl((await a.waitFor(FrameType.AUTH_FAIL)).payload)).toEqual({ code: "IP_CAP" });
+    expect(registry.size).toBe(0);
+    expect(claims[0]).toMatchObject({ ip: "127.0.0.1", asn: 64500, enforceAsn: true });
+    allow = true;
+    const b = connect(port, KEY_A);
+    await b.opened;
+    b.send(FrameType.HELLO, 0, hello());
+    await b.waitFor(FrameType.AUTH_OK);
+    b.ws.close();
+    await b.closed;
+    const end = Date.now() + 2000;
+    while (released.length === 0 && Date.now() < end) await new Promise((r) => setTimeout(r, 10));
+    expect(released).toEqual([NODES[hashNodeKey(KEY_A)].id]);
+  });
+
+  it("refuses unknown-ASN public peers only when requireAsn is set", async () => {
+    // Loopback peers are never public, so requireAsn must not affect them.
+    const { port } = await start({ geo: { country: "US", asn: null } });
+    (server as unknown as { opts: { requireAsn?: boolean } }).opts.requireAsn = true;
+    const a = connect(port, KEY_A);
+    await a.opened;
+    a.send(FrameType.HELLO, 0, hello());
+    await a.waitFor(FrameType.AUTH_OK);
   });
 
   it("rejects a HELLO with a mismatching nodeId", async () => {

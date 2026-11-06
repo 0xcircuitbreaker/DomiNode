@@ -1,5 +1,6 @@
 import * as net from "node:net";
 import { isBlockedCountry, createLogger } from "@dominusnode/shared";
+import { classifyAsn, HOSTING_ASNS, type AsnDb } from "./asn-db.js";
 
 const log = createLogger("proxy:geo");
 
@@ -87,17 +88,29 @@ export function checkSanctionedCountry(clientIp: string): string | null {
   return null;
 }
 
+let asnDb: AsnDb | null = null;
+let hostingAsns: ReadonlySet<number> = HOSTING_ASNS;
+
+/** Install the offline ASN database (null = unavailable) and hosting-ASN list. */
+export function setAsnDb(db: AsnDb | null, hosting: ReadonlySet<number> = HOSTING_ASNS): void {
+  asnDb = db;
+  hostingAsns = hosting;
+}
+
 /**
- * Country for a node's peer IP (tunnel auth). Returns null when geo data is
- * unavailable so the tunnel server fails closed for public peers. ASN and
- * ip_class are not in geoip-lite; they stay null until probes classify them.
+ * Country, ASN and ip_class for a node's peer IP (tunnel auth). Returns null
+ * when geo data is unavailable so the tunnel server fails closed for public
+ * peers. ASN comes from the offline ip2asn dataset (null when not loaded or
+ * the address is unrouted); ip_class is dc for known hosting ASNs, else
+ * residential, and null without an ASN (keeps any probe classification).
  */
-export function lookupPeerGeo(ip: string): { country: string | null; asn: number | null } | null {
+export function lookupPeerGeo(ip: string): { country: string | null; asn: number | null; ipClass: "dc" | "residential" | null } | null {
   if (!geoLookup) return null;
   try {
     const r = geoLookup(ip);
     if (!r || !r.country) return null;
-    return { country: r.country.toUpperCase(), asn: null };
+    const asn = asnDb ? asnDb.lookup(ip) : null;
+    return { country: r.country.toUpperCase(), asn, ipClass: asn === null ? null : (classifyAsn(asn, hostingAsns) as "dc" | "residential") };
   } catch {
     return null;
   }

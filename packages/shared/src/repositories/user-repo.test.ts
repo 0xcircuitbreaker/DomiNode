@@ -320,9 +320,30 @@ describe("user-repo", () => {
       mockQuery.mockResolvedValueOnce({ rows: [{ id: "u4", status: "suspended" }] });
       expect((await findOrCreateX402User(ADDR)).status).toBe("suspended");
     });
-    it("rejects non-EVM payers", async () => {
+    it("rejects payers that are neither EVM nor Solana", async () => {
       await expect(findOrCreateX402User("So1anaAddr")).rejects.toThrow(/EVM/);
+      await expect(findOrCreateX402User("0x" + "0".repeat(39))).rejects.toThrow(/EVM/);
       expect(mockQuery).not.toHaveBeenCalled();
+    });
+    const SOL = "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM";
+    it("reuses a Solana payer via payer_identities (case preserved, wallet_address untouched)", async () => {
+      mockQuery.mockResolvedValueOnce({ rows: [{ id: "s1", status: "active" }] });
+      expect(await findOrCreateX402User(SOL)).toEqual({ id: "s1", status: "active", created: false });
+      expect(mockQuery.mock.calls[0][0]).toMatch(/payer_identities/);
+      expect(mockQuery.mock.calls[0][1]).toEqual([SOL]);
+    });
+    it("creates user + identity atomically in one statement, never setting wallet_address", async () => {
+      mockQuery.mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [{ id: "s2", status: "active" }] });
+      expect(await findOrCreateX402User(SOL)).toEqual({ id: "s2", status: "active", created: true });
+      const [sql, params] = mockQuery.mock.calls[1];
+      expect(sql).toMatch(/INSERT INTO users[\s\S]*INSERT INTO payer_identities/);
+      expect(sql).not.toMatch(/wallet_address/);
+      expect(params[0]).toMatch(/^sol-[0-9a-f]{40}@wallet\.dominusnode\.com$/);
+      expect(params[2]).toBe(SOL);
+    });
+    it("collapses a concurrent Solana create onto the winner", async () => {
+      mockQuery.mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [{ id: "s3", status: "suspended" }] });
+      expect(await findOrCreateX402User(SOL)).toEqual({ id: "s3", status: "suspended", created: false });
     });
   });
 });

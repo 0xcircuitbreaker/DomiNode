@@ -162,6 +162,14 @@ export async function settleRelayCharge(i: SettleRelayChargeInput): Promise<Sett
     let selfDealing =
       node.owner_user_id === i.requesterUserId ||
       (!!i.requesterWallet && node.owner_wallet.toLowerCase() === i.requesterWallet.toLowerCase());
+    if (!selfDealing && i.requesterWallet && !i.requesterWallet.startsWith("0x")) {
+      // Non-EVM payer (Solana x402): self-dealing if that payer identity belongs to the node owner.
+      const pi = await client.query<{ one: number }>(
+        `SELECT 1 AS one FROM payer_identities WHERE address = $1 AND user_id = $2`,
+        [i.requesterWallet, node.owner_user_id],
+      );
+      selfDealing = pi.rows.length > 0;
+    }
     if (!selfDealing && i.requesterTeamId) {
       const tm = await client.query<{ one: number }>(
         `SELECT 1 AS one FROM team_members WHERE team_id = $1 AND user_id = $2`,

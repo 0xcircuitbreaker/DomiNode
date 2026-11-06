@@ -1507,6 +1507,51 @@ CREATE TABLE IF NOT EXISTS relay_settle_retries (
 );
 CREATE INDEX IF NOT EXISTS idx_relay_settle_retries_due ON relay_settle_retries(next_attempt_at) WHERE status = 'pending';
 
+-- ─── Shared relay limits across gateway instances (DESIGN.md §4, §11) ───
+-- node_ip_slots: one row per connected node, claimed at tunnel auth and
+-- released on disconnect. Rows whose instance stopped heartbeating expire.
+CREATE TABLE IF NOT EXISTS node_ip_slots (
+  node_id      UUID PRIMARY KEY REFERENCES nodes(id) ON DELETE CASCADE,
+  instance_id  TEXT NOT NULL CHECK (length(instance_id) BETWEEN 1 AND 64),
+  ip           INET NOT NULL,
+  prefix24     TEXT NOT NULL CHECK (length(prefix24) BETWEEN 1 AND 64),
+  asn          BIGINT CHECK (asn IS NULL OR asn BETWEEN 0 AND 4294967295),
+  heartbeat_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_node_ip_slots_ip ON node_ip_slots(ip);
+CREATE INDEX IF NOT EXISTS idx_node_ip_slots_prefix ON node_ip_slots(prefix24);
+CREATE INDEX IF NOT EXISTS idx_node_ip_slots_asn ON node_ip_slots(asn);
+CREATE INDEX IF NOT EXISTS idx_node_ip_slots_instance ON node_ip_slots(instance_id);
+
+-- requester_spend_daily: settled relay spend per requester per UTC day.
+CREATE TABLE IF NOT EXISTS requester_spend_daily (
+  user_id       UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  day           DATE NOT NULL,
+  settled_musd  BIGINT NOT NULL DEFAULT 0 CHECK (settled_musd >= 0 AND settled_musd <= 1000000000000000),
+  updated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (user_id, day)
+);
+CREATE INDEX IF NOT EXISTS idx_requester_spend_daily_day ON requester_spend_daily(day);
+
+-- requester_spend_inflight: per-instance in-flight reservations (expire with heartbeat).
+CREATE TABLE IF NOT EXISTS requester_spend_inflight (
+  user_id       UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  instance_id   TEXT NOT NULL CHECK (length(instance_id) BETWEEN 1 AND 64),
+  inflight_musd BIGINT NOT NULL DEFAULT 0 CHECK (inflight_musd >= 0 AND inflight_musd <= 1000000000000000),
+  heartbeat_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (user_id, instance_id)
+);
+CREATE INDEX IF NOT EXISTS idx_requester_spend_inflight_instance ON requester_spend_inflight(instance_id);
+
+-- requester_rate_window: per-second request counters (rows older than a minute are swept).
+CREATE TABLE IF NOT EXISTS requester_rate_window (
+  user_id  UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  sec      BIGINT NOT NULL CHECK (sec >= 0 AND sec <= 100000000000),
+  count    INTEGER NOT NULL DEFAULT 0 CHECK (count >= 0 AND count <= 1000000),
+  PRIMARY KEY (user_id, sec)
+);
+CREATE INDEX IF NOT EXISTS idx_requester_rate_window_sec ON requester_rate_window(sec);
+
 -- ─── node_payouts: 'held_frozen' (payouts held while the credit account is frozen) ───
 DO $$ BEGIN
   IF NOT EXISTS (
@@ -1519,3 +1564,15 @@ DO $$ BEGIN
       CHECK (status IN ('pending','held_tax','held_frozen','submitted','confirmed','failed','reversed'));
   END IF;
 END $$;
+
+-- ─── payer_identities: non-EVM x402 payers (e.g. Solana) → wallet-identity user ───
+-- users.wallet_address stays EVM-only (0x + 40 hex). A Solana payer maps to a
+-- synthetic wallet-identity user through this table instead.
+CREATE TABLE IF NOT EXISTS payer_identities (
+  chain       TEXT NOT NULL CHECK (chain IN ('solana')),
+  address     TEXT NOT NULL CHECK (length(address) BETWEEN 32 AND 44 AND address ~ '^[1-9A-HJ-NP-Za-km-z]+$'),
+  user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (chain, address)
+);
+CREATE INDEX IF NOT EXISTS idx_payer_identities_user ON payer_identities(user_id);

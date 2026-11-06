@@ -17,6 +17,8 @@ export interface VerifyResult {
   paymentHash: string;
   amountMusd?: bigint;
   reason?: string;
+  /** Single-use proof reference (MPP: chain + tx hash). */
+  txRef?: string;
   /** Rail-specific context needed by settle (e.g. the x402 facilitator). */
   facilitator?: X402Facilitator;
 }

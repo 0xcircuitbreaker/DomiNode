@@ -38,3 +38,6 @@ target/
 
 # TypeScript incremental
 *.tsbuildinfo
+
+# Downloaded IP-to-ASN dataset (scripts/update-asn-db.sh)
+/data/ip2asn-*.tsv*

@@ -129,6 +129,18 @@ describe("relay-charge-repo", () => {
     expect(res.zeroReason).toBe("self_dealing");
   });
 
+  it("zeroes node share when a Solana payer identity belongs to the node owner", async () => {
+    const SOL = "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM";
+    const r = setup([
+      [/FROM nodes WHERE id/, () => nodeRow()],
+      [/FROM payer_identities/, () => ({ rows: [{ one: 1 }] })],
+      [/INSERT INTO relay_charges/, () => ({ rows: [{ id: "rcs" }] })],
+    ]);
+    const res = await settleRelayCharge({ ...base, rail: "x402", reservedCents: 0, prepaidGrossMusd: 500_000n, requesterWallet: SOL });
+    expect(res.zeroReason).toBe("self_dealing");
+    expect(r.calls.find((c) => /payer_identities/.test(c.sql))!.params).toEqual([SOL, "own"]);
+  });
+
   it("rejects dest with a path and rolls back on missing node", async () => {
     await expect(settleRelayCharge({ ...base, destHost: "a.com/secret" })).rejects.toThrow(/bare hostname/);
     const r = setup([[/FROM wallets WHERE user_id/, () => ({ rows: [{ id: "w1", balance_cents: 1000 }] })]]);

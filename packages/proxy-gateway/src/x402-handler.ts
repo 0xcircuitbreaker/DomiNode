@@ -11,8 +11,9 @@ import {
   hashPaymentHeader,
   getX402MaxResponseBytes,
   usdStringToMusd,
+  mppRailFromEnv,
 } from "@dominusnode/billing";
-import type { X402Facilitator } from "@dominusnode/billing";
+import type { X402Facilitator, MppRail, VerifyResult } from "@dominusnode/billing";
 
 const log = createLogger("proxy:x402");
 
@@ -148,7 +149,7 @@ async function resolvePayer(payer: string): Promise<PayerResolution> {
   } catch (err) {
     const msg = err instanceof Error ? err.message : "";
     if (msg.includes("EVM address")) {
-      return { ok: false, status: 402, code: "X402_PAYER_UNSUPPORTED", message: "The relay network accepts x402 payments from EVM payers only" };
+      return { ok: false, status: 402, code: "X402_PAYER_UNSUPPORTED", message: "The relay network accepts payments from EVM or Solana payers only" };
     }
     log.error("x402 payer mapping failed", { error: msg.slice(0, 120) });
     return { ok: false, status: 503, code: "SERVICE_UNAVAILABLE", message: "Payment identity temporarily unavailable" };
@@ -177,11 +178,17 @@ function maxPaidMusd(q: X402Quote): bigint {
 // ─── Pending (verified, unsettled) payments ─────────────────────────
 
 export interface X402Pending {
+  /** Per-request rail that took the payment (relay_charges.payment_rail). */
+  rail: "x402" | "mpp";
   /** Raw header; needed to settle. Cleared once settled or released. */
   paymentHeader: string;
   payHash: string;
-  facilitator: X402Facilitator;
-  requirements: ReturnType<typeof buildX402Requirements>;
+  /** x402 only. */
+  facilitator?: X402Facilitator;
+  /** x402 only. */
+  requirements?: ReturnType<typeof buildX402Requirements>;
+  /** MPP only: the verified result handed to the rail's settle(). */
+  mppVerified?: VerifyResult;
   payer: string;
   amountUsd: string;
   poolType: "dc" | "residential";
@@ -199,7 +206,7 @@ function makePending(
   paidMusd: bigint,
 ): X402Pending {
   return {
-    paymentHeader, payHash: hashPaymentHeader(paymentHeader), facilitator: v.facilitator, requirements,
+    rail: "x402", paymentHeader, payHash: hashPaymentHeader(paymentHeader), facilitator: v.facilitator, requirements,
     payer: v.payer, amountUsd: v.amountUsd, poolType, userId, paidMusd, state: "verified",
   };
 }
@@ -209,7 +216,8 @@ export async function releaseX402Pending(p: X402Pending | undefined): Promise<vo
   if (!p || p.state !== "verified") return;
   p.state = "released";
   p.paymentHeader = "";
-  await releasePaymentHash(p.payHash).catch(() => {});
+  if (p.rail === "mpp") await getMppRail().release(p.payHash).catch(() => {});
+  else await releasePaymentHash(p.payHash).catch(() => {});
 }
 
 /**
@@ -218,9 +226,10 @@ export async function releaseX402Pending(p: X402Pending | undefined): Promise<vo
  */
 export async function settleX402Pending(p: X402Pending): Promise<boolean> {
   if (p.state !== "verified") return p.state === "settled";
+  if (p.rail === "mpp") return settleMppPending(p);
   let settlement: { txHash: string };
   try {
-    settlement = await settleX402Payment(p.paymentHeader, p.facilitator, p.requirements);
+    settlement = await settleX402Payment(p.paymentHeader, p.facilitator!, p.requirements!);
   } catch (err) {
     log.error("x402 settlement failed — rejecting request", {
       payer: p.payer.slice(0, 10) + "...",
@@ -233,7 +242,7 @@ export async function settleX402Pending(p: X402Pending): Promise<boolean> {
   p.state = "settled";
   p.paymentHeader = "";
   await updateX402Transaction(
-    p.payHash, p.facilitator, p.payer, p.amountUsd, settlement.txHash, p.poolType, "unknown", "settled",
+    p.payHash, p.facilitator!, p.payer, p.amountUsd, settlement.txHash, p.poolType, "unknown", "settled",
   ).catch(e => log.error("failed to update x402 tx", { error: e instanceof Error ? e.message : String(e) }));
   log.info("x402 payment settled", {
     payer: p.payer.slice(0, 10) + "...", amountUsd: p.amountUsd, facilitator: p.facilitator, poolType: p.poolType,
@@ -255,8 +264,8 @@ export async function refundX402Payer(p: X402Pending, reason: string): Promise<b
       await walletRepo.createWallet(p.userId).catch(() => undefined); // raced create is fine
     }
     await walletRepo.creditWallet(
-      p.userId, Math.max(1, cents), "x402", `x402-refund:${p.payHash}`,
-      `x402 refund: ${reason.slice(0, 80)}`,
+      p.userId, Math.max(1, cents), p.rail, `${p.rail}-refund:${p.payHash}`,
+      `${p.rail} refund: ${reason.slice(0, 80)}`,
     );
     log.warn("x402 payment refunded to wallet", { payer: p.payer.slice(0, 10) + "...", cents, reason });
     return true;
@@ -280,6 +289,7 @@ export async function handleX402Http(
   req: http.IncomingMessage,
   res: http.ServerResponse,
 ): Promise<boolean> {
+  if (!req.headers["x-payment"] && hasMppCredential(req.headers)) return handleMppHttp(req, res);
   if (!isX402Enabled()) return false;
 
   const paymentHeader = req.headers["x-payment"] as string | undefined;
@@ -371,6 +381,7 @@ export async function handleX402Http(
   const paidMusd = usdStringToMusd(verifyResult.amountUsd)!;
   (req as any).__x402 = {
     verified: true,
+    rail: "x402",
     payer: verifyResult.payer,
     userId: who.userId,
     amountUsd: verifyResult.amountUsd,
@@ -402,6 +413,8 @@ export async function settleX402HttpRequest(
 // ─── CONNECT x402 Handler ───────────────────────────────────────────
 
 export interface X402ConnectResult {
+  /** Rail that verified the payment; absent means x402. */
+  rail?: "x402" | "mpp";
   handled: boolean;
   verified: boolean;
   payer: string;
@@ -426,6 +439,7 @@ export async function handleX402Connect(
   req: http.IncomingMessage,
   clientSocket: net.Socket,
 ): Promise<X402ConnectResult | null> {
+  if (!req.headers["x-payment"] && hasMppCredential(req.headers)) return handleMppConnect(req, clientSocket);
   if (!isX402Enabled()) return null;
 
   const paymentHeader = req.headers["x-payment"] as string | undefined;
@@ -507,6 +521,7 @@ export async function handleX402Connect(
   // Verified only: the tunnel handler settles once the relay stream is open.
   const connPaidMusd = usdStringToMusd(verifyResult.amountUsd)!;
   return {
+    rail: "x402",
     handled: true,
     verified: true,
     payer: verifyResult.payer,
@@ -541,33 +556,42 @@ export async function settleX402ConnectRequest(
  * INSUFFICIENT_BALANCE errors.
  */
 export function build402ResponseBody(poolType?: "dc" | "residential"): string {
-  if (!isX402Enabled()) {
+  const mpp = advertisedMppChallenge(poolType ?? "dc");
+  if (!isX402Enabled() && !mpp) {
     return "Insufficient balance. Top up your wallet at the Dominus Node dashboard.";
   }
-
-  const requirements = advertisedRequirements(poolType ?? "dc");
   return JSON.stringify({
     error: "INSUFFICIENT_BALANCE",
-    message: "Insufficient balance. Pay with x402 micropayment or top up your wallet.",
-    x402: requirements,
+    message: "Insufficient balance. Pay per request (x402 or MPP) or top up your wallet.",
+    ...(isX402Enabled() ? { x402: advertisedRequirements(poolType ?? "dc") } : {}),
+    ...(mpp ? { mpp: { method: mpp.method, intent: mpp.intent, realm: mpp.realm, expires: mpp.expires, wwwAuthenticate: mpp.header } } : {}),
   });
+}
+
+/**
+ * Extra headers for a 402: the MPP `WWW-Authenticate: Payment` challenge when
+ * MPP is configured (draft-ryan-httpauth-payment §5.1; 402s carry no-store).
+ */
+export function paymentChallengeHeaders(poolType?: "dc" | "residential"): Record<string, string> {
+  const mpp = advertisedMppChallenge(poolType ?? "dc");
+  return mpp ? { "WWW-Authenticate": mpp.header, "Cache-Control": "no-store" } : {};
+}
+
+function challengeHeaderLines(h: Record<string, string>): string {
+  return Object.entries(h).map(([k, v]) => `${k}: ${v}\r\n`).join("");
 }
 
 /**
  * Build a 402 CONNECT response with x402 requirements.
  */
 export function build402ConnectResponse(poolType?: "dc" | "residential"): string {
-  if (!isX402Enabled()) {
+  if (!isX402Enabled() && !getMppRail().enabled()) {
     return "HTTP/1.1 402 Payment Required\r\nX-DominusNode-Error: INSUFFICIENT_BALANCE\r\n\r\n";
   }
 
-  const body = JSON.stringify({
-    error: "INSUFFICIENT_BALANCE",
-    message: "Insufficient balance. Pay with x402 micropayment or top up your wallet.",
-    x402: advertisedRequirements(poolType ?? "dc"),
-  });
-
-  return `HTTP/1.1 402 Payment Required\r\nContent-Type: application/json\r\nContent-Length: ${Buffer.byteLength(body)}\r\nX-DominusNode-Error: INSUFFICIENT_BALANCE\r\n\r\n${body}`;
+  const body = build402ResponseBody(poolType);
+  const extra = challengeHeaderLines(paymentChallengeHeaders(poolType));
+  return `HTTP/1.1 402 Payment Required\r\nContent-Type: application/json\r\nContent-Length: ${Buffer.byteLength(body)}\r\n${extra}X-DominusNode-Error: INSUFFICIENT_BALANCE\r\n\r\n${body}`;
 }
 
 /**
@@ -581,6 +605,7 @@ export function isX402Verified(req: http.IncomingMessage): boolean {
  * Get x402 data from a verified request.
  */
 export function getX402Data(req: http.IncomingMessage): {
+  rail: "x402" | "mpp";
   payer: string;
   amountUsd: string;
   facilitator: X402Facilitator;
@@ -594,6 +619,7 @@ export function getX402Data(req: http.IncomingMessage): {
   const data = (req as any).__x402;
   if (!data?.verified) return null;
   return {
+    rail: data.rail === "mpp" ? "mpp" : "x402",
     payer: data.payer,
     amountUsd: data.amountUsd,
     facilitator: data.facilitator,
@@ -603,5 +629,148 @@ export function getX402Data(req: http.IncomingMessage): {
     amountMusd: data.amountMusd,
     pricePerGbMusd: data.pricePerGbMusd,
     pending: data.pending,
+  };
+}
+
+// ─── MPP (Machine Payments Protocol, Tempo charge) ──────────────────
+//
+// Same ordering as x402: verify (claims the on-chain proof) → payer identity →
+// [caller: select node / lock snapshot / open stream] → settle → relay.
+// A post-settle failure refunds the payer's wallet-identity user.
+
+let mppRail: MppRail | null = null;
+/** Lazily built from env (MPP_* vars); disabled unless fully configured. */
+export function getMppRail(): MppRail {
+  return (mppRail ??= mppRailFromEnv());
+}
+/** Test hook. */
+export function setMppRailForTest(r: MppRail | null): void {
+  mppRail = r;
+}
+
+export function hasMppCredential(h: http.IncomingHttpHeaders): boolean {
+  const r = getMppRail();
+  return r.enabled() && r.parseHeader(h) !== null;
+}
+
+/** Lowercase EVM payers; keep case-sensitive (Solana base58) payers as-is. */
+export function normalizePayer(p: string): string {
+  return /^0x/i.test(p) ? p.toLowerCase() : p;
+}
+
+function advertisedMppChallenge(poolType: "dc" | "residential") {
+  const r = getMppRail();
+  if (!r.enabled()) return null;
+  quote(poolType).catch(() => undefined);
+  const q = lastQuote.get(poolType);
+  return q ? r.challenge(q.amountMusd) : null;
+}
+
+function musdToUsd(m: bigint): string {
+  return `${m / 1_000_000n}.${(m % 1_000_000n).toString().padStart(6, "0")}`;
+}
+
+type MppOutcome =
+  | { ok: false; status: number; code: string; message: string; challenge?: string }
+  | { ok: true; q: X402Quote; pending: X402Pending };
+
+async function verifyMppRequest(req: http.IncomingMessage): Promise<MppOutcome> {
+  const rail = getMppRail();
+  const cred = rail.parseHeader(req.headers);
+  if (!cred) return { ok: false, status: 402, code: "MPP_PAYMENT_INVALID", message: "malformed-credential" };
+  const clientIp = (req.socket?.remoteAddress ?? "").replace(/^::ffff:/, "");
+  if (clientIp && !checkX402RateLimit(`ip:${clientIp}`)) {
+    return { ok: false, status: 429, code: "X402_RATE_LIMITED", message: "Too many paid requests from this IP. Please wait." };
+  }
+  const poolType = getPoolTypeFromRequest(req);
+  let q: X402Quote;
+  try {
+    q = await quote(poolType);
+  } catch {
+    return { ok: false, status: 503, code: "SERVICE_UNAVAILABLE", message: "Pricing temporarily unavailable" };
+  }
+  const fresh = () => rail.challenge(q.amountMusd)?.header;
+  const v = await rail.verify(cred, { amountMusd: q.amountMusd, resource: "relay" });
+  if (!v.ok || !v.payer || v.amountMusd === undefined) {
+    log.warn("mpp payment verification failed", { reason: (v.reason ?? "").slice(0, 80) });
+    return { ok: false, status: 402, code: "MPP_PAYMENT_INVALID", message: v.reason ?? "verification-failed", challenge: fresh() };
+  }
+  const release = () => rail.release(v.paymentHash).catch(() => {});
+  if (v.amountMusd < q.amountMusd || v.amountMusd > maxPaidMusd(q)) {
+    await release();
+    return { ok: false, status: 402, code: "MPP_PAYMENT_INVALID", message: "payment-insufficient", challenge: fresh() };
+  }
+  const who = await resolvePayer(v.payer);
+  if (!who.ok) {
+    await release();
+    return { ok: false, status: who.status, code: who.code, message: who.message };
+  }
+  if (!checkX402RateLimit(`payer:${v.payer}`)) {
+    await release();
+    return { ok: false, status: 429, code: "X402_RATE_LIMITED", message: "Too many paid requests from this payer. Please wait." };
+  }
+  const pending: X402Pending = {
+    rail: "mpp", paymentHeader: "", payHash: v.paymentHash, mppVerified: v, payer: v.payer,
+    amountUsd: musdToUsd(v.amountMusd), poolType, userId: who.userId, paidMusd: v.amountMusd, state: "verified",
+  };
+  return { ok: true, q, pending };
+}
+
+async function settleMppPending(p: X402Pending): Promise<boolean> {
+  const rail = getMppRail();
+  let r: { ok: boolean; txRef?: string };
+  try {
+    r = await rail.settle("", { amountMusd: p.paidMusd, resource: "relay" }, p.mppVerified ?? { ok: false, paymentHash: p.payHash });
+  } catch {
+    r = { ok: false };
+  }
+  if (!r.ok) {
+    log.error("mpp settlement failed — rejecting request", { payer: p.payer.slice(0, 10) + "..." });
+    await releaseX402Pending(p);
+    return false;
+  }
+  p.state = "settled";
+  log.info("mpp payment settled", { payer: p.payer.slice(0, 10) + "...", amountUsd: p.amountUsd, poolType: p.poolType });
+  return true;
+}
+
+async function handleMppHttp(req: http.IncomingMessage, res: http.ServerResponse): Promise<boolean> {
+  const o = await verifyMppRequest(req);
+  if (!o.ok) {
+    const h: Record<string, string> = { "Content-Type": "application/json", "X-DominusNode-Error": o.code };
+    if (o.status === 402) h["Cache-Control"] = "no-store";
+    if (o.challenge) h["WWW-Authenticate"] = o.challenge;
+    if (o.status === 429 || o.status === 503) h["Retry-After"] = o.status === 429 ? "60" : "30";
+    res.writeHead(o.status, h);
+    res.end(JSON.stringify({ error: o.code, message: o.message }));
+    return true;
+  }
+  const p = o.pending;
+  (req as any).__x402 = {
+    verified: true, rail: "mpp", payer: p.payer, userId: p.userId, amountUsd: p.amountUsd, amountMusd: p.paidMusd,
+    pricePerGbMusd: o.q.pricePerGbMusd, facilitator: undefined, poolType: p.poolType, settled: false,
+    maxResponseBytes: paidByteCap(o.q, p.paidMusd), pending: p,
+  };
+  return true;
+}
+
+async function handleMppConnect(req: http.IncomingMessage, clientSocket: net.Socket): Promise<X402ConnectResult> {
+  const o = await verifyMppRequest(req);
+  if (!o.ok) {
+    const lines = [`HTTP/1.1 ${o.status} ${http.STATUS_CODES[o.status] ?? "Error"}`, `X-DominusNode-Error: ${o.code}`];
+    if (o.status === 402) lines.push("Cache-Control: no-store");
+    if (o.challenge) lines.push(`WWW-Authenticate: ${o.challenge}`);
+    if (o.status === 429) lines.push("Retry-After: 60");
+    if (!clientSocket.destroyed) {
+      clientSocket.write(lines.join("\r\n") + "\r\n\r\n");
+      clientSocket.end();
+    }
+    return { rail: "mpp", handled: true, verified: false, payer: "", facilitator: "coinbase", poolType: "dc", paymentHeader: "", amountUsd: "0", maxResponseBytes: 0 };
+  }
+  const p = o.pending;
+  return {
+    rail: "mpp", handled: true, verified: true, payer: p.payer, facilitator: "coinbase", poolType: p.poolType, paymentHeader: "",
+    amountUsd: p.amountUsd, maxResponseBytes: paidByteCap(o.q, p.paidMusd), userId: p.userId, amountMusd: p.paidMusd,
+    pricePerGbMusd: o.q.pricePerGbMusd, pending: p,
   };
 }

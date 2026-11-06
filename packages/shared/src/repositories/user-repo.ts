@@ -1,6 +1,6 @@
 import { query, getPool } from "../db.js";
 import { hashPassword } from "../auth.js";
-import { randomBytes } from "node:crypto";
+import { randomBytes, createHash } from "node:crypto";
 import type { User, ApiKey } from "../types.js";
 
 export async function createUser(
@@ -330,6 +330,40 @@ export async function consumePasswordResetToken(tokenHash: string): Promise<{ us
 }
 
 const EVM_ADDRESS_RE = /^0x[0-9a-f]{40}$/;
+/** Solana base58 public key (32 bytes → 32..44 base58 chars). Case-sensitive. */
+export const SOLANA_ADDRESS_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
+
+/**
+ * Solana x402 payer → wallet-identity user via payer_identities (users.wallet_address
+ * stays EVM-only). User + identity are inserted in ONE statement, so either both
+ * exist or neither; a concurrent create collapses on the deterministic email
+ * (base58 is case-sensitive, so the email carries a hash, not the address).
+ */
+async function findOrCreateSolanaPayerUser(addr: string): Promise<{ id: string; status: string; created: boolean }> {
+  const find = async () => (await query<{ id: string; status: string }>(
+    `SELECT u.id, u.status FROM payer_identities p JOIN users u ON u.id = p.user_id
+     WHERE p.chain = 'solana' AND p.address = $1`, [addr],
+  )).rows[0];
+  const existing = await find();
+  if (existing) return { ...existing, created: false };
+  const unusable = await hashPassword(randomBytes(64).toString("hex"));
+  const email = `sol-${createHash("sha256").update(addr).digest("hex").slice(0, 40)}@wallet.dominusnode.com`;
+  const ins = await query<{ id: string; status: string }>(
+    `WITH u AS (
+       INSERT INTO users (email, password_hash, email_verified) VALUES ($1, $2, true)
+       ON CONFLICT DO NOTHING RETURNING id, status
+     ), p AS (
+       INSERT INTO payer_identities (chain, address, user_id) SELECT 'solana', $3, id FROM u
+       ON CONFLICT DO NOTHING RETURNING user_id
+     )
+     SELECT u.id, u.status FROM u JOIN p ON p.user_id = u.id`,
+    [email, unusable, addr],
+  );
+  if (ins.rows[0]) return { ...ins.rows[0], created: true };
+  const raced = await find();
+  if (!raced) throw new Error("x402 payer identity conflict");
+  return { ...raced, created: false };
+}
 
 /**
  * x402 payer → wallet-identity user (DESIGN.md §7): reuse the user bound to
@@ -339,8 +373,9 @@ const EVM_ADDRESS_RE = /^0x[0-9a-f]{40}$/;
  * Only EVM payers can be mapped (users.wallet_address is 0x + 40 hex).
  */
 export async function findOrCreateX402User(payer: string): Promise<{ id: string; status: string; created: boolean }> {
+  if (typeof payer === "string" && SOLANA_ADDRESS_RE.test(payer)) return findOrCreateSolanaPayerUser(payer);
   const addr = typeof payer === "string" ? payer.toLowerCase() : "";
-  if (!EVM_ADDRESS_RE.test(addr)) throw new Error("x402 payer must be an EVM address");
+  if (!EVM_ADDRESS_RE.test(addr)) throw new Error("x402 payer must be an EVM address or a Solana address");
   const find = async () => (await query<{ id: string; status: string }>(
     `SELECT id, status FROM users WHERE wallet_address = $1`, [addr],
   )).rows[0];
