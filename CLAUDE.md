@@ -110,6 +110,8 @@ After EVERY mistake or correction:
 
 - **NEVER** add `Co-Authored-By:` trailers referencing Claude, Anthropic, or any AI tool
 - Commit messages: subject line + optional body describing the change — nothing else
+- PR titles/descriptions, issue and review comments: NO "Generated with Claude Code" footer, no Claude session links, no AI attribution of any kind
+- Commit/PR author is the repo owner's git identity only; branch names read like a human engineer's (e.g. `feat/…`, `fix/…`), never AI-named
 
 ## Proxy Usage
 
