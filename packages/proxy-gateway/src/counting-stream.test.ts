@@ -209,6 +209,7 @@ describe("proxy-gateway/counting-stream", () => {
       counter.onLimitExceeded = onLimit;
       const received: Buffer[] = [];
       upstream.on("data", (c: Buffer) => received.push(c));
+      upstream.resume(); // what pipe() does
       upstream.push(Buffer.from("12345678"));
       upstream.push(Buffer.from("abcdefgh"));
       await new Promise((r) => setImmediate(r));
@@ -235,6 +236,25 @@ describe("proxy-gateway/counting-stream", () => {
       expect(counter.bytesIn).toBe(4);
       expect(counter.bytesOut).toBe(2);
       expect(counter.onLimitExceeded).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe("early upstream data", () => {
+    it("buffers upstream data until piped so it is delivered, not counted and dropped", async () => {
+      const { PassThrough } = await import("node:stream");
+      const client = new PassThrough();
+      const upstream = new PassThrough();
+      const counter = attachByteCounters(client as any, upstream as any);
+      upstream.write(Buffer.from("early-response"));
+      await new Promise((r) => setImmediate(r));
+      expect(counter.bytesOut).toBe(0);
+      const sink = new PassThrough();
+      const received: Buffer[] = [];
+      sink.on("data", (c: Buffer) => received.push(c));
+      upstream.pipe(sink);
+      await new Promise((r) => setImmediate(r));
+      expect(Buffer.concat(received).toString()).toBe("early-response");
+      expect(counter.bytesOut).toBe(14);
     });
   });
 });

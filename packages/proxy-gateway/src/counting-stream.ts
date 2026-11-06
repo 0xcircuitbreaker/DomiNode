@@ -90,6 +90,10 @@ export function attachByteCounters(
     counter.bytesOut += chunk.length;
     checkLimit();
   });
+  // Same for the upstream: bytes the node sends before psStream.pipe(client)
+  // (e.g. during the startSession await) stay buffered instead of being
+  // counted and emitted to nobody.
+  if (typeof (upstreamSocket as Readable).pause === "function") (upstreamSocket as Readable).pause();
 
   return counter;
 }
