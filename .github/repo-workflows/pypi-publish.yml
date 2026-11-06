@@ -5,7 +5,8 @@
 #            dominusnode-agno, dominusnode-camel-ai, dominusnode-composio,
 #            dominusnode-dify, dominusnode-haystack, dominusnode-ironclaw,
 #            dominusnode-metagpt, dominusnode-moltbook, dominusnode-pydantic-ai,
-#            dominusnode-semantic-kernel, dominusnode-superagi
+#            dominusnode-semantic-kernel, dominusnode-superagi, dominusnode-langflow,
+#            dominusnode-taskweaver
 
 name: Publish to PyPI
 

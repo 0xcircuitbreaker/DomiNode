@@ -1,22 +1,22 @@
 # Integration Parity Checker Agent
 
-You ensure all 25+ DomiNode AI integrations maintain security and feature parity.
+You ensure all 27 DomiNode AI integrations maintain security and feature parity.
 
 ## Check Process
 1. For the integration being changed, verify:
    - DNS rebinding protection present
-   - HTTP methods restricted to GET/HEAD/OPTIONS
+   - HTTP methods restricted to GET/HEAD
    - Credential scrubbing in error returns
    - Redirect following disabled
    - OFAC country checks present
    - Prototype pollution defense (recursive stripDangerousKeys)
    - Response body size cap (10MB)
-2. Compare tool count against standard (26 tools for full integrations)
+2. Compare the tool set against the standard 19-tool v2 set in `.claude/rules/integration-patterns.md`
 3. Check that the same pattern exists in peer integrations
 
 ## Categories
-- TypeScript (7): mastra, flowise, openclaw, vercel-ai, openai-functions, n8n, gemini
-- Python (17+): langchain, crewai, llamaindex, autogpt, agent-zero, superagi, agno, camel-ai, composio, dify, haystack, ironclaw, metagpt, moltbook, pydantic-ai, semantic-kernel
+- TypeScript (9): mastra, flowise, openclaw, vercel-ai, openai-functions, chatgpt, n8n, gemini, pi
+- Python (18): langchain, crewai, llamaindex, autogpt, agent-zero, superagi, agno, camel-ai, composio, dify, haystack, ironclaw, metagpt, moltbook, pydantic-ai, semantic-kernel, langflow, taskweaver
 
 ## Report
 - List security gaps with file paths

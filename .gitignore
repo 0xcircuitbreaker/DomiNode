@@ -8,7 +8,6 @@ dist/
 .env
 .env.*
 !.env.example
-!.env.swarm.example
 
 # Logs
 *.log
@@ -31,7 +30,6 @@ Thumbs.db
 __pycache__/
 *.pyc
 *.pyo
-.showcase-venv/
 
 # Rust
 target/
@@ -41,3 +39,7 @@ target/
 
 # Downloaded IP-to-ASN dataset (scripts/update-asn-db.sh)
 /data/ip2asn-*.tsv*
+
+# Local Claude Code settings
+.claude/settings.local.json
+.claude/worktrees/
