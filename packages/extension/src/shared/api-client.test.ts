@@ -1,170 +1,63 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { apiGet, apiPost, setApiBase, getApiBase } from "./api-client.js";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { apiRequest, fmtMusd, isNodeOnline } from "./api-client.js";
+import { scrubCredentials } from "./scrub.js";
+import { normalizeSettings, validateSettingsPatch } from "./settings.js";
 
-describe("api-client", () => {
-  const originalFetch = globalThis.fetch;
+afterEach(() => vi.unstubAllGlobals());
 
-  beforeEach(() => {
-    // Reset API base to default for each test
-    setApiBase("http://localhost:3000");
+describe("apiRequest", () => {
+  it("strips prototype-pollution keys from responses", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response('{"a":1,"__proto__":{"x":1},"n":{"constructor":{"y":1}}}')));
+    const r = await apiRequest<Record<string, unknown>>("https://api.example.com", "/v1/pricing");
+    expect(r).toEqual({ a: 1, n: {} });
   });
 
-  afterEach(() => {
-    globalThis.fetch = originalFetch;
-    vi.restoreAllMocks();
+  it("caps response size", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("x".repeat(3 * 1024 * 1024))));
+    await expect(apiRequest("https://api.example.com", "/v1/pricing")).rejects.toThrow(/too large/);
   });
 
-  describe("setApiBase / getApiBase", () => {
-    it("sets and retrieves the API base URL", () => {
-      setApiBase("https://api.example.com");
-      expect(getApiBase()).toBe("https://api.example.com");
-    });
-
-    it("trims trailing slash", () => {
-      setApiBase("https://api.example.com/");
-      expect(getApiBase()).toBe("https://api.example.com");
-    });
-
-    it("rejects non-HTTPS for non-local hosts", () => {
-      expect(() => setApiBase("http://api.example.com")).toThrow(
-        "API base URL must use HTTPS for non-local hosts",
-      );
-    });
-
-    it("allows HTTP for localhost", () => {
-      setApiBase("http://localhost:3000");
-      expect(getApiBase()).toBe("http://localhost:3000");
-    });
-
-    it("allows HTTP for 127.0.0.1", () => {
-      setApiBase("http://127.0.0.1:3000");
-      expect(getApiBase()).toBe("http://127.0.0.1:3000");
-    });
+  it("scrubs credentials echoed in server errors", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response('{"error":"bad key dn_live_abcdefgh123 / dn_node_zzzzzzzz"}', { status: 401 })));
+    const err = (await apiRequest("https://api.example.com", "/v1/credits").catch((e: unknown) => e)) as Error;
+    expect(err.message).not.toMatch(/dn_live_|dn_node_/);
+    expect(err.message).toContain("[REDACTED]");
   });
 
-  describe("apiPost", () => {
-    it("sends POST with correct headers and JSON body", async () => {
-      const mockResponse = { token: "abc123", userId: "u1" };
-      globalThis.fetch = vi.fn().mockResolvedValue({
-        ok: true,
-        status: 200,
-        headers: { get: () => null },
-        text: () => Promise.resolve(JSON.stringify(mockResponse)),
-      });
+  it("refuses redirects and traversal paths", async () => {
+    const f = vi.fn(async () => new Response("{}"));
+    vi.stubGlobal("fetch", f);
+    await expect(apiRequest("https://api.example.com", "/../x")).rejects.toThrow(/Invalid API path/);
+    await apiRequest("https://api.example.com", "/v1/pricing");
+    expect((f.mock.calls[0] as unknown[])[1]).toMatchObject({ redirect: "error", credentials: "omit" });
+  });
+});
 
-      const result = await apiPost<typeof mockResponse>("/api/auth/login", {
-        email: "test@example.com",
-        password: "secret",
-      });
-
-      expect(result).toEqual(mockResponse);
-      expect(fetch).toHaveBeenCalledWith("http://localhost:3000/api/auth/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: "test@example.com", password: "secret" }),
-        redirect: "error",
-        signal: expect.any(AbortSignal),
-      });
-    });
-
-    it("includes Authorization header when token is provided", async () => {
-      globalThis.fetch = vi.fn().mockResolvedValue({
-        ok: true,
-        status: 200,
-        headers: { get: () => null },
-        text: () => Promise.resolve(JSON.stringify({ success: true })),
-      });
-
-      await apiPost("/api/auth/logout", {}, "my-jwt-token");
-
-      expect(fetch).toHaveBeenCalledWith(
-        "http://localhost:3000/api/auth/logout",
-        expect.objectContaining({
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: "Bearer my-jwt-token",
-          },
-        }),
-      );
-    });
-
-    it("returns undefined for 204 No Content responses", async () => {
-      globalThis.fetch = vi.fn().mockResolvedValue({
-        ok: false,
-        status: 204,
-        json: () => Promise.resolve(null),
-      });
-
-      const result = await apiPost("/api/auth/logout", {});
-      expect(result).toBeUndefined();
-    });
-
-    it("throws error with message from error response body", async () => {
-      globalThis.fetch = vi.fn().mockResolvedValue({
-        ok: false,
-        status: 401,
-        statusText: "Unauthorized",
-        headers: { get: () => null },
-        text: () => Promise.resolve(JSON.stringify({ error: "Invalid credentials" })),
-      });
-
-      await expect(apiPost("/api/auth/login", {})).rejects.toThrow("Invalid credentials");
-    });
-
-    it("throws statusText when error response body cannot be parsed", async () => {
-      globalThis.fetch = vi.fn().mockResolvedValue({
-        ok: false,
-        status: 500,
-        statusText: "Internal Server Error",
-        headers: { get: () => null },
-        text: () => Promise.resolve("not valid json {{{"),
-      });
-
-      await expect(apiPost("/api/test", {})).rejects.toThrow("Internal Server Error");
-    });
+describe("helpers", () => {
+  it("scrubCredentials covers live/test/node/proxy keys and JWTs", () => {
+    const s = scrubCredentials("dn_live_a1 dn_test_b2 dn_node_c3 dn_proxy_d4 eyJhbGciOiJ.eyJzdWIiOiI.abc");
+    expect(s).toBe("[REDACTED] [REDACTED] [REDACTED] [REDACTED] [REDACTED]");
   });
 
-  describe("apiGet", () => {
-    it("sends GET with Authorization header when token provided", async () => {
-      const mockData = { balance: 5000 };
-      globalThis.fetch = vi.fn().mockResolvedValue({
-        ok: true,
-        status: 200,
-        headers: { get: () => null },
-        text: () => Promise.resolve(JSON.stringify(mockData)),
-      });
+  it("formats µUSD", () => {
+    expect(fmtMusd("500000")).toBe("$0.50");
+    expect(fmtMusd("1234567")).toBe("$1.234567");
+    expect(fmtMusd("bad")).toBe("—");
+  });
 
-      const result = await apiGet<typeof mockData>("/api/wallet", "jwt-token-123");
+  it("node online requires active + recent last-seen", () => {
+    const now = Date.parse("2026-11-06T12:00:00Z");
+    expect(isNodeOnline({ status: "active", lastSeenAt: "2026-11-06T11:58:00Z" }, now)).toBe(true);
+    expect(isNodeOnline({ status: "active", lastSeenAt: "2026-11-06T11:00:00Z" }, now)).toBe(false);
+    expect(isNodeOnline({ status: "revoked", lastSeenAt: "2026-11-06T11:59:00Z" }, now)).toBe(false);
+  });
 
-      expect(result).toEqual(mockData);
-      expect(fetch).toHaveBeenCalledWith("http://localhost:3000/api/wallet", {
-        headers: { Authorization: "Bearer jwt-token-123" },
-        redirect: "error",
-        signal: expect.any(AbortSignal),
-      });
-    });
-
-    it("sends GET without Authorization header when no token", async () => {
-      globalThis.fetch = vi.fn().mockResolvedValue({
-        ok: true,
-        status: 200,
-        headers: { get: () => null },
-        text: () => Promise.resolve(JSON.stringify({ status: "ok" })),
-      });
-
-      await apiGet("/api/health");
-
-      expect(fetch).toHaveBeenCalledWith("http://localhost:3000/api/health", {
-        headers: {},
-        redirect: "error",
-        signal: expect.any(AbortSignal),
-      });
-    });
-
-    it("throws on network error", async () => {
-      globalThis.fetch = vi.fn().mockRejectedValue(new Error("Failed to fetch"));
-
-      await expect(apiGet("/api/wallet", "token")).rejects.toThrow("Failed to fetch");
-    });
+  it("settings: plaintext off by default, invalid stored values dropped", () => {
+    const s = normalizeSettings({ plaintext: "yes", country: "KP", gatewayPort: 3128 });
+    expect(s.plaintext).toBe(false);
+    expect(s.country).toBeNull();
+    expect(s.gatewayPort).toBe(3128);
+    expect(() => validateSettingsPatch({ apiBase: "https://api.example.com/path" }, "operator")).toThrow();
+    expect(validateSettingsPatch({ apiBase: "http://localhost:3000" }, "operator")).toEqual({ apiBase: "http://localhost:3000" });
   });
 });

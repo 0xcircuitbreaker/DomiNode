@@ -19,7 +19,7 @@ async function main() {
   await build({
     entryPoints: {
       background: resolve(__dirname, "src/background/index.ts"),
-      "content/webrtc-block": resolve(__dirname, "src/content/webrtc-block.ts"),
+      "content/page-bridge": resolve(__dirname, "src/content/page-bridge.ts"),
     },
     bundle: true,
     outdir,
@@ -51,6 +51,8 @@ async function main() {
     resolve(__dirname, `manifests/${browser}.json`),
     resolve(outdir, "manifest.json"),
   );
+
+  cpSync(resolve(__dirname, "managed_schema.json"), resolve(outdir, "managed_schema.json"));
 
   // Copy HTML files
   mkdirSync(resolve(outdir, "popup"), { recursive: true });

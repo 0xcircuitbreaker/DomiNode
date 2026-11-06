@@ -1,0 +1,20 @@
+{
+  "type": "object",
+  "properties": {
+    "apiKey": { "type": "string", "description": "dn_live_/dn_test_ API key (stored in chrome.storage.local)." },
+    "enabled": { "type": "boolean", "description": "Start proxying immediately." },
+    "apiBase": { "type": "string", "description": "API origin, e.g. https://api.dominusnode.com" },
+    "gatewayHost": { "type": "string", "description": "Proxy gateway host." },
+    "gatewayPort": { "type": "integer", "description": "Proxy gateway HTTP port (default 8080)." },
+    "country": { "type": "string", "description": "2-letter exit country, empty for any." },
+    "ipClass": { "type": "string", "enum": ["", "residential", "dc", "mobile"], "description": "Relay node class, empty for any." },
+    "sticky": { "type": "boolean", "description": "Sticky session (session-<id>)." },
+    "sessionId": { "type": "string", "description": "Sticky session id (1-64 alphanumerics); generated if empty." },
+    "rotateMinutes": { "type": "integer", "description": "Auto-rotate sticky session every N minutes (0 = off)." },
+    "plaintext": { "type": "boolean", "description": "allowhttp-1: plaintext HTTP via the exit (exit can read it). Default false." },
+    "spendCapCents": { "type": "integer", "description": "Stop proxying after this many cents spent in a run (0 = no cap)." },
+    "controlExtensionIds": { "type": "array", "items": { "type": "string" }, "description": "Extension IDs allowed to send control messages." },
+    "controlPageOrigins": { "type": "array", "items": { "type": "string" }, "description": "Origins that get the page control bridge (empty = disabled)." },
+    "exitCheckUrl": { "type": "string", "description": "https URL returning JSON {ip,country} fetched through the proxy." }
+  }
+}
