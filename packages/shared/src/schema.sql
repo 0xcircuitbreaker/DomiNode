@@ -1702,6 +1702,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_collusion_flags_open ON collusion_flags (
 CREATE INDEX IF NOT EXISTS idx_collusion_flags_status ON collusion_flags(status, last_seen_at DESC);
 CREATE INDEX IF NOT EXISTS idx_collusion_flags_owner ON collusion_flags(owner_user_id);
 -- 'report_penalty': burn-report penalty alone would quarantine a node; admin review instead.
-ALTER TABLE collusion_flags DROP CONSTRAINT IF EXISTS collusion_flags_kind_check;
-ALTER TABLE collusion_flags ADD CONSTRAINT collusion_flags_kind_check
-  CHECK (kind IN ('concentration','cluster','circular','report_penalty'));
+DO $$ BEGIN
+  ALTER TABLE collusion_flags DROP CONSTRAINT IF EXISTS collusion_flags_kind_check;
+  ALTER TABLE collusion_flags ADD CONSTRAINT collusion_flags_kind_check
+    CHECK (kind IN ('concentration','cluster','circular','report_penalty'));
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
