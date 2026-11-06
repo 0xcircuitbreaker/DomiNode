@@ -1,0 +1,20 @@
+name: dominusnode_transactions
+enabled: true
+required: false
+description: Requester wallet transaction history (top-ups, usage debits, credit conversions).
+parameters:
+- name: limit
+  type: int
+  required: false
+  description: Maximum number of items.
+- name: offset
+  type: int
+  required: false
+  description: Items to skip.
+returns:
+- name: result
+  type: str
+  description: 'JSON string with the result, or {"error": ...} (credentials scrubbed).'
+configurations:
+  base_url: ''
+  proxy_host: ''

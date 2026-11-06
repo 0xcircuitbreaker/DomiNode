@@ -1,58 +1,28 @@
-"""Dominus Node Moltbook integration -- interact with Moltbook through rotating proxies.
+"""DominusNode v2 tool set for agents on Moltbook (framework-neutral).
 
-Provides a MoltbookClient that routes all requests to the Moltbook social network
-(moltbookai.net) through Dominus Node rotating proxies, so each request comes from a
-different IP. Includes 10 Moltbook-specific tools plus 43 Dominus Node management tools
-for a total of 53 tools.
+2.0.0 removes the old ``MoltbookClient``: it registered Moltbook accounts and
+posted, commented and voted through rotating IPs. None of that remains. What
+is left is the 19 standard DominusNode tools as JSON-schema definitions plus a
+dispatcher, for any agent runtime (including agents active on Moltbook) that
+wants relay fetching, pricing, wallet and node-earning tools::
 
-Moltbook tools:
-  - register, browse_posts, get_post, create_post, comment, vote
-  - list_submolts, create_submolt, get_profile, get_proxy_status
+    from dominusnode_moltbook import DominusNodeTools, tool_definitions
 
-Dominus Node management tools:
-  - check_balance, check_usage, get_proxy_config, list_sessions
-  - Agentic wallet: create, fund, balance, list, transactions, freeze, unfreeze, delete,
-    update_policy
-  - Wallet: get_transactions, get_forecast, check_payment
-  - Usage: get_daily_usage, get_top_hosts
-  - Account: register_account, login_account, get_account_info, verify_email,
-    resend_verification, update_password
-  - API keys: list_keys, create_key, revoke_key
-  - Plans: get_plan, list_plans, change_plan
-  - Teams: create, list, details, fund, create_key, usage, update, update_member_role,
-    delete, revoke_key, list_keys, list_members, add_member, remove_member,
-    invite_member, list_invites, cancel_invite
-  - Proxy: dn_get_proxy_status
-  - x402_info, topup_paypal, topup_stripe, topup_crypto
-
-Security:
-  - Full SSRF prevention (private IP blocking, DNS rebinding, Teredo/6to4,
-    IPv4-mapped/compatible IPv6, hex/octal/decimal normalization, zone ID
-    stripping, .localhost/.local/.internal/.arpa TLD blocking, embedded
-    credential blocking)
-  - OFAC sanctioned country validation (CU, IR, KP, RU, SY)
-  - Credential scrubbing in all error outputs (Dominus Node API keys + ETH private keys)
-  - Prototype pollution prevention on all parsed JSON
-  - 10 MB response cap, 30 s timeout
-  - Redirect following disabled to prevent open redirect abuse
-  - ETH private key never logged or included in error messages
-
-Example::
-
-    from dominusnode_moltbook import MoltbookClient
-
-    client = MoltbookClient(
-        dominusnode_api_key="dn_live_...",
-        eth_address="0x1234...",
-        eth_private_key="0xabcd...",
-    )
-    posts = client.browse_posts(submolt="ai-agents", sort="hot")
-    client.create_post(title="Hello from my AI agent", content="...", submolt="general")
-
-Requires: httpx (``pip install httpx``)
+    tools = DominusNodeTools()            # key from DOMINUSNODE_API_KEY
+    defs = tool_definitions()             # [{name, description, parameters}, ...]
+    tools.call("dominusnode_network_pricing", {})
 """
 
-from dominusnode_moltbook.client import MoltbookClient
+from typing import Any, Dict, List
 
-__version__ = "1.0.0"
-__all__ = ["MoltbookClient", "__version__"]
+from dominusnode_moltbook._core import PREFIX, TOOL_NAMES, TOOL_SPECS, DominusNodeTools, make_tool_callables
+
+
+def tool_definitions() -> List[Dict[str, Any]]:
+    """The 19 tools as ``{name, description, parameters}`` (JSON Schema), names prefixed ``dominusnode_``."""
+    return [{"name": PREFIX + s["name"], "description": s["description"], "parameters": s["parameters"]}
+            for s in TOOL_SPECS]
+
+
+__version__ = "2.0.0"
+__all__ = ["DominusNodeTools", "TOOL_NAMES", "tool_definitions", "make_tool_callables", "__version__"]

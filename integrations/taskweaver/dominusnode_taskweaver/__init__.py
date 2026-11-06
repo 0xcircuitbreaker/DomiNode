@@ -1,6 +1,14 @@
-"""Dominus Node tools for Microsoft TaskWeaver."""
+"""DominusNode v2 plugins for Microsoft TaskWeaver.
 
-from dominusnode_taskweaver.plugin import DominusNodePlugin
+The 19 plugins live in ``dominusnode_taskweaver/plugins`` (``.yaml`` + ``.py`` pairs);
+copy them into your TaskWeaver project's ``plugins/`` directory.
+"""
 
-__version__ = "1.0.0"
-__all__ = ["DominusNodePlugin"]
+from pathlib import Path
+
+from dominusnode_taskweaver._core import TOOL_NAMES, DominusNodeTools
+
+PLUGIN_DIR = Path(__file__).parent / "plugins"
+
+__version__ = "2.0.0"
+__all__ = ["DominusNodeTools", "TOOL_NAMES", "PLUGIN_DIR"]

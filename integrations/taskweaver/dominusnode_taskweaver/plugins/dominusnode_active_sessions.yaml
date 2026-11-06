@@ -1,0 +1,12 @@
+name: dominusnode_active_sessions
+enabled: true
+required: false
+description: Your currently active relay sessions (id, start time, status).
+parameters: []
+returns:
+- name: result
+  type: str
+  description: 'JSON string with the result, or {"error": ...} (credentials scrubbed).'
+configurations:
+  base_url: ''
+  proxy_host: ''

@@ -1,0 +1,13 @@
+name: dominusnode_network_pricing
+enabled: true
+required: false
+description: Live per-GB prices by exit IP class (residential, dc, mobile) and node tier revenue shares. Always
+  use this for prices; never assume them.
+parameters: []
+returns:
+- name: result
+  type: str
+  description: 'JSON string with the result, or {"error": ...} (credentials scrubbed).'
+configurations:
+  base_url: ''
+  proxy_host: ''

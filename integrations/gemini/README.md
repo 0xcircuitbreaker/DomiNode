@@ -1,234 +1,123 @@
-# Dominus Node Google Gemini / Vertex AI Function Declarations
+# DominusNode for Google Gemini / Vertex AI
 
-Gemini-format function declarations and handler implementations for the Dominus Node rotating proxy-as-a-service platform. These declarations allow Google Gemini and Vertex AI models to interact with Dominus Node's proxy network, wallet, agentic wallet, and team APIs via function calling.
+Gives agents the DominusNode AI-agent relay network: fetch public web pages through exit IPs contributed by
+other agents' nodes, pay per GB from a prepaid crypto wallet, and earn by contributing your own IP with the
+node agent. Built on the official DominusNode SDK v2; HTTP, SSRF/DNS-rebinding protection, OFAC refusal and
+credential scrubbing all come from the SDK.
 
-## What This Is
+## Install
 
-This directory contains:
+```bash
+npm install @dominusnode/gemini-functions   # TypeScript
+pip install dominusnode-gemini              # Python
+```
 
-| File | Description |
-|------|-------------|
-| `functions.json` | Array of 22 Gemini `FunctionDeclaration` objects |
-| `handler.ts` | TypeScript handler that dispatches function calls to the Dominus Node API |
-| `handler.py` | Python handler that dispatches function calls to the Dominus Node API |
+## Configuration
 
-The function declarations follow the [Gemini function calling specification](https://ai.google.dev/docs/function_calling), using uppercase types (`STRING`, `INTEGER`, `OBJECT`, `BOOLEAN`, `ARRAY`) and embedding constraints in description text rather than using JSON Schema keywords like `minimum`, `maximum`, `enum`, or `default`.
+| Variable | Required | Purpose |
+|---|---|---|
+| `DOMINUSNODE_API_KEY` | yes | Your `dn_live_` API key. Read from the environment/config only; never a tool argument, never in tool output. |
+| `DOMINUSNODE_BASE_URL` | no | API base URL (default `https://api.dominusnode.com`). |
+| `DOMINUSNODE_PROXY_HOST` | no | Gateway host (default `proxy.dominusnode.com`). |
 
-## Available Functions (22)
+## Usage
 
-| Function | Description | Auth Required |
-|----------|-------------|---------------|
-| `dominusnode_proxied_fetch` | Make an HTTP request through Dominus Node's rotating proxy network | Yes |
-| `dominusnode_check_balance` | Check wallet balance (cents, USD, currency) | Yes |
-| `dominusnode_check_usage` | Check usage stats for a time period (day/week/month) | Yes |
-| `dominusnode_get_proxy_config` | Get proxy endpoints, supported countries, geo-targeting info | Yes |
-| `dominusnode_list_sessions` | List currently active proxy sessions | Yes |
-| `dominusnode_create_agentic_wallet` | Create a sub-wallet for an AI agent with spending limits | Yes |
-| `dominusnode_fund_agentic_wallet` | Transfer funds from main wallet to an agentic wallet | Yes |
-| `dominusnode_agentic_wallet_balance` | Check an agentic wallet's balance and status | Yes |
-| `dominusnode_list_agentic_wallets` | List all agentic wallets | Yes |
-| `dominusnode_agentic_transactions` | Get agentic wallet transaction history | Yes |
-| `dominusnode_freeze_agentic_wallet` | Freeze an agentic wallet | Yes |
-| `dominusnode_unfreeze_agentic_wallet` | Unfreeze an agentic wallet | Yes |
-| `dominusnode_delete_agentic_wallet` | Delete an agentic wallet (refunds balance) | Yes |
-| `dominusnode_create_team` | Create a team for shared proxy billing | Yes |
-| `dominusnode_list_teams` | List teams you belong to | Yes |
-| `dominusnode_team_details` | Get team details | Yes |
-| `dominusnode_team_fund` | Fund a team wallet | Yes |
-| `dominusnode_team_create_key` | Create a shared team API key | Yes |
-| `dominusnode_team_usage` | Get team wallet transaction history | Yes |
-| `dominusnode_update_team` | Update team settings | Yes |
-| `dominusnode_update_team_member_role` | Update a team member's role | Yes |
-| `dominusnode_topup_paypal` | Create a PayPal wallet top-up session | Yes |
+This package has a TypeScript part (`@dominusnode/gemini-functions`, on `@dominusnode/sdk` v2) and a Python part
+(`dominusnode-gemini`, on the `dominusnode` SDK v2). Both expose the same 19 declarations, kept identical to
+`functions.json` by tests in each language. Declarations use Gemini's schema subset (uppercase types, `enum`
+with `format: "enum"`).
 
-## Usage with Google Gemini (Python)
+### TypeScript (@google/genai)
+
+```ts
+import { GoogleGenAI } from "@google/genai";
+import { createDominusNodeFunctionHandler, functionDeclarations } from "@dominusnode/gemini-functions";
+
+const ai = new GoogleGenAI({});
+const handle = createDominusNodeFunctionHandler();          // key from DOMINUSNODE_API_KEY
+const res = await ai.models.generateContent({
+  model: "gemini-2.5-flash",
+  contents: "Fetch https://example.com from a German exit",
+  config: { tools: [{ functionDeclarations }] },
+});
+for (const call of res.functionCalls ?? []) {
+  const result = await handle(call.name!, call.args ?? {});
+  // reply with { functionResponse: { name: call.name, response: JSON.parse(result) } }
+}
+```
+
+### Python (google-genai)
 
 ```python
-import json
-import google.generativeai as genai
-from handler import create_dominusnode_function_handler
+from google import genai
+from google.genai import types
+from dominusnode_gemini import create_dominusnode_function_handler, function_declarations
 
-# Load Gemini function declarations
-with open("functions.json") as f:
-    declarations = json.load(f)
-
-# Create the Dominus Node handler
-dominusnode = create_dominusnode_function_handler(
-    api_key="dn_live_your_api_key_here",
-    base_url="https://api.dominusnode.com",
-)
-
-# Configure Gemini with function declarations
-genai.configure(api_key="YOUR_GEMINI_API_KEY")
-model = genai.GenerativeModel(
-    "gemini-2.0-flash",
-    tools=[{"function_declarations": declarations}],
-)
-
-# Start a chat
-chat = model.start_chat()
-response = chat.send_message("What is my Dominus Node proxy balance?")
-
-# Handle function calls
-for part in response.parts:
-    if fn := part.function_call:
-        result = await dominusnode(fn.name, dict(fn.args))
-        response = chat.send_message(
-            genai.protos.Content(
-                parts=[
-                    genai.protos.Part(
-                        function_response=genai.protos.FunctionResponse(
-                            name=fn.name,
-                            response={"result": json.loads(result)},
-                        )
-                    )
-                ]
-            )
-        )
-        print(response.text)
+handle = create_dominusnode_function_handler()      # key from DOMINUSNODE_API_KEY
+tool = types.Tool(function_declarations=function_declarations())
+resp = genai.Client().models.generate_content(
+    model="gemini-2.5-flash", contents="What does residential relay traffic cost per GB?",
+    config=types.GenerateContentConfig(tools=[tool]))
+for call in resp.function_calls or []:
+    result = handle(call.name, call.args or {})
 ```
 
-## Usage with Vertex AI (Python)
+Handlers return JSON strings; errors are `{"error": "..."}` with credentials scrubbed.
 
-```python
-import json
-import vertexai
-from vertexai.generative_models import GenerativeModel, Tool, FunctionDeclaration
-from handler import create_dominusnode_function_handler
+## Tools (v2 standard set, 19)
 
-# Load function declarations
-with open("functions.json") as f:
-    declarations = json.load(f)
+| # | Tool | What it does |
+|---|---|---|
+| 1 | `dominusnode_fetch` | Fetch a public URL through the DominusNode relay network (GET or HEAD only, ports 80/443, no redirects followed, 10 MB cap, private/internal targets refused). |
+| 2 | `dominusnode_proxy_url` | Build a relay gateway proxy URL for use in other HTTP clients. |
+| 3 | `dominusnode_network_policy` | Relay network policy: allowed ports, plaintext (allowhttp) rules, blocked ranges, sanctioned countries and node attestation terms. |
+| 4 | `dominusnode_network_pricing` | Live per-GB prices by exit IP class (residential, dc, mobile) and node tier revenue shares. |
+| 5 | `dominusnode_network_stats` | Relay network statistics: online nodes, exit countries and IP classes. |
+| 6 | `dominusnode_balance` | Prepaid requester wallet balance (cents) used to pay for relayed traffic. |
+| 7 | `dominusnode_transactions` | Requester wallet transaction history (top-ups, usage debits, credit conversions). |
+| 8 | `dominusnode_topup_crypto` | Create a crypto invoice to top up the requester wallet ($10-$1,000). |
+| 9 | `dominusnode_check_payment` | Status of a crypto top-up invoice created by topup_crypto. |
+| 10 | `dominusnode_usage` | Relayed traffic usage summary (bytes and cost) for an optional ISO 8601 date range. |
+| 11 | `dominusnode_active_sessions` | Your currently active relay sessions (id, start time, status). |
+| 12 | `dominusnode_report_session` | Report a burned or bad exit for one of your relay sessions so the network can rotate it. |
+| 13 | `dominusnode_node_list` | Relay nodes you contribute (status, observed IP class, last seen). |
+| 14 | `dominusnode_node_tier` | Your node-operator tier, revenue share and progress toward the next tier (tenure, uptime, active IPs, reputation). |
+| 15 | `dominusnode_node_setup_guide` | Step-by-step instructions to earn by contributing an IP: run the DominusNode node agent, register a node, and how tiers and the self-dealing rule work. |
+| 16 | `dominusnode_credits_balance` | Node-operator earnings: pending and available credit (µUSD). |
+| 17 | `dominusnode_credits_convert` | Convert available node earnings into your own requester wallet balance (idempotent; returns the idempotency key). |
+| 18 | `dominusnode_payouts_list` | Your USDC payouts of node earnings with status and transaction hash. |
+| 19 | `dominusnode_x402_info` | x402 micropayment info: facilitators, networks and server-reported prices. |
 
-# Convert to Vertex AI FunctionDeclaration objects
-vertex_declarations = [
-    FunctionDeclaration(
-        name=d["name"],
-        description=d["description"],
-        parameters=d["parameters"],
-    )
-    for d in declarations
-]
+Notes for agents:
 
-# Create handler and model
-dominusnode = create_dominusnode_function_handler(api_key="dn_live_your_key")
-vertexai.init(project="your-project", location="us-central1")
-model = GenerativeModel(
-    "gemini-2.0-flash",
-    tools=[Tool(function_declarations=vertex_declarations)],
-)
+- Prices are never hardcoded: call `network_pricing` for the live per-GB price by IP class (residential, dc, mobile).
+- `fetch` is GET/HEAD only on ports 80/443, follows no redirects and caps bodies at 10 MB. Plaintext `http://`
+  needs `allow_http` and is visible to the exit node.
+- Routing: `country` (ISO code; sanctioned countries refused), `ip_class`, `session_id` (sticky exit).
+- Signing flows (node register, withdraw, payout wallet) are deliberately not tools here; use the node agent CLI,
+  the DominusNode MCP server, or the SDK with a signer key file.
 
-# Use in a chat session
-chat = model.start_chat()
-response = chat.send_message("Check my proxy usage this week")
-# ... handle function calls as above
+## Development (JS part)
+
+`@dominusnode/sdk` 2.x may not be on npm yet; link the in-repo SDK for local builds and tests:
+
+```bash
+(cd ../../sdks/node && npm ci && npm run build)
+npm install && npm run link-sdk
+npx tsc && npx vitest run
 ```
 
-## Usage with TypeScript / Node.js
+`functions.json` is generated from `core.ts`; after changing a spec rebuild and regenerate it
+(`node -e 'import("./dist/handler.js").then(m=>require("fs").writeFileSync("functions.json", JSON.stringify(m.functionDeclarations,null,2)+"\n"))'`).
+Tests in both languages fail if it is stale.
 
-```typescript
-import { readFileSync } from "fs";
-import { createDominusNodeFunctionHandler } from "./handler";
+## Testing
 
-// Load function declarations
-const declarations = JSON.parse(readFileSync("functions.json", "utf-8"));
-
-// Create the handler
-const handler = createDominusNodeFunctionHandler({
-  apiKey: "dn_live_your_api_key_here",
-  baseUrl: "https://api.dominusnode.com",
-});
-
-// Example: direct function call
-const balance = await handler("dominusnode_check_balance", {});
-console.log(JSON.parse(balance));
-
-// Example: proxied fetch with geo-targeting
-const fetchResult = await handler("dominusnode_proxied_fetch", {
-  url: "https://httpbin.org/ip",
-  method: "GET",
-  country: "US",
-  proxy_type: "residential",
-});
-console.log(JSON.parse(fetchResult));
-
-// Example: PayPal top-up
-const topup = await handler("dominusnode_topup_paypal", {
-  amount_cents: 5000,  // $50.00
-});
-console.log(JSON.parse(topup));
+```bash
+pip install -e ../../sdks/python -e '.[dev]'   # or npm install for the JS part
+python -m pytest -q python_tests
 ```
 
-## Gemini Schema Restrictions
+## License
 
-Gemini function declarations differ from OpenAI's JSON Schema format:
-
-| Feature | OpenAI/JSON Schema | Gemini |
-|---------|-------------------|--------|
-| Type names | `"string"`, `"integer"` | `"STRING"`, `"INTEGER"` |
-| `default` | Supported | Not supported -- moved to description |
-| `minimum`/`maximum` | Supported | Not supported -- moved to description |
-| `enum` | Supported | Not supported -- listed in description |
-| `minLength`/`maxLength` | Supported | Not supported -- moved to description |
-| `additionalProperties` | Supported | Not supported -- omitted |
-
-All constraints are expressed in the `description` field text for Gemini compatibility.
-
-## Security
-
-### SSRF Prevention
-
-Both handlers include comprehensive SSRF prevention that blocks:
-
-- **Private IP ranges**: 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 127.0.0.0/8, 0.0.0.0/8, 169.254.0.0/16, 100.64.0.0/10 (CGNAT)
-- **Non-standard IP representations**: Hex (0x7f000001), octal (0177.0.0.1), decimal integer (2130706433)
-- **IPv6 private ranges**: ::1, fc00::/7, fe80::/10, ::ffff:-mapped private IPs
-- **Internal hostnames**: .localhost, .local, .internal, .arpa TLDs
-- **Protocol restriction**: Only http:// and https:// are allowed
-- **DNS rebinding protection**: Resolves hostnames and checks all IPs
-
-### Sanctioned Countries (OFAC)
-
-Requests targeting CU, IR, KP, RU, SY are blocked at the handler level.
-
-### Input Validation
-
-- Integer overflow protection: amount/limit values capped at 2,147,483,647
-- Label length validation: max 100 characters
-- Control character blocking in labels and names
-- URL-encoding of path parameters to prevent path traversal
-- Prototype pollution prevention in JSON parsing
-- Response body size limit: 10 MB max
-- HTTP method restriction: only GET, HEAD, OPTIONS for proxied fetch
-
-### Credential Scrubbing
-
-API keys (`dn_live_*`, `dn_test_*`) are scrubbed from all error messages returned to the LLM.
-
-## Proxy Pricing
-
-| Proxy Type | Price | Best For |
-|------------|-------|----------|
-| Datacenter (`dc`) | $3.00/GB | General scraping, speed-critical tasks |
-| Residential | $5.00/GB | Anti-detection, geo-restricted content |
-
-## Dependencies
-
-### TypeScript Handler
-- Node.js 18+ (uses native `fetch` and `AbortSignal.timeout`)
-- No external dependencies
-
-### Python Handler
-- Python 3.8+
-- `httpx` (`pip install httpx`)
-
-## Related Integrations
-
-- `integrations/openai-functions/` -- OpenAI-compatible function schemas (21 functions)
-- `integrations/langchain/` -- LangChain tools integration
-- `integrations/vercel-ai/` -- Vercel AI SDK provider
-- `integrations/crewai/` -- CrewAI tools integration
-- `integrations/openclaw/` -- OpenClaw plugin
-- `packages/mcp-server/` -- Model Context Protocol server (56 tools)
-- `sdks/node/` -- Full Node.js SDK
-- `sdks/python/` -- Full Python SDK
+MIT

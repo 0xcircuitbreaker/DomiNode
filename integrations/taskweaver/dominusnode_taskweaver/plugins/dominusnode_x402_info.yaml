@@ -1,0 +1,12 @@
+name: dominusnode_x402_info
+enabled: true
+required: false
+description: 'x402 micropayment info: facilitators, networks and server-reported prices.'
+parameters: []
+returns:
+- name: result
+  type: str
+  description: 'JSON string with the result, or {"error": ...} (credentials scrubbed).'
+configurations:
+  base_url: ''
+  proxy_host: ''

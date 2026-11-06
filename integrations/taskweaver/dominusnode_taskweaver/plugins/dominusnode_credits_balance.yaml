@@ -1,0 +1,12 @@
+name: dominusnode_credits_balance
+enabled: true
+required: false
+description: "Node-operator earnings: pending and available credit (\xB5USD)."
+parameters: []
+returns:
+- name: result
+  type: str
+  description: 'JSON string with the result, or {"error": ...} (credentials scrubbed).'
+configurations:
+  base_url: ''
+  proxy_host: ''

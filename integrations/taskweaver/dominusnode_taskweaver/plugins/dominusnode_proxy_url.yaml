@@ -1,0 +1,35 @@
+name: dominusnode_proxy_url
+enabled: true
+required: false
+description: 'Build a relay gateway proxy URL for use in other HTTP clients. Routing flags go in the username (country-XX,
+  class-..., session-..., allowhttp-1). The password is shown as a ${DOMINUSNODE_API_KEY} placeholder: substitute
+  the key from the environment, never paste it into chat.'
+parameters:
+- name: country
+  type: str
+  required: false
+  description: ISO 3166-1 alpha-2 exit country, e.g. US. Sanctioned countries are refused.
+- name: ip_class
+  type: str
+  required: false
+  description: 'Exit IP class. Each class has its own per-GB price (see network_pricing). One of: residential, dc,
+    mobile.'
+- name: session_id
+  type: str
+  required: false
+  description: Sticky session id (1-64 alphanumeric) to keep the same exit IP.
+- name: allow_http
+  type: bool
+  required: false
+  description: Opt in to plaintext http:// targets. Plaintext is visible to the exit node; prefer https.
+- name: protocol
+  type: str
+  required: false
+  description: 'Proxy protocol. One of: http, socks5.'
+returns:
+- name: result
+  type: str
+  description: 'JSON string with the result, or {"error": ...} (credentials scrubbed).'
+configurations:
+  base_url: ''
+  proxy_host: ''

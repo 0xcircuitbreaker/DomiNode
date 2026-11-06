@@ -13,6 +13,6 @@
     "forceConsistentCasingInFileNames": true,
     "isolatedModules": true
   },
-  "include": ["handler.ts"],
+  "include": ["handler.ts", "core.ts"],
   "exclude": ["node_modules", "dist", "*.test.ts"]
 }

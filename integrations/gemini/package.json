@@ -1,10 +1,17 @@
 {
   "name": "@dominusnode/gemini-functions",
-  "version": "1.2.1",
-  "description": "Dominus Node function declarations and handlers for Google Gemini / Vertex AI",
+  "version": "2.0.0",
+  "description": "DominusNode v2 function declarations and handler for Google Gemini / Vertex AI: the 19 standard relay-network tools on @dominusnode/sdk",
   "main": "dist/handler.js",
   "types": "dist/handler.d.ts",
   "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/handler.d.ts",
+      "import": "./dist/handler.js"
+    },
+    "./functions.json": "./functions.json"
+  },
   "files": [
     "dist/",
     "functions.json",
@@ -15,14 +22,14 @@
     "build": "tsc",
     "prepare": "npm run build",
     "test": "vitest run",
-    "test:watch": "vitest",
-    "test:py": "python -m pytest test_handler.py -v"
+    "test:py": "python -m pytest -q python_tests",
+    "link-sdk": "npm install --no-save ../../sdks/node"
   },
   "keywords": [
     "dominusnode",
     "gemini",
     "vertex-ai",
-    "proxy",
+    "relay",
     "function-calling"
   ],
   "license": "MIT",
@@ -33,9 +40,12 @@
   "engines": {
     "node": ">=18.0.0"
   },
+  "dependencies": {
+    "@dominusnode/sdk": "^2.0.0"
+  },
   "devDependencies": {
-    "vitest": "^3.0.0",
+    "@types/node": "^22.0.0",
     "typescript": "^5.7.0",
-    "@types/node": "^22.0.0"
+    "vitest": "^3.0.0"
   }
 }

@@ -4,15 +4,15 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "dominusnode-agent-zero"
-version = "1.2.1"
-description = "Dominus Node tools for Agent Zero -- 22 proxy, wallet, and team management tools"
+version = "2.0.0"
+description = "DominusNode tools for Agent Zero: the 19 standard relay-network tools, built on the dominusnode SDK"
 readme = "README.md"
 license = {text = "MIT"}
-requires-python = ">=3.10"
-dependencies = ["httpx>=0.25.0"]
+requires-python = ">=3.9"
+dependencies = ["dominusnode>=2.0.0,<3"]
 
 [project.optional-dependencies]
 dev = ["pytest>=7.0"]
 
 [tool.setuptools.packages.find]
-include = ["shared*", "tools*"]
+include = ["dominusnode_agent_zero*"]

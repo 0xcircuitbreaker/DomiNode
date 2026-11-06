@@ -1,0 +1,13 @@
+name: dominusnode_node_tier
+enabled: true
+required: false
+description: Your node-operator tier, revenue share and progress toward the next tier (tenure, uptime, active IPs,
+  reputation).
+parameters: []
+returns:
+- name: result
+  type: str
+  description: 'JSON string with the result, or {"error": ...} (credentials scrubbed).'
+configurations:
+  base_url: ''
+  proxy_host: ''

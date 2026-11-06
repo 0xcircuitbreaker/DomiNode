@@ -1,0 +1,12 @@
+name: dominusnode_network_stats
+enabled: true
+required: false
+description: 'Relay network statistics: online nodes, exit countries and IP classes.'
+parameters: []
+returns:
+- name: result
+  type: str
+  description: 'JSON string with the result, or {"error": ...} (credentials scrubbed).'
+configurations:
+  base_url: ''
+  proxy_host: ''
