@@ -167,7 +167,7 @@ export async function getOwnerTierStats(userId: string, uptimeBps: number): Prom
             AND rc.gross_musd > 0 AND NOT rc.disputed AND n.observed_ip IS NOT NULL
             AND rc.requester_user_id IS DISTINCT FROM $1
           GROUP BY n.observed_ip HAVING COUNT(DISTINCT rc.requester_user_id) >= 3) ips) AS active_ips,
-       (SELECT AVG(reputation)::int FROM nodes WHERE owner_user_id = $1 AND status = 'active') AS reputation,
+       (SELECT AVG(GREATEST(0, reputation - report_penalty))::int FROM nodes WHERE owner_user_id = $1 AND status = 'active') AS reputation,
        (SELECT EXTRACT(DAY FROM now() - MAX(created_at))::int FROM node_credit_transactions
          WHERE user_id = $1 AND type = 'clawback') AS last_clawback_days`,
     [userId],

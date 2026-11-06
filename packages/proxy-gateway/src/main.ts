@@ -1,7 +1,8 @@
+import type * as net from "node:net";
 import dotenv from "dotenv";
 dotenv.config();
 
-import { createLogger, closePool, getPool, usageRepo, connectWithRetry, nodeRepo, policyRepo, nodeCreditRepo, retentionRepo, tierRepo, payoutRepo, relayChargeRepo, relaySettleRetryRepo } from "@dominusnode/shared";
+import { createLogger, closePool, getPool, usageRepo, connectWithRetry, nodeRepo, policyRepo, nodeCreditRepo, retentionRepo, tierRepo, payoutRepo, relayChargeRepo, relaySettleRetryRepo, reportReputationRepo, collusionRepo } from "@dominusnode/shared";
 import type { ActivePolicy } from "@dominusnode/shared";
 import { startProxyServer } from "./server.js";
 import { initGeoCheck, lookupPeerGeo, setAsnDb } from "./geo-check.js";
@@ -12,6 +13,7 @@ import { NodeSelector } from "./node-tunnel/selector.js";
 import { loadCoordSigner } from "./node-tunnel/coord-key.js";
 import { NodeTunnelServer, resolveTunnelPort } from "./node-tunnel/server.js";
 import { startSocks5Server } from "./socks5.js";
+import { loadProxyTls, parseRequireTls, createPlaintextAuthGuard } from "./proxy-tls.js";
 import { envInt, setJobRunRecorder, JOB_RUN_UPSERT_SQL, type Job, type LockPool } from "./jobs/runner.js";
 import * as nodeStatusJob from "./jobs/node-status.js";
 import * as maturityJob from "./jobs/maturity.js";
@@ -20,6 +22,8 @@ import * as tiersJob from "./jobs/tiers.js";
 import * as payoutsJob from "./jobs/payouts.js";
 import * as reputationFlushJob from "./jobs/reputation-flush.js";
 import * as settleRetryJob from "./jobs/relay-settle-retry.js";
+import * as reportReputationJob from "./jobs/report-reputation.js";
+import * as collusionJob from "./jobs/collusion.js";
 import { loadSdnFile } from "./jobs/sdn.js";
 import * as probesJob from "./jobs/probes.js";
 import { parseTrustedProxyIps, loadTunnelTls } from "./node-tunnel/ingress.js";
@@ -148,8 +152,23 @@ async function main(): Promise<void> {
   // ─── Background jobs (DESIGN.md §6.4, §15) ─────────────────────────
   const jobs = startJobs(registry, getPolicy);
 
-  const httpServer = await startProxyServer(httpPort, relay);
-  const socks5Server = await startSocks5Server(socks5Port, relay);
+  // TLS proxy listener (DESIGN.md §15): Proxy-Authorization over TLS.
+  const proxyTls = loadProxyTls(process.env);
+  const requireTls = parseRequireTls(process.env);
+  if (requireTls && !proxyTls) throw new Error("PROXY_REQUIRE_TLS=true requires PROXY_TLS_PORT");
+  const plaintextAuth = createPlaintextAuthGuard({ production: isProduction, requireTls, warn: (m, meta) => log.warn(m, meta) });
+  if (isProduction && !requireTls) {
+    log.warn(proxyTls
+      ? "plaintext proxy listeners accept credentials; set PROXY_REQUIRE_TLS=true once clients use the TLS port"
+      : "PROXY_TLS_PORT not set: proxy credentials travel in plaintext");
+  }
+  const httpServer = await startProxyServer(httpPort, relay, { plaintextAuth });
+  const socks5Server = await startSocks5Server(socks5Port, relay, { plaintextAuth });
+  const tlsServers: net.Server[] = [];
+  if (proxyTls) {
+    tlsServers.push(await startProxyServer(proxyTls.port, relay, { tls: proxyTls }));
+    if (proxyTls.socks5Port !== null) tlsServers.push(await startSocks5Server(proxyTls.socks5Port, relay, { tls: proxyTls }));
+  }
 
   // Graceful shutdown
   async function shutdown(signal: string): Promise<void> {
@@ -157,6 +176,7 @@ async function main(): Promise<void> {
 
     httpServer.close();
     socks5Server.close();
+    for (const s of tlsServers) s.close();
     clearInterval(policyInterval);
     await Promise.all(jobs.map((j) => j.stop().catch(() => {})));
 
@@ -258,10 +278,37 @@ function startJobs(registry: NodeRegistry, getPolicy: () => ActivePolicy): Job[]
     deps: {
       drain: () => registry.drainCounters(),
       flushHealth: nodeRepo.flushHealth,
+      refreshPenalties: async () => {
+        const ids = [...registry.all()].map((n) => n.nodeId);
+        for (let i = 0; i < ids.length; i += 1000) {
+          const chunk = ids.slice(i, i + 1000);
+          registry.setReportPenalties(chunk, await reportReputationRepo.getReportPenalties(chunk));
+        }
+      },
       quarantine: async (nodeId) => {
         await nodeRepo.setStatus(nodeId, "quarantined", ["active", "pending", "cooldown"]);
         registry.get(nodeId)?.tunnel.close("quarantined");
       },
+    },
+  }));
+  jobs.push(reportReputationJob.start({
+    pool, logger: jobLog, intervalMs: envInt(process.env, "REPORT_REPUTATION_INTERVAL_MS", 3_600_000, 60_000, 86_400_000),
+    deps: {
+      listAggregates: reportReputationRepo.listReportAggregates,
+      compute: reportReputationRepo.computeReportPenalties,
+      apply: reportReputationRepo.applyReportPenalties,
+      params: reportReputationJob.paramsFromEnv(process.env, envInt, reportReputationRepo.DEFAULT_REPORT_PENALTY_PARAMS),
+    },
+  }));
+  jobs.push(collusionJob.start({
+    pool, logger: jobLog, intervalMs: envInt(process.env, "COLLUSION_JOB_INTERVAL_MS", 86_400_000, 3_600_000, 7 * 86_400_000),
+    deps: {
+      getSettings: collusionRepo.getSettings,
+      listNodes: collusionRepo.listNodeConcentration,
+      listCircular: collusionRepo.listCircularPairs,
+      evaluateNode: collusionRepo.evaluateNode,
+      evaluateCircular: collusionRepo.evaluateCircular,
+      record: collusionRepo.recordFinding,
     },
   }));
   const probeTarget = probesJob.parseProbeUrl(process.env["PROBE_URL"]);

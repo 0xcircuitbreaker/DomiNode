@@ -58,7 +58,7 @@ export {
 } from "./errors.js";
 
 // Types + constants
-export type { DominusNodeConfig, Money, User, ConnectResult } from "./types.js";
+export type { DominusNodeConfig, GatewayTlsConfig, Money, User, ConnectResult } from "./types.js";
 export {
   SDK_VERSION, USER_AGENT, DEFAULT_BASE_URL, DEFAULT_PROXY_HOST, DEFAULT_HTTP_PROXY_PORT, DEFAULT_SOCKS5_PROXY_PORT,
   MAX_RESPONSE_BYTES, MAX_AMOUNT_CENTS,

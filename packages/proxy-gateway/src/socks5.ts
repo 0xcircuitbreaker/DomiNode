@@ -1,4 +1,6 @@
 import * as net from "node:net";
+import * as tls from "node:tls";
+import type { PlaintextAuthGuard } from "./proxy-tls.js";
 import { createLogger, hashApiKey, userRepo, planRepo } from "@dominusnode/shared";
 import { checkBalance, checkTeamBalance } from "./balance-check.js";
 import { bindTunnelLifecycle, isTunnelClient } from "./tunnel-lifecycle.js";
@@ -547,7 +549,15 @@ function readBytes(socket: net.Socket, n: number, timeoutMs: number): Promise<Bu
   });
 }
 
-export async function startSocks5Server(port: number, relay: RelayRuntime): Promise<net.Server> {
+export interface Socks5ServerOptions {
+  /** SOCKS5 inside TLS: credentials travel encrypted. */
+  tls?: { cert: Buffer; key: Buffer };
+  /** Plaintext listener only. SOCKS5 always authenticates, so a refusal closes every connection. */
+  plaintextAuth?: PlaintextAuthGuard;
+}
+
+export async function startSocks5Server(port: number, relay: RelayRuntime, opts: Socks5ServerOptions = {}): Promise<net.Server> {
+  const plaintextAuth = opts.tls ? undefined : opts.plaintextAuth;
   // Explicitly init geo-check — do not rely on HTTP server calling it first
   const { initGeoCheck } = await import("./geo-check.js");
   await initGeoCheck();
@@ -555,7 +565,11 @@ export async function startSocks5Server(port: number, relay: RelayRuntime): Prom
   // allowHalfOpen: a client FIN after the request must not stop the response
   // from flowing back (see bindTunnelLifecycle). Before the tunnel exists, a
   // FIN still closes our side as before.
-  const server = net.createServer({ allowHalfOpen: true }, (socket) => {
+  const onConnection = (socket: net.Socket): void => {
+    if (plaintextAuth && !plaintextAuth("socks5")) {
+      socket.destroy();
+      return;
+    }
     socket.on("end", () => {
       if (!isTunnelClient(socket) && !socket.destroyed) socket.end();
     });
@@ -564,7 +578,10 @@ export async function startSocks5Server(port: number, relay: RelayRuntime): Prom
       log.error("unhandled SOCKS5 error", { error: err instanceof Error ? err.message : String(err) });
       socket.destroy();
     });
-  });
+  };
+  const server: net.Server = opts.tls
+    ? tls.createServer({ cert: opts.tls.cert, key: opts.tls.key, minVersion: "TLSv1.2", allowHalfOpen: true }, onConnection)
+    : net.createServer({ allowHalfOpen: true }, onConnection);
 
   const maxConns = parseInt(process.env["PROXY_MAX_CONNECTIONS"] ?? "5000", 10);
   if (isNaN(maxConns) || maxConns <= 0) {
@@ -573,7 +590,7 @@ export async function startSocks5Server(port: number, relay: RelayRuntime): Prom
   server.maxConnections = maxConns;
 
   server.listen(port, () => {
-    log.info(`SOCKS5 proxy listening on port ${port}`);
+    log.info(`SOCKS5 proxy listening on port ${port}`, { tls: !!opts.tls });
   });
 
   return server;

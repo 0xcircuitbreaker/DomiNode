@@ -374,6 +374,7 @@ export const NETWORK_AUDIT_ACTIONS = [
   "node_credit_unfreeze", "node_credit_freeze", "node_quarantine", "node_activate", "node_revoke",
   "node_payout_reverse", "byte_dispute_resolve", "relay_abuse_log_access",
   "network_policy_publish", "network_pricing_update", "revenue_split_append", "node_tier_update",
+  "node_credit_auto_freeze", "collusion_flag_dismiss", "collusion_flag_confirm", "collusion_settings_update",
 ] as const;
 
 router.get("/audit", async (req: Request, res: Response) => {

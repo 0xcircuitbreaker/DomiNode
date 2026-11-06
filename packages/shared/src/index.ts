@@ -194,6 +194,8 @@ export * as relayChargeRepo from "./repositories/relay-charge-repo.js";
 export * as relaySettleRetryRepo from "./repositories/relay-settle-retry-repo.js";
 export * as nodeCreditRepo from "./repositories/node-credit-repo.js";
 export * as tierRepo from "./repositories/tier-repo.js";
+export * as reportReputationRepo from "./repositories/report-reputation-repo.js";
+export * as collusionRepo from "./repositories/collusion-repo.js";
 export * as payoutRepo from "./repositories/payout-repo.js";
 export * as agentCreditsRepo from "./repositories/agent-credits-repo.js";
 export * as relayLimitsRepo from "./repositories/relay-limits-repo.js";

@@ -82,7 +82,7 @@ Errors: `403 ACCOUNT_FROZEN`, `409 INSUFFICIENT_CREDIT | WALLET_CAP | NO_WALLET`
 `payoutWallet` is `null` if none is registered. `status: "pending"` means a change is cooling down until `activeFrom`.
 
 ### `POST /v1/payout-wallet/challenge`
-Body `{"address": "0x…40 hex", "chain": "base"}` (`chain` optional, only `base`).
+Body `{"address": "0x…40 hex", "chain": "base"}` (`chain` optional, default `base`). `base-sepolia` is accepted only when the API runs with `NODE_ENV` other than `production` or with `PAYOUT_ALLOW_TESTNET=true` (staging smoke tests); production refuses it by default.
 ```json
 {
   "nonce": "<64 hex>",

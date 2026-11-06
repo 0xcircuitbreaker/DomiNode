@@ -1,5 +1,6 @@
 import * as crypto from "node:crypto";
 import * as http from "node:http";
+import * as https from "node:https";
 import * as net from "node:net";
 import { createLogger, planRepo } from "@dominusnode/shared";
 import { checkAgenticWalletPolicy } from "./wallet-policy.js";
@@ -20,6 +21,7 @@ import { openRelayStream, RelayOpenError, type RelayRuntime, type RelayUpstream 
 import type { SelectOpts } from "./node-tunnel/selector.js";
 import type { LiveNode } from "./node-tunnel/registry.js";
 import type { X402ConnectResult } from "./x402-handler.js";
+import type { PlaintextAuthGuard } from "./proxy-tls.js";
 
 const log = createLogger("proxy:server");
 
@@ -1036,8 +1038,16 @@ async function handleX402ConnectTunnel(
 import { getStats, getPrometheusMetrics } from "./stats.js";
 import { terminateUserSessions } from "./session-manager.js";
 
-export async function startProxyServer(port: number, relay: RelayRuntime): Promise<http.Server> {
+export interface ProxyServerOptions {
+  /** Serve the proxy over TLS ("https proxy"): Proxy-Authorization never crosses the wire in clear. */
+  tls?: { cert: Buffer; key: Buffer };
+  /** Plaintext listener only: decides whether proxy credentials are accepted (PROXY_REQUIRE_TLS). */
+  plaintextAuth?: PlaintextAuthGuard;
+}
+
+export async function startProxyServer(port: number, relay: RelayRuntime, opts: ProxyServerOptions = {}): Promise<http.Server> {
   await initGeoCheck();
+  const plaintextAuth = opts.tls ? undefined : opts.plaintextAuth;
 
   // Derive a separate stats secret from JWT_SECRET using HMAC instead of
   // reusing the raw JWT_SECRET as a Bearer token (prevents JWT signing key exposure)
@@ -1046,7 +1056,12 @@ export async function startProxyServer(port: number, relay: RelayRuntime): Promi
       ? crypto.createHmac("sha256", process.env["JWT_SECRET"]).update("proxy-stats-endpoint").digest("hex")
       : "");
 
-  const server = http.createServer((req, res) => {
+  const onRequest = (req: http.IncomingMessage, res: http.ServerResponse): void => {
+    if (plaintextAuth && req.headers["proxy-authorization"] && !plaintextAuth("http")) {
+      res.writeHead(403, { "Content-Type": "text/plain", Connection: "close" });
+      res.end("TLS required: connect to the gateway's HTTPS proxy port");
+      return;
+    }
     // Internal stats endpoint (localhost + optional shared secret auth)
     if (req.url === "/internal/stats" && req.method === "GET") {
       const remoteIp = (req.socket.remoteAddress ?? "").replace(/^::ffff:/, "");
@@ -1137,9 +1152,16 @@ export async function startProxyServer(port: number, relay: RelayRuntime): Promi
       }
       res.end("Internal proxy error");
     });
-  });
+  };
+  const server: http.Server = opts.tls
+    ? (https.createServer({ cert: opts.tls.cert, key: opts.tls.key, minVersion: "TLSv1.2" }, onRequest) as unknown as http.Server)
+    : http.createServer(onRequest);
 
   server.on("connect", (req, socket: net.Socket, head) => {
+    if (plaintextAuth && req.headers["proxy-authorization"] && !plaintextAuth("http")) {
+      safeSocketWrite(socket, "HTTP/1.1 403 Forbidden\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\nTLS required");
+      return;
+    }
     handleConnect(req, socket, head, relay).catch((err) => {
       log.error("unhandled connect error", { error: err instanceof Error ? err.message : String(err) });
       if (!socket.destroyed) {
@@ -1155,7 +1177,7 @@ export async function startProxyServer(port: number, relay: RelayRuntime): Promi
   server.keepAliveTimeout = 60_000;
 
   server.listen(port, () => {
-    log.info(`proxy gateway listening on port ${port}`, { maxConnections: MAX_CONNECTIONS });
+    log.info(`proxy gateway listening on port ${port}`, { maxConnections: MAX_CONNECTIONS, tls: !!opts.tls });
   });
 
   return server;

@@ -116,3 +116,37 @@ leave `TUNNEL_TRUSTED_PROXY_IPS` unset.
 In production, the gateway refuses tunnel upgrades from non-public peers. A
 missing or misconfigured trusted-proxy list shows up as `403` with a log
 line that mentions `TUNNEL_TRUSTED_PROXY_IPS`.
+
+## 6. TLS proxy listener
+
+The plaintext proxy ports (8080 HTTP, 1080 SOCKS5) carry the API key in
+`Proxy-Authorization` (or the SOCKS5 password) in clear. The gateway can also
+serve the proxy over TLS, so agents send credentials inside TLS
+("https proxy": TLS to the gateway, then `CONNECT` inside it). It runs the same
+auth, policy and billing path as the plain listener.
+
+| Variable | Meaning |
+|---|---|
+| `PROXY_TLS_PORT` | HTTPS proxy port (e.g. `8443`). Off when unset. Validated 1-65535. |
+| `PROXY_TLS_CERT_FILE` / `PROXY_TLS_KEY_FILE` | PEM certificate chain and key. Required with `PROXY_TLS_PORT`; set without it is a startup error. |
+| `SOCKS5_TLS_PORT` | Optional SOCKS5-inside-TLS port. Needs `PROXY_TLS_PORT` (same cert). |
+| `PROXY_REQUIRE_TLS` | `true` refuses credentials on the plaintext listeners: HTTP returns `403 TLS required`, SOCKS5 connections are closed. Needs `PROXY_TLS_PORT`. Default off. |
+
+In production without `PROXY_REQUIRE_TLS=true`, the gateway logs a startup
+warning and at most one warning per minute per listener when credentials
+arrive over plaintext. Roll out in two steps: enable `PROXY_TLS_PORT`, move
+clients, then set `PROXY_REQUIRE_TLS=true`.
+
+Expose the TLS port directly (the gateway terminates TLS), or pass it through
+Caddy layer4 without terminating. Use a certificate for the public proxy
+hostname.
+
+Clients:
+
+- Node SDK: `new DominusNodeClient({ proxyHost, gatewayTls: true })`
+  (port 8443) or `gatewayTls: { port, ca }`. `proxy.fetch` uses TLS and
+  `buildUrl` returns `https://...`. Other SDKs: follow-up (SDK_SURFACE.md §5).
+- MCP server: `DOMINUSNODE_PROXY_URL=https://proxy.example.com:8443`
+  (optional `DOMINUSNODE_PROXY_CA_FILE` for a private CA). Preferred over
+  `DOMINUSNODE_HTTP_PROXY_PORT` when set.
+- curl: `curl -x https://relay:$KEY@proxy.example.com:8443 https://example.com`.

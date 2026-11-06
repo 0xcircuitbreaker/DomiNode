@@ -49,6 +49,7 @@ Prices come only from `network.pricing()` and `x402.getInfo()`.
 | proxyHost | `proxy.dominusnode.com` | `[A-Za-z0-9.-]{1,253}` or bracketed IPv6; else INVALID_ARGUMENT |
 | httpProxyPort | 8080 | integer 1..65535 |
 | socks5ProxyPort | 1080 | integer 1..65535 |
+| gatewayTls | off | optional. `true` or `{ port = 8443, ca?, servername? }`: TLS to the gateway's HTTPS proxy listener (`PROXY_TLS_PORT`), so `Proxy-Authorization` is encrypted. Certificate verification always on (`ca` adds a PEM root). When set, `proxy.fetch` uses it and `buildUrl` defaults to `https://`. Node SDK only for now; see §5. |
 | accessToken, refreshToken | none | optional pre-existing JWT pair |
 | HTTP transport | platform default | injectable for tests; must not follow redirects |
 
@@ -402,7 +403,8 @@ Order (all checks before any network I/O except step 6):
 4. Build the username (validates flags).
 5. Headers: refuse names not matching the HTTP token grammar and any CR, LF or NUL in names/values; silently drop `host connection content-length transfer-encoding proxy-authorization proxy-connection authorization upgrade te trailer keep-alive`.
 6. **DNS rebinding check**: resolve the hostname to ALL addresses (A + AAAA); fail if resolution fails, returns nothing, or ANY address is private.
-7. `Proxy-Authorization: Basic base64(username + ":" + apiKey)` to `proxyHost:httpProxyPort` over plain TCP.
+7. `Proxy-Authorization: Basic base64(username + ":" + apiKey)` to `proxyHost:httpProxyPort` over plain TCP, or, with `gatewayTls`, to `proxyHost:gatewayTls.port` over TLS (>= 1.2, verified, SNI = proxyHost) and the steps below run inside that channel (TLS-in-TLS for https targets).
+   The inner request must really ride the tunnel socket (Node: do not pass `agent: false` together with `createConnection`; Node then ignores `createConnection` and dials the target directly).
    - https: `CONNECT host:port` (port default 443). Non-200 -> ProxyError with that status. Then TLS (>= 1.2, certificate and hostname verification ON, SNI = host) over the tunnel and send the request with `Host`, `Connection: close`.
    - http: absolute-URI request line (`GET http://host/path?q HTTP/1.1`) with `Host`, `Connection: close`.
 8. Never follow redirects: return 3xx as-is. Read at most `maxBytes` of body; on overflow keep the first `maxBytes`, set `truncated`, close the connection. HEAD reads no body.
@@ -429,3 +431,7 @@ Mock the HTTP transport (return bodies through the text()/raw-body path).
 - `getActive()` drops unknown fields such as `proxyIp`.
 - Proxy: username building + flag validation (incl. OFAC), URL building, private-IP table (both lists above), URL refusals, DNS-rebinding with a mixed public/private answer, and a local fake gateway for the http path (auth header, absolute URI, redirect not followed, truncation) and CONNECT refusal.
 - Attestation message parity with `packages/shared/src/attestation.ts`.
+
+## 5. Follow-ups
+
+- `gatewayTls` (§1.1, §3.15 step 7): implemented in `node/` only. Python, Go, Rust, Java and C++ still talk plain TCP to `httpProxyPort`. Add the config field, TLS to the gateway before CONNECT, and a TLS fake-gateway test (CONNECT inside TLS; unverifiable gateway cert refused before any request is sent). `buildUrl` gains `protocol = https`.

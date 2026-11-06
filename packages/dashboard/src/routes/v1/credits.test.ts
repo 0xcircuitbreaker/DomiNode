@@ -416,3 +416,52 @@ describe("POST /v1/sessions/:id/report", () => {
     expect((await call(app(), "POST", `/v1/sessions/${SESSION_ID}/report`, { body: { reason: "meh" } })).status).toBe(400);
   });
 });
+
+describe("payout wallet testnet gating", () => {
+  const prev = { env: process.env["NODE_ENV"], allow: process.env["PAYOUT_ALLOW_TESTNET"] };
+  afterEach(() => {
+    if (prev.env === undefined) delete process.env["NODE_ENV"]; else process.env["NODE_ENV"] = prev.env;
+    if (prev.allow === undefined) delete process.env["PAYOUT_ALLOW_TESTNET"]; else process.env["PAYOUT_ALLOW_TESTNET"] = prev.allow;
+  });
+
+  it("testnetPayoutsAllowed: off in production unless PAYOUT_ALLOW_TESTNET=true", () => {
+    expect(mod.testnetPayoutsAllowed({ NODE_ENV: "production" })).toBe(false);
+    expect(mod.testnetPayoutsAllowed({ NODE_ENV: "production", PAYOUT_ALLOW_TESTNET: "1" })).toBe(false);
+    expect(mod.testnetPayoutsAllowed({ NODE_ENV: "production", PAYOUT_ALLOW_TESTNET: "true" })).toBe(true);
+    expect(mod.testnetPayoutsAllowed({ NODE_ENV: "staging" })).toBe(true);
+    expect(mod.testnetPayoutsAllowed({})).toBe(true);
+  });
+
+  it("normChain accepts base always and base-sepolia only when allowed", () => {
+    expect(mod.normChain(undefined, { NODE_ENV: "production" })).toBe("base");
+    expect(mod.normChain("base", { NODE_ENV: "production" })).toBe("base");
+    expect(mod.normChain("base-sepolia", { NODE_ENV: "production" })).toBeNull();
+    expect(mod.normChain("base-sepolia", { NODE_ENV: "test" })).toBe("base-sepolia");
+    expect(mod.normChain("ethereum", { NODE_ENV: "test" })).toBeNull();
+  });
+
+  it("production refuses a base-sepolia challenge", async () => {
+    process.env["NODE_ENV"] = "production";
+    delete process.env["PAYOUT_ALLOW_TESTNET"];
+    m.getLive.mockResolvedValue(null);
+    const r = await call(app(), "POST", "/v1/payout-wallet/challenge", { body: { address: PAYOUT, chain: "base-sepolia" } });
+    expect(r.status).toBe(400);
+    expect(JSON.stringify(r.body)).not.toContain("base-sepolia");
+  });
+
+  it("registers a base-sepolia wallet when PAYOUT_ALLOW_TESTNET=true in production", async () => {
+    process.env["NODE_ENV"] = "production";
+    process.env["PAYOUT_ALLOW_TESTNET"] = "true";
+    m.getLive.mockResolvedValue(null);
+    const c = await call(app(), "POST", "/v1/payout-wallet/challenge", { body: { address: PAYOUT, chain: "base-sepolia" } });
+    expect(c.status).toBe(200);
+    const ch = c.body as { nonce: string; message: string };
+    expect(ch.message).toContain("Chain: base-sepolia");
+    m.register.mockResolvedValue({ address: PAYOUT, chain: "base-sepolia", status: "active", activeFrom: new Date() });
+    const r = await call(app(), "PUT", "/v1/payout-wallet", {
+      body: { address: PAYOUT, chain: "base-sepolia", nonce: ch.nonce, signature: await wallet.signMessage(ch.message) },
+    });
+    expect(r.status).toBe(200);
+    expect(m.register).toHaveBeenCalledWith(USER, PAYOUT, { ofacCleared: true, chain: "base-sepolia" });
+  });
+});

@@ -55,6 +55,11 @@ function clampRep(v: number): number {
   return Math.max(0, Math.min(REPUTATION_MAX, Math.round(v)));
 }
 
+/** Reputation after the spend-weighted burn-report penalty. */
+export function effectiveReputation(n: Pick<LiveNode, "reputation" | "reportPenalty">): number {
+  return clampRep(n.reputation - (n.reportPenalty ?? 0));
+}
+
 export interface NodeTunnelHandle {
   openStream(host: string, port: number): Promise<Duplex>;
   readonly openStreams: number;
@@ -80,6 +85,8 @@ export interface LiveNode {
   health: number;
   /** 0..10000 integer. */
   reputation: number;
+  /** Burn-report penalty from the DB (report-reputation job), 0..10000. */
+  reportPenalty?: number;
   maxStreams: number;
   maxGbDay: number;
   /** Owner-lowered OPENs/s cap from the DB row (PATCH /v1/nodes/:id); null/absent = policy default. */
@@ -331,7 +338,17 @@ export class NodeRegistry {
   /** True once reputation has fallen below the quarantine threshold. */
   shouldQuarantine(nodeId: string): boolean {
     const n = this.nodes.get(nodeId);
-    return !!n && n.reputation < QUARANTINE_BELOW;
+    return !!n && effectiveReputation(n) < QUARANTINE_BELOW;
+  }
+
+  /** Apply DB burn-report penalties to live nodes (ids absent from the map reset to 0). */
+  setReportPenalties(nodeIds: string[], penalties: Map<string, number>): void {
+    for (const id of nodeIds) {
+      const n = this.nodes.get(id);
+      if (!n) continue;
+      const p = penalties.get(id) ?? 0;
+      n.reportPenalty = Number.isFinite(p) ? Math.max(0, Math.min(REPUTATION_MAX, Math.round(p))) : 0;
+    }
   }
 
   /** Take and reset all unflushed counters (for the 60 s flush to node_daily_stats/node_reputation). */
@@ -340,7 +357,8 @@ export class NodeRegistry {
     const day = dayOf(this.now());
     for (const [nodeId, c] of this.counters) {
       const n = this.nodes.get(nodeId);
-      out.push({ nodeId, day, reputation: n?.reputation ?? 0, quarantine: !!n && n.reputation < QUARANTINE_BELOW, counters: c });
+      // reputation stays the base value (persisted); quarantine uses the effective one.
+      out.push({ nodeId, day, reputation: n?.reputation ?? 0, quarantine: !!n && effectiveReputation(n) < QUARANTINE_BELOW, counters: c });
     }
     this.counters = new Map();
     return out;

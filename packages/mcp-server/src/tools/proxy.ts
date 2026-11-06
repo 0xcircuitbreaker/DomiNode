@@ -13,6 +13,7 @@ export function registerProxyTools(server: McpServer, httpClient: HttpClient, co
     {},
     async () => {
       const lines = [
+        ...(config.proxyTls ? [`HTTPS proxy (TLS to the gateway, preferred): ${config.proxyHost}:${config.proxyTls.port}`] : []),
         `HTTP proxy: ${config.proxyHost}:${config.httpProxyPort} (CONNECT for https)`,
         `SOCKS5 proxy: ${config.proxyHost}:${config.socks5ProxyPort}`,
         ``,
@@ -25,6 +26,7 @@ export function registerProxyTools(server: McpServer, httpClient: HttpClient, co
         `Examples:`,
         `  curl -x http://country-US-class-residential:$DOMINUSNODE_API_KEY@${config.proxyHost}:${config.httpProxyPort} https://httpbin.org/ip`,
         `  curl -x http://class-dc-session-abc123:$DOMINUSNODE_API_KEY@${config.proxyHost}:${config.httpProxyPort} https://example.com`,
+        ...(config.proxyTls ? [`  curl -x https://relay:$DOMINUSNODE_API_KEY@${config.proxyHost}:${config.proxyTls.port} https://example.com`] : []),
         ``,
       ];
       const [pricing, policy] = await Promise.allSettled([

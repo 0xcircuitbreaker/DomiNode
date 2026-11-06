@@ -362,7 +362,7 @@ Heartbeats come from the `job_runs` table, upserted by the gateway job runner af
 | `from`, `to` | ISO | |
 | `limit`, `offset` | | |
 
-Actions: `node_credit_unfreeze`, `node_credit_freeze`, `node_quarantine`, `node_activate`, `node_revoke`, `node_payout_reverse`, `byte_dispute_resolve`, `relay_abuse_log_access`, `network_policy_publish`, `network_pricing_update`, `revenue_split_append`, `node_tier_update`.
+Actions: `node_credit_unfreeze`, `node_credit_freeze`, `node_quarantine`, `node_activate`, `node_revoke`, `node_payout_reverse`, `byte_dispute_resolve`, `relay_abuse_log_access`, `network_policy_publish`, `network_pricing_update`, `revenue_split_append`, `node_tier_update`, `node_credit_auto_freeze` (written by the collusion job, `adminUserId` null), `collusion_flag_dismiss`, `collusion_flag_confirm`, `collusion_settings_update`.
 
 ```ts
 { limit; offset; total;
@@ -385,3 +385,23 @@ Policy, pricing, split and tier edits write `network_policy_publish` (resource i
 | `PUT /tiers/:id` | any of `nodeShareBps, minTenureDays, minUptimeBps, minActiveIps, minReputation, noClawbackDays, holdDays, maxNodes, dailyWithdrawLimitMusd` | `{ tier }` |
 
 These keep their original µUSD-string fields (`pricePerGbMusd`, `dailyWithdrawLimitMusd`) rather than `Money` objects.
+
+## 12. Collusion flags (`admin-network-collusion.ts`)
+
+The daily `collusion` gateway job (advisory lock, pages of 1000) flags:
+
+- `concentration`: one requester carries >= `concentrationBps` of a node's counted paid volume (window `windowDays`, node volume >= `minNodeVolumeMusd`).
+- `cluster`: at most `clusterSize` requesters carry >= `clusterBps`.
+- `circular`: two owners each bought >= `circularMinMusd` from the other's nodes (one flag per owner, the other as requester; `shareBps` = balance of the two flows).
+
+Counted traffic: `relay_charges` with gross > 0, not disputed, requester present and not the node owner. One open flag per (kind, owner, node, requester); re-detection refreshes it, and a flag dismissed within the window is not re-opened. With `autoFreeze` on (default **off**), a finding with share >= `freezeBps` and volume >= `freezeMinVolumeMusd` freezes the owner's node-credit account (same as `POST /accounts/:userId/freeze`) once per flag and writes `node_credit_auto_freeze`. Unfreeze with `POST /accounts/:userId/unfreeze`.
+
+| Route | Body / params | Response |
+|---|---|---|
+| `GET /collusion/flags` | `status` (open\|dismissed\|confirmed, default open), `kind`, `ownerUserId`, `limit`, `offset` | `{ limit, offset, total, items: [{ id, kind, ownerUserId, ownerEmail, nodeId, requesterUserId, requesterEmail, shareBps, volume: Money, total: Money, windowDays, status, autoFrozen, ownerCreditsFrozen, resolvedBy, resolutionNote, firstSeenAt, lastSeenAt, resolvedAt }] }` |
+| `POST /collusion/flags/:id/dismiss` | `{ note? }` (<= 500) | `{ id, status: "dismissed" }`; 404 if not open |
+| `POST /collusion/flags/:id/confirm` | `{ note? }` | `{ id, status: "confirmed" }` (does not freeze; use the freeze route) |
+| `GET /collusion/settings` | – | `{ windowDays, minNodeVolume: Money, concentrationBps, clusterSize, clusterBps, circularMin: Money, autoFreeze, freezeBps, freezeMinVolume: Money, updatedBy, updatedAt }` |
+| `PUT /collusion/settings` | any of `windowDays 1–90, concentrationBps, clusterBps, freezeBps 1–10000, clusterSize 2–20, autoFreeze bool, minNodeVolumeMusd, circularMinMusd, freezeMinVolumeMusd` (digit strings) | same as GET |
+
+The thresholds live in `collusion_settings`, not in the public `/v1/policy`, so they are not published to the parties being measured.

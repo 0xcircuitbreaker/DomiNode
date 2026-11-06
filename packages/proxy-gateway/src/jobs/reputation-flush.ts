@@ -14,6 +14,8 @@ export interface ReputationFlushDeps {
   drain(): CounterFlush[];
   flushHealth(batch: HealthUpdate[]): Promise<number>;
   quarantine(nodeId: string): Promise<unknown>;
+  /** Optional: refresh burn-report penalties for live nodes before quarantine decisions. */
+  refreshPenalties?(): Promise<void>;
 }
 
 export function toHealthUpdates(items: CounterFlush[]): HealthUpdate[] {
@@ -28,6 +30,13 @@ export function toHealthUpdates(items: CounterFlush[]): HealthUpdate[] {
 }
 
 export async function runOnce(deps: ReputationFlushDeps): Promise<{ nodes: number; flushed: number; quarantined: number }> {
+  if (deps.refreshPenalties) {
+    try {
+      await deps.refreshPenalties();
+    } catch {
+      /* keep the last known penalties */
+    }
+  }
   const items = deps.drain();
   const updates = toHealthUpdates(items);
   let flushed = 0;
