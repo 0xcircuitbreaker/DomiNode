@@ -98,7 +98,8 @@ vi.mock("./stats.js", () => ({
   getStats: () => mockGetStats(),
 }));
 
-vi.mock("./counting-stream.js", () => ({
+vi.mock("./counting-stream.js", async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
   attachByteCounters: () => ({ bytesIn: 0, bytesOut: 0, maxBytes: 0, onLimitExceeded: null }),
 }));
 
@@ -604,6 +605,34 @@ describe("proxy-gateway server", () => {
       expect(mockSettlePending).not.toHaveBeenCalled();
     });
 
+    it("rejects with 413 up front when the body exceeds the session byte cap (nothing billed)", async () => {
+      const written: Buffer[] = [];
+      mockOpenStream.mockImplementation(async () => new Duplex({
+        read() { /* */ },
+        write(c, _e, cb) { written.push(c); cb(); },
+      }));
+      mockStartSession.mockImplementation(async (_u: string, _h: string, counter: { maxBytes: number }) => {
+        counter.maxBytes = 50;
+        return "session-abc";
+      });
+      const res = await new Promise<{ status: number; body: string }>((resolve, reject) => {
+        const req = http.request({
+          hostname: "127.0.0.1", port, path: "http://example.com/upload", method: "POST",
+          headers: { "Proxy-Authorization": "Basic " + Buffer.from("user:dn_live_test").toString("base64") },
+        }, (r) => {
+          let d = "";
+          r.on("data", (c) => (d += c));
+          r.on("end", () => resolve({ status: r.statusCode ?? 0, body: d }));
+        });
+        req.on("error", reject);
+        req.end(Buffer.alloc(200, 0x61));
+      });
+      expect(res.status).toBe(413);
+      expect(written).toHaveLength(0);
+      expect(mockEndSession).toHaveBeenCalledWith("session-abc");
+      expect(mockDecrementUserConns).toHaveBeenCalledTimes(1);
+    });
+
     it("x402: blocked target releases the payment without settling", async () => {
       mockAuthenticateRequest.mockResolvedValue(null);
       mockValidateTarget.mockResolvedValue({ allowed: false, reason: "private" });
@@ -805,5 +834,27 @@ describe("proxy-gateway server", () => {
       expect(mockDecrementUserConns).toHaveBeenCalledWith("user-123");
       res.socket.destroy();
     });
+  });
+});
+
+describe("meterStream byte cap", () => {
+  it("refuses a write that would cross the cap and truncates reads at the cap", async () => {
+    const { meterStream } = await import("./server.js");
+    const written: Buffer[] = [];
+    const d = new Duplex({ read() { /* */ }, write(c, _e, cb) { written.push(c); cb(); } });
+    const counter = { bytesIn: 0, bytesOut: 0, maxBytes: 10, onLimitExceeded: vi.fn() };
+    meterStream(d, counter);
+    expect(d.write(Buffer.from("123456"))).toBe(true);
+    expect(d.write(Buffer.from("abcdef"))).toBe(false);
+    expect(counter.bytesIn).toBe(6);
+    expect(counter.onLimitExceeded).toHaveBeenCalledTimes(1);
+    const got: Buffer[] = [];
+    d.on("data", (c: Buffer) => got.push(c));
+    d.push(Buffer.from("ZZZZZZZZ"));
+    await new Promise((r) => setImmediate(r));
+    expect(Buffer.concat(got).toString()).toBe("ZZZZ");
+    expect(counter.bytesIn + counter.bytesOut).toBe(10);
+    await new Promise((r) => setImmediate(r));
+    expect(Buffer.concat(written).toString()).toBe("123456");
   });
 });

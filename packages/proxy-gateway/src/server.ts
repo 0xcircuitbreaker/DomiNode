@@ -6,7 +6,7 @@ import { checkAgenticWalletPolicy } from "./wallet-policy.js";
 import type { Duplex } from "node:stream";
 import { authenticateRequest, type AuthResult } from "./auth.js";
 import { checkBalance, checkTeamBalance } from "./balance-check.js";
-import { attachByteCounters, type ByteCounter } from "./counting-stream.js";
+import { attachByteCounters, capReadable, type ByteCounter } from "./counting-stream.js";
 import { startSession, startPrepaidSession, abortPrepaidSession, endSession, registerSessionDestroy, unregisterSessionDestroy, type RelayBinding } from "./session-manager.js";
 import { checkSanctionedCountry, initGeoCheck } from "./geo-check.js";
 import { validateTarget, isValidHostname, isValidPort } from "./target-validator.js";
@@ -122,28 +122,31 @@ export function hostHeaderFor(host: string, port: number): string {
  */
 export function meterStream(stream: Duplex, counter: ByteCounter): void {
   let fired = false;
-  const check = (): void => {
+  const fire = (): void => {
     if (fired || counter.maxBytes <= 0 || !counter.onLimitExceeded) return;
-    if (counter.bytesIn + counter.bytesOut > counter.maxBytes) {
-      fired = true;
-      counter.onLimitExceeded();
-    }
+    fired = true;
+    counter.onLimitExceeded();
   };
   const origWrite = stream.write.bind(stream) as (...args: unknown[]) => boolean;
   (stream as { write: (...args: unknown[]) => boolean }).write = (...args: unknown[]): boolean => {
     const chunk = args[0];
+    let len = 0;
     if (typeof chunk === "string") {
-      counter.bytesIn += Buffer.byteLength(chunk, typeof args[1] === "string" ? (args[1] as BufferEncoding) : "utf8");
+      len = Buffer.byteLength(chunk, typeof args[1] === "string" ? (args[1] as BufferEncoding) : "utf8");
     } else if (chunk instanceof Uint8Array) {
-      counter.bytesIn += chunk.length;
+      len = chunk.length;
     }
-    check();
+    // Refuse (and never bill) a write that would cross the cap.
+    if (counter.maxBytes > 0 && counter.bytesIn + counter.bytesOut + len > counter.maxBytes) {
+      fire();
+      return false;
+    }
+    counter.bytesIn += len;
     return origWrite(...args);
   };
-  stream.on("data", (chunk: Buffer | string) => {
-    counter.bytesOut += typeof chunk === "string" ? Buffer.byteLength(chunk) : chunk.length;
-    check();
-  });
+  // Reads: truncate at the cap before the chunk enters the stream, so only
+  // delivered bytes are counted.
+  capReadable(stream, () => counter.bytesIn + counter.bytesOut, (n) => { counter.bytesOut += n; }, () => counter.maxBytes, fire);
 }
 
 const HOP_BY_HOP_REQUEST = new Set([
@@ -415,6 +418,14 @@ async function handleRequest(
       return;
     }
 
+    if (x402Counter.maxBytes > 0 && x402Body.length > x402Counter.maxBytes) {
+      upstream.stream.destroy();
+      await abortPrepaidSession(x402SessionId);
+      await releaseX402Pending(x402Data.pending);
+      sendError(clientRes, 413, "BODY_TOO_LARGE", "Request body exceeds the paid byte cap");
+      return;
+    }
+
     // Node selected, snapshot locked, stream open: only now take the payment.
     const x402Pending = x402Data.pending;
     if (!x402Pending || !(await settleX402Pending(x402Pending))) {
@@ -625,6 +636,14 @@ async function handleRequest(
     cleanup();
     recordError();
     sendError(clientRes, 502, "UPSTREAM_UNAVAILABLE", "Bad gateway");
+    return;
+  }
+
+  // The body alone exceeds what the session may carry: reject before sending
+  // anything rather than forwarding (and billing) a request we must cut off.
+  if (counter.maxBytes > 0 && requestBody.length > counter.maxBytes) {
+    cleanup();
+    sendError(clientRes, 413, "BODY_TOO_LARGE", "Request body exceeds the session byte cap");
     return;
   }
 

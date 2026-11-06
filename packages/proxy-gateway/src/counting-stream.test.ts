@@ -197,4 +197,44 @@ describe("proxy-gateway/counting-stream", () => {
       expect(counter.bytesIn).toBe(5);
     });
   });
+
+  describe("byte cap", () => {
+    it("forwards and bills only up to maxBytes; the crossing chunk is truncated", async () => {
+      const { PassThrough } = await import("node:stream");
+      const client = new PassThrough();
+      const upstream = new PassThrough();
+      const counter = attachByteCounters(client as any, upstream as any);
+      const onLimit = vi.fn();
+      counter.maxBytes = 10;
+      counter.onLimitExceeded = onLimit;
+      const received: Buffer[] = [];
+      upstream.on("data", (c: Buffer) => received.push(c));
+      upstream.push(Buffer.from("12345678"));
+      upstream.push(Buffer.from("abcdefgh"));
+      await new Promise((r) => setImmediate(r));
+      expect(Buffer.concat(received).toString()).toBe("12345678ab");
+      expect(counter.bytesIn + counter.bytesOut).toBe(10);
+      expect(onLimit).toHaveBeenCalledTimes(1);
+    });
+
+    it("shares the cap across both directions", async () => {
+      const { PassThrough } = await import("node:stream");
+      const client = new PassThrough();
+      const upstream = new PassThrough();
+      const counter = attachByteCounters(client as any, upstream as any);
+      counter.maxBytes = 6;
+      counter.onLimitExceeded = vi.fn();
+      const sink = new PassThrough();
+      sink.resume();
+      client.pipe(sink);
+      upstream.resume();
+      client.write(Buffer.from("abcd"));
+      await new Promise((r) => setImmediate(r));
+      upstream.push(Buffer.from("wxyz"));
+      await new Promise((r) => setImmediate(r));
+      expect(counter.bytesIn).toBe(4);
+      expect(counter.bytesOut).toBe(2);
+      expect(counter.onLimitExceeded).toHaveBeenCalledTimes(1);
+    });
+  });
 });
