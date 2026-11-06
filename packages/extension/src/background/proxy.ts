@@ -1,4 +1,5 @@
 import { BLOCK_PROXY } from "../shared/constants.js";
+import { isLocalGateway } from "../shared/settings.js";
 
 export interface GatewayCreds {
   host: string;
@@ -25,10 +26,20 @@ function bypassConditions(apiHost: string): string {
  * goes through the gateway. "block": the same traffic goes to a dead loopback port so
  * it fails instead of leaking out DIRECT with the machine's real IP.
  */
-export function buildPac(mode: "proxy" | "block", gatewayHost: string, gatewayPort: number, apiHost: string): string {
+export function buildPac(
+  mode: "proxy" | "block",
+  gatewayHost: string,
+  gatewayPort: number,
+  apiHost: string,
+  tls = true,
+): string {
   if (!HOST_RE.test(gatewayHost)) throw new Error("Invalid gateway host");
   if (!Number.isInteger(gatewayPort) || gatewayPort < 1 || gatewayPort > 65535) throw new Error("Invalid gateway port");
-  const target = mode === "proxy" ? `PROXY ${gatewayHost}:${gatewayPort}` : BLOCK_PROXY;
+  if (mode === "proxy" && !tls && !isLocalGateway(gatewayHost)) {
+    throw new Error("Plaintext gateway connection refused: enable gatewayTls (plaintext is only allowed for localhost)");
+  }
+  // HTTPS = TLS to the proxy itself, so the key (proxy password) is never sent in clear.
+  const target = mode === "proxy" ? `${tls ? "HTTPS" : "PROXY"} ${gatewayHost}:${gatewayPort}` : BLOCK_PROXY;
   return `function FindProxyForURL(url, host) {
   if (${bypassConditions(apiHost)}) return "DIRECT";
   return ${JSON.stringify(target)};

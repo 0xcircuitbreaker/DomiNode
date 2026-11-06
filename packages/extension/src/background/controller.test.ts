@@ -67,7 +67,7 @@ describe("Controller spend-cap stop", () => {
     await ctl.init();
     expect(ctl.mode).toBe("proxying");
     const lastPac = () => (chromeMock.proxy.settings.set.mock.calls.at(-1)?.[0] as { value: { pacScript: { data: string } } }).value.pacScript.data;
-    expect(lastPac()).toContain("PROXY gw.example.com:8080");
+    expect(lastPac()).toContain("HTTPS gw.example.com:8443");
     expect(ctl.creds()?.auth?.password).toBe(KEY);
 
     await ctl.pollBalance(); // 1000 baseline
@@ -77,7 +77,7 @@ describe("Controller spend-cap stop", () => {
     expect(ctl.mode).toBe("blocked");
     expect(ctl.run.spentCents).toBe(60);
     expect(lastPac()).toContain("PROXY 127.0.0.1:9");
-    expect(lastPac()).not.toContain("gw.example.com:8080");
+    expect(lastPac()).not.toContain("gw.example.com:8443");
     expect(ctl.creds()?.auth).toBeNull();
     expect(chromeMock.action.setBadgeText).toHaveBeenLastCalledWith({ text: "STOP" });
   });
@@ -121,5 +121,30 @@ describe("Controller spend-cap stop", () => {
     expect(ctl.mode).toBe("no_key");
     const pac = (chromeMock.proxy.settings.set.mock.calls.at(-1)?.[0] as { value: { pacScript: { data: string } } }).value.pacScript.data;
     expect(pac).toContain("127.0.0.1:9");
+  });
+
+  it("refuses a plaintext non-local gateway from operator edits and fails closed under managed policy", async () => {
+    const ctl = new Controller();
+    await ctl.init();
+    await expect(ctl.operatorUpdate({ gatewayTls: false })).rejects.toThrow(/localhost/);
+    expect(ctl.settings.gatewayTls).toBe(true);
+    await expect(ctl.importConfig({ gatewayTls: false })).rejects.toThrow(/localhost/);
+
+    chromeMock.storage.managed._store.set("gatewayTls", false);
+    const managed = new Controller();
+    await managed.init();
+    const pac = (chromeMock.proxy.settings.set.mock.calls.at(-1)?.[0] as { value: { pacScript: { data: string } } }).value.pacScript.data;
+    expect(pac).toContain("127.0.0.1:9");
+    expect(pac).not.toContain("PROXY gw.example.com");
+    expect(managed.creds()?.auth).toBeNull();
+    expect(managed.lastError).toMatch(/Plaintext/);
+  });
+
+  it("plaintext is allowed for a localhost gateway", async () => {
+    const ctl = new Controller();
+    await ctl.init();
+    await ctl.operatorUpdate({ gatewayHost: "localhost", gatewayPort: 8080, gatewayTls: false });
+    const pac = (chromeMock.proxy.settings.set.mock.calls.at(-1)?.[0] as { value: { pacScript: { data: string } } }).value.pacScript.data;
+    expect(pac).toContain("PROXY localhost:8080");
   });
 });

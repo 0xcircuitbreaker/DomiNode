@@ -10,6 +10,11 @@ export interface Settings {
   apiBase: string;
   gatewayHost: string;
   gatewayPort: number;
+  /**
+   * Connect to the gateway over TLS (PAC "HTTPS host:port"). The API key travels as the
+   * proxy password, so plaintext ("PROXY host:port") is only allowed for localhost gateways.
+   */
+  gatewayTls: boolean;
   /** ISO 3166-1 alpha-2 exit country, or null for any. */
   country: string | null;
   /** Relay node class, or null for any. */
@@ -36,6 +41,7 @@ export const DEFAULT_SETTINGS: Settings = {
   apiBase: DEFAULT_API_BASE,
   gatewayHost: DEFAULT_GATEWAY_HOST,
   gatewayPort: DEFAULT_GATEWAY_PORT,
+  gatewayTls: true,
   country: null,
   ipClass: null,
   sticky: false,
@@ -137,7 +143,7 @@ export function validateSettingsPatch(input: unknown, scope: PatchScope): Partia
     const key = k as keyof Settings;
     if (scope === "control" && !CONTROL_KEYS.has(key)) throw new ValidationError(`setting not changeable via control channel: ${k}`);
     switch (key) {
-      case "enabled": case "sticky": case "plaintext":
+      case "enabled": case "sticky": case "plaintext": case "gatewayTls":
         out[key] = bool(k, v); break;
       case "apiBase": out.apiBase = validateApiBase(v); break;
       case "gatewayHost":
@@ -170,6 +176,19 @@ export function validateSettingsPatch(input: unknown, scope: PatchScope): Partia
   return out;
 }
 
+/** Plaintext gateway connections are only allowed to a gateway on this machine. */
+export function isLocalGateway(host: string): boolean {
+  const h = host.toLowerCase();
+  return h === "localhost" || h === "127.0.0.1";
+}
+
+/** Cross-field check on a merged settings object: refuses a plaintext non-local gateway. */
+export function assertGatewayTransport(s: Pick<Settings, "gatewayHost" | "gatewayTls">): void {
+  if (!s.gatewayTls && !isLocalGateway(s.gatewayHost)) {
+    throw new ValidationError("gatewayTls can only be disabled for a localhost/127.0.0.1 gateway (the API key is the proxy password)");
+  }
+}
+
 export function validateApiKey(v: unknown): string {
   if (typeof v !== "string" || !API_KEY_RE.test(v)) throw new ValidationError("apiKey must be a dn_live_/dn_test_ key");
   return v;
@@ -182,5 +201,7 @@ export function normalizeSettings(stored: unknown): Settings {
   for (const [k, v] of Object.entries(stored)) {
     try { Object.assign(s, validateSettingsPatch({ [k]: v }, "operator")); } catch { /* drop invalid */ }
   }
+  // Never load a plaintext non-local gateway: fall back to TLS.
+  if (!s.gatewayTls && !isLocalGateway(s.gatewayHost)) s.gatewayTls = true;
   return s;
 }

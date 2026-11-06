@@ -48,7 +48,7 @@ describe("auth handler", () => {
 describe("buildPac", () => {
   it("routes through the gateway and bypasses the API host", () => {
     const pac = buildPac("proxy", "proxy.dominusnode.com", 8080, "api.dominusnode.com");
-    expect(pac).toContain('"PROXY proxy.dominusnode.com:8080"');
+    expect(pac).toContain('"HTTPS proxy.dominusnode.com:8080"');
     expect(pac).toContain('host === "api.dominusnode.com"');
     expect(pac).not.toContain("dn_live_");
   });
@@ -88,5 +88,22 @@ describe("WebRTC leak guard", () => {
       c.chrome.privacy = prevPrivacy;
       c.chrome.proxy = prevProxy;
     }
+  });
+});
+
+describe("gateway TLS", () => {
+  it("emits HTTPS host:port by default so the key never crosses in clear", () => {
+    const pac = buildPac("proxy", "proxy.dominusnode.com", 8443, "api.dominusnode.com");
+    expect(pac).toContain('"HTTPS proxy.dominusnode.com:8443"');
+    expect(pac).not.toContain('"PROXY proxy.dominusnode.com');
+  });
+
+  it("refuses plaintext to a non-local gateway", () => {
+    expect(() => buildPac("proxy", "proxy.dominusnode.com", 8080, "api.dominusnode.com", false)).toThrow(/Plaintext/);
+  });
+
+  it("allows plaintext only for localhost / 127.0.0.1", () => {
+    expect(buildPac("proxy", "localhost", 8080, "api.dominusnode.com", false)).toContain('"PROXY localhost:8080"');
+    expect(buildPac("proxy", "127.0.0.1", 8080, "api.dominusnode.com", false)).toContain('"PROXY 127.0.0.1:8080"');
   });
 });

@@ -11,7 +11,11 @@ must not see other agents' decrypted traffic.
 ## How it works
 
 - `chrome.proxy` gets a PAC script: every host except the API host, loopback and plain host
-  names goes to `PROXY <gatewayHost>:<gatewayPort>`.
+  names goes to `HTTPS <gatewayHost>:<gatewayPort>` (TLS to the gateway's `PROXY_TLS_PORT`,
+  default 8443), so the API key sent as the proxy password is never in clear text and the
+  extension keeps working when the gateway runs with `PROXY_REQUIRE_TLS=true`.
+  `gatewayTls: false` (`PROXY host:port`, plaintext) is only accepted for a `localhost` /
+  `127.0.0.1` gateway; for any other host it is refused and traffic is blocked (fail closed).
 - `chrome.webRequest.onAuthRequired` (`webRequestAuthProvider`) answers the gateway's 407 with
   username = routing flags and password = the `dn_live_` key. It answers only proxy challenges
   from the configured gateway host:port, never site (origin) auth, and only once per request.
@@ -61,7 +65,8 @@ The same flat JSON is accepted by the managed policy and by the one-time import:
   "enabled": true,
   "apiBase": "https://api.dominusnode.com",
   "gatewayHost": "proxy.dominusnode.com",
-  "gatewayPort": 8080,
+  "gatewayPort": 8443,
+  "gatewayTls": true,
   "country": "US",
   "ipClass": "residential",
   "sticky": true,

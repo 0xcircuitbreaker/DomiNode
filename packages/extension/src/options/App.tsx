@@ -100,6 +100,15 @@ function Connection({ st, setSt }: { st: Status; setSt: (s: Status) => void }) {
           <label class="stack-sm flex-1">Gateway host<input class="input" {...field("gatewayHost")} disabled={locked("gatewayHost")} /></label>
           <label class="stack-sm">Port<input class="input" {...field("gatewayPort")} disabled={locked("gatewayPort")} /></label>
         </div>
+        <label class="row-between">
+          <span>
+            TLS to gateway (HTTPS proxy). <span class="text-muted">The API key is the proxy password; plaintext is only allowed for localhost gateways.</span>
+          </span>
+          <span class="toggle">
+            <input type="checkbox" checked={s.gatewayTls} disabled={locked("gatewayTls")} onChange={(e) => wrap(async () => setSt(await send("updateSettings", { gatewayTls: (e.target as HTMLInputElement).checked })))} />
+            <span class="toggle-slider" />
+          </span>
+        </label>
         <label class="stack-sm">
           Spend cap per run (USD, empty = none). When reached, proxying stops and traffic is blocked (never sent direct).
           <input class="input" placeholder="e.g. 5.00" {...field("spendCap")} disabled={locked("spendCapCents")} />

@@ -5,7 +5,7 @@ import { buildUsername, newSessionId } from "../shared/flags.js";
 import { safeParse } from "../shared/json.js";
 import { loadManagedConfig, parseConfig } from "../shared/managed-config.js";
 import { keyPrefix, scrubCredentials } from "../shared/scrub.js";
-import { validateSettingsPatch, type Settings } from "../shared/settings.js";
+import { assertGatewayTransport, isLocalGateway, validateSettingsPatch, type Settings } from "../shared/settings.js";
 import { applyBalanceSample, newRun, type RunState } from "../shared/spend.js";
 import { buildPac, clearProxy, setPac, type GatewayCreds } from "./proxy.js";
 import * as store from "./store.js";
@@ -103,7 +103,8 @@ export class Controller {
   /** Read by the onAuthRequired handler. */
   creds(): GatewayCreds | null {
     if (!this.settings?.enabled) return null;
-    const blocked = !this.apiKey || this.run.blocked;
+    const insecure = !this.settings.gatewayTls && !isLocalGateway(this.settings.gatewayHost);
+    const blocked = !this.apiKey || this.run.blocked || insecure;
     return {
       host: this.settings.gatewayHost,
       port: this.settings.gatewayPort,
@@ -129,7 +130,16 @@ export class Controller {
       else {
         // no_key and blocked both fail closed: traffic never leaves DIRECT.
         const pacMode = mode === "proxying" ? "proxy" : "block";
-        await setPac(buildPac(pacMode, this.settings.gatewayHost, this.settings.gatewayPort, this.apiHost()));
+        const { gatewayHost, gatewayPort, gatewayTls } = this.settings;
+        let pac: string;
+        try {
+          pac = buildPac(pacMode, gatewayHost, gatewayPort, this.apiHost(), gatewayTls);
+        } catch (err) {
+          // Refused transport: fail closed (block), never DIRECT and never plaintext creds.
+          this.lastError = scrubCredentials(err);
+          pac = buildPac("block", gatewayHost, gatewayPort, this.apiHost(), true);
+        }
+        await setPac(pac);
       }
     } catch (err) {
       this.lastError = scrubCredentials(err);
@@ -174,6 +184,7 @@ export class Controller {
   async updateSettings(patch: Partial<Settings>): Promise<void> {
     const prevBase = this.settings.apiBase;
     const wasEnabled = this.settings.enabled;
+    assertGatewayTransport({ ...this.settings, ...patch });
     this.settings = { ...this.settings, ...patch };
     this.ensureSession();
     if (this.settings.apiBase !== prevBase) this.account = null;
