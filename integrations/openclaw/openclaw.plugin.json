@@ -1,0 +1,49 @@
+{
+  "id": "dominusnode",
+  "name": "DominusNode relay network",
+  "description": "Fetch the web through the DominusNode AI-agent relay network; pricing, wallet, usage and node earnings.",
+  "version": "2.0.0",
+  "categories": [
+    "tools"
+  ],
+  "contracts": {
+    "tools": [
+      "dominusnode_fetch",
+      "dominusnode_proxy_url",
+      "dominusnode_network_policy",
+      "dominusnode_network_pricing",
+      "dominusnode_network_stats",
+      "dominusnode_balance",
+      "dominusnode_transactions",
+      "dominusnode_topup_crypto",
+      "dominusnode_check_payment",
+      "dominusnode_usage",
+      "dominusnode_active_sessions",
+      "dominusnode_report_session",
+      "dominusnode_node_list",
+      "dominusnode_node_tier",
+      "dominusnode_node_setup_guide",
+      "dominusnode_credits_balance",
+      "dominusnode_credits_convert",
+      "dominusnode_payouts_list",
+      "dominusnode_x402_info"
+    ]
+  },
+  "activation": {
+    "onStartup": true
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "baseUrl": {
+        "type": "string",
+        "description": "API base URL (default https://api.dominusnode.com)"
+      },
+      "proxyHost": {
+        "type": "string",
+        "description": "Proxy gateway host (default proxy.dominusnode.com)"
+      }
+    }
+  }
+}
