@@ -1,235 +1,97 @@
-"""Dominus Node SuperAGI Toolkit -- registers all 53 Dominus Node tools.
+"""SuperAGI toolkit exposing the DominusNode v2 standard tool set (19 tools).
 
-Provides a ``BaseToolkit`` subclass that exposes 53 tools for interacting
-with the Dominus Node rotating proxy-as-a-service platform.  The toolkit
-covers proxied HTTP fetching, wallet and usage monitoring, agentic wallet
-management, team management (incl. members, invites, keys), account
-lifecycle, API key management, plan management, x402 micropayments, and
-payment top-ups.
-
-Example::
-
-    from dominusnode_superagi.toolkit import DominusNodeToolkit
-
-    toolkit = DominusNodeToolkit()
-    tools = toolkit.get_tools()
-    # Each tool has .name, .description, .args_schema, and ._execute()
-
-Requires ``DOMINUSNODE_API_KEY`` (and optionally ``DOMINUSNODE_BASE_URL``,
-``DOMINUSNODE_PROXY_HOST``, ``DOMINUSNODE_PROXY_PORT``) to be set in
-SuperAGI's tool configuration.
+Each tool is a ``superagi.tools.base_tool.BaseTool`` with a pydantic
+``args_schema`` and a ``_execute(**kwargs) -> str`` that delegates to the
+``dominusnode`` SDK. The API key comes from SuperAGI tool configuration
+(``DOMINUSNODE_API_KEY``) or the environment; it is never a tool argument.
 """
 
 from __future__ import annotations
 
-try:
-    from superagi.tools.base_tool import BaseToolkit
-except ImportError:
-    BaseToolkit = object  # Standalone mode — SuperAGI framework not installed
+from typing import Any, Dict, List, Optional, Type
 
-from dominusnode_superagi.tools import (
-    DominusNodeAccountInfoTool,
-    DominusNodeAgenticTransactionsTool,
-    DominusNodeAgenticWalletBalanceTool,
-    DominusNodeBalanceTool,
-    DominusNodeChangePlanTool,
-    DominusNodeCheckPaymentTool,
-    DominusNodeCreateAgenticWalletTool,
-    DominusNodeCreateKeyTool,
-    DominusNodeCreateTeamTool,
-    DominusNodeDailyUsageTool,
-    DominusNodeDeleteAgenticWalletTool,
-    DominusNodeForecastTool,
-    DominusNodeFreezeAgenticWalletTool,
-    DominusNodeFundAgenticWalletTool,
-    DominusNodeGetPlanTool,
-    DominusNodeListAgenticWalletsTool,
-    DominusNodeListKeysTool,
-    DominusNodeListPlansTool,
-    DominusNodeListTeamsTool,
-    DominusNodeLoginTool,
-    DominusNodeProxiedFetchTool,
-    DominusNodeProxyConfigTool,
-    DominusNodeProxyStatusTool,
-    DominusNodeRegisterTool,
-    DominusNodeResendVerificationTool,
-    DominusNodeRevokeKeyTool,
-    DominusNodeSessionsTool,
-    DominusNodeTeamAddMemberTool,
-    DominusNodeTeamCancelInviteTool,
-    DominusNodeTeamCreateKeyTool,
-    DominusNodeTeamDeleteTool,
-    DominusNodeTeamDetailsTool,
-    DominusNodeTeamFundTool,
-    DominusNodeTeamInviteMemberTool,
-    DominusNodeTeamListInvitesTool,
-    DominusNodeTeamListKeysTool,
-    DominusNodeTeamListMembersTool,
-    DominusNodeTeamRemoveMemberTool,
-    DominusNodeTeamRevokeKeyTool,
-    DominusNodeTeamUsageTool,
-    DominusNodeTopHostsTool,
-    DominusNodeTopupCryptoTool,
-    DominusNodeTopupPaypalTool,
-    DominusNodeTopupStripeTool,
-    DominusNodeTransactionsTool,
-    DominusNodeUnfreezeAgenticWalletTool,
-    DominusNodeUpdatePasswordTool,
-    DominusNodeUpdateTeamMemberRoleTool,
-    DominusNodeUpdateTeamTool,
-    DominusNodeUpdateWalletPolicyTool,
-    DominusNodeUsageTool,
-    DominusNodeVerifyEmailTool,
-    DominusNodeX402InfoTool,
-)
+from pydantic import BaseModel, Field, create_model
+
+from superagi.tools.base_tool import BaseTool, BaseToolkit
+
+from dominusnode_superagi._core import PREFIX, TOOL_SPECS, DominusNodeTools
+
+try:  # SuperAGI >= 0.0.14
+    from superagi.tools.base_tool import ToolConfiguration
+    from superagi.types.key_type import ToolConfigKeyType
+except ImportError:  # pragma: no cover - older SuperAGI / test stub
+    ToolConfiguration = None  # type: ignore[assignment,misc]
+    ToolConfigKeyType = None  # type: ignore[assignment,misc]
+
+_PY_TYPES: Dict[str, Any] = {"string": str, "integer": int, "boolean": bool}
+
+
+def _args_model(spec: Dict[str, Any]) -> Type[BaseModel]:
+    props = spec["parameters"]["properties"]
+    required = set(spec["parameters"]["required"])
+    fields: Dict[str, Any] = {}
+    for pname, p in props.items():
+        py = _PY_TYPES[p["type"]]
+        attr = "from_" if pname == "from" else pname
+        if pname in required:
+            fields[attr] = (py, Field(..., description=p["description"]))
+        else:
+            fields[attr] = (Optional[py], Field(None, description=p["description"]))
+    model_name = "".join(w.capitalize() for w in spec["name"].split("_")) + "Input"
+    return create_model(model_name, **fields)  # type: ignore[call-overload]
+
+
+class DominusNodeTool(BaseTool):
+    """One DominusNode tool; ``tool_id`` selects which of the 19 it runs."""
+
+    name: str = ""
+    description: str = ""
+    args_schema: Type[BaseModel] = BaseModel
+    tool_id: str = ""
+    core: Any = None
+
+    class Config:
+        arbitrary_types_allowed = True
+
+    def _core(self) -> DominusNodeTools:
+        if self.core is None:
+            try:
+                key = self.get_tool_config("DOMINUSNODE_API_KEY")
+            except Exception:  # noqa: BLE001 - no toolkit config bound yet
+                key = None
+            self.core = DominusNodeTools(api_key=key or None)
+        return self.core
+
+    def _execute(self, **kwargs: Any) -> str:
+        if "from_" in kwargs:
+            kwargs["from"] = kwargs.pop("from_")
+        return self._core().call(self.tool_id, kwargs)
+
+
+def build_tools(core: Optional[DominusNodeTools] = None) -> List[DominusNodeTool]:
+    """Instantiate the 19 tools (optionally sharing one ``DominusNodeTools``)."""
+    return [
+        DominusNodeTool(name=PREFIX + s["name"], description=s["description"], args_schema=_args_model(s),
+                        tool_id=s["name"], core=core)
+        for s in TOOL_SPECS
+    ]
 
 
 class DominusNodeToolkit(BaseToolkit):
-    """SuperAGI toolkit providing 53 Dominus Node proxy service tools.
-
-    Tools include:
-
-    **Proxy Operations (3):**
-      - Proxied Fetch -- fetch URLs through rotating proxies
-      - Proxy Config -- get proxy endpoint configuration
-      - Proxy Status -- get gateway status, uptime, and pool health
-
-    **Sessions (1):**
-      - List Sessions -- view active proxy sessions
-
-    **Wallet (4):**
-      - Check Balance -- view wallet balance
-      - Get Transactions -- main wallet transaction history
-      - Get Forecast -- spending forecast and burn rate
-      - Check Payment -- check crypto payment invoice status
-
-    **Usage (3):**
-      - Check Usage -- view usage statistics
-      - Daily Usage -- per-day bandwidth breakdown
-      - Top Hosts -- top hosts by bandwidth consumption
-
-    **Agentic Wallets (9):**
-      - Create, Fund, Balance, List, Transactions
-      - Freeze, Unfreeze, Delete, Update Policy
-
-    **Account (6):**
-      - Register, Login, Account Info
-      - Verify Email, Resend Verification, Update Password
-
-    **API Keys (3):**
-      - List Keys, Create Key, Revoke Key
-
-    **Plans (3):**
-      - Get Plan, List Plans, Change Plan
-
-    **Teams (17):**
-      - Create, List, Details, Fund, Create Key, Usage
-      - Update Team, Update Member Role, Delete
-      - Revoke Key, List Keys, List Members
-      - Add Member, Remove Member
-      - Invite Member, List Invites, Cancel Invite
-
-    **Payments (3):**
-      - TopUp Stripe -- create Stripe checkout session
-      - TopUp PayPal -- create PayPal top-up order
-      - TopUp Crypto -- create crypto invoice via NOWPayments
-
-    **Micropayments (1):**
-      - X402 Info -- micropayment protocol details
-    """
-
-    name: str = "Dominus Node Proxy Toolkit"
+    name: str = "DominusNode Toolkit"
     description: str = (
-        "Rotating proxy-as-a-service with wallet billing, team management, "
-        "agentic sub-wallets, account lifecycle, API key management, plan "
-        "management, and x402 micropayments. Datacenter proxies at $3/GB, "
-        "residential at $5/GB."
+        "Fetch the web through the DominusNode AI-agent relay network (live per-GB pricing via "
+        "dominusnode_network_pricing), manage the prepaid crypto wallet, and earn by contributing IPs with the node agent."
     )
 
-    def get_tools(self) -> list:
-        """Return all 53 Dominus Node tools for registration in SuperAGI.
+    def get_tools(self) -> List[BaseTool]:
+        return list(build_tools())
 
-        Returns:
-            A list of 53 BaseTool instances covering proxy, wallet, usage,
-            account, API key, plan, team, and payment operations.
-        """
+    def get_env_keys(self) -> List[Any]:
+        if ToolConfiguration is None:
+            return ["DOMINUSNODE_API_KEY", "DOMINUSNODE_BASE_URL", "DOMINUSNODE_PROXY_HOST"]
         return [
-            # Proxy (3)
-            DominusNodeProxiedFetchTool(),
-            DominusNodeProxyConfigTool(),
-            DominusNodeProxyStatusTool(),
-            # Sessions (1)
-            DominusNodeSessionsTool(),
-            # Wallet (4)
-            DominusNodeBalanceTool(),
-            DominusNodeTransactionsTool(),
-            DominusNodeForecastTool(),
-            DominusNodeCheckPaymentTool(),
-            # Usage (3)
-            DominusNodeUsageTool(),
-            DominusNodeDailyUsageTool(),
-            DominusNodeTopHostsTool(),
-            # Agentic Wallets (9)
-            DominusNodeCreateAgenticWalletTool(),
-            DominusNodeFundAgenticWalletTool(),
-            DominusNodeAgenticWalletBalanceTool(),
-            DominusNodeListAgenticWalletsTool(),
-            DominusNodeAgenticTransactionsTool(),
-            DominusNodeFreezeAgenticWalletTool(),
-            DominusNodeUnfreezeAgenticWalletTool(),
-            DominusNodeDeleteAgenticWalletTool(),
-            DominusNodeUpdateWalletPolicyTool(),
-            # Account (6)
-            DominusNodeRegisterTool(),
-            DominusNodeLoginTool(),
-            DominusNodeAccountInfoTool(),
-            DominusNodeVerifyEmailTool(),
-            DominusNodeResendVerificationTool(),
-            DominusNodeUpdatePasswordTool(),
-            # API Keys (3)
-            DominusNodeListKeysTool(),
-            DominusNodeCreateKeyTool(),
-            DominusNodeRevokeKeyTool(),
-            # Plans (3)
-            DominusNodeGetPlanTool(),
-            DominusNodeListPlansTool(),
-            DominusNodeChangePlanTool(),
-            # Teams (17)
-            DominusNodeCreateTeamTool(),
-            DominusNodeListTeamsTool(),
-            DominusNodeTeamDetailsTool(),
-            DominusNodeTeamFundTool(),
-            DominusNodeTeamCreateKeyTool(),
-            DominusNodeTeamUsageTool(),
-            DominusNodeUpdateTeamTool(),
-            DominusNodeUpdateTeamMemberRoleTool(),
-            DominusNodeTeamDeleteTool(),
-            DominusNodeTeamRevokeKeyTool(),
-            DominusNodeTeamListKeysTool(),
-            DominusNodeTeamListMembersTool(),
-            DominusNodeTeamAddMemberTool(),
-            DominusNodeTeamRemoveMemberTool(),
-            DominusNodeTeamInviteMemberTool(),
-            DominusNodeTeamListInvitesTool(),
-            DominusNodeTeamCancelInviteTool(),
-            # Payments (3)
-            DominusNodeTopupPaypalTool(),
-            DominusNodeTopupStripeTool(),
-            DominusNodeTopupCryptoTool(),
-            # Micropayments (1)
-            DominusNodeX402InfoTool(),
-        ]
-
-    def get_env_keys(self) -> list:
-        """Return the environment/config keys needed by Dominus Node tools.
-
-        Returns:
-            A list of configuration key names that SuperAGI should prompt
-            the user to set.
-        """
-        return [
-            "DOMINUSNODE_API_KEY",
-            "DOMINUSNODE_BASE_URL",
-            "DOMINUSNODE_PROXY_HOST",
-            "DOMINUSNODE_PROXY_PORT",
+            ToolConfiguration(key="DOMINUSNODE_API_KEY", key_type=ToolConfigKeyType.STRING, is_required=True, is_secret=True),
+            ToolConfiguration(key="DOMINUSNODE_BASE_URL", key_type=ToolConfigKeyType.STRING, is_required=False, is_secret=False),
+            ToolConfiguration(key="DOMINUSNODE_PROXY_HOST", key_type=ToolConfigKeyType.STRING, is_required=False, is_secret=False),
         ]

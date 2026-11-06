@@ -4,12 +4,12 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "dominusnode-superagi"
-version = "1.2.3"
-description = "Dominus Node toolkit for SuperAGI -- 22 proxy, wallet, and team management tools"
+version = "2.0.0"
+description = "DominusNode toolkit for SuperAGI: the 19 standard relay-network tools, built on the dominusnode SDK"
 readme = "README.md"
 license = {text = "MIT"}
-requires-python = ">=3.10"
-dependencies = ["httpx>=0.25.0", "pydantic>=1.10.0"]
+requires-python = ">=3.9"
+dependencies = ["dominusnode>=2.0.0,<3", "pydantic>=1.10.0"]
 
 [project.optional-dependencies]
 dev = ["pytest>=7.0"]
