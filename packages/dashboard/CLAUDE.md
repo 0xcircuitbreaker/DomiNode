@@ -27,5 +27,5 @@ Express REST API server with auth, API key management, wallet, usage, team, and 
 ## API Structure
 - All routes under /api/ prefix
 - JWT auth via middleware for protected routes
-- Stripe/NOWPayments/PayPal webhooks use signature verification
+- Payment webhooks (NOWPayments, Tempo; admin-only Stripe/PayPal) use signature verification
 - Rate limiting on auth endpoints, team invites, plan changes

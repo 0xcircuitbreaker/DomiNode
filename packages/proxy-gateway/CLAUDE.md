@@ -2,10 +2,12 @@
 
 Team: **Core Platform**
 
-The high-performance proxy server handling HTTP/HTTPS/SOCKS5 connections.
+Relay gateway: accepts requester HTTP/HTTPS/SOCKS5 connections and relays them over tunnels to agent-run exit nodes (`packages/node-agent`). No third-party upstream.
 
 ## Key Files
-- `src/server.ts` — HTTP proxy + HTTPS double-CONNECT through Webshare
+- `src/server.ts` — HTTP proxy + HTTPS CONNECT front end
+- `src/relay.ts`, `src/node-tunnel/` — node selection and tunnel streams to exit nodes
+- `src/x402-handler.ts` — 402 offers (x402 / MPP)
 - `src/auth.ts` — Proxy-Authorization header parser
 - `src/balance-check.ts` — Wallet balance check with 30s cache
 - `src/counting-stream.ts` — Byte counters for billing
@@ -15,7 +17,7 @@ The high-performance proxy server handling HTTP/HTTPS/SOCKS5 connections.
 ## Rules
 - Performance-critical: minimize per-request overhead
 - API key in PASSWORD field, routing options in USERNAME field (Basic auth)
-- Geo-targeting uses HYPHENS: `dc-country-US` not `dc_country_US`
+- Username flags use HYPHENS: `country-US`, `class-residential|dc|mobile`, `session-<id>`, `allowhttp-1`. Plain HTTP is rejected unless `allowhttp-1`
 - Balance reservation: min(balance, ceil(relay price × RELAY_SESSION_BYTE_CAP)); session maxBytes = exactly what the reservation pays for (no overrun headroom)
 - getUserPlan: call ONCE per session (prevents TOCTOU)
 - Team API keys bill to team wallet; balance check uses teamId

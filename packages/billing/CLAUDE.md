@@ -2,11 +2,12 @@
 
 Team: **Billing & Payments**
 
-Handles all payment processing: Stripe, PayPal, NOWPayments crypto, x402 micropayments.
+Payment rails for agents: x402, MPP, Tempo and NOWPayments crypto. Stripe and PayPal remain for human admin use only (not exposed to agents).
 
 ## Key Files
-- `src/stripe.ts` — Checkout sessions, webhook handling
-- `src/paypal.ts` — createOrder->capture flow, webhook verification
+- `src/adapters/rails/` — x402, MPP, Tempo and NOWPayments rails (see docs/agent-network/PAYMENTS.md)
+- `src/x402.ts` — x402 per-request payments
+- `src/stripe.ts`, `src/paypal.ts` — admin-only fiat flows
 - `src/nowpayments.ts` — Crypto invoices (10 currencies), IPN verification
 - `src/index.ts` — Re-exports
 
@@ -22,6 +23,6 @@ Handles all payment processing: Stripe, PayPal, NOWPayments crypto, x402 micropa
 - createInvoice: validate amountCents range (>0 and <=MAX_INT)
 
 ## Pricing
-- DC: $3/GB sell (PRICE_PER_GB_CENTS_DC=300), $0.012/GB cost
-- Residential: $5/GB sell (PRICE_PER_GB_CENTS=500), $4/GB cost
+- Per-GB prices live in `network_pricing` (admin-tunable; defaults $0.50 residential, $0.20 dc). Never hardcode.
+- Node share by tier: 25% (Probation) to 50% (Partner); see docs/agent-network/ECONOMICS.md
 - Wallet: MAX_BALANCE_CENTS = $10,000 (1000000 cents)
