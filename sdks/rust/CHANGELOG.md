@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.0.0] - 2026-11-06
+
+### Changed (breaking)
+- Rewritten to the v2 relay-network contract (`sdks/SDK_SURFACE.md`): 15 resources, 71 methods.
+- New error enum with `Validation`, `Authentication`, `InsufficientBalance`, `Authorization`,
+  `NotFound`, `Conflict`, `RateLimit`, `Server`, `Network`, `Protocol`, `Proxy`, `Api`;
+  `code()`, `status_code()`, `details()` accessors.
+- Proxy username flags are `country-XX`, `class-…`, `session-…`, `wallet-<uuid>`, `allowhttp-1`.
+- `tokio` is a required dependency; the `async`/`blocking` features are gone.
+
+### Added
+- `network`, `nodes`, `credits`, `payout_wallet`, `payouts` resources; `sessions.report`.
+- `Signer` trait and `FnSigner`; signed messages are rebuilt locally and compared before signing.
+- `Secret` wrapper for one-time credentials; `proxy.fetch` GET/HEAD helper with SSRF and DNS-rebinding checks.
+- Injectable `Transport` and DNS `Resolver` for tests.
+
+### Removed
+- Plans, slots/waitlist, admin, Stripe and PayPal top-ups, email/password and MFA flows,
+  agent-secret headers, `proxy.get_status`, legacy `dc-`/`residential-`/`auto-` prefixes,
+  state/city/ASN targeting and hardcoded prices.
+
 ## [1.0.0] - 2026-02-19
 
 ### Added
