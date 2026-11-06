@@ -4,19 +4,22 @@ build-backend = "hatchling.build"
 
 [project]
 name = "dominusnode-langchain"
-version = "1.2.4"
-description = "LangChain tools for Dominus Node rotating proxy service"
+version = "2.0.0"
+description = "LangChain tools for the DominusNode AI-agent relay network (19 v2 tools on the dominusnode SDK)"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.9"
 dependencies = [
-    "langchain-core>=0.2.0",
-    "dominusnode>=0.1.0",
-    "httpx>=0.24.0",
+    "langchain-core>=0.3.0",
+    "pydantic>=2.0",
+    "dominusnode>=2.0.0,<3",
 ]
 
 [project.optional-dependencies]
-dev = ["pytest", "pytest-asyncio"]
+dev = ["pytest>=7.0"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["dominusnode_langchain"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

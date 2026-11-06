@@ -1,203 +1,84 @@
 # dominusnode-composio
 
-Composio toolkit for the [Dominus Node](https://dominusnode.com) rotating proxy-as-a-service platform. Provides 22 Composio-compatible actions for proxy management, wallet operations, team administration, and payment processing.
+Composio tools for the **DominusNode AI-agent relay network** (v2). Agents fetch the web through
+exit IPs contributed by other operators, pay per GB from a prepaid wallet (live prices from
+`dominusnode_network_pricing`, nothing hardcoded), and can earn by contributing their own IP
+with the DominusNode node agent.
 
-## Installation
+Built on the official [`dominusnode`](../../sdks/python) Python SDK v2: all HTTP, SSRF and
+DNS-rebinding checks, gateway username flags and validation come from the SDK.
 
 ```bash
 pip install dominusnode-composio
+export DOMINUSNODE_API_KEY=dn_live_...   # read from the environment, never a tool argument
 ```
 
-Or install from source:
-
-```bash
-cd integrations/composio
-pip install -e ".[dev]"
-```
-
-## Environment Setup
-
-Set your Dominus Node API key as an environment variable:
-
-```bash
-export DOMINUSNODE_API_KEY="dn_live_your_api_key_here"
-```
-
-Optionally configure the API base URL and proxy host:
-
-```bash
-export DOMINUSNODE_BASE_URL="https://api.dominusnode.com"
-export DOMINUSNODE_PROXY_HOST="proxy.dominusnode.com"
-export DOMINUSNODE_PROXY_PORT="8080"
-```
-
-## Quick Start
+## Usage
 
 ```python
+from composio import Composio
 from dominusnode_composio import DominusNodeToolkit
 
-# Create toolkit (picks up DOMINUSNODE_API_KEY from environment)
-toolkit = DominusNodeToolkit()
-
-# Or pass the API key explicitly
-toolkit = DominusNodeToolkit(api_key="dn_live_...")
-
-# Check wallet balance
-print(toolkit.check_balance())
-
-# Fetch a URL through rotating proxies
-print(toolkit.proxied_fetch(url="https://example.com", country="US"))
-
-# Get Composio-compatible action definitions
-actions = toolkit.get_actions()
-for action in actions:
-    print(f"{action['name']}: {action['description']}")
-```
-
-## Actions (22 total)
-
-### Proxy Actions
-
-| Action | Description | Required Parameters |
-|--------|-------------|-------------------|
-| `DOMINUSNODE_PROXIED_FETCH` | Fetch URL through rotating proxy | `url` |
-| `DOMINUSNODE_GET_PROXY_CONFIG` | Get proxy configuration | - |
-| `DOMINUSNODE_LIST_SESSIONS` | List active proxy sessions | - |
-
-### Wallet Actions
-
-| Action | Description | Required Parameters |
-|--------|-------------|-------------------|
-| `DOMINUSNODE_CHECK_BALANCE` | Check wallet balance | - |
-| `DOMINUSNODE_CHECK_USAGE` | Check usage statistics | - |
-| `DOMINUSNODE_TOPUP_PAYPAL` | Create PayPal top-up order | `amount_cents` |
-
-### Agentic Wallet Actions
-
-| Action | Description | Required Parameters |
-|--------|-------------|-------------------|
-| `DOMINUSNODE_CREATE_AGENTIC_WALLET` | Create sub-wallet with spending limit | `label`, `spending_limit_cents` |
-| `DOMINUSNODE_FUND_AGENTIC_WALLET` | Fund agentic wallet from main wallet | `wallet_id`, `amount_cents` |
-| `DOMINUSNODE_AGENTIC_WALLET_BALANCE` | Check agentic wallet balance | `wallet_id` |
-| `DOMINUSNODE_LIST_AGENTIC_WALLETS` | List all agentic wallets | - |
-| `DOMINUSNODE_AGENTIC_TRANSACTIONS` | Get agentic wallet transactions | `wallet_id` |
-| `DOMINUSNODE_FREEZE_AGENTIC_WALLET` | Freeze agentic wallet | `wallet_id` |
-| `DOMINUSNODE_UNFREEZE_AGENTIC_WALLET` | Unfreeze agentic wallet | `wallet_id` |
-| `DOMINUSNODE_DELETE_AGENTIC_WALLET` | Delete agentic wallet | `wallet_id` |
-
-### Team Actions
-
-| Action | Description | Required Parameters |
-|--------|-------------|-------------------|
-| `DOMINUSNODE_CREATE_TEAM` | Create team with shared wallet | `name` |
-| `DOMINUSNODE_LIST_TEAMS` | List all teams | - |
-| `DOMINUSNODE_TEAM_DETAILS` | Get team details | `team_id` |
-| `DOMINUSNODE_TEAM_FUND` | Fund team wallet | `team_id`, `amount_cents` |
-| `DOMINUSNODE_TEAM_CREATE_KEY` | Create team API key | `team_id`, `label` |
-| `DOMINUSNODE_TEAM_USAGE` | Get team usage history | `team_id` |
-| `DOMINUSNODE_UPDATE_TEAM` | Update team settings | `team_id` |
-| `DOMINUSNODE_UPDATE_TEAM_MEMBER_ROLE` | Change member role | `team_id`, `user_id`, `role` |
-
-### Protocol Actions
-
-| Action | Description | Required Parameters |
-|--------|-------------|-------------------|
-| `DOMINUSNODE_X402_INFO` | Get x402 micropayment info | - |
-
-## Usage Examples
-
-### Proxied Fetch with Geo-Targeting
-
-```python
-# Fetch through a US datacenter proxy ($3/GB)
-result = toolkit.proxied_fetch(
-    url="https://example.com",
-    country="US",
-    proxy_type="dc",
+composio = Composio()
+session = composio.create(
+    user_id="agent-1",
+    experimental={"custom_toolkits": [DominusNodeToolkit().composio_toolkit()]},
 )
-
-# Fetch through a German residential proxy ($5/GB)
-result = toolkit.proxied_fetch(
-    url="https://example.de",
-    country="DE",
-    proxy_type="residential",
-)
+tools = session.tools()   # includes LOCAL_DOMINUSNODE_FETCH, LOCAL_DOMINUSNODE_NETWORK_PRICING, ...
 ```
 
-### Agentic Wallet Management
+The tools are Composio in-process custom tools (`composio.experimental`, toolkit slug
+`DOMINUSNODE`): they execute locally through the dominusnode SDK, so the DominusNode key never
+leaves your process. Composio slugs are the tool names without the `dominusnode_` prefix,
+upper-cased (`FETCH`, `NETWORK_PRICING`, ...), and Composio routes them as
+`LOCAL_DOMINUSNODE_<SLUG>`. Each returns `{"result": <text>, "error": <bool>}`.
 
-```python
-import json
+The table below lists the tool names; the Composio slug is the part after `dominusnode_`.
 
-# Create a sub-wallet for an AI agent with $10 spending limit
-wallet = json.loads(toolkit.create_agentic_wallet(
-    label="Research Agent",
-    spending_limit_cents=1000,
-))
+## The 19 tools
 
-# Fund it with $5 from main wallet
-toolkit.fund_agentic_wallet(
-    wallet_id=wallet["id"],
-    amount_cents=500,
-)
-
-# Check balance
-print(toolkit.agentic_wallet_balance(wallet_id=wallet["id"]))
-
-# Freeze if needed
-toolkit.freeze_agentic_wallet(wallet_id=wallet["id"])
-```
-
-### Team Management
-
-```python
-import json
-
-# Create a team
-team = json.loads(toolkit.create_team(name="Research Team", max_members=10))
-
-# Fund the team wallet
-toolkit.team_fund(team_id=team["id"], amount_cents=5000)
-
-# Create a team API key
-key = json.loads(toolkit.team_create_key(
-    team_id=team["id"],
-    label="Agent Key",
-))
-```
-
-### Composio Action Discovery
-
-```python
-# Get all Composio-compatible action definitions
-actions = toolkit.get_actions()
-for action in actions:
-    print(f"{action['name']}: {action['description']}")
-    print(f"  Parameters: {list(action['parameters'].keys())}")
-    # Each action has a 'handler' callable
-    # handler = action['handler']
-```
+| # | Tool | What it does | SDK call |
+|---|---|---|---|
+| 1 | `dominusnode_fetch` | Fetch a public URL through the relay (GET/HEAD; country, ip_class, session_id, allow_http) | `proxy.fetch` |
+| 2 | `dominusnode_proxy_url` | Gateway proxy URL/username for your own client (key shown as a placeholder) | `proxy.build_username` |
+| 3 | `dominusnode_network_policy` | Relay policy: ports, blocked targets, sanctioned countries | `network.policy` |
+| 4 | `dominusnode_network_pricing` | Live per-GB prices by IP class and node earning shares | `network.pricing` |
+| 5 | `dominusnode_network_stats` | Online nodes, countries, IP classes | `network.stats` |
+| 6 | `dominusnode_balance` | Prepaid wallet balance | `wallet.get_balance` |
+| 7 | `dominusnode_transactions` | Wallet transactions | `wallet.get_transactions` |
+| 8 | `dominusnode_topup_crypto` | Crypto top-up invoice ($10-$1,000) | `wallet.top_up_crypto` |
+| 9 | `dominusnode_check_payment` | Crypto invoice status | `wallet.get_crypto_status` |
+| 10 | `dominusnode_usage` | Bandwidth usage and cost | `usage.get` |
+| 11 | `dominusnode_active_sessions` | Active sessions (no IPs) | `sessions.get_active` |
+| 12 | `dominusnode_report_session` | Report a bad session | `sessions.report` |
+| 13 | `dominusnode_node_list` | Your relay nodes | `nodes.list` |
+| 14 | `dominusnode_node_tier` | Node-operator tier and share | `nodes.tier` |
+| 15 | `dominusnode_node_setup_guide` | Steps to earn by running the node agent | `static text` |
+| 16 | `dominusnode_credits_balance` | Earned node credits | `credits.balance` |
+| 17 | `dominusnode_credits_convert` | Convert credits into wallet balance | `credits.convert` |
+| 18 | `dominusnode_payouts_list` | On-chain payouts | `payouts.list` |
+| 19 | `dominusnode_x402_info` | x402 micropayment info | `x402.get_info` |
 
 ## Security
 
-This toolkit includes comprehensive security measures:
+- The API key comes from `DOMINUSNODE_API_KEY` (or constructor config). It is never a tool
+  argument, never in a tool schema and never in tool output; `dominusnode_proxy_url` returns a
+  `<DOMINUSNODE_API_KEY>` placeholder.
+- Every result and error is scrubbed of `dn_live_`/`dn_test_`/`dn_node_`/`dn_proxy_` keys and JWTs.
+- `dominusnode_fetch` (via the SDK): GET/HEAD only, ports 80/443, private/local hosts and
+  DNS-rebinding refused, redirects not followed, 10 MB cap, sanctioned countries refused.
+  Plaintext `http://` needs `allow_http=true` and is visible to the exit node.
+- Signed flows (node registration, withdrawals, payout wallet) are not LLM tools: use the
+  DominusNode MCP server, the node agent, or the SDK with a signer key file.
 
-- **SSRF Prevention**: Blocks requests to private IPs (10.x, 172.16-31.x, 192.168.x, 127.x, 0.0.0.0/8, 169.254.x, 100.64-127.x CGNAT, 224+ multicast), IPv6 loopback/ULA/link-local, IPv4-mapped/compatible IPv6, Teredo (2001:0000::/32), 6to4 (2002::/16), hex/octal/decimal encoded IPs
-- **DNS Rebinding Protection**: Resolves hostnames and validates all IP addresses before connecting
-- **TLD Blocking**: .localhost, .local, .internal, .arpa
-- **Credential Protection**: Embedded URL credentials blocked; API keys scrubbed from all error output
-- **OFAC Compliance**: Cuba, Iran, North Korea, Russia, Syria blocked for geo-targeting
-- **HTTP Method Restriction**: Only GET, HEAD, OPTIONS allowed through proxy
-- **Prototype Pollution Prevention**: Dangerous keys stripped from all JSON responses
-- **Response Limits**: 10 MB body cap, 4000 char truncation for LLM context
-- **Redirect Disabled**: No redirect following to prevent open redirect abuse
+Configuration env vars: `DOMINUSNODE_API_KEY`, `DOMINUSNODE_BASE_URL`, `DOMINUSNODE_PROXY_HOST`,
+`DOMINUSNODE_PROXY_PORT`.
 
-## Running Tests
+## Development
 
 ```bash
-cd integrations/composio
-pip install -e ".[dev]"
-pytest tests/ -v
+pip install -e ../../sdks/python -e '.[dev]'
+pytest
 ```
 
 ## License
