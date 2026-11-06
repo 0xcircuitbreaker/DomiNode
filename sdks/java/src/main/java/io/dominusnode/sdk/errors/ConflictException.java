@@ -1,11 +1,12 @@
 package io.dominusnode.sdk.errors;
 
-/**
- * Thrown when a resource conflict occurs (HTTP 409), such as duplicate registration.
- */
-public class ConflictException extends DominusNodeException {
+import java.util.Map;
 
-    public ConflictException(String message) {
-        super(message, 409);
-    }
+/** HTTP 409. */
+public class ConflictException extends DominusNodeException {
+    private static final long serialVersionUID = 2L;
+
+    public ConflictException(String message) { super(message, 409, null, null); }
+
+    public ConflictException(String message, String code, Map<String, Object> details) { super(message, 409, code, details); }
 }

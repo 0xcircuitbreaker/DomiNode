@@ -1,27 +1,16 @@
 package io.dominusnode.sdk.errors;
 
-/**
- * Thrown when the API rate limit is exceeded (HTTP 429).
- */
+import java.util.Map;
+
+/** HTTP 429 after the single retry. */
 public class RateLimitException extends DominusNodeException {
+    private static final long serialVersionUID = 2L;
+    private final long retryAfterSeconds;
 
-    private final int retryAfterSeconds;
-
-    /**
-     * @param message           error message
-     * @param retryAfterSeconds number of seconds the client should wait before retrying
-     */
-    public RateLimitException(String message, int retryAfterSeconds) {
-        super(message, 429);
+    public RateLimitException(String message, long retryAfterSeconds, String code, Map<String, Object> details) {
+        super(message, 429, code, details);
         this.retryAfterSeconds = retryAfterSeconds;
     }
 
-    /**
-     * Suggested wait time before the next request.
-     *
-     * @return seconds to wait
-     */
-    public int getRetryAfterSeconds() {
-        return retryAfterSeconds;
-    }
+    public long getRetryAfterSeconds() { return retryAfterSeconds; }
 }

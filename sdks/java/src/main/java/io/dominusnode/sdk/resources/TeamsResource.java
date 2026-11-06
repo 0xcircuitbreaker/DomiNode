@@ -1,314 +1,111 @@
 package io.dominusnode.sdk.resources;
 
-import io.dominusnode.sdk.errors.DominusNodeException;
-import io.dominusnode.sdk.internal.HttpClient;
-import io.dominusnode.sdk.types.Team;
-import io.dominusnode.sdk.types.TeamDeleteResponse;
-import io.dominusnode.sdk.types.TeamFundResponse;
-import io.dominusnode.sdk.types.TeamInvite;
-import io.dominusnode.sdk.types.TeamInvitesResponse;
-import io.dominusnode.sdk.types.TeamKeyCreateResponse;
-import io.dominusnode.sdk.types.TeamKeysResponse;
-import io.dominusnode.sdk.types.TeamListResponse;
-import io.dominusnode.sdk.types.TeamMember;
-import io.dominusnode.sdk.types.TeamMembersResponse;
-import io.dominusnode.sdk.types.TeamTransactionsResponse;
+import com.fasterxml.jackson.databind.JsonNode;
+import io.dominusnode.sdk.Secret;
+import io.dominusnode.sdk.internal.ApiClient;
+import io.dominusnode.sdk.internal.ApiClient.Auth;
+import io.dominusnode.sdk.internal.Validation;
 
-import java.net.URLEncoder;
-import java.nio.charset.StandardCharsets;
-import java.util.Arrays;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import static io.dominusnode.sdk.internal.Validation.body;
+import static io.dominusnode.sdk.internal.Validation.qs;
+import static io.dominusnode.sdk.internal.Validation.seg;
 
-/**
- * Team operations -- team management with shared wallet, members, invites, and API keys.
- */
+/** Teams (/api/teams, jwt). 18 methods. */
 public final class TeamsResource {
+    private static final String BASE = "/api/teams";
+    private final ApiClient http;
 
-    private final HttpClient http;
+    public TeamsResource(ApiClient http) { this.http = http; }
 
-    public TeamsResource(HttpClient http) {
-        this.http = http;
-    }
+    /** A new team key; {@code key} is returned once and prints as [REDACTED]. */
+    public static final class CreatedTeamKey {
+        public final String id;
+        public final String keyPrefix;
+        public final String label;
+        public final Secret key;
 
-    /**
-     * Create a new team.
-     *
-     * @param name       team name
-     * @param maxMembers maximum number of members (0 or negative for default)
-     * @return the created team
-     * @throws DominusNodeException on API errors
-     */
-    public Team create(String name, int maxMembers) throws DominusNodeException {
-        Map<String, Object> body = new HashMap<>();
-        body.put("name", name);
-        if (maxMembers > 0) {
-            body.put("maxMembers", maxMembers);
+        CreatedTeamKey(JsonNode r) {
+            id = r.path("id").asText(null);
+            keyPrefix = r.path("keyPrefix").asText(null);
+            label = r.path("label").asText(null);
+            key = new Secret(r.path("key").asText(""));
         }
-        return http.post("/api/teams", body, Team.class);
+
+        @Override
+        public String toString() { return "CreatedTeamKey(id=" + id + ", keyPrefix=" + keyPrefix + ", key=[REDACTED])"; }
     }
 
-    /**
-     * Create a new team with default max members.
-     *
-     * @param name team name
-     * @return the created team
-     * @throws DominusNodeException on API errors
-     */
-    public Team create(String name) throws DominusNodeException {
-        return http.post("/api/teams", Map.of("name", name), Team.class);
+    private static String t(String teamId) { return BASE + "/" + seg(teamId); }
+
+    public JsonNode create(String name) { return create(name, null); }
+
+    public JsonNode create(String name, Integer maxMembers) {
+        return http.post(BASE, body("name", name, "maxMembers", maxMembers), Auth.JWT);
     }
 
-    /**
-     * List all teams the authenticated user belongs to.
-     *
-     * @return list of teams
-     * @throws DominusNodeException on API errors
-     */
-    public List<Team> list() throws DominusNodeException {
-        Team[] teams = http.get("/api/teams", Team[].class);
-        return Arrays.asList(teams);
+    public JsonNode list() { return http.get(BASE, Auth.JWT); }
+
+    public JsonNode get(String teamId) { return http.get(t(teamId), Auth.JWT); }
+
+    /** PATCH /{teamId}; null arguments are omitted. */
+    public JsonNode update(String teamId, String name, Integer maxMembers) {
+        return http.patch(t(teamId), body("name", name, "maxMembers", maxMembers), Auth.JWT);
     }
 
-    /**
-     * Get a single team by ID.
-     *
-     * @param teamId the team UUID
-     * @return the team
-     * @throws DominusNodeException on API errors
-     */
-    public Team get(String teamId) throws DominusNodeException {
-        return http.get("/api/teams/" + URLEncoder.encode(teamId, StandardCharsets.UTF_8), Team.class);
+    public JsonNode delete(String teamId) { return http.delete(t(teamId), Auth.JWT); }
+
+    public JsonNode fundWallet(String teamId, long amountCents) {
+        Validation.cents(amountCents, "amountCents", false);
+        return http.post(t(teamId) + "/wallet/fund", body("amountCents", amountCents), Auth.JWT);
     }
 
-    /**
-     * Update a team's settings.
-     *
-     * @param teamId  the team UUID
-     * @param updates map of fields to update (name, maxMembers)
-     * @return the updated team
-     * @throws DominusNodeException on API errors
-     */
-    public Team update(String teamId, Map<String, Object> updates) throws DominusNodeException {
-        return http.patch("/api/teams/" + URLEncoder.encode(teamId, StandardCharsets.UTF_8),
-                updates, Team.class);
+    public JsonNode getTransactions(String teamId) { return getTransactions(teamId, null, null); }
+
+    public JsonNode getTransactions(String teamId, Integer limit, Integer offset) {
+        return http.get(t(teamId) + "/wallet/transactions" + qs("limit", limit, "offset", offset), Auth.JWT);
     }
 
-    /**
-     * Delete a team and refund remaining wallet balance.
-     *
-     * @param teamId the team UUID
-     * @return delete response with refunded amount
-     * @throws DominusNodeException on API errors
-     */
-    public TeamDeleteResponse delete(String teamId) throws DominusNodeException {
-        return http.delete("/api/teams/" + URLEncoder.encode(teamId, StandardCharsets.UTF_8),
-                TeamDeleteResponse.class);
+    public JsonNode listMembers(String teamId) { return http.get(t(teamId) + "/members", Auth.JWT); }
+
+    public JsonNode addMember(String teamId, String email) { return addMember(teamId, email, null); }
+
+    public JsonNode addMember(String teamId, String email, String role) {
+        return http.post(t(teamId) + "/members", body("email", email, "role", role), Auth.JWT);
     }
 
-    /**
-     * Fund the team wallet from the user's main wallet.
-     *
-     * @param teamId      the team UUID
-     * @param amountCents amount in cents to transfer
-     * @return the fund transaction
-     * @throws DominusNodeException on API errors
-     */
-    public TeamFundResponse fundWallet(String teamId, int amountCents) throws DominusNodeException {
-        WalletResource.validateAmountCents(amountCents);
-        return http.post("/api/teams/" + URLEncoder.encode(teamId, StandardCharsets.UTF_8) + "/wallet/fund",
-                Map.of("amountCents", amountCents), TeamFundResponse.class);
+    public JsonNode updateMemberRole(String teamId, String userId, String role) {
+        return http.patch(t(teamId) + "/members/" + seg(userId), body("role", role), Auth.JWT);
     }
 
-    /**
-     * Get wallet transaction history for a team.
-     *
-     * @param teamId the team UUID
-     * @param limit  max number of transactions to return
-     * @param offset pagination offset
-     * @return transaction history
-     * @throws DominusNodeException on API errors
-     */
-    public TeamTransactionsResponse getTransactions(String teamId, int limit, int offset)
-            throws DominusNodeException {
-        return http.get("/api/teams/" + URLEncoder.encode(teamId, StandardCharsets.UTF_8)
-                        + "/wallet/transactions?limit=" + limit + "&offset=" + offset,
-                TeamTransactionsResponse.class);
+    public void removeMember(String teamId, String userId) {
+        http.delete(t(teamId) + "/members/" + seg(userId), Auth.JWT);
     }
 
-    /**
-     * List all members of a team.
-     *
-     * @param teamId the team UUID
-     * @return list of members
-     * @throws DominusNodeException on API errors
-     */
-    public TeamMembersResponse listMembers(String teamId) throws DominusNodeException {
-        return http.get("/api/teams/" + URLEncoder.encode(teamId, StandardCharsets.UTF_8) + "/members",
-                TeamMembersResponse.class);
+    public JsonNode createInvite(String teamId, String email) { return createInvite(teamId, email, null); }
+
+    public JsonNode createInvite(String teamId, String email, String role) {
+        return http.post(t(teamId) + "/invites", body("email", email, "role", role), Auth.JWT);
     }
 
-    /**
-     * Add a member to a team.
-     *
-     * @param teamId the team UUID
-     * @param email  the member's email address
-     * @param role   the member's role (may be null for default)
-     * @return the added member
-     * @throws DominusNodeException on API errors
-     */
-    public TeamMember addMember(String teamId, String email, String role) throws DominusNodeException {
-        Map<String, Object> body = new HashMap<>();
-        body.put("email", email);
-        if (role != null && !role.isEmpty()) {
-            body.put("role", role);
-        }
-        return http.post("/api/teams/" + URLEncoder.encode(teamId, StandardCharsets.UTF_8) + "/members",
-                body, TeamMember.class);
+    public JsonNode listInvites(String teamId) { return http.get(t(teamId) + "/invites", Auth.JWT); }
+
+    public void cancelInvite(String teamId, String inviteId) {
+        http.delete(t(teamId) + "/invites/" + seg(inviteId), Auth.JWT);
     }
 
-    /**
-     * Add a member to a team with default role.
-     *
-     * @param teamId the team UUID
-     * @param email  the member's email address
-     * @return the added member
-     * @throws DominusNodeException on API errors
-     */
-    public TeamMember addMember(String teamId, String email) throws DominusNodeException {
-        return addMember(teamId, email, null);
+    public JsonNode acceptInvite(String token) {
+        return http.post(BASE + "/invites/" + seg(token) + "/accept", body(), Auth.JWT);
     }
 
-    /**
-     * Update a member's role within a team.
-     *
-     * @param teamId the team UUID
-     * @param userId the member's user UUID
-     * @param role   the new role
-     * @return the updated member
-     * @throws DominusNodeException on API errors
-     */
-    public TeamMember updateMemberRole(String teamId, String userId, String role)
-            throws DominusNodeException {
-        return http.patch("/api/teams/" + URLEncoder.encode(teamId, StandardCharsets.UTF_8)
-                        + "/members/" + URLEncoder.encode(userId, StandardCharsets.UTF_8),
-                Map.of("role", role), TeamMember.class);
+    /** POST /{teamId}/keys {label} (1..100). */
+    public CreatedTeamKey createKey(String teamId, String label) {
+        Validation.nonEmpty(label, "label", 100);
+        return new CreatedTeamKey(http.post(t(teamId) + "/keys", body("label", label), Auth.JWT));
     }
 
-    /**
-     * Remove a member from a team.
-     *
-     * @param teamId the team UUID
-     * @param userId the member's user UUID
-     * @throws DominusNodeException on API errors
-     */
-    public void removeMember(String teamId, String userId) throws DominusNodeException {
-        http.delete("/api/teams/" + URLEncoder.encode(teamId, StandardCharsets.UTF_8)
-                + "/members/" + URLEncoder.encode(userId, StandardCharsets.UTF_8));
-    }
+    public JsonNode listKeys(String teamId) { return http.get(t(teamId) + "/keys", Auth.JWT); }
 
-    /**
-     * Create an invite for a team.
-     *
-     * @param teamId the team UUID
-     * @param email  the invitee's email address
-     * @param role   the role to assign (may be null for default)
-     * @return the created invite
-     * @throws DominusNodeException on API errors
-     */
-    public TeamInvite createInvite(String teamId, String email, String role) throws DominusNodeException {
-        Map<String, Object> body = new HashMap<>();
-        body.put("email", email);
-        if (role != null && !role.isEmpty()) {
-            body.put("role", role);
-        }
-        return http.post("/api/teams/" + URLEncoder.encode(teamId, StandardCharsets.UTF_8) + "/invites",
-                body, TeamInvite.class);
-    }
-
-    /**
-     * Create an invite for a team with default role.
-     *
-     * @param teamId the team UUID
-     * @param email  the invitee's email address
-     * @return the created invite
-     * @throws DominusNodeException on API errors
-     */
-    public TeamInvite createInvite(String teamId, String email) throws DominusNodeException {
-        return createInvite(teamId, email, null);
-    }
-
-    /**
-     * List pending invites for a team.
-     *
-     * @param teamId the team UUID
-     * @return list of pending invites
-     * @throws DominusNodeException on API errors
-     */
-    public TeamInvitesResponse listInvites(String teamId) throws DominusNodeException {
-        return http.get("/api/teams/" + URLEncoder.encode(teamId, StandardCharsets.UTF_8) + "/invites",
-                TeamInvitesResponse.class);
-    }
-
-    /**
-     * Cancel a pending team invite.
-     *
-     * @param teamId   the team UUID
-     * @param inviteId the invite UUID
-     * @throws DominusNodeException on API errors
-     */
-    public void cancelInvite(String teamId, String inviteId) throws DominusNodeException {
-        http.delete("/api/teams/" + URLEncoder.encode(teamId, StandardCharsets.UTF_8)
-                + "/invites/" + URLEncoder.encode(inviteId, StandardCharsets.UTF_8));
-    }
-
-    /**
-     * Accept a team invite using the invite token.
-     *
-     * @param token the invite token
-     * @return the new team member record
-     * @throws DominusNodeException on API errors
-     */
-    public TeamMember acceptInvite(String token) throws DominusNodeException {
-        return http.post("/api/teams/invites/" + URLEncoder.encode(token, StandardCharsets.UTF_8) + "/accept",
-                Map.of(), TeamMember.class);
-    }
-
-    /**
-     * Create a new API key for the team.
-     *
-     * @param teamId the team UUID
-     * @param label  the key label
-     * @return the created key (includes raw key, shown once)
-     * @throws DominusNodeException on API errors
-     */
-    public TeamKeyCreateResponse createKey(String teamId, String label) throws DominusNodeException {
-        return http.post("/api/teams/" + URLEncoder.encode(teamId, StandardCharsets.UTF_8) + "/keys",
-                Map.of("label", label), TeamKeyCreateResponse.class);
-    }
-
-    /**
-     * List all API keys for a team.
-     *
-     * @param teamId the team UUID
-     * @return list of team keys
-     * @throws DominusNodeException on API errors
-     */
-    public TeamKeysResponse listKeys(String teamId) throws DominusNodeException {
-        return http.get("/api/teams/" + URLEncoder.encode(teamId, StandardCharsets.UTF_8) + "/keys",
-                TeamKeysResponse.class);
-    }
-
-    /**
-     * Revoke a team API key by its ID.
-     *
-     * @param teamId the team UUID
-     * @param keyId  the API key UUID
-     * @throws DominusNodeException on API errors
-     */
-    public void revokeKey(String teamId, String keyId) throws DominusNodeException {
-        http.delete("/api/teams/" + URLEncoder.encode(teamId, StandardCharsets.UTF_8)
-                + "/keys/" + URLEncoder.encode(keyId, StandardCharsets.UTF_8));
+    public void revokeKey(String teamId, String keyId) {
+        http.delete(t(teamId) + "/keys/" + seg(keyId), Auth.JWT);
     }
 }

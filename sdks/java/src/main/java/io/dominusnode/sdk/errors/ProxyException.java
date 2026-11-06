@@ -1,27 +1,10 @@
 package io.dominusnode.sdk.errors;
 
-/**
- * Thrown when a proxy-specific error occurs (e.g., upstream provider failure).
- */
+/** proxy.fetch failure: blocked target, refused tunnel (statusCode), timeout. */
 public class ProxyException extends DominusNodeException {
+    private static final long serialVersionUID = 2L;
 
-    private final String proxyErrorCode;
+    public ProxyException(String message) { super(message); }
 
-    /**
-     * @param message        error message
-     * @param proxyErrorCode optional proxy-specific error code
-     */
-    public ProxyException(String message, String proxyErrorCode) {
-        super(message, 0);
-        this.proxyErrorCode = proxyErrorCode;
-    }
-
-    /**
-     * Proxy-specific error code, or {@code null}.
-     *
-     * @return the error code
-     */
-    public String getProxyErrorCode() {
-        return proxyErrorCode;
-    }
+    public ProxyException(String message, Integer statusCode) { super(message, statusCode, null, null); }
 }
