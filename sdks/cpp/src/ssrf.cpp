@@ -79,7 +79,7 @@ static bool is_private_v4(const unsigned char* b) {
     unsigned a = b[0], c = b[1];
     return a == 0 || a == 10 || a == 127 || (a == 169 && c == 254) || (a == 172 && c >= 16 && c <= 31) ||
            (a == 192 && c == 168) || (a == 100 && c >= 64 && c <= 127) ||
-           (a == 192 && c == 0 && (b[2] == 0 || b[2] == 2)) || (a == 198 && (c == 18 || c == 19)) || a >= 224;
+           (a == 192 && c == 0) /* 192.0.0.0/16 */ || (a == 198 && (c == 18 || c == 19)) || a >= 224;
 }
 
 bool is_private_ip(const std::string& host_in) {

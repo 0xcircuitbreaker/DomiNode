@@ -1,4 +1,8 @@
 // Proxy gateway helpers: username/URL builder and the GET/HEAD fetch helper.
+#include <arpa/inet.h>
+#include <netdb.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
 #include "dominusnode/resources.hpp"
 #include "dominusnode/constants.hpp"
 #include "dominusnode/errors.hpp"
@@ -55,6 +59,16 @@ ProxyResource::ProxyResource(HttpClient& h, ProxySettings s, std::function<std::
     if (!std::regex_match(settings_.host, host_re)) throw invalid_arg("proxyHost contains invalid characters");
     valid_port(settings_.http_port, "httpProxyPort");
     valid_port(settings_.socks5_port, "socks5ProxyPort");
+    if (settings_.gateway_tls) {
+        valid_port(settings_.gateway_tls->port, "gatewayTls.port");
+        static const std::regex sn_re("^[A-Za-z0-9.-]{1,253}$");
+        if (settings_.gateway_tls->servername && !std::regex_match(*settings_.gateway_tls->servername, sn_re)) {
+            throw invalid_arg("gatewayTls.servername is invalid");
+        }
+        if (settings_.gateway_tls->ca_pem && settings_.gateway_tls->ca_pem->find("-----BEGIN CERTIFICATE-----") == std::string::npos) {
+            throw invalid_arg("gatewayTls.ca must be a PEM certificate");
+        }
+    }
 }
 
 std::string ProxyResource::key(const OptStr& override_key) const {
@@ -66,10 +80,12 @@ std::string ProxyResource::key(const OptStr& override_key) const {
 std::string ProxyResource::build_username(const ProxyRoutingOptions& opts) const { return build_proxy_username(opts); }
 
 std::string ProxyResource::build_url(const ProxyRoutingOptions& opts, const std::string& protocol, const OptStr& api_key) const {
-    if (protocol != "http" && protocol != "socks5") throw invalid_arg("protocol must be http or socks5");
-    int port = protocol == "socks5" ? settings_.socks5_port : settings_.http_port;
+    const std::string proto = protocol.empty() ? (settings_.gateway_tls ? "https" : "http") : protocol;
+    if (proto != "http" && proto != "https" && proto != "socks5") throw invalid_arg("protocol must be http, https or socks5");
+    if (proto == "https" && !settings_.gateway_tls) throw invalid_arg("protocol https needs the gateway_tls config");
+    int port = proto == "socks5" ? settings_.socks5_port : proto == "https" ? settings_.gateway_tls->port : settings_.http_port;
     std::string user = build_proxy_username(opts);
-    return protocol + "://" + url_encode(user) + ":" + url_encode(key(api_key)) + "@" + settings_.host + ":" + std::to_string(port);
+    return proto + "://" + url_encode(user) + ":" + url_encode(key(api_key)) + "@" + settings_.host + ":" + std::to_string(port);
 }
 
 json ProxyResource::get_health() { return http_.get("/api/proxy/health", AuthMode::None); }
@@ -121,6 +137,30 @@ size_t fetch_write_cb(char* ptr, size_t size, size_t n, void* ud) {
     return total;
 }
 
+bool is_ip_literal(const std::string& h) {
+    if (!h.empty() && h.front() == '[') return true;
+    unsigned char buf[sizeof(in6_addr)];
+    return inet_pton(AF_INET, h.c_str(), buf) == 1;
+}
+
+std::string resolve_first(const std::string& host) {
+    addrinfo hints{};
+    hints.ai_socktype = SOCK_STREAM;
+    addrinfo* res = nullptr;
+    if (getaddrinfo(host.c_str(), nullptr, &hints, &res) != 0 || !res) throw ProxyError("DNS resolution failed for the proxy host");
+    char out[INET6_ADDRSTRLEN] = {0};
+    std::string addr;
+    if (res->ai_family == AF_INET6) {
+        inet_ntop(AF_INET6, &reinterpret_cast<sockaddr_in6*>(res->ai_addr)->sin6_addr, out, sizeof out);
+        addr = std::string("[") + out + "]";
+    } else {
+        inet_ntop(AF_INET, &reinterpret_cast<sockaddr_in*>(res->ai_addr)->sin_addr, out, sizeof out);
+        addr = out;
+    }
+    freeaddrinfo(res);
+    return addr;
+}
+
 void clean_headers(const std::vector<std::pair<std::string, std::string>>& in,
                    std::vector<std::pair<std::string, std::string>>& out) {
     static const std::regex token_re("^[!#$%&'*+.^_`|~0-9A-Za-z-]+$");
@@ -169,8 +209,31 @@ ProxyFetchResponse ProxyResource::fetch(const std::string& url, const ProxyFetch
     curl_easy_setopt(c, CURLOPT_URL, target.url.c_str());
 
     std::string proxy = "http://" + settings_.host + ":" + std::to_string(settings_.http_port);
+    struct curl_slist* resolve = nullptr;
+    if (settings_.gateway_tls) {
+        // HTTPS proxy: TLS to the gateway (verified), CONNECT / requests inside it.
+        const GatewayTls& g = *settings_.gateway_tls;
+        const std::string port = std::to_string(g.port);
+        if (g.servername) {
+            // Connect to proxy_host but verify and send SNI for servername: pin the name to the host's address.
+            std::string addr = settings_.host;
+            if (!is_ip_literal(addr)) addr = resolve_first(addr);
+            proxy = "https://" + *g.servername + ":" + port;
+            resolve = curl_slist_append(resolve, (*g.servername + ":" + port + ":" + addr).c_str());
+            curl_easy_setopt(c, CURLOPT_RESOLVE, resolve);
+        } else {
+            proxy = "https://" + settings_.host + ":" + port;
+        }
+        curl_easy_setopt(c, CURLOPT_PROXY_SSL_VERIFYPEER, 1L);
+        curl_easy_setopt(c, CURLOPT_PROXY_SSL_VERIFYHOST, 2L);
+        curl_easy_setopt(c, CURLOPT_PROXY_SSLVERSION, static_cast<long>(CURL_SSLVERSION_TLSv1_2));
+        if (g.ca_pem) {
+            curl_blob blob{const_cast<char*>(g.ca_pem->data()), g.ca_pem->size(), CURL_BLOB_COPY};
+            curl_easy_setopt(c, CURLOPT_PROXY_CAINFO_BLOB, &blob);
+        }
+    }
     curl_easy_setopt(c, CURLOPT_PROXY, proxy.c_str());
-    curl_easy_setopt(c, CURLOPT_PROXYTYPE, static_cast<long>(CURLPROXY_HTTP));
+    curl_easy_setopt(c, CURLOPT_PROXYTYPE, static_cast<long>(settings_.gateway_tls ? CURLPROXY_HTTPS : CURLPROXY_HTTP));
     curl_easy_setopt(c, CURLOPT_NOPROXY, "");  // the gateway is never bypassed via NO_PROXY
     curl_easy_setopt(c, CURLOPT_PROXYAUTH, static_cast<long>(CURLAUTH_BASIC));
     curl_easy_setopt(c, CURLOPT_PROXYUSERNAME, username.c_str());
@@ -192,6 +255,7 @@ ProxyFetchResponse ProxyResource::fetch(const std::string& url, const ProxyFetch
 
     CURLcode rc = curl_easy_perform(c);
     curl_slist_free_all(hl);
+    curl_slist_free_all(resolve);
     secure_zero_string(api_key);
     long connect_code = 0;
     curl_easy_getinfo(c, CURLINFO_HTTP_CONNECTCODE, &connect_code);

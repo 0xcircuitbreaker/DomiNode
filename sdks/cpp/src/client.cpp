@@ -20,7 +20,7 @@ DominusNodeClient::DominusNodeClient(const ClientConfig& config)
       credits(http_),
       payout_wallet(http_),
       payouts(http_),
-      proxy(http_, ProxySettings{config.proxy_host, config.http_proxy_port, config.socks5_proxy_port},
+      proxy(http_, ProxySettings{config.proxy_host, config.http_proxy_port, config.socks5_proxy_port, config.gateway_tls},
             [this] { return api_key_; }) {
     // Never cleared (TokenManager::clear() keeps it) so reconnecting works.
     tokens_.set_refresh_function([this](const std::string& rt) {

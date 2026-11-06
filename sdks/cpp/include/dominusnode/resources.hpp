@@ -1,5 +1,6 @@
 #pragma once
 
+#include "dominusnode/constants.hpp"
 #include "dominusnode/http_client.hpp"
 #include "dominusnode/secret.hpp"
 #include "dominusnode/signing.hpp"
@@ -278,10 +279,21 @@ struct ProxyFetchResponse {
     bool truncated = false;
     const std::string& text() const { return body; }
 };
+/// TLS to the gateway's HTTPS proxy listener so Proxy-Authorization is encrypted; CONNECT and
+/// requests run inside it. Certificate + hostname verification always on.
+struct GatewayTls {
+    int port = DEFAULT_TLS_PROXY_PORT;
+    /// Extra PEM root for the gateway (added to the default CA store).
+    std::optional<std::string> ca_pem;
+    /// TLS server name / verified name (default: proxy host), e.g. when the host is an IP.
+    std::optional<std::string> servername;
+};
+
 struct ProxySettings {
     std::string host;
     int http_port;
     int socks5_port;
+    std::optional<GatewayTls> gateway_tls = std::nullopt;
 };
 
 std::string build_proxy_username(const ProxyRoutingOptions& opts);
@@ -290,8 +302,9 @@ class ProxyResource {
 public:
     ProxyResource(HttpClient& h, ProxySettings s, std::function<std::string()> api_key);
     std::string build_username(const ProxyRoutingOptions& opts = {}) const;
-    /// Contains the API key by design: do NOT log the result.
-    std::string build_url(const ProxyRoutingOptions& opts = {}, const std::string& protocol = "http",
+    /// Contains the API key by design: do NOT log the result. protocol: http, https (needs
+    /// gateway_tls) or socks5; empty = https when gateway_tls is configured, else http.
+    std::string build_url(const ProxyRoutingOptions& opts = {}, const std::string& protocol = "",
                           const OptStr& api_key = std::nullopt) const;
     ProxyFetchResponse fetch(const std::string& url, const ProxyFetchOptions& opts = {});
     json get_health();

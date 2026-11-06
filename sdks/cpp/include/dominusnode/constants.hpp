@@ -11,6 +11,8 @@ inline constexpr const char* DEFAULT_BASE_URL = "https://api.dominusnode.com";
 inline constexpr const char* DEFAULT_PROXY_HOST = "proxy.dominusnode.com";
 inline constexpr int DEFAULT_HTTP_PROXY_PORT = 8080;
 inline constexpr int DEFAULT_SOCKS5_PROXY_PORT = 1080;
+/// Gateway HTTPS proxy listener (PROXY_TLS_PORT), used with GatewayTls.
+inline constexpr int DEFAULT_TLS_PROXY_PORT = 8443;
 /// Refresh JWTs this long before expiry.
 inline constexpr long long TOKEN_REFRESH_BUFFER_MS = 60000;
 /// Hard cap on any response body the SDK reads (API or proxy fetch).
