@@ -65,6 +65,13 @@ describe("MPP HMAC verifier", () => {
     expect(v.verify(mppCred({ ...goodBody, amountMusd: "4999" }), REQ, NOW).reason).toBe("amount insufficient");
     expect(v.verify(mppCred({ ...goodBody, resource: "other" }), REQ, NOW).reason).toBe("resource mismatch");
   });
+  it("rejects far-future expiry, out-of-range amounts and array bodies", () => {
+    expect(v.verify(mppCred({ ...goodBody, expiresAt: NOW + 3601 }), REQ, NOW).ok).toBe(false);
+    expect(v.verify(mppCred({ ...goodBody, expiresAt: NOW + 3600 }), REQ, NOW).ok).toBe(true);
+    // above the mpp_transactions CHECK: rejected instead of a DB error at claim time
+    expect(v.verify(mppCred({ ...goodBody, amountMusd: "10000000001" }), REQ, NOW).reason).toBe("amount too large");
+    expect(v.verify(mppCred("[1,2]"), REQ, NOW).ok).toBe(false);
+  });
   it("strips prototype-pollution keys", () => {
     const raw = JSON.stringify(goodBody).replace(/}$/, ',"__proto__":{"admin":true}}');
     const r = v.verify(mppCred(raw), REQ, NOW);

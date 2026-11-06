@@ -12,6 +12,10 @@ import type { PerRequestRail, VerifyResult, SettleResult } from "../types.js";
  */
 
 export const MAX_MPP_CREDENTIAL_BYTES = 4096;
+/** Credentials may not be valid further ahead than this (bounds replay exposure). */
+export const MAX_MPP_CREDENTIAL_TTL_S = 3600;
+/** mpp_transactions.amount_musd CHECK upper bound ($10,000). */
+const MAX_MPP_AMOUNT_MUSD = 10_000_000_000n;
 
 export interface MppVerification {
   ok: boolean;
@@ -45,14 +49,16 @@ export function createHmacMppVerifier(secret: string): MppVerifier {
       } catch {
         return { ok: false, reason: "malformed credential" };
       }
-      if (!body || typeof body !== "object") return { ok: false, reason: "malformed credential" };
+      if (!body || typeof body !== "object" || Array.isArray(body)) return { ok: false, reason: "malformed credential" };
       const { payer, amountMusd, resource, expiresAt } = body as { payer?: unknown; amountMusd?: unknown; resource?: unknown; expiresAt?: unknown };
       if (typeof payer !== "string" || !/^0x[0-9a-fA-F]{40}$/.test(payer)) return { ok: false, reason: "bad payer" };
       if (typeof amountMusd !== "string" || !/^\d{1,11}$/.test(amountMusd)) return { ok: false, reason: "bad amount" };
       if (typeof expiresAt !== "number" || !Number.isFinite(expiresAt) || expiresAt < now) return { ok: false, reason: "expired" };
+      if (expiresAt > now + MAX_MPP_CREDENTIAL_TTL_S) return { ok: false, reason: "expiry too far in the future" };
       if (resource !== req.resource) return { ok: false, reason: "resource mismatch" };
       const amt = BigInt(amountMusd);
       if (amt < req.amountMusd) return { ok: false, reason: "amount insufficient" };
+      if (amt > MAX_MPP_AMOUNT_MUSD) return { ok: false, reason: "amount too large" };
       return { ok: true, payer: payer.toLowerCase(), amountMusd: amt };
     },
   };
