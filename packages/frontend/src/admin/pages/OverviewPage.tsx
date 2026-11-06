@@ -32,7 +32,7 @@ export default function OverviewPage() {
         <Kpi label="Active agents 24h" value={fmtInt(o.agents.requestersActive24h)}
           sub={`${fmtInt(o.agents.requestersActive7d)} 7d · ${fmtInt(o.agents.requestersActive30d)} 30d`} />
         <Kpi label="Node owners" value={fmtInt(o.agents.nodeOwners)} sub={`${fmtInt(o.agents.nodeOwnersWithActiveNode)} with active node`} />
-        <Kpi label="Quarantined nodes" value={<Link className="hover:underline" to="/admin/nodes?status=quarantined">{fmtInt(o.nodes.quarantined)}</Link>}
+        <Kpi label="Quarantined" value={<Link className="hover:underline" to="/admin/nodes?status=quarantined">{fmtInt(o.nodes.quarantined)}</Link>}
           tone={o.nodes.quarantined > 0 ? "warn" : undefined} />
       </div>
 
@@ -46,7 +46,7 @@ export default function OverviewPage() {
       </div>
 
       <Card title="Revenue & traffic by window" className="mt-4">
-        <div className="-mx-4 overflow-x-auto">
+        <div className="relative -mx-4 overflow-x-auto">
           <table className="w-full min-w-max text-sm">
             <thead>
               <tr className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500 dark:border-slate-800 dark:text-slate-400">

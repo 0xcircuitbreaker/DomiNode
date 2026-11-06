@@ -110,7 +110,7 @@ describe("API client", () => {
       headers: { get: () => null },
       text: () => Promise.resolve(JSON.stringify({ error: "Invalid policy", details: ["ports: 22 is hard-denied", "key dn_live_abc123 leaked", 7] })),
     });
-    const err = await get("/api/admin/network/policy").catch((e) => e);
+    const err = (await get("/api/admin/network/policy").catch((e: unknown) => e)) as { name: string; message: string; status: number; details: string[] };
     expect(err.name).toBe("ApiError");
     expect(err.message).toBe("Invalid policy");
     expect(err.status).toBe(400);

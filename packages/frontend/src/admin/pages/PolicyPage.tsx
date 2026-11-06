@@ -85,7 +85,7 @@ export default function PolicyPage() {
   return (
     <div>
       <PageHeader title="Network policy"
-        subtitle={<>Version <strong>{p.version}</strong> · published {fmtDate(p.createdAt)} · sha256 <Mono title={p.sha256}>{p.sha256.slice(0, 16)}…</Mono></>} />
+        subtitle={<>{p.version === 0 ? <strong>Built-in default (never published)</strong> : <>Version <strong>{p.version}</strong> · published {fmtDate(p.createdAt)}</>} · sha256 <Mono title={p.sha256}>{p.sha256.slice(0, 16)}…</Mono></>} />
       {saved && <Notice tone="good">{saved}</Notice>}
       {error && (
         <div role="alert" className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">

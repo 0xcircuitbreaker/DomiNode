@@ -115,7 +115,7 @@ export function DataTable<T>({ columns, rows, rowKey, onRowClick, sort, onSort, 
   sort?: { key: string; order: "asc" | "desc" }; onSort?: (key: string) => void; empty?: ReactNode; caption?: string;
 }) {
   return (
-    <div className="-mx-4 overflow-x-auto">
+    <div className="relative -mx-4 overflow-x-auto">
       <table className="w-full min-w-max border-collapse text-sm">
         {caption && <caption className="sr-only">{caption}</caption>}
         <thead>
