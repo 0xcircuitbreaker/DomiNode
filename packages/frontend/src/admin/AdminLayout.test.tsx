@@ -6,8 +6,13 @@ import { AuthProvider } from "../context/AuthContext";
 import { ThemeProvider } from "../context/ThemeContext";
 import AdminLayout, { isAdminUser } from "./AdminLayout";
 
-vi.mock("../api/client", () => ({ get: vi.fn(), post: vi.fn(), put: vi.fn() }));
-import { get, post } from "../api/client";
+vi.mock("../api/client", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../api/client")>()),
+  get: vi.fn(),
+  post: vi.fn(),
+  put: vi.fn(),
+}));
+import { ApiError, get, post } from "../api/client";
 const mockGet = vi.mocked(get);
 const mockPost = vi.mocked(post);
 
@@ -37,7 +42,7 @@ beforeEach(() => {
 
 describe("AdminLayout", () => {
   it("redirects to login when there is no session", async () => {
-    mockGet.mockRejectedValue(new Error("Unauthorized"));
+    mockGet.mockRejectedValue(new ApiError("Unauthorized", 401));
     renderShell();
     expect(await screen.findByText("LOGIN PAGE")).toBeInTheDocument();
   });

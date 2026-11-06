@@ -6,7 +6,11 @@ import LoginPage, { safeRedirectPath } from "./LoginPage";
 import { AuthProvider } from "../context/AuthContext";
 import { ThemeProvider } from "../context/ThemeContext";
 
-vi.mock("../api/client", () => ({ get: vi.fn(), post: vi.fn() }));
+vi.mock("../api/client", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../api/client")>()),
+  get: vi.fn(),
+  post: vi.fn(),
+}));
 import { get, post } from "../api/client";
 const mockGet = vi.mocked(get);
 const mockPost = vi.mocked(post);
