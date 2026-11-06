@@ -5,7 +5,7 @@ Implements the language-neutral contract in `sdks/SDK_SURFACE.md`
 (15 resources, 71 methods); the reference implementation is `sdks/node`.
 
 ```bash
-go get github.com/dominusnode/dominusnode-go/v2
+go get github.com/0xcircuitbreaker/DomiNode/sdks/go/v2
 ```
 
 v2 is a breaking release: the module path gained the `/v2` suffix, and plans,
