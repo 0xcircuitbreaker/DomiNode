@@ -1,251 +1,154 @@
-use std::future::Future;
-use std::pin::Pin;
-use std::sync::Arc;
+//! JWT access/refresh pair with singleton refresh. `clear()` drops tokens but
+//! keeps the refresh callback so the client can reconnect.
+
+use std::fmt;
+use std::sync::{Arc, Mutex, RwLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use base64::engine::general_purpose::STANDARD_NO_PAD;
 use base64::Engine;
-use tokio::sync::Mutex;
-use tracing::debug;
+use serde::{Serialize, Serializer};
+use zeroize::Zeroizing;
 
-use crate::constants::TOKEN_REFRESH_BUFFER_SECS;
 use crate::errors::{DominusNodeError, Result};
-use crate::types::TokenPair;
+use crate::transport::BoxFuture;
+use crate::util::TOKEN_REFRESH_BUFFER_SECS;
 
-/// A refresh callback that takes a refresh token string and returns a future
-/// resolving to a new [`TokenPair`].
-pub type RefreshFn = Box<
-    dyn Fn(String) -> Pin<Box<dyn Future<Output = Result<TokenPair>> + Send>> + Send + Sync,
->;
+/// Refresh callback: refresh token -> (access token, rotated refresh token).
+pub type RefreshFn = Arc<dyn Fn(String) -> BoxFuture<'static, Result<(String, Option<String>)>> + Send + Sync>;
 
-/// Thread-safe, async-aware JWT token manager.
-///
-/// Stores access and refresh tokens in memory only (never persisted). When the
-/// access token is expired (or about to expire within [`TOKEN_REFRESH_BUFFER_SECS`]),
-/// the manager automatically invokes the registered refresh callback and
-/// de-duplicates concurrent refresh attempts.
+#[derive(Default)]
+struct Tokens {
+    access: Option<Zeroizing<String>>,
+    refresh: Option<Zeroizing<String>>,
+    generation: u64,
+}
+
+/// Holds the JWT pair.
+#[derive(Default)]
 pub struct TokenManager {
-    access_token: Mutex<Option<String>>,
-    refresh_token: Mutex<Option<String>>,
-    refresh_fn: Mutex<Option<Arc<RefreshFn>>>,
-    /// Guards concurrent refreshes so only one proceeds at a time.
-    refresh_lock: Mutex<()>,
+    tokens: Mutex<Tokens>,
+    refresh_fn: RwLock<Option<RefreshFn>>,
+    refresh_lock: tokio::sync::Mutex<()>,
 }
 
 impl TokenManager {
-    /// Create a new empty token manager.
+    /// Empty manager.
     pub fn new() -> Self {
-        Self {
-            access_token: Mutex::new(None),
-            refresh_token: Mutex::new(None),
-            refresh_fn: Mutex::new(None),
-            refresh_lock: Mutex::new(()),
-        }
+        Self::default()
     }
 
-    /// Store an access token and optionally a refresh token.
-    pub async fn set_tokens(&self, access: &str, refresh: Option<&str>) {
-        *self.access_token.lock().await = Some(access.to_string());
-        if let Some(rt) = refresh {
-            *self.refresh_token.lock().await = Some(rt.to_string());
+    /// Store a token pair (refresh kept when `None`).
+    pub fn set_tokens(&self, access: &str, refresh: Option<&str>) {
+        let mut t = self.tokens.lock().unwrap();
+        t.access = Some(Zeroizing::new(access.to_string()));
+        if let Some(r) = refresh.filter(|r| !r.is_empty()) {
+            t.refresh = Some(Zeroizing::new(r.to_string()));
         }
+        t.generation += 1;
     }
 
-    /// Register the callback used to exchange a refresh token for a new pair.
-    pub async fn set_refresh_fn(&self, f: RefreshFn) {
-        *self.refresh_fn.lock().await = Some(Arc::new(f));
+    /// Install the refresh callback.
+    pub fn set_refresh_function(&self, f: RefreshFn) {
+        *self.refresh_fn.write().unwrap() = Some(f);
     }
 
-    /// Return a valid access token, refreshing if necessary.
-    ///
-    /// If the current access token is still valid it is returned immediately.
-    /// Otherwise, the refresh callback is invoked (only one concurrent caller
-    /// will perform the actual refresh; others wait).
-    pub async fn get_valid_token(&self) -> Result<String> {
-        // Fast path: token exists and is not expired.
-        {
-            let guard = self.access_token.lock().await;
-            if let Some(ref token) = *guard {
-                if !Self::is_expired(token) {
-                    return Ok(token.clone());
-                }
-            }
-        }
-
-        // Slow path: need to refresh. Acquire the refresh lock so only one
-        // caller performs the network call.
-        // Timeout on lock acquisition to prevent indefinite hang if refresh callback stalls
-        let _lock = tokio::time::timeout(
-            std::time::Duration::from_secs(30),
-            self.refresh_lock.lock(),
-        )
-        .await
-        .map_err(|_| DominusNodeError::Authentication("Token refresh lock timed out".into()))?;
-
-        // Re-check after acquiring lock (another caller may have refreshed).
-        {
-            let guard = self.access_token.lock().await;
-            if let Some(ref token) = *guard {
-                if !Self::is_expired(token) {
-                    return Ok(token.clone());
-                }
-            }
-        }
-
-        let rt = {
-            let guard = self.refresh_token.lock().await;
-            guard.clone()
-        };
-        let refresh_fn = {
-            let guard = self.refresh_fn.lock().await;
-            guard.clone()
-        };
-
-        match (rt, refresh_fn) {
-            (Some(rt), Some(f)) => {
-                debug!("Refreshing expired access token");
-                let pair = f(rt).await?;
-                *self.access_token.lock().await = Some(pair.access_token.clone());
-                *self.refresh_token.lock().await = Some(pair.refresh_token);
-                Ok(pair.access_token)
-            }
-            _ => Err(DominusNodeError::Authentication(
-                "No valid token and cannot refresh".to_string(),
-            )),
-        }
+    /// Whether a refresh callback is installed.
+    pub fn has_refresh_function(&self) -> bool {
+        self.refresh_fn.read().unwrap().is_some()
     }
 
-    /// Returns `true` if the given JWT is expired or will expire within
-    /// [`TOKEN_REFRESH_BUFFER_SECS`].
-    ///
-    /// This performs a best-effort decode of the JWT payload without
-    /// verifying the signature, which is sufficient for local expiry checks.
+    /// Current access token.
+    pub fn access_token(&self) -> Option<String> {
+        self.tokens.lock().unwrap().access.as_ref().map(|s| s.to_string())
+    }
+
+    /// Current refresh token.
+    pub fn refresh_token(&self) -> Option<String> {
+        self.tokens.lock().unwrap().refresh.as_ref().map(|s| s.to_string())
+    }
+
+    /// Any token held.
+    pub fn has_tokens(&self) -> bool {
+        let t = self.tokens.lock().unwrap();
+        t.access.is_some() || t.refresh.is_some()
+    }
+
+    /// True when the JWT has no readable `exp` or expires within the buffer.
     pub fn is_expired(token: &str) -> bool {
         let parts: Vec<&str> = token.split('.').collect();
         if parts.len() != 3 {
             return true;
         }
-
-        // JWT base64url -> standard base64 alphabet (no padding needed
-        // by STANDARD_NO_PAD).
-        let b64 = parts[1].replace('-', "+").replace('_', "/");
-
-        let decoded = match STANDARD_NO_PAD.decode(&b64) {
-            Ok(bytes) => bytes,
-            Err(_) => return true,
+        let Ok(raw) = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(parts[1].trim_end_matches('=')) else {
+            return true;
         };
-
-        let payload: serde_json::Value = match serde_json::from_slice(&decoded) {
-            Ok(v) => v,
-            Err(_) => return true,
-        };
-
-        let exp = match payload.get("exp").and_then(|v| v.as_u64()) {
-            Some(e) => e,
-            None => return true,
-        };
-
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
-
-        exp < now + TOKEN_REFRESH_BUFFER_SECS
+        let Ok(v) = serde_json::from_slice::<serde_json::Value>(&raw) else { return true };
+        let Some(exp) = v.get("exp").and_then(|e| e.as_f64()) else { return true };
+        let now = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs_f64()).unwrap_or(0.0);
+        exp < now + TOKEN_REFRESH_BUFFER_SECS as f64
     }
 
-    /// Force a token refresh regardless of expiry state.
-    /// Used after a 401 response to avoid re-using a rejected token.
+    /// A non-expired access token, refreshing if needed.
+    pub async fn get_valid_token(&self) -> Result<String> {
+        if let Some(a) = self.access_token() {
+            if !Self::is_expired(&a) {
+                return Ok(a);
+            }
+        }
+        self.force_refresh().await
+    }
+
+    /// Refresh regardless of expiry. Concurrent callers share one refresh.
+    /// On failure both tokens are cleared.
     pub async fn force_refresh(&self) -> Result<String> {
-        // Timeout on lock acquisition to prevent indefinite hang
-        let _lock = tokio::time::timeout(
-            std::time::Duration::from_secs(30),
-            self.refresh_lock.lock(),
-        )
-        .await
-        .map_err(|_| DominusNodeError::Authentication("Token refresh lock timed out".into()))?;
-
-        let rt = {
-            let guard = self.refresh_token.lock().await;
-            guard.clone()
-        };
-        let refresh_fn = {
-            let guard = self.refresh_fn.lock().await;
-            guard.clone()
-        };
-
-        match (rt, refresh_fn) {
-            (Some(rt), Some(f)) => {
-                debug!("Force-refreshing access token after 401");
-                let pair = f(rt).await?;
-                *self.access_token.lock().await = Some(pair.access_token.clone());
-                *self.refresh_token.lock().await = Some(pair.refresh_token);
-                Ok(pair.access_token)
-            }
-            _ => Err(DominusNodeError::Authentication(
-                "No valid token and cannot refresh".to_string(),
-            )),
-        }
-    }
-
-    /// Discard all stored tokens, securely zeroing memory before dropping.
-    pub async fn clear(&self) {
+        let gen_before = self.tokens.lock().unwrap().generation;
+        let _guard = self.refresh_lock.lock().await;
         {
-            let mut at = self.access_token.lock().await;
-            if let Some(ref mut token) = *at {
-                zeroize::Zeroize::zeroize(token);
+            let t = self.tokens.lock().unwrap();
+            if t.generation != gen_before {
+                if let Some(a) = t.access.as_ref() {
+                    return Ok(a.to_string());
+                }
             }
-            *at = None;
         }
-        {
-            let mut rt = self.refresh_token.lock().await;
-            if let Some(ref mut token) = *rt {
-                zeroize::Zeroize::zeroize(token);
+        let rt = self.refresh_token();
+        let f = self.refresh_fn.read().unwrap().clone();
+        let (Some(rt), Some(f)) = (rt, f) else {
+            return Err(DominusNodeError::auth("No valid token and cannot refresh"));
+        };
+        match f(rt).await {
+            Ok((access, refresh)) => {
+                self.set_tokens(&access, refresh.as_deref());
+                Ok(access)
             }
-            *rt = None;
+            Err(e) => {
+                self.clear();
+                Err(e)
+            }
         }
     }
 
-    // ------------------------------------------------------------------
-    // Synchronous try_lock accessors used during client construction,
-    // when no other task can possibly hold these locks.
-    // ------------------------------------------------------------------
-
-    /// Try to lock the access-token mutex without blocking.
-    pub(crate) fn access_token_try_lock(
-        &self,
-    ) -> std::result::Result<tokio::sync::MutexGuard<'_, Option<String>>, ()> {
-        self.access_token.try_lock().map_err(|_| ())
-    }
-
-    /// Try to lock the refresh-token mutex without blocking.
-    pub(crate) fn refresh_token_try_lock(
-        &self,
-    ) -> std::result::Result<tokio::sync::MutexGuard<'_, Option<String>>, ()> {
-        self.refresh_token.try_lock().map_err(|_| ())
-    }
-
-    /// Try to lock the refresh-fn mutex without blocking.
-    pub(crate) fn refresh_fn_try_lock(
-        &self,
-    ) -> std::result::Result<tokio::sync::MutexGuard<'_, Option<Arc<RefreshFn>>>, ()> {
-        self.refresh_fn.try_lock().map_err(|_| ())
+    /// Drop (and zeroize) both tokens. Does NOT remove the refresh callback.
+    pub fn clear(&self) {
+        let mut t = self.tokens.lock().unwrap();
+        t.access = None;
+        t.refresh = None;
+        t.generation += 1;
     }
 }
 
-impl Default for TokenManager {
-    fn default() -> Self {
-        Self::new()
+impl fmt::Debug for TokenManager {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("TokenManager([REDACTED])")
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_is_expired_garbage_input() {
-        assert!(TokenManager::is_expired("not.a.jwt"));
-        assert!(TokenManager::is_expired(""));
-        assert!(TokenManager::is_expired("only-one-part"));
+impl fmt::Display for TokenManager {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("TokenManager([REDACTED])")
+    }
+}
+impl Serialize for TokenManager {
+    fn serialize<S: Serializer>(&self, s: S) -> std::result::Result<S::Ok, S::Error> {
+        s.serialize_str("[REDACTED]")
     }
 }

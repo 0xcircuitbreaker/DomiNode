@@ -1,390 +1,116 @@
-# dominusnode -- Official Dominus Node Rust SDK
+# dominusnode -- Dominus Node Rust SDK (v2)
 
-The official Rust SDK for the [Dominus Node](https://dominusnode.com) rotating proxy-as-a-service platform. Manage proxy connections, API keys, wallet balances, usage tracking, and more from Rust applications.
-
-- **Async by default** -- powered by Tokio and reqwest
-- **Strongly typed** -- every request and response has a dedicated type
-- **Auto token refresh** -- JWT expiry handled transparently with async mutex
-- **Rate limit auto-retry** -- 429 responses automatically retried with backoff
-- **Typed error hierarchy** -- pattern-match on specific error variants
-- **URL-safe** -- all proxy URL components are percent-encoded (RFC 3986)
-
-## Installation
-
-Add to your `Cargo.toml`:
+Async Rust client for the Dominus Node relay network, for AI agents. It
+implements the language-neutral contract in `sdks/SDK_SURFACE.md` (reference:
+`sdks/node`): 15 resources, 71 methods, plus `connect_with_key`, `disconnect`
+and `is_connected`.
 
 ```toml
 [dependencies]
-dominusnode = "1.0"
+dominusnode = "2"
 tokio = { version = "1", features = ["full"] }
 ```
 
-### Feature Flags
-
-| Feature | Default | Description |
-|---------|---------|-------------|
-| `async` | Yes | Async API using Tokio |
-| `blocking` | No | Marker for future sync wrapper |
-
-## Quick Start
+## Quick start
 
 ```rust
-use dominusnode::{DominusNodeClient, Config};
+use dominusnode::{Config, DominusNodeClient, ProxyFetchOptions, ProxyRoutingOptions};
 
 #[tokio::main]
 async fn main() -> dominusnode::Result<()> {
-    // Create client with default config
-    let client = DominusNodeClient::new(Config {
-        base_url: "https://api.dominusnode.com".into(),
-        ..Config::default()
-    })?;
+    let dn = DominusNodeClient::new(Config::default())?;
+    dn.connect_with_key(&std::env::var("DOMINUSNODE_API_KEY").unwrap()).await?;
 
-    // Authenticate with API key
-    client.connect_with_key("dn_live_your_api_key").await?;
+    // Live prices come from the server; the SDK hardcodes none.
+    let pricing = dn.network.pricing().await?;
+    println!("{:?}", pricing.prices);
 
-    // Check wallet balance
-    let balance = client.wallet.get_balance().await?;
-    println!("Balance: {} cents", balance.balance_cents);
+    // GET through the relay (https, CONNECT tunnel, end-to-end TLS).
+    let opts = ProxyFetchOptions {
+        routing: ProxyRoutingOptions { country: Some("US".into()), ..Default::default() },
+        ..Default::default()
+    };
+    let res = dn.proxy.fetch("https://example.com", opts).await?;
+    println!("{} ({} bytes)", res.status, res.body.len());
 
-    // Build a proxy URL
-    let proxy_url = client.proxy.build_url("dn_live_your_api_key", None);
-    println!("Proxy URL: {}", proxy_url);
-    // => http://user:dn_live_your_api_key@proxy.dominusnode.com:8080
-
+    dn.disconnect().await; // logout, then zeroize key + tokens
     Ok(())
 }
-```
-
-## Authentication
-
-### API Key (Recommended for Proxy Usage)
-
-```rust
-let client = DominusNodeClient::new(Config::default())?;
-client.connect_with_key("dn_live_your_api_key").await?;
-```
-
-Or provide in the config:
-
-```rust
-let client = DominusNodeClient::new(Config {
-    base_url: "https://api.dominusnode.com".into(),
-    api_key: Some("dn_live_your_api_key".into()),
-    ..Config::default()
-})?;
-// Note: API key auth happens lazily on first authenticated request
-```
-
-### Email/Password
-
-```rust
-let client = DominusNodeClient::new(Config::default())?;
-let result = client.connect_with_credentials("user@example.com", "SecurePass123!").await?;
-
-if result.mfa_required {
-    // MFA enabled -- complete with TOTP code
-    client.complete_mfa("123456", None, false).await?;
-}
-```
-
-### Pre-existing Tokens
-
-```rust
-let client = DominusNodeClient::new(Config {
-    access_token: Some("eyJhbGci...".into()),
-    refresh_token: Some("eyJhbGci...".into()),
-    ..Config::default()
-})?;
 ```
 
 ## Resources
 
-All API operations are accessed through public resource fields on the client.
+| Field | Methods |
+|---|---|
+| `auth` | `verify_key`, `refresh`, `logout`, `me` |
+| `wallet_auth` | `challenge`, `verify`, `sign_in`, `link` |
+| `keys` | `create`, `list`, `revoke` |
+| `wallet` | `get_balance`, `get_transactions`, `get_forecast`, `top_up_crypto`, `get_crypto_status` |
+| `agentic_wallets` | `create`, `list`, `get`, `fund`, `update_wallet_policy`, `transactions`, `freeze`, `unfreeze`, `delete` |
+| `teams` | 18 methods: team CRUD, wallet, members, invites, keys |
+| `usage` | `get`, `get_daily`, `get_top_hosts`, `export_csv` |
+| `sessions` | `get_active`, `report` |
+| `x402` | `get_info` |
+| `network` | `policy`, `pricing`, `stats` |
+| `nodes` | `register_challenge`, `register`, `list`, `revoke`, `update_caps`, `tier` |
+| `credits` | `balance`, `transactions`, `convert`, `withdraw` |
+| `payout_wallet` | `get`, `set` |
+| `payouts` | `list` |
+| `proxy` | `build_username`, `build_url`, `fetch`, `get_health`, `get_config` |
 
-### Auth
+## Signers
 
-```rust
-// Register
-let result = client.auth.register("user@example.com", "SecurePass123!").await?;
-
-// Login
-let result = client.auth.login("user@example.com", "SecurePass123!").await?;
-
-// Change password
-client.auth.change_password("OldPass123!", "NewPass456!").await?;
-
-// Logout (revokes all refresh tokens)
-client.auth.logout().await?;
-
-// Get current user
-let user = client.auth.me().await?;
-println!("User: {}, Admin: {}", user.email, user.is_admin);
-```
-
-### MFA
-
-```rust
-// Setup MFA
-let setup = client.auth.mfa_setup().await?;
-println!("Secret: {}", setup.secret);
-println!("OTPAuth URI: {}", setup.otpauth_uri);
-println!("Backup codes: {:?}", setup.backup_codes); // Save these!
-
-// Enable MFA
-client.auth.mfa_enable("123456").await?;
-
-// Check status
-let status = client.auth.mfa_status().await?;
-println!("Enabled: {}, Backup codes: {}", status.enabled, status.backup_codes_remaining);
-
-// Disable MFA
-client.auth.mfa_disable("password", "123456").await?;
-```
-
-### API Keys
+The SDK has no crypto dependency. Signed flows (`wallet_auth.sign_in`,
+`nodes.register`, `credits.withdraw`, `payout_wallet.set`) take a `&dyn Signer`
+that performs EIP-191 `personal_sign`:
 
 ```rust
-// Create key (raw key only shown once)
-let created = client.keys.create("my-scraper").await?;
-println!("Key: {}", created.key); // dn_live_xxxx -- save this!
-
-// List keys
-let keys = client.keys.list().await?;
-for key in &keys {
-    println!("  {} - {}", key.prefix, key.label);
-}
-
-// Revoke
-client.keys.revoke("key-uuid").await?;
+use dominusnode::FnSigner;
+let signer = FnSigner::new("0xYourAddress…", |message: &str| {
+    my_wallet.sign_personal(message).map_err(|e| e.to_string())
+});
 ```
 
-### Wallet
+Implement the `Signer` trait directly for async signers (HSMs, remote wallets).
+The SDK rebuilds every message it is asked to sign from values it knows and
+refuses (`DominusNodeError::Protocol`) if the server's text differs, without
+calling the signer.
 
-```rust
-// Balance
-let balance = client.wallet.get_balance().await?;
-println!("Balance: {} cents (${:.2})", balance.balance_cents, balance.balance_cents as f64 / 100.0);
+## Money
 
-// Transactions
-let txs = client.wallet.get_transactions(Some(20), Some(0)).await?;
-for tx in &txs {
-    println!("  {}: {} cents - {}", tx.tx_type, tx.amount_cents, tx.description);
-}
+- `*_cents` arguments: `i64`, `0 < x <= 2_147_483_647` (or `>= 0` for limits).
+- µUSD amounts (`credits.convert`, `credits.withdraw`): anything `Into<Musd>`
+  (integers or a digit string); sent as a decimal string.
 
-// Stripe top-up
-let checkout = client.wallet.topup_stripe(5000).await?;
-println!("Checkout URL: {}", checkout.url);
+## Security behaviour
 
-// Crypto top-up
-let invoice = client.wallet.topup_crypto(5000, "btc").await?;
+- Redirects are never followed; responses are capped at 10 MB.
+- 429: one retry after `min(Retry-After, 10 s)` ±10 %, floor 100 ms; the 429 body is dropped unread.
+- 401 with a JWT: one singleton refresh and retry; refresh failure clears both tokens.
+- `/v1` agent routes send the raw API key, never the JWT.
+- `Secret` (new API/team/node keys), the client, `Config` and the token manager
+  print and serialise as `[REDACTED]`; secrets are zeroized on drop.
+- Error messages are scrubbed of `dn_live_`/`dn_test_`/`dn_node_`/`dn_proxy_` keys and JWTs.
+- `proxy.build_url` returns a URL that CONTAINS the API key: do not log it.
+- `proxy.fetch`: GET/HEAD only, ports 80/443, local names and private addresses
+  refused (all IPv4 spellings, IPv6 incl. mapped/compatible/NAT64/Teredo/6to4),
+  DNS-rebinding check over every resolved address, `http://` only with
+  `allow_http`, OFAC countries (CU IR KP RU SY) refused.
+
+## Errors
+
+`DominusNodeError` variants: `Validation` (400 or client-side, code
+`INVALID_ARGUMENT`), `Authentication`, `InsufficientBalance`, `Authorization`,
+`NotFound`, `Conflict`, `RateLimit { retry_after_seconds }`, `Server`,
+`Network`, `Protocol`, `Proxy`, `Api` (other statuses, e.g. a 3xx). Use
+`.code()`, `.status_code()`, `.details()`.
+
+## Testing
+
+```bash
+cargo test
+cargo clippy --all-targets
 ```
 
-### Usage
-
-```rust
-// Usage records
-let usage = client.usage.get(Some("2026-01-01"), Some("2026-02-01"), Some(50), Some(0)).await?;
-
-// Daily breakdown
-let daily = client.usage.get_daily(Some("2026-01-01"), Some("2026-02-01")).await?;
-for day in &daily {
-    println!("  {}: {} bytes", day.date, day.bytes_total);
-}
-
-// Top hosts
-let hosts = client.usage.get_top_hosts(Some(10)).await?;
-for host in &hosts {
-    println!("  {}: {} bytes", host.host, host.bytes_total);
-}
-
-// CSV export
-let csv = client.usage.export_csv(Some("2026-01-01"), Some("2026-02-01")).await?;
-```
-
-### Plans
-
-```rust
-// List plans
-let plans = client.plans.list().await?;
-for plan in &plans {
-    println!("  {}: {} - {} cents/GB", plan.id, plan.name, plan.price_per_gb_cents);
-}
-
-// Current plan
-let current = client.plans.get_user_plan().await?;
-
-// Change plan
-client.plans.change("vol100").await?;
-```
-
-### Sessions
-
-```rust
-let sessions = client.sessions.get_active().await?;
-for session in &sessions {
-    println!("  Session {}: {} bytes", session.id, session.bytes_total);
-}
-```
-
-### Proxy
-
-```rust
-use dominusnode::types::ProxyUrlOptions;
-
-// Default proxy URL
-let url = client.proxy.build_url("dn_live_key", None);
-
-// With geo-targeting
-let opts = ProxyUrlOptions {
-    protocol: Some("http".into()),
-    country: Some("US".into()),
-    state: Some("california".into()),
-    city: Some("losangeles".into()),
-    ..Default::default()
-};
-let geo_url = client.proxy.build_url("dn_live_key", Some(&opts));
-
-// SOCKS5
-let socks_opts = ProxyUrlOptions {
-    protocol: Some("socks5".into()),
-    country: Some("DE".into()),
-    ..Default::default()
-};
-let socks_url = client.proxy.build_url("dn_live_key", Some(&socks_opts));
-
-// Sticky session
-let sticky_opts = ProxyUrlOptions {
-    country: Some("US".into()),
-    session_id: Some("my-session-123".into()),
-    ..Default::default()
-};
-let sticky_url = client.proxy.build_url("dn_live_key", Some(&sticky_opts));
-
-// Health check (no auth)
-let health = client.proxy.get_health().await?;
-println!("Status: {}, Sessions: {}", health.status, health.active_sessions);
-
-// Detailed status
-let status = client.proxy.get_status().await?;
-
-// Configuration
-let config = client.proxy.get_config().await?;
-```
-
-### Admin
-
-```rust
-// List users
-let users = client.admin.list_users(Some(50), Some(0)).await?;
-
-// User detail
-let detail = client.admin.get_user("user-uuid").await?;
-
-// Suspend/activate
-client.admin.suspend_user("user-uuid").await?;
-client.admin.activate_user("user-uuid").await?;
-
-// Revenue
-let revenue = client.admin.get_revenue(None, None).await?;
-println!("Total: {} cents", revenue.total_revenue_cents);
-
-// System stats
-let stats = client.admin.get_stats().await?;
-println!("Users: {}, Active sessions: {}", stats.total_users, stats.active_sessions);
-```
-
-## Using Proxy URLs with reqwest
-
-```rust
-use dominusnode::{DominusNodeClient, Config};
-use dominusnode::types::ProxyUrlOptions;
-use reqwest::Proxy;
-
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
-    let client = DominusNodeClient::new(Config::default())?;
-    client.connect_with_key("dn_live_your_key").await?;
-
-    // Build proxy URL with geo-targeting
-    let opts = ProxyUrlOptions {
-        country: Some("US".into()),
-        ..Default::default()
-    };
-    let proxy_url = client.proxy.build_url("dn_live_your_key", Some(&opts));
-
-    // Use with reqwest
-    let http_client = reqwest::Client::builder()
-        .proxy(Proxy::all(&proxy_url)?)
-        .build()?;
-
-    let resp = http_client.get("https://httpbin.org/ip").send().await?;
-    println!("{}", resp.text().await?);
-
-    Ok(())
-}
-```
-
-## Error Handling
-
-All errors are variants of `DominusNodeError`, implementing `std::error::Error` via `thiserror`:
-
-```rust
-use dominusnode::DominusNodeError;
-
-match client.connect_with_key("dn_live_invalid").await {
-    Ok(_) => println!("Connected!"),
-    Err(DominusNodeError::Authentication(msg)) => {
-        eprintln!("Invalid API key: {}", msg);
-    }
-    Err(DominusNodeError::RateLimit { retry_after_secs, .. }) => {
-        eprintln!("Rate limited, retry after {}s", retry_after_secs);
-    }
-    Err(DominusNodeError::InsufficientBalance(msg)) => {
-        eprintln!("Low balance: {}", msg);
-    }
-    Err(e) => eprintln!("Error: {}", e),
-}
-```
-
-| Variant | HTTP Status | When |
-|---------|-------------|------|
-| `Authentication` | 401 | Invalid credentials |
-| `Authorization` | 403 | Insufficient permissions |
-| `InsufficientBalance` | 402 | Low wallet balance |
-| `RateLimit` | 429 | Rate limit exceeded |
-| `Validation` | 400 | Invalid input |
-| `NotFound` | 404 | Resource not found |
-| `Conflict` | 409 | Duplicate resource |
-| `Server` | 500+ | Server error |
-| `Network` | -- | Connection/timeout failure |
-| `Proxy` | -- | Proxy URL building error |
-
-## Configuration
-
-```rust
-use dominusnode::Config;
-
-let config = Config {
-    base_url: "https://api.dominusnode.com".into(),
-    api_key: None,
-    access_token: None,
-    refresh_token: None,
-    proxy_host: "proxy.dominusnode.com".into(),
-    http_proxy_port: 8080,
-    socks5_proxy_port: 1080,
-};
-```
-
-All fields have sensible defaults via `Config::default()`.
-
-## Security Notes
-
-- **Token storage**: Tokens are stored in memory only (never written to disk)
-- **Token refresh**: Uses `tokio::sync::Mutex` to prevent concurrent refresh races
-- **URL encoding**: API keys and geo-targeting values are percent-encoded (RFC 3986)
-- **TLS**: reqwest verifies TLS certificates by default
-- **Force refresh**: On 401, the SDK forces a token refresh (bypasses expiry check) to handle stale-but-not-expired tokens
-
-## License
-
-MIT
+Signed-message fixtures in `tests/fixtures/signed_messages.json` are generated
+from the Node SDK builders by `tests/fixtures/gen_messages.mts`.

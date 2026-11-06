@@ -1,347 +1,216 @@
-use std::sync::Arc;
+//! `DominusNodeClient`: 15 resources + `connect_with_key` / `disconnect` / `is_connected`.
 
-use crate::admin::AdminResource;
-use crate::agent_wallet::AgenticWalletResource;
-use crate::slots::SlotsResource;
-use crate::teams::TeamsResource;
-use crate::x402::X402Resource;
-use crate::wallet_auth::WalletAuthResource;
-use crate::auth::AuthResource;
-use crate::constants::{DEFAULT_BASE_URL, DEFAULT_HTTP_PROXY_PORT, DEFAULT_PROXY_HOST, DEFAULT_SOCKS5_PROXY_PORT};
-use crate::errors::Result;
-use crate::http_client::HttpClient;
-use crate::keys::KeysResource;
-use crate::plans::PlansResource;
-use crate::proxy::ProxyResource;
-use crate::sessions::SessionsResource;
-use crate::token_manager::TokenManager;
-use crate::types::{LoginResult, TokenPair};
-use crate::usage::UsageResource;
-use crate::wallet::WalletResource;
+use std::fmt;
+use std::sync::{Arc, Weak};
 
-/// SDK configuration.
-///
-/// All fields have sensible defaults. At minimum you should set `base_url` if
-/// your Dominus Node instance is not at the default `https://api.dominusnode.com`.
-// Clone intentionally not derived — prevents accidental credential proliferation in memory.
-// Use Config::default() to create a new instance instead of cloning.
+use serde::{Serialize, Serializer};
+
+use crate::errors::{DominusNodeError, Result};
+use crate::http::{normalize_base_url, Credentials, HttpClient};
+use crate::proxy::{validate_port, validate_proxy_host, ProxyResource};
+use crate::resources::*;
+use crate::ssrf::{default_resolver, Resolver};
+use crate::token_manager::{RefreshFn, TokenManager};
+use crate::transport::{ReqwestTransport, Transport};
+use crate::types::ConnectResult;
+use crate::util::*;
+
+/// Client configuration (SDK_SURFACE 1.1).
+#[derive(Clone)]
 pub struct Config {
-    /// Base URL of the Dominus Node REST API (e.g. `"https://api.dominusnode.com"`).
+    /// API base URL (http/https, no userinfo).
     pub base_url: String,
-    /// Pre-configured API key (optional).
-    pub api_key: Option<String>,
-    /// Pre-configured access token (optional).
-    pub access_token: Option<String>,
-    /// Pre-configured refresh token (optional).
-    pub refresh_token: Option<String>,
-    /// Hostname of the proxy gateway.
+    /// Proxy gateway host.
     pub proxy_host: String,
-    /// HTTP proxy port.
-    pub http_proxy_port: u16,
-    /// SOCKS5 proxy port.
-    pub socks5_proxy_port: u16,
-    /// Agent secret for captcha bypass (optional). When set, injects
-    /// `X-DominusNode-Agent: mcp` and `X-DominusNode-Agent-Secret` headers.
-    pub agent_secret: Option<String>,
-}
-
-// Custom Debug to redact credentials
-impl std::fmt::Debug for Config {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Config")
-            .field("base_url", &self.base_url)
-            .field("api_key", &self.api_key.as_ref().map(|_| "[REDACTED]"))
-            .field("access_token", &self.access_token.as_ref().map(|_| "[REDACTED]"))
-            .field("refresh_token", &self.refresh_token.as_ref().map(|_| "[REDACTED]"))
-            .field("proxy_host", &self.proxy_host)
-            .field("http_proxy_port", &self.http_proxy_port)
-            .field("socks5_proxy_port", &self.socks5_proxy_port)
-            .field("agent_secret", &self.agent_secret.as_ref().map(|_| "[REDACTED]"))
-            .finish()
-    }
+    /// HTTP proxy port (1..65535).
+    pub http_proxy_port: u32,
+    /// SOCKS5 proxy port (1..65535).
+    pub socks5_proxy_port: u32,
+    /// Pre-existing access JWT.
+    pub access_token: Option<String>,
+    /// Pre-existing refresh JWT.
+    pub refresh_token: Option<String>,
+    /// Custom HTTP transport (must not follow redirects). Default: reqwest.
+    pub transport: Option<Arc<dyn Transport>>,
+    /// Custom DNS resolver for `proxy.fetch` (tests).
+    pub resolver: Option<Resolver>,
 }
 
 impl Default for Config {
     fn default() -> Self {
         Self {
             base_url: DEFAULT_BASE_URL.to_string(),
-            api_key: None,
-            access_token: None,
-            refresh_token: None,
             proxy_host: DEFAULT_PROXY_HOST.to_string(),
             http_proxy_port: DEFAULT_HTTP_PROXY_PORT,
             socks5_proxy_port: DEFAULT_SOCKS5_PROXY_PORT,
-            agent_secret: None,
+            access_token: None,
+            refresh_token: None,
+            transport: None,
+            resolver: None,
         }
     }
 }
 
-/// The top-level Dominus Node SDK client.
-///
-/// Create an instance with [`DominusNodeClient::new`] and then use the resource
-/// fields (`auth`, `keys`, `wallet`, etc.) to interact with the API.
-///
-/// # Examples
-///
-/// ```no_run
-/// use dominusnode::{DominusNodeClient, Config};
-///
-/// # async fn example() -> dominusnode::Result<()> {
-/// let client = DominusNodeClient::new(Config::default())?;
-///
-/// // Authenticate with an API key.
-/// client.connect_with_key("dn_live_abc123").await?;
-///
-/// // Use resources.
-/// let balance = client.wallet.get_balance().await?;
-/// println!("Balance: {} cents", balance.balance_cents);
-/// # Ok(())
-/// # }
-/// ```
+impl fmt::Debug for Config {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Config")
+            .field("base_url", &self.base_url)
+            .field("proxy_host", &self.proxy_host)
+            .field("http_proxy_port", &self.http_proxy_port)
+            .field("socks5_proxy_port", &self.socks5_proxy_port)
+            .field("access_token", &self.access_token.as_ref().map(|_| "[REDACTED]"))
+            .field("refresh_token", &self.refresh_token.as_ref().map(|_| "[REDACTED]"))
+            .finish()
+    }
+}
+
+/// DominusNode relay-network client.
 pub struct DominusNodeClient {
-    /// Authentication operations (register, login, MFA, etc.).
+    /// Token plumbing (4).
     pub auth: AuthResource,
-    /// API key management (create, list, revoke).
-    pub keys: KeysResource,
-    /// Wallet balance and top-up operations.
-    pub wallet: WalletResource,
-    /// Metered bandwidth usage data.
-    pub usage: UsageResource,
-    /// Billing plan management.
-    pub plans: PlansResource,
-    /// Active proxy session queries.
-    pub sessions: SessionsResource,
-    /// Proxy URL building and gateway status.
-    pub proxy: ProxyResource,
-    /// Administrative operations (requires admin privileges).
-    pub admin: AdminResource,
-    /// Slot availability and waitlist operations (public, no auth required).
-    pub slots: SlotsResource,
-    /// Agentic wallet operations (sub-wallets with spending limits).
-    pub agentic_wallets: AgenticWalletResource,
-    /// Team operations (shared wallets, members, invites, keys).
-    pub teams: TeamsResource,
-    /// x402 protocol information (HTTP 402 micropayments).
-    pub x402: X402Resource,
-    /// Wallet-based authentication (EIP-191 signed messages).
+    /// Wallet sign-in (4).
     pub wallet_auth: WalletAuthResource,
-    token_manager: Arc<TokenManager>,
-    /// Stored API key for credential clearing on disconnect.
-    api_key: tokio::sync::Mutex<Option<String>>,
+    /// API keys (3).
+    pub keys: KeysResource,
+    /// Requester wallet (5).
+    pub wallet: WalletResource,
+    /// Agentic wallets (9).
+    pub agentic_wallets: AgenticWalletResource,
+    /// Teams (18).
+    pub teams: TeamsResource,
+    /// Usage (4).
+    pub usage: UsageResource,
+    /// Sessions (2).
+    pub sessions: SessionsResource,
+    /// x402 (1).
+    pub x402: X402Resource,
+    /// Network info (3).
+    pub network: NetworkResource,
+    /// Nodes (6).
+    pub nodes: NodesResource,
+    /// Credits (4).
+    pub credits: CreditsResource,
+    /// Payout wallet (2).
+    pub payout_wallet: PayoutWalletResource,
+    /// Payouts (1).
+    pub payouts: PayoutsResource,
+    /// Proxy (5).
+    pub proxy: ProxyResource,
+    creds: Arc<Credentials>,
+    _http: Arc<HttpClient>,
 }
 
 impl DominusNodeClient {
-    /// Create a new Dominus Node client with the given configuration.
-    ///
-    /// If `config.access_token` is provided it will be stored immediately so
-    /// subsequent requests are authenticated. A `refresh_token` enables
-    /// automatic token renewal.
+    /// Build a client. Validates base URL, proxy host and ports.
     pub fn new(config: Config) -> Result<Self> {
-        let token_manager = Arc::new(TokenManager::new());
-        let http = Arc::new(HttpClient::new(&config.base_url, Arc::clone(&token_manager), config.agent_secret.clone())?);
-
-        // Wire up the refresh callback. We create a separate HttpClient that
-        // always calls the refresh endpoint without auth (it sends the refresh
-        // token in the body).
-        {
-            let http_for_refresh = Arc::clone(&http);
-
-            // The refresh function is registered on the token manager and will be
-            // called whenever the access token is expired.
-            let refresh_fn = move |rt: String| {
-                let http_ref = Arc::clone(&http_for_refresh);
-                Box::pin(async move {
-                    #[derive(serde::Serialize)]
-                    struct RefreshBody {
-                        #[serde(rename = "refreshToken")]
-                        refresh_token: String,
-                    }
-                    #[derive(serde::Deserialize)]
-                    struct RefreshResp {
-                        token: String,
-                        #[serde(rename = "refreshToken")]
-                        refresh_token: Option<String>,
-                    }
-
-                    let resp: RefreshResp = http_ref
-                        .post(
-                            "/api/auth/refresh",
-                            Some(&RefreshBody { refresh_token: rt.clone() }),
-                            false,
-                        )
-                        .await?;
-
-                    Ok(TokenPair {
-                        access_token: resp.token,
-                        refresh_token: resp.refresh_token.unwrap_or(rt),
-                    })
-                }) as std::pin::Pin<Box<dyn std::future::Future<Output = Result<TokenPair>> + Send>>
-            };
-
-            // We need to set this synchronously during construction but
-            // set_refresh_fn is async. Use block_in_place to call it, or
-            // just set it directly by spawning a small runtime step.
-            // Since this is called at construction time before any async
-            // context is necessarily available, we construct the inner
-            // state directly.
-            //
-            // The token_manager exposes set_refresh_fn as async only because
-            // it holds a Mutex. We can use try_lock here since we just created
-            // the manager and no one else holds the lock.
-            //
-            // Actually, let's just block on it -- this is a one-time setup cost.
-            // We'll use a small helper that works whether or not we're in a tokio context.
-            futures_lite_compat_set_refresh_fn(&token_manager, Box::new(refresh_fn));
-        }
-
-        // Build resources.
-        let auth = AuthResource::new(Arc::clone(&http));
-        let keys = KeysResource::new(Arc::clone(&http));
-        let wallet = WalletResource::new(Arc::clone(&http));
-        let usage = UsageResource::new(Arc::clone(&http));
-        let plans = PlansResource::new(Arc::clone(&http));
-        let sessions = SessionsResource::new(Arc::clone(&http));
-        let proxy = ProxyResource::new(
-            Arc::clone(&http),
-            config.proxy_host,
-            config.http_proxy_port,
-            config.socks5_proxy_port,
-        );
-        let admin = AdminResource::new(Arc::clone(&http));
-        let slots = SlotsResource::new(Arc::clone(&http));
-        let agentic_wallets = AgenticWalletResource::new(Arc::clone(&http));
-        let teams = TeamsResource::new(Arc::clone(&http));
-        let x402 = X402Resource::new(Arc::clone(&http));
-        let wallet_auth = WalletAuthResource::new(Arc::clone(&http), Arc::clone(&token_manager));
-
-        let client = Self {
-            auth,
-            keys,
-            wallet,
-            usage,
-            plans,
-            sessions,
-            proxy,
-            admin,
-            slots,
-            agentic_wallets,
-            teams,
-            x402,
-            wallet_auth,
-            token_manager: Arc::clone(&token_manager),
-            api_key: tokio::sync::Mutex::new(config.api_key.clone()),
+        let base = normalize_base_url(&config.base_url)?;
+        validate_proxy_host(&config.proxy_host)?;
+        let http_port = validate_port(config.http_proxy_port, "httpProxyPort")?;
+        let socks_port = validate_port(config.socks5_proxy_port, "socks5ProxyPort")?;
+        let transport: Arc<dyn Transport> = match config.transport {
+            Some(t) => t,
+            None => Arc::new(ReqwestTransport::new().map_err(DominusNodeError::network)?),
         };
+        let creds = Arc::new(Credentials::default());
+        let http = Arc::new(HttpClient::new(base, creds.clone(), transport));
 
-        // If tokens were provided in the config, store them now.
-        if let Some(ref access) = config.access_token {
-            // Same approach: try_lock since we are the only holder.
-            set_tokens_sync(
-                &token_manager,
-                access,
-                config.refresh_token.as_deref(),
-            );
+        let auth = AuthResource::new(http.clone());
+        // Refresh callback; never removed (TokenManager::clear keeps it). Weak avoids a cycle.
+        let weak: Weak<HttpClient> = Arc::downgrade(&http);
+        let refresh: RefreshFn = Arc::new(move |rt: String| {
+            let weak = weak.clone();
+            Box::pin(async move {
+                let http = weak.upgrade().ok_or_else(|| DominusNodeError::auth("client dropped"))?;
+                let r = AuthResource::new(http).refresh(&rt).await?;
+                Ok((r.token, r.refresh_token))
+            })
+        });
+        creds.tokens.set_refresh_function(refresh);
+        if let Some(a) = &config.access_token {
+            creds.tokens.set_tokens(a, config.refresh_token.as_deref());
         }
 
-        Ok(client)
-    }
-
-    /// Authenticate using an API key.
-    ///
-    /// The key is verified against the server and the resulting JWT tokens are
-    /// stored for all subsequent authenticated requests.
-    pub async fn connect_with_key(&self, api_key: &str) -> Result<()> {
-        let res = self.auth.verify_key(api_key).await?;
-        self.token_manager
-            .set_tokens(&res.token, Some(&res.refresh_token))
-            .await;
-        // Store the API key so it can be cleared on disconnect.
-        *self.api_key.lock().await = Some(api_key.to_string());
-        Ok(())
-    }
-
-    /// Authenticate with email and password.
-    ///
-    /// If the account has MFA enabled the returned [`LoginResult`] will have
-    /// `mfa_required == true`. Call [`DominusNodeClient::complete_mfa`] to finish
-    /// the authentication flow.
-    pub async fn connect_with_credentials(
-        &self,
-        email: &str,
-        password: &str,
-    ) -> Result<LoginResult> {
-        let res = self.auth.login(email, password).await?;
-        if let Some(ref token) = res.token {
-            self.token_manager
-                .set_tokens(token, res.refresh_token.as_deref())
-                .await;
-        }
-        Ok(LoginResult {
-            user: res.user,
-            mfa_required: res.mfa_required,
+        Ok(Self {
+            auth,
+            wallet_auth: WalletAuthResource::new(http.clone(), creds.clone()),
+            keys: KeysResource::new(http.clone()),
+            wallet: WalletResource::new(http.clone()),
+            agentic_wallets: AgenticWalletResource::new(http.clone()),
+            teams: TeamsResource::new(http.clone()),
+            usage: UsageResource::new(http.clone()),
+            sessions: SessionsResource::new(http.clone()),
+            x402: X402Resource::new(http.clone()),
+            network: NetworkResource::new(http.clone()),
+            nodes: NodesResource::new(http.clone()),
+            credits: CreditsResource::new(http.clone()),
+            payout_wallet: PayoutWalletResource::new(http.clone()),
+            payouts: PayoutsResource::new(http.clone()),
+            proxy: ProxyResource::new(
+                http.clone(),
+                creds.clone(),
+                config.proxy_host.clone(),
+                http_port,
+                socks_port,
+                config.resolver.unwrap_or_else(default_resolver),
+            ),
+            creds,
+            _http: http,
         })
     }
 
-    /// Complete MFA verification after a login that returned `mfa_required == true`.
-    pub async fn complete_mfa(
-        &self,
-        code: &str,
-        challenge_token: Option<&str>,
-        is_backup: bool,
-    ) -> Result<()> {
-        let res = self
-            .auth
-            .verify_mfa(code, challenge_token, is_backup)
-            .await?;
-        self.token_manager
-            .set_tokens(&res.token, Some(&res.refresh_token))
-            .await;
-        Ok(())
-    }
-
-    /// Log out from the server (best-effort) and clear all stored credentials.
-    ///
-    /// Calls the server logout endpoint to revoke refresh tokens, then clears
-    /// the local token manager and any stored API key. Errors from the server
-    /// logout call are silently ignored.
-    pub async fn disconnect(&self) {
-        // C-10: Best-effort server logout to revoke refresh tokens.
-        let _ = self.auth.logout().await;
-        // Clear JWT tokens (securely zeroed by TokenManager).
-        self.token_manager.clear().await;
-        // C-11: Clear stored API key credential.
-        {
-            let mut key = self.api_key.lock().await;
-            if let Some(ref mut k) = *key {
-                zeroize::Zeroize::zeroize(k);
+    /// Authenticate with a `dn_live_`/`dn_test_` key. On `MFA_REQUIRED` only the key is
+    /// stored and `mfa_required: true` is returned (agent routes and the proxy still work).
+    pub async fn connect_with_key(&self, api_key: &str) -> Result<ConnectResult> {
+        validate_api_key(api_key)?;
+        match self.auth.verify_key(api_key).await {
+            Ok(r) => {
+                self.creds.set_api_key(Some(api_key));
+                self.creds.tokens.set_tokens(&r.token, Some(&r.refresh_token));
+                Ok(ConnectResult { mfa_required: false, user_id: Some(r.user_id) })
             }
-            *key = None;
+            Err(e) if e.code() == Some("MFA_REQUIRED") => {
+                self.creds.set_api_key(Some(api_key));
+                Ok(ConnectResult { mfa_required: true, user_id: None })
+            }
+            Err(e) => Err(e),
         }
+    }
+
+    /// Logout (best effort, BEFORE clearing tokens), then zeroize the API key and both tokens.
+    pub async fn disconnect(&self) {
+        if self.creds.tokens.has_tokens() {
+            let _ = self.auth.logout().await;
+        }
+        self.creds.set_api_key(None);
+        self.creds.tokens.clear();
+    }
+
+    /// True when an API key or any token is held.
+    pub fn is_connected(&self) -> bool {
+        self.creds.api_key().is_some() || self.creds.tokens.has_tokens()
+    }
+
+    /// Token manager (tests, advanced use).
+    pub fn token_manager(&self) -> &TokenManager {
+        &self.creds.tokens
     }
 }
 
-// ---------------------------------------------------------------------------
-// Sync helpers for one-time setup during construction.
-// ---------------------------------------------------------------------------
-
-/// Set the refresh function on the token manager synchronously.
-/// Safe because no other task can hold the lock at construction time.
-fn futures_lite_compat_set_refresh_fn(
-    tm: &Arc<TokenManager>,
-    f: crate::token_manager::RefreshFn,
-) {
-    // We use try_lock because we know no one else holds the mutex.
-    // If for some reason try_lock fails, fall back to spawning a blocking task.
-    if let Ok(mut guard) = tm.refresh_fn_try_lock() {
-        *guard = Some(Arc::new(f));
+impl fmt::Debug for DominusNodeClient {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "DominusNodeClient(connected={})", self.is_connected())
     }
 }
-
-/// Store tokens synchronously during construction.
-fn set_tokens_sync(tm: &Arc<TokenManager>, access: &str, refresh: Option<&str>) {
-    if let (Ok(mut at), Ok(mut rt)) = (tm.access_token_try_lock(), tm.refresh_token_try_lock()) {
-        *at = Some(access.to_string());
-        if let Some(r) = refresh {
-            *rt = Some(r.to_string());
-        }
+impl fmt::Display for DominusNodeClient {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Debug::fmt(self, f)
+    }
+}
+impl Serialize for DominusNodeClient {
+    fn serialize<S: Serializer>(&self, s: S) -> std::result::Result<S::Ok, S::Error> {
+        use serde::ser::SerializeStruct;
+        let mut st = s.serialize_struct("DominusNodeClient", 1)?;
+        st.serialize_field("connected", &self.is_connected())?;
+        st.end()
     }
 }

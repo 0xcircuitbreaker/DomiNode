@@ -1,55 +1,35 @@
-//! # Dominus Node SDK for Rust
+//! # Dominus Node SDK for Rust (v2)
 //!
-//! Official Rust client for the [Dominus Node](https://dominusnode.com) rotating
-//! proxy-as-a-service platform.
-//!
-//! ## Quick Start
+//! Relay-network client for AI agents, implementing `sdks/SDK_SURFACE.md`:
+//! 15 resources, 71 methods, plus `connect_with_key` / `disconnect` / `is_connected`.
 //!
 //! ```no_run
-//! use dominusnode::{DominusNodeClient, Config};
+//! use dominusnode::{Config, DominusNodeClient, ProxyFetchOptions};
 //!
 //! # async fn example() -> dominusnode::Result<()> {
-//! // Create a client with default settings.
-//! let client = DominusNodeClient::new(Config::default())?;
-//!
-//! // Authenticate with an API key.
-//! client.connect_with_key("dn_live_abc123").await?;
-//!
-//! // Check wallet balance.
-//! let balance = client.wallet.get_balance().await?;
-//! println!("Balance: {} cents", balance.balance_cents);
-//!
-//! // Build a proxy URL for HTTP clients.
-//! let proxy_url = client.proxy.build_url("dn_live_abc123", None);
-//! println!("Proxy URL: {}", proxy_url);
+//! let dn = DominusNodeClient::new(Config::default())?;
+//! dn.connect_with_key(&std::env::var("DOMINUSNODE_API_KEY").unwrap()).await?;
+//! let mut opts = ProxyFetchOptions::default();
+//! opts.routing.country = Some("US".into());
+//! let res = dn.proxy.fetch("https://example.com", opts).await?;
+//! println!("{} {}", res.status, res.text().len());
 //! # Ok(())
 //! # }
 //! ```
-//!
-//! ## Features
-//!
-//! - **`async`** (default) -- Async API backed by Tokio.
-//! - **`blocking`** -- Marker feature for future synchronous wrapper.
 
 pub mod client;
-pub mod types;
 pub mod errors;
-pub mod constants;
-pub(crate) mod http_client;
-pub(crate) mod token_manager;
-pub mod auth;
-pub mod keys;
-pub mod wallet;
-pub mod usage;
-pub mod plans;
-pub mod sessions;
+pub mod http;
 pub mod proxy;
-pub mod admin;
-pub mod slots;
-pub mod agent_wallet;
-pub mod teams;
-pub mod x402;
-pub mod wallet_auth;
+pub mod resources;
+pub mod ssrf;
+pub mod token_manager;
+pub mod transport;
+pub mod types;
+pub mod util;
 
 pub use client::{Config, DominusNodeClient};
-pub use errors::{DominusNodeError, Result};
+pub use errors::{scrub_credentials, DominusNodeError, ErrorInfo, Result};
+pub use proxy::{FetchMethod, IpClass, ProxyFetchOptions, ProxyFetchResponse, ProxyProtocol, ProxyRoutingOptions};
+pub use resources::RegisterNodeOptions;
+pub use util::{FnSigner, Musd, Secret, Signer};
