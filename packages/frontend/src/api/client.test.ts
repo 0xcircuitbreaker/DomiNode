@@ -102,6 +102,21 @@ describe("API client", () => {
     await expect(get("/api/auth/me")).rejects.toThrow("Invalid email");
   });
 
+  it("attaches scrubbed validation details to ApiError", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 400,
+      statusText: "Bad Request",
+      headers: { get: () => null },
+      text: () => Promise.resolve(JSON.stringify({ error: "Invalid policy", details: ["ports: 22 is hard-denied", "key dn_live_abc123 leaked", 7] })),
+    });
+    const err = (await get("/api/admin/network/policy").catch((e: unknown) => e)) as { name: string; message: string; status: number; details: string[] };
+    expect(err.name).toBe("ApiError");
+    expect(err.message).toBe("Invalid policy");
+    expect(err.status).toBe(400);
+    expect(err.details).toEqual(["ports: 22 is hard-denied", "key [REDACTED] leaked"]);
+  });
+
   it("handles 429 Too Many Requests with Retry-After", async () => {
     mockFetch.mockResolvedValueOnce({
       ok: false,

@@ -28,6 +28,14 @@ function stripDangerousKeys(obj: unknown, depth = 0): void {
   }
 }
 
+/** Error with HTTP status and optional server validation details (e.g. policy errors). */
+export class ApiError extends Error {
+  constructor(message: string, readonly status: number, readonly details: string[] = []) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
 async function safeJson<T>(res: Response): Promise<T> {
   // Pre-flight Content-Length check before buffering (prevents OOM on oversized responses)
   const contentLength = parseInt(res.headers.get("content-length") ?? "0", 10);
@@ -169,8 +177,14 @@ async function apiFetch<T>(
   }
 
   if (!res.ok) {
-    const body = await safeJson<{ error?: string }>(res).catch(() => ({ error: res.statusText }));
-    throw new Error(scrubCredentials(body.error || `Request failed: ${res.status}`));
+    const body = await safeJson<{ error?: string; details?: unknown }>(res).catch(() => ({ error: res.statusText, details: undefined }));
+    throw new ApiError(
+      scrubCredentials(body.error || `Request failed: ${res.status}`),
+      res.status,
+      Array.isArray(body.details)
+        ? body.details.slice(0, 50).filter((d): d is string => typeof d === "string").map((d) => scrubCredentials(d.slice(0, 300)))
+        : [],
+    );
   }
 
   return safeJson<T>(res);

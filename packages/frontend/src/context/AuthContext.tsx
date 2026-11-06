@@ -6,7 +6,7 @@ import {
   useEffect,
   type ReactNode,
 } from "react";
-import { post, get } from "../api/client";
+import { post, get, ApiError } from "../api/client";
 
 type AdminRole = "none" | "admin" | "cybersecurity_admin" | "root_admin";
 
@@ -66,16 +66,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // On mount: check session via GET /api/auth/me (cookie-based)
   useEffect(() => {
-    get<MeResponse>("/api/auth/me", { redirectOnUnauthorized: false })
-      .then((data) => {
-        setUser(data.user);
-      })
-      .catch(() => {
-        setUser(null);
-      })
-      .finally(() => {
-        setLoading(false);
-      });
+    // Only 401/403 means "not signed in". Rate limits (429) and transient
+    // errors are retried so an admin is not bounced to the login page.
+    let cancelled = false;
+    const check = async (attempt: number): Promise<void> => {
+      try {
+        const data = await get<MeResponse>("/api/auth/me", { redirectOnUnauthorized: false });
+        if (!cancelled) setUser(data.user);
+      } catch (err) {
+        const status = err instanceof ApiError ? err.status : 0;
+        if (status !== 401 && status !== 403 && attempt < 3) {
+          await new Promise((r) => setTimeout(r, 1000 * 2 ** attempt));
+          if (!cancelled) return check(attempt + 1);
+          return;
+        }
+        if (!cancelled) setUser(null);
+      }
+    };
+    void check(0).finally(() => {
+      if (!cancelled) setLoading(false);
+    });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const login = useCallback(async (email: string, password: string, captchaToken?: string): Promise<{ mfaRequired: boolean }> => {

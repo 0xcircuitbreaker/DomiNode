@@ -66,6 +66,31 @@ export interface JobOptions {
   initialDelayMs?: number;
 }
 
+export interface JobRunRecord {
+  name: string;
+  startedAt: Date;
+  finishedAt: Date;
+  ok: boolean;
+  error: string | null;
+}
+
+/** Optional sink for per-run heartbeats (job_runs table). Never throws into the job. */
+type JobRunRecorder = (r: JobRunRecord) => Promise<void>;
+let recorder: JobRunRecorder | null = null;
+export function setJobRunRecorder(fn: JobRunRecorder | null): void {
+  recorder = fn;
+}
+
+/** SQL used by the gateway to upsert a job heartbeat row. */
+export const JOB_RUN_UPSERT_SQL = `INSERT INTO job_runs (job_name, instance_id, last_started_at, last_finished_at, last_ok, last_error,
+    last_duration_ms, last_success_at, run_count, fail_count)
+  VALUES ($1, $2, $3, $4, $5, $6, $7, CASE WHEN $5 THEN $4::timestamptz END, 1, CASE WHEN $5 THEN 0 ELSE 1 END)
+  ON CONFLICT (job_name) DO UPDATE SET instance_id = EXCLUDED.instance_id,
+    last_started_at = EXCLUDED.last_started_at, last_finished_at = EXCLUDED.last_finished_at,
+    last_ok = EXCLUDED.last_ok, last_error = EXCLUDED.last_error, last_duration_ms = EXCLUDED.last_duration_ms,
+    last_success_at = COALESCE(EXCLUDED.last_success_at, job_runs.last_success_at),
+    run_count = job_runs.run_count + 1, fail_count = job_runs.fail_count + EXCLUDED.fail_count`;
+
 /** Interval job that never overlaps itself and can be stopped gracefully. */
 export class Job {
   private timer: ReturnType<typeof setInterval> | null = null;
@@ -86,6 +111,9 @@ export class Job {
   tick(): Promise<void> {
     if (this.stopped || this.current) return this.current ?? Promise.resolve();
     const p = (async () => {
+      const startedAt = new Date();
+      let ok = true;
+      let error: string | null = null;
       try {
         if (this.o.lockKey !== null) {
           const r = await withAdvisoryLock(this.o.pool!, this.o.lockKey, this.o.run);
@@ -95,7 +123,12 @@ export class Job {
           this.logResult(await this.o.run());
         }
       } catch (err) {
-        this.o.logger.error(`job ${this.o.name} failed`, { error: err instanceof Error ? err.message.slice(0, 200) : "unknown" });
+        ok = false;
+        error = err instanceof Error ? err.message.slice(0, 200) : "unknown";
+        this.o.logger.error(`job ${this.o.name} failed`, { error });
+      }
+      if (recorder) {
+        await recorder({ name: this.o.name, startedAt, finishedAt: new Date(), ok, error }).catch(() => {});
       }
     })().finally(() => {
       this.current = null;

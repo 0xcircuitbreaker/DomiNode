@@ -3,17 +3,12 @@ import type { Request, Response } from "express";
 import {
   createLogger,
   getPool,
-  hasMinRole,
   policyRepo,
-  PolicyValidationError,
-  validatePolicy,
-  policySha256,
-  DEFAULT_POLICY,
   payoutRepo,
 } from "@dominusnode/shared";
-import type { AdminRole, NetworkPolicy } from "@dominusnode/shared";
-import { requireAuth, type AuthenticatedRequest } from "../middleware/auth.js";
+import { requireAuth } from "../middleware/auth.js";
 import { requireAdmin } from "../middleware/admin.js";
+import { HttpError, adminId, withAdminTx, fail, audit } from "./admin-network-common.js";
 import { invalidatePublicCaches } from "./v1/public.js";
 
 /**
@@ -23,54 +18,6 @@ import { invalidatePublicCaches } from "./v1/public.js";
 const log = createLogger("api:admin-network");
 const router = Router();
 router.use(requireAuth, requireAdmin);
-
-interface TxClient {
-  query<R>(text: string, params?: unknown[]): Promise<{ rows: R[] }>;
-}
-
-class HttpError extends Error {
-  constructor(readonly status: number, message: string) { super(message); }
-}
-
-function adminId(req: Request): string {
-  return (req as AuthenticatedRequest).user.userId;
-}
-
-/** Run fn in a transaction after re-checking the caller's admin role FOR UPDATE. */
-async function withAdminTx<T>(userId: string, fn: (c: TxClient) => Promise<T>): Promise<T> {
-  const client = await getPool().connect();
-  try {
-    await client.query("BEGIN");
-    const r = await client.query<{ admin_role: AdminRole | null }>(
-      `SELECT admin_role FROM users WHERE id = $1 AND status = 'active' FOR UPDATE`,
-      [userId],
-    );
-    if (!r.rows[0] || !hasMinRole(r.rows[0].admin_role ?? "none", "admin")) {
-      throw new HttpError(403, "Admin access required");
-    }
-    const out = await fn(client as unknown as TxClient);
-    await client.query("COMMIT");
-    return out;
-  } catch (err) {
-    await client.query("ROLLBACK").catch(() => {});
-    throw err;
-  } finally {
-    client.release();
-  }
-}
-
-function fail(res: Response, err: unknown, what: string): void {
-  if (err instanceof HttpError) {
-    res.status(err.status).json({ error: err.message });
-    return;
-  }
-  if (err instanceof PolicyValidationError) {
-    res.status(400).json({ error: "Invalid policy", details: err.errors.slice(0, 50) });
-    return;
-  }
-  log.error(`${what} failed`, { error: err instanceof Error ? err.message : String(err) });
-  res.status(500).json({ error: `${what} failed` });
-}
 
 function intField(v: unknown, name: string, min: number, max: number): number {
   if (typeof v !== "number" || !Number.isInteger(v) || v < min || v > max) {
@@ -102,7 +49,13 @@ router.put("/policy", async (req: Request, res: Response) => {
   try {
     const uid = adminId(req);
     // Role re-check (FOR UPDATE) and publish share one BEGIN/COMMIT (no TOCTOU).
-    const r = await withAdminTx(uid, (c) => policyRepo.publishPolicyTx(c, req.body, uid));
+    const r = await withAdminTx(uid, async (c) => {
+      const out = await policyRepo.publishPolicyTx(c, req.body, uid);
+      await audit(c, req, "network_policy_publish", "network_policy", String(out.version), {
+        version: out.version, previousVersion: out.previousVersion, sha256: out.sha256, attestationRaised: out.attestationRaised,
+      });
+      return out;
+    });
     invalidatePublicCaches();
     log.info("network policy published", {
       version: r.version, previousVersion: r.previousVersion, attestationRaised: r.attestationRaised, by: uid,
@@ -138,6 +91,7 @@ router.put("/pricing", async (req: Request, res: Response) => {
          RETURNING ip_class, price_per_gb_musd, updated_at`,
         [ipClass, price.toString(), uid],
       );
+      await audit(c, req, "network_pricing_update", "network_pricing", ipClass, { ipClass, pricePerGbMusd: price.toString() });
       return r.rows[0];
     });
     invalidatePublicCaches();
@@ -197,7 +151,11 @@ router.post("/split", async (req: Request, res: Response) => {
          RETURNING id, effective_from`,
         [nodeShareBps, maturationHours, effectiveFrom.toISOString(), uid, note],
       );
-      return r.rows[0];
+      const ins = r.rows[0];
+      await audit(c, req, "revenue_split_append", "revenue_split_config", String(ins.id), {
+        nodeShareBps, maturationHours, effectiveFrom: new Date(ins.effective_from).toISOString(), note,
+      });
+      return ins;
     });
     invalidatePublicCaches();
     log.info("revenue split appended", { id: row.id, nodeShareBps, maturationHours, by: uid });
@@ -256,7 +214,13 @@ router.put("/tiers/:id", async (req: Request, res: Response) => {
          WHERE id = $1 RETURNING id`,
         params,
       );
-      return r.rows[0] ?? null;
+      const row = r.rows[0] ?? null;
+      if (row) {
+        const changes: Record<string, unknown> = {};
+        for (const k of Object.keys(b)) changes[k] = typeof b[k] === "number" ? b[k] : String(b[k]);
+        await audit(c, req, "node_tier_update", "node_tier", String(id), { changes });
+      }
+      return row;
     });
     if (!updated) throw new HttpError(404, "Tier not found");
     const tier = await policyRepo.getTier(id);
@@ -268,7 +232,7 @@ router.put("/tiers/:id", async (req: Request, res: Response) => {
 
 // ─── Credit account unfreeze ────────────────────────────────────────
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+import { UUID_RE } from "./admin-network-common.js";
 
 /**
  * POST /accounts/:userId/unfreeze { payouts: "release" | "reverse" }

@@ -4,12 +4,13 @@ import userEvent from "@testing-library/user-event";
 import { AuthProvider, useAuth } from "./AuthContext";
 
 // Mock api/client
-vi.mock("../api/client", () => ({
+vi.mock("../api/client", async (importOriginal) => ({
+  ApiError: (await importOriginal<typeof import("../api/client")>()).ApiError,
   get: vi.fn(),
   post: vi.fn(),
 }));
 
-import { get, post } from "../api/client";
+import { get, post, ApiError } from "../api/client";
 const mockGet = vi.mocked(get);
 const mockPost = vi.mocked(post);
 
@@ -35,7 +36,7 @@ beforeEach(() => {
 
 describe("AuthContext", () => {
   it("starts in loading state and resolves to no user on failed /me", async () => {
-    mockGet.mockRejectedValueOnce(new Error("Unauthorized"));
+    mockGet.mockRejectedValueOnce(new ApiError("Unauthorized", 401));
 
     render(
       <AuthProvider>
@@ -73,7 +74,7 @@ describe("AuthContext", () => {
 
   it("login sets user on success (no MFA)", async () => {
     // Initial /me call fails
-    mockGet.mockRejectedValueOnce(new Error("Unauthorized"));
+    mockGet.mockRejectedValueOnce(new ApiError("Unauthorized", 401));
 
     render(
       <AuthProvider>
@@ -100,7 +101,7 @@ describe("AuthContext", () => {
   });
 
   it("login sets mfaRequired when server returns mfaRequired", async () => {
-    mockGet.mockRejectedValueOnce(new Error("Unauthorized"));
+    mockGet.mockRejectedValueOnce(new ApiError("Unauthorized", 401));
 
     render(
       <AuthProvider>
@@ -148,7 +149,7 @@ describe("AuthContext", () => {
   });
 
   it("register sets user on success", async () => {
-    mockGet.mockRejectedValueOnce(new Error("Unauthorized"));
+    mockGet.mockRejectedValueOnce(new ApiError("Unauthorized", 401));
 
     render(
       <AuthProvider>
@@ -170,5 +171,28 @@ describe("AuthContext", () => {
     await waitFor(() => {
       expect(screen.getByTestId("user").textContent).toBe("new@test.com");
     });
+  });
+
+  it("does not sign out on a rate-limited /me; retries and keeps the session", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      mockGet
+        .mockRejectedValueOnce(new ApiError("Too many requests", 429))
+        .mockResolvedValueOnce({ user: { id: "1", email: "admin@example.com", is_admin: true } });
+
+      render(
+        <AuthProvider>
+          <AuthConsumer />
+        </AuthProvider>,
+      );
+
+      await vi.advanceTimersByTimeAsync(1100);
+      await waitFor(() => {
+        expect(screen.getByTestId("user").textContent).toBe("admin@example.com");
+      });
+      expect(mockGet).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
