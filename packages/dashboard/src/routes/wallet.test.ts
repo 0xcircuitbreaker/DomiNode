@@ -57,6 +57,17 @@ vi.mock("../middleware/auth.js", () => ({
   },
 }));
 
+let mockIsAdmin = true;
+vi.mock("../middleware/admin.js", () => ({
+  requireAdmin: (_req: express.Request, res: express.Response, next: express.NextFunction) => {
+    if (!mockIsAdmin) {
+      res.status(403).json({ error: "Admin access required" });
+      return;
+    }
+    next();
+  },
+}));
+
 import walletRouter from "./wallet.js";
 
 // ─── Helpers ──────────────────────────────────────────────────────────
@@ -165,6 +176,7 @@ function requestWithBody(
 describe("wallet routes", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockIsAdmin = true;
   });
 
   // ─── GET /api/wallet ───────────────────────────────────────────────
@@ -306,6 +318,36 @@ describe("wallet routes", () => {
 
       expect(res.status).toBe(500);
       expect(res.body.error).toBe("Failed to create checkout session");
+    });
+  });
+
+  describe("Stripe/PayPal top-ups are admin-only", () => {
+    it.each([
+      ["POST", "/api/wallet/topup/stripe"],
+      ["POST", "/api/wallet/topup/paypal"],
+      ["POST", "/api/wallet/paypal/capture/ORDER123"],
+      ["GET", "/api/wallet/paypal/status/ORDER123"],
+    ])("%s %s returns 403 for non-admin users", async (method, path) => {
+      mockIsAdmin = false;
+      const app = createApp();
+      const res = await requestWithBody(app, method, path, { amountCents: 2000 });
+      expect(res.status).toBe(403);
+      expect(mockCreateCheckoutSession).not.toHaveBeenCalled();
+      expect(mockFindUserById).not.toHaveBeenCalled();
+    });
+
+    it("crypto top-up stays available to non-admin users", async () => {
+      mockIsAdmin = false;
+      mockFindUserById.mockResolvedValueOnce({ id: "test-user-id", status: "active", email_verified: true });
+      mockValidateTopupAmount.mockReturnValueOnce("Amount must be at least $5.00");
+      mockIsValidCryptoCurrency.mockReturnValueOnce(true);
+      const app = createApp();
+      const res = await requestWithBody(app, "POST", "/api/wallet/topup/crypto", { amountCents: 100, currency: "btc" });
+      expect(res.status).not.toBe(403);
+      // clearAllMocks does not drain Once queues; reset so nothing leaks into later tests
+      mockFindUserById.mockReset();
+      mockValidateTopupAmount.mockReset();
+      mockIsValidCryptoCurrency.mockReset();
     });
   });
 

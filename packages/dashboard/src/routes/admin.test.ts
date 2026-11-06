@@ -137,7 +137,6 @@ function request(
 // ─── Tests ──────────────────────────────────────────────────────────────
 
 const VALID_UUID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
-const ADMIN_UUID = "admin-aaa-bbbb-cccc-dddd-eeeeeeeeee00";
 
 describe("admin routes", () => {
   beforeEach(() => {

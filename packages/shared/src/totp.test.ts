@@ -134,11 +134,6 @@ describe("totp", () => {
     it("should reject code from 2 time steps away", () => {
       const { raw } = generateTotpSecret();
       const now = Date.now();
-      // Generate a code from 90 seconds ago (3 steps away to guarantee outside window)
-      const farPastCode = generateTotpCode(raw, now - 90_000);
-      // This might still pass if the steps happen to overlap, so use 120s
-      const veryFarCode = generateTotpCode(raw, now - 120_000);
-      // At least one of these should be rejected (2+ steps away)
       const farFutureCode = generateTotpCode(raw, now + 120_000);
       // The code from +-120s is 4 steps away, definitely outside +/-1 window
       expect(verifyTotpCode(raw, farFutureCode, now)).toBeNull();

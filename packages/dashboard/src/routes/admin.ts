@@ -587,8 +587,6 @@ router.post("/credit-wallet", requireCybersecurityAdmin, creditLimiter, async (r
 
 // ─── Bug Bounty System ──────────────────────────────────────────────
 
-const BUG_PRIORITIES = new Set(["p1", "p2", "p3"]);
-const BUG_CATEGORIES = new Set(["quality", "security"]);
 const BUG_STATUSES = new Set(["pending", "approved", "rejected", "credited"]);
 // Must match MAX_BALANCE_CENTS in shared wallet-repo
 const BUG_BOUNTY_MAX_BALANCE_CENTS = 1_000_000;

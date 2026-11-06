@@ -11,7 +11,6 @@ import {
   verifyPassword,
   createTokenPair,
   verifyRefreshToken,
-  signJwt,
   signMfaChallengeToken,
   verifyMfaChallengeToken,
   hashApiKey,
@@ -320,7 +319,7 @@ function countLeadingZeroBits(buf: Buffer): number {
       bits += 8;
     } else {
       // Count leading zeros of this byte
-      let byte = buf[i];
+      const byte = buf[i];
       for (let b = 7; b >= 0; b--) {
         if ((byte & (1 << b)) === 0) {
           bits++;

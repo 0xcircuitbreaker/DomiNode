@@ -20,7 +20,7 @@ function checkAgentWalletRateLimit(): boolean {
   return true;
 }
 
-export function registerAgentWalletTools(server: McpServer, httpClient: HttpClient, config: McpConfig): void {
+export function registerAgentWalletTools(server: McpServer, httpClient: HttpClient, _config: McpConfig): void {
   server.tool(
     "dominusnode_x402_info",
     "Get x402 payment protocol info for Dominus Node. Returns supported currencies, facilitator details (Coinbase + PayAI), and agentic wallet details.",

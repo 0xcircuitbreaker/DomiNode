@@ -66,7 +66,7 @@ export function parseConfig(env: Record<string, string | undefined> = process.en
   const proxyHost = proxyTls?.host ?? env["DOMINUSNODE_PROXY_HOST"] ?? "proxy.dominusnode.com";
 
   // Validate proxyHost strictly to prevent SSRF via config injection
-  if (!/^[a-zA-Z0-9.\-]+$/.test(proxyHost)) {
+  if (!/^[a-zA-Z0-9.-]+$/.test(proxyHost)) {
     throw new ConfigError("DOMINUSNODE_PROXY_HOST contains invalid characters (only alphanumeric, dots, hyphens allowed)");
   }
   if (proxyHost.length > 253) {

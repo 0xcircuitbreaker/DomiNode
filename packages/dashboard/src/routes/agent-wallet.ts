@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { agenticWalletRepo, userRepo, createLogger, sanitizeString, SUPPORTED_CRYPTO } from "@dominusnode/shared";
+import { agenticWalletRepo, userRepo, createLogger, sanitizeString } from "@dominusnode/shared";
 import { agentAwareRateLimit } from "../helpers/agent-rate-limit.js";
 import { requireAuth, type AuthenticatedRequest } from "../middleware/auth.js";
 

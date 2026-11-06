@@ -33,7 +33,7 @@ export function createEthersPayoutSender(env: NodeJS.ProcessEnv, opts: { receipt
   const rpcUrl = env["PAYOUT_RPC_URL"];
   if (!rpcUrl || !/^https:\/\//.test(rpcUrl)) throw new Error("PAYOUT_RPC_URL must be an https:// URL");
   const provider = new JsonRpcProvider(rpcUrl);
-  let wallet: Wallet | null = new Wallet(readSignerKeyFile(env["PAYOUT_SIGNER_KEY_FILE"]), provider);
+  const wallet: Wallet | null = new Wallet(readSignerKeyFile(env["PAYOUT_SIGNER_KEY_FILE"]), provider);
   const sent = new Map<string, string>(); // payoutId -> txHash (in-process idempotency)
   const timeout = opts.receiptTimeoutMs ?? 120_000;
 
