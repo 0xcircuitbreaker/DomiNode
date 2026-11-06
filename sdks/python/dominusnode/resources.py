@@ -7,10 +7,10 @@ Results are the server's JSON as dicts (camelCase keys, as on the wire); see typ
 from __future__ import annotations
 
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Mapping, Optional
 
 from ._ops import Call, Gen, make_variants
-from .constants import DEFAULT_HTTP_PROXY_PORT, DEFAULT_PROXY_HOST, DEFAULT_SOCKS5_PROXY_PORT
+from .constants import DEFAULT_HTTP_PROXY_PORT, DEFAULT_PROXY_HOST, DEFAULT_SOCKS5_PROXY_PORT, DEFAULT_TLS_PROXY_PORT
 from .errors import AuthenticationError, ProtocolError, invalid_arg
 from .http_client import Request
 from .messages import (
@@ -21,7 +21,7 @@ from .messages import (
     extract_user_id,
 )
 from .pow import solve_pow
-from .proxy_fetch import ProxyFetchResponse, build_proxy_username, execute_fetch, prepare_fetch
+from .proxy_fetch import GatewayTls, ProxyFetchResponse, build_proxy_username, execute_fetch, prepare_fetch
 from .secret import Secret
 from .signer import assert_signer, sign
 from .ssrf import LookupAll
@@ -646,6 +646,33 @@ def _valid_port(p: Any, name: str) -> int:
     return int(p)
 
 
+def _gateway_tls(g: Any) -> Optional[GatewayTls]:
+    """``None``/``False`` -> off; ``True`` -> port 8443; mapping ``{port, ca, servername}`` or GatewayTls."""
+    if g is None or g is False:
+        return None
+    if g is True:
+        return GatewayTls()
+    if isinstance(g, GatewayTls):
+        g = {"port": g.port, "ca": g.ca, "servername": g.servername}
+    if not isinstance(g, Mapping):
+        raise invalid_arg("gateway_tls must be a bool, a mapping or GatewayTls")
+    unknown = set(g) - {"port", "ca", "servername"}
+    if unknown:
+        raise invalid_arg("gateway_tls has unknown fields")
+    port = g.get("port")
+    port = DEFAULT_TLS_PROXY_PORT if port is None else _valid_port(port, "gateway_tls.port")
+    sn = g.get("servername")
+    if sn is not None and (not isinstance(sn, str) or not _SERVERNAME_RE.match(sn)):
+        raise invalid_arg("gateway_tls.servername is invalid")
+    ca = g.get("ca")
+    if ca is not None and not isinstance(ca, (str, bytes)):
+        raise invalid_arg("gateway_tls.ca must be a PEM string or bytes")
+    return GatewayTls(port, ca, sn)
+
+
+_SERVERNAME_RE = re.compile(r"^[A-Za-z0-9.-]{1,253}\Z")
+
+
 class _ProxyResource(_Base):
     """Gateway helpers. API key in the PASSWORD; routing flags in the USERNAME (hyphen-joined)."""
 
@@ -656,6 +683,7 @@ class _ProxyResource(_Base):
         proxy_host: str = DEFAULT_PROXY_HOST,
         http_proxy_port: int = DEFAULT_HTTP_PROXY_PORT,
         socks5_proxy_port: int = DEFAULT_SOCKS5_PROXY_PORT,
+        gateway_tls: Any = None,
     ) -> None:
         super().__init__(http, ctx)
         if not isinstance(proxy_host, str) or not _PROXY_HOST_RE.match(proxy_host):
@@ -663,6 +691,7 @@ class _ProxyResource(_Base):
         self._host = proxy_host
         self._http_port = _valid_port(http_proxy_port, "http_proxy_port")
         self._socks_port = _valid_port(socks5_proxy_port, "socks5_proxy_port")
+        self._tls = _gateway_tls(gateway_tls)
         self._lookup: Optional[LookupAll] = None
 
     def set_lookup(self, lookup: Optional[LookupAll]) -> None:
@@ -692,13 +721,25 @@ class _ProxyResource(_Base):
         session_id: Optional[str] = None,
         agentic_wallet_id: Optional[str] = None,
         allow_http: bool = False,
-        protocol: str = "http",
+        protocol: Optional[str] = None,
         api_key: Optional[str] = None,
     ) -> str:
-        """e.g. http://country-US-class-dc:dn_live_...@proxy.dominusnode.com:8080. CONTAINS the key: do not log it."""
-        if protocol not in ("http", "socks5"):
-            raise invalid_arg("protocol must be http or socks5")
-        port = self._socks_port if protocol == "socks5" else self._http_port
+        """e.g. http://country-US-class-dc:dn_live_...@proxy.dominusnode.com:8080. CONTAINS the key: do not log it.
+
+        ``protocol``: http, https (TLS to the gateway; needs gateway_tls) or socks5.
+        Default: https when gateway_tls is configured, else http."""
+        if protocol is None:
+            protocol = "https" if self._tls is not None else "http"
+        if protocol not in ("http", "https", "socks5"):
+            raise invalid_arg("protocol must be http, https or socks5")
+        if protocol == "https" and self._tls is None:
+            raise invalid_arg("protocol https needs the gateway_tls config")
+        if protocol == "socks5":
+            port = self._socks_port
+        elif protocol == "https":
+            port = self._tls.port  # type: ignore[union-attr]
+        else:
+            port = self._http_port
         user = build_proxy_username(country, ip_class, session_id, agentic_wallet_id, allow_http)
         key = self._key(api_key)
         return f"{protocol}://{quote(user, safe='')}:{quote(key, safe='')}@{self._host}:{port}"
@@ -723,7 +764,7 @@ class _ProxyResource(_Base):
             key, url, method, headers, timeout_ms, max_bytes, country, ip_class, session_id, agentic_wallet_id, allow_http
         )
         host = self._host.strip("[]")
-        result: ProxyFetchResponse = yield Call(execute_fetch, (host, self._http_port, prepared, self._lookup))
+        result: ProxyFetchResponse = yield Call(execute_fetch, (host, self._http_port, prepared, self._lookup, self._tls))
         return result
 
     def get_health(self) -> Gen:

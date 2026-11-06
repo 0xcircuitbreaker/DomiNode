@@ -49,7 +49,7 @@ Prices come only from `network.pricing()` and `x402.getInfo()`.
 | proxyHost | `proxy.dominusnode.com` | `[A-Za-z0-9.-]{1,253}` or bracketed IPv6; else INVALID_ARGUMENT |
 | httpProxyPort | 8080 | integer 1..65535 |
 | socks5ProxyPort | 1080 | integer 1..65535 |
-| gatewayTls | off | optional. `true` or `{ port = 8443, ca?, servername? }`: TLS to the gateway's HTTPS proxy listener (`PROXY_TLS_PORT`), so `Proxy-Authorization` is encrypted. Certificate verification always on (`ca` adds a PEM root). When set, `proxy.fetch` uses it and `buildUrl` defaults to `https://`. Node SDK only for now; see §5. |
+| gatewayTls | off | optional. `true` or `{ port = 8443, ca?, servername? }`: TLS to the gateway's HTTPS proxy listener (`PROXY_TLS_PORT`), so `Proxy-Authorization` is encrypted. Certificate verification always on (`ca` adds a PEM root). `servername` overrides SNI and the verified name (default proxyHost; useful when proxyHost is an IP). When set, `proxy.fetch` uses it and `buildUrl` defaults to `https://`. All six SDKs. |
 | accessToken, refreshToken | none | optional pre-existing JWT pair |
 | HTTP transport | platform default | injectable for tests; must not follow redirects |
 
@@ -389,7 +389,7 @@ PUT `/v1/payout-wallet` `{address, chain, nonce, signature, oldWalletSignature?}
 | Method | Behaviour |
 |---|---|
 | `buildUsername(options)` | as above |
-| `buildUrl(options, protocol = http|socks5, apiKey?)` | `<protocol>://<urlenc(username)>:<urlenc(apiKey)>@<proxyHost>:<port>`; port = httpProxyPort or socks5ProxyPort. Key = argument or the connected key (AuthenticationError if none; validated). |
+| `buildUrl(options, protocol = http|https|socks5, apiKey?)` | `<protocol>://<urlenc(username)>:<urlenc(apiKey)>@<proxyHost>:<port>`; port = httpProxyPort, gatewayTls.port or socks5ProxyPort. Default protocol: `https` when gatewayTls is set, else `http`; `https` without gatewayTls is INVALID_ARGUMENT. Key = argument or the connected key (AuthenticationError if none; validated). |
 | `fetch(url, options)` | see below -> `{status, statusText, headers: map, body: bytes, truncated: bool, text()}` |
 | `getHealth()` | GET `/api/proxy/health` [none] -> `{status, activeSessions, uptimeSeconds}` |
 | `getConfig()` | GET `/api/proxy/config` [jwt] -> object |
@@ -411,7 +411,8 @@ Order (all checks before any network I/O except step 6):
 9. Timeout -> ProxyError. Every error message is credential-scrubbed.
 
 **Private address rules** (IPv4 after decoding decimal/hex/octal/short forms such as `2130706433`, `0x7f000001`, `0177.0.0.1`, `127.1`):
-`0/8, 10/8, 127/8, 169.254/16, 172.16/12, 192.168/16, 100.64/10, 192.0.0/24, 192.0.2/24, 198.18/15, >= 224.0.0.0`.
+`0/8, 10/8, 127/8, 169.254/16, 172.16/12, 192.168/16, 100.64/10, 192.0/16, 198.18/15, >= 224.0.0.0`.
+`192.0/16` is deliberately the whole `192.0.0.0 - 192.0.255.255` block (it covers 192.0.0/24 IETF and 192.0.2/24 TEST-NET-1); every SDK uses this exact table (Node `ssrf.ts` is the reference).
 IPv6 (strip brackets and `%zone`, fully expand incl. embedded dotted IPv4):
 `::`, `::1`, IPv4-mapped `::ffff:a.b.c.d` and IPv4-compatible `::a.b.c.d` (check the embedded IPv4, any spelling incl. hex `::ffff:7f00:1`),
 NAT64 `64:ff9b::/96` (embedded IPv4), `fc00::/7`, `fe80::/10`, `fec0::/10`, `ff00::/8`,
@@ -429,9 +430,11 @@ Mock the HTTP transport (return bodies through the text()/raw-body path).
 - Signer flows: node register (PoW solution verifies), withdraw, payout-wallet first set and change (old signer signs the same message); **message mismatch refusal** for each flow with the signer never called; server `signer` != signer.address refusal; bad signature format from the signer.
 - Redaction: Secret, client, token manager in string/debug/JSON; `disconnect()` clears key + tokens; `clear()` keeps the refresh callback.
 - `getActive()` drops unknown fields such as `proxyIp`.
-- Proxy: username building + flag validation (incl. OFAC), URL building, private-IP table (both lists above), URL refusals, DNS-rebinding with a mixed public/private answer, and a local fake gateway for the http path (auth header, absolute URI, redirect not followed, truncation) and CONNECT refusal.
+- Proxy: username building + flag validation (incl. OFAC), URL building, private-IP table (both lists above, incl. 192.0.1.1 private / 192.1.0.1 public), URL refusals, DNS-rebinding with a mixed public/private answer, and a local fake gateway for the http path (auth header, absolute URI, redirect not followed, truncation) and CONNECT refusal (ProxyError carries the status).
+- Tunnel integrity: for an https target the fake gateway must receive the CONNECT and then the target's TLS ClientHello (SNI = target host) on the SAME connection, proving the request never dials the target directly.
+- gatewayTls: a TLS fake gateway with a self-signed cert generated in the test; CONNECT (with Proxy-Authorization) arrives inside TLS, http absolute-URI over TLS (IP host + servername), unverifiable cert / wrong servername refused before any request bytes are sent, `buildUrl` defaults to `https://...:8443`, config validation.
 - Attestation message parity with `packages/shared/src/attestation.ts`.
 
 ## 5. Follow-ups
 
-- `gatewayTls` (§1.1, §3.15 step 7): implemented in `node/` only. Python, Go, Rust, Java and C++ still talk plain TCP to `httpProxyPort`. Add the config field, TLS to the gateway before CONNECT, and a TLS fake-gateway test (CONNECT inside TLS; unverifiable gateway cert refused before any request is sent). `buildUrl` gains `protocol = https`.
+None open.

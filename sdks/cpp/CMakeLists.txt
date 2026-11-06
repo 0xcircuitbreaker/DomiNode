@@ -32,8 +32,9 @@ add_executable(dominusnode_tests
   tests/test_resources.cpp
   tests/test_signed.cpp
   tests/test_proxy.cpp
+  tests/test_proxy_tls.cpp
 )
-target_link_libraries(dominusnode_tests PRIVATE dominusnode)
+target_link_libraries(dominusnode_tests PRIVATE dominusnode OpenSSL::SSL)
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
   target_compile_options(dominusnode_tests PRIVATE -Wall -Wextra)
 endif()

@@ -7,7 +7,7 @@ use serde::{Serialize, Serializer};
 
 use crate::errors::{DominusNodeError, Result};
 use crate::http::{normalize_base_url, Credentials, HttpClient};
-use crate::proxy::{validate_port, validate_proxy_host, ProxyResource};
+use crate::proxy::{validate_port, validate_proxy_host, GatewayTls, ProxyResource};
 use crate::resources::*;
 use crate::ssrf::{default_resolver, Resolver};
 use crate::token_manager::{RefreshFn, TokenManager};
@@ -34,6 +34,8 @@ pub struct Config {
     pub transport: Option<Arc<dyn Transport>>,
     /// Custom DNS resolver for `proxy.fetch` (tests).
     pub resolver: Option<Resolver>,
+    /// Optional TLS to the gateway (`PROXY_TLS_PORT`); `build_url` then defaults to `https://`.
+    pub gateway_tls: Option<GatewayTls>,
 }
 
 impl Default for Config {
@@ -47,6 +49,7 @@ impl Default for Config {
             refresh_token: None,
             transport: None,
             resolver: None,
+            gateway_tls: None,
         }
     }
 }
@@ -152,7 +155,8 @@ impl DominusNodeClient {
                 http_port,
                 socks_port,
                 config.resolver.unwrap_or_else(default_resolver),
-            ),
+                config.gateway_tls,
+            )?,
             creds,
             _http: http,
         })

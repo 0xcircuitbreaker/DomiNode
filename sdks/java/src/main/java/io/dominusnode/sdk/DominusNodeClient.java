@@ -91,7 +91,7 @@ public final class DominusNodeClient implements AutoCloseable {
         this.payoutWallet = new PayoutWalletResource(http);
         this.payouts = new PayoutsResource(http);
         this.proxy = new ProxyResource(http, c.proxyHost == null ? Config.DEFAULT_PROXY_HOST : c.proxyHost,
-                c.httpProxyPort, c.socks5ProxyPort, this::apiKeyValue, c.resolver);
+                c.httpProxyPort, c.socks5ProxyPort, this::apiKeyValue, c.resolver, c.gatewayTls);
         // Never cleared: TokenManager.clear() keeps it so reconnecting works.
         tokens.setRefreshFunction(rt -> {
             JsonNode r = auth.refresh(rt);

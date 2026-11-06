@@ -6,6 +6,8 @@ DEFAULT_BASE_URL = "https://api.dominusnode.com"
 DEFAULT_PROXY_HOST = "proxy.dominusnode.com"
 DEFAULT_HTTP_PROXY_PORT = 8080
 DEFAULT_SOCKS5_PROXY_PORT = 1080
+#: Gateway HTTPS proxy listener (PROXY_TLS_PORT), used with gateway_tls.
+DEFAULT_TLS_PROXY_PORT = 8443
 #: Refresh JWTs this many seconds before expiry.
 TOKEN_REFRESH_BUFFER_SECONDS = 60
 #: Hard cap on any response body the SDK reads (API or proxy fetch).

@@ -9,7 +9,10 @@ use serde_json::{Map, Value};
 
 use crate::errors::{scrub_credentials, DominusNodeError, Result};
 use crate::http::{AuthMode, Credentials, HttpClient};
-use crate::ssrf::{assert_public_resolution, validate_target_url, Resolver};
+use crate::ssrf::{assert_public_resolution, validate_target_url, Resolver, Target};
+
+use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader};
+use tokio::net::TcpStream;
 use crate::types::ProxyHealth;
 use crate::util::{encode_uri_component, is_uuid, validate_api_key, MAX_RESPONSE_BYTES};
 
@@ -89,9 +92,13 @@ pub fn build_proxy_username(o: &ProxyRoutingOptions) -> Result<String> {
 /// Proxy protocol for [`ProxyResource::build_url`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ProxyProtocol {
-    /// HTTP proxy (CONNECT for https targets).
+    /// `https` when gateway TLS is configured, else `http`.
     #[default]
+    Auto,
+    /// HTTP proxy (CONNECT for https targets).
     Http,
+    /// HTTPS proxy: TLS to the gateway (needs [`GatewayTls`]).
+    Https,
     /// SOCKS5.
     Socks5,
 }
@@ -198,6 +205,7 @@ pub struct ProxyResource {
     http_port: u16,
     socks_port: u16,
     resolver: Resolver,
+    tls: Option<Arc<GatewayTlsInner>>,
 }
 
 impl fmt::Debug for ProxyResource {
@@ -236,8 +244,13 @@ impl ProxyResource {
         http_port: u16,
         socks_port: u16,
         resolver: Resolver,
-    ) -> Self {
-        Self { http, creds, host, http_port, socks_port, resolver }
+        tls: Option<GatewayTls>,
+    ) -> Result<Self> {
+        let tls = match tls {
+            None => None,
+            Some(g) => Some(Arc::new(GatewayTlsInner::new(g)?)),
+        };
+        Ok(Self { http, creds, host, http_port, socks_port, resolver, tls })
     }
 
     fn key(&self, over: Option<&str>) -> Result<String> {
@@ -261,9 +274,13 @@ impl ProxyResource {
     pub fn build_url(&self, opts: &ProxyRoutingOptions, protocol: ProxyProtocol, api_key: Option<&str>) -> Result<String> {
         let user = build_proxy_username(opts)?;
         let key = self.key(api_key)?;
-        let (scheme, port) = match protocol {
-            ProxyProtocol::Http => ("http", self.http_port),
-            ProxyProtocol::Socks5 => ("socks5", self.socks_port),
+        let (scheme, port) = match (protocol, &self.tls) {
+            (ProxyProtocol::Auto, Some(t)) | (ProxyProtocol::Https, Some(t)) => ("https", t.port),
+            (ProxyProtocol::Https, None) => {
+                return Err(DominusNodeError::invalid_arg("protocol https needs the gateway_tls config"))
+            }
+            (ProxyProtocol::Auto, None) | (ProxyProtocol::Http, _) => ("http", self.http_port),
+            (ProxyProtocol::Socks5, _) => ("socks5", self.socks_port),
         };
         Ok(format!("{scheme}://{}:{}@{}:{port}", encode_uri_component(&user), encode_uri_component(&key), self.host))
     }
@@ -285,72 +302,84 @@ impl ProxyResource {
         let max_bytes = opts.max_bytes.unwrap_or(MAX_RESPONSE_BYTES).clamp(1, MAX_RESPONSE_BYTES);
         assert_public_resolution(&target.host, &self.resolver).await?;
 
-        let fail = |e: reqwest::Error| -> DominusNodeError {
-            if e.is_timeout() {
-                return DominusNodeError::proxy(format!("Proxy request timed out after {timeout_ms}ms"), None);
-            }
-            let mut msg = e.to_string();
-            let mut src: Option<&dyn std::error::Error> = std::error::Error::source(&e);
-            while let Some(s) = src {
-                msg.push_str(": ");
-                msg.push_str(&s.to_string());
-                src = s.source();
-            }
-            if msg.contains("tunnel") {
-                return DominusNodeError::proxy(scrub_credentials(&format!("Proxy refused CONNECT: {msg}")), None);
-            }
-            DominusNodeError::proxy(scrub_credentials(&format!("Proxy request failed: {msg}")), None)
-        };
-
-        let proxy = reqwest::Proxy::all(format!("http://{}:{}", self.host, self.http_port))
-            .map_err(fail)?
-            .basic_auth(&username, &key);
-        let client = reqwest::Client::builder()
-            .proxy(proxy)
-            .redirect(reqwest::redirect::Policy::none())
-            .timeout(Duration::from_millis(timeout_ms))
-            .min_tls_version(reqwest::tls::Version::TLS_1_2)
-            .http1_only()
-            .build()
-            .map_err(fail)?;
         let method = match opts.method {
-            FetchMethod::Get => reqwest::Method::GET,
-            FetchMethod::Head => reqwest::Method::HEAD,
+            FetchMethod::Get => "GET",
+            FetchMethod::Head => "HEAD",
         };
-        let mut rb = client.request(method, target.url.clone()).header("Connection", "close");
-        for (k, v) in &headers {
-            rb = rb.header(k.as_str(), v.as_str());
-        }
-        let mut res = rb.send().await.map_err(fail)?;
-        let status = res.status();
-        let mut out_headers: BTreeMap<String, String> = BTreeMap::new();
-        for (k, v) in res.headers() {
-            let v = String::from_utf8_lossy(v.as_bytes()).into_owned();
-            out_headers.entry(k.as_str().to_string()).and_modify(|e| {
-                e.push_str(", ");
-                e.push_str(&v);
-            }).or_insert(v);
-        }
-        let mut body = Vec::new();
-        let mut truncated = false;
-        if opts.method == FetchMethod::Get {
-            while let Some(chunk) = res.chunk().await.map_err(fail)? {
-                if body.len() + chunk.len() > max_bytes {
-                    body.extend_from_slice(&chunk[..max_bytes - body.len()]);
-                    truncated = true;
-                    break;
-                }
-                body.extend_from_slice(&chunk);
+        let auth = {
+            use base64::Engine;
+            format!("Basic {}", base64::engine::general_purpose::STANDARD.encode(format!("{username}:{key}")))
+        };
+        let run = self.round_trip(&target, method, &headers, &auth, max_bytes);
+        match tokio::time::timeout(Duration::from_millis(timeout_ms), run).await {
+            Err(_) => Err(DominusNodeError::proxy(format!("Proxy request timed out after {timeout_ms}ms"), None)),
+            Ok(Err(FetchFail::Proxy(e))) => Err(e),
+            Ok(Err(FetchFail::Other(msg))) => {
+                Err(DominusNodeError::proxy(scrub_credentials(&format!("Proxy request failed: {msg}")), None))
             }
+            Ok(Ok(r)) => Ok(r),
         }
-        drop(res);
-        Ok(ProxyFetchResponse {
-            status: status.as_u16(),
-            status_text: status.canonical_reason().unwrap_or("").to_string(),
-            headers: out_headers,
-            body,
-            truncated,
-        })
+    }
+
+    /// One request through the gateway on a fresh connection. https targets: `CONNECT`, then
+    /// TLS to the target over THAT socket (never a direct dial). With gateway TLS the whole
+    /// exchange runs inside a verified TLS session to the gateway (TLS-in-TLS for https).
+    async fn round_trip(
+        &self,
+        target: &Target,
+        method: &str,
+        headers: &[(String, String)],
+        auth: &str,
+        max_bytes: usize,
+    ) -> std::result::Result<ProxyFetchResponse, FetchFail> {
+        let gw_host = self.host.trim_start_matches('[').trim_end_matches(']').to_string();
+        let port = self.tls.as_ref().map(|t| t.port).unwrap_or(self.http_port);
+        let tcp = TcpStream::connect((gw_host.as_str(), port)).await.map_err(FetchFail::other)?;
+        let mut stream: Stream = Box::new(tcp);
+        if let Some(t) = &self.tls {
+            let name = t.servername.clone().unwrap_or_else(|| gw_host.clone());
+            stream = Box::new(t.connector.connect(&name, stream).await.map_err(FetchFail::other)?);
+        }
+        let url = &target.url;
+        let host_str = url.host_str().unwrap_or("").to_string();
+        let host_header = match url.port() {
+            Some(p) => format!("{host_str}:{p}"),
+            None => host_str.clone(),
+        };
+        let mut req = String::new();
+        if target.https {
+            let authority = format!("{host_str}:{}", url.port().unwrap_or(443));
+            let connect = format!("CONNECT {authority} HTTP/1.1\r\nHost: {authority}\r\nProxy-Authorization: {auth}\r\n\r\n");
+            stream.write_all(connect.as_bytes()).await.map_err(FetchFail::other)?;
+            let head = read_head_raw(&mut stream).await?;
+            let status = parse_status(&head).map(|x| x.0).unwrap_or(0);
+            if status != 200 {
+                return Err(FetchFail::Proxy(DominusNodeError::proxy(
+                    format!("Proxy refused CONNECT (HTTP {status})"),
+                    if status == 0 { None } else { Some(status) },
+                )));
+            }
+            let sni = host_str.trim_start_matches('[').trim_end_matches(']').to_string();
+            let tc = target_connector().map_err(FetchFail::other)?;
+            stream = Box::new(tc.connect(&sni, stream).await.map_err(FetchFail::other)?);
+            let mut path = url.path().to_string();
+            if let Some(q) = url.query() {
+                path.push('?');
+                path.push_str(q);
+            }
+            req.push_str(&format!("{method} {path} HTTP/1.1\r\nHost: {host_header}\r\n"));
+        } else {
+            let mut u = url.clone();
+            u.set_fragment(None);
+            req.push_str(&format!("{method} {u} HTTP/1.1\r\nHost: {host_header}\r\nProxy-Authorization: {auth}\r\n"));
+        }
+        for (k, v) in headers {
+            req.push_str(&format!("{k}: {v}\r\n"));
+        }
+        req.push_str("Connection: close\r\n\r\n");
+        stream.write_all(req.as_bytes()).await.map_err(FetchFail::other)?;
+        stream.flush().await.map_err(FetchFail::other)?;
+        read_response(stream, method == "HEAD", max_bytes).await
     }
 
     /// `GET /api/proxy/health` [none].
@@ -362,4 +391,208 @@ impl ProxyResource {
     pub async fn get_config(&self) -> Result<Map<String, Value>> {
         self.http.get("/api/proxy/config", AuthMode::Jwt).await
     }
+}
+
+/// TLS to the gateway's HTTPS proxy listener (`PROXY_TLS_PORT`), so `Proxy-Authorization`
+/// is encrypted. Certificate verification is always on.
+#[derive(Clone, Default)]
+pub struct GatewayTls {
+    /// Listener port (default 8443).
+    pub port: Option<u32>,
+    /// Extra PEM root certificate (added to the system roots) for the gateway only.
+    pub ca_pem: Option<Vec<u8>>,
+    /// TLS server name / verified name (default: `proxy_host`), e.g. when the host is an IP.
+    pub servername: Option<String>,
+}
+impl fmt::Debug for GatewayTls {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("GatewayTls")
+            .field("port", &self.port)
+            .field("ca_pem", &self.ca_pem.as_ref().map(|_| "<pem>"))
+            .field("servername", &self.servername)
+            .finish()
+    }
+}
+
+/// Default gateway HTTPS proxy port.
+pub const DEFAULT_TLS_PROXY_PORT: u32 = 8443;
+
+struct GatewayTlsInner {
+    port: u16,
+    servername: Option<String>,
+    connector: tokio_native_tls::TlsConnector,
+}
+
+impl GatewayTlsInner {
+    fn new(g: GatewayTls) -> Result<Self> {
+        let port = validate_port(g.port.unwrap_or(DEFAULT_TLS_PROXY_PORT), "gatewayTls.port")?;
+        if let Some(sn) = &g.servername {
+            let ok = (1..=253).contains(&sn.len()) && sn.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'.' || b == b'-');
+            if !ok {
+                return Err(DominusNodeError::invalid_arg("gatewayTls.servername is invalid"));
+            }
+        }
+        let mut b = native_tls::TlsConnector::builder();
+        b.min_protocol_version(Some(native_tls::Protocol::Tlsv12));
+        if let Some(pem) = &g.ca_pem {
+            let cert = native_tls::Certificate::from_pem(pem)
+                .map_err(|_| DominusNodeError::invalid_arg("gatewayTls.ca must be a PEM certificate"))?;
+            b.add_root_certificate(cert);
+        }
+        let c = b.build().map_err(|e| DominusNodeError::invalid_arg(format!("gatewayTls: {e}")))?;
+        Ok(Self { port, servername: g.servername, connector: c.into() })
+    }
+}
+
+fn target_connector() -> std::result::Result<tokio_native_tls::TlsConnector, native_tls::Error> {
+    let mut b = native_tls::TlsConnector::builder();
+    b.min_protocol_version(Some(native_tls::Protocol::Tlsv12));
+    Ok(b.build()?.into())
+}
+
+trait AsyncIo: AsyncRead + AsyncWrite + Unpin + Send {}
+impl<T: AsyncRead + AsyncWrite + Unpin + Send> AsyncIo for T {}
+type Stream = Box<dyn AsyncIo>;
+
+enum FetchFail {
+    Proxy(DominusNodeError),
+    Other(String),
+}
+impl FetchFail {
+    fn other(e: impl fmt::Display) -> Self {
+        FetchFail::Other(e.to_string())
+    }
+}
+
+const MAX_HEAD: usize = 64 * 1024;
+
+/// Read a response head byte-by-byte (so nothing after it is consumed: the tunnel starts there).
+async fn read_head_raw(s: &mut Stream) -> std::result::Result<Vec<u8>, FetchFail> {
+    let mut buf = Vec::new();
+    let mut b = [0u8; 1];
+    while !buf.ends_with(b"\r\n\r\n") {
+        let n = s.read(&mut b).await.map_err(FetchFail::other)?;
+        if n == 0 {
+            break;
+        }
+        buf.push(b[0]);
+        if buf.len() > MAX_HEAD {
+            return Err(FetchFail::Proxy(DominusNodeError::proxy("Proxy response header too large", None)));
+        }
+    }
+    Ok(buf)
+}
+
+fn parse_status(head: &[u8]) -> Option<(u16, String)> {
+    let line = head.split(|&b| b == b'\n').next()?;
+    let line = String::from_utf8_lossy(line).trim_end().to_string();
+    let mut it = line.splitn(3, ' ');
+    let ver = it.next()?;
+    if !ver.starts_with("HTTP/1.") {
+        return None;
+    }
+    let code: u16 = it.next()?.parse().ok()?;
+    Some((code, it.next().unwrap_or("").to_string()))
+}
+
+async fn read_response(stream: Stream, head_only: bool, max_bytes: usize) -> std::result::Result<ProxyFetchResponse, FetchFail> {
+    let mut r = BufReader::new(stream);
+    let mut head = Vec::new();
+    loop {
+        let mut line = Vec::new();
+        let n = r.read_until(b'\n', &mut line).await.map_err(FetchFail::other)?;
+        if n == 0 {
+            return Err(FetchFail::Other("connection closed before the response head".into()));
+        }
+        head.extend_from_slice(&line);
+        if head.len() > MAX_HEAD {
+            return Err(FetchFail::Proxy(DominusNodeError::proxy("Proxy response header too large", None)));
+        }
+        if line == b"\r\n" || line == b"\n" {
+            break;
+        }
+    }
+    let (status, reason) = parse_status(&head).ok_or_else(|| FetchFail::Other("malformed HTTP response".into()))?;
+    let mut headers: BTreeMap<String, String> = BTreeMap::new();
+    for l in String::from_utf8_lossy(&head).split("\r\n").skip(1) {
+        if let Some((k, v)) = l.split_once(':') {
+            let k = k.trim().to_ascii_lowercase();
+            let v = v.trim().to_string();
+            headers
+                .entry(k)
+                .and_modify(|e| {
+                    e.push_str(", ");
+                    e.push_str(&v);
+                })
+                .or_insert(v);
+        }
+    }
+    let mut body = Vec::new();
+    let mut truncated = false;
+    let no_body = head_only || (100..200).contains(&status) || status == 204 || status == 304;
+    if !no_body {
+        let chunked = headers.get("transfer-encoding").is_some_and(|v| v.to_ascii_lowercase().contains("chunked"));
+        let length = headers.get("content-length").and_then(|v| v.parse::<u64>().ok());
+        if chunked {
+            loop {
+                let mut line = String::new();
+                if r.read_line(&mut line).await.map_err(FetchFail::other)? == 0 {
+                    break;
+                }
+                let size = usize::from_str_radix(line.split(';').next().unwrap_or("").trim(), 16)
+                    .map_err(|_| FetchFail::Other("malformed chunked body".into()))?;
+                if size == 0 {
+                    break;
+                }
+                if !take(&mut r, size as u64, &mut body, max_bytes, &mut truncated).await? || truncated {
+                    break;
+                }
+                let mut crlf = String::new();
+                let _ = r.read_line(&mut crlf).await;
+            }
+        } else if let Some(len) = length {
+            take(&mut r, len, &mut body, max_bytes, &mut truncated).await?;
+        } else {
+            take(&mut r, u64::MAX, &mut body, max_bytes, &mut truncated).await?;
+        }
+    }
+    Ok(ProxyFetchResponse { status, status_text: reason, headers, body, truncated })
+}
+
+/// Append up to `n` bytes (stopping at `max` total, setting `truncated` when more remain).
+/// Returns false at EOF. A read error after some body (e.g. TLS without close_notify) ends it.
+async fn take<R: AsyncRead + Unpin>(
+    r: &mut R,
+    n: u64,
+    body: &mut Vec<u8>,
+    max: usize,
+    truncated: &mut bool,
+) -> std::result::Result<bool, FetchFail> {
+    let mut left = n;
+    let mut buf = [0u8; 16 * 1024];
+    while left > 0 {
+        let want = buf.len().min(usize::try_from(left).unwrap_or(usize::MAX));
+        let got = match r.read(&mut buf[..want]).await {
+            Ok(0) => return Ok(false),
+            Ok(g) => g,
+            Err(e) if body.is_empty() && n != u64::MAX => return Err(FetchFail::other(e)),
+            Err(_) => return Ok(false),
+        };
+        left -= got as u64;
+        let room = max - body.len();
+        if got > room {
+            body.extend_from_slice(&buf[..room]);
+            *truncated = true;
+            return Ok(true);
+        }
+        body.extend_from_slice(&buf[..got]);
+        if body.len() == max && left > 0 {
+            let mut one = [0u8; 1];
+            if let Ok(1) = r.read(&mut one).await {
+                *truncated = true;
+            }
+            return Ok(true);
+        }
+    }
+    Ok(true)
 }

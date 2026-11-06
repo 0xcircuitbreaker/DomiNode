@@ -6,6 +6,7 @@ import io.dominusnode.sdk.internal.ApiClient;
 import io.dominusnode.sdk.internal.ApiClient.Auth;
 import io.dominusnode.sdk.internal.Validation;
 import io.dominusnode.sdk.proxy.FetchResponse;
+import io.dominusnode.sdk.proxy.GatewayTls;
 import io.dominusnode.sdk.proxy.HostResolver;
 import io.dominusnode.sdk.proxy.ProxyFetcher;
 import io.dominusnode.sdk.proxy.ProxyOptions;
@@ -22,9 +23,15 @@ public final class ProxyResource {
     private final int httpPort;
     private final int socksPort;
     private final Supplier<String> apiKey;
+    private final GatewayTls gatewayTls;
     private volatile HostResolver resolver;
 
     public ProxyResource(ApiClient http, String host, int httpPort, int socksPort, Supplier<String> apiKey, HostResolver resolver) {
+        this(http, host, httpPort, socksPort, apiKey, resolver, null);
+    }
+
+    public ProxyResource(ApiClient http, String host, int httpPort, int socksPort, Supplier<String> apiKey, HostResolver resolver,
+                         GatewayTls gatewayTls) {
         if (host == null || !(host.matches("^[A-Za-z0-9.-]{1,253}$") || host.matches("^\\[[0-9A-Fa-f:.]+\\]$"))) {
             throw Validation.invalid("proxyHost contains invalid characters");
         }
@@ -34,6 +41,7 @@ public final class ProxyResource {
         this.socksPort = port(socksPort, "socks5ProxyPort");
         this.apiKey = apiKey;
         this.resolver = resolver == null ? HostResolver.SYSTEM : resolver;
+        this.gatewayTls = gatewayTls;
     }
 
     private static int port(int p, String name) {
@@ -52,19 +60,23 @@ public final class ProxyResource {
         return (options == null ? ProxyOptions.create() : options).buildUsername();
     }
 
-    public String buildUrl(ProxyOptions options) { return buildUrl(options, "http", null); }
+    public String buildUrl(ProxyOptions options) { return buildUrl(options, null, null); }
 
     /**
-     * {@code <protocol>://<user>:<key>@<proxyHost>:<port>}; protocol http or socks5. The result CONTAINS the
-     * API key: do not log it.
+     * {@code <protocol>://<user>:<key>@<proxyHost>:<port>}; protocol http, https (TLS to the gateway; needs
+     * gatewayTls) or socks5. Default (null): https when gatewayTls is configured, else http. The result
+     * CONTAINS the API key: do not log it.
      */
     public String buildUrl(ProxyOptions options, String protocol, String apiKeyOverride) {
-        String proto = protocol == null ? "http" : protocol;
-        if (!proto.equals("http") && !proto.equals("socks5")) throw Validation.invalid("protocol must be http or socks5");
+        String proto = protocol == null ? (gatewayTls != null ? "https" : "http") : protocol;
+        if (!proto.equals("http") && !proto.equals("https") && !proto.equals("socks5")) {
+            throw Validation.invalid("protocol must be http, https or socks5");
+        }
+        if (proto.equals("https") && gatewayTls == null) throw Validation.invalid("protocol https needs the gatewayTls config");
         ProxyOptions o = options == null ? ProxyOptions.create() : options;
         String user = o.buildUsername();
         String k = key(apiKeyOverride != null ? apiKeyOverride : o.getApiKey());
-        int p = proto.equals("socks5") ? socksPort : httpPort;
+        int p = proto.equals("socks5") ? socksPort : proto.equals("https") ? gatewayTls.port() : httpPort;
         return proto + "://" + Validation.seg(user) + ":" + Validation.seg(k) + "@" + host + ":" + p;
     }
 
@@ -79,7 +91,7 @@ public final class ProxyResource {
         ProxyOptions o = options == null ? ProxyOptions.create() : options;
         String k = key(o.getApiKey());
         String h = host.startsWith("[") ? host.substring(1, host.length() - 1) : host;
-        return ProxyFetcher.fetch(h, httpPort, resolver, k, url, o);
+        return ProxyFetcher.fetch(h, httpPort, gatewayTls, resolver, k, url, o);
     }
 
     /** GET /api/proxy/health [none]. */

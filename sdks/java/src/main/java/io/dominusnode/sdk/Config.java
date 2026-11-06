@@ -1,5 +1,6 @@
 package io.dominusnode.sdk;
 
+import io.dominusnode.sdk.proxy.GatewayTls;
 import io.dominusnode.sdk.proxy.HostResolver;
 
 /** Client configuration. Build with {@link #builder()}. */
@@ -17,6 +18,7 @@ public final class Config {
     final String refreshToken;
     final Transport transport;
     final HostResolver resolver;
+    final GatewayTls gatewayTls;
 
     private Config(Builder b) {
         baseUrl = b.baseUrl;
@@ -27,6 +29,7 @@ public final class Config {
         refreshToken = b.refreshToken;
         transport = b.transport;
         resolver = b.resolver;
+        gatewayTls = b.gatewayTls;
     }
 
     public static Builder builder() { return new Builder(); }
@@ -45,6 +48,7 @@ public final class Config {
         private String refreshToken;
         private Transport transport;
         private HostResolver resolver;
+        private GatewayTls gatewayTls;
 
         public Builder baseUrl(String v) { baseUrl = v; return this; }
 
@@ -62,6 +66,9 @@ public final class Config {
 
         /** DNS resolver for the proxy.fetch rebinding check (tests). */
         public Builder resolver(HostResolver v) { resolver = v; return this; }
+
+        /** Optional TLS to the gateway (HTTPS proxy listener); buildUrl then defaults to https://. */
+        public Builder gatewayTls(GatewayTls v) { gatewayTls = v; return this; }
 
         public Config build() { return new Config(this); }
 
