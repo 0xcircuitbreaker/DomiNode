@@ -10,7 +10,9 @@
   },
   "scripts": {
     "build": "tsc --build",
-    "clean": "tsc --build --clean && rm -rf dist"
+    "clean": "tsc --build --clean && rm -rf dist",
+    "gen-pins": "node scripts/gen-coord-pins.mjs",
+    "build:release": "node scripts/gen-coord-pins.mjs --require && tsc --build"
   },
   "dependencies": {
     "@dominusnode/shared": "*",
