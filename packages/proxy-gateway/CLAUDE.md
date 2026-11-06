@@ -13,6 +13,7 @@ Relay gateway: accepts requester HTTP/HTTPS/SOCKS5 connections and relays them o
 - `src/counting-stream.ts` — Byte counters for billing
 - `src/session-manager.ts` — In-memory session tracking, usage recording, wallet debit
 - `src/main.ts` — Entrypoint with graceful shutdown
+- `src/asn-db.ts`, `src/geo-check.ts` — offline ip2asn country + ASN lookups (OFAC destination check, node peer geo)
 
 ## Rules
 - Performance-critical: minimize per-request overhead
@@ -28,6 +29,7 @@ Relay gateway: accepts requester HTTP/HTTPS/SOCKS5 connections and relays them o
 - SOCKS5: check domLenBuf[0] === 0 to prevent empty-hostname CONNECT
 - Graceful shutdown must settle all active sessions
 - Bearer > cookie priority for auth token extraction
+- Geo is the ip2asn dataset only (no geoip-lite). Fail closed: DB missing blocks all public IPs; unknown country blocks in production; SKIP_GEOIP=1 is ignored in production
 
 ## Common Mistakes
 - Forgetting to count request body bytes (not just response)

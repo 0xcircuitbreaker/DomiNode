@@ -1,6 +1,5 @@
-import { describe, it, expect, afterEach, vi } from "vitest";
+import { describe, it, expect, afterEach } from "vitest";
 
-vi.mock("geoip-lite", () => ({ default: { lookup: () => ({ country: "us" }) } }));
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -59,13 +58,20 @@ describe("asn-db", () => {
     expect(h.has(15169)).toBe(true);
   });
 
-  it("lookupPeerGeo returns the real ASN and class once a db is installed", async () => {
-    delete process.env["SKIP_GEOIP"];
-    const { initGeoCheck } = await import("./geo-check.js");
-    await initGeoCheck();
-    expect(lookupPeerGeo("8.8.8.8")).toEqual({ country: "US", asn: null, ipClass: null });
+  it("returns the country column via lookupInfo", () => {
+    const db = loadAsnDbFile(FIXTURE)!;
+    expect(db.lookupInfo("8.8.8.8")).toEqual({ asn: 15169, country: "US" });
+    expect(db.lookupInfo("81.2.69.142")).toEqual({ asn: 20712, country: "GB" });
+    expect(db.lookupInfo("2003:e1:1234::1")).toEqual({ asn: 3320, country: "DE" });
+    expect(db.lookupInfo("10.1.2.3")).toBeNull();
+    expect(parseAsnTsv("1.0.0.0\t1.0.0.255\t7\tNone\tX\n").lookupInfo("1.0.0.1")).toEqual({ asn: 7, country: null });
+  });
+
+  it("lookupPeerGeo returns country, ASN and class from the db", () => {
+    expect(lookupPeerGeo("8.8.8.8")).toBeNull();
     setAsnDb(loadAsnDbFile(FIXTURE));
-    expect(lookupPeerGeo("8.8.8.8")).toMatchObject({ asn: 15169, ipClass: "dc" });
-    expect(lookupPeerGeo("81.2.69.142")).toMatchObject({ asn: 20712, ipClass: "residential" });
+    expect(lookupPeerGeo("8.8.8.8")).toEqual({ country: "US", asn: 15169, ipClass: "dc" });
+    expect(lookupPeerGeo("81.2.69.142")).toEqual({ country: "GB", asn: 20712, ipClass: "residential" });
+    expect(lookupPeerGeo("10.1.2.3")).toBeNull();
   });
 });

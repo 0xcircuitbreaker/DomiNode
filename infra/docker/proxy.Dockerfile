@@ -57,7 +57,7 @@ USER dominusnode
 # HTTP proxy + SOCKS5 proxy
 EXPOSE 8080 1080
 
-# Higher memory for geoip-lite (~185MB)
+# Heap headroom for the in-memory ip2asn country/ASN database (~40MB)
 ENV NODE_OPTIONS="--max-old-space-size=768"
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \

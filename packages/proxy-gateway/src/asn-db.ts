@@ -4,7 +4,9 @@
  * scripts/update-asn-db.sh. No license key, no runtime third-party service.
  *
  * Row format (tab separated): range_start, range_end, as_number, country, description.
- * Rows with AS 0 ("Not routed") are skipped. Ranges are kept in sorted typed
+ * Rows with AS 0 ("Not routed") are skipped. The country column (ISO 3166-1
+ * alpha-2, "None" when unknown) is kept per range and feeds the OFAC
+ * sanctions check (geo-check.ts) and node peer geo. Ranges are kept in sorted typed
  * arrays (IPv4: Uint32, IPv6: 2 x BigUint64 per bound) and looked up by binary
  * search. Memory is bounded by MAX_ROWS (~1M rows ~= 40 MB worst case).
  */
@@ -18,8 +20,20 @@ const MAX_FILE_BYTES = 256 * 1024 * 1024; // decompressed cap
 export interface AsnDb {
   readonly v4Count: number;
   readonly v6Count: number;
+  /** ASN for `ip`, or null when unrouted / not covered. */
   lookup(ip: string): number | null;
+  /** ASN and upper-case country for `ip` (country null when the row has none); null when unrouted. */
+  lookupInfo(ip: string): { asn: number; country: string | null } | null;
 }
+
+/** Pack a 2-letter country code into a uint16 (0 = none). */
+function packCc(cc: string | undefined): number {
+  const c = (cc ?? "").trim().toUpperCase();
+  if (!/^[A-Z]{2}$/.test(c)) return 0;
+  return (c.charCodeAt(0) << 8) | c.charCodeAt(1);
+}
+
+const unpackCc = (v: number): string | null => (v === 0 ? null : String.fromCharCode(v >> 8, v & 0xff));
 
 function ipv4ToInt(ip: string): number | null {
   const p = ip.split(".");
@@ -69,8 +83,8 @@ const cmp = (ah: bigint, al: bigint, bh: bigint, bl: bigint): number =>
 
 /** Parse dataset text. Unsorted input is sorted; overlapping rows are not merged (first-start wins). */
 export function parseAsnTsv(text: string): AsnDb {
-  const v4: Array<[number, number, number]> = [];
-  const v6: Array<[bigint, bigint, bigint, bigint, number]> = [];
+  const v4: Array<[number, number, number, number]> = [];
+  const v6: Array<[bigint, bigint, bigint, bigint, number, number]> = [];
   let start = 0;
   while (start < text.length && v4.length + v6.length < MAX_ROWS) {
     let end = text.indexOf("\n", start);
@@ -81,50 +95,64 @@ export function parseAsnTsv(text: string): AsnDb {
     if (f.length < 3) continue;
     const asn = Number(f[2]);
     if (!Number.isInteger(asn) || asn <= 0 || asn > 4_294_967_295) continue;
+    const cc = packCc(f[3]);
     if (f[0].includes(":")) {
       const a = ipv6ToPair(f[0]);
       const b = ipv6ToPair(f[1]);
-      if (a && b && cmp(a[0], a[1], b[0], b[1]) <= 0) v6.push([a[0], a[1], b[0], b[1], asn]);
+      if (a && b && cmp(a[0], a[1], b[0], b[1]) <= 0) v6.push([a[0], a[1], b[0], b[1], asn, cc]);
     } else {
       const a = ipv4ToInt(f[0]);
       const b = ipv4ToInt(f[1]);
-      if (a !== null && b !== null && a <= b) v4.push([a, b, asn]);
+      if (a !== null && b !== null && a <= b) v4.push([a, b, asn, cc]);
     }
   }
   v4.sort((x, y) => x[0] - y[0]);
   v6.sort((x, y) => cmp(x[0], x[1], y[0], y[1]));
   const s4 = new Uint32Array(v4.length), e4 = new Uint32Array(v4.length), a4 = new Uint32Array(v4.length);
-  v4.forEach((r, i) => { s4[i] = r[0]; e4[i] = r[1]; a4[i] = r[2]; });
+  const c4 = new Uint16Array(v4.length);
+  v4.forEach((r, i) => { s4[i] = r[0]; e4[i] = r[1]; a4[i] = r[2]; c4[i] = r[3]; });
   const n6 = v6.length;
   const sh = new BigUint64Array(n6), sl = new BigUint64Array(n6), eh = new BigUint64Array(n6), el = new BigUint64Array(n6);
-  const a6 = new Uint32Array(n6);
-  v6.forEach((r, i) => { sh[i] = r[0]; sl[i] = r[1]; eh[i] = r[2]; el[i] = r[3]; a6[i] = r[4]; });
+  const a6 = new Uint32Array(n6), c6 = new Uint16Array(n6);
+  v6.forEach((r, i) => { sh[i] = r[0]; sl[i] = r[1]; eh[i] = r[2]; el[i] = r[3]; a6[i] = r[4]; c6[i] = r[5]; });
+
+  /** Row index for ip: [family, idx] or null. */
+  const find = (ip: string): [4 | 6, number] | null => {
+    let addr = ip;
+    const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/i.exec(addr);
+    if (mapped) addr = mapped[1];
+    if (net.isIPv4(addr)) {
+      const x = ipv4ToInt(addr);
+      if (x === null) return null;
+      let lo = 0, hi = s4.length - 1, idx = -1;
+      while (lo <= hi) {
+        const mid = (lo + hi) >>> 1;
+        if (s4[mid] <= x) { idx = mid; lo = mid + 1; } else hi = mid - 1;
+      }
+      return idx >= 0 && x <= e4[idx] ? [4, idx] : null;
+    }
+    const p = ipv6ToPair(addr);
+    if (!p) return null;
+    let lo = 0, hi = n6 - 1, idx = -1;
+    while (lo <= hi) {
+      const mid = (lo + hi) >>> 1;
+      if (cmp(sh[mid], sl[mid], p[0], p[1]) <= 0) { idx = mid; lo = mid + 1; } else hi = mid - 1;
+    }
+    return idx >= 0 && cmp(p[0], p[1], eh[idx], el[idx]) <= 0 ? [6, idx] : null;
+  };
 
   return {
     v4Count: s4.length,
     v6Count: n6,
     lookup(ip: string): number | null {
-      let addr = ip;
-      const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/i.exec(addr);
-      if (mapped) addr = mapped[1];
-      if (net.isIPv4(addr)) {
-        const x = ipv4ToInt(addr);
-        if (x === null) return null;
-        let lo = 0, hi = s4.length - 1, idx = -1;
-        while (lo <= hi) {
-          const mid = (lo + hi) >>> 1;
-          if (s4[mid] <= x) { idx = mid; lo = mid + 1; } else hi = mid - 1;
-        }
-        return idx >= 0 && x <= e4[idx] ? a4[idx] : null;
-      }
-      const p = ipv6ToPair(addr);
-      if (!p) return null;
-      let lo = 0, hi = n6 - 1, idx = -1;
-      while (lo <= hi) {
-        const mid = (lo + hi) >>> 1;
-        if (cmp(sh[mid], sl[mid], p[0], p[1]) <= 0) { idx = mid; lo = mid + 1; } else hi = mid - 1;
-      }
-      return idx >= 0 && cmp(p[0], p[1], eh[idx], el[idx]) <= 0 ? a6[idx] : null;
+      const h = find(ip);
+      if (!h) return null;
+      return h[0] === 4 ? a4[h[1]] : a6[h[1]];
+    },
+    lookupInfo(ip: string): { asn: number; country: string | null } | null {
+      const h = find(ip);
+      if (!h) return null;
+      return h[0] === 4 ? { asn: a4[h[1]], country: unpackCc(c4[h[1]]) } : { asn: a6[h[1]], country: unpackCc(c6[h[1]]) };
     },
   };
 }
