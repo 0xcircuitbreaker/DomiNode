@@ -16,6 +16,8 @@ export interface ReputationFlushDeps {
   quarantine(nodeId: string): Promise<unknown>;
   /** Optional: refresh burn-report penalties for live nodes before quarantine decisions. */
   refreshPenalties?(): Promise<void>;
+  /** Optional: admin review flag when the report penalty alone would quarantine a node. */
+  flagReview?(nodeId: string, reportPenalty: number): Promise<unknown>;
 }
 
 export function toHealthUpdates(items: CounterFlush[]): HealthUpdate[] {
@@ -29,7 +31,9 @@ export function toHealthUpdates(items: CounterFlush[]): HealthUpdate[] {
   }));
 }
 
-export async function runOnce(deps: ReputationFlushDeps): Promise<{ nodes: number; flushed: number; quarantined: number }> {
+export async function runOnce(
+  deps: ReputationFlushDeps,
+): Promise<{ nodes: number; flushed: number; quarantined: number; reviewFlagged: number }> {
   if (deps.refreshPenalties) {
     try {
       await deps.refreshPenalties();
@@ -44,7 +48,16 @@ export async function runOnce(deps: ReputationFlushDeps): Promise<{ nodes: numbe
     flushed += await deps.flushHealth(updates.slice(i, i + FLUSH_CHUNK));
   }
   let quarantined = 0;
+  let reviewFlagged = 0;
   for (const f of items) {
+    if (f.reviewFlag && deps.flagReview) {
+      try {
+        await deps.flagReview(f.nodeId, f.reportPenalty);
+        reviewFlagged++;
+      } catch {
+        /* retried on the next flush */
+      }
+    }
     if (!f.quarantine) continue;
     try {
       await deps.quarantine(f.nodeId);
@@ -53,7 +66,7 @@ export async function runOnce(deps: ReputationFlushDeps): Promise<{ nodes: numbe
       /* retried on the next flush while reputation stays low */
     }
   }
-  return { nodes: items.length, flushed, quarantined };
+  return { nodes: items.length, flushed, quarantined, reviewFlagged };
 }
 
 export function start(o: { deps: ReputationFlushDeps; logger: JobLogger; intervalMs?: number }): Job {

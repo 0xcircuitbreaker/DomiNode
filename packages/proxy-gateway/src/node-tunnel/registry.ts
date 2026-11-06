@@ -43,7 +43,14 @@ export interface CounterFlush {
   nodeId: string;
   day: number;
   reputation: number;
+  /** Base reputation (excluding the burn-report penalty) is below the threshold. */
   quarantine: boolean;
+  /**
+   * The burn-report penalty alone pushes the node below the threshold. Reports never
+   * auto-quarantine (griefing); this raises an admin review flag instead.
+   */
+  reviewFlag: boolean;
+  reportPenalty: number;
   counters: NodeCounters;
 }
 
@@ -335,10 +342,20 @@ export class NodeRegistry {
     return true;
   }
 
-  /** True once reputation has fallen below the quarantine threshold. */
+  /**
+   * True once the base reputation (gateway-observed failures/disputes/burns) has fallen
+   * below the quarantine threshold. The burn-report penalty is excluded: reports alone
+   * only raise an admin review flag (see needsReportReview).
+   */
   shouldQuarantine(nodeId: string): boolean {
     const n = this.nodes.get(nodeId);
-    return !!n && effectiveReputation(n) < QUARANTINE_BELOW;
+    return !!n && clampRep(n.reputation) < QUARANTINE_BELOW;
+  }
+
+  /** The report penalty alone drops the node below the threshold: admin review, not quarantine. */
+  needsReportReview(nodeId: string): boolean {
+    const n = this.nodes.get(nodeId);
+    return !!n && !this.shouldQuarantine(nodeId) && effectiveReputation(n) < QUARANTINE_BELOW;
   }
 
   /** Apply DB burn-report penalties to live nodes (ids absent from the map reset to 0). */
@@ -357,8 +374,11 @@ export class NodeRegistry {
     const day = dayOf(this.now());
     for (const [nodeId, c] of this.counters) {
       const n = this.nodes.get(nodeId);
-      // reputation stays the base value (persisted); quarantine uses the effective one.
-      out.push({ nodeId, day, reputation: n?.reputation ?? 0, quarantine: !!n && effectiveReputation(n) < QUARANTINE_BELOW, counters: c });
+      // reputation stays the base value (persisted). Quarantine uses the base value only;
+      // a drop caused by the report penalty becomes an admin review flag.
+      const quarantine = !!n && clampRep(n.reputation) < QUARANTINE_BELOW;
+      const reviewFlag = !!n && !quarantine && effectiveReputation(n) < QUARANTINE_BELOW;
+      out.push({ nodeId, day, reputation: n?.reputation ?? 0, quarantine, reviewFlag, reportPenalty: n?.reportPenalty ?? 0, counters: c });
     }
     this.counters = new Map();
     return out;

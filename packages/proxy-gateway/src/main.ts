@@ -289,6 +289,7 @@ function startJobs(registry: NodeRegistry, getPolicy: () => ActivePolicy): Job[]
         await nodeRepo.setStatus(nodeId, "quarantined", ["active", "pending", "cooldown"]);
         registry.get(nodeId)?.tunnel.close("quarantined");
       },
+      flagReview: (nodeId, penalty) => reportReputationRepo.flagReportPenaltyReview(nodeId, penalty),
     },
   }));
   jobs.push(reportReputationJob.start({
