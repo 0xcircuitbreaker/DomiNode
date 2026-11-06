@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { buildPac, createAuthHandler, type GatewayCreds } from "./proxy.js";
 
 const creds: GatewayCreds = {
@@ -66,5 +66,27 @@ describe("buildPac", () => {
   it("rejects hosts that could inject into the PAC script", () => {
     expect(() => buildPac("proxy", 'x";alert(1);"', 8080, "api.dominusnode.com")).toThrow();
     expect(() => buildPac("proxy", "proxy.dominusnode.com", 70000, "api.dominusnode.com")).toThrow();
+  });
+});
+
+describe("WebRTC leak guard", () => {
+  it("forces WebRTC through the proxy while proxying and clears it after", async () => {
+    const { setPac, clearProxy } = await import("./proxy.js");
+    const policy = { set: vi.fn(async () => {}), clear: vi.fn(async () => {}) };
+    const proxySettings = { set: vi.fn(async () => {}), clear: vi.fn(async () => {}) };
+    const c = globalThis as unknown as { chrome: Record<string, unknown> };
+    const prevPrivacy = c.chrome.privacy;
+    const prevProxy = c.chrome.proxy;
+    c.chrome.privacy = { network: { webRTCIPHandlingPolicy: policy } };
+    c.chrome.proxy = { settings: proxySettings };
+    try {
+      await setPac(buildPac("proxy", "proxy.dominusnode.com", 8080, "api.dominusnode.com"));
+      expect(policy.set).toHaveBeenCalledWith({ value: "disable_non_proxied_udp", scope: "regular" });
+      await clearProxy();
+      expect(policy.clear).toHaveBeenCalledWith({ scope: "regular" });
+    } finally {
+      c.chrome.privacy = prevPrivacy;
+      c.chrome.proxy = prevProxy;
+    }
   });
 });

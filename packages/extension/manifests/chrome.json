@@ -4,7 +4,7 @@
   "version": "0.2.0",
   "description": "Routes an automated (headless) Chrome profile through the DominusNode gateway with per-run spend caps and an agent control channel.",
   "minimum_chrome_version": "120",
-  "permissions": ["proxy", "storage", "alarms", "webRequest", "webRequestAuthProvider", "scripting"],
+  "permissions": ["proxy", "storage", "alarms", "webRequest", "webRequestAuthProvider", "scripting", "privacy"],
   "host_permissions": ["<all_urls>"],
   "background": { "service_worker": "background.js", "type": "module" },
   "action": {

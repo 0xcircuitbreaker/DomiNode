@@ -12,5 +12,6 @@ MV3 AI-agent companion for Chromium (chrome/edge/opera builds), preact + esbuild
 - Control channel: validate with `validateControlMessage`; control scope = routing keys only.
 - Page bridge stays disabled unless the operator lists exact origins.
 - Fail closed: blocked/no-key states use the dead-loopback PAC, never clear the proxy.
+- WebRTC leak guard: setPac must set webRTCIPHandlingPolicy=disable_non_proxied_udp (privacy permission).
 - All API JSON via `apiRequest` (size cap, redirect:error, stripDangerousKeys, scrubbed errors).
 - Path validation required on all URL inputs; removed 0.0.0.0 from localhost allowlist.

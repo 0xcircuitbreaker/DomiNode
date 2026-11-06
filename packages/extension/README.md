@@ -213,9 +213,10 @@ Nothing is installed by the extension. There is no native messaging.
 | `storage` | Settings and key in `storage.local`, run state in `storage.session`, policy in `storage.managed`. |
 | `alarms` | Balance polling (1 min) and sticky-session auto-rotation. |
 | `scripting` | Register the page-bridge content script only for operator-listed origins. |
+| `privacy` | Set `webRTCIPHandlingPolicy` to `disable_non_proxied_udp` while proxying or blocked, so WebRTC cannot reveal the machine's real IP. |
 | `host_permissions: <all_urls>` | `onAuthRequired` must see proxy challenges for every URL, and the API/exit-check fetches. |
 
-The `notifications`, `privacy`, `tabs` and `nativeMessaging` permissions are not used. There
+The `notifications`, `tabs` and `nativeMessaging` permissions are not used. There
 are no static content scripts.
 
 ## Security notes

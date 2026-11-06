@@ -37,10 +37,26 @@ export function buildPac(mode: "proxy" | "block", gatewayHost: string, gatewayPo
 
 export async function setPac(pac: string): Promise<void> {
   await chrome.proxy.settings.set({ value: { mode: "pac_script", pacScript: { data: pac, mandatory: true } }, scope: "regular" });
+  await setWebRtcLeakGuard(true);
 }
 
 export async function clearProxy(): Promise<void> {
   await chrome.proxy.settings.clear({ scope: "regular" });
+  await setWebRtcLeakGuard(false);
+}
+
+/**
+ * WebRTC can reveal the machine's real IP via non-proxied UDP (STUN), bypassing
+ * the proxy. While proxying or blocking, force WebRTC through the proxy only.
+ */
+export async function setWebRtcLeakGuard(on: boolean): Promise<void> {
+  const setting = chrome.privacy?.network?.webRTCIPHandlingPolicy;
+  if (!setting) return;
+  if (on) {
+    await setting.set({ value: "disable_non_proxied_udp", scope: "regular" });
+  } else {
+    await setting.clear({ scope: "regular" });
+  }
 }
 
 type AuthDetails = Pick<chrome.webRequest.OnAuthRequiredDetails, "requestId" | "isProxy" | "challenger">;
