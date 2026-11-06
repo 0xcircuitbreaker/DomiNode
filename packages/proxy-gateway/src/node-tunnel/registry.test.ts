@@ -33,7 +33,7 @@ describe("NodeRegistry reputation & burn counters", () => {
   });
 
   it("penalizes disputes and burns, sets cooldown, clamps at 0, flags quarantine", () => {
-    let now = 1_000_000_000;
+    const now = 1_000_000_000;
     const r = new NodeRegistry(100, () => now);
     r.add(node("a", 1100));
     r.recordDispute("a");

@@ -3,7 +3,6 @@ import * as crypto from "node:crypto";
 import {
   userRepo,
   waitlistRepo,
-  walletRepo,
   walletChallengeRepo,
   refreshTokenRepo,
   mfaRepo,
@@ -16,7 +15,6 @@ import {
   generateWalletNonce,
   buildSignMessage,
   walletToSyntheticEmail,
-  isWalletEmail,
   getPool,
   WALLET_CHALLENGE_TTL_MS,
   referralRepo,

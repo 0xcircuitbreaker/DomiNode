@@ -4,13 +4,14 @@ import { post } from "../api/client";
 
 type VerifyState = "loading" | "success" | "error" | "no-token";
 
+// Validate token format before sending to API to prevent injection
+const TOKEN_RE = /^[a-zA-Z0-9._-]+$/;
+
 export default function VerifyEmailPage() {
   const [searchParams] = useSearchParams();
   const [state, setState] = useState<VerifyState>("loading");
   const [message, setMessage] = useState("");
 
-  // Validate token format before sending to API to prevent injection
-  const TOKEN_RE = /^[a-zA-Z0-9._-]+$/;
 
   useEffect(() => {
     const rawToken = searchParams.get("token");

@@ -7,8 +7,8 @@ import { Card, DataTable, ErrorBox, Kpi, Loading, PageHeader, Pager, Segmented }
 import { TimeChart } from "../components/charts";
 
 const BUCKETS: Bucket[] = ["hour", "day", "week"];
-const RANGES = ["2d", "7d", "30d", "90d", "1y"] as const;
-type Range = (typeof RANGES)[number];
+const _RANGES = ["2d", "7d", "30d", "90d", "1y"] as const;
+type Range = (typeof _RANGES)[number];
 const RANGE_DAYS: Record<Range, number> = { "2d": 2, "7d": 7, "30d": 30, "90d": 90, "1y": 365 };
 /** Ranges each bucket allows (server: hour ≤31d, day ≤366d, week ≤1098d). */
 const BUCKET_RANGES: Record<Bucket, Range[]> = { hour: ["2d", "7d"], day: ["7d", "30d", "90d", "1y"], week: ["30d", "90d", "1y"] };

@@ -37,7 +37,7 @@ export function isValidHostname(host: string): boolean {
   // A numeric final label is never a real TLD (e.g. "foo.127")
   if (net.isIP(host) !== 4 && /\.(0x[0-9a-f]+|\d+)$/i.test(host)) return false;
   // Domain names: must start and end with alnum, no consecutive dots
-  if (!/^[a-zA-Z0-9]([a-zA-Z0-9.\-]*[a-zA-Z0-9])?$/.test(host)) return false;
+  if (!/^[a-zA-Z0-9]([a-zA-Z0-9.-]*[a-zA-Z0-9])?$/.test(host)) return false;
   if (host.includes("..")) return false;
   // Block localhost and dangerous TLDs
   const lower = host.toLowerCase();

@@ -4,7 +4,6 @@ import {
   teamRepo,
   createLogger,
   generateApiKey,
-  hashApiKey,
   isValidEmail,
   sanitizeString,
   sendTeamInviteEmail,

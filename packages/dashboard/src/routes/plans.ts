@@ -1,5 +1,5 @@
 import { Router, type Request } from "express";
-import { planRepo, walletRepo, userRepo, createLogger, getPool } from "@dominusnode/shared";
+import { planRepo, userRepo, createLogger, getPool } from "@dominusnode/shared";
 import { agentAwareRateLimit, isVerifiedAgent } from "../helpers/agent-rate-limit.js";
 import { requireAuth, type AuthenticatedRequest } from "../middleware/auth.js";
 

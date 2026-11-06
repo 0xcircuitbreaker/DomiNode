@@ -1,6 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
 import { EventEmitter } from "node:events";
-import * as net from "node:net";
 
 // We can't easily import the non-exported readBytes and parseProxyOptions
 // from socks5.ts since they are module-private functions.
@@ -78,7 +77,7 @@ describe("socks5 readBytes behavior", () => {
   // the pattern. The actual readBytes is module-private, so we test
   // the same pattern.
 
-  function readBytes(socket: EventEmitter & { unshift?: (data: Buffer) => void; removeListener: (event: string, fn: Function) => void }, n: number, timeoutMs: number): Promise<Buffer | null> {
+  function readBytes(socket: EventEmitter & { unshift?: (data: Buffer) => void; removeListener: (event: string, fn: (...args: any[]) => void) => void }, n: number, timeoutMs: number): Promise<Buffer | null> {
     return new Promise((resolve) => {
       if (n === 0) {
         resolve(Buffer.alloc(0));

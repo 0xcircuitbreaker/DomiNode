@@ -8,7 +8,6 @@ const MAX_TEAMS_PER_USER = 5;
 const MAX_BALANCE_CENTS = 1_000_000; // $10,000
 const MAX_INT = 2_147_483_647;
 const MAX_NAME_LENGTH = 100;
-const MAX_DESCRIPTION_LENGTH = 500;
 
 // ─── Validation ──────────────────────────────────────────────────────
 

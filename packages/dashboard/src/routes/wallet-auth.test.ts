@@ -83,7 +83,6 @@ vi.mock("../helpers/cookies.js", () => ({
 import {
   userRepo,
   walletChallengeRepo,
-  walletRepo,
   refreshTokenRepo,
   mfaRepo,
 } from "@dominusnode/shared";

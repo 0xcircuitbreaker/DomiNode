@@ -43,7 +43,6 @@ vi.mock("@dominusnode/shared", async (importOriginal) => {
 
 import router from "./admin-network.js";
 import { call } from "./v1/test-helpers.js";
-import { PolicyValidationError } from "@dominusnode/shared";
 
 function app() {
   const a = express();
