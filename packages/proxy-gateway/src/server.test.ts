@@ -104,7 +104,8 @@ vi.mock("./counting-stream.js", () => ({
 
 
 
-vi.mock("@dominusnode/shared", () => ({
+vi.mock("@dominusnode/shared", async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
   createLogger: () => ({
     info: vi.fn(),
     warn: vi.fn(),
@@ -553,6 +554,54 @@ describe("proxy-gateway server", () => {
       expect(mockAbortPrepaid).toHaveBeenCalledWith("session-x402");
       expect(mockRefundPayer).toHaveBeenCalledWith(x402Pending, expect.any(String));
       expect(mockEndSession).not.toHaveBeenCalled();
+    });
+
+    // Node sends OPEN_OK, then RST while startSession is still awaiting the DB.
+    async function rstDuringSessionStart(startMock: typeof mockStartSession, path = "http://example.com/") {
+      const { TunnelMux } = await import("./node-tunnel/mux.js");
+      const { FrameDecoder, FrameType, encodeFrame, encodeControl, FLAG_RST } = await import("@dominusnode/shared");
+      const sent: Buffer[] = [];
+      const mux = new TunnelMux({ send: (b: Buffer) => sent.push(b), maxStreams: 4, initialWindow: 65536, openTimeoutMs: 1000 });
+      const frame = (t: number, flags = 0, obj: unknown = {}) =>
+        mux.handleFrame(new FrameDecoder().push(encodeFrame(t, 1, flags, encodeControl(obj)))[0]);
+      mockOpenStream.mockImplementation(async () => {
+        const p = mux.openStream("example.com", 80);
+        frame(FrameType.OPEN_OK);
+        return p;
+      });
+      let release!: (v: string) => void;
+      const started = new Promise<void>((r) => {
+        startMock.mockImplementation(() => { r(); return new Promise<string>((res) => { release = res; }); });
+      });
+      const resP = makeRequest(port, {
+        path, method: "GET",
+        headers: startMock === mockStartSession
+          ? { "Proxy-Authorization": "Basic " + Buffer.from("user:dn_live_test").toString("base64") }
+          : { "X-Payment": "abc" },
+      });
+      await started;
+      // Plain node RST: destroys the MuxStream with an error while no caller listener is attached.
+      frame(FrameType.CLOSE, FLAG_RST, { bytesIn: 0, bytesOut: 0, reason: "rst" });
+      await new Promise((r) => setImmediate(r));
+      release(startMock === mockStartSession ? "session-abc" : "session-x402");
+      return resP;
+    }
+
+    it("node RST while startSession is pending: no crash, slot released, session settled", async () => {
+      const res = await rstDuringSessionStart(mockStartSession);
+      expect(res.status).toBe(502);
+      expect(mockEndSession).toHaveBeenCalledWith("session-abc");
+      expect(mockIncrementUserConns).toHaveBeenCalledTimes(1);
+      expect(mockDecrementUserConns).toHaveBeenCalledTimes(1);
+    });
+
+    it("x402: node RST while the prepaid session starts aborts it and never settles", async () => {
+      mockAuthenticateRequest.mockResolvedValue(null);
+      const res = await rstDuringSessionStart(mockStartPrepaidSession);
+      expect(res.status).toBe(502);
+      expect(mockAbortPrepaid).toHaveBeenCalledWith("session-x402");
+      expect(mockReleasePending).toHaveBeenCalled();
+      expect(mockSettlePending).not.toHaveBeenCalled();
     });
 
     it("x402: blocked target releases the payment without settling", async () => {

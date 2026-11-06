@@ -405,6 +405,16 @@ async function handleRequest(
       return;
     }
 
+    // The node may have reset the stream (or the tunnel dropped) while the
+    // session was starting: never take the payment for a dead stream.
+    if (upstream.stream.destroyed) {
+      await abortPrepaidSession(x402SessionId);
+      await releaseX402Pending(x402Data.pending);
+      recordError();
+      sendError(clientRes, 502, "UPSTREAM_UNAVAILABLE", "Bad gateway");
+      return;
+    }
+
     // Node selected, snapshot locked, stream open: only now take the payment.
     const x402Pending = x402Data.pending;
     if (!x402Pending || !(await settleX402Pending(x402Pending))) {
@@ -608,6 +618,15 @@ async function handleRequest(
       log.error("failed to end session", { error: err instanceof Error ? err.message : String(err) });
     });
   };
+
+  // Node RST / tunnel drop while the session was starting: settle (nothing
+  // was carried) and release the slot instead of writing to a dead stream.
+  if (upstream.stream.destroyed) {
+    cleanup();
+    recordError();
+    sendError(clientRes, 502, "UPSTREAM_UNAVAILABLE", "Bad gateway");
+    return;
+  }
 
   registerSessionDestroy(sessionId, () => {
     if (!clientRes.headersSent) clientRes.writeHead(413, { "Content-Type": "text/plain" });

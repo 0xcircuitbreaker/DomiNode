@@ -190,6 +190,22 @@ describe("TunnelMux", () => {
     expect(reports[0].reason).toBe("tunnel_closed");
   });
 
+  it("destroys streams with coded errors on node RST and tunnel drop", async () => {
+    const { mux, node } = setup();
+    const p1 = mux.openStream("a.com", 443);
+    node(FrameType.OPEN_OK, 1, {});
+    const s1 = await p1;
+    const e1 = new Promise<NodeJS.ErrnoException>((r) => s1.on("error", r));
+    node(FrameType.CLOSE, 1, { bytesIn: 0, bytesOut: 0, reason: "rst" }, FLAG_RST);
+    expect((await e1).code).toBe("ECONNRESET");
+    const p2 = mux.openStream("b.com", 443);
+    node(FrameType.OPEN_OK, 3, {});
+    const s2 = await p2;
+    const e2 = new Promise<NodeJS.ErrnoException>((r) => s2.on("error", r));
+    mux.closeAll();
+    expect((await e2).code).toBe("ECONNABORTED");
+  });
+
   it("rejects even stream ids as protocol errors", () => {
     const { node } = setup();
     expect(() => node(FrameType.OPEN_OK, 2, {})).toThrow();

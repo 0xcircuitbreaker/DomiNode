@@ -98,6 +98,14 @@ function nonNegInt(v: unknown): number {
   return typeof v === "number" && Number.isSafeInteger(v) && v >= 0 ? v : 0;
 }
 
+/**
+ * Error used to destroy a MuxStream. Carries a socket-style code so callers
+ * (and the process-level handler) can classify it as ordinary traffic noise.
+ */
+export function streamError(message: string, code: "ECONNRESET" | "ECONNABORTED"): NodeJS.ErrnoException {
+  return Object.assign(new Error(message), { code });
+}
+
 export class MuxStream extends Duplex {
   sendCredit: number;
   bytesOut = 0;
@@ -341,7 +349,7 @@ export class TunnelMux {
         if (f.flags & FLAG_RST) {
           // The node has forgotten the stream once it sends RST: no reply.
           this.finishStream(s, "node_rst", false);
-          s.destroy(new Error("stream reset by node"));
+          s.destroy(streamError("stream reset by node", "ECONNRESET"));
           return;
         }
         // FIN is a one-way shutdown: end our readable side, keep writing upstream
@@ -390,7 +398,7 @@ export class TunnelMux {
     }
     for (const s of [...this.streams.values()]) {
       this.finishStream(s, reason, false);
-      s.destroy(new Error(reason));
+      s.destroy(streamError(reason, "ECONNABORTED"));
     }
     this.closed = true;
   }
