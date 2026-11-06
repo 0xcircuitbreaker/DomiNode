@@ -204,4 +204,61 @@ describe("/api/admin/network", () => {
       expect((await call(app(), "PUT", "/api/admin/network/tiers/77", { body: { holdDays: 3 } })).status).toBe(404);
     });
   });
+
+  describe("account unfreeze", () => {
+    const U = "55555555-5555-4555-8555-555555555555";
+    function unfreezeClient(found = true) {
+      m.clientQuery.mockImplementation(async (sql: string) => {
+        if (sql.includes("FROM users")) return { rows: [{ admin_role: "admin" }] };
+        if (sql.includes("SELECT frozen FROM node_credit_accounts")) return { rows: found ? [{ frozen: true }] : [] };
+        if (sql.includes("UPDATE node_payouts")) return { rows: [{ id: "p1", amount_musd: "2000000" }] };
+        return { rows: [] };
+      });
+    }
+
+    it("releases held payouts to pending with role check, lock and audit in one tx", async () => {
+      unfreezeClient();
+      const r = await call(app(), "POST", `/api/admin/network/accounts/${U}/unfreeze`, { body: { payouts: "release" } });
+      expect(r.status).toBe(200);
+      expect(r.body["payouts"]).toBe(1);
+      const s = sqls();
+      const iRole = s.findIndex((x) => x.includes("FROM users") && x.includes("FOR UPDATE"));
+      const iLock = s.findIndex((x) => x.includes("FROM node_credit_accounts") && x.includes("FOR UPDATE"));
+      const iRel = s.findIndex((x) => x.includes("status = 'pending'") && x.includes("held_frozen"));
+      const iAudit = s.findIndex((x) => x.includes("INSERT INTO audit_events"));
+      expect(iRole).toBeLessThan(iLock);
+      expect(iLock).toBeLessThan(iRel);
+      expect(iRel).toBeLessThan(iAudit);
+      expect(iAudit).toBeLessThan(s.indexOf("COMMIT"));
+      expect(s.some((x) => x.includes("withdraw_reversal"))).toBe(false);
+    });
+
+    it("reverses held payouts and re-credits available", async () => {
+      unfreezeClient();
+      const r = await call(app(), "POST", `/api/admin/network/accounts/${U}/unfreeze`, { body: { payouts: "reverse" } });
+      expect(r.status).toBe(200);
+      expect(r.body["musd"]).toBe("2000000");
+      const s = sqls();
+      expect(s.some((x) => x.includes("status = 'reversed'"))).toBe(true);
+      expect(s.some((x) => x.includes("withdraw_reversal"))).toBe(true);
+      expect(s.some((x) => x.includes("available_musd = available_musd + $2"))).toBe(true);
+    });
+
+    it("404s and rolls back when no account exists", async () => {
+      unfreezeClient(false);
+      const r = await call(app(), "POST", `/api/admin/network/accounts/${U}/unfreeze`, { body: { payouts: "release" } });
+      expect(r.status).toBe(404);
+      expect(sqls()).toContain("ROLLBACK");
+      expect(sqls().some((x) => x.includes("audit_events"))).toBe(false);
+    });
+
+    it("validates mode and user id; 403 when role revoked", async () => {
+      expect((await call(app(), "POST", `/api/admin/network/accounts/${U}/unfreeze`, { body: { payouts: "x" } })).status).toBe(400);
+      expect((await call(app(), "POST", "/api/admin/network/accounts/nope/unfreeze", { body: { payouts: "release" } })).status).toBe(400);
+      txClient("none");
+      const r = await call(app(), "POST", `/api/admin/network/accounts/${U}/unfreeze`, { body: { payouts: "release" } });
+      expect(r.status).toBe(403);
+      expect(sqls().some((x) => x.includes("node_credit_accounts"))).toBe(false);
+    });
+  });
 });

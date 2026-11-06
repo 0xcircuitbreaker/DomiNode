@@ -165,6 +165,56 @@ export async function freezeAccountTx(client: TxClient, userId: string): Promise
   return r.rows.length;
 }
 
+export type UnfreezeMode = "release" | "reverse";
+
+/**
+ * Unfreeze a node credit account in the caller's transaction (admin action).
+ * Locks the account row FOR UPDATE, clears `frozen`, then either releases its
+ * held_frozen payouts back to pending ("release") or reverses them and
+ * re-credits available ("reverse"). Returns null when no account exists.
+ */
+export async function unfreezeAccountTx(
+  client: TxClient, userId: string, mode: UnfreezeMode,
+): Promise<{ wasFrozen: boolean; payouts: number; musd: bigint } | null> {
+  const a = await client.query<{ frozen: boolean }>(
+    `SELECT frozen FROM node_credit_accounts WHERE user_id = $1 FOR UPDATE`, [userId],
+  );
+  if (!a.rows[0]) return null;
+  await client.query(`UPDATE node_credit_accounts SET frozen = false, updated_at = now() WHERE user_id = $1`, [userId]);
+  if (mode === "release") {
+    const r = await client.query<{ id: string; amount_musd: string }>(
+      `UPDATE node_payouts SET status = 'pending', updated_at = now()
+       WHERE user_id = $1 AND status = 'held_frozen' AND tx_hash IS NULL
+       RETURNING id, amount_musd`,
+      [userId],
+    );
+    const musd = r.rows.reduce((t, x) => t + BigInt(x.amount_musd), 0n);
+    return { wasFrozen: a.rows[0].frozen, payouts: r.rows.length, musd };
+  }
+  const r = await client.query<{ id: string; amount_musd: string }>(
+    `UPDATE node_payouts SET status = 'reversed', failure_reason = 'admin unfreeze: reversed', updated_at = now()
+     WHERE user_id = $1 AND status = 'held_frozen' AND tx_hash IS NULL
+     RETURNING id, amount_musd`,
+    [userId],
+  );
+  let total = 0n;
+  for (const row of r.rows) {
+    total += BigInt(row.amount_musd);
+    await client.query(
+      `INSERT INTO node_credit_transactions (user_id, type, amount_musd, external_ref)
+       VALUES ($1, 'withdraw_reversal', $2, $3)`,
+      [userId, row.amount_musd, row.id],
+    );
+  }
+  if (total > 0n) {
+    await client.query(
+      `UPDATE node_credit_accounts SET available_musd = available_musd + $2, updated_at = now() WHERE user_id = $1`,
+      [userId, total.toString()],
+    );
+  }
+  return { wasFrozen: a.rows[0].frozen, payouts: r.rows.length, musd: total };
+}
+
 /** Freeze an account (admin/compliance) and hold its pending payouts. */
 export async function freezeNodeCreditAccount(userId: string): Promise<{ heldPayouts: number }> {
   return withTx(async (client) => ({ heldPayouts: await freezeAccountTx(client, userId) }));
