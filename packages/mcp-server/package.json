@@ -1,7 +1,7 @@
 {
   "name": "@dominusnode/mcp-server",
   "version": "2.0.0",
-  "description": "Dominus Node MCP server \u2014 relay-network tools for AI agents: fetch through agent-contributed nodes, contribute nodes and earn",
+  "description": "Dominus Node MCP server — relay-network tools for AI agents: fetch through agent-contributed nodes, contribute nodes and earn",
   "author": "Dominus Node",
   "license": "MIT",
   "type": "module",
@@ -25,7 +25,6 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
     "zod": "^4.6.7",
-    "@dominusnode/shared": "*",
     "ethers": "^6.16.0"
   },
   "devDependencies": {

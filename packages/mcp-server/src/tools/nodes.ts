@@ -12,7 +12,7 @@ import * as path from "node:path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { Wallet } from "ethers";
-import { buildAttestationMessage } from "@dominusnode/shared/dist/src/attestation.js";
+import { buildAttestationMessage } from "../attestation.js";
 import type { McpConfig } from "../config.js";
 import { scrubCredentials, type HttpClient } from "../http-client.js";
 import { formatMusd } from "./network.js";
