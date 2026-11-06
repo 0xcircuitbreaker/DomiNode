@@ -84,6 +84,8 @@ export async function changePayoutWallet(
   return withTx(async (client) => {
     const u = await client.query(`SELECT id FROM users WHERE id = $1 AND status = 'active' FOR UPDATE`, [userId]);
     if (u.rows.length === 0) throw new Error("User not found");
+    // Lock order: account before payout_wallets (same as requestWithdraw / sanctions block).
+    await lockAccountTx(client, userId);
     const live = await client.query<PwRow>(
       `SELECT ${PW_COLS} FROM payout_wallets WHERE user_id = $1 AND status IN ('pending','active') FOR UPDATE`, [userId],
     );
@@ -92,6 +94,9 @@ export async function changePayoutWallet(
     if (cur.status === "pending") throw new Error("A payout wallet change is already cooling down");
     if (cur.address === addr) throw new Error("New address equals current address");
     await client.query(`UPDATE payout_wallets SET status = 'superseded' WHERE id = $1`, [cur.id]);
+    // Unsent payouts to the superseded wallet would never go out: reverse them
+    // (re-credit available) in this transaction so the owner can withdraw again.
+    await reverseUnsentPayoutsTx(client, userId, cur.id, "payout wallet changed");
     const r = await client.query<PwRow>(
       `INSERT INTO payout_wallets (user_id, address, chain, status, ofac_checked_at, change_sig, active_from)
        VALUES ($1, $2, $3, 'pending', now(), $4, now() + make_interval(hours => $5))
@@ -109,7 +114,61 @@ export async function getLivePayoutWallet(userId: string): Promise<PayoutWallet 
   return r.rows[0] ? mapPw(r.rows[0]) : null;
 }
 
-export type PayoutStatus = "pending" | "held_tax" | "submitted" | "confirmed" | "failed" | "reversed";
+export type PayoutStatus = "pending" | "held_tax" | "held_frozen" | "submitted" | "confirmed" | "failed" | "reversed";
+
+type TxClient = Parameters<typeof lockAccountTx>[0];
+
+/**
+ * Reverse every unsent (pending/held_tax/held_frozen) payout bound to a wallet
+ * and re-credit available. Caller holds the account lock in the same tx.
+ */
+export async function reverseUnsentPayoutsTx(
+  client: TxClient, userId: string, payoutWalletId: string, reason: string,
+): Promise<{ count: number; musd: bigint }> {
+  const r = await client.query<{ id: string; amount_musd: string }>(
+    `UPDATE node_payouts SET status = 'reversed', failure_reason = $3, updated_at = now()
+     WHERE user_id = $1 AND payout_wallet_id = $2 AND status IN ('pending','held_tax','held_frozen') AND tx_hash IS NULL
+     RETURNING id, amount_musd`,
+    [userId, payoutWalletId, reason.slice(0, 200)],
+  );
+  let total = 0n;
+  for (const row of r.rows) {
+    total += BigInt(row.amount_musd);
+    await client.query(
+      `INSERT INTO node_credit_transactions (user_id, type, amount_musd, external_ref)
+       VALUES ($1, 'withdraw_reversal', $2, $3)`,
+      [userId, row.amount_musd, row.id],
+    );
+  }
+  if (total > 0n) {
+    await client.query(
+      `UPDATE node_credit_accounts SET available_musd = available_musd + $2, updated_at = now() WHERE user_id = $1`,
+      [userId, total.toString()],
+    );
+  }
+  return { count: r.rows.length, musd: total };
+}
+
+/**
+ * Freeze a node credit account and hold its unsent payouts (pending →
+ * held_frozen) in the caller's transaction. Takes the account lock first.
+ */
+export async function freezeAccountTx(client: TxClient, userId: string): Promise<number> {
+  await lockAccountTx(client, userId);
+  await client.query(`UPDATE node_credit_accounts SET frozen = true, updated_at = now() WHERE user_id = $1`, [userId]);
+  const r = await client.query<{ id: string }>(
+    `UPDATE node_payouts SET status = 'held_frozen', updated_at = now()
+     WHERE user_id = $1 AND status = 'pending' AND tx_hash IS NULL
+     RETURNING id`,
+    [userId],
+  );
+  return r.rows.length;
+}
+
+/** Freeze an account (admin/compliance) and hold its pending payouts. */
+export async function freezeNodeCreditAccount(userId: string): Promise<{ heldPayouts: number }> {
+  return withTx(async (client) => ({ heldPayouts: await freezeAccountTx(client, userId) }));
+}
 export interface NodePayout {
   id: string;
   userId: string | null;
@@ -193,7 +252,7 @@ export async function requestWithdraw(req: WithdrawRequest): Promise<{ payout: N
     const tax = await client.query<{ tax_form_status: string; ytd_paid_musd: string; tax_year: number | null; cur_year: number; in_flight_musd: string }>(
       `SELECT tax_form_status, ytd_paid_musd, tax_year, EXTRACT(YEAR FROM now())::int AS cur_year,
          (SELECT COALESCE(SUM(amount_musd), 0) FROM node_payouts
-           WHERE user_id = $1 AND status IN ('pending','held_tax','submitted')
+           WHERE user_id = $1 AND status IN ('pending','held_tax','held_frozen','submitted')
              AND created_at >= date_trunc('year', now())) AS in_flight_musd
        FROM node_credit_accounts WHERE user_id = $1`, [userId],
     );
@@ -300,7 +359,7 @@ export async function markPayoutReversed(payoutId: string, reason: string): Prom
     if (p.status === "reversed") return mapNp(p);
     if (p.status === "confirmed") throw new Error("Cannot reverse a confirmed payout");
     if (p.status === "submitted") throw new Error("Cannot reverse a submitted payout without failure evidence (markPayoutFailed)");
-    if (p.status !== "pending" && p.status !== "held_tax" && p.status !== "failed") {
+    if (p.status !== "pending" && p.status !== "held_tax" && p.status !== "held_frozen" && p.status !== "failed") {
       throw new Error(`Cannot reverse payout in status ${p.status}`);
     }
     const u = await client.query<NpRow>(
@@ -354,7 +413,8 @@ export async function listDuePayouts(limit = PAYOUT_JOB_LIMIT): Promise<DuePayou
   const r = await query<{ id: string; user_id: string; payout_wallet_id: string; address: string; chain: PayoutChain; amount_musd: string }>(
     `SELECT p.id, p.user_id, p.payout_wallet_id, w.address, w.chain, p.amount_musd
      FROM node_payouts p JOIN payout_wallets w ON w.id = p.payout_wallet_id
-     WHERE p.status = 'pending' AND p.user_id IS NOT NULL AND w.status = 'active'
+     JOIN node_credit_accounts a ON a.user_id = p.user_id
+     WHERE p.status = 'pending' AND p.user_id IS NOT NULL AND w.status = 'active' AND NOT a.frozen
      ORDER BY p.created_at LIMIT $1`,
     [lim1000(limit)],
   );
@@ -365,13 +425,15 @@ export async function listDuePayouts(limit = PAYOUT_JOB_LIMIT): Promise<DuePayou
 
 /**
  * Claim a pending payout for sending (pending → submitted, compare-and-set).
- * Returns false if another worker/run already claimed it: the send is skipped,
- * so one payout id is broadcast at most once.
+ * Returns false if another worker/run already claimed it, or the owner's
+ * credit account is frozen (FOR SHARE serializes with freezeAccountTx): the
+ * send is skipped, so one payout id is broadcast at most once.
  */
 export async function claimPayoutForSend(payoutId: string): Promise<boolean> {
   const r = await query(
-    `UPDATE node_payouts SET status = 'submitted', updated_at = now()
-     WHERE id = $1 AND status = 'pending' AND tx_hash IS NULL`,
+    `UPDATE node_payouts p SET status = 'submitted', updated_at = now()
+     WHERE p.id = $1 AND p.status = 'pending' AND p.tx_hash IS NULL
+       AND EXISTS (SELECT 1 FROM node_credit_accounts a WHERE a.user_id = p.user_id AND NOT a.frozen FOR SHARE)`,
     [payoutId],
   );
   return (r.rowCount ?? 0) === 1;
@@ -405,9 +467,8 @@ export async function releaseUnbroadcastPayout(payoutId: string): Promise<boolea
 /** SDN hit: block the payout wallet and freeze the owner's credit account (admin case). */
 export async function blockWalletForSanctions(payoutWalletId: string, userId: string): Promise<void> {
   await withTx(async (client) => {
-    await lockAccountTx(client, userId);
+    await freezeAccountTx(client, userId); // locks the account first, holds pending payouts
     await client.query(`UPDATE payout_wallets SET status = 'blocked' WHERE id = $1 AND user_id = $2`, [payoutWalletId, userId]);
-    await client.query(`UPDATE node_credit_accounts SET frozen = true, updated_at = now() WHERE user_id = $1`, [userId]);
   });
 }
 

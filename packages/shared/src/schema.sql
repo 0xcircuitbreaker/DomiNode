@@ -1506,3 +1506,16 @@ CREATE TABLE IF NOT EXISTS relay_settle_retries (
   updated_at       TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_relay_settle_retries_due ON relay_settle_retries(next_attempt_at) WHERE status = 'pending';
+
+-- ─── node_payouts: 'held_frozen' (payouts held while the credit account is frozen) ───
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conrelid = 'node_payouts'::regclass AND conname = 'node_payouts_status_check'
+      AND pg_get_constraintdef(oid) LIKE '%held_frozen%'
+  ) THEN
+    ALTER TABLE node_payouts DROP CONSTRAINT IF EXISTS node_payouts_status_check;
+    ALTER TABLE node_payouts ADD CONSTRAINT node_payouts_status_check
+      CHECK (status IN ('pending','held_tax','held_frozen','submitted','confirmed','failed','reversed'));
+  END IF;
+END $$;
