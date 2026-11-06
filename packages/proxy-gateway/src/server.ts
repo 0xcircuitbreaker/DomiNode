@@ -6,6 +6,7 @@ import { checkAgenticWalletPolicy } from "./wallet-policy.js";
 import type { Duplex } from "node:stream";
 import { authenticateRequest, type AuthResult } from "./auth.js";
 import { checkBalance, checkTeamBalance } from "./balance-check.js";
+import { bindTunnelLifecycle } from "./tunnel-lifecycle.js";
 import { attachByteCounters, capReadable, type ByteCounter } from "./counting-stream.js";
 import { startSession, startPrepaidSession, abortPrepaidSession, endSession, registerSessionDestroy, unregisterSessionDestroy, type RelayBinding } from "./session-manager.js";
 import { checkSanctionedCountry, initGeoCheck } from "./geo-check.js";
@@ -892,12 +893,8 @@ async function handleConnect(
   clientSocket.setTimeout(TUNNEL_IDLE_TIMEOUT_MS);
   clientSocket.on("timeout", () => clientSocket.destroy());
 
-  clientSocket.on("end", cleanup);
-  clientSocket.on("error", cleanup);
-  clientSocket.on("close", cleanup);
-  psStream.on("end", () => { if (!clientSocket.destroyed) clientSocket.end(); });
-  psStream.on("error", cleanup);
-  psStream.on("close", cleanup);
+  // Half-close aware: a client FIN ends only the upstream write side.
+  bindTunnelLifecycle(clientSocket, psStream, cleanup);
 }
 
 // ─── x402 CONNECT tunnel (no user account, payment-per-request) ─────
@@ -1023,12 +1020,8 @@ async function handleX402ConnectTunnel(
   clientSocket.setTimeout(TUNNEL_IDLE_TIMEOUT_MS);
   clientSocket.on("timeout", () => clientSocket.destroy());
 
-  clientSocket.on("end", x402Cleanup);
-  clientSocket.on("error", x402Cleanup);
-  clientSocket.on("close", x402Cleanup);
-  psStream.on("end", () => { if (!clientSocket.destroyed) clientSocket.end(); });
-  psStream.on("error", x402Cleanup);
-  psStream.on("close", x402Cleanup);
+  // Half-close aware: a client FIN ends only the upstream write side.
+  bindTunnelLifecycle(clientSocket, psStream, x402Cleanup);
 }
 
 // ─── Server bootstrap ────────────────────────────────────────────────

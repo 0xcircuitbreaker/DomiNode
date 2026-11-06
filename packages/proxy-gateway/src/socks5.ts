@@ -1,6 +1,7 @@
 import * as net from "node:net";
 import { createLogger, hashApiKey, userRepo, planRepo } from "@dominusnode/shared";
 import { checkBalance, checkTeamBalance } from "./balance-check.js";
+import { bindTunnelLifecycle, isTunnelClient } from "./tunnel-lifecycle.js";
 import { attachByteCounters } from "./counting-stream.js";
 import { checkAgenticWalletPolicy } from "./wallet-policy.js";
 import { startSession, endSession, registerSessionDestroy, unregisterSessionDestroy } from "./session-manager.js";
@@ -468,12 +469,8 @@ async function handleSocks5Connection(clientSocket: net.Socket, relay: RelayRunt
   clientSocket.setTimeout(TUNNEL_IDLE_TIMEOUT_MS);
   clientSocket.on("timeout", () => { clientSocket.destroy(); });
 
-  clientSocket.on("end", cleanup);
-  clientSocket.on("error", cleanup);
-  clientSocket.on("close", cleanup);
-  psStream.on("end", () => { if (!clientSocket.destroyed) clientSocket.end(); });
-  psStream.on("error", cleanup);
-  psStream.on("close", cleanup);
+  // Half-close aware: a client FIN ends only the upstream write side.
+  bindTunnelLifecycle(clientSocket, psStream, cleanup);
 }
 
 /**
@@ -555,7 +552,13 @@ export async function startSocks5Server(port: number, relay: RelayRuntime): Prom
   const { initGeoCheck } = await import("./geo-check.js");
   await initGeoCheck();
 
-  const server = net.createServer((socket) => {
+  // allowHalfOpen: a client FIN after the request must not stop the response
+  // from flowing back (see bindTunnelLifecycle). Before the tunnel exists, a
+  // FIN still closes our side as before.
+  const server = net.createServer({ allowHalfOpen: true }, (socket) => {
+    socket.on("end", () => {
+      if (!isTunnelClient(socket) && !socket.destroyed) socket.end();
+    });
     // Synchronous path — handler runs in same tick as connection callback
     handleSocks5Connection(socket, relay).catch((err) => {
       log.error("unhandled SOCKS5 error", { error: err instanceof Error ? err.message : String(err) });
