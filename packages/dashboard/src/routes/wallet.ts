@@ -17,6 +17,7 @@ import { createPaypalOrder, capturePaypalOrder } from "@dominusnode/billing";
 import { createTempoRail, tempoConfigFromEnv } from "@dominusnode/billing";
 import { requireAuth, type AuthenticatedRequest } from "../middleware/auth.js";
 import { agentAwareRateLimit } from "../helpers/agent-rate-limit.js";
+import { requireAdmin } from "../middleware/admin.js";
 
 const router = Router();
 const log = createLogger("api:wallet");
@@ -32,6 +33,9 @@ const topupLimiter = agentAwareRateLimit({
 });
 
 router.use(requireAuth);
+
+// Stripe and PayPal card/checkout top-ups are operator tools: humans are admin-only
+// on this network, and agents top up with crypto (NOWPayments/Tempo/x402).
 
 // GET /api/wallet
 router.get("/", async (req, res) => {
@@ -84,7 +88,7 @@ router.get("/transactions", async (req, res) => {
 });
 
 // POST /api/wallet/topup/stripe
-router.post("/topup/stripe", topupLimiter, async (req, res) => {
+router.post("/topup/stripe", requireAdmin, topupLimiter, async (req, res) => {
   try {
     const { userId } = (req as AuthenticatedRequest).user;
 
@@ -268,7 +272,7 @@ router.get("/crypto/status/:invoiceId", statusPollLimiter, async (req, res) => {
 });
 
 // POST /api/wallet/topup/paypal
-router.post("/topup/paypal", topupLimiter, async (req, res) => {
+router.post("/topup/paypal", requireAdmin, topupLimiter, async (req, res) => {
   try {
     const { userId } = (req as AuthenticatedRequest).user;
 
@@ -313,7 +317,7 @@ router.post("/topup/paypal", topupLimiter, async (req, res) => {
 });
 
 // POST /api/wallet/paypal/capture/:orderId
-router.post("/paypal/capture/:orderId", topupLimiter, async (req, res) => {
+router.post("/paypal/capture/:orderId", requireAdmin, topupLimiter, async (req, res) => {
   try {
     const { userId } = (req as AuthenticatedRequest).user;
 
@@ -351,7 +355,7 @@ router.post("/paypal/capture/:orderId", topupLimiter, async (req, res) => {
 });
 
 // GET /api/wallet/paypal/status/:orderId
-router.get("/paypal/status/:orderId", statusPollLimiter, async (req, res) => {
+router.get("/paypal/status/:orderId", requireAdmin, statusPollLimiter, async (req, res) => {
   try {
     const { userId } = (req as unknown as AuthenticatedRequest).user;
     const orderId = sanitizeString((req.params as { orderId: string }).orderId ?? "", 128);
