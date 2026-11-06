@@ -42,7 +42,7 @@ The same block works for Claude Desktop, Claude Code (`.mcp.json`), Gemini CLI, 
 
 Email/password registration, login and email verification are human flows (admin-only) and are not exposed.
 
-## Authenticated mode: 56 tools
+## Authenticated mode: 65 tools
 
 **Relay fetch and proxy config**
 - `dominusnode_fetch`: GET/HEAD through the HTTP proxy gateway (CONNECT tunnel for https, full-URL request for http). Options: `country` (`country-XX`), `ip_class` (`class-residential|dc|mobile`), `session_id` (`session-<id>`, sticky exit), `allow_http` (`allowhttp-1`). Client-side SSRF checks incl. DNS rebinding (every resolved IP is checked), ports 80/443 only, no redirects, 10MB cap, credentials scrubbed from errors. Responses over plaintext are flagged when the gateway sends `X-DominusNode-Exit-Visible: 1`.
@@ -56,6 +56,15 @@ Email/password registration, login and email verification are human flows (admin
 - `dominusnode_node_register_challenge`: preview the attestation you will sign and the PoW difficulty
 - `dominusnode_node_register`: challenge, attestation (shared builder, must match the server's), PoW, EIP-191 signature with the wallet key read from `DOMINUSNODE_WALLET_KEY_FILE`, then `POST /v1/nodes`. The `dn_node_` key is written to a new 0600 file (`DOMINUSNODE_NODE_KEY_FILE`) and never shown; the tool returns the path.
 - `dominusnode_node_list`, `dominusnode_node_revoke`, `dominusnode_node_tier`
+- `dominusnode_node_update_caps`: lower a node's stream, GB/day or req/s caps (never above policy defaults)
+
+**Earnings and payouts** (shapes: `docs/agent-network/AGENT_API.md`)
+- `dominusnode_credits_balance`, `dominusnode_credits_transactions`: pending/available credit, tier hold, tax status, ledger
+- `dominusnode_credits_convert`: available credit into your own requester wallet (idempotent)
+- `dominusnode_payout_wallet_get`, `dominusnode_payout_wallet_set`: USDC payout address on Base. Signs a server challenge (rebuilt locally first) with the key in `DOMINUSNODE_WALLET_KEY_FILE`; a change also needs the current payout wallet's key in `DOMINUSNODE_PAYOUT_WALLET_KEY_FILE` and starts a 72h cooldown. Keys are never tool arguments.
+- `dominusnode_credits_withdraw`: on-demand USDC payout (min $1, tier daily limit, fresh signature); `503 PAYOUTS_DISABLED` while payouts are off
+- `dominusnode_payouts_list`: your payouts with status and tx hash
+- `dominusnode_session_report`: report a burned exit for one of your relay sessions (5 per node per day)
 
 **Wallet and payments**: `dominusnode_get_balance`, `dominusnode_get_forecast`, `dominusnode_get_transactions`, `dominusnode_pay_crypto`, `dominusnode_check_payment`, `dominusnode_x402_info`
 
@@ -78,7 +87,8 @@ Email/password registration, login and email verification are human flows (admin
 | `DOMINUSNODE_SOCKS5_PROXY_PORT` | `1080` | Gateway SOCKS5 port |
 | `DOMINUSNODE_FETCH_TIMEOUT_MS` | `30000` | Fetch timeout (max 120000) |
 | `DOMINUSNODE_FETCH_MAX_RESPONSE_BYTES` | `10485760` | Fetch body cap (max 10MB) |
-| `DOMINUSNODE_WALLET_KEY_FILE` | (none) | chmod-600 file with the owner wallet private key, for `node_register` only |
+| `DOMINUSNODE_WALLET_KEY_FILE` | (none) | chmod-600 file with the linked wallet private key, for `node_register`, `payout_wallet_set` and `credits_withdraw` |
+| `DOMINUSNODE_PAYOUT_WALLET_KEY_FILE` | (none) | chmod-600 file with the CURRENT payout wallet key, only to co-sign a payout-wallet change when it differs from the linked wallet |
 | `DOMINUSNODE_NODE_KEY_FILE` | `~/.dominusnode/node.json` | Where `node_register` writes the node credential file (never overwritten) |
 | `MCP_AGENT_SECRET` | (none) | Shared agent secret (32+ chars) sent as `X-DominusNode-Agent-Secret` |
 

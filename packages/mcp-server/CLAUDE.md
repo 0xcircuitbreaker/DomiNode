@@ -2,7 +2,7 @@
 
 Team: **AI & Integrations**
 
-MCP server for the AI-agent relay network: 56 authenticated + 11 bootstrap tools
+MCP server for the AI-agent relay network: 65 authenticated + 11 bootstrap tools
 (canonical list: `tests/tool-list.ts`; registration: `src/register.ts`).
 
 ## Rules
@@ -26,10 +26,8 @@ MCP server for the AI-agent relay network: 56 authenticated + 11 bootstrap tools
 - Agent auto-verify: X-DominusNode-Agent:mcp header → email_verified=true server-side
 - 429/401 retry safe: server rejected BEFORE processing (no mutation occurred)
 - No Stripe/PayPal/plans/slots/email-password tools: humans are admin-only
-
-## Not yet available in /v1 (do not add tools until the routes exist)
-- GET /v1/credits, GET /v1/credits/transactions, POST /v1/credits/convert, POST /v1/credits/withdraw
-- payout wallet set/change, PATCH /v1/nodes/:id, POST /v1/sessions/:id/report
+- Earnings tools (src/tools/credits.ts): signing keys ONLY from DOMINUSNODE_WALLET_KEY_FILE / DOMINUSNODE_PAYOUT_WALLET_KEY_FILE; rebuild the challenge message locally (must match dashboard routes/v1/credits.ts byte for byte) and refuse to sign on mismatch
+- Money fields from /v1 credits routes are {musd, usd} objects (docs/agent-network/AGENT_API.md)
 
 ## Common Mistakes
 - get_account_info: REST returns {user:{...}} wrapper, not flat object

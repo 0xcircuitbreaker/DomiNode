@@ -25,7 +25,7 @@
   "capabilities": {
     "tools": true
   },
-  "toolCount": 56,
+  "toolCount": 65,
   "categories": [
     "proxy",
     "relay-network",

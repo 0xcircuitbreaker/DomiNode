@@ -9,6 +9,11 @@ export interface McpConfig {
   mcpAgentSecret: string;
   /** Path to a 0600 file holding the owner wallet private key (node registration only). */
   walletKeyFile: string | null;
+  /**
+   * Optional 0600 key file of the CURRENT payout wallet, used only to co-sign a
+   * payout-wallet change when it differs from the linked wallet.
+   */
+  payoutWalletKeyFile?: string | null;
   /** Where node_register writes the node credential file (mode 0600). */
   nodeKeyFile: string;
 }
@@ -113,6 +118,7 @@ export function parseConfig(env: Record<string, string | undefined> = process.en
   }
 
   const walletKeyFile = parseFilePath(env["DOMINUSNODE_WALLET_KEY_FILE"], "DOMINUSNODE_WALLET_KEY_FILE");
+  const payoutWalletKeyFile = parseFilePath(env["DOMINUSNODE_PAYOUT_WALLET_KEY_FILE"], "DOMINUSNODE_PAYOUT_WALLET_KEY_FILE");
   const nodeKeyFile =
     parseFilePath(env["DOMINUSNODE_NODE_KEY_FILE"], "DOMINUSNODE_NODE_KEY_FILE") ??
     `${env["HOME"] || env["USERPROFILE"] || "."}/.dominusnode/node.json`;
@@ -127,6 +133,7 @@ export function parseConfig(env: Record<string, string | undefined> = process.en
     fetchMaxResponseBytes,
     mcpAgentSecret,
     walletKeyFile,
+    payoutWalletKeyFile,
     nodeKeyFile,
   };
 }
