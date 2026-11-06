@@ -1,22 +1,15 @@
-"""Dominus Node LlamaIndex integration -- 53 proxy, wallet, usage, account, API key, plan, team, and payment tools."""
+"""LlamaIndex tools for the DominusNode AI-agent relay network (v2).
 
-from .tools import (
-    DominusNodeClient,
-    validate_url,
-    is_private_ip,
-    normalize_ipv4,
-    sanitize_error,
-    strip_dangerous_keys,
-)
+Example::
+
+    from dominusnode_llamaindex import DominusNodeToolSpec
+
+    tools = DominusNodeToolSpec().to_tool_list()   # reads DOMINUSNODE_API_KEY
+"""
+
+from ._core import TOOL_NAMES, DominusNodeTools
 from .tool_spec import DominusNodeToolSpec
 
-__all__ = [
-    "DominusNodeToolSpec",
-    "DominusNodeClient",
-    "validate_url",
-    "is_private_ip",
-    "normalize_ipv4",
-    "sanitize_error",
-    "strip_dangerous_keys",
-]
-__version__ = "1.0.0"
+__version__ = "2.0.0"
+
+__all__ = ["DominusNodeToolSpec", "DominusNodeTools", "TOOL_NAMES", "__version__"]
