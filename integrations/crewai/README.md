@@ -1,205 +1,82 @@
 # dominusnode-crewai
 
-CrewAI tools for the [Dominus Node](https://dominusnode.com) rotating proxy-as-a-service platform. Gives your CrewAI agents the ability to fetch web content through rotating proxies, check wallet balance, and discover geo-targeting options.
+CrewAI tools for the **DominusNode AI-agent relay network** (v2). Agents fetch the web through
+exit IPs contributed by other operators, pay per GB from a prepaid wallet (live prices from
+`dominusnode_network_pricing`, nothing hardcoded), and can earn by contributing their own IP
+with the DominusNode node agent.
 
-## Installation
+Built on the official [`dominusnode`](../../sdks/python) Python SDK v2: all HTTP, SSRF and
+DNS-rebinding checks, gateway username flags and validation come from the SDK.
 
 ```bash
 pip install dominusnode-crewai
+export DOMINUSNODE_API_KEY=dn_live_...   # read from the environment, never a tool argument
 ```
 
-Or install from source:
-
-```bash
-cd integrations/crewai
-pip install -e ".[dev]"
-```
-
-## Environment Setup
-
-Set your Dominus Node API key as an environment variable:
-
-```bash
-export DOMINUSNODE_API_KEY="dn_live_your_api_key_here"
-```
-
-Optionally configure the API base URL and proxy host:
-
-```bash
-export DOMINUSNODE_BASE_URL="https://api.dominusnode.com"
-export DOMINUSNODE_PROXY_HOST="proxy.dominusnode.com"
-```
-
-## Quick Start
+## Usage
 
 ```python
-from crewai import Agent, Task, Crew
-from dominusnode_crewai import (
-    DominusNodeWebScrapeTool,
-    DominusNodeBalanceTool,
-    DominusNodeGeoTargetTool,
-)
-
-# Create tools (picks up DOMINUSNODE_API_KEY from environment)
-scrape_tool = DominusNodeWebScrapeTool()
-balance_tool = DominusNodeBalanceTool()
-geo_tool = DominusNodeGeoTargetTool()
-
-# Or pass the API key explicitly
-scrape_tool = DominusNodeWebScrapeTool(api_key="dn_live_...")
-
-# Create a CrewAI agent with Dominus Node tools
-researcher = Agent(
-    role="Web Researcher",
-    goal="Gather competitive intelligence from geo-restricted sources",
-    backstory="You are a skilled researcher who can access content worldwide.",
-    tools=[scrape_tool, balance_tool, geo_tool],
-    verbose=True,
-)
-
-# Create a task
-task = Task(
-    description=(
-        "Check our remaining proxy budget, then fetch the homepage of "
-        "https://example.com through a US datacenter proxy. Summarize "
-        "the content and report the remaining balance."
-    ),
-    expected_output="A summary of the page content and remaining budget.",
-    agent=researcher,
-)
-
-# Run the crew
-crew = Crew(agents=[researcher], tasks=[task], verbose=True)
-result = crew.kickoff()
-print(result)
-```
-
-## Tools
-
-### DominusNodeWebScrapeTool
-
-Fetch web page content through Dominus Node's rotating proxy network.
-
-**Parameters:**
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `url` | str | Yes | - | The URL to fetch |
-| `country` | str | No | None | Two-letter country code (e.g., "US", "GB", "DE") |
-| `proxy_type` | str | No | "dc" | Proxy type: "dc" (datacenter, $3/GB) or "residential" ($5/GB) |
-
-**Example output:**
-```
-Status: 200
-Content-Type: text/html; charset=utf-8
-Body (1234 chars):
-<html>...
-```
-
-**Security:** URLs are validated to block SSRF attacks. Private IPs, localhost, metadata endpoints, file:// schemes, and other dangerous patterns are rejected.
-
-### DominusNodeBalanceTool
-
-Check remaining proxy balance and estimate browsing budget.
-
-**Parameters:** None
-
-**Example output:**
-```
-Wallet Balance: $30.00
-Estimated remaining:
-  - Datacenter proxy:    10.00 GB (at $3.00/GB)
-  - Residential proxy:   6.00 GB (at $5.00/GB)
-```
-
-### DominusNodeGeoTargetTool
-
-List available proxy server countries and geo-targeting options.
-
-**Parameters:** None
-
-**Example output:**
-```
-Dominus Node Geo-Targeting Options:
-  Supported countries: US, GB, DE, JP, BR
-  Blocked countries:   CU, IR, KP, RU, SY
-  Targeting features:  US state targeting, City targeting
-  US states:           CA, NY, TX
-  Major US cities:     Los Angeles, New York, Houston
-  Rotation interval:   1-60 minutes
-```
-
-## Example Crew Configuration
-
-```python
-from crewai import Agent, Task, Crew, Process
-from dominusnode_crewai import (
-    DominusNodeWebScrapeTool,
-    DominusNodeBalanceTool,
-    DominusNodeGeoTargetTool,
-)
-
-# Tools
-scrape = DominusNodeWebScrapeTool()
-balance = DominusNodeBalanceTool()
-geo = DominusNodeGeoTargetTool()
-
-# Agents
-scout = Agent(
-    role="Geo Scout",
-    goal="Identify available proxy locations for the target region",
-    backstory="You map proxy coverage before the research team begins.",
-    tools=[geo, balance],
-)
+from crewai import Agent, Crew, Task
+from dominusnode_crewai import DominusNodeToolkit
 
 researcher = Agent(
-    role="Web Researcher",
-    goal="Collect data from target websites through rotating proxies",
-    backstory="You are an expert at gathering web data across different regions.",
-    tools=[scrape, balance],
+    role="Web researcher",
+    goal="Fetch pages through the DominusNode relay network",
+    backstory="Routes requests through contributed exit IPs and checks live pricing first.",
+    tools=DominusNodeToolkit().get_tools(),   # 19 crewai BaseTool instances
 )
-
-analyst = Agent(
-    role="Data Analyst",
-    goal="Analyze and summarize the collected data",
-    backstory="You turn raw web data into actionable insights.",
-)
-
-# Tasks
-scout_task = Task(
-    description="Check which countries are available for proxy routing and verify we have sufficient budget.",
-    expected_output="A report of available countries and current budget.",
-    agent=scout,
-)
-
-research_task = Task(
-    description="Fetch the pricing pages of https://example.com from US and GB proxies. Compare the content.",
-    expected_output="Raw content from both regions with noted differences.",
-    agent=researcher,
-)
-
-analysis_task = Task(
-    description="Analyze the collected data and produce a comparison report.",
-    expected_output="A structured comparison of pricing differences by region.",
-    agent=analyst,
-)
-
-# Crew
-crew = Crew(
-    agents=[scout, researcher, analyst],
-    tasks=[scout_task, research_task, analysis_task],
-    process=Process.sequential,
-    verbose=True,
-)
-
-result = crew.kickoff()
+task = Task(description="Fetch https://example.com from a German exit", expected_output="Page title",
+            agent=researcher)
+Crew(agents=[researcher], tasks=[task]).kickoff()
 ```
 
-## Running Tests
+Each tool is a `crewai.tools.BaseTool` with a pydantic `args_schema`; errors come back as
+scrubbed `Error: ...` strings.
+
+## The 19 tools
+
+| # | Tool | What it does | SDK call |
+|---|---|---|---|
+| 1 | `dominusnode_fetch` | Fetch a public URL through the relay (GET/HEAD; country, ip_class, session_id, allow_http) | `proxy.fetch` |
+| 2 | `dominusnode_proxy_url` | Gateway proxy URL/username for your own client (key shown as a placeholder) | `proxy.build_username` |
+| 3 | `dominusnode_network_policy` | Relay policy: ports, blocked targets, sanctioned countries | `network.policy` |
+| 4 | `dominusnode_network_pricing` | Live per-GB prices by IP class and node earning shares | `network.pricing` |
+| 5 | `dominusnode_network_stats` | Online nodes, countries, IP classes | `network.stats` |
+| 6 | `dominusnode_balance` | Prepaid wallet balance | `wallet.get_balance` |
+| 7 | `dominusnode_transactions` | Wallet transactions | `wallet.get_transactions` |
+| 8 | `dominusnode_topup_crypto` | Crypto top-up invoice ($10-$1,000) | `wallet.top_up_crypto` |
+| 9 | `dominusnode_check_payment` | Crypto invoice status | `wallet.get_crypto_status` |
+| 10 | `dominusnode_usage` | Bandwidth usage and cost | `usage.get` |
+| 11 | `dominusnode_active_sessions` | Active sessions (no IPs) | `sessions.get_active` |
+| 12 | `dominusnode_report_session` | Report a bad session | `sessions.report` |
+| 13 | `dominusnode_node_list` | Your relay nodes | `nodes.list` |
+| 14 | `dominusnode_node_tier` | Node-operator tier and share | `nodes.tier` |
+| 15 | `dominusnode_node_setup_guide` | Steps to earn by running the node agent | `static text` |
+| 16 | `dominusnode_credits_balance` | Earned node credits | `credits.balance` |
+| 17 | `dominusnode_credits_convert` | Convert credits into wallet balance | `credits.convert` |
+| 18 | `dominusnode_payouts_list` | On-chain payouts | `payouts.list` |
+| 19 | `dominusnode_x402_info` | x402 micropayment info | `x402.get_info` |
+
+## Security
+
+- The API key comes from `DOMINUSNODE_API_KEY` (or constructor config). It is never a tool
+  argument, never in a tool schema and never in tool output; `dominusnode_proxy_url` returns a
+  `<DOMINUSNODE_API_KEY>` placeholder.
+- Every result and error is scrubbed of `dn_live_`/`dn_test_`/`dn_node_`/`dn_proxy_` keys and JWTs.
+- `dominusnode_fetch` (via the SDK): GET/HEAD only, ports 80/443, private/local hosts and
+  DNS-rebinding refused, redirects not followed, 10 MB cap, sanctioned countries refused.
+  Plaintext `http://` needs `allow_http=true` and is visible to the exit node.
+- Signed flows (node registration, withdrawals, payout wallet) are not LLM tools: use the
+  DominusNode MCP server, the node agent, or the SDK with a signer key file.
+
+Configuration env vars: `DOMINUSNODE_API_KEY`, `DOMINUSNODE_BASE_URL`, `DOMINUSNODE_PROXY_HOST`,
+`DOMINUSNODE_PROXY_PORT`.
+
+## Development
 
 ```bash
-cd integrations/crewai
-pip install -e ".[dev]"
-pytest tests/ -v
+pip install -e ../../sdks/python -e '.[dev]'
+pytest
 ```
 
 ## License
