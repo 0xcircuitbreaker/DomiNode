@@ -1,0 +1,20 @@
+name: dominusnode_node_list
+enabled: true
+required: false
+description: Relay nodes you contribute (status, observed IP class, last seen). Contributing IPs earns credit.
+parameters:
+- name: limit
+  type: int
+  required: false
+  description: Maximum number of items.
+- name: offset
+  type: int
+  required: false
+  description: Items to skip.
+returns:
+- name: result
+  type: str
+  description: 'JSON string with the result, or {"error": ...} (credentials scrubbed).'
+configurations:
+  base_url: ''
+  proxy_host: ''

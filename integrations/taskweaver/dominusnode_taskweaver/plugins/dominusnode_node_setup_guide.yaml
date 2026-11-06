@@ -1,0 +1,13 @@
+name: dominusnode_node_setup_guide
+enabled: true
+required: false
+description: 'Step-by-step instructions to earn by contributing an IP: run the DominusNode node agent, register
+  a node, and how tiers and the self-dealing rule work.'
+parameters: []
+returns:
+- name: result
+  type: str
+  description: 'JSON string with the result, or {"error": ...} (credentials scrubbed).'
+configurations:
+  base_url: ''
+  proxy_host: ''

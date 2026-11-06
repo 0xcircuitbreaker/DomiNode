@@ -1,0 +1,21 @@
+name: dominusnode_topup_crypto
+enabled: true
+required: false
+description: Create a crypto invoice to top up the requester wallet ($10-$1,000). Returns a payment address/URL;
+  the wallet is credited after on-chain confirmation (check with check_payment).
+parameters:
+- name: amount_cents
+  type: int
+  required: true
+  description: Amount in US cents (1000 = $10).
+- name: currency
+  type: str
+  required: true
+  description: 'Cryptocurrency to pay with. One of: btc, eth, ltc, xmr, zec, usdc, sol, usdt, dai, bnb, link.'
+returns:
+- name: result
+  type: str
+  description: 'JSON string with the result, or {"error": ...} (credentials scrubbed).'
+configurations:
+  base_url: ''
+  proxy_host: ''

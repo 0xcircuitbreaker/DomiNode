@@ -1,0 +1,16 @@
+name: dominusnode_check_payment
+enabled: true
+required: false
+description: Status of a crypto top-up invoice created by topup_crypto.
+parameters:
+- name: invoice_id
+  type: str
+  required: true
+  description: Invoice UUID.
+returns:
+- name: result
+  type: str
+  description: 'JSON string with the result, or {"error": ...} (credentials scrubbed).'
+configurations:
+  base_url: ''
+  proxy_host: ''

@@ -1,0 +1,20 @@
+name: dominusnode_usage
+enabled: true
+required: false
+description: Relayed traffic usage summary (bytes and cost) for an optional ISO 8601 date range.
+parameters:
+- name: from_
+  type: str
+  required: false
+  description: ISO 8601 start.
+- name: to
+  type: str
+  required: false
+  description: ISO 8601 end.
+returns:
+- name: result
+  type: str
+  description: 'JSON string with the result, or {"error": ...} (credentials scrubbed).'
+configurations:
+  base_url: ''
+  proxy_host: ''

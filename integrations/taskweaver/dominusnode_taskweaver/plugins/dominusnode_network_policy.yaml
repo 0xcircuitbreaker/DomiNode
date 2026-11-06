@@ -1,0 +1,13 @@
+name: dominusnode_network_policy
+enabled: true
+required: false
+description: 'Relay network policy: allowed ports, plaintext (allowhttp) rules, blocked ranges, sanctioned countries
+  and node attestation terms.'
+parameters: []
+returns:
+- name: result
+  type: str
+  description: 'JSON string with the result, or {"error": ...} (credentials scrubbed).'
+configurations:
+  base_url: ''
+  proxy_host: ''

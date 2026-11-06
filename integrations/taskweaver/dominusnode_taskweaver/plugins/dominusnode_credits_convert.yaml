@@ -1,0 +1,17 @@
+name: dominusnode_credits_convert
+enabled: true
+required: false
+description: Convert available node earnings into your own requester wallet balance (idempotent; returns the idempotency
+  key).
+parameters:
+- name: amount_musd
+  type: str
+  required: true
+  description: Amount in micro-USD as a digit string (min 10000 = $0.01).
+returns:
+- name: result
+  type: str
+  description: 'JSON string with the result, or {"error": ...} (credentials scrubbed).'
+configurations:
+  base_url: ''
+  proxy_host: ''

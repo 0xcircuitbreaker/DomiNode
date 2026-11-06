@@ -1,0 +1,20 @@
+name: dominusnode_report_session
+enabled: true
+required: false
+description: Report a burned or bad exit for one of your relay sessions so the network can rotate it.
+parameters:
+- name: session_id
+  type: str
+  required: true
+  description: Session UUID from active_sessions.
+- name: reason
+  type: str
+  required: true
+  description: 'Why the exit is bad. One of: blocked, captcha, rate_limited, slow, bad_content, other.'
+returns:
+- name: result
+  type: str
+  description: 'JSON string with the result, or {"error": ...} (credentials scrubbed).'
+configurations:
+  base_url: ''
+  proxy_host: ''
