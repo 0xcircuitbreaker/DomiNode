@@ -9,10 +9,17 @@ The gateway signs every tunnel CHALLENGE with an ed25519 key. Node agents
 verify the signature against pinned public keys and refuse to authenticate
 to an unpinned coordinator.
 
+Run from the repository root. Works on macOS, Linux and Windows (Node.js only):
+
 ```bash
-scripts/gen-coord-key.sh /etc/dominusnode/coord-key.pem
+npm run gen:coord-key -- ~/.dominusnode/coord-key.pem
 # prints the 64-hex public key; the PEM (PKCS8) is written mode 0600
 ```
+
+On a Linux server you can write straight to a root-owned path:
+`sudo node scripts/gen-coord-key.mjs /etc/dominusnode/coord-key.pem`.
+`scripts/gen-coord-key.sh` does the same with `openssl` (needs OpenSSL with
+ed25519; macOS LibreSSL may lack it).
 
 - Gateway: `COORD_SIGNING_KEY_FILE=/etc/dominusnode/coord-key.pem`.
   It is required when `NODE_ENV=production`. The gateway logs the public key
