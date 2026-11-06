@@ -169,5 +169,36 @@ describe("Controller spend-cap stop", () => {
     expect(ctl.mode).toBe("error");
     expect(ctl.creds()?.auth).toBeNull();
   });
+
+  it("control disable+enable does not reset the run or lift the block", async () => {
+    balances = [1000, 900];
+    const ctl = new Controller();
+    await ctl.init();
+    await ctl.pollBalance();
+    await ctl.pollBalance();
+    expect(ctl.mode).toBe("blocked");
+    const spent = ctl.run.spentCents;
+    await ctl.handleControl({ type: "disable" });
+    await ctl.handleControl({ type: "enable" });
+    expect(ctl.run.blocked).toBe(true);
+    expect(ctl.run.spentCents).toBe(spent);
+    expect(ctl.mode).toBe("blocked");
+    await ctl.handleControl({ type: "disable" });
+    await ctl.handleControl({ type: "setSettings", settings: { enabled: true } });
+    expect(ctl.run.blocked).toBe(true);
+    expect(ctl.mode).toBe("blocked");
+  });
+
+  it("operator enable starts a fresh run", async () => {
+    balances = [1000, 900, 900];
+    const ctl = new Controller();
+    await ctl.init();
+    await ctl.pollBalance();
+    await ctl.pollBalance();
+    expect(ctl.mode).toBe("blocked");
+    await ctl.operatorUpdate({ enabled: false });
+    await ctl.operatorUpdate({ enabled: true });
+    expect(ctl.run.blocked).toBe(false);
+  });
 });
 

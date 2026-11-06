@@ -215,15 +215,20 @@ export class Controller {
     if (this.settings.sticky && !this.settings.sessionId) this.settings.sessionId = newSessionId();
   }
 
-  async updateSettings(patch: Partial<Settings>): Promise<void> {
+  /**
+   * @param scope "operator" (own pages, import): enabling starts a fresh run (new spend
+   *   baseline, block lifted). "control": enabling keeps the current run, so a control
+   *   driver cannot reset the spend cap by toggling disable/enable.
+   */
+  async updateSettings(patch: Partial<Settings>, scope: "operator" | "control" = "operator"): Promise<void> {
     const prevBase = this.settings.apiBase;
     const wasEnabled = this.settings.enabled;
     assertGatewayTransport({ ...this.settings, ...patch });
     this.settings = { ...this.settings, ...patch };
     this.ensureSession();
     if (this.settings.apiBase !== prevBase) this.account = null;
-    // Each enable starts a fresh run (spend baseline).
-    if (!wasEnabled && this.settings.enabled) await this.resetRun(false);
+    // An operator enable starts a fresh run (spend baseline); a control enable never does.
+    if (scope === "operator" && !wasEnabled && this.settings.enabled) await this.resetRun(false);
     await store.saveSettings(this.settings);
     await this.apply();
     if (!wasEnabled && this.settings.enabled) void this.pollBalance();
@@ -238,8 +243,8 @@ export class Controller {
     if (key) void this.pollBalance();
   }
 
-  async rotateSession(): Promise<void> {
-    await this.updateSettings({ sticky: true, sessionId: newSessionId() });
+  async rotateSession(scope: "operator" | "control" = "operator"): Promise<void> {
+    await this.updateSettings({ sticky: true, sessionId: newSessionId() }, scope);
     this.exit = null;
   }
 
@@ -320,16 +325,16 @@ export class Controller {
       case "getStatus":
         break;
       case "setSettings":
-        await this.updateSettings(cmd.settings);
+        await this.updateSettings(cmd.settings, "control");
         break;
       case "rotateSession":
-        await this.rotateSession();
+        await this.rotateSession("control");
         break;
       case "enable":
-        await this.updateSettings({ enabled: true });
+        await this.updateSettings({ enabled: true }, "control");
         break;
       case "disable":
-        await this.updateSettings({ enabled: false });
+        await this.updateSettings({ enabled: false }, "control");
         break;
     }
     return this.controlStatus();
