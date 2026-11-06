@@ -193,3 +193,32 @@ export function promisifyRequest(
     }
   });
 }
+
+// ─── Relay node retry (DESIGN.md §4 step 5, §8) ─────────────────────
+
+/** OPEN_ERR codes that may be retried once on a different node. */
+export const NODE_RETRY_CODES: ReadonlySet<string> = new Set(["DIAL_FAIL", "DNS_FAIL"]);
+
+/**
+ * Open an upstream via `attempt(excludeNodeIds)`, retrying exactly once on a
+ * different node when the first failure carries a DIAL_FAIL/DNS_FAIL code.
+ * Anything else (FLOOR_BLOCKED, PORT_BLOCKED, CAP_EXCEEDED, timeouts,
+ * selection errors) is rethrown immediately.
+ */
+export async function withNodeRetry<T>(
+  attempt: (excludeNodeIds: string[]) => Promise<{ nodeId: string; value: T }>,
+  failedNodeId: (err: unknown) => string | null,
+  codeOf: (err: unknown) => string | null,
+): Promise<{ nodeId: string; value: T; retries: number }> {
+  try {
+    const r = await attempt([]);
+    return { ...r, retries: 0 };
+  } catch (err) {
+    const code = codeOf(err);
+    const nodeId = failedNodeId(err);
+    if (!code || !NODE_RETRY_CODES.has(code) || !nodeId) throw err;
+    log.warn("relay open failed, retrying on another node", { code });
+    const r = await attempt([nodeId]);
+    return { ...r, retries: 1 };
+  }
+}

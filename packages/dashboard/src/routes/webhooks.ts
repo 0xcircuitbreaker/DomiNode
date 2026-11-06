@@ -3,6 +3,7 @@ import { createLogger } from "@dominusnode/shared";
 import { handleCheckoutWebhook } from "@dominusnode/billing";
 import { handleIpnCallback } from "@dominusnode/billing";
 import { handlePaypalWebhook } from "@dominusnode/billing";
+import { createTempoRail, tempoConfigFromEnv, TEMPO_MAX_BODY_BYTES } from "@dominusnode/billing";
 
 const router = Router();
 const log = createLogger("api:webhooks");
@@ -196,6 +197,32 @@ router.post("/paypal", webhookIpCheck(PAYPAL_WEBHOOK_IPS, "paypal"), raw({ type:
     } else {
       res.json({ received: true, error: "Permanent processing failure logged" });
     }
+  }
+});
+
+// POST /api/webhooks/tempo — HMAC-signed, 16 KB raw body limit (DESIGN.md §7)
+const tempoWebhookRail = createTempoRail(tempoConfigFromEnv());
+router.post("/tempo", raw({ type: "application/json", limit: TEMPO_MAX_BODY_BYTES }), async (req, res) => {
+  try {
+    if (!Buffer.isBuffer(req.body)) {
+      res.status(400).json({ error: "Invalid body" });
+      return;
+    }
+    const result = await tempoWebhookRail.handleCallback(req.body, req.headers);
+    if (!result) {
+      res.status(400).json({ error: "Rejected" });
+      return;
+    }
+    log.info("tempo webhook processed", { chargeId: result.chargeId, status: result.status });
+    res.json({ received: true });
+  } catch (err) {
+    const errMsg = err instanceof Error ? err.message : String(err);
+    log.error("tempo webhook error", { error: errMsg });
+    const isTransient = errMsg.includes("connection") || errMsg.includes("timeout")
+      || errMsg.includes("ECONNREFUSED") || errMsg.includes("lock")
+      || errMsg.includes("exceed maximum wallet balance");
+    if (isTransient) res.status(500).json({ error: "Transient processing error, retry later" });
+    else res.json({ received: true, error: "Permanent processing failure logged" });
   }
 });
 

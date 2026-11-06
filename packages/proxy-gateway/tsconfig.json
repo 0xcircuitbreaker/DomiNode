@@ -7,7 +7,6 @@
   "include": ["src/**/*.ts"],
   "references": [
     { "path": "../shared" },
-    { "path": "../pool-manager" },
     { "path": "../metering" },
     { "path": "../billing" }
   ]

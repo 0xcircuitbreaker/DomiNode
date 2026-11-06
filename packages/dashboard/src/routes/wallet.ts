@@ -14,6 +14,7 @@ import type { SupportedCrypto } from "@dominusnode/shared";
 import { createCheckoutSession } from "@dominusnode/billing";
 import { createCryptoInvoice } from "@dominusnode/billing";
 import { createPaypalOrder, capturePaypalOrder } from "@dominusnode/billing";
+import { createTempoRail, tempoConfigFromEnv } from "@dominusnode/billing";
 import { requireAuth, type AuthenticatedRequest } from "../middleware/auth.js";
 import { agentAwareRateLimit } from "../helpers/agent-rate-limit.js";
 
@@ -184,6 +185,38 @@ router.post("/topup/crypto", topupLimiter, async (req, res) => {
   } catch (err) {
     log.error("crypto invoice failed", { error: err instanceof Error ? err.message : String(err) });
     res.status(500).json({ error: "Failed to create crypto invoice" });
+  }
+});
+
+// POST /api/wallet/topup/tempo — prepaid Tempo top-up (DESIGN.md §7)
+const tempoRail = createTempoRail(tempoConfigFromEnv());
+router.post("/topup/tempo", topupLimiter, async (req, res) => {
+  try {
+    if (!tempoConfigFromEnv()) {
+      res.status(503).json({ error: "Tempo top-up is not available" });
+      return;
+    }
+    const { userId } = (req as AuthenticatedRequest).user;
+    const u = await userRepo.findUserById(userId);
+    if (!u || !u.email_verified) {
+      res.status(403).json({ error: "Please verify your email address before topping up" });
+      return;
+    }
+    const amountCents = Number(req.body?.amountCents);
+    if (!Number.isInteger(amountCents) || amountCents < 100 || amountCents > 100_000) {
+      res.status(400).json({ error: "amountCents must be an integer between 100 and 100000" });
+      return;
+    }
+    const w = await walletRepo.getWallet(userId);
+    if (w && w.balance_cents + amountCents > 1_000_000) {
+      res.status(400).json({ error: "Top-up would exceed maximum wallet balance of $10,000" });
+      return;
+    }
+    const charge = await tempoRail.createCharge(userId, amountCents);
+    res.json(charge);
+  } catch (err) {
+    log.error("tempo charge failed", { error: err instanceof Error ? err.message : String(err) });
+    res.status(500).json({ error: "Failed to create Tempo charge" });
   }
 });
 

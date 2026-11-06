@@ -1,3 +1,4 @@
+import type pg from "pg";
 import { query, getPool } from "../db.js";
 import type { Team, TeamMember, TeamInvite, TeamWallet, TeamWalletTransaction, TeamRole } from "../types.js";
 
@@ -548,6 +549,74 @@ export async function releaseTeamReservation(
   }
 }
 
+/**
+ * Settle a team session inside a caller-owned transaction (caller issued
+ * BEGIN and owns COMMIT/ROLLBACK). "invalid"/"no_wallet" write nothing.
+ */
+export async function settleTeamSessionTx(
+  client: Pick<pg.PoolClient, "query">,
+  teamId: string,
+  reservedCents: number,
+  actualCostCents: number,
+  sessionId: string,
+): Promise<"ok" | "partial" | "no_wallet" | "invalid"> {
+  if (!Number.isInteger(reservedCents) || reservedCents < 0 || reservedCents > MAX_INT) return "invalid";
+  if (!Number.isInteger(actualCostCents) || actualCostCents < 0 || actualCostCents > MAX_INT) return "invalid";
+
+  const walletResult = await client.query<{ id: string; balance_cents: number }>(
+    `SELECT id, balance_cents FROM team_wallets WHERE team_id = $1 FOR UPDATE`,
+    [teamId],
+  );
+  const wallet = walletResult.rows[0];
+  if (!wallet) return "no_wallet";
+
+  const diff = reservedCents - actualCostCents;
+  if (diff > 0) {
+    // Refund excess reservation in full; never silently truncate at the cap.
+    if (wallet.balance_cents + diff > MAX_BALANCE_CENTS) {
+      throw new Error(
+        `Team reservation refund of ${diff} cents would exceed wallet balance cap (session ${sessionId.slice(0, 8)}); settlement aborted to avoid fund loss`,
+      );
+    }
+    await client.query(
+      `UPDATE team_wallets SET balance_cents = balance_cents + $1 WHERE id = $2`,
+      [diff, wallet.id],
+    );
+  } else if (diff < 0) {
+    // Charge overage — partial charge if insufficient (matches personal wallet behavior)
+    const overage = Math.abs(diff);
+    if (wallet.balance_cents < overage) {
+      const partial = wallet.balance_cents;
+      if (partial > 0) {
+        await client.query(
+          `UPDATE team_wallets SET balance_cents = 0 WHERE id = $1`,
+          [wallet.id],
+        );
+      }
+      if (actualCostCents > 0) {
+        await client.query(
+          `INSERT INTO team_wallet_transactions (wallet_id, type, amount_cents, description)
+           VALUES ($1, 'debit', $2, $3)`,
+          [wallet.id, actualCostCents, `Proxy session ${sessionId.slice(0, 8)} (partial)`],
+        );
+      }
+      return "partial";
+    }
+    await client.query(
+      `UPDATE team_wallets SET balance_cents = balance_cents - $1 WHERE id = $2`,
+      [overage, wallet.id],
+    );
+  }
+  if (actualCostCents > 0) {
+    await client.query(
+      `INSERT INTO team_wallet_transactions (wallet_id, type, amount_cents, description)
+       VALUES ($1, 'debit', $2, $3)`,
+      [wallet.id, actualCostCents, `Proxy session ${sessionId.slice(0, 8)}`],
+    );
+  }
+  return "ok";
+}
+
 /** Settle a team proxy session: refund excess or charge overage */
 export async function settleTeamSession(
   teamId: string,
@@ -555,7 +624,6 @@ export async function settleTeamSession(
   actualCostCents: number,
   sessionId: string,
 ): Promise<boolean> {
-  // Atomic settlement with FOR UPDATE lock + MAX_BALANCE_CENTS cap
   if (!Number.isInteger(reservedCents) || reservedCents < 0 || reservedCents > MAX_INT) return false;
   if (!Number.isInteger(actualCostCents) || actualCostCents < 0 || actualCostCents > MAX_INT) return false;
 
@@ -564,66 +632,10 @@ export async function settleTeamSession(
   try {
     await client.query("BEGIN");
     await client.query("SET LOCAL lock_timeout = '5s'");
-    const walletResult = await client.query<{ id: string; balance_cents: number }>(
-      `SELECT id, balance_cents FROM team_wallets WHERE team_id = $1 FOR UPDATE`,
-      [teamId],
-    );
-    const wallet = walletResult.rows[0];
-    if (!wallet) { await client.query("ROLLBACK"); return false; }
-
-    const diff = reservedCents - actualCostCents;
-    if (diff > 0) {
-      // Refund excess reservation in full; never silently truncate at the cap.
-      if (wallet.balance_cents + diff > MAX_BALANCE_CENTS) {
-        throw new Error(
-          `Team reservation refund of ${diff} cents would exceed wallet balance cap (session ${sessionId.slice(0, 8)}); settlement aborted to avoid fund loss`,
-        );
-      }
-      const cappedRefund = diff;
-      {
-        await client.query(
-          `UPDATE team_wallets SET balance_cents = balance_cents + $1 WHERE id = $2`,
-          [cappedRefund, wallet.id],
-        );
-      }
-    } else if (diff < 0) {
-      // Charge overage — partial charge if insufficient (matches personal wallet behavior)
-      const overage = Math.abs(diff);
-      if (wallet.balance_cents < overage) {
-        // Charge whatever is left (partial payment, don't reject entirely)
-        const partial = wallet.balance_cents;
-        if (partial > 0) {
-          await client.query(
-            `UPDATE team_wallets SET balance_cents = 0 WHERE id = $1`,
-            [wallet.id],
-          );
-        }
-        // Record partial overage charge + commit, then return false to signal underpayment
-        if (actualCostCents > 0) {
-          await client.query(
-            `INSERT INTO team_wallet_transactions (wallet_id, type, amount_cents, description)
-             VALUES ($1, 'debit', $2, $3)`,
-            [wallet.id, actualCostCents, `Proxy session ${sessionId.slice(0, 8)} (partial)`],
-          );
-        }
-        await client.query("COMMIT");
-        return false; // partial payment
-      }
-      await client.query(
-        `UPDATE team_wallets SET balance_cents = balance_cents - $1 WHERE id = $2`,
-        [overage, wallet.id],
-      );
-    }
-    // Record usage debit in same transaction
-    if (actualCostCents > 0) {
-      await client.query(
-        `INSERT INTO team_wallet_transactions (wallet_id, type, amount_cents, description)
-         VALUES ($1, 'debit', $2, $3)`,
-        [wallet.id, actualCostCents, `Proxy session ${sessionId.slice(0, 8)}`],
-      );
-    }
+    const r = await settleTeamSessionTx(client, teamId, reservedCents, actualCostCents, sessionId);
+    if (r === "no_wallet" || r === "invalid") { await client.query("ROLLBACK"); return false; }
     await client.query("COMMIT");
-    return true;
+    return r === "ok";
   } catch (err) {
     await client.query("ROLLBACK").catch(() => {});
     throw err;
@@ -1153,4 +1165,24 @@ export async function revokeTeamApiKey(
   } finally {
     client.release();
   }
+}
+
+/** Team-wallet twin of wallet-repo accrueCarryTx (sub-cent carry under the row lock). */
+export async function accrueTeamCarryTx(
+  client: Pick<pg.PoolClient, "query">,
+  teamId: string,
+  grossMusd: bigint,
+): Promise<{ cents: bigint; carryMusd: bigint } | null> {
+  if (grossMusd < 0n) throw new Error("grossMusd must be >= 0");
+  const r = await client.query<{ id: string; carry_musd: string }>(
+    `SELECT id, carry_musd FROM team_wallets WHERE team_id = $1 FOR UPDATE`,
+    [teamId],
+  );
+  const w = r.rows[0];
+  if (!w) return null;
+  const total = BigInt(w.carry_musd ?? "0") + grossMusd;
+  const cents = total / 10_000n;
+  const carryMusd = total % 10_000n;
+  await client.query(`UPDATE team_wallets SET carry_musd = $1 WHERE id = $2`, [carryMusd.toString(), w.id]);
+  return { cents, carryMusd };
 }

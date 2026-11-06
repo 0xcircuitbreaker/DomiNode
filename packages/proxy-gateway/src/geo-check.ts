@@ -86,3 +86,19 @@ export function checkSanctionedCountry(clientIp: string): string | null {
 
   return null;
 }
+
+/**
+ * Country for a node's peer IP (tunnel auth). Returns null when geo data is
+ * unavailable so the tunnel server fails closed for public peers. ASN and
+ * ip_class are not in geoip-lite; they stay null until probes classify them.
+ */
+export function lookupPeerGeo(ip: string): { country: string | null; asn: number | null } | null {
+  if (!geoLookup) return null;
+  try {
+    const r = geoLookup(ip);
+    if (!r || !r.country) return null;
+    return { country: r.country.toUpperCase(), asn: null };
+  } catch {
+    return null;
+  }
+}

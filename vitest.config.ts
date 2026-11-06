@@ -8,12 +8,6 @@ export default defineConfig({
     environment: "node",
     env: {
       JWT_SECRET: "test-secret-key-that-is-at-least-32-characters-long-for-testing",
-      WEBSHARE_DC_USERNAME: "testdcuser",
-      WEBSHARE_DC_PASSWORD: "testdcpass",
-      WEBSHARE_RES_USERNAME: "testresuser",
-      WEBSHARE_RES_PASSWORD: "testrespass",
-      WEBSHARE_PROXY_HOST: "p.test.io",
-      WEBSHARE_HTTP_PORT: "80",
       LOG_LEVEL: "error",
     },
     coverage: {
@@ -21,7 +15,6 @@ export default defineConfig({
       include: [
         "packages/shared/src/**/*.ts",
         "packages/metering/src/**/*.ts",
-        "packages/pool-manager/src/**/*.ts",
         "packages/billing/src/**/*.ts",
         "packages/proxy-gateway/src/**/*.ts",
         "packages/dashboard/src/**/*.ts",

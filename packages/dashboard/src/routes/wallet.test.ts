@@ -38,6 +38,8 @@ vi.mock("@dominusnode/shared", () => ({
 vi.mock("@dominusnode/billing", () => ({
   createCheckoutSession: (...args: unknown[]) => mockCreateCheckoutSession(...args),
   createCryptoInvoice: (...args: unknown[]) => mockCreateCryptoInvoice(...args),
+  createTempoRail: () => ({ id: "tempo", createCharge: vi.fn(), handleCallback: vi.fn() }),
+  tempoConfigFromEnv: () => null,
 }));
 
 vi.mock("../middleware/auth.js", () => ({

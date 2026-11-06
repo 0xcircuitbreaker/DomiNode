@@ -21,8 +21,14 @@ vi.mock("@dominusnode/billing", () => ({
   releasePaymentHash: (...args: unknown[]) => mockReleasePaymentHash(...args),
   hashPaymentHeader: (...args: unknown[]) => mockHashPaymentHeader(...args),
   getX402MaxResponseBytes: (...args: unknown[]) => mockGetX402MaxResponseBytes(...args),
+  usdStringToMusd: (v: string) => {
+    const m = /^(\d{1,9})(?:\.(\d{1,6}))?$/.exec(v);
+    return m ? BigInt(m[1]) * 1_000_000n + BigInt((m[2] ?? "").padEnd(6, "0")) : null;
+  },
 }));
 
+const mockFindOrCreateX402User = vi.fn();
+const mockGetPricing = vi.fn();
 vi.mock("@dominusnode/shared", () => ({
   createLogger: () => ({
     debug: vi.fn(),
@@ -30,7 +36,18 @@ vi.mock("@dominusnode/shared", () => ({
     warn: vi.fn(),
     error: vi.fn(),
   }),
+  BYTES_PER_GB: 1_073_741_824,
+  userRepo: { findOrCreateX402User: (...a: unknown[]) => mockFindOrCreateX402User(...a) },
+  policyRepo: { getPricing: (...a: unknown[]) => mockGetPricing(...a) },
+  walletRepo: {
+    getWallet: (...a: unknown[]) => mockGetWallet(...a),
+    createWallet: (...a: unknown[]) => mockCreateWallet(...a),
+    creditWallet: (...a: unknown[]) => mockCreditWallet(...a),
+  },
 }));
+const mockGetWallet = vi.fn();
+const mockCreateWallet = vi.fn();
+const mockCreditWallet = vi.fn();
 
 const origEnv = { ...process.env };
 
@@ -41,6 +58,11 @@ beforeEach(() => {
   mockUpdateX402Transaction.mockResolvedValue(undefined);
   mockReleasePaymentHash.mockResolvedValue(undefined);
   mockGetX402MaxResponseBytes.mockReturnValue(10_485_760);
+  // $0.05/GB → 10 MiB quote = ceil(50000 * 10485760 / 2^30) = 489 µUSD (< "0.001")
+  mockGetPricing.mockResolvedValue(50_000n);
+  mockFindOrCreateX402User.mockResolvedValue({ id: "user-x402", status: "active", created: false });
+  mockGetWallet.mockResolvedValue({ id: "w1" });
+  mockCreditWallet.mockResolvedValue({ id: "tx1" });
 });
 
 afterEach(() => {
@@ -59,6 +81,9 @@ import {
   build402ConnectResponse,
   isX402Verified,
   getX402Data,
+  settleX402Pending,
+  releaseX402Pending,
+  refundX402Payer,
 } from "./x402-handler.js";
 
 // ─── Helpers ─────────────────────────────────────────────────────────
@@ -144,7 +169,7 @@ describe("handleX402Http", () => {
     expect(res._written).toContain("X402_PAYMENT_INVALID");
   });
 
-  it("settles before proxy and marks request as verified on valid payment", async () => {
+  it("verifies without settling and attaches a pending payment", async () => {
     mockIsX402Enabled.mockReturnValue(true);
     mockBuildX402Requirements.mockReturnValue(mockRequirements);
     mockVerifyX402Payment.mockResolvedValue({ valid: true, payer: "0xPayer123", amountUsd: "0.001", facilitator: "coinbase" });
@@ -156,9 +181,8 @@ describe("handleX402Http", () => {
 
     expect(handled).toBe(true);
     expect(isX402Verified(req)).toBe(true);
-    // Settlement happened inside handleX402Http (settle-before-proxy)
-    expect(mockSettleX402Payment).toHaveBeenCalledOnce();
-    expect(mockUpdateX402Transaction).toHaveBeenCalled();
+    // Settlement is deferred until the relay stream is open
+    expect(mockSettleX402Payment).not.toHaveBeenCalled();
 
     const data = getX402Data(req);
     expect(data).not.toBeNull();
@@ -166,27 +190,27 @@ describe("handleX402Http", () => {
     expect(data!.facilitator).toBe("coinbase");
     expect(data!.poolType).toBe("dc");
     expect(data!.maxResponseBytes).toBe(10_485_760);
-  });
+    expect(data!.pending!.state).toBe("verified");
 
-  it("returns 402 when settlement fails", async () => {
+    expect(await settleX402Pending(data!.pending!)).toBe(true);
+    expect(mockSettleX402Payment).toHaveBeenCalledWith("valid-data", "coinbase", mockRequirements);
+    expect(mockUpdateX402Transaction).toHaveBeenCalled();
+    expect(data!.pending!.paymentHeader).toBe("");
+  });
+  it("settleX402Pending returns false and releases the hash when settlement fails", async () => {
     mockIsX402Enabled.mockReturnValue(true);
     mockBuildX402Requirements.mockReturnValue(mockRequirements);
     mockVerifyX402Payment.mockResolvedValue({ valid: true, payer: "0xPayer123", amountUsd: "0.001", facilitator: "coinbase" });
     mockSettleX402Payment.mockRejectedValue(new Error("settlement failed"));
 
     const req = makeRequest({ "x-payment": "valid-data" });
-    const res = makeResponse();
-    const handled = await handleX402Http(req, res);
-
-    expect(handled).toBe(true);
-    expect(isX402Verified(req)).toBe(false);
-    expect(res._statusCode).toBe(402);
-    expect(res._written).toContain("X402_SETTLEMENT_FAILED");
-    // C-3: Should release pending hash on failure (not record failed tx)
+    await handleX402Http(req, makeResponse());
+    const p = getX402Data(req)!.pending!;
+    expect(await settleX402Pending(p)).toBe(false);
     expect(mockReleasePaymentHash).toHaveBeenCalledWith("fakehash123");
     expect(mockUpdateX402Transaction).not.toHaveBeenCalled();
+    expect(p.state).toBe("released");
   });
-
   it("uses residential pool type from header", async () => {
     mockIsX402Enabled.mockReturnValue(true);
     mockBuildX402Requirements.mockReturnValue(mockRequirements);
@@ -199,6 +223,144 @@ describe("handleX402Http", () => {
 
     const data = getX402Data(req);
     expect(data!.poolType).toBe("residential");
+  });
+});
+
+// ─── Relay pricing + payer identity (DESIGN.md §7) ──────────────────
+
+describe("x402 relay identity and pricing", () => {
+  const valid = { valid: true, payer: "0x" + "a".repeat(40), amountUsd: "0.001", facilitator: "coinbase" };
+  beforeEach(() => {
+    mockIsX402Enabled.mockReturnValue(true);
+    mockBuildX402Requirements.mockReturnValue(mockRequirements);
+    mockSettleX402Payment.mockResolvedValue({ txHash: "0xTx", amountSettled: "1000", facilitator: "coinbase" });
+  });
+
+  it("quotes price_per_gb × X402_BYTES_PER_REQUEST in µUSD", async () => {
+    const { x402AmountMusd } = await import("./x402-handler.js");
+    expect(x402AmountMusd(500_000n, 10_485_760)).toBe(4883n); // ceil(500000*10485760/2^30)
+    expect(x402AmountMusd(1n, 1)).toBe(1n);
+    mockVerifyX402Payment.mockResolvedValue(valid);
+    await handleX402Http(makeRequest({ "x-payment": "p" }), makeResponse());
+    expect(mockBuildX402Requirements).toHaveBeenCalledWith({ amountMusd: 489n });
+  });
+
+  it("maps the payer to a wallet-identity user before settling", async () => {
+    mockVerifyX402Payment.mockResolvedValue(valid);
+    const req = makeRequest({ "x-payment": "p" });
+    await handleX402Http(req, makeResponse());
+    expect(mockFindOrCreateX402User).toHaveBeenCalledWith(valid.payer);
+    expect(mockSettleX402Payment).not.toHaveBeenCalled();
+    const d = getX402Data(req)!;
+    expect(d.userId).toBe("user-x402");
+    // Gross is the verified paid amount (0.001 USD), not the 489 µUSD quote
+    expect(d.amountMusd).toBe(1000n);
+    expect(d.pricePerGbMusd).toBe(50_000n);
+  });
+
+  it("refuses a suspended payer without settling and releases the hash", async () => {
+    mockVerifyX402Payment.mockResolvedValue(valid);
+    mockFindOrCreateX402User.mockResolvedValue({ id: "u", status: "suspended", created: false });
+    const res = makeResponse();
+    const req = makeRequest({ "x-payment": "p" });
+    await handleX402Http(req, res);
+    expect(res._statusCode).toBe(403);
+    expect(mockSettleX402Payment).not.toHaveBeenCalled();
+    expect(mockReleasePaymentHash).toHaveBeenCalledWith("fakehash123");
+    expect(isX402Verified(req)).toBe(false);
+  });
+
+  it("refuses a non-EVM payer without settling", async () => {
+    mockVerifyX402Payment.mockResolvedValue({ ...valid, payer: "So1anaPayer" });
+    mockFindOrCreateX402User.mockRejectedValue(new Error("x402 payer must be an EVM address"));
+    const res = makeResponse();
+    await handleX402Http(makeRequest({ "x-payment": "p" }), res);
+    expect(res._statusCode).toBe(402);
+    expect(res._written).toContain("X402_PAYER_UNSUPPORTED");
+    expect(mockSettleX402Payment).not.toHaveBeenCalled();
+  });
+
+  it("refuses an underpaid payment without settling", async () => {
+    mockVerifyX402Payment.mockResolvedValue({ ...valid, amountUsd: "0.000488" });
+    const res = makeResponse();
+    await handleX402Http(makeRequest({ "x-payment": "p" }), res);
+    expect(res._statusCode).toBe(402);
+    expect(mockSettleX402Payment).not.toHaveBeenCalled();
+    expect(mockFindOrCreateX402User).not.toHaveBeenCalled();
+  });
+
+  it("rejects a replayed payment (claimed hash) without identity or settlement", async () => {
+    mockVerifyX402Payment.mockResolvedValue({ valid: false, payer: "", amountUsd: "0", facilitator: "coinbase", error: "Payment already used" });
+    const res = makeResponse();
+    await handleX402Http(makeRequest({ "x-payment": "p" }), res);
+    expect(res._statusCode).toBe(402);
+    expect(res._written).toContain("Payment already used");
+    expect(mockFindOrCreateX402User).not.toHaveBeenCalled();
+    expect(mockSettleX402Payment).not.toHaveBeenCalled();
+  });
+
+  it("settles against the relay-priced requirements", async () => {
+    mockVerifyX402Payment.mockResolvedValue(valid);
+    const req = makeRequest({ "x-payment": "p" });
+    await handleX402Http(req, makeResponse());
+    await settleX402Pending(getX402Data(req)!.pending!);
+    expect(mockSettleX402Payment).toHaveBeenCalledWith("p", "coinbase", mockRequirements);
+  });
+
+  it("rejects a payment above the overpay sanity cap without settling", async () => {
+    mockVerifyX402Payment.mockResolvedValue({ ...valid, amountUsd: "1.0" }); // >> 100 × 489 µUSD
+    const res = makeResponse();
+    const req = makeRequest({ "x-payment": "p" });
+    await handleX402Http(req, res);
+    expect(res._statusCode).toBe(402);
+    expect(isX402Verified(req)).toBe(false);
+    expect(mockReleasePaymentHash).toHaveBeenCalledWith("fakehash123");
+  });
+
+  it("releaseX402Pending releases a verified payment once and never settles it", async () => {
+    mockVerifyX402Payment.mockResolvedValue(valid);
+    const req = makeRequest({ "x-payment": "p" });
+    await handleX402Http(req, makeResponse());
+    const p = getX402Data(req)!.pending!;
+    await releaseX402Pending(p);
+    await releaseX402Pending(p);
+    expect(mockReleasePaymentHash).toHaveBeenCalledTimes(1);
+    expect(await settleX402Pending(p)).toBe(false);
+    expect(mockSettleX402Payment).not.toHaveBeenCalled();
+  });
+
+  it("refundX402Payer credits the payer's wallet once, only after settlement", async () => {
+    mockVerifyX402Payment.mockResolvedValue({ ...valid, amountUsd: "0.012345" });
+    const req = makeRequest({ "x-payment": "p" });
+    await handleX402Http(req, makeResponse());
+    const p = getX402Data(req)!.pending!;
+    expect(await refundX402Payer(p, "x")).toBe(false); // not settled → nothing taken, nothing refunded
+    await settleX402Pending(p);
+    mockGetWallet.mockResolvedValueOnce(null);
+    mockCreateWallet.mockResolvedValueOnce({ id: "w-new" });
+    expect(await refundX402Payer(p, "upstream error")).toBe(true);
+    expect(mockCreateWallet).toHaveBeenCalledWith("user-x402");
+    // 12345 µUSD → ceil to 2 cents
+    expect(mockCreditWallet).toHaveBeenCalledWith("user-x402", 2, "x402", "x402-refund:fakehash123", expect.stringContaining("upstream error"));
+    expect(await refundX402Payer(p, "again")).toBe(false);
+    expect(mockCreditWallet).toHaveBeenCalledTimes(1);
+  });
+  it("CONNECT: suspended payer is refused before settlement", async () => {
+    mockVerifyX402Payment.mockResolvedValue(valid);
+    mockFindOrCreateX402User.mockResolvedValue({ id: "u", status: "suspended", created: false });
+    const socket = makeSocket();
+    const r = await handleX402Connect(makeRequest({ "x-payment": "p" }), socket);
+    expect(r!.verified).toBe(false);
+    expect(socket._written).toContain("ACCOUNT_SUSPENDED");
+    expect(mockSettleX402Payment).not.toHaveBeenCalled();
+  });
+
+  it("returns 503 when pricing is unavailable (no verify, no charge)", async () => {
+    mockGetPricing.mockRejectedValue(new Error("db down"));
+    const res = makeResponse();
+    await handleX402Http(makeRequest({ "x-payment": "p" }), res);
+    expect(res._statusCode).toBe(503);
+    expect(mockVerifyX402Payment).not.toHaveBeenCalled();
   });
 });
 
@@ -237,11 +399,10 @@ describe("handleX402Connect", () => {
     expect(socket._written).toContain("X402_PAYMENT_INVALID");
   });
 
-  it("settles before tunnel and returns verified result on valid payment", async () => {
+  it("verifies without settling and returns a pending payment", async () => {
     mockIsX402Enabled.mockReturnValue(true);
     mockBuildX402Requirements.mockReturnValue(mockRequirements);
     mockVerifyX402Payment.mockResolvedValue({ valid: true, payer: "0xPayer", amountUsd: "0.001", facilitator: "coinbase" });
-    mockSettleX402Payment.mockResolvedValue({ txHash: "0xTx", amountSettled: "1000", facilitator: "coinbase" });
 
     const req = makeRequest({ "x-payment": "good" });
     const socket = makeSocket();
@@ -252,27 +413,19 @@ describe("handleX402Connect", () => {
     expect(result!.payer).toBe("0xPayer");
     expect(result!.facilitator).toBe("coinbase");
     expect(result!.maxResponseBytes).toBe(10_485_760);
-    // Settlement happened inside handleX402Connect (settle-before-tunnel)
-    expect(mockSettleX402Payment).toHaveBeenCalledOnce();
-    expect(mockUpdateX402Transaction).toHaveBeenCalled();
+    expect(result!.amountMusd).toBe(1000n);
+    expect(result!.pending!.state).toBe("verified");
+    expect(mockSettleX402Payment).not.toHaveBeenCalled();
+    expect(socket._written).toBe("");
   });
-
-  it("sends 402 when settlement fails", async () => {
+  it("CONNECT pending settles later and releases on failure", async () => {
     mockIsX402Enabled.mockReturnValue(true);
     mockBuildX402Requirements.mockReturnValue(mockRequirements);
     mockVerifyX402Payment.mockResolvedValue({ valid: true, payer: "0xPayer", amountUsd: "0.001", facilitator: "coinbase" });
     mockSettleX402Payment.mockRejectedValue(new Error("settlement failed"));
 
-    const req = makeRequest({ "x-payment": "good" });
-    const socket = makeSocket();
-    const result = await handleX402Connect(req, socket);
-
-    expect(result).not.toBeNull();
-    expect(result!.handled).toBe(true);
-    expect(result!.verified).toBe(false);
-    expect(socket._written).toContain("402");
-    expect(socket._written).toContain("X402_SETTLEMENT_FAILED");
-    // C-3: Should release pending hash on failure (not record failed tx)
+    const result = await handleX402Connect(makeRequest({ "x-payment": "good" }), makeSocket());
+    expect(await settleX402Pending(result!.pending!)).toBe(false);
     expect(mockReleasePaymentHash).toHaveBeenCalledWith("fakehash123");
     expect(mockUpdateX402Transaction).not.toHaveBeenCalled();
   });

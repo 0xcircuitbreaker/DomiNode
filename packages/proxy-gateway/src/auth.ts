@@ -10,7 +10,12 @@ export interface ProxyOptions {
   city?: string;      // lowercase city name (e.g., "losangeles")
   asn?: number;       // ASN number (placeholder for future providers)
   sessionId?: string; // sticky session ID (alphanumeric)
-  proxyType?: "dc" | "residential" | "auto"; // pool selection
+  /** @deprecated legacy dc-/residential-/auto- prefix; mapped to ipClass. */
+  proxyType?: "dc" | "residential" | "auto";
+  /** Relay node class: class-residential|dc|mobile (or legacy prefix). */
+  ipClass?: "residential" | "dc" | "mobile";
+  /** allowhttp-1: opt in to plaintext HTTP through the exit node. */
+  allowHttp?: boolean;
   walletId?: string;  // agentic wallet UUID for policy enforcement
 }
 
@@ -26,13 +31,25 @@ export interface AuthResult {
  * Format: `country-US-session-abc123` or just `user` or any combo.
  * Segments are dash-separated key-value pairs.
  */
-function parseProxyOptions(username: string): ProxyOptions {
+export function parseProxyOptions(username: string): ProxyOptions {
   const options: ProxyOptions = {};
 
-  // Match proxyType prefix: dc-, residential-, auto- at the start of username
+  // Deprecated proxyType prefix: dc-, residential-, auto- (maps to ipClass)
   const typeMatch = username.match(/^(dc|residential|auto)(?:-|$)/);
   if (typeMatch) {
     options.proxyType = typeMatch[1] as "dc" | "residential" | "auto";
+    if (options.proxyType !== "auto") options.ipClass = options.proxyType;
+  }
+
+  // class-residential|dc|mobile (overrides the legacy prefix)
+  const classMatch = username.match(/(?:^|-)class-(residential|dc|mobile)(?:-|$)/);
+  if (classMatch) {
+    options.ipClass = classMatch[1] as "residential" | "dc" | "mobile";
+  }
+
+  // allowhttp-1: plaintext HTTP opt-in
+  if (/(?:^|-)allowhttp-1(?:-|$)/.test(username)) {
+    options.allowHttp = true;
   }
 
   // Match country-XX pattern

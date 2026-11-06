@@ -169,7 +169,7 @@ export interface UsageRecord {
 
 // ─── Payment Invoice ────────────────────────────────────────────
 
-export type PaymentProvider = "stripe" | "nowpayments" | "paypal" | "x402";
+export type PaymentProvider = "stripe" | "nowpayments" | "paypal" | "x402" | "tempo";
 export type PaymentInvoiceStatus = "pending" | "completed" | "failed";
 
 export interface PaymentInvoice {

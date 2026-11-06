@@ -25,7 +25,7 @@ vi.mock("@dominusnode/shared", () => ({
   }),
 }));
 
-import { authenticateRequest } from "./auth.js";
+import { authenticateRequest, parseProxyOptions } from "./auth.js";
 
 function makeRequest(proxyAuth?: string): http.IncomingMessage {
   const req = new http.IncomingMessage(null as any);
@@ -244,5 +244,29 @@ describe("proxy-gateway/auth", () => {
       const result = await authenticateRequest(req);
       expect(result).toBeNull();
     });
+  });
+});
+
+describe("parseProxyOptions (relay flags)", () => {
+  it("parses country, class, session and allowhttp-1", () => {
+    expect(parseProxyOptions("country-us-class-mobile-session-abc123-allowhttp-1")).toEqual({
+      country: "US", ipClass: "mobile", sessionId: "abc123", allowHttp: true,
+    });
+  });
+
+  it("maps deprecated dc-/residential- prefixes to ipClass", () => {
+    expect(parseProxyOptions("dc-country-DE")).toMatchObject({ proxyType: "dc", ipClass: "dc", country: "DE" });
+    expect(parseProxyOptions("residential")).toMatchObject({ proxyType: "residential", ipClass: "residential" });
+    expect(parseProxyOptions("auto-country-US").ipClass).toBeUndefined();
+  });
+
+  it("class- overrides the legacy prefix", () => {
+    expect(parseProxyOptions("dc-class-residential").ipClass).toBe("residential");
+  });
+
+  it("ignores unknown classes and allowhttp values other than 1", () => {
+    const o = parseProxyOptions("class-satellite-allowhttp-0");
+    expect(o.ipClass).toBeUndefined();
+    expect(o.allowHttp).toBeUndefined();
   });
 });

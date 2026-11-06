@@ -12,7 +12,6 @@ COPY package.json package-lock.json tsconfig.json ./
 # Copy only packages needed for the proxy
 COPY packages/shared/ packages/shared/
 COPY packages/metering/ packages/metering/
-COPY packages/pool-manager/ packages/pool-manager/
 COPY packages/proxy-gateway/ packages/proxy-gateway/
 COPY packages/billing/ packages/billing/
 COPY packages/dashboard/ packages/dashboard/
@@ -41,8 +40,6 @@ COPY --from=builder --chown=dominusnode:dominusnode /app/packages/shared/package
 COPY --from=builder --chown=dominusnode:dominusnode /app/packages/shared/dist packages/shared/dist
 COPY --from=builder --chown=dominusnode:dominusnode /app/packages/metering/package.json packages/metering/package.json
 COPY --from=builder --chown=dominusnode:dominusnode /app/packages/metering/dist packages/metering/dist
-COPY --from=builder --chown=dominusnode:dominusnode /app/packages/pool-manager/package.json packages/pool-manager/package.json
-COPY --from=builder --chown=dominusnode:dominusnode /app/packages/pool-manager/dist packages/pool-manager/dist
 COPY --from=builder --chown=dominusnode:dominusnode /app/packages/billing/package.json packages/billing/package.json
 COPY --from=builder --chown=dominusnode:dominusnode /app/packages/billing/dist packages/billing/dist
 COPY --from=builder --chown=dominusnode:dominusnode /app/packages/proxy-gateway/package.json packages/proxy-gateway/package.json

@@ -31,12 +31,6 @@ jobs:
     env:
       DATABASE_URL: postgresql://dominusnode:dominusnode_test@localhost:5432/dominusnode_test
       JWT_SECRET: test-secret-key-that-is-at-least-32-characters-long-for-testing
-      WEBSHARE_DC_USERNAME: testdcuser
-      WEBSHARE_DC_PASSWORD: testdcpass
-      WEBSHARE_RES_USERNAME: testresuser
-      WEBSHARE_RES_PASSWORD: testrespass
-      WEBSHARE_PROXY_HOST: p.test.io
-      WEBSHARE_HTTP_PORT: "80"
       LOG_LEVEL: error
       NODE_ENV: test
 

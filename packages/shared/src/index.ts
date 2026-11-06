@@ -161,3 +161,37 @@ export { sendVerificationEmail, sendPasswordResetEmail, sendWaitlistApprovalEmai
 // Geo Data
 export { US_STATES, MAJOR_US_CITIES } from "./geo-data.js";
 export type { USState, USCity } from "./geo-data.js";
+
+// Agent-network tunnel frame codec
+export * from "./tunnel/frame.js";
+export * from "./tunnel/auth-sig.js";
+
+// Net guard (SSRF floor)
+export {
+  isValidHostname,
+  isValidPort,
+  isBlockedIp,
+  isBlockedIPv4,
+  isBlockedIPv6,
+  expandIPv6,
+  isBlockedTarget,
+  isBlockedPort,
+  isPublicAddress,
+  resolveAndCheck,
+} from "./net-guard.js";
+export type { ResolveCheckResult } from "./net-guard.js";
+
+// Agent relay network
+export { validatePolicy, policySha256, canonicalJson, isFloorKey, PolicyValidationError, DEFAULT_POLICY, PLAINTEXT_MODES, FLOOR_ALLOWED_PORTS, HARD_DENY_PORTS, MAX_POLICY_BYTES } from "./policy.js";
+export type { NetworkPolicy, PlaintextMode, ValidatePolicyOptions } from "./policy.js";
+export * as policyRepo from "./repositories/policy-repo.js";
+export type { ActivePolicy, PublishResult, PricingClass, SplitConfig, NodeTier } from "./repositories/policy-repo.js";
+export * as nodeRepo from "./repositories/node-repo.js";
+export type { NodeRecord, NodeStatus, NodeIpClass, TunnelAuthNode, NodeChallenge, RegisterNodeInput, RegisterNodeResult, HealthUpdate, ListAdminOpts } from "./repositories/node-repo.js";
+export { hashNodeKey, generateNodeKey, NODE_KEY_PREFIX, NODE_CAP_BY_TIER } from "./repositories/node-repo.js";
+export * as relayChargeRepo from "./repositories/relay-charge-repo.js";
+export * as relaySettleRetryRepo from "./repositories/relay-settle-retry-repo.js";
+export * as nodeCreditRepo from "./repositories/node-credit-repo.js";
+export * as tierRepo from "./repositories/tier-repo.js";
+export * as payoutRepo from "./repositories/payout-repo.js";
+export { buildAttestationMessage, sha256Hex, verifyPow, countLeadingZeroBits } from "./attestation.js";

@@ -145,3 +145,23 @@ export async function enforceRetentionPolicies(): Promise<number> {
 
   return totalDeleted;
 }
+
+// ─── Relay abuse-log retention (DESIGN.md §6.4, policy.logRetentionDays) ──
+
+export const ABUSE_LOG_BATCH = 1000;
+
+/**
+ * Delete one batch (≤1000 rows) of relay_abuse_log rows older than `days`.
+ * Returns the number of rows deleted; callers loop until it is < batch.
+ */
+export async function purgeRelayAbuseLogBatch(days: number, batch = ABUSE_LOG_BATCH): Promise<number> {
+  if (!Number.isInteger(days) || days < 1 || days > 3650) throw new Error("days out of range");
+  const lim = Number.isInteger(batch) && batch > 0 && batch <= ABUSE_LOG_BATCH ? batch : ABUSE_LOG_BATCH;
+  const r = await query(
+    `DELETE FROM relay_abuse_log WHERE id IN (
+       SELECT id FROM relay_abuse_log WHERE ts < now() - INTERVAL '1 day' * $1 ORDER BY id LIMIT $2
+     )`,
+    [days, lim],
+  );
+  return r.rowCount ?? 0;
+}

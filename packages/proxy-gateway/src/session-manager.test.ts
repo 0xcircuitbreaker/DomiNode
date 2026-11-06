@@ -9,15 +9,23 @@ const mockEndSessionRepo = vi.fn();
 const mockCreateUsageRecord = vi.fn();
 const mockGetUserPlan = vi.fn();
 const mockGetMonthlyUsage = vi.fn();
+const mockGetPricing = vi.fn();
+const mockGetChargeSnapshot = vi.fn();
+const mockSettleRelayCharge = vi.fn();
+const mockGetBalance = vi.fn();
+const mockEnqueueRetry = vi.fn();
+const SNAPSHOT = { splitConfigId: 1, tierId: 1, nodeShareBps: 2500, holdDays: 14 };
+const RELAY = { nodeId: "node-1", ipClass: "residential" as const, nodeOwnerUserId: "owner-1", destPort: 443 };
 
 vi.mock("@dominusnode/shared", () => ({
   walletRepo: {
     reserveBalance: (...args: unknown[]) => mockReserveBalance(...args),
+    getBalance: (...args: unknown[]) => mockGetBalance(...args),
     releaseReservation: (...args: unknown[]) => mockReleaseReservation(...args),
     settleSession: (...args: unknown[]) => mockSettleSession(...args),
   },
   usageRepo: {
-    createSession: (...args: unknown[]) => mockCreateSession(...args),
+    createRelaySession: (...args: unknown[]) => mockCreateSession(...args),
     endSession: (...args: unknown[]) => mockEndSessionRepo(...args),
     createUsageRecord: (...args: unknown[]) => mockCreateUsageRecord(...args),
   },
@@ -25,6 +33,10 @@ vi.mock("@dominusnode/shared", () => ({
     getUserPlan: (...args: unknown[]) => mockGetUserPlan(...args),
     getMonthlyUsage: (...args: unknown[]) => mockGetMonthlyUsage(...args),
   },
+  policyRepo: { getPricing: (...args: unknown[]) => mockGetPricing(...args) },
+  tierRepo: { getChargeSnapshot: (...args: unknown[]) => mockGetChargeSnapshot(...args) },
+  relayChargeRepo: { settleRelayCharge: (...args: unknown[]) => mockSettleRelayCharge(...args) },
+  relaySettleRetryRepo: { enqueueSettleRetry: (...args: unknown[]) => mockEnqueueRetry(...args) },
   createLogger: () => ({
     debug: vi.fn(),
     info: vi.fn(),
@@ -49,8 +61,10 @@ vi.mock("./balance-check.js", () => ({
   invalidateBalanceCache: vi.fn(),
 }));
 
-import { startSession, endSession, getActiveSessionCount, checkSessionRateLimit, checkBandwidthVelocity, recordBandwidthUsage } from "./session-manager.js";
+import { startSession, endSession, getActiveSessionCount, checkSessionRateLimit, checkBandwidthVelocity, recordBandwidthUsage, reservationCentsFor, maxBytesForReservation, startPrepaidSession, maxBytesForPrepaid, abortPrepaidSession, awaitInFlightSettlements, getInFlightSettlementCount } from "./session-manager.js";
 import type { ByteCounter } from "./counting-stream.js";
+import { enforcePolicy, _resetPolicyEnforcer, getRequesterInflightSpend, getRequesterSpend } from "./policy-enforcer.js";
+const BYTES_PER_GB = 1_073_741_824;
 
 function makeCounter(bytesIn = 0, bytesOut = 0): ByteCounter {
   return { bytesIn, bytesOut, maxBytes: 0, onLimitExceeded: null };
@@ -64,7 +78,7 @@ async function startTestSession(
 ): Promise<string> {
   mockReserveBalance.mockResolvedValueOnce("wallet-1");
   mockCreateSession.mockResolvedValueOnce({ id: sessionId });
-  return startSession(userId, "example.com", counter);
+  return startSession(userId, "example.com", counter, 0, RELAY);
 }
 
 describe("proxy-gateway/session-manager", () => {
@@ -73,6 +87,47 @@ describe("proxy-gateway/session-manager", () => {
     // Default: plan lookup returns default PAYG rate (unlimited bandwidth)
     mockGetUserPlan.mockResolvedValue({ id: "payg", name: "PAYG", pricePerGbCents: 500, monthlyBandwidthBytes: 0, isDefault: true, maxConnections: 100, maxSessionsPerMinute: 30 });
     mockGetMonthlyUsage.mockResolvedValue(0);
+    mockGetPricing.mockResolvedValue(500_000n);
+    mockGetBalance.mockResolvedValue(100_000);
+    mockGetChargeSnapshot.mockResolvedValue(SNAPSHOT);
+    mockSettleRelayCharge.mockResolvedValue({ status: "settled", paidInFull: true, grossMusd: 0n, debitCents: 0 });
+  });
+
+  describe("reservation sizing (DESIGN.md §8)", () => {
+    it("reserves ceil(price x byteCap), not a flat 50c", async () => {
+      mockGetPricing.mockResolvedValueOnce(100_000n); // $0.10/GB -> 10c for the 1GB cap
+      mockReserveBalance.mockResolvedValueOnce("wallet-1");
+      mockCreateSession.mockResolvedValueOnce({ id: "sess-price" });
+      const counter = makeCounter();
+      await startSession("user-p", "example.com", counter, 0, RELAY);
+      expect(mockReserveBalance).toHaveBeenCalledWith("user-p", 10);
+      await endSession("sess-price");
+    });
+
+    it("caps the reservation at the available balance instead of refusing", async () => {
+      mockGetBalance.mockResolvedValueOnce(7);
+      mockReserveBalance.mockResolvedValueOnce("wallet-1");
+      mockCreateSession.mockResolvedValueOnce({ id: "sess-low" });
+      const counter = makeCounter();
+      await startSession("user-low", "example.com", counter, 0, RELAY);
+      expect(mockReserveBalance).toHaveBeenCalledWith("user-low", 7);
+      // 7c at $0.50/GB, no 10% overrun headroom
+      expect(counter.maxBytes).toBe(maxBytesForReservation(7, 500_000n));
+      expect(counter.maxBytes * 500_000 / BYTES_PER_GB / 10_000).toBeLessThanOrEqual(7);
+      await endSession("sess-low");
+    });
+
+    it("refuses a zero balance without attempting a reservation", async () => {
+      mockGetBalance.mockResolvedValueOnce(0);
+      await expect(startSession("user-zero", "example.com", makeCounter(), 0, RELAY)).rejects.toThrow("Insufficient balance");
+      expect(mockReserveBalance).not.toHaveBeenCalled();
+    });
+
+    it("reservationCentsFor rounds up and is at least 1c", () => {
+      expect(reservationCentsFor(500_000n, BYTES_PER_GB)).toBe(50);
+      expect(reservationCentsFor(1n, 1024)).toBe(1);
+      expect(reservationCentsFor(0n)).toBe(0);
+    });
   });
 
   describe("startSession", () => {
@@ -81,11 +136,11 @@ describe("proxy-gateway/session-manager", () => {
       mockCreateSession.mockResolvedValueOnce({ id: "sess-123" });
 
       const counter = makeCounter();
-      const sessionId = await startSession("user-1", "example.com", counter);
+      const sessionId = await startSession("user-1", "example.com", counter, 0, RELAY);
 
       expect(sessionId).toBe("sess-123");
       expect(mockReserveBalance).toHaveBeenCalledWith("user-1", 50); // MIN_RESERVATION_CENTS
-      expect(mockCreateSession).toHaveBeenCalledWith("user-1", "webshare");
+      expect(mockCreateSession).toHaveBeenCalledWith("user-1", "node-1", 443);
     });
 
     it("should throw if insufficient balance for reservation", async () => {
@@ -93,7 +148,7 @@ describe("proxy-gateway/session-manager", () => {
 
       const counter = makeCounter();
       await expect(
-        startSession("user-1", "example.com", counter),
+        startSession("user-1", "example.com", counter, 0, RELAY),
       ).rejects.toThrow("Insufficient balance for reservation");
     });
 
@@ -103,7 +158,7 @@ describe("proxy-gateway/session-manager", () => {
 
       const counter = makeCounter();
       await expect(
-        startSession("user-1", "example.com", counter),
+        startSession("user-1", "example.com", counter, 0, RELAY),
       ).rejects.toThrow("DB error");
 
       expect(mockReleaseReservation).toHaveBeenCalledWith("user-1", 50);
@@ -114,7 +169,7 @@ describe("proxy-gateway/session-manager", () => {
 
       const counter = makeCounter();
       await expect(
-        startSession("user-1", "example.com", counter),
+        startSession("user-1", "example.com", counter, 0, RELAY),
       ).rejects.toThrow("Insufficient balance");
 
       expect(mockCreateSession).not.toHaveBeenCalled();
@@ -127,7 +182,7 @@ describe("proxy-gateway/session-manager", () => {
       mockCreateSession.mockResolvedValueOnce({ id: `sess-count-${Date.now()}` });
 
       const counter = makeCounter();
-      const sessId = await startSession("user-count", "target.io", counter);
+      const sessId = await startSession("user-count", "target.io", counter, 0, RELAY);
 
       expect(getActiveSessionCount()).toBeGreaterThanOrEqual(before + 1);
 
@@ -142,7 +197,7 @@ describe("proxy-gateway/session-manager", () => {
       mockCreateSession.mockResolvedValueOnce({ id: "sess-target" });
 
       const counter = makeCounter();
-      await startSession("user-1", "api.example.org", counter, 0, "residential", undefined, true);
+      await startSession("user-1", "api.example.org", counter, 0, RELAY, undefined, true);
 
       // End the session and verify targetHost is used in recordUsage
       mockSettleSession.mockResolvedValueOnce(true);
@@ -150,16 +205,7 @@ describe("proxy-gateway/session-manager", () => {
       await endSession("sess-target");
 
       // recordUsage now takes 8 args: userId, sessionId, bytesIn, bytesOut, targetHost, pricePerGbCents, connectLatencyMs, proxyType
-      expect(mockRecordUsage).toHaveBeenCalledWith(
-        "user-1",
-        "sess-target",
-        expect.any(Number),
-        expect.any(Number),
-        "api.example.org",
-        expect.any(Number),
-        expect.any(Number),
-        "residential", // default proxyType
-      );
+      expect(mockSettleRelayCharge).toHaveBeenCalledWith(expect.objectContaining({ sessionId: "sess-target", usageTargetHost: "api.example.org" }));
     });
 
     it("should store empty targetHost when logTargetHosts=false (default)", async () => {
@@ -167,22 +213,13 @@ describe("proxy-gateway/session-manager", () => {
       mockCreateSession.mockResolvedValueOnce({ id: "sess-private" });
 
       const counter = makeCounter();
-      await startSession("user-1", "api.example.org", counter);
+      await startSession("user-1", "api.example.org", counter, 0, RELAY);
 
       mockSettleSession.mockResolvedValueOnce(true);
       mockEndSessionRepo.mockResolvedValueOnce(undefined);
       await endSession("sess-private");
 
-      expect(mockRecordUsage).toHaveBeenCalledWith(
-        "user-1",
-        "sess-private",
-        expect.any(Number),
-        expect.any(Number),
-        "", // Privacy-first: no targetHost stored by default
-        expect.any(Number),
-        expect.any(Number),
-        "residential",
-      );
+      expect(mockSettleRelayCharge).toHaveBeenCalledWith(expect.objectContaining({ sessionId: "sess-private", usageTargetHost: "" }));
     });
 
     it("should propagate non-balance DB errors", async () => {
@@ -191,7 +228,7 @@ describe("proxy-gateway/session-manager", () => {
 
       const counter = makeCounter();
       await expect(
-        startSession("user-1", "example.com", counter),
+        startSession("user-1", "example.com", counter, 0, RELAY),
       ).rejects.toThrow("connection timeout");
     });
 
@@ -209,7 +246,7 @@ describe("proxy-gateway/session-manager", () => {
 
       const counter = makeCounter();
       await expect(
-        startSession("user-free", "example.com", counter),
+        startSession("user-free", "example.com", counter, 0, RELAY),
       ).rejects.toThrow("Monthly bandwidth limit exceeded");
 
       // Should not have attempted to reserve balance
@@ -232,7 +269,7 @@ describe("proxy-gateway/session-manager", () => {
       mockCreateSession.mockResolvedValueOnce({ id: "sess-within-limit" });
 
       const counter = makeCounter();
-      const sessId = await startSession("user-free", "example.com", counter);
+      const sessId = await startSession("user-free", "example.com", counter, 0, RELAY);
       expect(sessId).toBe("sess-within-limit");
 
       // Free plan: no reservation should have been made
@@ -252,7 +289,7 @@ describe("proxy-gateway/session-manager", () => {
       mockCreateSession.mockResolvedValueOnce({ id: "sess-free-cap" });
 
       const counter = makeCounter();
-      const sessId = await startSession("user-free-cap", "example.com", counter);
+      const sessId = await startSession("user-free-cap", "example.com", counter, 0, RELAY);
       expect(counter.maxBytes).toBe(50 * 1024 * 1024);
 
       mockEndSessionRepo.mockResolvedValueOnce(undefined);
@@ -274,7 +311,7 @@ describe("proxy-gateway/session-manager", () => {
       mockCreateSession.mockResolvedValueOnce({ id: "sess-free-no-reserve" });
 
       const counter = makeCounter(5000, 10000);
-      const sessId = await startSession("user-free2", "example.com", counter);
+      const sessId = await startSession("user-free2", "example.com", counter, 0, RELAY);
       expect(sessId).toBe("sess-free-no-reserve");
 
       // Should NOT have attempted to reserve balance
@@ -285,20 +322,10 @@ describe("proxy-gateway/session-manager", () => {
       await endSession(sessId);
 
       // Usage should still be recorded (targetHost is "" because logTargetHosts defaults to false)
-      expect(mockRecordUsage).toHaveBeenCalledWith(
-        "user-free2",
-        "sess-free-no-reserve",
-        5000,
-        10000,
-        "", // Privacy-first: no targetHost stored by default
-        0, // free plan pricing
-        expect.any(Number),
-        "residential", // default proxyType
-      );
+      expect(mockSettleRelayCharge).toHaveBeenCalledWith(expect.objectContaining({ sessionId: "sess-free-no-reserve", usageTargetHost: "" }));
       // Wallet settle should NOT have been called
       expect(mockSettleSession).not.toHaveBeenCalled();
-      // Session should be marked completed
-      expect(mockEndSessionRepo).toHaveBeenCalledWith("sess-free-no-reserve", 15000, "completed");
+      expect(mockSettleRelayCharge).toHaveBeenCalledWith(expect.objectContaining({ rail: "free", bytesGateway: 15000n }));
     });
 
     it("should skip bandwidth check for unlimited plans (0 bytes)", async () => {
@@ -307,7 +334,7 @@ describe("proxy-gateway/session-manager", () => {
       mockCreateSession.mockResolvedValueOnce({ id: "sess-unlimited" });
 
       const counter = makeCounter();
-      const sessId = await startSession("user-payg", "example.com", counter);
+      const sessId = await startSession("user-payg", "example.com", counter, 0, RELAY);
       expect(sessId).toBe("sess-unlimited");
 
       // getMonthlyUsage should NOT have been called (skipped because limit is 0)
@@ -324,219 +351,216 @@ describe("proxy-gateway/session-manager", () => {
 
       const counter = makeCounter();
       await expect(
-        startSession("user-err", "example.com", counter),
+        startSession("user-err", "example.com", counter, 0, RELAY),
       ).rejects.toThrow("Unable to verify plan. Please try again.");
     });
   });
 
-  describe("endSession", () => {
-    it("should settle session and record usage on success", async () => {
-      const counter = makeCounter(1000, 2000);
-      const sessId = await startTestSession("user-1", "sess-end-1", counter);
-
-      mockSettleSession.mockResolvedValueOnce(true);
-      mockEndSessionRepo.mockResolvedValueOnce(undefined);
-
-      await endSession(sessId);
-
-      expect(mockSettleSession).toHaveBeenCalledWith(
-        "user-1",
-        50, // reserved cents
-        expect.any(Number), // actual cost cents
-        "sess-end-1",
-      );
-      expect(mockEndSessionRepo).toHaveBeenCalledWith("sess-end-1", 3000, "completed");
+  describe("startPrepaidSession (x402)", () => {
+    it("reserves nothing, caps bytes at what the payment bought, and settles as x402 with gross = paid", async () => {
+      mockCreateSession.mockResolvedValueOnce({ id: "sess-x402" });
+      const counter = makeCounter(100, 200);
+      const id = await startPrepaidSession({
+        userId: "x402-user", targetHost: "example.com", counter, connectLatencyMs: 0, relay: RELAY,
+        rail: "x402", paidMusd: 4883n, quotedPricePerGbMusd: 500_000n, maxBytes: 10_485_760,
+      });
+      expect(id).toBe("sess-x402");
+      expect(mockReserveBalance).not.toHaveBeenCalled();
+      expect(mockGetBalance).not.toHaveBeenCalled();
+      expect(counter.maxBytes).toBe(Math.min(maxBytesForPrepaid(4883n, 500_000n), 10_485_760));
+      expect(counter.maxBytes).toBeLessThanOrEqual(10_485_760);
+      mockSettleRelayCharge.mockResolvedValueOnce({ status: "settled", paidInFull: true, grossMusd: 4883n, debitCents: 0 });
+      await endSession(id);
+      expect(mockSettleRelayCharge).toHaveBeenCalledWith(expect.objectContaining({
+        sessionId: "sess-x402", requesterUserId: "x402-user", rail: "x402", reservedCents: 0, prepaidGrossMusd: 4883n,
+        pricePerGbMusd: 500_000n, bytesGateway: 300n,
+      }));
     });
 
-    it("should mark session as error when settlement is partial", async () => {
-      const counter = makeCounter(5000, 5000);
-      const sessId = await startTestSession("user-1", "sess-end-2", counter);
-
-      mockSettleSession.mockResolvedValueOnce(false); // partial payment
+    it("abortPrepaidSession closes the session with no relay charge, once", async () => {
+      mockCreateSession.mockResolvedValueOnce({ id: "sess-abort" });
+      const id = await startPrepaidSession({
+        userId: "x402-user", targetHost: "example.com", counter: makeCounter(10, 10), connectLatencyMs: 0, relay: RELAY,
+        rail: "x402", paidMusd: 4883n, quotedPricePerGbMusd: 500_000n, maxBytes: 10_485_760,
+      });
       mockEndSessionRepo.mockResolvedValueOnce(undefined);
+      expect(await abortPrepaidSession(id)).toBe(true);
+      expect(await abortPrepaidSession(id)).toBe(false);
+      await endSession(id);
+      expect(mockSettleRelayCharge).not.toHaveBeenCalled();
+      expect(mockEndSessionRepo).toHaveBeenCalledWith("sess-abort", 0, "error");
+    });
+
+    it("refuses a non-positive prepaid amount", async () => {
+      await expect(startPrepaidSession({
+        userId: "u", targetHost: "example.com", counter: makeCounter(), connectLatencyMs: 0, relay: RELAY,
+        rail: "x402", paidMusd: 0n, quotedPricePerGbMusd: 500_000n, maxBytes: 1000,
+      })).rejects.toThrow();
+      expect(mockCreateSession).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("endSession", () => {
+    const settled = (over: Record<string, unknown> = {}) => ({
+      status: "settled", relayChargeId: "rc-1", paidInFull: true, grossMusd: 10_000n, nodeMusd: 2_500n,
+      platformMusd: 7_500n, debitCents: 1, zeroReason: null, ...over,
+    });
+
+    it("settles through settleRelayCharge with gateway bytes and locked price/split", async () => {
+      const counter = makeCounter(1000, 2000);
+      const sessId = await startTestSession("user-1", "sess-end-1", counter);
+      mockSettleRelayCharge.mockResolvedValueOnce(settled());
 
       await endSession(sessId);
 
-      expect(mockEndSessionRepo).toHaveBeenCalledWith("sess-end-2", 10000, "error");
+      expect(mockSettleRelayCharge).toHaveBeenCalledWith(expect.objectContaining({
+        sessionId: "sess-end-1",
+        requesterUserId: "user-1",
+        rail: "wallet",
+        reservedCents: 50,
+        nodeId: "node-1",
+        bytesGateway: 3000n,
+        bytesIn: 1000,
+        bytesOut: 2000,
+        pricePerGbMusd: 500_000n,
+        snapshot: SNAPSHOT,
+        destHost: "example.com",
+        destPort: 443,
+      }));
+      expect(mockEndSessionRepo).not.toHaveBeenCalled();
+    });
+
+    it("tracks in-flight settlements so shutdown can await them before closing the pool", async () => {
+      const sessId = await startTestSession("user-sd", "sess-sd", makeCounter(10, 10));
+      let commit!: () => void;
+      mockSettleRelayCharge.mockImplementationOnce(() => new Promise((r) => { commit = () => r(settled()); }));
+      const before = getActiveSessionCount();
+      const p = endSession(sessId);
+      expect(getActiveSessionCount()).toBe(before - 1); // gone from the active map already...
+      expect(getInFlightSettlementCount()).toBe(1); // ...but still settling
+      let drained = false;
+      const wait = awaitInFlightSettlements(5_000).then((ok) => { drained = ok; });
+      await new Promise((r) => setTimeout(r, 10));
+      expect(drained).toBe(false);
+      commit();
+      await wait;
+      await p;
+      expect(drained).toBe(true);
+      expect(getInFlightSettlementCount()).toBe(0);
+    });
+
+    it("awaitInFlightSettlements gives up at the timeout", async () => {
+      const sessId = await startTestSession("user-sd2", "sess-sd2", makeCounter(1, 1));
+      let commit!: () => void;
+      mockSettleRelayCharge.mockImplementationOnce(() => new Promise((r) => { commit = () => r(settled()); }));
+      const p = endSession(sessId);
+      expect(await awaitInFlightSettlements(20)).toBe(false);
+      commit();
+      await p;
+    });
+
+    it("counts in-flight reservations against the daily spend cap (no concurrency bypass)", async () => {
+      _resetPolicyEnforcer();
+      const policy = { ports: [443], denyDomains: [], plaintext: "allow", requesterLimits: { reqPerSec: 1000, dailySpendMusd: 1_000_000 } } as any;
+      expect(enforcePolicy(policy, { userId: "user-cap", host: "example.com", port: 443, plaintext: false, allowHttp: false }).allowed).toBe(true);
+      // 50c reservations = 500_000 µUSD each against a 1_000_000 µUSD cap
+      const a = await startTestSession("user-cap", "sess-cap-a", makeCounter(1, 1));
+      await startTestSession("user-cap", "sess-cap-b", makeCounter(1, 1));
+      expect(getRequesterInflightSpend("user-cap")).toBe(1_000_000n);
+      await expect(startSession("user-cap", "example.com", makeCounter(), 0, RELAY)).rejects.toThrow("Daily spend cap reached");
+      expect(enforcePolicy(policy, { userId: "user-cap", host: "example.com", port: 443, plaintext: false, allowHttp: false }))
+        .toMatchObject({ allowed: false, code: "SPEND_CAP_EXCEEDED" });
+      // Settle: the hold is replaced by the real (small) spend.
+      mockSettleRelayCharge.mockResolvedValueOnce(settled({ grossMusd: 1_000n }));
+      await endSession(a);
+      expect(getRequesterInflightSpend("user-cap")).toBe(500_000n);
+      expect(getRequesterSpend("user-cap")).toBe(1_000n);
+      await startTestSession("user-cap", "sess-cap-d", makeCounter());
+      _resetPolicyEnforcer();
+    });
+
+    it("releases the in-flight hold when session start fails", async () => {
+      _resetPolicyEnforcer();
+      mockReserveBalance.mockResolvedValueOnce("wallet-1");
+      mockCreateSession.mockRejectedValueOnce(new Error("db down"));
+      await expect(startSession("user-hold", "example.com", makeCounter(), 0, RELAY)).rejects.toThrow("db down");
+      expect(getRequesterInflightSpend("user-hold")).toBe(0n);
+      _resetPolicyEnforcer();
+    });
+
+    it("locks price per node class and owner tier at start", async () => {
+      await startTestSession("user-lock", "sess-lock", makeCounter());
+      expect(mockGetPricing).toHaveBeenCalledWith("residential");
+      expect(mockGetChargeSnapshot).toHaveBeenCalledWith("owner-1");
+      expect(mockCreateSession).toHaveBeenCalledWith("user-lock", "node-1", 443);
+    });
+
+    it("rejects the session when pricing cannot be locked (fail closed)", async () => {
+      mockGetPricing.mockRejectedValueOnce(new Error("network pricing not configured"));
+      await expect(startSession("user-np", "example.com", makeCounter(), 0, RELAY))
+        .rejects.toThrow("Unable to lock relay pricing");
     });
 
     it("should be a no-op for unknown session ID", async () => {
       await endSession("unknown-session");
-      expect(mockSettleSession).not.toHaveBeenCalled();
-      expect(mockRecordUsage).not.toHaveBeenCalled();
+      expect(mockSettleRelayCharge).not.toHaveBeenCalled();
     });
 
-    it("should handle error when settleSession throws", async () => {
-      const counter = makeCounter(500, 500);
-      const sessId = await startTestSession("user-err", "sess-settle-err", counter);
-
-      // settleSession throws an unexpected error
-      mockSettleSession.mockRejectedValueOnce(new Error("DB connection lost"));
-      // The catch block should try to endSession in DB as error
-      mockEndSessionRepo.mockResolvedValueOnce(undefined);
-
-      // Should NOT throw -- error is caught internally
+    it("queues a durable retry (session left active) when settleRelayCharge throws", async () => {
+      const sessId = await startTestSession("user-err", "sess-settle-err", makeCounter(500, 500));
+      mockSettleRelayCharge.mockRejectedValueOnce(new Error("DB connection lost"));
+      mockEnqueueRetry.mockResolvedValueOnce(undefined);
       await endSession(sessId);
-
-      // usageRepo.endSession should have been called with "error" status
-      expect(mockEndSessionRepo).toHaveBeenCalledWith("sess-settle-err", 1000, "error");
+      expect(mockEnqueueRetry).toHaveBeenCalledWith(expect.objectContaining({
+        sessionId: "sess-settle-err", requesterUserId: "user-err", reservedCents: 50, bytesGateway: 1000n, rail: "wallet",
+      }), "DB connection lost");
+      expect(mockEndSessionRepo).not.toHaveBeenCalled();
     });
 
-    it("should handle error when recordUsage throws", async () => {
-      const counter = makeCounter(500, 500);
-      const sessId = await startTestSession("user-rec-err", "sess-rec-err", counter);
-
-      // recordUsage (from metering) throws
-      mockRecordUsage.mockRejectedValueOnce(new Error("metering failed"));
-      // The catch block should try to endSession in DB as error
+    it("marks session error only when the retry cannot be queued", async () => {
+      const sessId = await startTestSession("user-err2", "sess-settle-err2", makeCounter(500, 500));
+      mockSettleRelayCharge.mockRejectedValueOnce(new Error("DB connection lost"));
+      mockEnqueueRetry.mockRejectedValueOnce(new Error("DB down"));
       mockEndSessionRepo.mockResolvedValueOnce(undefined);
-
       await endSession(sessId);
-
-      // Should mark as error in the catch block
-      expect(mockEndSessionRepo).toHaveBeenCalledWith("sess-rec-err", 1000, "error");
+      expect(mockEndSessionRepo).toHaveBeenCalledWith("sess-settle-err2", 1000, "error");
     });
 
-    it("should handle error when endSessionRepo throws in error catch block (best-effort)", async () => {
-      const counter = makeCounter(500, 500);
-      const sessId = await startTestSession("user-double-err", "sess-double-err", counter);
-
-      // Main flow throws
-      mockSettleSession.mockRejectedValueOnce(new Error("settle failed"));
-      // Error recovery also throws
+    it("swallows errors in the error-recovery path (best-effort)", async () => {
+      const sessId = await startTestSession("user-double-err", "sess-double-err", makeCounter(500, 500));
+      mockEnqueueRetry.mockRejectedValueOnce(new Error("queue down"));
+      mockSettleRelayCharge.mockRejectedValueOnce(new Error("settle failed"));
       mockEndSessionRepo.mockRejectedValueOnce(new Error("DB totally down"));
-
-      // Should NOT throw -- the inner catch swallows it (best effort)
       await endSession(sessId);
     });
 
     it("should be a no-op on double call (once guard)", async () => {
-      const counter = makeCounter(100, 200);
-      const sessId = await startTestSession("user-double", "sess-double-call", counter);
-
-      mockSettleSession.mockResolvedValueOnce(true);
-      mockEndSessionRepo.mockResolvedValueOnce(undefined);
-
-      // First call ends the session
+      const sessId = await startTestSession("user-double", "sess-double-call", makeCounter(100, 200));
+      mockSettleRelayCharge.mockResolvedValueOnce(settled());
       await endSession(sessId);
-      expect(mockSettleSession).toHaveBeenCalledTimes(1);
-
-      // Second call should be a no-op (session already removed)
-      mockSettleSession.mockClear();
       await endSession(sessId);
-      expect(mockSettleSession).not.toHaveBeenCalled();
+      expect(mockSettleRelayCharge).toHaveBeenCalledTimes(1);
     });
 
-    it("should record zero bytes if no data transferred", async () => {
-      const counter = makeCounter(0, 0);
-      const sessId = await startTestSession("user-zero", "sess-zero-bytes", counter);
-
-      mockSettleSession.mockResolvedValueOnce(true);
-      mockEndSessionRepo.mockResolvedValueOnce(undefined);
-
-      await endSession(sessId);
-
-      expect(mockRecordUsage).toHaveBeenCalledWith(
-        "user-zero",
-        "sess-zero-bytes",
-        0,
-        0,
-        "", // Privacy-first: no targetHost stored by default
-        expect.any(Number), // pricePerGbCents
-        expect.any(Number), // connectLatencyMs
-        "residential", // default proxyType
-      );
-      // Cost should be 0 for 0 bytes
-      expect(mockSettleSession).toHaveBeenCalledWith(
-        "user-zero",
-        50,
-        0, // actual cost = 0
-        "sess-zero-bytes",
-      );
-      expect(mockEndSessionRepo).toHaveBeenCalledWith("sess-zero-bytes", 0, "completed");
-    });
-
-    it("should pass correct total bytes (bytesIn + bytesOut)", async () => {
-      const counter = makeCounter(1_000_000, 2_000_000);
-      const sessId = await startTestSession("user-total", "sess-total-bytes", counter);
-
-      mockSettleSession.mockResolvedValueOnce(true);
-      mockEndSessionRepo.mockResolvedValueOnce(undefined);
-
-      await endSession(sessId);
-
-      expect(mockEndSessionRepo).toHaveBeenCalledWith(
-        "sess-total-bytes",
-        3_000_000, // bytesIn + bytesOut
-        "completed",
-      );
-    });
-
-    it("should invalidate balance cache after successful settlement", async () => {
+    it("invalidates the balance cache after settlement", async () => {
       const { invalidateBalanceCache } = await import("./balance-check.js");
-
-      const counter = makeCounter(100, 200);
-      const sessId = await startTestSession("user-cache-inv", "sess-cache-inv", counter);
-
-      mockSettleSession.mockResolvedValueOnce(true);
-      mockEndSessionRepo.mockResolvedValueOnce(undefined);
-
+      const sessId = await startTestSession("user-cache-inv", "sess-cache-inv", makeCounter(100, 200));
+      mockSettleRelayCharge.mockResolvedValueOnce(settled());
       await endSession(sessId);
-
-      // invalidateBalanceCache is called during endSession
       expect(invalidateBalanceCache).toHaveBeenCalled();
     });
 
-    it("should handle partial settlement when actual exceeds reserved", async () => {
-      // Use a very large byte count to exceed the 50-cent reservation
-      const counter = makeCounter(500_000_000, 500_000_000); // ~1GB
-      const sessId = await startTestSession("user-overage", "sess-overage", counter);
-
-      mockSettleSession.mockResolvedValueOnce(false); // partial - insufficient for overage
-      mockEndSessionRepo.mockResolvedValueOnce(undefined);
-
+    it("uses the free rail for free plans", async () => {
+      mockGetUserPlan.mockResolvedValueOnce({
+        id: "free", name: "Free", pricePerGbCents: 0, monthlyBandwidthBytes: 1_000_000_000,
+        isDefault: true, maxConnections: 10, maxSessionsPerMinute: 30,
+      });
+      mockGetMonthlyUsage.mockResolvedValueOnce(0);
+      mockCreateSession.mockResolvedValueOnce({ id: "sess-free-rail" });
+      const sessId = await startSession("user-free-rail", "example.com", makeCounter(10, 10), 0, RELAY);
+      mockSettleRelayCharge.mockResolvedValueOnce(settled({ grossMusd: 0n, debitCents: 0 }));
       await endSession(sessId);
-
-      expect(mockEndSessionRepo).toHaveBeenCalledWith(
-        "sess-overage",
-        1_000_000_000,
-        "error",
-      );
-    });
-
-    it("should use plan pricing for cost computation", async () => {
-      const proPlan = {
-        id: "pro",
-        name: "Pro",
-        pricePerGbCents: 300,
-        monthlyBandwidthBytes: 100_000_000_000,
-        isDefault: false,
-        maxConnections: 100,
-        maxSessionsPerMinute: 60,
-      };
-      // Single call: plan fetched once in startSession, price locked in session
-      mockGetUserPlan.mockResolvedValueOnce(proPlan);
-      mockGetMonthlyUsage.mockResolvedValueOnce(0); // within bandwidth limit
-
-      const counter = makeCounter(500, 500);
-      const sessId = await startTestSession("user-plan", "sess-plan", counter);
-
-      mockSettleSession.mockResolvedValueOnce(true);
-      mockEndSessionRepo.mockResolvedValueOnce(undefined);
-
-      await endSession(sessId);
-
-      // recordUsage should be called with the plan's pricePerGbCents and proxyType
-      expect(mockRecordUsage).toHaveBeenCalledWith(
-        "user-plan",
-        "sess-plan",
-        500,
-        500,
-        "", // Privacy-first: no targetHost stored by default
-        300, // Pro plan pricing
-        expect.any(Number), // connectLatencyMs
-        "residential", // default proxyType
-      );
+      expect(mockSettleRelayCharge).toHaveBeenCalledWith(expect.objectContaining({ rail: "free", reservedCents: 0 }));
     });
 
     it("should reject session when getUserPlan throws (fail closed)", async () => {
@@ -545,7 +569,7 @@ describe("proxy-gateway/session-manager", () => {
       const counter = makeCounter(500, 500);
       // Sessions are now rejected when plan can't be determined
       await expect(
-        startSession("user-no-plan", "example.com", counter),
+        startSession("user-no-plan", "example.com", counter, 0, RELAY),
       ).rejects.toThrow("Unable to verify plan. Please try again.");
     });
   });
@@ -566,7 +590,7 @@ describe("proxy-gateway/session-manager", () => {
       mockCreateSession.mockResolvedValueOnce({ id: `sess-active-${Date.now()}` });
 
       const counter = makeCounter();
-      const sessId = await startSession("user-active", "target.com", counter);
+      const sessId = await startSession("user-active", "target.com", counter, 0, RELAY);
 
       expect(getActiveSessionCount()).toBe(before + 1);
 
@@ -581,7 +605,7 @@ describe("proxy-gateway/session-manager", () => {
       mockCreateSession.mockResolvedValueOnce({ id: `sess-dec-${Date.now()}` });
 
       const counter = makeCounter();
-      const sessId = await startSession("user-dec", "target.com", counter);
+      const sessId = await startSession("user-dec", "target.com", counter, 0, RELAY);
       const afterStart = getActiveSessionCount();
 
       mockSettleSession.mockResolvedValueOnce(true);
@@ -633,7 +657,7 @@ describe("proxy-gateway/session-manager", () => {
       mockReserveBalance.mockResolvedValueOnce("wallet-1");
       const counter = makeCounter();
       await expect(
-        startSession(userId, "example.com", counter),
+        startSession(userId, "example.com", counter, 0, RELAY),
       ).rejects.toThrow("Session rate limit exceeded");
     });
 

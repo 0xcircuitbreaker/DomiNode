@@ -14,7 +14,6 @@ COPY packages/shared/ packages/shared/
 COPY packages/metering/ packages/metering/
 COPY packages/billing/ packages/billing/
 COPY packages/dashboard/ packages/dashboard/
-COPY packages/pool-manager/ packages/pool-manager/
 COPY packages/proxy-gateway/ packages/proxy-gateway/
 COPY packages/mcp-server/ packages/mcp-server/
 
@@ -43,8 +42,6 @@ COPY --from=builder --chown=dominusnode:dominusnode /app/packages/metering/packa
 COPY --from=builder --chown=dominusnode:dominusnode /app/packages/metering/dist packages/metering/dist
 COPY --from=builder --chown=dominusnode:dominusnode /app/packages/billing/package.json packages/billing/package.json
 COPY --from=builder --chown=dominusnode:dominusnode /app/packages/billing/dist packages/billing/dist
-COPY --from=builder --chown=dominusnode:dominusnode /app/packages/pool-manager/package.json packages/pool-manager/package.json
-COPY --from=builder --chown=dominusnode:dominusnode /app/packages/pool-manager/dist packages/pool-manager/dist
 COPY --from=builder --chown=dominusnode:dominusnode /app/packages/dashboard/package.json packages/dashboard/package.json
 COPY --from=builder --chown=dominusnode:dominusnode /app/packages/dashboard/dist packages/dashboard/dist
 

@@ -16,6 +16,7 @@ import {
   listApiKeys,
   countActiveKeys,
   revokeApiKey,
+  findOrCreateX402User,
 } from "./user-repo.js";
 
 describe("user-repo", () => {
@@ -290,6 +291,38 @@ describe("user-repo", () => {
       mockQuery.mockResolvedValueOnce({ rowCount: null });
       const result = await revokeApiKey("ak1", "u1");
       expect(result).toBe(false);
+    });
+  });
+
+  describe("findOrCreateX402User", () => {
+    const ADDR = "0x" + "AB".repeat(20);
+    it("reuses an existing user bound to the payer address (lowercased)", async () => {
+      mockQuery.mockResolvedValueOnce({ rows: [{ id: "u1", status: "active" }] });
+      expect(await findOrCreateX402User(ADDR)).toEqual({ id: "u1", status: "active", created: false });
+      expect(mockQuery.mock.calls[0][1]).toEqual([ADDR.toLowerCase()]);
+      expect(mockQuery).toHaveBeenCalledTimes(1);
+    });
+    it("creates a wallet-identity user when none exists", async () => {
+      mockQuery.mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [{ id: "u2", status: "active" }] });
+      expect(await findOrCreateX402User(ADDR)).toEqual({ id: "u2", status: "active", created: true });
+      const [sql, params] = mockQuery.mock.calls[1];
+      expect(sql).toMatch(/ON CONFLICT DO NOTHING/);
+      expect(sql).not.toMatch(/RETURNING \*/);
+      expect(params[0]).toBe(`${ADDR.toLowerCase()}@wallet.dominusnode.com`);
+      expect(params[1]).toMatch(/^\$2[aby]\$/); // unusable bcrypt hash
+      expect(params[2]).toBe(ADDR.toLowerCase());
+    });
+    it("collapses a concurrent create onto the winner", async () => {
+      mockQuery.mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [{ id: "u3", status: "active" }] });
+      expect(await findOrCreateX402User(ADDR)).toEqual({ id: "u3", status: "active", created: false });
+    });
+    it("returns suspended status so callers can refuse", async () => {
+      mockQuery.mockResolvedValueOnce({ rows: [{ id: "u4", status: "suspended" }] });
+      expect((await findOrCreateX402User(ADDR)).status).toBe("suspended");
+    });
+    it("rejects non-EVM payers", async () => {
+      await expect(findOrCreateX402User("So1anaAddr")).rejects.toThrow(/EVM/);
+      expect(mockQuery).not.toHaveBeenCalled();
     });
   });
 });

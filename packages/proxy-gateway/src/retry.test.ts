@@ -15,7 +15,7 @@ vi.mock("@dominusnode/shared", () => ({
 // with vi.mock partial mocking), we mock setTimeout directly to make sleep instant.
 vi.useFakeTimers();
 
-import { executeWithRetry, sleep, promisifyRequest, RETRYABLE_ERRORS, type RetryOptions, type RequestFn } from "./retry.js";
+import { executeWithRetry, sleep, promisifyRequest, RETRYABLE_ERRORS, withNodeRetry, type RetryOptions, type RequestFn } from "./retry.js";
 import * as http from "node:http";
 
 /** Helper to create a fake IncomingMessage with the given status code */
@@ -492,5 +492,38 @@ describe("proxy-gateway/retry", () => {
       ).rejects.toThrow();
       vi.useFakeTimers();
     });
+  });
+});
+
+describe("withNodeRetry", () => {
+  const err = (code: string, nodeId: string) => Object.assign(new Error(code), { code, nodeId });
+  const nodeOf = (e: unknown) => (e as { nodeId?: string }).nodeId ?? null;
+  const codeOf = (e: unknown) => (e as { code?: string }).code ?? null;
+
+  it("retries once on another node for DIAL_FAIL / DNS_FAIL", async () => {
+    for (const code of ["DIAL_FAIL", "DNS_FAIL"]) {
+      const seen: string[][] = [];
+      const r = await withNodeRetry(async (ex) => {
+        seen.push(ex);
+        if (ex.length === 0) throw err(code, "n1");
+        return { nodeId: "n2", value: "ok" };
+      }, nodeOf, codeOf);
+      expect(r).toEqual({ nodeId: "n2", value: "ok", retries: 1 });
+      expect(seen).toEqual([[], ["n1"]]);
+    }
+  });
+
+  it("does not retry FLOOR_BLOCKED / PORT_BLOCKED / CAP_EXCEEDED", async () => {
+    for (const code of ["FLOOR_BLOCKED", "PORT_BLOCKED", "CAP_EXCEEDED"]) {
+      let calls = 0;
+      await expect(withNodeRetry(async () => { calls++; throw err(code, "n1"); }, nodeOf, codeOf)).rejects.toThrow(code);
+      expect(calls).toBe(1);
+    }
+  });
+
+  it("retries at most once", async () => {
+    let calls = 0;
+    await expect(withNodeRetry(async () => { calls++; throw err("DIAL_FAIL", `n${calls}`); }, nodeOf, codeOf)).rejects.toThrow();
+    expect(calls).toBe(2);
   });
 });

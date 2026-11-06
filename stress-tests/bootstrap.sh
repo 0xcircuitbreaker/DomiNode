@@ -325,12 +325,6 @@ echo "[6/8] Starting proxy gateway on HTTP :${PROXY_HTTP_PORT}, SOCKS5 :${PROXY_
 DATABASE_URL="${DB_URL}" \
   PROXY_LISTEN_PORT="${PROXY_HTTP_PORT}" \
   SOCKS5_LISTEN_PORT="${PROXY_SOCKS5_PORT}" \
-  WEBSHARE_DC_USERNAME="stress_dc_user" \
-  WEBSHARE_DC_PASSWORD="stress_dc_pass" \
-  WEBSHARE_RES_USERNAME="stress_res_user" \
-  WEBSHARE_RES_PASSWORD="stress_res_pass" \
-  WEBSHARE_PROXY_HOST="localhost" \
-  WEBSHARE_HTTP_PORT="${MOCK_UPSTREAM_PORT}" \
   JWT_SECRET="stress-test-jwt-secret-do-not-use-in-production" \
   SKIP_GEOIP=1 \
   MAX_SESSIONS_PER_MINUTE=1000 \

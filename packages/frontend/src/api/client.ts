@@ -5,8 +5,8 @@
 const MAX_RESPONSE_BYTES = 5 * 1024 * 1024; // 5MB
 
 // Credential scrubbing — defense-in-depth to prevent leaking secrets in error messages
-const CREDENTIAL_PATTERNS = /dn_live_\S+|dn_test_\S+|dn_proxy_\S+|das_\S+|eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g;
-function scrubCredentials(msg: string): string {
+const CREDENTIAL_PATTERNS = /dn_live_\S+|dn_test_\S+|dn_node_\S+|dn_proxy_\S+|das_\S+|eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g;
+export function scrubCredentials(msg: string): string {
   return msg.replace(CREDENTIAL_PATTERNS, "[REDACTED]");
 }
 
