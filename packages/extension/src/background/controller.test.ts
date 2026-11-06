@@ -67,7 +67,7 @@ describe("Controller spend-cap stop", () => {
     await ctl.init();
     expect(ctl.mode).toBe("proxying");
     const lastPac = () => (chromeMock.proxy.settings.set.mock.calls.at(-1)?.[0] as { value: { pacScript: { data: string } } }).value.pacScript.data;
-    expect(lastPac()).toContain("PROXY gw.example.com:8080");
+    expect(lastPac()).toContain("HTTPS gw.example.com:8443");
     expect(ctl.creds()?.auth?.password).toBe(KEY);
 
     await ctl.pollBalance(); // 1000 baseline
@@ -77,7 +77,7 @@ describe("Controller spend-cap stop", () => {
     expect(ctl.mode).toBe("blocked");
     expect(ctl.run.spentCents).toBe(60);
     expect(lastPac()).toContain("PROXY 127.0.0.1:9");
-    expect(lastPac()).not.toContain("gw.example.com:8080");
+    expect(lastPac()).not.toContain("gw.example.com:8443");
     expect(ctl.creds()?.auth).toBeNull();
     expect(chromeMock.action.setBadgeText).toHaveBeenLastCalledWith({ text: "STOP" });
   });
@@ -122,4 +122,83 @@ describe("Controller spend-cap stop", () => {
     const pac = (chromeMock.proxy.settings.set.mock.calls.at(-1)?.[0] as { value: { pacScript: { data: string } } }).value.pacScript.data;
     expect(pac).toContain("127.0.0.1:9");
   });
+
+  it("refuses a plaintext non-local gateway from operator edits and fails closed under managed policy", async () => {
+    const ctl = new Controller();
+    await ctl.init();
+    await expect(ctl.operatorUpdate({ gatewayTls: false })).rejects.toThrow(/localhost/);
+    expect(ctl.settings.gatewayTls).toBe(true);
+    await expect(ctl.importConfig({ gatewayTls: false })).rejects.toThrow(/localhost/);
+
+    chromeMock.storage.managed._store.set("gatewayTls", false);
+    const managed = new Controller();
+    await managed.init();
+    const pac = (chromeMock.proxy.settings.set.mock.calls.at(-1)?.[0] as { value: { pacScript: { data: string } } }).value.pacScript.data;
+    expect(pac).toContain("127.0.0.1:9");
+    expect(pac).not.toContain("PROXY gw.example.com");
+    expect(managed.creds()?.auth).toBeNull();
+    expect(managed.lastError).toMatch(/Plaintext/);
+  });
+
+  it("plaintext is allowed for a localhost gateway", async () => {
+    const ctl = new Controller();
+    await ctl.init();
+    await ctl.operatorUpdate({ gatewayHost: "localhost", gatewayPort: 8080, gatewayTls: false });
+    const pac = (chromeMock.proxy.settings.set.mock.calls.at(-1)?.[0] as { value: { pacScript: { data: string } } }).value.pacScript.data;
+    expect(pac).toContain("PROXY localhost:8080");
+  });
+
+  it("reports mode error (not proxying) when another extension holds the proxy setting", async () => {
+    const takeOver = () => chromeMock.proxy.settings._setState({ levelOfControl: "controlled_by_other_extensions", value: { mode: "direct" } });
+    chromeMock.proxy.settings.set.mockImplementationOnce(async () => { takeOver(); });
+    const ctl = new Controller();
+    await ctl.init();
+    expect(ctl.mode).toBe("error");
+    expect(ctl.creds()?.auth).toBeNull();
+    expect(ctl.controlStatus().mode).toBe("error");
+    expect(ctl.controlStatus().proxyError).toMatch(/not controlled/);
+    expect(chromeMock.action.setBadgeText).toHaveBeenLastCalledWith({ text: "ERR" });
+
+    // A later successful apply clears the error.
+    await ctl.apply();
+    expect(ctl.mode).toBe("proxying");
+
+    // Takeover after the fact is caught by the onChange re-verify.
+    takeOver();
+    await ctl.reverifyProxy();
+    expect(ctl.mode).toBe("error");
+    expect(ctl.creds()?.auth).toBeNull();
+  });
+
+  it("control disable+enable does not reset the run or lift the block", async () => {
+    balances = [1000, 900];
+    const ctl = new Controller();
+    await ctl.init();
+    await ctl.pollBalance();
+    await ctl.pollBalance();
+    expect(ctl.mode).toBe("blocked");
+    const spent = ctl.run.spentCents;
+    await ctl.handleControl({ type: "disable" });
+    await ctl.handleControl({ type: "enable" });
+    expect(ctl.run.blocked).toBe(true);
+    expect(ctl.run.spentCents).toBe(spent);
+    expect(ctl.mode).toBe("blocked");
+    await ctl.handleControl({ type: "disable" });
+    await ctl.handleControl({ type: "setSettings", settings: { enabled: true } });
+    expect(ctl.run.blocked).toBe(true);
+    expect(ctl.mode).toBe("blocked");
+  });
+
+  it("operator enable starts a fresh run", async () => {
+    balances = [1000, 900, 900];
+    const ctl = new Controller();
+    await ctl.init();
+    await ctl.pollBalance();
+    await ctl.pollBalance();
+    expect(ctl.mode).toBe("blocked");
+    await ctl.operatorUpdate({ enabled: false });
+    await ctl.operatorUpdate({ enabled: true });
+    expect(ctl.run.blocked).toBe(false);
+  });
 });
+

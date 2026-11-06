@@ -5,12 +5,13 @@ import { buildUsername, newSessionId } from "../shared/flags.js";
 import { safeParse } from "../shared/json.js";
 import { loadManagedConfig, parseConfig } from "../shared/managed-config.js";
 import { keyPrefix, scrubCredentials } from "../shared/scrub.js";
-import { validateSettingsPatch, type Settings } from "../shared/settings.js";
+import { assertGatewayTransport, isLocalGateway, validateSettingsPatch, type Settings } from "../shared/settings.js";
 import { applyBalanceSample, newRun, type RunState } from "../shared/spend.js";
-import { buildPac, clearProxy, setPac, type GatewayCreds } from "./proxy.js";
+import { buildPac, clearProxy, setPac, verifyPac, type GatewayCreds } from "./proxy.js";
 import * as store from "./store.js";
 
-export type Mode = "off" | "proxying" | "blocked" | "no_key";
+/** "error": the PAC could not be applied/verified, so traffic may not be proxied. */
+export type Mode = "off" | "proxying" | "blocked" | "no_key" | "error";
 
 export interface ExitInfo {
   country: string | null;
@@ -46,6 +47,8 @@ export interface ControlStatus {
   spendCapCents: number | null;
   balanceCents: number | null;
   blockReason: string | null;
+  /** Why the proxy setting could not be applied/verified (mode "error"). */
+  proxyError: string | null;
 }
 
 export class Controller {
@@ -57,6 +60,10 @@ export class Controller {
   managedKeys: string[] = [];
   private account: AccountClient | null = null;
   private onChange: (() => void) | null = null;
+  /** Set when the proxy setting could not be applied or verified (cleared on success). */
+  proxyError: string | null = null;
+  /** PAC last pushed into chrome.proxy (null when cleared). */
+  private appliedPac: string | null = null;
 
   async init(): Promise<void> {
     this.settings = await store.loadSettings();
@@ -91,6 +98,7 @@ export class Controller {
 
   get mode(): Mode {
     if (!this.settings.enabled) return "off";
+    if (this.proxyError) return "error";
     if (!this.apiKey) return "no_key";
     if (this.run.blocked) return "blocked";
     return "proxying";
@@ -103,7 +111,11 @@ export class Controller {
   /** Read by the onAuthRequired handler. */
   creds(): GatewayCreds | null {
     if (!this.settings?.enabled) return null;
-    const blocked = !this.apiKey || this.run.blocked;
+    if (this.proxyError) {
+      return { host: this.settings.gatewayHost, port: this.settings.gatewayPort, auth: null };
+    }
+    const insecure = !this.settings.gatewayTls && !isLocalGateway(this.settings.gatewayHost);
+    const blocked = !this.apiKey || this.run.blocked || insecure;
     return {
       host: this.settings.gatewayHost,
       port: this.settings.gatewayPort,
@@ -123,20 +135,51 @@ export class Controller {
 
   /** Push current settings into chrome.proxy, badge and alarms. */
   async apply(): Promise<void> {
+    this.proxyError = null;
     const mode = this.mode;
     try {
-      if (mode === "off") await clearProxy();
-      else {
+      if (mode === "off") {
+        this.appliedPac = null;
+        await clearProxy();
+      } else {
         // no_key and blocked both fail closed: traffic never leaves DIRECT.
         const pacMode = mode === "proxying" ? "proxy" : "block";
-        await setPac(buildPac(pacMode, this.settings.gatewayHost, this.settings.gatewayPort, this.apiHost()));
+        const { gatewayHost, gatewayPort, gatewayTls } = this.settings;
+        let pac: string;
+        try {
+          pac = buildPac(pacMode, gatewayHost, gatewayPort, this.apiHost(), gatewayTls);
+        } catch (err) {
+          // Refused transport: fail closed (block), never DIRECT and never plaintext creds.
+          this.lastError = scrubCredentials(err);
+          pac = buildPac("block", gatewayHost, gatewayPort, this.apiHost(), true);
+        }
+        this.appliedPac = pac;
+        await setPac(pac);
       }
     } catch (err) {
       this.lastError = scrubCredentials(err);
+      if (mode !== "off") this.proxyError = this.lastError;
     }
     await this.updateBadge();
     await this.scheduleAlarms();
     this.onChange?.();
+  }
+
+  /** chrome.proxy.settings.onChange: re-check that our PAC is still the one in effect. */
+  async reverifyProxy(): Promise<void> {
+    if (!this.settings?.enabled || !this.appliedPac) return;
+    const before = this.proxyError;
+    try {
+      await verifyPac(this.appliedPac);
+      this.proxyError = null;
+    } catch (err) {
+      this.proxyError = scrubCredentials(err);
+      this.lastError = this.proxyError;
+    }
+    if (before !== this.proxyError) {
+      await this.updateBadge();
+      this.onChange?.();
+    }
   }
 
   private async updateBadge(): Promise<void> {
@@ -145,6 +188,7 @@ export class Controller {
       proxying: ["ON", "#16a34a"],
       blocked: ["STOP", "#dc2626"],
       no_key: ["KEY", "#d97706"],
+      error: ["ERR", "#dc2626"],
     };
     const [text, color] = badge[this.mode];
     try {
@@ -156,7 +200,7 @@ export class Controller {
   }
 
   private async scheduleAlarms(): Promise<void> {
-    if (this.mode === "proxying" || this.mode === "blocked") {
+    if (this.mode === "proxying" || this.mode === "blocked" || this.mode === "error") {
       chrome.alarms.create(ALARMS.BALANCE, { periodInMinutes: BALANCE_POLL_MINUTES });
     } else await chrome.alarms.clear(ALARMS.BALANCE);
     if (this.settings.sticky && this.settings.rotateMinutes > 0) {
@@ -171,14 +215,20 @@ export class Controller {
     if (this.settings.sticky && !this.settings.sessionId) this.settings.sessionId = newSessionId();
   }
 
-  async updateSettings(patch: Partial<Settings>): Promise<void> {
+  /**
+   * @param scope "operator" (own pages, import): enabling starts a fresh run (new spend
+   *   baseline, block lifted). "control": enabling keeps the current run, so a control
+   *   driver cannot reset the spend cap by toggling disable/enable.
+   */
+  async updateSettings(patch: Partial<Settings>, scope: "operator" | "control" = "operator"): Promise<void> {
     const prevBase = this.settings.apiBase;
     const wasEnabled = this.settings.enabled;
+    assertGatewayTransport({ ...this.settings, ...patch });
     this.settings = { ...this.settings, ...patch };
     this.ensureSession();
     if (this.settings.apiBase !== prevBase) this.account = null;
-    // Each enable starts a fresh run (spend baseline).
-    if (!wasEnabled && this.settings.enabled) await this.resetRun(false);
+    // An operator enable starts a fresh run (spend baseline); a control enable never does.
+    if (scope === "operator" && !wasEnabled && this.settings.enabled) await this.resetRun(false);
     await store.saveSettings(this.settings);
     await this.apply();
     if (!wasEnabled && this.settings.enabled) void this.pollBalance();
@@ -193,8 +243,8 @@ export class Controller {
     if (key) void this.pollBalance();
   }
 
-  async rotateSession(): Promise<void> {
-    await this.updateSettings({ sticky: true, sessionId: newSessionId() });
+  async rotateSession(scope: "operator" | "control" = "operator"): Promise<void> {
+    await this.updateSettings({ sticky: true, sessionId: newSessionId() }, scope);
     this.exit = null;
   }
 
@@ -275,16 +325,16 @@ export class Controller {
       case "getStatus":
         break;
       case "setSettings":
-        await this.updateSettings(cmd.settings);
+        await this.updateSettings(cmd.settings, "control");
         break;
       case "rotateSession":
-        await this.rotateSession();
+        await this.rotateSession("control");
         break;
       case "enable":
-        await this.updateSettings({ enabled: true });
+        await this.updateSettings({ enabled: true }, "control");
         break;
       case "disable":
-        await this.updateSettings({ enabled: false });
+        await this.updateSettings({ enabled: false }, "control");
         break;
     }
     return this.controlStatus();
@@ -319,6 +369,7 @@ export class Controller {
       spendCapCents: s.spendCapCents,
       balanceCents: this.run.lastBalanceCents,
       blockReason: this.run.blockReason,
+      proxyError: this.proxyError,
     };
   }
 

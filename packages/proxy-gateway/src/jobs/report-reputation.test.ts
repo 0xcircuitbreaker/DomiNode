@@ -50,22 +50,40 @@ function node(id: string, reputation: number): LiveNode {
 }
 
 describe("registry report penalties", () => {
-  it("effective reputation drives quarantine; the persisted base reputation is unchanged", () => {
+  it("report penalty alone never quarantines: it raises a review flag; base reputation still quarantines", () => {
     const r = new NodeRegistry();
     r.add(node("n1", QUARANTINE_BELOW + 500));
     expect(r.shouldQuarantine("n1")).toBe(false);
     r.setReportPenalties(["n1", "gone"], new Map([["n1", 600]]));
     expect(effectiveReputation(r.get("n1")!)).toBe(QUARANTINE_BELOW - 100);
-    expect(r.shouldQuarantine("n1")).toBe(true);
+    expect(r.shouldQuarantine("n1")).toBe(false);
+    expect(r.needsReportReview("n1")).toBe(true);
     r.recordFailure("n1");
     const flushed = r.drainCounters().find((f) => f.nodeId === "n1")!;
-    expect(flushed).toBeDefined();
-    {
-      expect(flushed.reputation).toBeGreaterThan(QUARANTINE_BELOW);
-      expect(flushed.quarantine).toBe(true);
-    }
+    expect(flushed.reputation).toBeGreaterThan(QUARANTINE_BELOW);
+    expect(flushed.quarantine).toBe(false);
+    expect(flushed.reviewFlag).toBe(true);
+    expect(flushed.reportPenalty).toBe(600);
     r.setReportPenalties(["n1"], new Map());
-    expect(r.shouldQuarantine("n1")).toBe(false);
+    expect(r.needsReportReview("n1")).toBe(false);
+
+    r.add(node("n2", QUARANTINE_BELOW - 1));
+    expect(r.shouldQuarantine("n2")).toBe(true);
+    expect(r.needsReportReview("n2")).toBe(false);
+  });
+
+  it("reputation flush flags penalty-driven drops for review instead of quarantining", async () => {
+    const quarantine = vi.fn();
+    const flagReview = vi.fn().mockResolvedValue(true);
+    const etld = new Map();
+    const c = { bytes: 0, streams: 0, failures: 0, burns: 0, disputes: 0, etld };
+    const res = await repFlush.runOnce({
+      drain: () => [{ nodeId: "n1", day: 1, reputation: 1500, quarantine: false, reviewFlag: true, reportPenalty: 600, counters: c }],
+      flushHealth: vi.fn().mockResolvedValue(1), quarantine, flagReview,
+    });
+    expect(quarantine).not.toHaveBeenCalled();
+    expect(flagReview).toHaveBeenCalledWith("n1", 600);
+    expect(res.reviewFlagged).toBe(1);
   });
 
   it("reputation flush refreshes penalties first and survives a refresh failure", async () => {

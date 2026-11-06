@@ -5,6 +5,17 @@ import { AuthenticationError, invalidArg } from "../errors.js";
 import { buildProxyUsername, proxyFetch, type ProxyRoutingOptions, type ProxyFetchOptions, type ProxyFetchResponse } from "../proxy-fetch.js";
 import type { LookupAll } from "../ssrf.js";
 import { validateApiKey } from "./auth.js";
+import { rootCertificates } from "node:tls";
+
+/**
+ * gatewayTls.ca is ADDED to the system roots (same as the other SDKs), never a
+ * replacement: Node's `ca` option replaces the trust store, so append it to
+ * tls.rootCertificates. undefined = system roots only.
+ */
+export function gatewayTrustRoots(ca: string | Buffer | undefined): string[] | undefined {
+  if (ca === undefined) return undefined;
+  return [...rootCertificates, typeof ca === "string" ? ca : ca.toString("utf8")];
+}
 
 export interface ProxyUrlOptions extends ProxyRoutingOptions {
   /**
@@ -87,7 +98,7 @@ export class ProxyResource {
     const { apiKey, ...rest } = opts;
     const host = this.#host.replace(/^\[|\]$/g, "");
     const ep = this.#tls
-      ? { host, port: this.#tls.port, lookup: this.#lookup, tls: { ca: this.#tls.ca, servername: this.#tls.servername } }
+      ? { host, port: this.#tls.port, lookup: this.#lookup, tls: { ca: gatewayTrustRoots(this.#tls.ca), servername: this.#tls.servername } }
       : { host, port: this.#httpPort, lookup: this.#lookup };
     return proxyFetch(ep, this.#key(apiKey), url, rest);
   }

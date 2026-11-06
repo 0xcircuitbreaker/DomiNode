@@ -124,14 +124,14 @@ describe("reputation flush job", () => {
     const etld = new Map();
     const r = await repFlush.runOnce({
       drain: () => [
-        { nodeId: "n1", day: 1, reputation: 5000, quarantine: false, counters: { bytes: 10, streams: 1, failures: 0, burns: 0, disputes: 0, etld } },
-        { nodeId: "n2", day: 1, reputation: 500, quarantine: true, counters: { bytes: 0, streams: 0, failures: 3, burns: 2, disputes: 0, etld } },
+        { nodeId: "n1", day: 1, reputation: 5000, quarantine: false, reviewFlag: false, reportPenalty: 0, counters: { bytes: 10, streams: 1, failures: 0, burns: 0, disputes: 0, etld } },
+        { nodeId: "n2", day: 1, reputation: 500, quarantine: true, reviewFlag: false, reportPenalty: 0, counters: { bytes: 0, streams: 0, failures: 3, burns: 2, disputes: 0, etld } },
       ],
       flushHealth, quarantine,
     });
     expect(flushHealth.mock.calls[0]![0][1]).toEqual({ nodeId: "n2", bytes: 0, streams: 0, failures: 3, burns: 2, reputation: 500 });
     expect(quarantine).toHaveBeenCalledWith("n2");
-    expect(r).toEqual({ nodes: 2, flushed: 2, quarantined: 1 });
+    expect(r).toEqual({ nodes: 2, flushed: 2, quarantined: 1, reviewFlagged: 0 });
   });
 });
 

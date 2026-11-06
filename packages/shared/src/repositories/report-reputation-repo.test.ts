@@ -61,7 +61,12 @@ describe("SQL", () => {
     const [sql, params] = mockQuery.mock.calls[0];
     expect(sql).toMatch(/reporter_user_id <> p\.owner_user_id/);
     expect(sql).toMatch(/team_members a JOIN team_members b/);
-    expect(sql).toMatch(/node_owner_user_id IS DISTINCT FROM s\.reporter_user_id/);
+    expect(sql).toMatch(/node_owner_user_id IS DISTINCT FROM a\.reporter_user_id/);
+    // Spend counted on the reported node only, not total account spend.
+    expect(sql).toMatch(/rc\.node_id = a\.node_id/);
+    // Circular flow: owner paid the reporter's nodes -> reporter spend excluded.
+    expect(sql).toMatch(/back\.requester_user_id = p\.owner_user_id[\s\S]*back\.node_owner_user_id = a\.reporter_user_id/);
+    expect(sql).toMatch(/sp\.node_id = a\.node_id AND sp\.reporter_user_id = a\.reporter_user_id/);
     expect(sql).toMatch(/NOT rc\.disputed/);
     expect(sql).not.toMatch(/SELECT \*/);
     expect(params).toEqual([null, 1000, 30, 7]);

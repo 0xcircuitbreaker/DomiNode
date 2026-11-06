@@ -5,7 +5,7 @@ import * as job from "./collusion.js";
 const S = collusionRepo.DEFAULT_COLLUSION_SETTINGS;
 const USD = 1_000_000n;
 const node = (id: string, top: bigint) => ({
-  nodeId: id, ownerUserId: "o-" + id, totalMusd: 100n * USD, requesters: 5, topRequesterUserId: "r", topMusd: top, topKMusd: top,
+  nodeId: id, ownerUserId: "o-" + id, totalMusd: 100n * USD, requesters: 5, topRequesterUserId: "r", topMusd: top, topKMusd: top, hhiBps: 0,
 });
 
 function deps(over: Partial<job.CollusionDeps> = {}): job.CollusionDeps {

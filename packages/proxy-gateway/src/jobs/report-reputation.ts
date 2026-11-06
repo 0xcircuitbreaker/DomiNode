@@ -48,6 +48,8 @@ export function paramsFromEnv(
 ): Params {
   return {
     fullWeightSpendMusd: BigInt(envInt(env, "REPORT_FULL_WEIGHT_SPEND_CENTS", Number(defaults.fullWeightSpendMusd / 10_000n), 1, 100_000_000)) * 10_000n,
+    minNodeSpendMusd: BigInt(envInt(env, "REPORT_MIN_NODE_SPEND_CENTS", Number(defaults.minNodeSpendMusd / 10_000n), 0, 100_000_000)) * 10_000n,
+    maxLowWeightReporters: envInt(env, "REPORT_MAX_LOW_WEIGHT_REPORTERS", defaults.maxLowWeightReporters, 0, 1000),
     halfLifeDays: envInt(env, "REPORT_HALF_LIFE_DAYS", defaults.halfLifeDays, 1, 30),
     maxPerReporter: envInt(env, "REPORT_MAX_PER_REPORTER", defaults.maxPerReporter, 1, 100),
     pointsPerReport: envInt(env, "REPORT_POINTS_PER_REPORT", defaults.pointsPerReport, 1, 10_000),

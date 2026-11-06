@@ -49,7 +49,7 @@ Prices come only from `network.pricing()` and `x402.getInfo()`.
 | proxyHost | `proxy.dominusnode.com` | `[A-Za-z0-9.-]{1,253}` or bracketed IPv6; else INVALID_ARGUMENT |
 | httpProxyPort | 8080 | integer 1..65535 |
 | socks5ProxyPort | 1080 | integer 1..65535 |
-| gatewayTls | off | optional. `true` or `{ port = 8443, ca?, servername? }`: TLS to the gateway's HTTPS proxy listener (`PROXY_TLS_PORT`), so `Proxy-Authorization` is encrypted. Certificate verification always on (`ca` adds a PEM root). `servername` overrides SNI and the verified name (default proxyHost; useful when proxyHost is an IP). When set, `proxy.fetch` uses it and `buildUrl` defaults to `https://`. All six SDKs. |
+| gatewayTls | off | optional. `true` or `{ port = 8443, ca?, servername? }`: TLS to the gateway's HTTPS proxy listener (`PROXY_TLS_PORT`), so `Proxy-Authorization` is encrypted. Certificate verification always on. `ca` is a PEM root ADDED to the system roots (append, never replace: Node passes `[...tls.rootCertificates, ca]`, C++ prepends the default CA bundle to `CURLOPT_PROXY_CAINFO_BLOB`, Go/Rust/Python/Java add it to the default store). `servername` overrides SNI and the verified name (default proxyHost; useful when proxyHost is an IP). When set, `proxy.fetch` uses it and `buildUrl` defaults to `https://`. All six SDKs. |
 | accessToken, refreshToken | none | optional pre-existing JWT pair |
 | HTTP transport | platform default | injectable for tests; must not follow redirects |
 

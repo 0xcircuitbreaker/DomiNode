@@ -226,3 +226,13 @@ TEST(gateway_tls_build_url_and_config) {
     bad_ca.ca_pem = "not pem";
     CHECK_INVALID(make_client("localhost", 0, bad_ca));
 }
+
+TEST(gateway_tls_ca_is_added_to_system_roots) {
+    const std::string sys = "-----BEGIN CERTIFICATE-----\nSYS\n-----END CERTIFICATE-----";
+    const std::string ca = "-----BEGIN CERTIFICATE-----\nEXTRA\n-----END CERTIFICATE-----\n";
+    const std::string b = dominusnode::gateway_trust_bundle(sys, ca);
+    CHECK(b.find("SYS") < b.find("EXTRA"));
+    CHECK(b.find("EXTRA") != std::string::npos);
+    CHECK(b == sys + "\n" + ca);
+    CHECK(dominusnode::gateway_trust_bundle("", ca) == ca);
+}

@@ -42,12 +42,24 @@ function createStorageMock() {
 }
 
 // ─── Chrome Proxy Settings Mock ──────────────────────────────────
+// Mirrors Chrome: after set() this extension controls the setting with that value.
+let proxyState: { levelOfControl: string; value: unknown } = {
+  levelOfControl: "controllable_by_this_extension",
+  value: { mode: "system" },
+};
 const proxySettingsMock = {
-  set: vi.fn(async (_details: unknown) => {}),
-  clear: vi.fn(async (_details: unknown) => {}),
-  get: vi.fn((_details: unknown, callback?: (config: unknown) => void) => {
-    if (callback) callback({});
+  set: vi.fn(async (details: unknown) => {
+    proxyState = { levelOfControl: "controlled_by_this_extension", value: (details as { value: unknown }).value };
   }),
+  clear: vi.fn(async (_details: unknown) => {
+    proxyState = { levelOfControl: "controllable_by_this_extension", value: { mode: "system" } };
+  }),
+  get: vi.fn(async (_details: unknown) => proxyState),
+  onChange: { addListener: vi.fn() },
+  /** Test hook: simulate another extension / policy taking over. */
+  _setState(state: { levelOfControl: string; value: unknown }) {
+    proxyState = state;
+  },
 };
 
 // ─── Chrome Alarms Mock ──────────────────────────────────────────

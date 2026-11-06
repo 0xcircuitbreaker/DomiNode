@@ -14,7 +14,8 @@ export const ALARMS = {
 
 export const DEFAULT_API_BASE = "https://api.dominusnode.com";
 export const DEFAULT_GATEWAY_HOST = "proxy.dominusnode.com";
-export const DEFAULT_GATEWAY_PORT = 8080;
+/** Gateway TLS listener (PROXY_TLS_PORT). The key is sent as the proxy password, so TLS is the default. */
+export const DEFAULT_GATEWAY_PORT = 8443;
 
 /** Poll interval for balance (chrome.alarms minimum is 0.5 min in packed builds). */
 export const BALANCE_POLL_MINUTES = 1;

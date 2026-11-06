@@ -53,14 +53,20 @@ No — but they should be split by where trust lives:
 
 - **Burn reports** (`POST /v1/sessions/:id/report`) feed `nodes.report_penalty`
   through the hourly `report-reputation` job. Each report is weighted by the
-  reporter's counted 30-day spend (`min(1, spend / REPORT_FULL_WEIGHT_SPEND_CENTS)`,
-  default $10; spend on the reporter's own nodes and disputed charges do not
-  count), decays with a half-life (`REPORT_HALF_LIFE_DAYS`, 7), is capped per
+  reporter's paid 30-day spend on the reported node only
+  (`min(1, spend / REPORT_FULL_WEIGHT_SPEND_CENTS)`, default $10; 0 below
+  `REPORT_MIN_NODE_SPEND_CENTS`, default $0.50; disputed charges and spend to an
+  owner who also paid the reporter's nodes (circular flow) do not count). At most
+  `REPORT_MAX_LOW_WEIGHT_REPORTERS` (5) partial-weight reporters count per node.
+  Reports decay with a half-life (`REPORT_HALF_LIFE_DAYS`, 7), is capped per
   reporter per node (`REPORT_MAX_PER_REPORTER`, 3 reports) and per node
   (`REPORT_MAX_PENALTY`, 2000 points; `REPORT_POINTS_PER_REPORT`, 100). Reports
   against your own or a teammate's nodes are ignored, so a reporter with no
-  real spend has ~0 weight. Selection, quarantine and tiers use
-  `reputation - report_penalty`.
+  real spend on that node has ~0 weight. Selection and tiers use
+  `reputation - report_penalty`; quarantine uses the base reputation only. When
+  the report penalty alone would drop a node below the quarantine threshold the
+  gateway opens an admin review flag (`collusion_flags` kind `report_penalty`)
+  instead of quarantining it.
 - **Collusion** (DESIGN.md §13 commit 33): the daily `collusion` job flags
   requester/owner concentration and circular buying, admin-visible at
   `/api/admin/network/collusion/flags` (ADMIN_API.md §12). Automatic credit

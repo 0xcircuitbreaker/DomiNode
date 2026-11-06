@@ -46,6 +46,11 @@ chrome.alarms.onAlarm.addListener((alarm) => {
   });
 });
 
+// Another extension or policy can take the proxy setting at any time: re-verify.
+chrome.proxy.settings.onChange.addListener(() => {
+  void ready.then(() => ctl.reverifyProxy());
+});
+
 chrome.storage.onChanged.addListener((_changes, area) => {
   if (area === "managed") void ready.then(async () => { await ctl.applyManaged(); await ctl.apply(); });
 });

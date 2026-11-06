@@ -155,6 +155,21 @@ describe("payout-repo", () => {
     expect(r.sqls().some((x) => /'withdraw_reversal'/.test(x))).toBe(true);
   });
 
+  it("markPayoutReversedTx runs on the caller's client without its own transaction", async () => {
+    const { markPayoutReversedTx } = await import("./payout-repo.js");
+    const r = routedClient([
+      [/FROM node_payouts WHERE id = \$1 FOR UPDATE/, () => payout("pending")],
+      [/UPDATE node_payouts/, () => payout("reversed")],
+      [/FROM node_credit_accounts WHERE user_id = \$1 FOR UPDATE/, () => acct("0")],
+    ]);
+    mockConnect.mockReset();
+    const p = await markPayoutReversedTx(r.client as never, "p1", "admin: x");
+    expect(p.status).toBe("reversed");
+    expect(mockConnect).not.toHaveBeenCalled();
+    expect(r.sqls().some((x) => /^(BEGIN|COMMIT)/.test(x))).toBe(false);
+    expect(r.sqls().some((x) => /'withdraw_reversal'/.test(x))).toBe(true);
+  });
+
   it("cannot reverse confirmed; confirm is idempotent on same hash", async () => {
     setup([[/FROM node_payouts WHERE id = \$1 FOR UPDATE/, () => payout("confirmed", { tx_hash: H })]]);
     await expect(markPayoutReversed("p1", "x")).rejects.toThrow(/confirmed/);
