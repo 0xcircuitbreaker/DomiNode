@@ -14,7 +14,7 @@ describe("parseConfig", () => {
     expect(config.httpProxyPort).toBe(8080);
     expect(config.socks5ProxyPort).toBe(1080);
     expect(config.fetchTimeoutMs).toBe(30000);
-    expect(config.fetchMaxResponseBytes).toBe(5 * 1024 * 1024);
+    expect(config.fetchMaxResponseBytes).toBe(10 * 1024 * 1024);
   });
 
   it("allows missing DOMINUSNODE_API_KEY for bootstrap mode", () => {

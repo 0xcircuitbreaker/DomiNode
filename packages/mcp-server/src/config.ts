@@ -7,6 +7,10 @@ export interface McpConfig {
   fetchTimeoutMs: number;
   fetchMaxResponseBytes: number;
   mcpAgentSecret: string;
+  /** Path to a 0600 file holding the owner wallet private key (node registration only). */
+  walletKeyFile: string | null;
+  /** Where node_register writes the node credential file (mode 0600). */
+  nodeKeyFile: string;
 }
 
 export class ConfigError extends Error {
@@ -91,11 +95,11 @@ export function parseConfig(env: Record<string, string | undefined> = process.en
 
   const fetchMaxResponseBytes = parsePositiveInt(
     env["DOMINUSNODE_FETCH_MAX_RESPONSE_BYTES"],
-    5 * 1024 * 1024,
+    10 * 1024 * 1024,
     "DOMINUSNODE_FETCH_MAX_RESPONSE_BYTES",
   );
-  // Enforce upper bound to prevent config-based OOM
-  const MAX_FETCH_RESPONSE_BYTES = 50 * 1024 * 1024; // 50MB hard cap
+  // Enforce upper bound to prevent config-based OOM (integration-patterns: 10MB cap)
+  const MAX_FETCH_RESPONSE_BYTES = 10 * 1024 * 1024;
   if (fetchMaxResponseBytes > MAX_FETCH_RESPONSE_BYTES) {
     throw new ConfigError(`DOMINUSNODE_FETCH_MAX_RESPONSE_BYTES must not exceed ${MAX_FETCH_RESPONSE_BYTES}`);
   }
@@ -108,6 +112,11 @@ export function parseConfig(env: Record<string, string | undefined> = process.en
     throw new ConfigError("MCP_AGENT_SECRET must be at least 32 characters when set");
   }
 
+  const walletKeyFile = parseFilePath(env["DOMINUSNODE_WALLET_KEY_FILE"], "DOMINUSNODE_WALLET_KEY_FILE");
+  const nodeKeyFile =
+    parseFilePath(env["DOMINUSNODE_NODE_KEY_FILE"], "DOMINUSNODE_NODE_KEY_FILE") ??
+    `${env["HOME"] || env["USERPROFILE"] || "."}/.dominusnode/node.json`;
+
   return {
     apiKey,
     apiUrl,
@@ -117,6 +126,8 @@ export function parseConfig(env: Record<string, string | undefined> = process.en
     fetchTimeoutMs,
     fetchMaxResponseBytes,
     mcpAgentSecret,
+    walletKeyFile,
+    nodeKeyFile,
   };
 }
 
@@ -136,4 +147,14 @@ function parsePositiveInt(value: string | undefined, defaultValue: number, name:
     throw new ConfigError(`${name} must be a positive integer`);
   }
   return n;
+}
+
+function parseFilePath(value: string | undefined, name: string): string | null {
+  if (value === undefined) return null;
+  const v = value.trim();
+  if (v === "") return null;
+  if (v.length > 4096 || v.includes("\0") || /[\r\n]/.test(v)) {
+    throw new ConfigError(`${name} is not a valid file path`);
+  }
+  return v;
 }

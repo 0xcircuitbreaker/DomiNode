@@ -109,7 +109,7 @@ export function registerWalletAuthTools(server: McpServer, httpClient: HttpClien
           `You are now authenticated. Next steps:`,
           `1. Use dominusnode_wallet_setup to create an account + API key in one step`,
           `   Or set DOMINUSNODE_API_KEY and restart to unlock dominusnode_create_key`,
-          `2. Free tier: 10 connections, 1GB bandwidth — no payment needed`,
+          `2. Top up with dominusnode_pay_crypto, or earn credit by contributing a node (dominusnode_node_setup_guide)`,
         ].join("\n");
 
         return { content: [{ type: "text", text }] };
@@ -189,10 +189,10 @@ export function registerWalletAuthTools(server: McpServer, httpClient: HttpClien
           `  Label: ${keyData.label}`,
           ``,
           `Proxy Usage:`,
-          `  curl -x http://auto:<YOUR_API_KEY>@proxy.dominusnode.com:8080 https://httpbin.org/ip`,
+          `  curl -x http://country-US:<YOUR_API_KEY>@proxy.dominusnode.com:8080 https://httpbin.org/ip`,
           ``,
-          `Free tier: 10 connections, 1GB bandwidth.`,
-          `Set DOMINUSNODE_API_KEY=<your key above> and restart to unlock all 56 tools.`,
+          `Traffic is relayed through agent-contributed nodes; see dominusnode_network_pricing.`,
+          `Set DOMINUSNODE_API_KEY=<your key above> and restart to unlock all authenticated tools.`,
         ].join("\n");
 
         return { content: [{ type: "text", text }] };
