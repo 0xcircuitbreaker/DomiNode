@@ -64,6 +64,12 @@ export const AUTHENTICATED_TOOLS = [
   "dominusnode_network_policy",
   "dominusnode_network_pricing",
   "dominusnode_network_stats",
+  "dominusnode_node_register_challenge",
+  "dominusnode_node_register",
+  "dominusnode_node_list",
+  "dominusnode_node_revoke",
+  "dominusnode_node_tier",
+  "dominusnode_node_setup_guide",
 ] as const;
 
 export const REMOVED_TOOLS = [
