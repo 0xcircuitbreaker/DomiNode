@@ -8,6 +8,7 @@ import * as retention from "./retention.js";
 import * as tiers from "./tiers.js";
 import * as repFlush from "./reputation-flush.js";
 import * as payouts from "./payouts.js";
+import * as settleRetry from "./relay-settle-retry.js";
 import { PayoutNotBroadcastError, PayoutBroadcastUncertainError, type PayoutDeps } from "./payouts.js";
 import { loadSdnFile, parseSdnAddresses, SdnUnavailableError } from "./sdn.js";
 import { readSignerKeyFile, createEthersPayoutSender } from "./payout-sender-ethers.js";
@@ -277,5 +278,43 @@ describe("ethers payout sender config", () => {
     writeFileSync(bad, "nope");
     expect(() => readSignerKeyFile(bad)).toThrow();
     expect(() => readSignerKeyFile(undefined)).toThrow();
+  });
+});
+
+describe("relay settle retry job", () => {
+  const input = { sessionId: "s1", bytesGateway: 1234n } as never;
+  const mk = () => ({
+    listDue: vi.fn().mockResolvedValue([{ sessionId: "s1", attempts: 0, input }, { sessionId: "s2", attempts: 19, input: { ...(input as object), sessionId: "s2" } }]),
+    settle: vi.fn(),
+    markDone: vi.fn().mockResolvedValue(undefined),
+    markFailed: vi.fn(),
+    onDead: vi.fn().mockResolvedValue(undefined),
+    logger,
+  });
+
+  it("settles due rows and marks them done", async () => {
+    const d = mk();
+    d.settle.mockResolvedValue({ status: "settled" });
+    const r = await settleRetry.runOnce(d);
+    expect(r).toEqual({ due: 2, settled: 2, failed: 0, dead: 0 });
+    expect(d.markDone).toHaveBeenCalledWith("s1");
+    expect(d.markDone).toHaveBeenCalledWith("s2");
+  });
+
+  it("backs off failures and dead-letters exhausted rows (session closed as error)", async () => {
+    const d = mk();
+    d.settle.mockRejectedValue(new Error("db down"));
+    d.markFailed.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+    const r = await settleRetry.runOnce(d);
+    expect(r).toEqual({ due: 2, settled: 0, failed: 2, dead: 1 });
+    expect(d.markDone).not.toHaveBeenCalled();
+    expect(d.onDead).toHaveBeenCalledTimes(1);
+    expect(d.onDead).toHaveBeenCalledWith("s2", 1234);
+  });
+
+  it("runs under its own advisory lock", async () => {
+    const { JOB_LOCK_KEYS } = await import("./runner.js");
+    expect(new Set(Object.values(JOB_LOCK_KEYS)).size).toBe(Object.keys(JOB_LOCK_KEYS).length);
+    expect(JOB_LOCK_KEYS.settleRetry).toBeDefined();
   });
 });

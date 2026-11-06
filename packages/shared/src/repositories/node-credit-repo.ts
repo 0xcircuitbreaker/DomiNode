@@ -230,6 +230,16 @@ export async function convertToWallet(
 ): Promise<{ convertedCents: number; convertedMusd: bigint }> {
   if (amountMusd !== undefined) assertPositiveMusd(amountMusd, "convert amount");
   return withTx(async (client) => {
+    // Lock order: wallets BEFORE node_credit_accounts, matching settleRelayCharge
+    // (requester wallet → earnTx). The reverse order can deadlock a node owner
+    // converting credit while their own requests settle.
+    const w = await client.query<{ id: string; balance_cents: number }>(
+      `SELECT id, balance_cents FROM wallets WHERE user_id = $1 FOR UPDATE`,
+      [userId],
+    );
+    const wallet = w.rows[0];
+    if (!wallet) throw new Error("Wallet not found");
+
     const acct = await lockAccountTx(client, userId);
     if (acct.frozen) throw new Error("Node credit account is frozen");
     const want = amountMusd ?? acct.availableMusd;
@@ -238,13 +248,6 @@ export async function convertToWallet(
     if (cents <= 0n) throw new Error("Amount below one cent");
     const centsNum = Number(cents);
     const musd = cents * MUSD_PER_CENT;
-
-    const w = await client.query<{ id: string; balance_cents: number }>(
-      `SELECT id, balance_cents FROM wallets WHERE user_id = $1 FOR UPDATE`,
-      [userId],
-    );
-    const wallet = w.rows[0];
-    if (!wallet) throw new Error("Wallet not found");
     if (wallet.balance_cents + centsNum > MAX_WALLET_BALANCE_CENTS) {
       throw new Error("Conversion would exceed wallet balance cap");
     }

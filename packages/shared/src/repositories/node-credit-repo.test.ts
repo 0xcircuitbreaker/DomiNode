@@ -80,6 +80,19 @@ describe("node-credit-repo", () => {
     expect(r.sqls().some((s) => /'convert_to_wallet'/.test(s))).toBe(true);
   });
 
+  it("convertToWallet locks the wallet before node_credit_accounts (same order as settle)", async () => {
+    const r = setup([
+      [/FROM node_credit_accounts WHERE user_id = \$1 FOR UPDATE/, () => acct("0", "25500")],
+      [/FROM wallets WHERE user_id/, () => ({ rows: [{ id: "w1", balance_cents: 0 }] })],
+    ]);
+    await convertToWallet("o1");
+    const sqls = r.sqls();
+    const w = sqls.findIndex((s) => /FROM wallets WHERE user_id = \$1 FOR UPDATE/.test(s));
+    const a = sqls.findIndex((s) => /FROM node_credit_accounts WHERE user_id = \$1 FOR UPDATE/.test(s));
+    expect(w).toBeGreaterThanOrEqual(0);
+    expect(a).toBeGreaterThan(w);
+  });
+
   it("convertToWallet refuses frozen and rolls back", async () => {
     const r = setup([[/FOR UPDATE/, () => acct("0", "25500", true)]]);
     await expect(convertToWallet("o1")).rejects.toThrow(/frozen/);

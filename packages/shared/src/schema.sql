@@ -1487,3 +1487,22 @@ CREATE TABLE IF NOT EXISTS byte_disputes (
 CREATE INDEX IF NOT EXISTS idx_byte_disputes_node ON byte_disputes(node_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_byte_disputes_open ON byte_disputes(created_at) WHERE status = 'open';
 
+
+-- ─── Relay settle retries: durable retry for failed settleRelayCharge ───
+-- settleRelayCharge is idempotent on session_id, so a retry can never double
+-- charge. The payload is the full settle input (bigints as decimal strings).
+CREATE TABLE IF NOT EXISTS relay_settle_retries (
+  session_id       UUID PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,
+  requester_user_id UUID NOT NULL,
+  bytes_gateway    BIGINT NOT NULL CHECK (bytes_gateway BETWEEN 0 AND 1099511627776),
+  bytes_in         BIGINT NOT NULL CHECK (bytes_in BETWEEN 0 AND 1099511627776),
+  bytes_out        BIGINT NOT NULL CHECK (bytes_out BETWEEN 0 AND 1099511627776),
+  payload          JSONB NOT NULL CHECK (octet_length(payload::text) <= 8192),
+  attempts         INTEGER NOT NULL DEFAULT 0 CHECK (attempts BETWEEN 0 AND 1000),
+  status           TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','done','dead')),
+  last_error       TEXT CHECK (last_error IS NULL OR length(last_error) <= 500),
+  next_attempt_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_relay_settle_retries_due ON relay_settle_retries(next_attempt_at) WHERE status = 'pending';

@@ -1,4 +1,4 @@
-import { usageRepo, walletRepo, planRepo, teamRepo, policyRepo, tierRepo, relayChargeRepo, createLogger } from "@dominusnode/shared";
+import { usageRepo, walletRepo, planRepo, teamRepo, policyRepo, tierRepo, relayChargeRepo, relaySettleRetryRepo, createLogger } from "@dominusnode/shared";
 import type { Plan, NodeIpClass } from "@dominusnode/shared";
 import { BYTES_PER_GB } from "@dominusnode/shared";
 import { recordRequesterSpend } from "./policy-enforcer.js";
@@ -625,11 +625,12 @@ export async function endSession(sessionId: string): Promise<void> {
   }
 
   const rail = session.prepaid ? session.prepaid.rail : pricePerGbCents === 0 ? "free" : teamId ? "team" : "wallet";
+  let settleInput: relayChargeRepo.SettleRelayChargeInput | null = null;
 
   try {
     // One transaction: requester settle, relay_charges, node earn, abuse log,
     // session end and usage record (DESIGN.md §6.3). Bytes are gateway-measured.
-    const r = await relayChargeRepo.settleRelayCharge({
+    const r = await relayChargeRepo.settleRelayCharge(settleInput = {
       sessionId,
       requesterUserId: userId,
       requesterWallet: relay.requesterWallet ?? null,
@@ -667,8 +668,22 @@ export async function endSession(sessionId: string): Promise<void> {
       error: err instanceof Error ? err.message : String(err),
     });
 
-    // On unexpected error, reservation stays debited (safe default for business).
-    // Mark session as error in DB.
+    // Durable retry: settleRelayCharge is idempotent on session_id, so the
+    // retry job settles the reservation, charge and node earnings later.
+    // The DB session stays 'active' so the retry can settle it.
+    if (settleInput) {
+      try {
+        await relaySettleRetryRepo.enqueueSettleRetry(settleInput, err instanceof Error ? err.message : String(err));
+        log.warn("session settlement queued for retry", { sessionId });
+        return;
+      } catch (qErr) {
+        log.error("SETTLE RETRY ENQUEUE FAILED — reservation stays debited", {
+          sessionId, error: qErr instanceof Error ? qErr.message.slice(0, 120) : "unknown",
+        });
+      }
+    }
+
+    // Last resort: reservation stays debited (safe default); mark session error.
     try {
       await usageRepo.endSession(sessionId, totalBytes, "error");
     } catch {

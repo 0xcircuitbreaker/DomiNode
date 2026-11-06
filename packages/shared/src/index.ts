@@ -190,6 +190,7 @@ export * as nodeRepo from "./repositories/node-repo.js";
 export type { NodeRecord, NodeStatus, NodeIpClass, TunnelAuthNode, NodeChallenge, RegisterNodeInput, RegisterNodeResult, HealthUpdate, ListAdminOpts } from "./repositories/node-repo.js";
 export { hashNodeKey, generateNodeKey, NODE_KEY_PREFIX, NODE_CAP_BY_TIER } from "./repositories/node-repo.js";
 export * as relayChargeRepo from "./repositories/relay-charge-repo.js";
+export * as relaySettleRetryRepo from "./repositories/relay-settle-retry-repo.js";
 export * as nodeCreditRepo from "./repositories/node-credit-repo.js";
 export * as tierRepo from "./repositories/tier-repo.js";
 export * as payoutRepo from "./repositories/payout-repo.js";

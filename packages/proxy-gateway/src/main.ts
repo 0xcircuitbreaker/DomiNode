@@ -1,7 +1,7 @@
 import dotenv from "dotenv";
 dotenv.config();
 
-import { createLogger, closePool, getPool, usageRepo, connectWithRetry, nodeRepo, policyRepo, nodeCreditRepo, retentionRepo, tierRepo, payoutRepo } from "@dominusnode/shared";
+import { createLogger, closePool, getPool, usageRepo, connectWithRetry, nodeRepo, policyRepo, nodeCreditRepo, retentionRepo, tierRepo, payoutRepo, relayChargeRepo, relaySettleRetryRepo } from "@dominusnode/shared";
 import type { ActivePolicy } from "@dominusnode/shared";
 import { startProxyServer } from "./server.js";
 import { initGeoCheck, lookupPeerGeo } from "./geo-check.js";
@@ -16,6 +16,7 @@ import * as retentionJob from "./jobs/retention.js";
 import * as tiersJob from "./jobs/tiers.js";
 import * as payoutsJob from "./jobs/payouts.js";
 import * as reputationFlushJob from "./jobs/reputation-flush.js";
+import * as settleRetryJob from "./jobs/relay-settle-retry.js";
 import { loadSdnFile } from "./jobs/sdn.js";
 import * as probesJob from "./jobs/probes.js";
 import { parseTrustedProxyIps, loadTunnelTls } from "./node-tunnel/ingress.js";
@@ -178,6 +179,17 @@ function startJobs(registry: NodeRegistry, getPolicy: () => ActivePolicy): Job[]
   jobs.push(maturityJob.start({
     pool, logger: jobLog, intervalMs: envInt(process.env, "MATURITY_JOB_INTERVAL_MS", 3_600_000, 60_000, 86_400_000),
     deps: { matureDue: nodeCreditRepo.matureDue },
+  }));
+  jobs.push(settleRetryJob.start({
+    pool, logger: jobLog, intervalMs: envInt(process.env, "SETTLE_RETRY_JOB_INTERVAL_MS", 60_000, 10_000, 3_600_000),
+    deps: {
+      listDue: relaySettleRetryRepo.listDueSettleRetries,
+      settle: relayChargeRepo.settleRelayCharge,
+      markDone: relaySettleRetryRepo.markSettleRetryDone,
+      markFailed: (id, e) => relaySettleRetryRepo.markSettleRetryFailed(id, e),
+      onDead: async (id, bytes) => { await usageRepo.endSession(id, bytes, "error"); },
+      logger: jobLog,
+    },
   }));
   jobs.push(retentionJob.start({
     pool, logger: jobLog, intervalMs: envInt(process.env, "RETENTION_JOB_INTERVAL_MS", 3_600_000, 60_000, 86_400_000),

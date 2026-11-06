@@ -13,6 +13,7 @@ const mockGetPricing = vi.fn();
 const mockGetChargeSnapshot = vi.fn();
 const mockSettleRelayCharge = vi.fn();
 const mockGetBalance = vi.fn();
+const mockEnqueueRetry = vi.fn();
 const SNAPSHOT = { splitConfigId: 1, tierId: 1, nodeShareBps: 2500, holdDays: 14 };
 const RELAY = { nodeId: "node-1", ipClass: "residential" as const, nodeOwnerUserId: "owner-1", destPort: 443 };
 
@@ -35,6 +36,7 @@ vi.mock("@dominusnode/shared", () => ({
   policyRepo: { getPricing: (...args: unknown[]) => mockGetPricing(...args) },
   tierRepo: { getChargeSnapshot: (...args: unknown[]) => mockGetChargeSnapshot(...args) },
   relayChargeRepo: { settleRelayCharge: (...args: unknown[]) => mockSettleRelayCharge(...args) },
+  relaySettleRetryRepo: { enqueueSettleRetry: (...args: unknown[]) => mockEnqueueRetry(...args) },
   createLogger: () => ({
     debug: vi.fn(),
     info: vi.fn(),
@@ -445,16 +447,29 @@ describe("proxy-gateway/session-manager", () => {
       expect(mockSettleRelayCharge).not.toHaveBeenCalled();
     });
 
-    it("marks session error when settleRelayCharge throws", async () => {
+    it("queues a durable retry (session left active) when settleRelayCharge throws", async () => {
       const sessId = await startTestSession("user-err", "sess-settle-err", makeCounter(500, 500));
       mockSettleRelayCharge.mockRejectedValueOnce(new Error("DB connection lost"));
+      mockEnqueueRetry.mockResolvedValueOnce(undefined);
+      await endSession(sessId);
+      expect(mockEnqueueRetry).toHaveBeenCalledWith(expect.objectContaining({
+        sessionId: "sess-settle-err", requesterUserId: "user-err", reservedCents: 50, bytesGateway: 1000n, rail: "wallet",
+      }), "DB connection lost");
+      expect(mockEndSessionRepo).not.toHaveBeenCalled();
+    });
+
+    it("marks session error only when the retry cannot be queued", async () => {
+      const sessId = await startTestSession("user-err2", "sess-settle-err2", makeCounter(500, 500));
+      mockSettleRelayCharge.mockRejectedValueOnce(new Error("DB connection lost"));
+      mockEnqueueRetry.mockRejectedValueOnce(new Error("DB down"));
       mockEndSessionRepo.mockResolvedValueOnce(undefined);
       await endSession(sessId);
-      expect(mockEndSessionRepo).toHaveBeenCalledWith("sess-settle-err", 1000, "error");
+      expect(mockEndSessionRepo).toHaveBeenCalledWith("sess-settle-err2", 1000, "error");
     });
 
     it("swallows errors in the error-recovery path (best-effort)", async () => {
       const sessId = await startTestSession("user-double-err", "sess-double-err", makeCounter(500, 500));
+      mockEnqueueRetry.mockRejectedValueOnce(new Error("queue down"));
       mockSettleRelayCharge.mockRejectedValueOnce(new Error("settle failed"));
       mockEndSessionRepo.mockRejectedValueOnce(new Error("DB totally down"));
       await endSession(sessId);
