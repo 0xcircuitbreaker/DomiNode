@@ -56,6 +56,30 @@ public final class ProxyFetcher {
     }
 
     public static FetchResponse fetch(String proxyHost, int proxyPort, HostResolver resolver, String apiKey, String url, ProxyOptions o) {
+        return fetch(proxyHost, proxyPort, null, resolver, apiKey, url, o);
+    }
+
+    /** TLS client socket layered over {@code s} (TLS >= 1.2, hostname verification, SNI for DNS names). */
+    private static SSLSocket layerTls(SSLSocketFactory f, Socket s, String name, int port, int timeoutMs) throws IOException {
+        SSLSocket tls = (SSLSocket) f.createSocket(s, name, port, true);
+        SSLParameters params = tls.getSSLParameters();
+        params.setEndpointIdentificationAlgorithm("HTTPS");
+        if (!name.contains(":") && Ssrf.normalizeIpv4(name) == null) params.setServerNames(List.of(new SNIHostName(name)));
+        List<String> protos = new ArrayList<>();
+        for (String p : tls.getSupportedProtocols()) if (p.equals("TLSv1.2") || p.equals("TLSv1.3")) protos.add(p);
+        params.setProtocols(protos.toArray(new String[0]));
+        tls.setSSLParameters(params);
+        tls.setSoTimeout(timeoutMs);
+        tls.startHandshake();
+        return tls;
+    }
+
+    /**
+     * With {@code gatewayTls} the connection goes to {@code proxyHost:gatewayTls.port()} over verified TLS and
+     * everything (CONNECT included) runs inside it; https targets then use TLS-in-TLS.
+     */
+    public static FetchResponse fetch(String proxyHost, int proxyPort, GatewayTls gatewayTls, HostResolver resolver,
+                                      String apiKey, String url, ProxyOptions o) {
         String method = (o.method == null ? "GET" : o.method).toUpperCase(Locale.ROOT);
         if (!method.equals("GET") && !method.equals("HEAD")) throw Validation.invalid("proxy.fetch only allows GET and HEAD");
         URI target = Ssrf.validateTargetUrl(url);
@@ -76,31 +100,27 @@ public final class ProxyFetcher {
         long deadline = System.currentTimeMillis() + timeoutMs;
 
         try (Socket raw = new Socket(Proxy.NO_PROXY)) {
-            raw.connect(new InetSocketAddress(proxyHost, proxyPort), timeoutMs);
+            raw.connect(new InetSocketAddress(proxyHost, gatewayTls != null ? gatewayTls.port() : proxyPort), timeoutMs);
             raw.setSoTimeout(timeoutMs);
-            Socket sock = raw;
+            Socket gw = raw;
+            if (gatewayTls != null) {
+                String name = gatewayTls.servername() != null ? gatewayTls.servername() : proxyHost;
+                gw = layerTls(gatewayTls.socketFactory(), raw, name, gatewayTls.port(), timeoutMs);
+            }
+            Socket sock = gw;
             String requestTarget;
             if (https) {
                 String authority = host + ":" + port;
-                OutputStream out = raw.getOutputStream();
+                OutputStream out = gw.getOutputStream();
                 out.write(("CONNECT " + authority + " HTTP/1.1\r\nHost: " + authority + "\r\nProxy-Authorization: " + proxyAuth + "\r\n\r\n")
                         .getBytes(StandardCharsets.ISO_8859_1));
                 out.flush();
-                InputStream in = new BufferedInputStream(raw.getInputStream());
-                Head head = readHead(in, deadline);
+                // Unbuffered read so no tunnel bytes are consumed before the inner TLS starts.
+                Head head = readHead(gw.getInputStream(), deadline);
                 if (head.status != 200) throw new ProxyException("Proxy refused CONNECT (HTTP " + head.status + ")", head.status);
                 String sni = host.startsWith("[") ? host.substring(1, host.length() - 1) : host;
-                SSLSocket tls = (SSLSocket) ((SSLSocketFactory) SSLSocketFactory.getDefault()).createSocket(raw, sni, port, true);
-                SSLParameters params = tls.getSSLParameters();
-                params.setEndpointIdentificationAlgorithm("HTTPS");
-                if (!sni.contains(":") && Ssrf.normalizeIpv4(sni) == null) params.setServerNames(List.of(new SNIHostName(sni)));
-                List<String> protos = new ArrayList<>();
-                for (String p : tls.getSupportedProtocols()) if (p.equals("TLSv1.2") || p.equals("TLSv1.3")) protos.add(p);
-                params.setProtocols(protos.toArray(new String[0]));
-                tls.setSSLParameters(params);
-                tls.setSoTimeout(timeoutMs);
-                tls.startHandshake();
-                sock = tls;
+                // Inner TLS rides the tunnel socket; the target is never dialled directly.
+                sock = layerTls((SSLSocketFactory) SSLSocketFactory.getDefault(), gw, sni, port, timeoutMs);
                 String path = target.getRawPath() == null || target.getRawPath().isEmpty() ? "/" : target.getRawPath();
                 requestTarget = path + (target.getRawQuery() != null ? "?" + target.getRawQuery() : "");
             } else {
