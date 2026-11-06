@@ -63,6 +63,20 @@ function txClient(role: string | null = "admin", row: Record<string, unknown> = 
 
 const sqls = () => m.clientQuery.mock.calls.map((c) => String(c[0]));
 
+/** The audit_events insert for `action`, asserting it ran inside the tx (after BEGIN, before COMMIT). */
+function auditRow(action: string): unknown[] {
+  const calls = m.clientQuery.mock.calls;
+  const idx = calls.findIndex((c) => String(c[0]).includes("INSERT INTO audit_events") && (c[1] as unknown[])[1] === action);
+  expect(idx).toBeGreaterThan(-1);
+  const s = sqls();
+  expect(s.indexOf("BEGIN")).toBeLessThan(idx);
+  expect(idx).toBeLessThan(s.indexOf("COMMIT"));
+  const params = calls[idx][1] as unknown[];
+  expect(params[0]).toBe(ADMIN);
+  return params;
+}
+const hasAudit = () => sqls().some((x) => x.includes("INSERT INTO audit_events"));
+
 describe("/api/admin/network", () => {
   beforeEach(() => {
     for (const f of Object.values(m)) f.mockReset();
@@ -95,6 +109,11 @@ describe("/api/admin/network", () => {
       expect(iRole).toBeLessThan(iLock);
       expect(iLock).toBeLessThan(iIns);
       expect(iIns).toBeLessThan(iCommit);
+      const a = auditRow("network_policy_publish");
+      expect(a[2]).toBe("network_policy");
+      expect(a[3]).toBe("2");
+      expect(JSON.parse(String(a[5]))).toMatchObject({ version: 2, previousVersion: 0, attestationRaised: true });
+      expect(s.findIndex((x) => x.includes("INSERT INTO audit_events"))).toBeGreaterThan(iIns);
     });
 
     it("returns 400 with details on validation errors and rolls back", async () => {
@@ -107,6 +126,7 @@ describe("/api/admin/network", () => {
       expect(Array.isArray(r.body["details"])).toBe(true);
       expect(sqls()).toContain("ROLLBACK");
       expect(sqls().some((x) => x.includes("INSERT INTO network_policy"))).toBe(false);
+      expect(hasAudit()).toBe(false);
     });
 
     it("403s when role was revoked mid-session", async () => {
@@ -132,6 +152,9 @@ describe("/api/admin/network", () => {
       const ins = m.clientQuery.mock.calls.find((c) => String(c[0]).includes("network_pricing"));
       expect(ins?.[1]).toEqual(["dc", "250000", ADMIN]);
       expect(String(ins?.[0])).not.toContain("RETURNING *");
+      const a = auditRow("network_pricing_update");
+      expect(a.slice(2, 4)).toEqual(["network_pricing", "dc"]);
+      expect(JSON.parse(String(a[5]))).toEqual({ ipClass: "dc", pricePerGbMusd: "250000" });
     });
 
     it.each([
@@ -160,6 +183,9 @@ describe("/api/admin/network", () => {
       expect(r.body["id"]).toBe(9);
       expect(sqls().some((s) => s.includes("INSERT INTO revenue_split_config"))).toBe(true);
       expect(sqls().some((s) => /UPDATE revenue_split_config|DELETE FROM revenue_split_config/.test(s))).toBe(false);
+      const a = auditRow("revenue_split_append");
+      expect(a.slice(2, 4)).toEqual(["revenue_split_config", "9"]);
+      expect(JSON.parse(String(a[5]))).toMatchObject({ nodeShareBps: 3000, maturationHours: 72, note: "q4" });
     });
 
     it.each([
@@ -183,6 +209,9 @@ describe("/api/admin/network", () => {
       const upd = m.clientQuery.mock.calls.find((c) => String(c[0]).includes("UPDATE node_tiers"));
       expect(String(upd?.[0])).toMatch(/node_share_bps = \$2, daily_withdraw_limit_musd = \$3, updated_by = \$4/);
       expect(upd?.[1]).toEqual([2, 3100, "300000000", ADMIN]);
+      const a = auditRow("node_tier_update");
+      expect(a.slice(2, 4)).toEqual(["node_tier", "2"]);
+      expect(JSON.parse(String(a[5]))).toEqual({ changes: { nodeShareBps: 3100, dailyWithdrawLimitMusd: "300000000" } });
     });
 
     it.each([
@@ -202,6 +231,7 @@ describe("/api/admin/network", () => {
         return { rows: [] };
       });
       expect((await call(app(), "PUT", "/api/admin/network/tiers/77", { body: { holdDays: 3 } })).status).toBe(404);
+      expect(hasAudit()).toBe(false);
     });
   });
 

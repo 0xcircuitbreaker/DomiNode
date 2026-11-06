@@ -362,14 +362,14 @@ Heartbeats come from the `job_runs` table, upserted by the gateway job runner af
 | `from`, `to` | ISO | |
 | `limit`, `offset` | | |
 
-Actions: `node_credit_unfreeze`, `node_credit_freeze`, `node_quarantine`, `node_activate`, `node_revoke`, `node_payout_reverse`, `byte_dispute_resolve`, `relay_abuse_log_access`.
+Actions: `node_credit_unfreeze`, `node_credit_freeze`, `node_quarantine`, `node_activate`, `node_revoke`, `node_payout_reverse`, `byte_dispute_resolve`, `relay_abuse_log_access`, `network_policy_publish`, `network_pricing_update`, `revenue_split_append`, `node_tier_update`.
 
 ```ts
 { limit; offset; total;
   items: Array<{ id: string; adminUserId: string | null; adminEmail: string | null; action: string; resource: string;
     resourceId: string | null; ipAddress: string | null; details: object; createdAt: string }> }
 ```
-Policy, pricing, split and tier edits are not audit rows yet. Their history comes from `network_policy` versions, `revenue_split_config` and `updated_by` / `updated_at`.
+Policy, pricing, split and tier edits write `network_policy_publish` (resource id = new version), `network_pricing_update` (ip class), `revenue_split_append` (split row id) and `node_tier_update` (tier id, details `{ changes }`) in the same transaction as the write.
 
 ## 11. Configuration endpoints (existing, `admin-network.ts`)
 
