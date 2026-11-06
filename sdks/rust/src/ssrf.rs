@@ -73,7 +73,7 @@ pub fn normalize_ipv4(host: &str) -> Option<Ipv4Addr> {
 }
 
 fn is_private_v4(ip: Ipv4Addr) -> bool {
-    let [a, b, c, _] = ip.octets();
+    let [a, b, _, _] = ip.octets();
     a == 0
         || a == 10
         || a == 127
@@ -81,7 +81,7 @@ fn is_private_v4(ip: Ipv4Addr) -> bool {
         || (a == 172 && (16..=31).contains(&b))
         || (a == 192 && b == 168)
         || (a == 100 && (64..=127).contains(&b))
-        || (a == 192 && b == 0 && (c == 0 || c == 2))
+        || (a == 192 && b == 0) // 192.0.0.0/16 (incl. 192.0.0/24 IETF, 192.0.2/24 docs)
         || (a == 198 && (b == 18 || b == 19))
         || a >= 224
 }

@@ -69,12 +69,12 @@ async fn url_building() {
 fn private_ipv4_table() {
     for ip in [
         "0.0.0.0", "10.1.2.3", "127.0.0.1", "169.254.1.1", "172.16.0.1", "172.31.255.255", "192.168.1.1", "100.64.0.1",
-        "100.127.255.255", "192.0.0.1", "192.0.2.5", "198.18.0.1", "198.19.255.1", "224.0.0.1", "255.255.255.255",
+        "100.127.255.255", "192.0.0.1", "192.0.2.5", "192.0.1.1", "192.0.255.255", "198.18.0.1", "198.19.255.1", "224.0.0.1", "255.255.255.255",
         "2130706433", "0x7f000001", "0177.0.0.1", "127.1", "0x7f.1", "017700000001",
     ] {
         assert!(is_private_ip(ip), "{ip}");
     }
-    for ip in ["8.8.8.8", "172.32.0.1", "100.128.0.1", "192.0.1.1", "198.20.0.1", "223.255.255.255", "93.184.216.34"] {
+    for ip in ["8.8.8.8", "172.32.0.1", "100.128.0.1", "192.1.0.1", "198.20.0.1", "223.255.255.255", "93.184.216.34"] {
         assert!(!is_private_ip(ip), "{ip}");
     }
     assert_eq!(normalize_ipv4("127.1").unwrap().to_string(), "127.0.0.1");
@@ -241,6 +241,8 @@ async fn connect_refusal_is_proxy_error() {
     let c = gw_client(port);
     let e = c.proxy.fetch("https://example.com/x", ProxyFetchOptions { api_key: Some(API_KEY.into()), ..fopts() }).await.unwrap_err();
     assert!(matches!(e, DominusNodeError::Proxy(_)), "{e:?}");
+    assert_eq!(e.status_code(), Some(407));
+    assert!(e.message().contains("HTTP 407"), "{}", e.message());
     assert!(!e.message().contains(API_KEY));
     let req = seen.lock().unwrap().clone();
     assert!(req.starts_with("CONNECT example.com:443 HTTP/1.1"), "{req}");

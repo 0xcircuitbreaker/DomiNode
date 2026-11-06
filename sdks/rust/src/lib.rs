@@ -30,6 +30,6 @@ pub mod util;
 
 pub use client::{Config, DominusNodeClient};
 pub use errors::{scrub_credentials, DominusNodeError, ErrorInfo, Result};
-pub use proxy::{FetchMethod, IpClass, ProxyFetchOptions, ProxyFetchResponse, ProxyProtocol, ProxyRoutingOptions};
+pub use proxy::{FetchMethod, GatewayTls, IpClass, ProxyFetchOptions, ProxyFetchResponse, ProxyProtocol, ProxyRoutingOptions, DEFAULT_TLS_PROXY_PORT};
 pub use resources::RegisterNodeOptions;
 pub use util::{FnSigner, Musd, Secret, Signer};
