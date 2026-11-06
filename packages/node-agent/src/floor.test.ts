@@ -1,6 +1,9 @@
 import { describe, it, expect } from "vitest";
+import { markSelfDiscoveryComplete } from "./floor.js";
 import { addSelfAddress, effectivePorts, floorAllowsHost, floorAllowsIp, floorAllowsPort, floorHash, FLOOR_PORTS } from "./floor.js";
 import { loadConfig } from "./config.js";
+
+markSelfDiscoveryComplete();
 
 describe("node floor", () => {
   it("only ever allows 80/443", () => {

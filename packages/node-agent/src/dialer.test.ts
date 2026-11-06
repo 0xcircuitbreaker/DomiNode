@@ -1,8 +1,11 @@
 import { describe, it, expect, vi, beforeAll, afterAll } from "vitest";
+import { markSelfDiscoveryComplete } from "./floor.js";
 import * as net from "node:net";
 import { dial, type Connector } from "./dialer.js";
 
 const ports = () => [80, 443];
+
+markSelfDiscoveryComplete();
 
 describe("dialer", () => {
   let server: net.Server;

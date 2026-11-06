@@ -35,6 +35,91 @@ export function addSelfAddress(ip: string): void {
   selfAddresses.add(normalizeIp(ip));
 }
 
+/** Self prefixes (own LAN/global IPv6 subnets, own public IPv4 subnets). Prefix match, add-only. */
+interface SelfPrefix { family: 4 | 6; net: bigint; len: number }
+const selfPrefixes: SelfPrefix[] = [];
+const selfPrefixKeys = new Set<string>();
+const MAX_SELF_PREFIXES = 64;
+
+function ipToBigInt(ip: string): { family: 4 | 6; value: bigint } | null {
+  const s = normalizeIp(ip);
+  const fam = net.isIP(s);
+  if (fam === 4) {
+    const parts = s.split(".").map(Number);
+    return { family: 4, value: parts.reduce((acc, b) => (acc << 8n) | BigInt(b), 0n) };
+  }
+  if (fam !== 6) return null;
+  let str = s;
+  // Embedded dotted IPv4 tail (e.g. ::1.2.3.4) -> two hex groups.
+  const dot = str.lastIndexOf(":");
+  const tail = str.slice(dot + 1);
+  if (net.isIP(tail) === 4) {
+    const b = tail.split(".").map(Number);
+    str = str.slice(0, dot + 1) + ((b[0] << 8) | b[1]).toString(16) + ":" + ((b[2] << 8) | b[3]).toString(16);
+  }
+  const [head, rest] = str.split("::");
+  const h = head ? head.split(":") : [];
+  const r = rest !== undefined && rest !== "" ? rest.split(":") : [];
+  const groups = rest === undefined ? h : [...h, ...Array(8 - h.length - r.length).fill("0"), ...r];
+  if (groups.length !== 8) return null;
+  return { family: 6, value: groups.reduce((acc, g) => (acc << 16n) | BigInt(parseInt(g, 16)), 0n) };
+}
+
+function maskOf(family: 4 | 6, len: number): bigint {
+  const bits = family === 4 ? 32 : 128;
+  return len === 0 ? 0n : ((1n << BigInt(len)) - 1n) << BigInt(bits - len);
+}
+
+/**
+ * Block a whole subnet the node sits on. IPv6 prefixes are widened to at least /64
+ * (a host's other addresses / neighbours live in the same /64). There is no remove.
+ */
+export function addSelfPrefix(ip: string, prefixLen: number): void {
+  const parsed = typeof ip === "string" ? ipToBigInt(ip) : null;
+  if (!parsed || !Number.isInteger(prefixLen)) return;
+  const bits = parsed.family === 4 ? 32 : 128;
+  if (prefixLen < 0 || prefixLen > bits) return;
+  // Never accept absurdly wide prefixes (a bogus /0 would just block everything; refuse instead of widening silently).
+  const minLen = parsed.family === 4 ? 8 : 16;
+  if (prefixLen < minLen) return;
+  const len = parsed.family === 6 ? Math.min(prefixLen, 64) : prefixLen;
+  const mask = maskOf(parsed.family, len);
+  const netv = parsed.value & mask;
+  const key = `${parsed.family}/${netv.toString(16)}/${len}`;
+  if (selfPrefixKeys.has(key) || selfPrefixes.length >= MAX_SELF_PREFIXES) return;
+  selfPrefixKeys.add(key);
+  selfPrefixes.push({ family: parsed.family, net: netv, len });
+}
+
+function inSelfPrefix(ip: string): boolean {
+  if (selfPrefixes.length === 0) return false;
+  const parsed = ipToBigInt(ip);
+  if (!parsed) return true; // unparseable: fail closed
+  for (const p of selfPrefixes) {
+    if (p.family === parsed.family && (parsed.value & maskOf(p.family, p.len)) === p.net) return true;
+  }
+  return false;
+}
+
+/**
+ * Self-discovery gate: until the agent has enumerated its own interfaces and public
+ * address, the floor refuses every IP (all OPENs fail with FLOOR_BLOCKED).
+ */
+let selfDiscoveryComplete = false;
+export function markSelfDiscoveryComplete(): void {
+  selfDiscoveryComplete = true;
+}
+export function isSelfDiscoveryComplete(): boolean {
+  return selfDiscoveryComplete;
+}
+/** Snapshot for diagnostics/tests. */
+export function selfBlockSnapshot(): { addresses: string[]; prefixes: string[] } {
+  return {
+    addresses: [...selfAddresses],
+    prefixes: selfPrefixes.map((p) => `${p.family}:${p.net.toString(16)}/${p.len}`),
+  };
+}
+
 export function floorAllowsPort(port: number): boolean {
   return isValidPort(port) && floorPortSet.has(port) && !hardDenySet.has(port);
 }
@@ -57,8 +142,10 @@ export function floorAllowsHost(host: string): boolean {
 /** Resolved/connected address check: public per net-guard and not this node itself. Fail-closed. */
 export function floorAllowsIp(ip: string): boolean {
   if (typeof ip !== "string") return false;
+  if (!selfDiscoveryComplete) return false;
   if (!isPublicAddress(ip)) return false;
-  return !selfAddresses.has(normalizeIp(ip));
+  if (selfAddresses.has(normalizeIp(ip))) return false;
+  return !inSelfPrefix(ip);
 }
 
 /** Advisory floor hash (§2.6): SHA-256 of floor constants plus agent version. */

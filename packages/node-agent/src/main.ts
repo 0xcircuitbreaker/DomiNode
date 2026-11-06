@@ -11,6 +11,7 @@ import { Limits } from "./limits.js";
 import { readNodeFile, registerNode } from "./register.js";
 import { effectiveCoordPins } from "./coord-pins.js";
 import { TunnelClient, scrub, stderrLogger } from "./tunnel-client.js";
+import { startSelfDiscovery, type SelfDiscoveryOptions } from "./self-discovery.js";
 
 export const AGENT_VERSION = "0.1.0";
 const SECRET_FLAGS = new Set(["api-key", "key", "node-key", "wallet-key", "private-key", "password", "token"]);
@@ -29,6 +30,18 @@ export function parseFlags(argv: readonly string[]): FlagMap {
     out[name] = val;
   }
   return out;
+}
+
+/**
+ * Populate the floor's self-block set (interfaces, IPv6 prefixes, public IP, gateway) and keep
+ * it fresh. Until the first pass succeeds the floor refuses every OPEN with FLOOR_BLOCKED.
+ */
+export function startFloorDiscovery(apiUrl: string, deps: Omit<SelfDiscoveryOptions, "apiUrl"> = {}): ReturnType<typeof startSelfDiscovery> {
+  return startSelfDiscovery({
+    apiUrl,
+    log: (msg, meta) => stderrLogger.warn(msg, meta),
+    ...deps,
+  });
 }
 
 const USAGE = "usage: dominusnode-node <register --wallet-key-file PATH | run> [--key-file PATH] [--ports 80,443] [--max-streams N] [--req-per-sec N] [--gb-per-day N]";
@@ -58,6 +71,7 @@ async function main(argv: string[]): Promise<number> {
   }
 
   const stored = readNodeFile(cfg.keyFile);
+  const discovery = startFloorDiscovery(cfg.apiUrl);
   const limits = new Limits({ maxStreams: cfg.maxStreams, reqPerSec: cfg.reqPerSec, gbPerDay: cfg.gbPerDay });
   const client = new TunnelClient({
     url: cfg.gatewayUrl,
@@ -77,6 +91,7 @@ async function main(argv: string[]): Promise<number> {
   return await new Promise<number>((resolve) => {
     const shutdown = (): void => {
       client.stop();
+      discovery.stop();
       resolve(0);
     };
     process.once("SIGINT", shutdown);

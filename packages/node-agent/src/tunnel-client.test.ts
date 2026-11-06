@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { markSelfDiscoveryComplete } from "./floor.js";
 import * as net from "node:net";
 import { WebSocketServer, type WebSocket } from "ws";
 import { TunnelClient, backoffDelay, scrub, type TunnelLogger } from "./tunnel-client.js";
@@ -106,6 +107,8 @@ function fakePublic(port: number, halfOpen = false): net.Socket {
 
 const ctl = (f: Frame) => decodeControl<Record<string, unknown>>(f.payload);
 const onStream = (type: FrameType, id: number) => (f: Frame) => f.type === type && f.streamId === id;
+
+markSelfDiscoveryComplete();
 
 describe("TunnelClient", () => {
   let gw: FakeGateway;
