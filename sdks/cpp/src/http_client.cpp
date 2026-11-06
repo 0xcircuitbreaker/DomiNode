@@ -321,13 +321,13 @@ nlohmann::json HttpClient::request(const std::string& method, const std::string&
 nlohmann::json HttpClient::get(const std::string& path, AuthMode auth) { return request("GET", path, std::nullopt, auth); }
 nlohmann::json HttpClient::post(const std::string& path, const nlohmann::json& body, AuthMode auth,
                                 const std::vector<std::pair<std::string, std::string>>& headers) {
-    return request("POST", path, body, auth, headers);
+    return request("POST", path, std::optional<nlohmann::json>(body), auth, headers);
 }
 nlohmann::json HttpClient::put(const std::string& path, const nlohmann::json& body, AuthMode auth) {
-    return request("PUT", path, body, auth);
+    return request("PUT", path, std::optional<nlohmann::json>(body), auth);
 }
 nlohmann::json HttpClient::patch(const std::string& path, const nlohmann::json& body, AuthMode auth) {
-    return request("PATCH", path, body, auth);
+    return request("PATCH", path, std::optional<nlohmann::json>(body), auth);
 }
 nlohmann::json HttpClient::del(const std::string& path, AuthMode auth) { return request("DELETE", path, std::nullopt, auth); }
 
