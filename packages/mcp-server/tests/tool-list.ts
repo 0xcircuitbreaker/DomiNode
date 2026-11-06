@@ -70,6 +70,15 @@ export const AUTHENTICATED_TOOLS = [
   "dominusnode_node_revoke",
   "dominusnode_node_tier",
   "dominusnode_node_setup_guide",
+  "dominusnode_credits_balance",
+  "dominusnode_credits_transactions",
+  "dominusnode_credits_convert",
+  "dominusnode_payout_wallet_get",
+  "dominusnode_payout_wallet_set",
+  "dominusnode_credits_withdraw",
+  "dominusnode_payouts_list",
+  "dominusnode_node_update_caps",
+  "dominusnode_session_report",
 ] as const;
 
 export const REMOVED_TOOLS = [

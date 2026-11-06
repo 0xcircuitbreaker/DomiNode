@@ -566,7 +566,7 @@ export class NodeTunnelServer {
       // explicit class-* selection and price at the "any" rate until classified.
       ipClass: geo?.ipClass ?? "unknown", ownerUserId: t.node.owner_user_id, ownerWallet: t.node.owner_wallet,
       ownerTeamId: t.node.owner_team_id, health: 1, reputation: t.node.reputation,
-      maxStreams: Math.min(t.node.max_streams, caps.maxStreams), maxGbDay: t.node.max_gb_day,
+      maxStreams: Math.min(t.node.max_streams, caps.maxStreams), maxGbDay: t.node.max_gb_day, maxReqPerSec: t.node.max_req_per_sec ?? null,
       ports: caps.ports, bytesToday: 0, earningsTodayMusd: 0, day: dayOf(now), recentOpens: [], cooldownUntil: 0,
       cooldowns: new Map(), floorHashKnown: caps.floorHash !== null && (this.deps.knownFloorHashes?.has(caps.floorHash) ?? false),
       connectedAt: now,

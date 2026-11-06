@@ -80,6 +80,7 @@ export {
   isBlockedCountry,
 } from "./sanctions.js";
 export type { SanctionedCountry } from "./sanctions.js";
+export { loadSdnFile, parseSdnAddresses, SdnUnavailableError, MAX_SDN_FILE_BYTES } from "./sdn.js";
 
 // Repositories
 export * as userRepo from "./repositories/user-repo.js";
@@ -194,5 +195,6 @@ export * as relaySettleRetryRepo from "./repositories/relay-settle-retry-repo.js
 export * as nodeCreditRepo from "./repositories/node-credit-repo.js";
 export * as tierRepo from "./repositories/tier-repo.js";
 export * as payoutRepo from "./repositories/payout-repo.js";
+export * as agentCreditsRepo from "./repositories/agent-credits-repo.js";
 export * as relayLimitsRepo from "./repositories/relay-limits-repo.js";
 export { buildAttestationMessage, sha256Hex, verifyPow, countLeadingZeroBits } from "./attestation.js";

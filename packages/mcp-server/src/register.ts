@@ -14,6 +14,7 @@ import { registerWalletAuthTools } from "./tools/wallet-auth.js";
 import { registerTeamsTools } from "./tools/teams.js";
 import { registerNetworkTools } from "./tools/network.js";
 import { registerNodeTools } from "./tools/nodes.js";
+import { registerCreditsTools } from "./tools/credits.js";
 
 /** Tools available without an API key (account bootstrap + public network info). */
 export function registerBootstrapTools(server: McpServer, httpClient: HttpClient): void {
@@ -40,6 +41,7 @@ export function registerAuthenticatedTools(server: McpServer, httpClient: HttpCl
   registerTeamsTools(server, httpClient);
   registerNetworkTools(server, httpClient);
   registerNodeTools(server, httpClient, config);
+  registerCreditsTools(server, httpClient, config);
 }
 
 /** Number of tools registered on a server (used for startup logging and tests). */

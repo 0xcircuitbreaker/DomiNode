@@ -82,6 +82,8 @@ export interface LiveNode {
   reputation: number;
   maxStreams: number;
   maxGbDay: number;
+  /** Owner-lowered OPENs/s cap from the DB row (PATCH /v1/nodes/:id); null/absent = policy default. */
+  maxReqPerSec?: number | null;
   ports: number[];
   bytesToday: number;
   earningsTodayMusd: number;

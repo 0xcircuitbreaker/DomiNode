@@ -495,7 +495,7 @@ export interface PrepaidRail {                     // top-up rails
 | `GET /v1/nodes`, `PATCH /v1/nodes/:id`, `DELETE /v1/nodes/:id` | PATCH can only lower caps. DELETE revokes and sends DRAIN. |
 | `GET /v1/credits`, `GET /v1/credits/transactions?cursor=` | |
 | `POST /v1/credits/convert` | Needs a fresh signature. |
-| `POST /v1/credits/withdraw` | 501 in v1. |
+| `POST /v1/credits/withdraw` | Implemented per §15 (gated by `PAYOUTS_ENABLED`). Shapes for all agent routes: `AGENT_API.md`. |
 | `POST /v1/sessions/:id/report` | Burn signal, rate-limited. |
 | `POST /api/wallet/topup/crypto` (existing), `POST /v1/topup/mpp`, `POST /api/webhooks/tempo` | |
 | `GET /api/x402/info` | Single relay price plus the facilitator list. |
