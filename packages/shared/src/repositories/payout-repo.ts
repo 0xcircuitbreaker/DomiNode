@@ -401,8 +401,16 @@ export async function markPayoutFailed(
  * payout must first go through markPayoutFailed. Idempotent.
  */
 export async function markPayoutReversed(payoutId: string, reason: string): Promise<NodePayout> {
+  return withTx((client) => markPayoutReversedTx(client, payoutId, reason));
+}
+
+/**
+ * markPayoutReversed inside the caller's transaction (e.g. the admin tx), so the
+ * role check, reversal, re-credit and audit row commit or roll back together.
+ */
+export async function markPayoutReversedTx(client: TxClient, payoutId: string, reason: string): Promise<NodePayout> {
   const why = typeof reason === "string" ? reason.slice(0, 200) : "";
-  return withTx(async (client) => {
+  {
     const r = await client.query<NpRow>(`SELECT ${NP_COLS} FROM node_payouts WHERE id = $1 FOR UPDATE`, [payoutId]);
     const p = r.rows[0];
     if (!p) throw new Error("Payout not found");
@@ -429,7 +437,7 @@ export async function markPayoutReversed(payoutId: string, reason: string): Prom
       );
     }
     return mapNp(u.rows[0]);
-  });
+  }
 }
 
 // ─── Payout job support (commit 22b) ─────────────────────────────────

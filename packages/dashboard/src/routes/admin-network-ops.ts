@@ -436,13 +436,13 @@ router.post("/payouts/:id/reverse", async (req: Request, res: Response) => {
   try {
     const id = uuidPath(req);
     const reason = reasonField(body(req), true, 200)!;
-    // Role re-check + audit in the admin tx; markPayoutReversed runs its own
-    // locked tx (FOR UPDATE on the payout + account). If it throws, the audit
-    // row rolls back with the admin tx.
+    // Role re-check, reversal (FOR UPDATE on the payout + account), re-credit and
+    // audit all run in the one admin tx and commit or roll back together.
     const p = await withAdminTx(adminId(req), async (c: TxClient) => {
       let r;
       try {
-        r = await payoutRepo.markPayoutReversed(id, `admin: ${reason}`);
+        r = await payoutRepo.markPayoutReversedTx(
+          c as unknown as Parameters<typeof payoutRepo.markPayoutReversedTx>[0], id, `admin: ${reason}`);
       } catch (err) {
         const m = err instanceof Error ? err.message : "";
         if (m === "Payout not found") throw new HttpError(404, m);

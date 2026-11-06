@@ -3,7 +3,7 @@ import express from "express";
 
 const m = vi.hoisted(() => ({
   poolQuery: vi.fn(), clientQuery: vi.fn(), release: vi.fn(),
-  markPayoutReversed: vi.fn(), freezeAccountTx: vi.fn(), getActivePolicy: vi.fn(),
+  markPayoutReversedTx: vi.fn(), freezeAccountTx: vi.fn(), getActivePolicy: vi.fn(),
 }));
 
 vi.mock("../middleware/auth.js", () => ({
@@ -20,7 +20,7 @@ vi.mock("@dominusnode/shared", async (importOriginal) => {
   return {
     ...actual,
     getPool: () => ({ query: m.poolQuery, connect: async () => ({ query: m.clientQuery, release: m.release }) }),
-    payoutRepo: { ...actual.payoutRepo, markPayoutReversed: m.markPayoutReversed, freezeAccountTx: m.freezeAccountTx },
+    payoutRepo: { ...actual.payoutRepo, markPayoutReversedTx: m.markPayoutReversedTx, freezeAccountTx: m.freezeAccountTx },
     policyRepo: { ...actual.policyRepo, getActivePolicy: m.getActivePolicy },
   };
 });
@@ -221,22 +221,25 @@ describe("admin network ops", () => {
     });
 
     it("POST /payouts/:id/reverse calls the repo and audits in the admin tx", async () => {
-      m.markPayoutReversed.mockResolvedValue({ id: PAYOUT, userId: USER, amountMusd: 1_000_000n, status: "reversed", txHash: null });
+      m.markPayoutReversedTx.mockResolvedValue({ id: PAYOUT, userId: USER, amountMusd: 1_000_000n, status: "reversed", txHash: null });
       const r = await call(app(), "POST", `${BASE}/payouts/${PAYOUT}/reverse`, { body: { reason: "wrong wallet" } });
       expect(r.status).toBe(200);
       expect(r.body).toMatchObject({ status: "reversed", amount: { usd: "1.000000" } });
-      expect(m.markPayoutReversed).toHaveBeenCalledWith(PAYOUT, "admin: wrong wallet");
+      // Runs on the admin tx client (not its own withTx), so role check + reversal + audit commit together.
+      const [client, id, why] = m.markPayoutReversedTx.mock.calls[0];
+      expect((client as { query: unknown }).query).toBe(m.clientQuery);
+      expect([id, why]).toEqual([PAYOUT, "admin: wrong wallet"]);
       expect(txSqls().some((s) => s.includes("INSERT INTO audit_events"))).toBe(true);
       expect(txSqls()).toContain("COMMIT");
     });
 
     it("POST /payouts/:id/reverse maps repo errors to 404/409 and rolls back the audit", async () => {
-      m.markPayoutReversed.mockRejectedValueOnce(new Error("Cannot reverse a confirmed payout"));
+      m.markPayoutReversedTx.mockRejectedValueOnce(new Error("Cannot reverse a confirmed payout"));
       const r = await call(app(), "POST", `${BASE}/payouts/${PAYOUT}/reverse`, { body: { reason: "x" } });
       expect(r.status).toBe(409);
       expect(txSqls()).toContain("ROLLBACK");
       expect(txSqls().some((s) => s.includes("audit_events"))).toBe(false);
-      m.markPayoutReversed.mockRejectedValueOnce(new Error("Payout not found"));
+      m.markPayoutReversedTx.mockRejectedValueOnce(new Error("Payout not found"));
       expect((await call(app(), "POST", `${BASE}/payouts/${PAYOUT}/reverse`, { body: { reason: "x" } })).status).toBe(404);
       expect((await call(app(), "POST", `${BASE}/payouts/${PAYOUT}/reverse`, { body: {} })).status).toBe(400);
     });
