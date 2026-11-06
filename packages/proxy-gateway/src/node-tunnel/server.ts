@@ -70,6 +70,12 @@ export interface TunnelServerDeps {
   markOnline: (nodeId: string, ip: string, country: string | null, asn: number | null, ipClass?: NodeIpClass | null) => Promise<boolean>;
   markOffline: (nodeId: string) => Promise<boolean>;
   /**
+   * Fleet-wide /32, /24 and ASN caps (shared store). Called after the local
+   * registry check; false rejects with IP_CAP. Errors fail closed.
+   */
+  claimIpSlot?: (s: { nodeId: string; ip: string; prefix24: string; asn: number | null; enforceAsn: boolean; limits: { per32: number; per24: number; perAsn: number } }) => Promise<boolean>;
+  releaseIpSlot?: (nodeId: string) => Promise<void>;
+  /**
    * Promote a `pending` node to `active` (compare-and-set from 'pending' only).
    * Called once a tunnel whose attestation meets the current policy minVersion
    * has passed every handshake check. Returns false if the row was not pending.
@@ -573,6 +579,22 @@ export class NodeTunnelServer {
       return t.rejectAuth("REGISTRY_FULL");
     }
     if (prev && prev.tunnel !== t) prev.tunnel.close("replaced");
+    if (this.deps.claimIpSlot) {
+      let claimed = false;
+      try {
+        claimed = await this.deps.claimIpSlot({ nodeId: t.node.id, ip: t.peerIp, prefix24: prefix, asn, enforceAsn, limits: lim });
+      } catch {
+        claimed = false;
+      }
+      if (!t.isAuthorizing() || !claimed) {
+        this.registry.remove(t.node.id, t);
+        // The tunnel may have closed (and released) while the claim was in
+        // flight; release again unless another tunnel now owns this node.
+        if (claimed && !this.registry.get(t.node.id)) this.releaseSlot(t.node.id);
+        if (t.isAuthorizing()) return t.rejectAuth("IP_CAP");
+        return;
+      }
+    }
     let ok = false;
     try {
       ok = await this.deps.markOnline(t.node.id, t.peerIp, country, asn, geo?.ipClass ?? null);
@@ -580,11 +602,11 @@ export class NodeTunnelServer {
       ok = false;
     }
     if (!t.isAuthorizing()) {
-      this.registry.remove(t.node.id, t);
+      if (this.registry.remove(t.node.id, t)) this.releaseSlot(t.node.id);
       return;
     }
     if (!ok) {
-      this.registry.remove(t.node.id, t);
+      if (this.registry.remove(t.node.id, t)) this.releaseSlot(t.node.id);
       return t.rejectAuth("NODE_UNAVAILABLE");
     }
     // A freshly registered (or re-attested) node starts as `pending`; the upgrade
@@ -597,7 +619,7 @@ export class NodeTunnelServer {
         /* stays pending: not selectable */
       }
       if (!t.isAuthorizing()) {
-        this.registry.remove(t.node.id, t);
+        if (this.registry.remove(t.node.id, t)) this.releaseSlot(t.node.id);
         return;
       }
     }
@@ -605,6 +627,10 @@ export class NodeTunnelServer {
     live.ready = true;
     t.markReady(live);
     this.log.info("node tunnel ready", { nodeId: t.node.id, country, agentVersion: caps.agentVersion });
+  }
+
+  private releaseSlot(nodeId: string): void {
+    this.deps.releaseIpSlot?.(nodeId).catch(() => undefined); // expires via heartbeat TTL if this fails
   }
 
   reportStreamClose(nodeId: string, r: StreamCloseReport): void {
@@ -635,6 +661,7 @@ export class NodeTunnelServer {
   onTunnelClosed(t: NodeTunnel, wasReady: boolean): void {
     this.tunnels.delete(t);
     const removed = this.registry.remove(t.node.id, t);
+    if (removed) this.releaseSlot(t.node.id);
     if (wasReady && removed) {
       this.deps.markOffline(t.node.id).catch(() => undefined);
       this.log.info("node tunnel closed", { nodeId: t.node.id });

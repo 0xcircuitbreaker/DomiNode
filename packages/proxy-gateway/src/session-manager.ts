@@ -1,7 +1,7 @@
 import { usageRepo, walletRepo, planRepo, teamRepo, policyRepo, tierRepo, relayChargeRepo, relaySettleRetryRepo, createLogger } from "@dominusnode/shared";
 import type { Plan, NodeIpClass } from "@dominusnode/shared";
 import { BYTES_PER_GB } from "@dominusnode/shared";
-import { recordRequesterSpend, reserveRequesterSpend, releaseRequesterSpend } from "./policy-enforcer.js";
+import { recordRequesterSpend, reserveRequesterSpend, releaseRequesterSpend, reserveRequesterShared } from "./policy-enforcer.js";
 import { invalidateBalanceCache, invalidateTeamBalanceCache } from "./balance-check.js";
 import { recordBytes, recordSessionStart } from "./stats.js";
 import type { ByteCounter } from "./counting-stream.js";
@@ -366,6 +366,7 @@ export async function startSession(
   if (!reserveRequesterSpend(userId, inflightMusd)) {
     throw new Error("Daily spend cap reached");
   }
+  await reserveRequesterShared(userId, inflightMusd);
 
   let sessionId: string;
   try {
@@ -561,6 +562,7 @@ export async function startPrepaidSession(i: PrepaidSessionInput): Promise<strin
   }
   if (activeSessions.size >= MAX_ACTIVE_SESSIONS) throw new Error("Server at capacity. Please try again later.");
   if (!reserveRequesterSpend(i.userId, i.paidMusd)) throw new Error("Daily spend cap reached");
+  await reserveRequesterShared(i.userId, i.paidMusd);
   let dbSession;
   try {
     dbSession = await usageRepo.createRelaySession(i.userId, i.relay.nodeId, i.relay.destPort);

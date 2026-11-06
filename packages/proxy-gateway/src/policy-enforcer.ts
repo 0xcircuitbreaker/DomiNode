@@ -7,6 +7,28 @@ import { isIP } from "node:net";
 import type { NetworkPolicy } from "@dominusnode/shared";
 import { checkSanctionedCountry } from "./geo-check.js";
 
+/**
+ * Optional fleet-wide store (PostgreSQL, relay-limits-repo). The in-memory
+ * maps below stay the fast path; the store makes the daily spend cap (with
+ * in-flight holds) and req/s hold across gateway instances.
+ */
+export interface SharedLimitStore {
+  reserve(i: { userId: string; musd: bigint; dailyCapMusd: bigint | null; reqPerSec: number | null }): Promise<"ok" | "rate" | "spend">;
+  settle(userId: string, releaseMusd: bigint, settledMusd: bigint): Promise<void>;
+}
+let sharedStore: SharedLimitStore | null = null;
+let onSharedError: (op: string, err: unknown) => void = () => undefined;
+
+export function setSharedLimitStore(store: SharedLimitStore | null, onError?: (op: string, err: unknown) => void): void {
+  sharedStore = store;
+  if (onError) onSharedError = onError;
+}
+
+function sharedSettle(userId: string, releaseMusd: bigint, settledMusd: bigint): void {
+  if (!sharedStore) return;
+  sharedStore.settle(userId, releaseMusd, settledMusd).catch((err) => onSharedError("settle", err));
+}
+
 export const EXIT_VISIBLE_HEADER = "X-DominusNode-Exit-Visible";
 
 export interface EnforceInput {
@@ -62,6 +84,7 @@ export function isDeniedDomain(host: string, deny: readonly string[]): boolean {
 /** Record settled spend (µUSD) for the per-requester daily cap. */
 export function recordRequesterSpend(userId: string, musd: bigint, now = Date.now()): void {
   if (musd <= 0n) return;
+  sharedSettle(userId, 0n, musd);
   const day = Math.floor(now / DAY_MS);
   const e = spendLog.get(userId);
   if (e && e.day === day) { e.musd += musd; return; }
@@ -79,14 +102,15 @@ export function recordRequesterSpend(userId: string, musd: bigint, now = Date.no
  * here (atomically: JS is single-threaded between check and add) and the
  * amount is released at settle/abort, when the real spend is recorded.
  *
- * KNOWN LIMITATION: this state (like spendLog) is per gateway process. With
- * several gateway instances each enforces the cap independently, so a
- * requester spreading load across N instances can reach up to N x the cap
- * (plus one reservation each). A shared store (DB/Redis) is needed to close that.
+ * This state (like spendLog) is per gateway process: the fast path. With a
+ * SharedLimitStore installed the same holds are mirrored to PostgreSQL so the
+ * cap holds across gateway instances (reserveRequesterShared).
  */
 const inflightSpend = new Map<string, bigint>();
 /** Daily cap from the most recent policy enforcePolicy saw (null until then). */
 let currentDailyCapMusd: bigint | null = null;
+/** req/s limit from the most recent policy enforcePolicy saw (null until then). */
+let currentReqPerSec: number | null = null;
 
 export function getRequesterInflightSpend(userId: string): bigint {
   return inflightSpend.get(userId) ?? 0n;
@@ -104,14 +128,47 @@ export function reserveRequesterSpend(userId: string, musd: bigint, enforceCap =
     return false;
   }
   inflightSpend.set(userId, getRequesterInflightSpend(userId) + musd);
+  // Unchecked holds (reconciliation) are mirrored to the shared store here;
+  // checked holds go through reserveRequesterShared() by the caller.
+  if (!enforceCap && sharedStore) {
+    sharedStore.reserve({ userId, musd, dailyCapMusd: null, reqPerSec: null })
+      .catch((err) => onSharedError("reserve", err));
+  }
   return true;
 }
 
-export function releaseRequesterSpend(userId: string, musd: bigint): void {
+/**
+ * Fleet-wide check after a successful local reserveRequesterSpend: counts the
+ * request against req/s and holds `musd` against the daily cap in the shared
+ * store. On refusal or store error the local hold is released and this throws
+ * (fail closed). No-op without a store.
+ */
+export async function reserveRequesterShared(userId: string, musd: bigint): Promise<void> {
+  if (!sharedStore) return;
+  let r: "ok" | "rate" | "spend";
+  try {
+    r = await sharedStore.reserve({ userId, musd, dailyCapMusd: currentDailyCapMusd, reqPerSec: currentReqPerSec });
+  } catch (err) {
+    onSharedError("reserve", err);
+    releaseLocal(userId, musd);
+    throw new Error("Unable to check spend limits. Please try again.");
+  }
+  if (r === "ok") return;
+  releaseLocal(userId, musd);
+  throw new Error(r === "rate" ? "Too many requests per second" : "Daily spend cap reached");
+}
+
+function releaseLocal(userId: string, musd: bigint): void {
   if (musd <= 0n) return;
   const left = getRequesterInflightSpend(userId) - musd;
   if (left > 0n) inflightSpend.set(userId, left);
   else inflightSpend.delete(userId);
+}
+
+export function releaseRequesterSpend(userId: string, musd: bigint): void {
+  if (musd <= 0n) return;
+  releaseLocal(userId, musd);
+  sharedSettle(userId, musd, 0n);
 }
 
 export function getRequesterSpend(userId: string, now = Date.now()): bigint {
@@ -159,6 +216,7 @@ export function enforcePolicy(policy: NetworkPolicy, i: EnforceInput, now = Date
     exitVisible = true;
   }
   currentDailyCapMusd = BigInt(policy.requesterLimits.dailySpendMusd);
+  currentReqPerSec = policy.requesterLimits.reqPerSec;
   if (getRequesterSpend(i.userId, now) + getRequesterInflightSpend(i.userId) >= currentDailyCapMusd) {
     return { allowed: false, status: 429, code: "SPEND_CAP_EXCEEDED", message: "Daily spend cap reached" };
   }
@@ -174,6 +232,8 @@ export function _resetPolicyEnforcer(): void {
   spendLog.clear();
   inflightSpend.clear();
   currentDailyCapMusd = null;
+  currentReqPerSec = null;
+  sharedStore = null;
 }
 
 /** Free-plan requesters are kept off the relay unless policy.freeTierRelay (DESIGN.md §15 R1). */

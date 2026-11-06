@@ -6,6 +6,7 @@ import type { ActivePolicy } from "@dominusnode/shared";
 import { startProxyServer } from "./server.js";
 import { initGeoCheck, lookupPeerGeo, setAsnDb } from "./geo-check.js";
 import { loadAsnDbFile, parseHostingAsns } from "./asn-db.js";
+import { installSharedLimits } from "./shared-limits.js";
 import { NodeRegistry } from "./node-tunnel/registry.js";
 import { NodeSelector } from "./node-tunnel/selector.js";
 import { loadCoordSigner } from "./node-tunnel/coord-key.js";
@@ -86,6 +87,7 @@ async function main(): Promise<void> {
   } catch (err) {
     log.error("ASN database failed to load", { error: err instanceof Error ? err.message.slice(0, 100) : "unknown" });
   }
+  const shared = installSharedLimits(log);
   const registry = new NodeRegistry();
   registry.startSweep();
   const selector = new NodeSelector(registry, { getPolicy: () => policy.body });
@@ -97,6 +99,8 @@ async function main(): Promise<void> {
     getNodeForTunnelAuth: nodeRepo.getNodeForTunnelAuth,
     markOnline: nodeRepo.markOnline,
     markOffline: nodeRepo.markOffline,
+    claimIpSlot: shared.claimIpSlot,
+    releaseIpSlot: shared.releaseIpSlot,
     activatePending: async (nodeId) => (await nodeRepo.setStatus(nodeId, "active", ["pending"])) !== null,
     getPolicy,
     geoLookup: lookupPeerGeo,
@@ -182,6 +186,7 @@ async function main(): Promise<void> {
 
     registry.stopSweep();
     try { await tunnelServer.close(); } catch { /* best effort */ }
+    await shared.stop();
     await closePool();
     process.exit(0);
   }
