@@ -2,7 +2,7 @@ import type * as net from "node:net";
 import dotenv from "dotenv";
 dotenv.config();
 
-import { createLogger, closePool, getPool, usageRepo, connectWithRetry, nodeRepo, policyRepo, nodeCreditRepo, retentionRepo, tierRepo, payoutRepo, relayChargeRepo, relaySettleRetryRepo, reportReputationRepo } from "@dominusnode/shared";
+import { createLogger, closePool, getPool, usageRepo, connectWithRetry, nodeRepo, policyRepo, nodeCreditRepo, retentionRepo, tierRepo, payoutRepo, relayChargeRepo, relaySettleRetryRepo, reportReputationRepo, collusionRepo } from "@dominusnode/shared";
 import type { ActivePolicy } from "@dominusnode/shared";
 import { startProxyServer } from "./server.js";
 import { initGeoCheck, lookupPeerGeo, setAsnDb } from "./geo-check.js";
@@ -23,6 +23,7 @@ import * as payoutsJob from "./jobs/payouts.js";
 import * as reputationFlushJob from "./jobs/reputation-flush.js";
 import * as settleRetryJob from "./jobs/relay-settle-retry.js";
 import * as reportReputationJob from "./jobs/report-reputation.js";
+import * as collusionJob from "./jobs/collusion.js";
 import { loadSdnFile } from "./jobs/sdn.js";
 import * as probesJob from "./jobs/probes.js";
 import { parseTrustedProxyIps, loadTunnelTls } from "./node-tunnel/ingress.js";
@@ -297,6 +298,17 @@ function startJobs(registry: NodeRegistry, getPolicy: () => ActivePolicy): Job[]
       compute: reportReputationRepo.computeReportPenalties,
       apply: reportReputationRepo.applyReportPenalties,
       params: reportReputationJob.paramsFromEnv(process.env, envInt, reportReputationRepo.DEFAULT_REPORT_PENALTY_PARAMS),
+    },
+  }));
+  jobs.push(collusionJob.start({
+    pool, logger: jobLog, intervalMs: envInt(process.env, "COLLUSION_JOB_INTERVAL_MS", 86_400_000, 3_600_000, 7 * 86_400_000),
+    deps: {
+      getSettings: collusionRepo.getSettings,
+      listNodes: collusionRepo.listNodeConcentration,
+      listCircular: collusionRepo.listCircularPairs,
+      evaluateNode: collusionRepo.evaluateNode,
+      evaluateCircular: collusionRepo.evaluateCircular,
+      record: collusionRepo.recordFinding,
     },
   }));
   const probeTarget = probesJob.parseProbeUrl(process.env["PROBE_URL"]);

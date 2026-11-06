@@ -1656,3 +1656,48 @@ EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 CREATE INDEX IF NOT EXISTS idx_nodes_report_penalty ON nodes(id) WHERE report_penalty > 0;
 CREATE INDEX IF NOT EXISTS idx_node_reports_created ON node_reports(created_at);
+
+-- ─── Collusion detector (DESIGN.md §13 commit 33, §11) ──────────────
+-- Admin-tunable thresholds (singleton row). auto_freeze is off by default.
+CREATE TABLE IF NOT EXISTS collusion_settings (
+  id                      SMALLINT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+  window_days             INTEGER NOT NULL DEFAULT 30 CHECK (window_days BETWEEN 1 AND 90),
+  min_node_volume_musd    BIGINT  NOT NULL DEFAULT 5000000 CHECK (min_node_volume_musd BETWEEN 0 AND 1000000000000),
+  concentration_bps       INTEGER NOT NULL DEFAULT 8000 CHECK (concentration_bps BETWEEN 1 AND 10000),
+  cluster_size            INTEGER NOT NULL DEFAULT 3 CHECK (cluster_size BETWEEN 2 AND 20),
+  cluster_bps             INTEGER NOT NULL DEFAULT 9500 CHECK (cluster_bps BETWEEN 1 AND 10000),
+  circular_min_musd       BIGINT  NOT NULL DEFAULT 1000000 CHECK (circular_min_musd BETWEEN 0 AND 1000000000000),
+  auto_freeze             BOOLEAN NOT NULL DEFAULT false,
+  freeze_bps              INTEGER NOT NULL DEFAULT 9500 CHECK (freeze_bps BETWEEN 1 AND 10000),
+  freeze_min_volume_musd  BIGINT  NOT NULL DEFAULT 50000000 CHECK (freeze_min_volume_musd BETWEEN 0 AND 1000000000000),
+  updated_by              UUID REFERENCES users(id) ON DELETE SET NULL,
+  updated_at              TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+INSERT INTO collusion_settings (id) VALUES (1) ON CONFLICT (id) DO NOTHING;
+
+-- One open flag per (kind, owner, node, requester); re-detections refresh it.
+CREATE TABLE IF NOT EXISTS collusion_flags (
+  id                 BIGSERIAL PRIMARY KEY,
+  kind               TEXT NOT NULL CHECK (kind IN ('concentration','cluster','circular')),
+  owner_user_id      UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  node_id            UUID REFERENCES nodes(id) ON DELETE CASCADE,
+  requester_user_id  UUID REFERENCES users(id) ON DELETE CASCADE,
+  share_bps          INTEGER NOT NULL CHECK (share_bps BETWEEN 0 AND 10000),
+  volume_musd        BIGINT  NOT NULL CHECK (volume_musd BETWEEN 0 AND 2147483647000000),
+  total_musd         BIGINT  NOT NULL CHECK (total_musd BETWEEN 0 AND 2147483647000000),
+  window_days        INTEGER NOT NULL CHECK (window_days BETWEEN 1 AND 90),
+  status             TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open','dismissed','confirmed')),
+  auto_frozen        BOOLEAN NOT NULL DEFAULT false,
+  resolved_by        UUID REFERENCES users(id) ON DELETE SET NULL,
+  resolution_note    TEXT CHECK (resolution_note IS NULL OR length(resolution_note) <= 500),
+  first_seen_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_seen_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+  resolved_at        TIMESTAMPTZ
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_collusion_flags_open ON collusion_flags (
+  kind, owner_user_id,
+  COALESCE(node_id, '00000000-0000-0000-0000-000000000000'::uuid),
+  COALESCE(requester_user_id, '00000000-0000-0000-0000-000000000000'::uuid)
+) WHERE status = 'open';
+CREATE INDEX IF NOT EXISTS idx_collusion_flags_status ON collusion_flags(status, last_seen_at DESC);
+CREATE INDEX IF NOT EXISTS idx_collusion_flags_owner ON collusion_flags(owner_user_id);
