@@ -1,9 +1,16 @@
+import * as fs from "node:fs";
+
 export interface McpConfig {
   apiKey: string | null;
   apiUrl: string;
   proxyHost: string;
   httpProxyPort: number;
   socks5ProxyPort: number;
+  /**
+   * TLS to the gateway (HTTPS proxy listener). Set from DOMINUSNODE_PROXY_URL=https://host:port;
+   * when present, proxy fetches use it instead of the plaintext httpProxyPort.
+   */
+  proxyTls?: { port: number; ca?: Buffer } | null;
   fetchTimeoutMs: number;
   fetchMaxResponseBytes: number;
   mcpAgentSecret: string;
@@ -52,7 +59,11 @@ export function parseConfig(env: Record<string, string | undefined> = process.en
     throw new ConfigError("DOMINUSNODE_API_URL is not a valid URL");
   }
 
-  const proxyHost = env["DOMINUSNODE_PROXY_HOST"] ?? "proxy.dominusnode.com";
+  const proxyTls = parseProxyUrl(env["DOMINUSNODE_PROXY_URL"]);
+  if (proxyTls && env["DOMINUSNODE_PROXY_HOST"] !== undefined && env["DOMINUSNODE_PROXY_HOST"].toLowerCase() !== proxyTls.host) {
+    throw new ConfigError("DOMINUSNODE_PROXY_URL and DOMINUSNODE_PROXY_HOST name different hosts");
+  }
+  const proxyHost = proxyTls?.host ?? env["DOMINUSNODE_PROXY_HOST"] ?? "proxy.dominusnode.com";
 
   // Validate proxyHost strictly to prevent SSRF via config injection
   if (!/^[a-zA-Z0-9.\-]+$/.test(proxyHost)) {
@@ -129,6 +140,7 @@ export function parseConfig(env: Record<string, string | undefined> = process.en
     proxyHost,
     httpProxyPort,
     socks5ProxyPort,
+    proxyTls: proxyTls ? { port: proxyTls.port, ca: readProxyCa(env["DOMINUSNODE_PROXY_CA_FILE"]) } : null,
     fetchTimeoutMs,
     fetchMaxResponseBytes,
     mcpAgentSecret,
@@ -136,6 +148,37 @@ export function parseConfig(env: Record<string, string | undefined> = process.en
     payoutWalletKeyFile,
     nodeKeyFile,
   };
+}
+
+/** DOMINUSNODE_PROXY_CA_FILE: extra PEM CA for a privately issued gateway cert. Verification stays on. */
+function readProxyCa(value: string | undefined): Buffer | undefined {
+  const p = parseFilePath(value, "DOMINUSNODE_PROXY_CA_FILE");
+  if (!p) return undefined;
+  let buf: Buffer;
+  try {
+    buf = fs.readFileSync(p);
+  } catch {
+    throw new ConfigError("DOMINUSNODE_PROXY_CA_FILE could not be read");
+  }
+  if (buf.length > 256 * 1024 || !buf.toString("latin1").includes("-----BEGIN CERTIFICATE-----")) {
+    throw new ConfigError("DOMINUSNODE_PROXY_CA_FILE must be a PEM certificate");
+  }
+  return buf;
+}
+
+/** DOMINUSNODE_PROXY_URL: https://host[:port] only (default port 8443); no credentials, path or query. */
+function parseProxyUrl(value: string | undefined): { host: string; port: number } | null {
+  if (value === undefined || value === "") return null;
+  let u: URL;
+  try {
+    u = new URL(value);
+  } catch {
+    throw new ConfigError("DOMINUSNODE_PROXY_URL is not a valid URL");
+  }
+  if (u.protocol !== "https:") throw new ConfigError("DOMINUSNODE_PROXY_URL must use https:// (TLS to the gateway)");
+  if (u.username || u.password) throw new ConfigError("DOMINUSNODE_PROXY_URL must not contain credentials; use DOMINUSNODE_API_KEY");
+  if ((u.pathname && u.pathname !== "/") || u.search || u.hash) throw new ConfigError("DOMINUSNODE_PROXY_URL must not have a path, query or fragment");
+  return { host: u.hostname.toLowerCase(), port: u.port ? parsePort(u.port, 8443, "DOMINUSNODE_PROXY_URL port") : 8443 };
 }
 
 function parsePort(value: string | undefined, defaultValue: number, name: string): number {

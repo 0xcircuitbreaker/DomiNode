@@ -337,6 +337,33 @@ export async function proxyFetch(
   return httpProxyFetch(apiKey, config, opts, parsed, method, timeoutMs, maxBytes);
 }
 
+/**
+ * Open a request to the gateway. With config.proxyTls the channel to the gateway is
+ * TLS (certificate verified), so Proxy-Authorization is never sent in clear.
+ */
+function gatewayRequest(
+  config: McpConfig,
+  opts: http.RequestOptions,
+  cb?: (res: http.IncomingMessage) => void,
+): http.ClientRequest {
+  if (!config.proxyTls) return http.request({ ...opts, port: config.httpProxyPort }, cb);
+  return https.request({
+    ...opts,
+    port: config.proxyTls.port,
+    ca: config.proxyTls.ca,
+    servername: net.isIP(config.proxyHost) ? undefined : config.proxyHost,
+    minVersion: "TLSv1.2",
+    rejectUnauthorized: true,
+  }, cb);
+}
+
+/** Where proxy fetches go, for tool descriptions. */
+export function gatewayDescription(config: McpConfig): string {
+  return config.proxyTls
+    ? `https://${config.proxyHost}:${config.proxyTls.port} (TLS)`
+    : `http://${config.proxyHost}:${config.httpProxyPort}`;
+}
+
 function httpProxyFetch(
   apiKey: string,
   config: McpConfig,
@@ -364,10 +391,10 @@ function httpProxyFetch(
       }
     }
 
-    const req = http.request(
+    const req = gatewayRequest(
+      config,
       {
         hostname: config.proxyHost,
-        port: config.httpProxyPort,
         method,
         path: opts.url,
         headers: {
@@ -445,9 +472,8 @@ function httpsProxyFetch(
 
     // Step 1: CONNECT tunnel
     const connectHost = parsed.hostname.includes(":") ? `[${parsed.hostname}]` : parsed.hostname;
-    const connectReq = http.request({
+    const connectReq = gatewayRequest(config, {
       hostname: config.proxyHost,
-      port: config.httpProxyPort,
       method: "CONNECT",
       path: `${connectHost}:${parsed.port || 443}`,
       headers: {

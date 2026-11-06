@@ -20,6 +20,7 @@ async function main(): Promise<void> {
       process.stderr.write(`  DOMINUSNODE_API_URL         — API base URL (default: https://api.dominusnode.com)\n`);
       process.stderr.write(`  DOMINUSNODE_PROXY_HOST      — Proxy host (default: proxy.dominusnode.com)\n`);
       process.stderr.write(`  DOMINUSNODE_HTTP_PROXY_PORT — HTTP proxy port (default: 8080)\n`);
+      process.stderr.write(`  DOMINUSNODE_PROXY_URL       — https://host[:port] TLS gateway (preferred when set; default port 8443)\n`);
       process.stderr.write(`  DOMINUSNODE_WALLET_KEY_FILE — chmod-600 wallet key file (node registration only)\n`);
       process.stderr.write(`  DOMINUSNODE_NODE_KEY_FILE   — node credential output file (default ~/.dominusnode/node.json)\n`);
       process.exit(1);
