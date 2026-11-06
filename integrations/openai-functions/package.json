@@ -1,29 +1,45 @@
 {
   "name": "@dominusnode/openai-functions",
-  "version": "1.2.1",
-  "description": "Dominus Node OpenAI-compatible function calling handler — dispatches LLM function calls to the Dominus Node REST API",
+  "version": "2.0.0",
+  "description": "DominusNode v2 OpenAI-compatible function definitions and handler: the 19 standard relay-network tools on @dominusnode/sdk",
   "main": "dist/handler.js",
   "types": "dist/handler.d.ts",
   "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/handler.d.ts",
+      "import": "./dist/handler.js"
+    },
+    "./functions.json": "./functions.json"
+  },
+  "files": [
+    "dist/",
+    "functions.json",
+    "README.md",
+    "LICENSE"
+  ],
   "license": "MIT",
   "scripts": {
     "build": "tsc",
     "prepare": "npm run build",
     "test": "vitest run",
-    "test:py": "python -m pytest test_handler.py -v"
+    "test:py": "python -m pytest -q python_tests",
+    "link-sdk": "npm install --no-save ../../sdks/node"
+  },
+  "dependencies": {
+    "@dominusnode/sdk": "^2.0.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
     "typescript": "^5.4.0",
-    "vitest": "^1.6.0"
+    "vitest": "^3.0.0"
   },
   "keywords": [
+    "dominusnode",
     "openai",
     "function-calling",
-    "dominusnode",
-    "proxy",
-    "llm",
-    "ai"
+    "tool-calling",
+    "relay"
   ],
   "repository": {
     "type": "git",
@@ -31,11 +47,5 @@
   },
   "engines": {
     "node": ">=18.0.0"
-  },
-  "files": [
-    "dist/",
-    "functions.json",
-    "README.md",
-    "LICENSE"
-  ]
+  }
 }

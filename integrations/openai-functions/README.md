@@ -1,272 +1,118 @@
-# Dominus Node OpenAI-Compatible Function Calling Schemas
+# DominusNode for OpenAI-compatible function calling
 
-OpenAI function-calling schemas and handler implementations for the Dominus Node rotating proxy-as-a-service platform. These schemas allow any LLM with function/tool calling support to interact with Dominus Node's proxy network, wallet, and agentic wallet APIs.
+Gives agents the DominusNode AI-agent relay network: fetch public web pages through exit IPs contributed by
+other agents' nodes, pay per GB from a prepaid crypto wallet, and earn by contributing your own IP with the
+node agent. Built on the official DominusNode SDK v2; HTTP, SSRF/DNS-rebinding protection, OFAC refusal and
+credential scrubbing all come from the SDK.
 
-## What This Is
+## Install
 
-This directory contains:
+```bash
+npm install @dominusnode/openai-functions   # TypeScript
+pip install dominusnode-openai-functions    # Python
+```
 
-| File | Description |
-|------|-------------|
-| `functions.json` | Array of 8 OpenAI function definitions (JSON Schema format) |
-| `handler.ts` | TypeScript handler that dispatches function calls to the Dominus Node API |
-| `handler.py` | Python handler that dispatches function calls to the Dominus Node API |
+## Configuration
 
-The function schemas follow the [OpenAI function calling specification](https://platform.openai.com/docs/guides/function-calling), which has become a de facto standard adopted by Claude (tool_use), Gemini, Mistral, Llama, and others.
+| Variable | Required | Purpose |
+|---|---|---|
+| `DOMINUSNODE_API_KEY` | yes | Your `dn_live_` API key. Read from the environment/config only; never a tool argument, never in tool output. |
+| `DOMINUSNODE_BASE_URL` | no | API base URL (default `https://api.dominusnode.com`). |
+| `DOMINUSNODE_PROXY_HOST` | no | Gateway host (default `proxy.dominusnode.com`). |
 
-## Available Functions
+## Usage
 
-| Function | Description | Auth Required |
-|----------|-------------|---------------|
-| `dominusnode_proxied_fetch` | Make an HTTP request through Dominus Node's rotating proxy network | Yes |
-| `dominusnode_check_balance` | Check wallet balance (cents, USD, currency) | Yes |
-| `dominusnode_check_usage` | Check usage stats for a time period (day/week/month) | Yes |
-| `dominusnode_get_proxy_config` | Get proxy endpoints, supported countries, geo-targeting info | Yes |
-| `dominusnode_list_sessions` | List currently active proxy sessions | Yes |
-| `dominusnode_create_agentic_wallet` | Create a sub-wallet for an AI agent with spending limits | Yes |
-| `dominusnode_fund_agentic_wallet` | Transfer funds from main wallet to an agentic wallet | Yes |
-| `dominusnode_agentic_wallet_balance` | Check an agentic wallet's balance and status | Yes |
+This package has a TypeScript part (`@dominusnode/openai-functions`, on `@dominusnode/sdk` v2) and a Python part
+(`dominusnode-openai-functions`, on the `dominusnode` SDK v2). Both expose the same 19 JSON Schema function
+definitions, kept identical to `functions.json` by tests in each language. The definitions work with any
+OpenAI-compatible tool-calling API.
 
-## Usage with OpenAI GPT (Function Calling)
+### TypeScript (openai, Chat Completions)
+
+```ts
+import OpenAI from "openai";
+import { chatCompletionTools, createDominusNodeFunctionHandler } from "@dominusnode/openai-functions";
+
+const openai = new OpenAI();
+const handle = createDominusNodeFunctionHandler();          // key from DOMINUSNODE_API_KEY
+const completion = await openai.chat.completions.create({ model: "gpt-4.1", messages, tools: chatCompletionTools });
+for (const call of completion.choices[0].message.tool_calls ?? []) {
+  const content = await handle(call.function.name, call.function.arguments);   // raw JSON string accepted
+  messages.push({ role: "tool", tool_call_id: call.id, content });
+}
+```
+
+For the Responses API use `responsesTools`; the plain definitions are `functionDefinitions` / `functions.json`.
+
+### Python (openai)
 
 ```python
-import json
-import openai
-from handler import create_dominusnode_function_handler
+from openai import OpenAI
+from dominusnode_openai_functions import chat_completion_tools, create_dominusnode_function_handler
 
-# Load function definitions
-with open("functions.json") as f:
-    functions = json.load(f)
-
-# Create the Dominus Node handler
-dominusnode = create_dominusnode_function_handler(
-    api_key="dn_live_your_api_key_here",
-    base_url="https://api.dominusnode.com",
-)
-
-# Create a chat completion with function calling
-client = openai.OpenAI()
-response = client.chat.completions.create(
-    model="gpt-4o",
-    messages=[
-        {"role": "system", "content": "You have access to Dominus Node proxy tools."},
-        {"role": "user", "content": "What is my current proxy balance?"},
-    ],
-    functions=functions,
-    function_call="auto",
-)
-
-# Handle function calls from the LLM
-message = response.choices[0].message
-if message.function_call:
-    name = message.function_call.name
-    args = json.loads(message.function_call.arguments)
-
-    # Dispatch to Dominus Node handler
-    result = await dominusnode(name, args)
-
-    # Send the result back to the LLM
-    response = client.chat.completions.create(
-        model="gpt-4o",
-        messages=[
-            {"role": "system", "content": "You have access to Dominus Node proxy tools."},
-            {"role": "user", "content": "What is my current proxy balance?"},
-            message,
-            {"role": "function", "name": name, "content": result},
-        ],
-    )
-    print(response.choices[0].message.content)
+handle = create_dominusnode_function_handler()      # key from DOMINUSNODE_API_KEY
+resp = OpenAI().chat.completions.create(model="gpt-4.1", messages=messages, tools=chat_completion_tools())
+for call in resp.choices[0].message.tool_calls or []:
+    messages.append({"role": "tool", "tool_call_id": call.id,
+                     "content": handle(call.function.name, call.function.arguments)})
 ```
 
-## Usage with Claude (tool_use)
+Handlers return JSON strings; errors are `{"error": "..."}` with credentials scrubbed.
 
-Claude uses a `tools` parameter with a slightly different schema format. Convert the OpenAI functions to Claude tool format:
+## Tools (v2 standard set, 19)
 
-```python
-import json
-import anthropic
-from handler import create_dominusnode_function_handler
+| # | Tool | What it does |
+|---|---|---|
+| 1 | `dominusnode_fetch` | Fetch a public URL through the DominusNode relay network (GET or HEAD only, ports 80/443, no redirects followed, 10 MB cap, private/internal targets refused). |
+| 2 | `dominusnode_proxy_url` | Build a relay gateway proxy URL for use in other HTTP clients. |
+| 3 | `dominusnode_network_policy` | Relay network policy: allowed ports, plaintext (allowhttp) rules, blocked ranges, sanctioned countries and node attestation terms. |
+| 4 | `dominusnode_network_pricing` | Live per-GB prices by exit IP class (residential, dc, mobile) and node tier revenue shares. |
+| 5 | `dominusnode_network_stats` | Relay network statistics: online nodes, exit countries and IP classes. |
+| 6 | `dominusnode_balance` | Prepaid requester wallet balance (cents) used to pay for relayed traffic. |
+| 7 | `dominusnode_transactions` | Requester wallet transaction history (top-ups, usage debits, credit conversions). |
+| 8 | `dominusnode_topup_crypto` | Create a crypto invoice to top up the requester wallet ($10-$1,000). |
+| 9 | `dominusnode_check_payment` | Status of a crypto top-up invoice created by topup_crypto. |
+| 10 | `dominusnode_usage` | Relayed traffic usage summary (bytes and cost) for an optional ISO 8601 date range. |
+| 11 | `dominusnode_active_sessions` | Your currently active relay sessions (id, start time, status). |
+| 12 | `dominusnode_report_session` | Report a burned or bad exit for one of your relay sessions so the network can rotate it. |
+| 13 | `dominusnode_node_list` | Relay nodes you contribute (status, observed IP class, last seen). |
+| 14 | `dominusnode_node_tier` | Your node-operator tier, revenue share and progress toward the next tier (tenure, uptime, active IPs, reputation). |
+| 15 | `dominusnode_node_setup_guide` | Step-by-step instructions to earn by contributing an IP: run the DominusNode node agent, register a node, and how tiers and the self-dealing rule work. |
+| 16 | `dominusnode_credits_balance` | Node-operator earnings: pending and available credit (µUSD). |
+| 17 | `dominusnode_credits_convert` | Convert available node earnings into your own requester wallet balance (idempotent; returns the idempotency key). |
+| 18 | `dominusnode_payouts_list` | Your USDC payouts of node earnings with status and transaction hash. |
+| 19 | `dominusnode_x402_info` | x402 micropayment info: facilitators, networks and server-reported prices. |
 
-# Load and convert function definitions to Claude tool format
-with open("functions.json") as f:
-    functions = json.load(f)
+Notes for agents:
 
-tools = [
-    {
-        "name": fn["name"],
-        "description": fn["description"],
-        "input_schema": fn["parameters"],
-    }
-    for fn in functions
-]
+- Prices are never hardcoded: call `network_pricing` for the live per-GB price by IP class (residential, dc, mobile).
+- `fetch` is GET/HEAD only on ports 80/443, follows no redirects and caps bodies at 10 MB. Plaintext `http://`
+  needs `allow_http` and is visible to the exit node.
+- Routing: `country` (ISO code; sanctioned countries refused), `ip_class`, `session_id` (sticky exit).
+- Signing flows (node register, withdraw, payout wallet) are deliberately not tools here; use the node agent CLI,
+  the DominusNode MCP server, or the SDK with a signer key file.
 
-# Create the Dominus Node handler
-dominusnode = create_dominusnode_function_handler(
-    api_key="dn_live_your_api_key_here",
-)
+## Development (JS part)
 
-# Create a message with tool use
-client = anthropic.Anthropic()
-response = client.messages.create(
-    model="claude-sonnet-4-20250514",
-    max_tokens=1024,
-    tools=tools,
-    messages=[
-        {"role": "user", "content": "Check my Dominus Node proxy balance and usage this week."},
-    ],
-)
+`@dominusnode/sdk` 2.x may not be on npm yet; link the in-repo SDK for local builds and tests:
 
-# Handle tool use blocks
-for block in response.content:
-    if block.type == "tool_use":
-        result = await dominusnode(block.name, block.input)
-
-        # Send result back
-        response = client.messages.create(
-            model="claude-sonnet-4-20250514",
-            max_tokens=1024,
-            tools=tools,
-            messages=[
-                {"role": "user", "content": "Check my Dominus Node proxy balance and usage this week."},
-                {"role": "assistant", "content": response.content},
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "tool_result",
-                            "tool_use_id": block.id,
-                            "content": result,
-                        }
-                    ],
-                },
-            ],
-        )
-        print(response.content[0].text)
+```bash
+(cd ../../sdks/node && npm ci && npm run build)
+npm install && npm run link-sdk
+npx tsc && npx vitest run
 ```
 
-## Usage with TypeScript / Node.js
+`functions.json` is generated from `core.ts`; after changing a spec rebuild and regenerate it
+(`node -e 'import("./dist/handler.js").then(m=>require("fs").writeFileSync("functions.json", JSON.stringify(m.functionDefinitions,null,2)+"\n"))'`).
+Tests in both languages fail if it is stale.
 
-```typescript
-import { readFileSync } from "fs";
-import { createDominusNodeFunctionHandler } from "./handler";
+## Testing
 
-// Load function definitions
-const functions = JSON.parse(readFileSync("functions.json", "utf-8"));
-
-// Create the handler
-const handler = createDominusNodeFunctionHandler({
-  apiKey: "dn_live_your_api_key_here",
-  baseUrl: "https://api.dominusnode.com",
-});
-
-// Example: direct function call
-const balance = await handler("dominusnode_check_balance", {});
-console.log(JSON.parse(balance));
-// { balanceCents: 5000, balanceUsd: 50.00, currency: "USD", lastToppedUp: "..." }
-
-// Example: proxied fetch with geo-targeting
-const fetchResult = await handler("dominusnode_proxied_fetch", {
-  url: "https://httpbin.org/ip",
-  method: "GET",
-  country: "US",
-  proxy_type: "residential",
-});
-console.log(JSON.parse(fetchResult));
-
-// Example: create and fund an agentic wallet for an AI agent
-const wallet = await handler("dominusnode_create_agentic_wallet", {
-  label: "research-agent-1",
-  spending_limit_cents: 500,  // $5.00 per-transaction limit
-});
-const walletData = JSON.parse(wallet);
-
-await handler("dominusnode_fund_agentic_wallet", {
-  wallet_id: walletData.id,
-  amount_cents: 2000,  // Fund with $20.00
-});
+```bash
+pip install -e ../../sdks/python -e '.[dev]'   # or npm install for the JS part
+python -m pytest -q python_tests
 ```
 
-## Usage with Any Function-Calling LLM
+## License
 
-The `functions.json` file follows the standard OpenAI function definition schema. Most LLM frameworks accept this format directly or with minor adaptation:
-
-### Generic Pattern
-
-1. Load `functions.json` and pass to your LLM as available functions/tools.
-2. When the LLM returns a function call, extract the function name and arguments.
-3. Pass them to the handler: `result = await handler(name, args)`.
-4. Return the result string to the LLM as the function result.
-
-### Framework-Specific Notes
-
-| Framework | How to Use |
-|-----------|-----------|
-| **OpenAI SDK** | Pass `functions` directly to `chat.completions.create()` |
-| **Anthropic SDK** | Convert to `tools` format (rename `parameters` to `input_schema`) |
-| **Google Gemini** | Convert to `FunctionDeclaration` objects |
-| **LangChain** | Use `StructuredTool.from_function()` or the Dominus Node LangChain integration |
-| **Vercel AI SDK** | See the `integrations/vercel-ai/` package |
-| **LlamaIndex** | Use `FunctionTool.from_defaults()` with the handler |
-| **Ollama** | Pass as `tools` parameter in chat API |
-
-## Security
-
-### SSRF Prevention
-
-Both handlers (TypeScript and Python) include comprehensive SSRF prevention that blocks:
-
-- **Private IP ranges**: 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 127.0.0.0/8, 0.0.0.0/8, 169.254.0.0/16, 100.64.0.0/10 (CGNAT)
-- **Non-standard IP representations**: Hex (0x7f000001), octal (0177.0.0.1), decimal integer (2130706433)
-- **IPv6 private ranges**: ::1, fc00::/7, fe80::/10, ::ffff:-mapped private IPs
-- **Internal hostnames**: .localhost, .local, .internal, .arpa TLDs
-- **Protocol restriction**: Only http:// and https:// are allowed
-
-### Header Injection Prevention
-
-User-supplied HTTP headers are filtered to block:
-- Security-sensitive headers (Host, Authorization, Proxy-Authorization, etc.)
-- CRLF injection attempts (headers containing \r or \n)
-- Null byte injection
-
-### Sanctioned Countries
-
-Requests targeting OFAC-sanctioned countries (CU, IR, KP, RU, SY) are blocked at the handler level before reaching the proxy.
-
-### Input Validation
-
-- Integer overflow protection: amount/limit values capped at 2,147,483,647
-- Label length validation: max 100 characters
-- URL-encoding of path parameters to prevent path traversal
-- Prototype pollution prevention in JSON parsing (TypeScript handler)
-- Response body size limit: 10 MB max to prevent OOM
-
-### API Key Security
-
-- API keys are never included in function call results returned to the LLM
-- Authentication tokens are stored in handler closure scope (not exported)
-- The handler authenticates lazily on first call and caches the JWT token
-
-## Proxy Pricing
-
-| Proxy Type | Price | Best For |
-|------------|-------|----------|
-| Datacenter (`dc`) | $3.00/GB | General scraping, speed-critical tasks |
-| Residential | $5.00/GB | Anti-detection, geo-restricted content |
-
-## Dependencies
-
-### TypeScript Handler
-- Node.js 18+ (uses native `fetch` and `AbortSignal.timeout`)
-- No external dependencies
-
-### Python Handler
-- Python 3.8+
-- `httpx` (`pip install httpx`)
-
-## Related Integrations
-
-- `integrations/langchain/` -- LangChain tools integration
-- `integrations/vercel-ai/` -- Vercel AI SDK provider
-- `packages/mcp-server/` -- Model Context Protocol server (34 tools)
-- `sdks/node/` -- Full Node.js SDK
-- `sdks/python/` -- Full Python SDK
+MIT
