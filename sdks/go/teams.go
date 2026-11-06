@@ -1,23 +1,23 @@
 package dominusnode
 
-import (
-	"context"
-	"fmt"
-	"net/url"
-)
+import "context"
 
-// Team represents a team with shared wallet and members.
+// TeamsResource: /api/teams [jwt] (18 methods).
+type TeamsResource struct{ h *httpClient }
+
+// Team is a shared-wallet team.
 type Team struct {
 	ID           string `json:"id"`
 	Name         string `json:"name"`
 	OwnerID      string `json:"ownerId"`
 	MaxMembers   int    `json:"maxMembers"`
 	Status       string `json:"status"`
-	BalanceCents int    `json:"balanceCents"`
+	BalanceCents int64  `json:"balanceCents"`
 	CreatedAt    string `json:"createdAt"`
+	Role         string `json:"role,omitempty"`
 }
 
-// TeamMember represents a member of a team.
+// TeamMember is a member row.
 type TeamMember struct {
 	ID       string `json:"id"`
 	TeamID   string `json:"teamId"`
@@ -27,7 +27,7 @@ type TeamMember struct {
 	JoinedAt string `json:"joinedAt"`
 }
 
-// TeamInvite represents a pending team invite.
+// TeamInvite is a pending invite.
 type TeamInvite struct {
 	ID        string `json:"id"`
 	TeamID    string `json:"teamId"`
@@ -38,17 +38,7 @@ type TeamInvite struct {
 	CreatedAt string `json:"createdAt"`
 }
 
-// TeamTransaction represents a wallet transaction on a team.
-type TeamTransaction struct {
-	ID          string `json:"id"`
-	TeamID      string `json:"teamId"`
-	Type        string `json:"type"`
-	AmountCents int    `json:"amountCents"`
-	Description string `json:"description"`
-	CreatedAt   string `json:"createdAt"`
-}
-
-// TeamKey represents an API key belonging to a team.
+// TeamKey is a listed team key (no secret).
 type TeamKey struct {
 	ID        string `json:"id"`
 	KeyPrefix string `json:"keyPrefix"`
@@ -56,233 +46,194 @@ type TeamKey struct {
 	CreatedAt string `json:"createdAt"`
 }
 
-// TeamKeyCreateResponse is the response from creating a team API key.
-type TeamKeyCreateResponse struct {
+// TeamKeyCreated holds the new team key, returned once.
+type TeamKeyCreated struct {
 	ID        string `json:"id"`
-	Key       string `json:"key"`
 	KeyPrefix string `json:"keyPrefix"`
 	Label     string `json:"label"`
+	Key       Secret `json:"key"`
 }
 
-// TeamDeleteResponse is the response from deleting a team.
-type TeamDeleteResponse struct {
-	RefundedCents int `json:"refundedCents"`
+// TeamTransaction is a team-wallet ledger row.
+type TeamTransaction struct {
+	ID          string `json:"id"`
+	TeamID      string `json:"teamId"`
+	Type        string `json:"type"`
+	AmountCents int64  `json:"amountCents"`
+	Description string `json:"description"`
+	CreatedAt   string `json:"createdAt"`
 }
 
-// TeamFundResponse is the response from funding a team wallet.
-type TeamFundResponse struct {
+// TeamList is the response of GET /api/teams.
+type TeamList struct {
+	Teams []Team `json:"teams"`
+}
+
+// TeamDeleteResult is the response of DELETE /api/teams/{id}.
+type TeamDeleteResult struct {
+	RefundedCents int64 `json:"refundedCents"`
+}
+
+// TeamFundResult is the response of the fund call.
+type TeamFundResult struct {
 	Transaction TeamTransaction `json:"transaction"`
 }
 
-// TeamTransactionsResponse is the response from listing team wallet transactions.
-type TeamTransactionsResponse struct {
+// TeamTransactions is the response of the transactions call.
+type TeamTransactions struct {
 	Transactions []TeamTransaction `json:"transactions"`
 }
 
-// TeamMembersResponse is the response from listing team members.
-type TeamMembersResponse struct {
+// TeamMembers is the response of ListMembers.
+type TeamMembers struct {
 	Members []TeamMember `json:"members"`
 }
 
-// TeamInvitesResponse is the response from listing team invites.
-type TeamInvitesResponse struct {
+// TeamInvites is the response of ListInvites.
+type TeamInvites struct {
 	Invites []TeamInvite `json:"invites"`
 }
 
-// TeamKeysResponse is the response from listing team API keys.
-type TeamKeysResponse struct {
+// TeamKeys is the response of ListKeys.
+type TeamKeys struct {
 	Keys []TeamKey `json:"keys"`
 }
 
-// TeamsResource provides team operations.
-type TeamsResource struct {
-	http *httpClient
+// TeamUpdate is the PATCH body of Update (nil fields omitted).
+type TeamUpdate struct {
+	Name       *string `json:"name,omitempty"`
+	MaxMembers *int    `json:"maxMembers,omitempty"`
 }
 
-func newTeamsResource(http *httpClient) *TeamsResource {
-	return &TeamsResource{http: http}
+func teamPath(id string) string { return "/api/teams/" + seg(id) }
+
+// Create: POST /api/teams.
+func (r *TeamsResource) Create(ctx context.Context, name string, maxMembers *int) (*Team, error) {
+	body := map[string]any{"name": name}
+	if maxMembers != nil {
+		body["maxMembers"] = *maxMembers
+	}
+	var out Team
+	return &out, r.h.post(ctx, "/api/teams", body, authJWT, &out)
 }
 
-// Create creates a new team with the given name and optional max members.
-func (r *TeamsResource) Create(ctx context.Context, name string, maxMembers int) (*Team, error) {
-	body := map[string]interface{}{
-		"name": name,
-	}
-	if maxMembers > 0 {
-		body["maxMembers"] = maxMembers
-	}
-	var result Team
-	if err := r.http.post(ctx, "/api/teams", body, &result); err != nil {
-		return nil, err
-	}
-	return &result, nil
+// List: GET /api/teams.
+func (r *TeamsResource) List(ctx context.Context) (*TeamList, error) {
+	var out TeamList
+	return &out, r.h.get(ctx, "/api/teams", authJWT, &out)
 }
 
-// List returns all teams the authenticated user belongs to.
-func (r *TeamsResource) List(ctx context.Context) ([]Team, error) {
-	var result []Team
-	if err := r.http.get(ctx, "/api/teams", &result); err != nil {
-		return nil, err
-	}
-	return result, nil
-}
-
-// Get returns a single team by ID.
+// Get: GET /api/teams/{id}.
 func (r *TeamsResource) Get(ctx context.Context, teamID string) (*Team, error) {
-	var result Team
-	if err := r.http.get(ctx, fmt.Sprintf("/api/teams/%s", url.PathEscape(teamID)), &result); err != nil {
-		return nil, err
-	}
-	return &result, nil
+	var out Team
+	return &out, r.h.get(ctx, teamPath(teamID), authJWT, &out)
 }
 
-// Update updates a team's settings.
-func (r *TeamsResource) Update(ctx context.Context, teamID string, updates map[string]interface{}) (*Team, error) {
-	var result Team
-	if err := r.http.patch(ctx, fmt.Sprintf("/api/teams/%s", url.PathEscape(teamID)), updates, &result); err != nil {
-		return nil, err
-	}
-	return &result, nil
+// Update: PATCH /api/teams/{id}.
+func (r *TeamsResource) Update(ctx context.Context, teamID string, u TeamUpdate) (*Team, error) {
+	var out Team
+	return &out, r.h.patch(ctx, teamPath(teamID), u, authJWT, &out)
 }
 
-// Delete deletes a team and refunds remaining wallet balance.
-func (r *TeamsResource) Delete(ctx context.Context, teamID string) (*TeamDeleteResponse, error) {
-	var result TeamDeleteResponse
-	if err := r.http.del(ctx, fmt.Sprintf("/api/teams/%s", url.PathEscape(teamID)), &result); err != nil {
-		return nil, err
-	}
-	return &result, nil
+// Delete: DELETE /api/teams/{id}.
+func (r *TeamsResource) Delete(ctx context.Context, teamID string) (*TeamDeleteResult, error) {
+	var out TeamDeleteResult
+	return &out, r.h.del(ctx, teamPath(teamID), authJWT, &out)
 }
 
-// FundWallet transfers funds from the user's main wallet to the team wallet.
-func (r *TeamsResource) FundWallet(ctx context.Context, teamID string, amountCents int) (*TeamFundResponse, error) {
-	if err := validateAmountCents(amountCents); err != nil {
+// FundWallet: POST /api/teams/{id}/wallet/fund.
+func (r *TeamsResource) FundWallet(ctx context.Context, teamID string, amountCents int64) (*TeamFundResult, error) {
+	if err := validateCents(amountCents, "amountCents", false); err != nil {
 		return nil, err
 	}
-	body := map[string]interface{}{
-		"amountCents": amountCents,
-	}
-	var result TeamFundResponse
-	if err := r.http.post(ctx, fmt.Sprintf("/api/teams/%s/wallet/fund", url.PathEscape(teamID)), body, &result); err != nil {
-		return nil, err
-	}
-	return &result, nil
+	var out TeamFundResult
+	return &out, r.h.post(ctx, teamPath(teamID)+"/wallet/fund", map[string]any{"amountCents": amountCents}, authJWT, &out)
 }
 
-// GetTransactions returns wallet transaction history for a team.
-func (r *TeamsResource) GetTransactions(ctx context.Context, teamID string, limit, offset int) (*TeamTransactionsResponse, error) {
-	var result TeamTransactionsResponse
-	path := fmt.Sprintf("/api/teams/%s/wallet/transactions?limit=%d&offset=%d", url.PathEscape(teamID), limit, offset)
-	if err := r.http.get(ctx, path, &result); err != nil {
-		return nil, err
-	}
-	return &result, nil
+// GetTransactions: GET /api/teams/{id}/wallet/transactions?limit&offset.
+func (r *TeamsResource) GetTransactions(ctx context.Context, teamID string, limit, offset *int) (*TeamTransactions, error) {
+	var out TeamTransactions
+	return &out, r.h.get(ctx, teamPath(teamID)+"/wallet/transactions"+query(qInt("limit", limit), qInt("offset", offset)), authJWT, &out)
 }
 
-// ListMembers returns all members of a team.
-func (r *TeamsResource) ListMembers(ctx context.Context, teamID string) (*TeamMembersResponse, error) {
-	var result TeamMembersResponse
-	if err := r.http.get(ctx, fmt.Sprintf("/api/teams/%s/members", url.PathEscape(teamID)), &result); err != nil {
-		return nil, err
-	}
-	return &result, nil
+// ListMembers: GET /api/teams/{id}/members.
+func (r *TeamsResource) ListMembers(ctx context.Context, teamID string) (*TeamMembers, error) {
+	var out TeamMembers
+	return &out, r.h.get(ctx, teamPath(teamID)+"/members", authJWT, &out)
 }
 
-// AddMember adds a member to a team.
+func emailRole(email, role string) map[string]any {
+	b := map[string]any{"email": email}
+	if role != "" {
+		b["role"] = role
+	}
+	return b
+}
+
+// AddMember: POST /api/teams/{id}/members. role "" = server default.
 func (r *TeamsResource) AddMember(ctx context.Context, teamID, email, role string) (*TeamMember, error) {
-	body := map[string]interface{}{
-		"email": email,
-	}
-	if role != "" {
-		body["role"] = role
-	}
-	var result TeamMember
-	if err := r.http.post(ctx, fmt.Sprintf("/api/teams/%s/members", url.PathEscape(teamID)), body, &result); err != nil {
-		return nil, err
-	}
-	return &result, nil
+	var out TeamMember
+	return &out, r.h.post(ctx, teamPath(teamID)+"/members", emailRole(email, role), authJWT, &out)
 }
 
-// UpdateMemberRole updates a member's role within a team.
+// UpdateMemberRole: PATCH /api/teams/{id}/members/{userId}.
 func (r *TeamsResource) UpdateMemberRole(ctx context.Context, teamID, userID, role string) (*TeamMember, error) {
-	body := map[string]interface{}{
-		"role": role,
-	}
-	var result TeamMember
-	path := fmt.Sprintf("/api/teams/%s/members/%s", url.PathEscape(teamID), url.PathEscape(userID))
-	if err := r.http.patch(ctx, path, body, &result); err != nil {
-		return nil, err
-	}
-	return &result, nil
+	var out TeamMember
+	return &out, r.h.patch(ctx, teamPath(teamID)+"/members/"+seg(userID), map[string]any{"role": role}, authJWT, &out)
 }
 
-// RemoveMember removes a member from a team.
+// RemoveMember: DELETE /api/teams/{id}/members/{userId}.
 func (r *TeamsResource) RemoveMember(ctx context.Context, teamID, userID string) error {
-	path := fmt.Sprintf("/api/teams/%s/members/%s", url.PathEscape(teamID), url.PathEscape(userID))
-	return r.http.del(ctx, path, nil)
+	return r.h.del(ctx, teamPath(teamID)+"/members/"+seg(userID), authJWT, nil)
 }
 
-// CreateInvite creates an invite for a team.
+// CreateInvite: POST /api/teams/{id}/invites.
 func (r *TeamsResource) CreateInvite(ctx context.Context, teamID, email, role string) (*TeamInvite, error) {
-	body := map[string]interface{}{
-		"email": email,
-	}
-	if role != "" {
-		body["role"] = role
-	}
-	var result TeamInvite
-	if err := r.http.post(ctx, fmt.Sprintf("/api/teams/%s/invites", url.PathEscape(teamID)), body, &result); err != nil {
-		return nil, err
-	}
-	return &result, nil
+	var out TeamInvite
+	return &out, r.h.post(ctx, teamPath(teamID)+"/invites", emailRole(email, role), authJWT, &out)
 }
 
-// ListInvites returns pending invites for a team.
-func (r *TeamsResource) ListInvites(ctx context.Context, teamID string) (*TeamInvitesResponse, error) {
-	var result TeamInvitesResponse
-	if err := r.http.get(ctx, fmt.Sprintf("/api/teams/%s/invites", url.PathEscape(teamID)), &result); err != nil {
-		return nil, err
-	}
-	return &result, nil
+// ListInvites: GET /api/teams/{id}/invites.
+func (r *TeamsResource) ListInvites(ctx context.Context, teamID string) (*TeamInvites, error) {
+	var out TeamInvites
+	return &out, r.h.get(ctx, teamPath(teamID)+"/invites", authJWT, &out)
 }
 
-// CancelInvite cancels a pending team invite.
+// CancelInvite: DELETE /api/teams/{id}/invites/{inviteId}.
 func (r *TeamsResource) CancelInvite(ctx context.Context, teamID, inviteID string) error {
-	path := fmt.Sprintf("/api/teams/%s/invites/%s", url.PathEscape(teamID), url.PathEscape(inviteID))
-	return r.http.del(ctx, path, nil)
+	return r.h.del(ctx, teamPath(teamID)+"/invites/"+seg(inviteID), authJWT, nil)
 }
 
-// AcceptInvite accepts a team invite using the invite token.
+// AcceptInvite: POST /api/teams/invites/{token}/accept.
 func (r *TeamsResource) AcceptInvite(ctx context.Context, token string) (*TeamMember, error) {
-	var result TeamMember
-	if err := r.http.post(ctx, fmt.Sprintf("/api/teams/invites/%s/accept", url.PathEscape(token)), map[string]interface{}{}, &result); err != nil {
-		return nil, err
-	}
-	return &result, nil
+	var out TeamMember
+	return &out, r.h.post(ctx, "/api/teams/invites/"+seg(token)+"/accept", map[string]any{}, authJWT, &out)
 }
 
-// CreateKey creates a new API key for the team.
-func (r *TeamsResource) CreateKey(ctx context.Context, teamID, label string) (*TeamKeyCreateResponse, error) {
-	body := map[string]interface{}{
-		"label": label,
-	}
-	var result TeamKeyCreateResponse
-	if err := r.http.post(ctx, fmt.Sprintf("/api/teams/%s/keys", url.PathEscape(teamID)), body, &result); err != nil {
+// CreateKey: POST /api/teams/{id}/keys; label 1..100.
+func (r *TeamsResource) CreateKey(ctx context.Context, teamID, label string) (*TeamKeyCreated, error) {
+	if err := validateNonEmpty(label, "label", 100); err != nil {
 		return nil, err
 	}
-	return &result, nil
-}
-
-// ListKeys returns all API keys for a team.
-func (r *TeamsResource) ListKeys(ctx context.Context, teamID string) (*TeamKeysResponse, error) {
-	var result TeamKeysResponse
-	if err := r.http.get(ctx, fmt.Sprintf("/api/teams/%s/keys", url.PathEscape(teamID)), &result); err != nil {
+	var raw struct {
+		ID        string `json:"id"`
+		KeyPrefix string `json:"keyPrefix"`
+		Label     string `json:"label"`
+		Key       string `json:"key"`
+	}
+	if err := r.h.post(ctx, teamPath(teamID)+"/keys", map[string]any{"label": label}, authJWT, &raw); err != nil {
 		return nil, err
 	}
-	return &result, nil
+	return &TeamKeyCreated{raw.ID, raw.KeyPrefix, raw.Label, NewSecret(raw.Key)}, nil
 }
 
-// RevokeKey revokes a team API key by its ID.
+// ListKeys: GET /api/teams/{id}/keys.
+func (r *TeamsResource) ListKeys(ctx context.Context, teamID string) (*TeamKeys, error) {
+	var out TeamKeys
+	return &out, r.h.get(ctx, teamPath(teamID)+"/keys", authJWT, &out)
+}
+
+// RevokeKey: DELETE /api/teams/{id}/keys/{keyId}.
 func (r *TeamsResource) RevokeKey(ctx context.Context, teamID, keyID string) error {
-	return r.http.del(ctx, fmt.Sprintf("/api/teams/%s/keys/%s", url.PathEscape(teamID), url.PathEscape(keyID)), nil)
+	return r.h.del(ctx, teamPath(teamID)+"/keys/"+seg(keyID), authJWT, nil)
 }

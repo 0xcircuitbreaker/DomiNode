@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.0.0] - 2026-11-06
+
+### Changed (breaking)
+- Module path is now `github.com/dominusnode/dominusnode-go/v2`.
+- Rebuilt against the v2 relay-network contract (`sdks/SDK_SURFACE.md`): 15 resources,
+  71 methods, `ConnectWithKey` / `Disconnect` / `IsConnected`. All methods take `context.Context` first.
+- `NewClient(Config)` returns an error for invalid configuration.
+- Proxy usernames use `country-XX`, `class-…`, `session-…`, `wallet-<uuid>`, `allowhttp-1`; no flags yields `relay`.
+
+### Added
+- `Network`, `Nodes`, `Credits`, `PayoutWallet`, `Payouts` resources and `Sessions.Report`.
+- `Signer` interface / `SignerFunc`; signed messages are rebuilt locally and mismatches refused.
+- `Secret` wrapper for one-time credentials (API key, team key, node key).
+- `Proxy.Fetch` (GET/HEAD) with SSRF and DNS-rebinding checks; `ScrubCredentials`, `IsPrivateIP`.
+- `ProtocolError`; error `Code` and `Details` fields.
+
+### Removed
+- Plans, slots/waitlist, admin, Stripe and PayPal top-ups, email/password register/login,
+  password reset/change, human MFA, `ConnectWithCredentials`, `CompleteMfa`, agent-secret headers,
+  `Proxy.GetStatus`, legacy `dc-`/`residential-`/`auto-` prefixes, state/city/ASN targeting,
+  and every hardcoded price.
+
 ## [1.0.0] - 2026-02-19
 
 ### Added
