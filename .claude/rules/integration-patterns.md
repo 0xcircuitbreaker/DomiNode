@@ -28,5 +28,5 @@ These rules apply when working on any integration in integrations/.
 
 ## Standard Tool Count
 
-- Full integrations: 26 tools (matching MCP tool set)
+- Full integrations: 26 tools (legacy set; the MCP server now has 56 authenticated tools incl. relay network + node tools — see packages/mcp-server/tests/tool-list.ts)
 - All function-based integrations have 22+ functions (incl. PayPal + Stripe + Crypto topup)
