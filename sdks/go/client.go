@@ -30,6 +30,8 @@ const (
 	DefaultHTTPProxyPort = 8080
 	// DefaultSOCKS5ProxyPort is the SOCKS5 proxy port.
 	DefaultSOCKS5ProxyPort = 1080
+	// DefaultTLSProxyPort is the gateway's HTTPS proxy listener (PROXY_TLS_PORT), used with GatewayTLS.
+	DefaultTLSProxyPort = 8443
 )
 
 // LookupFunc resolves a hostname to ALL of its addresses (A + AAAA).
@@ -48,6 +50,20 @@ type Config struct {
 	HTTPClient *http.Client
 	// Lookup overrides the DNS resolver used by Proxy.Fetch's rebinding check.
 	Lookup LookupFunc
+	// GatewayTLS, when non-nil, makes Proxy.Fetch talk TLS to the gateway's HTTPS proxy
+	// listener so Proxy-Authorization is encrypted; BuildURL then defaults to https://.
+	// Use &GatewayTLS{} for the defaults (port 8443, system roots, SNI = ProxyHost).
+	GatewayTLS *GatewayTLS
+}
+
+// GatewayTLS configures TLS to the gateway. Certificate verification is always on.
+type GatewayTLS struct {
+	// Port defaults to DefaultTLSProxyPort.
+	Port int
+	// CA is an optional PEM root added to the system roots.
+	CA []byte
+	// ServerName overrides the TLS server name (default: ProxyHost), e.g. when ProxyHost is an IP.
+	ServerName string
 }
 
 // ConnectResult is returned by ConnectWithKey.

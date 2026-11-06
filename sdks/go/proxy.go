@@ -89,6 +89,39 @@ type ProxyResource struct {
 	apiKey    func() string
 	lookup    LookupFunc
 	tlsRoots  *x509.CertPool // tests only
+	gw        *gatewayTLS
+}
+
+type gatewayTLS struct {
+	port       int
+	roots      *x509.CertPool
+	serverName string
+}
+
+var serverNameRE = regexp.MustCompile(`^[A-Za-z0-9.-]{1,253}$`)
+
+func newGatewayTLS(g *GatewayTLS) (*gatewayTLS, error) {
+	if g == nil {
+		return nil, nil
+	}
+	port := g.Port
+	if port == 0 {
+		port = DefaultTLSProxyPort
+	}
+	if port < 1 || port > 65535 {
+		return nil, invalidArg("gatewayTls.port must be a TCP port")
+	}
+	if g.ServerName != "" && !serverNameRE.MatchString(g.ServerName) {
+		return nil, invalidArg("gatewayTls.servername is invalid")
+	}
+	roots, err := x509.SystemCertPool()
+	if err != nil || roots == nil {
+		roots = x509.NewCertPool()
+	}
+	if len(g.CA) > 0 && !roots.AppendCertsFromPEM(g.CA) {
+		return nil, invalidArg("gatewayTls.ca must contain a PEM certificate")
+	}
+	return &gatewayTLS{port: port, roots: roots, serverName: g.ServerName}, nil
 }
 
 func newProxyResource(h *httpClient, cfg Config, apiKey func() string) (*ProxyResource, error) {
@@ -112,7 +145,11 @@ func newProxyResource(h *httpClient, cfg Config, apiKey func() string) (*ProxyRe
 	if sp < 1 || sp > 65535 {
 		return nil, invalidArg("socks5ProxyPort must be a TCP port")
 	}
-	return &ProxyResource{h: h, host: host, httpPort: hp, socksPort: sp, apiKey: apiKey, lookup: cfg.Lookup}, nil
+	gw, err := newGatewayTLS(cfg.GatewayTLS)
+	if err != nil {
+		return nil, err
+	}
+	return &ProxyResource{h: h, host: host, httpPort: hp, socksPort: sp, apiKey: apiKey, lookup: cfg.Lookup, gw: gw}, nil
 }
 
 func (p *ProxyResource) key(override string) (string, error) {
@@ -137,13 +174,22 @@ func (p *ProxyResource) BuildUsername(o RoutingOptions) (string, error) { return
 func (p *ProxyResource) BuildURL(o RoutingOptions, protocol, apiKey string) (string, error) {
 	if protocol == "" {
 		protocol = "http"
+		if p.gw != nil {
+			protocol = "https"
+		}
 	}
-	if protocol != "http" && protocol != "socks5" {
-		return "", invalidArg("protocol must be http or socks5")
+	if protocol != "http" && protocol != "https" && protocol != "socks5" {
+		return "", invalidArg("protocol must be http, https or socks5")
+	}
+	if protocol == "https" && p.gw == nil {
+		return "", invalidArg("protocol https needs the GatewayTLS config")
 	}
 	port := p.httpPort
-	if protocol == "socks5" {
+	switch protocol {
+	case "socks5":
 		port = p.socksPort
+	case "https":
+		port = p.gw.port
 	}
 	user, err := BuildProxyUsername(o)
 	if err != nil {
@@ -292,17 +338,35 @@ func (p *ProxyResource) Fetch(ctx context.Context, rawURL string, o FetchOptions
 
 func (p *ProxyResource) roundTrip(ctx context.Context, auth string, target *url.URL, method string, headers map[string]string, maxBytes int) (*FetchResponse, error) {
 	proxyHost := strings.TrimSuffix(strings.TrimPrefix(p.host, "["), "]")
+	gwPort := p.httpPort
+	if p.gw != nil {
+		gwPort = p.gw.port
+	}
 	var d net.Dialer
-	conn, err := d.DialContext(ctx, "tcp", net.JoinHostPort(proxyHost, strconv.Itoa(p.httpPort)))
+	raw, err := d.DialContext(ctx, "tcp", net.JoinHostPort(proxyHost, strconv.Itoa(gwPort)))
 	if err != nil {
 		return nil, err
 	}
-	defer conn.Close()
+	defer raw.Close()
 	if dl, ok := ctx.Deadline(); ok {
-		_ = conn.SetDeadline(dl)
+		_ = raw.SetDeadline(dl)
 	}
-	stop := context.AfterFunc(ctx, func() { _ = conn.SetDeadline(time.Unix(1, 0)) })
+	stop := context.AfterFunc(ctx, func() { _ = raw.SetDeadline(time.Unix(1, 0)) })
 	defer stop()
+	conn := raw
+	if p.gw != nil {
+		// TLS to the gateway first (verified); CONNECT and requests then run inside it.
+		sn := p.gw.serverName
+		if sn == "" {
+			sn = proxyHost
+		}
+		gc := tls.Client(raw, &tls.Config{ServerName: sn, MinVersion: tls.VersionTLS12, RootCAs: p.gw.roots})
+		if err := gc.HandshakeContext(ctx); err != nil {
+			return nil, err
+		}
+		defer gc.Close()
+		conn = gc
+	}
 
 	hostHeader := target.Host
 	var rw io.ReadWriter = conn
