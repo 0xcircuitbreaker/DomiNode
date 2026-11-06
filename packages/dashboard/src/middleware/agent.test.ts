@@ -70,6 +70,16 @@ describe("requireAgentPrincipal", () => {
     expect(r.body).toMatchObject({ verified: false, walletAddress: null });
   });
 
+  it("rejects team API keys with 403 (never acts as the creator)", async () => {
+    findUserByApiKeyHash.mockResolvedValue({
+      user: { id: "creator", email: "c@b.com", status: "active", wallet_address: null, email_verified: true },
+      apiKey: { team_id: "team-1" },
+    });
+    const r = await call(app(), "GET", "/x", { headers: bearer("dn_live_team") });
+    expect(r.status).toBe(403);
+    expect(r.body).toEqual({ error: "Team keys cannot be used for agent endpoints" });
+  });
+
   it("rejects unknown API keys", async () => {
     findUserByApiKeyHash.mockResolvedValue(null);
     expect((await call(app(), "GET", "/x", { headers: bearer("dn_live_nope") })).status).toBe(401);

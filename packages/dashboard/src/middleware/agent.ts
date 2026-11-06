@@ -52,6 +52,11 @@ export async function requireAgentPrincipal(req: Request, res: Response, next: N
         res.status(401).json({ error: "Invalid API key" });
         return;
       }
+      // Team keys would otherwise act as the key's creator on /v1 agent routes.
+      if (found.apiKey?.team_id) {
+        res.status(403).json({ error: "Team keys cannot be used for agent endpoints" });
+        return;
+      }
       const u = found.user;
       const wallet = u.wallet_address ? u.wallet_address.toLowerCase() : null;
       principal = {
