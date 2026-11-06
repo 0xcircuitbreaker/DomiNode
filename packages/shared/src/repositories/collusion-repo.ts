@@ -25,6 +25,12 @@ export interface CollusionSettings {
   autoFreeze: boolean;
   freezeBps: number;
   freezeMinVolumeMusd: bigint;
+  /**
+   * Herfindahl-Hirschman index (0..10000, sum of squared requester shares) at or above
+   * which a node's requester mix is flagged as a cluster. Fixed default (not stored in
+   * collusion_settings).
+   */
+  hhiBps: number;
 }
 
 export const DEFAULT_COLLUSION_SETTINGS: CollusionSettings = {
@@ -37,6 +43,7 @@ export const DEFAULT_COLLUSION_SETTINGS: CollusionSettings = {
   autoFreeze: false,
   freezeBps: 9500,
   freezeMinVolumeMusd: 50_000_000n,
+  hhiBps: 4000,
 };
 
 const SETTINGS_COLS = `window_days, min_node_volume_musd::text AS min_node_volume_musd, concentration_bps, cluster_size,
@@ -54,6 +61,7 @@ export function mapSettings(r: SettingsRow): CollusionSettings {
     windowDays: r.window_days, minNodeVolumeMusd: BigInt(r.min_node_volume_musd), concentrationBps: r.concentration_bps,
     clusterSize: r.cluster_size, clusterBps: r.cluster_bps, circularMinMusd: BigInt(r.circular_min_musd),
     autoFreeze: r.auto_freeze, freezeBps: r.freeze_bps, freezeMinVolumeMusd: BigInt(r.freeze_min_volume_musd),
+    hhiBps: DEFAULT_COLLUSION_SETTINGS.hhiBps,
   };
 }
 
@@ -77,6 +85,8 @@ export interface NodeConcentration {
   topMusd: bigint;
   /** Volume from the top `clusterSize` requesters. */
   topKMusd: bigint;
+  /** Requester concentration (HHI, 0..10000). 10000 = one requester. */
+  hhiBps: number;
 }
 
 /** One page of nodes (keyset by id) with their requester concentration. */
@@ -86,7 +96,7 @@ export async function listNodeConcentration(
   const lim = Math.max(1, Math.min(COLLUSION_PAGE_LIMIT, Math.floor(limit)));
   const r = await query<{
     node_id: string; owner_user_id: string; total_musd: string | null; requesters: string | null;
-    top_requester: string | null; top_musd: string | null; topk_musd: string | null;
+    top_requester: string | null; top_musd: string | null; topk_musd: string | null; hhi_bps: number | null;
   }>(
     `WITH page AS (
        SELECT n.id, n.owner_user_id FROM nodes n
@@ -104,13 +114,16 @@ export async function listNodeConcentration(
        SELECT node_id, requester_user_id, musd,
               ROW_NUMBER() OVER (PARTITION BY node_id ORDER BY musd DESC, requester_user_id) AS rn,
               SUM(musd) OVER (PARTITION BY node_id) AS total,
-              COUNT(*) OVER (PARTITION BY node_id) AS requesters
+              COUNT(*) OVER (PARTITION BY node_id) AS requesters,
+              floor(SUM(musd * musd) OVER (PARTITION BY node_id) * 10000
+                    / NULLIF(SUM(musd) OVER (PARTITION BY node_id) ^ 2, 0))::int AS hhi
        FROM per
      ), topk AS (
        SELECT node_id, SUM(musd) AS topk FROM ranked WHERE rn <= $4 GROUP BY node_id
      )
      SELECT p.id AS node_id, p.owner_user_id, r.total::text AS total_musd, r.requesters::text AS requesters,
-            r.requester_user_id AS top_requester, r.musd::text AS top_musd, k.topk::text AS topk_musd
+            r.requester_user_id AS top_requester, r.musd::text AS top_musd, k.topk::text AS topk_musd,
+            r.hhi AS hhi_bps
      FROM page p
      LEFT JOIN ranked r ON r.node_id = p.id AND r.rn = 1
      LEFT JOIN topk k ON k.node_id = p.id
@@ -121,6 +134,7 @@ export async function listNodeConcentration(
     nodeId: x.node_id, ownerUserId: x.owner_user_id,
     totalMusd: BigInt(x.total_musd ?? "0"), requesters: Number(x.requesters ?? 0),
     topRequesterUserId: x.top_requester, topMusd: BigInt(x.top_musd ?? "0"), topKMusd: BigInt(x.topk_musd ?? "0"),
+    hhiBps: x.hhi_bps == null ? 0 : Math.max(0, Math.min(10_000, Number(x.hhi_bps))),
   }));
 }
 
@@ -181,7 +195,11 @@ function bps(part: bigint, total: bigint): number {
   return Math.max(0, Math.min(10_000, v));
 }
 
-/** Node-level findings: single-requester concentration, else small-cluster concentration. */
+/**
+ * Node-level findings: single-requester concentration, else cluster concentration.
+ * The cluster rule uses the top-K share regardless of how many requesters there are
+ * (a tiny extra requester must not evade it) and the HHI of the requester mix.
+ */
 export function evaluateNode(n: NodeConcentration, s: CollusionSettings): CollusionFinding | null {
   if (n.totalMusd <= 0n || n.totalMusd < s.minNodeVolumeMusd) return null;
   const topShare = bps(n.topMusd, n.totalMusd);
@@ -193,7 +211,8 @@ export function evaluateNode(n: NodeConcentration, s: CollusionSettings): Collus
     };
   }
   const kShare = bps(n.topKMusd, n.totalMusd);
-  if (n.requesters <= s.clusterSize && n.requesters >= 2 && kShare >= s.clusterBps) {
+  const hhi = Number.isFinite(n.hhiBps) ? Math.max(0, Math.min(10_000, Math.round(n.hhiBps))) : 0;
+  if (n.requesters >= 2 && (kShare >= s.clusterBps || hhi >= s.hhiBps)) {
     return {
       kind: "cluster", ownerUserId: n.ownerUserId, nodeId: n.nodeId, requesterUserId: n.topRequesterUserId,
       shareBps: kShare, volumeMusd: n.topKMusd, totalMusd: n.totalMusd, freeze: freezeOk(kShare),

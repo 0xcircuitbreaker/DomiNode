@@ -16,7 +16,7 @@ const USD = 1_000_000n;
 
 const conc = (o: Partial<NodeConcentration> = {}): NodeConcentration => ({
   nodeId: NODE, ownerUserId: OWNER, totalMusd: 100n * USD, requesters: 10, topRequesterUserId: REQ,
-  topMusd: 10n * USD, topKMusd: 25n * USD, ...o,
+  topMusd: 10n * USD, topKMusd: 25n * USD, hhiBps: 1000, ...o,
 });
 
 beforeEach(() => { m.query.mockReset(); m.clientQuery.mockReset(); m.release.mockReset(); });
@@ -37,7 +37,26 @@ describe("evaluateNode", () => {
   it("flags a small cluster that carries nearly all traffic", () => {
     const f = evaluateNode(conc({ requesters: 3, topMusd: 40n * USD, topKMusd: 96n * USD }), S)!;
     expect(f).toMatchObject({ kind: "cluster", shareBps: 9600 });
-    expect(evaluateNode(conc({ requesters: 4, topMusd: 40n * USD, topKMusd: 96n * USD }), S)).toBeNull();
+    // A 4th tiny requester no longer evades the cluster rule.
+    expect(evaluateNode(conc({ requesters: 4, topMusd: 40n * USD, topKMusd: 96n * USD }), S)).toMatchObject({ kind: "cluster" });
+  });
+
+  it("3 big + 1 tiny requesters are flagged as a cluster", () => {
+    // 33/33/33/1: top-3 share 99%, HHI ~3268
+    const f = evaluateNode(conc({ requesters: 4, topMusd: 33n * USD, topKMusd: 99n * USD, hhiBps: 3268 }), S)!;
+    expect(f).toMatchObject({ kind: "cluster", shareBps: 9900 });
+  });
+
+  it("5 equal requesters are not flagged", () => {
+    // 20% each: top-3 share 60%, HHI 2000
+    expect(evaluateNode(conc({ requesters: 5, topMusd: 20n * USD, topKMusd: 60n * USD, hhiBps: 2000 }), S)).toBeNull();
+  });
+
+  it("flags a high-HHI mix even when the top-K share is below the cluster bar", () => {
+    // 60/20/10/5/5: top-3 90%, HHI 4150
+    const f = evaluateNode(conc({ requesters: 5, topMusd: 60n * USD, topKMusd: 90n * USD, hhiBps: 4150 }), S)!;
+    expect(f).toMatchObject({ kind: "cluster", shareBps: 9000 });
+    expect(evaluateNode(conc({ requesters: 5, topMusd: 60n * USD, topKMusd: 90n * USD, hhiBps: 3999 }), S)).toBeNull();
   });
 
   it("marks freeze only when auto_freeze is on and both share and volume cross the freeze bar", () => {
@@ -78,6 +97,8 @@ describe("SQL", () => {
     expect(sql).toMatch(/NOT rc\.disputed/);
     expect(sql).not.toMatch(/SELECT \*/);
     expect(params).toEqual([null, 1000, 30, 3]);
+    expect(sql).toMatch(/SUM\(musd \* musd\)/);
+    expect(rows[1].hhiBps).toBe(0);
     expect(rows[0]).toMatchObject({ totalMusd: 5n, requesters: 1, topRequesterUserId: REQ });
     expect(rows[1]).toMatchObject({ totalMusd: 0n, topRequesterUserId: null });
   });
