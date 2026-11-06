@@ -1,283 +1,83 @@
 # dominusnode-moltbook
 
-[Dominus Node](https://dominusnode.com) integration for [Moltbook](https://moltbookai.net) -- the "Reddit for AI agents" social network. Routes all Moltbook API requests through Dominus Node's rotating proxy gateway so each request comes from a different IP address.
+Gives agents the DominusNode AI-agent relay network: fetch public web pages through exit IPs contributed by
+other agents' nodes, pay per GB from a prepaid crypto wallet, and earn by contributing your own IP with the
+node agent. Built on the official DominusNode SDK v2; HTTP, SSRF/DNS-rebinding protection, OFAC refusal and
+credential scrubbing all come from the SDK.
 
-## Installation
+## Install
 
 ```bash
 pip install dominusnode-moltbook
 ```
 
-Or install from source:
+## Configuration
+
+| Variable | Required | Purpose |
+|---|---|---|
+| `DOMINUSNODE_API_KEY` | yes | Your `dn_live_` API key. Read from the environment/config only; never a tool argument, never in tool output. |
+| `DOMINUSNODE_BASE_URL` | no | API base URL (default `https://api.dominusnode.com`). |
+| `DOMINUSNODE_PROXY_HOST` | no | Gateway host (default `proxy.dominusnode.com`). |
+
+## Usage
+
+> **2.0.0 scope change.** Versions 1.x shipped a `MoltbookClient` that registered Moltbook accounts and created
+> posts, comments, submolts and votes, routing each request through a different rotating IP. That code is
+> removed and will not return: this package no longer talks to the Moltbook API, registers accounts, signs
+> with wallet keys or posts anything. Agents can still read public pages with `dominusnode_fetch`.
+
+The package is a framework-neutral tool surface: JSON-schema definitions plus a dispatcher.
+
+```python
+from dominusnode_moltbook import DominusNodeTools, tool_definitions
+
+tools = DominusNodeTools()                    # key from DOMINUSNODE_API_KEY
+for d in tool_definitions():                  # hand these to your agent runtime's tool registry
+    print(d["name"], d["parameters"])
+print(tools.call("dominusnode_network_pricing", {}))
+```
+
+`make_tool_callables(tools)` returns `{name: fn(**kwargs) -> str}` for runtimes that take plain functions.
+Every result is a JSON string; errors are `{"error": "..."}` with credentials scrubbed.
+
+## Tools (v2 standard set, 19)
+
+| # | Tool | What it does |
+|---|---|---|
+| 1 | `dominusnode_fetch` | Fetch a public URL through the DominusNode relay network (GET or HEAD only, ports 80/443, no redirects followed, 10 MB cap, private/internal targets refused). |
+| 2 | `dominusnode_proxy_url` | Build a relay gateway proxy URL for use in other HTTP clients. |
+| 3 | `dominusnode_network_policy` | Relay network policy: allowed ports, plaintext (allowhttp) rules, blocked ranges, sanctioned countries and node attestation terms. |
+| 4 | `dominusnode_network_pricing` | Live per-GB prices by exit IP class (residential, dc, mobile) and node tier revenue shares. |
+| 5 | `dominusnode_network_stats` | Relay network statistics: online nodes, exit countries and IP classes. |
+| 6 | `dominusnode_balance` | Prepaid requester wallet balance (cents) used to pay for relayed traffic. |
+| 7 | `dominusnode_transactions` | Requester wallet transaction history (top-ups, usage debits, credit conversions). |
+| 8 | `dominusnode_topup_crypto` | Create a crypto invoice to top up the requester wallet ($10-$1,000). |
+| 9 | `dominusnode_check_payment` | Status of a crypto top-up invoice created by topup_crypto. |
+| 10 | `dominusnode_usage` | Relayed traffic usage summary (bytes and cost) for an optional ISO 8601 date range. |
+| 11 | `dominusnode_active_sessions` | Your currently active relay sessions (id, start time, status). |
+| 12 | `dominusnode_report_session` | Report a burned or bad exit for one of your relay sessions so the network can rotate it. |
+| 13 | `dominusnode_node_list` | Relay nodes you contribute (status, observed IP class, last seen). |
+| 14 | `dominusnode_node_tier` | Your node-operator tier, revenue share and progress toward the next tier (tenure, uptime, active IPs, reputation). |
+| 15 | `dominusnode_node_setup_guide` | Step-by-step instructions to earn by contributing an IP: run the DominusNode node agent, register a node, and how tiers and the self-dealing rule work. |
+| 16 | `dominusnode_credits_balance` | Node-operator earnings: pending and available credit (µUSD). |
+| 17 | `dominusnode_credits_convert` | Convert available node earnings into your own requester wallet balance (idempotent; returns the idempotency key). |
+| 18 | `dominusnode_payouts_list` | Your USDC payouts of node earnings with status and transaction hash. |
+| 19 | `dominusnode_x402_info` | x402 micropayment info: facilitators, networks and server-reported prices. |
+
+Notes for agents:
+
+- Prices are never hardcoded: call `network_pricing` for the live per-GB price by IP class (residential, dc, mobile).
+- `fetch` is GET/HEAD only on ports 80/443, follows no redirects and caps bodies at 10 MB. Plaintext `http://`
+  needs `allow_http` and is visible to the exit node.
+- Routing: `country` (ISO code; sanctioned countries refused), `ip_class`, `session_id` (sticky exit).
+- Signing flows (node register, withdraw, payout wallet) are deliberately not tools here; use the node agent CLI,
+  the DominusNode MCP server, or the SDK with a signer key file.
+
+## Testing
 
 ```bash
-cd integrations/moltbook
-pip install -e ".[dev]"
-```
-
-## Moltbook Account Setup
-
-Moltbook authenticates agents using Ethereum wallet signatures. You need:
-
-1. An Ethereum wallet (address + private key)
-2. A Dominus Node API key for proxy access
-
-The integration signs each request's timestamp with your ETH private key using the EIP-191 personal_sign format, then sends three auth headers:
-
-- `X-Address`: Your Ethereum wallet address
-- `X-Signature`: EIP-191 signature of the ISO-8601 timestamp
-- `X-Timestamp`: The signed ISO-8601 timestamp
-
-## Environment Variables
-
-```bash
-# Required
-export DOMINUSNODE_API_KEY="dn_live_your_api_key_here"
-export MOLTBOOK_ETH_ADDRESS="0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18"
-export MOLTBOOK_ETH_PRIVATE_KEY="0xYourPrivateKeyHere"
-
-# Optional
-export DOMINUSNODE_PROXY_HOST="proxy.dominusnode.com"
-export DOMINUSNODE_PROXY_PORT="8080"
-```
-
-## Quick Start
-
-```python
-from dominusnode_moltbook import MoltbookClient
-
-# Create client (picks up credentials from environment)
-client = MoltbookClient()
-
-# Or pass credentials explicitly
-client = MoltbookClient(
-    dominusnode_api_key="dn_live_...",
-    eth_address="0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18",
-    eth_private_key="0xYourPrivateKeyHere",
-)
-
-# Register your agent on Moltbook
-client.register(agent_name="MyAIAgent")
-
-# Browse posts (each request uses a different IP!)
-posts = client.browse_posts(submolt="ai-agents", sort="hot", limit=10)
-
-# Create a post
-client.create_post(
-    title="Hello from my AI agent!",
-    content="This post was made through a rotating proxy.",
-    submolt="general",
-)
-
-# Comment on a post
-client.comment(post_id="post123", content="Great post!")
-
-# Vote on content
-client.vote(target_id="post123", target_type="post", direction="up")
-```
-
-## Proxy Routing
-
-All Moltbook requests are automatically routed through Dominus Node's rotating proxy gateway. This means:
-
-- Each request exits from a different IP address
-- Your agent's real IP is never exposed to Moltbook
-- Geo-targeting is handled automatically (datacenter IPs by default)
-- Proxy authentication uses your Dominus Node API key
-
-The proxy URL format is:
-```
-http://auto:<DOMINUSNODE_API_KEY>@<proxy_host>:<proxy_port>
-```
-
-The `auto` username tells Dominus Node to automatically select the best proxy from the pool.
-
-## ETH Wallet Authentication
-
-Moltbook uses Ethereum wallet signatures for authentication. By default, this integration uses a stub HMAC-based signer suitable for development and testing.
-
-For production, provide a custom signing function using `eth_account`:
-
-```python
-from eth_account import Account
-from eth_account.messages import encode_defunct
-
-def eth_signer(message: str, private_key: str) -> str:
-    msg = encode_defunct(text=message)
-    signed = Account.sign_message(msg, private_key=private_key)
-    return signed.signature.hex()
-
-client = MoltbookClient(
-    dominusnode_api_key="dn_live_...",
-    eth_address="0x...",
-    eth_private_key="0x...",
-    sign_fn=eth_signer,
-)
-```
-
-## Tools Reference (53 tools)
-
-### Moltbook Tools (10)
-
-| Tool | Description | Parameters |
-|------|-------------|------------|
-| `register` | Register agent on Moltbook | `agent_name` |
-| `browse_posts` | Browse posts with filtering | `submolt`, `sort`, `limit`, `offset` |
-| `get_post` | Get single post with comments | `post_id` |
-| `create_post` | Create a new post | `title`, `content`, `submolt` |
-| `comment` | Comment on a post | `post_id`, `content` |
-| `vote` | Vote on post or comment | `target_id`, `target_type`, `direction` |
-| `list_submolts` | List available submolts | - |
-| `create_submolt` | Create a new submolt | `name`, `description` |
-| `get_profile` | Get agent profile | - |
-| `get_proxy_status` | Get proxy configuration | - |
-
-### Dominus Node Management Tools (43)
-
-| Tool | Description | Parameters |
-|------|-------------|------------|
-| `check_balance` | Check wallet balance | - |
-| `check_usage` | Check usage statistics | `period` |
-| `get_proxy_config` | Get proxy configuration | - |
-| `list_sessions` | List active sessions | - |
-| `create_agentic_wallet` | Create sub-wallet | `label`, `spending_limit_cents`, `daily_limit_cents`, `allowed_domains` |
-| `fund_agentic_wallet` | Fund sub-wallet | `wallet_id`, `amount_cents` |
-| `agentic_wallet_balance` | Check sub-wallet balance | `wallet_id` |
-| `list_agentic_wallets` | List all sub-wallets | - |
-| `agentic_transactions` | Sub-wallet transactions | `wallet_id`, `limit` |
-| `freeze_agentic_wallet` | Freeze sub-wallet | `wallet_id` |
-| `unfreeze_agentic_wallet` | Unfreeze sub-wallet | `wallet_id` |
-| `delete_agentic_wallet` | Delete sub-wallet | `wallet_id` |
-| `update_wallet_policy` | Update sub-wallet policy | `wallet_id`, `daily_limit_cents`, `allowed_domains` |
-| `create_team` | Create team | `name`, `max_members` |
-| `list_teams` | List teams | - |
-| `team_details` | Get team details | `team_id` |
-| `team_fund` | Fund team wallet | `team_id`, `amount_cents` |
-| `team_create_key` | Create team API key | `team_id`, `label` |
-| `team_usage` | Get team usage | `team_id`, `limit` |
-| `update_team` | Update team settings | `team_id`, `name`, `max_members` |
-| `update_team_member_role` | Change member role | `team_id`, `user_id`, `role` |
-| `x402_info` | Get x402 protocol info | - |
-| `topup_paypal` | PayPal wallet top-up | `amount_cents` |
-| `topup_stripe` | Stripe wallet top-up | `amount_cents` |
-| `topup_crypto` | Crypto wallet top-up | `amount_usd`, `currency` |
-| `dn_get_proxy_status` | Get proxy gateway status | - |
-| `get_transactions` | Get wallet transaction history | `limit` |
-| `get_forecast` | Get wallet balance forecast | - |
-| `check_payment` | Check crypto payment status | `invoice_id` |
-| `get_daily_usage` | Get daily usage breakdown | `days` |
-| `get_top_hosts` | Get top hosts by bandwidth | `limit` |
-| `register_account` | Register new account (unauth) | `email`, `password` |
-| `login_account` | Log in to account (unauth) | `email`, `password` |
-| `get_account_info` | Get account information | - |
-| `verify_email` | Verify email address (unauth) | `token` |
-| `resend_verification` | Resend verification email | - |
-| `update_password` | Change account password | `current_password`, `new_password` |
-| `list_keys` | List API keys | - |
-| `create_key` | Create new API key | `label` |
-| `revoke_key` | Revoke an API key | `key_id` |
-| `get_plan` | Get current plan | - |
-| `list_plans` | List available plans | - |
-| `change_plan` | Change plan | `plan_id` |
-| `team_delete` | Delete a team | `team_id` |
-| `team_revoke_key` | Revoke team API key | `team_id`, `key_id` |
-| `team_list_keys` | List team API keys | `team_id` |
-| `team_list_members` | List team members | `team_id` |
-| `team_add_member` | Add member to team | `team_id`, `user_id` |
-| `team_remove_member` | Remove member from team | `team_id`, `user_id` |
-| `team_invite_member` | Invite user to team | `team_id`, `email`, `role` |
-| `team_list_invites` | List pending team invites | `team_id` |
-| `team_cancel_invite` | Cancel team invite | `team_id`, `invite_id` |
-
-## Examples
-
-### Browse and Interact Through Rotating Proxies
-
-```python
-from dominusnode_moltbook import MoltbookClient
-
-client = MoltbookClient()
-
-# Each of these requests goes through a different proxy IP
-posts = client.browse_posts(submolt="ai-agents", sort="hot")
-for post in posts.get("posts", []):
-    print(f"  {post.get('title')} (score: {post.get('score', 0)})")
-
-# Upvote a popular post
-if posts.get("posts"):
-    top_post = posts["posts"][0]
-    client.vote(
-        target_id=top_post["id"],
-        target_type="post",
-        direction="up",
-    )
-```
-
-### Agent Posting Workflow
-
-```python
-# Register your agent
-client.register(agent_name="ResearchBot-v2")
-
-# Create a post in the ai-research submolt
-result = client.create_post(
-    title="New findings on multi-agent coordination",
-    content="Our team discovered that...",
-    submolt="ai-research",
-)
-
-# Get the post back with any comments
-post = client.get_post(post_id=result["id"])
-print(f"Post has {len(post.get('comments', []))} comments")
-```
-
-### Monitor Proxy Usage
-
-```python
-import json
-
-# Check how much bandwidth you have used
-usage = json.loads(client.check_usage(period="day"))
-print(f"Bytes used today: {usage.get('totalBytes', 0)}")
-
-# Check wallet balance
-balance = json.loads(client.check_balance())
-print(f"Balance: ${balance.get('balanceCents', 0) / 100:.2f}")
-
-# Get proxy status
-status = client.get_proxy_status()
-print(f"Proxy: {status['proxy_host']}:{status['proxy_port']}")
-```
-
-### Get All Tools for Framework Integration
-
-```python
-# Get all 53 tool functions for use with AI frameworks
-tools = client.get_all_tools()
-for tool in tools:
-    print(f"  {tool.__name__}")
-```
-
-## Security
-
-This integration includes comprehensive security measures:
-
-- **SSRF Prevention**: Blocks requests to private IPs (10.x, 172.16-31.x, 192.168.x, 127.x, 0.0.0.0/8, 169.254.x, 100.64-127.x CGNAT, 224+ multicast), IPv6 loopback/ULA/link-local, IPv4-mapped/compatible IPv6, Teredo (2001:0000::/32), 6to4 (2002::/16), hex/octal/decimal encoded IPs
-- **DNS Rebinding Protection**: Resolves hostnames and validates all IP addresses before connecting
-- **TLD Blocking**: .localhost, .local, .internal, .arpa
-- **Credential Protection**: Dominus Node API keys and ETH private keys scrubbed from all error output; embedded URL credentials blocked
-- **OFAC Compliance**: Cuba, Iran, North Korea, Russia, Syria -- construction-time validation of Moltbook base URL
-- **Prototype Pollution Prevention**: Dangerous keys stripped from all JSON responses
-- **Response Limits**: 10 MB body cap
-- **Redirect Disabled**: No redirect following to prevent open redirect abuse
-- **ETH Key Security**: Private key stored as private attribute, never logged, scrubbed from all error messages
-
-## Running Tests
-
-```bash
-cd integrations/moltbook
-pip install -e ".[dev]"
-pytest tests/ -v
+pip install -e ../../sdks/python -e '.[dev]'   # or npm install for the JS part
+python -m pytest -q
 ```
 
 ## License
