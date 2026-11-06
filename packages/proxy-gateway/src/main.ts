@@ -21,7 +21,7 @@ import { loadSdnFile } from "./jobs/sdn.js";
 import * as probesJob from "./jobs/probes.js";
 import { parseTrustedProxyIps, loadTunnelTls } from "./node-tunnel/ingress.js";
 import { createEthersPayoutSender } from "./jobs/payout-sender-ethers.js";
-import { getActiveSessionCount, terminateUserSessions, getActiveSessions } from "./session-manager.js";
+import { getActiveSessionCount, terminateUserSessions, getActiveSessions, awaitInFlightSettlements, getInFlightSettlementCount } from "./session-manager.js";
 
 const log = createLogger("proxy:main");
 
@@ -143,8 +143,9 @@ async function main(): Promise<void> {
     await Promise.all(jobs.map((j) => j.stop().catch(() => {})));
 
     // Wait for active sessions to finish (max 30s)
+    const DRAIN_TIMEOUT_MS = 30_000;
     const start = Date.now();
-    while (getActiveSessionCount() > 0 && Date.now() - start < 30_000) {
+    while (getActiveSessionCount() > 0 && Date.now() - start < DRAIN_TIMEOUT_MS) {
       await new Promise((r) => setTimeout(r, 500));
     }
 
@@ -156,6 +157,14 @@ async function main(): Promise<void> {
       for (const uid of uniqueUsers) {
         try { await terminateUserSessions(uid); } catch { /* best effort */ }
       }
+    }
+
+    // Sessions leave the active map when settlement STARTS; wait for those
+    // settlements to commit before the pool goes away. The drain timeout is
+    // the overall upper bound (force-settles above are awaited directly).
+    const settleBudget = Math.max(0, DRAIN_TIMEOUT_MS - (Date.now() - start));
+    if (!(await awaitInFlightSettlements(settleBudget))) {
+      log.warn(`shutdown with ${getInFlightSettlementCount()} settlements still in flight`);
     }
 
     registry.stopSweep();

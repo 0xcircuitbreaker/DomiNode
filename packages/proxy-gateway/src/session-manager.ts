@@ -603,7 +603,40 @@ function readNodeBytes(relay: RelayBinding): bigint | null {
   }
 }
 
-export async function endSession(sessionId: string): Promise<void> {
+/** Settlements started but not yet finished; graceful shutdown awaits them before closing the pool. */
+const inFlightSettlements = new Set<Promise<void>>();
+
+export function endSession(sessionId: string): Promise<void> {
+  const p = settleSession(sessionId);
+  inFlightSettlements.add(p);
+  const done = (): void => { inFlightSettlements.delete(p); };
+  p.then(done, done);
+  return p;
+}
+
+export function getInFlightSettlementCount(): number {
+  return inFlightSettlements.size;
+}
+
+/**
+ * Wait for in-flight settlements (including ones started while waiting),
+ * bounded by timeoutMs. Resolves true if all finished in time.
+ */
+export async function awaitInFlightSettlements(timeoutMs: number): Promise<boolean> {
+  const deadline = Date.now() + Math.max(0, timeoutMs);
+  while (inFlightSettlements.size > 0) {
+    const left = deadline - Date.now();
+    if (left <= 0) return false;
+    let timer: NodeJS.Timeout | undefined;
+    const timeout = new Promise<"timeout">((r) => { timer = setTimeout(() => r("timeout"), left); });
+    const res = await Promise.race([Promise.allSettled([...inFlightSettlements]), timeout]);
+    clearTimeout(timer);
+    if (res === "timeout") return inFlightSettlements.size === 0;
+  }
+  return true;
+}
+
+async function settleSession(sessionId: string): Promise<void> {
   const session = activeSessions.get(sessionId);
   if (!session) return;
 

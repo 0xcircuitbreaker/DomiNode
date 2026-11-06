@@ -61,7 +61,7 @@ vi.mock("./balance-check.js", () => ({
   invalidateBalanceCache: vi.fn(),
 }));
 
-import { startSession, endSession, getActiveSessionCount, checkSessionRateLimit, checkBandwidthVelocity, recordBandwidthUsage, reservationCentsFor, maxBytesForReservation, startPrepaidSession, maxBytesForPrepaid, abortPrepaidSession } from "./session-manager.js";
+import { startSession, endSession, getActiveSessionCount, checkSessionRateLimit, checkBandwidthVelocity, recordBandwidthUsage, reservationCentsFor, maxBytesForReservation, startPrepaidSession, maxBytesForPrepaid, abortPrepaidSession, awaitInFlightSettlements, getInFlightSettlementCount } from "./session-manager.js";
 import type { ByteCounter } from "./counting-stream.js";
 const BYTES_PER_GB = 1_073_741_824;
 
@@ -427,6 +427,35 @@ describe("proxy-gateway/session-manager", () => {
         destPort: 443,
       }));
       expect(mockEndSessionRepo).not.toHaveBeenCalled();
+    });
+
+    it("tracks in-flight settlements so shutdown can await them before closing the pool", async () => {
+      const sessId = await startTestSession("user-sd", "sess-sd", makeCounter(10, 10));
+      let commit!: () => void;
+      mockSettleRelayCharge.mockImplementationOnce(() => new Promise((r) => { commit = () => r(settled()); }));
+      const before = getActiveSessionCount();
+      const p = endSession(sessId);
+      expect(getActiveSessionCount()).toBe(before - 1); // gone from the active map already...
+      expect(getInFlightSettlementCount()).toBe(1); // ...but still settling
+      let drained = false;
+      const wait = awaitInFlightSettlements(5_000).then((ok) => { drained = ok; });
+      await new Promise((r) => setTimeout(r, 10));
+      expect(drained).toBe(false);
+      commit();
+      await wait;
+      await p;
+      expect(drained).toBe(true);
+      expect(getInFlightSettlementCount()).toBe(0);
+    });
+
+    it("awaitInFlightSettlements gives up at the timeout", async () => {
+      const sessId = await startTestSession("user-sd2", "sess-sd2", makeCounter(1, 1));
+      let commit!: () => void;
+      mockSettleRelayCharge.mockImplementationOnce(() => new Promise((r) => { commit = () => r(settled()); }));
+      const p = endSession(sessId);
+      expect(await awaitInFlightSettlements(20)).toBe(false);
+      commit();
+      await p;
     });
 
     it("locks price per node class and owner tier at start", async () => {
