@@ -2,26 +2,27 @@
 
 Team: **AI & Integrations**
 
-25+ AI framework integrations providing DomiNode proxy tools for AI agents.
+27 AI framework integrations exposing the standard 19-tool v2 set (see `.claude/rules/integration-patterns.md`), built on the v2 SDKs.
 
 ## Team Responsibilities
 - Maintain security parity across ALL integrations (SSRF, credential scrubbing, OFAC)
 - New features added to one integration must be propagated to all others
 - All integrations must pass their test suites (Python: pytest, TypeScript: vitest)
-- Integration showcase swarm (scripts/swarm-showcase.py) must remain functional
 
 ## Required Security (ALL Integrations)
 See `.claude/rules/integration-patterns.md` for full rules.
 
-Key: DNS rebinding protection, GET/HEAD/OPTIONS only, credential scrubbing, redirect disabled, OFAC checks, prototype pollution defense, 10MB response cap.
+Key: DNS rebinding protection, GET/HEAD only, credential scrubbing, redirect disabled, OFAC checks, prototype pollution defense, 10MB response cap.
 
 ## Integration Categories
 
-### TypeScript (8)
-mastra, flowise, openclaw, vercel-ai, openai-functions, chatgpt, n8n, gemini
+### TypeScript (9)
+mastra, flowise, openclaw, vercel-ai, openai-functions, chatgpt, n8n, gemini, pi
 
-### Python (17+)
-langchain, crewai, llamaindex, autogpt, agent-zero, superagi, agno, camel-ai, composio, dify, haystack, ironclaw, metagpt, moltbook, pydantic-ai, semantic-kernel
+### Python (18)
+langchain, crewai, llamaindex, autogpt, agent-zero, superagi, agno, camel-ai, composio, dify, haystack, ironclaw, metagpt, moltbook, pydantic-ai, semantic-kernel, langflow, taskweaver
+
+(gemini and openai-functions ship both TypeScript and Python handlers.)
 
 ## Common Mistakes
 - Adding SSRF protection to one integration but missing others

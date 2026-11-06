@@ -3,7 +3,7 @@
 ## Project Structure & Module Organization
 This repository is a TypeScript monorepo using npm workspaces.
 - `packages/` contains core services and apps:
-  - Backend services: `dashboard`, `proxy-gateway`, `billing`, `metering`, `pool-manager`, `shared`
+  - Backend services: `dashboard`, `proxy-gateway`, `billing`, `metering`, `node-agent`, `shared`
   - Frontend clients: `frontend` (React/Vite), `extension` (browser extension)
 - `sdks/node/` contains the published Node.js SDK.
 - `infra/docker/` holds Dockerfiles; root `docker-compose*.yml` files orchestrate local/prod stacks.
