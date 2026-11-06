@@ -426,3 +426,32 @@ body.options {
   margin: 0 auto;
   padding: 24px;
 }
+
+/* ─── Agent companion additions ───────────────────────────────── */
+.warn-banner {
+  background: rgba(251, 191, 36, 0.12);
+  border: 1px solid var(--warning);
+  color: var(--warning);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  font-size: 12px;
+}
+.kv { display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px; font-size: 13px; }
+.kv dt { color: var(--text-secondary); }
+.kv dd { word-break: break-all; }
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+pre.code {
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  overflow-x: auto;
+  white-space: pre;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+}
+table.list { width: 100%; border-collapse: collapse; font-size: 13px; }
+table.list th, table.list td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+textarea.input { min-height: 120px; font-family: ui-monospace, monospace; font-size: 12px; }
+.pill { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 11px; background: var(--bg-tertiary); }
+.pill.on { background: rgba(74, 222, 128, 0.2); color: var(--success); }
+.pill.off { background: rgba(248, 113, 113, 0.2); color: var(--error); }
