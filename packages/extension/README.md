@@ -1,165 +1,229 @@
-# Dominus Node Proxy - Browser Extension
+# DominusNode Agent Companion (browser extension)
 
-Browser extension for routing traffic through the Dominus Node proxy network. Supports datacenter and residential proxy pools with geo-targeting, sticky sessions, automatic IP rotation, real-time wallet balance tracking, and WebRTC leak protection.
+MV3 extension that routes an automated (usually headless) Chromium profile through the
+DominusNode gateway, so an AI agent's browser traffic gets the same country / IP class /
+sticky-session routing as its API calls, with a hard per-run spend cap.
 
-## Features
+It also shows the agent's relay nodes, tier progress and credits, and the exact steps to
+contribute a machine as a node. It never relays traffic itself: MV3 cannot open raw TCP and
+must not see other agents' decrypted traffic.
 
-- **Datacenter + Residential Proxy Support** -- Connect through DC proxies ($3/GB) or residential proxies ($5/GB) via HTTP or SOCKS5 protocols.
-- **Geo-Targeting** -- Select exit country from 70+ supported countries. US users get additional state-level and city-level targeting (50 states, 20 major cities).
-- **Session Management** -- Enable sticky sessions to maintain the same IP across requests. Manual or automatic session rotation on configurable intervals (1, 5, 10, 15, or 30 minutes).
-- **Real-Time Balance Tracking** -- Wallet balance polls every 2 minutes. Badge indicator shows connection status, low balance warnings, and auto-disables the proxy when balance reaches zero.
-- **WebRTC Leak Protection** -- Content script forces `RTCPeerConnection` to relay-only mode (`iceTransportPolicy: "relay"`), and the `privacy` API sets `webRTCIPHandlingPolicy` to `disable_non_proxied_udp` when the proxy is active. Both mechanisms prevent your real IP from leaking through WebRTC.
-- **Two-Factor Authentication** -- Full MFA support including TOTP authenticator codes and backup codes.
-- **Dual Authentication** -- Sign in with email/password or paste an API key directly (`dn_live_...`).
-- **Auto-Reconnect** -- Proxy connection is automatically restored after browser restarts if it was previously enabled.
-- **Low Balance Notifications** -- Desktop notifications warn when balance drops below $1.00 and when it reaches $0.00.
-- **Badge Status Indicators** -- Green "ON" badge when connected, yellow "$!" for low balance, red "ERR" for errors.
+## How it works
 
-## Installation
+- `chrome.proxy` gets a PAC script: every host except the API host, loopback and plain host
+  names goes to `PROXY <gatewayHost>:<gatewayPort>`.
+- `chrome.webRequest.onAuthRequired` (`webRequestAuthProvider`) answers the gateway's 407 with
+  username = routing flags and password = the `dn_live_` key. It answers only proxy challenges
+  from the configured gateway host:port, never site (origin) auth, and only once per request.
+- Username flags (parsed by `packages/proxy-gateway/src/auth.ts`):
 
-### From Browser Stores
+  | Setting | Flag |
+  |---|---|
+  | country | `country-US` |
+  | IP class | `class-residential` / `class-dc` / `class-mobile` |
+  | sticky session | `session-<id>` (Rotate = new id) |
+  | plaintext HTTP | `allowhttp-1` (off by default; the exit node can read plaintext, responses carry `X-DominusNode-Exit-Visible: 1`) |
 
-| Browser | Link |
-|---------|------|
-| Chrome | [Chrome Web Store](https://chrome.google.com/webstore/detail/dominus-node-proxy/) |
-| Firefox | [Firefox Add-ons](https://addons.mozilla.org/en-US/firefox/addon/dominus-node-proxy/) |
-| Edge | [Edge Add-ons](https://microsoftedge.microsoft.com/addons/detail/dominus-node-proxy/) |
-| Opera | [Opera Add-ons](https://addons.opera.com/en/extensions/details/dominus-node-proxy/) |
+  Example: `agent-country-DE-class-residential-session-40bb5ac94633d551`. The leading `agent`
+  keeps the deprecated `dc-`/`residential-` prefix parser from matching.
+- Spend cap: the balance is sampled every minute (`POST /api/auth/verify-key` mints a short JWT
+  kept in memory, then `GET /api/wallet`). Spend this run = start balance - current balance
+  (top-ups are not counted). At the cap, or at a zero balance, the PAC switches to a dead
+  loopback proxy (`127.0.0.1:9`) and gateway auth is cancelled: traffic fails, it never goes
+  direct with the machine's real IP. Only the operator (popup "New run" or options) starts a
+  new run; control channels cannot lift a block.
+- An enabled profile without a key also fails closed.
+- Pricing comes from `GET /v1/pricing`. Nodes, tier and credits come from `GET /v1/nodes`,
+  `GET /v1/node/tier` and `GET /v1/credits` (see `docs/agent-network/AGENT_API.md`).
 
-### From Source (Development)
-
-1. Clone the repository and navigate to the extension package:
+## Build
 
 ```bash
 cd packages/extension
 npm install
+npm run build          # -> dist/chrome  (also build:edge, build:opera, build:all)
+npm test               # vitest
+npm run typecheck
 ```
 
-2. Build for your target browser:
+## Headless preconfiguration
 
-```bash
-# Build all targets at once
-npm run build:all
+Use one of the following. In both, the key is stored only in `chrome.storage.local` (never
+`storage.sync`) and is never returned by any status or control response.
 
-# Or build for a specific browser
-npm run build:chrome
-npm run build:firefox
-npm run build:opera
-npm run build:edge
+### Config shape
+
+The same flat JSON is accepted by the managed policy and by the one-time import:
+
+```json
+{
+  "apiKey": "dn_live_…",
+  "enabled": true,
+  "apiBase": "https://api.dominusnode.com",
+  "gatewayHost": "proxy.dominusnode.com",
+  "gatewayPort": 8080,
+  "country": "US",
+  "ipClass": "residential",
+  "sticky": true,
+  "rotateMinutes": 0,
+  "plaintext": false,
+  "spendCapCents": 500,
+  "controlExtensionIds": [],
+  "controlPageOrigins": [],
+  "exitCheckUrl": "https://ipinfo.io/json"
+}
 ```
 
-3. Load the unpacked extension:
+`""` means "any" for `country` and `ipClass`. `0` means "no cap" for `spendCapCents`. The schema is in `managed_schema.json`.
 
-- **Chrome**: Navigate to `chrome://extensions/`, enable "Developer mode", click "Load unpacked", select `dist/chrome/`.
-- **Firefox**: Navigate to `about:debugging#/runtime/this-firefox`, click "Load Temporary Add-on", select `dist/firefox/manifest.json`.
-- **Edge**: Navigate to `edge://extensions/`, enable "Developer mode", click "Load unpacked", select `dist/edge/`.
-- **Opera**: Navigate to `opera://extensions/`, enable "Developer mode", click "Load unpacked", select `dist/opera/`.
+### A) Enterprise policy (`chrome.storage.managed`)
 
-## Build Targets
+Policy keys are bound to an extension ID. An unpacked extension's ID comes from its path
+unless the manifest has a `key`. For a stable ID, add a `"key"` (the base64 public key) to
+`dist/chrome/manifest.json` or always load from the same path. Then write the policy file:
 
-Each build target produces a self-contained directory under `dist/<browser>/` with the compiled manifest, scripts, HTML pages, CSS, and icons.
+- Linux Chromium: `/etc/chromium/policies/managed/dominusnode.json`
+- Linux Google Chrome: `/etc/opt/chrome/policies/managed/dominusnode.json`
+- macOS / Windows: the `3rdparty` policy for the extension, set via MDM or the registry
 
-| Target | Command | Output | Notes |
-|--------|---------|--------|-------|
-| Chrome | `npm run build:chrome` | `dist/chrome/` | MV3 service worker, `webRequestAuthProvider` permission |
-| Firefox | `npm run build:firefox` | `dist/firefox/` | MV3 background scripts (not service worker), `browser_specific_settings` with gecko ID, no `webRequestAuthProvider` |
-| Edge | `npm run build:edge` | `dist/edge/` | Same manifest structure as Chrome |
-| Opera | `npm run build:opera` | `dist/opera/` | Same manifest structure as Chrome |
-
-All builds use esbuild with ESM output format, ES2022 target, and Preact JSX. Production builds (`NODE_ENV=production`) are minified with no sourcemaps.
-
-## Tech Stack
-
-- **UI Framework**: Preact 10 (lightweight React alternative, ~3KB)
-- **Language**: TypeScript (strict mode)
-- **Bundler**: esbuild
-- **Testing**: Vitest
-- **Manifest**: MV3 (Manifest V3)
-- **Popup**: Preact SPA for quick proxy toggle, country selection, protocol switching
-- **Options Page**: Full-page Preact SPA with advanced settings (rotation interval, all countries, session management)
-
-## Project Structure
-
-```
-packages/extension/
-├── build.mjs                    # esbuild build script
-├── package.json                 # Dependencies and build scripts
-├── tsconfig.json                # TypeScript configuration
-├── vitest.config.ts             # Test configuration
-├── manifests/
-│   ├── chrome.json              # Chrome/Chromium manifest
-│   ├── firefox.json             # Firefox manifest (gecko settings)
-│   ├── edge.json                # Edge manifest
-│   └── opera.json               # Opera manifest
-├── src/
-│   ├── adapters/
-│   │   ├── chromium-proxy.ts    # Chrome/Edge/Opera proxy API adapter
-│   │   └── firefox-proxy.ts     # Firefox proxy API adapter
-│   ├── assets/icons/            # Extension icons (16, 48, 128px)
-│   ├── background/
-│   │   ├── index.ts             # Service worker entrypoint, message router, alarms
-│   │   ├── auth-manager.ts      # Login, logout, MFA, token refresh
-│   │   ├── balance-poller.ts    # Periodic wallet balance polling
-│   │   ├── badge-manager.ts     # Badge text/color updates
-│   │   ├── proxy-controller.ts  # Enable/disable/reconfigure proxy
-│   │   └── token-refresher.ts   # JWT access token auto-refresh
-│   ├── content/
-│   │   └── webrtc-block.ts      # WebRTC leak prevention (MAIN world)
-│   ├── options/
-│   │   ├── index.html           # Options page shell
-│   │   ├── index.tsx            # Options page Preact entrypoint
-│   │   └── App.tsx              # Full settings UI
-│   ├── popup/
-│   │   ├── index.html           # Popup shell
-│   │   ├── index.tsx            # Popup Preact entrypoint
-│   │   ├── App.tsx              # Main popup UI (login, proxy toggle, geo)
-│   │   └── useExtensionState.ts # Shared state hook
-│   ├── shared/
-│   │   ├── api-client.ts        # HTTP client for Dominus Node REST API
-│   │   ├── constants.ts         # API URLs, ports, alarm names, thresholds
-│   │   ├── proxy-config.ts      # Proxy username builder, session ID generator
-│   │   ├── state.ts             # Extension state persistence (chrome.storage)
-│   │   └── types.ts             # TypeScript interfaces and message types
-│   └── ui/
-│       ├── countries.ts         # Country, state, city option lists
-│       └── styles.css           # Shared dark-theme CSS
-└── dist/                        # Build output (gitignored)
-    ├── chrome/
-    ├── firefox/
-    ├── edge/
-    └── opera/
+```json
+{ "3rdparty": { "extensions": { "<EXTENSION_ID>": {
+  "apiKey": "dn_live_…", "enabled": true, "country": "US", "ipClass": "residential", "spendCapCents": 500
+} } } }
 ```
 
-## Permissions Explained
+Policy values override stored ones on every start, and they are locked in the options UI.
 
-| Permission | Reason |
-|------------|--------|
-| `proxy` | Core functionality. Configures the browser's proxy settings to route traffic through Dominus Node servers. |
-| `storage` | Persists user preferences, authentication state, and proxy configuration between browser sessions. |
-| `webRequest` | Intercepts proxy authentication challenges (HTTP 407 responses) to supply credentials automatically. |
-| `webRequestAuthProvider` | (Chromium only) Required by MV3 to provide proxy authentication credentials in response to 407 challenges. |
-| `alarms` | Schedules periodic tasks: JWT token refresh (every 12 minutes), wallet balance polling (every 2 minutes), and optional session rotation. |
-| `notifications` | Displays desktop alerts for low balance warnings ($1.00 threshold) and zero-balance proxy auto-disable. |
-| `privacy` | Accesses `chrome.privacy.network.webRTCIPHandlingPolicy` to disable non-proxied UDP when the proxy is active, preventing WebRTC IP leaks. |
-| `<all_urls>` (host permission) | Routes all browser HTTP/HTTPS traffic through the configured proxy server. Also required for the WebRTC leak prevention content script to run on all pages. |
+### B) One-time import (no root, no policy)
 
-## Supported Browsers
+- From the options page: Connection, then One-time import. Paste the JSON or pick a file.
+- From a CDP driver: call `dominusnodeImportConfig(cfg)` in the extension service worker, as
+  in the snippets below. Only code that already controls the browser through CDP can reach
+  this function.
 
-| Browser | Minimum Version | Manifest | Notes |
-|---------|----------------|----------|-------|
-| Chrome | 88+ | MV3 | Full support including `webRequestAuthProvider` |
-| Firefox | 109+ | MV3 | Uses `browser_specific_settings` with gecko ID `proxy@dominusnode.com` |
-| Edge | 88+ | MV3 | Chromium-based, same capabilities as Chrome |
-| Opera | 74+ | MV3 | Chromium-based, same capabilities as Chrome |
+### Playwright (Chromium, new headless)
 
-## Running Tests
+```js
+import { chromium } from "playwright";
 
-```bash
-npm run test
+const EXT = "/abs/path/packages/extension/dist/chrome";
+const ctx = await chromium.launchPersistentContext("", {
+  channel: "chromium",          // full Chromium: new headless supports extensions
+  headless: true,
+  args: [`--disable-extensions-except=${EXT}`, `--load-extension=${EXT}`],
+});
+const sw = ctx.serviceWorkers()[0] ?? (await ctx.waitForEvent("serviceworker"));
+await sw.evaluate((cfg) => self.dominusnodeImportConfig(cfg), {
+  apiKey: process.env.DN_API_KEY,             // from env, never argv
+  country: "US", ipClass: "residential", sticky: true, spendCapCents: 500, enabled: true,
+});
+const page = await ctx.newPage();
+await page.goto("https://example.com");       // routed through the gateway
+
+// Mid-run change without restarting:
+await sw.evaluate(() => self.dominusnodeStatus());
 ```
 
-Tests use Vitest with Chrome extension API mocks. Coverage includes the background service worker message handler, proxy controller, auth manager, API client, and state management.
+### Puppeteer
 
-## License
+```js
+import puppeteer from "puppeteer";
 
-MIT
+const EXT = "/abs/path/packages/extension/dist/chrome";
+const browser = await puppeteer.launch({
+  headless: "new",   // or true on Puppeteer >= 22
+  args: [`--disable-extensions-except=${EXT}`, `--load-extension=${EXT}`],
+});
+const target = await browser.waitForTarget((t) => t.type() === "service_worker" && t.url().endsWith("background.js"));
+const sw = await target.worker();
+await sw.evaluate((cfg) => self.dominusnodeImportConfig(cfg), {
+  apiKey: process.env.DN_API_KEY, country: "DE", ipClass: "dc", enabled: true, spendCapCents: 200,
+});
+const page = await browser.newPage();
+await page.goto("https://example.com");
+```
+
+The Playwright `headless_shell` build (and the old `--headless`) cannot load extensions. Use
+full Chromium in new headless mode.
+
+## Agent control channel
+
+Use the control channel to change routing mid-run without restarting. Every message is
+validated strictly: unknown fields and wrong types are rejected, and prototype-pollution keys
+are stripped. The message size limit is 4 KB.
+
+```json
+{ "v": 1, "type": "getStatus" }
+{ "v": 1, "type": "setSettings", "settings": { "country": "DE", "ipClass": "mobile", "sticky": true } }
+{ "v": 1, "type": "rotateSession" }
+{ "v": 1, "type": "enable" }
+{ "v": 1, "type": "disable" }
+```
+
+- Control messages can change only `enabled`, `country`, `ipClass`, `sticky`, `sessionId`,
+  `rotateMinutes` and `plaintext`.
+- These are operator-only: the API key, gateway, API base, spend cap, exit check URL and the
+  allowlists.
+- Replies are `{ ok: true, result: <status> }` or `{ ok: false, error }`. The status has mode,
+  flags, spend, cap, balance and block reason. It never includes the key.
+
+### 1) From another extension (`chrome.runtime.onMessageExternal`)
+
+Add the driver extension's ID under Options, then Agent control (or `controlExtensionIds`).
+Other senders get `Sender not allowed`.
+
+```js
+chrome.runtime.sendMessage("<companion id>", { v: 1, type: "setSettings", settings: { country: "GB" } }, console.log);
+```
+
+### 2) Page-world bridge (disabled by default)
+
+The bridge is enabled only for origins listed in `controlPageOrigins`: exact https origins,
+or `http://localhost`, with no wildcards. For those origins, a content script is registered
+with `chrome.scripting`. The service worker rechecks that the message comes from the exact
+origin and the top frame. Any script on a listed page can change routing, so list only
+origins you control.
+
+```js
+window.postMessage({ dominusnode: "request", id: "1", command: { v: 1, type: "rotateSession" } }, location.origin);
+window.addEventListener("message", (e) => {
+  if (e.source === window && e.data?.dominusnode === "response" && e.data.id === "1") console.log(e.data);
+});
+// The bridge announces itself with { dominusnode: "ready", v: 1 }.
+```
+
+## Contribute this machine
+
+The Options tab "Contribute this machine" has the same steps as the MCP tool
+`dominusnode_node_setup_guide`, with commands for Linux, macOS or Windows:
+
+1. Store the wallet key in a 0600 file.
+2. Register with the node-agent CLI.
+3. Run it under a supervisor.
+4. Verify in the Nodes tab.
+
+Nothing is installed by the extension. There is no native messaging.
+
+## Permissions
+
+| Permission | Why |
+|---|---|
+| `proxy` | Set the PAC script that routes this profile through the gateway (or blocks at the cap). |
+| `webRequest` + `webRequestAuthProvider` | Answer the gateway's proxy 407 with flags and key (`onAuthRequired`, asyncBlocking). |
+| `storage` | Settings and key in `storage.local`, run state in `storage.session`, policy in `storage.managed`. |
+| `alarms` | Balance polling (1 min) and sticky-session auto-rotation. |
+| `scripting` | Register the page-bridge content script only for operator-listed origins. |
+| `privacy` | Set `webRTCIPHandlingPolicy` to `disable_non_proxied_udp` while proxying or blocked, so WebRTC cannot reveal the machine's real IP. |
+| `host_permissions: <all_urls>` | `onAuthRequired` must see proxy challenges for every URL, and the API/exit-check fetches. |
+
+The `notifications`, `tabs` and `nativeMessaging` permissions are not used. There
+are no static content scripts.
+
+## Security notes
+
+- CSP for extension pages: `script-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'`.
+- Every API response is size-capped (2 MB), fetched with `redirect: "error"` and
+  `credentials: "omit"`, and parsed with recursive `stripDangerousKeys`.
+- `dn_live_`, `dn_test_`, `dn_node_` and `dn_proxy_` values and JWTs are scrubbed from every
+  error before it reaches the UI or a control reply. The UI shows only the first 8 key chars.
+- Exit countries in the OFAC list (CU, IR, KP, RU, SY) are rejected.

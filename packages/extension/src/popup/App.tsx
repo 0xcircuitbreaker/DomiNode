@@ -1,487 +1,107 @@
-import { useState } from "preact/hooks";
-import { useExtensionState } from "./useExtensionState.js";
-import { TOP_COUNTRIES, US_STATES, MAJOR_US_CITIES } from "../ui/countries.js";
-import { LOW_BALANCE_THRESHOLD_CENTS } from "../shared/constants.js";
+import { useEffect, useState } from "preact/hooks";
+import { fmtCents } from "../shared/api-client.js";
+import { send, type Status } from "../ui/bridge.js";
+import { ALL_COUNTRIES } from "../ui/countries.js";
 
-// Truncate error messages to prevent UI overflow and potential content injection
-const MAX_ERROR_LENGTH = 200;
-function truncateError(msg: string | null | undefined): string {
-  if (!msg) return "";
-  if (msg.length <= MAX_ERROR_LENGTH) return msg;
-  return msg.slice(0, MAX_ERROR_LENGTH) + "...";
-}
+const MODE_LABEL: Record<Status["mode"], string> = {
+  off: "Off (direct)",
+  proxying: "Connected",
+  blocked: "Blocked",
+  no_key: "No API key (blocked)",
+};
 
 export function App() {
-  const { state, loading, error, sendMessage } = useExtensionState();
+  const [st, setSt] = useState<Status | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
 
-  if (loading) {
-    return <div class="spinner" />;
-  }
-
-  if (!state) {
-    return (
-      <div class="stack" style={{ padding: "16px" }}>
-        <div class="error-banner">{truncateError(error) || "Failed to load extension state"}</div>
-      </div>
-    );
-  }
-
-  // MFA pending — show verification screen
-  if (state.mfaPending) {
-    return <MfaView error={error} sendMessage={sendMessage} />;
-  }
-
-  // Prefer isAuthenticated from sanitized state (tokens are stripped by sanitizeStateForUI)
-  const isAuthenticated = !!(state as any).isAuthenticated || !!(state.accessToken || state.apiKey);
-
-  return isAuthenticated ? (
-    <AuthenticatedView state={state} error={error} sendMessage={sendMessage} />
-  ) : (
-    <LoginView error={error} sendMessage={sendMessage} />
-  );
-}
-
-// ─── MFA Verification View ─────────────────────────────────────
-interface MfaViewProps {
-  error: string | null;
-  sendMessage: (type: string, payload?: unknown) => Promise<unknown>;
-}
-
-function MfaView({ error, sendMessage }: MfaViewProps) {
-  const [code, setCode] = useState("");
-  const [isBackupCode, setIsBackupCode] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
-
-  const handleSubmit = async (e: Event) => {
-    e.preventDefault();
-    setSubmitting(true);
-    await sendMessage("VERIFY_MFA", { code, isBackupCode });
-    setSubmitting(false);
+  const run = async (type: string, payload?: unknown) => {
+    setBusy(true);
+    setErr(null);
+    try {
+      setSt(await send(type, payload));
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
   };
+
+  useEffect(() => {
+    void run("getStatus");
+    const t = setInterval(() => void send("getStatus").then(setSt).catch(() => {}), 5000);
+    return () => clearInterval(t);
+  }, []);
+
+  if (!st) return <div class="stack" style="padding:16px">{err ? <div class="error-banner">{err}</div> : "Loading…"}</div>;
+  const s = st.settings;
+  const locked = (k: string) => st.managedKeys.includes(k);
+  const set = (patch: Record<string, unknown>) => run("updateSettings", patch);
 
   return (
-    <div class="stack" style={{ padding: "16px" }}>
-      <div style={{ textAlign: "center", padding: "8px 0" }}>
-        <div style={{ fontSize: "20px", fontWeight: "700", color: "var(--accent)" }}>
-          Dominus Node
-        </div>
-        <div class="text-sm text-muted">Two-Factor Authentication</div>
+    <div class="stack" style="padding:14px">
+      <div class="row-between">
+        <strong>DominusNode Agent</strong>
+        <span class={`pill ${st.mode === "proxying" ? "on" : st.mode === "off" ? "" : "off"}`}>{MODE_LABEL[st.mode]}</span>
+      </div>
+      {err && <div class="error-banner">{err}</div>}
+      {st.run.blockReason && st.mode === "blocked" && <div class="error-banner">{st.run.blockReason}</div>}
+      {!st.hasApiKey && <div class="warn-banner">No API key. Open options to add one (or ship a managed policy).</div>}
+      {s.plaintext && <div class="warn-banner">Plaintext HTTP is on (allowhttp-1): the exit node can read unencrypted traffic.</div>}
+
+      <dl class="kv">
+        <dt>Flags</dt>
+        <dd class="mono">{st.username}</dd>
+        <dt>Balance</dt>
+        <dd>{fmtCents(st.run.lastBalanceCents)}</dd>
+        <dt>Spent this run</dt>
+        <dd>
+          {fmtCents(st.run.spentCents)}
+          {s.spendCapCents !== null ? ` / cap ${fmtCents(s.spendCapCents)}` : " (no cap)"}
+        </dd>
+        <dt>Exit</dt>
+        <dd>{st.exit ? `${st.exit.country ?? "?"} ${st.exit.ip ?? ""}` : s.country ? `requested ${s.country}` : "any"}</dd>
+      </dl>
+
+      <label class="row-between">
+        <span>Proxy this profile</span>
+        <span class="toggle">
+          <input type="checkbox" checked={s.enabled} disabled={busy || locked("enabled")} onChange={(e) => set({ enabled: (e.target as HTMLInputElement).checked })} />
+          <span class="toggle-slider" />
+        </span>
+      </label>
+
+      <div class="row" style="gap:8px">
+        <select class="select flex-1" value={s.country ?? ""} disabled={busy || locked("country")} onChange={(e) => set({ country: (e.target as HTMLSelectElement).value || null })}>
+          <option value="">Any country</option>
+          {ALL_COUNTRIES.map((c) => (
+            <option value={c.code}>{c.code} {c.name}</option>
+          ))}
+        </select>
+        <select class="select flex-1" value={s.ipClass ?? ""} disabled={busy || locked("ipClass")} onChange={(e) => set({ ipClass: (e.target as HTMLSelectElement).value || null })}>
+          <option value="">Any class</option>
+          <option value="residential">Residential</option>
+          <option value="dc">Datacenter</option>
+          <option value="mobile">Mobile</option>
+        </select>
       </div>
 
-      {error && <div class="error-banner">{truncateError(error)}</div>}
+      <label class="row-between">
+        <span>Sticky session</span>
+        <span class="toggle">
+          <input type="checkbox" checked={s.sticky} disabled={busy || locked("sticky")} onChange={(e) => set({ sticky: (e.target as HTMLInputElement).checked })} />
+          <span class="toggle-slider" />
+        </span>
+      </label>
 
-      <form class="stack-sm" onSubmit={handleSubmit}>
-        <div class="text-sm text-muted">
-          {isBackupCode ? "Enter your 8-digit backup code" : "Enter the 6-digit code from your authenticator app"}
-        </div>
-        <input
-          class="input"
-          type="text"
-          inputMode="numeric"
-          placeholder={isBackupCode ? "00000000" : "000000"}
-          value={code}
-          maxLength={isBackupCode ? 8 : 6}
-          onInput={(e) => setCode((e.target as HTMLInputElement).value.replace(/\D/g, ""))}
-          required
-          style={{ textAlign: "center", fontSize: "18px", letterSpacing: "4px" }}
-        />
-        <button
-          class="btn btn-primary btn-full"
-          type="submit"
-          disabled={submitting || code.length < (isBackupCode ? 8 : 6)}
-        >
-          {submitting ? "Verifying..." : "Verify"}
-        </button>
-        <div style={{ display: "flex", justifyContent: "space-between" }}>
-          <button
-            class="btn btn-secondary btn-sm"
-            type="button"
-            onClick={() => { setIsBackupCode(!isBackupCode); setCode(""); }}
-          >
-            {isBackupCode ? "Use app code" : "Use backup code"}
-          </button>
-          <button
-            class="btn btn-secondary btn-sm"
-            type="button"
-            onClick={() => sendMessage("LOGOUT")}
-          >
-            Cancel
-          </button>
-        </div>
-      </form>
-    </div>
-  );
-}
-
-// ─── Login View ──────────────────────────────────────────────────
-interface LoginViewProps {
-  error: string | null;
-  sendMessage: (type: string, payload?: unknown) => Promise<unknown>;
-}
-
-function LoginView({ error, sendMessage }: LoginViewProps) {
-  const [tab, setTab] = useState<"email" | "apikey">("email");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [apiKey, setApiKey] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-
-  const handleEmailLogin = async (e: Event) => {
-    e.preventDefault();
-    setSubmitting(true);
-    await sendMessage("LOGIN", { email, password });
-    setPassword(""); // Clear credential from component state immediately
-    setSubmitting(false);
-  };
-
-  const handleKeyLogin = async (e: Event) => {
-    e.preventDefault();
-    setSubmitting(true);
-    await sendMessage("LOGIN_WITH_KEY", { apiKey });
-    setApiKey(""); // Clear credential from component state immediately
-    setSubmitting(false);
-  };
-
-  return (
-    <div class="stack" style={{ padding: "16px" }}>
-      <div style={{ textAlign: "center", padding: "8px 0" }}>
-        <div style={{ fontSize: "20px", fontWeight: "700", color: "var(--accent)" }}>
-          Dominus Node
-        </div>
-        <div class="text-sm text-muted">Residential Proxy Network</div>
+      <div class="row" style="gap:8px">
+        <button class="btn btn-secondary btn-sm" disabled={busy || !s.sticky} onClick={() => run("rotateSession")}>Rotate IP</button>
+        <button class="btn btn-secondary btn-sm" disabled={busy || !s.exitCheckUrl || st.mode !== "proxying"} onClick={() => run("checkExit")}>Check exit</button>
+        <button class="btn btn-secondary btn-sm" disabled={busy || !st.hasApiKey} onClick={() => run("refreshBalance")}>Refresh</button>
+        <button class="btn btn-secondary btn-sm" disabled={busy} onClick={() => run("resetRun")} title="Start a new run (resets spend this run)">New run</button>
       </div>
-
-      <div class="tab-group">
-        <button
-          class={`tab ${tab === "email" ? "active" : ""}`}
-          onClick={() => setTab("email")}
-        >
-          Email
-        </button>
-        <button
-          class={`tab ${tab === "apikey" ? "active" : ""}`}
-          onClick={() => setTab("apikey")}
-        >
-          API Key
-        </button>
-      </div>
-
-      {error && <div class="error-banner">{truncateError(error)}</div>}
-
-      {tab === "email" ? (
-        <form class="stack-sm" onSubmit={handleEmailLogin}>
-          <input
-            class="input"
-            type="email"
-            placeholder="Email"
-            value={email}
-            onInput={(e) => setEmail((e.target as HTMLInputElement).value)}
-            required
-          />
-          <input
-            class="input"
-            type="password"
-            placeholder="Password"
-            value={password}
-            onInput={(e) => setPassword((e.target as HTMLInputElement).value)}
-            required
-          />
-          <button
-            class="btn btn-primary btn-full"
-            type="submit"
-            disabled={submitting || !email || !password}
-          >
-            {submitting ? "Signing in..." : "Sign In"}
-          </button>
-        </form>
-      ) : (
-        <form class="stack-sm" onSubmit={handleKeyLogin}>
-          <input
-            class="input"
-            type="text"
-            placeholder="dn_live_..."
-            value={apiKey}
-            onInput={(e) => setApiKey((e.target as HTMLInputElement).value)}
-            required
-          />
-          <div class="text-sm text-muted">
-            Paste your API key from the Dominus Node dashboard
-          </div>
-          <button
-            class="btn btn-primary btn-full"
-            type="submit"
-            disabled={submitting || !apiKey.startsWith("dn_live_")}
-          >
-            {submitting ? "Connecting..." : "Connect"}
-          </button>
-        </form>
-      )}
-
-      <button
-        class="btn btn-secondary btn-sm"
-        style={{ alignSelf: "center" }}
-        onClick={() => chrome.runtime.openOptionsPage()}
-      >
-        Settings
-      </button>
-    </div>
-  );
-}
-
-// ─── Authenticated View ──────────────────────────────────────────
-interface AuthenticatedViewProps {
-  state: import("../shared/types.js").ExtensionState;
-  error: string | null;
-  sendMessage: (type: string, payload?: unknown) => Promise<unknown>;
-}
-
-function AuthenticatedView({ state, error, sendMessage }: AuthenticatedViewProps) {
-  const [toggling, setToggling] = useState(false);
-  const [proxyTokenInput, setProxyTokenInput] = useState("");
-  const [showTokenInput, setShowTokenInput] = useState(false);
-
-  const balanceDollars = (state.balanceCents / 100).toFixed(2);
-  const balanceClass =
-    state.balanceCents === 0 ? "balance zero" :
-    state.balanceCents < LOW_BALANCE_THRESHOLD_CENTS ? "balance low" :
-    "balance";
-
-  const statusText = state.isConnected
-    ? `Connected via ${state.proxyProtocol.toUpperCase()} to ${state.country}`
-    : "Disconnected";
-
-  const handleToggle = async () => {
-    setToggling(true);
-    await sendMessage("TOGGLE_PROXY");
-    setToggling(false);
-  };
-
-  // Filter cities by selected state
-  const availableCities = state.country === "US" && state.state
-    ? MAJOR_US_CITIES.filter((c) => {
-        const matchingState = US_STATES.find((s) => s.slug === state.state);
-        return matchingState && c.stateCode === matchingState.code;
-      })
-    : [];
-
-  return (
-    <div>
-      {/* Header */}
-      <div class="header">
-        <span class="header-title">Dominus Node</span>
-        <span class="header-email" title={state.email ?? "API Key"}>{state.email ?? "API Key"}</span>
-      </div>
-
-      <div class="stack" style={{ padding: "12px 16px" }}>
-        {/* Balance */}
-        <div class="row-between">
-          <div>
-            <div class="text-sm text-muted">Balance</div>
-            <div class={balanceClass}>${balanceDollars}</div>
-          </div>
-          <button
-            class="btn btn-secondary btn-sm"
-            onClick={() => sendMessage("REFRESH_BALANCE")}
-          >
-            Refresh
-          </button>
-        </div>
-
-        {/* Proxy Toggle */}
-        <div
-          class={`proxy-toggle ${state.proxyEnabled ? "active" : ""}`}
-          onClick={toggling ? undefined : handleToggle}
-        >
-          <div>
-            <div style={{ fontWeight: "600" }}>
-              {state.proxyEnabled ? "Proxy ON" : "Proxy OFF"}
-            </div>
-            <div class="text-sm text-muted">{statusText}</div>
-          </div>
-          <div class="row" style={{ gap: "12px" }}>
-            <div class="proxy-toggle-indicator" />
-            <label class="toggle">
-              <input
-                type="checkbox"
-                checked={state.proxyEnabled}
-                onChange={handleToggle}
-                disabled={toggling}
-              />
-              <span class="toggle-slider" />
-            </label>
-          </div>
-        </div>
-
-        {/* Error */}
-        {(error || state.lastError) && (
-          <div class="error-banner">{truncateError(error ?? state.lastError)}</div>
-        )}
-
-        {/* Country */}
-        <div class="row-between">
-          <label class="text-sm text-muted">Country</label>
-          <select
-            class="select"
-            style={{ width: "auto", minWidth: "160px" }}
-            value={state.country}
-            onChange={(e) =>
-              sendMessage("SET_COUNTRY", (e.target as HTMLSelectElement).value)
-            }
-          >
-            {TOP_COUNTRIES.map((c) => (
-              <option key={c.code} value={c.code}>
-                {c.name}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        {/* State (US only) */}
-        {state.country === "US" && (
-          <div class="row-between">
-            <label class="text-sm text-muted">State</label>
-            <select
-              class="select"
-              style={{ width: "auto", minWidth: "160px" }}
-              value={state.state}
-              onChange={(e) =>
-                sendMessage("SET_STATE", (e.target as HTMLSelectElement).value)
-              }
-            >
-              <option value="">Any State</option>
-              {US_STATES.map((s) => (
-                <option key={s.code} value={s.slug}>
-                  {s.name}
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
-
-        {/* City (US only, when state is selected) */}
-        {state.country === "US" && state.state && availableCities.length > 0 && (
-          <div class="row-between">
-            <label class="text-sm text-muted">City</label>
-            <select
-              class="select"
-              style={{ width: "auto", minWidth: "160px" }}
-              value={state.city}
-              onChange={(e) =>
-                sendMessage("SET_CITY", (e.target as HTMLSelectElement).value)
-              }
-            >
-              <option value="">Any City</option>
-              {availableCities.map((c) => (
-                <option key={c.slug} value={c.slug}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
-
-        {/* Protocol */}
-        <div class="row-between">
-          <label class="text-sm text-muted">Protocol</label>
-          <div class="tab-group" style={{ width: "auto" }}>
-            <button
-              class={`tab ${state.proxyProtocol === "http" ? "active" : ""}`}
-              onClick={() => sendMessage("SET_PROTOCOL", "http")}
-            >
-              HTTP
-            </button>
-            <button
-              class={`tab ${state.proxyProtocol === "socks5" ? "active" : ""}`}
-              onClick={() => sendMessage("SET_PROTOCOL", "socks5")}
-            >
-              SOCKS5
-            </button>
-          </div>
-        </div>
-
-        {/* Sticky Session */}
-        <div class="row-between">
-          <label class="text-sm text-muted">Sticky Session</label>
-          <label class="toggle">
-            <input
-              type="checkbox"
-              checked={state.stickySession}
-              onChange={() => sendMessage("SET_STICKY", !state.stickySession)}
-            />
-            <span class="toggle-slider" />
-          </label>
-        </div>
-
-        {/* Wallet Proxy Token */}
-        <div style={{ borderTop: "1px solid var(--border)", paddingTop: "8px", marginTop: "4px" }}>
-          <div class="row-between">
-            <label class="text-sm text-muted">Proxy Token</label>
-            {(state as any).hasProxyToken ? (
-              <button
-                class="btn btn-danger btn-sm"
-                onClick={() => sendMessage("CLEAR_PROXY_TOKEN")}
-              >
-                Clear
-              </button>
-            ) : (
-              <button
-                class="btn btn-secondary btn-sm"
-                onClick={() => setShowTokenInput(!showTokenInput)}
-              >
-                {showTokenInput ? "Cancel" : "Set Token"}
-              </button>
-            )}
-          </div>
-          {(state as any).hasProxyToken && (
-            <div class="text-sm" style={{ color: "var(--success)", marginTop: "4px" }}>
-              Active{state.proxyTokenExpiry ? ` (expires ${new Date(state.proxyTokenExpiry).toLocaleTimeString()})` : ""}
-            </div>
-          )}
-          {showTokenInput && !(state as any).hasProxyToken && (
-            <div style={{ marginTop: "6px" }}>
-              <input
-                class="input"
-                type="text"
-                placeholder="dn_proxy_..."
-                value={proxyTokenInput}
-                onInput={(e) => setProxyTokenInput((e.target as HTMLInputElement).value)}
-              />
-              <button
-                class="btn btn-primary btn-full"
-                style={{ marginTop: "4px" }}
-                disabled={!proxyTokenInput.startsWith("dn_proxy_")}
-                onClick={() => {
-                  sendMessage("SET_PROXY_TOKEN", proxyTokenInput);
-                  setProxyTokenInput("");
-                  setShowTokenInput(false);
-                }}
-              >
-                Apply Token
-              </button>
-              <div class="text-sm text-muted" style={{ marginTop: "4px" }}>
-                Generate from dashboard API Keys page
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Footer */}
-      <div class="footer">
-        <button
-          class="icon-btn"
-          title="Settings"
-          onClick={() => chrome.runtime.openOptionsPage()}
-        >
-          &#9881;
-        </button>
-        <button
-          class="btn btn-danger btn-sm"
-          onClick={() => sendMessage("LOGOUT")}
-        >
-          Logout
-        </button>
-      </div>
+      {st.run.lastError && <div class="text-sm text-error">{st.run.lastError}</div>}
+      <button class="btn btn-primary btn-sm" onClick={() => chrome.runtime.openOptionsPage()}>Options, nodes & pricing</button>
     </div>
   );
 }

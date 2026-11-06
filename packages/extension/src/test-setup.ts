@@ -4,7 +4,8 @@ import { vi } from "vitest";
 function createStorageMock() {
   const store = new Map<string, unknown>();
   return {
-    get: vi.fn(async (keys: string | string[] | Record<string, unknown>) => {
+    get: vi.fn(async (keys: string | string[] | Record<string, unknown> | null) => {
+      if (keys === null || keys === undefined) return Object.fromEntries(store);
       if (typeof keys === "string") {
         return { [keys]: store.get(keys) };
       }
@@ -42,12 +43,8 @@ function createStorageMock() {
 
 // ─── Chrome Proxy Settings Mock ──────────────────────────────────
 const proxySettingsMock = {
-  set: vi.fn((_details: unknown, callback?: () => void) => {
-    if (callback) callback();
-  }),
-  clear: vi.fn((_details: unknown, callback?: () => void) => {
-    if (callback) callback();
-  }),
+  set: vi.fn(async (_details: unknown) => {}),
+  clear: vi.fn(async (_details: unknown) => {}),
   get: vi.fn((_details: unknown, callback?: (config: unknown) => void) => {
     if (callback) callback({});
   }),
@@ -58,13 +55,9 @@ const alarmListeners: Array<(alarm: chrome.alarms.Alarm) => void> = [];
 
 const alarmsMock = {
   create: vi.fn((_name: string, _alarmInfo: chrome.alarms.AlarmCreateInfo) => {}),
-  clear: vi.fn((_name?: string, callback?: (wasCleared: boolean) => void) => {
-    if (callback) callback(true);
-  }),
+  clear: vi.fn(async (_name?: string) => true),
   clearAll: vi.fn(async () => true),
-  get: vi.fn((_name: string, callback?: (alarm: chrome.alarms.Alarm | undefined) => void) => {
-    if (callback) callback(undefined);
-  }),
+  get: vi.fn(async (_name: string) => undefined),
   getAll: vi.fn((callback?: (alarms: chrome.alarms.Alarm[]) => void) => {
     if (callback) callback([]);
   }),
@@ -120,7 +113,9 @@ const runtimeMock = {
     _listeners: runtimeMessageListeners,
   },
   getURL: vi.fn((path: string) => `chrome-extension://fake-id/${path}`),
-  id: "fake-extension-id",
+  id: "abcdefghijklmnopabcdefghijklmnop",
+  onMessageExternal: { addListener: vi.fn() },
+  getPlatformInfo: vi.fn(async () => ({ os: "linux" })),
 };
 
 // ─── Chrome WebRequest Mock ──────────────────────────────────────
@@ -184,6 +179,13 @@ const chromeMock = {
     session: createStorageMock(),
     local: createStorageMock(),
     sync: createStorageMock(),
+    managed: createStorageMock(),
+    onChanged: { addListener: vi.fn() },
+  },
+  scripting: {
+    registerContentScripts: vi.fn(async () => {}),
+    unregisterContentScripts: vi.fn(async () => {}),
+    getRegisteredContentScripts: vi.fn(async () => []),
   },
   proxy: {
     settings: proxySettingsMock,

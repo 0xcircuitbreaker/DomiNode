@@ -1,28 +1,29 @@
 export const STORAGE_KEYS = {
-  STATE: "dominusnode_ext_state",
-  AUTH: "dominusnode_ext_auth",
+  /** Non-secret settings (chrome.storage.local). */
+  SETTINGS: "dominusnode_settings",
+  /** API key (chrome.storage.local only; never sync). */
+  SECRET: "dominusnode_secret",
+  /** Per-run spend/balance state (chrome.storage.session when available). */
+  RUN: "dominusnode_run",
 } as const;
 
-export const ALARM_NAMES = {
-  TOKEN_REFRESH: "dominusnode_token_refresh",
-  BALANCE_POLL: "dominusnode_balance_poll",
-  SESSION_ROTATE: "dominusnode_session_rotate",
+export const ALARMS = {
+  BALANCE: "dominusnode_balance",
+  ROTATE: "dominusnode_rotate",
 } as const;
 
-// API base must point to the API host, not the proxy host
 export const DEFAULT_API_BASE = "https://api.dominusnode.com";
-export const PROD_API_BASE = "https://api.dominusnode.com";
-// DEV_API_BASE uses HTTP intentionally for local development only
-export const DEV_API_BASE = "http://localhost:3000";
+export const DEFAULT_GATEWAY_HOST = "proxy.dominusnode.com";
+export const DEFAULT_GATEWAY_PORT = 8080;
 
-export const PROXY_DEFAULTS = {
-  HTTP_PORT: 8080,
-  SOCKS5_PORT: 1080,
-} as const;
+/** Poll interval for balance (chrome.alarms minimum is 0.5 min in packed builds). */
+export const BALANCE_POLL_MINUTES = 1;
 
-// Token refresh 3 minutes before expiry (12 min for 15 min tokens)
-export const TOKEN_REFRESH_MINUTES = 12;
-export const BALANCE_POLL_MINUTES = 2;
+/** Response size cap for every API call. */
+export const MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
 
-// Low balance warning threshold in cents ($1.00)
-export const LOW_BALANCE_THRESHOLD_CENTS = 100;
+/** Discard port on loopback: connection refused, so blocked traffic never goes direct. */
+export const BLOCK_PROXY = "PROXY 127.0.0.1:9";
+
+/** OFAC-sanctioned countries: never selectable as exit. */
+export const SANCTIONED_COUNTRIES = new Set(["CU", "IR", "KP", "RU", "SY"]);

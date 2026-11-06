@@ -1,12 +1,17 @@
-# DomiNode Browser Extension
+# DomiNode Browser Extension (Agent Companion)
 
 Team: **Frontend**
 
-MV3 browser extension for Chrome, Firefox, Opera, Edge. Built with esbuild.
+MV3 AI-agent companion for Chromium (chrome/edge/opera builds), preact + esbuild. See README.md.
 
 ## Rules
-- Proxy username: HYPHENS not underscores (country-US not country_US)
-- safeJson: throws on empty body instead of returning undefined
-- Removed 0.0.0.0 from localhost allowlist
-- Path validation required on all file/URL inputs
-- Extension storage: use chrome.storage.local, not localStorage
+- Proxy username: HYPHENS not underscores; build only via `shared/flags.ts`
+  (`agent[-country-XX][-class-…][-session-…][-allowhttp-1]`). Never legacy dc-/residential- prefixes.
+- No hardcoded prices: GET /v1/pricing only. No human-customer billing/signup UI.
+- API key only in chrome.storage.local (never sync); never in any status/control response.
+- Control channel: validate with `validateControlMessage`; control scope = routing keys only.
+- Page bridge stays disabled unless the operator lists exact origins.
+- Fail closed: blocked/no-key states use the dead-loopback PAC, never clear the proxy.
+- WebRTC leak guard: setPac must set webRTCIPHandlingPolicy=disable_non_proxied_udp (privacy permission).
+- All API JSON via `apiRequest` (size cap, redirect:error, stripDangerousKeys, scrubbed errors).
+- Path validation required on all URL inputs; removed 0.0.0.0 from localhost allowlist.
