@@ -194,3 +194,18 @@ describe("shared/net-guard floor (DESIGN §14)", () => {
     });
   });
 });
+
+describe("isBlockedIPv6 site-local and IPv4-translated", () => {
+  it("blocks fec0::/10 site-local", () => {
+    expect(isBlockedIPv6("fec0::1")).toBe(true);
+    expect(isBlockedIPv6("feff:1::1")).toBe(true);
+  });
+  it("blocks ::ffff:0:0/96 IPv4-translated (private and public embedded)", () => {
+    expect(isBlockedIPv6("::ffff:0:7f00:1")).toBe(true);
+    expect(isBlockedIPv6("::ffff:0:a00:1")).toBe(true);
+    expect(isBlockedIPv6("::ffff:0:808:808")).toBe(true);
+  });
+  it("still allows global unicast", () => {
+    expect(isBlockedIPv6("2606:4700::1111")).toBe(false);
+  });
+});

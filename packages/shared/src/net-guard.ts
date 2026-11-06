@@ -162,6 +162,9 @@ export function isBlockedIPv6(ip: string): boolean {
   const prefix = expanded.replace(/:/g, "");
   if (prefix.startsWith("fe8") || prefix.startsWith("fe9") ||
       prefix.startsWith("fea") || prefix.startsWith("feb")) return true;
+  // Site-local fec0::/10 (deprecated by RFC 3879 but still routed internally by some stacks)
+  if (prefix.startsWith("fec") || prefix.startsWith("fed") ||
+      prefix.startsWith("fee") || prefix.startsWith("fef")) return true;
   if (prefix.startsWith("fc") || prefix.startsWith("fd")) return true;
   if (prefix.startsWith("ff")) return true;
   if (expanded === "fd00:0ec2:0000:0000:0000:0000:0000:0254") return true;
@@ -172,6 +175,9 @@ export function isBlockedIPv6(ip: string): boolean {
     const ipv4 = `${(hi >> 8) & 0xff}.${hi & 0xff}.${(lo >> 8) & 0xff}.${lo & 0xff}`;
     return isBlockedIPv4(ipv4);
   }
+  // IPv4-translated ::ffff:0:0/96 (RFC 2765 SIIT): decode embedded IPv4 and check it.
+  // Never a legitimate public destination either way, so block unconditionally.
+  if (expanded.startsWith("0000:0000:0000:0000:ffff:0000:")) return true;
   // IPv4-compatible IPv6 addresses (::x.x.x.x or 0:0:0:0:0:0:x.x.x.x)
   // These have prefix 0000:0000:0000:0000:0000:0000: with an embedded IPv4 in the last 32 bits.
   // Different from ::ffff: (IPv4-mapped) — these are deprecated but still parsed by many stacks.
