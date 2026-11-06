@@ -1,4 +1,5 @@
 import type { HttpClient } from "../http.js";
+import { validateCents } from "../validation.js";
 
 export interface AgenticWallet {
   id: string;
@@ -46,13 +47,9 @@ export class AgenticWalletResource {
     spendingLimitCents: number = 10000,
     options?: { dailyLimitCents?: number | null; allowedDomains?: string[] | null },
   ): Promise<AgenticWallet> {
-    if (!Number.isInteger(spendingLimitCents) || spendingLimitCents < 0 || spendingLimitCents > 2_147_483_647) {
-      throw new Error("spendingLimitCents must be a non-negative integer <= 2,147,483,647");
-    }
+    validateCents(spendingLimitCents, "spendingLimitCents", true);
     if (options?.dailyLimitCents !== undefined && options.dailyLimitCents !== null) {
-      if (!Number.isInteger(options.dailyLimitCents) || options.dailyLimitCents < 0 || options.dailyLimitCents > 2_147_483_647) {
-        throw new Error("dailyLimitCents must be a non-negative integer <= 2,147,483,647");
-      }
+      validateCents(options.dailyLimitCents, "dailyLimitCents", true);
     }
     const body: Record<string, unknown> = { label, spendingLimitCents };
     if (options?.dailyLimitCents !== undefined) body.dailyLimitCents = options.dailyLimitCents;
@@ -69,9 +66,7 @@ export class AgenticWalletResource {
   }
 
   async fund(walletId: string, amountCents: number): Promise<AgenticWalletFundResponse> {
-    if (!Number.isInteger(amountCents) || amountCents <= 0 || amountCents > 2_147_483_647) {
-      throw new Error("amountCents must be a positive integer <= 2,147,483,647");
-    }
+    validateCents(amountCents);
     return this.http.post(`/api/agent-wallet/${encodeURIComponent(walletId)}/fund`, { amountCents });
   }
 
@@ -80,9 +75,7 @@ export class AgenticWalletResource {
     policy: { dailyLimitCents?: number | null; allowedDomains?: string[] | null },
   ): Promise<AgenticWallet> {
     if (policy.dailyLimitCents !== undefined && policy.dailyLimitCents !== null) {
-      if (!Number.isInteger(policy.dailyLimitCents) || policy.dailyLimitCents < 0 || policy.dailyLimitCents > 2_147_483_647) {
-        throw new Error("dailyLimitCents must be a non-negative integer <= 2,147,483,647");
-      }
+      validateCents(policy.dailyLimitCents, "dailyLimitCents", true);
     }
     return this.http.patch(`/api/agent-wallet/${encodeURIComponent(walletId)}/policy`, policy);
   }

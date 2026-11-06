@@ -1,163 +1,153 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { HttpClient } from "../src/http.js";
+import { describe, it, expect } from "vitest";
+import { HttpClient, retryDelayMs, safeJsonParse } from "../src/http.js";
 import { TokenManager } from "../src/token-manager.js";
 import {
-  ValidationError,
-  AuthenticationError,
-  InsufficientBalanceError,
-  AuthorizationError,
-  NotFoundError,
-  ConflictError,
-  RateLimitError,
-  ServerError,
-  NetworkError,
+  ValidationError, AuthenticationError, AuthorizationError, NotFoundError, ConflictError, RateLimitError, ServerError,
+  NetworkError, InsufficientBalanceError,
 } from "../src/errors.js";
+import { mockFetch, makeJwt, API_KEY } from "./helpers.js";
 
-function makeJwt(expSeconds: number = 900): string {
-  const header = Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })).toString("base64url");
-  const payload = Buffer.from(
-    JSON.stringify({
-      userId: "test-user",
-      exp: Math.floor(Date.now() / 1000) + expSeconds,
-      iat: Math.floor(Date.now() / 1000),
-    }),
-  ).toString("base64url");
-  const sig = Buffer.from("fake-sig").toString("base64url");
-  return `${header}.${payload}.${sig}`;
+function client(m: ReturnType<typeof mockFetch>, opts: { key?: string | null; jwt?: boolean } = {}) {
+  const tm = new TokenManager();
+  if (opts.jwt !== false) tm.setTokens(makeJwt(), makeJwt(86400));
+  tm.setRefreshFunction(async () => ({ accessToken: "fresh." + makeJwt().split(".").slice(1).join("."), refreshToken: makeJwt(86400) }));
+  const key = opts.key === undefined ? API_KEY : opts.key;
+  return { http: new HttpClient("http://api.test/", { tokens: tm, apiKey: () => key }, m.fn), tm };
 }
 
 describe("HttpClient", () => {
-  let tokenManager: TokenManager;
-  let http: HttpClient;
-
-  beforeEach(() => {
-    vi.restoreAllMocks();
-    tokenManager = new TokenManager();
-    tokenManager.setTokens(makeJwt(900), makeJwt(7 * 86400));
-    tokenManager.setRefreshFunction(async () => ({
-      accessToken: makeJwt(900),
-      refreshToken: makeJwt(7 * 86400),
-    }));
-    http = new HttpClient("http://localhost:3000", tokenManager);
+  it("jwt mode sends the access JWT; never follows redirects", async () => {
+    const m = mockFetch([200, { ok: true }]);
+    const { http } = client(m);
+    expect(await http.get("/api/x")).toEqual({ ok: true });
+    expect(m.calls[0].url).toBe("http://api.test/api/x");
+    expect(m.calls[0].headers.Authorization).toMatch(/^Bearer eyJ/);
+    expect(m.calls[0].redirect).toBe("error");
   });
 
-  it("sends GET request with Authorization header", async () => {
-    const mockFetch = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
-      new Response(JSON.stringify({ ok: true }), { status: 200 }),
-    );
-
-    const result = await http.get<{ ok: boolean }>("/api/test");
-    expect(result.ok).toBe(true);
-
-    const [url, opts] = mockFetch.mock.calls[0];
-    expect(url).toBe("http://localhost:3000/api/test");
-    expect((opts as RequestInit).method).toBe("GET");
-    expect((opts as RequestInit).headers).toHaveProperty("Authorization");
+  it("agent mode sends the raw API key", async () => {
+    const m = mockFetch([200, {}]);
+    await client(m).http.get("/v1/credits", "agent");
+    expect(m.calls[0].headers.Authorization).toBe(`Bearer ${API_KEY}`);
   });
 
-  it("sends POST request with JSON body", async () => {
-    const mockFetch = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
-      new Response(JSON.stringify({ id: "new-123" }), { status: 200 }),
-    );
-
-    const result = await http.post<{ id: string }>("/api/test", { name: "test" });
-    expect(result.id).toBe("new-123");
-
-    const [, opts] = mockFetch.mock.calls[0];
-    expect((opts as RequestInit).body).toBe(JSON.stringify({ name: "test" }));
+  it("agent mode falls back to the JWT when no key is held (wallet sign-in)", async () => {
+    const m = mockFetch([200, {}]);
+    await client(m, { key: null }).http.get("/v1/credits", "agent");
+    expect(m.calls[0].headers.Authorization).toMatch(/^Bearer eyJ/);
   });
 
-  it("skips auth header when requiresAuth is false", async () => {
-    const mockFetch = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
-      new Response(JSON.stringify({}), { status: 200 }),
-    );
-
-    await http.post<unknown>("/api/auth/login", { email: "a", password: "b" }, false);
-
-    const [, opts] = mockFetch.mock.calls[0];
-    const headers = (opts as RequestInit).headers as Record<string, string>;
-    expect(headers["Authorization"]).toBeUndefined();
+  it("none mode sends no Authorization", async () => {
+    const m = mockFetch([200, {}]);
+    await client(m).http.get("/v1/policy", "none");
+    expect(m.calls[0].headers.Authorization).toBeUndefined();
   });
 
-  it("throws ValidationError on 400 response", async () => {
-    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
-      new Response(JSON.stringify({ error: "Invalid input" }), { status: 400 }),
-    );
-
-    await expect(http.get("/api/test")).rejects.toThrow(ValidationError);
+  it("throws AuthenticationError when not connected", async () => {
+    const m = mockFetch();
+    await expect(client(m, { key: null, jwt: false }).http.get("/api/x")).rejects.toBeInstanceOf(AuthenticationError);
   });
 
-  it("throws AuthenticationError on 401 and retries with token refresh", async () => {
-    // First call returns 401, force refresh also fails
-    const fetchMock = vi.spyOn(globalThis, "fetch")
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 }),
-      )
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify({ error: "Still unauthorized" }), { status: 401 }),
-      );
-
-    await expect(http.get("/api/test")).rejects.toThrow(AuthenticationError);
-    // Should have attempted 2 fetches: original + retry after force refresh
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+  it.each([
+    [400, ValidationError], [401, AuthenticationError], [402, InsufficientBalanceError], [403, AuthorizationError],
+    [404, NotFoundError], [409, ConflictError], [500, ServerError], [503, ServerError],
+  ])("maps %i", async (status, cls) => {
+    const m = mockFetch([status as number, { error: "nope", code: "SOME_CODE" }]);
+    const err = await client(m, { key: API_KEY }).http.get("/v1/x", "agent").catch((e) => e);
+    expect(err).toBeInstanceOf(cls);
+    expect(err.code).toBe("SOME_CODE");
+    expect(err.statusCode).toBe(status);
   });
 
-  it("throws InsufficientBalanceError on 402 response", async () => {
-    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
-      new Response(JSON.stringify({ error: "Insufficient balance" }), { status: 402 }),
-    );
-
-    await expect(http.get("/api/test")).rejects.toThrow(InsufficientBalanceError);
+  it("carries numeric details (CAP_ABOVE_DEFAULT max)", async () => {
+    const m = mockFetch([400, { error: "too high", code: "CAP_ABOVE_DEFAULT", max: 8 }]);
+    const err = await client(m).http.get("/v1/x", "agent").catch((e) => e);
+    expect(err.details).toEqual({ max: 8 });
   });
 
-  it("throws ServerError on 500 response", async () => {
-    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
-      new Response(JSON.stringify({ error: "Internal server error" }), { status: 500 }),
-    );
-
-    await expect(http.get("/api/test")).rejects.toThrow(ServerError);
+  it("scrubs credentials from error messages", async () => {
+    const m = mockFetch([400, { error: `bad key ${API_KEY} and dn_node_${"0".repeat(64)} and ${makeJwt()}` }]);
+    const err = await client(m).http.get("/v1/x", "agent").catch((e) => e);
+    expect(err.message).not.toMatch(/dn_live_a|dn_node_0|eyJ/);
+    expect(err.message).toContain("[REDACTED]");
   });
 
-  it("throws NetworkError on fetch failure", async () => {
-    vi.spyOn(globalThis, "fetch").mockRejectedValueOnce(new Error("ECONNREFUSED"));
-
-    await expect(http.get("/api/test")).rejects.toThrow(NetworkError);
+  it("retries 429 once after Retry-After (cancelling the body) then succeeds", async () => {
+    const m = mockFetch([429, "x", { "retry-after": "0" }], [200, { ok: 1 }]);
+    expect(await client(m).http.get("/api/x")).toEqual({ ok: 1 });
+    expect(m.calls).toHaveLength(2);
   });
 
-  it("retries once on 429 rate limit with Retry-After header", async () => {
-    vi.useFakeTimers();
-    // Pin Math.random to 0.5 so addJitter produces zero jitter (delay = exactly 1000ms)
-    vi.spyOn(Math, "random").mockReturnValue(0.5);
-
-    const fetchMock = vi.spyOn(globalThis, "fetch")
-      .mockResolvedValueOnce(
-        new Response("rate limited", {
-          status: 429,
-          headers: { "Retry-After": "1" },
-        }),
-      )
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify({ ok: true }), { status: 200 }),
-      );
-
-    const promise = http.get<{ ok: boolean }>("/api/test");
-
-    // Advance timers past the 1000ms delay (jitter pinned to zero)
-    await vi.advanceTimersByTimeAsync(1100);
-
-    const result = await promise;
-    expect(result.ok).toBe(true);
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-
-    vi.useRealTimers();
+  it("raises RateLimitError when the retry is also 429", async () => {
+    const m = mockFetch([429, "x", { "retry-after": "0" }], [429, { error: "slow", code: "RATE_LIMITED" }, { "retry-after": "7" }]);
+    const err = await client(m).http.get("/api/x").catch((e) => e);
+    expect(err).toBeInstanceOf(RateLimitError);
+    expect(err.retryAfterSeconds).toBe(7);
+    expect(err.code).toBe("RATE_LIMITED");
   });
 
-  it("returns empty object for empty 200 response body", async () => {
-    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
-      new Response("", { status: 200 }),
-    );
+  it("retry delay: capped at 10s, +/-10% jitter, floor 100ms", () => {
+    for (let i = 0; i < 200; i++) {
+      const d = retryDelayMs(60);
+      expect(d).toBeGreaterThanOrEqual(9000);
+      expect(d).toBeLessThanOrEqual(11000);
+      expect(retryDelayMs(0)).toBe(100);
+      const s = retryDelayMs(1);
+      expect(s).toBeGreaterThanOrEqual(900);
+      expect(s).toBeLessThanOrEqual(1100);
+    }
+  });
 
-    const result = await http.get<Record<string, never>>("/api/test");
-    expect(result).toEqual({});
+  it("refreshes the JWT once on 401 and retries", async () => {
+    const m = mockFetch([401, { error: "expired" }], [200, { ok: true }]);
+    const { http } = client(m);
+    expect(await http.get("/api/x")).toEqual({ ok: true });
+    expect(m.calls[1].headers.Authorization).toMatch(/^Bearer fresh\./);
+  });
+
+  it("does not refresh on 401 for API-key auth", async () => {
+    const m = mockFetch([401, { error: "Invalid API key" }]);
+    await expect(client(m).http.get("/v1/x", "agent")).rejects.toBeInstanceOf(AuthenticationError);
+    expect(m.calls).toHaveLength(1);
+  });
+
+  it("rejects bodies over 10MB by content-length", async () => {
+    const m = mockFetch([200, "{}", { "content-length": String(11 * 1024 * 1024) }]);
+    await expect(client(m).http.get("/api/x")).rejects.toThrow(/too large/);
+  });
+
+  it("rejects bodies over 10MB by actual size", async () => {
+    const m = mockFetch([200, "x".repeat(10 * 1024 * 1024 + 1)]);
+    await expect(client(m).http.get("/api/x")).rejects.toThrow(/size limit/);
+  });
+
+  it("wraps fetch failures in NetworkError without leaking keys", async () => {
+    const tm = new TokenManager();
+    const http = new HttpClient("http://api.test", { tokens: tm, apiKey: () => API_KEY },
+      (async () => { throw new Error(`boom ${API_KEY}`); }) as unknown as typeof fetch);
+    const err = await http.get("/v1/x", "agent").catch((e) => e);
+    expect(err).toBeInstanceOf(NetworkError);
+    expect(err.message).not.toContain(API_KEY);
+  });
+
+  it("strips prototype-pollution keys recursively", () => {
+    const o = safeJsonParse<Record<string, any>>('{"a":{"__proto__":{"x":1},"constructor":2,"b":[{"prototype":3,"ok":4}]}}');
+    expect(Object.keys(o.a)).toEqual(["b"]);
+    expect(o.a.b[0]).toEqual({ ok: 4 });
+  });
+
+  it("raw mode returns text", async () => {
+    const m = mockFetch([200, "a,b\n1,2\n"]);
+    expect(await client(m).http.request({ method: "GET", path: "/api/usage/export", raw: true })).toBe("a,b\n1,2\n");
+  });
+
+  it("refuses a baseUrl with credentials", () => {
+    expect(() => new HttpClient("http://u:p@x", { tokens: new TokenManager(), apiKey: () => null })).toThrow(ValidationError);
+  });
+
+  it("redacts itself", () => {
+    const { http } = client(mockFetch());
+    expect(JSON.stringify({ http })).not.toContain("dn_live");
+    expect(String(http)).toBe("HttpClient(http://api.test)");
   });
 });

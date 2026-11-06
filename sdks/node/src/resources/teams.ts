@@ -1,4 +1,6 @@
 import type { HttpClient } from "../http.js";
+import { Secret } from "../secret.js";
+import { validateCents, validateNonEmpty } from "../validation.js";
 
 export interface Team {
   id: string;
@@ -38,7 +40,8 @@ export interface TeamKey {
 
 export interface TeamKeyCreateResponse {
   id: string;
-  key: string;
+  /** Raw team key, returned ONCE. Redacted when printed; call key.reveal(). */
+  key: Secret;
   keyPrefix: string;
   label: string;
 }
@@ -106,9 +109,7 @@ export class TeamsResource {
   }
 
   async fundWallet(teamId: string, amountCents: number): Promise<TeamFundResponse> {
-    if (!Number.isInteger(amountCents) || amountCents <= 0 || amountCents > 2_147_483_647) {
-      throw new Error("amountCents must be a positive integer <= 2,147,483,647");
-    }
+    validateCents(amountCents);
     return this.http.post(`/api/teams/${encodeURIComponent(teamId)}/wallet/fund`, { amountCents });
   }
 
@@ -164,7 +165,9 @@ export class TeamsResource {
   }
 
   async createKey(teamId: string, label: string): Promise<TeamKeyCreateResponse> {
-    return this.http.post(`/api/teams/${encodeURIComponent(teamId)}/keys`, { label });
+    validateNonEmpty(label, "label", 100);
+    const r = await this.http.post<Omit<TeamKeyCreateResponse, "key"> & { key: string }>(`/api/teams/${encodeURIComponent(teamId)}/keys`, { label });
+    return { ...r, key: new Secret(r.key) };
   }
 
   async listKeys(teamId: string): Promise<TeamKeysResponse> {

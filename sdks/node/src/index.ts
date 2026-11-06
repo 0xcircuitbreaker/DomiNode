@@ -1,140 +1,66 @@
-// Main client
+// Client
 export { DominusNodeClient } from "./client.js";
 
-// Resource modules
-export { AuthResource } from "./auth.js";
-export { KeysResource } from "./keys.js";
-export type { CreateKeyResponse, ListKeysResponse } from "./keys.js";
-export { WalletResource } from "./wallet.js";
-export type {
-  WalletBalanceResponse,
-  TransactionsResponse,
-  StripeCheckoutResponse,
-  CryptoInvoiceResponse,
-  ForecastResponse,
-} from "./wallet.js";
-export { UsageResource } from "./usage.js";
-export type {
-  DateRangeOptions as UsageDateRangeOptions,
-  UsageSummary,
-  UsageResponse,
-  DailyUsageDay,
-  DailyUsageResponse,
-  TopHostEntry,
-  TopHostsResponse,
-} from "./usage.js";
-export { PlansResource } from "./plans.js";
-export type {
-  PlanEntry,
-  ListPlansResponse,
-  UserPlanResponse,
-  ChangePlanResponse,
-} from "./plans.js";
-export { SessionsResource } from "./sessions.js";
-export type { ActiveSessionEntry, ActiveSessionsResponse } from "./sessions.js";
-export { ProxyResource } from "./proxy.js";
-export type { ProxyHealthResponse, ProxyStatusResponse } from "./proxy.js";
-export { AdminResource } from "./admin.js";
-export { SlotsResource } from "./slots.js";
+// Resources
+export { AuthResource } from "./resources/auth.js";
+export type { VerifyKeyResponse } from "./resources/auth.js";
+export { WalletAuthResource } from "./resources/wallet-auth.js";
+export type { WalletChallenge, WalletVerifyResult, WalletLinkResult } from "./resources/wallet-auth.js";
+export { KeysResource } from "./resources/keys.js";
+export type { ApiKeyInfo, CreatedApiKey } from "./resources/keys.js";
+export { WalletResource, CRYPTO_CURRENCIES } from "./resources/wallet.js";
+export type { WalletBalance, WalletTransaction, CryptoInvoice, CryptoInvoiceStatus, Forecast, CryptoCurrency } from "./resources/wallet.js";
 export { AgenticWalletResource } from "./resources/agent-wallet.js";
 export type {
-  AgenticWallet,
-  AgenticWalletTransaction,
-  AgenticWalletListResponse,
-  AgenticWalletFundResponse,
-  AgenticWalletTransactionsResponse,
-  AgenticWalletDeleteResponse,
+  AgenticWallet, AgenticWalletTransaction, AgenticWalletListResponse, AgenticWalletFundResponse,
+  AgenticWalletTransactionsResponse, AgenticWalletDeleteResponse,
 } from "./resources/agent-wallet.js";
 export { TeamsResource } from "./resources/teams.js";
 export type {
-  Team,
-  TeamMember,
-  TeamInvite,
-  TeamListResponse,
-  TeamMembersResponse,
-  TeamInvitesResponse,
-  TeamKeysResponse,
-  TeamKeyCreateResponse,
-  TeamDeleteResponse,
-  TeamFundResponse,
-  TeamTransactionsResponse,
+  Team, TeamMember, TeamInvite, TeamKey, TeamListResponse, TeamMembersResponse, TeamInvitesResponse, TeamKeysResponse,
+  TeamKeyCreateResponse, TeamDeleteResponse, TeamFundResponse, TeamTransaction, TeamTransactionsResponse,
 } from "./resources/teams.js";
+export { UsageResource } from "./resources/usage.js";
+export type { DateRange, UsageRecord, UsageResponse, DailyUsageResponse, TopHostsResponse } from "./resources/usage.js";
+export { SessionsResource, REPORT_REASONS } from "./resources/sessions.js";
+export type { ActiveSession, ReportReason, ReportResult } from "./resources/sessions.js";
 export { X402Resource } from "./resources/x402.js";
+export type { X402Info, X402Facilitator } from "./resources/x402.js";
+export { NetworkResource } from "./resources/network.js";
+export type { NetworkPolicy, NetworkPricing, NetworkStats } from "./resources/network.js";
+export { NodesResource } from "./resources/nodes.js";
 export type {
-  X402Info,
-  X402Facilitator,
-  X402Pricing,
-} from "./resources/x402.js";
-export { WalletAuthResource } from "./resources/wallet-auth.js";
-export type {
-  WalletChallenge,
-  WalletVerifyResult,
-  WalletLinkResult,
-} from "./resources/wallet-auth.js";
-export type {
-  DateRangeOptions as AdminDateRangeOptions,
-  ListUsersResponse,
-  GetUserResponse,
-  RevenueResponse,
-  DailyRevenueEntry,
-  DailyRevenueResponse,
-} from "./admin.js";
+  NodeChallenge, RegisterNodeOptions, RegisteredNode, NodeInfo, NodeCaps, UpdateCapsResult, NodeTier, TierView, TierRequirement,
+} from "./resources/nodes.js";
+export {
+  CreditsResource, PayoutsResource, CREDIT_TX_TYPES, newIdempotencyKey,
+  MIN_CONVERT_MUSD, MAX_CONVERT_MUSD, MIN_WITHDRAW_MUSD, MAX_WITHDRAW_MUSD,
+} from "./resources/credits.js";
+export type { CreditsBalance, CreditTransaction, CreditTxType, ConvertResult, Payout, PayoutStatus, WithdrawResult } from "./resources/credits.js";
+export { PayoutWalletResource } from "./resources/payout-wallet.js";
+export type { PayoutWalletInfo, PayoutWalletChallenge, SetPayoutWalletOptions, SetPayoutWalletResult } from "./resources/payout-wallet.js";
+export { ProxyResource } from "./resources/proxy.js";
+export type { ProxyUrlOptions, ProxyHealth } from "./resources/proxy.js";
 
-// Infrastructure (HttpClient for advanced custom integrations)
-export { HttpClient } from "./http.js";
-export type { HttpOptions } from "./http.js";
-// TokenManager is internal — not exported to prevent misuse of token lifecycle
+// Proxy + safety helpers
+export { buildProxyUsername } from "./proxy-fetch.js";
+export type { IpClass, ProxyRoutingOptions, ProxyFetchOptions, ProxyFetchResponse } from "./proxy-fetch.js";
+export { isPrivateIp, validateTargetUrl } from "./ssrf.js";
+export { buildAttestationMessage, buildPayoutWalletMessage, buildWithdrawMessage } from "./messages.js";
+export type { Signer } from "./signer.js";
+export { Secret } from "./secret.js";
+export type { MusdInput } from "./validation.js";
 
 // Errors
 export {
-  DominusNodeError,
-  AuthenticationError,
-  AuthorizationError,
-  RateLimitError,
-  InsufficientBalanceError,
-  ValidationError,
-  NotFoundError,
-  ConflictError,
-  ServerError,
-  NetworkError,
-  ProxyError,
+  DominusNodeError, AuthenticationError, AuthorizationError, RateLimitError, InsufficientBalanceError, ValidationError,
+  NotFoundError, ConflictError, ServerError, NetworkError, ProtocolError, ProxyError, scrubCredentials,
 } from "./errors.js";
 
-// Types
-export type {
-  DominusNodeConfig,
-  User,
-  ApiKey,
-  Wallet,
-  WalletTransaction,
-  UsageRecord,
-  TopHost,
-  Plan,
-  ActiveSession,
-  ProxyUrlOptions,
-  ProxyHealth,
-  ProxyConfig,
-  StripeCheckout,
-  CryptoInvoice,
-  AdminUser,
-  RevenueStats,
-  DailyRevenue,
-  SystemStats,
-  MfaStatus,
-  MfaSetup,
-  LoginResult,
-  TokenPair,
-  SlotsInfo,
-  WaitlistJoinResult,
-  WaitlistCount,
-} from "./types.js";
-
-// Constants
+// Types + constants
+export type { DominusNodeConfig, Money, User, ConnectResult } from "./types.js";
 export {
-  SDK_VERSION,
-  USER_AGENT,
-  DEFAULT_BASE_URL,
-  DEFAULT_PROXY_HOST,
-  DEFAULT_HTTP_PROXY_PORT,
-  DEFAULT_SOCKS5_PROXY_PORT,
+  SDK_VERSION, USER_AGENT, DEFAULT_BASE_URL, DEFAULT_PROXY_HOST, DEFAULT_HTTP_PROXY_PORT, DEFAULT_SOCKS5_PROXY_PORT,
+  MAX_RESPONSE_BYTES, MAX_AMOUNT_CENTS,
 } from "./constants.js";
+// HttpClient and TokenManager are internal.

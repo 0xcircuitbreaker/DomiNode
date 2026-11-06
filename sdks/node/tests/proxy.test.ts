@@ -1,93 +1,165 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { ProxyResource } from "../src/proxy.js";
-import { HttpClient } from "../src/http.js";
-import { TokenManager } from "../src/token-manager.js";
-import {
-  DEFAULT_PROXY_HOST,
-  DEFAULT_HTTP_PROXY_PORT,
-  DEFAULT_SOCKS5_PROXY_PORT,
-} from "../src/constants.js";
+import { describe, it, expect, afterEach } from "vitest";
+import * as http from "node:http";
+import type { AddressInfo } from "node:net";
+import { DominusNodeClient } from "../src/client.js";
+import { buildProxyUsername } from "../src/proxy-fetch.js";
+import { isPrivateIp, validateTargetUrl, assertPublicResolution, normalizeIpv4 } from "../src/ssrf.js";
+import { ValidationError, ProxyError, AuthenticationError } from "../src/errors.js";
+import { connected, API_KEY, UUID } from "./helpers.js";
 
-function makeJwt(expSeconds: number = 900): string {
-  const header = Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })).toString("base64url");
-  const payload = Buffer.from(
-    JSON.stringify({
-      userId: "test-user",
-      exp: Math.floor(Date.now() / 1000) + expSeconds,
-      iat: Math.floor(Date.now() / 1000),
-    }),
-  ).toString("base64url");
-  const sig = Buffer.from("fake-sig").toString("base64url");
-  return `${header}.${payload}.${sig}`;
-}
+describe("buildProxyUsername", () => {
+  it("encodes gateway flags with hyphens", () => {
+    expect(buildProxyUsername()).toBe("relay");
+    expect(buildProxyUsername({ country: "us" })).toBe("country-US");
+    expect(buildProxyUsername({ country: "DE", ipClass: "residential", sessionId: "abc123", allowHttp: true }))
+      .toBe("country-DE-class-residential-session-abc123-allowhttp-1");
+    expect(buildProxyUsername({ ipClass: "mobile", agenticWalletId: UUID.toUpperCase() })).toBe(`class-mobile-wallet-${UUID}`);
+    expect(buildProxyUsername({ allowHttp: false })).toBe("relay");
+  });
+  it("rejects bad flags", () => {
+    expect(() => buildProxyUsername({ country: "USA" })).toThrow(ValidationError);
+    expect(() => buildProxyUsername({ country: "IR" })).toThrow(/OFAC/);
+    expect(() => buildProxyUsername({ ipClass: "isp" as "dc" })).toThrow(ValidationError);
+    expect(() => buildProxyUsername({ sessionId: "a-b" })).toThrow(ValidationError);
+    expect(() => buildProxyUsername({ sessionId: "a".repeat(65) })).toThrow(ValidationError);
+    expect(() => buildProxyUsername({ agenticWalletId: "w1" })).toThrow(ValidationError);
+  });
+});
 
-describe("ProxyResource", () => {
-  let proxy: ProxyResource;
+describe("proxy.buildUrl", () => {
+  it("puts flags in the username and the key in the password", async () => {
+    const { client } = await connected();
+    expect(client.proxy.buildUrl()).toBe(`http://relay:${API_KEY}@proxy.dominusnode.com:8080`);
+    expect(client.proxy.buildUrl({ protocol: "socks5", country: "US", ipClass: "dc" }))
+      .toBe(`socks5://country-US-class-dc:${API_KEY}@proxy.dominusnode.com:1080`);
+    expect(client.proxy.buildUsername({ sessionId: "s1" })).toBe("session-s1");
+  });
+  it("needs a key; validates config", () => {
+    const c = new DominusNodeClient({ proxyHost: "gw.example", httpProxyPort: 9000 });
+    expect(() => c.proxy.buildUrl()).toThrow(AuthenticationError);
+    expect(c.proxy.buildUrl({ apiKey: API_KEY })).toBe(`http://relay:${API_KEY}@gw.example:9000`);
+    expect(() => c.proxy.buildUrl({ apiKey: "nope" })).toThrow(ValidationError);
+    expect(() => new DominusNodeClient({ proxyHost: "evil@host" })).toThrow(ValidationError);
+    expect(() => new DominusNodeClient({ httpProxyPort: 70000 })).toThrow(ValidationError);
+  });
+});
 
-  beforeEach(() => {
-    vi.restoreAllMocks();
-    const tm = new TokenManager();
-    tm.setTokens(makeJwt(900), makeJwt(7 * 86400));
-    const http = new HttpClient("http://localhost:3000", tm);
-    proxy = new ProxyResource(http, {});
+describe("SSRF guard", () => {
+  it.each([
+    "127.0.0.1", "10.1.2.3", "172.16.0.1", "172.31.255.255", "192.168.1.1", "169.254.169.254", "100.64.0.1", "100.127.0.1",
+    "0.0.0.0", "224.0.0.1", "255.255.255.255", "::1", "::", "fc00::1", "fd12::1", "fe80::1", "fec0::1", "ff02::1",
+    "::ffff:127.0.0.1", "::ffff:7f00:1", "::127.0.0.1", "::7f00:1", "0:0:0:0:0:0:0:1", "2001:0:4136::1", "2002:c0a8:101::1",
+    "64:ff9b::a00:1", "[::1]", "fe80::1%eth0", "2130706433", "0x7f000001", "0177.0.0.1", "127.1",
+  ])("blocks %s", (ip) => expect(isPrivateIp(ip)).toBe(true));
+
+  it.each(["8.8.8.8", "93.184.216.34", "172.32.0.1", "100.128.0.1", "2606:4700::1111", "::ffff:8.8.8.8", "example.com"])(
+    "allows %s", (ip) => expect(isPrivateIp(ip)).toBe(false));
+
+  it("normalizes odd IPv4 forms", () => {
+    expect(normalizeIpv4("0x7f.0.0.1")).toBe("127.0.0.1");
+    expect(normalizeIpv4("10.1")).toBe("10.0.0.1");
+    expect(normalizeIpv4("example")).toBeNull();
   });
 
-  describe("buildUrl", () => {
-    it("builds a basic HTTP proxy URL with default settings", () => {
-      const url = proxy.buildUrl("dn_live_abc123");
-      expect(url).toBe(`http://user:dn_live_abc123@${DEFAULT_PROXY_HOST}:${DEFAULT_HTTP_PROXY_PORT}`);
-    });
+  it.each([
+    ["ftp://example.com/", /http/], ["https://u:p@example.com/", /credentials/], ["https://example.com:8443/", /80 and 443/],
+    ["https://localhost/", /local/], ["https://foo.localhost/", /local/], ["https://printer.local/", /local/],
+    ["https://db.internal/", /local/], ["https://1.0.0.127.in-addr.arpa/", /local/], ["http://127.0.0.1/", /private/],
+    ["http://[::1]/", /private/], ["http://0x7f000001/", /private/], ["not a url", /Invalid/],
+  ])("validateTargetUrl refuses %s", (url, re) => {
+    expect(() => validateTargetUrl(url as string)).toThrow(re as RegExp);
+  });
 
-    it("builds a SOCKS5 proxy URL", () => {
-      const url = proxy.buildUrl("dn_live_abc123", { protocol: "socks5" });
-      expect(url).toBe(`socks5://user:dn_live_abc123@${DEFAULT_PROXY_HOST}:${DEFAULT_SOCKS5_PROXY_PORT}`);
-    });
+  it("DNS rebinding: any private address in the answer blocks", async () => {
+    await expect(assertPublicResolution("x.test", async () => [{ address: "93.184.216.34", family: 4 }, { address: "10.0.0.5", family: 4 }]))
+      .rejects.toThrow(/private/);
+    await expect(assertPublicResolution("x.test", async () => [{ address: "::ffff:169.254.169.254", family: 6 }])).rejects.toThrow(ProxyError);
+    await expect(assertPublicResolution("x.test", async () => [])).rejects.toThrow(/no addresses/);
+    await expect(assertPublicResolution("x.test", async () => { throw new Error("NXDOMAIN"); })).rejects.toThrow(/DNS/);
+    await expect(assertPublicResolution("x.test", async () => [{ address: "93.184.216.34", family: 4 }])).resolves.toBeUndefined();
+  });
+});
 
-    it("includes country geo-targeting in the username", () => {
-      const url = proxy.buildUrl("dn_live_key", { country: "US" });
-      expect(url).toContain("user-country-US:");
-    });
+describe("proxy.fetch (local fake gateway)", () => {
+  let server: http.Server | undefined;
+  afterEach(() => new Promise<void>((r) => (server ? server.close(() => r()) : r())));
 
-    it("includes state and city geo-targeting", () => {
-      const url = proxy.buildUrl("dn_live_key", {
-        country: "US",
-        state: "CA",
-        city: "Los Angeles",
-      });
-      expect(url).toContain("country-US");
-      expect(url).toContain("state-CA");
-      expect(url).toContain("city-Los%20Angeles");
-    });
+  async function gateway(handler: http.RequestListener, onConnect?: (req: http.IncomingMessage, sock: import("node:net").Socket) => void) {
+    server = http.createServer(handler);
+    if (onConnect) server.on("connect", onConnect);
+    await new Promise<void>((r) => server!.listen(0, "127.0.0.1", () => r()));
+    const port = (server.address() as AddressInfo).port;
+    const c2 = new DominusNodeClient({ proxyHost: "127.0.0.1", httpProxyPort: port });
+    c2.proxy.setLookup(async () => [{ address: "93.184.216.34", family: 4 }]);
+    return c2;
+  }
 
-    it("includes session ID for sticky sessions", () => {
-      const url = proxy.buildUrl("dn_live_key", { sessionId: "sticky-123" });
-      expect(url).toContain("session-sticky-123");
+  it("http:// (allowHttp): absolute-URI request with Basic proxy auth; redirect returned, not followed", async () => {
+    const seen: Array<{ url?: string; auth?: string; host?: string; extra?: string }> = [];
+    const c = await gateway((req, res) => {
+      seen.push({ url: req.url, auth: req.headers["proxy-authorization"], host: req.headers.host, extra: req.headers["x-test"] as string });
+      res.writeHead(302, { Location: "http://127.0.0.1/admin" });
+      res.end("moved");
     });
-
-    it("URL-encodes special characters in the API key", () => {
-      const url = proxy.buildUrl("dn_live_key+with/special=chars");
-      expect(url).toContain("dn_live_key%2Bwith%2Fspecial%3Dchars");
+    const r = await c.proxy.fetch("http://example.com/path?q=1", {
+      apiKey: API_KEY, allowHttp: true, country: "US", headers: { "X-Test": "1", Authorization: "drop-me" },
     });
+    expect(r.status).toBe(302);
+    expect(r.headers.location).toBe("http://127.0.0.1/admin");
+    expect(r.text()).toBe("moved");
+    expect(seen).toHaveLength(1);
+    expect(seen[0].url).toBe("http://example.com/path?q=1");
+    expect(seen[0].host).toBe("example.com");
+    expect(seen[0].extra).toBe("1");
+    expect(Buffer.from(seen[0].auth!.slice(6), "base64").toString()).toBe(`country-US-allowhttp-1:${API_KEY}`);
+  });
 
-    it("uses custom proxy host and ports from config", () => {
-      const tm = new TokenManager();
-      tm.setTokens(makeJwt(900), makeJwt(7 * 86400));
-      const http = new HttpClient("http://localhost:3000", tm);
-      const customProxy = new ProxyResource(http, {
-        proxyHost: "custom.proxy.io",
-        httpProxyPort: 9090,
-        socks5ProxyPort: 2080,
-      });
-      const url = customProxy.buildUrl("dn_live_key");
-      expect(url).toBe("http://user:dn_live_key@custom.proxy.io:9090");
+  it("truncates bodies at maxBytes", async () => {
+    const c = await gateway((_req, res) => { res.writeHead(200); res.end(Buffer.alloc(5000, 0x61)); });
+    const r = await c.proxy.fetch("http://example.com/", { apiKey: API_KEY, allowHttp: true, maxBytes: 1000 });
+    expect(r.body.length).toBe(1000);
+    expect(r.truncated).toBe(true);
+  });
 
-      const socksUrl = customProxy.buildUrl("dn_live_key", { protocol: "socks5" });
-      expect(socksUrl).toBe("socks5://user:dn_live_key@custom.proxy.io:2080");
+  it("HEAD returns no body", async () => {
+    const c = await gateway((_req, res) => { res.writeHead(200, { "content-length": "10" }); res.end(); });
+    const r = await c.proxy.fetch("http://example.com/", { apiKey: API_KEY, allowHttp: true, method: "HEAD" });
+    expect(r.status).toBe(200);
+    expect(r.body.length).toBe(0);
+  });
+
+  it("https:// uses CONNECT host:443 and reports a refused tunnel", async () => {
+    let connectLine = "";
+    let auth = "";
+    const c = await gateway(() => undefined, (req, sock) => {
+      connectLine = String(req.url);
+      auth = String(req.headers["proxy-authorization"]);
+      sock.end("HTTP/1.1 402 Payment Required\r\nContent-Length: 0\r\n\r\n");
     });
+    const err = await c.proxy.fetch("https://example.com/x", { apiKey: API_KEY, ipClass: "dc" }).catch((e) => e);
+    expect(err).toBeInstanceOf(ProxyError);
+    expect(err.statusCode).toBe(402);
+    expect(connectLine).toBe("example.com:443");
+    expect(Buffer.from(auth.slice(6), "base64").toString()).toBe(`class-dc:${API_KEY}`);
+  });
 
-    it("includes ASN targeting in the username", () => {
-      const url = proxy.buildUrl("dn_live_key", { asn: 12345 });
-      expect(url).toContain("asn-12345");
-    });
+  it("refuses before any network I/O", async () => {
+    let hits = 0;
+    const c = await gateway(() => { hits++; });
+    await expect(c.proxy.fetch("http://example.com/", { apiKey: API_KEY })).rejects.toThrow(/allowHttp/);
+    await expect(c.proxy.fetch("https://example.com/", { apiKey: API_KEY, method: "POST" as "GET" })).rejects.toThrow(/GET and HEAD/);
+    await expect(c.proxy.fetch("https://example.com/", { apiKey: API_KEY, headers: { "X-A": "b\r\nInjected: 1" } })).rejects.toThrow(/invalid/);
+    await expect(c.proxy.fetch("https://169.254.169.254/", { apiKey: API_KEY })).rejects.toThrow(/private/);
+    c.proxy.setLookup(async () => [{ address: "127.0.0.1", family: 4 }]);
+    await expect(c.proxy.fetch("https://rebind.example/", { apiKey: API_KEY })).rejects.toThrow(/private/);
+    expect(hits).toBe(0);
+  });
+
+  it("error messages never contain the key", async () => {
+    const c = new DominusNodeClient({ proxyHost: "127.0.0.1", httpProxyPort: 1 });
+    c.proxy.setLookup(async () => [{ address: "93.184.216.34", family: 4 }]);
+    const err = await c.proxy.fetch("https://example.com/", { apiKey: API_KEY }).catch((e) => e);
+    expect(err).toBeInstanceOf(ProxyError);
+    expect(err.message).not.toContain(API_KEY);
   });
 });
