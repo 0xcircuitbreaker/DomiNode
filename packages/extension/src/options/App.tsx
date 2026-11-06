@@ -183,7 +183,7 @@ function Nodes({ st }: { st: Status }) {
     <div class="stack">
       <Banner err={err} msg={null} />
       {info?.errors.map((e) => <div class="text-sm text-error">{e}</div>)}
-      <div class="row" style="gap:12px">
+      <div class="row" style="gap:12px;align-items:flex-start">
         <section class="card stack-sm flex-1">
           <div class="section-title">Credits</div>
           <dl class="kv">
