@@ -15,7 +15,7 @@ MCP server for the AI-agent relay network: 56 authenticated + 11 bootstrap tools
 - proxyFetch: DNS rebinding check — resolve hostname and reject if ANY address is private (assertPublicResolution)
 - /v1 agent routes (requireAgentPrincipal) take the dn_live_ key as Bearer (`bearer` option on HttpClient.request); non-wallet JWTs and team keys are rejected there
 - node_register: wallet key ONLY from DOMINUSNODE_WALLET_KEY_FILE (0600 enforced), never a tool argument
-- node_register: build attestation with shared buildAttestationMessage and refuse if the server's `message` differs
+- node_register: build attestation with src/attestation.ts (vendored copy of shared, parity-tested; no runtime dep on private @dominusnode/shared) and refuse if the server's `message` differs
 - dn_node_ key: write to a new 0600 file (no overwrite), never echo it in tool output — return the path
 - Credential scrubbing: scrub dn_live_/dn_test_/dn_node_/dn_proxy_/JWT/Bearer in ALL error messages
 - Usage tools: backend expects since/until ISO dates, NOT days integer
