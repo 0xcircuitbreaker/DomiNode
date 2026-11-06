@@ -1,0 +1,22 @@
+identity:
+  name: check_payment
+  author: dominusnode
+  label:
+    en_US: Check Payment
+description:
+  human:
+    en_US: Status of a crypto top-up invoice created by topup_crypto..
+  llm: Status of a crypto top-up invoice created by topup_crypto.
+parameters:
+- name: invoice_id
+  label:
+    en_US: Invoice Id
+  human_description:
+    en_US: Invoice UUID from topup_crypto.
+  llm_description: Invoice UUID from topup_crypto.
+  required: true
+  form: llm
+  type: string
+extra:
+  python:
+    source: tools/check_payment.py

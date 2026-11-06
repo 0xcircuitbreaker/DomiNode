@@ -1,0 +1,32 @@
+identity:
+  name: topup_crypto
+  author: dominusnode
+  label:
+    en_US: Topup Crypto
+description:
+  human:
+    en_US: Create a crypto invoice to top up the prepaid wallet ($10-$1,000).
+  llm: Create a crypto invoice to top up the prepaid wallet ($10-$1,000). Returns
+    a payment address/link; poll check_payment with the invoice id.
+parameters:
+- name: amount_cents
+  label:
+    en_US: Amount Cents
+  human_description:
+    en_US: Amount in US cents (1000 = $10).
+  llm_description: Amount in US cents (1000 = $10).
+  required: true
+  form: llm
+  type: number
+- name: currency
+  label:
+    en_US: Currency
+  human_description:
+    en_US: Crypto currency code, e.g. usdc, usdt, btc, eth, sol.
+  llm_description: Crypto currency code, e.g. usdc, usdt, btc, eth, sol.
+  required: true
+  form: llm
+  type: string
+extra:
+  python:
+    source: tools/topup_crypto.py

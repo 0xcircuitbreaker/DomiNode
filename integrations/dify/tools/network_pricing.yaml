@@ -1,0 +1,15 @@
+identity:
+  name: network_pricing
+  author: dominusnode
+  label:
+    en_US: Network Pricing
+description:
+  human:
+    en_US: Live per-GB relay prices by IP class (in micro-USD) and the node operator
+      earning shares by tier.
+  llm: 'Live per-GB relay prices by IP class (in micro-USD) and the node operator
+    earning shares by tier. The only source of prices: never assume a price.'
+parameters: []
+extra:
+  python:
+    source: tools/network_pricing.py

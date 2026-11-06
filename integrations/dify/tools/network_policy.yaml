@@ -1,0 +1,15 @@
+identity:
+  name: network_policy
+  author: dominusnode
+  label:
+    en_US: Network Policy
+description:
+  human:
+    en_US: 'Relay network policy: allowed ports and methods, blocked targets and countries,
+      node rules.'
+  llm: 'Relay network policy: allowed ports and methods, blocked targets and countries,
+    node rules. Read before routing unusual traffic.'
+parameters: []
+extra:
+  python:
+    source: tools/network_policy.py

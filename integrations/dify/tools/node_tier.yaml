@@ -1,0 +1,13 @@
+identity:
+  name: node_tier
+  author: dominusnode
+  label:
+    en_US: Node Tier
+description:
+  human:
+    en_US: Your node operator tier, earning share and progress toward the next tier..
+  llm: Your node operator tier, earning share and progress toward the next tier.
+parameters: []
+extra:
+  python:
+    source: tools/node_tier.py

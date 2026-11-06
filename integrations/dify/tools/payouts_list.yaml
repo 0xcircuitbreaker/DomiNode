@@ -1,0 +1,31 @@
+identity:
+  name: payouts_list
+  author: dominusnode
+  label:
+    en_US: Payouts List
+description:
+  human:
+    en_US: Payouts of earned credits to your payout wallet..
+  llm: Payouts of earned credits to your payout wallet.
+parameters:
+- name: limit
+  label:
+    en_US: Limit
+  human_description:
+    en_US: Maximum rows to return.
+  llm_description: Maximum rows to return.
+  required: false
+  form: llm
+  type: number
+- name: offset
+  label:
+    en_US: Offset
+  human_description:
+    en_US: Rows to skip (pagination).
+  llm_description: Rows to skip (pagination).
+  required: false
+  form: llm
+  type: number
+extra:
+  python:
+    source: tools/payouts_list.py

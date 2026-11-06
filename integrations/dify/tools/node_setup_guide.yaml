@@ -1,0 +1,15 @@
+identity:
+  name: node_setup_guide
+  author: dominusnode
+  label:
+    en_US: Node Setup Guide
+description:
+  human:
+    en_US: 'How to earn by contributing an IP: steps to register and run the DominusNode
+      node agent, and the earning rules..'
+  llm: 'How to earn by contributing an IP: steps to register and run the DominusNode
+    node agent, and the earning rules.'
+parameters: []
+extra:
+  python:
+    source: tools/node_setup_guide.py

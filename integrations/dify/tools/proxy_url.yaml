@@ -1,0 +1,88 @@
+identity:
+  name: proxy_url
+  author: dominusnode
+  label:
+    en_US: Proxy Url
+description:
+  human:
+    en_US: Build a relay proxy URL for use with any HTTP or SOCKS5 client.
+  llm: Build a relay proxy URL for use with any HTTP or SOCKS5 client. Routing flags
+    (country, class, sticky session, allowhttp) go in the proxy username; the account
+    credential is shown only as the placeholder <DOMINUSNODE_API_KEY>, which the caller
+    fills from its own environment.
+parameters:
+- name: country
+  label:
+    en_US: Country
+  human_description:
+    en_US: ISO 3166-1 alpha-2 exit country, e.g. US, DE. Sanctioned countries (CU,
+      IR, KP, RU, SY) are refused.
+  llm_description: ISO 3166-1 alpha-2 exit country, e.g. US, DE. Sanctioned countries
+    (CU, IR, KP, RU, SY) are refused.
+  required: false
+  form: llm
+  type: string
+- name: ip_class
+  label:
+    en_US: Ip Class
+  human_description:
+    en_US: 'Exit IP class. Omit to let the relay choose. Prices differ by class: see
+      network_pricing.'
+  llm_description: 'Exit IP class. Omit to let the relay choose. Prices differ by
+    class: see network_pricing.'
+  required: false
+  form: llm
+  type: select
+  options:
+  - value: residential
+    label:
+      en_US: residential
+  - value: dc
+    label:
+      en_US: dc
+  - value: mobile
+    label:
+      en_US: mobile
+- name: session_id
+  label:
+    en_US: Session Id
+  human_description:
+    en_US: Sticky session id (1-64 letters/digits) to keep the same exit node across
+      requests.
+  llm_description: Sticky session id (1-64 letters/digits) to keep the same exit node
+    across requests.
+  required: false
+  form: llm
+  type: string
+- name: allow_http
+  label:
+    en_US: Allow Http
+  human_description:
+    en_US: Opt in to plaintext http:// targets. Plaintext traffic is visible to the
+      exit node; leave false for https.
+  llm_description: Opt in to plaintext http:// targets. Plaintext traffic is visible
+    to the exit node; leave false for https.
+  required: false
+  form: llm
+  type: boolean
+  default: false
+- name: protocol
+  label:
+    en_US: Protocol
+  human_description:
+    en_US: Proxy protocol.
+  llm_description: Proxy protocol.
+  required: false
+  form: llm
+  type: select
+  options:
+  - value: http
+    label:
+      en_US: http
+  - value: socks5
+    label:
+      en_US: socks5
+  default: http
+extra:
+  python:
+    source: tools/proxy_url.py

@@ -1,10 +1,15 @@
 identity:
   name: x402_info
-  author: Dominus Node
+  author: dominusnode
   label:
     en_US: x402 Info
 description:
   human:
-    en_US: Get x402 micropayment protocol information
-  llm: Get x402 HTTP 402 Payment Required protocol information including facilitators, pricing, supported currencies, and payment options for AI agent micropayments.
+    en_US: 'x402 HTTP micropayment support: facilitators, networks, currencies and
+      server-reported pricing..'
+  llm: 'x402 HTTP micropayment support: facilitators, networks, currencies and server-reported
+    pricing.'
 parameters: []
+extra:
+  python:
+    source: tools/x402_info.py
