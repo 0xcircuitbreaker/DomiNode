@@ -1,135 +1,93 @@
 Metadata-Version: 2.4
 Name: dominusnode-ironclaw
-Version: 1.2.1
-Summary: Dominus Node toolkit for IronClaw AI agent runtime -- 23 proxy, wallet, team, and payment management tools
+Version: 2.0.0
+Summary: DominusNode agent relay network tools for IronClaw (19 tools, built on the dominusnode SDK)
 License: MIT
 Requires-Python: >=3.10
 Description-Content-Type: text/markdown
 License-File: LICENSE
-Requires-Dist: httpx>=0.25.0
+Requires-Dist: dominusnode<3,>=2.0.0
 Provides-Extra: dev
 Requires-Dist: pytest>=7.0; extra == "dev"
 Dynamic: license-file
 
 # dominusnode-ironclaw
 
-Dominus Node toolkit for [IronClaw](https://github.com/nicekate/IronClaw), NEAR AI's open-source Rust-based AI agent runtime. Provides 23 tools for interacting with the Dominus Node rotating proxy-as-a-service platform, plus MCP server configuration for IronClaw's native MCP bridge.
+DominusNode tools for [IronClaw](#usage): 19 tools for the DominusNode **agent relay network**.
+Agents fetch the web through exit nodes contributed by other agents, pay per GB from a prepaid
+wallet at the live price from `network_pricing`, and can earn credits by contributing their own IP
+with the node agent (`node_setup_guide`).
 
-## Installation
+Version 2 is built on the official Python SDK [`dominusnode`](../../sdks/python) (v2). All HTTP,
+SSRF and DNS-rebinding checks, proxy tunnelling and credential scrubbing come from the SDK.
+
+## Install
 
 ```bash
 pip install dominusnode-ironclaw
+# from source, with the local SDK
+pip install -e ../../sdks/python -e ".[dev]"
 ```
 
-Or from source:
+Set your key in the environment (it is never a tool argument and never appears in tool output):
 
 ```bash
-cd integrations/ironclaw
-pip install -e ".[dev]"
+export DOMINUSNODE_API_KEY=dn_live_...
+# optional: DOMINUSNODE_BASE_URL, DOMINUSNODE_PROXY_HOST
 ```
 
-## Quick Start
-
-### Python Bridge Usage
+## Usage
 
 ```python
-from dominusnode_ironclaw import DominusNodeToolkit
+from dominusnode_ironclaw import DominusNodeToolkit, generate_mcp_config
 
-toolkit = DominusNodeToolkit(api_key="dn_live_your_key_here")
+toolkit = DominusNodeToolkit()              # key from DOMINUSNODE_API_KEY
+tools = toolkit.get_tools()                 # register with the IronClaw Python bridge
+print(toolkit.execute("dominusnode_network_pricing"))
 
-# Check wallet balance
-balance = toolkit.check_balance()
-print(balance)  # JSON string
-
-# Fetch a URL through the proxy network
-result = toolkit.proxied_fetch(url="https://httpbin.org/ip", country="US")
-print(result)
+# Or use IronClaw's MCP bridge with the DominusNode MCP server (stdio, key by env reference only):
+config = generate_mcp_config()
 ```
 
-### IronClaw MCP Bridge
+Tools are exposed as `dominusnode_<tool>` bridge tool dicts (`name`, `description`, `parameters`, `handler`).
 
-IronClaw supports MCP Protocol natively. Configure it to connect to the Dominus Node MCP server:
+## The 19 tools
 
-```python
-from dominusnode_ironclaw import DominusNodeToolkit
-
-toolkit = DominusNodeToolkit(api_key="dn_live_your_key_here")
-mcp_config = toolkit.get_mcp_config()
-# Pass mcp_config to IronClaw's MCP bridge configuration
-```
-
-Or generate MCP config directly:
-
-```python
-from dominusnode_ironclaw.mcp_config import generate_mcp_config
-
-config = generate_mcp_config(
-    base_url="https://api.dominusnode.com",
-    api_key="dn_live_your_key_here",
-)
-```
-
-### Tool Definitions
-
-Get IronClaw-compatible tool definitions for registration:
-
-```python
-toolkit = DominusNodeToolkit(api_key="dn_live_your_key_here")
-tools = toolkit.get_tool_definitions()
-
-for tool in tools:
-    print(f"{tool['name']}: {tool['description']}")
-    # Each tool has: name, description, parameters (JSON Schema), handler
-```
-
-## Configuration
-
-| Parameter | Environment Variable | Default |
-|-----------|---------------------|---------|
-| `api_key` | `DOMINUSNODE_API_KEY` | (required) |
-| `base_url` | `DOMINUSNODE_BASE_URL` | `https://api.dominusnode.com` |
-| `proxy_host` | `DOMINUSNODE_PROXY_HOST` | `proxy.dominusnode.com` |
-| `proxy_port` | `DOMINUSNODE_PROXY_PORT` | `8080` |
-| `timeout` | - | `30.0` seconds |
-
-## Tools (23)
-
-| # | Tool | Description |
-|---|------|-------------|
-| 1 | `proxied_fetch` | Fetch a URL through Dominus Node's rotating proxy network |
-| 2 | `check_balance` | Check wallet balance |
-| 3 | `check_usage` | Check proxy usage statistics |
-| 4 | `get_proxy_config` | Get proxy configuration and geo-targeting options |
-| 5 | `list_sessions` | List active proxy sessions |
-| 6 | `create_agentic_wallet` | Create an agentic sub-wallet with a spending limit |
-| 7 | `fund_agentic_wallet` | Fund an agentic wallet from the main wallet |
-| 8 | `agentic_wallet_balance` | Check agentic wallet balance |
-| 9 | `list_agentic_wallets` | List all agentic wallets |
-| 10 | `agentic_transactions` | Get agentic wallet transaction history |
-| 11 | `freeze_agentic_wallet` | Freeze an agentic wallet |
-| 12 | `unfreeze_agentic_wallet` | Unfreeze an agentic wallet |
-| 13 | `delete_agentic_wallet` | Delete an agentic wallet |
-| 14 | `create_team` | Create a new team with a shared wallet |
-| 15 | `list_teams` | List all teams the user belongs to |
-| 16 | `team_details` | Get details for a specific team |
-| 17 | `team_fund` | Fund a team's shared wallet |
-| 18 | `team_create_key` | Create an API key for a team |
-| 19 | `team_usage` | Get team usage/transaction history |
-| 20 | `update_team` | Update team name and/or max_members |
-| 21 | `update_team_member_role` | Update a team member's role |
-| 22 | `x402_info` | Get x402 micropayment protocol information |
-| 23 | `topup_paypal` | Create a PayPal wallet top-up order |
+| # | Tool | SDK call | What it does |
+|---|---|---|---|
+| 1 | `fetch` | `proxy.fetch` | GET/HEAD a URL through the relay (country, ip_class, session_id, allow_http) |
+| 2 | `proxy_url` | `proxy.build_url` | Proxy URL/username for any client; key shown only as `<DOMINUSNODE_API_KEY>` |
+| 3 | `network_policy` | `network.policy` | Allowed ports/methods, blocked targets and countries |
+| 4 | `network_pricing` | `network.pricing` | Live per-GB prices by IP class and node earning shares |
+| 5 | `network_stats` | `network.stats` | Online nodes by class and country |
+| 6 | `balance` | `wallet.get_balance` | Prepaid wallet balance |
+| 7 | `transactions` | `wallet.get_transactions` | Prepaid wallet transactions |
+| 8 | `topup_crypto` | `wallet.top_up_crypto` | Crypto top-up invoice ($10-$1,000) |
+| 9 | `check_payment` | `wallet.get_crypto_status` | Crypto invoice status |
+| 10 | `usage` | `usage.get` | Traffic usage summary and records |
+| 11 | `active_sessions` | `sessions.get_active` | Active relay sessions |
+| 12 | `report_session` | `sessions.report` | Report a bad exit session |
+| 13 | `node_list` | `nodes.list` | Your contributed nodes |
+| 14 | `node_tier` | `nodes.tier` | Node operator tier and progress |
+| 15 | `node_setup_guide` | `(static)` | How to earn by running the node agent |
+| 16 | `credits_balance` | `credits.balance` | Earned credits (µUSD) |
+| 17 | `credits_convert` | `credits.convert` | Convert credits into wallet balance |
+| 18 | `payouts_list` | `payouts.list` | Payouts of earned credits |
+| 19 | `x402_info` | `x402.get_info` | x402 micropayment info |
 
 ## Security
 
-- **SSRF Prevention**: Private IP blocking, DNS rebinding protection, Teredo/6to4 IPv6 tunnel detection, hex/octal/decimal normalization, zone ID stripping, `.localhost`/`.local`/`.internal`/`.arpa` TLD blocking, embedded credential blocking
-- **OFAC Compliance**: Blocks proxied requests to sanctioned countries (CU, IR, KP, RU, SY)
-- **Credential Scrubbing**: All `dn_live_*`/`dn_test_*` patterns removed from error outputs
-- **Prototype Pollution**: Recursive stripping of `__proto__`, `constructor`, `prototype` keys
-- **HTTP Method Restriction**: Only GET/HEAD/OPTIONS allowed for proxied fetch
-- **Response Caps**: 10 MB response limit, 4000 character body truncation
-- **Redirect Disabled**: `follow_redirects=False` prevents open redirect abuse
+- `fetch` is GET/HEAD only, ports 80/443, no redirects, 10 MB cap, private and internal targets
+  refused after DNS resolution (all addresses). `https` by default; plaintext `http://` needs
+  `allow_http=true` and is visible to the exit node.
+- Sanctioned countries (CU, IR, KP, RU, SY) are refused.
+- Every error and result is scrubbed of `dn_live_`/`dn_test_`/`dn_node_`/`dn_proxy_` keys and JWTs.
+- Signing flows (node registration, withdrawals, payout wallet) are not exposed as LLM tools; use the
+  DominusNode MCP server or the SDK with a signer key file.
 
-## License
+## Tests
 
-MIT
+```bash
+pip install -e ../../sdks/python -e ".[dev]"
+pytest
+```

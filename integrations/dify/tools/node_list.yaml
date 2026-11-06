@@ -1,0 +1,33 @@
+identity:
+  name: node_list
+  author: dominusnode
+  label:
+    en_US: Node List
+description:
+  human:
+    en_US: 'Your own relay nodes (the IPs you contribute to earn credits): status,
+      class, country, reputation, last seen..'
+  llm: 'Your own relay nodes (the IPs you contribute to earn credits): status, class,
+    country, reputation, last seen.'
+parameters:
+- name: limit
+  label:
+    en_US: Limit
+  human_description:
+    en_US: Maximum nodes.
+  llm_description: Maximum nodes.
+  required: false
+  form: llm
+  type: number
+- name: offset
+  label:
+    en_US: Offset
+  human_description:
+    en_US: Rows to skip (pagination).
+  llm_description: Rows to skip (pagination).
+  required: false
+  form: llm
+  type: number
+extra:
+  python:
+    source: tools/node_list.py

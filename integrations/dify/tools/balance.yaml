@@ -1,0 +1,13 @@
+identity:
+  name: balance
+  author: dominusnode
+  label:
+    en_US: Balance
+description:
+  human:
+    en_US: Prepaid wallet balance (cents) that pays for relay traffic..
+  llm: Prepaid wallet balance (cents) that pays for relay traffic.
+parameters: []
+extra:
+  python:
+    source: tools/balance.py

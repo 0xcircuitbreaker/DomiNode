@@ -4,15 +4,18 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "dominusnode-pydanticai"
-version = "1.2.3"
-description = "Dominus Node rotating proxy tools for PydanticAI agents"
+version = "2.0.0"
+description = "DominusNode agent relay network tools for Pydantic AI (19 tools, built on the dominusnode SDK)"
 readme = "README.md"
 license = {text = "MIT"}
-requires-python = ">=3.9"
-dependencies = ["httpx>=0.24.0", "pydantic>=2.0.0"]
+requires-python = ">=3.10"
+dependencies = ["dominusnode>=2.0.0,<3", "pydantic-ai-slim>=1.0"]
 
 [project.optional-dependencies]
-dev = ["pytest>=7.0", "pytest-mock"]
+dev = ["pytest>=7.0"]
 
 [tool.setuptools.packages.find]
 include = ["dominusnode_pydanticai*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

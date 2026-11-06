@@ -1,0 +1,42 @@
+identity:
+  name: usage
+  author: dominusnode
+  label:
+    en_US: Usage
+description:
+  human:
+    en_US: Relay traffic usage summary (bytes, cost, requests) with recent records
+      for a date range..
+  llm: Relay traffic usage summary (bytes, cost, requests) with recent records for
+    a date range.
+parameters:
+- name: since
+  label:
+    en_US: Since
+  human_description:
+    en_US: 'Start, ISO 8601 (e.g. 2026-01-01). Default: server default period.'
+  llm_description: 'Start, ISO 8601 (e.g. 2026-01-01). Default: server default period.'
+  required: false
+  form: llm
+  type: string
+- name: until
+  label:
+    en_US: Until
+  human_description:
+    en_US: End, ISO 8601.
+  llm_description: End, ISO 8601.
+  required: false
+  form: llm
+  type: string
+- name: limit
+  label:
+    en_US: Limit
+  human_description:
+    en_US: Maximum rows to return.
+  llm_description: Maximum rows to return.
+  required: false
+  form: llm
+  type: number
+extra:
+  python:
+    source: tools/usage.py

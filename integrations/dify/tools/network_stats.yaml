@@ -1,0 +1,14 @@
+identity:
+  name: network_stats
+  author: dominusnode
+  label:
+    en_US: Network Stats
+description:
+  human:
+    en_US: 'Relay network size: online nodes by IP class and by country.'
+  llm: 'Relay network size: online nodes by IP class and by country. Use it to pick
+    a country/class with capacity.'
+parameters: []
+extra:
+  python:
+    source: tools/network_stats.py

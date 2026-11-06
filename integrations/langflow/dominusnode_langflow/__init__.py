@@ -1,5 +1,7 @@
-"""Dominus Node tools for Langflow pipelines."""
-from dominusnode_langflow.tools import DominusNodeToolkit
+"""DominusNode relay-network tools for Langflow (v2, built on the dominusnode SDK)."""
 
-__version__ = "1.0.0"
-__all__ = ["DominusNodeToolkit"]
+from dominusnode_langflow._core import TOOL_NAMES, TOOL_SPECS
+from dominusnode_langflow.tools import TOOL_PREFIX, DominusNodeToolkit, get_tools
+
+__version__ = "2.0.0"
+__all__ = ["DominusNodeToolkit", "get_tools", "TOOL_NAMES", "TOOL_SPECS", "TOOL_PREFIX", "__version__"]

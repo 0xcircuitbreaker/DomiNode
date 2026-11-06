@@ -1,0 +1,52 @@
+identity:
+  name: report_session
+  author: dominusnode
+  label:
+    en_US: Report Session
+description:
+  human:
+    en_US: Report a bad relay session (blocked, captcha, rate_limited, slow, bad_content,
+      other) so the exit node's reputation is adjusted and it is avoided..
+  llm: Report a bad relay session (blocked, captcha, rate_limited, slow, bad_content,
+    other) so the exit node's reputation is adjusted and it is avoided.
+parameters:
+- name: session_id
+  label:
+    en_US: Session Id
+  human_description:
+    en_US: Session UUID (from active_sessions).
+  llm_description: Session UUID (from active_sessions).
+  required: true
+  form: llm
+  type: string
+- name: reason
+  label:
+    en_US: Reason
+  human_description:
+    en_US: What went wrong.
+  llm_description: What went wrong.
+  required: true
+  form: llm
+  type: select
+  options:
+  - value: blocked
+    label:
+      en_US: blocked
+  - value: captcha
+    label:
+      en_US: captcha
+  - value: rate_limited
+    label:
+      en_US: rate_limited
+  - value: slow
+    label:
+      en_US: slow
+  - value: bad_content
+    label:
+      en_US: bad_content
+  - value: other
+    label:
+      en_US: other
+extra:
+  python:
+    source: tools/report_session.py

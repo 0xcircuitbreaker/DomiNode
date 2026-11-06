@@ -1,275 +1,77 @@
 # dominusnode-pydanticai
 
-PydanticAI tools for the [Dominus Node](https://dominusnode.com) rotating proxy-as-a-service platform. Provides 53 tool functions covering proxy management, wallet operations, usage analytics, account lifecycle, API keys, plans, agentic wallets, team administration, and payment processing -- designed for direct registration with PydanticAI agents.
+DominusNode tools for [Pydantic AI](#usage): 19 tools for the DominusNode **agent relay network**.
+Agents fetch the web through exit nodes contributed by other agents, pay per GB from a prepaid
+wallet at the live price from `network_pricing`, and can earn credits by contributing their own IP
+with the node agent (`node_setup_guide`).
 
-## Installation
+Version 2 is built on the official Python SDK [`dominusnode`](../../sdks/python) (v2). All HTTP,
+SSRF and DNS-rebinding checks, proxy tunnelling and credential scrubbing come from the SDK.
+
+## Install
 
 ```bash
 pip install dominusnode-pydanticai
+# from source, with the local SDK
+pip install -e ../../sdks/python -e ".[dev]"
 ```
 
-Or install from source:
+Set your key in the environment (it is never a tool argument and never appears in tool output):
 
 ```bash
-cd integrations/pydantic-ai
-pip install -e ".[dev]"
+export DOMINUSNODE_API_KEY=dn_live_...
+# optional: DOMINUSNODE_BASE_URL, DOMINUSNODE_PROXY_HOST
 ```
 
-## Environment Setup
-
-Set your Dominus Node API key as an environment variable:
-
-```bash
-export DOMINUSNODE_API_KEY="dn_live_your_api_key_here"
-```
-
-Optionally configure the API base URL and proxy host:
-
-```bash
-export DOMINUSNODE_BASE_URL="https://api.dominusnode.com"
-export DOMINUSNODE_PROXY_HOST="proxy.dominusnode.com"
-export DOMINUSNODE_PROXY_PORT="8080"
-```
-
-## Quick Start
-
-```python
-from dominusnode_pydanticai import DominusNodeToolkit
-from pydantic_ai import Agent
-
-# Create toolkit (picks up DOMINUSNODE_API_KEY from environment)
-toolkit = DominusNodeToolkit()
-
-# Or pass the API key explicitly
-toolkit = DominusNodeToolkit(api_key="dn_live_...")
-
-# Register tools with a PydanticAI agent
-agent = Agent('openai:gpt-4o', tools=toolkit.get_tools())
-
-# Run the agent
-result = agent.run_sync("Check my wallet balance")
-print(result.data)
-```
-
-## Direct Method Usage
-
-You can also call toolkit methods directly without going through PydanticAI:
-
-```python
-toolkit = DominusNodeToolkit(api_key="dn_live_...")
-
-# Check wallet balance (returns dict)
-print(toolkit.check_balance())
-
-# Fetch a URL through rotating proxies
-print(toolkit.proxied_fetch(url="https://example.com", country="US"))
-
-# Create an agentic wallet
-wallet = toolkit.create_agentic_wallet(label="Agent", spending_limit_cents=1000)
-print(wallet)
-```
-
-## Tools (53 total)
-
-### Proxy Tools (3)
-
-| Tool | Description | Required Parameters |
-|------|-------------|-------------------|
-| `proxied_fetch` | Fetch URL through rotating proxy | `url` |
-| `get_proxy_config` | Get proxy configuration | - |
-| `get_proxy_status` | Get proxy gateway status | - |
-
-### Sessions (1)
-
-| Tool | Description | Required Parameters |
-|------|-------------|-------------------|
-| `list_sessions` | List active proxy sessions | - |
-
-### Wallet Tools (8)
-
-| Tool | Description | Required Parameters |
-|------|-------------|-------------------|
-| `check_balance` | Check wallet balance | - |
-| `get_transactions` | Get wallet transaction history | - |
-| `get_forecast` | Get spending forecast | - |
-| `topup_paypal` | Create PayPal top-up order | `amount_cents` |
-| `topup_stripe` | Create Stripe checkout session | `amount_cents` |
-| `topup_crypto` | Create crypto payment invoice | `amount_usd`, `currency` |
-| `check_payment` | Check crypto payment status | `invoice_id` |
-| `x402_info` | Get x402 micropayment info | - |
-
-### Usage Tools (3)
-
-| Tool | Description | Required Parameters |
-|------|-------------|-------------------|
-| `check_usage` | Check usage statistics | - |
-| `get_daily_usage` | Get daily bandwidth breakdown | - |
-| `get_top_hosts` | Get top hosts by bandwidth | - |
-
-### Account Tools (6)
-
-| Tool | Description | Required Parameters |
-|------|-------------|-------------------|
-| `register` | Register a new account | `email`, `password` |
-| `login` | Log in to an account | `email`, `password` |
-| `get_account_info` | Get account profile info | - |
-| `verify_email` | Verify email with token | `token` |
-| `resend_verification` | Resend verification email | - |
-| `update_password` | Change account password | `current_password`, `new_password` |
-
-### API Key Tools (3)
-
-| Tool | Description | Required Parameters |
-|------|-------------|-------------------|
-| `list_keys` | List personal API keys | - |
-| `create_key` | Create a new API key | `label` |
-| `revoke_key` | Revoke an API key | `key_id` |
-
-### Plan Tools (3)
-
-| Tool | Description | Required Parameters |
-|------|-------------|-------------------|
-| `get_plan` | Get current subscription plan | - |
-| `list_plans` | List available plans | - |
-| `change_plan` | Change subscription plan | `plan_id` |
-
-### Agentic Wallet Tools (9)
-
-| Tool | Description | Required Parameters |
-|------|-------------|-------------------|
-| `create_agentic_wallet` | Create sub-wallet with spending limit | `label`, `spending_limit_cents` |
-| `fund_agentic_wallet` | Fund agentic wallet from main wallet | `wallet_id`, `amount_cents` |
-| `agentic_wallet_balance` | Check agentic wallet balance | `wallet_id` |
-| `list_agentic_wallets` | List all agentic wallets | - |
-| `agentic_transactions` | Get agentic wallet transactions | `wallet_id` |
-| `freeze_agentic_wallet` | Freeze agentic wallet | `wallet_id` |
-| `unfreeze_agentic_wallet` | Unfreeze agentic wallet | `wallet_id` |
-| `delete_agentic_wallet` | Delete agentic wallet | `wallet_id` |
-| `update_wallet_policy` | Update agentic wallet policy | `wallet_id` |
-
-### Team Tools (17)
-
-| Tool | Description | Required Parameters |
-|------|-------------|-------------------|
-| `create_team` | Create team with shared wallet | `name` |
-| `list_teams` | List all teams | - |
-| `team_details` | Get team details | `team_id` |
-| `team_fund` | Fund team wallet | `team_id`, `amount_cents` |
-| `team_create_key` | Create team API key | `team_id`, `label` |
-| `team_revoke_key` | Revoke team API key | `team_id`, `key_id` |
-| `team_list_keys` | List team API keys | `team_id` |
-| `team_usage` | Get team usage history | `team_id` |
-| `update_team` | Update team settings | `team_id` |
-| `update_team_member_role` | Change member role | `team_id`, `user_id`, `role` |
-| `team_list_members` | List team members | `team_id` |
-| `team_add_member` | Add member to team | `team_id`, `user_id` |
-| `team_remove_member` | Remove member from team | `team_id`, `user_id` |
-| `team_invite_member` | Invite user by email | `team_id`, `email` |
-| `team_list_invites` | List pending invitations | `team_id` |
-| `team_cancel_invite` | Cancel pending invitation | `team_id`, `invite_id` |
-| `delete_team` | Delete a team | `team_id` |
-
-## Usage Examples
-
-### Proxied Fetch with Geo-Targeting
-
-```python
-# Fetch through a US datacenter proxy ($3/GB)
-result = toolkit.proxied_fetch(
-    url="https://example.com",
-    country="US",
-    proxy_type="dc",
-)
-
-# Fetch through a German residential proxy ($5/GB)
-result = toolkit.proxied_fetch(
-    url="https://example.de",
-    country="DE",
-    proxy_type="residential",
-)
-```
-
-### Agentic Wallet Management
-
-```python
-# Create a sub-wallet for an AI agent with $10 spending limit
-wallet = toolkit.create_agentic_wallet(
-    label="Research Agent",
-    spending_limit_cents=1000,
-)
-
-# Fund it with $5 from main wallet
-toolkit.fund_agentic_wallet(
-    wallet_id=wallet["id"],
-    amount_cents=500,
-)
-
-# Check balance
-print(toolkit.agentic_wallet_balance(wallet_id=wallet["id"]))
-
-# Freeze if needed
-toolkit.freeze_agentic_wallet(wallet_id=wallet["id"])
-```
-
-### Team Management
-
-```python
-# Create a team
-team = toolkit.create_team(name="Research Team", max_members=10)
-
-# Fund the team wallet
-toolkit.team_fund(team_id=team["id"], amount_cents=5000)
-
-# Create a team API key
-key = toolkit.team_create_key(
-    team_id=team["id"],
-    label="Agent Key",
-)
-```
-
-### PydanticAI Agent Integration
+## Usage
 
 ```python
 from pydantic_ai import Agent
 from dominusnode_pydanticai import DominusNodeToolkit
 
-toolkit = DominusNodeToolkit(api_key="dn_live_...")
-agent = Agent(
-    'openai:gpt-4o',
-    tools=toolkit.get_tools(),
-    system_prompt="You are a proxy management assistant.",
-)
-
-# The agent can now use all 53 Dominus Node tools
-result = agent.run_sync("Fetch https://httpbin.org/ip through a US proxy")
-print(result.data)
-
-result = agent.run_sync("Create a team called 'Web Scrapers' with max 5 members")
-print(result.data)
+agent = Agent("openai:gpt-4o", toolsets=[DominusNodeToolkit().toolset()])  # key from DOMINUSNODE_API_KEY
+print(agent.run_sync("What does residential relay traffic cost per GB?").output)
 ```
+
+Tools are exposed as `dominusnode_<tool>` Pydantic AI tools in a `FunctionToolset`.
+
+## The 19 tools
+
+| # | Tool | SDK call | What it does |
+|---|---|---|---|
+| 1 | `fetch` | `proxy.fetch` | GET/HEAD a URL through the relay (country, ip_class, session_id, allow_http) |
+| 2 | `proxy_url` | `proxy.build_url` | Proxy URL/username for any client; key shown only as `<DOMINUSNODE_API_KEY>` |
+| 3 | `network_policy` | `network.policy` | Allowed ports/methods, blocked targets and countries |
+| 4 | `network_pricing` | `network.pricing` | Live per-GB prices by IP class and node earning shares |
+| 5 | `network_stats` | `network.stats` | Online nodes by class and country |
+| 6 | `balance` | `wallet.get_balance` | Prepaid wallet balance |
+| 7 | `transactions` | `wallet.get_transactions` | Prepaid wallet transactions |
+| 8 | `topup_crypto` | `wallet.top_up_crypto` | Crypto top-up invoice ($10-$1,000) |
+| 9 | `check_payment` | `wallet.get_crypto_status` | Crypto invoice status |
+| 10 | `usage` | `usage.get` | Traffic usage summary and records |
+| 11 | `active_sessions` | `sessions.get_active` | Active relay sessions |
+| 12 | `report_session` | `sessions.report` | Report a bad exit session |
+| 13 | `node_list` | `nodes.list` | Your contributed nodes |
+| 14 | `node_tier` | `nodes.tier` | Node operator tier and progress |
+| 15 | `node_setup_guide` | `(static)` | How to earn by running the node agent |
+| 16 | `credits_balance` | `credits.balance` | Earned credits (µUSD) |
+| 17 | `credits_convert` | `credits.convert` | Convert credits into wallet balance |
+| 18 | `payouts_list` | `payouts.list` | Payouts of earned credits |
+| 19 | `x402_info` | `x402.get_info` | x402 micropayment info |
 
 ## Security
 
-This toolkit includes comprehensive security measures:
+- `fetch` is GET/HEAD only, ports 80/443, no redirects, 10 MB cap, private and internal targets
+  refused after DNS resolution (all addresses). `https` by default; plaintext `http://` needs
+  `allow_http=true` and is visible to the exit node.
+- Sanctioned countries (CU, IR, KP, RU, SY) are refused.
+- Every error and result is scrubbed of `dn_live_`/`dn_test_`/`dn_node_`/`dn_proxy_` keys and JWTs.
+- Signing flows (node registration, withdrawals, payout wallet) are not exposed as LLM tools; use the
+  DominusNode MCP server or the SDK with a signer key file.
 
-- **SSRF Prevention**: Blocks requests to private IPs (10.x, 172.16-31.x, 192.168.x, 127.x, 0.0.0.0/8, 169.254.x, 100.64-127.x CGNAT, 224+ multicast), IPv6 loopback/ULA/link-local, IPv4-mapped/compatible IPv6, Teredo (2001:0000::/32), 6to4 (2002::/16), hex/octal/decimal encoded IPs
-- **DNS Rebinding Protection**: Resolves hostnames and validates all IP addresses before connecting
-- **TLD Blocking**: .localhost, .local, .internal, .arpa
-- **Credential Protection**: Embedded URL credentials blocked; API keys scrubbed from all error output
-- **OFAC Compliance**: Cuba, Iran, North Korea, Russia, Syria blocked for geo-targeting
-- **HTTP Method Restriction**: Only GET, HEAD, OPTIONS allowed through proxy
-- **Prototype Pollution Prevention**: Dangerous keys stripped from all JSON responses
-- **Response Limits**: 10 MB body cap, 4000 char truncation for LLM context
-- **Redirect Disabled**: No redirect following to prevent open redirect abuse
-
-## Running Tests
+## Tests
 
 ```bash
-cd integrations/pydantic-ai
-pip install -e ".[dev]"
-pytest tests/ -v
+pip install -e ../../sdks/python -e ".[dev]"
+pytest
 ```
-
-## License
-
-MIT

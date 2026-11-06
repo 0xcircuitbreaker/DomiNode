@@ -1,0 +1,13 @@
+identity:
+  name: active_sessions
+  author: dominusnode
+  label:
+    en_US: Active Sessions
+description:
+  human:
+    en_US: Currently active relay sessions (id, start time, status)..
+  llm: Currently active relay sessions (id, start time, status).
+parameters: []
+extra:
+  python:
+    source: tools/active_sessions.py

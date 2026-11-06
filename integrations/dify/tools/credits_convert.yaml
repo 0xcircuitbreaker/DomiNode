@@ -1,0 +1,33 @@
+identity:
+  name: credits_convert
+  author: dominusnode
+  label:
+    en_US: Credits Convert
+description:
+  human:
+    en_US: Convert available earned credits (micro-USD) into prepaid wallet balance
+      to pay for relay traffic.
+  llm: Convert available earned credits (micro-USD) into prepaid wallet balance to
+    pay for relay traffic. Retry with the returned idempotency key.
+parameters:
+- name: amount_musd
+  label:
+    en_US: Amount Musd
+  human_description:
+    en_US: Amount in micro-USD as a digit string (1000000 = $1; min 10000).
+  llm_description: Amount in micro-USD as a digit string (1000000 = $1; min 10000).
+  required: true
+  form: llm
+  type: string
+- name: idempotency_key
+  label:
+    en_US: Idempotency Key
+  human_description:
+    en_US: Optional key to make a retry safe.
+  llm_description: Optional key to make a retry safe.
+  required: false
+  form: llm
+  type: string
+extra:
+  python:
+    source: tools/credits_convert.py

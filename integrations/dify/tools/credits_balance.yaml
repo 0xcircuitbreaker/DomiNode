@@ -1,0 +1,15 @@
+identity:
+  name: credits_balance
+  author: dominusnode
+  label:
+    en_US: Credits Balance
+description:
+  human:
+    en_US: 'Node operator earnings in micro-USD: pending, available and frozen credits,
+      tier and payout status..'
+  llm: 'Node operator earnings in micro-USD: pending, available and frozen credits,
+    tier and payout status.'
+parameters: []
+extra:
+  python:
+    source: tools/credits_balance.py

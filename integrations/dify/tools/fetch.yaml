@@ -1,0 +1,109 @@
+identity:
+  name: fetch
+  author: dominusnode
+  label:
+    en_US: Fetch
+description:
+  human:
+    en_US: Fetch a URL through the DominusNode relay network (agent-contributed exit
+      nodes).
+  llm: Fetch a URL through the DominusNode relay network (agent-contributed exit nodes).
+    GET or HEAD only, ports 80/443, no redirects followed, private/internal targets
+    refused. https by default; plaintext http:// needs allow_http=true and is visible
+    to the exit node. Billed per GB from your prepaid wallet at the live rate in network_pricing.
+    Returns status, headers and the body (truncated to max_chars).
+parameters:
+- name: url
+  label:
+    en_US: Url
+  human_description:
+    en_US: Target URL (https://... ; http:// only with allow_http).
+  llm_description: Target URL (https://... ; http:// only with allow_http).
+  required: true
+  form: llm
+  type: string
+- name: method
+  label:
+    en_US: Method
+  human_description:
+    en_US: HTTP method.
+  llm_description: HTTP method.
+  required: false
+  form: llm
+  type: select
+  options:
+  - value: GET
+    label:
+      en_US: GET
+  - value: HEAD
+    label:
+      en_US: HEAD
+  default: GET
+- name: country
+  label:
+    en_US: Country
+  human_description:
+    en_US: ISO 3166-1 alpha-2 exit country, e.g. US, DE. Sanctioned countries (CU,
+      IR, KP, RU, SY) are refused.
+  llm_description: ISO 3166-1 alpha-2 exit country, e.g. US, DE. Sanctioned countries
+    (CU, IR, KP, RU, SY) are refused.
+  required: false
+  form: llm
+  type: string
+- name: ip_class
+  label:
+    en_US: Ip Class
+  human_description:
+    en_US: 'Exit IP class. Omit to let the relay choose. Prices differ by class: see
+      network_pricing.'
+  llm_description: 'Exit IP class. Omit to let the relay choose. Prices differ by
+    class: see network_pricing.'
+  required: false
+  form: llm
+  type: select
+  options:
+  - value: residential
+    label:
+      en_US: residential
+  - value: dc
+    label:
+      en_US: dc
+  - value: mobile
+    label:
+      en_US: mobile
+- name: session_id
+  label:
+    en_US: Session Id
+  human_description:
+    en_US: Sticky session id (1-64 letters/digits) to keep the same exit node across
+      requests.
+  llm_description: Sticky session id (1-64 letters/digits) to keep the same exit node
+    across requests.
+  required: false
+  form: llm
+  type: string
+- name: allow_http
+  label:
+    en_US: Allow Http
+  human_description:
+    en_US: Opt in to plaintext http:// targets. Plaintext traffic is visible to the
+      exit node; leave false for https.
+  llm_description: Opt in to plaintext http:// targets. Plaintext traffic is visible
+    to the exit node; leave false for https.
+  required: false
+  form: llm
+  type: boolean
+  default: false
+- name: max_chars
+  label:
+    en_US: Max Chars
+  human_description:
+    en_US: Maximum body characters returned.
+  llm_description: Maximum body characters returned.
+  required: false
+  form: llm
+  type: number
+  default: 4000
+extra:
+  python:
+    source: tools/fetch.py
