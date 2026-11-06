@@ -1,41 +1,65 @@
 import * as net from "node:net";
 import { isBlockedCountry, createLogger } from "@dominusnode/shared";
-import { classifyAsn, HOSTING_ASNS, type AsnDb } from "./asn-db.js";
+import { classifyAsn, HOSTING_ASNS, loadAsnDbFile, parseHostingAsns, type AsnDb } from "./asn-db.js";
 
 const log = createLogger("proxy:geo");
 
-let geoLookup: ((ip: string) => { country: string } | null) | null = null;
+/**
+ * Country + ASN lookups come from the offline ip2asn-combined dataset
+ * (asn-db.ts, PDDL), loaded from ASN_DB_FILE. No third-party geo library.
+ *
+ * Fail-closed rules:
+ * - DB missing or corrupt: every public destination is blocked ("UNKNOWN") and
+ *   lookupPeerGeo returns null (tunnel refuses public peers: GEO_UNAVAILABLE).
+ *   ASN_DB_OPTIONAL does NOT relax this; it only relaxes the per-node ASN
+ *   requirement in the tunnel server.
+ * - DB loaded, public address without a country (unrouted or "None"): blocked
+ *   in production, allowed outside production.
+ * - SKIP_GEOIP=1 disables geo checks and skips loading the DB, outside
+ *   production only. It is ignored (with an error log) when NODE_ENV=production.
+ */
+let asnDb: AsnDb | null = null;
+let hostingAsns: ReadonlySet<number> = HOSTING_ASNS;
+let geoDisabled = false;
 let geoInitialized = false;
 
+const isProduction = (): boolean => process.env["NODE_ENV"] === "production";
+
 /**
- * Initialize geoip-lite. Call once at startup.
- * If geoip-lite fails to load, geo-blocking will DENY all non-private traffic
- * (fail-closed for OFAC compliance).
+ * Load the ASN/country database once. Idempotent: safe to call from the
+ * entrypoint and from both HTTP and SOCKS5 server startup.
  */
 export async function initGeoCheck(): Promise<void> {
-  // Idempotent — safe to call from both HTTP and SOCKS5 server startup
   if (geoInitialized) return;
+  geoInitialized = true;
+  hostingAsns = parseHostingAsns(process.env["HOSTING_ASNS"]);
 
-  // Skip geoip-lite only with explicit opt-in (saves ~185MB RAM for local dev)
-  // NEVER use NODE_ENV alone — that could accidentally disable OFAC compliance in production
   if (process.env["SKIP_GEOIP"] === "1") {
-    geoInitialized = true;
-    geoLookup = () => null; // Allow all traffic when explicitly opted out
-    log.warn("geo-check DISABLED via SKIP_GEOIP=1 — OFAC sanctions not enforced. Do NOT use in production.");
-    return;
+    if (isProduction()) {
+      log.error("SKIP_GEOIP=1 ignored in production: OFAC geo checks stay enabled");
+    } else {
+      geoDisabled = true;
+      log.warn("geo-check DISABLED via SKIP_GEOIP=1: OFAC sanctions not enforced. Do NOT use in production.");
+      return;
+    }
   }
 
+  const path = process.env["ASN_DB_FILE"] ?? "data/ip2asn-combined.tsv.gz";
   try {
-    const geoip = await import("geoip-lite");
-    geoLookup = geoip.default?.lookup ?? geoip.lookup;
-    geoInitialized = true;
-    log.info("geo-check initialized (fail-closed mode)");
+    asnDb = loadAsnDbFile(path);
+    if (asnDb) log.info("ASN/geo database loaded (fail-closed mode)", { v4: asnDb.v4Count, v6: asnDb.v6Count });
+    else log.error(`ASN/geo database not found at ${path} (run scripts/update-asn-db.sh): ALL public traffic will be BLOCKED`);
   } catch (err) {
-    geoInitialized = true; // Mark as initialized but without lookup
-    log.error("geoip-lite not available — ALL non-private traffic will be BLOCKED for compliance", {
-      error: err instanceof Error ? err.message : String(err),
+    asnDb = null;
+    log.error("ASN/geo database failed to load: ALL public traffic will be BLOCKED", {
+      error: err instanceof Error ? err.message.slice(0, 100) : "unknown",
     });
   }
+}
+
+/** True when a geo database is loaded (or checks are explicitly disabled outside production). */
+export function geoAvailable(): boolean {
+  return geoDisabled || asnDb !== null;
 }
 
 /** Check if an IP is in a private/local range (RFC 1918, RFC 4193, loopback) */
@@ -62,55 +86,56 @@ function isPrivateIp(ip: string): boolean {
  * Check if a client IP is from a sanctioned country.
  * Returns the blocked country code if blocked, or null if allowed.
  *
- * FAIL-CLOSED: If geoip-lite is not available, blocks all non-private IPs.
+ * FAIL-CLOSED: blocks all public IPs when the database is unavailable, and
+ * public IPs with no known country in production.
  */
 export function checkSanctionedCountry(clientIp: string): string | null {
-  // Skip invalid IPs
   if (net.isIP(clientIp) === 0) return null;
-
-  // Always allow private/local IPs (dev/testing)
   if (isPrivateIp(clientIp)) return null;
+  if (geoDisabled) return null;
 
-  // Fail-closed: if geo lookup unavailable, block all non-private traffic
-  if (!geoLookup) {
+  if (!asnDb) {
     log.warn("geo-check unavailable, blocking non-private IP for compliance", { ip: clientIp });
     return "UNKNOWN";
   }
 
-  const geo = geoLookup(clientIp);
-  if (!geo || !geo.country) return null;
-
-  if (isBlockedCountry(geo.country)) {
-    log.warn("blocked sanctioned country", { ip: clientIp, country: geo.country });
-    return geo.country;
+  const country = asnDb.lookupInfo(clientIp)?.country ?? null;
+  if (!country) {
+    if (isProduction()) {
+      log.warn("unknown country for public IP, blocking (production)", { ip: clientIp });
+      return "UNKNOWN";
+    }
+    return null;
   }
 
+  if (isBlockedCountry(country)) {
+    log.warn("blocked sanctioned country", { ip: clientIp, country });
+    return country;
+  }
   return null;
 }
 
-let asnDb: AsnDb | null = null;
-let hostingAsns: ReadonlySet<number> = HOSTING_ASNS;
-
-/** Install the offline ASN database (null = unavailable) and hosting-ASN list. */
+/** Install the ASN/country database directly (tests; null = unavailable). */
 export function setAsnDb(db: AsnDb | null, hosting: ReadonlySet<number> = HOSTING_ASNS): void {
   asnDb = db;
   hostingAsns = hosting;
+  geoDisabled = false;
+  geoInitialized = true;
 }
 
 /**
  * Country, ASN and ip_class for a node's peer IP (tunnel auth). Returns null
- * when geo data is unavailable so the tunnel server fails closed for public
- * peers. ASN comes from the offline ip2asn dataset (null when not loaded or
- * the address is unrouted); ip_class is dc for known hosting ASNs, else
- * residential, and null without an ASN (keeps any probe classification).
+ * when geo data is unavailable or the address has no country, so the tunnel
+ * server fails closed for public peers. ip_class is dc for known hosting
+ * ASNs, else residential.
  */
 export function lookupPeerGeo(ip: string): { country: string | null; asn: number | null; ipClass: "dc" | "residential" | null } | null {
-  if (!geoLookup) return null;
+  if (geoDisabled) return { country: null, asn: null, ipClass: null };
+  if (!asnDb) return null;
   try {
-    const r = geoLookup(ip);
+    const r = asnDb.lookupInfo(ip);
     if (!r || !r.country) return null;
-    const asn = asnDb ? asnDb.lookup(ip) : null;
-    return { country: r.country.toUpperCase(), asn, ipClass: asn === null ? null : (classifyAsn(asn, hostingAsns) as "dc" | "residential") };
+    return { country: r.country, asn: r.asn, ipClass: classifyAsn(r.asn, hostingAsns) as "dc" | "residential" };
   } catch {
     return null;
   }

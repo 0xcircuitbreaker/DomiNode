@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 // Mock @dominusnode/shared
 const mockIsBlockedCountry = vi.fn();
@@ -13,18 +13,28 @@ vi.mock("@dominusnode/shared", () => ({
   }),
 }));
 
-// We need to mock geoip-lite. The geo-check module imports it dynamically,
-// so we mock it at the module level.
+// geo-check loads the offline ip2asn database via loadAsnDbFile; replace it
+// with a fake whose lookupInfo is driven by mockLookup ({ country } | null).
 const mockLookup = vi.fn();
 
-vi.mock("geoip-lite", () => ({
-  default: {
-    lookup: (...args: unknown[]) => mockLookup(...args),
-  },
-  lookup: (...args: unknown[]) => mockLookup(...args),
-}));
+vi.mock("./asn-db.js", async (importOriginal) => {
+  const orig = await importOriginal<typeof import("./asn-db.js")>();
+  return {
+    ...orig,
+    loadAsnDbFile: () => ({
+      v4Count: 1,
+      v6Count: 0,
+      lookup: () => 64500,
+      lookupInfo: (ip: string) => {
+        const r = mockLookup(ip) as { country?: string } | null;
+        return r ? { asn: 64500, country: r.country || null } : null;
+      },
+    }),
+  };
+});
 
-import { initGeoCheck, checkSanctionedCountry } from "./geo-check.js";
+import { initGeoCheck, checkSanctionedCountry, setAsnDb, lookupPeerGeo } from "./geo-check.js";
+import { parseAsnTsv } from "./asn-db.js";
 
 describe("proxy-gateway/geo-check", () => {
   beforeEach(() => {
@@ -244,6 +254,45 @@ describe("proxy-gateway/geo-check", () => {
 
       checkSanctionedCountry("4.4.4.4");
       expect(mockIsBlockedCountry).toHaveBeenCalledWith("FR");
+    });
+  });
+
+  describe("production fail-closed", () => {
+    afterEach(() => {
+      delete process.env["NODE_ENV"];
+    });
+
+    it("blocks public IPs with no known country in production", () => {
+      process.env["NODE_ENV"] = "production";
+      mockLookup.mockReturnValue(null);
+      expect(checkSanctionedCountry("203.0.113.1")).toBe("UNKNOWN");
+      mockLookup.mockReturnValue({ country: "" });
+      expect(checkSanctionedCountry("203.0.113.2")).toBe("UNKNOWN");
+    });
+
+    it("still allows private IPs in production", () => {
+      process.env["NODE_ENV"] = "production";
+      expect(checkSanctionedCountry("10.0.0.1")).toBeNull();
+    });
+  });
+
+  describe("real ip2asn data", () => {
+    const db = parseAsnTsv("5.0.0.0\t5.0.0.255\t197207\tIR\tMCCI\n8.8.8.0\t8.8.8.255\t15169\tUS\tGOOGLE\n");
+
+    afterEach(() => setAsnDb(null));
+
+    it("uses the dataset country column for sanctions", () => {
+      setAsnDb(db);
+      mockIsBlockedCountry.mockImplementation((c: string) => c === "IR");
+      expect(checkSanctionedCountry("5.0.0.7")).toBe("IR");
+      expect(checkSanctionedCountry("8.8.8.8")).toBeNull();
+      expect(lookupPeerGeo("5.0.0.7")).toEqual({ country: "IR", asn: 197207, ipClass: "residential" });
+    });
+
+    it("blocks every public IP when the database is unavailable", () => {
+      setAsnDb(null);
+      expect(checkSanctionedCountry("8.8.8.8")).toBe("UNKNOWN");
+      expect(lookupPeerGeo("8.8.8.8")).toBeNull();
     });
   });
 });
