@@ -9,7 +9,7 @@ import socket
 import ssl
 import time
 from dataclasses import dataclass, field
-from typing import Any, Dict, Mapping, Optional
+from typing import Dict, Mapping, Optional
 
 from .constants import MAX_RESPONSE_BYTES
 from .errors import ProxyError, invalid_arg, scrub_credentials

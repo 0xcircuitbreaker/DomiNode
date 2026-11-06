@@ -7,7 +7,7 @@ Results are the server's JSON as dicts (camelCase keys, as on the wire); see typ
 from __future__ import annotations
 
 import re
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, List, Optional
 
 from ._ops import Call, Gen, make_variants
 from .constants import DEFAULT_HTTP_PROXY_PORT, DEFAULT_PROXY_HOST, DEFAULT_SOCKS5_PROXY_PORT

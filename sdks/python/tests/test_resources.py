@@ -7,7 +7,7 @@ from typing import Any, Callable, Optional
 
 import pytest
 
-from conftest import ACCESS, API_KEY, Recorder, connect, new_async_client
+from conftest import ACCESS, API_KEY, Recorder, new_async_client
 from dominusnode import Secret
 
 U = "123e4567-e89b-12d3-a456-426614174000"
