@@ -4,15 +4,18 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "dominusnode-ironclaw"
-version = "1.2.1"
-description = "Dominus Node toolkit for IronClaw AI agent runtime -- 23 proxy, wallet, team, and payment management tools"
+version = "2.0.0"
+description = "DominusNode agent relay network tools for IronClaw (19 tools, built on the dominusnode SDK)"
 readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.10"
-dependencies = ["httpx>=0.25.0"]
+dependencies = ["dominusnode>=2.0.0,<3"]
 
 [project.optional-dependencies]
 dev = ["pytest>=7.0"]
 
 [tool.setuptools.packages.find]
 include = ["dominusnode_ironclaw*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

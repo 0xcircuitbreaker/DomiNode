@@ -1,87 +1,34 @@
-"""MCP configuration helper for IronClaw's native MCP bridge.
+"""IronClaw MCP bridge configuration for the DominusNode MCP server (v2).
 
-Generates connection configuration that IronClaw agents can use to connect
-to the Dominus Node MCP server, which exposes 57 authenticated tools for proxy,
-wallet, team, and payment management.
-
-Example::
-
-    from dominusnode_ironclaw.mcp_config import generate_mcp_config
-
-    config = generate_mcp_config(
-        base_url="https://api.dominusnode.com",
-        api_key="dn_live_abc123",
-    )
-    # Pass config to IronClaw's MCP bridge
+The MCP server (``@dominusnode/mcp-server``) runs locally over stdio and reads its key
+from ``DOMINUSNODE_API_KEY``. The generated config references that variable by name;
+it never embeds the key itself.
 """
 
 from __future__ import annotations
 
-import os
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 
-def generate_mcp_config(
-    base_url: str = "https://api.dominusnode.com",
-    api_key: str = "",
-    agent_secret: str | None = None,
-) -> Dict[str, Any]:
-    """Generate an IronClaw-compatible MCP server connection configuration.
-
-    This configuration tells IronClaw how to connect to the Dominus Node MCP
-    server, which provides 57 authenticated tools for proxy, wallet, team,
-    and payment management.
+def generate_mcp_config(base_url: Optional[str] = None) -> Dict[str, Any]:
+    """Return an IronClaw MCP server entry that launches the DominusNode MCP server.
 
     Args:
-        base_url: Base URL of the Dominus Node API (default: production).
-        api_key: Dominus Node API key (``dn_live_...`` or ``dn_test_...``).
-        agent_secret: Optional agent secret for MCP agent identification.
-            Falls back to ``DOMINUSNODE_AGENT_SECRET`` environment variable.
-
-    Returns:
-        A dictionary suitable for IronClaw's MCP bridge configuration.
+        base_url: Optional API base URL override, passed as ``DOMINUSNODE_API_URL``.
     """
-    base = base_url.rstrip("/")
-    secret = agent_secret or os.environ.get("DOMINUSNODE_AGENT_SECRET")
-
-    headers: Dict[str, str] = {
-        "X-API-Key": api_key,
-        "User-Agent": "dominusnode-ironclaw/1.0.0",
-    }
-    if secret:
-        headers["X-DominusNode-Agent"] = "mcp"
-        headers["X-DominusNode-Agent-Secret"] = secret
-
+    env: Dict[str, str] = {"DOMINUSNODE_API_KEY": "${DOMINUSNODE_API_KEY}"}
+    if base_url:
+        env["DOMINUSNODE_API_URL"] = base_url.rstrip("/")
     return {
         "server": {
             "name": "dominusnode",
-            "description": "Dominus Node rotating proxy-as-a-service MCP server",
+            "description": "DominusNode agent relay network: fetch through relay nodes, pricing, wallet, node earnings",
             "transport": {
-                "type": "streamable-http",
-                "url": f"{base}/mcp",
-            },
-            "auth": {
-                "type": "custom",
-                "headers": headers,
+                "type": "stdio",
+                "command": "npx",
+                "args": ["-y", "@dominusnode/mcp-server"],
+                "env": env,
             },
         },
-        "capabilities": {
-            "tools": True,
-            "resources": False,
-            "prompts": False,
-        },
-        "metadata": {
-            "version": "1.0.0",
-            "tool_count": 57,
-            "categories": [
-                "proxy",
-                "wallet",
-                "agentic-wallet",
-                "team",
-                "payment",
-                "usage",
-                "session",
-                "x402",
-            ],
-        },
+        "capabilities": {"tools": True, "resources": False, "prompts": False},
     }

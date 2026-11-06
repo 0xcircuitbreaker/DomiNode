@@ -1,21 +1,8 @@
-"""Dominus Node IronClaw AI agent integration.
+"""DominusNode relay-network tools for IronClaw (v2, built on the dominusnode SDK)."""
 
-Provides a Python toolkit for NEAR AI's IronClaw agent runtime, exposing
-26 tools for interacting with the Dominus Node rotating proxy-as-a-service
-platform.  Supports both direct Python bridge usage and MCP Protocol
-configuration for IronClaw's native MCP bridge.
+from dominusnode_ironclaw._core import TOOL_NAMES, TOOL_SPECS
+from dominusnode_ironclaw.mcp_config import generate_mcp_config
+from dominusnode_ironclaw.tools import TOOL_PREFIX, DominusNodeToolkit
 
-Example::
-
-    from dominusnode_ironclaw import DominusNodeToolkit
-
-    toolkit = DominusNodeToolkit(api_key="dn_live_...")
-    result = toolkit.check_balance()  # JSON string
-    tools = toolkit.get_tool_definitions()  # IronClaw-compatible dicts
-    mcp = toolkit.get_mcp_config()  # MCP server connection config
-"""
-
-from dominusnode_ironclaw.tools import DominusNodeToolkit
-
-__version__ = "1.0.0"
-__all__ = ["DominusNodeToolkit", "__version__"]
+__version__ = "2.0.0"
+__all__ = ["DominusNodeToolkit", "generate_mcp_config", "TOOL_NAMES", "TOOL_SPECS", "TOOL_PREFIX", "__version__"]

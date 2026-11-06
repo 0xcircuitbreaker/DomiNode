@@ -1,4 +1,4 @@
-httpx>=0.25.0
+dominusnode<3,>=2.0.0
 
 [dev]
 pytest>=7.0
