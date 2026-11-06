@@ -1,135 +1,76 @@
 #pragma once
 
-#include "dominusnode/auth.hpp"
-#include "dominusnode/keys.hpp"
-#include "dominusnode/wallet.hpp"
-#include "dominusnode/usage.hpp"
-#include "dominusnode/plans.hpp"
-#include "dominusnode/sessions.hpp"
-#include "dominusnode/proxy.hpp"
-#include "dominusnode/admin.hpp"
-#include "dominusnode/slots.hpp"
-#include "dominusnode/agent_wallet.hpp"
-#include "dominusnode/teams.hpp"
-#include "dominusnode/x402.hpp"
-#include "dominusnode/wallet_auth.hpp"
+#include "dominusnode/constants.hpp"
+#include "dominusnode/http_client.hpp"
+#include "dominusnode/resources.hpp"
 
-#include <memory>
+#include <optional>
+#include <ostream>
 #include <string>
 
 namespace dominusnode {
 
-/// Configuration for the Dominus Node client.
-/// Credentials are securely zeroed on destruction.
 struct ClientConfig {
-    std::string base_url = "https://api.dominusnode.com";
-    std::string api_key;
-    std::string access_token;
-    std::string refresh_token;
-    std::string proxy_host = "proxy.dominusnode.com";
-    int http_proxy_port = 8080;
-    int socks5_proxy_port = 1080;
-    std::string agent_secret;
-
-    ~ClientConfig();
-
-    ClientConfig() = default;
-
-    // Delete copy operations to prevent credential proliferation in memory.
-    // Use move semantics to transfer ownership of credential strings.
-    ClientConfig(const ClientConfig&) = delete;
-    ClientConfig& operator=(const ClientConfig&) = delete;
-    ClientConfig(ClientConfig&&) = default;
-    ClientConfig& operator=(ClientConfig&&) = default;
+    std::string base_url = DEFAULT_BASE_URL;
+    std::string proxy_host = DEFAULT_PROXY_HOST;
+    int http_proxy_port = DEFAULT_HTTP_PROXY_PORT;
+    int socks5_proxy_port = DEFAULT_SOCKS5_PROXY_PORT;
+    std::optional<std::string> access_token;
+    std::optional<std::string> refresh_token;
+    /// Injectable HTTP transport (tests). Default: libcurl.
+    Transport transport;
 };
 
-/// Main entry point for the Dominus Node C++ SDK.
-///
-/// Usage:
-///   dominusnode::ClientConfig cfg;
-///   cfg.base_url = "https://api.dominusnode.com";
-///   dominusnode::DominusNodeClient client(cfg);
-///
-///   // Connect with API key (for proxy usage):
-///   client.connect_with_key("dn_live_xxxxx");
-///
-///   // Or connect with credentials (for dashboard):
-///   client.connect_with_credentials("user@example.com", "password");
-///
-///   // Access resources:
-///   auto balance = client.wallet().get_balance();
-///   auto keys = client.keys().list();
-///
-/// The client uses the Pimpl pattern for ABI stability. All token memory
-/// is securely zeroed on destruction via explicit_bzero.
+struct ConnectResult {
+    bool mfa_required = false;
+    std::optional<std::string> user_id;
+};
+
+/// DominusNode relay-network client for AI agents.
+///   dominusnode::DominusNodeClient dn;
+///   dn.connect_with_key(std::getenv("DOMINUSNODE_API_KEY"));
+///   auto r = dn.proxy.fetch("https://example.com", opts);
 class DominusNodeClient {
 public:
-    /// Construct a client with the given configuration.
-    explicit DominusNodeClient(ClientConfig config = {});
-
-    /// Destructor. Securely clears all token memory.
+    explicit DominusNodeClient(const ClientConfig& config = {});
     ~DominusNodeClient();
-
-    // Non-copyable, movable.
     DominusNodeClient(const DominusNodeClient&) = delete;
     DominusNodeClient& operator=(const DominusNodeClient&) = delete;
-    DominusNodeClient(DominusNodeClient&&) noexcept;
-    DominusNodeClient& operator=(DominusNodeClient&&) noexcept;
 
-    /// Authenticate using an API key. Calls verify-key to get JWT tokens.
-    void connect_with_key(const std::string& api_key);
-
-    /// Authenticate using email and password. Gets JWT tokens.
-    void connect_with_credentials(const std::string& email, const std::string& password);
-
-    /// Clear authentication state.
+    ConnectResult connect_with_key(const std::string& api_key);
+    /// Best-effort logout, then zeroize API key, access and refresh token.
     void disconnect();
+    bool is_connected() const;
 
-    /// Access the auth resource (register, login, MFA, etc.).
-    AuthResource& auth();
-
-    /// Access the API keys resource.
-    KeysResource& keys();
-
-    /// Access the wallet resource (balance, transactions, top-up).
-    WalletResource& wallet();
-
-    /// Access the usage resource (records, daily, top hosts, CSV export).
-    UsageResource& usage();
-
-    /// Access the plans resource (list, get/change user plan).
-    PlansResource& plans();
-
-    /// Access the sessions resource (active proxy sessions).
-    SessionsResource& sessions();
-
-    /// Access the proxy resource (config, health, URL builder).
-    ProxyResource& proxy();
-
-    /// Access the admin resource (user management, revenue, stats).
-    AdminResource& admin();
-
-    /// Access the slots resource (slot availability, waitlist — no auth required).
-    SlotsResource& slots();
-
-    /// Access the agentic wallet resource (sub-wallets with spending limits).
-    AgenticWalletResource& agentic_wallets();
-
-    /// Access the teams resource (shared wallets, members, invites, keys).
-    TeamsResource& teams();
-
-    /// Access the x402 resource (HTTP 402 micropayment protocol info).
-    X402Resource& x402();
-
-    /// Access the wallet auth resource (EIP-191 wallet-based authentication).
-    WalletAuthResource& wallet_auth();
-
-    /// Get the configured base URL.
-    const std::string& base_url() const;
+    /// Test hook.
+    HttpClient& http() { return http_; }
 
 private:
-    struct Impl;
-    std::unique_ptr<Impl> impl_;
+    TokenManager tokens_;
+    std::string api_key_;
+    HttpClient http_;
+
+public:
+    AuthResource auth;
+    WalletAuthResource wallet_auth;
+    KeysResource keys;
+    WalletResource wallet;
+    AgenticWalletResource agentic_wallets;
+    TeamsResource teams;
+    UsageResource usage;
+    SessionsResource sessions;
+    X402Resource x402;
+    NetworkResource network;
+    NodesResource nodes;
+    CreditsResource credits;
+    PayoutWalletResource payout_wallet;
+    PayoutsResource payouts;
+    ProxyResource proxy;
 };
+
+inline std::ostream& operator<<(std::ostream& os, const DominusNodeClient& c) {
+    return os << "DominusNodeClient(connected=" << (c.is_connected() ? "true" : "false") << ")";
+}
+inline void to_json(nlohmann::json& j, const DominusNodeClient& c) { j = {{"connected", c.is_connected()}}; }
 
 } // namespace dominusnode

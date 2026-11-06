@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.0.0] - 2026-11-06
+
+### Breaking
+- Rewritten for the v2 relay-network surface (`sdks/SDK_SURFACE.md`, reference `sdks/node` 2.0.0).
+- Removed: plans, slots/waitlist, admin, Stripe/PayPal top-ups, email/password login and
+  registration, human MFA flows, `connect_with_credentials`/`complete_mfa`, agent-secret
+  headers, `proxy.get_status`, legacy `dc-`/`residential-`/`auto-` username prefixes,
+  state/city/ASN targeting and all hardcoded prices.
+- Resources are public members (`dn.credits.balance()`); results are `nlohmann::json`
+  except credential-bearing ones (`Secret`) and `sessions.get_active()`.
+
+### Added
+- Relay resources: `network`, `nodes` (attestation + PoW registration), `credits`
+  (µUSD convert/withdraw), `payout_wallet`, `payouts`, `sessions.report`.
+- `Signer` callbacks; node attestation, payout-wallet and withdrawal messages rebuilt
+  byte-for-byte and refused (signer never called) on mismatch.
+- `Secret` wrapper (redacted in `operator<<`/JSON, zeroized on destruction).
+- `proxy.fetch` GET/HEAD helper with URL rules, private-address table and DNS-rebinding check;
+  `build_username`/`build_url` with `country-`, `class-`, `session-`, `wallet-`, `allowhttp-1` (OFAC refused).
+- Injectable transport; error `code()`/`details()`; credential scrubbing incl. `dn_node_`/`dn_proxy_`.
+- ctest suite covering every method, validation, errors, 429/401, size cap, redirects,
+  signer flows (Node-generated fixtures), redaction and a local fake proxy gateway.
+
 ## [1.0.0] - 2026-02-19
 
 ### Added

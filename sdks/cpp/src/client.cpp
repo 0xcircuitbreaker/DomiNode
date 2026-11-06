@@ -1,155 +1,78 @@
 #include "dominusnode/client.hpp"
-#include "dominusnode/http_client.hpp"
-#include "dominusnode/token_manager.hpp"
 #include "dominusnode/errors.hpp"
-
-#include <cstring>
-
-#if defined(__linux__) || defined(__APPLE__)
-#include <strings.h>
-#endif
+#include "dominusnode/secret.hpp"
 
 namespace dominusnode {
 
-// Portably zero a string's memory (credential cleanup).
-static void secure_zero_string(std::string& s) {
-    if (s.empty() && s.capacity() == 0) return;
-    size_t cap = s.capacity();
-#if defined(__linux__) || (defined(__APPLE__) && defined(__MACH__))
-    explicit_bzero(s.data(), cap);
-#elif defined(_WIN32)
-    SecureZeroMemory(s.data(), cap);
-#else
-    volatile char* p = reinterpret_cast<volatile char*>(s.data());
-    for (size_t i = 0; i < cap; ++i) {
-        p[i] = 0;
-    }
-#endif
-    s.clear();
-    s.shrink_to_fit();
+DominusNodeClient::DominusNodeClient(const ClientConfig& config)
+    : http_(config.base_url, tokens_, [this] { return api_key_; }, config.transport),
+      auth(http_),
+      wallet_auth(http_, tokens_),
+      keys(http_),
+      wallet(http_),
+      agentic_wallets(http_),
+      teams(http_),
+      usage(http_),
+      sessions(http_),
+      x402(http_),
+      network(http_),
+      nodes(http_),
+      credits(http_),
+      payout_wallet(http_),
+      payouts(http_),
+      proxy(http_, ProxySettings{config.proxy_host, config.http_proxy_port, config.socks5_proxy_port},
+            [this] { return api_key_; }) {
+    // Never cleared (TokenManager::clear() keeps it) so reconnecting works.
+    tokens_.set_refresh_function([this](const std::string& rt) {
+        json r = auth.refresh(rt);
+        if (!r.contains("token") || !r["token"].is_string()) throw AuthenticationError("refresh returned no token");
+        RefreshResult out{r["token"].get<std::string>(), std::nullopt};
+        if (r.contains("refreshToken") && r["refreshToken"].is_string()) out.refresh_token = r["refreshToken"].get<std::string>();
+        return out;
+    });
+    if (config.access_token) tokens_.set_tokens(*config.access_token, config.refresh_token);
 }
 
-ClientConfig::~ClientConfig() {
-    secure_zero_string(api_key);
-    secure_zero_string(access_token);
-    secure_zero_string(refresh_token);
-    secure_zero_string(agent_secret);
+DominusNodeClient::~DominusNodeClient() {
+    secure_zero_string(api_key_);
+    tokens_.clear();
 }
 
-// ─── Pimpl definition ───────────────────────────────────────────────────────
-
-struct DominusNodeClient::Impl {
-    ClientConfig config;
-    TokenManager token_manager;
-    HttpClient http_client;
-    AuthResource auth_resource;
-    KeysResource keys_resource;
-    WalletResource wallet_resource;
-    UsageResource usage_resource;
-    PlansResource plans_resource;
-    SessionsResource sessions_resource;
-    ProxyResource proxy_resource;
-    AdminResource admin_resource;
-    SlotsResource slots_resource;
-    AgenticWalletResource agentic_wallet_resource;
-    TeamsResource teams_resource;
-    X402Resource x402_resource;
-    WalletAuthResource wallet_auth_resource;
-
-    explicit Impl(ClientConfig cfg)
-        : config(std::move(cfg))
-        , http_client(config.base_url, token_manager, config.agent_secret)
-        , auth_resource(http_client)
-        , keys_resource(http_client)
-        , wallet_resource(http_client)
-        , usage_resource(http_client)
-        , plans_resource(http_client)
-        , sessions_resource(http_client)
-        , proxy_resource(http_client, config.proxy_host,
-                         config.http_proxy_port, config.socks5_proxy_port)
-        , admin_resource(http_client)
-        , slots_resource(http_client)
-        , agentic_wallet_resource(http_client)
-        , teams_resource(http_client)
-        , x402_resource(http_client)
-        , wallet_auth_resource(http_client, token_manager) {
-
-        // Set up the token refresh function
-        token_manager.set_refresh_function(
-            [this](const std::string& refresh_token) -> RefreshResult {
-                auto pair = auth_resource.refresh(refresh_token);
-                return RefreshResult{pair.access_token,
-                                     pair.refresh_token.value_or("")};
-            });
-
-        // If tokens were provided in config, set them
-        if (!config.access_token.empty()) {
-            token_manager.set_tokens(config.access_token, config.refresh_token);
+ConnectResult DominusNodeClient::connect_with_key(const std::string& api_key) {
+    validate_api_key(api_key);
+    try {
+        json r = auth.verify_key(api_key);
+        if (!r.contains("token") || !r["token"].is_string()) throw ProtocolError("verify-key returned no token");
+        secure_zero_string(api_key_);
+        api_key_ = api_key;
+        std::optional<std::string> rt;
+        if (r.contains("refreshToken") && r["refreshToken"].is_string()) rt = r["refreshToken"].get<std::string>();
+        tokens_.set_tokens(r["token"].get<std::string>(), rt);
+        ConnectResult out;
+        if (r.contains("userId") && r["userId"].is_string()) out.user_id = r["userId"].get<std::string>();
+        return out;
+    } catch (const DominusNodeError& e) {
+        if (e.code() && *e.code() == "MFA_REQUIRED") {
+            secure_zero_string(api_key_);
+            api_key_ = api_key;
+            return ConnectResult{true, std::nullopt};
         }
-    }
-};
-
-// ─── DominusNodeClient implementation ──────────────────────────────────────────
-
-DominusNodeClient::DominusNodeClient(ClientConfig config)
-    : impl_(std::make_unique<Impl>(std::move(config))) {}
-
-DominusNodeClient::~DominusNodeClient() = default;
-
-DominusNodeClient::DominusNodeClient(DominusNodeClient&&) noexcept = default;
-DominusNodeClient& DominusNodeClient::operator=(DominusNodeClient&&) noexcept = default;
-
-void DominusNodeClient::connect_with_key(const std::string& api_key) {
-    auto result = impl_->auth_resource.verify_key(api_key);
-    if (!result.valid) {
-        throw AuthenticationError("Invalid API key");
-    }
-    impl_->token_manager.set_tokens(result.token, result.refresh_token);
-}
-
-void DominusNodeClient::connect_with_credentials(const std::string& email, const std::string& password) {
-    auto result = impl_->auth_resource.login(email, password);
-    if (result.mfa_required) {
-        throw AuthenticationError("MFA required - use auth().login() and auth().verify_mfa() instead");
-    }
-    if (result.token.has_value()) {
-        impl_->token_manager.set_tokens(*result.token,
-                                         result.refresh_token.value_or(""));
-    } else {
-        throw AuthenticationError("Login did not return tokens");
+        throw;
     }
 }
+
+bool DominusNodeClient::is_connected() const { return !api_key_.empty() || tokens_.has_tokens(); }
 
 void DominusNodeClient::disconnect() {
-    try {
-        impl_->auth_resource.logout();
-    } catch (...) {
-        // Best-effort logout
+    if (tokens_.has_tokens()) {
+        try {
+            auth.logout();
+        } catch (...) {
+            // best effort
+        }
     }
-    impl_->token_manager.clear();
-    // C-12: Securely zero config credentials to prevent lingering in memory.
-    secure_zero_string(impl_->config.api_key);
-    secure_zero_string(impl_->config.access_token);
-    secure_zero_string(impl_->config.refresh_token);
-    secure_zero_string(impl_->config.agent_secret);
+    secure_zero_string(api_key_);
+    tokens_.clear();
 }
 
-AuthResource& DominusNodeClient::auth() { return impl_->auth_resource; }
-KeysResource& DominusNodeClient::keys() { return impl_->keys_resource; }
-WalletResource& DominusNodeClient::wallet() { return impl_->wallet_resource; }
-UsageResource& DominusNodeClient::usage() { return impl_->usage_resource; }
-PlansResource& DominusNodeClient::plans() { return impl_->plans_resource; }
-SessionsResource& DominusNodeClient::sessions() { return impl_->sessions_resource; }
-ProxyResource& DominusNodeClient::proxy() { return impl_->proxy_resource; }
-AdminResource& DominusNodeClient::admin() { return impl_->admin_resource; }
-SlotsResource& DominusNodeClient::slots() { return impl_->slots_resource; }
-AgenticWalletResource& DominusNodeClient::agentic_wallets() { return impl_->agentic_wallet_resource; }
-TeamsResource& DominusNodeClient::teams() { return impl_->teams_resource; }
-X402Resource& DominusNodeClient::x402() { return impl_->x402_resource; }
-WalletAuthResource& DominusNodeClient::wallet_auth() { return impl_->wallet_auth_resource; }
-
-const std::string& DominusNodeClient::base_url() const {
-    return impl_->config.base_url;
-}
-
-} // namespace dominusnode
+}  // namespace dominusnode

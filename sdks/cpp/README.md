@@ -1,408 +1,139 @@
-# dominusnode-cpp -- Official Dominus Node C++ SDK
+# DominusNode C++ SDK
 
-The official C++ SDK for the [Dominus Node](https://dominusnode.com) rotating proxy-as-a-service platform. Manage proxy connections, API keys, wallet balances, usage tracking, and more from C++ applications.
+C++17 client for the **DominusNode relay network**: AI agents buy exit traffic per GB
+and earn credits by running relay nodes. Implements [`sdks/SDK_SURFACE.md`](../SDK_SURFACE.md)
+v2 (reference: `sdks/node` 2.0.0).
 
-- **C++17** standard
-- **Pimpl pattern** for ABI stability
-- **Thread-safe** -- mutex-protected CURL handle and token refresh
-- **Secure memory** -- `explicit_bzero` on token memory before deallocation
-- **HTTPS by default** -- HTTP only allowed for localhost development
-- **Auto token refresh** -- JWT expiry handled transparently
-- **Typed error hierarchy** -- catch specific exception types
+Dependencies: libcurl (>= 7.85), nlohmann-json (>= 3.11), OpenSSL libcrypto (SHA-256 for
+the node PoW, random UUIDs). No signing key ever enters the SDK: EIP-191 signing is a callback.
 
-## Dependencies
-
-- [libcurl](https://curl.se/libcurl/) -- HTTP client
-- [nlohmann/json](https://github.com/nlohmann/json) (>= 3.11) -- JSON parsing
-- CMake >= 3.14
-
-## Building
-
-### With CMake
+## Build
 
 ```bash
-mkdir build && cd build
-cmake ..
-cmake --build .
+sudo apt-get install -y libcurl4-openssl-dev nlohmann-json3-dev libssl-dev cmake g++
+cmake -S . -B build && cmake --build build -j
+cd build && ctest --output-on-failure
 ```
 
-### With vcpkg
+Link with `target_link_libraries(app PRIVATE dominusnode)`; include `<dominusnode/dominusnode.hpp>`.
 
-```bash
-# Install dependencies
-vcpkg install curl nlohmann-json
-
-# Build with vcpkg toolchain
-mkdir build && cd build
-cmake .. -DCMAKE_TOOLCHAIN_FILE=/path/to/vcpkg/scripts/buildsystems/vcpkg.cmake
-cmake --build .
-```
-
-### Running Tests
-
-```bash
-cd build
-ctest --output-on-failure
-```
-
-## Quick Start
+## Quick start
 
 ```cpp
 #include <dominusnode/dominusnode.hpp>
+#include <cstdlib>
 #include <iostream>
 
 int main() {
-    // Configure the client
-    dominusnode::ClientConfig config;
-    config.base_url = "https://api.dominusnode.com";
+    dominusnode::DominusNodeClient dn;
+    dn.connect_with_key(std::getenv("DOMINUSNODE_API_KEY"));  // dn_live_...
 
-    // Create the client
-    dominusnode::DominusNodeClient client(config);
+    // GET/HEAD through the relay (https via CONNECT, TLS verified, 10 MB cap, no redirects)
+    dominusnode::ProxyFetchOptions o;
+    o.country = "US";
+    o.ip_class = "residential";
+    auto res = dn.proxy.fetch("https://example.com/", o);
+    std::cout << res.status << " " << res.text().substr(0, 200) << "\n";
 
-    // Authenticate with API key
-    client.connect_with_key("dn_live_your_api_key");
+    // Or hand a proxy URL to any HTTP client. It CONTAINS your key: do not log it.
+    dominusnode::ProxyRoutingOptions r;
+    r.country = "DE";
+    r.session_id = "job42";
+    std::string url = dn.proxy.build_url(r);  // http://country-DE-session-job42:dn_live_...@proxy.dominusnode.com:8080
 
-    // Check balance
-    auto balance = client.wallet().get_balance();
-    std::cout << "Balance: " << balance.balance_cents << " cents" << std::endl;
-
-    // Build a proxy URL
-    dominusnode::ProxyUrlOptions opts;
-    opts.protocol = "http";
-    opts.country = "US";
-    opts.state = "california";
-
-    std::string proxy_url = client.proxy().build_url("dn_live_your_api_key", opts);
-    std::cout << "Proxy URL: " << proxy_url << std::endl;
-    // => http://user-country_US-state_california:dn_live_your_api_key@proxy.dominusnode.com:8080
-
-    return 0;
+    // Prices come only from the server.
+    std::cout << dn.network.pricing().dump(2) << "\n";
+    dn.disconnect();  // logout + zeroize key and tokens
 }
 ```
 
-## Authentication
+## Client
 
-### API Key
+| Member | |
+|---|---|
+| `connect_with_key(key) -> ConnectResult{mfa_required, user_id}` | verify-key; MFA accounts keep only the key (agent routes + proxy work) |
+| `disconnect()` | best-effort logout, then `secure_zero_string` on key and tokens |
+| `is_connected()` | key or token held |
 
-```cpp
-dominusnode::DominusNodeClient client(config);
-client.connect_with_key("dn_live_your_api_key");
-```
+`ClientConfig`: `base_url`, `proxy_host`, `http_proxy_port`, `socks5_proxy_port`,
+`access_token`, `refresh_token`, `transport` (inject a `std::function<HttpResponse(const HttpRequest&)>` in tests).
 
-Or provide in the config for auto-connect:
+## Resources (15 / 71 methods)
 
-```cpp
-dominusnode::ClientConfig config;
-config.base_url = "https://api.dominusnode.com";
-config.api_key = "dn_live_your_api_key";
+| Member | Methods |
+|---|---|
+| `auth` | `verify_key`, `refresh`, `logout`, `me` |
+| `wallet_auth` | `challenge`, `verify`, `sign_in(signer)`, `link` |
+| `keys` | `create` (returns `Secret key`), `list`, `revoke` |
+| `wallet` | `get_balance`, `get_transactions`, `get_forecast`, `top_up_crypto`, `get_crypto_status` |
+| `agentic_wallets` | `create`, `list`, `get`, `fund`, `update_wallet_policy`, `transactions`, `freeze`, `unfreeze`, `delete_wallet` |
+| `teams` | `create`, `list`, `get`, `update`, `delete_team`, `fund_wallet`, `get_transactions`, `list_members`, `add_member`, `update_member_role`, `remove_member`, `create_invite`, `list_invites`, `cancel_invite`, `accept_invite`, `create_key`, `list_keys`, `revoke_key` |
+| `usage` | `get`, `get_daily`, `get_top_hosts`, `export_csv` |
+| `sessions` | `get_active` (id/started_at/status only), `report` |
+| `x402` | `get_info` |
+| `network` | `policy`, `pricing`, `stats` |
+| `nodes` | `register_challenge`, `register_node(signer, opts)`, `list`, `revoke`, `update_caps`, `tier` |
+| `credits` | `balance`, `transactions`, `convert`, `withdraw(amount, signer)` |
+| `payout_wallet` | `get`, `set(address, signer, chain, old_signer)` |
+| `payouts` | `list` |
+| `proxy` | `build_username`, `build_url`, `fetch`, `get_health`, `get_config` |
 
-dominusnode::DominusNodeClient client(config);
-// Already authenticated
-```
+Most results are `nlohmann::json` mirroring the server body; credentials returned once
+(`keys.create`, `teams.create_key`, `nodes.register_node`) come back as `Secret`
+(`reveal()`, `prefix()`, prints and serialises as `[REDACTED]`).
 
-### Email/Password
-
-```cpp
-dominusnode::DominusNodeClient client(config);
-client.connect_with_credentials("user@example.com", "SecurePass123!");
-```
-
-### Pre-existing Tokens
-
-```cpp
-dominusnode::ClientConfig config;
-config.access_token = "eyJhbGci...";
-config.refresh_token = "eyJhbGci...";
-
-dominusnode::DominusNodeClient client(config);
-```
-
-## Resources
-
-All API operations are accessed through resource accessor methods on the client.
-
-### Auth
+## Signers and signed flows
 
 ```cpp
-// Register
-auto result = client.auth().register_user("user@example.com", "SecurePass123!");
-
-// Login
-auto result = client.auth().login("user@example.com", "SecurePass123!");
-
-// Change password
-client.auth().change_password("OldPass123!", "NewPass456!");
-
-// Logout
-client.auth().logout();
-
-// Get current user
-auto user = client.auth().me();
-std::cout << "Email: " << user.email << std::endl;
+dominusnode::Signer signer{
+    "0xYourLinkedWallet...",
+    [&](const std::string& message) { return my_hsm_personal_sign(message); }  // 0x + 130 hex
+};
+auto node = dn.nodes.register_node(signer);         // challenge -> rebuild -> PoW -> sign -> POST
+std::string node_key = node.node_key.reveal();       // store 0600
+dn.payout_wallet.set("0xPayoutAddress...", signer);
+auto w = dn.credits.withdraw("5000000", signer);     // µUSD as digit string or integer
 ```
 
-### MFA
+For every signed flow the SDK rebuilds the message byte-for-byte (node attestation,
+payout wallet, withdrawal) and throws `ProtocolError` **without calling the signer** if
+the server's message differs, the server's `signer` is not your address, or the nonce is
+malformed. A signer exception or malformed signature is also a `ProtocolError`.
 
-```cpp
-// Setup MFA
-auto setup = client.auth().mfa_setup();
-std::cout << "Secret: " << setup.secret << std::endl;
-std::cout << "URI: " << setup.otpauth_uri << std::endl;
+## Money
 
-// Enable MFA with TOTP code
-client.auth().mfa_enable("123456");
+- µUSD inputs (`MusdInput`): positive integer or digit string `^[1-9][0-9]{0,15}$`, sent as a string.
+  convert 10,000..10,000,000,000; withdraw 1,000,000..100,000,000,000.
+- Cents inputs are `int64_t`, `0 < x <= 2,147,483,647` (`>= 0` for agentic-wallet limits).
 
-// Check status
-auto status = client.auth().mfa_status();
-std::cout << "Enabled: " << status.enabled << std::endl;
+## Errors
 
-// Disable MFA
-client.auth().mfa_disable("password", "123456");
-```
+`DominusNodeError` (`what()`, `status_code()`, `code()`, `details()`) with `ValidationError`
+(400 / client-side `INVALID_ARGUMENT`), `AuthenticationError`, `InsufficientBalanceError`,
+`AuthorizationError`, `NotFoundError`, `ConflictError`, `RateLimitError`
+(`retry_after_seconds()`), `ServerError`, `NetworkError`, `ProtocolError`, `ProxyError`.
+Every message is scrubbed of `dn_live_`/`dn_test_`/`dn_node_`/`dn_proxy_` keys and JWTs.
 
-### API Keys
+## HTTP behaviour
 
-```cpp
-// Create key
-auto created = client.keys().create("my-scraper");
-std::cout << "Key: " << created.key << std::endl;  // Save this!
+User-Agent `dominusnode-sdk-cpp/2.0.0`; 30 s timeout; `CURLOPT_FOLLOWLOCATION` 0 (a 3xx is an
+error); TLS verification and TLS >= 1.2 set explicitly after every `curl_easy_reset()`;
+10 MB cap by Content-Length and in the write callback; one 429 retry
+(`min(Retry-After, 10 s)` ±10 %, floor 100 ms, 429 body not read); one forced JWT refresh
+after a 401 (never for API-key auth); prototype-pollution keys stripped from JSON.
 
-// List keys
-auto keys = client.keys().list();
-for (const auto& key : keys) {
-    std::cout << key.prefix << " - " << key.label << std::endl;
-}
+## proxy.fetch
 
-// Revoke key
-client.keys().revoke("key-uuid");
-```
+GET/HEAD only; http(s) on ports 80/443; no userinfo; local names (`localhost`, `.local`,
+`.internal`, `.arpa`, ...) and private literals in any IPv4/IPv6 spelling refused;
+`http://` needs `allow_http`; all `getaddrinfo` results must be public (DNS-rebinding);
+hop-by-hop and auth headers dropped, CR/LF/NUL refused; redirects returned, not followed;
+body truncated at `max_bytes` (`truncated = true`). Username flags: `country-XX`
+(OFAC CU/IR/KP/RU/SY refused), `class-residential|dc|mobile`, `session-<id>`,
+`wallet-<uuid>`, `allowhttp-1`; none -> `relay`.
 
-### Wallet
+## Removed in 2.0
 
-```cpp
-// Get balance
-auto balance = client.wallet().get_balance();
-std::cout << "Balance: $" << (balance.balance_cents / 100.0) << std::endl;
-
-// Get transactions
-auto txs = client.wallet().get_transactions(20, 0);
-for (const auto& tx : txs) {
-    std::cout << tx.type << ": " << tx.amount_cents << " cents" << std::endl;
-}
-
-// Top up with Stripe
-auto checkout = client.wallet().topup_stripe(5000);
-std::cout << "Checkout URL: " << checkout.url << std::endl;
-
-// Top up with crypto
-auto invoice = client.wallet().topup_crypto(5000, "btc");
-```
-
-### Usage
-
-```cpp
-// Get usage records
-auto usage = client.usage().get("2026-01-01", "2026-02-01", 50, 0);
-
-// Daily breakdown
-auto daily = client.usage().get_daily("2026-01-01", "2026-02-01");
-
-// Top hosts
-auto hosts = client.usage().get_top_hosts(10);
-for (const auto& host : hosts) {
-    std::cout << host.host << ": " << host.bytes_total << " bytes" << std::endl;
-}
-
-// CSV export
-auto csv = client.usage().export_csv("2026-01-01", "2026-02-01");
-```
-
-### Plans
-
-```cpp
-// List plans
-auto plans = client.plans().list();
-for (const auto& plan : plans) {
-    std::cout << plan.id << ": " << plan.name << " - "
-              << plan.price_per_gb_cents << " cents/GB" << std::endl;
-}
-
-// Get current plan
-auto current = client.plans().get_user_plan();
-
-// Change plan
-client.plans().change("vol100");
-```
-
-### Sessions
-
-```cpp
-auto sessions = client.sessions().get_active();
-for (const auto& session : sessions) {
-    std::cout << "Session " << session.id << ": "
-              << session.bytes_total << " bytes" << std::endl;
-}
-```
-
-### Proxy
-
-```cpp
-// Build proxy URL (default settings)
-auto url = client.proxy().build_url("dn_live_your_key");
-
-// With geo-targeting
-dominusnode::ProxyUrlOptions opts;
-opts.protocol = "http";
-opts.country = "US";
-opts.state = "california";
-opts.city = "losangeles";
-auto geo_url = client.proxy().build_url("dn_live_your_key", opts);
-
-// SOCKS5
-dominusnode::ProxyUrlOptions socks_opts;
-socks_opts.protocol = "socks5";
-socks_opts.country = "DE";
-auto socks_url = client.proxy().build_url("dn_live_your_key", socks_opts);
-
-// Sticky session
-dominusnode::ProxyUrlOptions sticky_opts;
-sticky_opts.country = "US";
-sticky_opts.session_id = "my-session-123";
-auto sticky_url = client.proxy().build_url("dn_live_your_key", sticky_opts);
-
-// Health check
-auto health = client.proxy().get_health();
-std::cout << "Status: " << health.status << std::endl;
-
-// Detailed status
-auto status = client.proxy().get_status();
-for (const auto& p : status.providers) {
-    std::cout << p.name << ": " << p.state << std::endl;
-}
-
-// Configuration
-auto config = client.proxy().get_config();
-```
-
-### Admin
-
-```cpp
-// List users
-auto users = client.admin().list_users(50, 0);
-
-// Get user detail
-auto detail = client.admin().get_user("user-uuid");
-
-// Suspend/activate
-client.admin().suspend_user("user-uuid");
-client.admin().activate_user("user-uuid");
-
-// Revenue
-auto revenue = client.admin().get_revenue();
-std::cout << "Total: " << revenue.total_revenue_cents << " cents" << std::endl;
-
-// System stats
-auto stats = client.admin().get_stats();
-std::cout << "Users: " << stats.total_users << std::endl;
-```
-
-## Using Proxy URLs with libcurl
-
-```cpp
-#include <dominusnode/dominusnode.hpp>
-#include <curl/curl.h>
-#include <iostream>
-#include <string>
-
-size_t write_callback(void* ptr, size_t size, size_t nmemb, std::string* data) {
-    data->append(static_cast<char*>(ptr), size * nmemb);
-    return size * nmemb;
-}
-
-int main() {
-    dominusnode::ClientConfig config;
-    config.base_url = "https://api.dominusnode.com";
-    dominusnode::DominusNodeClient client(config);
-    client.connect_with_key("dn_live_your_key");
-
-    // Build proxy URL
-    dominusnode::ProxyUrlOptions opts;
-    opts.country = "US";
-    std::string proxy_url = client.proxy().build_url("dn_live_your_key", opts);
-
-    // Use with libcurl
-    CURL* curl = curl_easy_init();
-    std::string response;
-
-    curl_easy_setopt(curl, CURLOPT_URL, "https://httpbin.org/ip");
-    curl_easy_setopt(curl, CURLOPT_PROXY, proxy_url.c_str());
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_callback);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
-
-    CURLcode res = curl_easy_perform(curl);
-    if (res == CURLE_OK) {
-        std::cout << response << std::endl;
-    }
-
-    curl_easy_cleanup(curl);
-    return 0;
-}
-```
-
-## Error Handling
-
-All errors throw exceptions derived from `dominusnode::DominusNodeError`:
-
-```cpp
-#include <dominusnode/dominusnode.hpp>
-#include <dominusnode/errors.hpp>
-
-try {
-    client.connect_with_key("dn_live_invalid");
-} catch (const dominusnode::AuthenticationError& e) {
-    std::cerr << "Invalid API key: " << e.what() << std::endl;
-} catch (const dominusnode::RateLimitError& e) {
-    std::cerr << "Rate limited. Retry after: " << e.retry_after_seconds << "s" << std::endl;
-} catch (const dominusnode::InsufficientBalanceError& e) {
-    std::cerr << "Insufficient balance" << std::endl;
-} catch (const dominusnode::DominusNodeError& e) {
-    std::cerr << "API error: " << e.what() << std::endl;
-}
-```
-
-| Exception | HTTP Status | When |
-|-----------|-------------|------|
-| `AuthenticationError` | 401 | Invalid credentials |
-| `AuthorizationError` | 403 | Insufficient permissions |
-| `InsufficientBalanceError` | 402 | Low wallet balance |
-| `RateLimitError` | 429 | Rate limit exceeded |
-| `ValidationError` | 400 | Invalid input |
-| `NotFoundError` | 404 | Resource not found |
-| `ConflictError` | 409 | Duplicate resource |
-| `ServerError` | 500+ | Server error |
-| `NetworkError` | -- | Connection/timeout failure |
-
-## Configuration
-
-```cpp
-dominusnode::ClientConfig config;
-config.base_url = "https://api.dominusnode.com";     // API server URL
-config.proxy_host = "proxy.dominusnode.com";          // Proxy gateway hostname
-config.http_proxy_port = 8080;                    // HTTP proxy port
-config.socks5_proxy_port = 1080;                  // SOCKS5 proxy port
-
-dominusnode::DominusNodeClient client(config);
-```
-
-## Security Notes
-
-- **Token memory**: All token strings are securely zeroed with `explicit_bzero` on destruction
-- **Thread safety**: The CURL handle is protected by a mutex; safe to use from multiple threads
-- **TLS verification**: Enabled by default (CURLOPT_SSL_VERIFYPEER + CURLOPT_SSL_VERIFYHOST); re-set after every `curl_easy_reset()`
-- **HTTPS only**: HTTP is only allowed for `localhost` and `127.0.0.1`; all other hosts require HTTPS
-- **URL encoding**: API keys and geo-targeting values are URL-encoded in proxy URLs
-- **Non-copyable**: `DominusNodeClient` is move-only to prevent accidental token duplication
-
-## License
-
-MIT
+Plans, slots/waitlist, admin, Stripe/PayPal, email/password login and registration,
+human MFA, agent-secret headers, `proxy.get_status`, `dc-`/`residential-`/`auto-` prefixes,
+state/city/ASN targeting and all hardcoded prices.

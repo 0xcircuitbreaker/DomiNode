@@ -1,27 +1,22 @@
+#include "test_util.hpp"
+
 #include <cstdio>
 #include <cstdlib>
 
-// Defined in each test file
-extern int run_client_tests();
-extern int run_error_tests();
-extern int run_proxy_tests();
-extern int run_token_manager_tests();
-
 int main() {
-    std::printf("=== Dominus Node C++ SDK Test Suite ===\n\n");
-
-    int failures = 0;
-    failures += run_client_tests();
-    failures += run_error_tests();
-    failures += run_proxy_tests();
-    failures += run_token_manager_tests();
-
-    std::printf("=== Summary ===\n");
-    if (failures == 0) {
-        std::printf("All tests passed.\n");
-    } else {
-        std::printf("%d test(s) FAILED.\n", failures);
+    // Local fake servers must not be routed through any ambient HTTP(S)_PROXY.
+    setenv("NO_PROXY", "*", 1);
+    setenv("no_proxy", "*", 1);
+    int passed = 0, failed = 0;
+    for (const auto& c : t::registry()) {
+        try {
+            c.fn();
+            ++passed;
+        } catch (const std::exception& e) {
+            ++failed;
+            std::printf("FAIL %s\n  %s\n", c.name, e.what());
+        }
     }
-
-    return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
+    std::printf("%d passed, %d failed, %zu total\n", passed, failed, t::registry().size());
+    return failed == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }
