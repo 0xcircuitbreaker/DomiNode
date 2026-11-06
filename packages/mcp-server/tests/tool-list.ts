@@ -8,6 +8,9 @@ export const BOOTSTRAP_TOOLS = [
   "dominusnode_wallet_challenge",
   "dominusnode_register_wallet",
   "dominusnode_wallet_setup",
+  "dominusnode_network_policy",
+  "dominusnode_network_pricing",
+  "dominusnode_network_stats",
 ] as const;
 
 export const AUTHENTICATED_TOOLS = [
@@ -58,6 +61,9 @@ export const AUTHENTICATED_TOOLS = [
   "dominusnode_team_cancel_invite",
   "dominusnode_team_list_keys",
   "dominusnode_team_delete",
+  "dominusnode_network_policy",
+  "dominusnode_network_pricing",
+  "dominusnode_network_stats",
 ] as const;
 
 export const REMOVED_TOOLS = [

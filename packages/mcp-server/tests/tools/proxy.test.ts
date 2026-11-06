@@ -3,6 +3,8 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { HttpClient } from "../../src/http-client.js";
 import { TokenManager } from "../../src/token-manager.js";
 import { registerProxyTools } from "../../src/tools/proxy.js";
+import type { McpConfig } from "../../src/config.js";
+import { PRICING, POLICY } from "../helpers/fixtures.js";
 
 function makeJwt(exp: number): string {
   const header = Buffer.from(JSON.stringify({ alg: "HS256" })).toString("base64url");
@@ -26,7 +28,7 @@ describe("proxy tools", () => {
 
     httpClient = new HttpClient("http://localhost:3000", tm);
     server = new McpServer({ name: "test", version: "1.0.0" });
-    registerProxyTools(server, httpClient);
+    registerProxyTools(server, httpClient, { proxyHost: "proxy.dominusnode.com", httpProxyPort: 8080, socks5ProxyPort: 1080 } as McpConfig);
   });
 
   afterEach(() => {
@@ -34,27 +36,30 @@ describe("proxy tools", () => {
     vi.restoreAllMocks();
   });
 
-  it("dominusnode_get_proxy_config returns formatted config", async () => {
-    globalThis.fetch = vi.fn().mockResolvedValueOnce({
-      ok: true,
-      status: 200,
-      text: () => Promise.resolve(JSON.stringify({
-        httpProxy: { host: "proxy.dominusnode.com", port: 8080 },
-        socks5Proxy: { host: "proxy.dominusnode.com", port: 1080 },
-        supportedCountries: ["US", "GB", "DE"],
-        blockedCountries: ["CU", "IR", "KP", "RU", "SY"],
-        geoTargeting: { stateSupport: false, citySupport: false, asnSupport: false },
-      })),
-      headers: new Headers(),
-    } as unknown as Response);
-
+  it("dominusnode_get_proxy_config lists relay flags with live pricing and policy", async () => {
+    globalThis.fetch = vi.fn()
+      .mockResolvedValueOnce({ ok: true, status: 200, headers: new Headers(), text: () => Promise.resolve(JSON.stringify(PRICING)) })
+      .mockResolvedValueOnce({ ok: true, status: 200, headers: new Headers(), text: () => Promise.resolve(JSON.stringify(POLICY)) }) as never;
     const tools = (server as any)._registeredTools;
     const result = await tools["dominusnode_get_proxy_config"].handler({}, { sessionId: "" } as never);
     const text = (result.content as Array<{ type: string; text: string }>)[0].text;
     expect(text).toContain("proxy.dominusnode.com:8080");
-    expect(text).toContain("US, GB, DE");
-    expect(text).toContain("$3.00/GB");
-    expect(text).toContain("$5.00/GB");
+    expect(text).toContain("country-XX");
+    expect(text).toContain("class-residential");
+    expect(text).toContain("session-<id>");
+    expect(text).toContain("allowhttp-1");
+    expect(text).toContain("class-residential: $0.50/GB");
+    expect(text).toContain("plaintext=opt_in");
+    expect(text).not.toContain("$3.00");
+    expect(text).not.toMatch(/dn_live_test/);
+  });
+
+  it("dominusnode_get_proxy_config degrades gracefully when pricing is down", async () => {
+    globalThis.fetch = vi.fn().mockRejectedValue(new Error("down")) as never;
+    const tools = (server as any)._registeredTools;
+    const result = await tools["dominusnode_get_proxy_config"].handler({}, { sessionId: "" } as never);
+    const text = (result.content as Array<{ type: string; text: string }>)[0].text;
+    expect(text).toContain("Pricing unavailable");
   });
 
   it("dominusnode_get_proxy_status returns status info", async () => {

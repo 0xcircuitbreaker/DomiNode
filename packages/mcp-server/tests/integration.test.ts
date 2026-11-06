@@ -66,7 +66,7 @@ describe("MCP Server Integration", () => {
     for (const removed of REMOVED_TOOLS) expect(names).not.toContain(removed);
   });
 
-  it.skip("every tool description is non-empty and free of legacy pool pricing", async () => {
+  it("every tool description is non-empty and free of legacy pool pricing", async () => {
     const httpClient = await makeClient();
     const server = new McpServer({ name: "dominusnode", version: "1.0.0" });
     registerAuthenticatedTools(server, httpClient, baseConfig);

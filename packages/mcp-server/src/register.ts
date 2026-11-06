@@ -12,6 +12,7 @@ import { registerCryptoTools } from "./tools/crypto.js";
 import { registerAgentWalletTools } from "./tools/agent-wallet.js";
 import { registerWalletAuthTools } from "./tools/wallet-auth.js";
 import { registerTeamsTools } from "./tools/teams.js";
+import { registerNetworkTools } from "./tools/network.js";
 
 /** Tools available without an API key (account bootstrap + public network info). */
 export function registerBootstrapTools(server: McpServer, httpClient: HttpClient): void {
@@ -19,13 +20,14 @@ export function registerBootstrapTools(server: McpServer, httpClient: HttpClient
   registerCryptoTools(server, httpClient);
   // Agent-wallet tools need authentication and are not registered here.
   registerWalletAuthTools(server, httpClient);
+  registerNetworkTools(server, httpClient);
   registerBootstrapHelper(server);
 }
 
 /** Full tool set for an authenticated (DOMINUSNODE_API_KEY) session. */
 export function registerAuthenticatedTools(server: McpServer, httpClient: HttpClient, config: McpConfig): void {
   registerFetchTools(server, config);
-  registerProxyTools(server, httpClient);
+  registerProxyTools(server, httpClient, config);
   registerWalletTools(server, httpClient);
   registerUsageTools(server, httpClient);
   registerKeysTools(server, httpClient);
@@ -35,6 +37,7 @@ export function registerAuthenticatedTools(server: McpServer, httpClient: HttpCl
   registerAgentWalletTools(server, httpClient, config);
   registerWalletAuthTools(server, httpClient);
   registerTeamsTools(server, httpClient);
+  registerNetworkTools(server, httpClient);
 }
 
 /** Number of tools registered on a server (used for startup logging and tests). */

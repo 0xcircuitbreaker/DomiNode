@@ -1,38 +1,48 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { HttpClient } from "../http-client.js";
-import type { ProxyConfig, ProxyStatus } from "../types.js";
+import type { McpConfig } from "../config.js";
+import type { ProxyStatus } from "../types.js";
+import { fetchPricing, formatPricing, PLAINTEXT_EXPLAINER, type NetworkPolicyResponse } from "./network.js";
 
-export function registerProxyTools(server: McpServer, httpClient: HttpClient): void {
+export function registerProxyTools(server: McpServer, httpClient: HttpClient, config: McpConfig): void {
   server.tool(
     "dominusnode_get_proxy_config",
-    "Get proxy endpoint configuration including HTTP/SOCKS5 endpoints, supported countries, pricing, and username format for geo-targeting.",
+    "Get relay proxy connection details for use outside this MCP server (curl, SDKs, browsers): gateway endpoints, " +
+      "the username routing flags (country-XX, class-residential|dc|mobile, session-<id>, allowhttp-1), live per-GB prices " +
+      "from GET /v1/pricing and the active plaintext/port policy. The API key always goes in the PASSWORD field.",
     {},
     async () => {
-      try {
-        const config = await httpClient.get<ProxyConfig>("/api/proxy/config");
-        const text = [
-          `HTTP Endpoint: ${config.httpProxy.host}:${config.httpProxy.port}`,
-          `SOCKS5 Endpoint: ${config.socks5Proxy.host}:${config.socks5Proxy.port}`,
-          ``,
-          `Pricing:`,
-          `  Datacenter Pool: $3.00/GB (prefix: dc-)`,
-          `  Residential Pool: $5.00/GB (prefix: residential-)`,
-          `  Auto (default): tries DC first, falls back to residential`,
-          ``,
-          `Username Format: <pool>-country-<CC>:<api_key>`,
-          `  Examples: dc-country-US:<key>  |  residential-country-DE:<key>  |  auto:<key>`,
-          ``,
-          `Supported Countries: ${config.supportedCountries?.join(", ") ?? "all"}`,
-          `Blocked Countries (OFAC): ${config.blockedCountries?.join(", ") ?? "none"}`,
-          `Geo-Targeting: Country: yes, State: ${config.geoTargeting?.stateSupport ? "yes" : "no"}, City: ${config.geoTargeting?.citySupport ? "yes" : "no"}`,
-        ].join("\n");
-        return { content: [{ type: "text", text }] };
-      } catch (err) {
-        return {
-          isError: true,
-          content: [{ type: "text", text: `Error: ${err instanceof Error ? err.message : String(err)}` }],
-        };
+      const lines = [
+        `HTTP proxy: ${config.proxyHost}:${config.httpProxyPort} (CONNECT for https)`,
+        `SOCKS5 proxy: ${config.proxyHost}:${config.socks5ProxyPort}`,
+        ``,
+        `Credentials: username = routing flags, password = your dn_live_ API key`,
+        `Username flags (hyphen-joined, any order, all optional):`,
+        `  country-XX          exit country, ISO 3166-1 alpha-2 (e.g. country-US)`,
+        `  class-residential   exit IP class: residential | dc | mobile`,
+        `  session-<id>        sticky exit node for an alphanumeric session id`,
+        `  allowhttp-1         permit plaintext http:// (exit-visible)`,
+        `Examples:`,
+        `  curl -x http://country-US-class-residential:$DOMINUSNODE_API_KEY@${config.proxyHost}:${config.httpProxyPort} https://httpbin.org/ip`,
+        `  curl -x http://class-dc-session-abc123:$DOMINUSNODE_API_KEY@${config.proxyHost}:${config.httpProxyPort} https://example.com`,
+        ``,
+      ];
+      const [pricing, policy] = await Promise.allSettled([
+        fetchPricing(httpClient),
+        httpClient.get<NetworkPolicyResponse>("/v1/policy", false),
+      ]);
+      if (pricing.status === "fulfilled") lines.push(...formatPricing(pricing.value));
+      else lines.push("Pricing unavailable right now; use dominusnode_network_pricing.");
+      lines.push("");
+      if (policy.status === "fulfilled") {
+        const b = policy.value.body ?? {};
+        lines.push(`Policy v${policy.value.version}: ports ${(b.ports ?? []).join(", ")}, plaintext=${b.plaintext ?? "?"}`);
+        lines.push(`Blocked (sanctioned) countries: ${(b.sanctionedCountries ?? []).join(", ") || "none"}`);
+      } else {
+        lines.push("Policy unavailable right now; use dominusnode_network_policy.");
       }
+      lines.push(PLAINTEXT_EXPLAINER);
+      return { content: [{ type: "text", text: lines.join("\n") }] };
     },
   );
 

@@ -23,7 +23,7 @@ function checkAgentWalletRateLimit(): boolean {
 export function registerAgentWalletTools(server: McpServer, httpClient: HttpClient, config: McpConfig): void {
   server.tool(
     "dominusnode_x402_info",
-    "Get x402 payment protocol info for Dominus Node. Returns supported currencies, pricing, facilitator details (Coinbase + PayAI), and agentic wallet details.",
+    "Get x402 payment protocol info for Dominus Node. Returns supported currencies, facilitator details (Coinbase + PayAI), and agentic wallet details.",
     {},
     async () => {
       try {
@@ -35,12 +35,6 @@ export function registerAgentWalletTools(server: McpServer, httpClient: HttpClie
           facilitators: {
             coinbase: { network: string; receivingAddress: string | null; currency: string };
             payai: { network: string; receivingAddress: string | null; currency: string };
-          };
-          pricing: {
-            dcPerRequestUsd: string;
-            residentialPerRequestUsd: string;
-            dcPerGbCents: number;
-            residentialPerGbCents: number;
           };
           currencies: string[];
           walletType: string;
@@ -64,15 +58,9 @@ export function registerAgentWalletTools(server: McpServer, httpClient: HttpClie
           `    Currency: ${data.facilitators.payai.currency}`,
           `    Receiving Address: ${data.facilitators.payai.receivingAddress ?? "Not configured"}`,
           ``,
-          `Per-Request Pricing (x402 micropayments):`,
-          `  Datacenter: $${data.pricing.dcPerRequestUsd}/request`,
-          `  Residential: $${data.pricing.residentialPerRequestUsd}/request`,
+          `Relay pricing is per GB by IP class; see dominusnode_network_pricing for live prices.`,
           ``,
-          `Per-GB Pricing (wallet billing):`,
-          `  Datacenter: $${(data.pricing.dcPerGbCents / 100).toFixed(2)}/GB`,
-          `  Residential: $${(data.pricing.residentialPerGbCents / 100).toFixed(2)}/GB`,
-          ``,
-          `Supported Currencies: ${data.currencies.join(", ")}`,
+          `Supported Currencies: ${(data.currencies ?? []).join(", ")}`,
           `Wallet Type: ${data.walletType}`,
           `Agentic Wallets: ${data.agenticWallets ? "Yes" : "No"}`,
           ``,

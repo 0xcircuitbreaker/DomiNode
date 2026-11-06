@@ -2,6 +2,7 @@ import * as http from "node:http";
 import * as https from "node:https";
 import * as net from "node:net";
 import * as tls from "node:tls";
+import * as dns from "node:dns";
 import type { McpConfig } from "./config.js";
 
 export interface ProxyFetchOptions {
@@ -9,12 +10,20 @@ export interface ProxyFetchOptions {
   method?: string;
   headers?: Record<string, string>;
   body?: string;
+  /** ISO 3166-1 alpha-2 exit country (username flag country-XX). */
   country?: string;
-  state?: string;
-  city?: string;
-  poolType?: "dc" | "residential" | "auto";
+  /** Exit IP class (username flag class-residential|dc|mobile). */
+  ipClass?: "residential" | "dc" | "mobile";
+  /** Sticky session id (username flag session-<id>, alphanumeric). */
+  sessionId?: string;
+  /** Opt in to exit-visible plaintext http:// (username flag allowhttp-1). */
+  allowHttp?: boolean;
   timeoutMs?: number;
 }
+
+export type LookupAll = (hostname: string) => Promise<Array<{ address: string; family: number }>>;
+
+const defaultLookup: LookupAll = (hostname) => dns.promises.lookup(hostname, { all: true, verbatim: true });
 
 export interface ProxyFetchResult {
   status: number;
@@ -50,21 +59,27 @@ function isBinaryContentType(contentType: string): boolean {
   return BINARY_CONTENT_TYPES.some((t) => lower.includes(t));
 }
 
-function buildProxyUsername(opts: ProxyFetchOptions): string {
+/**
+ * Build the gateway username from relay routing flags (proxy-gateway
+ * parseProxyOptions): country-XX, class-<c>, session-<id>, allowhttp-1.
+ * Flags are hyphen-joined; with none set the neutral token "relay" is sent.
+ */
+export function buildProxyUsername(opts: Pick<ProxyFetchOptions, "country" | "ipClass" | "sessionId" | "allowHttp">): string {
   const parts: string[] = [];
-  if (opts.poolType && opts.poolType !== "auto") {
-    parts.push(opts.poolType);
-  }
   if (opts.country) {
-    parts.push(`country-${encodeURIComponent(opts.country.toUpperCase())}`);
+    if (!/^[A-Za-z]{2}$/.test(opts.country)) throw new Error("country must be a 2-letter ISO code");
+    parts.push(`country-${opts.country.toUpperCase()}`);
   }
-  if (opts.state) {
-    parts.push(`state-${encodeURIComponent(opts.state)}`);
+  if (opts.ipClass) {
+    if (!["residential", "dc", "mobile"].includes(opts.ipClass)) throw new Error("ip_class must be residential, dc or mobile");
+    parts.push(`class-${opts.ipClass}`);
   }
-  if (opts.city) {
-    parts.push(`city-${encodeURIComponent(opts.city)}`);
+  if (opts.sessionId) {
+    if (!/^[A-Za-z0-9]{1,64}$/.test(opts.sessionId)) throw new Error("session_id must be 1-64 alphanumeric characters");
+    parts.push(`session-${opts.sessionId}`);
   }
-  return parts.length > 0 ? parts.join("-") : "auto";
+  if (opts.allowHttp) parts.push("allowhttp-1");
+  return parts.length > 0 ? parts.join("-") : "relay";
 }
 
 function buildProxyAuth(apiKey: string, opts: ProxyFetchOptions): string {
@@ -123,7 +138,7 @@ function normalizeIpv4(hostname: string): string | null {
   return null;
 }
 
-function isPrivateIp(hostname: string): boolean {
+export function isPrivateIp(hostname: string): boolean {
   // Strip brackets from IPv6
   let ip = hostname.replace(/^\[|\]$/g, "");
 
@@ -216,6 +231,14 @@ export function validateUrl(url: string): URL {
     throw new Error(`Only http: and https: protocols are supported, got ${parsed.protocol}`);
   }
 
+  if (parsed.username || parsed.password) {
+    throw new Error("URLs with embedded credentials are not allowed");
+  }
+  // Relay nodes only dial ports 80/443 (node floor); fail fast client-side.
+  if (parsed.port && parsed.port !== "80" && parsed.port !== "443") {
+    throw new Error("Only ports 80 and 443 are reachable through the relay network");
+  }
+
   const hostname = parsed.hostname.toLowerCase();
 
   // Block known local hostnames
@@ -238,28 +261,47 @@ export function validateUrl(url: string): URL {
     throw new Error("Requests to internal network hostnames are blocked");
   }
 
-  // DNS rebinding note — proxyFetch always routes through the upstream proxy
-  // (config.proxyHost), which does its own DNS resolution. The proxy-gateway has
-  // double-resolve DNS rebinding protection. A DNS rebinding attack would need to
-  // target the upstream proxy's resolver, which is not attacker-controlled.
-  // The isPrivateIp() check above handles the static case; dynamic DNS rebinding
-  // is mitigated by the upstream proxy's own protections.
-
   return parsed;
+}
+
+/**
+ * DNS rebinding protection: resolve the hostname and reject if ANY resolved
+ * address is private/reserved. The gateway and node floor re-check after
+ * their own resolution; this is the client-side layer.
+ */
+export async function assertPublicResolution(hostname: string, lookup: LookupAll = defaultLookup): Promise<void> {
+  const host = hostname.replace(/^\[|\]$/g, "");
+  if (net.isIP(host)) {
+    if (isPrivateIp(host)) throw new Error("Requests to private/internal IP addresses are blocked");
+    return;
+  }
+  let addrs: Array<{ address: string; family: number }>;
+  try {
+    addrs = await lookup(host);
+  } catch {
+    throw new Error(`DNS resolution failed for ${host}`);
+  }
+  if (!addrs.length) throw new Error(`DNS resolution returned no addresses for ${host}`);
+  for (const a of addrs) {
+    if (isPrivateIp(a.address)) {
+      throw new Error("Hostname resolves to a private/internal IP address (blocked)");
+    }
+  }
 }
 
 export async function proxyFetch(
   config: McpConfig,
   opts: ProxyFetchOptions,
+  lookup: LookupAll = defaultLookup,
 ): Promise<ProxyFetchResult> {
   if (!config.apiKey) {
-    throw new Error("Proxy fetch requires an API key. Use dominusnode_setup to create an account first.");
+    throw new Error("Proxy fetch requires an API key. Use dominusnode_wallet_setup to get one first.");
   }
   const apiKey = config.apiKey;
 
   const parsed = validateUrl(opts.url);
   const timeoutMs = Math.min(opts.timeoutMs ?? config.fetchTimeoutMs, 120_000);
-  const maxBytes = config.fetchMaxResponseBytes;
+  const maxBytes = Math.min(config.fetchMaxResponseBytes, 10 * 1024 * 1024);
   const method = (opts.method ?? "GET").toUpperCase();
 
   // Enforce read-only methods at function level (defense-in-depth)
@@ -277,6 +319,17 @@ export async function proxyFetch(
   if (opts.headers) {
     validateHeaders(opts.headers);
   }
+
+  // Plaintext is exit-visible: require explicit opt-in (allowhttp-1).
+  if (parsed.protocol === "http:" && !opts.allowHttp) {
+    throw new Error(
+      "Plaintext http:// requires allow_http=true (allowhttp-1). The exit node can read and modify plaintext traffic; prefer https://.",
+    );
+  }
+  // Validate routing flags before any network activity.
+  buildProxyUsername(opts);
+
+  await assertPublicResolution(parsed.hostname, lookup);
 
   if (parsed.protocol === "https:") {
     return httpsProxyFetch(apiKey, config, opts, parsed, method, timeoutMs, maxBytes);

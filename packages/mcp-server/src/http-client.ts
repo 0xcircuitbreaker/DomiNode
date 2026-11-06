@@ -94,6 +94,12 @@ export interface HttpRequestOptions {
   body?: unknown;
   headers?: Record<string, string>;
   requiresAuth?: boolean;
+  /**
+   * Send this credential as the Bearer token instead of the session JWT.
+   * Used for /v1 agent routes, which accept a dn_live_ key directly
+   * (requireAgentPrincipal) but reject non-wallet JWTs.
+   */
+  bearer?: string;
 }
 
 export class HttpClient {
@@ -113,6 +119,12 @@ export class HttpClient {
   }
 
   async request<T>(opts: HttpRequestOptions): Promise<T> {
+    if (opts.bearer !== undefined) {
+      if (!/^dn_live_[A-Za-z0-9_-]{1,200}$/.test(opts.bearer)) {
+        throw new Error("An API key (DOMINUSNODE_API_KEY) is required for this tool");
+      }
+      opts = { ...opts, requiresAuth: false, headers: { ...(opts.headers ?? {}) } };
+    }
     // Token bucket rate limiting: prevents MCP clients from spamming API
     if (!this.rateLimiter.tryConsume()) {
       throw new Error("MCP rate limit exceeded — too many requests. Please slow down.");
@@ -137,7 +149,9 @@ export class HttpClient {
       }
     }
 
-    if (opts.requiresAuth !== false) {
+    if (opts.bearer !== undefined) {
+      headers["Authorization"] = `Bearer ${opts.bearer}`;
+    } else if (opts.requiresAuth !== false) {
       const token = await this.tokenManager.getValidToken();
       headers["Authorization"] = `Bearer ${token}`;
     }
