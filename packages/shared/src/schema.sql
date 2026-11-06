@@ -1519,3 +1519,15 @@ DO $$ BEGIN
       CHECK (status IN ('pending','held_tax','held_frozen','submitted','confirmed','failed','reversed'));
   END IF;
 END $$;
+
+-- ─── payer_identities: non-EVM x402 payers (e.g. Solana) → wallet-identity user ───
+-- users.wallet_address stays EVM-only (0x + 40 hex). A Solana payer maps to a
+-- synthetic wallet-identity user through this table instead.
+CREATE TABLE IF NOT EXISTS payer_identities (
+  chain       TEXT NOT NULL CHECK (chain IN ('solana')),
+  address     TEXT NOT NULL CHECK (length(address) BETWEEN 32 AND 44 AND address ~ '^[1-9A-HJ-NP-Za-km-z]+$'),
+  user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (chain, address)
+);
+CREATE INDEX IF NOT EXISTS idx_payer_identities_user ON payer_identities(user_id);
