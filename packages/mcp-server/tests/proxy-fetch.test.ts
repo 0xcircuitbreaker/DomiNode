@@ -10,9 +10,9 @@ describe("proxy-fetch", () => {
     });
 
     it("accepts https URLs", () => {
-      const parsed = validateUrl("https://example.com:8443/path");
+      const parsed = validateUrl("https://example.com/path");
       expect(parsed.protocol).toBe("https:");
-      expect(parsed.port).toBe("8443");
+      expect(() => validateUrl("https://example.com:8443/path")).toThrow(/80 and 443/);
     });
 
     it("rejects invalid URLs", () => {
@@ -90,5 +90,49 @@ describe("proxy-fetch", () => {
     it("blocks CGNAT range 100.64.0.0/10", () => {
       expect(() => validateUrl("http://100.64.0.1/admin")).toThrow("private/internal");
     });
+  });
+});
+
+import { assertPublicResolution, buildProxyUsername, proxyFetch } from "../src/proxy-fetch.js";
+
+describe("relay routing + DNS rebinding", () => {
+  it("buildProxyUsername uses hyphenated gateway flags", () => {
+    expect(buildProxyUsername({})).toBe("relay");
+    expect(buildProxyUsername({ country: "us" })).toBe("country-US");
+    expect(buildProxyUsername({ ipClass: "mobile", allowHttp: true })).toBe("class-mobile-allowhttp-1");
+    expect(() => buildProxyUsername({ sessionId: "a-b" })).toThrow();
+    expect(() => buildProxyUsername({ country: "USA" })).toThrow();
+  });
+
+  it("rejects a hostname if ANY resolved address is private", async () => {
+    const lookup = async () => [
+      { address: "93.184.216.34", family: 4 },
+      { address: "10.1.2.3", family: 4 },
+    ];
+    await expect(assertPublicResolution("rebind.example.com", lookup)).rejects.toThrow(/private/);
+  });
+
+  it("rejects IPv6 resolutions to loopback, ULA, Teredo, 6to4 and IPv4-compatible forms", async () => {
+    for (const address of ["::1", "fd00::1", "2001:0:4136:e378::1", "2002:7f00:1::1", "::7f00:1", "::ffff:10.0.0.1"]) {
+      await expect(assertPublicResolution("x.example.com", async () => [{ address, family: 6 }])).rejects.toThrow();
+    }
+  });
+
+  it("accepts public resolutions and surfaces DNS failures", async () => {
+    await expect(assertPublicResolution("ok.example.com", async () => [{ address: "93.184.216.34", family: 4 }])).resolves.toBeUndefined();
+    await expect(assertPublicResolution("nx.example.com", async () => { throw new Error("ENOTFOUND"); })).rejects.toThrow(/DNS resolution failed/);
+    await expect(assertPublicResolution("empty.example.com", async () => [])).rejects.toThrow(/no addresses/);
+  });
+
+  it("proxyFetch blocks rebinding hostnames before connecting", async () => {
+    const cfg = { apiKey: "dn_live_x", proxyHost: "127.0.0.1", httpProxyPort: 1, fetchTimeoutMs: 1000, fetchMaxResponseBytes: 1024 } as never;
+    await expect(
+      proxyFetch(cfg, { url: "https://rebind.example.com/" }, async () => [{ address: "127.0.0.1", family: 4 }]),
+    ).rejects.toThrow(/private/);
+  });
+
+  it("proxyFetch refuses non-GET/HEAD methods", async () => {
+    const cfg = { apiKey: "dn_live_x", proxyHost: "127.0.0.1", httpProxyPort: 1, fetchTimeoutMs: 1000, fetchMaxResponseBytes: 1024 } as never;
+    await expect(proxyFetch(cfg, { url: "https://example.com/", method: "POST" })).rejects.toThrow(/GET and HEAD/);
   });
 });

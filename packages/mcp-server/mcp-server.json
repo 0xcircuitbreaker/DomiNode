@@ -1,21 +1,39 @@
 {
   "name": "@dominusnode/mcp-server",
-  "description": "Rotating residential proxies for AI agents. Geo-targeting, crypto payments (BTC/ETH/LTC/XMR/ZEC/USDC/SOL/USDT/DAI/BNB/LINK), x402 micropayments, bootstrap mode (no API key needed), free tier (1GB).",
+  "description": "Relay network for AI agents: fetch through agent-contributed residential/dc/mobile IPs (live per-GB pricing), contribute nodes and earn a tiered revenue share, crypto top-up, x402, bootstrap mode via wallet auth.",
   "version": "1.0.0",
   "transport": "stdio",
   "command": "npx",
-  "args": ["-y", "@dominusnode/mcp-server"],
+  "args": [
+    "-y",
+    "@dominusnode/mcp-server"
+  ],
   "env": {
     "DOMINUSNODE_API_KEY": {
-      "description": "API key (optional — omit for bootstrap mode)",
+      "description": "API key (optional \u2014 omit for bootstrap mode)",
+      "required": false
+    },
+    "DOMINUSNODE_WALLET_KEY_FILE": {
+      "description": "Path to a chmod-600 file with the owner wallet private key (node registration only)",
+      "required": false
+    },
+    "DOMINUSNODE_NODE_KEY_FILE": {
+      "description": "Where node registration writes the node credential file (default ~/.dominusnode/node.json)",
       "required": false
     }
   },
   "capabilities": {
     "tools": true
   },
-  "toolCount": 24,
-  "categories": ["proxy", "web-scraping", "geo-targeting", "crypto-payments"],
+  "toolCount": 56,
+  "categories": [
+    "proxy",
+    "relay-network",
+    "web-scraping",
+    "geo-targeting",
+    "crypto-payments",
+    "earn"
+  ],
   "homepage": "https://dominusnode.com",
   "repository": "https://github.com/dominusnode/mcp-server",
   "license": "MIT"

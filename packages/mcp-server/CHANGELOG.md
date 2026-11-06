@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.0.0] - 2026-11-06
+
+### Changed
+- Rebuilt for the AI-agent relay network. `dominusnode_fetch` takes `country`, `ip_class`, `session_id`, `allow_http` (gateway username flags) instead of `pool_type`; plaintext needs explicit opt-in; DNS rebinding check; ports 80/443 only; 10MB cap.
+- Pricing text is read from `GET /v1/pricing` at runtime.
+
+### Added
+- `dominusnode_network_policy`, `dominusnode_network_pricing`, `dominusnode_network_stats`.
+- `dominusnode_node_register_challenge`, `dominusnode_node_register`, `dominusnode_node_list`, `dominusnode_node_revoke`, `dominusnode_node_tier`, `dominusnode_node_setup_guide`.
+
+### Removed
+- Stripe, PayPal, plans, slots/waitlist and email/password account tools.
+
 ## [1.0.0] - 2026-02-19
 
 ### Added

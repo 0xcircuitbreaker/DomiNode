@@ -38,7 +38,7 @@ npx vitest run --coverage   # Tests with coverage
 | `packages/metering` | Cost calculation, usage recording |
 | `packages/billing` | Stripe + PayPal + NOWPayments crypto |
 | `packages/dashboard` | Express REST API |
-| `packages/mcp-server` | 76 MCP tools for AI agents |
+| `packages/mcp-server` | 56 MCP tools (+11 bootstrap) for AI agents: relay fetch, nodes, wallets |
 | `packages/frontend` | React 18 + Vite + Tailwind dashboard |
 | `packages/extension` | MV3 browser extension |
 
