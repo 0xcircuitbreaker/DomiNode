@@ -1,153 +1,93 @@
 package io.dominusnode.sdk.resources;
 
-import io.dominusnode.sdk.errors.DominusNodeException;
-import io.dominusnode.sdk.internal.HttpClient;
-import io.dominusnode.sdk.types.ProxyConfig;
-import io.dominusnode.sdk.types.ProxyHealth;
-import io.dominusnode.sdk.types.ProxyStatus;
-import io.dominusnode.sdk.types.ProxyUrlOptions;
+import com.fasterxml.jackson.databind.JsonNode;
+import io.dominusnode.sdk.errors.AuthenticationException;
+import io.dominusnode.sdk.internal.ApiClient;
+import io.dominusnode.sdk.internal.ApiClient.Auth;
+import io.dominusnode.sdk.internal.Validation;
+import io.dominusnode.sdk.proxy.FetchResponse;
+import io.dominusnode.sdk.proxy.HostResolver;
+import io.dominusnode.sdk.proxy.ProxyFetcher;
+import io.dominusnode.sdk.proxy.ProxyOptions;
 
-import java.net.URLEncoder;
-import java.nio.charset.StandardCharsets;
 import java.util.function.Supplier;
 
 /**
- * Proxy operations: URL building, health checks, status, and configuration.
+ * Proxy gateway helpers. The API key goes in the PASSWORD; routing flags go in the USERNAME
+ * (country-US-class-residential-session-abc123-allowhttp-1).
  */
 public final class ProxyResource {
+    private final ApiClient http;
+    private final String host;
+    private final int httpPort;
+    private final int socksPort;
+    private final Supplier<String> apiKey;
+    private volatile HostResolver resolver;
 
-    private final HttpClient http;
-    private final String proxyHost;
-    private final int httpProxyPort;
-    private final int socks5ProxyPort;
-    private final Supplier<String> getApiKey;
-
-    /**
-     * @param http            the HTTP client
-     * @param proxyHost       proxy server hostname
-     * @param httpProxyPort   HTTP proxy port
-     * @param socks5ProxyPort SOCKS5 proxy port
-     * @param getApiKey       supplier for the current API key
-     */
-    public ProxyResource(HttpClient http, String proxyHost, int httpProxyPort,
-                         int socks5ProxyPort, Supplier<String> getApiKey) {
+    public ProxyResource(ApiClient http, String host, int httpPort, int socksPort, Supplier<String> apiKey, HostResolver resolver) {
+        if (host == null || !(host.matches("^[A-Za-z0-9.-]{1,253}$") || host.matches("^\\[[0-9A-Fa-f:.]+\\]$"))) {
+            throw Validation.invalid("proxyHost contains invalid characters");
+        }
         this.http = http;
-        this.proxyHost = proxyHost;
-        this.httpProxyPort = httpProxyPort;
-        this.socks5ProxyPort = socks5ProxyPort;
-        this.getApiKey = getApiKey;
+        this.host = host;
+        this.httpPort = port(httpPort, "httpProxyPort");
+        this.socksPort = port(socksPort, "socks5ProxyPort");
+        this.apiKey = apiKey;
+        this.resolver = resolver == null ? HostResolver.SYSTEM : resolver;
     }
+
+    private static int port(int p, String name) {
+        if (p < 1 || p > 65535) throw Validation.invalid(name + " must be a TCP port");
+        return p;
+    }
+
+    private String key(String override) {
+        String k = override != null ? override : apiKey.get();
+        if (k == null) throw new AuthenticationException("proxy access needs an API key: call connectWithKey() or pass apiKey");
+        return Validation.apiKey(k);
+    }
+
+    /** Gateway username ("relay" when no flags). */
+    public String buildUsername(ProxyOptions options) {
+        return (options == null ? ProxyOptions.create() : options).buildUsername();
+    }
+
+    public String buildUrl(ProxyOptions options) { return buildUrl(options, "http", null); }
 
     /**
-     * Build a proxy URL using the stored API key and default options (HTTP protocol).
-     *
-     * @return a fully-formed proxy URL string
-     * @throws IllegalStateException if no API key is set
+     * {@code <protocol>://<user>:<key>@<proxyHost>:<port>}; protocol http or socks5. The result CONTAINS the
+     * API key: do not log it.
      */
-    public String buildUrl() {
-        String apiKey = getApiKey.get();
-        if (apiKey == null) {
-            throw new IllegalStateException("No API key set. Call connectWithKey() first.");
-        }
-        return buildUrl(apiKey, null);
+    public String buildUrl(ProxyOptions options, String protocol, String apiKeyOverride) {
+        String proto = protocol == null ? "http" : protocol;
+        if (!proto.equals("http") && !proto.equals("socks5")) throw Validation.invalid("protocol must be http or socks5");
+        ProxyOptions o = options == null ? ProxyOptions.create() : options;
+        String user = o.buildUsername();
+        String k = key(apiKeyOverride != null ? apiKeyOverride : o.getApiKey());
+        int p = proto.equals("socks5") ? socksPort : httpPort;
+        return proto + "://" + Validation.seg(user) + ":" + Validation.seg(k) + "@" + host + ":" + p;
     }
+
+    public FetchResponse fetch(String url) { return fetch(url, ProxyOptions.create()); }
 
     /**
-     * Build a proxy URL using the stored API key with options.
-     *
-     * @param options proxy URL options (protocol, geo-targeting, session)
-     * @return a fully-formed proxy URL string
-     * @throws IllegalStateException if no API key is set
+     * GET/HEAD a URL through the relay. Ports 80/443 only; private/local targets and names resolving to
+     * private addresses are refused; redirects are returned, not followed; body capped at 10 MB;
+     * http:// needs allowHttp.
      */
-    public String buildUrl(ProxyUrlOptions options) {
-        String apiKey = getApiKey.get();
-        if (apiKey == null) {
-            throw new IllegalStateException("No API key set. Call connectWithKey() first.");
-        }
-        return buildUrl(apiKey, options);
+    public FetchResponse fetch(String url, ProxyOptions options) {
+        ProxyOptions o = options == null ? ProxyOptions.create() : options;
+        String k = key(o.getApiKey());
+        String h = host.startsWith("[") ? host.substring(1, host.length() - 1) : host;
+        return ProxyFetcher.fetch(h, httpPort, resolver, k, url, o);
     }
 
-    /**
-     * Build a proxy URL with an explicit API key and options.
-     *
-     * <p>The username encodes geo-targeting parameters following Dominus Node proxy conventions.
-     * Both the username components and the API key are URL-encoded to prevent injection.</p>
-     *
-     * @param apiKey  the API key to use
-     * @param options proxy URL options, or {@code null} for defaults
-     * @return a fully-formed proxy URL string
-     */
-    public String buildUrl(String apiKey, ProxyUrlOptions options) {
-        // Validate proxyHost to prevent URL injection via crafted hostnames
-        if (proxyHost != null && proxyHost.chars().anyMatch(c -> " /\\@?#".indexOf(c) >= 0)) {
-            throw new IllegalArgumentException("proxyHost contains invalid characters");
-        }
+    /** GET /api/proxy/health [none]. */
+    public JsonNode getHealth() { return http.get("/api/proxy/health", Auth.NONE); }
 
-        String protocol = "http";
-        if (options != null && options.getProtocol() != null) {
-            protocol = options.getProtocol();
-        }
+    /** GET /api/proxy/config [jwt]. */
+    public JsonNode getConfig() { return http.get("/api/proxy/config", Auth.JWT); }
 
-        int port = "socks5".equals(protocol) ? socks5ProxyPort : httpProxyPort;
-
-        // Build username with geo-targeting parts, all URL-encoded
-        StringBuilder username = new StringBuilder("user");
-        if (options != null) {
-            if (options.getCountry() != null) {
-                username.append("-country-").append(encode(options.getCountry()));
-            }
-            if (options.getState() != null) {
-                username.append("-state-").append(encode(options.getState()));
-            }
-            if (options.getCity() != null) {
-                username.append("-city-").append(encode(options.getCity()));
-            }
-            if (options.getAsn() != null) {
-                username.append("-asn-").append(encode(String.valueOf(options.getAsn())));
-            }
-            if (options.getSessionId() != null) {
-                username.append("-session-").append(encode(options.getSessionId()));
-            }
-        }
-
-        String encodedKey = encode(apiKey);
-        return protocol + "://" + username + ":" + encodedKey + "@" + proxyHost + ":" + port;
-    }
-
-    /**
-     * Get public proxy health status. Does not require authentication.
-     *
-     * @return proxy health information
-     * @throws DominusNodeException on API errors
-     */
-    public ProxyHealth getHealth() throws DominusNodeException {
-        return http.get("/api/proxy/health", ProxyHealth.class, false);
-    }
-
-    /**
-     * Get detailed proxy status including provider info. Requires authentication.
-     *
-     * @return proxy status with provider details
-     * @throws DominusNodeException on API errors
-     */
-    public ProxyStatus getStatus() throws DominusNodeException {
-        return http.get("/api/proxy/status", ProxyStatus.class);
-    }
-
-    /**
-     * Get proxy server configuration. Requires authentication.
-     *
-     * @return proxy configuration
-     * @throws DominusNodeException on API errors
-     */
-    public ProxyConfig getConfig() throws DominusNodeException {
-        return http.get("/api/proxy/config", ProxyConfig.class);
-    }
-
-    /**
-     * URL-encode a string for use in proxy URLs.
-     */
-    private static String encode(String value) {
-        return URLEncoder.encode(value, StandardCharsets.UTF_8);
-    }
+    /** Replace the DNS resolver used by the rebinding check (tests). */
+    public void setResolver(HostResolver r) { this.resolver = r == null ? HostResolver.SYSTEM : r; }
 }

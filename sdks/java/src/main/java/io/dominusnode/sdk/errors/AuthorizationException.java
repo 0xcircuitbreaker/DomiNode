@@ -1,11 +1,12 @@
 package io.dominusnode.sdk.errors;
 
-/**
- * Thrown when the user lacks permission for the requested action (HTTP 403).
- */
-public class AuthorizationException extends DominusNodeException {
+import java.util.Map;
 
-    public AuthorizationException(String message) {
-        super(message, 403);
-    }
+/** HTTP 403. */
+public class AuthorizationException extends DominusNodeException {
+    private static final long serialVersionUID = 2L;
+
+    public AuthorizationException(String message) { super(message, 403, null, null); }
+
+    public AuthorizationException(String message, String code, Map<String, Object> details) { super(message, 403, code, details); }
 }

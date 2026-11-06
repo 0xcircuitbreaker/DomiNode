@@ -1,67 +1,53 @@
 package io.dominusnode.sdk.resources;
 
-import io.dominusnode.sdk.errors.DominusNodeException;
-import io.dominusnode.sdk.internal.HttpClient;
-import io.dominusnode.sdk.internal.JsonUtil;
-import io.dominusnode.sdk.types.ApiKey;
-import io.dominusnode.sdk.types.CreatedApiKey;
+import com.fasterxml.jackson.databind.JsonNode;
+import io.dominusnode.sdk.Secret;
+import io.dominusnode.sdk.internal.ApiClient;
+import io.dominusnode.sdk.internal.ApiClient.Auth;
+import io.dominusnode.sdk.internal.Validation;
 
-import java.net.URLEncoder;
-import java.nio.charset.StandardCharsets;
-import java.util.Arrays;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import static io.dominusnode.sdk.internal.Validation.body;
+import static io.dominusnode.sdk.internal.Validation.seg;
 
-/**
- * API key management: create, list, and revoke API keys.
- */
+/** API keys (/api/keys, jwt). */
 public final class KeysResource {
+    private final ApiClient http;
 
-    private final HttpClient http;
+    public KeysResource(ApiClient http) { this.http = http; }
 
-    /**
-     * @param http the HTTP client
-     */
-    public KeysResource(HttpClient http) {
-        this.http = http;
+    /** A newly created key. {@code key} is returned once and prints as [REDACTED]. */
+    public static final class CreatedKey {
+        public final String id;
+        public final String prefix;
+        public final String label;
+        public final String createdAt;
+        public final Secret key;
+
+        CreatedKey(JsonNode r) {
+            id = r.path("id").asText(null);
+            prefix = r.path("prefix").asText(null);
+            label = r.path("label").asText(null);
+            createdAt = r.path("created_at").asText(null);
+            key = new Secret(r.path("key").asText(""));
+        }
+
+        @Override
+        public String toString() { return "CreatedKey(id=" + id + ", prefix=" + prefix + ", label=" + label + ", key=[REDACTED])"; }
     }
 
-    /**
-     * Create a new API key. The raw key value is only returned once.
-     *
-     * @param label a user-friendly label for the key
-     * @return the created key with its raw value
-     * @throws DominusNodeException on API errors
-     */
-    public CreatedApiKey create(String label) throws DominusNodeException {
-        Map<String, Object> body = new HashMap<>();
-        body.put("label", label != null ? label : "Default");
-        return http.post("/api/keys", body, CreatedApiKey.class);
+    public CreatedKey create() { return create("Default"); }
+
+    /** POST /api/keys {label} (1..100 chars). */
+    public CreatedKey create(String label) {
+        Validation.nonEmpty(label, "label", 100);
+        return new CreatedKey(http.post("/api/keys", body("label", label), Auth.JWT));
     }
 
-    /**
-     * List all API keys for the authenticated user.
-     *
-     * @return list of API keys
-     * @throws DominusNodeException on API errors
-     */
-    public List<ApiKey> list() throws DominusNodeException {
-        // Server returns { keys: [...] }
-        Map<?, ?> raw = http.get("/api/keys", Map.class);
-        String json = JsonUtil.toJson(raw.get("keys"));
-        ApiKey[] keys = JsonUtil.fromJson(json, ApiKey[].class);
-        return Arrays.asList(keys);
-    }
+    /** GET /api/keys -> {keys}. */
+    public JsonNode list() { return http.get("/api/keys", Auth.JWT); }
 
-    /**
-     * Revoke an API key by its ID.
-     *
-     * @param id the key ID to revoke
-     * @throws DominusNodeException on API errors
-     */
-    public void revoke(String id) throws DominusNodeException {
-        String encodedId = URLEncoder.encode(id, StandardCharsets.UTF_8);
-        http.delete("/api/keys/" + encodedId);
+    /** DELETE /api/keys/{id}. */
+    public void revoke(String id) {
+        http.delete("/api/keys/" + seg(Validation.nonEmpty(id, "id", 256)), Auth.JWT);
     }
 }

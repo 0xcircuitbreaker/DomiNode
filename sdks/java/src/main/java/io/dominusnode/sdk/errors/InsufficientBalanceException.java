@@ -1,11 +1,12 @@
 package io.dominusnode.sdk.errors;
 
-/**
- * Thrown when the wallet balance is insufficient for the requested operation (HTTP 402).
- */
-public class InsufficientBalanceException extends DominusNodeException {
+import java.util.Map;
 
-    public InsufficientBalanceException(String message) {
-        super(message, 402);
-    }
+/** HTTP 402. */
+public class InsufficientBalanceException extends DominusNodeException {
+    private static final long serialVersionUID = 2L;
+
+    public InsufficientBalanceException(String message) { super(message, 402, null, null); }
+
+    public InsufficientBalanceException(String message, String code, Map<String, Object> details) { super(message, 402, code, details); }
 }

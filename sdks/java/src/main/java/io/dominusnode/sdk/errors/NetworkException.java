@@ -1,15 +1,8 @@
 package io.dominusnode.sdk.errors;
 
-/**
- * Thrown when a network-level error occurs (connection refused, timeout, DNS failure, etc.).
- */
+/** Transport failure (connection, timeout, refused redirect). */
 public class NetworkException extends DominusNodeException {
+    private static final long serialVersionUID = 2L;
 
-    public NetworkException(String message) {
-        super(message, 0);
-    }
-
-    public NetworkException(String message, Throwable cause) {
-        super(message, 0, cause);
-    }
+    public NetworkException(String message) { super(message); }
 }

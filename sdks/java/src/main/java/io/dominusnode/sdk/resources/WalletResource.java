@@ -1,147 +1,50 @@
 package io.dominusnode.sdk.resources;
 
-import io.dominusnode.sdk.errors.DominusNodeException;
-import io.dominusnode.sdk.internal.HttpClient;
-import io.dominusnode.sdk.internal.JsonUtil;
-import io.dominusnode.sdk.types.CryptoInvoice;
-import io.dominusnode.sdk.types.PaypalOrder;
-import io.dominusnode.sdk.types.StripeCheckout;
-import io.dominusnode.sdk.types.Wallet;
-import io.dominusnode.sdk.types.WalletForecast;
-import io.dominusnode.sdk.types.WalletTransaction;
+import com.fasterxml.jackson.databind.JsonNode;
+import io.dominusnode.sdk.internal.ApiClient;
+import io.dominusnode.sdk.internal.ApiClient.Auth;
+import io.dominusnode.sdk.internal.Validation;
 
-import java.util.Arrays;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
+import java.util.Locale;
 
-/**
- * Wallet operations: balance inquiry, transaction history, and top-up.
- */
+import static io.dominusnode.sdk.internal.Validation.body;
+import static io.dominusnode.sdk.internal.Validation.qs;
+import static io.dominusnode.sdk.internal.Validation.seg;
+
+/** Requester prepaid wallet (cents). */
 public final class WalletResource {
+    public static final List<String> CRYPTO_CURRENCIES =
+            List.of("btc", "eth", "ltc", "xmr", "zec", "usdc", "sol", "usdt", "dai", "bnb", "link");
+    private final ApiClient http;
 
-    private final HttpClient http;
+    public WalletResource(ApiClient http) { this.http = http; }
 
-    /**
-     * @param http the HTTP client
-     */
-    public WalletResource(HttpClient http) {
-        this.http = http;
+    /** GET /api/wallet. */
+    public JsonNode getBalance() { return http.get("/api/wallet", Auth.JWT); }
+
+    public JsonNode getTransactions() { return getTransactions(null, null); }
+
+    /** GET /api/wallet/transactions?limit&amp;offset. */
+    public JsonNode getTransactions(Integer limit, Integer offset) {
+        return http.get("/api/wallet/transactions" + qs("limit", limit, "offset", offset), Auth.JWT);
     }
 
-    /**
-     * Validate that a financial amount is a positive integer within PostgreSQL int4 range.
-     */
-    static void validateAmountCents(int amountCents) {
-        if (amountCents <= 0 || amountCents > 2_147_483_647) {
-            throw new IllegalArgumentException("amountCents must be a positive integer <= 2,147,483,647");
-        }
+    /** GET /api/wallet/forecast. */
+    public JsonNode getForecast() { return http.get("/api/wallet/forecast", Auth.JWT); }
+
+    /** POST /api/wallet/topup/crypto; 1000..100000 cents. */
+    public JsonNode topUpCrypto(long amountCents, String currency) {
+        Validation.cents(amountCents, "amountCents", false);
+        if (amountCents < 1000 || amountCents > 100_000) throw Validation.invalid("crypto top-up must be between 1000 and 100000 cents ($10-$1,000)");
+        String c = currency == null ? "" : currency.toLowerCase(Locale.ROOT);
+        if (!CRYPTO_CURRENCIES.contains(c)) throw Validation.invalid("currency must be one of " + String.join(", ", CRYPTO_CURRENCIES));
+        Object usd = amountCents % 100 == 0 ? (Object) (amountCents / 100) : (Object) (amountCents / 100.0);
+        return http.post("/api/wallet/topup/crypto", body("amountUsd", usd, "currency", c), Auth.JWT);
     }
 
-    /**
-     * Get the current wallet balance.
-     *
-     * @return wallet balance information
-     * @throws DominusNodeException on API errors
-     */
-    public Wallet getBalance() throws DominusNodeException {
-        return http.get("/api/wallet", Wallet.class);
-    }
-
-    /**
-     * Get wallet transaction history with default pagination.
-     *
-     * @return list of transactions
-     * @throws DominusNodeException on API errors
-     */
-    public List<WalletTransaction> getTransactions() throws DominusNodeException {
-        return getTransactions(-1, -1);
-    }
-
-    /**
-     * Get wallet transaction history with pagination.
-     *
-     * @param limit  maximum number of transactions to return (pass -1 to use server default)
-     * @param offset number of transactions to skip (pass -1 to use server default)
-     * @return list of transactions
-     * @throws DominusNodeException on API errors
-     */
-    public List<WalletTransaction> getTransactions(int limit, int offset) throws DominusNodeException {
-        StringBuilder path = new StringBuilder("/api/wallet/transactions");
-        String sep = "?";
-        if (limit >= 0) {
-            path.append(sep).append("limit=").append(limit);
-            sep = "&";
-        }
-        if (offset >= 0) {
-            path.append(sep).append("offset=").append(offset);
-        }
-        // Server returns { transactions: [...] }
-        Map<?, ?> raw = http.get(path.toString(), Map.class);
-        String json = JsonUtil.toJson(raw.get("transactions"));
-        WalletTransaction[] txns = JsonUtil.fromJson(json, WalletTransaction[].class);
-        return Arrays.asList(txns);
-    }
-
-    /**
-     * Create a Stripe checkout session for wallet top-up.
-     *
-     * @param amountCents the amount in cents to top up
-     * @return Stripe checkout session with redirect URL
-     * @throws DominusNodeException on API errors
-     */
-    public StripeCheckout topupStripe(int amountCents) throws DominusNodeException {
-        validateAmountCents(amountCents);
-        Map<String, Object> body = new HashMap<>();
-        body.put("amountCents", amountCents);
-        return http.post("/api/wallet/topup/stripe", body, StripeCheckout.class);
-    }
-
-    /**
-     * Create a crypto invoice for wallet top-up via NOWPayments.
-     *
-     * @param amountUsd the amount in USD
-     * @param currency  the cryptocurrency code (e.g., "btc", "eth", "xmr", "sol", "zec")
-     * @return crypto invoice with payment URL
-     * @throws DominusNodeException on API errors
-     */
-    public CryptoInvoice topupCrypto(double amountUsd, String currency) throws DominusNodeException {
-        if (Double.isNaN(amountUsd) || Double.isInfinite(amountUsd) || amountUsd <= 0 || amountUsd > 21474836.47) {
-            throw new IllegalArgumentException("amountUsd must be a positive finite number <= 21,474,836.47");
-        }
-        if (amountUsd < 10) {
-            throw new IllegalArgumentException("Minimum crypto top-up is $10.00");
-        }
-        Map<String, Object> body = new HashMap<>();
-        body.put("amountUsd", amountUsd);
-        body.put("currency", currency);
-        return http.post("/api/wallet/topup/crypto", body, CryptoInvoice.class);
-    }
-
-    /**
-     * Create a PayPal order for wallet top-up.
-     *
-     * @param amountCents the amount in cents to top up (minimum 500 = $5.00)
-     * @return PayPal order with approval URL
-     * @throws DominusNodeException on API errors
-     */
-    public PaypalOrder topupPaypal(int amountCents) throws DominusNodeException {
-        validateAmountCents(amountCents);
-        if (amountCents < 500) {
-            throw new IllegalArgumentException("Minimum PayPal top-up is $5.00 (500 cents)");
-        }
-        Map<String, Object> body = new HashMap<>();
-        body.put("amountCents", amountCents);
-        return http.post("/api/wallet/topup/paypal", body, PaypalOrder.class);
-    }
-
-    /**
-     * Get spending forecast based on recent usage patterns.
-     *
-     * @return wallet forecast with estimated days remaining
-     * @throws DominusNodeException on API errors
-     */
-    public WalletForecast getForecast() throws DominusNodeException {
-        return http.get("/api/wallet/forecast", WalletForecast.class);
+    /** GET /api/wallet/crypto/status/{invoiceId} (UUID). */
+    public JsonNode getCryptoStatus(String invoiceId) {
+        return http.get("/api/wallet/crypto/status/" + seg(Validation.uuid(invoiceId, "invoiceId")), Auth.JWT);
     }
 }

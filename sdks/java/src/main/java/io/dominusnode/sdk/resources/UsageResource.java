@@ -1,157 +1,39 @@
 package io.dominusnode.sdk.resources;
 
-import io.dominusnode.sdk.errors.DominusNodeException;
-import io.dominusnode.sdk.internal.HttpClient;
-import io.dominusnode.sdk.types.DailyUsageResponse;
-import io.dominusnode.sdk.types.TopHostsResponse;
-import io.dominusnode.sdk.types.UsageResponse;
+import com.fasterxml.jackson.databind.JsonNode;
+import io.dominusnode.sdk.internal.ApiClient;
+import io.dominusnode.sdk.internal.ApiClient.Auth;
 
-import java.net.URLEncoder;
-import java.nio.charset.StandardCharsets;
+import static io.dominusnode.sdk.internal.Validation.qs;
 
-/**
- * Usage statistics: detailed records, daily aggregation, top hosts, and CSV export.
- */
+/** Usage (jwt). {@code from} maps to query {@code since}, {@code to} to {@code until} (ISO 8601). */
 public final class UsageResource {
+    private final ApiClient http;
 
-    private final HttpClient http;
+    public UsageResource(ApiClient http) { this.http = http; }
 
-    /**
-     * @param http the HTTP client
-     */
-    public UsageResource(HttpClient http) {
-        this.http = http;
+    public JsonNode get() { return get(null, null, null, null); }
+
+    public JsonNode get(String from, String to, Integer limit, Integer offset) {
+        return http.get("/api/usage" + qs("since", from, "until", to, "limit", limit, "offset", offset), Auth.JWT);
     }
 
-    /**
-     * Get usage records with default parameters.
-     *
-     * @return usage response with summary, records, and pagination
-     * @throws DominusNodeException on API errors
-     */
-    public UsageResponse get() throws DominusNodeException {
-        return get(null, null, -1, -1);
+    public JsonNode getDaily() { return getDaily(null, null); }
+
+    public JsonNode getDaily(String from, String to) {
+        return http.get("/api/usage/daily" + qs("since", from, "until", to), Auth.JWT);
     }
 
-    /**
-     * Get usage records for a date range.
-     *
-     * @param since start date (ISO 8601), or {@code null}
-     * @param until end date (ISO 8601), or {@code null}
-     * @return usage response
-     * @throws DominusNodeException on API errors
-     */
-    public UsageResponse get(String since, String until) throws DominusNodeException {
-        return get(since, until, -1, -1);
+    public JsonNode getTopHosts() { return getTopHosts(null, null, null); }
+
+    public JsonNode getTopHosts(String from, String to, Integer limit) {
+        return http.get("/api/usage/top-hosts" + qs("since", from, "until", to, "limit", limit), Auth.JWT);
     }
 
-    /**
-     * Get usage records with date range and pagination.
-     *
-     * @param since  start date (ISO 8601), or {@code null}
-     * @param until  end date (ISO 8601), or {@code null}
-     * @param limit  max records (pass -1 for default)
-     * @param offset offset for pagination (pass -1 for default)
-     * @return usage response
-     * @throws DominusNodeException on API errors
-     */
-    public UsageResponse get(String since, String until, int limit, int offset) throws DominusNodeException {
-        String path = buildPath("/api/usage", since, until, limit, offset, null);
-        return http.get(path, UsageResponse.class);
-    }
+    public String exportCsv() { return exportCsv(null, null); }
 
-    /**
-     * Get daily usage aggregation with default date range.
-     *
-     * @return daily usage response
-     * @throws DominusNodeException on API errors
-     */
-    public DailyUsageResponse getDaily() throws DominusNodeException {
-        return getDaily(null, null);
-    }
-
-    /**
-     * Get daily usage aggregation for a date range.
-     *
-     * @param since start date (ISO 8601), or {@code null}
-     * @param until end date (ISO 8601), or {@code null}
-     * @return daily usage response
-     * @throws DominusNodeException on API errors
-     */
-    public DailyUsageResponse getDaily(String since, String until) throws DominusNodeException {
-        String path = buildPath("/api/usage/daily", since, until, -1, -1, null);
-        return http.get(path, DailyUsageResponse.class);
-    }
-
-    /**
-     * Get top target hosts by bandwidth with default parameters.
-     *
-     * @return top hosts response
-     * @throws DominusNodeException on API errors
-     */
-    public TopHostsResponse getTopHosts() throws DominusNodeException {
-        return getTopHosts(null, null, null);
-    }
-
-    /**
-     * Get top target hosts by bandwidth for a date range.
-     *
-     * @param since start date (ISO 8601), or {@code null}
-     * @param until end date (ISO 8601), or {@code null}
-     * @param limit max hosts to return, or {@code null} for default
-     * @return top hosts response
-     * @throws DominusNodeException on API errors
-     */
-    public TopHostsResponse getTopHosts(String since, String until, Integer limit) throws DominusNodeException {
-        String path = buildPath("/api/usage/top-hosts", since, until, limit != null ? limit : -1, -1, null);
-        return http.get(path, TopHostsResponse.class);
-    }
-
-    /**
-     * Export usage records as a CSV string with default date range.
-     *
-     * @return CSV content
-     * @throws DominusNodeException on API errors
-     */
-    public String exportCsv() throws DominusNodeException {
-        return exportCsv(null, null);
-    }
-
-    /**
-     * Export usage records as a CSV string for a date range.
-     *
-     * @param since start date (ISO 8601), or {@code null}
-     * @param until end date (ISO 8601), or {@code null}
-     * @return CSV content
-     * @throws DominusNodeException on API errors
-     */
-    public String exportCsv(String since, String until) throws DominusNodeException {
-        String path = buildPath("/api/usage/export", since, until, -1, -1, null);
-        return http.getRaw(path, true);
-    }
-
-    /**
-     * Build a query path with optional parameters.
-     */
-    private static String buildPath(String base, String since, String until,
-                                     int limit, int offset, Integer extraLimit) {
-        StringBuilder sb = new StringBuilder(base);
-        String sep = "?";
-        if (since != null) {
-            sb.append(sep).append("since=").append(URLEncoder.encode(since, StandardCharsets.UTF_8));
-            sep = "&";
-        }
-        if (until != null) {
-            sb.append(sep).append("until=").append(URLEncoder.encode(until, StandardCharsets.UTF_8));
-            sep = "&";
-        }
-        if (limit >= 0) {
-            sb.append(sep).append("limit=").append(limit);
-            sep = "&";
-        }
-        if (offset >= 0) {
-            sb.append(sep).append("offset=").append(offset);
-        }
-        return sb.toString();
+    /** GET /api/usage/export -> raw CSV. */
+    public String exportCsv(String from, String to) {
+        return http.request("GET", "/api/usage/export" + qs("since", from, "until", to), null, Auth.JWT, null, true).asText();
     }
 }
