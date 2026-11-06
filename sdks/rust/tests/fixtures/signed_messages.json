@@ -1,0 +1,7 @@
+{
+  "wallet": "0xAbCdEf0123456789aBcDeF0123456789ABCDEF01",
+  "attestation_none": "DomiNode node attestation\nVersion: 3\nWallet: 0xabcdef0123456789abcdef0123456789abcdef01\nNonce: ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff\nNode pubkey: none\n\nline1\nline2 µ",
+  "attestation_key": "DomiNode node attestation\nVersion: 12\nWallet: 0xabcdef0123456789abcdef0123456789abcdef01\nNonce: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\nNode pubkey: abababababababababababababababababababababababababababababababab\n\nI agree.\n\nTrailing",
+  "payout": "DominusNode payout wallet\nAction: payout_wallet_set\nUser: 11111111-2222-4333-8444-555555555555\nAccount wallet: 0xabcdef0123456789abcdef0123456789abcdef01\nPayout address: 0x2222222222222222222222222222222222222aaa\nChain: base\nNonce: eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+  "withdraw": "DominusNode withdrawal\nAction: withdraw\nUser: 11111111-2222-4333-8444-555555555555\nAccount wallet: 0xabcdef0123456789abcdef0123456789abcdef01\nAmount (µUSD): 1234567\nIdempotency key: dn-key_ABC-123\nNonce: dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+}
