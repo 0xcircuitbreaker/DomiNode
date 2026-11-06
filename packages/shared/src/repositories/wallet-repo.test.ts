@@ -23,6 +23,7 @@ import {
   getWallet,
   getBalance,
   getTransactions,
+  atomicCompleteInvoiceAndCredit,
 } from "./wallet-repo.js";
 
 describe("wallet-repo", () => {
@@ -634,6 +635,36 @@ describe("wallet-repo", () => {
         expect.stringContaining("JOIN wallets w ON w.id = wt.wallet_id"),
         expect.any(Array),
       );
+    });
+  });
+
+  describe("atomicCompleteInvoiceAndCredit fromStatuses", () => {
+    const route = (claimRows: number) => (sql: string) => {
+      if (/UPDATE payment_invoices/.test(sql)) return { rowCount: claimRows, rows: [] };
+      if (/FROM wallets WHERE user_id/.test(sql)) return { rows: [{ id: "w1", balance_cents: 0 }] };
+      if (/UPDATE wallets/.test(sql)) return { rows: [{ id: "w1", balance_cents: 500 }] };
+      if (/INSERT INTO wallet_transactions/.test(sql)) return { rows: [{ id: "t1" }] };
+      return { rows: [] };
+    };
+    it("claims pending only by default", async () => {
+      mockClientQuery.mockImplementation(route(1));
+      expect((await atomicCompleteInvoiceAndCredit("i1", "u1", 500, "tempo", "0xabc", "d")).claimed).toBe(true);
+      const claim = mockClientQuery.mock.calls.find((c) => /UPDATE payment_invoices/.test(c[0]))!;
+      expect(claim[1]).toEqual(["i1", ["pending"]]);
+    });
+    it("can claim a failed invoice when asked, in the same transaction as the credit", async () => {
+      mockClientQuery.mockImplementation(route(1));
+      await atomicCompleteInvoiceAndCredit("i1", "u1", 500, "tempo", "0xabc", "d", ["pending", "failed"]);
+      const sqls = mockClientQuery.mock.calls.map((c) => c[0]);
+      expect(sqls[0]).toBe("BEGIN");
+      expect(sqls.at(-1)).toBe("COMMIT");
+      expect(mockClientQuery.mock.calls.find((c) => /UPDATE payment_invoices/.test(c[0]))![1]).toEqual(["i1", ["pending", "failed"]]);
+    });
+    it("is idempotent once completed (no credit, rollback)", async () => {
+      mockClientQuery.mockImplementation(route(0));
+      expect((await atomicCompleteInvoiceAndCredit("i1", "u1", 500, "tempo", "0xabc", "d", ["pending", "failed"])).claimed).toBe(false);
+      expect(mockClientQuery.mock.calls.some((c) => /UPDATE wallets/.test(c[0]))).toBe(false);
+      expect(mockClientQuery).toHaveBeenCalledWith("ROLLBACK");
     });
   });
 });
