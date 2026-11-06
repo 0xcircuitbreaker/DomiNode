@@ -4,7 +4,7 @@
  * sanctioned -> 403, unavailable -> 503 NO_NODES_AVAILABLE.
  */
 import { isBlockedCountry, type NetworkPolicy } from "@dominusnode/shared";
-import { NodeRegistry, ipPrefix, dayOf, type LiveNode } from "./registry.js";
+import { NodeRegistry, ipPrefix, dayOf, effectiveReputation, type LiveNode } from "./registry.js";
 
 export const TOP_K = 10;
 export const STICKY_TTL_MS = 10 * 60_000;
@@ -112,7 +112,7 @@ export class NodeSelector {
   }
 
   score(n: LiveNode, medianEarnings: number): number {
-    const rep = Math.max(0, Math.min(10000, n.reputation)) / 10000;
+    const rep = effectiveReputation(n) / 10000;
     const fairness = medianEarnings > 0 && n.earningsTodayMusd > 2 * medianEarnings
       ? (2 * medianEarnings) / n.earningsTodayMusd : 1;
     const floor = n.floorHashKnown ? 1 : 0.5;

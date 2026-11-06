@@ -19,6 +19,8 @@ export const JOB_LOCK_KEYS = {
   tiers: 0x444e_0003,
   payouts: 0x444e_0004,
   settleRetry: 0x444e_0005,
+  reportReputation: 0x444e_0006,
+  collusion: 0x444e_0007,
 } as const;
 
 /**

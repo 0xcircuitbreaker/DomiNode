@@ -2,7 +2,7 @@ import type * as net from "node:net";
 import dotenv from "dotenv";
 dotenv.config();
 
-import { createLogger, closePool, getPool, usageRepo, connectWithRetry, nodeRepo, policyRepo, nodeCreditRepo, retentionRepo, tierRepo, payoutRepo, relayChargeRepo, relaySettleRetryRepo } from "@dominusnode/shared";
+import { createLogger, closePool, getPool, usageRepo, connectWithRetry, nodeRepo, policyRepo, nodeCreditRepo, retentionRepo, tierRepo, payoutRepo, relayChargeRepo, relaySettleRetryRepo, reportReputationRepo } from "@dominusnode/shared";
 import type { ActivePolicy } from "@dominusnode/shared";
 import { startProxyServer } from "./server.js";
 import { initGeoCheck, lookupPeerGeo, setAsnDb } from "./geo-check.js";
@@ -22,6 +22,7 @@ import * as tiersJob from "./jobs/tiers.js";
 import * as payoutsJob from "./jobs/payouts.js";
 import * as reputationFlushJob from "./jobs/reputation-flush.js";
 import * as settleRetryJob from "./jobs/relay-settle-retry.js";
+import * as reportReputationJob from "./jobs/report-reputation.js";
 import { loadSdnFile } from "./jobs/sdn.js";
 import * as probesJob from "./jobs/probes.js";
 import { parseTrustedProxyIps, loadTunnelTls } from "./node-tunnel/ingress.js";
@@ -276,10 +277,26 @@ function startJobs(registry: NodeRegistry, getPolicy: () => ActivePolicy): Job[]
     deps: {
       drain: () => registry.drainCounters(),
       flushHealth: nodeRepo.flushHealth,
+      refreshPenalties: async () => {
+        const ids = [...registry.all()].map((n) => n.nodeId);
+        for (let i = 0; i < ids.length; i += 1000) {
+          const chunk = ids.slice(i, i + 1000);
+          registry.setReportPenalties(chunk, await reportReputationRepo.getReportPenalties(chunk));
+        }
+      },
       quarantine: async (nodeId) => {
         await nodeRepo.setStatus(nodeId, "quarantined", ["active", "pending", "cooldown"]);
         registry.get(nodeId)?.tunnel.close("quarantined");
       },
+    },
+  }));
+  jobs.push(reportReputationJob.start({
+    pool, logger: jobLog, intervalMs: envInt(process.env, "REPORT_REPUTATION_INTERVAL_MS", 3_600_000, 60_000, 86_400_000),
+    deps: {
+      listAggregates: reportReputationRepo.listReportAggregates,
+      compute: reportReputationRepo.computeReportPenalties,
+      apply: reportReputationRepo.applyReportPenalties,
+      params: reportReputationJob.paramsFromEnv(process.env, envInt, reportReputationRepo.DEFAULT_REPORT_PENALTY_PARAMS),
     },
   }));
   const probeTarget = probesJob.parseProbeUrl(process.env["PROBE_URL"]);

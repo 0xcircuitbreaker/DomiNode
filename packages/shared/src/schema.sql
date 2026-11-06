@@ -1644,3 +1644,15 @@ CREATE INDEX IF NOT EXISTS idx_node_reports_node ON node_reports(node_id, create
 INSERT INTO data_retention_policies (table_name, retention_days, description) VALUES
   ('agent_sign_challenges', 1, 'Agent payout/withdraw signing challenges purged after 1 day')
 ON CONFLICT (table_name) DO NOTHING;
+
+-- ─── Burn-report reputation penalty (DESIGN.md §4, §15) ─────────────
+-- Recomputed hourly by the report-reputation job from node_reports weighted by
+-- each reporter's 30-day paid spend, with decay. Effective reputation used for
+-- selection, quarantine and tiers = GREATEST(0, reputation - report_penalty).
+ALTER TABLE nodes ADD COLUMN IF NOT EXISTS report_penalty INTEGER NOT NULL DEFAULT 0;
+DO $$ BEGIN
+  ALTER TABLE nodes ADD CONSTRAINT chk_nodes_report_penalty CHECK (report_penalty BETWEEN 0 AND 10000);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+CREATE INDEX IF NOT EXISTS idx_nodes_report_penalty ON nodes(id) WHERE report_penalty > 0;
+CREATE INDEX IF NOT EXISTS idx_node_reports_created ON node_reports(created_at);
