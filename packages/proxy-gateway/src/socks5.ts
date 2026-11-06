@@ -3,6 +3,7 @@ import { createLogger, hashApiKey, userRepo, planRepo } from "@dominusnode/share
 import type { ProviderSelector } from "@dominusnode/pool-manager";
 import { checkBalance, checkTeamBalance } from "./balance-check.js";
 import { attachByteCounters } from "./counting-stream.js";
+import { checkAgenticWalletPolicy } from "./wallet-policy.js";
 import { startSession, endSession, registerSessionDestroy, unregisterSessionDestroy } from "./session-manager.js";
 import type { ProxyOptions } from "./auth.js";
 import { checkSanctionedCountry } from "./geo-check.js";
@@ -246,9 +247,16 @@ async function handleSocks5Connection(clientSocket: net.Socket, providerSelector
 
   // Free plan: skip wallet balance check (bandwidth checked in startSession)
   if (socksUserPlan.pricePerGbCents > 0) {
-    const hasBalance = teamId
-      ? await checkTeamBalance(teamId)
-      : await checkBalance(userId);
+    let hasBalance: boolean;
+    try {
+      hasBalance = teamId
+        ? await checkTeamBalance(teamId)
+        : await checkBalance(userId);
+    } catch (err) {
+      // Fail closed and release the slot taken by incrementUserConns
+      log.error("SOCKS5 balance check failed", { error: err instanceof Error ? err.message : String(err) });
+      hasBalance = false;
+    }
     if (!hasBalance) {
       clearTimeout(totalHandshakeTimer);
       decrementUserConns(userId);
@@ -362,6 +370,16 @@ async function handleSocks5Connection(clientSocket: net.Socket, providerSelector
   }
 
   recordRequest();
+
+  // Agentic wallet policy: only a verified, active, user-owned wallet grants agent limits
+  const walletPolicy = await checkAgenticWalletPolicy(proxyOptions.walletId, userId, targetHost);
+  if (!walletPolicy.allowed) {
+    clearTimeout(totalHandshakeTimer);
+    sendReply(clientSocket, REP_NOT_ALLOWED);
+    decrementUserConns(userId);
+    clientSocket.end();
+    return;
+  }
 
   // Provider selection (replaces global circuit breaker check)
   let selected;
@@ -496,7 +514,7 @@ async function handleSocks5Connection(clientSocket: net.Socket, providerSelector
       // Pass connectLatencyMs and proxyType derived from provider name
       // Pass pre-fetched plan to prevent TOCTOU double-fetch
       const poolType = providerName.includes("dc") ? "dc" : "residential";
-      const socksIsAgent = !!proxyOptions.walletId;
+      const socksIsAgent = walletPolicy.isAgent;
       sessionId = await startSession(userId, targetHost, counter, connectLatencyMs, poolType, socksUserPlan, logTargetHosts, teamId, socksIsAgent);
     } catch (err) {
       log.error("SOCKS5 failed to start session", { error: err instanceof Error ? err.message : String(err) });

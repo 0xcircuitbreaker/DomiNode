@@ -147,4 +147,29 @@ describe("agent-rate-limit", () => {
       expect(typeof limiter).toBe("function");
     });
   });
+
+  describe("isGlobalVerifiedAgent", () => {
+    it("accepts only the global MCP_AGENT_SECRET", async () => {
+      process.env["MCP_AGENT_SECRET"] = "test-secret-32-chars-long-enough!";
+      vi.resetModules();
+      const { isGlobalVerifiedAgent } = await import("./agent-rate-limit.js");
+      expect(isGlobalVerifiedAgent({ headers: { "x-dominusnode-agent": "mcp", "x-dominusnode-agent-secret": "test-secret-32-chars-long-enough!" } } as any)).toBe(true);
+      expect(isGlobalVerifiedAgent({ headers: { "x-dominusnode-agent": "mcp", "x-dominusnode-agent-secret": "wrong-secret-32-chars-long-enough" } } as any)).toBe(false);
+    });
+
+    it("rejects per-agent das_ secrets (cannot bypass brute-force protections)", async () => {
+      process.env["MCP_AGENT_SECRET"] = "test-secret-32-chars-long-enough!";
+      vi.resetModules();
+      const { isGlobalVerifiedAgent } = await import("./agent-rate-limit.js");
+      const das = "das_" + "a".repeat(64);
+      expect(isGlobalVerifiedAgent({ headers: { "x-dominusnode-agent": "mcp", "x-dominusnode-agent-secret": das } } as any)).toBe(false);
+    });
+
+    it("returns false when MCP_AGENT_SECRET is unset", async () => {
+      delete process.env["MCP_AGENT_SECRET"];
+      vi.resetModules();
+      const { isGlobalVerifiedAgent } = await import("./agent-rate-limit.js");
+      expect(isGlobalVerifiedAgent({ headers: { "x-dominusnode-agent": "mcp", "x-dominusnode-agent-secret": "" } } as any)).toBe(false);
+    });
+  });
 });

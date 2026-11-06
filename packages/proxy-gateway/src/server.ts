@@ -1,7 +1,8 @@
 import * as crypto from "node:crypto";
 import * as http from "node:http";
 import * as net from "node:net";
-import { createLogger, planRepo, agenticWalletRepo } from "@dominusnode/shared";
+import { createLogger, planRepo } from "@dominusnode/shared";
+import { checkAgenticWalletPolicy } from "./wallet-policy.js";
 import type { ProviderSelector } from "@dominusnode/pool-manager";
 import { authenticateRequest } from "./auth.js";
 import { checkBalance, checkTeamBalance } from "./balance-check.js";
@@ -73,57 +74,6 @@ function sendError(
   res.end(message);
 }
 
-// ─── Agentic wallet policy check ─────────────────────────────────────
-
-interface WalletPolicyResult {
-  allowed: boolean;
-  errorCode?: string;
-  message?: string;
-}
-
-async function checkAgenticWalletPolicy(
-  walletId: string | undefined,
-  userId: string,
-  targetHost: string,
-): Promise<WalletPolicyResult> {
-  if (!walletId) return { allowed: true };
-
-  try {
-    const wallet = await agenticWalletRepo.getWallet(walletId, userId);
-    if (!wallet) return { allowed: true }; // Unknown wallet ID — skip policy (wallet may be deleted)
-
-    // Domain allowlist check
-    if (wallet.allowed_domains) {
-      let domains: string[];
-      try {
-        domains = JSON.parse(wallet.allowed_domains);
-      } catch {
-        return { allowed: true }; // Malformed JSON — skip check
-      }
-      const normalizedTarget = targetHost.toLowerCase();
-      const isAllowed = domains.some((d: string) => {
-        const normalizedDomain = d.toLowerCase();
-        return normalizedTarget === normalizedDomain || normalizedTarget.endsWith("." + normalizedDomain);
-      });
-      if (!isAllowed) {
-        return { allowed: false, errorCode: "DOMAIN_NOT_ALLOWED", message: "Target domain not in wallet allowlist" };
-      }
-    }
-
-    // Daily budget check
-    if (wallet.daily_limit_cents !== null && wallet.daily_limit_cents > 0) {
-      const dailySpend = await agenticWalletRepo.getDailySpend(walletId);
-      if (dailySpend >= wallet.daily_limit_cents) {
-        return { allowed: false, errorCode: "BUDGET_EXCEEDED", message: "Daily budget limit reached" };
-      }
-    }
-  } catch (err) {
-    log.error("wallet policy check error", { error: err instanceof Error ? err.message : String(err), walletId });
-    // Fail open — don't block requests due to policy check errors
-  }
-
-  return { allowed: true };
-}
 
 // ─── HTTP forwarding (plain HTTP PROXY requests) ─────────────────────
 
@@ -352,9 +302,18 @@ async function handleRequest(
 
   // Free plan: skip wallet balance check (bandwidth checked in startSession)
   if (userPlan.pricePerGbCents > 0) {
-    const hasBalance = auth!.teamId
-      ? await checkTeamBalance(auth!.teamId)
-      : await checkBalance(auth!.userId);
+    let hasBalance: boolean;
+    try {
+      hasBalance = auth!.teamId
+        ? await checkTeamBalance(auth!.teamId)
+        : await checkBalance(auth!.userId);
+    } catch (err) {
+      // Fail closed and release the slot taken by incrementUserConns
+      decrementUserConns(auth!.userId);
+      log.error("balance check failed", { error: err instanceof Error ? err.message : String(err) });
+      sendError(clientRes, 503, "SERVICE_UNAVAILABLE", "Balance check unavailable, retry later");
+      return;
+    }
     if (!hasBalance) {
       decrementUserConns(auth!.userId);
       const body402 = build402ResponseBody(auth!.proxyOptions.proxyType === "residential" ? "residential" : "dc");
@@ -406,7 +365,7 @@ async function handleRequest(
     // Pass proxyType derived from provider name
     // Pass pre-fetched plan to prevent TOCTOU double-fetch
     const fwdPoolType = provider.name.includes("dc") ? "dc" : "residential";
-    const isAgentRequest = !!auth!.proxyOptions.walletId;
+    const isAgentRequest = walletPolicy.isAgent;
     sessionId = await startSession(auth!.userId, targetHost, counter, 0, fwdPoolType, userPlan, auth!.user.log_target_hosts ?? false, auth!.teamId, isAgentRequest);
   } catch (err) {
     decrementUserConns(auth!.userId);
@@ -454,16 +413,25 @@ async function handleRequest(
   // Buffer the client request body so we can replay it on retries
   const bodyChunks: Buffer[] = [];
   let bodySize = 0;
-  for await (const chunk of clientReq) {
-    const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-    bodySize += buf.length;
-    if (bodySize > MAX_BODY_SIZE) {
-      clientRes.writeHead(413, { "Content-Type": "text/plain" });
-      clientRes.end("Request body too large");
-      cleanup();
-      return;
+  try {
+    for await (const chunk of clientReq) {
+      const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      bodySize += buf.length;
+      if (bodySize > MAX_BODY_SIZE) {
+        clientRes.writeHead(413, { "Content-Type": "text/plain" });
+        clientRes.end("Request body too large");
+        cleanup();
+        return;
+      }
+      bodyChunks.push(buf);
     }
-    bodyChunks.push(buf);
+  } catch {
+    // Client aborted / socket timed out mid-body: release slot and settle session
+    cleanup();
+    if (!clientRes.headersSent && !clientRes.destroyed) {
+      try { clientRes.writeHead(400, { "Content-Type": "text/plain" }); clientRes.end("Request body aborted"); } catch { /* best effort */ }
+    }
+    return;
   }
   const requestBody = Buffer.concat(bodyChunks);
   counter.bytesIn = requestBody.length;
@@ -600,7 +568,6 @@ async function handleConnect(
   const userId = auth.userId;
   const connectTeamId = auth.teamId;
   const connectLogTargetHosts = auth.user.log_target_hosts ?? false;
-  const connectIsAgent = !!auth.proxyOptions.walletId;
 
   // Fetch plan BEFORE provider selection to enforce pool restrictions
   // Team API keys use the team's plan (e.g. payg/unrestricted) not the creator's personal plan
@@ -651,9 +618,17 @@ async function handleConnect(
 
   // Free plan: skip wallet balance check (bandwidth checked in startSession)
   if (connectPlan.pricePerGbCents > 0) {
-    const hasBalance = connectTeamId
-      ? await checkTeamBalance(connectTeamId)
-      : await checkBalance(userId);
+    let hasBalance: boolean;
+    try {
+      hasBalance = connectTeamId
+        ? await checkTeamBalance(connectTeamId)
+        : await checkBalance(userId);
+    } catch (err) {
+      decrementUserConns(userId);
+      log.error("balance check failed", { error: err instanceof Error ? err.message : String(err) });
+      safeSocketWrite(clientSocket, "HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\n\r\n");
+      return;
+    }
     if (!hasBalance) {
       decrementUserConns(userId);
       const poolHint = auth.proxyOptions.proxyType === "residential" ? "residential" : "dc";
@@ -723,6 +698,7 @@ async function handleConnect(
     safeSocketWrite(clientSocket, `HTTP/1.1 403 Forbidden\r\nX-DominusNode-Error: ${connectWalletPolicy.errorCode}\r\n\r\n`);
     return;
   }
+  const connectIsAgent = connectWalletPolicy.isAgent;
 
   // Redact full hostname from logs to protect user privacy (show TLD+1 only)
   const redactedHost = (targetHost ?? "").split(".").slice(-2).join(".");

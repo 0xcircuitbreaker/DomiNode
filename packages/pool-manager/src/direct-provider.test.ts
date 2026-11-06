@@ -52,10 +52,19 @@ describe("DirectProvider", () => {
     expect(Object.getOwnPropertyDescriptor(proxy, "password")?.value).toBe("");
   });
 
-  it("should ignore proxy options (no geo routing)", () => {
-    const proxy = provider.getProxy({ country: "US" });
-    // Should still return the same static config regardless of options
-    expect(proxy.host).toBe("oracle-vm.example.com");
+  it("should reject country targeting it cannot honor", () => {
+    expect(() => provider.getProxy({ country: "US" })).toThrow(/country targeting/);
+    expect(() => provider.getProxy({ country: "IR" })).toThrow(/sanctioned/);
+  });
+
+  it("should reject sticky sessions and other geo options", () => {
+    expect(() => provider.getProxy({ sessionId: "abc" })).toThrow(/sticky/);
+    expect(() => provider.getProxy({ sticky: true })).toThrow(/sticky/);
+    expect(() => provider.getProxy({ city: "berlin" })).toThrow(/geo/);
+  });
+
+  it("should serve untargeted requests", () => {
+    expect(provider.getProxy({ proxyType: "auto" }).host).toBe("oracle-vm.example.com");
   });
 
   it("should track stats", () => {

@@ -177,4 +177,24 @@ describe("proxy-gateway/counting-stream", () => {
       expect(counter.bytesIn).toBe(5);
     });
   });
+
+  describe("early client data", () => {
+    it("buffers client data until piped so it is forwarded, not dropped", async () => {
+      const { PassThrough } = await import("node:stream");
+      const client = new PassThrough();
+      const upstream = new PassThrough();
+      const counter = attachByteCounters(client as any, upstream as any);
+      client.write(Buffer.from("hello"));
+      await new Promise((r) => setImmediate(r));
+      // Paused: not yet emitted (neither counted nor lost)
+      expect(counter.bytesIn).toBe(0);
+      const sink = new PassThrough();
+      const received: Buffer[] = [];
+      sink.on("data", (c: Buffer) => received.push(c));
+      client.pipe(sink);
+      await new Promise((r) => setImmediate(r));
+      expect(Buffer.concat(received).toString()).toBe("hello");
+      expect(counter.bytesIn).toBe(5);
+    });
+  });
 });

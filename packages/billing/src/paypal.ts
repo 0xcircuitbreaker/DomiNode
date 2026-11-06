@@ -322,6 +322,16 @@ export async function capturePaypalOrder(
     log.error("PayPal capture response missing amount", { orderId });
     return null;
   }
+  // Order COMPLETED can wrap a PENDING capture (eCheck, review hold). Only credit
+  // a COMPLETED capture; pending ones are credited by PAYMENT.CAPTURE.COMPLETED webhook.
+  if (capture.status !== "COMPLETED") {
+    log.warn("PayPal capture not completed, leaving invoice pending", { orderId, captureStatus: capture.status });
+    return null;
+  }
+  if (capture.amount.currency_code !== "USD") {
+    log.error("PayPal capture currency mismatch", { orderId, currency: capture.amount.currency_code });
+    return null;
+  }
   const capturedCents = Math.round(parseFloat(capture.amount.value) * 100);
   // NaN check — parseFloat("abc") = NaN, Math.round(NaN) = NaN, NaN > 1 = false (bypass)
   if (isNaN(capturedCents) || Math.abs(capturedCents - invoice.amount_cents) > 1) {
@@ -481,9 +491,13 @@ export async function handlePaypalWebhook(
     }
 
     // Amount verification is mandatory — reject if capture data is missing
-    const capturedAmount = resource.amount as { value?: string } | undefined;
+    const capturedAmount = resource.amount as { value?: string; currency_code?: string } | undefined;
     if (!capturedAmount?.value) {
       log.error("PayPal webhook capture missing amount — rejecting", { orderId });
+      return null;
+    }
+    if (capturedAmount.currency_code !== "USD") {
+      log.error("PayPal webhook capture currency mismatch — rejecting", { orderId, currency: capturedAmount.currency_code });
       return null;
     }
     const capturedCents = Math.round(parseFloat(capturedAmount.value) * 100);
@@ -514,6 +528,25 @@ export async function handlePaypalWebhook(
     referralRepo.recordAffiliateCommission(invoice.user_id, amountCents, orderId).catch(() => {});
 
     return { userId: invoice.user_id, amountCents };
+  }
+
+  // Capture reversed after the fact — flag for operator review (manual debit/suspend).
+  if (
+    event.event_type === "PAYMENT.CAPTURE.DENIED" ||
+    event.event_type === "PAYMENT.CAPTURE.REVERSED" ||
+    event.event_type === "PAYMENT.CAPTURE.REFUNDED"
+  ) {
+    const resource = event.resource as { id?: unknown; supplementary_data?: { related_ids?: { order_id?: unknown } } };
+    const orderId = resource?.supplementary_data?.related_ids?.order_id;
+    const invoice = typeof orderId === "string" ? await invoiceRepo.findInvoice("paypal", orderId) : null;
+    log.error("PayPal capture reversal — wallet credit requires review", {
+      eventType: event.event_type,
+      orderId: typeof orderId === "string" ? orderId : undefined,
+      captureId: typeof resource?.id === "string" ? resource.id : undefined,
+      userId: invoice?.user_id,
+      invoiceStatus: invoice?.status,
+    });
+    return null;
   }
 
   // Handle CHECKOUT.ORDER.APPROVED — optional, for logging

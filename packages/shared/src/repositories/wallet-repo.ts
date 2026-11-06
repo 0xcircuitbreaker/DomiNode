@@ -254,9 +254,15 @@ export async function settleSession(
         [wallet.id, diff, `Proxy usage settlement (${sessionLabel})`],
       );
     } else if (diff < 0) {
-      // Refund excess reservation, capped at MAX_BALANCE_CENTS
-      const refund = Math.min(-diff, MAX_BALANCE_CENTS - wallet.balance_cents);
-      if (refund > 0) {
+      // Refund excess reservation in full. A reservation is the user's own money,
+      // so it must never be silently truncated by the balance cap.
+      const refund = -diff;
+      if (wallet.balance_cents + refund > MAX_BALANCE_CENTS) {
+        throw new Error(
+          `Reservation refund of ${refund} cents would exceed wallet balance cap (${sessionLabel}); settlement aborted to avoid fund loss`,
+        );
+      }
+      {
         await client.query(
           `UPDATE wallets SET balance_cents = balance_cents + $1 WHERE id = $2`,
           [refund, wallet.id],
@@ -304,12 +310,13 @@ export async function releaseReservation(
       await client.query("ROLLBACK");
       return;
     }
-    // Cap refund to MAX_BALANCE_CENTS to prevent exceeding limit
-    const cappedRefund = Math.min(reservedCents, MAX_BALANCE_CENTS - wallet.balance_cents);
-    if (cappedRefund <= 0) {
-      await client.query("ROLLBACK");
-      return;
+    // Never silently truncate a released reservation: fail loudly instead.
+    if (wallet.balance_cents + reservedCents > MAX_BALANCE_CENTS) {
+      throw new Error(
+        `Reservation release of ${reservedCents} cents would exceed wallet balance cap; release aborted to avoid fund loss`,
+      );
     }
+    const cappedRefund = reservedCents;
     await client.query(
       `UPDATE wallets SET balance_cents = balance_cents + $1 WHERE id = $2`,
       [cappedRefund, wallet.id],

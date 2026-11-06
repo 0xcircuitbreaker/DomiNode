@@ -365,6 +365,18 @@ describe("wallet-repo", () => {
   // ─── settleSession ─────────────────────────────────────────────────
 
   describe("settleSession", () => {
+    it("should throw (not silently drop refund) when refund would exceed balance cap", async () => {
+      const wallet = { id: "w1", user_id: "u1", balance_cents: 999_990 };
+      mockClientQuery
+        .mockResolvedValueOnce({}) // BEGIN
+        .mockResolvedValueOnce({}) // SET LOCAL lock_timeout
+        .mockResolvedValueOnce({ rows: [wallet] }) // SELECT FOR UPDATE
+        .mockResolvedValueOnce({}); // ROLLBACK
+      await expect(settleSession("u1", 100, 50, "sess-12345678")).rejects.toThrow(/balance cap/);
+      expect(mockClientQuery).toHaveBeenCalledWith("ROLLBACK");
+      expect(mockClientQuery).not.toHaveBeenCalledWith("COMMIT");
+    });
+
     it("should settle when actual cost equals reserved", async () => {
       const wallet = { id: "w1", user_id: "u1", balance_cents: 5000 };
 
@@ -514,6 +526,18 @@ describe("wallet-repo", () => {
   // ─── releaseReservation ────────────────────────────────────────────
 
   describe("releaseReservation", () => {
+    it("should throw (not silently drop funds) when release would exceed balance cap", async () => {
+      const wallet = { id: "w1", user_id: "u1", balance_cents: 1_000_000 };
+      mockClientQuery
+        .mockResolvedValueOnce({}) // BEGIN
+        .mockResolvedValueOnce({}) // SET LOCAL lock_timeout
+        .mockResolvedValueOnce({ rows: [wallet] }) // SELECT FOR UPDATE
+        .mockResolvedValueOnce({}); // ROLLBACK
+      await expect(releaseReservation("u1", 100)).rejects.toThrow(/balance cap/);
+      expect(mockClientQuery).toHaveBeenCalledWith("ROLLBACK");
+      expect(mockClientQuery).not.toHaveBeenCalledWith("COMMIT");
+    });
+
     it("should release reserved amount back to wallet", async () => {
       const wallet = { id: "w1", user_id: "u1", balance_cents: 1100 };
 
