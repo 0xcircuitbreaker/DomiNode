@@ -1045,6 +1045,18 @@ export interface ProxyServerOptions {
   plaintextAuth?: PlaintextAuthGuard;
 }
 
+/**
+ * Any credential a client can present to the gateway: proxy Basic/MPP auth, an
+ * x402 X-PAYMENT header, or an MPP "Authorization: Payment" credential. With
+ * PROXY_REQUIRE_TLS these are all refused on the plaintext listener.
+ */
+export function carriesProxyCredential(h: http.IncomingHttpHeaders): boolean {
+  if (h["proxy-authorization"] || h["x-payment"]) return true;
+  const a = h["authorization"];
+  if (typeof a === "string" && /^\s*payment\s/i.test(a)) return true;
+  return hasMppCredential(h);
+}
+
 export async function startProxyServer(port: number, relay: RelayRuntime, opts: ProxyServerOptions = {}): Promise<http.Server> {
   await initGeoCheck();
   const plaintextAuth = opts.tls ? undefined : opts.plaintextAuth;
@@ -1057,7 +1069,7 @@ export async function startProxyServer(port: number, relay: RelayRuntime, opts: 
       : "");
 
   const onRequest = (req: http.IncomingMessage, res: http.ServerResponse): void => {
-    if (plaintextAuth && req.headers["proxy-authorization"] && !plaintextAuth("http")) {
+    if (plaintextAuth && carriesProxyCredential(req.headers) && !plaintextAuth("http")) {
       res.writeHead(403, { "Content-Type": "text/plain", Connection: "close" });
       res.end("TLS required: connect to the gateway's HTTPS proxy port");
       return;
@@ -1158,7 +1170,7 @@ export async function startProxyServer(port: number, relay: RelayRuntime, opts: 
     : http.createServer(onRequest);
 
   server.on("connect", (req, socket: net.Socket, head) => {
-    if (plaintextAuth && req.headers["proxy-authorization"] && !plaintextAuth("http")) {
+    if (plaintextAuth && carriesProxyCredential(req.headers) && !plaintextAuth("http")) {
       safeSocketWrite(socket, "HTTP/1.1 403 Forbidden\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\nTLS required");
       return;
     }

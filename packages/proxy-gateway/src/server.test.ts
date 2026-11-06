@@ -968,6 +968,18 @@ describe("proxy-gateway server", () => {
       res.socket.destroy();
     });
 
+    it("refuses X-PAYMENT / MPP Payment credentials on plaintext when TLS is required", async () => {
+      guard.mockReturnValue(false);
+      const r1 = await makeRequest(plainPort, { path: "http://httpbin.org/ip", method: "GET", headers: { "X-Payment": "eyJ4IjoxfQ==" } });
+      expect(r1.status).toBe(403);
+      const r2 = await makeRequest(plainPort, { path: "http://httpbin.org/ip", method: "GET", headers: { Authorization: "Payment abc_-1" } });
+      expect(r2.status).toBe(403);
+      const r3 = await makeConnect(plainPort, "example.com:443", { "X-Payment": "eyJ4IjoxfQ==" });
+      expect(r3.status).toBe(403);
+      r3.socket.destroy();
+      expect(mockAuthenticateRequest).not.toHaveBeenCalled();
+    });
+
     it("lets credentials through when the guard allows (warn-only mode)", async () => {
       guard.mockReturnValue(true);
       const res = await makeConnect(plainPort, "example.com:443", { "Proxy-Authorization": "Basic eA==" });
