@@ -44,6 +44,14 @@ describe("NodeSelector", () => {
     expect((e as NodeSelectionError).status).toBe(403);
   });
 
+  it("honours an owner-lowered req/s cap from the DB row", () => {
+    const now = Date.now();
+    const { sel } = make([node({ maxReqPerSec: 2, recentOpens: [now, now] })]);
+    expect(() => sel.select({ ...base })).toThrow(NodeSelectionError);
+    const { sel: ok } = make([node({ maxReqPerSec: 3, recentOpens: [now, now] })]);
+    expect(ok.select({ ...base })).toBeTruthy();
+  });
+
   it("503 NO_NODES_AVAILABLE when nothing matches", () => {
     const { sel } = make([node({ country: "DE" })]);
     try {

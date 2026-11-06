@@ -227,8 +227,13 @@ export async function clawback(
 export async function convertToWallet(
   userId: string,
   amountMusd?: bigint,
-): Promise<{ convertedCents: number; convertedMusd: bigint }> {
+  idempotencyKey?: string,
+): Promise<{ convertedCents: number; convertedMusd: bigint; duplicate?: boolean }> {
   if (amountMusd !== undefined) assertPositiveMusd(amountMusd, "convert amount");
+  if (idempotencyKey !== undefined && !/^[A-Za-z0-9_-]{8,120}$/.test(idempotencyKey)) {
+    throw new Error("Invalid idempotency key");
+  }
+  const ref = idempotencyKey !== undefined ? `convert:${idempotencyKey}` : null;
   return withTx(async (client) => {
     // Lock order: wallets BEFORE node_credit_accounts, matching settleRelayCharge
     // (requester wallet → earnTx). The reverse order can deadlock a node owner
@@ -241,6 +246,18 @@ export async function convertToWallet(
     if (!wallet) throw new Error("Wallet not found");
 
     const acct = await lockAccountTx(client, userId);
+    if (ref) {
+      // Serialized by the account lock: a repeat returns the original result.
+      const dup = await client.query<{ amount_musd: string }>(
+        `SELECT amount_musd FROM node_credit_transactions
+         WHERE user_id = $1 AND type = 'convert_to_wallet' AND external_ref = $2 LIMIT 1`,
+        [userId, ref],
+      );
+      if (dup.rows[0]) {
+        const m = BigInt(dup.rows[0].amount_musd);
+        return { convertedCents: Number(m / MUSD_PER_CENT), convertedMusd: m, duplicate: true };
+      }
+    }
     if (acct.frozen) throw new Error("Node credit account is frozen");
     const want = amountMusd ?? acct.availableMusd;
     if (want > acct.availableMusd) throw new Error("Insufficient available credit");
@@ -256,8 +273,8 @@ export async function convertToWallet(
       [userId, musd.toString()],
     );
     await client.query(
-      `INSERT INTO node_credit_transactions (user_id, type, amount_musd) VALUES ($1, 'convert_to_wallet', $2)`,
-      [userId, musd.toString()],
+      `INSERT INTO node_credit_transactions (user_id, type, amount_musd, external_ref) VALUES ($1, 'convert_to_wallet', $2, $3)`,
+      [userId, musd.toString(), ref],
     );
     await client.query(`UPDATE wallets SET balance_cents = balance_cents + $1 WHERE id = $2`, [centsNum, wallet.id]);
     await client.query(

@@ -1602,3 +1602,45 @@ CREATE INDEX IF NOT EXISTS idx_node_payouts_status_created ON node_payouts(statu
 CREATE INDEX IF NOT EXISTS idx_byte_disputes_status_created ON byte_disputes(status, created_at);
 CREATE INDEX IF NOT EXISTS idx_audit_events_action_created ON audit_events(action, created_at);
 CREATE INDEX IF NOT EXISTS idx_nca_frozen ON node_credit_accounts(user_id) WHERE frozen;
+
+-- ─── Agent self-service API (AGENT_API.md) ──────────────────────────
+-- Owner-lowered per-node request rate cap (NULL = policy default).
+ALTER TABLE nodes ADD COLUMN IF NOT EXISTS max_req_per_sec INTEGER;
+DO $$ BEGIN
+  ALTER TABLE nodes ADD CONSTRAINT chk_nodes_max_req_per_sec
+    CHECK (max_req_per_sec IS NULL OR max_req_per_sec BETWEEN 1 AND 100000);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+-- Single-use EIP-191 challenges for payout-wallet set/change and withdraw.
+-- Consumed atomically via DELETE ... RETURNING; the signed message binds
+-- action, user, address/amount and nonce.
+CREATE TABLE IF NOT EXISTS agent_sign_challenges (
+  nonce_hash   TEXT PRIMARY KEY CHECK (length(nonce_hash) = 64),
+  user_id      UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  action       TEXT NOT NULL CHECK (action IN ('payout_wallet_set','withdraw')),
+  message      TEXT NOT NULL CHECK (length(message) BETWEEN 1 AND 2000),
+  expires_at   TIMESTAMPTZ NOT NULL,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_agent_sign_challenges_user ON agent_sign_challenges(user_id, expires_at);
+
+-- Requester burn reports (DESIGN.md §4): ≤5 per requester per node per UTC day.
+-- weight is filled in later (30-day spend weighting); NULL = unweighted.
+CREATE TABLE IF NOT EXISTS node_reports (
+  id                BIGSERIAL PRIMARY KEY,
+  session_id        UUID REFERENCES sessions(id) ON DELETE SET NULL,
+  node_id           UUID NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
+  reporter_user_id  UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  reason            TEXT NOT NULL CHECK (reason IN ('blocked','captcha','rate_limited','slow','bad_content','other')),
+  day               DATE NOT NULL DEFAULT (now() AT TIME ZONE 'UTC')::date,
+  weight            INTEGER CHECK (weight IS NULL OR weight BETWEEN 0 AND 10000),
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (session_id, reporter_user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_node_reports_cap ON node_reports(reporter_user_id, node_id, day);
+CREATE INDEX IF NOT EXISTS idx_node_reports_node ON node_reports(node_id, created_at);
+
+INSERT INTO data_retention_policies (table_name, retention_days, description) VALUES
+  ('agent_sign_challenges', 1, 'Agent payout/withdraw signing challenges purged after 1 day')
+ON CONFLICT (table_name) DO NOTHING;

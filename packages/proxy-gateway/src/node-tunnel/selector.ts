@@ -101,7 +101,9 @@ export class NodeSelector {
     const gbDay = Math.min(n.maxGbDay, policy.nodeDefaults.maxGbDay);
     if (n.day === dayOf(now) && n.bytesToday >= gbDay * BYTES_PER_GB) return false;
     const recent = n.recentOpens.filter((t) => now - t < 1000).length;
-    if (recent >= policy.requesterLimits.reqPerSec * 10) return false;
+    const policyRps = policy.requesterLimits.reqPerSec * 10;
+    const rps = n.maxReqPerSec ? Math.min(n.maxReqPerSec, policyRps) : policyRps;
+    if (recent >= rps) return false;
     // Port allowed by policy and the node.
     if (!policy.ports.includes(o.port) || !n.ports.includes(o.port)) return false;
     const until = n.cooldowns.get(etld1(o.targetHost));

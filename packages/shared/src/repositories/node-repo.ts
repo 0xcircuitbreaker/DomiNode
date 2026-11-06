@@ -41,6 +41,8 @@ export interface NodeRecord {
   ip_class: NodeIpClass | null;
   max_streams: number;
   max_gb_day: number;
+  /** Owner-lowered req/s cap; null = policy default. */
+  max_req_per_sec: number | null;
   reputation: number;
   byte_disputes: number;
   agent_version: string | null;
@@ -51,7 +53,7 @@ export interface NodeRecord {
 
 const NODE_COLUMNS = `id, owner_user_id, owner_wallet, node_pubkey, status, attestation_version,
   host(observed_ip) AS observed_ip, ip_prefix24::text AS ip_prefix24, asn::text AS asn, country, ip_class,
-  max_streams, max_gb_day, reputation, byte_disputes, agent_version, floor_hash, last_seen_at, created_at`;
+  max_streams, max_gb_day, max_req_per_sec, reputation, byte_disputes, agent_version, floor_hash, last_seen_at, created_at`;
 
 /** Node joined with owner state for tunnel authentication. */
 export interface TunnelAuthNode {
@@ -64,6 +66,7 @@ export interface TunnelAuthNode {
   attestation_version: number;
   max_streams: number;
   max_gb_day: number;
+  max_req_per_sec?: number | null;
   reputation: number;
 }
 
@@ -293,7 +296,7 @@ export async function getNodeForTunnelAuth(keyHash: string): Promise<TunnelAuthN
             (SELECT tm.team_id FROM team_members tm WHERE tm.user_id = n.owner_user_id
               ORDER BY tm.team_id LIMIT 1) AS owner_team_id,
             n.node_pubkey, n.status, n.attestation_version,
-            n.max_streams, n.max_gb_day, n.reputation
+            n.max_streams, n.max_gb_day, n.max_req_per_sec, n.reputation
      FROM nodes n
      JOIN users u ON u.id = n.owner_user_id
      WHERE n.node_key_hash = $1
