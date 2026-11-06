@@ -13,8 +13,12 @@ Team: **SDK**
 ## Cross-SDK Requirements
 See `.claude/rules/sdk-patterns.md` for full rules.
 
-Key: All SDKs have AgenticWalletResource, TeamsResource (18 methods), WalletAuth.
-All must: validate amountCents, URL-encode path params, redact tokens, detect MFA responses.
+The contract is `sdks/SDK_SURFACE.md` (v2, reference: `node/` 2.0.0): 15 resources,
+71 methods — auth, walletAuth, keys, wallet, agenticWallets, teams (18), usage, sessions
+(getActive + report), x402, network, nodes, credits, payoutWallet, payouts, proxy.
+No plans, slots, admin, Stripe/PayPal, email/password or human MFA flows.
+All must: validate amounts (cents and µUSD), URL-encode path params, redact secrets,
+use signer callbacks and refuse mismatched server messages, detect MFA responses.
 
 ## SDK Directories
 - `node/` — TypeScript, zero deps, dual CJS+ESM
@@ -26,6 +30,8 @@ All must: validate amountCents, URL-encode path params, redact tokens, detect MF
 
 ## Common Mistakes
 - Adding a method to one SDK but forgetting the other 5
+- Signing a server-supplied message without rebuilding and comparing it locally
+- Sending the JWT to /v1 routes (they need the raw dn_live_ key)
 - Node SDK: nulling refreshFn in clear() breaks reconnection
 - Rust: must call auth.logout() BEFORE token_manager.clear()
 - C++: must re-enable TLS verification after curl_easy_reset()

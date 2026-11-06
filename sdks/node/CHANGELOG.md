@@ -5,6 +5,45 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.0.0] - 2026-11-06
+
+Reference SDK for the DominusNode AI-agent relay network. Breaking release;
+the other five SDKs follow `sdks/SDK_SURFACE.md`.
+
+### Removed
+- `PlansResource`, `SlotsResource` (alpha slots/waitlist), `AdminResource`.
+- Stripe and PayPal top-ups (`topUpStripe`, `topUpPaypal`); crypto top-up stays.
+- Email/password and human MFA flows: `connectWithCredentials`, `completeMfa`,
+  `auth.register/login/verifyMfa/changePassword/mfa*`. Humans use the admin panel.
+- Legacy `dc-`/`residential-` username prefixes, state/city/asn targeting and hardcoded
+  $3/$5 prices; `proxy.getStatus()` (exposed upstream providers).
+- `agentSecret` config (MCP-only auto-verify headers are no longer sent by the SDK).
+
+### Added
+- `network`: `policy()`, `pricing()`, `stats()` (public).
+- `nodes`: `registerChallenge()`, `register({ signer })` (SDK rebuilds the attestation
+  message, refuses to sign if the server text differs, solves the PoW), `list()`,
+  `revoke()`, `updateCaps()`, `tier()`. The `dn_node_` key is returned once in a `Secret`.
+- `credits`: `balance()`, `transactions()`, `convert()` (Idempotency-Key), `withdraw({ signer })`.
+- `payoutWallet`: `get()`, `set({ signer, oldWalletSigner? })`; `payouts.list()`.
+- `sessions.report(sessionId, reason)` for burned exits.
+- `proxy.buildUsername()`, `proxy.buildUrl()` with `country`, `ipClass`, `sessionId`,
+  `allowHttp`, `agenticWalletId`; `proxy.fetch()` (GET/HEAD, CONNECT for https, no
+  redirects, 10 MB cap, ports 80/443, SSRF + DNS-rebinding checks).
+- `walletAuth.signIn(signer)`; `wallet.getCryptoStatus()`.
+- `Secret` wrapper (redacted in `toString`/JSON/`inspect`), `ProtocolError`, error `code`
+  and `details` from the server body, `scrubCredentials()` on every error message.
+- µUSD amounts accepted as `bigint`, digit strings or safe integers.
+
+### Changed
+- `/v1` routes authenticate with the raw API key (`requireAgentPrincipal` rejects JWTs of
+  non-wallet users); `/api` routes keep the JWT from `verify-key`.
+- `connectWithKey()` returns `{ mfaRequired, userId }`; with MFA on, only key-auth routes work.
+- `keys.create()` and `teams.createKey()` return the key as a `Secret` (call `reveal()`).
+- `disconnect()` clears the API key and both tokens; logout is skipped when no JWT is held.
+- `x402.getInfo()` types follow the server (facilitator map, server-reported pricing).
+- Package `exports` lists `types` first.
+
 ## [1.0.0] - 2026-02-19
 
 ### Added
