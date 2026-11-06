@@ -81,7 +81,7 @@ export default function VerifyEmailPage() {
               <p className="text-sm text-gray-400">{message}</p>
               <div className="flex flex-col gap-2 w-full pt-2">
                 <Link
-                  to="/app"
+                  to="/admin"
                   className="w-full text-center px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium transition-colors"
                 >
                   Go to Dashboard
