@@ -1,440 +1,157 @@
-# dominusnode -- Official Dominus Node Python SDK
+# dominusnode — DominusNode Python SDK (v2)
 
-The official Python SDK for the [Dominus Node](https://dominusnode.com) rotating proxy-as-a-service platform. Manage proxy connections, API keys, wallet balances, usage tracking, and more.
+Python client for the DominusNode AI-agent relay network: proxy through relay nodes,
+register your own nodes, earn credits and withdraw payouts. It implements
+[`sdks/SDK_SURFACE.md`](../SDK_SURFACE.md) (15 resources, 71 methods), with the Node SDK as
+the reference implementation.
 
-- **Sync + Async clients** -- `DominusNodeClient` and `AsyncDominusNodeClient`
-- **Single dependency** -- only requires [httpx](https://www.python-httpx.org/)
-- **Full type hints** -- PEP 561 compliant, works with mypy and pyright
-- **Auto token refresh** -- JWT expiry is handled transparently
-- **Rate limit auto-retry** -- 429 responses are automatically retried
-- **Typed error hierarchy** -- catch specific exception classes
-- **Python 3.9+** compatible
-
-## Installation
+- Sync `DominusNodeClient` and asyncio `AsyncDominusNodeClient` with the same methods
+- One dependency (`httpx`), no crypto dependency: you sign through a callback
+- Python 3.9+, type hints, PEP 561
 
 ```bash
 pip install dominusnode
 ```
 
-```bash
-poetry add dominusnode
-```
-
-**Requirements:** Python 3.9+ and httpx >= 0.24.0.
-
-## Quick Start
-
-### Synchronous
+## Quick start
 
 ```python
+import os
 from dominusnode import DominusNodeClient
 
-with DominusNodeClient(base_url="https://api.dominusnode.com") as client:
-    # Authenticate with API key
-    client.connect_with_key("dn_live_your_api_key")
+with DominusNodeClient() as dn:
+    dn.connect_with_key(os.environ["DOMINUSNODE_API_KEY"])  # dn_live_... / dn_test_...
 
-    # Check balance
-    balance = client.wallet.get_balance()
-    print(f"Balance: ${balance.balance_usd}")
-
-    # Build a proxy URL
-    from dominusnode import ProxyUrlOptions
-    proxy_url = client.proxy.build_url(ProxyUrlOptions(
-        protocol="http",
-        country="US",
-        state="california",
-    ))
-    print(proxy_url)
-    # => http://country-US-state-california:dn_live_your_api_key@proxy.dominusnode.com:8080
+    print(dn.network.pricing())       # live per-GB prices (µUSD); the SDK hardcodes no prices
+    res = dn.proxy.fetch("https://example.com", country="US", ip_class="residential")
+    print(res.status, res.text()[:200])
 ```
 
-### Asynchronous
+Async:
 
 ```python
-import asyncio
 from dominusnode import AsyncDominusNodeClient
 
-async def main():
-    async with AsyncDominusNodeClient(base_url="https://api.dominusnode.com") as client:
-        await client.connect_with_key("dn_live_your_api_key")
-
-        balance = await client.wallet.get_balance()
-        print(f"Balance: ${balance.balance_usd}")
-
-        keys = await client.keys.list()
-        for key in keys:
-            print(f"  {key.prefix} - {key.label}")
-
-asyncio.run(main())
+async with AsyncDominusNodeClient() as dn:
+    await dn.connect_with_key(key)
+    stats = await dn.network.stats()
 ```
 
-## Authentication
+## Proxy
 
-Three ways to authenticate:
-
-### 1. API Key (Recommended for Proxy Usage)
+Routing flags go in the proxy **username**, the API key in the **password**:
 
 ```python
-with DominusNodeClient(base_url="https://api.dominusnode.com") as client:
-    client.connect_with_key("dn_live_your_api_key")
+dn.proxy.build_username(country="DE", session_id="abc123")  # "country-DE-session-abc123"
+url = dn.proxy.build_url(country="US", ip_class="dc")        # http://country-US-class-dc:<key>@proxy.dominusnode.com:8080
 ```
 
-Or pass it in the constructor for auto-connect:
+`build_url` returns a URL that **contains your API key: do not log it.**
+
+Flags: `country` (ISO-2; OFAC countries CU IR KP RU SY are refused), `ip_class`
+(`residential`/`dc`/`mobile`), `session_id` (sticky, 1-64 alphanumerics),
+`agentic_wallet_id` (UUID, spend from an agentic wallet), `allow_http` (`allowhttp-1`).
+With no flags the username is `relay`.
+
+`proxy.fetch(url, ...)` sends GET or HEAD only. Before it opens a connection it checks the
+URL: http(s) only, ports 80/443, no userinfo, no local or private hosts, including
+decimal/hex/octal IPv4 forms and IPv6 forms that embed IPv4. It then resolves the hostname
+and refuses it if *any* address is private (DNS-rebinding check). https goes through a
+CONNECT tunnel with full TLS verification; `http://` needs `allow_http=True`. Redirects are
+returned as they are, not followed, and the body is capped at 10 MB (`truncated=True` when
+cut).
+
+## Signers (EIP-191)
+
+Node registration, withdrawals, payout-wallet changes and wallet sign-in need a signature from
+your wallet. Pass any object with an `address` and a `sign_message(message) -> "0x…"` method that
+performs `personal_sign`:
 
 ```python
-with DominusNodeClient(
-    base_url="https://api.dominusnode.com",
-    api_key="dn_live_your_api_key",
-) as client:
-    # Already authenticated
-    balance = client.wallet.get_balance()
+from eth_account import Account
+from eth_account.messages import encode_defunct
+
+acct = Account.from_key(private_key)
+
+class Signer:
+    address = acct.address
+    def sign_message(self, message: str) -> str:
+        sig = acct.sign_message(encode_defunct(text=message)).signature.hex()
+        return sig if sig.startswith("0x") else "0x" + sig
 ```
 
-### 2. Email/Password
+With `AsyncDominusNodeClient`, `sign_message` may be `async def`.
+
+The SDK never signs a server string without checking it. For every signed flow it builds the
+expected message itself and compares it byte for byte with the server's. If they differ, it
+raises `ProtocolError` and the signer is never called.
 
 ```python
-with DominusNodeClient(base_url="https://api.dominusnode.com") as client:
-    result = client.connect_with_credentials("user@example.com", "SecurePass123!")
+node = dn.nodes.register(signer, node_pubkey=ed25519_pub_hex, max_streams=8)
+node_key = node["nodeKey"].reveal()       # Secret, shown once
 
-    if result.mfa_required:
-        # MFA is enabled -- complete with TOTP code
-        code = input("Enter MFA code: ")
-        client.complete_mfa(code)
+dn.payout_wallet.set("0xYourPayoutAddress", signer)               # first set
+dn.payout_wallet.set("0xNew...", signer, old_wallet_signer=old)   # change: old wallet co-signs
+
+r = dn.credits.withdraw(5_000_000, signer)   # µUSD (int or digit string, never float); $5
+r["idempotencyKey"]                          # reuse it to retry safely
 ```
 
-### 3. Pre-existing Tokens
+## Money
 
-```python
-client = DominusNodeClient(
-    base_url="https://api.dominusnode.com",
-    access_token="eyJhbGci...",
-    refresh_token="eyJhbGci...",
-)
-```
+- Server money values are `{"musd": "<integer µUSD>", "usd": "<6 decimals>"}`; 1 USD = 1,000,000 µUSD.
+- µUSD inputs accept an `int` or a digit string and are sent as decimal strings. Floats, NaN and Infinity are rejected.
+- `*_cents` inputs are integers with `0 < x <= 2,147,483,647`, checked before any request is sent.
 
 ## Resources
 
-All API operations are organized into resource objects:
-
-### Auth
-
-```python
-# Register a new account
-result = client.auth.register("user@example.com", "SecurePass123!")
-
-# Login
-result = client.auth.login("user@example.com", "SecurePass123!")
-
-# Change password
-client.auth.change_password("OldPass123!", "NewPass456!")
-
-# Logout (revokes all refresh tokens)
-client.auth.logout()
-
-# Get current user info
-user = client.auth.me()
-print(f"User: {user.email}, Admin: {user.is_admin}")
-```
-
-### MFA (Two-Factor Authentication)
-
-```python
-# Setup MFA
-setup = client.auth.mfa_setup()
-print(f"Secret: {setup.secret}")
-print(f"OTPAuth URI: {setup.otpauth_uri}")
-print(f"Backup codes: {setup.backup_codes}")  # Save these!
-
-# Enable MFA (verify with a code from your authenticator app)
-client.auth.mfa_enable("123456")
-
-# Check MFA status
-status = client.auth.mfa_status()
-print(f"MFA enabled: {status.enabled}, Backup codes remaining: {status.backup_codes_remaining}")
-
-# Disable MFA
-client.auth.mfa_disable("SecurePass123!", "123456")
-```
-
-### API Keys
-
-```python
-# Create a new API key (the raw key is only shown once)
-created = client.keys.create("my-scraper")
-print(f"Key: {created.key}")  # dn_live_xxxx -- save this!
-print(f"ID: {created.id}")
-
-# List all keys
-keys = client.keys.list()
-for key in keys:
-    print(f"  {key.prefix} ({key.label}) - created {key.created_at}")
-
-# Revoke a key
-client.keys.revoke("key-uuid-here")
-```
-
-### Wallet
-
-```python
-# Get balance
-balance = client.wallet.get_balance()
-print(f"Balance: ${balance.balance_usd} ({balance.balance_cents} cents)")
-
-# Get transaction history
-transactions = client.wallet.get_transactions(limit=20, offset=0)
-for tx in transactions:
-    print(f"  {tx.type}: {tx.amount_cents} cents - {tx.description}")
-
-# Top up with Stripe
-checkout = client.wallet.topup_stripe(amount_cents=5000)
-print(f"Checkout URL: {checkout.url}")
-
-# Top up with crypto
-invoice = client.wallet.topup_crypto(amount_cents=5000, currency="btc")
-print(f"Payment URL: {invoice.payment_url}")
-
-# Get usage forecast
-forecast = client.wallet.get_forecast()
-```
-
-### Usage
-
-```python
-# Get usage records
-usage = client.usage.get(from_date="2026-01-01", to_date="2026-02-01", limit=50)
-print(f"Total bytes: {usage.summary.total_bytes}")
-print(f"Total cost: {usage.summary.total_cost_cents} cents")
-
-# Daily breakdown
-daily = client.usage.get_daily(from_date="2026-01-01", to_date="2026-02-01")
-for day in daily:
-    print(f"  {day.date}: {day.bytes_total} bytes, ${day.cost_cents/100:.2f}")
-
-# Top target hosts
-top_hosts = client.usage.get_top_hosts(limit=10)
-for host in top_hosts:
-    print(f"  {host.host}: {host.request_count} requests, {host.bytes_total} bytes")
-
-# Export as CSV
-csv_data = client.usage.export_csv(from_date="2026-01-01", to_date="2026-02-01")
-with open("usage.csv", "w") as f:
-    f.write(csv_data)
-```
-
-### Plans
-
-```python
-# List available plans
-plans = client.plans.list()
-for plan in plans:
-    print(f"  {plan.id}: {plan.name} - ${plan.price_per_gb_cents/100:.2f}/GB")
-
-# Get current plan
-current = client.plans.get_user_plan()
-print(f"Current plan: {current.plan_id}")
-
-# Change plan
-client.plans.change("vol100")
-```
-
-### Sessions
-
-```python
-# List active proxy sessions
-sessions = client.sessions.get_active()
-for session in sessions:
-    print(f"  Session {session.id}: {session.bytes_total} bytes, started {session.started_at}")
-```
-
-### Proxy
-
-```python
-from dominusnode import ProxyUrlOptions
-
-# Build an HTTP proxy URL
-proxy_url = client.proxy.build_url()
-print(proxy_url)
-# => http://user:dn_live_xxxx@proxy.dominusnode.com:8080
-
-# With geo-targeting
-proxy_url = client.proxy.build_url(ProxyUrlOptions(
-    protocol="http",
-    country="US",
-    state="california",
-    city="losangeles",
-))
-
-# SOCKS5 proxy URL
-socks_url = client.proxy.build_url(ProxyUrlOptions(
-    protocol="socks5",
-    country="DE",
-))
-
-# With sticky session
-sticky_url = client.proxy.build_url(ProxyUrlOptions(
-    country="US",
-    session_id="my-session-123",
-))
-
-# Get proxy health (no auth required)
-health = client.proxy.get_health()
-print(f"Status: {health.status}, Active sessions: {health.active_sessions}")
-
-# Get detailed proxy status
-status = client.proxy.get_status()
-for provider in status.providers:
-    print(f"  {provider.name}: {provider.state}, latency: {provider.avg_latency_ms}ms")
-
-# Get proxy configuration
-config = client.proxy.get_config()
-print(f"Geo-targeting: state={config.geo_targeting.state_support}, city={config.geo_targeting.city_support}")
-```
-
-### Admin (Requires Admin Privileges)
-
-```python
-# List all users
-users = client.admin.list_users(limit=50, offset=0)
-for user in users.users:
-    print(f"  {user.email}: {user.status}, balance: {user.balance_cents} cents")
-
-# Get user details
-user_detail = client.admin.get_user("user-uuid")
-print(f"Total usage: {user_detail.total_usage_bytes} bytes")
-
-# Suspend/activate user
-client.admin.suspend_user("user-uuid")
-client.admin.activate_user("user-uuid")
-
-# Get revenue stats
-revenue = client.admin.get_revenue()
-print(f"Total revenue: ${revenue.total_revenue_cents/100:.2f}")
-
-# Get system stats
-stats = client.admin.get_stats()
-print(f"Total users: {stats.total_users}, Active sessions: {stats.active_sessions}")
-```
-
-## Using with requests/httpx
-
-Build proxy URLs and use them with any HTTP client:
-
-### With requests
-
-```python
-import requests
-from dominusnode import DominusNodeClient, ProxyUrlOptions
-
-with DominusNodeClient(base_url="https://api.dominusnode.com", api_key="dn_live_KEY") as client:
-    proxy_url = client.proxy.build_url(ProxyUrlOptions(country="US"))
-
-    proxies = {"http": proxy_url, "https": proxy_url}
-    response = requests.get("https://httpbin.org/ip", proxies=proxies)
-    print(response.json())
-```
-
-### With httpx
-
-```python
-import httpx
-from dominusnode import DominusNodeClient, ProxyUrlOptions
-
-with DominusNodeClient(base_url="https://api.dominusnode.com", api_key="dn_live_KEY") as client:
-    proxy_url = client.proxy.build_url(ProxyUrlOptions(country="US"))
-
-    with httpx.Client(proxy=proxy_url) as http:
-        response = http.get("https://httpbin.org/ip")
-        print(response.json())
-```
-
-### With aiohttp
-
-```python
-import aiohttp
-from dominusnode import AsyncDominusNodeClient, ProxyUrlOptions
-
-async with AsyncDominusNodeClient(base_url="https://api.dominusnode.com", api_key="dn_live_KEY") as client:
-    proxy_url = client.proxy.build_url(ProxyUrlOptions(country="US"))
-
-    async with aiohttp.ClientSession() as session:
-        async with session.get("https://httpbin.org/ip", proxy=proxy_url) as resp:
-            print(await resp.json())
-```
-
-## Error Handling
-
-All SDK errors inherit from `DominusNodeError`:
-
-```python
-from dominusnode import (
-    DominusNodeClient,
-    DominusNodeError,
-    AuthenticationError,
-    AuthorizationError,
-    InsufficientBalanceError,
-    RateLimitError,
-    ValidationError,
-    NotFoundError,
-    ConflictError,
-    ServerError,
-    NetworkError,
-    ProxyError,
-)
-
-with DominusNodeClient(base_url="https://api.dominusnode.com") as client:
-    try:
-        client.connect_with_key("dn_live_invalid")
-    except AuthenticationError:
-        print("Invalid API key")
-    except RateLimitError as e:
-        print(f"Rate limited. Retry after {e.retry_after_seconds}s")
-    except InsufficientBalanceError:
-        print("Not enough balance -- top up your wallet")
-    except DominusNodeError as e:
-        print(f"API error: {e}")
-```
-
-| Error Class | HTTP Status | When |
-|-------------|-------------|------|
-| `AuthenticationError` | 401 | Invalid credentials, expired token |
-| `AuthorizationError` | 403 | Insufficient permissions (e.g., non-admin) |
-| `InsufficientBalanceError` | 402 | Wallet balance too low |
-| `RateLimitError` | 429 | Too many requests |
-| `ValidationError` | 400 | Invalid input |
-| `NotFoundError` | 404 | Resource not found |
-| `ConflictError` | 409 | Duplicate resource |
-| `ServerError` | 500+ | Server-side error |
-| `NetworkError` | -- | Connection failure, timeout |
-| `ProxyError` | -- | Proxy URL building error |
-
-## Configuration
-
-```python
-client = DominusNodeClient(
-    base_url="https://api.dominusnode.com",  # API server URL
-    proxy_host="proxy.dominusnode.com",       # Proxy gateway hostname
-    http_proxy_port=8080,                 # HTTP proxy port
-    socks5_proxy_port=1080,               # SOCKS5 proxy port
-    timeout=30.0,                         # HTTP request timeout (seconds)
-)
-```
+| Resource | Methods |
+|---|---|
+| `auth` | `verify_key`, `refresh`, `logout`, `me` |
+| `wallet_auth` | `challenge`, `verify`, `sign_in`, `link` |
+| `keys` | `create`, `list`, `revoke` |
+| `wallet` | `get_balance`, `get_transactions`, `get_forecast`, `top_up_crypto`, `get_crypto_status` |
+| `agentic_wallets` | `create`, `list`, `get`, `fund`, `update_wallet_policy`, `transactions`, `freeze`, `unfreeze`, `delete` |
+| `teams` | 18 methods: team CRUD, wallet, members, invites, keys (`create_key` … `revoke_key`) |
+| `usage` | `get`, `get_daily`, `get_top_hosts`, `export_csv` (`from_`/`to` -> `since`/`until`) |
+| `sessions` | `get_active` (id, startedAt and status only; never IPs), `report` |
+| `x402` | `get_info` |
+| `network` | `policy`, `pricing`, `stats` |
+| `nodes` | `register_challenge`, `register`, `list`, `revoke`, `update_caps`, `tier` |
+| `credits` | `balance`, `transactions`, `convert`, `withdraw` |
+| `payout_wallet` | `get`, `set` |
+| `payouts` | `list` |
+| `proxy` | `build_username`, `build_url`, `fetch`, `get_health`, `get_config` |
+
+Client members: `connect_with_key(api_key)` (returns `{"mfaRequired": bool, "userId"?}`),
+`disconnect()` and `is_connected`. Results are the server's JSON as dicts with camelCase keys.
+
+Not in the SDK: plans, slots, admin, Stripe and PayPal top-ups, email/password and human MFA.
+Use the dashboard for those.
+
+## Errors
+
+`DominusNodeError` (`message`, `status_code`, `code`, `details`) and its subclasses:
+`ValidationError` (HTTP 400, and client-side checks with `code="INVALID_ARGUMENT"`),
+`AuthenticationError`, `InsufficientBalanceError`, `AuthorizationError`, `NotFoundError`,
+`ConflictError`, `RateLimitError` (`retry_after_seconds`), `ServerError`, `NetworkError`,
+`ProtocolError`, `ProxyError`. Error messages are scrubbed of `dn_live_`/`dn_test_`/`dn_node_`/
+`dn_proxy_` keys and JWTs.
+
+## Security behaviour
+
+- Redirects are never followed. API responses are capped at 10 MB.
+- On 429 the SDK retries once, waiting `min(Retry-After, 10 s)` ±10 % (at least 100 ms).
+- On 401 it refreshes the JWT once. `/v1` routes send the raw API key and are not refreshed.
+- `Secret` (new API keys, team keys, node keys) prints and serialises as `[REDACTED]`. Use `json.dumps(obj, default=dominusnode.json_default)`.
+- `disconnect()` logs out (best effort), then clears the API key and both tokens.
 
 ## Development
 
 ```bash
-# Install dev dependencies
-pip install -e ".[dev]"
-
-# Run tests
+pip install -e '.[dev]'
 pytest
-
-# Run tests with async support
-pytest --asyncio-mode=auto
-
-# Type checking
-mypy dominusnode/
 ```
 
-## License
-
-MIT
+`tests/fixtures/signed_messages.json` holds the three signed messages as produced by the Node
+SDK builders. `tests/test_signers.py` checks the Python builders against it byte for byte.
