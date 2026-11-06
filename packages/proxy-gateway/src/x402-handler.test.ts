@@ -21,6 +21,7 @@ vi.mock("@dominusnode/billing", () => ({
   releasePaymentHash: (...args: unknown[]) => mockReleasePaymentHash(...args),
   hashPaymentHeader: (...args: unknown[]) => mockHashPaymentHeader(...args),
   getX402MaxResponseBytes: (...args: unknown[]) => mockGetX402MaxResponseBytes(...args),
+  mppRailFromEnv: () => ({ id: "mpp", enabled: () => false, challenge: () => null, parseHeader: () => null }),
   usdStringToMusd: (v: string) => {
     const m = /^(\d{1,9})(?:\.(\d{1,6}))?$/.exec(v);
     return m ? BigInt(m[1]) * 1_000_000n + BigInt((m[2] ?? "").padEnd(6, "0")) : null;
@@ -84,6 +85,9 @@ import {
   settleX402Pending,
   releaseX402Pending,
   refundX402Payer,
+  setMppRailForTest,
+  paymentChallengeHeaders,
+  normalizePayer,
 } from "./x402-handler.js";
 
 // ─── Helpers ─────────────────────────────────────────────────────────
@@ -532,5 +536,114 @@ describe("isX402Verified / getX402Data", () => {
     const req = makeRequest({});
     expect(isX402Verified(req)).toBe(false);
     expect(getX402Data(req)).toBeNull();
+  });
+});
+
+// ─── MPP ─────────────────────────────────────────────────────────────
+
+describe("MPP on the gateway", () => {
+  const MPP_PAYER = "0x" + "4".repeat(40);
+  const rail = {
+    id: "mpp" as const,
+    enabled: () => true,
+    challenge: vi.fn((amt: bigint) => ({ id: "cid", realm: "dn", method: "tempo", intent: "charge", request: `r${amt}`, expires: "2027-01-01T00:00:00Z", header: `Payment id="cid", request="r${amt}"` })),
+    requirements: vi.fn(),
+    parseHeader: (h: http.IncomingHttpHeaders) => {
+      const v = String(h["authorization"] ?? h["proxy-authorization"] ?? "");
+      return /^Payment /.test(v) ? v.slice(8) : null;
+    },
+    verify: vi.fn(),
+    settle: vi.fn(),
+    release: vi.fn(async () => {}),
+  };
+  const okVerify = (amountMusd = 489n) => ({ ok: true, payer: MPP_PAYER, paymentHash: "h".repeat(64), amountMusd, txRef: "tempo:1:0xabc" });
+
+  beforeEach(() => {
+    setMppRailForTest(rail as any);
+    rail.verify.mockReset();
+    rail.settle.mockReset();
+    rail.release.mockClear();
+  });
+  afterEach(() => setMppRailForTest(null));
+
+  it("HTTP: verifies (no settle yet), maps the payer and marks rail mpp", async () => {
+    rail.verify.mockResolvedValue(okVerify());
+    const req = makeRequest({ authorization: "Payment tok" });
+    expect(await handleX402Http(req, makeResponse())).toBe(true);
+    const d = getX402Data(req)!;
+    expect(d).toMatchObject({ rail: "mpp", payer: MPP_PAYER, userId: "user-x402", amountMusd: 489n });
+    expect(rail.verify).toHaveBeenCalledWith("tok", { amountMusd: 489n, resource: "relay" });
+    expect(rail.settle).not.toHaveBeenCalled();
+    expect(mockFindOrCreateX402User).toHaveBeenCalledWith(MPP_PAYER);
+  });
+
+  it("HTTP: invalid credential → 402 with a fresh WWW-Authenticate challenge and no-store", async () => {
+    rail.verify.mockResolvedValue({ ok: false, paymentHash: "x", reason: "invalid-challenge" });
+    const res = makeResponse();
+    await handleX402Http(makeRequest({ authorization: "Payment tok" }), res);
+    expect(res._statusCode).toBe(402);
+    expect(res._headers["WWW-Authenticate"]).toMatch(/^Payment id="cid"/);
+    expect(res._headers["Cache-Control"]).toBe("no-store");
+    expect(mockFindOrCreateX402User).not.toHaveBeenCalled();
+  });
+
+  it("releases the claimed proof when the payer is suspended or overpays past the cap (never settles)", async () => {
+    rail.verify.mockResolvedValue(okVerify());
+    mockFindOrCreateX402User.mockResolvedValueOnce({ id: "u", status: "suspended", created: false });
+    const res = makeResponse();
+    await handleX402Http(makeRequest({ authorization: "Payment tok" }), res);
+    expect(res._statusCode).toBe(403);
+    expect(rail.release).toHaveBeenCalledWith("h".repeat(64));
+    rail.verify.mockResolvedValue(okVerify(489n * 101n));
+    await handleX402Http(makeRequest({ authorization: "Payment tok" }), makeResponse());
+    expect(rail.release).toHaveBeenCalledTimes(2);
+    expect(rail.settle).not.toHaveBeenCalled();
+  });
+
+  it("CONNECT: Proxy-Authorization Payment → verified mpp result; settle after, refund to identity user as provider mpp", async () => {
+    rail.verify.mockResolvedValue(okVerify());
+    rail.settle.mockResolvedValue({ ok: true, txRef: "tempo:1:0xabc" });
+    const r = (await handleX402Connect(makeRequest({ "proxy-authorization": "Payment tok" }), makeSocket()))!;
+    expect(r).toMatchObject({ rail: "mpp", verified: true, userId: "user-x402", amountMusd: 489n });
+    expect(rail.settle).not.toHaveBeenCalled();
+    expect(await settleX402Pending(r.pending!)).toBe(true);
+    expect(await settleX402Pending(r.pending!)).toBe(true); // idempotent
+    expect(rail.settle).toHaveBeenCalledTimes(1);
+    expect(await refundX402Payer(r.pending!, "upstream failed")).toBe(true);
+    expect(mockCreditWallet).toHaveBeenCalledWith("user-x402", 1, "mpp", `mpp-refund:${"h".repeat(64)}`, expect.any(String));
+    expect(await refundX402Payer(r.pending!, "again")).toBe(false); // once
+  });
+
+  it("CONNECT: settle failure releases the proof so the payer can retry", async () => {
+    rail.verify.mockResolvedValue(okVerify());
+    rail.settle.mockResolvedValue({ ok: false });
+    const r = (await handleX402Connect(makeRequest({ "proxy-authorization": "Payment tok" }), makeSocket()))!;
+    expect(await settleX402Pending(r.pending!)).toBe(false);
+    expect(rail.release).toHaveBeenCalledWith("h".repeat(64));
+  });
+
+  it("CONNECT: rejection writes a 402 with the challenge", async () => {
+    rail.verify.mockResolvedValue({ ok: false, paymentHash: "x", reason: "payment-expired" });
+    const sock = makeSocket();
+    const r = (await handleX402Connect(makeRequest({ "proxy-authorization": "Payment tok" }), sock))!;
+    expect(r.verified).toBe(false);
+    expect(sock._written).toMatch(/^HTTP\/1\.1 402 [\s\S]*WWW-Authenticate: Payment id="cid"/);
+  });
+
+  it("402 builders advertise MPP alongside x402", async () => {
+    mockIsX402Enabled.mockReturnValue(true);
+    mockBuildX402Requirements.mockReturnValue({ accepts: [] });
+    build402ResponseBody("dc"); // warms the quote
+    await new Promise((r) => setTimeout(r, 0));
+    const body = JSON.parse(build402ResponseBody("dc"));
+    expect(body.x402).toBeDefined();
+    expect(body.mpp.wwwAuthenticate).toMatch(/^Payment /);
+    expect(paymentChallengeHeaders("dc")["WWW-Authenticate"]).toMatch(/^Payment /);
+    expect(build402ConnectResponse("dc")).toMatch(/WWW-Authenticate: Payment /);
+  });
+
+  it("normalizePayer keeps Solana case, lowercases EVM", () => {
+    expect(normalizePayer("0xABC")).toBe("0xabc");
+    expect(normalizePayer("9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM")).toBe("9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM");
   });
 });

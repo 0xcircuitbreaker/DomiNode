@@ -14,7 +14,7 @@ import { validateTarget, isValidHostname, isValidPort } from "./target-validator
 import { incrementUserConns, decrementUserConns } from "./connection-tracker.js";
 import { checkAuthRateLimit, recordAuthFailure } from "./auth-rate-limit.js";
 import { recordRequest, recordError, recordLatency } from "./stats.js";
-import { handleX402Http, handleX402Connect, build402ResponseBody, build402ConnectResponse, isX402Verified, getX402Data, settleX402Pending, releaseX402Pending, refundX402Payer } from "./x402-handler.js";
+import { handleX402Http, handleX402Connect, build402ResponseBody, build402ConnectResponse, isX402Verified, getX402Data, settleX402Pending, releaseX402Pending, refundX402Payer, hasMppCredential, normalizePayer, paymentChallengeHeaders } from "./x402-handler.js";
 import { enforcePolicy, isFreeRelayBlocked, isPlaintextPort, EXIT_VISIBLE_HEADER } from "./policy-enforcer.js";
 import { openRelayStream, RelayOpenError, type RelayRuntime, type RelayUpstream } from "./relay.js";
 import type { SelectOpts } from "./node-tunnel/selector.js";
@@ -95,7 +95,7 @@ function x402Binding(node: LiveNode, port: number, payer: string, stream: Duplex
     ipClass: node.ipClass,
     nodeOwnerUserId: node.ownerUserId,
     destPort: port,
-    requesterWallet: /^0x[0-9a-fA-F]{40}$/.test(payer) ? payer.toLowerCase() : null,
+    requesterWallet: /^0x[0-9a-fA-F]{40}$|^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(payer) ? normalizePayer(payer) : null,
     nodeBytes: () => {
       const rep = (stream as { nodeReport?: { bytesIn: number; bytesOut: number } | null }).nodeReport;
       return rep ? BigInt(rep.bytesIn) + BigInt(rep.bytesOut) : null;
@@ -310,12 +310,13 @@ async function handleRequest(
 
   const auth = await authenticateRequest(clientReq);
   if (!auth) {
-    if (clientReq.headers["x-payment"] && !X402_RELAY_ENABLED) {
+    const paidAttempt = !!clientReq.headers["x-payment"] || hasMppCredential(clientReq.headers);
+    if (paidAttempt && !X402_RELAY_ENABLED) {
       clientRes.writeHead(503, { "Content-Type": "application/json", "X-DominusNode-Error": "X402_RELAY_UNAVAILABLE", "Retry-After": "3600" });
       clientRes.end(x402RelayUnavailableBody());
       return;
     }
-    if (clientReq.headers["x-payment"]) {
+    if (paidAttempt) {
       const x402Handled = await handleX402Http(clientReq, clientRes);
       if (x402Handled && !isX402Verified(clientReq)) return;
     }
@@ -368,6 +369,7 @@ async function handleRequest(
     for (const h of HOP_BY_HOP_REQUEST) delete x402Headers[h];
     delete x402Headers["x-payment"];
     delete x402Headers["x-pool-type"];
+    if (x402Data.rail === "mpp") delete x402Headers["authorization"]; // the MPP credential is for us, not the origin
     x402Headers["host"] = hostHeaderFor(targetHost, targetPort); // policy was checked on the URL authority
 
     const x402Body = await readBody(clientReq);
@@ -381,7 +383,7 @@ async function handleRequest(
     try {
       upstream = await openRelayStream(relay, {
         ...relaySelectOpts(null, x402User, clientIp, targetHost, targetPort, x402Data.poolType),
-        requesterWallet: x402Data.payer.toLowerCase(),
+        requesterWallet: normalizePayer(x402Data.payer),
       });
     } catch (err) {
       const e = relayErrorOf(err);
@@ -399,7 +401,7 @@ async function handleRequest(
       x402SessionId = await startPrepaidSession({
         userId: x402User, targetHost, counter: x402Counter, connectLatencyMs: upstream.latencyMs,
         relay: x402Binding(upstream.node, targetPort, x402Data.payer, upstream.stream),
-        rail: "x402", paidMusd: x402Data.amountMusd, quotedPricePerGbMusd: x402Data.pricePerGbMusd, maxBytes: x402Data.maxResponseBytes,
+        rail: x402Data.rail, paidMusd: x402Data.amountMusd, quotedPricePerGbMusd: x402Data.pricePerGbMusd, maxBytes: x402Data.maxResponseBytes,
       });
     } catch (err) {
       upstream.stream.destroy();
@@ -547,7 +549,7 @@ async function handleRequest(
     }
     if (!hasBalance) {
       decrementUserConns(a.userId);
-      clientRes.writeHead(402, { "Content-Type": "application/json", "X-DominusNode-Error": "INSUFFICIENT_BALANCE" });
+      clientRes.writeHead(402, { "Content-Type": "application/json", "X-DominusNode-Error": "INSUFFICIENT_BALANCE", ...paymentChallengeHeaders(a.proxyOptions.ipClass === "dc" ? "dc" : "residential") });
       clientRes.end(build402ResponseBody(a.proxyOptions.ipClass === "dc" ? "dc" : "residential"));
       return;
     }
@@ -605,7 +607,7 @@ async function handleRequest(
     decrementUserConns(a.userId);
     const msg = err instanceof Error ? err.message : String(err);
     if (msg.includes("Insufficient balance")) {
-      clientRes.writeHead(402, { "Content-Type": "application/json", "X-DominusNode-Error": "INSUFFICIENT_BALANCE" });
+      clientRes.writeHead(402, { "Content-Type": "application/json", "X-DominusNode-Error": "INSUFFICIENT_BALANCE", ...paymentChallengeHeaders(upstream.node.ipClass === "dc" ? "dc" : "residential") });
       clientRes.end(build402ResponseBody(upstream.node.ipClass === "dc" ? "dc" : "residential"));
     } else if (msg.includes("bandwidth limit")) {
       sendError(clientRes, 403, "BANDWIDTH_LIMIT_EXCEEDED", "Monthly bandwidth limit exceeded. Upgrade your plan at the Dominus Node dashboard.");
@@ -717,11 +719,12 @@ async function handleConnect(
 
   const auth = await authenticateRequest(req);
   if (!auth) {
-    if (req.headers["x-payment"] && !X402_RELAY_ENABLED) {
+    const paidAttempt = !!req.headers["x-payment"] || hasMppCredential(req.headers);
+    if (paidAttempt && !X402_RELAY_ENABLED) {
       safeSocketWrite(clientSocket, "HTTP/1.1 503 Service Unavailable\r\nX-DominusNode-Error: X402_RELAY_UNAVAILABLE\r\nRetry-After: 3600\r\n\r\n");
       return;
     }
-    if (req.headers["x-payment"]) {
+    if (paidAttempt) {
       const x402Result = await handleX402Connect(req, clientSocket);
       if (x402Result) {
         if (!x402Result.verified) return;
@@ -946,7 +949,7 @@ async function handleX402ConnectTunnel(
   try {
     upstream = await openRelayStream(relay, {
       ...relaySelectOpts(null, x402User, clientIpOf(clientSocket), targetHost, targetPort, x402Result.poolType),
-      requesterWallet: x402Result.payer.toLowerCase(),
+      requesterWallet: normalizePayer(x402Result.payer),
     });
   } catch (err) {
     recordError();
@@ -968,7 +971,7 @@ async function handleX402ConnectTunnel(
     sessionId = await startPrepaidSession({
       userId: x402User, targetHost, counter: x402Counter, connectLatencyMs: upstream.latencyMs,
       relay: x402Binding(upstream.node, targetPort, x402Result.payer, psStream),
-      rail: "x402", paidMusd: x402Result.amountMusd, quotedPricePerGbMusd: x402Result.pricePerGbMusd, maxBytes: x402Result.maxResponseBytes,
+      rail: x402Result.rail ?? "x402", paidMusd: x402Result.amountMusd, quotedPricePerGbMusd: x402Result.pricePerGbMusd, maxBytes: x402Result.maxResponseBytes,
     });
   } catch (err) {
     log.error("x402 CONNECT session start failed", { error: err instanceof Error ? err.message.slice(0, 120) : "unknown" });

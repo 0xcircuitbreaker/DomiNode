@@ -37,6 +37,7 @@ const mockReleasePending = vi.fn();
 const mockRefundPayer = vi.fn();
 const mockAbortPrepaid = vi.fn();
 const x402Pending = { state: "verified" };
+let mppChallengeHeaders: Record<string, string> = {};
 const x402Data = { pending: x402Pending, payer: X402_PAYER, userId: "x402-user", amountUsd: "0.005243", amountMusd: 5243n, pricePerGbMusd: 500000n, facilitator: "coinbase", poolType: "residential", maxResponseBytes: 10_485_760 };
 
 vi.mock("./x402-handler.js", () => ({
@@ -45,7 +46,10 @@ vi.mock("./x402-handler.js", () => ({
   build402ResponseBody: () => "Insufficient balance",
   build402ConnectResponse: () => "HTTP/1.1 402 Payment Required\r\n\r\n",
   isX402Verified: (req: { __x402?: unknown }) => !!req.__x402,
-  getX402Data: (req: { __x402?: unknown }) => (req.__x402 ? x402Data : null),
+  getX402Data: (req: { __x402?: { rail?: string } }) => (req.__x402 ? { rail: "x402", ...req.__x402 } : null),
+  hasMppCredential: (h: Record<string, unknown>) => /^Payment /i.test(String(h["authorization"] ?? h["proxy-authorization"] ?? "")),
+  normalizePayer: (p: string) => (/^0x/i.test(p) ? p.toLowerCase() : p),
+  paymentChallengeHeaders: () => mppChallengeHeaders,
   settleX402Pending: (...a: unknown[]) => mockSettlePending(...a),
   releaseX402Pending: (...a: unknown[]) => mockReleasePending(...a),
   refundX402Payer: (...a: unknown[]) => mockRefundPayer(...a),
@@ -221,6 +225,7 @@ describe("proxy-gateway server", () => {
     mockAbortPrepaid.mockResolvedValue(true);
     mockX402Http.mockImplementation(async (req: { __x402?: unknown }) => { req.__x402 = x402Data; return true; });
     mockX402Connect.mockResolvedValue({ handled: true, verified: true, ...x402Data, paymentHeader: "" });
+    mppChallengeHeaders = {};
     mockEndSession.mockResolvedValue(undefined);
     mockGetStats.mockReturnValue({
       status: "operational",
@@ -350,6 +355,44 @@ describe("proxy-gateway server", () => {
       });
       expect(res.status).toBe(429);
       expect(res.body).toContain("Too many concurrent connections");
+    });
+
+    it("402 carries the MPP WWW-Authenticate challenge when MPP is configured", async () => {
+      mockCheckBalance.mockResolvedValue(false);
+      mppChallengeHeaders = { "WWW-Authenticate": 'Payment id="i", realm="dn", method="tempo", intent="charge", request="r"', "Cache-Control": "no-store" };
+      const res = await makeRequest(port, { path: "http://httpbin.org/ip", method: "GET" });
+      expect(res.status).toBe(402);
+      expect(res.headers["www-authenticate"]).toMatch(/^Payment id="i"/);
+      expect(res.headers["cache-control"]).toBe("no-store");
+    });
+
+    it("relays an MPP-paid request as rail mpp: verify → stream → settle, credential not forwarded", async () => {
+      mockAuthenticateRequest.mockResolvedValue(null);
+      mockX402Http.mockImplementation(async (req: { __x402?: unknown }) => { req.__x402 = { ...x402Data, rail: "mpp" }; return true; });
+      const written: Buffer[] = [];
+      mockOpenStream.mockImplementation(async () => {
+        const d: Duplex = new Duplex({
+          read() { /* */ },
+          write(c, _e, cb) { written.push(Buffer.from(c)); d.push("HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok"); d.push(null); cb(); },
+        });
+        return d;
+      });
+      const res = await makeRequest(port, { path: "http://httpbin.org/ip", method: "GET", headers: { Authorization: "Payment eyJ4IjoxfQ" } });
+      expect(res.status).toBe(200);
+      expect(mockX402Http).toHaveBeenCalled();
+      expect(mockStartPrepaidSession).toHaveBeenCalledWith(expect.objectContaining({ userId: "x402-user", rail: "mpp", paidMusd: 5243n }));
+      expect(mockOpenStream.mock.invocationCallOrder[0]).toBeLessThan(mockSettlePending.mock.invocationCallOrder[0]);
+      expect(Buffer.concat(written).toString()).not.toMatch(/authorization: payment/i);
+    });
+
+    it("MPP: settled but client gone → refund to payer identity, never charged", async () => {
+      mockAuthenticateRequest.mockResolvedValue(null);
+      mockX402Http.mockImplementation(async (req: { __x402?: unknown }) => { req.__x402 = { ...x402Data, rail: "mpp" }; return true; });
+      mockOpenStream.mockImplementation(async () => new Duplex({ read() { /* */ }, write(_c, _e, cb) { cb(new Error("boom")); } }));
+      await makeRequest(port, { path: "http://httpbin.org/ip", method: "GET", headers: { Authorization: "Payment eyJ4IjoxfQ" } }).catch(() => undefined);
+      await new Promise((r) => setTimeout(r, 20));
+      expect(mockSettlePending).toHaveBeenCalled();
+      expect(mockRefundPayer).toHaveBeenCalled();
     });
 
     it("should return 402 when balance is insufficient", async () => {
@@ -761,6 +804,17 @@ describe("proxy-gateway server", () => {
       const res = await makeConnect(port, "example.com:8080");
       expect(res.status).toBe(400);
       expect(mockSelect).not.toHaveBeenCalled();
+      res.socket.destroy();
+    });
+
+    it("tunnels an MPP-paid CONNECT (Proxy-Authorization: Payment) as rail mpp", async () => {
+      mockAuthenticateRequest.mockResolvedValue(null);
+      mockX402Connect.mockResolvedValue({ handled: true, verified: true, ...x402Data, rail: "mpp", paymentHeader: "" });
+      const res = await makeConnect(port, "example.com:443", { "Proxy-Authorization": "Payment eyJ4IjoxfQ" });
+      expect(res.status).toBe(200);
+      expect(mockX402Connect).toHaveBeenCalled();
+      expect(mockStartPrepaidSession).toHaveBeenCalledWith(expect.objectContaining({ userId: "x402-user", rail: "mpp" }));
+      expect(mockOpenStream.mock.invocationCallOrder[0]).toBeLessThan(mockSettlePending.mock.invocationCallOrder[0]);
       res.socket.destroy();
     });
 
