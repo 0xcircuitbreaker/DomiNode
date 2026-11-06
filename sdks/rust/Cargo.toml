@@ -1,8 +1,8 @@
 [package]
 name = "dominusnode"
-version = "1.0.1"
+version = "2.0.0"
 edition = "2021"
-description = "Official Dominus Node SDK for Rust"
+description = "Official Dominus Node relay-network SDK for Rust"
 license = "MIT"
 repository = "https://github.com/Dominus-Node/dominusnode-rust"
 homepage = "https://dominusnode.com"
@@ -11,21 +11,16 @@ keywords = ["proxy", "api", "sdk", "dominusnode"]
 categories = ["api-bindings", "web-programming"]
 exclude = ["target/", ".git/", "tests/"]
 
-[features]
-default = ["async"]
-async = ["tokio"]
-blocking = []
-
 [dependencies]
 reqwest = { version = "0.12", features = ["json"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
-tokio = { version = "1", features = ["sync", "time"], optional = true }
+tokio = { version = "1", features = ["sync", "time", "net"] }
 base64 = "0.22"
 sha2 = "0.10"
-tracing = "0.1"
 zeroize = "1"
+uuid = { version = "1", features = ["v4"] }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["full"] }
