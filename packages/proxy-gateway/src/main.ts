@@ -6,13 +6,14 @@ import type { ActivePolicy } from "@dominusnode/shared";
 import { startProxyServer } from "./server.js";
 import { initGeoCheck, lookupPeerGeo, setAsnDb } from "./geo-check.js";
 import { loadAsnDbFile, parseHostingAsns } from "./asn-db.js";
-import { installSharedLimits } from "./shared-limits.js";
+import { installSharedLimits, makeInstanceId } from "./shared-limits.js";
 import { NodeRegistry } from "./node-tunnel/registry.js";
 import { NodeSelector } from "./node-tunnel/selector.js";
 import { loadCoordSigner } from "./node-tunnel/coord-key.js";
 import { NodeTunnelServer, resolveTunnelPort } from "./node-tunnel/server.js";
 import { startSocks5Server } from "./socks5.js";
-import { envInt, type Job, type LockPool } from "./jobs/runner.js";
+import { envInt, setJobRunRecorder, JOB_RUN_UPSERT_SQL, type Job, type LockPool } from "./jobs/runner.js";
+import * as nodeStatusJob from "./jobs/node-status.js";
 import * as maturityJob from "./jobs/maturity.js";
 import * as retentionJob from "./jobs/retention.js";
 import * as tiersJob from "./jobs/tiers.js";
@@ -203,6 +204,29 @@ function startJobs(registry: NodeRegistry, getPolicy: () => ActivePolicy): Job[]
     jobLog.warn("JOBS_ENABLED=false: background jobs disabled on this instance");
     return jobs;
   }
+  const instanceId = makeInstanceId();
+  setJobRunRecorder(async (r) => {
+    await getPool().query(JOB_RUN_UPSERT_SQL, [
+      r.name, instanceId, r.startedAt.toISOString(), r.finishedAt.toISOString(), r.ok, r.error,
+      Math.min(2_147_483_647, Math.max(0, r.finishedAt.getTime() - r.startedAt.getTime())),
+    ]);
+  });
+  jobs.push(nodeStatusJob.start({
+    logger: jobLog, intervalMs: envInt(process.env, "NODE_STATUS_SYNC_INTERVAL_MS", 30_000, 5_000, 3_600_000),
+    deps: {
+      liveNodeIds: () => [...registry.all()].map((n) => n.nodeId),
+      fetchStatuses: async (ids) => {
+        const r = await getPool().query<{ id: string; status: string }>(
+          "SELECT id, status FROM nodes WHERE id = ANY($1::uuid[])", [ids]);
+        return new Map(r.rows.map((x) => [x.id, x.status]));
+      },
+      setStatus: (nodeId, status) => {
+        const n = registry.get(nodeId);
+        if (n && n.status !== status) n.status = status as typeof n.status;
+      },
+      close: (nodeId, reason) => registry.get(nodeId)?.tunnel.close(reason),
+    },
+  }));
   jobs.push(maturityJob.start({
     pool, logger: jobLog, intervalMs: envInt(process.env, "MATURITY_JOB_INTERVAL_MS", 3_600_000, 60_000, 86_400_000),
     deps: { matureDue: nodeCreditRepo.matureDue },
