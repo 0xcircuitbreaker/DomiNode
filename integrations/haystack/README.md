@@ -1,96 +1,78 @@
 # dominusnode-haystack
 
-Dominus Node rotating proxy tools for [Haystack](https://haystack.deepset.ai/) AI pipelines.
+DominusNode tools for [Haystack](#usage): 19 tools for the DominusNode **agent relay network**.
+Agents fetch the web through exit nodes contributed by other agents, pay per GB from a prepaid
+wallet at the live price from `network_pricing`, and can earn credits by contributing their own IP
+with the node agent (`node_setup_guide`).
 
-## Installation
+Version 2 is built on the official Python SDK [`dominusnode`](../../sdks/python) (v2). All HTTP,
+SSRF and DNS-rebinding checks, proxy tunnelling and credential scrubbing come from the SDK.
+
+## Install
 
 ```bash
 pip install dominusnode-haystack
+# from source, with the local SDK
+pip install -e ../../sdks/python -e ".[dev]"
 ```
 
-## Quick Start
+Set your key in the environment (it is never a tool argument and never appears in tool output):
 
-```python
-from dominusnode_haystack import DominusNodeToolkit
-
-# Initialize with your API key
-toolkit = DominusNodeToolkit(api_key="dn_live_...")
-
-# Get Haystack Tool objects for use in pipelines
-tools = toolkit.get_tools()
-
-# Or call methods directly
-balance = toolkit.check_balance()
-print(balance)  # {"balanceCents": 5000}
+```bash
+export DOMINUSNODE_API_KEY=dn_live_...
+# optional: DOMINUSNODE_BASE_URL, DOMINUSNODE_PROXY_HOST
 ```
 
-## Usage with Haystack Pipelines
+## Usage
 
 ```python
-from haystack import Pipeline
+from haystack.components.agents import Agent
 from haystack.components.generators.chat import OpenAIChatGenerator
-from haystack.components.tools import ToolInvoker
 from dominusnode_haystack import DominusNodeToolkit
 
-toolkit = DominusNodeToolkit(api_key="dn_live_...")
-tools = toolkit.get_tools()
-
-pipeline = Pipeline()
-pipeline.add_component("llm", OpenAIChatGenerator(tools=tools))
-pipeline.add_component("tool_invoker", ToolInvoker(tools=tools))
-pipeline.connect("llm.replies", "tool_invoker.messages")
+toolkit = DominusNodeToolkit()          # API key from DOMINUSNODE_API_KEY
+agent = Agent(chat_generator=OpenAIChatGenerator(), tools=toolkit.get_toolset())
 ```
 
-## Available Tools (22)
+Tools are exposed as `dominusnode_<tool>` Haystack `Tool` objects.
 
-| Tool | Description |
-|------|-------------|
-| `dominusnode_proxied_fetch` | Fetch a URL through rotating proxy network |
-| `dominusnode_check_balance` | Check wallet balance |
-| `dominusnode_check_usage` | Check proxy usage statistics |
-| `dominusnode_get_proxy_config` | Get proxy configuration |
-| `dominusnode_list_sessions` | List active proxy sessions |
-| `dominusnode_create_agentic_wallet` | Create an agentic sub-wallet |
-| `dominusnode_fund_agentic_wallet` | Fund an agentic wallet |
-| `dominusnode_agentic_wallet_balance` | Check agentic wallet balance |
-| `dominusnode_list_agentic_wallets` | List all agentic wallets |
-| `dominusnode_agentic_transactions` | Get agentic wallet transactions |
-| `dominusnode_freeze_agentic_wallet` | Freeze an agentic wallet |
-| `dominusnode_unfreeze_agentic_wallet` | Unfreeze an agentic wallet |
-| `dominusnode_delete_agentic_wallet` | Delete an agentic wallet |
-| `dominusnode_create_team` | Create a team |
-| `dominusnode_list_teams` | List teams |
-| `dominusnode_team_details` | Get team details |
-| `dominusnode_team_fund` | Fund a team wallet |
-| `dominusnode_team_create_key` | Create a team API key |
-| `dominusnode_team_usage` | Get team usage history |
-| `dominusnode_update_team` | Update team settings |
-| `dominusnode_update_team_member_role` | Update team member role |
-| `dominusnode_x402_info` | Get x402 micropayment info |
-| `dominusnode_topup_paypal` | Create PayPal top-up order |
+## The 19 tools
 
-## Configuration
-
-```python
-toolkit = DominusNodeToolkit(
-    api_key="dn_live_...",                    # or set DOMINUSNODE_API_KEY env var
-    base_url="https://api.dominusnode.com",   # API base URL
-    proxy_host="proxy.dominusnode.com",       # or set DOMINUSNODE_PROXY_HOST
-    proxy_port=8080,                          # or set DOMINUSNODE_PROXY_PORT
-    timeout=30.0,                             # HTTP timeout in seconds
-)
-```
+| # | Tool | SDK call | What it does |
+|---|---|---|---|
+| 1 | `fetch` | `proxy.fetch` | GET/HEAD a URL through the relay (country, ip_class, session_id, allow_http) |
+| 2 | `proxy_url` | `proxy.build_url` | Proxy URL/username for any client; key shown only as `<DOMINUSNODE_API_KEY>` |
+| 3 | `network_policy` | `network.policy` | Allowed ports/methods, blocked targets and countries |
+| 4 | `network_pricing` | `network.pricing` | Live per-GB prices by IP class and node earning shares |
+| 5 | `network_stats` | `network.stats` | Online nodes by class and country |
+| 6 | `balance` | `wallet.get_balance` | Prepaid wallet balance |
+| 7 | `transactions` | `wallet.get_transactions` | Prepaid wallet transactions |
+| 8 | `topup_crypto` | `wallet.top_up_crypto` | Crypto top-up invoice ($10-$1,000) |
+| 9 | `check_payment` | `wallet.get_crypto_status` | Crypto invoice status |
+| 10 | `usage` | `usage.get` | Traffic usage summary and records |
+| 11 | `active_sessions` | `sessions.get_active` | Active relay sessions |
+| 12 | `report_session` | `sessions.report` | Report a bad exit session |
+| 13 | `node_list` | `nodes.list` | Your contributed nodes |
+| 14 | `node_tier` | `nodes.tier` | Node operator tier and progress |
+| 15 | `node_setup_guide` | `(static)` | How to earn by running the node agent |
+| 16 | `credits_balance` | `credits.balance` | Earned credits (µUSD) |
+| 17 | `credits_convert` | `credits.convert` | Convert credits into wallet balance |
+| 18 | `payouts_list` | `payouts.list` | Payouts of earned credits |
+| 19 | `x402_info` | `x402.get_info` | x402 micropayment info |
 
 ## Security
 
-- Full SSRF prevention (private IPs, DNS rebinding, Teredo/6to4, hex/octal)
-- OFAC sanctioned country blocking (CU, IR, KP, RU, SY)
-- Credential scrubbing in all error outputs
-- Prototype pollution prevention
-- HTTP method restriction (GET/HEAD/OPTIONS only for proxied fetch)
-- 10 MB response cap with 4000 char truncation
-- Redirect following disabled
+- `fetch` is GET/HEAD only, ports 80/443, no redirects, 10 MB cap, private and internal targets
+  refused after DNS resolution (all addresses). `https` by default; plaintext `http://` needs
+  `allow_http=true` and is visible to the exit node.
+- Sanctioned countries (CU, IR, KP, RU, SY) are refused.
+- Every error and result is scrubbed of `dn_live_`/`dn_test_`/`dn_node_`/`dn_proxy_` keys and JWTs.
+- Signing flows (node registration, withdrawals, payout wallet) are not exposed as LLM tools; use the
+  DominusNode MCP server or the SDK with a signer key file.
 
-## License
+## Tests
 
-MIT
+```bash
+pip install -e ../../sdks/python -e ".[dev]"
+pytest
+```
