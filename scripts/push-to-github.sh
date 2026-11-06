@@ -4,7 +4,7 @@
 # Each gets a fresh repo with clean history (no CLAUDE.md, no Co-Authored-By).
 
 ORG="dominus-node"
-MONO="/home/circuitbreaker/DomiNode"
+MONO="$(cd "$(dirname "$0")/.." && pwd)"
 WORKDIR="/tmp/github-push-$$"
 TOKEN=$(~/.local/bin/gh auth token)
 mkdir -p "$WORKDIR"
