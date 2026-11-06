@@ -28,6 +28,8 @@ import bugReportRoutes from "./routes/bug-reports.js";
 import referralRoutes from "./routes/referrals.js";
 import agentSecretRoutes from "./routes/agent-secret.js";
 import adminNetworkRoutes from "./routes/admin-network.js";
+import adminNetworkMetricsRoutes from "./routes/admin-network-metrics.js";
+import adminNetworkOpsRoutes from "./routes/admin-network-ops.js";
 import v1Routes from "./routes/v1/index.js";
 
 const log = createLogger("api:server");
@@ -224,6 +226,8 @@ export function startApiServer(port: number = 3000): ReturnType<express.Express[
   app.use("/api/plans", planRoutes);
   app.use("/api/sessions", sessionRoutes);
   app.use("/api/admin/network", adminNetworkRoutes);
+  app.use("/api/admin/network", adminNetworkMetricsRoutes);
+  app.use("/api/admin/network", adminNetworkOpsRoutes);
   app.use("/api/admin", adminRoutes);
   app.use("/api/proxy/config", proxyConfigRoutes);
   app.use("/api/proxy", proxyHealthRoutes);
