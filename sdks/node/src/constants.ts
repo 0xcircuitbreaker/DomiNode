@@ -4,6 +4,7 @@ export const DEFAULT_BASE_URL = "https://api.dominusnode.com";
 export const DEFAULT_PROXY_HOST = "proxy.dominusnode.com";
 export const DEFAULT_HTTP_PROXY_PORT = 8080;
 export const DEFAULT_SOCKS5_PROXY_PORT = 1080;
+export const DEFAULT_TLS_PROXY_PORT = 8443;
 /** Refresh JWTs this long before expiry. */
 export const TOKEN_REFRESH_BUFFER_MS = 60_000;
 /** Hard cap on any response body the SDK reads (API or proxy fetch). */

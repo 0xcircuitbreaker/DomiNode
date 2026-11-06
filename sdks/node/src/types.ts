@@ -13,11 +13,26 @@ export interface DominusNodeConfig {
   proxyHost?: string;
   httpProxyPort?: number;
   socks5ProxyPort?: number;
+  /**
+   * Talk TLS to the gateway (HTTPS proxy listener, PROXY_TLS_PORT): the API key in
+   * Proxy-Authorization is encrypted on the wire. `true` uses port 8443 and the
+   * system CA roots. When set, proxy.fetch() and proxy.buildUrl() prefer it.
+   */
+  gatewayTls?: boolean | GatewayTlsConfig;
   /** Connect immediately with an existing JWT pair (e.g. from walletAuth.verify()). */
   accessToken?: string;
   refreshToken?: string;
   /** Custom fetch implementation (tests, instrumentation). Must not follow redirects. */
   fetch?: typeof fetch;
+}
+
+export interface GatewayTlsConfig {
+  /** HTTPS proxy port (default 8443). */
+  port?: number;
+  /** Extra CA (PEM) for a privately issued gateway certificate. Verification is never disabled. */
+  ca?: string | Buffer;
+  /** TLS server name when proxyHost is an IP literal. */
+  servername?: string;
 }
 
 export interface User {

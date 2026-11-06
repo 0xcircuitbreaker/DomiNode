@@ -1,6 +1,7 @@
 import * as http from "node:http";
 import * as https from "node:https";
 import * as tls from "node:tls";
+import * as net from "node:net";
 import type { Duplex } from "node:stream";
 import { ProxyError, invalidArg, scrubCredentials } from "./errors.js";
 import { MAX_RESPONSE_BYTES } from "./constants.js";
@@ -77,6 +78,21 @@ export interface ProxyEndpoint {
   port: number;
   /** DNS resolver used by the rebinding check (injectable for tests). */
   lookup?: LookupAll;
+  /**
+   * TLS to the gateway itself ("https proxy"): Proxy-Authorization is sent inside
+   * TLS, then CONNECT runs inside that channel. The gateway certificate is always
+   * verified (system roots, or `ca` when given).
+   */
+  tls?: { ca?: string | Buffer; servername?: string };
+}
+
+/** Open a request to the gateway: plain TCP, or TLS when the endpoint has `tls`. */
+function gatewayRequest(ep: ProxyEndpoint, opts: http.RequestOptions, cb?: (res: http.IncomingMessage) => void): http.ClientRequest {
+  if (!ep.tls) return http.request(opts, cb);
+  return https.request({
+    ...opts, ca: ep.tls.ca, servername: ep.tls.servername ?? (net.isIP(ep.host) ? undefined : ep.host),
+    minVersion: "TLSv1.2", rejectUnauthorized: true,
+  }, cb);
 }
 
 const FORBIDDEN_HEADERS = new Set([
@@ -177,7 +193,7 @@ function collect(res: http.IncomingMessage, maxBytes: number, method: string): P
 function viaAbsoluteUri(ep: ProxyEndpoint, proxyAuth: string, target: URL, method: string, headers: Record<string, string>,
   maxBytes: number, signal: AbortSignal): Promise<ProxyFetchResponse> {
   return new Promise((resolve, reject) => {
-    const req = http.request({
+    const req = gatewayRequest(ep, {
       host: ep.host, port: ep.port, method, path: target.href, signal, agent: false,
       headers: { ...headers, Host: target.host, "Proxy-Authorization": proxyAuth, Connection: "close" },
     }, (res) => collect(res, maxBytes, method).then(resolve, reject));
@@ -191,7 +207,7 @@ function viaConnect(ep: ProxyEndpoint, proxyAuth: string, target: URL, method: s
   const port = target.port || "443";
   const authority = `${target.hostname}:${port}`; // URL.hostname keeps IPv6 brackets
   return new Promise((resolve, reject) => {
-    const connectReq = http.request({
+    const connectReq = gatewayRequest(ep, {
       host: ep.host, port: ep.port, method: "CONNECT", path: authority, signal, agent: false,
       headers: { Host: authority, "Proxy-Authorization": proxyAuth },
     });
@@ -203,10 +219,12 @@ function viaConnect(ep: ProxyEndpoint, proxyAuth: string, target: URL, method: s
       }
       const servername = target.hostname.replace(/^\[|\]$/g, "");
       const req = https.request({
-        host: servername, port: Number(port), method, path: target.pathname + target.search, signal, agent: false,
+        // No `agent` here: with agent:false Node ignores createConnection and dials the target
+        // directly, bypassing the tunnel.
+        host: servername, port: Number(port), method, path: target.pathname + target.search, signal,
         servername, minVersion: "TLSv1.2", rejectUnauthorized: true,
         headers: { ...headers, Host: target.host, Connection: "close" },
-        createConnection: () => tls.connect({ socket: socket as Duplex as import("node:net").Socket, servername, minVersion: "TLSv1.2", rejectUnauthorized: true }),
+        createConnection: () => tls.connect({ socket: socket as Duplex as net.Socket, servername, minVersion: "TLSv1.2", rejectUnauthorized: true }),
       }, (r) => collect(r, maxBytes, method).then(resolve, reject));
       req.on("error", reject);
       req.end();
