@@ -1,0 +1,539 @@
+name: Release
+
+# Publishes every package whose manifest version is not on its registry yet,
+# then tags it (<id>-v<version>, Go: sdks/go/v<version>) and creates a GitHub
+# Release. Packages are listed in .github/release-packages.json; the plan is
+# computed by scripts/release/plan.mjs. See docs/RELEASING.md.
+#
+# Re-running is safe: anything already published / tagged is skipped.
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+    inputs:
+      package:
+        description: "Only this package id (empty = all pending)"
+        required: false
+        default: ""
+      dry_run:
+        description: "Build and test, but do not publish, tag or release"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+env:
+  DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+  GH_REPO: ${{ github.repository }}
+
+jobs:
+  plan:
+    name: Plan
+    runs-on: ubuntu-latest
+    outputs:
+      release: ${{ steps.plan.outputs.release }}
+      npm_0: ${{ steps.plan.outputs.npm_0 }}
+      npm_1: ${{ steps.plan.outputs.npm_1 }}
+      pypi_0: ${{ steps.plan.outputs.pypi_0 }}
+      pypi_1: ${{ steps.plan.outputs.pypi_1 }}
+      go: ${{ steps.plan.outputs.go }}
+      crates: ${{ steps.plan.outputs.crates }}
+      maven: ${{ steps.plan.outputs.maven }}
+      cpp: ${{ steps.plan.outputs.cpp }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+      - name: Test planner
+        run: node --test scripts/release/plan.test.mjs
+      - name: Plan
+        id: plan
+        env:
+          ONLY: ${{ inputs.package }}
+        run: |
+          if [ -n "${ONLY:-}" ]; then
+            node scripts/release/plan.mjs --github-output --only "$ONLY"
+          else
+            node scripts/release/plan.mjs --github-output
+          fi
+
+  npm-sdk:
+    name: npm ${{ matrix.pkg.id }}
+    needs: plan
+    if: ${{ needs.plan.outputs.npm_0 != '[]' }}
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: write
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        pkg: ${{ fromJSON(needs.plan.outputs.npm_0) }}
+    defaults:
+      run:
+        working-directory: ${{ matrix.pkg.path }}
+    env:
+      PKG_ID: ${{ matrix.pkg.id }}
+      PKG_NAME: ${{ matrix.pkg.name }}
+      PKG_VERSION: ${{ matrix.pkg.version }}
+      PKG_TAG: ${{ matrix.pkg.tag }}
+      PKG_PRERELEASE: ${{ matrix.pkg.prerelease }}
+      PKG_PUBLISHED: ${{ matrix.pkg.published }}
+      NPM_DIST_TAG: ${{ matrix.pkg.npmTag }}
+      INSTALL_CMD: ${{ matrix.pkg.install }}
+      BUILD_CMD: ${{ matrix.pkg.build }}
+      TEST_CMD: ${{ matrix.pkg.test }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+      - name: npm with Trusted Publishing support
+        run: npm install -g npm@11.21.2 && npm --version
+      - name: Wait for dependencies on the registry
+        run: node "$GITHUB_WORKSPACE/scripts/release/plan.mjs" wait "$PKG_ID" --timeout 900
+      - name: Install
+        run: bash -c "$INSTALL_CMD"
+      - name: Build
+        run: bash -c "$BUILD_CMD"
+      - name: Test
+        run: bash -c "$TEST_CMD"
+      - name: Check manifest
+        run: |
+          node -e '
+            const p = require("./package.json");
+            const bad = Object.entries({ ...p.dependencies, ...p.peerDependencies })
+              .filter(([, v]) => /^(file|link|workspace):/.test(v));
+            if (bad.length) { console.error("local dependency links:", bad); process.exit(1); }
+            if (!p.repository || !/github\.com\/0xcircuitbreaker\/DomiNode/.test(p.repository.url)) {
+              console.error("repository.url must point at 0xcircuitbreaker/DomiNode (provenance)"); process.exit(1);
+            }'
+      - name: Publish
+        if: ${{ matrix.pkg.published != true }}
+        run: |
+          args=(--provenance --access public --tag "$NPM_DIST_TAG")
+          if [ "$DRY_RUN" = "true" ]; then args+=(--dry-run); fi
+          npm publish "${args[@]}"
+      - name: Tag and GitHub Release
+        if: ${{ env.DRY_RUN != 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: '"$GITHUB_WORKSPACE/scripts/release/github-release.sh" "$PKG_ID" "$PKG_TAG" "$PKG_VERSION" "$PKG_PRERELEASE"'
+
+  npm-dependents:
+    name: npm ${{ matrix.pkg.id }}
+    needs: [plan, npm-sdk]
+    if: ${{ !cancelled() && needs.plan.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.npm-sdk.result) && needs.plan.outputs.npm_1 != '[]' }}
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: write
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        pkg: ${{ fromJSON(needs.plan.outputs.npm_1) }}
+    defaults:
+      run:
+        working-directory: ${{ matrix.pkg.path }}
+    env:
+      PKG_ID: ${{ matrix.pkg.id }}
+      PKG_NAME: ${{ matrix.pkg.name }}
+      PKG_VERSION: ${{ matrix.pkg.version }}
+      PKG_TAG: ${{ matrix.pkg.tag }}
+      PKG_PRERELEASE: ${{ matrix.pkg.prerelease }}
+      PKG_PUBLISHED: ${{ matrix.pkg.published }}
+      NPM_DIST_TAG: ${{ matrix.pkg.npmTag }}
+      INSTALL_CMD: ${{ matrix.pkg.install }}
+      BUILD_CMD: ${{ matrix.pkg.build }}
+      TEST_CMD: ${{ matrix.pkg.test }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+      - name: npm with Trusted Publishing support
+        run: npm install -g npm@11.21.2 && npm --version
+      - name: Wait for dependencies on the registry
+        run: node "$GITHUB_WORKSPACE/scripts/release/plan.mjs" wait "$PKG_ID" --timeout 900
+      - name: Install
+        run: bash -c "$INSTALL_CMD"
+      - name: Build
+        run: bash -c "$BUILD_CMD"
+      - name: Test
+        run: bash -c "$TEST_CMD"
+      - name: Check manifest
+        run: |
+          node -e '
+            const p = require("./package.json");
+            const bad = Object.entries({ ...p.dependencies, ...p.peerDependencies })
+              .filter(([, v]) => /^(file|link|workspace):/.test(v));
+            if (bad.length) { console.error("local dependency links:", bad); process.exit(1); }
+            if (!p.repository || !/github\.com\/0xcircuitbreaker\/DomiNode/.test(p.repository.url)) {
+              console.error("repository.url must point at 0xcircuitbreaker/DomiNode (provenance)"); process.exit(1);
+            }'
+      - name: Publish
+        if: ${{ matrix.pkg.published != true }}
+        run: |
+          args=(--provenance --access public --tag "$NPM_DIST_TAG")
+          if [ "$DRY_RUN" = "true" ]; then args+=(--dry-run); fi
+          npm publish "${args[@]}"
+      - name: Tag and GitHub Release
+        if: ${{ env.DRY_RUN != 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: '"$GITHUB_WORKSPACE/scripts/release/github-release.sh" "$PKG_ID" "$PKG_TAG" "$PKG_VERSION" "$PKG_PRERELEASE"'
+
+  pypi-sdk:
+    name: PyPI ${{ matrix.pkg.id }}
+    needs: plan
+    if: ${{ needs.plan.outputs.pypi_0 != '[]' }}
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: write
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        pkg: ${{ fromJSON(needs.plan.outputs.pypi_0) }}
+    defaults:
+      run:
+        working-directory: ${{ matrix.pkg.path }}
+    env:
+      PKG_ID: ${{ matrix.pkg.id }}
+      PKG_VERSION: ${{ matrix.pkg.version }}
+      PKG_TAG: ${{ matrix.pkg.tag }}
+      PKG_PRERELEASE: ${{ matrix.pkg.prerelease }}
+      INSTALL_CMD: ${{ matrix.pkg.install }}
+      BUILD_CMD: ${{ matrix.pkg.build }}
+      TEST_CMD: ${{ matrix.pkg.test }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.12"
+      - name: Wait for dependencies on the registry
+        run: node "$GITHUB_WORKSPACE/scripts/release/plan.mjs" wait "$PKG_ID" --timeout 900
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip build twine
+          bash -c "$INSTALL_CMD"
+      - name: Test
+        run: bash -c "$TEST_CMD"
+      - name: Build
+        run: |
+          rm -rf dist
+          bash -c "$BUILD_CMD"
+          twine check --strict dist/*
+      - name: Publish to PyPI
+        if: ${{ matrix.pkg.published != true && env.DRY_RUN != 'true' }}
+        uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
+        with:
+          packages-dir: ${{ matrix.pkg.path }}/dist
+      - name: Tag and GitHub Release
+        if: ${{ env.DRY_RUN != 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: '"$GITHUB_WORKSPACE/scripts/release/github-release.sh" "$PKG_ID" "$PKG_TAG" "$PKG_VERSION" "$PKG_PRERELEASE"'
+
+  pypi-dependents:
+    name: PyPI ${{ matrix.pkg.id }}
+    needs: [plan, pypi-sdk]
+    if: ${{ !cancelled() && needs.plan.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.pypi-sdk.result) && needs.plan.outputs.pypi_1 != '[]' }}
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: write
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        pkg: ${{ fromJSON(needs.plan.outputs.pypi_1) }}
+    defaults:
+      run:
+        working-directory: ${{ matrix.pkg.path }}
+    env:
+      PKG_ID: ${{ matrix.pkg.id }}
+      PKG_VERSION: ${{ matrix.pkg.version }}
+      PKG_TAG: ${{ matrix.pkg.tag }}
+      PKG_PRERELEASE: ${{ matrix.pkg.prerelease }}
+      INSTALL_CMD: ${{ matrix.pkg.install }}
+      BUILD_CMD: ${{ matrix.pkg.build }}
+      TEST_CMD: ${{ matrix.pkg.test }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.12"
+      - name: Wait for dependencies on the registry
+        run: node "$GITHUB_WORKSPACE/scripts/release/plan.mjs" wait "$PKG_ID" --timeout 900
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip build twine
+          bash -c "$INSTALL_CMD"
+      - name: Test
+        run: bash -c "$TEST_CMD"
+      - name: Build
+        run: |
+          rm -rf dist
+          bash -c "$BUILD_CMD"
+          twine check --strict dist/*
+      - name: Publish to PyPI
+        if: ${{ matrix.pkg.published != true && env.DRY_RUN != 'true' }}
+        uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
+        with:
+          packages-dir: ${{ matrix.pkg.path }}/dist
+      - name: Tag and GitHub Release
+        if: ${{ env.DRY_RUN != 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: '"$GITHUB_WORKSPACE/scripts/release/github-release.sh" "$PKG_ID" "$PKG_TAG" "$PKG_VERSION" "$PKG_PRERELEASE"'
+
+  crates:
+    name: crates.io ${{ matrix.pkg.id }}
+    needs: plan
+    if: ${{ needs.plan.outputs.crates != '[]' }}
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: write
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        pkg: ${{ fromJSON(needs.plan.outputs.crates) }}
+    defaults:
+      run:
+        working-directory: ${{ matrix.pkg.path }}
+    env:
+      PKG_ID: ${{ matrix.pkg.id }}
+      PKG_VERSION: ${{ matrix.pkg.version }}
+      PKG_TAG: ${{ matrix.pkg.tag }}
+      PKG_PRERELEASE: ${{ matrix.pkg.prerelease }}
+      BUILD_CMD: ${{ matrix.pkg.build }}
+      TEST_CMD: ${{ matrix.pkg.test }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+      - uses: dtolnay/rust-toolchain@56f84321dbccf38fb67ce29ab63e4754056677e0 # stable
+        with:
+          toolchain: stable
+      - name: Build
+        run: bash -c "$BUILD_CMD"
+      - name: Test
+        run: bash -c "$TEST_CMD"
+      - name: Package
+        run: cargo publish --dry-run
+      - name: crates.io token (Trusted Publishing)
+        if: ${{ matrix.pkg.published != true && env.DRY_RUN != 'true' }}
+        id: auth
+        uses: rust-lang/crates-io-auth-action@3268eb413133e2960fa4ae0e963ca76380c54cd9 # v1.0.6
+      - name: Publish to crates.io
+        if: ${{ matrix.pkg.published != true && env.DRY_RUN != 'true' }}
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+        run: cargo publish
+      - name: Tag and GitHub Release
+        if: ${{ env.DRY_RUN != 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: '"$GITHUB_WORKSPACE/scripts/release/github-release.sh" "$PKG_ID" "$PKG_TAG" "$PKG_VERSION" "$PKG_PRERELEASE"'
+
+  go:
+    name: Go ${{ matrix.pkg.id }}
+    needs: plan
+    if: ${{ needs.plan.outputs.go != '[]' }}
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        pkg: ${{ fromJSON(needs.plan.outputs.go) }}
+    defaults:
+      run:
+        working-directory: ${{ matrix.pkg.path }}
+    env:
+      PKG_ID: ${{ matrix.pkg.id }}
+      PKG_NAME: ${{ matrix.pkg.name }}
+      PKG_VERSION: ${{ matrix.pkg.version }}
+      PKG_TAG: ${{ matrix.pkg.tag }}
+      PKG_PRERELEASE: ${{ matrix.pkg.prerelease }}
+      BUILD_CMD: ${{ matrix.pkg.build }}
+      TEST_CMD: ${{ matrix.pkg.test }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+        with:
+          go-version-file: ${{ matrix.pkg.path }}/go.mod
+          cache: false
+      - name: Check module path and major version
+        run: |
+          mod=$(go list -m)
+          if [ "$mod" != "$PKG_NAME" ]; then echo "go.mod module $mod != $PKG_NAME" >&2; exit 1; fi
+          major=${PKG_VERSION%%.*}
+          if [ "$major" -ge 2 ] && [ "${mod##*/}" != "v$major" ]; then echo "module path must end in /v$major" >&2; exit 1; fi
+      - name: Build
+        run: bash -c "$BUILD_CMD"
+      - name: Test
+        run: bash -c "$TEST_CMD"
+      - name: Tag and GitHub Release
+        if: ${{ env.DRY_RUN != 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: '"$GITHUB_WORKSPACE/scripts/release/github-release.sh" "$PKG_ID" "$PKG_TAG" "$PKG_VERSION" "$PKG_PRERELEASE"'
+      - name: Ask proxy.golang.org to fetch the version
+        if: ${{ env.DRY_RUN != 'true' && !github.event.repository.private }}
+        continue-on-error: true
+        run: |
+          GOPROXY=https://proxy.golang.org GOFLAGS=-mod=mod go list -m "$PKG_NAME@v$PKG_VERSION" \
+            || echo "::warning::proxy.golang.org has not picked up $PKG_NAME@v$PKG_VERSION yet"
+
+  maven:
+    name: Maven ${{ matrix.pkg.id }}
+    needs: plan
+    if: ${{ needs.plan.outputs.maven != '[]' }}
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: write
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        pkg: ${{ fromJSON(needs.plan.outputs.maven) }}
+    defaults:
+      run:
+        working-directory: ${{ matrix.pkg.path }}
+    env:
+      PKG_ID: ${{ matrix.pkg.id }}
+      PKG_NAME: ${{ matrix.pkg.name }}
+      PKG_VERSION: ${{ matrix.pkg.version }}
+      PKG_TAG: ${{ matrix.pkg.tag }}
+      PKG_PRERELEASE: ${{ matrix.pkg.prerelease }}
+      TEST_CMD: ${{ matrix.pkg.test }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+      - uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00 # v4.7.1
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+          server-id: github
+          server-username: GITHUB_ACTOR
+          server-password: GITHUB_TOKEN
+      - name: Build and test
+        run: bash -c "$TEST_CMD"
+      - name: Already on GitHub Packages?
+        id: exists
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          group=${PKG_NAME%%:*} artifact=${PKG_NAME##*:}
+          url="https://maven.pkg.github.com/${GITHUB_REPOSITORY}/${group//.//}/${artifact}/${PKG_VERSION}/${artifact}-${PKG_VERSION}.pom"
+          code=$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $GITHUB_TOKEN" "$url")
+          echo "HTTP $code for $url"
+          if [ "$code" = "200" ]; then echo "found=true" >> "$GITHUB_OUTPUT"; else echo "found=false" >> "$GITHUB_OUTPUT"; fi
+      - name: Deploy to GitHub Packages
+        if: ${{ steps.exists.outputs.found != 'true' && env.DRY_RUN != 'true' }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: mvn -B -DskipTests deploy
+      - name: Tag and GitHub Release
+        if: ${{ env.DRY_RUN != 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          artifact=${PKG_NAME##*:}
+          "$GITHUB_WORKSPACE/scripts/release/github-release.sh" "$PKG_ID" "$PKG_TAG" "$PKG_VERSION" "$PKG_PRERELEASE" \
+            "target/${artifact}-${PKG_VERSION}.jar"
+
+  cpp:
+    name: C++ ${{ matrix.pkg.id }}
+    needs: plan
+    if: ${{ needs.plan.outputs.cpp != '[]' }}
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        pkg: ${{ fromJSON(needs.plan.outputs.cpp) }}
+    defaults:
+      run:
+        working-directory: ${{ matrix.pkg.path }}
+    env:
+      PKG_ID: ${{ matrix.pkg.id }}
+      PKG_NAME: ${{ matrix.pkg.name }}
+      PKG_PATH: ${{ matrix.pkg.path }}
+      PKG_VERSION: ${{ matrix.pkg.version }}
+      PKG_TAG: ${{ matrix.pkg.tag }}
+      PKG_PRERELEASE: ${{ matrix.pkg.prerelease }}
+      INSTALL_CMD: ${{ matrix.pkg.install }}
+      BUILD_CMD: ${{ matrix.pkg.build }}
+      TEST_CMD: ${{ matrix.pkg.test }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+      - name: Install
+        run: bash -c "$INSTALL_CMD"
+      - name: Build
+        run: bash -c "$BUILD_CMD"
+      - name: Test
+        run: bash -c "$TEST_CMD"
+      - name: Source archive and checksum
+        run: |
+          out="$RUNNER_TEMP/${PKG_NAME}-${PKG_VERSION}.tar.gz"
+          git -C "$GITHUB_WORKSPACE" archive --format=tar.gz --prefix="${PKG_NAME}-${PKG_VERSION}/" -o "$out" "HEAD:${PKG_PATH}"
+          (cd "$RUNNER_TEMP" && sha256sum "$(basename "$out")" > "$(basename "$out").sha256")
+          cat "$out.sha256"
+      - name: Tag and GitHub Release
+        if: ${{ env.DRY_RUN != 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          out="$RUNNER_TEMP/${PKG_NAME}-${PKG_VERSION}.tar.gz"
+          "$GITHUB_WORKSPACE/scripts/release/github-release.sh" "$PKG_ID" "$PKG_TAG" "$PKG_VERSION" "$PKG_PRERELEASE" "$out" "$out.sha256"
