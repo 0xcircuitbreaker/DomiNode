@@ -5,8 +5,10 @@
  * heartbeat and POLICY_UPDATE push. Streams are carried by TunnelMux.
  */
 import * as http from "node:http";
+import * as netMod from "node:net";
+import * as tls from "node:tls";
 import { randomBytes } from "node:crypto";
-import { isIP, type Socket, type AddressInfo } from "node:net";
+import { type Socket, type AddressInfo } from "node:net";
 import type { Duplex } from "node:stream";
 import WebSocket, { WebSocketServer } from "ws";
 import {
@@ -32,6 +34,7 @@ import {
   EXPORTER_LENGTH,
 } from "@dominusnode/shared";
 import { TunnelMux, STREAM_WINDOW, type StreamCloseReport } from "./mux.js";
+import { PreAuthLimiter, normalizePeerIp, readProxyV2, type PreAuthLimiterOptions } from "./ingress.js";
 import { NodeRegistry, ipPrefix, dayOf, type LiveNode, type NodeTunnelHandle } from "./registry.js";
 
 export const DEFAULT_TUNNEL_PORT = 8443;
@@ -95,14 +98,19 @@ export interface TunnelServerOptions {
   handshakeDeadlineMs?: number;
   initialWindow?: number;
   logger?: TunnelLogger;
+  /**
+   * TCP peers allowed to prepend a PROXY protocol v2 header (e.g. Caddy layer4).
+   * From these the header is mandatory; from anyone else the raw socket address is used.
+   */
+  trustedProxyIps?: ReadonlySet<string>;
+  /** Terminate TLS in the gateway itself (enables tls-exporter channel binding). */
+  tls?: { cert: Buffer; key: Buffer } | null;
+  /** Production: peers resolving to non-public IPs are refused (misconfigured proxy front). */
+  production?: boolean;
+  preAuth?: PreAuthLimiterOptions;
 }
 
 const silent: TunnelLogger = { info: () => undefined, warn: () => undefined };
-
-function normalizeIp(ip: string | undefined): string {
-  if (!ip) return "";
-  return ip.startsWith("::ffff:") && isIP(ip.slice(7)) === 4 ? ip.slice(7) : ip;
-}
 
 function rejectUpgrade(socket: Socket | Duplex, status: number, text: string): void {
   try {
@@ -394,6 +402,12 @@ export class NodeTunnelServer {
   readonly handshakeDeadlineMs: number;
   readonly initialWindow: number;
   private tunnels = new Set<NodeTunnel>();
+  /** Front TCP listener: resolves the real peer (PROXY v2 from trusted IPs only), optional TLS. */
+  private readonly front: netMod.Server;
+  private readonly peerOf = new WeakMap<object, string>();
+  private readonly trusted: ReadonlySet<string>;
+  private readonly secureContext: tls.SecureContext | null;
+  readonly preAuth: PreAuthLimiter;
 
   constructor(readonly registry: NodeRegistry, readonly deps: TunnelServerDeps, private readonly opts: TunnelServerOptions = {}) {
     this.log = opts.logger ?? silent;
@@ -405,6 +419,14 @@ export class NodeTunnelServer {
       res.writeHead(426, { "Content-Type": "text/plain" });
       res.end("Upgrade Required");
     });
+    this.trusted = opts.trustedProxyIps ?? new Set();
+    this.secureContext = opts.tls ? tls.createSecureContext({ cert: opts.tls.cert, key: opts.tls.key, minVersion: "TLSv1.3" }) : null;
+    this.preAuth = new PreAuthLimiter(opts.preAuth);
+    if (opts.production && this.trusted.size === 0 && !this.secureContext) {
+      this.log.warn("TUNNEL: production without TUNNEL_TRUSTED_PROXY_IPS or TUNNEL_TLS_*: peer IP is the raw TCP source; " +
+        "if a proxy fronts this port every node will appear to come from it and non-public peers are REJECTED");
+    }
+    this.front = netMod.createServer((sock) => void this.onConnection(sock));
     this.http.on("upgrade", (req, socket, head) => {
       socket.on("error", () => undefined);
       this.onUpgrade(req, socket, head).catch(() => {
@@ -420,19 +442,55 @@ export class NodeTunnelServer {
   async listen(): Promise<number> {
     const port = this.opts.port ?? DEFAULT_TUNNEL_PORT;
     await new Promise<void>((resolve, reject) => {
-      this.http.once("error", reject);
-      this.http.listen(port, this.opts.host ?? "0.0.0.0", () => {
-        this.http.off("error", reject);
+      this.front.once("error", reject);
+      this.front.listen(port, this.opts.host ?? "0.0.0.0", () => {
+        this.front.off("error", reject);
         resolve();
       });
     });
-    return (this.http.address() as AddressInfo).port;
+    this.preAuth.start();
+    return (this.front.address() as AddressInfo).port;
   }
 
   async close(): Promise<void> {
     for (const t of [...this.tunnels]) t.close("server shutdown", 1001);
     await new Promise<void>((r) => this.wss.close(() => r()));
-    await new Promise<void>((r) => this.http.close(() => r()));
+    this.preAuth.stop();
+    this.http.closeAllConnections?.();
+    await new Promise<void>((r) => this.front.close(() => r()));
+  }
+
+  private async onConnection(sock: Socket): Promise<void> {
+    sock.on("error", () => undefined);
+    const raw = normalizePeerIp(sock.remoteAddress);
+    let peer = raw;
+    if (raw && this.trusted.has(raw)) {
+      try {
+        peer = await readProxyV2(sock);
+      } catch {
+        sock.destroy();
+        return;
+      }
+    }
+    if (!peer || sock.destroyed) {
+      sock.destroy();
+      return;
+    }
+    let conn: Socket = sock;
+    if (this.secureContext) {
+      const t = new tls.TLSSocket(sock, { isServer: true, secureContext: this.secureContext });
+      t.on("error", () => t.destroy());
+      conn = t;
+    }
+    this.peerOf.set(conn, peer);
+    this.http.emit("connection", conn);
+    sock.resume();
+  }
+
+  /** Peer IP resolved at accept time; never from headers (X-Forwarded-For is ignored). */
+  peerIpFor(sock: unknown): string {
+    if (!sock || typeof sock !== "object") return "";
+    return this.peerOf.get(sock) ?? "";
   }
 
   private async onUpgrade(req: http.IncomingMessage, socket: Duplex, head: Buffer): Promise<void> {
@@ -441,13 +499,30 @@ export class NodeTunnelServer {
     const auth = req.headers.authorization;
     const m = typeof auth === "string" ? /^Bearer (\S+)$/.exec(auth) : null;
     if (!m || !NODE_KEY_RE.test(m[1])) return rejectUpgrade(socket, 401, "Unauthorized");
-    const node = await this.deps.getNodeForTunnelAuth(hashNodeKey(m[1]));
+    const peerIp = this.peerIpFor(req.socket);
+    if (!peerIp) return rejectUpgrade(socket, 400, "Bad Request");
+    if (this.opts.production && !isPublicAddress(peerIp)) {
+      this.log.warn("tunnel upgrade from non-public peer refused in production (check TUNNEL_TRUSTED_PROXY_IPS)");
+      return rejectUpgrade(socket, 403, "Forbidden");
+    }
+    // Pre-auth DoS guard before any DB work: per-IP bucket, negative cache, global in-flight cap.
+    if (!this.preAuth.allowIp(peerIp)) return rejectUpgrade(socket, 429, "Too Many Requests");
+    const keyHash = hashNodeKey(m[1]);
+    if (this.preAuth.isNegative(keyHash)) return rejectUpgrade(socket, 401, "Unauthorized");
+    if (!this.preAuth.tryAcquire()) return rejectUpgrade(socket, 503, "Service Unavailable");
+    let node: TunnelAuthNode | null;
+    try {
+      node = await this.deps.getNodeForTunnelAuth(keyHash);
+    } finally {
+      this.preAuth.release();
+    }
     if (socket.destroyed) return;
-    if (!node || (node.status !== "pending" && node.status !== "active")) return rejectUpgrade(socket, 401, "Unauthorized");
+    if (!node || (node.status !== "pending" && node.status !== "active")) {
+      this.preAuth.addNegative(keyHash);
+      return rejectUpgrade(socket, 401, "Unauthorized");
+    }
     const policy = this.deps.getPolicy();
     if (node.attestation_version < policy.body.attestation.minVersion) return rejectUpgrade(socket, 403, "Forbidden");
-    const peerIp = normalizeIp(req.socket.remoteAddress);
-    if (!peerIp) return rejectUpgrade(socket, 400, "Bad Request");
     this.wss.handleUpgrade(req, socket, head, (ws) => {
       ws.binaryType = "nodebuffer";
       const t = new NodeTunnel(ws, node, peerIp, this, tlsExporter(req.socket));

@@ -68,6 +68,8 @@ Flaws flagged in review, and how this design resolves them:
 - The node dials out with a single WSS connection to `wss://relay.<domain>/v1/tunnel`, on 443 behind Caddy.
 - Locally the gateway listens on `TUNNEL_PORT` (default 8443). The handler lives in `proxy-gateway/src/node-tunnel/`; a separate `packages/relay` is **not** created in v1.
 - Binary WebSocket messages carry our own mux framing.
+- **Peer IP** (used for geo/sanctions and per-/32,/24 caps) comes from the raw TCP socket, or from a PROXY protocol v2 header **only** when the TCP peer is listed in `TUNNEL_TRUSTED_PROXY_IPS` (header then mandatory). `X-Forwarded-For` is never read. Deploy one of: (a) Caddy `layer4` TLS passthrough to `TUNNEL_PORT` with `proxy_protocol v2`, plus `TUNNEL_TLS_CERT_FILE`/`TUNNEL_TLS_KEY_FILE` so the gateway terminates TLS and the `tls-exporter` binding works; (b) a TCP proxy sending PROXY v2 with TLS terminated upstream (binding `none`); (c) the gateway exposed directly. With `NODE_ENV=production` and neither trusted proxies nor gateway TLS configured, the gateway logs a warning at startup, and non-public peer IPs are refused in production in every mode.
+- Pre-auth limits on the upgrade, applied before the key lookup: a token bucket per source IP, a global cap on lookups in flight, and a short negative cache of unknown key hashes. All maps are size-capped and swept.
 - Dependency: `ws`, which the gateway may already have. Otherwise it is the only new runtime dependency.
 
 ### 2.2 Frame (big-endian, 12-byte header)

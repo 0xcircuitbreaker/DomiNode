@@ -18,6 +18,7 @@ import * as payoutsJob from "./jobs/payouts.js";
 import * as reputationFlushJob from "./jobs/reputation-flush.js";
 import { loadSdnFile } from "./jobs/sdn.js";
 import * as probesJob from "./jobs/probes.js";
+import { parseTrustedProxyIps, loadTunnelTls } from "./node-tunnel/ingress.js";
 import { createEthersPayoutSender } from "./jobs/payout-sender-ethers.js";
 import { getActiveSessionCount, terminateUserSessions, getActiveSessions } from "./session-manager.js";
 
@@ -91,7 +92,13 @@ async function main(): Promise<void> {
         log.warn("node byte report mismatch", { nodeId, gatewayOut: r.gatewayBytesOut, gatewayIn: r.gatewayBytesIn, nodeIn: r.nodeReport.bytesIn, nodeOut: r.nodeReport.bytesOut });
       }
     },
-  }, { port: resolveTunnelPort(process.env["TUNNEL_PORT"]), logger: log });
+  }, {
+    port: resolveTunnelPort(process.env["TUNNEL_PORT"]),
+    logger: log,
+    trustedProxyIps: parseTrustedProxyIps(process.env["TUNNEL_TRUSTED_PROXY_IPS"]),
+    tls: loadTunnelTls(process.env),
+    production: process.env["NODE_ENV"] === "production",
+  });
   const tunnelPort = await tunnelServer.listen();
   log.info(`node tunnel server listening on port ${tunnelPort}`);
 
