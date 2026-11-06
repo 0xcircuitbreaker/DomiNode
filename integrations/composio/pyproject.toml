@@ -23,3 +23,9 @@ include = ["dominusnode_composio*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[project.urls]
+Homepage = "https://github.com/0xcircuitbreaker/DomiNode/tree/master/integrations/composio"
+Repository = "https://github.com/0xcircuitbreaker/DomiNode"
+Issues = "https://github.com/0xcircuitbreaker/DomiNode/issues"
+Changelog = "https://github.com/0xcircuitbreaker/DomiNode/blob/master/integrations/composio/CHANGELOG.md"

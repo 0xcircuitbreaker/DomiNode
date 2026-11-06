@@ -34,7 +34,23 @@
     "node": ">=20.0.0"
   },
   "license": "MIT",
-  "keywords": ["mastra", "dominusnode", "relay", "proxy", "ai-agent", "x402"],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/0xcircuitbreaker/DomiNode.git",
+    "directory": "integrations/mastra"
+  },
+  "homepage": "https://github.com/0xcircuitbreaker/DomiNode/tree/master/integrations/mastra#readme",
+  "bugs": {
+    "url": "https://github.com/0xcircuitbreaker/DomiNode/issues"
+  },
+  "keywords": [
+    "mastra",
+    "dominusnode",
+    "relay",
+    "proxy",
+    "ai-agent",
+    "x402"
+  ],
   "files": [
     "dist/",
     "README.md",

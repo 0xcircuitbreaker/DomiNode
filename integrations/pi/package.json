@@ -10,6 +10,15 @@
     "ai-agent"
   ],
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/0xcircuitbreaker/DomiNode.git",
+    "directory": "integrations/pi"
+  },
+  "homepage": "https://github.com/0xcircuitbreaker/DomiNode/tree/master/integrations/pi#readme",
+  "bugs": {
+    "url": "https://github.com/0xcircuitbreaker/DomiNode/issues"
+  },
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

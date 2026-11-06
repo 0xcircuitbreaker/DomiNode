@@ -19,6 +19,15 @@
     "LICENSE"
   ],
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/0xcircuitbreaker/DomiNode.git",
+    "directory": "integrations/openai-functions"
+  },
+  "homepage": "https://github.com/0xcircuitbreaker/DomiNode/tree/master/integrations/openai-functions#readme",
+  "bugs": {
+    "url": "https://github.com/0xcircuitbreaker/DomiNode/issues"
+  },
   "scripts": {
     "build": "tsc",
     "prepare": "npm run build",
@@ -41,10 +50,6 @@
     "tool-calling",
     "relay"
   ],
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/Dominus-Node/dominusnode"
-  },
   "engines": {
     "node": ">=18.0.0"
   }

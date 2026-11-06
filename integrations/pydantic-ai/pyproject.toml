@@ -19,3 +19,9 @@ include = ["dominusnode_pydanticai*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[project.urls]
+Homepage = "https://github.com/0xcircuitbreaker/DomiNode/tree/master/integrations/pydantic-ai"
+Repository = "https://github.com/0xcircuitbreaker/DomiNode"
+Issues = "https://github.com/0xcircuitbreaker/DomiNode/issues"
+Changelog = "https://github.com/0xcircuitbreaker/DomiNode/blob/master/integrations/pydantic-ai/CHANGELOG.md"

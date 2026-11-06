@@ -22,3 +22,9 @@ include = ["dominusnode_autogpt*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[project.urls]
+Homepage = "https://github.com/0xcircuitbreaker/DomiNode/tree/master/integrations/autogpt"
+Repository = "https://github.com/0xcircuitbreaker/DomiNode"
+Issues = "https://github.com/0xcircuitbreaker/DomiNode/issues"
+Changelog = "https://github.com/0xcircuitbreaker/DomiNode/blob/master/integrations/autogpt/CHANGELOG.md"

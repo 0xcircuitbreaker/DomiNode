@@ -16,3 +16,9 @@ dev = ["pytest>=7.0"]
 
 [tool.setuptools.packages.find]
 include = ["dominusnode_moltbook*"]
+
+[project.urls]
+Homepage = "https://github.com/0xcircuitbreaker/DomiNode/tree/master/integrations/moltbook"
+Repository = "https://github.com/0xcircuitbreaker/DomiNode"
+Issues = "https://github.com/0xcircuitbreaker/DomiNode/issues"
+Changelog = "https://github.com/0xcircuitbreaker/DomiNode/blob/master/integrations/moltbook/CHANGELOG.md"

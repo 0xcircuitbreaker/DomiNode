@@ -35,7 +35,24 @@
     "node": ">=20.0.0"
   },
   "license": "MIT",
-  "keywords": ["flowise", "langchain", "dominusnode", "relay", "proxy", "ai-agent", "x402"],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/0xcircuitbreaker/DomiNode.git",
+    "directory": "integrations/flowise"
+  },
+  "homepage": "https://github.com/0xcircuitbreaker/DomiNode/tree/master/integrations/flowise#readme",
+  "bugs": {
+    "url": "https://github.com/0xcircuitbreaker/DomiNode/issues"
+  },
+  "keywords": [
+    "flowise",
+    "langchain",
+    "dominusnode",
+    "relay",
+    "proxy",
+    "ai-agent",
+    "x402"
+  ],
   "files": [
     "dist/",
     "README.md",

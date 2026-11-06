@@ -19,3 +19,9 @@ include = ["dominusnode*"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
+
+[project.urls]
+Homepage = "https://github.com/0xcircuitbreaker/DomiNode/tree/master/sdks/python"
+Repository = "https://github.com/0xcircuitbreaker/DomiNode"
+Issues = "https://github.com/0xcircuitbreaker/DomiNode/issues"
+Changelog = "https://github.com/0xcircuitbreaker/DomiNode/blob/master/sdks/python/CHANGELOG.md"

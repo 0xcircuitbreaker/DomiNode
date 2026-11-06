@@ -17,6 +17,15 @@
     ]
   },
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/0xcircuitbreaker/DomiNode.git",
+    "directory": "integrations/openclaw"
+  },
+  "homepage": "https://github.com/0xcircuitbreaker/DomiNode/tree/master/integrations/openclaw#readme",
+  "bugs": {
+    "url": "https://github.com/0xcircuitbreaker/DomiNode/issues"
+  },
   "scripts": {
     "build": "tsc",
     "prepare": "npm run build",
@@ -38,10 +47,6 @@
     "ai-agent",
     "x402"
   ],
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/Dominus-Node/dominusnode-openclaw"
-  },
   "engines": {
     "node": ">=18.0.0"
   },

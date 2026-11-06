@@ -6,6 +6,15 @@
   "types": "dist/index.d.ts",
   "type": "module",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/0xcircuitbreaker/DomiNode.git",
+    "directory": "integrations/vercel-ai"
+  },
+  "homepage": "https://github.com/0xcircuitbreaker/DomiNode/tree/master/integrations/vercel-ai#readme",
+  "bugs": {
+    "url": "https://github.com/0xcircuitbreaker/DomiNode/issues"
+  },
   "scripts": {
     "build": "tsc",
     "prepare": "npm run build",
@@ -38,5 +47,13 @@
   "engines": {
     "node": ">=18.0.0"
   },
-  "keywords": ["vercel-ai", "ai-sdk", "dominusnode", "relay", "proxy", "ai-agent", "x402"]
+  "keywords": [
+    "vercel-ai",
+    "ai-sdk",
+    "dominusnode",
+    "relay",
+    "proxy",
+    "ai-agent",
+    "x402"
+  ]
 }

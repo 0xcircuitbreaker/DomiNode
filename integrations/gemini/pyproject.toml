@@ -20,3 +20,9 @@ include = ["dominusnode_gemini*"]
 
 [tool.pytest.ini_options]
 testpaths = ["python_tests"]
+
+[project.urls]
+Homepage = "https://github.com/0xcircuitbreaker/DomiNode/tree/master/integrations/gemini"
+Repository = "https://github.com/0xcircuitbreaker/DomiNode"
+Issues = "https://github.com/0xcircuitbreaker/DomiNode/issues"
+Changelog = "https://github.com/0xcircuitbreaker/DomiNode/blob/master/integrations/gemini/CHANGELOG.md"

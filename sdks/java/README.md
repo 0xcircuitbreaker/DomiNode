@@ -19,7 +19,7 @@ Add your GitHub Packages credentials to `~/.m2/settings.xml` (a token with `read
 <repositories>
   <repository>
     <id>github</id>
-    <url>https://maven.pkg.github.com/Dominus-Node/dominusnode-java</url>
+    <url>https://maven.pkg.github.com/0xcircuitbreaker/DomiNode</url>
   </repository>
 </repositories>
 

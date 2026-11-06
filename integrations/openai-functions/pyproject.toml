@@ -19,3 +19,9 @@ include = ["dominusnode_openai_functions*"]
 
 [tool.pytest.ini_options]
 testpaths = ["python_tests"]
+
+[project.urls]
+Homepage = "https://github.com/0xcircuitbreaker/DomiNode/tree/master/integrations/openai-functions"
+Repository = "https://github.com/0xcircuitbreaker/DomiNode"
+Issues = "https://github.com/0xcircuitbreaker/DomiNode/issues"
+Changelog = "https://github.com/0xcircuitbreaker/DomiNode/blob/master/integrations/openai-functions/CHANGELOG.md"

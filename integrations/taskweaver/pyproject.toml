@@ -19,3 +19,9 @@ include = ["dominusnode_taskweaver*"]
 
 [tool.setuptools.package-data]
 dominusnode_taskweaver = ["plugins/*.yaml", "plugins/*.py"]
+
+[project.urls]
+Homepage = "https://github.com/0xcircuitbreaker/DomiNode/tree/master/integrations/taskweaver"
+Repository = "https://github.com/0xcircuitbreaker/DomiNode"
+Issues = "https://github.com/0xcircuitbreaker/DomiNode/issues"
+Changelog = "https://github.com/0xcircuitbreaker/DomiNode/blob/master/integrations/taskweaver/CHANGELOG.md"
