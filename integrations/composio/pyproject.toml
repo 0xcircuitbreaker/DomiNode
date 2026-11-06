@@ -4,15 +4,22 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "dominusnode-composio"
-version = "1.2.1"
-description = "Dominus Node tools for Composio -- 22 proxy, wallet, and team management actions"
+version = "2.0.0"
+description = "Composio custom toolkit for the DominusNode AI-agent relay network (19 v2 tools on the dominusnode SDK)"
 readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.10"
-dependencies = ["httpx>=0.25.0"]
+dependencies = [
+    "composio>=0.31.0",
+    "pydantic>=2.0",
+    "dominusnode>=2.0.0,<3",
+]
 
 [project.optional-dependencies]
 dev = ["pytest>=7.0"]
 
 [tool.setuptools.packages.find]
 include = ["dominusnode_composio*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
