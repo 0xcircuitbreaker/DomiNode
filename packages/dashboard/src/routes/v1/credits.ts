@@ -228,8 +228,25 @@ router.post("/credits/convert", async (req: Request, res: Response) => {
   }
 });
 
-function normChain(v: unknown): "base" | null {
-  return v === undefined || v === "base" ? "base" : null;
+/**
+ * base-sepolia payout wallets are for staging smoke tests: allowed when
+ * NODE_ENV !== "production", or when PAYOUT_ALLOW_TESTNET=true. Never in
+ * production by default.
+ */
+export function testnetPayoutsAllowed(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env["NODE_ENV"] !== "production" || env["PAYOUT_ALLOW_TESTNET"] === "true";
+}
+
+export function normChain(v: unknown, env: NodeJS.ProcessEnv = process.env): "base" | "base-sepolia" | null {
+  if (v === undefined || v === "base") return "base";
+  if (v === "base-sepolia" && testnetPayoutsAllowed(env)) return "base-sepolia";
+  return null;
+}
+
+function chainError(): string {
+  return testnetPayoutsAllowed()
+    ? "address must be a 0x EVM address and chain must be 'base' or 'base-sepolia'"
+    : "address must be a 0x EVM address and chain must be 'base'";
 }
 
 // GET /v1/payout-wallet
@@ -260,7 +277,7 @@ router.post("/payout-wallet/challenge", async (req: Request, res: Response) => {
   const address = typeof req.body?.address === "string" && ADDRESS_RE.test(req.body.address) ? req.body.address.toLowerCase() : null;
   const chain = normChain(req.body?.chain);
   if (!address || !chain) {
-    res.status(400).json({ error: "address must be a 0x EVM address and chain must be 'base'" });
+    res.status(400).json({ error: chainError() });
     return;
   }
   if (!limit(signChallengeLimiter, req, res)) return;
@@ -300,7 +317,7 @@ router.put("/payout-wallet", async (req: Request, res: Response) => {
   const nonce = typeof b["nonce"] === "string" ? b["nonce"].toLowerCase() : "";
   const sig = typeof b["signature"] === "string" ? b["signature"] : "";
   const oldSig = b["oldWalletSignature"];
-  if (!address || !chain) { res.status(400).json({ error: "address must be a 0x EVM address and chain must be 'base'" }); return; }
+  if (!address || !chain) { res.status(400).json({ error: chainError() }); return; }
   if (!HEX64.test(nonce)) { res.status(400).json({ error: "Invalid nonce" }); return; }
   if (!SIG_RE.test(sig)) { res.status(400).json({ error: "Invalid signature" }); return; }
   if (oldSig !== undefined && (typeof oldSig !== "string" || !SIG_RE.test(oldSig))) {
