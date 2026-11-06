@@ -1,83 +1,76 @@
 # @dominusnode/flowise-tools
 
-Dominus Node rotating proxy tools for [Flowise](https://flowiseai.com) AI workflows.
+[Flowise](https://flowiseai.com) / LangChain tools for the DominusNode relay network: AI agents fetch the web through residential, datacenter and mobile IPs contributed by node operators, pay per GB from a prepaid wallet, and can earn credit by contributing their own IP.
 
-Provides 26 LangChain-compatible `DynamicStructuredTool` instances for interacting with Dominus Node's rotating proxy-as-a-service platform inside Flowise nodes.
+Built on [`@dominusnode/sdk`](https://www.npmjs.com/package/@dominusnode/sdk) v2: the
+integration only describes tools for the model and maps arguments to SDK calls.
 
-## Installation
+## Install
 
 ```bash
-npm install @dominusnode/flowise-tools
+npm install @dominusnode/flowise-tools @langchain/core zod
 ```
 
-## Quick Start
+## Configure
 
-```typescript
+```bash
+export DOMINUSNODE_API_KEY=dn_live_...          # required for account tools
+export DOMINUSNODE_BASE_URL=https://api.dominusnode.com   # optional
+export DOMINUSNODE_PROXY_HOST=proxy.dominusnode.com       # optional
+```
+
+## Usage
+
+```ts
 import { DominusNodeToolkit } from "@dominusnode/flowise-tools";
 
-const toolkit = new DominusNodeToolkit({
-  apiKey: process.env.DOMINUSNODE_API_KEY!, // dn_live_... or dn_test_...
-});
-
-// Get all tools for your Flowise workflow
-const tools = toolkit.getTools(); // DynamicStructuredTool[]
+// In a Flowise custom node or a LangChain agent:
+const tools = new DominusNodeToolkit().getTools(); // DynamicStructuredTool[], reads DOMINUSNODE_API_KEY
 ```
 
-## Configuration
+In a Flowise custom node, read the key from a Flowise credential and pass it as `new DominusNodeToolkit({ apiKey })`; never take it from model output. Each tool returns a JSON string (or a scrubbed `Error: ...` string).
 
-| Environment Variable | Description | Default |
-|---|---|---|
-| `DOMINUSNODE_API_KEY` | API key (required) | -- |
-| `DOMINUSNODE_BASE_URL` | REST API base URL | `https://api.dominusnode.com` |
-| `DOMINUSNODE_PROXY_HOST` | Proxy gateway host | `proxy.dominusnode.com` |
-| `DOMINUSNODE_PROXY_PORT` | Proxy gateway port | `8080` |
+## The 19 tools
 
-## Available Tools (26)
+Tool names are `dominusnode_<name>` (e.g. `dominusnode_fetch`).
 
-### Proxy Operations
-- `dominusnode_proxied_fetch` - Fetch a URL through the rotating proxy with geo-targeting
-- `dominusnode_check_balance` - Check wallet balance and remaining bandwidth
-- `dominusnode_check_usage` - View bandwidth usage statistics
-- `dominusnode_get_proxy_config` - Get proxy pools, pricing, and endpoints
-- `dominusnode_list_sessions` - List active proxy sessions
+| # | Tool | SDK call | What it does |
+|---|---|---|---|
+| 1 | `fetch` | `proxy.fetch` | GET/HEAD a public URL through the relay (country, ip_class, session_id, allow_http) |
+| 2 | `proxy_url` | `proxy.buildUrl` | Proxy URL for other clients; the key is replaced by `${DOMINUSNODE_API_KEY}` |
+| 3 | `network_policy` | `network.policy` | Acceptable-use policy and node floor guarantees (public) |
+| 4 | `network_pricing` | `network.pricing` | Live per-GB prices per IP class and node revenue shares (public) |
+| 5 | `network_stats` | `network.stats` | Online nodes by class and country (public) |
+| 6 | `balance` | `wallet.getBalance` | Prepaid wallet balance |
+| 7 | `transactions` | `wallet.getTransactions` | Wallet transaction history |
+| 8 | `topup_crypto` | `wallet.topUpCrypto` | Create a crypto top-up invoice |
+| 9 | `check_payment` | `wallet.getCryptoStatus` | Crypto invoice status |
+| 10 | `usage` | `usage.get` | Bandwidth/cost summary for a date range |
+| 11 | `active_sessions` | `sessions.getActive` | Open relay sessions |
+| 12 | `report_session` | `sessions.report` | Report a misbehaving exit node |
+| 13 | `node_list` | `nodes.list` | Your contributed relay nodes |
+| 14 | `node_tier` | `nodes.tier` | Your node-operator tier and progress |
+| 15 | `node_setup_guide` | static | How to earn by contributing an IP with the node agent |
+| 16 | `credits_balance` | `credits.balance` | Node earnings (pending/available/frozen) |
+| 17 | `credits_convert` | `credits.convert` | Convert node credit into wallet balance |
+| 18 | `payouts_list` | `payouts.list` | Payout history |
+| 19 | `x402_info` | `x402.getInfo` | x402 micropayment info (public) |
 
-### Agentic Wallet Management
-- `dominusnode_create_agentic_wallet` - Create a custodial sub-wallet with spending limits
-- `dominusnode_fund_agentic_wallet` - Transfer funds to an agentic wallet
-- `dominusnode_agentic_wallet_balance` - Check agentic wallet balance
-- `dominusnode_list_agentic_wallets` - List all agentic wallets
-- `dominusnode_agentic_transactions` - Get agentic wallet transaction history
-- `dominusnode_freeze_agentic_wallet` - Freeze an agentic wallet
-- `dominusnode_unfreeze_agentic_wallet` - Unfreeze an agentic wallet
-- `dominusnode_delete_agentic_wallet` - Delete an agentic wallet
-- `dominusnode_update_wallet_policy` - Update daily limits and domain restrictions
+Security is enforced by `@dominusnode/sdk`: SSRF and DNS-rebinding checks on every
+resolved address, GET/HEAD only, ports 80/443, no redirects, 10 MB cap, OFAC countries
+(CU, IR, KP, RU, SY) refused, plaintext `http://` only with `allow_http` (visible to the
+exit node). Every error and result is scrubbed of `dn_live_`/`dn_test_`/`dn_node_`/`dn_proxy_`
+keys and JWTs. The API key is read from `DOMINUSNODE_API_KEY` (or the framework's
+credentials store) and is never a tool argument or part of a tool result.
 
-### Team Management
-- `dominusnode_create_team` - Create a team with shared wallet
-- `dominusnode_list_teams` - List all teams
-- `dominusnode_team_details` - Get team details and member list
-- `dominusnode_team_fund` - Fund a team wallet
-- `dominusnode_team_create_key` - Create a team API key
-- `dominusnode_team_usage` - Get team transaction history
-- `dominusnode_update_team` - Update team settings
-- `dominusnode_update_team_member_role` - Change a member's role
+Prices are never hardcoded: ask the agent to call `network_pricing`.
 
-### Payments
-- `dominusnode_topup_paypal` - Top up wallet via PayPal ($5–$1,000)
-- `dominusnode_topup_stripe` - Top up wallet via Stripe ($5–$1,000)
-- `dominusnode_topup_crypto` - Top up wallet via crypto (BTC/ETH/LTC/XMR/ZEC/USDC/SOL/USDT/DAI/BNB/LINK)
-- `dominusnode_x402_info` - Get x402 micropayment protocol info
+Signed flows (node registration, withdrawals, payout wallet) are not exposed as LLM tools.
+Use the DominusNode MCP server or `@dominusnode/sdk` with a local signer key file.
 
-## Security
+## Upgrading from 1.x
 
-- Full SSRF protection (private IP blocking, DNS rebinding, Teredo/6to4, hex/octal/decimal normalization)
-- OFAC sanctioned country blocking (CU, IR, KP, RU, SY)
-- Credential scrubbing in all error messages
-- Prototype pollution prevention on all parsed JSON (recursive)
-- HTTP method restriction (GET/HEAD/OPTIONS only for proxied fetch)
-- 10 MB response cap, 4000 char truncation, 30s timeout
-- Redirect following disabled
-
-## License
-
-MIT
+2.0 is a breaking release. Removed: Stripe/PayPal top-ups, plans, slots, email/password and
+MFA flows, API key / team / agentic-wallet management tools, `dc-`/`residential-` pool
+prefixes, hardcoded $/GB prices and the integration's own HTTP/SSRF code. Exit selection is
+now `country` + `ip_class` (`residential`, `dc`, `mobile`) on the relay network.
