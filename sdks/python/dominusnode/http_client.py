@@ -1,26 +1,30 @@
-"""HTTP client wrappers for sync and async usage.
-
-Handles:
-- User-Agent injection
-- Authorization header from token manager
-- Automatic retry on 429 (once)
-- Status-code-to-exception mapping
-"""
+"""HTTP layer (internal): auth modes, no redirects, 10 MB cap, 429 retry, 401 refresh, error mapping."""
 
 from __future__ import annotations
 
 import asyncio
+import json
 import random
 import time
-from typing import Any, Dict, Optional
+from dataclasses import dataclass, field
+from typing import Any, Callable, Dict, Optional, Union
+from urllib.parse import urlsplit
 
 import httpx
 
-from .constants import USER_AGENT
+from .constants import (
+    MAX_RATE_LIMIT_RETRIES,
+    MAX_RESPONSE_BYTES,
+    MAX_RETRY_WAIT_SECONDS,
+    MIN_RETRY_WAIT_SECONDS,
+    REQUEST_TIMEOUT_SECONDS,
+    USER_AGENT,
+)
 from .errors import (
     AuthenticationError,
     AuthorizationError,
     ConflictError,
+    Details,
     DominusNodeError,
     InsufficientBalanceError,
     NetworkError,
@@ -28,418 +32,323 @@ from .errors import (
     RateLimitError,
     ServerError,
     ValidationError,
+    invalid_arg,
+    scrub_credentials,
 )
 from .token_manager import AsyncTokenManager, TokenManager
 
-# Maximum response body size to prevent OOM from oversized API response
-MAX_RESPONSE_BYTES = 10 * 1024 * 1024  # 10MB
+DANGEROUS_KEYS = frozenset({"__proto__", "constructor", "prototype"})
+_NO_BODY = object()
 
 
-def _extract_error_message(response: httpx.Response) -> str:
-    """Try to extract an error message from the JSON body.
+def strip_dangerous_keys(obj: Any, depth: int = 0) -> Any:
+    """Recursively delete ``__proto__``/``constructor``/``prototype`` keys (depth limit 50)."""
+    if depth > 50:
+        return obj
+    if isinstance(obj, dict):
+        for k in list(obj.keys()):
+            if k in DANGEROUS_KEYS:
+                del obj[k]
+            else:
+                strip_dangerous_keys(obj[k], depth + 1)
+    elif isinstance(obj, list):
+        for item in obj:
+            strip_dangerous_keys(item, depth + 1)
+    return obj
 
-    All extracted messages are truncated to 500 chars to prevent
-    unbounded error body content from propagating into exception strings.
-    """
+
+def safe_json_loads(text: str) -> Any:
+    return strip_dangerous_keys(json.loads(text))
+
+
+def retry_delay_seconds(retry_after_seconds: float, rand: Callable[[], float] = random.random) -> float:
+    """min(retry_after, 10s), +/-10% jitter, floor 100ms."""
+    base = min(max(float(retry_after_seconds), 0.0), MAX_RETRY_WAIT_SECONDS)
+    jitter = base * 0.2 * (rand() - 0.5)
+    return max(MIN_RETRY_WAIT_SECONDS, round(base + jitter, 3))
+
+
+def _parse_retry_after(value: Optional[str], fallback: int) -> int:
     try:
-        body = response.json()
-        if isinstance(body, dict):
-            msg = body.get("error", response.reason_phrase or "Unknown error")
-            return str(msg)[:500]
-    except Exception:
+        n = int(str(value).strip())
+    except (TypeError, ValueError):
+        return fallback
+    return n if n >= 0 else fallback
+
+
+def raise_for_status(status: int, body: str, headers: Any) -> None:
+    message = body
+    code: Optional[str] = None
+    details: Optional[Details] = None
+    try:
+        parsed = safe_json_loads(body)
+        if isinstance(parsed, dict):
+            m = parsed.get("error", parsed.get("message"))
+            if isinstance(m, str):
+                message = m
+            if isinstance(parsed.get("code"), str):
+                code = parsed["code"]
+            elif parsed.get("mfaRequired") is True:
+                code = "MFA_REQUIRED"
+            for k in ("max", "cap", "limitPerDay"):
+                v = parsed.get(k)
+                if isinstance(v, (int, float, str)) and not isinstance(v, bool):
+                    details = details or {}
+                    details[k] = v
+    except ValueError:
         pass
-    fallback = response.reason_phrase or f"HTTP {response.status_code}"
-    return str(fallback)[:500]
-
-
-def _raise_for_status(response: httpx.Response) -> None:
-    """Map HTTP status codes to SDK exceptions."""
-    status = response.status_code
-    if 200 <= status < 300:
-        return
-
-    msg = _extract_error_message(response)
-
+    if not message:
+        message = f"HTTP {status}"
+    if len(message) > 500:
+        message = message[:500] + "... [truncated]"
     if status == 400:
-        raise ValidationError(msg)
+        raise ValidationError(message, 400, code, details)
     if status == 401:
-        raise AuthenticationError(msg)
+        raise AuthenticationError(message, code, details)
     if status == 402:
-        raise InsufficientBalanceError(msg)
+        raise InsufficientBalanceError(message, code, details)
     if status == 403:
-        raise AuthorizationError(msg)
+        raise AuthorizationError(message, code, details)
     if status == 404:
-        raise NotFoundError(msg)
+        raise NotFoundError(message, code, details)
     if status == 409:
-        raise ConflictError(msg)
+        raise ConflictError(message, code, details)
     if status == 429:
-        retry_after = 60
-        ra_header = response.headers.get("retry-after")
-        if ra_header:
-            try:
-                retry_after = int(ra_header)
-            except ValueError:
-                pass
-        raise RateLimitError(msg, retry_after_seconds=retry_after)
+        raise RateLimitError(message, _parse_retry_after(headers.get("retry-after"), 60), code, details)
     if status >= 500:
-        raise ServerError(msg, status_code=status)
-
-    raise DominusNodeError(msg, status_code=status)
-
-
-def _parse_retry_after(response: httpx.Response) -> float:
-    """Parse Retry-After header, defaulting to 1 second."""
-    ra = response.headers.get("retry-after")
-    if ra:
-        try:
-            val = float(ra)
-            # Guard against NaN/Infinity from malformed headers
-            if not (val == val) or val == float("inf"):  # NaN check + infinity check
-                return 1.0
-            return max(val, 0.1)
-        except ValueError:
-            pass
-    return 1.0
+        raise ServerError(message, status, code, details)
+    raise DominusNodeError(message, status, code, details)
 
 
-def _add_jitter(seconds: float) -> float:
-    """Add ±10% jitter to prevent thundering-herd on rate-limited endpoints."""
-    jitter = seconds * 0.2 * (random.random() - 0.5)
-    return max(0.1, seconds + jitter)
+@dataclass
+class Request:
+    """One API call. ``auth``: "jwt" | "agent" | "none"."""
+
+    method: str
+    path: str
+    body: Any = _NO_BODY
+    auth: str = "jwt"
+    headers: Dict[str, str] = field(default_factory=dict)
+    raw: bool = False
 
 
-# ──────────────────────────────────────────────────────────────────────
-# Sync HTTP Client
-# ──────────────────────────────────────────────────────────────────────
+def _validate_base_url(base_url: str) -> str:
+    try:
+        u = urlsplit(base_url)
+    except (ValueError, TypeError):
+        raise ValidationError("base_url is not a valid URL", None) from None
+    if u.scheme not in ("http", "https") or not u.hostname:
+        raise ValidationError("base_url must be http(s)", None)
+    if "@" in u.netloc:
+        raise ValidationError("base_url must not contain credentials", None)
+    return base_url.rstrip("/")
+
+
+def _headers(req: Request, bearer: Optional[str]) -> Dict[str, str]:
+    h = {"User-Agent": USER_AGENT, "Accept": "application/json", **req.headers}
+    if req.body is not _NO_BODY:
+        h["Content-Type"] = "application/json"
+    if bearer:
+        h["Authorization"] = f"Bearer {bearer}"
+    return h
+
+
+def _content(req: Request) -> Optional[bytes]:
+    return None if req.body is _NO_BODY else json.dumps(req.body).encode("utf-8")
+
+
+def _too_large_by_header(res: httpx.Response) -> bool:
+    try:
+        return int(res.headers.get("content-length", "0")) > MAX_RESPONSE_BYTES
+    except ValueError:
+        return False
+
+
+def _finish(req: Request, res: httpx.Response, data: bytes) -> Any:
+    text = data.decode("utf-8", errors="replace")
+    if 300 <= res.status_code < 400:
+        raise NetworkError(f"Redirect (HTTP {res.status_code}) refused: the SDK never follows redirects")
+    if not (200 <= res.status_code < 300):
+        raise_for_status(res.status_code, text, res.headers)
+    if req.raw:
+        return text
+    if not text:
+        return {}
+    try:
+        return safe_json_loads(text)
+    except ValueError:
+        raise ServerError("Invalid JSON in response", res.status_code) from None
+
+
+def _not_authenticated() -> AuthenticationError:
+    return AuthenticationError("Not authenticated. Call connect_with_key() or wallet_auth.verify() first.")
 
 
 class SyncHttpClient:
-    """Synchronous HTTP client wrapping httpx.Client."""
-
     def __init__(
         self,
         base_url: str,
-        token_manager: TokenManager,
-        timeout: float = 30.0,
-        agent_secret: Optional[str] = None,
+        tokens: TokenManager,
+        api_key: Callable[[], Optional[str]],
+        transport: Optional[httpx.BaseTransport] = None,
     ) -> None:
-        self._base_url = base_url.rstrip("/")
-        self._token_manager = token_manager
-        self._agent_secret = agent_secret
+        self._base_url = _validate_base_url(base_url)
+        self._tokens = tokens
+        self._api_key = api_key
         self._client = httpx.Client(
-            base_url=self._base_url,
-            timeout=timeout,
-            headers={"User-Agent": USER_AGENT},
-            follow_redirects=False,  # Prevent HTTPS→HTTP credential leakage
+            transport=transport, follow_redirects=False, timeout=REQUEST_TIMEOUT_SECONDS, trust_env=False
         )
+        self.sleep: Callable[[float], None] = time.sleep
 
     def close(self) -> None:
         self._client.close()
 
-    def _build_headers(
-        self, extra: Optional[Dict[str, str]] = None, *, requires_auth: bool = True,
-    ) -> Dict[str, str]:
-        headers: Dict[str, str] = {}
-        # Only attach Authorization header when auth is required.
-        # Public endpoints (slots, waitlist) must not leak credentials.
-        if requires_auth:
-            token = self._token_manager.get_valid_token()
-            if token:
-                headers["Authorization"] = f"Bearer {token}"
-        if self._agent_secret:
-            headers["X-DominusNode-Agent"] = "mcp"
-            headers["X-DominusNode-Agent-Secret"] = self._agent_secret
-        if extra:
-            headers.update(extra)
-        return headers
+    def _bearer(self, mode: str, force: bool) -> Optional[str]:
+        if mode == "none":
+            return None
+        if mode == "agent":
+            key = self._api_key()
+            if key:
+                return key
+        if not self._tokens.has_tokens():
+            raise _not_authenticated()
+        return self._tokens.force_refresh() if force else self._tokens.get_valid_token()
 
-    def request(
-        self,
-        method: str,
-        path: str,
-        *,
-        json: Any = None,
-        params: Optional[Dict[str, Any]] = None,
-        headers: Optional[Dict[str, str]] = None,
-        requires_auth: bool = True,
-    ) -> httpx.Response:
-        """Execute an HTTP request with auto-retry on 401 (token refresh) and 429."""
-        merged_headers = self._build_headers(headers, requires_auth=requires_auth)
+    def _send(self, req: Request, bearer: Optional[str]) -> httpx.Response:
         try:
-            response = self._client.request(
-                method,
-                path,
-                json=json,
-                params=params,
-                headers=merged_headers,
+            r = self._client.build_request(
+                req.method, self._base_url + req.path, headers=_headers(req, bearer), content=_content(req)
             )
-        except httpx.HTTPError as exc:
-            raise NetworkError(str(exc)) from exc
+            return self._client.send(r, stream=True)
+        except httpx.HTTPError as err:
+            raise NetworkError(scrub_credentials(str(err) or "Network request failed")) from None
 
-        # Response size limit — check Content-Length header if available
-        content_length = response.headers.get("content-length")
-        if content_length:
+    def _read(self, res: httpx.Response) -> bytes:
+        try:
+            if _too_large_by_header(res):
+                raise ServerError("Response body too large", res.status_code)
+            buf = bytearray()
+            for chunk in res.iter_bytes():
+                buf += chunk
+                if len(buf) > MAX_RESPONSE_BYTES:
+                    raise ServerError("Response body exceeds size limit", res.status_code)
+            return bytes(buf)
+        except httpx.HTTPError as err:
+            raise NetworkError(scrub_credentials(str(err) or "Network read failed")) from None
+        finally:
+            res.close()
+
+    def request(self, req: Request) -> Any:
+        if req.auth not in ("jwt", "agent", "none"):
+            raise invalid_arg("unknown auth mode")
+        bearer = self._bearer(req.auth, False)
+        res = self._send(req, bearer)
+        for _ in range(MAX_RATE_LIMIT_RETRIES):
+            if res.status_code != 429:
+                break
+            wait = retry_delay_seconds(_parse_retry_after(res.headers.get("retry-after"), 5))
+            res.close()  # do not read the 429 body
+            self.sleep(wait)
+            bearer = self._bearer(req.auth, False)
+            res = self._send(req, bearer)
+        used_jwt = bearer is not None and not bearer.startswith("dn_")
+        if res.status_code == 401 and used_jwt and self._tokens.refresh_token:
+            res.close()
             try:
-                if int(content_length) > MAX_RESPONSE_BYTES:
-                    raise NetworkError(f"Response too large: {content_length} bytes")
-            except ValueError:
-                pass  # Malformed Content-Length header — skip size check
+                refreshed: Optional[str] = self._bearer(req.auth, True)
+            except Exception:
+                refreshed = None
+            if not refreshed:
+                raise AuthenticationError("Session expired and token refresh failed")
+            res = self._send(req, refreshed)
+        return _finish(req, res, self._read(res))
 
-        # Also check actual body size (chunked transfer encoding may omit Content-Length)
-        if len(response.content) > MAX_RESPONSE_BYTES:
-            raise NetworkError(f"Response body too large: {len(response.content)} bytes")
-
-        # Auto-retry once on 401 after force-refreshing the token
-        if response.status_code == 401 and requires_auth and self._token_manager.has_refresh_token:
-            self._token_manager.force_refresh()
-            merged_headers = self._build_headers(headers, requires_auth=requires_auth)
-            try:
-                response = self._client.request(
-                    method,
-                    path,
-                    json=json,
-                    params=params,
-                    headers=merged_headers,
-                )
-            except httpx.HTTPError as exc:
-                raise NetworkError(str(exc)) from exc
-            # Size check on 401-retry response
-            if len(response.content) > MAX_RESPONSE_BYTES:
-                raise NetworkError(f"Response body too large: {len(response.content)} bytes")
-
-        # Auto-retry once on 429
-        if response.status_code == 429:
-            wait = _parse_retry_after(response)
-            time.sleep(_add_jitter(min(wait, 10.0)))  # Cap at 10s + jitter
-            # Rebuild headers to get fresh token in case it expired during wait
-            merged_headers = self._build_headers(headers, requires_auth=requires_auth)
-            try:
-                response = self._client.request(
-                    method,
-                    path,
-                    json=json,
-                    params=params,
-                    headers=merged_headers,
-                )
-            except httpx.HTTPError as exc:
-                raise NetworkError(str(exc)) from exc
-            # Size check on 429-retry response
-            if len(response.content) > MAX_RESPONSE_BYTES:
-                raise NetworkError(f"Response body too large: {len(response.content)} bytes")
-
-        _raise_for_status(response)
-        return response
-
-    def get(
-        self, path: str, *, params: Optional[Dict[str, Any]] = None, requires_auth: bool = True,
-    ) -> Any:
-        resp = self.request("GET", path, params=params, requires_auth=requires_auth)
-        if resp.status_code == 204:
-            return None
-        return resp.json()
-
-    def post(
-        self, path: str, *, json: Any = None, params: Optional[Dict[str, Any]] = None, requires_auth: bool = True,
-    ) -> Any:
-        resp = self.request("POST", path, json=json, params=params, requires_auth=requires_auth)
-        if resp.status_code == 204:
-            return None
-        return resp.json()
-
-    def put(
-        self, path: str, *, json: Any = None, params: Optional[Dict[str, Any]] = None, requires_auth: bool = True,
-    ) -> Any:
-        resp = self.request("PUT", path, json=json, params=params, requires_auth=requires_auth)
-        if resp.status_code == 204:
-            return None
-        return resp.json()
-
-    def patch(
-        self, path: str, *, json: Any = None, params: Optional[Dict[str, Any]] = None, requires_auth: bool = True,
-    ) -> Any:
-        resp = self.request("PATCH", path, json=json, params=params, requires_auth=requires_auth)
-        if resp.status_code == 204:
-            return None
-        return resp.json()
-
-    def delete(
-        self, path: str, *, params: Optional[Dict[str, Any]] = None, requires_auth: bool = True,
-    ) -> Any:
-        resp = self.request("DELETE", path, params=params, requires_auth=requires_auth)
-        if resp.status_code == 204:
-            return None
-        return resp.json()
-
-    def get_raw(
-        self, path: str, *, params: Optional[Dict[str, Any]] = None, requires_auth: bool = True,
-    ) -> httpx.Response:
-        """Return the raw httpx.Response (for CSV export, etc.)."""
-        return self.request("GET", path, params=params, requires_auth=requires_auth)
-
-
-# ──────────────────────────────────────────────────────────────────────
-# Async HTTP Client
-# ──────────────────────────────────────────────────────────────────────
+    def __repr__(self) -> str:
+        return f"SyncHttpClient({self._base_url})"
 
 
 class AsyncHttpClient:
-    """Asynchronous HTTP client wrapping httpx.AsyncClient."""
-
     def __init__(
         self,
         base_url: str,
-        token_manager: AsyncTokenManager,
-        timeout: float = 30.0,
-        agent_secret: Optional[str] = None,
+        tokens: AsyncTokenManager,
+        api_key: Callable[[], Optional[str]],
+        transport: Optional[httpx.AsyncBaseTransport] = None,
     ) -> None:
-        self._base_url = base_url.rstrip("/")
-        self._token_manager = token_manager
-        self._agent_secret = agent_secret
+        self._base_url = _validate_base_url(base_url)
+        self._tokens = tokens
+        self._api_key = api_key
         self._client = httpx.AsyncClient(
-            base_url=self._base_url,
-            timeout=timeout,
-            headers={"User-Agent": USER_AGENT},
-            follow_redirects=False,  # Prevent HTTPS→HTTP credential leakage
+            transport=transport, follow_redirects=False, timeout=REQUEST_TIMEOUT_SECONDS, trust_env=False
         )
+        self.sleep: Callable[[float], Any] = asyncio.sleep
 
     async def close(self) -> None:
         await self._client.aclose()
 
-    async def _build_headers(
-        self, extra: Optional[Dict[str, str]] = None, *, requires_auth: bool = True,
-    ) -> Dict[str, str]:
-        headers: Dict[str, str] = {}
-        # Only attach Authorization header when auth is required.
-        if requires_auth:
-            token = await self._token_manager.get_valid_token()
-            if token:
-                headers["Authorization"] = f"Bearer {token}"
-        if self._agent_secret:
-            headers["X-DominusNode-Agent"] = "mcp"
-            headers["X-DominusNode-Agent-Secret"] = self._agent_secret
-        if extra:
-            headers.update(extra)
-        return headers
+    async def _bearer(self, mode: str, force: bool) -> Optional[str]:
+        if mode == "none":
+            return None
+        if mode == "agent":
+            key = self._api_key()
+            if key:
+                return key
+        if not self._tokens.has_tokens():
+            raise _not_authenticated()
+        return await (self._tokens.force_refresh() if force else self._tokens.get_valid_token())
 
-    async def request(
-        self,
-        method: str,
-        path: str,
-        *,
-        json: Any = None,
-        params: Optional[Dict[str, Any]] = None,
-        headers: Optional[Dict[str, str]] = None,
-        requires_auth: bool = True,
-    ) -> httpx.Response:
-        """Execute an HTTP request with auto-retry on 401 (token refresh) and 429."""
-        merged_headers = await self._build_headers(headers, requires_auth=requires_auth)
+    async def _send(self, req: Request, bearer: Optional[str]) -> httpx.Response:
         try:
-            response = await self._client.request(
-                method,
-                path,
-                json=json,
-                params=params,
-                headers=merged_headers,
+            r = self._client.build_request(
+                req.method, self._base_url + req.path, headers=_headers(req, bearer), content=_content(req)
             )
-        except httpx.HTTPError as exc:
-            raise NetworkError(str(exc)) from exc
+            return await self._client.send(r, stream=True)
+        except httpx.HTTPError as err:
+            raise NetworkError(scrub_credentials(str(err) or "Network request failed")) from None
 
-        # Response size limit — check Content-Length header if available
-        content_length = response.headers.get("content-length")
-        if content_length:
+    async def _read(self, res: httpx.Response) -> bytes:
+        try:
+            if _too_large_by_header(res):
+                raise ServerError("Response body too large", res.status_code)
+            buf = bytearray()
+            async for chunk in res.aiter_bytes():
+                buf += chunk
+                if len(buf) > MAX_RESPONSE_BYTES:
+                    raise ServerError("Response body exceeds size limit", res.status_code)
+            return bytes(buf)
+        except httpx.HTTPError as err:
+            raise NetworkError(scrub_credentials(str(err) or "Network read failed")) from None
+        finally:
+            await res.aclose()
+
+    async def request(self, req: Request) -> Any:
+        if req.auth not in ("jwt", "agent", "none"):
+            raise invalid_arg("unknown auth mode")
+        bearer = await self._bearer(req.auth, False)
+        res = await self._send(req, bearer)
+        for _ in range(MAX_RATE_LIMIT_RETRIES):
+            if res.status_code != 429:
+                break
+            wait = retry_delay_seconds(_parse_retry_after(res.headers.get("retry-after"), 5))
+            await res.aclose()
+            await self.sleep(wait)
+            bearer = await self._bearer(req.auth, False)
+            res = await self._send(req, bearer)
+        used_jwt = bearer is not None and not bearer.startswith("dn_")
+        if res.status_code == 401 and used_jwt and self._tokens.refresh_token:
+            await res.aclose()
             try:
-                if int(content_length) > MAX_RESPONSE_BYTES:
-                    raise NetworkError(f"Response too large: {content_length} bytes")
-            except ValueError:
-                pass  # Malformed Content-Length header — skip size check
+                refreshed: Optional[str] = await self._bearer(req.auth, True)
+            except Exception:
+                refreshed = None
+            if not refreshed:
+                raise AuthenticationError("Session expired and token refresh failed")
+            res = await self._send(req, refreshed)
+        data = await self._read(res)
+        return _finish(req, res, data)
 
-        # Also check actual body size (chunked transfer encoding may omit Content-Length)
-        if len(response.content) > MAX_RESPONSE_BYTES:
-            raise NetworkError(f"Response body too large: {len(response.content)} bytes")
+    def __repr__(self) -> str:
+        return f"AsyncHttpClient({self._base_url})"
 
-        # Auto-retry once on 401 after force-refreshing the token
-        if response.status_code == 401 and requires_auth and self._token_manager.has_refresh_token:
-            await self._token_manager.force_refresh()
-            merged_headers = await self._build_headers(headers, requires_auth=requires_auth)
-            try:
-                response = await self._client.request(
-                    method,
-                    path,
-                    json=json,
-                    params=params,
-                    headers=merged_headers,
-                )
-            except httpx.HTTPError as exc:
-                raise NetworkError(str(exc)) from exc
-            # Size check on 401-retry response
-            if len(response.content) > MAX_RESPONSE_BYTES:
-                raise NetworkError(f"Response body too large: {len(response.content)} bytes")
 
-        # Auto-retry once on 429
-        if response.status_code == 429:
-            wait = _parse_retry_after(response)
-            await asyncio.sleep(_add_jitter(min(wait, 10.0)))
-            # Rebuild headers to get fresh token in case it expired during wait
-            merged_headers = await self._build_headers(headers, requires_auth=requires_auth)
-            try:
-                response = await self._client.request(
-                    method,
-                    path,
-                    json=json,
-                    params=params,
-                    headers=merged_headers,
-                )
-            except httpx.HTTPError as exc:
-                raise NetworkError(str(exc)) from exc
-            # Size check on 429-retry response
-            if len(response.content) > MAX_RESPONSE_BYTES:
-                raise NetworkError(f"Response body too large: {len(response.content)} bytes")
-
-        _raise_for_status(response)
-        return response
-
-    async def get(
-        self, path: str, *, params: Optional[Dict[str, Any]] = None, requires_auth: bool = True,
-    ) -> Any:
-        resp = await self.request("GET", path, params=params, requires_auth=requires_auth)
-        if resp.status_code == 204:
-            return None
-        return resp.json()
-
-    async def post(
-        self, path: str, *, json: Any = None, params: Optional[Dict[str, Any]] = None, requires_auth: bool = True,
-    ) -> Any:
-        resp = await self.request("POST", path, json=json, params=params, requires_auth=requires_auth)
-        if resp.status_code == 204:
-            return None
-        return resp.json()
-
-    async def put(
-        self, path: str, *, json: Any = None, params: Optional[Dict[str, Any]] = None, requires_auth: bool = True,
-    ) -> Any:
-        resp = await self.request("PUT", path, json=json, params=params, requires_auth=requires_auth)
-        if resp.status_code == 204:
-            return None
-        return resp.json()
-
-    async def patch(
-        self, path: str, *, json: Any = None, params: Optional[Dict[str, Any]] = None, requires_auth: bool = True,
-    ) -> Any:
-        resp = await self.request("PATCH", path, json=json, params=params, requires_auth=requires_auth)
-        if resp.status_code == 204:
-            return None
-        return resp.json()
-
-    async def delete(
-        self, path: str, *, params: Optional[Dict[str, Any]] = None, requires_auth: bool = True,
-    ) -> Any:
-        resp = await self.request("DELETE", path, params=params, requires_auth=requires_auth)
-        if resp.status_code == 204:
-            return None
-        return resp.json()
-
-    async def get_raw(
-        self, path: str, *, params: Optional[Dict[str, Any]] = None, requires_auth: bool = True,
-    ) -> httpx.Response:
-        """Return the raw httpx.Response (for CSV export, etc.)."""
-        return await self.request("GET", path, params=params, requires_auth=requires_auth)
+AnyHttpClient = Union[SyncHttpClient, AsyncHttpClient]

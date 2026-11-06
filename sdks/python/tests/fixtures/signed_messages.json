@@ -1,0 +1,58 @@
+{
+  "attestation": [
+    {
+      "params": {
+        "wallet": "0xAbCdEf0123456789aBcDeF0123456789AbCdEf01",
+        "nonce": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "attestationVersion": 3,
+        "attestationText": "line1\nline2 µ — ü",
+        "nodePubkey": null
+      },
+      "message": "DomiNode node attestation\nVersion: 3\nWallet: 0xabcdef0123456789abcdef0123456789abcdef01\nNonce: ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff\nNode pubkey: none\n\nline1\nline2 µ — ü"
+    },
+    {
+      "params": {
+        "wallet": "0xAbCdEf0123456789aBcDeF0123456789AbCdEf01",
+        "nonce": "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a",
+        "attestationVersion": 100000,
+        "attestationText": "I agree.\n\nTerms v7 ✓",
+        "nodePubkey": "abababababababababababababababababababababababababababababababab"
+      },
+      "message": "DomiNode node attestation\nVersion: 100000\nWallet: 0xabcdef0123456789abcdef0123456789abcdef01\nNonce: 0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a\nNode pubkey: abababababababababababababababababababababababababababababababab\n\nI agree.\n\nTerms v7 ✓"
+    }
+  ],
+  "payoutWallet": [
+    {
+      "params": {
+        "userId": "123e4567-e89b-12d3-a456-426614174000",
+        "wallet": "0xAbCdEf0123456789aBcDeF0123456789AbCdEf01",
+        "address": "0xABABABABABABABABABABABABABABABABABABABAB",
+        "chain": "base",
+        "nonce": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      },
+      "message": "DominusNode payout wallet\nAction: payout_wallet_set\nUser: 123e4567-e89b-12d3-a456-426614174000\nAccount wallet: 0xabcdef0123456789abcdef0123456789abcdef01\nPayout address: 0xabababababababababababababababababababab\nChain: base\nNonce: cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    }
+  ],
+  "withdraw": [
+    {
+      "params": {
+        "userId": "123e4567-e89b-12d3-a456-426614174000",
+        "wallet": "0xAbCdEf0123456789aBcDeF0123456789AbCdEf01",
+        "amountMusd": "1000000",
+        "idempotencyKey": "dn-key_ABC-123",
+        "nonce": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+      },
+      "message": "DominusNode withdrawal\nAction: withdraw\nUser: 123e4567-e89b-12d3-a456-426614174000\nAccount wallet: 0xabcdef0123456789abcdef0123456789abcdef01\nAmount (µUSD): 1000000\nIdempotency key: dn-key_ABC-123\nNonce: dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+    },
+    {
+      "params": {
+        "userId": "00000000-0000-4000-8000-00000000000f",
+        "wallet": "0xAbCdEf0123456789aBcDeF0123456789AbCdEf01",
+        "amountMusd": "100000000000",
+        "idempotencyKey": "abcdefgh",
+        "nonce": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+      },
+      "message": "DominusNode withdrawal\nAction: withdraw\nUser: 00000000-0000-4000-8000-00000000000f\nAccount wallet: 0xabcdef0123456789abcdef0123456789abcdef01\nAmount (µUSD): 100000000000\nIdempotency key: abcdefgh\nNonce: eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+    }
+  ]
+}

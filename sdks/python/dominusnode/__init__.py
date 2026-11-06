@@ -1,26 +1,16 @@
-"""Dominus Node Python SDK.
-
-Official Python SDK for the Dominus Node rotating proxy-as-a-service platform.
-
-Provides both synchronous and asynchronous clients::
-
-    # Sync
-    from dominusnode import DominusNodeClient
-
-    with DominusNodeClient(base_url="http://localhost:3000") as client:
-        client.connect_with_credentials("user@example.com", "s3cret!Pass")
-        print(client.wallet.get_balance())
-
-    # Async
-    from dominusnode import AsyncDominusNodeClient
-
-    async with AsyncDominusNodeClient(base_url="http://localhost:3000") as client:
-        await client.connect_with_credentials("user@example.com", "s3cret!Pass")
-        print(await client.wallet.get_balance())
-"""
+"""Official DominusNode SDK for Python: AI-agent relay network (proxy, nodes, credits, payouts)."""
 
 from .client import AsyncDominusNodeClient, DominusNodeClient
-from .constants import SDK_VERSION
+from .constants import (
+    DEFAULT_BASE_URL,
+    DEFAULT_HTTP_PROXY_PORT,
+    DEFAULT_PROXY_HOST,
+    DEFAULT_SOCKS5_PROXY_PORT,
+    MAX_AMOUNT_CENTS,
+    MAX_RESPONSE_BYTES,
+    SDK_VERSION,
+    USER_AGENT,
+)
 from .errors import (
     AuthenticationError,
     AuthorizationError,
@@ -29,123 +19,27 @@ from .errors import (
     InsufficientBalanceError,
     NetworkError,
     NotFoundError,
+    ProtocolError,
     ProxyError,
     RateLimitError,
     ServerError,
     ValidationError,
+    scrub_credentials,
 )
-from .x402 import X402Info, X402Facilitator, X402Pricing
-from .wallet_auth import WalletChallenge, WalletVerifyResult, WalletLinkResult
-from .types import (
-    ActiveSession,
-    AdminUser,
-    AdminUserDetail,
-    AdminUsersResponse,
-    ApiKey,
-    CreatedApiKey,
-    CryptoInvoice,
-    DailyRevenue,
-    DailyUsage,
-    GeoTargeting,
-    LoginResult,
-    MfaSetup,
-    MfaStatus,
-    Pagination,
-    Plan,
-    ProxyConfig,
-    ProxyEndpointConfig,
-    ProxyEndpoints,
-    ProxyHealth,
-    ProxyStatus,
-    ProxyUrlOptions,
-    ProviderStat,
-    RevenueStats,
-    StripeCheckout,
-    SlotsInfo,
-    SystemStats,
-    TopHost,
-    UsagePagination,
-    UsagePeriod,
-    UsageRecord,
-    UsageResponse,
-    UsageSummary,
-    User,
-    UserPlanInfo,
-    UserPlanUsage,
-    Wallet,
-    WaitlistCount,
-    WaitlistJoinResult,
-    WalletForecast,
-    WalletTransaction,
-)
+from .messages import build_attestation_message, build_payout_wallet_message, build_withdraw_message
+from .proxy_fetch import ProxyFetchResponse, build_proxy_username
+from .secret import Secret, json_default
+from .signer import Signer
+from .ssrf import is_private_ip, validate_target_url
 
 __version__ = SDK_VERSION
 
 __all__ = [
-    # Clients
-    "DominusNodeClient",
-    "AsyncDominusNodeClient",
-    # Errors
-    "DominusNodeError",
-    "AuthenticationError",
-    "AuthorizationError",
-    "RateLimitError",
-    "InsufficientBalanceError",
-    "ValidationError",
-    "NotFoundError",
-    "ConflictError",
-    "ServerError",
-    "NetworkError",
-    "ProxyError",
-    # Types
-    "User",
-    "LoginResult",
-    "MfaStatus",
-    "MfaSetup",
-    "ApiKey",
-    "CreatedApiKey",
-    "Wallet",
-    "WalletTransaction",
-    "WalletForecast",
-    "StripeCheckout",
-    "CryptoInvoice",
-    "UsageSummary",
-    "UsageRecord",
-    "UsagePagination",
-    "UsagePeriod",
-    "UsageResponse",
-    "DailyUsage",
-    "TopHost",
-    "Plan",
-    "UserPlanUsage",
-    "UserPlanInfo",
-    "ActiveSession",
-    "ProxyUrlOptions",
-    "ProxyHealth",
-    "ProviderStat",
-    "ProxyEndpoints",
-    "ProxyStatus",
-    "GeoTargeting",
-    "ProxyEndpointConfig",
-    "ProxyConfig",
-    "AdminUser",
-    "AdminUserDetail",
-    "Pagination",
-    "AdminUsersResponse",
-    "RevenueStats",
-    "DailyRevenue",
-    "SlotsInfo",
-    "WaitlistJoinResult",
-    "WaitlistCount",
-    "SystemStats",
-    # x402
-    "X402Info",
-    "X402Facilitator",
-    "X402Pricing",
-    # Wallet Auth
-    "WalletChallenge",
-    "WalletVerifyResult",
-    "WalletLinkResult",
-    # Constants
-    "SDK_VERSION",
+    "DominusNodeClient", "AsyncDominusNodeClient", "Signer", "Secret", "json_default",
+    "build_proxy_username", "ProxyFetchResponse", "is_private_ip", "validate_target_url",
+    "build_attestation_message", "build_payout_wallet_message", "build_withdraw_message",
+    "DominusNodeError", "AuthenticationError", "AuthorizationError", "RateLimitError", "InsufficientBalanceError",
+    "ValidationError", "NotFoundError", "ConflictError", "ServerError", "NetworkError", "ProtocolError", "ProxyError",
+    "scrub_credentials", "SDK_VERSION", "USER_AGENT", "DEFAULT_BASE_URL", "DEFAULT_PROXY_HOST",
+    "DEFAULT_HTTP_PROXY_PORT", "DEFAULT_SOCKS5_PROXY_PORT", "MAX_RESPONSE_BYTES", "MAX_AMOUNT_CENTS", "__version__",
 ]
