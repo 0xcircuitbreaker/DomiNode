@@ -4,15 +4,21 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "dominusnode-agno"
-version = "1.2.1"
-description = "Dominus Node rotating proxy tools for Agno (phidata) agents"
+version = "2.0.0"
+description = "Agno toolkit for the DominusNode AI-agent relay network (19 v2 tools on the dominusnode SDK)"
 readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.9"
-dependencies = ["httpx>=0.24.0", "agno>=2.0.0"]
+dependencies = [
+    "agno>=2.0.0",
+    "dominusnode>=2.0.0,<3",
+]
 
 [project.optional-dependencies]
-dev = ["pytest>=7.0", "pytest-mock"]
+dev = ["pytest>=7.0"]
 
 [tool.setuptools.packages.find]
 include = ["dominusnode_agno*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
