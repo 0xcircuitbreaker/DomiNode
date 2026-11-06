@@ -4,14 +4,15 @@ from __future__ import annotations
 
 import base64
 import http.client
+import io
 import re
 import socket
 import ssl
 import time
 from dataclasses import dataclass, field
-from typing import Dict, Mapping, Optional
+from typing import Any, Dict, Mapping, Optional, Union
 
-from .constants import MAX_RESPONSE_BYTES
+from .constants import DEFAULT_TLS_PROXY_PORT, MAX_RESPONSE_BYTES
 from .errors import ProxyError, invalid_arg, scrub_credentials
 from .ssrf import LookupAll, assert_public_resolution, validate_target_url
 from .validation import UUID_RE
@@ -198,13 +199,108 @@ def _collect(sock: socket.socket, method: str, max_bytes: int, deadline: float) 
         resp.close()
 
 
-def execute_fetch(proxy_host: str, proxy_port: int, p: _Prepared, lookup: Optional[LookupAll] = None) -> ProxyFetchResponse:
-    """Steps 6-9: DNS-rebinding check, then the request through the gateway. Redirects are returned, never followed."""
+@dataclass(frozen=True)
+class GatewayTls:
+    """TLS to the gateway's HTTPS proxy listener (PROXY_TLS_PORT). Verification is always on;
+    ``ca`` (PEM) is added to the system roots, ``servername`` overrides SNI/verified name."""
+
+    port: int = DEFAULT_TLS_PROXY_PORT
+    ca: Optional[Union[str, bytes]] = field(default=None, repr=False)
+    servername: Optional[str] = None
+
+
+def _tls_context(ca: Optional[Union[str, bytes]] = None) -> ssl.SSLContext:
+    ctx = ssl.create_default_context()
+    ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+    ctx.check_hostname = True
+    ctx.verify_mode = ssl.CERT_REQUIRED
+    if ca is not None:
+        ctx.load_verify_locations(cadata=ca.decode("ascii") if isinstance(ca, bytes) else ca)
+    return ctx
+
+
+class _RawTls(io.RawIOBase):
+    def __init__(self, conn: "_TlsOverStream") -> None:
+        self._conn = conn
+
+    def readable(self) -> bool:
+        return True
+
+    def readinto(self, b: Any) -> int:
+        data = self._conn.recv(len(b))
+        b[: len(data)] = data
+        return len(data)
+
+
+class _TlsOverStream:
+    """TLS client over an existing (already TLS) stream: TLS-in-TLS via MemoryBIO.
+
+    ``ssl.wrap_socket`` on an SSLSocket would write to the raw fd and skip the outer layer."""
+
+    def __init__(self, outer: ssl.SSLSocket, ctx: ssl.SSLContext, server_hostname: str) -> None:
+        self._outer = outer
+        self._in = ssl.MemoryBIO()
+        self._out = ssl.MemoryBIO()
+        self._obj = ctx.wrap_bio(self._in, self._out, server_hostname=server_hostname)
+        self._run(self._obj.do_handshake)
+
+    def _flush(self) -> None:
+        data = self._out.read()
+        if data:
+            self._outer.sendall(data)
+
+    def _run(self, fn: Any, *args: Any) -> Any:
+        while True:
+            try:
+                r = fn(*args)
+                self._flush()
+                return r
+            except ssl.SSLWantReadError:
+                self._flush()
+                d = self._outer.recv(65536)
+                if d:
+                    self._in.write(d)
+                else:
+                    self._in.write_eof()
+
+    def sendall(self, data: bytes) -> None:
+        view = memoryview(data)
+        while view:
+            n = self._run(self._obj.write, view)
+            view = view[n:]
+
+    def recv(self, n: int) -> bytes:
+        try:
+            return self._run(self._obj.read, n)
+        except (ssl.SSLZeroReturnError, ssl.SSLEOFError):
+            return b""
+
+    def makefile(self, mode: str = "rb", *args: Any, **kw: Any) -> io.BufferedReader:
+        return io.BufferedReader(_RawTls(self))
+
+    def close(self) -> None:
+        self._outer.close()
+
+
+def execute_fetch(
+    proxy_host: str,
+    proxy_port: int,
+    p: _Prepared,
+    lookup: Optional[LookupAll] = None,
+    gateway_tls: Optional[GatewayTls] = None,
+) -> ProxyFetchResponse:
+    """Steps 6-9: DNS-rebinding check, then the request through the gateway. Redirects are returned, never followed.
+
+    With ``gateway_tls`` the connection goes to ``proxy_host:gateway_tls.port`` over verified TLS and
+    everything (CONNECT included) runs inside it; https targets then use TLS-in-TLS."""
     assert_public_resolution(p.host, lookup)
     deadline = time.monotonic() + p.timeout
-    sock: Optional[socket.socket] = None
+    sock: Any = None
     try:
-        sock = socket.create_connection((proxy_host, proxy_port), timeout=p.timeout)
+        port = gateway_tls.port if gateway_tls is not None else proxy_port
+        sock = socket.create_connection((proxy_host, port), timeout=p.timeout)
+        if gateway_tls is not None:
+            sock = _tls_context(gateway_tls.ca).wrap_socket(sock, server_hostname=gateway_tls.servername or proxy_host)
         if p.scheme == "https":
             bracketed = f"[{p.host}]" if ":" in p.host else p.host
             authority = f"{bracketed}:{p.port}"
@@ -219,11 +315,11 @@ def execute_fetch(proxy_host: str, proxy_port: int, p: _Prepared, lookup: Option
             status = int(m.group(1)) if m else 0
             if status != 200:
                 raise ProxyError(f"Proxy refused CONNECT (HTTP {status})", status or None)
-            ctx = ssl.create_default_context()
-            ctx.minimum_version = ssl.TLSVersion.TLSv1_2
-            ctx.check_hostname = True
-            ctx.verify_mode = ssl.CERT_REQUIRED
-            sock = ctx.wrap_socket(sock, server_hostname=p.host)
+            # The inner TLS session rides the CONNECT tunnel socket; never dial the target directly.
+            if gateway_tls is not None:
+                sock = _TlsOverStream(sock, _tls_context(), p.host)
+            else:
+                sock = _tls_context().wrap_socket(sock, server_hostname=p.host)
             sock.sendall(_request_bytes(p.method, p.path, p.host_header, p.headers, {}))
         else:
             target = f"http://{p.host_header}{p.path}"
@@ -243,4 +339,3 @@ def execute_fetch(proxy_host: str, proxy_port: int, p: _Prepared, lookup: Option
                 sock.close()
             except OSError:
                 pass
-

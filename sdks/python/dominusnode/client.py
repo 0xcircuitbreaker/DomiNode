@@ -86,6 +86,7 @@ class DominusNodeClient(_ClientBase):
         access_token: Optional[str] = None,
         refresh_token: Optional[str] = None,
         transport: Optional[httpx.BaseTransport] = None,
+        gateway_tls: Any = None,
     ) -> None:
         tokens = TokenManager()
         self._ctx = ctx = _Ctx(tokens)
@@ -104,7 +105,7 @@ class DominusNodeClient(_ClientBase):
         self.credits = CreditsResource(http, ctx)
         self.payout_wallet = PayoutWalletResource(http, ctx)
         self.payouts = PayoutsResource(http, ctx)
-        self.proxy = ProxyResource(http, ctx, proxy_host, http_proxy_port, socks5_proxy_port)
+        self.proxy = ProxyResource(http, ctx, proxy_host, http_proxy_port, socks5_proxy_port, gateway_tls)
 
         def refresh(rt: str) -> Any:
             r = self.auth.refresh(rt)
@@ -145,6 +146,7 @@ class AsyncDominusNodeClient(_ClientBase):
         access_token: Optional[str] = None,
         refresh_token: Optional[str] = None,
         transport: Optional[httpx.AsyncBaseTransport] = None,
+        gateway_tls: Any = None,
     ) -> None:
         tokens = AsyncTokenManager()
         self._ctx = ctx = _Ctx(tokens)
@@ -163,7 +165,7 @@ class AsyncDominusNodeClient(_ClientBase):
         self.credits = AsyncCreditsResource(http, ctx)
         self.payout_wallet = AsyncPayoutWalletResource(http, ctx)
         self.payouts = AsyncPayoutsResource(http, ctx)
-        self.proxy = AsyncProxyResource(http, ctx, proxy_host, http_proxy_port, socks5_proxy_port)
+        self.proxy = AsyncProxyResource(http, ctx, proxy_host, http_proxy_port, socks5_proxy_port, gateway_tls)
 
         async def refresh(rt: str) -> Any:
             r = await self.auth.refresh(rt)
