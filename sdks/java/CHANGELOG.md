@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.0.0] - 2026-11-06
+
+### Breaking
+- Rewritten to the v2 SDK contract (`sdks/SDK_SURFACE.md`): 15 resources, 71 methods.
+- Removed plans, slots/waitlist, admin, Stripe and PayPal top-ups, email/password login and
+  registration, human MFA flows, `connectWithCredentials`, legacy `dc-`/`residential-`/`auto-`
+  username prefixes, state/city/ASN targeting and all hardcoded prices.
+- Exceptions are now unchecked; results are Jackson `JsonNode` trees except security-sensitive
+  typed results.
+
+### Added
+- Relay network resources: `network`, `nodes` (register with PoW and attestation), `credits`
+  (µUSD, convert and withdraw), `payoutWallet`, `payouts`, `sessions.report`.
+- `Signer`/`MessageSigner` callbacks; signed messages are rebuilt locally and mismatches refused.
+- `Secret` wrapper for once-returned keys; credentials held as `char[]` and wiped on disconnect.
+- `proxy.fetch` (GET/HEAD) with SSRF and DNS-rebinding checks, CONNECT tunnel, 10 MB cap.
+- 429 retry with cap and jitter, 401 refresh, 10 MB response cap, redirects disabled.
+
 ## [1.0.0] - 2026-02-19
 
 ### Added
