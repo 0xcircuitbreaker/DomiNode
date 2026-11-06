@@ -5,7 +5,9 @@ import { freezeAccountTx } from "./payout-repo.js";
  * Collusion detector (DESIGN.md §13 commit 33). Flags requester <-> node-owner
  * pairs with suspicious concentration of paid relay traffic, and owners who
  * buy from each other (circular flows). Flags are advisory and admin-visible;
- * an optional automatic node-credit freeze applies above a high threshold
+ * an optional automatic node-credit freeze applies above a high threshold, and
+ * only with corroboration (circular flow or requester<->owner linkage; concentration
+ * alone only flags)
  * (collusion_settings.auto_freeze, default off).
  *
  * Counted traffic: relay_charges in the window, gross > 0, not disputed,
@@ -237,6 +239,54 @@ export function evaluateCircular(p: CircularPair, s: CollusionSettings): Collusi
 
 // ─── Persistence ────────────────────────────────────────────────────
 
+type TxClient = { query: (sql: string, params?: unknown[]) => Promise<{ rows: unknown[] }> };
+
+/**
+ * Corroboration for an auto-freeze of a node finding: the owner and the requester
+ * (for a cluster, any of the node's top-K requesters) are linked by
+ *  - a circular flow (the owner also paid the requester's nodes in the window),
+ *  - a shared team (membership or ownership),
+ *  - a shared payout wallet address, or the requester's wallet identity being the
+ *    owner's payout address (or vice versa) — same funding/payer identity.
+ */
+export async function hasOwnerRequesterLinkage(client: TxClient, f: CollusionFinding, windowDays: number): Promise<boolean> {
+  if (!f.requesterUserId) return false;
+  const r = await client.query(
+    `WITH req AS (
+       SELECT $2::uuid AS id
+       UNION
+       SELECT x.requester_user_id FROM (
+         SELECT rc.requester_user_id, SUM(rc.gross_musd) AS musd
+         FROM relay_charges rc
+         WHERE $3::uuid IS NOT NULL AND rc.node_id = $3::uuid
+           AND rc.created_at > now() - make_interval(days => $4)
+           AND NOT rc.disputed AND rc.gross_musd > 0 AND rc.requester_user_id IS NOT NULL
+           AND rc.requester_user_id <> $1::uuid
+         GROUP BY rc.requester_user_id ORDER BY musd DESC LIMIT $5
+       ) x
+     )
+     SELECT 1 FROM req WHERE
+       EXISTS (SELECT 1 FROM relay_charges back
+               WHERE back.requester_user_id = $1::uuid AND back.node_owner_user_id = req.id
+                 AND back.created_at > now() - make_interval(days => $4)
+                 AND NOT back.disputed AND back.gross_musd > 0)
+       OR EXISTS (SELECT 1 FROM team_members a JOIN team_members b ON a.team_id = b.team_id
+                  WHERE a.user_id = $1::uuid AND b.user_id = req.id)
+       OR EXISTS (SELECT 1 FROM teams t JOIN team_members tm ON tm.team_id = t.id
+                  WHERE (t.owner_id = $1::uuid AND tm.user_id = req.id) OR (t.owner_id = req.id AND tm.user_id = $1::uuid))
+       OR EXISTS (SELECT 1 FROM payout_wallets pa JOIN payout_wallets pb ON pa.address = pb.address
+                  WHERE pa.user_id = $1::uuid AND pb.user_id = req.id)
+       OR EXISTS (SELECT 1 FROM payout_wallets pw JOIN users u ON lower(u.wallet_address) = pw.address
+                  WHERE (pw.user_id = $1::uuid AND u.id = req.id) OR (pw.user_id = req.id AND u.id = $1::uuid))
+     LIMIT 1`,
+    [f.ownerUserId, f.requesterUserId, f.kind === "cluster" ? f.nodeId : null, windowDays, CLUSTER_LINK_LIMIT],
+  );
+  return r.rows.length > 0;
+}
+
+/** Max top requesters of a cluster checked for linkage. */
+const CLUSTER_LINK_LIMIT = 10;
+
 /**
  * Upsert one finding as an open flag (refreshing an existing open flag), unless an
  * admin dismissed the same flag within the window. When `finding.freeze`, also
@@ -276,7 +326,12 @@ export async function recordFinding(f: CollusionFinding, windowDays: number): Pr
     );
     const flag = ins.rows[0]!;
     let frozen = false;
-    if (f.freeze && !flag.auto_frozen) {
+    // Concentration alone is not proof (a buyer can concentrate spend on a victim's node
+    // to get it frozen). Node findings only freeze with corroborating linkage; circular
+    // findings are corroborated by the round-trip flow itself.
+    const corroborated = f.freeze && !flag.auto_frozen
+      && (f.kind === "circular" || await hasOwnerRequesterLinkage(client, f, windowDays));
+    if (corroborated) {
       // freezeAccountTx creates the account row when absent, so future earnings are held too.
       const held = await freezeAccountTx(client as unknown as Parameters<typeof freezeAccountTx>[0], f.ownerUserId);
       await client.query(`UPDATE collusion_flags SET auto_frozen = true WHERE id = $1`, [flag.id]);

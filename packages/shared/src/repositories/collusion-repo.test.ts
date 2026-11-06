@@ -148,6 +148,7 @@ describe("recordFinding", () => {
       if (s.includes("FROM node_credit_accounts WHERE user_id = $1 FOR UPDATE")) {
         return { rows: [{ user_id: OWNER, pending_musd: "0", available_musd: "0", auto_convert_pct: 0, frozen: false }] };
       }
+      if (s.includes("WITH req AS")) return { rows: [{ "?column?": 1 }] }; // linkage found
       return undefined;
     });
     expect(await recordFinding(finding({ freeze: true }), 30)).toEqual({ flagged: true, frozen: true });
@@ -156,6 +157,36 @@ describe("recordFinding", () => {
     m.clientQuery.mockReset();
     client((s) => (s.includes("INSERT INTO collusion_flags") ? { rows: [{ id: "1", auto_frozen: true }] } : undefined));
     expect(await recordFinding(finding({ freeze: true }), 30)).toEqual({ flagged: true, frozen: false });
+  });
+
+  it("concentration alone (no linkage) only flags, never freezes", async () => {
+    client((s) => (s.includes("INSERT INTO collusion_flags") ? { rows: [{ id: "1", auto_frozen: false }] } : undefined));
+    expect(await recordFinding(finding({ freeze: true }), 30)).toEqual({ flagged: true, frozen: false });
+    expect(await recordFinding(finding({ kind: "cluster", freeze: true }), 30)).toEqual({ flagged: true, frozen: false });
+    const link = sqls().find((s) => s.includes("WITH req AS"))!;
+    expect(link).toMatch(/back\.requester_user_id = \$1::uuid AND back\.node_owner_user_id = req\.id/);
+    expect(link).toMatch(/team_members a JOIN team_members b/);
+    expect(link).toMatch(/payout_wallets pa JOIN payout_wallets pb/);
+    expect(link).toMatch(/lower\(u\.wallet_address\) = pw\.address/);
+    expect(sqls().some((s) => s.includes("node_credit_accounts SET frozen"))).toBe(false);
+    expect(sqls().some((s) => s.includes("node_credit_auto_freeze"))).toBe(false);
+  });
+
+  it("cluster linkage checks the node's top requesters; circular freezes without extra linkage", async () => {
+    client((s) => (s.includes("INSERT INTO collusion_flags") ? { rows: [{ id: "1", auto_frozen: false }] } : undefined));
+    await recordFinding(finding({ kind: "cluster", freeze: true }), 30);
+    const call = m.clientQuery.mock.calls.find((c) => String(c[0]).includes("WITH req AS"))!;
+    expect(call[1]).toEqual([OWNER, REQ, NODE, 30, 10]);
+    m.clientQuery.mockReset();
+    client((s) => {
+      if (s.includes("INSERT INTO collusion_flags")) return { rows: [{ id: "1", auto_frozen: false }] };
+      if (s.includes("FROM node_credit_accounts WHERE user_id = $1 FOR UPDATE")) {
+        return { rows: [{ user_id: OWNER, pending_musd: "0", available_musd: "0", auto_convert_pct: 0, frozen: false }] };
+      }
+      return undefined;
+    });
+    expect(await recordFinding(finding({ kind: "circular", nodeId: null, freeze: true }), 30)).toEqual({ flagged: true, frozen: true });
+    expect(sqls().some((s) => s.includes("WITH req AS"))).toBe(false);
   });
 
   it("rolls back on error", async () => {
