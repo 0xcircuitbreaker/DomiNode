@@ -72,8 +72,14 @@ describe("buildPac", () => {
 describe("WebRTC leak guard", () => {
   it("forces WebRTC through the proxy while proxying and clears it after", async () => {
     const { setPac, clearProxy } = await import("./proxy.js");
-    const policy = { set: vi.fn(async () => {}), clear: vi.fn(async () => {}) };
-    const proxySettings = { set: vi.fn(async () => {}), clear: vi.fn(async () => {}) };
+    const order: string[] = [];
+    const policy = { set: vi.fn(async () => { order.push("webrtc"); }), clear: vi.fn(async () => {}) };
+    let value: unknown = null;
+    const proxySettings = {
+      set: vi.fn(async (d: { value: unknown }) => { order.push("pac"); value = d.value; }),
+      clear: vi.fn(async () => {}),
+      get: vi.fn(async () => ({ levelOfControl: "controlled_by_this_extension", value })),
+    };
     const c = globalThis as unknown as { chrome: Record<string, unknown> };
     const prevPrivacy = c.chrome.privacy;
     const prevProxy = c.chrome.proxy;
@@ -82,6 +88,7 @@ describe("WebRTC leak guard", () => {
     try {
       await setPac(buildPac("proxy", "proxy.dominusnode.com", 8080, "api.dominusnode.com"));
       expect(policy.set).toHaveBeenCalledWith({ value: "disable_non_proxied_udp", scope: "regular" });
+      expect(order).toEqual(["webrtc", "pac"]);
       await clearProxy();
       expect(policy.clear).toHaveBeenCalledWith({ scope: "regular" });
     } finally {
@@ -105,5 +112,29 @@ describe("gateway TLS", () => {
   it("allows plaintext only for localhost / 127.0.0.1", () => {
     expect(buildPac("proxy", "localhost", 8080, "api.dominusnode.com", false)).toContain('"PROXY localhost:8080"');
     expect(buildPac("proxy", "127.0.0.1", 8080, "api.dominusnode.com", false)).toContain('"PROXY 127.0.0.1:8080"');
+  });
+});
+
+describe("PAC verification", () => {
+  const pac = buildPac("proxy", "proxy.dominusnode.com", 8443, "api.dominusnode.com");
+  const withProxy = async (get: () => Promise<unknown>, fn: () => Promise<void>) => {
+    const c = globalThis as unknown as { chrome: Record<string, unknown> };
+    const prev = c.chrome.proxy;
+    c.chrome.proxy = { settings: { set: vi.fn(async () => {}), clear: vi.fn(async () => {}), get: vi.fn(get) } };
+    try { await fn(); } finally { c.chrome.proxy = prev; }
+  };
+
+  it("rejects when another extension controls the proxy setting", async () => {
+    const { setPac } = await import("./proxy.js");
+    await withProxy(async () => ({ levelOfControl: "controlled_by_other_extensions", value: { mode: "direct" } }), async () => {
+      await expect(setPac(pac)).rejects.toThrow(/not controlled by this extension/);
+    });
+  });
+
+  it("rejects when the applied PAC differs", async () => {
+    const { setPac } = await import("./proxy.js");
+    await withProxy(async () => ({ levelOfControl: "controlled_by_this_extension", value: { mode: "pac_script", pacScript: { data: "x" } } }), async () => {
+      await expect(setPac(pac)).rejects.toThrow(/does not match/);
+    });
   });
 });

@@ -7,10 +7,11 @@ import { loadManagedConfig, parseConfig } from "../shared/managed-config.js";
 import { keyPrefix, scrubCredentials } from "../shared/scrub.js";
 import { assertGatewayTransport, isLocalGateway, validateSettingsPatch, type Settings } from "../shared/settings.js";
 import { applyBalanceSample, newRun, type RunState } from "../shared/spend.js";
-import { buildPac, clearProxy, setPac, type GatewayCreds } from "./proxy.js";
+import { buildPac, clearProxy, setPac, verifyPac, type GatewayCreds } from "./proxy.js";
 import * as store from "./store.js";
 
-export type Mode = "off" | "proxying" | "blocked" | "no_key";
+/** "error": the PAC could not be applied/verified, so traffic may not be proxied. */
+export type Mode = "off" | "proxying" | "blocked" | "no_key" | "error";
 
 export interface ExitInfo {
   country: string | null;
@@ -46,6 +47,8 @@ export interface ControlStatus {
   spendCapCents: number | null;
   balanceCents: number | null;
   blockReason: string | null;
+  /** Why the proxy setting could not be applied/verified (mode "error"). */
+  proxyError: string | null;
 }
 
 export class Controller {
@@ -57,6 +60,10 @@ export class Controller {
   managedKeys: string[] = [];
   private account: AccountClient | null = null;
   private onChange: (() => void) | null = null;
+  /** Set when the proxy setting could not be applied or verified (cleared on success). */
+  proxyError: string | null = null;
+  /** PAC last pushed into chrome.proxy (null when cleared). */
+  private appliedPac: string | null = null;
 
   async init(): Promise<void> {
     this.settings = await store.loadSettings();
@@ -91,6 +98,7 @@ export class Controller {
 
   get mode(): Mode {
     if (!this.settings.enabled) return "off";
+    if (this.proxyError) return "error";
     if (!this.apiKey) return "no_key";
     if (this.run.blocked) return "blocked";
     return "proxying";
@@ -103,6 +111,9 @@ export class Controller {
   /** Read by the onAuthRequired handler. */
   creds(): GatewayCreds | null {
     if (!this.settings?.enabled) return null;
+    if (this.proxyError) {
+      return { host: this.settings.gatewayHost, port: this.settings.gatewayPort, auth: null };
+    }
     const insecure = !this.settings.gatewayTls && !isLocalGateway(this.settings.gatewayHost);
     const blocked = !this.apiKey || this.run.blocked || insecure;
     return {
@@ -124,10 +135,13 @@ export class Controller {
 
   /** Push current settings into chrome.proxy, badge and alarms. */
   async apply(): Promise<void> {
+    this.proxyError = null;
     const mode = this.mode;
     try {
-      if (mode === "off") await clearProxy();
-      else {
+      if (mode === "off") {
+        this.appliedPac = null;
+        await clearProxy();
+      } else {
         // no_key and blocked both fail closed: traffic never leaves DIRECT.
         const pacMode = mode === "proxying" ? "proxy" : "block";
         const { gatewayHost, gatewayPort, gatewayTls } = this.settings;
@@ -139,14 +153,33 @@ export class Controller {
           this.lastError = scrubCredentials(err);
           pac = buildPac("block", gatewayHost, gatewayPort, this.apiHost(), true);
         }
+        this.appliedPac = pac;
         await setPac(pac);
       }
     } catch (err) {
       this.lastError = scrubCredentials(err);
+      if (mode !== "off") this.proxyError = this.lastError;
     }
     await this.updateBadge();
     await this.scheduleAlarms();
     this.onChange?.();
+  }
+
+  /** chrome.proxy.settings.onChange: re-check that our PAC is still the one in effect. */
+  async reverifyProxy(): Promise<void> {
+    if (!this.settings?.enabled || !this.appliedPac) return;
+    const before = this.proxyError;
+    try {
+      await verifyPac(this.appliedPac);
+      this.proxyError = null;
+    } catch (err) {
+      this.proxyError = scrubCredentials(err);
+      this.lastError = this.proxyError;
+    }
+    if (before !== this.proxyError) {
+      await this.updateBadge();
+      this.onChange?.();
+    }
   }
 
   private async updateBadge(): Promise<void> {
@@ -155,6 +188,7 @@ export class Controller {
       proxying: ["ON", "#16a34a"],
       blocked: ["STOP", "#dc2626"],
       no_key: ["KEY", "#d97706"],
+      error: ["ERR", "#dc2626"],
     };
     const [text, color] = badge[this.mode];
     try {
@@ -166,7 +200,7 @@ export class Controller {
   }
 
   private async scheduleAlarms(): Promise<void> {
-    if (this.mode === "proxying" || this.mode === "blocked") {
+    if (this.mode === "proxying" || this.mode === "blocked" || this.mode === "error") {
       chrome.alarms.create(ALARMS.BALANCE, { periodInMinutes: BALANCE_POLL_MINUTES });
     } else await chrome.alarms.clear(ALARMS.BALANCE);
     if (this.settings.sticky && this.settings.rotateMinutes > 0) {
@@ -330,6 +364,7 @@ export class Controller {
       spendCapCents: s.spendCapCents,
       balanceCents: this.run.lastBalanceCents,
       blockReason: this.run.blockReason,
+      proxyError: this.proxyError,
     };
   }
 

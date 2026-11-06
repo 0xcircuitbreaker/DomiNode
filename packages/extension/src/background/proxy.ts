@@ -46,9 +46,38 @@ export function buildPac(
 }`;
 }
 
+export class ProxyControlError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ProxyControlError";
+  }
+}
+
+/**
+ * Set the PAC and confirm Chrome actually applied it. Another extension or a policy can
+ * hold the proxy setting, in which case set() succeeds silently and traffic goes DIRECT.
+ * The WebRTC guard goes on first so there is no window where UDP leaks the real IP.
+ */
 export async function setPac(pac: string): Promise<void> {
-  await chrome.proxy.settings.set({ value: { mode: "pac_script", pacScript: { data: pac, mandatory: true } }, scope: "regular" });
   await setWebRtcLeakGuard(true);
+  await chrome.proxy.settings.set({ value: { mode: "pac_script", pacScript: { data: pac, mandatory: true } }, scope: "regular" });
+  await verifyPac(pac);
+}
+
+/** Throws ProxyControlError unless this extension controls the proxy and the PAC matches. */
+export async function verifyPac(pac: string): Promise<void> {
+  const cur = (await chrome.proxy.settings.get({ incognito: false })) as {
+    levelOfControl?: string;
+    value?: { mode?: string; pacScript?: { data?: string } };
+  } | undefined;
+  if (cur?.levelOfControl !== "controlled_by_this_extension") {
+    throw new ProxyControlError(
+      `Proxy setting is not controlled by this extension (${String(cur?.levelOfControl ?? "unknown")}); another extension or policy may be sending traffic direct`,
+    );
+  }
+  if (cur.value?.mode !== "pac_script" || cur.value.pacScript?.data !== pac) {
+    throw new ProxyControlError("Proxy setting does not match the configured PAC script");
+  }
 }
 
 export async function clearProxy(): Promise<void> {

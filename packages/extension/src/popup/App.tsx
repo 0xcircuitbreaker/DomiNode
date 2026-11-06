@@ -8,6 +8,7 @@ const MODE_LABEL: Record<Status["mode"], string> = {
   proxying: "Connected",
   blocked: "Blocked",
   no_key: "No API key (blocked)",
+  error: "Proxy error (not proxied)",
 };
 
 export function App() {
@@ -47,6 +48,7 @@ export function App() {
       {err && <div class="error-banner">{err}</div>}
       {st.run.blockReason && st.mode === "blocked" && <div class="error-banner">{st.run.blockReason}</div>}
       {!st.hasApiKey && <div class="warn-banner">No API key. Open options to add one (or ship a managed policy).</div>}
+      {st.mode === "error" && <div class="warn-banner">Proxy not applied: {st.lastError ?? "unknown error"}</div>}
       {s.plaintext && <div class="warn-banner">Plaintext HTTP is on (allowhttp-1): the exit node can read unencrypted traffic.</div>}
 
       <dl class="kv">

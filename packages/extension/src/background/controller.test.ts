@@ -147,4 +147,27 @@ describe("Controller spend-cap stop", () => {
     const pac = (chromeMock.proxy.settings.set.mock.calls.at(-1)?.[0] as { value: { pacScript: { data: string } } }).value.pacScript.data;
     expect(pac).toContain("PROXY localhost:8080");
   });
+
+  it("reports mode error (not proxying) when another extension holds the proxy setting", async () => {
+    const takeOver = () => chromeMock.proxy.settings._setState({ levelOfControl: "controlled_by_other_extensions", value: { mode: "direct" } });
+    chromeMock.proxy.settings.set.mockImplementationOnce(async () => { takeOver(); });
+    const ctl = new Controller();
+    await ctl.init();
+    expect(ctl.mode).toBe("error");
+    expect(ctl.creds()?.auth).toBeNull();
+    expect(ctl.controlStatus().mode).toBe("error");
+    expect(ctl.controlStatus().proxyError).toMatch(/not controlled/);
+    expect(chromeMock.action.setBadgeText).toHaveBeenLastCalledWith({ text: "ERR" });
+
+    // A later successful apply clears the error.
+    await ctl.apply();
+    expect(ctl.mode).toBe("proxying");
+
+    // Takeover after the fact is caught by the onChange re-verify.
+    takeOver();
+    await ctl.reverifyProxy();
+    expect(ctl.mode).toBe("error");
+    expect(ctl.creds()?.auth).toBeNull();
+  });
 });
+
