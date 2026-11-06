@@ -176,27 +176,31 @@ export function registerCreditsTools(server: McpServer, httpClient: HttpClient, 
 
   server.tool(
     "dominusnode_payout_wallet_set",
-    "Register or change your USDC payout address on Base. Signs a server challenge with the linked wallet key from " +
+    "Register or change your USDC payout address on Base (chain \"base\", or \"base-sepolia\" on testnet deployments; " +
+      "the server decides which chain is valid). Signs a server challenge with the linked wallet key from " +
       "DOMINUSNODE_WALLET_KEY_FILE. A change also needs the CURRENT payout wallet's signature (key file in " +
       "DOMINUSNODE_PAYOUT_WALLET_KEY_FILE, unless it is the linked wallet) and starts a 72h cooldown during which nothing is paid out. " +
       "Keys are never accepted as arguments.",
     {
       address: z.string().regex(ADDRESS_RE).describe("New payout address (0x + 40 hex)"),
+      chain: z.enum(["base", "base-sepolia"]).default("base").describe("Payout chain: base (mainnet) or base-sepolia (testnet); the server rejects a chain it does not use"),
       confirm: z.literal(true).describe("Must be true: payouts will go to this address"),
     },
     async (args) => {
       try {
         const signer = linkedWallet(config);
         const address = args.address.toLowerCase();
+        const chain = args.chain ?? "base";
+        if (chain !== "base" && chain !== "base-sepolia") throw new NodeToolError("chain must be base or base-sepolia");
         const ch = await httpClient.request<{ nonce: string; message: string; signer: string; oldWalletSignatureRequired: boolean; oldWalletAddress: string | null }>(
-          { method: "POST", path: "/v1/payout-wallet/challenge", body: { address, chain: "base" }, bearer: bearer() },
+          { method: "POST", path: "/v1/payout-wallet/challenge", body: { address, chain }, bearer: bearer() },
         );
         if (typeof ch.nonce !== "string" || !HEX64.test(ch.nonce) || typeof ch.message !== "string") throw new NodeToolError("invalid challenge");
-        const expected = payoutWalletMessage({ userId: userIdFrom(ch.message), wallet: signer.address.toLowerCase(), address, chain: "base", nonce: ch.nonce });
+        const expected = payoutWalletMessage({ userId: userIdFrom(ch.message), wallet: signer.address.toLowerCase(), address, chain, nonce: ch.nonce });
         if (ch.message !== expected) {
           throw new NodeToolError("server challenge does not match the locally built message (is DOMINUSNODE_WALLET_KEY_FILE the wallet linked to this account?)");
         }
-        const body: Record<string, unknown> = { address, chain: "base", nonce: ch.nonce, signature: await signer.signMessage(expected) };
+        const body: Record<string, unknown> = { address, chain, nonce: ch.nonce, signature: await signer.signMessage(expected) };
         if (ch.oldWalletSignatureRequired) {
           if (!config.payoutWalletKeyFile) {
             throw new NodeToolError("changing the payout wallet needs the current payout wallet's signature: set DOMINUSNODE_PAYOUT_WALLET_KEY_FILE (chmod 600) and restart");

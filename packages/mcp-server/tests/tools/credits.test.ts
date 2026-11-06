@@ -108,6 +108,47 @@ describe("credits tools", () => {
     expect(JSON.stringify(calls)).not.toContain(wallet.privateKey.slice(2));
   });
 
+  it("payout_wallet_set defaults to chain base", async () => {
+    const server = await setup();
+    const addr = Wallet.createRandom().address.toLowerCase();
+    const calls = route((url, _i, body) => url.endsWith("/challenge")
+      ? jsonResponse({ nonce: NONCE, message: payoutWalletMessage({ userId: USER, wallet: wallet.address.toLowerCase(), address: body["address"] as string, chain: body["chain"] as string, nonce: NONCE }), oldWalletSignatureRequired: false, oldWalletAddress: null })
+      : jsonResponse({ payoutWallet: { address: addr, status: "active", activeFrom: "x" }, changed: false, cooldownHours: 0 }));
+    await callTool(server, "dominusnode_payout_wallet_set", { address: addr, confirm: true });
+    expect(calls[0].body).toEqual({ address: addr, chain: "base" });
+    expect(calls[1].body["chain"]).toBe("base");
+  });
+
+  it("payout_wallet_set passes chain base-sepolia through and signs it", async () => {
+    const server = await setup();
+    const addr = Wallet.createRandom().address.toLowerCase();
+    const calls = route((url, _i, body) => url.endsWith("/challenge")
+      ? jsonResponse({ nonce: NONCE, message: payoutWalletMessage({ userId: USER, wallet: wallet.address.toLowerCase(), address: body["address"] as string, chain: body["chain"] as string, nonce: NONCE }), oldWalletSignatureRequired: false, oldWalletAddress: null })
+      : jsonResponse({ payoutWallet: { address: addr, status: "active", activeFrom: "x" }, changed: false, cooldownHours: 0 }));
+    const r = await callTool(server, "dominusnode_payout_wallet_set", { address: addr, chain: "base-sepolia", confirm: true });
+    expect(r.isError).toBeUndefined();
+    expect(calls[0].body).toEqual({ address: addr, chain: "base-sepolia" });
+    expect(calls[1].body["chain"]).toBe("base-sepolia");
+    const msg = payoutWalletMessage({ userId: USER, wallet: wallet.address.toLowerCase(), address: addr, chain: "base-sepolia", nonce: NONCE });
+    expect(verifyMessage(msg, calls[1].body["signature"] as string).toLowerCase()).toBe(wallet.address.toLowerCase());
+  });
+
+  it("payout_wallet_set rejects an unknown chain before any request", async () => {
+    const server = await setup();
+    const calls = route(() => jsonResponse({}));
+    const r = await callTool(server, "dominusnode_payout_wallet_set", { address: Wallet.createRandom().address.toLowerCase(), chain: "ethereum", confirm: true });
+    expect(r.isError).toBe(true);
+    expect(calls).toHaveLength(0);
+  });
+
+  it("payout_wallet_set surfaces a server-side chain rejection", async () => {
+    const server = await setup();
+    const calls = route(() => jsonResponse({ error: "chain not supported on this deployment" }, 400));
+    const r = await callTool(server, "dominusnode_payout_wallet_set", { address: Wallet.createRandom().address.toLowerCase(), chain: "base-sepolia", confirm: true });
+    expect(r.isError).toBe(true);
+    expect(calls).toHaveLength(1);
+  });
+
   it("payout_wallet_set refuses to sign a tampered server message", async () => {
     const server = await setup();
     const addr = Wallet.createRandom().address.toLowerCase();
