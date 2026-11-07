@@ -5,8 +5,15 @@ Implements the language-neutral contract in `sdks/SDK_SURFACE.md`
 (15 resources, 71 methods); the reference implementation is `sdks/node`.
 
 ```bash
-go get github.com/0xcircuitbreaker/DomiNode/sdks/go/v2
+go get github.com/0xcircuitbreaker/DomiNode/sdks/go/v2@v2.0.0
 ```
+
+Defaults: API `https://api.dominusnode.daedalusdevelopmentgroup.com`, relay gateway `proxy.dominusnode.daedalusdevelopmentgroup.com` (HTTP proxy :8080, SOCKS5 :1080). Both can be overridden in the client configuration.
+
+`go get` resolves through proxy.golang.org, which only serves public
+repositories. While the DomiNode repository is private, set
+`GOPRIVATE=github.com/0xcircuitbreaker/DomiNode` and give the go command
+HTTPS credentials with read access to it.
 
 v2 is a breaking release: the module path gained the `/v2` suffix, and plans,
 slots, admin, Stripe/PayPal top-ups, email/password login, human MFA and the

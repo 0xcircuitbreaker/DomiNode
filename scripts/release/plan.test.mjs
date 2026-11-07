@@ -175,3 +175,32 @@ test('every real package has release notes for its current version', () => {
     assert.ok(releaseNotes(p, readVersion(p)).length > 40, p.id);
   }
 });
+
+test('every package README shows its registry install command and the default API host', () => {
+  const esc = (s) => s.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
+  for (const p of loadConfig().packages) {
+    const readme = fs.readFileSync(path.join(process.cwd(), p.path, 'README.md'), 'utf8');
+    const v = readVersion(p);
+    const want = {
+      npm: [new RegExp(`npm (i|install)( -g)? ${esc(p.name)}(@\\d|\\s|$)`, 'm')],
+      pypi: [new RegExp(`pip install ${esc(p.name)}(\\s|$|[=<>~])`, 'm')],
+      crates: [/cargo add dominusnode/],
+      go: [new RegExp(`go get ${esc(p.name)}`)],
+      maven: [/maven\.pkg\.github\.com\/0xcircuitbreaker\/DomiNode/, /read:packages/, new RegExp(`<version>${esc(v)}</version>`)],
+      'cpp-release': [/releases\/download\/sdk-cpp-v/, new RegExp(`sdk-cpp-v${esc(v)}`)],
+    }[p.ecosystem];
+    for (const re of want) assert.match(readme, re, `${p.id}: README install`);
+    assert.match(readme, /api\.dominusnode\.daedalusdevelopmentgroup\.com/, `${p.id}: README default API host`);
+  }
+});
+
+test('mcp-server server.json version matches package.json', () => {
+  const dir = path.join(process.cwd(), 'packages/mcp-server');
+  const pkg = JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8'));
+  const server = JSON.parse(fs.readFileSync(path.join(dir, 'server.json'), 'utf8'));
+  assert.equal(server.version, pkg.version);
+  const npm = server.packages.find((x) => x.registryType === 'npm');
+  assert.equal(npm.identifier, pkg.name);
+  assert.equal(npm.version, pkg.version);
+  assert.equal(server.name, pkg.mcpName);
+});

@@ -5,6 +5,15 @@ implements the language-neutral contract in `sdks/SDK_SURFACE.md` (reference:
 `sdks/node`): 15 resources, 71 methods, plus `connect_with_key`, `disconnect`
 and `is_connected`.
 
+```bash
+cargo add dominusnode@2
+cargo add tokio --features full
+```
+
+Defaults: API `https://api.dominusnode.daedalusdevelopmentgroup.com`, relay gateway `proxy.dominusnode.daedalusdevelopmentgroup.com` (HTTP proxy :8080, SOCKS5 :1080). Both can be overridden in the client configuration.
+
+or in `Cargo.toml`:
+
 ```toml
 [dependencies]
 dominusnode = "2"
