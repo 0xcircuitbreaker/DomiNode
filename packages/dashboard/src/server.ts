@@ -252,7 +252,7 @@ export function startApiServer(port: number = 3000): ReturnType<express.Express[
   app.get("/.well-known/security.txt", (_req, res) => {
     const expires = new Date(Date.now() + 180 * 24 * 60 * 60 * 1000).toISOString();
     res.type("text/plain").send(
-      `Contact: mailto:security@dominusnode.com\n` +
+      `Contact: mailto:0xcircuitbreaker@protonmail.com\n` +
       `Expires: ${expires}\n` +
       `Preferred-Languages: en\n`
     );

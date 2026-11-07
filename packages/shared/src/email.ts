@@ -10,7 +10,7 @@ const SMTP_HOST = process.env.SMTP_HOST ?? "";
 const SMTP_PORT = parseInt(process.env.SMTP_PORT ?? "587", 10);
 const SMTP_USER = process.env.SMTP_USER ?? "";
 const SMTP_PASS = process.env.SMTP_PASS ?? "";
-const SMTP_FROM = process.env.SMTP_FROM ?? "noreply@dominusnode.com";
+const SMTP_FROM = process.env.SMTP_FROM ?? "0xcircuitbreaker@protonmail.com";
 const SMTP_SECURE = process.env.SMTP_SECURE === "true"; // TLS on connect (port 465)
 const EMAIL_ENABLED = process.env.EMAIL_ENABLED === "true";
 

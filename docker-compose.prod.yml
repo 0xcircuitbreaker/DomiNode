@@ -59,7 +59,7 @@ services:
       SMTP_PORT: ${SMTP_PORT:-587}
       SMTP_USER: ${SMTP_USER:-}
       SMTP_PASS: ${SMTP_PASS:-}
-      SMTP_FROM: ${SMTP_FROM:-noreply@dominusnode.com}
+      SMTP_FROM: ${SMTP_FROM:-0xcircuitbreaker@protonmail.com}
       SMTP_SECURE: ${SMTP_SECURE:-false}
       SMTP_IGNORE_TLS: ${SMTP_IGNORE_TLS:-false}
       APP_URL: ${APP_URL:-https://dominusnode.daedalusdevelopmentgroup.com}

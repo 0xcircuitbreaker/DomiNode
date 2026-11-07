@@ -77,7 +77,7 @@ describe("wallet-auth", () => {
   describe("walletToSyntheticEmail", () => {
     it("should convert address to synthetic email", () => {
       const email = walletToSyntheticEmail("0xD8DA6BF26964AF9D7EED9E03E53415D37AA96045");
-      expect(email).toBe("0xd8da6bf26964af9d7eed9e03e53415d37aa96045@wallet.dominusnode.com");
+      expect(email).toBe("0xd8da6bf26964af9d7eed9e03e53415d37aa96045@wallet.dominusnode.daedalusdevelopmentgroup.com");
     });
 
     it("should lowercase the address", () => {
@@ -88,7 +88,7 @@ describe("wallet-auth", () => {
 
   describe("isWalletEmail", () => {
     it("should detect synthetic wallet emails", () => {
-      expect(isWalletEmail("0xabc@wallet.dominusnode.com")).toBe(true);
+      expect(isWalletEmail("0xabc@wallet.dominusnode.daedalusdevelopmentgroup.com")).toBe(true);
     });
 
     it("should not detect regular emails", () => {
@@ -104,5 +104,15 @@ describe("wallet-auth", () => {
     it("should be 5 minutes", () => {
       expect(WALLET_CHALLENGE_TTL_MS).toBe(5 * 60 * 1000);
     });
+  });
+});
+
+describe("wallet email domain migration", () => {
+  it("recognises both the current and the legacy synthetic wallet domains", async () => {
+    const { isWalletEmail, walletToSyntheticEmail } = await import("./wallet-auth.js");
+    expect(walletToSyntheticEmail("0xABC")).toBe("0xabc@wallet.dominusnode.daedalusdevelopmentgroup.com");
+    expect(isWalletEmail("0xabc@wallet.dominusnode.daedalusdevelopmentgroup.com")).toBe(true);
+    expect(isWalletEmail("0xabc@wallet.dominusnode.com")).toBe(true);
+    expect(isWalletEmail("someone@example.com")).toBe(false);
   });
 });

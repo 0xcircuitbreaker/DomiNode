@@ -161,7 +161,7 @@ describe("proxy-gateway/auth", () => {
     it("should authenticate with a valid proxy session token", async () => {
       const mockUser = {
         id: "wallet-user-1",
-        email: "0xabc@wallet.dominusnode.com",
+        email: "0xabc@wallet.dominusnode.daedalusdevelopmentgroup.com",
         status: "active",
         email_verified: true,
         wallet_address: "0xabc123",
