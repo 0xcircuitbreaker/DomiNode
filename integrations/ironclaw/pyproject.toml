@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=68.0"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -7,7 +7,7 @@ name = "dominusnode-ironclaw"
 version = "2.0.0"
 description = "DominusNode agent relay network tools for IronClaw (19 tools, built on the dominusnode SDK)"
 readme = "README.md"
-license = {text = "MIT"}
+license = "MIT"
 requires-python = ">=3.10"
 dependencies = ["dominusnode>=2.0.0,<3"]
 
