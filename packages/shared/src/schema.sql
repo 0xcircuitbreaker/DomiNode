@@ -1708,3 +1708,11 @@ DO $$ BEGIN
     CHECK (kind IN ('concentration','cluster','circular','report_penalty'));
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
+
+-- ═══════════════════════════════════════════════════════════════════
+-- Launch readiness (docs/agent-network LAUNCH_PLAN §4–§11). Idempotent.
+-- ═══════════════════════════════════════════════════════════════════
+
+-- ─── Operator-run seed nodes (admin flag; reported separately) ──────
+ALTER TABLE nodes ADD COLUMN IF NOT EXISTS operator_run BOOLEAN NOT NULL DEFAULT false;
+CREATE INDEX IF NOT EXISTS idx_nodes_operator_run ON nodes(id) WHERE operator_run;

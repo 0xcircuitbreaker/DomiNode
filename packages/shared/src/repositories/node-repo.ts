@@ -70,6 +70,8 @@ export interface TunnelAuthNode {
   reputation: number;
   /** Burn-report penalty (report-reputation job); effective = reputation - report_penalty. */
   report_penalty?: number;
+  /** Admin-set: operator-run seed node (DESIGN.md §11), reported separately. */
+  operator_run?: boolean;
 }
 
 export interface NodeChallenge {
@@ -298,7 +300,7 @@ export async function getNodeForTunnelAuth(keyHash: string): Promise<TunnelAuthN
             (SELECT tm.team_id FROM team_members tm WHERE tm.user_id = n.owner_user_id
               ORDER BY tm.team_id LIMIT 1) AS owner_team_id,
             n.node_pubkey, n.status, n.attestation_version,
-            n.max_streams, n.max_gb_day, n.max_req_per_sec, n.reputation, n.report_penalty
+            n.max_streams, n.max_gb_day, n.max_req_per_sec, n.reputation, n.report_penalty, n.operator_run
      FROM nodes n
      JOIN users u ON u.id = n.owner_user_id
      WHERE n.node_key_hash = $1

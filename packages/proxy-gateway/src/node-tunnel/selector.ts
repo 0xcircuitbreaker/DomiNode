@@ -23,6 +23,8 @@ export interface SelectOpts {
   port: number;
   sticky?: string;
   excludeNodeIds?: string[];
+  /** Only operator-run seed nodes (starter-credit sessions during month one). */
+  seedOnly?: boolean;
 }
 
 export class NodeSelectionError extends Error {
@@ -90,6 +92,7 @@ export class NodeSelector {
     if (!n.country || this.isSanctioned(n.country, policy)) return false;
     if (o.country && n.country !== o.country.toUpperCase()) return false;
     if (o.ipClass && n.ipClass !== o.ipClass) return false;
+    if (o.seedOnly && n.operatorRun !== true) return false;
     // Self-dealing: owner, wallet, team or the requester's /24.
     if (n.ownerUserId === o.requesterUserId) return false;
     if (o.requesterWallet && n.ownerWallet.toLowerCase() === o.requesterWallet.toLowerCase()) return false;

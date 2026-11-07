@@ -99,11 +99,24 @@ router.get("/network/stats", async (_req: Request, res: Response) => {
   try {
     const now = Date.now();
     if (!statsCache || now - statsCache.at > CACHE_TTL_MS) {
-      const r = await query<{ country: string | null; ip_class: string | null; n: string }>(
-        `SELECT country, ip_class, COUNT(*)::text AS n FROM nodes
+      const r = await query<{ country: string | null; ip_class: string | null; operator_run: boolean | null; n: string }>(
+        `SELECT country, ip_class, operator_run, COUNT(*)::text AS n FROM nodes
          WHERE status = 'active' AND last_seen_at > now() - interval '5 minutes'
-         GROUP BY country, ip_class`,
+         GROUP BY country, ip_class, operator_run`,
       );
+      // Paid traffic in the last 24h, seed (operator-run) vs community. Aggregate only.
+      const t = await query<{ operator_run: boolean | null; bytes: string | null }>(
+        `SELECT n.operator_run, SUM(rc.bytes_gateway)::text AS bytes
+         FROM relay_charges rc JOIN nodes n ON n.id = rc.node_id
+         WHERE rc.created_at > now() - interval '24 hours' AND rc.gross_musd > 0
+         GROUP BY n.operator_run`,
+      );
+      const seed = { online: 0, paidBytes24h: "0" };
+      const community = { online: 0, paidBytes24h: "0" };
+      for (const row of t.rows ?? []) {
+        const b = /^\d{1,20}$/.test(row.bytes ?? "") ? (row.bytes as string) : "0";
+        if (row.operator_run) seed.paidBytes24h = b; else community.paidBytes24h = b;
+      }
       let total = 0;
       let other = 0;
       const byClass: Record<string, number> = {};
@@ -112,6 +125,7 @@ router.get("/network/stats", async (_req: Request, res: Response) => {
         const n = parseInt(row.n, 10);
         if (!Number.isFinite(n) || n <= 0) continue;
         total += n;
+        if (row.operator_run) seed.online += n; else community.online += n;
         const cls = row.ip_class ?? "unknown";
         byClass[cls] = (byClass[cls] ?? 0) + n;
         const c = row.country && !BLOCKED_COUNTRY_CODES.has(row.country) ? row.country : null;
@@ -126,7 +140,7 @@ router.get("/network/stats", async (_req: Request, res: Response) => {
       countries.sort((a, b) => b.online - a.online || a.country.localeCompare(b.country));
       statsCache = {
         at: now,
-        value: { onlineNodes: total, byClass, byCountry: countries, otherCountries: other, generatedAt: new Date(now).toISOString() },
+        value: { onlineNodes: total, byClass, byCountry: countries, otherCountries: other, seed, community, generatedAt: new Date(now).toISOString() },
       };
     }
     setPublicCache(res);
