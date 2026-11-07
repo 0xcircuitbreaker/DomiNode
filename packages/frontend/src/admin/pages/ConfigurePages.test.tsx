@@ -11,6 +11,11 @@ vi.mock("../../api/admin", async (orig) => {
     adminApi: {
       policy: vi.fn(), publishPolicy: vi.fn(), pricing: vi.fn(), setPricing: vi.fn(), split: vi.fn(), addSplit: vi.fn(), tiers: vi.fn(), updateTier: vi.fn(),
     },
+    launchApi: {
+      ...actual.launchApi,
+      discountSettings: vi.fn().mockResolvedValue({ enabled: true, minPlatformMarginBps: 2500, updatedAt: null }),
+      updateDiscountSettings: vi.fn().mockResolvedValue({ updated: {} }),
+    },
   };
 });
 import { adminApi, type NetworkPolicy } from "../../api/admin";
@@ -23,6 +28,7 @@ const body: NetworkPolicy = {
   nodeDefaults: { maxStreams: 32, maxGbDay: 5 }, requesterLimits: { reqPerSec: 20, dailySpendMusd: 50_000_000 },
   sanctionedCountries: ["CU", "IR", "KP", "RU", "SY"], attestation: { minVersion: 1, text: "I agree" },
   plaintext: "opt_in", logRetentionDays: 90, nodeCapsPerPrefix: { per32: 2, per24: 8, perAsn: 500 }, freeTierRelay: false,
+  requireContribution: false, contributionWindowDays: 30, allowAnonymousPayers: true,
 };
 
 beforeEach(() => {
@@ -71,12 +77,14 @@ describe("PolicyPage", () => {
   it("buildPolicy keeps non-numeric input for the server to reject", () => {
     const f = { plaintext: "allow", ports: [443], denyDomains: "A.com\n b.com ", denyCategories: "", categoriesVersion: "1",
       maxStreams: "abc", maxGbDay: "5", reqPerSec: "20", dailySpendUsd: "1.5", per32: "2", per24: "8", perAsn: "500",
-      addCountries: "", attestationMinVersion: "2", attestationText: "t", freeTierRelay: true, logRetentionDays: "30" } as const;
+      addCountries: "", attestationMinVersion: "2", attestationText: "t", freeTierRelay: true, logRetentionDays: "30",
+      requireContribution: true, contributionWindowDays: "14", allowAnonymousPayers: false } as const;
     const p = buildPolicy({ ...f, ports: [443] }, body);
     expect(p.denyDomains).toEqual(["a.com", "b.com"]);
     expect(p.nodeDefaults.maxStreams).toBe("abc");
     expect(p.requesterLimits.dailySpendMusd).toBe(1_500_000);
     expect(p.attestation.minVersion).toBe(2);
+    expect([p.requireContribution, p.contributionWindowDays, p.allowAnonymousPayers]).toEqual([true, 14, false]);
   });
 });
 
@@ -87,7 +95,7 @@ describe("PricingPage", () => {
       { ipClass: "dc", pricePerGbMusd: "3000000", updatedAt: "2026-11-01T00:00:00Z" },
     ] });
     api.split.mockResolvedValue({ current: { id: 1, nodeShareBps: 3000, maturationHours: 72, effectiveFrom: "2026-10-01T00:00:00Z", note: null }, history: [] });
-    api.tiers.mockResolvedValue({ tiers: [{ id: 1, name: "bronze", rank: 1, nodeShareBps: 3000, minTenureDays: 0, minUptimeBps: 0, minActiveIps: 0, minReputation: 0, noClawbackDays: 30, holdDays: 7, maxNodes: 5, dailyWithdrawLimitMusd: "100000000" }] });
+    api.tiers.mockResolvedValue({ tiers: [{ id: 1, name: "bronze", rank: 1, nodeShareBps: 3000, minTenureDays: 0, minUptimeBps: 0, minActiveIps: 0, minReputation: 0, noClawbackDays: 30, holdDays: 7, maxNodes: 5, dailyWithdrawLimitMusd: "100000000", buyerDiscountBps: 500 }] });
   });
 
   it("updates the dc price after confirmation", async () => {
@@ -126,8 +134,8 @@ describe("PricingPage", () => {
   });
 
   it("tier share above 50% is refused", () => {
-    const t = { id: 1, name: "b", rank: 1, nodeShareBps: 3000, minTenureDays: 0, minUptimeBps: 0, minActiveIps: 0, minReputation: 0, noClawbackDays: 0, holdDays: 0, maxNodes: 1, dailyWithdrawLimitMusd: "0" };
-    const vals = { nodeShareBps: "51", minTenureDays: "0", minUptimeBps: "0", minActiveIps: "0", minReputation: "0", noClawbackDays: "0", holdDays: "0", maxNodes: "1", dailyWithdrawLimitMusd: "0" };
+    const t = { id: 1, name: "b", rank: 1, nodeShareBps: 3000, minTenureDays: 0, minUptimeBps: 0, minActiveIps: 0, minReputation: 0, noClawbackDays: 0, holdDays: 0, maxNodes: 1, dailyWithdrawLimitMusd: "0", buyerDiscountBps: 0 };
+    const vals = { nodeShareBps: "51", minTenureDays: "0", minUptimeBps: "0", minActiveIps: "0", minReputation: "0", noClawbackDays: "0", holdDays: "0", maxNodes: "1", dailyWithdrawLimitMusd: "0", buyerDiscountBps: "0" };
     expect(tierPatch(t, vals).error).toMatch(/maximum is 50%/);
     expect(usdToMusd("$1.25")).toBe(1_250_000);
     expect(usdToMusd("1e3")).toBeNull();

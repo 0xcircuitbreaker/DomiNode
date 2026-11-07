@@ -14,6 +14,7 @@ export const NAV: Array<{ to: string; label: string; icon: string; group: string
   { to: "/admin/agents", label: "Agents", group: "Operate", icon: "M17 20h5v-2a3 3 0 00-5.4-1.8M9 20H2v-2a3 3 0 015.4-1.8M15 7a3 3 0 11-6 0 3 3 0 016 0zM12 14a5 5 0 00-5 5v1h10v-1a5 5 0 00-5-5z" },
   { to: "/admin/credits", label: "Credits & Payouts", group: "Operate", icon: "M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" },
   { to: "/admin/disputes", label: "Disputes", group: "Operate", icon: "M3 6l9-3 9 3M3 6v2a9 9 0 0018 0V6M12 3v18" },
+  { to: "/admin/launch", label: "Launch controls", group: "Operate", icon: "M5 19l4-4m0 0l6-6 4 4-6 6-4-4zm6-6l2-7 3 3-5 4z" },
   { to: "/admin/abuse", label: "Abuse log", group: "Operate", icon: "M12 9v4m0 4h.01M10.3 3.9L1.8 18a2 2 0 001.7 3h17a2 2 0 001.7-3L13.7 3.9a2 2 0 00-3.4 0z" },
   { to: "/admin/policy", label: "Policy", group: "Configure", icon: "M9 12l2 2 4-4m5.6-4A12 12 0 0112 3a12 12 0 01-8.6 3A12 12 0 003 9c0 5.6 3.8 10.3 9 11.6 5.2-1.3 9-6 9-11.6 0-1-.1-2-.4-3z" },
   { to: "/admin/pricing", label: "Pricing, Split & Tiers", group: "Configure", icon: "M7 7h.01M7 3h5a2 2 0 011.4.6l7 7a2 2 0 010 2.8l-7 7a2 2 0 01-2.8 0l-7-7A2 2 0 013 12V7a4 4 0 014-4z" },
