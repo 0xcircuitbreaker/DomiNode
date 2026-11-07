@@ -42,6 +42,7 @@ concurrency:
 env:
   DRY_RUN: ${{ github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.dry_run) }}
   GH_REPO: ${{ github.repository }}
+  REPO_PRIVATE: ${{ github.event.repository.private }}
 
 jobs:
   plan:
@@ -132,7 +133,10 @@ jobs:
       - name: Publish
         if: ${{ matrix.pkg.published != true }}
         run: |
-          args=(--provenance --access public --tag "$NPM_DIST_TAG")
+          # Trusted Publishing (OIDC) works from a private repo; provenance does not
+          # ("not supported for private repositories"), so it is added only when public.
+          args=(--access public --tag "$NPM_DIST_TAG")
+          if [ "$REPO_PRIVATE" != "true" ]; then args+=(--provenance); else echo "::notice::private repo: publishing without --provenance"; fi
           if [ "$DRY_RUN" = "true" ]; then args+=(--dry-run); fi
           npm publish "${args[@]}"
       - name: Tag and GitHub Release
@@ -209,7 +213,10 @@ jobs:
       - name: Publish
         if: ${{ matrix.pkg.published != true }}
         run: |
-          args=(--provenance --access public --tag "$NPM_DIST_TAG")
+          # Trusted Publishing (OIDC) works from a private repo; provenance does not
+          # ("not supported for private repositories"), so it is added only when public.
+          args=(--access public --tag "$NPM_DIST_TAG")
+          if [ "$REPO_PRIVATE" != "true" ]; then args+=(--provenance); else echo "::notice::private repo: publishing without --provenance"; fi
           if [ "$DRY_RUN" = "true" ]; then args+=(--dry-run); fi
           npm publish "${args[@]}"
       - name: Tag and GitHub Release
@@ -442,11 +449,14 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: '"$GITHUB_WORKSPACE/scripts/release/github-release.sh" "$PKG_ID" "$PKG_TAG" "$PKG_VERSION" "$PKG_PRERELEASE"'
       - name: Ask proxy.golang.org to fetch the version
-        if: ${{ env.DRY_RUN != 'true' && !github.event.repository.private }}
+        if: ${{ env.DRY_RUN != 'true' && github.event.repository.private == false }}
         continue-on-error: true
         run: |
           GOPROXY=https://proxy.golang.org GOFLAGS=-mod=mod go list -m "$PKG_NAME@v$PKG_VERSION" \
             || echo "::warning::proxy.golang.org has not picked up $PKG_NAME@v$PKG_VERSION yet"
+      - name: Private repo note
+        if: ${{ github.event.repository.private }}
+        run: echo "::warning::repo is private; proxy.golang.org cannot fetch it and 'go get $PKG_NAME' only works for users with GOPRIVATE + git access until the repo is public"
 
   maven:
     name: Maven ${{ matrix.pkg.id }}
