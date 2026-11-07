@@ -8,6 +8,9 @@ import PrivacyPage from "./pages/PrivacyPage";
 import TermsPage from "./pages/TermsPage";
 import AUPPage from "./pages/AUPPage";
 import AdminLayout from "./admin/AdminLayout";
+import LandingPage from "./pages/LandingPage";
+import AbuseReportPage from "./pages/AbuseReportPage";
+import RobotsMeta from "./components/RobotsMeta";
 import { Loading } from "./admin/components/ui";
 
 // Admin pages are lazy so the login bundle stays small.
@@ -29,7 +32,11 @@ const page = (el: React.ReactNode) => <Suspense fallback={<Loading />}>{el}</Sus
 
 export default function App() {
   return (
+    <>
+    <RobotsMeta />
     <Routes>
+      <Route path="/" element={<LandingPage />} />
+      <Route path="/report-abuse" element={<AbuseReportPage />} />
       <Route path="/login" element={<LoginPage />} />
       <Route path="/forgot-password" element={<ForgotPasswordPage />} />
       <Route path="/reset-password" element={<ResetPasswordPage />} />
@@ -53,7 +60,8 @@ export default function App() {
         <Route path="launch" element={page(<LaunchPage />)} />
         <Route path="*" element={<Navigate to="/admin" replace />} />
       </Route>
-      <Route path="*" element={<Navigate to="/admin" replace />} />
+      <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
+    </>
   );
 }

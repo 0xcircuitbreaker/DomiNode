@@ -205,3 +205,141 @@ After the first registration, flag the node: admin panel → Launch controls →
 | `ABUSE_REPORT_POW_DIFFICULTY` | 20 | Leading zero bits for abuse-report PoW |
 
 The SDN list must be installed (and refreshed) on every gateway host before x402/MPP is enabled in production; without it paid requests return `503 PAYER_SCREENING_UNAVAILABLE`. The public status page is served by the API at `/status`; put it behind the same TLS proxy as `/v1`.
+
+## 9. Public product site (DDG subdomain)
+
+`packages/frontend` is a static build: the public landing page at `/`, the
+agent-discovery files, and the admin panel at `/admin` (reachable only by
+typing the path; nothing on the public site links to it). Discovery files are
+described in [DISCOVERY.md](DISCOVERY.md).
+
+### Build
+
+```bash
+VITE_PUBLIC_ORIGIN=https://dominusnode.daedalusdevelopmentgroup.com \
+VITE_API_BASE=https://api.dominusnode.daedalusdevelopmentgroup.com \
+npm run build --workspace=packages/frontend      # -> packages/frontend/dist
+```
+
+`VITE_PUBLIC_ORIGIN` (default `https://dominusnode.daedalusdevelopmentgroup.com`)
+is written into the canonical/OpenGraph tags, `sitemap.xml`, `robots.txt`,
+`llms.txt`, `llms-full.txt`, `docs/*.md` and `.well-known/mcp/server.json` at
+build time. A malformed value fails the build. `VITE_API_BASE` (default `https://api.dominusnode.daedalusdevelopmentgroup.com`) is where the
+landing page fetches `/v1/pricing`, `/v1/network/stats` and `/v1/policy`
+(client-side; the page shows fallback text if they fail), where `/report-abuse`
+posts `POST /v1/abuse-reports` (proof of work solved in the browser), and
+where the "Status" links point (`/status`, `/v1/network/history`). Optional
+`VITE_ABUSE_URL` replaces the in-site abuse form with another URL.
+
+The SDKs, MCP server and node agent still default to `https://api.dominusnode.com`;
+the site's snippets and docs pass `https://api.dominusnode.daedalusdevelopmentgroup.com` explicitly
+(`baseUrl`, `base_url`, `DOMINUSNODE_API_URL`, `DN_NODE_API_URL`).
+
+After editing `public/docs/*.md` or `discovery/generate.mjs`, run
+`node packages/frontend/discovery/generate.mjs` to refresh the committed copies;
+a test fails if they are stale.
+
+### DNS
+
+```
+dominusnode.daedalusdevelopmentgroup.com.      CNAME  <static host target, e.g. your-site.netlify.app.>
+api.dominusnode.daedalusdevelopmentgroup.com.  CNAME  <API host>
+```
+
+Use an A/AAAA record instead of CNAME if the static host is your own VPS.
+
+### Hosting option A: Netlify
+
+`netlify.toml` at the repo root builds the frontend workspace, sets
+`VITE_PUBLIC_ORIGIN`/`VITE_API_BASE`, serves discovery files with explicit
+content types and `Access-Control-Allow-Origin: *`, caches hashed assets for a
+year, adds `X-Robots-Tag: noindex` on `/admin` and `/login`, and falls back to
+`index.html` for SPA routes. Add the subdomain as a custom domain in Netlify.
+
+### Hosting option B: nginx
+
+```nginx
+server {
+  listen 443 ssl http2;
+  server_name dominusnode.daedalusdevelopmentgroup.com;
+  root /srv/dominusnode/frontend/dist;
+
+  types { text/markdown md; }
+  charset utf-8;
+  charset_types text/plain text/markdown application/json text/xml;
+
+  add_header Strict-Transport-Security "max-age=63072000; includeSubDomains" always;
+  add_header X-Content-Type-Options nosniff always;
+  add_header Referrer-Policy strict-origin-when-cross-origin always;
+  add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' https://api.dominusnode.daedalusdevelopmentgroup.com; img-src 'self' data:; frame-ancestors 'none'; base-uri 'self'" always;
+
+  location /assets/ { add_header Cache-Control "public, max-age=31536000, immutable"; try_files $uri =404; }
+  location ~ ^/(llms(-full)?\.txt|robots\.txt|sitemap\.xml|docs/.+\.md|\.well-known/.+\.json)$ {
+    add_header Access-Control-Allow-Origin "*";
+    add_header Cache-Control "public, max-age=3600";
+    try_files $uri =404;
+  }
+  location /admin { add_header X-Robots-Tag "noindex, nofollow" always; try_files $uri /index.html; }
+  location / { add_header Cache-Control "no-cache"; try_files $uri /index.html; }
+}
+```
+
+### Hosting option C: Caddy
+
+```caddy
+dominusnode.daedalusdevelopmentgroup.com {
+  root * /srv/dominusnode/frontend/dist
+  encode zstd gzip
+  @discovery path /llms.txt /llms-full.txt /robots.txt /sitemap.xml /docs/*.md /.well-known/*
+  header @discovery Access-Control-Allow-Origin "*"
+  header @discovery Cache-Control "public, max-age=3600"
+  @md path *.md
+  header @md Content-Type "text/markdown; charset=utf-8"
+  @txt path *.txt
+  header @txt Content-Type "text/plain; charset=utf-8"
+  header /assets/* Cache-Control "public, max-age=31536000, immutable"
+  header /admin* X-Robots-Tag "noindex, nofollow"
+  try_files {path} /index.html
+  file_server
+}
+```
+
+### API origin and CORS
+
+Run the API on its own host, `api.dominusnode.daedalusdevelopmentgroup.com`,
+add the public origin to the API's allowlist, and set `APP_URL` so the
+API-hosted `/llms.txt`, `/.well-known/agent-tool.json` and `/status` link the
+right base:
+
+```
+CORS_ORIGINS=https://dominusnode.daedalusdevelopmentgroup.com
+APP_URL=https://api.dominusnode.daedalusdevelopmentgroup.com
+```
+
+The site calls only public, unauthenticated routes with `credentials: "omit"`:
+`/v1/pricing`, `/v1/network/stats`, `/v1/policy`, and (from `/report-abuse`)
+`POST /v1/abuse-reports/challenge` and `POST /v1/abuse-reports`.
+The site's `/llms.txt` and the API's `/llms.txt` state the same facts; the site
+links to the API's copy (live prices) and its `agent-tool.json`. If the API
+moves, rebuild with the new `VITE_API_BASE` and update the CSP `connect-src`.
+
+### Linking from the DDG site
+
+So existing crawlers and agents find it:
+
+- DDG home page and products/services page: a "DominusNode: relay network for AI
+  agents" card linking to `https://dominusnode.daedalusdevelopmentgroup.com/`.
+- DDG footer: a plain link to the same URL.
+- DDG agent-service pages (anything already describing agent tooling): a
+  "Network egress for your agents" link to `/docs/agents.md` and to the MCP
+  setup at `/docs/mcp.md`.
+- DDG `sitemap.xml`: add the product URL, or a `<sitemap>` entry pointing to
+  `https://dominusnode.daedalusdevelopmentgroup.com/sitemap.xml`.
+- DDG JSON-LD Organization: list the product under `owns` or `makesOffer`.
+- DDG `llms.txt`, under its products section:
+
+```markdown
+## Products
+
+- [DominusNode](https://dominusnode.daedalusdevelopmentgroup.com/llms.txt): decentralized relay network for AI agents; buy egress through agent-contributed IPs with x402/MPP or a prepaid wallet, or run a node and earn. MCP server: @dominusnode/mcp-server.
+```
