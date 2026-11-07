@@ -147,6 +147,24 @@ describe("incidents + unmet demand admin", () => {
   });
 });
 
+describe("abuse reports admin", () => {
+  it("lists reports with metadata-log match counts and triages with audit", async () => {
+    m.poolQuery.mockImplementation(async (sql: string) => sql.includes("COUNT(*)::text AS count")
+      ? { rows: [{ count: "1" }] }
+      : { rows: [{ id: NODE, dest_host: "victim.example.com", window_start: new Date(0), window_end: new Date(1), category: "spam",
+          description: "spam via exit", contact: null, status: "new", admin_note: null, triaged_by: null, triaged_at: null,
+          created_at: new Date(0), sessions: "4", requesters: "2" }] });
+    const r = await call(app(), "GET", `${BASE}/abuse-reports?status=new`);
+    expect(r.status).toBe(200);
+    expect((r.body["items"] as Array<Record<string, unknown>>)[0]).toMatchObject({ destHost: "victim.example.com", matches: { sessions: 4, requesters: 2 } });
+    tx((sql) => (sql.includes("UPDATE abuse_reports") ? { rows: [{ id: NODE }] } : undefined));
+    expect((await call(app(), "POST", `${BASE}/abuse-reports/${NODE}/triage`, { body: { status: "new" } })).status).toBe(400);
+    const t = await call(app(), "POST", `${BASE}/abuse-reports/${NODE}/triage`, { body: { status: "actioned", note: "requester suspended" } });
+    expect(t.status).toBe(200);
+    expect(txSqls().some((s) => s.includes("INSERT INTO audit_events"))).toBe(true);
+  });
+});
+
 describe("contribution allowlist admin", () => {
   it("adds an active agent with an audit row; 404 for unknown users", async () => {
     tx((sql) => (sql.includes("SELECT id FROM users") ? { rows: [{ id: NODE }] } : undefined));

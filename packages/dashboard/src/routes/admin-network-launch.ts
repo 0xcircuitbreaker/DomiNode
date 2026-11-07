@@ -428,6 +428,57 @@ router.get("/unmet-demand", async (req: Request, res: Response) => {
   } catch (err) { fail(res, err, "Unmet demand"); }
 });
 
+// ─── Abuse reports (public intake → admin triage) ───────────────────
+
+const REPORT_STATUSES = ["new", "triaged", "actioned", "dismissed"] as const;
+
+router.get("/abuse-reports", async (req: Request, res: Response) => {
+  try {
+    const { limit, offset } = page(req);
+    const status = enumParam(req, "status", REPORT_STATUSES) ?? null;
+    const where = `WHERE ($1::text IS NULL OR r.status = $1)`;
+    const [rows, total] = await Promise.all([
+      q<{ id: string; dest_host: string; window_start: Date; window_end: Date; category: string; description: string; contact: string | null;
+          status: string; admin_note: string | null; triaged_by: string | null; triaged_at: Date | null; created_at: Date;
+          sessions: string; requesters: string }>(
+        // Matching metadata-only relay log rows (same host, inside the window), for triage.
+        `SELECT r.id, r.dest_host, r.window_start, r.window_end, r.category, r.description, r.contact, r.status, r.admin_note,
+                r.triaged_by, r.triaged_at, r.created_at,
+                (SELECT COUNT(*) FROM relay_abuse_log l WHERE l.dest_host = r.dest_host AND l.ts BETWEEN r.window_start AND r.window_end)::text AS sessions,
+                (SELECT COUNT(DISTINCT l.requester_user_id) FROM relay_abuse_log l WHERE l.dest_host = r.dest_host AND l.ts BETWEEN r.window_start AND r.window_end)::text AS requesters
+         FROM abuse_reports r ${where} ORDER BY r.created_at DESC, r.id LIMIT $2 OFFSET $3`, [status, limit, offset]),
+      q<{ count: string }>(`SELECT COUNT(*)::text AS count FROM abuse_reports r ${where}`, [status]),
+    ]);
+    res.json({
+      limit, offset, total: Number(total.rows[0]?.count ?? 0),
+      items: rows.rows.map((r) => ({
+        id: r.id, destHost: r.dest_host, windowStart: r.window_start, windowEnd: r.window_end, category: r.category,
+        description: r.description, contact: r.contact, status: r.status, adminNote: r.admin_note, triagedBy: r.triaged_by,
+        triagedAt: r.triaged_at, createdAt: r.created_at,
+        matches: { sessions: Number(r.sessions), requesters: Number(r.requesters) },
+      })),
+    });
+  } catch (err) { fail(res, err, "Abuse report list"); }
+});
+
+// POST /abuse-reports/:id/triage {status, note?}
+router.post("/abuse-reports/:id/triage", async (req: Request, res: Response) => {
+  try {
+    const id = idParam(req);
+    const b = body(req);
+    const status = oneOf(b["status"], "status", ["triaged", "actioned", "dismissed"] as const);
+    const note = optText(b["note"], "note", 2000);
+    await withAdminTx(adminId(req), async (c) => {
+      const r = await c.query<{ id: string }>(
+        `UPDATE abuse_reports SET status = $2, admin_note = COALESCE($3, admin_note), triaged_by = $4, triaged_at = now()
+         WHERE id = $1 RETURNING id`, [id, status, note, adminId(req)]);
+      if (!r.rows[0]) throw new HttpError(404, "Report not found");
+      await audit(c, req, "abuse_report_triage", "abuse_report", id, { status, note });
+    });
+    res.json({ id, status });
+  } catch (err) { fail(res, err, "Abuse report triage"); }
+});
+
 // ─── Contribution allowlist (policy.requireContribution) ────────────
 
 router.get("/contribution-allowlist", async (req: Request, res: Response) => {

@@ -1905,3 +1905,27 @@ CREATE TABLE IF NOT EXISTS unmet_demand_hourly (
   PRIMARY KEY (hour, country, ip_class)
 );
 CREATE INDEX IF NOT EXISTS idx_unmet_demand_hour ON unmet_demand_hourly(hour);
+
+-- ─── Public abuse-report intake (PoW gated, no account) ─────────────
+-- Stores the destination host, the time window and a description only; no
+-- reporter IP. Triage cross-references relay_abuse_log (metadata-only).
+CREATE TABLE IF NOT EXISTS abuse_reports (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  dest_host       TEXT NOT NULL CHECK (length(dest_host) BETWEEN 1 AND 253),
+  window_start    TIMESTAMPTZ NOT NULL,
+  window_end      TIMESTAMPTZ NOT NULL,
+  category        TEXT NOT NULL DEFAULT 'other' CHECK (category IN ('spam','credential_stuffing','scraping','fraud','ddos','illegal_content','other')),
+  description     TEXT NOT NULL CHECK (length(description) BETWEEN 10 AND 4000),
+  contact         TEXT CHECK (contact IS NULL OR length(contact) <= 254),
+  status          TEXT NOT NULL DEFAULT 'new' CHECK (status IN ('new','triaged','actioned','dismissed')),
+  admin_note      TEXT CHECK (admin_note IS NULL OR length(admin_note) <= 2000),
+  triaged_by      UUID REFERENCES users(id) ON DELETE SET NULL,
+  triaged_at      TIMESTAMPTZ,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT chk_abuse_window CHECK (window_end >= window_start AND window_end - window_start <= interval '31 days')
+);
+CREATE INDEX IF NOT EXISTS idx_abuse_reports_status ON abuse_reports(status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_abuse_reports_host ON abuse_reports(dest_host, created_at);
+INSERT INTO data_retention_policies (table_name, retention_days, description) VALUES
+  ('abuse_reports', 365, 'Closed (actioned/dismissed) public abuse reports purged after 1 year')
+ON CONFLICT (table_name) DO NOTHING;

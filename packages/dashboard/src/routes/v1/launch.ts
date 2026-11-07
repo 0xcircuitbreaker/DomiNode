@@ -1,6 +1,7 @@
 import { Router } from "express";
 import type { Request, Response } from "express";
-import { createLogger, starterCreditRepo, networkStatusRepo } from "@dominusnode/shared";
+import * as crypto from "node:crypto";
+import { createLogger, query, starterCreditRepo, networkStatusRepo, powChallengeRepo, verifyPow } from "@dominusnode/shared";
 import { requireAgentPrincipal, type AgentRequest } from "../../middleware/agent.js";
 import { money } from "./credits.js";
 import { createKeyedLimiter } from "./limiter.js";
@@ -99,6 +100,117 @@ router.get("/network/wanted", async (req: Request, res: Response) => {
   } catch (err) {
     log.error("wanted list failed", { error: err instanceof Error ? err.message : String(err) });
     res.status(503).json({ error: "Wanted list unavailable" });
+  }
+});
+
+// ─── Public abuse-report intake (PoW gated, captcha-free) ───────────
+
+const _ad = Number(process.env["ABUSE_REPORT_POW_DIFFICULTY"] ?? "20");
+export const ABUSE_POW_DIFFICULTY = Number.isInteger(_ad) && _ad >= 10 && _ad <= 32 ? _ad : 20;
+const abuseChallengeLimiter = createKeyedLimiter(20, 60 * 60_000);
+const abuseSubmitLimiter = createKeyedLimiter(5, 60 * 60_000);
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const HOST_RE = /^(?=.{1,253}$)(?!-)[a-z0-9-]{1,63}(?<!-)(\.(?!-)[a-z0-9-]{1,63}(?<!-))+$/;
+const ABUSE_CATEGORIES = ["spam", "credential_stuffing", "scraping", "fraud", "ddos", "illegal_content", "other"] as const;
+const CONTROL = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/;
+
+// POST /v1/abuse-reports/challenge — a single-use proof-of-work puzzle
+router.post("/abuse-reports/challenge", async (req: Request, res: Response) => {
+  const ip = req.ip;
+  if (!ip) {
+    res.status(400).json({ error: "Unable to determine client IP" });
+    return;
+  }
+  if (!abuseChallengeLimiter.hit(ip)) {
+    res.status(429).json({ error: "Too many challenge requests. Try again later.", code: "RATE_LIMITED" });
+    return;
+  }
+  try {
+    if ((await powChallengeRepo.countActiveChallengesForIp(ip)) >= 5) {
+      res.status(429).json({ error: "Too many pending challenges. Try again later.", code: "RATE_LIMITED" });
+      return;
+    }
+    const pow = await powChallengeRepo.createChallenge(crypto.randomBytes(16).toString("hex"), ABUSE_POW_DIFFICULTY, ip);
+    res.json({
+      challengeId: pow.id, prefix: pow.prefix, difficulty: pow.difficulty, algorithm: "sha256",
+      rule: "find nonce (<= 32 chars) so that sha256(prefix + nonce) has `difficulty` leading zero bits",
+      expiresAt: new Date(pow.created_at.getTime() + powChallengeRepo.POW_CHALLENGE_TTL_MS).toISOString(),
+    });
+  } catch (err) {
+    log.error("abuse challenge failed", { error: err instanceof Error ? err.message : String(err) });
+    res.status(500).json({ error: "Failed to create challenge" });
+  }
+});
+
+export interface AbuseReportInput {
+  destHost: string; windowStart: Date; windowEnd: Date; category: string; description: string; contact: string | null;
+}
+
+/** Validate a report body (exported for tests). Returns an error string or the parsed input. */
+export function parseAbuseReport(b: Record<string, unknown>, now = Date.now()): AbuseReportInput | string {
+  const allowed = new Set(["pow", "destHost", "windowStart", "windowEnd", "category", "description", "contact"]);
+  for (const k of Object.keys(b)) if (!allowed.has(k)) return `${k.slice(0, 40)}: unknown field`;
+  const host = typeof b["destHost"] === "string" ? b["destHost"].trim().toLowerCase().replace(/\.$/, "") : "";
+  if (!HOST_RE.test(host) || /^[0-9.]+$/.test(host)) return "destHost must be a bare hostname (no scheme, path, port or IP)";
+  const ws = new Date(String(b["windowStart"] ?? ""));
+  const we = new Date(String(b["windowEnd"] ?? ""));
+  if (Number.isNaN(ws.getTime()) || Number.isNaN(we.getTime())) return "windowStart and windowEnd must be ISO dates";
+  if (we < ws) return "windowEnd must not be before windowStart";
+  if (we.getTime() - ws.getTime() > 31 * 86_400_000) return "time window must be at most 31 days";
+  if (ws.getTime() < now - 365 * 86_400_000 || we.getTime() > now + 3_600_000) return "time window must be within the last year";
+  const category = b["category"] === undefined ? "other" : String(b["category"]);
+  if (!(ABUSE_CATEGORIES as readonly string[]).includes(category)) return `category must be one of ${ABUSE_CATEGORIES.join("|")}`;
+  const description = typeof b["description"] === "string" ? b["description"].trim() : "";
+  if (description.length < 10 || description.length > 4000 || CONTROL.test(description)) return "description must be 10-4000 printable chars";
+  let contact: string | null = null;
+  if (b["contact"] !== undefined && b["contact"] !== null && b["contact"] !== "") {
+    if (typeof b["contact"] !== "string" || b["contact"].length > 254 || CONTROL.test(b["contact"])) return "contact must be at most 254 printable chars";
+    contact = b["contact"].trim();
+  }
+  return { destHost: host, windowStart: ws, windowEnd: we, category, description, contact };
+}
+
+// POST /v1/abuse-reports {pow:{challengeId, nonce}, destHost, windowStart, windowEnd, category?, description, contact?}
+router.post("/abuse-reports", async (req: Request, res: Response) => {
+  const ip = req.ip;
+  if (!ip) {
+    res.status(400).json({ error: "Unable to determine client IP" });
+    return;
+  }
+  const b = (req.body && typeof req.body === "object" && !Array.isArray(req.body) ? req.body : {}) as Record<string, unknown>;
+  const pow = (b["pow"] && typeof b["pow"] === "object" ? b["pow"] : {}) as Record<string, unknown>;
+  const powId = typeof pow["challengeId"] === "string" ? pow["challengeId"] : "";
+  const powNonce = typeof pow["nonce"] === "string" || typeof pow["nonce"] === "number" ? String(pow["nonce"]) : "";
+  if (!UUID_RE.test(powId) || !powNonce || powNonce.length > 32) {
+    res.status(400).json({ error: "A proof-of-work solution is required (POST /v1/abuse-reports/challenge)", code: "POW_REQUIRED" });
+    return;
+  }
+  const parsed = parseAbuseReport(b);
+  if (typeof parsed === "string") {
+    res.status(400).json({ error: parsed });
+    return;
+  }
+  if (!abuseSubmitLimiter.hit(ip)) {
+    res.status(429).json({ error: "Too many reports from this address. Try again later.", code: "RATE_LIMITED" });
+    return;
+  }
+  try {
+    // Consume the single-use challenge BEFORE checking the solution (no retries on one puzzle).
+    const row = await powChallengeRepo.consumeChallenge(powId, ip);
+    if (!row || row.difficulty < ABUSE_POW_DIFFICULTY || !verifyPow(row.prefix, powNonce, row.difficulty)) {
+      res.status(400).json({ error: "Invalid or expired proof-of-work solution", code: "POW_INVALID" });
+      return;
+    }
+    const ins = await query<{ id: string; created_at: Date }>(
+      `INSERT INTO abuse_reports (dest_host, window_start, window_end, category, description, contact)
+       VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, created_at`,
+      [parsed.destHost, parsed.windowStart.toISOString(), parsed.windowEnd.toISOString(), parsed.category, parsed.description, parsed.contact],
+    );
+    log.info("abuse report received", { id: ins.rows[0]?.id, category: parsed.category });
+    res.status(201).json({ id: ins.rows[0]?.id, status: "new", receivedAt: ins.rows[0]?.created_at, responseTarget: "24h" });
+  } catch (err) {
+    log.error("abuse report insert failed", { error: err instanceof Error ? err.message : String(err) });
+    res.status(500).json({ error: "Failed to store report" });
   }
 });
 
