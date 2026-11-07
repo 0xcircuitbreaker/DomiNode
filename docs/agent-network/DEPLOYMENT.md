@@ -3,6 +3,43 @@
 Short operator guide for the coordinator signing key, node-agent pin
 embedding, the ASN database and the tunnel ingress. See DESIGN.md §2, §4, §11.
 
+## 0. Hostname plan
+
+DominusNode ships as a Daedalus Development Group product. Every SDK, the MCP
+server, the node agent, the extension and the integrations default to these
+hosts; each stays overridable through its existing env/config option
+(`DOMINUSNODE_API_URL`, `DOMINUSNODE_PROXY_HOST`, `DN_NODE_API_URL`,
+`DN_NODE_GATEWAY_URL`, `baseUrl`/`proxyHost` client options, and so on).
+
+| Host | Serves | Points to | Ports | TLS |
+|------|--------|-----------|-------|-----|
+| `dominusnode.daedalusdevelopmentgroup.com` | Public site and admin dashboard (`packages/frontend`) | Static host (Netlify) or the frontend container behind Caddy/nginx | 443 (80 redirects) | Host-managed or Caddy ACME cert for this name |
+| `api.dominusnode.daedalusdevelopmentgroup.com` | REST API (`packages/dashboard`): `/v1`, `/api`, `/.well-known/*`, `/status` | Caddy (`infra/caddy/Caddyfile`) -> `api:3000` | 443 | Caddy ACME (HTTP-01/TLS-ALPN) |
+| `proxy.dominusnode.daedalusdevelopmentgroup.com` | Relay gateway front end (`packages/proxy-gateway`) | Gateway host public IP, ports exposed directly (not via an HTTP reverse proxy) | 8080 HTTP proxy, 1080 SOCKS5, 8443 TLS proxy (`PROXY_TLS_PORT`) | Gateway terminates TLS on 8443 with `PROXY_TLS_CERT_FILE`/`PROXY_TLS_KEY_FILE`; cert issued via DNS-01 since 80/443 may not be on this host |
+| `relay.dominusnode.daedalusdevelopmentgroup.com` | Node tunnel, `wss://relay.dominusnode.daedalusdevelopmentgroup.com/v1/tunnel` | Gateway host; :443 via Caddy layer4 SNI passthrough (§5 Option A) to `TUNNEL_PORT`, or `TUNNEL_PORT` exposed directly (Option B) | 443 | End-to-end TLS terminated by the gateway (`TUNNEL_TLS_CERT_FILE`/`TUNNEL_TLS_KEY_FILE`), never by Caddy, so channel binding holds |
+
+DNS records (in the `daedalusdevelopmentgroup.com` zone):
+
+- `dominusnode` CNAME to the static host (or A/AAAA to the web server).
+- `api.dominusnode` A/AAAA to the API/Caddy host.
+- `proxy.dominusnode` A/AAAA to the gateway host.
+- `relay.dominusnode` A/AAAA to the gateway host (or the Caddy layer4 host in
+  front of it).
+- Optional CAA record restricting issuance to the chosen CA.
+
+Notes:
+
+- `TUNNEL_PORT` defaults to 8443, the same port as the TLS proxy. When both run
+  on one gateway, set `TUNNEL_PORT` to another port (e.g. 9443) and route
+  `relay.` SNI on :443 to it.
+- One certificate with SANs for `proxy.` and `relay.` may be reused by both
+  gateway listeners.
+- Dashboard env for this plan: `APP_URL=https://dominusnode.daedalusdevelopmentgroup.com`,
+  `CORS_ORIGINS=https://dominusnode.daedalusdevelopmentgroup.com`,
+  `DOMINUSNODE_DOMAIN=dominusnode.daedalusdevelopmentgroup.com` (SIWE domain),
+  `PROXY_PUBLIC_HOST=proxy.dominusnode.daedalusdevelopmentgroup.com`.
+
+
 ## 1. Coordinator signing key
 
 The gateway signs every tunnel CHALLENGE with an ed25519 key. Node agents
@@ -104,7 +141,7 @@ header:
 {
   layer4 {
     :443 {
-      @tunnel tls sni relay.example.com
+      @tunnel tls sni relay.dominusnode.daedalusdevelopmentgroup.com
       route @tunnel {
         proxy {
           proxy_protocol v2
@@ -159,10 +196,10 @@ Clients:
 - Node SDK: `new DominusNodeClient({ proxyHost, gatewayTls: true })`
   (port 8443) or `gatewayTls: { port, ca }`. `proxy.fetch` uses TLS and
   `buildUrl` returns `https://...`. Other SDKs: follow-up (SDK_SURFACE.md §5).
-- MCP server: `DOMINUSNODE_PROXY_URL=https://proxy.example.com:8443`
+- MCP server: `DOMINUSNODE_PROXY_URL=https://proxy.dominusnode.daedalusdevelopmentgroup.com:8443`
   (optional `DOMINUSNODE_PROXY_CA_FILE` for a private CA). Preferred over
   `DOMINUSNODE_HTTP_PROXY_PORT` when set.
-- curl: `curl -x https://relay:$KEY@proxy.example.com:8443 https://example.com`.
+- curl: `curl -x https://relay:$KEY@proxy.dominusnode.daedalusdevelopmentgroup.com:8443 https://example.com`.
 
 ## 7. Seed nodes (operator-run)
 
