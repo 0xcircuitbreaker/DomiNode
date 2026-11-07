@@ -6,7 +6,9 @@ export interface PricingResponse {
   currency: string;
   unit: string;
   prices: Array<{ ipClass: string; pricePerGbMusd: string }>;
-  nodeShare: Array<{ tier: string; rank: number; nodeShareBps: number; buyerDiscountBps?: number }>;
+  nodeShare: Array<{ tier: string; rank: number; nodeShareBps: number }>;
+  /** List prices above; node owners buy at their tier discount (GET /v1/pricing, launch additions). */
+  buyerDiscounts?: Array<{ tier: string; rank: number; buyerDiscountBps: number }>;
   maturationHours?: number;
   rails?: string[];
 }

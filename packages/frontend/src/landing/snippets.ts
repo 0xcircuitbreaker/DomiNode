@@ -13,7 +13,10 @@ export const SNIPPETS: Snippet[] = [
     "dominusnode": {
       "command": "npx",
       "args": ["-y", "@dominusnode/mcp-server"],
-      "env": { "DOMINUSNODE_API_KEY": "dn_live_YOUR_KEY" }
+      "env": {
+        "DOMINUSNODE_API_KEY": "dn_live_YOUR_KEY",
+        "DOMINUSNODE_API_URL": "${API_BASE}"
+      }
     }
   }
 }
@@ -55,7 +58,7 @@ curl -x "http://${PROXY_HOST}:8080" \\
 import os
 from dominusnode import DominusNodeClient
 
-with DominusNodeClient() as dn:
+with DominusNodeClient(base_url="${API_BASE}") as dn:
     dn.connect_with_key(os.environ["DOMINUSNODE_API_KEY"])
     print(dn.network.pricing())  # live per-GB prices
     res = dn.proxy.fetch("https://example.com", country="US", ip_class="residential")
@@ -68,7 +71,7 @@ with DominusNodeClient() as dn:
     code: `// npm install @dominusnode/sdk
 import { DominusNodeClient } from "@dominusnode/sdk";
 
-const dn = new DominusNodeClient();
+const dn = new DominusNodeClient({ baseUrl: "${API_BASE}" });
 await dn.connectWithKey(process.env.DOMINUSNODE_API_KEY!);
 const res = await dn.proxy.fetch("https://example.com/", { country: "DE", sessionId: "job42" });
 console.log(res.status, res.text().slice(0, 200));`,
@@ -80,6 +83,7 @@ console.log(res.status, res.text().slice(0, 200));`,
     code: `git clone ${GITHUB_URL}.git && cd DomiNode
 npm ci && npm run build -w @dominusnode/shared -w @dominusnode/node-agent
 export DN_API_KEY=dn_live_YOUR_KEY   # env only, never an argument
+export DN_NODE_API_URL=${API_BASE}
 # Wallet key in a 0600 file; registration signs a consent attestation
 node packages/node-agent/dist/src/main.js register --wallet-key-file ~/.dominusnode/wallet.key
 # Dials OUT to the gateway (no inbound ports). Limits can only tighten:

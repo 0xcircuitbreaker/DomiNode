@@ -67,6 +67,7 @@ describe("LandingPage", () => {
         currency: "USD", unit: "musd_per_gb",
         prices: [{ ipClass: "residential", pricePerGbMusd: "123000" }],
         nodeShare: [{ tier: "partner", rank: 5, nodeShareBps: 5000 }, { tier: "probation", rank: 0, nodeShareBps: 2500 }],
+        buyerDiscounts: [{ tier: "partner", rank: 5, buyerDiscountBps: 2500 }, { tier: "probation", rank: 0, buyerDiscountBps: 0 }],
         rails: ["x402", "wallet"],
       });
       if (u.endsWith("/v1/network/stats")) return textRes({ onlineNodes: 42, byClass: { dc: 30 }, byCountry: [{ country: "US", online: 9 }], otherCountries: 3, generatedAt: "" });
@@ -76,6 +77,9 @@ describe("LandingPage", () => {
     const pricing = await screen.findByTestId("live-pricing");
     expect(within(pricing).getByText("$0.12")).toBeInTheDocument();
     expect(within(pricing).getByText("50%")).toBeInTheDocument();
+    expect(within(pricing).getByRole("columnheader", { name: "Buyer discount" })).toBeInTheDocument();
+    expect(within(pricing).getByText("0%")).toBeInTheDocument();
+    expect(within(pricing).getAllByText("25%")).toHaveLength(2); // probation share + partner discount
     expect(within(await screen.findByTestId("live-stats")).getByText("42")).toBeInTheDocument();
     expect(within(await screen.findByTestId("live-policy")).getByText(/Ports 25/)).toBeInTheDocument();
   });

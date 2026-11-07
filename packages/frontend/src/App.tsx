@@ -9,6 +9,7 @@ import TermsPage from "./pages/TermsPage";
 import AUPPage from "./pages/AUPPage";
 import AdminLayout from "./admin/AdminLayout";
 import LandingPage from "./pages/LandingPage";
+import AbuseReportPage from "./pages/AbuseReportPage";
 import RobotsMeta from "./components/RobotsMeta";
 import { Loading } from "./admin/components/ui";
 
@@ -35,6 +36,7 @@ export default function App() {
     <RobotsMeta />
     <Routes>
       <Route path="/" element={<LandingPage />} />
+      <Route path="/report-abuse" element={<AbuseReportPage />} />
       <Route path="/login" element={<LoginPage />} />
       <Route path="/forgot-password" element={<ForgotPasswordPage />} />
       <Route path="/reset-password" element={<ResetPasswordPage />} />

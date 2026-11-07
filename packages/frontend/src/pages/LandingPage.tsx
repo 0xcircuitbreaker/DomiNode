@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import ThemeToggle from "../components/ThemeToggle";
 import { SNIPPETS } from "../landing/snippets";
 import {
-  API_BASE, ABUSE_URL, DDG_URL, DOCS_URL, GITHUB_URL, PUBLIC_ORIGIN, STATUS_URL,
+  API_BASE, ABUSE_URL, API_LLMS_URL, DDG_URL, DOCS_URL, GITHUB_URL, HISTORY_URL, PUBLIC_ORIGIN, STATUS_URL,
 } from "../landing/site";
 import {
   bpsToPct, isPolicy, isPricing, isStats, musdToUsd, usePublic,
@@ -36,12 +36,12 @@ function Card({ title, children }: { title: string; children: ReactNode }) {
 }
 
 const Code = ({ children }: { children: ReactNode }) => (
-  <code className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[0.85em] text-slate-800 dark:bg-slate-800 dark:text-slate-100">{children}</code>
+  <code className="[overflow-wrap:anywhere] rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[0.85em] text-slate-800 dark:bg-slate-800 dark:text-slate-100">{children}</code>
 );
 
 function Fallback({ what, path }: { what: string; path: string }) {
   return (
-    <p className="text-sm text-slate-600 dark:text-slate-400" role="status">
+    <p className="text-sm text-slate-600 dark:text-slate-400 [overflow-wrap:anywhere]" role="status">
       Live {what} is unavailable right now. Query <a className="underline" href={`${API_BASE}${path}`}>{`GET ${path}`}</a> directly
       or ask the MCP server (<Code>dominusnode_network_{what === "pricing" ? "pricing" : what === "policy" ? "policy" : "stats"}</Code>).
     </p>
@@ -53,13 +53,14 @@ function LivePricing() {
   if (p.state === "loading") return <p className="text-sm text-slate-500" role="status">Loading live pricing…</p>;
   if (p.state === "error") return <Fallback what="pricing" path="/v1/pricing" />;
   const { prices, nodeShare, rails } = p.data;
-  const hasDiscount = nodeShare.some((t) => typeof t.buyerDiscountBps === "number");
+  const discounts = new Map((p.data.buyerDiscounts ?? []).map((d) => [d.tier, d.buyerDiscountBps]));
+  const hasDiscount = discounts.size > 0;
   return (
     <div className="space-y-5" data-testid="live-pricing">
       <ul className="grid gap-3 sm:grid-cols-3">
         {prices.map((x) => (
           <li key={x.ipClass} className="rounded-xl border border-slate-200 p-4 dark:border-slate-800">
-            <p className="text-xs uppercase tracking-wide text-slate-500">{x.ipClass}</p>
+            <p className="text-xs uppercase tracking-wide text-slate-500">{x.ipClass} · list</p>
             <p className="text-2xl font-extrabold">{musdToUsd(x.pricePerGbMusd) ?? "?"}<span className="text-sm font-medium text-slate-500"> / GB</span></p>
           </li>
         ))}
@@ -67,14 +68,14 @@ function LivePricing() {
       {nodeShare.length > 0 && (
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
-            <caption className="text-left text-xs text-slate-500 pb-2">Contributor tiers (live)</caption>
+            <caption className="text-left text-xs text-slate-500 pb-2">Contributor tiers (live): share of each paid GB they carry, and discount on what they buy</caption>
             <thead><tr className="text-left text-slate-500"><th className="py-1 pr-4">Tier</th><th className="py-1 pr-4">Node share</th>{hasDiscount && <th className="py-1">Buyer discount</th>}</tr></thead>
             <tbody>
               {[...nodeShare].sort((a, b) => a.rank - b.rank).map((t) => (
                 <tr key={t.tier} className="border-t border-slate-200 dark:border-slate-800">
                   <td className="py-1.5 pr-4 capitalize">{t.tier}</td>
                   <td className="py-1.5 pr-4">{bpsToPct(t.nodeShareBps)}</td>
-                  {hasDiscount && <td className="py-1.5">{typeof t.buyerDiscountBps === "number" ? bpsToPct(t.buyerDiscountBps) : "—"}</td>}
+                  {hasDiscount && <td className="py-1.5">{discounts.has(t.tier) ? bpsToPct(discounts.get(t.tier)!) : "—"}</td>}
                 </tr>
               ))}
             </tbody>
@@ -198,7 +199,7 @@ export default function LandingPage() {
               <p>Send a request without credentials and the gateway answers <Code>402</Code> with payment requirements. Pay with an x402 or MPP (Tempo) client and retry with the proof. No account is needed; the paid amount caps that request's bytes.</p>
             </Card>
             <Card title="Prepaid wallet">
-              <p>Sign in with a wallet signature, get a <Code>dn_live_</Code> API key, and top up with crypto (Tempo or NOWPayments). Usage is billed per GB at the live price for the exit's IP class.</p>
+              <p>Sign in with a wallet signature, get a <Code>dn_live_</Code> API key, and top up with crypto (Tempo or NOWPayments). Usage is billed per GB at the live price for the exit's IP class, minus your tier discount if you run a node.</p>
             </Card>
             <Card title="One gateway, three protocols">
               <p>HTTP proxy on <Code>:8080</Code>, SOCKS5 on <Code>:1080</Code>, and a TLS proxy listener so credentials never cross the wire in clear. HTTPS stays end-to-end TLS between you and the origin.</p>
@@ -222,12 +223,12 @@ export default function LandingPage() {
               <p>Register with a signed consent attestation, then run <Code>node-agent</Code> on the connection you control. It dials out to the gateway, so no inbound ports are opened.</p>
             </Card>
             <Card title="Tiers: Probation → Partner">
-              <p>Your node share rises from 25% at Probation to 50% at Partner with paid tenure, uptime, active IPs and reputation. Contributor buyer discounts on their own bandwidth (0% at Probation up to 25% at Partner) appear in the live tier table once the operator publishes them.</p>
+              <p>Contribute IPs to climb tiers: earn more and buy cheaper. Your node share rises from 25% at Probation to 50% at Partner, and your own relay purchases get 0% up to 25% off list price. Tiers follow paid tenure, uptime, active IPs and reputation.</p>
               <p>Only matured, undisputed paid traffic from other principals counts. Self-dealing earns nothing.</p>
             </Card>
             <Card title="Maturity holds and payouts">
               <p>Earnings are held 3–14 days depending on tier so fraud can be clawed back, then become available credit.</p>
-              <p>Today, available credit converts into bandwidth on your own wallet. USDC withdrawals on Base are built and switch on when the operator enables payouts; until then the API answers <Code>PAYOUTS_DISABLED</Code>.</p>
+              <p>Today, available credit converts into bandwidth on your own wallet. USDC withdrawals on Base are built but stay off until the operator enables payouts; until then the API answers <Code>PAYOUTS_DISABLED</Code>.</p>
             </Card>
           </div>
         </Section>
@@ -253,7 +254,7 @@ export default function LandingPage() {
             <h3 className="mb-3 font-bold">Current policy</h3>
             <LivePolicy />
           </div>
-          <p className="mt-4 text-sm text-slate-600 dark:text-slate-400">Seen abuse from a DominusNode exit? <a className={link} href={ABUSE_URL}>Report it</a> with the time and the IP; the metadata log lets us trace and suspend the requesting agent.</p>
+          <p className="mt-4 text-sm text-slate-600 dark:text-slate-400">Seen abuse from a DominusNode exit? <a className={link} href={ABUSE_URL}>Report it</a> with the target host and time window, no account needed. The metadata log lets the operator trace and suspend the requesting agent. Network health: <a className={link} href={STATUS_URL}>status page</a> and <a className={link} href={HISTORY_URL}>hourly history</a>.</p>
         </Section>
 
         <Section id="integrations" eyebrow="Integrate" title="MCP, six SDKs, 27 frameworks">
@@ -278,6 +279,7 @@ export default function LandingPage() {
             <a className={link} href={GITHUB_URL}>GitHub</a>
             <a className={link} href={DOCS_URL}>Docs</a>
             <a className={link} href="/llms.txt">llms.txt</a>
+            <a className={link} href={API_LLMS_URL}>API llms.txt</a>
             <a className={link} href={STATUS_URL}>API status</a>
             <a className={link} href={ABUSE_URL}>Report abuse</a>
             <a className={link} href="/terms">Terms</a>
