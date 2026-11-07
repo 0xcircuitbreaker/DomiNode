@@ -14,6 +14,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ### Added
 - `dominusnode_network_policy`, `dominusnode_network_pricing`, `dominusnode_network_stats`.
 - `dominusnode_node_register_challenge`, `dominusnode_node_register`, `dominusnode_node_list`, `dominusnode_node_revoke`, `dominusnode_node_tier`, `dominusnode_node_setup_guide`.
+- Node earnings: credits balance/convert and payout tools; owner-signed flows (node registration, withdrawals, payout wallet) read keys only from `DOMINUSNODE_WALLET_KEY_FILE` / `DOMINUSNODE_PAYOUT_WALLET_KEY_FILE`, never from a tool argument.
+- `server.json` for the official MCP Registry (`io.github.0xcircuitbreaker/dominusnode`), published by the release workflow.
+
+### Packaging
+- The npm package ships `dist/src` without source maps, plus README, CHANGELOG and LICENSE.
 
 ### Removed
 - Stripe, PayPal, plans, slots/waitlist and email/password account tools.

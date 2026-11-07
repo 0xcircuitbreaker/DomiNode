@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 
-import { changelogSection, extractVersion, isPrerelease, levels, loadConfig, plan, registryUrl, tagFor, validateConfig, waitForDeps } from './plan.mjs';
+import { changelogSection, releaseNotes, extractVersion, isPrerelease, levels, loadConfig, plan, readVersion, registryUrl, tagFor, validateConfig, waitForDeps } from './plan.mjs';
 
 function fixture() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'relplan-'));
@@ -21,6 +21,9 @@ function fixture() {
   w('sdks/cpp/CMakeLists.txt', 'project(dominusnode-cpp VERSION 2.0.0 LANGUAGES CXX)\n');
   w('integrations/a/package.json', JSON.stringify({ name: '@dominusnode/a', version: '2.0.1-beta.1' }));
   w('integrations/b/pyproject.toml', '[project]\nname = "dominusnode-b"\nversion = "2.0.0"\n');
+  for (const [d, v] of [['sdks/node', '2.0.0'], ['sdks/python', '2.1.0rc1'], ['sdks/go', '2.0.0'], ['sdks/rust', '2.0.0'], ['sdks/java', '2.0.0'], ['sdks/cpp', '2.0.0'], ['integrations/a', '2.0.1-beta.1'], ['integrations/b', '2.0.0']]) {
+    w(`${d}/CHANGELOG.md`, `# Changelog\n\n## ${v}\n\n- Release ${v}\n`);
+  }
   const pk = (id, p, eco, name, file, kind, deps = [], extra = {}) => ({ id, path: p, ecosystem: eco, name, version: { file, kind, ...extra }, dependsOn: deps });
   const config = {
     packages: [
@@ -151,5 +154,24 @@ test('the real config is valid and every manifest version is readable', async ()
     const pj = JSON.parse(fs.readFileSync(path.join(process.cwd(), e.path, 'package.json'), 'utf8'));
     assert.equal(pj.dependencies['@dominusnode/sdk'], '^2.0.0', e.id);
     assert.equal(pj.repository.url, 'git+https://github.com/0xcircuitbreaker/DomiNode.git', e.id);
+  }
+});
+
+test('a package without release notes fails the plan; released ones are not checked', async () => {
+  const { root, config } = fixture();
+  fs.writeFileSync(path.join(root, 'integrations/b/CHANGELOG.md'), '# Changelog\n\n## 2.0.0\n\n<!-- todo -->\n\n## 1.0.0\n- old\n');
+  await assert.rejects(plan({ root, config, fetchImpl: mockFetch([]), tags: new Set() }), /b: .*section 2\.0\.0 is empty/);
+  fs.rmSync(path.join(root, 'sdks/node/CHANGELOG.md'));
+  await assert.rejects(plan({ root, config, fetchImpl: mockFetch([]), tags: new Set(), only: 'sdk-node' }), /does not exist/);
+  // up to date (published + tagged): missing notes do not matter
+  const r = await plan({ root, config, fetchImpl: mockFetch(['%2Fsdk/2.0.0']), tags: new Set(['sdk-node-v2.0.0']), only: 'sdk-node' });
+  assert.deepEqual(r.release, []);
+  assert.throws(() => releaseNotes(config.packages[0], '9.9.9', root), /no "## 9\.9\.9" section/);
+});
+
+test('every real package has release notes for its current version', () => {
+  const config = loadConfig();
+  for (const p of config.packages) {
+    assert.ok(releaseNotes(p, readVersion(p)).length > 40, p.id);
   }
 });

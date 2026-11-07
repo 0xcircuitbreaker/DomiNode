@@ -198,7 +198,14 @@ export async function plan({ root = REPO_ROOT, config, fetchImpl = globalThis.fe
         throw new Error(`${p.id}: dependency depth ${level} is not supported by release.yml`);
       }
       const prerelease = isPrerelease(version);
+      let notesError;
+      try {
+        releaseNotes(p, version, root);
+      } catch (e) {
+        notesError = e.message;
+      }
       return {
+        notesError,
         id: p.id,
         path: p.path,
         ecosystem: p.ecosystem,
@@ -220,6 +227,9 @@ export async function plan({ root = REPO_ROOT, config, fetchImpl = globalThis.fe
   );
 
   const selected = entries.filter((e) => (only ? e.id === only : true) && (all || e.release));
+  const noNotes = selected.filter((e) => e.release && e.notesError);
+  if (noNotes.length) throw new Error(`release notes missing:\n  ${noNotes.map((e) => e.notesError).join('\n  ')}`);
+  for (const e of entries) delete e.notesError;
   const matrix = {};
   for (const eco of ECOSYSTEMS) {
     const key = eco.replace('-release', '');
@@ -245,11 +255,15 @@ export function changelogSection(text, version) {
   return lines.slice(start + 1, end).join('\n').trim();
 }
 
+/** The CHANGELOG.md section for `version`. Throws when the file, the section or its body is missing. */
 export function releaseNotes(pkg, version, root = REPO_ROOT) {
-  const file = path.join(root, pkg.path, 'CHANGELOG.md');
-  const fallback = `${pkg.name} ${version}\n\nSee ${pkg.path}/CHANGELOG.md.`;
-  if (!fs.existsSync(file)) return fallback;
-  return changelogSection(fs.readFileSync(file, 'utf8'), version) || fallback;
+  const rel = path.join(pkg.path, 'CHANGELOG.md');
+  const file = path.join(root, rel);
+  if (!fs.existsSync(file)) throw new Error(`${pkg.id}: ${rel} does not exist`);
+  const section = changelogSection(fs.readFileSync(file, 'utf8'), version);
+  if (section === undefined) throw new Error(`${pkg.id}: ${rel} has no "## ${version}" section`);
+  if (!section.replace(/<!--[\s\S]*?-->/g, '').trim()) throw new Error(`${pkg.id}: ${rel} section ${version} is empty`);
+  return section;
 }
 
 // ---------------------------------------------------------------- wait
