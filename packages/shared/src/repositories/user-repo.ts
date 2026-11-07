@@ -1,3 +1,4 @@
+import { WALLET_EMAIL_DOMAIN } from "../wallet-auth.js";
 import { query, getPool } from "../db.js";
 import { hashPassword } from "../auth.js";
 import { randomBytes, createHash } from "node:crypto";
@@ -347,7 +348,7 @@ async function findOrCreateSolanaPayerUser(addr: string): Promise<{ id: string; 
   const existing = await find();
   if (existing) return { ...existing, created: false };
   const unusable = await hashPassword(randomBytes(64).toString("hex"));
-  const email = `sol-${createHash("sha256").update(addr).digest("hex").slice(0, 40)}@wallet.dominusnode.com`;
+  const email = `sol-${createHash("sha256").update(addr).digest("hex").slice(0, 40)}@${WALLET_EMAIL_DOMAIN}`;
   const ins = await query<{ id: string; status: string }>(
     `WITH u AS (
        INSERT INTO users (email, password_hash, email_verified) VALUES ($1, $2, true)
@@ -387,7 +388,7 @@ export async function findOrCreateX402User(payer: string): Promise<{ id: string;
      VALUES ($1, $2, $3, true)
      ON CONFLICT DO NOTHING
      RETURNING id, status`,
-    [`${addr}@wallet.dominusnode.com`, unusable, addr],
+    [`${addr}@${WALLET_EMAIL_DOMAIN}`, unusable, addr],
   );
   if (ins.rows[0]) return { ...ins.rows[0], created: true };
   const raced = await find();
