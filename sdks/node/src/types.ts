@@ -7,9 +7,9 @@ export interface Money {
 }
 
 export interface DominusNodeConfig {
-  /** API base URL (default https://api.dominusnode.com). */
+  /** API base URL (default https://api.dominusnode.daedalusdevelopmentgroup.com). */
   baseUrl?: string;
-  /** Proxy gateway host for proxy.buildUrl()/proxy.fetch() (default proxy.dominusnode.com). */
+  /** Proxy gateway host for proxy.buildUrl()/proxy.fetch() (default proxy.dominusnode.daedalusdevelopmentgroup.com). */
   proxyHost?: string;
   httpProxyPort?: number;
   socks5ProxyPort?: number;

@@ -50,8 +50,8 @@ try (DominusNodeClient dn = new DominusNodeClient()) {
 
 ```java
 Config cfg = Config.builder()
-        .baseUrl("https://api.dominusnode.com")     // http(s), no userinfo
-        .proxyHost("proxy.dominusnode.com")
+        .baseUrl("https://api.dominusnode.daedalusdevelopmentgroup.com")     // http(s), no userinfo
+        .proxyHost("proxy.dominusnode.daedalusdevelopmentgroup.com")
         .httpProxyPort(8080).socks5ProxyPort(1080)
         .tokens(accessJwt, refreshJwt)               // optional existing JWT pair
         .transport(myTransport)                      // optional; must not follow redirects

@@ -60,9 +60,9 @@ class ProxyTest {
     void buildUrl() {
         MockTransport t = new MockTransport();
         DominusNodeClient c = connected(t);
-        assertEquals("http://country-DE:" + API_KEY + "@proxy.dominusnode.com:8080", c.proxy().buildUrl(ProxyOptions.create().country("de")));
-        assertEquals("socks5://relay:" + API_KEY + "@proxy.dominusnode.com:1080", c.proxy().buildUrl(null, "socks5", null));
-        assertEquals("http://relay:dn_test_otherkey99@proxy.dominusnode.com:8080", c.proxy().buildUrl(null, "http", "dn_test_otherkey99"));
+        assertEquals("http://country-DE:" + API_KEY + "@proxy.dominusnode.daedalusdevelopmentgroup.com:8080", c.proxy().buildUrl(ProxyOptions.create().country("de")));
+        assertEquals("socks5://relay:" + API_KEY + "@proxy.dominusnode.daedalusdevelopmentgroup.com:1080", c.proxy().buildUrl(null, "socks5", null));
+        assertEquals("http://relay:dn_test_otherkey99@proxy.dominusnode.daedalusdevelopmentgroup.com:8080", c.proxy().buildUrl(null, "http", "dn_test_otherkey99"));
         assertEquals("relay", c.proxy().buildUsername(null));
         assertThrows(ValidationException.class, () -> c.proxy().buildUrl(null, "https", null));
         assertThrows(ValidationException.class, () -> c.proxy().buildUrl(null, "http", "not-a-key"));
@@ -267,5 +267,11 @@ class ProxyTest {
             assertTrue(e.getMessage().contains("timed out"), e.getMessage());
             assertFalse(e.getMessage().contains(API_KEY));
         }
+    }
+
+    @Test
+    void defaultHosts() {
+        assertEquals("https://api.dominusnode.daedalusdevelopmentgroup.com", Config.DEFAULT_BASE_URL);
+        assertEquals("proxy.dominusnode.daedalusdevelopmentgroup.com", Config.DEFAULT_PROXY_HOST);
     }
 }

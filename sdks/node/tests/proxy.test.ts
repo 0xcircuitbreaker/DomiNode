@@ -29,9 +29,9 @@ describe("buildProxyUsername", () => {
 describe("proxy.buildUrl", () => {
   it("puts flags in the username and the key in the password", async () => {
     const { client } = await connected();
-    expect(client.proxy.buildUrl()).toBe(`http://relay:${API_KEY}@proxy.dominusnode.com:8080`);
+    expect(client.proxy.buildUrl()).toBe(`http://relay:${API_KEY}@proxy.dominusnode.daedalusdevelopmentgroup.com:8080`);
     expect(client.proxy.buildUrl({ protocol: "socks5", country: "US", ipClass: "dc" }))
-      .toBe(`socks5://country-US-class-dc:${API_KEY}@proxy.dominusnode.com:1080`);
+      .toBe(`socks5://country-US-class-dc:${API_KEY}@proxy.dominusnode.daedalusdevelopmentgroup.com:1080`);
     expect(client.proxy.buildUsername({ sessionId: "s1" })).toBe("session-s1");
   });
   it("needs a key; validates config", () => {
@@ -161,5 +161,13 @@ describe("proxy.fetch (local fake gateway)", () => {
     const err = await c.proxy.fetch("https://example.com/", { apiKey: API_KEY }).catch((e) => e);
     expect(err).toBeInstanceOf(ProxyError);
     expect(err.message).not.toContain(API_KEY);
+  });
+});
+
+describe("default hosts", () => {
+  it("point at the Daedalus Development Group deployment", async () => {
+    const { DEFAULT_BASE_URL, DEFAULT_PROXY_HOST } = await import("../src/index.js");
+    expect(DEFAULT_BASE_URL).toBe("https://api.dominusnode.daedalusdevelopmentgroup.com");
+    expect(DEFAULT_PROXY_HOST).toBe("proxy.dominusnode.daedalusdevelopmentgroup.com");
   });
 });

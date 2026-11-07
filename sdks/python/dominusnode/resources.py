@@ -724,7 +724,7 @@ class _ProxyResource(_Base):
         protocol: Optional[str] = None,
         api_key: Optional[str] = None,
     ) -> str:
-        """e.g. http://country-US-class-dc:dn_live_...@proxy.dominusnode.com:8080. CONTAINS the key: do not log it.
+        """e.g. http://country-US-class-dc:dn_live_...@proxy.dominusnode.daedalusdevelopmentgroup.com:8080. CONTAINS the key: do not log it.
 
         ``protocol``: http, https (TLS to the gateway; needs gateway_tls) or socks5.
         Default: https when gateway_tls is configured, else http."""
