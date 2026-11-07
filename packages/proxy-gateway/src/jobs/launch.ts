@@ -15,6 +15,62 @@ export const LAUNCH_LOCK_KEYS = {
   networkSnapshot: 0x444e_0013,
 } as const;
 
+// ─── network-snapshot ───────────────────────────────────────────────
+
+export interface SnapshotDeps {
+  latency(): { p50: number | null; p95: number | null };
+  takeSnapshot(i: { p50Ms: number | null; p95Ms: number | null }): Promise<void>;
+  purgeSnapshots(retentionDays: number): Promise<number>;
+  purgeUnmetDemand(retentionDays: number): Promise<number>;
+  snapshotRetentionDays: number;
+  unmetRetentionDays: number;
+}
+
+export async function runNetworkSnapshot(deps: SnapshotDeps): Promise<{ purged: number; purgedUnmet: number }> {
+  const l = deps.latency();
+  await deps.takeSnapshot({ p50Ms: l.p50, p95Ms: l.p95 });
+  const purged = await deps.purgeSnapshots(deps.snapshotRetentionDays);
+  const purgedUnmet = await deps.purgeUnmetDemand(deps.unmetRetentionDays);
+  return { purged, purgedUnmet };
+}
+
+export function startNetworkSnapshot(o: { deps: SnapshotDeps; pool: LockPool; logger: JobLogger; intervalMs?: number }): Job {
+  const job = new Job({
+    name: "network-snapshot", intervalMs: o.intervalMs ?? 3_600_000, lockKey: LAUNCH_LOCK_KEYS.networkSnapshot, pool: o.pool,
+    logger: o.logger, run: () => runNetworkSnapshot(o.deps),
+  });
+  job.start();
+  return job;
+}
+
+// ─── unmet-demand flush (per instance, no lock) ─────────────────────
+
+export interface UnmetFlushDeps {
+  drain(): Array<{ hour: Date; country: string; ipClass: string; requests: number }>;
+  restore(rows: Array<{ hour: Date; country: string; ipClass: string; requests: number }>): void;
+  write(rows: Array<{ hour: Date; country: string; ipClass: string; requests: number }>): Promise<number>;
+}
+
+export async function runUnmetFlush(deps: UnmetFlushDeps): Promise<{ rows: number }> {
+  const rows = deps.drain();
+  if (rows.length === 0) return { rows: 0 };
+  try {
+    return { rows: await deps.write(rows) };
+  } catch (err) {
+    deps.restore(rows);
+    throw err;
+  }
+}
+
+export function startUnmetFlush(o: { deps: UnmetFlushDeps; logger: JobLogger; intervalMs?: number }): Job {
+  const job = new Job({
+    name: "unmet-demand-flush", intervalMs: o.intervalMs ?? 60_000, lockKey: null,
+    logger: o.logger, run: () => runUnmetFlush(o.deps),
+  });
+  job.start();
+  return job;
+}
+
 // ─── genesis ────────────────────────────────────────────────────────
 
 export interface GenesisDeps {

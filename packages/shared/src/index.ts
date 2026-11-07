@@ -88,6 +88,7 @@ export * as walletRepo from "./repositories/wallet-repo.js";
 export * as starterCreditRepo from "./repositories/starter-credit-repo.js";
 export * as contributionRepo from "./repositories/contribution-repo.js";
 export * as genesisRepo from "./repositories/genesis-repo.js";
+export * as networkStatusRepo from "./repositories/network-status-repo.js";
 export * as usageRepo from "./repositories/usage-repo.js";
 export * as invoiceRepo from "./repositories/invoice-repo.js";
 export * as planRepo from "./repositories/plan-repo.js";

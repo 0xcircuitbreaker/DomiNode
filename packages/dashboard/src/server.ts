@@ -34,6 +34,7 @@ import adminNetworkCollusionRoutes from "./routes/admin-network-collusion.js";
 import adminNetworkLaunchRoutes from "./routes/admin-network-launch.js";
 import v1Routes from "./routes/v1/index.js";
 import discoveryRoutes from "./routes/discovery.js";
+import statusPageRoutes from "./routes/status-page.js";
 
 const log = createLogger("api:server");
 
@@ -259,6 +260,7 @@ export function startApiServer(port: number = 3000): ReturnType<express.Express[
 
   // Agent discovery (v2): /.well-known/agent-tool.json and /llms.txt, pricing read live
   app.use(discoveryRoutes);
+  app.use(statusPageRoutes);
 
   // Prometheus metrics endpoint (localhost only)
   // H-2 fix: Use socket.remoteAddress (not req.ip) to prevent X-Forwarded-For spoofing

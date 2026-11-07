@@ -1,6 +1,6 @@
 import { Router } from "express";
 import type { Request, Response } from "express";
-import { createLogger, getPool, starterCreditRepo, genesisRepo } from "@dominusnode/shared";
+import { createLogger, getPool, starterCreditRepo, genesisRepo, networkStatusRepo } from "@dominusnode/shared";
 import { requireAuth } from "../middleware/auth.js";
 import { requireAdmin } from "../middleware/admin.js";
 import { HttpError, fail, money, page, enumParam, uuidParam, withAdminTx, audit, adminId, UUID_RE } from "./admin-network-common.js";
@@ -329,6 +329,103 @@ router.put("/buyer-discounts/settings", async (req: Request, res: Response) => {
     });
     res.json({ updated: changes });
   } catch (err) { fail(res, err, "Buyer discount settings update"); }
+});
+
+// ─── Incidents (public status page) ─────────────────────────────────
+
+const SEVERITIES = ["minor", "major", "critical", "maintenance"] as const;
+const INCIDENT_STATUSES = ["investigating", "identified", "monitoring", "resolved"] as const;
+
+function oneOf<T extends string>(v: unknown, name: string, allowed: readonly T[]): T {
+  if (typeof v !== "string" || !(allowed as readonly string[]).includes(v)) throw new HttpError(400, `${name} must be one of ${allowed.join("|")}`);
+  return v as T;
+}
+
+router.get("/incidents", async (req: Request, res: Response) => {
+  try {
+    const { limit, offset } = page(req);
+    const [items, total] = await Promise.all([
+      networkStatusRepo.listIncidents(limit, offset),
+      q<{ count: string }>(`SELECT COUNT(*)::text AS count FROM network_incidents`),
+    ]);
+    res.json({ limit, offset, total: Number(total.rows[0]?.count ?? 0), items });
+  } catch (err) { fail(res, err, "Incident list"); }
+});
+
+// POST /incidents {title, body?, severity, status?, startedAt?}
+router.post("/incidents", async (req: Request, res: Response) => {
+  try {
+    const b = body(req);
+    const title = optText(b["title"], "title", 200, true) as string;
+    const text = optText(b["body"], "body", 5000) ?? "";
+    const severity = oneOf(b["severity"], "severity", SEVERITIES);
+    const status = b["status"] === undefined ? "investigating" : oneOf(b["status"], "status", INCIDENT_STATUSES);
+    const startedAt = b["startedAt"] === undefined ? null : new Date(String(b["startedAt"]));
+    if (startedAt && Number.isNaN(startedAt.getTime())) throw new HttpError(400, "startedAt must be an ISO date");
+    const row = await withAdminTx(adminId(req), async (c) => {
+      const r = await c.query<{ id: string }>(
+        `INSERT INTO network_incidents (title, body, severity, status, started_at, resolved_at, created_by, updated_by)
+         VALUES ($1, $2, $3, $4, COALESCE($5::timestamptz, now()), CASE WHEN $4 = 'resolved' THEN now() END, $6, $6)
+         RETURNING id`,
+        [title, text, severity, status, startedAt ? startedAt.toISOString() : null, adminId(req)],
+      );
+      const id = r.rows[0]?.id as string;
+      await audit(c, req, "network_incident_create", "network_incident", id, { title, severity, status });
+      return { id };
+    });
+    res.status(201).json({ id: row.id, title, severity, status });
+  } catch (err) { fail(res, err, "Incident create"); }
+});
+
+// PATCH /incidents/:id {title?, body?, severity?, status?}
+router.patch("/incidents/:id", async (req: Request, res: Response) => {
+  try {
+    const id = idParam(req);
+    const b = body(req);
+    for (const k of Object.keys(b)) if (!["title", "body", "severity", "status"].includes(k)) throw new HttpError(400, `${k}: unknown field`);
+    const sets: string[] = [];
+    const vals: unknown[] = [id];
+    if (b["title"] !== undefined) { vals.push(optText(b["title"], "title", 200, true)); sets.push(`title = $${vals.length}`); }
+    if (b["body"] !== undefined) { vals.push(optText(b["body"], "body", 5000) ?? ""); sets.push(`body = $${vals.length}`); }
+    if (b["severity"] !== undefined) { vals.push(oneOf(b["severity"], "severity", SEVERITIES)); sets.push(`severity = $${vals.length}`); }
+    if (b["status"] !== undefined) {
+      vals.push(oneOf(b["status"], "status", INCIDENT_STATUSES));
+      sets.push(`status = $${vals.length}`, `resolved_at = CASE WHEN $${vals.length} = 'resolved' THEN COALESCE(resolved_at, now()) ELSE NULL END`);
+    }
+    if (sets.length === 0) throw new HttpError(400, "No fields to update");
+    vals.push(adminId(req));
+    await withAdminTx(adminId(req), async (c) => {
+      const r = await c.query<{ id: string }>(
+        `UPDATE network_incidents SET ${sets.join(", ")}, updated_by = $${vals.length}, updated_at = now() WHERE id = $1 RETURNING id`, vals);
+      if (!r.rows[0]) throw new HttpError(404, "Incident not found");
+      await audit(c, req, "network_incident_update", "network_incident", id, { fields: Object.keys(b), status: b["status"] ?? null });
+    });
+    res.json({ id, updated: Object.keys(b) });
+  } catch (err) { fail(res, err, "Incident update"); }
+});
+
+// ─── Unmet demand ───────────────────────────────────────────────────
+
+// GET /unmet-demand?days=7 — aggregated (country, class) and per-day totals
+router.get("/unmet-demand", async (req: Request, res: Response) => {
+  try {
+    const raw = req.query["days"];
+    const days = raw === undefined ? 7 : Number(raw);
+    if (!Number.isInteger(days) || days < 1 || days > 90) throw new HttpError(400, "days must be an integer in [1, 90]");
+    const [groups, daily] = await Promise.all([
+      q<{ country: string; ip_class: string; requests: string; last_hour: Date }>(
+        `SELECT country, ip_class, SUM(requests)::text AS requests, MAX(hour) AS last_hour FROM unmet_demand_hourly
+         WHERE hour > now() - make_interval(days => $1) GROUP BY country, ip_class ORDER BY SUM(requests) DESC LIMIT 500`, [days]),
+      q<{ day: string; requests: string }>(
+        `SELECT to_char(date_trunc('day', hour AT TIME ZONE 'UTC'), 'YYYY-MM-DD') AS day, SUM(requests)::text AS requests
+         FROM unmet_demand_hourly WHERE hour > now() - make_interval(days => $1) GROUP BY 1 ORDER BY 1`, [days]),
+    ]);
+    res.json({
+      days,
+      groups: groups.rows.map((g) => ({ country: g.country || null, ipClass: g.ip_class || null, requests: Number(g.requests), lastHour: g.last_hour })),
+      daily: daily.rows.map((d) => ({ day: d.day, requests: Number(d.requests) })),
+    });
+  } catch (err) { fail(res, err, "Unmet demand"); }
 });
 
 // ─── Contribution allowlist (policy.requireContribution) ────────────

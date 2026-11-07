@@ -1859,3 +1859,49 @@ END $$;
 INSERT INTO schema_migrations (version, description) VALUES
   ('1.9.0', 'Launch readiness: seed nodes, starter credits, genesis boost, buyer discounts, status, unmet demand, abuse reports')
 ON CONFLICT (version) DO NOTHING;
+
+-- ─── Public network status (hourly snapshots + incident log) ────────
+-- Aggregates only: no node ids, IPs or requester ids.
+CREATE TABLE IF NOT EXISTS network_stats_snapshots (
+  hour                      TIMESTAMPTZ PRIMARY KEY,
+  online_nodes              INTEGER NOT NULL CHECK (online_nodes BETWEEN 0 AND 10000000),
+  seed_online               INTEGER NOT NULL CHECK (seed_online BETWEEN 0 AND 10000000),
+  community_online          INTEGER NOT NULL CHECK (community_online BETWEEN 0 AND 10000000),
+  countries                 INTEGER NOT NULL CHECK (countries BETWEEN 0 AND 300),
+  asns                      INTEGER NOT NULL CHECK (asns BETWEEN 0 AND 10000000),
+  success_rate_bps          INTEGER CHECK (success_rate_bps IS NULL OR success_rate_bps BETWEEN 0 AND 10000),
+  p50_ms                    INTEGER CHECK (p50_ms IS NULL OR p50_ms BETWEEN 0 AND 3600000),
+  p95_ms                    INTEGER CHECK (p95_ms IS NULL OR p95_ms BETWEEN 0 AND 3600000),
+  paid_bytes_24h            BIGINT NOT NULL CHECK (paid_bytes_24h BETWEEN 0 AND 1000000000000000000),
+  seed_paid_bytes_24h       BIGINT NOT NULL CHECK (seed_paid_bytes_24h BETWEEN 0 AND 1000000000000000000),
+  community_paid_bytes_24h  BIGINT NOT NULL CHECK (community_paid_bytes_24h BETWEEN 0 AND 1000000000000000000),
+  by_class                  JSONB NOT NULL DEFAULT '{}'::jsonb CHECK (pg_column_size(by_class) <= 4096),
+  created_at                TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS network_incidents (
+  id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  title        TEXT NOT NULL CHECK (length(title) BETWEEN 1 AND 200),
+  body         TEXT NOT NULL DEFAULT '' CHECK (length(body) <= 5000),
+  severity     TEXT NOT NULL CHECK (severity IN ('minor','major','critical','maintenance')),
+  status       TEXT NOT NULL DEFAULT 'investigating' CHECK (status IN ('investigating','identified','monitoring','resolved')),
+  started_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  resolved_at  TIMESTAMPTZ,
+  created_by   UUID REFERENCES users(id) ON DELETE SET NULL,
+  updated_by   UUID REFERENCES users(id) ON DELETE SET NULL,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT chk_incident_resolved CHECK ((status = 'resolved') = (resolved_at IS NOT NULL))
+);
+CREATE INDEX IF NOT EXISTS idx_network_incidents_started ON network_incidents(started_at DESC);
+
+-- ─── Unmet demand: selections that found no eligible node ───────────
+-- Aggregated (hour, country, ip_class) counts only: no requester ids, no hosts.
+CREATE TABLE IF NOT EXISTS unmet_demand_hourly (
+  hour      TIMESTAMPTZ NOT NULL,
+  country   TEXT NOT NULL CHECK (country = '' OR country ~ '^[A-Z]{2}$'),
+  ip_class  TEXT NOT NULL CHECK (ip_class IN ('', 'residential', 'dc', 'mobile')),
+  requests  INTEGER NOT NULL DEFAULT 0 CHECK (requests BETWEEN 0 AND 2000000000),
+  PRIMARY KEY (hour, country, ip_class)
+);
+CREATE INDEX IF NOT EXISTS idx_unmet_demand_hour ON unmet_demand_hourly(hour);

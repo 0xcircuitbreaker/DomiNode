@@ -122,6 +122,31 @@ describe("genesis + buyer discount admin", () => {
   });
 });
 
+describe("incidents + unmet demand admin", () => {
+  it("creates an incident with validation and audit; resolving sets resolved_at", async () => {
+    tx((sql) => (sql.includes("INSERT INTO network_incidents") ? { rows: [{ id: NODE }] } : sql.includes("UPDATE network_incidents") ? { rows: [{ id: NODE }] } : undefined));
+    expect((await call(app(), "POST", `${BASE}/incidents`, { body: { title: "x", severity: "bad" } })).status).toBe(400);
+    expect((await call(app(), "POST", `${BASE}/incidents`, { body: { severity: "minor" } })).status).toBe(400);
+    const r = await call(app(), "POST", `${BASE}/incidents`, { body: { title: "Gateway restart", severity: "maintenance" } });
+    expect(r.status).toBe(201);
+    const u = await call(app(), "PATCH", `${BASE}/incidents/${NODE}`, { body: { status: "resolved" } });
+    expect(u.status).toBe(200);
+    expect(txSqls().find((s) => s.startsWith("UPDATE network_incidents"))).toContain("resolved_at = CASE");
+    expect(txSqls().filter((s) => s.includes("INSERT INTO audit_events")).length).toBe(2);
+  });
+
+  it("lists aggregated unmet demand without requester or host columns", async () => {
+    m.poolQuery.mockImplementation(async (sql: string) => sql.includes("to_char")
+      ? { rows: [{ day: "2026-11-06", requests: "12" }] }
+      : { rows: [{ country: "BR", ip_class: "residential", requests: "12", last_hour: new Date(0) }] });
+    const r = await call(app(), "GET", `${BASE}/unmet-demand?days=7`);
+    expect(r.status).toBe(200);
+    expect(r.body["groups"]).toEqual([{ country: "BR", ipClass: "residential", requests: 12, lastHour: new Date(0).toISOString() }]);
+    for (const c of m.poolQuery.mock.calls) expect(String(c[0])).not.toMatch(/requester|dest_host|SELECT \*/);
+    expect((await call(app(), "GET", `${BASE}/unmet-demand?days=0`)).status).toBe(400);
+  });
+});
+
 describe("contribution allowlist admin", () => {
   it("adds an active agent with an audit row; 404 for unknown users", async () => {
     tx((sql) => (sql.includes("SELECT id FROM users") ? { rows: [{ id: NODE }] } : undefined));
