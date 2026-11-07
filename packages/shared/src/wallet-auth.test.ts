@@ -59,17 +59,17 @@ describe("wallet-auth", () => {
   describe("buildSignMessage", () => {
     it("should include domain, address, nonce, and timestamp", () => {
       const message = buildSignMessage(
-        "dominusnode.com",
+        "dominusnode.daedalusdevelopmentgroup.com",
         "0xd8da6bf26964af9d7eed9e03e53415d37aa96045",
         "abc123",
         new Date("2025-01-01T00:00:00Z"),
       );
 
-      expect(message).toContain("dominusnode.com wants you to sign in with your Ethereum account:");
+      expect(message).toContain("dominusnode.daedalusdevelopmentgroup.com wants you to sign in with your Ethereum account:");
       expect(message).toContain("0xd8da6bf26964af9d7eed9e03e53415d37aa96045");
       expect(message).toContain("Nonce: abc123");
       expect(message).toContain("Issued At: 2025-01-01T00:00:00.000Z");
-      expect(message).toContain("URI: https://dominusnode.com");
+      expect(message).toContain("URI: https://dominusnode.daedalusdevelopmentgroup.com");
       expect(message).toContain("Sign in to Dominus Node proxy service");
     });
   });

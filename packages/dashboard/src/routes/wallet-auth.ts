@@ -33,7 +33,7 @@ const log = createLogger("api:wallet-auth");
 const AGENT_RATE_LIMIT_MULTIPLIER = getAgentMultiplier();
 
 // Validate domain format at startup to prevent cross-site signature replay
-const DOMINUSNODE_DOMAIN = process.env["DOMINUSNODE_DOMAIN"] ?? "dominusnode.com";
+const DOMINUSNODE_DOMAIN = process.env["DOMINUSNODE_DOMAIN"] ?? "dominusnode.daedalusdevelopmentgroup.com";
 if (!/^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?)*\.[a-zA-Z]{2,}$/.test(DOMINUSNODE_DOMAIN)) {
   throw new Error(`Invalid DOMINUSNODE_DOMAIN: "${DOMINUSNODE_DOMAIN}". Must be a valid domain name.`);
 }

@@ -33,8 +33,8 @@ export function discoveryEnv(env: NodeJS.ProcessEnv = process.env): DiscoveryEnv
   const rails = (env["NETWORK_PAYMENT_RAILS"] ?? "wallet,x402,crypto")
     .split(",").map((s) => s.trim()).filter((s) => /^[a-z0-9_-]{1,32}$/.test(s)).slice(0, 16);
   return {
-    baseUrl: (env["APP_URL"] ?? "https://dominusnode.com").replace(/\/+$/, ""),
-    proxyHost: env["PROXY_PUBLIC_HOST"] ?? "proxy.dominusnode.com",
+    baseUrl: (env["APP_URL"] ?? "https://dominusnode.daedalusdevelopmentgroup.com").replace(/\/+$/, ""),
+    proxyHost: env["PROXY_PUBLIC_HOST"] ?? "proxy.dominusnode.daedalusdevelopmentgroup.com",
     httpPort: env["PROXY_HTTP_PORT"] ?? "8080",
     socks5Port: env["SOCKS5_LISTEN_PORT"] ?? "1080",
     x402Enabled: env["X402_ENABLED"] === "true",
