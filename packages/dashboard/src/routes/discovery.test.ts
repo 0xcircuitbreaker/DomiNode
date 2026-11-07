@@ -29,7 +29,7 @@ beforeEach(() => {
     { ipClass: "dc", pricePerGbMusd: 200000n, updatedAt: new Date() },
     { ipClass: "residential", pricePerGbMusd: 730000n, updatedAt: new Date() },
   ]);
-  m.listTiers.mockResolvedValue([{ id: 1, name: "probation", rank: 0, nodeShareBps: 2500, holdDays: 14 }, { id: 6, name: "partner", rank: 5, nodeShareBps: 5000, holdDays: 3 }]);
+  m.listTiers.mockResolvedValue([{ id: 1, name: "probation", rank: 0, nodeShareBps: 2500, holdDays: 14 }, { id: 6, name: "partner", rank: 5, nodeShareBps: 5000, holdDays: 3, buyerDiscountBps: 2500 }]);
   m.getSplit.mockResolvedValue({ id: 1, nodeShareBps: 2500, maturationHours: 168, effectiveFrom: new Date() });
 });
 
@@ -52,6 +52,8 @@ describe("agent discovery documents", () => {
     expect(text).toContain("CONTRIBUTION_REQUIRED");
     expect(text).toContain("@dominusnode/mcp-server");
     expect((r.body["earn"] as { node_share: unknown[] }).node_share).toHaveLength(2);
+    expect(text).toContain("buy cheaper");
+    expect((r.body["earn"] as { buyer_discount: { by_tier: unknown[] } }).buyer_discount.by_tier).toContainEqual({ tier: "partner", rank: 5, buyer_discount_bps: 2500 });
   });
 
   it("llms.txt has no legacy terms and quotes live prices", async () => {

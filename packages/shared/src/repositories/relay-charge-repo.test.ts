@@ -79,6 +79,23 @@ describe("relay-charge-repo", () => {
     expect(isByteDispute(100_000_000n, null)).toBe(false);
   });
 
+  it("applies a platform-funded buyer discount: node share unchanged, requester pays less", async () => {
+    const r = setup([
+      [/FROM relay_charges WHERE session_id/, () => ({ rows: [] })],
+      [/FROM wallets WHERE user_id/, () => ({ rows: [{ id: "w1", balance_cents: 1000 }] })],
+      [/FROM nodes WHERE id/, () => nodeRow()],
+      [/INSERT INTO relay_charges/, () => ({ rows: [{ id: "rc1" }] })],
+    ]);
+    const res = await settleRelayCharge({
+      ...base,
+      snapshot: { ...base.snapshot, genesisBonusBps: 0, buyerTierId: 6, buyerDiscountBps: 2500, minPlatformMarginBps: 2500 },
+    });
+    // list 500000; node 25% = 125000 (unchanged); discount 25% = 125000; paid 375000; platform 250000
+    expect(res).toMatchObject({ grossMusd: 375_000n, nodeMusd: 125_000n, platformMusd: 250_000n });
+    const ins = r.calls.find((c) => /INSERT INTO relay_charges/.test(c.sql))!;
+    expect(ins.params.slice(17)).toEqual([0, "500000", 2500, "125000", 6]);
+  });
+
   it("settles wallet rail in one tx and credits node pending", async () => {
     const r = setup([
       [/FROM relay_charges WHERE session_id/, () => ({ rows: [] })],
@@ -94,7 +111,8 @@ describe("relay-charge-repo", () => {
     expect(s.some((x) => /RETURNING \*/.test(x))).toBe(false);
     expect(s.some((x) => /'earn'/.test(x))).toBe(true);
     const ins = r.calls.find((c) => /INSERT INTO relay_charges/.test(c.sql))!;
-    expect(ins.params.slice(11)).toEqual([1, 1, 2500, null, 14, false]);
+    expect(ins.params.slice(11, 17)).toEqual([1, 1, 2500, null, 14, false]);
+    expect(ins.params.slice(17)).toEqual([0, "500000", 0, "0", null]); // genesis 0, list = gross, no buyer discount
     const log = r.calls.find((c) => /relay_abuse_log/.test(c.sql))!;
     expect(log.params[3]).toBe("example.com");
     expect(r.calls.find((c) => /INSERT INTO usage_records/.test(c.sql))!.params[5]).toBe("relay");

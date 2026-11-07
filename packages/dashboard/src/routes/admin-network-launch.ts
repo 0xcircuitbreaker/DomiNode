@@ -1,6 +1,6 @@
 import { Router } from "express";
 import type { Request, Response } from "express";
-import { createLogger, getPool, starterCreditRepo } from "@dominusnode/shared";
+import { createLogger, getPool, starterCreditRepo, genesisRepo } from "@dominusnode/shared";
 import { requireAuth } from "../middleware/auth.js";
 import { requireAdmin } from "../middleware/admin.js";
 import { HttpError, fail, money, page, enumParam, uuidParam, withAdminTx, audit, adminId, UUID_RE } from "./admin-network-common.js";
@@ -234,6 +234,101 @@ router.post("/starter-credits/grants/:id/revoke", async (req: Request, res: Resp
     });
     res.json({ id, status: "revoked", removed: money(out.removedCents * 10_000n) });
   } catch (err) { fail(res, err, "Starter credit revoke"); }
+});
+
+// ─── Genesis boost ──────────────────────────────────────────────────
+
+function genesisOut(s: Awaited<ReturnType<typeof genesisRepo.getSettings>>) {
+  return {
+    enabled: s.enabled, maxOwners: s.maxOwners, bonusBps: s.bonusBps, boostDays: s.boostDays,
+    credit: money(s.creditMusd.toString()), creditThresholdBytes: s.creditThresholdBytes.toString(),
+    updatedBy: s.updatedBy, updatedAt: s.updatedAt,
+  };
+}
+
+router.get("/genesis/settings", async (_req: Request, res: Response) => {
+  try {
+    const [s, n] = await Promise.all([genesisRepo.getSettings(), q<{ n: string }>(`SELECT COUNT(*)::text AS n FROM genesis_members`)]);
+    res.json({ ...genesisOut(s), members: Number(n.rows[0]?.n ?? 0) });
+  } catch (err) { fail(res, err, "Genesis settings"); }
+});
+
+const GENESIS_SPEC: Record<string, FieldSpec> = {
+  enabled: ["enabled", "bool", 0n, 0n],
+  maxOwners: ["max_owners", "int", 0n, 100_000n],
+  bonusBps: ["bonus_bps", "int", 0n, 5000n],
+  boostDays: ["boost_days", "int", 1n, 3650n],
+  creditMusd: ["credit_musd", "musd", 0n, 1_000_000_000n],
+  creditThresholdBytes: ["credit_threshold_bytes", "musd", 0n, 1_000_000_000_000_000n],
+};
+
+router.put("/genesis/settings", async (req: Request, res: Response) => {
+  try {
+    await updateSingleton(req, "genesis_settings", "genesis_settings_update", GENESIS_SPEC);
+    res.json(genesisOut(await genesisRepo.getSettings()));
+  } catch (err) { fail(res, err, "Genesis settings update"); }
+});
+
+router.get("/genesis/members", async (req: Request, res: Response) => {
+  try {
+    const { limit, offset } = page(req);
+    const [rows, total] = await Promise.all([
+      q<{ owner_user_id: string; wallet_address: string | null; seq: number; enrolled_at: Date; boost_until: Date; credit_status: string;
+          credit_musd: string | null; credit_granted_at: Date | null; credit_matures_at: Date | null; qualifying_bytes: string }>(
+        `SELECT m.owner_user_id, u.wallet_address, m.seq, m.enrolled_at, m.boost_until, m.credit_status,
+                m.credit_musd::text AS credit_musd, m.credit_granted_at, m.credit_matures_at,
+                (SELECT COALESCE(SUM(rc.bytes_gateway), 0) FROM relay_charges rc
+                  WHERE rc.node_owner_user_id = m.owner_user_id AND rc.matured AND NOT rc.disputed AND rc.node_musd > 0
+                    AND rc.starter_musd = 0 AND rc.requester_user_id IS DISTINCT FROM m.owner_user_id)::text AS qualifying_bytes
+         FROM genesis_members m LEFT JOIN users u ON u.id = m.owner_user_id
+         ORDER BY m.seq LIMIT $1 OFFSET $2`, [limit, offset]),
+      q<{ count: string }>(`SELECT COUNT(*)::text AS count FROM genesis_members`),
+    ]);
+    res.json({
+      limit, offset, total: Number(total.rows[0]?.count ?? 0),
+      items: rows.rows.map((r) => ({
+        ownerUserId: r.owner_user_id, walletAddress: r.wallet_address, seq: r.seq, enrolledAt: r.enrolled_at, boostUntil: r.boost_until,
+        creditStatus: r.credit_status, credit: r.credit_musd ? money(r.credit_musd) : null, creditGrantedAt: r.credit_granted_at,
+        creditMaturesAt: r.credit_matures_at, qualifyingBytes: r.qualifying_bytes,
+      })),
+    });
+  } catch (err) { fail(res, err, "Genesis members"); }
+});
+
+// POST /genesis/members/:id/clawback {reason} — claw back a still-held genesis credit
+router.post("/genesis/members/:id/clawback", async (req: Request, res: Response) => {
+  try {
+    const owner = idParam(req);
+    const reason = optText(body(req)["reason"], "reason", 500, true);
+    const taken = await withAdminTx(adminId(req), async (c) => {
+      const t = await genesisRepo.clawbackCreditTx(c as never, owner, adminId(req));
+      if (t === null) throw new HttpError(404, "No held genesis credit for this owner");
+      await audit(c, req, "genesis_credit_clawback", "user", owner, { reason, musd: t.toString() });
+      return t;
+    });
+    res.json({ ownerUserId: owner, creditStatus: "clawed_back", amount: money(taken.toString()) });
+  } catch (err) { fail(res, err, "Genesis clawback"); }
+});
+
+// ─── Buyer discount settings (margin floor) ─────────────────────────
+
+router.get("/buyer-discounts/settings", async (_req: Request, res: Response) => {
+  try {
+    const r = await q<{ enabled: boolean; min_platform_margin_bps: number; updated_by: string | null; updated_at: Date | null }>(
+      `SELECT enabled, min_platform_margin_bps, updated_by, updated_at FROM buyer_discount_settings WHERE id = 1`);
+    const row = r.rows[0];
+    res.json({ enabled: row?.enabled ?? true, minPlatformMarginBps: row?.min_platform_margin_bps ?? 2500, updatedBy: row?.updated_by ?? null, updatedAt: row?.updated_at ?? null });
+  } catch (err) { fail(res, err, "Buyer discount settings"); }
+});
+
+router.put("/buyer-discounts/settings", async (req: Request, res: Response) => {
+  try {
+    const changes = await updateSingleton(req, "buyer_discount_settings", "buyer_discount_settings_update", {
+      enabled: ["enabled", "bool", 0n, 0n],
+      minPlatformMarginBps: ["min_platform_margin_bps", "int", 0n, 10_000n],
+    });
+    res.json({ updated: changes });
+  } catch (err) { fail(res, err, "Buyer discount settings update"); }
 });
 
 // ─── Contribution allowlist (policy.requireContribution) ────────────

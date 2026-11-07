@@ -25,7 +25,7 @@ export interface DiscoveryEnv {
 
 export interface DiscoveryPricing {
   prices: Array<{ ipClass: string; pricePerGbMusd: bigint }>;
-  tiers: Array<{ name: string; rank: number; nodeShareBps: number; holdDays?: number }>;
+  tiers: Array<{ name: string; rank: number; nodeShareBps: number; holdDays?: number; buyerDiscountBps?: number }>;
   maturationHours: number;
 }
 
@@ -116,6 +116,10 @@ export function buildAgentToolDocument(env: DiscoveryEnv, p: DiscoveryPricing): 
     earn: {
       description: "Run packages/node-agent to contribute a residential, mobile or datacenter IP. Paid traffic from other agents earns a tier-based share, held for a maturity period, then convertible to wallet balance.",
       node_share: p.tiers.map((t) => ({ tier: t.name, rank: t.rank, node_share_bps: t.nodeShareBps, ...(t.holdDays !== undefined ? { hold_days: t.holdDays } : {}) })),
+      buyer_discount: {
+        description: "Contribute IPs to climb tiers: earn more and buy cheaper. Agents that run nodes buy relay bandwidth at their owner-tier discount, funded from the platform share (node earnings are unchanged).",
+        by_tier: p.tiers.map((t) => ({ tier: t.name, rank: t.rank, buyer_discount_bps: t.buyerDiscountBps ?? 0 })),
+      },
       maturation_hours: p.maturationHours,
       register_challenge: `${b}/v1/nodes/challenge`,
       register: `${b}/v1/nodes`,
@@ -193,6 +197,7 @@ export function buildLlmsTxt(env: DiscoveryEnv, p: DiscoveryPricing): string {
     "",
     "## Earn",
     `- Run packages/node-agent; node share by tier: ${shares}. Earnings mature after a hold.`,
+    `- Contribute IPs to climb tiers: earn more and buy cheaper (buyer discount by tier: ${p.tiers.map((t) => `${t.name} ${((t.buyerDiscountBps ?? 0) / 100).toFixed(0)}%`).join(", ")}).`,
     `- Wanted countries/classes: ${b}/v1/network/wanted`,
     "",
     "## Policy and status",
@@ -207,7 +212,7 @@ async function loadPricing(): Promise<DiscoveryPricing> {
   const [prices, tiers, split] = await Promise.all([policyRepo.listPricing(), policyRepo.listTiers(), policyRepo.getSplit()]);
   return {
     prices: prices.map((x) => ({ ipClass: x.ipClass, pricePerGbMusd: x.pricePerGbMusd })),
-    tiers: tiers.map((t) => ({ name: t.name, rank: t.rank, nodeShareBps: t.nodeShareBps, holdDays: t.holdDays })),
+    tiers: tiers.map((t) => ({ name: t.name, rank: t.rank, nodeShareBps: t.nodeShareBps, holdDays: t.holdDays, buyerDiscountBps: t.buyerDiscountBps })),
     maturationHours: split.maturationHours,
   };
 }

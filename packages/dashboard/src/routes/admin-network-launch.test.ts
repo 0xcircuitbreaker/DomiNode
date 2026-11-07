@@ -18,6 +18,7 @@ vi.mock("@dominusnode/shared", async (importOriginal) => {
     ...actual,
     getPool: () => ({ query: m.poolQuery, connect: async () => ({ query: m.clientQuery, release: m.release }) }),
     starterCreditRepo: { ...actual.starterCreditRepo, getSettings: m.starterSettings },
+    genesisRepo: { ...actual.genesisRepo, getSettings: async () => actual.genesisRepo.DEFAULT_GENESIS_SETTINGS },
   };
 });
 
@@ -91,6 +92,33 @@ describe("starter credits admin", () => {
     tx();
     expect((await call(app(), "POST", `${BASE}/starter-credits/grants/${NODE}/revoke`, { body: {} })).status).toBe(400);
     expect((await call(app(), "POST", `${BASE}/starter-credits/grants/${NODE}/revoke`, { body: { reason: "sybil" } })).status).toBe(404);
+  });
+});
+
+describe("genesis + buyer discount admin", () => {
+  it("validates and audits genesis settings; bonus capped at 5000 bps", async () => {
+    tx();
+    m.poolQuery.mockResolvedValue({ rows: [] });
+    expect((await call(app(), "PUT", `${BASE}/genesis/settings`, { body: { bonusBps: 5001 } })).status).toBe(400);
+    expect((await call(app(), "PUT", `${BASE}/genesis/settings`, { body: { creditMusd: 5 } })).status).toBe(400);
+    const r = await call(app(), "PUT", `${BASE}/genesis/settings`, { body: { maxOwners: 250, bonusBps: 600, creditMusd: "4000000" } });
+    expect(r.status).toBe(200);
+    expect(txSqls().some((s) => s.startsWith("UPDATE genesis_settings"))).toBe(true);
+    expect(txSqls().some((s) => s.includes("INSERT INTO audit_events"))).toBe(true);
+  });
+
+  it("clawback needs a reason and a held credit", async () => {
+    tx();
+    expect((await call(app(), "POST", `${BASE}/genesis/members/${NODE}/clawback`, { body: {} })).status).toBe(400);
+    expect((await call(app(), "POST", `${BASE}/genesis/members/${NODE}/clawback`, { body: { reason: "fraud" } })).status).toBe(404);
+  });
+
+  it("margin floor is 0..10000 bps", async () => {
+    tx();
+    expect((await call(app(), "PUT", `${BASE}/buyer-discounts/settings`, { body: { minPlatformMarginBps: 10001 } })).status).toBe(400);
+    expect((await call(app(), "PUT", `${BASE}/buyer-discounts/settings`, { body: { minPlatformMarginBps: 3000 } })).status).toBe(200);
+    m.poolQuery.mockResolvedValue({ rows: [{ enabled: true, min_platform_margin_bps: 3000, updated_by: null, updated_at: null }] });
+    expect((await call(app(), "GET", `${BASE}/buyer-discounts/settings`)).body).toMatchObject({ minPlatformMarginBps: 3000 });
   });
 });
 

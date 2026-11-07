@@ -2,7 +2,7 @@ import type * as net from "node:net";
 import dotenv from "dotenv";
 dotenv.config();
 
-import { createLogger, closePool, getPool, usageRepo, connectWithRetry, nodeRepo, policyRepo, nodeCreditRepo, retentionRepo, tierRepo, payoutRepo, relayChargeRepo, relaySettleRetryRepo, reportReputationRepo, collusionRepo, starterCreditRepo, contributionRepo } from "@dominusnode/shared";
+import { createLogger, closePool, getPool, usageRepo, connectWithRetry, nodeRepo, policyRepo, nodeCreditRepo, retentionRepo, tierRepo, payoutRepo, relayChargeRepo, relaySettleRetryRepo, reportReputationRepo, collusionRepo, starterCreditRepo, contributionRepo, genesisRepo } from "@dominusnode/shared";
 import type { ActivePolicy } from "@dominusnode/shared";
 import { startProxyServer } from "./server.js";
 import { geoAvailable, initGeoCheck, lookupPeerGeo } from "./geo-check.js";
@@ -311,6 +311,13 @@ function startJobs(registry: NodeRegistry, getPolicy: () => ActivePolicy): Job[]
   jobs.push(launchJobs.startStarterExpiry({
     pool, logger: jobLog, intervalMs: envInt(process.env, "STARTER_EXPIRY_JOB_INTERVAL_MS", 3_600_000, 60_000, 86_400_000),
     deps: { expireDue: starterCreditRepo.expireDue },
+  }));
+  jobs.push(launchJobs.startGenesis({
+    pool, logger: jobLog, intervalMs: envInt(process.env, "GENESIS_JOB_INTERVAL_MS", 3_600_000, 60_000, 86_400_000),
+    deps: {
+      enrol: genesisRepo.enrol, listCreditCandidates: genesisRepo.listCreditCandidates,
+      grantCredit: genesisRepo.grantCredit, matureCredits: genesisRepo.matureCredits,
+    },
   }));
   const probeTarget = probesJob.parseProbeUrl(process.env["PROBE_URL"]);
   if (probeTarget) {

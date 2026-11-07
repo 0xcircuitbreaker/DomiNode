@@ -82,6 +82,8 @@ router.get("/pricing", async (_req: Request, res: Response) => {
       unit: "musd_per_gb",
       prices: pricing.map((p) => ({ ipClass: p.ipClass, pricePerGbMusd: p.pricePerGbMusd.toString() })),
       nodeShare: tiers.map((t) => ({ tier: t.name, rank: t.rank, nodeShareBps: t.nodeShareBps })),
+      // List prices above; node operators buy at a tier discount funded from the platform share.
+      buyerDiscounts: tiers.map((t) => ({ tier: t.name, rank: t.rank, buyerDiscountBps: t.buyerDiscountBps ?? 0 })),
       maturationHours: split.maturationHours,
       rails: enabledRails(),
     });

@@ -71,6 +71,7 @@ describe("/v1 public routes", () => {
     expect(r.body["prices"]).toEqual([{ ipClass: "residential", pricePerGbMusd: "500000" }]);
     expect(r.body["nodeShare"]).toEqual([{ tier: "probation", rank: 0, nodeShareBps: 2500 }]);
     expect(r.body["maturationHours"]).toBe(168);
+    expect(r.body["buyerDiscounts"]).toEqual([{ tier: "probation", rank: 0, buyerDiscountBps: 0 }]);
   });
 
   it("GET /v1/network/stats aggregates and folds small/sanctioned groups", async () => {

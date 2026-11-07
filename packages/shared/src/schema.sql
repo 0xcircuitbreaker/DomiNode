@@ -1780,3 +1780,82 @@ CREATE TABLE IF NOT EXISTS contribution_allowlist (
   created_by  UUID REFERENCES users(id) ON DELETE SET NULL,
   created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- ─── Genesis boost (LAUNCH_PLAN §4.2) ───────────────────────────────
+-- First max_owners community node owners (ordered by their first paid,
+-- non-self-dealing charge; operator-run and admin principals excluded) get
+-- +bonus_bps on top of their tier share for boost_days (never above the 5000
+-- ceiling), plus a one-time credit after credit_threshold_bytes of matured
+-- paid traffic from other principals, held for the owner tier's hold days.
+CREATE TABLE IF NOT EXISTS genesis_settings (
+  id                      SMALLINT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+  enabled                 BOOLEAN NOT NULL DEFAULT true,
+  max_owners              INTEGER NOT NULL DEFAULT 200 CHECK (max_owners BETWEEN 0 AND 100000),
+  bonus_bps               INTEGER NOT NULL DEFAULT 500 CHECK (bonus_bps BETWEEN 0 AND 5000),
+  boost_days              INTEGER NOT NULL DEFAULT 90 CHECK (boost_days BETWEEN 1 AND 3650),
+  credit_musd             BIGINT  NOT NULL DEFAULT 5000000 CHECK (credit_musd BETWEEN 0 AND 1000000000),
+  credit_threshold_bytes  BIGINT  NOT NULL DEFAULT 5000000000 CHECK (credit_threshold_bytes BETWEEN 0 AND 1000000000000000),
+  updated_by              UUID REFERENCES users(id) ON DELETE SET NULL,
+  updated_at              TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+INSERT INTO genesis_settings (id) VALUES (1) ON CONFLICT (id) DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS genesis_members (
+  owner_user_id      UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  seq                INTEGER NOT NULL UNIQUE CHECK (seq BETWEEN 1 AND 100000),
+  enrolled_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+  boost_until        TIMESTAMPTZ NOT NULL,
+  credit_status      TEXT NOT NULL DEFAULT 'pending' CHECK (credit_status IN ('pending','held','matured','clawed_back')),
+  credit_musd        BIGINT CHECK (credit_musd IS NULL OR credit_musd BETWEEN 1 AND 1000000000),
+  credit_granted_at  TIMESTAMPTZ,
+  credit_matures_at  TIMESTAMPTZ,
+  CONSTRAINT chk_gm_credit CHECK ((credit_status = 'pending') = (credit_granted_at IS NULL))
+);
+CREATE INDEX IF NOT EXISTS idx_gm_credit_status ON genesis_members(credit_status, credit_matures_at);
+
+-- Snapshot of the genesis bonus included in node_share_bps (audit).
+ALTER TABLE relay_charges ADD COLUMN IF NOT EXISTS genesis_bonus_bps INTEGER NOT NULL DEFAULT 0;
+DO $$ BEGIN
+  ALTER TABLE relay_charges ADD CONSTRAINT chk_rc_genesis_bonus_bps CHECK (genesis_bonus_bps BETWEEN 0 AND 5000 AND genesis_bonus_bps <= node_share_bps);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+-- ─── Buyer discounts for node contributors (owner tier) ─────────────
+-- Funded from the platform share only: node_musd is computed on the list
+-- gross; the requester pays list - discount (= gross_musd); the discount is
+-- clamped so platform_musd >= list * min_platform_margin_bps.
+ALTER TABLE node_tiers ADD COLUMN IF NOT EXISTS buyer_discount_bps INTEGER NOT NULL DEFAULT 0;
+DO $$ BEGIN
+  ALTER TABLE node_tiers ADD CONSTRAINT chk_node_tiers_buyer_discount_bps CHECK (buyer_discount_bps BETWEEN 0 AND 5000);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+UPDATE node_tiers t SET buyer_discount_bps = d.bps
+FROM (VALUES (1, 0), (2, 500), (3, 1000), (4, 1500), (5, 2000), (6, 2500)) AS d(id, bps)
+WHERE t.id = d.id AND NOT EXISTS (SELECT 1 FROM schema_migrations WHERE version = '1.9.0');
+
+CREATE TABLE IF NOT EXISTS buyer_discount_settings (
+  id                      SMALLINT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+  enabled                 BOOLEAN NOT NULL DEFAULT true,
+  min_platform_margin_bps INTEGER NOT NULL DEFAULT 2500 CHECK (min_platform_margin_bps BETWEEN 0 AND 10000),
+  updated_by              UUID REFERENCES users(id) ON DELETE SET NULL,
+  updated_at              TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+INSERT INTO buyer_discount_settings (id) VALUES (1) ON CONFLICT (id) DO NOTHING;
+
+ALTER TABLE relay_charges ADD COLUMN IF NOT EXISTS list_gross_musd BIGINT;
+ALTER TABLE relay_charges ADD COLUMN IF NOT EXISTS buyer_discount_bps INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE relay_charges ADD COLUMN IF NOT EXISTS discount_musd BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE relay_charges ADD COLUMN IF NOT EXISTS buyer_tier_id SMALLINT REFERENCES node_tiers(id);
+DO $$ BEGIN
+  ALTER TABLE relay_charges ADD CONSTRAINT chk_rc_buyer_discount CHECK (
+    buyer_discount_bps BETWEEN 0 AND 5000
+    AND discount_musd BETWEEN 0 AND 2147483647000000
+    AND (list_gross_musd IS NULL OR (list_gross_musd BETWEEN 0 AND 2147483647000000
+         AND list_gross_musd = gross_musd + discount_musd))
+  );
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+INSERT INTO schema_migrations (version, description) VALUES
+  ('1.9.0', 'Launch readiness: seed nodes, starter credits, genesis boost, buyer discounts, status, unmet demand, abuse reports')
+ON CONFLICT (version) DO NOTHING;
