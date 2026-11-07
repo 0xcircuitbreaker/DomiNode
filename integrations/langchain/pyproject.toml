@@ -21,6 +21,10 @@ dev = ["pytest>=7.0"]
 [tool.hatch.build.targets.wheel]
 packages = ["dominusnode_langchain"]
 
+[tool.hatch.build.targets.sdist]
+include = ["dominusnode_langchain/", "README.md", "CHANGELOG.md", "LICENSE", "pyproject.toml"]
+exclude = ["**/__pycache__", "**/*.py[cod]"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 

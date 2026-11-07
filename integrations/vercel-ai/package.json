@@ -36,7 +36,9 @@
   "files": [
     "dist/",
     "README.md",
-    "CHANGELOG.md"
+    "LICENSE",
+    "CHANGELOG.md",
+    "!dist/**/*.map"
   ],
   "exports": {
     ".": {

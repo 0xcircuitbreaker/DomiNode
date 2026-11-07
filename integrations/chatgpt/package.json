@@ -55,6 +55,7 @@
     "ai-plugin.json",
     "README.md",
     "CHANGELOG.md",
-    "LICENSE"
+    "LICENSE",
+    "!dist/**/*.map"
   ]
 }

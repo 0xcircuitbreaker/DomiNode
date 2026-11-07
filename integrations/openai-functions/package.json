@@ -16,7 +16,8 @@
     "dist/",
     "functions.json",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "CHANGELOG.md"
   ],
   "license": "MIT",
   "repository": {
