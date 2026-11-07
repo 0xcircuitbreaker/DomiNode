@@ -163,3 +163,45 @@ Clients:
   (optional `DOMINUSNODE_PROXY_CA_FILE` for a private CA). Preferred over
   `DOMINUSNODE_HTTP_PROXY_PORT` when set.
 - curl: `curl -x https://relay:$KEY@proxy.example.com:8443 https://example.com`.
+
+## 7. Seed nodes (operator-run)
+
+Seed nodes are registered under a dedicated platform principal (DESIGN.md §11, LAUNCH_PLAN §4.1) and flagged `operator_run` so they are reported separately and never take genesis slots.
+
+**Files**
+- `packages/node-agent/Dockerfile`: multi-stage, runs as uid 1001, no node key, API key or wallet key in the image. Coordinator pins are a build arg (`DN_COORD_PUBKEYS`, public keys) and the build fails without them.
+- `infra/systemd/dominusnode-node.service`: hardened unit (`ProtectSystem=strict`, no capabilities, IPv4/IPv6/unix sockets only), reads `/etc/dominusnode/node.env` and the key file `/etc/dominusnode/node.json` (0600, owner `dominusnode`).
+- `scripts/seed/deploy-node.sh`: env-driven and idempotent (re-run to upgrade). It creates the service user, writes the non-secret env file, checks out `DN_REF`, builds the agent (or the image with `DN_MODE=docker`), registers the node once if no key file exists (`DN_API_KEY` and `DN_WALLET_KEY_FILE` from the environment only) and restarts the service.
+
+```bash
+sudo DN_COORD_PUBKEYS=<pins> DN_REF=<release tag> \
+     DN_NODE_API_URL=https://api.example DN_NODE_GATEWAY_URL=wss://gw.example/tunnel \
+     DN_API_KEY=$SEED_PRINCIPAL_KEY DN_WALLET_KEY_FILE=/root/seed-wallet.key \
+     ./scripts/seed/deploy-node.sh
+```
+
+Docker only:
+```bash
+docker build -f packages/node-agent/Dockerfile --build-arg DN_COORD_PUBKEYS=<pins> -t dominusnode-node .
+docker run -d --restart unless-stopped --env-file /etc/dominusnode/node.env \
+  -v /etc/dominusnode/node.json:/run/dominusnode/node.json:ro dominusnode-node
+```
+The key file must be owned by uid 1001 with mode 0600 (the agent refuses group/world-readable key files).
+
+After the first registration, flag the node: admin panel → Launch controls → "Flag operator-run", or `POST /api/admin/network/nodes/:id/operator-run {"operatorRun": true}`. The flag takes effect on the node's next tunnel reconnect.
+
+## 8. Launch jobs and settings
+
+| Env var | Default | Meaning |
+|---|---|---|
+| `STARTER_EXPIRY_JOB_INTERVAL_MS` | 3600000 | Starter-credit expiry job |
+| `GENESIS_JOB_INTERVAL_MS` | 3600000 | Genesis enrolment, credit grant and maturity |
+| `NETWORK_SNAPSHOT_INTERVAL_MS` | 3600000 | Hourly public network snapshot |
+| `NETWORK_SNAPSHOT_RETENTION_DAYS` | 400 | Snapshot retention |
+| `UNMET_DEMAND_FLUSH_INTERVAL_MS` | 60000 | Per-instance flush of unmet-demand counts |
+| `UNMET_DEMAND_RETENTION_DAYS` | 90 | Unmet-demand retention |
+| `PAYER_SDN_FILE` | `PAYOUT_SDN_FILE` | OFAC SDN address list for x402/MPP payer screening |
+| `PAYER_SDN_REQUIRED` | `false` (always `true` in production) | Refuse paid requests when the list is missing |
+| `ABUSE_REPORT_POW_DIFFICULTY` | 20 | Leading zero bits for abuse-report PoW |
+
+The SDN list must be installed (and refreshed) on every gateway host before x402/MPP is enabled in production; without it paid requests return `503 PAYER_SCREENING_UNAVAILABLE`. The public status page is served by the API at `/status`; put it behind the same TLS proxy as `/v1`.

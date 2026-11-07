@@ -20,7 +20,7 @@ Operator ADMIN CONTROL PANEL for the agent relay network (React 18 + Vite + Tail
 ## Pages
 - Public: Login (+MFA), Forgot/Reset password, Verify email, Terms/Privacy/AUP
 - `/admin/*` (src/admin/, gated on `admin_role != none`): Overview, Revenue, Network, Nodes, Agents,
-  Credits & Payouts, Disputes, Abuse log, Policy, Pricing/Split/Tiers, Health, Audit
+  Credits & Payouts, Disputes, Abuse log, Launch controls, Policy, Pricing/Split/Tiers, Health, Audit
 - API: `src/api/admin.ts` (typed /api/admin/network client, see docs/agent-network/ADMIN_API.md)
 - Charts: recharts (pinned) via `src/admin/components/charts.tsx`; colors come from `useChartTheme()`
 - Money: µUSD strings → `lib/format.ts` (`fmtMoney`); CSV via `lib/csv.ts` (formula-injection guarded)

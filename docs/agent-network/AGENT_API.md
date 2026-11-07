@@ -172,3 +172,47 @@ in `node_reports` (weighting by 30-day spend comes later) and increment the node
 ```
 Errors: `404` (not found / not yours), `400 NOT_RELAY_SESSION | SESSION_TOO_OLD`,
 `409 ALREADY_REPORTED`, `429 REPORT_LIMIT`.
+
+## Launch additions
+
+### Buyer discount fields
+- `GET /v1/node/tier`: `tier.buyerDiscountBps` and `nextTier.buyerDiscountBps`.
+- `GET /v1/credits`: `buyerDiscountBps`, the discount you currently get on relay purchases (0 unless you own a node).
+- `GET /v1/pricing` (public): `prices` are **list** prices; `buyerDiscounts: [{tier, rank, buyerDiscountBps}]`.
+
+### `GET /v1/starter-credits` (agent auth)
+```json
+{
+  "program": {"enabled": true, "amount": {"musd": "500000", "usd": "0.500000"}, "expiryDays": 30,
+              "seedNodesOnly": true, "seedOnlyDays": 30, "withdrawable": false, "countsTowardTiers": false},
+  "grant": {"amount": {...}, "remaining": {...}, "status": "active", "expiresAt": "…", "grantedAt": "…", "seedNodesOnly": true}
+}
+```
+`grant` is `null` when none was given. Grants happen automatically on a principal's first wallet sign-in, within the caps in ECONOMICS.md §7.
+
+### Public network data (no auth, cached, 120 req/min per IP)
+| Route | Response |
+|---|---|
+| `GET /v1/network/stats` | Adds `seed {online, paidBytes24h}` and `community {online, paidBytes24h}` (operator-run vs community nodes). |
+| `GET /v1/network/history?hours=168` | `{hours, snapshots: [{hour, onlineNodes, seedOnline, communityOnline, countries, asns, successRateBps, p50Ms, p95Ms, paidBytes24h, seedPaidBytes24h, communityPaidBytes24h, byClass}]}` (hours 1–9600). |
+| `GET /v1/network/incidents?limit=20` | `{incidents: [{id, title, body, severity, status, startedAt, resolvedAt, updatedAt}]}` |
+| `GET /v1/network/wanted?days=7` | `{days, minRequests: 5, wanted: [{country, ipClass, requests}]}`: where requesters found no node. `null` = any. |
+| `GET /status` | Human-readable status page (no scripts) built from the same data. |
+
+### Abuse reports (no account, proof-of-work gated)
+1. `POST /v1/abuse-reports/challenge` → `{challengeId, prefix, difficulty, algorithm: "sha256", expiresAt}`. Find `nonce` (≤ 32 chars) so that `sha256(prefix + nonce)` has `difficulty` leading zero bits.
+2. `POST /v1/abuse-reports`
+```json
+{"pow": {"challengeId": "…", "nonce": "123456"}, "destHost": "victim.example.com",
+ "windowStart": "2026-11-06T10:00:00Z", "windowEnd": "2026-11-06T11:00:00Z",
+ "category": "credential_stuffing", "description": "…", "contact": "optional"}
+```
+→ `201 {id, status: "new", receivedAt, responseTarget: "24h"}`. `destHost` is a bare hostname; the window is at most 31 days within the last year; `category ∈ spam|credential_stuffing|scraping|fraud|ddos|illegal_content|other`; description 10–4000 chars. The challenge is consumed before the solution is checked. Limits: 20 challenges and 5 reports per IP per hour. Errors: `400 POW_REQUIRED|POW_INVALID`, `413` over 16 KB, `429 RATE_LIMITED`. The reporter's IP is not stored.
+
+### Gateway access codes
+| Code | When |
+|---|---|
+| `403 CONTRIBUTION_REQUIRED` | `policy.requireContribution` is on and the API-key principal has no active node with matured paid traffic in the window and no allowlist entry. |
+| `403 ANONYMOUS_PAYERS_DISABLED` | `policy.allowAnonymousPayers` is off; x402/MPP requests are refused before payment verification. |
+| `403 PAYER_SANCTIONED` | The x402/MPP payer wallet is on the SDN list; the payment is not settled. |
+| `503 PAYER_SCREENING_UNAVAILABLE` | The SDN list is required but missing (always in production); nothing is charged. |
