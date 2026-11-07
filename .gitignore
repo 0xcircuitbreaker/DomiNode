@@ -43,3 +43,6 @@ target/
 # Local Claude Code settings
 .claude/settings.local.json
 .claude/worktrees/
+
+# Python build metadata
+*.egg-info/

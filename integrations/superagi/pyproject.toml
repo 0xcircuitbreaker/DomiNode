@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=68.0"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -7,7 +7,7 @@ name = "dominusnode-superagi"
 version = "2.0.0"
 description = "DominusNode toolkit for SuperAGI: the 19 standard relay-network tools, built on the dominusnode SDK"
 readme = "README.md"
-license = {text = "MIT"}
+license = "MIT"
 requires-python = ">=3.9"
 dependencies = ["dominusnode>=2.0.0,<3", "pydantic>=1.10.0"]
 
@@ -16,3 +16,9 @@ dev = ["pytest>=7.0"]
 
 [tool.setuptools.packages.find]
 include = ["dominusnode_superagi*"]
+
+[project.urls]
+Homepage = "https://github.com/0xcircuitbreaker/DomiNode/tree/master/integrations/superagi"
+Repository = "https://github.com/0xcircuitbreaker/DomiNode"
+Issues = "https://github.com/0xcircuitbreaker/DomiNode/issues"
+Changelog = "https://github.com/0xcircuitbreaker/DomiNode/blob/master/integrations/superagi/CHANGELOG.md"

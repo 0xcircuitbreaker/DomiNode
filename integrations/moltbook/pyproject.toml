@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=68.0"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -7,7 +7,7 @@ name = "dominusnode-moltbook"
 version = "2.0.0"
 description = "DominusNode v2 standard tool set (19 relay-network tools) for agent runtimes, built on the dominusnode SDK"
 readme = "README.md"
-license = {text = "MIT"}
+license = "MIT"
 requires-python = ">=3.9"
 dependencies = ["dominusnode>=2.0.0,<3"]
 
@@ -16,3 +16,9 @@ dev = ["pytest>=7.0"]
 
 [tool.setuptools.packages.find]
 include = ["dominusnode_moltbook*"]
+
+[project.urls]
+Homepage = "https://github.com/0xcircuitbreaker/DomiNode/tree/master/integrations/moltbook"
+Repository = "https://github.com/0xcircuitbreaker/DomiNode"
+Issues = "https://github.com/0xcircuitbreaker/DomiNode/issues"
+Changelog = "https://github.com/0xcircuitbreaker/DomiNode/blob/master/integrations/moltbook/CHANGELOG.md"

@@ -21,16 +21,16 @@
     </licenses>
 
     <scm>
-        <connection>scm:git:git://github.com/Dominus-Node/dominusnode-java.git</connection>
-        <developerConnection>scm:git:ssh://github.com:Dominus-Node/dominusnode-java.git</developerConnection>
-        <url>https://github.com/Dominus-Node/dominusnode-java</url>
+        <connection>scm:git:https://github.com/0xcircuitbreaker/DomiNode.git</connection>
+        <developerConnection>scm:git:ssh://git@github.com/0xcircuitbreaker/DomiNode.git</developerConnection>
+        <url>https://github.com/0xcircuitbreaker/DomiNode/tree/master/sdks/java</url>
     </scm>
 
     <distributionManagement>
         <repository>
             <id>github</id>
-            <name>GitHub Dominus-Node Apache Maven Packages</name>
-            <url>https://maven.pkg.github.com/Dominus-Node/dominusnode-java</url>
+            <name>GitHub Packages (0xcircuitbreaker/DomiNode)</name>
+            <url>https://maven.pkg.github.com/0xcircuitbreaker/DomiNode</url>
         </repository>
     </distributionManagement>
 

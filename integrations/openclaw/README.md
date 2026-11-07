@@ -9,7 +9,7 @@ integration only describes tools for the model and maps arguments to SDK calls.
 
 ```bash
 openclaw plugins install @dominusnode/openclaw-plugin
-# or: npm install @dominusnode/openclaw-plugin
+# or: npm install @dominusnode/openclaw-plugin@2
 ```
 
 ## Configure

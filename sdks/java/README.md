@@ -13,13 +13,30 @@ It implements the language-neutral contract in [`sdks/SDK_SURFACE.md`](../SDK_SU
 
 ## Installation
 
-Add your GitHub Packages credentials to `~/.m2/settings.xml` (a token with `read:packages`), then:
+The SDK is published to GitHub Packages, not Maven Central. GitHub Packages
+always requires authentication for Maven, even for public packages: create a
+personal access token (classic) with the `read:packages` scope and add it to
+`~/.m2/settings.xml` (keep the token out of `pom.xml`):
+
+```xml
+<settings>
+  <servers>
+    <server>
+      <id>github</id>
+      <username>YOUR_GITHUB_USERNAME</username>
+      <password>${env.GITHUB_TOKEN}</password>
+    </server>
+  </servers>
+</settings>
+```
+
+Then in `pom.xml` (the repository `id` must match the server `id`):
 
 ```xml
 <repositories>
   <repository>
     <id>github</id>
-    <url>https://maven.pkg.github.com/Dominus-Node/dominusnode-java</url>
+    <url>https://maven.pkg.github.com/0xcircuitbreaker/DomiNode</url>
   </repository>
 </repositories>
 

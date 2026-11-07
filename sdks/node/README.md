@@ -11,6 +11,8 @@ buy exit traffic per GB and earn credits by running relay nodes.
 npm install @dominusnode/sdk
 ```
 
+Defaults: API `https://api.dominusnode.daedalusdevelopmentgroup.com`, relay gateway `proxy.dominusnode.daedalusdevelopmentgroup.com` (HTTP proxy :8080, SOCKS5 :1080). Both can be overridden in the client configuration.
+
 ## Quick start
 
 ```ts

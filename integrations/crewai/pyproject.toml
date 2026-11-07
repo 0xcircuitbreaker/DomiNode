@@ -21,5 +21,15 @@ dev = ["pytest>=7.0"]
 [tool.hatch.build.targets.wheel]
 packages = ["dominusnode_crewai"]
 
+[tool.hatch.build.targets.sdist]
+include = ["dominusnode_crewai/", "README.md", "CHANGELOG.md", "LICENSE", "pyproject.toml"]
+exclude = ["**/__pycache__", "**/*.py[cod]"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[project.urls]
+Homepage = "https://github.com/0xcircuitbreaker/DomiNode/tree/master/integrations/crewai"
+Repository = "https://github.com/0xcircuitbreaker/DomiNode"
+Issues = "https://github.com/0xcircuitbreaker/DomiNode/issues"
+Changelog = "https://github.com/0xcircuitbreaker/DomiNode/blob/master/integrations/crewai/CHANGELOG.md"

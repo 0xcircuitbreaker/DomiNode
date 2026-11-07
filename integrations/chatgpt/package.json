@@ -12,6 +12,15 @@
     }
   },
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/0xcircuitbreaker/DomiNode.git",
+    "directory": "integrations/chatgpt"
+  },
+  "homepage": "https://github.com/0xcircuitbreaker/DomiNode/tree/master/integrations/chatgpt#readme",
+  "bugs": {
+    "url": "https://github.com/0xcircuitbreaker/DomiNode/issues"
+  },
   "scripts": {
     "build": "tsc",
     "prepare": "npm run build",
@@ -36,10 +45,6 @@
     "relay",
     "ai-agent"
   ],
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/Dominus-Node/dominusnode"
-  },
   "engines": {
     "node": ">=18.0.0"
   },
@@ -50,6 +55,7 @@
     "ai-plugin.json",
     "README.md",
     "CHANGELOG.md",
-    "LICENSE"
+    "LICENSE",
+    "!dist/**/*.map"
   ]
 }

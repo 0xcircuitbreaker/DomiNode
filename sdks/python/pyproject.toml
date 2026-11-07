@@ -1,13 +1,14 @@
 [build-system]
-requires = ["setuptools>=68.0"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "dominusnode"
 version = "2.0.0"
+readme = "README.md"
 description = "Official DominusNode SDK for Python: AI-agent relay network (proxy, nodes, credits, payouts)"
 requires-python = ">=3.9"
-license = {text = "MIT"}
+license = "MIT"
 dependencies = ["httpx>=0.24.0"]
 
 [project.optional-dependencies]
@@ -19,3 +20,9 @@ include = ["dominusnode*"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
+
+[project.urls]
+Homepage = "https://github.com/0xcircuitbreaker/DomiNode/tree/master/sdks/python"
+Repository = "https://github.com/0xcircuitbreaker/DomiNode"
+Issues = "https://github.com/0xcircuitbreaker/DomiNode/issues"
+Changelog = "https://github.com/0xcircuitbreaker/DomiNode/blob/master/sdks/python/CHANGELOG.md"

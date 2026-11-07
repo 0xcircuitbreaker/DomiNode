@@ -1,0 +1,712 @@
+name: Release
+
+# Publishes every package whose manifest version is not on its registry yet,
+# then tags it (<id>-v<version>, Go: sdks/go/v<version>) and creates a GitHub
+# Release. Packages are listed in .github/release-packages.json; the plan is
+# computed by scripts/release/plan.mjs. See docs/RELEASING.md.
+#
+# Re-running is safe: anything already published / tagged is skipped.
+
+on:
+  push:
+    branches: [master]
+  # Pull requests that touch release inputs get a full dry run: every package
+  # is built, tested and packed against the in-repo SDKs; nothing is published.
+  pull_request:
+    branches: [master]
+    paths:
+      - ".github/release-packages.json"
+      - ".github/workflows/release.yml"
+      - "scripts/release/**"
+      - "sdks/**"
+      - "packages/mcp-server/**"
+      - "integrations/**"
+  workflow_dispatch:
+    inputs:
+      package:
+        description: "Only this package id (empty = all pending)"
+        required: false
+        default: ""
+      dry_run:
+        description: "Build and test, but do not publish, tag or release"
+        type: boolean
+        default: true
+      deprecate_v1:
+        description: "After 2.0.0 is out: npm deprecate <pkg>@<2.0.0 for all 11 npm packages (needs NPM_TOKEN)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+env:
+  DRY_RUN: ${{ github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.dry_run) }}
+  GH_REPO: ${{ github.repository }}
+  REPO_PRIVATE: ${{ github.event.repository.private }}
+
+jobs:
+  plan:
+    name: Plan
+    runs-on: ubuntu-latest
+    outputs:
+      release: ${{ steps.plan.outputs.release }}
+      npm_0: ${{ steps.plan.outputs.npm_0 }}
+      npm_1: ${{ steps.plan.outputs.npm_1 }}
+      pypi_0: ${{ steps.plan.outputs.pypi_0 }}
+      pypi_1: ${{ steps.plan.outputs.pypi_1 }}
+      go: ${{ steps.plan.outputs.go }}
+      crates: ${{ steps.plan.outputs.crates }}
+      maven: ${{ steps.plan.outputs.maven }}
+      cpp: ${{ steps.plan.outputs.cpp }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+      - name: Test planner
+        run: node --test scripts/release/plan.test.mjs scripts/release/check-artifacts.test.mjs
+      - name: Plan
+        id: plan
+        env:
+          ONLY: ${{ inputs.package }}
+        run: |
+          if [ -n "${ONLY:-}" ]; then
+            node scripts/release/plan.mjs --github-output --only "$ONLY"
+          else
+            node scripts/release/plan.mjs --github-output
+          fi
+
+  npm-sdk:
+    name: npm ${{ matrix.pkg.id }}
+    needs: plan
+    if: ${{ needs.plan.outputs.npm_0 != '[]' }}
+    runs-on: ubuntu-latest
+    environment: ${{ (github.event_name == 'pull_request' || inputs.dry_run) && 'release-dry-run' || 'release' }}
+    permissions:
+      contents: write
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        pkg: ${{ fromJSON(needs.plan.outputs.npm_0) }}
+    defaults:
+      run:
+        working-directory: ${{ matrix.pkg.path }}
+    env:
+      PKG_ID: ${{ matrix.pkg.id }}
+      PKG_NAME: ${{ matrix.pkg.name }}
+      PKG_VERSION: ${{ matrix.pkg.version }}
+      PKG_TAG: ${{ matrix.pkg.tag }}
+      PKG_PRERELEASE: ${{ matrix.pkg.prerelease }}
+      PKG_PUBLISHED: ${{ matrix.pkg.published }}
+      NPM_DIST_TAG: ${{ matrix.pkg.npmTag }}
+      INSTALL_CMD: ${{ matrix.pkg.install }}
+      BUILD_CMD: ${{ matrix.pkg.build }}
+      TEST_CMD: ${{ matrix.pkg.test }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+      - name: npm with Trusted Publishing support
+        run: npm install -g npm@11.21.2 && npm --version
+      - name: Wait for dependencies on the registry
+        run: node "$GITHUB_WORKSPACE/scripts/release/plan.mjs" wait "$PKG_ID" --timeout 900
+      - name: Install
+        run: bash -c "$INSTALL_CMD"
+      - name: Build
+        run: bash -c "$BUILD_CMD"
+      - name: Test
+        run: bash -c "$TEST_CMD"
+      - name: Check manifest
+        run: |
+          node -e '
+            const p = require("./package.json");
+            const bad = Object.entries({ ...p.dependencies, ...p.peerDependencies })
+              .filter(([, v]) => /^(file|link|workspace):/.test(v));
+            if (bad.length) { console.error("local dependency links:", bad); process.exit(1); }
+            if (!p.repository || !/github\.com\/0xcircuitbreaker\/DomiNode/.test(p.repository.url)) {
+              console.error("repository.url must point at 0xcircuitbreaker/DomiNode (provenance)"); process.exit(1);
+            }'
+      - name: Check package contents
+        run: |
+          npm pack --dry-run --json --ignore-scripts > "$RUNNER_TEMP/pack.json"
+          node "$GITHUB_WORKSPACE/scripts/release/check-artifacts.mjs" --root . "$RUNNER_TEMP/pack.json"
+      - name: Publish
+        if: ${{ matrix.pkg.published != true }}
+        run: |
+          # Trusted Publishing (OIDC) works from a private repo; provenance does not
+          # ("not supported for private repositories"), so it is added only when public.
+          args=(--access public --tag "$NPM_DIST_TAG")
+          if [ "$REPO_PRIVATE" != "true" ]; then args+=(--provenance); else echo "::notice::private repo: publishing without --provenance"; fi
+          if [ "$DRY_RUN" = "true" ]; then args+=(--dry-run); fi
+          npm publish "${args[@]}"
+      - name: Tag and GitHub Release
+        if: ${{ env.DRY_RUN != 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: '"$GITHUB_WORKSPACE/scripts/release/github-release.sh" "$PKG_ID" "$PKG_TAG" "$PKG_VERSION" "$PKG_PRERELEASE"'
+
+  npm-dependents:
+    name: npm ${{ matrix.pkg.id }}
+    needs: [plan, npm-sdk]
+    if: ${{ !cancelled() && needs.plan.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.npm-sdk.result) && needs.plan.outputs.npm_1 != '[]' }}
+    runs-on: ubuntu-latest
+    environment: ${{ (github.event_name == 'pull_request' || inputs.dry_run) && 'release-dry-run' || 'release' }}
+    permissions:
+      contents: write
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        pkg: ${{ fromJSON(needs.plan.outputs.npm_1) }}
+    defaults:
+      run:
+        working-directory: ${{ matrix.pkg.path }}
+    env:
+      PKG_ID: ${{ matrix.pkg.id }}
+      PKG_NAME: ${{ matrix.pkg.name }}
+      PKG_VERSION: ${{ matrix.pkg.version }}
+      PKG_TAG: ${{ matrix.pkg.tag }}
+      PKG_PRERELEASE: ${{ matrix.pkg.prerelease }}
+      PKG_PUBLISHED: ${{ matrix.pkg.published }}
+      NPM_DIST_TAG: ${{ matrix.pkg.npmTag }}
+      INSTALL_CMD: ${{ matrix.pkg.install }}
+      BUILD_CMD: ${{ matrix.pkg.build }}
+      TEST_CMD: ${{ matrix.pkg.test }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+      - name: npm with Trusted Publishing support
+        run: npm install -g npm@11.21.2 && npm --version
+      - name: Wait for dependencies on the registry
+        if: ${{ env.DRY_RUN != 'true' }}
+        run: node "$GITHUB_WORKSPACE/scripts/release/plan.mjs" wait "$PKG_ID" --timeout 900
+      - name: Use in-repo SDK (dry run)
+        if: ${{ env.DRY_RUN == 'true' }}
+        run: |
+          (cd "$GITHUB_WORKSPACE/sdks/node" && npm ci && npm run build && npm pack --pack-destination "$RUNNER_TEMP")
+          echo "LOCAL_SDK_TGZ=$(ls "$RUNNER_TEMP"/dominusnode-sdk-*.tgz)" >> "$GITHUB_ENV"
+      - name: Install
+        run: |
+          if [ "$DRY_RUN" = "true" ] && [ -n "${LOCAL_SDK_TGZ:-}" ]; then
+            npm install --no-save --no-audit --no-fund "$LOCAL_SDK_TGZ"
+          else
+            bash -c "$INSTALL_CMD"
+          fi
+      - name: Build
+        run: bash -c "$BUILD_CMD"
+      - name: Test
+        run: bash -c "$TEST_CMD"
+      - name: Check manifest
+        run: |
+          node -e '
+            const p = require("./package.json");
+            const bad = Object.entries({ ...p.dependencies, ...p.peerDependencies })
+              .filter(([, v]) => /^(file|link|workspace):/.test(v));
+            if (bad.length) { console.error("local dependency links:", bad); process.exit(1); }
+            if (!p.repository || !/github\.com\/0xcircuitbreaker\/DomiNode/.test(p.repository.url)) {
+              console.error("repository.url must point at 0xcircuitbreaker/DomiNode (provenance)"); process.exit(1);
+            }'
+      - name: Check package contents
+        run: |
+          npm pack --dry-run --json --ignore-scripts > "$RUNNER_TEMP/pack.json"
+          node "$GITHUB_WORKSPACE/scripts/release/check-artifacts.mjs" --root . "$RUNNER_TEMP/pack.json"
+      - name: Publish
+        if: ${{ matrix.pkg.published != true }}
+        run: |
+          # Trusted Publishing (OIDC) works from a private repo; provenance does not
+          # ("not supported for private repositories"), so it is added only when public.
+          args=(--access public --tag "$NPM_DIST_TAG")
+          if [ "$REPO_PRIVATE" != "true" ]; then args+=(--provenance); else echo "::notice::private repo: publishing without --provenance"; fi
+          if [ "$DRY_RUN" = "true" ]; then args+=(--dry-run); fi
+          npm publish "${args[@]}"
+      - name: Tag and GitHub Release
+        if: ${{ env.DRY_RUN != 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: '"$GITHUB_WORKSPACE/scripts/release/github-release.sh" "$PKG_ID" "$PKG_TAG" "$PKG_VERSION" "$PKG_PRERELEASE"'
+
+  # Publishes packages/mcp-server/server.json to the official MCP Registry once
+  # the npm package of the same version is on npmjs.com. Dry runs only validate.
+  mcp-registry:
+    name: MCP Registry
+    needs: [plan, npm-sdk]
+    if: ${{ !cancelled() && needs.plan.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.npm-sdk.result) && (inputs.package == '' || inputs.package == 'mcp-server') }}
+    runs-on: ubuntu-latest
+    environment: ${{ (github.event_name == 'pull_request' || inputs.dry_run) && 'release-dry-run' || 'release' }}
+    permissions:
+      contents: read
+      id-token: write
+    defaults:
+      run:
+        working-directory: packages/mcp-server
+    env:
+      MCP_PUBLISHER_VERSION: v1.8.1
+      MCP_PUBLISHER_SHA256: a06c9096dcb9727c13555b6be26c7effa707b01f06a4c561ba7a3635443cf2cc
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - name: server.json matches package.json
+        id: meta
+        run: |
+          name=$(jq -r .name server.json)
+          version=$(jq -r .version server.json)
+          pkg_version=$(jq -r .version package.json)
+          npm_version=$(jq -r '.packages[] | select(.registryType == "npm") | .version' server.json)
+          if [ "$version" != "$pkg_version" ] || [ "$npm_version" != "$pkg_version" ]; then
+            echo "::error::server.json version $version / npm $npm_version != package.json $pkg_version"; exit 1
+          fi
+          if [ "$(jq -r .mcpName package.json)" != "$name" ]; then echo "::error::package.json mcpName != server.json name"; exit 1; fi
+          { echo "name=$name"; echo "version=$version"; } >> "$GITHUB_OUTPUT"
+      - name: Install mcp-publisher (pinned)
+        run: |
+          archive=mcp-publisher_linux_amd64.tar.gz
+          curl -fsSL -o "$RUNNER_TEMP/$archive" "https://github.com/modelcontextprotocol/registry/releases/download/${MCP_PUBLISHER_VERSION}/$archive"
+          echo "${MCP_PUBLISHER_SHA256}  $RUNNER_TEMP/$archive" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP" mcp-publisher
+          "$RUNNER_TEMP/mcp-publisher" --help >/dev/null
+      - name: Validate server.json
+        run: '"$RUNNER_TEMP/mcp-publisher" validate'
+      - name: Already in the registry?
+        id: exists
+        env:
+          NAME: ${{ steps.meta.outputs.name }}
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          url="https://registry.modelcontextprotocol.io/v0.1/servers/${NAME//\//%2F}/versions/${VERSION}"
+          code=$(curl -s -o /dev/null -w '%{http_code}' "$url")
+          echo "HTTP $code for $url"
+          case "$code" in
+            200) echo "found=true" >> "$GITHUB_OUTPUT" ;;
+            404) echo "found=false" >> "$GITHUB_OUTPUT" ;;
+            *) echo "::error::unexpected HTTP $code from the MCP Registry"; exit 1 ;;
+          esac
+      - name: npm package of this version is published?
+        id: npm
+        if: ${{ steps.exists.outputs.found != 'true' && env.DRY_RUN != 'true' }}
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          code=$(curl -s -o /dev/null -w '%{http_code}' "https://registry.npmjs.org/@dominusnode%2Fmcp-server/${VERSION}")
+          if [ "$code" = "200" ]; then echo "ok=true" >> "$GITHUB_OUTPUT"; else echo "::warning::@dominusnode/mcp-server@${VERSION} is not on npm (HTTP $code); not publishing to the MCP Registry"; fi
+      - name: Publish to the MCP Registry (GitHub OIDC)
+        if: ${{ steps.exists.outputs.found != 'true' && env.DRY_RUN != 'true' && steps.npm.outputs.ok == 'true' }}
+        run: |
+          "$RUNNER_TEMP/mcp-publisher" login github-oidc
+          "$RUNNER_TEMP/mcp-publisher" publish
+
+  # Owner-triggered: deprecate the pre-2.0 npm versions once 2.0.0 is out.
+  # npm Trusted Publishing (OIDC) does not cover `npm deprecate`, so this job
+  # needs an NPM_TOKEN secret on the `release` environment (see docs/RELEASING.md).
+  npm-deprecate-v1:
+    name: Deprecate npm < 2.0.0
+    needs: [plan, npm-sdk, npm-dependents]
+    if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' && inputs.deprecate_v1 && needs.plan.result == 'success' }}
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.dry_run && 'release-dry-run' || 'release' }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+      - name: npm deprecate
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ "$DRY_RUN" != "true" ] && [ -z "${NODE_AUTH_TOKEN:-}" ]; then
+            echo "::error::NPM_TOKEN is not set on the release environment"; exit 1
+          fi
+          if [ -n "${NODE_AUTH_TOKEN:-}" ]; then
+            # shellcheck disable=SC2016 # npm expands ${NODE_AUTH_TOKEN} itself; the token never hits disk
+            printf '//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}\n' > "$RUNNER_TEMP/.npmrc"
+            export NPM_CONFIG_USERCONFIG="$RUNNER_TEMP/.npmrc"
+          fi
+          trap 'rm -f "$RUNNER_TEMP/.npmrc"' EXIT
+          msg="Superseded by 2.x (DominusNode v2 relay network). Upgrade to 2.x; 1.x targets the retired API."
+          failed=0
+          for name in $(jq -r '.packages[] | select(.ecosystem == "npm") | .name' .github/release-packages.json); do
+            if ! npm view "$name@2.0.0" version >/dev/null 2>&1; then
+              echo "::warning::$name@2.0.0 is not on npm yet; skipping"; continue
+            fi
+            if [ "$DRY_RUN" = "true" ]; then
+              echo "would run: npm deprecate \"$name@<2.0.0\" \"$msg\""
+            else
+              npm deprecate "$name@<2.0.0" "$msg" || failed=1
+            fi
+          done
+          exit "$failed"
+
+  pypi-sdk:
+    name: PyPI ${{ matrix.pkg.id }}
+    needs: plan
+    if: ${{ needs.plan.outputs.pypi_0 != '[]' }}
+    runs-on: ubuntu-latest
+    environment: ${{ (github.event_name == 'pull_request' || inputs.dry_run) && 'release-dry-run' || 'release' }}
+    permissions:
+      contents: write
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        pkg: ${{ fromJSON(needs.plan.outputs.pypi_0) }}
+    defaults:
+      run:
+        working-directory: ${{ matrix.pkg.path }}
+    env:
+      PKG_ID: ${{ matrix.pkg.id }}
+      PKG_VERSION: ${{ matrix.pkg.version }}
+      PKG_TAG: ${{ matrix.pkg.tag }}
+      PKG_PRERELEASE: ${{ matrix.pkg.prerelease }}
+      INSTALL_CMD: ${{ matrix.pkg.install }}
+      BUILD_CMD: ${{ matrix.pkg.build }}
+      TEST_CMD: ${{ matrix.pkg.test }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.12"
+      - name: Wait for dependencies on the registry
+        run: node "$GITHUB_WORKSPACE/scripts/release/plan.mjs" wait "$PKG_ID" --timeout 900
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip build twine
+          bash -c "$INSTALL_CMD"
+      - name: Test
+        run: bash -c "$TEST_CMD"
+      - name: Build
+        run: |
+          rm -rf dist
+          bash -c "$BUILD_CMD"
+          twine check --strict dist/*
+          node "$GITHUB_WORKSPACE/scripts/release/check-artifacts.mjs" dist/*
+      - name: Publish to PyPI
+        if: ${{ matrix.pkg.published != true && env.DRY_RUN != 'true' }}
+        uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
+        with:
+          packages-dir: ${{ matrix.pkg.path }}/dist
+      - name: Tag and GitHub Release
+        if: ${{ env.DRY_RUN != 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: '"$GITHUB_WORKSPACE/scripts/release/github-release.sh" "$PKG_ID" "$PKG_TAG" "$PKG_VERSION" "$PKG_PRERELEASE"'
+
+  pypi-dependents:
+    name: PyPI ${{ matrix.pkg.id }}
+    needs: [plan, pypi-sdk]
+    if: ${{ !cancelled() && needs.plan.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.pypi-sdk.result) && needs.plan.outputs.pypi_1 != '[]' }}
+    runs-on: ubuntu-latest
+    environment: ${{ (github.event_name == 'pull_request' || inputs.dry_run) && 'release-dry-run' || 'release' }}
+    permissions:
+      contents: write
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        pkg: ${{ fromJSON(needs.plan.outputs.pypi_1) }}
+    defaults:
+      run:
+        working-directory: ${{ matrix.pkg.path }}
+    env:
+      PKG_ID: ${{ matrix.pkg.id }}
+      PKG_VERSION: ${{ matrix.pkg.version }}
+      PKG_TAG: ${{ matrix.pkg.tag }}
+      PKG_PRERELEASE: ${{ matrix.pkg.prerelease }}
+      INSTALL_CMD: ${{ matrix.pkg.install }}
+      BUILD_CMD: ${{ matrix.pkg.build }}
+      TEST_CMD: ${{ matrix.pkg.test }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.12"
+      - name: Wait for dependencies on the registry
+        if: ${{ env.DRY_RUN != 'true' }}
+        run: node "$GITHUB_WORKSPACE/scripts/release/plan.mjs" wait "$PKG_ID" --timeout 900
+      - name: Use in-repo SDK (dry run)
+        if: ${{ env.DRY_RUN == 'true' }}
+        run: pip install "$GITHUB_WORKSPACE/sdks/python"
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip build twine
+          bash -c "$INSTALL_CMD"
+      - name: Test
+        run: bash -c "$TEST_CMD"
+      - name: Build
+        run: |
+          rm -rf dist
+          bash -c "$BUILD_CMD"
+          twine check --strict dist/*
+          node "$GITHUB_WORKSPACE/scripts/release/check-artifacts.mjs" dist/*
+      - name: Publish to PyPI
+        if: ${{ matrix.pkg.published != true && env.DRY_RUN != 'true' }}
+        uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
+        with:
+          packages-dir: ${{ matrix.pkg.path }}/dist
+      - name: Tag and GitHub Release
+        if: ${{ env.DRY_RUN != 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: '"$GITHUB_WORKSPACE/scripts/release/github-release.sh" "$PKG_ID" "$PKG_TAG" "$PKG_VERSION" "$PKG_PRERELEASE"'
+
+  crates:
+    name: crates.io ${{ matrix.pkg.id }}
+    needs: plan
+    if: ${{ needs.plan.outputs.crates != '[]' }}
+    runs-on: ubuntu-latest
+    environment: ${{ (github.event_name == 'pull_request' || inputs.dry_run) && 'release-dry-run' || 'release' }}
+    permissions:
+      contents: write
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        pkg: ${{ fromJSON(needs.plan.outputs.crates) }}
+    defaults:
+      run:
+        working-directory: ${{ matrix.pkg.path }}
+    env:
+      PKG_ID: ${{ matrix.pkg.id }}
+      PKG_NAME: ${{ matrix.pkg.name }}
+      PKG_VERSION: ${{ matrix.pkg.version }}
+      PKG_TAG: ${{ matrix.pkg.tag }}
+      PKG_PRERELEASE: ${{ matrix.pkg.prerelease }}
+      BUILD_CMD: ${{ matrix.pkg.build }}
+      TEST_CMD: ${{ matrix.pkg.test }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+      - uses: dtolnay/rust-toolchain@56f84321dbccf38fb67ce29ab63e4754056677e0 # stable
+        with:
+          toolchain: stable
+      - name: Build
+        run: bash -c "$BUILD_CMD"
+      - name: Test
+        run: bash -c "$TEST_CMD"
+      - name: Package
+        run: |
+          cargo publish --dry-run
+          # `cargo publish --dry-run` no longer keeps the .crate; build it explicitly for the check.
+          cargo package --no-verify
+          node "$GITHUB_WORKSPACE/scripts/release/check-artifacts.mjs" "target/package/${PKG_NAME}-${PKG_VERSION}.crate"
+      - name: crates.io token (Trusted Publishing)
+        if: ${{ matrix.pkg.published != true && env.DRY_RUN != 'true' }}
+        id: auth
+        uses: rust-lang/crates-io-auth-action@3268eb413133e2960fa4ae0e963ca76380c54cd9 # v1.0.6
+      - name: Publish to crates.io
+        if: ${{ matrix.pkg.published != true && env.DRY_RUN != 'true' }}
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+        run: cargo publish
+      - name: Tag and GitHub Release
+        if: ${{ env.DRY_RUN != 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: '"$GITHUB_WORKSPACE/scripts/release/github-release.sh" "$PKG_ID" "$PKG_TAG" "$PKG_VERSION" "$PKG_PRERELEASE"'
+
+  go:
+    name: Go ${{ matrix.pkg.id }}
+    needs: plan
+    if: ${{ needs.plan.outputs.go != '[]' }}
+    runs-on: ubuntu-latest
+    environment: ${{ (github.event_name == 'pull_request' || inputs.dry_run) && 'release-dry-run' || 'release' }}
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        pkg: ${{ fromJSON(needs.plan.outputs.go) }}
+    defaults:
+      run:
+        working-directory: ${{ matrix.pkg.path }}
+    env:
+      PKG_ID: ${{ matrix.pkg.id }}
+      PKG_NAME: ${{ matrix.pkg.name }}
+      PKG_VERSION: ${{ matrix.pkg.version }}
+      PKG_TAG: ${{ matrix.pkg.tag }}
+      PKG_PRERELEASE: ${{ matrix.pkg.prerelease }}
+      BUILD_CMD: ${{ matrix.pkg.build }}
+      TEST_CMD: ${{ matrix.pkg.test }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+        with:
+          go-version-file: ${{ matrix.pkg.path }}/go.mod
+          cache: false
+      - name: Check module path and major version
+        run: |
+          mod=$(go list -m)
+          if [ "$mod" != "$PKG_NAME" ]; then echo "go.mod module $mod != $PKG_NAME" >&2; exit 1; fi
+          major=${PKG_VERSION%%.*}
+          if [ "$major" -ge 2 ] && [ "${mod##*/}" != "v$major" ]; then echo "module path must end in /v$major" >&2; exit 1; fi
+      - name: Build
+        run: bash -c "$BUILD_CMD"
+      - name: Test
+        run: bash -c "$TEST_CMD"
+      - name: Tag and GitHub Release
+        if: ${{ env.DRY_RUN != 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: '"$GITHUB_WORKSPACE/scripts/release/github-release.sh" "$PKG_ID" "$PKG_TAG" "$PKG_VERSION" "$PKG_PRERELEASE"'
+      - name: Ask proxy.golang.org to fetch the version
+        if: ${{ env.DRY_RUN != 'true' && github.event.repository.private == false }}
+        continue-on-error: true
+        run: |
+          GOPROXY=https://proxy.golang.org GOFLAGS=-mod=mod go list -m "$PKG_NAME@v$PKG_VERSION" \
+            || echo "::warning::proxy.golang.org has not picked up $PKG_NAME@v$PKG_VERSION yet"
+      - name: Private repo note
+        if: ${{ github.event.repository.private }}
+        run: echo "::warning::repo is private; proxy.golang.org cannot fetch it and 'go get $PKG_NAME' only works for users with GOPRIVATE + git access until the repo is public"
+
+  maven:
+    name: Maven ${{ matrix.pkg.id }}
+    needs: plan
+    if: ${{ needs.plan.outputs.maven != '[]' }}
+    runs-on: ubuntu-latest
+    environment: ${{ (github.event_name == 'pull_request' || inputs.dry_run) && 'release-dry-run' || 'release' }}
+    permissions:
+      contents: write
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        pkg: ${{ fromJSON(needs.plan.outputs.maven) }}
+    defaults:
+      run:
+        working-directory: ${{ matrix.pkg.path }}
+    env:
+      PKG_ID: ${{ matrix.pkg.id }}
+      PKG_NAME: ${{ matrix.pkg.name }}
+      PKG_VERSION: ${{ matrix.pkg.version }}
+      PKG_TAG: ${{ matrix.pkg.tag }}
+      PKG_PRERELEASE: ${{ matrix.pkg.prerelease }}
+      TEST_CMD: ${{ matrix.pkg.test }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+      - uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00 # v4.7.1
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+          server-id: github
+          server-username: GITHUB_ACTOR
+          server-password: GITHUB_TOKEN
+      - name: Build and test
+        run: bash -c "$TEST_CMD"
+      - name: Check jar contents
+        run: node "$GITHUB_WORKSPACE/scripts/release/check-artifacts.mjs" "target/${PKG_NAME##*:}-${PKG_VERSION}.jar"
+      - name: Already on GitHub Packages?
+        id: exists
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          group=${PKG_NAME%%:*} artifact=${PKG_NAME##*:}
+          url="https://maven.pkg.github.com/${GITHUB_REPOSITORY}/${group//.//}/${artifact}/${PKG_VERSION}/${artifact}-${PKG_VERSION}.pom"
+          code=$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $GITHUB_TOKEN" "$url")
+          echo "HTTP $code for $url"
+          if [ "$code" = "200" ]; then echo "found=true" >> "$GITHUB_OUTPUT"; else echo "found=false" >> "$GITHUB_OUTPUT"; fi
+      - name: Deploy to GitHub Packages
+        if: ${{ steps.exists.outputs.found != 'true' && env.DRY_RUN != 'true' }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: mvn -B -DskipTests deploy
+      - name: Tag and GitHub Release
+        if: ${{ env.DRY_RUN != 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          artifact=${PKG_NAME##*:}
+          "$GITHUB_WORKSPACE/scripts/release/github-release.sh" "$PKG_ID" "$PKG_TAG" "$PKG_VERSION" "$PKG_PRERELEASE" \
+            "target/${artifact}-${PKG_VERSION}.jar"
+
+  cpp:
+    name: C++ ${{ matrix.pkg.id }}
+    needs: plan
+    if: ${{ needs.plan.outputs.cpp != '[]' }}
+    runs-on: ubuntu-latest
+    environment: ${{ (github.event_name == 'pull_request' || inputs.dry_run) && 'release-dry-run' || 'release' }}
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        pkg: ${{ fromJSON(needs.plan.outputs.cpp) }}
+    defaults:
+      run:
+        working-directory: ${{ matrix.pkg.path }}
+    env:
+      PKG_ID: ${{ matrix.pkg.id }}
+      PKG_NAME: ${{ matrix.pkg.name }}
+      PKG_PATH: ${{ matrix.pkg.path }}
+      PKG_VERSION: ${{ matrix.pkg.version }}
+      PKG_TAG: ${{ matrix.pkg.tag }}
+      PKG_PRERELEASE: ${{ matrix.pkg.prerelease }}
+      INSTALL_CMD: ${{ matrix.pkg.install }}
+      BUILD_CMD: ${{ matrix.pkg.build }}
+      TEST_CMD: ${{ matrix.pkg.test }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+      - name: Install
+        run: bash -c "$INSTALL_CMD"
+      - name: Build
+        run: bash -c "$BUILD_CMD"
+      - name: Test
+        run: bash -c "$TEST_CMD"
+      - name: Source archive and checksum
+        run: |
+          out="$RUNNER_TEMP/${PKG_NAME}-${PKG_VERSION}.tar.gz"
+          git -C "$GITHUB_WORKSPACE" archive --format=tar.gz --prefix="${PKG_NAME}-${PKG_VERSION}/" -o "$out" "HEAD:${PKG_PATH}"
+          (cd "$RUNNER_TEMP" && sha256sum "$(basename "$out")" > "$(basename "$out").sha256")
+          cat "$out.sha256"
+          node "$GITHUB_WORKSPACE/scripts/release/check-artifacts.mjs" "$out"
+      - name: Tag and GitHub Release
+        if: ${{ env.DRY_RUN != 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          out="$RUNNER_TEMP/${PKG_NAME}-${PKG_VERSION}.tar.gz"
+          "$GITHUB_WORKSPACE/scripts/release/github-release.sh" "$PKG_ID" "$PKG_TAG" "$PKG_VERSION" "$PKG_PRERELEASE" "$out" "$out.sha256"

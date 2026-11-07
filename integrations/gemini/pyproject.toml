@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=68.0"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -7,7 +7,7 @@ name = "dominusnode-gemini"
 version = "2.0.0"
 description = "DominusNode v2 function declarations and handler for Google Gemini / Vertex AI, built on the dominusnode SDK"
 readme = "README.md"
-license = {text = "MIT"}
+license = "MIT"
 requires-python = ">=3.9"
 dependencies = ["dominusnode>=2.0.0,<3"]
 
@@ -20,3 +20,9 @@ include = ["dominusnode_gemini*"]
 
 [tool.pytest.ini_options]
 testpaths = ["python_tests"]
+
+[project.urls]
+Homepage = "https://github.com/0xcircuitbreaker/DomiNode/tree/master/integrations/gemini"
+Repository = "https://github.com/0xcircuitbreaker/DomiNode"
+Issues = "https://github.com/0xcircuitbreaker/DomiNode/issues"
+Changelog = "https://github.com/0xcircuitbreaker/DomiNode/blob/master/integrations/gemini/CHANGELOG.md"

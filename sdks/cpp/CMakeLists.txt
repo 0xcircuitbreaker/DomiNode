@@ -25,17 +25,26 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
   target_compile_options(dominusnode PRIVATE -Wall -Wextra)
 endif()
 
-enable_testing()
-add_executable(dominusnode_tests
-  tests/test_main.cpp
-  tests/test_core.cpp
-  tests/test_resources.cpp
-  tests/test_signed.cpp
-  tests/test_proxy.cpp
-  tests/test_proxy_tls.cpp
-)
-target_link_libraries(dominusnode_tests PRIVATE dominusnode OpenSSL::SSL)
-if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-  target_compile_options(dominusnode_tests PRIVATE -Wall -Wextra)
+# Tests are not part of the release tarball (sdks/cpp/.gitattributes export-ignore).
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_main.cpp")
+  set(_dn_tests_default ON)
+else()
+  set(_dn_tests_default OFF)
 endif()
-add_test(NAME dominusnode_tests COMMAND dominusnode_tests)
+option(DOMINUSNODE_BUILD_TESTS "Build the dominusnode test suite" ${_dn_tests_default})
+if(DOMINUSNODE_BUILD_TESTS)
+  enable_testing()
+  add_executable(dominusnode_tests
+    tests/test_main.cpp
+    tests/test_core.cpp
+    tests/test_resources.cpp
+    tests/test_signed.cpp
+    tests/test_proxy.cpp
+    tests/test_proxy_tls.cpp
+  )
+  target_link_libraries(dominusnode_tests PRIVATE dominusnode OpenSSL::SSL)
+  if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(dominusnode_tests PRIVATE -Wall -Wextra)
+  endif()
+  add_test(NAME dominusnode_tests COMMAND dominusnode_tests)
+endif()

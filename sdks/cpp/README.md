@@ -7,7 +7,39 @@ v2 (reference: `sdks/node` 2.0.0).
 Dependencies: libcurl (>= 7.85), nlohmann-json (>= 3.11), OpenSSL libcrypto (SHA-256 for
 the node PoW, random UUIDs). No signing key ever enters the SDK: EIP-191 signing is a callback.
 
-## Build
+## Install (release tarball)
+
+The C++ SDK is not on a package registry. Each release attaches a source
+tarball and its SHA-256 to the GitHub Release `sdk-cpp-v2.0.0`:
+
+```bash
+v=2.0.0
+base=https://github.com/0xcircuitbreaker/DomiNode/releases/download/sdk-cpp-v$v
+curl -fLO "$base/dominusnode-cpp-$v.tar.gz" -fLO "$base/dominusnode-cpp-$v.tar.gz.sha256"
+sha256sum -c "dominusnode-cpp-$v.tar.gz.sha256"
+tar xzf "dominusnode-cpp-$v.tar.gz"
+cmake -S "dominusnode-cpp-$v" -B build && cmake --build build -j
+```
+
+or vendor it with CMake `FetchContent`:
+
+```cmake
+include(FetchContent)
+FetchContent_Declare(dominusnode
+  URL https://github.com/0xcircuitbreaker/DomiNode/releases/download/sdk-cpp-v2.0.0/dominusnode-cpp-2.0.0.tar.gz
+  URL_HASH SHA256=<from dominusnode-cpp-2.0.0.tar.gz.sha256>)
+FetchContent_MakeAvailable(dominusnode)
+target_link_libraries(app PRIVATE dominusnode)
+```
+
+Defaults: API `https://api.dominusnode.daedalusdevelopmentgroup.com`, relay gateway
+`proxy.dominusnode.daedalusdevelopmentgroup.com` (HTTP proxy :8080, SOCKS5 :1080). Both can be
+overridden in the client configuration.
+
+The tarball has no tests; `DOMINUSNODE_BUILD_TESTS` defaults to off there.
+Downloads need the repository to be public (or a GitHub token for a private one).
+
+## Build from the repository
 
 ```bash
 sudo apt-get install -y libcurl4-openssl-dev nlohmann-json3-dev libssl-dev cmake g++

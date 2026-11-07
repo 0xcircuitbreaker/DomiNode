@@ -29,6 +29,15 @@
     "web-scraping"
   ],
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/0xcircuitbreaker/DomiNode.git",
+    "directory": "integrations/n8n"
+  },
+  "homepage": "https://github.com/0xcircuitbreaker/DomiNode/tree/master/integrations/n8n#readme",
+  "bugs": {
+    "url": "https://github.com/0xcircuitbreaker/DomiNode/issues"
+  },
   "dependencies": {
     "@dominusnode/sdk": "^2.0.0"
   },
@@ -45,6 +54,7 @@
     "dist/",
     "README.md",
     "LICENSE",
-    "CHANGELOG.md"
+    "CHANGELOG.md",
+    "!dist/**/*.map"
   ]
 }

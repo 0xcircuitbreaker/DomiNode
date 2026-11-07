@@ -9,6 +9,7 @@ integration only describes tools for the model and maps arguments to SDK calls.
 
 ```bash
 pi install npm:@dominusnode/pi-extension
+# or, as a plain dependency: npm install @dominusnode/pi-extension@2
 ```
 
 ## Configure

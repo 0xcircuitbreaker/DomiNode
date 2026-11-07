@@ -1,0 +1,8 @@
+# sdist contents: package source, metadata and docs only (see scripts/release/check-artifacts.mjs)
+include README.md
+include CHANGELOG.md
+include LICENSE
+prune tests
+exclude conftest.py
+prune examples
+global-exclude *.py[cod] __pycache__ *.map .env .env.* *.log

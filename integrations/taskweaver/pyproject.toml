@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=68.0"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -7,7 +7,7 @@ name = "dominusnode-taskweaver"
 version = "2.0.0"
 description = "DominusNode plugins for Microsoft TaskWeaver: the 19 standard relay-network tools, built on the dominusnode SDK"
 readme = "README.md"
-license = {text = "MIT"}
+license = "MIT"
 requires-python = ">=3.9"
 dependencies = ["dominusnode>=2.0.0,<3"]
 
@@ -19,3 +19,9 @@ include = ["dominusnode_taskweaver*"]
 
 [tool.setuptools.package-data]
 dominusnode_taskweaver = ["plugins/*.yaml", "plugins/*.py"]
+
+[project.urls]
+Homepage = "https://github.com/0xcircuitbreaker/DomiNode/tree/master/integrations/taskweaver"
+Repository = "https://github.com/0xcircuitbreaker/DomiNode"
+Issues = "https://github.com/0xcircuitbreaker/DomiNode/issues"
+Changelog = "https://github.com/0xcircuitbreaker/DomiNode/blob/master/integrations/taskweaver/CHANGELOG.md"

@@ -13,6 +13,12 @@ Works with any MCP client (Claude Desktop, Claude Code, Gemini CLI, Codex CLI, C
 
 ## Quick install
 
+```bash
+npm install -g @dominusnode/mcp-server   # or run it on demand with npx, as below
+```
+
+Registry name: `io.github.0xcircuitbreaker/dominusnode` in the official MCP Registry.
+
 ```json
 {
   "mcpServers": {

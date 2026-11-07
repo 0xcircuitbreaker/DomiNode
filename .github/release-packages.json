@@ -1,0 +1,568 @@
+{
+  "$comment": "Publishable packages. Read by scripts/release/plan.mjs; see docs/RELEASING.md. packages/node-agent is private and not published.",
+  "packages": [
+    {
+      "id": "sdk-node",
+      "path": "sdks/node",
+      "ecosystem": "npm",
+      "name": "@dominusnode/sdk",
+      "version": {
+        "file": "package.json",
+        "kind": "package-json"
+      },
+      "install": "npm ci",
+      "build": "npm run build",
+      "test": "npm test",
+      "dependsOn": []
+    },
+    {
+      "id": "sdk-python",
+      "path": "sdks/python",
+      "ecosystem": "pypi",
+      "name": "dominusnode",
+      "version": {
+        "file": "pyproject.toml",
+        "kind": "pyproject"
+      },
+      "install": "pip install -e \".[dev]\"",
+      "build": "python -m build",
+      "test": "python -m pytest -q",
+      "dependsOn": []
+    },
+    {
+      "id": "sdk-go",
+      "path": "sdks/go",
+      "ecosystem": "go",
+      "name": "github.com/0xcircuitbreaker/DomiNode/sdks/go/v2",
+      "version": {
+        "file": "client.go",
+        "kind": "go-const",
+        "const": "SDKVersion"
+      },
+      "install": "go mod download",
+      "build": "go build ./...",
+      "test": "go vet ./... && go test ./...",
+      "dependsOn": []
+    },
+    {
+      "id": "sdk-rust",
+      "path": "sdks/rust",
+      "ecosystem": "crates",
+      "name": "dominusnode",
+      "version": {
+        "file": "Cargo.toml",
+        "kind": "cargo"
+      },
+      "install": "cargo fetch",
+      "build": "cargo build --all-features",
+      "test": "cargo test --all-features",
+      "dependsOn": []
+    },
+    {
+      "id": "sdk-java",
+      "path": "sdks/java",
+      "ecosystem": "maven",
+      "name": "io.dominusnode:dominusnode-sdk",
+      "version": {
+        "file": "pom.xml",
+        "kind": "pom"
+      },
+      "install": "mvn -B -q dependency:go-offline",
+      "build": "mvn -B -DskipTests package",
+      "test": "mvn -B verify",
+      "dependsOn": []
+    },
+    {
+      "id": "sdk-cpp",
+      "path": "sdks/cpp",
+      "ecosystem": "cpp-release",
+      "name": "dominusnode-cpp",
+      "version": {
+        "file": "CMakeLists.txt",
+        "kind": "cmake"
+      },
+      "install": "sudo apt-get update && sudo apt-get install -y libcurl4-openssl-dev nlohmann-json3-dev",
+      "build": "cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build --parallel",
+      "test": "ctest --test-dir build --output-on-failure",
+      "dependsOn": []
+    },
+    {
+      "id": "mcp-server",
+      "path": "packages/mcp-server",
+      "ecosystem": "npm",
+      "name": "@dominusnode/mcp-server",
+      "version": {
+        "file": "package.json",
+        "kind": "package-json"
+      },
+      "install": "cd ../.. && npm ci",
+      "build": "cd ../.. && npm run build",
+      "test": "cd ../.. && npx vitest run packages/mcp-server",
+      "dependsOn": []
+    },
+    {
+      "id": "agent-zero",
+      "path": "integrations/agent-zero",
+      "ecosystem": "pypi",
+      "name": "dominusnode-agent-zero",
+      "version": {
+        "file": "pyproject.toml",
+        "kind": "pyproject"
+      },
+      "install": "pip install -e \".[dev]\"",
+      "build": "python -m build",
+      "test": "python -m pytest -q tests",
+      "dependsOn": [
+        "sdk-python"
+      ]
+    },
+    {
+      "id": "agno",
+      "path": "integrations/agno",
+      "ecosystem": "pypi",
+      "name": "dominusnode-agno",
+      "version": {
+        "file": "pyproject.toml",
+        "kind": "pyproject"
+      },
+      "install": "pip install -e \".[dev]\"",
+      "build": "python -m build",
+      "test": "python -m pytest -q tests",
+      "dependsOn": [
+        "sdk-python"
+      ]
+    },
+    {
+      "id": "autogpt",
+      "path": "integrations/autogpt",
+      "ecosystem": "pypi",
+      "name": "dominusnode-autogpt",
+      "version": {
+        "file": "pyproject.toml",
+        "kind": "pyproject"
+      },
+      "install": "pip install -e \".[dev]\"",
+      "build": "python -m build",
+      "test": "python -m pytest -q tests",
+      "dependsOn": [
+        "sdk-python"
+      ]
+    },
+    {
+      "id": "camel-ai",
+      "path": "integrations/camel-ai",
+      "ecosystem": "pypi",
+      "name": "dominusnode-camel",
+      "version": {
+        "file": "pyproject.toml",
+        "kind": "pyproject"
+      },
+      "install": "pip install -e \".[dev]\"",
+      "build": "python -m build",
+      "test": "python -m pytest -q tests",
+      "dependsOn": [
+        "sdk-python"
+      ]
+    },
+    {
+      "id": "chatgpt",
+      "path": "integrations/chatgpt",
+      "ecosystem": "npm",
+      "name": "@dominusnode/chatgpt",
+      "version": {
+        "file": "package.json",
+        "kind": "package-json"
+      },
+      "install": "npm install --no-audit --no-fund",
+      "build": "npm run build",
+      "test": "npx vitest run",
+      "dependsOn": [
+        "sdk-node"
+      ]
+    },
+    {
+      "id": "composio",
+      "path": "integrations/composio",
+      "ecosystem": "pypi",
+      "name": "dominusnode-composio",
+      "version": {
+        "file": "pyproject.toml",
+        "kind": "pyproject"
+      },
+      "install": "pip install -e \".[dev]\"",
+      "build": "python -m build",
+      "test": "python -m pytest -q tests",
+      "dependsOn": [
+        "sdk-python"
+      ]
+    },
+    {
+      "id": "crewai",
+      "path": "integrations/crewai",
+      "ecosystem": "pypi",
+      "name": "dominusnode-crewai",
+      "version": {
+        "file": "pyproject.toml",
+        "kind": "pyproject"
+      },
+      "install": "pip install -e \".[dev]\"",
+      "build": "python -m build",
+      "test": "python -m pytest -q tests",
+      "dependsOn": [
+        "sdk-python"
+      ]
+    },
+    {
+      "id": "dify",
+      "path": "integrations/dify",
+      "ecosystem": "pypi",
+      "name": "dominusnode-dify",
+      "version": {
+        "file": "pyproject.toml",
+        "kind": "pyproject"
+      },
+      "install": "pip install -e \".[dev]\"",
+      "build": "python -m build",
+      "test": "python -m pytest -q tests",
+      "dependsOn": [
+        "sdk-python"
+      ]
+    },
+    {
+      "id": "flowise",
+      "path": "integrations/flowise",
+      "ecosystem": "npm",
+      "name": "@dominusnode/flowise-tools",
+      "version": {
+        "file": "package.json",
+        "kind": "package-json"
+      },
+      "install": "npm install --no-audit --no-fund",
+      "build": "npm run build",
+      "test": "npx vitest run",
+      "dependsOn": [
+        "sdk-node"
+      ]
+    },
+    {
+      "id": "gemini-js",
+      "path": "integrations/gemini",
+      "ecosystem": "npm",
+      "name": "@dominusnode/gemini-functions",
+      "version": {
+        "file": "package.json",
+        "kind": "package-json"
+      },
+      "install": "npm install --no-audit --no-fund",
+      "build": "npm run build",
+      "test": "npx vitest run",
+      "dependsOn": [
+        "sdk-node"
+      ]
+    },
+    {
+      "id": "gemini-py",
+      "path": "integrations/gemini",
+      "ecosystem": "pypi",
+      "name": "dominusnode-gemini",
+      "version": {
+        "file": "pyproject.toml",
+        "kind": "pyproject"
+      },
+      "install": "pip install -e \".[dev]\"",
+      "build": "python -m build",
+      "test": "python -m pytest -q python_tests",
+      "dependsOn": [
+        "sdk-python"
+      ]
+    },
+    {
+      "id": "haystack",
+      "path": "integrations/haystack",
+      "ecosystem": "pypi",
+      "name": "dominusnode-haystack",
+      "version": {
+        "file": "pyproject.toml",
+        "kind": "pyproject"
+      },
+      "install": "pip install -e \".[dev]\"",
+      "build": "python -m build",
+      "test": "python -m pytest -q tests",
+      "dependsOn": [
+        "sdk-python"
+      ]
+    },
+    {
+      "id": "ironclaw",
+      "path": "integrations/ironclaw",
+      "ecosystem": "pypi",
+      "name": "dominusnode-ironclaw",
+      "version": {
+        "file": "pyproject.toml",
+        "kind": "pyproject"
+      },
+      "install": "pip install -e \".[dev]\"",
+      "build": "python -m build",
+      "test": "python -m pytest -q tests",
+      "dependsOn": [
+        "sdk-python"
+      ]
+    },
+    {
+      "id": "langchain",
+      "path": "integrations/langchain",
+      "ecosystem": "pypi",
+      "name": "dominusnode-langchain",
+      "version": {
+        "file": "pyproject.toml",
+        "kind": "pyproject"
+      },
+      "install": "pip install -e \".[dev]\"",
+      "build": "python -m build",
+      "test": "python -m pytest -q tests",
+      "dependsOn": [
+        "sdk-python"
+      ]
+    },
+    {
+      "id": "langflow",
+      "path": "integrations/langflow",
+      "ecosystem": "pypi",
+      "name": "dominusnode-langflow",
+      "version": {
+        "file": "pyproject.toml",
+        "kind": "pyproject"
+      },
+      "install": "pip install -e \".[dev]\"",
+      "build": "python -m build",
+      "test": "python -m pytest -q tests",
+      "dependsOn": [
+        "sdk-python"
+      ]
+    },
+    {
+      "id": "llamaindex",
+      "path": "integrations/llamaindex",
+      "ecosystem": "pypi",
+      "name": "dominusnode-llamaindex",
+      "version": {
+        "file": "pyproject.toml",
+        "kind": "pyproject"
+      },
+      "install": "pip install -e \".[dev]\"",
+      "build": "python -m build",
+      "test": "python -m pytest -q tests",
+      "dependsOn": [
+        "sdk-python"
+      ]
+    },
+    {
+      "id": "mastra",
+      "path": "integrations/mastra",
+      "ecosystem": "npm",
+      "name": "@dominusnode/mastra-tools",
+      "version": {
+        "file": "package.json",
+        "kind": "package-json"
+      },
+      "install": "npm install --no-audit --no-fund",
+      "build": "npm run build",
+      "test": "npx vitest run",
+      "dependsOn": [
+        "sdk-node"
+      ]
+    },
+    {
+      "id": "metagpt",
+      "path": "integrations/metagpt",
+      "ecosystem": "pypi",
+      "name": "dominusnode-metagpt",
+      "version": {
+        "file": "pyproject.toml",
+        "kind": "pyproject"
+      },
+      "install": "pip install -e \".[dev]\"",
+      "build": "python -m build",
+      "test": "python -m pytest -q tests",
+      "dependsOn": [
+        "sdk-python"
+      ]
+    },
+    {
+      "id": "moltbook",
+      "path": "integrations/moltbook",
+      "ecosystem": "pypi",
+      "name": "dominusnode-moltbook",
+      "version": {
+        "file": "pyproject.toml",
+        "kind": "pyproject"
+      },
+      "install": "pip install -e \".[dev]\"",
+      "build": "python -m build",
+      "test": "python -m pytest -q tests",
+      "dependsOn": [
+        "sdk-python"
+      ]
+    },
+    {
+      "id": "n8n",
+      "path": "integrations/n8n",
+      "ecosystem": "npm",
+      "name": "n8n-nodes-dominusnode",
+      "version": {
+        "file": "package.json",
+        "kind": "package-json"
+      },
+      "install": "npm install --no-audit --no-fund",
+      "build": "npm run build",
+      "test": "npx vitest run",
+      "dependsOn": [
+        "sdk-node"
+      ]
+    },
+    {
+      "id": "openai-functions-js",
+      "path": "integrations/openai-functions",
+      "ecosystem": "npm",
+      "name": "@dominusnode/openai-functions",
+      "version": {
+        "file": "package.json",
+        "kind": "package-json"
+      },
+      "install": "npm install --no-audit --no-fund",
+      "build": "npm run build",
+      "test": "npx vitest run",
+      "dependsOn": [
+        "sdk-node"
+      ]
+    },
+    {
+      "id": "openai-functions-py",
+      "path": "integrations/openai-functions",
+      "ecosystem": "pypi",
+      "name": "dominusnode-openai-functions",
+      "version": {
+        "file": "pyproject.toml",
+        "kind": "pyproject"
+      },
+      "install": "pip install -e \".[dev]\"",
+      "build": "python -m build",
+      "test": "python -m pytest -q python_tests",
+      "dependsOn": [
+        "sdk-python"
+      ]
+    },
+    {
+      "id": "openclaw",
+      "path": "integrations/openclaw",
+      "ecosystem": "npm",
+      "name": "@dominusnode/openclaw-plugin",
+      "version": {
+        "file": "package.json",
+        "kind": "package-json"
+      },
+      "install": "npm install --no-audit --no-fund",
+      "build": "npm run build",
+      "test": "npx vitest run",
+      "dependsOn": [
+        "sdk-node"
+      ]
+    },
+    {
+      "id": "pi",
+      "path": "integrations/pi",
+      "ecosystem": "npm",
+      "name": "@dominusnode/pi-extension",
+      "version": {
+        "file": "package.json",
+        "kind": "package-json"
+      },
+      "install": "npm install --no-audit --no-fund",
+      "build": "npm run build",
+      "test": "npx vitest run",
+      "dependsOn": [
+        "sdk-node"
+      ]
+    },
+    {
+      "id": "pydantic-ai",
+      "path": "integrations/pydantic-ai",
+      "ecosystem": "pypi",
+      "name": "dominusnode-pydanticai",
+      "version": {
+        "file": "pyproject.toml",
+        "kind": "pyproject"
+      },
+      "install": "pip install -e \".[dev]\"",
+      "build": "python -m build",
+      "test": "python -m pytest -q tests",
+      "dependsOn": [
+        "sdk-python"
+      ]
+    },
+    {
+      "id": "semantic-kernel",
+      "path": "integrations/semantic-kernel",
+      "ecosystem": "pypi",
+      "name": "dominusnode-semantic-kernel",
+      "version": {
+        "file": "pyproject.toml",
+        "kind": "pyproject"
+      },
+      "install": "pip install -e \".[dev]\"",
+      "build": "python -m build",
+      "test": "python -m pytest -q tests",
+      "dependsOn": [
+        "sdk-python"
+      ]
+    },
+    {
+      "id": "superagi",
+      "path": "integrations/superagi",
+      "ecosystem": "pypi",
+      "name": "dominusnode-superagi",
+      "version": {
+        "file": "pyproject.toml",
+        "kind": "pyproject"
+      },
+      "install": "pip install -e \".[dev]\"",
+      "build": "python -m build",
+      "test": "python -m pytest -q tests",
+      "dependsOn": [
+        "sdk-python"
+      ]
+    },
+    {
+      "id": "taskweaver",
+      "path": "integrations/taskweaver",
+      "ecosystem": "pypi",
+      "name": "dominusnode-taskweaver",
+      "version": {
+        "file": "pyproject.toml",
+        "kind": "pyproject"
+      },
+      "install": "pip install -e \".[dev]\"",
+      "build": "python -m build",
+      "test": "python -m pytest -q tests",
+      "dependsOn": [
+        "sdk-python"
+      ]
+    },
+    {
+      "id": "vercel-ai",
+      "path": "integrations/vercel-ai",
+      "ecosystem": "npm",
+      "name": "@dominusnode/ai-tools",
+      "version": {
+        "file": "package.json",
+        "kind": "package-json"
+      },
+      "install": "npm install --no-audit --no-fund",
+      "build": "npm run build",
+      "test": "npx vitest run",
+      "dependsOn": [
+        "sdk-node"
+      ]
+    }
+  ]
+}
