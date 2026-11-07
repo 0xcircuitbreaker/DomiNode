@@ -64,7 +64,7 @@ jobs:
         with:
           node-version: "22"
       - name: Test planner
-        run: node --test scripts/release/plan.test.mjs
+        run: node --test scripts/release/plan.test.mjs scripts/release/check-artifacts.test.mjs
       - name: Plan
         id: plan
         env:
@@ -130,6 +130,10 @@ jobs:
             if (!p.repository || !/github\.com\/0xcircuitbreaker\/DomiNode/.test(p.repository.url)) {
               console.error("repository.url must point at 0xcircuitbreaker/DomiNode (provenance)"); process.exit(1);
             }'
+      - name: Check package contents
+        run: |
+          npm pack --dry-run --json --ignore-scripts > "$RUNNER_TEMP/pack.json"
+          node "$GITHUB_WORKSPACE/scripts/release/check-artifacts.mjs" --root . "$RUNNER_TEMP/pack.json"
       - name: Publish
         if: ${{ matrix.pkg.published != true }}
         run: |
@@ -210,6 +214,10 @@ jobs:
             if (!p.repository || !/github\.com\/0xcircuitbreaker\/DomiNode/.test(p.repository.url)) {
               console.error("repository.url must point at 0xcircuitbreaker/DomiNode (provenance)"); process.exit(1);
             }'
+      - name: Check package contents
+        run: |
+          npm pack --dry-run --json --ignore-scripts > "$RUNNER_TEMP/pack.json"
+          node "$GITHUB_WORKSPACE/scripts/release/check-artifacts.mjs" --root . "$RUNNER_TEMP/pack.json"
       - name: Publish
         if: ${{ matrix.pkg.published != true }}
         run: |
@@ -272,6 +280,7 @@ jobs:
           rm -rf dist
           bash -c "$BUILD_CMD"
           twine check --strict dist/*
+          node "$GITHUB_WORKSPACE/scripts/release/check-artifacts.mjs" dist/*
       - name: Publish to PyPI
         if: ${{ matrix.pkg.published != true && env.DRY_RUN != 'true' }}
         uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
@@ -334,6 +343,7 @@ jobs:
           rm -rf dist
           bash -c "$BUILD_CMD"
           twine check --strict dist/*
+          node "$GITHUB_WORKSPACE/scripts/release/check-artifacts.mjs" dist/*
       - name: Publish to PyPI
         if: ${{ matrix.pkg.published != true && env.DRY_RUN != 'true' }}
         uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
@@ -383,7 +393,9 @@ jobs:
       - name: Test
         run: bash -c "$TEST_CMD"
       - name: Package
-        run: cargo publish --dry-run
+        run: |
+          cargo publish --dry-run
+          node "$GITHUB_WORKSPACE/scripts/release/check-artifacts.mjs" target/package/*.crate
       - name: crates.io token (Trusted Publishing)
         if: ${{ matrix.pkg.published != true && env.DRY_RUN != 'true' }}
         id: auth
@@ -498,6 +510,8 @@ jobs:
           server-password: GITHUB_TOKEN
       - name: Build and test
         run: bash -c "$TEST_CMD"
+      - name: Check jar contents
+        run: node "$GITHUB_WORKSPACE/scripts/release/check-artifacts.mjs" "target/${PKG_NAME##*:}-${PKG_VERSION}.jar"
       - name: Already on GitHub Packages?
         id: exists
         env:
@@ -566,6 +580,7 @@ jobs:
           git -C "$GITHUB_WORKSPACE" archive --format=tar.gz --prefix="${PKG_NAME}-${PKG_VERSION}/" -o "$out" "HEAD:${PKG_PATH}"
           (cd "$RUNNER_TEMP" && sha256sum "$(basename "$out")" > "$(basename "$out").sha256")
           cat "$out.sha256"
+          node "$GITHUB_WORKSPACE/scripts/release/check-artifacts.mjs" "$out"
       - name: Tag and GitHub Release
         if: ${{ env.DRY_RUN != 'true' }}
         env:
