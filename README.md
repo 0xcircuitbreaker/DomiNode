@@ -52,8 +52,8 @@ The API key goes in the password field. The username holds hyphen-joined flags:
 With no flags, use `relay`.
 
 ```bash
-curl -x http://country-US-class-residential:$DOMINUSNODE_API_KEY@proxy.dominusnode.com:8080 https://httpbin.org/ip
-curl -x socks5h://class-dc-session-abc123:$DOMINUSNODE_API_KEY@proxy.dominusnode.com:1080 https://httpbin.org/ip
+curl -x http://country-US-class-residential:$DOMINUSNODE_API_KEY@proxy.dominusnode.daedalusdevelopmentgroup.com:8080 https://httpbin.org/ip
+curl -x socks5h://class-dc-session-abc123:$DOMINUSNODE_API_KEY@proxy.dominusnode.daedalusdevelopmentgroup.com:1080 https://httpbin.org/ip
 ```
 
 ## Tooling for agents
