@@ -81,8 +81,8 @@ Email/password registration, login and email verification are human flows (admin
 | Variable | Default | Purpose |
 |---|---|---|
 | `DOMINUSNODE_API_KEY` | (none: bootstrap mode) | `dn_live_` API key |
-| `DOMINUSNODE_API_URL` | `https://api.dominusnode.com` | API base URL |
-| `DOMINUSNODE_PROXY_HOST` | `proxy.dominusnode.com` | Gateway host |
+| `DOMINUSNODE_API_URL` | `https://api.dominusnode.daedalusdevelopmentgroup.com` | API base URL |
+| `DOMINUSNODE_PROXY_HOST` | `proxy.dominusnode.daedalusdevelopmentgroup.com` | Gateway host |
 | `DOMINUSNODE_HTTP_PROXY_PORT` | `8080` | Gateway HTTP/CONNECT port |
 | `DOMINUSNODE_SOCKS5_PROXY_PORT` | `1080` | Gateway SOCKS5 port |
 | `DOMINUSNODE_FETCH_TIMEOUT_MS` | `30000` | Fetch timeout (max 120000) |

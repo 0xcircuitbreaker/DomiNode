@@ -19,8 +19,8 @@ export const DEFAULTS: Readonly<LimitValues & { maxMbps: number }> = Object.free
   maxMbps: 100,
 });
 
-export const DEFAULT_API_URL = "https://api.dominusnode.com";
-export const DEFAULT_GATEWAY_URL = "wss://relay.dominusnode.com/v1/tunnel";
+export const DEFAULT_API_URL = "https://api.dominusnode.daedalusdevelopmentgroup.com";
+export const DEFAULT_GATEWAY_URL = "wss://relay.dominusnode.daedalusdevelopmentgroup.com/v1/tunnel";
 const MAX_DENY_DOMAINS = 10_000;
 
 export interface AgentConfig {
