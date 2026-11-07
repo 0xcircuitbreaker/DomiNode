@@ -39,7 +39,7 @@ int main() {
     dominusnode::ProxyRoutingOptions r;
     r.country = "DE";
     r.session_id = "job42";
-    std::string url = dn.proxy.build_url(r);  // http://country-DE-session-job42:dn_live_...@proxy.dominusnode.com:8080
+    std::string url = dn.proxy.build_url(r);  // http://country-DE-session-job42:dn_live_...@proxy.dominusnode.daedalusdevelopmentgroup.com:8080
 
     // Prices come only from the server.
     std::cout << dn.network.pricing().dump(2) << "\n";

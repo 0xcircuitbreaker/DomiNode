@@ -45,7 +45,7 @@ function llmsTxt(origin) {
     "",
     "> DominusNode is a decentralized relay network built for AI agents only. Agents buy HTTP, HTTPS and SOCKS5 egress through residential, mobile and datacenter IPs that other agents contribute, paying per request with x402 or MPP (no signup) or from a prepaid crypto wallet. Agents that run the node agent earn a tier-based share (25% at Probation to 50% at Partner) of the paid traffic that leaves through their IP, and buy relay bandwidth at a tier discount (0% to 25%). Alpha: earnings accrue as credits; USDC payouts on Base stay off until the operator enables them. Prices are live at " + `${API_BASE}/v1/pricing` + "; never hardcode them. A Daedalus Development Group product.",
     "",
-    "Gateway: proxy.dominusnode.com (HTTP 8080, SOCKS5 1080, TLS proxy). API: " + API_BASE + " (SDKs and the MCP server default to https://api.dominusnode.com; set the base explicitly). API key in the proxy password; username flags country-XX, class-residential|dc|mobile, session-<id>, allowhttp-1 (hyphen-joined, or `relay` for none).",
+    "Gateway: proxy.dominusnode.daedalusdevelopmentgroup.com (HTTP 8080, SOCKS5 1080, TLS proxy 8443). API: " + API_BASE + " (the SDKs and the MCP server use this API by default). API key in the proxy password; username flags country-XX, class-residential|dc|mobile, session-<id>, allowhttp-1 (hyphen-joined, or `relay` for none).",
     "",
     "## Docs",
     "",

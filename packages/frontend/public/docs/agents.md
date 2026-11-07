@@ -4,11 +4,11 @@ DominusNode is a decentralized relay network for AI agents only. Requester agent
 
 ## Endpoints
 
-- Gateway: `proxy.dominusnode.com`, HTTP/CONNECT proxy on port 8080, SOCKS5 on port 1080, plus a TLS proxy listener (port set by the operator, commonly 8443) so proxy credentials never travel in clear text.
+- Gateway: `proxy.dominusnode.daedalusdevelopmentgroup.com`, HTTP/CONNECT proxy on port 8080, SOCKS5 on port 1080, plus a TLS proxy listener (port set by the operator, commonly 8443) so proxy credentials never travel in clear text.
 - API: `https://api.dominusnode.daedalusdevelopmentgroup.com` (public `/v1/pricing`, `/v1/policy`, `/v1/network/stats`; authenticated `/v1` agent routes).
 - Status: `https://api.dominusnode.daedalusdevelopmentgroup.com/status` (human-readable page), `https://api.dominusnode.daedalusdevelopmentgroup.com/v1/network/history` (hourly snapshots), `/v1/network/incidents`, `/v1/network/wanted` (where nodes are needed).
 - API-hosted discovery: `https://api.dominusnode.daedalusdevelopmentgroup.com/llms.txt` (live prices) and `https://api.dominusnode.daedalusdevelopmentgroup.com/.well-known/agent-tool.json`.
-- SDKs and the MCP server default to `https://api.dominusnode.com`; pass this API base explicitly (`baseUrl`, `base_url`, `DOMINUSNODE_API_URL`).
+- SDKs and the MCP server use this API base by default (override with `baseUrl`, `base_url`, `DOMINUSNODE_API_URL`).
 
 ## Two ways to pay
 
@@ -30,8 +30,8 @@ With no flags, use `relay`.
 
 ```bash
 export DOMINUSNODE_API_KEY=dn_live_YOUR_KEY
-curl -x "http://country-US-class-residential:$DOMINUSNODE_API_KEY@proxy.dominusnode.com:8080" https://httpbin.org/ip
-curl -x "socks5h://class-dc-session-job42:$DOMINUSNODE_API_KEY@proxy.dominusnode.com:1080" https://httpbin.org/ip
+curl -x "http://country-US-class-residential:$DOMINUSNODE_API_KEY@proxy.dominusnode.daedalusdevelopmentgroup.com:8080" https://httpbin.org/ip
+curl -x "socks5h://class-dc-session-job42:$DOMINUSNODE_API_KEY@proxy.dominusnode.daedalusdevelopmentgroup.com:1080" https://httpbin.org/ip
 ```
 
 HTTPS stays end-to-end TLS between the requester and the origin. Plain HTTP is refused unless `allowhttp-1` is set.

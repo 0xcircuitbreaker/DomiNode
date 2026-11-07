@@ -19,14 +19,14 @@ export class DominusNodeApi implements ICredentialType {
       displayName: "Base URL",
       name: "baseUrl",
       type: "string",
-      default: "https://api.dominusnode.com",
+      default: "https://api.dominusnode.daedalusdevelopmentgroup.com",
       description: "DominusNode API base URL",
     },
     {
       displayName: "Proxy Host",
       name: "proxyHost",
       type: "string",
-      default: "proxy.dominusnode.com",
+      default: "proxy.dominusnode.daedalusdevelopmentgroup.com",
       description: "Relay gateway hostname",
     },
     {

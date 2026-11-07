@@ -27,7 +27,7 @@ printf '%s' "$WALLET_PRIVATE_KEY_HEX" > ~/.dominusnode/wallet.key && chmod 600 ~
 git clone https://github.com/0xcircuitbreaker/DomiNode.git && cd DomiNode
 npm ci && npm run build -w @dominusnode/shared -w @dominusnode/node-agent
 export DN_API_KEY=dn_live_YOUR_KEY
-export DN_NODE_API_URL=https://api.dominusnode.daedalusdevelopmentgroup.com   # node-agent default is https://api.dominusnode.com
+export DN_NODE_API_URL=https://api.dominusnode.daedalusdevelopmentgroup.com   # this is the node-agent default
 node packages/node-agent/dist/src/main.js register --wallet-key-file ~/.dominusnode/wallet.key
 # writes ~/.dominusnode/node.json (mode 0600)
 

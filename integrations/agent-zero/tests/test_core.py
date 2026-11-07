@@ -90,11 +90,11 @@ def test_fetch_uses_sdk_proxy_fetch(tools: DominusNodeTools, client: MagicMock) 
 
 
 def test_proxy_url_hides_key(tools: DominusNodeTools, client: MagicMock) -> None:
-    client.proxy.build_url.return_value = f"http://country-US:{KEY}@proxy.dominusnode.com:8080"
+    client.proxy.build_url.return_value = f"http://country-US:{KEY}@proxy.dominusnode.daedalusdevelopmentgroup.com:8080"
     raw = tools.call("proxy_url", {"country": "US"})
     assert KEY not in raw
     out = json.loads(raw)
-    assert out["proxyUrl"] == "http://country-US:${DOMINUSNODE_API_KEY}@proxy.dominusnode.com:8080"
+    assert out["proxyUrl"] == "http://country-US:${DOMINUSNODE_API_KEY}@proxy.dominusnode.daedalusdevelopmentgroup.com:8080"
     client.proxy.build_url.assert_called_once()
 
 

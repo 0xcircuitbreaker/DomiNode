@@ -17,8 +17,8 @@ async function main(): Promise<void> {
       process.stderr.write(`\nOptional environment variables:\n`);
       process.stderr.write(`  DOMINUSNODE_API_KEY         — Your Dominus Node API key (starts with dn_live_)\n`);
       process.stderr.write(`                             Omit to start in bootstrap mode\n`);
-      process.stderr.write(`  DOMINUSNODE_API_URL         — API base URL (default: https://api.dominusnode.com)\n`);
-      process.stderr.write(`  DOMINUSNODE_PROXY_HOST      — Proxy host (default: proxy.dominusnode.com)\n`);
+      process.stderr.write(`  DOMINUSNODE_API_URL         — API base URL (default: https://api.dominusnode.daedalusdevelopmentgroup.com)\n`);
+      process.stderr.write(`  DOMINUSNODE_PROXY_HOST      — Proxy host (default: proxy.dominusnode.daedalusdevelopmentgroup.com)\n`);
       process.stderr.write(`  DOMINUSNODE_HTTP_PROXY_PORT — HTTP proxy port (default: 8080)\n`);
       process.stderr.write(`  DOMINUSNODE_PROXY_URL       — https://host[:port] TLS gateway (preferred when set; default port 8443)\n`);
       process.stderr.write(`  DOMINUSNODE_WALLET_KEY_FILE — chmod-600 wallet key file (node registration only)\n`);

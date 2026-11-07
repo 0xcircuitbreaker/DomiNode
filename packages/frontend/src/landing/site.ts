@@ -30,4 +30,4 @@ export const HISTORY_URL = `${API_BASE}/v1/network/history`;
 export const API_LLMS_URL = `${API_BASE}/llms.txt`;
 /** Abuse intake: the in-site form posting to POST /v1/abuse-reports, unless overridden. */
 export const ABUSE_URL = env["VITE_ABUSE_URL"] || "/report-abuse";
-export const PROXY_HOST = "proxy.dominusnode.com";
+export const PROXY_HOST = "proxy.dominusnode.daedalusdevelopmentgroup.com";

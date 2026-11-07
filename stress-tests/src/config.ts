@@ -70,10 +70,10 @@ const LOCAL_CONFIG: StressConfig = {
 
 const PRODUCTION_CONFIG: StressConfig = {
   mode: "production",
-  proxyHost: "proxy.dominusnode.com",
+  proxyHost: "proxy.dominusnode.daedalusdevelopmentgroup.com",
   proxyHttpPort: 8080,
   proxySocks5Port: 1080,
-  apiBaseUrl: "https://api.dominusnode.com",
+  apiBaseUrl: "https://api.dominusnode.daedalusdevelopmentgroup.com",
   targetBaseUrl: "https://httpbin.org",
   databaseUrl: process.env.DATABASE_URL ?? "",
   vuLevels: [1, 5, 10],
@@ -90,7 +90,7 @@ const PRODUCTION_CONFIG: StressConfig = {
     minThroughputReqSec: 50,
     maxHeapGrowthMb: 100,
   },
-  internalStatsUrl: "https://api.dominusnode.com/internal/stats",
+  internalStatsUrl: "https://api.dominusnode.daedalusdevelopmentgroup.com/internal/stats",
   internalStatsToken: process.env.JWT_SECRET ?? "",
 };
 
