@@ -80,7 +80,7 @@ export {
   isBlockedCountry,
 } from "./sanctions.js";
 export type { SanctionedCountry } from "./sanctions.js";
-export { loadSdnFile, parseSdnAddresses, SdnUnavailableError, MAX_SDN_FILE_BYTES } from "./sdn.js";
+export { loadSdnFile, loadSdnText, parseSdnAddresses, parseSdnPayerAddresses, SdnUnavailableError, MAX_SDN_FILE_BYTES } from "./sdn.js";
 
 // Repositories
 export * as userRepo from "./repositories/user-repo.js";
