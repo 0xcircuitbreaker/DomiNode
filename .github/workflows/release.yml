@@ -31,6 +31,10 @@ on:
         description: "Build and test, but do not publish, tag or release"
         type: boolean
         default: true
+      deprecate_v1:
+        description: "After 2.0.0 is out: npm deprecate <pkg>@<2.0.0 for all 11 npm packages (needs NPM_TOKEN)"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -232,6 +236,121 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: '"$GITHUB_WORKSPACE/scripts/release/github-release.sh" "$PKG_ID" "$PKG_TAG" "$PKG_VERSION" "$PKG_PRERELEASE"'
+
+  # Publishes packages/mcp-server/server.json to the official MCP Registry once
+  # the npm package of the same version is on npmjs.com. Dry runs only validate.
+  mcp-registry:
+    name: MCP Registry
+    needs: [plan, npm-sdk]
+    if: ${{ !cancelled() && needs.plan.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.npm-sdk.result) && (inputs.package == '' || inputs.package == 'mcp-server') }}
+    runs-on: ubuntu-latest
+    environment: ${{ (github.event_name == 'pull_request' || inputs.dry_run) && 'release-dry-run' || 'release' }}
+    permissions:
+      contents: read
+      id-token: write
+    defaults:
+      run:
+        working-directory: packages/mcp-server
+    env:
+      MCP_PUBLISHER_VERSION: v1.8.1
+      MCP_PUBLISHER_SHA256: a06c9096dcb9727c13555b6be26c7effa707b01f06a4c561ba7a3635443cf2cc
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - name: server.json matches package.json
+        id: meta
+        run: |
+          name=$(jq -r .name server.json)
+          version=$(jq -r .version server.json)
+          pkg_version=$(jq -r .version package.json)
+          npm_version=$(jq -r '.packages[] | select(.registryType == "npm") | .version' server.json)
+          if [ "$version" != "$pkg_version" ] || [ "$npm_version" != "$pkg_version" ]; then
+            echo "::error::server.json version $version / npm $npm_version != package.json $pkg_version"; exit 1
+          fi
+          if [ "$(jq -r .mcpName package.json)" != "$name" ]; then echo "::error::package.json mcpName != server.json name"; exit 1; fi
+          { echo "name=$name"; echo "version=$version"; } >> "$GITHUB_OUTPUT"
+      - name: Install mcp-publisher (pinned)
+        run: |
+          archive=mcp-publisher_linux_amd64.tar.gz
+          curl -fsSL -o "$RUNNER_TEMP/$archive" "https://github.com/modelcontextprotocol/registry/releases/download/${MCP_PUBLISHER_VERSION}/$archive"
+          echo "${MCP_PUBLISHER_SHA256}  $RUNNER_TEMP/$archive" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP" mcp-publisher
+          "$RUNNER_TEMP/mcp-publisher" --help >/dev/null
+      - name: Validate server.json
+        run: '"$RUNNER_TEMP/mcp-publisher" validate'
+      - name: Already in the registry?
+        id: exists
+        env:
+          NAME: ${{ steps.meta.outputs.name }}
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          url="https://registry.modelcontextprotocol.io/v0.1/servers/${NAME//\//%2F}/versions/${VERSION}"
+          code=$(curl -s -o /dev/null -w '%{http_code}' "$url")
+          echo "HTTP $code for $url"
+          case "$code" in
+            200) echo "found=true" >> "$GITHUB_OUTPUT" ;;
+            404) echo "found=false" >> "$GITHUB_OUTPUT" ;;
+            *) echo "::error::unexpected HTTP $code from the MCP Registry"; exit 1 ;;
+          esac
+      - name: npm package of this version is published?
+        id: npm
+        if: ${{ steps.exists.outputs.found != 'true' && env.DRY_RUN != 'true' }}
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          code=$(curl -s -o /dev/null -w '%{http_code}' "https://registry.npmjs.org/@dominusnode%2Fmcp-server/${VERSION}")
+          if [ "$code" = "200" ]; then echo "ok=true" >> "$GITHUB_OUTPUT"; else echo "::warning::@dominusnode/mcp-server@${VERSION} is not on npm (HTTP $code); not publishing to the MCP Registry"; fi
+      - name: Publish to the MCP Registry (GitHub OIDC)
+        if: ${{ steps.exists.outputs.found != 'true' && env.DRY_RUN != 'true' && steps.npm.outputs.ok == 'true' }}
+        run: |
+          "$RUNNER_TEMP/mcp-publisher" login github-oidc
+          "$RUNNER_TEMP/mcp-publisher" publish
+
+  # Owner-triggered: deprecate the pre-2.0 npm versions once 2.0.0 is out.
+  # npm Trusted Publishing (OIDC) does not cover `npm deprecate`, so this job
+  # needs an NPM_TOKEN secret on the `release` environment (see docs/RELEASING.md).
+  npm-deprecate-v1:
+    name: Deprecate npm < 2.0.0
+    needs: [plan, npm-sdk, npm-dependents]
+    if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' && inputs.deprecate_v1 && needs.plan.result == 'success' }}
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.dry_run && 'release-dry-run' || 'release' }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+      - name: npm deprecate
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ "$DRY_RUN" != "true" ] && [ -z "${NODE_AUTH_TOKEN:-}" ]; then
+            echo "::error::NPM_TOKEN is not set on the release environment"; exit 1
+          fi
+          if [ -n "${NODE_AUTH_TOKEN:-}" ]; then
+            # shellcheck disable=SC2016 # npm expands ${NODE_AUTH_TOKEN} itself; the token never hits disk
+            printf '//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}\n' > "$RUNNER_TEMP/.npmrc"
+            export NPM_CONFIG_USERCONFIG="$RUNNER_TEMP/.npmrc"
+          fi
+          trap 'rm -f "$RUNNER_TEMP/.npmrc"' EXIT
+          msg="Superseded by 2.x (DominusNode v2 relay network). Upgrade to 2.x; 1.x targets the retired API."
+          failed=0
+          for name in $(jq -r '.packages[] | select(.ecosystem == "npm") | .name' .github/release-packages.json); do
+            if ! npm view "$name@2.0.0" version >/dev/null 2>&1; then
+              echo "::warning::$name@2.0.0 is not on npm yet; skipping"; continue
+            fi
+            if [ "$DRY_RUN" = "true" ]; then
+              echo "would run: npm deprecate \"$name@<2.0.0\" \"$msg\""
+            else
+              npm deprecate "$name@<2.0.0" "$msg" || failed=1
+            fi
+          done
+          exit "$failed"
 
   pypi-sdk:
     name: PyPI ${{ matrix.pkg.id }}
