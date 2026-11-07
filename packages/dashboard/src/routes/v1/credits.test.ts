@@ -44,7 +44,7 @@ vi.mock("@dominusnode/shared", async (importOriginal) => {
       ...actual.payoutRepo,
       getLivePayoutWallet: m.getLive, registerPayoutWallet: m.register, changePayoutWallet: m.change, requestWithdraw: m.withdraw,
     },
-    tierRepo: { getOwnerTier: m.getOwnerTier },
+    tierRepo: { getOwnerTier: m.getOwnerTier, getBuyerDiscount: async () => ({ buyerTierId: 2, buyerDiscountBps: 500, minPlatformMarginBps: 2500 }) },
     policyRepo: { getActivePolicy: m.getActivePolicy },
   };
 });
@@ -112,7 +112,7 @@ describe("GET /v1/credits", () => {
     expect(r.body).toMatchObject({
       pending: { musd: "2000000", usd: "2.000000" }, available: { musd: "1500000", usd: "1.500000" },
       frozen: false, tier: { name: "probation", holdDays: 14 }, taxFormStatus: "not_required",
-      ytdPaid: { musd: "0" }, payoutsEnabled: false,
+      ytdPaid: { musd: "0" }, payoutsEnabled: false, buyerDiscountBps: 500,
     });
     expect(m.summary).toHaveBeenCalledWith(USER);
   });

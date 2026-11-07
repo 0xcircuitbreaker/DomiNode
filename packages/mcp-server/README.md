@@ -106,6 +106,40 @@ node packages/node-agent/dist/src/main.js run --key-file ~/.dominusnode/node.jso
 dominusnode_node_list / dominusnode_node_tier
 ```
 
+## Directory listings and Docker
+
+The package carries the metadata the MCP directories need. This package is alpha: listings must say so, and must say payouts are not live.
+
+| File | Used by | Notes |
+|---|---|---|
+| `package.json` `mcpName` | Official MCP Registry | `io.github.0xcircuitbreaker/dominusnode`; must equal `name` in `server.json` |
+| `server.json` | Official MCP Registry (`mcp-publisher publish`) | Current registry schema; npm package, stdio transport, env vars (`DOMINUSNODE_API_KEY` is marked secret) |
+| `smithery.yaml` | Smithery | Local stdio server launched with `npx -y @dominusnode/mcp-server` |
+| `Dockerfile` | Docker MCP Catalog, self-hosting | Multi-stage `node:22-alpine`, runs as the unprivileged `node` user, no secrets in the image |
+
+Publish to the registry (after `npm publish` of the same version):
+
+```bash
+cd packages/mcp-server
+mcp-publisher login github      # as the 0xcircuitbreaker GitHub account
+mcp-publisher publish           # reads server.json
+```
+
+Keep `version` in `package.json` and both `version` fields in `server.json` in step on every release.
+
+Docker:
+
+```bash
+docker build -t dominusnode-mcp packages/mcp-server
+docker run -i --rm -e DOMINUSNODE_API_KEY dominusnode-mcp
+# node registration / withdrawals: mount the wallet key read-only
+docker run -i --rm -e DOMINUSNODE_API_KEY \
+  -e DOMINUSNODE_WALLET_KEY_FILE=/run/secrets/wallet.key \
+  -v "$PWD/wallet.key:/run/secrets/wallet.key:ro" dominusnode-mcp
+```
+
+The API key is read from the environment at run time and never written to the image or to tool output.
+
 ## Development
 
 ```bash

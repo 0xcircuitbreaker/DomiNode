@@ -15,6 +15,7 @@ interface Form {
   maxStreams: string; maxGbDay: string; reqPerSec: string; dailySpendUsd: string;
   per32: string; per24: string; perAsn: string; addCountries: string;
   attestationMinVersion: string; attestationText: string; freeTierRelay: boolean; logRetentionDays: string;
+  requireContribution: boolean; contributionWindowDays: string; allowAnonymousPayers: boolean;
 }
 
 function toForm(p: NetworkPolicy): Form {
@@ -25,6 +26,8 @@ function toForm(p: NetworkPolicy): Form {
     per32: String(p.nodeCapsPerPrefix.per32), per24: String(p.nodeCapsPerPrefix.per24), perAsn: String(p.nodeCapsPerPrefix.perAsn),
     addCountries: "", attestationMinVersion: String(p.attestation.minVersion), attestationText: p.attestation.text,
     freeTierRelay: p.freeTierRelay, logRetentionDays: String(p.logRetentionDays),
+    requireContribution: p.requireContribution ?? false, contributionWindowDays: String(p.contributionWindowDays ?? 30),
+    allowAnonymousPayers: p.allowAnonymousPayers ?? true,
   };
 }
 
@@ -48,6 +51,9 @@ export function buildPolicy(f: Form, current: NetworkPolicy): NetworkPolicy {
     logRetentionDays: int(f.logRetentionDays),
     nodeCapsPerPrefix: { per32: int(f.per32), per24: int(f.per24), perAsn: int(f.perAsn) },
     freeTierRelay: f.freeTierRelay,
+    requireContribution: f.requireContribution,
+    contributionWindowDays: int(f.contributionWindowDays),
+    allowAnonymousPayers: f.allowAnonymousPayers,
   };
 }
 
@@ -120,6 +126,17 @@ export default function PolicyPage() {
               <label className="flex items-center gap-2 self-end py-1.5 text-sm">
                 <input type="checkbox" checked={form.freeTierRelay} onChange={(e) => set("freeTierRelay", e.target.checked)} />
                 Free-tier requesters may use the relay
+              </label>
+              <label className="flex items-center gap-2 self-end py-1.5 text-sm">
+                <input type="checkbox" checked={form.requireContribution} onChange={(e) => set("requireContribution", e.target.checked)} />
+                Require contribution to buy (403 CONTRIBUTION_REQUIRED)
+              </label>
+              <Field label="Contribution window (days)">
+                {(id) => <input id={id} className="input" inputMode="numeric" value={form.contributionWindowDays} onChange={(e) => set("contributionWindowDays", e.target.value)} />}
+              </Field>
+              <label className="flex items-center gap-2 self-end py-1.5 text-sm">
+                <input type="checkbox" checked={form.allowAnonymousPayers} onChange={(e) => set("allowAnonymousPayers", e.target.checked)} />
+                Allow x402/MPP payers without an account
               </label>
             </Section>
 

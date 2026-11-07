@@ -74,6 +74,10 @@ const TABLE_QUERIES: Record<string, string> = {
   promo_redemptions: `DELETE FROM promo_redemptions WHERE ctid IN (
     SELECT ctid FROM promo_redemptions WHERE created_at < NOW() - INTERVAL '1 day' * $1 LIMIT $2
   )`,
+  // Public abuse reports: only closed reports age out.
+  abuse_reports: `DELETE FROM abuse_reports WHERE ctid IN (
+    SELECT ctid FROM abuse_reports WHERE created_at < NOW() - INTERVAL '1 day' * $1 AND status IN ('actioned', 'dismissed') LIMIT $2
+  )`,
   loyalty_rewards: `DELETE FROM loyalty_rewards WHERE ctid IN (
     SELECT ctid FROM loyalty_rewards WHERE created_at < NOW() - INTERVAL '1 day' * $1 AND status = 'credited' LIMIT $2
   )`,

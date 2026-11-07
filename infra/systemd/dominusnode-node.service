@@ -1,0 +1,39 @@
+# DomiNode node agent (exit node). Installed by scripts/seed/deploy-node.sh.
+# The node key lives in /etc/dominusnode/node.json (mode 0600, owner dominusnode)
+# and is only read by the agent; no secrets are passed on the command line.
+[Unit]
+Description=DomiNode relay node agent
+Documentation=https://github.com/0xcircuitbreaker/DomiNode/blob/master/docs/agent-network/DEPLOYMENT.md
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=dominusnode
+Group=dominusnode
+EnvironmentFile=-/etc/dominusnode/node.env
+Environment=NODE_ENV=production
+Environment=DN_NODE_KEY_FILE=/etc/dominusnode/node.json
+ExecStart=/usr/bin/env node /opt/dominusnode/packages/node-agent/dist/src/main.js run
+Restart=always
+RestartSec=5
+# Hardening: the agent only needs outbound sockets and to read its key file.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=false
+CapabilityBoundingSet=
+AmbientCapabilities=
+ReadOnlyPaths=/etc/dominusnode
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

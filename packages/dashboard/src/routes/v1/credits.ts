@@ -129,9 +129,10 @@ router.get("/credits", async (req: Request, res: Response) => {
   const agent = principal(req);
   if (!limit(readLimiter, req, res)) return;
   try {
-    const [s, tier] = await Promise.all([
+    const [s, tier, buyer] = await Promise.all([
       agentCreditsRepo.getCreditSummary(agent.userId),
       tierRepo.getOwnerTier(agent.userId),
+      tierRepo.getBuyerDiscount(agent.userId),
     ]);
     res.json({
       pending: money(s.pendingMusd),
@@ -143,6 +144,8 @@ router.get("/credits", async (req: Request, res: Response) => {
       ytdPaid: money(s.ytdPaidMusd),
       payoutsEnabled: payoutRepo.payoutsEnabled(),
       minWithdraw: money(payoutRepo.MIN_WITHDRAW_MUSD),
+      // Discount on relay purchases from your owner tier (0 unless you run a node).
+      buyerDiscountBps: buyer.buyerDiscountBps,
     });
   } catch (err) {
     log.error("credits summary failed", { error: errMsg(err) });

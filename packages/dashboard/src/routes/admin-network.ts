@@ -175,6 +175,8 @@ const TIER_INT_FIELDS: ReadonlyArray<[string, string, number, number]> = [
   ["noClawbackDays", "no_clawback_days", 0, 3650],
   ["holdDays", "hold_days", 0, 90],
   ["maxNodes", "max_nodes", 1, 100000],
+  // Buyer discount for this tier when it buys relay bandwidth (platform-funded, clamped by the margin floor)
+  ["buyerDiscountBps", "buyer_discount_bps", 0, 5000],
 ];
 const TIER_ALLOWED = new Set([...TIER_INT_FIELDS.map((f) => f[0]), "dailyWithdrawLimitMusd"]);
 

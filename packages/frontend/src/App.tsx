@@ -23,6 +23,7 @@ const PolicyPage = lazy(() => import("./admin/pages/PolicyPage"));
 const PricingPage = lazy(() => import("./admin/pages/PricingPage"));
 const HealthPage = lazy(() => import("./admin/pages/HealthPage"));
 const AuditPage = lazy(() => import("./admin/pages/AuditPage"));
+const LaunchPage = lazy(() => import("./admin/pages/LaunchPage"));
 
 const page = (el: React.ReactNode) => <Suspense fallback={<Loading />}>{el}</Suspense>;
 
@@ -49,6 +50,7 @@ export default function App() {
         <Route path="pricing" element={page(<PricingPage />)} />
         <Route path="health" element={page(<HealthPage />)} />
         <Route path="audit" element={page(<AuditPage />)} />
+        <Route path="launch" element={page(<LaunchPage />)} />
         <Route path="*" element={<Navigate to="/admin" replace />} />
       </Route>
       <Route path="*" element={<Navigate to="/admin" replace />} />

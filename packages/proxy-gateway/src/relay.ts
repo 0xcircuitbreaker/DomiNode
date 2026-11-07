@@ -8,6 +8,7 @@ import { NodeSelectionError, type NodeSelector, type SelectOpts } from "./node-t
 import { TunnelOpenError, mapOpenError } from "./node-tunnel/mux.js";
 import type { LiveNode } from "./node-tunnel/registry.js";
 import { withNodeRetry } from "./retry.js";
+import { recordUnmetDemand } from "./unmet-demand.js";
 
 const log = createLogger("proxy:relay");
 
@@ -75,6 +76,10 @@ export async function openRelayStream(rt: RelayRuntime, opts: SelectOpts): Promi
         try {
           return rt.selector.select({ ...opts, excludeNodeIds: [...(opts.excludeNodeIds ?? []), ...exclude] });
         } catch (err) {
+          // Only a first-attempt miss is demand we could not serve (retries exclude nodes).
+          if (err instanceof NodeSelectionError && err.kind === "unavailable" && exclude.length === 0) {
+            recordUnmetDemand(opts.country, opts.ipClass);
+          }
           throw toRelayError(err, null);
         }
       })();

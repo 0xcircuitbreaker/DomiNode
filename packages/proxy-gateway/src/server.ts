@@ -16,6 +16,7 @@ import { incrementUserConns, decrementUserConns } from "./connection-tracker.js"
 import { checkAuthRateLimit, recordAuthFailure } from "./auth-rate-limit.js";
 import { recordRequest, recordError, recordLatency } from "./stats.js";
 import { handleX402Http, handleX402Connect, build402ResponseBody, build402ConnectResponse, isX402Verified, getX402Data, settleX402Pending, releaseX402Pending, refundX402Payer, hasMppCredential, normalizePayer, paymentChallengeHeaders } from "./x402-handler.js";
+import { checkRequesterAccess, checkAnonymousPayer } from "./access-gate.js";
 import { enforcePolicy, isFreeRelayBlocked, isPlaintextPort, EXIT_VISIBLE_HEADER } from "./policy-enforcer.js";
 import { openRelayStream, RelayOpenError, type RelayRuntime, type RelayUpstream } from "./relay.js";
 import type { SelectOpts } from "./node-tunnel/selector.js";
@@ -319,6 +320,12 @@ async function handleRequest(
       return;
     }
     if (paidAttempt) {
+      // policy.allowAnonymousPayers: refuse BEFORE verification so the payer is never charged
+      const anon = checkAnonymousPayer(relay.getPolicy());
+      if (!anon.allowed) {
+        sendError(clientRes, anon.status, anon.code, anon.message);
+        return;
+      }
       const x402Handled = await handleX402Http(clientReq, clientRes);
       if (x402Handled && !isX402Verified(clientReq)) return;
     }
@@ -515,6 +522,13 @@ async function handleRequest(
     return;
   }
 
+  // Contribution requirement + starter-credit seed-only routing (access-gate.ts)
+  const access = await checkRequesterAccess(relay.getPolicy(), a.userId);
+  if (!access.allowed) {
+    sendError(clientRes, access.status, access.code, access.message);
+    return;
+  }
+
   // SSRF protection: validate target is not a private/internal address
   const targetCheck = await validateTarget(targetHost, targetPort);
   if (!targetCheck.allowed) {
@@ -586,7 +600,7 @@ async function handleRequest(
   // Select a node and open a stream (DIAL_FAIL/DNS_FAIL retry once on another node)
   let upstream: RelayUpstream;
   try {
-    upstream = await openRelayStream(relay, relaySelectOpts(a, a.userId, clientIp, targetHost, targetPort));
+    upstream = await openRelayStream(relay, { ...relaySelectOpts(a, a.userId, clientIp, targetHost, targetPort), seedOnly: access.seedOnly });
   } catch (err) {
     decrementUserConns(a.userId);
     const e = relayErrorOf(err);
@@ -727,6 +741,11 @@ async function handleConnect(
       return;
     }
     if (paidAttempt) {
+      const anon = checkAnonymousPayer(relay.getPolicy());
+      if (!anon.allowed) {
+        safeSocketWrite(clientSocket, `HTTP/1.1 ${anon.status} Forbidden\r\nX-DominusNode-Error: ${anon.code}\r\nConnection: close\r\n\r\n`);
+        return;
+      }
       const x402Result = await handleX402Connect(req, clientSocket);
       if (x402Result) {
         if (!x402Result.verified) return;
@@ -750,6 +769,12 @@ async function handleConnect(
 
   if (isFreeRelayBlocked(relay.getPolicy(), connectPlan)) {
     safeSocketWrite(clientSocket, "HTTP/1.1 402 Payment Required\r\nX-DominusNode-Error: PAID_PLAN_REQUIRED\r\nConnection: close\r\n\r\n");
+    return;
+  }
+
+  const connectAccess = await checkRequesterAccess(relay.getPolicy(), userId);
+  if (!connectAccess.allowed) {
+    safeSocketWrite(clientSocket, `HTTP/1.1 ${connectAccess.status} ${http.STATUS_CODES[connectAccess.status] ?? "Error"}\r\nX-DominusNode-Error: ${connectAccess.code}\r\nConnection: close\r\n\r\n`);
     return;
   }
 
@@ -823,7 +848,7 @@ async function handleConnect(
 
   let upstream: RelayUpstream;
   try {
-    upstream = await openRelayStream(relay, relaySelectOpts(auth, userId, connectClientIp, targetHost, targetPort));
+    upstream = await openRelayStream(relay, { ...relaySelectOpts(auth, userId, connectClientIp, targetHost, targetPort), seedOnly: connectAccess.seedOnly });
   } catch (err) {
     safeDecrement();
     recordError();

@@ -14,6 +14,7 @@ import {
   mppRailFromEnv,
 } from "@dominusnode/billing";
 import type { X402Facilitator, MppRail, VerifyResult } from "@dominusnode/billing";
+import { screenPayer } from "./payer-screening.js";
 
 const log = createLogger("proxy:x402");
 
@@ -142,6 +143,16 @@ type PayerResolution = { ok: true; userId: string } | { ok: false; status: numbe
  * Must run BEFORE settlement so a suspended/unsupported payer is never charged.
  */
 async function resolvePayer(payer: string): Promise<PayerResolution> {
+  // OFAC SDN screening of the payer wallet, before any identity is created or payment settled.
+  const screen = await screenPayer(payer);
+  if (screen === "blocked") {
+    log.warn("x402/mpp payer refused by sanctions screening", { payer: payer.slice(0, 10) + "..." });
+    return { ok: false, status: 403, code: "PAYER_SANCTIONED", message: "This payer wallet cannot use the network" };
+  }
+  if (screen === "unavailable") {
+    log.error("payer sanctions list unavailable: refusing paid request");
+    return { ok: false, status: 503, code: "PAYER_SCREENING_UNAVAILABLE", message: "Payment screening temporarily unavailable" };
+  }
   try {
     const u = await userRepo.findOrCreateX402User(payer);
     if (u.status !== "active") return { ok: false, status: 403, code: "ACCOUNT_SUSPENDED", message: "Payer account is not active" };

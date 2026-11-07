@@ -17,7 +17,7 @@ describe("relay-settle-retry-repo", () => {
 
   it("round-trips the settle input through JSON (bigints preserved)", () => {
     const back = decodeSettleInput(JSON.parse(JSON.stringify(encodeSettleInput(input))));
-    expect(back).toEqual(input);
+    expect(back).toEqual({ ...input, snapshot: { ...input.snapshot, genesisBonusBps: 0, buyerTierId: null, buyerDiscountBps: 0, minPlatformMarginBps: 2500 } });
   });
 
   it("rejects malformed or polluted payloads without copying unknown keys", () => {

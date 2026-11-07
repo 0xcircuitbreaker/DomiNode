@@ -19,11 +19,27 @@ export function recordError(): void {
   totalErrors++;
 }
 
+// Larger window for the hourly public status snapshot (p50/p95), bounded.
+const PCT_WINDOW = 2000;
+const pctSamples: number[] = [];
+
 export function recordLatency(ms: number): void {
   latencies.push(ms);
   if (latencies.length > LATENCY_WINDOW) {
     latencies.shift();
   }
+  if (Number.isFinite(ms) && ms >= 0) {
+    pctSamples.push(ms);
+    if (pctSamples.length > PCT_WINDOW) pctSamples.shift();
+  }
+}
+
+/** Nearest-rank percentiles of recent relay connect latency (null with no samples). */
+export function getLatencyPercentiles(): { p50: number | null; p95: number | null; samples: number } {
+  if (pctSamples.length === 0) return { p50: null, p95: null, samples: 0 };
+  const s = [...pctSamples].sort((a, b) => a - b);
+  const at = (p: number) => Math.round(s[Math.min(s.length - 1, Math.max(0, Math.ceil(p * s.length) - 1))]);
+  return { p50: at(0.5), p95: at(0.95), samples: s.length };
 }
 
 export function getAvgLatencyMs(): number {
@@ -134,4 +150,5 @@ export function _reset(): void {
   totalBytesOut = 0;
   totalSessions = 0;
   latencies.length = 0;
+  pctSamples.length = 0;
 }

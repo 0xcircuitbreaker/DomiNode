@@ -405,3 +405,45 @@ Counted traffic: `relay_charges` with gross > 0, not disputed, requester present
 | `PUT /collusion/settings` | any of `windowDays 1–90, concentrationBps, clusterBps, freezeBps 1–10000, clusterSize 2–20, autoFreeze bool, minNodeVolumeMusd, circularMinMusd, freezeMinVolumeMusd` (digit strings) | same as GET |
 
 The thresholds live in `collusion_settings`, not in the public `/v1/policy`, so they are not published to the parties being measured.
+
+## 13. Configuration additions
+
+- `PUT /tiers/:id` also accepts `buyerDiscountBps` (0–5000): the discount this tier gets when it **buys** relay bandwidth (see ECONOMICS.md §6). `GET /tiers` returns it.
+- The network policy (`PUT /policy`) has three new keys: `requireContribution` (bool, default `false`), `contributionWindowDays` (1–365, default 30) and `allowAnonymousPayers` (bool, default `true`). See ECONOMICS.md §8.
+
+## 14. Launch controls (`admin-network-launch.ts`)
+
+All mutations re-check the admin role `FOR UPDATE` in one transaction and write an `audit_events` row (actions in brackets). Singleton settings use PATCH semantics on `PUT`: send only the fields you change; unknown fields are `400`. µUSD values are digit strings.
+
+### Seed nodes
+| Endpoint | Notes |
+|---|---|
+| `POST /nodes/:id/operator-run {operatorRun: bool, reason?}` | Flags an operator-run seed node (`node_operator_run_set`). The gateway picks it up on the node's next tunnel reconnect. |
+| `GET /seed-summary` | `{seed, community}` each `{total, online, countries, asns, paidBytes24h, paid24h, paidBytes30d, paid30d}`. |
+
+### Starter credits
+| Endpoint | Notes |
+|---|---|
+| `GET /starter-credits/settings` | Settings plus `grantedToday {count, amount}`. |
+| `PUT /starter-credits/settings` | `enabled`, `amountMusd` (whole cents, 10000–100000000), `dailyBudgetMusd`, `perPrefixCap`, `perFundingSourceCap` (0–1000), `capWindowDays` (1–3650), `expiryDays` (1–365), `seedNodesOnly`, `seedOnlyDays` (0–365) (`starter_credit_settings_update`). |
+| `GET /starter-credits/grants?status=&userId=&limit=&offset=` | Grants with remaining amount, /24 prefix and expiry. |
+| `POST /starter-credits/grants/:id/revoke {reason}` | Closes an active grant and removes the unused remainder from the wallet, never below 0 (`starter_credit_revoke`). |
+
+### Genesis boost and buyer discounts
+| Endpoint | Notes |
+|---|---|
+| `GET /genesis/settings` / `PUT /genesis/settings` | `enabled`, `maxOwners` (0–100000), `bonusBps` (0–5000), `boostDays` (1–3650), `creditMusd` (0–1e9), `creditThresholdBytes` (`genesis_settings_update`). |
+| `GET /genesis/members?limit=&offset=` | Cohort in enrolment order with `boostUntil`, `creditStatus` (`pending|held|matured|clawed_back`) and qualifying matured bytes. |
+| `POST /genesis/members/:userId/clawback {reason}` | Claws back a still-held genesis credit from pending (`genesis_credit_clawback`). |
+| `GET /buyer-discounts/settings` / `PUT /buyer-discounts/settings` | `enabled`, `minPlatformMarginBps` (0–10000, default 2500) (`buyer_discount_settings_update`). |
+
+### Status, demand, abuse, contribution
+| Endpoint | Notes |
+|---|---|
+| `GET /incidents` / `POST /incidents {title, body?, severity, status?, startedAt?}` / `PATCH /incidents/:id` | `severity ∈ minor|major|critical|maintenance`, `status ∈ investigating|identified|monitoring|resolved`; `resolved` stamps `resolved_at` (`network_incident_create`, `network_incident_update`). Public at `/v1/network/incidents` and `/status`. |
+| `GET /unmet-demand?days=7` | `{groups: [{country, ipClass, requests, lastHour}], daily: [{day, requests}]}`; `null` country/class means "any". No requester ids or hosts exist in the table. |
+| `GET /abuse-reports?status=` | Public reports with `matches {sessions, requesters}`: counts of metadata-only `relay_abuse_log` rows for the same host inside the window. Look the requesters up with `GET /abuse-log` (itself audited). |
+| `POST /abuse-reports/:id/triage {status: triaged|actioned|dismissed, note?}` | (`abuse_report_triage`). |
+| `GET /contribution-allowlist` / `POST /contribution-allowlist {userId, note?}` / `DELETE /contribution-allowlist/:userId` | Agents allowed to buy while `requireContribution` is on (`contribution_allowlist_add`, `contribution_allowlist_remove`). The gateway caches decisions for 30 s. |
+
+The admin panel's **Launch controls** page (`/admin/launch`) covers all of the above; tier discounts and the margin floor are on **Pricing, Split & Tiers**, the policy flags on **Policy**. New jobs (`starter-expiry`, `genesis`, `network-snapshot`, hourly; `unmet-demand-flush`, per instance) appear on **Health**.

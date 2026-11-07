@@ -304,6 +304,9 @@ export const JOB_INTERVALS_MS: Record<string, number> = {
   retention: 3_600_000,
   tiers: 86_400_000,
   payouts: 86_400_000,
+  "starter-expiry": 3_600_000,
+  genesis: 3_600_000,
+  "network-snapshot": 3_600_000,
 };
 
 router.get("/health", async (_req: Request, res: Response) => {

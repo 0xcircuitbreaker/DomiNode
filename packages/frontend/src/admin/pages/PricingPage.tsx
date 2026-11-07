@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useApi } from "../../hooks/useApi";
-import { adminApi, type Tier } from "../../api/admin";
+import { adminApi, launchApi, type Tier } from "../../api/admin";
 import { fmtBps, fmtDate, fmtMusd, fmtInt } from "../../lib/format";
 import { Card, ConfirmDialog, DataTable, ErrorBox, Field, Loading, Notice, PageHeader } from "../components/ui";
 
@@ -132,6 +132,7 @@ const TIER_FIELDS: Array<{ key: keyof Tier; label: string; kind: "pct" | "int" |
   { key: "noClawbackDays", label: "No-clawback after (days)", kind: "int", max: 3650 },
   { key: "holdDays", label: "Hold (days)", kind: "int", max: 90 },
   { key: "maxNodes", label: "Max nodes", kind: "int", max: 100000 },
+  { key: "buyerDiscountBps", label: "Buyer discount (%)", kind: "pct", max: 5000 },
   { key: "dailyWithdrawLimitMusd", label: "Daily withdraw limit (USD)", kind: "usd" },
 ];
 
@@ -176,6 +177,7 @@ function TiersCard({ onSaved }: { onSaved: (m: string) => void }) {
           { key: "r", header: "Reputation", align: "right", render: (t) => fmtBps(t.minReputation, 1) },
           { key: "h", header: "Hold", align: "right", render: (t) => `${t.holdDays} d` },
           { key: "m", header: "Max nodes", align: "right", render: (t) => fmtInt(t.maxNodes) },
+          { key: "bd", header: "Buyer discount", align: "right", render: (t) => fmtBps(t.buyerDiscountBps ?? 0) },
           { key: "w", header: "Withdraw/day", align: "right", render: (t) => fmtMusd(t.dailyWithdrawLimitMusd) },
           { key: "x", header: <span className="sr-only">Actions</span>, render: (t) => (
             <button type="button" className="btn-secondary !py-1 text-xs" onClick={() => { setErr(null); setVals(tierToStrings(t)); setEditing(t); }}>Edit</button>
@@ -205,6 +207,41 @@ function TiersCard({ onSaved }: { onSaved: (m: string) => void }) {
   );
 }
 
+/** Buyer discounts are platform-funded: the platform keeps at least this share of the list price. */
+function MarginFloorCard({ onSaved }: { onSaved: (m: string) => void }) {
+  const s = useApi(() => launchApi.discountSettings());
+  const [pct, setPct] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const value = pct ?? (s.data ? String(s.data.minPlatformMarginBps / 100) : "");
+  return (
+    <Card title="Buyer discount margin floor">
+      <ErrorBox error={s.error ?? err} />
+      <p className="mb-3 text-xs text-slate-500 dark:text-slate-400">
+        Node operators buy at their tier discount. Node earnings are computed on the list price and never change;
+        the discount comes out of the platform share and is clamped so the platform keeps at least this percentage of list.
+      </p>
+      <div className="flex flex-wrap items-end gap-3">
+        <Field label="Minimum platform margin (%)">
+          {(id) => <input id={id} className="input w-32" inputMode="decimal" value={value} onChange={(e) => setPct(e.target.value)} />}
+        </Field>
+        <label className="flex items-center gap-2 py-1.5 text-sm">
+          <input type="checkbox" checked={s.data?.enabled ?? true} onChange={async (e) => {
+            try { await launchApi.updateDiscountSettings({ enabled: e.target.checked }); s.refetch(); onSaved("Buyer discounts updated."); }
+            catch (x) { setErr(x instanceof Error ? x.message : String(x)); }
+          }} />
+          Discounts enabled
+        </label>
+        <button type="button" className="btn-primary" onClick={async () => {
+          const bps = pctToBps(value);
+          if (bps === null || bps > 10000) { setErr("Enter a percentage between 0 and 100"); return; }
+          try { setErr(null); await launchApi.updateDiscountSettings({ minPlatformMarginBps: bps }); setPct(null); s.refetch(); onSaved("Margin floor updated."); }
+          catch (x) { setErr(x instanceof Error ? x.message : String(x)); }
+        }}>Save</button>
+      </div>
+    </Card>
+  );
+}
+
 export default function PricingPage() {
   const [msg, setMsg] = useState<string | null>(null);
   return (
@@ -216,6 +253,7 @@ export default function PricingPage() {
         <SplitCard onSaved={setMsg} />
       </div>
       <div className="mt-4"><TiersCard onSaved={setMsg} /></div>
+      <div className="mt-4"><MarginFloorCard onSaved={setMsg} /></div>
     </div>
   );
 }
