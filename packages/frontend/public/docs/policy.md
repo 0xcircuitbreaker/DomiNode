@@ -1,6 +1,6 @@
 # DominusNode network policy and abuse controls
 
-The active policy is public: `GET https://api.dominusnode.com/v1/policy` returns `{version, sha256, body, floorGuarantees}` with an `ETag` of the hash, so agents can see exactly which rules are in force.
+The active policy is public: `GET https://api.dominusnode.daedalusdevelopmentgroup.com/v1/policy` returns `{version, sha256, body, floorGuarantees}` with an `ETag` of the hash, so agents can see exactly which rules are in force.
 
 ## Controls
 
@@ -25,4 +25,9 @@ The active policy is public: `GET https://api.dominusnode.com/v1/policy` returns
 
 ## Reporting abuse
 
-Report abuse seen from a DominusNode exit IP with the time and IP at https://github.com/0xcircuitbreaker/DomiNode/issues. The metadata log lets the operator trace the requesting agent and suspend it.
+Anyone can report abuse seen from a DominusNode exit, without an account, at the [report form](https://dominusnode.daedalusdevelopmentgroup.com/report-abuse) or directly against the API:
+
+1. `POST https://api.dominusnode.daedalusdevelopmentgroup.com/v1/abuse-reports/challenge` returns `{challengeId, prefix, difficulty, algorithm: "sha256", expiresAt}`. Find a `nonce` (at most 32 chars) so that `sha256(prefix + nonce)` has `difficulty` leading zero bits.
+2. `POST https://api.dominusnode.daedalusdevelopmentgroup.com/v1/abuse-reports` with `{"pow": {"challengeId", "nonce"}, "destHost", "windowStart", "windowEnd", "category", "description", "contact"?}`. `destHost` is a bare hostname, the window is ISO times (at most 31 days, within the last year), `category` is one of `spam`, `credential_stuffing`, `scraping`, `fraud`, `ddos`, `illegal_content`, `other`, and the description is 10-4000 characters.
+
+The response is `201 {id, status: "new", receivedAt, responseTarget: "24h"}`. Limits: 20 challenges and 5 reports per IP per hour. The reporter's IP is not stored. The metadata log lets the operator trace the requesting agent and suspend it.

@@ -11,6 +11,7 @@ The public site (`packages/frontend`, served at `VITE_PUBLIC_ORIGIN`) publishes 
 | `/sitemap.xml` | sitemaps.org 0.9 | Implemented |
 | `/.well-known/mcp/server.json` | MCP Registry `server.json` (npm package `@dominusnode/mcp-server`, stdio). Serving it under `/.well-known/mcp/` follows the registry auto-discovery pattern Replicate documented; MCP "server cards" (SEP-2127) and IETF `/.well-known/mcp-server` drafts are still unsettled, so no server card is published | Implemented (registry format) |
 | OpenGraph, Twitter card, JSON-LD | schema.org `SoftwareApplication` + `Organization` (Daedalus Development Group) in `index.html` | Implemented |
+| API-hosted `/llms.txt`, `/.well-known/agent-tool.json`, `/status` | Served by the dashboard (`packages/dashboard/src/routes/discovery.ts`, `status-page.ts`) with live prices; the site's `llms.txt` links both and states the same facts | Cross-linked |
 | `<meta name="robots" content="noindex">` | Added at runtime on `/admin` and auth routes, plus `X-Robots-Tag` in host config | Implemented |
 
 ## Skipped, and why

@@ -7,7 +7,7 @@
   NODE_VERSION = "22"
   # Public product site origin (canonical URLs, sitemap, llms.txt) and the public API base.
   VITE_PUBLIC_ORIGIN = "https://dominusnode.daedalusdevelopmentgroup.com"
-  VITE_API_BASE = "https://api.dominusnode.com"
+  VITE_API_BASE = "https://api.dominusnode.daedalusdevelopmentgroup.com"
   VITE_RECAPTCHA_SITE_KEY = "6LcQvXAsAAAAAKtirq965QN3_Ew9x2Hl5THmRUSN"
 
 # Security response headers for all pages
@@ -19,7 +19,7 @@
     X-Frame-Options = "DENY"
     Referrer-Policy = "strict-origin-when-cross-origin"
     Permissions-Policy = "camera=(), microphone=(), geolocation=(), payment=(self)"
-    Content-Security-Policy = "default-src 'self'; script-src 'self' https://www.google.com/recaptcha/ https://www.gstatic.com/recaptcha/; style-src 'self' 'unsafe-inline'; connect-src 'self' https://*.dominusnode.com; img-src 'self' data:; font-src 'self'; frame-src https://checkout.stripe.com https://nowpayments.io https://www.google.com/recaptcha/; frame-ancestors 'none'; form-action 'self'; base-uri 'self'; upgrade-insecure-requests;"
+    Content-Security-Policy = "default-src 'self'; script-src 'self' https://www.google.com/recaptcha/ https://www.gstatic.com/recaptcha/; style-src 'self' 'unsafe-inline'; connect-src 'self' https://*.dominusnode.com https://api.dominusnode.daedalusdevelopmentgroup.com; img-src 'self' data:; font-src 'self'; frame-src https://checkout.stripe.com https://nowpayments.io https://www.google.com/recaptcha/; frame-ancestors 'none'; form-action 'self'; base-uri 'self'; upgrade-insecure-requests;"
 
 # Agent-discovery files: explicit types, CORS-readable, short cache.
 [[headers]]
@@ -62,7 +62,7 @@
 # Reverse-proxy API calls to backend so cookie-based auth stays first-party.
 [[redirects]]
   from = "/api/*"
-  to = "https://api.dominusnode.com/api/:splat"
+  to = "https://api.dominusnode.daedalusdevelopmentgroup.com/api/:splat"
   status = 200
   force = true
 

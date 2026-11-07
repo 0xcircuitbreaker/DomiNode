@@ -1,6 +1,6 @@
 # DominusNode: full documentation for agents
 
-> Concatenation of the markdown pages linked from https://dominusnode.daedalusdevelopmentgroup.com/llms.txt. Prices are never included: read https://api.dominusnode.com/v1/pricing.
+> Concatenation of the markdown pages linked from https://dominusnode.daedalusdevelopmentgroup.com/llms.txt. Prices are never included: read https://api.dominusnode.daedalusdevelopmentgroup.com/v1/pricing.
 
 <!-- source: https://dominusnode.daedalusdevelopmentgroup.com/docs/agents.md -->
 
@@ -11,13 +11,15 @@ DominusNode is a decentralized relay network for AI agents only. Requester agent
 ## Endpoints
 
 - Gateway: `proxy.dominusnode.com`, HTTP/CONNECT proxy on port 8080, SOCKS5 on port 1080, plus a TLS proxy listener (port set by the operator, commonly 8443) so proxy credentials never travel in clear text.
-- API: `https://api.dominusnode.com` (public `/v1/pricing`, `/v1/policy`, `/v1/network/stats`; authenticated `/v1` agent routes).
-- Health: `https://api.dominusnode.com/api/health`.
+- API: `https://api.dominusnode.daedalusdevelopmentgroup.com` (public `/v1/pricing`, `/v1/policy`, `/v1/network/stats`; authenticated `/v1` agent routes).
+- Status: `https://api.dominusnode.daedalusdevelopmentgroup.com/status` (human-readable page), `https://api.dominusnode.daedalusdevelopmentgroup.com/v1/network/history` (hourly snapshots), `/v1/network/incidents`, `/v1/network/wanted` (where nodes are needed).
+- API-hosted discovery: `https://api.dominusnode.daedalusdevelopmentgroup.com/llms.txt` (live prices) and `https://api.dominusnode.daedalusdevelopmentgroup.com/.well-known/agent-tool.json`.
+- SDKs and the MCP server default to `https://api.dominusnode.com`; pass this API base explicitly (`baseUrl`, `base_url`, `DOMINUSNODE_API_URL`).
 
 ## Two ways to pay
 
 1. **Per request, no signup (x402 or MPP).** Send a request without credentials. The gateway answers `402 Payment Required` with x402 payment requirements and, when MPP is enabled, a `WWW-Authenticate: Payment` challenge (Tempo). Pay, then retry with the proof (`X-PAYMENT` header for x402, `Authorization: Payment` or `Proxy-Authorization: Payment` for MPP). The paid amount caps the bytes of that request. Payers are mapped to a wallet-identity account automatically.
-2. **Prepaid wallet.** Sign in with an EIP-191 wallet signature, create a `dn_live_` API key, and top up with crypto (Tempo or NOWPayments). Usage is billed per GB at the live price for the exit's IP class. Card payments are not offered to agents.
+2. **Prepaid wallet.** Sign in with an EIP-191 wallet signature, create a `dn_live_` API key, and top up with crypto (Tempo or NOWPayments). Usage is billed per GB at the live price for the exit's IP class. Agents that own a node pay their tier's buyer discount (0% at Probation up to 25% at Partner by default) on wallet purchases. Card payments are not offered to agents.
 
 ## Proxy username flags
 
@@ -48,7 +50,7 @@ Six SDKs share one contract (`sdks/SDK_SURFACE.md`, v2): Node.js (`@dominusnode/
 import os
 from dominusnode import DominusNodeClient
 
-with DominusNodeClient() as dn:
+with DominusNodeClient(base_url="https://api.dominusnode.daedalusdevelopmentgroup.com") as dn:
     dn.connect_with_key(os.environ["DOMINUSNODE_API_KEY"])
     print(dn.network.pricing())
     res = dn.proxy.fetch("https://example.com", country="US", ip_class="residential")
@@ -56,7 +58,7 @@ with DominusNodeClient() as dn:
 
 ```ts
 import { DominusNodeClient } from "@dominusnode/sdk";
-const dn = new DominusNodeClient();
+const dn = new DominusNodeClient({ baseUrl: "https://api.dominusnode.daedalusdevelopmentgroup.com" });
 await dn.connectWithKey(process.env.DOMINUSNODE_API_KEY!);
 const res = await dn.proxy.fetch("https://example.com/", { country: "DE", sessionId: "job42" });
 ```
@@ -80,7 +82,7 @@ See also: [MCP setup](https://dominusnode.daedalusdevelopmentgroup.com/docs/mcp.
 ## Pricing model
 
 - Prices are per GB, per exit IP class (`residential`, `mobile`, `dc`). The operator sets them in `network_pricing`; they are never hardcoded in clients.
-- Read the live numbers from `GET https://api.dominusnode.com/v1/pricing` (no auth). Response: `{currency, unit: "musd_per_gb", prices: [{ipClass, pricePerGbMusd}], nodeShare: [{tier, rank, nodeShareBps}], maturationHours, rails}`.
+- Read the live numbers from `GET https://api.dominusnode.daedalusdevelopmentgroup.com/v1/pricing` (no auth). Response: `{currency, unit: "musd_per_gb", prices: [{ipClass, pricePerGbMusd}], nodeShare: [{tier, rank, nodeShareBps}], buyerDiscounts: [{tier, rank, buyerDiscountBps}], maturationHours, rails}`. `prices` are list prices.
 - Money is integer micro-USD (µUSD) strings: 1 USD = 1,000,000 µUSD. Prepaid wallets debit whole cents.
 - x402 and MPP per-request price = the per-GB price × a fixed byte allowance per request (operator setting, 10 MB by default). The paid amount caps that request's bytes.
 - Only the gateway counts billable bytes. Exit nodes are untrusted and their counts are never billed.
@@ -103,7 +105,7 @@ Stripe and PayPal exist only for admin operations; agents never see them. The en
 - Earnings are held 14 days (Probation) down to 3 days (Platinum, Partner) so fraud can be clawed back, then become available credit.
 - Available credit can be converted into bandwidth on your own requester wallet (`POST /v1/credits/convert`).
 - USDC withdrawals on Base (minimum $1, signed, tier daily limits) are implemented but switched on by the operator. While payouts are disabled the API returns `503 PAYOUTS_DISABLED`.
-- Contributor buyer discounts (0% at Probation up to 25% at Partner) are shown in `/v1/pricing` once the operator publishes them.
+- **Buyer discounts: contribute IPs to earn more and buy cheaper.** A principal that owns a node pays its tier's discount on wallet and team purchases: by default 0% (Probation), 5%, 10%, 15%, 20%, 25% (Partner), admin-tunable and live in `buyerDiscounts` of `/v1/pricing`. The discount comes out of the platform's share (a minimum platform margin is kept); the node's share is always computed on the list price. Your current discount is `buyerDiscountBps` in `GET /v1/credits` and `GET /v1/node/tier`.
 - Credits never move between users, buyers cannot withdraw prepaid balances, and there is no fiat cash-out.
 
 ---
@@ -112,7 +114,7 @@ Stripe and PayPal exist only for admin operations; agents never see them. The en
 
 # DominusNode network policy and abuse controls
 
-The active policy is public: `GET https://api.dominusnode.com/v1/policy` returns `{version, sha256, body, floorGuarantees}` with an `ETag` of the hash, so agents can see exactly which rules are in force.
+The active policy is public: `GET https://api.dominusnode.daedalusdevelopmentgroup.com/v1/policy` returns `{version, sha256, body, floorGuarantees}` with an `ETag` of the hash, so agents can see exactly which rules are in force.
 
 ## Controls
 
@@ -137,7 +139,12 @@ The active policy is public: `GET https://api.dominusnode.com/v1/policy` returns
 
 ## Reporting abuse
 
-Report abuse seen from a DominusNode exit IP with the time and IP at https://github.com/0xcircuitbreaker/DomiNode/issues. The metadata log lets the operator trace the requesting agent and suspend it.
+Anyone can report abuse seen from a DominusNode exit, without an account, at the [report form](https://dominusnode.daedalusdevelopmentgroup.com/report-abuse) or directly against the API:
+
+1. `POST https://api.dominusnode.daedalusdevelopmentgroup.com/v1/abuse-reports/challenge` returns `{challengeId, prefix, difficulty, algorithm: "sha256", expiresAt}`. Find a `nonce` (at most 32 chars) so that `sha256(prefix + nonce)` has `difficulty` leading zero bits.
+2. `POST https://api.dominusnode.daedalusdevelopmentgroup.com/v1/abuse-reports` with `{"pow": {"challengeId", "nonce"}, "destHost", "windowStart", "windowEnd", "category", "description", "contact"?}`. `destHost` is a bare hostname, the window is ISO times (at most 31 days, within the last year), `category` is one of `spam`, `credential_stuffing`, `scraping`, `fraud`, `ddos`, `illegal_content`, `other`, and the description is 10-4000 characters.
+
+The response is `201 {id, status: "new", receivedAt, responseTarget: "24h"}`. Limits: 20 challenges and 5 reports per IP per hour. The reporter's IP is not stored. The metadata log lets the operator trace the requesting agent and suspend it.
 
 ---
 
@@ -145,16 +152,20 @@ Report abuse seen from a DominusNode exit IP with the time and IP at https://git
 
 # DominusNode API overview
 
-Base URL: `https://api.dominusnode.com`. JSON in and out. Errors are `{"error": "<message>", "code"?: "<CODE>"}`.
+Base URL: `https://api.dominusnode.daedalusdevelopmentgroup.com`. JSON in and out. Errors are `{"error": "<message>", "code"?: "<CODE>"}`.
 
 ## Public (no auth)
 
 | Route | Returns |
 |---|---|
-| `GET /v1/pricing` | Per-class price in µUSD per GB, tier node shares, maturation hours, enabled rails |
+| `GET /v1/pricing` | Per-class **list** price in µUSD per GB, tier node shares (`nodeShare`), tier buyer discounts (`buyerDiscounts: [{tier, rank, buyerDiscountBps}]`), maturation hours, enabled rails |
 | `GET /v1/policy` | Active policy `{version, sha256, body, floorGuarantees}`, `ETag` = hash |
 | `GET /v1/network/stats` | Aggregate online nodes by class and country (groups under 3 folded into "other") |
-| `GET /api/health` | API and database health |
+| `GET /v1/network/history?hours=168` | Hourly aggregate snapshots (online nodes, success rate, latency, paid bytes) |
+| `GET /v1/network/incidents`, `GET /v1/network/wanted` | Incident log; country/class combinations where requesters found no node |
+| `GET /status` | Human-readable status page |
+| `POST /v1/abuse-reports/challenge`, `POST /v1/abuse-reports` | Abuse report intake, no account, proof-of-work gated (see [policy](https://dominusnode.daedalusdevelopmentgroup.com/docs/policy.md)) |
+| `GET /llms.txt`, `GET /.well-known/agent-tool.json` | API-hosted discovery documents with live prices |
 
 ## Agent routes (`/v1`)
 
@@ -163,8 +174,9 @@ Auth: `Authorization: Bearer <dn_live_ key | wallet JWT>`. Team keys, `dn_node_`
 | Route | Purpose |
 |---|---|
 | `POST /v1/nodes/challenge`, `POST /v1/nodes`, `GET /v1/nodes`, `PATCH /v1/nodes/:id` | Register, list and cap your nodes |
-| `GET /v1/node/tier` | Current tier, progress, demotion reason |
-| `GET /v1/credits`, `GET /v1/credits/transactions` | Pending and available credit, ledger |
+| `GET /v1/node/tier` | Current tier (with `buyerDiscountBps`), next tier, progress, demotion reason |
+| `GET /v1/credits`, `GET /v1/credits/transactions` | Pending and available credit, your current `buyerDiscountBps`, ledger |
+| `GET /v1/starter-credits` | Starter-credit program terms and your grant, if the operator enabled the program |
 | `POST /v1/credits/convert` | Credit into your own requester wallet (`Idempotency-Key` required) |
 | `GET/PUT /v1/payout-wallet`, `POST /v1/payout-wallet/challenge` | USDC payout address on Base (EIP-191 signed, 72 h cooldown on change) |
 | `POST /v1/credits/withdraw/challenge`, `POST /v1/credits/withdraw` | On-demand USDC payout (min $1) when payouts are enabled |
@@ -191,7 +203,10 @@ Full reference: https://github.com/0xcircuitbreaker/DomiNode/blob/master/docs/ag
     "dominusnode": {
       "command": "npx",
       "args": ["-y", "@dominusnode/mcp-server"],
-      "env": { "DOMINUSNODE_API_KEY": "dn_live_YOUR_KEY" }
+      "env": {
+        "DOMINUSNODE_API_KEY": "dn_live_YOUR_KEY",
+        "DOMINUSNODE_API_URL": "https://api.dominusnode.daedalusdevelopmentgroup.com"
+      }
     }
   }
 }
@@ -212,7 +227,7 @@ Without `DOMINUSNODE_API_KEY` the server starts in **bootstrap mode** with 11 to
 | Variable | Purpose |
 |---|---|
 | `DOMINUSNODE_API_KEY` | `dn_live_` key (omit for bootstrap mode) |
-| `DOMINUSNODE_API_URL` | API base, default `https://api.dominusnode.com` |
+| `DOMINUSNODE_API_URL` | API base: set `https://api.dominusnode.daedalusdevelopmentgroup.com` (the package's built-in default is `https://api.dominusnode.com`) |
 | `DOMINUSNODE_PROXY_HOST` | Gateway host, default `proxy.dominusnode.com` |
 | `DOMINUSNODE_WALLET_KEY_FILE` | chmod-600 wallet key file for signed flows (node register, payout wallet, withdraw) |
 
@@ -228,8 +243,9 @@ The node agent (`packages/node-agent`, binary `dominusnode-node`) dials **out** 
 
 ## How earning works
 
-- You earn your tier's share of each paid GB relayed through your IP: Probation 25% up to Partner 50%. Live shares are in `GET https://api.dominusnode.com/v1/pricing`.
+- You earn your tier's share of each paid GB relayed through your IP: Probation 25% up to Partner 50%. Live shares are in `GET https://api.dominusnode.daedalusdevelopmentgroup.com/v1/pricing`.
 - Tiers rise with paid tenure, gateway-measured uptime, active IPs (distinct /32s with 3+ paying requesters in 7 days) and reputation. Check progress with `GET /v1/node/tier`.
+- Owning a node also gives you a buyer discount on your own relay purchases, 0% at Probation up to 25% at Partner by default (live in `/v1/pricing`).
 - Self-dealing earns nothing: traffic from you, your wallet, your team or your /24 is never routed to your node.
 - Earnings mature after a 3-14 day hold, then become available credit (see [payments](https://dominusnode.daedalusdevelopmentgroup.com/docs/payments.md)).
 
@@ -250,12 +266,15 @@ printf '%s' "$WALLET_PRIVATE_KEY_HEX" > ~/.dominusnode/wallet.key && chmod 600 ~
 git clone https://github.com/0xcircuitbreaker/DomiNode.git && cd DomiNode
 npm ci && npm run build -w @dominusnode/shared -w @dominusnode/node-agent
 export DN_API_KEY=dn_live_YOUR_KEY
+export DN_NODE_API_URL=https://api.dominusnode.daedalusdevelopmentgroup.com   # node-agent default is https://api.dominusnode.com
 node packages/node-agent/dist/src/main.js register --wallet-key-file ~/.dominusnode/wallet.key
 # writes ~/.dominusnode/node.json (mode 0600)
 
 # 3. Run it on the machine that owns the IP; keep it running (systemd, pm2, container restart policy)
 node packages/node-agent/dist/src/main.js run --key-file ~/.dominusnode/node.json
 ```
+
+Where are nodes needed? `GET https://api.dominusnode.daedalusdevelopmentgroup.com/v1/network/wanted` lists country/class combinations requesters asked for with no node online.
 
 Optional limits can only tighten: `--ports 443`, `--max-streams 32`, `--gb-per-day 5`, `--req-per-sec 20`. Env equivalents: `DN_NODE_KEY_FILE`, `DN_NODE_PORTS`, `DN_NODE_MAX_STREAMS`, `DN_NODE_GB_PER_DAY`, `DN_NODE_REQ_PER_SEC`, `DN_NODE_MAX_MBPS`, `DN_NODE_DENY_DOMAINS`.
 

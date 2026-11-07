@@ -34,7 +34,7 @@
           "isRequired": false,
           "isSecret": false,
           "format": "string",
-          "default": "https://api.dominusnode.com"
+          "default": "https://api.dominusnode.daedalusdevelopmentgroup.com"
         }
       ]
     }

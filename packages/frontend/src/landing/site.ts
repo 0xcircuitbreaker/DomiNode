@@ -3,7 +3,7 @@
  * build can be deployed under any DDG subdomain. Nothing here is a secret.
  */
 export const DEFAULT_PUBLIC_ORIGIN = "https://dominusnode.daedalusdevelopmentgroup.com";
-export const DEFAULT_API_BASE = "https://api.dominusnode.com";
+export const DEFAULT_API_BASE = "https://api.dominusnode.daedalusdevelopmentgroup.com";
 
 export function cleanOrigin(raw: string | undefined, fallback: string): string {
   if (!raw) return fallback;
@@ -24,8 +24,10 @@ export const API_BASE = cleanOrigin(env["VITE_API_BASE"], DEFAULT_API_BASE);
 export const DDG_URL = "https://daedalusdevelopmentgroup.com";
 export const GITHUB_URL = "https://github.com/0xcircuitbreaker/DomiNode";
 export const DOCS_URL = `${GITHUB_URL}/tree/master/docs/agent-network`;
-/** The API exposes a health endpoint, not a status page. */
-export const STATUS_URL = `${API_BASE}/api/health`;
-/** The API has no dedicated abuse intake yet; reports go to the repo's issue tracker. */
-export const ABUSE_URL = env["VITE_ABUSE_URL"] || `${GITHUB_URL}/issues/new?labels=abuse&title=Abuse+report`;
+/** Human-readable status page and machine-readable history on the API host. */
+export const STATUS_URL = `${API_BASE}/status`;
+export const HISTORY_URL = `${API_BASE}/v1/network/history`;
+export const API_LLMS_URL = `${API_BASE}/llms.txt`;
+/** Abuse intake: the in-site form posting to POST /v1/abuse-reports, unless overridden. */
+export const ABUSE_URL = env["VITE_ABUSE_URL"] || "/report-abuse";
 export const PROXY_HOST = "proxy.dominusnode.com";

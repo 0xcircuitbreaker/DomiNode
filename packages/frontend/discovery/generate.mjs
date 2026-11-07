@@ -10,7 +10,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export const DEFAULT_ORIGIN = "https://dominusnode.daedalusdevelopmentgroup.com";
-export const API_BASE = "https://api.dominusnode.com";
+export const API_BASE = "https://api.dominusnode.daedalusdevelopmentgroup.com";
 export const GITHUB = "https://github.com/0xcircuitbreaker/DomiNode";
 export const DDG = "https://daedalusdevelopmentgroup.com";
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -43,9 +43,9 @@ function llmsTxt(origin) {
   return [
     "# DominusNode",
     "",
-    "> DominusNode is a decentralized relay network built for AI agents only. Agents buy HTTP, HTTPS and SOCKS5 egress through residential, mobile and datacenter IPs that other agents contribute, paying per request with x402 or MPP (no signup) or from a prepaid crypto wallet. Agents that run the node agent earn a tier-based share (25% to 50%) of the paid traffic that leaves through their IP. Prices are live at " + `${API_BASE}/v1/pricing` + "; never hardcode them. A Daedalus Development Group product.",
+    "> DominusNode is a decentralized relay network built for AI agents only. Agents buy HTTP, HTTPS and SOCKS5 egress through residential, mobile and datacenter IPs that other agents contribute, paying per request with x402 or MPP (no signup) or from a prepaid crypto wallet. Agents that run the node agent earn a tier-based share (25% at Probation to 50% at Partner) of the paid traffic that leaves through their IP, and buy relay bandwidth at a tier discount (0% to 25%). Alpha: earnings accrue as credits; USDC payouts on Base stay off until the operator enables them. Prices are live at " + `${API_BASE}/v1/pricing` + "; never hardcode them. A Daedalus Development Group product.",
     "",
-    "Gateway: proxy.dominusnode.com (HTTP 8080, SOCKS5 1080, TLS proxy). API key in the proxy password; username flags country-XX, class-residential|dc|mobile, session-<id>, allowhttp-1 (hyphen-joined, or `relay` for none).",
+    "Gateway: proxy.dominusnode.com (HTTP 8080, SOCKS5 1080, TLS proxy). API: " + API_BASE + " (SDKs and the MCP server default to https://api.dominusnode.com; set the base explicitly). API key in the proxy password; username flags country-XX, class-residential|dc|mobile, session-<id>, allowhttp-1 (hyphen-joined, or `relay` for none).",
     "",
     "## Docs",
     "",
@@ -53,10 +53,15 @@ function llmsTxt(origin) {
     "",
     "## API",
     "",
-    `- [Live pricing](${API_BASE}/v1/pricing): per-class µUSD per GB, tier node shares, enabled rails (JSON, no auth)`,
+    `- [Live pricing](${API_BASE}/v1/pricing): per-class list price in µUSD per GB, tier node shares, tier buyer discounts, enabled rails (JSON, no auth)`,
     `- [Network policy](${API_BASE}/v1/policy): active policy, version hash and node floor guarantees (JSON, no auth)`,
     `- [Network stats](${API_BASE}/v1/network/stats): aggregate online nodes by class and country (JSON, no auth)`,
-    `- [Health](${API_BASE}/api/health): API status`,
+    `- [Network history](${API_BASE}/v1/network/history): hourly aggregate snapshots (JSON, no auth)`,
+    `- [Wanted](${API_BASE}/v1/network/wanted): countries and classes where requesters found no node (JSON, no auth)`,
+    `- [Status page](${API_BASE}/status): human-readable network status`,
+    `- [Abuse reports](${origin}/docs/policy.md): POST ${API_BASE}/v1/abuse-reports, no account, proof-of-work gated`,
+    `- [API llms.txt](${API_BASE}/llms.txt): the API host's own summary with live prices`,
+    `- [Agent tool manifest](${API_BASE}/.well-known/agent-tool.json): machine-readable endpoints, auth and pricing`,
     "",
     "## Tools",
     "",
@@ -97,7 +102,7 @@ function robotsTxt(origin) {
 }
 
 function sitemapXml(origin) {
-  const urls = ["/", "/llms.txt", "/llms-full.txt", ...DOCS.map((d) => d.path), "/terms", "/privacy", "/aup"];
+  const urls = ["/", "/report-abuse", "/llms.txt", "/llms-full.txt", ...DOCS.map((d) => d.path), "/terms", "/privacy", "/aup"];
   return [
     '<?xml version="1.0" encoding="UTF-8"?>',
     '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',

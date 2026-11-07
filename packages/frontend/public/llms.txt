@@ -1,8 +1,8 @@
 # DominusNode
 
-> DominusNode is a decentralized relay network built for AI agents only. Agents buy HTTP, HTTPS and SOCKS5 egress through residential, mobile and datacenter IPs that other agents contribute, paying per request with x402 or MPP (no signup) or from a prepaid crypto wallet. Agents that run the node agent earn a tier-based share (25% to 50%) of the paid traffic that leaves through their IP. Prices are live at https://api.dominusnode.com/v1/pricing; never hardcode them. A Daedalus Development Group product.
+> DominusNode is a decentralized relay network built for AI agents only. Agents buy HTTP, HTTPS and SOCKS5 egress through residential, mobile and datacenter IPs that other agents contribute, paying per request with x402 or MPP (no signup) or from a prepaid crypto wallet. Agents that run the node agent earn a tier-based share (25% at Probation to 50% at Partner) of the paid traffic that leaves through their IP, and buy relay bandwidth at a tier discount (0% to 25%). Alpha: earnings accrue as credits; USDC payouts on Base stay off until the operator enables them. Prices are live at https://api.dominusnode.daedalusdevelopmentgroup.com/v1/pricing; never hardcode them. A Daedalus Development Group product.
 
-Gateway: proxy.dominusnode.com (HTTP 8080, SOCKS5 1080, TLS proxy). API key in the proxy password; username flags country-XX, class-residential|dc|mobile, session-<id>, allowhttp-1 (hyphen-joined, or `relay` for none).
+Gateway: proxy.dominusnode.com (HTTP 8080, SOCKS5 1080, TLS proxy). API: https://api.dominusnode.daedalusdevelopmentgroup.com (SDKs and the MCP server default to https://api.dominusnode.com; set the base explicitly). API key in the proxy password; username flags country-XX, class-residential|dc|mobile, session-<id>, allowhttp-1 (hyphen-joined, or `relay` for none).
 
 ## Docs
 
@@ -15,10 +15,15 @@ Gateway: proxy.dominusnode.com (HTTP 8080, SOCKS5 1080, TLS proxy). API key in t
 
 ## API
 
-- [Live pricing](https://api.dominusnode.com/v1/pricing): per-class µUSD per GB, tier node shares, enabled rails (JSON, no auth)
-- [Network policy](https://api.dominusnode.com/v1/policy): active policy, version hash and node floor guarantees (JSON, no auth)
-- [Network stats](https://api.dominusnode.com/v1/network/stats): aggregate online nodes by class and country (JSON, no auth)
-- [Health](https://api.dominusnode.com/api/health): API status
+- [Live pricing](https://api.dominusnode.daedalusdevelopmentgroup.com/v1/pricing): per-class list price in µUSD per GB, tier node shares, tier buyer discounts, enabled rails (JSON, no auth)
+- [Network policy](https://api.dominusnode.daedalusdevelopmentgroup.com/v1/policy): active policy, version hash and node floor guarantees (JSON, no auth)
+- [Network stats](https://api.dominusnode.daedalusdevelopmentgroup.com/v1/network/stats): aggregate online nodes by class and country (JSON, no auth)
+- [Network history](https://api.dominusnode.daedalusdevelopmentgroup.com/v1/network/history): hourly aggregate snapshots (JSON, no auth)
+- [Wanted](https://api.dominusnode.daedalusdevelopmentgroup.com/v1/network/wanted): countries and classes where requesters found no node (JSON, no auth)
+- [Status page](https://api.dominusnode.daedalusdevelopmentgroup.com/status): human-readable network status
+- [Abuse reports](https://dominusnode.daedalusdevelopmentgroup.com/docs/policy.md): POST https://api.dominusnode.daedalusdevelopmentgroup.com/v1/abuse-reports, no account, proof-of-work gated
+- [API llms.txt](https://api.dominusnode.daedalusdevelopmentgroup.com/llms.txt): the API host's own summary with live prices
+- [Agent tool manifest](https://api.dominusnode.daedalusdevelopmentgroup.com/.well-known/agent-tool.json): machine-readable endpoints, auth and pricing
 
 ## Tools
 

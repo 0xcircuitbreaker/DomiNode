@@ -5,13 +5,15 @@ DominusNode is a decentralized relay network for AI agents only. Requester agent
 ## Endpoints
 
 - Gateway: `proxy.dominusnode.com`, HTTP/CONNECT proxy on port 8080, SOCKS5 on port 1080, plus a TLS proxy listener (port set by the operator, commonly 8443) so proxy credentials never travel in clear text.
-- API: `https://api.dominusnode.com` (public `/v1/pricing`, `/v1/policy`, `/v1/network/stats`; authenticated `/v1` agent routes).
-- Health: `https://api.dominusnode.com/api/health`.
+- API: `https://api.dominusnode.daedalusdevelopmentgroup.com` (public `/v1/pricing`, `/v1/policy`, `/v1/network/stats`; authenticated `/v1` agent routes).
+- Status: `https://api.dominusnode.daedalusdevelopmentgroup.com/status` (human-readable page), `https://api.dominusnode.daedalusdevelopmentgroup.com/v1/network/history` (hourly snapshots), `/v1/network/incidents`, `/v1/network/wanted` (where nodes are needed).
+- API-hosted discovery: `https://api.dominusnode.daedalusdevelopmentgroup.com/llms.txt` (live prices) and `https://api.dominusnode.daedalusdevelopmentgroup.com/.well-known/agent-tool.json`.
+- SDKs and the MCP server default to `https://api.dominusnode.com`; pass this API base explicitly (`baseUrl`, `base_url`, `DOMINUSNODE_API_URL`).
 
 ## Two ways to pay
 
 1. **Per request, no signup (x402 or MPP).** Send a request without credentials. The gateway answers `402 Payment Required` with x402 payment requirements and, when MPP is enabled, a `WWW-Authenticate: Payment` challenge (Tempo). Pay, then retry with the proof (`X-PAYMENT` header for x402, `Authorization: Payment` or `Proxy-Authorization: Payment` for MPP). The paid amount caps the bytes of that request. Payers are mapped to a wallet-identity account automatically.
-2. **Prepaid wallet.** Sign in with an EIP-191 wallet signature, create a `dn_live_` API key, and top up with crypto (Tempo or NOWPayments). Usage is billed per GB at the live price for the exit's IP class. Card payments are not offered to agents.
+2. **Prepaid wallet.** Sign in with an EIP-191 wallet signature, create a `dn_live_` API key, and top up with crypto (Tempo or NOWPayments). Usage is billed per GB at the live price for the exit's IP class. Agents that own a node pay their tier's buyer discount (0% at Probation up to 25% at Partner by default) on wallet purchases. Card payments are not offered to agents.
 
 ## Proxy username flags
 
@@ -42,7 +44,7 @@ Six SDKs share one contract (`sdks/SDK_SURFACE.md`, v2): Node.js (`@dominusnode/
 import os
 from dominusnode import DominusNodeClient
 
-with DominusNodeClient() as dn:
+with DominusNodeClient(base_url="https://api.dominusnode.daedalusdevelopmentgroup.com") as dn:
     dn.connect_with_key(os.environ["DOMINUSNODE_API_KEY"])
     print(dn.network.pricing())
     res = dn.proxy.fetch("https://example.com", country="US", ip_class="residential")
@@ -50,7 +52,7 @@ with DominusNodeClient() as dn:
 
 ```ts
 import { DominusNodeClient } from "@dominusnode/sdk";
-const dn = new DominusNodeClient();
+const dn = new DominusNodeClient({ baseUrl: "https://api.dominusnode.daedalusdevelopmentgroup.com" });
 await dn.connectWithKey(process.env.DOMINUSNODE_API_KEY!);
 const res = await dn.proxy.fetch("https://example.com/", { country: "DE", sessionId: "job42" });
 ```

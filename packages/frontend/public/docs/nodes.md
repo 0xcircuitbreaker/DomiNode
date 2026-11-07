@@ -4,8 +4,9 @@ The node agent (`packages/node-agent`, binary `dominusnode-node`) dials **out** 
 
 ## How earning works
 
-- You earn your tier's share of each paid GB relayed through your IP: Probation 25% up to Partner 50%. Live shares are in `GET https://api.dominusnode.com/v1/pricing`.
+- You earn your tier's share of each paid GB relayed through your IP: Probation 25% up to Partner 50%. Live shares are in `GET https://api.dominusnode.daedalusdevelopmentgroup.com/v1/pricing`.
 - Tiers rise with paid tenure, gateway-measured uptime, active IPs (distinct /32s with 3+ paying requesters in 7 days) and reputation. Check progress with `GET /v1/node/tier`.
+- Owning a node also gives you a buyer discount on your own relay purchases, 0% at Probation up to 25% at Partner by default (live in `/v1/pricing`).
 - Self-dealing earns nothing: traffic from you, your wallet, your team or your /24 is never routed to your node.
 - Earnings mature after a 3-14 day hold, then become available credit (see [payments](https://dominusnode.daedalusdevelopmentgroup.com/docs/payments.md)).
 
@@ -26,12 +27,15 @@ printf '%s' "$WALLET_PRIVATE_KEY_HEX" > ~/.dominusnode/wallet.key && chmod 600 ~
 git clone https://github.com/0xcircuitbreaker/DomiNode.git && cd DomiNode
 npm ci && npm run build -w @dominusnode/shared -w @dominusnode/node-agent
 export DN_API_KEY=dn_live_YOUR_KEY
+export DN_NODE_API_URL=https://api.dominusnode.daedalusdevelopmentgroup.com   # node-agent default is https://api.dominusnode.com
 node packages/node-agent/dist/src/main.js register --wallet-key-file ~/.dominusnode/wallet.key
 # writes ~/.dominusnode/node.json (mode 0600)
 
 # 3. Run it on the machine that owns the IP; keep it running (systemd, pm2, container restart policy)
 node packages/node-agent/dist/src/main.js run --key-file ~/.dominusnode/node.json
 ```
+
+Where are nodes needed? `GET https://api.dominusnode.daedalusdevelopmentgroup.com/v1/network/wanted` lists country/class combinations requesters asked for with no node online.
 
 Optional limits can only tighten: `--ports 443`, `--max-streams 32`, `--gb-per-day 5`, `--req-per-sec 20`. Env equivalents: `DN_NODE_KEY_FILE`, `DN_NODE_PORTS`, `DN_NODE_MAX_STREAMS`, `DN_NODE_GB_PER_DAY`, `DN_NODE_REQ_PER_SEC`, `DN_NODE_MAX_MBPS`, `DN_NODE_DENY_DOMAINS`.
 

@@ -3,7 +3,7 @@
 ## Pricing model
 
 - Prices are per GB, per exit IP class (`residential`, `mobile`, `dc`). The operator sets them in `network_pricing`; they are never hardcoded in clients.
-- Read the live numbers from `GET https://api.dominusnode.com/v1/pricing` (no auth). Response: `{currency, unit: "musd_per_gb", prices: [{ipClass, pricePerGbMusd}], nodeShare: [{tier, rank, nodeShareBps}], maturationHours, rails}`.
+- Read the live numbers from `GET https://api.dominusnode.daedalusdevelopmentgroup.com/v1/pricing` (no auth). Response: `{currency, unit: "musd_per_gb", prices: [{ipClass, pricePerGbMusd}], nodeShare: [{tier, rank, nodeShareBps}], buyerDiscounts: [{tier, rank, buyerDiscountBps}], maturationHours, rails}`. `prices` are list prices.
 - Money is integer micro-USD (µUSD) strings: 1 USD = 1,000,000 µUSD. Prepaid wallets debit whole cents.
 - x402 and MPP per-request price = the per-GB price × a fixed byte allowance per request (operator setting, 10 MB by default). The paid amount caps that request's bytes.
 - Only the gateway counts billable bytes. Exit nodes are untrusted and their counts are never billed.
@@ -26,5 +26,5 @@ Stripe and PayPal exist only for admin operations; agents never see them. The en
 - Earnings are held 14 days (Probation) down to 3 days (Platinum, Partner) so fraud can be clawed back, then become available credit.
 - Available credit can be converted into bandwidth on your own requester wallet (`POST /v1/credits/convert`).
 - USDC withdrawals on Base (minimum $1, signed, tier daily limits) are implemented but switched on by the operator. While payouts are disabled the API returns `503 PAYOUTS_DISABLED`.
-- Contributor buyer discounts (0% at Probation up to 25% at Partner) are shown in `/v1/pricing` once the operator publishes them.
+- **Buyer discounts: contribute IPs to earn more and buy cheaper.** A principal that owns a node pays its tier's discount on wallet and team purchases: by default 0% (Probation), 5%, 10%, 15%, 20%, 25% (Partner), admin-tunable and live in `buyerDiscounts` of `/v1/pricing`. The discount comes out of the platform's share (a minimum platform margin is kept); the node's share is always computed on the list price. Your current discount is `buyerDiscountBps` in `GET /v1/credits` and `GET /v1/node/tier`.
 - Credits never move between users, buyers cannot withdraw prepaid balances, and there is no fiat cash-out.
