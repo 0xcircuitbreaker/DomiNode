@@ -5,8 +5,8 @@ import io.dominusnode.sdk.proxy.HostResolver;
 
 /** Client configuration. Build with {@link #builder()}. */
 public final class Config {
-    public static final String DEFAULT_BASE_URL = "https://api.dominusnode.com";
-    public static final String DEFAULT_PROXY_HOST = "proxy.dominusnode.com";
+    public static final String DEFAULT_BASE_URL = "https://api.dominusnode.daedalusdevelopmentgroup.com";
+    public static final String DEFAULT_PROXY_HOST = "proxy.dominusnode.daedalusdevelopmentgroup.com";
     public static final int DEFAULT_HTTP_PROXY_PORT = 8080;
     public static final int DEFAULT_SOCKS5_PROXY_PORT = 1080;
 

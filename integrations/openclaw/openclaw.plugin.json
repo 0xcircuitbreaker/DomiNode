@@ -38,11 +38,11 @@
     "properties": {
       "baseUrl": {
         "type": "string",
-        "description": "API base URL (default https://api.dominusnode.com)"
+        "description": "API base URL (default https://api.dominusnode.daedalusdevelopmentgroup.com)"
       },
       "proxyHost": {
         "type": "string",
-        "description": "Proxy gateway host (default proxy.dominusnode.com)"
+        "description": "Proxy gateway host (default proxy.dominusnode.daedalusdevelopmentgroup.com)"
       }
     }
   }

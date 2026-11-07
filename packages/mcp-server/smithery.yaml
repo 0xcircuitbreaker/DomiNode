@@ -1,0 +1,25 @@
+# Smithery listing (local stdio server). Secrets are supplied by the user at
+# install time and passed as environment variables; nothing is stored here.
+startCommand:
+  type: stdio
+  configSchema:
+    type: object
+    properties:
+      apiKey:
+        type: string
+        description: "dn_live_ API key. Leave empty for bootstrap mode (wallet sign-in tools only)."
+      walletKeyFile:
+        type: string
+        description: "Path to a chmod-600 wallet key file (node registration and withdrawals only)."
+  commandFunction: |-
+    (config) => ({
+      command: "npx",
+      args: ["-y", "@dominusnode/mcp-server"],
+      env: Object.assign(
+        {},
+        config.apiKey ? { DOMINUSNODE_API_KEY: config.apiKey } : {},
+        config.walletKeyFile ? { DOMINUSNODE_WALLET_KEY_FILE: config.walletKeyFile } : {}
+      )
+    })
+  exampleConfig:
+    apiKey: ""

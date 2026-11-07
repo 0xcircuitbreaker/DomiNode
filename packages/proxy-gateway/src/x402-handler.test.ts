@@ -89,6 +89,7 @@ import {
   paymentChallengeHeaders,
   normalizePayer,
 } from "./x402-handler.js";
+import { configurePayerScreening } from "./payer-screening.js";
 
 // ─── Helpers ─────────────────────────────────────────────────────────
 
@@ -357,6 +358,35 @@ describe("x402 relay identity and pricing", () => {
     expect(r!.verified).toBe(false);
     expect(socket._written).toContain("ACCOUNT_SUSPENDED");
     expect(mockSettleX402Payment).not.toHaveBeenCalled();
+  });
+
+  it("sanctioned payer wallet is refused before settlement and its payment hash released", async () => {
+    configurePayerScreening({ path: "/x", required: true, load: async () => new Set(["0x" + "a".repeat(40)]) });
+    try {
+      mockVerifyX402Payment.mockResolvedValue({ ...valid, payer: "0x" + "A".repeat(40) });
+      const socket = makeSocket();
+      const r = await handleX402Connect(makeRequest({ "x-payment": "p" }), socket);
+      expect(r!.verified).toBe(false);
+      expect(socket._written).toContain("PAYER_SANCTIONED");
+      expect(mockSettleX402Payment).not.toHaveBeenCalled();
+      expect(mockFindOrCreateX402User).not.toHaveBeenCalled();
+      expect(mockReleasePaymentHash).toHaveBeenCalled();
+    } finally {
+      configurePayerScreening({ path: undefined, required: false });
+    }
+  });
+
+  it("fails closed (503) when screening is required and the list is missing", async () => {
+    configurePayerScreening({ path: undefined, required: true, load: async () => { throw new Error("missing"); } });
+    try {
+      mockVerifyX402Payment.mockResolvedValue(valid);
+      const socket = makeSocket();
+      await handleX402Connect(makeRequest({ "x-payment": "p" }), socket);
+      expect(socket._written).toContain("PAYER_SCREENING_UNAVAILABLE");
+      expect(mockSettleX402Payment).not.toHaveBeenCalled();
+    } finally {
+      configurePayerScreening({ path: undefined, required: false });
+    }
   });
 
   it("returns 503 when pricing is unavailable (no verify, no charge)", async () => {

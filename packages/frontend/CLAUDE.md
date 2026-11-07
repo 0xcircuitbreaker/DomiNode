@@ -18,9 +18,11 @@ Operator ADMIN CONTROL PANEL for the agent relay network (React 18 + Vite + Tail
 - patch() HTTP method must be exported from API client
 
 ## Pages
+- `/` public product site (`pages/LandingPage.tsx`, `src/landing/`): no login/admin links anywhere; live data from public `/v1/pricing|network/stats|policy` with fallback text; never hardcode prices
+- Discovery files (`public/llms*.txt`, `public/docs/*.md`, robots, sitemap, `.well-known/mcp/server.json`) come from `discovery/generate.mjs`; rerun it after edits (a test checks staleness). See docs/agent-network/DISCOVERY.md
 - Public: Login (+MFA), Forgot/Reset password, Verify email, Terms/Privacy/AUP
 - `/admin/*` (src/admin/, gated on `admin_role != none`): Overview, Revenue, Network, Nodes, Agents,
-  Credits & Payouts, Disputes, Abuse log, Policy, Pricing/Split/Tiers, Health, Audit
+  Credits & Payouts, Disputes, Abuse log, Launch controls, Policy, Pricing/Split/Tiers, Health, Audit
 - API: `src/api/admin.ts` (typed /api/admin/network client, see docs/agent-network/ADMIN_API.md)
 - Charts: recharts (pinned) via `src/admin/components/charts.tsx`; colors come from `useChartTheme()`
 - Money: µUSD strings → `lib/format.ts` (`fmtMoney`); CSV via `lib/csv.ts` (formula-injection guarded)

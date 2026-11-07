@@ -18,6 +18,7 @@ import {
   getPool,
   WALLET_CHALLENGE_TTL_MS,
   referralRepo,
+  starterCreditRepo,
   createProxySessionToken,
 } from "@dominusnode/shared";
 import { recoverSignerAddress } from "../helpers/verify-signature.js";
@@ -32,7 +33,7 @@ const log = createLogger("api:wallet-auth");
 const AGENT_RATE_LIMIT_MULTIPLIER = getAgentMultiplier();
 
 // Validate domain format at startup to prevent cross-site signature replay
-const DOMINUSNODE_DOMAIN = process.env["DOMINUSNODE_DOMAIN"] ?? "dominusnode.com";
+const DOMINUSNODE_DOMAIN = process.env["DOMINUSNODE_DOMAIN"] ?? "dominusnode.daedalusdevelopmentgroup.com";
 if (!/^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?)*\.[a-zA-Z]{2,}$/.test(DOMINUSNODE_DOMAIN)) {
   throw new Error(`Invalid DOMINUSNODE_DOMAIN: "${DOMINUSNODE_DOMAIN}". Must be a valid domain name.`);
 }
@@ -360,6 +361,13 @@ router.post("/verify", async (req, res) => {
         isNewUser = true;
         // Audit log wallet user creation
         log.info("wallet user created", { userId: newUser.id, address: address.slice(0, 10) + "...", ip: clientIp });
+        // Starter credit (LAUNCH_PLAN §5.2): once per new principal, capped; never blocks sign-in.
+        try {
+          const g = await starterCreditRepo.grantStarterCredit({ userId: newUser.id, fundingSource: address.toLowerCase(), clientIp: clientIp ?? null });
+          log.info("starter credit decision", { userId: newUser.id, granted: g.granted, reason: g.granted ? null : g.reason });
+        } catch (scErr) {
+          log.warn("starter credit grant failed (non-blocking)", { userId: newUser.id, error: scErr instanceof Error ? scErr.message : String(scErr) });
+        }
         // Mark waitlist entry as registered (non-blocking, best-effort)
         waitlistRepo.markRegistered(syntheticEmail).catch(() => {});
         // Referral code processing (non-blocking)

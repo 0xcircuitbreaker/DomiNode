@@ -25,7 +25,7 @@ export function mockClient() {
         truncated: false,
         text: () => "hello",
       })),
-      buildUrl: vi.fn((o: { protocol?: string }) => `${o.protocol ?? "http"}://country-US:${TEST_KEY}@proxy.dominusnode.com:8080`),
+      buildUrl: vi.fn((o: { protocol?: string }) => `${o.protocol ?? "http"}://country-US:${TEST_KEY}@proxy.dominusnode.daedalusdevelopmentgroup.com:8080`),
       buildUsername: vi.fn(() => "country-US"),
     },
     network: {

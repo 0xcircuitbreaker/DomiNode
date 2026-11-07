@@ -3,6 +3,7 @@ import { settleSessionTx, accrueCarryTx } from "./wallet-repo.js";
 import { settleTeamSessionTx, accrueTeamCarryTx } from "./team-repo.js";
 import { endSessionTx, createUsageRecordTx } from "./usage-repo.js";
 import type { ChargeSnapshot } from "./tier-repo.js";
+import { consumeTx as consumeStarterTx } from "./starter-credit-repo.js";
 
 /** settleRelayCharge — DESIGN.md §6.3 + §15 (single transaction). */
 
@@ -65,11 +66,34 @@ export function isByteDispute(gateway: bigint, node: bigint | null | undefined):
  * `debitCents` is the standalone ceil-to-cent figure (no carry), kept for
  * rails that cannot carry (agentic_wallet reservations).
  */
-export function computeSplit(bytes: bigint, pricePerGbMusd: bigint, nodeShareBps: number, _rail: RelayRail) {
+export function computeSplit(
+  bytes: bigint, pricePerGbMusd: bigint, nodeShareBps: number, _rail: RelayRail,
+  buyerDiscountBps = 0, minPlatformMarginBps = DEFAULT_MIN_PLATFORM_MARGIN_BPS,
+) {
   const raw = (bytes * pricePerGbMusd + 999_999_999n) / 1_000_000_000n;
-  const debitCents = (raw + MUSD_PER_CENT - 1n) / MUSD_PER_CENT;
   const node = (raw * BigInt(nodeShareBps)) / 10_000n;
-  return { rawMusd: raw, grossMusd: raw, nodeMusd: node, platformMusd: raw - node, debitCents };
+  const discount = buyerDiscountMusd(raw, node, buyerDiscountBps, minPlatformMarginBps);
+  const gross = raw - discount;
+  const debitCents = (gross + MUSD_PER_CENT - 1n) / MUSD_PER_CENT;
+  return { rawMusd: raw, listMusd: raw, discountMusd: discount, grossMusd: gross, nodeMusd: node, platformMusd: gross - node, debitCents };
+}
+
+export const DEFAULT_MIN_PLATFORM_MARGIN_BPS = 2500;
+
+/**
+ * Buyer discount in µUSD, funded from the platform share only. node_musd is
+ * computed on the list gross and never changes; the discount is clamped so
+ * the platform keeps at least ceil(list × minPlatformMarginBps / 10000).
+ */
+export function buyerDiscountMusd(listMusd: bigint, nodeMusd: bigint, discountBps: number, minPlatformMarginBps: number): bigint {
+  if (!Number.isInteger(discountBps) || discountBps <= 0 || listMusd <= 0n) return 0n;
+  const d = BigInt(Math.min(discountBps, 5000));
+  const m = BigInt(Math.max(0, Math.min(10_000, Number.isInteger(minPlatformMarginBps) ? minPlatformMarginBps : DEFAULT_MIN_PLATFORM_MARGIN_BPS)));
+  const want = (listMusd * d) / 10_000n;
+  const floor = (listMusd * m + 9_999n) / 10_000n;
+  const max = listMusd - nodeMusd - floor;
+  if (max <= 0n) return 0n;
+  return want < max ? want : max;
 }
 
 function validate(i: SettleRelayChargeInput): void {
@@ -79,6 +103,10 @@ function validate(i: SettleRelayChargeInput): void {
   const s = i.snapshot;
   if (!Number.isInteger(s.nodeShareBps) || s.nodeShareBps < 0 || s.nodeShareBps > 5000) throw new Error("nodeShareBps out of range");
   if (!Number.isInteger(s.holdDays) || s.holdDays < 0 || s.holdDays > 90) throw new Error("holdDays out of range");
+  const gb = s.genesisBonusBps ?? 0;
+  if (!Number.isInteger(gb) || gb < 0 || gb > s.nodeShareBps) throw new Error("genesisBonusBps out of range");
+  const bd = s.buyerDiscountBps ?? 0;
+  if (!Number.isInteger(bd) || bd < 0 || bd > 5000) throw new Error("buyerDiscountBps out of range");
   if (!Number.isInteger(i.reservedCents) || i.reservedCents < 0 || i.reservedCents > MAX_INT) throw new Error("reservedCents out of range");
   if (!Number.isInteger(i.destPort) || i.destPort < 1 || i.destPort > 65535) throw new Error("destPort out of range");
   // Host only: reject anything that looks like a path, query, userinfo or port.
@@ -124,9 +152,14 @@ export async function settleRelayCharge(i: SettleRelayChargeInput): Promise<Sett
       ? (() => {
           const g = i.prepaidGrossMusd as bigint;
           const n = (g * BigInt(i.snapshot.nodeShareBps)) / 10_000n;
-          return { rawMusd: g, grossMusd: g, nodeMusd: n, platformMusd: g - n, debitCents: 0n };
+          return { rawMusd: g, listMusd: g, discountMusd: 0n, grossMusd: g, nodeMusd: n, platformMusd: g - n, debitCents: 0n };
         })()
-      : computeSplit(i.bytesGateway, i.pricePerGbMusd, i.snapshot.nodeShareBps, i.rail);
+      : computeSplit(
+          i.bytesGateway, i.pricePerGbMusd, i.snapshot.nodeShareBps, i.rail,
+          // Buyer discounts apply to account-paid rails only (x402/MPP pay the quote up front).
+          i.rail === "wallet" || i.rail === "team" ? (i.snapshot.buyerDiscountBps ?? 0) : 0,
+          i.snapshot.minPlatformMarginBps ?? DEFAULT_MIN_PLATFORM_MARGIN_BPS,
+        );
     if (split.grossMusd > BigInt(MAX_INT) * MUSD_PER_CENT) throw new Error("charge exceeds maximum");
     let debitCents = 0;
 
@@ -196,15 +229,20 @@ export async function settleRelayCharge(i: SettleRelayChargeInput): Promise<Sett
     else if (!paidInFull) zeroReason = "collusion_hold";
 
     const grossMusd = i.rail === "free" ? 0n : split.grossMusd;
+    const listMusd = i.rail === "free" ? 0n : split.listMusd;
+    const discountMusd = i.rail === "free" ? 0n : split.discountMusd;
     const nodeMusd = zeroReason ? 0n : split.nodeMusd;
     const platformMusd = grossMusd - nodeMusd;
+    if (platformMusd < 0n) throw new Error("platform share would be negative"); // invariant guard
 
     const disputed = isByteDispute(i.bytesGateway, i.bytesNode);
     const ins = await client.query<{ id: string }>(
       `INSERT INTO relay_charges (session_id, requester_user_id, node_id, node_owner_user_id, payment_rail,
          bytes_gateway, bytes_node, price_per_gb_musd, gross_musd, node_musd, platform_musd,
-         split_config_id, tier_id, node_share_bps, zero_reason, matures_at, disputed)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15, now() + make_interval(days => $16), $17)
+         split_config_id, tier_id, node_share_bps, zero_reason, matures_at, disputed,
+         genesis_bonus_bps, list_gross_musd, buyer_discount_bps, discount_musd, buyer_tier_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15, now() + make_interval(days => $16), $17,
+         $18, $19, $20, $21, $22)
        RETURNING id`,
       [
         i.sessionId, i.requesterUserId, i.nodeId, node.owner_user_id, i.rail,
@@ -212,6 +250,8 @@ export async function settleRelayCharge(i: SettleRelayChargeInput): Promise<Sett
         i.pricePerGbMusd.toString(), grossMusd.toString(), nodeMusd.toString(), platformMusd.toString(),
         i.snapshot.splitConfigId, i.snapshot.tierId, i.snapshot.nodeShareBps, zeroReason, i.snapshot.holdDays,
         disputed,
+        i.snapshot.genesisBonusBps ?? 0, listMusd.toString(),
+        discountMusd > 0n ? (i.snapshot.buyerDiscountBps ?? 0) : 0, discountMusd.toString(), i.snapshot.buyerTierId ?? null,
       ],
     );
     const relayChargeId = ins.rows[0].id;
@@ -225,6 +265,11 @@ export async function settleRelayCharge(i: SettleRelayChargeInput): Promise<Sett
         `UPDATE nodes SET byte_disputes = LEAST(byte_disputes + 1, 1000000) WHERE id = $1`,
         [i.nodeId],
       );
+    }
+
+    // Starter credit: attribute the whole cents charged to an active grant (not a tier input).
+    if (i.rail === "wallet" && debitCents > 0) {
+      await consumeStarterTx(client, i.requesterUserId, BigInt(debitCents) * MUSD_PER_CENT, relayChargeId);
     }
 
     if (nodeMusd > 0n) await earnTx(client, node.owner_user_id, nodeMusd, relayChargeId);

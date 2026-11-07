@@ -1,0 +1,10 @@
+export const DEFAULT_ORIGIN: string;
+export const API_BASE: string;
+export const GITHUB: string;
+export const DDG: string;
+export const PUBLIC_DIR: string;
+export const DOCS: ReadonlyArray<{ path: string; title: string; note: string }>;
+export const AI_CRAWLERS: readonly string[];
+export function rewriteOrigin(text: string, origin: string): string;
+export function generateDiscovery(origin?: string, publicDir?: string): Record<string, string>;
+export function writeDiscovery(outDir: string, origin?: string): void;

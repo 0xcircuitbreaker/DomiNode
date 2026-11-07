@@ -74,3 +74,10 @@ No — but they should be split by where trust lives:
 
 The security pitch to agents is therefore: *no third-party upstream, no payload
 logging, a policy you can read, and a node floor nobody can switch off.*
+
+## Launch additions (implementation notes)
+
+- **Public abuse-report intake** (`POST /v1/abuse-reports`, AGENT_API.md): no account and no captcha, gated by a single-use SHA-256 proof-of-work from the existing `pow_challenges` table, 5 reports and 20 challenges per IP per hour, 16 KB body cap. It stores the destination host, the time window, a category and a description (plus an optional contact) and never the reporter's IP. Admins triage at `/api/admin/network/abuse-reports`, which shows how many metadata-only `relay_abuse_log` rows match the host and window; the requester lookup itself goes through the audited abuse-log endpoint (control #9). The target is a response within 24 h.
+- **Payer sanctions screening** (control #5 extended to payers): x402/MPP payer wallets are checked against the local OFAC SDN address list (`PAYER_SDN_FILE`, default `PAYOUT_SDN_FILE`) after verification and before settlement. A listed wallet gets `403 PAYER_SANCTIONED` and is never charged. In production a missing list refuses paid requests (fail closed); outside production that is opt-in with `PAYER_SDN_REQUIRED=true`.
+- **Starter-credit abuse caps:** see ECONOMICS.md §7 (global daily budget, per-/24 and per-funding-source caps, expiry, no tier credit, seed-nodes-only routing during the first month so free traffic never exits through community IPs).
+- **Unmet demand** is logged as (hour, country, class) counts only, so it cannot be used to trace requesters.

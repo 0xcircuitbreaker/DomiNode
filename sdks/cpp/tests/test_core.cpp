@@ -214,8 +214,8 @@ TEST(curl_transport_caps_size_and_never_follows_redirects) {
 
 TEST(config_validation) {
     ClientConfig def;
-    CHECK_EQ(def.base_url, std::string("https://api.dominusnode.com"));
-    CHECK_EQ(def.proxy_host, std::string("proxy.dominusnode.com"));
+    CHECK_EQ(def.base_url, std::string("https://api.dominusnode.daedalusdevelopmentgroup.com"));
+    CHECK_EQ(def.proxy_host, std::string("proxy.dominusnode.daedalusdevelopmentgroup.com"));
     CHECK_EQ(def.http_proxy_port, 8080);
     CHECK_EQ(def.socks5_proxy_port, 1080);
     auto mk = [](ClientConfig c) { c.transport = [](const HttpRequest&) { return HttpResponse{200, {}, "{}"}; }; DominusNodeClient x(c); };
@@ -327,4 +327,9 @@ TEST(url_encode_semantics) {
     CHECK_EQ(url_encode("a b/c?d&e=f#g%"), std::string("a%20b%2Fc%3Fd%26e%3Df%23g%25"));
     CHECK_EQ(url_encode("AZaz09-_.!~*'()"), std::string("AZaz09-_.!~*'()"));
     CHECK_EQ(url_encode("\xC2\xB5"), std::string("%C2%B5"));
+}
+
+TEST(default_hosts) {
+    CHECK_EQ(std::string(dominusnode::DEFAULT_BASE_URL), std::string("https://api.dominusnode.daedalusdevelopmentgroup.com"));
+    CHECK_EQ(std::string(dominusnode::DEFAULT_PROXY_HOST), std::string("proxy.dominusnode.daedalusdevelopmentgroup.com"));
 }

@@ -156,16 +156,18 @@ export interface NodeTier {
   holdDays: number;
   maxNodes: number;
   dailyWithdrawLimitMusd: bigint;
+  /** Discount this tier gets when it BUYS relay bandwidth (platform-funded), 0..5000. */
+  buyerDiscountBps: number;
 }
 
 interface TierRow {
   id: number; name: string; rank: number; node_share_bps: number; min_tenure_days: number;
   min_uptime_bps: number; min_active_ips: number; min_reputation: number; no_clawback_days: number;
-  hold_days: number; max_nodes: number; daily_withdraw_limit_musd: string;
+  hold_days: number; max_nodes: number; daily_withdraw_limit_musd: string; buyer_discount_bps?: number;
 }
 
 const TIER_COLS = `id, name, rank, node_share_bps, min_tenure_days, min_uptime_bps, min_active_ips,
-  min_reputation, no_clawback_days, hold_days, max_nodes, daily_withdraw_limit_musd`;
+  min_reputation, no_clawback_days, hold_days, max_nodes, daily_withdraw_limit_musd, buyer_discount_bps`;
 
 function rowToTier(r: TierRow): NodeTier {
   return {
@@ -173,6 +175,7 @@ function rowToTier(r: TierRow): NodeTier {
     minTenureDays: r.min_tenure_days, minUptimeBps: r.min_uptime_bps, minActiveIps: r.min_active_ips,
     minReputation: r.min_reputation, noClawbackDays: r.no_clawback_days, holdDays: r.hold_days,
     maxNodes: r.max_nodes, dailyWithdrawLimitMusd: BigInt(r.daily_withdraw_limit_musd),
+    buyerDiscountBps: r.buyer_discount_bps ?? 0,
   };
 }
 

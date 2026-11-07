@@ -88,3 +88,14 @@ describe("freeTierRelay", () => {
     expect(errs({ freeTierRelay: "yes" })).toContain("freeTierRelay: must be a boolean");
   });
 });
+
+describe("contribution requirement and anonymous payers", () => {
+  it("defaults false/true/30 and validates", () => {
+    const p = validatePolicy({});
+    expect([p.requireContribution, p.allowAnonymousPayers, p.contributionWindowDays]).toEqual([false, true, 30]);
+    const q = validatePolicy({ requireContribution: true, allowAnonymousPayers: false, contributionWindowDays: 7 });
+    expect([q.requireContribution, q.allowAnonymousPayers, q.contributionWindowDays]).toEqual([true, false, 7]);
+    expect(errs({ requireContribution: "yes" })).toContain("requireContribution: must be a boolean");
+    expect(errs({ contributionWindowDays: 0 })).toContain("contributionWindowDays: must be an integer in [1, 365]");
+  });
+});

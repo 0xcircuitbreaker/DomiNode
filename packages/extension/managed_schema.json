@@ -3,7 +3,7 @@
   "properties": {
     "apiKey": { "type": "string", "description": "dn_live_/dn_test_ API key (stored in chrome.storage.local)." },
     "enabled": { "type": "boolean", "description": "Start proxying immediately." },
-    "apiBase": { "type": "string", "description": "API origin, e.g. https://api.dominusnode.com" },
+    "apiBase": { "type": "string", "description": "API origin, e.g. https://api.dominusnode.daedalusdevelopmentgroup.com" },
     "gatewayHost": { "type": "string", "description": "Proxy gateway host." },
     "gatewayPort": { "type": "integer", "description": "Proxy gateway port (default 8443, the gateway TLS port PROXY_TLS_PORT)." },
     "gatewayTls": { "type": "boolean", "description": "Connect to the gateway over TLS (PAC HTTPS host:port). Default true; false is only accepted for localhost/127.0.0.1 gateways." },

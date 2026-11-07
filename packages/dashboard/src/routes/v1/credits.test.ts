@@ -14,7 +14,7 @@ const USER = "11111111-1111-4111-8111-111111111111";
 const NODE_ID = "22222222-2222-4222-8222-222222222222";
 const SESSION_ID = "33333333-3333-4333-8333-333333333333";
 
-const base = { userId: USER, email: "w@wallet.dominusnode.com", walletAddress: WALLET as string | null, via: "wallet_jwt", verified: true };
+const base = { userId: USER, email: "w@wallet.dominusnode.daedalusdevelopmentgroup.com", walletAddress: WALLET as string | null, via: "wallet_jwt", verified: true };
 let principal = { ...base };
 
 const m = vi.hoisted(() => ({
@@ -44,7 +44,7 @@ vi.mock("@dominusnode/shared", async (importOriginal) => {
       ...actual.payoutRepo,
       getLivePayoutWallet: m.getLive, registerPayoutWallet: m.register, changePayoutWallet: m.change, requestWithdraw: m.withdraw,
     },
-    tierRepo: { getOwnerTier: m.getOwnerTier },
+    tierRepo: { getOwnerTier: m.getOwnerTier, getBuyerDiscount: async () => ({ buyerTierId: 2, buyerDiscountBps: 500, minPlatformMarginBps: 2500 }) },
     policyRepo: { getActivePolicy: m.getActivePolicy },
   };
 });
@@ -112,7 +112,7 @@ describe("GET /v1/credits", () => {
     expect(r.body).toMatchObject({
       pending: { musd: "2000000", usd: "2.000000" }, available: { musd: "1500000", usd: "1.500000" },
       frozen: false, tier: { name: "probation", holdDays: 14 }, taxFormStatus: "not_required",
-      ytdPaid: { musd: "0" }, payoutsEnabled: false,
+      ytdPaid: { musd: "0" }, payoutsEnabled: false, buyerDiscountBps: 500,
     });
     expect(m.summary).toHaveBeenCalledWith(USER);
   });

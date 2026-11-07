@@ -110,6 +110,8 @@ export interface LiveNode {
   cooldowns: Map<string, number>;
   floorHashKnown: boolean;
   connectedAt: number;
+  /** Operator-run seed node (admin flag); starter-credit traffic may be limited to these. */
+  operatorRun?: boolean;
 }
 
 /** /24 for IPv4, /48 for IPv6 (matches nodes.ip_prefix24). */

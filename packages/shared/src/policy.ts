@@ -41,6 +41,12 @@ export interface NetworkPolicy {
   nodeCapsPerPrefix: { per32: number; per24: number; perAsn: number };
   /** Allow free-plan requesters on the relay network (default false: 402 PAID_PLAN_REQUIRED). */
   freeTierRelay: boolean;
+  /** Buyers must contribute (active node with matured paid traffic in the window, or allowlisted). Default false. */
+  requireContribution: boolean;
+  /** Window for requireContribution, in days. */
+  contributionWindowDays: number;
+  /** Allow x402/MPP payers without an account. Default true. */
+  allowAnonymousPayers: boolean;
 }
 
 export const DEFAULT_POLICY: NetworkPolicy = {
@@ -56,6 +62,9 @@ export const DEFAULT_POLICY: NetworkPolicy = {
   logRetentionDays: 90,
   nodeCapsPerPrefix: { per32: 2, per24: 8, perAsn: 500 },
   freeTierRelay: false,
+  requireContribution: false,
+  contributionWindowDays: 30,
+  allowAnonymousPayers: true,
 };
 
 export class PolicyValidationError extends Error {
@@ -138,6 +147,7 @@ const TOP_KEYS = [
   "ports", "categoriesVersion", "denyCategories", "denyDomains", "nodeDefaults",
   "requesterLimits", "sanctionedCountries", "attestation", "plaintext",
   "logRetentionDays", "nodeCapsPerPrefix", "freeTierRelay",
+  "requireContribution", "contributionWindowDays", "allowAnonymousPayers",
 ] as const;
 
 export interface ValidatePolicyOptions {
@@ -238,6 +248,16 @@ export function validatePolicy(input: unknown, opts: ValidatePolicyOptions = {})
   if (b.freeTierRelay !== undefined) {
     if (typeof b.freeTierRelay !== "boolean") errors.push("freeTierRelay: must be a boolean");
     else out.freeTierRelay = b.freeTierRelay;
+  }
+
+  for (const k of ["requireContribution", "allowAnonymousPayers"] as const) {
+    if (b[k] === undefined) continue;
+    if (typeof b[k] !== "boolean") errors.push(`${k}: must be a boolean`);
+    else out[k] = b[k] as boolean;
+  }
+  if (b.contributionWindowDays !== undefined) {
+    if (!intIn(b.contributionWindowDays, 1, 365)) errors.push("contributionWindowDays: must be an integer in [1, 365]");
+    else out.contributionWindowDays = b.contributionWindowDays;
   }
 
   if (b.nodeCapsPerPrefix !== undefined && checkObject(b.nodeCapsPerPrefix, "nodeCapsPerPrefix", ["per32", "per24", "perAsn"], errors)) {

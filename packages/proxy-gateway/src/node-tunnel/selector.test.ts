@@ -37,6 +37,13 @@ describe("etld1", () => {
 });
 
 describe("NodeSelector", () => {
+  it("seedOnly restricts selection to operator-run nodes", () => {
+    const { sel } = make([node({ nodeId: "community" }), node({ nodeId: "seed", operatorRun: true })]);
+    for (let i = 0; i < 5; i++) expect(sel.select({ ...base, seedOnly: true }).nodeId).toBe("seed");
+    const { sel: none } = make([node({ nodeId: "community" })]);
+    expect(() => none.select({ ...base, seedOnly: true })).toThrow(NodeSelectionError);
+  });
+
   it("403 for a sanctioned requested country", () => {
     const { sel } = make([node()]);
     const e = (() => { try { sel.select({ ...base, country: "ir" }); } catch (x) { return x; } })();

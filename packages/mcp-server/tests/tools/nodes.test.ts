@@ -265,6 +265,7 @@ describe("other node tools", () => {
     expect(text).toContain("25%");
     expect(text).toContain("$50.00");
     expect(text).toContain("Next tier: Bronze");
+    expect(text).toContain("Buyer discount on your own relay purchases: 0%");
     expect(text).toContain("Paid tenure days: 3 / 7 (not met)");
     expect(text).toContain("computed daily");
     expect(text).toContain("uptime below threshold");

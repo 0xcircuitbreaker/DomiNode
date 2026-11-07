@@ -25,7 +25,7 @@ console.log(res.status, res.text().slice(0, 200));
 
 // Or hand a proxy URL to any HTTP client (the URL contains your key: do not log it)
 const proxyUrl = dn.proxy.buildUrl({ country: "DE", sessionId: "job42" });
-// http://country-DE-session-job42:dn_live_...@proxy.dominusnode.com:8080
+// http://country-DE-session-job42:dn_live_...@proxy.dominusnode.daedalusdevelopmentgroup.com:8080
 ```
 
 Routing flags go in the proxy **username**, hyphen-joined; the API key is the **password**:

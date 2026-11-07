@@ -81,8 +81,8 @@ Email/password registration, login and email verification are human flows (admin
 | Variable | Default | Purpose |
 |---|---|---|
 | `DOMINUSNODE_API_KEY` | (none: bootstrap mode) | `dn_live_` API key |
-| `DOMINUSNODE_API_URL` | `https://api.dominusnode.com` | API base URL |
-| `DOMINUSNODE_PROXY_HOST` | `proxy.dominusnode.com` | Gateway host |
+| `DOMINUSNODE_API_URL` | `https://api.dominusnode.daedalusdevelopmentgroup.com` | API base URL |
+| `DOMINUSNODE_PROXY_HOST` | `proxy.dominusnode.daedalusdevelopmentgroup.com` | Gateway host |
 | `DOMINUSNODE_HTTP_PROXY_PORT` | `8080` | Gateway HTTP/CONNECT port |
 | `DOMINUSNODE_SOCKS5_PROXY_PORT` | `1080` | Gateway SOCKS5 port |
 | `DOMINUSNODE_FETCH_TIMEOUT_MS` | `30000` | Fetch timeout (max 120000) |
@@ -105,6 +105,40 @@ dominusnode_node_register(accept_attestation: true)
 node packages/node-agent/dist/src/main.js run --key-file ~/.dominusnode/node.json
 dominusnode_node_list / dominusnode_node_tier
 ```
+
+## Directory listings and Docker
+
+The package carries the metadata the MCP directories need. This package is alpha: listings must say so, and must say payouts are not live.
+
+| File | Used by | Notes |
+|---|---|---|
+| `package.json` `mcpName` | Official MCP Registry | `io.github.0xcircuitbreaker/dominusnode`; must equal `name` in `server.json` |
+| `server.json` | Official MCP Registry (`mcp-publisher publish`) | Current registry schema; npm package, stdio transport, env vars (`DOMINUSNODE_API_KEY` is marked secret) |
+| `smithery.yaml` | Smithery | Local stdio server launched with `npx -y @dominusnode/mcp-server` |
+| `Dockerfile` | Docker MCP Catalog, self-hosting | Multi-stage `node:22-alpine`, runs as the unprivileged `node` user, no secrets in the image |
+
+Publish to the registry (after `npm publish` of the same version):
+
+```bash
+cd packages/mcp-server
+mcp-publisher login github      # as the 0xcircuitbreaker GitHub account
+mcp-publisher publish           # reads server.json
+```
+
+Keep `version` in `package.json` and both `version` fields in `server.json` in step on every release.
+
+Docker:
+
+```bash
+docker build -t dominusnode-mcp packages/mcp-server
+docker run -i --rm -e DOMINUSNODE_API_KEY dominusnode-mcp
+# node registration / withdrawals: mount the wallet key read-only
+docker run -i --rm -e DOMINUSNODE_API_KEY \
+  -e DOMINUSNODE_WALLET_KEY_FILE=/run/secrets/wallet.key \
+  -v "$PWD/wallet.key:/run/secrets/wallet.key:ro" dominusnode-mcp
+```
+
+The API key is read from the environment at run time and never written to the image or to tool output.
 
 ## Development
 

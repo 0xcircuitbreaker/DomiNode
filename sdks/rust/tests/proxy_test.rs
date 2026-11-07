@@ -51,10 +51,10 @@ async fn username_flag_validation_and_ofac() {
 async fn url_building() {
     let (c, _) = connected().await;
     let o = ProxyRoutingOptions { country: Some("DE".into()), ..opts() };
-    assert_eq!(c.proxy.build_url(&o, ProxyProtocol::Http, None).unwrap(), format!("http://country-DE:{API_KEY}@proxy.dominusnode.com:8080"));
-    assert_eq!(c.proxy.build_url(&opts(), ProxyProtocol::Socks5, None).unwrap(), format!("socks5://relay:{API_KEY}@proxy.dominusnode.com:1080"));
+    assert_eq!(c.proxy.build_url(&o, ProxyProtocol::Http, None).unwrap(), format!("http://country-DE:{API_KEY}@proxy.dominusnode.daedalusdevelopmentgroup.com:8080"));
+    assert_eq!(c.proxy.build_url(&opts(), ProxyProtocol::Socks5, None).unwrap(), format!("socks5://relay:{API_KEY}@proxy.dominusnode.daedalusdevelopmentgroup.com:1080"));
     let other = "dn_test_bbbbbbbbbbbb";
-    assert_eq!(c.proxy.build_url(&opts(), ProxyProtocol::Http, Some(other)).unwrap(), format!("http://relay:{other}@proxy.dominusnode.com:8080"));
+    assert_eq!(c.proxy.build_url(&opts(), ProxyProtocol::Http, Some(other)).unwrap(), format!("http://relay:{other}@proxy.dominusnode.daedalusdevelopmentgroup.com:8080"));
     assert!(c.proxy.build_url(&opts(), ProxyProtocol::Http, Some("bad")).is_err());
     let m = Mock::default();
     let anon = client_with(&m, |cfg| {
@@ -247,4 +247,10 @@ async fn connect_refusal_is_proxy_error() {
     let req = seen.lock().unwrap().clone();
     assert!(req.starts_with("CONNECT example.com:443 HTTP/1.1"), "{req}");
     assert!(req.to_lowercase().contains(&format!("proxy-authorization: basic {}", basic("relay")).to_lowercase()));
+}
+
+#[test]
+fn default_hosts() {
+    assert_eq!(dominusnode::util::DEFAULT_BASE_URL, "https://api.dominusnode.daedalusdevelopmentgroup.com");
+    assert_eq!(dominusnode::util::DEFAULT_PROXY_HOST, "proxy.dominusnode.daedalusdevelopmentgroup.com");
 }

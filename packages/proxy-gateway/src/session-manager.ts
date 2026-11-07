@@ -331,7 +331,12 @@ export async function startSession(
   let snapshot: ChargeSnapshot;
   try {
     pricePerGbMusd = await policyRepo.getPricing(relay.ipClass === "unknown" ? "any" : relay.ipClass);
-    snapshot = await tierRepo.getChargeSnapshot(relay.nodeOwnerUserId);
+    // Node share (tier + genesis) from the node owner; buyer discount from the requester's own tier.
+    const [ownerSnap, buyer] = await Promise.all([
+      tierRepo.getChargeSnapshot(relay.nodeOwnerUserId),
+      tierRepo.getBuyerDiscount ? tierRepo.getBuyerDiscount(userId) : Promise.resolve(null),
+    ]);
+    snapshot = buyer ? { ...ownerSnap, ...buyer } : ownerSnap;
   } catch (err) {
     log.error("failed to lock relay pricing, rejecting session", {
       userId,

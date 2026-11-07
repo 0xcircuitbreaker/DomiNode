@@ -86,10 +86,10 @@ describe("dispatch to SDK", () => {
 
   it("proxy_url never returns the key", async () => {
     const c = mockClient();
-    c.proxy.buildUrl.mockReturnValue(`http://country-US:${KEY}@proxy.dominusnode.com:8080`);
+    c.proxy.buildUrl.mockReturnValue(`http://country-US:${KEY}@proxy.dominusnode.daedalusdevelopmentgroup.com:8080`);
     const raw = await tools(c).call("proxy_url", { country: "US" });
     expect(raw).not.toContain(KEY);
-    expect(JSON.parse(raw).proxyUrl).toBe("http://country-US:${DOMINUSNODE_API_KEY}@proxy.dominusnode.com:8080");
+    expect(JSON.parse(raw).proxyUrl).toBe("http://country-US:${DOMINUSNODE_API_KEY}@proxy.dominusnode.daedalusdevelopmentgroup.com:8080");
   });
 
   it("node_setup_guide is static", async () => {

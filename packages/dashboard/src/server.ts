@@ -31,7 +31,10 @@ import adminNetworkRoutes from "./routes/admin-network.js";
 import adminNetworkMetricsRoutes from "./routes/admin-network-metrics.js";
 import adminNetworkOpsRoutes from "./routes/admin-network-ops.js";
 import adminNetworkCollusionRoutes from "./routes/admin-network-collusion.js";
+import adminNetworkLaunchRoutes from "./routes/admin-network-launch.js";
 import v1Routes from "./routes/v1/index.js";
+import discoveryRoutes from "./routes/discovery.js";
+import statusPageRoutes from "./routes/status-page.js";
 
 const log = createLogger("api:server");
 
@@ -230,6 +233,7 @@ export function startApiServer(port: number = 3000): ReturnType<express.Express[
   app.use("/api/admin/network", adminNetworkMetricsRoutes);
   app.use("/api/admin/network", adminNetworkOpsRoutes);
   app.use("/api/admin/network", adminNetworkCollusionRoutes);
+  app.use("/api/admin/network", adminNetworkLaunchRoutes);
   app.use("/api/admin", adminRoutes);
   app.use("/api/proxy/config", proxyConfigRoutes);
   app.use("/api/proxy", proxyHealthRoutes);
@@ -248,137 +252,15 @@ export function startApiServer(port: number = 3000): ReturnType<express.Express[
   app.get("/.well-known/security.txt", (_req, res) => {
     const expires = new Date(Date.now() + 180 * 24 * 60 * 60 * 1000).toISOString();
     res.type("text/plain").send(
-      `Contact: mailto:security@dominusnode.com\n` +
+      `Contact: mailto:0xcircuitbreaker@protonmail.com\n` +
       `Expires: ${expires}\n` +
       `Preferred-Languages: en\n`
     );
   });
 
-  // Agent Tool Discovery: machine-readable tool card for AI agent swarms
-  app.get("/.well-known/agent-tool.json", (_req, res) => {
-    const baseUrl = process.env["APP_URL"] ?? "https://dominusnode.com";
-    const proxyHost = process.env["PROXY_PUBLIC_HOST"] ?? "proxy.dominusnode.com";
-    const httpPort = process.env["PROXY_HTTP_PORT"] ?? "8080";
-    const socks5Port = process.env["SOCKS5_LISTEN_PORT"] ?? "1080";
-
-    res.json({
-      schema_version: "1.0.0",
-      name: "Dominus Node",
-      description: "Rotating proxy-as-a-service with per-agent budgets, guardrails, and pay-per-use billing for AI agent swarms.",
-      homepage: baseUrl,
-      documentation: `${baseUrl}/docs`,
-      openapi_url: `${baseUrl}/api/openapi.json`,
-
-      auth: {
-        methods: ["api_key", "jwt", "eip191_wallet", "x402_micropayment"],
-        signup: {
-          email_password: `${baseUrl}/api/auth/register`,
-          wallet_challenge: `${baseUrl}/api/auth/wallet/challenge`,
-          wallet_verify: `${baseUrl}/api/auth/wallet/verify`,
-        },
-        login: `${baseUrl}/api/auth/login`,
-        api_keys: `${baseUrl}/api/keys`,
-      },
-
-      proxy: {
-        http: `http://{routing}:{api_key}@${proxyHost}:${httpPort}`,
-        socks5: `socks5://{routing}:{api_key}@${proxyHost}:${socks5Port}`,
-        routing_format: "{pool_type}-country-{ISO2}",
-        pool_types: ["dc", "residential", "auto"],
-        example: `curl -x http://dc-country-US:{YOUR_API_KEY}@${proxyHost}:${httpPort} https://httpbin.org/ip`,
-      },
-
-      pricing: {
-        model: "prepaid_wallet",
-        currency: "USD",
-        tiers: {
-          free_dc: { price_per_gb: 0, monthly_bandwidth: "500 MB", pool: "dc" },
-          swarm_dc: { price_per_gb: 0, monthly_bandwidth: "200 MB", pool: "dc" },
-          swarm_mixed: { price_per_gb: 0, monthly_bandwidth: "200 MB", pool: "all" },
-          payg: { price_per_gb: 5.00, monthly_bandwidth: "unlimited", pool: "all" },
-          volume_1tb: { price_per_gb: 3.00, monthly_bandwidth: "1 TB", pool: "all" },
-          agent: { price_per_gb: 5.00, monthly_bandwidth: "unlimited", pool: "all" },
-        },
-        x402: {
-          enabled: process.env["X402_ENABLED"] === "true",
-          dc_per_request_usd: 0.001,
-          residential_per_request_usd: 0.005,
-          payment_methods: ["USDC_base", "USDC_solana"],
-        },
-        payment_methods: ["stripe", "paypal", "crypto_nowpayments"],
-        crypto_currencies: ["BTC", "ETH", "LTC", "XMR", "ZEC", "USDC", "SOL", "USDT", "DAI", "BNB", "LINK"],
-      },
-
-      agent_features: {
-        agentic_wallets: {
-          description: "Server-side custodial sub-wallets with spending limits per agent",
-          create: `${baseUrl}/api/agent-wallet`,
-          operations: ["create", "fund", "balance", "freeze", "unfreeze", "delete", "transactions"],
-        },
-        teams: {
-          description: "Shared wallet billing with owner/admin/member roles",
-          create: `${baseUrl}/api/teams`,
-          operations: ["create", "fund", "add_member", "invite", "create_key", "usage"],
-        },
-        guardrails: {
-          spending_limits: true,
-          domain_allowlists: true,
-          daily_budgets: true,
-          freeze_unfreeze: true,
-          geo_restrictions: true,
-        },
-      },
-
-      integrations: {
-        mcp_server: "@dominusnode/mcp-server",
-        sdks: {
-          node: "@dominusnode/sdk",
-          python: "dominusnode",
-          rust: "dominusnode",
-          go: "github.com/Dominus-Node/dominusnode-go",
-          java: "com.dominusnode:dominusnode-java",
-          cpp: "dominusnode-cpp",
-        },
-        ai_frameworks: [
-          "langchain", "vercel-ai", "crewai", "openai-functions",
-          "openclaw", "chatgpt-gpt-actions", "gemini", "llamaindex",
-          "autogpt", "agent-zero", "n8n",
-        ],
-      },
-
-      rate_limits: {
-        api: "100 requests/min",
-        auth: "60 requests/15min",
-        proxy_sessions: "30/min (plan dependent)",
-        bandwidth: "10 GB/hour per user",
-      },
-
-      errors: {
-        structured: true,
-        codes: [
-          "INSUFFICIENT_BALANCE", "BANDWIDTH_LIMIT_EXCEEDED",
-          "TOO_MANY_CONNECTIONS", "POOL_RESTRICTED",
-          "UPSTREAM_UNAVAILABLE", "BUDGET_EXCEEDED",
-          "POLICY_DENIED", "NEEDS_REAUTH",
-        ],
-      },
-
-      bug_bounty: {
-        enabled: true,
-        submit: `${baseUrl}/api/bug-reports`,
-        rewards: {
-          p3_minor: "$0.05-$0.25 credits",
-          p2_integration_break: "$0.50-$2.50 credits",
-          p1_critical: "$2.50-$10.00 credits",
-        },
-      },
-
-      status: {
-        health: `${baseUrl}/api/health`,
-        slots: `${baseUrl}/api/slots`,
-      },
-    });
-  });
+  // Agent discovery (v2): /.well-known/agent-tool.json and /llms.txt, pricing read live
+  app.use(discoveryRoutes);
+  app.use(statusPageRoutes);
 
   // Prometheus metrics endpoint (localhost only)
   // H-2 fix: Use socket.remoteAddress (not req.ip) to prevent X-Forwarded-For spoofing

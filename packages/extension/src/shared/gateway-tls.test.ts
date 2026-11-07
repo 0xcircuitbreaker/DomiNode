@@ -16,7 +16,7 @@ describe("gatewayTls setting", () => {
   });
 
   it("refuses plaintext for non-local gateways", () => {
-    expect(() => assertGatewayTransport({ gatewayHost: "proxy.dominusnode.com", gatewayTls: false })).toThrow(/localhost/);
+    expect(() => assertGatewayTransport({ gatewayHost: "proxy.dominusnode.daedalusdevelopmentgroup.com", gatewayTls: false })).toThrow(/localhost/);
     expect(() => assertGatewayTransport({ gatewayHost: "localhost", gatewayTls: false })).not.toThrow();
     expect(() => assertGatewayTransport({ gatewayHost: "127.0.0.1", gatewayTls: false })).not.toThrow();
   });

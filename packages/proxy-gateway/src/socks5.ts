@@ -14,6 +14,7 @@ import { incrementUserConns, decrementUserConns } from "./connection-tracker.js"
 import { checkAuthRateLimit, recordAuthFailure } from "./auth-rate-limit.js";
 import { recordRequest, recordError, recordLatency } from "./stats.js";
 import { enforcePolicy, isPlaintextPort, isFreeRelayBlocked } from "./policy-enforcer.js";
+import { checkRequesterAccess } from "./access-gate.js";
 import { openRelayStream, RelayOpenError, type RelayRuntime, type RelayUpstream } from "./relay.js";
 
 const log = createLogger("proxy:socks5");
@@ -230,6 +231,15 @@ async function handleSocks5Connection(clientSocket: net.Socket, relay: RelayRunt
     return;
   }
 
+  const socksAccess = await checkRequesterAccess(relay.getPolicy(), userId);
+  if (!socksAccess.allowed) {
+    clearTimeout(totalHandshakeTimer);
+    log.info("SOCKS5 access refused", { code: socksAccess.code });
+    sendReply(clientSocket, REP_NOT_ALLOWED);
+    clientSocket.end();
+    return;
+  }
+
   // Per-user connection limit (plan-aware)
   if (!incrementUserConns(userId, socksUserPlan.maxConnections)) {
     clearTimeout(totalHandshakeTimer);
@@ -388,6 +398,7 @@ async function handleSocks5Connection(clientSocket: net.Socket, relay: RelayRunt
       targetHost,
       port: targetPort,
       sticky: proxyOptions.sessionId,
+      seedOnly: socksAccess.seedOnly,
     });
   } catch (err) {
     clearTimeout(totalHandshakeTimer);
