@@ -159,12 +159,12 @@ export async function getOwnerTierStats(userId: string, uptimeBps: number): Prom
   const r = await query<{ tenure_days: string; active_ips: string; reputation: string | null; last_clawback_days: string | null }>(
     `SELECT
        (SELECT COUNT(DISTINCT created_at::date) FROM relay_charges
-         WHERE node_owner_user_id = $1 AND matured AND NOT disputed AND node_musd > 0
+         WHERE node_owner_user_id = $1 AND matured AND NOT disputed AND node_musd > 0 AND starter_musd = 0
            AND requester_user_id IS DISTINCT FROM $1) AS tenure_days,
        (SELECT COUNT(*) FROM (
           SELECT n.observed_ip FROM relay_charges rc JOIN nodes n ON n.id = rc.node_id
           WHERE rc.node_owner_user_id = $1 AND rc.created_at >= now() - interval '7 days'
-            AND rc.gross_musd > 0 AND NOT rc.disputed AND n.observed_ip IS NOT NULL
+            AND rc.gross_musd > 0 AND rc.starter_musd = 0 AND NOT rc.disputed AND n.observed_ip IS NOT NULL
             AND rc.requester_user_id IS DISTINCT FROM $1
           GROUP BY n.observed_ip HAVING COUNT(DISTINCT rc.requester_user_id) >= 3) ips) AS active_ips,
        (SELECT AVG(GREATEST(0, reputation - report_penalty))::int FROM nodes WHERE owner_user_id = $1 AND status = 'active') AS reputation,

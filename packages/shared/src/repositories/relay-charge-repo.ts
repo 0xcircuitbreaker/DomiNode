@@ -3,6 +3,7 @@ import { settleSessionTx, accrueCarryTx } from "./wallet-repo.js";
 import { settleTeamSessionTx, accrueTeamCarryTx } from "./team-repo.js";
 import { endSessionTx, createUsageRecordTx } from "./usage-repo.js";
 import type { ChargeSnapshot } from "./tier-repo.js";
+import { consumeTx as consumeStarterTx } from "./starter-credit-repo.js";
 
 /** settleRelayCharge — DESIGN.md §6.3 + §15 (single transaction). */
 
@@ -225,6 +226,11 @@ export async function settleRelayCharge(i: SettleRelayChargeInput): Promise<Sett
         `UPDATE nodes SET byte_disputes = LEAST(byte_disputes + 1, 1000000) WHERE id = $1`,
         [i.nodeId],
       );
+    }
+
+    // Starter credit: attribute the whole cents charged to an active grant (not a tier input).
+    if (i.rail === "wallet" && debitCents > 0) {
+      await consumeStarterTx(client, i.requesterUserId, BigInt(debitCents) * MUSD_PER_CENT, relayChargeId);
     }
 
     if (nodeMusd > 0n) await earnTx(client, node.owner_user_id, nodeMusd, relayChargeId);

@@ -1,9 +1,9 @@
 import { Router } from "express";
 import type { Request, Response } from "express";
-import { createLogger, getPool } from "@dominusnode/shared";
+import { createLogger, getPool, starterCreditRepo } from "@dominusnode/shared";
 import { requireAuth } from "../middleware/auth.js";
 import { requireAdmin } from "../middleware/admin.js";
-import { HttpError, fail, money, withAdminTx, audit, adminId, UUID_RE } from "./admin-network-common.js";
+import { HttpError, fail, money, page, enumParam, uuidParam, withAdminTx, audit, adminId, UUID_RE } from "./admin-network-common.js";
 
 /**
  * Launch-readiness admin controls (docs/agent-network/ADMIN_API.md §14):
@@ -101,6 +101,191 @@ router.get("/seed-summary", async (_req: Request, res: Response) => {
     }
     res.json(out);
   } catch (err) { fail(res, err, "Seed summary"); }
+});
+
+// ─── Singleton settings helper ──────────────────────────────────────
+
+type FieldSpec = [col: string, kind: "int" | "musd" | "bool", min: bigint, max: bigint];
+
+/**
+ * Validate a PATCH-style body against `spec` and UPDATE the singleton row
+ * `table` (id = 1) in an admin transaction with an audit row.
+ */
+async function updateSingleton(req: Request, table: string, action: string, spec: Record<string, FieldSpec>,
+  check?: (b: Record<string, unknown>) => void): Promise<Record<string, unknown>> {
+  const b = body(req);
+  for (const k of Object.keys(b)) if (!(k in spec)) throw new HttpError(400, `${k}: unknown field`);
+  const sets: string[] = [];
+  const vals: unknown[] = [];
+  const changes: Record<string, unknown> = {};
+  for (const [k, [col, kind, min, max]] of Object.entries(spec)) {
+    const v = b[k];
+    if (v === undefined) continue;
+    if (kind === "bool") {
+      if (typeof v !== "boolean") throw new HttpError(400, `${k} must be a boolean`);
+      vals.push(v);
+    } else if (kind === "int") {
+      if (typeof v !== "number" || !Number.isInteger(v) || BigInt(v) < min || BigInt(v) > max) throw new HttpError(400, `${k} must be an integer in [${min}, ${max}]`);
+      vals.push(v);
+    } else {
+      if (typeof v !== "string" || !/^\d{1,15}$/.test(v) || BigInt(v) < min || BigInt(v) > max) throw new HttpError(400, `${k} must be a digit string in [${min}, ${max}]`);
+      vals.push(v);
+    }
+    sets.push(`${col} = $${vals.length}${kind === "musd" ? "::bigint" : ""}`);
+    changes[k] = v;
+  }
+  if (sets.length === 0) throw new HttpError(400, "No fields to update");
+  check?.(b);
+  await withAdminTx(adminId(req), async (c) => {
+    // table names are compile-time constants from this file, never user input
+    await c.query(`INSERT INTO ${table} (id) VALUES (1) ON CONFLICT (id) DO NOTHING`);
+    vals.push(adminId(req));
+    await c.query(`UPDATE ${table} SET ${sets.join(", ")}, updated_by = $${vals.length}, updated_at = now() WHERE id = 1`, vals);
+    await audit(c, req, action, table, "1", changes);
+  });
+  log.info(`${table} updated`, { by: adminId(req), fields: Object.keys(changes) });
+  return changes;
+}
+
+// ─── Starter credits ────────────────────────────────────────────────
+
+function starterOut(s: Awaited<ReturnType<typeof starterCreditRepo.getSettings>>) {
+  return {
+    enabled: s.enabled, amount: money(s.amountMusd.toString()), dailyBudget: money(s.dailyBudgetMusd.toString()),
+    perPrefixCap: s.perPrefixCap, perFundingSourceCap: s.perFundingSourceCap, capWindowDays: s.capWindowDays,
+    expiryDays: s.expiryDays, seedNodesOnly: s.seedNodesOnly, seedOnlyDays: s.seedOnlyDays,
+    updatedBy: s.updatedBy, updatedAt: s.updatedAt,
+  };
+}
+
+router.get("/starter-credits/settings", async (_req: Request, res: Response) => {
+  try {
+    const [s, today] = await Promise.all([
+      starterCreditRepo.getSettings(),
+      q<{ musd: string | null; n: string }>(
+        `SELECT SUM(amount_musd)::text AS musd, COUNT(*)::text AS n FROM starter_credit_grants
+         WHERE created_at >= date_trunc('day', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'`,
+      ),
+    ]);
+    res.json({ ...starterOut(s), grantedToday: { count: Number(today.rows[0]?.n ?? 0), amount: money(today.rows[0]?.musd ?? 0) } });
+  } catch (err) { fail(res, err, "Starter credit settings"); }
+});
+
+const STARTER_SPEC: Record<string, FieldSpec> = {
+  enabled: ["enabled", "bool", 0n, 0n],
+  amountMusd: ["amount_musd", "musd", 10_000n, 100_000_000n],
+  dailyBudgetMusd: ["daily_budget_musd", "musd", 0n, 100_000_000_000n],
+  perPrefixCap: ["per_prefix_cap", "int", 0n, 1000n],
+  perFundingSourceCap: ["per_funding_source_cap", "int", 0n, 1000n],
+  capWindowDays: ["cap_window_days", "int", 1n, 3650n],
+  expiryDays: ["expiry_days", "int", 1n, 365n],
+  seedNodesOnly: ["seed_nodes_only", "bool", 0n, 0n],
+  seedOnlyDays: ["seed_only_days", "int", 0n, 365n],
+};
+
+router.put("/starter-credits/settings", async (req: Request, res: Response) => {
+  try {
+    await updateSingleton(req, "starter_credit_settings", "starter_credit_settings_update", STARTER_SPEC, (b) => {
+      if (typeof b["amountMusd"] === "string" && BigInt(b["amountMusd"]) % 10_000n !== 0n) {
+        throw new HttpError(400, "amountMusd must be whole cents (a multiple of 10000)");
+      }
+    });
+    res.json(starterOut(await starterCreditRepo.getSettings()));
+  } catch (err) { fail(res, err, "Starter credit settings update"); }
+});
+
+const GRANT_STATUSES = ["active", "exhausted", "expired", "revoked"] as const;
+
+router.get("/starter-credits/grants", async (req: Request, res: Response) => {
+  try {
+    const { limit, offset } = page(req);
+    const status = enumParam(req, "status", GRANT_STATUSES) ?? null;
+    const user = uuidParam(req, "userId") ?? null;
+    const where = `WHERE ($1::text IS NULL OR g.status = $1) AND ($2::uuid IS NULL OR g.user_id = $2)`;
+    const [rows, total] = await Promise.all([
+      q<{ id: string; user_id: string; wallet_address: string | null; amount_musd: string; remaining_musd: string; ip_prefix: string | null;
+          status: string; expires_at: Date; created_at: Date; closed_at: Date | null }>(
+        `SELECT g.id, g.user_id, u.wallet_address, g.amount_musd::text AS amount_musd, g.remaining_musd::text AS remaining_musd,
+                host(g.ip_prefix) || '/' || masklen(g.ip_prefix) AS ip_prefix, g.status, g.expires_at, g.created_at, g.closed_at
+         FROM starter_credit_grants g LEFT JOIN users u ON u.id = g.user_id ${where}
+         ORDER BY g.created_at DESC, g.id LIMIT $3 OFFSET $4`, [status, user, limit, offset]),
+      q<{ count: string }>(`SELECT COUNT(*)::text AS count FROM starter_credit_grants g ${where}`, [status, user]),
+    ]);
+    res.json({
+      limit, offset, total: Number(total.rows[0]?.count ?? 0),
+      items: rows.rows.map((g) => ({
+        id: g.id, userId: g.user_id, walletAddress: g.wallet_address, amount: money(g.amount_musd), remaining: money(g.remaining_musd),
+        ipPrefix: g.ip_prefix, status: g.status, expiresAt: g.expires_at, createdAt: g.created_at, closedAt: g.closed_at,
+      })),
+    });
+  } catch (err) { fail(res, err, "Starter credit grants"); }
+});
+
+// POST /starter-credits/grants/:id/revoke {reason}
+router.post("/starter-credits/grants/:id/revoke", async (req: Request, res: Response) => {
+  try {
+    const id = idParam(req);
+    const reason = optText(body(req)["reason"], "reason", 500, true);
+    const out = await withAdminTx(adminId(req), async (c) => {
+      const r = await starterCreditRepo.closeGrantTx(c as never, id, "revoked", adminId(req));
+      if (!r) throw new HttpError(404, "Active grant not found");
+      await audit(c, req, "starter_credit_revoke", "starter_credit_grant", id, { reason, removedCents: r.removedCents.toString() });
+      return r;
+    });
+    res.json({ id, status: "revoked", removed: money(out.removedCents * 10_000n) });
+  } catch (err) { fail(res, err, "Starter credit revoke"); }
+});
+
+// ─── Contribution allowlist (policy.requireContribution) ────────────
+
+router.get("/contribution-allowlist", async (req: Request, res: Response) => {
+  try {
+    const { limit, offset } = page(req);
+    const [rows, total] = await Promise.all([
+      q<{ user_id: string; wallet_address: string | null; note: string | null; created_by: string | null; created_at: Date }>(
+        `SELECT a.user_id, u.wallet_address, a.note, a.created_by, a.created_at
+         FROM contribution_allowlist a LEFT JOIN users u ON u.id = a.user_id
+         ORDER BY a.created_at DESC, a.user_id LIMIT $1 OFFSET $2`, [limit, offset]),
+      q<{ count: string }>(`SELECT COUNT(*)::text AS count FROM contribution_allowlist`),
+    ]);
+    res.json({
+      limit, offset, total: Number(total.rows[0]?.count ?? 0),
+      items: rows.rows.map((r) => ({ userId: r.user_id, walletAddress: r.wallet_address, note: r.note, createdBy: r.created_by, createdAt: r.created_at })),
+    });
+  } catch (err) { fail(res, err, "Contribution allowlist"); }
+});
+
+// POST /contribution-allowlist {userId, note?}
+router.post("/contribution-allowlist", async (req: Request, res: Response) => {
+  try {
+    const b = body(req);
+    const userId = typeof b["userId"] === "string" && UUID_RE.test(b["userId"]) ? b["userId"].toLowerCase() : null;
+    if (!userId) throw new HttpError(400, "userId must be a UUID");
+    const note = optText(b["note"], "note", 500);
+    await withAdminTx(adminId(req), async (c) => {
+      const u = await c.query<{ id: string }>(`SELECT id FROM users WHERE id = $1 AND status = 'active'`, [userId]);
+      if (!u.rows[0]) throw new HttpError(404, "Active agent not found");
+      await c.query(
+        `INSERT INTO contribution_allowlist (user_id, note, created_by) VALUES ($1, $2, $3)
+         ON CONFLICT (user_id) DO UPDATE SET note = EXCLUDED.note`,
+        [userId, note, adminId(req)],
+      );
+      await audit(c, req, "contribution_allowlist_add", "user", userId, { note });
+    });
+    res.status(201).json({ userId, note, gatewayEffect: "within_30s" });
+  } catch (err) { fail(res, err, "Contribution allowlist add"); }
+});
+
+router.delete("/contribution-allowlist/:id", async (req: Request, res: Response) => {
+  try {
+    const userId = idParam(req);
+    await withAdminTx(adminId(req), async (c) => {
+      const r = await c.query<{ user_id: string }>(`DELETE FROM contribution_allowlist WHERE user_id = $1 RETURNING user_id`, [userId]);
+      if (!r.rows[0]) throw new HttpError(404, "Allowlist entry not found");
+      await audit(c, req, "contribution_allowlist_remove", "user", userId, {});
+    });
+    res.json({ userId, removed: true });
+  } catch (err) { fail(res, err, "Contribution allowlist remove"); }
 });
 
 export default router;

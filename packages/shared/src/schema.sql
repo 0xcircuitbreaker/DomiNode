@@ -1716,3 +1716,67 @@ END $$;
 -- ─── Operator-run seed nodes (admin flag; reported separately) ──────
 ALTER TABLE nodes ADD COLUMN IF NOT EXISTS operator_run BOOLEAN NOT NULL DEFAULT false;
 CREATE INDEX IF NOT EXISTS idx_nodes_operator_run ON nodes(id) WHERE operator_run;
+
+-- ─── Starter credits (LAUNCH_PLAN §5.2) ─────────────────────────────
+-- One grant per new agent principal, on its first verified wallet identity.
+-- Credited to the requester wallet (non-withdrawable, like all requester
+-- balance), tracked here, expired after expiry_days, never a tier input.
+CREATE TABLE IF NOT EXISTS starter_credit_settings (
+  id                      SMALLINT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+  enabled                 BOOLEAN NOT NULL DEFAULT false,
+  amount_musd             BIGINT  NOT NULL DEFAULT 500000 CHECK (amount_musd BETWEEN 10000 AND 100000000 AND amount_musd % 10000 = 0),
+  daily_budget_musd       BIGINT  NOT NULL DEFAULT 50000000 CHECK (daily_budget_musd BETWEEN 0 AND 100000000000),
+  per_prefix_cap          INTEGER NOT NULL DEFAULT 1 CHECK (per_prefix_cap BETWEEN 0 AND 1000),
+  per_funding_source_cap  INTEGER NOT NULL DEFAULT 1 CHECK (per_funding_source_cap BETWEEN 0 AND 1000),
+  cap_window_days         INTEGER NOT NULL DEFAULT 30 CHECK (cap_window_days BETWEEN 1 AND 3650),
+  expiry_days             INTEGER NOT NULL DEFAULT 30 CHECK (expiry_days BETWEEN 1 AND 365),
+  seed_nodes_only         BOOLEAN NOT NULL DEFAULT true,
+  seed_only_days          INTEGER NOT NULL DEFAULT 30 CHECK (seed_only_days BETWEEN 0 AND 365),
+  updated_by              UUID REFERENCES users(id) ON DELETE SET NULL,
+  updated_at              TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+INSERT INTO starter_credit_settings (id) VALUES (1) ON CONFLICT (id) DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS starter_credit_grants (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id         UUID NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+  amount_musd     BIGINT NOT NULL CHECK (amount_musd BETWEEN 10000 AND 100000000),
+  remaining_musd  BIGINT NOT NULL CHECK (remaining_musd BETWEEN 0 AND 100000000),
+  ip_prefix       CIDR,
+  funding_source  TEXT NOT NULL CHECK (length(funding_source) BETWEEN 1 AND 128),
+  status          TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','exhausted','expired','revoked')),
+  expires_at      TIMESTAMPTZ NOT NULL,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  closed_at       TIMESTAMPTZ,
+  CONSTRAINT chk_scg_remaining CHECK (remaining_musd <= amount_musd)
+);
+CREATE INDEX IF NOT EXISTS idx_scg_created ON starter_credit_grants(created_at);
+CREATE INDEX IF NOT EXISTS idx_scg_prefix ON starter_credit_grants(ip_prefix, created_at);
+CREATE INDEX IF NOT EXISTS idx_scg_funding ON starter_credit_grants(funding_source, created_at);
+CREATE INDEX IF NOT EXISTS idx_scg_due ON starter_credit_grants(expires_at) WHERE status = 'active';
+
+CREATE TABLE IF NOT EXISTS starter_credit_ledger (
+  id               BIGSERIAL PRIMARY KEY,
+  grant_id         UUID NOT NULL REFERENCES starter_credit_grants(id) ON DELETE CASCADE,
+  type             TEXT NOT NULL CHECK (type IN ('grant','spend','expire','revoke')),
+  amount_musd      BIGINT NOT NULL CHECK (amount_musd BETWEEN 0 AND 100000000),
+  relay_charge_id  UUID REFERENCES relay_charges(id) ON DELETE SET NULL,
+  created_by       UUID REFERENCES users(id) ON DELETE SET NULL,
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_scl_grant ON starter_credit_ledger(grant_id, created_at);
+
+-- Portion of a relay charge paid from starter credit; such charges are not tier inputs.
+ALTER TABLE relay_charges ADD COLUMN IF NOT EXISTS starter_musd BIGINT NOT NULL DEFAULT 0;
+DO $$ BEGIN
+  ALTER TABLE relay_charges ADD CONSTRAINT chk_rc_starter_musd CHECK (starter_musd BETWEEN 0 AND 100000000);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+-- ─── Contribution requirement allowlist (policy.requireContribution) ───
+CREATE TABLE IF NOT EXISTS contribution_allowlist (
+  user_id     UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  note        TEXT CHECK (note IS NULL OR length(note) <= 500),
+  created_by  UUID REFERENCES users(id) ON DELETE SET NULL,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
