@@ -71,9 +71,9 @@ const KEY_PLACEHOLDER = "${DOMINUSNODE_API_KEY}";
 export interface DominusNodeToolsConfig {
   /** API key (dn_live_/dn_test_). Defaults to process.env.DOMINUSNODE_API_KEY. Never pass model output here. */
   apiKey?: string;
-  /** Defaults to DOMINUSNODE_BASE_URL or https://api.dominusnode.com. */
+  /** Defaults to DOMINUSNODE_BASE_URL or https://api.dominusnode.daedalusdevelopmentgroup.com. */
   baseUrl?: string;
-  /** Defaults to DOMINUSNODE_PROXY_HOST or proxy.dominusnode.com. */
+  /** Defaults to DOMINUSNODE_PROXY_HOST or proxy.dominusnode.daedalusdevelopmentgroup.com. */
   proxyHost?: string;
   /** Defaults to DOMINUSNODE_PROXY_PORT or 8080. */
   httpProxyPort?: number;

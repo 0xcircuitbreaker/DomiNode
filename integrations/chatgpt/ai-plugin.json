@@ -10,9 +10,9 @@
   },
   "api": {
     "type": "openapi",
-    "url": "https://api.dominusnode.com/.well-known/openapi.yaml"
+    "url": "https://api.dominusnode.daedalusdevelopmentgroup.com/.well-known/openapi.yaml"
   },
-  "logo_url": "https://dominusnode.com/logo.png",
+  "logo_url": "https://dominusnode.daedalusdevelopmentgroup.com/logo.png",
   "contact_email": "support@dominusnode.com",
-  "legal_info_url": "https://dominusnode.com/legal"
+  "legal_info_url": "https://dominusnode.daedalusdevelopmentgroup.com/legal"
 }

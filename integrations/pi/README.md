@@ -15,8 +15,8 @@ pi install npm:@dominusnode/pi-extension
 
 ```bash
 export DOMINUSNODE_API_KEY=dn_live_...          # required for account tools
-export DOMINUSNODE_BASE_URL=https://api.dominusnode.com   # optional
-export DOMINUSNODE_PROXY_HOST=proxy.dominusnode.com       # optional
+export DOMINUSNODE_BASE_URL=https://api.dominusnode.daedalusdevelopmentgroup.com   # optional
+export DOMINUSNODE_PROXY_HOST=proxy.dominusnode.daedalusdevelopmentgroup.com       # optional
 ```
 
 ## Usage

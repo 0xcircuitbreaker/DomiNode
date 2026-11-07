@@ -18,7 +18,7 @@ info:
     url: https://opensource.org/licenses/MIT
 
 servers:
-  - url: https://api.dominusnode.com
+  - url: https://api.dominusnode.daedalusdevelopmentgroup.com
 
 security:
   - ApiKeyBearer: []

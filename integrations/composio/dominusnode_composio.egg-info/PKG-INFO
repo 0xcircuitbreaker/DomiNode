@@ -13,7 +13,7 @@ Dynamic: license-file
 
 # dominusnode-composio
 
-Composio toolkit for the [Dominus Node](https://dominusnode.com) rotating proxy-as-a-service platform. Provides 22 Composio-compatible actions for proxy management, wallet operations, team administration, and payment processing.
+Composio toolkit for the [Dominus Node](https://dominusnode.daedalusdevelopmentgroup.com) rotating proxy-as-a-service platform. Provides 22 Composio-compatible actions for proxy management, wallet operations, team administration, and payment processing.
 
 ## Installation
 
@@ -39,8 +39,8 @@ export DOMINUSNODE_API_KEY="dn_live_your_api_key_here"
 Optionally configure the API base URL and proxy host:
 
 ```bash
-export DOMINUSNODE_BASE_URL="https://api.dominusnode.com"
-export DOMINUSNODE_PROXY_HOST="proxy.dominusnode.com"
+export DOMINUSNODE_BASE_URL="https://api.dominusnode.daedalusdevelopmentgroup.com"
+export DOMINUSNODE_PROXY_HOST="proxy.dominusnode.daedalusdevelopmentgroup.com"
 export DOMINUSNODE_PROXY_PORT="8080"
 ```
 
