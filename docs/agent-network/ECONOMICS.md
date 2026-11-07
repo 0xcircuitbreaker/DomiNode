@@ -124,3 +124,39 @@ The owner asked whether to pay on-chain directly or use a credit system. The ans
 7. **§12 item 3 / §14 (owner's point 5):** add a short smoke gate before the 72-hour soak: at least 3 healthy nodes for 2 hours in staging, plus one full earn → mature → withdraw cycle. To make that testable, staging needs `maturation_hours = 0` and a $0.10 minimum payout on Base Sepolia (the testnet). Keep "≥ 20 nodes for 72 h" as the production gate.
 
 All of this is from reading `/home/user/DomiNode/docs/agent-network/DESIGN.md`; no files were changed.
+## 6. Buyer discounts: contribute IPs to climb tiers, earn more and buy cheaper
+
+Only principals that own a (non-revoked) node have a tier. When such a principal buys relay bandwidth on the wallet or team rail, it pays its owner tier's discount. Defaults, admin-tunable per tier (`node_tiers.buyer_discount_bps`):
+
+| Tier | Probation | Bronze | Silver | Gold | Platinum | Partner |
+|---|---|---|---|---|---|---|
+| Buyer discount | 0% | 5% | 10% | 15% | 20% | 25% |
+
+How it is funded (per charge, integer µUSD):
+- `list = ceil(price × bytes)`; `node_musd = floor(list × node_share_bps)`. **The node's share is always computed on the list price and never changes with a buyer discount.**
+- `discount = min(floor(list × buyer_discount_bps), list − node_musd − ceil(list × min_platform_margin_bps))`, floored at 0. The margin floor (`buyer_discount_settings.min_platform_margin_bps`, default 25%) keeps the platform's share above a minimum.
+- The requester pays `gross = list − discount`; `platform_musd = gross − node_musd`, never negative (asserted in `settleRelayCharge`).
+- `relay_charges` stores `list_gross_musd`, `buyer_discount_bps`, `discount_musd`, `buyer_tier_id`, with `CHECK (list_gross_musd = gross_musd + discount_musd)`.
+- The requester's discount and tier are snapshotted at session start with the node share. Self-dealing rules are unchanged (own nodes earn 0). Tier and report-weight inputs use what was actually paid (`gross_musd`).
+- x402/MPP payers pay the per-request quote and get no discount (they have no tier). Applying a tier discount to the x402 quote for payers that map to a node-owning principal is not implemented yet.
+
+## 7. Starter credits
+
+Purpose: let a new agent try the network without a top-up, without becoming a farming target (LAUNCH_PLAN §5.2).
+- **Grant:** once per principal (`starter_credit_grants.user_id UNIQUE`), on its first verified wallet identity (first `POST /api/auth/wallet/verify`). Default $0.50, credited to the requester wallet in whole cents.
+- **Caps (one transaction, advisory lock):** global daily budget (default $50), at most `per_prefix_cap` grants per /24 (IPv4) or /48 (IPv6) and `per_funding_source_cap` per funding source (the verified wallet address) within `cap_window_days` (defaults 1, 1, 30). A request without a client IP is refused. **Off by default** (`enabled = false`); turn on for invitees first.
+- **Non-withdrawable** (requester balance never is), **expires** after 30 days (hourly `starter-expiry` job removes the unused remainder from the wallet, never below 0), **ledger-tracked** in `starter_credit_ledger` (grant/spend/expire/revoke).
+- **Excluded from tier inputs:** spend drawn from a grant is stamped on the charge (`relay_charges.starter_musd`) and such charges do not count toward tenure days or active IPs. They also do not count for genesis credit qualification.
+- **Seed nodes only in month one:** while `seed_nodes_only` is on and the grant is active and younger than `seed_only_days` (30), the principal's sessions are routed only to operator-run seed nodes, so community nodes never carry free-trial traffic.
+- Not implemented: the plan's "≥1 prior on-chain transaction or $1 top-up" precondition (an admin can keep grants off and use invite-only allowlisting instead).
+
+## 8. Contribution requirement and anonymous payers
+
+- `policy.requireContribution` (default **false**: anyone can buy). When true, an API-key principal may buy relay bandwidth only if it owns an active node that carried matured, undisputed, paid traffic from another principal within `contributionWindowDays` (default 30), or it is on the admin allowlist. Otherwise the gateway refuses at session start with `403 CONTRIBUTION_REQUIRED` (HTTP, CONNECT and SOCKS5).
+- `policy.allowAnonymousPayers` (default **true**) governs x402/MPP payers without an account; when false they get `403 ANONYMOUS_PAYERS_DISABLED` before payment verification.
+
+## 9. Genesis boost
+
+- **Cohort:** the first `max_owners` (200) node owners, ordered by their first paid, non-self-dealing relay charge. Owners of operator-run seed nodes and admin principals never take a slot.
+- **Share boost:** `+bonus_bps` (500 = 5 points) on top of the tier share for `boost_days` (90), never above the 5000 bps ceiling; snapshotted at session start into `relay_charges.node_share_bps` with the bonus part in `genesis_bonus_bps`.
+- **One-time credit:** `credit_musd` ($5) once the owner's matured, undisputed, other-principal paid traffic (starter-credit spend excluded) reaches `credit_threshold_bytes` (5 GB). It is credited to pending with the owner tier's hold, matures to available afterwards, and can be clawed back by an admin while held. All values are in `genesis_settings` and every change is audited.

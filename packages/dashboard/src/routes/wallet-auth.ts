@@ -18,6 +18,7 @@ import {
   getPool,
   WALLET_CHALLENGE_TTL_MS,
   referralRepo,
+  starterCreditRepo,
   createProxySessionToken,
 } from "@dominusnode/shared";
 import { recoverSignerAddress } from "../helpers/verify-signature.js";
@@ -360,6 +361,13 @@ router.post("/verify", async (req, res) => {
         isNewUser = true;
         // Audit log wallet user creation
         log.info("wallet user created", { userId: newUser.id, address: address.slice(0, 10) + "...", ip: clientIp });
+        // Starter credit (LAUNCH_PLAN §5.2): once per new principal, capped; never blocks sign-in.
+        try {
+          const g = await starterCreditRepo.grantStarterCredit({ userId: newUser.id, fundingSource: address.toLowerCase(), clientIp: clientIp ?? null });
+          log.info("starter credit decision", { userId: newUser.id, granted: g.granted, reason: g.granted ? null : g.reason });
+        } catch (scErr) {
+          log.warn("starter credit grant failed (non-blocking)", { userId: newUser.id, error: scErr instanceof Error ? scErr.message : String(scErr) });
+        }
         // Mark waitlist entry as registered (non-blocking, best-effort)
         waitlistRepo.markRegistered(syntheticEmail).catch(() => {});
         // Referral code processing (non-blocking)

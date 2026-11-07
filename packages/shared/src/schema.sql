@@ -1708,3 +1708,224 @@ DO $$ BEGIN
     CHECK (kind IN ('concentration','cluster','circular','report_penalty'));
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
+
+-- ═══════════════════════════════════════════════════════════════════
+-- Launch readiness (docs/agent-network LAUNCH_PLAN §4–§11). Idempotent.
+-- ═══════════════════════════════════════════════════════════════════
+
+-- ─── Operator-run seed nodes (admin flag; reported separately) ──────
+ALTER TABLE nodes ADD COLUMN IF NOT EXISTS operator_run BOOLEAN NOT NULL DEFAULT false;
+CREATE INDEX IF NOT EXISTS idx_nodes_operator_run ON nodes(id) WHERE operator_run;
+
+-- ─── Starter credits (LAUNCH_PLAN §5.2) ─────────────────────────────
+-- One grant per new agent principal, on its first verified wallet identity.
+-- Credited to the requester wallet (non-withdrawable, like all requester
+-- balance), tracked here, expired after expiry_days, never a tier input.
+CREATE TABLE IF NOT EXISTS starter_credit_settings (
+  id                      SMALLINT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+  enabled                 BOOLEAN NOT NULL DEFAULT false,
+  amount_musd             BIGINT  NOT NULL DEFAULT 500000 CHECK (amount_musd BETWEEN 10000 AND 100000000 AND amount_musd % 10000 = 0),
+  daily_budget_musd       BIGINT  NOT NULL DEFAULT 50000000 CHECK (daily_budget_musd BETWEEN 0 AND 100000000000),
+  per_prefix_cap          INTEGER NOT NULL DEFAULT 1 CHECK (per_prefix_cap BETWEEN 0 AND 1000),
+  per_funding_source_cap  INTEGER NOT NULL DEFAULT 1 CHECK (per_funding_source_cap BETWEEN 0 AND 1000),
+  cap_window_days         INTEGER NOT NULL DEFAULT 30 CHECK (cap_window_days BETWEEN 1 AND 3650),
+  expiry_days             INTEGER NOT NULL DEFAULT 30 CHECK (expiry_days BETWEEN 1 AND 365),
+  seed_nodes_only         BOOLEAN NOT NULL DEFAULT true,
+  seed_only_days          INTEGER NOT NULL DEFAULT 30 CHECK (seed_only_days BETWEEN 0 AND 365),
+  updated_by              UUID REFERENCES users(id) ON DELETE SET NULL,
+  updated_at              TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+INSERT INTO starter_credit_settings (id) VALUES (1) ON CONFLICT (id) DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS starter_credit_grants (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id         UUID NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+  amount_musd     BIGINT NOT NULL CHECK (amount_musd BETWEEN 10000 AND 100000000),
+  remaining_musd  BIGINT NOT NULL CHECK (remaining_musd BETWEEN 0 AND 100000000),
+  ip_prefix       CIDR,
+  funding_source  TEXT NOT NULL CHECK (length(funding_source) BETWEEN 1 AND 128),
+  status          TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','exhausted','expired','revoked')),
+  expires_at      TIMESTAMPTZ NOT NULL,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  closed_at       TIMESTAMPTZ,
+  CONSTRAINT chk_scg_remaining CHECK (remaining_musd <= amount_musd)
+);
+CREATE INDEX IF NOT EXISTS idx_scg_created ON starter_credit_grants(created_at);
+CREATE INDEX IF NOT EXISTS idx_scg_prefix ON starter_credit_grants(ip_prefix, created_at);
+CREATE INDEX IF NOT EXISTS idx_scg_funding ON starter_credit_grants(funding_source, created_at);
+CREATE INDEX IF NOT EXISTS idx_scg_due ON starter_credit_grants(expires_at) WHERE status = 'active';
+
+CREATE TABLE IF NOT EXISTS starter_credit_ledger (
+  id               BIGSERIAL PRIMARY KEY,
+  grant_id         UUID NOT NULL REFERENCES starter_credit_grants(id) ON DELETE CASCADE,
+  type             TEXT NOT NULL CHECK (type IN ('grant','spend','expire','revoke')),
+  amount_musd      BIGINT NOT NULL CHECK (amount_musd BETWEEN 0 AND 100000000),
+  relay_charge_id  UUID REFERENCES relay_charges(id) ON DELETE SET NULL,
+  created_by       UUID REFERENCES users(id) ON DELETE SET NULL,
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_scl_grant ON starter_credit_ledger(grant_id, created_at);
+
+-- Portion of a relay charge paid from starter credit; such charges are not tier inputs.
+ALTER TABLE relay_charges ADD COLUMN IF NOT EXISTS starter_musd BIGINT NOT NULL DEFAULT 0;
+DO $$ BEGIN
+  ALTER TABLE relay_charges ADD CONSTRAINT chk_rc_starter_musd CHECK (starter_musd BETWEEN 0 AND 100000000);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+-- ─── Contribution requirement allowlist (policy.requireContribution) ───
+CREATE TABLE IF NOT EXISTS contribution_allowlist (
+  user_id     UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  note        TEXT CHECK (note IS NULL OR length(note) <= 500),
+  created_by  UUID REFERENCES users(id) ON DELETE SET NULL,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- ─── Genesis boost (LAUNCH_PLAN §4.2) ───────────────────────────────
+-- First max_owners community node owners (ordered by their first paid,
+-- non-self-dealing charge; operator-run and admin principals excluded) get
+-- +bonus_bps on top of their tier share for boost_days (never above the 5000
+-- ceiling), plus a one-time credit after credit_threshold_bytes of matured
+-- paid traffic from other principals, held for the owner tier's hold days.
+CREATE TABLE IF NOT EXISTS genesis_settings (
+  id                      SMALLINT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+  enabled                 BOOLEAN NOT NULL DEFAULT true,
+  max_owners              INTEGER NOT NULL DEFAULT 200 CHECK (max_owners BETWEEN 0 AND 100000),
+  bonus_bps               INTEGER NOT NULL DEFAULT 500 CHECK (bonus_bps BETWEEN 0 AND 5000),
+  boost_days              INTEGER NOT NULL DEFAULT 90 CHECK (boost_days BETWEEN 1 AND 3650),
+  credit_musd             BIGINT  NOT NULL DEFAULT 5000000 CHECK (credit_musd BETWEEN 0 AND 1000000000),
+  credit_threshold_bytes  BIGINT  NOT NULL DEFAULT 5000000000 CHECK (credit_threshold_bytes BETWEEN 0 AND 1000000000000000),
+  updated_by              UUID REFERENCES users(id) ON DELETE SET NULL,
+  updated_at              TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+INSERT INTO genesis_settings (id) VALUES (1) ON CONFLICT (id) DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS genesis_members (
+  owner_user_id      UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  seq                INTEGER NOT NULL UNIQUE CHECK (seq BETWEEN 1 AND 100000),
+  enrolled_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+  boost_until        TIMESTAMPTZ NOT NULL,
+  credit_status      TEXT NOT NULL DEFAULT 'pending' CHECK (credit_status IN ('pending','held','matured','clawed_back')),
+  credit_musd        BIGINT CHECK (credit_musd IS NULL OR credit_musd BETWEEN 1 AND 1000000000),
+  credit_granted_at  TIMESTAMPTZ,
+  credit_matures_at  TIMESTAMPTZ,
+  CONSTRAINT chk_gm_credit CHECK ((credit_status = 'pending') = (credit_granted_at IS NULL))
+);
+CREATE INDEX IF NOT EXISTS idx_gm_credit_status ON genesis_members(credit_status, credit_matures_at);
+
+-- Snapshot of the genesis bonus included in node_share_bps (audit).
+ALTER TABLE relay_charges ADD COLUMN IF NOT EXISTS genesis_bonus_bps INTEGER NOT NULL DEFAULT 0;
+DO $$ BEGIN
+  ALTER TABLE relay_charges ADD CONSTRAINT chk_rc_genesis_bonus_bps CHECK (genesis_bonus_bps BETWEEN 0 AND 5000 AND genesis_bonus_bps <= node_share_bps);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+-- ─── Buyer discounts for node contributors (owner tier) ─────────────
+-- Funded from the platform share only: node_musd is computed on the list
+-- gross; the requester pays list - discount (= gross_musd); the discount is
+-- clamped so platform_musd >= list * min_platform_margin_bps.
+ALTER TABLE node_tiers ADD COLUMN IF NOT EXISTS buyer_discount_bps INTEGER NOT NULL DEFAULT 0;
+DO $$ BEGIN
+  ALTER TABLE node_tiers ADD CONSTRAINT chk_node_tiers_buyer_discount_bps CHECK (buyer_discount_bps BETWEEN 0 AND 5000);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+UPDATE node_tiers t SET buyer_discount_bps = d.bps
+FROM (VALUES (1, 0), (2, 500), (3, 1000), (4, 1500), (5, 2000), (6, 2500)) AS d(id, bps)
+WHERE t.id = d.id AND NOT EXISTS (SELECT 1 FROM schema_migrations WHERE version = '1.9.0');
+
+CREATE TABLE IF NOT EXISTS buyer_discount_settings (
+  id                      SMALLINT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+  enabled                 BOOLEAN NOT NULL DEFAULT true,
+  min_platform_margin_bps INTEGER NOT NULL DEFAULT 2500 CHECK (min_platform_margin_bps BETWEEN 0 AND 10000),
+  updated_by              UUID REFERENCES users(id) ON DELETE SET NULL,
+  updated_at              TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+INSERT INTO buyer_discount_settings (id) VALUES (1) ON CONFLICT (id) DO NOTHING;
+
+ALTER TABLE relay_charges ADD COLUMN IF NOT EXISTS list_gross_musd BIGINT;
+ALTER TABLE relay_charges ADD COLUMN IF NOT EXISTS buyer_discount_bps INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE relay_charges ADD COLUMN IF NOT EXISTS discount_musd BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE relay_charges ADD COLUMN IF NOT EXISTS buyer_tier_id SMALLINT REFERENCES node_tiers(id);
+DO $$ BEGIN
+  ALTER TABLE relay_charges ADD CONSTRAINT chk_rc_buyer_discount CHECK (
+    buyer_discount_bps BETWEEN 0 AND 5000
+    AND discount_musd BETWEEN 0 AND 2147483647000000
+    AND (list_gross_musd IS NULL OR (list_gross_musd BETWEEN 0 AND 2147483647000000
+         AND list_gross_musd = gross_musd + discount_musd))
+  );
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+INSERT INTO schema_migrations (version, description) VALUES
+  ('1.9.0', 'Launch readiness: seed nodes, starter credits, genesis boost, buyer discounts, status, unmet demand, abuse reports')
+ON CONFLICT (version) DO NOTHING;
+
+-- ─── Public network status (hourly snapshots + incident log) ────────
+-- Aggregates only: no node ids, IPs or requester ids.
+CREATE TABLE IF NOT EXISTS network_stats_snapshots (
+  hour                      TIMESTAMPTZ PRIMARY KEY,
+  online_nodes              INTEGER NOT NULL CHECK (online_nodes BETWEEN 0 AND 10000000),
+  seed_online               INTEGER NOT NULL CHECK (seed_online BETWEEN 0 AND 10000000),
+  community_online          INTEGER NOT NULL CHECK (community_online BETWEEN 0 AND 10000000),
+  countries                 INTEGER NOT NULL CHECK (countries BETWEEN 0 AND 300),
+  asns                      INTEGER NOT NULL CHECK (asns BETWEEN 0 AND 10000000),
+  success_rate_bps          INTEGER CHECK (success_rate_bps IS NULL OR success_rate_bps BETWEEN 0 AND 10000),
+  p50_ms                    INTEGER CHECK (p50_ms IS NULL OR p50_ms BETWEEN 0 AND 3600000),
+  p95_ms                    INTEGER CHECK (p95_ms IS NULL OR p95_ms BETWEEN 0 AND 3600000),
+  paid_bytes_24h            BIGINT NOT NULL CHECK (paid_bytes_24h BETWEEN 0 AND 1000000000000000000),
+  seed_paid_bytes_24h       BIGINT NOT NULL CHECK (seed_paid_bytes_24h BETWEEN 0 AND 1000000000000000000),
+  community_paid_bytes_24h  BIGINT NOT NULL CHECK (community_paid_bytes_24h BETWEEN 0 AND 1000000000000000000),
+  by_class                  JSONB NOT NULL DEFAULT '{}'::jsonb CHECK (pg_column_size(by_class) <= 4096),
+  created_at                TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS network_incidents (
+  id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  title        TEXT NOT NULL CHECK (length(title) BETWEEN 1 AND 200),
+  body         TEXT NOT NULL DEFAULT '' CHECK (length(body) <= 5000),
+  severity     TEXT NOT NULL CHECK (severity IN ('minor','major','critical','maintenance')),
+  status       TEXT NOT NULL DEFAULT 'investigating' CHECK (status IN ('investigating','identified','monitoring','resolved')),
+  started_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  resolved_at  TIMESTAMPTZ,
+  created_by   UUID REFERENCES users(id) ON DELETE SET NULL,
+  updated_by   UUID REFERENCES users(id) ON DELETE SET NULL,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT chk_incident_resolved CHECK ((status = 'resolved') = (resolved_at IS NOT NULL))
+);
+CREATE INDEX IF NOT EXISTS idx_network_incidents_started ON network_incidents(started_at DESC);
+
+-- ─── Unmet demand: selections that found no eligible node ───────────
+-- Aggregated (hour, country, ip_class) counts only: no requester ids, no hosts.
+CREATE TABLE IF NOT EXISTS unmet_demand_hourly (
+  hour      TIMESTAMPTZ NOT NULL,
+  country   TEXT NOT NULL CHECK (country = '' OR country ~ '^[A-Z]{2}$'),
+  ip_class  TEXT NOT NULL CHECK (ip_class IN ('', 'residential', 'dc', 'mobile')),
+  requests  INTEGER NOT NULL DEFAULT 0 CHECK (requests BETWEEN 0 AND 2000000000),
+  PRIMARY KEY (hour, country, ip_class)
+);
+CREATE INDEX IF NOT EXISTS idx_unmet_demand_hour ON unmet_demand_hourly(hour);
+
+-- ─── Public abuse-report intake (PoW gated, no account) ─────────────
+-- Stores the destination host, the time window and a description only; no
+-- reporter IP. Triage cross-references relay_abuse_log (metadata-only).
+CREATE TABLE IF NOT EXISTS abuse_reports (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  dest_host       TEXT NOT NULL CHECK (length(dest_host) BETWEEN 1 AND 253),
+  window_start    TIMESTAMPTZ NOT NULL,
+  window_end      TIMESTAMPTZ NOT NULL,
+  category        TEXT NOT NULL DEFAULT 'other' CHECK (category IN ('spam','credential_stuffing','scraping','fraud','ddos','illegal_content','other')),
+  description     TEXT NOT NULL CHECK (length(description) BETWEEN 10 AND 4000),
+  contact         TEXT CHECK (contact IS NULL OR length(contact) <= 254),
+  status          TEXT NOT NULL DEFAULT 'new' CHECK (status IN ('new','triaged','actioned','dismissed')),
+  admin_note      TEXT CHECK (admin_note IS NULL OR length(admin_note) <= 2000),
+  triaged_by      UUID REFERENCES users(id) ON DELETE SET NULL,
+  triaged_at      TIMESTAMPTZ,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT chk_abuse_window CHECK (window_end >= window_start AND window_end - window_start <= interval '31 days')
+);
+CREATE INDEX IF NOT EXISTS idx_abuse_reports_status ON abuse_reports(status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_abuse_reports_host ON abuse_reports(dest_host, created_at);
+INSERT INTO data_retention_policies (table_name, retention_days, description) VALUES
+  ('abuse_reports', 365, 'Closed (actioned/dismissed) public abuse reports purged after 1 year')
+ON CONFLICT (table_name) DO NOTHING;

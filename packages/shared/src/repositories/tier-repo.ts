@@ -19,6 +19,8 @@ export interface NodeTier {
   holdDays: number;
   maxNodes: number;
   dailyWithdrawLimitMusd: bigint;
+  /** Discount this tier gets when it BUYS relay bandwidth (platform-funded), 0..5000. */
+  buyerDiscountBps: number;
 }
 
 export interface OwnerTierStats {
@@ -102,11 +104,11 @@ export function computeOwnerTier(
 interface TierRow {
   id: number; name: string; rank: number; node_share_bps: number; min_tenure_days: number;
   min_uptime_bps: number; min_active_ips: number; min_reputation: number; no_clawback_days: number;
-  hold_days: number; max_nodes: number; daily_withdraw_limit_musd: string;
+  hold_days: number; max_nodes: number; daily_withdraw_limit_musd: string; buyer_discount_bps?: number;
 }
 
 const TIER_COLS = `id, name, rank, node_share_bps, min_tenure_days, min_uptime_bps, min_active_ips,
-  min_reputation, no_clawback_days, hold_days, max_nodes, daily_withdraw_limit_musd`;
+  min_reputation, no_clawback_days, hold_days, max_nodes, daily_withdraw_limit_musd, buyer_discount_bps`;
 
 export function mapTier(r: TierRow): NodeTier {
   return {
@@ -114,6 +116,7 @@ export function mapTier(r: TierRow): NodeTier {
     minUptimeBps: r.min_uptime_bps, minActiveIps: r.min_active_ips, minReputation: r.min_reputation,
     noClawbackDays: r.no_clawback_days, holdDays: r.hold_days, maxNodes: r.max_nodes,
     dailyWithdrawLimitMusd: BigInt(r.daily_withdraw_limit_musd),
+    buyerDiscountBps: r.buyer_discount_bps ?? 0,
   };
 }
 
@@ -138,8 +141,23 @@ export async function getOwnerTier(userId: string): Promise<NodeTier> {
 export interface ChargeSnapshot {
   splitConfigId: number;
   tierId: number;
+  /** Owner tier share + genesis bonus, capped at the 5000 bps ceiling. */
   nodeShareBps: number;
   holdDays: number;
+  /** Part of nodeShareBps that is the genesis bonus (0 when not in the cohort). */
+  genesisBonusBps?: number;
+  /** Requester (buyer) tier discount snapshot; absent/0 = list price. */
+  buyerTierId?: number | null;
+  buyerDiscountBps?: number;
+  minPlatformMarginBps?: number;
+}
+
+export const MAX_NODE_SHARE_BPS = 5000;
+
+/** Genesis bonus that fits under the ceiling (pure). */
+export function genesisBonusFor(tierShareBps: number, bonusBps: number): number {
+  const room = Math.max(0, MAX_NODE_SHARE_BPS - Math.min(tierShareBps, MAX_NODE_SHARE_BPS));
+  return Math.max(0, Math.min(bonusBps, room));
 }
 
 export async function getChargeSnapshot(ownerUserId: string): Promise<ChargeSnapshot> {
@@ -148,7 +166,47 @@ export async function getChargeSnapshot(ownerUserId: string): Promise<ChargeSnap
     `SELECT id FROM revenue_split_config WHERE effective_from <= now() ORDER BY effective_from DESC, id DESC LIMIT 1`,
   );
   if (!c.rows[0]) throw new Error("Split config lookup failed"); // fail closed
-  return { splitConfigId: c.rows[0].id, tierId: tier.id, nodeShareBps: Math.min(tier.nodeShareBps, 5000), holdDays: tier.holdDays };
+  const base = Math.min(tier.nodeShareBps, MAX_NODE_SHARE_BPS);
+  // Genesis boost (LAUNCH_PLAN §4.2): active cohort member with an unexpired boost.
+  const g = await query<{ bonus_bps: number }>(
+    `SELECT s.bonus_bps FROM genesis_settings s JOIN genesis_members m ON m.owner_user_id = $1
+     WHERE s.id = 1 AND s.enabled AND m.boost_until > now()`,
+    [ownerUserId],
+  );
+  const bonus = g.rows[0] ? genesisBonusFor(base, Number(g.rows[0].bonus_bps)) : 0;
+  return { splitConfigId: c.rows[0].id, tierId: tier.id, nodeShareBps: base + bonus, holdDays: tier.holdDays, genesisBonusBps: bonus };
+}
+
+export interface BuyerDiscountSnapshot {
+  buyerTierId: number | null;
+  buyerDiscountBps: number;
+  minPlatformMarginBps: number;
+}
+
+/**
+ * Requester discount by owner tier. Only principals that own a (non-revoked)
+ * node have a tier; everyone else pays list price. Fails closed to no discount
+ * is NOT done here: callers treat a lookup error like any pricing error.
+ */
+export async function getBuyerDiscount(requesterUserId: string): Promise<BuyerDiscountSnapshot> {
+  const r = await query<{ tier_id: number | null; buyer_discount_bps: number | null; enabled: boolean | null; min_platform_margin_bps: number | null }>(
+    `SELECT t.id AS tier_id, t.buyer_discount_bps, s.enabled, s.min_platform_margin_bps
+     FROM (SELECT 1) one
+     LEFT JOIN buyer_discount_settings s ON s.id = 1
+     LEFT JOIN LATERAL (
+       SELECT nt.id, nt.buyer_discount_bps FROM node_tiers nt
+       WHERE EXISTS (SELECT 1 FROM nodes n WHERE n.owner_user_id = $1 AND n.status <> 'revoked')
+         AND nt.id = COALESCE((SELECT node_tier_id FROM users WHERE id = $1),
+                              (SELECT id FROM node_tiers ORDER BY rank LIMIT 1))
+     ) t ON true`,
+    [requesterUserId],
+  );
+  const row = r.rows[0];
+  const margin = row?.min_platform_margin_bps ?? 2500;
+  if (!row || row.tier_id == null || row.enabled === false) {
+    return { buyerTierId: row?.tier_id ?? null, buyerDiscountBps: 0, minPlatformMarginBps: margin };
+  }
+  return { buyerTierId: row.tier_id, buyerDiscountBps: Math.max(0, Math.min(5000, row.buyer_discount_bps ?? 0)), minPlatformMarginBps: margin };
 }
 
 /**
@@ -159,12 +217,12 @@ export async function getOwnerTierStats(userId: string, uptimeBps: number): Prom
   const r = await query<{ tenure_days: string; active_ips: string; reputation: string | null; last_clawback_days: string | null }>(
     `SELECT
        (SELECT COUNT(DISTINCT created_at::date) FROM relay_charges
-         WHERE node_owner_user_id = $1 AND matured AND NOT disputed AND node_musd > 0
+         WHERE node_owner_user_id = $1 AND matured AND NOT disputed AND node_musd > 0 AND starter_musd = 0
            AND requester_user_id IS DISTINCT FROM $1) AS tenure_days,
        (SELECT COUNT(*) FROM (
           SELECT n.observed_ip FROM relay_charges rc JOIN nodes n ON n.id = rc.node_id
           WHERE rc.node_owner_user_id = $1 AND rc.created_at >= now() - interval '7 days'
-            AND rc.gross_musd > 0 AND NOT rc.disputed AND n.observed_ip IS NOT NULL
+            AND rc.gross_musd > 0 AND rc.starter_musd = 0 AND NOT rc.disputed AND n.observed_ip IS NOT NULL
             AND rc.requester_user_id IS DISTINCT FROM $1
           GROUP BY n.observed_ip HAVING COUNT(DISTINCT rc.requester_user_id) >= 3) ips) AS active_ips,
        (SELECT AVG(GREATEST(0, reputation - report_penalty))::int FROM nodes WHERE owner_user_id = $1 AND status = 'active') AS reputation,

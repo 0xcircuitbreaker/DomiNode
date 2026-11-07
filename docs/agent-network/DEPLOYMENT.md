@@ -164,7 +164,49 @@ Clients:
   `DOMINUSNODE_HTTP_PROXY_PORT` when set.
 - curl: `curl -x https://relay:$KEY@proxy.example.com:8443 https://example.com`.
 
-## 7. Public product site (DDG subdomain)
+## 7. Seed nodes (operator-run)
+
+Seed nodes are registered under a dedicated platform principal (DESIGN.md §11, LAUNCH_PLAN §4.1) and flagged `operator_run` so they are reported separately and never take genesis slots.
+
+**Files**
+- `packages/node-agent/Dockerfile`: multi-stage, runs as uid 1001, no node key, API key or wallet key in the image. Coordinator pins are a build arg (`DN_COORD_PUBKEYS`, public keys) and the build fails without them.
+- `infra/systemd/dominusnode-node.service`: hardened unit (`ProtectSystem=strict`, no capabilities, IPv4/IPv6/unix sockets only), reads `/etc/dominusnode/node.env` and the key file `/etc/dominusnode/node.json` (0600, owner `dominusnode`).
+- `scripts/seed/deploy-node.sh`: env-driven and idempotent (re-run to upgrade). It creates the service user, writes the non-secret env file, checks out `DN_REF`, builds the agent (or the image with `DN_MODE=docker`), registers the node once if no key file exists (`DN_API_KEY` and `DN_WALLET_KEY_FILE` from the environment only) and restarts the service.
+
+```bash
+sudo DN_COORD_PUBKEYS=<pins> DN_REF=<release tag> \
+     DN_NODE_API_URL=https://api.example DN_NODE_GATEWAY_URL=wss://gw.example/tunnel \
+     DN_API_KEY=$SEED_PRINCIPAL_KEY DN_WALLET_KEY_FILE=/root/seed-wallet.key \
+     ./scripts/seed/deploy-node.sh
+```
+
+Docker only:
+```bash
+docker build -f packages/node-agent/Dockerfile --build-arg DN_COORD_PUBKEYS=<pins> -t dominusnode-node .
+docker run -d --restart unless-stopped --env-file /etc/dominusnode/node.env \
+  -v /etc/dominusnode/node.json:/run/dominusnode/node.json:ro dominusnode-node
+```
+The key file must be owned by uid 1001 with mode 0600 (the agent refuses group/world-readable key files).
+
+After the first registration, flag the node: admin panel → Launch controls → "Flag operator-run", or `POST /api/admin/network/nodes/:id/operator-run {"operatorRun": true}`. The flag takes effect on the node's next tunnel reconnect.
+
+## 8. Launch jobs and settings
+
+| Env var | Default | Meaning |
+|---|---|---|
+| `STARTER_EXPIRY_JOB_INTERVAL_MS` | 3600000 | Starter-credit expiry job |
+| `GENESIS_JOB_INTERVAL_MS` | 3600000 | Genesis enrolment, credit grant and maturity |
+| `NETWORK_SNAPSHOT_INTERVAL_MS` | 3600000 | Hourly public network snapshot |
+| `NETWORK_SNAPSHOT_RETENTION_DAYS` | 400 | Snapshot retention |
+| `UNMET_DEMAND_FLUSH_INTERVAL_MS` | 60000 | Per-instance flush of unmet-demand counts |
+| `UNMET_DEMAND_RETENTION_DAYS` | 90 | Unmet-demand retention |
+| `PAYER_SDN_FILE` | `PAYOUT_SDN_FILE` | OFAC SDN address list for x402/MPP payer screening |
+| `PAYER_SDN_REQUIRED` | `false` (always `true` in production) | Refuse paid requests when the list is missing |
+| `ABUSE_REPORT_POW_DIFFICULTY` | 20 | Leading zero bits for abuse-report PoW |
+
+The SDN list must be installed (and refreshed) on every gateway host before x402/MPP is enabled in production; without it paid requests return `503 PAYER_SCREENING_UNAVAILABLE`. The public status page is served by the API at `/status`; put it behind the same TLS proxy as `/v1`.
+
+## 9. Public product site (DDG subdomain)
 
 `packages/frontend` is a static build: the public landing page at `/`, the
 agent-discovery files, and the admin panel at `/admin` (reachable only by
@@ -175,18 +217,23 @@ described in [DISCOVERY.md](DISCOVERY.md).
 
 ```bash
 VITE_PUBLIC_ORIGIN=https://dominusnode.daedalusdevelopmentgroup.com \
-VITE_API_BASE=https://api.dominusnode.com \
+VITE_API_BASE=https://api.dominusnode.daedalusdevelopmentgroup.com \
 npm run build --workspace=packages/frontend      # -> packages/frontend/dist
 ```
 
 `VITE_PUBLIC_ORIGIN` (default `https://dominusnode.daedalusdevelopmentgroup.com`)
 is written into the canonical/OpenGraph tags, `sitemap.xml`, `robots.txt`,
 `llms.txt`, `llms-full.txt`, `docs/*.md` and `.well-known/mcp/server.json` at
-build time. A malformed value fails the build. `VITE_API_BASE` is where the
+build time. A malformed value fails the build. `VITE_API_BASE` (default `https://api.dominusnode.daedalusdevelopmentgroup.com`) is where the
 landing page fetches `/v1/pricing`, `/v1/network/stats` and `/v1/policy`
-(client-side; the page shows fallback text if they fail). Optional
-`VITE_ABUSE_URL` overrides the "Report abuse" link (default: GitHub issues,
-since the API has no abuse intake endpoint yet).
+(client-side; the page shows fallback text if they fail), where `/report-abuse`
+posts `POST /v1/abuse-reports` (proof of work solved in the browser), and
+where the "Status" links point (`/status`, `/v1/network/history`). Optional
+`VITE_ABUSE_URL` replaces the in-site abuse form with another URL.
+
+The SDKs, MCP server and node agent still default to `https://api.dominusnode.com`;
+the site's snippets and docs pass `https://api.dominusnode.daedalusdevelopmentgroup.com` explicitly
+(`baseUrl`, `base_url`, `DOMINUSNODE_API_URL`, `DN_NODE_API_URL`).
 
 After editing `public/docs/*.md` or `discovery/generate.mjs`, run
 `node packages/frontend/discovery/generate.mjs` to refresh the committed copies;
@@ -196,7 +243,7 @@ a test fails if they are stale.
 
 ```
 dominusnode.daedalusdevelopmentgroup.com.      CNAME  <static host target, e.g. your-site.netlify.app.>
-api.dominusnode.daedalusdevelopmentgroup.com.  CNAME  <API host>   (optional; or keep api.dominusnode.com)
+api.dominusnode.daedalusdevelopmentgroup.com.  CNAME  <API host>
 ```
 
 Use an A/AAAA record instead of CNAME if the static host is your own VPS.
@@ -224,7 +271,7 @@ server {
   add_header Strict-Transport-Security "max-age=63072000; includeSubDomains" always;
   add_header X-Content-Type-Options nosniff always;
   add_header Referrer-Policy strict-origin-when-cross-origin always;
-  add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' https://api.dominusnode.com; img-src 'self' data:; frame-ancestors 'none'; base-uri 'self'" always;
+  add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' https://api.dominusnode.daedalusdevelopmentgroup.com; img-src 'self' data:; frame-ancestors 'none'; base-uri 'self'" always;
 
   location /assets/ { add_header Cache-Control "public, max-age=31536000, immutable"; try_files $uri =404; }
   location ~ ^/(llms(-full)?\.txt|robots\.txt|sitemap\.xml|docs/.+\.md|\.well-known/.+\.json)$ {
@@ -259,16 +306,21 @@ dominusnode.daedalusdevelopmentgroup.com {
 
 ### API origin and CORS
 
-Run the API on its own host (`api.dominusnode.com`, or
-`api.dominusnode.daedalusdevelopmentgroup.com`) and add the public origin to
-the API's allowlist:
+Run the API on its own host, `api.dominusnode.daedalusdevelopmentgroup.com`,
+add the public origin to the API's allowlist, and set `APP_URL` so the
+API-hosted `/llms.txt`, `/.well-known/agent-tool.json` and `/status` link the
+right base:
 
 ```
 CORS_ORIGINS=https://dominusnode.daedalusdevelopmentgroup.com
+APP_URL=https://api.dominusnode.daedalusdevelopmentgroup.com
 ```
 
-The landing page calls only the public, unauthenticated `/v1/pricing`,
-`/v1/network/stats` and `/v1/policy` with `credentials: "omit"`. If the API
+The site calls only public, unauthenticated routes with `credentials: "omit"`:
+`/v1/pricing`, `/v1/network/stats`, `/v1/policy`, and (from `/report-abuse`)
+`POST /v1/abuse-reports/challenge` and `POST /v1/abuse-reports`.
+The site's `/llms.txt` and the API's `/llms.txt` state the same facts; the site
+links to the API's copy (live prices) and its `agent-tool.json`. If the API
 moves, rebuild with the new `VITE_API_BASE` and update the CSP `connect-src`.
 
 ### Linking from the DDG site

@@ -71,6 +71,7 @@ describe("/v1 public routes", () => {
     expect(r.body["prices"]).toEqual([{ ipClass: "residential", pricePerGbMusd: "500000" }]);
     expect(r.body["nodeShare"]).toEqual([{ tier: "probation", rank: 0, nodeShareBps: 2500 }]);
     expect(r.body["maturationHours"]).toBe(168);
+    expect(r.body["buyerDiscounts"]).toEqual([{ tier: "probation", rank: 0, buyerDiscountBps: 0 }]);
   });
 
   it("GET /v1/network/stats aggregates and folds small/sanctioned groups", async () => {
@@ -92,5 +93,18 @@ describe("/v1 public routes", () => {
     const sql = String(query.mock.calls[0][0]);
     expect(sql).not.toMatch(/observed_ip|node_key_hash|\bid\b/);
     expect(JSON.stringify(r.body)).not.toMatch(/\d+\.\d+\.\d+\.\d+/);
+  });
+
+  it("GET /v1/network/stats reports operator-run seed nodes separately from community nodes", async () => {
+    query
+      .mockResolvedValueOnce({ rows: [
+        { country: "US", ip_class: "dc", operator_run: true, n: "4" },
+        { country: "US", ip_class: "residential", operator_run: false, n: "3" },
+      ] })
+      .mockResolvedValueOnce({ rows: [{ operator_run: true, bytes: "5000" }, { operator_run: false, bytes: "700" }] });
+    const r = await call(app(), "GET", "/v1/network/stats");
+    expect(r.status).toBe(200);
+    expect(r.body["seed"]).toEqual({ online: 4, paidBytes24h: "5000" });
+    expect(r.body["community"]).toEqual({ online: 3, paidBytes24h: "700" });
   });
 });

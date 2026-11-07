@@ -1,5 +1,5 @@
 /** Typed client for /api/admin/network (docs/agent-network/ADMIN_API.md). */
-import { get, post, put } from "./client";
+import { get, post, put, patch, del } from "./client";
 import type { Money } from "../lib/format";
 
 export type { Money };
@@ -137,6 +137,9 @@ export const AUDIT_ACTIONS = [
   "node_credit_unfreeze", "node_credit_freeze", "node_quarantine", "node_activate", "node_revoke",
   "node_payout_reverse", "byte_dispute_resolve", "relay_abuse_log_access",
   "network_policy_publish", "network_pricing_update", "revenue_split_append", "node_tier_update",
+  "node_operator_run_set", "starter_credit_settings_update", "starter_credit_revoke", "genesis_settings_update",
+  "genesis_credit_clawback", "buyer_discount_settings_update", "network_incident_create", "network_incident_update",
+  "abuse_report_triage", "contribution_allowlist_add", "contribution_allowlist_remove",
 ] as const;
 
 export type PlaintextMode = "deny" | "opt_in" | "allow";
@@ -147,6 +150,7 @@ export interface NetworkPolicy {
   sanctionedCountries: string[]; attestation: { minVersion: number; text: string };
   plaintext: PlaintextMode; logRetentionDays: number;
   nodeCapsPerPrefix: { per32: number; per24: number; perAsn: number }; freeTierRelay: boolean;
+  requireContribution: boolean; contributionWindowDays: number; allowAnonymousPayers: boolean;
 }
 export interface PolicyResponse { version: number; sha256: string; body: NetworkPolicy; createdAt: string | null }
 export interface PricingRow { ipClass: string; pricePerGbMusd: string; updatedAt: string }
@@ -154,10 +158,51 @@ export interface SplitRow { id: number; nodeShareBps: number; maturationHours: n
 export interface Tier {
   id: number; name: string; rank: number; nodeShareBps: number; minTenureDays: number; minUptimeBps: number;
   minActiveIps: number; minReputation: number; noClawbackDays: number; holdDays: number; maxNodes: number;
-  dailyWithdrawLimitMusd: string;
+  dailyWithdrawLimitMusd: string; buyerDiscountBps: number;
 }
 
 const BASE = "/api/admin/network";
+
+// ─── Launch readiness (ADMIN_API.md §14) ───────────────────────────
+export interface SeedSide { total: number; online: number; countries: number; asns: number; paidBytes24h: string; paid24h: Money; paidBytes30d: string; paid30d: Money }
+export interface StarterSettings {
+  enabled: boolean; amount: Money; dailyBudget: Money; perPrefixCap: number; perFundingSourceCap: number; capWindowDays: number;
+  expiryDays: number; seedNodesOnly: boolean; seedOnlyDays: number; updatedAt: string | null; grantedToday?: { count: number; amount: Money };
+}
+export interface StarterGrant { id: string; userId: string; walletAddress: string | null; amount: Money; remaining: Money; ipPrefix: string | null; status: string; expiresAt: string; createdAt: string; closedAt: string | null }
+export interface GenesisSettings { enabled: boolean; maxOwners: number; bonusBps: number; boostDays: number; credit: Money; creditThresholdBytes: string; members?: number; updatedAt: string | null }
+export interface GenesisMember { ownerUserId: string; walletAddress: string | null; seq: number; enrolledAt: string; boostUntil: string; creditStatus: string; credit: Money | null; creditGrantedAt: string | null; creditMaturesAt: string | null; qualifyingBytes: string }
+export interface Incident { id: string; title: string; body: string; severity: string; status: string; startedAt: string; resolvedAt: string | null; updatedAt: string }
+export interface UnmetDemand { days: number; groups: Array<{ country: string | null; ipClass: string | null; requests: number; lastHour: string }>; daily: Array<{ day: string; requests: number }> }
+export interface AbuseReport {
+  id: string; destHost: string; windowStart: string; windowEnd: string; category: string; description: string; contact: string | null;
+  status: string; adminNote: string | null; triagedBy: string | null; triagedAt: string | null; createdAt: string; matches: { sessions: number; requesters: number };
+}
+export interface AllowlistEntry { userId: string; walletAddress: string | null; note: string | null; createdBy: string | null; createdAt: string }
+
+export const launchApi = {
+  seedSummary: () => get<{ seed: SeedSide; community: SeedSide }>(`${BASE}/seed-summary`),
+  setOperatorRun: (nodeId: string, operatorRun: boolean, reason?: string) =>
+    post<{ nodeId: string; operatorRun: boolean; previous: boolean }>(`${BASE}/nodes/${encodeURIComponent(nodeId)}/operator-run`, reason ? { operatorRun, reason } : { operatorRun }),
+  starterSettings: () => get<StarterSettings>(`${BASE}/starter-credits/settings`),
+  updateStarterSettings: (b: Record<string, unknown>) => put<StarterSettings>(`${BASE}/starter-credits/settings`, b),
+  starterGrants: (q: Q) => get<Paged<StarterGrant>>(`${BASE}/starter-credits/grants${qs(q)}`),
+  revokeGrant: (id: string, reason: string) => post<{ id: string; status: string; removed: Money }>(`${BASE}/starter-credits/grants/${encodeURIComponent(id)}/revoke`, { reason }),
+  genesisSettings: () => get<GenesisSettings>(`${BASE}/genesis/settings`),
+  updateGenesisSettings: (b: Record<string, unknown>) => put<GenesisSettings>(`${BASE}/genesis/settings`, b),
+  genesisMembers: (q: Q) => get<Paged<GenesisMember>>(`${BASE}/genesis/members${qs(q)}`),
+  discountSettings: () => get<{ enabled: boolean; minPlatformMarginBps: number; updatedAt: string | null }>(`${BASE}/buyer-discounts/settings`),
+  updateDiscountSettings: (b: { enabled?: boolean; minPlatformMarginBps?: number }) => put<{ updated: Record<string, unknown> }>(`${BASE}/buyer-discounts/settings`, b),
+  incidents: (q: Q) => get<Paged<Incident>>(`${BASE}/incidents${qs(q)}`),
+  createIncident: (b: { title: string; body?: string; severity: string; status?: string }) => post<{ id: string }>(`${BASE}/incidents`, b),
+  updateIncident: (id: string, b: Record<string, unknown>) => patch<{ id: string }>(`${BASE}/incidents/${encodeURIComponent(id)}`, b),
+  unmetDemand: (days: number) => get<UnmetDemand>(`${BASE}/unmet-demand${qs({ days })}`),
+  abuseReports: (q: Q) => get<Paged<AbuseReport>>(`${BASE}/abuse-reports${qs(q)}`),
+  triageReport: (id: string, status: string, note?: string) => post<{ id: string; status: string }>(`${BASE}/abuse-reports/${encodeURIComponent(id)}/triage`, note ? { status, note } : { status }),
+  allowlist: (q: Q) => get<Paged<AllowlistEntry>>(`${BASE}/contribution-allowlist${qs(q)}`),
+  addAllowlist: (userId: string, note?: string) => post<{ userId: string }>(`${BASE}/contribution-allowlist`, note ? { userId, note } : { userId }),
+  removeAllowlist: (userId: string) => del(`${BASE}/contribution-allowlist/${encodeURIComponent(userId)}`),
+};
 
 /** Build a query string from defined, non-empty params. */
 export function qs(params: Record<string, string | number | boolean | null | undefined>): string {

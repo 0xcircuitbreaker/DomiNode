@@ -15,6 +15,8 @@ export const MAX_RELAY_BYTES = 1n << 40n; // 1 TiB
 export const MIN_PRICE_PER_GB_MUSD = 1_000n; // $0.001
 export const MAX_PRICE_PER_GB_MUSD = 5_000_000n; // $5
 export const MAX_NODE_SHARE_BPS = 5_000; // §15 hard ceiling
+export const MAX_BUYER_DISCOUNT_BPS = 5_000;
+export const DEFAULT_MIN_PLATFORM_MARGIN_BPS = 2_500;
 
 export type RelayZeroReason = "self_dealing" | "free_rail";
 
@@ -24,9 +26,18 @@ export interface RelayChargeInput {
   nodeShareBps: number;
   selfDealing: boolean;
   rail: RelayRail;
+  /** Requester's owner-tier buyer discount (0..5000), platform-funded. Default 0. */
+  buyerDiscountBps?: number;
+  /** Platform keeps at least list × this / 10000 after the discount. Default 2500. */
+  minPlatformMarginBps?: number;
 }
 
 export interface RelayCharge {
+  /** price × bytes (ceil): what the node share is computed on. */
+  listGrossMusd: bigint;
+  /** Platform-funded buyer discount; grossMusd = listGrossMusd - discountMusd. */
+  discountMusd: bigint;
+  /** What the requester pays. nodeMusd + platformMusd = grossMusd. */
   grossMusd: bigint;
   nodeMusd: bigint;
   platformMusd: bigint;
@@ -62,15 +73,34 @@ export function computeRelayCharge(input: RelayChargeInput): RelayCharge {
   if (!RELAY_RAILS.includes(rail)) {
     throw new RelayChargeError("invalid rail");
   }
+  const discountBps = input.buyerDiscountBps ?? 0;
+  const marginBps = input.minPlatformMarginBps ?? DEFAULT_MIN_PLATFORM_MARGIN_BPS;
+  if (!Number.isInteger(discountBps) || discountBps < 0 || discountBps > MAX_BUYER_DISCOUNT_BPS) {
+    throw new RelayChargeError("buyerDiscountBps must be an integer in [0, 5000]");
+  }
+  if (!Number.isInteger(marginBps) || marginBps < 0 || marginBps > 10_000) {
+    throw new RelayChargeError("minPlatformMarginBps must be an integer in [0, 10000]");
+  }
 
-  const grossMusd = (bytes * priceMusdPerGb + RELAY_BYTES_PER_GB - 1n) / RELAY_BYTES_PER_GB; // ceil
+  const listGrossMusd = (bytes * priceMusdPerGb + RELAY_BYTES_PER_GB - 1n) / RELAY_BYTES_PER_GB; // ceil
   let zeroReason: RelayZeroReason | null = null;
   if (selfDealing) zeroReason = "self_dealing";
   else if (rail === "free") zeroReason = "free_rail";
 
-  const nodeMusd = zeroReason ? 0n : (grossMusd * BigInt(nodeShareBps)) / 10_000n; // floor
+  // Node share is always on the LIST gross: a buyer discount never changes it.
+  const listNodeMusd = (listGrossMusd * BigInt(nodeShareBps)) / 10_000n; // floor
+  const nodeMusd = zeroReason ? 0n : listNodeMusd;
+  // Discount: clamped so platform keeps >= ceil(list × margin) after paying the node.
+  let discountMusd = 0n;
+  if (discountBps > 0 && rail !== "free" && listGrossMusd > 0n) {
+    const want = (listGrossMusd * BigInt(discountBps)) / 10_000n;
+    const floor = (listGrossMusd * BigInt(marginBps) + 9_999n) / 10_000n;
+    const max = listGrossMusd - listNodeMusd - floor;
+    discountMusd = max <= 0n ? 0n : want < max ? want : max;
+  }
+  const grossMusd = listGrossMusd - discountMusd;
   const platformMusd = grossMusd - nodeMusd;
   const requesterDebitCents = (grossMusd + MUSD_PER_CENT - 1n) / MUSD_PER_CENT; // ceil
 
-  return { grossMusd, nodeMusd, platformMusd, requesterDebitCents, zeroReason };
+  return { listGrossMusd, discountMusd, grossMusd, nodeMusd, platformMusd, requesterDebitCents, zeroReason };
 }

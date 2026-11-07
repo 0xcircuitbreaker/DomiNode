@@ -73,6 +73,8 @@ interface TierView {
   holdDays: number;
   maxNodes: number;
   dailyWithdrawLimitMusd: string;
+  /** Discount on your own relay purchases at this tier (platform-funded). */
+  buyerDiscountBps?: number;
 }
 
 interface Req {
@@ -460,11 +462,12 @@ export function registerNodeTools(server: McpServer, httpClient: HttpClient, con
         const lines = [
           `Tier: ${t.tier.name} (rank ${t.tier.rank}) — node share ${pct(t.tier.nodeShareBps)}`,
           `  Earnings hold: ${t.tier.holdDays} days, node cap: ${t.tier.maxNodes}, daily withdraw limit: ${formatMusd(t.tier.dailyWithdrawLimitMusd)}`,
+          `  Buyer discount on your own relay purchases: ${pct(t.tier.buyerDiscountBps ?? 0)} (contribute IPs to climb tiers: earn more and buy cheaper)`,
         ];
         if (t.demotionReason) lines.push(`  Demotion reason: ${t.demotionReason}`);
         if (t.uptimeGraceUntil) lines.push(`  Uptime grace until: ${t.uptimeGraceUntil}`);
         if (t.nextTier && t.progress) {
-          lines.push(``, `Next tier: ${t.nextTier.name} — node share ${pct(t.nextTier.nodeShareBps)}, cap ${t.nextTier.maxNodes}`);
+          lines.push(``, `Next tier: ${t.nextTier.name} — node share ${pct(t.nextTier.nodeShareBps)}, buyer discount ${pct(t.nextTier.buyerDiscountBps ?? 0)}, cap ${t.nextTier.maxNodes}`);
           lines.push(
             ...[
               fmtReq("Paid tenure days", t.progress.tenureDays),

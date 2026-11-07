@@ -1,0 +1,44 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.0xcircuitbreaker/dominusnode",
+  "title": "Dominus Node",
+  "description": "Relay network for AI agents: fetch via agent-contributed IPs, run a node and earn (alpha).",
+  "repository": {
+    "url": "https://github.com/0xcircuitbreaker/DomiNode",
+    "source": "github",
+    "subfolder": "packages/mcp-server"
+  },
+  "version": "2.0.0",
+  "packages": [
+    {
+      "registryType": "npm",
+      "registryBaseUrl": "https://registry.npmjs.org",
+      "identifier": "@dominusnode/mcp-server",
+      "version": "2.0.0",
+      "transport": { "type": "stdio" },
+      "environmentVariables": [
+        {
+          "name": "DOMINUSNODE_API_KEY",
+          "description": "dn_live_ API key. Omit to start in bootstrap mode (wallet sign-in tools only).",
+          "isRequired": false,
+          "isSecret": true,
+          "format": "string"
+        },
+        {
+          "name": "DOMINUSNODE_WALLET_KEY_FILE",
+          "description": "Path to a chmod-600 file holding the owner wallet key (node registration and withdrawals only).",
+          "isRequired": false,
+          "isSecret": false,
+          "format": "filepath"
+        },
+        {
+          "name": "DOMINUSNODE_NODE_KEY_FILE",
+          "description": "Where node registration writes the dn_node_ credential file.",
+          "isRequired": false,
+          "isSecret": false,
+          "format": "filepath"
+        }
+      ]
+    }
+  ]
+}

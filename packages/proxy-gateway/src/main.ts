@@ -2,7 +2,7 @@ import type * as net from "node:net";
 import dotenv from "dotenv";
 dotenv.config();
 
-import { createLogger, closePool, getPool, usageRepo, connectWithRetry, nodeRepo, policyRepo, nodeCreditRepo, retentionRepo, tierRepo, payoutRepo, relayChargeRepo, relaySettleRetryRepo, reportReputationRepo, collusionRepo } from "@dominusnode/shared";
+import { createLogger, closePool, getPool, usageRepo, connectWithRetry, nodeRepo, policyRepo, nodeCreditRepo, retentionRepo, tierRepo, payoutRepo, relayChargeRepo, relaySettleRetryRepo, reportReputationRepo, collusionRepo, starterCreditRepo, contributionRepo, genesisRepo, networkStatusRepo } from "@dominusnode/shared";
 import type { ActivePolicy } from "@dominusnode/shared";
 import { startProxyServer } from "./server.js";
 import { geoAvailable, initGeoCheck, lookupPeerGeo } from "./geo-check.js";
@@ -25,6 +25,10 @@ import * as reportReputationJob from "./jobs/report-reputation.js";
 import * as collusionJob from "./jobs/collusion.js";
 import { loadSdnFile } from "./jobs/sdn.js";
 import * as probesJob from "./jobs/probes.js";
+import * as launchJobs from "./jobs/launch.js";
+import { configureAccessGate } from "./access-gate.js";
+import { getLatencyPercentiles } from "./stats.js";
+import { drainUnmetDemand, restoreUnmetDemand } from "./unmet-demand.js";
 import { parseTrustedProxyIps, loadTunnelTls } from "./node-tunnel/ingress.js";
 import { createEthersPayoutSender } from "./jobs/payout-sender-ethers.js";
 import { getActiveSessionCount, terminateUserSessions, getActiveSessions, awaitInFlightSettlements, getInFlightSettlementCount } from "./session-manager.js";
@@ -142,6 +146,9 @@ async function main(): Promise<void> {
 
   // ─── Background jobs (DESIGN.md §6.4, §15) ─────────────────────────
   const jobs = startJobs(registry, getPolicy);
+
+  // Requester access: contribution requirement + starter-credit seed-only routing
+  configureAccessGate({ isSeedOnly: (u) => starterCreditRepo.isSeedOnlyRequester(u), hasContribution: contributionRepo.hasContribution });
 
   // TLS proxy listener (DESIGN.md §15): Proxy-Authorization over TLS.
   const proxyTls = loadProxyTls(process.env);
@@ -301,6 +308,32 @@ function startJobs(registry: NodeRegistry, getPolicy: () => ActivePolicy): Job[]
       evaluateNode: collusionRepo.evaluateNode,
       evaluateCircular: collusionRepo.evaluateCircular,
       record: collusionRepo.recordFinding,
+    },
+  }));
+  jobs.push(launchJobs.startStarterExpiry({
+    pool, logger: jobLog, intervalMs: envInt(process.env, "STARTER_EXPIRY_JOB_INTERVAL_MS", 3_600_000, 60_000, 86_400_000),
+    deps: { expireDue: starterCreditRepo.expireDue },
+  }));
+  jobs.push(launchJobs.startNetworkSnapshot({
+    pool, logger: jobLog, intervalMs: envInt(process.env, "NETWORK_SNAPSHOT_INTERVAL_MS", 3_600_000, 60_000, 86_400_000),
+    deps: {
+      latency: getLatencyPercentiles,
+      takeSnapshot: networkStatusRepo.takeSnapshot,
+      purgeSnapshots: networkStatusRepo.purgeSnapshots,
+      purgeUnmetDemand: networkStatusRepo.purgeUnmetDemand,
+      snapshotRetentionDays: envInt(process.env, "NETWORK_SNAPSHOT_RETENTION_DAYS", 400, 7, 3650),
+      unmetRetentionDays: envInt(process.env, "UNMET_DEMAND_RETENTION_DAYS", 90, 7, 3650),
+    },
+  }));
+  jobs.push(launchJobs.startUnmetFlush({
+    logger: jobLog, intervalMs: envInt(process.env, "UNMET_DEMAND_FLUSH_INTERVAL_MS", 60_000, 5_000, 3_600_000),
+    deps: { drain: drainUnmetDemand, restore: restoreUnmetDemand, write: networkStatusRepo.addUnmetDemand },
+  }));
+  jobs.push(launchJobs.startGenesis({
+    pool, logger: jobLog, intervalMs: envInt(process.env, "GENESIS_JOB_INTERVAL_MS", 3_600_000, 60_000, 86_400_000),
+    deps: {
+      enrol: genesisRepo.enrol, listCreditCandidates: genesisRepo.listCreditCandidates,
+      grantCredit: genesisRepo.grantCredit, matureCredits: genesisRepo.matureCredits,
     },
   }));
   const probeTarget = probesJob.parseProbeUrl(process.env["PROBE_URL"]);

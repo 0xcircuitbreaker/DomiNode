@@ -321,6 +321,7 @@ router.get("/node/tier", async (req: Request, res: Response) => {
     const tierView = (t: typeof current) => ({
       id: t.id, name: t.name, rank: t.rank, nodeShareBps: t.nodeShareBps, holdDays: t.holdDays,
       maxNodes: t.maxNodes, dailyWithdrawLimitMusd: t.dailyWithdrawLimitMusd.toString(),
+      buyerDiscountBps: t.buyerDiscountBps ?? 0,
     });
     res.json({
       tier: tierView(current),

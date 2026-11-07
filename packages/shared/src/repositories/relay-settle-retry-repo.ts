@@ -30,6 +30,8 @@ export function encodeSettleInput(i: SettleRelayChargeInput): Record<string, unk
     snapshot: {
       splitConfigId: i.snapshot.splitConfigId, tierId: i.snapshot.tierId,
       nodeShareBps: i.snapshot.nodeShareBps, holdDays: i.snapshot.holdDays,
+      genesisBonusBps: i.snapshot.genesisBonusBps ?? 0, buyerTierId: i.snapshot.buyerTierId ?? null,
+      buyerDiscountBps: i.snapshot.buyerDiscountBps ?? 0, minPlatformMarginBps: i.snapshot.minPlatformMarginBps ?? 2500,
     },
     destHost: i.destHost, destPort: i.destPort, usageTargetHost: i.usageTargetHost ?? null,
     zeroReason: i.zeroReason ?? null, prepaidGrossMusd: big(i.prepaidGrossMusd),
@@ -71,6 +73,11 @@ export function decodeSettleInput(p: unknown): SettleRelayChargeInput {
     snapshot: {
       splitConfigId: int(snap["splitConfigId"]), tierId: int(snap["tierId"]),
       nodeShareBps: int(snap["nodeShareBps"]), holdDays: int(snap["holdDays"]),
+      // Older payloads predate these fields: no bonus, no discount.
+      genesisBonusBps: snap["genesisBonusBps"] === undefined ? 0 : int(snap["genesisBonusBps"]),
+      buyerTierId: snap["buyerTierId"] === undefined || snap["buyerTierId"] === null ? null : int(snap["buyerTierId"]),
+      buyerDiscountBps: snap["buyerDiscountBps"] === undefined ? 0 : int(snap["buyerDiscountBps"]),
+      minPlatformMarginBps: snap["minPlatformMarginBps"] === undefined ? 2500 : int(snap["minPlatformMarginBps"]),
     },
     destHost: str(o["destHost"]), destPort: int(o["destPort"]),
   };
