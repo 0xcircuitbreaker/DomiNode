@@ -163,3 +163,131 @@ Clients:
   (optional `DOMINUSNODE_PROXY_CA_FILE` for a private CA). Preferred over
   `DOMINUSNODE_HTTP_PROXY_PORT` when set.
 - curl: `curl -x https://relay:$KEY@proxy.example.com:8443 https://example.com`.
+
+## 7. Public product site (DDG subdomain)
+
+`packages/frontend` is a static build: the public landing page at `/`, the
+agent-discovery files, and the admin panel at `/admin` (reachable only by
+typing the path; nothing on the public site links to it). Discovery files are
+described in [DISCOVERY.md](DISCOVERY.md).
+
+### Build
+
+```bash
+VITE_PUBLIC_ORIGIN=https://dominusnode.daedalusdevelopmentgroup.com \
+VITE_API_BASE=https://api.dominusnode.com \
+npm run build --workspace=packages/frontend      # -> packages/frontend/dist
+```
+
+`VITE_PUBLIC_ORIGIN` (default `https://dominusnode.daedalusdevelopmentgroup.com`)
+is written into the canonical/OpenGraph tags, `sitemap.xml`, `robots.txt`,
+`llms.txt`, `llms-full.txt`, `docs/*.md` and `.well-known/mcp/server.json` at
+build time. A malformed value fails the build. `VITE_API_BASE` is where the
+landing page fetches `/v1/pricing`, `/v1/network/stats` and `/v1/policy`
+(client-side; the page shows fallback text if they fail). Optional
+`VITE_ABUSE_URL` overrides the "Report abuse" link (default: GitHub issues,
+since the API has no abuse intake endpoint yet).
+
+After editing `public/docs/*.md` or `discovery/generate.mjs`, run
+`node packages/frontend/discovery/generate.mjs` to refresh the committed copies;
+a test fails if they are stale.
+
+### DNS
+
+```
+dominusnode.daedalusdevelopmentgroup.com.      CNAME  <static host target, e.g. your-site.netlify.app.>
+api.dominusnode.daedalusdevelopmentgroup.com.  CNAME  <API host>   (optional; or keep api.dominusnode.com)
+```
+
+Use an A/AAAA record instead of CNAME if the static host is your own VPS.
+
+### Hosting option A: Netlify
+
+`netlify.toml` at the repo root builds the frontend workspace, sets
+`VITE_PUBLIC_ORIGIN`/`VITE_API_BASE`, serves discovery files with explicit
+content types and `Access-Control-Allow-Origin: *`, caches hashed assets for a
+year, adds `X-Robots-Tag: noindex` on `/admin` and `/login`, and falls back to
+`index.html` for SPA routes. Add the subdomain as a custom domain in Netlify.
+
+### Hosting option B: nginx
+
+```nginx
+server {
+  listen 443 ssl http2;
+  server_name dominusnode.daedalusdevelopmentgroup.com;
+  root /srv/dominusnode/frontend/dist;
+
+  types { text/markdown md; }
+  charset utf-8;
+  charset_types text/plain text/markdown application/json text/xml;
+
+  add_header Strict-Transport-Security "max-age=63072000; includeSubDomains" always;
+  add_header X-Content-Type-Options nosniff always;
+  add_header Referrer-Policy strict-origin-when-cross-origin always;
+  add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' https://api.dominusnode.com; img-src 'self' data:; frame-ancestors 'none'; base-uri 'self'" always;
+
+  location /assets/ { add_header Cache-Control "public, max-age=31536000, immutable"; try_files $uri =404; }
+  location ~ ^/(llms(-full)?\.txt|robots\.txt|sitemap\.xml|docs/.+\.md|\.well-known/.+\.json)$ {
+    add_header Access-Control-Allow-Origin "*";
+    add_header Cache-Control "public, max-age=3600";
+    try_files $uri =404;
+  }
+  location /admin { add_header X-Robots-Tag "noindex, nofollow" always; try_files $uri /index.html; }
+  location / { add_header Cache-Control "no-cache"; try_files $uri /index.html; }
+}
+```
+
+### Hosting option C: Caddy
+
+```caddy
+dominusnode.daedalusdevelopmentgroup.com {
+  root * /srv/dominusnode/frontend/dist
+  encode zstd gzip
+  @discovery path /llms.txt /llms-full.txt /robots.txt /sitemap.xml /docs/*.md /.well-known/*
+  header @discovery Access-Control-Allow-Origin "*"
+  header @discovery Cache-Control "public, max-age=3600"
+  @md path *.md
+  header @md Content-Type "text/markdown; charset=utf-8"
+  @txt path *.txt
+  header @txt Content-Type "text/plain; charset=utf-8"
+  header /assets/* Cache-Control "public, max-age=31536000, immutable"
+  header /admin* X-Robots-Tag "noindex, nofollow"
+  try_files {path} /index.html
+  file_server
+}
+```
+
+### API origin and CORS
+
+Run the API on its own host (`api.dominusnode.com`, or
+`api.dominusnode.daedalusdevelopmentgroup.com`) and add the public origin to
+the API's allowlist:
+
+```
+CORS_ORIGINS=https://dominusnode.daedalusdevelopmentgroup.com
+```
+
+The landing page calls only the public, unauthenticated `/v1/pricing`,
+`/v1/network/stats` and `/v1/policy` with `credentials: "omit"`. If the API
+moves, rebuild with the new `VITE_API_BASE` and update the CSP `connect-src`.
+
+### Linking from the DDG site
+
+So existing crawlers and agents find it:
+
+- DDG home page and products/services page: a "DominusNode: relay network for AI
+  agents" card linking to `https://dominusnode.daedalusdevelopmentgroup.com/`.
+- DDG footer: a plain link to the same URL.
+- DDG agent-service pages (anything already describing agent tooling): a
+  "Network egress for your agents" link to `/docs/agents.md` and to the MCP
+  setup at `/docs/mcp.md`.
+- DDG `sitemap.xml`: add the product URL, or a `<sitemap>` entry pointing to
+  `https://dominusnode.daedalusdevelopmentgroup.com/sitemap.xml`.
+- DDG JSON-LD Organization: list the product under `owns` or `makesOffer`.
+- DDG `llms.txt`, under its products section:
+
+```markdown
+## Products
+
+- [DominusNode](https://dominusnode.daedalusdevelopmentgroup.com/llms.txt): decentralized relay network for AI agents; buy egress through agent-contributed IPs with x402/MPP or a prepaid wallet, or run a node and earn. MCP server: @dominusnode/mcp-server.
+```
