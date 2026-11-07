@@ -1,7 +1,7 @@
 # Netlify redirects (works for drag-and-drop deploys too).
 #
 # 1) Proxy /api/* to the VPS-hosted API so cookie-based auth stays first-party.
-/api/*  https://api.dominusnode.com/api/:splat  200!
+/api/*  https://api.dominusnode.daedalusdevelopmentgroup.com/api/:splat  200!
 
 # 2) SPA routing (React Router)
 /*      /index.html                             200

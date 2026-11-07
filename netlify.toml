@@ -5,6 +5,9 @@
 
 [build.environment]
   NODE_VERSION = "22"
+  # Public product site origin (canonical URLs, sitemap, llms.txt) and the public API base.
+  VITE_PUBLIC_ORIGIN = "https://dominusnode.daedalusdevelopmentgroup.com"
+  VITE_API_BASE = "https://api.dominusnode.daedalusdevelopmentgroup.com"
   VITE_RECAPTCHA_SITE_KEY = "6LcQvXAsAAAAAKtirq965QN3_Ew9x2Hl5THmRUSN"
 
 # Security response headers for all pages
@@ -17,6 +20,44 @@
     Referrer-Policy = "strict-origin-when-cross-origin"
     Permissions-Policy = "camera=(), microphone=(), geolocation=(), payment=(self)"
     Content-Security-Policy = "default-src 'self'; script-src 'self' https://www.google.com/recaptcha/ https://www.gstatic.com/recaptcha/; style-src 'self' 'unsafe-inline'; connect-src 'self' https://*.dominusnode.daedalusdevelopmentgroup.com; img-src 'self' data:; font-src 'self'; frame-src https://checkout.stripe.com https://nowpayments.io https://www.google.com/recaptcha/; frame-ancestors 'none'; form-action 'self'; base-uri 'self'; upgrade-insecure-requests;"
+
+# Agent-discovery files: explicit types, CORS-readable, short cache.
+[[headers]]
+  for = "/*.txt"
+  [headers.values]
+    Content-Type = "text/plain; charset=utf-8"
+    Access-Control-Allow-Origin = "*"
+    Cache-Control = "public, max-age=3600"
+[[headers]]
+  for = "/docs/*"
+  [headers.values]
+    Content-Type = "text/markdown; charset=utf-8"
+    Access-Control-Allow-Origin = "*"
+    Cache-Control = "public, max-age=3600"
+[[headers]]
+  for = "/.well-known/*"
+  [headers.values]
+    Content-Type = "application/json; charset=utf-8"
+    Access-Control-Allow-Origin = "*"
+    Cache-Control = "public, max-age=3600"
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+# Admin and auth pages are never indexed.
+[[headers]]
+  for = "/admin/*"
+  [headers.values]
+    X-Robots-Tag = "noindex, nofollow"
+[[headers]]
+  for = "/admin"
+  [headers.values]
+    X-Robots-Tag = "noindex, nofollow"
+[[headers]]
+  for = "/login"
+  [headers.values]
+    X-Robots-Tag = "noindex, nofollow"
 
 # Reverse-proxy API calls to backend so cookie-based auth stays first-party.
 [[redirects]]
