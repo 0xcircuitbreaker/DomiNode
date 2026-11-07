@@ -492,6 +492,7 @@ jobs:
         working-directory: ${{ matrix.pkg.path }}
     env:
       PKG_ID: ${{ matrix.pkg.id }}
+      PKG_NAME: ${{ matrix.pkg.name }}
       PKG_VERSION: ${{ matrix.pkg.version }}
       PKG_TAG: ${{ matrix.pkg.tag }}
       PKG_PRERELEASE: ${{ matrix.pkg.prerelease }}
@@ -514,7 +515,9 @@ jobs:
       - name: Package
         run: |
           cargo publish --dry-run
-          node "$GITHUB_WORKSPACE/scripts/release/check-artifacts.mjs" target/package/*.crate
+          # `cargo publish --dry-run` no longer keeps the .crate; build it explicitly for the check.
+          cargo package --no-verify
+          node "$GITHUB_WORKSPACE/scripts/release/check-artifacts.mjs" "target/package/${PKG_NAME}-${PKG_VERSION}.crate"
       - name: crates.io token (Trusted Publishing)
         if: ${{ matrix.pkg.published != true && env.DRY_RUN != 'true' }}
         id: auth
