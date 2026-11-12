@@ -56,6 +56,15 @@ describe("federation documents", () => {
     expect(buildCoordinatorPayload(env, signer.publicKeyHex, policy).operator.name).not.toMatch(/Daedalus/);
   });
 
+  it("advertises the TLS proxy listeners first when enabled", () => {
+    const off = buildCoordinatorPayload(env, signer.publicKeyHex, policy).gateway;
+    expect(off.https_proxy).toBeUndefined();
+    const on = buildCoordinatorPayload({ ...env, PROXY_PUBLIC_HOST: "proxy.example.org", PROXY_PUBLIC_TLS_PORT: "8444", PROXY_PUBLIC_SOCKS5_TLS_PORT: "1443" }, signer.publicKeyHex, policy).gateway;
+    expect(on.https_proxy).toBe("proxy.example.org:8444");
+    expect(on.socks5_tls_proxy).toBe("proxy.example.org:1443");
+    expect(Object.keys(on)[0]).toBe("https_proxy");
+  });
+
   it("requires APP_URL", () => {
     expect(() => buildCoordinatorPayload({}, signer.publicKeyHex, policy)).toThrow(/APP_URL/);
   });

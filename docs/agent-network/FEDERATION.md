@@ -36,7 +36,7 @@ The payload contains these fields:
 - `hostnames`: a list of hostnames
 - `site_name`
 - `api_url`
-- `gateway`: `http_proxy`, `socks5_proxy` and `tunnel_url`
+- `gateway`: `https_proxy` and `socks5_tls_proxy` (TLS listeners, listed first, present only when enabled; agents should prefer them), `http_proxy`, `socks5_proxy` and `tunnel_url`
 - `policy`: `version`, `sha256` and `url`
 - `pricing_url`
 - `operator`: `name`, `contact` and `abuse_contact`

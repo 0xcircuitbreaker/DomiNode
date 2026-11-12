@@ -145,14 +145,13 @@ elsewhere). Meaning and required/optional status are documented in
 | `PAYPAL_WEBHOOK_IPS` |  | `src/routes/webhooks.ts` |
 | `POW_DIFFICULTY` | `20` | `src/routes/auth.ts` |
 | `PROXY_HOST` | `localhost` | `src/routes/proxy-config.ts` |
-| `PROXY_HTTP_PORT` | `8080` | `src/routes/federation.ts` |
+| `PROXY_HTTP_PORT` |  | `src/routes/federation.ts` |
 | `PROXY_INTERNAL_HOST` | `127.0.0.1` | `src/routes/account.ts`, `src/routes/admin.ts`, `src/routes/proxy-health.ts` |
 | `PROXY_INTERNAL_URL` |  | `src/routes/proxy-health.ts` |
 | `PROXY_PUBLIC_HOST` | `proxy.dominusnode.com` | `src/routes/discovery.ts`, `src/routes/federation.ts`, `src/routes/proxy-config.ts`, `src/routes/proxy-health.ts`, `src/routes/x402.ts` |
 | `PROXY_STATS_SECRET` |  | `src/routes/account.ts`, `src/routes/admin.ts`, `src/routes/proxy-health.ts` |
 | `RECAPTCHA_SCORE_THRESHOLD` | `0.5` | `src/routes/auth.ts` |
 | `RECAPTCHA_SECRET_KEY` | `""` | `src/routes/auth.ts` |
-| `SOCKS5_LISTEN_PORT` | `1080` | `src/routes/federation.ts` |
 | `STRIPE_WEBHOOK_IPS` |  | `src/routes/webhooks.ts`, `src/server.ts` |
 | `TRUST_PROXY` |  | `src/server.ts` |
 | `X402_BYTES_PER_REQUEST` | `10485760` | `src/routes/x402.ts` |
