@@ -289,7 +289,9 @@ AgenticWallet = `{id, label, balanceCents, spendingLimitCents, dailyLimitCents, 
 Team API keys cannot call `/v1` agent routes (server 403).
 
 TeamInvite = `{id, teamId, email, role, invitedBy, expiresAt, createdAt}`. The invite token is never returned by
-list/create (it is delivered to the invitee); there is no `token` field.
+list/create (it is delivered to the invitee). SDKs that exposed a `token` member in 2.0.0 keep it as a
+deprecated optional/empty member ("never sent by the server"); likewise `activeSessions`/`uptimeSeconds` on
+ProxyHealth. 2.0.x is non-breaking: renamed fields keep their 2.0.0 name (e.g. `keyPrefix`) next to the new one.
 
 ### 3.7 usage (4) — [jwt]
 
