@@ -144,7 +144,7 @@ beforeEach(() => {
   m.findById.mockResolvedValue({ id: T, email: "w@example.com", status: "pending" });
   m.markNotified.mockResolvedValue(true);
   m.getPendingEmails.mockResolvedValue([{ id: T, email: "a@example.com" }, { id: ADMIN, email: "b@example.com" }]);
-  m.bulkNotify.mockResolvedValue(2);
+  m.bulkNotify.mockResolvedValue([T, ADMIN]);
   m.cancelEntry.mockResolvedValue(true);
   m.setUserPlan.mockResolvedValue(undefined);
   m.creditWallet.mockResolvedValue({ id: "tx-1" });
@@ -241,11 +241,42 @@ describe("legacy /api/admin mutations: reason + audit_events", () => {
     expect(m.creditPendingLoyaltyRewards).not.toHaveBeenCalled();
   });
 
-  it("commission run leaves an audit row with the reason", async () => {
+  it("loyalty run: a 400 for a bad reason does not use up the hourly limiter", async () => {
+    m.dbQuery.mockResolvedValue({ rows: [] });
+    m.creditPendingLoyaltyRewards.mockResolvedValue(0);
+    expect((await call("POST", "/api/admin/loyalty/process", { reason: "x" })).status).toBe(400);
+    const res = await call("POST", "/api/admin/loyalty/process", { reason: REASON });
+    expect(res.status).toBe(200);
+    expect(auditRows().map((r) => r.action)).toEqual(["loyalty_process_started", "loyalty_process"]);
+  });
+
+  it("commission run: 400 first does not burn the limiter; started + completed rows; audit failure after credit still 200", async () => {
+    expect((await call("POST", "/api/admin/commissions/process", {})).status).toBe(400);
     m.dbQuery.mockResolvedValue({ rows: [{ referrer_id: "r1" }] });
     m.creditPendingCommissions.mockResolvedValue(250);
+    let n = 0;
+    clientQuery.mockImplementation(async (s: string) => {
+      if (s.includes("SELECT admin_role FROM users")) return { rows: [{ admin_role: "root_admin" }] };
+      if (s.includes("INSERT INTO audit_events") && ++n === 2) throw new Error("audit down");
+      return { rows: [], rowCount: 1 };
+    });
     const res = await call("POST", "/api/admin/commissions/process", { reason: REASON });
     expect(res.status).toBe(200);
-    expect(auditRows()).toMatchObject([{ action: "commissions_process", details: { reason: REASON, processed: 1, totalCreditedCents: 250 } }]);
+    expect(res.body).toMatchObject({ processed: 1, totalCreditedCents: 250 });
+    expect(auditRows()[0]).toMatchObject({ action: "commissions_process_started", details: { reason: REASON } });
+    expect(m.creditPendingCommissions).toHaveBeenCalledTimes(1);
+  });
+
+  it("commission run limiter still applies to a valid second run", async () => {
+    // the successful run in the previous test used the hourly window
+    expect((await call("POST", "/api/admin/commissions/process", { reason: REASON })).status).toBe(429);
+    expect(m.creditPendingCommissions).not.toHaveBeenCalled();
+  });
+
+  it("waitlist bulk approve audits only the ids actually updated", async () => {
+    m.bulkNotify.mockResolvedValue([T]);
+    const res = await call("POST", "/api/admin/waitlist/bulk-approve", { count: 2, reason: REASON });
+    expect(res.body.approved).toBe(1);
+    expect(auditRows()[0].details).toMatchObject({ approved: 1, entryIds: [T] });
   });
 });

@@ -2,7 +2,7 @@ import { Router } from "express";
 import * as crypto from "node:crypto";
 import { adminRepo, createLogger, userRepo, refreshTokenRepo, waitlistRepo, walletRepo, teamRepo, planRepo, referralRepo, sendWaitlistApprovalEmail, sanitizeString, hasMinRole, getProxyInternalPort, query as dbQuery } from "@dominusnode/shared";
 import type { AdminRole, DbTxClient } from "@dominusnode/shared";
-import type { Response } from "express";
+import type { NextFunction, Request, Response } from "express";
 import { requireAuth, type AuthenticatedRequest } from "../middleware/auth.js";
 import { audit, HttpError, requireReason, withAdminTx, type TxClient } from "./admin-network-common.js";
 import { requireAdmin, requireCybersecurityAdmin, requireRootAdmin } from "../middleware/admin.js";
@@ -35,6 +35,17 @@ function reasonOr400(req: Parameters<typeof requireReason>[0], res: Response): s
     res.status(400).json({ error: err instanceof Error ? err.message : "reason is required" });
     return null;
   }
+}
+
+/**
+ * Reason check as middleware, so it runs before a rate limiter: a request
+ * with a bad reason gets 400 without using up the limiter window.
+ */
+function requireReasonFirst(req: Request, res: Response, next: NextFunction): void {
+  const reason = reasonOr400(req as Parameters<typeof requireReason>[0], res);
+  if (reason === null) return;
+  res.locals.auditReason = reason;
+  next();
 }
 
 /** HttpError thrown inside withAdminTx (e.g. role re-check) → its status. */
@@ -469,14 +480,18 @@ router.post("/waitlist/bulk-approve", async (req, res) => {
     }
 
     const ids = pendingEntries.map((e) => e.id);
-    const approved = await withAdminTx(adminUserId, async (c) => {
-      const n = await waitlistRepo.bulkNotify(ids, pc(c));
-      await audit(c, req, "waitlist_bulk_approve", "waitlist", "bulk", { reason, requested: count, approved: n, entryIds: ids });
-      return n;
+    const approvedIds = await withAdminTx(adminUserId, async (c) => {
+      const updated = await waitlistRepo.bulkNotify(ids, pc(c));
+      await audit(c, req, "waitlist_bulk_approve", "waitlist", "bulk", {
+        reason, requested: count, approved: updated.length, entryIds: updated,
+      });
+      return updated;
     });
+    const approved = approvedIds.length;
+    const approvedSet = new Set(approvedIds);
 
-    // Send approval emails (non-blocking, best-effort)
-    for (const entry of pendingEntries) {
+    // Send approval emails only to entries this call approved (best-effort)
+    for (const entry of pendingEntries.filter((e) => approvedSet.has(e.id))) {
       sendWaitlistApprovalEmail(entry.email).catch((err) => {
         log.error("failed to send bulk approval email", { email: entry.email.slice(0, 3) + "***", error: err instanceof Error ? err.message : String(err) });
       });
@@ -1012,15 +1027,21 @@ const loyaltyProcessLimiter = rateLimit({
   message: { error: "Loyalty processing limited to once per hour" },
 });
 
-router.post("/loyalty/process", loyaltyProcessLimiter, async (req, res) => {
-  const reason = reasonOr400(req, res);
-  if (reason === null) return;
+router.post("/loyalty/process", requireReasonFirst, loyaltyProcessLimiter, async (req, res) => {
+  const reason = res.locals.auditReason as string;
   try {
     const authReq = req as AuthenticatedRequest;
     // Calculate for previous month
     const now = new Date();
     const periodStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
     const periodEnd = new Date(now.getFullYear(), now.getMonth(), 1);
+    const period = periodStart.toISOString().slice(0, 7);
+
+    // Batch job runs per-user transactions. Record (and re-check the admin)
+    // before any money moves; a failure here means nothing was credited.
+    await withAdminTx(authReq.user.userId, async (c) => {
+      await audit(c, req, "loyalty_process_started", "loyalty", period, { reason });
+    });
 
     // Get all active users with usage
     const { query: q } = await import("@dominusnode/shared");
@@ -1049,12 +1070,20 @@ router.post("/loyalty/process", loyaltyProcessLimiter, async (req, res) => {
     // Credit pending rewards
     const credited = await referralRepo.creditPendingLoyaltyRewards();
 
-    // Batch job runs per-user transactions; record the run as one audit row
-    await withAdminTx(authReq.user.userId, async (c) => {
-      await audit(c, req, "loyalty_process", "loyalty", periodStart.toISOString().slice(0, 7), {
-        reason, processed, rewarded, creditedCents: credited,
+    // Credits have committed: a failed completion row must not turn the
+    // response into an error (an admin could re-run and pay out twice).
+    try {
+      await withAdminTx(authReq.user.userId, async (c) => {
+        await audit(c, req, "loyalty_process", "loyalty", period, {
+          reason, processed, rewarded, creditedCents: credited,
+        });
       });
-    });
+    } catch (auditErr) {
+      log.error("loyalty run completed but completion audit row failed", {
+        adminId: authReq.user.userId, processed, rewarded, creditedCents: credited,
+        error: auditErr instanceof Error ? auditErr.message : String(auditErr),
+      });
+    }
 
     log.info("admin loyalty processing complete", {
       adminId: authReq.user.userId,
@@ -1079,11 +1108,14 @@ const commissionProcessLimiter = rateLimit({
   message: { error: "Commission processing limited to once per hour" },
 });
 
-router.post("/commissions/process", commissionProcessLimiter, async (req, res) => {
-  const reason = reasonOr400(req, res);
-  if (reason === null) return;
+router.post("/commissions/process", requireReasonFirst, commissionProcessLimiter, async (req, res) => {
+  const reason = res.locals.auditReason as string;
   try {
     const authReq = req as AuthenticatedRequest;
+    // Record (and re-check the admin) before any money moves.
+    await withAdminTx(authReq.user.userId, async (c) => {
+      await audit(c, req, "commissions_process_started", "affiliate_commissions", "batch", { reason });
+    });
     const { query: q } = await import("@dominusnode/shared");
 
     // Get all referrers with pending commissions
@@ -1103,12 +1135,19 @@ router.post("/commissions/process", commissionProcessLimiter, async (req, res) =
       }
     }
 
-    // Batch job runs per-referrer transactions; record the run as one audit row
-    await withAdminTx(authReq.user.userId, async (c) => {
-      await audit(c, req, "commissions_process", "affiliate_commissions", "batch", {
-        reason, processed, totalCreditedCents: totalCredited,
+    // Credits have committed: never report the run as failed afterwards.
+    try {
+      await withAdminTx(authReq.user.userId, async (c) => {
+        await audit(c, req, "commissions_process", "affiliate_commissions", "batch", {
+          reason, processed, totalCreditedCents: totalCredited,
+        });
       });
-    });
+    } catch (auditErr) {
+      log.error("commission run completed but completion audit row failed", {
+        adminId: authReq.user.userId, processed, totalCreditedCents: totalCredited,
+        error: auditErr instanceof Error ? auditErr.message : String(auditErr),
+      });
+    }
 
     log.info("admin commission processing complete", {
       adminId: authReq.user.userId,

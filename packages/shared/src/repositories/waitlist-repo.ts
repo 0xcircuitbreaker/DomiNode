@@ -106,14 +106,15 @@ export async function cancelEntry(id: string, ext?: DbTxClient): Promise<boolean
 }
 
 /** Bulk-notify multiple waitlist entries by IDs. Returns number updated. */
-export async function bulkNotify(ids: string[], ext?: DbTxClient): Promise<number> {
-  if (ids.length === 0) return 0;
-  const result = await queryOn(ext,
+export async function bulkNotify(ids: string[], ext?: DbTxClient): Promise<string[]> {
+  if (ids.length === 0) return [];
+  const result = await queryOn<{ id: string }>(ext,
     `UPDATE waitlist SET status = 'notified', notified_at = now()
-     WHERE id = ANY($1) AND status = 'pending'`,
+     WHERE id = ANY($1) AND status = 'pending'
+     RETURNING id`,
     [ids],
   );
-  return result.rowCount ?? 0;
+  return result.rows.map((r) => r.id);
 }
 
 /** Get oldest pending entries (for bulk approval). */
