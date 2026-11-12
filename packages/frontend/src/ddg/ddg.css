@@ -1,0 +1,73 @@
+/* DDG design system: tokens + effects. Import once (see README.md). */
+:root {
+  --ddg-cosmic-navy: #1a1a2e;
+  --ddg-cosmic-deep: #0a101f;
+  --ddg-cosmic-surface: #111827;
+  --ddg-gold: #d4a853;
+  --ddg-gold-light: #f0c674;
+  --ddg-text-primary: #f1f5f9;
+  --ddg-text-secondary: #94a3b8;
+  --ddg-text-muted: #8b9ab0;
+  --ddg-axis: #d4a8533d;
+  --ddg-font-sans: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --ddg-font-mono: "JetBrains Mono", ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
+}
+
+.ddg-grain {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 1;
+  mix-blend-mode: soft-light;
+  opacity: 0.15;
+}
+
+.ddg-crosshair {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 100;
+  pointer-events: none;
+  opacity: 0;
+  color: var(--ddg-gold);
+}
+.ddg-crosshair[data-active="true"] { opacity: 1; }
+.ddg-crosshair i { position: absolute; display: block; }
+.ddg-axis-x { left: -100vw; width: 200vw; height: 1px; background: var(--ddg-axis); }
+.ddg-axis-y { top: -100vh; height: 200vh; width: 1px; background: var(--ddg-axis); }
+.ddg-center {
+  width: 13px; height: 13px; left: -6px; top: -6px;
+  background:
+    linear-gradient(var(--ddg-gold), var(--ddg-gold)) center / 1px 13px no-repeat,
+    linear-gradient(var(--ddg-gold), var(--ddg-gold)) center / 13px 1px no-repeat;
+}
+.ddg-crosshair span {
+  position: absolute; left: 18px; top: 16px;
+  font: 10px/1.5 var(--ddg-font-mono);
+  white-space: pre;
+}
+
+/* Native cursor hidden only while the crosshair is active. */
+html[data-ddg-cursor="on"],
+html[data-ddg-cursor="on"] * { cursor: none !important; }
+
+/* Keyboard focus always visible, independent of the cursor. */
+.ddg :focus-visible {
+  outline: 2px solid var(--ddg-gold);
+  outline-offset: 2px;
+}
+
+/* Mono uppercase tracking label, jacode style. */
+.ddg-label {
+  font-family: var(--ddg-font-mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--ddg-gold);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ddg-crosshair { display: none; }
+}

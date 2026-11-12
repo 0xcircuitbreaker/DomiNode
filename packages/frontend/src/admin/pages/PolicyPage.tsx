@@ -59,7 +59,7 @@ export function buildPolicy(f: Form, current: NetworkPolicy): NetworkPolicy {
 
 function Section({ title, children, note }: { title: string; children: ReactNode; note?: ReactNode }) {
   return (
-    <fieldset className="border-t border-slate-100 pt-4 first:border-0 first:pt-0 dark:border-slate-800">
+    <fieldset className="border-t border-slate-100 pt-4 first:border-0 first:pt-0 dark:border-white/10">
       <legend className="sr-only">{title}</legend>
       <h3 className="mb-1 text-sm font-semibold text-slate-800 dark:text-slate-200">{title}</h3>
       {note && <p className="mb-3 text-xs text-slate-500 dark:text-slate-400">{note}</p>}
@@ -180,7 +180,7 @@ export default function PolicyPage() {
               </Field>
             </Section>
 
-            <div className="flex flex-wrap justify-end gap-2 border-t border-slate-100 pt-4 dark:border-slate-800">
+            <div className="flex flex-wrap justify-end gap-2 border-t border-slate-100 pt-4 dark:border-white/10">
               <button type="button" className="btn-secondary" onClick={() => { setForm(toForm(p.body)); setError(null); setDetails([]); }}>Reset</button>
               <button type="submit" className="btn-primary">Publish new version…</button>
             </div>

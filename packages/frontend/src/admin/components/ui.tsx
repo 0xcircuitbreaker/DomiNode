@@ -20,9 +20,9 @@ export function Card({ title, actions, children, className, bodyClassName }: {
   title?: ReactNode; actions?: ReactNode; children: ReactNode; className?: string; bodyClassName?: string;
 }) {
   return (
-    <section className={cx("min-w-0 rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900", className)}>
+    <section className={cx("min-w-0 rounded-sm border border-slate-200 bg-white shadow-sm dark:border-white/10 dark:bg-ddg-surface", className)}>
       {(title || actions) && (
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-4 py-3 dark:border-slate-800">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-4 py-3 dark:border-white/10">
           {title && <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-200">{title}</h2>}
           {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
         </div>
@@ -36,7 +36,7 @@ export function Kpi({ label, value, sub, tone, children }: {
   label: string; value: ReactNode; sub?: ReactNode; tone?: "warn" | "bad" | "good"; children?: ReactNode;
 }) {
   return (
-    <div className="min-w-0 rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+    <div className="min-w-0 rounded-sm border border-slate-200 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-ddg-surface">
       <div className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
         {tone && <StatusDot tone={tone} />}
         <span className="truncate">{label}</span>
@@ -119,7 +119,7 @@ export function DataTable<T>({ columns, rows, rowKey, onRowClick, sort, onSort, 
       <table className="w-full min-w-max border-collapse text-sm">
         {caption && <caption className="sr-only">{caption}</caption>}
         <thead>
-          <tr className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500 dark:border-slate-800 dark:text-slate-400">
+          <tr className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500 dark:border-white/10 dark:text-slate-400">
             {columns.map((c) => {
               const active = sort && c.sortKey && sort.key === c.sortKey;
               return (
@@ -144,7 +144,7 @@ export function DataTable<T>({ columns, rows, rowKey, onRowClick, sort, onSort, 
               onClick={onRowClick ? () => onRowClick(r) : undefined}
               onKeyDown={onRowClick ? (e) => { if (e.key === "Enter") onRowClick(r); } : undefined}
               tabIndex={onRowClick ? 0 : undefined}
-              className={cx("border-b border-slate-100 text-slate-700 last:border-0 dark:border-slate-800/70 dark:text-slate-300",
+              className={cx("border-b border-slate-100 text-slate-700 last:border-0 dark:border-white/5 dark:text-slate-300",
                 onRowClick && "cursor-pointer hover:bg-slate-50 focus:bg-slate-50 focus:outline-none dark:hover:bg-slate-800/50 dark:focus:bg-slate-800/50")}>
               {columns.map((c) => (
                 <td key={c.key} className={cx("whitespace-nowrap px-4 py-2", c.align === "right" && "text-right tabular-nums", c.className)}>{c.render(r)}</td>
@@ -262,7 +262,7 @@ export function Drawer({ open, onClose, title, children }: { open: boolean; onCl
       <div className="absolute inset-0 bg-slate-950/40" onClick={onClose} aria-hidden />
       <aside role="dialog" aria-modal="true" aria-label={typeof title === "string" ? title : "Details"}
         className="relative flex h-full w-full max-w-3xl flex-col bg-slate-50 shadow-2xl dark:bg-slate-950">
-        <div className="flex items-center justify-between gap-2 border-b border-slate-200 bg-white px-4 py-3 dark:border-slate-800 dark:bg-slate-900">
+        <div className="flex items-center justify-between gap-2 border-b border-slate-200 bg-white px-4 py-3 dark:border-white/10 dark:bg-ddg-surface">
           <h2 className="min-w-0 truncate text-base font-semibold text-slate-900 dark:text-slate-100">{title}</h2>
           <button type="button" aria-label="Close" className="btn-secondary !px-2" onClick={onClose}>✕</button>
         </div>
@@ -308,7 +308,7 @@ export function ConfirmDialog({ open, title, description, confirmLabel = "Confir
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3">
       <div className="absolute inset-0 bg-slate-950/50" onClick={busy ? undefined : onClose} aria-hidden />
       <div role="alertdialog" aria-modal="true" aria-labelledby={`${id}-t`}
-        className="relative w-full max-w-md rounded-xl border border-slate-200 bg-white p-5 shadow-2xl dark:border-slate-700 dark:bg-slate-900">
+        className="relative w-full max-w-md rounded-sm border border-slate-200 bg-white p-5 shadow-2xl dark:border-slate-700 dark:bg-ddg-surface">
         <h2 id={`${id}-t`} className="text-base font-semibold text-slate-900 dark:text-slate-100">{title}</h2>
         {description && <div className="mt-2 text-sm text-slate-600 dark:text-slate-400">{description}</div>}
         {children}
@@ -337,7 +337,7 @@ export function DefList({ items }: { items: Array<[string, ReactNode]> }) {
   return (
     <dl className="grid grid-cols-1 gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
       {items.map(([k, v]) => (
-        <div key={k} className="flex min-w-0 justify-between gap-3 border-b border-slate-100 pb-1.5 dark:border-slate-800">
+        <div key={k} className="flex min-w-0 justify-between gap-3 border-b border-slate-100 pb-1.5 dark:border-white/10">
           <dt className="text-slate-500 dark:text-slate-400">{k}</dt>
           <dd className="min-w-0 truncate text-right font-medium text-slate-800 dark:text-slate-200">{v}</dd>
         </div>
