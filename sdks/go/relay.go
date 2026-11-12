@@ -38,6 +38,11 @@ type NetworkPricing struct {
 		Rank         int    `json:"rank"`
 		NodeShareBps int    `json:"nodeShareBps"`
 	} `json:"nodeShare"`
+	BuyerDiscounts []struct {
+		Tier             string `json:"tier"`
+		Rank             int    `json:"rank"`
+		BuyerDiscountBps int    `json:"buyerDiscountBps"`
+	} `json:"buyerDiscounts"`
 	MaturationHours int      `json:"maturationHours"`
 	Rails           []string `json:"rails"`
 }
@@ -50,8 +55,16 @@ type NetworkStats struct {
 		Country string `json:"country"`
 		Online  int    `json:"online"`
 	} `json:"byCountry"`
-	OtherCountries int    `json:"otherCountries"`
-	GeneratedAt    string `json:"generatedAt"`
+	OtherCountries int               `json:"otherCountries"`
+	Seed           NetworkGroupStats `json:"seed"`      // operator-run seed nodes
+	Community      NetworkGroupStats `json:"community"` // agent-run community nodes
+	GeneratedAt    string            `json:"generatedAt"`
+}
+
+// NetworkGroupStats: online nodes and paid bytes in the last 24h for one operator group.
+type NetworkGroupStats struct {
+	Online       int       `json:"online"`
+	PaidBytes24h ByteCount `json:"paidBytes24h"`
 }
 
 // Policy: GET /v1/policy.
@@ -176,6 +189,7 @@ type TierView struct {
 	HoldDays               int    `json:"holdDays"`
 	MaxNodes               int    `json:"maxNodes"`
 	DailyWithdrawLimitMusd string `json:"dailyWithdrawLimitMusd"`
+	BuyerDiscountBps       int    `json:"buyerDiscountBps"`
 }
 
 // TierRequirement is one promotion requirement.
@@ -385,7 +399,7 @@ const (
 // CreditTxTypes accepted by Credits.Transactions.
 var CreditTxTypes = []string{"earn", "mature", "clawback", "convert", "withdraw", "withdraw_reversal"}
 
-var cursorRE = regexp.MustCompile(`^[0-9]{1,20}$`)
+var cursorRE = regexp.MustCompile(`^[1-9][0-9]{0,18}$`)
 
 // CreditsResource: node-operator earnings (µUSD) [agent].
 type CreditsResource struct{ h *httpClient }
@@ -407,6 +421,8 @@ type CreditsBalance struct {
 	YtdPaid        Money  `json:"ytdPaid"`
 	PayoutsEnabled bool   `json:"payoutsEnabled"`
 	MinWithdraw    Money  `json:"minWithdraw"`
+	// BuyerDiscountBps: discount on relay purchases from your owner tier (0 unless you run a node).
+	BuyerDiscountBps int `json:"buyerDiscountBps"`
 }
 
 // CreditTransaction is one credit-ledger row.
@@ -611,7 +627,8 @@ type PayoutWalletState struct {
 	CooldownHours int               `json:"cooldownHours"`
 }
 
-// SetPayoutWalletOptions configures Set. Chain "" = "base".
+// SetPayoutWalletOptions configures Set. Chain "" = "base"; "base-sepolia" is an explicit
+// staging opt-in that the server accepts or refuses.
 type SetPayoutWalletOptions struct {
 	Address string
 	Chain   string
@@ -648,8 +665,8 @@ func (r *PayoutWalletResource) Set(ctx context.Context, o SetPayoutWalletOptions
 	if chain == "" {
 		chain = "base"
 	}
-	if chain != "base" {
-		return nil, invalidArg("chain must be 'base'")
+	if chain != "base" && chain != "base-sepolia" {
+		return nil, invalidArg("chain must be 'base' or 'base-sepolia'")
 	}
 	if o.OldWalletSigner != nil {
 		if err := assertSigner(o.OldWalletSigner, "oldWalletSigner"); err != nil {

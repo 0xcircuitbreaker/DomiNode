@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.0.1] - 2026-11-12
+
+### Fixed
+- Team keys read the server's `prefix` field (falls back to `keyPrefix`); key lists
+  expose `userId`, `teamId` and `revokedAt`.
+- Proxy health returns `{ status }` only, matching the server.
+- Team invites carry `invitedBy`; the never-returned `token` field is gone.
+- Credits cursor validation matches the server (`^[1-9][0-9]{0,18}$`).
+- 409 responses (e.g. `REPORT_LIMIT`) are never retried and surface with their `code`;
+  429 is retried at most once.
+- Byte counts in usage results and network stats use `ByteCount`, which decodes a JSON number or a numeric string.
+### Added
+- `buyerDiscountBps` on credits balance and tier views, `buyerDiscounts` on pricing,
+  `seed`/`community` blocks on network stats.
+- Payout wallet `chain` accepts `base-sepolia` as an explicit opt-in (server decides).
+- Pagination helpers for credit transactions, payouts, nodes, usage records and
+  wallet transactions.
+- README: PoW/client-IP note and a troubleshooting table.
+
 ## [2.0.0] - 2026-11-06
 
 ### Changed (breaking)

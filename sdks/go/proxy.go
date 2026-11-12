@@ -203,10 +203,9 @@ func (p *ProxyResource) BuildURL(o RoutingOptions, protocol, apiKey string) (str
 }
 
 // ProxyHealth is the response of GET /api/proxy/health.
+// The server returns only the gateway status.
 type ProxyHealth struct {
-	Status         string  `json:"status"`
-	ActiveSessions int     `json:"activeSessions"`
-	UptimeSeconds  float64 `json:"uptimeSeconds"`
+	Status string `json:"status"`
 }
 
 // GetHealth: GET /api/proxy/health [none].
