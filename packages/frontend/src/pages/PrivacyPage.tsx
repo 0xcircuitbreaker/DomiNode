@@ -24,9 +24,9 @@ export default function PrivacyPage() {
           <section>
             <h2 className="text-xl font-semibold text-white mb-3">2. What We Do Collect</h2>
             <p className="mb-3">We collect the minimum data necessary to operate the service and bill you accurately:</p>
-            <p className="mb-2"><strong className="text-gray-200">Account Information:</strong> Email address and hashed password (bcrypt) when you create an account. If you use wallet authentication, your Ethereum wallet address. We cannot see or recover your password.</p>
+            <p className="mb-2"><strong className="text-gray-200">Account Information:</strong> Dominus Node accounts belong to AI agents. An agent account is identified by its wallet address, and it authenticates with an API key (<code>dn_live_</code>) or a wallet signature. We store only a SHA-256 hash of each API key, plus its prefix and creation date. We do not collect names, email addresses or other login secrets from agents. Humans use the service only as operators (administrators).</p>
             <p className="mb-2"><strong className="text-gray-200">Bandwidth Metering:</strong> We track the total number of bytes transferred per session for billing purposes only. This is an aggregate number — we do not log which websites or services generated that traffic.</p>
-            <p className="mb-2"><strong className="text-gray-200">Payment Data:</strong> Transaction records, payment provider reference IDs, and invoice amounts. We do not store credit card numbers — payment processing is handled entirely by Stripe and our crypto payment processor.</p>
+            <p className="mb-2"><strong className="text-gray-200">Payment Data:</strong> Agents pay with crypto rails only: x402 and MPP per-request payments, Tempo and NOWPayments crypto top-ups. We record payer wallet addresses, amounts, transaction hashes, invoice IDs and payment provider reference IDs. We do not accept or store card numbers.</p>
             <p><strong className="text-gray-200">Security Data:</strong> IP addresses are used transiently for rate limiting and abuse prevention. API key metadata (prefix, creation date) is stored for your key management dashboard.</p>
           </section>
 
@@ -88,8 +88,11 @@ export default function PrivacyPage() {
             <h2 className="text-xl font-semibold text-white mb-3">7. Data Sharing</h2>
             <p className="mb-2">We do not sell, rent, or trade your personal data. We share data only with:</p>
             <ul className="list-disc list-inside space-y-1 mt-2">
-              <li><strong className="text-gray-200">Payment processors</strong> (Stripe, Crypto) — to process your payments only</li>
-              <li><strong className="text-gray-200">Infrastructure providers</strong> — only connection routing data, never traffic content</li>
+              <li><strong className="text-gray-200">x402 facilitators</strong> (Coinbase CDP, PayAI) — payer wallet address, amount and transaction data, to verify and settle x402 payments</li>
+              <li><strong className="text-gray-200">NOWPayments</strong> — invoice ID and amount, to process crypto top-ups</li>
+              <li><strong className="text-gray-200">Blockchain RPC providers</strong> (Base and Tempo networks) — wallet addresses and transaction hashes, to verify on-chain payments. Blockchain transactions are public by nature.</li>
+              <li><strong className="text-gray-200">IP data</strong> — exit-node IP addresses are classified locally against the public ip2asn dataset; no IP addresses are sent to that provider</li>
+              <li><strong className="text-gray-200">Hosting and infrastructure</strong> (GitHub, Cloudflare) — code, release and network hosting; connection routing data only, never traffic content</li>
               <li><strong className="text-gray-200">Law enforcement</strong> — only when legally compelled, and only the limited account data we have (we cannot provide traffic logs because they do not exist)</li>
             </ul>
           </section>
@@ -100,18 +103,18 @@ export default function PrivacyPage() {
             <ul className="list-disc list-inside space-y-1">
               <li><strong className="text-gray-200">Export your data:</strong> Download your account data through the dashboard or via GET /api/account/export</li>
               <li><strong className="text-gray-200">Delete your account:</strong> Request full account deletion through your dashboard. Your personal data will be anonymized and billing records retained only as required by law.</li>
-              <li><strong className="text-gray-200">Correct your data:</strong> Update your email or password through security settings</li>
+              <li><strong className="text-gray-200">Correct your data:</strong> Rotate or revoke your API keys and update your payout wallet through the API</li>
             </ul>
           </section>
 
           <section>
             <h2 className="text-xl font-semibold text-white mb-3">9. Security</h2>
-            <p>We protect your data using: bcrypt password hashing, AES-encrypted MFA secrets, TLS encryption for all connections, SHA-256 API key hashing, httpOnly secure cookies with strict SameSite policy, and regular independent security audits.</p>
+            <p>We protect your data using: SHA-256 API key hashing, wallet-signature verification, TLS encryption for all connections, httpOnly secure cookies with strict SameSite policy for the admin console, and regular independent security audits.</p>
           </section>
 
           <section>
             <h2 className="text-xl font-semibold text-white mb-3">10. Cookies</h2>
-            <p>We use strictly necessary cookies for authentication (access token and refresh token) only. We do not use tracking cookies, advertising cookies, analytics cookies, or any third-party cookies.</p>
+            <p>Agents authenticate with API keys or wallet signatures, not cookies. The admin console uses strictly necessary authentication cookies (access token and refresh token) only. We do not use tracking cookies, advertising cookies, analytics cookies, or any third-party cookies.</p>
           </section>
 
           <section>
