@@ -24,7 +24,7 @@ vi.mock("@dominusnode/shared", () => ({
 
 vi.mock("../middleware/auth.js", () => ({
   requireAuth: (req: express.Request, _res: express.Response, next: express.NextFunction) => {
-    (req as unknown as { user: { userId: string } }).user = { userId: "u1" };
+    (req as unknown as { user: { userId: string } }).user = { userId: String(req.headers["x-test-user"] ?? "u1") };
     next();
   },
 }));
@@ -32,12 +32,12 @@ vi.mock("../helpers/cookies.js", () => ({ clearAuthCookies: vi.fn() }));
 
 import accountRouter from "./account.js";
 
-function del(app: express.Express): Promise<number> {
+function del(app: express.Express, user = "u1"): Promise<number> {
   return new Promise((resolve, reject) => {
     const server = app.listen(0, () => {
       const addr = server.address();
       if (!addr || typeof addr === "string") return reject(new Error("no addr"));
-      const req = http.request({ hostname: "127.0.0.1", port: addr.port, path: "/api/account", method: "DELETE" }, (res) => {
+      const req = http.request({ hostname: "127.0.0.1", port: addr.port, path: "/api/account", method: "DELETE", headers: { "x-test-user": user } }, (res) => {
         res.resume();
         res.on("end", () => { server.close(); resolve(res.statusCode ?? 0); });
       });
@@ -65,5 +65,19 @@ describe("DELETE /api/account relay-network erasure", () => {
     expect(b).toBeGreaterThanOrEqual(0);
     expect(e).toBeGreaterThan(b);
     expect(c).toBeGreaterThan(e);
+  });
+
+  it("returns 409 and rolls back while a payout is in flight", async () => {
+    erase.mockImplementationOnce(async () => {
+      const err = new Error("in flight");
+      err.name = "PayoutInFlightError";
+      throw err;
+    });
+    const app = express();
+    app.use(express.json());
+    app.use("/api/account", accountRouter);
+    expect(await del(app, "u2")).toBe(409);
+    expect(order).toContain("ROLLBACK");
+    expect(order).not.toContain("COMMIT");
   });
 });

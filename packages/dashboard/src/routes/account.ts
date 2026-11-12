@@ -438,6 +438,10 @@ router.delete(
       res.json({ message: "Account deleted. Your data has been anonymized." });
     } catch (err) {
       log.error("account deletion failed", { userId, error: err instanceof Error ? err.message : String(err) });
+      if (err instanceof Error && err.name === "PayoutInFlightError") {
+        res.status(409).json({ error: "A payout is in flight. Retry account deletion once it settles." });
+        return;
+      }
       res.status(500).json({ error: "Account deletion failed. Please contact support." });
     }
   }

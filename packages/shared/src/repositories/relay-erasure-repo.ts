@@ -52,8 +52,46 @@ export const RELAY_ERASURE_STATEMENTS: ReadonlyArray<{ label: string; sql: strin
   { label: "requester_rate_window", sql: "DELETE FROM requester_rate_window WHERE user_id = $1" },
 ];
 
-/** Run every relay-network erasure statement on the caller's transaction client. */
+/** Erasure refused: a payout may be on-chain and must settle first. */
+export class PayoutInFlightError extends Error {
+  constructor() {
+    super("A payout is in flight; account erasure can run once it settles");
+    this.name = "PayoutInFlightError";
+  }
+}
+
+/** Payouts that may already be on-chain (submitted, or claimed with a tx hash). */
+export const PAYOUT_IN_FLIGHT_SQL = `SELECT id FROM node_payouts
+  WHERE user_id = $1 AND (status = 'submitted' OR (status IN ('pending','held_tax','held_frozen') AND tx_hash IS NOT NULL))
+  LIMIT 1 FOR UPDATE`;
+
+/**
+ * Reverse every unsent payout and re-credit the earnings ledger before the
+ * payout wallet is deleted. The payout processor JOINs payout_wallets, so an
+ * unsent payout left behind would stay pending forever.
+ */
+export const PAYOUT_ERASURE_REVERSAL_SQL = `WITH rev AS (
+    UPDATE node_payouts SET status = 'reversed', failure_reason = 'account erased: reversed', updated_at = now()
+     WHERE user_id = $1 AND status IN ('pending','held_tax','held_frozen') AND tx_hash IS NULL
+     RETURNING id, amount_musd
+  ), led AS (
+    INSERT INTO node_credit_transactions (user_id, type, amount_musd, external_ref)
+    SELECT $1, 'withdraw_reversal', amount_musd, id::text FROM rev
+  )
+  UPDATE node_credit_accounts
+     SET available_musd = available_musd + (SELECT COALESCE(SUM(amount_musd), 0) FROM rev), updated_at = now()
+   WHERE user_id = $1 AND EXISTS (SELECT 1 FROM rev)`;
+
+/**
+ * Run every relay-network erasure statement on the caller's transaction client.
+ * Throws PayoutInFlightError (caller rolls back) while a payout may be on-chain.
+ */
 export async function eraseRelayPersonalDataTx(client: Pick<PoolClient, "query">, userId: string): Promise<void> {
+  // Lock the earnings account first, the same order the payout paths use.
+  await client.query("SELECT user_id FROM node_credit_accounts WHERE user_id = $1 FOR UPDATE", [userId]);
+  const inFlight = await client.query(PAYOUT_IN_FLIGHT_SQL, [userId]);
+  if ((inFlight.rows?.length ?? 0) > 0) throw new PayoutInFlightError();
+  await client.query(PAYOUT_ERASURE_REVERSAL_SQL, [userId]);
   for (const s of RELAY_ERASURE_STATEMENTS) {
     await client.query(s.sql, [userId]);
   }

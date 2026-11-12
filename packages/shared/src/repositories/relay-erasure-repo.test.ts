@@ -1,7 +1,9 @@
 import { describe, it, expect, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { RELAY_ERASURE_STATEMENTS, eraseRelayPersonalDataTx } from "./relay-erasure-repo.js";
+import {
+  RELAY_ERASURE_STATEMENTS, eraseRelayPersonalDataTx, PAYOUT_ERASURE_REVERSAL_SQL, PAYOUT_IN_FLIGHT_SQL, PayoutInFlightError,
+} from "./relay-erasure-repo.js";
 
 const schema = readFileSync(join(__dirname, "..", "schema.sql"), "utf8");
 
@@ -60,7 +62,32 @@ describe("relay erasure", () => {
   it("runs every statement on the caller's client with the user id", async () => {
     const client = { query: vi.fn().mockResolvedValue({ rows: [], rowCount: 0 }) };
     await eraseRelayPersonalDataTx(client as never, "u1");
-    expect(client.query).toHaveBeenCalledTimes(RELAY_ERASURE_STATEMENTS.length);
+    expect(client.query).toHaveBeenCalledTimes(RELAY_ERASURE_STATEMENTS.length + 3);
     for (const c of client.query.mock.calls) expect(c[1]).toEqual(["u1"]);
+  });
+
+  it("reverses unsent payouts (with re-credit) before deleting the payout wallet", async () => {
+    const client = { query: vi.fn().mockResolvedValue({ rows: [], rowCount: 0 }) };
+    await eraseRelayPersonalDataTx(client as never, "u1");
+    const sqls = client.query.mock.calls.map((c) => c[0] as string);
+    const rev = sqls.indexOf(PAYOUT_ERASURE_REVERSAL_SQL);
+    const pw = sqls.findIndex((s) => s.startsWith("DELETE FROM payout_wallets"));
+    expect(rev).toBeGreaterThanOrEqual(0);
+    expect(rev).toBeLessThan(pw);
+    expect(PAYOUT_ERASURE_REVERSAL_SQL).toMatch(/status = 'reversed'/);
+    expect(PAYOUT_ERASURE_REVERSAL_SQL).toMatch(/status IN \('pending','held_tax','held_frozen'\)/);
+    expect(PAYOUT_ERASURE_REVERSAL_SQL).toMatch(/withdraw_reversal/);
+    expect(PAYOUT_ERASURE_REVERSAL_SQL).toMatch(/available_musd = available_musd \+/);
+  });
+
+  it("refuses erasure while a payout is submitted/on-chain", async () => {
+    const client = {
+      query: vi.fn(async (sql: string) =>
+        sql === PAYOUT_IN_FLIGHT_SQL ? { rows: [{ id: "p1" }], rowCount: 1 } : { rows: [], rowCount: 0 }),
+    };
+    await expect(eraseRelayPersonalDataTx(client as never, "u1")).rejects.toBeInstanceOf(PayoutInFlightError);
+    const sqls = client.query.mock.calls.map((c) => c[0] as string);
+    expect(sqls.some((s) => s.startsWith("DELETE FROM payout_wallets"))).toBe(false);
+    expect(PAYOUT_IN_FLIGHT_SQL).toMatch(/status = 'submitted'/);
   });
 });
