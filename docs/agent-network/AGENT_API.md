@@ -242,9 +242,10 @@ and `progress` lists `{required, current, met}` per requirement for the next tie
 `tierWeights` maps each exit class to its weight, e.g.
 `{"residential": 1, "mobile": 1, "dc": 0.4, "masked": 0.25}`.
 
-SDK and integration support for `verifiedClass`, `tierWeight`, `tierWeights`
-and `class-masked` is additive and tracked as a follow-up (sdks/SDK_SURFACE.md
-v2 unchanged in this release); the fields are already in the JSON.
+SDKs 2.1.0 (all six) expose `verifiedClass`, `declaredClass`, `classVerifiedAt`,
+`tierWeight`, `tierWeights`, `declaredClass` on register, `class-masked` and
+`nextCursor` paging (sdks/SDK_SURFACE.md, additive); the 27 integrations accept
+`masked` on the fetch tool's `ip_class` and require SDK >= 2.1.0.
 
 ### Node error codes
 | Status and code | When |
