@@ -42,5 +42,5 @@ export type {
   X402Settlement,
 } from "./x402.js";
 
-export { MAX_X402_AMOUNT_MUSD } from "./x402.js";
+export { MAX_X402_AMOUNT_MUSD, X402_RESOURCE_DESCRIPTION, bazaarExtension } from "./x402.js";
 export * from "./adapters/index.js";

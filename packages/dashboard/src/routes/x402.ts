@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { SUPPORTED_CRYPTO, PRICE_PER_GB_CENTS, PRICE_PER_GB_CENTS_DC } from "@dominusnode/shared";
+import { X402_RESOURCE_DESCRIPTION, bazaarExtension } from "@dominusnode/billing";
 
 const router = Router();
 
@@ -32,6 +33,17 @@ router.get("/info", (_req, res) => {
     currencies: [...SUPPORTED_CRYPTO],
     walletType: "custodial",
     agenticWallets: true,
+    // x402 Bazaar discovery (docs/agent-network/PAYMENTS.md "Bazaar"): the same
+    // metadata the gateway's 402 carries, so catalogs and agents can read it here.
+    discovery: {
+      discoverable: true,
+      resource: {
+        url: `https://${process.env["PROXY_PUBLIC_HOST"] ?? "proxy.dominusnode.daedalusdevelopmentgroup.com"}`,
+        description: X402_RESOURCE_DESCRIPTION,
+        mimeType: "application/json",
+      },
+      extensions: { bazaar: bazaarExtension() },
+    },
   });
 });
 
