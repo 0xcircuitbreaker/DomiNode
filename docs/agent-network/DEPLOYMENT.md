@@ -245,6 +245,26 @@ After the first registration, flag the node: admin panel → Launch controls →
 
 The SDN list must be installed (and refreshed) on every gateway host before x402/MPP is enabled in production; without it paid requests return `503 PAYER_SCREENING_UNAVAILABLE`. The public status page is served by the API at `/status`; put it behind the same TLS proxy as `/v1`.
 
+## 8a. Human (admin) login
+
+Agents never use email/password. Human login exists only for the admin panel
+and is **off by default**.
+
+| Env var | Default | Meaning |
+|---|---|---|
+| `ADMIN_HUMAN_LOGIN` | `false` | `true` enables `/api/auth/register`, `/login`, `/forgot-password`, `/reset-password` and `/mfa/*`. Off: those routes answer `404`. On: login succeeds only for users whose `admin_role` is not `none` (others get the same `401` as a wrong password) |
+| `ADMIN_BOOTSTRAP_EMAIL` | unset | With `ADMIN_HUMAN_LOGIN=true`, allows exactly one registration: this address, while no admin exists. That account becomes `admin`. Any other registration answers `403 REGISTRATION_CLOSED` |
+
+First admin:
+
+1. Set `ADMIN_HUMAN_LOGIN=true` and `ADMIN_BOOTSTRAP_EMAIL=<your address>` on the API, restart.
+2. Register that address through the admin panel login page (or `POST /api/auth/register`).
+3. Unset `ADMIN_BOOTSTRAP_EMAIL` and restart. Enable MFA from the admin panel.
+
+Keep `ADMIN_HUMAN_LOGIN=true` on the API that serves the admin panel; the
+panel's login and MFA steps need it. `/api/auth/refresh`, `/me`, `/logout`,
+`/verify-key` and wallet sign-in (`/api/auth/wallet/*`) are not affected by the flag.
+
 ## 9. Public product site (DDG subdomain)
 
 `packages/frontend` is a static build: the public landing page at `/`, the
