@@ -3,7 +3,7 @@ import rateLimit from "express-rate-limit";
 import crypto from "node:crypto";
 import { requireAuth, type AuthenticatedRequest } from "../middleware/auth.js";
 import { clearAuthCookies } from "../helpers/cookies.js";
-import { query, getPool, createLogger, userRepo, verifyPassword, isWalletEmail, getProxyInternalPort } from "@dominusnode/shared";
+import { query, getPool, createLogger, userRepo, relayErasureRepo, verifyPassword, isWalletEmail, getProxyInternalPort } from "@dominusnode/shared";
 
 const log = createLogger("api:account");
 const router = Router();
@@ -399,6 +399,9 @@ router.delete(
         await client.query("DELETE FROM promo_redemptions WHERE user_id = $1", [userId]);
         await client.query("DELETE FROM loyalty_rewards WHERE user_id = $1", [userId]);
 
+        // Relay-network personal data (abuse log, node IPs, payout wallets, ...)
+        await relayErasureRepo.eraseRelayPersonalDataTx(client, userId);
+
         await client.query("COMMIT");
       } catch (txErr) {
         await client.query("ROLLBACK");
@@ -435,6 +438,10 @@ router.delete(
       res.json({ message: "Account deleted. Your data has been anonymized." });
     } catch (err) {
       log.error("account deletion failed", { userId, error: err instanceof Error ? err.message : String(err) });
+      if (err instanceof Error && err.name === "PayoutInFlightError") {
+        res.status(409).json({ error: "A payout is in flight. Retry account deletion once it settles." });
+        return;
+      }
       res.status(500).json({ error: "Account deletion failed. Please contact support." });
     }
   }

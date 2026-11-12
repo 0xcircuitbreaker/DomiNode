@@ -1,5 +1,6 @@
 import type { DbTxClient } from "../db.js";
 import { query, queryOn, getPool } from "../db.js";
+import { eraseRelayPersonalDataTx } from "./relay-erasure-repo.js";
 import type {
   AdminUserView,
   AdminUserDetail,
@@ -263,6 +264,9 @@ export async function deleteUser(userId: string, ext?: DbTxClient): Promise<void
       "UPDATE sessions SET proxy_ip = 'REDACTED' WHERE user_id = $1",
       [userId]
     );
+
+    // Relay-network personal data (abuse log, node IPs, payout wallets, ...)
+    await eraseRelayPersonalDataTx(client, userId);
 
     if (own) await client.query("COMMIT");
   } catch (err) {

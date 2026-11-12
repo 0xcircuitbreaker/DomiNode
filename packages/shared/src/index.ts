@@ -83,6 +83,7 @@ export { loadSdnFile, loadSdnText, parseSdnAddresses, parseSdnPayerAddresses, Sd
 
 // Repositories
 export * as userRepo from "./repositories/user-repo.js";
+export * as relayErasureRepo from "./repositories/relay-erasure-repo.js";
 export * as walletRepo from "./repositories/wallet-repo.js";
 export * as starterCreditRepo from "./repositories/starter-credit-repo.js";
 export * as contributionRepo from "./repositories/contribution-repo.js";

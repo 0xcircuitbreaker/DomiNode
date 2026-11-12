@@ -52,7 +52,8 @@ vi.mock("@dominusnode/shared", () => ({
     return (k[u] ?? 0) >= (k[r] ?? 0);
   },
   getProxyInternalPort: () => { throw new Error("no proxy in tests"); },
-  query: f("dbQuery"),
+  query: async (...a: unknown[]) => (await m.dbQuery(...a)) ?? { rows: [] },
+  relayErasureRepo: { PAYOUT_IN_FLIGHT_SQL: "SELECT id FROM node_payouts WHERE user_id = $1 FOR UPDATE" },
   getPool: () => ({ connect: async () => client }),
   createLogger: () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }),
   PolicyValidationError: class extends Error { errors: string[] = []; },
