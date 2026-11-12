@@ -37,6 +37,10 @@ export interface AgentConfig {
   spkiPins: string[];
   /** Extra coordinator ed25519 pubkeys (hex). Can only add to the embedded pins. */
   coordPins: string[];
+  /** F2: coordinator domain to discover via /.well-known/dominusnode/coordinator.json. */
+  coordinator?: string;
+  /** F2: confirmed coordinator key fingerprint (sha256:<hex>). */
+  trust?: string;
 }
 
 export class ConfigError extends Error {
@@ -113,6 +117,14 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, flags: FlagMap 
     if (!/^[0-9a-f]{64}$/.test(p)) throw new ConfigError("DN_NODE_COORD_PINS entries must be 64 hex chars");
   }
 
+  const coordRawDomain = (get("coordinator", "DN_NODE_COORDINATOR") ?? "").trim();
+  let coordinator: string | undefined;
+  if (coordRawDomain) {
+    coordinator = coordRawDomain.toLowerCase().replace(/^https:\/\//, "").replace(/\/+$/, "").replace(/\.$/, "");
+    if (!DOMAIN_RE.test(coordinator)) throw new ConfigError("DN_NODE_COORDINATOR must be a domain name");
+  }
+  const trust = (get("trust", "DN_NODE_TRUST") ?? "").trim() || undefined;
+
   const keyFile = (get("key-file", "DN_NODE_KEY_FILE") ?? "").trim() || defaultKeyFile(env);
 
   return {
@@ -127,6 +139,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, flags: FlagMap 
     denyDomains,
     spkiPins,
     coordPins,
+    ...(coordinator ? { coordinator } : {}),
+    ...(trust ? { trust } : {}),
   };
 }
 
