@@ -8,36 +8,116 @@ import (
 	"fmt"
 	"regexp"
 	"strconv"
+	"strings"
 )
 
-// ByteCount is a byte total that decodes from a JSON number or a numeric string
-// (the server may send either; large totals arrive as decimal strings).
-type ByteCount int64
+// byteFields are the integer byte-count keys the server may send as numbers or numeric strings.
+var byteFields = map[string]bool{"bytesIn": true, "bytesOut": true, "totalBytes": true, "paidBytes24h": true}
 
 var byteCountRE = regexp.MustCompile(`^-?[0-9]{1,19}$`)
 
-// UnmarshalJSON accepts 123, "123" and null (0).
-func (b *ByteCount) UnmarshalJSON(data []byte) error {
-	data = bytes.TrimSpace(data)
-	if bytes.Equal(data, []byte("null")) {
-		*b = 0
-		return nil
+// normalizeByteCounts rewrites numeric-string byte counts (at any depth) as JSON numbers so they
+// decode into the existing int64 fields. A non-numeric string in one of those keys is an error.
+func normalizeByteCounts(data []byte) ([]byte, error) {
+	if !bytes.ContainsRune(data, '"') {
+		return data, nil
 	}
-	s := string(data)
-	if len(data) >= 2 && data[0] == '"' {
-		if err := json.Unmarshal(data, &s); err != nil {
-			return err
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.UseNumber()
+	var v any
+	if err := dec.Decode(&v); err != nil {
+		return nil, err
+	}
+	changed, err := fixByteCounts(v)
+	if err != nil || !changed {
+		return data, err
+	}
+	return json.Marshal(v)
+}
+
+func fixByteCounts(v any) (bool, error) {
+	changed := false
+	switch t := v.(type) {
+	case map[string]any:
+		for k, x := range t {
+			if s, ok := x.(string); ok && byteFields[k] {
+				s = strings.TrimSpace(s)
+				if !byteCountRE.MatchString(s) {
+					return false, fmt.Errorf("dominusnode: %s is not a numeric byte count", k)
+				}
+				if _, err := strconv.ParseInt(s, 10, 64); err != nil {
+					return false, fmt.Errorf("dominusnode: %s out of range", k)
+				}
+				t[k] = json.Number(s)
+				changed = true
+				continue
+			}
+			c, err := fixByteCounts(x)
+			if err != nil {
+				return false, err
+			}
+			changed = changed || c
+		}
+	case []any:
+		for _, x := range t {
+			c, err := fixByteCounts(x)
+			if err != nil {
+				return false, err
+			}
+			changed = changed || c
 		}
 	}
-	if !byteCountRE.MatchString(s) {
-		return fmt.Errorf("dominusnode: invalid byte count %.40q", s)
-	}
-	n, err := strconv.ParseInt(s, 10, 64)
+	return changed, nil
+}
+
+// UnmarshalJSON accepts byte counts as numbers or numeric strings.
+func (r *UsageRecord) UnmarshalJSON(b []byte) error {
+	type plain UsageRecord
+	n, err := normalizeByteCounts(b)
 	if err != nil {
-		return fmt.Errorf("dominusnode: byte count out of range: %w", err)
+		return err
 	}
-	*b = ByteCount(n)
-	return nil
+	return json.Unmarshal(n, (*plain)(r))
+}
+
+// UnmarshalJSON accepts byte counts as numbers or numeric strings.
+func (r *UsageResult) UnmarshalJSON(b []byte) error {
+	type plain UsageResult
+	n, err := normalizeByteCounts(b)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(n, (*plain)(r))
+}
+
+// UnmarshalJSON accepts byte counts as numbers or numeric strings.
+func (r *DailyUsage) UnmarshalJSON(b []byte) error {
+	type plain DailyUsage
+	n, err := normalizeByteCounts(b)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(n, (*plain)(r))
+}
+
+// UnmarshalJSON accepts byte counts as numbers or numeric strings.
+func (r *TopHosts) UnmarshalJSON(b []byte) error {
+	type plain TopHosts
+	n, err := normalizeByteCounts(b)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(n, (*plain)(r))
+}
+
+// UnmarshalJSON accepts paidBytes24h as a number or numeric string.
+func (r *NetworkGroupStats) UnmarshalJSON(b []byte) error {
+	type plain NetworkGroupStats
+	n, err := normalizeByteCounts(b)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(n, (*plain)(r))
 }
 
 // ErrStopIteration can be returned from an Each* callback to stop early; Each* then returns nil.

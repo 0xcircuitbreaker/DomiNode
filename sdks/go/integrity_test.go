@@ -14,11 +14,11 @@ func TestTeamKeyPrefix(t *testing.T) {
 	ctx := context.Background()
 	rt.push(ok(`{"id":"k","prefix":"dn_live_ab","label":"l","key":"` + testKey + `"}`))
 	k, err := c.Teams.CreateKey(ctx, teamID, "l")
-	if err != nil || k.Prefix != "dn_live_ab" {
+	if err != nil || k.Prefix != "dn_live_ab" || k.KeyPrefix != "dn_live_ab" {
 		t.Fatalf("%+v %v", k, err)
 	}
 	rt.push(ok(`{"id":"k","keyPrefix":"dn_live_cd","label":"l","key":"` + testKey + `"}`))
-	if k, _ = c.Teams.CreateKey(ctx, teamID, "l"); k.Prefix != "dn_live_cd" {
+	if k, _ = c.Teams.CreateKey(ctx, teamID, "l"); k.Prefix != "dn_live_cd" || k.KeyPrefix != "dn_live_cd" {
 		t.Fatalf("fallback: %+v", k)
 	}
 	rt.push(ok(`{"keys":[{"id":"k1","userId":"u1","prefix":"dn_live_x","label":"a","teamId":"` + teamID + `","createdAt":"t","revokedAt":null},
@@ -31,7 +31,7 @@ func TestTeamKeyPrefix(t *testing.T) {
 	if a.Prefix != "dn_live_x" || a.UserID != "u1" || a.TeamID != teamID || a.RevokedAt != nil {
 		t.Fatalf("%+v", a)
 	}
-	if b.Prefix != "dn_live_y" || b.RevokedAt == nil || *b.RevokedAt != "r" {
+	if b.Prefix != "dn_live_y" || b.KeyPrefix != "dn_live_y" || a.KeyPrefix != "dn_live_x" || b.RevokedAt == nil || *b.RevokedAt != "r" {
 		t.Fatalf("%+v", b)
 	}
 }
@@ -43,9 +43,8 @@ func TestHealthStatusOnly(t *testing.T) {
 	if err != nil || h.Status != "ok" {
 		t.Fatalf("%+v %v", h, err)
 	}
-	b, _ := json.Marshal(h)
-	if string(b) != `{"status":"ok"}` {
-		t.Fatalf("%s", b)
+	if h.ActiveSessions != 0 || h.UptimeSeconds != 0 {
+		t.Fatalf("%+v", h)
 	}
 }
 
@@ -92,12 +91,46 @@ func TestByteCountTolerant(t *testing.T) {
 	if err != nil || r.Summary.TotalBytes != 12345678901 || r.Records[0].BytesIn != 5 || r.Records[0].BytesOut != 6 || r.Records[0].TotalBytes != 0 {
 		t.Fatalf("%+v %v", r, err)
 	}
+	var d DailyUsage
+	var h TopHosts
+	if json.Unmarshal([]byte(`{"days":[{"totalBytes":"7"}]}`), &d) != nil || d.Days[0].TotalBytes != 7 ||
+		json.Unmarshal([]byte(`{"hosts":[{"totalBytes":"8"}]}`), &h) != nil || h.Hosts[0].TotalBytes != 8 {
+		t.Fatalf("%+v %+v", d, h)
+	}
 	for _, bad := range []string{`"abc"`, `"1.5"`, `1.5`, `"99999999999999999999"`, `true`} {
-		var b ByteCount
-		if json.Unmarshal([]byte(bad), &b) == nil {
+		var rec UsageRecord
+		if json.Unmarshal([]byte(`{"bytesIn":`+bad+`}`), &rec) == nil {
 			t.Fatalf("accepted %s", bad)
 		}
 	}
+}
+
+// Compile-time and runtime check that the 2.0.0 field names and types still work.
+func TestBackwardCompatibleFields(t *testing.T) {
+	var rec UsageRecord
+	var n int64 = rec.BytesIn + rec.BytesOut + rec.TotalBytes
+	var res UsageResult
+	n += res.Summary.TotalBytes
+	var d DailyUsage
+	var h TopHosts
+	_ = d
+	_ = h
+	var gs NetworkGroupStats
+	n += gs.PaidBytes24h
+	_ = n
+	inv := TeamInvite{Token: ""}
+	health := ProxyHealth{Status: "ok", ActiveSessions: 0, UptimeSeconds: 0}
+	var key TeamKey
+	if err := json.Unmarshal([]byte(`{"id":"k","prefix":"dn_live_p"}`), &key); err != nil || key.KeyPrefix != "dn_live_p" || key.Prefix != "dn_live_p" {
+		t.Fatalf("%+v %v", key, err)
+	}
+	c, rt := newTestClient(t)
+	rt.push(ok(`{"id":"k","prefix":"dn_live_ab","label":"l","key":"` + testKey + `"}`))
+	k, err := c.Teams.CreateKey(context.Background(), teamID, "l")
+	if err != nil || k.KeyPrefix != "dn_live_ab" {
+		t.Fatalf("%+v %v", k, err)
+	}
+	_, _ = inv, health
 }
 
 func TestPayoutWalletBaseSepolia(t *testing.T) {

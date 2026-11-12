@@ -508,25 +508,25 @@ type Period struct {
 
 // UsageRecord is one metered request.
 type UsageRecord struct {
-	ID         string    `json:"id"`
-	SessionID  string    `json:"sessionId"`
-	BytesIn    ByteCount `json:"bytesIn"`
-	BytesOut   ByteCount `json:"bytesOut"`
-	TotalBytes ByteCount `json:"totalBytes"`
-	CostCents  int64     `json:"costCents"`
-	ProxyType  string    `json:"proxyType"`
-	TargetHost string    `json:"targetHost"`
-	CreatedAt  string    `json:"createdAt"`
+	ID         string `json:"id"`
+	SessionID  string `json:"sessionId"`
+	BytesIn    int64  `json:"bytesIn"`
+	BytesOut   int64  `json:"bytesOut"`
+	TotalBytes int64  `json:"totalBytes"`
+	CostCents  int64  `json:"costCents"`
+	ProxyType  string `json:"proxyType"`
+	TargetHost string `json:"targetHost"`
+	CreatedAt  string `json:"createdAt"`
 }
 
 // UsageResult is the response of GET /api/usage.
 type UsageResult struct {
 	Summary struct {
-		TotalBytes     ByteCount `json:"totalBytes"`
-		TotalCostCents int64     `json:"totalCostCents"`
-		RequestCount   int64     `json:"requestCount"`
-		TotalGB        float64   `json:"totalGB"`
-		TotalCostUsd   float64   `json:"totalCostUsd"`
+		TotalBytes     int64   `json:"totalBytes"`
+		TotalCostCents int64   `json:"totalCostCents"`
+		RequestCount   int64   `json:"requestCount"`
+		TotalGB        float64 `json:"totalGB"`
+		TotalCostUsd   float64 `json:"totalCostUsd"`
 	} `json:"summary"`
 	Records    []UsageRecord `json:"records"`
 	Pagination struct {
@@ -540,12 +540,12 @@ type UsageResult struct {
 // DailyUsage is the response of GET /api/usage/daily.
 type DailyUsage struct {
 	Days []struct {
-		Date           string    `json:"date"`
-		TotalBytes     ByteCount `json:"totalBytes"`
-		TotalGB        float64   `json:"totalGB"`
-		TotalCostCents int64     `json:"totalCostCents"`
-		TotalCostUsd   float64   `json:"totalCostUsd"`
-		RequestCount   int64     `json:"requestCount"`
+		Date           string  `json:"date"`
+		TotalBytes     int64   `json:"totalBytes"`
+		TotalGB        float64 `json:"totalGB"`
+		TotalCostCents int64   `json:"totalCostCents"`
+		TotalCostUsd   float64 `json:"totalCostUsd"`
+		RequestCount   int64   `json:"requestCount"`
 	} `json:"days"`
 	Period Period `json:"period"`
 }
@@ -553,10 +553,10 @@ type DailyUsage struct {
 // TopHosts is the response of GET /api/usage/top-hosts.
 type TopHosts struct {
 	Hosts []struct {
-		TargetHost   string    `json:"targetHost"`
-		TotalBytes   ByteCount `json:"totalBytes"`
-		TotalGB      float64   `json:"totalGB"`
-		RequestCount int64     `json:"requestCount"`
+		TargetHost   string  `json:"targetHost"`
+		TotalBytes   int64   `json:"totalBytes"`
+		TotalGB      float64 `json:"totalGB"`
+		RequestCount int64   `json:"requestCount"`
 	} `json:"hosts"`
 	Period Period `json:"period"`
 }

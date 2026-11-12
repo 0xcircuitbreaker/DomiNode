@@ -32,51 +32,59 @@ type TeamMember struct {
 
 // TeamInvite is a pending invite.
 type TeamInvite struct {
-	ID        string `json:"id"`
-	TeamID    string `json:"teamId"`
-	Email     string `json:"email"`
-	Role      string `json:"role"`
-	InvitedBy string `json:"invitedBy"` // user id of the member who sent the invite
+	ID     string `json:"id"`
+	TeamID string `json:"teamId"`
+	Email  string `json:"email"`
+	Role   string `json:"role"`
+	// Deprecated: never sent by the server (the token goes to the invitee); always "".
+	Token     string `json:"token,omitempty"`
 	ExpiresAt string `json:"expiresAt"`
 	CreatedAt string `json:"createdAt"`
+	InvitedBy string `json:"invitedBy"` // user id of the member who sent the invite
 }
 
 // TeamKey is a listed team key (no secret).
-// Prefix is the server's `prefix` field (older servers sent `keyPrefix`; both are accepted).
+// KeyPrefix (and the same value in Prefix) is read from the server's `prefix` field,
+// or the legacy `keyPrefix`.
 type TeamKey struct {
 	ID        string  `json:"id"`
-	Prefix    string  `json:"prefix"`
+	KeyPrefix string  `json:"keyPrefix"`
 	Label     string  `json:"label"`
+	CreatedAt string  `json:"createdAt"`
+	Prefix    string  `json:"prefix"`
 	UserID    string  `json:"userId"`
 	TeamID    string  `json:"teamId"`
-	CreatedAt string  `json:"createdAt"`
 	RevokedAt *string `json:"revokedAt"`
 }
 
-// UnmarshalJSON accepts `prefix` or the legacy `keyPrefix`.
+// UnmarshalJSON fills KeyPrefix and Prefix from `prefix` or the legacy `keyPrefix`.
 func (k *TeamKey) UnmarshalJSON(b []byte) error {
 	type plain TeamKey
-	var raw struct {
-		plain
-		KeyPrefix string `json:"keyPrefix"`
-	}
-	if err := json.Unmarshal(b, &raw); err != nil {
+	var p plain
+	if err := json.Unmarshal(b, &p); err != nil {
 		return err
 	}
-	*k = TeamKey(raw.plain)
-	if k.Prefix == "" {
-		k.Prefix = raw.KeyPrefix
-	}
+	*k = TeamKey(p)
+	k.KeyPrefix, k.Prefix = firstNonEmpty(k.Prefix, k.KeyPrefix), firstNonEmpty(k.Prefix, k.KeyPrefix)
 	return nil
 }
 
+func firstNonEmpty(a, b string) string {
+	if a != "" {
+		return a
+	}
+	return b
+}
+
 // TeamKeyCreated holds the new team key, returned once.
+// KeyPrefix and Prefix carry the same value (server `prefix`, or legacy `keyPrefix`).
 type TeamKeyCreated struct {
 	ID        string `json:"id"`
-	Prefix    string `json:"prefix"`
+	KeyPrefix string `json:"keyPrefix"`
 	Label     string `json:"label"`
-	CreatedAt string `json:"createdAt,omitempty"`
 	Key       Secret `json:"key"`
+	Prefix    string `json:"prefix"`
+	CreatedAt string `json:"createdAt,omitempty"`
 }
 
 // TeamTransaction is a team-wallet ledger row.
@@ -251,11 +259,8 @@ func (r *TeamsResource) CreateKey(ctx context.Context, teamID, label string) (*T
 	if err := r.h.post(ctx, teamPath(teamID)+"/keys", map[string]any{"label": label}, authJWT, &raw); err != nil {
 		return nil, err
 	}
-	prefix := raw.Prefix
-	if prefix == "" {
-		prefix = raw.KeyPrefix
-	}
-	return &TeamKeyCreated{ID: raw.ID, Prefix: prefix, Label: raw.Label, CreatedAt: raw.CreatedAt, Key: NewSecret(raw.Key)}, nil
+	prefix := firstNonEmpty(raw.Prefix, raw.KeyPrefix)
+	return &TeamKeyCreated{ID: raw.ID, KeyPrefix: prefix, Prefix: prefix, Label: raw.Label, CreatedAt: raw.CreatedAt, Key: NewSecret(raw.Key)}, nil
 }
 
 // ListKeys: GET /api/teams/{id}/keys.

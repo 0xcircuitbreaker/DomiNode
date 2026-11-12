@@ -63,8 +63,8 @@ type NetworkStats struct {
 
 // NetworkGroupStats: online nodes and paid bytes in the last 24h for one operator group.
 type NetworkGroupStats struct {
-	Online       int       `json:"online"`
-	PaidBytes24h ByteCount `json:"paidBytes24h"`
+	Online       int   `json:"online"`
+	PaidBytes24h int64 `json:"paidBytes24h"` // decoded from a number or numeric string
 }
 
 // Policy: GET /v1/policy.
