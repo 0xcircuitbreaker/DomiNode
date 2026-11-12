@@ -19,7 +19,7 @@ import (
 
 const (
 	// SDKVersion is the SDK version.
-	SDKVersion = "2.0.2"
+	SDKVersion = "2.1.0"
 	// UserAgent is sent on every API request.
 	UserAgent = "dominusnode-sdk-go/" + SDKVersion
 	// DefaultBaseURL is the API server.
