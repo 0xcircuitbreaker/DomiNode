@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { HttpClient } from "../../src/http-client.js";
 import { TokenManager } from "../../src/token-manager.js";
-import { registerUsageTools } from "../../src/tools/usage.js";
+import { registerUsageTools, formatBytes } from "../../src/tools/usage.js";
 
 function makeJwt(exp: number): string {
   const header = Buffer.from(JSON.stringify({ alg: "HS256" })).toString("base64url");
@@ -53,7 +53,8 @@ describe("usage tools", () => {
     const tools = (server as any)._registeredTools;
     const result = await tools["dominusnode_get_usage"].handler({ days: 30 }, { sessionId: "" } as never);
     const text = (result.content as Array<{ type: string; text: string }>)[0].text;
-    expect(text).toContain("1.000 GB");
+    // Decimal GB (1e9 bytes) as billed, plus the raw count
+    expect(text).toContain("1.074 GB (1,073,741,824 bytes)");
     expect(text).toContain("$5.00");
     expect(text).toContain("1000");
   });
@@ -70,5 +71,14 @@ describe("usage tools", () => {
     const result = await tools["dominusnode_get_top_hosts"].handler({ limit: 10, days: 30 }, { sessionId: "" } as never);
     const text = (result.content as Array<{ type: string; text: string }>)[0].text;
     expect(text).toContain("No host data");
+  });
+});
+
+describe("formatBytes (decimal units)", () => {
+  it("uses 1e9 bytes per GB and always shows raw bytes", () => {
+    expect(formatBytes(999)).toBe("999 bytes");
+    expect(formatBytes(1500)).toBe("1.5 kB (1,500 bytes)");
+    expect(formatBytes(2_500_000)).toBe("2.50 MB (2,500,000 bytes)");
+    expect(formatBytes(1_000_000_000)).toBe("1.000 GB (1,000,000,000 bytes)");
   });
 });

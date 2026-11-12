@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { PACKAGE_VERSION } from "../src/version.js";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const read = (f: string) => readFileSync(join(root, f), "utf8");
@@ -18,6 +19,7 @@ describe("MCP listing assets", () => {
     expect(server.name).toBe(pkg["mcpName"]);
     expect(server.version).toBe(pkg["version"]);
     expect(server.packages[0].version).toBe(pkg["version"]);
+    expect(PACKAGE_VERSION).toBe(pkg["version"]);
     expect(server.packages[0].identifier).toBe(pkg["name"]);
     expect(server.packages[0].registryType).toBe("npm");
     expect(server.packages[0].transport.type).toBe("stdio");
@@ -39,5 +41,14 @@ describe("MCP listing assets", () => {
     expect(d).not.toMatch(/^\s*(ENV|ARG)\s+DOMINUSNODE_API_KEY/m);
     expect(d).not.toMatch(/^\s*COPY\s+.*\.(key|env)\b/m);
     expect(read(".dockerignore")).toMatch(/\.env\*/);
+  });
+
+  it("Dockerfile installs from the lockfile with npm ci and the lock matches package.json", () => {
+    const d = read("Dockerfile");
+    expect(d).toMatch(/^COPY package\.json package-lock\.json /m);
+    expect(d).toMatch(/^RUN npm ci /m);
+    const lock = JSON.parse(read("package-lock.json")) as { packages: Record<string, { dependencies?: object; devDependencies?: object }> };
+    expect(lock.packages[""].dependencies).toEqual(pkg["dependencies"]);
+    expect(lock.packages[""].devDependencies).toEqual(pkg["devDependencies"]);
   });
 });

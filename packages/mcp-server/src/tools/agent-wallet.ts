@@ -20,10 +20,15 @@ function checkAgentWalletRateLimit(): boolean {
   return true;
 }
 
-export function registerAgentWalletTools(server: McpServer, httpClient: HttpClient, _config: McpConfig): void {
+/**
+ * dominusnode_x402_info: public (GET /api/x402/info needs no auth), so it is registered in
+ * bootstrap and authenticated mode alike.
+ */
+export function registerX402InfoTool(server: McpServer, httpClient: HttpClient): void {
   server.tool(
     "dominusnode_x402_info",
-    "Get x402 payment protocol info for Dominus Node. Returns supported currencies, facilitator details (Coinbase + PayAI), and agentic wallet details.",
+    "Public: how to pay per request with x402 (USDC) instead of a prepaid wallet. Shows whether x402 is ENABLED on this " +
+      "deployment, the facilitators/networks and receiving addresses, and how to use it with the relay gateway.",
     {},
     async () => {
       try {
@@ -39,34 +44,38 @@ export function registerAgentWalletTools(server: McpServer, httpClient: HttpClie
           currencies: string[];
           walletType: string;
           agenticWallets: boolean;
-        }>("/api/x402/info");
+        }>("/api/x402/info", false);
 
         const text = [
-          `x402 Payment Protocol Info`,
+          data.enabled
+            ? `x402: ENABLED (pay-per-request accepted by the gateway)`
+            : `x402: DISABLED on this deployment (use a prepaid wallet: dominusnode_pay_crypto)`,
           ``,
           `Protocol: ${data.protocol} v${data.version}`,
-          `Supported: ${data.supported}`,
-          `Enabled: ${data.enabled}`,
           ``,
           `Facilitators:`,
           `  Coinbase (EVM/Base):`,
-          `    Network: ${data.facilitators.coinbase.network}`,
-          `    Currency: ${data.facilitators.coinbase.currency}`,
-          `    Receiving Address: ${data.facilitators.coinbase.receivingAddress ?? "Not configured"}`,
+          `    Network: ${data.facilitators?.coinbase?.network ?? "?"}`,
+          `    Currency: ${data.facilitators?.coinbase?.currency ?? "?"}`,
+          `    Receiving Address: ${data.facilitators?.coinbase?.receivingAddress ?? "Not configured"}`,
           `  PayAI (Solana):`,
-          `    Network: ${data.facilitators.payai.network}`,
-          `    Currency: ${data.facilitators.payai.currency}`,
-          `    Receiving Address: ${data.facilitators.payai.receivingAddress ?? "Not configured"}`,
+          `    Network: ${data.facilitators?.payai?.network ?? "?"}`,
+          `    Currency: ${data.facilitators?.payai?.currency ?? "?"}`,
+          `    Receiving Address: ${data.facilitators?.payai?.receivingAddress ?? "Not configured"}`,
           ``,
-          `Relay pricing is per GB by IP class; see dominusnode_network_pricing for live prices.`,
+          `How to use it:`,
+          `  1. Send a proxy request to the gateway without an API key, using the same`,
+          `     username flags as usual (country-XX, class-residential|dc|mobile, session-<id>).`,
+          `     The gateway answers 402 Payment Required with the payment requirements.`,
+          `  2. Sign a payment for those requirements with your wallet and repeat the request`,
+          `     with the payment header (X-PAYMENT for x402) on the proxy request.`,
+          `  3. Each payment buys a fixed byte allowance at the live per-GB price for the`,
+          `     chosen class; the exact amount and allowance are in the 402 requirements and`,
+          `     in GET /api/x402/info. See dominusnode_network_pricing for prices.`,
+          `  dominusnode_fetch uses your API key and prepaid balance, not x402.`,
           ``,
-          `Supported Currencies: ${(data.currencies ?? []).join(", ")}`,
-          `Wallet Type: ${data.walletType}`,
+          `Supported top-up currencies: ${(data.currencies ?? []).join(", ")}`,
           `Agentic Wallets: ${data.agenticWallets ? "Yes" : "No"}`,
-          ``,
-          `x402 allows AI agents to pay per-request with USDC micropayments`,
-          `via Coinbase (Base chain) or PayAI (Solana) — no signup needed.`,
-          `Agentic wallets allow agents to hold sub-wallets with spending limits.`,
         ].join("\n");
 
         return { content: [{ type: "text", text }] };
@@ -78,6 +87,9 @@ export function registerAgentWalletTools(server: McpServer, httpClient: HttpClie
       }
     },
   );
+}
+
+export function registerAgentWalletTools(server: McpServer, httpClient: HttpClient, _config: McpConfig): void {
 
   server.tool(
     "dominusnode_agent_wallet_create",

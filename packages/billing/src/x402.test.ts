@@ -20,8 +20,39 @@ vi.stubGlobal("fetch", mockFetch);
 // Save original env
 const origEnv = { ...process.env };
 
+// Coinbase CDP fixtures (documented wire format; see adapters/facilitators/coinbase.test.ts)
+import * as nodeCrypto from "node:crypto";
+const CB_PAY_TO = "0x1234567890abcdef1234567890abcdef12345678";
+const CB_PAYER = "0x857b06519E91e3A54538791bDbb0E22373e36b66";
+const CB_TX = "0xabababababababababababababababababababababababababababababababab";
+const cbKeys = nodeCrypto.generateKeyPairSync("ed25519");
+const CDP_SECRET = Buffer.concat([
+  cbKeys.privateKey.export({ format: "der", type: "pkcs8" }).subarray(-32),
+  cbKeys.publicKey.export({ format: "der", type: "spki" }).subarray(-32),
+]).toString("base64");
+function cbHeader(value = "1000"): string {
+  return Buffer.from(JSON.stringify({
+    x402Version: 1, scheme: "exact", network: "base-sepolia",
+    payload: {
+      signature: "0x" + "1b".repeat(65),
+      authorization: { from: CB_PAYER, to: CB_PAY_TO, value, validAfter: "0", validBefore: "9999999999", nonce: "0x" + "cd".repeat(32) },
+    },
+  })).toString("base64");
+}
+const CB_REQS = {
+  version: "1",
+  accepts: [{
+    scheme: "exact", network: "base-sepolia", maxAmountRequired: "1000",
+    resource: "https://proxy.dominusnode.daedalusdevelopmentgroup.com", payTo: CB_PAY_TO,
+    asset: "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+    extra: { facilitator: "coinbase" as const, name: "USDC", version: "2" },
+  }],
+};
+
 beforeEach(() => {
   vi.clearAllMocks();
+  mockFetch.mockReset(); // clearAllMocks keeps queued mockResolvedValueOnce values
+
   // Reset env to clean state
   delete process.env["X402_ENABLED"];
   delete process.env["X402_RECEIVING_ADDRESS"];
@@ -291,39 +322,37 @@ describe("verifyX402Payment", () => {
 
   it("verifies with Coinbase facilitator successfully", async () => {
     process.env["CDP_API_KEY_ID"] = "test-key";
-    process.env["CDP_API_KEY_SECRET"] = "test-secret";
+    process.env["CDP_API_KEY_SECRET"] = CDP_SECRET;
 
     mockFetch.mockResolvedValueOnce({
       ok: true,
-      text: () => Promise.resolve(JSON.stringify({ valid: true, payer: "0xPayer123", amount: "1000" })),
+      text: () => Promise.resolve(JSON.stringify({ isValid: true, payer: CB_PAYER })),
     });
 
-    const header = JSON.stringify({ payTo: "0xABC", network: "base-sepolia" });
-    const result = await verifyX402Payment(header, mockRequirements);
+    const result = await verifyX402Payment(cbHeader(), CB_REQS);
     expect(result.valid).toBe(true);
-    expect(result.payer).toBe("0xPayer123");
+    expect(result.payer).toBe(CB_PAYER);
     expect(result.amountUsd).toBe("0.001000");
     expect(result.facilitator).toBe("coinbase");
   });
 
   it("rejects invalid payment from Coinbase", async () => {
     process.env["CDP_API_KEY_ID"] = "test-key";
-    process.env["CDP_API_KEY_SECRET"] = "test-secret";
+    process.env["CDP_API_KEY_SECRET"] = CDP_SECRET;
 
     mockFetch.mockResolvedValueOnce({
       ok: true,
-      text: () => Promise.resolve(JSON.stringify({ valid: false, payer: "" })),
+      text: () => Promise.resolve(JSON.stringify({ isValid: false, invalidReason: "invalid_exact_evm_payload_signature", payer: CB_PAYER })),
     });
 
-    const header = JSON.stringify({ payTo: "0xABC" });
-    const result = await verifyX402Payment(header, mockRequirements);
+    const result = await verifyX402Payment(cbHeader(), CB_REQS);
     expect(result.valid).toBe(false);
     expect(result.error).toContain("invalid");
   });
 
   it("handles Coinbase API error", async () => {
     process.env["CDP_API_KEY_ID"] = "test-key";
-    process.env["CDP_API_KEY_SECRET"] = "test-secret";
+    process.env["CDP_API_KEY_SECRET"] = CDP_SECRET;
 
     mockFetch.mockResolvedValueOnce({
       ok: false,
@@ -331,8 +360,7 @@ describe("verifyX402Payment", () => {
       text: () => Promise.resolve("Internal Server Error"),
     });
 
-    const header = JSON.stringify({ payTo: "0xABC" });
-    const result = await verifyX402Payment(header, mockRequirements);
+    const result = await verifyX402Payment(cbHeader(), CB_REQS);
     expect(result.valid).toBe(false);
     // H-2: Generic error message (specific error logged server-side)
     expect(result.error).toContain("Payment verification failed");
@@ -340,15 +368,11 @@ describe("verifyX402Payment", () => {
 
   it("rejects insufficient payment amount", async () => {
     process.env["CDP_API_KEY_ID"] = "test-key";
-    process.env["CDP_API_KEY_SECRET"] = "test-secret";
+    process.env["CDP_API_KEY_SECRET"] = CDP_SECRET;
 
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      text: () => Promise.resolve(JSON.stringify({ valid: true, payer: "0xPayer", amount: "500" })), // only 500 but 1000 required
-    });
-
-    const header = JSON.stringify({ payTo: "0xABC" });
-    const result = await verifyX402Payment(header, mockRequirements);
+    // The signed authorization value (500) is below the 1000 required: rejected locally
+    const result = await verifyX402Payment(cbHeader("500"), CB_REQS);
+    expect(mockFetch).not.toHaveBeenCalled();
     expect(result.valid).toBe(false);
     expect(result.error).toContain("insufficient");
   });
@@ -405,12 +429,11 @@ describe("verifyX402Payment", () => {
 
   it("handles network errors gracefully", async () => {
     process.env["CDP_API_KEY_ID"] = "test-key";
-    process.env["CDP_API_KEY_SECRET"] = "test-secret";
+    process.env["CDP_API_KEY_SECRET"] = CDP_SECRET;
 
     mockFetch.mockRejectedValueOnce(new Error("ECONNREFUSED"));
 
-    const header = JSON.stringify({ payTo: "0xABC" });
-    const result = await verifyX402Payment(header, mockRequirements);
+    const result = await verifyX402Payment(cbHeader(), CB_REQS);
     expect(result.valid).toBe(false);
     // H-2: Generic error
     expect(result.error).toContain("Payment verification failed");
@@ -422,14 +445,15 @@ describe("verifyX402Payment", () => {
 describe("settleX402Payment", () => {
   it("settles with Coinbase successfully", async () => {
     process.env["CDP_API_KEY_ID"] = "test-key";
-    process.env["CDP_API_KEY_SECRET"] = "test-secret";
+    process.env["CDP_API_KEY_SECRET"] = CDP_SECRET;
 
     mockFetch.mockResolvedValueOnce({
       ok: true,
-      text: () => Promise.resolve(JSON.stringify({ success: true, txHash: "0xabababababababababababababababababababababababababababababababab", amount: "1000" })),
+      text: () => Promise.resolve(JSON.stringify({ success: true, transaction: CB_TX, network: "base-sepolia", payer: CB_PAYER })),
     });
 
-    const result = await settleX402Payment("payment-data", "coinbase");
+    const result = await settleX402Payment(cbHeader(), "coinbase", CB_REQS);
+    expect(result.amountSettled).toBe("1000");
     expect(result.txHash).toBe("0xabababababababababababababababababababababababababababababababab");
     expect(result.facilitator).toBe("coinbase");
   });
@@ -454,7 +478,7 @@ describe("settleX402Payment", () => {
 
   it("throws on Coinbase settle failure", async () => {
     process.env["CDP_API_KEY_ID"] = "test-key";
-    process.env["CDP_API_KEY_SECRET"] = "test-secret";
+    process.env["CDP_API_KEY_SECRET"] = CDP_SECRET;
 
     mockFetch.mockResolvedValueOnce({
       ok: false,
@@ -462,7 +486,7 @@ describe("settleX402Payment", () => {
       text: () => Promise.resolve("Bad request"),
     });
 
-    await expect(settleX402Payment("bad-data", "coinbase")).rejects.toThrow("Coinbase settlement failed");
+    await expect(settleX402Payment(cbHeader(), "coinbase", CB_REQS)).rejects.toThrow("Coinbase settlement failed");
   });
 
   it("throws when PayAI credentials missing", async () => {
@@ -486,31 +510,34 @@ describe("settleX402Payment", () => {
 describe("settle response validation", () => {
   beforeEach(() => {
     process.env["CDP_API_KEY_ID"] = "test-key";
-    process.env["CDP_API_KEY_SECRET"] = "test-secret";
+    process.env["CDP_API_KEY_SECRET"] = CDP_SECRET;
   });
   const ok = (body: unknown) => ({ ok: true, text: () => Promise.resolve(JSON.stringify(body)) });
 
   it("throws on HTTP 200 with success:false", async () => {
-    mockFetch.mockResolvedValueOnce(ok({ success: false, errorReason: "nonce_used" }));
-    await expect(settleX402Payment("p", "coinbase")).rejects.toThrow("not successful");
+    mockFetch.mockResolvedValueOnce(ok({ success: false, errorReason: "invalid_transaction_state", network: "base-sepolia", payer: CB_PAYER }));
+    await expect(settleX402Payment(cbHeader(), "coinbase", CB_REQS)).rejects.toThrow("not successful");
   });
 
   it("throws when success flag missing", async () => {
-    mockFetch.mockResolvedValueOnce(ok({ txHash: "0xabababababababababababababababababababababababababababababababab", amount: "1000" }));
-    await expect(settleX402Payment("p", "coinbase")).rejects.toThrow("not successful");
+    mockFetch.mockResolvedValueOnce(ok({ transaction: CB_TX, network: "base-sepolia" }));
+    await expect(settleX402Payment(cbHeader(), "coinbase", CB_REQS)).rejects.toThrow("not successful");
   });
 
-  it("throws on empty txHash", async () => {
-    mockFetch.mockResolvedValueOnce(ok({ success: true, txHash: "", amount: "1000" }));
-    await expect(settleX402Payment("p", "coinbase")).rejects.toThrow("txHash");
+  it("throws on empty transaction", async () => {
+    mockFetch.mockResolvedValueOnce(ok({ success: true, transaction: "", network: "base-sepolia" }));
+    await expect(settleX402Payment(cbHeader(), "coinbase", CB_REQS)).rejects.toThrow("transaction");
   });
 
-  it("throws when settled amount below requirement and sends requirements", async () => {
-    mockFetch.mockResolvedValueOnce(ok({ success: true, txHash: "0xabababababababababababababababababababababababababababababababab", amount: "500" }));
-    const reqs = { version: "1", accepts: [{ maxAmountRequired: "1000", extra: { facilitator: "coinbase" } }] } as never;
-    await expect(settleX402Payment("p", "coinbase", reqs)).rejects.toThrow("insufficient");
+  it("throws when the signed amount is below requirement, and sends requirements otherwise", async () => {
+    await expect(settleX402Payment(cbHeader("500"), "coinbase", CB_REQS)).rejects.toThrow("insufficient");
+    expect(mockFetch).not.toHaveBeenCalled();
+    mockFetch.mockResolvedValueOnce(ok({ success: true, transaction: CB_TX, network: "base-sepolia", payer: CB_PAYER }));
+    await settleX402Payment(cbHeader(), "coinbase", CB_REQS);
     const sent = JSON.parse(mockFetch.mock.calls[0][1].body);
+    expect(sent.x402Version).toBe(1);
     expect(sent.paymentRequirements.maxAmountRequired).toBe("1000");
+    expect(sent.paymentPayload.payload.authorization.value).toBe("1000");
   });
 });
 

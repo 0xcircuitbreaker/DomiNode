@@ -1,6 +1,7 @@
 import * as http from "node:http";
 import * as https from "node:https";
 import * as net from "node:net";
+import { USER_AGENT } from "./version.js";
 import * as tls from "node:tls";
 import * as dns from "node:dns";
 import type { McpConfig } from "./config.js";
@@ -32,6 +33,30 @@ export interface ProxyFetchResult {
   body: string;
   bodyTruncated: boolean;
   byteCount: number;
+  /** Caller-supplied headers that were not sent (see BLOCKED_REQUEST_HEADERS). */
+  droppedHeaders?: string[];
+}
+
+/**
+ * Request headers a caller may not set: hop-by-hop/framing headers (request smuggling),
+ * credentials (Authorization, Proxy-Authorization: the exit node could read them on
+ * plaintext and they must never carry the dn_live_ key), and User-Agent (fixed to this
+ * package's version).
+ */
+export const BLOCKED_REQUEST_HEADERS: ReadonlySet<string> = new Set([
+  "host", "connection", "content-length", "transfer-encoding", "proxy-authorization",
+  "authorization", "user-agent", "proxy-connection", "upgrade", "te", "trailer", "keep-alive",
+]);
+
+/** Split caller headers into allowed and dropped (case-insensitive). */
+export function filterRequestHeaders(headers: Record<string, string> | undefined): { allowed: Record<string, string>; dropped: string[] } {
+  const allowed: Record<string, string> = {};
+  const dropped: string[] = [];
+  for (const [key, value] of Object.entries(headers ?? {})) {
+    if (BLOCKED_REQUEST_HEADERS.has(key.toLowerCase())) dropped.push(key);
+    else allowed[key] = value;
+  }
+  return { allowed, dropped };
 }
 
 const CRLF_PATTERN = /[\r\n]/;
@@ -138,6 +163,63 @@ function normalizeIpv4(hostname: string): string | null {
   return null;
 }
 
+/** Non-public IPv4 ranges (CIDR-matched with node:net BlockList). */
+const BLOCKED_V4 = new net.BlockList();
+for (const [addr, prefix] of [
+  ["0.0.0.0", 8],        // "this" network
+  ["10.0.0.0", 8],       // private
+  ["100.64.0.0", 10],    // CGNAT
+  ["127.0.0.0", 8],      // loopback
+  ["169.254.0.0", 16],   // link-local
+  ["172.16.0.0", 12],    // private
+  ["192.0.0.0", 24],     // IETF protocol assignments
+  ["192.0.2.0", 24],     // TEST-NET-1
+  ["192.88.99.0", 24],   // 6to4 relay anycast
+  ["192.168.0.0", 16],   // private
+  ["198.18.0.0", 15],    // benchmarking
+  ["198.51.100.0", 24],  // TEST-NET-2
+  ["203.0.113.0", 24],   // TEST-NET-3
+  ["224.0.0.0", 3],      // multicast + reserved + broadcast
+] as const) BLOCKED_V4.addSubnet(addr, prefix, "ipv4");
+
+/** Non-public IPv6 ranges. Ranges that embed IPv4 are decoded separately (see isPrivateIp). */
+const BLOCKED_V6 = new net.BlockList();
+for (const [addr, prefix] of [
+  ["::", 128],           // unspecified
+  ["::1", 128],          // loopback
+  ["100::", 64],         // discard-only
+  ["64:ff9b:1::", 48],   // local-use NAT64
+  ["2001::", 32],        // Teredo (embeds an obfuscated IPv4): block outright
+  ["2001:db8::", 32],    // documentation
+  ["2002::", 16],        // 6to4 (embeds IPv4): block outright
+  ["fc00::", 7],         // unique local
+  ["fe80::", 10],        // link-local
+  ["fec0::", 10],        // site-local (deprecated)
+  ["ff00::", 8],         // multicast
+] as const) BLOCKED_V6.addSubnet(addr, prefix, "ipv6");
+
+/** Expand an IPv6 literal to 8 16-bit groups (handles "::" and a dotted IPv4 tail). */
+function ipv6Groups(ip: string): number[] | null {
+  if (!net.isIPv6(ip)) return null;
+  let s = ip.toLowerCase();
+  const lastColon = s.lastIndexOf(":");
+  const tail = s.slice(lastColon + 1);
+  if (tail.includes(".")) {
+    const o = tail.split(".").map(Number);
+    s = `${s.slice(0, lastColon + 1)}${((o[0] << 8) | o[1]).toString(16)}:${((o[2] << 8) | o[3]).toString(16)}`;
+  }
+  const [head, rest] = s.split("::") as [string, string | undefined];
+  const h = head ? head.split(":") : [];
+  const r = rest !== undefined && rest !== "" ? rest.split(":") : [];
+  const fill = rest !== undefined ? 8 - h.length - r.length : 0;
+  const groups = [...h, ...Array(fill).fill("0"), ...r].map((g) => parseInt(g, 16));
+  return groups.length === 8 && groups.every((g) => g >= 0 && g <= 0xffff) ? groups : null;
+}
+
+function v4FromGroups(hi: number, lo: number): string {
+  return `${hi >> 8}.${hi & 0xff}.${lo >> 8}.${lo & 0xff}`;
+}
+
 export function isPrivateIp(hostname: string): boolean {
   // Strip brackets from IPv6
   let ip = hostname.replace(/^\[|\]$/g, "");
@@ -148,76 +230,22 @@ export function isPrivateIp(hostname: string): boolean {
     ip = ip.substring(0, zoneIdx);
   }
 
-  // Normalize non-standard IP formats before checking
-  const normalized = normalizeIpv4(ip);
-  const checkIp = normalized ?? ip;
+  // Normalize non-standard IPv4 forms (decimal, hex, octal) before checking
+  const v4 = normalizeIpv4(ip) ?? ip;
+  if (net.isIPv4(v4)) return BLOCKED_V4.check(v4, "ipv4");
 
-  // IPv4 private ranges
-  const ipv4Match = checkIp.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
-  if (ipv4Match) {
-    const [, a, b] = ipv4Match.map(Number);
-    if (a === 0) return true;                       // 0.0.0.0/8
-    if (a === 10) return true;                      // 10.0.0.0/8
-    if (a === 127) return true;                     // 127.0.0.0/8
-    if (a === 169 && b === 254) return true;        // 169.254.0.0/16 link-local
-    if (a === 172 && b >= 16 && b <= 31) return true; // 172.16.0.0/12
-    if (a === 192 && b === 168) return true;        // 192.168.0.0/16
-    if (a === 100 && b >= 64 && b <= 127) return true; // 100.64.0.0/10 CGNAT
-    if (a >= 224) return true;                      // multicast + reserved
-    return false;
+  const g = ipv6Groups(ip);
+  if (!g) return false; // not an IP literal (hostnames are checked after DNS resolution)
+
+  const zero = (n: number) => g.slice(0, n).every((x) => x === 0);
+  // IPv4-mapped (::ffff:0:0/96) and IPv4-compatible (::/96): check the embedded IPv4
+  if (zero(5) && g[5] === 0xffff) return isPrivateIp(v4FromGroups(g[6], g[7]));
+  if (zero(6) && !(g[6] === 0 && g[7] <= 1)) return isPrivateIp(v4FromGroups(g[6], g[7]));
+  // NAT64 well-known prefix (64:ff9b::/96): check the embedded IPv4
+  if (g[0] === 0x64 && g[1] === 0xff9b && g[2] === 0 && g[3] === 0 && g[4] === 0 && g[5] === 0) {
+    return isPrivateIp(v4FromGroups(g[6], g[7]));
   }
-
-  // IPv6 private ranges
-  const ipLower = ip.toLowerCase();
-  if (ipLower === "::1") return true;               // loopback
-  if (ipLower === "::") return true;                // unspecified
-  if (ipLower.startsWith("fc") || ipLower.startsWith("fd")) return true; // fc00::/7 ULA
-  if (ipLower.startsWith("fe80")) return true;      // fe80::/10 link-local
-  if (ipLower.startsWith("::ffff:")) {
-    // IPv4-mapped IPv6 — check the embedded IPv4
-    const embedded = ipLower.slice(7);
-    // May be dotted-decimal (::ffff:127.0.0.1) or hex (::ffff:7f00:1)
-    if (embedded.includes(".")) {
-      return isPrivateIp(embedded);
-    }
-    // Hex form: convert ::ffff:XXYY:ZZWW to X.Y.Z.W
-    const hexParts = embedded.split(":");
-    if (hexParts.length === 2) {
-      const hi = parseInt(hexParts[0], 16);
-      const lo = parseInt(hexParts[1], 16);
-      if (!isNaN(hi) && !isNaN(lo)) {
-        const reconstructed = `${(hi >> 8) & 0xff}.${hi & 0xff}.${(lo >> 8) & 0xff}.${lo & 0xff}`;
-        return isPrivateIp(reconstructed);
-      }
-    }
-    return isPrivateIp(embedded);
-  }
-
-  // IPv4-compatible IPv6 (::x.x.x.x) — deprecated but still parsed
-  if (ipLower.startsWith("::") && !ipLower.startsWith("::ffff:")) {
-    const rest = ipLower.slice(2);
-    if (rest && rest.includes(".")) return isPrivateIp(rest);
-    const hexParts = rest.split(":");
-    if (hexParts.length === 2 && hexParts[0] && hexParts[1]) {
-      const hi = parseInt(hexParts[0], 16);
-      const lo = parseInt(hexParts[1], 16);
-      if (!isNaN(hi) && !isNaN(lo)) {
-        const reconstructed = `${(hi >> 8) & 0xff}.${hi & 0xff}.${(lo >> 8) & 0xff}.${lo & 0xff}`;
-        return isPrivateIp(reconstructed);
-      }
-    }
-  }
-
-  // Teredo (2001:0000::/32) — block unconditionally
-  if (ipLower.startsWith("2001:0000:") || ipLower.startsWith("2001:0:")) return true;
-
-  // 6to4 (2002::/16) — block unconditionally
-  if (ipLower.startsWith("2002:")) return true;
-
-  // IPv6 multicast (ff00::/8)
-  if (ipLower.startsWith("ff")) return true;
-
-  return false;
+  return BLOCKED_V6.check(ip, "ipv6");
 }
 
 export function validateUrl(url: string): URL {
@@ -331,10 +359,11 @@ export async function proxyFetch(
 
   await assertPublicResolution(parsed.hostname, lookup);
 
-  if (parsed.protocol === "https:") {
-    return httpsProxyFetch(apiKey, config, opts, parsed, method, timeoutMs, maxBytes);
-  }
-  return httpProxyFetch(apiKey, config, opts, parsed, method, timeoutMs, maxBytes);
+  const { dropped } = filterRequestHeaders(opts.headers);
+  const result = parsed.protocol === "https:"
+    ? await httpsProxyFetch(apiKey, config, opts, parsed, method, timeoutMs, maxBytes)
+    : await httpProxyFetch(apiKey, config, opts, parsed, method, timeoutMs, maxBytes);
+  return dropped.length > 0 ? { ...result, droppedHeaders: dropped } : result;
 }
 
 /**
@@ -379,17 +408,7 @@ function httpProxyFetch(
       reject(new Error(`Proxy request timed out after ${timeoutMs}ms`));
     }, timeoutMs);
 
-    // Block smuggling-prone headers on HTTP path (matches HTTPS path blocklist)
-    // Add user-agent to blocked set (matches HTTPS path PROTECTED_HEADERS)
-    const BLOCKED_HTTP_HEADERS = new Set(["host", "connection", "content-length", "transfer-encoding", "proxy-authorization", "user-agent", "authorization"]);
-    const safeHttpHeaders: Record<string, string> = {};
-    if (opts.headers) {
-      for (const [key, value] of Object.entries(opts.headers)) {
-        if (!BLOCKED_HTTP_HEADERS.has(key.toLowerCase())) {
-          safeHttpHeaders[key] = value;
-        }
-      }
-    }
+    const safeHttpHeaders = filterRequestHeaders(opts.headers).allowed;
 
     const req = gatewayRequest(
       config,
@@ -399,6 +418,7 @@ function httpProxyFetch(
         path: opts.url,
         headers: {
           ...safeHttpHeaders,
+          "User-Agent": USER_AGENT,
           "Proxy-Authorization": buildProxyAuth(apiKey, opts),
           Host: parsed.host,
         },
@@ -512,20 +532,12 @@ function httpsProxyFetch(
             return;
           }
           // Set base headers first, then user headers, but block security-sensitive overrides
-          const BLOCKED_HEADERS = new Set(["host", "connection", "content-length", "transfer-encoding", "proxy-authorization", "authorization"]);
-          const safeUserHeaders: Record<string, string> = {};
-          if (opts.headers) {
-            for (const [key, value] of Object.entries(opts.headers)) {
-              if (!BLOCKED_HEADERS.has(key.toLowerCase())) {
-                safeUserHeaders[key] = value;
-              }
-            }
-          }
+          const safeUserHeaders = filterRequestHeaders(opts.headers).allowed;
           // Merge user headers WITHOUT allowing override of security-critical base headers
           const PROTECTED_HEADERS = new Set(["host", "user-agent", "connection", "content-length"]);
           const reqHeaders: Record<string, string> = {
             Host: parsed.host,
-            "User-Agent": "dominusnode-mcp-server/1.0.0",
+            "User-Agent": USER_AGENT,
             Accept: "*/*",
             Connection: "close",
           };

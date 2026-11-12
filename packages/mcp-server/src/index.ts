@@ -5,6 +5,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { parseConfig, ConfigError } from "./config.js";
 import { TokenManager } from "./token-manager.js";
 import { HttpClient } from "./http-client.js";
+import { PACKAGE_VERSION } from "./version.js";
 import { registerAuthenticatedTools, registerBootstrapTools, countTools } from "./register.js";
 
 async function main(): Promise<void> {
@@ -20,7 +21,9 @@ async function main(): Promise<void> {
       process.stderr.write(`  DOMINUSNODE_API_URL         — API base URL (default: https://api.dominusnode.daedalusdevelopmentgroup.com)\n`);
       process.stderr.write(`  DOMINUSNODE_PROXY_HOST      — Proxy host (default: proxy.dominusnode.daedalusdevelopmentgroup.com)\n`);
       process.stderr.write(`  DOMINUSNODE_HTTP_PROXY_PORT — HTTP proxy port (default: 8080)\n`);
-      process.stderr.write(`  DOMINUSNODE_PROXY_URL       — https://host[:port] TLS gateway (preferred when set; default port 8443)\n`);
+      process.stderr.write(`  DOMINUSNODE_PROXY_URL       — https://host[:port] TLS gateway (default https://proxy.dominusnode.daedalusdevelopmentgroup.com:8443)\n`);
+      process.stderr.write(`  DOMINUSNODE_PROXY_CA_FILE   — extra PEM CA for a privately issued gateway cert\n`);
+      process.stderr.write(`  DOMINUSNODE_PROXY_INSECURE  — set to 1 to use plaintext http to the gateway (key sent in clear)\n`);
       process.stderr.write(`  DOMINUSNODE_WALLET_KEY_FILE — chmod-600 wallet key file (node registration only)\n`);
       process.stderr.write(`  DOMINUSNODE_NODE_KEY_FILE   — node credential output file (default ~/.dominusnode/node.json)\n`);
       process.exit(1);
@@ -41,7 +44,7 @@ async function main(): Promise<void> {
 
   const server = new McpServer({
     name: "dominusnode",
-    version: "2.0.0",
+    version: PACKAGE_VERSION,
   });
 
   const bootstrapMode = config.apiKey === null;
@@ -49,17 +52,17 @@ async function main(): Promise<void> {
   if (bootstrapMode) {
     // ── Bootstrap Mode ──────────────────────────────────────────────
     // No API key provided. Start with account/auth tools only.
-    // Agent authenticates by wallet signature, then restarts with a key.
+    // Agent authenticates by wallet signature; wallet_setup then unlocks the full set in-process.
     process.stderr.write("Dominus Node MCP Server starting in BOOTSTRAP mode...\n");
     process.stderr.write("No API key detected. Only account tools are available.\n");
     process.stderr.write("Use dominusnode_wallet_challenge + dominusnode_wallet_setup to get an API key.\n\n");
 
-    registerBootstrapTools(server, httpClient);
+    registerBootstrapTools(server, httpClient, config);
 
     const transport = new StdioServerTransport();
     await server.connect(transport);
     process.stderr.write(`Dominus Node MCP Server ready — bootstrap mode (${countTools(server)} tools)\n`);
-    process.stderr.write("Run dominusnode_wallet_setup to get an API key, then restart with DOMINUSNODE_API_KEY.\n");
+    process.stderr.write("Run dominusnode_wallet_setup: it creates an API key and unlocks the full tool set in this session.\n");
   } else {
     // ── Authenticated Mode ──────────────────────────────────────────
     process.stderr.write("Dominus Node MCP Server starting...\n");

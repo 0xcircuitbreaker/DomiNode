@@ -1413,6 +1413,11 @@ CREATE TABLE IF NOT EXISTS mpp_transactions (
   created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_mpp_user ON mpp_transactions(user_id) WHERE user_id IS NOT NULL;
+-- Overpayment above the per-payment cap: served for the cap, the rest awaits reconciliation
+-- (refund or credit to the payer). Any uint256 transfer value fits.
+ALTER TABLE mpp_transactions ADD COLUMN IF NOT EXISTS excess_musd NUMERIC(78,0) NOT NULL DEFAULT 0
+  CHECK (excess_musd >= 0 AND excess_musd < 1e78);
+CREATE INDEX IF NOT EXISTS idx_mpp_excess ON mpp_transactions(created_at) WHERE excess_musd > 0;
 
 -- ─── Payouts (Rev 1 §15: USDC push on Base) ─────────────────────────
 

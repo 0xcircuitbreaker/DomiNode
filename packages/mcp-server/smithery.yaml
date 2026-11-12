@@ -11,6 +11,15 @@ startCommand:
       walletKeyFile:
         type: string
         description: "Path to a chmod-600 wallet key file (node registration and withdrawals only)."
+      proxyUrl:
+        type: string
+        description: "TLS gateway https://host[:port]. Default https://proxy.dominusnode.daedalusdevelopmentgroup.com:8443."
+      proxyCaFile:
+        type: string
+        description: "Path to an extra PEM CA for a privately issued gateway certificate."
+      proxyInsecure:
+        type: boolean
+        description: "Use the plaintext gateway listener (API key sent in clear). Local development only."
   commandFunction: |-
     (config) => ({
       command: "npx",
@@ -18,7 +27,10 @@ startCommand:
       env: Object.assign(
         {},
         config.apiKey ? { DOMINUSNODE_API_KEY: config.apiKey } : {},
-        config.walletKeyFile ? { DOMINUSNODE_WALLET_KEY_FILE: config.walletKeyFile } : {}
+        config.walletKeyFile ? { DOMINUSNODE_WALLET_KEY_FILE: config.walletKeyFile } : {},
+        config.proxyUrl ? { DOMINUSNODE_PROXY_URL: config.proxyUrl } : {},
+        config.proxyCaFile ? { DOMINUSNODE_PROXY_CA_FILE: config.proxyCaFile } : {},
+        config.proxyInsecure ? { DOMINUSNODE_PROXY_INSECURE: "1" } : {}
       )
     })
   exampleConfig:
