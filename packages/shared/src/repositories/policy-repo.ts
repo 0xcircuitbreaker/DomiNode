@@ -103,15 +103,29 @@ export async function publishPolicy(input: unknown, createdBy: string | null): P
 
 export type PricingClass = "any" | "residential" | "dc" | "mobile";
 
-/** Price per GB in µUSD for ip_class, falling back to 'any'. Fails closed. */
+/**
+ * Price per GB (1e9 bytes) in µUSD for ip_class.
+ *
+ * A class with its own row gets that price. A class with no row, and 'any'
+ * (used for an unknown node class), gets the HIGHEST configured price: a
+ * missing row must never make traffic cheaper. No rows at all fails closed.
+ */
 export async function getPricing(ipClass: PricingClass = "any"): Promise<bigint> {
   const r = await query<{ ip_class: string; price_per_gb_musd: string }>(
-    `SELECT ip_class, price_per_gb_musd FROM network_pricing WHERE ip_class IN ($1, 'any')`,
-    [ipClass],
+    `SELECT ip_class, price_per_gb_musd FROM network_pricing`,
   );
-  const row = r.rows.find((x) => x.ip_class === ipClass) ?? r.rows.find((x) => x.ip_class === "any");
-  if (!row) throw new Error("network pricing not configured");
-  return BigInt(row.price_per_gb_musd);
+  if (r.rows.length === 0) throw new Error("network pricing not configured");
+  if (ipClass !== "any") {
+    const row = r.rows.find((x) => x.ip_class === ipClass);
+    if (row) return BigInt(row.price_per_gb_musd);
+  }
+  let max = 0n;
+  for (const x of r.rows) {
+    const v = BigInt(x.price_per_gb_musd);
+    if (v > max) max = v;
+  }
+  if (max <= 0n) throw new Error("network pricing not configured");
+  return max;
 }
 
 export async function listPricing(): Promise<Array<{ ipClass: PricingClass; pricePerGbMusd: bigint; updatedAt: Date }>> {
