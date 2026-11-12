@@ -14,7 +14,7 @@ import { loadCoordSigner } from "./node-tunnel/coord-key.js";
 import { NodeTunnelServer } from "./node-tunnel/server.js";
 import { checkGatewayEnv } from "./env-check.js";
 import { startSocks5Server } from "./socks5.js";
-import { loadProxyTls, parseRequireTls, createPlaintextAuthGuard } from "./proxy-tls.js";
+import { loadProxyTls, parseRequireTls, createPlaintextAuthGuard, watchProxyTlsCert, type ReloadableTlsServer } from "./proxy-tls.js";
 import { envInt, setJobRunRecorder, JOB_RUN_UPSERT_SQL, type Job, type JobLogger, type LockPool } from "./jobs/runner.js";
 import * as nodeStatusJob from "./jobs/node-status.js";
 import * as maturityJob from "./jobs/maturity.js";
@@ -215,6 +215,15 @@ async function main(): Promise<void> {
     tlsServers.push(await startProxyServer(proxyTls.port, relay, { tls: proxyTls }));
     if (proxyTls.socks5Port !== null) tlsServers.push(await startSocks5Server(proxyTls.socks5Port, relay, { tls: proxyTls }));
   }
+  // Certificate renewals (e.g. Caddy-issued certs synced by the self-host
+  // proxy-certs sidecar) are picked up in place; no restart needed.
+  const certWatch = proxyTls
+    ? watchProxyTlsCert({
+      certFile: proxyTls.certFile, keyFile: proxyTls.keyFile, initial: proxyTls,
+      servers: tlsServers as unknown as ReloadableTlsServer[],
+      log, intervalMs: 60_000,
+    })
+    : null;
 
   // Graceful shutdown
   async function shutdown(signal: string): Promise<void> {
@@ -223,6 +232,7 @@ async function main(): Promise<void> {
     httpServer.close();
     socks5Server.close();
     for (const s of tlsServers) s.close();
+    certWatch?.stop();
     clearInterval(policyInterval);
     connectProbes?.stop();
     await Promise.all(jobs.map((j) => j.stop().catch(() => {})));
