@@ -10,6 +10,10 @@ import AUPPage from "./pages/AUPPage";
 import AdminLayout from "./admin/AdminLayout";
 import LandingPage from "./pages/LandingPage";
 import AbuseReportPage from "./pages/AbuseReportPage";
+import RunNodePage from "./pages/public/RunNodePage";
+import SelfHostPage from "./pages/public/SelfHostPage";
+import PricingPublicPage from "./pages/public/PricingPublicPage";
+import QuickstartPage from "./pages/public/QuickstartPage";
 import RobotsMeta from "./components/RobotsMeta";
 import { Loading } from "./admin/components/ui";
 
@@ -26,6 +30,7 @@ const PolicyPage = lazy(() => import("./admin/pages/PolicyPage"));
 const PricingPage = lazy(() => import("./admin/pages/PricingPage"));
 const HealthPage = lazy(() => import("./admin/pages/HealthPage"));
 const AuditPage = lazy(() => import("./admin/pages/AuditPage"));
+const CollusionPage = lazy(() => import("./admin/pages/CollusionPage"));
 const LaunchPage = lazy(() => import("./admin/pages/LaunchPage"));
 
 const page = (el: React.ReactNode) => <Suspense fallback={<Loading />}>{el}</Suspense>;
@@ -36,6 +41,10 @@ export default function App() {
     <RobotsMeta />
     <Routes>
       <Route path="/" element={<LandingPage />} />
+      <Route path="/run-a-node" element={<RunNodePage />} />
+      <Route path="/self-host" element={<SelfHostPage />} />
+      <Route path="/pricing" element={<PricingPublicPage />} />
+      <Route path="/quickstart" element={<QuickstartPage />} />
       <Route path="/report-abuse" element={<AbuseReportPage />} />
       <Route path="/login" element={<LoginPage />} />
       <Route path="/forgot-password" element={<ForgotPasswordPage />} />
@@ -52,6 +61,7 @@ export default function App() {
         <Route path="agents" element={page(<AgentsPage />)} />
         <Route path="credits" element={page(<CreditsPage />)} />
         <Route path="disputes" element={page(<DisputesPage />)} />
+        <Route path="collusion" element={page(<CollusionPage />)} />
         <Route path="abuse" element={page(<AbuseLogPage />)} />
         <Route path="policy" element={page(<PolicyPage />)} />
         <Route path="pricing" element={page(<PricingPage />)} />

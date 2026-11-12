@@ -102,7 +102,7 @@ function robotsTxt(origin) {
 }
 
 function sitemapXml(origin) {
-  const urls = ["/", "/report-abuse", "/llms.txt", "/llms-full.txt", ...DOCS.map((d) => d.path), "/terms", "/privacy", "/aup"];
+  const urls = ["/", "/quickstart", "/run-a-node", "/self-host", "/pricing", "/report-abuse", "/llms.txt", "/llms-full.txt", ...DOCS.map((d) => d.path), "/terms", "/privacy", "/aup"];
   return [
     '<?xml version="1.0" encoding="UTF-8"?>',
     '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',

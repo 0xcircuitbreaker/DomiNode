@@ -266,3 +266,24 @@ export const adminApi = {
   updateTier: (id: number, body: Partial<Omit<Tier, "id" | "name" | "rank">>) =>
     put<{ tier: Tier }>(`${BASE}/tiers/${id}`, body),
 };
+
+/* ─── Collusion flags (ADMIN_API.md §12) ─────────────────────────────── */
+export const COLLUSION_STATUSES = ["open", "dismissed", "confirmed"] as const;
+export const COLLUSION_KINDS = ["concentration", "cluster", "circular"] as const;
+export interface CollusionFlag {
+  id: string; kind: string; ownerUserId: string; ownerEmail: string | null; nodeId: string | null;
+  requesterUserId: string | null; requesterEmail: string | null; shareBps: number; volume: Money; total: Money;
+  windowDays: number; status: string; autoFrozen: boolean; ownerCreditsFrozen: boolean; resolvedBy: string | null;
+  resolutionNote: string | null; firstSeenAt: string; lastSeenAt: string; resolvedAt: string | null;
+}
+export interface CollusionSettings {
+  windowDays: number; minNodeVolume: Money; concentrationBps: number; clusterSize: number; clusterBps: number;
+  circularMin: Money; autoFreeze: boolean; freezeBps: number; freezeMinVolume: Money; updatedBy: string | null; updatedAt: string | null;
+}
+export const collusionApi = {
+  flags: (q: Q) => get<Paged<CollusionFlag>>(`${BASE}/collusion/flags${qs(q)}`),
+  resolve: (id: string, action: "dismiss" | "confirm", note?: string) =>
+    post<{ id: string; status: string }>(`${BASE}/collusion/flags/${encodeURIComponent(id)}/${action}`, note ? { note } : {}),
+  settings: () => get<CollusionSettings>(`${BASE}/collusion/settings`),
+  updateSettings: (b: Record<string, unknown>) => put<CollusionSettings>(`${BASE}/collusion/settings`, b),
+};

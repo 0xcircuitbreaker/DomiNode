@@ -4,6 +4,7 @@ import { useAuth } from "../context/AuthContext";
 import ThemeToggle from "../components/ThemeToggle";
 import { BRAND_NAME } from "../config/branding";
 import { cx } from "./components/ui";
+import { DdgEffects } from "../ddg";
 
 export const NAV: Array<{ to: string; label: string; icon: string; group: string }> = [
   { to: "/admin", label: "Overview", group: "Monitor", icon: "M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z" },
@@ -14,6 +15,7 @@ export const NAV: Array<{ to: string; label: string; icon: string; group: string
   { to: "/admin/agents", label: "Agents", group: "Operate", icon: "M17 20h5v-2a3 3 0 00-5.4-1.8M9 20H2v-2a3 3 0 015.4-1.8M15 7a3 3 0 11-6 0 3 3 0 016 0zM12 14a5 5 0 00-5 5v1h10v-1a5 5 0 00-5-5z" },
   { to: "/admin/credits", label: "Credits & Payouts", group: "Operate", icon: "M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" },
   { to: "/admin/disputes", label: "Disputes", group: "Operate", icon: "M3 6l9-3 9 3M3 6v2a9 9 0 0018 0V6M12 3v18" },
+  { to: "/admin/collusion", label: "Collusion flags", group: "Operate", icon: "M8 7a3 3 0 106 0 3 3 0 00-6 0zm-5 13a6 6 0 0112 0M17 11l2 2 4-4" },
   { to: "/admin/launch", label: "Launch controls", group: "Operate", icon: "M5 19l4-4m0 0l6-6 4 4-6 6-4-4zm6-6l2-7 3 3-5 4z" },
   { to: "/admin/abuse", label: "Abuse log", group: "Operate", icon: "M12 9v4m0 4h.01M10.3 3.9L1.8 18a2 2 0 001.7 3h17a2 2 0 001.7-3L13.7 3.9a2 2 0 00-3.4 0z" },
   { to: "/admin/policy", label: "Policy", group: "Configure", icon: "M9 12l2 2 4-4m5.6-4A12 12 0 0112 3a12 12 0 01-8.6 3A12 12 0 003 9c0 5.6 3.8 10.3 9 11.6 5.2-1.3 9-6 9-11.6 0-1-.1-2-.4-3z" },
@@ -41,7 +43,7 @@ function SideNav({ onNavigate }: { onNavigate?: () => void }) {
               className={({ isActive }) => cx(
                 "flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-sm font-medium transition-colors",
                 isActive
-                  ? "bg-sky-50 text-sky-700 dark:bg-sky-500/10 dark:text-sky-300"
+                  ? "bg-amber-50 text-amber-800 dark:bg-ddg-gold/10 dark:text-ddg-gold"
                   : "text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100",
               )}>
               <Icon d={n.icon} />
@@ -60,7 +62,7 @@ function Brand() {
       <img src="/logo.svg" alt="" className="h-8 w-8" />
       <div className="min-w-0 leading-tight">
         <div className="truncate text-sm font-semibold text-slate-900 dark:text-slate-100">{BRAND_NAME}</div>
-        <div className="text-[11px] font-medium uppercase tracking-wide text-slate-500">Operator console</div>
+        <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-amber-700 dark:text-ddg-gold">Operator console</div>
       </div>
     </div>
   );
@@ -70,7 +72,7 @@ export function AccessDenied() {
   const { user, logout } = useAuth();
   return (
     <div className="flex min-h-screen items-center justify-center bg-slate-50 p-4 dark:bg-slate-950">
-      <div className="w-full max-w-md rounded-xl border border-slate-200 bg-white p-6 text-center shadow-sm dark:border-slate-800 dark:bg-slate-900">
+      <div className="w-full max-w-md rounded-sm border border-slate-200 bg-white p-6 text-center shadow-sm dark:border-white/10 dark:bg-ddg-surface">
         <h1 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Access denied</h1>
         <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">
           This console is for network operators only. {user?.email ? <>The account <strong className="break-all">{user.email}</strong> does not have an admin role.</> : null}
@@ -102,17 +104,18 @@ export default function AdminLayout() {
   if (!isAdminUser(user)) return <AccessDenied />;
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100">
-      <aside className="fixed inset-y-0 left-0 z-30 hidden w-60 flex-col border-r border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900 lg:flex">
-        <div className="border-b border-slate-200 px-4 py-4 dark:border-slate-800"><Brand /></div>
+    <div className="ddg min-h-screen bg-slate-50 text-slate-900 dark:bg-ddg-deep dark:text-ddg-text">
+      <DdgEffects grainOpacity={0.06} />
+      <aside className="fixed inset-y-0 left-0 z-30 hidden w-60 flex-col border-r border-slate-200 bg-white dark:border-white/10 dark:bg-ddg-surface lg:flex">
+        <div className="border-b border-slate-200 px-4 py-4 dark:border-white/10"><Brand /></div>
         <SideNav />
       </aside>
 
       {menuOpen && (
         <div className="fixed inset-0 z-40 lg:hidden">
           <div className="absolute inset-0 bg-slate-950/40" onClick={() => setMenuOpen(false)} aria-hidden />
-          <aside className="relative flex h-full w-64 flex-col bg-white shadow-xl dark:bg-slate-900">
-            <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3 dark:border-slate-800">
+          <aside className="relative flex h-full w-64 flex-col bg-white shadow-xl dark:bg-ddg-surface">
+            <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3 dark:border-white/10">
               <Brand />
               <button type="button" aria-label="Close menu" className="btn-secondary !px-2" onClick={() => setMenuOpen(false)}>✕</button>
             </div>
@@ -122,7 +125,7 @@ export default function AdminLayout() {
       )}
 
       <div className="lg:pl-60">
-        <header className="sticky top-0 z-20 flex h-14 items-center justify-between gap-2 border-b border-slate-200 bg-white/90 px-3 backdrop-blur dark:border-slate-800 dark:bg-slate-900/90 sm:px-6">
+        <header className="sticky top-0 z-20 flex h-14 items-center justify-between gap-2 border-b border-slate-200 bg-white/90 px-3 backdrop-blur dark:border-white/10 dark:bg-ddg-deep/90 sm:px-6">
           <div className="flex min-w-0 items-center gap-2">
             <button type="button" aria-label="Open menu" className="btn-secondary !px-2 lg:hidden" onClick={() => setMenuOpen(true)}>☰</button>
             <span className="truncate text-sm text-slate-500 dark:text-slate-400 lg:hidden">{BRAND_NAME}</span>
@@ -135,7 +138,7 @@ export default function AdminLayout() {
             <button type="button" className="btn-secondary" onClick={() => void logout()}>Sign out</button>
           </div>
         </header>
-        <main className="mx-auto max-w-7xl p-3 sm:p-6">
+        <main className="relative z-[2] mx-auto max-w-7xl p-3 sm:p-6">
           <Outlet />
         </main>
       </div>

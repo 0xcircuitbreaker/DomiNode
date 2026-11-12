@@ -5,7 +5,7 @@ import { join, relative } from "node:path";
 import { AI_CRAWLERS, DEFAULT_ORIGIN, DOCS, PUBLIC_DIR, generateDiscovery } from "../../discovery/generate.mjs";
 import { isPrivatePath } from "../components/RobotsMeta";
 
-const SPA_ROUTES = new Set(["/", "/report-abuse", "/terms", "/privacy", "/aup"]);
+const SPA_ROUTES = new Set(["/", "/quickstart", "/run-a-node", "/self-host", "/pricing", "/report-abuse", "/terms", "/privacy", "/aup"]);
 const TEXT_EXT = /\.(txt|md|json|xml)$/;
 
 function walk(dir: string): string[] {

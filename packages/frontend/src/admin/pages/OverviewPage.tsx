@@ -49,7 +49,7 @@ export default function OverviewPage() {
         <div className="relative -mx-4 overflow-x-auto">
           <table className="w-full min-w-max text-sm">
             <thead>
-              <tr className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500 dark:border-slate-800 dark:text-slate-400">
+              <tr className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500 dark:border-white/10 dark:text-slate-400">
                 <th scope="col" className="px-4 py-2 text-left font-medium">Window</th>
                 <th scope="col" className="px-4 py-2 text-right font-medium">Gross</th>
                 <th scope="col" className="px-4 py-2 text-right font-medium">Platform</th>
@@ -62,7 +62,7 @@ export default function OverviewPage() {
               {[...WINDOWS, "all" as const].map((w) => {
                 const t = o.traffic[w];
                 return (
-                  <tr key={w} className="border-b border-slate-100 last:border-0 dark:border-slate-800/70">
+                  <tr key={w} className="border-b border-slate-100 last:border-0 dark:border-white/5">
                     <th scope="row" className="px-4 py-2 text-left font-medium">{w}</th>
                     <td className="px-4 py-2 text-right">{fmtMoney(t.gross)}</td>
                     <td className="px-4 py-2 text-right">{fmtMoney(t.platform)}</td>

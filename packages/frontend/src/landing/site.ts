@@ -31,3 +31,5 @@ export const API_LLMS_URL = `${API_BASE}/llms.txt`;
 /** Abuse intake: the in-site form posting to POST /v1/abuse-reports, unless overridden. */
 export const ABUSE_URL = env["VITE_ABUSE_URL"] || "/report-abuse";
 export const PROXY_HOST = "proxy.dominusnode.com";
+export const CONTACT_EMAIL = "0xcircuitbreaker@protonmail.com";
+export const NODE_IMAGE = "ghcr.io/0xcircuitbreaker/dominusnode-node:0.1.1";
