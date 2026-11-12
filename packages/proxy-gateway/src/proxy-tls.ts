@@ -39,9 +39,17 @@ export function loadProxyTls(
   return { port, socks5Port, cert: readFile(c), key: readFile(k) };
 }
 
-/** PROXY_REQUIRE_TLS=true refuses proxy credentials on the plaintext listeners. */
-export function parseRequireTls(env: NodeJS.ProcessEnv): boolean {
-  return env["PROXY_REQUIRE_TLS"] === "true";
+/**
+ * PROXY_REQUIRE_TLS refuses proxy credentials on the plaintext listeners.
+ * "true"/"false" are explicit; unset (or anything else) defaults to true in
+ * production and false elsewhere. Only the exact string "false" turns it off
+ * in production, so a typo cannot open the plaintext path.
+ */
+export function parseRequireTls(env: NodeJS.ProcessEnv, production = false): boolean {
+  const v = env["PROXY_REQUIRE_TLS"];
+  if (v === "true") return true;
+  if (v === "false") return false;
+  return production;
 }
 
 /** Called when credentials arrive on a plaintext listener. false = refuse. */

@@ -2,7 +2,7 @@ import type * as net from "node:net";
 import dotenv from "dotenv";
 dotenv.config();
 
-import { createLogger, closePool, getPool, usageRepo, connectWithRetry, nodeRepo, policyRepo, nodeCreditRepo, retentionRepo, tierRepo, payoutRepo, relayChargeRepo, relaySettleRetryRepo, reportReputationRepo, collusionRepo, starterCreditRepo, contributionRepo, genesisRepo, networkStatusRepo, getProxyPorts, assertDistinctProxyPorts } from "@dominusnode/shared";
+import { createLogger, closePool, getPool, usageRepo, connectWithRetry, nodeRepo, policyRepo, nodeCreditRepo, retentionRepo, tierRepo, payoutRepo, relayChargeRepo, relaySettleRetryRepo, reportReputationRepo, collusionRepo, starterCreditRepo, contributionRepo, genesisRepo, networkStatusRepo, getProxyPorts, assertDistinctProxyPorts, reportTlsCapability } from "@dominusnode/shared";
 import type { ActivePolicy } from "@dominusnode/shared";
 import { startProxyServer } from "./server.js";
 import { geoAvailable, initGeoCheck, lookupPeerGeo, classifyEgressIp } from "./geo-check.js";
@@ -109,6 +109,7 @@ async function main(): Promise<void> {
   // ─── Node tunnel server + registry + selector ────────────────────
   await initGeoCheck();
   const isProduction = process.env["NODE_ENV"] === "production";
+  reportTlsCapability(log, "proxy-gateway");
   const asnDbOptional = process.env["ASN_DB_OPTIONAL"] === "true";
   if (!geoAvailable()) log.warn("geo database unavailable: public peers and destinations are refused", { asnRequired: isProduction && !asnDbOptional });
   const shared = installSharedLimits(log);
@@ -193,8 +194,12 @@ async function main(): Promise<void> {
 
   // TLS proxy listener (DESIGN.md §15): Proxy-Authorization over TLS.
   const proxyTls = loadProxyTls(process.env);
-  const requireTls = parseRequireTls(process.env);
-  if (requireTls && !proxyTls) throw new Error("PROXY_REQUIRE_TLS=true requires PROXY_TLS_PORT");
+  const requireTls = parseRequireTls(process.env, isProduction);
+  if (requireTls && !proxyTls) {
+    throw new Error(process.env["PROXY_REQUIRE_TLS"] === "true"
+      ? "PROXY_REQUIRE_TLS=true requires PROXY_TLS_PORT"
+      : "production refuses proxy credentials on plaintext 8080/1080 by default: set PROXY_TLS_PORT (+ PROXY_TLS_CERT_FILE/PROXY_TLS_KEY_FILE), or PROXY_REQUIRE_TLS=false to accept plaintext credentials explicitly");
+  }
   const plaintextAuth = createPlaintextAuthGuard({ production: isProduction, requireTls, warn: (m, meta) => log.warn(m, meta) });
   if (isProduction && !requireTls) {
     log.warn(proxyTls

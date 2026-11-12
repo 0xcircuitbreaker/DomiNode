@@ -87,7 +87,7 @@ elsewhere). Meaning and required/optional status are documented in
 | `PROXY_MAX_CONNECTIONS` | `5000` | `src/server.ts`, `src/socks5.ts` |
 | `PROXY_MAX_PER_USER` | `100` | `src/connection-tracker.ts` |
 | `PROXY_MAX_RETRIES` | `2` | `src/retry.ts` |
-| `PROXY_REQUIRE_TLS` |  | `src/proxy-tls.ts` |
+| `PROXY_REQUIRE_TLS` |  | `src/main.ts`, `src/proxy-tls.ts` |
 | `PROXY_RETRY_BASE_DELAY_MS` | `200` | `src/retry.ts` |
 | `PROXY_SESSION_MAX_AGE_MS` | `3600000` | `src/session-manager.ts` |
 | `PROXY_STALE_CLEANUP_INTERVAL_MS` | `60000` | `src/session-manager.ts` |

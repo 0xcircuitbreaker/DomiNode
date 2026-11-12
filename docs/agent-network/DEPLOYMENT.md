@@ -319,12 +319,31 @@ auth, policy and billing path as the plain listener.
 | `PROXY_TLS_PORT` | HTTPS proxy port (e.g. `8443`). Off when unset. Validated 1-65535. |
 | `PROXY_TLS_CERT_FILE` / `PROXY_TLS_KEY_FILE` | PEM certificate chain and key. Required with `PROXY_TLS_PORT`; set without it is a startup error. |
 | `SOCKS5_TLS_PORT` | Optional SOCKS5-inside-TLS port. Needs `PROXY_TLS_PORT` (same cert). |
-| `PROXY_REQUIRE_TLS` | `true` refuses credentials on the plaintext listeners: HTTP returns `403 TLS required`, SOCKS5 connections are closed. Needs `PROXY_TLS_PORT`. Default off. |
+| `PROXY_REQUIRE_TLS` | Refuses credentials on the plaintext listeners: HTTP returns `403 TLS required: connect to the gateway's HTTPS proxy port`, SOCKS5 connections are closed. Needs `PROXY_TLS_PORT`. **Default `true` when `NODE_ENV=production`**, `false` otherwise. Only the exact value `false` turns it off in production. |
 
-In production without `PROXY_REQUIRE_TLS=true`, the gateway logs a startup
-warning and at most one warning per minute per listener when credentials
-arrive over plaintext. Roll out in two steps: enable `PROXY_TLS_PORT`, move
-clients, then set `PROXY_REQUIRE_TLS=true`.
+In production the gateway refuses credentials on 8080/1080 by default, and
+refuses to start if `PROXY_TLS_PORT` is not set (the error names both fixes).
+To keep accepting plaintext credentials during a migration, set
+`PROXY_REQUIRE_TLS=false` explicitly; the gateway then logs a startup warning
+and at most one warning per minute per listener when credentials arrive over
+plaintext. Roll out: enable `PROXY_TLS_PORT`, move clients, then remove the
+`false` override.
+
+**Post-quantum key exchange.** Every TLS endpoint the gateway runs (HTTPS
+proxy, SOCKS5-over-TLS, node tunnel) and the node agent's tunnel client
+accept TLS 1.3 only and offer the hybrid group `X25519MLKEM768` first, with
+`X25519` as fallback (`packages/shared/src/tls-pq.ts`). This needs OpenSSL
+>= 3.5, i.e. Node >= 22.20; the Dockerfiles pin `node:22.23.5-alpine`. Each
+service logs `TLS capability` once at startup (`openssl`, `groups`,
+`pqHybrid`) and warns if the runtime falls back to X25519. Check from outside:
+
+```bash
+openssl s_client -connect proxy.example.org:8443 -groups X25519MLKEM768 -tls1_3 </dev/null
+```
+
+Caddy (`infra/caddy/Caddyfile`) sets `protocols tls1.3` and leaves `curves`
+at the default, which in Caddy >= 2.10 includes `X25519MLKEM768`; pinning a
+curve list would drop the hybrid.
 
 Expose the TLS port directly (the gateway terminates TLS), or pass it through
 Caddy layer4 without terminating. Use a certificate for the public proxy

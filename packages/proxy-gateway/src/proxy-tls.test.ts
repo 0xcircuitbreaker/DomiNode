@@ -38,10 +38,16 @@ describe("loadProxyTls", () => {
 });
 
 describe("parseRequireTls", () => {
-  it("is opt-in", () => {
+  it("is opt-in outside production", () => {
     expect(parseRequireTls({})).toBe(false);
     expect(parseRequireTls({ PROXY_REQUIRE_TLS: "1" })).toBe(false);
     expect(parseRequireTls({ PROXY_REQUIRE_TLS: "true" })).toBe(true);
+  });
+  it("defaults on in production; only an explicit \"false\" turns it off", () => {
+    expect(parseRequireTls({}, true)).toBe(true);
+    expect(parseRequireTls({ PROXY_REQUIRE_TLS: "0" }, true)).toBe(true);
+    expect(parseRequireTls({ PROXY_REQUIRE_TLS: "False" }, true)).toBe(true);
+    expect(parseRequireTls({ PROXY_REQUIRE_TLS: "false" }, true)).toBe(false);
   });
 });
 
