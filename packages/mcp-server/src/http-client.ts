@@ -1,6 +1,6 @@
 import type { TokenManager } from "./token-manager.js";
 
-const USER_AGENT = "dominusnode-mcp-server/1.0.0";
+import { USER_AGENT } from "./version.js";
 
 // Scrub credential patterns from error messages before returning to MCP client
 const CREDENTIAL_PATTERNS = [

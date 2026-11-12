@@ -1,6 +1,7 @@
 import * as http from "node:http";
 import * as https from "node:https";
 import * as net from "node:net";
+import { USER_AGENT } from "./version.js";
 import * as tls from "node:tls";
 import * as dns from "node:dns";
 import type { McpConfig } from "./config.js";
@@ -32,6 +33,30 @@ export interface ProxyFetchResult {
   body: string;
   bodyTruncated: boolean;
   byteCount: number;
+  /** Caller-supplied headers that were not sent (see BLOCKED_REQUEST_HEADERS). */
+  droppedHeaders?: string[];
+}
+
+/**
+ * Request headers a caller may not set: hop-by-hop/framing headers (request smuggling),
+ * credentials (Authorization, Proxy-Authorization: the exit node could read them on
+ * plaintext and they must never carry the dn_live_ key), and User-Agent (fixed to this
+ * package's version).
+ */
+export const BLOCKED_REQUEST_HEADERS: ReadonlySet<string> = new Set([
+  "host", "connection", "content-length", "transfer-encoding", "proxy-authorization",
+  "authorization", "user-agent", "proxy-connection", "upgrade", "te", "trailer", "keep-alive",
+]);
+
+/** Split caller headers into allowed and dropped (case-insensitive). */
+export function filterRequestHeaders(headers: Record<string, string> | undefined): { allowed: Record<string, string>; dropped: string[] } {
+  const allowed: Record<string, string> = {};
+  const dropped: string[] = [];
+  for (const [key, value] of Object.entries(headers ?? {})) {
+    if (BLOCKED_REQUEST_HEADERS.has(key.toLowerCase())) dropped.push(key);
+    else allowed[key] = value;
+  }
+  return { allowed, dropped };
 }
 
 const CRLF_PATTERN = /[\r\n]/;
@@ -331,10 +356,11 @@ export async function proxyFetch(
 
   await assertPublicResolution(parsed.hostname, lookup);
 
-  if (parsed.protocol === "https:") {
-    return httpsProxyFetch(apiKey, config, opts, parsed, method, timeoutMs, maxBytes);
-  }
-  return httpProxyFetch(apiKey, config, opts, parsed, method, timeoutMs, maxBytes);
+  const { dropped } = filterRequestHeaders(opts.headers);
+  const result = parsed.protocol === "https:"
+    ? await httpsProxyFetch(apiKey, config, opts, parsed, method, timeoutMs, maxBytes)
+    : await httpProxyFetch(apiKey, config, opts, parsed, method, timeoutMs, maxBytes);
+  return dropped.length > 0 ? { ...result, droppedHeaders: dropped } : result;
 }
 
 /**
@@ -379,17 +405,7 @@ function httpProxyFetch(
       reject(new Error(`Proxy request timed out after ${timeoutMs}ms`));
     }, timeoutMs);
 
-    // Block smuggling-prone headers on HTTP path (matches HTTPS path blocklist)
-    // Add user-agent to blocked set (matches HTTPS path PROTECTED_HEADERS)
-    const BLOCKED_HTTP_HEADERS = new Set(["host", "connection", "content-length", "transfer-encoding", "proxy-authorization", "user-agent", "authorization"]);
-    const safeHttpHeaders: Record<string, string> = {};
-    if (opts.headers) {
-      for (const [key, value] of Object.entries(opts.headers)) {
-        if (!BLOCKED_HTTP_HEADERS.has(key.toLowerCase())) {
-          safeHttpHeaders[key] = value;
-        }
-      }
-    }
+    const safeHttpHeaders = filterRequestHeaders(opts.headers).allowed;
 
     const req = gatewayRequest(
       config,
@@ -399,6 +415,7 @@ function httpProxyFetch(
         path: opts.url,
         headers: {
           ...safeHttpHeaders,
+          "User-Agent": USER_AGENT,
           "Proxy-Authorization": buildProxyAuth(apiKey, opts),
           Host: parsed.host,
         },
@@ -512,20 +529,12 @@ function httpsProxyFetch(
             return;
           }
           // Set base headers first, then user headers, but block security-sensitive overrides
-          const BLOCKED_HEADERS = new Set(["host", "connection", "content-length", "transfer-encoding", "proxy-authorization", "authorization"]);
-          const safeUserHeaders: Record<string, string> = {};
-          if (opts.headers) {
-            for (const [key, value] of Object.entries(opts.headers)) {
-              if (!BLOCKED_HEADERS.has(key.toLowerCase())) {
-                safeUserHeaders[key] = value;
-              }
-            }
-          }
+          const safeUserHeaders = filterRequestHeaders(opts.headers).allowed;
           // Merge user headers WITHOUT allowing override of security-critical base headers
           const PROTECTED_HEADERS = new Set(["host", "user-agent", "connection", "content-length"]);
           const reqHeaders: Record<string, string> = {
             Host: parsed.host,
-            "User-Agent": "dominusnode-mcp-server/1.0.0",
+            "User-Agent": USER_AGENT,
             Accept: "*/*",
             Connection: "close",
           };

@@ -5,6 +5,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { parseConfig, ConfigError } from "./config.js";
 import { TokenManager } from "./token-manager.js";
 import { HttpClient } from "./http-client.js";
+import { PACKAGE_VERSION } from "./version.js";
 import { registerAuthenticatedTools, registerBootstrapTools, countTools } from "./register.js";
 
 async function main(): Promise<void> {
@@ -43,7 +44,7 @@ async function main(): Promise<void> {
 
   const server = new McpServer({
     name: "dominusnode",
-    version: "2.0.0",
+    version: PACKAGE_VERSION,
   });
 
   const bootstrapMode = config.apiKey === null;

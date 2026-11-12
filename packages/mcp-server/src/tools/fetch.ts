@@ -12,7 +12,10 @@ export function registerFetchTools(server: McpServer, config: McpConfig): void {
       "Routed via the HTTP proxy gateway (CONNECT tunnel for https, so the node sees only the hostname). GET/HEAD only, no redirects followed, " +
       "body capped at 10MB, private/internal targets blocked (incl. DNS rebinding). Only ports 80/443 are reachable. " +
       "Billed per GB by IP class at live prices (see dominusnode_network_pricing). " +
-      "Plaintext http:// needs allow_http=true and is exit-visible (the node can read/alter it); responses then carry X-DominusNode-Exit-Visible: 1.",
+      "Plaintext http:// needs allow_http=true and is exit-visible (the node can read/alter it); responses then carry X-DominusNode-Exit-Visible: 1. " +
+      "These request headers are dropped and never sent: Authorization, Proxy-Authorization, User-Agent (fixed to " +
+      "the server's dominusnode-mcp-server/<version>), Host, Connection, Content-Length, Transfer-Encoding, TE, Trailer, Upgrade, " +
+      "Keep-Alive, Proxy-Connection. Do not put credentials in headers.",
     {
       url: z.string().max(8192).describe("URL to fetch (https: preferred; http: only with allow_http=true)"),
       method: z.enum(["GET", "HEAD"]).default("GET").describe("HTTP method (read-only for safety)"),
@@ -21,7 +24,7 @@ export function registerFetchTools(server: McpServer, config: McpConfig): void {
           (h) => !h || Object.keys(h).length <= 50,
           "Maximum 50 custom headers allowed"
         )
-        .describe("Request headers"),
+        .describe("Request headers. Authorization, User-Agent and hop-by-hop headers are dropped (see the tool description)."),
       country: z.string().regex(/^[A-Za-z]{2}$/).optional().describe("2-letter ISO exit country (username flag country-XX). Sanctioned countries are never available."),
       ip_class: z.enum(["residential", "dc", "mobile"]).optional().describe("Exit IP class (username flag class-<c>); price differs by class. Omit for any class."),
       session_id: z.string().regex(/^[A-Za-z0-9]{1,64}$/).optional().describe("Sticky session id (username flag session-<id>) to reuse the same exit node across requests"),
@@ -48,6 +51,7 @@ export function registerFetchTools(server: McpServer, config: McpConfig): void {
           `Status: ${result.status} ${result.statusText}`,
           ...(exitVisible ? ["EXIT-VISIBLE PLAINTEXT (node operator could read/alter this response)"] : []),
           `Bytes: ${result.byteCount}${result.bodyTruncated ? " (truncated)" : ""}`,
+          ...(result.droppedHeaders?.length ? [`Note: request headers not sent (blocked): ${result.droppedHeaders.join(", ")}`] : []),
         ];
 
         const headerLines = Object.entries(result.headers)
