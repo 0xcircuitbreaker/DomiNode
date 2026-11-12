@@ -26,24 +26,52 @@ export interface TeamInvite {
   teamId: string;
   email: string;
   role: string;
-  token: string;
+  /** User id of the member who sent the invite. The invite token is never returned by list/create. */
+  invitedBy: string;
   expiresAt: string;
   createdAt: string;
 }
 
 export interface TeamKey {
   id: string;
+  /** First characters of the key (server field `prefix`). */
+  prefix: string;
+  /** @deprecated use `prefix` (kept as an alias). */
   keyPrefix: string;
   label: string;
+  /** Member who created the key. */
+  userId: string;
+  teamId: string;
   createdAt: string;
+  revokedAt: string | null;
 }
 
 export interface TeamKeyCreateResponse {
   id: string;
   /** Raw team key, returned ONCE. Redacted when printed; call key.reveal(). */
   key: Secret;
+  prefix: string;
+  /** @deprecated use `prefix` (kept as an alias). */
   keyPrefix: string;
   label: string;
+  createdAt?: string;
+}
+
+type RawKey = Record<string, unknown>;
+
+/** Server sends `prefix`; older servers sent `keyPrefix`. */
+function keyPrefixOf(r: RawKey): string {
+  const p = r["prefix"] ?? r["keyPrefix"];
+  return typeof p === "string" ? p : "";
+}
+
+function toTeamKey(r: RawKey): TeamKey {
+  const prefix = keyPrefixOf(r);
+  const str = (k: string) => (typeof r[k] === "string" ? (r[k] as string) : "");
+  return {
+    id: str("id"), prefix, keyPrefix: prefix, label: str("label"), userId: str("userId"), teamId: str("teamId"),
+    createdAt: str("createdAt"), revokedAt: typeof r["revokedAt"] === "string" ? (r["revokedAt"] as string) : null,
+  };
 }
 
 export interface TeamListResponse {
@@ -166,12 +194,18 @@ export class TeamsResource {
 
   async createKey(teamId: string, label: string): Promise<TeamKeyCreateResponse> {
     validateNonEmpty(label, "label", 100);
-    const r = await this.http.post<Omit<TeamKeyCreateResponse, "key"> & { key: string }>(`/api/teams/${encodeURIComponent(teamId)}/keys`, { label });
-    return { ...r, key: new Secret(r.key) };
+    const r = await this.http.post<RawKey>(`/api/teams/${encodeURIComponent(teamId)}/keys`, { label });
+    const prefix = keyPrefixOf(r);
+    const out: TeamKeyCreateResponse = {
+      id: String(r["id"] ?? ""), key: new Secret(String(r["key"] ?? "")), prefix, keyPrefix: prefix, label: String(r["label"] ?? ""),
+    };
+    if (typeof r["createdAt"] === "string") out.createdAt = r["createdAt"];
+    return out;
   }
 
   async listKeys(teamId: string): Promise<TeamKeysResponse> {
-    return this.http.get(`/api/teams/${encodeURIComponent(teamId)}/keys`);
+    const r = await this.http.get<{ keys?: RawKey[] }>(`/api/teams/${encodeURIComponent(teamId)}/keys`);
+    return { keys: Array.isArray(r.keys) ? r.keys.map(toTeamKey) : [] };
   }
 
   async revokeKey(teamId: string, keyId: string): Promise<void> {

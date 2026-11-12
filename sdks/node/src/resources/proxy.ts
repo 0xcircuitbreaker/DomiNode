@@ -27,10 +27,9 @@ export interface ProxyUrlOptions extends ProxyRoutingOptions {
   apiKey?: string;
 }
 
+/** The server returns only the gateway status ("ok", "degraded", ...). */
 export interface ProxyHealth {
   status: string;
-  activeSessions: number;
-  uptimeSeconds: number;
 }
 
 function validPort(p: unknown, name: string): number {
@@ -105,7 +104,8 @@ export class ProxyResource {
 
   /** GET /api/proxy/health (no auth). */
   async getHealth(): Promise<ProxyHealth> {
-    return this.http.get("/api/proxy/health", "none");
+    const r = await this.http.get<Record<string, unknown>>("/api/proxy/health", "none");
+    return { status: typeof r.status === "string" ? r.status : "unknown" };
   }
 
   /** GET /api/proxy/config */

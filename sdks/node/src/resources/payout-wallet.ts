@@ -4,6 +4,9 @@ import { assertSigner, sign, type Signer } from "../signer.js";
 import { buildPayoutWalletMessage, extractUserId, assertSameMessage } from "../messages.js";
 import { HEX64_RE, validateAddress } from "../validation.js";
 
+export const PAYOUT_CHAINS = ["base", "base-sepolia"] as const;
+export type PayoutChain = (typeof PAYOUT_CHAINS)[number];
+
 export interface PayoutWalletInfo {
   address: string;
   chain: "base" | string;
@@ -24,8 +27,11 @@ export interface PayoutWalletChallenge {
 export interface SetPayoutWalletOptions {
   /** New payout address (0x + 40 hex). Screened against OFAC SDN server-side. */
   address: string;
-  /** Only "base" is supported. */
-  chain?: "base";
+  /**
+   * "base" (default) or "base-sepolia". base-sepolia is an explicit opt-in for staging;
+   * the server decides whether it is accepted (refused in production).
+   */
+  chain?: PayoutChain;
   /** Signer for the account's LINKED wallet. */
   signer: Signer;
   /** Signer for the CURRENT payout wallet; required when changing it and it is not the linked wallet. */
@@ -56,7 +62,7 @@ export class PayoutWalletResource {
     const signer = assertSigner(opts?.signer);
     const address = validateAddress(opts.address).toLowerCase();
     const chain = opts.chain ?? "base";
-    if (chain !== "base") throw invalidArg("chain must be 'base'");
+    if (!(PAYOUT_CHAINS as readonly string[]).includes(chain)) throw invalidArg("chain must be 'base' or 'base-sepolia'");
     if (opts.oldWalletSigner !== undefined) assertSigner(opts.oldWalletSigner, "oldWalletSigner");
 
     const ch = await this.http.post<PayoutWalletChallenge>("/v1/payout-wallet/challenge", { address, chain }, "agent");

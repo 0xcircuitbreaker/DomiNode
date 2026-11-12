@@ -80,6 +80,8 @@ export interface TierView {
   holdDays: number;
   maxNodes: number;
   dailyWithdrawLimitMusd: string;
+  /** Discount this tier gives its owner on relay purchases, in basis points. */
+  buyerDiscountBps: number;
 }
 
 export interface TierRequirement {
@@ -182,6 +184,18 @@ export class NodesResource {
     if (opts.limit !== undefined) validateIntRange(opts.limit, "limit", 1, 500);
     if (opts.offset !== undefined) validateIntRange(opts.offset, "offset", 0, 1_000_000);
     return this.http.get(`/v1/nodes${qs({ limit: opts.limit, offset: opts.offset })}`, "agent");
+  }
+
+  /** Iterate all of your nodes (offset pagination; `limit` is the page size, default 100). */
+  async *iterate(opts: { limit?: number } = {}): AsyncGenerator<NodeInfo, void, undefined> {
+    const limit = opts.limit ?? 100;
+    validateIntRange(limit, "limit", 1, 500);
+    for (let offset = 0; offset <= 1_000_000; offset += limit) {
+      const page = await this.list({ limit, offset });
+      const items = Array.isArray(page.nodes) ? page.nodes : [];
+      for (const n of items) yield n;
+      if (items.length < limit) return;
+    }
   }
 
   /** DELETE /v1/nodes/:id — irreversible. */

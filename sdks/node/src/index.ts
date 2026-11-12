@@ -27,18 +27,18 @@ export type { ActiveSession, ReportReason, ReportResult } from "./resources/sess
 export { X402Resource } from "./resources/x402.js";
 export type { X402Info, X402Facilitator } from "./resources/x402.js";
 export { NetworkResource } from "./resources/network.js";
-export type { NetworkPolicy, NetworkPricing, NetworkStats } from "./resources/network.js";
+export type { NetworkPolicy, NetworkPricing, NetworkStats, NetworkGroupStats } from "./resources/network.js";
 export { NodesResource } from "./resources/nodes.js";
 export type {
   NodeChallenge, RegisterNodeOptions, RegisteredNode, NodeInfo, NodeCaps, UpdateCapsResult, NodeTier, TierView, TierRequirement,
 } from "./resources/nodes.js";
 export {
-  CreditsResource, PayoutsResource, CREDIT_TX_TYPES, newIdempotencyKey,
+  CreditsResource, PayoutsResource, CREDIT_TX_TYPES, CURSOR_RE, newIdempotencyKey,
   MIN_CONVERT_MUSD, MAX_CONVERT_MUSD, MIN_WITHDRAW_MUSD, MAX_WITHDRAW_MUSD,
 } from "./resources/credits.js";
 export type { CreditsBalance, CreditTransaction, CreditTxType, ConvertResult, Payout, PayoutStatus, WithdrawResult } from "./resources/credits.js";
-export { PayoutWalletResource } from "./resources/payout-wallet.js";
-export type { PayoutWalletInfo, PayoutWalletChallenge, SetPayoutWalletOptions, SetPayoutWalletResult } from "./resources/payout-wallet.js";
+export { PayoutWalletResource, PAYOUT_CHAINS } from "./resources/payout-wallet.js";
+export type { PayoutChain, PayoutWalletInfo, PayoutWalletChallenge, SetPayoutWalletOptions, SetPayoutWalletResult } from "./resources/payout-wallet.js";
 export { ProxyResource } from "./resources/proxy.js";
 export type { ProxyUrlOptions, ProxyHealth } from "./resources/proxy.js";
 
