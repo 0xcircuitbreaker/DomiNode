@@ -1,6 +1,6 @@
 [package]
 name = "dominusnode"
-version = "2.0.0"
+version = "2.0.1"
 edition = "2021"
 description = "Official Dominus Node relay-network SDK for Rust"
 license = "MIT"
@@ -23,6 +23,7 @@ base64 = "0.22"
 sha2 = "0.10"
 zeroize = "1"
 uuid = { version = "1", features = ["v4"] }
+futures-util = { version = "0.3", default-features = false }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["full"] }

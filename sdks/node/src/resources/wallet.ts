@@ -1,6 +1,6 @@
 import type { HttpClient } from "../http.js";
 import { invalidArg } from "../errors.js";
-import { qs, seg, validateCents, validateUuid } from "../validation.js";
+import { qs, seg, validateCents, validateIntRange, validateUuid } from "../validation.js";
 
 export interface WalletBalance {
   balanceCents: number;
@@ -57,6 +57,18 @@ export class WalletResource {
   /** GET /api/wallet/transactions */
   async getTransactions(opts: { limit?: number; offset?: number } = {}): Promise<{ transactions: WalletTransaction[] }> {
     return this.http.get(`/api/wallet/transactions${qs({ limit: opts.limit, offset: opts.offset })}`);
+  }
+
+  /** Iterate every wallet transaction (offset pagination; `limit` is the page size, default 50, server max 100). */
+  async *iterTransactions(opts: { limit?: number } = {}): AsyncGenerator<WalletTransaction, void, undefined> {
+    const limit = opts.limit ?? 50;
+    validateIntRange(limit, "limit", 1, 100);
+    for (let offset = 0; offset <= 1_000_000; offset += limit) {
+      const page = await this.getTransactions({ limit, offset });
+      const items = Array.isArray(page.transactions) ? page.transactions : [];
+      for (const t of items) yield t;
+      if (items.length < limit) return;
+    }
   }
 
   /** GET /api/wallet/forecast */

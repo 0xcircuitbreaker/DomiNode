@@ -9,6 +9,9 @@ import { HEX64_RE, qs, toMusd, validateIdempotencyKey, validateIntRange, type Mu
 export const CREDIT_TX_TYPES = ["earn", "mature", "clawback", "convert", "withdraw", "withdraw_reversal"] as const;
 export type CreditTxType = (typeof CREDIT_TX_TYPES)[number];
 
+/** Server cursor format (a positive ledger id). */
+export const CURSOR_RE = /^[1-9][0-9]{0,18}$/;
+
 export const MIN_CONVERT_MUSD = 10_000n;          // 1 cent
 export const MAX_CONVERT_MUSD = 10_000_000_000n;  // $10,000
 export const MIN_WITHDRAW_MUSD = 1_000_000n;      // $1
@@ -24,6 +27,8 @@ export interface CreditsBalance {
   ytdPaid: Money;
   payoutsEnabled: boolean;
   minWithdraw: Money;
+  /** Discount on relay purchases from your owner tier, in basis points (0 unless you run a node). */
+  buyerDiscountBps: number;
 }
 
 export interface CreditTransaction {
@@ -79,11 +84,27 @@ export class CreditsResource {
   /** GET /v1/credits/transactions — cursor pagination (pass the previous nextCursor). */
   async transactions(opts: { limit?: number; cursor?: string; type?: CreditTxType } = {}): Promise<{ transactions: CreditTransaction[]; nextCursor: string | null }> {
     if (opts.limit !== undefined) validateIntRange(opts.limit, "limit", 1, 200);
-    if (opts.cursor !== undefined && !/^[0-9]{1,20}$/.test(opts.cursor)) throw invalidArg("cursor must be a nextCursor value");
+    if (opts.cursor !== undefined && (typeof opts.cursor !== "string" || !CURSOR_RE.test(opts.cursor))) throw invalidArg("cursor must be a nextCursor value");
     if (opts.type !== undefined && !(CREDIT_TX_TYPES as readonly string[]).includes(opts.type)) {
       throw invalidArg(`type must be one of ${CREDIT_TX_TYPES.join(", ")}`);
     }
     return this.http.get(`/v1/credits/transactions${qs({ limit: opts.limit, cursor: opts.cursor, type: opts.type })}`, "agent");
+  }
+
+  /**
+   * Iterate every credit transaction (newest first), following nextCursor. `limit` is the page size.
+   * Stops when the server returns no nextCursor or an empty page.
+   */
+  async *iterTransactions(opts: { limit?: number; type?: CreditTxType; cursor?: string } = {}): AsyncGenerator<CreditTransaction, void, undefined> {
+    let cursor = opts.cursor;
+    for (;;) {
+      const page = await this.transactions({ limit: opts.limit, type: opts.type, cursor });
+      const txs = Array.isArray(page.transactions) ? page.transactions : [];
+      for (const t of txs) yield t;
+      const next = page.nextCursor;
+      if (txs.length === 0 || typeof next !== "string" || !CURSOR_RE.test(next) || next === cursor) return;
+      cursor = next;
+    }
   }
 
   /**
@@ -132,5 +153,17 @@ export class PayoutsResource {
     if (opts.limit !== undefined) validateIntRange(opts.limit, "limit", 1, 200);
     if (opts.offset !== undefined) validateIntRange(opts.offset, "offset", 0, 1_000_000);
     return this.http.get(`/v1/payouts${qs({ limit: opts.limit, offset: opts.offset })}`, "agent");
+  }
+
+  /** Iterate every payout (offset pagination; `limit` is the page size, default 50). */
+  async *iterate(opts: { limit?: number } = {}): AsyncGenerator<Payout, void, undefined> {
+    const limit = opts.limit ?? 50;
+    validateIntRange(limit, "limit", 1, 200);
+    for (let offset = 0; offset <= 1_000_000; offset += limit) {
+      const page = await this.list({ limit, offset });
+      const items = Array.isArray(page.payouts) ? page.payouts : [];
+      for (const p of items) yield p;
+      if (items.length < limit) return;
+    }
   }
 }

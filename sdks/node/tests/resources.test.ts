@@ -169,7 +169,7 @@ describe("agenticWallets (9)", () => {
 describe("teams (18)", () => {
   it("all methods hit the right routes", async () => {
     const replies = Array.from({ length: 18 }, () => [200, {}] as [number, unknown]);
-    replies[15] = [201, { id: "k", key: API_KEY, keyPrefix: "dn_live_", label: "l" }];
+    replies[15] = [201, { id: "k", key: API_KEY, prefix: "dn_live_", label: "l" }];
     const { client, calls } = await connected(...replies);
     const t = client.teams;
     await t.create("T", 5); await t.list(); await t.get("t1"); await t.update("t1", { name: "N" }); await t.delete("t1");

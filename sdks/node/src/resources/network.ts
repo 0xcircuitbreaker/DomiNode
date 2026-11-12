@@ -15,8 +15,16 @@ export interface NetworkPricing {
   unit: "musd_per_gb";
   prices: Array<{ ipClass: IpClass | string; pricePerGbMusd: string }>;
   nodeShare: Array<{ tier: string; rank: number; nodeShareBps: number }>;
+  /** Buyer discount per owner tier, in basis points. */
+  buyerDiscounts: Array<{ tier: string; rank: number; buyerDiscountBps: number }>;
   maturationHours: number;
   rails: string[];
+}
+
+/** Online nodes and paid bytes in the last 24h for one operator group (paidBytes24h is a decimal string). */
+export interface NetworkGroupStats {
+  online: number;
+  paidBytes24h: string;
 }
 
 export interface NetworkStats {
@@ -25,6 +33,10 @@ export interface NetworkStats {
   /** Countries with >= 3 online nodes; smaller groups fold into otherCountries. */
   byCountry: Array<{ country: string; online: number }>;
   otherCountries: number;
+  /** Operator-run seed nodes. */
+  seed: NetworkGroupStats;
+  /** Community (agent-run) nodes. */
+  community: NetworkGroupStats;
   generatedAt: string;
 }
 

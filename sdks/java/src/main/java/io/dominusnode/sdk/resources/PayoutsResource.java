@@ -21,4 +21,12 @@ public final class PayoutsResource {
         if (offset != null) Validation.intRange(offset, "offset", 0, 1_000_000);
         return http.get("/v1/payouts" + qs("limit", limit, "offset", offset), Auth.AGENT);
     }
+
+    /** Every payout (offset pagination; page size default 50, max 200). */
+    public java.util.Iterator<JsonNode> iterate(Integer limit) {
+        int l = Paging.pageSize(limit, 50, 200);
+        return Paging.offset(l, "payouts", false, this::list);
+    }
+
+    public java.util.stream.Stream<JsonNode> stream(Integer limit) { return Paging.stream(iterate(limit)); }
 }

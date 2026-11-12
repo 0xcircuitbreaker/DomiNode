@@ -1,6 +1,9 @@
 package dominusnode
 
-import "context"
+import (
+	"context"
+	"encoding/json"
+)
 
 // TeamsResource: /api/teams [jwt] (18 methods).
 type TeamsResource struct{ h *httpClient }
@@ -29,29 +32,59 @@ type TeamMember struct {
 
 // TeamInvite is a pending invite.
 type TeamInvite struct {
-	ID        string `json:"id"`
-	TeamID    string `json:"teamId"`
-	Email     string `json:"email"`
-	Role      string `json:"role"`
-	Token     string `json:"token"`
+	ID     string `json:"id"`
+	TeamID string `json:"teamId"`
+	Email  string `json:"email"`
+	Role   string `json:"role"`
+	// Deprecated: never sent by the server (the token goes to the invitee); always "".
+	Token     string `json:"token,omitempty"`
 	ExpiresAt string `json:"expiresAt"`
 	CreatedAt string `json:"createdAt"`
+	InvitedBy string `json:"invitedBy"` // user id of the member who sent the invite
 }
 
 // TeamKey is a listed team key (no secret).
+// KeyPrefix (and the same value in Prefix) is read from the server's `prefix` field,
+// or the legacy `keyPrefix`.
 type TeamKey struct {
-	ID        string `json:"id"`
-	KeyPrefix string `json:"keyPrefix"`
-	Label     string `json:"label"`
-	CreatedAt string `json:"createdAt"`
+	ID        string  `json:"id"`
+	KeyPrefix string  `json:"keyPrefix"`
+	Label     string  `json:"label"`
+	CreatedAt string  `json:"createdAt"`
+	Prefix    string  `json:"prefix"`
+	UserID    string  `json:"userId"`
+	TeamID    string  `json:"teamId"`
+	RevokedAt *string `json:"revokedAt"`
+}
+
+// UnmarshalJSON fills KeyPrefix and Prefix from `prefix` or the legacy `keyPrefix`.
+func (k *TeamKey) UnmarshalJSON(b []byte) error {
+	type plain TeamKey
+	var p plain
+	if err := json.Unmarshal(b, &p); err != nil {
+		return err
+	}
+	*k = TeamKey(p)
+	k.KeyPrefix, k.Prefix = firstNonEmpty(k.Prefix, k.KeyPrefix), firstNonEmpty(k.Prefix, k.KeyPrefix)
+	return nil
+}
+
+func firstNonEmpty(a, b string) string {
+	if a != "" {
+		return a
+	}
+	return b
 }
 
 // TeamKeyCreated holds the new team key, returned once.
+// KeyPrefix and Prefix carry the same value (server `prefix`, or legacy `keyPrefix`).
 type TeamKeyCreated struct {
 	ID        string `json:"id"`
 	KeyPrefix string `json:"keyPrefix"`
 	Label     string `json:"label"`
 	Key       Secret `json:"key"`
+	Prefix    string `json:"prefix"`
+	CreatedAt string `json:"createdAt,omitempty"`
 }
 
 // TeamTransaction is a team-wallet ledger row.
@@ -217,14 +250,17 @@ func (r *TeamsResource) CreateKey(ctx context.Context, teamID, label string) (*T
 	}
 	var raw struct {
 		ID        string `json:"id"`
+		Prefix    string `json:"prefix"`
 		KeyPrefix string `json:"keyPrefix"`
 		Label     string `json:"label"`
+		CreatedAt string `json:"createdAt"`
 		Key       string `json:"key"`
 	}
 	if err := r.h.post(ctx, teamPath(teamID)+"/keys", map[string]any{"label": label}, authJWT, &raw); err != nil {
 		return nil, err
 	}
-	return &TeamKeyCreated{raw.ID, raw.KeyPrefix, raw.Label, NewSecret(raw.Key)}, nil
+	prefix := firstNonEmpty(raw.Prefix, raw.KeyPrefix)
+	return &TeamKeyCreated{ID: raw.ID, KeyPrefix: prefix, Prefix: prefix, Label: raw.Label, CreatedAt: raw.CreatedAt, Key: NewSecret(raw.Key)}, nil
 }
 
 // ListKeys: GET /api/teams/{id}/keys.

@@ -384,7 +384,8 @@ impl ProxyResource {
 
     /// `GET /api/proxy/health` [none].
     pub async fn get_health(&self) -> Result<ProxyHealth> {
-        self.http.get("/api/proxy/health", AuthMode::None).await
+        let h: ProxyHealth = self.http.get("/api/proxy/health", AuthMode::None).await?;
+        Ok(ProxyHealth { status: h.status, ..ProxyHealth::default() })
     }
 
     /// `GET /api/proxy/config` [jwt].

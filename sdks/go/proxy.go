@@ -203,16 +203,22 @@ func (p *ProxyResource) BuildURL(o RoutingOptions, protocol, apiKey string) (str
 }
 
 // ProxyHealth is the response of GET /api/proxy/health.
+// The server returns only the gateway status.
 type ProxyHealth struct {
-	Status         string  `json:"status"`
-	ActiveSessions int     `json:"activeSessions"`
-	UptimeSeconds  float64 `json:"uptimeSeconds"`
+	Status string `json:"status"`
+	// Deprecated: never sent by the server; always 0. Kept for compatibility.
+	ActiveSessions int `json:"activeSessions,omitempty"`
+	// Deprecated: never sent by the server; always 0. Kept for compatibility.
+	UptimeSeconds float64 `json:"uptimeSeconds,omitempty"`
 }
 
 // GetHealth: GET /api/proxy/health [none].
 func (p *ProxyResource) GetHealth(ctx context.Context) (*ProxyHealth, error) {
 	var out ProxyHealth
-	return &out, p.h.get(ctx, "/api/proxy/health", authNone, &out)
+	if err := p.h.get(ctx, "/api/proxy/health", authNone, &out); err != nil {
+		return nil, err
+	}
+	return &ProxyHealth{Status: out.Status}, nil
 }
 
 // GetConfig: GET /api/proxy/config [jwt].

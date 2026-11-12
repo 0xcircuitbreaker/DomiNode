@@ -1,5 +1,5 @@
 import type { HttpClient } from "../http.js";
-import { qs } from "../validation.js";
+import { qs, validateIntRange } from "../validation.js";
 
 export interface DateRange {
   /** ISO 8601 start (server param `since`). */
@@ -43,6 +43,19 @@ export class UsageResource {
   /** GET /api/usage */
   async get(opts: DateRange & { limit?: number; offset?: number } = {}): Promise<UsageResponse> {
     return this.http.get(`/api/usage${qs({ since: opts.from, until: opts.to, limit: opts.limit, offset: opts.offset })}`);
+  }
+
+  /** Iterate every usage record in the range (offset pagination; `limit` is the page size, default 200, max 1000). */
+  async *iterRecords(opts: DateRange & { limit?: number } = {}): AsyncGenerator<UsageRecord, void, undefined> {
+    const limit = opts.limit ?? 200;
+    validateIntRange(limit, "limit", 1, 1000);
+    for (let offset = 0; offset <= 1_000_000; offset += limit) {
+      const page = await this.get({ from: opts.from, to: opts.to, limit, offset });
+      const items = Array.isArray(page.records) ? page.records : [];
+      for (const r of items) yield r;
+      const total = Number(page.pagination?.total);
+      if (items.length < limit || (Number.isFinite(total) && offset + items.length >= total)) return;
+    }
   }
 
   /** GET /api/usage/daily */

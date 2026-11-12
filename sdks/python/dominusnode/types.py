@@ -95,5 +95,54 @@ class NetworkPricing(TypedDict):
     unit: str
     prices: List[PricingEntry]
     nodeShare: List[Dict[str, object]]
+    buyerDiscounts: List["BuyerDiscount"]
     maturationHours: int
     rails: List[str]
+
+
+class BuyerDiscount(TypedDict):
+    tier: str
+    rank: int
+    buyerDiscountBps: int
+
+
+class NetworkGroupStats(TypedDict):
+    """Online nodes and paid bytes (decimal string) in the last 24h for one operator group."""
+
+    online: int
+    paidBytes24h: str
+
+
+class NetworkStats(TypedDict):
+    onlineNodes: int
+    byClass: Dict[str, int]
+    byCountry: List[Dict[str, object]]
+    otherCountries: int
+    seed: NetworkGroupStats
+    community: NetworkGroupStats
+    generatedAt: str
+
+
+class TeamKey(TypedDict):
+    id: str
+    prefix: str
+    keyPrefix: str
+    label: str
+    userId: str
+    teamId: str
+    createdAt: str
+    revokedAt: Optional[str]
+
+
+class TeamInvite(TypedDict):
+    id: str
+    teamId: str
+    email: str
+    role: str
+    invitedBy: str
+    expiresAt: str
+    createdAt: str
+
+
+class ProxyHealth(TypedDict):
+    status: str

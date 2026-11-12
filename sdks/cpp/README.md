@@ -2,7 +2,7 @@
 
 C++17 client for the **DominusNode relay network**: AI agents buy exit traffic per GB
 and earn credits by running relay nodes. Implements [`sdks/SDK_SURFACE.md`](../SDK_SURFACE.md)
-v2 (reference: `sdks/node` 2.0.0).
+v2 (reference: `sdks/node` 2.0.1).
 
 Dependencies: libcurl (>= 7.85), nlohmann-json (>= 3.11), OpenSSL libcrypto (SHA-256 for
 the node PoW, random UUIDs). No signing key ever enters the SDK: EIP-191 signing is a callback.
@@ -10,10 +10,10 @@ the node PoW, random UUIDs). No signing key ever enters the SDK: EIP-191 signing
 ## Install (release tarball)
 
 The C++ SDK is not on a package registry. Each release attaches a source
-tarball and its SHA-256 to the GitHub Release `sdk-cpp-v2.0.0`:
+tarball and its SHA-256 to the GitHub Release `sdk-cpp-v2.0.1`:
 
 ```bash
-v=2.0.0
+v=2.0.1
 base=https://github.com/0xcircuitbreaker/DomiNode/releases/download/sdk-cpp-v$v
 curl -fLO "$base/dominusnode-cpp-$v.tar.gz" -fLO "$base/dominusnode-cpp-$v.tar.gz.sha256"
 sha256sum -c "dominusnode-cpp-$v.tar.gz.sha256"
@@ -26,8 +26,8 @@ or vendor it with CMake `FetchContent`:
 ```cmake
 include(FetchContent)
 FetchContent_Declare(dominusnode
-  URL https://github.com/0xcircuitbreaker/DomiNode/releases/download/sdk-cpp-v2.0.0/dominusnode-cpp-2.0.0.tar.gz
-  URL_HASH SHA256=<from dominusnode-cpp-2.0.0.tar.gz.sha256>)
+  URL https://github.com/0xcircuitbreaker/DomiNode/releases/download/sdk-cpp-v2.0.1/dominusnode-cpp-2.0.1.tar.gz
+  URL_HASH SHA256=<from dominusnode-cpp-2.0.1.tar.gz.sha256>)
 FetchContent_MakeAvailable(dominusnode)
 target_link_libraries(app PRIVATE dominusnode)
 ```
@@ -148,7 +148,7 @@ Every message is scrubbed of `dn_live_`/`dn_test_`/`dn_node_`/`dn_proxy_` keys a
 
 ## HTTP behaviour
 
-User-Agent `dominusnode-sdk-cpp/2.0.0`; 30 s timeout; `CURLOPT_FOLLOWLOCATION` 0 (a 3xx is an
+User-Agent `dominusnode-sdk-cpp/2.0.1`; 30 s timeout; `CURLOPT_FOLLOWLOCATION` 0 (a 3xx is an
 error); TLS verification and TLS >= 1.2 set explicitly after every `curl_easy_reset()`;
 10 MB cap by Content-Length and in the write callback; one 429 retry
 (`min(Retry-After, 10 s)` ±10 %, floor 100 ms, 429 body not read); one forced JWT refresh
@@ -169,3 +169,21 @@ body truncated at `max_bytes` (`truncated = true`). Username flags: `country-XX`
 Plans, slots/waitlist, admin, Stripe/PayPal, email/password login and registration,
 human MFA, agent-secret headers, `proxy.get_status`, `dc-`/`residential-`/`auto-` prefixes,
 state/city/ASN targeting and all hardcoded prices.
+
+## Node registration and the client IP
+
+The node-registration proof-of-work is bound to the client IP that requested it.
+Call the register-challenge and register methods from the same egress (same machine,
+same outbound IP, no proxy or VPN switch in between); otherwise the server rejects
+the solution with `INVALID_CHALLENGE`. Register from the host that will run the node.
+
+## Troubleshooting
+
+| Symptom | Meaning | What to do |
+|---|---|---|
+| HTTP 402 | API call: requester or agentic wallet balance is too low | Top up with crypto or fund the agentic wallet |
+| HTTP 407 (proxy) | Gateway rejected the proxy credentials | Check the API key in the proxy password and the username flags (`country-XX-class-dc-...`, or `relay`) |
+| `EMAIL_NOT_VERIFIED` | The route needs a verified account | Verify the account before financial calls |
+| `NO_NODES_AVAILABLE` | No eligible exit node for the requested country/class | Relax the country/class flags or retry later; check network stats |
+| `PAYOUTS_DISABLED` | Withdrawals are switched off server-side | Keep earning; the credits balance `payoutsEnabled` field shows the state |
+| `REPORT_LIMIT` | Per-node daily session-report cap reached (HTTP 409 conflict error; older servers 429) | Do not retry today; the SDK never retries it |
