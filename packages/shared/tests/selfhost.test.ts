@@ -191,3 +191,149 @@ describe("scripts/selfhost/install.sh", () => {
     }
   }, 30_000);
 });
+
+describe("self-host roles and Cloudflare Tunnel", () => {
+  const MAIN = path.join(ROOT, "docker-compose.selfhost.yml");
+  const WGDB = path.join(ROOT, "docker-compose.selfhost.wg-db.yml");
+  const TOKEN = "eyJhIjoiU0VDUkVUVE9LRU5WQUxVRSJ9";
+  const matrix: Array<[string, string, string[]]> = [];
+  for (const role of ["all", "coordinator", "gateway"]) {
+    for (const tls of ["auto", "internal", "off", "cloudflare"]) {
+      if (role === "gateway" && tls === "cloudflare") continue;
+      const p = role === "all" ? ["coordinator", "gateway", "caddy"] : role === "coordinator" ? ["coordinator", ...(tls === "cloudflare" ? [] : ["caddy"])] : ["gateway", "caddy"];
+      if (tls === "cloudflare") p.push("cloudflare");
+      matrix.push([role, tls, p]);
+    }
+  }
+
+  type Cfg = { services: Record<string, { ports?: unknown[] }> };
+  const config = (profiles: string[], files = [MAIN], extra: Record<string, string> = {}): Cfg => {
+    const args = files.flatMap((f) => ["-f", f]).concat(profiles.flatMap((p) => ["--profile", p]), ["config", "--format", "json"]);
+    const r = spawnSync("docker", ["compose", ...args], { env: { ...composeEnv, ...extra }, encoding: "utf8" });
+    expect(r.stderr).toBe("");
+    expect(r.status).toBe(0);
+    return JSON.parse(r.stdout) as Cfg;
+  };
+
+  for (const [role, tls, profiles] of matrix) {
+    it.runIf(dockerCompose)(`compose parses for ROLE=${role} TLS_MODE=${tls}`, () => {
+      const cfg = config(profiles);
+      const names = Object.keys(cfg.services);
+      expect(names.includes("gateway")).toBe(role !== "coordinator");
+      expect(names.includes("api")).toBe(role !== "gateway");
+      expect(names.includes("cloudflared")).toBe(tls === "cloudflare");
+      expect(cfg.services.api?.ports ?? []).toEqual([]);
+      if (tls === "cloudflare") {
+        expect(cfg.services.cloudflared.ports ?? []).toEqual([]);
+        if (role === "coordinator") expect(names).not.toContain("caddy");
+      }
+    });
+  }
+
+  it.runIf(dockerCompose)("wg-db override publishes Postgres only on the WireGuard address", () => {
+    const cfg = config(["coordinator"], [MAIN, WGDB], { DB_WG_BIND: "10.66.0.1" });
+    expect(JSON.stringify(cfg.services.postgres.ports)).toContain('"host_ip":"10.66.0.1"');
+  });
+
+  it("cloudflared is pinned and reads its token from a file, never env or argv", () => {
+    const text = fs.readFileSync(MAIN, "utf8");
+    expect(text).toMatch(/cloudflare\/cloudflared:\d{4}\.\d+\.\d+@sha256:[0-9a-f]{64}/);
+    expect(text).toContain('"--token-file", "/run/cloudflared/token"');
+    expect(text).not.toMatch(/TUNNEL_TOKEN[^_]|"--token"/);
+  });
+
+  const setup = () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "dn-selfhost-"));
+    fs.mkdirSync(path.join(tmp, "scripts/selfhost"), { recursive: true });
+    fs.mkdirSync(path.join(tmp, "selfhost"), { recursive: true });
+    fs.copyFileSync(INSTALL, path.join(tmp, "scripts/selfhost/install.sh"));
+    fs.copyFileSync(path.join(ROOT, "scripts/gen-coord-key.mjs"), path.join(tmp, "scripts/gen-coord-key.mjs"));
+    fs.writeFileSync(path.join(tmp, "selfhost/cloudflared.token"), TOKEN, { mode: 0o600 });
+    return tmp;
+  };
+  const run = (tmp: string, env: Record<string, string>) =>
+    spawnSync("bash", [path.join(tmp, "scripts/selfhost/install.sh"), "--yes", "--no-start"], {
+      env: { ...process.env, OPERATOR_CONTACT: "ops@example.org", SKIP_ASN_DB: "1", RELAY_HOST: "relay.example.org", PROXY_HOST: "proxy.example.org", ...env },
+      encoding: "utf8",
+    });
+  const pw = "a".repeat(48);
+  const coordEnv = { ROLE: "coordinator", TLS_MODE: "cloudflare", DOMINUSNODE_HOSTNAMES: "example.org www.example.org api.example.org", DB_WG_BIND: "10.66.0.1" };
+  const gwEnv = { ROLE: "gateway", TLS_MODE: "auto", DOMINUSNODE_HOSTNAMES: "example.org", GATEWAY_DATABASE_URL: `postgresql://dominusnode:${pw}@10.66.0.1:5432/dominusnode`, COORD_PUBKEY: "1".repeat(64) };
+
+  it.runIf(has("openssl", ["version"]))("coordinator + cloudflare dry run: no Caddy sites, token never copied, idempotent", () => {
+    const tmp = setup();
+    try {
+      for (let i = 0; i < 2; i++) {
+        const r = run(tmp, coordEnv);
+        expect(r.stderr).not.toMatch(/install:/);
+        expect(r.status).toBe(0);
+        expect(r.stdout + r.stderr).not.toContain(TOKEN);
+      }
+      const env = fs.readFileSync(path.join(tmp, ".env"), "utf8");
+      expect(env).not.toContain(TOKEN);
+      expect(env).toMatch(/^ROLE=coordinator$/m);
+      expect(env).toMatch(/^CLOUDFLARE_TUNNEL_TOKEN_FILE=\.\/selfhost\/cloudflared\.token$/m);
+      expect(env).toMatch(/^RELAY_HOST=relay\.example\.org$/m);
+      expect(env).toMatch(/^DB_WG_BIND=10\.66\.0\.1$/m);
+      expect(env.match(/^ROLE=/gm)).toHaveLength(1);
+      expect(fs.statSync(path.join(tmp, ".env")).mode & 0o077).toBe(0);
+      expect(fs.readFileSync(path.join(tmp, "selfhost/Caddyfile"), "utf8")).not.toContain("reverse_proxy");
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  it.runIf(has("openssl", ["version"]))("gateway dry run: own key, both pins, relay-only Caddyfile", () => {
+    const tmp = setup();
+    try {
+      const r = run(tmp, gwEnv);
+      expect(r.status).toBe(0);
+      const env = fs.readFileSync(path.join(tmp, ".env"), "utf8");
+      const own = fs.readFileSync(path.join(tmp, "selfhost/coord.pub"), "utf8").trim();
+      expect(env).toContain(`DN_COORD_PUBKEYS=${"1".repeat(64)},${own}`);
+      expect(env).toMatch(/^GATEWAY_DATABASE_URL=postgresql:\/\/dominusnode:a{48}@10\.66\.0\.1:5432\/dominusnode$/m);
+      expect(r.stdout).not.toContain(pw);
+      const caddy = fs.readFileSync(path.join(tmp, "selfhost/Caddyfile"), "utf8");
+      expect(caddy).toContain("relay.example.org:8443 {");
+      expect(caddy).not.toContain("api:3000");
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  const bad: Array<[string, Record<string, string>, RegExp]> = [
+    ["gateway with cloudflare", { ...gwEnv, TLS_MODE: "cloudflare" }, /ROLE=gateway cannot use/],
+    ["relay host through the tunnel", { ...coordEnv, RELAY_HOST: "api.example.org" }, /RELAY_HOST must not be a tunnel hostname/],
+    ["newline in relay host", { ...coordEnv, RELAY_HOST: "relay.example.org\nX=1" }, /invalid RELAY_HOST/],
+    ["bad proxy host", { ...coordEnv, PROXY_HOST: "proxy_example" }, /invalid PROXY_HOST/],
+    ["public DB address", { ...gwEnv, GATEWAY_DATABASE_URL: `postgresql://dominusnode:${pw}@203.0.113.5:5432/dominusnode` }, /private \(WireGuard\)/],
+    ["weak DB password", { ...gwEnv, GATEWAY_DATABASE_URL: "postgresql://dominusnode:short@10.66.0.1:5432/dominusnode" }, /GATEWAY_DATABASE_URL must be/],
+    ["public DB_WG_BIND", { ...coordEnv, DB_WG_BIND: "0.0.0.0" }, /DB_WG_BIND must be/],
+    ["bad role", { ...coordEnv, ROLE: "both" }, /ROLE must be/],
+  ];
+  for (const [name, env, msg] of bad) {
+    it.runIf(has("openssl", ["version"]))(`rejects ${name}`, () => {
+      const tmp = setup();
+      try {
+        const r = run(tmp, env);
+        expect(r.status).not.toBe(0);
+        expect(r.stderr).toMatch(msg);
+        expect(fs.existsSync(path.join(tmp, ".env"))).toBe(false);
+      } finally {
+        fs.rmSync(tmp, { recursive: true, force: true });
+      }
+    });
+  }
+
+  it.runIf(has("openssl", ["version"]))("rejects a group-readable token file", () => {
+    const tmp = setup();
+    try {
+      fs.chmodSync(path.join(tmp, "selfhost/cloudflared.token"), 0o644);
+      const r = run(tmp, coordEnv);
+      expect(r.status).not.toBe(0);
+      expect(r.stderr).toMatch(/mode 0600/);
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+});
