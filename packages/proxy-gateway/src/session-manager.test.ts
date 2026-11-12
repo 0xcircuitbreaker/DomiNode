@@ -334,6 +334,18 @@ describe("proxy-gateway/session-manager", () => {
       }));
     });
 
+    it("snapshots the tier weight for the node class (masked: 2500 bps) so prepaid charges never store a null weight", async () => {
+      mockGetChargeSnapshot.mockResolvedValueOnce({ ...SNAPSHOT, tierWeightBps: 2500 });
+      mockCreateSession.mockResolvedValueOnce({ id: "sess-x402-masked" });
+      const id = await startPrepaidSession({
+        userId: "x402-user", targetHost: "example.com", counter: makeCounter(10, 10), connectLatencyMs: 0,
+        relay: { ...RELAY, ipClass: "masked" as never }, rail: "mpp", paidMusd: 1000n, quotedPricePerGbMusd: 100_000n, maxBytes: 10_485_760,
+      });
+      expect(mockGetChargeSnapshot).toHaveBeenCalledWith("owner-1", "masked");
+      await endSession(id);
+      expect(mockSettleRelayCharge).toHaveBeenCalledWith(expect.objectContaining({ sessionId: "sess-x402-masked", snapshot: expect.objectContaining({ tierWeightBps: 2500 }) }));
+    });
+
     it("abortPrepaidSession closes the session with no relay charge, once", async () => {
       mockCreateSession.mockResolvedValueOnce({ id: "sess-abort" });
       const id = await startPrepaidSession({

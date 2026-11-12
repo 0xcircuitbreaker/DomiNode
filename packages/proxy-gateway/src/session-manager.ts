@@ -482,7 +482,7 @@ export async function startPrepaidSession(i: PrepaidSessionInput): Promise<strin
   if (typeof i.paidMusd !== "bigint" || i.paidMusd < 1n) throw new Error("Invalid prepaid amount");
   let snapshot: ChargeSnapshot;
   try {
-    snapshot = await tierRepo.getChargeSnapshot(i.relay.nodeOwnerUserId);
+    snapshot = await tierRepo.getChargeSnapshot(i.relay.nodeOwnerUserId, i.relay.ipClass);
   } catch {
     throw new Error("Unable to lock relay pricing. Please try again.");
   }
