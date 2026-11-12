@@ -204,6 +204,10 @@ export * as relayLimitsRepo from "./repositories/relay-limits-repo.js";
 export { buildAttestationMessage, sha256Hex, verifyPow, countLeadingZeroBits } from "./attestation.js";
 export { getBaseTxCount, rpcUrlFromEnv, rpcTimeoutFromEnv, clearNonceCache } from "./starter-funding.js";
 
+// Federation documents (coordinator identity, signed policy, fork branding)
+export * from "./federation.js";
+export { readActivePolicyForExport, PolicyExportError, type PolicyExportDeps } from "./federation-export.js";
+
 // Gateway ports (one reader for listeners and advertised endpoints)
 export {
   getProxyPorts,

@@ -13,6 +13,7 @@ elsewhere). Meaning and required/optional status are documented in
 
 | Variable | Default(s) | Read in |
 |---|---|---|
+| `ABUSE_CONTACT` |  | `src/federation.ts` |
 | `APP_URL` | `http://localhost:5173` | `src/email.ts` |
 | `DATABASE_URL` |  | `src/db.ts` |
 | `DB_CONNECTION_TIMEOUT_MS` | `5000` | `src/db.ts` |
@@ -25,6 +26,9 @@ elsewhere). Meaning and required/optional status are documented in
 | `LOG_LEVEL` | `info` | `src/logger.ts` |
 | `MFA_ENCRYPTION_KEY` |  | `src/totp.ts` |
 | `NODE_ENV` |  | `src/db.ts`, `src/email.ts` |
+| `OFFICIAL_COORD_PUBKEYS` |  | `src/federation.ts` |
+| `OPERATOR_CONTACT` |  | `src/federation.ts` |
+| `OPERATOR_NAME` |  | `src/federation.ts` |
 | `PAYOUTS_ENABLED` |  | `src/repositories/payout-repo.ts` |
 | `PROXY_INTERNAL_PORT` |  | `src/proxy-ports.ts` |
 | `PROXY_LISTEN_PORT` |  | `src/proxy-ports.ts` |
@@ -34,6 +38,7 @@ elsewhere). Meaning and required/optional status are documented in
 | `PROXY_PUBLIC_TLS_PORT` |  | `src/proxy-ports.ts` |
 | `PROXY_PUBLIC_TUNNEL_PORT` |  | `src/proxy-ports.ts` |
 | `PROXY_TLS_PORT` |  | `src/proxy-ports.ts` |
+| `SITE_NAME` |  | `src/federation.ts` |
 | `SMTP_FROM` |  | `src/email.ts` |
 | `SMTP_HOST` | `""` | `src/email.ts` |
 | `SMTP_IGNORE_TLS` |  | `src/email.ts` |
@@ -109,14 +114,18 @@ elsewhere). Meaning and required/optional status are documented in
 | `ADMIN_HUMAN_LOGIN` |  | `src/helpers/human-auth.ts` |
 | `ADMIN_MAX_CREDIT_CENTS` | `50000` | `src/routes/admin.ts` |
 | `AGENT_RATE_LIMIT_MULTIPLIER` | `""` | `src/helpers/agent-rate-limit.ts` |
-| `APP_URL` | `http://localhost:5173`, `https://dominusnode.daedalusdevelopmentgroup.com` | `src/routes/discovery.ts`, `src/routes/teams.ts` |
+| `APP_URL` | `""`, `http://localhost:5173`, `https://dominusnode.daedalusdevelopmentgroup.com` | `src/routes/discovery.ts`, `src/routes/federation.ts`, `src/routes/teams.ts` |
 | `COOKIE_SECURE` |  | `src/helpers/cookies.ts` |
+| `COORDINATOR_HOSTNAMES` |  | `src/routes/federation.ts` |
+| `COORD_ADDITIONAL_PUBKEYS` |  | `src/routes/federation.ts` |
+| `COORD_SIGNING_KEY_FILE` | `""` | `src/routes/federation.ts` |
+| `COORD_TUNNEL_URL` |  | `src/routes/federation.ts` |
 | `CORS_ORIGINS` | `http://localhost:5173` | `src/routes/auth.ts`, `src/routes/wallet-auth.ts`, `src/server.ts` |
 | `DASHBOARD_PORT` | `3000` | `src/main.ts` |
 | `DATABASE_URL` |  | `src/main.ts` |
 | `DEMO_DIR` | `/demo` | `src/demo-seed.ts` |
 | `DEMO_MODE` |  | `src/demo-seed.ts` |
-| `DOMINUSNODE_DOMAIN` | `dominusnode.daedalusdevelopmentgroup.com` | `src/routes/wallet-auth.ts` |
+| `DOMINUSNODE_DOMAIN` | `dominusnode.daedalusdevelopmentgroup.com` | `src/routes/federation.ts`, `src/routes/wallet-auth.ts` |
 | `JWT_SECRET` | `""` | `src/main.ts`, `src/routes/account.ts`, `src/routes/admin.ts`, `src/routes/proxy-health.ts` |
 | `MAX_REGISTERED_USERS` | `2500` | `src/routes/auth.ts`, `src/routes/wallet-auth.ts` |
 | `MCP_AGENT_SECRET` | `""` | `src/helpers/agent-rate-limit.ts`, `src/main.ts` |
@@ -132,12 +141,14 @@ elsewhere). Meaning and required/optional status are documented in
 | `PAYPAL_WEBHOOK_IPS` |  | `src/routes/webhooks.ts` |
 | `POW_DIFFICULTY` | `20` | `src/routes/auth.ts` |
 | `PROXY_HOST` | `localhost` | `src/routes/proxy-config.ts` |
+| `PROXY_HTTP_PORT` | `8080` | `src/routes/federation.ts` |
 | `PROXY_INTERNAL_HOST` | `127.0.0.1` | `src/routes/account.ts`, `src/routes/admin.ts`, `src/routes/proxy-health.ts` |
 | `PROXY_INTERNAL_URL` |  | `src/routes/proxy-health.ts` |
-| `PROXY_PUBLIC_HOST` | `proxy.dominusnode.daedalusdevelopmentgroup.com` | `src/routes/discovery.ts`, `src/routes/proxy-config.ts`, `src/routes/proxy-health.ts`, `src/routes/x402.ts` |
+| `PROXY_PUBLIC_HOST` | `proxy.dominusnode.daedalusdevelopmentgroup.com` | `src/routes/discovery.ts`, `src/routes/federation.ts`, `src/routes/proxy-config.ts`, `src/routes/proxy-health.ts`, `src/routes/x402.ts` |
 | `PROXY_STATS_SECRET` |  | `src/routes/account.ts`, `src/routes/admin.ts`, `src/routes/proxy-health.ts` |
 | `RECAPTCHA_SCORE_THRESHOLD` | `0.5` | `src/routes/auth.ts` |
 | `RECAPTCHA_SECRET_KEY` | `""` | `src/routes/auth.ts` |
+| `SOCKS5_LISTEN_PORT` | `1080` | `src/routes/federation.ts` |
 | `STRIPE_WEBHOOK_IPS` |  | `src/routes/webhooks.ts`, `src/server.ts` |
 | `TRUST_PROXY` |  | `src/server.ts` |
 | `X402_BYTES_PER_REQUEST` | `10485760` | `src/routes/x402.ts` |
@@ -195,7 +206,9 @@ elsewhere). Meaning and required/optional status are documented in
 | Variable | Default(s) | Read in |
 |---|---|---|
 | `DN_API_KEY` | `""` | `src/main.ts` |
+| `DN_NODE_API_URL` |  | `src/main.ts` |
 | `DN_NODE_DEMO` |  | `src/config.ts` |
+| `DN_NODE_GATEWAY_URL` |  | `src/main.ts` |
 | `DN_WALLET_KEY_FILE` |  | `src/main.ts` |
 | `HOME` | `.` | `src/config.ts` |
 | `NODE_ENV` |  | `src/config.ts` |

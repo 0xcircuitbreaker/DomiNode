@@ -10,6 +10,7 @@ import { dial } from "./dialer.js";
 import { Limits } from "./limits.js";
 import { readNodeFile, registerNode } from "./register.js";
 import { effectiveCoordPins } from "./coord-pins.js";
+import { applyCoordinator } from "./coordinator.js";
 import { TunnelClient, scrub, stderrLogger } from "./tunnel-client.js";
 import { startSelfDiscovery, type SelfDiscoveryOptions } from "./self-discovery.js";
 
@@ -44,7 +45,7 @@ export function startFloorDiscovery(apiUrl: string, deps: Omit<SelfDiscoveryOpti
   });
 }
 
-const USAGE = "usage: dominusnode-node <register --wallet-key-file PATH | run> [--key-file PATH] [--ports 80,443] [--max-streams N] [--req-per-sec N] [--gb-per-day N]";
+const USAGE = "usage: dominusnode-node <register --wallet-key-file PATH | run> [--key-file PATH] [--ports 80,443] [--max-streams N] [--req-per-sec N] [--gb-per-day N] [--coordinator DOMAIN --trust sha256:FINGERPRINT]";
 
 async function main(argv: string[]): Promise<number> {
   const [cmd, ...rest] = argv;
@@ -53,7 +54,14 @@ async function main(argv: string[]): Promise<number> {
     return 2;
   }
   const flags = parseFlags(rest);
-  const cfg = loadConfig(process.env, flags);
+  const cfg = await applyCoordinator(
+    loadConfig(process.env, flags),
+    {
+      apiUrl: Boolean(flags["api-url"] ?? process.env["DN_NODE_API_URL"]),
+      gatewayUrl: Boolean(flags["gateway-url"] ?? process.env["DN_NODE_GATEWAY_URL"]),
+    },
+    (line) => process.stderr.write(line + "\n"),
+  );
   if (isDemoMode(process.env)) {
     process.stderr.write("\n*** DEMO MODE, NOT FOR PRODUCTION: plaintext gateway allowed, local demo coordinator only ***\n\n");
   }
@@ -86,7 +94,7 @@ async function main(argv: string[]): Promise<number> {
     limits,
     spkiPins: cfg.spkiPins,
     nodePrivateKeyPem: stored.nodePrivateKeyPem,
-    coordPins: effectiveCoordPins(cfg.coordPins),
+    coordPins: cfg.coordPinsExclusive ? cfg.coordPins : effectiveCoordPins(cfg.coordPins),
     dial: (host, port, allowedPorts) => dial(host, port, { allowedPorts: () => allowedPorts, denyDomains: cfg.denyDomains }),
   });
   stored.nodeKey = "";

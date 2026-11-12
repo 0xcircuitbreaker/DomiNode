@@ -32,6 +32,8 @@ import adminNetworkLaunchRoutes from "./routes/admin-network-launch.js";
 import v1Routes from "./routes/v1/index.js";
 import discoveryRoutes from "./routes/discovery.js";
 import statusPageRoutes from "./routes/status-page.js";
+import { createFederationRouter, loadDocSigner } from "./routes/federation.js";
+import { resolveBranding } from "@dominusnode/shared";
 
 const log = createLogger("api:server");
 
@@ -242,16 +244,24 @@ export function startApiServer(port: number = 3000): ReturnType<express.Express[
   app.use("/v1", v1Routes);
 
   // RFC 9116: security.txt
+  // Contact is config (F8); the official default only applies to an official coordinator key.
+  const docSigner = loadDocSigner(process.env);
+  const securityContact = resolveBranding(process.env, docSigner ? [docSigner.publicKeyHex] : []).abuseContact;
   app.get("/.well-known/security.txt", (_req, res) => {
+    if (!securityContact) {
+      res.status(404).type("text/plain").send("Not configured\n");
+      return;
+    }
     const expires = new Date(Date.now() + 180 * 24 * 60 * 60 * 1000).toISOString();
     res.type("text/plain").send(
-      `Contact: mailto:0xcircuitbreaker@protonmail.com\n` +
+      `Contact: ${securityContact}\n` +
       `Expires: ${expires}\n` +
       `Preferred-Languages: en\n`
     );
   });
 
   // Agent discovery (v2): /.well-known/agent-tool.json and /llms.txt, pricing read live
+  app.use(createFederationRouter(process.env, docSigner));
   app.use(discoveryRoutes);
   app.use(statusPageRoutes);
 

@@ -109,6 +109,30 @@ regenerated file.
 For a compromised key, do steps 1, 2 and 4 together. Treat agents that never
 upgrade as lost.
 
+## 3a. Federation documents
+
+The API serves `/.well-known/dominusnode/coordinator.json` and `policy.json`
+(see FEDERATION.md), signed with `COORD_SIGNING_KEY_FILE`. Both are built from
+one policy read and cached together for 5 minutes. Settings:
+
+| Variable | Meaning |
+|---|---|
+| `APP_URL` | Public API origin. Must be `https://`; otherwise the documents return 503 and the API logs why (node agents refuse http). |
+| `COORDINATOR_HOSTNAMES` | Comma list of every domain this coordinator answers on (for example the apex domain and a DDG subdomain). Defaults to `DOMINUSNODE_DOMAIN`, then the `APP_URL` host. No host is hardcoded. |
+| `COORD_TUNNEL_URL` | `wss://` tunnel URL. Default `wss://relay.<first hostname>/v1/tunnel`. |
+| `PROXY_PUBLIC_HOST` | Public proxy host. Default `proxy.<first hostname>`. |
+| `COORD_ADDITIONAL_PUBKEYS` | Rotation keys listed next to the signer (hex, comma list). A malformed entry is an error, not skipped. Agents pin them only when their fingerprints are passed to `--trust`. |
+| `OFFICIAL_COORD_PUBKEYS` | Keys that get the official name and default contact. Other keys get neutral branding. |
+| `SITE_NAME`, `OPERATOR_NAME`, `OPERATOR_CONTACT`, `ABUSE_CONTACT` | Branding and contacts shown in the document. |
+
+A node joins with `--coordinator <domain> --trust sha256:<fp>[,sha256:<fp>...]`.
+After that its tunnel pins are only the confirmed keys plus any
+`DN_NODE_COORD_PINS`; the embedded official pins are not added.
+
+Export a durable signed policy file with
+`COORD_SIGNING_KEY_FILE=... node scripts/export-signed-policy.mjs [--out policy.json]`.
+Policy files carry version and hash, so they do not expire.
+
 ## 4. ASN database
 
 The gateway uses the iptoasn.com `ip2asn-combined.tsv.gz` dataset (Public

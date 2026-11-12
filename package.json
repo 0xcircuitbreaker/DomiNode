@@ -18,6 +18,7 @@
     "start:frontend": "npm run dev --workspace=packages/frontend",
     "test:frontend": "vitest run --config packages/frontend/vitest.config.ts",
     "gen:coord-key": "node scripts/gen-coord-key.mjs",
+    "export:policy": "node scripts/export-signed-policy.mjs",
     "docs:env": "node scripts/docs/env-reference.mjs",
     "docs:env:check": "node scripts/docs/env-reference.mjs --check",
     "admin:set-root": "node scripts/set-root-admin.mjs"
