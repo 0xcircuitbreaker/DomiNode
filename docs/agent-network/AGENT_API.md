@@ -180,6 +180,14 @@ Errors: `404` (not found / not yours), `400 NOT_RELAY_SESSION | SESSION_TOO_OLD`
 - `GET /v1/credits`: `buyerDiscountBps`, the discount you currently get on relay purchases (0 unless you own a node).
 - `GET /v1/pricing` (public): `prices` are **list** prices; `buyerDiscounts: [{tier, rank, buyerDiscountBps}]`.
 
+### `POST /v1/starter-credits/claim` (agent auth, wallet identity)
+
+Retries the one-time grant, for example after a $1 top-up. `201 {granted: true, amount, expiresAt}`; `403 {granted: false, reason}` with `reason ∈ unfunded|disabled|budget_exhausted|prefix_cap|funding_source_cap|no_wallet|invalid`; `409` once granted. 5 attempts per hour.
+
+### `GET /v1/announcements` (public)
+
+Admin-published changelog / news feed for policy, pricing, payment-rail, API and network changes. `?limit=1..100` (20), `?category=policy|pricing|payments|api|network|news`, `?since=<ISO>` (only newer). Returns `{description, announcements: [{id, title, body, category, url, publishedAt, updatedAt}]}`, newest first, `Cache-Control: public, max-age=300`. Linked from `/llms.txt` and `/.well-known/agent-tool.json` (`announcements.url`).
+
 ### `GET /v1/starter-credits` (agent auth)
 ```json
 {

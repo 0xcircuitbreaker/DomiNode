@@ -208,9 +208,11 @@ Rules for seed nodes:
 | 5 | Public network status page | **Partial** | `GET /v1/network/stats`, `/v1/pricing` and `/v1/policy` exist (`routes/v1/public.ts`); there is no public page, latency or success-rate history, or incident log. |
 | 6 | Genesis boost (time-limited extra bps plus a demand-gated grant) | **No** | Needs a `genesis_until` column per beneficial owner, snapshotted with `tier_id`/`node_share_bps`, capped at 5000. |
 | 7 | MCP Registry metadata (`mcpName`, `server.json`) | **No** | Only the custom `packages/mcp-server/mcp-server.json`. Also add `smithery.yaml` and a Dockerfile (Docker MCP catalog). |
-| 8 | x402 Bazaar discovery metadata on gateway resources | **Verify** | x402 rails exist (`packages/billing`); confirm the Bazaar extension and resource description are emitted, then run the CDP validate endpoint. |
+| 8 | x402 Bazaar discovery metadata on gateway resources | **Yes (verify listing)** | 402s carry v1 `outputSchema` (discoverable) plus v2 `resource` and `extensions.bazaar`; see PAYMENTS.md "x402 Bazaar discovery". Still to do: settle through CDP and run the validate endpoint. |
 | 9 | Unmet-demand logging (country/class requested with no eligible node) feeding a "wanted" list and a waitlist | **No** | Drives the coverage bonus and node invites. |
 | 10 | Seed vs community labeling in stats | **No** | Needed for honest reporting. |
 | 11 | Remote MCP (HTTP plus OAuth) | **No** | Needed for the Claude/ChatGPT connector directories (Phase 3). |
 | 12 | Payer-wallet sanctions/KYT screening on x402/MPP | **Verify / likely no** | Payout wallets are screened; payer wallets are not documented. |
 | 13 | Public abuse-report intake form | **No** | Backed by the existing metadata-only abuse log lookup. |
+
+**Update 2026-11-12:** starter-credit funding precondition (Base nonce ≥1 or a ≥$1 paid top-up, fails closed; ECONOMICS.md §7), the genesis entry rule (≥3 distinct unlinked paying principals; ECONOMICS.md §9), x402 Bazaar metadata (PAYMENTS.md), and an agent-facing announcements feed (`GET /v1/announcements`, AGENT_API.md) are in place with admin controls on the Launch page.
