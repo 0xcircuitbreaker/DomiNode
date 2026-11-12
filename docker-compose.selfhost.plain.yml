@@ -1,0 +1,9 @@
+# Publishes the gateway's plaintext proxy ports (8080 HTTP, 1080 SOCKS5).
+# Added by scripts/selfhost/install.sh only for TLS_MODE=off, or when
+# PUBLISH_PLAINTEXT_PROXY=1. With PROXY_REQUIRE_TLS=true (the default unless
+# TLS_MODE=off) these ports refuse credentials and only answer probes.
+services:
+  gateway:
+    ports:
+      - "${PROXY_HTTP_HOST_PORT:-8080}:8080"
+      - "${PROXY_SOCKS5_HOST_PORT:-1080}:1080"

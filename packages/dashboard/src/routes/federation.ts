@@ -4,6 +4,7 @@ import { readFileSync, statSync } from "node:fs";
 import { createPublicKey } from "node:crypto";
 import {
   createLogger,
+  getPublicProxyPorts,
   policyRepo,
   loadEd25519PrivateKey,
   ed25519PublicKeyHex,
@@ -67,6 +68,7 @@ export function buildCoordinatorPayload(
   if (!tunnelUrl.startsWith("wss://")) throw new Error("COORD_TUNNEL_URL must use wss://");
   const pubs = [signerPub, ...parsePubkeyList(env["COORD_ADDITIONAL_PUBKEYS"]).filter((k) => k !== signerPub)];
   const branding = resolveBranding(env, [signerPub]);
+  const ports = getPublicProxyPorts(env);
   return {
     type: "dominusnode-coordinator",
     doc_version: 1,
@@ -75,8 +77,11 @@ export function buildCoordinatorPayload(
     site_name: branding.siteName,
     api_url: apiUrl,
     gateway: {
-      http_proxy: `${proxyHost}:${env["PROXY_HTTP_PORT"] ?? "8080"}`,
-      socks5_proxy: `${proxyHost}:${env["SOCKS5_LISTEN_PORT"] ?? "1080"}`,
+      // TLS listeners first: agents should send credentials only over TLS.
+      ...(ports.tls !== null ? { https_proxy: `${proxyHost}:${ports.tls}` } : {}),
+      ...(ports.socks5Tls !== null ? { socks5_tls_proxy: `${proxyHost}:${ports.socks5Tls}` } : {}),
+      http_proxy: `${proxyHost}:${env["PROXY_HTTP_PORT"] ?? ports.http}`,
+      socks5_proxy: `${proxyHost}:${ports.socks5}`,
       tunnel_url: tunnelUrl,
     },
     policy: { version: policy.version, sha256: policy.sha256, url: `${apiUrl}${POLICY_DOC_PATH}` },

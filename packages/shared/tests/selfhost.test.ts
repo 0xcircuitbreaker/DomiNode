@@ -195,6 +195,7 @@ describe("scripts/selfhost/install.sh", () => {
 describe("self-host roles and Cloudflare Tunnel", () => {
   const MAIN = path.join(ROOT, "docker-compose.selfhost.yml");
   const WGDB = path.join(ROOT, "docker-compose.selfhost.wg-db.yml");
+  const PLAIN = path.join(ROOT, "docker-compose.selfhost.plain.yml");
   const TOKEN = "eyJhIjoiU0VDUkVUVE9LRU5WQUxVRSJ9";
   const matrix: Array<[string, string, string[]]> = [];
   for (const role of ["all", "coordinator", "gateway"]) {
@@ -202,11 +203,12 @@ describe("self-host roles and Cloudflare Tunnel", () => {
       if (role === "gateway" && tls === "cloudflare") continue;
       const p = role === "all" ? ["coordinator", "gateway", "caddy"] : role === "coordinator" ? ["coordinator", ...(tls === "cloudflare" ? [] : ["caddy"])] : ["gateway", "caddy"];
       if (tls === "cloudflare") p.push("cloudflare");
+      if (role !== "coordinator" && tls !== "off") p.push("proxytls");
       matrix.push([role, tls, p]);
     }
   }
 
-  type Cfg = { services: Record<string, { ports?: unknown[] }> };
+  type Cfg = { services: Record<string, { ports?: Array<{ target: number; published: string }>; environment?: Record<string, string>; depends_on?: Record<string, { condition: string }> }> };
   const config = (profiles: string[], files = [MAIN], extra: Record<string, string> = {}): Cfg => {
     const args = files.flatMap((f) => ["-f", f]).concat(profiles.flatMap((p) => ["--profile", p]), ["config", "--format", "json"]);
     const r = spawnSync("docker", ["compose", ...args], { env: { ...composeEnv, ...extra }, encoding: "utf8" });
@@ -215,9 +217,15 @@ describe("self-host roles and Cloudflare Tunnel", () => {
     return JSON.parse(r.stdout) as Cfg;
   };
 
+  // The env install.sh writes for TLS_MODE=off (empty TLS keys, plaintext allowed).
+  const offEnv = {
+    GATEWAY_PROXY_TLS_PORT: "", GATEWAY_SOCKS5_TLS_PORT: "", GATEWAY_PROXY_TLS_CERT_FILE: "", GATEWAY_PROXY_TLS_KEY_FILE: "",
+    PROXY_PUBLIC_TLS_PORT: "", PROXY_PUBLIC_SOCKS5_TLS_PORT: "", PROXY_REQUIRE_TLS: "false",
+  };
   for (const [role, tls, profiles] of matrix) {
     it.runIf(dockerCompose)(`compose parses for ROLE=${role} TLS_MODE=${tls}`, () => {
-      const cfg = config(profiles);
+      const files = role !== "coordinator" && tls === "off" ? [MAIN, PLAIN] : [MAIN];
+      const cfg = config(profiles, files, tls === "off" ? offEnv : {});
       const names = Object.keys(cfg.services);
       expect(names.includes("gateway")).toBe(role !== "coordinator");
       expect(names.includes("api")).toBe(role !== "gateway");
@@ -227,6 +235,44 @@ describe("self-host roles and Cloudflare Tunnel", () => {
         expect(cfg.services.cloudflared.ports ?? []).toEqual([]);
         if (role === "coordinator") expect(names).not.toContain("caddy");
       }
+      expect(names.includes("proxy-certs")).toBe(role !== "coordinator" && tls !== "off");
+      const gw = cfg.services.gateway;
+      if (gw) {
+        const published = (gw.ports ?? []).map((p) => p.target).sort((a, b) => a - b);
+        const env = gw.environment ?? {};
+        if (tls === "off") {
+          expect(published).toEqual([1080, 1443, 8080, 8444]);
+          expect(env.PROXY_REQUIRE_TLS).toBe("false");
+          expect(env.PROXY_TLS_PORT ?? "").toBe("");
+          expect(env.PROXY_TLS_CERT_FILE ?? "").toBe("");
+        } else {
+          expect(published).toEqual([1443, 8444]);
+          expect(env.PROXY_REQUIRE_TLS).toBe("true");
+          expect(env.PROXY_TLS_PORT).toBe("8444");
+          expect(env.SOCKS5_TLS_PORT).toBe("1443");
+          expect(env.PROXY_TLS_CERT_FILE).toBe("/run/dominusnode-tls/proxy.crt");
+          expect(gw.depends_on?.["proxy-certs"]?.condition).toBe("service_healthy");
+        }
+      }
+      // depends_on graph must be acyclic (proxy-certs -> caddy cert -> caddy start).
+      // proxy-certs needs a running caddy at runtime, so model that edge too.
+      const deps = (n: string): string[] => {
+        const d = Object.keys(cfg.services[n]?.depends_on ?? {}).filter((x) => x in cfg.services);
+        if (n === "proxy-certs" && "caddy" in cfg.services) d.push("caddy");
+        return d;
+      };
+      const state: Record<string, number> = {};
+      const visit = (n: string, path: string[]): void => {
+        if (state[n] === 2) return;
+        if (state[n] === 1) throw new Error(`depends_on cycle: ${[...path, n].join(" -> ")}`);
+        state[n] = 1;
+        for (const d of deps(n)) visit(d, [...path, n]);
+        state[n] = 2;
+      };
+      for (const n of names) visit(n, []);
+      if (cfg.services.caddy) expect(Object.keys(cfg.services.caddy.depends_on ?? {})).not.toContain("gateway");
+      const api = cfg.services.api;
+      if (api) expect(api.environment?.PROXY_PUBLIC_TLS_PORT ?? "").toBe(tls === "off" ? "" : "8444");
     });
   }
 
@@ -234,6 +280,59 @@ describe("self-host roles and Cloudflare Tunnel", () => {
     const cfg = config(["coordinator"], [MAIN, WGDB], { DB_WG_BIND: "10.66.0.1" });
     expect(JSON.stringify(cfg.services.postgres.ports)).toContain('"host_ip":"10.66.0.1"');
   });
+
+  it("proxy-certs copies Caddy's cert read-only, never shares Caddy's volume with the gateway", () => {
+    const yaml = createRequire(__filename)("js-yaml") as { load(s: string): unknown };
+    type Svc = { volumes?: string[]; command?: string[]; network_mode?: string; cap_drop?: string[] };
+    const s = (yaml.load(fs.readFileSync(MAIN, "utf8")) as { services: Record<string, Svc> }).services;
+    expect(s["proxy-certs"].volumes).toEqual(["caddy_data:/caddy:ro", "proxy_tls:/dst"]);
+    expect(s["proxy-certs"].network_mode).toBe("none");
+    expect(s["proxy-certs"].cap_drop).toEqual(["ALL"]);
+    expect(s["proxy-certs"].command!.join("\n")).toContain("install -o 1001 -g 1001 -m 0400");
+    expect(s.gateway.volumes).toContain("proxy_tls:/run/dominusnode-tls:ro");
+    expect(s.gateway.volumes!.join(" ")).not.toContain("caddy_data");
+  });
+
+  for (const [name, env, wantBlock, wantPlain] of [
+    ["gateway auto", { ROLE: "gateway", TLS_MODE: "auto", DOMINUSNODE_HOSTNAMES: "example.org", GATEWAY_DATABASE_URL: `postgresql://dominusnode:${"a".repeat(48)}@10.66.0.1:5432/dominusnode`, COORD_PUBKEY: "1".repeat(64) }, true, false],
+    ["gateway internal", { ROLE: "gateway", TLS_MODE: "internal", DOMINUSNODE_HOSTNAMES: "example.org", GATEWAY_DATABASE_URL: `postgresql://dominusnode:${"a".repeat(48)}@10.66.0.1:5432/dominusnode`, COORD_PUBKEY: "1".repeat(64) }, true, false],
+    ["all + proxy host among site hosts", { ROLE: "all", TLS_MODE: "auto", DOMINUSNODE_HOSTNAMES: "example.org proxy.example.org" }, false, false],
+    ["all + cloudflare", { ROLE: "all", TLS_MODE: "cloudflare", DOMINUSNODE_HOSTNAMES: "example.org" }, true, false],
+    ["all + off", { ROLE: "all", TLS_MODE: "off", DOMINUSNODE_HOSTNAMES: "example.org" }, false, true],
+  ] as Array<[string, Record<string, string>, boolean, boolean]>) {
+    it.runIf(has("openssl", ["version"]))(`proxy TLS dry run: ${name}`, () => {
+      const tmp = setup();
+      try {
+        for (let i = 0; i < 2; i++) expect(run(tmp, env).status).toBe(0);
+        const caddy = fs.readFileSync(path.join(tmp, "selfhost/Caddyfile"), "utf8");
+        expect(caddy.includes("\nproxy.example.org {")).toBe(wantBlock);
+        if (env.TLS_MODE === "internal") expect(caddy).toMatch(/proxy\.example\.org \{\n  tls internal/);
+        const e = fs.readFileSync(path.join(tmp, ".env"), "utf8");
+        expect(e).toMatch(new RegExp(`^PROXY_REQUIRE_TLS=${wantPlain ? "false" : "true"}$`, "m"));
+        expect(e).toMatch(new RegExp(`^PUBLISH_PLAINTEXT_PROXY=0$`, "m"));
+        expect(e.match(/^PROXY_REQUIRE_TLS=/gm)).toHaveLength(1);
+        if (wantPlain) expect(e).toMatch(/^GATEWAY_PROXY_TLS_PORT=$/m);
+        else expect(e).not.toMatch(/^GATEWAY_PROXY_TLS_PORT=/m);
+      } finally {
+        fs.rmSync(tmp, { recursive: true, force: true });
+      }
+    }, 30_000);
+  }
+
+  it.runIf(has("openssl", ["version"]))("switching TLS_MODE off -> auto re-enables the TLS proxy", () => {
+    const tmp = setup();
+    try {
+      const base = { ROLE: "all", DOMINUSNODE_HOSTNAMES: "example.org" };
+      expect(run(tmp, { ...base, TLS_MODE: "off" }).status).toBe(0);
+      expect(run(tmp, { ...base, TLS_MODE: "auto" }).status).toBe(0);
+      const e = fs.readFileSync(path.join(tmp, ".env"), "utf8");
+      expect(e).toMatch(/^PROXY_REQUIRE_TLS=true$/m);
+      for (const k of ["GATEWAY_PROXY_TLS_PORT", "PROXY_PUBLIC_TLS_PORT", "GATEWAY_PROXY_TLS_CERT_FILE"]) expect(e).not.toMatch(new RegExp(`^${k}=`, "m"));
+      expect(run(tmp, { ...base, TLS_MODE: "auto", PUBLISH_PLAINTEXT_PROXY: "yes" }).stderr).toMatch(/PUBLISH_PLAINTEXT_PROXY must be 0 or 1/);
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  }, 60_000);
 
   it("cloudflared is pinned and reads its token from a file, never env or argv", () => {
     const text = fs.readFileSync(MAIN, "utf8");

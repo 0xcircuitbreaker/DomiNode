@@ -100,7 +100,9 @@ export function buildAgentToolDocument(env: DiscoveryEnv, p: DiscoveryPricing): 
         examples: ["relay", "country-US-class-residential", "country-DE-class-dc-session-abc123"],
       },
       tls: "HTTPS stays end-to-end TLS through the exit node; the gateway never sees payloads.",
-      example: `curl -x http://country-US-class-residential:$DOMINUSNODE_API_KEY@${proxy}:${env.httpPort} https://httpbin.org/ip`,
+      example: env.tlsPort
+        ? `curl -x https://country-US-class-residential:$DOMINUSNODE_API_KEY@${proxy}:${env.tlsPort} https://httpbin.org/ip`
+        : `curl -x http://country-US-class-residential:$DOMINUSNODE_API_KEY@${proxy}:${env.httpPort} https://httpbin.org/ip`,
       blocked_countries: [...BLOCKED_COUNTRY_CODES].sort(),
     },
 

@@ -1,4 +1,6 @@
 import * as fs from "node:fs";
+import * as tls from "node:tls";
+import { pqTlsOptions } from "@dominusnode/shared";
 
 /** TLS listener config for the HTTPS proxy / SOCKS5-over-TLS ports. */
 export interface ProxyTlsConfig {
@@ -6,6 +8,8 @@ export interface ProxyTlsConfig {
   socks5Port: number | null;
   cert: Buffer;
   key: Buffer;
+  certFile: string;
+  keyFile: string;
 }
 
 function parsePort(name: string, raw: string | undefined): number | null {
@@ -36,7 +40,7 @@ export function loadProxyTls(
   }
   if (!c || !k) throw new Error("PROXY_TLS_PORT requires PROXY_TLS_CERT_FILE and PROXY_TLS_KEY_FILE");
   if (socks5Port !== null && socks5Port === port) throw new Error("SOCKS5_TLS_PORT must differ from PROXY_TLS_PORT");
-  return { port, socks5Port, cert: readFile(c), key: readFile(k) };
+  return { port, socks5Port, cert: readFile(c), key: readFile(k), certFile: c, keyFile: k };
 }
 
 /**
@@ -84,4 +88,57 @@ export function createPlaintextAuthGuard(opts: {
     }
     return true;
   };
+}
+
+/** A TLS listener whose certificate can be swapped in place (https.Server / tls.Server). */
+export interface ReloadableTlsServer {
+  setSecureContext(options: tls.SecureContextOptions): void;
+}
+
+/**
+ * Hot-reload the proxy TLS certificate (renewals) without restarting or
+ * dropping connections: every intervalMs, re-read the cert and key files; when
+ * either changed and the pair forms a valid context (same TLS 1.3 + hybrid
+ * group options as at startup), apply it to every TLS listener. Existing
+ * connections keep their session; new handshakes get the new cert. A bad or
+ * half-written pair is skipped and the last good cert stays in place.
+ */
+export function watchProxyTlsCert(opts: {
+  certFile: string;
+  keyFile: string;
+  servers: ReloadableTlsServer[];
+  initial: { cert: Buffer; key: Buffer };
+  log: { info: (m: string, meta?: Record<string, unknown>) => void; warn: (m: string, meta?: Record<string, unknown>) => void };
+  intervalMs?: number;
+  readFile?: (p: string) => Buffer;
+}): { check: () => boolean; stop: () => void } {
+  const read = opts.readFile ?? ((p: string) => fs.readFileSync(p));
+  let cert = opts.initial.cert;
+  let key = opts.initial.key;
+  const check = (): boolean => {
+    let c: Buffer, k: Buffer;
+    try {
+      c = read(opts.certFile);
+      k = read(opts.keyFile);
+    } catch (err) {
+      opts.log.warn("proxy TLS cert reload: read failed, keeping current cert", { error: err instanceof Error ? err.message.slice(0, 100) : "unknown" });
+      return false;
+    }
+    if (c.equals(cert) && k.equals(key)) return false;
+    const ctx = { cert: c, key: k, ...pqTlsOptions() };
+    try {
+      tls.createSecureContext(ctx);
+    } catch (err) {
+      opts.log.warn("proxy TLS cert reload: invalid cert/key pair, keeping current cert", { error: err instanceof Error ? err.message.slice(0, 100) : "unknown" });
+      return false;
+    }
+    for (const s of opts.servers) s.setSecureContext(ctx);
+    cert = c;
+    key = k;
+    opts.log.info("proxy TLS certificate reloaded", { servers: opts.servers.length });
+    return true;
+  };
+  const t = setInterval(check, opts.intervalMs ?? 60_000);
+  t.unref();
+  return { check, stop: () => clearInterval(t) };
 }

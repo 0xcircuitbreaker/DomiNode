@@ -354,8 +354,16 @@ plaintext. Roll out: enable `PROXY_TLS_PORT`, move clients, then remove the
 
 **Breaking default:** any deployment with `NODE_ENV=production` and no
 `PROXY_TLS_PORT` now fails at gateway startup. `docker-compose.selfhost.yml`
-sets `PROXY_REQUIRE_TLS: "false"` explicitly (it has no proxy TLS cert);
-`docker-compose.prod.yml` sets `PROXY_TLS_PORT` with the cert files.
+runs the TLS proxy on 8444 / 1443 with Caddy's certificate and
+`PROXY_REQUIRE_TLS=true` (only `TLS_MODE=off` turns it off; see "Self-host
+gateway TLS proxy" below); `docker-compose.prod.yml` sets `PROXY_TLS_PORT`
+with the cert files.
+
+**Certificate renewal.** The gateway re-reads `PROXY_TLS_CERT_FILE` /
+`PROXY_TLS_KEY_FILE` every 60 s and, when they changed and form a valid pair,
+swaps the certificate in place on every TLS listener (`setSecureContext`):
+no restart, open connections keep running, new handshakes get the new cert.
+A half-written or mismatched pair is skipped (logged) and retried next minute.
 
 **Post-quantum key exchange.** Every TLS endpoint the gateway runs (HTTPS
 proxy, SOCKS5-over-TLS, node tunnel) and the node agent's tunnel client
@@ -465,6 +473,69 @@ After the first registration, flag the node: admin panel → Launch controls →
 - The optional `node` profile dials `${TUNNEL_SCHEME}://${RELAY_HOST}:8443/v1/tunnel`
   (`wss` unless `TLS_MODE=off`; `RELAY_HOST` defaults to the primary hostname).
 
+### Self-host gateway TLS proxy (8444 / 1443)
+
+Agents send their API key to the gateway only over TLS. On `ROLE=all|gateway`
+with `TLS_MODE` `auto`, `internal` or `cloudflare`:
+
+| Port | Listener | Published |
+|---|---|---|
+| 8444 | HTTPS proxy (`PROXY_TLS_PORT`): `curl -x https://relay:$KEY@PROXY_HOST:8444 https://httpbin.org/ip` | yes (`PROXY_TLS_HOST_PORT`) |
+| 1443 | SOCKS5 inside TLS (`SOCKS5_TLS_PORT`) | yes (`SOCKS5_TLS_HOST_PORT`) |
+| 8443 | node tunnel (Caddy, PROXY v2 to the gateway) | yes (Caddy) |
+| 8080 / 1080 | plaintext HTTP / SOCKS5 | no: only with `TLS_MODE=off` or `PUBLISH_PLAINTEXT_PROXY=1` (`docker-compose.selfhost.plain.yml`); credentials are refused there unless `TLS_MODE=off` |
+
+8443 stays the node tunnel so existing nodes keep their URL; that is why the
+self-host TLS proxy is on 8444 and not on the 8443 used by
+`docker-compose.prod.yml`. The SDKs (`gatewayTls.port`) and the MCP server
+(`DOMINUSNODE_PROXY_URL=https://PROXY_HOST:8444`) default to 8443 and must be
+pointed at 8444 for a self-hosted gateway; `/api/proxy/config` (`tlsProxy`),
+the discovery document (`proxy.https`, listed first, and the example) and
+`coordinator.json` (`gateway.https_proxy`, `gateway.socks5_tls_proxy`, listed
+first) advertise the right port from `PROXY_PUBLIC_TLS_PORT` /
+`PROXY_PUBLIC_SOCKS5_TLS_PORT`.
+
+**Certificate.** Caddy obtains and renews the certificate for `PROXY_HOST`
+(the installer adds a `PROXY_HOST` site block when no site block already
+covers it; it answers 404 on 443). The `proxy-certs` service (profile
+`proxytls`, root, no network, `cap_drop: ALL` plus CHOWN/DAC_OVERRIDE/FOWNER)
+mounts Caddy's storage read-only, finds `certificates/<issuer>/PROXY_HOST/PROXY_HOST.{crt,key}`
+(any issuer: Let's Encrypt, the ZeroSSL fallback or `tls internal`), and copies
+the newest pair into the `proxy_tls` volume as 0400 owned by uid 1001, every 5
+minutes. The gateway mounts only that volume and hot-reloads (see above). The
+gateway waits for `proxy-certs` to be healthy (a cert exists), so the first
+start takes as long as Caddy's first issuance.
+
+Why not the alternatives: sharing `caddy_data` with the gateway would expose
+Caddy's ACME account key and every other site key to the gateway, and Caddy
+writes keys 0600 as root, which uid 1001 cannot read. Caddy layer4 TLS
+termination needs a custom Caddy build and puts a second TLS hop plus PROXY v2
+parsing on the proxy path; the gateway already terminates TLS 1.3 with the
+hybrid group (`pqTlsOptions()`), which Caddy's front would replace.
+
+`TLS_MODE=internal`: the cert chains to Caddy's local CA. Give clients
+`/data/caddy/pki/authorities/local/root.crt` from the `caddy_data` volume
+(`gatewayTls.ca` / `DOMINUSNODE_PROXY_CA_FILE`).
+
+`TLS_MODE=off`: no certificate, so the TLS listeners are off, 8080/1080 are
+published and `PROXY_REQUIRE_TLS=false` (credentials in plaintext; the gateway
+logs warnings). Use it only behind your own TLS front end or for tests.
+
+**Firewall.** Open TCP 80 and 443 (ACME HTTP-01 and the site / cert host),
+8443 (node tunnel), 8444 (HTTPS proxy) and 1443 (SOCKS5 over TLS) on the
+gateway box. Close 8080/1080 unless you set `PUBLISH_PLAINTEXT_PROXY=1`.
+Example (ufw): `sudo ufw allow 80,443,8443,8444,1443/tcp`; firewalld:
+`sudo firewall-cmd --permanent --add-port={80,443,8443,8444,1443}/tcp && sudo firewall-cmd --reload`.
+Docker-published ports bypass ufw's INPUT chain; the cloud provider's firewall
+is the reliable place to restrict them. `PROXY_HOST` must be DNS only (grey
+cloud) on Cloudflare.
+
+Verify after install:
+`openssl s_client -connect PROXY_HOST:8444 -servername PROXY_HOST -tls1_3 -groups X25519MLKEM768 </dev/null`
+shows `Negotiated TLS1.3 group: X25519MLKEM768`, and
+`curl -x https://relay:$DOMINUSNODE_API_KEY@PROXY_HOST:8444 https://httpbin.org/ip`
+returns an exit IP.
+
 ### Split self-host: ROLE, RELAY_HOST/PROXY_HOST, Cloudflare Tunnel
 
 The installer picks compose profiles from two settings (stored in `.env`):
@@ -486,8 +557,8 @@ The installer picks compose profiles from two settings (stored in `.env`):
 (`wss://RELAY_HOST:8443/v1/tunnel` in coordinator.json) and the node tunnel
 URL. With `TLS_MODE=cloudflare` the installer refuses a `RELAY_HOST` or
 `PROXY_HOST` that is also a tunnel hostname: **proxy and relay traffic must
-never go through Cloudflare** (long-lived raw TCP/WebSocket on ports 8080, 1080
-and 8443, which the tunnel's HTTP hostnames do not carry and Cloudflare's terms
+never go through Cloudflare** (long-lived raw TCP/WebSocket on ports 8444, 1443,
+8443 and, when published, 8080/1080, which the tunnel's HTTP hostnames do not carry and Cloudflare's terms
 do not allow for proxying). Point those DNS records (grey cloud, DNS only) at
 the box that runs the gateway.
 
