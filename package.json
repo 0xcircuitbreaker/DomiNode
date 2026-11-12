@@ -17,7 +17,8 @@
     "clean": "tsc --build --clean && rm -rf packages/*/dist",
     "start:frontend": "npm run dev --workspace=packages/frontend",
     "test:frontend": "vitest run --config packages/frontend/vitest.config.ts",
-    "gen:coord-key": "node scripts/gen-coord-key.mjs"
+    "gen:coord-key": "node scripts/gen-coord-key.mjs",
+    "admin:set-root": "node scripts/set-root-admin.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",

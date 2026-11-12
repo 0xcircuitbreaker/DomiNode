@@ -262,7 +262,7 @@ EXCEPTION WHEN duplicate_column THEN NULL;
 END $$;
 
 -- Add admin_role column for three-tier admin hierarchy (idempotent)
--- root_admin: only sarris88p@gmail.com — can grant/revoke all admin roles
+-- root_admin: only the account named in root_admin_identity — can grant/revoke all admin roles
 -- cybersecurity_admin: manages bug bounties, credits, plus all admin duties
 -- admin: user management, waitlist, revenue, stats, plans
 DO $$ BEGIN
@@ -274,18 +274,29 @@ END $$;
 -- Backfill: sync admin_role from is_admin for existing admins
 UPDATE users SET admin_role = 'admin' WHERE is_admin = true AND admin_role = 'none';
 
--- Set root admin (hardcoded — only this email can ever be root_admin)
-UPDATE users SET admin_role = 'root_admin', is_admin = true
-  WHERE LOWER(email) = 'sarris88p@gmail.com' AND status = 'active';
+-- Root admin identity: a single row set by the operator with
+-- `npm run admin:set-root -- <email>` (needs direct DB access). Not an env var
+-- and not in source, so neither the API nor a config change can create a root.
+CREATE TABLE IF NOT EXISTS root_admin_identity (
+  singleton BOOLEAN PRIMARY KEY DEFAULT true CHECK (singleton),
+  email TEXT NOT NULL CHECK (length(email) BETWEEN 3 AND 254 AND email = LOWER(email)),
+  set_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 
--- DB trigger: enforce root_admin role restricted to root admin email + keep is_admin in sync
+-- Existing deployments: adopt the current root admin, if any, as the identity.
+INSERT INTO root_admin_identity (email)
+  SELECT LOWER(email) FROM users WHERE admin_role = 'root_admin' AND status = 'active'
+  ORDER BY created_at LIMIT 1
+ON CONFLICT (singleton) DO NOTHING;
+
+-- DB trigger: root_admin only for the configured identity + keep is_admin in sync
 CREATE OR REPLACE FUNCTION enforce_admin_role_constraints() RETURNS TRIGGER AS $$
 BEGIN
-  -- Prevent assigning root_admin to any email other than the hardcoded root admin
-  IF NEW.admin_role = 'root_admin' AND LOWER(NEW.email) != 'sarris88p@gmail.com' THEN
-    RAISE EXCEPTION 'root_admin role restricted to sarris88p@gmail.com';
+  IF NEW.admin_role = 'root_admin' AND NOT EXISTS (
+    SELECT 1 FROM root_admin_identity WHERE email = LOWER(NEW.email)
+  ) THEN
+    RAISE EXCEPTION 'root_admin role restricted to the configured root admin identity';
   END IF;
-  -- Keep is_admin in sync with admin_role
   NEW.is_admin := (NEW.admin_role != 'none');
   RETURN NEW;
 END;
