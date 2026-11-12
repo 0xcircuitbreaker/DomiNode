@@ -86,13 +86,3 @@ describe("policy-enforcer", () => {
     expect(enforcePolicy(p, base, 5000 + 86_400_000).allowed).toBe(true);
   });
 });
-
-describe("isFreeRelayBlocked", () => {
-  it("blocks free plans unless freeTierRelay", async () => {
-    const { isFreeRelayBlocked } = await import("./policy-enforcer.js");
-    const { DEFAULT_POLICY } = await import("@dominusnode/shared");
-    expect(isFreeRelayBlocked(DEFAULT_POLICY, { pricePerGbCents: 0 })).toBe(true);
-    expect(isFreeRelayBlocked({ ...DEFAULT_POLICY, freeTierRelay: true }, { pricePerGbCents: 0 })).toBe(false);
-    expect(isFreeRelayBlocked(DEFAULT_POLICY, { pricePerGbCents: 50 })).toBe(false);
-  });
-});

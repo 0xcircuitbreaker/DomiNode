@@ -59,7 +59,6 @@ interface ActiveSession {
   reservedCents: number;
   connectLatencyMs: number;
   errorCount: number;
-  pricePerGbCents: number; // Locked at session start to prevent plan-switch gaming
   proxyType: string; // Track provider pool type (dc/residential) for usage records
   teamId: string | null; // When set, billing goes to team wallet
   relay: RelayBinding;
@@ -195,41 +194,6 @@ setInterval(() => {
   }
 }, 300_000).unref();
 
-// ─── Free tier bandwidth reservation ─────────────────────────────
-// Tracks in-flight bytes reserved per user for free-plan sessions.
-// Prevents concurrent sessions from exceeding the monthly bandwidth limit.
-const FREE_TIER_RESERVATION_BYTES = 50 * 1024 * 1024; // 50MB per session reservation
-const MAX_FREE_RESERVATIONS = 100_000; // Size cap to prevent OOM
-const freeReservations = new Map<string, number>(); // userId -> reserved bytes
-
-function reserveFreeBandwidth(userId: string, planBandwidthBytes: number, currentUsage: number): boolean {
-  const reserved = freeReservations.get(userId) ?? 0;
-  if (currentUsage + reserved + FREE_TIER_RESERVATION_BYTES > planBandwidthBytes) {
-    return false;
-  }
-  // Reject if map is at capacity and this is a new entry (existing users can still reserve)
-  if (!freeReservations.has(userId) && freeReservations.size >= MAX_FREE_RESERVATIONS) {
-    log.warn("freeReservations map at capacity, rejecting new entry", {
-      userId,
-      mapSize: freeReservations.size,
-      cap: MAX_FREE_RESERVATIONS,
-    });
-    return false;
-  }
-  freeReservations.set(userId, reserved + FREE_TIER_RESERVATION_BYTES);
-  return true;
-}
-
-function releaseFreeBandwidth(userId: string): void {
-  const reserved = freeReservations.get(userId) ?? 0;
-  const newReserved = reserved - FREE_TIER_RESERVATION_BYTES;
-  if (newReserved <= 0) {
-    freeReservations.delete(userId);
-  } else {
-    freeReservations.set(userId, newReserved);
-  }
-}
-
 // Parse MAX_ACTIVE_SESSIONS once at module level (was parsed on every startSession call)
 const MAX_ACTIVE_SESSIONS = parseInt(process.env["MAX_ACTIVE_SESSIONS"] ?? "100000", 10);
 if (isNaN(MAX_ACTIVE_SESSIONS) || MAX_ACTIVE_SESSIONS <= 0) {
@@ -292,22 +256,20 @@ export async function startSession(
     throw new Error(`Bandwidth velocity limit exceeded: ${usedGB}GB used in last hour (limit: ${limitGB}GB/hour)`);
   }
 
+  // Plan supplies connection/session limits only. Relay price never comes
+  // from the plan: every session is priced from network_pricing and paid
+  // (there is no free relay rail; starter credits replace the free tier).
   // Use pre-fetched plan if available — eliminates TOCTOU from double getUserPlan
-  let pricePerGbCents = 500; // default PAYG rate
   let planSessionLimit: number | undefined;
   let planMaxConns: number | undefined;
-  let planMonthlyBandwidthBytes = 0; // Hoisted for reuse in free-tier block below
-  let monthlyUsage = 0; // Hoisted — single fetch, reused in free-tier reservation block
   try {
     const plan = preloadedPlan ?? await planRepo.getUserPlan(userId);
-    pricePerGbCents = plan.pricePerGbCents;
     planSessionLimit = plan.maxSessionsPerMinute;
     planMaxConns = plan.maxConnections;
-    planMonthlyBandwidthBytes = plan.monthlyBandwidthBytes;
 
     // Check plan bandwidth limit before allowing session
     if (plan.monthlyBandwidthBytes > 0) {
-      monthlyUsage = await planRepo.getMonthlyUsage(userId);
+      const monthlyUsage = await planRepo.getMonthlyUsage(userId);
       if (monthlyUsage >= plan.monthlyBandwidthBytes) {
         throw new Error("Monthly bandwidth limit exceeded");
       }
@@ -360,14 +322,11 @@ export async function startSession(
     }
   }
 
-  // Free plan needs in-memory bandwidth reservation to prevent concurrent session abuse
-  const isFreePlan = pricePerGbCents === 0;
   let reservedCents = 0;
-  let freeReserved = false;
 
   // Daily spend cap: count this session's reservation as in-flight spend so
   // concurrent sessions cannot all start under the cap (see policy-enforcer).
-  let inflightMusd = isFreePlan ? 0n : BigInt(reservationCentsFor(pricePerGbMusd)) * BigInt(MUSD_PER_CENT);
+  let inflightMusd = BigInt(reservationCentsFor(pricePerGbMusd)) * BigInt(MUSD_PER_CENT);
   if (!reserveRequesterSpend(userId, inflightMusd)) {
     throw new Error("Daily spend cap reached");
   }
@@ -375,25 +334,7 @@ export async function startSession(
 
   let sessionId: string;
   try {
-  if (isFreePlan) {
-    // Free plan MUST have a bandwidth limit — 0 = unlimited = abuse vector
-    if (planMonthlyBandwidthBytes <= 0) {
-      throw new Error("Free plan must have a bandwidth limit configured");
-    }
-    // Reuse planMonthlyBandwidthBytes from the single fetch above (no second getUserPlan call)
-    // Reuse monthlyUsage from the single fetch above (no second getMonthlyUsage call)
-    try {
-      if (planMonthlyBandwidthBytes > 0) {
-        if (!reserveFreeBandwidth(userId, planMonthlyBandwidthBytes, monthlyUsage)) {
-          throw new Error("Monthly bandwidth limit exceeded (including active sessions)");
-        }
-        freeReserved = true;
-      }
-    } catch (err) {
-      if (err instanceof Error && err.message.includes("bandwidth limit")) throw err;
-      throw err;
-    }
-  } else if (teamId) {
+  if (teamId) {
     // Team billing: reserve from team wallet instead of personal wallet
     const balance = await teamRepo.getTeamBalance(teamId);
     const want = Math.min(balance, reservationCentsFor(pricePerGbMusd));
@@ -440,9 +381,6 @@ export async function startSession(
         invalidateBalanceCache(userId);
       }
     }
-    if (freeReserved) {
-      releaseFreeBandwidth(userId);
-    }
     throw err;
   }
 
@@ -464,7 +402,6 @@ export async function startSession(
         invalidateBalanceCache(userId);
       }
     }
-    if (freeReserved) releaseFreeBandwidth(userId);
     throw new Error("Server at capacity. Please try again later.");
   }
 
@@ -477,7 +414,6 @@ export async function startSession(
     reservedCents,
     connectLatencyMs,
     errorCount: 0,
-    pricePerGbCents,
     proxyType,
     teamId: teamId ?? null,
     relay,
@@ -494,28 +430,12 @@ export async function startSession(
   // Set per-session byte limit to prevent unbounded usage beyond reservation
   // Paid sessions: cap at exactly what the reservation covers (no overrun headroom,
   // so settlement is never partial and the node is paid for every byte it carried)
-  // Free sessions: cap at remaining plan bandwidth
-  if (!isFreePlan && pricePerGbCents > 0) {
+  {
     counter.maxBytes = Math.max(maxBytesForReservation(reservedCents, pricePerGbMusd), 1); // 0 would mean unlimited
     counter.onLimitExceeded = () => {
       log.warn("session byte limit exceeded, terminating", { sessionId, userId, maxBytes: counter.maxBytes });
       endSession(sessionId).catch(() => {});
       // The socket destroy callback will close the connection
-      const destroyFn = sessionDestroyCallbacks.get(sessionId);
-      if (destroyFn) {
-        try { destroyFn(); } catch { /* best effort */ }
-      }
-    };
-  } else if (isFreePlan && planMonthlyBandwidthBytes > 0) {
-    // Free plan: cap session at remaining bandwidth
-    // Don't give 1MB floor when bandwidth is exhausted — reject at session start instead
-    // Cap at this session's reservation so concurrent sessions cannot each
-    // consume the whole remaining quota.
-    const remainingBytes = Math.max(0, planMonthlyBandwidthBytes - monthlyUsage);
-    counter.maxBytes = Math.max(Math.min(remainingBytes, FREE_TIER_RESERVATION_BYTES), 1024); // at least 1KB (for small API responses)
-    counter.onLimitExceeded = () => {
-      log.warn("free plan byte limit exceeded, terminating", { sessionId, userId, maxBytes: counter.maxBytes });
-      endSession(sessionId).catch(() => {});
       const destroyFn = sessionDestroyCallbacks.get(sessionId);
       if (destroyFn) {
         try { destroyFn(); } catch { /* best effort */ }
@@ -586,7 +506,6 @@ export async function startPrepaidSession(i: PrepaidSessionInput): Promise<strin
     reservedCents: 0,
     connectLatencyMs: i.connectLatencyMs,
     errorCount: 0,
-    pricePerGbCents: 1, // non-free marker
     proxyType: "relay",
     teamId: null,
     relay: i.relay,
@@ -683,7 +602,7 @@ async function settleSession(sessionId: string): Promise<void> {
   // Fix #8: Atomic check-and-remove to prevent TOCTOU race
   if (!activeSessions.delete(sessionId)) return;
 
-  const { userId, counter, reservedCents, pricePerGbCents, teamId, relay } = session;
+  const { userId, counter, reservedCents, teamId, relay } = session;
   const totalBytes = counter.bytesIn + counter.bytesOut;
 
   // Record bandwidth for velocity tracking (prevents single user from monopolizing)
@@ -692,12 +611,7 @@ async function settleSession(sessionId: string): Promise<void> {
     recordBytes(counter.bytesIn, counter.bytesOut);
   }
 
-  // Release free tier bandwidth reservation on session end
-  if (pricePerGbCents === 0) {
-    releaseFreeBandwidth(userId);
-  }
-
-  const rail = session.prepaid ? session.prepaid.rail : pricePerGbCents === 0 ? "free" : teamId ? "team" : "wallet";
+  const rail = session.prepaid ? session.prepaid.rail : teamId ? "team" : "wallet";
   let settleInput: relayChargeRepo.SettleRelayChargeInput | null = null;
 
   try {

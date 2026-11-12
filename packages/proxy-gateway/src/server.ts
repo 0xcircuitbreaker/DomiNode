@@ -17,7 +17,7 @@ import { checkAuthRateLimit, recordAuthFailure } from "./auth-rate-limit.js";
 import { recordRequest, recordError, recordLatency } from "./stats.js";
 import { handleX402Http, handleX402Connect, build402ResponseBody, build402ConnectResponse, isX402Verified, getX402Data, settleX402Pending, releaseX402Pending, refundX402Payer, hasMppCredential, normalizePayer, paymentChallengeHeaders } from "./x402-handler.js";
 import { checkRequesterAccess, checkAnonymousPayer } from "./access-gate.js";
-import { enforcePolicy, isFreeRelayBlocked, isPlaintextPort, EXIT_VISIBLE_HEADER } from "./policy-enforcer.js";
+import { enforcePolicy, isPlaintextPort, EXIT_VISIBLE_HEADER } from "./policy-enforcer.js";
 import { openRelayStream, RelayOpenError, type RelayRuntime, type RelayUpstream } from "./relay.js";
 import type { SelectOpts } from "./node-tunnel/selector.js";
 import type { LiveNode } from "./node-tunnel/registry.js";
@@ -517,11 +517,6 @@ async function handleRequest(
     ? await planRepo.getTeamPlan(a.teamId)
     : await planRepo.getUserPlan(a.userId);
 
-  if (isFreeRelayBlocked(relay.getPolicy(), userPlan)) {
-    sendError(clientRes, 402, "PAID_PLAN_REQUIRED", "The relay network requires a paid plan. Top up your wallet to continue.");
-    return;
-  }
-
   // Contribution requirement + starter-credit seed-only routing (access-gate.ts)
   const access = await checkRequesterAccess(relay.getPolicy(), a.userId);
   if (!access.allowed) {
@@ -552,8 +547,8 @@ async function handleRequest(
     return;
   }
 
-  // Free plan: skip wallet balance check (bandwidth checked in startSession)
-  if (userPlan.pricePerGbCents > 0) {
+  // Every relay session is paid: always check balance (no free rail).
+  {
     let hasBalance: boolean;
     try {
       hasBalance = a.teamId ? await checkTeamBalance(a.teamId) : await checkBalance(a.userId);
@@ -767,11 +762,6 @@ async function handleConnect(
     ? await planRepo.getTeamPlan(connectTeamId)
     : await planRepo.getUserPlan(userId);
 
-  if (isFreeRelayBlocked(relay.getPolicy(), connectPlan)) {
-    safeSocketWrite(clientSocket, "HTTP/1.1 402 Payment Required\r\nX-DominusNode-Error: PAID_PLAN_REQUIRED\r\nConnection: close\r\n\r\n");
-    return;
-  }
-
   const connectAccess = await checkRequesterAccess(relay.getPolicy(), userId);
   if (!connectAccess.allowed) {
     safeSocketWrite(clientSocket, `HTTP/1.1 ${connectAccess.status} ${http.STATUS_CODES[connectAccess.status] ?? "Error"}\r\nX-DominusNode-Error: ${connectAccess.code}\r\nConnection: close\r\n\r\n`);
@@ -815,7 +805,7 @@ async function handleConnect(
     }
   };
 
-  if (connectPlan.pricePerGbCents > 0) {
+  {
     let hasBalance: boolean;
     try {
       hasBalance = connectTeamId ? await checkTeamBalance(connectTeamId) : await checkBalance(userId);
