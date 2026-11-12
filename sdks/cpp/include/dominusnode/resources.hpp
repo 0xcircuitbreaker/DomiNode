@@ -214,6 +214,8 @@ struct RegisterNodeOptions {
     OptInt max_streams;  // 1..1024
     OptInt max_gb_day;   // 1..10000
     std::uint64_t max_pow_iterations = 200000000ULL;
+    /// Informational class claim (2.1): residential, mobile, dc or masked. Effective class is gateway-verified.
+    OptStr declared_class;
 };
 struct RegisteredNode {
     std::string node_id, status;
@@ -231,7 +233,9 @@ public:
     /// challenge -> rebuild attestation (refuse mismatch) -> PoW -> sign -> POST /v1/nodes.
     RegisteredNode register_node(const Signer& signer, const RegisterNodeOptions& opts = {});
     json list(OptInt limit = std::nullopt, OptInt offset = std::nullopt);
-    /// Every node you own (page size default 100, max 500).
+    /// GET /v1/nodes?cursor= : the page after a previous nextCursor (2.1).
+    json list_after(OptInt limit, const std::string& cursor);
+    /// Every node you own (follows nextCursor, offset fallback; page size default 100, max 500).
     void for_each(const ItemCallback& fn, OptInt limit = std::nullopt);
     json revoke(const std::string& node_id);
     json update_caps(const std::string& node_id, const NodeCaps& caps);
@@ -264,7 +268,9 @@ class PayoutsResource {
 public:
     explicit PayoutsResource(HttpClient& h) : http_(h) {}
     json list(OptInt limit = std::nullopt, OptInt offset = std::nullopt);
-    /// Every payout (page size default 50, max 200).
+    /// GET /v1/payouts?cursor= : the page after a previous nextCursor (2.1).
+    json list_after(OptInt limit, const std::string& cursor);
+    /// Every payout (follows nextCursor, offset fallback; page size default 50, max 200).
     void for_each(const ItemCallback& fn, OptInt limit = std::nullopt);
 private:
     HttpClient& http_;
@@ -285,7 +291,7 @@ private:
 // ─── 3.15 proxy ─────────────────────────────────────────────────────────────
 struct ProxyRoutingOptions {
     OptStr country;            // country-XX (OFAC refused)
-    OptStr ip_class;           // class-residential|dc|mobile
+    OptStr ip_class;           // class-residential|dc|mobile|masked (masked = VPN/WARP/Tor exits, opt-in)
     OptStr session_id;         // session-<1-64 alnum>
     OptStr agentic_wallet_id;  // wallet-<uuid>
     bool allow_http = false;   // allowhttp-1

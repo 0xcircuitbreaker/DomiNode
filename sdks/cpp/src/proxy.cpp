@@ -37,8 +37,8 @@ std::string build_proxy_username(const ProxyRoutingOptions& o) {
         parts.push_back("country-" + c);
     }
     if (o.ip_class) {
-        if (*o.ip_class != "residential" && *o.ip_class != "dc" && *o.ip_class != "mobile") {
-            throw invalid_arg("ipClass must be residential, dc or mobile");
+        if (*o.ip_class != "residential" && *o.ip_class != "dc" && *o.ip_class != "mobile" && *o.ip_class != "masked") {
+            throw invalid_arg("ipClass must be residential, dc, mobile or masked");
         }
         parts.push_back("class-" + *o.ip_class);
     }
