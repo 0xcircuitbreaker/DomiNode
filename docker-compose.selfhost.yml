@@ -95,6 +95,10 @@ services:
       PROXY_LISTEN_PORT: "8080"
       SOCKS5_LISTEN_PORT: "1080"
       TUNNEL_PORT: "8443"
+      # Self-host has no gateway TLS proxy cert yet, so the production default
+      # (refuse credentials on plaintext 8080/1080) is turned off explicitly.
+      # Credentials on 8080/1080 travel in plaintext; the gateway logs a warning.
+      PROXY_REQUIRE_TLS: "false"
       COORD_SIGNING_KEY_FILE: /run/dominusnode/coord-key.pem
       ASN_DB_FILE: /app/data/ip2asn-combined.tsv.gz
       # Caddy terminates TLS for the node tunnel and forwards the node's real

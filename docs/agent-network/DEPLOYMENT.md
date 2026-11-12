@@ -352,6 +352,11 @@ and at most one warning per minute per listener when credentials arrive over
 plaintext. Roll out: enable `PROXY_TLS_PORT`, move clients, then remove the
 `false` override.
 
+**Breaking default:** any deployment with `NODE_ENV=production` and no
+`PROXY_TLS_PORT` now fails at gateway startup. `docker-compose.selfhost.yml`
+sets `PROXY_REQUIRE_TLS: "false"` explicitly (it has no proxy TLS cert);
+`docker-compose.prod.yml` sets `PROXY_TLS_PORT` with the cert files.
+
 **Post-quantum key exchange.** Every TLS endpoint the gateway runs (HTTPS
 proxy, SOCKS5-over-TLS, node tunnel) and the node agent's tunnel client
 accept TLS 1.3 only and offer the hybrid group `X25519MLKEM768` first, with
