@@ -2,7 +2,7 @@ import * as crypto from "node:crypto";
 import * as http from "node:http";
 import * as https from "node:https";
 import * as net from "node:net";
-import { createLogger, planRepo } from "@dominusnode/shared";
+import { createLogger, planRepo, resolveRequestId, runWithRequestId } from "@dominusnode/shared";
 import { checkAgenticWalletPolicy } from "./wallet-policy.js";
 import type { Duplex } from "node:stream";
 import { authenticateRequest, type AuthResult } from "./auth.js";
@@ -38,9 +38,20 @@ function sanitizeUpstreamMsg(msg: string): string {
 }
 
 /** Write to socket only if not destroyed, then end */
+/** Request id per CONNECT socket, echoed on every raw response line written to it. */
+const socketRequestIds = new WeakMap<net.Socket, string>();
+
+/** Insert X-Request-Id after the status line of a raw HTTP response. */
+export function withRequestIdHeader(data: string, requestId: string | undefined): string {
+  if (!requestId || !data.startsWith("HTTP/1.") || /\r\nX-Request-Id:/i.test(data)) return data;
+  const i = data.indexOf("\r\n");
+  if (i < 0) return data;
+  return data.slice(0, i + 2) + `X-Request-Id: ${requestId}\r\n` + data.slice(i + 2);
+}
+
 function safeSocketWrite(socket: net.Socket, data: string): void {
   if (!socket.destroyed) {
-    socket.write(data);
+    socket.write(withRequestIdHeader(data, socketRequestIds.get(socket)));
     socket.end();
   }
 }
@@ -1099,6 +1110,8 @@ export async function startProxyServer(port: number, relay: RelayRuntime, opts: 
       : "");
 
   const onRequest = (req: http.IncomingMessage, res: http.ServerResponse): void => {
+    const rid = resolveRequestId(req.headers["x-request-id"]);
+    res.setHeader("X-Request-Id", rid);
     if (plaintextAuth && carriesProxyCredential(req.headers) && !plaintextAuth("http")) {
       res.writeHead(403, { "Content-Type": "text/plain", Connection: "close" });
       res.end("TLS required: connect to the gateway's HTTPS proxy port");
@@ -1187,7 +1200,7 @@ export async function startProxyServer(port: number, relay: RelayRuntime, opts: 
       return;
     }
 
-    handleRequest(req, res, relay).catch((err) => {
+    runWithRequestId(rid, () => handleRequest(req, res, relay)).catch((err) => {
       log.error("unhandled request error", { error: err instanceof Error ? err.message : String(err) });
       if (!res.headersSent) {
         res.writeHead(500, { "Content-Type": "text/plain" });
@@ -1200,14 +1213,16 @@ export async function startProxyServer(port: number, relay: RelayRuntime, opts: 
     : http.createServer(onRequest);
 
   server.on("connect", (req, socket: net.Socket, head) => {
+    const rid = resolveRequestId(req.headers["x-request-id"]);
+    socketRequestIds.set(socket, rid);
     if (plaintextAuth && carriesProxyCredential(req.headers) && !plaintextAuth("http")) {
       safeSocketWrite(socket, "HTTP/1.1 403 Forbidden\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\nTLS required");
       return;
     }
-    handleConnect(req, socket, head, relay).catch((err) => {
+    runWithRequestId(rid, () => handleConnect(req, socket, head, relay)).catch((err) => {
       log.error("unhandled connect error", { error: err instanceof Error ? err.message : String(err) });
       if (!socket.destroyed) {
-        socket.write("HTTP/1.1 500 Internal Server Error\r\n\r\n");
+        socket.write(withRequestIdHeader("HTTP/1.1 500 Internal Server Error\r\n\r\n", rid));
         socket.end();
       }
     });

@@ -1026,3 +1026,14 @@ describe("meterStream byte cap", () => {
     expect(Buffer.concat(written).toString()).toBe("123456");
   });
 });
+
+describe("gateway X-Request-Id on raw CONNECT responses", () => {
+  it("inserts the id after the status line once", async () => {
+    const { withRequestIdHeader } = await import("./server.js");
+    expect(withRequestIdHeader("HTTP/1.1 403 Forbidden\r\nX-DominusNode-Error: TARGET_BLOCKED\r\n\r\n", "rid-1"))
+      .toBe("HTTP/1.1 403 Forbidden\r\nX-Request-Id: rid-1\r\nX-DominusNode-Error: TARGET_BLOCKED\r\n\r\n");
+    const once = withRequestIdHeader("HTTP/1.1 200 OK\r\n\r\n", "a");
+    expect(withRequestIdHeader(once, "b")).toBe(once);
+    expect(withRequestIdHeader("not http", "a")).toBe("not http");
+  });
+});

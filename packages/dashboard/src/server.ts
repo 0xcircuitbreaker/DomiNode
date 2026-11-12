@@ -2,9 +2,9 @@ import express from "express";
 import cors from "cors";
 import helmet from "helmet";
 import cookieParser from "cookie-parser";
-import * as crypto from "node:crypto";
 import { createLogger, query } from "@dominusnode/shared";
 import { agentAwareRateLimit } from "./helpers/agent-rate-limit.js";
+import { requestIdMiddleware } from "./helpers/request-id.js";
 
 import { refreshTokenRepo } from "@dominusnode/shared";
 import webhookRoutes from "./routes/webhooks.js";
@@ -126,11 +126,9 @@ export function startApiServer(port: number = 3000): ReturnType<express.Express[
     frameguard: { action: "deny" },
   }));
 
-  // Request ID for tracing
-  app.use((req, _res, next) => {
-    (req as unknown as Record<string, unknown>).requestId = crypto.randomUUID();
-    next();
-  });
+  // Request ID for tracing: accept a valid incoming X-Request-Id (<= 64 chars),
+  // echo it on every response, add it to JSON error bodies, bind it to logs.
+  app.use(requestIdMiddleware);
 
   // Cache control: no-store for API responses
   app.use((_req, res, next) => {
@@ -147,7 +145,8 @@ export function startApiServer(port: number = 3000): ReturnType<express.Express[
     cors({
       origin: ALLOWED_ORIGINS,
       methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
-      allowedHeaders: ["Content-Type", "Authorization"],
+      allowedHeaders: ["Content-Type", "Authorization", "X-Request-Id"],
+      exposedHeaders: ["X-Request-Id"],
       credentials: true,
       maxAge: 86400,
     }),
