@@ -19,6 +19,7 @@ elsewhere). Meaning and required/optional status are documented in
 | `DB_POOL_MAX` | `20` | `src/db.ts` |
 | `DB_POOL_MIN` | `2` | `src/db.ts` |
 | `DB_SSL` |  | `src/db.ts` |
+| `DOMINUSNODE_DOMAIN` | `localhost` | `src/email.ts` |
 | `EMAIL_ENABLED` |  | `src/email.ts` |
 | `JWT_SECRET` |  | `src/auth.ts` |
 | `LOG_LEVEL` | `info` | `src/logger.ts` |
@@ -33,7 +34,7 @@ elsewhere). Meaning and required/optional status are documented in
 | `PROXY_PUBLIC_TLS_PORT` |  | `src/proxy-ports.ts` |
 | `PROXY_PUBLIC_TUNNEL_PORT` |  | `src/proxy-ports.ts` |
 | `PROXY_TLS_PORT` |  | `src/proxy-ports.ts` |
-| `SMTP_FROM` | `0xcircuitbreaker@protonmail.com` | `src/email.ts` |
+| `SMTP_FROM` |  | `src/email.ts` |
 | `SMTP_HOST` | `""` | `src/email.ts` |
 | `SMTP_IGNORE_TLS` |  | `src/email.ts` |
 | `SMTP_PASS` | `""` | `src/email.ts` |

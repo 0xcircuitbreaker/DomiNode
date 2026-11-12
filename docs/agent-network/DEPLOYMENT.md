@@ -139,6 +139,18 @@ scripts/update-asn-db.sh            # writes data/ip2asn-combined.tsv.gz (or $AS
   stress tests. It is ignored when `NODE_ENV=production`.
 - `docker-compose.prod.yml` mounts `./data` read-only at `/app/data`; run the
   script on the host before starting the proxy.
+
+`docker-compose.prod.yml` proxy service layout:
+
+| Host | Container | Purpose |
+|---|---|---|
+| `./data` (ro) | `/app/data` | ASN database (`ASN_DB_FILE`) |
+| `${PROXY_TLS_DIR:-./certs}` (ro) | `/app/certs` | `proxy.crt`/`proxy.key` (TLS proxy) and `tunnel.crt`/`tunnel.key` (node tunnel) |
+| secret `coord_signing_key` from `${COORD_SIGNING_KEY_PATH:-./secrets/coord-signing-key.pem}` | `/run/secrets/coord_signing_key` | `COORD_SIGNING_KEY_FILE` |
+
+Published ports: `8443` TLS proxy and `9443` node tunnel on all interfaces;
+`8080`/`1080` plaintext on localhost only by default (`PROXY_*_HOST_PORT`
+overrides). `./secrets` and `./certs` are git-ignored.
 - `HOSTING_ASNS=1,2,3` adds ASNs to the built-in hosting list in
   `packages/proxy-gateway/src/asn-db.ts`. Peers on those ASNs are classified
   `dc`.

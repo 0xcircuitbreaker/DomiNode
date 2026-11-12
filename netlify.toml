@@ -19,7 +19,7 @@
     X-Frame-Options = "DENY"
     Referrer-Policy = "strict-origin-when-cross-origin"
     Permissions-Policy = "camera=(), microphone=(), geolocation=(), payment=(self)"
-    Content-Security-Policy = "default-src 'self'; script-src 'self' https://www.google.com/recaptcha/ https://www.gstatic.com/recaptcha/; style-src 'self' 'unsafe-inline'; connect-src 'self' https://*.dominusnode.daedalusdevelopmentgroup.com; img-src 'self' data:; font-src 'self'; frame-src https://checkout.stripe.com https://nowpayments.io https://www.google.com/recaptcha/; frame-ancestors 'none'; form-action 'self'; base-uri 'self'; upgrade-insecure-requests;"
+    Content-Security-Policy = "default-src 'self'; script-src 'self' https://www.google.com/recaptcha/ https://www.gstatic.com/recaptcha/; style-src 'self' 'unsafe-inline'; connect-src 'self' https://*.dominusnode.daedalusdevelopmentgroup.com; img-src 'self' data:; font-src 'self'; frame-src https://www.google.com/recaptcha/; frame-ancestors 'none'; form-action 'self'; base-uri 'self'; upgrade-insecure-requests;"
 
 # Agent-discovery files: explicit types, CORS-readable, short cache.
 [[headers]]
@@ -65,6 +65,18 @@
   to = "https://api.dominusnode.daedalusdevelopmentgroup.com/api/:splat"
   status = 200
   force = true
+
+# Unknown agent-discovery paths are a real 404, not the SPA shell. Existing
+# files are served first (these rules are not forced). public/_redirects
+# carries the same rules because Netlify evaluates it before this file.
+[[redirects]]
+  from = "/docs/*"
+  to = "/404.html"
+  status = 404
+[[redirects]]
+  from = "/.well-known/*"
+  to = "/404.html"
+  status = 404
 
 # SPA routing support (React Router)
 [[redirects]]
