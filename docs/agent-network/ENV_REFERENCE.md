@@ -114,13 +114,15 @@ elsewhere). Meaning and required/optional status are documented in
 | `CORS_ORIGINS` | `http://localhost:5173` | `src/routes/auth.ts`, `src/routes/wallet-auth.ts`, `src/server.ts` |
 | `DASHBOARD_PORT` | `3000` | `src/main.ts` |
 | `DATABASE_URL` |  | `src/main.ts` |
+| `DEMO_DIR` | `/demo` | `src/demo-seed.ts` |
+| `DEMO_MODE` |  | `src/demo-seed.ts` |
 | `DOMINUSNODE_DOMAIN` | `dominusnode.daedalusdevelopmentgroup.com` | `src/routes/wallet-auth.ts` |
 | `JWT_SECRET` | `""` | `src/main.ts`, `src/routes/account.ts`, `src/routes/admin.ts`, `src/routes/proxy-health.ts` |
 | `MAX_REGISTERED_USERS` | `2500` | `src/routes/auth.ts`, `src/routes/wallet-auth.ts` |
 | `MCP_AGENT_SECRET` | `""` | `src/helpers/agent-rate-limit.ts`, `src/main.ts` |
 | `MFA_ENCRYPTION_KEY` |  | `src/main.ts` |
 | `NETWORK_PAYMENT_RAILS` | `wallet,x402,crypto` | `src/routes/discovery.ts`, `src/routes/v1/public.ts` |
-| `NODE_ENV` |  | `src/helpers/cookies.ts`, `src/main.ts`, `src/routes/auth.ts`, `src/routes/v1/credits.ts`, `src/routes/wallet-auth.ts`, `src/server.ts` |
+| `NODE_ENV` |  | `src/demo-seed.ts`, `src/helpers/cookies.ts`, `src/main.ts`, `src/routes/auth.ts`, `src/routes/v1/credits.ts`, `src/routes/wallet-auth.ts`, `src/server.ts` |
 | `NODE_POW_DIFFICULTY` | `20` | `src/routes/v1/nodes.ts` |
 | `NOWPAYMENTS_API_KEY` |  | `src/routes/webhooks.ts` |
 | `NOWPAYMENTS_WEBHOOK_IPS` |  | `src/routes/webhooks.ts`, `src/server.ts` |
@@ -193,5 +195,7 @@ elsewhere). Meaning and required/optional status are documented in
 | Variable | Default(s) | Read in |
 |---|---|---|
 | `DN_API_KEY` | `""` | `src/main.ts` |
+| `DN_NODE_DEMO` |  | `src/config.ts` |
 | `DN_WALLET_KEY_FILE` |  | `src/main.ts` |
 | `HOME` | `.` | `src/config.ts` |
+| `NODE_ENV` |  | `src/config.ts` |

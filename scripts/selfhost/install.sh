@@ -1,0 +1,175 @@
+#!/usr/bin/env bash
+# One-command self-host installer (BOOTSTRAP_PLAN §7 E1).
+#
+#   ./scripts/selfhost/install.sh            # interactive
+#   DOMINUSNODE_HOSTNAMES="dominusnode.com relay.example.org" TLS_MODE=auto \
+#     ./scripts/selfhost/install.sh --yes    # non-interactive
+#
+# Idempotent: the first run generates the coordinator key (scripts/gen-coord-key.mjs),
+# a .env with random secrets and selfhost/Caddyfile. Later runs keep existing secrets
+# and the key, refresh the Caddyfile, rebuild images and restart (upgrade).
+#
+# Hostnames are config only. Give one or more public hostnames separated by spaces
+# or commas; the first is the primary DOMINUSNODE_DOMAIN, all are served by Caddy.
+# TLS_MODE: auto (Let's Encrypt via Caddy), internal (Caddy self-signed),
+#           off (plain HTTP on :80; terminate TLS in front of this box).
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+cd "$ROOT"
+ENV_FILE="$ROOT/.env"
+SH_DIR="$ROOT/selfhost"
+ASSUME_YES=0
+NO_START=0
+for arg in "$@"; do
+  case "$arg" in
+    --yes|-y) ASSUME_YES=1 ;;
+    --no-start) NO_START=1 ;;
+    -h|--help) sed -n '2,16p' "$0"; exit 0 ;;
+    *) echo "unknown option: $arg" >&2; exit 2 ;;
+  esac
+done
+
+die() { echo "install: $*" >&2; exit 1; }
+need() { command -v "$1" >/dev/null 2>&1 || die "$1 is required"; }
+need node
+need openssl
+if [ "$NO_START" -eq 0 ]; then need docker; fi
+
+# Read KEY from .env (no sourcing: values are never executed).
+env_get() {
+  [ -f "$ENV_FILE" ] || return 0
+  grep -E "^$1=" "$ENV_FILE" | tail -n1 | cut -d= -f2- || true
+}
+# Set KEY=VALUE in .env, replacing an existing line.
+env_set() {
+  local key="$1" val="$2" tmp
+  case "$val" in *$'\n'*|*$'\r'*) die "refusing to write a multi-line value for $key" ;; esac
+  tmp="$(mktemp "$ROOT/.env.XXXXXX")"
+  if [ -f "$ENV_FILE" ]; then grep -vE "^$key=" "$ENV_FILE" > "$tmp" || true; fi
+  printf '%s=%s\n' "$key" "$val" >> "$tmp"
+  chmod 600 "$tmp"
+  mv "$tmp" "$ENV_FILE"
+}
+secret() { openssl rand -hex "$1"; }
+ensure_secret() {
+  local key="$1" bytes="$2"
+  if [ -z "$(env_get "$key")" ]; then env_set "$key" "$(secret "$bytes")"; fi
+}
+
+valid_host() {
+  printf '%s' "$1" | grep -Eq '^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z][a-z0-9-]{0,62}$|^localhost$'
+}
+
+ask() {
+  local prompt="$1" def="$2" ans
+  if [ "$ASSUME_YES" -eq 1 ] || [ ! -t 0 ]; then printf '%s' "$def"; return; fi
+  read -r -p "$prompt [$def]: " ans
+  printf '%s' "${ans:-$def}"
+}
+
+umask 077
+trap 'rm -f "$ROOT"/.env.?????? "$SH_DIR/Caddyfile.tmp"' EXIT INT TERM
+mkdir -p "$SH_DIR"
+
+# ─── Hostnames ──────────────────────────────────────────────────────
+HOSTS_DEFAULT="${DOMINUSNODE_HOSTNAMES:-$(env_get PUBLIC_HOSTNAMES | tr ',' ' ')}"
+HOSTS_DEFAULT="${HOSTS_DEFAULT:-localhost}"
+HOSTS_RAW="$(ask "Public hostname(s), space or comma separated (first is primary)" "$HOSTS_DEFAULT")"
+HOSTS="$(printf '%s' "$HOSTS_RAW" | tr ',' ' ' | tr '[:upper:]' '[:lower:]' | xargs)"
+[ -n "$HOSTS" ] || die "at least one hostname is required"
+for h in $HOSTS; do valid_host "$h" || die "invalid hostname: $h"; done
+PRIMARY="${HOSTS%% *}"
+
+TLS_DEFAULT="${TLS_MODE:-$(env_get TLS_MODE)}"
+TLS_DEFAULT="${TLS_DEFAULT:-auto}"
+TLS="$(ask "TLS mode (auto|internal|off)" "$TLS_DEFAULT")"
+case "$TLS" in auto|internal|off) ;; *) die "TLS mode must be auto, internal or off" ;; esac
+
+CONTACT_DEFAULT="${OPERATOR_CONTACT:-$(env_get OPERATOR_CONTACT)}"
+CONTACT="$(ask "Operator/abuse contact email (required for ACME and abuse reports)" "$CONTACT_DEFAULT")"
+if [ "$TLS" = auto ] && [ -z "$CONTACT" ]; then die "TLS mode auto needs a contact email for ACME"; fi
+# The contact is written into the Caddyfile and .env verbatim: plain address only.
+case "$CONTACT" in *$'\n'*|*$'\r'*) die "invalid contact email: multi-line value" ;; esac
+if [ -n "$CONTACT" ] && ! printf '%s' "$CONTACT" | grep -Eq '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$'; then
+  die "invalid contact email: must be a plain address like ops@example.org"
+fi
+
+# ─── Secrets and key (generated once, kept on re-run) ───────────────
+ensure_secret POSTGRES_PASSWORD 24
+ensure_secret JWT_SECRET 48
+ensure_secret MFA_ENCRYPTION_KEY 32
+env_set DOMINUSNODE_DOMAIN "$PRIMARY"
+env_set PUBLIC_HOSTNAMES "$(printf '%s' "$HOSTS" | tr ' ' ',')"
+env_set TLS_MODE "$TLS"
+env_set OPERATOR_CONTACT "$CONTACT"
+if [ "$TLS" = off ]; then
+  env_set COOKIE_SECURE false; env_set TUNNEL_SCHEME ws
+else
+  env_set COOKIE_SECURE true; env_set TUNNEL_SCHEME wss
+fi
+CORS=""
+for h in $HOSTS; do CORS="${CORS:+$CORS,}https://$h"; done
+env_set CORS_ORIGINS "$CORS"
+
+if [ ! -f "$SH_DIR/coord-key.pem" ]; then
+  node "$ROOT/scripts/gen-coord-key.mjs" "$SH_DIR/coord-key.pem" > "$SH_DIR/coord.pub"
+fi
+PUB="$(tr -d '[:space:]' < "$SH_DIR/coord.pub")"
+printf '%s' "$PUB" | grep -Eq '^[0-9a-f]{64}$' || die "selfhost/coord.pub is not a 64-hex public key"
+env_set DN_COORD_PUBKEYS "$PUB"
+
+# ─── Caddyfile (regenerated every run) ──────────────────────────────
+{
+  echo "# Generated by scripts/selfhost/install.sh; re-run it instead of editing."
+  echo "{"
+  if [ -n "$CONTACT" ]; then echo "  email $CONTACT"; fi
+  if [ "$TLS" = off ]; then echo "  auto_https off"; fi
+  echo "}"
+  SITES=""
+  for h in $HOSTS; do
+    if [ "$TLS" = off ]; then SITES="${SITES:+$SITES, }http://$h"; else SITES="${SITES:+$SITES, }$h"; fi
+  done
+  echo "$SITES {"
+  if [ "$TLS" = internal ]; then echo "  tls internal"; fi
+  echo "  encode gzip"
+  echo "  reverse_proxy api:3000"
+  echo "}"
+  # Node tunnel on :8443: Caddy terminates TLS and passes the node's real address
+  # to the gateway in a PROXY v2 header (the gateway trusts only Caddy's address).
+  TSITES=""
+  for h in $HOSTS; do
+    if [ "$TLS" = off ]; then TSITES="${TSITES:+$TSITES, }http://$h:8443"; else TSITES="${TSITES:+$TSITES, }$h:8443"; fi
+  done
+  echo "$TSITES {"
+  if [ "$TLS" = internal ]; then echo "  tls internal"; fi
+  echo "  reverse_proxy gateway:8443 {"
+  echo "    transport http {"
+  echo "      proxy_protocol v2"
+  echo "    }"
+  echo "  }"
+  echo "}"
+} > "$SH_DIR/Caddyfile.tmp"
+mv "$SH_DIR/Caddyfile.tmp" "$SH_DIR/Caddyfile"
+chmod 644 "$SH_DIR/Caddyfile"
+
+echo "config written: .env (0600), selfhost/Caddyfile, selfhost/coord-key.pem"
+echo "primary domain: $PRIMARY; all hostnames: $HOSTS; TLS: $TLS"
+echo "coordinator public key (DN_COORD_PUBKEYS): $PUB"
+# ─── ASN/geo database (without it the gateway refuses all public traffic) ───
+ASN_DB="$ROOT/data/ip2asn-combined.tsv.gz"
+if [ ! -f "$ASN_DB" ]; then
+  if [ "${SKIP_ASN_DB:-0}" = 1 ]; then
+    echo "warning: SKIP_ASN_DB=1: no ASN/geo database; the gateway refuses ALL public peers and destinations until scripts/update-asn-db.sh is run" >&2
+  else
+    echo "downloading ASN/geo database (scripts/update-asn-db.sh)"
+    ASN_DB_FILE="$ASN_DB" bash "$ROOT/scripts/update-asn-db.sh" ||
+      die "ASN/geo database download failed; retry, or set SKIP_ASN_DB=1 to continue without it (the relay then refuses public traffic)"
+    [ -f "$ASN_DB" ] || die "ASN/geo database missing after download: $ASN_DB"
+  fi
+fi
+
+if [ "$NO_START" -eq 1 ]; then exit 0; fi
+docker compose -f docker-compose.selfhost.yml --env-file "$ENV_FILE" build
+docker compose -f docker-compose.selfhost.yml --env-file "$ENV_FILE" up -d --remove-orphans
+echo "up. status page: https://$PRIMARY/status"

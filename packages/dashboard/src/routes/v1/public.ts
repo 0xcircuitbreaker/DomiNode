@@ -96,57 +96,76 @@ router.get("/pricing", async (_req: Request, res: Response) => {
 /** Groups smaller than this are folded into "other" so single nodes are not singled out. */
 const MIN_GROUP = 3;
 
+export interface NetworkStats {
+  onlineNodes: number;
+  byClass: Record<string, number>;
+  byCountry: Array<{ country: string; online: number }>;
+  otherCountries: number;
+  /** Distinct (non-sanctioned) countries with at least one online node. Aggregate count only. */
+  countriesAvailable: number;
+  seed: { online: number; paidBytes24h: string };
+  community: { online: number; paidBytes24h: string };
+  generatedAt: string;
+}
+
+/** Aggregate live network stats (cached CACHE_TTL_MS). Shared by /v1/network/stats and /status. */
+export async function getNetworkStats(): Promise<NetworkStats> {
+  const now = Date.now();
+  if (statsCache && now - statsCache.at <= CACHE_TTL_MS) return statsCache.value as NetworkStats;
+  const r = await query<{ country: string | null; ip_class: string | null; operator_run: boolean | null; n: string }>(
+    `SELECT country, ip_class, operator_run, COUNT(*)::text AS n FROM nodes
+     WHERE status = 'active' AND last_seen_at > now() - interval '5 minutes'
+     GROUP BY country, ip_class, operator_run`,
+  );
+  // Paid traffic in the last 24h, seed (operator-run) vs community. Aggregate only.
+  const t = await query<{ operator_run: boolean | null; bytes: string | null }>(
+    `SELECT n.operator_run, SUM(rc.bytes_gateway)::text AS bytes
+     FROM relay_charges rc JOIN nodes n ON n.id = rc.node_id
+     WHERE rc.created_at > now() - interval '24 hours' AND rc.gross_musd > 0
+     GROUP BY n.operator_run`,
+  );
+  const seed = { online: 0, paidBytes24h: "0" };
+  const community = { online: 0, paidBytes24h: "0" };
+  for (const row of t.rows ?? []) {
+    const b = /^\d{1,20}$/.test(row.bytes ?? "") ? (row.bytes as string) : "0";
+    if (row.operator_run) seed.paidBytes24h = b; else community.paidBytes24h = b;
+  }
+  let total = 0;
+  let other = 0;
+  const byClass: Record<string, number> = {};
+  const byCountry: Record<string, number> = {};
+  for (const row of r.rows) {
+    const n = parseInt(row.n, 10);
+    if (!Number.isFinite(n) || n <= 0) continue;
+    total += n;
+    if (row.operator_run) seed.online += n; else community.online += n;
+    const cls = row.ip_class ?? "unknown";
+    byClass[cls] = (byClass[cls] ?? 0) + n;
+    const c = row.country && !BLOCKED_COUNTRY_CODES.has(row.country) ? row.country : null;
+    if (c) byCountry[c] = (byCountry[c] ?? 0) + n;
+    else other += n;
+  }
+  const countriesAvailable = Object.keys(byCountry).length;
+  const countries: Array<{ country: string; online: number }> = [];
+  for (const [country, online] of Object.entries(byCountry)) {
+    if (online >= MIN_GROUP) countries.push({ country, online });
+    else other += online;
+  }
+  countries.sort((a, b) => b.online - a.online || a.country.localeCompare(b.country));
+  const value: NetworkStats = {
+    onlineNodes: total, byClass, byCountry: countries, otherCountries: other, countriesAvailable,
+    seed, community, generatedAt: new Date(now).toISOString(),
+  };
+  statsCache = { at: now, value };
+  return value;
+}
+
 // GET /v1/network/stats — aggregate only, never node IPs/ids
 router.get("/network/stats", async (_req: Request, res: Response) => {
   try {
-    const now = Date.now();
-    if (!statsCache || now - statsCache.at > CACHE_TTL_MS) {
-      const r = await query<{ country: string | null; ip_class: string | null; operator_run: boolean | null; n: string }>(
-        `SELECT country, ip_class, operator_run, COUNT(*)::text AS n FROM nodes
-         WHERE status = 'active' AND last_seen_at > now() - interval '5 minutes'
-         GROUP BY country, ip_class, operator_run`,
-      );
-      // Paid traffic in the last 24h, seed (operator-run) vs community. Aggregate only.
-      const t = await query<{ operator_run: boolean | null; bytes: string | null }>(
-        `SELECT n.operator_run, SUM(rc.bytes_gateway)::text AS bytes
-         FROM relay_charges rc JOIN nodes n ON n.id = rc.node_id
-         WHERE rc.created_at > now() - interval '24 hours' AND rc.gross_musd > 0
-         GROUP BY n.operator_run`,
-      );
-      const seed = { online: 0, paidBytes24h: "0" };
-      const community = { online: 0, paidBytes24h: "0" };
-      for (const row of t.rows ?? []) {
-        const b = /^\d{1,20}$/.test(row.bytes ?? "") ? (row.bytes as string) : "0";
-        if (row.operator_run) seed.paidBytes24h = b; else community.paidBytes24h = b;
-      }
-      let total = 0;
-      let other = 0;
-      const byClass: Record<string, number> = {};
-      const byCountry: Record<string, number> = {};
-      for (const row of r.rows) {
-        const n = parseInt(row.n, 10);
-        if (!Number.isFinite(n) || n <= 0) continue;
-        total += n;
-        if (row.operator_run) seed.online += n; else community.online += n;
-        const cls = row.ip_class ?? "unknown";
-        byClass[cls] = (byClass[cls] ?? 0) + n;
-        const c = row.country && !BLOCKED_COUNTRY_CODES.has(row.country) ? row.country : null;
-        if (c) byCountry[c] = (byCountry[c] ?? 0) + n;
-        else other += n;
-      }
-      const countries: Array<{ country: string; online: number }> = [];
-      for (const [country, online] of Object.entries(byCountry)) {
-        if (online >= MIN_GROUP) countries.push({ country, online });
-        else other += online;
-      }
-      countries.sort((a, b) => b.online - a.online || a.country.localeCompare(b.country));
-      statsCache = {
-        at: now,
-        value: { onlineNodes: total, byClass, byCountry: countries, otherCountries: other, seed, community, generatedAt: new Date(now).toISOString() },
-      };
-    }
+    const value = await getNetworkStats();
     setPublicCache(res);
-    res.json(statsCache.value);
+    res.json(value);
   } catch (err) {
     log.error("network stats failed", { error: err instanceof Error ? err.message : String(err) });
     res.status(503).json({ error: "Stats unavailable" });

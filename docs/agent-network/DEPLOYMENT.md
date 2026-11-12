@@ -191,6 +191,14 @@ header:
 `TUNNEL_TLS_CERT_FILE` and `TUNNEL_TLS_KEY_FILE` (set both or neither), and
 leave `TUNNEL_TRUSTED_PROXY_IPS` unset.
 
+**Self-host compose (`docker-compose.selfhost.yml`).** Caddy terminates TLS
+for the tunnel on `:8443` (same hostnames and certificates as the API) and
+reverse-proxies to `gateway:8443` with `transport http { proxy_protocol v2 }`.
+Caddy has a fixed address on the compose network (`172.29.53.2`), which is the
+only entry in `TUNNEL_TRUSTED_PROXY_IPS`; the gateway does not publish 8443
+itself. Channel binding is `none` in this setup (TLS ends at Caddy). With
+`TLS_MODE=off` the tunnel is plain `ws://` and must be fronted by your own TLS.
+
 In production, the gateway refuses tunnel upgrades from non-public peers. A
 missing or misconfigured trusted-proxy list shows up as `403` with a log
 line that mentions `TUNNEL_TRUSTED_PROXY_IPS`.
@@ -253,7 +261,51 @@ docker run -d --restart unless-stopped --env-file /etc/dominusnode/node.env \
 ```
 The key file must be owned by uid 1001 with mode 0600 (the agent refuses group/world-readable key files).
 
+### Published image (community nodes)
+
+`.github/workflows/node-image.yml` publishes `ghcr.io/0xcircuitbreaker/dominusnode-node` for linux/amd64 and linux/arm64 (Raspberry Pi 4/5) on a `node-v*` tag or manual dispatch. The official coordinator pins come from the repository variable `DN_COORD_PUBKEYS` (public keys) and are baked in at build time; the job fails without them. A node pointed at another coordinator adds that coordinator's pins with `DN_NODE_COORD_PINS`.
+
+First run, `register` subcommand (once; writes the node key file 0600 for uid 1001):
+```bash
+sudo install -d -o 1001 -g 1001 -m 700 /etc/dominusnode
+sudo install -o 1001 -g 1001 -m 600 ./wallet.key /etc/dominusnode/wallet.key   # owner wallet, 32-byte hex
+read -rs DN_API_KEY && export DN_API_KEY                                        # never on the command line
+docker run --rm -it -e DN_API_KEY -e DN_WALLET_KEY_FILE=/run/dominusnode/wallet.key \
+  -v /etc/dominusnode:/run/dominusnode ghcr.io/0xcircuitbreaker/dominusnode-node register
+sudo rm /etc/dominusnode/wallet.key   # not needed after registration
+```
+`register` refuses if the server's message differs from the one it builds locally. Then run:
+```bash
+docker run -d --name dominusnode-node --restart unless-stopped \
+  -e DN_NODE_GB_PER_DAY=2 -e DN_NODE_MAX_STREAMS=8 -e DN_NODE_MAX_MBPS=10 -e DN_NODE_REQ_PER_SEC=5 \
+  -v /etc/dominusnode/node.json:/run/dominusnode/node.json:ro \
+  ghcr.io/0xcircuitbreaker/dominusnode-node
+```
+
+**Recommended caps for home lines.** Start low and raise them once you have watched a week of traffic:
+
+| Line | `DN_NODE_GB_PER_DAY` | `DN_NODE_MAX_STREAMS` | `DN_NODE_MAX_MBPS` | `DN_NODE_REQ_PER_SEC` |
+|---|---|---|---|---|
+| Metered or mobile hotspot | 1 | 4 | 5 | 2 |
+| Typical home broadband (≤100 Mbps up) | 2 | 8 | 10 | 5 |
+| Fibre (≥300 Mbps up) | 5 | 16 | 25 | 10 |
+
+The caps are enforced by the agent itself and can only lower the floor, never raise it. Check your ISP's terms before sharing a residential line.
+
 After the first registration, flag the node: admin panel → Launch controls → "Flag operator-run", or `POST /api/admin/network/nodes/:id/operator-run {"operatorRun": true}`. The flag takes effect on the node's next tunnel reconnect.
+
+### Self-host installer notes
+
+- `scripts/selfhost/install.sh` downloads the ASN/geo database with
+  `scripts/update-asn-db.sh` when `data/ip2asn-combined.tsv.gz` is missing and
+  fails if the download fails. `SKIP_ASN_DB=1` continues without it; the
+  gateway then refuses all public peers and destinations until the file
+  exists. `SKIP_GEOIP` is not passed through: it is ignored in production.
+- `OPERATOR_CONTACT` must be a plain email address; anything else (spaces,
+  braces, quotes, newlines) is refused because it is written into the
+  Caddyfile and `.env`.
+- The optional `node` profile dials `${TUNNEL_SCHEME}://${DOMINUSNODE_DOMAIN}:8443/v1/tunnel`
+  (`wss` unless `TLS_MODE=off`).
 
 ## 8. Launch jobs and settings
 
