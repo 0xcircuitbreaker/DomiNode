@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { usageRepo, createLogger } from "@dominusnode/shared";
+import { usageRepo, createLogger, RELAY_BYTES_PER_GB } from "@dominusnode/shared";
 import { requireAuth, type AuthenticatedRequest } from "../middleware/auth.js";
 
 const router = Router();
@@ -44,16 +44,16 @@ router.get("/", async (req, res) => {
         totalBytes: summary.total_bytes,
         totalCostCents: summary.total_cost_cents,
         requestCount: summary.request_count,
-        totalGB: Number((summary.total_bytes / 1_073_741_824).toFixed(4)),
+        totalGB: Number((summary.total_bytes / RELAY_BYTES_PER_GB).toFixed(4)),
         totalCostUsd: Number((summary.total_cost_cents / 100).toFixed(2)),
       },
       records: usageData.rows.map((r) => ({
         id: r.id,
         sessionId: r.session_id,
-        bytesIn: r.bytes_in,
-        bytesOut: r.bytes_out,
-        totalBytes: r.bytes_in + r.bytes_out,
-        costCents: r.cost_cents,
+        bytesIn: Number(r.bytes_in),
+        bytesOut: Number(r.bytes_out),
+        totalBytes: Number(r.bytes_in) + Number(r.bytes_out),
+        costCents: Number(r.cost_cents),
         proxyType: r.proxy_type,
         targetHost: r.target_host,
         createdAt: r.created_at,
@@ -95,7 +95,7 @@ router.get("/daily", async (req, res) => {
       days: daily.map((d) => ({
         date: d.date,
         totalBytes: d.total_bytes,
-        totalGB: Number((d.total_bytes / 1_073_741_824).toFixed(4)),
+        totalGB: Number((d.total_bytes / RELAY_BYTES_PER_GB).toFixed(4)),
         totalCostCents: d.total_cost_cents,
         totalCostUsd: Number((d.total_cost_cents / 100).toFixed(2)),
         requestCount: d.request_count,
@@ -138,7 +138,7 @@ router.get("/top-hosts", async (req, res) => {
       hosts: hosts.map((h) => ({
         targetHost: h.targetHost,
         totalBytes: h.totalBytes,
-        totalGB: Number((h.totalBytes / 1_073_741_824).toFixed(4)),
+        totalGB: Number((h.totalBytes / RELAY_BYTES_PER_GB).toFixed(4)),
         requestCount: h.requestCount,
       })),
       period: { since, until },
@@ -196,7 +196,7 @@ router.get("/export", async (req, res) => {
     const header = "Date,Session ID,Target Host,Bytes In,Bytes Out,Total Bytes,Cost (USD)\n";
     const rows = usageData.rows.map((r) => {
       const date = new Date(r.created_at).toISOString();
-      const totalBytes = r.bytes_in + r.bytes_out;
+      const totalBytes = Number(r.bytes_in) + Number(r.bytes_out);
       const costUsd = (r.cost_cents / 100).toFixed(4);
       return `${sanitizeCsvField(date)},${sanitizeCsvField(r.session_id)},${sanitizeCsvField(r.target_host)},${r.bytes_in},${r.bytes_out},${totalBytes},${costUsd}`;
     });

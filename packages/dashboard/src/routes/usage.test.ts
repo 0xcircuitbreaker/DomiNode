@@ -10,6 +10,7 @@ const mockGetUsageByDay = vi.fn();
 const mockGetTopHosts = vi.fn();
 
 vi.mock("@dominusnode/shared", () => ({
+  RELAY_BYTES_PER_GB: 1_000_000_000,
   usageRepo: {
     getUsageByUser: (...args: unknown[]) => mockGetUsageByUser(...args),
     getUsageSummary: (...args: unknown[]) => mockGetUsageSummary(...args),
@@ -149,6 +150,23 @@ describe("usage routes", () => {
       expect(pagination.offset).toBe(0);
     });
 
+    it("sums BIGINT byte columns numerically when pg returns strings", async () => {
+      mockGetUsageByUser.mockResolvedValueOnce({
+        rows: [{
+          id: "rec-s", session_id: "sess-s", bytes_in: "1024", bytes_out: "2048", cost_cents: "3",
+          proxy_type: "relay", target_host: "", created_at: "2025-01-01T00:00:00Z",
+        }],
+        total: 1,
+      });
+      mockGetUsageSummary.mockResolvedValueOnce({ total_bytes: 3072, total_cost_cents: 3, request_count: 1 });
+      const res = await request(createApp(), "GET", "/api/usage");
+      const r = (res.body.records as Array<Record<string, unknown>>)[0];
+      expect(r.bytesIn).toBe(1024);
+      expect(r.bytesOut).toBe(2048);
+      expect(r.totalBytes).toBe(3072); // not "10242048"
+      expect(r.costCents).toBe(3);
+    });
+
     it("should use custom since/until date parameters", async () => {
       mockGetUsageByUser.mockResolvedValueOnce({ rows: [], total: 0 });
       mockGetUsageSummary.mockResolvedValueOnce({
@@ -259,7 +277,7 @@ describe("usage routes", () => {
       expect(days).toHaveLength(2);
       expect(days[0].date).toBe("2025-01-01");
       expect(days[0].totalBytes).toBe(1_073_741_824);
-      expect(days[0].totalGB).toBe(1);
+      expect(days[0].totalGB).toBe(1.0737); // decimal GB (1e9 bytes), as priced
       expect(days[0].totalCostCents).toBe(500);
       expect(days[0].totalCostUsd).toBe(5);
       expect(days[0].requestCount).toBe(100);

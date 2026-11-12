@@ -130,8 +130,11 @@ export async function getUsageByUser(
       [userId, since, until],
     ),
   ]);
+  // bytes_in/bytes_out are BIGINT: pg returns them as strings. Convert so
+  // callers never string-concatenate ("1024" + "2048"). Byte counts stay far
+  // below Number.MAX_SAFE_INTEGER (CHECK caps them at 1 TiB per record).
   return {
-    rows: dataResult.rows,
+    rows: dataResult.rows.map((r) => ({ ...r, bytes_in: Number(r.bytes_in), bytes_out: Number(r.bytes_out) })),
     total: Number(countResult.rows[0].count),
   };
 }
