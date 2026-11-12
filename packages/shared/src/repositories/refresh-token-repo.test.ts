@@ -11,6 +11,9 @@ import {
   storeToken,
   findValidToken,
   findTokenByHash,
+  isWithinRotationGrace,
+  clientBindingHash,
+  ROTATION_GRACE_MS,
   revokeToken,
   revokeFamily,
   revokeAllForUser,
@@ -164,5 +167,32 @@ describe("refresh-token-repo", () => {
         [],
       );
     });
+  });
+});
+
+describe("isWithinRotationGrace", () => {
+  const now = 1_700_000_000_000;
+  it("false when never rotated (explicit revoke/logout)", () => {
+    expect(isWithinRotationGrace({ rotated_at: null }, now)).toBe(false);
+  });
+  it("true just after rotation", () => {
+    expect(isWithinRotationGrace({ rotated_at: new Date(now - 3000) }, now)).toBe(true);
+  });
+  it("false after the grace window", () => {
+    expect(isWithinRotationGrace({ rotated_at: new Date(now - ROTATION_GRACE_MS - 1) }, now)).toBe(false);
+  });
+});
+
+describe("clientBindingHash", () => {
+  it("is a 64-char hex digest, stable within an IPv4 /24 and IPv6 /48", () => {
+    const h = clientBindingHash("UA", "203.0.113.5");
+    expect(h).toMatch(/^[0-9a-f]{64}$/);
+    expect(clientBindingHash("UA", "::ffff:203.0.113.77")).toBe(h);
+    expect(clientBindingHash("UA", "2001:db8:1:2::1")).toBe(clientBindingHash("UA", "2001:db8:1:ffff::9"));
+  });
+  it("differs on User-Agent or network", () => {
+    const h = clientBindingHash("UA", "203.0.113.5");
+    expect(clientBindingHash("UA2", "203.0.113.5")).not.toBe(h);
+    expect(clientBindingHash("UA", "198.51.100.5")).not.toBe(h);
   });
 });

@@ -62,6 +62,19 @@ interface ApiRequestOptions extends RequestInit {
   redirectOnUnauthorized?: boolean;
 }
 
+const REFRESH_RETRY_DELAY_MS = 250;
+
+async function refreshSaysRetry(r: Response): Promise<boolean> {
+  try {
+    const text = await r.text();
+    if (text.length > 4096) return false;
+    const body = JSON.parse(text) as { retry?: unknown };
+    return body?.retry === true;
+  } catch {
+    return false;
+  }
+}
+
 function silentRefresh(): Promise<boolean> {
   if (refreshPromise) return refreshPromise;
   refreshPromise = fetch("/api/auth/refresh", {
@@ -69,7 +82,17 @@ function silentRefresh(): Promise<boolean> {
     credentials: "include",
     redirect: "error", // Prevent credential leakage via redirect
   })
-    .then((r) => r.ok)
+    .then(async (r) => {
+      if (r.ok) return true;
+      // Another tab won a concurrent rotation (401 {retry:true}). Its response
+      // already set fresh cookies, so wait briefly and let the caller re-run the
+      // original request once with them instead of logging out.
+      if (r.status === 401 && (await refreshSaysRetry(r))) {
+        await new Promise((resolve) => setTimeout(resolve, REFRESH_RETRY_DELAY_MS));
+        return true;
+      }
+      return false;
+    })
     .catch(() => false)
     .finally(() => {
       refreshPromise = null;

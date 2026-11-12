@@ -52,6 +52,23 @@ export function getAgentMultiplier(): number {
 }
 
 /**
+ * Constant-time comparison of a presented header secret against
+ * MCP_AGENT_SECRET. Compares fixed-length SHA-256 digests so differing UTF-8
+ * byte lengths (e.g. a latin1 byte decoded as a 2-byte char) can never make
+ * timingSafeEqual throw, and the secret's length is not observable. Never throws.
+ */
+export function matchesGlobalAgentSecret(headerSecret: unknown, expected: string = MCP_AGENT_SECRET): boolean {
+  try {
+    if (expected.length === 0 || typeof headerSecret !== "string" || headerSecret.length === 0) return false;
+    const a = crypto.createHash("sha256").update(headerSecret, "utf8").digest();
+    const b = crypto.createHash("sha256").update(expected, "utf8").digest();
+    return crypto.timingSafeEqual(a, b);
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Strict check for credential-guessing protections (login lockout, MFA,
  * verify-key, change-password, wallet verify). Only the global first-party
  * MCP_AGENT_SECRET may bypass them. Per-agent das_ secrets are issued to any
@@ -60,14 +77,7 @@ export function getAgentMultiplier(): number {
  */
 export function isGlobalVerifiedAgent(req: Request): boolean {
   if (req.headers["x-dominusnode-agent"] !== "mcp") return false;
-  const headerSecret = (req.headers["x-dominusnode-agent-secret"] ?? "") as string;
-  if (MCP_AGENT_SECRET.length === 0 || headerSecret.length !== MCP_AGENT_SECRET.length) {
-    return false;
-  }
-  return crypto.timingSafeEqual(
-    Buffer.from(headerSecret, "utf8"),
-    Buffer.from(MCP_AGENT_SECRET, "utf8"),
-  );
+  return matchesGlobalAgentSecret(req.headers["x-dominusnode-agent-secret"]);
 }
 
 /**
@@ -78,22 +88,11 @@ export function isGlobalVerifiedAgent(req: Request): boolean {
 export function isVerifiedAgent(req: Request): boolean {
   if (req.headers["x-dominusnode-agent"] !== "mcp") return false;
 
-  const headerSecret = (req.headers["x-dominusnode-agent-secret"] ?? "") as string;
+  const rawSecret = req.headers["x-dominusnode-agent-secret"];
+  const headerSecret = typeof rawSecret === "string" ? rawSecret : "";
 
   // Path 1: Global MCP_AGENT_SECRET (admin/first-party)
-  if (
-    MCP_AGENT_SECRET.length > 0 &&
-    headerSecret.length === MCP_AGENT_SECRET.length
-  ) {
-    if (
-      crypto.timingSafeEqual(
-        Buffer.from(headerSecret, "utf8"),
-        Buffer.from(MCP_AGENT_SECRET, "utf8"),
-      )
-    ) {
-      return true;
-    }
-  }
+  if (matchesGlobalAgentSecret(headerSecret)) return true;
 
   // Path 2: Per-agent secret (das_ prefix) — check cache only (sync)
   if (headerSecret.startsWith("das_") && headerSecret.length === 68) {
@@ -119,22 +118,11 @@ export async function isVerifiedAgentAsync(
     return { verified: false };
   }
 
-  const headerSecret = (req.headers["x-dominusnode-agent-secret"] ?? "") as string;
+  const rawSecret = req.headers["x-dominusnode-agent-secret"];
+  const headerSecret = typeof rawSecret === "string" ? rawSecret : "";
 
   // Path 1: Global MCP_AGENT_SECRET
-  if (
-    MCP_AGENT_SECRET.length > 0 &&
-    headerSecret.length === MCP_AGENT_SECRET.length
-  ) {
-    if (
-      crypto.timingSafeEqual(
-        Buffer.from(headerSecret, "utf8"),
-        Buffer.from(MCP_AGENT_SECRET, "utf8"),
-      )
-    ) {
-      return { verified: true };
-    }
-  }
+  if (matchesGlobalAgentSecret(headerSecret)) return { verified: true };
 
   // Path 2: Per-agent secret (das_ prefix)
   if (headerSecret.startsWith("das_") && headerSecret.length === 68) {
