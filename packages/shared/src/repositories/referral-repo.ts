@@ -1,4 +1,5 @@
-import { query, getPool } from "../db.js";
+import type { DbTxClient } from "../db.js";
+import { query, queryOn, getPool } from "../db.js";
 import { createLogger } from "../logger.js";
 import type {
   ReferralCode,
@@ -434,13 +435,14 @@ export async function createPromoCode(
   codePrefix: string,
   creditCents: number,
   options?: { maxUses?: number; expiresAt?: Date },
+  ext?: DbTxClient,
 ): Promise<PromoCode> {
   // Validate creditCents at repo level (defense-in-depth, matches createReferralCode)
   if (!Number.isFinite(creditCents) || creditCents < 1 || creditCents > 100000) {
     throw new Error("creditCents must be between 1 and 100000");
   }
   // Do not return code_hash from RETURNING — hash must not leave DB boundary
-  const result = await query<PromoCode>(
+  const result = await queryOn<PromoCode>(ext,
     `INSERT INTO promo_codes (admin_user_id, code_hash, code_prefix, credit_cents, max_uses, expires_at)
      VALUES ($1, $2, $3, $4, $5, $6)
      RETURNING id, admin_user_id, code_prefix, credit_cents, max_uses, uses, active, expires_at, created_at`,
@@ -551,8 +553,8 @@ export async function listPromoCodes(): Promise<Omit<PromoCode, "code_hash">[]> 
   return result.rows;
 }
 
-export async function disablePromoCode(codeId: string): Promise<boolean> {
-  const result = await query(
+export async function disablePromoCode(codeId: string, ext?: DbTxClient): Promise<boolean> {
+  const result = await queryOn(ext,
     "UPDATE promo_codes SET active = false WHERE id = $1 AND active = true",
     [codeId],
   );

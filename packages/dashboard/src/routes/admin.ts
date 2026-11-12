@@ -1,8 +1,10 @@
 import { Router } from "express";
 import * as crypto from "node:crypto";
 import { adminRepo, createLogger, userRepo, refreshTokenRepo, waitlistRepo, walletRepo, teamRepo, planRepo, referralRepo, sendWaitlistApprovalEmail, sanitizeString, hasMinRole, getProxyInternalPort, query as dbQuery } from "@dominusnode/shared";
-import type { AdminRole } from "@dominusnode/shared";
+import type { AdminRole, DbTxClient } from "@dominusnode/shared";
+import type { Response } from "express";
 import { requireAuth, type AuthenticatedRequest } from "../middleware/auth.js";
+import { audit, HttpError, requireReason, withAdminTx, type TxClient } from "./admin-network-common.js";
 import { requireAdmin, requireCybersecurityAdmin, requireRootAdmin } from "../middleware/admin.js";
 import rateLimit from "express-rate-limit";
 
@@ -20,6 +22,28 @@ const VALID_ASSIGNABLE_ROLES = new Set(["none", "admin", "cybersecurity_admin"])
 
 function isValidUuid(id: string): boolean {
   return UUID_REGEX.test(id);
+}
+
+/** Admin tx client as the shared repositories' client type. */
+const pc = (c: TxClient): DbTxClient => c as unknown as DbTxClient;
+
+/** Validate the required reason; on failure answer 400 and return null. */
+function reasonOr400(req: Parameters<typeof requireReason>[0], res: Response): string | null {
+  try {
+    return requireReason(req);
+  } catch (err) {
+    res.status(400).json({ error: err instanceof Error ? err.message : "reason is required" });
+    return null;
+  }
+}
+
+/** HttpError thrown inside withAdminTx (e.g. role re-check) → its status. */
+function sendHttpError(res: Response, err: unknown): boolean {
+  if (err instanceof HttpError) {
+    res.status(err.status).json({ error: err.message });
+    return true;
+  }
+  return false;
 }
 
 // All admin routes require auth + admin (base level)
@@ -81,6 +105,8 @@ router.put("/users/:id/suspend", async (req, res) => {
     res.status(400).json({ error: "Cannot suspend your own account" });
     return;
   }
+  const reason = reasonOr400(req, res);
+  if (reason === null) return;
   try {
     // Prevent admin-to-admin attacks — only root_admin can act on other admins
     const targetUser = await userRepo.findUserById(req.params.id);
@@ -94,12 +120,19 @@ router.put("/users/:id/suspend", async (req, res) => {
       res.status(403).json({ error: "Root admin account cannot be suspended" });
       return;
     }
-    await adminRepo.suspendUser(req.params.id);
-    // Revoke all API keys and refresh tokens so the suspended user is immediately locked out
-    const [revokedKeys, revokedTokens] = await Promise.all([
-      userRepo.revokeAllApiKeys(req.params.id),
-      refreshTokenRepo.revokeAllForUser(req.params.id),
-    ]);
+    // Suspend + revoke keys/tokens + audit row in one transaction
+    const targetId = req.params.id;
+    const { revokedKeys, revokedTokens } = await withAdminTx(userId, async (c) => {
+      const changed = await adminRepo.suspendUser(targetId, pc(c));
+      // Revoke all API keys and refresh tokens so the suspended user is immediately locked out
+      const keys = await userRepo.revokeAllApiKeys(targetId, pc(c));
+      const tokens = await refreshTokenRepo.revokeAllForUser(targetId, pc(c));
+      await audit(c, req, "user_suspend", "user", targetId, {
+        reason, previousStatus: targetUser?.status ?? null, newStatus: "suspended", changed,
+        revokedKeys: keys, revokedTokens: tokens,
+      });
+      return { revokedKeys: keys, revokedTokens: tokens };
+    });
     // Signal proxy-gateway to terminate active sessions for this user
     let terminatedSessions = 0;
     try {
@@ -128,6 +161,7 @@ router.put("/users/:id/suspend", async (req, res) => {
     log.info("user suspended", { targetUserId: req.params.id, revokedKeys, revokedTokens, terminatedSessions });
     res.json({ message: "User suspended" });
   } catch (err) {
+    if (sendHttpError(res, err)) return;
     log.error("failed to suspend user", { error: err instanceof Error ? err.message : String(err) });
     res.status(500).json({ error: "Failed to suspend user" });
   }
@@ -144,6 +178,8 @@ router.put("/users/:id/activate", async (req, res) => {
     res.status(400).json({ error: "Cannot modify your own account" });
     return;
   }
+  const reason = reasonOr400(req, res);
+  if (reason === null) return;
   try {
     // Prevent reactivating deleted or already-active users
     const targetUser = await userRepo.findUserById(req.params.id);
@@ -165,10 +201,17 @@ router.put("/users/:id/activate", async (req, res) => {
       res.status(403).json({ error: "Only root admin can reactivate another admin account" });
       return;
     }
-    await adminRepo.reactivateUser(req.params.id);
+    const targetId = req.params.id;
+    await withAdminTx(userId, async (c) => {
+      const changed = await adminRepo.reactivateUser(targetId, pc(c));
+      await audit(c, req, "user_activate", "user", targetId, {
+        reason, previousStatus: targetUser.status, newStatus: "active", changed,
+      });
+    });
     log.info("user reactivated", { targetUserId: req.params.id });
     res.json({ message: "User reactivated" });
   } catch (err) {
+    if (sendHttpError(res, err)) return;
     log.error("failed to reactivate user", { error: err instanceof Error ? err.message : String(err) });
     res.status(500).json({ error: "Failed to reactivate user" });
   }
@@ -185,6 +228,8 @@ router.delete("/users/:id", async (req, res) => {
     res.status(400).json({ error: "Cannot delete your own account" });
     return;
   }
+  const reason = reasonOr400(req, res);
+  if (reason === null) return;
   try {
     // Prevent admin-to-admin attacks — only root_admin can act on other admins
     const targetUser = await userRepo.findUserById(req.params.id);
@@ -223,10 +268,15 @@ router.delete("/users/:id", async (req, res) => {
     } catch {
       log.warn("could not signal proxy-gateway to terminate sessions", { targetUserId: req.params.id });
     }
-    await adminRepo.deleteUser(req.params.id);
+    const targetId = req.params.id;
+    await withAdminTx(userId, async (c) => {
+      await adminRepo.deleteUser(targetId, pc(c));
+      await audit(c, req, "user_delete", "user", targetId, { reason, previousStatus: targetUser?.status ?? null, newStatus: "deleted" });
+    });
     log.info("user deleted (soft)", { targetUserId: req.params.id, terminatedSessions });
     res.json({ message: "User deleted" });
   } catch (err) {
+    if (sendHttpError(res, err)) return;
     log.error("failed to delete user", { error: err instanceof Error ? err.message : String(err) });
     res.status(500).json({ error: "Failed to delete user" });
   }
@@ -365,6 +415,9 @@ router.post("/waitlist/:id/approve", async (req, res) => {
     res.status(400).json({ error: "Invalid waitlist entry ID" });
     return;
   }
+  const reason = reasonOr400(req, res);
+  if (reason === null) return;
+  const { userId: adminUserId } = (req as unknown as AuthenticatedRequest).user;
   try {
     const entry = await waitlistRepo.findById(req.params.id);
     if (!entry) {
@@ -376,7 +429,12 @@ router.post("/waitlist/:id/approve", async (req, res) => {
       return;
     }
 
-    const marked = await waitlistRepo.markNotified(req.params.id);
+    const entryId = req.params.id;
+    const marked = await withAdminTx(adminUserId, async (c) => {
+      const ok = await waitlistRepo.markNotified(entryId, pc(c));
+      if (ok) await audit(c, req, "waitlist_approve", "waitlist", entryId, { reason, previousStatus: entry.status, newStatus: "notified" });
+      return ok;
+    });
     if (!marked) {
       res.status(400).json({ error: "Failed to approve entry" });
       return;
@@ -390,6 +448,7 @@ router.post("/waitlist/:id/approve", async (req, res) => {
     log.info("waitlist entry approved", { entryId: req.params.id, email: entry.email.slice(0, 3) + "***" });
     res.json({ message: "Entry approved and notification sent" });
   } catch (err) {
+    if (sendHttpError(res, err)) return;
     log.error("failed to approve waitlist entry", { error: err instanceof Error ? err.message : String(err) });
     res.status(500).json({ error: "Failed to approve waitlist entry" });
   }
@@ -397,6 +456,9 @@ router.post("/waitlist/:id/approve", async (req, res) => {
 
 // POST /api/admin/waitlist/bulk-approve — approve N oldest pending entries
 router.post("/waitlist/bulk-approve", async (req, res) => {
+  const reason = reasonOr400(req, res);
+  if (reason === null) return;
+  const { userId: adminUserId } = (req as unknown as AuthenticatedRequest).user;
   try {
     const count = Math.min(100, Math.max(1, parseInt(req.body.count ?? "10", 10) || 10));
 
@@ -407,7 +469,11 @@ router.post("/waitlist/bulk-approve", async (req, res) => {
     }
 
     const ids = pendingEntries.map((e) => e.id);
-    const approved = await waitlistRepo.bulkNotify(ids);
+    const approved = await withAdminTx(adminUserId, async (c) => {
+      const n = await waitlistRepo.bulkNotify(ids, pc(c));
+      await audit(c, req, "waitlist_bulk_approve", "waitlist", "bulk", { reason, requested: count, approved: n, entryIds: ids });
+      return n;
+    });
 
     // Send approval emails (non-blocking, best-effort)
     for (const entry of pendingEntries) {
@@ -419,6 +485,7 @@ router.post("/waitlist/bulk-approve", async (req, res) => {
     log.info("bulk waitlist approval", { approved, requested: count });
     res.json({ approved, message: `${approved} entries approved and notified` });
   } catch (err) {
+    if (sendHttpError(res, err)) return;
     log.error("failed to bulk approve waitlist", { error: err instanceof Error ? err.message : String(err) });
     res.status(500).json({ error: "Failed to bulk approve waitlist entries" });
   }
@@ -430,8 +497,16 @@ router.delete("/waitlist/:id", async (req, res) => {
     res.status(400).json({ error: "Invalid waitlist entry ID" });
     return;
   }
+  const reason = reasonOr400(req, res);
+  if (reason === null) return;
+  const { userId: adminUserId } = (req as unknown as AuthenticatedRequest).user;
   try {
-    const cancelled = await waitlistRepo.cancelEntry(req.params.id);
+    const entryId = req.params.id;
+    const cancelled = await withAdminTx(adminUserId, async (c) => {
+      const ok = await waitlistRepo.cancelEntry(entryId, pc(c));
+      if (ok) await audit(c, req, "waitlist_cancel", "waitlist", entryId, { reason, newStatus: "cancelled" });
+      return ok;
+    });
     if (!cancelled) {
       res.status(404).json({ error: "Entry not found or already processed" });
       return;
@@ -439,6 +514,7 @@ router.delete("/waitlist/:id", async (req, res) => {
     log.info("waitlist entry cancelled", { entryId: req.params.id });
     res.json({ message: "Entry cancelled" });
   } catch (err) {
+    if (sendHttpError(res, err)) return;
     log.error("failed to cancel waitlist entry", { error: err instanceof Error ? err.message : String(err) });
     res.status(500).json({ error: "Failed to cancel waitlist entry" });
   }
@@ -465,12 +541,21 @@ router.put("/users/:id/plan", async (req, res) => {
     return;
   }
 
+  const reason = reasonOr400(req, res);
+  if (reason === null) return;
+
   try {
-    await planRepo.setUserPlan(req.params.id, planId);
     const { userId: adminId } = (req as unknown as AuthenticatedRequest).user;
+    const targetId = req.params.id;
+    await withAdminTx(adminId, async (c) => {
+      const prev = await c.query<{ plan_id: string | null }>(`SELECT plan_id FROM users WHERE id = $1 FOR UPDATE`, [targetId]);
+      await planRepo.setUserPlan(targetId, planId, pc(c));
+      await audit(c, req, "user_plan_set", "user", targetId, { reason, previousPlanId: prev.rows[0]?.plan_id ?? null, newPlanId: planId });
+    });
     log.info("admin assigned plan", { adminId, targetUserId: req.params.id, planId });
     res.json({ message: "Plan assigned", userId: req.params.id, planId });
   } catch (err) {
+    if (sendHttpError(res, err)) return;
     const msg = err instanceof Error ? err.message : String(err);
     if (msg.includes("not found")) {
       res.status(404).json({ error: msg });
@@ -528,18 +613,27 @@ router.post("/credit-wallet", requireCybersecurityAdmin, creditLimiter, async (r
     return;
   }
 
-  const sanitizedReason = sanitizeString(reason ?? "Admin credit", 200);
+  const auditReason = reasonOr400(req, res);
+  if (auditReason === null) return;
+  const sanitizedReason = sanitizeString(reason ?? auditReason, 200);
 
   try {
     if (targetUserId) {
-      // Credit individual user wallet
-      const tx = await walletRepo.creditWallet(
-        targetUserId,
-        amountCents!,
-        "admin",
-        `admin-credit-${Date.now()}`,
-        sanitizedReason,
-      );
+      // Credit individual user wallet + audit row in one transaction
+      const tx = await withAdminTx(adminId, async (c) => {
+        const t = await walletRepo.creditWallet(
+          targetUserId,
+          amountCents!,
+          "admin",
+          `admin-credit-${Date.now()}`,
+          sanitizedReason,
+          pc(c),
+        );
+        await audit(c, req, "wallet_credit", "wallet", targetUserId, {
+          reason: auditReason, amountCents, transactionId: t.id,
+        });
+        return t;
+      });
       log.info("admin credited user wallet", {
         adminId,
         targetUserId,
@@ -557,7 +651,10 @@ router.post("/credit-wallet", requireCybersecurityAdmin, creditLimiter, async (r
       // Credit team wallet — admin must be a member of the team
       // For operator flexibility, we bypass the membership check since this is admin-only
       // and restricted to ADMIN_CREDIT_EMAILS
-      await teamRepo.adminCreditTeamWallet(teamId!, amountCents!, sanitizedReason);
+      await withAdminTx(adminId, async (c) => {
+        await teamRepo.adminCreditTeamWallet(teamId!, amountCents!, sanitizedReason, pc(c));
+        await audit(c, req, "team_wallet_credit", "team_wallet", teamId!, { reason: auditReason, amountCents });
+      });
       log.info("admin credited team wallet", {
         adminId,
         teamId,
@@ -571,6 +668,7 @@ router.post("/credit-wallet", requireCybersecurityAdmin, creditLimiter, async (r
       });
     }
   } catch (err) {
+    if (sendHttpError(res, err)) return;
     const msg = err instanceof Error ? err.message : String(err);
     if (msg.includes("No wallet found") || msg.includes("not found")) {
       res.status(404).json({ error: "Wallet not found for the specified target" });
@@ -607,6 +705,9 @@ router.post("/bug-reports/:id/approve", requireCybersecurityAdmin, async (req, r
       return;
     }
   }
+
+  const reason = reasonOr400(req, res);
+  if (reason === null) return;
 
   const reportId = req.params.id as string;
   const amount = creditAmountCents ?? 0;
@@ -665,6 +766,10 @@ router.post("/bug-reports/:id/approve", requireCybersecurityAdmin, async (req, r
        WHERE id = $4 AND status = 'pending'`,
       [amount > 0 ? "credited" : "approved", adminId, amount, reportId],
     );
+    await audit(client as unknown as TxClient, req, "bug_report_approve", "bug_report", reportId, {
+      reason, previousStatus: report.status, newStatus: amount > 0 ? "credited" : "approved",
+      creditAmountCents: amount, reporterId: report.user_id,
+    });
     await client.query("COMMIT");
 
     log.info("bug report approved", { reportId: req.params.id, creditAmountCents, adminId });
@@ -684,20 +789,28 @@ router.post("/bug-reports/:id/reject", requireCybersecurityAdmin, async (req, re
     res.status(400).json({ error: "Invalid report ID" });
     return;
   }
+  const reason = reasonOr400(req, res);
+  if (reason === null) return;
   try {
     const { userId: adminId } = (req as unknown as AuthenticatedRequest).user;
-    const { query: dbQuery } = await import("@dominusnode/shared");
-    const result = await dbQuery(
-      `UPDATE bug_reports SET status = 'rejected', reviewed_by = $1, reviewed_at = now() WHERE id = $2 AND status = 'pending' RETURNING id`,
-      [adminId, req.params.id],
-    );
-    if (!result || result.rows.length === 0) {
+    const reportId = req.params.id as string;
+    const rejected = await withAdminTx(adminId, async (c) => {
+      const r = await c.query<{ id: string }>(
+        `UPDATE bug_reports SET status = 'rejected', reviewed_by = $1, reviewed_at = now() WHERE id = $2 AND status = 'pending' RETURNING id`,
+        [adminId, reportId],
+      );
+      if (r.rows.length === 0) return false;
+      await audit(c, req, "bug_report_reject", "bug_report", reportId, { reason, previousStatus: "pending", newStatus: "rejected" });
+      return true;
+    });
+    if (!rejected) {
       res.status(404).json({ error: "Report not found or already processed" });
       return;
     }
     log.info("bug report rejected", { reportId: req.params.id, adminId });
     res.json({ message: "Report rejected" });
   } catch (err) {
+    if (sendHttpError(res, err)) return;
     log.error("failed to reject bug report", { error: err instanceof Error ? err.message : String(err) });
     res.status(500).json({ error: "Failed to reject bug report" });
   }
@@ -772,14 +885,26 @@ router.post("/promo", requireCybersecurityAdmin, async (req, res) => {
       return;
     }
 
+    const reason = reasonOr400(req, res);
+    if (reason === null) return;
+
     const codeHash = hashPromoCode(sanitizedCode);
-    const promo = await referralRepo.createPromoCode(
-      authReq.user.userId,
-      codeHash,
-      sanitizedCode.slice(0, 4),
-      numCreditCents,
-      { maxUses: numMaxUses, expiresAt: expiresDate },
-    );
+    const promo = await withAdminTx(authReq.user.userId, async (c) => {
+      const p = await referralRepo.createPromoCode(
+        authReq.user.userId,
+        codeHash,
+        sanitizedCode.slice(0, 4),
+        numCreditCents,
+        { maxUses: numMaxUses, expiresAt: expiresDate },
+        pc(c),
+      );
+      // Never store the plaintext code in the audit trail — prefix only
+      await audit(c, req, "promo_create", "promo_code", p.id, {
+        reason, prefix: p.code_prefix, creditCents: numCreditCents, maxUses: numMaxUses,
+        expiresAt: expiresDate ? expiresDate.toISOString() : null,
+      });
+      return p;
+    });
 
     log.info("admin created promo code", { adminId: authReq.user.userId, promoId: promo.id });
     res.status(201).json({
@@ -791,6 +916,7 @@ router.post("/promo", requireCybersecurityAdmin, async (req, res) => {
       expiresAt: promo.expires_at,
     });
   } catch (err) {
+    if (sendHttpError(res, err)) return;
     const msg = err instanceof Error ? err.message : String(err);
     if (msg.includes("duplicate")) {
       res.status(409).json({ error: "Promo code already exists" });
@@ -831,7 +957,14 @@ router.delete("/promo/:id", async (req, res) => {
       res.status(400).json({ error: "Invalid promo code ID" });
       return;
     }
-    const disabled = await referralRepo.disablePromoCode(codeId);
+    const reason = reasonOr400(req, res);
+    if (reason === null) return;
+    const { userId: adminUserId } = (req as unknown as AuthenticatedRequest).user;
+    const disabled = await withAdminTx(adminUserId, async (c) => {
+      const ok = await referralRepo.disablePromoCode(codeId, pc(c));
+      if (ok) await audit(c, req, "promo_disable", "promo_code", codeId, { reason, previousActive: true, newActive: false });
+      return ok;
+    });
     if (!disabled) {
       res.status(404).json({ error: "Promo code not found or already disabled" });
       return;
@@ -839,6 +972,7 @@ router.delete("/promo/:id", async (req, res) => {
     log.info("admin disabled promo code", { promoId: codeId });
     res.json({ success: true });
   } catch (err) {
+    if (sendHttpError(res, err)) return;
     log.error("admin disable promo failed", { error: err instanceof Error ? err.message : String(err) });
     res.status(500).json({ error: "Failed to disable promo code" });
   }
@@ -879,6 +1013,8 @@ const loyaltyProcessLimiter = rateLimit({
 });
 
 router.post("/loyalty/process", loyaltyProcessLimiter, async (req, res) => {
+  const reason = reasonOr400(req, res);
+  if (reason === null) return;
   try {
     const authReq = req as AuthenticatedRequest;
     // Calculate for previous month
@@ -913,6 +1049,13 @@ router.post("/loyalty/process", loyaltyProcessLimiter, async (req, res) => {
     // Credit pending rewards
     const credited = await referralRepo.creditPendingLoyaltyRewards();
 
+    // Batch job runs per-user transactions; record the run as one audit row
+    await withAdminTx(authReq.user.userId, async (c) => {
+      await audit(c, req, "loyalty_process", "loyalty", periodStart.toISOString().slice(0, 7), {
+        reason, processed, rewarded, creditedCents: credited,
+      });
+    });
+
     log.info("admin loyalty processing complete", {
       adminId: authReq.user.userId,
       processed,
@@ -921,6 +1064,7 @@ router.post("/loyalty/process", loyaltyProcessLimiter, async (req, res) => {
     });
     res.json({ processed, rewarded, creditedCents: credited });
   } catch (err) {
+    if (sendHttpError(res, err)) return;
     log.error("admin loyalty process failed", { error: err instanceof Error ? err.message : String(err) });
     res.status(500).json({ error: "Failed to process loyalty rewards" });
   }
@@ -936,6 +1080,8 @@ const commissionProcessLimiter = rateLimit({
 });
 
 router.post("/commissions/process", commissionProcessLimiter, async (req, res) => {
+  const reason = reasonOr400(req, res);
+  if (reason === null) return;
   try {
     const authReq = req as AuthenticatedRequest;
     const { query: q } = await import("@dominusnode/shared");
@@ -957,6 +1103,13 @@ router.post("/commissions/process", commissionProcessLimiter, async (req, res) =
       }
     }
 
+    // Batch job runs per-referrer transactions; record the run as one audit row
+    await withAdminTx(authReq.user.userId, async (c) => {
+      await audit(c, req, "commissions_process", "affiliate_commissions", "batch", {
+        reason, processed, totalCreditedCents: totalCredited,
+      });
+    });
+
     log.info("admin commission processing complete", {
       adminId: authReq.user.userId,
       processed,
@@ -964,6 +1117,7 @@ router.post("/commissions/process", commissionProcessLimiter, async (req, res) =
     });
     res.json({ processed, totalCreditedCents: totalCredited });
   } catch (err) {
+    if (sendHttpError(res, err)) return;
     log.error("admin commission process failed", { error: err instanceof Error ? err.message : String(err) });
     res.status(500).json({ error: "Failed to process commissions" });
   }
@@ -1035,7 +1189,18 @@ router.put("/roles/:userId", requireRootAdmin, async (req, res) => {
       return;
     }
 
-    const success = await adminRepo.setAdminRole(targetId, role);
+    const reason = reasonOr400(req, res);
+    if (reason === null) return;
+
+    const success = await withAdminTx(adminId, async (c) => {
+      const ok = await adminRepo.setAdminRole(targetId, role, pc(c));
+      if (ok) {
+        await audit(c, req, "admin_role_set", "user", targetId, {
+          reason, previousRole: targetUser.admin_role ?? "none", newRole: role,
+        });
+      }
+      return ok;
+    });
     if (!success) {
       res.status(400).json({ error: "Cannot modify this user's role" });
       return;
@@ -1054,6 +1219,7 @@ router.put("/roles/:userId", requireRootAdmin, async (req, res) => {
       role,
     });
   } catch (err) {
+    if (sendHttpError(res, err)) return;
     log.error("failed to set admin role", { error: err instanceof Error ? err.message : String(err) });
     res.status(500).json({ error: "Failed to update admin role" });
   }

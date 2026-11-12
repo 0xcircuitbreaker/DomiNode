@@ -1,6 +1,7 @@
+import type { DbTxClient } from "../db.js";
 import * as crypto from "node:crypto";
 import type { PoolClient } from "pg";
-import { query } from "../db.js";
+import { query, queryOn } from "../db.js";
 
 export interface RefreshTokenRecord {
   id: string;
@@ -78,8 +79,8 @@ export async function revokeFamily(familyId: string): Promise<number> {
 }
 
 /** Revoke all tokens for a user (logout, password change) */
-export async function revokeAllForUser(userId: string): Promise<number> {
-  const result = await query(
+export async function revokeAllForUser(userId: string, ext?: DbTxClient): Promise<number> {
+  const result = await queryOn(ext,
     `UPDATE refresh_tokens SET revoked = true WHERE user_id = $1 AND NOT revoked`,
     [userId],
   );

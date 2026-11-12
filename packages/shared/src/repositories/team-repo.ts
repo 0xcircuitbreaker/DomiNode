@@ -1,3 +1,4 @@
+import type { DbTxClient } from "../db.js";
 import type pg from "pg";
 import { query, getPool } from "../db.js";
 import { lockedStarterCentsTx } from "./starter-credit-repo.js";
@@ -396,13 +397,14 @@ export async function adminCreditTeamWallet(
   teamId: string,
   amountCents: number,
   reason: string,
+  ext?: DbTxClient,
 ): Promise<void> {
   validateAmountCents(amountCents, "Credit amount");
 
-  const pool = getPool();
-  const client = await pool.connect();
+  const own = !ext;
+  const client = ext ?? await getPool().connect();
   try {
-    await client.query("BEGIN");
+    if (own) await client.query("BEGIN");
     await client.query("SET LOCAL lock_timeout = '5s'");
 
     const teamWalletResult = await client.query<{ id: string; balance_cents: number }>(
@@ -427,12 +429,12 @@ export async function adminCreditTeamWallet(
       [teamWallet.id, amountCents, reason],
     );
 
-    await client.query("COMMIT");
+    if (own) await client.query("COMMIT");
   } catch (err) {
-    await client.query("ROLLBACK");
+    if (own) await client.query("ROLLBACK");
     throw err;
   } finally {
-    client.release();
+    if (own) client.release();
   }
 }
 

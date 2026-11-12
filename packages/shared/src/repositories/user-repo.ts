@@ -1,5 +1,6 @@
+import type { DbTxClient } from "../db.js";
 import { WALLET_EMAIL_DOMAIN } from "../wallet-auth.js";
-import { query, getPool } from "../db.js";
+import { query, queryOn, getPool } from "../db.js";
 import { hashPassword } from "../auth.js";
 import { randomBytes, createHash } from "node:crypto";
 import type { User, ApiKey } from "../types.js";
@@ -220,8 +221,8 @@ export async function revokeApiKey(
 }
 
 /** Revoke all active API keys for a user (used on account suspension) */
-export async function revokeAllApiKeys(userId: string): Promise<number> {
-  const result = await query(
+export async function revokeAllApiKeys(userId: string, ext?: DbTxClient): Promise<number> {
+  const result = await queryOn(ext,
     `UPDATE api_keys SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL`,
     [userId],
   );

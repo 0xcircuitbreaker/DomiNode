@@ -372,12 +372,17 @@ router.get("/health", async (_req: Request, res: Response) => {
 
 // ─── GET /audit ─────────────────────────────────────────────────────
 
-/** audit_events actions written by /api/admin/network. */
+/** audit_events actions written by /api/admin/network and the legacy /api/admin routes. */
 export const NETWORK_AUDIT_ACTIONS = [
   "node_credit_unfreeze", "node_credit_freeze", "node_quarantine", "node_activate", "node_revoke",
   "node_payout_reverse", "byte_dispute_resolve", "relay_abuse_log_access",
   "network_policy_publish", "network_pricing_update", "revenue_split_append", "node_tier_update",
   "node_credit_auto_freeze", "collusion_flag_dismiss", "collusion_flag_confirm", "collusion_settings_update",
+  // Legacy /api/admin (admin.ts)
+  "user_suspend", "user_activate", "user_delete", "user_plan_set", "admin_role_set",
+  "wallet_credit", "team_wallet_credit", "bug_report_approve", "bug_report_reject",
+  "promo_create", "promo_disable", "waitlist_approve", "waitlist_bulk_approve", "waitlist_cancel",
+  "loyalty_process", "commissions_process",
 ] as const;
 
 router.get("/audit", async (req: Request, res: Response) => {

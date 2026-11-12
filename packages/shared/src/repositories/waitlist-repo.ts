@@ -1,4 +1,5 @@
-import { query } from "../db.js";
+import type { DbTxClient } from "../db.js";
+import { query, queryOn } from "../db.js";
 
 export interface WaitlistEntry {
   id: string;
@@ -75,8 +76,8 @@ export async function listWaitlist(
 }
 
 /** Mark a waitlist entry as notified. */
-export async function markNotified(id: string): Promise<boolean> {
-  const result = await query(
+export async function markNotified(id: string, ext?: DbTxClient): Promise<boolean> {
+  const result = await queryOn(ext,
     `UPDATE waitlist SET status = 'notified', notified_at = now()
      WHERE id = $1 AND status = 'pending'`,
     [id],
@@ -95,8 +96,8 @@ export async function markRegistered(email: string): Promise<boolean> {
 }
 
 /** Cancel a waitlist entry. */
-export async function cancelEntry(id: string): Promise<boolean> {
-  const result = await query(
+export async function cancelEntry(id: string, ext?: DbTxClient): Promise<boolean> {
+  const result = await queryOn(ext,
     `UPDATE waitlist SET status = 'cancelled'
      WHERE id = $1 AND status IN ('pending', 'notified')`,
     [id],
@@ -105,9 +106,9 @@ export async function cancelEntry(id: string): Promise<boolean> {
 }
 
 /** Bulk-notify multiple waitlist entries by IDs. Returns number updated. */
-export async function bulkNotify(ids: string[]): Promise<number> {
+export async function bulkNotify(ids: string[], ext?: DbTxClient): Promise<number> {
   if (ids.length === 0) return 0;
-  const result = await query(
+  const result = await queryOn(ext,
     `UPDATE waitlist SET status = 'notified', notified_at = now()
      WHERE id = ANY($1) AND status = 'pending'`,
     [ids],

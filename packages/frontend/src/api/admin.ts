@@ -141,6 +141,10 @@ export const AUDIT_ACTIONS = [
   "genesis_credit_clawback", "buyer_discount_settings_update", "network_incident_create", "network_incident_update",
   "announcement_create", "announcement_update", "announcement_delete",
   "abuse_report_triage", "contribution_allowlist_add", "contribution_allowlist_remove",
+  "user_suspend", "user_activate", "user_delete", "user_plan_set", "admin_role_set",
+  "wallet_credit", "team_wallet_credit", "bug_report_approve", "bug_report_reject",
+  "promo_create", "promo_disable", "waitlist_approve", "waitlist_bulk_approve", "waitlist_cancel",
+  "loyalty_process", "commissions_process",
 ] as const;
 
 export type PlaintextMode = "deny" | "opt_in" | "allow";

@@ -33,7 +33,8 @@ export {
 } from "./types.js";
 
 // Database
-export { getPool, query, closePool, connectWithRetry } from "./db.js";
+export { getPool, query, closePool, connectWithRetry, queryOn } from "./db.js";
+export type { DbTxClient } from "./db.js";
 
 // Auth
 export {

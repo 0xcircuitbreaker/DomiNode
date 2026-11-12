@@ -1,3 +1,4 @@
+import type { DbTxClient } from "../db.js";
 import type pg from "pg";
 import { query, getPool } from "../db.js";
 import type { Wallet, WalletTransaction } from "../types.js";
@@ -37,14 +38,15 @@ export async function creditWallet(
   provider: string,
   paymentId: string,
   description: string,
+  ext?: DbTxClient,
 ): Promise<WalletTransaction> {
   if (!Number.isInteger(amountCents) || amountCents <= 0 || amountCents > 2_147_483_647) {
     throw new Error("Credit amount must be a positive integer within valid range");
   }
-  const pool = getPool();
-  const client = await pool.connect();
+  const own = !ext;
+  const client = ext ?? await getPool().connect();
   try {
-    await client.query("BEGIN");
+    if (own) await client.query("BEGIN");
     await client.query("SET LOCAL lock_timeout = '5s'");
 
     // Check current balance before crediting to enforce max cap
@@ -75,13 +77,13 @@ export async function creditWallet(
       [walletResult.rows[0].id, amountCents, description, provider, paymentId],
     );
 
-    await client.query("COMMIT");
+    if (own) await client.query("COMMIT");
     return txResult.rows[0];
   } catch (err) {
-    await client.query("ROLLBACK");
+    if (own) await client.query("ROLLBACK");
     throw err;
   } finally {
-    client.release();
+    if (own) client.release();
   }
 }
 

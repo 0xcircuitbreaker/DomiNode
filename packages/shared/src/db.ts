@@ -54,6 +54,18 @@ export async function query<T extends pg.QueryResultRow = any>(
   return getPool().query<T>(text, params);
 }
 
+/** A client already inside a caller-owned transaction. */
+export type DbTxClient = pg.PoolClient;
+
+/** Query on `ext` when given (caller's transaction), else on the pool. */
+export async function queryOn<T extends pg.QueryResultRow = any>(
+  ext: DbTxClient | undefined,
+  text: string,
+  params?: unknown[],
+): Promise<pg.QueryResult<T>> {
+  return ext ? ext.query<T>(text, params) : query<T>(text, params);
+}
+
 export async function closePool(): Promise<void> {
   if (pool) {
     await pool.end();
