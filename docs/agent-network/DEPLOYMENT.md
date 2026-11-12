@@ -29,9 +29,16 @@ DNS records (in the `daedalusdevelopmentgroup.com` zone):
 
 Notes:
 
-- `TUNNEL_PORT` defaults to 8443, the same port as the TLS proxy. When both run
-  on one gateway, set `TUNNEL_PORT` to another port (e.g. 9443) and route
-  `relay.` SNI on :443 to it.
+- Gateway ports (one reader, `getProxyPorts()` in `@dominusnode/shared`, used by
+  the gateway and the API): `PROXY_LISTEN_PORT` 8080, `SOCKS5_LISTEN_PORT` 1080,
+  `PROXY_TLS_PORT` (e.g. 8443, off when unset), `SOCKS5_TLS_PORT` (off when
+  unset), `TUNNEL_PORT` 9443. The gateway refuses to start when two of them are
+  equal. Route `relay.` SNI on :443 to `TUNNEL_PORT`.
+- The API advertises the same ports; when a load balancer remaps them, set
+  `PROXY_PUBLIC_HTTP_PORT`, `PROXY_PUBLIC_SOCKS5_PORT`, `PROXY_PUBLIC_TLS_PORT`,
+  `PROXY_PUBLIC_SOCKS5_TLS_PORT` or `PROXY_PUBLIC_TUNNEL_PORT` on the API.
+  `PROXY_INTERNAL_PORT` (default `PROXY_LISTEN_PORT`) is the port the API uses
+  for gateway-internal calls.
 - One certificate with SANs for `proxy.` and `relay.` may be reused by both
   gateway listeners.
 - Dashboard env for this plan: `APP_URL=https://dominusnode.daedalusdevelopmentgroup.com`,
@@ -145,7 +152,7 @@ header:
       route @tunnel {
         proxy {
           proxy_protocol v2
-          upstream gateway:8443
+          upstream gateway:9443
         }
       }
     }

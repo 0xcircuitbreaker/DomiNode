@@ -203,3 +203,16 @@ export * as agentCreditsRepo from "./repositories/agent-credits-repo.js";
 export * as relayLimitsRepo from "./repositories/relay-limits-repo.js";
 export { buildAttestationMessage, sha256Hex, verifyPow, countLeadingZeroBits } from "./attestation.js";
 export { getBaseTxCount, rpcUrlFromEnv, rpcTimeoutFromEnv, clearNonceCache } from "./starter-funding.js";
+
+// Gateway ports (one reader for listeners and advertised endpoints)
+export {
+  getProxyPorts,
+  getPublicProxyPorts,
+  getProxyInternalPort,
+  assertDistinctProxyPorts,
+  parsePortEnv,
+  DEFAULT_PROXY_HTTP_PORT,
+  DEFAULT_SOCKS5_PORT,
+  DEFAULT_TUNNEL_PORT,
+} from "./proxy-ports.js";
+export type { ProxyPorts } from "./proxy-ports.js";

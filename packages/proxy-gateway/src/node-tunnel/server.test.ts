@@ -91,7 +91,7 @@ const hello = (id = NODES[hashNodeKey(KEY_A)].id) => ({ nodeId: id, agentVersion
 
 describe("resolveTunnelPort", () => {
   it("defaults and validates", () => {
-    expect(resolveTunnelPort(undefined)).toBe(8443);
+    expect(resolveTunnelPort(undefined)).toBe(9443);
     expect(resolveTunnelPort("9000")).toBe(9000);
     for (const bad of ["abc", "0", "70000", "-1", "1e3", "NaN"]) expect(() => resolveTunnelPort(bad)).toThrow();
   });

@@ -1,6 +1,6 @@
 import { Router } from "express";
 import * as crypto from "node:crypto";
-import { adminRepo, createLogger, userRepo, refreshTokenRepo, waitlistRepo, walletRepo, teamRepo, planRepo, referralRepo, sendWaitlistApprovalEmail, sanitizeString, hasMinRole, query as dbQuery } from "@dominusnode/shared";
+import { adminRepo, createLogger, userRepo, refreshTokenRepo, waitlistRepo, walletRepo, teamRepo, planRepo, referralRepo, sendWaitlistApprovalEmail, sanitizeString, hasMinRole, getProxyInternalPort, query as dbQuery } from "@dominusnode/shared";
 import type { AdminRole } from "@dominusnode/shared";
 import { requireAuth, type AuthenticatedRequest } from "../middleware/auth.js";
 import { requireAdmin, requireCybersecurityAdmin, requireRootAdmin } from "../middleware/admin.js";
@@ -104,7 +104,7 @@ router.put("/users/:id/suspend", async (req, res) => {
     let terminatedSessions = 0;
     try {
       const proxyHost = process.env["PROXY_INTERNAL_HOST"] ?? "127.0.0.1";
-      const proxyPort = process.env["PROXY_INTERNAL_PORT"] ?? process.env["PROXY_LISTEN_PORT"] ?? "8080";
+      const proxyPort = String(getProxyInternalPort());
       // Derive a separate stats secret from JWT_SECRET using HMAC
       const proxySecret = process.env["PROXY_STATS_SECRET"] ??
         (process.env["JWT_SECRET"]
@@ -204,7 +204,7 @@ router.delete("/users/:id", async (req, res) => {
     let terminatedSessions = 0;
     try {
       const proxyHost = process.env["PROXY_INTERNAL_HOST"] ?? "127.0.0.1";
-      const proxyPort = process.env["PROXY_INTERNAL_PORT"] ?? process.env["PROXY_LISTEN_PORT"] ?? "8080";
+      const proxyPort = String(getProxyInternalPort());
       const proxySecret = process.env["PROXY_STATS_SECRET"] ??
         (process.env["JWT_SECRET"]
           ? (await import("node:crypto")).createHmac("sha256", process.env["JWT_SECRET"]).update("proxy-stats-endpoint").digest("hex")

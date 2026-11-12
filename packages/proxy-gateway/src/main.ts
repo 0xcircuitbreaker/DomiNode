@@ -2,7 +2,7 @@ import type * as net from "node:net";
 import dotenv from "dotenv";
 dotenv.config();
 
-import { createLogger, closePool, getPool, usageRepo, connectWithRetry, nodeRepo, policyRepo, nodeCreditRepo, retentionRepo, tierRepo, payoutRepo, relayChargeRepo, relaySettleRetryRepo, reportReputationRepo, collusionRepo, starterCreditRepo, contributionRepo, genesisRepo, networkStatusRepo } from "@dominusnode/shared";
+import { createLogger, closePool, getPool, usageRepo, connectWithRetry, nodeRepo, policyRepo, nodeCreditRepo, retentionRepo, tierRepo, payoutRepo, relayChargeRepo, relaySettleRetryRepo, reportReputationRepo, collusionRepo, starterCreditRepo, contributionRepo, genesisRepo, networkStatusRepo, getProxyPorts, assertDistinctProxyPorts } from "@dominusnode/shared";
 import type { ActivePolicy } from "@dominusnode/shared";
 import { startProxyServer } from "./server.js";
 import { geoAvailable, initGeoCheck, lookupPeerGeo } from "./geo-check.js";
@@ -10,7 +10,7 @@ import { installSharedLimits, makeInstanceId } from "./shared-limits.js";
 import { NodeRegistry } from "./node-tunnel/registry.js";
 import { NodeSelector } from "./node-tunnel/selector.js";
 import { loadCoordSigner } from "./node-tunnel/coord-key.js";
-import { NodeTunnelServer, resolveTunnelPort } from "./node-tunnel/server.js";
+import { NodeTunnelServer } from "./node-tunnel/server.js";
 import { startSocks5Server } from "./socks5.js";
 import { loadProxyTls, parseRequireTls, createPlaintextAuthGuard } from "./proxy-tls.js";
 import { envInt, setJobRunRecorder, JOB_RUN_UPSERT_SQL, type Job, type LockPool } from "./jobs/runner.js";
@@ -59,15 +59,11 @@ process.on("unhandledRejection", (reason) => {
   process.exit(1);
 });
 
-const httpPort = parseInt(process.env["PROXY_LISTEN_PORT"] ?? "8080", 10);
-const socks5Port = parseInt(process.env["SOCKS5_LISTEN_PORT"] ?? "1080", 10);
-
-if (isNaN(httpPort) || httpPort < 1 || httpPort > 65535) {
-  throw new Error("PROXY_LISTEN_PORT must be a valid port number (1-65535)");
-}
-if (isNaN(socks5Port) || socks5Port < 1 || socks5Port > 65535) {
-  throw new Error("SOCKS5_LISTEN_PORT must be a valid port number (1-65535)");
-}
+// All five listener ports come from one reader; refuse to start on a clash.
+const ports = getProxyPorts(process.env);
+assertDistinctProxyPorts(ports);
+const httpPort = ports.http;
+const socks5Port = ports.socks5;
 
 async function main(): Promise<void> {
   // Validate critical env vars before starting
@@ -110,7 +106,7 @@ async function main(): Promise<void> {
       }
     },
   }, {
-    port: resolveTunnelPort(process.env["TUNNEL_PORT"]),
+    port: ports.tunnel,
     logger: log,
     trustedProxyIps: parseTrustedProxyIps(process.env["TUNNEL_TRUSTED_PROXY_IPS"]),
     tls: loadTunnelTls(process.env),

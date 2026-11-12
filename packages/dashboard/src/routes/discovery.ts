@@ -1,6 +1,6 @@
 import { Router } from "express";
 import type { Request, Response } from "express";
-import { createLogger, policyRepo, BLOCKED_COUNTRY_CODES } from "@dominusnode/shared";
+import { createLogger, policyRepo, BLOCKED_COUNTRY_CODES, getPublicProxyPorts } from "@dominusnode/shared";
 
 /**
  * Agent discovery documents (v2): /.well-known/agent-tool.json and /llms.txt.
@@ -19,6 +19,8 @@ export interface DiscoveryEnv {
   proxyHost: string;
   httpPort: string;
   socks5Port: string;
+  /** HTTPS proxy port when the TLS listener is on, else null. */
+  tlsPort?: string | null;
   x402Enabled: boolean;
   rails: string[];
 }
@@ -35,8 +37,9 @@ export function discoveryEnv(env: NodeJS.ProcessEnv = process.env): DiscoveryEnv
   return {
     baseUrl: (env["APP_URL"] ?? "https://dominusnode.daedalusdevelopmentgroup.com").replace(/\/+$/, ""),
     proxyHost: env["PROXY_PUBLIC_HOST"] ?? "proxy.dominusnode.daedalusdevelopmentgroup.com",
-    httpPort: env["PROXY_HTTP_PORT"] ?? "8080",
-    socks5Port: env["SOCKS5_LISTEN_PORT"] ?? "1080",
+    httpPort: String(getPublicProxyPorts(env).http),
+    socks5Port: String(getPublicProxyPorts(env).socks5),
+    tlsPort: getPublicProxyPorts(env).tls !== null ? String(getPublicProxyPorts(env).tls) : null,
     x402Enabled: env["X402_ENABLED"] === "true",
     rails,
   };
