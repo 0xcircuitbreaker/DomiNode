@@ -4,7 +4,7 @@ Status: plan, November 2026. Audience: the owner and core maintainers. Scope: ev
 
 Ground rule for this document: no "quantum-proof" claims. The target is **"hybrid post-quantum key exchange on every channel we control, hybrid PQ signatures on every trust anchor we control, and classical-only where an external dependency (blockchains, payment providers, browsers' CAs) gives us no choice, stated plainly."**
 
-Facts marked *(verify)* were current as of writing and must be rechecked against the live stack before implementation (`node -p process.versions.openssl`, `openssl list -kem-algorithms`, Caddy/Go release notes).
+External facts were checked against primary sources on 2026-11-12 (see Sources). Anything still unconfirmed is marked *(unverified)*. Always recheck the live stack before implementation (`node -p process.versions.openssl`, `openssl list -kem-algorithms`).
 
 ---
 
@@ -16,16 +16,16 @@ Facts marked *(verify)* were current as of writing and must be rechecked against
 | FIPS 204 (Aug 2024) | ML-DSA (Dilithium). ML-DSA-65 ≈ category 3; pk 1952 B, sig 3309 B | Coordinator / federation / release signatures |
 | FIPS 205 (Aug 2024) | SLH-DSA (SPHINCS+), hash-based, stateless; large sigs (≈7.8–49 KB), slow signing | Long-lived root / offline key where conservative assumptions matter |
 | SP 800-208 | Stateful hash sigs (LMS/XMSS) | Possible for firmware-style release roots; state management makes it a poor fit here |
-| NIST IR 8547 (ipd Nov 2024) | Transition: 112-bit classical (RSA-2048, P-256, Ed25519 class) deprecated after 2030, disallowed after 2035 | Our hard outer deadline; we aim far earlier |
+| NIST IR 8547 (final, 2026-10-27) | Quantum-vulnerable public-key algorithms at both 112- and 128-bit strength (RSA, P-256, Ed25519 included) deprecated after 2030, disallowed after 2035. Federal guidance (EO 14412, OMB M-26-15): PQC key establishment by 2030-12-31, PQC signatures by 2031-12-31 for the most sensitive systems | Our hard outer deadline; we aim far earlier |
 | CNSA 2.0 (NSA) | ML-KEM-1024, ML-DSA-87, LMS/XMSS for firmware; prefer/exclusive PQ by 2030–2033 | Reference ceiling. We do not need NSS compliance; we use category 3 hybrids, with -1024/-87 as an option for the root key |
-| `X25519MLKEM768` (IANA TLS group 0x11EC, draft-ietf-tls-ecdhe-mlkem) | Hybrid TLS 1.3 key share | Default in Chrome/Firefox, Cloudflare, Go ≥1.24 `crypto/tls`, OpenSSL ≥3.5 default keyshares, BoringSSL, rustls ≥0.23.x *(verify exact versions)* |
-| IETF LAMPS composite ML-DSA (draft-ietf-lamps-pq-composite-sigs) | Single OID combining ML-DSA + classical | Useful for X.509; we do not need X.509 for our own protocols, so we use **explicit dual signatures** instead |
+| `X25519MLKEM768` (IANA TLS group 0x11EC, RFC 10024, Aug 2026) | Hybrid TLS 1.3 key share | Default in Cloudflare (edge and to origins), Go ≥1.24 `crypto/tls` (when CurvePreferences is nil), OpenSSL ≥3.5 default keyshares, rustls with the aws-lc-rs provider; Chrome/Firefox/BoringSSL defaults *(unverified here)* ≥0.23.x *(verify exact versions)* |
+| IETF LAMPS composite ML-DSA (RFC 10073, Nov 2026) | Single OID combining ML-DSA + classical | Useful for X.509; we do not need X.509 for our own protocols, so we use **explicit dual signatures** instead |
 | HNDL (harvest-now-decrypt-later) | Record ciphertext today, decrypt with a CRQC later | Applies to **confidentiality** (KEX) now. Signatures are only forgeable once a CRQC exists, so PQ signatures are about **long-lived trust anchors** and migration lead time, not past traffic |
 
 Key consequence: **KEX first, signatures second, hashes/symmetric last** (SHA-256, HMAC-SHA256, AES-256-GCM, ChaCha20-Poly1305 are fine; Grover gives at most a square-root speedup that is impractical at these sizes).
 
 Runtime facts in this repo:
-- Containers: `node:22-alpine` (`infra/docker/proxy.Dockerfile`, `packages/node-agent/Dockerfile`). The dev box runs Node v22.23.4 with OpenSSL 3.5.9, so **X25519MLKEM768 is available to Node `tls` today**, but **`crypto.generateKeyPair('ml-dsa-65')` is not exposed in Node 22** (tested: "must be a supported key type"). ML-DSA in `node:crypto` arrived in the Node 24 line *(verify the minor)*. Alpine's OpenSSL vs Node's bundled OpenSSL must be checked inside the image.
+- Containers: `node:22-alpine` (`infra/docker/proxy.Dockerfile`, `packages/node-agent/Dockerfile`). Official Node builds bundle OpenSSL 3.5 from v22.20.0 and the official images use Node's bundled OpenSSL (not Alpine's libssl); the dev box runs v22.23.4 with OpenSSL 3.5.9, so **X25519MLKEM768 is available to Node `tls` today**. Pin the Node minor (≥22.20) in every image and check `process.versions.openssl`, but **`crypto.generateKeyPair('ml-dsa-65')` is not exposed in Node 22** (tested: "must be a supported key type"). ML-DSA in `node:crypto` arrived in the Node 24 line *(verify the minor)*. Alpine's OpenSSL vs Node's bundled OpenSSL must be checked inside the image.
 - Caddy is built on Go; Go ≥1.24 enables X25519MLKEM768 by default, so a current Caddy (2.10+) already negotiates hybrid with modern clients *(verify with a capture)*.
 
 ---
@@ -40,7 +40,7 @@ Effort: S ≤ 1 day, M 2–5 days, L 1–3 weeks.
 - **Target:** TLS 1.3 only for `api.` and admin; key-share preference `X25519MLKEM768, X25519`. In Caddy: `tls { protocols tls1.3; curves x25519mlkem768 x25519 }` *(verify directive name in the deployed Caddy version)*. Remove the stale `frame-src https://checkout.stripe.com` from CSP if Stripe is admin-only and not framed.
 - **Migration:** non-breaking; clients without ML-KEM fall back to X25519.
 - **Verify:** `openssl s_client -groups X25519MLKEM768 -connect api…:443 -tls1_3` shows `Negotiated TLS1.3 group: X25519MLKEM768`; Chrome DevTools Security panel; SSL Labs grade. **Effort S.**
-- **Note:** if Cloudflare fronts the site, the browser↔CF leg is hybrid by default, and the CF↔origin leg needs origin support (Caddy) as well; check that CF's origin pulls offer the hybrid group *(verify)*.
+- **Note:** if Cloudflare fronts the site, the browser↔CF leg is hybrid by default, and the CF↔origin leg needs origin support (Caddy) as well; Cloudflare now offers X25519MLKEM768 to origins by default when the origin supports it (falls back via HelloRetryRequest), so a Caddy origin built with Go ≥1.24 gets the hybrid with no change.
 
 ### 2.2 Relay gateway front end (HTTP :8080, SOCKS5 :1080, TLS variants)
 - **Current:** TLS proxy listeners already exist. `packages/proxy-gateway/src/main.ts:153-168` loads `loadProxyTls(process.env)`: `PROXY_TLS_PORT` starts an HTTPS proxy (`server.ts:1212`) and an optional SOCKS5-over-TLS port (`socks5.ts:586`). `PROXY_REQUIRE_TLS=true` (requires `PROXY_TLS_PORT`) plus `createPlaintextAuthGuard` refuse credentials on the plaintext 8080/1080 listeners; in production without it the gateway logs a warning that credentials travel in plaintext. Both TLS servers use `minVersion: "TLSv1.2"` and the default group list (no PQ hybrid pinned). HTTPS through the relay is end-to-end CONNECT TLS between requester and target, which we do not touch (correct: the exit node cannot read it).
@@ -91,11 +91,11 @@ Effort: S ≤ 1 day, M 2–5 days, L 1–3 weeks.
 - **Effort M.**
 
 ### 2.9 Backups
-- Encrypt with **age** using a hybrid recipient (age ≥1.3 supports ML-KEM-768+X25519 recipients *(verify)*), or restic with a strong repo key. Offline copy, quarterly restore drill, backup key held separately from the host. HNDL matters most here: backups are the longest-lived ciphertext we produce. **Effort S.**
+- Encrypt with **age** using a hybrid recipient (age ≥1.3: `age-keygen -pq`, recipients start `age1pq1`; YubiKey plugin identities are not PQ), or restic with a strong repo key. Offline copy, quarterly restore drill, backup key held separately from the host. HNDL matters most here: backups are the longest-lived ciphertext we produce. **Effort S.**
 
 ### 2.10 Supply chain
 - **Current:** GitHub Actions publish SDK/node images (see `packages/node-agent/src/node-image-workflow.test.ts`); npm workspace with native `bcrypt` rebuild in the node image.
-- **Target:** pin Actions by commit SHA; `permissions:` least privilege; npm publish with `--provenance` (SLSA build L3 via GitHub OIDC); PyPI Trusted Publishing with attestations; container images signed with **cosign keyless** (Sigstore Fulcio + Rekor) and SLSA provenance via `slsa-github-generator`; node-agent verifies image signature in the installer (`cosign verify --certificate-identity … --certificate-oidc-issuer https://token.actions.githubusercontent.com`). Reproducible node image: pin base by digest, `SOURCE_DATE_EPOCH`, `npm ci` with lockfile, publish the digest in the signed federation policy doc so nodes can check they run a blessed build. Drop `bcrypt` from the node image (node-agent does not need it; it comes transitively via `@dominusnode/shared`; split shared or switch to a pure dependency). Sigstore itself is classical (ECDSA P-256); acceptable for now, track Sigstore PQ work. Renovate/Dependabot + `npm audit signatures`. **Effort M.**
+- **Target:** pin Actions by commit SHA; `permissions:` least privilege; npm trusted publishing (OIDC), which produces Sigstore-signed provenance automatically (npm ≥9.5, `id-token: write`, GitHub-hosted runner; npm does not claim an SLSA level); PyPI Trusted Publishing with attestations; container images signed with **cosign keyless** (Sigstore Fulcio + Rekor) and SLSA provenance via `slsa-github-generator`; node-agent verifies image signature in the installer (`cosign verify --certificate-identity … --certificate-oidc-issuer https://token.actions.githubusercontent.com`). Reproducible node image: pin base by digest, `SOURCE_DATE_EPOCH`, `npm ci` with lockfile, publish the digest in the signed federation policy doc so nodes can check they run a blessed build. Drop `bcrypt` from the node image (node-agent does not need it; it comes transitively via `@dominusnode/shared`; split shared or switch to a pure dependency). Sigstore itself is classical (ECDSA P-256); acceptable for now, track Sigstore PQ work. Renovate/Dependabot + `npm audit signatures`. **Effort M.**
 
 ### 2.11 Operational security
 - **Key ceremony:** offline laptop, two people or recorded single-operator ceremony, generate root keys, print fingerprints, store encrypted copies in two locations (e.g. age-encrypted to two YubiKey-backed identities), publish fingerprints in the repo and in `coord-pins.generated.ts`.
@@ -125,7 +125,7 @@ Effort: S ≤ 1 day, M 2–5 days, L 1–3 weeks.
 - Move production gateways to direct/passthrough tunnel TLS so every CHALLENGE carries `tls-exporter` (M); node-side refusal of `"none"` follows later behind a policy flag.
 - Secrets via `*_FILE` + systemd TPM-sealed credentials; coordinator key permissions (M).
 - Encrypted, tested backups with hybrid age recipients (S).
-- Pin Actions by SHA, npm `--provenance`, cosign keyless on images (M).
+- Pin Actions by SHA, npm trusted publishing with provenance, cosign keyless on images (M).
 
 **Before public launch**
 - Existing TLS proxy port as SDK/MCP default; scoped `dn_proxy_` tokens (M).
@@ -136,14 +136,14 @@ Effort: S ≤ 1 day, M 2–5 days, L 1–3 weeks.
 - External protocol review + pentest; security.txt; private bug bounty (L, mostly calendar).
 
 **3 months**
-- Node 24 LTS floor for gateway + node-agent; hybrid Ed25519+ML-DSA-65 CHALLENGE v2 and federation docs with AND-verification; pins carry both (M–L).
+- Node ≥24.7 floor for gateway + node-agent (ML-DSA in `node:crypto` since 24.6, ML-KEM encapsulate/decapsulate since 24.7, SLH-DSA since 24.8; Node 24 is in Maintenance LTS until ~2028-04-30, Node 22 EOL ~2027-04-30); hybrid Ed25519+ML-DSA-65 CHALLENGE v2 and federation docs with AND-verification; pins carry both (M–L).
 - Offline root + online subkey ceremony; documented rotation and revocation (M).
 - Reproducible node image, digest published in signed policy (M).
 
 **12 months**
 - Raise `minChallengeVersion` / policy cutover: reject classical-only coordinator signatures.
 - Optional ML-DSA node identity keys; SLH-DSA root for federation key lists.
-- Track IETF: ML-KEM-only TLS groups, ML-DSA in JOSE/COSE, Sigstore PQ; reassess against NIST IR 8547 final.
+- Track IETF: ML-KEM-only TLS groups, ML-DSA in JOSE/COSE, Sigstore PQ; track NIST IR 8547 (final 2026-10-27) and OMB M-26-15 dates.
 
 ---
 
@@ -154,7 +154,7 @@ Effort: S ≤ 1 day, M 2–5 days, L 1–3 weeks.
 - **Not PQ settlement.** Wallets, x402, USDC and facilitators use secp256k1/ECDSA/P-256. A CRQC breaks those at the chain level regardless of us.
 - **Not PQ WebPKI.** Public certificates stay classical until CAs and browsers ship PQ/Merkle-tree certificates.
 - **Exit nodes see metadata.** SNI, destination IPs, timing and any `allowhttp-1` plaintext are visible to the exit operator; no crypto removes that (ECH helps SNI only where targets support it).
-- **HSM coverage of ML-DSA** on consumer hardware is not there yet; PQ private keys are TPM-sealed software keys.
+- **HSM coverage of ML-DSA** on consumer hardware (YubiHSM 2, Nitrokey) is *(unverified)*: no vendor release notes found confirming it; PQ private keys are TPM-sealed software keys.
 
 ## 6. Verification checklist (per change)
 
@@ -163,3 +163,22 @@ Effort: S ≤ 1 day, M 2–5 days, L 1–3 weeks.
 - `openssl s_client -groups X25519MLKEM768` / packet capture showing group `0x11ec` on each endpoint.
 - `npm run build && npx vitest run`; `cosign verify` in CI on the published image; `npm audit signatures`.
 - Restore drill from backup on a clean host.
+
+## Sources (checked 2026-11-12)
+
+- FIPS 203/204/205 (final 2024-08-13): https://csrc.nist.gov/pubs/fips/204/final, https://csrc.nist.gov/pubs/fips/205/final
+- NIST IR 8547 final (2026-10-27): https://csrc.nist.gov/pubs/ir/8547/final, https://nvlpubs.nist.gov/nistpubs/ir/2026/NIST.IR.8547.pdf
+- X25519MLKEM768, RFC 10024: https://datatracker.ietf.org/doc/draft-ietf-tls-ecdhe-mlkem/
+- Composite ML-DSA, RFC 10073: https://datatracker.ietf.org/doc/draft-ietf-lamps-pq-composite-sigs/
+- Node.js OpenSSL 3.5 in 22.x: https://nodejs.org/en/blog/release/v22.20.0
+- Node.js 24 ML-DSA/ML-KEM: https://nodejs.org/download/release/latest-v24.x/docs/api/crypto.html, https://github.com/nodejs/node/releases/tag/v24.7.0
+- Node.js release schedule: https://nodejs.org/en/about/previous-releases
+- OpenSSL 3.5 notes: https://openssl-library.org/news/openssl-3.5-notes/
+- Go 1.24 crypto/tls: https://go.dev/doc/go1.24
+- Caddy tls directive: https://caddyserver.com/docs/caddyfile/directives/tls
+- rustls: https://docs.rs/rustls/latest/rustls/
+- Cloudflare PQ to origins: https://developers.cloudflare.com/ssl/post-quantum-cryptography/pqc-to-origin/
+- age 1.3: https://github.com/FiloSottile/age/releases/tag/v1.3.0
+- npm provenance: https://docs.npmjs.com/generating-provenance-statements
+
+Still unverified against primary sources: CNSA 2.0 dates (NSA source returned 403), ML-DSA in consumer HSMs, browser/BoringSSL defaults, @noble/post-quantum audit status, PyPI attestations details, slsa-github-generator, systemd-creds TPM2 specifics.
