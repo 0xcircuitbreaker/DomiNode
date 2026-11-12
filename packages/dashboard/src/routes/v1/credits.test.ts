@@ -406,9 +406,11 @@ describe("POST /v1/sessions/:id/report", () => {
     m.report.mockResolvedValue({ ok: false, reason: "not_found" });
     expect((await call(app(), "POST", `/v1/sessions/${SESSION_ID}/report`, { body: { reason: "blocked" } })).status).toBe(404);
   });
-  it("429s past 5 per node per day and 409s on duplicates", async () => {
+  it("409 REPORT_LIMIT past 5 per node per day (not 429: retrying cannot help) and 409s on duplicates", async () => {
     m.report.mockResolvedValueOnce({ ok: false, reason: "rate_limited" });
-    expect((await call(app(), "POST", `/v1/sessions/${SESSION_ID}/report`, { body: { reason: "blocked" } })).status).toBe(429);
+    const lim = await call(app(), "POST", `/v1/sessions/${SESSION_ID}/report`, { body: { reason: "blocked" } });
+    expect(lim.status).toBe(409);
+    expect((lim.body as Record<string, unknown>)["code"]).toBe("REPORT_LIMIT");
     m.report.mockResolvedValueOnce({ ok: false, reason: "duplicate" });
     expect((await call(app(), "POST", `/v1/sessions/${SESSION_ID}/report`, { body: { reason: "blocked" } })).status).toBe(409);
   });

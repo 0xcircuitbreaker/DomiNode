@@ -95,7 +95,7 @@ router.post("/topup/stripe", requireAdmin, topupLimiter, async (req, res) => {
     // Require email verification before accepting payments
     const currentUser = await userRepo.findUserById(userId);
     if (!currentUser || !currentUser.email_verified) {
-      res.status(403).json({ error: "Please verify your email address before topping up" });
+      res.status(403).json({ error: "Please verify your email address before topping up", code: "EMAIL_NOT_VERIFIED" });
       return;
     }
 
@@ -141,7 +141,7 @@ router.post("/topup/crypto", topupLimiter, async (req, res) => {
     // Require email verification before accepting payments
     const cryptoUser = await userRepo.findUserById(userId);
     if (!cryptoUser || !cryptoUser.email_verified) {
-      res.status(403).json({ error: "Please verify your email address before topping up" });
+      res.status(403).json({ error: "Please verify your email address before topping up", code: "EMAIL_NOT_VERIFIED" });
       return;
     }
 
@@ -203,7 +203,7 @@ router.post("/topup/tempo", topupLimiter, async (req, res) => {
     const { userId } = (req as AuthenticatedRequest).user;
     const u = await userRepo.findUserById(userId);
     if (!u || !u.email_verified) {
-      res.status(403).json({ error: "Please verify your email address before topping up" });
+      res.status(403).json({ error: "Please verify your email address before topping up", code: "EMAIL_NOT_VERIFIED" });
       return;
     }
     const amountCents = Number(req.body?.amountCents);
@@ -279,7 +279,7 @@ router.post("/topup/paypal", requireAdmin, topupLimiter, async (req, res) => {
     // Require email verification before accepting payments
     const paypalUser = await userRepo.findUserById(userId);
     if (!paypalUser || !paypalUser.email_verified) {
-      res.status(403).json({ error: "Please verify your email address before topping up" });
+      res.status(403).json({ error: "Please verify your email address before topping up", code: "EMAIL_NOT_VERIFIED" });
       return;
     }
 
@@ -324,7 +324,7 @@ router.post("/paypal/capture/:orderId", requireAdmin, topupLimiter, async (req, 
     // Require email verification before capturing payments
     const captureUser = await userRepo.findUserById(userId);
     if (!captureUser || !captureUser.email_verified) {
-      res.status(403).json({ error: "Please verify your email address before capturing payments" });
+      res.status(403).json({ error: "Please verify your email address before capturing payments", code: "EMAIL_NOT_VERIFIED" });
       return;
     }
 

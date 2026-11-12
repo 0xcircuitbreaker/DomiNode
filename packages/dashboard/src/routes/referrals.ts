@@ -65,7 +65,7 @@ router.post("/code", createCodeLimiter, async (req, res) => {
     const authReq = req as AuthenticatedRequest;
     const codeUser = await userRepo.findUserById(authReq.user.userId);
     if (!codeUser?.email_verified) {
-      res.status(403).json({ error: "Email verification required to create referral codes" });
+      res.status(403).json({ error: "Email verification required to create referral codes", code: "EMAIL_NOT_VERIFIED" });
       return;
     }
 
@@ -205,7 +205,7 @@ router.post("/commissions/payout", payoutLimiter, async (req, res) => {
     const authReq = req as AuthenticatedRequest;
     const payoutUser = await userRepo.findUserById(authReq.user.userId);
     if (!payoutUser?.email_verified) {
-      res.status(403).json({ error: "Email verification required for payouts" });
+      res.status(403).json({ error: "Email verification required for payouts", code: "EMAIL_NOT_VERIFIED" });
       return;
     }
     const totalCents = await referralRepo.creditPendingCommissions(authReq.user.userId);

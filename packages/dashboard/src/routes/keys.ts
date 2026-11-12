@@ -23,7 +23,7 @@ router.post("/", async (req, res) => {
 
     // Require email verification before creating API keys
     if (!currentUser.email_verified) {
-      res.status(403).json({ error: "Please verify your email address before creating API keys" });
+      res.status(403).json({ error: "Please verify your email address before creating API keys", code: "EMAIL_NOT_VERIFIED" });
       return;
     }
 

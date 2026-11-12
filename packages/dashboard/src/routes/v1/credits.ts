@@ -566,7 +566,7 @@ router.post("/sessions/:id/report", async (req: Request, res: Response) => {
         case "not_relay": res.status(400).json({ error: "Session did not use a relay node", code: "NOT_RELAY_SESSION" }); return;
         case "too_old": res.status(400).json({ error: `Sessions older than ${agentCreditsRepo.REPORT_WINDOW_DAYS} days cannot be reported`, code: "SESSION_TOO_OLD" }); return;
         case "duplicate": res.status(409).json({ error: "Session already reported", code: "ALREADY_REPORTED" }); return;
-        default: res.status(429).json({ error: `At most ${agentCreditsRepo.MAX_REPORTS_PER_NODE_PER_DAY} reports per node per day`, code: "REPORT_LIMIT" }); return;
+        default: res.status(409).json({ error: `At most ${agentCreditsRepo.MAX_REPORTS_PER_NODE_PER_DAY} reports per node per day`, code: "REPORT_LIMIT" }); return;
       }
     }
     // The node id is deliberately not returned (upstream infra detail).

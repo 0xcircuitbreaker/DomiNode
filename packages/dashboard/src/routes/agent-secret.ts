@@ -29,7 +29,7 @@ router.post("/", async (req, res) => {
     // (CAPTCHA bypass, auto-verify) that could bypass email verification
     const user = await userRepo.findUserById(userId);
     if (!user || !user.email_verified) {
-      res.status(403).json({ error: "Email verification required to create agent secrets" });
+      res.status(403).json({ error: "Email verification required to create agent secrets", code: "EMAIL_NOT_VERIFIED" });
       return;
     }
 

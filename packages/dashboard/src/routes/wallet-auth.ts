@@ -635,7 +635,7 @@ router.post("/proxy-session", requireAuth, async (req, res) => {
       return;
     }
     if (!user.email_verified) {
-      res.status(403).json({ error: "Email verification required" });
+      res.status(403).json({ error: "Email verification required", code: "EMAIL_NOT_VERIFIED" });
       return;
     }
     if (!user.wallet_address) {

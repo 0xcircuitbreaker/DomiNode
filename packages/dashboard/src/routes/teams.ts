@@ -92,7 +92,7 @@ router.post("/", async (req, res) => {
     // Require verified email before creating teams
     const teamCreator = await userRepo.findUserById(userId);
     if (!teamCreator || !teamCreator.email_verified) {
-      res.status(403).json({ error: "Email verification required before creating teams" });
+      res.status(403).json({ error: "Email verification required before creating teams", code: "EMAIL_NOT_VERIFIED" });
       return;
     }
 
@@ -303,7 +303,7 @@ router.post("/:id/wallet/fund", financialLimiter, async (req, res) => {
     // Require verified email before funding team wallets
     const fundingUser = await userRepo.findUserById(userId);
     if (!fundingUser || !fundingUser.email_verified) {
-      res.status(403).json({ error: "Email verification required before funding team wallets" });
+      res.status(403).json({ error: "Email verification required before funding team wallets", code: "EMAIL_NOT_VERIFIED" });
       return;
     }
 
@@ -433,7 +433,7 @@ router.post("/:id/members", async (req, res) => {
     // Require email verification before adding team members
     const adder = await userRepo.findUserById(userId);
     if (!adder || !adder.email_verified) {
-      res.status(403).json({ error: "Email verification required before adding team members" });
+      res.status(403).json({ error: "Email verification required before adding team members", code: "EMAIL_NOT_VERIFIED" });
       return;
     }
 
@@ -609,7 +609,7 @@ router.post("/:id/invites", inviteLimiter, async (req, res) => {
     // (also reuse this lookup for the email notification below)
     const inviter = await userRepo.findUserById(userId);
     if (!inviter || !inviter.email_verified) {
-      res.status(403).json({ error: "Email verification required before sending team invites" });
+      res.status(403).json({ error: "Email verification required before sending team invites", code: "EMAIL_NOT_VERIFIED" });
       return;
     }
 
@@ -755,7 +755,7 @@ router.post("/invites/:token/accept", inviteLimiter, async (req, res) => {
     // Verify email before allowing team join (prevents unverified accounts from accessing team resources)
     const invitingUser = await userRepo.findUserById(userId);
     if (!invitingUser || !invitingUser.email_verified) {
-      res.status(403).json({ error: "Email verification required before joining a team" });
+      res.status(403).json({ error: "Email verification required before joining a team", code: "EMAIL_NOT_VERIFIED" });
       return;
     }
     const token = req.params.token as string;
@@ -814,7 +814,7 @@ router.post("/:id/keys", financialLimiter, async (req, res) => {
     // Require verified email before creating team API keys
     const keyCreator = await userRepo.findUserById(userId);
     if (!keyCreator || !keyCreator.email_verified) {
-      res.status(403).json({ error: "Email verification required before creating team API keys" });
+      res.status(403).json({ error: "Email verification required before creating team API keys", code: "EMAIL_NOT_VERIFIED" });
       return;
     }
 
