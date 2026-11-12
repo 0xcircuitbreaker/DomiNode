@@ -15,7 +15,7 @@ import { validateTarget, isValidHostname, isValidPort } from "./target-validator
 import { incrementUserConns, decrementUserConns } from "./connection-tracker.js";
 import { checkAuthRateLimit, recordAuthFailure } from "./auth-rate-limit.js";
 import { recordRequest, recordError, recordLatency } from "./stats.js";
-import { handleX402Http, handleX402Connect, build402ResponseBody, build402ConnectResponse, isX402Verified, getX402Data, settleX402Pending, releaseX402Pending, refundX402Payer, hasMppCredential, normalizePayer, paymentChallengeHeaders } from "./x402-handler.js";
+import { handleX402Http, handleX402Connect, build402ResponseBody, build402ConnectResponse, isX402Verified, getX402Data, settleX402Pending, releaseX402Pending, refundX402Payer, hasMppCredential, normalizePayer, paymentChallengeHeaders, toX402Class, selectClassFor, nodeMatchesQuotedClass } from "./x402-handler.js";
 import { checkRequesterAccess, checkAnonymousPayer } from "./access-gate.js";
 import { enforcePolicy, isPlaintextPort, EXIT_VISIBLE_HEADER } from "./policy-enforcer.js";
 import { openRelayStream, RelayOpenError, type RelayRuntime, type RelayUpstream } from "./relay.js";
@@ -391,7 +391,7 @@ async function handleRequest(
     let upstream: RelayUpstream;
     try {
       upstream = await openRelayStream(relay, {
-        ...relaySelectOpts(null, x402User, clientIp, targetHost, targetPort, x402Data.poolType),
+        ...relaySelectOpts(null, x402User, clientIp, targetHost, targetPort, selectClassFor(x402Data.poolType)),
         requesterWallet: normalizePayer(x402Data.payer),
       });
     } catch (err) {
@@ -400,6 +400,14 @@ async function handleRequest(
       await releaseX402Pending(x402Data.pending);
       log.error("x402 paid request could not be relayed", { code: e.code, payer: x402Data.payer.slice(0, 10) + "..." });
       sendError(clientRes, e.status, e.code, e.message, e.status === 503 ? { "Retry-After": "30" } : undefined);
+      return;
+    }
+    // The payment was quoted for one exit class; never serve it from another.
+    if (!nodeMatchesQuotedClass(x402Data.poolType, upstream.node.ipClass)) {
+      upstream.stream.destroy();
+      await releaseX402Pending(x402Data.pending);
+      log.error("x402 node class differs from quote", { quoted: x402Data.poolType, node: upstream.node.ipClass });
+      sendError(clientRes, 503, "QUOTE_CLASS_MISMATCH", "No node of the quoted exit class is available. Request a new quote.", { "Retry-After": "5" });
       return;
     }
     recordLatency(upstream.latencyMs);
@@ -560,8 +568,8 @@ async function handleRequest(
     }
     if (!hasBalance) {
       decrementUserConns(a.userId);
-      clientRes.writeHead(402, { "Content-Type": "application/json", "X-DominusNode-Error": "INSUFFICIENT_BALANCE", ...paymentChallengeHeaders(a.proxyOptions.ipClass === "dc" ? "dc" : "residential") });
-      clientRes.end(build402ResponseBody(a.proxyOptions.ipClass === "dc" ? "dc" : "residential"));
+      clientRes.writeHead(402, { "Content-Type": "application/json", "X-DominusNode-Error": "INSUFFICIENT_BALANCE", ...paymentChallengeHeaders(toX402Class(a.proxyOptions.ipClass)) });
+      clientRes.end(build402ResponseBody(toX402Class(a.proxyOptions.ipClass)));
       return;
     }
   }
@@ -618,8 +626,8 @@ async function handleRequest(
     decrementUserConns(a.userId);
     const msg = err instanceof Error ? err.message : String(err);
     if (msg.includes("Insufficient balance")) {
-      clientRes.writeHead(402, { "Content-Type": "application/json", "X-DominusNode-Error": "INSUFFICIENT_BALANCE", ...paymentChallengeHeaders(upstream.node.ipClass === "dc" ? "dc" : "residential") });
-      clientRes.end(build402ResponseBody(upstream.node.ipClass === "dc" ? "dc" : "residential"));
+      clientRes.writeHead(402, { "Content-Type": "application/json", "X-DominusNode-Error": "INSUFFICIENT_BALANCE", ...paymentChallengeHeaders(toX402Class(upstream.node.ipClass)) });
+      clientRes.end(build402ResponseBody(toX402Class(upstream.node.ipClass)));
     } else if (msg.includes("bandwidth limit")) {
       sendError(clientRes, 403, "BANDWIDTH_LIMIT_EXCEEDED", "Monthly bandwidth limit exceeded. Upgrade your plan at the Dominus Node dashboard.");
     } else if (msg.includes("spend cap")) {
@@ -817,7 +825,7 @@ async function handleConnect(
     }
     if (!hasBalance) {
       safeDecrement();
-      safeSocketWrite(clientSocket, build402ConnectResponse(auth.proxyOptions.ipClass === "dc" ? "dc" : "residential"));
+      safeSocketWrite(clientSocket, build402ConnectResponse(toX402Class(auth.proxyOptions.ipClass)));
       return;
     }
   }
@@ -864,7 +872,7 @@ async function handleConnect(
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     if (msg.includes("Insufficient balance")) {
-      safeSocketWrite(clientSocket, build402ConnectResponse(upstream.node.ipClass === "dc" ? "dc" : "residential"));
+      safeSocketWrite(clientSocket, build402ConnectResponse(toX402Class(upstream.node.ipClass)));
     } else if (msg.includes("bandwidth limit")) {
       safeSocketWrite(clientSocket, "HTTP/1.1 403 Forbidden\r\nX-DominusNode-Error: BANDWIDTH_LIMIT_EXCEEDED\r\n\r\n");
     } else if (msg.includes("spend cap")) {
@@ -965,12 +973,19 @@ async function handleX402ConnectTunnel(
   let upstream: RelayUpstream;
   try {
     upstream = await openRelayStream(relay, {
-      ...relaySelectOpts(null, x402User, clientIpOf(clientSocket), targetHost, targetPort, x402Result.poolType),
+      ...relaySelectOpts(null, x402User, clientIpOf(clientSocket), targetHost, targetPort, selectClassFor(x402Result.poolType)),
       requesterWallet: normalizePayer(x402Result.payer),
     });
   } catch (err) {
     recordError();
     await reject(connectErrorLine(relayErrorOf(err)));
+    return;
+  }
+  // The payment was quoted for one exit class; never serve it from another.
+  if (!nodeMatchesQuotedClass(x402Result.poolType, upstream.node.ipClass)) {
+    upstream.stream.destroy();
+    log.error("x402 node class differs from quote", { quoted: x402Result.poolType, node: upstream.node.ipClass });
+    await reject("HTTP/1.1 503 Service Unavailable\r\nX-DominusNode-Error: QUOTE_CLASS_MISMATCH\r\nRetry-After: 5\r\n\r\n");
     return;
   }
   recordLatency(upstream.latencyMs);

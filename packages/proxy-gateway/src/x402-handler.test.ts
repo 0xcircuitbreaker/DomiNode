@@ -193,7 +193,7 @@ describe("handleX402Http", () => {
     expect(data).not.toBeNull();
     expect(data!.payer).toBe("0xPayer123");
     expect(data!.facilitator).toBe("coinbase");
-    expect(data!.poolType).toBe("dc");
+    expect(data!.poolType).toBe("any"); // no class requested: highest price, any node
     expect(data!.maxResponseBytes).toBe(10_485_760);
     expect(data!.pending!.state).toBe("verified");
 
@@ -675,5 +675,35 @@ describe("MPP on the gateway", () => {
   it("normalizePayer keeps Solana case, lowercases EVM", () => {
     expect(normalizePayer("0xABC")).toBe("0xabc");
     expect(normalizePayer("9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM")).toBe("9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM");
+  });
+});
+
+describe("x402 exit class (same username flags as API-key auth)", () => {
+  const req = (headers: Record<string, string>) => ({ headers } as unknown as http.IncomingMessage);
+  const basic = (user: string) => "Basic " + Buffer.from(`${user}:`).toString("base64");
+
+  it("parses class-* flags from a Basic username, incl. mobile", async () => {
+    const { getPoolTypeFromRequest } = await import("./x402-handler.js");
+    expect(getPoolTypeFromRequest(req({ "proxy-authorization": basic("country-US-class-mobile") }))).toBe("mobile");
+    expect(getPoolTypeFromRequest(req({ "proxy-authorization": basic("class-residential-session-x") }))).toBe("residential");
+    expect(getPoolTypeFromRequest(req({ "proxy-authorization": basic("dc-country-DE") }))).toBe("dc");
+  });
+
+  it("falls back to X-Pool-Type, then 'any' (never defaults to the cheap dc class)", async () => {
+    const { getPoolTypeFromRequest } = await import("./x402-handler.js");
+    expect(getPoolTypeFromRequest(req({ "x-pool-type": "mobile" }))).toBe("mobile");
+    expect(getPoolTypeFromRequest(req({ "x-pool-type": "bogus" }))).toBe("any");
+    expect(getPoolTypeFromRequest(req({}))).toBe("any");
+    expect(getPoolTypeFromRequest(req({ "proxy-authorization": basic("relay"), "x-pool-type": "dc" }))).toBe("dc");
+  });
+
+  it("node must match the quoted class unless the quote is 'any'", async () => {
+    const { nodeMatchesQuotedClass, selectClassFor, toX402Class } = await import("./x402-handler.js");
+    expect(nodeMatchesQuotedClass("residential", "residential")).toBe(true);
+    expect(nodeMatchesQuotedClass("residential", "dc")).toBe(false);
+    expect(nodeMatchesQuotedClass("mobile", "residential")).toBe(false);
+    expect(nodeMatchesQuotedClass("any", "dc")).toBe(true);
+    expect(selectClassFor("any")).toBeUndefined();
+    expect(toX402Class("unknown")).toBe("any");
   });
 });
