@@ -22,6 +22,7 @@ Recommended prices, with no minimum purchase and credit that never expires:
 |---|---|---|
 | Residential / mobile (`residential`) | **$0.50** | 50% below DataImpulse entry, 37% below its 1 TB rate, 50% below PacketStream, about 88% below Bright Data's promo price |
 | Datacenter / VPS nodes (`dc`) | **$0.20** | 56% below DataImpulse DC at 1 TB |
+| Anonymizer egress (`masked`: VPN, WARP, Tor, relay) | **$0.10** | opt-in only (`class-masked`); see §1a |
 | x402 / MPP per-request | the same per-GB price × 10 MB = $0.005 (res) or $0.002 (dc) per request | above the $0.001 CDP fee after the 1,000 free settlements a month (https://docs.cdp.coinbase.com/x402/support/faq) and Stripe MPP's reported $0.01 minimum |
 
 Margin math at $0.50/GB residential:
@@ -36,11 +37,59 @@ Margin math at $0.50/GB residential:
 - **Undercutting Proxyrack on node pay:** the only way is to price residential at about $1/GB, which would mean matching the market instead of undercutting it. The owner asked for undercutting, so the selling point to nodes is that **AI agents earn more per IP than on Honeygain or PacketStream, paid in USDC with no $20 minimum**, not that DomiNode pays the most per GB.
 - **Keep prices in `network_pricing` per class** so the admin can change them. Replace the $0.20 'any' placeholder with the two classes above.
 
+## 1a. Exit classes: verified class, price and tier weight
+
+Every node is priced and credited by its **verified** exit class. The gateway
+classifies the IP the node's traffic actually leaves from (the tunnel peer IP
+at connect, re-checked by the canary echo probe) against the ASN database and
+the anonymizer list. Nothing the node reports about itself is used; an
+optional class declared at registration is only compared with the verified
+one (see ABUSE_CONTROLS.md).
+
+| Class | What it is | Default price/GB | Tier weight | Served to |
+|---|---|---|---|---|
+| `residential` | consumer ISP address | $0.50 | 1.0 | `class-residential` or unflagged |
+| `mobile` | mobile carrier address (not auto-detected yet) | $0.50 | 1.0 | `class-mobile` or unflagged |
+| `dc` | hosting / cloud ASN | $0.20 | 0.4 | `class-dc` or unflagged |
+| `masked` | anonymizer egress: consumer/commercial VPN, Cloudflare WARP, Tor exit, iCloud Private Relay, other proxy networks | **$0.10** | **0.25** | **only `class-masked`** |
+| `unknown` (node only) | no ASN data for the address | highest configured | lowest configured | unflagged only |
+
+- **Why masked is cheaper and weighs less.** A VPN or WARP egress address is
+  shared by many users and is on every commercial "VPN/proxy" list, so target
+  sites flag it faster than a home IP, and anyone can get one for free. It is
+  worth less to a buyer than a datacenter IP (which is at least dedicated) and
+  much less than a residential one. Running a node behind WARP to hide your
+  home IP is allowed; the node simply sells masked bandwidth.
+- **Tier weight.** The "active IPs" requirement counts each qualifying exit IP
+  at its class weight, summed in basis points and floored to whole IPs
+  (integer math). Examples with default weights:
+  - 1 residential IP = 1.0 → 1 active IP.
+  - 3 masked IPs = 0.75 → 0 active IPs; 4 masked IPs = 1.0 → 1.
+  - 1 residential + 3 masked = 1.75 → 1.
+  - 3 dc IPs = 1.2 → 1; Silver (3 active IPs) needs 3 residential, 8 dc or
+    12 masked IPs.
+  Node share percentages per tier do not change with class: a masked node at
+  Gold still gets 40% of what it relays, it just relays cheaper traffic.
+- **Snapshot.** The class weight is snapshotted at session start into
+  `relay_charges.tier_weight_bps`, like `node_share_bps`. Per IP the tier job
+  uses the lowest snapshotted weight in the window, so a node that was
+  re-classified masked mid-window does not keep residential credit. Charges
+  from before this change use the node's current class weight.
+- **Unflagged requests.** A request without `class-*` is quoted at the highest
+  configured price (unchanged) and may be served by any eligible node except a
+  masked one. Masked bandwidth is opt-in for buyers, so nobody silently pays
+  residential prices for VPN egress and nobody gets VPN egress they did not ask
+  for.
+- **Admin control.** Prices and weights live in `network_pricing`
+  (`price_per_gb_musd`, `tier_weight_bps`) and are changed through
+  `PUT /api/admin/network/pricing` (weight changes require a reason; every
+  change writes an audit row with the previous value).
+
 ## 2. Tiers
 
 Recalculated daily by a job, per owner (`owner_user_id`), not per node. Every criterion must hold for the entire window. Tiers go up one step at a time and can drop straight down.
 
-| Tier | Node share | Paid tenure (days with ≥1 MB of paid traffic from others) | 30-day uptime | Active IPs (≥1 paid session in the last 7 days) | Quality (reputation) | Maturity hold |
+| Tier | Node share | Paid tenure (days with ≥1 MB of paid traffic from others) | 30-day uptime | Active IPs, class-weighted (§1a) (≥1 paid session in the last 7 days) | Quality (reputation) | Maturity hold |
 |---|---|---|---|---|---|---|
 | Probation | 25% (2500 bps) | 0 | — | ≥1 | ≥0.3 (starting score) | 14 d |
 | Bronze | 30% | ≥7 | ≥80% | ≥1 | ≥0.5 | 7 d |

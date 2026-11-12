@@ -208,8 +208,13 @@ leading zero bits. At most 5 open PoW challenges per IP.
 ### `POST /v1/nodes`
 ```json
 {"nonce": "<from challenge>", "walletSignature": "0x<130 hex>", "nodePubkey": "<64 hex>",
- "pow": {"challengeId": "<uuid>", "nonce": "<solution>"}, "maxStreams"?: 32, "maxGbDay"?: 5}
+ "pow": {"challengeId": "<uuid>", "nonce": "<solution>"}, "maxStreams"?: 32, "maxGbDay"?: 5,
+ "declaredClass"?: "residential|mobile|dc|masked"}
 ```
+`declaredClass` is optional and informational: the node's effective class is
+always the gateway-verified one (ECONOMICS.md §1a). Declaring a class that the
+verified class is below (e.g. `residential` while exiting through a VPN)
+opens an admin review flag. Invalid values: `400 INVALID_DECLARED_CLASS`.
 → `201 {"nodeId", "nodeKey": "dn_node_…", "status": "pending", "attestationVersion"}`.
 `nodeKey` is returned exactly once; store it for `packages/node-agent`.
 
@@ -217,18 +222,29 @@ leading zero bits. At most 5 open PoW challenges per IP.
 Caller's own nodes, newest first (`limit` 1-500; `offset` still accepted):
 ```json
 {"nodes": [{"id", "status", "walletAddress", "nodePubkey", "attestationVersion", "observedIp",
-            "country", "ipClass", "maxStreams", "maxGbDay", "reputation", "agentVersion",
+            "country", "ipClass", "verifiedClass", "declaredClass", "classVerifiedAt", "tierWeight",
+            "maxStreams", "maxGbDay", "reputation", "agentVersion",
             "lastSeenAt", "createdAt"}], "limit": 100, "offset": 0, "nextCursor": null}
 ```
+`verifiedClass` (= `ipClass`, `unknown` until classified) is the class the
+gateway observed; `tierWeight` is that class's tier-credit weight as a decimal
+(defaults: residential/mobile 1, dc 0.4, masked 0.25, unknown = lowest).
 
 ### `DELETE /v1/nodes/:id`
 Revokes an owned node (irreversible) → `{"id", "status": "revoked"}`; not yours or
 already revoked: `404`.
 
 ### `GET /v1/node/tier`
-`{tier, nextTier, progress, changedAt, uptimeGraceUntil, demotionReason}`; each
+`{tier, nextTier, progress, changedAt, uptimeGraceUntil, demotionReason, tierWeights}`; each
 tier has `{id, name, rank, nodeShareBps, holdDays, maxNodes, dailyWithdrawLimitMusd, buyerDiscountBps}`
 and `progress` lists `{required, current, met}` per requirement for the next tier.
+`progress.activeIps.current` is class-weighted (sum of per-IP weights, floored);
+`tierWeights` maps each exit class to its weight, e.g.
+`{"residential": 1, "mobile": 1, "dc": 0.4, "masked": 0.25}`.
+
+SDK and integration support for `verifiedClass`, `tierWeight`, `tierWeights`
+and `class-masked` is additive and tracked as a follow-up (sdks/SDK_SURFACE.md
+v2 unchanged in this release); the fields are already in the JSON.
 
 ### Node error codes
 | Status and code | When |
@@ -289,15 +305,17 @@ no effect: all relay traffic is paid.
 ```json
 {"currency": "USD", "unit": "musd_per_gb",
  "prices": [{"ipClass": "dc", "pricePerGbMusd": "200000"}, {"ipClass": "mobile", "pricePerGbMusd": "500000"},
-            {"ipClass": "residential", "pricePerGbMusd": "500000"}, {"ipClass": "any", "pricePerGbMusd": "200000"}],
+            {"ipClass": "residential", "pricePerGbMusd": "500000"}, {"ipClass": "masked", "pricePerGbMusd": "100000"},
+            {"ipClass": "any", "pricePerGbMusd": "200000"}],
  "nodeShare": [{"tier", "rank", "nodeShareBps"}], "buyerDiscounts": [{"tier", "rank", "buyerDiscountBps"}],
  "maturationHours": 168, "rails": ["wallet", "x402", "crypto"]}
 ```
 1 GB = 10^9 bytes (decimal) everywhere: quotes, byte caps and settlement. A
 class without its own row, and a node of unknown class, is charged the highest
 configured price. x402/MPP payments are quoted for the class in the proxy
-username (`class-residential|dc|mobile`); with no class the quote uses the
-highest price and any node may serve it.
+username (`class-residential|dc|mobile|masked`); with no class the quote uses the
+highest price and any non-masked node may serve it. Masked (anonymizer egress)
+nodes serve only `class-masked` requests.
 
 ### `GET /v1/probe/echo?nonce=<16-64 [A-Za-z0-9_-]>`
 Canary target for the gateway probe job: `{"ip": "<caller IP>", "nonce": "…"}`,

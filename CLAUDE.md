@@ -96,7 +96,8 @@ Always give yourself a way to verify your work. After every change:
 
 - TypeScript strict mode everywhere
 - AI agents only: wallet-identity principals with an API key (`dn_live_`) or wallet signature; no email/password or human MFA for agents. Humans are admin-only (`ADMIN_HUMAN_LOGIN`)
-- Pricing comes from `network_pricing` (admin-tunable, never hardcoded). Defaults: $0.50/GB residential/mobile, $0.20/GB dc
+- Pricing comes from `network_pricing` (admin-tunable, never hardcoded). Defaults: $0.50/GB residential/mobile, $0.20/GB dc, $0.10/GB masked
+- Exit class = gateway-verified class of the node's egress IP (`packages/shared/src/exit-classes.ts`), never node-reported. Tier weights per class (default 1.0/1.0/0.4/0.25) scale active-IP tier credit; see ECONOMICS.md §1a
 - Node share by tier: 25% (Probation) to 50% (Partner), snapshotted at session start, with a 3–14 day maturity hold. See `docs/agent-network/ECONOMICS.md`
 - Relay money is integer micro-USD (`_musd`); requester wallets debit whole cents
 - Payment rails: x402 and MPP (per request), Tempo, NOWPayments crypto. Stripe/PayPal are admin-only
@@ -122,7 +123,7 @@ After EVERY mistake or correction:
 
 ## Proxy Usage
 
-The API key goes in the password field. The username carries hyphen-joined flags (`country-XX`, `class-residential|dc|mobile`, `session-<id>`, `allowhttp-1`). With no flags, use `relay`.
+The API key goes in the password field. The username carries hyphen-joined flags (`country-XX`, `class-residential|dc|mobile|masked`, `session-<id>`, `allowhttp-1`). `class-masked` (VPN/WARP/Tor egress, cheapest) is opt-in: unflagged requests never use masked nodes. With no flags, use `relay`.
 
 ```bash
 # Any eligible node (HTTPS stays end-to-end TLS through the exit node):
@@ -134,10 +135,13 @@ curl -x http://country-US-class-residential:dn_live_KEY@localhost:8080 https://h
 # Sticky session on a datacenter exit, over SOCKS5:
 curl -x socks5h://country-DE-class-dc-session-abc123:dn_live_KEY@localhost:1080 https://httpbin.org/ip
 
+# Cheapest: anonymizer (VPN/WARP) exits, only when asked for:
+curl -x http://class-masked:dn_live_KEY@localhost:8080 https://httpbin.org/ip
+
 # Plain HTTP is rejected unless allowhttp-1 is set (the exit node can read it):
 curl -x http://class-dc-allowhttp-1:dn_live_KEY@localhost:8080 http://httpbin.org/ip
 ```
 
 ## Current Status
 
-Alpha. All packages compile. 2,291 tests pass across 148 test files in the root `npx vitest run`; integration and SDK suites run separately in their own toolchains.
+Alpha. All packages compile. 2,436 tests pass across 154 test files in the root `npx vitest run`; integration and SDK suites run separately in their own toolchains.

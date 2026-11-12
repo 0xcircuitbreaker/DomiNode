@@ -67,6 +67,22 @@ No — but they should be split by where trust lives:
   the report penalty alone would drop a node below the quarantine threshold the
   gateway opens an admin review flag (`collusion_flags` kind `report_penalty`)
   instead of quarantining it.
+- **Verified exit class** (ECONOMICS.md §1a, DEPLOYMENT.md §4a): a node's
+  class comes only from the gateway's classification of its observed egress IP
+  (connect-time peer IP, re-checked by the canary echo probe), never from the
+  node. During a connection the class only moves to the more conservative
+  value (`masked` > `unknown` > `dc` > `residential`/`mobile` in caution), and
+  the registry is updated immediately, so a node re-classified `masked` stops
+  serving `class-residential`/`dc`/`mobile` and unflagged requests at once.
+  When the verified class is below the owner's declared class (e.g. declared
+  residential, exits via a VPN) the gateway opens an admin review flag
+  (`collusion_flags` kind `egress_mismatch`, one open flag per node, refreshed
+  on re-detection) in the same review queue as collusion and report-penalty
+  flags. The flag never changes money by itself; the class downgrade already
+  reprices new sessions. Privacy: the classification reuses `nodes.observed_ip`
+  (already stored, already erased with the node owner); only the class, the
+  declared class and a timestamp are added, and logs carry node ids and
+  classes, not IPs.
 - **Collusion** (DESIGN.md §13 commit 33): the daily `collusion` job flags
   requester/owner concentration and circular buying, admin-visible at
   `/api/admin/network/collusion/flags` (ADMIN_API.md §12). Automatic credit
