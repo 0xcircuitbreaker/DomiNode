@@ -30,6 +30,8 @@ vi.mock("@dominusnode/shared", () => ({
     hashToken: vi.fn(() => "token-hash"),
     storeToken: vi.fn(),
     findTokenByHash: vi.fn(),
+    findSuccessorClientHash: vi.fn(),
+    clientBindingHash: vi.fn((ua?: string) => `client:${ua ?? ""}`),
     revokeToken: vi.fn(),
     revokeFamily: vi.fn(),
     revokeAllForUser: vi.fn(),
@@ -880,11 +882,34 @@ describe("POST /api/auth/refresh (rotation race)", () => {
     (refreshTokenRepo.findTokenByHash as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
       ...base, revoked: true, rotated_at: new Date(Date.now() - 2000),
     });
-    const res = await request(createApp(), "POST", "/api/auth/refresh", { refreshToken: "rt" });
+    (refreshTokenRepo.findSuccessorClientHash as ReturnType<typeof vi.fn>).mockResolvedValueOnce("client:tab-ua");
+    const res = await request(createApp(), "POST", "/api/auth/refresh", { refreshToken: "rt" }, { "User-Agent": "tab-ua" });
     expect(res.status).toBe(401);
     expect(res.body.retry).toBe(true);
     expect(refreshTokenRepo.revokeFamily).not.toHaveBeenCalled();
     expect(userRepo.revokeAllApiKeys).not.toHaveBeenCalled();
+  });
+
+  it("token rotated within grace window by a DIFFERENT client -> family revoked (attacker rotated first)", async () => {
+    (refreshTokenRepo.findTokenByHash as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      ...base, revoked: true, rotated_at: new Date(Date.now() - 2000),
+    });
+    (refreshTokenRepo.findSuccessorClientHash as ReturnType<typeof vi.fn>).mockResolvedValueOnce("client:attacker-ua");
+    const res = await request(createApp(), "POST", "/api/auth/refresh", { refreshToken: "rt" }, { "User-Agent": "victim-ua" });
+    expect(res.status).toBe(401);
+    expect(res.body.retry).toBeUndefined();
+    expect(refreshTokenRepo.revokeFamily).toHaveBeenCalledWith("fam-1");
+    expect(userRepo.revokeAllApiKeys).not.toHaveBeenCalled();
+  });
+
+  it("token rotated within grace window with no successor -> family revoked", async () => {
+    (refreshTokenRepo.findTokenByHash as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      ...base, revoked: true, rotated_at: new Date(Date.now() - 2000),
+    });
+    (refreshTokenRepo.findSuccessorClientHash as ReturnType<typeof vi.fn>).mockResolvedValueOnce(undefined);
+    const res = await request(createApp(), "POST", "/api/auth/refresh", { refreshToken: "rt" });
+    expect(refreshTokenRepo.revokeFamily).toHaveBeenCalledWith("fam-1");
+    expect(res.body.retry).toBeUndefined();
   });
 
   it("losing the concurrent rotation UPDATE -> 401 retry, nothing revoked", async () => {
@@ -913,5 +938,6 @@ describe("POST /api/auth/refresh (rotation race)", () => {
     const res = await request(createApp(), "POST", "/api/auth/refresh", { refreshToken: "rt" });
     expect(res.status).toBe(200);
     expect(String((dbQueryMock as ReturnType<typeof vi.fn>).mock.calls[0][0])).toContain("rotated_at = now()");
+    expect((refreshTokenRepo.storeToken as ReturnType<typeof vi.fn>).mock.calls[0][4]).toBe("client:");
   });
 });

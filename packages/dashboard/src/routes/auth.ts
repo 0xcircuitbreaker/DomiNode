@@ -779,12 +779,19 @@ router.post("/refresh", async (req, res) => {
     }
 
     if (storedToken.revoked) {
-      if (refreshTokenRepo.isWithinRotationGrace(storedToken)) {
-        // Benign race: two tabs / a retry presented the same token right after
-        // it was rotated. Do not treat as theft; the client should retry with
-        // the cookie/token the winning request already set.
-        res.status(401).json({ error: "Refresh token already rotated; retry", retry: true });
-        return;
+      if (refreshTokenRepo.isWithinRotationGrace(storedToken) && storedToken.rotated_at) {
+        // Benign race only if the presenter is the client that received the
+        // successor token (two tabs / a retry). If another client won the
+        // rotation (an attacker rotating a stolen token first), fall through
+        // to reuse detection and revoke the family.
+        const successorHash = await refreshTokenRepo.findSuccessorClientHash(
+          storedToken.family_id, storedToken.rotated_at,
+        );
+        const presenterHash = refreshTokenRepo.clientBindingHash(req.get("user-agent"), req.ip ?? req.socket.remoteAddress);
+        if (successorHash === null || successorHash === presenterHash) {
+          res.status(401).json({ error: "Refresh token already rotated; retry", retry: true });
+          return;
+        }
       }
       // REUSE DETECTED: a token rotated (or revoked) outside the grace window was
       // presented again. Revoke only the token family. API keys are NOT revoked
@@ -837,7 +844,10 @@ router.post("/refresh", async (req, res) => {
     const tokens = createTokenPair({ userId: user.id, email: user.email, isAdmin: user.is_admin, adminRole: user.admin_role ?? "none" });
     const newHash = refreshTokenRepo.hashToken(tokens.refreshToken);
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
-    await refreshTokenRepo.storeToken(user.id, newHash, storedToken.family_id, expiresAt);
+    await refreshTokenRepo.storeToken(
+      user.id, newHash, storedToken.family_id, expiresAt,
+      refreshTokenRepo.clientBindingHash(req.get("user-agent"), req.ip ?? req.socket.remoteAddress),
+    );
 
     setAuthCookies(res, tokens.accessToken, tokens.refreshToken);
 

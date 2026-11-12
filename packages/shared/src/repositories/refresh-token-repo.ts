@@ -29,6 +29,40 @@ export function isWithinRotationGrace(
   return age >= -1_000 && age <= ROTATION_GRACE_MS;
 }
 
+/** Coarse IP prefix for client binding: /24 for IPv4, /48 for IPv6. */
+function ipPrefix(ip: string): string {
+  const v = ip.replace(/^::ffff:/i, "").trim();
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(v)) return v.split(".").slice(0, 3).join(".");
+  if (v.includes(":")) return v.toLowerCase().split(":").slice(0, 3).join(":");
+  return v;
+}
+
+/** SHA-256 binding of the client (User-Agent + IP prefix) a refresh token was issued to. */
+export function clientBindingHash(userAgent: string | undefined, ip: string | undefined): string {
+  return crypto.createHash("sha256")
+    .update(`${(userAgent ?? "").slice(0, 512)}\n${ipPrefix(ip ?? "")}`)
+    .digest("hex");
+}
+
+/**
+ * Client binding of the token that replaced a rotated one (the newest token in
+ * the family issued at or after the rotation). `undefined` when no successor
+ * exists; `null` when the successor predates client binding.
+ */
+export async function findSuccessorClientHash(
+  familyId: string,
+  rotatedAt: Date | string,
+): Promise<string | null | undefined> {
+  const result = await query<{ client_hash: string | null }>(
+    `SELECT client_hash FROM refresh_tokens
+     WHERE family_id = $1 AND created_at >= $2::timestamptz - INTERVAL '1 second'
+     ORDER BY created_at DESC LIMIT 1`,
+    [familyId, new Date(rotatedAt)],
+  );
+  if (result.rows.length === 0) return undefined;
+  return result.rows[0].client_hash ?? null;
+}
+
 /** Hash a refresh token for safe storage */
 export function hashToken(token: string): string {
   return crypto.createHash("sha256").update(token).digest("hex");
@@ -45,12 +79,13 @@ export async function storeToken(
   tokenHash: string,
   familyId: string,
   expiresAt: Date,
+  clientHash: string | null = null,
 ): Promise<Omit<RefreshTokenRecord, "token_hash">> {
   const result = await query<Omit<RefreshTokenRecord, "token_hash">>(
-    `INSERT INTO refresh_tokens (user_id, token_hash, family_id, expires_at)
-     VALUES ($1, $2, $3, $4)
+    `INSERT INTO refresh_tokens (user_id, token_hash, family_id, expires_at, client_hash)
+     VALUES ($1, $2, $3, $4, $5)
      RETURNING id, user_id, family_id, revoked, expires_at, created_at`,
-    [userId, tokenHash, familyId, expiresAt],
+    [userId, tokenHash, familyId, expiresAt, clientHash],
   );
   return result.rows[0];
 }

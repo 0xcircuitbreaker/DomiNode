@@ -334,6 +334,11 @@ CREATE INDEX IF NOT EXISTS idx_refresh_tokens_user
 -- Set when /refresh rotates a token; a re-presented token rotated within the
 -- grace window is a concurrent refresh, not theft (no family revoke).
 ALTER TABLE refresh_tokens ADD COLUMN IF NOT EXISTS rotated_at TIMESTAMPTZ;
+-- SHA-256 of the issuing client's User-Agent + IP prefix. The rotation grace
+-- window only applies when the presenter matches the client that received the
+-- successor token; otherwise the re-presented token is treated as theft.
+ALTER TABLE refresh_tokens ADD COLUMN IF NOT EXISTS client_hash TEXT
+  CHECK (client_hash IS NULL OR length(client_hash) = 64);
 
 -- ─── MFA Configs ──────────────────────────────────────────────────
 
