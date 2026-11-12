@@ -262,7 +262,7 @@ EXCEPTION WHEN duplicate_column THEN NULL;
 END $$;
 
 -- Add admin_role column for three-tier admin hierarchy (idempotent)
--- root_admin: only sarris88p@gmail.com — can grant/revoke all admin roles
+-- root_admin: only the account named in root_admin_identity — can grant/revoke all admin roles
 -- cybersecurity_admin: manages bug bounties, credits, plus all admin duties
 -- admin: user management, waitlist, revenue, stats, plans
 DO $$ BEGIN
@@ -274,18 +274,29 @@ END $$;
 -- Backfill: sync admin_role from is_admin for existing admins
 UPDATE users SET admin_role = 'admin' WHERE is_admin = true AND admin_role = 'none';
 
--- Set root admin (hardcoded — only this email can ever be root_admin)
-UPDATE users SET admin_role = 'root_admin', is_admin = true
-  WHERE LOWER(email) = 'sarris88p@gmail.com' AND status = 'active';
+-- Root admin identity: a single row set by the operator with
+-- `npm run admin:set-root -- <email>` (needs direct DB access). Not an env var
+-- and not in source, so neither the API nor a config change can create a root.
+CREATE TABLE IF NOT EXISTS root_admin_identity (
+  singleton BOOLEAN PRIMARY KEY DEFAULT true CHECK (singleton),
+  email TEXT NOT NULL CHECK (length(email) BETWEEN 3 AND 254 AND email = LOWER(email)),
+  set_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 
--- DB trigger: enforce root_admin role restricted to root admin email + keep is_admin in sync
+-- Existing deployments: adopt the current root admin, if any, as the identity.
+INSERT INTO root_admin_identity (email)
+  SELECT LOWER(email) FROM users WHERE admin_role = 'root_admin' AND status = 'active'
+  ORDER BY created_at LIMIT 1
+ON CONFLICT (singleton) DO NOTHING;
+
+-- DB trigger: root_admin only for the configured identity + keep is_admin in sync
 CREATE OR REPLACE FUNCTION enforce_admin_role_constraints() RETURNS TRIGGER AS $$
 BEGIN
-  -- Prevent assigning root_admin to any email other than the hardcoded root admin
-  IF NEW.admin_role = 'root_admin' AND LOWER(NEW.email) != 'sarris88p@gmail.com' THEN
-    RAISE EXCEPTION 'root_admin role restricted to sarris88p@gmail.com';
+  IF NEW.admin_role = 'root_admin' AND NOT EXISTS (
+    SELECT 1 FROM root_admin_identity WHERE email = LOWER(NEW.email)
+  ) THEN
+    RAISE EXCEPTION 'root_admin role restricted to the configured root admin identity';
   END IF;
-  -- Keep is_admin in sync with admin_role
   NEW.is_admin := (NEW.admin_role != 'none');
   RETURN NEW;
 END;
@@ -1413,6 +1424,11 @@ CREATE TABLE IF NOT EXISTS mpp_transactions (
   created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_mpp_user ON mpp_transactions(user_id) WHERE user_id IS NOT NULL;
+-- Overpayment above the per-payment cap: served for the cap, the rest awaits reconciliation
+-- (refund or credit to the payer). Any uint256 transfer value fits.
+ALTER TABLE mpp_transactions ADD COLUMN IF NOT EXISTS excess_musd NUMERIC(78,0) NOT NULL DEFAULT 0
+  CHECK (excess_musd >= 0 AND excess_musd < 1e78);
+CREATE INDEX IF NOT EXISTS idx_mpp_excess ON mpp_transactions(created_at) WHERE excess_musd > 0;
 
 -- ─── Payouts (Rev 1 §15: USDC push on Base) ─────────────────────────
 
@@ -1962,3 +1978,15 @@ CREATE TABLE IF NOT EXISTS network_announcements (
   updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_network_announcements_pub ON network_announcements(published_at DESC) WHERE published;
+
+-- Mobile exits are priced like residential ($0.50/GB). Without this row mobile
+-- traffic used to fall back to the cheap 'any' price. Idempotent.
+INSERT INTO network_pricing (ip_class, price_per_gb_musd) VALUES ('mobile', 500000)
+ON CONFLICT (ip_class) DO NOTHING;
+
+-- x402 quotes are per exit class (incl. mobile) or 'any' (highest price). Idempotent.
+DO $$ BEGIN
+  ALTER TABLE x402_transactions DROP CONSTRAINT IF EXISTS x402_transactions_pool_type_check;
+  ALTER TABLE x402_transactions ADD CONSTRAINT x402_transactions_pool_type_check
+    CHECK (pool_type IN ('dc', 'residential', 'mobile', 'any'));
+END $$;

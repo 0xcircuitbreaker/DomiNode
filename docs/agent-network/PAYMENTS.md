@@ -19,7 +19,7 @@ Sources (checked 2026-11-06):
   1. Recompute the id and compare it in constant time.
   2. Check `expires`.
   3. Check that the realm, recipient, currency and chain match ours, and that the amount is at least the current quote.
-  4. Accept `payload {type:"hash", hash}` and verify it with `eth_getTransactionReceipt` on `MPP_RPC_URL`. The receipt must have status `0x1`, and a TIP-20 `TransferWithMemo` log must show the token, the recipient and an amount of at least the challenge amount.
+  4. Accept `payload {type:"hash", hash}` and verify it with `eth_getTransactionReceipt` on `MPP_RPC_URL`. The receipt must have status `0x1`, and a TIP-20 `TransferWithMemo` log must show the token, the recipient and an amount of at least the challenge amount. A transfer above the per-payment cap ($10,000) is still accepted: the request is served for the cap and the excess is stored on the claim (`mpp_transactions.excess_musd`) for reconciliation (refund or credit to the payer).
   5. If `source` is present, it must be `did:pkh:eip155:<chainId>:<from>`.
 - **Single-use proofs.** The replay key is `sha256("tempo:<chainId>:<txHash>")`, claimed in `mpp_transactions.payment_hash` (UNIQUE). It is keyed on the proof rather than on the credential bytes, so wrapping the same transaction in a new credential is still a replay.
 
@@ -57,6 +57,34 @@ Sources (checked 2026-11-06):
 - **No downgrade.** A `failed` event never downgrades a completed invoice.
 
 **Configuration:** `TEMPO_WEBHOOK_SECRET`, `TEMPO_PAY_TO`, `TEMPO_TOKEN` and `TEMPO_CHAIN_ID`.
+
+## Coinbase CDP x402 facilitator (`billing/src/adapters/facilitators/coinbase.ts`)
+
+Endpoints (hardcoded allowlist in `facilitators/urls.ts`): `POST https://api.cdp.coinbase.com/platform/v2/x402/verify` and `.../settle`.
+
+Request body (both): `{x402Version: 1, paymentPayload, paymentRequirements}`.
+- `paymentPayload` is the decoded `X-PAYMENT` header (base64 JSON; raw JSON also accepted), x402 v1 exact/EVM: `{x402Version: 1, scheme: "exact", network, payload: {signature, authorization: {from, to, value, validAfter, validBefore, nonce}}}`.
+- `paymentRequirements` is our v1 `accepts[]` entry for coinbase (`scheme, network, maxAmountRequired, resource, description, mimeType, payTo, asset, maxTimeoutSeconds, outputSchema?, extra: {name, version}`); the internal routing hint `extra.facilitator` is not sent.
+
+Responses:
+- verify: `{isValid, invalidReason?, invalidMessage?, payer}`.
+- settle: `{success, errorReason?, errorMessage?, transaction, network, payer}`. `transaction` may be set with `success:false` (`settlement_pending`); we treat anything but `success:true` with a 0x tx hash as failure.
+
+Authentication: `Authorization: Bearer <JWT>` per request, built with `node:crypto` from `CDP_API_KEY_ID` / `CDP_API_KEY_SECRET`. Header `{alg, kid: keyId, typ: "JWT", nonce: 16 random bytes hex}`; claims `{sub: keyId, iss: "cdp", aud: ["cdp_service"], nbf: now, exp: now + 120, uri: "POST api.cdp.coinbase.com/platform/v2/x402/<verify|settle>"}`. Secret API keys are Ed25519 (base64 of 64 bytes, seed || public key; `alg: EdDSA`); a PEM EC key (legacy) signs ES256.
+
+Our checks (fail closed; the adapter interface is unchanged):
+- The paid amount is the signed `authorization.value` (exact scheme), never a facilitator field. It must be >= `maxAmountRequired`; `authorization.to` must equal `payTo` and the payload network must equal the requirement network, all checked before calling the facilitator.
+- verify passes only on `isValid === true`, and a returned `payer` must equal `authorization.from`.
+- settle passes only on `success === true` with a 0x 32-byte `transaction`, a matching `network` (when returned) and `payer` (when returned); it reports `amountSettled` = the signed value. Settlement without requirements is refused.
+- Missing credentials, non-2xx, oversized (>10 KB) or non-JSON responses: verify returns invalid, settle throws.
+
+Not covered: x402 v2 payloads (`accepted`/`resource`/`extensions`) are not accepted by this adapter. The PayAI adapter (`payai.ts`) still uses its older `{payment, requirements}` body and `X-PayAI-Key-*` headers and was not changed here.
+
+Sources (read 2026-11-12):
+- CDP API reference, verify a payment (request `x402Version`/`paymentPayload`/`paymentRequirements`, v1 and v2 shapes; response `x402VerifyResponse` `{isValid, invalidReason, invalidMessage, payer, extra}`): https://docs.cdp.coinbase.com/api-reference/v2/rest-api/x402-facilitator/verify-payment.md
+- CDP API reference, settle a payment (`{success, errorReason, errorMessage, transaction, network, payer}`): https://docs.cdp.coinbase.com/api-reference/v2/rest-api/x402-facilitator/settle-payment.md
+- CDP API authentication (Secret API key Bearer JWT: EdDSA/Ed25519, `kid`, `nonce`, `sub`, `iss: cdp`, `aud: [cdp_service]`, `nbf`, `exp = nbf + 120`, `uri`): https://docs.cdp.coinbase.com/api-reference/v2/authentication
+- x402 facilitator concepts: https://x402.gitbook.io/x402/core-concepts/facilitator
 
 ## Solana x402 payers
 

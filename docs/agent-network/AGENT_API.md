@@ -1,8 +1,47 @@
 # Agent self-service API (`/v1`)
 
-Credits, payouts, node caps and burn reports for agents. Implemented in
-`packages/dashboard/src/routes/v1/credits.ts`. SDKs, the MCP server and the
-browser extension use these exact shapes.
+Every implemented `/v1` route: nodes, credits, payouts, burn reports, public
+policy/pricing/network data, the probe echo, announcements and starter credits.
+Implemented in `packages/dashboard/src/routes/v1/` (`nodes.ts`, `credits.ts`,
+`public.ts`, `launch.ts`, `probe.ts`). SDKs, the MCP server and the browser
+extension use these exact shapes.
+
+## Route index
+
+| Method and path | Auth | Section |
+|---|---|---|
+| `GET /v1/policy` | public | [Public policy and pricing](#public-policy-and-pricing) |
+| `GET /v1/pricing` | public | [Public policy and pricing](#public-policy-and-pricing) |
+| `GET /v1/network/stats` | public | [Public network data](#public-network-data-no-auth-cached-120-reqmin-per-ip) |
+| `GET /v1/network/history` | public | same |
+| `GET /v1/network/incidents` | public | same |
+| `GET /v1/network/wanted` | public | same |
+| `GET /v1/announcements` | public | [Launch additions](#launch-additions) |
+| `GET /v1/probe/echo` | public | [Probe echo](#get-v1probeechononce) |
+| `POST /v1/abuse-reports/challenge` | public (PoW) | [Abuse reports](#abuse-reports-no-account-proof-of-work-gated) |
+| `POST /v1/abuse-reports` | public (PoW) | same |
+| `POST /v1/nodes/challenge` | agent | [Nodes](#nodes) |
+| `POST /v1/nodes` | agent | [Nodes](#nodes) |
+| `GET /v1/nodes` | agent | [Nodes](#nodes) |
+| `PATCH /v1/nodes/:id` | agent | [Nodes](#nodes) |
+| `DELETE /v1/nodes/:id` | agent | [Nodes](#nodes) |
+| `GET /v1/node/tier` | agent | [Nodes](#nodes) |
+| `GET /v1/credits` | agent | [Credits](#credits) |
+| `GET /v1/credits/transactions` | agent | [Credits](#credits) |
+| `POST /v1/credits/convert` | agent | [Credits](#credits) |
+| `GET /v1/payout-wallet` | agent | [Payout wallet](#payout-wallet) |
+| `POST /v1/payout-wallet/challenge` | agent | [Payout wallet](#payout-wallet) |
+| `PUT /v1/payout-wallet` | agent | [Payout wallet](#payout-wallet) |
+| `POST /v1/credits/withdraw/challenge` | agent | [Withdrawals](#withdrawals) |
+| `POST /v1/credits/withdraw` | agent | [Withdrawals](#withdrawals) |
+| `GET /v1/payouts` | agent | [Withdrawals](#withdrawals) |
+| `POST /v1/sessions/:id/report` | agent | [Burn reports](#burn-reports) |
+| `GET /v1/starter-credits` | agent | [Launch additions](#launch-additions) |
+| `POST /v1/starter-credits/claim` | agent (wallet identity) | [Launch additions](#launch-additions) |
+
+Outside `/v1`, `GET /api/proxy/health` (public) returns only
+`{"status": "healthy" | "degraded" | "unknown" | …}`: no counts, ports or node
+data. Authenticated `GET /api/proxy/status` adds endpoints and session counts.
 
 ## Common rules
 
@@ -15,7 +54,12 @@ browser extension use these exact shapes.
 - **Money** is always `{ "musd": "<integer µUSD string>", "usd": "<decimal, 6 places>" }`.
   1 USD = 1,000,000 µUSD. Request amounts (`amountMusd`) are integer µUSD, sent as
   a decimal string (preferred) or a safe JSON integer.
-- **Errors:** `{ "error": "<message>", "code"?: "<CODE>" }`.
+- **Errors:** `{ "error": "<message>", "code"?: "<CODE>", "requestId": "<id>" }`.
+  Every response carries `X-Request-Id`; send your own (1-64 chars of
+  `[A-Za-z0-9._:-]`) to correlate, otherwise the API generates one.
+- **Pagination:** list routes return `nextCursor` (`null` on the last page);
+  pass it back as `?cursor=` (opaque). `limit`/`offset` still work; `offset` is
+  ignored when `cursor` is given. A malformed cursor is `400 {code:"INVALID_CURSOR"}`.
 - **Rate limits (per user):** reads 120/min; mutations 30/h; signing challenges 30/h
   (plus at most 10 outstanding); reports 60/h. Over the limit: `429 {code:"RATE_LIMITED"}`.
 
@@ -134,15 +178,74 @@ Returns `201` (or `200` with `duplicate: true` for a repeated idempotency key):
 Errors: `403 ACCOUNT_FROZEN`, `409 INSUFFICIENT_CREDIT | NO_PAYOUT_WALLET | PAYOUT_WALLET_COOLDOWN | DAILY_LIMIT_EXCEEDED`,
 `400 AMOUNT_OUT_OF_RANGE | INVALID_CHALLENGE | BAD_SIGNATURE`.
 
-### `GET /v1/payouts?limit=50&offset=0`
+### `GET /v1/payouts?limit=50&cursor=<nextCursor>`
+`limit` 1-200 (default 50). `offset` is still accepted for compatibility.
 ```json
-{"payouts": [{"id": "…", "amount": {"musd": "…", "usd": "…"}, "trigger": "auto", "status": "confirmed",
+{"nextCursor": "MjAyNi0…", "payouts": [{"id": "…", "amount": {"musd": "…", "usd": "…"}, "trigger": "auto", "status": "confirmed",
               "txHash": "0x…", "failureReason": null, "address": "0x…", "chain": "base",
               "createdAt": "…", "updatedAt": "…"}], "limit": 50, "offset": 0}
 ```
 `status` ∈ `pending | held_tax | held_frozen | submitted | confirmed | failed | reversed`.
 
 ## Nodes
+
+Registering a node needs a verified (or wallet-identity) account with a linked
+wallet, a wallet signature over the attestation and a proof of work.
+
+### `POST /v1/nodes/challenge`
+Body `{"nodePubkey"?: "<64 hex ed25519 public key>"}`.
+```json
+{"nonce": "<64 hex>", "attestationText": "…", "attestationVersion": 3, "policyVersion": 12,
+ "message": "<EIP-191 message to sign with the linked wallet>", "expiresAt": "…",
+ "powChallenge": {"challengeId": "<uuid>", "prefix": "<hex>", "difficulty": 20,
+                  "algorithm": "sha256", "expiresAt": "…"}}
+```
+The proof of work is **bound to the client IP** that requested the challenge:
+solve and submit it from the same IP (a different IP gets `400 POW_INVALID`).
+Find `nonce` (≤ 32 chars) so that `sha256(prefix + nonce)` has `difficulty`
+leading zero bits. At most 5 open PoW challenges per IP.
+
+### `POST /v1/nodes`
+```json
+{"nonce": "<from challenge>", "walletSignature": "0x<130 hex>", "nodePubkey": "<64 hex>",
+ "pow": {"challengeId": "<uuid>", "nonce": "<solution>"}, "maxStreams"?: 32, "maxGbDay"?: 5}
+```
+→ `201 {"nodeId", "nodeKey": "dn_node_…", "status": "pending", "attestationVersion"}`.
+`nodeKey` is returned exactly once; store it for `packages/node-agent`.
+
+### `GET /v1/nodes?limit=100&cursor=<nextCursor>`
+Caller's own nodes, newest first (`limit` 1-500; `offset` still accepted):
+```json
+{"nodes": [{"id", "status", "walletAddress", "nodePubkey", "attestationVersion", "observedIp",
+            "country", "ipClass", "maxStreams", "maxGbDay", "reputation", "agentVersion",
+            "lastSeenAt", "createdAt"}], "limit": 100, "offset": 0, "nextCursor": null}
+```
+
+### `DELETE /v1/nodes/:id`
+Revokes an owned node (irreversible) → `{"id", "status": "revoked"}`; not yours or
+already revoked: `404`.
+
+### `GET /v1/node/tier`
+`{tier, nextTier, progress, changedAt, uptimeGraceUntil, demotionReason}`; each
+tier has `{id, name, rank, nodeShareBps, holdDays, maxNodes, dailyWithdrawLimitMusd, buyerDiscountBps}`
+and `progress` lists `{required, current, met}` per requirement for the next tier.
+
+### Node error codes
+| Status and code | When |
+|---|---|
+| `403 EMAIL_NOT_VERIFIED` | API-key account without a verified email (wallet identities pass) |
+| `400 NO_LINKED_WALLET` | The account has no linked wallet |
+| `400 INVALID_NODE_PUBKEY` | `nodePubkey` is not 64 hex chars |
+| `400 INVALID_CHALLENGE` | Nonce malformed, unknown, expired or already used |
+| `400 INVALID_SIGNATURE` | `walletSignature` is not `0x` + 130 hex |
+| `400 SIGNATURE_MISMATCH` | Signature does not recover to the linked wallet (request a new challenge if the policy changed) |
+| `400 POW_INVALID` | Missing, wrong, expired, lower-difficulty or other-IP PoW |
+| `400 INVALID_CAPS` | `maxStreams` (1-1024) or `maxGbDay` (1-10000) out of range |
+| `400 CLIENT_IP_UNKNOWN` | The API could not determine the client IP |
+| `409 NODE_CAP_REACHED` | Tier node limit reached (`cap` in the body) |
+| `403 NOT_ELIGIBLE` | Account cannot register nodes |
+| `503 TIERS_NOT_CONFIGURED` | Operator has not configured node tiers |
+| `429 RATE_LIMITED` | Too many challenges or registration attempts |
 
 ### `PATCH /v1/nodes/:id`
 Body: any of `{"maxStreams", "gbPerDay", "reqPerSec"}` (positive integers, no other keys).
@@ -171,7 +274,35 @@ in `node_reports` (weighting by 30-day spend comes later) and increment the node
 {"reportId": "7", "reportsToday": 1, "limitPerDay": 5}
 ```
 Errors: `404` (not found / not yours), `400 NOT_RELAY_SESSION | SESSION_TOO_OLD`,
-`409 ALREADY_REPORTED`, `429 REPORT_LIMIT`.
+`409 ALREADY_REPORTED`, `409 REPORT_LIMIT` (daily cap reached; retrying today
+will not help, so it is not a 429).
+
+## Public policy and pricing
+
+### `GET /v1/policy`
+`{version, sha256, body, floorGuarantees}` with an `ETag`; send `If-None-Match`
+for `304`. `body` is the active network policy (ports, denylist, node defaults,
+requester limits, attestation text). `body.freeTierRelay` is deprecated and has
+no effect: all relay traffic is paid.
+
+### `GET /v1/pricing`
+```json
+{"currency": "USD", "unit": "musd_per_gb",
+ "prices": [{"ipClass": "dc", "pricePerGbMusd": "200000"}, {"ipClass": "mobile", "pricePerGbMusd": "500000"},
+            {"ipClass": "residential", "pricePerGbMusd": "500000"}, {"ipClass": "any", "pricePerGbMusd": "200000"}],
+ "nodeShare": [{"tier", "rank", "nodeShareBps"}], "buyerDiscounts": [{"tier", "rank", "buyerDiscountBps"}],
+ "maturationHours": 168, "rails": ["wallet", "x402", "crypto"]}
+```
+1 GB = 10^9 bytes (decimal) everywhere: quotes, byte caps and settlement. A
+class without its own row, and a node of unknown class, is charged the highest
+configured price. x402/MPP payments are quoted for the class in the proxy
+username (`class-residential|dc|mobile`); with no class the quote uses the
+highest price and any node may serve it.
+
+### `GET /v1/probe/echo?nonce=<16-64 [A-Za-z0-9_-]>`
+Canary target for the gateway probe job: `{"ip": "<caller IP>", "nonce": "…"}`,
+never cached, 120 requests/min per IP (`429` over). Through a relay node, `ip`
+is the node's egress address.
 
 ## Launch additions
 

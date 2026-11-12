@@ -3,13 +3,16 @@
  * Units: µUSD (1 USD = 1_000_000 µUSD), GB = 1e9 bytes.
  */
 
+import { RELAY_BYTES_PER_GB as RELAY_GB } from "@dominusnode/shared";
+
 export type RelayRail = "wallet" | "team" | "agentic_wallet" | "x402" | "mpp" | "free";
 
 export const RELAY_RAILS: readonly RelayRail[] = [
   "wallet", "team", "agentic_wallet", "x402", "mpp", "free",
 ];
 
-export const RELAY_BYTES_PER_GB = 1_000_000_000n;
+/** Same unit as @dominusnode/shared RELAY_BYTES_PER_GB, as a bigint. */
+export const RELAY_BYTES_PER_GB = BigInt(RELAY_GB);
 export const MUSD_PER_CENT = 10_000n;
 export const MAX_RELAY_BYTES = 1n << 40n; // 1 TiB
 export const MIN_PRICE_PER_GB_MUSD = 1_000n; // $0.001

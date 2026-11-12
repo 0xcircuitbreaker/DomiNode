@@ -43,7 +43,7 @@ vi.mock("@dominusnode/shared", () => ({
     warn: vi.fn(),
     error: vi.fn(),
   }),
-  BYTES_PER_GB: 1_073_741_824,
+  RELAY_BYTES_PER_GB: 1_000_000_000, BYTES_PER_GIB: 1_073_741_824,
 }));
 
 const mockRecordUsage = vi.fn().mockResolvedValue({});
@@ -52,7 +52,7 @@ vi.mock("@dominusnode/metering", () => ({
   computeCostCents: (bytes: number, pricePerGb: number = 500) => {
     if (bytes <= 0) return 0;
     if (pricePerGb <= 0) return 0;
-    return Math.max(Math.ceil((bytes / 1_073_741_824) * pricePerGb), 1);
+    return Math.max(Math.ceil((bytes / 1_000_000_000) * pricePerGb), 1);
   },
   recordUsage: (...args: unknown[]) => mockRecordUsage(...args),
 }));
@@ -64,7 +64,7 @@ vi.mock("./balance-check.js", () => ({
 import { startSession, endSession, getActiveSessionCount, checkSessionRateLimit, checkBandwidthVelocity, recordBandwidthUsage, reservationCentsFor, maxBytesForReservation, startPrepaidSession, maxBytesForPrepaid, abortPrepaidSession, awaitInFlightSettlements, getInFlightSettlementCount } from "./session-manager.js";
 import type { ByteCounter } from "./counting-stream.js";
 import { enforcePolicy, _resetPolicyEnforcer, getRequesterInflightSpend, getRequesterSpend } from "./policy-enforcer.js";
-const BYTES_PER_GB = 1_073_741_824;
+const BYTES_PER_GB = 1_000_000_000;
 
 function makeCounter(bytesIn = 0, bytesOut = 0): ByteCounter {
   return { bytesIn, bytesOut, maxBytes: 0, onLimitExceeded: null };
@@ -253,79 +253,36 @@ describe("proxy-gateway/session-manager", () => {
       expect(mockReserveBalance).not.toHaveBeenCalled();
     });
 
-    it("should allow session when within bandwidth limit", async () => {
-      mockGetUserPlan.mockResolvedValueOnce({
-        id: "free",
-        name: "Free",
-        pricePerGbCents: 0,
-        monthlyBandwidthBytes: 1073741824,
-        isDefault: true,
-        maxConnections: 10,
-        maxSessionsPerMinute: 30,
-      });
-      mockGetMonthlyUsage.mockResolvedValueOnce(50_000_000); // 50MB < 1GB
-
-      // Free plan: no reservation needed
-      mockCreateSession.mockResolvedValueOnce({ id: "sess-within-limit" });
-
-      const counter = makeCounter();
-      const sessId = await startSession("user-free", "example.com", counter, 0, RELAY);
-      expect(sessId).toBe("sess-within-limit");
-
-      // Free plan: no reservation should have been made
-      expect(mockReserveBalance).not.toHaveBeenCalled();
-
-      // Clean up (free plan endSession skips wallet settlement)
-      mockEndSessionRepo.mockResolvedValueOnce(undefined);
-      await endSession(sessId);
-    });
-
-    it("caps free-plan session bytes at the per-session reservation, not the whole remaining quota", async () => {
+    it("free-plan principals have no free rail: no balance means no session", async () => {
       mockGetUserPlan.mockResolvedValueOnce({
         id: "free", name: "Free", pricePerGbCents: 0, monthlyBandwidthBytes: 1073741824,
         isDefault: true, maxConnections: 10, maxSessionsPerMinute: 30,
       });
       mockGetMonthlyUsage.mockResolvedValueOnce(0);
-      mockCreateSession.mockResolvedValueOnce({ id: "sess-free-cap" });
+      mockGetBalance.mockResolvedValueOnce(0);
 
       const counter = makeCounter();
-      const sessId = await startSession("user-free-cap", "example.com", counter, 0, RELAY);
-      expect(counter.maxBytes).toBe(50 * 1024 * 1024);
-
-      mockEndSessionRepo.mockResolvedValueOnce(undefined);
-      await endSession(sessId);
+      await expect(startSession("user-free", "example.com", counter, 0, RELAY)).rejects.toThrow("Insufficient balance");
+      expect(mockCreateSession).not.toHaveBeenCalled();
     });
 
-    it("should skip balance reservation for free plan (price=0)", async () => {
+    it("free-plan principals pay like everyone else (wallet rail, reservation-capped bytes)", async () => {
       mockGetUserPlan.mockResolvedValueOnce({
-        id: "free",
-        name: "Free",
-        pricePerGbCents: 0,
-        monthlyBandwidthBytes: 1073741824,
-        isDefault: true,
-        maxConnections: 10,
-        maxSessionsPerMinute: 30,
+        id: "free", name: "Free", pricePerGbCents: 0, monthlyBandwidthBytes: 1073741824,
+        isDefault: true, maxConnections: 10, maxSessionsPerMinute: 30,
       });
-      mockGetMonthlyUsage.mockResolvedValueOnce(100_000_000); // 100MB
-
-      mockCreateSession.mockResolvedValueOnce({ id: "sess-free-no-reserve" });
+      mockGetMonthlyUsage.mockResolvedValueOnce(0);
+      mockReserveBalance.mockResolvedValueOnce("wallet-1");
+      mockCreateSession.mockResolvedValueOnce({ id: "sess-free-paid" });
 
       const counter = makeCounter(5000, 10000);
       const sessId = await startSession("user-free2", "example.com", counter, 0, RELAY);
-      expect(sessId).toBe("sess-free-no-reserve");
+      expect(mockReserveBalance).toHaveBeenCalledWith("user-free2", 50);
+      expect(counter.maxBytes).toBe(1_000_000_000);
 
-      // Should NOT have attempted to reserve balance
-      expect(mockReserveBalance).not.toHaveBeenCalled();
-
-      // End session: should record usage but skip wallet settlement
       mockEndSessionRepo.mockResolvedValueOnce(undefined);
       await endSession(sessId);
-
-      // Usage should still be recorded (targetHost is "" because logTargetHosts defaults to false)
-      expect(mockSettleRelayCharge).toHaveBeenCalledWith(expect.objectContaining({ sessionId: "sess-free-no-reserve", usageTargetHost: "" }));
-      // Wallet settle should NOT have been called
-      expect(mockSettleSession).not.toHaveBeenCalled();
-      expect(mockSettleRelayCharge).toHaveBeenCalledWith(expect.objectContaining({ rail: "free", bytesGateway: 15000n }));
+      expect(mockSettleRelayCharge).toHaveBeenCalledWith(expect.objectContaining({ rail: "wallet", reservedCents: 50, bytesGateway: 15000n }));
     });
 
     it("should skip bandwidth check for unlimited plans (0 bytes)", async () => {
@@ -548,19 +505,6 @@ describe("proxy-gateway/session-manager", () => {
       mockSettleRelayCharge.mockResolvedValueOnce(settled());
       await endSession(sessId);
       expect(invalidateBalanceCache).toHaveBeenCalled();
-    });
-
-    it("uses the free rail for free plans", async () => {
-      mockGetUserPlan.mockResolvedValueOnce({
-        id: "free", name: "Free", pricePerGbCents: 0, monthlyBandwidthBytes: 1_000_000_000,
-        isDefault: true, maxConnections: 10, maxSessionsPerMinute: 30,
-      });
-      mockGetMonthlyUsage.mockResolvedValueOnce(0);
-      mockCreateSession.mockResolvedValueOnce({ id: "sess-free-rail" });
-      const sessId = await startSession("user-free-rail", "example.com", makeCounter(10, 10), 0, RELAY);
-      mockSettleRelayCharge.mockResolvedValueOnce(settled({ grossMusd: 0n, debitCents: 0 }));
-      await endSession(sessId);
-      expect(mockSettleRelayCharge).toHaveBeenCalledWith(expect.objectContaining({ rail: "free", reservedCents: 0 }));
     });
 
     it("should reject session when getUserPlan throws (fail closed)", async () => {

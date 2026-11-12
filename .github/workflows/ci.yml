@@ -47,6 +47,8 @@ jobs:
         run: npm run build
       - name: Lint
         run: npm run lint
+      - name: Env reference is current
+        run: npm run docs:env:check
       - name: Tests
         run: npx vitest run
       - name: Frontend tests

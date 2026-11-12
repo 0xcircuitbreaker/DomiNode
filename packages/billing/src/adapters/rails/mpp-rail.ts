@@ -140,6 +140,11 @@ export interface MppVerification {
   ok: boolean;
   payer?: string;
   amountMusd?: bigint;
+  /**
+   * Paid above the per-payment cap (MAX_MPP_AMOUNT_MUSD). The request is served for the cap
+   * and the excess is recorded on the claim (mpp_transactions.excess_musd) for reconciliation.
+   */
+  excessMusd?: bigint;
   /** Single-use proof reference (chain id + tx hash); the replay key. */
   proofRef?: string;
   reason?: string;
@@ -220,7 +225,10 @@ export function createTempoMppVerifier(cfg: MppConfig, rpc: TempoRpc): MppVerifi
       }
       if (!from || paid === 0n) return { ok: false, reason: "verification-failed: no matching transfer" };
       if (paid < amount) return { ok: false, reason: "payment-insufficient" };
-      if (paid > MAX_MPP_AMOUNT_MUSD) return { ok: false, reason: "amount too large" };
+      // Funds already moved on-chain: never reject an overpayment. Accept up to the cap and
+      // hand the rest to reconciliation (recorded with the claim, refunded/credited by ops).
+      const excess = paid > MAX_MPP_AMOUNT_MUSD ? paid - MAX_MPP_AMOUNT_MUSD : 0n;
+      if (excess > 0n) paid = MAX_MPP_AMOUNT_MUSD;
       const source = cred["source"];
       if (source !== undefined) {
         if (typeof source !== "string" || source.toLowerCase() !== `did:pkh:eip155:${cfg.chainId}:${from}`) {
@@ -228,23 +236,24 @@ export function createTempoMppVerifier(cfg: MppConfig, rpc: TempoRpc): MppVerifi
         }
       }
       if (!ADDR_RE.test(from)) return { ok: false, reason: "verification-failed" };
-      return { ok: true, payer: from, amountMusd: paid, proofRef: `tempo:${cfg.chainId}:${hash}` };
+      return { ok: true, payer: from, amountMusd: paid, ...(excess > 0n ? { excessMusd: excess } : {}), proofRef: `tempo:${cfg.chainId}:${hash}` };
     },
   };
 }
 
 export interface MppStore {
-  claim(paymentHash: string, amountMusd: bigint): Promise<boolean>;
+  /** excessMusd: overpayment above the cap, stored for reconciliation (omitted when 0). */
+  claim(paymentHash: string, amountMusd: bigint, excessMusd?: bigint): Promise<boolean>;
   mark(paymentHash: string, status: "verified" | "settled" | "failed"): Promise<void>;
   release(paymentHash: string): Promise<void>;
 }
 
 export const dbMppStore: MppStore = {
-  async claim(paymentHash, amountMusd) {
+  async claim(paymentHash, amountMusd, excessMusd = 0n) {
     const r = await query(
-      `INSERT INTO mpp_transactions (payment_hash, amount_musd, status) VALUES ($1, $2, 'claimed')
+      `INSERT INTO mpp_transactions (payment_hash, amount_musd, excess_musd, status) VALUES ($1, $2, $3, 'claimed')
        ON CONFLICT (payment_hash) DO NOTHING`,
-      [paymentHash, amountMusd.toString()],
+      [paymentHash, amountMusd.toString(), excessMusd.toString()],
     );
     return (r.rowCount ?? 0) > 0;
   },
@@ -291,7 +300,9 @@ export function createMppRail(o: { verifier: MppVerifier | null; config: MppConf
       const v = await o.verifier.verify(payload, req, now());
       if (!v.ok || !v.amountMusd || !v.proofRef) return { ok: false, paymentHash: credHash, reason: v.reason ?? "verification-failed" };
       const paymentHash = mppPaymentHash(v.proofRef);
-      if (!(await store.claim(paymentHash, v.amountMusd))) return { ok: false, paymentHash, reason: "invalid-challenge: payment already used" };
+      const excess = v.excessMusd && v.excessMusd > 0n ? v.excessMusd : 0n;
+      const claimed = excess > 0n ? await store.claim(paymentHash, v.amountMusd, excess) : await store.claim(paymentHash, v.amountMusd);
+      if (!claimed) return { ok: false, paymentHash, reason: "invalid-challenge: payment already used" };
       await store.mark(paymentHash, "verified");
       return { ok: true, payer: v.payer, paymentHash, amountMusd: v.amountMusd, txRef: v.proofRef };
     },

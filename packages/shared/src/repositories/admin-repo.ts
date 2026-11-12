@@ -276,11 +276,13 @@ export async function deleteUser(userId: string): Promise<void> {
 
 const VALID_ADMIN_ROLES = new Set(["none", "admin", "cybersecurity_admin", "root_admin"]);
 
-/** Root admin email — hardcoded, not configurable via env to prevent privilege escalation */
-const ROOT_ADMIN_EMAIL = "sarris88p@gmail.com";
-
-export function getRootAdminEmail(): string {
-  return ROOT_ADMIN_EMAIL;
+/**
+ * The root admin is whoever holds admin_role = 'root_admin'. Which account may
+ * hold it is fixed in the root_admin_identity table (set with
+ * `npm run admin:set-root`), enforced by a DB trigger. Never from env or source.
+ */
+export function isRootAdmin(user: { admin_role?: string | null } | null | undefined): boolean {
+  return user?.admin_role === "root_admin";
 }
 
 /** Set a user's admin role. Only root_admin can call this. */
@@ -307,7 +309,7 @@ export async function setAdminRole(
       return false;
     }
     // Cannot change root admin's role
-    if (user.email.toLowerCase() === ROOT_ADMIN_EMAIL) {
+    if (isRootAdmin(user)) {
       await client.query("ROLLBACK");
       return false;
     }
@@ -425,4 +427,26 @@ export async function getSystemStats(): Promise<SystemStats> {
     totalSessions: Number(row.total_sessions),
     activeSessions: Number(row.active_sessions),
   };
+}
+
+/** True when any user holds an admin role. */
+export async function hasAnyAdmin(): Promise<boolean> {
+  const r = await query<{ n: number }>(
+    "SELECT 1 AS n FROM users WHERE admin_role <> 'none' LIMIT 1",
+  );
+  return r.rows.length > 0;
+}
+
+/**
+ * Make userId the first admin (ADMIN_BOOTSTRAP_EMAIL). Atomic: a single
+ * UPDATE that only applies while no other user holds an admin role.
+ */
+export async function bootstrapFirstAdmin(userId: string): Promise<boolean> {
+  const r = await query<{ id: string }>(
+    `UPDATE users SET admin_role = 'admin', is_admin = true
+     WHERE id = $1 AND NOT EXISTS (SELECT 1 FROM users WHERE admin_role <> 'none' AND id <> $1)
+     RETURNING id`,
+    [userId],
+  );
+  return r.rows.length > 0;
 }

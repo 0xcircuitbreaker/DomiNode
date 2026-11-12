@@ -1,6 +1,7 @@
 import * as http from "node:http";
 import * as net from "node:net";
-import { createLogger, userRepo, policyRepo, walletRepo, BYTES_PER_GB } from "@dominusnode/shared";
+import { parseProxyOptions } from "./auth.js";
+import { createLogger, userRepo, policyRepo, walletRepo, RELAY_BYTES_PER_GB } from "@dominusnode/shared";
 import {
   isX402Enabled,
   buildX402Requirements,
@@ -83,14 +84,48 @@ function checkX402RateLimit(payerAddress: string): boolean {
 // ─── Pool Type Detection ────────────────────────────────────────────
 
 /**
- * Determine pool type from proxy request username or headers.
- * For x402 requests, the client can specify pool type via X-Pool-Type header
- * or default to "dc" (cheapest).
+ * Exit class an x402/MPP payment is quoted for. "any" = no class requested:
+ * quoted at the HIGHEST configured price (never undercharges) and any node
+ * may serve it. A named class is quoted at that class's price and the
+ * selected node must be of that class.
  */
-function getPoolTypeFromRequest(req: http.IncomingMessage): "dc" | "residential" {
-  const poolHeader = req.headers["x-pool-type"];
-  if (poolHeader === "residential") return "residential";
-  return "dc";
+export type X402Class = "residential" | "dc" | "mobile" | "any";
+
+/** Concrete class for node selection; "any" means unconstrained. */
+export function selectClassFor(c: X402Class): "residential" | "dc" | "mobile" | undefined {
+  return c === "any" ? undefined : c;
+}
+
+/** True when a node of nodeClass may carry traffic quoted for quoted. */
+export function nodeMatchesQuotedClass(quoted: X402Class, nodeClass: string): boolean {
+  return quoted === "any" || nodeClass === quoted;
+}
+
+/** Map a node/requested class onto an x402 quote class (unknown -> any). */
+export function toX402Class(c: string | undefined | null): X402Class {
+  return c === "residential" || c === "dc" || c === "mobile" ? c : "any";
+}
+
+/**
+ * Exit class for an x402/MPP request. Same username flags as API-key auth
+ * (class-residential|dc|mobile, legacy dc-/residential- prefix) from a Basic
+ * Proxy-Authorization username; else the legacy X-Pool-Type header; else "any".
+ */
+export function getPoolTypeFromRequest(req: http.IncomingMessage): X402Class {
+  const pa = req.headers["proxy-authorization"];
+  if (typeof pa === "string" && /^basic\s+/i.test(pa)) {
+    try {
+      const decoded = Buffer.from(pa.replace(/^basic\s+/i, "").trim(), "base64").toString("utf8");
+      const user = decoded.split(":")[0] ?? "";
+      if (user.length <= 256) {
+        const o = parseProxyOptions(user);
+        if (o.ipClass) return o.ipClass;
+      }
+    } catch { /* fall through */ }
+  }
+  const h = req.headers["x-pool-type"];
+  const v = Array.isArray(h) ? h[0] : h;
+  return toX402Class(typeof v === "string" ? v.trim().toLowerCase() : undefined);
 }
 
 // ─── Relay pricing (DESIGN.md §7) ───────────────────────────────────
@@ -103,20 +138,20 @@ if (isNaN(X402_BYTES_PER_REQUEST) || X402_BYTES_PER_REQUEST < 65_536 || X402_BYT
 
 /** ceil(price × bytes / GB) in µUSD, at least 1. */
 export function x402AmountMusd(pricePerGbMusd: bigint, bytes: number = X402_BYTES_PER_REQUEST): bigint {
-  const gb = BigInt(BYTES_PER_GB);
+  const gb = BigInt(RELAY_BYTES_PER_GB);
   const v = (pricePerGbMusd * BigInt(bytes) + gb - 1n) / gb;
   return v > 0n ? v : 1n;
 }
 
 interface X402Quote {
-  poolType: "dc" | "residential";
+  poolType: X402Class;
   pricePerGbMusd: bigint;
   amountMusd: bigint;
 }
 
-const lastQuote = new Map<"dc" | "residential", X402Quote>(); // ≤2 entries
+const lastQuote = new Map<X402Class, X402Quote>(); // ≤4 entries
 
-async function quote(poolType: "dc" | "residential"): Promise<X402Quote> {
+async function quote(poolType: X402Class): Promise<X402Quote> {
   const pricePerGbMusd = await policyRepo.getPricing(poolType);
   const q = { poolType, pricePerGbMusd, amountMusd: x402AmountMusd(pricePerGbMusd) };
   lastQuote.set(poolType, q);
@@ -124,15 +159,15 @@ async function quote(poolType: "dc" | "residential"): Promise<X402Quote> {
 }
 
 /** Requirements for a 402 advertisement: relay quote when known (refreshed in the background). */
-function advertisedRequirements(poolType: "dc" | "residential") {
+function advertisedRequirements(poolType: X402Class) {
   quote(poolType).catch(() => undefined);
   const q = lastQuote.get(poolType);
-  return q ? buildX402Requirements({ amountMusd: q.amountMusd }) : buildX402Requirements(poolType);
+  return q ? buildX402Requirements({ amountMusd: q.amountMusd }) : buildX402Requirements(poolType === "dc" ? "dc" : "residential");
 }
 
 /** Bytes this payment may carry: min(X402_MAX_RESPONSE_BYTES, bytes the paid amount buys). */
 function paidByteCap(q: X402Quote, paidMusd: bigint = q.amountMusd): number {
-  const bought = (paidMusd * BigInt(BYTES_PER_GB)) / q.pricePerGbMusd;
+  const bought = (paidMusd * BigInt(RELAY_BYTES_PER_GB)) / q.pricePerGbMusd;
   return Math.max(1, Math.min(getX402MaxResponseBytes(), Number(bought > 2_000_000_000_000n ? 2_000_000_000_000n : bought)));
 }
 
@@ -202,7 +237,7 @@ export interface X402Pending {
   mppVerified?: VerifyResult;
   payer: string;
   amountUsd: string;
-  poolType: "dc" | "residential";
+  poolType: X402Class;
   userId: string;
   paidMusd: bigint;
   state: "verified" | "settled" | "released" | "refunded";
@@ -212,7 +247,7 @@ function makePending(
   paymentHeader: string,
   v: { facilitator: X402Facilitator; payer: string; amountUsd: string },
   requirements: ReturnType<typeof buildX402Requirements>,
-  poolType: "dc" | "residential",
+  poolType: X402Class,
   userId: string,
   paidMusd: bigint,
 ): X402Pending {
@@ -430,7 +465,7 @@ export interface X402ConnectResult {
   verified: boolean;
   payer: string;
   facilitator: X402Facilitator;
-  poolType: "dc" | "residential";
+  poolType: X402Class;
   paymentHeader: string;
   amountUsd: string;
   /** C-4: Max bytes for this x402 tunnel to prevent bandwidth theft */
@@ -465,7 +500,7 @@ export async function handleX402Connect(
       );
       clientSocket.end();
     }
-    return { handled: true, verified: false, payer: "", facilitator: "coinbase" as X402Facilitator, poolType: "dc" as const, paymentHeader: "", amountUsd: "0", maxResponseBytes: 0 };
+    return { handled: true, verified: false, payer: "", facilitator: "coinbase" as X402Facilitator, poolType: "any" as X402Class, paymentHeader: "", amountUsd: "0", maxResponseBytes: 0 };
   }
 
   const poolType = getPoolTypeFromRequest(req);
@@ -566,15 +601,15 @@ export async function settleX402ConnectRequest(
  * when x402 is enabled. Used by the main proxy server when returning
  * INSUFFICIENT_BALANCE errors.
  */
-export function build402ResponseBody(poolType?: "dc" | "residential"): string {
-  const mpp = advertisedMppChallenge(poolType ?? "dc");
+export function build402ResponseBody(poolType?: X402Class): string {
+  const mpp = advertisedMppChallenge(poolType ?? "any");
   if (!isX402Enabled() && !mpp) {
     return "Insufficient balance. Top up your wallet at the Dominus Node dashboard.";
   }
   return JSON.stringify({
     error: "INSUFFICIENT_BALANCE",
     message: "Insufficient balance. Pay per request (x402 or MPP) or top up your wallet.",
-    ...(isX402Enabled() ? { x402: advertisedRequirements(poolType ?? "dc") } : {}),
+    ...(isX402Enabled() ? { x402: advertisedRequirements(poolType ?? "any") } : {}),
     ...(mpp ? { mpp: { method: mpp.method, intent: mpp.intent, realm: mpp.realm, expires: mpp.expires, wwwAuthenticate: mpp.header } } : {}),
   });
 }
@@ -583,8 +618,8 @@ export function build402ResponseBody(poolType?: "dc" | "residential"): string {
  * Extra headers for a 402: the MPP `WWW-Authenticate: Payment` challenge when
  * MPP is configured (draft-ryan-httpauth-payment §5.1; 402s carry no-store).
  */
-export function paymentChallengeHeaders(poolType?: "dc" | "residential"): Record<string, string> {
-  const mpp = advertisedMppChallenge(poolType ?? "dc");
+export function paymentChallengeHeaders(poolType?: X402Class): Record<string, string> {
+  const mpp = advertisedMppChallenge(poolType ?? "any");
   return mpp ? { "WWW-Authenticate": mpp.header, "Cache-Control": "no-store" } : {};
 }
 
@@ -595,7 +630,7 @@ function challengeHeaderLines(h: Record<string, string>): string {
 /**
  * Build a 402 CONNECT response with x402 requirements.
  */
-export function build402ConnectResponse(poolType?: "dc" | "residential"): string {
+export function build402ConnectResponse(poolType?: X402Class): string {
   if (!isX402Enabled() && !getMppRail().enabled()) {
     return "HTTP/1.1 402 Payment Required\r\nX-DominusNode-Error: INSUFFICIENT_BALANCE\r\n\r\n";
   }
@@ -620,7 +655,7 @@ export function getX402Data(req: http.IncomingMessage): {
   payer: string;
   amountUsd: string;
   facilitator: X402Facilitator;
-  poolType: "dc" | "residential";
+  poolType: X402Class;
   maxResponseBytes: number;
   userId: string;
   amountMusd: bigint;
@@ -669,7 +704,7 @@ export function normalizePayer(p: string): string {
   return /^0x/i.test(p) ? p.toLowerCase() : p;
 }
 
-function advertisedMppChallenge(poolType: "dc" | "residential") {
+function advertisedMppChallenge(poolType: X402Class) {
   const r = getMppRail();
   if (!r.enabled()) return null;
   quote(poolType).catch(() => undefined);
@@ -776,7 +811,7 @@ async function handleMppConnect(req: http.IncomingMessage, clientSocket: net.Soc
       clientSocket.write(lines.join("\r\n") + "\r\n\r\n");
       clientSocket.end();
     }
-    return { rail: "mpp", handled: true, verified: false, payer: "", facilitator: "coinbase", poolType: "dc", paymentHeader: "", amountUsd: "0", maxResponseBytes: 0 };
+    return { rail: "mpp", handled: true, verified: false, payer: "", facilitator: "coinbase", poolType: "any", paymentHeader: "", amountUsd: "0", maxResponseBytes: 0 };
   }
   const p = o.pending;
   return {

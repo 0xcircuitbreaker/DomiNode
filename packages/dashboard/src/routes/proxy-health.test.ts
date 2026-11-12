@@ -5,6 +5,8 @@ import http from "http";
 // ─── Mocks ─────────────────────────────────────────────────────────────
 
 vi.mock("@dominusnode/shared", () => ({
+  getProxyInternalPort: () => 8080,
+  getPublicProxyPorts: () => ({ http: 8080, socks5: 1080, tls: null, socks5Tls: null, tunnel: 9443 }),
   createLogger: () => ({
     info: vi.fn(),
     warn: vi.fn(),

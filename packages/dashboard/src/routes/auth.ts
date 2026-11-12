@@ -30,14 +30,19 @@ import {
   sendVerificationEmail,
   sendPasswordResetEmail,
   referralRepo,
+  adminRepo,
   query as dbQuery,
 } from "@dominusnode/shared";
 import { requireAuth, type AuthenticatedRequest } from "../middleware/auth.js";
 import { setAuthCookies, clearAuthCookies, getRefreshCookieName } from "../helpers/cookies.js";
 import { isGlobalVerifiedAgent, isVerifiedAgentAsync, getAgentMultiplier } from "../helpers/agent-rate-limit.js";
+import { humanAuthGate, getBootstrapAdminEmail } from "../helpers/human-auth.js";
 
 const router = Router();
 const log = createLogger("api:auth");
+
+// Human auth is admin-only and off unless ADMIN_HUMAN_LOGIN=true (404 otherwise).
+router.use(humanAuthGate);
 
 const AGENT_RATE_LIMIT_MULTIPLIER = getAgentMultiplier();
 
@@ -383,6 +388,19 @@ router.post("/register", async (req, res) => {
       return;
     }
 
+    // Registration is closed: humans are admin-only. The only exception is
+    // bootstrapping the first admin, whose address the operator names in
+    // ADMIN_BOOTSTRAP_EMAIL, and only while no admin exists.
+    const bootstrapEmail = getBootstrapAdminEmail();
+    if (!bootstrapEmail || email !== bootstrapEmail) {
+      res.status(403).json({ error: "Registration is closed", code: "REGISTRATION_CLOSED" });
+      return;
+    }
+    if (await adminRepo.hasAnyAdmin()) {
+      res.status(403).json({ error: "Registration is closed", code: "REGISTRATION_CLOSED" });
+      return;
+    }
+
     // Cap password length to prevent bcrypt DoS (O(n) cost on input length)
     if (password.length > 128) {
       res.status(400).json({ error: "Password exceeds maximum length" });
@@ -500,6 +518,14 @@ router.post("/register", async (req, res) => {
     }
 
     await walletRepo.createWallet(user.id);
+
+    // Promote the bootstrap account atomically; refuse if another admin won the race.
+    if (!(await adminRepo.bootstrapFirstAdmin(user.id))) {
+      res.status(403).json({ error: "Registration is closed", code: "REGISTRATION_CLOSED" });
+      return;
+    }
+    user = { ...user, is_admin: true, admin_role: "admin" };
+    log.info("bootstrap admin registered", { userId: user.id });
 
     // Referral code processing (non-blocking: referral failure must NOT prevent registration)
     const referralCode = typeof req.body?.referralCode === "string" ? req.body.referralCode.trim().toUpperCase() : "";
@@ -641,6 +667,13 @@ router.post("/login", async (req, res) => {
 
     if (user.status !== "active") {
       res.status(403).json({ error: "Account is suspended or disabled" });
+      return;
+    }
+
+    // Human login is for admins only. Same message as a bad password so the
+    // endpoint does not reveal which addresses have non-admin accounts.
+    if (!user.admin_role || user.admin_role === "none") {
+      res.status(401).json({ error: "Invalid email or password" });
       return;
     }
 

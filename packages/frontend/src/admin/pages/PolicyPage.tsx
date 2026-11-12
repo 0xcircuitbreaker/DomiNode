@@ -125,7 +125,7 @@ export default function PolicyPage() {
               </div>
               <label className="flex items-center gap-2 self-end py-1.5 text-sm">
                 <input type="checkbox" checked={form.freeTierRelay} onChange={(e) => set("freeTierRelay", e.target.checked)} />
-                Free-tier requesters may use the relay
+                Free-tier relay (deprecated, no effect: all relay traffic is paid)
               </label>
               <label className="flex items-center gap-2 self-end py-1.5 text-sm">
                 <input type="checkbox" checked={form.requireContribution} onChange={(e) => set("requireContribution", e.target.checked)} />

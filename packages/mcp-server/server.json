@@ -8,20 +8,43 @@
     "source": "github",
     "subfolder": "packages/mcp-server"
   },
-  "version": "2.0.0",
+  "version": "2.0.1",
   "packages": [
     {
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "@dominusnode/mcp-server",
-      "version": "2.0.0",
-      "transport": { "type": "stdio" },
+      "version": "2.0.1",
+      "transport": {
+        "type": "stdio"
+      },
       "environmentVariables": [
         {
           "name": "DOMINUSNODE_API_KEY",
           "description": "dn_live_ API key. Omit to start in bootstrap mode (wallet sign-in tools only).",
           "isRequired": false,
           "isSecret": true,
+          "format": "string"
+        },
+        {
+          "name": "DOMINUSNODE_PROXY_URL",
+          "description": "TLS gateway https://host[:port]. Default https://proxy.dominusnode.daedalusdevelopmentgroup.com:8443.",
+          "isRequired": false,
+          "isSecret": false,
+          "format": "string"
+        },
+        {
+          "name": "DOMINUSNODE_PROXY_CA_FILE",
+          "description": "Extra PEM CA file for a privately issued gateway certificate.",
+          "isRequired": false,
+          "isSecret": false,
+          "format": "filepath"
+        },
+        {
+          "name": "DOMINUSNODE_PROXY_INSECURE",
+          "description": "Set to 1 to use the plaintext gateway listener (API key sent in clear). Local development only.",
+          "isRequired": false,
+          "isSecret": false,
           "format": "string"
         },
         {

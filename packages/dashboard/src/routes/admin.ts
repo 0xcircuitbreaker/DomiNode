@@ -1,6 +1,6 @@
 import { Router } from "express";
 import * as crypto from "node:crypto";
-import { adminRepo, createLogger, userRepo, refreshTokenRepo, waitlistRepo, walletRepo, teamRepo, planRepo, referralRepo, sendWaitlistApprovalEmail, sanitizeString, hasMinRole, query as dbQuery } from "@dominusnode/shared";
+import { adminRepo, createLogger, userRepo, refreshTokenRepo, waitlistRepo, walletRepo, teamRepo, planRepo, referralRepo, sendWaitlistApprovalEmail, sanitizeString, hasMinRole, getProxyInternalPort, query as dbQuery } from "@dominusnode/shared";
 import type { AdminRole } from "@dominusnode/shared";
 import { requireAuth, type AuthenticatedRequest } from "../middleware/auth.js";
 import { requireAdmin, requireCybersecurityAdmin, requireRootAdmin } from "../middleware/admin.js";
@@ -89,8 +89,8 @@ router.put("/users/:id/suspend", async (req, res) => {
       res.status(403).json({ error: "Only root admin can suspend another admin account" });
       return;
     }
-    // Root admin account (sarris88p@gmail.com) can never be suspended
-    if (targetUser?.email.toLowerCase() === adminRepo.getRootAdminEmail()) {
+    // The root admin account can never be suspended
+    if (adminRepo.isRootAdmin(targetUser)) {
       res.status(403).json({ error: "Root admin account cannot be suspended" });
       return;
     }
@@ -104,7 +104,7 @@ router.put("/users/:id/suspend", async (req, res) => {
     let terminatedSessions = 0;
     try {
       const proxyHost = process.env["PROXY_INTERNAL_HOST"] ?? "127.0.0.1";
-      const proxyPort = process.env["PROXY_INTERNAL_PORT"] ?? process.env["PROXY_LISTEN_PORT"] ?? "8080";
+      const proxyPort = String(getProxyInternalPort());
       // Derive a separate stats secret from JWT_SECRET using HMAC
       const proxySecret = process.env["PROXY_STATS_SECRET"] ??
         (process.env["JWT_SECRET"]
@@ -193,8 +193,8 @@ router.delete("/users/:id", async (req, res) => {
       res.status(403).json({ error: "Only root admin can delete another admin account" });
       return;
     }
-    // Root admin account (sarris88p@gmail.com) can never be deleted
-    if (targetUser?.email.toLowerCase() === adminRepo.getRootAdminEmail()) {
+    // The root admin account can never be deleted
+    if (adminRepo.isRootAdmin(targetUser)) {
       res.status(403).json({ error: "Root admin account cannot be deleted" });
       return;
     }
@@ -204,7 +204,7 @@ router.delete("/users/:id", async (req, res) => {
     let terminatedSessions = 0;
     try {
       const proxyHost = process.env["PROXY_INTERNAL_HOST"] ?? "127.0.0.1";
-      const proxyPort = process.env["PROXY_INTERNAL_PORT"] ?? process.env["PROXY_LISTEN_PORT"] ?? "8080";
+      const proxyPort = String(getProxyInternalPort());
       const proxySecret = process.env["PROXY_STATS_SECRET"] ??
         (process.env["JWT_SECRET"]
           ? (await import("node:crypto")).createHmac("sha256", process.env["JWT_SECRET"]).update("proxy-stats-endpoint").digest("hex")

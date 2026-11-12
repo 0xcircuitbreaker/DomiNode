@@ -27,7 +27,7 @@ vi.mock("@dominusnode/shared", () => ({
     getRevenueStats: (...args: unknown[]) => mockGetRevenueStats(...args),
     getDailyRevenue: (...args: unknown[]) => mockGetDailyRevenue(...args),
     getSystemStats: (...args: unknown[]) => mockGetSystemStats(...args),
-    getRootAdminEmail: () => "sarris88p@gmail.com",
+    isRootAdmin: (u: { admin_role?: string } | null) => u?.admin_role === "root_admin",
     setAdminRole: vi.fn(),
   },
   userRepo: {
@@ -54,6 +54,7 @@ vi.mock("@dominusnode/shared", () => ({
 
 // Mock the requireAuth middleware to inject a user into the request
 let mockUserId = "admin-user-id";
+let mockCallerRole = "admin";
 vi.mock("../middleware/auth.js", () => ({
   requireAuth: (
     req: express.Request,
@@ -64,7 +65,7 @@ vi.mock("../middleware/auth.js", () => ({
       userId: mockUserId,
       email: "admin@example.com",
       isAdmin: true,
-      adminRole: "admin",
+      adminRole: mockCallerRole,
     };
     next();
   },
@@ -165,6 +166,29 @@ describe("admin routes", () => {
       expect(res.status).toBe(403);
       expect(res.body.error).toBe("Only root admin can suspend another admin account");
       expect(mockSuspendUser).not.toHaveBeenCalled();
+    });
+
+    it("should refuse to suspend the root admin even for a root caller", async () => {
+      mockCallerRole = "root_admin";
+      mockFindUserById.mockResolvedValueOnce({
+        id: VALID_UUID,
+        email: "root@example.com",
+        status: "active",
+        is_admin: true,
+        admin_role: "root_admin",
+        password_hash: "",
+        created_at: new Date(),
+        password_changed_at: null,
+      });
+      try {
+        const app = createApp();
+        const res = await request(app, "PUT", `/api/admin/users/${VALID_UUID}/suspend`);
+        expect(res.status).toBe(403);
+        expect(res.body.error).toBe("Root admin account cannot be suspended");
+        expect(mockSuspendUser).not.toHaveBeenCalled();
+      } finally {
+        mockCallerRole = "admin";
+      }
     });
 
     it("should suspend a non-admin user successfully", async () => {

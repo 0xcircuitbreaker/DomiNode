@@ -3,7 +3,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { TokenManager } from "../src/token-manager.js";
 import { HttpClient } from "../src/http-client.js";
 import type { McpConfig } from "../src/config.js";
-import { registerAuthenticatedTools, registerBootstrapTools, countTools } from "../src/register.js";
+import { registerAuthenticatedTools, registerBootstrapTools, countTools, unlockAuthenticatedTools } from "../src/register.js";
 import { registerWalletTools } from "../src/tools/wallet.js";
 import { AUTHENTICATED_TOOLS, BOOTSTRAP_TOOLS, REMOVED_TOOLS } from "./tool-list.js";
 
@@ -85,6 +85,33 @@ describe("MCP Server Integration", () => {
     expect(text).toContain("dominusnode_wallet_setup");
     expect(text).toContain("dominusnode_network_pricing");
     expect(text).not.toMatch(/stripe|paypal|slots/i);
+  });
+
+  it("unlocks the authenticated tool set in-process after wallet setup", async () => {
+    const httpClient = await makeClient();
+    const server = new McpServer({ name: "dominusnode", version: "1.0.0" });
+    const config = { ...baseConfig, apiKey: null };
+    registerBootstrapTools(server, httpClient, config);
+    const notify = vi.spyOn(server, "sendToolListChanged");
+    expect(unlockAuthenticatedTools(server, httpClient, config, "not_a_key")).toBe(false);
+    expect(unlockAuthenticatedTools(server, httpClient, config, "dn_live_fresh")).toBe(true);
+    expect(config.apiKey).toBe("dn_live_fresh");
+    const names = Object.keys((server as any)._registeredTools).sort();
+    expect(names).toEqual([...new Set([...AUTHENTICATED_TOOLS, ...BOOTSTRAP_TOOLS])].sort());
+    // notifications/tools/list_changed is requested for the new tools
+    expect(notify).toHaveBeenCalled();
+    // Idempotent: a second unlock registers nothing new and does not throw
+    expect(unlockAuthenticatedTools(server, httpClient, config, "dn_live_fresh")).toBe(true);
+  });
+
+  it("bootstrap help says pay_crypto needs sign-in and has no restart loop", async () => {
+    const httpClient = await makeClient();
+    const server = new McpServer({ name: "dominusnode", version: "1.0.0" });
+    registerBootstrapTools(server, httpClient);
+    const result = await (server as any)._registeredTools["dominusnode_bootstrap_help"].handler({}, {} as never);
+    const text = result.content[0].text as string;
+    expect(text).toMatch(/requires the sign-in/);
+    expect(text).not.toMatch(/restart to unlock/i);
   });
 
   it("tool error handling returns isError without throwing", async () => {

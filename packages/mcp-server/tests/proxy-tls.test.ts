@@ -16,8 +16,26 @@ const API_KEY = "dn_live_tlstest0123456789";
 const publicLookup = async () => [{ address: "93.184.216.34", family: 4 }];
 
 describe("DOMINUSNODE_PROXY_URL config", () => {
-  it("defaults to no TLS gateway", () => {
-    expect(parseConfig({}).proxyTls).toBeNull();
+  it("defaults to the TLS gateway on 8443", () => {
+    const c = parseConfig({});
+    expect(c.proxyTls).toEqual({ port: 8443, ca: undefined });
+    expect(gatewayDescription(c)).toBe("https://proxy.dominusnode.daedalusdevelopmentgroup.com:8443 (TLS)");
+  });
+
+  it("uses plaintext only with DOMINUSNODE_PROXY_INSECURE=1 and warns", () => {
+    const writes: string[] = [];
+    const orig = process.stderr.write.bind(process.stderr);
+    (process.stderr as { write: unknown }).write = (s: string) => { writes.push(String(s)); return true; };
+    try {
+      const c = parseConfig({ DOMINUSNODE_PROXY_INSECURE: "1" });
+      expect(c.proxyTls).toBeNull();
+      expect(gatewayDescription(c)).toBe("http://proxy.dominusnode.daedalusdevelopmentgroup.com:8080");
+    } finally {
+      (process.stderr as { write: unknown }).write = orig;
+    }
+    expect(writes.join("")).toMatch(/INSECURE/);
+    expect(parseConfig({ DOMINUSNODE_PROXY_INSECURE: "true" }).proxyTls).not.toBeNull();
+    expect(() => parseConfig({ DOMINUSNODE_PROXY_INSECURE: "1", DOMINUSNODE_PROXY_URL: "https://relay.example.com" })).toThrow(ConfigError);
   });
 
   it("parses https://host[:port] and sets the proxy host", () => {

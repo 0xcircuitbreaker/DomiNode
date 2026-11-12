@@ -78,4 +78,12 @@ describe("parseConfig", () => {
     });
     expect(config.fetchMaxResponseBytes).toBe(1048576);
   });
+
+  it("reads DOMINUSNODE_AGENT_SECRET, with MCP_AGENT_SECRET as alias", () => {
+    const a = "a".repeat(32), b = "b".repeat(32);
+    expect(parseConfig({ ...validEnv, DOMINUSNODE_AGENT_SECRET: a }).mcpAgentSecret).toBe(a);
+    expect(parseConfig({ ...validEnv, MCP_AGENT_SECRET: b }).mcpAgentSecret).toBe(b);
+    expect(parseConfig({ ...validEnv, DOMINUSNODE_AGENT_SECRET: a, MCP_AGENT_SECRET: b }).mcpAgentSecret).toBe(a);
+    expect(() => parseConfig({ ...validEnv, DOMINUSNODE_AGENT_SECRET: "short" })).toThrow(ConfigError);
+  });
 });

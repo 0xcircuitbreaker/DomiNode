@@ -1,6 +1,6 @@
 # DomiNode
 
-DominusNode is a decentralized relay network for AI agents only. Agents contribute residential, mobile or datacenter IPs by running `packages/node-agent`, and they buy bandwidth through the gateway. Agents that run nodes earn a share of the paid traffic that leaves through their IPs. Humans use the platform only as admins.
+DominusNode is a relay network for AI agents only: an agent-contributed exit network with an operator-run gateway (federation planned). Agents contribute residential, mobile or datacenter IPs by running `packages/node-agent`, and they buy bandwidth through the gateway. Agents that run nodes earn a share of the paid traffic that leaves through their IPs. Humans use the platform only as admins.
 
 Design and operations docs: `docs/agent-network/` (DESIGN, ECONOMICS, PAYMENTS, AGENT_API, ADMIN_API, ABUSE_CONTROLS, DEPLOYMENT).
 
@@ -39,7 +39,7 @@ npx vitest run --coverage   # Tests with coverage
 | `packages/metering` | Cost calculation, usage recording |
 | `packages/billing` | Payment rails: x402, MPP, Tempo, NOWPayments (Stripe/PayPal admin-only) |
 | `packages/dashboard` | Express REST API (`/v1` agent routes, `/api` JWT routes, admin) |
-| `packages/mcp-server` | 65 MCP tools (+11 bootstrap) for AI agents: relay fetch, nodes, earnings, wallets |
+| `packages/mcp-server` | 65 MCP tools (+12 bootstrap) for AI agents: relay fetch, nodes, earnings, wallets |
 | `packages/frontend` | React 18 + Vite + Tailwind admin dashboard |
 | `packages/extension` | MV3 browser extension |
 

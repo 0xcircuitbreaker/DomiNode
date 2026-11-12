@@ -252,8 +252,15 @@ describe("node-repo", () => {
     it("listForOwner clamps limit", async () => {
       mockQuery.mockResolvedValueOnce({ rows: [] });
       await listForOwner(U, { limit: 99999, offset: -5 });
-      expect(mockQuery.mock.calls[0][1]).toEqual([U, 2000, 0]);
+      expect(mockQuery.mock.calls[0][1]).toEqual([U, 2000, 0, null, null]);
       expect(String(mockQuery.mock.calls[0][0])).not.toContain("node_key_hash");
+    });
+    it("listForOwner keyset cursor ignores offset", async () => {
+      mockQuery.mockResolvedValueOnce({ rows: [] });
+      const at = new Date("2026-01-02T03:04:05.678Z");
+      await listForOwner(U, { limit: 10, offset: 50, cursor: { createdAt: at, id: N } });
+      expect(mockQuery.mock.calls[0][1]).toEqual([U, 10, 0, at, N]);
+      expect(String(mockQuery.mock.calls[0][0])).toContain("< ($4::timestamptz, $5::uuid)");
     });
     it("listAdmin filters and totals", async () => {
       mockQuery.mockResolvedValueOnce({ rows: [{ id: N }] }).mockResolvedValueOnce({ rows: [{ count: "1" }] });

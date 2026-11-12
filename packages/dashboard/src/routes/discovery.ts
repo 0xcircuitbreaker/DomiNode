@@ -1,6 +1,6 @@
 import { Router } from "express";
 import type { Request, Response } from "express";
-import { createLogger, policyRepo, BLOCKED_COUNTRY_CODES } from "@dominusnode/shared";
+import { createLogger, policyRepo, BLOCKED_COUNTRY_CODES, getPublicProxyPorts } from "@dominusnode/shared";
 
 /**
  * Agent discovery documents (v2): /.well-known/agent-tool.json and /llms.txt.
@@ -19,6 +19,8 @@ export interface DiscoveryEnv {
   proxyHost: string;
   httpPort: string;
   socks5Port: string;
+  /** HTTPS proxy port when the TLS listener is on, else null. */
+  tlsPort?: string | null;
   x402Enabled: boolean;
   rails: string[];
 }
@@ -35,8 +37,9 @@ export function discoveryEnv(env: NodeJS.ProcessEnv = process.env): DiscoveryEnv
   return {
     baseUrl: (env["APP_URL"] ?? "https://dominusnode.daedalusdevelopmentgroup.com").replace(/\/+$/, ""),
     proxyHost: env["PROXY_PUBLIC_HOST"] ?? "proxy.dominusnode.daedalusdevelopmentgroup.com",
-    httpPort: env["PROXY_HTTP_PORT"] ?? "8080",
-    socks5Port: env["SOCKS5_LISTEN_PORT"] ?? "1080",
+    httpPort: String(getPublicProxyPorts(env).http),
+    socks5Port: String(getPublicProxyPorts(env).socks5),
+    tlsPort: getPublicProxyPorts(env).tls !== null ? String(getPublicProxyPorts(env).tls) : null,
     x402Enabled: env["X402_ENABLED"] === "true",
     rails,
   };
@@ -57,7 +60,7 @@ export function buildAgentToolDocument(env: DiscoveryEnv, p: DiscoveryPricing): 
     schema_version: "2.0.0",
     name: "Dominus Node",
     description:
-      "Decentralized relay network for AI agents. Agents buy bandwidth through the gateway and exit through IPs other agents contribute; agents that run a node earn a share of the paid traffic that leaves through their IPs. Alpha: payouts are off until legal review, earnings accrue as credits.",
+      "Relay network for AI agents: an agent-contributed exit network with an operator-run gateway (federation planned). Agents buy bandwidth through the gateway and exit through IPs other agents contribute; agents that run a node earn a share of the paid traffic that leaves through their IPs. Alpha: payouts are off until legal review, earnings accrue as credits.",
     homepage: b,
     audience: "ai_agents",
     status: "alpha",
@@ -82,7 +85,9 @@ export function buildAgentToolDocument(env: DiscoveryEnv, p: DiscoveryPricing): 
     },
 
     proxy: {
+      ...(env.tlsPort ? { https: `https://{username}:{api_key}@${proxy}:${env.tlsPort}` } : {}),
       http: `http://{username}:{api_key}@${proxy}:${env.httpPort}`,
+      plaintext_warning: `Ports ${env.httpPort} (http) and ${env.socks5Port} (socks5) send the API key in clear; prefer the https proxy when listed.`,
       socks5: `socks5h://{username}:{api_key}@${proxy}:${env.socks5Port}`,
       username: {
         format: "hyphen-joined flags, or 'relay' for none",
@@ -188,7 +193,7 @@ export function buildLlmsTxt(env: DiscoveryEnv, p: DiscoveryPricing): string {
   return [
     "# Dominus Node",
     "",
-    "> Decentralized relay network for AI agents only. Agents buy bandwidth through the gateway; agents that run a node earn a share of the paid traffic that exits through their IPs. Alpha; payouts are off until legal review.",
+    "> Relay network for AI agents only: an agent-contributed exit network with an operator-run gateway (federation planned). Agents buy bandwidth through the gateway; agents that run a node earn a share of the paid traffic that exits through their IPs. Alpha: earnings convert into bandwidth today; USDC withdrawals are built but disabled.",
     "",
     "## Use it",
     `- No signup: pay per request with x402 or MPP at the gateway (${env.proxyHost}:${env.httpPort}).`,
