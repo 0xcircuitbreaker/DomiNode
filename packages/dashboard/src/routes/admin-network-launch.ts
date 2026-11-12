@@ -1,6 +1,6 @@
 import { Router } from "express";
 import type { Request, Response } from "express";
-import { createLogger, getPool, starterCreditRepo, genesisRepo, networkStatusRepo } from "@dominusnode/shared";
+import { createLogger, getPool, starterCreditRepo, genesisRepo, networkStatusRepo, rpcUrlFromEnv } from "@dominusnode/shared";
 import { requireAuth } from "../middleware/auth.js";
 import { requireAdmin } from "../middleware/admin.js";
 import { HttpError, fail, money, page, enumParam, uuidParam, withAdminTx, audit, adminId, UUID_RE } from "./admin-network-common.js";
@@ -154,6 +154,7 @@ function starterOut(s: Awaited<ReturnType<typeof starterCreditRepo.getSettings>>
     enabled: s.enabled, amount: money(s.amountMusd.toString()), dailyBudget: money(s.dailyBudgetMusd.toString()),
     perPrefixCap: s.perPrefixCap, perFundingSourceCap: s.perFundingSourceCap, capWindowDays: s.capWindowDays,
     expiryDays: s.expiryDays, seedNodesOnly: s.seedNodesOnly, seedOnlyDays: s.seedOnlyDays,
+    requireFunding: s.requireFunding, minTopupCents: s.minTopupCents, rpcConfigured: rpcUrlFromEnv() !== null,
     updatedBy: s.updatedBy, updatedAt: s.updatedAt,
   };
 }
@@ -181,6 +182,8 @@ const STARTER_SPEC: Record<string, FieldSpec> = {
   expiryDays: ["expiry_days", "int", 1n, 365n],
   seedNodesOnly: ["seed_nodes_only", "bool", 0n, 0n],
   seedOnlyDays: ["seed_only_days", "int", 0n, 365n],
+  requireFunding: ["require_funding", "bool", 0n, 0n],
+  minTopupCents: ["min_topup_cents", "int", 1n, 100_000n],
 };
 
 router.put("/starter-credits/settings", async (req: Request, res: Response) => {
@@ -242,6 +245,7 @@ function genesisOut(s: Awaited<ReturnType<typeof genesisRepo.getSettings>>) {
   return {
     enabled: s.enabled, maxOwners: s.maxOwners, bonusBps: s.bonusBps, boostDays: s.boostDays,
     credit: money(s.creditMusd.toString()), creditThresholdBytes: s.creditThresholdBytes.toString(),
+    minDistinctPayers: s.minDistinctPayers,
     updatedBy: s.updatedBy, updatedAt: s.updatedAt,
   };
 }
@@ -260,6 +264,7 @@ const GENESIS_SPEC: Record<string, FieldSpec> = {
   boostDays: ["boost_days", "int", 1n, 3650n],
   creditMusd: ["credit_musd", "musd", 0n, 1_000_000_000n],
   creditThresholdBytes: ["credit_threshold_bytes", "musd", 0n, 1_000_000_000_000_000n],
+  minDistinctPayers: ["min_distinct_payers", "int", 1n, 1000n],
 };
 
 router.put("/genesis/settings", async (req: Request, res: Response) => {
@@ -402,6 +407,109 @@ router.patch("/incidents/:id", async (req: Request, res: Response) => {
     });
     res.json({ id, updated: Object.keys(b) });
   } catch (err) { fail(res, err, "Incident update"); }
+});
+
+// ─── Announcements (GET /v1/announcements feed) ─────────────────────
+
+const ANN_CATEGORIES = ["policy", "pricing", "payments", "api", "network", "news"] as const;
+const ANN_FIELDS = ["title", "body", "category", "url", "published", "publishedAt"];
+
+function annUrl(v: unknown): string | null {
+  if (v === null) return null;
+  if (typeof v !== "string" || v.length > 500 || !/^https:\/\/\S+$/.test(v)) throw new HttpError(400, "url must be an https URL (<= 500 chars) or null");
+  return v;
+}
+
+function annDate(v: unknown): string {
+  const d = new Date(String(v));
+  if (typeof v !== "string" || Number.isNaN(d.getTime())) throw new HttpError(400, "publishedAt must be an ISO date");
+  return d.toISOString();
+}
+
+function annBool(v: unknown): boolean {
+  if (typeof v !== "boolean") throw new HttpError(400, "published must be a boolean");
+  return v;
+}
+
+router.get("/announcements", async (req: Request, res: Response) => {
+  try {
+    const { limit, offset } = page(req);
+    const [rows, total] = await Promise.all([
+      q<{ id: string; title: string; body: string; category: string; url: string | null; published: boolean; published_at: Date; updated_at: Date }>(
+        `SELECT id, title, body, category, url, published, published_at, updated_at FROM network_announcements
+         ORDER BY published_at DESC, id LIMIT $1 OFFSET $2`, [limit, offset]),
+      q<{ count: string }>(`SELECT COUNT(*)::text AS count FROM network_announcements`),
+    ]);
+    res.json({
+      limit, offset, total: Number(total.rows[0]?.count ?? 0),
+      items: rows.rows.map((a) => ({ id: a.id, title: a.title, body: a.body, category: a.category, url: a.url, published: a.published, publishedAt: a.published_at, updatedAt: a.updated_at })),
+    });
+  } catch (err) { fail(res, err, "Announcement list"); }
+});
+
+// POST /announcements {title, body?, category?, url?, published?, publishedAt?}
+router.post("/announcements", async (req: Request, res: Response) => {
+  try {
+    const b = body(req);
+    for (const k of Object.keys(b)) if (!ANN_FIELDS.includes(k)) throw new HttpError(400, `${k}: unknown field`);
+    const title = optText(b["title"], "title", 200, true) as string;
+    const text = optText(b["body"], "body", 10_000) ?? "";
+    const category = b["category"] === undefined ? "news" : oneOf(b["category"], "category", ANN_CATEGORIES);
+    const url = b["url"] === undefined ? null : annUrl(b["url"]);
+    const published = b["published"] === undefined ? true : annBool(b["published"]);
+    const publishedAt = b["publishedAt"] === undefined ? null : annDate(b["publishedAt"]);
+    const id = await withAdminTx(adminId(req), async (c) => {
+      const r = await c.query<{ id: string }>(
+        `INSERT INTO network_announcements (title, body, category, url, published, published_at, created_by, updated_by)
+         VALUES ($1, $2, $3, $4, $5, COALESCE($6::timestamptz, now()), $7, $7) RETURNING id`,
+        [title, text, category, url, published, publishedAt, adminId(req)]);
+      const nid = r.rows[0]?.id as string;
+      await audit(c, req, "announcement_create", "network_announcement", nid, { title, category, published });
+      return nid;
+    });
+    res.status(201).json({ id, title, category, published });
+  } catch (err) { fail(res, err, "Announcement create"); }
+});
+
+// PATCH /announcements/:id {title?, body?, category?, url?, published?, publishedAt?}
+router.patch("/announcements/:id", async (req: Request, res: Response) => {
+  try {
+    const id = idParam(req);
+    const b = body(req);
+    const sets: string[] = [];
+    const vals: unknown[] = [id];
+    const add = (col: string, v: unknown, cast = "") => { vals.push(v); sets.push(`${col} = $${vals.length}${cast}`); };
+    for (const k of Object.keys(b)) {
+      if (k === "title") add("title", optText(b[k], "title", 200, true));
+      else if (k === "body") add("body", optText(b[k], "body", 10_000) ?? "");
+      else if (k === "category") add("category", oneOf(b[k], "category", ANN_CATEGORIES));
+      else if (k === "url") add("url", annUrl(b[k]));
+      else if (k === "published") add("published", annBool(b[k]));
+      else if (k === "publishedAt") add("published_at", annDate(b[k]), "::timestamptz");
+      else throw new HttpError(400, `${k}: unknown field`);
+    }
+    if (sets.length === 0) throw new HttpError(400, "No fields to update");
+    vals.push(adminId(req));
+    await withAdminTx(adminId(req), async (c) => {
+      const r = await c.query<{ id: string }>(
+        `UPDATE network_announcements SET ${sets.join(", ")}, updated_by = $${vals.length}, updated_at = now() WHERE id = $1 RETURNING id`, vals);
+      if (!r.rows[0]) throw new HttpError(404, "Announcement not found");
+      await audit(c, req, "announcement_update", "network_announcement", id, { fields: Object.keys(b) });
+    });
+    res.json({ id, updated: Object.keys(b) });
+  } catch (err) { fail(res, err, "Announcement update"); }
+});
+
+router.delete("/announcements/:id", async (req: Request, res: Response) => {
+  try {
+    const id = idParam(req);
+    await withAdminTx(adminId(req), async (c) => {
+      const r = await c.query<{ id: string }>(`DELETE FROM network_announcements WHERE id = $1 RETURNING id`, [id]);
+      if (!r.rows[0]) throw new HttpError(404, "Announcement not found");
+      await audit(c, req, "announcement_delete", "network_announcement", id, {});
+    });
+    res.json({ id, deleted: true });
+  } catch (err) { fail(res, err, "Announcement delete"); }
 });
 
 // ─── Unmet demand ───────────────────────────────────────────────────
