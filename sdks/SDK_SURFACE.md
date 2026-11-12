@@ -1,7 +1,7 @@
 # DominusNode SDK surface (v2)
 
 Language-neutral contract for all six SDKs. The reference implementation is
-`sdks/node` (2.0.0); Python, Go, Rust, Java and C++ must expose the same
+`sdks/node` (2.0.1); Python, Go, Rust, Java and C++ must expose the same
 resources, methods, parameters, results, errors and security behaviour.
 Use each language's naming convention (`register_challenge`, `RegisterChallenge`,
 `registerChallenge`), but keep the names below recognisable.
@@ -10,7 +10,8 @@ Server sources: `docs/agent-network/AGENT_API.md`, `packages/dashboard/src/route
 `packages/dashboard/src/routes/{auth,wallet-auth,keys,wallet,agent-wallet,teams,usage,sessions,x402,proxy-health,proxy-config}.ts`,
 `packages/proxy-gateway/src/auth.ts` (`parseProxyOptions`).
 
-**Totals: 15 resources, 71 resource methods, plus 3 client members.**
+**Totals: 15 resources, 71 resource methods, plus 3 client members.** Pagination helpers (section 3.16)
+are conveniences on top and are not counted.
 
 | Resource | Methods |
 |---|---|
@@ -118,7 +119,7 @@ Action: payout_wallet_set
 User: <userId>
 Account wallet: <signer.address lowercased>
 Payout address: <address lowercased>
-Chain: base
+Chain: <chain>
 Nonce: <nonce>
 ```
 
@@ -151,6 +152,9 @@ Store the raw value in a private field so reflection/key listing does not show i
 - Timeout 30 s per request.
 - **Redirects disabled.** A 3xx raises an error and is never followed.
 - **Response cap 10 MB.** Reject when `Content-Length` > 10 MB (cancel the body) or when the read body exceeds 10 MB.
+  Read the body as a stream with a byte counter and cancel it as soon as the count passes 10 MB; never buffer a
+  chunked (no `Content-Length`) body in full first. A malformed `Content-Length` (not 1..19 digits) raises ServerError.
+- **409 is never retried** (e.g. `REPORT_LIMIT`, `ALREADY_REPORTED`); it surfaces as ConflictError with `code`.
 - **429:** retry at most once. Wait `min(Retry-After seconds (default 5), 10 s)`, apply ±10 % jitter, floor 100 ms. Cancel/close the 429 body without reading it. If the retry is also 429, raise RateLimitError with `retryAfterSeconds` (Retry-After, default 60).
 - **401 with JWT auth:** force one token refresh (singleton refresh for concurrent callers), retry once. Refresh failure clears both tokens and raises AuthenticationError.
 - JSON parse: recursively delete `__proto__`, `constructor`, `prototype` keys (depth limit 50) or the language equivalent. Empty body -> empty object.
@@ -278,11 +282,14 @@ AgenticWallet = `{id, label, balanceCents, spendingLimitCents, dailyLimitCents, 
 | `listInvites(teamId)` | GET `/{teamId}/invites` |
 | `cancelInvite(teamId, inviteId)` | DELETE `/{teamId}/invites/{inviteId}` |
 | `acceptInvite(token)` | POST `/api/teams/invites/{token}/accept` `{}` |
-| `createKey(teamId, label)` | label 1..100; POST `/{teamId}/keys` `{label}` -> `{id, keyPrefix, label, key: Secret}` |
-| `listKeys(teamId)` | GET `/{teamId}/keys` |
+| `createKey(teamId, label)` | label 1..100; POST `/{teamId}/keys` `{label}` -> `{id, prefix, label, createdAt, key: Secret}` (read `prefix`; accept legacy `keyPrefix`) |
+| `listKeys(teamId)` | GET `/{teamId}/keys` -> `{keys: [{id, prefix, label, userId, teamId, createdAt, revokedAt}]}` (legacy `keyPrefix` mapped to `prefix`) |
 | `revokeKey(teamId, keyId)` | DELETE `/{teamId}/keys/{keyId}` |
 
 Team API keys cannot call `/v1` agent routes (server 403).
+
+TeamInvite = `{id, teamId, email, role, invitedBy, expiresAt, createdAt}`. The invite token is never returned by
+list/create (it is delivered to the invitee); there is no `token` field.
 
 ### 3.7 usage (4) — [jwt]
 
@@ -294,6 +301,10 @@ Date range: `from` -> query `since`, `to` -> `until` (ISO 8601).
 | `getDaily(from?, to?)` | GET `/api/usage/daily` -> `{days, period}` |
 | `getTopHosts(from?, to?, limit?)` | GET `/api/usage/top-hosts` -> `{hosts, period}` |
 | `exportCsv(from?, to?)` | GET `/api/usage/export` -> raw CSV string |
+
+Byte counts (`bytesIn`, `bytesOut`, `totalBytes`, and `paidBytes24h` in network stats) are integers but may
+arrive as numbers or numeric strings; typed SDKs (Go, Rust, Java, C++) accept both (`^-?[0-9]{1,19}$` for
+strings, null -> 0) and refuse anything else.
 
 ### 3.8 sessions (2)
 
@@ -311,8 +322,8 @@ Date range: `from` -> query `since`, `to` -> `until` (ISO 8601).
 | Method | Request | Result |
 |---|---|---|
 | `policy()` | GET `/v1/policy` | `{version, sha256, body: object, floorGuarantees: [string]}` |
-| `pricing()` | GET `/v1/pricing` | `{currency:"USD", unit:"musd_per_gb", prices:[{ipClass, pricePerGbMusd}], nodeShare:[{tier, rank, nodeShareBps}], maturationHours, rails:[string]}` |
-| `stats()` | GET `/v1/network/stats` | `{onlineNodes, byClass: map, byCountry: [{country, online}], otherCountries, generatedAt}` |
+| `pricing()` | GET `/v1/pricing` | `{currency:"USD", unit:"musd_per_gb", prices:[{ipClass, pricePerGbMusd}], nodeShare:[{tier, rank, nodeShareBps}], buyerDiscounts:[{tier, rank, buyerDiscountBps}], maturationHours, rails:[string]}` |
+| `stats()` | GET `/v1/network/stats` | `{onlineNodes, byClass: map, byCountry: [{country, online}], otherCountries, seed:{online, paidBytes24h}, community:{online, paidBytes24h}, generatedAt}` (seed = operator-run, community = agent-run; paidBytes24h is a decimal string) |
 
 ### 3.11 nodes (6) — [agent]
 
@@ -323,7 +334,7 @@ Date range: `from` -> query `since`, `to` -> `until` (ISO 8601).
 | `list(limit?, offset?)` | limit 1..500, offset 0..1,000,000; GET `/v1/nodes?limit&offset` | `{nodes:[NodeInfo], limit, offset}` |
 | `revoke(nodeId)` | UUID; DELETE `/v1/nodes/{id}` | `{id, status}` |
 | `updateCaps(nodeId, maxStreams?, gbPerDay?, reqPerSec?)` | UUID; each present value integer 1..1,000,000; at least one; PATCH `/v1/nodes/{id}` with only the present keys | `{id, status, caps, effective, appliesOn}` |
-| `tier()` | GET `/v1/node/tier` | `{tier, nextTier, progress, changedAt, uptimeGraceUntil, demotionReason}`; TierView `dailyWithdrawLimitMusd` is a string |
+| `tier()` | GET `/v1/node/tier` | `{tier, nextTier, progress, changedAt, uptimeGraceUntil, demotionReason}`; TierView `{id, name, rank, nodeShareBps, holdDays, maxNodes, dailyWithdrawLimitMusd (string), buyerDiscountBps}` |
 
 **register flow**
 1. Validate signer, pubkey, `maxStreams` 1..1024, `maxGbDay` 1..10000 (before any request).
@@ -341,8 +352,8 @@ NodeInfo = `{id, status, walletAddress, nodePubkey, attestationVersion, observed
 
 | Method | Request | Result |
 |---|---|---|
-| `balance()` | GET `/v1/credits` | `{pending, available, frozen, autoConvertPct, tier:{id, name, rank, holdDays, dailyWithdrawLimit}, taxFormStatus, ytdPaid, payoutsEnabled, minWithdraw}` (Money fields) |
-| `transactions(limit?, cursor?, type?)` | limit 1..200; cursor `^[0-9]{1,20}$`; type in `earn mature clawback convert withdraw withdraw_reversal`; GET `/v1/credits/transactions?limit&cursor&type` | `{transactions:[{id, type, amount, relayChargeId, reference, createdAt}], nextCursor}` |
+| `balance()` | GET `/v1/credits` | `{pending, available, frozen, autoConvertPct, tier:{id, name, rank, holdDays, dailyWithdrawLimit}, taxFormStatus, ytdPaid, payoutsEnabled, minWithdraw, buyerDiscountBps}` (Money fields; buyerDiscountBps is 0 unless the account runs a node) |
+| `transactions(limit?, cursor?, type?)` | limit 1..200; cursor `^[1-9][0-9]{0,18}$` (same as the server); type in `earn mature clawback convert withdraw withdraw_reversal`; GET `/v1/credits/transactions?limit&cursor&type` | `{transactions:[{id, type, amount, relayChargeId, reference, createdAt}], nextCursor}` |
 | `convert(amountMusd, idempotencyKey?)` | 10,000 <= amount <= 10,000,000,000; POST `/v1/credits/convert` header `Idempotency-Key: <key>` body `{amountMusd:"<string>"}` | `{converted, convertedCents, duplicate, idempotencyKey}` (key echoed so callers can retry) |
 | `withdraw(amountMusd, signer, idempotencyKey?)` | see flow | `{payout, duplicate, idempotencyKey}` |
 
@@ -359,9 +370,11 @@ status in `pending held_tax held_frozen submitted confirmed failed reversed`.
 | Method | Request | Result |
 |---|---|---|
 | `get()` | GET `/v1/payout-wallet` | `{payoutWallet: {address, chain, status: active|pending, activeFrom} | null, cooldownHours}` |
-| `set(address, signer, chain = "base", oldWalletSigner?)` | see flow | `{payoutWallet, changed, cooldownHours}` |
+| `set(address, signer, chain = "base", oldWalletSigner?)` | chain `base` or `base-sepolia`; see flow | `{payoutWallet, changed, cooldownHours}` |
 
-**set flow**: validate address (lowercase it) and chain == `base`, validate both signers.
+**set flow**: validate address (lowercase it) and chain in `base`, `base-sepolia`, validate both signers.
+`base-sepolia` is an explicit opt-in for staging; the SDK sends it as given and the server decides (it accepts it
+only outside production). The chain goes into the signed message's `Chain:` line.
 POST `/v1/payout-wallet/challenge` `{address, chain}` ->
 `{nonce, message, expiresAt, signer, oldWalletSignatureRequired, oldWalletAddress}`.
 Check nonce, server `signer` == `signer.address`, rebuild + compare the payout-wallet message.
@@ -391,7 +404,7 @@ PUT `/v1/payout-wallet` `{address, chain, nonce, signature, oldWalletSignature?}
 | `buildUsername(options)` | as above |
 | `buildUrl(options, protocol = http|https|socks5, apiKey?)` | `<protocol>://<urlenc(username)>:<urlenc(apiKey)>@<proxyHost>:<port>`; port = httpProxyPort, gatewayTls.port or socks5ProxyPort. Default protocol: `https` when gatewayTls is set, else `http`; `https` without gatewayTls is INVALID_ARGUMENT. Key = argument or the connected key (AuthenticationError if none; validated). |
 | `fetch(url, options)` | see below -> `{status, statusText, headers: map, body: bytes, truncated: bool, text()}` |
-| `getHealth()` | GET `/api/proxy/health` [none] -> `{status, activeSessions, uptimeSeconds}` |
+| `getHealth()` | GET `/api/proxy/health` [none] -> `{status}` only (build it field by field; never default missing counters to 0) |
 | `getConfig()` | GET `/api/proxy/config` [jwt] -> object |
 
 **fetch** options: routing flags above + `method` (GET default | HEAD), `headers`,
@@ -418,6 +431,34 @@ IPv6 (strip brackets and `%zone`, fully expand incl. embedded dotted IPv4):
 NAT64 `64:ff9b::/96` (embedded IPv4), `fc00::/7`, `fe80::/10`, `fec0::/10`, `ff00::/8`,
 Teredo `2001:0000::/32`, 6to4 `2002::/16`, documentation `2001:db8::/32`.
 
+### 3.16 Pagination helpers (not counted in the 71)
+
+Lazy: fetch the next page only when the current one is used up. `limit` is the page size and is validated
+before the first request. Stop on a short page (fewer than `limit` items), on an empty page, at
+`pagination.total` (usage) or when `nextCursor` is null, invalid or repeats (credits). An API error ends
+the iteration and propagates.
+
+| Helper | Pages over | Default / max page |
+|---|---|---|
+| credits transactions | `credits.transactions` via `nextCursor` (optional `type`) | server default / 200 |
+| payouts | `payouts.list` (offset) | 50 / 200 |
+| nodes | `nodes.list` (offset) | 100 / 500 |
+| usage records | `usage.get` (offset, `from`/`to`) | 200 / 1000 |
+| wallet transactions | `wallet.getTransactions` (offset) | 50 / 100 |
+
+Shape per language: Node `async *iterTransactions()` / `iterate()` / `iterRecords()`; Python generators
+(`iter_transactions`, `iterate`, `iter_records`; async generators on the async client); Go callbacks
+(`EachTransaction`, `Each`, `EachRecord`; return `ErrStopIteration` to stop; go.mod targets 1.22, so no
+range-over-func); Rust `Stream`s (`iter_transactions`, `iter`, `iter_records`); Java `Iterator` + `Stream`
+(`iterTransactions`/`streamTransactions`, `iterate`/`stream`, `iterRecords`/`streamRecords`); C++ callbacks
+returning `false` to stop (`for_each_transaction`, `for_each`, `for_each_record`).
+
+### 3.17 README requirements
+
+Every SDK README documents: node-registration PoW is bound to the client IP (call `registerChallenge` and
+`register` from the same egress), and a troubleshooting table covering 402 vs 407, `EMAIL_NOT_VERIFIED`,
+`NO_NODES_AVAILABLE`, `PAYOUTS_DISABLED` and `REPORT_LIMIT`.
+
 ## 4. Tests every SDK must have
 
 Mock the HTTP transport (return bodies through the text()/raw-body path).
@@ -427,6 +468,9 @@ Mock the HTTP transport (return bodies through the text()/raw-body path).
 - 429: one retry then success; second 429 -> RateLimitError; delay bounds (10 s cap ±10 %, 100 ms floor).
 - 401 JWT refresh + retry; no refresh for API-key auth; refresh failure clears tokens.
 - 10 MB cap by Content-Length and by actual size; redirects disabled.
+- 409 (`REPORT_LIMIT`) not retried and carries `code`; 429 retried exactly once.
+- Team keys read `prefix` with `keyPrefix` fallback; health returns `{status}` only; cursor regex; `base-sepolia`
+  accepted and other chains refused; byte counts as numbers or numeric strings (typed SDKs); pagination helpers.
 - Signer flows: node register (PoW solution verifies), withdraw, payout-wallet first set and change (old signer signs the same message); **message mismatch refusal** for each flow with the signer never called; server `signer` != signer.address refusal; bad signature format from the signer.
 - Redaction: Secret, client, token manager in string/debug/JSON; `disconnect()` clears key + tokens; `clear()` keeps the refresh callback.
 - `getActive()` drops unknown fields such as `proxyIp`.
