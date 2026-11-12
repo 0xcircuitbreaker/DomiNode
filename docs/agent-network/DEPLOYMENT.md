@@ -462,8 +462,163 @@ After the first registration, flag the node: admin panel → Launch controls →
 - `OPERATOR_CONTACT` must be a plain email address; anything else (spaces,
   braces, quotes, newlines) is refused because it is written into the
   Caddyfile and `.env`.
-- The optional `node` profile dials `${TUNNEL_SCHEME}://${DOMINUSNODE_DOMAIN}:8443/v1/tunnel`
-  (`wss` unless `TLS_MODE=off`).
+- The optional `node` profile dials `${TUNNEL_SCHEME}://${RELAY_HOST}:8443/v1/tunnel`
+  (`wss` unless `TLS_MODE=off`; `RELAY_HOST` defaults to the primary hostname).
+
+### Split self-host: ROLE, RELAY_HOST/PROXY_HOST, Cloudflare Tunnel
+
+The installer picks compose profiles from two settings (stored in `.env`):
+
+| `ROLE` | Runs | Typical box |
+|---|---|---|
+| `all` (default) | postgres, migrate, api, gateway, Caddy | one box, current behaviour |
+| `coordinator` | postgres, migrate, api (+ Caddy unless `TLS_MODE=cloudflare`) | home server |
+| `gateway` | gateway + Caddy for `RELAY_HOST` only | small VPS |
+
+| `TLS_MODE` | Site/API front end |
+|---|---|
+| `auto` / `internal` / `off` | Caddy, as before |
+| `cloudflare` | `cloudflared` (outbound-only tunnel). No host ports for site/API. Not allowed with `ROLE=gateway` |
+
+`RELAY_HOST` and `PROXY_HOST` are the gateway's public names (for example
+`relay.dominusnode.com`, `proxy.dominusnode.com`). They feed
+`PROXY_PUBLIC_HOST` (advertised proxy endpoint), `COORD_TUNNEL_URL`
+(`wss://RELAY_HOST:8443/v1/tunnel` in coordinator.json) and the node tunnel
+URL. With `TLS_MODE=cloudflare` the installer refuses a `RELAY_HOST` or
+`PROXY_HOST` that is also a tunnel hostname: **proxy and relay traffic must
+never go through Cloudflare** (long-lived raw TCP/WebSocket on ports 8080, 1080
+and 8443, which the tunnel's HTTP hostnames do not carry and Cloudflare's terms
+do not allow for proxying). Point those DNS records (grey cloud, DNS only) at
+the box that runs the gateway.
+
+All new inputs are validated: hostnames by regex with no newlines, the token
+path by `[A-Za-z0-9._/-]`, WireGuard addresses must be private IPv4 and the
+public keys 64 hex. `env_set` refuses multi-line values. Re-runs keep secrets.
+
+#### Cloudflare Tunnel (TLS_MODE=cloudflare)
+
+1. Cloudflare dashboard → Zero Trust → Networks → Tunnels → Create a tunnel →
+   Cloudflared. Name it (e.g. `dominusnode-home`). Copy the token from the
+   install command shown (the long string after `--token`). Do not run that
+   command.
+2. On the server, store only the token in a 0600 file:
+   `install -m 600 /dev/null selfhost/cloudflared.token && read -rs T && printf '%s' "$T" > selfhost/cloudflared.token; unset T`.
+   The installer refuses the file unless it is a regular one-line file with mode
+   0600/0400. Its path (never the token) goes in `.env` as
+   `CLOUDFLARE_TUNNEL_TOKEN_FILE`. A root-only one-shot service copies it into
+   a volume readable only by cloudflared's uid (65532), and cloudflared reads it
+   with `--token-file` (cloudflared ≥ 2025.4.0). The image is pinned by version
+   and digest in `docker-compose.selfhost.yml`.
+3. In the tunnel → Public Hostnames, add one entry per site hostname, each with
+   service type `HTTP` and URL `api:3000`: `dominusnode.com`, `www.dominusnode.com`,
+   `api.dominusnode.com` and any alias hostnames (for example the DDG alias
+   domain and its `www`). List the same names in `DOMINUSNODE_HOSTNAMES`.
+   Cloudflare creates the proxied DNS records.
+4. Do **not** add `proxy.` or `relay.` hostnames to the tunnel.
+5. Remove any old A/AAAA records and router port forwards for the site
+   hostnames: nothing inbound is needed on the coordinator.
+
+#### Gateway on a VPS, coordinator at home (WireGuard)
+
+**Who signs.** The gateway signs every node-tunnel CHALLENGE
+(`COORD_SIGNING_KEY_FILE`, `packages/proxy-gateway/src/node-tunnel/coord-key.ts`),
+so the box running the gateway must hold a signing key. There is no subkey or
+remote-signing mechanism in the code today. The installer therefore uses **two
+independent keys**:
+
+- the coordinator key (`selfhost/coord-key.pem` on the home box) never leaves home;
+- the VPS generates its **own** key on first run (`selfhost/coord-key.pem` on
+  the VPS). Its public key is pinned next to the home key
+  (`DN_COORD_PUBKEYS=<home>,<vps>` on the VPS; `GATEWAY_PUBKEY` /
+  `COORD_ADDITIONAL_PUBKEYS` on the coordinator so coordinator.json lists it).
+
+Trade-off: a stolen VPS key can impersonate the gateway to nodes (and, being a
+pinned key, sign documents) until it is rotated out (§3); a stolen home key is
+not exposed by a VPS compromise. Keep the VPS key only on the VPS, rotate it on
+any suspicion, and ship node builds pinning both. A remote signing endpoint
+over WireGuard (key stays home, gateway asks per CHALLENGE) would be safer but
+needs gateway code changes and is not implemented.
+
+**WireGuard (both boxes).** Generate keys on each box; private keys never
+leave it:
+
+```bash
+sudo apt install wireguard
+umask 077; wg genkey | sudo tee /etc/wireguard/wg0.key | wg pubkey   # prints this box's public key
+```
+
+Home (`/etc/wireguard/wg0.conf`, 10.66.0.1):
+
+```ini
+[Interface]
+Address = 10.66.0.1/24
+ListenPort = 51820
+PostUp = wg set %i private-key /etc/wireguard/wg0.key
+[Peer]
+PublicKey = <VPS public key>
+AllowedIPs = 10.66.0.2/32
+```
+
+VPS (10.66.0.2; the VPS dials home, so home needs UDP 51820 forwarded, or swap
+roles so home dials a listening VPS and nothing is forwarded at home):
+
+```ini
+[Interface]
+Address = 10.66.0.2/24
+PostUp = wg set %i private-key /etc/wireguard/wg0.key
+[Peer]
+PublicKey = <home public key>
+Endpoint = <home public IP or DDNS>:51820
+AllowedIPs = 10.66.0.1/32
+PersistentKeepalive = 25
+```
+
+`sudo systemctl enable --now wg-quick@wg0` on both. Firewall on the home box so
+only the VPS reaches Postgres, and only over wg0 (Docker-published ports bypass
+the INPUT chain, so filter in `DOCKER-USER`):
+
+```bash
+sudo iptables -I DOCKER-USER -p tcp --dport 5432 ! -i wg0 -j DROP
+sudo iptables -I DOCKER-USER -i wg0 -p tcp --dport 5432 ! -s 10.66.0.2 -j DROP
+```
+
+Persist these with your distribution's tool (`iptables-persistent`, nftables).
+
+**Database link.** The coordinator publishes Postgres only on `DB_WG_BIND`
+(its WireGuard address) through `docker-compose.selfhost.wg-db.yml`, which the
+installer adds automatically. The gateway uses
+`GATEWAY_DATABASE_URL=postgresql://dominusnode:<POSTGRES_PASSWORD>@10.66.0.1:5432/dominusnode`.
+The installer accepts only a private IPv4 host and a password of 24+
+alphanumerics (the coordinator's generated `POSTGRES_PASSWORD` is 48 hex). The
+link is encrypted by WireGuard; Postgres itself runs without TLS (`DB_SSL=false`),
+so never publish it on any other interface. Pass the URL through the
+environment or the hidden prompt, not as a command-line argument; it is stored
+only in the 0600 `.env`.
+
+**Boot order.** Docker can bind `DB_WG_BIND` only while wg0 is up. If Docker
+starts first, the postgres container fails and takes api and migrate with it.
+On systemd the installer adds this drop-in when it starts the stack; otherwise
+add it by hand:
+
+```ini
+# /etc/systemd/system/docker.service.d/10-after-wg.conf
+[Unit]
+Wants=wg-quick@wg0.service
+After=wg-quick@wg0.service
+```
+
+then run `sudo systemctl daemon-reload`. The installer also refuses a
+`DB_WG_BIND` that is not assigned to a WireGuard interface, so a LAN address
+such as 192.168.1.10 cannot publish Postgres to the home network. Bring wg0 up
+before running it. `ALLOW_NON_WG_DB_BIND=1` overrides the check (tests only).
+
+**Changing role.** Every run rewrites all role-specific keys
+(`GATEWAY_DATABASE_URL`, `COORD_PUBKEY`, `DB_WG_BIND`, `GATEWAY_PUBKEY`,
+`COORD_ADDITIONAL_PUBKEYS`) and clears those that do not belong to the new
+role. To retire a gateway key, rerun the coordinator with an empty
+`GATEWAY_PUBKEY`.
+
+Admin live gateway stats (`PROXY_INTERNAL_HOST`) are not wired across the split.
 
 ## 8. Launch jobs and settings
 

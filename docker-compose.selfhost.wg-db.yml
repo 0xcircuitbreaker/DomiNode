@@ -1,0 +1,12 @@
+# ROLE=coordinator with a separate gateway VPS (scripts/selfhost/install.sh adds
+# this file when DB_WG_BIND is set). Publishes Postgres ONLY on the coordinator's
+# WireGuard address; firewall the port to the wg interface as well
+# (docs/agent-network/DEPLOYMENT.md §7c). Never set DB_WG_BIND to a public address.
+services:
+  postgres:
+    networks: [backend, dbexpose]
+    ports:
+      - "${DB_WG_BIND:?set DB_WG_BIND to the coordinator WireGuard address}:5432:5432"
+
+networks:
+  dbexpose: {}
