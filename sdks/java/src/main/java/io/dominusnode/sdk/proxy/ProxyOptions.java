@@ -16,7 +16,7 @@ import java.util.Set;
  */
 public final class ProxyOptions {
     private static final Set<String> OFAC = Set.of("CU", "IR", "KP", "RU", "SY");
-    private static final Set<String> IP_CLASSES = Set.of("residential", "dc", "mobile");
+    private static final Set<String> IP_CLASSES = Set.of("residential", "dc", "mobile", "masked");
     public static final int DEFAULT_TIMEOUT_MS = 30_000;
     public static final int MAX_TIMEOUT_MS = 120_000;
     public static final int MAX_BYTES = 10 * 1024 * 1024;
@@ -37,7 +37,7 @@ public final class ProxyOptions {
     /** ISO 3166-1 alpha-2; OFAC-sanctioned countries are refused. */
     public ProxyOptions country(String v) { country = v; return this; }
 
-    /** residential, dc or mobile. */
+    /** residential, dc, mobile or masked (VPN/WARP/Tor exits: cheapest, opt-in). */
     public ProxyOptions ipClass(String v) { ipClass = v; return this; }
 
     /** Sticky session id, 1-64 alphanumeric. */
@@ -76,7 +76,7 @@ public final class ProxyOptions {
             parts.add("country-" + c);
         }
         if (ipClass != null) {
-            if (!IP_CLASSES.contains(ipClass)) throw Validation.invalid("ipClass must be residential, dc or mobile");
+            if (!IP_CLASSES.contains(ipClass)) throw Validation.invalid("ipClass must be residential, dc, mobile or masked");
             parts.add("class-" + ipClass);
         }
         if (sessionId != null) {
