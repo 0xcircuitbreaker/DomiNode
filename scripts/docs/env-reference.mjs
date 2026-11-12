@@ -56,6 +56,19 @@ function collect(pkg) {
   return vars;
 }
 
+const SELFHOST_VARS = [
+  ["CLOUDFLARE_TUNNEL_TOKEN_FILE", "./selfhost/cloudflared.token", "cloudflared (TLS_MODE=cloudflare); path of a 0600 file, the token is never in .env"],
+  ["COORD_ADDITIONAL_PUBKEYS", "", "api federation document (ROLE=coordinator: gateway VPS key)"],
+  ["COORD_PUBKEY", "", "installer pin of the coordinator key (ROLE=gateway)"],
+  ["DB_WG_BIND", "", "Postgres publish address on the WireGuard interface (ROLE=coordinator)"],
+  ["GATEWAY_DATABASE_URL", "", "gateway DATABASE_URL over WireGuard (ROLE=gateway)"],
+  ["GATEWAY_PUBKEY", "", "gateway VPS public key (ROLE=coordinator)"],
+  ["PROXY_HOST", "", "advertised proxy hostname"],
+  ["RELAY_HOST", "", "advertised relay and node tunnel hostname"],
+  ["ROLE", "all", "all, coordinator or gateway"],
+  ["TLS_MODE", "auto", "auto, internal, off or cloudflare"],
+];
+
 function render() {
   const lines = [
     "# Environment variable reference",
@@ -82,6 +95,16 @@ function render() {
     }
     lines.push("");
   }
+  lines.push(
+    "## Self-host installer (`.env`, read by compose and `scripts/selfhost/install.sh`)",
+    "",
+    "Not scanned from code; maintained in `SELFHOST_VARS` in the generator. See DEPLOYMENT.md self-host section.",
+    "",
+    "| Variable | Default(s) | Used by |",
+    "|---|---|---|",
+    ...SELFHOST_VARS.map(([n, d, u]) => `| \`${n}\` | ${d ? `\`${d}\`` : ""} | ${u} |`),
+    "",
+  );
   return lines.join("\n");
 }
 
