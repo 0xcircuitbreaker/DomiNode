@@ -165,4 +165,12 @@ public final class NodesResource {
 
     /** GET /v1/node/tier. */
     public JsonNode tier() { return http.get("/v1/node/tier", Auth.AGENT); }
+
+    /** Every node you own (offset pagination; page size default 100, max 500). */
+    public java.util.Iterator<JsonNode> iterate(Integer limit) {
+        int l = Paging.pageSize(limit, 100, 500);
+        return Paging.offset(l, "nodes", false, this::list);
+    }
+
+    public java.util.stream.Stream<JsonNode> stream(Integer limit) { return Paging.stream(iterate(limit)); }
 }

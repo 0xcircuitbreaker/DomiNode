@@ -20,19 +20,32 @@ public final class TeamsResource {
     /** A new team key; {@code key} is returned once and prints as [REDACTED]. */
     public static final class CreatedTeamKey {
         public final String id;
+        /** Server field {@code prefix} (legacy {@code keyPrefix} accepted). */
+        public final String prefix;
+        /** @deprecated use {@link #prefix}; kept as an alias. */
+        @Deprecated
         public final String keyPrefix;
         public final String label;
+        public final String createdAt;
         public final Secret key;
 
         CreatedTeamKey(JsonNode r) {
             id = r.path("id").asText(null);
-            keyPrefix = r.path("keyPrefix").asText(null);
+            prefix = prefixOf(r);
+            keyPrefix = prefix;
             label = r.path("label").asText(null);
+            createdAt = r.path("createdAt").isTextual() ? r.get("createdAt").asText() : null;
             key = new Secret(r.path("key").asText(""));
         }
 
         @Override
-        public String toString() { return "CreatedTeamKey(id=" + id + ", keyPrefix=" + keyPrefix + ", key=[REDACTED])"; }
+        public String toString() { return "CreatedTeamKey(id=" + id + ", prefix=" + prefix + ", key=[REDACTED])"; }
+    }
+
+    static String prefixOf(JsonNode r) {
+        if (r.path("prefix").isTextual()) return r.get("prefix").asText();
+        if (r.path("keyPrefix").isTextual()) return r.get("keyPrefix").asText();
+        return null;
     }
 
     private static String t(String teamId) { return BASE + "/" + seg(teamId); }
@@ -103,7 +116,23 @@ public final class TeamsResource {
         return new CreatedTeamKey(http.post(t(teamId) + "/keys", body("label", label), Auth.JWT));
     }
 
-    public JsonNode listKeys(String teamId) { return http.get(t(teamId) + "/keys", Auth.JWT); }
+    /**
+     * GET /{teamId}/keys -> {keys: [{id, prefix, label, userId, teamId, createdAt, revokedAt}]}. A legacy
+     * {@code keyPrefix} is copied to {@code prefix}.
+     */
+    public JsonNode listKeys(String teamId) {
+        JsonNode r = http.get(t(teamId) + "/keys", Auth.JWT);
+        JsonNode keys = r == null ? null : r.get("keys");
+        if (keys != null && keys.isArray()) {
+            for (JsonNode k : keys) {
+                if (k instanceof com.fasterxml.jackson.databind.node.ObjectNode && !k.path("prefix").isTextual()) {
+                    String p = prefixOf(k);
+                    if (p != null) ((com.fasterxml.jackson.databind.node.ObjectNode) k).put("prefix", p);
+                }
+            }
+        }
+        return r;
+    }
 
     public void revokeKey(String teamId, String keyId) {
         http.delete(t(teamId) + "/keys/" + seg(keyId), Auth.JWT);

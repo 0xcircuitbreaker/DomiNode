@@ -47,4 +47,12 @@ public final class WalletResource {
     public JsonNode getCryptoStatus(String invoiceId) {
         return http.get("/api/wallet/crypto/status/" + seg(Validation.uuid(invoiceId, "invoiceId")), Auth.JWT);
     }
+
+    /** Every wallet transaction (offset pagination; page size default 50, server max 100). */
+    public java.util.Iterator<JsonNode> iterTransactions(Integer limit) {
+        int l = Paging.pageSize(limit, 50, 100);
+        return Paging.offset(l, "transactions", false, this::getTransactions);
+    }
+
+    public java.util.stream.Stream<JsonNode> streamTransactions(Integer limit) { return Paging.stream(iterTransactions(limit)); }
 }

@@ -94,8 +94,13 @@ public final class ProxyResource {
         return ProxyFetcher.fetch(h, httpPort, gatewayTls, resolver, k, url, o);
     }
 
-    /** GET /api/proxy/health [none]. */
-    public JsonNode getHealth() { return http.get("/api/proxy/health", Auth.NONE); }
+    /** GET /api/proxy/health [none] -> {status} (the server returns only the gateway status). */
+    public JsonNode getHealth() {
+        JsonNode r = http.get("/api/proxy/health", Auth.NONE);
+        com.fasterxml.jackson.databind.node.ObjectNode out = com.fasterxml.jackson.databind.node.JsonNodeFactory.instance.objectNode();
+        out.put("status", r != null && r.path("status").isTextual() ? r.get("status").asText() : "unknown");
+        return out;
+    }
 
     /** GET /api/proxy/config [jwt]. */
     public JsonNode getConfig() { return http.get("/api/proxy/config", Auth.JWT); }

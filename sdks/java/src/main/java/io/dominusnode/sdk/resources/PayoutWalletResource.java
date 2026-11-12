@@ -32,7 +32,8 @@ public final class PayoutWalletResource {
         if (signer == null) throw ValidationException.invalidArg("signer is required");
         String addr = Validation.address(address, "address").toLowerCase(Locale.ROOT);
         String c = chain == null ? "base" : chain;
-        if (!"base".equals(c)) throw Validation.invalid("chain must be 'base'");
+        // base-sepolia is an explicit staging opt-in; the server decides whether it is accepted.
+        if (!"base".equals(c) && !"base-sepolia".equals(c)) throw Validation.invalid("chain must be 'base' or 'base-sepolia'");
 
         JsonNode ch = http.post("/v1/payout-wallet/challenge", body("address", addr, "chain", c), Auth.AGENT);
         String nonce = ch.path("nonce").isTextual() ? ch.get("nonce").asText() : "";
