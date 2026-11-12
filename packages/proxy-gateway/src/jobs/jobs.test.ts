@@ -84,11 +84,18 @@ describe("maturity job", () => {
     const r = await maturity.runOnce({ matureDue });
     expect(r).toEqual({ batches: 2, matured: 1002, skippedFrozen: 1, movedMusd: 6n });
   });
-  it("stops when only frozen rows remain", async () => {
-    const matureDue = vi.fn().mockResolvedValue({ scanned: 1000, matured: 0, skippedFrozen: 1000, movedMusd: 0n });
+  it("does not stop on a full batch that matured nothing (frozen rows raced in); short batch ends it", async () => {
+    const matureDue = vi.fn()
+      .mockResolvedValueOnce({ scanned: 1000, matured: 0, skippedFrozen: 1000, movedMusd: 0n })
+      .mockResolvedValueOnce({ scanned: 5, matured: 5, skippedFrozen: 0, movedMusd: 9n });
     const r = await maturity.runOnce({ matureDue });
-    expect(matureDue).toHaveBeenCalledOnce();
-    expect(r.batches).toBe(1);
+    expect(matureDue).toHaveBeenCalledTimes(2);
+    expect(r).toMatchObject({ batches: 2, matured: 5, movedMusd: 9n });
+  });
+  it("is bounded by maxBatches", async () => {
+    const matureDue = vi.fn().mockResolvedValue({ scanned: 1000, matured: 0, skippedFrozen: 1000, movedMusd: 0n });
+    const r = await maturity.runOnce({ matureDue, maxBatches: 3 });
+    expect(r.batches).toBe(3);
   });
 });
 
