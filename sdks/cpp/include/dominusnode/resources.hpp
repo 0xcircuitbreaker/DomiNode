@@ -118,13 +118,13 @@ private:
 // ─── 3.6 teams ──────────────────────────────────────────────────────────────
 struct TeamKeyCreateResponse {
     std::string id;
-    /// Server field `prefix` (legacy `keyPrefix` accepted).
-    std::string prefix;
-    /// Deprecated alias of `prefix`.
+    /// Read from the server's `prefix` field (legacy `keyPrefix` accepted).
     std::string key_prefix;
     std::string label;
-    std::string created_at;
     Secret key;
+    /// Same value as key_prefix (added in 2.0.1).
+    std::string prefix;
+    std::string created_at;
 };
 class TeamsResource {
 public:

@@ -189,8 +189,8 @@ TeamKeyCreateResponse TeamsResource::create_key(const std::string& t, const std:
     validate_non_empty(label, "label", 100);
     json r = http_.post(tm(t) + "/keys", {{"label", label}});
     std::string prefix = r.contains("prefix") && r["prefix"].is_string() ? str_field(r, "prefix") : str_field(r, "keyPrefix");
-    TeamKeyCreateResponse k{str_field(r, "id"), prefix, prefix, str_field(r, "label"), str_field(r, "createdAt"),
-                            Secret(str_field(r, "key"))};
+    TeamKeyCreateResponse k{str_field(r, "id"), prefix, str_field(r, "label"), Secret(str_field(r, "key")), prefix,
+                            str_field(r, "createdAt")};
     if (r.contains("key") && r["key"].is_string()) secure_zero_string(r["key"].get_ref<std::string&>());
     return k;
 }

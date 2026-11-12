@@ -31,6 +31,14 @@ TEST(team_key_prefix_and_list_fields) {
     CHECK_EQ(keys[1]["prefix"], json("dn_live_y"));
 }
 
+TEST(team_key_create_response_keeps_200_layout) {
+    // 2.0.0 aggregate order {id, key_prefix, label, key} still compiles and lands in the same fields.
+    TeamKeyCreateResponse r{"id1", "dn_live_x", "lbl", Secret("k")};
+    CHECK_EQ(r.key_prefix, std::string("dn_live_x"));
+    CHECK_EQ(r.label, std::string("lbl"));
+    CHECK(r.prefix.empty());
+}
+
 TEST(health_status_only) {
     Fixture f(false);
     f.mock.push(200, {{"status", "ok"}, {"activeSessions", 4}});
