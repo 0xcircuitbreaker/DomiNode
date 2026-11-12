@@ -428,3 +428,25 @@ export async function getSystemStats(): Promise<SystemStats> {
     activeSessions: Number(row.active_sessions),
   };
 }
+
+/** True when any user holds an admin role. */
+export async function hasAnyAdmin(): Promise<boolean> {
+  const r = await query<{ n: number }>(
+    "SELECT 1 AS n FROM users WHERE admin_role <> 'none' LIMIT 1",
+  );
+  return r.rows.length > 0;
+}
+
+/**
+ * Make userId the first admin (ADMIN_BOOTSTRAP_EMAIL). Atomic: a single
+ * UPDATE that only applies while no other user holds an admin role.
+ */
+export async function bootstrapFirstAdmin(userId: string): Promise<boolean> {
+  const r = await query<{ id: string }>(
+    `UPDATE users SET admin_role = 'admin', is_admin = true
+     WHERE id = $1 AND NOT EXISTS (SELECT 1 FROM users WHERE admin_role <> 'none' AND id <> $1)
+     RETURNING id`,
+    [userId],
+  );
+  return r.rows.length > 0;
+}

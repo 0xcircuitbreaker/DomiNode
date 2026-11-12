@@ -39,7 +39,12 @@ export interface NetworkPolicy {
   plaintext: PlaintextMode;
   logRetentionDays: number;
   nodeCapsPerPrefix: { per32: number; per24: number; perAsn: number };
-  /** Allow free-plan requesters on the relay network (default false: 402 PAID_PLAN_REQUIRED). */
+  /**
+   * Deprecated, no effect. There is no free relay rail: every relay session is
+   * priced from network_pricing and paid (wallet, team, x402, MPP or starter
+   * credits). A free-plan principal relays only when it pays, whatever this
+   * flag says. Kept so stored policies and the admin API stay compatible.
+   */
   freeTierRelay: boolean;
   /** Buyers must contribute (active node with matured paid traffic in the window, or allowlisted). Default false. */
   requireContribution: boolean;

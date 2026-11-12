@@ -1978,3 +1978,15 @@ CREATE TABLE IF NOT EXISTS network_announcements (
   updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_network_announcements_pub ON network_announcements(published_at DESC) WHERE published;
+
+-- Mobile exits are priced like residential ($0.50/GB). Without this row mobile
+-- traffic used to fall back to the cheap 'any' price. Idempotent.
+INSERT INTO network_pricing (ip_class, price_per_gb_musd) VALUES ('mobile', 500000)
+ON CONFLICT (ip_class) DO NOTHING;
+
+-- x402 quotes are per exit class (incl. mobile) or 'any' (highest price). Idempotent.
+DO $$ BEGIN
+  ALTER TABLE x402_transactions DROP CONSTRAINT IF EXISTS x402_transactions_pool_type_check;
+  ALTER TABLE x402_transactions ADD CONSTRAINT x402_transactions_pool_type_check
+    CHECK (pool_type IN ('dc', 'residential', 'mobile', 'any'));
+END $$;

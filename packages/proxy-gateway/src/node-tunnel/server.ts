@@ -37,7 +37,7 @@ import { TunnelMux, STREAM_WINDOW, type StreamCloseReport } from "./mux.js";
 import { PreAuthLimiter, normalizePeerIp, readProxyV2, type PreAuthLimiterOptions } from "./ingress.js";
 import { NodeRegistry, ipPrefix, dayOf, type LiveNode, type NodeTunnelHandle } from "./registry.js";
 
-export const DEFAULT_TUNNEL_PORT = 8443;
+export const DEFAULT_TUNNEL_PORT = 9443; // = shared DEFAULT_TUNNEL_PORT; 8443 is the TLS proxy
 export const HANDSHAKE_DEADLINE_MS = 10_000;
 export const PRE_AUTH_MAX_BYTES = 4096;
 export const DEFAULT_HEARTBEAT_MS = 15_000;

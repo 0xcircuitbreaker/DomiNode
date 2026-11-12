@@ -2,9 +2,9 @@ import express from "express";
 import cors from "cors";
 import helmet from "helmet";
 import cookieParser from "cookie-parser";
-import * as crypto from "node:crypto";
 import { createLogger, query } from "@dominusnode/shared";
 import { agentAwareRateLimit } from "./helpers/agent-rate-limit.js";
+import { requestIdMiddleware } from "./helpers/request-id.js";
 
 import { refreshTokenRepo } from "@dominusnode/shared";
 import webhookRoutes from "./routes/webhooks.js";
@@ -12,15 +12,12 @@ import authRoutes from "./routes/auth.js";
 import keyRoutes from "./routes/keys.js";
 import usageRoutes from "./routes/usage.js";
 import walletRoutes from "./routes/wallet.js";
-import planRoutes from "./routes/plans.js";
 import sessionRoutes from "./routes/sessions.js";
 import adminRoutes from "./routes/admin.js";
 import proxyConfigRoutes from "./routes/proxy-config.js";
 import proxyHealthRoutes from "./routes/proxy-health.js";
 import walletAuthRoutes from "./routes/wallet-auth.js";
 import accountRoutes from "./routes/account.js";
-import slotsRoutes from "./routes/slots.js";
-import waitlistRoutes from "./routes/waitlist.js";
 import agentWalletRoutes from "./routes/agent-wallet.js";
 import x402Routes from "./routes/x402.js";
 import teamsRoutes from "./routes/teams.js";
@@ -129,11 +126,9 @@ export function startApiServer(port: number = 3000): ReturnType<express.Express[
     frameguard: { action: "deny" },
   }));
 
-  // Request ID for tracing
-  app.use((req, _res, next) => {
-    (req as unknown as Record<string, unknown>).requestId = crypto.randomUUID();
-    next();
-  });
+  // Request ID for tracing: accept a valid incoming X-Request-Id (<= 64 chars),
+  // echo it on every response, add it to JSON error bodies, bind it to logs.
+  app.use(requestIdMiddleware);
 
   // Cache control: no-store for API responses
   app.use((_req, res, next) => {
@@ -150,7 +145,8 @@ export function startApiServer(port: number = 3000): ReturnType<express.Express[
     cors({
       origin: ALLOWED_ORIGINS,
       methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
-      allowedHeaders: ["Content-Type", "Authorization"],
+      allowedHeaders: ["Content-Type", "Authorization", "X-Request-Id"],
+      exposedHeaders: ["X-Request-Id"],
       credentials: true,
       maxAge: 86400,
     }),
@@ -227,7 +223,6 @@ export function startApiServer(port: number = 3000): ReturnType<express.Express[
   app.use("/api/keys", keyRoutes);
   app.use("/api/usage", usageRoutes);
   app.use("/api/wallet", walletRoutes);
-  app.use("/api/plans", planRoutes);
   app.use("/api/sessions", sessionRoutes);
   app.use("/api/admin/network", adminNetworkRoutes);
   app.use("/api/admin/network", adminNetworkMetricsRoutes);
@@ -238,8 +233,6 @@ export function startApiServer(port: number = 3000): ReturnType<express.Express[
   app.use("/api/proxy/config", proxyConfigRoutes);
   app.use("/api/proxy", proxyHealthRoutes);
   app.use("/api/account", accountRoutes);
-  app.use("/api/slots", slotsRoutes);
-  app.use("/api/waitlist", waitlistRoutes);
   app.use("/api/agent-wallet", agentWalletRoutes);
   app.use("/api/x402", x402Routes);
   app.use("/api/teams", teamsRoutes);

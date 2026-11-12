@@ -62,7 +62,7 @@ router.post("/", financialLimiter, async (req, res) => {
     // Require verified email before creating agentic wallets
     const agUser = await userRepo.findUserById(userId);
     if (!agUser || !agUser.email_verified) {
-      res.status(403).json({ error: "Email verification required before creating agentic wallets" });
+      res.status(403).json({ error: "Email verification required before creating agentic wallets", code: "EMAIL_NOT_VERIFIED" });
       return;
     }
 
@@ -159,7 +159,7 @@ router.post("/:id/fund", financialLimiter, async (req, res) => {
     // Require verified email before funding agentic wallets
     const fundUser = await userRepo.findUserById(userId);
     if (!fundUser || !fundUser.email_verified) {
-      res.status(403).json({ error: "Email verification required before funding agentic wallets" });
+      res.status(403).json({ error: "Email verification required before funding agentic wallets", code: "EMAIL_NOT_VERIFIED" });
       return;
     }
 

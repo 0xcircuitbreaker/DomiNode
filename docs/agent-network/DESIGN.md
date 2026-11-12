@@ -539,7 +539,7 @@ Human `/api/auth/register|login|verify-email|forgot-password` (with MFA) stay fo
 3. Supply on day 1: the operator runs at least N seeded nodes, each registered under a platform user with `node_share_bps` effectively retained. The rollout gate is "≥ 20 healthy nodes in staging for 72 h".
 4. Delete `packages/pool-manager`, `WEBSHARE_*` (`.env.example`, compose, infra), the tsconfig refs and the workspace entry.
 5. Deprecate `PRICE_PER_GB_CENTS*` and `COST_PER_GB_CENTS_RESIDENTIAL` in `types.ts`, then remove them.
-6. Plans stay for free tier and limits only. The free tier is booked as `payment_rail='free'` with `node_musd=0`, so nodes do not earn on free traffic.
+6. Plans stay for connection and session limits only; the relay price never comes from a plan. There is no free relay rail: a free-plan principal buys bandwidth like everyone else, and starter credits replace the old free tier. `payment_rail='free'` remains in the schema only for historical rows. The policy flag `freeTierRelay` is deprecated and has no effect.
 7. Existing wallets are reused as is, so no balance migration is needed.
 8. Rules: add `dn_node_` to the scrub regexes and `security.md`. Add µUSD and relay-charge rules to `database.md`. Update the tool counts in `CLAUDE.md` and `integration-patterns.md`.
 

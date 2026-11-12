@@ -3,6 +3,10 @@
 # 1) Proxy /api/* to the VPS-hosted API so cookie-based auth stays first-party.
 /api/*  https://api.dominusnode.daedalusdevelopmentgroup.com/api/:splat  200!
 
-# 2) SPA routing (React Router)
+# 2) Unknown agent-discovery paths are a 404, not the SPA (existing files win).
+/docs/*         /404.html   404
+/.well-known/*  /404.html   404
+
+# 3) SPA routing (React Router)
 /*      /index.html                             200
 

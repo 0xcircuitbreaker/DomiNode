@@ -76,11 +76,22 @@ describe("policy-repo", () => {
     await expect(publishPolicy({ hardDenyPorts: [] }, null)).rejects.toThrow(/floor/);
   });
 
-  it("getPricing prefers class, falls back to any, fails closed", async () => {
-    mockQuery.mockResolvedValueOnce({ rows: [{ ip_class: "any", price_per_gb_musd: "200000" }, { ip_class: "residential", price_per_gb_musd: "500000" }] });
+  it("getPricing prefers class, missing class gets the highest price, fails closed", async () => {
+    const rows = [
+      { ip_class: "any", price_per_gb_musd: "200000" },
+      { ip_class: "dc", price_per_gb_musd: "200000" },
+      { ip_class: "residential", price_per_gb_musd: "500000" },
+    ];
+    mockQuery.mockResolvedValueOnce({ rows });
     expect(await getPricing("residential")).toBe(500000n);
-    mockQuery.mockResolvedValueOnce({ rows: [{ ip_class: "any", price_per_gb_musd: "200000" }] });
-    expect(await getPricing("mobile")).toBe(200000n);
+    mockQuery.mockResolvedValueOnce({ rows });
+    expect(await getPricing("dc")).toBe(200000n);
+    // mobile row missing: never the cheapest 'any' fallback
+    mockQuery.mockResolvedValueOnce({ rows });
+    expect(await getPricing("mobile")).toBe(500000n);
+    // 'any' (unknown node class) is the highest configured price
+    mockQuery.mockResolvedValueOnce({ rows });
+    expect(await getPricing("any")).toBe(500000n);
     mockQuery.mockResolvedValueOnce({ rows: [] });
     await expect(getPricing("dc")).rejects.toThrow();
   });

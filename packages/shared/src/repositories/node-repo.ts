@@ -457,17 +457,20 @@ export async function setStatus(
   return res.rows[0] ?? null;
 }
 
+/** Owner's nodes, newest first. With `cursor` (keyset), `offset` is ignored. */
 export async function listForOwner(
   ownerUserId: string,
-  opts: { limit?: number; offset?: number } = {},
+  opts: { limit?: number; offset?: number; cursor?: { createdAt: Date; id: string } | null } = {},
 ): Promise<NodeRecord[]> {
   assertUuid(ownerUserId, "ownerUserId");
+  const c = opts.cursor ?? null;
   const res = await query<NodeRecord>(
     `SELECT ${NODE_COLUMNS} FROM nodes
      WHERE owner_user_id = $1
-     ORDER BY created_at DESC
+       AND ($4::timestamptz IS NULL OR (date_trunc('milliseconds', created_at), id) < ($4::timestamptz, $5::uuid))
+     ORDER BY date_trunc('milliseconds', created_at) DESC, id DESC
      LIMIT $2 OFFSET $3`,
-    [ownerUserId, clampLimit(opts.limit, 100, 2000), clampOffset(opts.offset)],
+    [ownerUserId, clampLimit(opts.limit, 100, 2000), c ? 0 : clampOffset(opts.offset), c ? c.createdAt : null, c ? c.id : null],
   );
   return res.rows;
 }

@@ -59,12 +59,14 @@ services:
       SMTP_PORT: ${SMTP_PORT:-587}
       SMTP_USER: ${SMTP_USER:-}
       SMTP_PASS: ${SMTP_PASS:-}
-      SMTP_FROM: ${SMTP_FROM:-0xcircuitbreaker@protonmail.com}
+      SMTP_FROM: ${SMTP_FROM:-noreply@${DOMINUSNODE_DOMAIN:-dominusnode.daedalusdevelopmentgroup.com}}
       SMTP_SECURE: ${SMTP_SECURE:-false}
       SMTP_IGNORE_TLS: ${SMTP_IGNORE_TLS:-false}
       APP_URL: ${APP_URL:-https://dominusnode.daedalusdevelopmentgroup.com}
       RECAPTCHA_SECRET_KEY: ${RECAPTCHA_SECRET_KEY:-}
       MAX_REGISTERED_USERS: ${MAX_REGISTERED_USERS:-0}
+      ADMIN_HUMAN_LOGIN: ${ADMIN_HUMAN_LOGIN:-false}
+      ADMIN_BOOTSTRAP_EMAIL: ${ADMIN_BOOTSTRAP_EMAIL:-}
       MCP_AGENT_SECRET: ${MCP_AGENT_SECRET:-}
       AGENT_RATE_LIMIT_MULTIPLIER: ${AGENT_RATE_LIMIT_MULTIPLIER:-10}
       DOMINUSNODE_DOMAIN: ${DOMINUSNODE_DOMAIN:-dominusnode.daedalusdevelopmentgroup.com}
@@ -122,18 +124,36 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER:-dominusnode}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-dominusnode}
       DB_SSL: "false"
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
-      PROXY_LISTEN_PORT: "8080"
-      SOCKS5_LISTEN_PORT: "1080"
+      # Listener ports (getProxyPorts); the gateway refuses to start if two are equal.
+      PROXY_LISTEN_PORT: "8080"     # plaintext HTTP proxy
+      SOCKS5_LISTEN_PORT: "1080"    # plaintext SOCKS5
+      PROXY_TLS_PORT: "8443"        # HTTPS proxy: clients send credentials over TLS
+      TUNNEL_PORT: "9443"           # node tunnel (wss), gateway-terminated TLS
+      # Certificates: mount a directory with proxy.{crt,key} and tunnel.{crt,key}
+      # (one cert with SANs for proxy. and relay. may be copied to both names).
+      PROXY_TLS_CERT_FILE: /app/certs/proxy.crt
+      PROXY_TLS_KEY_FILE: /app/certs/proxy.key
+      TUNNEL_TLS_CERT_FILE: /app/certs/tunnel.crt
+      TUNNEL_TLS_KEY_FILE: /app/certs/tunnel.key
+      # Coordinator signing key (npm run gen:coord-key); required in production.
+      COORD_SIGNING_KEY_FILE: /run/secrets/coord_signing_key
       # Offline ip2asn country+ASN DB (scripts/update-asn-db.sh). Missing = all public traffic refused.
       ASN_DB_FILE: /app/data/ip2asn-combined.tsv.gz
       AGENT_RATE_LIMIT_MULTIPLIER: ${AGENT_RATE_LIMIT_MULTIPLIER:-10}
       NODE_ENV: production
+    secrets:
+      - coord_signing_key
+    volumes:
+      - ./data:/app/data:ro
+      - ${PROXY_TLS_DIR:-./certs}:/app/certs:ro
     # IMPORTANT: In production, use a firewall (ufw/iptables/security group) to restrict
-    # access to proxy ports. To bind to localhost only, set PROXY_HTTP_HOST_PORT=127.0.0.1:8080
-    # and PROXY_SOCKS5_HOST_PORT=127.0.0.1:1080 in your .env file.
+    # access to proxy ports. The plaintext listeners default to localhost; clients
+    # should use the TLS proxy on 8443. Override with PROXY_HTTP_HOST_PORT etc. in .env.
     ports:
       - "${PROXY_HTTP_HOST_PORT:-127.0.0.1:8080}:8080"
       - "${PROXY_SOCKS5_HOST_PORT:-127.0.0.1:1080}:1080"
+      - "${PROXY_TLS_HOST_PORT:-8443}:8443"
+      - "${TUNNEL_HOST_PORT:-9443}:9443"
     networks:
       - proxy
       - backend  # Needs DB access for auth, balance checks, session recording
@@ -192,6 +212,11 @@ networks:
   frontend:
   backend:
   proxy:
+
+secrets:
+  # PEM written by `npm run gen:coord-key` (mode 0600, readable by the container user).
+  coord_signing_key:
+    file: ${COORD_SIGNING_KEY_PATH:-./secrets/coord-signing-key.pem}
 
 volumes:
   pgdata:

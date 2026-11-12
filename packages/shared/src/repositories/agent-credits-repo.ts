@@ -139,9 +139,18 @@ export interface OwnPayout {
 }
 
 /** The caller's payouts, newest first. */
-export async function listOwnPayouts(userId: string, opts: { limit: number; offset: number }): Promise<OwnPayout[]> {
-  const limit = Number.isInteger(opts.limit) && opts.limit > 0 && opts.limit <= 200 ? opts.limit : 50;
+/**
+ * Own payouts, newest first. With `cursor` (keyset on the millisecond-truncated
+ * created_at, then id) `offset` is ignored. limit may be up to 201 so callers
+ * can fetch one extra row to detect a next page.
+ */
+export async function listOwnPayouts(
+  userId: string,
+  opts: { limit: number; offset: number; cursor?: { createdAt: Date; id: string } | null },
+): Promise<OwnPayout[]> {
+  const limit = Number.isInteger(opts.limit) && opts.limit > 0 && opts.limit <= 201 ? opts.limit : 50;
   const offset = Number.isInteger(opts.offset) && opts.offset >= 0 && opts.offset <= 1_000_000 ? opts.offset : 0;
+  const c = opts.cursor ?? null;
   const r = await query<{
     id: string; amount_musd: string; trigger: "auto" | "on_demand"; status: string; tx_hash: string | null;
     failure_reason: string | null; address: string | null; chain: string | null; created_at: Date; updated_at: Date;
@@ -150,8 +159,9 @@ export async function listOwnPayouts(userId: string, opts: { limit: number; offs
             p.created_at, p.updated_at
      FROM node_payouts p LEFT JOIN payout_wallets w ON w.id = p.payout_wallet_id
      WHERE p.user_id = $1
-     ORDER BY p.created_at DESC, p.id DESC LIMIT $2 OFFSET $3`,
-    [userId, limit, offset],
+       AND ($4::timestamptz IS NULL OR (date_trunc('milliseconds', p.created_at), p.id) < ($4::timestamptz, $5::uuid))
+     ORDER BY date_trunc('milliseconds', p.created_at) DESC, p.id DESC LIMIT $2 OFFSET $3`,
+    [userId, limit, c ? 0 : offset, c ? c.createdAt : null, c ? c.id : null],
   );
   return r.rows.map((x) => ({
     id: x.id, amountMusd: BigInt(x.amount_musd), trigger: x.trigger, status: x.status, txHash: x.tx_hash,

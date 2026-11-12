@@ -13,7 +13,7 @@ import { validateTarget, isValidHostname, isValidPort } from "./target-validator
 import { incrementUserConns, decrementUserConns } from "./connection-tracker.js";
 import { checkAuthRateLimit, recordAuthFailure } from "./auth-rate-limit.js";
 import { recordRequest, recordError, recordLatency } from "./stats.js";
-import { enforcePolicy, isPlaintextPort, isFreeRelayBlocked } from "./policy-enforcer.js";
+import { enforcePolicy, isPlaintextPort } from "./policy-enforcer.js";
 import { checkRequesterAccess } from "./access-gate.js";
 import { openRelayStream, RelayOpenError, type RelayRuntime, type RelayUpstream } from "./relay.js";
 
@@ -217,19 +217,11 @@ async function handleSocks5Connection(clientSocket: net.Socket, relay: RelayRunt
   // Auth success
   clientSocket.write(Buffer.from([USERPASS_VER, 0x00]));
 
-  // Fetch plan for per-plan connection limits and free plan balance bypass
+  // Fetch plan for per-plan connection limits
   // Team API keys use the team's plan (e.g. payg/unrestricted) not the creator's personal plan
   const socksUserPlan = teamId
     ? await planRepo.getTeamPlan(teamId)
     : await planRepo.getUserPlan(userId);
-
-  if (isFreeRelayBlocked(relay.getPolicy(), socksUserPlan)) {
-    clearTimeout(totalHandshakeTimer);
-    log.info("SOCKS5 free plan rejected: PAID_PLAN_REQUIRED");
-    sendReply(clientSocket, REP_NOT_ALLOWED);
-    clientSocket.end();
-    return;
-  }
 
   const socksAccess = await checkRequesterAccess(relay.getPolicy(), userId);
   if (!socksAccess.allowed) {
@@ -248,8 +240,8 @@ async function handleSocks5Connection(clientSocket: net.Socket, relay: RelayRunt
     return;
   }
 
-  // Free plan: skip wallet balance check (bandwidth checked in startSession)
-  if (socksUserPlan.pricePerGbCents > 0) {
+  // Every relay session is paid: always check balance (no free rail).
+  {
     let hasBalance: boolean;
     try {
       hasBalance = teamId

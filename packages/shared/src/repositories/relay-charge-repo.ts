@@ -1,3 +1,4 @@
+import { RELAY_BYTES_PER_GB } from "../types.js";
 import { withTx, earnTx, MUSD_PER_CENT } from "./node-credit-repo.js";
 import { settleSessionTx, accrueCarryTx } from "./wallet-repo.js";
 import { settleTeamSessionTx, accrueTeamCarryTx } from "./team-repo.js";
@@ -70,7 +71,8 @@ export function computeSplit(
   bytes: bigint, pricePerGbMusd: bigint, nodeShareBps: number, _rail: RelayRail,
   buyerDiscountBps = 0, minPlatformMarginBps = DEFAULT_MIN_PLATFORM_MARGIN_BPS,
 ) {
-  const raw = (bytes * pricePerGbMusd + 999_999_999n) / 1_000_000_000n;
+  const gb = BigInt(RELAY_BYTES_PER_GB);
+  const raw = (bytes * pricePerGbMusd + gb - 1n) / gb;
   const node = (raw * BigInt(nodeShareBps)) / 10_000n;
   const discount = buyerDiscountMusd(raw, node, buyerDiscountBps, minPlatformMarginBps);
   const gross = raw - discount;

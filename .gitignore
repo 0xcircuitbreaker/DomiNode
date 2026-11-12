@@ -46,3 +46,7 @@ target/
 
 # Python build metadata
 *.egg-info/
+
+# Deployment secrets and certificates (docker-compose.prod.yml)
+/secrets/
+/certs/
