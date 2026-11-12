@@ -58,7 +58,7 @@ export function buildCoordinatorPayload(
   issuedAt: Date = new Date(),
 ): CoordinatorDocument {
   const apiUrl = (env["APP_URL"] ?? "").replace(/\/+$/, "");
-  if (!/^https?:\/\//.test(apiUrl)) throw new Error("APP_URL is required for the coordinator document");
+  if (!/^https:\/\/[^/]/.test(apiUrl)) throw new Error("APP_URL must be an https:// URL for the coordinator document (node agents refuse http)");
   const hostRaw = env["COORDINATOR_HOSTNAMES"] ?? env["DOMINUSNODE_DOMAIN"] ?? new URL(apiUrl).hostname;
   const hostnames = parseHostnameList(hostRaw);
   if (hostnames.length === 0) throw new Error("COORDINATOR_HOSTNAMES is empty");
@@ -89,34 +89,44 @@ export function buildCoordinatorPayload(
 
 export function createFederationRouter(env: NodeJS.ProcessEnv = process.env, signer: DocSigner | null = loadDocSigner(env), getPolicy: () => Promise<ActivePolicy> = () => policyRepo.getActivePolicy()): Router {
   const router = Router();
-  const cache = new Map<string, { at: number; body: string }>();
+  // Both documents are built from one policy read and cached under one
+  // timestamp, so coordinator.json never advertises a policy hash that
+  // policy.json does not serve.
+  let cache: { at: number; coordinator: string; policy: string } | null = null;
 
-  async function serve(res: Response, name: string, build: (p: ActivePolicy) => unknown): Promise<void> {
+  async function documents(): Promise<{ coordinator: string; policy: string }> {
+    if (cache && Date.now() - cache.at < CACHE_MS) return cache;
+    const p = await getPolicy();
+    const built = {
+      at: Date.now(),
+      coordinator: JSON.stringify(signDocument(COORDINATOR_DOC_DOMAIN, buildCoordinatorPayload(env, signer!.publicKeyHex, p), [signer!])),
+      policy: JSON.stringify(signDocument(POLICY_DOC_DOMAIN, buildPolicyDocument(p.version, p.body), [signer!])),
+    };
+    cache = built;
+    return built;
+  }
+
+  async function serve(res: Response, name: "coordinator" | "policy"): Promise<void> {
     if (!signer) {
       res.status(503).json({ error: "federation documents are not configured on this coordinator" });
       return;
     }
-    const hit = cache.get(name);
-    let body = hit && Date.now() - hit.at < CACHE_MS ? hit.body : null;
-    if (!body) {
-      try {
-        body = JSON.stringify(build(await getPolicy()));
-        cache.set(name, { at: Date.now(), body });
-      } catch (err) {
-        log.error("federation document build failed", { name, error: err instanceof Error ? err.message : String(err) });
-        res.status(503).json({ error: "document unavailable" });
-        return;
-      }
+    let body: string;
+    try {
+      body = (await documents())[name];
+    } catch (err) {
+      log.error("federation document build failed", { name, error: err instanceof Error ? err.message : String(err) });
+      res.status(503).json({ error: "document unavailable" });
+      return;
     }
     res.set("Cache-Control", "public, max-age=300").type("application/json").send(body);
   }
 
   router.get(COORDINATOR_DOC_PATH, (_req: Request, res: Response) => {
-    void serve(res, "coordinator", (p) =>
-      signDocument(COORDINATOR_DOC_DOMAIN, buildCoordinatorPayload(env, signer!.publicKeyHex, p), [signer!]));
+    void serve(res, "coordinator");
   });
   router.get(POLICY_DOC_PATH, (_req: Request, res: Response) => {
-    void serve(res, "policy", (p) => signDocument(POLICY_DOC_DOMAIN, buildPolicyDocument(p.version, p.body), [signer!]));
+    void serve(res, "policy");
   });
   return router;
 }

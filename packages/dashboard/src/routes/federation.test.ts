@@ -59,4 +59,20 @@ describe("federation documents", () => {
   it("requires APP_URL", () => {
     expect(() => buildCoordinatorPayload({}, signer.publicKeyHex, policy)).toThrow(/APP_URL/);
   });
+
+  it("rejects a non-https APP_URL", () => {
+    expect(() => buildCoordinatorPayload({ ...env, APP_URL: "http://dominusnode.com" }, signer.publicKeyHex, policy)).toThrow(/https/);
+  });
+
+  it("keeps coordinator.json and policy.json on the same policy version", async () => {
+    const p2 = { ...policy, version: 3 };
+    const getPolicy = vi.fn().mockResolvedValueOnce(policy).mockResolvedValue(p2);
+    const router = createFederationRouter(env, signer, getPolicy);
+    const c = await get(router, "/.well-known/dominusnode/coordinator.json");
+    const p = await get(router, "/.well-known/dominusnode/policy.json");
+    expect(getPolicy).toHaveBeenCalledTimes(1);
+    const cv = verifyCoordinatorDocument(c.body);
+    const pv = verifyPolicyDocument(p.body, [signer.publicKeyHex]);
+    expect(cv.ok && pv.ok && cv.payload.policy.version === pv.payload.version && cv.payload.policy.sha256 === pv.payload.sha256).toBe(true);
+  });
 });

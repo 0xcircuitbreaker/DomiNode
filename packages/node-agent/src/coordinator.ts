@@ -19,7 +19,44 @@ import { ConfigError, type AgentConfig } from "./config.js";
 
 const FETCH_TIMEOUT_MS = 10_000;
 
-export type FetchLike = (url: string, init: { redirect: "error"; signal: AbortSignal }) => Promise<{ ok: boolean; status: number; text(): Promise<string> }>;
+export interface FetchResponseLike {
+  ok: boolean;
+  status: number;
+  headers?: { get(name: string): string | null };
+  body?: ReadableStream<Uint8Array> | null;
+  text?(): Promise<string>;
+}
+export type FetchLike = (url: string, init: { redirect: "error"; signal: AbortSignal }) => Promise<FetchResponseLike>;
+
+/** Read a response body, aborting as soon as it exceeds `max` bytes. */
+async function readCapped(res: FetchResponseLike, max: number, ctl: AbortController): Promise<string> {
+  const len = res.headers?.get("content-length");
+  if (len != null && /^\d+$/.test(len.trim()) && Number(len) > max) {
+    ctl.abort();
+    throw new ConfigError("coordinator document too large");
+  }
+  if (res.body) {
+    const reader = res.body.getReader();
+    const chunks: Uint8Array[] = [];
+    let total = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > max) {
+        void reader.cancel().catch(() => {});
+        ctl.abort();
+        throw new ConfigError("coordinator document too large");
+      }
+      chunks.push(value);
+    }
+    return Buffer.concat(chunks.map((c) => Buffer.from(c.buffer, c.byteOffset, c.byteLength))).toString("utf8");
+  }
+  if (!res.text) throw new ConfigError("coordinator document could not be read");
+  const text = await res.text();
+  if (Buffer.byteLength(text, "utf8") > max) throw new ConfigError("coordinator document too large");
+  return text;
+}
 
 export interface ResolvedCoordinator {
   domain: string;
@@ -36,8 +73,7 @@ export async function fetchCoordinatorDocument(domain: string, fetchImpl: FetchL
   try {
     const res = await fetchImpl(`https://${domain}${COORDINATOR_DOC_PATH}`, { redirect: "error", signal: ctl.signal });
     if (!res.ok) throw new ConfigError(`coordinator document fetch failed (HTTP ${res.status})`);
-    const text = await res.text();
-    if (Buffer.byteLength(text, "utf8") > MAX_FEDERATION_DOC_BYTES) throw new ConfigError("coordinator document too large");
+    const text = await readCapped(res, MAX_FEDERATION_DOC_BYTES, ctl);
     try {
       return JSON.parse(text) as unknown;
     } catch {
@@ -67,15 +103,24 @@ export function acceptCoordinatorDocument(
   log(`coordinator ${domain} (${p.site_name}, operator: ${p.operator.name})`);
   log(`signing key fingerprint: ${v.fingerprint}`);
 
-  const want = trust ? normalizeFingerprint(trust) : null;
-  if (trust && !want) throw new ConfigError("DN_NODE_TRUST / --trust must be a sha256:<64 hex> fingerprint");
-  if (want !== v.fingerprint) {
+  const extra = p.coordinator_keys.filter((k) => k.public_key.toLowerCase() !== v.signerPublicKey);
+  for (const k of extra) log(`additional coordinator key (trusted only if listed in --trust): ${k.fingerprint}`);
+
+  const wanted = new Set<string>();
+  for (const part of (trust ?? "").split(",").map((t) => t.trim()).filter(Boolean)) {
+    const fp = normalizeFingerprint(part);
+    if (!fp) throw new ConfigError("DN_NODE_TRUST / --trust must be sha256:<64 hex> fingerprints, comma-separated");
+    wanted.add(fp);
+  }
+  if (!wanted.has(v.fingerprint)) {
     throw new ConfigError(
-      want
+      wanted.size > 0
         ? "coordinator fingerprint does not match --trust; refusing to connect"
         : `not trusted yet: verify the fingerprint out of band, then rerun with --trust ${v.fingerprint}`,
     );
   }
+  // Only keys the operator confirmed by fingerprint become tunnel pins.
+  const confirmed = [v.signerPublicKey, ...extra.filter((k) => wanted.has(k.fingerprint)).map((k) => k.public_key.toLowerCase())];
 
   let api: URL;
   let gw: URL;
@@ -93,7 +138,7 @@ export function acceptCoordinatorDocument(
     fingerprint: v.fingerprint,
     apiUrl: api.toString(),
     gatewayUrl: gw.toString(),
-    coordPins: p.coordinator_keys.map((k) => k.public_key),
+    coordPins: [...new Set(confirmed)],
     document: p,
   };
 }
@@ -101,6 +146,8 @@ export function acceptCoordinatorDocument(
 /**
  * If cfg.coordinator is set, resolve it and return a config pointed at that
  * coordinator (explicit DN_NODE_API_URL / DN_NODE_GATEWAY_URL still win).
+ * The tunnel pins become exclusive: the confirmed coordinator key(s) plus any
+ * pins the user set in DN_NODE_COORD_PINS, without the embedded official pins.
  */
 export async function applyCoordinator(
   cfg: AgentConfig,
@@ -116,5 +163,6 @@ export async function applyCoordinator(
     apiUrl: explicit.apiUrl ? cfg.apiUrl : r.apiUrl,
     gatewayUrl: explicit.gatewayUrl ? cfg.gatewayUrl : r.gatewayUrl,
     coordPins: [...new Set([...cfg.coordPins, ...r.coordPins])],
+    coordPinsExclusive: true,
   };
 }

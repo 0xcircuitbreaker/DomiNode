@@ -91,7 +91,7 @@ async function main(argv: string[]): Promise<number> {
     limits,
     spkiPins: cfg.spkiPins,
     nodePrivateKeyPem: stored.nodePrivateKeyPem,
-    coordPins: effectiveCoordPins(cfg.coordPins),
+    coordPins: cfg.coordPinsExclusive ? cfg.coordPins : effectiveCoordPins(cfg.coordPins),
     dial: (host, port, allowedPorts) => dial(host, port, { allowedPorts: () => allowedPorts, denyDomains: cfg.denyDomains }),
   });
   stored.nodeKey = "";

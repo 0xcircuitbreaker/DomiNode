@@ -33,9 +33,14 @@ if (opt("policy")) {
   }
   body = shared.validatePolicy(JSON.parse(readFileSync(opt("policy"), "utf8")));
 } else {
-  const active = await shared.policyRepo.getActivePolicy();
-  version = active.version;
-  body = active.body;
+  try {
+    const active = await shared.readActivePolicyForExport();
+    version = active.version;
+    body = active.body;
+  } catch (err) {
+    console.error(err instanceof shared.PolicyExportError ? err.message : "could not read the active policy");
+    process.exit(1);
+  }
 }
 
 const doc = shared.signDocument(shared.POLICY_DOC_DOMAIN, shared.buildPolicyDocument(version, body), [signer]);

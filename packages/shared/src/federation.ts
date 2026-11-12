@@ -182,10 +182,13 @@ export function verifyCoordinatorDocument(doc: unknown, opts: VerifyOptions = {}
  * coordinator document or pins) and check the hash matches the body.
  */
 export function verifyPolicyDocument(doc: unknown, coordinatorPubkeys: readonly string[], opts: VerifyOptions = {}): VerifyResult<PolicyDocument> {
+  const keys = coordinatorPubkeys.map((k) => k.toLowerCase());
+  // A policy file is a durable versioned artifact (version + sha256 pin the
+  // content), so it does not go stale unless the caller asks for a max age.
   const r = verifySignedDocument<PolicyDocument>(POLICY_DOC_DOMAIN, doc, (p) => {
     if (p.type !== "dominusnode-policy" || p.doc_version !== 1 || !isObj(p.policy)) return null;
-    return [...coordinatorPubkeys];
-  }, { ...opts, trustedPubkeys: coordinatorPubkeys });
+    return keys;
+  }, { ...opts, maxAgeMs: opts.maxAgeMs ?? Number.POSITIVE_INFINITY, trustedPubkeys: keys });
   if (!r.ok) return r;
   const sha = createHash("sha256").update(canonicalJson(r.payload.policy), "utf8").digest("hex");
   if (sha !== r.payload.sha256) return { ok: false, reason: "policy hash mismatch" };
@@ -211,8 +214,11 @@ export function parseHostnameList(raw: string): string[] {
   return out;
 }
 
+/** Parse a comma list of ed25519 public keys (hex, lowercased, deduped). Throws on junk. */
 export function parsePubkeyList(raw: string | undefined): string[] {
-  return [...new Set((raw ?? "").split(",").map((p) => p.trim().toLowerCase()).filter((p) => HEX64.test(p)))];
+  const out = [...new Set((raw ?? "").split(",").map((p) => p.trim().toLowerCase()).filter(Boolean))];
+  for (const p of out) if (!HEX64.test(p)) throw new Error(`invalid ed25519 public key: ${p.slice(0, 16)}...`);
+  return out;
 }
 
 // ── F8: fork branding ────────────────────────────────────────────────────────

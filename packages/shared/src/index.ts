@@ -208,3 +208,4 @@ export { getBaseTxCount, rpcUrlFromEnv, rpcTimeoutFromEnv, clearNonceCache } fro
 
 // Federation documents (coordinator identity, signed policy, fork branding)
 export * from "./federation.js";
+export { readActivePolicyForExport, PolicyExportError, type PolicyExportDeps } from "./federation-export.js";

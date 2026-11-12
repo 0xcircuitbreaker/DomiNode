@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { generateKeyPairSync, createPublicKey } from "node:crypto";
 import {
   signDocument, signerFromPrivateKey, verifyCoordinatorDocument, verifyPolicyDocument, buildPolicyDocument,
-  coordKeyFingerprint, normalizeFingerprint, resolveBranding, parseHostnameList,
+  coordKeyFingerprint, normalizeFingerprint, resolveBranding, parseHostnameList, parsePubkeyList,
   COORDINATOR_DOC_DOMAIN, POLICY_DOC_DOMAIN, OFFICIAL_OPERATOR_NAME, OFFICIAL_CONTACT,
   type CoordinatorDocument,
 } from "./federation.js";
@@ -107,5 +107,23 @@ describe("resolveBranding (F8)", () => {
     expect(resolveBranding({ OPERATOR_NAME: "Daedalus Development Group" }, [pub]).operatorName).not.toMatch(/Daedalus/);
     const b = resolveBranding({ SITE_NAME: "Acme Relay", OPERATOR_NAME: "Acme", OPERATOR_CONTACT: "mailto:ops@acme.example", ABUSE_CONTACT: "mailto:abuse@acme.example" }, [pub]);
     expect(b).toMatchObject({ siteName: "Acme Relay", operatorName: "Acme", abuseContact: "mailto:abuse@acme.example" });
+  });
+});
+
+describe("federation review fixes", () => {
+  it("a signed policy file still verifies 30 days after export", () => {
+    const s = newSigner();
+    const issued = new Date("2026-01-01T00:00:00Z");
+    const d = signDocument(POLICY_DOC_DOMAIN, buildPolicyDocument(4, DEFAULT_POLICY, issued), [s]);
+    const later = issued.getTime() + 30 * 24 * 60 * 60 * 1000;
+    expect(verifyPolicyDocument(d, [s.publicKeyHex], { now: later }).ok).toBe(true);
+    expect(verifyPolicyDocument(d, [s.publicKeyHex.toUpperCase()], { now: later }).ok).toBe(true);
+    expect(verifyPolicyDocument(d, [s.publicKeyHex], { now: later, maxAgeMs: 1000 }).ok).toBe(false);
+  });
+  it("parsePubkeyList rejects malformed entries instead of dropping them", () => {
+    const k = "a".repeat(64);
+    expect(parsePubkeyList(` ${k.toUpperCase()} ,${k}`)).toEqual([k]);
+    expect(() => parsePubkeyList(`${k},abc`)).toThrow(/invalid/);
+    expect(parsePubkeyList(undefined)).toEqual([]);
   });
 });

@@ -39,6 +39,8 @@ export interface AgentConfig {
   coordPins: string[];
   /** F2: coordinator domain to discover via /.well-known/dominusnode/coordinator.json. */
   coordinator?: string;
+  /** Set by applyCoordinator: coordPins replace the embedded official pins instead of adding to them. */
+  coordPinsExclusive?: boolean;
   /** F2: confirmed coordinator key fingerprint (sha256:<hex>). */
   trust?: string;
 }
