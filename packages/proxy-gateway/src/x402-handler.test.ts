@@ -88,6 +88,8 @@ import {
   setMppRailForTest,
   paymentChallengeHeaders,
   normalizePayer,
+  checkX402RateLimitForTest,
+  resetX402RateLimitsForTest,
 } from "./x402-handler.js";
 import { configurePayerScreening } from "./payer-screening.js";
 
@@ -345,8 +347,8 @@ describe("x402 relay identity and pricing", () => {
     mockCreateWallet.mockResolvedValueOnce({ id: "w-new" });
     expect(await refundX402Payer(p, "upstream error")).toBe(true);
     expect(mockCreateWallet).toHaveBeenCalledWith("user-x402");
-    // 12345 µUSD → ceil to 2 cents
-    expect(mockCreditWallet).toHaveBeenCalledWith("user-x402", 2, "x402", "x402-refund:fakehash123", expect.stringContaining("upstream error"));
+    // 12345 µUSD → floor to 1 cent (never refund more than was paid)
+    expect(mockCreditWallet).toHaveBeenCalledWith("user-x402", 1, "x402", "x402-refund:fakehash123", expect.stringContaining("upstream error"));
     expect(await refundX402Payer(p, "again")).toBe(false);
     expect(mockCreditWallet).toHaveBeenCalledTimes(1);
   });
@@ -639,8 +641,9 @@ describe("MPP on the gateway", () => {
     expect(await settleX402Pending(r.pending!)).toBe(true);
     expect(await settleX402Pending(r.pending!)).toBe(true); // idempotent
     expect(rail.settle).toHaveBeenCalledTimes(1);
+    // 525 µUSD paid → floor 0 cents: nothing minted, sub-cent remainder stays with the platform
     expect(await refundX402Payer(r.pending!, "upstream failed")).toBe(true);
-    expect(mockCreditWallet).toHaveBeenCalledWith("user-x402", 1, "mpp", `mpp-refund:${"h".repeat(64)}`, expect.any(String));
+    expect(mockCreditWallet).not.toHaveBeenCalled();
     expect(await refundX402Payer(r.pending!, "again")).toBe(false); // once
   });
 
@@ -705,5 +708,16 @@ describe("x402 exit class (same username flags as API-key auth)", () => {
     expect(nodeMatchesQuotedClass("any", "dc")).toBe(true);
     expect(selectClassFor("any")).toBeUndefined();
     expect(toX402Class("unknown")).toBe("any");
+  });
+});
+
+describe("x402 rate limiter when the map is full", () => {
+  it("keeps serving existing payers and refuses only new keys", () => {
+    resetX402RateLimitsForTest();
+    expect(checkX402RateLimitForTest("existing")).toBe(true);
+    for (let i = 0; i < 100_000; i++) checkX402RateLimitForTest(`spam-${i}`);
+    expect(checkX402RateLimitForTest("brand-new")).toBe(false);
+    expect(checkX402RateLimitForTest("existing")).toBe(true);
+    resetX402RateLimitsForTest();
   });
 });

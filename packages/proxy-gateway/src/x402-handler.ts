@@ -64,8 +64,10 @@ _cleanupInterval.unref(); // Don't prevent process exit
 function checkX402RateLimit(payerAddress: string): boolean {
   cleanupRateLimits();
 
-  if (x402RateLimits.size >= MAX_RATE_LIMIT_ENTRIES) {
-    return false; // refuse new entries when map is full
+  if (!x402RateLimits.has(payerAddress) && x402RateLimits.size >= MAX_RATE_LIMIT_ENTRIES) {
+    lastCleanup = 0; // prune expired entries before refusing
+    cleanupRateLimits();
+    if (x402RateLimits.size >= MAX_RATE_LIMIT_ENTRIES) return false; // refuse only NEW keys when full
   }
 
   const now = Date.now();
@@ -79,6 +81,14 @@ function checkX402RateLimit(payerAddress: string): boolean {
   valid.push(now);
   x402RateLimits.set(payerAddress, valid);
   return true;
+}
+
+/** Test hooks for the in-memory x402 rate limiter. */
+export function checkX402RateLimitForTest(key: string): boolean {
+  return checkX402RateLimit(key);
+}
+export function resetX402RateLimitsForTest(): void {
+  x402RateLimits.clear();
 }
 
 // ─── Pool Type Detection ────────────────────────────────────────────
@@ -299,21 +309,32 @@ export async function settleX402Pending(p: X402Pending): Promise<boolean> {
 
 /**
  * A settled payment whose request could not be served: credit the payer's
- * wallet-identity user wallet (ceil to cents; one recorded transaction).
+ * wallet-identity user wallet (FLOOR to whole cents; one recorded transaction).
+ * Never refunds more than was paid: the sub-cent remainder stays with the
+ * platform (logged as unrefunded), and a sub-cent payment refunds nothing.
  */
 export async function refundX402Payer(p: X402Pending, reason: string): Promise<boolean> {
   if (p.state !== "settled") return false;
   p.state = "refunded";
-  const cents = Number((p.paidMusd + 9_999n) / 10_000n);
+  const cents = Number(p.paidMusd / 10_000n);
+  const unrefundedMusd = p.paidMusd - BigInt(cents) * 10_000n;
+  if (cents <= 0) {
+    log.warn("x402 refund below one cent — nothing credited", {
+      payer: p.payer.slice(0, 10) + "...", payHash: p.payHash.slice(0, 16), unrefundedMusd: unrefundedMusd.toString(), reason,
+    });
+    return true;
+  }
   try {
     if (!(await walletRepo.getWallet(p.userId))) {
       await walletRepo.createWallet(p.userId).catch(() => undefined); // raced create is fine
     }
     await walletRepo.creditWallet(
-      p.userId, Math.max(1, cents), p.rail, `${p.rail}-refund:${p.payHash}`,
+      p.userId, cents, p.rail, `${p.rail}-refund:${p.payHash}`,
       `${p.rail} refund: ${reason.slice(0, 80)}`,
     );
-    log.warn("x402 payment refunded to wallet", { payer: p.payer.slice(0, 10) + "...", cents, reason });
+    log.warn("x402 payment refunded to wallet", {
+      payer: p.payer.slice(0, 10) + "...", cents, unrefundedMusd: unrefundedMusd.toString(), reason,
+    });
     return true;
   } catch (err) {
     log.error("x402 REFUND FAILED — manual reconciliation required", {
