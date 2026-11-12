@@ -331,6 +331,9 @@ CREATE INDEX IF NOT EXISTS idx_refresh_tokens_family
   ON refresh_tokens(family_id);
 CREATE INDEX IF NOT EXISTS idx_refresh_tokens_user
   ON refresh_tokens(user_id);
+-- Set when /refresh rotates a token; a re-presented token rotated within the
+-- grace window is a concurrent refresh, not theft (no family revoke).
+ALTER TABLE refresh_tokens ADD COLUMN IF NOT EXISTS rotated_at TIMESTAMPTZ;
 
 -- ─── MFA Configs ──────────────────────────────────────────────────
 

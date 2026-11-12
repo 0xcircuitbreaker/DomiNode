@@ -10,6 +10,23 @@ export interface RefreshTokenRecord {
   revoked: boolean;
   expires_at: Date;
   created_at: Date;
+  /** Set only when the token was rotated by /refresh (not on logout/family revoke). */
+  rotated_at?: Date | null;
+}
+
+/** A rotated token presented again within this window is a benign concurrent refresh, not theft. */
+export const ROTATION_GRACE_MS = 10_000;
+
+/** True when the token was rotated (not explicitly revoked) within the grace window. */
+export function isWithinRotationGrace(
+  token: { rotated_at?: Date | string | null },
+  now: number = Date.now(),
+): boolean {
+  if (!token.rotated_at) return false;
+  const t = new Date(token.rotated_at).getTime();
+  if (!Number.isFinite(t)) return false;
+  const age = now - t;
+  return age >= -1_000 && age <= ROTATION_GRACE_MS;
 }
 
 /** Hash a refresh token for safe storage */
@@ -54,7 +71,7 @@ export async function findValidToken(tokenHash: string): Promise<Omit<RefreshTok
 export async function findTokenByHash(tokenHash: string): Promise<Omit<RefreshTokenRecord, "token_hash"> | null> {
   // Exclude token_hash from SELECT — caller already has the hash as input
   const result = await query<Omit<RefreshTokenRecord, "token_hash">>(
-    `SELECT id, user_id, family_id, revoked, expires_at, created_at FROM refresh_tokens WHERE token_hash = $1 LIMIT 1`,
+    `SELECT id, user_id, family_id, revoked, expires_at, created_at, rotated_at FROM refresh_tokens WHERE token_hash = $1 LIMIT 1`,
     [tokenHash],
   );
   return result.rows[0] ?? null;

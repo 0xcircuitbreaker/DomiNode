@@ -11,6 +11,8 @@ import {
   storeToken,
   findValidToken,
   findTokenByHash,
+  isWithinRotationGrace,
+  ROTATION_GRACE_MS,
   revokeToken,
   revokeFamily,
   revokeAllForUser,
@@ -164,5 +166,18 @@ describe("refresh-token-repo", () => {
         [],
       );
     });
+  });
+});
+
+describe("isWithinRotationGrace", () => {
+  const now = 1_700_000_000_000;
+  it("false when never rotated (explicit revoke/logout)", () => {
+    expect(isWithinRotationGrace({ rotated_at: null }, now)).toBe(false);
+  });
+  it("true just after rotation", () => {
+    expect(isWithinRotationGrace({ rotated_at: new Date(now - 3000) }, now)).toBe(true);
+  });
+  it("false after the grace window", () => {
+    expect(isWithinRotationGrace({ rotated_at: new Date(now - ROTATION_GRACE_MS - 1) }, now)).toBe(false);
   });
 });

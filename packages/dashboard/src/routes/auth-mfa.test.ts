@@ -33,6 +33,8 @@ vi.mock("@dominusnode/shared", () => ({
     revokeToken: vi.fn(),
     revokeFamily: vi.fn(),
     revokeAllForUser: vi.fn(),
+    isWithinRotationGrace: vi.fn((t: { rotated_at?: Date | null }) =>
+      !!t.rotated_at && Date.now() - new Date(t.rotated_at).getTime() <= 10_000),
   },
   mfaRepo: {
     findMfaConfigByUserId: vi.fn(),
@@ -103,6 +105,9 @@ import {
   verifyMfaChallengeToken,
   verifyTotpCode,
   verifyPassword,
+  verifyRefreshToken,
+  refreshTokenRepo,
+  query as dbQueryMock,
 } from "@dominusnode/shared";
 
 // ─── Helpers ───────────────────────────────────────────────────────────
@@ -855,5 +860,58 @@ describe("human auth gate (ADMIN_HUMAN_LOGIN)", () => {
     expect(res.status).toBe(201);
     expect(adminRepo.bootstrapFirstAdmin).toHaveBeenCalledWith("a1");
     expect((res.body.user as Record<string, unknown>).admin_role).toBe("admin");
+  });
+});
+
+describe("POST /api/auth/refresh (rotation race)", () => {
+  const base = {
+    id: "rt1", user_id: "user1", family_id: "fam-1",
+    expires_at: new Date(Date.now() + 3600_000), created_at: new Date(),
+  };
+  beforeEach(() => {
+    vi.clearAllMocks();
+    (verifyRefreshToken as ReturnType<typeof vi.fn>).mockReturnValue({ userId: "user1" });
+    (userRepo.findUserById as ReturnType<typeof vi.fn>).mockResolvedValue({
+      id: "user1", email: "a@b.c", status: "active", is_admin: false, admin_role: "none", password_changed_at: null,
+    });
+  });
+
+  it("token rotated within grace window -> 401 retry, no family or API key revocation", async () => {
+    (refreshTokenRepo.findTokenByHash as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      ...base, revoked: true, rotated_at: new Date(Date.now() - 2000),
+    });
+    const res = await request(createApp(), "POST", "/api/auth/refresh", { refreshToken: "rt" });
+    expect(res.status).toBe(401);
+    expect(res.body.retry).toBe(true);
+    expect(refreshTokenRepo.revokeFamily).not.toHaveBeenCalled();
+    expect(userRepo.revokeAllApiKeys).not.toHaveBeenCalled();
+  });
+
+  it("losing the concurrent rotation UPDATE -> 401 retry, nothing revoked", async () => {
+    (refreshTokenRepo.findTokenByHash as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ ...base, revoked: false, rotated_at: null });
+    (dbQueryMock as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ rows: [], rowCount: 0 });
+    const res = await request(createApp(), "POST", "/api/auth/refresh", { refreshToken: "rt" });
+    expect(res.status).toBe(401);
+    expect(res.body.retry).toBe(true);
+    expect(refreshTokenRepo.revokeFamily).not.toHaveBeenCalled();
+    expect(userRepo.revokeAllApiKeys).not.toHaveBeenCalled();
+  });
+
+  it("reuse outside grace window revokes the family but never API keys", async () => {
+    (refreshTokenRepo.findTokenByHash as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      ...base, revoked: true, rotated_at: new Date(Date.now() - 60_000),
+    });
+    const res = await request(createApp(), "POST", "/api/auth/refresh", { refreshToken: "rt" });
+    expect(res.status).toBe(401);
+    expect(refreshTokenRepo.revokeFamily).toHaveBeenCalledWith("fam-1");
+    expect(userRepo.revokeAllApiKeys).not.toHaveBeenCalled();
+  });
+
+  it("successful rotation stamps rotated_at", async () => {
+    (refreshTokenRepo.findTokenByHash as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ ...base, revoked: false, rotated_at: null });
+    (dbQueryMock as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ rows: [{ family_id: "fam-1" }], rowCount: 1 });
+    const res = await request(createApp(), "POST", "/api/auth/refresh", { refreshToken: "rt" });
+    expect(res.status).toBe(200);
+    expect(String((dbQueryMock as ReturnType<typeof vi.fn>).mock.calls[0][0])).toContain("rotated_at = now()");
   });
 });

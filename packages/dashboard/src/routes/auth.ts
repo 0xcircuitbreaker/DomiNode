@@ -779,16 +779,22 @@ router.post("/refresh", async (req, res) => {
     }
 
     if (storedToken.revoked) {
-      // REUSE DETECTED: This token was already rotated, meaning it was stolen.
-      // Revoke the entire family to protect the user.
+      if (refreshTokenRepo.isWithinRotationGrace(storedToken)) {
+        // Benign race: two tabs / a retry presented the same token right after
+        // it was rotated. Do not treat as theft; the client should retry with
+        // the cookie/token the winning request already set.
+        res.status(401).json({ error: "Refresh token already rotated; retry", retry: true });
+        return;
+      }
+      // REUSE DETECTED: a token rotated (or revoked) outside the grace window was
+      // presented again. Revoke only the token family. API keys are NOT revoked
+      // here: that is an explicit admin/user action, not a side effect of a
+      // refresh race.
       const revoked = await refreshTokenRepo.revokeFamily(storedToken.family_id);
-      // Also revoke all API keys — otherwise proxy tunnels survive token revocation
-      const keysRevoked = await userRepo.revokeAllApiKeys(storedToken.user_id);
-      log.warn("refresh token reuse detected — revoking family + API keys", {
+      log.warn("refresh token reuse detected — revoking token family", {
         userId: storedToken.user_id,
         familyId: storedToken.family_id,
         revokedTokens: revoked,
-        revokedKeys: keysRevoked,
       });
       res.status(401).json({ error: "Token reuse detected. All sessions revoked for security." });
       return;
@@ -811,22 +817,19 @@ router.post("/refresh", async (req, res) => {
       }
     }
 
-    // Revoke the old token atomically. If another concurrent request already
-    // rotated it, no row comes back -> treat as reuse and revoke the family.
+    // Rotate the old token atomically. If another concurrent request already
+    // rotated it, no row comes back. That is a benign race (same client, two
+    // tabs, or a retry), so answer "retry" and never revoke the family or keys.
     const rotated = await dbQuery<{ family_id: string }>(
-      "UPDATE refresh_tokens SET revoked = true WHERE token_hash = $1 AND revoked = false RETURNING family_id",
+      "UPDATE refresh_tokens SET revoked = true, rotated_at = now() WHERE token_hash = $1 AND revoked = false RETURNING family_id",
       [incomingHash],
     );
     if (rotated.rowCount !== 1) {
-      const revoked = await refreshTokenRepo.revokeFamily(storedToken.family_id);
-      const keysRevoked = await userRepo.revokeAllApiKeys(storedToken.user_id);
-      log.warn("concurrent refresh token reuse detected — revoking family + API keys", {
+      log.warn("concurrent refresh lost rotation race — asking client to retry", {
         userId: storedToken.user_id,
         familyId: storedToken.family_id,
-        revokedTokens: revoked,
-        revokedKeys: keysRevoked,
       });
-      res.status(401).json({ error: "Token reuse detected. All sessions revoked for security." });
+      res.status(401).json({ error: "Refresh token already rotated; retry", retry: true });
       return;
     }
 
