@@ -497,6 +497,29 @@ so never publish it on any other interface. Pass the URL through the
 environment or the hidden prompt, not as a command-line argument; it is stored
 only in the 0600 `.env`.
 
+**Boot order.** Docker can bind `DB_WG_BIND` only while wg0 is up. If Docker
+starts first, the postgres container fails and takes api and migrate with it.
+On systemd the installer adds this drop-in when it starts the stack; otherwise
+add it by hand:
+
+```ini
+# /etc/systemd/system/docker.service.d/10-after-wg.conf
+[Unit]
+Wants=wg-quick@wg0.service
+After=wg-quick@wg0.service
+```
+
+then run `sudo systemctl daemon-reload`. The installer also refuses a
+`DB_WG_BIND` that is not assigned to a WireGuard interface, so a LAN address
+such as 192.168.1.10 cannot publish Postgres to the home network. Bring wg0 up
+before running it. `ALLOW_NON_WG_DB_BIND=1` overrides the check (tests only).
+
+**Changing role.** Every run rewrites all role-specific keys
+(`GATEWAY_DATABASE_URL`, `COORD_PUBKEY`, `DB_WG_BIND`, `GATEWAY_PUBKEY`,
+`COORD_ADDITIONAL_PUBKEYS`) and clears those that do not belong to the new
+role. To retire a gateway key, rerun the coordinator with an empty
+`GATEWAY_PUBKEY`.
+
 Admin live gateway stats (`PROXY_INTERNAL_HOST`) are not wired across the split.
 
 ## 8. Launch jobs and settings

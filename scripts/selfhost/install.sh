@@ -147,7 +147,26 @@ fi
 DB_WG=""; GW_PUB=""
 if [ "$ROLE_SEL" = coordinator ]; then
   DB_WG="$(ask "Publish Postgres for a gateway VPS on this WireGuard address (empty: no)" "${DB_WG_BIND:-$(env_get DB_WG_BIND)}")"
-  if [ -n "$DB_WG" ]; then private_ipv4 "$DB_WG" || die "DB_WG_BIND must be a private (WireGuard) IPv4 address"; fi
+  if [ -n "$DB_WG" ]; then
+    private_ipv4 "$DB_WG" || die "DB_WG_BIND must be a private (WireGuard) IPv4 address"
+    # Refuse a LAN address: it must be assigned to a WireGuard interface.
+    if [ "${ALLOW_NON_WG_DB_BIND:-0}" != 1 ]; then
+      command -v ip >/dev/null 2>&1 || die "cannot verify DB_WG_BIND without the ip tool (ALLOW_NON_WG_DB_BIND=1 overrides)"
+      ip -o -4 addr show type wireguard 2>/dev/null | awk '{split($4,a,"/"); print a[1]}' | grep -qxF "$DB_WG" \
+        || die "DB_WG_BIND $DB_WG is not assigned to a WireGuard interface (bring wg0 up first; ALLOW_NON_WG_DB_BIND=1 overrides)"
+    fi
+    # Docker must start after wg0, or the Postgres bind fails at boot.
+    if [ "$NO_START" -eq 0 ] && [ -d /run/systemd/system ]; then
+      dropin=/etc/systemd/system/docker.service.d/10-after-wg.conf
+      if [ ! -f "$dropin" ]; then
+        echo "installing $dropin (docker After=/Wants=wg-quick@wg0.service)"
+        { sudo mkdir -p "$(dirname "$dropin")" \
+          && printf '[Unit]\nWants=wg-quick@wg0.service\nAfter=wg-quick@wg0.service\n' | sudo tee "$dropin" >/dev/null \
+          && sudo systemctl daemon-reload; } \
+          || echo "warning: could not install $dropin; add it by hand (DEPLOYMENT.md 7c)" >&2
+      fi
+    fi
+  fi
   GW_PUB="$(ask "Gateway VPS public key (its selfhost/coord.pub; empty: none yet)" "${GATEWAY_PUBKEY:-$(env_get GATEWAY_PUBKEY)}")"
   if [ -n "$GW_PUB" ]; then hex64 "$GW_PUB" || die "GATEWAY_PUBKEY must be a 64-hex public key"; fi
 fi
@@ -172,10 +191,12 @@ env_set ROLE "$ROLE_SEL"
 env_set RELAY_HOST "$RELAY"
 env_set PROXY_HOST "$PROXYH"
 if [ "$TLS" = cloudflare ]; then env_set CLOUDFLARE_TUNNEL_TOKEN_FILE "$CF_FILE"; fi
-if [ "$ROLE_SEL" = gateway ]; then env_set GATEWAY_DATABASE_URL "$GW_DB_URL"; env_set COORD_PUBKEY "$HOME_PUB"; fi
-if [ "$ROLE_SEL" = coordinator ]; then
-  env_set DB_WG_BIND "$DB_WG"; env_set GATEWAY_PUBKEY "$GW_PUB"; env_set COORD_ADDITIONAL_PUBKEYS "$GW_PUB"
-fi
+# Always write every role-specific key so a role change clears stale values
+# (a former gateway must not keep a remote DATABASE_URL; a former coordinator
+# must not keep advertising a retired gateway key).
+if [ "$ROLE_SEL" != gateway ]; then GW_DB_URL=""; HOME_PUB=""; fi
+env_set GATEWAY_DATABASE_URL "$GW_DB_URL"; env_set COORD_PUBKEY "$HOME_PUB"
+env_set DB_WG_BIND "$DB_WG"; env_set GATEWAY_PUBKEY "$GW_PUB"; env_set COORD_ADDITIONAL_PUBKEYS "$GW_PUB"
 env_set OPERATOR_CONTACT "$CONTACT"
 if [ "$TLS" = off ]; then
   env_set COOKIE_SECURE false; env_set TUNNEL_SCHEME ws

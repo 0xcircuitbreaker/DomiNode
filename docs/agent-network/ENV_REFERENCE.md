@@ -212,3 +212,20 @@ elsewhere). Meaning and required/optional status are documented in
 | `DN_WALLET_KEY_FILE` |  | `src/main.ts` |
 | `HOME` | `.` | `src/config.ts` |
 | `NODE_ENV` |  | `src/config.ts` |
+
+## Self-host installer (`.env`, read by compose and `scripts/selfhost/install.sh`)
+
+Not scanned from code; maintained in `SELFHOST_VARS` in the generator. See DEPLOYMENT.md self-host section.
+
+| Variable | Default(s) | Used by |
+|---|---|---|
+| `CLOUDFLARE_TUNNEL_TOKEN_FILE` | `./selfhost/cloudflared.token` | cloudflared (TLS_MODE=cloudflare); path of a 0600 file, the token is never in .env |
+| `COORD_ADDITIONAL_PUBKEYS` |  | api federation document (ROLE=coordinator: gateway VPS key) |
+| `COORD_PUBKEY` |  | installer pin of the coordinator key (ROLE=gateway) |
+| `DB_WG_BIND` |  | Postgres publish address on the WireGuard interface (ROLE=coordinator) |
+| `GATEWAY_DATABASE_URL` |  | gateway DATABASE_URL over WireGuard (ROLE=gateway) |
+| `GATEWAY_PUBKEY` |  | gateway VPS public key (ROLE=coordinator) |
+| `PROXY_HOST` |  | advertised proxy hostname |
+| `RELAY_HOST` |  | advertised relay and node tunnel hostname |
+| `ROLE` | `all` | all, coordinator or gateway |
+| `TLS_MODE` | `auto` | auto, internal, off or cloudflare |

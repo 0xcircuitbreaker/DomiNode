@@ -253,7 +253,7 @@ describe("self-host roles and Cloudflare Tunnel", () => {
   };
   const run = (tmp: string, env: Record<string, string>) =>
     spawnSync("bash", [path.join(tmp, "scripts/selfhost/install.sh"), "--yes", "--no-start"], {
-      env: { ...process.env, OPERATOR_CONTACT: "ops@example.org", SKIP_ASN_DB: "1", RELAY_HOST: "relay.example.org", PROXY_HOST: "proxy.example.org", ...env },
+      env: { ...process.env, OPERATOR_CONTACT: "ops@example.org", SKIP_ASN_DB: "1", ALLOW_NON_WG_DB_BIND: "1", RELAY_HOST: "relay.example.org", PROXY_HOST: "proxy.example.org", ...env },
       encoding: "utf8",
     });
   const pw = "a".repeat(48);
@@ -296,6 +296,38 @@ describe("self-host roles and Cloudflare Tunnel", () => {
       const caddy = fs.readFileSync(path.join(tmp, "selfhost/Caddyfile"), "utf8");
       expect(caddy).toContain("relay.example.org:8443 {");
       expect(caddy).not.toContain("api:3000");
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  it.runIf(has("openssl", ["version"]))("role change clears the other roles' keys", () => {
+    const tmp = setup();
+    try {
+      expect(run(tmp, gwEnv).status).toBe(0);
+      let env = fs.readFileSync(path.join(tmp, ".env"), "utf8");
+      expect(env).toMatch(/^GATEWAY_DATABASE_URL=postgresql/m);
+      expect(run(tmp, { ...coordEnv, GATEWAY_PUBKEY: "2".repeat(64) }).status).toBe(0);
+      env = fs.readFileSync(path.join(tmp, ".env"), "utf8");
+      expect(env).toMatch(/^GATEWAY_DATABASE_URL=$/m);
+      expect(env).toMatch(/^COORD_PUBKEY=$/m);
+      expect(env).toMatch(new RegExp(`^COORD_ADDITIONAL_PUBKEYS=${"2".repeat(64)}$`, "m"));
+      expect(run(tmp, { ...coordEnv, ROLE: "all", TLS_MODE: "auto" }).status).toBe(0);
+      env = fs.readFileSync(path.join(tmp, ".env"), "utf8");
+      for (const k of ["GATEWAY_DATABASE_URL", "COORD_PUBKEY", "DB_WG_BIND", "GATEWAY_PUBKEY", "COORD_ADDITIONAL_PUBKEYS"]) {
+        expect(env).toMatch(new RegExp(`^${k}=$`, "m"));
+      }
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  }, 60_000);
+
+  it.runIf(has("openssl", ["version"]))("rejects a DB_WG_BIND not on a WireGuard interface", () => {
+    const tmp = setup();
+    try {
+      const r = run(tmp, { ...coordEnv, DB_WG_BIND: "192.168.1.10", ALLOW_NON_WG_DB_BIND: "0" });
+      expect(r.status).not.toBe(0);
+      expect(r.stderr).toMatch(/WireGuard interface|ip tool/);
     } finally {
       fs.rmSync(tmp, { recursive: true, force: true });
     }
