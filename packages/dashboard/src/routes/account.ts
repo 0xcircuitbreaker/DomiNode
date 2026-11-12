@@ -3,7 +3,7 @@ import rateLimit from "express-rate-limit";
 import crypto from "node:crypto";
 import { requireAuth, type AuthenticatedRequest } from "../middleware/auth.js";
 import { clearAuthCookies } from "../helpers/cookies.js";
-import { query, getPool, createLogger, userRepo, verifyPassword, isWalletEmail, getProxyInternalPort } from "@dominusnode/shared";
+import { query, getPool, createLogger, userRepo, relayErasureRepo, verifyPassword, isWalletEmail, getProxyInternalPort } from "@dominusnode/shared";
 
 const log = createLogger("api:account");
 const router = Router();
@@ -398,6 +398,9 @@ router.delete(
         await client.query("UPDATE affiliate_commissions SET status = 'cancelled' WHERE (referrer_id = $1 OR referee_id = $1) AND status = 'pending'", [userId]);
         await client.query("DELETE FROM promo_redemptions WHERE user_id = $1", [userId]);
         await client.query("DELETE FROM loyalty_rewards WHERE user_id = $1", [userId]);
+
+        // Relay-network personal data (abuse log, node IPs, payout wallets, ...)
+        await relayErasureRepo.eraseRelayPersonalDataTx(client, userId);
 
         await client.query("COMMIT");
       } catch (txErr) {
