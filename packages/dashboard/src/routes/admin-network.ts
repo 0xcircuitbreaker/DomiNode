@@ -5,6 +5,10 @@ import {
   getPool,
   policyRepo,
   payoutRepo,
+  PRICING_CLASSES,
+  DEFAULT_TIER_WEIGHT_BPS,
+  MAX_TIER_WEIGHT_BPS,
+  isExitClass,
 } from "@dominusnode/shared";
 import { requireAuth } from "../middleware/auth.js";
 import { requireAdmin } from "../middleware/admin.js";
@@ -66,12 +70,19 @@ router.put("/policy", async (req: Request, res: Response) => {
 
 // ─── Pricing ────────────────────────────────────────────────────────
 
-const PRICING_CLASSES = new Set(["any", "residential", "dc", "mobile"]);
+const PRICING_CLASS_SET: ReadonlySet<string> = new Set(PRICING_CLASSES);
 
 router.get("/pricing", async (_req: Request, res: Response) => {
   try {
     const rows = await policyRepo.listPricing();
-    res.json({ pricing: rows.map((p) => ({ ipClass: p.ipClass, pricePerGbMusd: p.pricePerGbMusd.toString(), updatedAt: p.updatedAt })) });
+    res.json({
+      pricing: rows.map((p) => ({
+        ipClass: p.ipClass, pricePerGbMusd: p.pricePerGbMusd.toString(),
+        // Tier-credit weight (bps, 10000 = 1.0); not used for the 'any' fallback row.
+        tierWeightBps: p.ipClass === "any" ? null : (p.tierWeightBps ?? null),
+        updatedAt: p.updatedAt,
+      })),
+    });
   } catch (err) { fail(res, err, "Pricing fetch"); }
 });
 
@@ -79,24 +90,53 @@ router.put("/pricing", async (req: Request, res: Response) => {
   try {
     const b = (req.body ?? {}) as Record<string, unknown>;
     const ipClass = typeof b["ipClass"] === "string" ? b["ipClass"] : "";
-    if (!PRICING_CLASSES.has(ipClass)) throw new HttpError(400, "ipClass must be any|residential|dc|mobile");
-    const price = musdField(b["pricePerGbMusd"], "pricePerGbMusd", 1000n, 5_000_000n);
+    if (!PRICING_CLASS_SET.has(ipClass)) throw new HttpError(400, `ipClass must be ${PRICING_CLASSES.join("|")}`);
+    const hasPrice = b["pricePerGbMusd"] !== undefined;
+    const hasWeight = b["tierWeightBps"] !== undefined;
+    if (!hasPrice && !hasWeight) throw new HttpError(400, "pricePerGbMusd or tierWeightBps is required");
+    const price = hasPrice ? musdField(b["pricePerGbMusd"], "pricePerGbMusd", 1000n, 5_000_000n) : null;
+    const weight = hasWeight ? intField(b["tierWeightBps"], "tierWeightBps", 0, MAX_TIER_WEIGHT_BPS) : null;
+    if (weight !== null && ipClass === "any") throw new HttpError(400, "tierWeightBps applies to exit classes, not 'any'");
+    const reasonRaw = b["reason"];
+    if (reasonRaw !== undefined && (typeof reasonRaw !== "string" || reasonRaw.length > 500)) throw new HttpError(400, "reason must be a string of at most 500 chars");
+    const reason = typeof reasonRaw === "string" && reasonRaw.trim() ? reasonRaw.trim() : null;
+    // Tier weights move tier progression for every owner of that class: a reason is mandatory.
+    if (weight !== null && (reason === null || reason.length < 3)) throw new HttpError(400, "reason (3-500 chars) is required to change a tier weight");
     const uid = adminId(req);
     const row = await withAdminTx(uid, async (c) => {
-      const r = await c.query<{ ip_class: string; price_per_gb_musd: string; updated_at: Date }>(
-        `INSERT INTO network_pricing (ip_class, price_per_gb_musd, updated_by, updated_at)
-         VALUES ($1, $2, $3, now())
-         ON CONFLICT (ip_class) DO UPDATE
-           SET price_per_gb_musd = EXCLUDED.price_per_gb_musd, updated_by = EXCLUDED.updated_by, updated_at = now()
-         RETURNING ip_class, price_per_gb_musd, updated_at`,
-        [ipClass, price.toString(), uid],
+      const prev = await c.query<{ price_per_gb_musd: string; tier_weight_bps: number }>(
+        `SELECT price_per_gb_musd, tier_weight_bps FROM network_pricing WHERE ip_class = $1 FOR UPDATE`,
+        [ipClass],
       );
-      await audit(c, req, "network_pricing_update", "network_pricing", ipClass, { ipClass, pricePerGbMusd: price.toString() });
+      const before = prev.rows[0];
+      if (!before && price === null) throw new HttpError(404, "No pricing row for this class; set pricePerGbMusd first");
+      const defaultWeight = isExitClass(ipClass) ? DEFAULT_TIER_WEIGHT_BPS[ipClass] : MAX_TIER_WEIGHT_BPS;
+      const r = await c.query<{ ip_class: string; price_per_gb_musd: string; tier_weight_bps: number; updated_at: Date }>(
+        `INSERT INTO network_pricing (ip_class, price_per_gb_musd, tier_weight_bps, updated_by, updated_at)
+         VALUES ($1, COALESCE($2::bigint, 0), COALESCE($3::int, $5::int), $4, now())
+         ON CONFLICT (ip_class) DO UPDATE
+           SET price_per_gb_musd = COALESCE($2::bigint, network_pricing.price_per_gb_musd),
+               tier_weight_bps = COALESCE($3::int, network_pricing.tier_weight_bps),
+               updated_by = EXCLUDED.updated_by, updated_at = now()
+         RETURNING ip_class, price_per_gb_musd, tier_weight_bps, updated_at`,
+        [ipClass, price === null ? null : price.toString(), weight, uid, defaultWeight],
+      );
+      await audit(c, req, "network_pricing_update", "network_pricing", ipClass, {
+        ipClass,
+        pricePerGbMusd: price === null ? undefined : price.toString(),
+        previousPricePerGbMusd: before ? String(before.price_per_gb_musd) : null,
+        tierWeightBps: weight ?? undefined,
+        previousTierWeightBps: before ? Number(before.tier_weight_bps) : null,
+        reason,
+      });
       return r.rows[0];
     });
     invalidatePublicCaches();
-    log.info("network pricing updated", { ipClass, pricePerGbMusd: price.toString(), by: uid });
-    res.json({ ipClass: row.ip_class, pricePerGbMusd: String(row.price_per_gb_musd), updatedAt: row.updated_at });
+    log.info("network pricing updated", { ipClass, pricePerGbMusd: price?.toString(), tierWeightBps: weight, by: uid });
+    res.json({
+      ipClass: row.ip_class, pricePerGbMusd: String(row.price_per_gb_musd),
+      tierWeightBps: row.ip_class === "any" ? null : (row.tier_weight_bps ?? null), updatedAt: row.updated_at,
+    });
   } catch (err) { fail(res, err, "Pricing update"); }
 });
 

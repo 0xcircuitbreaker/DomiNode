@@ -4,7 +4,8 @@ import { adminApi, launchApi, type Tier } from "../../api/admin";
 import { fmtBps, fmtDate, fmtMusd, fmtInt } from "../../lib/format";
 import { Card, ConfirmDialog, DataTable, ErrorBox, Field, Loading, Notice, PageHeader } from "../components/ui";
 
-const PRICE_CLASSES = ["residential", "dc", "mobile", "any"] as const;
+const PRICE_CLASSES = ["residential", "dc", "mobile", "masked", "any"] as const;
+const WEIGHT_CLASSES = ["residential", "mobile", "dc", "masked"] as const;
 
 /** "$2.50" style USD string → µUSD integer, or null if malformed. */
 export function usdToMusd(s: string): number | null {
@@ -62,6 +63,47 @@ function PricingCard({ onSaved }: { onSaved: (m: string) => void }) {
           onSaved(`${r.ipClass} price set to ${fmtMusd(r.pricePerGbMusd)}/GB.`);
           pr.refetch();
         }} />
+    </Card>
+  );
+}
+
+/** Tier-credit weight per exit class (ECONOMICS.md): changes need a reason (audited). */
+function TierWeightCard({ onSaved }: { onSaved: (m: string) => void }) {
+  const pr = useApi(() => adminApi.pricing());
+  const [edit, setEdit] = useState<Record<string, string>>({});
+  const [reason, setReason] = useState("");
+  const [err, setErr] = useState<string | null>(null);
+  useEffect(() => {
+    if (pr.data) setEdit(Object.fromEntries(pr.data.pricing.filter((p) => p.tierWeightBps != null).map((p) => [p.ipClass, String(Number(p.tierWeightBps) / 100)])));
+  }, [pr.data]);
+  const byClass = new Map((pr.data?.pricing ?? []).map((r) => [r.ipClass, r]));
+  return (
+    <Card title="Tier credit weight per exit class">
+      <ErrorBox error={pr.error ?? err} />
+      <p className="mb-3 text-xs text-slate-500">Share of an active exit IP that counts toward tier progression (100% = one IP). Node share per tier is unchanged.</p>
+      <Field label="Reason (required, audited)" className="mb-3">{(id) => <input id={id} className="input" maxLength={500} value={reason} onChange={(e) => setReason(e.target.value)} />}</Field>
+      <div className="space-y-3">
+        {WEIGHT_CLASSES.filter((c) => byClass.has(c)).map((c) => (
+          <form key={c} className="flex flex-wrap items-end gap-2" onSubmit={async (e) => {
+            e.preventDefault();
+            const bps = pctToBps(edit[c] ?? "");
+            if (bps === null || bps > 10000) { setErr(`${c}: enter a weight between 0% and 100%`); return; }
+            if (reason.trim().length < 3) { setErr("Enter a reason (at least 3 characters)."); return; }
+            setErr(null);
+            try {
+              await adminApi.setTierWeight(c, bps, reason.trim());
+              onSaved(`${c} tier weight set to ${fmtBps(bps)}.`);
+              setReason("");
+              pr.refetch();
+            } catch (x) { setErr(x instanceof Error ? x.message : "Save failed"); }
+          }}>
+            <Field label={`${c} weight (%)`} className="w-40" hint={`Now ${fmtBps(Number(byClass.get(c)?.tierWeightBps ?? 0))}`}>
+              {(id) => <input id={id} className="input" inputMode="decimal" value={edit[c] ?? ""} onChange={(e) => setEdit((s) => ({ ...s, [c]: e.target.value }))} />}
+            </Field>
+            <button type="submit" className="btn-secondary mb-5">Save</button>
+          </form>
+        ))}
+      </div>
     </Card>
   );
 }
@@ -250,6 +292,7 @@ export default function PricingPage() {
       {msg && <Notice tone="good">{msg}</Notice>}
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
         <PricingCard onSaved={setMsg} />
+        <TierWeightCard onSaved={setMsg} />
         <SplitCard onSaved={setMsg} />
       </div>
       <div className="mt-4"><TiersCard onSaved={setMsg} /></div>

@@ -4,14 +4,14 @@ import type { Money } from "../lib/format";
 
 export type { Money };
 export type Rail = "wallet" | "team" | "agentic_wallet" | "x402" | "mpp" | "free";
-export type IpClass = "residential" | "dc" | "mobile" | "unknown";
+export type IpClass = "residential" | "dc" | "mobile" | "masked" | "unknown";
 export type NodeStatus = "pending" | "active" | "cooldown" | "quarantined" | "suspended" | "revoked";
 export type PayoutStatus = "pending" | "held_tax" | "held_frozen" | "submitted" | "confirmed" | "failed" | "reversed";
 export type DisputeStatus = "open" | "resolved_gateway" | "resolved_node" | "dismissed";
 export type Period = "24h" | "7d" | "30d" | "90d" | "all";
 
 export const RAILS: Rail[] = ["wallet", "team", "agentic_wallet", "x402", "mpp", "free"];
-export const IP_CLASSES: IpClass[] = ["residential", "dc", "mobile", "unknown"];
+export const IP_CLASSES: IpClass[] = ["residential", "dc", "mobile", "masked", "unknown"];
 export const NODE_STATUSES: NodeStatus[] = ["pending", "active", "cooldown", "quarantined", "suspended", "revoked"];
 export const PAYOUT_STATUSES: PayoutStatus[] = ["pending", "held_tax", "held_frozen", "submitted", "confirmed", "failed", "reversed"];
 export const DISPUTE_STATUSES: DisputeStatus[] = ["open", "resolved_gateway", "resolved_node", "dismissed"];
@@ -61,6 +61,8 @@ export interface NodeBase {
   attestationVersion: number; observedIp: string | null; ipPrefix: string | null; asn: number | null;
   country: string | null; ipClass: IpClass | null; maxStreams: number; maxGbDay: number; reputation: number;
   byteDisputes: number; agentVersion: string | null; lastSeenAt: string | null; createdAt: string; online: boolean;
+  /** Gateway-verified (effective) vs owner-declared exit class. */
+  verifiedClass?: IpClass; declaredClass?: IpClass | null; classVerifiedAt?: string | null; openEgressMismatchFlags?: number;
 }
 export interface NodeRow extends NodeBase {
   ownerEmail: string | null; bytesToday: string; gbToday: string; bytes30d: string; gb30d: string; openDisputes: number;
@@ -158,7 +160,7 @@ export interface NetworkPolicy {
   requireContribution: boolean; contributionWindowDays: number; allowAnonymousPayers: boolean;
 }
 export interface PolicyResponse { version: number; sha256: string; body: NetworkPolicy; createdAt: string | null }
-export interface PricingRow { ipClass: string; pricePerGbMusd: string; updatedAt: string }
+export interface PricingRow { ipClass: string; pricePerGbMusd: string; tierWeightBps?: number | null; updatedAt: string }
 export interface SplitRow { id: number; nodeShareBps: number; maturationHours: number; effectiveFrom: string; note: string | null; createdAt?: string }
 export interface Tier {
   id: number; name: string; rank: number; nodeShareBps: number; minTenureDays: number; minUptimeBps: number;
@@ -259,6 +261,7 @@ export const adminApi = {
     put<PolicyResponse & { previousVersion: number; attestationRaised: boolean }>(`${BASE}/policy`, body),
   pricing: () => get<{ pricing: PricingRow[] }>(`${BASE}/pricing`),
   setPricing: (ipClass: string, pricePerGbMusd: number) => put<PricingRow>(`${BASE}/pricing`, { ipClass, pricePerGbMusd }),
+  setTierWeight: (ipClass: string, tierWeightBps: number, reason: string) => put<PricingRow>(`${BASE}/pricing`, { ipClass, tierWeightBps, reason }),
   split: () => get<{ current: SplitRow; history: SplitRow[] }>(`${BASE}/split`),
   addSplit: (body: { nodeShareBps: number; maturationHours: number; effectiveFrom?: string; note?: string }) =>
     post<SplitRow>(`${BASE}/split`, body),

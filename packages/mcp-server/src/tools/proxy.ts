@@ -8,7 +8,7 @@ export function registerProxyTools(server: McpServer, httpClient: HttpClient, co
   server.tool(
     "dominusnode_get_proxy_config",
     "Get relay proxy connection details for use outside this MCP server (curl, SDKs, browsers): gateway endpoints, " +
-      "the username routing flags (country-XX, class-residential|dc|mobile, session-<id>, allowhttp-1), live per-GB prices " +
+      "the username routing flags (country-XX, class-residential|dc|mobile|masked, session-<id>, allowhttp-1), live per-GB prices " +
       "from GET /v1/pricing and the active plaintext/port policy. The API key always goes in the PASSWORD field.",
     {},
     async () => {
@@ -20,7 +20,7 @@ export function registerProxyTools(server: McpServer, httpClient: HttpClient, co
         `Credentials: username = routing flags, password = your dn_live_ API key`,
         `Username flags (hyphen-joined, any order, all optional):`,
         `  country-XX          exit country, ISO 3166-1 alpha-2 (e.g. country-US)`,
-        `  class-residential   exit IP class: residential | dc | mobile`,
+        `  class-residential   exit IP class: residential | dc | mobile | masked (VPN/WARP egress; only when asked)`,
         `  session-<id>        sticky exit node for an alphanumeric session id`,
         `  allowhttp-1         permit plaintext http:// (exit-visible)`,
         `Examples:`,

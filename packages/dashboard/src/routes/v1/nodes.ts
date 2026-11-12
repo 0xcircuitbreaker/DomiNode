@@ -8,6 +8,9 @@ import {
   policyRepo,
   tierRepo,
   powChallengeRepo,
+  isExitClass,
+  tierWeightBpsFor,
+  type ExitClass,
 } from "@dominusnode/shared";
 import { requireAgentPrincipal, type AgentRequest } from "../../middleware/agent.js";
 import { recoverSignerAddress } from "../../helpers/verify-signature.js";
@@ -132,6 +135,14 @@ router.post("/nodes", async (req: Request, res: Response) => {
   const powNonce = typeof pow["nonce"] === "string" || typeof pow["nonce"] === "number" ? String(pow["nonce"]) : "";
   const maxStreams = optionalInt(body["maxStreams"], 1, 1024);
   const maxGbDay = optionalInt(body["maxGbDay"], 1, 10000);
+  // Optional self-declared class: informational only. The effective class is
+  // always the gateway-verified one; a downgrade raises a review flag.
+  const declaredRaw = body["declaredClass"];
+  if (declaredRaw !== undefined && declaredRaw !== null && !isExitClass(declaredRaw)) {
+    res.status(400).json({ error: "declaredClass must be residential|mobile|dc|masked", code: "INVALID_DECLARED_CLASS" });
+    return;
+  }
+  const declaredClass: ExitClass | null = isExitClass(declaredRaw) ? declaredRaw : null;
 
   if (!HEX64.test(nonce)) { res.status(400).json({ error: "Invalid nonce", code: "INVALID_CHALLENGE" }); return; }
   if (!SIG_RE.test(signature)) { res.status(400).json({ error: "Invalid walletSignature", code: "INVALID_SIGNATURE" }); return; }
@@ -190,6 +201,7 @@ router.post("/nodes", async (req: Request, res: Response) => {
       attestationSig: signature,
       maxStreams,
       maxGbDay,
+      declaredClass,
     });
     if (!result.ok) {
       switch (result.reason) {
@@ -218,7 +230,21 @@ router.post("/nodes", async (req: Request, res: Response) => {
   }
 });
 
-function publicNode(n: nodeRepo.NodeRecord) {
+type TierWeights = Partial<Record<ExitClass, number>> | null;
+
+/** Tier weight as a decimal (bps / 10000), e.g. 0.25 for masked. */
+const weightOf = (cls: string | null, w: TierWeights): number =>
+  tierWeightBpsFor((cls ?? "unknown") as ExitClass, w ?? {}) / 10_000;
+
+async function loadTierWeights(): Promise<TierWeights> {
+  try {
+    return tierRepo.getTierWeights ? await tierRepo.getTierWeights() : null;
+  } catch {
+    return null; // defaults (tierWeightBpsFor) still apply
+  }
+}
+
+function publicNode(n: nodeRepo.NodeRecord, weights: TierWeights = null) {
   return {
     id: n.id,
     status: n.status,
@@ -228,6 +254,12 @@ function publicNode(n: nodeRepo.NodeRecord) {
     observedIp: n.observed_ip,
     country: n.country,
     ipClass: n.ip_class,
+    /** Gateway-verified exit class (same as ipClass; the effective class). */
+    verifiedClass: n.ip_class ?? "unknown",
+    declaredClass: n.declared_class ?? null,
+    classVerifiedAt: n.class_verified_at ?? null,
+    /** Tier-credit weight of the verified class (1.0 residential/mobile ... 0.25 masked). */
+    tierWeight: weightOf(n.ip_class, weights),
     maxStreams: n.max_streams,
     maxGbDay: n.max_gb_day,
     reputation: n.reputation,
@@ -248,11 +280,14 @@ router.get("/nodes", async (req: Request, res: Response) => {
     return;
   }
   try {
-    const page = await nodeRepo.listForOwner(agent.userId, { limit: limit + 1, offset, cursor });
+    const [page, weights] = await Promise.all([
+      nodeRepo.listForOwner(agent.userId, { limit: limit + 1, offset, cursor }),
+      loadTierWeights(),
+    ]);
     const nodes = page.slice(0, limit);
     const last = nodes[nodes.length - 1];
     const nextCursor = page.length > limit && last ? encodeCursor(new Date(last.created_at), last.id) : null;
-    res.json({ nodes: nodes.map(publicNode), limit, offset, nextCursor });
+    res.json({ nodes: nodes.map((n) => publicNode(n, weights)), limit, offset, nextCursor });
   } catch (err) {
     log.error("list nodes failed", { error: err instanceof Error ? err.message : String(err) });
     res.status(500).json({ error: "Failed to list nodes" });
@@ -292,7 +327,7 @@ router.delete("/nodes/:id", async (req: Request, res: Response) => {
 router.get("/node/tier", async (req: Request, res: Response) => {
   const agent = principal(req);
   try {
-    const [current, tiers, stats, state] = await Promise.all([
+    const [current, tiers, stats, state, weights] = await Promise.all([
       tierRepo.getOwnerTier(agent.userId),
       tierRepo.listTiers(),
       tierRepo.getOwnerTierStats(agent.userId, 0),
@@ -301,6 +336,7 @@ router.get("/node/tier", async (req: Request, res: Response) => {
          FROM users WHERE id = $1 AND status = 'active'`,
         [agent.userId],
       ),
+      loadTierWeights(),
     ]);
     const st = state.rows[0];
     if (!st) {
@@ -338,6 +374,11 @@ router.get("/node/tier", async (req: Request, res: Response) => {
       changedAt: st.node_tier_changed_at,
       uptimeGraceUntil: st.node_tier_grace_until,
       demotionReason: st.node_tier_demotion_reason,
+      // activeIps above is class-weighted: each qualifying exit IP counts for
+      // its verified class's weight (masked 0.25 = four masked IPs per IP).
+      tierWeights: Object.fromEntries(
+        (["residential", "mobile", "dc", "masked"] as const).map((c) => [c, weightOf(c, weights)]),
+      ),
     });
   } catch (err) {
     log.error("tier lookup failed", { error: err instanceof Error ? err.message : String(err) });
