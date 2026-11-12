@@ -363,8 +363,27 @@ describe("GET /v1/payouts", () => {
     m.listPayouts.mockResolvedValue([{ id: "p1", amountMusd: 1_000_000n, trigger: "auto", status: "confirmed", txHash: "0x" + "a".repeat(64), failureReason: null, address: PAYOUT, chain: "base", createdAt: new Date(), updatedAt: new Date() }]);
     const r = await call(app(), "GET", "/v1/payouts?limit=10");
     expect(r.status).toBe(200);
-    expect(m.listPayouts).toHaveBeenCalledWith(USER, { limit: 10, offset: 0 });
+    expect(m.listPayouts).toHaveBeenCalledWith(USER, { limit: 11, offset: 0, cursor: null });
     expect((r.body["payouts"] as unknown[])[0]).toMatchObject({ status: "confirmed", txHash: "0x" + "a".repeat(64) });
+    expect(r.body["nextCursor"]).toBeNull();
+  });
+  it("returns nextCursor when more rows exist and accepts it back", async () => {
+    const mk = (i: number) => ({ id: `00000000-0000-4000-8000-00000000000${i}`, amountMusd: 1n, trigger: "auto", status: "confirmed", txHash: null, failureReason: null, address: PAYOUT, chain: "base", createdAt: new Date(Date.UTC(2026, 0, 10 - i)), updatedAt: new Date() });
+    m.listPayouts.mockResolvedValueOnce([mk(1), mk(2), mk(3)]);
+    const r = await call(app(), "GET", "/v1/payouts?limit=2");
+    expect((r.body["payouts"] as unknown[]).length).toBe(2);
+    const next = r.body["nextCursor"] as string;
+    expect(typeof next).toBe("string");
+    m.listPayouts.mockResolvedValueOnce([mk(3)]);
+    const r2 = await call(app(), "GET", `/v1/payouts?limit=2&cursor=${next}`);
+    expect(r2.status).toBe(200);
+    expect(m.listPayouts).toHaveBeenLastCalledWith(USER, { limit: 3, offset: 0, cursor: { createdAt: mk(2).createdAt, id: mk(2).id } });
+    expect(r2.body["nextCursor"]).toBeNull();
+  });
+  it("400 INVALID_CURSOR for a malformed cursor", async () => {
+    const r = await call(app(), "GET", "/v1/payouts?cursor=not*valid");
+    expect(r.status).toBe(400);
+    expect(r.body["code"]).toBe("INVALID_CURSOR");
   });
 });
 

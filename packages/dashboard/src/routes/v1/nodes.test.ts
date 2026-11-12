@@ -254,7 +254,8 @@ describe("/v1 node routes", () => {
       m.listForOwner.mockResolvedValue([{ id: NODE_ID, owner_wallet: WALLET, status: "active", node_key_hash: "x".repeat(64), attestation_sig: "0x" }]);
       const r = await call(app(), "GET", "/v1/nodes?limit=9999");
       expect(r.status).toBe(200);
-      expect(m.listForOwner).toHaveBeenCalledWith(USER, { limit: 500, offset: 0 });
+      expect(m.listForOwner).toHaveBeenCalledWith(USER, { limit: 501, offset: 0, cursor: null });
+      expect(r.body["nextCursor"]).toBeNull();
       expect(JSON.stringify(r.body)).not.toMatch(/key_hash|attestation_sig/);
     });
 

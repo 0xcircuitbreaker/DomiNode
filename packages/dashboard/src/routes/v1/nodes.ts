@@ -11,7 +11,7 @@ import {
 } from "@dominusnode/shared";
 import { requireAgentPrincipal, type AgentRequest } from "../../middleware/agent.js";
 import { recoverSignerAddress } from "../../helpers/verify-signature.js";
-import { buildAttestationMessage, sha256Hex, verifyPow } from "@dominusnode/shared";
+import { buildAttestationMessage, sha256Hex, verifyPow, encodeCursor, decodeCursor } from "@dominusnode/shared";
 import { createKeyedLimiter } from "./limiter.js";
 
 const log = createLogger("api:v1:nodes");
@@ -242,9 +242,17 @@ router.get("/nodes", async (req: Request, res: Response) => {
   const agent = principal(req);
   const limit = Math.min(Math.max(parseInt(String(req.query["limit"] ?? "100"), 10) || 100, 1), 500);
   const offset = Math.min(Math.max(parseInt(String(req.query["offset"] ?? "0"), 10) || 0, 0), 1_000_000);
+  const cursor = req.query["cursor"] !== undefined ? decodeCursor(req.query["cursor"]) : null;
+  if (req.query["cursor"] !== undefined && !cursor) {
+    res.status(400).json({ error: "Invalid cursor", code: "INVALID_CURSOR" });
+    return;
+  }
   try {
-    const nodes = await nodeRepo.listForOwner(agent.userId, { limit, offset });
-    res.json({ nodes: nodes.map(publicNode), limit, offset });
+    const page = await nodeRepo.listForOwner(agent.userId, { limit: limit + 1, offset, cursor });
+    const nodes = page.slice(0, limit);
+    const last = nodes[nodes.length - 1];
+    const nextCursor = page.length > limit && last ? encodeCursor(new Date(last.created_at), last.id) : null;
+    res.json({ nodes: nodes.map(publicNode), limit, offset, nextCursor });
   } catch (err) {
     log.error("list nodes failed", { error: err instanceof Error ? err.message : String(err) });
     res.status(500).json({ error: "Failed to list nodes" });

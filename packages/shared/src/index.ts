@@ -219,3 +219,7 @@ export type { ProxyPorts } from "./proxy-ports.js";
 
 // Request ids (X-Request-Id), bound to logs via AsyncLocalStorage
 export { resolveRequestId, runWithRequestId, currentRequestId, REQUEST_ID_HEADER } from "./request-id.js";
+
+// Keyset pagination cursors
+export { encodeCursor, decodeCursor } from "./cursor.js";
+export type { KeysetCursor } from "./cursor.js";
