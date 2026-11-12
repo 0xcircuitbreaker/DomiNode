@@ -1,4 +1,5 @@
 import { query, getPool } from "../db.js";
+import { lockedStarterCentsTx } from "./starter-credit-repo.js";
 
 // ─── Types ───────────────────────────────────────────────────────────
 
@@ -160,6 +161,12 @@ export async function fundWallet(
     const mainWallet = mainWalletResult.rows[0];
     if (mainWallet.balance_cents < amountCents) {
       throw new Error("Insufficient balance in main wallet");
+    }
+    // Unspent starter credit is non-transferable: it must stay on the personal
+    // rail where spend is attributed to the grant and expiry can claw it back.
+    const starterLocked = await lockedStarterCentsTx(client, userId);
+    if (mainWallet.balance_cents - amountCents < starterLocked) {
+      throw new Error("Insufficient balance: starter credit cannot be moved out of the personal wallet");
     }
 
     // Lock agentic wallet

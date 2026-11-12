@@ -33,8 +33,9 @@ export async function runOnce(deps: MaturityDeps): Promise<MaturityResult> {
     out.matured += r.matured;
     out.skippedFrozen += r.skippedFrozen;
     out.movedMusd += r.movedMusd;
-    // Stop on a short batch, or when nothing moved (only frozen rows remain).
-    if (r.scanned < MATURE_BATCH_LIMIT || r.matured === 0) break;
+    // Stop only on a short batch. Frozen owners are excluded from selection,
+    // so a full batch always means more due rows may exist; maxBatches bounds it.
+    if (r.scanned < MATURE_BATCH_LIMIT) break;
   }
   return out;
 }

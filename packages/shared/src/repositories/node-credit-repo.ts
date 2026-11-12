@@ -118,18 +118,21 @@ export interface MatureResult {
 
 /**
  * Maturity job body: move due pending earnings to available.
- * Rows are claimed with FOR UPDATE SKIP LOCKED LIMIT 1000; frozen accounts
- * are skipped (rows stay unmatured and are retried next run).
+ * Rows are claimed with FOR UPDATE SKIP LOCKED LIMIT 1000. Frozen owners are
+ * excluded in the SELECT (so they can never fill the batch and stall everyone
+ * else); an account frozen between select and lock is still skipped here.
  */
 export async function matureDue(limit = MATURE_BATCH_LIMIT): Promise<MatureResult> {
   const lim = Number.isInteger(limit) && limit > 0 && limit <= MATURE_BATCH_LIMIT ? limit : MATURE_BATCH_LIMIT;
   return withTx(async (client) => {
     const due = await client.query<{ id: string; node_owner_user_id: string | null; node_musd: string }>(
-      `SELECT id, node_owner_user_id, node_musd FROM relay_charges
-       WHERE NOT matured AND NOT disputed AND matures_at <= now()
-       ORDER BY matures_at
+      `SELECT rc.id, rc.node_owner_user_id, rc.node_musd FROM relay_charges rc
+       LEFT JOIN node_credit_accounts a ON a.user_id = rc.node_owner_user_id
+       WHERE NOT rc.matured AND NOT rc.disputed AND rc.matures_at <= now()
+         AND NOT COALESCE(a.frozen, false)
+       ORDER BY rc.matures_at
        LIMIT $1
-       FOR UPDATE SKIP LOCKED`,
+       FOR UPDATE OF rc SKIP LOCKED`,
       [lim],
     );
     const res: MatureResult = { scanned: due.rows.length, matured: 0, skippedFrozen: 0, movedMusd: 0n };

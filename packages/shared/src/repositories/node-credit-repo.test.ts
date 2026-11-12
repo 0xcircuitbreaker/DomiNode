@@ -27,8 +27,13 @@ describe("node-credit-repo", () => {
     const res = await matureDue();
     expect(res).toMatchObject({ scanned: 1, matured: 1, movedMusd: 700n });
     const sel = r.calls.find((c) => /FROM relay_charges/.test(c.sql))!;
-    expect(sel.sql).toMatch(/FOR UPDATE SKIP LOCKED/);
+    expect(sel.sql).toMatch(/FOR UPDATE OF rc SKIP LOCKED/);
     expect(sel.params).toEqual([1000]);
+    // Frozen owners are excluded from the selection itself, so they cannot
+    // occupy the oldest-1000 window and stall maturity for everyone else.
+    expect(sel.sql).toMatch(/LEFT JOIN node_credit_accounts/);
+    expect(sel.sql).toMatch(/NOT COALESCE\(a\.frozen, false\)/);
+    expect(sel.sql).toMatch(/FOR UPDATE OF rc SKIP LOCKED/);
     expect(r.sqls().some((s) => /'mature'/.test(s))).toBe(true);
     expect(r.sqls()).toContain("COMMIT");
   });
