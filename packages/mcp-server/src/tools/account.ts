@@ -37,7 +37,10 @@ export function registerAccountTools(server: McpServer, httpClient: HttpClient):
 
   server.tool(
     "dominusnode_create_agent_secret",
-    "Generate a per-agent secret (das_xxx) for autonomous operation. The secret replaces MCP_AGENT_SECRET for this agent's subsequent requests — enables CAPTCHA bypass, email auto-verify, and elevated rate limits. Requires authentication. Save the returned secret — it is shown only once.",
+    "Generate a per-agent secret (das_...) that marks this agent's API requests as a verified agent, which raises its " +
+      "API rate limits. Set it as DOMINUSNODE_AGENT_SECRET for this MCP server (sent as X-DominusNode-Agent-Secret). " +
+      "It does not bypass brute-force protections. Max 5 active secrets per account; the oldest is revoked. " +
+      "Requires authentication. Shown only once.",
     {
       label: z.string().max(100).default("mcp-agent").describe("Human-readable label for the agent secret"),
     },
@@ -60,14 +63,12 @@ export function registerAccountTools(server: McpServer, httpClient: HttpClient):
           `Label: ${data.label}`,
           ``,
           `Usage:`,
-          `  Set DOMINUSNODE_AGENT_SECRET=${data.agentSecret} in your environment`,
-          `  Or pass as X-DominusNode-Agent-Secret header with X-DominusNode-Agent: mcp`,
+          `  Set DOMINUSNODE_AGENT_SECRET=<the secret above> in this MCP server's environment and restart it`,
+          `  (MCP_AGENT_SECRET is accepted as an alias). Other clients send it as the`,
+          `  X-DominusNode-Agent-Secret header together with X-DominusNode-Agent: mcp.`,
           ``,
-          `This secret is unique to your agent. It enables:`,
-          `  - CAPTCHA bypass on all endpoints`,
-          `  - Email auto-verification on registration`,
-          `  - Elevated rate limits`,
-          `  - Max 5 active secrets per account (oldest auto-revoked)`,
+          `Effect: requests are treated as a verified agent (higher API rate limits).`,
+          `Max 5 active secrets per account; the oldest is revoked automatically.`,
         ].join("\n");
         return { content: [{ type: "text", text }] };
       } catch (err) {

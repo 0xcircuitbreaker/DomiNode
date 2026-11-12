@@ -8,6 +8,7 @@ const CREDENTIAL_PATTERNS = [
   /dn_test_[A-Za-z0-9_-]+/g,
   /dn_node_[A-Za-z0-9_-]+/g,
   /dn_proxy_[A-Za-z0-9_.-]+/g,
+  /das_[A-Za-z0-9_-]+/g,
   /eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*/g,
   /Bearer\s+[A-Za-z0-9._-]+/gi,
 ];

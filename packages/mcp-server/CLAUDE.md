@@ -17,11 +17,11 @@ MCP server for the AI-agent relay network: 65 authenticated + 11 bootstrap tools
 - node_register: wallet key ONLY from DOMINUSNODE_WALLET_KEY_FILE (0600 enforced), never a tool argument
 - node_register: build attestation with src/attestation.ts (vendored copy of shared, parity-tested; no runtime dep on private @dominusnode/shared) and refuse if the server's `message` differs
 - dn_node_ key: write to a new 0600 file (no overwrite), never echo it in tool output — return the path
-- Credential scrubbing: scrub dn_live_/dn_test_/dn_node_/dn_proxy_/JWT/Bearer in ALL error messages
+- Credential scrubbing: scrub dn_live_/dn_test_/dn_node_/dn_proxy_/das_/JWT/Bearer in ALL error messages
 - Usage tools: backend expects since/until ISO dates, NOT days integer
 - check_payment: backend at GET /api/wallet/crypto/status/:invoiceId
 - create_team: max_members <= 100; pay_crypto: >= $5
-- MCP_AGENT_SECRET: require 32+ characters
+- Agent secret: DOMINUSNODE_AGENT_SECRET (alias MCP_AGENT_SECRET), require 32+ characters
 - Process shutdown: SIGINT/SIGTERM/exit handlers call tokenManager.clear()
 - Agent auto-verify: X-DominusNode-Agent:mcp header → email_verified=true server-side
 - 429/401 retry safe: server rejected BEFORE processing (no mutation occurred)
