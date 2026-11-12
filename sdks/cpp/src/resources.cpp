@@ -188,12 +188,22 @@ json TeamsResource::accept_invite(const std::string& token) {
 TeamKeyCreateResponse TeamsResource::create_key(const std::string& t, const std::string& label) {
     validate_non_empty(label, "label", 100);
     json r = http_.post(tm(t) + "/keys", {{"label", label}});
-    TeamKeyCreateResponse k{str_field(r, "id"), str_field(r, "keyPrefix"), str_field(r, "label"),
+    std::string prefix = r.contains("prefix") && r["prefix"].is_string() ? str_field(r, "prefix") : str_field(r, "keyPrefix");
+    TeamKeyCreateResponse k{str_field(r, "id"), prefix, prefix, str_field(r, "label"), str_field(r, "createdAt"),
                             Secret(str_field(r, "key"))};
     if (r.contains("key") && r["key"].is_string()) secure_zero_string(r["key"].get_ref<std::string&>());
     return k;
 }
-json TeamsResource::list_keys(const std::string& t) { return http_.get(tm(t) + "/keys"); }
+json TeamsResource::list_keys(const std::string& t) {
+    json r = http_.get(tm(t) + "/keys");
+    if (r.is_object() && r.contains("keys") && r["keys"].is_array()) {
+        for (auto& k : r["keys"]) {
+            if (k.is_object() && !(k.contains("prefix") && k["prefix"].is_string()) && k.contains("keyPrefix") && k["keyPrefix"].is_string())
+                k["prefix"] = k["keyPrefix"];
+        }
+    }
+    return r;
+}
 void TeamsResource::revoke_key(const std::string& t, const std::string& key_id) {
     http_.del(tm(t) + "/keys/" + url_encode(key_id));
 }

@@ -98,7 +98,11 @@ std::string ProxyResource::build_url(const ProxyRoutingOptions& opts, const std:
     return proto + "://" + url_encode(user) + ":" + url_encode(key(api_key)) + "@" + settings_.host + ":" + std::to_string(port);
 }
 
-json ProxyResource::get_health() { return http_.get("/api/proxy/health", AuthMode::None); }
+json ProxyResource::get_health() {
+    json r = http_.get("/api/proxy/health", AuthMode::None);
+    std::string status = r.is_object() && r.contains("status") && r["status"].is_string() ? r["status"].get<std::string>() : "unknown";
+    return json{{"status", status}};
+}
 json ProxyResource::get_config() { return http_.get("/api/proxy/config", AuthMode::Jwt); }
 
 // ─── fetch ──────────────────────────────────────────────────────────────────
