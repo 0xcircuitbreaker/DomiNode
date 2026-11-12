@@ -51,17 +51,17 @@ async function main(): Promise<void> {
   if (bootstrapMode) {
     // ── Bootstrap Mode ──────────────────────────────────────────────
     // No API key provided. Start with account/auth tools only.
-    // Agent authenticates by wallet signature, then restarts with a key.
+    // Agent authenticates by wallet signature; wallet_setup then unlocks the full set in-process.
     process.stderr.write("Dominus Node MCP Server starting in BOOTSTRAP mode...\n");
     process.stderr.write("No API key detected. Only account tools are available.\n");
     process.stderr.write("Use dominusnode_wallet_challenge + dominusnode_wallet_setup to get an API key.\n\n");
 
-    registerBootstrapTools(server, httpClient);
+    registerBootstrapTools(server, httpClient, config);
 
     const transport = new StdioServerTransport();
     await server.connect(transport);
     process.stderr.write(`Dominus Node MCP Server ready — bootstrap mode (${countTools(server)} tools)\n`);
-    process.stderr.write("Run dominusnode_wallet_setup to get an API key, then restart with DOMINUSNODE_API_KEY.\n");
+    process.stderr.write("Run dominusnode_wallet_setup: it creates an API key and unlocks the full tool set in this session.\n");
   } else {
     // ── Authenticated Mode ──────────────────────────────────────────
     process.stderr.write("Dominus Node MCP Server starting...\n");

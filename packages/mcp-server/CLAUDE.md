@@ -2,7 +2,7 @@
 
 Team: **AI & Integrations**
 
-MCP server for the AI-agent relay network: 65 authenticated + 11 bootstrap tools
+MCP server for the AI-agent relay network: 65 authenticated + 12 bootstrap tools
 (canonical list: `tests/tool-list.ts`; registration: `src/register.ts`).
 
 ## Rules
@@ -28,6 +28,9 @@ MCP server for the AI-agent relay network: 65 authenticated + 11 bootstrap tools
 - No Stripe/PayPal/plans/slots/email-password tools: humans are admin-only
 - Earnings tools (src/tools/credits.ts): signing keys ONLY from DOMINUSNODE_WALLET_KEY_FILE / DOMINUSNODE_PAYOUT_WALLET_KEY_FILE; rebuild the challenge message locally (must match dashboard routes/v1/credits.ts byte for byte) and refuse to sign on mismatch
 - Money fields from /v1 credits routes are {musd, usd} objects (docs/agent-network/AGENT_API.md)
+
+- Bootstrap: wallet_setup unlocks the authenticated set in-process (unlockAuthenticatedTools); its key-file signer only signs the standard sign-in message (isSignInMessage)
+- x402_info is public and registered in both modes
 
 ## Common Mistakes
 - get_account_info: REST returns {user:{...}} wrapper, not flat object

@@ -58,7 +58,7 @@ curl -x socks5h://class-dc-session-abc123:$DOMINUSNODE_API_KEY@proxy.dominusnode
 
 ## Tooling for agents
 
-- **MCP server** ([packages/mcp-server](packages/mcp-server)): 65 tools, plus 11 bootstrap tools, for relay fetch, nodes, earnings and wallets.
+- **MCP server** ([packages/mcp-server](packages/mcp-server)): 65 tools, plus 12 bootstrap tools, for relay fetch, nodes, earnings and wallets.
 - **SDKs v2** ([sdks/](sdks)): Node.js, Python, Go, Rust, Java and C++. They share one contract in [sdks/SDK_SURFACE.md](sdks/SDK_SURFACE.md).
 - **27 framework integrations** ([integrations/](integrations)): LangChain, CrewAI, LlamaIndex, Vercel AI, Mastra, n8n and others. All of them expose the same 19-tool set.
 - **Node agent** ([packages/node-agent](packages/node-agent)): the `dominusnode-node` binary for contributing an IP.

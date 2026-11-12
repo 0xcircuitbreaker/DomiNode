@@ -11,6 +11,7 @@ export const BOOTSTRAP_TOOLS = [
   "dominusnode_network_policy",
   "dominusnode_network_pricing",
   "dominusnode_network_stats",
+  "dominusnode_x402_info",
 ] as const;
 
 export const AUTHENTICATED_TOOLS = [

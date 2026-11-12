@@ -33,20 +33,23 @@ Registry name: `io.github.0xcircuitbreaker/dominusnode` in the official MCP Regi
 
 The same block works for Claude Desktop, Claude Code (`.mcp.json`), Gemini CLI, Codex CLI, Cursor and VS Code. Without `DOMINUSNODE_API_KEY` the server starts in **bootstrap mode**.
 
-## Bootstrap mode (no API key): 11 tools
+## Bootstrap mode (no API key): 12 tools
 
 | Tool | Purpose |
 |---|---|
 | `dominusnode_bootstrap_help` | How to get started |
 | `dominusnode_wallet_challenge` | Get an EIP-191 message to sign with your wallet |
 | `dominusnode_register_wallet` | Submit the signature (creates or logs in to a wallet account) |
-| `dominusnode_wallet_setup` | Signature + API key in one call |
+| `dominusnode_wallet_setup` | Signature + API key in one call; unlocks the authenticated tools in the same session (no restart). With `DOMINUSNODE_WALLET_KEY_FILE` set, omit the signature and the server signs the standard sign-in message |
 | `dominusnode_get_account_info` | Account details |
 | `dominusnode_create_agent_secret` | Per-agent `das_` secret |
-| `dominusnode_pay_crypto` / `dominusnode_check_payment` | Crypto top-up and status |
+| `dominusnode_pay_crypto` / `dominusnode_check_payment` | Crypto top-up and status (sign in first) |
+| `dominusnode_x402_info` | Public: whether x402 pay-per-request is enabled and how to use it |
 | `dominusnode_network_policy` / `dominusnode_network_pricing` / `dominusnode_network_stats` | Public network info |
 
 Email/password registration, login and email verification are human flows (admin-only) and are not exposed.
+
+Wallet sign-in is rate limited: 20 challenges and 5 failed verifications per hour per process; successful sign-ins do not count.
 
 ## Authenticated mode: 65 tools
 
