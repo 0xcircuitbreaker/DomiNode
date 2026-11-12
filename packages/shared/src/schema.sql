@@ -1929,3 +1929,36 @@ CREATE INDEX IF NOT EXISTS idx_abuse_reports_host ON abuse_reports(dest_host, cr
 INSERT INTO data_retention_policies (table_name, retention_days, description) VALUES
   ('abuse_reports', 365, 'Closed (actioned/dismissed) public abuse reports purged after 1 year')
 ON CONFLICT (table_name) DO NOTHING;
+
+-- ─── Launch gaps: genesis payer diversity, starter-credit funding check, announcements ───
+-- Genesis entry needs matured paid traffic from this many distinct, unlinked paying principals.
+ALTER TABLE genesis_settings ADD COLUMN IF NOT EXISTS min_distinct_payers INTEGER NOT NULL DEFAULT 3;
+DO $$ BEGIN
+  ALTER TABLE genesis_settings ADD CONSTRAINT chk_genesis_min_payers CHECK (min_distinct_payers BETWEEN 1 AND 1000);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+-- Starter credit only for funded principals: prior on-chain tx on Base (nonce >= 1)
+-- or a top-up of at least min_topup_cents. Fails closed when the RPC is unavailable.
+ALTER TABLE starter_credit_settings ADD COLUMN IF NOT EXISTS require_funding BOOLEAN NOT NULL DEFAULT true;
+ALTER TABLE starter_credit_settings ADD COLUMN IF NOT EXISTS min_topup_cents INTEGER NOT NULL DEFAULT 100;
+DO $$ BEGIN
+  ALTER TABLE starter_credit_settings ADD CONSTRAINT chk_scs_min_topup CHECK (min_topup_cents BETWEEN 1 AND 100000);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+-- Agent-facing changelog / news feed (GET /v1/announcements). Public, admin-managed.
+CREATE TABLE IF NOT EXISTS network_announcements (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  title         TEXT NOT NULL CHECK (length(title) BETWEEN 1 AND 200),
+  body          TEXT NOT NULL DEFAULT '' CHECK (length(body) <= 10000),
+  category      TEXT NOT NULL DEFAULT 'news' CHECK (category IN ('policy','pricing','payments','api','network','news')),
+  url           TEXT CHECK (url IS NULL OR (length(url) <= 500 AND url ~ '^https://')),
+  published     BOOLEAN NOT NULL DEFAULT true,
+  published_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by    UUID REFERENCES users(id) ON DELETE SET NULL,
+  updated_by    UUID REFERENCES users(id) ON DELETE SET NULL,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_network_announcements_pub ON network_announcements(published_at DESC) WHERE published;
