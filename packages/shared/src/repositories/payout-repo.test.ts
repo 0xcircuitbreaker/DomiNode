@@ -3,7 +3,7 @@ import { routedClient, type Route } from "./relay-net-test-helpers.js";
 
 const mockConnect = vi.fn();
 vi.mock("../db.js", () => ({ query: vi.fn(), getPool: () => ({ connect: () => mockConnect() }) }));
-import { requestWithdraw, markPayoutReversed, markPayoutConfirmed, markPayoutFailed, changePayoutWallet, PayoutsDisabledError, payoutsEnabled, listDuePayouts, claimPayoutForSend, blockWalletForSanctions, freezeNodeCreditAccount } from "./payout-repo.js";
+import { requestWithdraw, markPayoutReversed, markPayoutConfirmed, markPayoutFailed, changePayoutWallet, PayoutsDisabledError, payoutsEnabled, listDuePayouts, listAutoPayoutCandidates, claimPayoutForSend, blockWalletForSanctions, freezeNodeCreditAccount } from "./payout-repo.js";
 import { query as dbQuery } from "../db.js";
 
 function setup(routes: Route[]) { const r = routedClient(routes); mockConnect.mockResolvedValue(r.client); return r; }
@@ -207,5 +207,18 @@ describe("payout-repo", () => {
     const ins = r.calls.find((c) => /INSERT INTO node_payouts/.test(c.sql))!;
     expect(ins.params[5]).toBe("held_tax");
     expect(r.calls.find((c) => /SELECT tax_form_status/.test(c.sql))!.sql).toMatch(/'pending','held_tax','held_frozen','submitted'/);
+  });
+
+  it("listAutoPayoutCandidates returns the remaining tier daily limit, floored at 0, fail-closed without a tier", async () => {
+    vi.mocked(dbQuery).mockResolvedValueOnce({ rows: [
+      { user_id: "a", available_musd: "60000000", remaining_daily_musd: "50000000" },
+      { user_id: "b", available_musd: "60000000", remaining_daily_musd: "-1" },
+      { user_id: "c", available_musd: "60000000", remaining_daily_musd: null },
+    ] } as never);
+    const r = await listAutoPayoutCandidates();
+    expect(r.map((x) => x.remainingDailyMusd)).toEqual([50000000n, 0n, 0n]);
+    const sqlText = vi.mocked(dbQuery).mock.calls[0]![0] as string;
+    expect(sqlText).toMatch(/daily_withdraw_limit_musd/);
+    expect(sqlText).toMatch(/status NOT IN \('failed','reversed'\)/);
   });
 });
