@@ -8,13 +8,13 @@
     "source": "github",
     "subfolder": "packages/mcp-server"
   },
-  "version": "2.0.1",
+  "version": "2.0.2",
   "packages": [
     {
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "@dominusnode/mcp-server",
-      "version": "2.0.1",
+      "version": "2.0.2",
       "transport": {
         "type": "stdio"
       },
@@ -28,7 +28,7 @@
         },
         {
           "name": "DOMINUSNODE_PROXY_URL",
-          "description": "TLS gateway https://host[:port]. Default https://proxy.dominusnode.daedalusdevelopmentgroup.com:8443.",
+          "description": "TLS gateway https://host[:port]. Default https://proxy.dominusnode.com:8443.",
           "isRequired": false,
           "isSecret": false,
           "format": "string"

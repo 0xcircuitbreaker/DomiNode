@@ -1,6 +1,6 @@
 {
   "name": "@dominusnode/flowise-tools",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "Flowise / LangChain tools for the DominusNode AI-agent relay network (19 standard v2 tools, built on @dominusnode/sdk)",
   "type": "module",
   "main": "dist/index.js",

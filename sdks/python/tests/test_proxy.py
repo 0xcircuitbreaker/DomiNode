@@ -44,8 +44,8 @@ def test_flag_validation(kw: dict) -> None:
 
 def test_build_url(rec: Recorder, client: Any) -> None:
     assert client.proxy.build_url(country="US", ip_class="dc") == \
-        f"http://country-US-class-dc:{API_KEY}@proxy.dominusnode.daedalusdevelopmentgroup.com:8080"
-    assert client.proxy.build_url(protocol="socks5") == f"socks5://relay:{API_KEY}@proxy.dominusnode.daedalusdevelopmentgroup.com:1080"
+        f"http://country-US-class-dc:{API_KEY}@proxy.dominusnode.com:8080"
+    assert client.proxy.build_url(protocol="socks5") == f"socks5://relay:{API_KEY}@proxy.dominusnode.com:1080"
     other = "dn_test_otherkey_123"
     assert client.proxy.build_url(api_key=other).startswith(f"http://relay:{other}@")
     assert client.proxy.build_username(session_id="s1") == "session-s1"
@@ -331,5 +331,5 @@ async def test_async_fetch(rec: Recorder) -> None:
 def test_default_hosts() -> None:
     from dominusnode import DEFAULT_BASE_URL, DEFAULT_PROXY_HOST
 
-    assert DEFAULT_BASE_URL == "https://api.dominusnode.daedalusdevelopmentgroup.com"
-    assert DEFAULT_PROXY_HOST == "proxy.dominusnode.daedalusdevelopmentgroup.com"
+    assert DEFAULT_BASE_URL == "https://api.dominusnode.com"
+    assert DEFAULT_PROXY_HOST == "proxy.dominusnode.com"

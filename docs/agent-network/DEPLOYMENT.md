@@ -22,19 +22,46 @@ hosts; each stays overridable through its existing env/config option
 
 | Host | Serves | Points to | Ports | TLS |
 |------|--------|-----------|-------|-----|
-| `dominusnode.daedalusdevelopmentgroup.com` | Public site and admin dashboard (`packages/frontend`) | Static host (Netlify) or the frontend container behind Caddy/nginx | 443 (80 redirects) | Host-managed or Caddy ACME cert for this name |
-| `api.dominusnode.daedalusdevelopmentgroup.com` | REST API (`packages/dashboard`): `/v1`, `/api`, `/.well-known/*`, `/status` | Caddy (`infra/caddy/Caddyfile`) -> `api:3000` | 443 | Caddy ACME (HTTP-01/TLS-ALPN) |
-| `proxy.dominusnode.daedalusdevelopmentgroup.com` | Relay gateway front end (`packages/proxy-gateway`) | Gateway host public IP, ports exposed directly (not via an HTTP reverse proxy) | 8080 HTTP proxy, 1080 SOCKS5, 8443 TLS proxy (`PROXY_TLS_PORT`) | Gateway terminates TLS on 8443 with `PROXY_TLS_CERT_FILE`/`PROXY_TLS_KEY_FILE`; cert issued via DNS-01 since 80/443 may not be on this host |
-| `relay.dominusnode.daedalusdevelopmentgroup.com` | Node tunnel, `wss://relay.dominusnode.daedalusdevelopmentgroup.com/v1/tunnel` | Gateway host; :443 via Caddy layer4 SNI passthrough (§5 Option A) to `TUNNEL_PORT`, or `TUNNEL_PORT` exposed directly (Option B) | 443 | End-to-end TLS terminated by the gateway (`TUNNEL_TLS_CERT_FILE`/`TUNNEL_TLS_KEY_FILE`), never by Caddy, so channel binding holds |
+| `dominusnode.com` | Public site and admin dashboard (`packages/frontend`) | Static host (Netlify) or the frontend container behind Caddy/nginx | 443 (80 redirects) | Host-managed or Caddy ACME cert for this name |
+| `www.dominusnode.com` | 301 redirect to `https://dominusnode.com{uri}` | Same as the site | 443 (80 redirects) | Same cert as the site (SAN) |
+| `api.dominusnode.com` | REST API (`packages/dashboard`): `/v1`, `/api`, `/.well-known/*`, `/status` | Caddy (`infra/caddy/Caddyfile`) -> `api:3000` | 443 | Caddy ACME (HTTP-01/TLS-ALPN) |
+| `proxy.dominusnode.com` | Relay gateway front end (`packages/proxy-gateway`) | Gateway host public IP, ports exposed directly (not via an HTTP reverse proxy) | 8080 HTTP proxy, 1080 SOCKS5, 8443 TLS proxy (`PROXY_TLS_PORT`) | Gateway terminates TLS on 8443 with `PROXY_TLS_CERT_FILE`/`PROXY_TLS_KEY_FILE`; cert issued via DNS-01 since 80/443 may not be on this host |
+| `relay.dominusnode.com` | Node tunnel, `wss://relay.dominusnode.com/v1/tunnel` | Gateway host; :443 via Caddy layer4 SNI passthrough (§5 Option A) to `TUNNEL_PORT` (9443), or `TUNNEL_PORT` exposed directly (Option B) | 443 (or 9443 direct) | End-to-end TLS terminated by the gateway (`TUNNEL_TLS_CERT_FILE`/`TUNNEL_TLS_KEY_FILE`), never by Caddy, so channel binding holds |
 
-DNS records (in the `daedalusdevelopmentgroup.com` zone):
+DNS records (in the `dominusnode.com` zone):
 
-- `dominusnode` CNAME to the static host (or A/AAAA to the web server).
-- `api.dominusnode` A/AAAA to the API/Caddy host.
-- `proxy.dominusnode` A/AAAA to the gateway host.
-- `relay.dominusnode` A/AAAA to the gateway host (or the Caddy layer4 host in
-  front of it).
+| Name | Type | Value | Cloudflare proxy |
+|------|------|-------|------------------|
+| `@` | A / AAAA (or CNAME-flattened to the static host) | Site / web server | May be proxied (orange cloud) |
+| `www` | CNAME | `dominusnode.com.` | May be proxied |
+| `api` | A / AAAA | API/Caddy host | May be proxied (HTTP only; keep `TRUST_PROXY` correct) |
+| `proxy` | A / AAAA | Gateway host | **DNS only (grey cloud).** Cloudflare cannot carry raw HTTP-proxy, SOCKS5 or TLS-proxy traffic on 8080/1080/8443 |
+| `relay` | A / AAAA | Gateway host (or the Caddy layer4 host in front of it) | **DNS only (grey cloud).** The tunnel needs end-to-end TLS to the gateway for channel binding and the real client IP |
+
 - Optional CAA record restricting issuance to the chosen CA.
+- Mail aliases to set up on `dominusnode.com` (optional): `abuse@dominusnode.com`
+  and `security@dominusnode.com`, both forwarding to the published contact
+  `0xcircuitbreaker@protonmail.com`. That address stays the contact of record.
+
+Secondary alias: `dominusnode.daedalusdevelopmentgroup.com` (DDG subdomain)
+
+The previous primary names keep working so existing clients, nodes and links
+do not break:
+
+- `dominusnode.daedalusdevelopmentgroup.com`: 301 redirect to
+  `https://dominusnode.com{uri}` (Netlify domain alias with a forced redirect,
+  or `redir https://dominusnode.com{uri} permanent` in Caddy).
+- `api.dominusnode.daedalusdevelopmentgroup.com`,
+  `proxy.dominusnode.daedalusdevelopmentgroup.com` and
+  `relay.dominusnode.daedalusdevelopmentgroup.com`: served directly (no
+  redirect; proxy clients and node tunnels do not follow redirects), as extra
+  SANs on the same certificates as the `dominusnode.com` names. Keep the same
+  A/AAAA records and the same no-Cloudflare-proxy rule for `proxy.` and
+  `relay.` in the `daedalusdevelopmentgroup.com` zone.
+- List both names in `COORDINATOR_HOSTNAMES` and both site origins in
+  `CORS_ORIGINS` (below).
+- Synthetic wallet emails moved to `wallet.dominusnode.com`; rows created under
+  `wallet.dominusnode.daedalusdevelopmentgroup.com` are still recognised by `isWalletEmail`.
 
 Notes:
 
@@ -50,10 +77,11 @@ Notes:
   for gateway-internal calls.
 - One certificate with SANs for `proxy.` and `relay.` may be reused by both
   gateway listeners.
-- Dashboard env for this plan: `APP_URL=https://dominusnode.daedalusdevelopmentgroup.com`,
-  `CORS_ORIGINS=https://dominusnode.daedalusdevelopmentgroup.com`,
-  `DOMINUSNODE_DOMAIN=dominusnode.daedalusdevelopmentgroup.com` (SIWE domain),
-  `PROXY_PUBLIC_HOST=proxy.dominusnode.daedalusdevelopmentgroup.com`.
+- Dashboard env for this plan: `APP_URL=https://dominusnode.com`,
+  `CORS_ORIGINS=https://dominusnode.com,https://www.dominusnode.com,https://dominusnode.daedalusdevelopmentgroup.com`,
+  `DOMINUSNODE_DOMAIN=dominusnode.com` (SIWE domain),
+  `COORDINATOR_HOSTNAMES=dominusnode.com,dominusnode.daedalusdevelopmentgroup.com`,
+  `PROXY_PUBLIC_HOST=proxy.dominusnode.com`.
 
 
 ## 1. Coordinator signing key
@@ -193,7 +221,7 @@ header:
 {
   layer4 {
     :443 {
-      @tunnel tls sni relay.dominusnode.daedalusdevelopmentgroup.com
+      @tunnel tls sni relay.dominusnode.com relay.dominusnode.daedalusdevelopmentgroup.com
       route @tunnel {
         proxy {
           proxy_protocol v2
@@ -256,10 +284,10 @@ Clients:
 - Node SDK: `new DominusNodeClient({ proxyHost, gatewayTls: true })`
   (port 8443) or `gatewayTls: { port, ca }`. `proxy.fetch` uses TLS and
   `buildUrl` returns `https://...`. Other SDKs: follow-up (SDK_SURFACE.md §5).
-- MCP server: `DOMINUSNODE_PROXY_URL=https://proxy.dominusnode.daedalusdevelopmentgroup.com:8443`
+- MCP server: `DOMINUSNODE_PROXY_URL=https://proxy.dominusnode.com:8443`
   (optional `DOMINUSNODE_PROXY_CA_FILE` for a private CA). Preferred over
   `DOMINUSNODE_HTTP_PROXY_PORT` when set.
-- curl: `curl -x https://relay:$KEY@proxy.dominusnode.daedalusdevelopmentgroup.com:8443 https://example.com`.
+- curl: `curl -x https://relay:$KEY@proxy.dominusnode.com:8443 https://example.com`.
 
 ## 7. Seed nodes (operator-run)
 
@@ -379,15 +407,15 @@ described in [DISCOVERY.md](DISCOVERY.md).
 ### Build
 
 ```bash
-VITE_PUBLIC_ORIGIN=https://dominusnode.daedalusdevelopmentgroup.com \
-VITE_API_BASE=https://api.dominusnode.daedalusdevelopmentgroup.com \
+VITE_PUBLIC_ORIGIN=https://dominusnode.com \
+VITE_API_BASE=https://api.dominusnode.com \
 npm run build --workspace=packages/frontend      # -> packages/frontend/dist
 ```
 
-`VITE_PUBLIC_ORIGIN` (default `https://dominusnode.daedalusdevelopmentgroup.com`)
+`VITE_PUBLIC_ORIGIN` (default `https://dominusnode.com`)
 is written into the canonical/OpenGraph tags, `sitemap.xml`, `robots.txt`,
 `llms.txt`, `llms-full.txt`, `docs/*.md` and `.well-known/mcp/server.json` at
-build time. A malformed value fails the build. `VITE_API_BASE` (default `https://api.dominusnode.daedalusdevelopmentgroup.com`) is where the
+build time. A malformed value fails the build. `VITE_API_BASE` (default `https://api.dominusnode.com`) is where the
 landing page fetches `/v1/pricing`, `/v1/network/stats` and `/v1/policy`
 (client-side; the page shows fallback text if they fail), where `/report-abuse`
 posts `POST /v1/abuse-reports` (proof of work solved in the browser), and
@@ -395,7 +423,7 @@ where the "Status" links point (`/status`, `/v1/network/history`). Optional
 `VITE_ABUSE_URL` replaces the in-site abuse form with another URL.
 
 The SDKs, MCP server and node agent still default to `https://api.dominusnode.com`;
-the site's snippets and docs pass `https://api.dominusnode.daedalusdevelopmentgroup.com` explicitly
+the site's snippets and docs pass `https://api.dominusnode.com` explicitly
 (`baseUrl`, `base_url`, `DOMINUSNODE_API_URL`, `DN_NODE_API_URL`).
 
 After editing `public/docs/*.md` or `discovery/generate.mjs`, run
@@ -405,8 +433,9 @@ a test fails if they are stale.
 ### DNS
 
 ```
-dominusnode.daedalusdevelopmentgroup.com.      CNAME  <static host target, e.g. your-site.netlify.app.>
-api.dominusnode.daedalusdevelopmentgroup.com.  CNAME  <API host>
+dominusnode.com.      A/AAAA  <static host or web server>
+www.dominusnode.com.  CNAME   dominusnode.com.
+api.dominusnode.com.  A/AAAA  <API host>
 ```
 
 Use an A/AAAA record instead of CNAME if the static host is your own VPS.
@@ -424,7 +453,7 @@ year, adds `X-Robots-Tag: noindex` on `/admin` and `/login`, and falls back to
 ```nginx
 server {
   listen 443 ssl http2;
-  server_name dominusnode.daedalusdevelopmentgroup.com;
+  server_name dominusnode.com;
   root /srv/dominusnode/frontend/dist;
 
   types { text/markdown md; }
@@ -434,7 +463,7 @@ server {
   add_header Strict-Transport-Security "max-age=63072000; includeSubDomains" always;
   add_header X-Content-Type-Options nosniff always;
   add_header Referrer-Policy strict-origin-when-cross-origin always;
-  add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' https://api.dominusnode.daedalusdevelopmentgroup.com; img-src 'self' data:; frame-ancestors 'none'; base-uri 'self'" always;
+  add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' https://api.dominusnode.com; img-src 'self' data:; frame-ancestors 'none'; base-uri 'self'" always;
 
   location /assets/ { add_header Cache-Control "public, max-age=31536000, immutable"; try_files $uri =404; }
   location ~ ^/(llms(-full)?\.txt|robots\.txt|sitemap\.xml|docs/.+\.md|\.well-known/.+\.json)$ {
@@ -450,7 +479,11 @@ server {
 ### Hosting option C: Caddy
 
 ```caddy
-dominusnode.daedalusdevelopmentgroup.com {
+www.dominusnode.com, dominusnode.daedalusdevelopmentgroup.com {
+  redir https://dominusnode.com{uri} permanent
+}
+
+dominusnode.com {
   root * /srv/dominusnode/frontend/dist
   encode zstd gzip
   @discovery path /llms.txt /llms-full.txt /robots.txt /sitemap.xml /docs/*.md /.well-known/*
@@ -469,14 +502,14 @@ dominusnode.daedalusdevelopmentgroup.com {
 
 ### API origin and CORS
 
-Run the API on its own host, `api.dominusnode.daedalusdevelopmentgroup.com`,
+Run the API on its own host, `api.dominusnode.com`,
 add the public origin to the API's allowlist, and set `APP_URL` so the
 API-hosted `/llms.txt`, `/.well-known/agent-tool.json` and `/status` link the
 right base:
 
 ```
-CORS_ORIGINS=https://dominusnode.daedalusdevelopmentgroup.com
-APP_URL=https://api.dominusnode.daedalusdevelopmentgroup.com
+CORS_ORIGINS=https://dominusnode.com,https://www.dominusnode.com,https://dominusnode.daedalusdevelopmentgroup.com
+APP_URL=https://api.dominusnode.com
 ```
 
 The site calls only public, unauthenticated routes with `credentials: "omit"`:
@@ -491,18 +524,18 @@ moves, rebuild with the new `VITE_API_BASE` and update the CSP `connect-src`.
 So existing crawlers and agents find it:
 
 - DDG home page and products/services page: a "DominusNode: relay network for AI
-  agents" card linking to `https://dominusnode.daedalusdevelopmentgroup.com/`.
+  agents" card linking to `https://dominusnode.com/`.
 - DDG footer: a plain link to the same URL.
 - DDG agent-service pages (anything already describing agent tooling): a
   "Network egress for your agents" link to `/docs/agents.md` and to the MCP
   setup at `/docs/mcp.md`.
 - DDG `sitemap.xml`: add the product URL, or a `<sitemap>` entry pointing to
-  `https://dominusnode.daedalusdevelopmentgroup.com/sitemap.xml`.
+  `https://dominusnode.com/sitemap.xml`.
 - DDG JSON-LD Organization: list the product under `owns` or `makesOffer`.
 - DDG `llms.txt`, under its products section:
 
 ```markdown
 ## Products
 
-- [DominusNode](https://dominusnode.daedalusdevelopmentgroup.com/llms.txt): decentralized relay network for AI agents; buy egress through agent-contributed IPs with x402/MPP or a prepaid wallet, or run a node and earn. MCP server: @dominusnode/mcp-server.
+- [DominusNode](https://dominusnode.com/llms.txt): decentralized relay network for AI agents; buy egress through agent-contributed IPs with x402/MPP or a prepaid wallet, or run a node and earn. MCP server: @dominusnode/mcp-server.
 ```

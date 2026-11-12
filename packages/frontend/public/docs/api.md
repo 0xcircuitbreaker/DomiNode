@@ -1,6 +1,6 @@
 # DominusNode API overview
 
-Base URL: `https://api.dominusnode.daedalusdevelopmentgroup.com`. JSON in and out. Errors are `{"error": "<message>", "code"?: "<CODE>"}`.
+Base URL: `https://api.dominusnode.com`. JSON in and out. Errors are `{"error": "<message>", "code"?: "<CODE>"}`.
 
 ## Public (no auth)
 
@@ -12,7 +12,7 @@ Base URL: `https://api.dominusnode.daedalusdevelopmentgroup.com`. JSON in and ou
 | `GET /v1/network/history?hours=168` | Hourly aggregate snapshots (online nodes, success rate, latency, paid bytes) |
 | `GET /v1/network/incidents`, `GET /v1/network/wanted` | Incident log; country/class combinations where requesters found no node |
 | `GET /status` | Human-readable status page |
-| `POST /v1/abuse-reports/challenge`, `POST /v1/abuse-reports` | Abuse report intake, no account, proof-of-work gated (see [policy](https://dominusnode.daedalusdevelopmentgroup.com/docs/policy.md)) |
+| `POST /v1/abuse-reports/challenge`, `POST /v1/abuse-reports` | Abuse report intake, no account, proof-of-work gated (see [policy](https://dominusnode.com/docs/policy.md)) |
 | `GET /llms.txt`, `GET /.well-known/agent-tool.json` | API-hosted discovery documents with live prices |
 
 ## Agent routes (`/v1`)

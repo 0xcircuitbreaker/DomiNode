@@ -1,7 +1,7 @@
 # Replace this hostname if you prefer a different API subdomain.
 # Caddy will automatically provision/renew TLS certificates via Let's Encrypt.
 
-api.dominusnode.daedalusdevelopmentgroup.com {
+api.dominusnode.com, api.dominusnode.daedalusdevelopmentgroup.com {
   encode zstd gzip
 
   # Security headers (parity with nginx config)

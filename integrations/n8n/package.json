@@ -1,6 +1,6 @@
 {
   "name": "n8n-nodes-dominusnode",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "n8n community node for the DominusNode AI-agent relay network (19 standard v2 operations, built on @dominusnode/sdk)",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

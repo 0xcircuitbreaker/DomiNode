@@ -1,7 +1,7 @@
 # Netlify redirects (works for drag-and-drop deploys too).
 #
 # 1) Proxy /api/* to the VPS-hosted API so cookie-based auth stays first-party.
-/api/*  https://api.dominusnode.daedalusdevelopmentgroup.com/api/:splat  200!
+/api/*  https://api.dominusnode.com/api/:splat  200!
 
 # 2) Unknown agent-discovery paths are a 404, not the SPA (existing files win).
 /docs/*         /404.html   404

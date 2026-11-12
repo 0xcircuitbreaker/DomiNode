@@ -190,7 +190,7 @@ test('every package README shows its registry install command and the default AP
       'cpp-release': [/releases\/download\/sdk-cpp-v/, new RegExp(`sdk-cpp-v${esc(v)}`)],
     }[p.ecosystem];
     for (const re of want) assert.match(readme, re, `${p.id}: README install`);
-    assert.match(readme, /api\.dominusnode\.daedalusdevelopmentgroup\.com/, `${p.id}: README default API host`);
+    assert.match(readme, /api\.dominusnode\.com/, `${p.id}: README default API host`);
   }
 });
 

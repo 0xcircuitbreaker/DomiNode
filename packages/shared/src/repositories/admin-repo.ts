@@ -137,7 +137,7 @@ export async function deleteUser(userId: string): Promise<void> {
     // Anonymize user: replace email, clear password, set status to deleted
     await client.query(
       `UPDATE users SET
-        email = 'deleted-' || id || '@deleted.dominusnode.daedalusdevelopmentgroup.com',
+        email = 'deleted-' || id || '@deleted.dominusnode.com',
         password_hash = 'DELETED',
         status = 'deleted',
         wallet_address = NULL

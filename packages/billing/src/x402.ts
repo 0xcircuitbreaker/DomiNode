@@ -275,7 +275,7 @@ export function buildX402Requirements(arg: "dc" | "residential" | { amountMusd: 
   }
 
   const accepts: X402PaymentOption[] = [];
-  const resourceUrl = `https://${process.env["PROXY_PUBLIC_HOST"] ?? "proxy.dominusnode.daedalusdevelopmentgroup.com"}`;
+  const resourceUrl = `https://${process.env["PROXY_PUBLIC_HOST"] ?? "proxy.dominusnode.com"}`;
 
   // Coinbase facilitator — Base chain (USDC, EIP-3009 gasless transfer)
   const evmAddr = process.env["X402_RECEIVING_ADDRESS"];

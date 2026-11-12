@@ -16,9 +16,9 @@ pub const SDK_VERSION: &str = env!("CARGO_PKG_VERSION");
 /// `User-Agent` header value.
 pub const USER_AGENT: &str = concat!("dominusnode-sdk-rust/", env!("CARGO_PKG_VERSION"));
 /// Default API base URL.
-pub const DEFAULT_BASE_URL: &str = "https://api.dominusnode.daedalusdevelopmentgroup.com";
+pub const DEFAULT_BASE_URL: &str = "https://api.dominusnode.com";
 /// Default proxy gateway host.
-pub const DEFAULT_PROXY_HOST: &str = "proxy.dominusnode.daedalusdevelopmentgroup.com";
+pub const DEFAULT_PROXY_HOST: &str = "proxy.dominusnode.com";
 /// Default HTTP proxy port.
 pub const DEFAULT_HTTP_PROXY_PORT: u32 = 8080;
 /// Default SOCKS5 proxy port.

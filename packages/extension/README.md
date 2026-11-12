@@ -63,8 +63,8 @@ The same flat JSON is accepted by the managed policy and by the one-time import:
 {
   "apiKey": "dn_live_…",
   "enabled": true,
-  "apiBase": "https://api.dominusnode.daedalusdevelopmentgroup.com",
-  "gatewayHost": "proxy.dominusnode.daedalusdevelopmentgroup.com",
+  "apiBase": "https://api.dominusnode.com",
+  "gatewayHost": "proxy.dominusnode.com",
   "gatewayPort": 8443,
   "gatewayTls": true,
   "country": "US",

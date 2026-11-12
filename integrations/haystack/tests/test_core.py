@@ -50,7 +50,7 @@ def _attr(obj, path):
 @pytest.fixture()
 def sdk():
     c = MagicMock()
-    c.proxy.build_url.return_value = f"http://country-US:{FAKE_KEY}@proxy.dominusnode.daedalusdevelopmentgroup.com:8080"
+    c.proxy.build_url.return_value = f"http://country-US:{FAKE_KEY}@proxy.dominusnode.com:8080"
     c.proxy.build_username.return_value = "country-US"
     res = MagicMock(status=200, status_text="OK", headers={"content-type": "text/html"}, truncated=False)
     res.text.return_value = "hello world"
@@ -98,7 +98,7 @@ def test_proxy_url_masks_key(tk, sdk):
     out = tk.proxy_url(country="US")
     sdk.proxy.build_url.assert_called_once()
     sdk.proxy.build_username.assert_called_once()
-    assert out["url"] == "http://country-US:<DOMINUSNODE_API_KEY>@proxy.dominusnode.daedalusdevelopmentgroup.com:8080"
+    assert out["url"] == "http://country-US:<DOMINUSNODE_API_KEY>@proxy.dominusnode.com:8080"
     assert FAKE_KEY not in json.dumps(out)
 
 

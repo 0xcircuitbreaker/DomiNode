@@ -13,7 +13,7 @@ pip install dominusnode-langchain
 export DOMINUSNODE_API_KEY=dn_live_...   # read from the environment, never a tool argument
 ```
 
-Defaults: API `https://api.dominusnode.daedalusdevelopmentgroup.com`, relay gateway `proxy.dominusnode.daedalusdevelopmentgroup.com`. Override with `DOMINUSNODE_BASE_URL` / `DOMINUSNODE_PROXY_HOST`.
+Defaults: API `https://api.dominusnode.com`, relay gateway `proxy.dominusnode.com`. Override with `DOMINUSNODE_BASE_URL` / `DOMINUSNODE_PROXY_HOST`.
 
 ## Usage
 

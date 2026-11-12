@@ -1,7 +1,7 @@
-export const SDK_VERSION = "2.0.1";
+export const SDK_VERSION = "2.0.2";
 export const USER_AGENT = `dominusnode-sdk-node/${SDK_VERSION}`;
-export const DEFAULT_BASE_URL = "https://api.dominusnode.daedalusdevelopmentgroup.com";
-export const DEFAULT_PROXY_HOST = "proxy.dominusnode.daedalusdevelopmentgroup.com";
+export const DEFAULT_BASE_URL = "https://api.dominusnode.com";
+export const DEFAULT_PROXY_HOST = "proxy.dominusnode.com";
 export const DEFAULT_HTTP_PROXY_PORT = 8080;
 export const DEFAULT_SOCKS5_PROXY_PORT = 1080;
 export const DEFAULT_TLS_PROXY_PORT = 8443;

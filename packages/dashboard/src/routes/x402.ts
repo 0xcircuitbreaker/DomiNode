@@ -71,7 +71,7 @@ router.get("/info", async (_req, res) => {
     discovery: {
       discoverable: true,
       resource: {
-        url: `https://${process.env["PROXY_PUBLIC_HOST"] ?? "proxy.dominusnode.daedalusdevelopmentgroup.com"}`,
+        url: `https://${process.env["PROXY_PUBLIC_HOST"] ?? "proxy.dominusnode.com"}`,
         description: X402_RESOURCE_DESCRIPTION,
         mimeType: "application/json",
       },

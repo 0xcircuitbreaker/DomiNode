@@ -10,8 +10,8 @@ services:
       TRUST_PROXY: ${TRUST_PROXY:-1}
       COOKIE_SECURE: ${COOKIE_SECURE:-true}
       # Used by /api/proxy/status + /api/proxy/config endpoints (UI + extension).
-      PROXY_PUBLIC_HOST: ${PROXY_PUBLIC_HOST:-proxy.dominusnode.daedalusdevelopmentgroup.com}
-      PROXY_HOST: ${PROXY_HOST:-proxy.dominusnode.daedalusdevelopmentgroup.com}
+      PROXY_PUBLIC_HOST: ${PROXY_PUBLIC_HOST:-proxy.dominusnode.com}
+      PROXY_HOST: ${PROXY_HOST:-proxy.dominusnode.com}
       PROXY_HTTP_PORT: ${PROXY_HTTP_PORT:-8080}
       PROXY_SOCKS5_PORT: ${PROXY_SOCKS5_PORT:-1080}
 

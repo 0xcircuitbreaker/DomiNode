@@ -136,7 +136,7 @@ def _check(rec: Recorder, method: str, path: str, body: Any, auth: str) -> None:
         assert r.headers["content-type"] == "application/json"
     expected = {"jwt": f"Bearer {ACCESS}", "key": f"Bearer {API_KEY}", "none": None}[auth]
     assert r.headers.get("authorization") == expected
-    assert r.headers["user-agent"] == "dominusnode-sdk-python/2.0.1"
+    assert r.headers["user-agent"] == "dominusnode-sdk-python/2.0.2"
     assert r.headers["accept"] == "application/json"
 
 

@@ -19,7 +19,7 @@ describe("DOMINUSNODE_PROXY_URL config", () => {
   it("defaults to the TLS gateway on 8443", () => {
     const c = parseConfig({});
     expect(c.proxyTls).toEqual({ port: 8443, ca: undefined });
-    expect(gatewayDescription(c)).toBe("https://proxy.dominusnode.daedalusdevelopmentgroup.com:8443 (TLS)");
+    expect(gatewayDescription(c)).toBe("https://proxy.dominusnode.com:8443 (TLS)");
   });
 
   it("uses plaintext only with DOMINUSNODE_PROXY_INSECURE=1 and warns", () => {
@@ -29,7 +29,7 @@ describe("DOMINUSNODE_PROXY_URL config", () => {
     try {
       const c = parseConfig({ DOMINUSNODE_PROXY_INSECURE: "1" });
       expect(c.proxyTls).toBeNull();
-      expect(gatewayDescription(c)).toBe("http://proxy.dominusnode.daedalusdevelopmentgroup.com:8080");
+      expect(gatewayDescription(c)).toBe("http://proxy.dominusnode.com:8080");
     } finally {
       (process.stderr as { write: unknown }).write = orig;
     }

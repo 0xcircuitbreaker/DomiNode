@@ -13,7 +13,7 @@ startCommand:
         description: "Path to a chmod-600 wallet key file (node registration and withdrawals only)."
       proxyUrl:
         type: string
-        description: "TLS gateway https://host[:port]. Default https://proxy.dominusnode.daedalusdevelopmentgroup.com:8443."
+        description: "TLS gateway https://host[:port]. Default https://proxy.dominusnode.com:8443."
       proxyCaFile:
         type: string
         description: "Path to an extra PEM CA for a privately issued gateway certificate."

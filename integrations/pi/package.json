@@ -1,6 +1,6 @@
 {
   "name": "@dominusnode/pi-extension",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "DominusNode pi extension: 19 standard v2 tools for the AI-agent relay network, built on @dominusnode/sdk",
   "keywords": [
     "pi-package",

@@ -19,7 +19,7 @@ set -euo pipefail
 # Usage:
 #   # Real upstream (costs money!)
 #   ./stress-tests/run-production.sh \
-#     --proxy-host proxy.dominusnode.daedalusdevelopmentgroup.com --proxy-port 8080 \
+#     --proxy-host proxy.dominusnode.com --proxy-port 8080 \
 #     --scenario a
 #
 #   # Mock mode (no cost)
@@ -29,7 +29,7 @@ set -euo pipefail
 #
 #   # Dry run (prints what would happen)
 #   ./stress-tests/run-production.sh \
-#     --proxy-host proxy.dominusnode.daedalusdevelopmentgroup.com --proxy-port 8080 \
+#     --proxy-host proxy.dominusnode.com --proxy-port 8080 \
 #     --dry-run --scenario a
 #
 # Required:

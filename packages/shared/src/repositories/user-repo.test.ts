@@ -308,7 +308,7 @@ describe("user-repo", () => {
       const [sql, params] = mockQuery.mock.calls[1];
       expect(sql).toMatch(/ON CONFLICT DO NOTHING/);
       expect(sql).not.toMatch(/RETURNING \*/);
-      expect(params[0]).toBe(`${ADDR.toLowerCase()}@wallet.dominusnode.daedalusdevelopmentgroup.com`);
+      expect(params[0]).toBe(`${ADDR.toLowerCase()}@wallet.dominusnode.com`);
       expect(params[1]).toMatch(/^\$2[aby]\$/); // unusable bcrypt hash
       expect(params[2]).toBe(ADDR.toLowerCase());
     });
@@ -338,7 +338,7 @@ describe("user-repo", () => {
       const [sql, params] = mockQuery.mock.calls[1];
       expect(sql).toMatch(/INSERT INTO users[\s\S]*INSERT INTO payer_identities/);
       expect(sql).not.toMatch(/wallet_address/);
-      expect(params[0]).toMatch(/^sol-[0-9a-f]{40}@wallet\.dominusnode\.daedalusdevelopmentgroup\.com$/);
+      expect(params[0]).toMatch(/^sol-[0-9a-f]{40}@wallet\.dominusnode\.com$/);
       expect(params[2]).toBe(SOL);
     });
     it("collapses a concurrent Solana create onto the winner", async () => {

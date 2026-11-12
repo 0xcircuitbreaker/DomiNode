@@ -47,11 +47,11 @@ func TestBuildUsername(t *testing.T) {
 func TestBuildURL(t *testing.T) {
 	c, _ := newTestClient(t)
 	u, err := c.Proxy.BuildURL(RoutingOptions{Country: "US", IPClass: "dc"}, "", "")
-	if err != nil || u != "http://country-US-class-dc:"+testKey+"@proxy.dominusnode.daedalusdevelopmentgroup.com:8080" {
+	if err != nil || u != "http://country-US-class-dc:"+testKey+"@proxy.dominusnode.com:8080" {
 		t.Fatalf("%q %v", u, err)
 	}
 	u, _ = c.Proxy.BuildURL(RoutingOptions{}, "socks5", "dn_test_otherkey123")
-	if u != "socks5://relay:dn_test_otherkey123@proxy.dominusnode.daedalusdevelopmentgroup.com:1080" {
+	if u != "socks5://relay:dn_test_otherkey123@proxy.dominusnode.com:1080" {
 		t.Fatal(u)
 	}
 	if _, err := c.Proxy.BuildURL(RoutingOptions{}, "ftp", ""); !isType[*ValidationError](err) {
@@ -321,10 +321,10 @@ func TestFetchNeedsKey(t *testing.T) {
 }
 
 func TestDefaultHosts(t *testing.T) {
-	if DefaultBaseURL != "https://api.dominusnode.daedalusdevelopmentgroup.com" {
+	if DefaultBaseURL != "https://api.dominusnode.com" {
 		t.Fatalf("DefaultBaseURL = %q", DefaultBaseURL)
 	}
-	if DefaultProxyHost != "proxy.dominusnode.daedalusdevelopmentgroup.com" {
+	if DefaultProxyHost != "proxy.dominusnode.com" {
 		t.Fatalf("DefaultProxyHost = %q", DefaultProxyHost)
 	}
 }

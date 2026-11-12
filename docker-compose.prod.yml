@@ -39,11 +39,11 @@ services:
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       MFA_ENCRYPTION_KEY: ${MFA_ENCRYPTION_KEY:?MFA_ENCRYPTION_KEY is required}
       DASHBOARD_PORT: "3000"
-      CORS_ORIGINS: ${CORS_ORIGINS:-https://dominusnode.daedalusdevelopmentgroup.com}
+      CORS_ORIGINS: ${CORS_ORIGINS:-https://dominusnode.com,https://www.dominusnode.com,https://dominusnode.daedalusdevelopmentgroup.com}
       STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
       STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
-      STRIPE_SUCCESS_URL: ${STRIPE_SUCCESS_URL:-https://dominusnode.daedalusdevelopmentgroup.com/wallet?topup=success}
-      STRIPE_CANCEL_URL: ${STRIPE_CANCEL_URL:-https://dominusnode.daedalusdevelopmentgroup.com/wallet?topup=cancel}
+      STRIPE_SUCCESS_URL: ${STRIPE_SUCCESS_URL:-https://dominusnode.com/wallet?topup=success}
+      STRIPE_CANCEL_URL: ${STRIPE_CANCEL_URL:-https://dominusnode.com/wallet?topup=cancel}
       STRIPE_PAYMENT_METHODS: ${STRIPE_PAYMENT_METHODS:-card,link}
       NOWPAYMENTS_API_KEY: ${NOWPAYMENTS_API_KEY:-}
       NOWPAYMENTS_IPN_SECRET: ${NOWPAYMENTS_IPN_SECRET:-}
@@ -51,25 +51,26 @@ services:
       PAYPAL_CLIENT_SECRET: ${PAYPAL_CLIENT_SECRET:-}
       PAYPAL_ENVIRONMENT: ${PAYPAL_ENVIRONMENT:-sandbox}
       PAYPAL_WEBHOOK_ID: ${PAYPAL_WEBHOOK_ID:-}
-      PAYPAL_RETURN_URL: ${PAYPAL_RETURN_URL:-https://dominusnode.daedalusdevelopmentgroup.com/wallet?topup=success&provider=paypal}
-      PAYPAL_CANCEL_URL: ${PAYPAL_CANCEL_URL:-https://dominusnode.daedalusdevelopmentgroup.com/wallet?topup=cancel&provider=paypal}
+      PAYPAL_RETURN_URL: ${PAYPAL_RETURN_URL:-https://dominusnode.com/wallet?topup=success&provider=paypal}
+      PAYPAL_CANCEL_URL: ${PAYPAL_CANCEL_URL:-https://dominusnode.com/wallet?topup=cancel&provider=paypal}
       PROXY_INTERNAL_HOST: ${PROXY_INTERNAL_HOST:-proxy}
       EMAIL_ENABLED: ${EMAIL_ENABLED:-false}
       SMTP_HOST: ${SMTP_HOST:-}
       SMTP_PORT: ${SMTP_PORT:-587}
       SMTP_USER: ${SMTP_USER:-}
       SMTP_PASS: ${SMTP_PASS:-}
-      SMTP_FROM: ${SMTP_FROM:-noreply@${DOMINUSNODE_DOMAIN:-dominusnode.daedalusdevelopmentgroup.com}}
+      SMTP_FROM: ${SMTP_FROM:-noreply@${DOMINUSNODE_DOMAIN:-dominusnode.com}}
       SMTP_SECURE: ${SMTP_SECURE:-false}
       SMTP_IGNORE_TLS: ${SMTP_IGNORE_TLS:-false}
-      APP_URL: ${APP_URL:-https://dominusnode.daedalusdevelopmentgroup.com}
+      APP_URL: ${APP_URL:-https://dominusnode.com}
       RECAPTCHA_SECRET_KEY: ${RECAPTCHA_SECRET_KEY:-}
       MAX_REGISTERED_USERS: ${MAX_REGISTERED_USERS:-0}
       ADMIN_HUMAN_LOGIN: ${ADMIN_HUMAN_LOGIN:-false}
       ADMIN_BOOTSTRAP_EMAIL: ${ADMIN_BOOTSTRAP_EMAIL:-}
       MCP_AGENT_SECRET: ${MCP_AGENT_SECRET:-}
       AGENT_RATE_LIMIT_MULTIPLIER: ${AGENT_RATE_LIMIT_MULTIPLIER:-10}
-      DOMINUSNODE_DOMAIN: ${DOMINUSNODE_DOMAIN:-dominusnode.daedalusdevelopmentgroup.com}
+      DOMINUSNODE_DOMAIN: ${DOMINUSNODE_DOMAIN:-dominusnode.com}
+      COORDINATOR_HOSTNAMES: ${COORDINATOR_HOSTNAMES:-dominusnode.com,dominusnode.daedalusdevelopmentgroup.com}
       # x402 Protocol
       X402_ENABLED: ${X402_ENABLED:-false}
       X402_NETWORK: ${X402_NETWORK:-base-sepolia}

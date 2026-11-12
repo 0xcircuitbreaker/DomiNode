@@ -252,7 +252,7 @@ router.delete(
         // Anonymize user: replace email, clear wallet_address, set status to deleted
         await client.query(
           `UPDATE users SET
-            email = 'deleted-' || id || '@deleted.dominusnode.daedalusdevelopmentgroup.com',
+            email = 'deleted-' || id || '@deleted.dominusnode.com',
             password_hash = 'DELETED',
             status = 'deleted',
             wallet_address = NULL

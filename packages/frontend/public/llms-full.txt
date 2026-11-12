@@ -1,8 +1,8 @@
 # DominusNode: full documentation for agents
 
-> Concatenation of the markdown pages linked from https://dominusnode.daedalusdevelopmentgroup.com/llms.txt. Prices are never included: read https://api.dominusnode.daedalusdevelopmentgroup.com/v1/pricing.
+> Concatenation of the markdown pages linked from https://dominusnode.com/llms.txt. Prices are never included: read https://api.dominusnode.com/v1/pricing.
 
-<!-- source: https://dominusnode.daedalusdevelopmentgroup.com/docs/agents.md -->
+<!-- source: https://dominusnode.com/docs/agents.md -->
 
 # DominusNode agent quickstart
 
@@ -10,10 +10,10 @@ DominusNode is a decentralized relay network for AI agents only. Requester agent
 
 ## Endpoints
 
-- Gateway: `proxy.dominusnode.daedalusdevelopmentgroup.com`, HTTP/CONNECT proxy on port 8080, SOCKS5 on port 1080, plus a TLS proxy listener (port set by the operator, commonly 8443) so proxy credentials never travel in clear text.
-- API: `https://api.dominusnode.daedalusdevelopmentgroup.com` (public `/v1/pricing`, `/v1/policy`, `/v1/network/stats`; authenticated `/v1` agent routes).
-- Status: `https://api.dominusnode.daedalusdevelopmentgroup.com/status` (human-readable page), `https://api.dominusnode.daedalusdevelopmentgroup.com/v1/network/history` (hourly snapshots), `/v1/network/incidents`, `/v1/network/wanted` (where nodes are needed).
-- API-hosted discovery: `https://api.dominusnode.daedalusdevelopmentgroup.com/llms.txt` (live prices) and `https://api.dominusnode.daedalusdevelopmentgroup.com/.well-known/agent-tool.json`.
+- Gateway: `proxy.dominusnode.com`, HTTP/CONNECT proxy on port 8080, SOCKS5 on port 1080, plus a TLS proxy listener (port set by the operator, commonly 8443) so proxy credentials never travel in clear text.
+- API: `https://api.dominusnode.com` (public `/v1/pricing`, `/v1/policy`, `/v1/network/stats`; authenticated `/v1` agent routes).
+- Status: `https://api.dominusnode.com/status` (human-readable page), `https://api.dominusnode.com/v1/network/history` (hourly snapshots), `/v1/network/incidents`, `/v1/network/wanted` (where nodes are needed).
+- API-hosted discovery: `https://api.dominusnode.com/llms.txt` (live prices) and `https://api.dominusnode.com/.well-known/agent-tool.json`.
 - SDKs and the MCP server use this API base by default (override with `baseUrl`, `base_url`, `DOMINUSNODE_API_URL`).
 
 ## Two ways to pay
@@ -36,8 +36,8 @@ With no flags, use `relay`.
 
 ```bash
 export DOMINUSNODE_API_KEY=dn_live_YOUR_KEY
-curl -x "http://country-US-class-residential:$DOMINUSNODE_API_KEY@proxy.dominusnode.daedalusdevelopmentgroup.com:8080" https://httpbin.org/ip
-curl -x "socks5h://class-dc-session-job42:$DOMINUSNODE_API_KEY@proxy.dominusnode.daedalusdevelopmentgroup.com:1080" https://httpbin.org/ip
+curl -x "http://country-US-class-residential:$DOMINUSNODE_API_KEY@proxy.dominusnode.com:8080" https://httpbin.org/ip
+curl -x "socks5h://class-dc-session-job42:$DOMINUSNODE_API_KEY@proxy.dominusnode.com:1080" https://httpbin.org/ip
 ```
 
 HTTPS stays end-to-end TLS between the requester and the origin. Plain HTTP is refused unless `allowhttp-1` is set.
@@ -50,7 +50,7 @@ Six SDKs share one contract (`sdks/SDK_SURFACE.md`, v2): Node.js (`@dominusnode/
 import os
 from dominusnode import DominusNodeClient
 
-with DominusNodeClient(base_url="https://api.dominusnode.daedalusdevelopmentgroup.com") as dn:
+with DominusNodeClient(base_url="https://api.dominusnode.com") as dn:
     dn.connect_with_key(os.environ["DOMINUSNODE_API_KEY"])
     print(dn.network.pricing())
     res = dn.proxy.fetch("https://example.com", country="US", ip_class="residential")
@@ -58,7 +58,7 @@ with DominusNodeClient(base_url="https://api.dominusnode.daedalusdevelopmentgrou
 
 ```ts
 import { DominusNodeClient } from "@dominusnode/sdk";
-const dn = new DominusNodeClient({ baseUrl: "https://api.dominusnode.daedalusdevelopmentgroup.com" });
+const dn = new DominusNodeClient({ baseUrl: "https://api.dominusnode.com" });
 await dn.connectWithKey(process.env.DOMINUSNODE_API_KEY!);
 const res = await dn.proxy.fetch("https://example.com/", { country: "DE", sessionId: "job42" });
 ```
@@ -71,18 +71,18 @@ const res = await dn.proxy.fetch("https://example.com/", { country: "DE", sessio
 
 If an exit is blocked or serves captchas, report it: `POST /v1/sessions/:id/report` with `{"reason": "blocked" | "captcha" | "rate_limited" | "slow" | "bad_content" | "other"}` (at most 5 per node per UTC day). Reports feed node reputation, weighted by your paid spend on that node.
 
-See also: [MCP setup](https://dominusnode.daedalusdevelopmentgroup.com/docs/mcp.md), [payments and pricing](https://dominusnode.daedalusdevelopmentgroup.com/docs/payments.md), [policy](https://dominusnode.daedalusdevelopmentgroup.com/docs/policy.md).
+See also: [MCP setup](https://dominusnode.com/docs/mcp.md), [payments and pricing](https://dominusnode.com/docs/payments.md), [policy](https://dominusnode.com/docs/policy.md).
 
 ---
 
-<!-- source: https://dominusnode.daedalusdevelopmentgroup.com/docs/payments.md -->
+<!-- source: https://dominusnode.com/docs/payments.md -->
 
 # DominusNode pricing and payments
 
 ## Pricing model
 
 - Prices are per GB, per exit IP class (`residential`, `mobile`, `dc`). The operator sets them in `network_pricing`; they are never hardcoded in clients.
-- Read the live numbers from `GET https://api.dominusnode.daedalusdevelopmentgroup.com/v1/pricing` (no auth). Response: `{currency, unit: "musd_per_gb", prices: [{ipClass, pricePerGbMusd}], nodeShare: [{tier, rank, nodeShareBps}], buyerDiscounts: [{tier, rank, buyerDiscountBps}], maturationHours, rails}`. `prices` are list prices.
+- Read the live numbers from `GET https://api.dominusnode.com/v1/pricing` (no auth). Response: `{currency, unit: "musd_per_gb", prices: [{ipClass, pricePerGbMusd}], nodeShare: [{tier, rank, nodeShareBps}], buyerDiscounts: [{tier, rank, buyerDiscountBps}], maturationHours, rails}`. `prices` are list prices.
 - Money is integer micro-USD (µUSD) strings: 1 USD = 1,000,000 µUSD. Prepaid wallets debit whole cents.
 - x402 and MPP per-request price = the per-GB price × a fixed byte allowance per request (operator setting, 10 MB by default). The paid amount caps that request's bytes.
 - Only the gateway counts billable bytes. Exit nodes are untrusted and their counts are never billed.
@@ -110,11 +110,11 @@ Stripe and PayPal exist only for admin operations; agents never see them. The en
 
 ---
 
-<!-- source: https://dominusnode.daedalusdevelopmentgroup.com/docs/policy.md -->
+<!-- source: https://dominusnode.com/docs/policy.md -->
 
 # DominusNode network policy and abuse controls
 
-The active policy is public: `GET https://api.dominusnode.daedalusdevelopmentgroup.com/v1/policy` returns `{version, sha256, body, floorGuarantees}` with an `ETag` of the hash, so agents can see exactly which rules are in force.
+The active policy is public: `GET https://api.dominusnode.com/v1/policy` returns `{version, sha256, body, floorGuarantees}` with an `ETag` of the hash, so agents can see exactly which rules are in force.
 
 ## Controls
 
@@ -139,20 +139,20 @@ The active policy is public: `GET https://api.dominusnode.daedalusdevelopmentgro
 
 ## Reporting abuse
 
-Anyone can report abuse seen from a DominusNode exit, without an account, at the [report form](https://dominusnode.daedalusdevelopmentgroup.com/report-abuse) or directly against the API:
+Anyone can report abuse seen from a DominusNode exit, without an account, at the [report form](https://dominusnode.com/report-abuse) or directly against the API:
 
-1. `POST https://api.dominusnode.daedalusdevelopmentgroup.com/v1/abuse-reports/challenge` returns `{challengeId, prefix, difficulty, algorithm: "sha256", expiresAt}`. Find a `nonce` (at most 32 chars) so that `sha256(prefix + nonce)` has `difficulty` leading zero bits.
-2. `POST https://api.dominusnode.daedalusdevelopmentgroup.com/v1/abuse-reports` with `{"pow": {"challengeId", "nonce"}, "destHost", "windowStart", "windowEnd", "category", "description", "contact"?}`. `destHost` is a bare hostname, the window is ISO times (at most 31 days, within the last year), `category` is one of `spam`, `credential_stuffing`, `scraping`, `fraud`, `ddos`, `illegal_content`, `other`, and the description is 10-4000 characters.
+1. `POST https://api.dominusnode.com/v1/abuse-reports/challenge` returns `{challengeId, prefix, difficulty, algorithm: "sha256", expiresAt}`. Find a `nonce` (at most 32 chars) so that `sha256(prefix + nonce)` has `difficulty` leading zero bits.
+2. `POST https://api.dominusnode.com/v1/abuse-reports` with `{"pow": {"challengeId", "nonce"}, "destHost", "windowStart", "windowEnd", "category", "description", "contact"?}`. `destHost` is a bare hostname, the window is ISO times (at most 31 days, within the last year), `category` is one of `spam`, `credential_stuffing`, `scraping`, `fraud`, `ddos`, `illegal_content`, `other`, and the description is 10-4000 characters.
 
 The response is `201 {id, status: "new", receivedAt, responseTarget: "24h"}`. Limits: 20 challenges and 5 reports per IP per hour. The reporter's IP is not stored. The metadata log lets the operator trace the requesting agent and suspend it.
 
 ---
 
-<!-- source: https://dominusnode.daedalusdevelopmentgroup.com/docs/api.md -->
+<!-- source: https://dominusnode.com/docs/api.md -->
 
 # DominusNode API overview
 
-Base URL: `https://api.dominusnode.daedalusdevelopmentgroup.com`. JSON in and out. Errors are `{"error": "<message>", "code"?: "<CODE>"}`.
+Base URL: `https://api.dominusnode.com`. JSON in and out. Errors are `{"error": "<message>", "code"?: "<CODE>"}`.
 
 ## Public (no auth)
 
@@ -164,7 +164,7 @@ Base URL: `https://api.dominusnode.daedalusdevelopmentgroup.com`. JSON in and ou
 | `GET /v1/network/history?hours=168` | Hourly aggregate snapshots (online nodes, success rate, latency, paid bytes) |
 | `GET /v1/network/incidents`, `GET /v1/network/wanted` | Incident log; country/class combinations where requesters found no node |
 | `GET /status` | Human-readable status page |
-| `POST /v1/abuse-reports/challenge`, `POST /v1/abuse-reports` | Abuse report intake, no account, proof-of-work gated (see [policy](https://dominusnode.daedalusdevelopmentgroup.com/docs/policy.md)) |
+| `POST /v1/abuse-reports/challenge`, `POST /v1/abuse-reports` | Abuse report intake, no account, proof-of-work gated (see [policy](https://dominusnode.com/docs/policy.md)) |
 | `GET /llms.txt`, `GET /.well-known/agent-tool.json` | API-hosted discovery documents with live prices |
 
 ## Agent routes (`/v1`)
@@ -189,7 +189,7 @@ Full reference: https://github.com/0xcircuitbreaker/DomiNode/blob/master/docs/ag
 
 ---
 
-<!-- source: https://dominusnode.daedalusdevelopmentgroup.com/docs/mcp.md -->
+<!-- source: https://dominusnode.com/docs/mcp.md -->
 
 # DominusNode MCP server
 
@@ -205,7 +205,7 @@ Full reference: https://github.com/0xcircuitbreaker/DomiNode/blob/master/docs/ag
       "args": ["-y", "@dominusnode/mcp-server"],
       "env": {
         "DOMINUSNODE_API_KEY": "dn_live_YOUR_KEY",
-        "DOMINUSNODE_API_URL": "https://api.dominusnode.daedalusdevelopmentgroup.com"
+        "DOMINUSNODE_API_URL": "https://api.dominusnode.com"
       }
     }
   }
@@ -227,15 +227,15 @@ Without `DOMINUSNODE_API_KEY` the server starts in **bootstrap mode** with 11 to
 | Variable | Purpose |
 |---|---|
 | `DOMINUSNODE_API_KEY` | `dn_live_` key (omit for bootstrap mode) |
-| `DOMINUSNODE_API_URL` | API base, default `https://api.dominusnode.daedalusdevelopmentgroup.com` |
-| `DOMINUSNODE_PROXY_HOST` | Gateway host, default `proxy.dominusnode.daedalusdevelopmentgroup.com` |
+| `DOMINUSNODE_API_URL` | API base, default `https://api.dominusnode.com` |
+| `DOMINUSNODE_PROXY_HOST` | Gateway host, default `proxy.dominusnode.com` |
 | `DOMINUSNODE_WALLET_KEY_FILE` | chmod-600 wallet key file for signed flows (node register, payout wallet, withdraw) |
 
 Private keys are never tool arguments; signed flows read them from files.
 
 ---
 
-<!-- source: https://dominusnode.daedalusdevelopmentgroup.com/docs/nodes.md -->
+<!-- source: https://dominusnode.com/docs/nodes.md -->
 
 # Run a DominusNode node (earn by contributing an IP)
 
@@ -243,11 +243,11 @@ The node agent (`packages/node-agent`, binary `dominusnode-node`) dials **out** 
 
 ## How earning works
 
-- You earn your tier's share of each paid GB relayed through your IP: Probation 25% up to Partner 50%. Live shares are in `GET https://api.dominusnode.daedalusdevelopmentgroup.com/v1/pricing`.
+- You earn your tier's share of each paid GB relayed through your IP: Probation 25% up to Partner 50%. Live shares are in `GET https://api.dominusnode.com/v1/pricing`.
 - Tiers rise with paid tenure, gateway-measured uptime, active IPs (distinct /32s with 3+ paying requesters in 7 days) and reputation. Check progress with `GET /v1/node/tier`.
 - Owning a node also gives you a buyer discount on your own relay purchases, 0% at Probation up to 25% at Partner by default (live in `/v1/pricing`).
 - Self-dealing earns nothing: traffic from you, your wallet, your team or your /24 is never routed to your node.
-- Earnings mature after a 3-14 day hold, then become available credit (see [payments](https://dominusnode.daedalusdevelopmentgroup.com/docs/payments.md)).
+- Earnings mature after a 3-14 day hold, then become available credit (see [payments](https://dominusnode.com/docs/payments.md)).
 
 ## Prerequisites
 
@@ -266,7 +266,7 @@ printf '%s' "$WALLET_PRIVATE_KEY_HEX" > ~/.dominusnode/wallet.key && chmod 600 ~
 git clone https://github.com/0xcircuitbreaker/DomiNode.git && cd DomiNode
 npm ci && npm run build -w @dominusnode/shared -w @dominusnode/node-agent
 export DN_API_KEY=dn_live_YOUR_KEY
-export DN_NODE_API_URL=https://api.dominusnode.daedalusdevelopmentgroup.com   # this is the node-agent default
+export DN_NODE_API_URL=https://api.dominusnode.com   # this is the node-agent default
 node packages/node-agent/dist/src/main.js register --wallet-key-file ~/.dominusnode/wallet.key
 # writes ~/.dominusnode/node.json (mode 0600)
 
@@ -274,11 +274,11 @@ node packages/node-agent/dist/src/main.js register --wallet-key-file ~/.dominusn
 node packages/node-agent/dist/src/main.js run --key-file ~/.dominusnode/node.json
 ```
 
-Where are nodes needed? `GET https://api.dominusnode.daedalusdevelopmentgroup.com/v1/network/wanted` lists country/class combinations requesters asked for with no node online.
+Where are nodes needed? `GET https://api.dominusnode.com/v1/network/wanted` lists country/class combinations requesters asked for with no node online.
 
 Optional limits can only tighten: `--ports 443`, `--max-streams 32`, `--gb-per-day 5`, `--req-per-sec 20`. Env equivalents: `DN_NODE_KEY_FILE`, `DN_NODE_PORTS`, `DN_NODE_MAX_STREAMS`, `DN_NODE_GB_PER_DAY`, `DN_NODE_REQ_PER_SEC`, `DN_NODE_MAX_MBPS`, `DN_NODE_DENY_DOMAINS`.
 
-The MCP server can register a node too (`dominusnode_node_register`, with the wallet key in `DOMINUSNODE_WALLET_KEY_FILE`); see [MCP setup](https://dominusnode.daedalusdevelopmentgroup.com/docs/mcp.md).
+The MCP server can register a node too (`dominusnode_node_register`, with the wallet key in `DOMINUSNODE_WALLET_KEY_FILE`); see [MCP setup](https://dominusnode.com/docs/mcp.md).
 
 ## The node floor
 

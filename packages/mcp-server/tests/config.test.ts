@@ -9,8 +9,8 @@ describe("parseConfig", () => {
   it("parses minimal valid config", () => {
     const config = parseConfig(validEnv);
     expect(config.apiKey).toBe("dn_live_test123");
-    expect(config.apiUrl).toBe("https://api.dominusnode.daedalusdevelopmentgroup.com");
-    expect(config.proxyHost).toBe("proxy.dominusnode.daedalusdevelopmentgroup.com");
+    expect(config.apiUrl).toBe("https://api.dominusnode.com");
+    expect(config.proxyHost).toBe("proxy.dominusnode.com");
     expect(config.httpProxyPort).toBe(8080);
     expect(config.socks5ProxyPort).toBe(1080);
     expect(config.fetchTimeoutMs).toBe(30000);
@@ -20,7 +20,7 @@ describe("parseConfig", () => {
   it("allows missing DOMINUSNODE_API_KEY for bootstrap mode", () => {
     const config = parseConfig({});
     expect(config.apiKey).toBeNull();
-    expect(config.apiUrl).toBe("https://api.dominusnode.daedalusdevelopmentgroup.com");
+    expect(config.apiUrl).toBe("https://api.dominusnode.com");
   });
 
   it("throws when DOMINUSNODE_API_KEY does not start with dn_live_", () => {

@@ -59,17 +59,17 @@ describe("wallet-auth", () => {
   describe("buildSignMessage", () => {
     it("should include domain, address, nonce, and timestamp", () => {
       const message = buildSignMessage(
-        "dominusnode.daedalusdevelopmentgroup.com",
+        "dominusnode.com",
         "0xd8da6bf26964af9d7eed9e03e53415d37aa96045",
         "abc123",
         new Date("2025-01-01T00:00:00Z"),
       );
 
-      expect(message).toContain("dominusnode.daedalusdevelopmentgroup.com wants you to sign in with your Ethereum account:");
+      expect(message).toContain("dominusnode.com wants you to sign in with your Ethereum account:");
       expect(message).toContain("0xd8da6bf26964af9d7eed9e03e53415d37aa96045");
       expect(message).toContain("Nonce: abc123");
       expect(message).toContain("Issued At: 2025-01-01T00:00:00.000Z");
-      expect(message).toContain("URI: https://dominusnode.daedalusdevelopmentgroup.com");
+      expect(message).toContain("URI: https://dominusnode.com");
       expect(message).toContain("Sign in to Dominus Node proxy service");
     });
   });
@@ -77,7 +77,7 @@ describe("wallet-auth", () => {
   describe("walletToSyntheticEmail", () => {
     it("should convert address to synthetic email", () => {
       const email = walletToSyntheticEmail("0xD8DA6BF26964AF9D7EED9E03E53415D37AA96045");
-      expect(email).toBe("0xd8da6bf26964af9d7eed9e03e53415d37aa96045@wallet.dominusnode.daedalusdevelopmentgroup.com");
+      expect(email).toBe("0xd8da6bf26964af9d7eed9e03e53415d37aa96045@wallet.dominusnode.com");
     });
 
     it("should lowercase the address", () => {
@@ -88,7 +88,7 @@ describe("wallet-auth", () => {
 
   describe("isWalletEmail", () => {
     it("should detect synthetic wallet emails", () => {
-      expect(isWalletEmail("0xabc@wallet.dominusnode.daedalusdevelopmentgroup.com")).toBe(true);
+      expect(isWalletEmail("0xabc@wallet.dominusnode.com")).toBe(true);
     });
 
     it("should not detect regular emails", () => {
@@ -110,8 +110,8 @@ describe("wallet-auth", () => {
 describe("wallet email domain migration", () => {
   it("recognises both the current and the legacy synthetic wallet domains", async () => {
     const { isWalletEmail, walletToSyntheticEmail } = await import("./wallet-auth.js");
-    expect(walletToSyntheticEmail("0xABC")).toBe("0xabc@wallet.dominusnode.daedalusdevelopmentgroup.com");
-    expect(isWalletEmail("0xabc@wallet.dominusnode.daedalusdevelopmentgroup.com")).toBe(true);
+    expect(walletToSyntheticEmail("0xABC")).toBe("0xabc@wallet.dominusnode.com");
+    expect(isWalletEmail("0xabc@wallet.dominusnode.com")).toBe(true);
     expect(isWalletEmail("0xabc@wallet.dominusnode.com")).toBe(true);
     expect(isWalletEmail("someone@example.com")).toBe(false);
   });

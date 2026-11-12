@@ -3,7 +3,7 @@
 ## Pricing model
 
 - Prices are per GB, per exit IP class (`residential`, `mobile`, `dc`). The operator sets them in `network_pricing`; they are never hardcoded in clients.
-- Read the live numbers from `GET https://api.dominusnode.daedalusdevelopmentgroup.com/v1/pricing` (no auth). Response: `{currency, unit: "musd_per_gb", prices: [{ipClass, pricePerGbMusd}], nodeShare: [{tier, rank, nodeShareBps}], buyerDiscounts: [{tier, rank, buyerDiscountBps}], maturationHours, rails}`. `prices` are list prices.
+- Read the live numbers from `GET https://api.dominusnode.com/v1/pricing` (no auth). Response: `{currency, unit: "musd_per_gb", prices: [{ipClass, pricePerGbMusd}], nodeShare: [{tier, rank, nodeShareBps}], buyerDiscounts: [{tier, rank, buyerDiscountBps}], maturationHours, rails}`. `prices` are list prices.
 - Money is integer micro-USD (µUSD) strings: 1 USD = 1,000,000 µUSD. Prepaid wallets debit whole cents.
 - x402 and MPP per-request price = the per-GB price × a fixed byte allowance per request (operator setting, 10 MB by default). The paid amount caps that request's bytes.
 - Only the gateway counts billable bytes. Exit nodes are untrusted and their counts are never billed.

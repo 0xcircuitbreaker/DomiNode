@@ -27,14 +27,14 @@ credentials_for_provider:
     label:
       en_US: API Base URL
     placeholder:
-      en_US: https://api.dominusnode.daedalusdevelopmentgroup.com
+      en_US: https://api.dominusnode.com
   proxy_host:
     type: text-input
     required: false
     label:
       en_US: Proxy Host
     placeholder:
-      en_US: proxy.dominusnode.daedalusdevelopmentgroup.com
+      en_US: proxy.dominusnode.com
 tools:
 - tools/fetch.yaml
 - tools/proxy_url.yaml

@@ -2,8 +2,8 @@
  * Public-site configuration. Origins come from build-time env vars so the same
  * build can be deployed under any DDG subdomain. Nothing here is a secret.
  */
-export const DEFAULT_PUBLIC_ORIGIN = "https://dominusnode.daedalusdevelopmentgroup.com";
-export const DEFAULT_API_BASE = "https://api.dominusnode.daedalusdevelopmentgroup.com";
+export const DEFAULT_PUBLIC_ORIGIN = "https://dominusnode.com";
+export const DEFAULT_API_BASE = "https://api.dominusnode.com";
 
 export function cleanOrigin(raw: string | undefined, fallback: string): string {
   if (!raw) return fallback;
@@ -30,4 +30,4 @@ export const HISTORY_URL = `${API_BASE}/v1/network/history`;
 export const API_LLMS_URL = `${API_BASE}/llms.txt`;
 /** Abuse intake: the in-site form posting to POST /v1/abuse-reports, unless overridden. */
 export const ABUSE_URL = env["VITE_ABUSE_URL"] || "/report-abuse";
-export const PROXY_HOST = "proxy.dominusnode.daedalusdevelopmentgroup.com";
+export const PROXY_HOST = "proxy.dominusnode.com";

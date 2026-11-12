@@ -52,7 +52,7 @@ describe("requireAgentPrincipal", () => {
 
   it("accepts an API key and marks wallet users verified", async () => {
     findUserByApiKeyHash.mockResolvedValue({
-      user: { id: "u1", email: "x@wallet.dominusnode.daedalusdevelopmentgroup.com", status: "active", wallet_address: WALLET.toUpperCase().replace("0X", "0x"), email_verified: false },
+      user: { id: "u1", email: "x@wallet.dominusnode.com", status: "active", wallet_address: WALLET.toUpperCase().replace("0X", "0x"), email_verified: false },
       apiKey: {},
     });
     const r = await call(app(), "GET", "/x", { headers: bearer("dn_live_abc") });
@@ -86,8 +86,8 @@ describe("requireAgentPrincipal", () => {
   });
 
   it("accepts wallet JWT users", async () => {
-    verifyJwt.mockReturnValue({ userId: "u3", email: "w@wallet.dominusnode.daedalusdevelopmentgroup.com" });
-    findUserById.mockResolvedValue({ id: "u3", email: "w@wallet.dominusnode.daedalusdevelopmentgroup.com", status: "active", wallet_address: WALLET });
+    verifyJwt.mockReturnValue({ userId: "u3", email: "w@wallet.dominusnode.com" });
+    findUserById.mockResolvedValue({ id: "u3", email: "w@wallet.dominusnode.com", status: "active", wallet_address: WALLET });
     const r = await call(app(), "GET", "/x", { headers: bearer("jwt") });
     expect(r.status).toBe(200);
     expect(r.body).toMatchObject({ via: "wallet_jwt", verified: true });
@@ -100,8 +100,8 @@ describe("requireAgentPrincipal", () => {
   });
 
   it("rejects suspended users", async () => {
-    verifyJwt.mockReturnValue({ userId: "u5", email: "w@wallet.dominusnode.daedalusdevelopmentgroup.com" });
-    findUserById.mockResolvedValue({ id: "u5", email: "w@wallet.dominusnode.daedalusdevelopmentgroup.com", status: "suspended", wallet_address: WALLET });
+    verifyJwt.mockReturnValue({ userId: "u5", email: "w@wallet.dominusnode.com" });
+    findUserById.mockResolvedValue({ id: "u5", email: "w@wallet.dominusnode.com", status: "suspended", wallet_address: WALLET });
     expect((await call(app(), "GET", "/x", { headers: bearer("jwt") })).status).toBe(401);
   });
 

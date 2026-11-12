@@ -14,7 +14,7 @@ import { STANDARD_TOOL_NAMES } from "../src/core.js";
 function ctx(op: string, params: Record<string, unknown> = {}, continueOnFail = false) {
   return {
     getInputData: () => [{ json: {} }],
-    getCredentials: vi.fn(async () => ({ apiKey: TEST_KEY, baseUrl: "https://api.dominusnode.daedalusdevelopmentgroup.com", proxyHost: "proxy.dominusnode.daedalusdevelopmentgroup.com", proxyPort: 8080 })),
+    getCredentials: vi.fn(async () => ({ apiKey: TEST_KEY, baseUrl: "https://api.dominusnode.com", proxyHost: "proxy.dominusnode.com", proxyPort: 8080 })),
     getNodeParameter: (name: string, _i: number, fallback?: unknown) =>
       name === "operation" ? op : name in params ? params[name] : fallback,
     getNode: () => ({ name: "DominusNode" }),

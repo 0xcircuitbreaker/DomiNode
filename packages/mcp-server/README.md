@@ -90,9 +90,9 @@ Wallet sign-in is rate limited: 20 challenges and 5 failed verifications per hou
 | Variable | Default | Purpose |
 |---|---|---|
 | `DOMINUSNODE_API_KEY` | (none: bootstrap mode) | `dn_live_` API key |
-| `DOMINUSNODE_API_URL` | `https://api.dominusnode.daedalusdevelopmentgroup.com` | API base URL |
-| `DOMINUSNODE_PROXY_HOST` | `proxy.dominusnode.daedalusdevelopmentgroup.com` | Gateway host |
-| `DOMINUSNODE_PROXY_URL` | `https://proxy.dominusnode.daedalusdevelopmentgroup.com:8443` | TLS gateway (`https://host[:port]`, default port 8443). Proxy fetches always use TLS to the gateway unless `DOMINUSNODE_PROXY_INSECURE=1` |
+| `DOMINUSNODE_API_URL` | `https://api.dominusnode.com` | API base URL |
+| `DOMINUSNODE_PROXY_HOST` | `proxy.dominusnode.com` | Gateway host |
+| `DOMINUSNODE_PROXY_URL` | `https://proxy.dominusnode.com:8443` | TLS gateway (`https://host[:port]`, default port 8443). Proxy fetches always use TLS to the gateway unless `DOMINUSNODE_PROXY_INSECURE=1` |
 | `DOMINUSNODE_PROXY_CA_FILE` | (none) | Extra PEM CA for a privately issued gateway certificate (verification stays on) |
 | `DOMINUSNODE_PROXY_INSECURE` | (unset) | `1` = use the plaintext HTTP listener (`DOMINUSNODE_HTTP_PROXY_PORT`). The API key is then sent in clear; a warning is printed to stderr. Local development only |
 | `DOMINUSNODE_HTTP_PROXY_PORT` | `8080` | Gateway plaintext HTTP/CONNECT port (used only with `DOMINUSNODE_PROXY_INSECURE=1`) |
