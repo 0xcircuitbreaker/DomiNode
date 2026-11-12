@@ -28,9 +28,9 @@ export { X402Resource } from "./resources/x402.js";
 export type { X402Info, X402Facilitator } from "./resources/x402.js";
 export { NetworkResource } from "./resources/network.js";
 export type { NetworkPolicy, NetworkPricing, NetworkStats, NetworkGroupStats } from "./resources/network.js";
-export { NodesResource } from "./resources/nodes.js";
+export { NodesResource, EXIT_CLASSES, validatePageCursor } from "./resources/nodes.js";
 export type {
-  NodeChallenge, RegisterNodeOptions, RegisteredNode, NodeInfo, NodeCaps, UpdateCapsResult, NodeTier, TierView, TierRequirement,
+  ExitClass, NodeChallenge, RegisterNodeOptions, RegisteredNode, NodeInfo, NodeCaps, UpdateCapsResult, NodeTier, TierView, TierRequirement,
 } from "./resources/nodes.js";
 export {
   CreditsResource, PayoutsResource, CREDIT_TX_TYPES, CURSOR_RE, newIdempotencyKey,
@@ -43,7 +43,7 @@ export { ProxyResource } from "./resources/proxy.js";
 export type { ProxyUrlOptions, ProxyHealth } from "./resources/proxy.js";
 
 // Proxy + safety helpers
-export { buildProxyUsername } from "./proxy-fetch.js";
+export { buildProxyUsername, IP_CLASSES } from "./proxy-fetch.js";
 export type { IpClass, ProxyRoutingOptions, ProxyFetchOptions, ProxyFetchResponse } from "./proxy-fetch.js";
 export { isPrivateIp, validateTargetUrl } from "./ssrf.js";
 export { buildAttestationMessage, buildPayoutWalletMessage, buildWithdrawMessage } from "./messages.js";

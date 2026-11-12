@@ -7,13 +7,15 @@ import { ProxyError, invalidArg, scrubCredentials } from "./errors.js";
 import { MAX_RESPONSE_BYTES } from "./constants.js";
 import { validateTargetUrl, assertPublicResolution, type LookupAll } from "./ssrf.js";
 
-export type IpClass = "residential" | "dc" | "mobile";
+/** `masked` = anonymizer (VPN/WARP/Tor) exits: cheapest, opt-in; never chosen unless requested. */
+export type IpClass = "residential" | "dc" | "mobile" | "masked";
+export const IP_CLASSES: readonly IpClass[] = ["residential", "dc", "mobile", "masked"];
 
 /** Gateway routing flags, encoded into the proxy USERNAME (hyphen-joined; proxy-gateway parseProxyOptions). */
 export interface ProxyRoutingOptions {
   /** ISO 3166-1 alpha-2 exit country -> `country-XX`. */
   country?: string;
-  /** Exit IP class -> `class-residential|dc|mobile`. */
+  /** Exit IP class -> `class-residential|dc|mobile|masked`. */
   ipClass?: IpClass;
   /** Sticky session id (1-64 alphanumeric) -> `session-<id>`. */
   sessionId?: string;
@@ -36,7 +38,7 @@ export function buildProxyUsername(opts: ProxyRoutingOptions = {}): string {
     parts.push(`country-${c}`);
   }
   if (opts.ipClass !== undefined) {
-    if (!["residential", "dc", "mobile"].includes(opts.ipClass)) throw invalidArg("ipClass must be residential, dc or mobile");
+    if (!(IP_CLASSES as readonly string[]).includes(opts.ipClass)) throw invalidArg("ipClass must be residential, dc, mobile or masked");
     parts.push(`class-${opts.ipClass}`);
   }
   if (opts.sessionId !== undefined) {
