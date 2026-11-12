@@ -65,8 +65,8 @@ export default function TermsPage() {
           </section>
 
           <section>
-            <h2 className="text-xl font-semibold text-white mb-3">5. No Logging of Proxy Traffic</h2>
-            <p>Dominus Node does not log, inspect, store, or monitor the content of traffic routed through our proxy servers. We do not know what websites you visit, what data you transmit, or what you use the proxies for. We track only aggregate bandwidth usage (bytes transferred) for billing purposes. See our Privacy Policy for full details.</p>
+            <h2 className="text-xl font-semibold text-white mb-3">5. No Logging of Traffic Content</h2>
+            <p>Dominus Node does not log, inspect, store, or monitor the content of traffic relayed through the network: no payloads, request paths or full URLs. For billing we record byte totals. For abuse handling we keep a metadata-only relay abuse log (time, requesting agent, exit node, destination hostname and port, bytes) for a limited retention window (90 days by default). See our Privacy Policy for full details.</p>
           </section>
 
           <section>
