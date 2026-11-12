@@ -1,5 +1,6 @@
 import type pg from "pg";
 import { query, getPool } from "../db.js";
+import { lockedStarterCentsTx } from "./starter-credit-repo.js";
 import type { Team, TeamMember, TeamInvite, TeamWallet, TeamWalletTransaction, TeamRole } from "../types.js";
 
 // ─── Constants ────────────────────────────────────────────────────────
@@ -332,6 +333,12 @@ export async function fundTeamWallet(
 
     if (personalWallet.balance_cents < amountCents) {
       throw new Error("Insufficient balance in personal wallet");
+    }
+    // Unspent starter credit is non-transferable: it must stay on the personal
+    // rail where spend is attributed to the grant and expiry can claw it back.
+    const starterLocked = await lockedStarterCentsTx(client, userId);
+    if (personalWallet.balance_cents - amountCents < starterLocked) {
+      throw new Error("Insufficient balance: starter credit cannot be moved out of the personal wallet");
     }
 
     // Lock team wallet

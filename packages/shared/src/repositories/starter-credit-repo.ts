@@ -234,6 +234,24 @@ export async function consumeTx(c: TxClient, userId: string, chargeMusd: bigint,
   return used;
 }
 
+/**
+ * Whole cents of the personal wallet that are unspent starter credit and may
+ * not leave it (team/agentic funding). Locks the active grant FOR UPDATE on the
+ * caller's transaction; call AFTER locking the personal wallet (same order as
+ * settlement: wallet, then grant). Rounds UP so no sub-cent of starter credit
+ * can be moved out.
+ */
+export async function lockedStarterCentsTx(c: TxClient, userId: string): Promise<number> {
+  const r = await c.query<{ remaining_musd: string }>(
+    `SELECT remaining_musd::text AS remaining_musd FROM starter_credit_grants
+     WHERE user_id = $1 AND status = 'active' AND remaining_musd > 0 FOR UPDATE`,
+    [userId],
+  );
+  const g = r.rows[0];
+  if (!g) return 0;
+  return Number((BigInt(g.remaining_musd) + MUSD_PER_CENT - 1n) / MUSD_PER_CENT);
+}
+
 /** Close a grant and remove its unused remainder from the wallet (whole cents, never below 0). */
 export async function closeGrantTx(c: TxClient, grantId: string, status: "expired" | "revoked", by: string | null): Promise<{ removedCents: bigint } | null> {
   const r = await c.query<{ id: string; user_id: string; remaining_musd: string }>(
