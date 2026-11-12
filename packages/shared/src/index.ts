@@ -155,6 +155,11 @@ export {
   buildSignMessage,
   walletToSyntheticEmail,
   isWalletEmail,
+  isDeletedUserEmail,
+  WALLET_EMAIL_DOMAIN,
+  LEGACY_WALLET_EMAIL_DOMAIN,
+  DELETED_EMAIL_DOMAIN,
+  LEGACY_DELETED_EMAIL_DOMAIN,
   WALLET_CHALLENGE_TTL_MS,
 } from "./wallet-auth.js";
 
