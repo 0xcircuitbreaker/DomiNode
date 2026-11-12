@@ -43,6 +43,27 @@ services:
     command: ["node", "packages/shared/dist/src/migrate.js"]
     restart: "no"
 
+  # Copies host-owned secrets into root-only named volumes owned by the
+  # container user (uid 1001, mode 0400). The host files stay 0600 and owned by
+  # whoever ran install.sh; re-running fixes the ownership of existing installs.
+  keys:
+    image: dominusnode-api:selfhost
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+    user: "0:0"
+    network_mode: none
+    restart: "no"
+    volumes:
+      - ./selfhost/coord-key.pem:/src/coord-key.pem:ro
+      - gateway_secrets:/dst
+    command:
+      - sh
+      - -euc
+      - |
+        install -o 1001 -g 1001 -m 0400 /src/coord-key.pem /dst/coord-key.pem.tmp
+        mv -f /dst/coord-key.pem.tmp /dst/coord-key.pem
+        chown 1001:1001 /dst && chmod 0500 /dst
+
   api:
     image: dominusnode-api:selfhost
     restart: unless-stopped
@@ -80,10 +101,11 @@ services:
       # address in a PROXY v2 header; only Caddy's fixed address may send one.
       TUNNEL_TRUSTED_PROXY_IPS: 172.29.53.2
     volumes:
-      - ./selfhost/coord-key.pem:/run/dominusnode/coord-key.pem:ro
+      - gateway_secrets:/run/dominusnode:ro
       - ./data:/app/data:ro
     depends_on:
       migrate: { condition: service_completed_successfully }
+      keys: { condition: service_completed_successfully }
     networks: [backend, frontend]
     ports:
       - "${PROXY_HTTP_HOST_PORT:-8080}:8080"
@@ -112,6 +134,23 @@ services:
 
   # Optional local exit node: docker compose --profile node up -d
   # Register it first (see docs/agent-network/DEPLOYMENT.md §7).
+  node-keys:
+    profiles: ["node"]
+    image: dominusnode-api:selfhost
+    user: "0:0"
+    network_mode: none
+    restart: "no"
+    volumes:
+      - ./selfhost/node.json:/src/node.json:ro
+      - node_secrets:/dst
+    command:
+      - sh
+      - -euc
+      - |
+        install -o 1001 -g 1001 -m 0400 /src/node.json /dst/node.json.tmp
+        mv -f /dst/node.json.tmp /dst/node.json
+        chown 1001:1001 /dst && chmod 0500 /dst
+
   node:
     profiles: ["node"]
     build:
@@ -126,7 +165,9 @@ services:
       DN_NODE_GB_PER_DAY: ${DN_NODE_GB_PER_DAY:-5}
       DN_NODE_MAX_STREAMS: ${DN_NODE_MAX_STREAMS:-16}
     volumes:
-      - ./selfhost/node.json:/run/dominusnode/node.json:ro
+      - node_secrets:/run/dominusnode:ro
+    depends_on:
+      node-keys: { condition: service_completed_successfully }
 
 networks:
   backend:
@@ -140,3 +181,5 @@ volumes:
   pgdata:
   caddy_data:
   caddy_config:
+  gateway_secrets:
+  node_secrets:

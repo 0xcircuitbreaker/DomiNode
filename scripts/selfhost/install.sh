@@ -169,7 +169,19 @@ if [ ! -f "$ASN_DB" ]; then
   fi
 fi
 
+# umask 077 above would leave a freshly created data/ as 0700 owned by the
+# installing user; the gateway (uid 1001) must be able to traverse it.
+if [ -d "$ROOT/data" ]; then
+  chmod 0755 "$ROOT/data"
+  if [ -f "$ASN_DB" ]; then chmod 0644 "$ASN_DB"; fi
+fi
+
 if [ "$NO_START" -eq 1 ]; then exit 0; fi
 docker compose -f docker-compose.selfhost.yml --env-file "$ENV_FILE" build
 docker compose -f docker-compose.selfhost.yml --env-file "$ENV_FILE" up -d --remove-orphans
+# The keys service copies selfhost/coord-key.pem into a volume owned by uid
+# 1001 (0400); fail loudly if the gateway still cannot read it.
+docker compose -f docker-compose.selfhost.yml --env-file "$ENV_FILE" exec -T gateway \
+  test -r /run/dominusnode/coord-key.pem ||
+  die "gateway cannot read its coordinator key; see: docker compose -f docker-compose.selfhost.yml logs keys gateway"
 echo "up. status page: https://$PRIMARY/status"
