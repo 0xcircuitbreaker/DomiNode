@@ -1,5 +1,5 @@
 import * as http from "node:http";
-import { hashApiKey, verifyProxySessionToken, userRepo, createLogger } from "@dominusnode/shared";
+import { verifyProxySessionToken, userRepo, createLogger } from "@dominusnode/shared";
 import type { User, ExitClass } from "@dominusnode/shared";
 
 const log = createLogger("proxy:auth");
@@ -164,13 +164,12 @@ export async function authenticateRequest(
     }
   }
 
-  // ─── Path B: Traditional API key (SHA-256 hash, ~5μs) ─────────────
+  // ─── Path B: API key (HMAC-SHA256 v2 / SHA-256 v1 lookup) ─────────────
   if (!credential.startsWith("dn_live_")) return null;
 
-  const keyHash = hashApiKey(credential);
 
   try {
-    const result = await userRepo.findUserByApiKeyHash(keyHash);
+    const result = await userRepo.findUserByApiKey(credential);
     if (!result) {
       // Only log static prefix — don't leak key material
       log.warn("invalid API key", { prefix: credential.slice(0, 8) });

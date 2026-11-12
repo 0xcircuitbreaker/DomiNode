@@ -1,7 +1,7 @@
 import dotenv from "dotenv";
 dotenv.config();
 
-import { createLogger, closePool, retentionRepo, connectWithRetry, reportTlsCapability } from "@dominusnode/shared";
+import { createLogger, closePool, retentionRepo, connectWithRetry, reportTlsCapability, apiKeyPepper } from "@dominusnode/shared";
 import { startApiServer } from "./server.js";
 
 const log = createLogger("api:main");
@@ -55,6 +55,8 @@ function validateRequiredEnv(): void {
 
   log.info("environment validation passed");
   reportTlsCapability(log, "api");
+  // Load API_KEY_PEPPER_FILE now so a bad file fails startup, not the first auth.
+  log.info("API key hashing", { peppered: apiKeyPepper() !== null });
 }
 
 async function start(): Promise<void> {

@@ -14,6 +14,7 @@ elsewhere). Meaning and required/optional status are documented in
 | Variable | Default(s) | Read in |
 |---|---|---|
 | `ABUSE_CONTACT` |  | `src/federation.ts` |
+| `API_KEY_PEPPER_FILE` |  | `src/api-key-hash.ts` |
 | `APP_URL` | `http://localhost:5173` | `src/email.ts` |
 | `DATABASE_URL` |  | `src/db.ts` |
 | `DB_CONNECTION_TIMEOUT_MS` | `5000` | `src/db.ts` |

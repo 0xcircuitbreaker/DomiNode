@@ -13,7 +13,6 @@ import {
   verifyRefreshToken,
   signMfaChallengeToken,
   verifyMfaChallengeToken,
-  hashApiKey,
   isValidEmail,
   isDisposableEmail,
   validatePassword,
@@ -1011,8 +1010,7 @@ router.post("/verify-key", async (req, res) => {
       return;
     }
 
-    const keyHash = hashApiKey(apiKey);
-    const result = await userRepo.findUserByApiKeyHash(keyHash);
+    const result = await userRepo.findUserByApiKey(apiKey);
 
     if (!result) {
       res.status(401).json({ valid: false, error: "Invalid API key" });

@@ -244,3 +244,6 @@ export type { KeysetCursor } from "./cursor.js";
 
 // Post-quantum hybrid TLS (X25519MLKEM768) for every TLS endpoint we control
 export * from "./tls-pq.js";
+
+// API key hashing (HMAC-SHA256 pepper v2, SHA-256 v1 legacy)
+export { apiKeyPepper, apiKeyLookup, hashApiKeyV1, hashApiKeyV2, hashApiKeyForStorage, hashEquals } from "./api-key-hash.js";

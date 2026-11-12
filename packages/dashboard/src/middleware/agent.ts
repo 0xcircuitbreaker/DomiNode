@@ -1,5 +1,5 @@
 import type { Request, Response, NextFunction } from "express";
-import { verifyJwt, userRepo, hashApiKey, isWalletEmail } from "@dominusnode/shared";
+import { verifyJwt, userRepo, isWalletEmail } from "@dominusnode/shared";
 import type { AuthenticatedRequest } from "./auth.js";
 
 /**
@@ -47,7 +47,7 @@ export async function requireAgentPrincipal(req: Request, res: Response, next: N
   try {
     let principal: AgentPrincipal;
     if (token.startsWith("dn_live_") || token.startsWith("dn_test_")) {
-      const found = await userRepo.findUserByApiKeyHash(hashApiKey(token));
+      const found = await userRepo.findUserByApiKey(token);
       if (!found || found.user.status !== "active") {
         res.status(401).json({ error: "Invalid API key" });
         return;

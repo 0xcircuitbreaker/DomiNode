@@ -4,6 +4,7 @@ import { query, queryOn, getPool } from "../db.js";
 import { hashPassword } from "../auth.js";
 import { randomBytes, createHash } from "node:crypto";
 import type { User, ApiKey } from "../types.js";
+import { apiKeyLookup, hashEquals } from "../api-key-hash.js";
 
 export async function createUser(
   email: string,
@@ -65,12 +66,20 @@ export async function findUserById(id: string): Promise<User | null> {
   return { ...row, password_hash: "", wallet_address: row.wallet_address ?? null, log_target_hosts: row.log_target_hosts ?? false, email_verified: row.email_verified ?? false };
 }
 
-export async function findUserByApiKeyHash(
-  keyHash: string,
+/**
+ * Authenticate a raw API key (dn_live_/dn_test_). Looks up the peppered v2
+ * hash and the legacy SHA-256 v1 hash in one query, re-checks the matched hash
+ * in constant time, and rewrites a v1 row to v2 on success (lazy migration,
+ * best effort: a failed rewrite does not fail the auth). See api-key-hash.ts.
+ */
+export async function findUserByApiKey(
+  rawKey: string,
 ): Promise<{ user: User; apiKey: ApiKey } | null> {
-  const result = await query<User & { ak_id: string; ak_key_prefix: string; ak_label: string; ak_created_at: Date; ak_revoked_at: Date | null; ak_team_id: string | null }>(
+  const { candidates, current } = apiKeyLookup(rawKey);
+  const result = await query<User & { ak_id: string; ak_key_hash: string; ak_key_prefix: string; ak_label: string; ak_created_at: Date; ak_revoked_at: Date | null; ak_team_id: string | null }>(
     `SELECT u.id, u.email, u.created_at, u.status, u.password_changed_at, u.is_admin, u.admin_role, u.wallet_address, u.log_target_hosts, u.email_verified, u.plan_id,
             k.id AS ak_id,
+            k.key_hash AS ak_key_hash,
             k.key_prefix AS ak_key_prefix,
             k.label AS ak_label,
             k.created_at AS ak_created_at,
@@ -78,15 +87,27 @@ export async function findUserByApiKeyHash(
             k.team_id AS ak_team_id
      FROM api_keys k
      JOIN users u ON u.id = k.user_id
-     WHERE k.key_hash = $1
+     WHERE k.key_hash = ANY($1::text[])
        AND k.revoked_at IS NULL
        AND u.status = 'active'
      LIMIT 1`,
-    [keyHash],
+    [candidates],
   );
 
   const row = result.rows[0];
   if (!row) return null;
+  const matched = candidates.find((c) => hashEquals(c, row.ak_key_hash ?? ""));
+  if (!matched) return null;
+  if (matched !== current) {
+    try {
+      await query(
+        `UPDATE api_keys SET key_hash = $1 WHERE id = $2 AND key_hash = $3 AND revoked_at IS NULL`,
+        [current, row.ak_id, matched],
+      );
+    } catch {
+      // Best effort: the v1 hash keeps working until the next attempt.
+    }
+  }
 
   const user: User = {
     id: row.id,

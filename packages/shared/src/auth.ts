@@ -1,6 +1,7 @@
 import * as crypto from "node:crypto";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
+import { hashApiKeyV1, hashApiKeyForStorage } from "./api-key-hash.js";
 
 const BCRYPT_ROUNDS = 12;
 const API_KEY_BYTES = 32;
@@ -38,7 +39,7 @@ function getRefreshSecret(): string {
 export interface GeneratedApiKey {
   /** The raw key — show to user exactly once: dn_live_<hex> */
   raw: string;
-  /** SHA-256 hex digest — stored in DB for fast lookup */
+  /** Stored hash: HMAC-SHA256(pepper) when API_KEY_PEPPER_FILE is set, else SHA-256 (api-key-hash.ts) */
   hash: string;
   /** First 16 chars of raw key — stored for display */
   prefix: string;
@@ -47,13 +48,14 @@ export interface GeneratedApiKey {
 export function generateApiKey(): GeneratedApiKey {
   const random = crypto.randomBytes(API_KEY_BYTES).toString("hex");
   const raw = `dn_live_${random}`;
-  const hash = hashApiKey(raw);
+  const hash = hashApiKeyForStorage(raw);
   const prefix = raw.slice(0, 16);
   return { raw, hash, prefix };
 }
 
+/** Legacy v1 hash (SHA-256 hex). Lookups go through userRepo.findUserByApiKey. */
 export function hashApiKey(raw: string): string {
-  return crypto.createHash("sha256").update(raw).digest("hex");
+  return hashApiKeyV1(raw);
 }
 
 // ─── Password ────────────────────────────────────────────────────────

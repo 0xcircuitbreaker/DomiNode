@@ -2,7 +2,7 @@ import type * as net from "node:net";
 import dotenv from "dotenv";
 dotenv.config();
 
-import { createLogger, closePool, getPool, usageRepo, connectWithRetry, nodeRepo, policyRepo, nodeCreditRepo, retentionRepo, tierRepo, payoutRepo, relayChargeRepo, relaySettleRetryRepo, reportReputationRepo, collusionRepo, starterCreditRepo, contributionRepo, genesisRepo, networkStatusRepo, getProxyPorts, assertDistinctProxyPorts, reportTlsCapability } from "@dominusnode/shared";
+import { createLogger, closePool, getPool, usageRepo, connectWithRetry, nodeRepo, policyRepo, nodeCreditRepo, retentionRepo, tierRepo, payoutRepo, relayChargeRepo, relaySettleRetryRepo, reportReputationRepo, collusionRepo, starterCreditRepo, contributionRepo, genesisRepo, networkStatusRepo, getProxyPorts, assertDistinctProxyPorts, reportTlsCapability, apiKeyPepper } from "@dominusnode/shared";
 import type { ActivePolicy } from "@dominusnode/shared";
 import { startProxyServer } from "./server.js";
 import { geoAvailable, initGeoCheck, lookupPeerGeo, classifyEgressIp } from "./geo-check.js";
@@ -110,6 +110,8 @@ async function main(): Promise<void> {
   await initGeoCheck();
   const isProduction = process.env["NODE_ENV"] === "production";
   reportTlsCapability(log, "proxy-gateway");
+  // Load API_KEY_PEPPER_FILE now so a bad file fails startup, not the first auth.
+  log.info("API key hashing", { peppered: apiKeyPepper() !== null });
   const asnDbOptional = process.env["ASN_DB_OPTIONAL"] === "true";
   if (!geoAvailable()) log.warn("geo database unavailable: public peers and destinations are refused", { asnRequired: isProduction && !asnDbOptional });
   const shared = installSharedLimits(log);

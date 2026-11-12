@@ -137,6 +137,29 @@ regenerated file.
 For a compromised key, do steps 1, 2 and 4 together. Treat agents that never
 upgrade as lost.
 
+## 3b. API key pepper
+
+`api_keys.key_hash` holds `HMAC-SHA256(pepper, key)` (v2) when
+`API_KEY_PEPPER_FILE` is set, otherwise plain `SHA-256(key)` (v1). The pepper
+lives outside the database, so a DB dump alone cannot confirm or correlate a
+`dn_live_` key (SECURITY_ARCHITECTURE.md §2.6).
+
+```bash
+umask 077; openssl rand -hex 32 > secrets/api-key-pepper
+```
+
+- Mount the **same** file into the API and the gateway (Docker secret or
+  systemd credential) and set `API_KEY_PEPPER_FILE` in both. A mismatch makes
+  every migrated key fail on one side.
+- Hex (64+ chars) or at least 32 raw bytes. A set but unreadable or short file
+  stops startup. Each service logs `API key hashing {peppered}` at start.
+- Migration is lazy: auth looks up the v2 and v1 hashes in one query,
+  re-checks the match in constant time and rewrites a v1 row to v2. Keys never
+  used again stay v1 and keep working. New keys are stored as v2.
+- Do not remove or change the pepper once keys are migrated: that revokes them.
+  Back it up with the coordinator key.
+- Node keys (`dn_node_`) still use SHA-256; they are not covered yet.
+
 ## 3a. Federation documents
 
 The API serves `/.well-known/dominusnode/coordinator.json` and `policy.json`

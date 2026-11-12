@@ -1,7 +1,7 @@
 import * as net from "node:net";
 import * as tls from "node:tls";
 import type { PlaintextAuthGuard } from "./proxy-tls.js";
-import { createLogger, hashApiKey, userRepo, planRepo, pqTlsOptions } from "@dominusnode/shared";
+import { createLogger, userRepo, planRepo, pqTlsOptions } from "@dominusnode/shared";
 import { checkBalance, checkTeamBalance } from "./balance-check.js";
 import { bindTunnelLifecycle, isTunnelClient } from "./tunnel-lifecycle.js";
 import { attachByteCounters } from "./counting-stream.js";
@@ -169,7 +169,6 @@ async function handleSocks5Connection(clientSocket: net.Socket, relay: RelayRunt
     return;
   }
 
-  const keyHash = hashApiKey(apiKey);
   let userId: string;
   let logTargetHosts = false;
   let proxyOptions: ProxyOptions;
@@ -177,7 +176,7 @@ async function handleSocks5Connection(clientSocket: net.Socket, relay: RelayRunt
   let walletAddress: string | null = null;
 
   try {
-    const result = await userRepo.findUserByApiKeyHash(keyHash);
+    const result = await userRepo.findUserByApiKey(apiKey);
     if (!result) {
       clearTimeout(totalHandshakeTimer);
       recordAuthFailure(clientIp);
