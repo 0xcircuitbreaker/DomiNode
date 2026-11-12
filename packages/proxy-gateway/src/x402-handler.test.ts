@@ -37,7 +37,7 @@ vi.mock("@dominusnode/shared", () => ({
     warn: vi.fn(),
     error: vi.fn(),
   }),
-  BYTES_PER_GB: 1_073_741_824,
+  RELAY_BYTES_PER_GB: 1_000_000_000, BYTES_PER_GIB: 1_073_741_824,
   userRepo: { findOrCreateX402User: (...a: unknown[]) => mockFindOrCreateX402User(...a) },
   policyRepo: { getPricing: (...a: unknown[]) => mockGetPricing(...a) },
   walletRepo: {
@@ -59,7 +59,7 @@ beforeEach(() => {
   mockUpdateX402Transaction.mockResolvedValue(undefined);
   mockReleasePaymentHash.mockResolvedValue(undefined);
   mockGetX402MaxResponseBytes.mockReturnValue(10_485_760);
-  // $0.05/GB → 10 MiB quote = ceil(50000 * 10485760 / 2^30) = 489 µUSD (< "0.001")
+  // $0.05/GB → 10 MiB quote = ceil(50000 * 10485760 / 2^30) = 525 µUSD (< "0.001")
   mockGetPricing.mockResolvedValue(50_000n);
   mockFindOrCreateX402User.mockResolvedValue({ id: "user-x402", status: "active", created: false });
   mockGetWallet.mockResolvedValue({ id: "w1" });
@@ -243,11 +243,11 @@ describe("x402 relay identity and pricing", () => {
 
   it("quotes price_per_gb × X402_BYTES_PER_REQUEST in µUSD", async () => {
     const { x402AmountMusd } = await import("./x402-handler.js");
-    expect(x402AmountMusd(500_000n, 10_485_760)).toBe(4883n); // ceil(500000*10485760/2^30)
+    expect(x402AmountMusd(500_000n, 10_485_760)).toBe(5243n); // ceil(500000*10485760/1e9)
     expect(x402AmountMusd(1n, 1)).toBe(1n);
     mockVerifyX402Payment.mockResolvedValue(valid);
     await handleX402Http(makeRequest({ "x-payment": "p" }), makeResponse());
-    expect(mockBuildX402Requirements).toHaveBeenCalledWith({ amountMusd: 489n });
+    expect(mockBuildX402Requirements).toHaveBeenCalledWith({ amountMusd: 525n });
   });
 
   it("maps the payer to a wallet-identity user before settling", async () => {
@@ -258,7 +258,7 @@ describe("x402 relay identity and pricing", () => {
     expect(mockSettleX402Payment).not.toHaveBeenCalled();
     const d = getX402Data(req)!;
     expect(d.userId).toBe("user-x402");
-    // Gross is the verified paid amount (0.001 USD), not the 489 µUSD quote
+    // Gross is the verified paid amount (0.001 USD), not the 525 µUSD quote
     expect(d.amountMusd).toBe(1000n);
     expect(d.pricePerGbMusd).toBe(50_000n);
   });
@@ -313,7 +313,7 @@ describe("x402 relay identity and pricing", () => {
   });
 
   it("rejects a payment above the overpay sanity cap without settling", async () => {
-    mockVerifyX402Payment.mockResolvedValue({ ...valid, amountUsd: "1.0" }); // >> 100 × 489 µUSD
+    mockVerifyX402Payment.mockResolvedValue({ ...valid, amountUsd: "1.0" }); // >> 100 × 525 µUSD
     const res = makeResponse();
     const req = makeRequest({ "x-payment": "p" });
     await handleX402Http(req, res);
@@ -586,7 +586,7 @@ describe("MPP on the gateway", () => {
     settle: vi.fn(),
     release: vi.fn(async () => {}),
   };
-  const okVerify = (amountMusd = 489n) => ({ ok: true, payer: MPP_PAYER, paymentHash: "h".repeat(64), amountMusd, txRef: "tempo:1:0xabc" });
+  const okVerify = (amountMusd = 525n) => ({ ok: true, payer: MPP_PAYER, paymentHash: "h".repeat(64), amountMusd, txRef: "tempo:1:0xabc" });
 
   beforeEach(() => {
     setMppRailForTest(rail as any);
@@ -601,8 +601,8 @@ describe("MPP on the gateway", () => {
     const req = makeRequest({ authorization: "Payment tok" });
     expect(await handleX402Http(req, makeResponse())).toBe(true);
     const d = getX402Data(req)!;
-    expect(d).toMatchObject({ rail: "mpp", payer: MPP_PAYER, userId: "user-x402", amountMusd: 489n });
-    expect(rail.verify).toHaveBeenCalledWith("tok", { amountMusd: 489n, resource: "relay" });
+    expect(d).toMatchObject({ rail: "mpp", payer: MPP_PAYER, userId: "user-x402", amountMusd: 525n });
+    expect(rail.verify).toHaveBeenCalledWith("tok", { amountMusd: 525n, resource: "relay" });
     expect(rail.settle).not.toHaveBeenCalled();
     expect(mockFindOrCreateX402User).toHaveBeenCalledWith(MPP_PAYER);
   });
@@ -624,7 +624,7 @@ describe("MPP on the gateway", () => {
     await handleX402Http(makeRequest({ authorization: "Payment tok" }), res);
     expect(res._statusCode).toBe(403);
     expect(rail.release).toHaveBeenCalledWith("h".repeat(64));
-    rail.verify.mockResolvedValue(okVerify(489n * 101n));
+    rail.verify.mockResolvedValue(okVerify(525n * 101n));
     await handleX402Http(makeRequest({ authorization: "Payment tok" }), makeResponse());
     expect(rail.release).toHaveBeenCalledTimes(2);
     expect(rail.settle).not.toHaveBeenCalled();
@@ -634,7 +634,7 @@ describe("MPP on the gateway", () => {
     rail.verify.mockResolvedValue(okVerify());
     rail.settle.mockResolvedValue({ ok: true, txRef: "tempo:1:0xabc" });
     const r = (await handleX402Connect(makeRequest({ "proxy-authorization": "Payment tok" }), makeSocket()))!;
-    expect(r).toMatchObject({ rail: "mpp", verified: true, userId: "user-x402", amountMusd: 489n });
+    expect(r).toMatchObject({ rail: "mpp", verified: true, userId: "user-x402", amountMusd: 525n });
     expect(rail.settle).not.toHaveBeenCalled();
     expect(await settleX402Pending(r.pending!)).toBe(true);
     expect(await settleX402Pending(r.pending!)).toBe(true); // idempotent

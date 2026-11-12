@@ -35,9 +35,9 @@ describe("GET /api/x402/info", () => {
     const p = r.body["pricing"] as { bytesPerRequest: number; classes: Record<string, { perGb: { usd: string }; perRequest: { musd: string; usd: string } }> };
     expect(p.bytesPerRequest).toBe(10485760);
     expect(p.classes["residential"]!.perGb.usd).toBe("0.500000");
-    // Matches the gateway quote: ceil(500000 × 10485760 / BYTES_PER_GB)
-    expect(p.classes["residential"]!.perRequest).toEqual({ musd: "4883", usd: "0.004883" });
-    expect(p.classes["dc"]!.perRequest.musd).toBe("1954");
+    // Matches the gateway quote: ceil(500000 × 10485760 / RELAY_BYTES_PER_GB)
+    expect(p.classes["residential"]!.perRequest).toEqual({ musd: "5243", usd: "0.005243" });
+    expect(p.classes["dc"]!.perRequest.musd).toBe("2098");
   });
 
   it("answers with pricing null when the pricing table is unavailable", async () => {

@@ -1,6 +1,6 @@
 import { usageRepo, walletRepo, planRepo, teamRepo, policyRepo, tierRepo, relayChargeRepo, relaySettleRetryRepo, createLogger } from "@dominusnode/shared";
 import type { Plan, NodeIpClass } from "@dominusnode/shared";
-import { BYTES_PER_GB } from "@dominusnode/shared";
+import { RELAY_BYTES_PER_GB } from "@dominusnode/shared";
 import { recordRequesterSpend, reserveRequesterSpend, releaseRequesterSpend, reserveRequesterShared } from "./policy-enforcer.js";
 import { invalidateBalanceCache, invalidateTeamBalanceCache } from "./balance-check.js";
 import { recordBytes, recordSessionStart } from "./stats.js";
@@ -15,7 +15,7 @@ const MUSD_PER_CENT = 10_000;
 // cap at the locked relay price, capped at the available balance:
 //   reserveCents = min(balance, ceil(price × byteCap))
 // and the session may never carry more bytes than its reservation pays for.
-const SESSION_BYTE_CAP = parseInt(process.env["RELAY_SESSION_BYTE_CAP"] ?? "1073741824", 10); // default 1 GiB (= BYTES_PER_GB)
+const SESSION_BYTE_CAP = parseInt(process.env["RELAY_SESSION_BYTE_CAP"] ?? "1000000000", 10); // default 1 GB (decimal, = one priced GB)
 if (isNaN(SESSION_BYTE_CAP) || SESSION_BYTE_CAP < 1024 * 1024 || SESSION_BYTE_CAP > 100 * 1024 * 1024 * 1024) {
   throw new Error("RELAY_SESSION_BYTE_CAP must be between 1MB and 100GB");
 }
@@ -24,7 +24,7 @@ if (isNaN(SESSION_BYTE_CAP) || SESSION_BYTE_CAP < 1024 * 1024 || SESSION_BYTE_CA
 export function reservationCentsFor(pricePerGbMusd: bigint, byteCap: number = SESSION_BYTE_CAP): number {
   if (pricePerGbMusd <= 0n) return 0;
   const num = pricePerGbMusd * BigInt(byteCap);
-  const den = BigInt(BYTES_PER_GB) * BigInt(MUSD_PER_CENT);
+  const den = BigInt(RELAY_BYTES_PER_GB) * BigInt(MUSD_PER_CENT);
   const cents = (num + den - 1n) / den;
   return Number(cents > 0n ? cents : 1n);
 }
@@ -32,7 +32,7 @@ export function reservationCentsFor(pricePerGbMusd: bigint, byteCap: number = SE
 /** Bytes a reservation pays for at the locked price (floor; no overrun headroom). */
 export function maxBytesForReservation(reservedCents: number, pricePerGbMusd: bigint): number {
   if (pricePerGbMusd <= 0n || reservedCents <= 0) return 0;
-  const b = (BigInt(reservedCents) * BigInt(MUSD_PER_CENT) * BigInt(BYTES_PER_GB)) / pricePerGbMusd;
+  const b = (BigInt(reservedCents) * BigInt(MUSD_PER_CENT) * BigInt(RELAY_BYTES_PER_GB)) / pricePerGbMusd;
   return Number(b > BigInt(Number.MAX_SAFE_INTEGER) ? BigInt(Number.MAX_SAFE_INTEGER) : b);
 }
 
@@ -534,7 +534,7 @@ export async function startSession(
 /** Bytes a prepaid amount buys at the locked price (floor). */
 export function maxBytesForPrepaid(paidMusd: bigint, pricePerGbMusd: bigint): number {
   if (pricePerGbMusd <= 0n || paidMusd <= 0n) return 0;
-  const b = (paidMusd * BigInt(BYTES_PER_GB)) / pricePerGbMusd;
+  const b = (paidMusd * BigInt(RELAY_BYTES_PER_GB)) / pricePerGbMusd;
   return Number(b > BigInt(Number.MAX_SAFE_INTEGER) ? BigInt(Number.MAX_SAFE_INTEGER) : b);
 }
 

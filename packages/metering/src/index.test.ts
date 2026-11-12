@@ -6,7 +6,7 @@ const mockDebitWallet = vi.fn();
 
 vi.mock("@dominusnode/shared", () => ({
   PRICE_PER_GB_CENTS: 500,
-  BYTES_PER_GB: 1_073_741_824,
+  RELAY_BYTES_PER_GB: 1_000_000_000, BYTES_PER_GIB: 1_073_741_824,
   usageRepo: {
     createUsageRecord: (...args: unknown[]) => mockCreateUsageRecord(...args),
   },
@@ -47,15 +47,15 @@ describe("metering", () => {
     });
 
     it("should return 500 cents for exactly 1 GB", () => {
-      expect(computeCostCents(1_073_741_824)).toBe(500);
+      expect(computeCostCents(1_000_000_000)).toBe(500);
     });
 
     it("should return 1000 cents for 2 GB", () => {
-      expect(computeCostCents(2 * 1_073_741_824)).toBe(1000);
+      expect(computeCostCents(2 * 1_000_000_000)).toBe(1000);
     });
 
     it("should round up cost (ceil)", () => {
-      expect(computeCostCents(536_870_912)).toBe(250);
+      expect(computeCostCents(500_000_000)).toBe(250);
     });
 
     it("should round up fractional cents", () => {
@@ -63,26 +63,26 @@ describe("metering", () => {
     });
 
     it("should handle 10 MB correctly", () => {
-      expect(computeCostCents(10_485_760)).toBe(5);
+      expect(computeCostCents(10_485_760)).toBe(6);
     });
 
     it("should handle 100 MB correctly", () => {
-      expect(computeCostCents(104_857_600)).toBe(49);
+      expect(computeCostCents(104_857_600)).toBe(53);
     });
 
     it("should handle 10 GB", () => {
-      expect(computeCostCents(10 * 1_073_741_824)).toBe(5000);
+      expect(computeCostCents(10 * 1_000_000_000)).toBe(5000);
     });
 
     // Tests for the new pricePerGbCents parameter
     it("should use custom pricePerGbCents when provided", () => {
       // 1 GB at $3/GB = 300 cents
-      expect(computeCostCents(1_073_741_824, 300)).toBe(300);
+      expect(computeCostCents(1_000_000_000, 300)).toBe(300);
     });
 
     it("should compute cost at lower price per GB", () => {
       // 1 GB at $1/GB = 100 cents
-      expect(computeCostCents(1_073_741_824, 100)).toBe(100);
+      expect(computeCostCents(1_000_000_000, 100)).toBe(100);
     });
 
     it("should still enforce minimum 1 cent with custom pricing", () => {
@@ -90,24 +90,24 @@ describe("metering", () => {
     });
 
     it("should compute half GB at custom price", () => {
-      // 500 MB = 536_870_912 bytes at $3/GB
-      // ceil((536_870_912 / 1_073_741_824) * 300) = ceil(150) = 150
-      expect(computeCostCents(536_870_912, 300)).toBe(150);
+      // 500 MB = 500_000_000 bytes at $3/GB
+      // ceil((500_000_000 / 1_000_000_000) * 300) = ceil(150) = 150
+      expect(computeCostCents(500_000_000, 300)).toBe(150);
     });
 
     it("should default to PRICE_PER_GB_CENTS when pricePerGbCents not provided", () => {
       // Default should be 500 (from PRICE_PER_GB_CENTS)
-      expect(computeCostCents(1_073_741_824)).toBe(500);
+      expect(computeCostCents(1_000_000_000)).toBe(500);
     });
 
     it("should return 0 for any bytes when pricePerGbCents is 0 (free plan)", () => {
-      expect(computeCostCents(1_073_741_824, 0)).toBe(0);
+      expect(computeCostCents(1_000_000_000, 0)).toBe(0);
       expect(computeCostCents(1, 0)).toBe(0);
       expect(computeCostCents(10_000_000, 0)).toBe(0);
     });
 
     it("should return 0 for negative pricePerGbCents", () => {
-      expect(computeCostCents(1_073_741_824, -100)).toBe(0);
+      expect(computeCostCents(1_000_000_000, -100)).toBe(0);
     });
   });
 
@@ -184,7 +184,7 @@ describe("metering", () => {
       mockCreateUsageRecord.mockResolvedValueOnce({ id: "ur6" });
 
       // 1GB at $3/GB = 300 cents
-      await recordUsage("u1", "s1", 1_073_741_824, 0, "host.com", 300);
+      await recordUsage("u1", "s1", 1_000_000_000, 0, "host.com", 300);
 
       expect(mockCreateUsageRecord).toHaveBeenCalledWith(
         expect.objectContaining({

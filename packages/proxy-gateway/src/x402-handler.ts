@@ -1,6 +1,6 @@
 import * as http from "node:http";
 import * as net from "node:net";
-import { createLogger, userRepo, policyRepo, walletRepo, BYTES_PER_GB } from "@dominusnode/shared";
+import { createLogger, userRepo, policyRepo, walletRepo, RELAY_BYTES_PER_GB } from "@dominusnode/shared";
 import {
   isX402Enabled,
   buildX402Requirements,
@@ -103,7 +103,7 @@ if (isNaN(X402_BYTES_PER_REQUEST) || X402_BYTES_PER_REQUEST < 65_536 || X402_BYT
 
 /** ceil(price × bytes / GB) in µUSD, at least 1. */
 export function x402AmountMusd(pricePerGbMusd: bigint, bytes: number = X402_BYTES_PER_REQUEST): bigint {
-  const gb = BigInt(BYTES_PER_GB);
+  const gb = BigInt(RELAY_BYTES_PER_GB);
   const v = (pricePerGbMusd * BigInt(bytes) + gb - 1n) / gb;
   return v > 0n ? v : 1n;
 }
@@ -132,7 +132,7 @@ function advertisedRequirements(poolType: "dc" | "residential") {
 
 /** Bytes this payment may carry: min(X402_MAX_RESPONSE_BYTES, bytes the paid amount buys). */
 function paidByteCap(q: X402Quote, paidMusd: bigint = q.amountMusd): number {
-  const bought = (paidMusd * BigInt(BYTES_PER_GB)) / q.pricePerGbMusd;
+  const bought = (paidMusd * BigInt(RELAY_BYTES_PER_GB)) / q.pricePerGbMusd;
   return Math.max(1, Math.min(getX402MaxResponseBytes(), Number(bought > 2_000_000_000_000n ? 2_000_000_000_000n : bought)));
 }
 

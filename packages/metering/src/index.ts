@@ -1,6 +1,6 @@
 import {
   PRICE_PER_GB_CENTS,
-  BYTES_PER_GB,
+  RELAY_BYTES_PER_GB,
   usageRepo,
   walletRepo,
   createLogger,
@@ -19,7 +19,7 @@ export function computeCostCents(totalBytes: number, pricePerGbCents: number = P
   if (!Number.isFinite(totalBytes) || totalBytes > Number.MAX_SAFE_INTEGER) {
     return MAX_COST_CENTS;
   }
-  const cost = Math.ceil((totalBytes / BYTES_PER_GB) * pricePerGbCents);
+  const cost = Math.ceil((totalBytes / RELAY_BYTES_PER_GB) * pricePerGbCents);
   return Math.min(Math.max(cost, 1), MAX_COST_CENTS); // minimum 1 cent, capped at PostgreSQL INTEGER max
 }
 

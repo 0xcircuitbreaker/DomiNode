@@ -9,7 +9,7 @@ import { NodeRegistry, ipPrefix, dayOf, effectiveReputation, type LiveNode } fro
 export const TOP_K = 10;
 export const STICKY_TTL_MS = 10 * 60_000;
 export const STICKY_CAP = 100_000;
-const BYTES_PER_GB = 1_000_000_000;
+const BYTES_PER_GB = 1_000_000_000; // decimal GB = shared RELAY_BYTES_PER_GB (local: avoids mock coupling)
 const MIN_HEALTH = 0.2;
 
 export interface SelectOpts {

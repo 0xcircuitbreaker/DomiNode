@@ -355,8 +355,15 @@ export const COST_PER_GB_CENTS = 1;
 /** Our cost from Webshare residential: $4.00 per GB (10GB for $40) */
 export const COST_PER_GB_CENTS_RESIDENTIAL = 400;
 
-/** 1 GB in bytes (1024^3) */
-export const BYTES_PER_GB = 1_073_741_824;
+/**
+ * Relay pricing unit: network_pricing is µUSD per decimal GB (1e9 bytes).
+ * Use this for EVERY relay money <-> bytes conversion (quotes, reservations,
+ * byte caps bought by a payment, settlement) and for user-facing GB display.
+ */
+export const RELAY_BYTES_PER_GB = 1_000_000_000;
+
+/** 1 GiB (1024^3). Binary unit: only for byte caps/limits, never for money. */
+export const BYTES_PER_GIB = 1_073_741_824;
 
 /** Supported crypto currencies for top-up */
 export const SUPPORTED_CRYPTO = ["btc", "eth", "ltc", "xmr", "zec", "usdc", "sol", "usdt", "dai", "bnb", "link"] as const;

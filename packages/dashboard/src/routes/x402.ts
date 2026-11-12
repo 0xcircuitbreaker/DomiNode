@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { SUPPORTED_CRYPTO, policyRepo, createLogger, BYTES_PER_GB } from "@dominusnode/shared";
+import { SUPPORTED_CRYPTO, policyRepo, createLogger, RELAY_BYTES_PER_GB } from "@dominusnode/shared";
 import { X402_RESOURCE_DESCRIPTION, bazaarExtension } from "@dominusnode/billing";
 
 const router = Router();
@@ -12,7 +12,7 @@ function bytesPerRequest(): number {
 }
 
 /** Same unit the gateway uses for its x402 quote (x402AmountMusd). */
-const GIB = BigInt(BYTES_PER_GB);
+const GB_UNIT = BigInt(RELAY_BYTES_PER_GB);
 const musdToUsd = (m: bigint): string => {
   const whole = m / 1_000_000n;
   const frac = (m % 1_000_000n).toString().padStart(6, "0");
@@ -27,7 +27,7 @@ async function livePricing(): Promise<Record<string, unknown> | null> {
     const classes: Record<string, unknown> = {};
     for (const r of rows) {
       // Same rounding as the gateway quote: round up to the next µUSD.
-      const perReq = (r.pricePerGbMusd * bytes + GIB - 1n) / GIB;
+      const perReq = (r.pricePerGbMusd * bytes + GB_UNIT - 1n) / GB_UNIT;
       classes[r.ipClass] = {
         perGb: { musd: r.pricePerGbMusd.toString(), usd: musdToUsd(r.pricePerGbMusd) },
         perRequest: { musd: perReq.toString(), usd: musdToUsd(perReq) },

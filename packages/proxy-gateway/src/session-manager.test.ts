@@ -43,7 +43,7 @@ vi.mock("@dominusnode/shared", () => ({
     warn: vi.fn(),
     error: vi.fn(),
   }),
-  BYTES_PER_GB: 1_073_741_824,
+  RELAY_BYTES_PER_GB: 1_000_000_000, BYTES_PER_GIB: 1_073_741_824,
 }));
 
 const mockRecordUsage = vi.fn().mockResolvedValue({});
@@ -52,7 +52,7 @@ vi.mock("@dominusnode/metering", () => ({
   computeCostCents: (bytes: number, pricePerGb: number = 500) => {
     if (bytes <= 0) return 0;
     if (pricePerGb <= 0) return 0;
-    return Math.max(Math.ceil((bytes / 1_073_741_824) * pricePerGb), 1);
+    return Math.max(Math.ceil((bytes / 1_000_000_000) * pricePerGb), 1);
   },
   recordUsage: (...args: unknown[]) => mockRecordUsage(...args),
 }));
@@ -64,7 +64,7 @@ vi.mock("./balance-check.js", () => ({
 import { startSession, endSession, getActiveSessionCount, checkSessionRateLimit, checkBandwidthVelocity, recordBandwidthUsage, reservationCentsFor, maxBytesForReservation, startPrepaidSession, maxBytesForPrepaid, abortPrepaidSession, awaitInFlightSettlements, getInFlightSettlementCount } from "./session-manager.js";
 import type { ByteCounter } from "./counting-stream.js";
 import { enforcePolicy, _resetPolicyEnforcer, getRequesterInflightSpend, getRequesterSpend } from "./policy-enforcer.js";
-const BYTES_PER_GB = 1_073_741_824;
+const BYTES_PER_GB = 1_000_000_000;
 
 function makeCounter(bytesIn = 0, bytesOut = 0): ByteCounter {
   return { bytesIn, bytesOut, maxBytes: 0, onLimitExceeded: null };

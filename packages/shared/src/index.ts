@@ -29,7 +29,8 @@ export {
   PRICE_PER_GB_CENTS,
   PRICE_PER_GB_CENTS_DC,
   COST_PER_GB_CENTS,
-  BYTES_PER_GB,
+  RELAY_BYTES_PER_GB,
+  BYTES_PER_GIB,
   SUPPORTED_CRYPTO,
   hasMinRole,
 } from "./types.js";
