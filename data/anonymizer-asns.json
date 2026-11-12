@@ -1,0 +1,75 @@
+{
+  "version": 1,
+  "updated": "2026-11-12",
+  "description": "ASNs whose address space is used for anonymizer egress (VPN, WARP, proxy networks). A node whose verified egress IP is in one of these ASNs is classed 'masked'. Hand-maintained from each operator's own published ASN (PeeringDB / bgp.he.net / RIR whois). Facts only (ASN numbers and operator names); no third-party database is copied. Extend at deploy time with ANONYMIZER_ASNS=\"1,2,3\". Shared hosting ASNs that many VPNs rent from (M247, Datacamp/CDN77, Leaseweb, ...) stay 'dc' via HOSTING_ASNS: dc is already the lower-trust class, and IP-level lists (data/anonymizer-ips.txt) catch known exits inside them.",
+  "asns": [
+    {
+      "asn": 13335,
+      "name": "Cloudflare, Inc. (WARP / Zero Trust shared egress)",
+      "kind": "vpn",
+      "note": "AS13335 is all of Cloudflare, but Cloudflare sells no general hosting with customer-controlled egress, so a node egress IP in it is in practice WARP/Zero Trust. Cloudflare does not publish WARP egress ranges, so the ASN cannot be narrowed.",
+      "sources": [
+        "https://stat.ripe.net/data/as-overview/data.json?resource=AS13335",
+        "https://bgp.he.net/AS13335",
+        "https://developers.cloudflare.com/cloudflare-one/policies/gateway/egress-policies/"
+      ]
+    },
+    {
+      "asn": 209242,
+      "name": "Cloudflare London, LLC (CLOUDFLARESPECTRUM; WARP / Spectrum egress)",
+      "kind": "vpn",
+      "sources": [
+        "https://stat.ripe.net/data/as-overview/data.json?resource=AS209242",
+        "https://bgp.he.net/AS209242"
+      ]
+    },
+    {
+      "asn": 209103,
+      "name": "Proton AG (ProtonVPN)",
+      "kind": "vpn",
+      "sources": [
+        "https://stat.ripe.net/data/as-overview/data.json?resource=AS209103",
+        "https://bgp.he.net/AS209103"
+      ]
+    },
+    {
+      "asn": 39351,
+      "name": "31173 Services AB (ESAB-AS; Mullvad VPN)",
+      "kind": "vpn",
+      "sources": [
+        "https://stat.ripe.net/data/as-overview/data.json?resource=AS39351",
+        "https://bgp.he.net/AS39351"
+      ]
+    },
+    {
+      "asn": 136787,
+      "name": "PacketHub S.A. (NordVPN infrastructure)",
+      "kind": "vpn",
+      "sources": [
+        "https://stat.ripe.net/data/as-overview/data.json?resource=AS136787",
+        "https://bgp.he.net/AS136787",
+        "https://www.netify.ai/resources/ips/186.247.46.26"
+      ]
+    },
+    {
+      "asn": 147049,
+      "name": "PacketHub S.A. (NordVPN infrastructure)",
+      "kind": "vpn",
+      "sources": [
+        "https://stat.ripe.net/data/as-overview/data.json?resource=AS147049",
+        "https://bgp.he.net/AS147049"
+      ]
+    },
+    {
+      "asn": 207137,
+      "name": "PacketHub S.A. (NordVPN infrastructure)",
+      "kind": "vpn",
+      "sources": [
+        "https://stat.ripe.net/data/as-overview/data.json?resource=AS207137",
+        "https://bgp.he.net/AS207137",
+        "https://www.netify.ai/resources/ips/186.247.191.124"
+      ]
+    }
+  ],
+  "verified": "2026-11-12"
+}

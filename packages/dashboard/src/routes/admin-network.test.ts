@@ -144,16 +144,65 @@ describe("/api/admin/network", () => {
 
   describe("pricing", () => {
     it("upserts a valid price", async () => {
-      txClient("admin", { ip_class: "dc", price_per_gb_musd: "250000", updated_at: new Date() });
+      txClient("admin", { ip_class: "dc", price_per_gb_musd: "250000", tier_weight_bps: 4000, updated_at: new Date() });
       const r = await call(app(), "PUT", "/api/admin/network/pricing", { body: { ipClass: "dc", pricePerGbMusd: 250000 } });
       expect(r.status).toBe(200);
       expect(r.body["pricePerGbMusd"]).toBe("250000");
-      const ins = m.clientQuery.mock.calls.find((c) => String(c[0]).includes("network_pricing"));
-      expect(ins?.[1]).toEqual(["dc", "250000", ADMIN]);
+      expect(r.body["tierWeightBps"]).toBe(4000);
+      const ins = m.clientQuery.mock.calls.find((c) => String(c[0]).includes("INSERT INTO network_pricing"));
+      // price, no weight change (null keeps the stored weight), default weight for a new dc row
+      expect(ins?.[1]).toEqual(["dc", "250000", null, ADMIN, 4000]);
       expect(String(ins?.[0])).not.toContain("RETURNING *");
       const a = auditRow("network_pricing_update");
       expect(a.slice(2, 4)).toEqual(["network_pricing", "dc"]);
-      expect(JSON.parse(String(a[5]))).toEqual({ ipClass: "dc", pricePerGbMusd: "250000" });
+      expect(JSON.parse(String(a[5]))).toEqual({
+        ipClass: "dc", pricePerGbMusd: "250000", previousPricePerGbMusd: "250000", previousTierWeightBps: 4000, reason: null,
+      });
+    });
+
+    it("sets the masked price and tier weight with an audited reason", async () => {
+      txClient("admin", { ip_class: "masked", price_per_gb_musd: "100000", tier_weight_bps: 2500, updated_at: new Date() });
+      const r = await call(app(), "PUT", "/api/admin/network/pricing", {
+        body: { ipClass: "masked", pricePerGbMusd: 120000, tierWeightBps: 2000, reason: "WARP exits flagged more often" },
+      });
+      expect(r.status).toBe(200);
+      const ins = m.clientQuery.mock.calls.find((c) => String(c[0]).includes("INSERT INTO network_pricing"));
+      expect(ins?.[1]).toEqual(["masked", "120000", 2000, ADMIN, 2500]);
+      const a = auditRow("network_pricing_update");
+      expect(JSON.parse(String(a[5]))).toEqual({
+        ipClass: "masked", pricePerGbMusd: "120000", previousPricePerGbMusd: "100000",
+        tierWeightBps: 2000, previousTierWeightBps: 2500, reason: "WARP exits flagged more often",
+      });
+    });
+
+    it("weight-only update keeps the price and needs an existing row", async () => {
+      txClient("admin", { ip_class: "dc", price_per_gb_musd: "200000", tier_weight_bps: 4000, updated_at: new Date() });
+      const r = await call(app(), "PUT", "/api/admin/network/pricing", { body: { ipClass: "dc", tierWeightBps: 5000, reason: "more dc supply needed" } });
+      expect(r.status).toBe(200);
+      const ins = m.clientQuery.mock.calls.find((c) => String(c[0]).includes("INSERT INTO network_pricing"));
+      expect(ins?.[1]).toEqual(["dc", null, 5000, ADMIN, 4000]);
+
+      m.clientQuery.mockReset();
+      m.clientQuery.mockImplementation(async (sql: string) => {
+        if (sql.includes("FROM users")) return { rows: [{ admin_role: "admin" }] };
+        return { rows: [] };
+      });
+      const r2 = await call(app(), "PUT", "/api/admin/network/pricing", { body: { ipClass: "mobile", tierWeightBps: 5000, reason: "test row" } });
+      expect(r2.status).toBe(404);
+      expect(hasAudit()).toBe(false);
+    });
+
+    it.each([
+      [{ ipClass: "masked", tierWeightBps: 2000 }],
+      [{ ipClass: "masked", tierWeightBps: 2000, reason: "x" }],
+      [{ ipClass: "masked", tierWeightBps: 10001, reason: "too much" }],
+      [{ ipClass: "masked", tierWeightBps: -1, reason: "negative" }],
+      [{ ipClass: "any", tierWeightBps: 5000, reason: "any has no weight" }],
+      [{ ipClass: "masked" }],
+      [{ ipClass: "masked", pricePerGbMusd: 100000, reason: 5 }],
+    ])("rejects weight change %j", async (body) => {
+      expect((await call(app(), "PUT", "/api/admin/network/pricing", { body })).status).toBe(400);
+      expect(m.clientQuery).not.toHaveBeenCalled();
     });
 
     it.each([

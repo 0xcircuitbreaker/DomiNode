@@ -23,6 +23,7 @@ const m = vi.hoisted(() => ({
   getOwnerTier: vi.fn(),
   listTiers: vi.fn(),
   getOwnerTierStats: vi.fn(),
+  getTierWeights: vi.fn(),
   query: vi.fn(),
 }));
 
@@ -41,7 +42,7 @@ vi.mock("@dominusnode/shared", async (importOriginal) => {
     nodeRepo: { createChallenge: m.createChallenge, consumeChallenge: m.consumeChallenge, registerNode: m.registerNode, listForOwner: m.listForOwner },
     powChallengeRepo: { createChallenge: m.powCreate, consumeChallenge: m.powConsume, countActiveChallengesForIp: m.powCount, POW_CHALLENGE_TTL_MS: 300000 },
     policyRepo: { getActivePolicy: m.getActivePolicy },
-    tierRepo: { getOwnerTier: m.getOwnerTier, listTiers: m.listTiers, getOwnerTierStats: m.getOwnerTierStats },
+    tierRepo: { getOwnerTier: m.getOwnerTier, listTiers: m.listTiers, getOwnerTierStats: m.getOwnerTierStats, getTierWeights: m.getTierWeights },
   };
 });
 
@@ -155,6 +156,22 @@ describe("/v1 node routes", () => {
       }));
     });
 
+    it("passes an optional declaredClass and rejects invalid ones before any side effect", async () => {
+      m.registerNode.mockResolvedValue({ ok: true, nodeKey: "dn_node_" + "c".repeat(64), node: { id: NODE_ID, status: "pending", attestation_version: 1 } });
+      const body = await registrationBody();
+      const r = await call(app(), "POST", "/v1/nodes", { body: { ...body, declaredClass: "residential" } });
+      expect(r.status).toBe(201);
+      expect(m.registerNode).toHaveBeenCalledWith(expect.objectContaining({ declaredClass: "residential" }));
+      m.consumeChallenge.mockClear();
+      for (const bad of ["unknown", "vpn", 5]) {
+        const b2 = await registrationBody();
+        const r2 = await call(app(), "POST", "/v1/nodes", { body: { ...b2, declaredClass: bad } });
+        expect(r2.status).toBe(400);
+        expect(r2.body["code"]).toBe("INVALID_DECLARED_CLASS");
+      }
+      expect(m.consumeChallenge).not.toHaveBeenCalled();
+    });
+
     it("rejects a signature from another wallet after consuming the challenge", async () => {
       const body = await registrationBody({ signer: Wallet.createRandom() });
       const r = await call(app(), "POST", "/v1/nodes", { body });
@@ -259,6 +276,28 @@ describe("/v1 node routes", () => {
       expect(JSON.stringify(r.body)).not.toMatch(/key_hash|attestation_sig/);
     });
 
+    it("includes verifiedClass, declaredClass and tierWeight (additive)", async () => {
+      m.getTierWeights.mockResolvedValue({ residential: 10000, mobile: 10000, dc: 4000, masked: 2500 });
+      m.listForOwner.mockResolvedValue([
+        { id: NODE_ID, owner_wallet: WALLET, status: "active", ip_class: "masked", declared_class: "residential", class_verified_at: new Date(0) },
+        { id: NODE_ID, owner_wallet: WALLET, status: "active", ip_class: "dc", declared_class: null },
+        { id: NODE_ID, owner_wallet: WALLET, status: "pending", ip_class: null, declared_class: null },
+      ]);
+      const r = await call(app(), "GET", "/v1/nodes");
+      const nodes = r.body["nodes"] as Array<Record<string, unknown>>;
+      expect(nodes[0]).toMatchObject({ ipClass: "masked", verifiedClass: "masked", declaredClass: "residential", tierWeight: 0.25 });
+      expect(nodes[1]).toMatchObject({ verifiedClass: "dc", declaredClass: null, tierWeight: 0.4 });
+      // Unclassified nodes get the lowest configured weight.
+      expect(nodes[2]).toMatchObject({ verifiedClass: "unknown", tierWeight: 0.25 });
+    });
+
+    it("falls back to default weights when the weight lookup fails", async () => {
+      m.getTierWeights.mockRejectedValue(new Error("db"));
+      m.listForOwner.mockResolvedValue([{ id: NODE_ID, owner_wallet: WALLET, status: "active", ip_class: "residential" }]);
+      const r = await call(app(), "GET", "/v1/nodes");
+      expect((r.body["nodes"] as Array<Record<string, unknown>>)[0]).toMatchObject({ tierWeight: 1 });
+    });
+
     it("revokes only an owned node", async () => {
       m.query.mockResolvedValue({ rows: [{ id: NODE_ID, status: "revoked" }] });
       const r = await call(app(), "DELETE", `/v1/nodes/${NODE_ID}`);
@@ -295,6 +334,7 @@ describe("/v1 node routes", () => {
         reputation: { required: 4000, current: 4500, met: true },
       });
       expect(r.body["demotionReason"]).toBe("reputation");
+      expect(r.body["tierWeights"]).toEqual({ residential: 1, mobile: 1, dc: 0.4, masked: 0.25 });
     });
 
     it("fails closed when tier lookup fails", async () => {

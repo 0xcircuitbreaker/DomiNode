@@ -82,6 +82,17 @@ describe("admin network ops", () => {
       expect(params).toEqual(["active", "US", 123, "residential", USER, true, false, "%1.2\\_%", 10, 10]);
     });
 
+    it("shows verified vs declared class and open egress-mismatch flags; accepts ip_class=masked", async () => {
+      m.poolQuery.mockImplementation(async (sql: string) => sql.startsWith("SELECT COUNT(*)")
+        ? { rows: [{ count: "1" }] }
+        : { rows: [nodeRow({ ip_class: "masked", declared_class: "residential", class_verified_at: new Date(0), egress_flags: 1 })] });
+      const r = await call(app(), "GET", `${BASE}/nodes?ip_class=masked`);
+      expect(r.status).toBe(200);
+      expect((r.body["items"] as any[])[0]).toMatchObject({ verifiedClass: "masked", declaredClass: "residential", openEgressMismatchFlags: 1 });
+      const [sql] = m.poolQuery.mock.calls.find((c) => !String(c[0]).startsWith("SELECT COUNT"))!;
+      expect(sql).toContain("egress_mismatch");
+    });
+
     it("rejects invalid filters", async () => {
       for (const qs of ["status=bogus", "country=USA", "asn=-1", "owner=x", "online=yes", "sort=email", "limit=0", "offset=-1", "limit=201"]) {
         expect((await call(app(), "GET", `${BASE}/nodes?${qs}`)).status, qs).toBe(400);

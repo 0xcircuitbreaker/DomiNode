@@ -13,8 +13,8 @@ export interface ProxyFetchOptions {
   body?: string;
   /** ISO 3166-1 alpha-2 exit country (username flag country-XX). */
   country?: string;
-  /** Exit IP class (username flag class-residential|dc|mobile). */
-  ipClass?: "residential" | "dc" | "mobile";
+  /** Exit IP class (username flag class-residential|dc|mobile|masked). */
+  ipClass?: "residential" | "dc" | "mobile" | "masked";
   /** Sticky session id (username flag session-<id>, alphanumeric). */
   sessionId?: string;
   /** Opt in to exit-visible plaintext http:// (username flag allowhttp-1). */
@@ -96,7 +96,7 @@ export function buildProxyUsername(opts: Pick<ProxyFetchOptions, "country" | "ip
     parts.push(`country-${opts.country.toUpperCase()}`);
   }
   if (opts.ipClass) {
-    if (!["residential", "dc", "mobile"].includes(opts.ipClass)) throw new Error("ip_class must be residential, dc or mobile");
+    if (!["residential", "dc", "mobile", "masked"].includes(opts.ipClass)) throw new Error("ip_class must be residential, dc, mobile or masked");
     parts.push(`class-${opts.ipClass}`);
   }
   if (opts.sessionId) {

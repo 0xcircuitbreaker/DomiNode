@@ -26,7 +26,7 @@ export function registerFetchTools(server: McpServer, config: McpConfig): void {
         )
         .describe("Request headers. Authorization, User-Agent and hop-by-hop headers are dropped (see the tool description)."),
       country: z.string().regex(/^[A-Za-z]{2}$/).optional().describe("2-letter ISO exit country (username flag country-XX). Sanctioned countries are never available."),
-      ip_class: z.enum(["residential", "dc", "mobile"]).optional().describe("Exit IP class (username flag class-<c>); price differs by class. Omit for any class."),
+      ip_class: z.enum(["residential", "dc", "mobile", "masked"]).optional().describe("Exit IP class (username flag class-<c>); price differs by class. masked = anonymizer egress (VPN/WARP), cheapest, served only when asked. Omit for any non-masked class."),
       session_id: z.string().regex(/^[A-Za-z0-9]{1,64}$/).optional().describe("Sticky session id (username flag session-<id>) to reuse the same exit node across requests"),
       allow_http: z.boolean().default(false).describe("Opt in to plaintext http:// (username flag allowhttp-1). The exit node operator can read and modify plaintext traffic."),
       timeout_ms: z.number().min(1000).max(120000).default(30000).describe("Request timeout in milliseconds"),

@@ -9,7 +9,7 @@ vi.mock("../../api/admin", async (orig) => {
   return {
     ...actual,
     adminApi: {
-      policy: vi.fn(), publishPolicy: vi.fn(), pricing: vi.fn(), setPricing: vi.fn(), split: vi.fn(), addSplit: vi.fn(), tiers: vi.fn(), updateTier: vi.fn(),
+      policy: vi.fn(), publishPolicy: vi.fn(), pricing: vi.fn(), setPricing: vi.fn(), setTierWeight: vi.fn(), split: vi.fn(), addSplit: vi.fn(), tiers: vi.fn(), updateTier: vi.fn(),
     },
     launchApi: {
       ...actual.launchApi,
@@ -109,6 +109,25 @@ describe("PricingPage", () => {
     await userEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Save price" }));
     expect(api.setPricing).toHaveBeenCalledWith("dc", 2_500_000);
     expect(await screen.findByText("dc price set to $2.50/GB.")).toBeInTheDocument();
+  });
+
+  it("sets a masked tier weight with a required reason", async () => {
+    api.pricing.mockResolvedValue({ pricing: [
+      { ipClass: "residential", pricePerGbMusd: "500000", tierWeightBps: 10000, updatedAt: "2026-11-01T00:00:00Z" },
+      { ipClass: "masked", pricePerGbMusd: "100000", tierWeightBps: 2500, updatedAt: "2026-11-01T00:00:00Z" },
+    ] });
+    api.setTierWeight.mockResolvedValue({ ipClass: "masked", pricePerGbMusd: "100000", tierWeightBps: 2000, updatedAt: "2026-11-06T00:00:00Z" });
+    renderPage(<PricingPage />);
+    const w = await screen.findByLabelText("masked weight (%)");
+    expect(w).toHaveValue("25");
+    await userEvent.clear(w);
+    await userEvent.type(w, "20");
+    await userEvent.click(within(w.closest("form")!).getByRole("button", { name: "Save" }));
+    expect(await screen.findByText("Enter a reason (at least 3 characters).")).toBeInTheDocument();
+    expect(api.setTierWeight).not.toHaveBeenCalled();
+    await userEvent.type(screen.getByLabelText("Reason (required, audited)"), "WARP exits burn faster");
+    await userEvent.click(within(w.closest("form")!).getByRole("button", { name: "Save" }));
+    expect(api.setTierWeight).toHaveBeenCalledWith("masked", 2000, "WARP exits burn faster");
   });
 
   it("rejects a split above 50% client-side", async () => {

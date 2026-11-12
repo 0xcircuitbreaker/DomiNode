@@ -1,6 +1,6 @@
 import * as http from "node:http";
 import { hashApiKey, verifyProxySessionToken, userRepo, createLogger } from "@dominusnode/shared";
-import type { User } from "@dominusnode/shared";
+import type { User, ExitClass } from "@dominusnode/shared";
 
 const log = createLogger("proxy:auth");
 
@@ -12,8 +12,11 @@ export interface ProxyOptions {
   sessionId?: string; // sticky session ID (alphanumeric)
   /** @deprecated legacy dc-/residential-/auto- prefix; mapped to ipClass. */
   proxyType?: "dc" | "residential" | "auto";
-  /** Relay node class: class-residential|dc|mobile (or legacy prefix). */
-  ipClass?: "residential" | "dc" | "mobile";
+  /**
+   * Relay exit class: class-residential|dc|mobile|masked (or legacy prefix).
+   * masked (anonymizer egress) is only ever served when requested explicitly.
+   */
+  ipClass?: ExitClass;
   /** allowhttp-1: opt in to plaintext HTTP through the exit node. */
   allowHttp?: boolean;
   walletId?: string;  // agentic wallet UUID for policy enforcement
@@ -41,10 +44,10 @@ export function parseProxyOptions(username: string): ProxyOptions {
     if (options.proxyType !== "auto") options.ipClass = options.proxyType;
   }
 
-  // class-residential|dc|mobile (overrides the legacy prefix)
-  const classMatch = username.match(/(?:^|-)class-(residential|dc|mobile)(?:-|$)/);
+  // class-residential|dc|mobile|masked (overrides the legacy prefix)
+  const classMatch = username.match(/(?:^|-)class-(residential|dc|mobile|masked)(?:-|$)/);
   if (classMatch) {
-    options.ipClass = classMatch[1] as "residential" | "dc" | "mobile";
+    options.ipClass = classMatch[1] as ExitClass;
   }
 
   // allowhttp-1: plaintext HTTP opt-in

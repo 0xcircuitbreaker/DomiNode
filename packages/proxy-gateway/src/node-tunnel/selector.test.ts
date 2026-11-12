@@ -180,6 +180,18 @@ describe("NodeRegistry", () => {
     expect(sel.select(base)).toBeDefined();
   });
 
+  it("masked nodes serve only explicit class-masked requests", () => {
+    const { sel } = make([node({ nodeId: "warp", ipClass: "masked" })]);
+    expect(() => sel.select(base)).toThrow(NodeSelectionError); // unflagged never lands on masked
+    for (const c of ["residential", "mobile", "dc"] as const) {
+      expect(() => sel.select({ ...base, ipClass: c })).toThrow(NodeSelectionError);
+    }
+    expect(sel.select({ ...base, ipClass: "masked" }).nodeId).toBe("warp");
+    const { sel: mixed } = make([node({ nodeId: "warp", ipClass: "masked" }), node({ nodeId: "home", ipClass: "residential" })]);
+    for (let i = 0; i < 5; i++) expect(mixed.select(base).nodeId).toBe("home");
+    for (let i = 0; i < 5; i++) expect(mixed.select({ ...base, ipClass: "masked" }).nodeId).toBe("warp");
+  });
+
   it("sweep drops closed tunnels, expired cooldowns and rolls the day", () => {
     let t = 10 * 86_400_000;
     const reg = new NodeRegistry(10, () => t);

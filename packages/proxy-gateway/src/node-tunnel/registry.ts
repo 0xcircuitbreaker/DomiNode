@@ -112,6 +112,14 @@ export interface LiveNode {
   connectedAt: number;
   /** Operator-run seed node (admin flag); starter-credit traffic may be limited to these. */
   operatorRun?: boolean;
+  /** ms epoch of the last probe-confirmed egress classification (unset = not yet probed). */
+  egressVerifiedAt?: number;
+  /**
+   * Connect-time class: tunnel peer IP classification tightened by the last
+   * persisted probe verdict. While egress probes are enabled the effective
+   * ipClass stays "unknown" until a probe on this connection confirms it.
+   */
+  peerClass?: NodeIpClass;
 }
 
 /** /24 for IPv4, /48 for IPv6 (matches nodes.ip_prefix24). */

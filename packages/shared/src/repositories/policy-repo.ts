@@ -1,4 +1,5 @@
 import { query, getPool } from "../db.js";
+import type { PricingClass } from "../exit-classes.js";
 import {
   validatePolicy,
   policySha256,
@@ -101,7 +102,7 @@ export async function publishPolicy(input: unknown, createdBy: string | null): P
 
 // ─── Pricing ─────────────────────────────────────────────────────────
 
-export type PricingClass = "any" | "residential" | "dc" | "mobile";
+export type { PricingClass };
 
 /**
  * Price per GB (1e9 bytes) in µUSD for ip_class.
@@ -128,12 +129,15 @@ export async function getPricing(ipClass: PricingClass = "any"): Promise<bigint>
   return max;
 }
 
-export async function listPricing(): Promise<Array<{ ipClass: PricingClass; pricePerGbMusd: bigint; updatedAt: Date }>> {
-  const r = await query<{ ip_class: PricingClass; price_per_gb_musd: string; updated_at: Date }>(
-    `SELECT ip_class, price_per_gb_musd, updated_at FROM network_pricing ORDER BY ip_class`,
+export async function listPricing(): Promise<Array<{ ipClass: PricingClass; pricePerGbMusd: bigint; tierWeightBps: number; updatedAt: Date }>> {
+  const r = await query<{ ip_class: PricingClass; price_per_gb_musd: string; tier_weight_bps: number; updated_at: Date }>(
+    `SELECT ip_class, price_per_gb_musd, tier_weight_bps, updated_at FROM network_pricing ORDER BY ip_class`,
   );
-  return r.rows.map((x) => ({ ipClass: x.ip_class, pricePerGbMusd: BigInt(x.price_per_gb_musd), updatedAt: x.updated_at }));
+  return r.rows.map((x) => ({
+    ipClass: x.ip_class, pricePerGbMusd: BigInt(x.price_per_gb_musd), tierWeightBps: Number(x.tier_weight_bps), updatedAt: x.updated_at,
+  }));
 }
+
 
 // ─── Split config ────────────────────────────────────────────────────
 

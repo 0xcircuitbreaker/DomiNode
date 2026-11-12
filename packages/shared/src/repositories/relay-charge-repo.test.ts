@@ -93,7 +93,7 @@ describe("relay-charge-repo", () => {
     // list 500000; node 25% = 125000 (unchanged); discount 25% = 125000; paid 375000; platform 250000
     expect(res).toMatchObject({ grossMusd: 375_000n, nodeMusd: 125_000n, platformMusd: 250_000n });
     const ins = r.calls.find((c) => /INSERT INTO relay_charges/.test(c.sql))!;
-    expect(ins.params.slice(17)).toEqual([0, "500000", 2500, "125000", 6]);
+    expect(ins.params.slice(17)).toEqual([0, "500000", 2500, "125000", 6, null]);
   });
 
   it("settles wallet rail in one tx and credits node pending", async () => {
@@ -112,7 +112,7 @@ describe("relay-charge-repo", () => {
     expect(s.some((x) => /'earn'/.test(x))).toBe(true);
     const ins = r.calls.find((c) => /INSERT INTO relay_charges/.test(c.sql))!;
     expect(ins.params.slice(11, 17)).toEqual([1, 1, 2500, null, 14, false]);
-    expect(ins.params.slice(17)).toEqual([0, "500000", 0, "0", null]); // genesis 0, list = gross, no buyer discount
+    expect(ins.params.slice(17)).toEqual([0, "500000", 0, "0", null, null]); // genesis 0, list = gross, no buyer discount
     const log = r.calls.find((c) => /relay_abuse_log/.test(c.sql))!;
     expect(log.params[3]).toBe("example.com");
     expect(r.calls.find((c) => /INSERT INTO usage_records/.test(c.sql))!.params[5]).toBe("relay");

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { Duplex } from "node:stream";
-import { judgeProbeResponse, parseProbeUrl, runOnce, exchange, TamperStrikes, type ProbeNode } from "./probes.js";
+import { judgeProbeResponse, parseProbeUrl, parseProbeUrls, runOnce, exchange, TamperStrikes, ConnectProbeQueue, type ProbeNode } from "./probes.js";
 
 const NONCE = "n".repeat(24);
 const ok = (ip: string, nonce = NONCE, status = "200 OK") => {
@@ -11,8 +11,8 @@ const target = { host: "api.example.com", port: 80, path: "/v1/probe/echo", tls:
 
 describe("canary probe judging", () => {
   it("passes when nonce and egress IP match", () => {
-    expect(judgeProbeResponse(ok("203.0.113.5"), NONCE, "203.0.113.5")).toEqual({ kind: "ok" });
-    expect(judgeProbeResponse(ok("203.0.113.5"), NONCE, "::ffff:203.0.113.5")).toEqual({ kind: "ok" });
+    expect(judgeProbeResponse(ok("203.0.113.5"), NONCE, "203.0.113.5")).toEqual({ kind: "ok", egressIp: "203.0.113.5" });
+    expect(judgeProbeResponse(ok("203.0.113.5"), NONCE, "::ffff:203.0.113.5")).toEqual({ kind: "ok", egressIp: "203.0.113.5" });
   });
   it("flags a nonce mismatch, a same-family IP mismatch and malformed replies as tamper", () => {
     expect(judgeProbeResponse(ok("203.0.113.5", "x".repeat(24)), NONCE, "203.0.113.5").kind).toBe("tamper");
@@ -28,7 +28,7 @@ describe("canary probe judging", () => {
     expect(judgeProbeResponse("HTTP/1.1 200 OK\r\n\r\n<html>", NONCE, "203.0.113.5").kind).toBe("inconclusive");
     const body = JSON.stringify({ ip: "203.0.113.5", nonce: NONCE });
     const chunked = `HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n${body.length.toString(16)}\r\n${body}\r\n0\r\n\r\n`;
-    expect(judgeProbeResponse(chunked, NONCE, "203.0.113.5")).toEqual({ kind: "ok" });
+    expect(judgeProbeResponse(chunked, NONCE, "203.0.113.5")).toEqual({ kind: "ok", egressIp: "203.0.113.5" });
     const cut = `HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n${body.length.toString(16)}\r\n${body}\r\n`;
     expect(judgeProbeResponse(cut, NONCE, "198.51.100.9").kind).toBe("inconclusive");
     const badChunked = `HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n${body.length.toString(16)}\r\n${body}\r\n0\r\n\r\n`;
@@ -93,6 +93,35 @@ describe("probe job", () => {
     expect(r.errors).toBe(1);
     expect(quarantine).not.toHaveBeenCalled();
   });
+  it("egress verification: passes the echoed egress IP to onEgress (ok + other-family), never on tamper", async () => {
+    const onEgress = vi.fn();
+    const n = node("n", "203.0.113.5");
+    let ip = "203.0.113.5";
+    const ex = vi.fn(async (_s: Duplex, _t: unknown, nonce: string) => ok(ip, nonce));
+    const deps = { target, listNodes: () => [n], quarantine: vi.fn(), exchange: ex as typeof exchange, nonce: () => NONCE, strikes: new TamperStrikes(), onEgress };
+    await runOnce(deps);
+    expect(onEgress).toHaveBeenLastCalledWith("n", "203.0.113.5");
+    ip = "2a09:bac1::5"; // dual-stack node egressing over IPv6 (e.g. through WARP)
+    await runOnce(deps);
+    expect(onEgress).toHaveBeenLastCalledWith("n", "2a09:bac1::5");
+    ip = "203.0.113.9"; // same-family mismatch = tamper: never classified
+    await runOnce(deps);
+    expect(onEgress).toHaveBeenCalledTimes(2);
+  });
+  it("onEgress failures do not break the run", async () => {
+    const n = node("n", "203.0.113.5");
+    const ex = vi.fn(async (_s: Duplex, _t: unknown, nonce: string) => ok("203.0.113.5", nonce));
+    const r = await runOnce({ target, listNodes: () => [n], quarantine: vi.fn(), exchange: ex as typeof exchange, nonce: () => NONCE, onEgress: vi.fn().mockRejectedValue(new Error("db")) });
+    expect(r.ok).toBe(1);
+  });
+  it("probes unverified (fresh) nodes first within the sample bound", async () => {
+    const nodes = Array.from({ length: 10 }, (_, i) => ({ ...node(`n${i}`, "203.0.113.5"), unverified: i >= 8 }));
+    const ex = vi.fn(async (_s: Duplex, _t: unknown, nonce: string) => ok("203.0.113.5", nonce));
+    await runOnce({ target, listNodes: () => nodes, quarantine: vi.fn(), exchange: ex as typeof exchange, sampleSize: 2 });
+    expect(nodes[8]!.openStream).toHaveBeenCalled();
+    expect(nodes[9]!.openStream).toHaveBeenCalled();
+    for (let i = 0; i < 8; i++) expect(nodes[i]!.openStream).not.toHaveBeenCalled();
+  });
   it("respects the sample size", async () => {
     const nodes = Array.from({ length: 10 }, (_, i) => node(`n${i}`, "203.0.113.5"));
     const ex = vi.fn(async (_s: Duplex, _t: unknown, nonce: string) => ok("203.0.113.5", nonce));
@@ -114,5 +143,52 @@ describe("probe exchange", () => {
   it("returns the raw response", async () => {
     const s = new Duplex({ read() {}, write(_c, _e, cb) { this.push(ok("1.2.3.4")); this.push(null); cb(); } });
     expect((await exchange(s, target, NONCE, 1000)).toString()).toContain('"ip":"1.2.3.4"');
+  });
+});
+
+describe("probe target rotation and connect queue", () => {
+  it("parses a comma-separated PROBE_URL and picks targets at random per probe", async () => {
+    const ts = parseProbeUrls("https://a.example.net/e, https://b.example.org/x");
+    expect(ts.map((t) => t.host)).toEqual(["a.example.net", "b.example.org"]);
+    expect(parseProbeUrls("")).toEqual([]);
+    expect(() => parseProbeUrls("ftp://x")).toThrow();
+    const seen = new Set<string>();
+    const nodes = Array.from({ length: 40 }, (_, i) => ({ nodeId: `n${i}`, ip: "203.0.113.5", openStream: vi.fn(async (h: string) => { seen.add(h); return new Duplex({ read() {}, write(_c, _e, cb) { cb(); } }); }) }));
+    const ex = vi.fn(async (_s: Duplex, _t: unknown, nonce: string) => ok("203.0.113.5", nonce));
+    await runOnce({ targets: ts, listNodes: () => nodes, quarantine: vi.fn(), exchange: ex as typeof exchange, nonce: () => NONCE, sampleSize: 40, strikes: new TamperStrikes() });
+    expect(seen).toEqual(new Set(["a.example.net", "b.example.org"]));
+  });
+
+  it("connect queue: probes each connect once, dedupes, rate-limits reconnects and caps concurrency", async () => {
+    let t = 0;
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const releases: (() => void)[] = [];
+    const onEgress = vi.fn();
+    const ex = vi.fn(async (_s: Duplex, _t: unknown, nonce: string) => {
+      inFlight++;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      await new Promise<void>((r) => releases.push(r));
+      inFlight--;
+      return ok("203.0.113.5", nonce);
+    });
+    const q = new ConnectProbeQueue(
+      { target, listNodes: () => [], quarantine: vi.fn(), exchange: ex as typeof exchange, nonce: () => NONCE, onEgress, strikes: new TamperStrikes() },
+      { concurrency: 2, delayMs: 0, minIntervalMs: 60_000, now: () => t },
+    );
+    const mk = (id: string) => ({ nodeId: id, ip: "203.0.113.5", openStream: vi.fn(async () => new Duplex({ read() {}, write(_c, _e, cb) { cb(); } })) });
+    expect(q.enqueue(mk("a"))).toBe(true);
+    expect(q.enqueue(mk("a"))).toBe(false); // dedupe while queued / rate limit
+    expect(q.enqueue(mk("b"))).toBe(true);
+    expect(q.enqueue(mk("c"))).toBe(true);
+    await new Promise((r) => setTimeout(r, 5));
+    expect(maxInFlight).toBe(2);
+    while (releases.length) { releases.shift()!(); await new Promise((r) => setTimeout(r, 5)); }
+    expect(onEgress).toHaveBeenCalledTimes(3);
+    t = 30_000;
+    expect(q.enqueue(mk("a"))).toBe(false); // reconnect within the min interval
+    t = 61_000;
+    expect(q.enqueue(mk("a"))).toBe(true);
+    q.stop();
   });
 });

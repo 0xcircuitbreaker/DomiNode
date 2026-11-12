@@ -207,6 +207,57 @@ overrides). `./secrets` and `./certs` are git-ignored.
   `packages/proxy-gateway/src/asn-db.ts`. Peers on those ASNs are classified
   `dc`.
 
+### 4a. Anonymizer list (masked exit class)
+
+Nodes whose verified egress is an anonymizer are classed `masked`
+(ECONOMICS.md §1a). Sources, checked in this order:
+
+| Source | File / env | Licence / terms | Default |
+|---|---|---|---|
+| Anonymizer ASNs (WARP, Proton VPN, Mullvad, NordVPN/Surfshark operators) | `data/anonymizer-asns.json` (versioned in git, `ANONYMIZER_ASNS_FILE`), built-in copy in `packages/proxy-gateway/src/egress-class.ts`, extra `ANONYMIZER_ASNS=1,2,3` | facts (ASN numbers, operator names) from PeeringDB / RIR whois; no third-party database copied | on, offline |
+| Tor exit IPs | `data/anonymizer-ips.txt` (`ANONYMIZER_IPS_FILE`), from `https://check.torproject.org/torbulkexitlist` | published by the Tor Project for exactly this use | fetched by `scripts/update-asn-db.sh` (`ANONYMIZER_TOR=0` disables) |
+| iCloud Private Relay egress ranges | same file, from `https://mask-api.icloud.com/egress-ip-ranges.csv` | published by Apple; check Apple's terms before enabling | opt-in `ANONYMIZER_ICLOUD=1` |
+| IPv6 transition tunnels (Teredo `2001::/32`, 6to4 `2002::/16`) | built in | n/a | on |
+
+- The IP list is best effort: a failed download keeps the previous file and
+  never fails the ASN update. Without any file the built-in ASN list still
+  applies (offline-safe). Entries wider than /8 (IPv4) or /16 (IPv6) are ignored.
+- Shared hosting ASNs that VPNs rent from (M247, Datacamp, Leaseweb, ...) stay
+  `dc` through `HOSTING_ASNS`; known exits inside them are caught by the IP list.
+- Review `data/anonymizer-asns.json` when you update the ASN database; bump
+  `version` with each change.
+- Egress is verified at connect (tunnel peer IP) and again by the canary probe
+  job (`PROBE_URL`; `PROBE_INTERVAL_MS`, `PROBE_SAMPLE_SIZE` bound the load, each
+  run starts after a random delay of up to half the interval, and nodes not
+  yet probed on this gateway go first). Every connect is also queued for its
+  own probe (`PROBE_CONNECT_CONCURRENCY`, default 4;
+  `PROBE_CONNECT_MIN_INTERVAL_MS`, default 60000, between connect probes of
+  the same node); until it passes, the node is `unknown` for `class-*`
+  selection and tier weight. `PROBE_URL` accepts a comma-separated list (up to
+  32); list several unpublished echo hostnames that all reach
+  `/v1/probe/echo` so probes are harder to single out. Class verification is
+  best effort and cannot detect a node agent built to split-route
+  (ABUSE_CONTROLS.md).
+
+### 4b. Running a node behind Cloudflare WARP or a VPN
+
+Allowed. Run `packages/node-agent` with the host's traffic going through WARP
+(or another VPN): the gateway sees the WARP/VPN egress address, never your
+home IP, and classes the node `masked`. Consequences:
+
+- It is served only to buyers who ask for `class-masked`, at the masked price
+  (default $0.10/GB), and it counts 0.25 of an active IP toward your tier.
+- Do not declare it `residential` at registration: a declared class above the
+  verified one opens an admin review flag.
+- Split tunnelling (tunnel to the gateway direct, target traffic through the
+  VPN, or the reverse) is usually detected by the canary probe: a same-family
+  mismatch between the tunnel IP and the probed egress IP is tamper evidence
+  and quarantines the node; an other-family egress is classified and the more
+  conservative class wins.
+- Check your VPN provider's terms. Many consumer VPN and WARP terms forbid
+  reselling bandwidth or running a proxy for third parties; that is between
+  you and the provider.
+
 ## 5. Tunnel ingress
 
 Agents dial `wss://<host>/v1/tunnel`. The gateway listens on `TUNNEL_PORT`.

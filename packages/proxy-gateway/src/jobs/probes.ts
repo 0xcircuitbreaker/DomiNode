@@ -41,9 +41,9 @@ export function parseProbeUrl(raw: string | undefined): ProbeTarget | null {
 }
 
 export type ProbeOutcome =
-  | { kind: "ok" }
+  | { kind: "ok"; egressIp?: string }
   | { kind: "tamper"; reason: string }
-  | { kind: "inconclusive"; reason: string };
+  | { kind: "inconclusive"; reason: string; egressIp?: string };
 
 function family(ip: string): 4 | 6 | 0 {
   return net.isIPv4(ip) ? 4 : net.isIPv6(ip) ? 6 : 0;
@@ -123,10 +123,26 @@ export function judgeProbeResponse(raw: string | Buffer, nonce: string, nodeIp: 
   if (typeof ip !== "string") return { kind: "tamper", reason: "missing ip" };
   const a = normIp(ip);
   const b = normIp(nodeIp);
-  if (a === b) return { kind: "ok" };
-  // Dual-stack nodes may egress on another family than their tunnel: not proof of tampering.
-  if (family(a) !== family(b)) return { kind: "inconclusive", reason: "egress family differs" };
+  if (a === b) return { kind: "ok", egressIp: a };
+  // Dual-stack nodes may egress on another family than their tunnel: not proof of
+  // tampering, but the echoed egress IP is still classified (egress verification).
+  if (family(a) !== family(b)) {
+    return family(a) === 0 ? { kind: "tamper", reason: "invalid egress ip" } : { kind: "inconclusive", reason: "egress family differs", egressIp: a };
+  }
   return { kind: "tamper", reason: "egress ip mismatch" };
+}
+
+/**
+ * Parse PROBE_URL as a comma-separated list of echo URLs (up to 32). Several
+ * unpublished hostnames (CDN fronts, random subdomains on a separate domain)
+ * make probes harder to tell apart from customer traffic; one is picked at
+ * random per probe.
+ */
+export function parseProbeUrls(raw: string | undefined): ProbeTarget[] {
+  if (!raw || !raw.trim()) return [];
+  const parts = raw.split(",").map((x) => x.trim()).filter(Boolean);
+  if (parts.length > 32) throw new Error("PROBE_URL lists more than 32 URLs");
+  return parts.map((x) => parseProbeUrl(x)!);
 }
 
 /** HTTP/1.1 GET over an already-open stream; resolves with up to 16 KB of the raw response. */
@@ -163,11 +179,16 @@ export function exchange(stream: Duplex, target: ProbeTarget, nonce: string, tim
 export interface ProbeNode {
   nodeId: string;
   ip: string;
+  /** Egress not yet verified by a probe on this gateway: sampled first. */
+  unverified?: boolean;
   openStream(host: string, port: number): Promise<Duplex>;
 }
 
 export interface ProbeDeps {
-  target: ProbeTarget;
+  /** Single echo target (legacy); `targets` takes precedence when non-empty. */
+  target?: ProbeTarget;
+  /** Echo targets; one is chosen at random per probe. */
+  targets?: ProbeTarget[];
   listNodes(): ProbeNode[];
   quarantine(nodeId: string, reason: string): Promise<unknown>;
   sampleSize?: number;
@@ -175,6 +196,11 @@ export interface ProbeDeps {
   nonce?: () => string;
   exchange?: typeof exchange;
   logger?: JobLogger;
+  /**
+   * Egress verification: called with the coordinator-echoed egress IP (seen by
+   * our own API, never node-reported) for ok and other-family verdicts.
+   */
+  onEgress?(nodeId: string, egressIp: string): Promise<unknown> | void;
   /** Tamper strike memory across runs (defaults to a module-level instance). */
   strikes?: TamperStrikes;
 }
@@ -233,50 +259,173 @@ function sample<T>(items: T[], n: number): T[] {
   return a.slice(0, n);
 }
 
-export async function runOnce(deps: ProbeDeps): Promise<ProbeRunResult> {
-  const out: ProbeRunResult = { probed: 0, ok: 0, tampered: 0, inconclusive: 0, errors: 0 };
+function pickTarget(deps: ProbeDeps): ProbeTarget {
+  const list = deps.targets && deps.targets.length > 0 ? deps.targets : deps.target ? [deps.target] : [];
+  if (list.length === 0) throw new Error("no probe target configured");
+  return list[list.length === 1 ? 0 : crypto.randomInt(list.length)]!;
+}
+
+type ProbeVerdict = "ok" | "tamper" | "inconclusive" | "error";
+
+/** Probe one node once (shared by the periodic job and the connect queue). */
+export async function probeOne(deps: ProbeDeps, node: ProbeNode, runId: number, strikes: TamperStrikes = deps.strikes ?? defaultStrikes): Promise<ProbeVerdict> {
   const ex = deps.exchange ?? exchange;
   const mkNonce = deps.nonce ?? (() => crypto.randomBytes(18).toString("base64url"));
+  const nonce = mkNonce();
+  let raw: string | Buffer;
+  try {
+    const target = pickTarget(deps);
+    const stream = await node.openStream(target.host, target.port);
+    raw = await ex(stream, target, nonce, deps.timeoutMs ?? 10_000);
+  } catch {
+    return "error";
+  }
+  const verdict = judgeProbeResponse(raw, nonce, node.ip);
+  if (verdict.kind !== "tamper" && verdict.egressIp && deps.onEgress) {
+    try {
+      await deps.onEgress(node.nodeId, verdict.egressIp);
+    } catch {
+      /* retried on a later probe */
+    }
+  }
+  if (verdict.kind === "ok") {
+    strikes.clear(node.nodeId);
+    return "ok";
+  }
+  if (verdict.kind === "inconclusive") return "inconclusive";
+  const n = strikes.hit(node.nodeId, runId);
+  if (n < TAMPER_STRIKES_REQUIRED) {
+    deps.logger?.warn("canary probe tamper verdict, awaiting confirmation", { nodeId: node.nodeId, reason: verdict.reason, strikes: n });
+    return "tamper";
+  }
+  deps.logger?.warn("canary probe detected tampering, quarantining node", { nodeId: node.nodeId, reason: verdict.reason });
+  try {
+    await deps.quarantine(node.nodeId, verdict.reason);
+  } catch {
+    /* retried on the next probe */
+  }
+  return "tamper";
+}
+
+export async function runOnce(deps: ProbeDeps): Promise<ProbeRunResult> {
+  const out: ProbeRunResult = { probed: 0, ok: 0, tampered: 0, inconclusive: 0, errors: 0 };
   const strikes = deps.strikes ?? defaultStrikes;
   const runId = ++runCounter;
   const nodes = deps.listNodes();
   strikes.retain(new Set(nodes.map((n) => n.nodeId)));
-  for (const node of sample(nodes, deps.sampleSize ?? 20)) {
+  // Bounded load: at most sampleSize probes per run; nodes whose egress has not
+  // been verified yet (fresh connects) go first, the rest are a random sample.
+  const n = deps.sampleSize ?? 20;
+  const fresh = sample(nodes.filter((x) => x.unverified), n);
+  const rest = sample(nodes.filter((x) => !x.unverified), Math.max(0, n - fresh.length));
+  for (const node of [...fresh, ...rest]) {
     out.probed++;
-    const nonce = mkNonce();
-    let raw: string | Buffer;
-    try {
-      const stream = await node.openStream(deps.target.host, deps.target.port);
-      raw = await ex(stream, deps.target, nonce, deps.timeoutMs ?? 10_000);
-    } catch {
-      out.errors++;
-      continue;
-    }
-    const verdict = judgeProbeResponse(raw, nonce, node.ip);
-    if (verdict.kind === "ok") {
-      out.ok++;
-      strikes.clear(node.nodeId);
-    } else if (verdict.kind === "inconclusive") out.inconclusive++;
-    else {
-      out.tampered++;
-      const n = strikes.hit(node.nodeId, runId);
-      if (n < TAMPER_STRIKES_REQUIRED) {
-        deps.logger?.warn("canary probe tamper verdict, awaiting confirmation", { nodeId: node.nodeId, reason: verdict.reason, strikes: n });
-        continue;
-      }
-      deps.logger?.warn("canary probe detected tampering, quarantining node", { nodeId: node.nodeId, reason: verdict.reason });
-      try {
-        await deps.quarantine(node.nodeId, verdict.reason);
-      } catch {
-        /* retried on the next probe */
-      }
-    }
+    const v = await probeOne(deps, node, runId, strikes);
+    if (v === "ok") out.ok++;
+    else if (v === "inconclusive") out.inconclusive++;
+    else if (v === "tamper") out.tampered++;
+    else out.errors++;
   }
   return out;
 }
 
-export function start(o: { deps: ProbeDeps; logger: JobLogger; intervalMs?: number }): Job {
-  const job = new Job({ name: "probes", intervalMs: o.intervalMs ?? 900_000, lockKey: null, logger: o.logger, run: () => runOnce(o.deps), initialDelayMs: 120_000 });
+export interface ConnectProbeQueueOptions {
+  /** Concurrent connect probes (default 4). */
+  concurrency?: number;
+  /** Max queued nodes; extras wait for the periodic job (default 1000). */
+  maxQueued?: number;
+  /** Min ms between connect probes of the same node (default 60 s). */
+  minIntervalMs?: number;
+  /** Delay before probing a fresh connect, ms (default 2 s; random 0..delay added). */
+  delayMs?: number;
+  now?: () => number;
+}
+
+/**
+ * Per-connect egress verification. Every ready tunnel is queued for one probe
+ * with its own concurrency cap and timeout, independent of the sampled
+ * periodic job. A node is "unknown" (no class-* selection, lowest tier
+ * weight) until verified, so reconnecting never buys a better class; the
+ * per-node minimum interval and the queue cap bound the load a reconnect
+ * flood can cause (overflow falls back to the periodic job, which probes
+ * unverified nodes first).
+ */
+export class ConnectProbeQueue {
+  private queue: ProbeNode[] = [];
+  private queued = new Set<string>();
+  private lastProbe = new Map<string, number>();
+  private active = 0;
+  private stopped = false;
+  private timers = new Set<NodeJS.Timeout>();
+  private readonly concurrency: number;
+  private readonly maxQueued: number;
+  private readonly minIntervalMs: number;
+  private readonly delayMs: number;
+  private readonly now: () => number;
+
+  constructor(private readonly deps: ProbeDeps, o: ConnectProbeQueueOptions = {}) {
+    this.concurrency = Math.max(1, o.concurrency ?? 4);
+    this.maxQueued = Math.max(1, o.maxQueued ?? 1000);
+    this.minIntervalMs = Math.max(0, o.minIntervalMs ?? 60_000);
+    this.delayMs = Math.max(0, o.delayMs ?? 2_000);
+    this.now = o.now ?? Date.now;
+  }
+
+  /** Queue a connect probe; false when deduplicated, rate-limited or full. */
+  enqueue(node: ProbeNode): boolean {
+    if (this.stopped || this.queued.has(node.nodeId)) return false;
+    const last = this.lastProbe.get(node.nodeId);
+    const t = this.now();
+    if (last !== undefined && t - last < this.minIntervalMs) return false;
+    if (this.queue.length >= this.maxQueued) return false;
+    if (this.lastProbe.size >= 100_000) {
+      for (const [k, v] of this.lastProbe) if (t - v >= this.minIntervalMs) this.lastProbe.delete(k);
+      if (this.lastProbe.size >= 100_000) return false;
+    }
+    this.lastProbe.set(node.nodeId, t);
+    this.queued.add(node.nodeId);
+    this.queue.push(node);
+    if (this.delayMs > 0) {
+      const timer = setTimeout(() => {
+        this.timers.delete(timer);
+        this.pump();
+      }, this.delayMs + crypto.randomInt(this.delayMs + 1));
+      timer.unref?.();
+      this.timers.add(timer);
+    } else this.pump();
+    return true;
+  }
+
+  get pending(): number {
+    return this.queue.length + this.active;
+  }
+
+  /** Drain without the start delay (tests). */
+  pump(): void {
+    while (!this.stopped && this.active < this.concurrency && this.queue.length > 0) {
+      const node = this.queue.shift()!;
+      this.active++;
+      void probeOne(this.deps, node, ++runCounter)
+        .catch(() => "error")
+        .finally(() => {
+          this.active--;
+          this.queued.delete(node.nodeId);
+          this.pump();
+        });
+    }
+  }
+
+  stop(): void {
+    this.stopped = true;
+    for (const t of this.timers) clearTimeout(t);
+    this.timers.clear();
+    this.queue = [];
+    this.queued.clear();
+  }
+}
+
+export function start(o: { deps: ProbeDeps; logger: JobLogger; intervalMs?: number; jitterMs?: number }): Job {
+  const job = new Job({ name: "probes", intervalMs: o.intervalMs ?? 900_000, jitterMs: o.jitterMs, lockKey: null, logger: o.logger, run: () => runOnce(o.deps), initialDelayMs: 120_000 });
   job.start();
   return job;
 }

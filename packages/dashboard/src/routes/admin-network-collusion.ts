@@ -16,7 +16,7 @@ router.use(requireAuth, requireAdmin);
 const q = <R>(sql: string, params: unknown[] = []) =>
   getPool().query(sql, params) as unknown as Promise<{ rows: R[] }>;
 
-const KINDS = ["concentration", "cluster", "circular", "report_penalty"] as const;
+const KINDS = ["concentration", "cluster", "circular", "report_penalty", "egress_mismatch"] as const;
 const STATUSES = ["open", "dismissed", "confirmed"] as const;
 
 interface FlagRow {

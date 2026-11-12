@@ -31,6 +31,8 @@ vi.mock("@dominusnode/billing", () => ({
 const mockFindOrCreateX402User = vi.fn();
 const mockGetPricing = vi.fn();
 vi.mock("@dominusnode/shared", () => ({
+  EXIT_CLASSES: ["residential", "mobile", "dc", "masked"],
+  isExitClass: (c: unknown) => ["residential", "mobile", "dc", "masked"].includes(c as string),
   createLogger: () => ({
     debug: vi.fn(),
     info: vi.fn(),

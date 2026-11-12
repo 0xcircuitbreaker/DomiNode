@@ -1,5 +1,6 @@
 import { query } from "../db.js";
 import { withTx } from "./node-credit-repo.js";
+import { EXIT_CLASSES, tierWeightBpsFor, type ExitClass, type NodeIpClass } from "../exit-classes.js";
 
 /** Node owner tiers (DESIGN.md §15). */
 
@@ -26,6 +27,10 @@ export interface NodeTier {
 export interface OwnerTierStats {
   tenureDays: number;
   uptimeBps: number;
+  /**
+   * Class-weighted active exit IPs (floor of sum(weight_bps)/10000): an IP
+   * counts for its exit class's tier weight, e.g. 4 masked IPs at 0.25 = 1.
+   */
   activeIps: number;
   reputation: number; // 0..10000
   daysSinceLastClawback: number | null; // null = never
@@ -150,6 +155,8 @@ export interface ChargeSnapshot {
   buyerTierId?: number | null;
   buyerDiscountBps?: number;
   minPlatformMarginBps?: number;
+  /** Tier-credit weight of the serving node's exit class at session start (bps). */
+  tierWeightBps?: number;
 }
 
 export const MAX_NODE_SHARE_BPS = 5000;
@@ -160,7 +167,25 @@ export function genesisBonusFor(tierShareBps: number, bonusBps: number): number 
   return Math.max(0, Math.min(bonusBps, room));
 }
 
-export async function getChargeSnapshot(ownerUserId: string): Promise<ChargeSnapshot> {
+/** Current per-class tier weights (bps); missing rows use defaults. */
+export async function getTierWeights(): Promise<Record<ExitClass, number>> {
+  const r = await query<{ ip_class: string; tier_weight_bps: number }>(
+    `SELECT ip_class, tier_weight_bps FROM network_pricing WHERE ip_class <> 'any'`,
+  );
+  const raw: Partial<Record<ExitClass, number>> = {};
+  for (const x of r.rows) {
+    if ((EXIT_CLASSES as readonly string[]).includes(x.ip_class)) raw[x.ip_class as ExitClass] = Number(x.tier_weight_bps);
+  }
+  const out = {} as Record<ExitClass, number>;
+  for (const c of EXIT_CLASSES) out[c] = tierWeightBpsFor(c, raw);
+  return out;
+}
+
+/**
+ * Owner share snapshot for a session. With `ipClass` (the serving node's
+ * verified class) the class tier weight is snapshotted too, like node share.
+ */
+export async function getChargeSnapshot(ownerUserId: string, ipClass?: NodeIpClass | null): Promise<ChargeSnapshot> {
   const tier = await getOwnerTier(ownerUserId);
   const c = await query<{ id: number }>(
     `SELECT id FROM revenue_split_config WHERE effective_from <= now() ORDER BY effective_from DESC, id DESC LIMIT 1`,
@@ -174,7 +199,9 @@ export async function getChargeSnapshot(ownerUserId: string): Promise<ChargeSnap
     [ownerUserId],
   );
   const bonus = g.rows[0] ? genesisBonusFor(base, Number(g.rows[0].bonus_bps)) : 0;
-  return { splitConfigId: c.rows[0].id, tierId: tier.id, nodeShareBps: base + bonus, holdDays: tier.holdDays, genesisBonusBps: bonus };
+  const snap: ChargeSnapshot = { splitConfigId: c.rows[0].id, tierId: tier.id, nodeShareBps: base + bonus, holdDays: tier.holdDays, genesisBonusBps: bonus };
+  if (ipClass !== undefined) snap.tierWeightBps = tierWeightBpsFor(ipClass, await getTierWeights());
+  return snap;
 }
 
 export interface BuyerDiscountSnapshot {
@@ -214,17 +241,23 @@ export async function getBuyerDiscount(requesterUserId: string): Promise<BuyerDi
  * from other principals counts. Uptime comes from the caller (health job).
  */
 export async function getOwnerTierStats(userId: string, uptimeBps: number): Promise<OwnerTierStats> {
-  const r = await query<{ tenure_days: string; active_ips: string; reputation: string | null; last_clawback_days: string | null }>(
+  const r = await query<{ tenure_days: string; active_ips_weight_bps: string; reputation: string | null; last_clawback_days: string | null }>(
     `SELECT
        (SELECT COUNT(DISTINCT created_at::date) FROM relay_charges
          WHERE node_owner_user_id = $1 AND matured AND NOT disputed AND node_musd > 0 AND starter_musd = 0
            AND requester_user_id IS DISTINCT FROM $1) AS tenure_days,
-       (SELECT COUNT(*) FROM (
-          SELECT n.observed_ip FROM relay_charges rc JOIN nodes n ON n.id = rc.node_id
+       -- Class-weighted active IPs: per IP the lowest snapshotted weight
+       -- (pre-feature rows: the node's current class weight, else the lowest).
+       (SELECT COALESCE(SUM(w), 0) FROM (
+          SELECT MIN(COALESCE(rc.tier_weight_bps,
+                   (SELECT np.tier_weight_bps FROM network_pricing np WHERE np.ip_class = n.ip_class),
+                   (SELECT MIN(np.tier_weight_bps) FROM network_pricing np WHERE np.ip_class <> 'any'),
+                   0)) AS w
+          FROM relay_charges rc JOIN nodes n ON n.id = rc.node_id
           WHERE rc.node_owner_user_id = $1 AND rc.created_at >= now() - interval '7 days'
             AND rc.gross_musd > 0 AND rc.starter_musd = 0 AND NOT rc.disputed AND n.observed_ip IS NOT NULL
             AND rc.requester_user_id IS DISTINCT FROM $1
-          GROUP BY n.observed_ip HAVING COUNT(DISTINCT rc.requester_user_id) >= 3) ips) AS active_ips,
+          GROUP BY n.observed_ip HAVING COUNT(DISTINCT rc.requester_user_id) >= 3) ips) AS active_ips_weight_bps,
        (SELECT AVG(GREATEST(0, reputation - report_penalty))::int FROM nodes WHERE owner_user_id = $1 AND status = 'active') AS reputation,
        (SELECT EXTRACT(DAY FROM now() - MAX(created_at))::int FROM node_credit_transactions
          WHERE user_id = $1 AND type = 'clawback') AS last_clawback_days`,
@@ -234,10 +267,17 @@ export async function getOwnerTierStats(userId: string, uptimeBps: number): Prom
   return {
     tenureDays: Number(row?.tenure_days ?? 0),
     uptimeBps,
-    activeIps: Number(row?.active_ips ?? 0),
+    activeIps: activeIpsFromWeightBps(row?.active_ips_weight_bps),
     reputation: row?.reputation == null ? 0 : Number(row.reputation),
     daysSinceLastClawback: row?.last_clawback_days == null ? null : Number(row.last_clawback_days),
   };
+}
+
+/** floor(sum of per-IP weights / 10000), BigInt-safe; garbage -> 0. */
+export function activeIpsFromWeightBps(v: string | number | null | undefined): number {
+  const t = v === null || v === undefined ? "0" : String(v);
+  if (!/^\d{1,18}$/.test(t)) return 0;
+  return Number(BigInt(t) / 10_000n);
 }
 
 /** Recalculate and persist one owner's tier (daily job). */

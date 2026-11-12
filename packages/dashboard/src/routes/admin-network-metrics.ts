@@ -1,3 +1,4 @@
+import { NODE_IP_CLASSES } from "@dominusnode/shared";
 import { Router } from "express";
 import type { Request, Response } from "express";
 import { getPool } from "@dominusnode/shared";
@@ -18,7 +19,7 @@ router.use(requireAuth, requireAdmin);
 export const ONLINE_SQL = `EXISTS (SELECT 1 FROM node_ip_slots s WHERE s.node_id = n.id AND s.heartbeat_at > now() - interval '90 seconds')`;
 
 export const RAILS = ["wallet", "team", "agentic_wallet", "x402", "mpp", "free"] as const;
-export const IP_CLASSES = ["residential", "dc", "mobile", "unknown"] as const;
+export const IP_CLASSES = NODE_IP_CLASSES;
 const NODE_STATUSES = ["pending", "active", "cooldown", "quarantined", "suspended", "revoked"] as const;
 const PAYOUT_STATUSES = ["pending", "held_tax", "held_frozen", "submitted", "confirmed", "failed", "reversed"] as const;
 

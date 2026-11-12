@@ -58,6 +58,9 @@ elsewhere). Meaning and required/optional status are documented in
 | Variable | Default(s) | Read in |
 |---|---|---|
 | `AGENT_RATE_LIMIT_MULTIPLIER` | `10` | `src/session-manager.ts`, `src/x402-handler.ts` |
+| `ANONYMIZER_ASNS` |  | `src/egress-class.ts` |
+| `ANONYMIZER_ASNS_FILE` | `data/anonymizer-asns.json` | `src/egress-class.ts` |
+| `ANONYMIZER_IPS_FILE` | `data/anonymizer-ips.txt` | `src/egress-class.ts` |
 | `ASN_DB_FILE` | `data/ip2asn-combined.tsv.gz` | `src/geo-check.ts` |
 | `ASN_DB_OPTIONAL` |  | `src/main.ts` |
 | `AUTH_FAIL_MAX` | `5` | `src/auth-rate-limit.ts` |

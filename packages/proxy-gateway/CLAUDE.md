@@ -18,7 +18,7 @@ Relay gateway: accepts requester HTTP/HTTPS/SOCKS5 connections and relays them o
 ## Rules
 - Performance-critical: minimize per-request overhead
 - API key in PASSWORD field, routing options in USERNAME field (Basic auth)
-- Username flags use HYPHENS: `country-US`, `class-residential|dc|mobile`, `session-<id>`, `allowhttp-1`. Plain HTTP is rejected unless `allowhttp-1`
+- Username flags use HYPHENS: `country-US`, `class-residential|dc|mobile|masked`, `session-<id>`, `allowhttp-1`. Plain HTTP is rejected unless `allowhttp-1`
 - Balance reservation: min(balance, ceil(relay price × RELAY_SESSION_BYTE_CAP)); session maxBytes = exactly what the reservation pays for (no overrun headroom)
 - getUserPlan: call ONCE per session (prevents TOCTOU)
 - Team API keys bill to team wallet; balance check uses teamId
@@ -30,6 +30,7 @@ Relay gateway: accepts requester HTTP/HTTPS/SOCKS5 connections and relays them o
 - Graceful shutdown must settle all active sessions
 - Bearer > cookie priority for auth token extraction
 - Geo is the ip2asn dataset only (no geoip-lite). Fail closed: DB missing blocks all public IPs; unknown country blocks in production; SKIP_GEOIP=1 is ignored in production
+- Exit class is the VERIFIED class (`src/egress-class.ts`): connect-time peer IP + probe-echoed egress, never node-reported. Masked nodes serve only `class-masked`
 
 ## Common Mistakes
 - Forgetting to count request body bytes (not just response)

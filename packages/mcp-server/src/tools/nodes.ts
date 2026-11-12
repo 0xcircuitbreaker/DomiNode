@@ -57,6 +57,11 @@ interface NodeView {
   observedIp: string | null;
   country: string | null;
   ipClass: string | null;
+  /** Gateway-verified exit class (additive; same as ipClass). */
+  verifiedClass?: string | null;
+  declaredClass?: string | null;
+  /** Tier-credit weight of the verified class (1 residential/mobile, 0.4 dc, 0.25 masked by default). */
+  tierWeight?: number | null;
   maxStreams: number | null;
   maxGbDay: number | null;
   reputation: number | string | null;
@@ -96,6 +101,8 @@ interface TierResponse {
   changedAt: string | null;
   uptimeGraceUntil: string | null;
   demotionReason: string | null;
+  /** Per-class tier-credit weights (additive). */
+  tierWeights?: Record<string, number>;
 }
 
 export class NodeToolError extends Error {
@@ -418,7 +425,9 @@ export function registerNodeTools(server: McpServer, httpClient: HttpClient, con
         const lines = [`Your nodes (${nodes.length}):`, ``];
         for (const n of nodes) {
           lines.push(
-            `${n.id} [${n.status}] ${n.observedIp ?? "no IP yet"} ${n.country ?? "--"} class=${n.ipClass ?? "?"} ` +
+            `${n.id} [${n.status}] ${n.observedIp ?? "no IP yet"} ${n.country ?? "--"} class=${n.verifiedClass ?? n.ipClass ?? "?"}` +
+              `${n.declaredClass && n.declaredClass !== (n.verifiedClass ?? n.ipClass) ? ` (declared ${n.declaredClass})` : ""}` +
+              `${typeof n.tierWeight === "number" ? ` tierWeight=${n.tierWeight}` : ""} ` +
               `rep=${n.reputation ?? "?"} streams=${n.maxStreams ?? "default"} gb/day=${n.maxGbDay ?? "default"} ` +
               `agent=${n.agentVersion ?? "?"} lastSeen=${n.lastSeenAt ?? "never"}`,
           );
@@ -478,6 +487,13 @@ export function registerNodeTools(server: McpServer, httpClient: HttpClient, con
             ].filter((l): l is string => l !== null),
           );
           lines.push(`  Promotion is one step at a time, evaluated daily.`);
+          if (t.tierWeights) {
+            lines.push(
+              `  Active IPs are class-weighted: ` +
+                Object.entries(t.tierWeights).map(([c, w]) => `${c} ${w}`).join(", ") +
+                ` (verified exit class; masked = VPN/WARP/Tor/relay egress).`,
+            );
+          }
         } else {
           lines.push(``, `You are at the top tier.`);
         }

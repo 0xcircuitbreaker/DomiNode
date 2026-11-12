@@ -224,6 +224,20 @@ describe("other node tools", () => {
     expect(r.content[0].text).toContain("[active]");
   });
 
+  it("node_list surfaces verified vs declared class and tier weight (additive)", async () => {
+    const server = await setup();
+    mockFetchSequence(jsonResponse({
+      nodes: [{
+        id: NODE_ID, status: "active", walletAddress: "0xabc", observedIp: "104.28.1.2", country: "US", ipClass: "masked",
+        verifiedClass: "masked", declaredClass: "residential", tierWeight: 0.25,
+        maxStreams: 32, maxGbDay: 5, reputation: 0.7, agentVersion: "0.1.0", lastSeenAt: null, createdAt: "2026-11-01T00:00:00Z",
+      }],
+      limit: 10, offset: 0,
+    }));
+    const text = (await callTool(server, "dominusnode_node_list", { limit: 10, offset: 0 })).content[0].text;
+    expect(text).toContain("class=masked (declared residential) tierWeight=0.25");
+  });
+
   it("node_list says how to start when empty", async () => {
     const server = await setup();
     mockFetchSequence(jsonResponse({ nodes: [], limit: 100, offset: 0 }));
@@ -269,6 +283,20 @@ describe("other node tools", () => {
     expect(text).toContain("Paid tenure days: 3 / 7 (not met)");
     expect(text).toContain("computed daily");
     expect(text).toContain("uptime below threshold");
+  });
+
+  it("node_tier lists class weights when the API returns them", async () => {
+    const server = await setup();
+    const tier = (name: string, rank: number) => ({ id: name, name, rank, nodeShareBps: 2500, holdDays: 14, maxNodes: 10, dailyWithdrawLimitMusd: "1" });
+    mockFetchSequence(jsonResponse({
+      tier: tier("Probation", 0), nextTier: tier("Bronze", 1),
+      progress: { tenureDays: { required: 7, current: 3, met: false }, activeIps: { required: 1, current: 1, met: true },
+        reputation: { required: 1, current: 1, met: true }, uptimeBps: { required: 8000, current: null, met: null }, noClawbackDays: null },
+      changedAt: null, uptimeGraceUntil: null, demotionReason: null,
+      tierWeights: { residential: 1, mobile: 1, dc: 0.4, masked: 0.25 },
+    }));
+    const text = (await callTool(server, "dominusnode_node_tier")).content[0].text;
+    expect(text).toContain("Active IPs are class-weighted: residential 1, mobile 1, dc 0.4, masked 0.25");
   });
 
   it("node tools fail cleanly without an API key", async () => {

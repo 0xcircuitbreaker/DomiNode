@@ -48,13 +48,16 @@ function body(req: Request): Record<string, unknown> {
 /** Node columns safe for the admin API (no node_key_hash / floor_hash). */
 const NODE_SELECT = `n.id, n.owner_user_id, n.owner_wallet, n.node_pubkey, n.status, n.attestation_version,
   host(n.observed_ip) AS observed_ip, n.ip_prefix24::text AS ip_prefix24, n.asn, n.country, n.ip_class,
+  n.declared_class, n.class_verified_at,
+  (SELECT COUNT(*)::int FROM collusion_flags cf WHERE cf.node_id = n.id AND cf.kind = 'egress_mismatch' AND cf.status = 'open') AS egress_flags,
   n.max_streams, n.max_gb_day, n.reputation, n.byte_disputes, n.agent_version, n.last_seen_at, n.created_at,
   ${ONLINE_SQL} AS online`;
 
 interface NodeRow {
   id: string; owner_user_id: string; owner_wallet: string; node_pubkey: string | null; status: string;
   attestation_version: number; observed_ip: string | null; ip_prefix24: string | null; asn: string | null;
-  country: string | null; ip_class: string | null; max_streams: number; max_gb_day: number; reputation: number;
+  country: string | null; ip_class: string | null; declared_class?: string | null; class_verified_at?: Date | null;
+  egress_flags?: number; max_streams: number; max_gb_day: number; reputation: number;
   byte_disputes: number; agent_version: string | null; last_seen_at: Date | null; created_at: Date; online: boolean;
 }
 
@@ -62,7 +65,11 @@ function nodeOut(n: NodeRow) {
   return {
     id: n.id, ownerUserId: n.owner_user_id, ownerWallet: n.owner_wallet, nodePubkey: n.node_pubkey, status: n.status,
     attestationVersion: n.attestation_version, observedIp: n.observed_ip, ipPrefix: n.ip_prefix24,
-    asn: n.asn === null ? null : Number(n.asn), country: n.country, ipClass: n.ip_class, maxStreams: n.max_streams,
+    asn: n.asn === null ? null : Number(n.asn), country: n.country, ipClass: n.ip_class,
+    // Verified (effective, gateway-classified) vs owner-declared exit class.
+    verifiedClass: n.ip_class ?? "unknown", declaredClass: n.declared_class ?? null,
+    classVerifiedAt: n.class_verified_at ?? null, openEgressMismatchFlags: n.egress_flags ?? 0,
+    maxStreams: n.max_streams,
     maxGbDay: n.max_gb_day, reputation: n.reputation, byteDisputes: n.byte_disputes, agentVersion: n.agent_version,
     lastSeenAt: n.last_seen_at, createdAt: n.created_at, online: n.online,
   };
