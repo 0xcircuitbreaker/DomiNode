@@ -1,6 +1,6 @@
 import { Router } from "express";
 import * as crypto from "node:crypto";
-import { adminRepo, createLogger, userRepo, refreshTokenRepo, waitlistRepo, walletRepo, teamRepo, planRepo, referralRepo, sendWaitlistApprovalEmail, sanitizeString, hasMinRole, getProxyInternalPort, query as dbQuery } from "@dominusnode/shared";
+import { adminRepo, createLogger, userRepo, refreshTokenRepo, waitlistRepo, walletRepo, teamRepo, planRepo, referralRepo, sendWaitlistApprovalEmail, sanitizeString, hasMinRole, getProxyInternalPort, relayErasureRepo, query as dbQuery } from "@dominusnode/shared";
 import type { AdminRole } from "@dominusnode/shared";
 import { requireAuth, type AuthenticatedRequest } from "../middleware/auth.js";
 import { requireAdmin, requireCybersecurityAdmin, requireRootAdmin } from "../middleware/admin.js";
@@ -198,6 +198,14 @@ router.delete("/users/:id", async (req, res) => {
       res.status(403).json({ error: "Root admin account cannot be deleted" });
       return;
     }
+    // Refuse before touching the proxy: erasure cannot run while a payout may
+    // be on-chain, and sessions should not be killed for a delete that fails.
+    // deleteUser() re-checks under lock; that race is caught below.
+    const inFlight = await dbQuery(relayErasureRepo.PAYOUT_IN_FLIGHT_SQL.replace(/\s+FOR UPDATE\s*$/, ""), [req.params.id]);
+    if ((inFlight.rows?.length ?? 0) > 0) {
+      res.status(409).json({ error: "A payout is in flight; retry after it settles" });
+      return;
+    }
     // API key/refresh token/MFA revocation moved inside adminRepo.deleteUser() transaction
     // to eliminate race window between separate non-transactional calls and deleteUser().
     // Terminate active proxy sessions before deleting user (same as suspend)
@@ -227,6 +235,10 @@ router.delete("/users/:id", async (req, res) => {
     log.info("user deleted (soft)", { targetUserId: req.params.id, terminatedSessions });
     res.json({ message: "User deleted" });
   } catch (err) {
+    if (err instanceof Error && err.name === "PayoutInFlightError") {
+      res.status(409).json({ error: "A payout is in flight; retry after it settles" });
+      return;
+    }
     log.error("failed to delete user", { error: err instanceof Error ? err.message : String(err) });
     res.status(500).json({ error: "Failed to delete user" });
   }
