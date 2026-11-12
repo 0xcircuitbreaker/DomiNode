@@ -26,9 +26,6 @@ export type {
 } from "./types.js";
 
 export {
-  PRICE_PER_GB_CENTS,
-  PRICE_PER_GB_CENTS_DC,
-  COST_PER_GB_CENTS,
   RELAY_BYTES_PER_GB,
   BYTES_PER_GIB,
   SUPPORTED_CRYPTO,

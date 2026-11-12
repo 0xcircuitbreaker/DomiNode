@@ -343,18 +343,6 @@ export interface LoyaltyStatus {
 
 // ─── Constants ───────────────────────────────────────────────────────
 
-/** Sell price: $5.00 per GB (residential) */
-export const PRICE_PER_GB_CENTS = 500;
-
-/** Sell price: $3.00 per GB (datacenter) */
-export const PRICE_PER_GB_CENTS_DC = 300;
-
-/** Our cost from Webshare DC (250 IPs, 1TB bandwidth, 250 replacements) */
-export const COST_PER_GB_CENTS = 1;
-
-/** Our cost from Webshare residential: $4.00 per GB (10GB for $40) */
-export const COST_PER_GB_CENTS_RESIDENTIAL = 400;
-
 /**
  * Relay pricing unit: network_pricing is µUSD per decimal GB (1e9 bytes).
  * Use this for EVERY relay money <-> bytes conversion (quotes, reservations,
