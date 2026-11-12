@@ -254,6 +254,23 @@ describe("self-host roles and Cloudflare Tunnel", () => {
           expect(gw.depends_on?.["proxy-certs"]?.condition).toBe("service_healthy");
         }
       }
+      // depends_on graph must be acyclic (proxy-certs -> caddy cert -> caddy start).
+      // proxy-certs needs a running caddy at runtime, so model that edge too.
+      const deps = (n: string): string[] => {
+        const d = Object.keys(cfg.services[n]?.depends_on ?? {}).filter((x) => x in cfg.services);
+        if (n === "proxy-certs" && "caddy" in cfg.services) d.push("caddy");
+        return d;
+      };
+      const state: Record<string, number> = {};
+      const visit = (n: string, path: string[]): void => {
+        if (state[n] === 2) return;
+        if (state[n] === 1) throw new Error(`depends_on cycle: ${[...path, n].join(" -> ")}`);
+        state[n] = 1;
+        for (const d of deps(n)) visit(d, [...path, n]);
+        state[n] = 2;
+      };
+      for (const n of names) visit(n, []);
+      if (cfg.services.caddy) expect(Object.keys(cfg.services.caddy.depends_on ?? {})).not.toContain("gateway");
       const api = cfg.services.api;
       if (api) expect(api.environment?.PROXY_PUBLIC_TLS_PORT ?? "").toBe(tls === "off" ? "" : "8444");
     });
