@@ -6,6 +6,7 @@ use serde_json::{json, Map, Value};
 
 use crate::errors::{DominusNodeError, Result};
 use crate::http::{AuthMode, Credentials, HttpClient};
+use crate::proxy::IpClass;
 use crate::types::*;
 use crate::util::*;
 
@@ -484,7 +485,20 @@ impl NetworkResource {
 
 // =================================================================== nodes (6)
 
+/// Validate an opaque server page cursor (`[A-Za-z0-9_-=+/.:]`, 1..512 chars).
+pub(crate) fn validate_page_cursor(c: &str) -> Result<()> {
+    let ok = !c.is_empty()
+        && c.len() <= 512
+        && c.bytes().all(|b| b.is_ascii_alphanumeric() || b"_-=+/.:".contains(&b));
+    if ok {
+        Ok(())
+    } else {
+        Err(DominusNodeError::invalid_arg("cursor must be a nextCursor value"))
+    }
+}
+
 /// Options for [`NodesResource::register`].
+#[non_exhaustive]
 pub struct RegisterNodeOptions<'a> {
     /// Signer for the account's LINKED wallet.
     pub signer: &'a dyn Signer,
@@ -498,11 +512,14 @@ pub struct RegisterNodeOptions<'a> {
     pub max_gb_day: Option<i64>,
     /// PoW search cap (default 200,000,000).
     pub max_pow_iterations: Option<u64>,
+    /// Informational class claim (2.1): residential, mobile, dc or masked.
+    /// The effective class is always the gateway-verified one.
+    pub declared_class: Option<IpClass>,
 }
 impl<'a> RegisterNodeOptions<'a> {
     /// Options with only a signer.
     pub fn new(signer: &'a dyn Signer) -> Self {
-        Self { signer, node_pubkey: None, challenge: None, max_streams: None, max_gb_day: None, max_pow_iterations: None }
+        Self { signer, node_pubkey: None, challenge: None, max_streams: None, max_gb_day: None, max_pow_iterations: None, declared_class: None }
     }
 }
 
@@ -591,6 +608,9 @@ impl NodesResource {
         if let Some(v) = opts.max_gb_day {
             body.insert("maxGbDay".into(), json!(v));
         }
+        if let Some(c) = opts.declared_class {
+            body.insert("declaredClass".into(), json!(c.as_str()));
+        }
         let r: Value = self.http.post("/v1/nodes", Value::Object(body), AuthMode::Agent).await?;
         let node_id = r.get("nodeId").and_then(Value::as_str).unwrap_or("");
         if !is_uuid(node_id) {
@@ -621,6 +641,16 @@ impl NodesResource {
             validate_int_range(o, "offset", 0, 1_000_000)?;
         }
         let q = qs(&[("limit", opt(limit)), ("offset", opt(offset))]);
+        self.http.get(&format!("/v1/nodes{q}"), AuthMode::Agent).await
+    }
+
+    /// `GET /v1/nodes?cursor=` — the page after `cursor` (a previous `next_cursor`). 2.1.
+    pub async fn list_after(&self, limit: Option<i64>, cursor: &str) -> Result<NodeList> {
+        if let Some(l) = limit {
+            validate_int_range(l, "limit", 1, 500)?;
+        }
+        validate_page_cursor(cursor)?;
+        let q = qs(&[("limit", opt(limit)), ("cursor", Some(cursor.to_string()))]);
         self.http.get(&format!("/v1/nodes{q}"), AuthMode::Agent).await
     }
     /// `DELETE /v1/nodes/{id}`.
@@ -780,6 +810,16 @@ impl PayoutsResource {
             validate_int_range(o, "offset", 0, 1_000_000)?;
         }
         let q = qs(&[("limit", opt(limit)), ("offset", opt(offset))]);
+        self.http.get(&format!("/v1/payouts{q}"), AuthMode::Agent).await
+    }
+
+    /// `GET /v1/payouts?cursor=` — the page after `cursor` (a previous `next_cursor`). 2.1.
+    pub async fn list_after(&self, limit: Option<i64>, cursor: &str) -> Result<PayoutList> {
+        if let Some(l) = limit {
+            validate_int_range(l, "limit", 1, 200)?;
+        }
+        validate_page_cursor(cursor)?;
+        let q = qs(&[("limit", opt(limit)), ("cursor", Some(cursor.to_string()))]);
         self.http.get(&format!("/v1/payouts{q}"), AuthMode::Agent).await
     }
 }

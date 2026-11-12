@@ -41,6 +41,32 @@ void offset_pages(long long limit, const char* field, bool use_total, const Item
     }
 }
 
+/// Follows nextCursor when the server sends one; otherwise offset pagination (short page = last).
+template <typename ByOffset, typename ByCursor>
+void cursor_or_offset_pages(long long limit, const char* field, const ItemCallback& fn, ByOffset by_offset, ByCursor by_cursor) {
+    OptStr cursor;
+    long long offset = 0;
+    for (int pages = 0; offset <= kMaxOffset && pages < 100000; ++pages) {
+        json page = cursor ? by_cursor(limit, *cursor) : by_offset(limit, offset);
+        const json* items = items_of(page, field);
+        long long n = items ? static_cast<long long>(items->size()) : 0;
+        if (n == 0) return;
+        for (const auto& item : *items) {
+            if (!fn(item)) return;
+        }
+        const json next = page.is_object() ? page.value("nextCursor", json()) : json();
+        if (next.is_string()) {
+            std::string nc = next.get<std::string>();
+            static const std::regex page_cursor_re("^[A-Za-z0-9_=+/.:-]{1,512}$");
+            if (!std::regex_match(nc, page_cursor_re) || (cursor && *cursor == nc)) return;
+            cursor = nc;
+            continue;
+        }
+        if (cursor || n < limit) return;
+        offset += limit;
+    }
+}
+
 }  // namespace
 
 std::int64_t byte_count(const json& v) {
@@ -82,11 +108,13 @@ void CreditsResource::for_each_transaction(const ItemCallback& fn, OptInt limit,
 }
 
 void PayoutsResource::for_each(const ItemCallback& fn, OptInt limit) {
-    offset_pages(page_size(limit, 50, 200), "payouts", false, fn, [this](long long l, long long o) { return list(l, o); });
+    cursor_or_offset_pages(page_size(limit, 50, 200), "payouts", fn, [this](long long l, long long o) { return list(l, o); },
+                           [this](long long l, const std::string& c) { return list_after(l, c); });
 }
 
 void NodesResource::for_each(const ItemCallback& fn, OptInt limit) {
-    offset_pages(page_size(limit, 100, 500), "nodes", false, fn, [this](long long l, long long o) { return list(l, o); });
+    cursor_or_offset_pages(page_size(limit, 100, 500), "nodes", fn, [this](long long l, long long o) { return list(l, o); },
+                           [this](long long l, const std::string& c) { return list_after(l, c); });
 }
 
 void UsageResource::for_each_record(const ItemCallback& fn, OptStr from, OptStr to, OptInt limit) {

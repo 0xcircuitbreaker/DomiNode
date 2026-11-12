@@ -5,7 +5,7 @@ Implements the language-neutral contract in `sdks/SDK_SURFACE.md`
 (15 resources, 71 methods); the reference implementation is `sdks/node`.
 
 ```bash
-go get github.com/0xcircuitbreaker/DomiNode/sdks/go/v2@v2.0.2
+go get github.com/0xcircuitbreaker/DomiNode/sdks/go/v2@v2.1.0
 ```
 
 Defaults: API `https://api.dominusnode.com`, relay gateway `proxy.dominusnode.com` (HTTP proxy :8080, SOCKS5 :1080). Both can be overridden in the client configuration.

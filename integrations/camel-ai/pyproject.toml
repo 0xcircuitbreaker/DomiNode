@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "dominusnode-camel"
-version = "2.0.0"
+version = "2.1.0"
 description = "CAMEL-AI toolkit for the DominusNode AI-agent relay network (19 v2 tools on the dominusnode SDK)"
 readme = "README.md"
 license = "MIT"
@@ -12,7 +12,7 @@ requires-python = ">=3.10"
 dependencies = [
     "camel-ai>=0.2.0",
     "mcp<2",  # camel-ai 0.2.x imports mcp.server.FastMCP, removed in mcp 2
-    "dominusnode>=2.0.0,<3",
+    "dominusnode>=2.1.0,<3",
 ]
 
 [project.optional-dependencies]

@@ -1,6 +1,6 @@
 {
   "name": "@dominusnode/chatgpt",
-  "version": "2.0.1",
+  "version": "2.1.0",
   "description": "DominusNode for ChatGPT: Custom GPT Actions schema for the /v1 agent API plus an OpenAI function-calling handler for the 19 standard v2 tools, built on @dominusnode/sdk",
   "main": "dist/handler.js",
   "types": "dist/handler.d.ts",
@@ -28,7 +28,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@dominusnode/sdk": "^2.0.0"
+    "@dominusnode/sdk": "^2.1.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

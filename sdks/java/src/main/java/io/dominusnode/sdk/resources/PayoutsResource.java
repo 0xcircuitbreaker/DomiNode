@@ -22,10 +22,17 @@ public final class PayoutsResource {
         return http.get("/v1/payouts" + qs("limit", limit, "offset", offset), Auth.AGENT);
     }
 
-    /** Every payout (offset pagination; page size default 50, max 200). */
+    /** GET /v1/payouts?limit&amp;cursor: the page after a previous nextCursor (2.1). */
+    public JsonNode listAfter(Integer limit, String cursor) {
+        if (limit != null) Validation.intRange(limit, "limit", 1, 200);
+        Paging.checkPageCursor(cursor);
+        return http.get("/v1/payouts" + qs("limit", limit, "cursor", cursor), Auth.AGENT);
+    }
+
+    /** Every payout (follows nextCursor, offset fallback; page size default 50, max 200). */
     public java.util.Iterator<JsonNode> iterate(Integer limit) {
         int l = Paging.pageSize(limit, 50, 200);
-        return Paging.offset(l, "payouts", false, this::list);
+        return Paging.offsetOrCursor(l, "payouts", this::list, this::listAfter);
     }
 
     public java.util.stream.Stream<JsonNode> stream(Integer limit) { return Paging.stream(iterate(limit)); }

@@ -30,6 +30,18 @@ export interface RegisterNodeOptions {
   maxGbDay?: number;
   /** PoW search cap (default 200,000,000). */
   maxPowIterations?: number;
+  /** Informational class claim (2.1); the effective class is always the gateway-verified one. */
+  declaredClass?: ExitClass;
+}
+
+/** Exit class of a node's egress IP. */
+export type ExitClass = "residential" | "mobile" | "dc" | "masked";
+export const EXIT_CLASSES: readonly ExitClass[] = ["residential", "mobile", "dc", "masked"];
+const PAGE_CURSOR_RE = /^[A-Za-z0-9_\-=+/.:]{1,512}$/;
+/** Validate an opaque server pagination cursor (a previous nextCursor). */
+export function validatePageCursor(c: string): string {
+  if (typeof c !== "string" || !PAGE_CURSOR_RE.test(c)) throw invalidArg("cursor must be a nextCursor value");
+  return c;
 }
 
 export interface RegisteredNode {
@@ -50,6 +62,13 @@ export interface NodeInfo {
   observedIp: string | null;
   country: string | null;
   ipClass: string | null;
+  /** Gateway-verified class (= ipClass; "unknown" until classified). Added in 2.1. */
+  verifiedClass?: string | null;
+  /** Class declared at registration (informational). */
+  declaredClass?: string | null;
+  classVerifiedAt?: string | null;
+  /** Tier-credit weight of the verified class (decimal, e.g. 1, 0.4, 0.25). */
+  tierWeight?: number | null;
   maxStreams: number | null;
   maxGbDay: number | null;
   reputation: number;
@@ -103,6 +122,8 @@ export interface NodeTier {
   changedAt: string | null;
   uptimeGraceUntil: string | null;
   demotionReason: string | null;
+  /** Tier-credit weight per exit class, e.g. {residential: 1, mobile: 1, dc: 0.4, masked: 0.25}. Added in 2.1. */
+  tierWeights?: Record<string, number>;
 }
 
 const NODE_KEY_RE = /^dn_node_[0-9a-f]{64}$/;
@@ -149,6 +170,9 @@ export class NodesResource {
     const nodePubkey = normPubkey(opts.nodePubkey);
     if (opts.maxStreams !== undefined) validateIntRange(opts.maxStreams, "maxStreams", 1, 1024);
     if (opts.maxGbDay !== undefined) validateIntRange(opts.maxGbDay, "maxGbDay", 1, 10_000);
+    if (opts.declaredClass !== undefined && !(EXIT_CLASSES as readonly string[]).includes(opts.declaredClass)) {
+      throw invalidArg("declaredClass must be residential, mobile, dc or masked");
+    }
 
     const ch = opts.challenge ?? await this.registerChallenge({ nodePubkey: nodePubkey ?? undefined });
     checkChallenge(ch);
@@ -172,6 +196,7 @@ export class NodesResource {
     if (nodePubkey) body["nodePubkey"] = nodePubkey;
     if (opts.maxStreams !== undefined) body["maxStreams"] = opts.maxStreams;
     if (opts.maxGbDay !== undefined) body["maxGbDay"] = opts.maxGbDay;
+    if (opts.declaredClass !== undefined) body["declaredClass"] = opts.declaredClass;
 
     const r = await this.http.post<{ nodeId: string; nodeKey: string; status: string; attestationVersion: number }>("/v1/nodes", body, "agent");
     if (typeof r.nodeId !== "string" || !UUID_RE.test(r.nodeId)) throw new ProtocolError("invalid nodeId in response");
@@ -179,22 +204,27 @@ export class NodesResource {
     return { nodeId: r.nodeId, status: String(r.status), attestationVersion: r.attestationVersion, nodeKey: new Secret(r.nodeKey) };
   }
 
-  /** GET /v1/nodes — limit 1..500 (default 100). */
-  async list(opts: { limit?: number; offset?: number } = {}): Promise<{ nodes: NodeInfo[]; limit: number; offset: number }> {
+  /** GET /v1/nodes — pass `cursor` (previous nextCursor) or `offset`. */
+  async list(opts: { limit?: number; offset?: number; cursor?: string } = {}): Promise<{ nodes: NodeInfo[]; limit: number; offset: number; nextCursor?: string | null }> {
     if (opts.limit !== undefined) validateIntRange(opts.limit, "limit", 1, 500);
     if (opts.offset !== undefined) validateIntRange(opts.offset, "offset", 0, 1_000_000);
-    return this.http.get(`/v1/nodes${qs({ limit: opts.limit, offset: opts.offset })}`, "agent");
+    if (opts.cursor !== undefined) validatePageCursor(opts.cursor);
+    return this.http.get(`/v1/nodes${qs({ limit: opts.limit, offset: opts.offset, cursor: opts.cursor })}`, "agent");
   }
 
-  /** Iterate all of your nodes (offset pagination; `limit` is the page size, default 100). */
+  /** Iterate every item (follows nextCursor; falls back to offset on servers without it). */
   async *iterate(opts: { limit?: number } = {}): AsyncGenerator<NodeInfo, void, undefined> {
     const limit = opts.limit ?? 100;
     validateIntRange(limit, "limit", 1, 500);
-    for (let offset = 0; offset <= 1_000_000; offset += limit) {
-      const page = await this.list({ limit, offset });
+    let cursor: string | undefined;
+    for (let offset = 0, pages = 0; offset <= 1_000_000 && pages < 100_000; pages++) {
+      const page = await this.list(cursor !== undefined ? { limit, cursor } : { limit, offset });
       const items = Array.isArray(page.nodes) ? page.nodes : [];
       for (const n of items) yield n;
-      if (items.length < limit) return;
+      if (items.length === 0) return;
+      if (typeof page.nextCursor === "string" && page.nextCursor) { cursor = page.nextCursor; continue; }
+      if (page.nextCursor === null || items.length < limit) return;
+      offset += limit;
     }
   }
 

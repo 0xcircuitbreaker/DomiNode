@@ -1,3 +1,4 @@
+import { validatePageCursor } from "./nodes.js";
 import { randomUUID } from "node:crypto";
 import type { HttpClient } from "../http.js";
 import type { Money } from "../types.js";
@@ -149,21 +150,27 @@ export class CreditsResource {
 export class PayoutsResource {
   constructor(private http: HttpClient) {}
 
-  async list(opts: { limit?: number; offset?: number } = {}): Promise<{ payouts: Payout[]; limit: number; offset: number }> {
+  /** GET /v1/payouts — pass `cursor` (previous nextCursor) or `offset`. */
+  async list(opts: { limit?: number; offset?: number; cursor?: string } = {}): Promise<{ payouts: Payout[]; limit: number; offset: number; nextCursor?: string | null }> {
     if (opts.limit !== undefined) validateIntRange(opts.limit, "limit", 1, 200);
     if (opts.offset !== undefined) validateIntRange(opts.offset, "offset", 0, 1_000_000);
-    return this.http.get(`/v1/payouts${qs({ limit: opts.limit, offset: opts.offset })}`, "agent");
+    if (opts.cursor !== undefined) validatePageCursor(opts.cursor);
+    return this.http.get(`/v1/payouts${qs({ limit: opts.limit, offset: opts.offset, cursor: opts.cursor })}`, "agent");
   }
 
-  /** Iterate every payout (offset pagination; `limit` is the page size, default 50). */
+  /** Iterate every item (follows nextCursor; falls back to offset on servers without it). */
   async *iterate(opts: { limit?: number } = {}): AsyncGenerator<Payout, void, undefined> {
     const limit = opts.limit ?? 50;
     validateIntRange(limit, "limit", 1, 200);
-    for (let offset = 0; offset <= 1_000_000; offset += limit) {
-      const page = await this.list({ limit, offset });
+    let cursor: string | undefined;
+    for (let offset = 0, pages = 0; offset <= 1_000_000 && pages < 100_000; pages++) {
+      const page = await this.list(cursor !== undefined ? { limit, cursor } : { limit, offset });
       const items = Array.isArray(page.payouts) ? page.payouts : [];
       for (const p of items) yield p;
-      if (items.length < limit) return;
+      if (items.length === 0) return;
+      if (typeof page.nextCursor === "string" && page.nextCursor) { cursor = page.nextCursor; continue; }
+      if (page.nextCursor === null || items.length < limit) return;
+      offset += limit;
     }
   }
 }

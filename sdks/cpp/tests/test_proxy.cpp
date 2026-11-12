@@ -49,6 +49,12 @@ TEST(username_flags_and_order) {
     CHECK_EQ(build_proxy_username(d), std::string("class-dc"));
 }
 
+TEST(username_masked_class) {
+    ProxyRoutingOptions o;
+    o.ip_class = "masked";
+    CHECK_EQ(build_proxy_username(o), std::string("class-masked"));
+}
+
 TEST(username_validation_incl_ofac) {
     for (const char* cc : {"CU", "ir", "KP", "ru", "Sy"}) {
         ProxyRoutingOptions o;

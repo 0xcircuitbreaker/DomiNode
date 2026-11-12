@@ -22,7 +22,7 @@ import (
 type RoutingOptions struct {
 	// Country: ISO 3166-1 alpha-2 -> country-XX (OFAC CU IR KP RU SY refused).
 	Country string
-	// IPClass: "residential", "dc" or "mobile" -> class-<c>.
+	// IPClass: "residential", "dc", "mobile" or "masked" (VPN/WARP/Tor exits: cheapest, opt-in) -> class-<c>.
 	IPClass string
 	// SessionID: 1-64 alphanumeric -> session-<id>.
 	SessionID string
@@ -54,8 +54,8 @@ func BuildProxyUsername(o RoutingOptions) (string, error) {
 		parts = append(parts, "country-"+c)
 	}
 	if o.IPClass != "" {
-		if !oneOf(o.IPClass, []string{"residential", "dc", "mobile"}) {
-			return "", invalidArg("ipClass must be residential, dc or mobile")
+		if !oneOf(o.IPClass, IPClasses) {
+			return "", invalidArg("ipClass must be residential, dc, mobile or masked")
 		}
 		parts = append(parts, "class-"+o.IPClass)
 	}

@@ -14,6 +14,6 @@ Example::
 from ._core import TOOL_NAMES, DominusNodeTools
 from .tools import TOOLKIT_SLUG, DominusNodeToolkit, tool_slug
 
-__version__ = "2.0.0"
+__version__ = "2.1.0"
 
 __all__ = ["DominusNodeToolkit", "DominusNodeTools", "TOOL_NAMES", "TOOLKIT_SLUG", "tool_slug", "__version__"]

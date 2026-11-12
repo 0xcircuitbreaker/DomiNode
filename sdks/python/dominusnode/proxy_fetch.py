@@ -18,7 +18,8 @@ from .ssrf import LookupAll, assert_public_resolution, validate_target_url
 from .validation import UUID_RE
 
 OFAC_BLOCKED = frozenset({"CU", "IR", "KP", "RU", "SY"})
-IP_CLASSES = ("residential", "dc", "mobile")
+# masked = anonymizer (VPN/WARP/Tor) exits: cheapest, opt-in, never chosen unless requested.
+IP_CLASSES = ("residential", "dc", "mobile", "masked")
 _COUNTRY_RE = re.compile(r"^[A-Za-z]{2}\Z")
 _SESSION_RE = re.compile(r"^[A-Za-z0-9]{1,64}\Z")
 _TOKEN_RE = re.compile(r"^[!#$%&'*+.^_`|~0-9A-Za-z-]+\Z")
@@ -50,7 +51,7 @@ def build_proxy_username(
         parts.append(f"country-{c}")
     if ip_class is not None:
         if ip_class not in IP_CLASSES:
-            raise invalid_arg("ip_class must be residential, dc or mobile")
+            raise invalid_arg("ip_class must be residential, dc, mobile or masked")
         parts.append(f"class-{ip_class}")
     if session_id is not None:
         if not isinstance(session_id, str) or not _SESSION_RE.match(session_id):

@@ -2,5 +2,5 @@
 
 from dominusnode_agent_zero._core import TOOL_NAMES, DominusNodeTools
 
-__version__ = "2.0.0"
+__version__ = "2.1.0"
 __all__ = ["DominusNodeTools", "TOOL_NAMES"]

@@ -142,7 +142,7 @@ class ResourcesTest {
                 }
                 String expected = k.auth.equals("none") ? null : "Bearer " + (k.auth.equals("agent") ? API_KEY : JWT);
                 assertEquals(expected, MockTransport.auth(r));
-                assertEquals("dominusnode-sdk-java/2.0.2", r.headers.get("User-Agent"));
+                assertEquals("dominusnode-sdk-java/2.1.0", r.headers.get("User-Agent"));
                 assertEquals("application/json", r.headers.get("Accept"));
             }));
         }
@@ -198,7 +198,7 @@ class ResourcesTest {
     }
 
     /** Convenience iterators on top of the surface; not counted as surface methods. */
-    static final Set<String> PAGINATION_HELPERS = Set.of("iterate", "stream", "iterTransactions", "streamTransactions", "iterRecords", "streamRecords");
+    static final Set<String> PAGINATION_HELPERS = Set.of("iterate", "stream", "listAfter", "iterTransactions", "streamTransactions", "iterRecords", "streamRecords");
 
     /** 15 resources, 71 methods (counting distinct public method names per resource). */
     @Test

@@ -43,7 +43,7 @@ Then in `pom.xml` (the repository `id` must match the server `id`):
 <dependency>
   <groupId>io.dominusnode</groupId>
   <artifactId>dominusnode-sdk</artifactId>
-  <version>2.0.2</version>
+  <version>2.1.0</version>
 </dependency>
 ```
 

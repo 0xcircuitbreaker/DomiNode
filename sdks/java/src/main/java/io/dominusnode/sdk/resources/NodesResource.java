@@ -36,6 +36,7 @@ public final class NodesResource {
         private Integer maxStreams;
         private Integer maxGbDay;
         private long maxPowIterations = DEFAULT_MAX_POW_ITERATIONS;
+        private String declaredClass;
 
         public RegisterOptions(Signer signer) { this.signer = signer; }
 
@@ -50,7 +51,13 @@ public final class NodesResource {
         public RegisterOptions maxGbDay(int v) { maxGbDay = v; return this; }
 
         public RegisterOptions maxPowIterations(long v) { maxPowIterations = v; return this; }
+
+        /** Informational class claim (2.1): residential, mobile, dc or masked. The effective class is gateway-verified. */
+        public RegisterOptions declaredClass(String v) { declaredClass = v; return this; }
     }
+
+    /** Exit classes a node may declare (2.1). */
+    public static final java.util.Set<String> EXIT_CLASSES = java.util.Set.of("residential", "mobile", "dc", "masked");
 
     /** Result of a registration; {@code nodeKey} is returned once and prints as [REDACTED]. */
     public static final class RegisteredNode {
@@ -113,6 +120,9 @@ public final class NodesResource {
         String pubkey = normPubkey(o.nodePubkey);
         if (o.maxStreams != null) Validation.intRange(o.maxStreams, "maxStreams", 1, 1024);
         if (o.maxGbDay != null) Validation.intRange(o.maxGbDay, "maxGbDay", 1, 10_000);
+        if (o.declaredClass != null && !EXIT_CLASSES.contains(o.declaredClass)) {
+            throw ValidationException.invalidArg("declaredClass must be residential, mobile, dc or masked");
+        }
 
         JsonNode ch = o.challenge != null ? o.challenge : registerChallenge(pubkey);
         checkChallenge(ch);
@@ -130,6 +140,7 @@ public final class NodesResource {
         Map<String, Object> b = body("nonce", nonce, "walletSignature", walletSignature, "attestationVersion", version,
                 "pow", body("challengeId", pow.get("challengeId").asText(), "nonce", powNonce),
                 "nodePubkey", pubkey, "maxStreams", o.maxStreams, "maxGbDay", o.maxGbDay);
+        if (o.declaredClass != null) b.put("declaredClass", o.declaredClass);
         JsonNode r = http.post("/v1/nodes", b, Auth.AGENT);
         JsonNode id = r.get("nodeId");
         if (id == null || !id.isTextual() || !Validation.UUID_RE.matcher(id.asText()).matches()) throw new ProtocolException("invalid nodeId in response");
@@ -145,6 +156,13 @@ public final class NodesResource {
         if (limit != null) Validation.intRange(limit, "limit", 1, 500);
         if (offset != null) Validation.intRange(offset, "offset", 0, 1_000_000);
         return http.get("/v1/nodes" + qs("limit", limit, "offset", offset), Auth.AGENT);
+    }
+
+    /** GET /v1/nodes?limit&amp;cursor: the page after a previous nextCursor (2.1). */
+    public JsonNode listAfter(Integer limit, String cursor) {
+        if (limit != null) Validation.intRange(limit, "limit", 1, 500);
+        Paging.checkPageCursor(cursor);
+        return http.get("/v1/nodes" + qs("limit", limit, "cursor", cursor), Auth.AGENT);
     }
 
     /** DELETE /v1/nodes/{id} (irreversible). */
@@ -166,10 +184,10 @@ public final class NodesResource {
     /** GET /v1/node/tier. */
     public JsonNode tier() { return http.get("/v1/node/tier", Auth.AGENT); }
 
-    /** Every node you own (offset pagination; page size default 100, max 500). */
+    /** Every node you own (follows nextCursor, offset fallback; page size default 100, max 500). */
     public java.util.Iterator<JsonNode> iterate(Integer limit) {
         int l = Paging.pageSize(limit, 100, 500);
-        return Paging.offset(l, "nodes", false, this::list);
+        return Paging.offsetOrCursor(l, "nodes", this::list, this::listAfter);
     }
 
     public java.util.stream.Stream<JsonNode> stream(Integer limit) { return Paging.stream(iterate(limit)); }

@@ -52,6 +52,11 @@ RegisteredNode NodesResource::register_node(const Signer& signer, const Register
     OptStr pubkey = norm_pubkey(opts.node_pubkey);
     if (opts.max_streams) validate_int_range(*opts.max_streams, "maxStreams", 1, 1024);
     if (opts.max_gb_day) validate_int_range(*opts.max_gb_day, "maxGbDay", 1, 10000);
+    if (opts.declared_class) {
+        const std::string& d = *opts.declared_class;
+        if (d != "residential" && d != "mobile" && d != "dc" && d != "masked")
+            throw invalid_arg("declaredClass must be residential, mobile, dc or masked");
+    }
 
     json ch = opts.challenge ? *opts.challenge : register_challenge(pubkey);
     check_challenge(ch);
@@ -74,6 +79,7 @@ RegisteredNode NodesResource::register_node(const Signer& signer, const Register
     if (pubkey) body["nodePubkey"] = *pubkey;
     if (opts.max_streams) body["maxStreams"] = *opts.max_streams;
     if (opts.max_gb_day) body["maxGbDay"] = *opts.max_gb_day;
+    if (opts.declared_class) body["declaredClass"] = *opts.declared_class;
 
     json r = http_.post("/v1/nodes", body, AuthMode::Agent);
     static const std::regex node_key_re("^dn_node_[0-9a-f]{64}$");
@@ -97,6 +103,13 @@ json NodesResource::list(OptInt limit, OptInt offset) {
     if (limit) validate_int_range(*limit, "limit", 1, 500);
     if (offset) validate_int_range(*offset, "offset", 0, 1000000);
     return http_.get("/v1/nodes" + Query().add("limit", limit).add("offset", offset).str(), AuthMode::Agent);
+}
+
+json NodesResource::list_after(OptInt limit, const std::string& cursor) {
+    if (limit) validate_int_range(*limit, "limit", 1, 500);
+    static const std::regex page_cursor_re("^[A-Za-z0-9_=+/.:-]{1,512}$");
+    if (!std::regex_match(cursor, page_cursor_re)) throw invalid_arg("cursor must be a nextCursor value");
+    return http_.get("/v1/nodes" + Query().add("limit", limit).add("cursor", OptStr(cursor)).str(), AuthMode::Agent);
 }
 
 json NodesResource::revoke(const std::string& node_id) {
@@ -174,6 +187,13 @@ json PayoutsResource::list(OptInt limit, OptInt offset) {
     if (limit) validate_int_range(*limit, "limit", 1, 200);
     if (offset) validate_int_range(*offset, "offset", 0, 1000000);
     return http_.get("/v1/payouts" + Query().add("limit", limit).add("offset", offset).str(), AuthMode::Agent);
+}
+
+json PayoutsResource::list_after(OptInt limit, const std::string& cursor) {
+    if (limit) validate_int_range(*limit, "limit", 1, 200);
+    static const std::regex page_cursor_re("^[A-Za-z0-9_=+/.:-]{1,512}$");
+    if (!std::regex_match(cursor, page_cursor_re)) throw invalid_arg("cursor must be a nextCursor value");
+    return http_.get("/v1/payouts" + Query().add("limit", limit).add("cursor", OptStr(cursor)).str(), AuthMode::Agent);
 }
 
 // ─── payoutWallet ───────────────────────────────────────────────────────────

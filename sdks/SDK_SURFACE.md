@@ -1,7 +1,7 @@
 # DominusNode SDK surface (v2)
 
 Language-neutral contract for all six SDKs. The reference implementation is
-`sdks/node` (2.0.1); Python, Go, Rust, Java and C++ must expose the same
+`sdks/node` (2.1.0; the Rust crate ships the same surface as 3.0.0 because a new enum variant is a semver break in Rust); Python, Go, Rust, Java and C++ must expose the same
 resources, methods, parameters, results, errors and security behaviour.
 Use each language's naming convention (`register_challenge`, `RegisterChallenge`,
 `registerChallenge`), but keep the names below recognisable.
@@ -332,23 +332,23 @@ strings, null -> 0) and refuse anything else.
 | Method | Request | Result |
 |---|---|---|
 | `registerChallenge(nodePubkey?)` | pubkey 64 hex, lowercased; POST `/v1/nodes/challenge` `{nodePubkey?}` (empty object when absent) | NodeChallenge `{nonce, attestationText, attestationVersion, policyVersion, message, expiresAt, powChallenge:{challengeId, prefix, difficulty, algorithm, expiresAt}}` |
-| `register(signer, nodePubkey?, challenge?, maxStreams?, maxGbDay?, maxPowIterations? = 200,000,000)` | see flow | RegisteredNode `{nodeId, status, attestationVersion, nodeKey: Secret}` |
-| `list(limit?, offset?)` | limit 1..500, offset 0..1,000,000; GET `/v1/nodes?limit&offset` | `{nodes:[NodeInfo], limit, offset}` |
+| `register(signer, nodePubkey?, challenge?, maxStreams?, maxGbDay?, maxPowIterations? = 200,000,000, declaredClass?)` | see flow | RegisteredNode `{nodeId, status, attestationVersion, nodeKey: Secret}` |
+| `list(limit?, offset?)` | limit 1..500, offset 0..1,000,000; GET `/v1/nodes?limit&offset` | `{nodes:[NodeInfo], limit, offset, nextCursor?}` |
 | `revoke(nodeId)` | UUID; DELETE `/v1/nodes/{id}` | `{id, status}` |
 | `updateCaps(nodeId, maxStreams?, gbPerDay?, reqPerSec?)` | UUID; each present value integer 1..1,000,000; at least one; PATCH `/v1/nodes/{id}` with only the present keys | `{id, status, caps, effective, appliesOn}` |
-| `tier()` | GET `/v1/node/tier` | `{tier, nextTier, progress, changedAt, uptimeGraceUntil, demotionReason}`; TierView `{id, name, rank, nodeShareBps, holdDays, maxNodes, dailyWithdrawLimitMusd (string), buyerDiscountBps}` |
+| `tier()` | GET `/v1/node/tier` | `{tier, nextTier, progress, changedAt, uptimeGraceUntil, demotionReason, tierWeights?}` (`tierWeights` maps exit class -> decimal weight, 2.1); TierView `{id, name, rank, nodeShareBps, holdDays, maxNodes, dailyWithdrawLimitMusd (string), buyerDiscountBps}` |
 
 **register flow**
-1. Validate signer, pubkey, `maxStreams` 1..1024, `maxGbDay` 1..10000 (before any request).
+1. Validate signer, pubkey, `maxStreams` 1..1024, `maxGbDay` 1..10000, `declaredClass` in `residential mobile dc masked` (before any request).
 2. Use `challenge` if given, else `registerChallenge(nodePubkey)`.
 3. Validate the challenge: nonce `^[0-9a-f]{64}$`; attestationText non-empty string <= 64 KiB; attestationVersion integer 1..100000; powChallenge.challengeId UUID, prefix string, difficulty number. Else ProtocolError.
 4. Build the attestation message (1.5) with `signer.address` and the pubkey (or `none`); exact compare with `challenge.message`; mismatch -> ProtocolError, signer not called.
 5. Solve PoW: smallest decimal n >= 0 with `sha256(prefix + str(n))` having >= difficulty leading zero bits. Refuse difficulty outside 1..32 or prefix length outside 1..256; give up after `maxPowIterations` (ProtocolError).
 6. `walletSignature = signer.signMessage(message)`, format-checked.
-7. POST `/v1/nodes` `{nonce, walletSignature, attestationVersion, pow:{challengeId, nonce:n}, nodePubkey?, maxStreams?, maxGbDay?}`.
+7. POST `/v1/nodes` `{nonce, walletSignature, attestationVersion, pow:{challengeId, nonce:n}, nodePubkey?, maxStreams?, maxGbDay?, declaredClass?}`. `declaredClass` is informational; the effective class is always gateway-verified.
 8. Response must have `nodeId` UUID and `nodeKey` `^dn_node_[0-9a-f]{64}$` (else ProtocolError). Wrap the key in Secret.
 
-NodeInfo = `{id, status, walletAddress, nodePubkey, attestationVersion, observedIp, country, ipClass, maxStreams, maxGbDay, reputation, agentVersion, lastSeenAt, createdAt}` (the caller's own nodes only).
+NodeInfo = `{id, status, walletAddress, nodePubkey, attestationVersion, observedIp, country, ipClass, maxStreams, maxGbDay, reputation, agentVersion, lastSeenAt, createdAt, verifiedClass?, declaredClass?, classVerifiedAt?, tierWeight?}` (the caller's own nodes only). The four 2.1 fields are optional: older servers omit them. `verifiedClass` = `ipClass` (`unknown` until classified); `tierWeight` is a decimal (defaults residential/mobile 1, dc 0.4, masked 0.25).
 
 ### 3.12 credits (4) — [agent], µUSD
 
@@ -387,7 +387,9 @@ PUT `/v1/payout-wallet` `{address, chain, nonce, signature, oldWalletSignature?}
 
 ### 3.14 payouts (1)
 
-`list(limit?, offset?)`: limit 1..200, offset 0..1,000,000; GET `/v1/payouts?limit&offset` [agent] -> `{payouts:[Payout], limit, offset}`.
+`list(limit?, offset?)`: limit 1..200, offset 0..1,000,000; GET `/v1/payouts?limit&offset` [agent] -> `{payouts:[Payout], limit, offset, nextCursor?}`.
+
+**Cursor paging (2.1, additive).** `GET /v1/nodes` and `GET /v1/payouts` also accept `cursor=<nextCursor>` (opaque, validated client-side as `^[A-Za-z0-9_\-=+/.:]{1,512}$`). Node and Python take an optional `cursor` on `list`; Rust, Java and C++ add `listAfter(limit?, cursor)` (`list_after`); Go keeps `List` unchanged and exposes `NextCursor` on `NodeList`/`PayoutList`. These additions are not counted in the 71.
 
 ### 3.15 proxy (5)
 
@@ -396,7 +398,7 @@ PUT `/v1/payout-wallet` `{address, chain, nonce, signature, oldWalletSignature?}
 | Option | Validation | Flag |
 |---|---|---|
 | country | `^[A-Za-z]{2}$`, uppercased; refuse OFAC `CU IR KP RU SY` | `country-XX` |
-| ipClass | `residential` / `dc` / `mobile` | `class-<c>` |
+| ipClass | `residential` / `dc` / `mobile` / `masked` (2.1; VPN/WARP/Tor egress, cheapest, opt-in: never used unless requested) | `class-<c>` |
 | sessionId | `^[A-Za-z0-9]{1,64}$` | `session-<id>` |
 | agenticWalletId | UUID, lowercased | `wallet-<uuid>` |
 | allowHttp | true | `allowhttp-1` |
@@ -437,14 +439,14 @@ Teredo `2001:0000::/32`, 6to4 `2002::/16`, documentation `2001:db8::/32`.
 
 Lazy: fetch the next page only when the current one is used up. `limit` is the page size and is validated
 before the first request. Stop on a short page (fewer than `limit` items), on an empty page, at
-`pagination.total` (usage) or when `nextCursor` is null, invalid or repeats (credits). An API error ends
+`pagination.total` (usage) or when `nextCursor` is null, invalid or repeats (credits; and payouts/nodes once the server sends `nextCursor`). An API error ends
 the iteration and propagates.
 
 | Helper | Pages over | Default / max page |
 |---|---|---|
 | credits transactions | `credits.transactions` via `nextCursor` (optional `type`) | server default / 200 |
-| payouts | `payouts.list` (offset) | 50 / 200 |
-| nodes | `nodes.list` (offset) | 100 / 500 |
+| payouts | `payouts.list` via `nextCursor`, offset fallback on servers without it | 50 / 200 |
+| nodes | `nodes.list` via `nextCursor`, offset fallback on servers without it | 100 / 500 |
 | usage records | `usage.get` (offset, `from`/`to`) | 200 / 1000 |
 | wallet transactions | `wallet.getTransactions` (offset) | 50 / 100 |
 

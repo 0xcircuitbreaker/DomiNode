@@ -177,44 +177,80 @@ func (r *CreditsResource) EachTransaction(ctx context.Context, q CreditTransacti
 	}
 }
 
-// Each calls fn for every payout (offset pagination; limit = page size, default 50).
+// Each calls fn for every payout (limit = page size, default 50). It follows
+// nextCursor, falling back to offset paging on servers that do not send it.
 func (r *PayoutsResource) Each(ctx context.Context, limit *int, fn func(Payout) error) error {
 	lim, err := pageSize(limit, 50, 200)
 	if err != nil {
 		return err
 	}
-	return eachOffset(lim, func(l, o int) (int, int64, error) {
-		page, err := r.List(ctx, &l, &o)
-		if err != nil {
-			return 0, 0, err
+	return eachCursor(lim, func(l, o int, cursor string) (int, *string, error) {
+		var page PayoutList
+		if err := r.h.get(ctx, "/v1/payouts"+pageQuery(l, o, cursor), authAgent, &page); err != nil {
+			return 0, nil, err
 		}
 		for _, p := range page.Payouts {
 			if err := fn(p); err != nil {
-				return 0, 0, err
+				return 0, nil, stopped(err)
 			}
 		}
-		return len(page.Payouts), -1, nil
+		return len(page.Payouts), page.NextCursor, nil
 	})
 }
 
-// Each calls fn for every node you own (offset pagination; limit = page size, default 100).
+// Each calls fn for every node you own (limit = page size, default 100). It follows
+// nextCursor, falling back to offset paging on servers that do not send it.
 func (r *NodesResource) Each(ctx context.Context, limit *int, fn func(NodeInfo) error) error {
 	lim, err := pageSize(limit, 100, 500)
 	if err != nil {
 		return err
 	}
-	return eachOffset(lim, func(l, o int) (int, int64, error) {
-		page, err := r.List(ctx, &l, &o)
-		if err != nil {
-			return 0, 0, err
+	return eachCursor(lim, func(l, o int, cursor string) (int, *string, error) {
+		var page NodeList
+		if err := r.h.get(ctx, "/v1/nodes"+pageQuery(l, o, cursor), authAgent, &page); err != nil {
+			return 0, nil, err
 		}
 		for _, n := range page.Nodes {
 			if err := fn(n); err != nil {
-				return 0, 0, err
+				return 0, nil, stopped(err)
 			}
 		}
-		return len(page.Nodes), -1, nil
+		return len(page.Nodes), page.NextCursor, nil
 	})
+}
+
+func pageQuery(limit, offset int, cursor string) string {
+	if cursor != "" {
+		return query(qInt("limit", &limit), qStr("cursor", cursor))
+	}
+	return query(qInt("limit", &limit), qInt("offset", &offset))
+}
+
+// eachCursor drives fetch until the last page: by nextCursor when the server sends
+// one, else by offset (short page = last).
+func eachCursor(limit int, fetch func(limit, offset int, cursor string) (int, *string, error)) error {
+	cursor := ""
+	for offset, pages := 0, 0; offset <= maxPageOffset && pages < 100_000; pages++ {
+		n, next, err := fetch(limit, offset, cursor)
+		if err != nil {
+			return err
+		}
+		if n == 0 {
+			return nil
+		}
+		if next != nil {
+			if !pageCursorRE.MatchString(*next) || *next == cursor {
+				return nil
+			}
+			cursor = *next
+			continue
+		}
+		if cursor != "" || n < limit {
+			return nil
+		}
+		offset += limit
+	}
+	return nil
 }
 
 // EachRecord calls fn for every usage record in the range (limit = page size, default 200, max 1000).

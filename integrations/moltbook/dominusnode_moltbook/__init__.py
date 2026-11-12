@@ -24,5 +24,5 @@ def tool_definitions() -> List[Dict[str, Any]]:
             for s in TOOL_SPECS]
 
 
-__version__ = "2.0.0"
+__version__ = "2.1.0"
 __all__ = ["DominusNodeTools", "TOOL_NAMES", "tool_definitions", "make_tool_callables", "__version__"]

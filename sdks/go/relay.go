@@ -123,7 +123,15 @@ type RegisterNodeOptions struct {
 	MaxGbDay   *int
 	// MaxPowIterations defaults to 200,000,000.
 	MaxPowIterations int
+	// DeclaredClass (2.1, optional, informational): residential, mobile, dc or masked.
+	// The effective class is always the gateway-verified one.
+	DeclaredClass string
 }
+
+// IPClasses are the gateway exit classes ("masked" = VPN/WARP/Tor egress, opt-in).
+var IPClasses = []string{"residential", "dc", "mobile", "masked"}
+
+var pageCursorRE = regexp.MustCompile(`^[A-Za-z0-9_\-=+/.:]{1,512}$`)
 
 // RegisteredNode holds the dn_node_ key, returned once.
 type RegisteredNode struct {
@@ -143,12 +151,18 @@ type NodeInfo struct {
 	ObservedIP         *string `json:"observedIp"`
 	Country            *string `json:"country"`
 	IPClass            *string `json:"ipClass"`
-	MaxStreams         *int    `json:"maxStreams"`
-	MaxGbDay           *int    `json:"maxGbDay"`
-	Reputation         float64 `json:"reputation"`
-	AgentVersion       *string `json:"agentVersion"`
-	LastSeenAt         *string `json:"lastSeenAt"`
-	CreatedAt          string  `json:"createdAt"`
+	// VerifiedClass (= IPClass, "unknown" until classified), DeclaredClass,
+	// ClassVerifiedAt and TierWeight were added in 2.1.
+	VerifiedClass   *string  `json:"verifiedClass,omitempty"`
+	DeclaredClass   *string  `json:"declaredClass,omitempty"`
+	ClassVerifiedAt *string  `json:"classVerifiedAt,omitempty"`
+	TierWeight      *float64 `json:"tierWeight,omitempty"`
+	MaxStreams      *int     `json:"maxStreams"`
+	MaxGbDay        *int     `json:"maxGbDay"`
+	Reputation      float64  `json:"reputation"`
+	AgentVersion    *string  `json:"agentVersion"`
+	LastSeenAt      *string  `json:"lastSeenAt"`
+	CreatedAt       string   `json:"createdAt"`
 }
 
 // NodeList is the response of GET /v1/nodes.
@@ -156,6 +170,8 @@ type NodeList struct {
 	Nodes  []NodeInfo `json:"nodes"`
 	Limit  int        `json:"limit"`
 	Offset int        `json:"offset"`
+	// NextCursor (2.1): nil on the last page or on older servers.
+	NextCursor *string `json:"nextCursor,omitempty"`
 }
 
 // NodeRevokeResult is the response of DELETE /v1/nodes/{id}.
@@ -213,6 +229,8 @@ type NodeTier struct {
 	ChangedAt        *string `json:"changedAt"`
 	UptimeGraceUntil *string `json:"uptimeGraceUntil"`
 	DemotionReason   *string `json:"demotionReason"`
+	// TierWeights (2.1): tier-credit weight per exit class, e.g. masked 0.25.
+	TierWeights map[string]float64 `json:"tierWeights,omitempty"`
 }
 
 var nodeKeyRE = regexp.MustCompile(`^dn_node_[0-9a-f]{64}$`)
@@ -278,6 +296,9 @@ func (r *NodesResource) Register(ctx context.Context, o RegisterNodeOptions) (*R
 	if err := validateIntRange(o.MaxGbDay, "maxGbDay", 1, 10_000); err != nil {
 		return nil, err
 	}
+	if o.DeclaredClass != "" && !oneOf(o.DeclaredClass, IPClasses) {
+		return nil, invalidArg("declaredClass must be residential, mobile, dc or masked")
+	}
 	ch := o.Challenge
 	if ch == nil {
 		if ch, err = r.RegisterChallenge(ctx, pk); err != nil {
@@ -320,6 +341,9 @@ func (r *NodesResource) Register(ctx context.Context, o RegisterNodeOptions) (*R
 	}
 	if o.MaxGbDay != nil {
 		body["maxGbDay"] = *o.MaxGbDay
+	}
+	if o.DeclaredClass != "" {
+		body["declaredClass"] = o.DeclaredClass
 	}
 	var raw struct {
 		NodeID             string `json:"nodeId"`
@@ -594,6 +618,8 @@ type PayoutList struct {
 	Payouts []Payout `json:"payouts"`
 	Limit   int      `json:"limit"`
 	Offset  int      `json:"offset"`
+	// NextCursor (2.1): nil on the last page or on older servers.
+	NextCursor *string `json:"nextCursor,omitempty"`
 }
 
 // List: GET /v1/payouts?limit&offset (limit 1..200, offset 0..1,000,000).

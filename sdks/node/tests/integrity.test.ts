@@ -28,7 +28,7 @@ async function collect<T>(it: AsyncIterable<T>): Promise<T[]> {
 }
 
 describe("version", () => {
-  it("is 2.0.3", () => expect(USER_AGENT).toBe("dominusnode-sdk-node/2.0.3"));
+  it("is 2.1.0", () => expect(USER_AGENT).toBe("dominusnode-sdk-node/2.1.0"));
 });
 
 describe("team keys", () => {

@@ -12,8 +12,8 @@ parameters:
 - name: ip_class
   type: str
   required: false
-  description: 'Exit IP class. Each class has its own per-GB price (see network_pricing). One of: residential, dc,
-    mobile.'
+  description: 'Exit IP class. Each class has its own per-GB price (see network_pricing); masked = cheapest, VPN/anonymizer
+    exits, opt-in. One of: residential, dc, mobile, masked.'
 - name: session_id
   type: str
   required: false

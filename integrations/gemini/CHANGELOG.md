@@ -25,6 +25,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.1.0] - 2026-11-12
+
+### Added
+- The fetch tool's `ip_class` accepts `masked` (cheapest, VPN/anonymizer exits, opt-in; never used unless asked).
+
+### Changed
+- Requires the DominusNode SDK 2.1.0 or later (`masked` support).
+
 ## [1.0.0] - 2025-02-23
 
 ### Added

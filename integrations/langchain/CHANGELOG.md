@@ -22,3 +22,12 @@ Breaking: rebuilt on the DominusNode Python SDK v2 and the relay network.
 - 5 LangChain tools: proxy fetch, wallet balance, top-up (Stripe), top-up (PayPal), usage stats
 - DominusNodeToolkit for easy integration
 - SSRF protection, credential scrubbing, OFAC compliance
+
+## [2.1.0] - 2026-11-12
+
+### Added
+- The fetch tool's `ip_class` accepts `masked` (cheapest, VPN/anonymizer exits, opt-in; never used unless asked).
+
+### Changed
+- Requires the DominusNode SDK 2.1.0 or later (`masked` support).
+

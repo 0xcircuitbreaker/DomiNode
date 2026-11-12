@@ -22,6 +22,43 @@ public final class Paging {
     /** Server cursor format for /v1/credits/transactions. */
     public static final Pattern CURSOR_RE = Pattern.compile("^[1-9][0-9]{0,18}$");
     static final int MAX_OFFSET = 1_000_000;
+    /** Opaque server cursor for /v1/nodes and /v1/payouts (2.1). */
+    public static final Pattern PAGE_CURSOR_RE = Pattern.compile("^[A-Za-z0-9_\\-=+/.:]{1,512}$");
+
+    static void checkPageCursor(String c) {
+        if (c == null || !PAGE_CURSOR_RE.matcher(c).matches()) throw Validation.invalid("cursor must be a nextCursor value");
+    }
+
+    /** Follows nextCursor when the server sends one, else pages by offset (short page = last). */
+    static Iterator<JsonNode> offsetOrCursor(int limit, String itemsField, BiFunction<Integer, Integer, JsonNode> byOffset,
+                                             BiFunction<Integer, String, JsonNode> byCursor) {
+        return new BufferedIterator() {
+            private int offset = 0;
+            private String cursor = null;
+
+            @Override
+            JsonNode fetchPage() {
+                JsonNode page = cursor != null ? byCursor.apply(limit, cursor) : byOffset.apply(limit, offset);
+                JsonNode items = page == null ? null : page.path(itemsField);
+                int n = items != null && items.isArray() ? items.size() : 0;
+                if (n > 0) items.forEach(buf::add);
+                JsonNode next = page == null ? null : page.path("nextCursor");
+                String nc = next != null && next.isTextual() ? next.asText() : null;
+                if (n == 0) {
+                    done = true;
+                } else if (nc != null) {
+                    if (!PAGE_CURSOR_RE.matcher(nc).matches() || nc.equals(cursor)) done = true;
+                    else cursor = nc;
+                } else if (cursor != null) {
+                    done = true;
+                } else {
+                    offset += limit;
+                    done = n < limit || offset > MAX_OFFSET;
+                }
+                return page;
+            }
+        };
+    }
 
     private Paging() {}
 

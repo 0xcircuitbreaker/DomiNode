@@ -13,7 +13,7 @@ Team: **SDK**
 ## Cross-SDK Requirements
 See `.claude/rules/sdk-patterns.md` for full rules.
 
-The contract is `sdks/SDK_SURFACE.md` (v2, reference: `node/` 2.0.1): 15 resources,
+The contract is `sdks/SDK_SURFACE.md` (v2, reference: `node/` 2.1.0): 15 resources,
 71 methods — auth, walletAuth, keys, wallet, agenticWallets, teams (18), usage, sessions
 (getActive + report), x402, network, nodes, credits, payoutWallet, payouts, proxy.
 No plans, slots, admin, Stripe/PayPal, email/password or human MFA flows.

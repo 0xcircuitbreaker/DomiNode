@@ -13,6 +13,7 @@ macro_rules! model {
         $(#[$m])*
         #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
         #[serde(rename_all = "camelCase", default)]
+        #[non_exhaustive]
         pub struct $name { $($(#[$fm])* pub $f: $t),* }
     };
 }
@@ -437,11 +438,23 @@ model! {
         pub attestation_version: i64, pub observed_ip: Option<String>, pub country: Option<String>,
         pub ip_class: Option<String>, pub max_streams: Option<i64>, pub max_gb_day: Option<i64>,
         pub reputation: f64, pub agent_version: Option<String>, pub last_seen_at: Option<String>, pub created_at: String,
+        /// Gateway-verified class (= `ip_class`, "unknown" until classified). 2.1.
+        pub verified_class: Option<String>,
+        /// Class declared at registration (informational). 2.1.
+        pub declared_class: Option<String>,
+        /// When the class was last verified. 2.1.
+        pub class_verified_at: Option<String>,
+        /// Tier-credit weight of the verified class (e.g. 1, 0.4, 0.25). 2.1.
+        pub tier_weight: Option<f64>,
     }
 }
 model! {
     /// `GET /v1/nodes`.
-    pub struct NodeList { pub nodes: Vec<NodeInfo>, pub limit: i64, pub offset: i64 }
+    pub struct NodeList {
+        pub nodes: Vec<NodeInfo>, pub limit: i64, pub offset: i64,
+        /// Next page cursor; `None` on the last page or on older servers. 2.1.
+        pub next_cursor: Option<String>,
+    }
 }
 model! {
     /// `DELETE /v1/nodes/{id}`.
@@ -477,6 +490,8 @@ model! {
     pub struct NodeTier {
         pub tier: TierView, pub next_tier: Option<TierView>, pub progress: Option<Value>,
         pub changed_at: Option<String>, pub uptime_grace_until: Option<String>, pub demotion_reason: Option<String>,
+        /// Tier-credit weight per exit class, e.g. `masked` 0.25. 2.1.
+        pub tier_weights: Option<std::collections::BTreeMap<String, f64>>,
     }
 }
 
@@ -523,7 +538,11 @@ model! {
 }
 model! {
     /// `GET /v1/payouts`.
-    pub struct PayoutList { pub payouts: Vec<Payout>, pub limit: i64, pub offset: i64 }
+    pub struct PayoutList {
+        pub payouts: Vec<Payout>, pub limit: i64, pub offset: i64,
+        /// Next page cursor; `None` on the last page or on older servers. 2.1.
+        pub next_cursor: Option<String>,
+    }
 }
 
 // ---- payout wallet

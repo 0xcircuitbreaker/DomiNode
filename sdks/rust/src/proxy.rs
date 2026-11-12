@@ -21,6 +21,7 @@ pub const OFAC_BLOCKED: [&str; 5] = ["CU", "IR", "KP", "RU", "SY"];
 
 /// Exit IP class.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum IpClass {
     /// Residential.
     Residential,
@@ -28,6 +29,8 @@ pub enum IpClass {
     Dc,
     /// Mobile.
     Mobile,
+    /// Anonymizer (VPN/WARP/Tor) egress: cheapest, opt-in, never chosen unless requested (2.1).
+    Masked,
 }
 impl IpClass {
     /// Wire name.
@@ -36,6 +39,7 @@ impl IpClass {
             IpClass::Residential => "residential",
             IpClass::Dc => "dc",
             IpClass::Mobile => "mobile",
+            IpClass::Masked => "masked",
         }
     }
 }

@@ -32,3 +32,12 @@
 - Tools: create/fund/balance/list/transactions/freeze/unfreeze/delete agentic wallets
 - Tools: create/list/details/fund/create_key/usage/update teams
 - Tools: update_team_member_role, x402_info, topup_paypal
+
+## [2.1.0] - 2026-11-12
+
+### Added
+- The fetch tool's `ip_class` accepts `masked` (cheapest, VPN/anonymizer exits, opt-in; never used unless asked).
+
+### Changed
+- Requires the DominusNode SDK 2.1.0 or later (`masked` support).
+

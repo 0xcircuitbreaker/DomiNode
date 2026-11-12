@@ -131,6 +131,14 @@ TEST(pagination_helpers) {
     CHECK_EQ(f.mock.calls.size(), std::size_t(1));
 
     f.mock.calls.clear();
+    f.mock.push(200, {{"nodes", json::array({{{"id", "a"}, {"verifiedClass", "masked"}, {"tierWeight", 0.25}}})}, {"nextCursor", "abc="}});
+    f.mock.push(200, {{"nodes", json::array({{{"id", "b"}}})}, {"nextCursor", nullptr}});
+    n = 0;
+    f.client->nodes.for_each([&](const json&) { ++n; return true; }, 1);
+    CHECK_EQ(n, 2);
+    CHECK(Mock::path(f.mock.calls[1]).find("cursor=abc%3D") != std::string::npos);
+
+    f.mock.calls.clear();
     f.mock.push(200, {{"records", json::array({{{"id", "a"}}, {{"id", "b"}}})}, {"pagination", {{"total", 2}}}});
     n = 0;
     f.client->usage.for_each_record([&](const json&) { ++n; return true; }, std::string("2026-01-01"), std::nullopt, 2);

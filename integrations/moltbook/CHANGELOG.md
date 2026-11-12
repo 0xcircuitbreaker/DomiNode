@@ -47,3 +47,12 @@
 - Full security suite: SSRF prevention (DNS rebinding, Teredo/6to4, IPv4-mapped/compatible IPv6, hex/octal/decimal normalization), OFAC blocking, credential scrubbing (API keys + ETH private keys), prototype pollution prevention
 - 10 MB response cap, redirect following disabled, 30s timeout
 - 120+ tests covering all security vectors, input validation, auth flows, and API interactions
+
+## [2.1.0] - 2026-11-12
+
+### Added
+- The fetch tool's `ip_class` accepts `masked` (cheapest, VPN/anonymizer exits, opt-in; never used unless asked).
+
+### Changed
+- Requires the DominusNode SDK 2.1.0 or later (`masked` support).
+

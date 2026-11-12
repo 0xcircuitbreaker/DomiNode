@@ -34,7 +34,7 @@ async fn health_status_only() {
     let c = client(&m);
     m.push(r(200, json!({"status": "ok", "activeSessions": 4})));
     let h = c.proxy.get_health().await.unwrap();
-    assert_eq!(h, ProxyHealth { status: "ok".into(), active_sessions: 0, uptime_seconds: 0.0 });
+    assert_eq!((h.status.as_str(), h.active_sessions, h.uptime_seconds), ("ok", 0, 0.0));
 }
 
 #[tokio::test]

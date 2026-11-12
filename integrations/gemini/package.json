@@ -1,6 +1,6 @@
 {
   "name": "@dominusnode/gemini-functions",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "DominusNode v2 function declarations and handler for Google Gemini / Vertex AI: the 19 standard relay-network tools on @dominusnode/sdk",
   "main": "dist/handler.js",
   "types": "dist/handler.d.ts",
@@ -47,7 +47,7 @@
     "node": ">=18.0.0"
   },
   "dependencies": {
-    "@dominusnode/sdk": "^2.0.0"
+    "@dominusnode/sdk": "^2.1.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

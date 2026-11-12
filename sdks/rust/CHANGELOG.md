@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.0.0] - 2026-11-12
+
+Same wire surface as the other SDKs' 2.1.0 (SDK_SURFACE v2, additive on the server side). The crate is a major
+bump because adding an enum variant and public struct fields is a breaking change under Rust semver.
+
+### Breaking
+- `IpClass` gains a `Masked` variant and is now `#[non_exhaustive]`: an exhaustive `match` needs a `_` arm.
+- `RegisterNodeOptions` gains `declared_class` and is now `#[non_exhaustive]`: build it with `RegisterNodeOptions::new(signer)` and set the public fields.
+- Response models (`NodeInfo`, `NodeList`, `PayoutList`, tier response, ...) gain fields and are now `#[non_exhaustive]`: they can no longer be built with struct literals outside the crate (use `Default::default()` and set fields). Future additive server fields will no longer need a major bump.
+
+### Added
+- Exit class `masked` (VPN/WARP/Tor egress, cheapest, opt-in): accepted by the IP-class validator and the proxy username builder (`class-masked`).
+- Node fields `verifiedClass`, `declaredClass`, `classVerifiedAt`, `tierWeight` on node listings; `tierWeights` on the node tier response.
+- `nodes.register` accepts an optional `declaredClass` (residential, mobile, dc or masked; informational).
+- `NodeList`/`PayoutList` carry `next_cursor`; new `nodes.list_after` / `payouts.list_after` fetch the page after a cursor, and `iter()` follows it (offset fallback on older servers).
+
 ## [2.0.2] - 2026-11-12
 
 ### Changed
