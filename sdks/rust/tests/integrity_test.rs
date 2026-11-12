@@ -13,17 +13,18 @@ const TEAM: &str = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
 async fn team_key_prefix_and_list_fields() {
     let (c, m) = connected().await;
     m.push(r(201, json!({"id": "k", "prefix": "dn_live_ab", "label": "l", "key": API_KEY})));
-    assert_eq!(c.teams.create_key(TEAM, "l").await.unwrap().prefix, "dn_live_ab");
+    assert_eq!(c.teams.create_key(TEAM, "l").await.unwrap().key_prefix, "dn_live_ab");
     m.push(r(201, json!({"id": "k", "keyPrefix": "dn_live_cd", "label": "l", "key": API_KEY})));
-    assert_eq!(c.teams.create_key(TEAM, "l").await.unwrap().prefix, "dn_live_cd");
+    assert_eq!(c.teams.create_key(TEAM, "l").await.unwrap().key_prefix, "dn_live_cd");
     m.push(r(200, json!({"keys": [
         {"id": "k1", "userId": "u1", "prefix": "dn_live_x", "label": "a", "teamId": TEAM, "createdAt": "t", "revokedAt": null},
         {"id": "k2", "userId": "u2", "keyPrefix": "dn_live_y", "label": "b", "teamId": TEAM, "createdAt": "t", "revokedAt": "r"}
     ]})));
     let keys = c.teams.list_keys(TEAM).await.unwrap().keys;
-    assert_eq!((keys[0].prefix.as_str(), keys[0].user_id.as_str(), keys[0].team_id.as_str()), ("dn_live_x", "u1", TEAM));
+    assert_eq!((keys[0].key_prefix.as_str(), keys[0].user_id.as_str(), keys[0].team_id.as_str()), ("dn_live_x", "u1", TEAM));
     assert_eq!(keys[0].revoked_at, None);
-    assert_eq!(keys[1].prefix, "dn_live_y");
+    assert_eq!(keys[1].key_prefix, "dn_live_y");
+    assert_eq!(keys[1].prefix(), "dn_live_y");
     assert_eq!(keys[1].revoked_at.as_deref(), Some("r"));
 }
 
@@ -33,7 +34,7 @@ async fn health_status_only() {
     let c = client(&m);
     m.push(r(200, json!({"status": "ok", "activeSessions": 4})));
     let h = c.proxy.get_health().await.unwrap();
-    assert_eq!(h, ProxyHealth { status: "ok".into() });
+    assert_eq!(h, ProxyHealth { status: "ok".into(), active_sessions: 0, uptime_seconds: 0.0 });
 }
 
 #[tokio::test]
@@ -149,4 +150,20 @@ async fn pagination_streams() {
     let first: Vec<_> = c.payouts.iter(None).unwrap().collect().await;
     assert_eq!(first.len(), 1);
     assert!(first[0].is_err());
+}
+
+/// The 2.0.0 public field names and types still exist.
+#[test]
+fn backward_compatible_fields() {
+    let inv = TeamInvite::default();
+    let _: &String = &inv.token;
+    let h = ProxyHealth::default();
+    let _: (i64, f64) = (h.active_sessions, h.uptime_seconds);
+    let k: TeamKey = serde_json::from_value(json!({"id": "k", "prefix": "dn_live_p"})).unwrap();
+    let _: &String = &k.key_prefix;
+    assert_eq!(k.key_prefix, "dn_live_p");
+    let k: TeamKey = serde_json::from_value(json!({"id": "k", "keyPrefix": "dn_live_q"})).unwrap();
+    assert_eq!(k.prefix(), "dn_live_q");
+    let r = UsageRecord::default();
+    let _: i64 = r.bytes_in + r.bytes_out + r.total_bytes;
 }

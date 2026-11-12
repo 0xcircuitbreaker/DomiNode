@@ -207,17 +207,20 @@ model! {
     /// Team invite.
     pub struct TeamInvite {
         pub id: String, pub team_id: String, pub email: String, pub role: String,
+        /// Deprecated: never sent by the server (the token goes to the invitee); always empty.
+        pub token: String, pub expires_at: String, pub created_at: String,
         /// User id of the member who sent the invite.
-        pub invited_by: String, pub expires_at: String, pub created_at: String,
+        pub invited_by: String,
     }
 }
 model! {
     /// Team API key metadata.
     pub struct TeamKey {
+        pub id: String,
         /// Key prefix (server `prefix`; legacy `keyPrefix` accepted).
-        #[serde(alias = "keyPrefix")] pub prefix: String,
-        pub id: String, pub label: String, pub user_id: String, pub team_id: String,
-        pub created_at: String, pub revoked_at: Option<String>,
+        #[serde(rename(serialize = "keyPrefix", deserialize = "prefix"), alias = "keyPrefix")] pub key_prefix: String,
+        pub label: String, pub created_at: String,
+        pub user_id: String, pub team_id: String, pub revoked_at: Option<String>,
     }
 }
 /// Newly created team key; `key` is returned once.
@@ -228,8 +231,8 @@ pub struct TeamKeyCreated {
     #[serde(default)]
     pub id: String,
     /// Prefix (server `prefix`; legacy `keyPrefix` accepted).
-    #[serde(default, alias = "keyPrefix")]
-    pub prefix: String,
+    #[serde(default, rename(serialize = "keyPrefix", deserialize = "prefix"), alias = "keyPrefix")]
+    pub key_prefix: String,
     /// Creation time.
     #[serde(default)]
     pub created_at: String,
@@ -540,5 +543,25 @@ model! {
 // ---- proxy
 model! {
     /// `GET /api/proxy/health` (the server returns only the gateway status).
-    pub struct ProxyHealth { pub status: String }
+    pub struct ProxyHealth {
+        pub status: String,
+        /// Deprecated: never sent by the server; always 0.
+        pub active_sessions: i64,
+        /// Deprecated: never sent by the server; always 0.
+        pub uptime_seconds: f64,
+    }
+}
+
+impl TeamKey {
+    /// The key prefix (same as `key_prefix`).
+    pub fn prefix(&self) -> &str {
+        &self.key_prefix
+    }
+}
+
+impl TeamKeyCreated {
+    /// The key prefix (same as `key_prefix`).
+    pub fn prefix(&self) -> &str {
+        &self.key_prefix
+    }
 }
