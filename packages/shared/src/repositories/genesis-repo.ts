@@ -8,8 +8,11 @@ import { getOwnerTier } from "./tier-repo.js";
  *
  * Enrolment (daily job): the first max_owners node owners by their first paid,
  * non-self-dealing relay charge (node_musd > 0, which already excludes
- * self-dealing and quarantined traffic). Owners of operator-run seed nodes and
- * admin principals never take a slot.
+ * self-dealing and quarantined traffic). An owner qualifies only once its nodes
+ * carried matured paid traffic from at least min_distinct_payers distinct paying
+ * principals, excluding linked principals (shared team, circular flow, or the
+ * requester wallet being one of the owner's node wallets) and starter-credit
+ * traffic. Owners of operator-run seed nodes and admin principals never take a slot.
  *
  * Benefit A: +bonus_bps share until boost_until (tier-repo getChargeSnapshot,
  * capped at 5000, snapshotted in relay_charges.genesis_bonus_bps).
@@ -29,32 +32,57 @@ export interface GenesisSettings {
   boostDays: number;
   creditMusd: bigint;
   creditThresholdBytes: bigint;
+  minDistinctPayers: number;
   updatedBy: string | null;
   updatedAt: Date | null;
 }
 
 interface Row {
   enabled: boolean; max_owners: number; bonus_bps: number; boost_days: number; credit_musd: string;
-  credit_threshold_bytes: string; updated_by: string | null; updated_at: Date | null;
+  credit_threshold_bytes: string; min_distinct_payers: number; updated_by: string | null; updated_at: Date | null;
 }
 
 export const DEFAULT_GENESIS_SETTINGS: GenesisSettings = {
   enabled: true, maxOwners: 200, bonusBps: 500, boostDays: 90, creditMusd: 5_000_000n,
-  creditThresholdBytes: 5_000_000_000n, updatedBy: null, updatedAt: null,
+  creditThresholdBytes: 5_000_000_000n, minDistinctPayers: 3, updatedBy: null, updatedAt: null,
 };
 
 export async function getSettings(client?: TxClient): Promise<GenesisSettings> {
   const sql = `SELECT enabled, max_owners, bonus_bps, boost_days, credit_musd::text AS credit_musd,
-    credit_threshold_bytes::text AS credit_threshold_bytes, updated_by, updated_at FROM genesis_settings WHERE id = 1`;
+    credit_threshold_bytes::text AS credit_threshold_bytes, min_distinct_payers, updated_by, updated_at FROM genesis_settings WHERE id = 1`;
   const r = client ? await client.query<Row>(sql) : await query<Row>(sql);
   const x = r.rows[0];
   if (!x) return { ...DEFAULT_GENESIS_SETTINGS };
   return {
     enabled: x.enabled, maxOwners: x.max_owners, bonusBps: x.bonus_bps, boostDays: x.boost_days,
     creditMusd: BigInt(x.credit_musd), creditThresholdBytes: BigInt(x.credit_threshold_bytes),
+    minDistinctPayers: x.min_distinct_payers ?? DEFAULT_GENESIS_SETTINGS.minDistinctPayers,
     updatedBy: x.updated_by, updatedAt: x.updated_at,
   };
 }
+
+/**
+ * Owners whose nodes carried matured, undisputed, paid (node_musd > 0, no
+ * starter credit) traffic from at least $4 distinct requesters that are not
+ * linked to the owner. Linked = same principal, a shared team, a circular flow
+ * (the owner paid the requester's nodes), or the requester's wallet identity is
+ * one of the owner's node wallets.
+ */
+export const QUALIFIED_OWNERS_SQL = `
+  SELECT q.node_owner_user_id FROM relay_charges q
+  LEFT JOIN users ru ON ru.id = q.requester_user_id
+  WHERE q.matured AND NOT q.disputed AND q.node_musd > 0 AND q.starter_musd = 0
+    AND q.requester_user_id IS NOT NULL AND q.node_owner_user_id IS NOT NULL
+    AND q.requester_user_id <> q.node_owner_user_id
+    AND NOT EXISTS (SELECT 1 FROM team_members a JOIN team_members b ON b.team_id = a.team_id
+                    WHERE a.user_id = q.requester_user_id AND b.user_id = q.node_owner_user_id)
+    AND NOT EXISTS (SELECT 1 FROM relay_charges back
+                    WHERE back.requester_user_id = q.node_owner_user_id AND back.node_owner_user_id = q.requester_user_id
+                      AND back.gross_musd > 0 AND NOT back.disputed)
+    AND NOT EXISTS (SELECT 1 FROM nodes ow WHERE ow.owner_user_id = q.node_owner_user_id
+                      AND ru.wallet_address IS NOT NULL AND lower(ow.owner_wallet) = lower(ru.wallet_address))
+  GROUP BY q.node_owner_user_id
+  HAVING COUNT(DISTINCT q.requester_user_id) >= $4::int`;
 
 /** Enrol up to the remaining cohort slots, in first-paid-charge order. Returns how many joined. */
 export async function enrolTx(c: TxClient): Promise<number> {
@@ -75,13 +103,14 @@ export async function enrolTx(c: TxClient): Promise<number> {
          AND rc.requester_user_id IS DISTINCT FROM rc.node_owner_user_id
          AND NOT EXISTS (SELECT 1 FROM genesis_members g WHERE g.owner_user_id = rc.node_owner_user_id)
          AND NOT EXISTS (SELECT 1 FROM nodes n WHERE n.owner_user_id = rc.node_owner_user_id AND n.operator_run)
+         AND rc.node_owner_user_id IN (${QUALIFIED_OWNERS_SQL})
        GROUP BY rc.node_owner_user_id
        ORDER BY MIN(rc.created_at), rc.node_owner_user_id
        LIMIT $1
      ) x
      ON CONFLICT (owner_user_id) DO NOTHING
      RETURNING owner_user_id`,
-    [slots, s.boostDays, Number(n.rows[0]?.max_seq ?? 0)],
+    [slots, s.boostDays, Number(n.rows[0]?.max_seq ?? 0), s.minDistinctPayers],
   );
   return r.rows.length;
 }

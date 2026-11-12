@@ -65,7 +65,78 @@ const PAYAI_NETWORKS = new Set([
 
 export interface X402Requirements {
   version: string;
+  /** Spec field name for the protocol version (x402 v1 PaymentRequired). */
+  x402Version?: 1;
   accepts: X402PaymentOption[];
+  /** v2-style resource info + Bazaar discovery extension (ignored by v1 clients). */
+  resource?: { url: string; description: string; mimeType: string };
+  extensions?: { bazaar: BazaarExtension };
+}
+
+/**
+ * x402 Bazaar discovery metadata (docs/agent-network/PAYMENTS.md "Bazaar").
+ * v1: accepts[].description / mimeType / outputSchema{input{discoverable}, output};
+ * v2: resource{url,description,mimeType} + extensions.bazaar{info, schema}.
+ */
+export interface BazaarExtension {
+  info: {
+    input: { type: "http"; method: "GET"; queryParams: Record<string, string>; headers: Record<string, string> };
+    output: { type: "json"; example: Record<string, unknown> };
+  };
+  schema: Record<string, unknown>;
+}
+
+/** Bazaar/CDP reject descriptions over 500 characters. */
+export const X402_RESOURCE_DESCRIPTION =
+  "Dominus Node relay gateway: pay-per-request HTTPS egress through agent-run residential, mobile or datacenter exit nodes. " +
+  "Send any GET/HEAD through the proxy (HTTP :8080 or SOCKS5 :1080) with an X-PAYMENT header; one payment buys a fixed byte allowance. " +
+  "Proxy username flags: country-XX, class-residential|dc|mobile, session-<id>. HTTPS stays end-to-end TLS.";
+
+const OUTPUT_EXAMPLE = { status: 200, note: "Upstream response relayed byte-for-byte through the exit node; 402 JSON with payment requirements when unpaid." };
+
+export function bazaarExtension(): BazaarExtension {
+  return {
+    info: {
+      input: {
+        type: "http", method: "GET",
+        queryParams: {},
+        headers: { "Proxy-Authorization": "Basic base64(country-US-class-residential:)", "X-PAYMENT": "<x402 payment payload>" },
+      },
+      output: { type: "json", example: OUTPUT_EXAMPLE },
+    },
+    schema: {
+      $schema: "https://json-schema.org/draft/2020-12/schema",
+      type: "object",
+      properties: {
+        input: {
+          type: "object",
+          properties: {
+            type: { const: "http" },
+            method: { enum: ["GET", "HEAD"] },
+            queryParams: { type: "object" },
+            headers: { type: "object" },
+          },
+          required: ["type", "method"],
+        },
+        output: { type: "object", properties: { type: { const: "json" }, example: { type: "object" } }, required: ["type"] },
+      },
+      required: ["input"],
+    },
+  };
+}
+
+/** v1 outputSchema (Bazaar indexes resources whose input is marked discoverable). */
+function v1OutputSchema() {
+  return {
+    input: {
+      type: "http", method: "GET", discoverable: true,
+      headerFields: {
+        "Proxy-Authorization": { type: "string", required: false, description: "Basic auth; username carries flags country-XX, class-residential|dc|mobile, session-<id>; empty password" },
+        "X-PAYMENT": { type: "string", required: true, description: "x402 payment payload" },
+      },
+    },
+    output: { type: "object", description: "Upstream response relayed through an exit node", example: OUTPUT_EXAMPLE },
+  };
 }
 
 export interface X402PaymentOption {
@@ -80,6 +151,11 @@ export interface X402PaymentOption {
     name: string;          // Token symbol, e.g. "USDC"
     version: string;       // EIP-3009 authorization version: "2" for EVM, "1" for Solana
   };
+  /** Bazaar discovery metadata (v1 PaymentRequirements fields). */
+  description?: string;
+  mimeType?: string;
+  maxTimeoutSeconds?: number;
+  outputSchema?: Record<string, unknown>;
 }
 
 export interface X402VerifyResult {
@@ -278,7 +354,14 @@ export function buildX402Requirements(arg: "dc" | "residential" | { amountMusd: 
     log.error("x402 is enabled but no valid receiving addresses configured");
   }
 
-  return { version: "1", accepts };
+  const discovery = { description: X402_RESOURCE_DESCRIPTION, mimeType: "application/json", maxTimeoutSeconds: 60, outputSchema: v1OutputSchema() };
+  return {
+    version: "1",
+    x402Version: 1,
+    accepts: accepts.map((a) => ({ ...a, ...discovery })),
+    resource: { url: resourceUrl, description: X402_RESOURCE_DESCRIPTION, mimeType: "application/json" },
+    extensions: { bazaar: bazaarExtension() },
+  };
 }
 
 // ─── Replay Protection ──────────────────────────────────────────────

@@ -147,6 +147,23 @@ describe("buildX402Requirements", () => {
     expect(req.accepts[1].network).toBe("solana");
   });
 
+  it("carries x402 Bazaar discovery metadata (v1 outputSchema + v2 extensions.bazaar)", () => {
+    process.env["X402_RECEIVING_ADDRESS"] = "0x1234567890abcdef1234567890abcdef12345678";
+    const req = buildX402Requirements({ amountMusd: 5000n });
+    expect(req.x402Version).toBe(1);
+    const a = req.accepts[0];
+    expect(a.description!.length).toBeGreaterThan(20);
+    expect(a.description!.length).toBeLessThanOrEqual(500);
+    expect(a.mimeType).toBe("application/json");
+    expect(a.maxTimeoutSeconds).toBe(60);
+    expect(a.outputSchema).toMatchObject({ input: { type: "http", method: "GET", discoverable: true }, output: { type: "object" } });
+    expect(req.resource).toMatchObject({ url: a.resource, mimeType: "application/json" });
+    expect(req.extensions?.bazaar.info.input).toMatchObject({ type: "http", method: "GET" });
+    expect(req.extensions?.bazaar.info.output.type).toBe("json");
+    expect(req.extensions?.bazaar.schema).toMatchObject({ type: "object", required: ["input"] });
+    expect(JSON.stringify(req)).not.toMatch(/dn_live_|dn_node_/);
+  });
+
   it("builds requirements for residential pool with higher price", () => {
     process.env["X402_RECEIVING_ADDRESS"] = "0x1234567890abcdef1234567890abcdef12345678";
     process.env["X402_RES_PRICE_PER_REQUEST_USD"] = "0.005";

@@ -122,6 +122,55 @@ describe("genesis + buyer discount admin", () => {
   });
 });
 
+describe("launch-gap settings", () => {
+  it("starter funding precondition and genesis payer threshold are admin-tunable and validated", async () => {
+    m.poolQuery.mockResolvedValue({ rows: [{ ...SETTINGS_ROW, enabled: true }] });
+    tx();
+    expect((await call(app(), "PUT", `${BASE}/starter-credits/settings`, { body: { requireFunding: "no" } })).status).toBe(400);
+    expect((await call(app(), "PUT", `${BASE}/starter-credits/settings`, { body: { minTopupCents: 0 } })).status).toBe(400);
+    const r = await call(app(), "PUT", `${BASE}/starter-credits/settings`, { body: { requireFunding: false, minTopupCents: 200 } });
+    expect(r.status).toBe(200);
+    expect(r.body).toHaveProperty("requireFunding");
+    expect(r.body).toHaveProperty("rpcConfigured");
+    const upd = m.clientQuery.mock.calls.find((c) => String(c[0]).startsWith("UPDATE starter_credit_settings"));
+    expect(String(upd?.[0])).toContain("require_funding");
+    expect(upd?.[1]).toEqual([false, 200, "44444444-4444-4444-8444-444444444444"]);
+
+    m.clientQuery.mockClear();
+    expect((await call(app(), "PUT", `${BASE}/genesis/settings`, { body: { minDistinctPayers: 0 } })).status).toBe(400);
+    const g = await call(app(), "PUT", `${BASE}/genesis/settings`, { body: { minDistinctPayers: 5 } });
+    expect(g.status).toBe(200);
+    expect(g.body).toMatchObject({ minDistinctPayers: 3 });
+    expect(txSqls().find((s) => s.startsWith("UPDATE genesis_settings"))).toContain("min_distinct_payers");
+  });
+});
+
+describe("announcements admin", () => {
+  it("creates, edits and deletes with validation and audit", async () => {
+    tx((sql) => (/INSERT INTO network_announcements|UPDATE network_announcements|DELETE FROM network_announcements/.test(sql) ? { rows: [{ id: NODE }] } : undefined));
+    expect((await call(app(), "POST", `${BASE}/announcements`, { body: { body: "no title" } })).status).toBe(400);
+    expect((await call(app(), "POST", `${BASE}/announcements`, { body: { title: "x", category: "gossip" } })).status).toBe(400);
+    expect((await call(app(), "POST", `${BASE}/announcements`, { body: { title: "x", url: "http://insecure.example" } })).status).toBe(400);
+    expect((await call(app(), "POST", `${BASE}/announcements`, { body: { title: "x", extra: 1 } })).status).toBe(400);
+    const r = await call(app(), "POST", `${BASE}/announcements`, { body: { title: "Residential price change", category: "pricing", url: "https://example.com/n/1" } });
+    expect(r.status).toBe(201);
+    expect(r.body).toMatchObject({ id: NODE, category: "pricing", published: true });
+    expect((await call(app(), "PATCH", `${BASE}/announcements/${NODE}`, { body: {} })).status).toBe(400);
+    expect((await call(app(), "PATCH", `${BASE}/announcements/${NODE}`, { body: { published: false } })).status).toBe(200);
+    expect(txSqls().find((s) => s.startsWith("UPDATE network_announcements"))).toContain("published = $2");
+    expect((await call(app(), "DELETE", `${BASE}/announcements/${NODE}`)).status).toBe(200);
+    expect(txSqls().filter((s) => s.includes("INSERT INTO audit_events")).length).toBe(3);
+  });
+
+  it("lists all announcements including drafts", async () => {
+    m.poolQuery.mockImplementation(async (sql: string) => sql.includes("COUNT(*)") ? { rows: [{ count: "1" }] }
+      : { rows: [{ id: NODE, title: "t", body: "", category: "news", url: null, published: false, published_at: new Date(), updated_at: new Date() }] });
+    const r = await call(app(), "GET", `${BASE}/announcements`);
+    expect(r.status).toBe(200);
+    expect(r.body).toMatchObject({ total: 1, items: [{ id: NODE, published: false }] });
+  });
+});
+
 describe("incidents + unmet demand admin", () => {
   it("creates an incident with validation and audit; resolving sets resolved_at", async () => {
     tx((sql) => (sql.includes("INSERT INTO network_incidents") ? { rows: [{ id: NODE }] } : sql.includes("UPDATE network_incidents") ? { rows: [{ id: NODE }] } : undefined));

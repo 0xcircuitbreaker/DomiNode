@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useApi } from "../../hooks/useApi";
-import { launchApi, type AbuseReport, type GenesisSettings, type Incident, type StarterSettings } from "../../api/admin";
+import { launchApi, type AbuseReport, type Announcement, type GenesisSettings, type Incident, type StarterSettings } from "../../api/admin";
 import { fmtBps, fmtBytes, fmtDate, fmtMoney, shortId } from "../../lib/format";
 import { Badge, Card, ConfirmDialog, DataTable, ErrorBox, Field, Kpi, Loading, Mono, Notice, PageHeader, SelectFilter } from "../components/ui";
 
@@ -110,6 +110,8 @@ const STARTER_FIELDS: FieldDef[] = [
   { key: "expiryDays", label: "Expiry (days)", kind: "int" },
   { key: "seedNodesOnly", label: "Route starter traffic to seed nodes only", kind: "bool" },
   { key: "seedOnlyDays", label: "Seed-only period (days)", kind: "int" },
+  { key: "requireFunding", label: "Require prior Base tx or paid top-up", kind: "bool" },
+  { key: "minTopupCents", label: "Minimum qualifying top-up (cents)", kind: "int" },
 ];
 
 export function starterCurrent(s: StarterSettings): Record<string, string | boolean> {
@@ -117,6 +119,7 @@ export function starterCurrent(s: StarterSettings): Record<string, string | bool
     enabled: s.enabled, amountUsd: s.amount.usd.replace(/0+$/, "").replace(/\.$/, ""), dailyBudgetUsd: s.dailyBudget.usd.replace(/0+$/, "").replace(/\.$/, ""),
     perPrefixCap: String(s.perPrefixCap), perFundingSourceCap: String(s.perFundingSourceCap), capWindowDays: String(s.capWindowDays),
     expiryDays: String(s.expiryDays), seedNodesOnly: s.seedNodesOnly, seedOnlyDays: String(s.seedOnlyDays),
+    requireFunding: s.requireFunding ?? true, minTopupCents: String(s.minTopupCents ?? 100),
   };
 }
 
@@ -133,6 +136,9 @@ function StarterCard({ onMsg }: { onMsg: (m: string) => void }) {
           <p className="mb-3 text-xs text-slate-500 dark:text-slate-400">
             Granted today: {s.data.grantedToday?.count ?? 0} ({fmtMoney(s.data.grantedToday?.amount)}). Credits are non-withdrawable, expire, and never count toward tiers.
           </p>
+          {s.data.requireFunding !== false && s.data.rpcConfigured === false && (
+            <Notice tone="warn">STARTER_CREDIT_RPC_URL is not set (or not https): the on-chain check fails closed, so only paid top-ups qualify.</Notice>
+          )}
           <SettingsForm fields={STARTER_FIELDS} current={starterCurrent(s.data)} onSave={async (p) => {
             await launchApi.updateStarterSettings(p); s.refetch(); onMsg("Starter credit settings saved.");
           }} />
@@ -166,12 +172,14 @@ const GENESIS_FIELDS: FieldDef[] = [
   { key: "boostDays", label: "Boost length (days)", kind: "int" },
   { key: "creditUsd", label: "One-time credit (USD)", kind: "usd" },
   { key: "creditThresholdBytes", label: "Credit after matured paid bytes", kind: "digits" },
+  { key: "minDistinctPayers", label: "Distinct unlinked paying principals to enter", kind: "int" },
 ];
 
 export function genesisCurrent(g: GenesisSettings): Record<string, string | boolean> {
   return {
     enabled: g.enabled, maxOwners: String(g.maxOwners), bonusBps: String(g.bonusBps), boostDays: String(g.boostDays),
     creditUsd: g.credit.usd.replace(/0+$/, "").replace(/\.$/, ""), creditThresholdBytes: g.creditThresholdBytes,
+    minDistinctPayers: String(g.minDistinctPayers ?? 3),
   };
 }
 
@@ -237,6 +245,62 @@ function IncidentsCard({ onMsg }: { onMsg: (m: string) => void }) {
             </span>
           ) },
         ]} />
+    </Card>
+  );
+}
+
+const ANN_CATEGORIES = ["news", "policy", "pricing", "payments", "api", "network"];
+
+function AnnouncementsCard({ onMsg }: { onMsg: (m: string) => void }) {
+  const list = useApi(() => launchApi.announcements({ limit: 50 }));
+  const [title, setTitle] = useState("");
+  const [text, setText] = useState("");
+  const [url, setUrl] = useState("");
+  const [category, setCategory] = useState("news");
+  const [err, setErr] = useState<string | null>(null);
+  const [remove, setRemove] = useState<string | null>(null);
+  const toggle = async (a: Announcement) => {
+    try { await launchApi.updateAnnouncement(a.id, { published: !a.published }); list.refetch(); onMsg(a.published ? "Announcement unpublished." : "Announcement published."); }
+    catch (e) { setErr(errText(e)); }
+  };
+  return (
+    <Card title="Announcements (GET /v1/announcements)">
+      <ErrorBox error={list.error ?? err} />
+      <p className="mb-3 text-xs text-slate-500 dark:text-slate-400">Public feed agents poll for policy, pricing, payment and API changes. Linked from llms.txt and the discovery document.</p>
+      <form className="mb-3 space-y-2" onSubmit={async (e) => {
+        e.preventDefault();
+        if (!title.trim()) { setErr("Title required"); return; }
+        if (url.trim() && !/^https:\/\/\S+$/.test(url.trim())) { setErr("Link must be an https URL"); return; }
+        try {
+          setErr(null);
+          await launchApi.createAnnouncement({ title: title.trim(), body: text, category, ...(url.trim() ? { url: url.trim() } : {}) });
+          setTitle(""); setText(""); setUrl(""); list.refetch(); onMsg("Announcement published.");
+        } catch (x) { setErr(errText(x)); }
+      }}>
+        <div className="flex flex-wrap items-end gap-2">
+          <Field label="Announcement title" className="min-w-64 flex-1">{(id) => <input id={id} className="input" maxLength={200} value={title} onChange={(e) => setTitle(e.target.value)} />}</Field>
+          <SelectFilter label="Category" value={category} onChange={setCategory} options={ANN_CATEGORIES} allLabel={null} />
+          <Field label="Link (https, optional)" className="min-w-48">{(id) => <input id={id} className="input" maxLength={500} value={url} onChange={(e) => setUrl(e.target.value)} />}</Field>
+        </div>
+        <Field label="Announcement body">{(id) => <textarea id={id} className="input" rows={3} maxLength={10000} value={text} onChange={(e) => setText(e.target.value)} />}</Field>
+        <button type="submit" className="btn-primary">Publish announcement</button>
+      </form>
+      <DataTable caption="Announcements" rowKey={(a) => a.id} rows={list.data?.items ?? []} empty="No announcements"
+        columns={[
+          { key: "t", header: "Title", render: (a) => a.title },
+          { key: "c", header: "Category", render: (a) => <Badge>{a.category}</Badge> },
+          { key: "p", header: "State", render: (a) => <Badge>{a.published ? "published" : "draft"}</Badge> },
+          { key: "d", header: "Published", render: (a) => fmtDate(a.publishedAt) },
+          { key: "x", header: <span className="sr-only">Actions</span>, render: (a) => (
+            <span className="flex gap-1">
+              <button type="button" className="btn-secondary !py-1 text-xs" onClick={() => void toggle(a)}>{a.published ? "Unpublish" : "Publish"}</button>
+              <button type="button" className="btn-secondary !py-1 text-xs" onClick={() => setRemove(a.id)}>Delete</button>
+            </span>
+          ) },
+        ]} />
+      <ConfirmDialog open={remove !== null} title="Delete announcement" confirmLabel="Delete" danger
+        onClose={() => setRemove(null)}
+        onConfirm={async () => { await launchApi.deleteAnnouncement(remove!); setRemove(null); list.refetch(); onMsg("Announcement deleted."); }} />
     </Card>
   );
 }
@@ -326,7 +390,7 @@ export default function LaunchPage() {
   const [msg, setMsg] = useState<string | null>(null);
   return (
     <div>
-      <PageHeader title="Launch controls" subtitle="Seed nodes, starter credits, genesis boost, status incidents, unmet demand, abuse reports and the contribution allowlist. Changes are audited." />
+      <PageHeader title="Launch controls" subtitle="Seed nodes, starter credits, genesis boost, status incidents, announcements, unmet demand, abuse reports and the contribution allowlist. Changes are audited." />
       {msg && <Notice tone="good">{msg}</Notice>}
       <div className="space-y-4">
         <SeedCard onMsg={setMsg} />
@@ -335,6 +399,7 @@ export default function LaunchPage() {
           <GenesisCard onMsg={setMsg} />
         </div>
         <IncidentsCard onMsg={setMsg} />
+        <AnnouncementsCard onMsg={setMsg} />
         <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
           <UnmetCard />
           <AllowlistCard onMsg={setMsg} />

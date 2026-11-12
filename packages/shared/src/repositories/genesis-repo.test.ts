@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 vi.mock("../db.js", () => ({ query: vi.fn(), getPool: () => ({ connect: vi.fn() }) }));
 import { enrolTx, clawbackCreditTx } from "./genesis-repo.js";
 
-const SETTINGS = { enabled: true, max_owners: 200, bonus_bps: 500, boost_days: 90, credit_musd: "5000000", credit_threshold_bytes: "5000000000", updated_by: null, updated_at: null };
+const SETTINGS = { enabled: true, max_owners: 200, bonus_bps: 500, boost_days: 90, credit_musd: "5000000", credit_threshold_bytes: "5000000000", min_distinct_payers: 3, updated_by: null, updated_at: null };
 
 function client(o: { settings?: Partial<typeof SETTINGS>; members?: number } = {}) {
   const calls: Array<{ sql: string; p: unknown[] }> = [];
@@ -24,11 +24,24 @@ describe("genesis enrolment", () => {
     expect(await enrolTx(c)).toBe(1);
     expect(calls[0].sql).toContain("pg_advisory_xact_lock");
     const ins = calls.find((x) => x.sql.includes("INSERT INTO genesis_members"))!;
-    expect(ins.p).toEqual([50, 90, 150]);
+    expect(ins.p).toEqual([50, 90, 150, 3]);
+    // Payer diversity: >= N distinct, unlinked, matured paying principals.
+    expect(ins.sql).toContain("COUNT(DISTINCT q.requester_user_id) >= $4::int");
+    expect(ins.sql).toContain("q.matured");
+    expect(ins.sql).toContain("q.starter_musd = 0");
+    expect(ins.sql).toContain("team_members a JOIN team_members b");
+    expect(ins.sql).toContain("back.requester_user_id = q.node_owner_user_id");
+    expect(ins.sql).toContain("lower(ow.owner_wallet) = lower(ru.wallet_address)");
     expect(ins.sql).toContain("n.operator_run");
     expect(ins.sql).toContain("NOT u.is_admin");
     expect(ins.sql).toContain("rc.node_musd > 0");
     expect(ins.sql).toContain("requester_user_id IS DISTINCT FROM rc.node_owner_user_id");
+  });
+
+  it("passes the admin-tuned payer threshold", async () => {
+    const { c, calls } = client({ settings: { min_distinct_payers: 7 } });
+    await enrolTx(c);
+    expect(calls.find((x) => x.sql.includes("INSERT INTO genesis_members"))!.p[3]).toBe(7);
   });
 
   it("does nothing when full or disabled", async () => {

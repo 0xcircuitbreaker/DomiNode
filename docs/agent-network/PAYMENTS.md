@@ -64,3 +64,29 @@ Sources (checked 2026-11-06):
 - **Atomic creation.** The user and the identity row are created in one statement, and concurrent creates collapse on the deterministic email.
 - **Self-dealing.** The selector excludes the payer's own user id. At settle time, the charge counts as self-dealing if the payer identity belongs to the node owner.
 - **Case.** Solana addresses are case-sensitive and are never lowercased.
+
+## x402 Bazaar discovery
+
+Catalogs such as the Coinbase CDP x402 Bazaar (and Agentic.Market, which is built on it) index a resource once a payment for it has settled through a facilitator that carries discovery metadata. `buildX402Requirements` (`billing/src/x402.ts`) therefore adds, to every 402 the gateway returns and to the `paymentRequirements` sent on settle:
+
+| Where | Field | Value |
+|---|---|---|
+| each `accepts[]` entry (x402 v1) | `description` | `X402_RESOURCE_DESCRIPTION` (≤500 chars; the CDP facilitator rejects verify/settle with longer descriptions) |
+| | `mimeType` | `application/json` |
+| | `maxTimeoutSeconds` | 60 |
+| | `outputSchema` | `{ input: { type: "http", method: "GET", discoverable: true, headerFields }, output: { type, example } }` (v1 discovery location) |
+| top level | `x402Version` | `1` |
+| top level (v2 shape) | `resource` | `{ url, description, mimeType }` |
+| | `extensions.bazaar` | `{ info: { input: { type: "http", method: "GET", queryParams, headers }, output: { type: "json", example } }, schema }` (JSON Schema that validates `info`) |
+
+`GET /api/x402/info` publishes the same `resource` and `extensions.bazaar` under `discovery`, with `discoverable: true`.
+
+The gateway is a proxy rather than a single URL, so the declared input is a GET with the `Proxy-Authorization` flags and `X-PAYMENT` header; the output example describes the relayed response.
+
+Before launch: settle one test payment through the CDP facilitator, run the CDP validate endpoint against the gateway resource, then confirm the listing appears (LAUNCH_PLAN §8 item 8). Optional `resource.iconUrl` (JPG/PNG/WebP/GIF, not SVG) is not set yet.
+
+Sources (checked 2026-11-12):
+- Coinbase CDP, "Get discovered" (seller guide): https://docs.cdp.coinbase.com/x402/seller/get-discovered. Covers `extensions.bazaar`, the ≤500-character description limit, `resource.iconUrl`, input examples validated against `schema.properties.input`, and that settle must carry `paymentPayload.extensions.bazaar` and `paymentPayload.resource`.
+- x402 Bazaar extension spec: https://github.com/coinbase/x402/blob/main/specs/extensions/bazaar.md. Covers `extensions.bazaar.{info,schema}`, `info.input` (`type: "http"`, `method`, `queryParams`), `info.output` (`type` required, `example`), the v2 `resource.{url,description,mimeType}`, and v1 discovery through `accepts[0].outputSchema`.
+- Coinbase CDP validate endpoint: https://docs.cdp.coinbase.com/x402/validate-endpoint
+- Coinbase CDP Bazaar (discovery API): https://docs.cdp.coinbase.com/x402/bazaar

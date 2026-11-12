@@ -425,14 +425,14 @@ All mutations re-check the admin role `FOR UPDATE` in one transaction and write 
 | Endpoint | Notes |
 |---|---|
 | `GET /starter-credits/settings` | Settings plus `grantedToday {count, amount}`. |
-| `PUT /starter-credits/settings` | `enabled`, `amountMusd` (whole cents, 10000–100000000), `dailyBudgetMusd`, `perPrefixCap`, `perFundingSourceCap` (0–1000), `capWindowDays` (1–3650), `expiryDays` (1–365), `seedNodesOnly`, `seedOnlyDays` (0–365) (`starter_credit_settings_update`). |
+| `PUT /starter-credits/settings` | `enabled`, `amountMusd` (whole cents, 10000–100000000), `dailyBudgetMusd`, `perPrefixCap`, `perFundingSourceCap` (0–1000), `capWindowDays` (1–3650), `expiryDays` (1–365), `seedNodesOnly`, `seedOnlyDays` (0–365), `requireFunding` (prior Base tx or paid top-up), `minTopupCents` (1–100000) (`starter_credit_settings_update`). GET also returns `rpcConfigured`. |
 | `GET /starter-credits/grants?status=&userId=&limit=&offset=` | Grants with remaining amount, /24 prefix and expiry. |
 | `POST /starter-credits/grants/:id/revoke {reason}` | Closes an active grant and removes the unused remainder from the wallet, never below 0 (`starter_credit_revoke`). |
 
 ### Genesis boost and buyer discounts
 | Endpoint | Notes |
 |---|---|
-| `GET /genesis/settings` / `PUT /genesis/settings` | `enabled`, `maxOwners` (0–100000), `bonusBps` (0–5000), `boostDays` (1–3650), `creditMusd` (0–1e9), `creditThresholdBytes` (`genesis_settings_update`). |
+| `GET /genesis/settings` / `PUT /genesis/settings` | `enabled`, `maxOwners` (0–100000), `bonusBps` (0–5000), `boostDays` (1–3650), `creditMusd` (0–1e9), `creditThresholdBytes`, `minDistinctPayers` (1–1000, default 3: distinct unlinked paying principals required to enter the cohort) (`genesis_settings_update`). |
 | `GET /genesis/members?limit=&offset=` | Cohort in enrolment order with `boostUntil`, `creditStatus` (`pending|held|matured|clawed_back`) and qualifying matured bytes. |
 | `POST /genesis/members/:userId/clawback {reason}` | Claws back a still-held genesis credit from pending (`genesis_credit_clawback`). |
 | `GET /buyer-discounts/settings` / `PUT /buyer-discounts/settings` | `enabled`, `minPlatformMarginBps` (0–10000, default 2500) (`buyer_discount_settings_update`). |
@@ -440,6 +440,7 @@ All mutations re-check the admin role `FOR UPDATE` in one transaction and write 
 ### Status, demand, abuse, contribution
 | Endpoint | Notes |
 |---|---|
+| `GET /announcements` / `POST /announcements {title, body?, category?, url?, published?, publishedAt?}` / `PATCH /announcements/:id` / `DELETE /announcements/:id` | Agent news feed. `category ∈ policy|pricing|payments|api|network|news`, `url` https only; drafts (`published: false`) stay private (`announcement_create`, `announcement_update`, `announcement_delete`). Public at `/v1/announcements`. |
 | `GET /incidents` / `POST /incidents {title, body?, severity, status?, startedAt?}` / `PATCH /incidents/:id` | `severity ∈ minor|major|critical|maintenance`, `status ∈ investigating|identified|monitoring|resolved`; `resolved` stamps `resolved_at` (`network_incident_create`, `network_incident_update`). Public at `/v1/network/incidents` and `/status`. |
 | `GET /unmet-demand?days=7` | `{groups: [{country, ipClass, requests, lastHour}], daily: [{day, requests}]}`; `null` country/class means "any". No requester ids or hosts exist in the table. |
 | `GET /abuse-reports?status=` | Public reports with `matches {sessions, requesters}`: counts of metadata-only `relay_abuse_log` rows for the same host inside the window. Look the requesters up with `GET /abuse-log` (itself audited). |

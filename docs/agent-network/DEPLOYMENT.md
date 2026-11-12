@@ -231,6 +231,8 @@ After the first registration, flag the node: admin panel → Launch controls →
 
 | Env var | Default | Meaning |
 |---|---|---|
+| `STARTER_CREDIT_RPC_URL` | unset | Base JSON-RPC (https only) for the starter-credit on-chain check; unset = only paid top-ups qualify |
+| `STARTER_CREDIT_RPC_TIMEOUT_MS` | 3000 | Timeout for that RPC call (250–15000) |
 | `STARTER_EXPIRY_JOB_INTERVAL_MS` | 3600000 | Starter-credit expiry job |
 | `GENESIS_JOB_INTERVAL_MS` | 3600000 | Genesis enrolment, credit grant and maturity |
 | `NETWORK_SNAPSHOT_INTERVAL_MS` | 3600000 | Hourly public network snapshot |

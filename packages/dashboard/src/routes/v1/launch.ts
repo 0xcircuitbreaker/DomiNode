@@ -233,6 +233,9 @@ router.get("/starter-credits", requireAgentPrincipal, async (req: Request, res: 
         seedOnlyDays: s.seedOnlyDays,
         withdrawable: false,
         countsTowardTiers: false,
+        eligibility: s.requireFunding
+          ? `wallet sign-in, and either >=1 prior on-chain transaction on Base or a paid top-up of at least $${(s.minTopupCents / 100).toFixed(2)}; claim with POST /v1/starter-credits/claim`
+          : "wallet sign-in",
       },
       grant: g
         ? {
@@ -244,6 +247,80 @@ router.get("/starter-credits", requireAgentPrincipal, async (req: Request, res: 
   } catch (err) {
     log.error("starter credits lookup failed", { error: err instanceof Error ? err.message : String(err) });
     res.status(500).json({ error: "Failed to load starter credits" });
+  }
+});
+
+const claimLimiter = createKeyedLimiter(5, 60 * 60_000);
+
+// POST /v1/starter-credits/claim — try the one-time grant again (e.g. after a top-up). Idempotent.
+router.post("/starter-credits/claim", requireAgentPrincipal, async (req: Request, res: Response) => {
+  const agent = (req as AgentRequest).agent;
+  if (!claimLimiter.hit(agent.userId)) {
+    res.status(429).json({ error: "Too many requests", code: "RATE_LIMITED" });
+    return;
+  }
+  if (!agent.walletAddress) {
+    res.status(403).json({ error: "Starter credits need a wallet identity (wallet sign-in)", code: "NO_WALLET_IDENTITY" });
+    return;
+  }
+  try {
+    const g = await starterCreditRepo.grantStarterCredit({ userId: agent.userId, fundingSource: agent.walletAddress, clientIp: req.ip ?? null });
+    log.info("starter credit claim", { userId: agent.userId, granted: g.granted, reason: g.granted ? null : g.reason });
+    if (g.granted) {
+      res.status(201).json({ granted: true, amount: money(g.amountMusd), expiresAt: g.expiresAt });
+      return;
+    }
+    res.status(g.reason === "already_granted" ? 409 : 403).json({ granted: false, reason: g.reason });
+  } catch (err) {
+    log.error("starter credit claim failed", { error: err instanceof Error ? err.message : String(err) });
+    res.status(500).json({ error: "Failed to process claim" });
+  }
+});
+
+// ─── Announcements (agent-facing changelog / news feed) ──────────────
+
+export const ANNOUNCEMENT_CATEGORIES = ["policy", "pricing", "payments", "api", "network", "news"] as const;
+
+// GET /v1/announcements?limit=20&category=pricing&since=ISO — public, cached
+router.get("/announcements", async (req: Request, res: Response) => {
+  if (ipLimited(req, res)) return;
+  const limit = intQuery(req, "limit", 20, 1, 100);
+  if (limit === null) {
+    res.status(400).json({ error: "limit must be an integer in [1, 100]" });
+    return;
+  }
+  const cat = req.query["category"];
+  if (cat !== undefined && (typeof cat !== "string" || !(ANNOUNCEMENT_CATEGORIES as readonly string[]).includes(cat))) {
+    res.status(400).json({ error: `category must be one of ${ANNOUNCEMENT_CATEGORIES.join("|")}` });
+    return;
+  }
+  const sinceRaw = req.query["since"];
+  let since: Date | null = null;
+  if (sinceRaw !== undefined) {
+    since = typeof sinceRaw === "string" && sinceRaw.length <= 40 ? new Date(sinceRaw) : null;
+    if (!since || Number.isNaN(since.getTime())) {
+      res.status(400).json({ error: "since must be an ISO date" });
+      return;
+    }
+  }
+  try {
+    const r = await query<{ id: string; title: string; body: string; category: string; url: string | null; published_at: Date; updated_at: Date }>(
+      `SELECT id, title, body, category, url, published_at, updated_at FROM network_announcements
+       WHERE published AND published_at <= now() AND ($2::text IS NULL OR category = $2)
+         AND ($3::timestamptz IS NULL OR published_at > $3::timestamptz)
+       ORDER BY published_at DESC, id LIMIT $1`,
+      [limit, cat ?? null, since ? since.toISOString() : null],
+    );
+    setPublicCache(res, 300);
+    res.json({
+      description: "Admin-published changes to policy, pricing, payment rails, the API and the network. Poll with ?since=<last publishedAt>.",
+      announcements: r.rows.map((a) => ({
+        id: a.id, title: a.title, body: a.body, category: a.category, url: a.url, publishedAt: a.published_at, updatedAt: a.updated_at,
+      })),
+    });
+  } catch (err) {
+    log.error("announcements list failed", { error: err instanceof Error ? err.message : String(err) });
+    res.status(503).json({ error: "Announcements unavailable" });
   }
 });
 

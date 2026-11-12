@@ -27,6 +27,7 @@ beforeEach(() => {
   api.genesisSettings.mockResolvedValue({ enabled: true, maxOwners: 200, bonusBps: 500, boostDays: 90, credit: m(5), creditThresholdBytes: "5000000000", members: 3, updatedAt: null });
   api.genesisMembers.mockResolvedValue(paged([]));
   api.incidents.mockResolvedValue(paged([]));
+  api.announcements.mockResolvedValue(paged([]));
   api.unmetDemand.mockResolvedValue({ days: 7, groups: [{ country: "BR", ipClass: "residential", requests: 12, lastHour: "2026-11-06T10:00:00Z" }], daily: [] });
   api.abuseReports.mockResolvedValue(paged([]));
   api.allowlist.mockResolvedValue(paged([]));
@@ -51,6 +52,40 @@ describe("LaunchPage", () => {
     await userEvent.type(amt, "0.75");
     await userEvent.click(screen.getAllByRole("button", { name: "Save" })[0]);
     await waitFor(() => expect(api.updateStarterSettings).toHaveBeenCalledWith({ enabled: true, amountMusd: "750000" }));
+  });
+
+  it("edits the funding precondition and genesis payer threshold", async () => {
+    api.updateStarterSettings.mockResolvedValue(starter);
+    api.updateGenesisSettings.mockResolvedValue({} as never);
+    renderPage(<LaunchPage />, "/admin/launch");
+    await userEvent.click(await screen.findByLabelText("Require prior Base tx or paid top-up"));
+    const min = screen.getByLabelText("Minimum qualifying top-up (cents)");
+    await userEvent.clear(min);
+    await userEvent.type(min, "200");
+    await userEvent.click(screen.getAllByRole("button", { name: "Save" })[0]);
+    await waitFor(() => expect(api.updateStarterSettings).toHaveBeenCalledWith({ requireFunding: false, minTopupCents: 200 }));
+    const payers = screen.getByLabelText("Distinct unlinked paying principals to enter");
+    await userEvent.clear(payers);
+    await userEvent.type(payers, "5");
+    await userEvent.click(screen.getAllByRole("button", { name: "Save" })[1]);
+    await waitFor(() => expect(api.updateGenesisSettings).toHaveBeenCalledWith({ minDistinctPayers: 5 }));
+  });
+
+  it("publishes, unpublishes and validates announcements", async () => {
+    api.announcements.mockResolvedValue(paged([{ id: UUID1, title: "Old note", body: "", category: "news", url: null, published: true, publishedAt: "2026-11-01T00:00:00Z", updatedAt: "2026-11-01T00:00:00Z" }]));
+    api.createAnnouncement.mockResolvedValue({ id: UUID1 });
+    api.updateAnnouncement.mockResolvedValue({ id: UUID1 });
+    renderPage(<LaunchPage />, "/admin/launch");
+    await userEvent.type(await screen.findByLabelText("Announcement title"), "DC price change");
+    await userEvent.type(screen.getByLabelText("Link (https, optional)"), "http://bad");
+    await userEvent.click(screen.getByRole("button", { name: "Publish announcement" }));
+    expect(await screen.findByText("Link must be an https URL")).toBeInTheDocument();
+    expect(api.createAnnouncement).not.toHaveBeenCalled();
+    await userEvent.clear(screen.getByLabelText("Link (https, optional)"));
+    await userEvent.click(screen.getByRole("button", { name: "Publish announcement" }));
+    await waitFor(() => expect(api.createAnnouncement).toHaveBeenCalledWith({ title: "DC price change", body: "", category: "news" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Unpublish" }));
+    await waitFor(() => expect(api.updateAnnouncement).toHaveBeenCalledWith(UUID1, { published: false }));
   });
 
   it("flags a node as operator-run", async () => {
