@@ -1990,3 +1990,17 @@ DO $$ BEGIN
   ALTER TABLE x402_transactions ADD CONSTRAINT x402_transactions_pool_type_check
     CHECK (pool_type IN ('dc', 'residential', 'mobile', 'any'));
 END $$;
+
+-- Retention: sessions are kept 90 days but usage_records (365d) and
+-- agentic_wallet_transactions (730d) reference them. With the default NO ACTION
+-- the sessions purge failed on every batch. Ledger/usage rows outlive their
+-- session; the reference becomes NULL when the session is purged. Idempotent.
+ALTER TABLE usage_records ALTER COLUMN session_id DROP NOT NULL;
+DO $$ BEGIN
+  ALTER TABLE usage_records DROP CONSTRAINT IF EXISTS usage_records_session_id_fkey;
+  ALTER TABLE usage_records ADD CONSTRAINT usage_records_session_id_fkey
+    FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE SET NULL;
+  ALTER TABLE agentic_wallet_transactions DROP CONSTRAINT IF EXISTS agentic_wallet_transactions_session_id_fkey;
+  ALTER TABLE agentic_wallet_transactions ADD CONSTRAINT agentic_wallet_transactions_session_id_fkey
+    FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE SET NULL;
+END $$;

@@ -173,3 +173,24 @@ describe("schema.sql agent relay network", () => {
     expect(prov.join()).not.toMatch(/EXCEPTION WHEN OTHERS/);
   });
 });
+
+describe("session retention FKs", () => {
+  it("every reference to sessions(id) has an ON DELETE action, so the 90d sessions purge can run", () => {
+    const re = /CREATE TABLE IF NOT EXISTS (\w+) \(([\s\S]*?)\n\);/g;
+    const blocked: string[] = [];
+    for (const m of sql.matchAll(re)) {
+      for (const line of m[2]!.split("\n")) {
+        const col = /^\s*(\w+)\s.*REFERENCES sessions\(id\)(.*)$/.exec(line);
+        if (!col || /ON DELETE/.test(col[2]!)) continue;
+        const fk = `${m[1]}_${col[1]}_fkey`;
+        const fix = new RegExp(`ADD CONSTRAINT ${fk}\\s+FOREIGN KEY \\(${col[1]}\\) REFERENCES sessions\\(id\\) ON DELETE (SET NULL|CASCADE)`);
+        if (!fix.test(sql)) blocked.push(fk);
+      }
+    }
+    expect(blocked).toEqual([]);
+  });
+
+  it("usage_records.session_id is nullable for ON DELETE SET NULL", () => {
+    expect(sql).toMatch(/ALTER TABLE usage_records ALTER COLUMN session_id DROP NOT NULL;/);
+  });
+});

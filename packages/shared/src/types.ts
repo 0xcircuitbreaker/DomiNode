@@ -158,7 +158,8 @@ export interface Session {
 export interface UsageRecord {
   id: string;
   user_id: string;
-  session_id: string;
+  /** NULL once the session is purged by retention (90d); usage rows are kept 365d. */
+  session_id: string | null;
   bytes_in: number;
   bytes_out: number;
   cost_cents: number;
