@@ -1,9 +1,9 @@
 """SDK-wide constants (mirrors sdks/node/src/constants.ts)."""
 
-SDK_VERSION = "2.0.1"
+SDK_VERSION = "2.0.2"
 USER_AGENT = f"dominusnode-sdk-python/{SDK_VERSION}"
-DEFAULT_BASE_URL = "https://api.dominusnode.daedalusdevelopmentgroup.com"
-DEFAULT_PROXY_HOST = "proxy.dominusnode.daedalusdevelopmentgroup.com"
+DEFAULT_BASE_URL = "https://api.dominusnode.com"
+DEFAULT_PROXY_HOST = "proxy.dominusnode.com"
 DEFAULT_HTTP_PROXY_PORT = 8080
 DEFAULT_SOCKS5_PROXY_PORT = 1080
 #: Gateway HTTPS proxy listener (PROXY_TLS_PORT), used with gateway_tls.

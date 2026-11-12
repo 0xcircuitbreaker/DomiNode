@@ -15,7 +15,7 @@ npm install @dominusnode/chatgpt
 export DOMINUSNODE_API_KEY=dn_live_...
 ```
 
-Defaults: API `https://api.dominusnode.daedalusdevelopmentgroup.com`, relay gateway `proxy.dominusnode.daedalusdevelopmentgroup.com`. Override with `DOMINUSNODE_BASE_URL` / `DOMINUSNODE_PROXY_HOST`.
+Defaults: API `https://api.dominusnode.com`, relay gateway `proxy.dominusnode.com`. Override with `DOMINUSNODE_BASE_URL` / `DOMINUSNODE_PROXY_HOST`.
 
 ```ts
 import OpenAI from "openai";

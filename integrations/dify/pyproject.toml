@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "dominusnode-dify"
-version = "2.0.0"
+version = "2.0.1"
 description = "DominusNode agent relay network tools for Dify (19 tools, built on the dominusnode SDK)"
 readme = "README.md"
 license = "MIT"

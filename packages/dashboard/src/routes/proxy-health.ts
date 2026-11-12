@@ -78,7 +78,7 @@ router.get("/health", async (_req, res) => {
 router.get("/status", requireAuth, async (req, res) => {
   const stats = await fetchProxyStats();
 
-  const proxyHost = process.env["PROXY_PUBLIC_HOST"] ?? "proxy.dominusnode.daedalusdevelopmentgroup.com";
+  const proxyHost = process.env["PROXY_PUBLIC_HOST"] ?? "proxy.dominusnode.com";
   const pub = getPublicProxyPorts();
   const httpPort = String(pub.http);
   const socks5Port = String(pub.socks5);

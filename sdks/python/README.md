@@ -13,7 +13,7 @@ the reference implementation.
 pip install dominusnode
 ```
 
-Defaults: API `https://api.dominusnode.daedalusdevelopmentgroup.com`, relay gateway `proxy.dominusnode.daedalusdevelopmentgroup.com` (HTTP proxy :8080, SOCKS5 :1080). Both can be overridden in the client configuration.
+Defaults: API `https://api.dominusnode.com`, relay gateway `proxy.dominusnode.com` (HTTP proxy :8080, SOCKS5 :1080). Both can be overridden in the client configuration.
 
 ## Quick start
 
@@ -45,7 +45,7 @@ Routing flags go in the proxy **username**, the API key in the **password**:
 
 ```python
 dn.proxy.build_username(country="DE", session_id="abc123")  # "country-DE-session-abc123"
-url = dn.proxy.build_url(country="US", ip_class="dc")        # http://country-US-class-dc:<key>@proxy.dominusnode.daedalusdevelopmentgroup.com:8080
+url = dn.proxy.build_url(country="US", ip_class="dc")        # http://country-US-class-dc:<key>@proxy.dominusnode.com:8080
 ```
 
 `build_url` returns a URL that **contains your API key: do not log it.**

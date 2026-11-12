@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.0.1
+
+### Changed
+- Default API base URL is now `https://api.dominusnode.com` and the default proxy host `proxy.dominusnode.com` (primary domain). The `*.dominusnode.daedalusdevelopmentgroup.com` hosts remain served as aliases.
+
 ## 2.0.0
 
 ### Changed (breaking)

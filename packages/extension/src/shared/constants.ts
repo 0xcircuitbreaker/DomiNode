@@ -12,8 +12,8 @@ export const ALARMS = {
   ROTATE: "dominusnode_rotate",
 } as const;
 
-export const DEFAULT_API_BASE = "https://api.dominusnode.daedalusdevelopmentgroup.com";
-export const DEFAULT_GATEWAY_HOST = "proxy.dominusnode.daedalusdevelopmentgroup.com";
+export const DEFAULT_API_BASE = "https://api.dominusnode.com";
+export const DEFAULT_GATEWAY_HOST = "proxy.dominusnode.com";
 /** Gateway TLS listener (PROXY_TLS_PORT). The key is sent as the proxy password, so TLS is the default. */
 export const DEFAULT_GATEWAY_PORT = 8443;
 

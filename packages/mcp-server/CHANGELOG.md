@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.0.2] - 2026-11-12
+
+### Changed
+- Default `DOMINUSNODE_API_URL` is now `https://api.dominusnode.com` and the default `DOMINUSNODE_PROXY_URL` `https://proxy.dominusnode.com:8443` (primary domain). The `*.dominusnode.daedalusdevelopmentgroup.com` hosts remain served as aliases.
+
 ## [2.0.1] - 2026-11-12
 
 ### Security

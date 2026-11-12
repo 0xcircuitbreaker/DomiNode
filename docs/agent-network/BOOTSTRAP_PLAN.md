@@ -21,7 +21,7 @@ Web facts were checked on 2026-11-12. Many sources are secondary (marked as such
 | Payments (x402/MPP/Tempo/NOWPayments) | Facilitators, keyed to the owner's wallets | Rails are open protocols, but the receiving account is the owner's |
 | Code, SDKs, integrations | MIT, public | **Yes.** Anyone can fork and run it |
 
-Say this publicly, in the README and on the site, in these words: *"Open-source and self-hostable. The public network at dominusnode.daedalusdevelopmentgroup.com is currently run by one operator. Exit nodes are independent; the gateway, metering and ledger are not (yet)."* Over-claiming decentralization is the fastest way to lose the crypto/agent crowd's trust, and it carries consumer-protection risk.
+Say this publicly, in the README and on the site, in these words: *"Open-source and self-hostable. The public network at dominusnode.com is currently run by one operator. Exit nodes are independent; the gateway, metering and ledger are not (yet)."* Over-claiming decentralization is the fastest way to lose the crypto/agent crowd's trust, and it carries consumer-protection risk.
 
 The bar to aim for is **"credibly exit-able"**, meaning (1) anyone can run the whole stack with one command, (2) a node can point at any coordinator, (3) the policy and the code are public and versioned, and (4) the money side is auditable. Running everything trustlessly is not the goal.
 
@@ -183,7 +183,7 @@ Formats that work for solo developers: 20–40 second terminal recordings (ascii
 
 ### 3.4 Using DDG and its agent service
 
-- **Subdomain**: `dominusnode.daedalusdevelopmentgroup.com` (DEPLOYMENT §0, §9). The site already ships `llms.txt`, `llms-full.txt`, `robots.txt` with named AI crawlers allowed, `sitemap.xml` and `/.well-known/mcp/server.json` (DISCOVERY.md).
+- **Subdomain**: `dominusnode.com` (DEPLOYMENT §0, §9). The site already ships `llms.txt`, `llms-full.txt`, `robots.txt` with named AI crawlers allowed, `sitemap.xml` and `/.well-known/mcp/server.json` (DISCOVERY.md).
 - **Cross-link from DDG's root `llms.txt`**: add a `## Products` section entry linking the DominusNode `llms.txt` and `docs/*.md`. AI crawlers already visit DDG, so this is the cheapest discovery win.
 - **DDG agent service**: if it can call tools, give it DominusNode as a built-in egress tool (dogfooding), and say so in its docs. If it publishes an agent card or tool listing, add DominusNode.
 - **DDG blog post**: "Why we built an open-source relay network for agents" (canonical, cross-posted to dev.to). Link it from the DDG homepage/products nav, the footer, and the agent-service page.

@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.0.2] - 2026-11-12
+
+### Changed
+- Default API base URL is now `https://api.dominusnode.com` and the default proxy host `proxy.dominusnode.com` (primary domain). The old `*.dominusnode.daedalusdevelopmentgroup.com` hosts stay served as aliases; set the base URL / proxy host option to keep using them.
+
 ## [2.0.1] - 2026-11-12
 
 No breaking changes: every 2.0.0 public name and type still exists.

@@ -82,7 +82,7 @@ export class ProxyResource {
     return buildProxyUsername(opts);
   }
 
-  /** e.g. http://country-US-class-dc:dn_live_...@proxy.dominusnode.daedalusdevelopmentgroup.com:8080. The result CONTAINS the key: do not log it. */
+  /** e.g. http://country-US-class-dc:dn_live_...@proxy.dominusnode.com:8080. The result CONTAINS the key: do not log it. */
   buildUrl(opts: ProxyUrlOptions = {}): string {
     const protocol = opts.protocol ?? (this.#tls ? "https" : "http");
     if (protocol !== "http" && protocol !== "https" && protocol !== "socks5") throw invalidArg("protocol must be http, https or socks5");

@@ -10,10 +10,10 @@ the node PoW, random UUIDs). No signing key ever enters the SDK: EIP-191 signing
 ## Install (release tarball)
 
 The C++ SDK is not on a package registry. Each release attaches a source
-tarball and its SHA-256 to the GitHub Release `sdk-cpp-v2.0.1`:
+tarball and its SHA-256 to the GitHub Release `sdk-cpp-v2.0.2`:
 
 ```bash
-v=2.0.1
+v=2.0.2
 base=https://github.com/0xcircuitbreaker/DomiNode/releases/download/sdk-cpp-v$v
 curl -fLO "$base/dominusnode-cpp-$v.tar.gz" -fLO "$base/dominusnode-cpp-$v.tar.gz.sha256"
 sha256sum -c "dominusnode-cpp-$v.tar.gz.sha256"
@@ -26,14 +26,14 @@ or vendor it with CMake `FetchContent`:
 ```cmake
 include(FetchContent)
 FetchContent_Declare(dominusnode
-  URL https://github.com/0xcircuitbreaker/DomiNode/releases/download/sdk-cpp-v2.0.1/dominusnode-cpp-2.0.1.tar.gz
-  URL_HASH SHA256=<from dominusnode-cpp-2.0.1.tar.gz.sha256>)
+  URL https://github.com/0xcircuitbreaker/DomiNode/releases/download/sdk-cpp-v2.0.2/dominusnode-cpp-2.0.2.tar.gz
+  URL_HASH SHA256=<from dominusnode-cpp-2.0.2.tar.gz.sha256>)
 FetchContent_MakeAvailable(dominusnode)
 target_link_libraries(app PRIVATE dominusnode)
 ```
 
-Defaults: API `https://api.dominusnode.daedalusdevelopmentgroup.com`, relay gateway
-`proxy.dominusnode.daedalusdevelopmentgroup.com` (HTTP proxy :8080, SOCKS5 :1080). Both can be
+Defaults: API `https://api.dominusnode.com`, relay gateway
+`proxy.dominusnode.com` (HTTP proxy :8080, SOCKS5 :1080). Both can be
 overridden in the client configuration.
 
 The tarball has no tests; `DOMINUSNODE_BUILD_TESTS` defaults to off there.
@@ -71,7 +71,7 @@ int main() {
     dominusnode::ProxyRoutingOptions r;
     r.country = "DE";
     r.session_id = "job42";
-    std::string url = dn.proxy.build_url(r);  // http://country-DE-session-job42:dn_live_...@proxy.dominusnode.daedalusdevelopmentgroup.com:8080
+    std::string url = dn.proxy.build_url(r);  // http://country-DE-session-job42:dn_live_...@proxy.dominusnode.com:8080
 
     // Prices come only from the server.
     std::cout << dn.network.pricing().dump(2) << "\n";
@@ -148,7 +148,7 @@ Every message is scrubbed of `dn_live_`/`dn_test_`/`dn_node_`/`dn_proxy_` keys a
 
 ## HTTP behaviour
 
-User-Agent `dominusnode-sdk-cpp/2.0.1`; 30 s timeout; `CURLOPT_FOLLOWLOCATION` 0 (a 3xx is an
+User-Agent `dominusnode-sdk-cpp/2.0.2`; 30 s timeout; `CURLOPT_FOLLOWLOCATION` 0 (a 3xx is an
 error); TLS verification and TLS >= 1.2 set explicitly after every `curl_easy_reset()`;
 10 MB cap by Content-Length and in the write callback; one 429 retry
 (`min(Retry-After, 10 s)` ±10 %, floor 100 ms, 429 body not read); one forced JWT refresh

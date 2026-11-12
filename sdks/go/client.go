@@ -19,13 +19,13 @@ import (
 
 const (
 	// SDKVersion is the SDK version.
-	SDKVersion = "2.0.1"
+	SDKVersion = "2.0.2"
 	// UserAgent is sent on every API request.
 	UserAgent = "dominusnode-sdk-go/" + SDKVersion
 	// DefaultBaseURL is the API server.
-	DefaultBaseURL = "https://api.dominusnode.daedalusdevelopmentgroup.com"
+	DefaultBaseURL = "https://api.dominusnode.com"
 	// DefaultProxyHost is the proxy gateway host.
-	DefaultProxyHost = "proxy.dominusnode.daedalusdevelopmentgroup.com"
+	DefaultProxyHost = "proxy.dominusnode.com"
 	// DefaultHTTPProxyPort is the HTTP(S) proxy port.
 	DefaultHTTPProxyPort = 8080
 	// DefaultSOCKS5ProxyPort is the SOCKS5 proxy port.

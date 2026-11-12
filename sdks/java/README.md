@@ -43,7 +43,7 @@ Then in `pom.xml` (the repository `id` must match the server `id`):
 <dependency>
   <groupId>io.dominusnode</groupId>
   <artifactId>dominusnode-sdk</artifactId>
-  <version>2.0.1</version>
+  <version>2.0.2</version>
 </dependency>
 ```
 
@@ -67,8 +67,8 @@ try (DominusNodeClient dn = new DominusNodeClient()) {
 
 ```java
 Config cfg = Config.builder()
-        .baseUrl("https://api.dominusnode.daedalusdevelopmentgroup.com")     // http(s), no userinfo
-        .proxyHost("proxy.dominusnode.daedalusdevelopmentgroup.com")
+        .baseUrl("https://api.dominusnode.com")     // http(s), no userinfo
+        .proxyHost("proxy.dominusnode.com")
         .httpProxyPort(8080).socks5ProxyPort(1080)
         .tokens(accessJwt, refreshJwt)               // optional existing JWT pair
         .transport(myTransport)                      // optional; must not follow redirects

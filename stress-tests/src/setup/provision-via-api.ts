@@ -7,7 +7,7 @@
  * For more users, use DATABASE_URL with provision-users.ts instead.
  *
  * Usage:
- *   API_BASE_URL=https://api.dominusnode.daedalusdevelopmentgroup.com USER_COUNT=3 npx tsx provision-via-api.ts
+ *   API_BASE_URL=https://api.dominusnode.com USER_COUNT=3 npx tsx provision-via-api.ts
  */
 
 import crypto from "node:crypto";
@@ -237,7 +237,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   if (!apiBaseUrl) {
     console.error("ERROR: API_BASE_URL environment variable is required.");
     console.error(
-      "Usage: API_BASE_URL=https://api.dominusnode.daedalusdevelopmentgroup.com USER_COUNT=3 npx tsx provision-via-api.ts",
+      "Usage: API_BASE_URL=https://api.dominusnode.com USER_COUNT=3 npx tsx provision-via-api.ts",
     );
     process.exit(1);
   }

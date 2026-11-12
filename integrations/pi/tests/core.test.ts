@@ -72,7 +72,7 @@ describe("core tool specs", () => {
   it("proxy_url never returns the API key", async () => {
     const { provider: p } = provider();
     const out = JSON.parse(await runTool(byName.get("proxy_url")!, p, { country: "US" }));
-    expect(out.proxyUrl).toBe("http://country-US:${DOMINUSNODE_API_KEY}@proxy.dominusnode.daedalusdevelopmentgroup.com:8080");
+    expect(out.proxyUrl).toBe("http://country-US:${DOMINUSNODE_API_KEY}@proxy.dominusnode.com:8080");
   });
 
   it("scrubs credentials from errors and results", async () => {

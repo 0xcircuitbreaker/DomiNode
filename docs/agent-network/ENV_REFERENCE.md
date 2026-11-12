@@ -114,7 +114,7 @@ elsewhere). Meaning and required/optional status are documented in
 | `ADMIN_HUMAN_LOGIN` |  | `src/helpers/human-auth.ts` |
 | `ADMIN_MAX_CREDIT_CENTS` | `50000` | `src/routes/admin.ts` |
 | `AGENT_RATE_LIMIT_MULTIPLIER` | `""` | `src/helpers/agent-rate-limit.ts` |
-| `APP_URL` | `""`, `http://localhost:5173`, `https://dominusnode.daedalusdevelopmentgroup.com` | `src/routes/discovery.ts`, `src/routes/federation.ts`, `src/routes/teams.ts` |
+| `APP_URL` | `""`, `http://localhost:5173`, `https://dominusnode.com` | `src/routes/discovery.ts`, `src/routes/federation.ts`, `src/routes/teams.ts` |
 | `COOKIE_SECURE` |  | `src/helpers/cookies.ts` |
 | `COORDINATOR_HOSTNAMES` |  | `src/routes/federation.ts` |
 | `COORD_ADDITIONAL_PUBKEYS` |  | `src/routes/federation.ts` |
@@ -125,7 +125,7 @@ elsewhere). Meaning and required/optional status are documented in
 | `DATABASE_URL` |  | `src/main.ts` |
 | `DEMO_DIR` | `/demo` | `src/demo-seed.ts` |
 | `DEMO_MODE` |  | `src/demo-seed.ts` |
-| `DOMINUSNODE_DOMAIN` | `dominusnode.daedalusdevelopmentgroup.com` | `src/routes/federation.ts`, `src/routes/wallet-auth.ts` |
+| `DOMINUSNODE_DOMAIN` | `dominusnode.com` | `src/routes/federation.ts`, `src/routes/wallet-auth.ts` |
 | `JWT_SECRET` | `""` | `src/main.ts`, `src/routes/account.ts`, `src/routes/admin.ts`, `src/routes/proxy-health.ts` |
 | `MAX_REGISTERED_USERS` | `2500` | `src/routes/auth.ts`, `src/routes/wallet-auth.ts` |
 | `MCP_AGENT_SECRET` | `""` | `src/helpers/agent-rate-limit.ts`, `src/main.ts` |
@@ -144,7 +144,7 @@ elsewhere). Meaning and required/optional status are documented in
 | `PROXY_HTTP_PORT` | `8080` | `src/routes/federation.ts` |
 | `PROXY_INTERNAL_HOST` | `127.0.0.1` | `src/routes/account.ts`, `src/routes/admin.ts`, `src/routes/proxy-health.ts` |
 | `PROXY_INTERNAL_URL` |  | `src/routes/proxy-health.ts` |
-| `PROXY_PUBLIC_HOST` | `proxy.dominusnode.daedalusdevelopmentgroup.com` | `src/routes/discovery.ts`, `src/routes/federation.ts`, `src/routes/proxy-config.ts`, `src/routes/proxy-health.ts`, `src/routes/x402.ts` |
+| `PROXY_PUBLIC_HOST` | `proxy.dominusnode.com` | `src/routes/discovery.ts`, `src/routes/federation.ts`, `src/routes/proxy-config.ts`, `src/routes/proxy-health.ts`, `src/routes/x402.ts` |
 | `PROXY_STATS_SECRET` |  | `src/routes/account.ts`, `src/routes/admin.ts`, `src/routes/proxy-health.ts` |
 | `RECAPTCHA_SCORE_THRESHOLD` | `0.5` | `src/routes/auth.ts` |
 | `RECAPTCHA_SECRET_KEY` | `""` | `src/routes/auth.ts` |
@@ -181,7 +181,7 @@ elsewhere). Meaning and required/optional status are documented in
 | `PAYPAL_ENVIRONMENT` | `sandbox` | `src/paypal.ts` |
 | `PAYPAL_RETURN_URL` | `http://localhost:5173/wallet?topup=success&provider=paypal` | `src/paypal.ts` |
 | `PAYPAL_WEBHOOK_ID` |  | `src/paypal.ts` |
-| `PROXY_PUBLIC_HOST` | `proxy.dominusnode.daedalusdevelopmentgroup.com` | `src/x402.ts` |
+| `PROXY_PUBLIC_HOST` | `proxy.dominusnode.com` | `src/x402.ts` |
 | `STRIPE_CANCEL_URL` | `http://localhost:5173/wallet?topup=cancel` | `src/stripe.ts` |
 | `STRIPE_PAYMENT_METHODS` | `card,link` | `src/stripe.ts` |
 | `STRIPE_SECRET_KEY` |  | `src/stripe.ts` |

@@ -301,7 +301,7 @@ export function registerWalletAuthTools(server: McpServer, httpClient: HttpClien
           `  Label: ${keyData.label}`,
           ``,
           `Proxy Usage:`,
-          `  curl -x https://country-US:<YOUR_API_KEY>@proxy.dominusnode.daedalusdevelopmentgroup.com:8443 https://httpbin.org/ip`,
+          `  curl -x https://country-US:<YOUR_API_KEY>@proxy.dominusnode.com:8443 https://httpbin.org/ip`,
           `  (plaintext http://...:8080 sends the key in clear; use only if TLS is unavailable)`,
           ``,
           `Traffic is relayed through agent-contributed nodes; see dominusnode_network_pricing.`,

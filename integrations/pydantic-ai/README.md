@@ -16,7 +16,7 @@ pip install dominusnode-pydanticai
 pip install -e ../../sdks/python -e ".[dev]"
 ```
 
-Defaults: API `https://api.dominusnode.daedalusdevelopmentgroup.com`, relay gateway `proxy.dominusnode.daedalusdevelopmentgroup.com`. Override with `DOMINUSNODE_BASE_URL` / `DOMINUSNODE_PROXY_HOST`.
+Defaults: API `https://api.dominusnode.com`, relay gateway `proxy.dominusnode.com`. Override with `DOMINUSNODE_BASE_URL` / `DOMINUSNODE_PROXY_HOST`.
 
 Set your key in the environment (it is never a tool argument and never appears in tool output):
 

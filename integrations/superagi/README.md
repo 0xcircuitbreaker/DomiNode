@@ -16,8 +16,8 @@ pip install dominusnode-superagi
 | Variable | Required | Purpose |
 |---|---|---|
 | `DOMINUSNODE_API_KEY` | yes | Your `dn_live_` API key. Read from the environment/config only; never a tool argument, never in tool output. |
-| `DOMINUSNODE_BASE_URL` | no | API base URL (default `https://api.dominusnode.daedalusdevelopmentgroup.com`). |
-| `DOMINUSNODE_PROXY_HOST` | no | Gateway host (default `proxy.dominusnode.daedalusdevelopmentgroup.com`). |
+| `DOMINUSNODE_BASE_URL` | no | API base URL (default `https://api.dominusnode.com`). |
+| `DOMINUSNODE_PROXY_HOST` | no | Gateway host (default `proxy.dominusnode.com`). |
 
 ## Usage
 

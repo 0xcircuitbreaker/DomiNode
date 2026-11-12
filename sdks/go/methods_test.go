@@ -209,7 +209,7 @@ func TestEveryMethodRequest(t *testing.T) {
 			if (tc.body != "") != (r.Header.Get("Content-Type") == "application/json") {
 				t.Fatalf("Content-Type %q with body %q", r.Header.Get("Content-Type"), tc.body)
 			}
-			if r.Header.Get("User-Agent") != "dominusnode-sdk-go/2.0.1" || r.Header.Get("Accept") != "application/json" {
+			if r.Header.Get("User-Agent") != "dominusnode-sdk-go/2.0.2" || r.Header.Get("Accept") != "application/json" {
 				t.Fatalf("bad UA/Accept: %v", r.Header)
 			}
 			got := r.Header.Get("Authorization")

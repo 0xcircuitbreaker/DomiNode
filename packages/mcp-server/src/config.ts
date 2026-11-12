@@ -41,7 +41,7 @@ export function parseConfig(env: Record<string, string | undefined> = process.en
     throw new ConfigError("DOMINUSNODE_API_KEY must start with 'dn_live_'");
   }
 
-  const apiUrl = (env["DOMINUSNODE_API_URL"] ?? "https://api.dominusnode.daedalusdevelopmentgroup.com").replace(/\/+$/, "");
+  const apiUrl = (env["DOMINUSNODE_API_URL"] ?? "https://api.dominusnode.com").replace(/\/+$/, "");
 
   // Validate API URL protocol to prevent credential leakage to non-HTTPS endpoints
   try {
@@ -68,7 +68,7 @@ export function parseConfig(env: Record<string, string | undefined> = process.en
   if (proxyTls && env["DOMINUSNODE_PROXY_HOST"] !== undefined && env["DOMINUSNODE_PROXY_HOST"].toLowerCase() !== proxyTls.host) {
     throw new ConfigError("DOMINUSNODE_PROXY_URL and DOMINUSNODE_PROXY_HOST name different hosts");
   }
-  const proxyHost = proxyTls?.host ?? env["DOMINUSNODE_PROXY_HOST"] ?? "proxy.dominusnode.daedalusdevelopmentgroup.com";
+  const proxyHost = proxyTls?.host ?? env["DOMINUSNODE_PROXY_HOST"] ?? "proxy.dominusnode.com";
 
   // Validate proxyHost strictly to prevent SSRF via config injection
   if (!/^[a-zA-Z0-9.-]+$/.test(proxyHost)) {

@@ -2,7 +2,7 @@
 #   docker build -t dominusnode-mcp packages/mcp-server
 #   docker run -i --rm -e DOMINUSNODE_API_KEY dominusnode-mcp
 #
-# Gateway: proxy fetches use TLS to https://proxy.dominusnode.daedalusdevelopmentgroup.com:8443
+# Gateway: proxy fetches use TLS to https://proxy.dominusnode.com:8443
 # by default. Override with -e DOMINUSNODE_PROXY_URL=https://host:port, add a private CA with
 # -e DOMINUSNODE_PROXY_CA_FILE=/run/secrets/proxy-ca.pem, or (not recommended: the API key is
 # sent in clear) -e DOMINUSNODE_PROXY_INSECURE=1 for the plaintext :8080 listener.

@@ -34,4 +34,4 @@ Disallow: /forgot-password
 Disallow: /reset-password
 Disallow: /verify-email
 
-Sitemap: https://dominusnode.daedalusdevelopmentgroup.com/sitemap.xml
+Sitemap: https://dominusnode.com/sitemap.xml

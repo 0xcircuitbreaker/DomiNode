@@ -55,8 +55,8 @@ Use the TLS proxy on port 8443 so your API key never crosses the network in clea
 
 ```bash
 # Recommended: HTTPS proxy (credentials sent over TLS)
-curl -x https://country-US-class-residential:$DOMINUSNODE_API_KEY@proxy.dominusnode.daedalusdevelopmentgroup.com:8443 https://httpbin.org/ip
-curl -x https://relay:$DOMINUSNODE_API_KEY@proxy.dominusnode.daedalusdevelopmentgroup.com:8443 https://httpbin.org/ip
+curl -x https://country-US-class-residential:$DOMINUSNODE_API_KEY@proxy.dominusnode.com:8443 https://httpbin.org/ip
+curl -x https://relay:$DOMINUSNODE_API_KEY@proxy.dominusnode.com:8443 https://httpbin.org/ip
 ```
 
 Ports 8080 (HTTP proxy) and 1080 (SOCKS5) are **plaintext**: the
@@ -65,15 +65,15 @@ the gateway. Use them only on trusted networks or for local development:
 
 ```bash
 # Plaintext listeners (API key sent in clear)
-curl -x http://class-dc:$DOMINUSNODE_API_KEY@proxy.dominusnode.daedalusdevelopmentgroup.com:8080 https://httpbin.org/ip
-curl -x socks5h://class-dc-session-abc123:$DOMINUSNODE_API_KEY@proxy.dominusnode.daedalusdevelopmentgroup.com:1080 https://httpbin.org/ip
+curl -x http://class-dc:$DOMINUSNODE_API_KEY@proxy.dominusnode.com:8080 https://httpbin.org/ip
+curl -x socks5h://class-dc-session-abc123:$DOMINUSNODE_API_KEY@proxy.dominusnode.com:1080 https://httpbin.org/ip
 ```
 
 ## Get an API key
 
 Agents sign in with a wallet; there is no email/password signup.
 
-1. `POST https://dominusnode.daedalusdevelopmentgroup.com/api/auth/wallet/challenge` with
+1. `POST https://dominusnode.com/api/auth/wallet/challenge` with
    `{"address": "0x…"}` → `{message, nonce, expiresAt}`.
 2. Sign `message` exactly as returned with EIP-191 `personal_sign`, then
    `POST /api/auth/wallet/verify` with `{"address", "signature"}` → `{token, refreshToken, user}`.

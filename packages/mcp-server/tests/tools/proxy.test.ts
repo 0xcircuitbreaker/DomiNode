@@ -28,7 +28,7 @@ describe("proxy tools", () => {
 
     httpClient = new HttpClient("http://localhost:3000", tm);
     server = new McpServer({ name: "test", version: "1.0.0" });
-    registerProxyTools(server, httpClient, { proxyHost: "proxy.dominusnode.daedalusdevelopmentgroup.com", httpProxyPort: 8080, socks5ProxyPort: 1080 } as McpConfig);
+    registerProxyTools(server, httpClient, { proxyHost: "proxy.dominusnode.com", httpProxyPort: 8080, socks5ProxyPort: 1080 } as McpConfig);
   });
 
   afterEach(() => {
@@ -43,7 +43,7 @@ describe("proxy tools", () => {
     const tools = (server as any)._registeredTools;
     const result = await tools["dominusnode_get_proxy_config"].handler({}, { sessionId: "" } as never);
     const text = (result.content as Array<{ type: string; text: string }>)[0].text;
-    expect(text).toContain("proxy.dominusnode.daedalusdevelopmentgroup.com:8080");
+    expect(text).toContain("proxy.dominusnode.com:8080");
     expect(text).toContain("country-XX");
     expect(text).toContain("class-residential");
     expect(text).toContain("session-<id>");
@@ -84,7 +84,7 @@ describe("proxy tools", () => {
         avgLatencyMs: 42,
         activeSessions: 5,
         uptimeSeconds: 3600,
-        endpoints: { http: "proxy.dominusnode.daedalusdevelopmentgroup.com:8080", socks5: "proxy.dominusnode.daedalusdevelopmentgroup.com:1080" },
+        endpoints: { http: "proxy.dominusnode.com:8080", socks5: "proxy.dominusnode.com:1080" },
         supportedCountries: ["US", "GB", "DE"],
       })),
       headers: new Headers(),
