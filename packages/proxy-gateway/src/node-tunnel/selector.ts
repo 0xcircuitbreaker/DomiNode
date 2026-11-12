@@ -3,7 +3,7 @@
  * with a sticky LRU. Error contract matches the old ProviderSelector:
  * sanctioned -> 403, unavailable -> 503 NO_NODES_AVAILABLE.
  */
-import { isBlockedCountry, type NetworkPolicy } from "@dominusnode/shared";
+import { isBlockedCountry, type NetworkPolicy, type ExitClass } from "@dominusnode/shared";
 import { NodeRegistry, ipPrefix, dayOf, effectiveReputation, type LiveNode } from "./registry.js";
 
 export const TOP_K = 10;
@@ -14,7 +14,8 @@ const MIN_HEALTH = 0.2;
 
 export interface SelectOpts {
   country?: string;
-  ipClass?: "residential" | "dc" | "mobile";
+  /** Requested exit class; unset = any eligible NON-masked node. */
+  ipClass?: ExitClass;
   requesterUserId: string;
   requesterWallet?: string;
   requesterTeamId?: string;
@@ -92,6 +93,8 @@ export class NodeSelector {
     if (!n.country || this.isSanctioned(n.country, policy)) return false;
     if (o.country && n.country !== o.country.toUpperCase()) return false;
     if (o.ipClass && n.ipClass !== o.ipClass) return false;
+    // Masked (anonymizer) exits serve only explicit class-masked requests.
+    if (!o.ipClass && n.ipClass === "masked") return false;
     if (o.seedOnly && n.operatorRun !== true) return false;
     // Self-dealing: owner, wallet, team or the requester's /24.
     if (n.ownerUserId === o.requesterUserId) return false;

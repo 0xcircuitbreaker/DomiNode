@@ -33,7 +33,7 @@ afterEach(async () => {
   server = null;
 });
 
-async function start(opts: { policy?: Partial<ActivePolicy["body"]>; geo?: GeoInfo | null; heartbeatMs?: number; deadline?: number; activate?: (id: string) => Promise<boolean>; coordSign?: (m: Buffer) => string; claimIpSlot?: (s: { nodeId: string }) => Promise<boolean>; releaseIpSlot?: (nodeId: string) => Promise<void> } = {}) {
+async function start(opts: { policy?: Partial<ActivePolicy["body"]>; geo?: GeoInfo | null; heartbeatMs?: number; deadline?: number; activate?: (id: string) => Promise<boolean>; coordSign?: (m: Buffer) => string; claimIpSlot?: (s: { nodeId: string }) => Promise<boolean>; releaseIpSlot?: (nodeId: string) => Promise<void>; recordVerifiedClass?: (id: string, c: string) => Promise<unknown> } = {}) {
   const policy: ActivePolicy = { version: 3, sha256: "f".repeat(64), body: { ...DEFAULT_POLICY, ...opts.policy }, createdAt: null };
   const online: string[] = [];
   const offline: string[] = [];
@@ -47,6 +47,7 @@ async function start(opts: { policy?: Partial<ActivePolicy["body"]>; geo?: GeoIn
     ...(opts.coordSign ? { coordSign: opts.coordSign } : {}),
     ...(opts.claimIpSlot ? { claimIpSlot: opts.claimIpSlot } : {}),
     ...(opts.releaseIpSlot ? { releaseIpSlot: opts.releaseIpSlot } : {}),
+    ...(opts.recordVerifiedClass ? { recordVerifiedClass: opts.recordVerifiedClass } : {}),
     geoLookup: () => (opts.geo === undefined ? { country: "US", asn: 64500 } : opts.geo),
   }, { port: 0, host: "127.0.0.1", heartbeatMs: opts.heartbeatMs, handshakeDeadlineMs: opts.deadline });
   const port = await server.listen();
@@ -94,6 +95,42 @@ describe("resolveTunnelPort", () => {
     expect(resolveTunnelPort(undefined)).toBe(9443);
     expect(resolveTunnelPort("9000")).toBe(9000);
     for (const bad of ["abc", "0", "70000", "-1", "1e3", "NaN"]) expect(() => resolveTunnelPort(bad)).toThrow();
+  });
+});
+
+describe("NodeTunnelServer verified exit class", () => {
+  it("uses the gateway-verified class and flags a declared-residential node exiting via WARP", async () => {
+    const n = NODES[hashNodeKey(KEY_A)]!;
+    n.declared_class = "residential";
+    try {
+      const calls: string[] = [];
+      const { port, registry } = await start({
+        geo: { country: "US", asn: 13335, ipClass: "masked" },
+        recordVerifiedClass: async (id, c) => { calls.push(`${id}:${c}`); },
+      });
+      const c = connect(port);
+      await c.opened;
+      c.send(FrameType.HELLO, 0, hello());
+      await c.waitFor(FrameType.AUTH_OK);
+      expect(registry.get(n.id)?.ipClass).toBe("masked");
+      expect(calls).toEqual([`${n.id}:masked`]);
+    } finally {
+      delete n.declared_class;
+    }
+  });
+
+  it("no flag when the verified class matches or nothing was declared", async () => {
+    const calls: string[] = [];
+    const { port, registry } = await start({
+      geo: { country: "US", asn: 7922, ipClass: "residential" },
+      recordVerifiedClass: async (id, c) => { calls.push(`${id}:${c}`); },
+    });
+    const c = connect(port);
+    await c.opened;
+    c.send(FrameType.HELLO, 0, hello());
+    await c.waitFor(FrameType.AUTH_OK);
+    expect(registry.get(NODES[hashNodeKey(KEY_A)]!.id)?.ipClass).toBe("residential");
+    expect(calls).toEqual([]);
   });
 });
 

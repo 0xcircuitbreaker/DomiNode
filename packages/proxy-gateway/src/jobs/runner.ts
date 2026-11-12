@@ -66,6 +66,8 @@ export interface JobOptions {
   run: () => Promise<unknown>;
   logger: JobLogger;
   initialDelayMs?: number;
+  /** Random 0..jitterMs delay before each run (unpredictable timing); cancelled by stop(). */
+  jitterMs?: number;
 }
 
 export interface JobRunRecord {
@@ -99,10 +101,15 @@ export class Job {
   private kick: ReturnType<typeof setTimeout> | null = null;
   private current: Promise<void> | null = null;
   private stopped = false;
+  private jitterTimer: ReturnType<typeof setTimeout> | null = null;
+  private jitterDone: (() => void) | null = null;
 
   constructor(private readonly o: JobOptions) {
     if (!Number.isInteger(o.intervalMs) || o.intervalMs < 1000) throw new Error(`${o.name}: intervalMs must be >= 1000`);
     if (o.lockKey !== null && !o.pool) throw new Error(`${o.name}: lockKey requires a pool`);
+    if (o.jitterMs !== undefined && (!Number.isInteger(o.jitterMs) || o.jitterMs < 0 || o.jitterMs >= o.intervalMs)) {
+      throw new Error(`${o.name}: jitterMs must be an integer in [0, intervalMs)`);
+    }
   }
 
   get running(): boolean {
@@ -116,6 +123,16 @@ export class Job {
       const startedAt = new Date();
       let ok = true;
       let error: string | null = null;
+      if (this.o.jitterMs) {
+        await new Promise<void>((resolve) => {
+          this.jitterDone = resolve;
+          this.jitterTimer = setTimeout(resolve, Math.floor(Math.random() * (this.o.jitterMs! + 1)));
+          this.jitterTimer.unref?.();
+        });
+        this.jitterTimer = null;
+        this.jitterDone = null;
+        if (this.stopped) return;
+      }
       try {
         if (this.o.lockKey !== null) {
           const r = await withAdvisoryLock(this.o.pool!, this.o.lockKey, this.o.run);
@@ -160,6 +177,8 @@ export class Job {
     this.stopped = true;
     if (this.timer) clearInterval(this.timer);
     if (this.kick) clearTimeout(this.kick);
+    if (this.jitterTimer) clearTimeout(this.jitterTimer);
+    this.jitterDone?.();
     this.timer = null;
     this.kick = null;
     if (this.current) await this.current;

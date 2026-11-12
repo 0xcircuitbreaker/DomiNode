@@ -6,6 +6,15 @@
 #
 # Usage: scripts/update-asn-db.sh [dest]   (default: data/ip2asn-combined.tsv.gz,
 #        or $ASN_DB_FILE). The gateway reads ASN_DB_FILE (same default).
+#
+# Also refreshes the optional anonymizer IP list used for the 'masked' exit
+# class (ANONYMIZER_IPS_FILE, default data/anonymizer-ips.txt). Best effort:
+# a failed download keeps the previous list and never fails the ASN update.
+#   - Tor exit list (https://check.torproject.org/torbulkexitlist, public;
+#     disable with ANONYMIZER_TOR=0)
+#   - iCloud Private Relay egress ranges (https://mask-api.icloud.com/egress-ip-ranges.csv,
+#     published by Apple; opt-in with ANONYMIZER_ICLOUD=1 after checking Apple's terms)
+# The anonymizer ASN list itself is versioned in data/anonymizer-asns.json.
 set -euo pipefail
 
 URL="https://iptoasn.com/data/ip2asn-combined.tsv.gz"
@@ -35,3 +44,37 @@ chmod 0644 "$TMP"
 mv -f "$TMP" "$DEST"
 trap - EXIT
 echo "update-asn-db: wrote $DEST ($SIZE bytes)"
+
+# ─── Optional anonymizer IP list (best effort) ─────────────────────
+ANON_DEST="${ANONYMIZER_IPS_FILE:-data/anonymizer-ips.txt}"
+mkdir -p "$(dirname "$ANON_DEST")"
+ANON_TMP="$(mktemp "$(dirname "$ANON_DEST")/.anon.XXXXXX")"
+PART="$(mktemp "$(dirname "$ANON_DEST")/.anonpart.XXXXXX")"
+trap 'rm -f "$ANON_TMP" "$PART"' EXIT
+printf '# anonymizer egress IPs/CIDRs for the masked exit class; generated %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$ANON_TMP"
+GOT=0
+if [ "${ANONYMIZER_TOR:-1}" != "0" ]; then
+  if curl -fsSL --proto '=https' --max-time 120 --max-filesize 10000000 -o "$PART" \
+      "https://check.torproject.org/torbulkexitlist"; then
+    grep -E '^[0-9a-fA-F:.]+$' "$PART" >> "$ANON_TMP" || true
+    GOT=1
+  else
+    echo "update-asn-db: Tor exit list download failed (keeping previous anonymizer list)" >&2
+  fi
+fi
+if [ "${ANONYMIZER_ICLOUD:-0}" = "1" ]; then
+  if curl -fsSL --proto '=https' --max-time 300 --max-filesize 100000000 -o "$PART" \
+      "https://mask-api.icloud.com/egress-ip-ranges.csv"; then
+    cut -d, -f1 "$PART" | grep -E '^[0-9a-fA-F:.]+/[0-9]{1,3}$' >> "$ANON_TMP" || true
+    GOT=1
+  else
+    echo "update-asn-db: iCloud Private Relay list download failed (keeping previous anonymizer list)" >&2
+  fi
+fi
+if [ "$GOT" = "1" ]; then
+  chmod 0644 "$ANON_TMP"
+  mv -f "$ANON_TMP" "$ANON_DEST"
+  echo "update-asn-db: wrote $ANON_DEST ($(grep -vc '^#' "$ANON_DEST" || true) entries)"
+fi
+rm -f "$PART" "$ANON_TMP"
+trap - EXIT

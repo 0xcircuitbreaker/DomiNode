@@ -1,7 +1,7 @@
 import * as http from "node:http";
 import * as net from "node:net";
 import { parseProxyOptions } from "./auth.js";
-import { createLogger, userRepo, policyRepo, walletRepo, RELAY_BYTES_PER_GB } from "@dominusnode/shared";
+import { createLogger, userRepo, policyRepo, walletRepo, RELAY_BYTES_PER_GB, isExitClass, type ExitClass } from "@dominusnode/shared";
 import {
   isX402Enabled,
   buildX402Requirements,
@@ -99,26 +99,27 @@ export function resetX402RateLimitsForTest(): void {
  * may serve it. A named class is quoted at that class's price and the
  * selected node must be of that class.
  */
-export type X402Class = "residential" | "dc" | "mobile" | "any";
+export type X402Class = ExitClass | "any";
 
 /** Concrete class for node selection; "any" means unconstrained. */
-export function selectClassFor(c: X402Class): "residential" | "dc" | "mobile" | undefined {
+export function selectClassFor(c: X402Class): ExitClass | undefined {
   return c === "any" ? undefined : c;
 }
 
-/** True when a node of nodeClass may carry traffic quoted for quoted. */
+/** True when a node of nodeClass may carry traffic quoted for quoted. Masked needs an explicit masked quote. */
 export function nodeMatchesQuotedClass(quoted: X402Class, nodeClass: string): boolean {
-  return quoted === "any" || nodeClass === quoted;
+  if (quoted === "any") return nodeClass !== "masked";
+  return nodeClass === quoted;
 }
 
 /** Map a node/requested class onto an x402 quote class (unknown -> any). */
 export function toX402Class(c: string | undefined | null): X402Class {
-  return c === "residential" || c === "dc" || c === "mobile" ? c : "any";
+  return isExitClass(c) ? c : "any";
 }
 
 /**
  * Exit class for an x402/MPP request. Same username flags as API-key auth
- * (class-residential|dc|mobile, legacy dc-/residential- prefix) from a Basic
+ * (class-residential|dc|mobile|masked, legacy dc-/residential- prefix) from a Basic
  * Proxy-Authorization username; else the legacy X-Pool-Type header; else "any".
  */
 export function getPoolTypeFromRequest(req: http.IncomingMessage): X402Class {

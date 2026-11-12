@@ -41,9 +41,9 @@ export function parseProbeUrl(raw: string | undefined): ProbeTarget | null {
 }
 
 export type ProbeOutcome =
-  | { kind: "ok" }
+  | { kind: "ok"; egressIp?: string }
   | { kind: "tamper"; reason: string }
-  | { kind: "inconclusive"; reason: string };
+  | { kind: "inconclusive"; reason: string; egressIp?: string };
 
 function family(ip: string): 4 | 6 | 0 {
   return net.isIPv4(ip) ? 4 : net.isIPv6(ip) ? 6 : 0;
@@ -123,9 +123,12 @@ export function judgeProbeResponse(raw: string | Buffer, nonce: string, nodeIp: 
   if (typeof ip !== "string") return { kind: "tamper", reason: "missing ip" };
   const a = normIp(ip);
   const b = normIp(nodeIp);
-  if (a === b) return { kind: "ok" };
-  // Dual-stack nodes may egress on another family than their tunnel: not proof of tampering.
-  if (family(a) !== family(b)) return { kind: "inconclusive", reason: "egress family differs" };
+  if (a === b) return { kind: "ok", egressIp: a };
+  // Dual-stack nodes may egress on another family than their tunnel: not proof of
+  // tampering, but the echoed egress IP is still classified (egress verification).
+  if (family(a) !== family(b)) {
+    return family(a) === 0 ? { kind: "tamper", reason: "invalid egress ip" } : { kind: "inconclusive", reason: "egress family differs", egressIp: a };
+  }
   return { kind: "tamper", reason: "egress ip mismatch" };
 }
 
@@ -163,6 +166,8 @@ export function exchange(stream: Duplex, target: ProbeTarget, nonce: string, tim
 export interface ProbeNode {
   nodeId: string;
   ip: string;
+  /** Egress not yet verified by a probe on this gateway: sampled first. */
+  unverified?: boolean;
   openStream(host: string, port: number): Promise<Duplex>;
 }
 
@@ -175,6 +180,11 @@ export interface ProbeDeps {
   nonce?: () => string;
   exchange?: typeof exchange;
   logger?: JobLogger;
+  /**
+   * Egress verification: called with the coordinator-echoed egress IP (seen by
+   * our own API, never node-reported) for ok and other-family verdicts.
+   */
+  onEgress?(nodeId: string, egressIp: string): Promise<unknown> | void;
   /** Tamper strike memory across runs (defaults to a module-level instance). */
   strikes?: TamperStrikes;
 }
@@ -241,7 +251,12 @@ export async function runOnce(deps: ProbeDeps): Promise<ProbeRunResult> {
   const runId = ++runCounter;
   const nodes = deps.listNodes();
   strikes.retain(new Set(nodes.map((n) => n.nodeId)));
-  for (const node of sample(nodes, deps.sampleSize ?? 20)) {
+  // Bounded load: at most sampleSize probes per run; nodes whose egress has not
+  // been verified yet (fresh connects) go first, the rest are a random sample.
+  const n = deps.sampleSize ?? 20;
+  const fresh = sample(nodes.filter((x) => x.unverified), n);
+  const rest = sample(nodes.filter((x) => !x.unverified), Math.max(0, n - fresh.length));
+  for (const node of [...fresh, ...rest]) {
     out.probed++;
     const nonce = mkNonce();
     let raw: string | Buffer;
@@ -253,6 +268,13 @@ export async function runOnce(deps: ProbeDeps): Promise<ProbeRunResult> {
       continue;
     }
     const verdict = judgeProbeResponse(raw, nonce, node.ip);
+    if (verdict.kind !== "tamper" && verdict.egressIp && deps.onEgress) {
+      try {
+        await deps.onEgress(node.nodeId, verdict.egressIp);
+      } catch {
+        /* retried on a later probe */
+      }
+    }
     if (verdict.kind === "ok") {
       out.ok++;
       strikes.clear(node.nodeId);
@@ -275,8 +297,8 @@ export async function runOnce(deps: ProbeDeps): Promise<ProbeRunResult> {
   return out;
 }
 
-export function start(o: { deps: ProbeDeps; logger: JobLogger; intervalMs?: number }): Job {
-  const job = new Job({ name: "probes", intervalMs: o.intervalMs ?? 900_000, lockKey: null, logger: o.logger, run: () => runOnce(o.deps), initialDelayMs: 120_000 });
+export function start(o: { deps: ProbeDeps; logger: JobLogger; intervalMs?: number; jitterMs?: number }): Job {
+  const job = new Job({ name: "probes", intervalMs: o.intervalMs ?? 900_000, jitterMs: o.jitterMs, lockKey: null, logger: o.logger, run: () => runOnce(o.deps), initialDelayMs: 120_000 });
   job.start();
   return job;
 }

@@ -448,7 +448,7 @@ describe("proxy-gateway/session-manager", () => {
     it("locks price per node class and owner tier at start", async () => {
       await startTestSession("user-lock", "sess-lock", makeCounter());
       expect(mockGetPricing).toHaveBeenCalledWith("residential");
-      expect(mockGetChargeSnapshot).toHaveBeenCalledWith("owner-1");
+      expect(mockGetChargeSnapshot).toHaveBeenCalledWith("owner-1", "residential");
       expect(mockCreateSession).toHaveBeenCalledWith("user-lock", "node-1", 443);
     });
 

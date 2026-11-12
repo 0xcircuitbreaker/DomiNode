@@ -5,7 +5,8 @@ dotenv.config();
 import { createLogger, closePool, getPool, usageRepo, connectWithRetry, nodeRepo, policyRepo, nodeCreditRepo, retentionRepo, tierRepo, payoutRepo, relayChargeRepo, relaySettleRetryRepo, reportReputationRepo, collusionRepo, starterCreditRepo, contributionRepo, genesisRepo, networkStatusRepo, getProxyPorts, assertDistinctProxyPorts } from "@dominusnode/shared";
 import type { ActivePolicy } from "@dominusnode/shared";
 import { startProxyServer } from "./server.js";
-import { geoAvailable, initGeoCheck, lookupPeerGeo } from "./geo-check.js";
+import { geoAvailable, initGeoCheck, lookupPeerGeo, classifyEgressIp } from "./geo-check.js";
+import { makeEgressVerifier } from "./egress-class.js";
 import { installSharedLimits, makeInstanceId } from "./shared-limits.js";
 import { NodeRegistry } from "./node-tunnel/registry.js";
 import { NodeSelector } from "./node-tunnel/selector.js";
@@ -104,6 +105,7 @@ async function main(): Promise<void> {
     activatePending: async (nodeId) => (await nodeRepo.setStatus(nodeId, "active", ["pending"])) !== null,
     getPolicy,
     geoLookup: lookupPeerGeo,
+    recordVerifiedClass: nodeRepo.recordVerifiedClass,
     onStreamClose: (nodeId, r) => {
       if (r.nodeReport && (r.nodeReport.bytesIn !== r.gatewayBytesOut || r.nodeReport.bytesOut !== r.gatewayBytesIn)) {
         log.warn("node byte report mismatch", { nodeId, gatewayOut: r.gatewayBytesOut, gatewayIn: r.gatewayBytesIn, nodeIn: r.nodeReport.bytesIn, nodeOut: r.nodeReport.bytesOut });
@@ -338,15 +340,24 @@ function startJobs(registry: NodeRegistry, getPolicy: () => ActivePolicy): Job[]
   }));
   const probeTarget = probesJob.parseProbeUrl(process.env["PROBE_URL"]);
   if (probeTarget) {
+    const probeIntervalMs = envInt(process.env, "PROBE_INTERVAL_MS", 900_000, 60_000, 86_400_000);
     jobs.push(probesJob.start({
-      logger: jobLog, intervalMs: envInt(process.env, "PROBE_INTERVAL_MS", 900_000, 60_000, 86_400_000),
+      logger: jobLog, intervalMs: probeIntervalMs,
+      // Random start offset per run (up to half the interval) so probe timing is unpredictable.
+      jitterMs: Math.floor(probeIntervalMs / 2),
       deps: {
         target: probeTarget,
         sampleSize: envInt(process.env, "PROBE_SAMPLE_SIZE", 20, 1, 1000),
         timeoutMs: envInt(process.env, "PROBE_TIMEOUT_MS", 10_000, 1000, 60_000),
         listNodes: () => [...registry.all()]
           .filter((n) => n.ready && n.status === "active" && n.tunnel.isOpen)
-          .map((n) => ({ nodeId: n.nodeId, ip: n.ip, openStream: (h, p) => n.tunnel.openStream(h, p) })),
+          .map((n) => ({ nodeId: n.nodeId, ip: n.ip, unverified: n.egressVerifiedAt === undefined, openStream: (h, p) => n.tunnel.openStream(h, p) })),
+        onEgress: makeEgressVerifier({
+          getNode: (id) => registry.get(id),
+          classify: classifyEgressIp,
+          record: nodeRepo.recordVerifiedClass,
+          logger: jobLog,
+        }),
         quarantine: async (nodeId, reason) => {
           await nodeRepo.setStatus(nodeId, "quarantined", ["active", "pending", "cooldown"]);
           registry.get(nodeId)?.tunnel.close(`probe: ${reason}`);

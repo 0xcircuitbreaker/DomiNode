@@ -5,6 +5,7 @@ import * as path from "node:path";
 import * as tls from "node:tls";
 
 vi.mock("@dominusnode/shared", () => ({
+  EXIT_CLASSES: ["residential", "mobile", "dc", "masked"],
   createLogger: () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }),
   hashApiKey: vi.fn(),
   userRepo: {},

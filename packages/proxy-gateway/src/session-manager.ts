@@ -295,7 +295,8 @@ export async function startSession(
     pricePerGbMusd = await policyRepo.getPricing(relay.ipClass === "unknown" ? "any" : relay.ipClass);
     // Node share (tier + genesis) from the node owner; buyer discount from the requester's own tier.
     const [ownerSnap, buyer] = await Promise.all([
-      tierRepo.getChargeSnapshot(relay.nodeOwnerUserId),
+      // Tier weight of the node's verified exit class is snapshotted with node share.
+      tierRepo.getChargeSnapshot(relay.nodeOwnerUserId, relay.ipClass),
       tierRepo.getBuyerDiscount ? tierRepo.getBuyerDiscount(userId) : Promise.resolve(null),
     ]);
     snapshot = buyer ? { ...ownerSnap, ...buyer } : ownerSnap;

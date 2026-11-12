@@ -1,0 +1,37 @@
+{
+  "version": 1,
+  "updated": "2026-11-12",
+  "description": "ASNs whose address space is used for anonymizer egress (VPN, WARP, proxy networks). A node whose verified egress IP is in one of these ASNs is classed 'masked'. Hand-maintained from each operator's own published ASN (PeeringDB / bgp.he.net / RIR whois). Facts only (ASN numbers and operator names); no third-party database is copied. Extend at deploy time with ANONYMIZER_ASNS=\"1,2,3\". Shared hosting ASNs that many VPNs rent from (M247, Datacamp/CDN77, Leaseweb, ...) stay 'dc' via HOSTING_ASNS: dc is already the lower-trust class, and IP-level lists (data/anonymizer-ips.txt) catch known exits inside them.",
+  "asns": [
+    {
+      "asn": 13335,
+      "name": "Cloudflare (WARP / 1.1.1.1 VPN egress, Zero Trust egress)",
+      "kind": "vpn"
+    },
+    {
+      "asn": 209242,
+      "name": "Cloudflare London (WARP egress)",
+      "kind": "vpn"
+    },
+    {
+      "asn": 209103,
+      "name": "Proton AG (Proton VPN)",
+      "kind": "vpn"
+    },
+    {
+      "asn": 39351,
+      "name": "31173 Services AB (Mullvad VPN)",
+      "kind": "vpn"
+    },
+    {
+      "asn": 136787,
+      "name": "TEFINCOM S.A. (NordVPN)",
+      "kind": "vpn"
+    },
+    {
+      "asn": 147049,
+      "name": "PacketHub S.A. (NordVPN / Surfshark)",
+      "kind": "vpn"
+    }
+  ]
+}

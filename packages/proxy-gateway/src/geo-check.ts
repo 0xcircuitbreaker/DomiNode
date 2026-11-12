@@ -1,6 +1,8 @@
 import * as net from "node:net";
 import { isBlockedCountry, createLogger } from "@dominusnode/shared";
-import { classifyAsn, HOSTING_ASNS, loadAsnDbFile, parseHostingAsns, type AsnDb } from "./asn-db.js";
+import { HOSTING_ASNS, loadAsnDbFile, parseHostingAsns, type AsnDb } from "./asn-db.js";
+import { classifyEgress, DEFAULT_ANONYMIZER_ASNS, IpRangeSet, loadAnonymizerLists, type EgressVerdict } from "./egress-class.js";
+import type { NodeIpClass } from "@dominusnode/shared";
 
 const log = createLogger("proxy:geo");
 
@@ -20,6 +22,8 @@ const log = createLogger("proxy:geo");
  */
 let asnDb: AsnDb | null = null;
 let hostingAsns: ReadonlySet<number> = HOSTING_ASNS;
+let anonymizerAsns: ReadonlySet<number> = DEFAULT_ANONYMIZER_ASNS;
+let anonymizerIps: IpRangeSet = new IpRangeSet();
 let geoDisabled = false;
 let geoInitialized = false;
 
@@ -33,6 +37,10 @@ export async function initGeoCheck(): Promise<void> {
   if (geoInitialized) return;
   geoInitialized = true;
   hostingAsns = parseHostingAsns(process.env["HOSTING_ASNS"]);
+  const anon = loadAnonymizerLists(process.env, (m) => log.warn(m));
+  anonymizerAsns = anon.asns;
+  anonymizerIps = anon.ips;
+  log.info("anonymizer lists loaded", { asns: anon.asns.size, ipRanges: anon.ips.size, source: anon.asnSource });
 
   if (process.env["SKIP_GEOIP"] === "1") {
     if (isProduction()) {
@@ -116,9 +124,15 @@ export function checkSanctionedCountry(clientIp: string): string | null {
 }
 
 /** Install the ASN/country database directly (tests; null = unavailable). */
-export function setAsnDb(db: AsnDb | null, hosting: ReadonlySet<number> = HOSTING_ASNS): void {
+export function setAsnDb(
+  db: AsnDb | null,
+  hosting: ReadonlySet<number> = HOSTING_ASNS,
+  anon: { asns?: ReadonlySet<number>; ips?: IpRangeSet } = {},
+): void {
   asnDb = db;
   hostingAsns = hosting;
+  anonymizerAsns = anon.asns ?? DEFAULT_ANONYMIZER_ASNS;
+  anonymizerIps = anon.ips ?? new IpRangeSet();
   geoDisabled = false;
   geoInitialized = true;
 }
@@ -126,17 +140,23 @@ export function setAsnDb(db: AsnDb | null, hosting: ReadonlySet<number> = HOSTIN
 /**
  * Country, ASN and ip_class for a node's peer IP (tunnel auth). Returns null
  * when geo data is unavailable or the address has no country, so the tunnel
- * server fails closed for public peers. ip_class is dc for known hosting
- * ASNs, else residential.
+ * server fails closed for public peers. ip_class is the VERIFIED exit class
+ * (egress-class.ts): masked for anonymizer egress, dc for hosting ASNs,
+ * else residential.
  */
-export function lookupPeerGeo(ip: string): { country: string | null; asn: number | null; ipClass: "dc" | "residential" | null } | null {
+export function lookupPeerGeo(ip: string): { country: string | null; asn: number | null; ipClass: NodeIpClass | null } | null {
   if (geoDisabled) return { country: null, asn: null, ipClass: null };
   if (!asnDb) return null;
   try {
     const r = asnDb.lookupInfo(ip);
     if (!r || !r.country) return null;
-    return { country: r.country, asn: r.asn, ipClass: classifyAsn(r.asn, hostingAsns) as "dc" | "residential" };
+    return { country: r.country, asn: r.asn, ipClass: classifyEgressIp(ip).ipClass };
   } catch {
     return null;
   }
+}
+
+/** Verified exit class for an egress IP (connect + canary probe). */
+export function classifyEgressIp(ip: string): EgressVerdict {
+  return classifyEgress(ip, { db: asnDb, hostingAsns, anonymizerAsns, anonymizerIps });
 }

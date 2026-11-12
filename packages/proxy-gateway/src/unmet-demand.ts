@@ -1,3 +1,4 @@
+import { EXIT_CLASSES } from "@dominusnode/shared";
 /**
  * Unmet demand (LAUNCH_PLAN §11 gap 9): when node selection finds no eligible
  * node, count (UTC hour, requested country, requested class). Nothing else is
@@ -9,7 +10,7 @@ const MAX_KEYS = 10_000;
 const counts = new Map<string, number>();
 const HOUR_MS = 3_600_000;
 
-const CLASSES = new Set(["residential", "dc", "mobile"]);
+const CLASSES: ReadonlySet<string> = new Set(EXIT_CLASSES);
 
 export function recordUnmetDemand(country: string | undefined, ipClass: string | undefined, now = Date.now()): void {
   const c = country && /^[A-Za-z]{2}$/.test(country) ? country.toUpperCase() : "";

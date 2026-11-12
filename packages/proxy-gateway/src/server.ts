@@ -3,6 +3,7 @@ import * as http from "node:http";
 import * as https from "node:https";
 import * as net from "node:net";
 import { createLogger, planRepo, resolveRequestId, runWithRequestId } from "@dominusnode/shared";
+import type { ExitClass } from "@dominusnode/shared";
 import { checkAgenticWalletPolicy } from "./wallet-policy.js";
 import type { Duplex } from "node:stream";
 import { authenticateRequest, type AuthResult } from "./auth.js";
@@ -183,7 +184,7 @@ function relaySelectOpts(
   clientIp: string,
   host: string,
   port: number,
-  ipClass?: "residential" | "dc" | "mobile",
+  ipClass?: ExitClass,
 ): SelectOpts {
   const o = auth?.proxyOptions;
   return {

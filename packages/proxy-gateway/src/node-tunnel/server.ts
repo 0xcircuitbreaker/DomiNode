@@ -21,6 +21,7 @@ import {
   MAX_FRAME_PAYLOAD,
   hashNodeKey,
   isBlockedCountry,
+  isClassDowngrade,
   isPublicAddress,
   type Frame,
   type ActivePolicy,
@@ -93,6 +94,11 @@ export interface TunnelServerDeps {
   coordSign?: (msg: Buffer) => string;
   /** Known floorHash values; unknown ones lower selection weight. */
   knownFloorHashes?: ReadonlySet<string>;
+  /**
+   * Record a verified class that is less trusted than the owner-declared one
+   * (raises the egress_mismatch review flag). Best effort; never blocks AUTH.
+   */
+  recordVerifiedClass?: (nodeId: string, verified: NodeIpClass) => Promise<unknown>;
   /** Byte reports for disputes (CLOSE frames vs gateway counts). */
   onStreamClose?: (nodeId: string, r: StreamCloseReport) => void;
 }
@@ -608,6 +614,12 @@ export class NodeTunnelServer {
     if (!ok) {
       if (this.registry.remove(t.node.id, t)) this.releaseSlot(t.node.id);
       return t.rejectAuth("NODE_UNAVAILABLE");
+    }
+    // Declared-vs-verified: the verified class is already effective (markOnline);
+    // a downgrade (e.g. declared residential, exits via VPN) opens a review flag.
+    if (this.deps.recordVerifiedClass && isClassDowngrade(t.node.declared_class ?? null, live.ipClass)) {
+      this.deps.recordVerifiedClass(t.node.id, live.ipClass).catch(() => undefined);
+      this.log.warn("node exit class below declared class", { nodeId: t.node.id, declared: t.node.declared_class, verified: live.ipClass });
     }
     // A freshly registered (or re-attested) node starts as `pending`; the upgrade
     // already required attestation_version >= policy minVersion, so a completed

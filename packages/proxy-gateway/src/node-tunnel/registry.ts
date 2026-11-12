@@ -112,6 +112,8 @@ export interface LiveNode {
   connectedAt: number;
   /** Operator-run seed node (admin flag); starter-credit traffic may be limited to these. */
   operatorRun?: boolean;
+  /** ms epoch of the last probe-confirmed egress classification (unset = not yet probed). */
+  egressVerifiedAt?: number;
 }
 
 /** /24 for IPv4, /48 for IPv6 (matches nodes.ip_prefix24). */

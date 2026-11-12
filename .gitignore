@@ -39,6 +39,8 @@ target/
 
 # Downloaded IP-to-ASN dataset (scripts/update-asn-db.sh)
 /data/ip2asn-*.tsv*
+# Downloaded anonymizer IP list (Tor exits etc.; scripts/update-asn-db.sh)
+/data/anonymizer-ips.txt
 
 # Local Claude Code settings
 .claude/settings.local.json

@@ -61,6 +61,30 @@ describe("runner", () => {
     expect(() => envInt({ X: "11" }, "X", 5, 1, 10)).toThrow();
   });
 
+  it("jitter delays each run by at most jitterMs and stop() cancels a pending jitter", async () => {
+    expect(() => new Job({ name: "t", intervalMs: 1000, lockKey: null, run: vi.fn(), logger, jitterMs: 1000 })).toThrow();
+    expect(() => new Job({ name: "t", intervalMs: 1000, lockKey: null, run: vi.fn(), logger, jitterMs: -1 })).toThrow();
+    vi.useFakeTimers();
+    try {
+      const rnd = vi.spyOn(Math, "random").mockReturnValue(0.5);
+      const run = vi.fn().mockResolvedValue(undefined);
+      const job = new Job({ name: "t", intervalMs: 10_000, lockKey: null, run, logger, jitterMs: 4000 });
+      const p = job.tick();
+      await vi.advanceTimersByTimeAsync(1999);
+      expect(run).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(2);
+      await p;
+      expect(run).toHaveBeenCalledOnce();
+      const p2 = job.tick();
+      await job.stop();
+      await p2;
+      expect(run).toHaveBeenCalledOnce(); // cancelled during jitter
+      rnd.mockRestore();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("does not overlap runs and stop waits for in-flight run", async () => {
     let resolve!: () => void;
     const run = vi.fn(() => new Promise<void>((r) => { resolve = r; }));
