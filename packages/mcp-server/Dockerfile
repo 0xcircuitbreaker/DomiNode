@@ -19,14 +19,14 @@
 #
 # package-lock.json here is a standalone lock for this image (the repo build uses the
 # root workspace lock). Refresh it with: npm install --package-lock-only --legacy-peer-deps
-FROM node:22-alpine AS build
+FROM node:22.23.5-alpine AS build
 WORKDIR /app
 COPY package.json package-lock.json tsconfig.docker.json ./
 RUN npm ci --no-audit --no-fund --ignore-scripts --legacy-peer-deps
 COPY src ./src
 RUN npx tsc -p tsconfig.docker.json && npm prune --omit=dev --ignore-scripts
 
-FROM node:22-alpine
+FROM node:22.23.5-alpine
 ENV NODE_ENV=production
 WORKDIR /app
 COPY --from=build /app/package.json ./
