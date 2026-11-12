@@ -18,6 +18,10 @@
 # ROLE: all (default, one box), coordinator (postgres/api, no gateway),
 #       gateway (gateway + Caddy for RELAY_HOST only; DB over WireGuard).
 # RELAY_HOST / PROXY_HOST: public gateway hostnames (default: primary hostname).
+# Agents use the TLS proxy: https://PROXY_HOST:8444 (HTTPS proxy) and SOCKS5
+# inside TLS on :1443, with Caddy's certificate for PROXY_HOST (hot-reloaded on
+# renewal). Plaintext 8080/1080 are published only with TLS_MODE=off or
+# PUBLISH_PLAINTEXT_PROXY=1 (they refuse credentials unless TLS_MODE=off).
 # See docs/agent-network/DEPLOYMENT.md "Split self-host" for the layout.
 set -euo pipefail
 
@@ -31,7 +35,7 @@ for arg in "$@"; do
   case "$arg" in
     --yes|-y) ASSUME_YES=1 ;;
     --no-start) NO_START=1 ;;
-    -h|--help) sed -n '2,23p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,27p' "$0"; exit 0 ;;
     *) echo "unknown option: $arg" >&2; exit 2 ;;
   esac
 done
@@ -54,6 +58,15 @@ env_set() {
   tmp="$(mktemp "$ROOT/.env.XXXXXX")"
   if [ -f "$ENV_FILE" ]; then grep -vE "^$key=" "$ENV_FILE" > "$tmp" || true; fi
   printf '%s=%s\n' "$key" "$val" >> "$tmp"
+  chmod 600 "$tmp"
+  mv "$tmp" "$ENV_FILE"
+}
+# Remove KEY from .env (compose then uses its default).
+env_unset() {
+  local tmp
+  [ -f "$ENV_FILE" ] || return 0
+  tmp="$(mktemp "$ROOT/.env.XXXXXX")"
+  grep -vE "^$1=" "$ENV_FILE" > "$tmp" || true
   chmod 600 "$tmp"
   mv "$tmp" "$ENV_FILE"
 }
@@ -203,6 +216,20 @@ if [ "$TLS" = off ]; then
 else
   env_set COOKIE_SECURE true; env_set TUNNEL_SCHEME wss
 fi
+# Gateway TLS proxy (8444 HTTPS proxy, 1443 SOCKS5-over-TLS). TLS_MODE=off has
+# no certificate: listeners off, plaintext credentials accepted (warned).
+PLAIN="${PUBLISH_PLAINTEXT_PROXY:-$(env_get PUBLISH_PLAINTEXT_PROXY)}"
+case "${PLAIN:-0}" in 0|1) ;; *) die "PUBLISH_PLAINTEXT_PROXY must be 0 or 1" ;; esac
+env_set PUBLISH_PLAINTEXT_PROXY "${PLAIN:-0}"
+TLS_KEYS="GATEWAY_PROXY_TLS_PORT GATEWAY_SOCKS5_TLS_PORT GATEWAY_PROXY_TLS_CERT_FILE GATEWAY_PROXY_TLS_KEY_FILE PROXY_PUBLIC_TLS_PORT PROXY_PUBLIC_SOCKS5_TLS_PORT"
+if [ "$TLS" = off ]; then
+  for k in $TLS_KEYS; do env_set "$k" ""; done
+  env_set PROXY_REQUIRE_TLS false
+  PLAIN=1
+else
+  for k in $TLS_KEYS; do env_unset "$k"; done
+  env_set PROXY_REQUIRE_TLS true
+fi
 CORS=""
 for h in $HOSTS; do CORS="${CORS:+$CORS,}https://$h"; done
 env_set CORS_ORIGINS "$CORS"
@@ -261,6 +288,17 @@ env_set DN_COORD_PUBKEYS "$PINS"
     echo "  }"
     echo "}"
   fi
+  # Certificate for the gateway's TLS proxy (8444/1443): Caddy obtains and
+  # renews it; proxy-certs copies it to the gateway. Only needed when no site
+  # block above already covers PROXY_HOST on :443.
+  if [ "$ROLE_SEL" != coordinator ] && [ "$TLS" != off ]; then
+    if [ "$ROLE_SEL" = gateway ] || [ "$TLS" = cloudflare ] || ! in_list "$PROXYH" "$HOSTS"; then
+      echo "$PROXYH {"
+      if [ "$TLS" = internal ]; then echo "  tls internal"; fi
+      echo "  respond \"DominusNode relay gateway: use the HTTPS proxy on port 8444\" 404"
+      echo "}"
+    fi
+  fi
 } > "$SH_DIR/Caddyfile.tmp"
 mv "$SH_DIR/Caddyfile.tmp" "$SH_DIR/Caddyfile"
 chmod 644 "$SH_DIR/Caddyfile"
@@ -272,8 +310,10 @@ case "$ROLE_SEL" in
   *) PROFILES="gateway caddy" ;;
 esac
 if [ "$TLS" = cloudflare ]; then PROFILES="$PROFILES cloudflare"; fi
+if [ "$ROLE_SEL" != coordinator ] && [ "$TLS" != off ]; then PROFILES="$PROFILES proxytls"; fi
 COMPOSE=(docker compose -f docker-compose.selfhost.yml)
 if [ -n "$DB_WG" ]; then COMPOSE+=(-f docker-compose.selfhost.wg-db.yml); fi
+if [ "$ROLE_SEL" != coordinator ] && [ "$PLAIN" = 1 ]; then COMPOSE+=(-f docker-compose.selfhost.plain.yml); fi
 COMPOSE+=(--env-file "$ENV_FILE")
 for p in $PROFILES; do COMPOSE+=(--profile "$p"); done
 
@@ -315,8 +355,15 @@ if [ "$ROLE_SEL" != coordinator ]; then
     test -r /run/dominusnode/coord-key.pem ||
     die "gateway cannot read its coordinator key; see: docker compose -f docker-compose.selfhost.yml logs keys gateway"
 fi
+if [ "$ROLE_SEL" != coordinator ]; then
+  if [ "$TLS" = off ]; then
+    echo "proxy (plaintext, TLS_MODE=off): http://$PROXYH:8080 / socks5h://$PROXYH:1080"
+  else
+    echo "proxy: https://$PROXYH:8444 (HTTPS proxy), SOCKS5 over TLS $PROXYH:1443; node tunnel wss://$RELAY:8443/v1/tunnel"
+  fi
+fi
 if [ "$ROLE_SEL" = gateway ]; then
-  echo "up. proxy $PROXYH:8080 (HTTP) / :1080 (SOCKS5); node tunnel wss://$RELAY:8443/v1/tunnel"
+  echo "up."
 else
   echo "up. status page: https://$PRIMARY/status"
 fi

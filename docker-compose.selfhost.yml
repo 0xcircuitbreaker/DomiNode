@@ -13,6 +13,9 @@
 #   gateway      keys, gateway                    (ROLE=all|gateway)
 #   caddy        Caddy TLS front end              (unless ROLE=coordinator TLS_MODE=cloudflare)
 #   cloudflare   cloudflared + its token copier   (TLS_MODE=cloudflare)
+#   proxytls     proxy-certs: Caddy's PROXY_HOST cert -> gateway (unless TLS_MODE=off)
+# docker-compose.selfhost.plain.yml publishes plaintext 8080/1080 (TLS_MODE=off,
+# or PUBLISH_PLAINTEXT_PROXY=1).
 # docker-compose.selfhost.wg-db.yml is added for ROLE=coordinator with DB_WG_BIND
 # (Postgres published only on the WireGuard address for a separate gateway).
 name: dominusnode
@@ -93,6 +96,9 @@ services:
       COORD_TUNNEL_URL: wss://${RELAY_HOST:-${DOMINUSNODE_DOMAIN}}:${TUNNEL_HOST_PORT:-8443}/v1/tunnel
       COORD_ADDITIONAL_PUBKEYS: ${COORD_ADDITIONAL_PUBKEYS:-}
       SMTP_FROM: ${OPERATOR_CONTACT:-}
+      # Advertised TLS proxy ports (empty with TLS_MODE=off: not advertised).
+      PROXY_PUBLIC_TLS_PORT: ${PROXY_PUBLIC_TLS_PORT-8444}
+      PROXY_PUBLIC_SOCKS5_TLS_PORT: ${PROXY_PUBLIC_SOCKS5_TLS_PORT-1443}
     depends_on:
       migrate: { condition: service_completed_successfully }
     networks: [backend, frontend]
@@ -114,10 +120,16 @@ services:
       PROXY_LISTEN_PORT: "8080"
       SOCKS5_LISTEN_PORT: "1080"
       TUNNEL_PORT: "8443"
-      # Self-host has no gateway TLS proxy cert yet, so the production default
-      # (refuse credentials on plaintext 8080/1080) is turned off explicitly.
-      # Credentials on 8080/1080 travel in plaintext; the gateway logs a warning.
-      PROXY_REQUIRE_TLS: "false"
+      # TLS proxy listeners: HTTPS proxy on 8444, SOCKS5-over-TLS on 1443 (8443
+      # is the node tunnel behind Caddy). The certificate is Caddy's cert for
+      # PROXY_HOST, copied by proxy-certs and hot-reloaded on renewal.
+      # TLS_MODE=off: install.sh empties these and sets PROXY_REQUIRE_TLS=false.
+      PROXY_TLS_PORT: ${GATEWAY_PROXY_TLS_PORT-8444}
+      SOCKS5_TLS_PORT: ${GATEWAY_SOCKS5_TLS_PORT-1443}
+      PROXY_TLS_CERT_FILE: ${GATEWAY_PROXY_TLS_CERT_FILE-/run/dominusnode-tls/proxy.crt}
+      PROXY_TLS_KEY_FILE: ${GATEWAY_PROXY_TLS_KEY_FILE-/run/dominusnode-tls/proxy.key}
+      # Credentials on plaintext 8080/1080 are refused (production default).
+      PROXY_REQUIRE_TLS: ${PROXY_REQUIRE_TLS:-true}
       COORD_SIGNING_KEY_FILE: /run/dominusnode/coord-key.pem
       ASN_DB_FILE: /app/data/ip2asn-combined.tsv.gz
       # Caddy terminates TLS for the node tunnel and forwards the node's real
@@ -125,14 +137,17 @@ services:
       TUNNEL_TRUSTED_PROXY_IPS: 172.29.53.2
     volumes:
       - gateway_secrets:/run/dominusnode:ro
+      - proxy_tls:/run/dominusnode-tls:ro
       - ./data:/app/data:ro
     depends_on:
       migrate: { condition: service_completed_successfully, required: false }
       keys: { condition: service_completed_successfully }
+      proxy-certs: { condition: service_healthy, required: false }
     networks: [backend, frontend]
     ports:
-      - "${PROXY_HTTP_HOST_PORT:-8080}:8080"
-      - "${PROXY_SOCKS5_HOST_PORT:-1080}:1080"
+      - "${PROXY_TLS_HOST_PORT:-8444}:8444"
+      - "${SOCKS5_TLS_HOST_PORT:-1443}:1443"
+    # Plaintext 8080/1080 are published only by docker-compose.selfhost.plain.yml.
     # The tunnel port (8443) is NOT published here: nodes reach it through Caddy.
     security_opt: ["no-new-privileges:true"]
     cap_drop: [ALL]
@@ -157,6 +172,54 @@ services:
     networks:
       frontend:
         ipv4_address: 172.29.53.2
+
+  # Copies Caddy's certificate for PROXY_HOST (any issuer: Let's Encrypt,
+  # ZeroSSL fallback or `tls internal`) from Caddy's storage into a volume the
+  # gateway (uid 1001) can read, mode 0400. Polls every 5 minutes; the gateway
+  # re-reads the files every minute and swaps the cert in place (no restart).
+  # Healthy once a cert exists, so the gateway starts only with a cert.
+  proxy-certs:
+    profiles: [proxytls]
+    image: dominusnode-api:selfhost
+    restart: unless-stopped
+    user: "0:0"
+    network_mode: none
+    environment:
+      CERT_HOST: ${PROXY_HOST:-${DOMINUSNODE_DOMAIN}}
+    volumes:
+      - caddy_data:/caddy:ro
+      - proxy_tls:/dst
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER]
+    security_opt: ["no-new-privileges:true"]
+    read_only: true
+    command:
+      - sh
+      - -euc
+      - |
+        chown 1001:1001 /dst && chmod 0500 /dst
+        while :; do
+          c="$$(find /caddy/caddy/certificates -type f -path "*/$$CERT_HOST/$$CERT_HOST.crt" 2>/dev/null | xargs -r ls -t | head -n1)"
+          k="$${c%.crt}.key"
+          if [ -n "$$c" ] && [ -s "$$c" ] && [ -s "$$k" ]; then
+            if ! cmp -s "$$c" /dst/proxy.crt || ! cmp -s "$$k" /dst/proxy.key; then
+              install -o 1001 -g 1001 -m 0400 "$$k" /dst/proxy.key.tmp
+              install -o 1001 -g 1001 -m 0400 "$$c" /dst/proxy.crt.tmp
+              mv -f /dst/proxy.key.tmp /dst/proxy.key
+              mv -f /dst/proxy.crt.tmp /dst/proxy.crt
+              echo "proxy-certs: updated certificate for $$CERT_HOST from $$c"
+            fi
+          else
+            echo "proxy-certs: waiting for Caddy to obtain a certificate for $$CERT_HOST"
+          fi
+          sleep "$$( [ -s /dst/proxy.crt ] && echo 300 || echo 10 )"
+        done
+    healthcheck:
+      test: ["CMD-SHELL", "test -s /dst/proxy.crt && test -s /dst/proxy.key"]
+      interval: 10s
+      timeout: 5s
+      retries: 60
+      start_period: 10s
 
   # TLS_MODE=cloudflare: copies the 0600 tunnel token file into a volume owned
   # by cloudflared's uid (65532, mode 0400). The token never enters .env, the
@@ -246,5 +309,6 @@ volumes:
   caddy_data:
   caddy_config:
   gateway_secrets:
+  proxy_tls:
   node_secrets:
   cloudflared_secrets:
