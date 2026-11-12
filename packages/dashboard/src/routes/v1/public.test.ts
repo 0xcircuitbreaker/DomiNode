@@ -89,6 +89,8 @@ describe("/v1 public routes", () => {
     expect(r.body["onlineNodes"]).toBe(13);
     expect(r.body["byCountry"]).toEqual([{ country: "US", online: 7 }]);
     expect(r.body["otherCountries"]).toBe(6);
+    // US and DE are available; IR is sanctioned and never counted.
+    expect(r.body["countriesAvailable"]).toBe(2);
     expect(r.body["byClass"]).toEqual({ residential: 10, dc: 2, unknown: 1 });
     const sql = String(query.mock.calls[0][0]);
     expect(sql).not.toMatch(/observed_ip|node_key_hash|\bid\b/);

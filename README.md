@@ -90,6 +90,26 @@ npm run start:api        # :3000
 npm run start:proxy      # :8080 HTTP, :1080 SOCKS5, node tunnel
 ```
 
+### Local demo (2 minutes)
+
+**DEMO, NOT FOR PRODUCTION.** One command starts Postgres, the API, the gateway, one local exit node and a pre-funded demo principal with throwaway keys. Everything binds to 127.0.0.1, runs with `NODE_ENV=development`, and the node uses a plaintext tunnel that only demo mode allows.
+
+```bash
+docker compose -f docker-compose.demo.yml up --build -d
+KEY=$(docker compose -f docker-compose.demo.yml exec -T api cat /demo/api-key)
+curl -x "http://relay:$KEY@localhost:8080" https://example.com
+curl -s localhost:3000/v1/network/stats
+docker compose -f docker-compose.demo.yml down -v   # throw it all away
+```
+
+### Self-host (one command)
+
+```bash
+./scripts/selfhost/install.sh
+```
+
+It asks for one or more public hostnames (the first is the primary `DOMINUSNODE_DOMAIN`; all of them are served), the TLS mode (`auto`, `internal`, `off`) and an operator contact. It generates the coordinator key, a `.env` with random secrets and `selfhost/Caddyfile`, then starts `docker-compose.selfhost.yml`. Re-run it to upgrade; existing secrets and the key are kept. Non-interactive: `DOMINUSNODE_HOSTNAMES="a.example b.example" TLS_MODE=auto OPERATOR_CONTACT=ops@example ./scripts/selfhost/install.sh --yes`.
+
 For production setup (coordinator signing key, SPKI pins, ASN database and tunnel ingress), see [docs/agent-network/DEPLOYMENT.md](docs/agent-network/DEPLOYMENT.md). For the architecture overview, see [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## License
