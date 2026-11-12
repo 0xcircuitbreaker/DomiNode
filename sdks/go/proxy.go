@@ -334,7 +334,10 @@ func (p *ProxyResource) Fetch(ctx context.Context, rawURL string, o FetchOptions
 		if errors.As(err, &pe) {
 			return nil, err
 		}
-		if ctx.Err() != nil {
+		// The socket deadline (from ctx) can fire just before ctx reports done,
+		// so a net timeout counts as our timeout too.
+		var ne net.Error
+		if ctx.Err() != nil || (errors.As(err, &ne) && ne.Timeout()) {
 			return nil, proxyErr(0, "Proxy request timed out after %s", timeout)
 		}
 		return nil, proxyErr(0, "Proxy request failed: %s", ScrubCredentials(err.Error()))
