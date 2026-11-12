@@ -198,7 +198,7 @@ router.get("/export", async (req, res) => {
       const date = new Date(r.created_at).toISOString();
       const totalBytes = Number(r.bytes_in) + Number(r.bytes_out);
       const costUsd = (r.cost_cents / 100).toFixed(4);
-      return `${sanitizeCsvField(date)},${sanitizeCsvField(r.session_id)},${sanitizeCsvField(r.target_host)},${r.bytes_in},${r.bytes_out},${totalBytes},${costUsd}`;
+      return `${sanitizeCsvField(date)},${sanitizeCsvField(r.session_id ?? "")},${sanitizeCsvField(r.target_host)},${r.bytes_in},${r.bytes_out},${totalBytes},${costUsd}`;
     });
 
     res.send(header + rows.join("\n"));
