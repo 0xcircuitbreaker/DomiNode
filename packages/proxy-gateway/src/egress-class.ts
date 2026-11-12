@@ -27,8 +27,9 @@ export const DEFAULT_ANONYMIZER_ASNS: ReadonlySet<number> = new Set([
   209242, // Cloudflare London (WARP egress)
   209103, // Proton AG (Proton VPN)
   39351,  // 31173 Services AB (Mullvad)
-  136787, // TEFINCOM (NordVPN)
-  147049, // PacketHub (NordVPN / Surfshark)
+  136787, // PacketHub S.A. (NordVPN)
+  147049, // PacketHub S.A. (NordVPN)
+  207137, // PacketHub S.A. (NordVPN)
 ]);
 
 const MAX_LIST_BYTES = 32 * 1024 * 1024;
