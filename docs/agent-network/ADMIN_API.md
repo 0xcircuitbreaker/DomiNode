@@ -362,7 +362,7 @@ Heartbeats come from the `job_runs` table, upserted by the gateway job runner af
 | `from`, `to` | ISO | |
 | `limit`, `offset` | | |
 
-Actions: `node_credit_unfreeze`, `node_credit_freeze`, `node_quarantine`, `node_activate`, `node_revoke`, `node_payout_reverse`, `byte_dispute_resolve`, `relay_abuse_log_access`, `network_policy_publish`, `network_pricing_update`, `revenue_split_append`, `node_tier_update`, `node_credit_auto_freeze` (written by the collusion job, `adminUserId` null), `collusion_flag_dismiss`, `collusion_flag_confirm`, `collusion_settings_update`.
+Actions: `node_credit_unfreeze`, `node_credit_freeze`, `node_quarantine`, `node_activate`, `node_revoke`, `node_payout_reverse`, `byte_dispute_resolve`, `relay_abuse_log_access`, `network_policy_publish`, `network_pricing_update`, `revenue_split_append`, `node_tier_update`, `node_credit_auto_freeze` (written by the collusion job, `adminUserId` null), `collusion_flag_dismiss`, `collusion_flag_confirm`, `collusion_settings_update`, plus the legacy `/api/admin` actions listed in section 15.
 
 ```ts
 { limit; offset; total;
@@ -448,3 +448,27 @@ All mutations re-check the admin role `FOR UPDATE` in one transaction and write 
 | `GET /contribution-allowlist` / `POST /contribution-allowlist {userId, note?}` / `DELETE /contribution-allowlist/:userId` | Agents allowed to buy while `requireContribution` is on (`contribution_allowlist_add`, `contribution_allowlist_remove`). The gateway caches decisions for 30 s. |
 
 The admin panel's **Launch controls** page (`/admin/launch`) covers all of the above; tier discounts and the margin floor are on **Pricing, Split & Tiers**, the policy flags on **Policy**. New jobs (`starter-expiry`, `genesis`, `network-snapshot`, hourly; `unmet-demand-flush`, per instance) appear on **Health**.
+
+## 15. Legacy `/api/admin` mutations (`admin.ts`)
+
+Every mutating route under `/api/admin` (outside `/network`) requires a JSON body field `reason`: a string of 3–500 printable characters after trimming. A missing, short, long or control-character reason is `400 {"error":"reason ..."}` and nothing changes. The change and one `audit_events` row (`user_id` = the acting admin, `details.reason` plus the previous and new state) are written in one transaction that re-checks the caller's admin role `FOR UPDATE` (`403` if revoked). If the audit insert fails, the change rolls back. The rows show up in `GET /api/admin/network/audit` and on the admin **Audit** page.
+
+| Route | Extra body | Audit action (resource, resource id) | Details besides `reason` |
+|---|---|---|---|
+| `PUT /users/:id/suspend` | | `user_suspend` (user, user id) | `previousStatus`, `newStatus`, `changed`, `revokedKeys`, `revokedTokens` |
+| `PUT /users/:id/activate` | | `user_activate` (user) | `previousStatus`, `newStatus`, `changed` |
+| `DELETE /users/:id` | | `user_delete` (user) | `previousStatus`, `newStatus` |
+| `PUT /users/:id/plan` | `planId` | `user_plan_set` (user) | `previousPlanId`, `newPlanId` |
+| `PUT /roles/:userId` (root admin) | `role` | `admin_role_set` (user) | `previousRole`, `newRole` |
+| `POST /credit-wallet` (cybersecurity admin+) | `targetUserId` or `teamId`, `amountCents` | `wallet_credit` (wallet, user id) / `team_wallet_credit` (team_wallet, team id) | `amountCents`, `transactionId` (user) |
+| `POST /bug-reports/:id/approve` | `creditAmountCents?` | `bug_report_approve` (bug_report) | `previousStatus`, `newStatus`, `creditAmountCents`, `reporterId` |
+| `POST /bug-reports/:id/reject` | | `bug_report_reject` (bug_report) | `previousStatus`, `newStatus` |
+| `POST /promo` | `code`, `creditCents`, `maxUses?`, `expiresAt?` | `promo_create` (promo_code, promo id) | `prefix` (never the code), `creditCents`, `maxUses`, `expiresAt` |
+| `DELETE /promo/:id` | | `promo_disable` (promo_code) | `previousActive`, `newActive` |
+| `POST /waitlist/:id/approve` | | `waitlist_approve` (waitlist) | `previousStatus`, `newStatus` |
+| `POST /waitlist/bulk-approve` | `count?` | `waitlist_bulk_approve` (waitlist, `bulk`) | `requested`, `approved`, `entryIds` |
+| `DELETE /waitlist/:id` | | `waitlist_cancel` (waitlist) | `newStatus` |
+| `POST /loyalty/process` | | `loyalty_process` (loyalty, `YYYY-MM`) | `processed`, `rewarded`, `creditedCents` |
+| `POST /commissions/process` | | `commissions_process` (affiliate_commissions, `batch`) | `processed`, `totalCreditedCents` |
+
+The loyalty and commission runs credit each user in its own transaction, so their single audit row is written after the run and records its totals. For `credit-wallet`, `reason` also becomes the wallet transaction description (first 200 chars). `DELETE` requests carry the reason as a JSON body (`Content-Type: application/json`).

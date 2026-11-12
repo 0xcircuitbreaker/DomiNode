@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const mockQuery = vi.fn();
 vi.mock("../db.js", () => ({
   query: (...args: unknown[]) => mockQuery(...args),
+  queryOn: (ext: { query: (...a: unknown[]) => unknown } | undefined, ...args: unknown[]) => (ext ? ext.query(...args) : mockQuery(...args)),
 }));
 
 import {

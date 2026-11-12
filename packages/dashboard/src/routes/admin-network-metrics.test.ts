@@ -168,6 +168,17 @@ describe("admin network metrics", () => {
     expect((await call(app(), "GET", `${BASE}/audit?adminUserId=nope`)).status).toBe(400);
   });
 
+  it("GET /audit includes the legacy /api/admin actions", async () => {
+    m.poolQuery.mockImplementation(async (sql: string) => sql.includes("COUNT(*)") ? { rows: [{ count: "0" }] } : { rows: [] });
+    await call(app(), "GET", `${BASE}/audit`);
+    const all = (m.poolQuery.mock.calls[0][1] as unknown[])[0] as string[];
+    for (const a of ["user_suspend", "user_activate", "user_delete", "user_plan_set", "admin_role_set", "wallet_credit",
+      "team_wallet_credit", "promo_create", "promo_disable", "bug_report_approve", "waitlist_cancel", "commissions_process"]) {
+      expect(all).toContain(a);
+    }
+    expect((await call(app(), "GET", `${BASE}/audit?action=admin_role_set`)).status).toBe(200);
+  });
+
   it("returns 500 without leaking DB errors", async () => {
     m.poolQuery.mockRejectedValue(new Error("relation secret_table does not exist"));
     const r = await call(app(), "GET", `${BASE}/overview`);

@@ -35,7 +35,7 @@ function post(body: unknown): Promise<{ status: number; body: Record<string, unk
   return new Promise((resolve, reject) => {
     const server = app.listen(0, () => {
       const port = (server.address() as { port: number }).port;
-      const data = JSON.stringify(body);
+      const data = JSON.stringify({ reason: "valid finding", ...(body as object) });
       const r = http.request({ hostname: "127.0.0.1", port, path: `/api/admin/bug-reports/${ID}/approve`, method: "POST",
         headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(data) } }, (res) => {
         let out = "";

@@ -1,3 +1,4 @@
+import type { DbTxClient } from "../db.js";
 import { query, getPool } from "../db.js";
 import type { Plan } from "../types.js";
 
@@ -59,10 +60,11 @@ export async function getUserPlan(userId: string): Promise<Plan> {
 }
 
 // Wrap setUserPlan in a transaction with FOR SHARE on plan lookup
-export async function setUserPlan(userId: string, planId: string): Promise<void> {
-  const client = await getPool().connect();
+export async function setUserPlan(userId: string, planId: string, ext?: DbTxClient): Promise<void> {
+  const own = !ext;
+  const client = ext ?? await getPool().connect();
   try {
-    await client.query("BEGIN");
+    if (own) await client.query("BEGIN");
 
     // Verify the plan exists (FOR SHARE prevents concurrent deletion)
     const planResult = await client.query<PlanRow>(
@@ -81,12 +83,12 @@ export async function setUserPlan(userId: string, planId: string): Promise<void>
       throw new Error(`User '${userId}' not found`);
     }
 
-    await client.query("COMMIT");
+    if (own) await client.query("COMMIT");
   } catch (err) {
-    await client.query("ROLLBACK");
+    if (own) await client.query("ROLLBACK");
     throw err;
   } finally {
-    client.release();
+    if (own) client.release();
   }
 }
 

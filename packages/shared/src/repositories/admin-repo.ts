@@ -1,4 +1,5 @@
-import { query, getPool } from "../db.js";
+import type { DbTxClient } from "../db.js";
+import { query, queryOn, getPool } from "../db.js";
 import { eraseRelayPersonalDataTx } from "./relay-erasure-repo.js";
 import type {
   AdminUserView,
@@ -106,28 +107,28 @@ export async function getUserDetails(
   };
 }
 
-export async function suspendUser(userId: string): Promise<boolean> {
-  const result = await query(
+export async function suspendUser(userId: string, ext?: DbTxClient): Promise<boolean> {
+  const result = await queryOn(ext,
     `UPDATE users SET status = 'suspended' WHERE id = $1 AND status = 'active'`,
     [userId],
   );
   return (result.rowCount ?? 0) > 0;
 }
 
-export async function reactivateUser(userId: string): Promise<boolean> {
-  const result = await query(
+export async function reactivateUser(userId: string, ext?: DbTxClient): Promise<boolean> {
+  const result = await queryOn(ext,
     `UPDATE users SET status = 'active' WHERE id = $1 AND status = 'suspended'`,
     [userId],
   );
   return (result.rowCount ?? 0) > 0;
 }
 
-export async function deleteUser(userId: string): Promise<void> {
+export async function deleteUser(userId: string, ext?: DbTxClient): Promise<void> {
   // Admin delete now anonymizes data same as GDPR self-deletion
-  const pool = getPool();
-  const client = await pool.connect();
+  const own = !ext;
+  const client = ext ?? await getPool().connect();
   try {
-    await client.query("BEGIN");
+    if (own) await client.query("BEGIN");
 
     // Look up email + wallet address before anonymizing
     // FOR UPDATE prevents concurrent modification during deletion
@@ -267,12 +268,12 @@ export async function deleteUser(userId: string): Promise<void> {
     // Relay-network personal data (abuse log, node IPs, payout wallets, ...)
     await eraseRelayPersonalDataTx(client, userId);
 
-    await client.query("COMMIT");
+    if (own) await client.query("COMMIT");
   } catch (err) {
-    await client.query("ROLLBACK");
+    if (own) await client.query("ROLLBACK");
     throw err;
   } finally {
-    client.release();
+    if (own) client.release();
   }
 }
 
@@ -293,15 +294,16 @@ export function isRootAdmin(user: { admin_role?: string | null } | null | undefi
 export async function setAdminRole(
   targetUserId: string,
   newRole: string,
+  ext?: DbTxClient,
 ): Promise<boolean> {
   if (!VALID_ADMIN_ROLES.has(newRole)) return false;
   // Never allow setting root_admin via API — it's hardcoded to one email
   if (newRole === "root_admin") return false;
 
-  const pool = getPool();
-  const client = await pool.connect();
+  const own = !ext;
+  const client = ext ?? await getPool().connect();
   try {
-    await client.query("BEGIN");
+    if (own) await client.query("BEGIN");
     // Lock the target user row
     const userResult = await client.query(
       "SELECT email, admin_role FROM users WHERE id = $1 FOR UPDATE",
@@ -309,12 +311,12 @@ export async function setAdminRole(
     );
     const user = userResult.rows[0] as { email: string; admin_role: string } | undefined;
     if (!user) {
-      await client.query("ROLLBACK");
+      if (own) await client.query("ROLLBACK");
       return false;
     }
     // Cannot change root admin's role
     if (isRootAdmin(user)) {
-      await client.query("ROLLBACK");
+      if (own) await client.query("ROLLBACK");
       return false;
     }
     // Update both admin_role and is_admin (keep in sync)
@@ -323,13 +325,13 @@ export async function setAdminRole(
       "UPDATE users SET admin_role = $1, is_admin = $2 WHERE id = $3",
       [newRole, isAdmin, targetUserId],
     );
-    await client.query("COMMIT");
+    if (own) await client.query("COMMIT");
     return true;
   } catch (err) {
-    await client.query("ROLLBACK");
+    if (own) await client.query("ROLLBACK");
     throw err;
   } finally {
-    client.release();
+    if (own) client.release();
   }
 }
 

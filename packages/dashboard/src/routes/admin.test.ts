@@ -16,6 +16,9 @@ const mockFindUserById = vi.fn();
 const mockRevokeAllApiKeys = vi.fn();
 const mockRevokeAllForUser = vi.fn();
 const mockDeleteMfaConfig = vi.fn();
+const mockClientQuery = vi.fn(async (sql: string) =>
+  sql.includes("SELECT admin_role FROM users") ? { rows: [{ admin_role: "root_admin" }] } : { rows: [], rowCount: 1 });
+const REASON = { reason: "abuse report #42" };
 const mockDbQuery = vi.fn((..._args: unknown[]) => Promise.resolve({ rows: [] as unknown[] }));
 
 vi.mock("@dominusnode/shared", () => ({
@@ -49,6 +52,7 @@ vi.mock("@dominusnode/shared", () => ({
     const ranks: Record<string, number> = { none: 0, admin: 1, cybersecurity_admin: 2, root_admin: 3 };
     return (ranks[userRole] ?? 0) >= (ranks[requiredRole] ?? 0);
   },
+  getPool: () => ({ connect: async () => ({ query: mockClientQuery, release: vi.fn() }) }),
   createLogger: () => ({
     info: vi.fn(),
     warn: vi.fn(),
@@ -101,6 +105,7 @@ function request(
   app: express.Express,
   method: string,
   path: string,
+  body?: unknown,
 ): Promise<{ status: number; body: Record<string, unknown> }> {
   return new Promise((resolve, reject) => {
     const server = app.listen(0, () => {
@@ -116,7 +121,10 @@ function request(
         port,
         path,
         method: method.toUpperCase(),
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "Content-Length": body === undefined ? 0 : Buffer.byteLength(JSON.stringify(body)),
+        },
       };
 
       const req = http.request(options, (res) => {
@@ -135,7 +143,7 @@ function request(
         server.close();
         reject(err);
       });
-      req.end();
+      req.end(body === undefined ? undefined : JSON.stringify(body));
     });
   });
 }
@@ -166,7 +174,7 @@ describe("admin routes", () => {
       });
 
       const app = createApp();
-      const res = await request(app, "PUT", `/api/admin/users/${VALID_UUID}/suspend`);
+      const res = await request(app, "PUT", `/api/admin/users/${VALID_UUID}/suspend`, REASON);
 
       expect(res.status).toBe(403);
       expect(res.body.error).toBe("Only root admin can suspend another admin account");
@@ -187,7 +195,7 @@ describe("admin routes", () => {
       });
       try {
         const app = createApp();
-        const res = await request(app, "PUT", `/api/admin/users/${VALID_UUID}/suspend`);
+        const res = await request(app, "PUT", `/api/admin/users/${VALID_UUID}/suspend`, REASON);
         expect(res.status).toBe(403);
         expect(res.body.error).toBe("Root admin account cannot be suspended");
         expect(mockSuspendUser).not.toHaveBeenCalled();
@@ -212,20 +220,20 @@ describe("admin routes", () => {
       mockRevokeAllForUser.mockResolvedValueOnce(1);
 
       const app = createApp();
-      const res = await request(app, "PUT", `/api/admin/users/${VALID_UUID}/suspend`);
+      const res = await request(app, "PUT", `/api/admin/users/${VALID_UUID}/suspend`, REASON);
 
       expect(res.status).toBe(200);
       expect(res.body.message).toBe("User suspended");
-      expect(mockSuspendUser).toHaveBeenCalledWith(VALID_UUID);
-      expect(mockRevokeAllApiKeys).toHaveBeenCalledWith(VALID_UUID);
-      expect(mockRevokeAllForUser).toHaveBeenCalledWith(VALID_UUID);
+      expect(mockSuspendUser).toHaveBeenCalledWith(VALID_UUID, expect.anything());
+      expect(mockRevokeAllApiKeys).toHaveBeenCalledWith(VALID_UUID, expect.anything());
+      expect(mockRevokeAllForUser).toHaveBeenCalledWith(VALID_UUID, expect.anything());
     });
 
     it("should return 400 when trying to suspend yourself", async () => {
       mockUserId = VALID_UUID;
 
       const app = createApp();
-      const res = await request(app, "PUT", `/api/admin/users/${VALID_UUID}/suspend`);
+      const res = await request(app, "PUT", `/api/admin/users/${VALID_UUID}/suspend`, REASON);
 
       expect(res.status).toBe(400);
       expect(res.body.error).toBe("Cannot suspend your own account");
@@ -257,7 +265,7 @@ describe("admin routes", () => {
       });
 
       const app = createApp();
-      const res = await request(app, "DELETE", `/api/admin/users/${VALID_UUID}`);
+      const res = await request(app, "DELETE", `/api/admin/users/${VALID_UUID}`, REASON);
 
       expect(res.status).toBe(403);
       expect(res.body.error).toBe("Only root admin can delete another admin account");
@@ -278,11 +286,11 @@ describe("admin routes", () => {
       mockDeleteUser.mockResolvedValueOnce(undefined);
 
       const app = createApp();
-      const res = await request(app, "DELETE", `/api/admin/users/${VALID_UUID}`);
+      const res = await request(app, "DELETE", `/api/admin/users/${VALID_UUID}`, REASON);
 
       expect(res.status).toBe(200);
       expect(res.body.message).toBe("User deleted");
-      expect(mockDeleteUser).toHaveBeenCalledWith(VALID_UUID);
+      expect(mockDeleteUser).toHaveBeenCalledWith(VALID_UUID, expect.anything());
     });
 
     it("returns 409 and does not terminate sessions when a payout is in flight", async () => {
@@ -293,7 +301,7 @@ describe("admin routes", () => {
       mockDbQuery.mockResolvedValueOnce({ rows: [{ id: "p1" }] });
       const fetchSpy = vi.spyOn(globalThis, "fetch");
       try {
-        const res = await request(createApp(), "DELETE", `/api/admin/users/${VALID_UUID}`);
+        const res = await request(createApp(), "DELETE", `/api/admin/users/${VALID_UUID}`, REASON);
         expect(res.status).toBe(409);
         expect(String(res.body.error)).toContain("payout is in flight");
         expect(mockDeleteUser).not.toHaveBeenCalled();
@@ -312,7 +320,7 @@ describe("admin routes", () => {
       const err = new Error("A payout is in flight");
       err.name = "PayoutInFlightError";
       mockDeleteUser.mockRejectedValueOnce(err);
-      const res = await request(createApp(), "DELETE", `/api/admin/users/${VALID_UUID}`);
+      const res = await request(createApp(), "DELETE", `/api/admin/users/${VALID_UUID}`, REASON);
       expect(res.status).toBe(409);
     });
 
@@ -320,7 +328,7 @@ describe("admin routes", () => {
       mockUserId = VALID_UUID;
 
       const app = createApp();
-      const res = await request(app, "DELETE", `/api/admin/users/${VALID_UUID}`);
+      const res = await request(app, "DELETE", `/api/admin/users/${VALID_UUID}`, REASON);
 
       expect(res.status).toBe(400);
       expect(res.body.error).toBe("Cannot delete your own account");

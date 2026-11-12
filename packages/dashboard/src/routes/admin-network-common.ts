@@ -69,6 +69,26 @@ export async function audit(
   );
 }
 
+// ─── Admin reason ───────────────────────────────────────────────────
+
+export const ADMIN_REASON_MIN = 3;
+export const ADMIN_REASON_MAX = 500;
+
+/**
+ * Required `reason` for an admin mutation: 3..500 printable chars after
+ * trimming. Throws HttpError(400) otherwise. Stored in audit_events.details.
+ */
+export function requireReason(req: Request): string {
+  const b: unknown = req.body;
+  const v = b && typeof b === "object" && !Array.isArray(b) ? (b as Record<string, unknown>)["reason"] : undefined;
+  if (v === undefined || v === null) throw new HttpError(400, "reason is required");
+  const t = typeof v === "string" ? v.trim() : "";
+  if (t.length < ADMIN_REASON_MIN || t.length > ADMIN_REASON_MAX || /[\u0000-\u001f\u007f]/.test(t)) {
+    throw new HttpError(400, `reason must be ${ADMIN_REASON_MIN}..${ADMIN_REASON_MAX} printable chars`);
+  }
+  return t;
+}
+
 // ─── Money ──────────────────────────────────────────────────────────
 
 export interface Money { musd: string; usd: string }

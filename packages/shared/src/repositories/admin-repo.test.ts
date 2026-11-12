@@ -10,12 +10,13 @@ const mockPool = { connect: vi.fn().mockResolvedValue(mockClient) };
 
 vi.mock("../db.js", () => ({
   query: (...args: unknown[]) => mockQuery(...args),
+  queryOn: (ext: { query: (...a: unknown[]) => unknown } | undefined, ...args: unknown[]) => (ext ? ext.query(...args) : mockQuery(...args)),
   getPool: () => mockPool,
 }));
 
 import {
   listUsers, getUserDetails, suspendUser, reactivateUser,
-  deleteUser, getRevenueStats, getDailyRevenue, getSystemStats,
+  deleteUser, getRevenueStats, getDailyRevenue, getSystemStats, setAdminRole,
 } from "./admin-repo.js";
 
 describe("admin-repo", () => {
@@ -201,6 +202,38 @@ describe("admin-repo", () => {
       const r = await getSystemStats();
       expect(typeof r.totalUsers).toBe("number");
       expect(typeof r.activeUsers).toBe("number");
+    });
+  });
+
+  describe("caller-owned transaction (ext client)", () => {
+    const ext = () => ({ query: vi.fn(async (sql: string): Promise<{ rows: unknown[]; rowCount?: number }> => (sql.includes("SELECT email") ? { rows: [{ email: "u@x.com", admin_role: "none", wallet_address: null }] } : { rows: [], rowCount: 1 })), release: vi.fn() });
+
+    it("deleteUser runs on the caller's client without BEGIN/COMMIT/release", async () => {
+      const c = ext();
+      await deleteUser("u1", c as never);
+      const sqls = c.query.mock.calls.map((x) => String(x[0]));
+      expect(sqls.some((q) => q.includes("status = 'deleted'"))).toBe(true);
+      expect(sqls).not.toContain("BEGIN");
+      expect(sqls).not.toContain("COMMIT");
+      expect(c.release).not.toHaveBeenCalled();
+      expect(mockPool.connect).not.toHaveBeenCalled();
+    });
+
+    it("setAdminRole runs on the caller's client and never issues ROLLBACK on it", async () => {
+      const c = ext();
+      c.query.mockImplementationOnce(async () => ({ rows: [{ email: "r@x.com", admin_role: "root_admin" }] }));
+      expect(await setAdminRole("u1", "admin", c as never)).toBe(false);
+      expect(c.query.mock.calls.map((x) => String(x[0]))).not.toContain("ROLLBACK");
+      expect(await setAdminRole("u1", "admin", c as never)).toBe(true);
+      expect(mockPool.connect).not.toHaveBeenCalled();
+    });
+
+    it("suspendUser/reactivateUser use the caller's client", async () => {
+      const c = ext();
+      await suspendUser("u1", c as never);
+      await reactivateUser("u1", c as never);
+      expect(c.query).toHaveBeenCalledTimes(2);
+      expect(mockQuery).not.toHaveBeenCalled();
     });
   });
 });
