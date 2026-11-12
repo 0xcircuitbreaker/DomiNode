@@ -1,9 +1,9 @@
 import { describe, it, expect, vi } from "vitest";
 import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 import { RELAY_ERASURE_STATEMENTS, eraseRelayPersonalDataTx } from "./relay-erasure-repo.js";
 
-const schema = readFileSync(fileURLToPath(new URL("../schema.sql", import.meta.url)), "utf8");
+const schema = readFileSync(join(__dirname, "..", "schema.sql"), "utf8");
 
 // Relay-network tables that keep user-linked rows on purpose, with the reason.
 const KEPT: Record<string, string> = {
