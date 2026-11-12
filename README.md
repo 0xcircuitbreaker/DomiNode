@@ -1,6 +1,6 @@
 # DominusNode
 
-DominusNode is a decentralized bandwidth relay network for AI agents. Agents do two things on it:
+DominusNode is a bandwidth relay network for AI agents: an agent-contributed exit network with an operator-run gateway (federation planned). Agents do two things on it:
 
 - **Buy bandwidth.** They send HTTP, HTTPS or SOCKS5 traffic through the gateway and pay per GB, or per request with x402 or MPP.
 - **Contribute IPs.** They run the node agent on a residential, mobile or datacenter connection and earn a share of the paid traffic that exits through it.
@@ -28,7 +28,7 @@ Prices are per IP class and set by the admin in `network_pricing`. The defaults 
 | `residential` / `mobile` | $0.50 |
 | `dc` | $0.20 |
 
-Node owners earn 25% (Probation) to 50% (Partner) of what their nodes carry. The tier depends on paid tenure, uptime, active IPs and reputation. Credits mature after a 3–14 day hold. After that they can be withdrawn in USDC or converted into bandwidth. See [docs/agent-network/ECONOMICS.md](docs/agent-network/ECONOMICS.md).
+Node owners earn 25% (Probation) to 50% (Partner) of what their nodes carry. The tier depends on paid tenure, uptime, active IPs and reputation. Credits mature after a 3–14 day hold. Today you can convert matured credits into bandwidth; USDC withdrawals are built but disabled in alpha (`PAYOUTS_DISABLED`). See [docs/agent-network/ECONOMICS.md](docs/agent-network/ECONOMICS.md).
 
 ## Paying
 
@@ -51,10 +51,49 @@ The API key goes in the password field. The username holds hyphen-joined flags:
 
 With no flags, use `relay`.
 
+Use the TLS proxy on port 8443 so your API key never crosses the network in clear:
+
 ```bash
-curl -x http://country-US-class-residential:$DOMINUSNODE_API_KEY@proxy.dominusnode.daedalusdevelopmentgroup.com:8080 https://httpbin.org/ip
+# Recommended: HTTPS proxy (credentials sent over TLS)
+curl -x https://country-US-class-residential:$DOMINUSNODE_API_KEY@proxy.dominusnode.daedalusdevelopmentgroup.com:8443 https://httpbin.org/ip
+curl -x https://relay:$DOMINUSNODE_API_KEY@proxy.dominusnode.daedalusdevelopmentgroup.com:8443 https://httpbin.org/ip
+```
+
+Ports 8080 (HTTP proxy) and 1080 (SOCKS5) are **plaintext**: the
+`Proxy-Authorization` header, including your API key, is readable on the path to
+the gateway. Use them only on trusted networks or for local development:
+
+```bash
+# Plaintext listeners (API key sent in clear)
+curl -x http://class-dc:$DOMINUSNODE_API_KEY@proxy.dominusnode.daedalusdevelopmentgroup.com:8080 https://httpbin.org/ip
 curl -x socks5h://class-dc-session-abc123:$DOMINUSNODE_API_KEY@proxy.dominusnode.daedalusdevelopmentgroup.com:1080 https://httpbin.org/ip
 ```
+
+## Get an API key
+
+Agents sign in with a wallet; there is no email/password signup.
+
+1. `POST https://dominusnode.daedalusdevelopmentgroup.com/api/auth/wallet/challenge` with
+   `{"address": "0x…"}` → `{message, nonce, expiresAt}`.
+2. Sign `message` exactly as returned with EIP-191 `personal_sign`, then
+   `POST /api/auth/wallet/verify` with `{"address", "signature"}` → `{token, refreshToken, user}`.
+3. `POST /api/keys` with `Authorization: Bearer <token>` and `{"label": "my-agent"}`
+   → the `dn_live_…` key, shown once. Store it in `DOMINUSNODE_API_KEY`.
+
+The SDKs and the MCP server wrap these steps. Or skip the key: pay per request
+with x402 or MPP.
+
+## Troubleshooting
+
+| You see | Meaning | Fix |
+|---|---|---|
+| `407 Proxy Authentication Required` | No or invalid credentials | Put the `dn_live_` key in the proxy **password** field; username is flags or `relay` |
+| `402 Payment Required` (`INSUFFICIENT_BALANCE`) | Authenticated, but the wallet cannot cover the reservation | Top up (crypto) or claim starter credits; or pay per request with x402/MPP from the 402 body |
+| `503 NO_NODES_AVAILABLE` | No eligible exit node for your flags (country, class, sticky session) | Loosen `country-`/`class-` flags or retry later; `GET /v1/network/stats` shows what is online |
+| `503 QUOTE_CLASS_MISMATCH` | An x402/MPP payment was quoted for a class no node could serve | Request a new quote, or drop the class flag |
+| `503 PAYOUTS_DISABLED` | USDC withdrawals are disabled in alpha | Convert credits into bandwidth (`POST /v1/credits/convert`) |
+| `400 PLAINTEXT_DISABLED` (plain `http://` target) | The exit node could read plaintext HTTP | Use `https://` targets, or add `allowhttp-1` if you accept that |
+| Warning about credentials over plaintext | You used port 8080/1080 | Switch to the TLS proxy on 8443 |
 
 ## Tooling for agents
 

@@ -34,6 +34,22 @@ beforeEach(() => {
 });
 
 describe("agent discovery documents", () => {
+  it("describes the network honestly and leads with the TLS proxy when configured", async () => {
+    const { buildLlmsTxt, buildAgentToolDocument, discoveryEnv } = await import("./discovery.js");
+    const pricing = { prices: [{ ipClass: "dc", pricePerGbMusd: 200000n }], tiers: [], maturationHours: 168 };
+    const env = discoveryEnv({ PROXY_TLS_PORT: "8443" } as NodeJS.ProcessEnv);
+    const txt = buildLlmsTxt(env, pricing);
+    expect(txt).not.toMatch(/decentralized/i);
+    expect(txt).toContain("operator-run gateway (federation planned)");
+    expect(txt).toMatch(/USDC withdrawals are built but disabled/);
+    const doc = buildAgentToolDocument(env, pricing) as { proxy: Record<string, string>; description: string };
+    expect(doc.description).not.toMatch(/decentralized/i);
+    expect(doc.proxy["https"]).toMatch(/^https:\/\/\{username\}:\{api_key\}@.+:8443$/);
+    expect(doc.proxy["plaintext_warning"]).toMatch(/in clear/);
+    const noTls = buildAgentToolDocument(discoveryEnv({} as NodeJS.ProcessEnv), pricing) as { proxy: Record<string, string> };
+    expect(noTls.proxy["https"]).toBeUndefined();
+  });
+
   it("agent-tool.json has no legacy terms and pricing matches network_pricing", async () => {
     const r = await call(app(), "GET", "/.well-known/agent-tool.json");
     expect(r.status).toBe(200);

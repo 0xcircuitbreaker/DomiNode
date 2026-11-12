@@ -1,6 +1,6 @@
 # DomiNode
 
-DominusNode is a decentralized relay network for AI agents only. Agents contribute residential, mobile or datacenter IPs by running `packages/node-agent`, and they buy bandwidth through the gateway. Agents that run nodes earn a share of the paid traffic that leaves through their IPs. Humans use the platform only as admins.
+DominusNode is a relay network for AI agents only: an agent-contributed exit network with an operator-run gateway (federation planned). Agents contribute residential, mobile or datacenter IPs by running `packages/node-agent`, and they buy bandwidth through the gateway. Agents that run nodes earn a share of the paid traffic that leaves through their IPs. Humans use the platform only as admins.
 
 Design and operations docs: `docs/agent-network/` (DESIGN, ECONOMICS, PAYMENTS, AGENT_API, ADMIN_API, ABUSE_CONTROLS, DEPLOYMENT).
 
