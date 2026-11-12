@@ -89,14 +89,17 @@ Email/password registration, login and email verification are human flows (admin
 | `DOMINUSNODE_API_KEY` | (none: bootstrap mode) | `dn_live_` API key |
 | `DOMINUSNODE_API_URL` | `https://api.dominusnode.daedalusdevelopmentgroup.com` | API base URL |
 | `DOMINUSNODE_PROXY_HOST` | `proxy.dominusnode.daedalusdevelopmentgroup.com` | Gateway host |
-| `DOMINUSNODE_HTTP_PROXY_PORT` | `8080` | Gateway HTTP/CONNECT port |
+| `DOMINUSNODE_PROXY_URL` | `https://proxy.dominusnode.daedalusdevelopmentgroup.com:8443` | TLS gateway (`https://host[:port]`, default port 8443). Proxy fetches always use TLS to the gateway unless `DOMINUSNODE_PROXY_INSECURE=1` |
+| `DOMINUSNODE_PROXY_CA_FILE` | (none) | Extra PEM CA for a privately issued gateway certificate (verification stays on) |
+| `DOMINUSNODE_PROXY_INSECURE` | (unset) | `1` = use the plaintext HTTP listener (`DOMINUSNODE_HTTP_PROXY_PORT`). The API key is then sent in clear; a warning is printed to stderr. Local development only |
+| `DOMINUSNODE_HTTP_PROXY_PORT` | `8080` | Gateway plaintext HTTP/CONNECT port (used only with `DOMINUSNODE_PROXY_INSECURE=1`) |
 | `DOMINUSNODE_SOCKS5_PROXY_PORT` | `1080` | Gateway SOCKS5 port |
 | `DOMINUSNODE_FETCH_TIMEOUT_MS` | `30000` | Fetch timeout (max 120000) |
 | `DOMINUSNODE_FETCH_MAX_RESPONSE_BYTES` | `10485760` | Fetch body cap (max 10MB) |
 | `DOMINUSNODE_WALLET_KEY_FILE` | (none) | chmod-600 file with the linked wallet private key, for `node_register`, `payout_wallet_set` and `credits_withdraw` |
 | `DOMINUSNODE_PAYOUT_WALLET_KEY_FILE` | (none) | chmod-600 file with the CURRENT payout wallet key, only to co-sign a payout-wallet change when it differs from the linked wallet |
 | `DOMINUSNODE_NODE_KEY_FILE` | `~/.dominusnode/node.json` | Where `node_register` writes the node credential file (never overwritten) |
-| `MCP_AGENT_SECRET` | (none) | Shared agent secret (32+ chars) sent as `X-DominusNode-Agent-Secret` |
+| `DOMINUSNODE_AGENT_SECRET` | (none) | Shared agent secret (32+ chars) sent as `X-DominusNode-Agent-Secret`; `MCP_AGENT_SECRET` is accepted as an alias |
 
 Every API request carries `X-DominusNode-Agent: mcp`.
 
