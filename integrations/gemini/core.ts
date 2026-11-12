@@ -27,8 +27,8 @@ export interface ToolSpec {
 
 const COUNTRY: JsonSchemaProp = { type: "string", description: "ISO 3166-1 alpha-2 exit country, e.g. US. Sanctioned countries are refused." };
 const IP_CLASS: JsonSchemaProp = {
-  type: "string", enum: ["residential", "dc", "mobile"],
-  description: "Exit IP class. Each class has its own per-GB price (see network_pricing).",
+  type: "string", enum: ["residential", "dc", "mobile", "masked"],
+  description: "Exit IP class. Each class has its own per-GB price (see network_pricing); masked = cheapest, VPN/anonymizer exits, opt-in.",
 };
 const SESSION: JsonSchemaProp = { type: "string", description: "Sticky session id (1-64 alphanumeric) to keep the same exit IP." };
 const ALLOW_HTTP: JsonSchemaProp = {
@@ -63,7 +63,7 @@ export const TOOL_SPECS: ToolSpec[] = [
       "Relay network policy: allowed ports, plaintext (allowhttp) rules, blocked ranges, sanctioned countries " +
       "and node attestation terms.", parameters: obj() },
   { name: "network_pricing", description:
-      "Live per-GB prices by exit IP class (residential, dc, mobile) and node tier revenue shares. Always use " +
+      "Live per-GB prices by exit IP class (residential, dc, mobile, masked) and node tier revenue shares. Always use " +
       "this for prices; never assume them.", parameters: obj() },
   { name: "network_stats", description: "Relay network statistics: online nodes, exit countries and IP classes.", parameters: obj() },
   { name: "balance", description: "Prepaid requester wallet balance (cents) used to pay for relayed traffic.", parameters: obj() },
@@ -210,7 +210,7 @@ export class DominusNodeTools {
     const c = await this.#sdk();
     const routing = {
       country: optStr(a, "country"),
-      ipClass: optStr(a, "ip_class") as "residential" | "dc" | "mobile" | undefined,
+      ipClass: optStr(a, "ip_class") as "residential" | "dc" | "mobile" | "masked" | undefined,
       sessionId: optStr(a, "session_id"),
       allowHttp: a.allow_http === true,
     };

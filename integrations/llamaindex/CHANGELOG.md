@@ -33,3 +33,12 @@ Breaking: rebuilt on the DominusNode Python SDK v2 and the relay network.
 - HTTP method restriction (GET/HEAD/OPTIONS only for proxied fetch)
 - Response truncation (4000 chars) and size cap (10 MB)
 - 55 unit tests covering all security and validation paths
+
+## [2.1.0] - 2026-11-12
+
+### Added
+- The fetch tool's `ip_class` accepts `masked` (cheapest, VPN/anonymizer exits, opt-in; never used unless asked).
+
+### Changed
+- Requires the DominusNode SDK 2.1.0 or later (`masked` support).
+

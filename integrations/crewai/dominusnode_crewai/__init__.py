@@ -10,6 +10,6 @@ Example::
 from ._core import TOOL_NAMES, DominusNodeTools
 from .tools import DominusNodeTool, DominusNodeToolkit, build_tools
 
-__version__ = "2.0.0"
+__version__ = "2.1.0"
 
 __all__ = ["DominusNodeToolkit", "DominusNodeTool", "DominusNodeTools", "build_tools", "TOOL_NAMES", "__version__"]

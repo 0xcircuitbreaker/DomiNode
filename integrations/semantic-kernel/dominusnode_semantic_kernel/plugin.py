@@ -46,7 +46,7 @@ class DominusNodePlugin:
         url: Annotated[str, "Target URL (https://...; http:// only with allow_http)"],
         method: Annotated[str, "GET or HEAD"] = "GET",
         country: Annotated[str, "ISO 3166-1 alpha-2 exit country; sanctioned countries refused"] = "",
-        ip_class: Annotated[str, "residential, dc or mobile (prices in network_pricing)"] = "",
+        ip_class: Annotated[str, "residential, dc, mobile or masked (masked = cheapest, VPN/anonymizer exits, opt-in) (prices in network_pricing)"] = "",
         session_id: Annotated[str, "Sticky session id (1-64 letters/digits)"] = "",
         allow_http: Annotated[bool, "Opt in to plaintext http://; visible to the exit node"] = False,
         max_chars: Annotated[int, "Maximum body characters returned"] = 4000,
@@ -58,7 +58,7 @@ class DominusNodePlugin:
     def proxy_url(
         self,
         country: Annotated[str, "ISO 3166-1 alpha-2 exit country"] = "",
-        ip_class: Annotated[str, "residential, dc or mobile"] = "",
+        ip_class: Annotated[str, "residential, dc, mobile or masked (masked = cheapest, VPN/anonymizer exits, opt-in)"] = "",
         session_id: Annotated[str, "Sticky session id"] = "",
         allow_http: Annotated[bool, "Add the allowhttp-1 flag (plaintext is exit-visible)"] = False,
         protocol: Annotated[str, "http or socks5"] = "http",

@@ -63,7 +63,7 @@ paths:
                     items:
                       type: object
                       properties:
-                        ipClass: { type: string, enum: [residential, dc, mobile] }
+                        ipClass: { type: string, enum: [residential, dc, mobile, masked] }
                         pricePerGbMusd: { type: string }
                   nodeShare:
                     type: array

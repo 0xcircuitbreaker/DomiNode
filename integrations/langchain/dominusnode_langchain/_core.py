@@ -224,7 +224,7 @@ class DominusNodeTools:
             url: Absolute https:// (or http:// with allow_http) URL to fetch.
             method: GET or HEAD.
             country: Optional ISO-2 exit country, e.g. US or DE (sanctioned countries refused).
-            ip_class: Optional exit class: residential, dc or mobile.
+            ip_class: Optional exit class: residential, dc, mobile or masked (masked = cheapest, VPN/anonymizer exits, opt-in).
             session_id: Optional sticky-session id (1-64 letters/digits) to keep the same exit.
             allow_http: Opt in to plaintext http:// (exit-visible).
             max_chars: Maximum body characters returned to you (1-100000, default 4000).
@@ -267,7 +267,7 @@ class DominusNodeTools:
 
         Args:
             country: Optional ISO-2 exit country (sanctioned countries refused).
-            ip_class: Optional exit class: residential, dc or mobile.
+            ip_class: Optional exit class: residential, dc, mobile or masked (masked = cheapest, VPN/anonymizer exits, opt-in).
             session_id: Optional sticky-session id (1-64 letters/digits).
             allow_http: Allow plaintext http:// targets (visible to the exit node).
         """

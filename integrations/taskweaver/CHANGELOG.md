@@ -18,3 +18,12 @@
 
 - Live pricing via network_pricing, node earnings tools and a node agent setup guide.
 - The API key is read only from DOMINUSNODE_API_KEY/config; proxy_url returns a key placeholder.
+
+## [2.1.0] - 2026-11-12
+
+### Added
+- The fetch tool's `ip_class` accepts `masked` (cheapest, VPN/anonymizer exits, opt-in; never used unless asked).
+
+### Changed
+- Requires the DominusNode SDK 2.1.0 or later (`masked` support).
+

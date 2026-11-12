@@ -17,6 +17,14 @@
 - Stripe and PayPal top-ups, plans, slots/waitlist, email/password and MFA flows, key/team/agentic-wallet management tools.
 - `dc-`/`residential-` pool prefixes and hardcoded prices (use `network_pricing`).
 
+## [2.1.0] - 2026-11-12
+
+### Added
+- The fetch tool's `ip_class` accepts `masked` (cheapest, VPN/anonymizer exits, opt-in; never used unless asked).
+
+### Changed
+- Requires the DominusNode SDK 2.1.0 or later (`masked` support).
+
 ## [1.0.0] - 2026-03-02
 
 ### Added

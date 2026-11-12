@@ -23,8 +23,8 @@ MAX_BODY_CHARS = 20_000
 _KEY_PLACEHOLDER = "${DOMINUSNODE_API_KEY}"
 
 _COUNTRY = {"type": "string", "description": "ISO 3166-1 alpha-2 exit country, e.g. US. Sanctioned countries are refused."}
-_IP_CLASS = {"type": "string", "enum": ["residential", "dc", "mobile"],
-             "description": "Exit IP class. Each class has its own per-GB price (see network_pricing)."}
+_IP_CLASS = {"type": "string", "enum": ["residential", "dc", "mobile", "masked"],
+             "description": "Exit IP class. Each class has its own per-GB price (see network_pricing); masked = cheapest, VPN/anonymizer exits, opt-in."}
 _SESSION = {"type": "string", "description": "Sticky session id (1-64 alphanumeric) to keep the same exit IP."}
 _ALLOW_HTTP = {"type": "boolean",
                "description": "Opt in to plaintext http:// targets. Plaintext is visible to the exit node; prefer https."}
@@ -55,7 +55,7 @@ TOOL_SPECS: List[Dict[str, Any]] = [
         "Relay network policy: allowed ports, plaintext (allowhttp) rules, blocked ranges, sanctioned countries "
         "and node attestation terms."), "parameters": _obj()},
     {"name": "network_pricing", "description": (
-        "Live per-GB prices by exit IP class (residential, dc, mobile) and node tier revenue shares. Always use "
+        "Live per-GB prices by exit IP class (residential, dc, mobile, masked) and node tier revenue shares. Always use "
         "this for prices; never assume them."), "parameters": _obj()},
     {"name": "network_stats", "description": "Relay network statistics: online nodes, exit countries and IP classes.",
      "parameters": _obj()},

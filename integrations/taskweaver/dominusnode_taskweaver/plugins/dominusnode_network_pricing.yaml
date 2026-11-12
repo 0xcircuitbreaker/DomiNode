@@ -1,8 +1,8 @@
 name: dominusnode_network_pricing
 enabled: true
 required: false
-description: Live per-GB prices by exit IP class (residential, dc, mobile) and node tier revenue shares. Always
-  use this for prices; never assume them.
+description: Live per-GB prices by exit IP class (residential, dc, mobile, masked) and node tier revenue shares.
+  Always use this for prices; never assume them.
 parameters: []
 returns:
 - name: result

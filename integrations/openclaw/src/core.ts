@@ -62,7 +62,7 @@ export type StandardToolName = (typeof STANDARD_TOOL_NAMES)[number];
 
 export const CRYPTO_CURRENCIES = ["btc", "eth", "ltc", "xmr", "zec", "usdc", "sol", "usdt", "dai", "bnb", "link"] as const;
 export const REPORT_REASONS = ["blocked", "captcha", "rate_limited", "slow", "bad_content", "other"] as const;
-export const IP_CLASSES = ["residential", "dc", "mobile"] as const;
+export const IP_CLASSES = ["residential", "dc", "mobile", "masked"] as const;
 
 /** Max characters of fetched body returned to the model (the SDK already caps bytes at 10 MB). */
 export const MAX_BODY_CHARS = 20_000;
@@ -190,7 +190,7 @@ const routing = {
   ip_class: {
     type: "string",
     enum: IP_CLASSES,
-    description: "Optional exit IP class. Prices differ per class: read network_pricing. Omit to let the relay choose.",
+    description: "Optional exit IP class. Prices differ per class: read network_pricing. masked = cheapest, VPN/anonymizer exits, opt-in. Omit to let the relay choose (never masked).",
   },
   session_id: {
     type: "string",

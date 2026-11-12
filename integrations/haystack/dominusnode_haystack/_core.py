@@ -313,7 +313,7 @@ def _obj(props: Dict[str, Any], required: Optional[List[str]] = None) -> Dict[st
 
 
 _COUNTRY = {"type": "string", "description": "ISO 3166-1 alpha-2 exit country, e.g. US, DE. Sanctioned countries (CU, IR, KP, RU, SY) are refused."}
-_IP_CLASS = {"type": "string", "enum": ["residential", "dc", "mobile"], "description": "Exit IP class. Omit to let the relay choose. Prices differ by class: see network_pricing."}
+_IP_CLASS = {"type": "string", "enum": ["residential", "dc", "mobile", "masked"], "description": "Exit IP class. Omit to let the relay choose. Prices differ by class: see network_pricing. masked = cheapest, VPN/anonymizer exits, opt-in."}
 _SESSION = {"type": "string", "description": "Sticky session id (1-64 letters/digits) to keep the same exit node across requests."}
 _ALLOW_HTTP = {"type": "boolean", "default": False, "description": "Opt in to plaintext http:// targets. Plaintext traffic is visible to the exit node; leave false for https."}
 _LIMIT = {"type": "integer", "minimum": 1, "maximum": 200, "description": "Maximum rows to return."}

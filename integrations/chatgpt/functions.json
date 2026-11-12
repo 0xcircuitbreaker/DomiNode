@@ -26,9 +26,10 @@
           "enum": [
             "residential",
             "dc",
-            "mobile"
+            "mobile",
+            "masked"
           ],
-          "description": "Optional exit IP class. Prices differ per class: read network_pricing. Omit to let the relay choose."
+          "description": "Optional exit IP class. Prices differ per class: read network_pricing. masked = cheapest, VPN/anonymizer exits, opt-in. Omit to let the relay choose (never masked)."
         },
         "session_id": {
           "type": "string",
@@ -60,9 +61,10 @@
           "enum": [
             "residential",
             "dc",
-            "mobile"
+            "mobile",
+            "masked"
           ],
-          "description": "Optional exit IP class. Prices differ per class: read network_pricing. Omit to let the relay choose."
+          "description": "Optional exit IP class. Prices differ per class: read network_pricing. masked = cheapest, VPN/anonymizer exits, opt-in. Omit to let the relay choose (never masked)."
         },
         "session_id": {
           "type": "string",

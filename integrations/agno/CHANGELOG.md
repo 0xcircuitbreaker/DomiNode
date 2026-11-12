@@ -30,3 +30,12 @@ Breaking: rebuilt on the DominusNode Python SDK v2 and the relay network.
 - PayPal top-up tool
 - Full security suite: DNS rebinding protection, Teredo/6to4 IPv6 tunnel detection, IPv4-mapped/compatible IPv6 handling, hex/octal/decimal IP normalization, prototype pollution prevention
 - Comprehensive test suite covering SSRF, sanitization, OFAC, HTTP methods, validation, authentication, and Agno registration
+
+## [2.1.0] - 2026-11-12
+
+### Added
+- The fetch tool's `ip_class` accepts `masked` (cheapest, VPN/anonymizer exits, opt-in; never used unless asked).
+
+### Changed
+- Requires the DominusNode SDK 2.1.0 or later (`masked` support).
+

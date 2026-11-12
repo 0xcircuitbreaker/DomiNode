@@ -71,6 +71,9 @@ parameters:
   - value: mobile
     label:
       en_US: mobile
+  - value: masked
+    label:
+      en_US: masked (cheapest, VPN/anonymizer exits, opt-in)
 - name: session_id
   label:
     en_US: Session Id

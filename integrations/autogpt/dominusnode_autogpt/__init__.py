@@ -21,7 +21,7 @@ from typing import Any, Dict, List, Optional, get_type_hints
 
 from ._core import TOOL_NAMES, DominusNodeTools, arg_docs, describe
 
-__version__ = "2.0.0"
+__version__ = "2.1.0"
 __all__ = ["DominusNodePlugin", "DominusNodeTools", "TOOL_NAMES", "__version__"]
 
 _JSON_TYPES = {str: "string", int: "integer", bool: "boolean", float: "number"}
