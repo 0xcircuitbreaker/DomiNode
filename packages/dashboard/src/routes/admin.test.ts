@@ -16,6 +16,7 @@ const mockFindUserById = vi.fn();
 const mockRevokeAllApiKeys = vi.fn();
 const mockRevokeAllForUser = vi.fn();
 const mockDeleteMfaConfig = vi.fn();
+const mockDbQuery = vi.fn((..._args: unknown[]) => Promise.resolve({ rows: [] as unknown[] }));
 
 vi.mock("@dominusnode/shared", () => ({
   adminRepo: {
@@ -39,6 +40,10 @@ vi.mock("@dominusnode/shared", () => ({
   },
   mfaRepo: {
     deleteMfaConfig: (...args: unknown[]) => mockDeleteMfaConfig(...args),
+  },
+  query: (...args: unknown[]) => mockDbQuery(...args),
+  relayErasureRepo: {
+    PAYOUT_IN_FLIGHT_SQL: "SELECT id FROM node_payouts WHERE user_id = $1 LIMIT 1 FOR UPDATE",
   },
   hasMinRole: (userRole: string, requiredRole: string) => {
     const ranks: Record<string, number> = { none: 0, admin: 1, cybersecurity_admin: 2, root_admin: 3 };
@@ -278,6 +283,37 @@ describe("admin routes", () => {
       expect(res.status).toBe(200);
       expect(res.body.message).toBe("User deleted");
       expect(mockDeleteUser).toHaveBeenCalledWith(VALID_UUID);
+    });
+
+    it("returns 409 and does not terminate sessions when a payout is in flight", async () => {
+      mockFindUserById.mockResolvedValueOnce({
+        id: VALID_UUID, email: "user@example.com", status: "active", is_admin: false,
+        admin_role: "none", password_hash: "", created_at: new Date(), password_changed_at: null,
+      });
+      mockDbQuery.mockResolvedValueOnce({ rows: [{ id: "p1" }] });
+      const fetchSpy = vi.spyOn(globalThis, "fetch");
+      try {
+        const res = await request(createApp(), "DELETE", `/api/admin/users/${VALID_UUID}`);
+        expect(res.status).toBe(409);
+        expect(String(res.body.error)).toContain("payout is in flight");
+        expect(mockDeleteUser).not.toHaveBeenCalled();
+        expect(fetchSpy.mock.calls.some((c) => String(c[0]).includes("terminate-sessions"))).toBe(false);
+        expect(String(mockDbQuery.mock.calls[0][0])).not.toContain("FOR UPDATE");
+      } finally {
+        fetchSpy.mockRestore();
+      }
+    });
+
+    it("returns 409 when deleteUser loses the race to a new in-flight payout", async () => {
+      mockFindUserById.mockResolvedValueOnce({
+        id: VALID_UUID, email: "user@example.com", status: "active", is_admin: false,
+        admin_role: "none", password_hash: "", created_at: new Date(), password_changed_at: null,
+      });
+      const err = new Error("A payout is in flight");
+      err.name = "PayoutInFlightError";
+      mockDeleteUser.mockRejectedValueOnce(err);
+      const res = await request(createApp(), "DELETE", `/api/admin/users/${VALID_UUID}`);
+      expect(res.status).toBe(409);
     });
 
     it("should return 400 when trying to delete yourself", async () => {
