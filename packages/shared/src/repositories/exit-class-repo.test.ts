@@ -39,7 +39,7 @@ describe("recordVerifiedClass", () => {
     expect(s[0]).toBe("BEGIN");
     expect(s[1]).toContain("FOR UPDATE");
     expect(s[2]).toContain("UPDATE nodes SET ip_class = $2");
-    expect(mockClientQuery.mock.calls[2][1]).toEqual([N, "masked"]);
+    expect(mockClientQuery.mock.calls[2][1]).toEqual([N, "masked", null]);
     expect(s[3]).toContain("'egress_mismatch'");
     expect(s[3]).toContain("ON CONFLICT");
     expect(s[4]).toBe("COMMIT");
@@ -56,6 +56,19 @@ describe("recordVerifiedClass", () => {
       expect(r.flagged).toBe(false);
       expect(sqls().some((x) => x.includes("collusion_flags"))).toBe(false);
     }
+  });
+
+  it("persists the probe verdict and flags a drop below the connect-time class even with no declared class", async () => {
+    mockClientQuery.mockReset();
+    mockClientQuery.mockImplementation(async (sql: string) => {
+      if (sql.includes("SELECT owner_user_id")) return { rows: [{ owner_user_id: U, ip_class: "residential", declared_class: null }] };
+      return { rows: [], rowCount: 1 };
+    });
+    const r = await recordVerifiedClass(N, "masked", { probeClass: "masked", connectClass: "residential" });
+    expect(r.flagged).toBe(true);
+    const upd = mockClientQuery.mock.calls.find((c) => String(c[0]).includes("probe_class = COALESCE"))!;
+    expect(upd[1]).toEqual([N, "masked", "masked"]);
+    expect(sqls().some((x) => x.includes("'egress_mismatch'"))).toBe(true);
   });
 
   it("missing/revoked node rolls back; invalid input throws", async () => {

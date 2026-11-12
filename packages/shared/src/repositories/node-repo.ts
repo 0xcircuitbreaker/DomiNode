@@ -81,6 +81,8 @@ export interface TunnelAuthNode {
   operator_run?: boolean;
   /** Owner-declared class (compared against the verified class only). */
   declared_class?: ExitClass | null;
+  /** Last persisted egress-probe verdict (gateway-observed); null = never probed. */
+  probe_class?: NodeIpClass | null;
 }
 
 export interface NodeChallenge {
@@ -313,7 +315,8 @@ export async function getNodeForTunnelAuth(keyHash: string): Promise<TunnelAuthN
             (SELECT tm.team_id FROM team_members tm WHERE tm.user_id = n.owner_user_id
               ORDER BY tm.team_id LIMIT 1) AS owner_team_id,
             n.node_pubkey, n.status, n.attestation_version,
-            n.max_streams, n.max_gb_day, n.max_req_per_sec, n.reputation, n.report_penalty, n.operator_run, n.declared_class
+            n.max_streams, n.max_gb_day, n.max_req_per_sec, n.reputation, n.report_penalty, n.operator_run, n.declared_class,
+            n.probe_class
      FROM nodes n
      JOIN users u ON u.id = n.owner_user_id
      WHERE n.node_key_hash = $1
@@ -369,9 +372,18 @@ export interface VerifiedClassResult {
  * for the existing abuse/collusion review queue. Node-reported data is never
  * an input here.
  */
-export async function recordVerifiedClass(nodeId: string, verified: NodeIpClass): Promise<VerifiedClassResult> {
+export interface VerifiedClassOptions {
+  /** Raw class from this egress probe; persisted as probe_class so a reconnect cannot shed it. */
+  probeClass?: NodeIpClass;
+  /** Connect-time class (tunnel peer IP); a verified class below it also raises the flag. */
+  connectClass?: NodeIpClass | null;
+}
+
+export async function recordVerifiedClass(nodeId: string, verified: NodeIpClass, opts: VerifiedClassOptions = {}): Promise<VerifiedClassResult> {
   assertUuid(nodeId, "nodeId");
   if (!IP_CLASSES.includes(verified)) throw new Error("Invalid ip class");
+  if (opts.probeClass !== undefined && !IP_CLASSES.includes(opts.probeClass)) throw new Error("Invalid ip class");
+  if (opts.connectClass != null && !IP_CLASSES.includes(opts.connectClass)) throw new Error("Invalid ip class");
   const client = await getPool().connect();
   try {
     await client.query("BEGIN");
@@ -385,10 +397,15 @@ export async function recordVerifiedClass(nodeId: string, verified: NodeIpClass)
       return { updated: false, previousClass: null, declaredClass: null, flagged: false };
     }
     await client.query(
-      `UPDATE nodes SET ip_class = $2, class_verified_at = now() WHERE id = $1`,
-      [nodeId, verified],
+      `UPDATE nodes SET ip_class = $2, class_verified_at = now(),
+              probe_class = COALESCE($3, probe_class),
+              probe_class_at = CASE WHEN $3::text IS NULL THEN probe_class_at ELSE now() END
+       WHERE id = $1`,
+      [nodeId, verified, opts.probeClass ?? null],
     );
-    const flagged = isClassDowngrade(row.declared_class, verified);
+    // Flag when the verified class is below the declared class OR below the
+    // connect-time class (catches nodes that never declared a class).
+    const flagged = isClassDowngrade(row.declared_class, verified) || isClassDowngrade(opts.connectClass ?? null, verified);
     if (flagged) {
       await client.query(
         `INSERT INTO collusion_flags (kind, owner_user_id, node_id, share_bps, volume_musd, total_musd, window_days)

@@ -22,6 +22,7 @@ import {
   hashNodeKey,
   isBlockedCountry,
   isClassDowngrade,
+  conservativeClass,
   isPublicAddress,
   type Frame,
   type ActivePolicy,
@@ -99,6 +100,8 @@ export interface TunnelServerDeps {
    * (raises the egress_mismatch review flag). Best effort; never blocks AUTH.
    */
   recordVerifiedClass?: (nodeId: string, verified: NodeIpClass) => Promise<unknown>;
+  /** Called once a tunnel is ready (e.g. to queue its connect-time egress probe). */
+  onNodeReady?: (live: LiveNode) => void;
   /** Byte reports for disputes (CLOSE frames vs gateway counts). */
   onStreamClose?: (nodeId: string, r: StreamCloseReport) => void;
 }
@@ -121,6 +124,11 @@ export interface TunnelServerOptions {
   production?: boolean;
   /** Refuse public peers whose ASN is unknown (production without ASN_DB_OPTIONAL). */
   requireAsn?: boolean;
+  /**
+   * Egress probes are enabled: a connecting node is "unknown" (lowest tier
+   * weight, no class-* selection) until a probe on this connection verifies it.
+   */
+  deferClassUntilProbe?: boolean;
   preAuth?: PreAuthLimiterOptions;
 }
 
@@ -566,11 +574,16 @@ export class NodeTunnelServer {
       return t.rejectAuth("IP_CAP");
     }
     const now = Date.now();
+    // Connect class: peer IP class, never better than the last persisted probe
+    // verdict (a reconnect from another IP must not undo a probe downgrade).
+    const peerRaw: NodeIpClass = geo?.ipClass ?? "unknown";
+    const priorProbe = t.node.probe_class ?? null;
+    const connectClass: NodeIpClass = priorProbe ? conservativeClass(peerRaw, priorProbe) : peerRaw;
     const live: LiveNode = {
       nodeId: t.node.id, tunnel: t, ready: false, status: t.node.status, ip: t.peerIp, prefix24: prefix, asn, country,
       // Unverified class is never assumed residential: "unknown" nodes are left out of
       // explicit class-* selection and price at the "any" rate until classified.
-      ipClass: geo?.ipClass ?? "unknown", ownerUserId: t.node.owner_user_id, ownerWallet: t.node.owner_wallet,
+      ipClass: this.opts.deferClassUntilProbe ? "unknown" : connectClass, peerClass: peerRaw, ownerUserId: t.node.owner_user_id, ownerWallet: t.node.owner_wallet,
       ownerTeamId: t.node.owner_team_id, health: 1, reputation: t.node.reputation, reportPenalty: t.node.report_penalty ?? 0, operatorRun: t.node.operator_run === true,
       maxStreams: Math.min(t.node.max_streams, caps.maxStreams), maxGbDay: t.node.max_gb_day, maxReqPerSec: t.node.max_req_per_sec ?? null,
       ports: caps.ports, bytesToday: 0, earningsTodayMusd: 0, day: dayOf(now), recentOpens: [], cooldownUntil: 0,
@@ -603,7 +616,7 @@ export class NodeTunnelServer {
     }
     let ok = false;
     try {
-      ok = await this.deps.markOnline(t.node.id, t.peerIp, country, asn, geo?.ipClass ?? null);
+      ok = await this.deps.markOnline(t.node.id, t.peerIp, country, asn, geo?.ipClass ? connectClass : null);
     } catch {
       ok = false;
     }
@@ -617,9 +630,9 @@ export class NodeTunnelServer {
     }
     // Declared-vs-verified: the verified class is already effective (markOnline);
     // a downgrade (e.g. declared residential, exits via VPN) opens a review flag.
-    if (this.deps.recordVerifiedClass && isClassDowngrade(t.node.declared_class ?? null, live.ipClass)) {
-      this.deps.recordVerifiedClass(t.node.id, live.ipClass).catch(() => undefined);
-      this.log.warn("node exit class below declared class", { nodeId: t.node.id, declared: t.node.declared_class, verified: live.ipClass });
+    if (this.deps.recordVerifiedClass && isClassDowngrade(t.node.declared_class ?? null, connectClass)) {
+      this.deps.recordVerifiedClass(t.node.id, connectClass).catch(() => undefined);
+      this.log.warn("node exit class below declared class", { nodeId: t.node.id, declared: t.node.declared_class, verified: connectClass });
     }
     // A freshly registered (or re-attested) node starts as `pending`; the upgrade
     // already required attestation_version >= policy minVersion, so a completed
@@ -638,6 +651,11 @@ export class NodeTunnelServer {
     t.mux.maxStreams = Math.max(1, Math.min(live.maxStreams, policy.body.nodeDefaults.maxStreams));
     live.ready = true;
     t.markReady(live);
+    try {
+      this.deps.onNodeReady?.(live);
+    } catch {
+      /* best effort: the periodic probe job still covers unverified nodes */
+    }
     this.log.info("node tunnel ready", { nodeId: t.node.id, country, agentVersion: caps.agentVersion });
   }
 

@@ -2042,6 +2042,16 @@ DO $$ BEGIN
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
+-- Last egress-probe verdict (gateway-observed). Survives reconnects so a
+-- probe downgrade cannot be undone by redialling from the original IP.
+ALTER TABLE nodes ADD COLUMN IF NOT EXISTS probe_class TEXT;
+ALTER TABLE nodes ADD COLUMN IF NOT EXISTS probe_class_at TIMESTAMPTZ;
+DO $$ BEGIN
+  ALTER TABLE nodes ADD CONSTRAINT chk_nodes_probe_class
+    CHECK (probe_class IS NULL OR probe_class IN ('residential','mobile','dc','masked','unknown'));
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
 -- Masked exits: $0.10/GB default (admin-tunable).
 INSERT INTO network_pricing (ip_class, price_per_gb_musd) VALUES ('masked', 100000)
 ON CONFLICT (ip_class) DO NOTHING;

@@ -229,7 +229,15 @@ Nodes whose verified egress is an anonymizer are classed `masked`
 - Egress is verified at connect (tunnel peer IP) and again by the canary probe
   job (`PROBE_URL`; `PROBE_INTERVAL_MS`, `PROBE_SAMPLE_SIZE` bound the load, each
   run starts after a random delay of up to half the interval, and nodes not
-  yet probed on this gateway go first).
+  yet probed on this gateway go first). Every connect is also queued for its
+  own probe (`PROBE_CONNECT_CONCURRENCY`, default 4;
+  `PROBE_CONNECT_MIN_INTERVAL_MS`, default 60000, between connect probes of
+  the same node); until it passes, the node is `unknown` for `class-*`
+  selection and tier weight. `PROBE_URL` accepts a comma-separated list (up to
+  32); list several unpublished echo hostnames that all reach
+  `/v1/probe/echo` so probes are harder to single out. Class verification is
+  best effort and cannot detect a node agent built to split-route
+  (ABUSE_CONTROLS.md).
 
 ### 4b. Running a node behind Cloudflare WARP or a VPN
 
@@ -242,7 +250,7 @@ home IP, and classes the node `masked`. Consequences:
 - Do not declare it `residential` at registration: a declared class above the
   verified one opens an admin review flag.
 - Split tunnelling (tunnel to the gateway direct, target traffic through the
-  VPN, or the reverse) is detected by the canary probe: a same-family
+  VPN, or the reverse) is usually detected by the canary probe: a same-family
   mismatch between the tunnel IP and the probed egress IP is tamper evidence
   and quarantines the node; an other-family egress is classified and the more
   conservative class wins.

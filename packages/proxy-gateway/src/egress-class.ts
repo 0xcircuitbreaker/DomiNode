@@ -253,6 +253,8 @@ export function loadAnonymizerLists(
 
 export interface VerifiableNode {
   ipClass: NodeIpClass;
+  /** Connect-time class (tunnel peer IP); the first probe on a connection starts from it. */
+  peerClass?: NodeIpClass;
   /** ms epoch of the last probe-confirmed egress classification on this gateway. */
   egressVerifiedAt?: number;
 }
@@ -260,17 +262,23 @@ export interface VerifiableNode {
 export interface EgressVerifierDeps {
   getNode(nodeId: string): VerifiableNode | null | undefined;
   classify(ip: string): { ipClass: NodeIpClass };
-  /** Persist the new verified class (and raise a mismatch flag): nodeRepo.recordVerifiedClass. */
-  record(nodeId: string, cls: NodeIpClass): Promise<unknown>;
+  /**
+   * Persist the verified class and the raw probe verdict, and raise the
+   * egress_mismatch flag when it is below the declared or connect-time class
+   * (nodeRepo.recordVerifiedClass).
+   */
+  record(nodeId: string, cls: NodeIpClass, opts: { probeClass: NodeIpClass; connectClass: NodeIpClass | null }): Promise<unknown>;
   now?: () => number;
   logger?: { warn(msg: string, meta?: Record<string, unknown>): void };
 }
 
 /**
- * Handler for probe-echoed egress IPs. During a connection the node's
- * effective class only moves to the more conservative of (current, observed),
- * so a node cannot upgrade itself by steering one probe. A fresh connect
- * re-classifies from scratch (tunnel peer IP).
+ * Handler for probe-echoed egress IPs. The first probe on a connection sets
+ * the class to conservative(connect class, observed) (a node that connected
+ * while probes are enabled is "unknown" until then); later probes on the same
+ * connection only tighten it, so a node cannot upgrade itself by steering one
+ * probe. Every verdict is persisted as probe_class so a reconnect cannot shed
+ * a downgrade.
  */
 export function makeEgressVerifier(d: EgressVerifierDeps): (nodeId: string, egressIp: string) => Promise<NodeIpClass | null> {
   const now = d.now ?? Date.now;
@@ -278,13 +286,15 @@ export function makeEgressVerifier(d: EgressVerifierDeps): (nodeId: string, egre
     const live = d.getNode(nodeId);
     if (!live) return null;
     const observed = d.classify(egressIp).ipClass;
-    const next = conservativeClass(live.ipClass, observed);
+    const first = live.egressVerifiedAt === undefined;
+    const base = first ? (live.peerClass ?? live.ipClass) : live.ipClass;
+    const next = conservativeClass(base, observed);
     live.egressVerifiedAt = now();
     if (next !== live.ipClass) {
       d.logger?.warn("node egress reclassified", { nodeId, from: live.ipClass, to: next });
       live.ipClass = next; // routing exclusion applies immediately
-      await d.record(nodeId, next);
     }
+    await d.record(nodeId, next, { probeClass: observed, connectClass: live.peerClass ?? null });
     return next;
   };
 }

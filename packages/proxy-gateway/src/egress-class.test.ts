@@ -132,7 +132,23 @@ describe("makeEgressVerifier (probe re-verification)", () => {
     expect(await v("n1", "2a09:bac1::5")).toBe("masked"); // other-family egress through WARP
     expect(live.ipClass).toBe("masked");
     expect(live.egressVerifiedAt).toBe(42);
-    expect(record).toHaveBeenCalledWith("n1", "masked");
+    expect(record).toHaveBeenCalledWith("n1", "masked", { probeClass: "masked", connectClass: null });
+  });
+
+  it("first probe on a connection starts from the peer class (unknown until then); later probes only tighten", async () => {
+    type C = "residential" | "masked" | "dc" | "mobile" | "unknown";
+    const live = { ipClass: "unknown" as C, peerClass: "residential" as C, egressVerifiedAt: undefined as number | undefined };
+    const record = vi.fn().mockResolvedValue(undefined);
+    let obs: C = "residential";
+    const v = makeEgressVerifier({ getNode: () => live, classify: () => ({ ipClass: obs }), record, now: () => 1 });
+    expect(await v("n1", "73.1.1.1")).toBe("residential");
+    expect(record).toHaveBeenLastCalledWith("n1", "residential", { probeClass: "residential", connectClass: "residential" });
+    obs = "masked";
+    expect(await v("n1", "104.28.1.1")).toBe("masked");
+    obs = "residential";
+    expect(await v("n1", "73.1.1.1")).toBe("masked"); // no upgrade within the connection
+    // Raw verdict is persisted each time, so a reconnect starts from it.
+    expect(record).toHaveBeenLastCalledWith("n1", "masked", { probeClass: "residential", connectClass: "residential" });
   });
 
   it("never upgrades within a connection and is a no-op when unchanged", async () => {
@@ -140,7 +156,7 @@ describe("makeEgressVerifier (probe re-verification)", () => {
     const record = vi.fn();
     const v = makeEgressVerifier({ getNode: () => live, classify: () => ({ ipClass: "residential" }), record });
     expect(await v("n1", "73.1.1.1")).toBe("masked");
-    expect(record).not.toHaveBeenCalled();
+    expect(record).toHaveBeenCalledWith("n1", "masked", { probeClass: "residential", connectClass: null });
     const gone = makeEgressVerifier({ getNode: () => undefined, classify: () => ({ ipClass: "dc" }), record });
     expect(await gone("n2", "52.1.1.1")).toBeNull();
   });

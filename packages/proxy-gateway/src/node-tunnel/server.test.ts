@@ -33,14 +33,15 @@ afterEach(async () => {
   server = null;
 });
 
-async function start(opts: { policy?: Partial<ActivePolicy["body"]>; geo?: GeoInfo | null; heartbeatMs?: number; deadline?: number; activate?: (id: string) => Promise<boolean>; coordSign?: (m: Buffer) => string; claimIpSlot?: (s: { nodeId: string }) => Promise<boolean>; releaseIpSlot?: (nodeId: string) => Promise<void>; recordVerifiedClass?: (id: string, c: string) => Promise<unknown> } = {}) {
+async function start(opts: { policy?: Partial<ActivePolicy["body"]>; geo?: GeoInfo | null; heartbeatMs?: number; deadline?: number; activate?: (id: string) => Promise<boolean>; coordSign?: (m: Buffer) => string; claimIpSlot?: (s: { nodeId: string }) => Promise<boolean>; releaseIpSlot?: (nodeId: string) => Promise<void>; recordVerifiedClass?: (id: string, c: string) => Promise<unknown>; defer?: boolean; onReady?: (id: string) => void; markOnlineClass?: (c: unknown) => void } = {}) {
   const policy: ActivePolicy = { version: 3, sha256: "f".repeat(64), body: { ...DEFAULT_POLICY, ...opts.policy }, createdAt: null };
   const online: string[] = [];
   const offline: string[] = [];
   const registry = new NodeRegistry();
   server = new NodeTunnelServer(registry, {
     getNodeForTunnelAuth: async (h) => NODES[h] ?? null,
-    markOnline: async (id, ip) => { online.push(`${id}@${ip}`); return true; },
+    markOnline: async (id, ip, _cc, _asn, cls) => { online.push(`${id}@${ip}`); opts.markOnlineClass?.(cls); return true; },
+    ...(opts.onReady ? { onNodeReady: (l: { nodeId: string }) => opts.onReady!(l.nodeId) } : {}),
     markOffline: async (id) => { offline.push(id); return true; },
     ...(opts.activate ? { activatePending: opts.activate } : {}),
     getPolicy: () => policy,
@@ -49,7 +50,7 @@ async function start(opts: { policy?: Partial<ActivePolicy["body"]>; geo?: GeoIn
     ...(opts.releaseIpSlot ? { releaseIpSlot: opts.releaseIpSlot } : {}),
     ...(opts.recordVerifiedClass ? { recordVerifiedClass: opts.recordVerifiedClass } : {}),
     geoLookup: () => (opts.geo === undefined ? { country: "US", asn: 64500 } : opts.geo),
-  }, { port: 0, host: "127.0.0.1", heartbeatMs: opts.heartbeatMs, handshakeDeadlineMs: opts.deadline });
+  }, { port: 0, host: "127.0.0.1", heartbeatMs: opts.heartbeatMs, handshakeDeadlineMs: opts.deadline, deferClassUntilProbe: opts.defer });
   const port = await server.listen();
   return { port, registry, online, offline };
 }
@@ -348,5 +349,35 @@ describe("NodeTunnelServer", () => {
     c.frames.length = 0;
     server!.pushPolicy({ version: 9, sha256: "a".repeat(64), body: { ...DEFAULT_POLICY, ports: [443] }, createdAt: null });
     expect(decodeControl((await c.waitFor(FrameType.POLICY_UPDATE)).payload)).toMatchObject({ policyVersion: 9, ports: [443] });
+  });
+  it("a reconnect cannot shed a persisted probe downgrade (connect class = conservative(peer, probe_class))", async () => {
+    const n = NODES[hashNodeKey(KEY_A)]!;
+    (n as { probe_class?: string | null }).probe_class = "masked";
+    try {
+      const classes: unknown[] = [];
+      const { port, registry } = await start({ geo: { country: "US", asn: 7922, ipClass: "residential" }, markOnlineClass: (c) => classes.push(c) });
+      const c = connect(port);
+      await c.opened;
+      c.send(FrameType.HELLO, 0, hello());
+      await c.waitFor(FrameType.AUTH_OK);
+      expect(registry.get(n.id)?.ipClass).toBe("masked");
+      expect(registry.get(n.id)?.peerClass).toBe("residential");
+      expect(classes).toEqual(["masked"]); // DB ip_class is not reset to residential
+    } finally {
+      delete (n as { probe_class?: string | null }).probe_class;
+    }
+  });
+
+  it("with probes enabled a fresh connect is unknown until probed and is queued for a connect probe", async () => {
+    const ready: string[] = [];
+    const { port, registry } = await start({ geo: { country: "US", asn: 7922, ipClass: "residential" }, defer: true, onReady: (id) => ready.push(id) });
+    const c = connect(port);
+    await c.opened;
+    c.send(FrameType.HELLO, 0, hello());
+    await c.waitFor(FrameType.AUTH_OK);
+    const id = NODES[hashNodeKey(KEY_A)]!.id;
+    expect(registry.get(id)?.ipClass).toBe("unknown");
+    expect(registry.get(id)?.peerClass).toBe("residential");
+    expect(ready).toEqual([id]);
   });
 });

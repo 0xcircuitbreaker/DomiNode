@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { Duplex } from "node:stream";
-import { judgeProbeResponse, parseProbeUrl, runOnce, exchange, TamperStrikes, type ProbeNode } from "./probes.js";
+import { judgeProbeResponse, parseProbeUrl, parseProbeUrls, runOnce, exchange, TamperStrikes, ConnectProbeQueue, type ProbeNode } from "./probes.js";
 
 const NONCE = "n".repeat(24);
 const ok = (ip: string, nonce = NONCE, status = "200 OK") => {
@@ -143,5 +143,52 @@ describe("probe exchange", () => {
   it("returns the raw response", async () => {
     const s = new Duplex({ read() {}, write(_c, _e, cb) { this.push(ok("1.2.3.4")); this.push(null); cb(); } });
     expect((await exchange(s, target, NONCE, 1000)).toString()).toContain('"ip":"1.2.3.4"');
+  });
+});
+
+describe("probe target rotation and connect queue", () => {
+  it("parses a comma-separated PROBE_URL and picks targets at random per probe", async () => {
+    const ts = parseProbeUrls("https://a.example.net/e, https://b.example.org/x");
+    expect(ts.map((t) => t.host)).toEqual(["a.example.net", "b.example.org"]);
+    expect(parseProbeUrls("")).toEqual([]);
+    expect(() => parseProbeUrls("ftp://x")).toThrow();
+    const seen = new Set<string>();
+    const nodes = Array.from({ length: 40 }, (_, i) => ({ nodeId: `n${i}`, ip: "203.0.113.5", openStream: vi.fn(async (h: string) => { seen.add(h); return new Duplex({ read() {}, write(_c, _e, cb) { cb(); } }); }) }));
+    const ex = vi.fn(async (_s: Duplex, _t: unknown, nonce: string) => ok("203.0.113.5", nonce));
+    await runOnce({ targets: ts, listNodes: () => nodes, quarantine: vi.fn(), exchange: ex as typeof exchange, nonce: () => NONCE, sampleSize: 40, strikes: new TamperStrikes() });
+    expect(seen).toEqual(new Set(["a.example.net", "b.example.org"]));
+  });
+
+  it("connect queue: probes each connect once, dedupes, rate-limits reconnects and caps concurrency", async () => {
+    let t = 0;
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const releases: (() => void)[] = [];
+    const onEgress = vi.fn();
+    const ex = vi.fn(async (_s: Duplex, _t: unknown, nonce: string) => {
+      inFlight++;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      await new Promise<void>((r) => releases.push(r));
+      inFlight--;
+      return ok("203.0.113.5", nonce);
+    });
+    const q = new ConnectProbeQueue(
+      { target, listNodes: () => [], quarantine: vi.fn(), exchange: ex as typeof exchange, nonce: () => NONCE, onEgress, strikes: new TamperStrikes() },
+      { concurrency: 2, delayMs: 0, minIntervalMs: 60_000, now: () => t },
+    );
+    const mk = (id: string) => ({ nodeId: id, ip: "203.0.113.5", openStream: vi.fn(async () => new Duplex({ read() {}, write(_c, _e, cb) { cb(); } })) });
+    expect(q.enqueue(mk("a"))).toBe(true);
+    expect(q.enqueue(mk("a"))).toBe(false); // dedupe while queued / rate limit
+    expect(q.enqueue(mk("b"))).toBe(true);
+    expect(q.enqueue(mk("c"))).toBe(true);
+    await new Promise((r) => setTimeout(r, 5));
+    expect(maxInFlight).toBe(2);
+    while (releases.length) { releases.shift()!(); await new Promise((r) => setTimeout(r, 5)); }
+    expect(onEgress).toHaveBeenCalledTimes(3);
+    t = 30_000;
+    expect(q.enqueue(mk("a"))).toBe(false); // reconnect within the min interval
+    t = 61_000;
+    expect(q.enqueue(mk("a"))).toBe(true);
+    q.stop();
   });
 });

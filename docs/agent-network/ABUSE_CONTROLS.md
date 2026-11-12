@@ -83,6 +83,32 @@ No — but they should be split by where trust lives:
   (already stored, already erased with the node owner); only the class, the
   declared class and a timestamp are added, and logs carry node ids and
   classes, not IPs.
+- **Class verification on (re)connect.** With `PROBE_URL` set, a node that
+  connects is `unknown` (never matches `class-*`, lowest tier weight snapshot,
+  any-price quote) until a probe on that connection verifies it; every connect
+  is queued for its own probe (`PROBE_CONNECT_CONCURRENCY`, per-node
+  `PROBE_CONNECT_MIN_INTERVAL_MS`), on top of the sampled periodic job. The
+  last probe verdict is stored (`nodes.probe_class`, `probe_class_at`) and the
+  connect-time class is the more cautious of the peer-IP class and that
+  verdict, so redialling from a residential IP does not undo a probe
+  downgrade. An `egress_mismatch` flag is raised when the probe class is below
+  the declared class or below the connect-time class (also for nodes that
+  declared nothing). Prepaid (x402/MPP) and balance-funded sessions both
+  snapshot the class tier weight at session start.
+- **Limit: split routing is not reliably detectable.** Probes go to echo
+  endpoints the gateway controls. A modified node agent (the code is open and
+  nodes are untrusted) can send probe destinations out through one path (its
+  home ISP) and customer traffic through another (WARP, a VPN, a VPS). To make
+  this harder, `PROBE_URL` takes a comma-separated list of echo URLs and one is
+  picked at random per probe: operators should list several hostnames that are
+  not published as gateway endpoints (CDN fronts, random subdomains on a
+  separate domain). That raises the cost of steering probes; it does not prove
+  the path of customer traffic. The exit class is therefore **best effort**:
+  it reliably catches honest operators behind WARP/VPN and naive split
+  tunnels, not a node agent written to defeat it. Passive checks on real
+  traffic (sampling customer CONNECTs to known IP-reflection endpoints,
+  destination-observed IPs on plain relays) are a planned follow-up. Burn
+  reports and buyer `sessions.report` remain the backstop.
 - **Collusion** (DESIGN.md §13 commit 33): the daily `collusion` job flags
   requester/owner concentration and circular buying, admin-visible at
   `/api/admin/network/collusion/flags` (ADMIN_API.md §12). Automatic credit

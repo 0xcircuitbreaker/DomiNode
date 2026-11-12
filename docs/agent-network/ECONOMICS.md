@@ -44,7 +44,10 @@ classifies the IP the node's traffic actually leaves from (the tunnel peer IP
 at connect, re-checked by the canary echo probe) against the ASN database and
 the anonymizer list. Nothing the node reports about itself is used; an
 optional class declared at registration is only compared with the verified
-one (see ABUSE_CONTROLS.md).
+one (see ABUSE_CONTROLS.md). When probes are enabled a freshly connected node
+is `unknown` (lowest weight) until its first probe on that connection passes;
+sessions it serves before then snapshot the `unknown` weight. Verification is
+best effort (ABUSE_CONTROLS.md, split-routing limit).
 
 | Class | What it is | Default price/GB | Tier weight | Served to |
 |---|---|---|---|---|

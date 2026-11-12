@@ -8,14 +8,14 @@ import { startProxyServer } from "./server.js";
 import { geoAvailable, initGeoCheck, lookupPeerGeo, classifyEgressIp } from "./geo-check.js";
 import { makeEgressVerifier } from "./egress-class.js";
 import { installSharedLimits, makeInstanceId } from "./shared-limits.js";
-import { NodeRegistry } from "./node-tunnel/registry.js";
+import { NodeRegistry, type LiveNode } from "./node-tunnel/registry.js";
 import { NodeSelector } from "./node-tunnel/selector.js";
 import { loadCoordSigner } from "./node-tunnel/coord-key.js";
 import { NodeTunnelServer } from "./node-tunnel/server.js";
 import { checkGatewayEnv } from "./env-check.js";
 import { startSocks5Server } from "./socks5.js";
 import { loadProxyTls, parseRequireTls, createPlaintextAuthGuard } from "./proxy-tls.js";
-import { envInt, setJobRunRecorder, JOB_RUN_UPSERT_SQL, type Job, type LockPool } from "./jobs/runner.js";
+import { envInt, setJobRunRecorder, JOB_RUN_UPSERT_SQL, type Job, type JobLogger, type LockPool } from "./jobs/runner.js";
 import * as nodeStatusJob from "./jobs/node-status.js";
 import * as maturityJob from "./jobs/maturity.js";
 import * as retentionJob from "./jobs/retention.js";
@@ -75,6 +75,29 @@ assertDistinctProxyPorts(ports);
 const httpPort = ports.http;
 const socks5Port = ports.socks5;
 
+function toProbeNode(n: LiveNode): probesJob.ProbeNode {
+  return { nodeId: n.nodeId, ip: n.ip, unverified: n.egressVerifiedAt === undefined, openStream: (h, p) => n.tunnel.openStream(h, p) };
+}
+
+/** Probe deps shared by the periodic job and the per-connect queue. */
+function makeProbeDeps(registry: NodeRegistry, targets: probesJob.ProbeTarget[], logger: JobLogger): Omit<probesJob.ProbeDeps, "listNodes"> {
+  return {
+    targets,
+    timeoutMs: envInt(process.env, "PROBE_TIMEOUT_MS", 10_000, 1000, 60_000),
+    onEgress: makeEgressVerifier({
+      getNode: (id) => registry.get(id),
+      classify: classifyEgressIp,
+      record: nodeRepo.recordVerifiedClass,
+      logger,
+    }),
+    quarantine: async (nodeId, reason) => {
+      await nodeRepo.setStatus(nodeId, "quarantined", ["active", "pending", "cooldown"]);
+      registry.get(nodeId)?.tunnel.close(`probe: ${reason}`);
+    },
+    logger,
+  };
+}
+
 async function main(): Promise<void> {
   // Ensure database is reachable before accepting connections
   await connectWithRetry();
@@ -95,6 +118,18 @@ async function main(): Promise<void> {
   const coordSigner = loadCoordSigner(process.env);
   if (coordSigner) log.info("coordinator signing key loaded", { publicKey: coordSigner.publicKeyHex });
   else log.warn("COORD_SIGNING_KEY_FILE not set: CHALLENGE frames are unsigned (non-production only)");
+  // Egress probes: with PROBE_URL set, every connect is queued for its own
+  // verification probe and stays "unknown" for class-* selection until then.
+  const probeTargets = probesJob.parseProbeUrls(process.env["PROBE_URL"]);
+  const connectProbes = probeTargets.length > 0
+    ? new probesJob.ConnectProbeQueue(
+      { ...makeProbeDeps(registry, probeTargets, log), listNodes: () => [] },
+      {
+        concurrency: envInt(process.env, "PROBE_CONNECT_CONCURRENCY", 4, 1, 64),
+        minIntervalMs: envInt(process.env, "PROBE_CONNECT_MIN_INTERVAL_MS", 60_000, 0, 3_600_000),
+      },
+    )
+    : null;
   const tunnelServer = new NodeTunnelServer(registry, {
     coordSign: coordSigner?.sign,
     getNodeForTunnelAuth: nodeRepo.getNodeForTunnelAuth,
@@ -106,6 +141,9 @@ async function main(): Promise<void> {
     getPolicy,
     geoLookup: lookupPeerGeo,
     recordVerifiedClass: nodeRepo.recordVerifiedClass,
+    onNodeReady: (live) => {
+      if (connectProbes && live.status === "active") connectProbes.enqueue(toProbeNode(live));
+    },
     onStreamClose: (nodeId, r) => {
       if (r.nodeReport && (r.nodeReport.bytesIn !== r.gatewayBytesOut || r.nodeReport.bytesOut !== r.gatewayBytesIn)) {
         log.warn("node byte report mismatch", { nodeId, gatewayOut: r.gatewayBytesOut, gatewayIn: r.gatewayBytesIn, nodeIn: r.nodeReport.bytesIn, nodeOut: r.nodeReport.bytesOut });
@@ -118,6 +156,7 @@ async function main(): Promise<void> {
     tls: loadTunnelTls(process.env),
     production: isProduction,
     requireAsn: isProduction && !asnDbOptional,
+    deferClassUntilProbe: connectProbes !== null,
   });
   const tunnelPort = await tunnelServer.listen();
   log.info(`node tunnel server listening on port ${tunnelPort}`);
@@ -178,6 +217,7 @@ async function main(): Promise<void> {
     socks5Server.close();
     for (const s of tlsServers) s.close();
     clearInterval(policyInterval);
+    connectProbes?.stop();
     await Promise.all(jobs.map((j) => j.stop().catch(() => {})));
 
     // Wait for active sessions to finish (max 30s)
@@ -338,31 +378,19 @@ function startJobs(registry: NodeRegistry, getPolicy: () => ActivePolicy): Job[]
       grantCredit: genesisRepo.grantCredit, matureCredits: genesisRepo.matureCredits,
     },
   }));
-  const probeTarget = probesJob.parseProbeUrl(process.env["PROBE_URL"]);
-  if (probeTarget) {
+  const probeTargets = probesJob.parseProbeUrls(process.env["PROBE_URL"]);
+  if (probeTargets.length > 0) {
     const probeIntervalMs = envInt(process.env, "PROBE_INTERVAL_MS", 900_000, 60_000, 86_400_000);
     jobs.push(probesJob.start({
       logger: jobLog, intervalMs: probeIntervalMs,
       // Random start offset per run (up to half the interval) so probe timing is unpredictable.
       jitterMs: Math.floor(probeIntervalMs / 2),
       deps: {
-        target: probeTarget,
+        ...makeProbeDeps(registry, probeTargets, jobLog),
         sampleSize: envInt(process.env, "PROBE_SAMPLE_SIZE", 20, 1, 1000),
-        timeoutMs: envInt(process.env, "PROBE_TIMEOUT_MS", 10_000, 1000, 60_000),
         listNodes: () => [...registry.all()]
           .filter((n) => n.ready && n.status === "active" && n.tunnel.isOpen)
-          .map((n) => ({ nodeId: n.nodeId, ip: n.ip, unverified: n.egressVerifiedAt === undefined, openStream: (h, p) => n.tunnel.openStream(h, p) })),
-        onEgress: makeEgressVerifier({
-          getNode: (id) => registry.get(id),
-          classify: classifyEgressIp,
-          record: nodeRepo.recordVerifiedClass,
-          logger: jobLog,
-        }),
-        quarantine: async (nodeId, reason) => {
-          await nodeRepo.setStatus(nodeId, "quarantined", ["active", "pending", "cooldown"]);
-          registry.get(nodeId)?.tunnel.close(`probe: ${reason}`);
-        },
-        logger: jobLog,
+          .map(toProbeNode),
       },
     }));
   } else {
