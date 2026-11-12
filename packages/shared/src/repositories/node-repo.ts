@@ -1,15 +1,17 @@
 import crypto from "node:crypto";
 import { query, getPool } from "../db.js";
+import { NODE_IP_CLASSES, isClassDowngrade, isExitClass, type NodeIpClass, type ExitClass } from "../exit-classes.js";
+
+export type { NodeIpClass };
 
 // ─── Types ─────────────────────────────────────────────────────────────
 
 export type NodeStatus = "pending" | "active" | "cooldown" | "quarantined" | "suspended" | "revoked";
-export type NodeIpClass = "residential" | "dc" | "mobile" | "unknown";
 
 export const NODE_STATUSES: readonly NodeStatus[] = [
   "pending", "active", "cooldown", "quarantined", "suspended", "revoked",
 ];
-const IP_CLASSES: readonly NodeIpClass[] = ["residential", "dc", "mobile", "unknown"];
+const IP_CLASSES: readonly NodeIpClass[] = NODE_IP_CLASSES;
 
 /** Fallback caps per §15 if the owner has no tier row (fail closed to Probation). */
 export const NODE_CAP_BY_TIER: Readonly<Record<string, number>> = {
@@ -38,7 +40,11 @@ export interface NodeRecord {
   ip_prefix24: string | null;
   asn: string | null;
   country: string | null;
+  /** Verified exit class (gateway-classified egress IP); the effective class. */
   ip_class: NodeIpClass | null;
+  /** Owner-declared class at registration (informational; never used for routing or pricing). */
+  declared_class: ExitClass | null;
+  class_verified_at: Date | null;
   max_streams: number;
   max_gb_day: number;
   /** Owner-lowered req/s cap; null = policy default. */
@@ -53,6 +59,7 @@ export interface NodeRecord {
 
 const NODE_COLUMNS = `id, owner_user_id, owner_wallet, node_pubkey, status, attestation_version,
   host(observed_ip) AS observed_ip, ip_prefix24::text AS ip_prefix24, asn::text AS asn, country, ip_class,
+  declared_class, class_verified_at,
   max_streams, max_gb_day, max_req_per_sec, reputation, byte_disputes, agent_version, floor_hash, last_seen_at, created_at`;
 
 /** Node joined with owner state for tunnel authentication. */
@@ -72,6 +79,8 @@ export interface TunnelAuthNode {
   report_penalty?: number;
   /** Admin-set: operator-run seed node (DESIGN.md §11), reported separately. */
   operator_run?: boolean;
+  /** Owner-declared class (compared against the verified class only). */
+  declared_class?: ExitClass | null;
 }
 
 export interface NodeChallenge {
@@ -88,6 +97,8 @@ export interface RegisterNodeInput {
   attestationSig: string;
   maxStreams?: number;
   maxGbDay?: number;
+  /** Optional self-declared class; the effective class is always the verified one. */
+  declaredClass?: ExitClass | null;
 }
 
 export type RegisterNodeResult =
@@ -231,6 +242,8 @@ export async function registerNode(input: RegisterNodeInput): Promise<RegisterNo
   }
   const maxStreams = input.maxStreams === undefined ? 32 : intInRange(input.maxStreams, 1, 1024);
   const maxGbDay = input.maxGbDay === undefined ? 5 : intInRange(input.maxGbDay, 1, 10000);
+  const declared = input.declaredClass ?? null;
+  if (declared !== null && !isExitClass(declared)) throw new Error("Invalid declared class");
 
   const nodeKey = generateNodeKey();
   const keyHash = hashNodeKey(nodeKey);
@@ -274,11 +287,11 @@ export async function registerNode(input: RegisterNodeInput): Promise<RegisterNo
 
     const ins = await client.query<NodeRecord>(
       `INSERT INTO nodes (owner_user_id, owner_wallet, node_key_hash, node_pubkey,
-                          attestation_version, attestation_sig, max_streams, max_gb_day)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                          attestation_version, attestation_sig, max_streams, max_gb_day, declared_class)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
        RETURNING ${NODE_COLUMNS}`,
       [input.ownerUserId, wallet, keyHash, pubkey, input.attestationVersion,
-        input.attestationSig, maxStreams, maxGbDay],
+        input.attestationSig, maxStreams, maxGbDay, declared],
     );
     await client.query("COMMIT");
     return { ok: true, node: ins.rows[0], nodeKey };
@@ -300,7 +313,7 @@ export async function getNodeForTunnelAuth(keyHash: string): Promise<TunnelAuthN
             (SELECT tm.team_id FROM team_members tm WHERE tm.user_id = n.owner_user_id
               ORDER BY tm.team_id LIMIT 1) AS owner_team_id,
             n.node_pubkey, n.status, n.attestation_version,
-            n.max_streams, n.max_gb_day, n.max_req_per_sec, n.reputation, n.report_penalty, n.operator_run
+            n.max_streams, n.max_gb_day, n.max_req_per_sec, n.reputation, n.report_penalty, n.operator_run, n.declared_class
      FROM nodes n
      JOIN users u ON u.id = n.owner_user_id
      WHERE n.node_key_hash = $1
@@ -331,11 +344,70 @@ export async function markOnline(
     `UPDATE nodes
      SET observed_ip = $2::inet,
          ip_prefix24 = network(set_masklen($2::inet, CASE WHEN family($2::inet) = 4 THEN 24 ELSE 48 END)),
-         country = $3, asn = $4, ip_class = COALESCE($5, ip_class), last_seen_at = now()
+         country = $3, asn = $4, ip_class = COALESCE($5, ip_class),
+         class_verified_at = CASE WHEN $5::text IS NULL THEN class_verified_at ELSE now() END,
+         last_seen_at = now()
      WHERE id = $1 AND status <> 'revoked'`,
     [nodeId, ip, cc, asn, ipClass],
   );
   return (res.rowCount ?? 0) > 0;
+}
+
+export interface VerifiedClassResult {
+  updated: boolean;
+  previousClass: NodeIpClass | null;
+  declaredClass: ExitClass | null;
+  /** Verified class is less trusted than the declared one; a review flag was raised. */
+  flagged: boolean;
+}
+
+/**
+ * Record a gateway-verified exit class (connect or egress probe). The verified
+ * class always becomes the node's effective class. When it is less trusted
+ * than the owner's declared class (e.g. declared residential, exits via a VPN)
+ * an 'egress_mismatch' review flag is opened (or refreshed) in collusion_flags
+ * for the existing abuse/collusion review queue. Node-reported data is never
+ * an input here.
+ */
+export async function recordVerifiedClass(nodeId: string, verified: NodeIpClass): Promise<VerifiedClassResult> {
+  assertUuid(nodeId, "nodeId");
+  if (!IP_CLASSES.includes(verified)) throw new Error("Invalid ip class");
+  const client = await getPool().connect();
+  try {
+    await client.query("BEGIN");
+    const cur = await client.query<{ owner_user_id: string; ip_class: NodeIpClass | null; declared_class: ExitClass | null }>(
+      `SELECT owner_user_id, ip_class, declared_class FROM nodes WHERE id = $1 AND status <> 'revoked' FOR UPDATE`,
+      [nodeId],
+    );
+    const row = cur.rows[0];
+    if (!row) {
+      await client.query("ROLLBACK");
+      return { updated: false, previousClass: null, declaredClass: null, flagged: false };
+    }
+    await client.query(
+      `UPDATE nodes SET ip_class = $2, class_verified_at = now() WHERE id = $1`,
+      [nodeId, verified],
+    );
+    const flagged = isClassDowngrade(row.declared_class, verified);
+    if (flagged) {
+      await client.query(
+        `INSERT INTO collusion_flags (kind, owner_user_id, node_id, share_bps, volume_musd, total_musd, window_days)
+         VALUES ('egress_mismatch', $1, $2, 0, 0, 0, 1)
+         ON CONFLICT (kind, owner_user_id,
+           COALESCE(node_id, '00000000-0000-0000-0000-000000000000'::uuid),
+           COALESCE(requester_user_id, '00000000-0000-0000-0000-000000000000'::uuid)) WHERE status = 'open'
+         DO UPDATE SET last_seen_at = now()`,
+        [row.owner_user_id, nodeId],
+      );
+    }
+    await client.query("COMMIT");
+    return { updated: true, previousClass: row.ip_class, declaredClass: row.declared_class, flagged };
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw err;
+  } finally {
+    client.release();
+  }
 }
 
 /** Record tunnel close. */

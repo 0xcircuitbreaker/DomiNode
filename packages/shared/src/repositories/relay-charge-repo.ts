@@ -109,6 +109,9 @@ function validate(i: SettleRelayChargeInput): void {
   if (!Number.isInteger(gb) || gb < 0 || gb > s.nodeShareBps) throw new Error("genesisBonusBps out of range");
   const bd = s.buyerDiscountBps ?? 0;
   if (!Number.isInteger(bd) || bd < 0 || bd > 5000) throw new Error("buyerDiscountBps out of range");
+  if (s.tierWeightBps !== undefined && (!Number.isInteger(s.tierWeightBps) || s.tierWeightBps < 0 || s.tierWeightBps > 10000)) {
+    throw new Error("tierWeightBps out of range");
+  }
   if (!Number.isInteger(i.reservedCents) || i.reservedCents < 0 || i.reservedCents > MAX_INT) throw new Error("reservedCents out of range");
   if (!Number.isInteger(i.destPort) || i.destPort < 1 || i.destPort > 65535) throw new Error("destPort out of range");
   // Host only: reject anything that looks like a path, query, userinfo or port.
@@ -242,9 +245,9 @@ export async function settleRelayCharge(i: SettleRelayChargeInput): Promise<Sett
       `INSERT INTO relay_charges (session_id, requester_user_id, node_id, node_owner_user_id, payment_rail,
          bytes_gateway, bytes_node, price_per_gb_musd, gross_musd, node_musd, platform_musd,
          split_config_id, tier_id, node_share_bps, zero_reason, matures_at, disputed,
-         genesis_bonus_bps, list_gross_musd, buyer_discount_bps, discount_musd, buyer_tier_id)
+         genesis_bonus_bps, list_gross_musd, buyer_discount_bps, discount_musd, buyer_tier_id, tier_weight_bps)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15, now() + make_interval(days => $16), $17,
-         $18, $19, $20, $21, $22)
+         $18, $19, $20, $21, $22, $23)
        RETURNING id`,
       [
         i.sessionId, i.requesterUserId, i.nodeId, node.owner_user_id, i.rail,
@@ -254,6 +257,7 @@ export async function settleRelayCharge(i: SettleRelayChargeInput): Promise<Sett
         disputed,
         i.snapshot.genesisBonusBps ?? 0, listMusd.toString(),
         discountMusd > 0n ? (i.snapshot.buyerDiscountBps ?? 0) : 0, discountMusd.toString(), i.snapshot.buyerTierId ?? null,
+        i.snapshot.tierWeightBps ?? null,
       ],
     );
     const relayChargeId = ins.rows[0].id;

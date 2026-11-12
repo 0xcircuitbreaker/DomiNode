@@ -509,7 +509,7 @@ export async function updateX402Transaction(
   payerAddress: string,
   amountUsd: string,
   txHash: string | null,
-  poolType: "dc" | "residential" | "mobile" | "any",
+  poolType: "dc" | "residential" | "mobile" | "masked" | "any",
   targetHost: string,
   status: "settled" | "failed",
 ): Promise<void> {

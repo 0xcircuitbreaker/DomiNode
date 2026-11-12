@@ -2012,3 +2012,57 @@ DO $$ BEGIN
   ALTER TABLE agentic_wallet_transactions ADD CONSTRAINT agentic_wallet_transactions_session_id_fkey
     FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE SET NULL;
 END $$;
+
+-- ─── Verified exit classes: 'masked' + tier weights (ECONOMICS.md) ──
+-- Class list mirrors packages/shared/src/exit-classes.ts. Idempotent.
+DO $$ BEGIN
+  ALTER TABLE nodes DROP CONSTRAINT IF EXISTS nodes_ip_class_check;
+  ALTER TABLE nodes ADD CONSTRAINT nodes_ip_class_check
+    CHECK (ip_class IS NULL OR ip_class IN ('residential','mobile','dc','masked','unknown'));
+  ALTER TABLE network_pricing DROP CONSTRAINT IF EXISTS network_pricing_ip_class_check;
+  ALTER TABLE network_pricing ADD CONSTRAINT network_pricing_ip_class_check
+    CHECK (ip_class IN ('any','residential','mobile','dc','masked'));
+  ALTER TABLE unmet_demand_hourly DROP CONSTRAINT IF EXISTS unmet_demand_hourly_ip_class_check;
+  ALTER TABLE unmet_demand_hourly ADD CONSTRAINT unmet_demand_hourly_ip_class_check
+    CHECK (ip_class IN ('', 'residential', 'mobile', 'dc', 'masked'));
+  ALTER TABLE x402_transactions DROP CONSTRAINT IF EXISTS x402_transactions_pool_type_check;
+  ALTER TABLE x402_transactions ADD CONSTRAINT x402_transactions_pool_type_check
+    CHECK (pool_type IN ('dc', 'residential', 'mobile', 'masked', 'any'));
+  ALTER TABLE collusion_flags DROP CONSTRAINT IF EXISTS collusion_flags_kind_check;
+  ALTER TABLE collusion_flags ADD CONSTRAINT collusion_flags_kind_check
+    CHECK (kind IN ('concentration','cluster','circular','report_penalty','egress_mismatch'));
+END $$;
+
+-- Owner-declared class (informational; the effective class is the verified ip_class).
+ALTER TABLE nodes ADD COLUMN IF NOT EXISTS declared_class TEXT;
+ALTER TABLE nodes ADD COLUMN IF NOT EXISTS class_verified_at TIMESTAMPTZ;
+DO $$ BEGIN
+  ALTER TABLE nodes ADD CONSTRAINT chk_nodes_declared_class
+    CHECK (declared_class IS NULL OR declared_class IN ('residential','mobile','dc','masked'));
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+-- Masked exits: $0.10/GB default (admin-tunable).
+INSERT INTO network_pricing (ip_class, price_per_gb_musd) VALUES ('masked', 100000)
+ON CONFLICT (ip_class) DO NOTHING;
+
+-- Tier-credit weight per class (bps, 10000 = 1.0). Defaults are seeded only
+-- when the column is first added, so later admin changes survive re-runs.
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                 WHERE table_schema = current_schema() AND table_name = 'network_pricing'
+                   AND column_name = 'tier_weight_bps') THEN
+    ALTER TABLE network_pricing ADD COLUMN tier_weight_bps INTEGER NOT NULL DEFAULT 10000
+      CHECK (tier_weight_bps BETWEEN 0 AND 10000);
+    UPDATE network_pricing SET tier_weight_bps = 4000 WHERE ip_class = 'dc';
+    UPDATE network_pricing SET tier_weight_bps = 2500 WHERE ip_class = 'masked';
+  END IF;
+END $$;
+
+-- Tier weight snapshotted at session start (like node_share_bps); NULL = pre-feature row.
+ALTER TABLE relay_charges ADD COLUMN IF NOT EXISTS tier_weight_bps INTEGER;
+DO $$ BEGIN
+  ALTER TABLE relay_charges ADD CONSTRAINT chk_rc_tier_weight_bps
+    CHECK (tier_weight_bps IS NULL OR tier_weight_bps BETWEEN 0 AND 10000);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;

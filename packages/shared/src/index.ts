@@ -194,6 +194,13 @@ export type { ResolveCheckResult } from "./net-guard.js";
 // Agent relay network
 export { validatePolicy, policySha256, canonicalJson, isFloorKey, PolicyValidationError, DEFAULT_POLICY, PLAINTEXT_MODES, FLOOR_ALLOWED_PORTS, HARD_DENY_PORTS, MAX_POLICY_BYTES } from "./policy.js";
 export type { NetworkPolicy, PlaintextMode, ValidatePolicyOptions } from "./policy.js";
+// Exit (egress) classes — single source of truth
+export {
+  EXIT_CLASSES, NODE_IP_CLASSES, PRICING_CLASSES, DEFAULT_PRICE_PER_GB_MUSD, DEFAULT_TIER_WEIGHT_BPS,
+  MAX_TIER_WEIGHT_BPS, CLASS_TRUST_RANK, isExitClass, isNodeIpClass, conservativeClass, isClassDowngrade,
+  tierWeightBpsFor, weightedIpCount,
+} from "./exit-classes.js";
+export type { ExitClass } from "./exit-classes.js";
 export * as policyRepo from "./repositories/policy-repo.js";
 export type { ActivePolicy, PublishResult, PricingClass, SplitConfig, NodeTier } from "./repositories/policy-repo.js";
 export * as nodeRepo from "./repositories/node-repo.js";
