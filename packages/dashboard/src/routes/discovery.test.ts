@@ -48,6 +48,7 @@ describe("agent discovery documents", () => {
     expect(Object.keys(proxy.username.flags)).toEqual(["country-XX", "class-residential|dc|mobile", "session-<id>", "allowhttp-1"]);
     expect(text).toContain("/v1/policy");
     expect(text).toContain("/v1/abuse-reports");
+    expect((r.body["announcements"] as { url: string }).url).toMatch(/\/v1\/announcements$/);
     expect(text).toContain("wallet_signature");
     expect(text).toContain("CONTRIBUTION_REQUIRED");
     expect(text).toContain("@dominusnode/mcp-server");
@@ -68,6 +69,7 @@ describe("agent discovery documents", () => {
     for (const re of LEGACY) expect(text, String(re)).not.toMatch(re);
     expect(text).toContain("residential: $0.730000/GB");
     expect(text).toContain("dc: $0.200000/GB");
+    expect(text).toMatch(/Announcements .*\/v1\/announcements/);
   });
 
   it("fails closed with 503 when pricing is unavailable", async () => {

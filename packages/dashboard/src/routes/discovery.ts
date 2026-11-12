@@ -142,6 +142,11 @@ export function buildAgentToolDocument(env: DiscoveryEnv, p: DiscoveryPricing): 
       incidents: `${b}/v1/network/incidents`,
     },
 
+    announcements: {
+      url: `${b}/v1/announcements`,
+      description: "Changelog / news feed of policy, pricing, payment-rail, API and network changes. Public; poll with ?since=<last publishedAt>.",
+    },
+
     abuse: {
       report: `${b}/v1/abuse-reports`,
       challenge: `${b}/v1/abuse-reports/challenge`,
@@ -204,6 +209,7 @@ export function buildLlmsTxt(env: DiscoveryEnv, p: DiscoveryPricing): string {
     `- Policy: ${b}/v1/policy`,
     `- Network stats: ${b}/v1/network/stats, history: ${b}/v1/network/history, status page: ${b}/status`,
     `- Abuse reports: ${b}/v1/abuse-reports`,
+    `- Announcements (policy/pricing/API changes): ${b}/v1/announcements`,
     "",
   ].join("\n");
 }

@@ -1,16 +1,26 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import express from "express";
 
-const m = vi.hoisted(() => ({ listSnapshots: vi.fn(), listIncidents: vi.fn(), listWanted: vi.fn(), query: vi.fn(), consume: vi.fn(), create: vi.fn(), count: vi.fn() }));
+const m = vi.hoisted(() => ({ grant: vi.fn(), listSnapshots: vi.fn(), listIncidents: vi.fn(), listWanted: vi.fn(), query: vi.fn(), consume: vi.fn(), create: vi.fn(), count: vi.fn() }));
 vi.mock("@dominusnode/shared", async (orig) => {
   const actual = await orig<typeof import("@dominusnode/shared")>();
   return {
     ...actual,
     query: (...a: unknown[]) => m.query(...a),
     powChallengeRepo: { ...actual.powChallengeRepo, consumeChallenge: m.consume, createChallenge: m.create, countActiveChallengesForIp: m.count },
+    starterCreditRepo: { ...actual.starterCreditRepo, grantStarterCredit: m.grant },
     networkStatusRepo: { ...actual.networkStatusRepo, listSnapshots: m.listSnapshots, listIncidents: m.listIncidents, listWanted: m.listWanted },
   };
 });
+
+vi.mock("../../middleware/agent.js", () => ({
+  requireAgentPrincipal: (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    const w = req.headers["x-test-wallet"];
+    if (req.headers["x-test-agent"] === undefined) { res.status(401).json({ error: "Authentication required" }); return; }
+    (req as unknown as { agent: unknown }).agent = { userId: String(req.headers["x-test-agent"]), email: "", walletAddress: typeof w === "string" ? w : null, via: "api_key", verified: true };
+    next();
+  },
+}));
 
 import router, { parseAbuseReport, ABUSE_POW_DIFFICULTY } from "./launch.js";
 import * as nodeCrypto from "node:crypto";
@@ -61,6 +71,54 @@ describe("/v1 network history, incidents, wanted", () => {
     const r = await call(app(), "GET", "/v1/network/incidents");
     expect(r.status).toBe(503);
     expect(JSON.stringify(r.body)).not.toContain("db down");
+  });
+});
+
+describe("/v1/announcements", () => {
+  it("lists published announcements with public caching and validates filters", async () => {
+    m.query.mockReset().mockResolvedValue({ rows: [{ id: "a1", title: "Price change", body: "dc to $0.25/GB", category: "pricing", url: null, published_at: new Date("2026-11-01T00:00:00Z"), updated_at: new Date("2026-11-01T00:00:00Z") }] });
+    const r = await call(app(), "GET", "/v1/announcements?category=pricing&since=2026-10-01T00:00:00Z&limit=5");
+    expect(r.status).toBe(200);
+    expect(r.headers.get("cache-control")).toBe("public, max-age=300");
+    expect((r.body["announcements"] as unknown[])[0]).toMatchObject({ id: "a1", category: "pricing", publishedAt: "2026-11-01T00:00:00.000Z" });
+    const [sql, params] = m.query.mock.calls[0] as [string, unknown[]];
+    expect(sql).toContain("WHERE published AND published_at <= now()");
+    expect(params).toEqual([5, "pricing", "2026-10-01T00:00:00.000Z"]);
+    expect((await call(app(), "GET", "/v1/announcements?category=gossip")).status).toBe(400);
+    expect((await call(app(), "GET", "/v1/announcements?since=yesterday")).status).toBe(400);
+    expect((await call(app(), "GET", "/v1/announcements?limit=500")).status).toBe(400);
+  });
+
+  it("fails closed with 503 without leaking the error", async () => {
+    m.query.mockReset().mockRejectedValue(new Error("db down"));
+    const r = await call(app(), "GET", "/v1/announcements");
+    expect(r.status).toBe(503);
+    expect(JSON.stringify(r.body)).not.toContain("db down");
+  });
+});
+
+describe("POST /v1/starter-credits/claim", () => {
+  const W = "0x2222222222222222222222222222222222222222";
+  it("needs an agent with a wallet identity", async () => {
+    m.grant.mockReset();
+    expect((await call(app(), "POST", "/v1/starter-credits/claim")).status).toBe(401);
+    const r = await call(app(), "POST", "/v1/starter-credits/claim", { headers: { "x-test-agent": "u-nowallet" } });
+    expect(r.status).toBe(403);
+    expect(m.grant).not.toHaveBeenCalled();
+  });
+
+  it("grants (201), refuses unfunded (403) and repeats (409)", async () => {
+    m.grant.mockReset()
+      .mockResolvedValueOnce({ granted: true, grantId: "g", amountMusd: 500000n, expiresAt: new Date("2026-12-12T00:00:00Z") })
+      .mockResolvedValueOnce({ granted: false, reason: "unfunded" })
+      .mockResolvedValueOnce({ granted: false, reason: "already_granted" });
+    const h = (u: string) => ({ headers: { "x-test-agent": u, "x-test-wallet": W } });
+    const ok = await call(app(), "POST", "/v1/starter-credits/claim", h("u1"));
+    expect(ok.status).toBe(201);
+    expect(ok.body).toMatchObject({ granted: true, amount: { musd: "500000" } });
+    expect(m.grant).toHaveBeenCalledWith(expect.objectContaining({ userId: "u1", fundingSource: W }));
+    expect((await call(app(), "POST", "/v1/starter-credits/claim", h("u2"))).body).toEqual({ granted: false, reason: "unfunded" });
+    expect((await call(app(), "POST", "/v1/starter-credits/claim", h("u3"))).status).toBe(409);
   });
 });
 
