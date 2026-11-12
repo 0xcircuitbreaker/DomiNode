@@ -353,6 +353,14 @@ After the first registration, flag the node: admin panel → Launch controls →
   fails if the download fails. `SKIP_ASN_DB=1` continues without it; the
   gateway then refuses all public peers and destinations until the file
   exists. `SKIP_GEOIP` is not passed through: it is ignored in production.
+- The gateway runs as uid 1001 and never mounts `selfhost/coord-key.pem`
+  directly (the host file stays 0600, owned by whoever ran the installer).
+  The one-shot `keys` service (root, no network) copies it into the
+  `gateway_secrets` volume as 0400 owned by 1001 on every `up`, so re-running
+  the installer fixes existing installs. The `node` profile does the same for
+  `selfhost/node.json` via `node-keys` / `node_secrets`. The installer also
+  makes `data/` 0755 and the ASN database 0644, and fails before printing
+  `up.` if the gateway cannot read its key.
 - `OPERATOR_CONTACT` must be a plain email address; anything else (spaces,
   braces, quotes, newlines) is refused because it is written into the
   Caddyfile and `.env`.

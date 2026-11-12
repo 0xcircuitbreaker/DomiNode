@@ -142,4 +142,52 @@ describe("scripts/selfhost/install.sh", () => {
     expect(caddy).toMatch(/:8443"/);
     expect(caddy).toMatch(/ipv4_address:\s*172\.29\.53\.2/);
   });
+
+  it("gateway and node read their keys from uid-1001 volumes, never the host bind mount", () => {
+    const yaml = createRequire(__filename)("js-yaml") as { load(s: string): unknown };
+    type Svc = { volumes?: string[]; command?: string[]; user?: string; depends_on?: Record<string, { condition: string }>; network_mode?: string };
+    const doc = yaml.load(fs.readFileSync(path.join(ROOT, "docker-compose.selfhost.yml"), "utf8")) as { services: Record<string, Svc>; volumes: Record<string, unknown> };
+    const s = doc.services;
+    expect(s.gateway.volumes).toContain("gateway_secrets:/run/dominusnode:ro");
+    expect(s.gateway.volumes!.join(" ")).not.toContain("selfhost/coord-key.pem");
+    expect(s.gateway.depends_on?.keys?.condition).toBe("service_completed_successfully");
+    expect(s.node.volumes).toContain("node_secrets:/run/dominusnode:ro");
+    expect(s.node.depends_on?.["node-keys"]?.condition).toBe("service_completed_successfully");
+    for (const [name, file] of [["keys", "coord-key.pem"], ["node-keys", "node.json"]] as const) {
+      const svc = s[name];
+      expect(svc.user).toBe("0:0");
+      expect(svc.network_mode).toBe("none");
+      const cmd = svc.command!.join("\n");
+      expect(cmd).toContain(`install -o 1001 -g 1001 -m 0400 /src/${file}`);
+      expect(cmd).toContain("chmod 0500 /dst");
+    }
+    expect(Object.keys(doc.volumes)).toEqual(expect.arrayContaining(["gateway_secrets", "node_secrets"]));
+  });
+
+  it("installer leaves data/ traversable and checks the gateway can read its key", () => {
+    const text = fs.readFileSync(INSTALL, "utf8");
+    expect(text).toMatch(/chmod 0755 "\$ROOT\/data"/);
+    expect(text).toMatch(/exec -T gateway[\s\\]*test -r \/run\/dominusnode\/coord-key\.pem/);
+    expect(text.indexOf("test -r /run/dominusnode/coord-key.pem")).toBeLessThan(text.indexOf('echo "up.'));
+  });
+
+  it.runIf(has("openssl", ["version"]))("makes a pre-created 0700 data dir and 0600 ASN db readable", () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "dn-selfhost-"));
+    try {
+      fs.mkdirSync(path.join(tmp, "scripts/selfhost"), { recursive: true });
+      fs.copyFileSync(INSTALL, path.join(tmp, "scripts/selfhost/install.sh"));
+      fs.copyFileSync(path.join(ROOT, "scripts/gen-coord-key.mjs"), path.join(tmp, "scripts/gen-coord-key.mjs"));
+      fs.mkdirSync(path.join(tmp, "data"), { mode: 0o700 });
+      fs.writeFileSync(path.join(tmp, "data/ip2asn-combined.tsv.gz"), "", { mode: 0o600 });
+      execFileSync("bash", [path.join(tmp, "scripts/selfhost/install.sh"), "--yes", "--no-start"], {
+        env: { ...process.env, DOMINUSNODE_HOSTNAMES: "node.example.org", TLS_MODE: "auto", OPERATOR_CONTACT: "ops@example.org" },
+        stdio: "pipe",
+      });
+      expect(fs.statSync(path.join(tmp, "data")).mode & 0o777).toBe(0o755);
+      expect(fs.statSync(path.join(tmp, "data/ip2asn-combined.tsv.gz")).mode & 0o777).toBe(0o644);
+      expect(fs.statSync(path.join(tmp, "selfhost/coord-key.pem")).mode & 0o077).toBe(0);
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  }, 30_000);
 });
