@@ -207,12 +207,18 @@ model! {
     /// Team invite.
     pub struct TeamInvite {
         pub id: String, pub team_id: String, pub email: String, pub role: String,
-        pub token: String, pub expires_at: String, pub created_at: String,
+        /// User id of the member who sent the invite.
+        pub invited_by: String, pub expires_at: String, pub created_at: String,
     }
 }
 model! {
     /// Team API key metadata.
-    pub struct TeamKey { pub id: String, pub key_prefix: String, pub label: String, pub created_at: String }
+    pub struct TeamKey {
+        /// Key prefix (server `prefix`; legacy `keyPrefix` accepted).
+        #[serde(alias = "keyPrefix")] pub prefix: String,
+        pub id: String, pub label: String, pub user_id: String, pub team_id: String,
+        pub created_at: String, pub revoked_at: Option<String>,
+    }
 }
 /// Newly created team key; `key` is returned once.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -221,9 +227,12 @@ pub struct TeamKeyCreated {
     /// Id.
     #[serde(default)]
     pub id: String,
-    /// Prefix.
+    /// Prefix (server `prefix`; legacy `keyPrefix` accepted).
+    #[serde(default, alias = "keyPrefix")]
+    pub prefix: String,
+    /// Creation time.
     #[serde(default)]
-    pub key_prefix: String,
+    pub created_at: String,
     /// Label.
     #[serde(default)]
     pub label: String,
@@ -274,13 +283,13 @@ pub struct TeamUpdate {
 model! {
     /// Usage record.
     pub struct UsageRecord {
-        pub id: String, pub session_id: String, pub bytes_in: i64, pub bytes_out: i64, pub total_bytes: i64,
+        pub id: String, pub session_id: String, #[serde(deserialize_with = "crate::util::de_byte_count")] pub bytes_in: i64, #[serde(deserialize_with = "crate::util::de_byte_count")] pub bytes_out: i64, #[serde(deserialize_with = "crate::util::de_byte_count")] pub total_bytes: i64,
         pub cost_cents: f64, pub proxy_type: String, pub target_host: String, pub created_at: String,
     }
 }
 model! {
     /// Usage totals.
-    pub struct UsageSummary { pub total_bytes: i64, pub total_cost_cents: f64, pub request_count: i64, #[serde(rename = "totalGB")] pub total_gb: f64, pub total_cost_usd: f64 }
+    pub struct UsageSummary { #[serde(deserialize_with = "crate::util::de_byte_count")] pub total_bytes: i64, pub total_cost_cents: f64, pub request_count: i64, #[serde(rename = "totalGB")] pub total_gb: f64, pub total_cost_usd: f64 }
 }
 model! {
     /// Pagination block.
@@ -296,7 +305,7 @@ model! {
 }
 model! {
     /// One day of usage.
-    pub struct DailyUsage { pub date: String, pub total_bytes: i64, #[serde(rename = "totalGB")] pub total_gb: f64, pub total_cost_cents: f64, pub total_cost_usd: f64, pub request_count: i64 }
+    pub struct DailyUsage { pub date: String, #[serde(deserialize_with = "crate::util::de_byte_count")] pub total_bytes: i64, #[serde(rename = "totalGB")] pub total_gb: f64, pub total_cost_cents: f64, pub total_cost_usd: f64, pub request_count: i64 }
 }
 model! {
     /// `GET /api/usage/daily`.
@@ -304,7 +313,7 @@ model! {
 }
 model! {
     /// One top host.
-    pub struct TopHost { pub target_host: String, pub total_bytes: i64, #[serde(rename = "totalGB")] pub total_gb: f64, pub request_count: i64 }
+    pub struct TopHost { pub target_host: String, #[serde(deserialize_with = "crate::util::de_byte_count")] pub total_bytes: i64, #[serde(rename = "totalGB")] pub total_gb: f64, pub request_count: i64 }
 }
 model! {
     /// `GET /api/usage/top-hosts`.
@@ -365,8 +374,16 @@ model! {
     /// `GET /v1/pricing`.
     pub struct NetworkPricing {
         pub currency: String, pub unit: String, pub prices: Vec<ClassPrice>, pub node_share: Vec<NodeShare>,
-        pub maturation_hours: f64, pub rails: Vec<String>,
+        pub buyer_discounts: Vec<BuyerDiscount>, pub maturation_hours: f64, pub rails: Vec<String>,
     }
+}
+model! {
+    /// Buyer discount for one owner tier (basis points).
+    pub struct BuyerDiscount { pub tier: String, pub rank: i64, pub buyer_discount_bps: i64 }
+}
+model! {
+    /// Online nodes and paid bytes in the last 24h for one operator group.
+    pub struct NetworkGroupStats { pub online: i64, #[serde(deserialize_with = "crate::util::de_byte_count")] pub paid_bytes24h: i64 }
 }
 model! {
     /// Online nodes in a country.
@@ -376,7 +393,12 @@ model! {
     /// `GET /v1/network/stats`.
     pub struct NetworkStats {
         pub online_nodes: i64, pub by_class: BTreeMap<String, i64>, pub by_country: Vec<CountryCount>,
-        pub other_countries: i64, pub generated_at: String,
+        pub other_countries: i64,
+        /// Operator-run seed nodes.
+        pub seed: NetworkGroupStats,
+        /// Agent-run community nodes.
+        pub community: NetworkGroupStats,
+        pub generated_at: String,
     }
 }
 
@@ -444,7 +466,7 @@ model! {
     /// Tier description.
     pub struct TierView {
         pub id: i64, pub name: String, pub rank: i64, pub node_share_bps: i64, pub hold_days: i64,
-        pub max_nodes: i64, pub daily_withdraw_limit_musd: String,
+        pub max_nodes: i64, pub daily_withdraw_limit_musd: String, pub buyer_discount_bps: i64,
     }
 }
 model! {
@@ -465,6 +487,8 @@ model! {
     pub struct CreditsBalance {
         pub pending: Money, pub available: Money, pub frozen: bool, pub auto_convert_pct: f64, pub tier: CreditTier,
         pub tax_form_status: String, pub ytd_paid: Money, pub payouts_enabled: bool, pub min_withdraw: Money,
+        /// Discount on relay purchases from your owner tier (0 unless you run a node).
+        pub buyer_discount_bps: i64,
     }
 }
 model! {
@@ -515,6 +539,6 @@ model! {
 
 // ---- proxy
 model! {
-    /// `GET /api/proxy/health`.
-    pub struct ProxyHealth { pub status: String, pub active_sessions: i64, pub uptime_seconds: f64 }
+    /// `GET /api/proxy/health` (the server returns only the gateway status).
+    pub struct ProxyHealth { pub status: String }
 }

@@ -20,6 +20,7 @@
 pub mod client;
 pub mod errors;
 pub mod http;
+pub mod pagination;
 pub mod proxy;
 pub mod resources;
 pub mod ssrf;

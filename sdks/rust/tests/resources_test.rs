@@ -139,7 +139,7 @@ case!(teams_revoke_key, json!({}), |c| c.teams.revoke_key("t", "k"), "DELETE", "
 #[tokio::test]
 async fn teams_create_key_wraps_secret() {
     let (c, m) = connected().await;
-    m.push(r(200, json!({"id": "k", "keyPrefix": "dn_live_", "label": "ci", "key": "dn_live_teamkeyteamkey"})));
+    m.push(r(200, json!({"id": "k", "prefix": "dn_live_", "label": "ci", "key": "dn_live_teamkeyteamkey"})));
     let k = c.teams.create_key("t", "ci").await.unwrap();
     check(&m, "POST", "/api/teams/t/keys", Some(json!({"label": "ci"})), J);
     assert_eq!(k.key.reveal(), "dn_live_teamkeyteamkey");
