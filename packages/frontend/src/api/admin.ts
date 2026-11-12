@@ -139,6 +139,7 @@ export const AUDIT_ACTIONS = [
   "network_policy_publish", "network_pricing_update", "revenue_split_append", "node_tier_update",
   "node_operator_run_set", "starter_credit_settings_update", "starter_credit_revoke", "genesis_settings_update",
   "genesis_credit_clawback", "buyer_discount_settings_update", "network_incident_create", "network_incident_update",
+  "announcement_create", "announcement_update", "announcement_delete",
   "abuse_report_triage", "contribution_allowlist_add", "contribution_allowlist_remove",
 ] as const;
 
@@ -167,12 +168,14 @@ const BASE = "/api/admin/network";
 export interface SeedSide { total: number; online: number; countries: number; asns: number; paidBytes24h: string; paid24h: Money; paidBytes30d: string; paid30d: Money }
 export interface StarterSettings {
   enabled: boolean; amount: Money; dailyBudget: Money; perPrefixCap: number; perFundingSourceCap: number; capWindowDays: number;
-  expiryDays: number; seedNodesOnly: boolean; seedOnlyDays: number; updatedAt: string | null; grantedToday?: { count: number; amount: Money };
+  expiryDays: number; seedNodesOnly: boolean; seedOnlyDays: number; requireFunding?: boolean; minTopupCents?: number; rpcConfigured?: boolean;
+  updatedAt: string | null; grantedToday?: { count: number; amount: Money };
 }
 export interface StarterGrant { id: string; userId: string; walletAddress: string | null; amount: Money; remaining: Money; ipPrefix: string | null; status: string; expiresAt: string; createdAt: string; closedAt: string | null }
-export interface GenesisSettings { enabled: boolean; maxOwners: number; bonusBps: number; boostDays: number; credit: Money; creditThresholdBytes: string; members?: number; updatedAt: string | null }
+export interface GenesisSettings { enabled: boolean; maxOwners: number; bonusBps: number; boostDays: number; credit: Money; creditThresholdBytes: string; minDistinctPayers?: number; members?: number; updatedAt: string | null }
 export interface GenesisMember { ownerUserId: string; walletAddress: string | null; seq: number; enrolledAt: string; boostUntil: string; creditStatus: string; credit: Money | null; creditGrantedAt: string | null; creditMaturesAt: string | null; qualifyingBytes: string }
 export interface Incident { id: string; title: string; body: string; severity: string; status: string; startedAt: string; resolvedAt: string | null; updatedAt: string }
+export interface Announcement { id: string; title: string; body: string; category: string; url: string | null; published: boolean; publishedAt: string; updatedAt: string }
 export interface UnmetDemand { days: number; groups: Array<{ country: string | null; ipClass: string | null; requests: number; lastHour: string }>; daily: Array<{ day: string; requests: number }> }
 export interface AbuseReport {
   id: string; destHost: string; windowStart: string; windowEnd: string; category: string; description: string; contact: string | null;
@@ -196,6 +199,10 @@ export const launchApi = {
   incidents: (q: Q) => get<Paged<Incident>>(`${BASE}/incidents${qs(q)}`),
   createIncident: (b: { title: string; body?: string; severity: string; status?: string }) => post<{ id: string }>(`${BASE}/incidents`, b),
   updateIncident: (id: string, b: Record<string, unknown>) => patch<{ id: string }>(`${BASE}/incidents/${encodeURIComponent(id)}`, b),
+  announcements: (q: Q) => get<Paged<Announcement>>(`${BASE}/announcements${qs(q)}`),
+  createAnnouncement: (b: { title: string; body?: string; category?: string; url?: string; published?: boolean }) => post<{ id: string }>(`${BASE}/announcements`, b),
+  updateAnnouncement: (id: string, b: Record<string, unknown>) => patch<{ id: string }>(`${BASE}/announcements/${encodeURIComponent(id)}`, b),
+  deleteAnnouncement: (id: string) => del(`${BASE}/announcements/${encodeURIComponent(id)}`),
   unmetDemand: (days: number) => get<UnmetDemand>(`${BASE}/unmet-demand${qs({ days })}`),
   abuseReports: (q: Q) => get<Paged<AbuseReport>>(`${BASE}/abuse-reports${qs(q)}`),
   triageReport: (id: string, status: string, note?: string) => post<{ id: string; status: string }>(`${BASE}/abuse-reports/${encodeURIComponent(id)}/triage`, note ? { status, note } : { status }),
