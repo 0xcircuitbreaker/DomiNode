@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.1.0] - 2026-11-12
+
+Additive release; no breaking changes to the v2 surface.
+
+### Added
+- Exit class `masked` (VPN/WARP/Tor egress, cheapest, opt-in): accepted by the IP-class validator and the proxy username builder (`class-masked`).
+- Node fields `verifiedClass`, `declaredClass`, `classVerifiedAt`, `tierWeight` on node listings; `tierWeights` on the node tier response.
+- `nodes.register` accepts an optional `declaredClass` (residential, mobile, dc or masked; informational).
+- `NodeList`/`PayoutList` carry `next_cursor`; new `nodes.list_after` / `payouts.list_after` fetch the page after a cursor, and `iter()` follows it (offset fallback on older servers).
+
+### Note
+- `IpClass` gains a `Masked` variant: an exhaustive `match` on `IpClass` in caller code needs a new arm. `RegisterNodeOptions` gains `declared_class` (use `RegisterNodeOptions::new` or `..` to stay source-compatible).
+
 ## [2.0.2] - 2026-11-12
 
 ### Changed

@@ -53,6 +53,57 @@ where
     })
 }
 
+struct PageCursorState<T, F> {
+    fetch: F,
+    buf: VecDeque<T>,
+    limit: i64,
+    offset: i64,
+    cursor: Option<String>,
+    done: bool,
+}
+
+/// Cursor pagination with offset fallback: `fetch(limit, offset, cursor)` returns the page
+/// items and the server's `nextCursor`. Without a cursor it pages by offset (short page = last).
+fn cursor_stream<T, F, Fut>(limit: i64, fetch: F) -> impl Stream<Item = Result<T>>
+where
+    F: FnMut(i64, i64, Option<String>) -> Fut,
+    Fut: Future<Output = Result<(Vec<T>, Option<String>)>>,
+{
+    let state = PageCursorState { fetch, buf: VecDeque::new(), limit, offset: 0, cursor: None, done: false };
+    stream::unfold(state, |mut st| async move {
+        loop {
+            if let Some(x) = st.buf.pop_front() {
+                return Some((Ok(x), st));
+            }
+            if st.done {
+                return None;
+            }
+            match (st.fetch)(st.limit, st.offset, st.cursor.clone()).await {
+                Err(e) => {
+                    st.done = true;
+                    return Some((Err(e), st));
+                }
+                Ok((items, next)) => {
+                    let n = items.len() as i64;
+                    match next {
+                        Some(c) if n > 0 && Some(&c) != st.cursor.as_ref() => st.cursor = Some(c),
+                        Some(_) => st.done = true,
+                        None if st.cursor.is_some() => st.done = true,
+                        None => {
+                            st.offset += st.limit;
+                            st.done = n < st.limit || st.offset > MAX_OFFSET;
+                        }
+                    }
+                    if n == 0 {
+                        st.done = true;
+                    }
+                    st.buf.extend(items);
+                }
+            }
+        }
+    })
+}
+
 fn page_size(limit: Option<i64>, default: i64, max: i64) -> Result<i64> {
     let l = limit.unwrap_or(default);
     validate_int_range(l, "limit", 1, max)?;
@@ -119,25 +170,37 @@ impl CreditsResource {
 }
 
 impl PayoutsResource {
-    /// Every payout (offset pagination; page size default 50, max 200).
+    /// Every payout (follows `next_cursor`, offset fallback; page size default 50, max 200).
     pub fn iter(&self, limit: Option<i64>) -> Result<impl Stream<Item = Result<Payout>>> {
         let limit = page_size(limit, 50, 200)?;
         let res = self.clone();
-        Ok(offset_stream(limit, move |l, o| {
+        Ok(cursor_stream(limit, move |l, o, c| {
             let r = res.clone();
-            async move { r.list(Some(l), Some(o)).await.map(|p| (p.payouts, None)) }
+            async move {
+                let p = match c {
+                    Some(c) => r.list_after(Some(l), &c).await?,
+                    None => r.list(Some(l), Some(o)).await?,
+                };
+                Ok((p.payouts, p.next_cursor))
+            }
         }))
     }
 }
 
 impl NodesResource {
-    /// Every node you own (offset pagination; page size default 100, max 500).
+    /// Every node you own (follows `next_cursor`, offset fallback; page size default 100, max 500).
     pub fn iter(&self, limit: Option<i64>) -> Result<impl Stream<Item = Result<NodeInfo>>> {
         let limit = page_size(limit, 100, 500)?;
         let res = self.clone();
-        Ok(offset_stream(limit, move |l, o| {
+        Ok(cursor_stream(limit, move |l, o, c| {
             let r = res.clone();
-            async move { r.list(Some(l), Some(o)).await.map(|p| (p.nodes, None)) }
+            async move {
+                let p = match c {
+                    Some(c) => r.list_after(Some(l), &c).await?,
+                    None => r.list(Some(l), Some(o)).await?,
+                };
+                Ok((p.nodes, p.next_cursor))
+            }
         }))
     }
 }

@@ -28,6 +28,8 @@ pub enum IpClass {
     Dc,
     /// Mobile.
     Mobile,
+    /// Anonymizer (VPN/WARP/Tor) egress: cheapest, opt-in, never chosen unless requested (2.1).
+    Masked,
 }
 impl IpClass {
     /// Wire name.
@@ -36,6 +38,7 @@ impl IpClass {
             IpClass::Residential => "residential",
             IpClass::Dc => "dc",
             IpClass::Mobile => "mobile",
+            IpClass::Masked => "masked",
         }
     }
 }
