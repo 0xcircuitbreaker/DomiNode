@@ -46,3 +46,10 @@ target/
 
 # Python build metadata
 *.egg-info/
+
+# self-host generated config (scripts/selfhost/install.sh)
+/selfhost/
+
+# Deployment secrets and certificates (docker-compose.prod.yml)
+/secrets/
+/certs/

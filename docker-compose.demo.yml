@@ -1,0 +1,131 @@
+# ====================================================================
+#  DEMO, NOT FOR PRODUCTION
+#  Local demo: postgres + migrate + API + gateway + one local exit node
+#  + a pre-funded demo principal. Throwaway keys, fake credit, loopback
+#  only. See README "Local demo (2 minutes)".
+#
+#    docker compose -f docker-compose.demo.yml up --build
+#    KEY=$(docker compose -f docker-compose.demo.yml exec -T api cat /demo/api-key)
+#    curl -x "http://relay:$KEY@localhost:8080" https://example.com
+#
+#  Plaintext node tunnels and private tunnel peers are accepted ONLY because
+#  every service here runs with NODE_ENV=development (and the node with
+#  DN_NODE_DEMO=1). Never copy these settings into a real deployment.
+# ====================================================================
+name: dominusnode-demo
+
+x-demo-env: &demo-env
+  NODE_ENV: development
+  DEMO_MODE: "1"
+  DATABASE_URL: postgresql://dominusnode:dominusnode_demo@postgres:5432/dominusnode
+  DB_SSL: "false"
+  # Demo-only, published secrets. Never reuse them.
+  JWT_SECRET: demo-only-jwt-secret-not-for-production-000000000000
+  MFA_ENCRYPTION_KEY: "0000000000000000000000000000000000000000000000000000000000000000"
+  DOMINUSNODE_DOMAIN: localhost
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: dominusnode
+      POSTGRES_USER: dominusnode
+      POSTGRES_PASSWORD: dominusnode_demo
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dominusnode"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  # Generates the demo coordinator key once (scripts/gen-coord-key.mjs) and
+  # hands the shared /demo volume to uid 1001.
+  init:
+    image: node:22-alpine
+    user: "0:0"
+    volumes:
+      - ./scripts/gen-coord-key.mjs:/opt/gen-coord-key.mjs:ro
+      - demo:/demo
+    command:
+      - sh
+      - -c
+      - |
+        echo '*** DEMO, NOT FOR PRODUCTION ***'
+        if [ ! -f /demo/coord-key.pem ]; then
+          node /opt/gen-coord-key.mjs /demo/coord-key.pem > /demo/coord.pub
+        fi
+        chown -R 1001:1001 /demo && chmod 700 /demo
+
+  migrate:
+    build: { context: ., dockerfile: infra/docker/api.Dockerfile }
+    image: dominusnode-api:demo
+    environment: *demo-env
+    depends_on:
+      postgres: { condition: service_healthy }
+    command: ["node", "packages/shared/dist/src/migrate.js"]
+
+  seed:
+    image: dominusnode-api:demo
+    environment: *demo-env
+    volumes: [demo:/demo]
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      init: { condition: service_completed_successfully }
+    command: ["node", "packages/dashboard/dist/src/demo-seed.js"]
+
+  api:
+    image: dominusnode-api:demo
+    environment:
+      <<: *demo-env
+      DASHBOARD_PORT: "3000"
+      PROXY_INTERNAL_HOST: gateway
+    volumes: [demo:/demo:ro]
+    depends_on:
+      seed: { condition: service_completed_successfully }
+    ports: ["127.0.0.1:3000:3000"]
+
+  gateway:
+    build: { context: ., dockerfile: infra/docker/proxy.Dockerfile }
+    environment:
+      <<: *demo-env
+      PROXY_LISTEN_PORT: "8080"
+      SOCKS5_LISTEN_PORT: "1080"
+      TUNNEL_PORT: "8443"
+      SKIP_GEOIP: "1"
+      COORD_SIGNING_KEY_FILE: /demo/coord-key.pem
+    volumes: [demo:/demo:ro]
+    depends_on:
+      seed: { condition: service_completed_successfully }
+    ports:
+      - "127.0.0.1:8080:8080"
+      - "127.0.0.1:1080:1080"
+
+  node:
+    build:
+      context: .
+      dockerfile: packages/node-agent/Dockerfile
+      args:
+        # Placeholder pin; the real demo pin is added at runtime from /demo/coord.pub.
+        DN_COORD_PUBKEYS: "0000000000000000000000000000000000000000000000000000000000000000"
+    environment:
+      NODE_ENV: development
+      DN_NODE_DEMO: "1"
+      DN_NODE_API_URL: http://api:3000
+      DN_NODE_GATEWAY_URL: ws://gateway:8443/v1/tunnel
+      DN_NODE_KEY_FILE: /demo/node.json
+      DN_WALLET_KEY_FILE: /demo/wallet.key
+      DN_NODE_GB_PER_DAY: "1"
+    volumes: [demo:/demo]
+    depends_on: [api, gateway]
+    restart: on-failure
+    entrypoint:
+      - sh
+      - -c
+      - |
+        DN_NODE_COORD_PINS="$$(cat /demo/coord.pub)"; export DN_NODE_COORD_PINS
+        if [ ! -f /demo/node.json ]; then
+          DN_API_KEY="$$(cat /demo/api-key)" node packages/node-agent/dist/src/main.js register || exit 1
+        fi
+        exec node packages/node-agent/dist/src/main.js run
+
+volumes:
+  demo:

@@ -26,10 +26,8 @@ export type {
 } from "./types.js";
 
 export {
-  PRICE_PER_GB_CENTS,
-  PRICE_PER_GB_CENTS_DC,
-  COST_PER_GB_CENTS,
-  BYTES_PER_GB,
+  RELAY_BYTES_PER_GB,
+  BYTES_PER_GIB,
   SUPPORTED_CRYPTO,
   hasMinRole,
 } from "./types.js";
@@ -209,3 +207,23 @@ export { getBaseTxCount, rpcUrlFromEnv, rpcTimeoutFromEnv, clearNonceCache } fro
 // Federation documents (coordinator identity, signed policy, fork branding)
 export * from "./federation.js";
 export { readActivePolicyForExport, PolicyExportError, type PolicyExportDeps } from "./federation-export.js";
+
+// Gateway ports (one reader for listeners and advertised endpoints)
+export {
+  getProxyPorts,
+  getPublicProxyPorts,
+  getProxyInternalPort,
+  assertDistinctProxyPorts,
+  parsePortEnv,
+  DEFAULT_PROXY_HTTP_PORT,
+  DEFAULT_SOCKS5_PORT,
+  DEFAULT_TUNNEL_PORT,
+} from "./proxy-ports.js";
+export type { ProxyPorts } from "./proxy-ports.js";
+
+// Request ids (X-Request-Id), bound to logs via AsyncLocalStorage
+export { resolveRequestId, runWithRequestId, currentRequestId, REQUEST_ID_HEADER } from "./request-id.js";
+
+// Keyset pagination cursors
+export { encodeCursor, decodeCursor } from "./cursor.js";
+export type { KeysetCursor } from "./cursor.js";

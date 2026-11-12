@@ -1,3 +1,5 @@
+import { currentRequestId } from "./request-id.js";
+
 export type LogLevel = "debug" | "info" | "warn" | "error";
 
 const LEVELS: Record<LogLevel, number> = {
@@ -15,8 +17,10 @@ function getMinLevel(): number {
 function log(level: LogLevel, component: string, msg: string, data?: object): void {
   if (LEVELS[level] < getMinLevel()) return;
   // Spread data first so reserved fields (ts, level, component, msg) cannot be overridden
+  const requestId = currentRequestId();
   const entry = {
     ...(data ?? {}),
+    ...(requestId ? { requestId } : {}),
     ts: new Date().toISOString(),
     level,
     component,

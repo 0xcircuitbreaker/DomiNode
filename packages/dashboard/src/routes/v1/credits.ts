@@ -10,6 +10,8 @@ import {
   agentCreditsRepo,
   loadSdnFile,
   sha256Hex,
+  encodeCursor,
+  decodeCursor,
 } from "@dominusnode/shared";
 import { requireAgentPrincipal, type AgentRequest } from "../../middleware/agent.js";
 import { recoverSignerAddress } from "../../helpers/verify-signature.js";
@@ -471,15 +473,24 @@ router.post("/credits/withdraw", async (req: Request, res: Response) => {
   }
 });
 
-// GET /v1/payouts?limit=&offset=
+// GET /v1/payouts?limit=&cursor= (offset= still accepted)
 router.get("/payouts", async (req: Request, res: Response) => {
   const agent = principal(req);
   if (!limit(readLimiter, req, res)) return;
   const lim = Math.min(Math.max(parseInt(String(req.query["limit"] ?? "50"), 10) || 50, 1), 200);
   const offset = Math.min(Math.max(parseInt(String(req.query["offset"] ?? "0"), 10) || 0, 0), 1_000_000);
+  const cursor = req.query["cursor"] !== undefined ? decodeCursor(req.query["cursor"]) : null;
+  if (req.query["cursor"] !== undefined && !cursor) {
+    res.status(400).json({ error: "Invalid cursor", code: "INVALID_CURSOR" });
+    return;
+  }
   try {
-    const rows = await agentCreditsRepo.listOwnPayouts(agent.userId, { limit: lim, offset });
+    const page = await agentCreditsRepo.listOwnPayouts(agent.userId, { limit: lim + 1, offset, cursor });
+    const rows = page.slice(0, lim);
+    const last = rows[rows.length - 1];
+    const nextCursor = page.length > lim && last ? encodeCursor(new Date(last.createdAt), last.id) : null;
     res.json({
+      nextCursor,
       payouts: rows.map((p) => ({
         id: p.id, amount: money(p.amountMusd), trigger: p.trigger, status: p.status, txHash: p.txHash,
         failureReason: p.failureReason, address: p.address, chain: p.chain, createdAt: p.createdAt, updatedAt: p.updatedAt,
@@ -566,7 +577,7 @@ router.post("/sessions/:id/report", async (req: Request, res: Response) => {
         case "not_relay": res.status(400).json({ error: "Session did not use a relay node", code: "NOT_RELAY_SESSION" }); return;
         case "too_old": res.status(400).json({ error: `Sessions older than ${agentCreditsRepo.REPORT_WINDOW_DAYS} days cannot be reported`, code: "SESSION_TOO_OLD" }); return;
         case "duplicate": res.status(409).json({ error: "Session already reported", code: "ALREADY_REPORTED" }); return;
-        default: res.status(429).json({ error: `At most ${agentCreditsRepo.MAX_REPORTS_PER_NODE_PER_DAY} reports per node per day`, code: "REPORT_LIMIT" }); return;
+        default: res.status(409).json({ error: `At most ${agentCreditsRepo.MAX_REPORTS_PER_NODE_PER_DAY} reports per node per day`, code: "REPORT_LIMIT" }); return;
       }
     }
     // The node id is deliberately not returned (upstream infra detail).

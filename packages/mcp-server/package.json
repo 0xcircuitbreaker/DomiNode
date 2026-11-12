@@ -1,6 +1,6 @@
 {
   "name": "@dominusnode/mcp-server",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "mcpName": "io.github.0xcircuitbreaker/dominusnode",
   "repository": {
     "type": "git",
@@ -29,9 +29,11 @@
   ],
   "scripts": {
     "build": "tsc",
+    "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
     "prepare": "npm run build",
-    "test": "vitest run",
-    "clean": "rm -rf dist"
+    "prepack": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\" && npm run build",
+    "prepublishOnly": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\" && npm run build",
+    "test": "vitest run"
   },
   "engines": {
     "node": ">=18.0.0"

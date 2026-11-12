@@ -111,7 +111,9 @@ describe("/v1 node routes", () => {
 
     it("requires a linked wallet", async () => {
       principal.walletAddress = null;
-      expect((await call(app(), "POST", "/v1/nodes/challenge", { body: {} })).status).toBe(400);
+      const r = await call(app(), "POST", "/v1/nodes/challenge", { body: {} });
+      expect(r.status).toBe(400);
+      expect(r.body["code"]).toBe("NO_LINKED_WALLET");
     });
 
     it("rejects an email-unverified API-key principal even with a linked wallet", async () => {
@@ -119,6 +121,7 @@ describe("/v1 node routes", () => {
       principal.verified = false;
       const r = await call(app(), "POST", "/v1/nodes/challenge", { body: { nodePubkey: "b".repeat(64) } });
       expect(r.status).toBe(403);
+      expect(r.body["code"]).toBe("EMAIL_NOT_VERIFIED");
       expect(m.createChallenge).not.toHaveBeenCalled();
       expect(m.powCreate).not.toHaveBeenCalled();
     });
@@ -177,6 +180,7 @@ describe("/v1 node routes", () => {
       m.consumeChallenge.mockResolvedValue(null);
       const r = await call(app(), "POST", "/v1/nodes", { body: await registrationBody() });
       expect(r.status).toBe(400);
+      expect(r.body["code"]).toBe("INVALID_CHALLENGE");
       expect(m.powConsume).not.toHaveBeenCalled();
       expect(m.registerNode).not.toHaveBeenCalled();
     });
@@ -186,7 +190,9 @@ describe("/v1 node routes", () => {
       let bad = 0;
       while (verifyPow(PREFIX, String(bad), 10)) bad++;
       body.pow.nonce = String(bad);
-      expect((await call(app(), "POST", "/v1/nodes", { body })).status).toBe(400);
+      const r = await call(app(), "POST", "/v1/nodes", { body });
+      expect(r.status).toBe(400);
+      expect(r.body["code"]).toBe("POW_INVALID");
       expect(m.registerNode).not.toHaveBeenCalled();
     });
 
@@ -208,6 +214,7 @@ describe("/v1 node routes", () => {
       m.registerNode.mockResolvedValue({ ok: false, reason: "node_cap_reached", cap: 10 });
       const r = await call(app(), "POST", "/v1/nodes", { body: await registrationBody() });
       expect(r.status).toBe(409);
+      expect(r.body["code"]).toBe("NODE_CAP_REACHED");
       expect(r.body["cap"]).toBe(10);
     });
 
@@ -247,7 +254,8 @@ describe("/v1 node routes", () => {
       m.listForOwner.mockResolvedValue([{ id: NODE_ID, owner_wallet: WALLET, status: "active", node_key_hash: "x".repeat(64), attestation_sig: "0x" }]);
       const r = await call(app(), "GET", "/v1/nodes?limit=9999");
       expect(r.status).toBe(200);
-      expect(m.listForOwner).toHaveBeenCalledWith(USER, { limit: 500, offset: 0 });
+      expect(m.listForOwner).toHaveBeenCalledWith(USER, { limit: 501, offset: 0, cursor: null });
+      expect(r.body["nextCursor"]).toBeNull();
       expect(JSON.stringify(r.body)).not.toMatch(/key_hash|attestation_sig/);
     });
 

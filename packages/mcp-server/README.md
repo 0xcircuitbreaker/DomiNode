@@ -33,20 +33,23 @@ Registry name: `io.github.0xcircuitbreaker/dominusnode` in the official MCP Regi
 
 The same block works for Claude Desktop, Claude Code (`.mcp.json`), Gemini CLI, Codex CLI, Cursor and VS Code. Without `DOMINUSNODE_API_KEY` the server starts in **bootstrap mode**.
 
-## Bootstrap mode (no API key): 11 tools
+## Bootstrap mode (no API key): 12 tools
 
 | Tool | Purpose |
 |---|---|
 | `dominusnode_bootstrap_help` | How to get started |
 | `dominusnode_wallet_challenge` | Get an EIP-191 message to sign with your wallet |
 | `dominusnode_register_wallet` | Submit the signature (creates or logs in to a wallet account) |
-| `dominusnode_wallet_setup` | Signature + API key in one call |
+| `dominusnode_wallet_setup` | Signature + API key in one call; unlocks the authenticated tools in the same session (no restart). With `DOMINUSNODE_WALLET_KEY_FILE` set, omit the signature and the server signs the standard sign-in message |
 | `dominusnode_get_account_info` | Account details |
 | `dominusnode_create_agent_secret` | Per-agent `das_` secret |
-| `dominusnode_pay_crypto` / `dominusnode_check_payment` | Crypto top-up and status |
+| `dominusnode_pay_crypto` / `dominusnode_check_payment` | Crypto top-up and status (sign in first) |
+| `dominusnode_x402_info` | Public: whether x402 pay-per-request is enabled and how to use it |
 | `dominusnode_network_policy` / `dominusnode_network_pricing` / `dominusnode_network_stats` | Public network info |
 
 Email/password registration, login and email verification are human flows (admin-only) and are not exposed.
+
+Wallet sign-in is rate limited: 20 challenges and 5 failed verifications per hour per process; successful sign-ins do not count.
 
 ## Authenticated mode: 65 tools
 
@@ -89,14 +92,17 @@ Email/password registration, login and email verification are human flows (admin
 | `DOMINUSNODE_API_KEY` | (none: bootstrap mode) | `dn_live_` API key |
 | `DOMINUSNODE_API_URL` | `https://api.dominusnode.daedalusdevelopmentgroup.com` | API base URL |
 | `DOMINUSNODE_PROXY_HOST` | `proxy.dominusnode.daedalusdevelopmentgroup.com` | Gateway host |
-| `DOMINUSNODE_HTTP_PROXY_PORT` | `8080` | Gateway HTTP/CONNECT port |
+| `DOMINUSNODE_PROXY_URL` | `https://proxy.dominusnode.daedalusdevelopmentgroup.com:8443` | TLS gateway (`https://host[:port]`, default port 8443). Proxy fetches always use TLS to the gateway unless `DOMINUSNODE_PROXY_INSECURE=1` |
+| `DOMINUSNODE_PROXY_CA_FILE` | (none) | Extra PEM CA for a privately issued gateway certificate (verification stays on) |
+| `DOMINUSNODE_PROXY_INSECURE` | (unset) | `1` = use the plaintext HTTP listener (`DOMINUSNODE_HTTP_PROXY_PORT`). The API key is then sent in clear; a warning is printed to stderr. Local development only |
+| `DOMINUSNODE_HTTP_PROXY_PORT` | `8080` | Gateway plaintext HTTP/CONNECT port (used only with `DOMINUSNODE_PROXY_INSECURE=1`) |
 | `DOMINUSNODE_SOCKS5_PROXY_PORT` | `1080` | Gateway SOCKS5 port |
 | `DOMINUSNODE_FETCH_TIMEOUT_MS` | `30000` | Fetch timeout (max 120000) |
 | `DOMINUSNODE_FETCH_MAX_RESPONSE_BYTES` | `10485760` | Fetch body cap (max 10MB) |
 | `DOMINUSNODE_WALLET_KEY_FILE` | (none) | chmod-600 file with the linked wallet private key, for `node_register`, `payout_wallet_set` and `credits_withdraw` |
 | `DOMINUSNODE_PAYOUT_WALLET_KEY_FILE` | (none) | chmod-600 file with the CURRENT payout wallet key, only to co-sign a payout-wallet change when it differs from the linked wallet |
 | `DOMINUSNODE_NODE_KEY_FILE` | `~/.dominusnode/node.json` | Where `node_register` writes the node credential file (never overwritten) |
-| `MCP_AGENT_SECRET` | (none) | Shared agent secret (32+ chars) sent as `X-DominusNode-Agent-Secret` |
+| `DOMINUSNODE_AGENT_SECRET` | (none) | Shared agent secret (32+ chars) sent as `X-DominusNode-Agent-Secret`; `MCP_AGENT_SECRET` is accepted as an alias |
 
 Every API request carries `X-DominusNode-Agent: mcp`.
 

@@ -1,12 +1,12 @@
 import { Router } from "express";
-import { createLogger } from "@dominusnode/shared";
+import { createLogger, getProxyInternalPort, getPublicProxyPorts } from "@dominusnode/shared";
 import { requireAuth, type AuthenticatedRequest } from "../middleware/auth.js";
 
 const router = Router();
 const log = createLogger("api:proxy-health");
 
 const PROXY_INTERNAL_HOST = process.env["PROXY_INTERNAL_HOST"] ?? "127.0.0.1";
-const PROXY_INTERNAL_PORT = process.env["PROXY_INTERNAL_PORT"] ?? process.env["PROXY_LISTEN_PORT"] ?? "8080";
+const PROXY_INTERNAL_PORT = String(getProxyInternalPort());
 const PROXY_INTERNAL_URL = process.env["PROXY_INTERNAL_URL"] ??
   `http://${PROXY_INTERNAL_HOST}:${PROXY_INTERNAL_PORT}/internal/stats`;
 // Derive a separate stats secret from JWT_SECRET using HMAC instead of
@@ -79,8 +79,9 @@ router.get("/status", requireAuth, async (req, res) => {
   const stats = await fetchProxyStats();
 
   const proxyHost = process.env["PROXY_PUBLIC_HOST"] ?? "proxy.dominusnode.daedalusdevelopmentgroup.com";
-  const httpPort = process.env["PROXY_LISTEN_PORT"] ?? "8080";
-  const socks5Port = process.env["SOCKS5_LISTEN_PORT"] ?? "1080";
+  const pub = getPublicProxyPorts();
+  const httpPort = String(pub.http);
+  const socks5Port = String(pub.socks5);
 
   if (!stats) {
     res.json({

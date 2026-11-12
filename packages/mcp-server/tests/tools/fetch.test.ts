@@ -4,17 +4,18 @@ import type { AddressInfo } from "node:net";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { registerFetchTools } from "../../src/tools/fetch.js";
 import type { McpConfig } from "../../src/config.js";
+import { PACKAGE_VERSION } from "../../src/version.js";
 
 const API_KEY = "dn_live_" + "a".repeat(32);
 
 /** Fake proxy gateway: records requests, answers plain HTTP proxying and rejects CONNECT with 407. */
 let gateway: http.Server;
 let port = 0;
-const seen: Array<{ method: string; url: string; auth: string }> = [];
+const seen: Array<{ method: string; url: string; auth: string; headers?: http.IncomingHttpHeaders }> = [];
 
 beforeAll(async () => {
   gateway = http.createServer((req, res) => {
-    seen.push({ method: req.method ?? "", url: req.url ?? "", auth: String(req.headers["proxy-authorization"] ?? "") });
+    seen.push({ method: req.method ?? "", url: req.url ?? "", auth: String(req.headers["proxy-authorization"] ?? ""), headers: req.headers });
     res.writeHead(200, { "content-type": "text/plain", "x-dominusnode-exit-visible": "1" });
     res.end("hello from exit");
   });
@@ -97,6 +98,28 @@ describe("dominusnode_fetch (relay)", () => {
     expect(decodeAuth(seen[0].auth)).toBe(`class-dc:${API_KEY}`);
     expect(r.isError).toBe(true);
     expect(r.content[0].text).not.toContain(API_KEY);
+  });
+
+  it("drops blocked headers, says so, and sends the package User-Agent", async () => {
+    const r = await setup()({
+      url: "http://93.184.216.34/",
+      allow_http: true,
+      headers: { Authorization: "Bearer secret", "User-Agent": "spoof", Accept: "text/html" },
+    });
+    expect(r.isError).toBeFalsy();
+    const h = seen[0].headers!;
+    expect(h["authorization"]).toBeUndefined();
+    expect(h["user-agent"]).toBe(`dominusnode-mcp-server/${PACKAGE_VERSION}`);
+    expect(h["accept"]).toBe("text/html");
+    expect(r.content[0].text).toContain("request headers not sent (blocked): Authorization, User-Agent");
+  });
+
+  it("documents the blocked headers in the tool description", () => {
+    const server = new McpServer({ name: "t", version: "1" });
+    registerFetchTools(server, { proxyHost: "x" } as McpConfig);
+    const d = (server as any)._registeredTools["dominusnode_fetch"].description as string;
+    expect(d).toMatch(/Authorization/);
+    expect(d).toMatch(/User-Agent/);
   });
 
   it("sends only allowhttp-1 when no routing flags are set", async () => {

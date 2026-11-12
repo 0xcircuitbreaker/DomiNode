@@ -3,7 +3,7 @@ import rateLimit from "express-rate-limit";
 import crypto from "node:crypto";
 import { requireAuth, type AuthenticatedRequest } from "../middleware/auth.js";
 import { clearAuthCookies } from "../helpers/cookies.js";
-import { query, getPool, createLogger, userRepo, verifyPassword, isWalletEmail } from "@dominusnode/shared";
+import { query, getPool, createLogger, userRepo, verifyPassword, isWalletEmail, getProxyInternalPort } from "@dominusnode/shared";
 
 const log = createLogger("api:account");
 const router = Router();
@@ -29,7 +29,7 @@ const deleteLimiter = rateLimit({
 });
 
 const PROXY_INTERNAL_HOST = process.env["PROXY_INTERNAL_HOST"] ?? "127.0.0.1";
-const PROXY_LISTEN_PORT = process.env["PROXY_LISTEN_PORT"] ?? "8080";
+const PROXY_LISTEN_PORT = String(getProxyInternalPort());
 
 /**
  * GET /api/account/export

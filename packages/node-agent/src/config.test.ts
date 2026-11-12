@@ -2,6 +2,20 @@ import { describe, it, expect } from "vitest";
 import { loadConfig, ConfigError, parseIntStrict, isDeniedDomain, MAXIMA } from "./config.js";
 import { Limits } from "./limits.js";
 
+describe("demo mode", () => {
+  const plain = { DN_NODE_GATEWAY_URL: "ws://gateway:8443/v1/tunnel", DN_NODE_API_URL: "http://api:3000" };
+  it("accepts ws/http only with DN_NODE_DEMO=1 and NODE_ENV=development", () => {
+    const cfg = loadConfig({ ...plain, DN_NODE_DEMO: "1", NODE_ENV: "development" });
+    expect(cfg.gatewayUrl).toBe("ws://gateway:8443/v1/tunnel");
+    expect(cfg.apiUrl).toBe("http://api:3000/");
+  });
+  it("refuses plaintext without demo mode or in production", () => {
+    expect(() => loadConfig({ ...plain })).toThrow(ConfigError);
+    expect(() => loadConfig({ ...plain, DN_NODE_DEMO: "1", NODE_ENV: "production" })).toThrow(ConfigError);
+    expect(() => loadConfig({ ...plain, NODE_ENV: "development" })).toThrow(ConfigError);
+  });
+});
+
 describe("config", () => {
   it("defaults are safe", () => {
     const c = loadConfig({});

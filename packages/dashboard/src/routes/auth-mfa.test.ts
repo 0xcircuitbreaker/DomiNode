@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterAll } from "vitest";
 import express from "express";
 import http from "http";
 import cookieParser from "cookie-parser";
@@ -14,8 +14,17 @@ vi.mock("@dominusnode/shared", () => ({
     createUser: vi.fn(),
     updatePassword: vi.fn(),
     revokeAllApiKeys: vi.fn(),
+    countActiveUsers: vi.fn(() => Promise.resolve(0)),
+    createEmailVerificationToken: vi.fn(() => Promise.resolve()),
+    markEmailVerified: vi.fn(() => Promise.resolve()),
   },
   walletRepo: { createWallet: vi.fn() },
+  adminRepo: { hasAnyAdmin: vi.fn(), bootstrapFirstAdmin: vi.fn() },
+  waitlistRepo: { markRegistered: vi.fn(() => Promise.resolve()) },
+  isDisposableEmail: vi.fn(() => false),
+  isWalletEmail: vi.fn(() => false),
+  sendVerificationEmail: vi.fn(() => Promise.resolve()),
+  query: vi.fn(() => Promise.resolve({ rows: [{ count: "0" }] })),
   refreshTokenRepo: {
     newFamilyId: vi.fn(() => "family-1"),
     hashToken: vi.fn(() => "token-hash"),
@@ -89,6 +98,7 @@ vi.mock("../helpers/cookies.js", () => ({
 import authRouter from "./auth.js";
 import {
   userRepo,
+  adminRepo,
   mfaRepo,
   verifyMfaChallengeToken,
   verifyTotpCode,
@@ -161,6 +171,7 @@ function request(
 describe("MFA auth routes", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    process.env["ADMIN_HUMAN_LOGIN"] = "true";
     // Reset default mock behaviors
     (verifyPassword as ReturnType<typeof vi.fn>).mockResolvedValue(true);
   });
@@ -174,7 +185,7 @@ describe("MFA auth routes", () => {
         email: "test@example.com",
         password_hash: "hashed-pw",
         status: "active",
-        is_admin: false,
+        is_admin: false, admin_role: "admin",
         created_at: new Date(),
         password_changed_at: null,
       });
@@ -204,7 +215,7 @@ describe("MFA auth routes", () => {
         email: "test@example.com",
         password_hash: "hashed-pw",
         status: "active",
-        is_admin: false,
+        is_admin: false, admin_role: "admin",
         created_at: new Date(),
         password_changed_at: null,
       });
@@ -245,7 +256,7 @@ describe("MFA auth routes", () => {
         id: "user1",
         email: "test@example.com",
         status: "active",
-        is_admin: false,
+        is_admin: false, admin_role: "admin",
         created_at: new Date(),
         password_changed_at: null,
       });
@@ -288,7 +299,7 @@ describe("MFA auth routes", () => {
         id: "user1",
         email: "test@example.com",
         status: "active",
-        is_admin: false,
+        is_admin: false, admin_role: "admin",
         created_at: new Date(),
         password_changed_at: null,
       });
@@ -739,7 +750,7 @@ describe("MFA auth routes", () => {
           id: "user1",
           email: "test@example.com",
           status: "active",
-          is_admin: false,
+          is_admin: false, admin_role: "admin",
         },
         apiKey: { id: "ak1" },
       });
@@ -757,5 +768,92 @@ describe("MFA auth routes", () => {
       // but since mock returns null (no MFA), tokens are still issued
       expect(mfaRepo.findMfaConfigByUserId).toHaveBeenCalledWith("user1");
     });
+  });
+});
+
+describe("human auth gate (ADMIN_HUMAN_LOGIN)", () => {
+  const prev = { login: process.env["ADMIN_HUMAN_LOGIN"], boot: process.env["ADMIN_BOOTSTRAP_EMAIL"] };
+  beforeEach(() => {
+    vi.clearAllMocks();
+    (verifyPassword as ReturnType<typeof vi.fn>).mockResolvedValue(true);
+    delete process.env["ADMIN_HUMAN_LOGIN"];
+    delete process.env["ADMIN_BOOTSTRAP_EMAIL"];
+  });
+  afterAll(() => {
+    if (prev.login === undefined) delete process.env["ADMIN_HUMAN_LOGIN"]; else process.env["ADMIN_HUMAN_LOGIN"] = prev.login;
+    if (prev.boot === undefined) delete process.env["ADMIN_BOOTSTRAP_EMAIL"]; else process.env["ADMIN_BOOTSTRAP_EMAIL"] = prev.boot;
+  });
+
+  it("404s every human auth route when the flag is off (default)", async () => {
+    const app = createApp();
+    for (const path of ["/api/auth/register", "/api/auth/login", "/api/auth/forgot-password", "/api/auth/reset-password", "/api/auth/mfa/verify", "/api/auth/mfa/setup"]) {
+      const res = await request(app, "POST", path, { email: "a@example.com", password: "x" });
+      expect(res.status, path).toBe(404);
+    }
+    expect((await request(app, "GET", "/api/auth/mfa/status")).status).toBe(404);
+    expect(userRepo.findUserForAuth).not.toHaveBeenCalled();
+  });
+
+  it("keeps non-human routes (verify-key) available when the flag is off", async () => {
+    (userRepo.findUserByApiKeyHash as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      user: { id: "user1", email: "w@example.com", status: "active", is_admin: false }, apiKey: { id: "ak1" },
+    });
+    const res = await request(createApp(), "POST", "/api/auth/verify-key", { apiKey: "dn_live_abc123" });
+    expect(res.status).toBe(200);
+  });
+
+  it("with the flag on, login is refused for non-admin users", async () => {
+    process.env["ADMIN_HUMAN_LOGIN"] = "true";
+    (userRepo.findUserForAuth as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      id: "u2", email: "user@example.com", password_hash: "h", status: "active", is_admin: false, admin_role: "none",
+      created_at: new Date(), password_changed_at: null,
+    });
+    const res = await request(createApp(), "POST", "/api/auth/login", { email: "user@example.com", password: "Password1!" });
+    expect(res.status).toBe(401);
+    expect(mfaRepo.findMfaConfigByUserId).not.toHaveBeenCalled();
+  });
+
+  it("with the flag on, admins can log in", async () => {
+    process.env["ADMIN_HUMAN_LOGIN"] = "true";
+    (userRepo.findUserForAuth as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      id: "a1", email: "ops@example.com", password_hash: "h", status: "active", is_admin: true, admin_role: "admin",
+      created_at: new Date(), password_changed_at: null,
+    });
+    (mfaRepo.findMfaConfigByUserId as ReturnType<typeof vi.fn>).mockResolvedValueOnce(null);
+    const res = await request(createApp(), "POST", "/api/auth/login", { email: "ops@example.com", password: "Password1!" });
+    expect(res.status).toBe(200);
+    expect(res.body.token).toBe("access-token-123");
+  });
+
+  it("with the flag on, registration is closed without ADMIN_BOOTSTRAP_EMAIL", async () => {
+    process.env["ADMIN_HUMAN_LOGIN"] = "true";
+    const res = await request(createApp(), "POST", "/api/auth/register", { email: "x@example.com", password: "Password1!" });
+    expect(res.status).toBe(403);
+    expect(res.body.code).toBe("REGISTRATION_CLOSED");
+    expect(userRepo.createUser).not.toHaveBeenCalled();
+  });
+
+  it("bootstrap: only the named address, only while no admin exists", async () => {
+    process.env["ADMIN_HUMAN_LOGIN"] = "true";
+    process.env["ADMIN_BOOTSTRAP_EMAIL"] = "Root@Example.com";
+    const app = createApp();
+    // Different address
+    let res = await request(app, "POST", "/api/auth/register", { email: "other@example.com", password: "Password1!" });
+    expect(res.status).toBe(403);
+    // An admin already exists
+    (adminRepo.hasAnyAdmin as ReturnType<typeof vi.fn>).mockResolvedValueOnce(true);
+    res = await request(app, "POST", "/api/auth/register", { email: "root@example.com", password: "Password1!" });
+    expect(res.status).toBe(403);
+    expect(userRepo.createUser).not.toHaveBeenCalled();
+    // First admin
+    (adminRepo.hasAnyAdmin as ReturnType<typeof vi.fn>).mockResolvedValueOnce(false);
+    (userRepo.createUser as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      id: "a1", email: "root@example.com", status: "active", is_admin: false, admin_role: "none", created_at: new Date(),
+    });
+    (adminRepo.bootstrapFirstAdmin as ReturnType<typeof vi.fn>).mockResolvedValueOnce(true);
+    res = await request(app, "POST", "/api/auth/register", { email: "root@example.com", password: "Password1!" });
+    expect(res.status).toBe(201);
+    expect(adminRepo.bootstrapFirstAdmin).toHaveBeenCalledWith("a1");
+    expect((res.body.user as Record<string, unknown>).admin_role).toBe("admin");
   });
 });

@@ -54,6 +54,19 @@ describe("proxy tools", () => {
     expect(text).not.toMatch(/dn_live_test/);
   });
 
+  it("dominusnode_get_proxy_config shows the TLS (https) proxy form first", async () => {
+    globalThis.fetch = vi.fn().mockRejectedValue(new Error("down")) as never;
+    const s2 = new McpServer({ name: "t", version: "1" });
+    registerProxyTools(s2, httpClient, { proxyHost: "gw.example.com", httpProxyPort: 8080, socks5ProxyPort: 1080, proxyTls: { port: 8443 } } as McpConfig);
+    const result = await (s2 as any)._registeredTools["dominusnode_get_proxy_config"].handler({}, { sessionId: "" } as never);
+    const text = (result.content as Array<{ text: string }>)[0].text;
+    const https = text.indexOf("curl -x https://");
+    const http = text.indexOf("curl -x http://");
+    expect(https).toBeGreaterThan(-1);
+    expect(https).toBeLessThan(http);
+    expect(text).toContain("gw.example.com:8443");
+  });
+
   it("dominusnode_get_proxy_config degrades gracefully when pricing is down", async () => {
     globalThis.fetch = vi.fn().mockRejectedValue(new Error("down")) as never;
     const tools = (server as any)._registeredTools;

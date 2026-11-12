@@ -43,6 +43,9 @@ let mppChallengeHeaders: Record<string, string> = {};
 const x402Data = { pending: x402Pending, payer: X402_PAYER, userId: "x402-user", amountUsd: "0.005243", amountMusd: 5243n, pricePerGbMusd: 500000n, facilitator: "coinbase", poolType: "residential", maxResponseBytes: 10_485_760 };
 
 vi.mock("./x402-handler.js", () => ({
+  toX402Class: (c?: string | null) => (c === "residential" || c === "dc" || c === "mobile" ? c : "any"),
+  selectClassFor: (c: string) => (c === "any" ? undefined : c),
+  nodeMatchesQuotedClass: (q: string, n: string) => q === "any" || q === n,
   handleX402Http: (req: { __x402?: unknown }, ...rest: unknown[]) => mockX402Http(req, ...rest),
   handleX402Connect: (...args: unknown[]) => mockX402Connect(...args),
   build402ResponseBody: () => "Insufficient balance",
@@ -555,6 +558,18 @@ describe("proxy-gateway server", () => {
       expect(mockRefundPayer).not.toHaveBeenCalled();
     });
 
+    it("x402: selects nodes of the quoted class and refuses a node of another class (released, never settled)", async () => {
+      mockAuthenticateRequest.mockResolvedValue(null);
+      mockX402Http.mockImplementation(async (req: { __x402?: unknown }) => { req.__x402 = { ...x402Data, poolType: "mobile" }; return true; });
+      const res = await makeRequest(port, { path: "http://httpbin.org/ip", method: "GET", headers: { "X-Payment": "abc" } });
+      expect(mockSelect).toHaveBeenCalledWith(expect.objectContaining({ ipClass: "mobile" }));
+      // The (mocked) selector returned a residential node for a mobile quote
+      expect(res.status).toBe(503);
+      expect(mockSettlePending).not.toHaveBeenCalled();
+      expect(mockReleasePending).toHaveBeenCalledWith(x402Pending);
+      expect(mockStartPrepaidSession).not.toHaveBeenCalled();
+    });
+
     it("x402: no node available → payment released, never settled", async () => {
       mockAuthenticateRequest.mockResolvedValue(null);
       mockSelect.mockReturnValue(null);
@@ -1009,5 +1024,16 @@ describe("meterStream byte cap", () => {
     expect(counter.bytesIn + counter.bytesOut).toBe(10);
     await new Promise((r) => setImmediate(r));
     expect(Buffer.concat(written).toString()).toBe("123456");
+  });
+});
+
+describe("gateway X-Request-Id on raw CONNECT responses", () => {
+  it("inserts the id after the status line once", async () => {
+    const { withRequestIdHeader } = await import("./server.js");
+    expect(withRequestIdHeader("HTTP/1.1 403 Forbidden\r\nX-DominusNode-Error: TARGET_BLOCKED\r\n\r\n", "rid-1"))
+      .toBe("HTTP/1.1 403 Forbidden\r\nX-Request-Id: rid-1\r\nX-DominusNode-Error: TARGET_BLOCKED\r\n\r\n");
+    const once = withRequestIdHeader("HTTP/1.1 200 OK\r\n\r\n", "a");
+    expect(withRequestIdHeader(once, "b")).toBe(once);
+    expect(withRequestIdHeader("not http", "a")).toBe("not http");
   });
 });

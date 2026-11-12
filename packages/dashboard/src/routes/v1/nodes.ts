@@ -11,7 +11,7 @@ import {
 } from "@dominusnode/shared";
 import { requireAgentPrincipal, type AgentRequest } from "../../middleware/agent.js";
 import { recoverSignerAddress } from "../../helpers/verify-signature.js";
-import { buildAttestationMessage, sha256Hex, verifyPow } from "@dominusnode/shared";
+import { buildAttestationMessage, sha256Hex, verifyPow, encodeCursor, decodeCursor } from "@dominusnode/shared";
 import { createKeyedLimiter } from "./limiter.js";
 
 const log = createLogger("api:v1:nodes");
@@ -51,37 +51,37 @@ router.use(requireAgentPrincipal);
 router.post("/nodes/challenge", async (req: Request, res: Response) => {
   const agent = principal(req);
   if (!agent.verified) {
-    res.status(403).json({ error: "Email verification required" });
+    res.status(403).json({ error: "Email verification required", code: "EMAIL_NOT_VERIFIED" });
     return;
   }
   if (!agent.walletAddress) {
-    res.status(400).json({ error: "A linked wallet is required to register nodes" });
+    res.status(400).json({ error: "A linked wallet is required to register nodes", code: "NO_LINKED_WALLET" });
     return;
   }
   const pubkey = parsePubkey(req.body?.nodePubkey);
   if (pubkey === false) {
-    res.status(400).json({ error: "nodePubkey must be 64 hex chars" });
+    res.status(400).json({ error: "nodePubkey must be 64 hex chars", code: "INVALID_NODE_PUBKEY" });
     return;
   }
   if (!challengeLimiter.hit(agent.userId)) {
-    res.status(429).json({ error: "Too many challenge requests. Try again later." });
+    res.status(429).json({ error: "Too many challenge requests. Try again later.", code: "RATE_LIMITED" });
     return;
   }
   const clientIp = req.ip;
   if (!clientIp) {
-    res.status(400).json({ error: "Unable to determine client IP" });
+    res.status(400).json({ error: "Unable to determine client IP", code: "CLIENT_IP_UNKNOWN" });
     return;
   }
   try {
     if ((await powChallengeRepo.countActiveChallengesForIp(clientIp)) >= 5) {
-      res.status(429).json({ error: "Too many pending challenges. Try again later." });
+      res.status(429).json({ error: "Too many pending challenges. Try again later.", code: "RATE_LIMITED" });
       return;
     }
     const policy = await policyRepo.getActivePolicy();
     const nonce = crypto.randomBytes(32).toString("hex");
     const stored = await nodeRepo.createChallenge(agent.userId, sha256Hex(nonce));
     if (!stored) {
-      res.status(429).json({ error: "Too many outstanding challenges" });
+      res.status(429).json({ error: "Too many outstanding challenges", code: "RATE_LIMITED" });
       return;
     }
     const pow = await powChallengeRepo.createChallenge(
@@ -108,7 +108,7 @@ router.post("/nodes/challenge", async (req: Request, res: Response) => {
     });
   } catch (err) {
     log.error("node challenge failed", { error: err instanceof Error ? err.message : String(err) });
-    res.status(500).json({ error: "Failed to create challenge" });
+    res.status(500).json({ error: "Failed to create challenge", code: "INTERNAL_ERROR" });
   }
 });
 
@@ -116,11 +116,11 @@ router.post("/nodes/challenge", async (req: Request, res: Response) => {
 router.post("/nodes", async (req: Request, res: Response) => {
   const agent = principal(req);
   if (!agent.verified) {
-    res.status(403).json({ error: "Email verification required" });
+    res.status(403).json({ error: "Email verification required", code: "EMAIL_NOT_VERIFIED" });
     return;
   }
   if (!agent.walletAddress) {
-    res.status(400).json({ error: "A linked wallet is required to register nodes" });
+    res.status(400).json({ error: "A linked wallet is required to register nodes", code: "NO_LINKED_WALLET" });
     return;
   }
   const body = (req.body ?? {}) as Record<string, unknown>;
@@ -133,24 +133,24 @@ router.post("/nodes", async (req: Request, res: Response) => {
   const maxStreams = optionalInt(body["maxStreams"], 1, 1024);
   const maxGbDay = optionalInt(body["maxGbDay"], 1, 10000);
 
-  if (!HEX64.test(nonce)) { res.status(400).json({ error: "Invalid nonce" }); return; }
-  if (!SIG_RE.test(signature)) { res.status(400).json({ error: "Invalid walletSignature" }); return; }
-  if (pubkey === false) { res.status(400).json({ error: "nodePubkey must be 64 hex chars" }); return; }
+  if (!HEX64.test(nonce)) { res.status(400).json({ error: "Invalid nonce", code: "INVALID_CHALLENGE" }); return; }
+  if (!SIG_RE.test(signature)) { res.status(400).json({ error: "Invalid walletSignature", code: "INVALID_SIGNATURE" }); return; }
+  if (pubkey === false) { res.status(400).json({ error: "nodePubkey must be 64 hex chars", code: "INVALID_NODE_PUBKEY" }); return; }
   if (!UUID_RE.test(powId) || !powNonce || powNonce.length > 32) {
-    res.status(400).json({ error: "Invalid PoW solution" });
+    res.status(400).json({ error: "Invalid PoW solution", code: "POW_INVALID" });
     return;
   }
   if (maxStreams === null || maxGbDay === null) {
-    res.status(400).json({ error: "maxStreams/maxGbDay out of range" });
+    res.status(400).json({ error: "maxStreams/maxGbDay out of range", code: "INVALID_CAPS" });
     return;
   }
   if (!registerLimiter.hit(agent.userId)) {
-    res.status(429).json({ error: "Too many registration attempts. Try again later." });
+    res.status(429).json({ error: "Too many registration attempts. Try again later.", code: "RATE_LIMITED" });
     return;
   }
   const clientIp = req.ip;
   if (!clientIp) {
-    res.status(400).json({ error: "Unable to determine client IP" });
+    res.status(400).json({ error: "Unable to determine client IP", code: "CLIENT_IP_UNKNOWN" });
     return;
   }
 
@@ -158,12 +158,12 @@ router.post("/nodes", async (req: Request, res: Response) => {
     // Consume both single-use challenges BEFORE verification (no retry on a failed proof).
     const challenge = await nodeRepo.consumeChallenge(agent.userId, sha256Hex(nonce));
     if (!challenge) {
-      res.status(400).json({ error: "Invalid or expired challenge" });
+      res.status(400).json({ error: "Invalid or expired challenge", code: "INVALID_CHALLENGE" });
       return;
     }
     const powRow = await powChallengeRepo.consumeChallenge(powId, clientIp);
     if (!powRow || powRow.difficulty < NODE_POW_DIFFICULTY || !verifyPow(powRow.prefix, powNonce, powRow.difficulty)) {
-      res.status(400).json({ error: "Invalid or expired PoW solution" });
+      res.status(400).json({ error: "Invalid or expired PoW solution", code: "POW_INVALID" });
       return;
     }
 
@@ -178,7 +178,7 @@ router.post("/nodes", async (req: Request, res: Response) => {
     });
     const signer = recoverSignerAddress(message, signature);
     if (!signer || signer !== agent.walletAddress) {
-      res.status(400).json({ error: "Attestation signature does not match your wallet (request a new challenge if the policy changed)" });
+      res.status(400).json({ error: "Attestation signature does not match your wallet (request a new challenge if the policy changed)", code: "SIGNATURE_MISMATCH" });
       return;
     }
 
@@ -194,13 +194,13 @@ router.post("/nodes", async (req: Request, res: Response) => {
     if (!result.ok) {
       switch (result.reason) {
         case "node_cap_reached":
-          res.status(409).json({ error: "Node limit reached for your tier", cap: result.cap });
+          res.status(409).json({ error: "Node limit reached for your tier", code: "NODE_CAP_REACHED", cap: result.cap });
           return;
         case "tier_not_found":
-          res.status(503).json({ error: "Node tiers not configured" });
+          res.status(503).json({ error: "Node tiers not configured", code: "TIERS_NOT_CONFIGURED" });
           return;
         default:
-          res.status(403).json({ error: "Account is not eligible to register nodes" });
+          res.status(403).json({ error: "Account is not eligible to register nodes", code: "NOT_ELIGIBLE" });
           return;
       }
     }
@@ -242,9 +242,17 @@ router.get("/nodes", async (req: Request, res: Response) => {
   const agent = principal(req);
   const limit = Math.min(Math.max(parseInt(String(req.query["limit"] ?? "100"), 10) || 100, 1), 500);
   const offset = Math.min(Math.max(parseInt(String(req.query["offset"] ?? "0"), 10) || 0, 0), 1_000_000);
+  const cursor = req.query["cursor"] !== undefined ? decodeCursor(req.query["cursor"]) : null;
+  if (req.query["cursor"] !== undefined && !cursor) {
+    res.status(400).json({ error: "Invalid cursor", code: "INVALID_CURSOR" });
+    return;
+  }
   try {
-    const nodes = await nodeRepo.listForOwner(agent.userId, { limit, offset });
-    res.json({ nodes: nodes.map(publicNode), limit, offset });
+    const page = await nodeRepo.listForOwner(agent.userId, { limit: limit + 1, offset, cursor });
+    const nodes = page.slice(0, limit);
+    const last = nodes[nodes.length - 1];
+    const nextCursor = page.length > limit && last ? encodeCursor(new Date(last.created_at), last.id) : null;
+    res.json({ nodes: nodes.map(publicNode), limit, offset, nextCursor });
   } catch (err) {
     log.error("list nodes failed", { error: err instanceof Error ? err.message : String(err) });
     res.status(500).json({ error: "Failed to list nodes" });

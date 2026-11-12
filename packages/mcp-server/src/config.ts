@@ -7,8 +7,9 @@ export interface McpConfig {
   httpProxyPort: number;
   socks5ProxyPort: number;
   /**
-   * TLS to the gateway (HTTPS proxy listener). Set from DOMINUSNODE_PROXY_URL=https://host:port;
-   * when present, proxy fetches use it instead of the plaintext httpProxyPort.
+   * TLS to the gateway (HTTPS proxy listener). Default https://<proxyHost>:8443; override with
+   * DOMINUSNODE_PROXY_URL=https://host:port. null only with DOMINUSNODE_PROXY_INSECURE=1, in which
+   * case fetches use the plaintext httpProxyPort (API key sent in clear).
    */
   proxyTls?: { port: number; ca?: Buffer } | null;
   fetchTimeoutMs: number;
@@ -60,6 +61,10 @@ export function parseConfig(env: Record<string, string | undefined> = process.en
   }
 
   const proxyTls = parseProxyUrl(env["DOMINUSNODE_PROXY_URL"]);
+  const proxyInsecure = env["DOMINUSNODE_PROXY_INSECURE"] === "1";
+  if (proxyTls && proxyInsecure) {
+    throw new ConfigError("DOMINUSNODE_PROXY_URL (TLS) and DOMINUSNODE_PROXY_INSECURE=1 are mutually exclusive");
+  }
   if (proxyTls && env["DOMINUSNODE_PROXY_HOST"] !== undefined && env["DOMINUSNODE_PROXY_HOST"].toLowerCase() !== proxyTls.host) {
     throw new ConfigError("DOMINUSNODE_PROXY_URL and DOMINUSNODE_PROXY_HOST name different hosts");
   }
@@ -120,12 +125,19 @@ export function parseConfig(env: Record<string, string | undefined> = process.en
     throw new ConfigError(`DOMINUSNODE_FETCH_MAX_RESPONSE_BYTES must not exceed ${MAX_FETCH_RESPONSE_BYTES}`);
   }
 
-  // Shared secret for MCP agent auto-verification (prevents header spoofing)
-  const mcpAgentSecret = env["MCP_AGENT_SECRET"] ?? "";
+  // Shared secret for MCP agent auto-verification (prevents header spoofing).
+  // DOMINUSNODE_AGENT_SECRET is the documented name; MCP_AGENT_SECRET is a legacy alias.
+  const mcpAgentSecret = env["DOMINUSNODE_AGENT_SECRET"] || env["MCP_AGENT_SECRET"] || "";
 
-  // Enforce minimum strength when MCP_AGENT_SECRET is set
+  // Enforce minimum strength when the secret is set
   if (mcpAgentSecret && mcpAgentSecret.length < 32) {
-    throw new ConfigError("MCP_AGENT_SECRET must be at least 32 characters when set");
+    throw new ConfigError("DOMINUSNODE_AGENT_SECRET (or MCP_AGENT_SECRET) must be at least 32 characters when set");
+  }
+
+  if (proxyInsecure) {
+    process.stderr.write(
+      "WARNING: DOMINUSNODE_PROXY_INSECURE=1 — proxy fetches use plaintext http to the gateway; the API key is sent in clear.\n",
+    );
   }
 
   const walletKeyFile = parseFilePath(env["DOMINUSNODE_WALLET_KEY_FILE"], "DOMINUSNODE_WALLET_KEY_FILE");
@@ -140,7 +152,9 @@ export function parseConfig(env: Record<string, string | undefined> = process.en
     proxyHost,
     httpProxyPort,
     socks5ProxyPort,
-    proxyTls: proxyTls ? { port: proxyTls.port, ca: readProxyCa(env["DOMINUSNODE_PROXY_CA_FILE"]) } : null,
+    proxyTls: proxyInsecure
+      ? null
+      : { port: proxyTls?.port ?? 8443, ca: readProxyCa(env["DOMINUSNODE_PROXY_CA_FILE"]) },
     fetchTimeoutMs,
     fetchMaxResponseBytes,
     mcpAgentSecret,

@@ -5,7 +5,7 @@
  *   dominusnode-node run
  * Secrets are never accepted as arguments.
  */
-import { loadConfig, ConfigError, type FlagMap } from "./config.js";
+import { loadConfig, ConfigError, isDemoMode, type FlagMap } from "./config.js";
 import { dial } from "./dialer.js";
 import { Limits } from "./limits.js";
 import { readNodeFile, registerNode } from "./register.js";
@@ -62,6 +62,9 @@ async function main(argv: string[]): Promise<number> {
     },
     (line) => process.stderr.write(line + "\n"),
   );
+  if (isDemoMode(process.env)) {
+    process.stderr.write("\n*** DEMO MODE, NOT FOR PRODUCTION: plaintext gateway allowed, local demo coordinator only ***\n\n");
+  }
 
   if (cmd === "register") {
     const walletKeyFile = flags["wallet-key-file"] ?? process.env["DN_WALLET_KEY_FILE"];

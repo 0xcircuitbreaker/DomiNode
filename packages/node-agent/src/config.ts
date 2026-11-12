@@ -78,6 +78,11 @@ const DOMAIN_RE = /^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z][a-
 
 export type FlagMap = Readonly<Record<string, string | undefined>>;
 
+/** Demo mode: plaintext gateway/API allowed. Never on in production. */
+export function isDemoMode(env: NodeJS.ProcessEnv): boolean {
+  return env["DN_NODE_DEMO"] === "1" && env["NODE_ENV"] === "development";
+}
+
 /**
  * Build config from env plus CLI flags (flags win, but both are clamped).
  * Recognised env: DN_NODE_API_URL, DN_NODE_GATEWAY_URL, DN_NODE_KEY_FILE, DN_NODE_PORTS,
@@ -129,9 +134,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, flags: FlagMap 
 
   const keyFile = (get("key-file", "DN_NODE_KEY_FILE") ?? "").trim() || defaultKeyFile(env);
 
+  // Local demo only (docker-compose.demo.yml): plaintext ws/http to a gateway on the
+  // same Docker network. Requires BOTH DN_NODE_DEMO=1 and NODE_ENV=development.
+  const demo = isDemoMode(env);
   return {
-    apiUrl: parseUrl("DN_NODE_API_URL", get("api-url", "DN_NODE_API_URL"), DEFAULT_API_URL, ["https:"]),
-    gatewayUrl: parseUrl("DN_NODE_GATEWAY_URL", get("gateway-url", "DN_NODE_GATEWAY_URL"), DEFAULT_GATEWAY_URL, ["wss:"]),
+    apiUrl: parseUrl("DN_NODE_API_URL", get("api-url", "DN_NODE_API_URL"), DEFAULT_API_URL, demo ? ["https:", "http:"] : ["https:"]),
+    gatewayUrl: parseUrl("DN_NODE_GATEWAY_URL", get("gateway-url", "DN_NODE_GATEWAY_URL"), DEFAULT_GATEWAY_URL, demo ? ["wss:", "ws:"] : ["wss:"]),
     keyFile,
     ports,
     maxStreams: num("max-streams", "DN_NODE_MAX_STREAMS", "maxStreams"),

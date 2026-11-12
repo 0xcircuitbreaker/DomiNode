@@ -3,6 +3,15 @@
 Short operator guide for the coordinator signing key, node-agent pin
 embedding, the ASN database and the tunnel ingress. See DESIGN.md §2, §4, §11.
 
+Every environment variable the server packages read is listed, with its
+inline default and the files that read it, in
+[ENV_REFERENCE.md](ENV_REFERENCE.md). That file is generated from the code
+(`npm run docs:env`) and CI fails when it is stale (`npm run docs:env:check`).
+Startup validation: the API refuses to start without `DATABASE_URL` and a
+32+ character `JWT_SECRET`; the gateway refuses to start without
+`DATABASE_URL`, without `COORD_SIGNING_KEY_FILE` in production, or when two
+listener ports clash. Both list every problem in one error.
+
 ## 0. Hostname plan
 
 DominusNode ships as a Daedalus Development Group product. Every SDK, the MCP
@@ -29,9 +38,16 @@ DNS records (in the `daedalusdevelopmentgroup.com` zone):
 
 Notes:
 
-- `TUNNEL_PORT` defaults to 8443, the same port as the TLS proxy. When both run
-  on one gateway, set `TUNNEL_PORT` to another port (e.g. 9443) and route
-  `relay.` SNI on :443 to it.
+- Gateway ports (one reader, `getProxyPorts()` in `@dominusnode/shared`, used by
+  the gateway and the API): `PROXY_LISTEN_PORT` 8080, `SOCKS5_LISTEN_PORT` 1080,
+  `PROXY_TLS_PORT` (e.g. 8443, off when unset), `SOCKS5_TLS_PORT` (off when
+  unset), `TUNNEL_PORT` 9443. The gateway refuses to start when two of them are
+  equal. Route `relay.` SNI on :443 to `TUNNEL_PORT`.
+- The API advertises the same ports; when a load balancer remaps them, set
+  `PROXY_PUBLIC_HTTP_PORT`, `PROXY_PUBLIC_SOCKS5_PORT`, `PROXY_PUBLIC_TLS_PORT`,
+  `PROXY_PUBLIC_SOCKS5_TLS_PORT` or `PROXY_PUBLIC_TUNNEL_PORT` on the API.
+  `PROXY_INTERNAL_PORT` (default `PROXY_LISTEN_PORT`) is the port the API uses
+  for gateway-internal calls.
 - One certificate with SANs for `proxy.` and `relay.` may be reused by both
   gateway listeners.
 - Dashboard env for this plan: `APP_URL=https://dominusnode.daedalusdevelopmentgroup.com`,
@@ -147,6 +163,18 @@ scripts/update-asn-db.sh            # writes data/ip2asn-combined.tsv.gz (or $AS
   stress tests. It is ignored when `NODE_ENV=production`.
 - `docker-compose.prod.yml` mounts `./data` read-only at `/app/data`; run the
   script on the host before starting the proxy.
+
+`docker-compose.prod.yml` proxy service layout:
+
+| Host | Container | Purpose |
+|---|---|---|
+| `./data` (ro) | `/app/data` | ASN database (`ASN_DB_FILE`) |
+| `${PROXY_TLS_DIR:-./certs}` (ro) | `/app/certs` | `proxy.crt`/`proxy.key` (TLS proxy) and `tunnel.crt`/`tunnel.key` (node tunnel) |
+| secret `coord_signing_key` from `${COORD_SIGNING_KEY_PATH:-./secrets/coord-signing-key.pem}` | `/run/secrets/coord_signing_key` | `COORD_SIGNING_KEY_FILE` |
+
+Published ports: `8443` TLS proxy and `9443` node tunnel on all interfaces;
+`8080`/`1080` plaintext on localhost only by default (`PROXY_*_HOST_PORT`
+overrides). `./secrets` and `./certs` are git-ignored.
 - `HOSTING_ASNS=1,2,3` adds ASNs to the built-in hosting list in
   `packages/proxy-gateway/src/asn-db.ts`. Peers on those ASNs are classified
   `dc`.
@@ -169,7 +197,7 @@ header:
       route @tunnel {
         proxy {
           proxy_protocol v2
-          upstream gateway:8443
+          upstream gateway:9443
         }
       }
     }
@@ -186,6 +214,14 @@ header:
 **Option B: gateway-terminated TLS.** Expose `TUNNEL_PORT` directly. Set
 `TUNNEL_TLS_CERT_FILE` and `TUNNEL_TLS_KEY_FILE` (set both or neither), and
 leave `TUNNEL_TRUSTED_PROXY_IPS` unset.
+
+**Self-host compose (`docker-compose.selfhost.yml`).** Caddy terminates TLS
+for the tunnel on `:8443` (same hostnames and certificates as the API) and
+reverse-proxies to `gateway:8443` with `transport http { proxy_protocol v2 }`.
+Caddy has a fixed address on the compose network (`172.29.53.2`), which is the
+only entry in `TUNNEL_TRUSTED_PROXY_IPS`; the gateway does not publish 8443
+itself. Channel binding is `none` in this setup (TLS ends at Caddy). With
+`TLS_MODE=off` the tunnel is plain `ws://` and must be fronted by your own TLS.
 
 In production, the gateway refuses tunnel upgrades from non-public peers. A
 missing or misconfigured trusted-proxy list shows up as `403` with a log
@@ -249,7 +285,51 @@ docker run -d --restart unless-stopped --env-file /etc/dominusnode/node.env \
 ```
 The key file must be owned by uid 1001 with mode 0600 (the agent refuses group/world-readable key files).
 
+### Published image (community nodes)
+
+`.github/workflows/node-image.yml` publishes `ghcr.io/0xcircuitbreaker/dominusnode-node` for linux/amd64 and linux/arm64 (Raspberry Pi 4/5) on a `node-v*` tag or manual dispatch. The official coordinator pins come from the repository variable `DN_COORD_PUBKEYS` (public keys) and are baked in at build time; the job fails without them. A node pointed at another coordinator adds that coordinator's pins with `DN_NODE_COORD_PINS`.
+
+First run, `register` subcommand (once; writes the node key file 0600 for uid 1001):
+```bash
+sudo install -d -o 1001 -g 1001 -m 700 /etc/dominusnode
+sudo install -o 1001 -g 1001 -m 600 ./wallet.key /etc/dominusnode/wallet.key   # owner wallet, 32-byte hex
+read -rs DN_API_KEY && export DN_API_KEY                                        # never on the command line
+docker run --rm -it -e DN_API_KEY -e DN_WALLET_KEY_FILE=/run/dominusnode/wallet.key \
+  -v /etc/dominusnode:/run/dominusnode ghcr.io/0xcircuitbreaker/dominusnode-node register
+sudo rm /etc/dominusnode/wallet.key   # not needed after registration
+```
+`register` refuses if the server's message differs from the one it builds locally. Then run:
+```bash
+docker run -d --name dominusnode-node --restart unless-stopped \
+  -e DN_NODE_GB_PER_DAY=2 -e DN_NODE_MAX_STREAMS=8 -e DN_NODE_MAX_MBPS=10 -e DN_NODE_REQ_PER_SEC=5 \
+  -v /etc/dominusnode/node.json:/run/dominusnode/node.json:ro \
+  ghcr.io/0xcircuitbreaker/dominusnode-node
+```
+
+**Recommended caps for home lines.** Start low and raise them once you have watched a week of traffic:
+
+| Line | `DN_NODE_GB_PER_DAY` | `DN_NODE_MAX_STREAMS` | `DN_NODE_MAX_MBPS` | `DN_NODE_REQ_PER_SEC` |
+|---|---|---|---|---|
+| Metered or mobile hotspot | 1 | 4 | 5 | 2 |
+| Typical home broadband (≤100 Mbps up) | 2 | 8 | 10 | 5 |
+| Fibre (≥300 Mbps up) | 5 | 16 | 25 | 10 |
+
+The caps are enforced by the agent itself and can only lower the floor, never raise it. Check your ISP's terms before sharing a residential line.
+
 After the first registration, flag the node: admin panel → Launch controls → "Flag operator-run", or `POST /api/admin/network/nodes/:id/operator-run {"operatorRun": true}`. The flag takes effect on the node's next tunnel reconnect.
+
+### Self-host installer notes
+
+- `scripts/selfhost/install.sh` downloads the ASN/geo database with
+  `scripts/update-asn-db.sh` when `data/ip2asn-combined.tsv.gz` is missing and
+  fails if the download fails. `SKIP_ASN_DB=1` continues without it; the
+  gateway then refuses all public peers and destinations until the file
+  exists. `SKIP_GEOIP` is not passed through: it is ignored in production.
+- `OPERATOR_CONTACT` must be a plain email address; anything else (spaces,
+  braces, quotes, newlines) is refused because it is written into the
+  Caddyfile and `.env`.
+- The optional `node` profile dials `${TUNNEL_SCHEME}://${DOMINUSNODE_DOMAIN}:8443/v1/tunnel`
+  (`wss` unless `TLS_MODE=off`).
 
 ## 8. Launch jobs and settings
 
@@ -268,6 +348,26 @@ After the first registration, flag the node: admin panel → Launch controls →
 | `ABUSE_REPORT_POW_DIFFICULTY` | 20 | Leading zero bits for abuse-report PoW |
 
 The SDN list must be installed (and refreshed) on every gateway host before x402/MPP is enabled in production; without it paid requests return `503 PAYER_SCREENING_UNAVAILABLE`. The public status page is served by the API at `/status`; put it behind the same TLS proxy as `/v1`.
+
+## 8a. Human (admin) login
+
+Agents never use email/password. Human login exists only for the admin panel
+and is **off by default**.
+
+| Env var | Default | Meaning |
+|---|---|---|
+| `ADMIN_HUMAN_LOGIN` | `false` | `true` enables `/api/auth/register`, `/login`, `/forgot-password`, `/reset-password` and `/mfa/*`. Off: those routes answer `404`. On: login succeeds only for users whose `admin_role` is not `none` (others get the same `401` as a wrong password) |
+| `ADMIN_BOOTSTRAP_EMAIL` | unset | With `ADMIN_HUMAN_LOGIN=true`, allows exactly one registration: this address, while no admin exists. That account becomes `admin`. Any other registration answers `403 REGISTRATION_CLOSED` |
+
+First admin:
+
+1. Set `ADMIN_HUMAN_LOGIN=true` and `ADMIN_BOOTSTRAP_EMAIL=<your address>` on the API, restart.
+2. Register that address through the admin panel login page (or `POST /api/auth/register`).
+3. Unset `ADMIN_BOOTSTRAP_EMAIL` and restart. Enable MFA from the admin panel.
+
+Keep `ADMIN_HUMAN_LOGIN=true` on the API that serves the admin panel; the
+panel's login and MFA steps need it. `/api/auth/refresh`, `/me`, `/logout`,
+`/verify-key` and wallet sign-in (`/api/auth/wallet/*`) are not affected by the flag.
 
 ## 9. Public product site (DDG subdomain)
 

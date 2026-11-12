@@ -44,7 +44,7 @@ export const requireAdmin = requireMinRole("admin", "Admin");
 export const requireCybersecurityAdmin = requireMinRole("cybersecurity_admin", "Cybersecurity Admin");
 
 /**
- * Middleware requiring root_admin role (only sarris88p@gmail.com).
+ * Middleware requiring root_admin role (the account in root_admin_identity).
  * Grants access to: role management (grant/revoke admin status).
  */
 export const requireRootAdmin = requireMinRole("root_admin", "Root Admin");

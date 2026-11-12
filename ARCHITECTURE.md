@@ -35,7 +35,7 @@ requester ──────▶│ HTTP :8080 / SOCKS5 :1080 → auth (API key |
 | `metering` | Cost calculation and usage records |
 | `billing` | x402, MPP, Tempo and NOWPayments rails; admin-only Stripe/PayPal |
 | `dashboard` | REST API: `/v1` agent routes (raw API key), `/api` (JWT), admin |
-| `mcp-server` | 65 authenticated plus 11 bootstrap MCP tools |
+| `mcp-server` | 65 authenticated plus 12 bootstrap MCP tools |
 | `frontend`, `extension` | Admin dashboard and browser extension |
 
 ## Request lifecycle

@@ -132,6 +132,13 @@ describe("Tempo MPP verifier", () => {
       expect((await createTempoMppVerifier(CFG, rpcOf(r)).verify(cred({ challenge: c }), REQ, NOW)).ok).toBe(false);
     }
   });
+  it("accepts an overpayment above the cap for the cap and reports the excess", async () => {
+    const c = challengeFields();
+    const v = await createTempoMppVerifier(CFG, rpcOf(receiptFor(c.id, { amount: 10_000_000_123n }))).verify(cred({ challenge: c }), REQ, NOW);
+    expect(v).toEqual({ ok: true, payer: PAYER, amountMusd: 10_000_000_000n, excessMusd: 123n, proofRef: `tempo:42431:${TXH}` });
+    const under = await createTempoMppVerifier(CFG, rpcOf(receiptFor(c.id, { amount: 9000n }))).verify(cred({ challenge: c }), REQ, NOW);
+    expect(under).toEqual({ ok: true, payer: PAYER, amountMusd: 9000n, proofRef: `tempo:42431:${TXH}` });
+  });
   it("refuses pull-mode transaction payloads and other methods", async () => {
     const v = createTempoMppVerifier(CFG, rpcOf(null));
     expect((await v.verify(cred({ payload: { type: "transaction", signature: "0x00" } }), REQ, NOW)).reason).toBe("method-unsupported");
@@ -170,6 +177,15 @@ describe("MPP rail", () => {
     expect(s.claim).toHaveBeenCalledWith(mppPaymentHash(`tempo:42431:${TXH}`), 5000n);
     expect(await rail.settle("cred-a", REQ, v)).toEqual({ ok: true, txRef: `tempo:42431:${TXH}` });
     expect(s.mark).toHaveBeenLastCalledWith(v.paymentHash, "settled");
+  });
+  it("records the overpayment excess with the single claim", async () => {
+    const s = store();
+    const over = { verify: vi.fn(async () => ({ ok: true, payer: PAYER, amountMusd: 10_000_000_000n, excessMusd: 77n, proofRef: `tempo:42431:${TXH}` })) };
+    const rail = createMppRail({ verifier: over, config: CFG, store: s, now: () => NOW });
+    const v = await rail.verify("cred-x", REQ);
+    expect(v).toMatchObject({ ok: true, amountMusd: 10_000_000_000n });
+    expect(s.claim).toHaveBeenCalledTimes(1);
+    expect(s.claim).toHaveBeenCalledWith(mppPaymentHash(`tempo:42431:${TXH}`), 10_000_000_000n, 77n);
   });
   it("rejects a replayed proof even when re-wrapped in a different credential", async () => {
     const rail = createMppRail({ verifier: okVerifier, config: CFG, store: store(false), now: () => NOW });

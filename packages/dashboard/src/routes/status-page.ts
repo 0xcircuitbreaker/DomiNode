@@ -1,6 +1,7 @@
 import { Router } from "express";
 import type { Request, Response } from "express";
 import { createLogger, networkStatusRepo, policyRepo } from "@dominusnode/shared";
+import { getNetworkStats, type NetworkStats } from "./v1/public.js";
 
 /**
  * Public network status page (GET /status). Server-rendered HTML with no
@@ -25,7 +26,20 @@ const ms = (v: number | null) => (v === null ? "n/a" : `${v} ms`);
 type Snap = Awaited<ReturnType<typeof networkStatusRepo.listSnapshots>>[number];
 type Incident = Awaited<ReturnType<typeof networkStatusRepo.listIncidents>>[number];
 
-export function renderStatusPage(snaps: Snap[], incidents: Incident[], policy: { version: number; sha256: string } | null, now = new Date()): string {
+/** "Live now" card: operator-run vs community split and countries available (aggregate only). */
+export function renderLiveSection(live: NetworkStats | null): string {
+  if (!live) return "<p>Live figures unavailable.</p>";
+  const row = (k: string, v: string) => `<tr><th scope="row">${escapeHtml(k)}</th><td>${escapeHtml(v)}</td></tr>`;
+  const listed = live.byCountry.map((c) => c.country).join(", ");
+  return `<div class="card"><table>${[
+    row("Nodes online now", String(live.onlineNodes)),
+    row("Operator-run nodes / community nodes", `${live.seed.online} / ${live.community.online}`),
+    row("Countries available", String(live.countriesAvailable)),
+    row("Countries with 3+ nodes", listed || "none yet"),
+  ].join("")}</table></div>`;
+}
+
+export function renderStatusPage(snaps: Snap[], incidents: Incident[], policy: { version: number; sha256: string } | null, now = new Date(), live: NetworkStats | null = null): string {
   const last = snaps.at(-1) ?? null;
   const day = snaps.filter((s) => now.getTime() - new Date(s.hour).getTime() <= 24 * 3_600_000);
   const open = incidents.filter((i) => i.status !== "resolved");
@@ -66,6 +80,8 @@ small,.muted{color:var(--muted)}ul{padding-left:18px}
 <h1>Network status: ${escapeHtml(overall)}</h1>
 <p class="muted">Aggregate figures only; node identities and IPs are never published. Alpha service.</p>
 <div class="card"><table>${summary}</table></div>
+<h2>Live now</h2>
+${renderLiveSection(live)}
 <h2>Last 24 hours</h2>
 <div class="card"><table><thead><tr><th>Hour (UTC)</th><th>Online</th><th>Seed/community</th><th>Success</th><th>p50</th><th>p95</th><th>Paid GB 24h</th></tr></thead><tbody>${history}</tbody></table></div>
 <h2>Incidents</h2>
@@ -78,14 +94,15 @@ small,.muted{color:var(--muted)}ul{padding-left:18px}
 
 router.get("/status", async (_req: Request, res: Response) => {
   try {
-    const [snaps, incidents, policy] = await Promise.all([
+    const [snaps, incidents, policy, live] = await Promise.all([
       networkStatusRepo.listSnapshots(48),
       networkStatusRepo.listIncidents(20),
       policyRepo.getActivePolicy().then((p) => ({ version: p.version, sha256: p.sha256 })).catch(() => null),
+      getNetworkStats().catch(() => null),
     ]);
     res.setHeader("Cache-Control", "public, max-age=60");
     res.removeHeader("Pragma");
-    res.type("text/html; charset=utf-8").send(renderStatusPage(snaps, incidents, policy));
+    res.type("text/html; charset=utf-8").send(renderStatusPage(snaps, incidents, policy, new Date(), live));
   } catch (err) {
     log.error("status page failed", { error: err instanceof Error ? err.message : String(err) });
     res.status(503).type("text/plain").send("Status temporarily unavailable\n");
