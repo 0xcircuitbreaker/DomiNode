@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.0.1] - 2026-11-12
+
+### Security
+- Proxy fetches now use TLS to the gateway by default (`https://proxy.dominusnode.daedalusdevelopmentgroup.com:8443`). Plaintext to `:8080`, which sends the API key in clear, needs `DOMINUSNODE_PROXY_INSECURE=1` and prints a warning. `DOMINUSNODE_PROXY_URL`, `DOMINUSNODE_PROXY_CA_FILE` and `DOMINUSNODE_PROXY_INSECURE` are documented in the README, `server.json`, `smithery.yaml` and the Dockerfile.
+- Client-side SSRF checks use CIDR matching (`node:net` BlockList) and now also block `fec0::/10`, `192.0.0.0/24`, `198.18.0.0/15`, documentation ranges and NAT64 `64:ff9b::/96` with a private embedded IPv4.
+- Per-agent `das_` secrets are scrubbed from error output.
+
+### Fixed
+- The 2.0.0 tarball shipped stale, unregistered tool modules (`plans`, `slots`, `stripe`, `paypal`). `prepack`/`prepublishOnly` now clean `dist/` first, and a test checks the packed file list.
+- Usage figures use decimal GB (1e9 bytes, as billed) and show the raw byte count.
+- `DOMINUSNODE_AGENT_SECRET` (what `create_agent_secret` tells agents to set) is now read; `MCP_AGENT_SECRET` stays as an alias. The tool description no longer promises CAPTCHA bypass or email verification.
+
+### Changed
+- Bootstrap: `dominusnode_wallet_setup` unlocks the authenticated tools in the same session (`notifications/tools/list_changed`), and can sign the standard sign-in message itself when `DOMINUSNODE_WALLET_KEY_FILE` is set. Only failed signature verifications count toward the wallet auth limit (5/hour); challenges are capped at 20/hour. The challenge text points to `dominusnode_wallet_setup`.
+- `dominusnode_x402_info` is public and available in bootstrap mode (12 bootstrap tools); it shows whether x402 is enabled and how to pay with it.
+- `dominusnode_fetch` documents the request headers it drops, notes them in the result, and sends `User-Agent: dominusnode-mcp-server/<version>`.
+- `credits_convert` / `credits_withdraw` include the idempotency key in errors so a retry can reuse it.
+- Docker image installs with `npm ci` from a lockfile; the Dockerfile documents `--user` / Docker secrets for the wallet key file check.
+
 ## [2.0.0] - 2026-11-06
 
 ### Changed
