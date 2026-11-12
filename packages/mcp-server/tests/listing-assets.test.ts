@@ -40,4 +40,13 @@ describe("MCP listing assets", () => {
     expect(d).not.toMatch(/^\s*COPY\s+.*\.(key|env)\b/m);
     expect(read(".dockerignore")).toMatch(/\.env\*/);
   });
+
+  it("Dockerfile installs from the lockfile with npm ci and the lock matches package.json", () => {
+    const d = read("Dockerfile");
+    expect(d).toMatch(/^COPY package\.json package-lock\.json /m);
+    expect(d).toMatch(/^RUN npm ci /m);
+    const lock = JSON.parse(read("package-lock.json")) as { packages: Record<string, { dependencies?: object; devDependencies?: object }> };
+    expect(lock.packages[""].dependencies).toEqual(pkg["dependencies"]);
+    expect(lock.packages[""].devDependencies).toEqual(pkg["devDependencies"]);
+  });
 });
