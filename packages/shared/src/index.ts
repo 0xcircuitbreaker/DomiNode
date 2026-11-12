@@ -204,3 +204,4 @@ export * as payoutRepo from "./repositories/payout-repo.js";
 export * as agentCreditsRepo from "./repositories/agent-credits-repo.js";
 export * as relayLimitsRepo from "./repositories/relay-limits-repo.js";
 export { buildAttestationMessage, sha256Hex, verifyPow, countLeadingZeroBits } from "./attestation.js";
+export { getBaseTxCount, rpcUrlFromEnv, rpcTimeoutFromEnv, clearNonceCache } from "./starter-funding.js";

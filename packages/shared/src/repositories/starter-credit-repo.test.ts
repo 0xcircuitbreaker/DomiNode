@@ -1,9 +1,9 @@
 import { describe, it, expect, vi } from "vitest";
-import { grantTx, grantPrefix, consumeTx, closeGrantTx } from "./starter-credit-repo.js";
+import { grantTx, grantPrefix, consumeTx, closeGrantTx, PAID_TOPUP_SQL } from "./starter-credit-repo.js";
 
 const SETTINGS = {
   enabled: true, amount_musd: "500000", daily_budget_musd: "50000000", per_prefix_cap: 1, per_funding_source_cap: 1,
-  cap_window_days: 30, expiry_days: 30, seed_nodes_only: true, seed_only_days: 30, updated_by: null, updated_at: null,
+  cap_window_days: 30, expiry_days: 30, seed_nodes_only: true, seed_only_days: 30, require_funding: true, min_topup_cents: 100, updated_by: null, updated_at: null,
 };
 
 interface Opts {
@@ -13,6 +13,7 @@ interface Opts {
   prefixN?: number;
   fundingN?: number;
   wallet?: boolean;
+  topup?: boolean;
 }
 
 function client(o: Opts = {}) {
@@ -21,6 +22,7 @@ function client(o: Opts = {}) {
     calls.push({ sql, p });
     if (sql.includes("FROM starter_credit_settings")) return { rows: [{ ...SETTINGS, ...o.settings }] };
     if (sql.includes("SELECT 1 AS one FROM starter_credit_grants")) return { rows: o.prior ? [{ one: 1 }] : [] };
+    if (sql === PAID_TOPUP_SQL) return { rows: o.topup ? [{ one: 1 }] : [] };
     if (sql.includes("AS today_musd")) {
       return { rows: [{ today_musd: o.todayMusd ?? null, prefix_n: String(o.prefixN ?? 0), funding_n: String(o.fundingN ?? 0) }] };
     }
@@ -31,7 +33,30 @@ function client(o: Opts = {}) {
   return { c: { query } as never, calls };
 }
 
-const INPUT = { userId: "u1", fundingSource: "0xABC", clientIp: "203.0.113.9" };
+const INPUT = { userId: "u1", fundingSource: "0xABC", clientIp: "203.0.113.9", onchainTxCount: 1 };
+
+describe("grantTx funding precondition", () => {
+  const NOCHAIN = { ...INPUT, onchainTxCount: 0 };
+  it("grants with >=1 prior Base transaction without checking top-ups", async () => {
+    const { c, calls } = client();
+    expect((await grantTx(c, INPUT)).granted).toBe(true);
+    expect(calls.some((x) => x.sql === PAID_TOPUP_SQL)).toBe(false);
+  });
+  it("falls back to a paid top-up of at least min_topup_cents", async () => {
+    const { c, calls } = client({ topup: true, settings: { min_topup_cents: 250 } });
+    expect((await grantTx(c, NOCHAIN)).granted).toBe(true);
+    expect(calls.find((x) => x.sql === PAID_TOPUP_SQL)?.p).toEqual(["u1", 250]);
+    expect(PAID_TOPUP_SQL).toContain("payment_provider <> 'node_credits'");
+  });
+  it("fails closed: no nonce (RPC unavailable) and no top-up means no grant", async () => {
+    expect(await grantTx(client().c, NOCHAIN)).toEqual({ granted: false, reason: "unfunded" });
+    expect(await grantTx(client().c, { ...INPUT, onchainTxCount: null })).toEqual({ granted: false, reason: "unfunded" });
+    expect(await grantTx(client().c, { ...INPUT, onchainTxCount: undefined })).toEqual({ granted: false, reason: "unfunded" });
+  });
+  it("is skipped when the admin turns the requirement off", async () => {
+    expect((await grantTx(client({ settings: { require_funding: false } }).c, NOCHAIN)).granted).toBe(true);
+  });
+});
 
 describe("grantPrefix", () => {
   it("maps IPv4 to /24 and IPv6 to /48", () => {

@@ -2,6 +2,7 @@ import { isIP } from "node:net";
 import type pg from "pg";
 import { query } from "../db.js";
 import { withTx } from "./node-credit-repo.js";
+import { getBaseTxCount } from "../starter-funding.js";
 
 /**
  * Starter credits (LAUNCH_PLAN §5.2, ECONOMICS.md "Starter credits").
@@ -30,22 +31,25 @@ export interface StarterSettings {
   expiryDays: number;
   seedNodesOnly: boolean;
   seedOnlyDays: number;
+  /** Require ≥1 prior Base transaction or a paid top-up of ≥ minTopupCents. */
+  requireFunding: boolean;
+  minTopupCents: number;
   updatedBy: string | null;
   updatedAt: Date | null;
 }
 
 interface SettingsRow {
   enabled: boolean; amount_musd: string; daily_budget_musd: string; per_prefix_cap: number; per_funding_source_cap: number;
-  cap_window_days: number; expiry_days: number; seed_nodes_only: boolean; seed_only_days: number;
+  cap_window_days: number; expiry_days: number; seed_nodes_only: boolean; seed_only_days: number; require_funding?: boolean; min_topup_cents?: number;
   updated_by: string | null; updated_at: Date | null;
 }
 
 export const SETTINGS_COLS = `enabled, amount_musd::text AS amount_musd, daily_budget_musd::text AS daily_budget_musd,
-  per_prefix_cap, per_funding_source_cap, cap_window_days, expiry_days, seed_nodes_only, seed_only_days, updated_by, updated_at`;
+  per_prefix_cap, per_funding_source_cap, cap_window_days, expiry_days, seed_nodes_only, seed_only_days, require_funding, min_topup_cents, updated_by, updated_at`;
 
 export const DEFAULT_STARTER_SETTINGS: StarterSettings = {
   enabled: false, amountMusd: 500_000n, dailyBudgetMusd: 50_000_000n, perPrefixCap: 1, perFundingSourceCap: 1,
-  capWindowDays: 30, expiryDays: 30, seedNodesOnly: true, seedOnlyDays: 30, updatedBy: null, updatedAt: null,
+  capWindowDays: 30, expiryDays: 30, seedNodesOnly: true, seedOnlyDays: 30, requireFunding: true, minTopupCents: 100, updatedBy: null, updatedAt: null,
 };
 
 function mapSettings(r: SettingsRow | undefined): StarterSettings {
@@ -54,6 +58,7 @@ function mapSettings(r: SettingsRow | undefined): StarterSettings {
     enabled: r.enabled, amountMusd: BigInt(r.amount_musd), dailyBudgetMusd: BigInt(r.daily_budget_musd),
     perPrefixCap: r.per_prefix_cap, perFundingSourceCap: r.per_funding_source_cap, capWindowDays: r.cap_window_days,
     expiryDays: r.expiry_days, seedNodesOnly: r.seed_nodes_only, seedOnlyDays: r.seed_only_days,
+    requireFunding: r.require_funding ?? true, minTopupCents: r.min_topup_cents ?? 100,
     updatedBy: r.updated_by, updatedAt: r.updated_at,
   };
 }
@@ -83,7 +88,7 @@ export function grantPrefix(ip: string | null | undefined): string | null {
   return null;
 }
 
-export type GrantRefusal = "disabled" | "already_granted" | "budget_exhausted" | "prefix_cap" | "funding_source_cap" | "no_wallet" | "invalid";
+export type GrantRefusal = "disabled" | "already_granted" | "budget_exhausted" | "prefix_cap" | "funding_source_cap" | "no_wallet" | "invalid" | "unfunded";
 export type GrantResult =
   | { granted: true; grantId: string; amountMusd: bigint; expiresAt: Date }
   | { granted: false; reason: GrantRefusal };
@@ -93,7 +98,14 @@ export interface GrantInput {
   /** Funding source identity: the verified wallet address (lowercased) or payer identity. */
   fundingSource: string;
   clientIp: string | null;
+  /** Base nonce of the wallet, looked up before the transaction; null = unknown (fails closed). */
+  onchainTxCount?: number | null;
 }
+
+/** Paid top-ups (a payment provider, not node-credit conversion, starter or referral credit). */
+export const PAID_TOPUP_SQL = `SELECT 1 AS one FROM wallet_transactions wt JOIN wallets w ON w.id = wt.wallet_id
+  WHERE w.user_id = $1 AND wt.type = 'topup' AND wt.amount_cents >= $2
+    AND wt.payment_provider IS NOT NULL AND wt.payment_provider <> 'node_credits' LIMIT 1`;
 
 /** Decide caps on the caller's transaction (exported for tests). */
 export async function grantTx(c: TxClient, i: GrantInput, now: Date = new Date()): Promise<GrantResult> {
@@ -104,6 +116,10 @@ export async function grantTx(c: TxClient, i: GrantInput, now: Date = new Date()
   if (!s.enabled || s.amountMusd <= 0n) return { granted: false, reason: "disabled" };
   const prior = await c.query<{ one: number }>(`SELECT 1 AS one FROM starter_credit_grants WHERE user_id = $1`, [i.userId]);
   if (prior.rows.length > 0) return { granted: false, reason: "already_granted" };
+  if (s.requireFunding && !((i.onchainTxCount ?? 0) >= 1)) {
+    const t = await c.query<{ one: number }>(PAID_TOPUP_SQL, [i.userId, s.minTopupCents]);
+    if (t.rows.length === 0) return { granted: false, reason: "unfunded" };
+  }
 
   const prefix = grantPrefix(i.clientIp);
   const counts = await c.query<{ today_musd: string | null; prefix_n: string; funding_n: string }>(
@@ -145,8 +161,15 @@ export async function grantTx(c: TxClient, i: GrantInput, now: Date = new Date()
   return { granted: true, grantId: grant.id, amountMusd: s.amountMusd, expiresAt: grant.expires_at };
 }
 
-export async function grantStarterCredit(i: GrantInput): Promise<GrantResult> {
-  return withTx((c) => grantTx(c, i));
+export async function grantStarterCredit(i: GrantInput, lookup: (addr: string) => Promise<number | null> = getBaseTxCount): Promise<GrantResult> {
+  // The RPC call happens outside the transaction so the grant lock is never held across the network.
+  let onchainTxCount = i.onchainTxCount ?? null;
+  if (onchainTxCount === null) {
+    const s = await getSettings();
+    if (!s.enabled) return { granted: false, reason: "disabled" };
+    if (s.requireFunding && /^0x[0-9a-f]{40}$/i.test(i.fundingSource.trim())) onchainTxCount = await lookup(i.fundingSource.trim());
+  }
+  return withTx((c) => grantTx(c, { ...i, onchainTxCount }));
 }
 
 export interface ActiveGrant {
