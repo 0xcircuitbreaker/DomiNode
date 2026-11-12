@@ -150,9 +150,11 @@ test('the real config is valid and every manifest version is readable', async ()
   assert.equal(r.packages.length, config.packages.length);
   assert.equal(r.packages.filter((e) => e.ecosystem === 'npm').length, 11);
   assert.equal(r.packages.filter((e) => e.ecosystem === 'pypi').length, 21);
+  const sdkVer = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'sdks/node/package.json'), 'utf8')).version;
+  const sdkRange = `^${sdkVer.split('.').slice(0, 2).join('.')}.0`;
   for (const e of r.packages.filter((x) => x.ecosystem === 'npm' && x.id !== 'sdk-node' && x.id !== 'mcp-server')) {
     const pj = JSON.parse(fs.readFileSync(path.join(process.cwd(), e.path, 'package.json'), 'utf8'));
-    assert.equal(pj.dependencies['@dominusnode/sdk'], '^2.0.0', e.id);
+    assert.equal(pj.dependencies['@dominusnode/sdk'], sdkRange, e.id);
     assert.equal(pj.repository.url, 'git+https://github.com/0xcircuitbreaker/DomiNode.git', e.id);
   }
 });
