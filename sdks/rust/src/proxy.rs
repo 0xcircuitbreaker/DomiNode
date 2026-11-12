@@ -21,6 +21,7 @@ pub const OFAC_BLOCKED: [&str; 5] = ["CU", "IR", "KP", "RU", "SY"];
 
 /// Exit IP class.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum IpClass {
     /// Residential.
     Residential,

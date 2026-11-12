@@ -498,6 +498,7 @@ pub(crate) fn validate_page_cursor(c: &str) -> Result<()> {
 }
 
 /// Options for [`NodesResource::register`].
+#[non_exhaustive]
 pub struct RegisterNodeOptions<'a> {
     /// Signer for the account's LINKED wallet.
     pub signer: &'a dyn Signer,

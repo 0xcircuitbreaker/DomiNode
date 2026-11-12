@@ -21,7 +21,7 @@ fn check(m: &Mock, method: &str, path: &str, body: Option<Value>, auth: &str) {
         _ => unreachable!(),
     }
     assert_eq!(c.header("accept").as_deref(), Some("application/json"));
-    assert!(c.header("user-agent").unwrap().starts_with("dominusnode-sdk-rust/2."));
+    assert!(c.header("user-agent").unwrap().starts_with("dominusnode-sdk-rust/3."));
     assert_eq!(c.header("content-type").is_some(), c.body.is_some());
 }
 

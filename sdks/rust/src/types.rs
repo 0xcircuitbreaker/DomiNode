@@ -13,6 +13,7 @@ macro_rules! model {
         $(#[$m])*
         #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
         #[serde(rename_all = "camelCase", default)]
+        #[non_exhaustive]
         pub struct $name { $($(#[$fm])* pub $f: $t),* }
     };
 }
