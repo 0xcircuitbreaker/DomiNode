@@ -3,6 +3,15 @@
 Short operator guide for the coordinator signing key, node-agent pin
 embedding, the ASN database and the tunnel ingress. See DESIGN.md §2, §4, §11.
 
+Every environment variable the server packages read is listed, with its
+inline default and the files that read it, in
+[ENV_REFERENCE.md](ENV_REFERENCE.md). That file is generated from the code
+(`npm run docs:env`) and CI fails when it is stale (`npm run docs:env:check`).
+Startup validation: the API refuses to start without `DATABASE_URL` and a
+32+ character `JWT_SECRET`; the gateway refuses to start without
+`DATABASE_URL`, without `COORD_SIGNING_KEY_FILE` in production, or when two
+listener ports clash. Both list every problem in one error.
+
 ## 0. Hostname plan
 
 DominusNode ships as a Daedalus Development Group product. Every SDK, the MCP
