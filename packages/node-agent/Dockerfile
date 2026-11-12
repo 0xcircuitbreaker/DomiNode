@@ -12,7 +12,7 @@
 # The image contains no node key, API key or wallet key.
 
 # ─── Build ──────────────────────────────────────────────────────────
-FROM node:22-alpine AS builder
+FROM node:22.23.5-alpine AS builder
 WORKDIR /app
 COPY package.json package-lock.json tsconfig.json ./
 COPY packages/shared/ packages/shared/
@@ -24,7 +24,7 @@ RUN DN_COORD_PUBKEYS="$DN_COORD_PUBKEYS" node packages/node-agent/scripts/gen-co
  && find packages -name "*.map" -delete
 
 # ─── Runtime ────────────────────────────────────────────────────────
-FROM node:22-alpine
+FROM node:22.23.5-alpine
 RUN addgroup -g 1001 -S dominusnode && adduser -S dominusnode -u 1001 -G dominusnode
 WORKDIR /app
 COPY --from=builder /app/package.json /app/package-lock.json ./

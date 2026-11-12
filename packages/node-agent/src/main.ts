@@ -12,6 +12,7 @@ import { readNodeFile, registerNode } from "./register.js";
 import { effectiveCoordPins } from "./coord-pins.js";
 import { applyCoordinator } from "./coordinator.js";
 import { TunnelClient, scrub, stderrLogger } from "./tunnel-client.js";
+import { reportTlsCapability } from "./shared.js";
 import { startSelfDiscovery, type SelfDiscoveryOptions } from "./self-discovery.js";
 
 export const AGENT_VERSION = "0.1.0";
@@ -81,6 +82,7 @@ async function main(argv: string[]): Promise<number> {
     return 0;
   }
 
+  reportTlsCapability(stderrLogger, "node-agent");
   const stored = readNodeFile(cfg.keyFile);
   const discovery = startFloorDiscovery(cfg.apiUrl);
   const limits = new Limits({ maxStreams: cfg.maxStreams, reqPerSec: cfg.reqPerSec, gbPerDay: cfg.gbPerDay });

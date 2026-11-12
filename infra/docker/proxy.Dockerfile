@@ -2,7 +2,7 @@
 # Multi-stage build for minimal production image
 
 # ─── Stage 1: Build ─────────────────────────────────────────────────
-FROM node:22-alpine AS builder
+FROM node:22.23.5-alpine AS builder
 
 WORKDIR /app
 
@@ -28,7 +28,7 @@ RUN npx tsc --build packages/dashboard packages/proxy-gateway packages/mcp-serve
 RUN cp packages/shared/src/schema.sql packages/shared/dist/src/schema.sql
 
 # ─── Stage 2: Runtime ───────────────────────────────────────────────
-FROM node:22-alpine
+FROM node:22.23.5-alpine
 
 RUN addgroup -g 1001 -S dominusnode && \
     adduser -S dominusnode -u 1001 -G dominusnode

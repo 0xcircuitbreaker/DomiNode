@@ -2,7 +2,7 @@ import * as crypto from "node:crypto";
 import * as http from "node:http";
 import * as https from "node:https";
 import * as net from "node:net";
-import { createLogger, planRepo, resolveRequestId, runWithRequestId } from "@dominusnode/shared";
+import { createLogger, planRepo, resolveRequestId, runWithRequestId, pqTlsOptions } from "@dominusnode/shared";
 import type { ExitClass } from "@dominusnode/shared";
 import { checkAgenticWalletPolicy } from "./wallet-policy.js";
 import type { Duplex } from "node:stream";
@@ -1210,14 +1210,14 @@ export async function startProxyServer(port: number, relay: RelayRuntime, opts: 
     });
   };
   const server: http.Server = opts.tls
-    ? (https.createServer({ cert: opts.tls.cert, key: opts.tls.key, minVersion: "TLSv1.2" }, onRequest) as unknown as http.Server)
+    ? (https.createServer({ cert: opts.tls.cert, key: opts.tls.key, ...pqTlsOptions() }, onRequest) as unknown as http.Server)
     : http.createServer(onRequest);
 
   server.on("connect", (req, socket: net.Socket, head) => {
     const rid = resolveRequestId(req.headers["x-request-id"]);
     socketRequestIds.set(socket, rid);
     if (plaintextAuth && carriesProxyCredential(req.headers) && !plaintextAuth("http")) {
-      safeSocketWrite(socket, "HTTP/1.1 403 Forbidden\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\nTLS required");
+      safeSocketWrite(socket, "HTTP/1.1 403 Forbidden\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\nTLS required: connect to the gateway's HTTPS proxy port");
       return;
     }
     runWithRequestId(rid, () => handleConnect(req, socket, head, relay)).catch((err) => {

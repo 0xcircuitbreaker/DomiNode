@@ -6,6 +6,23 @@ import * as tls from "node:tls";
 import * as dns from "node:dns";
 import type { McpConfig } from "./config.js";
 
+/**
+ * TLS to the gateway's HTTPS proxy port: TLS 1.3 with the hybrid
+ * X25519MLKEM768 group first (mirrors @dominusnode/shared tls-pq.ts, which this
+ * published package cannot depend on). Falls back to X25519 on OpenSSL < 3.5.
+ */
+let gatewayCurve: string | null = null;
+export function gatewayEcdhCurve(): string {
+  if (gatewayCurve !== null) return gatewayCurve;
+  try {
+    tls.createSecureContext({ ecdhCurve: "X25519MLKEM768:X25519" });
+    gatewayCurve = "X25519MLKEM768:X25519";
+  } catch {
+    gatewayCurve = "X25519";
+  }
+  return gatewayCurve;
+}
+
 export interface ProxyFetchOptions {
   url: string;
   method?: string;
@@ -381,7 +398,8 @@ function gatewayRequest(
     port: config.proxyTls.port,
     ca: config.proxyTls.ca,
     servername: net.isIP(config.proxyHost) ? undefined : config.proxyHost,
-    minVersion: "TLSv1.2",
+    minVersion: "TLSv1.3",
+    ecdhCurve: gatewayEcdhCurve(),
     rejectUnauthorized: true,
   }, cb);
 }

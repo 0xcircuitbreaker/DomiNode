@@ -14,7 +14,7 @@ vi.mock("@dominusnode/shared", () => ({
   },
   verifyProxySessionToken: (...args: unknown[]) => mockVerifyProxySessionToken(...args),
   userRepo: {
-    findUserByApiKeyHash: (...args: unknown[]) => mockFindUserByApiKeyHash(...args),
+    findUserByApiKey: (...args: unknown[]) => mockFindUserByApiKeyHash(...args),
     findUserById: (...args: unknown[]) => mockFindUserById(...args),
   },
   createLogger: () => ({

@@ -12,7 +12,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as crypto from "node:crypto";
 import { Wallet } from "ethers";
-import { connectWithRetry, closePool, query, userRepo, walletRepo, generateApiKey, hashApiKey } from "@dominusnode/shared";
+import { connectWithRetry, closePool, query, userRepo, walletRepo, generateApiKey, apiKeyLookup } from "@dominusnode/shared";
 
 export const DEMO_CREDIT_CENTS = 1_000; // $10 of demo credit
 
@@ -41,8 +41,8 @@ async function existingKeyValid(keyFile: string): Promise<boolean> {
   const raw = fs.readFileSync(keyFile, "utf8").trim();
   if (!/^dn_live_[0-9a-f]{16,128}$/.test(raw)) return false;
   const r = await query<{ ok: number }>(
-    `SELECT 1 AS ok FROM api_keys WHERE key_hash = $1 AND revoked_at IS NULL`,
-    [hashApiKey(raw)],
+    `SELECT 1 AS ok FROM api_keys WHERE key_hash = ANY($1::text[]) AND revoked_at IS NULL`,
+    [apiKeyLookup(raw).candidates],
   );
   return r.rows.length > 0;
 }

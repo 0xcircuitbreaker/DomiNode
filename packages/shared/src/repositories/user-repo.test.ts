@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 const mockQuery = vi.fn();
 
@@ -10,7 +10,7 @@ import {
   createUser,
   findUserByEmail,
   findUserById,
-  findUserByApiKeyHash,
+  findUserByApiKey,
   updatePassword,
   createApiKey,
   listApiKeys,
@@ -18,6 +18,7 @@ import {
   revokeApiKey,
   findOrCreateX402User,
 } from "./user-repo.js";
+import { hashApiKeyV1, hashApiKeyV2, _setApiKeyPepperForTest } from "../api-key-hash.js";
 
 describe("user-repo", () => {
   beforeEach(() => {
@@ -84,9 +85,9 @@ describe("user-repo", () => {
     });
   });
 
-  // ─── findUserByApiKeyHash ─────────────────────────────────────────
+  // ─── findUserByApiKey ─────────────────────────────────────────
 
-  describe("findUserByApiKeyHash", () => {
+  describe("findUserByApiKey", () => {
     it("should return user and apiKey when found", async () => {
       const row = {
         id: "u1",
@@ -96,7 +97,7 @@ describe("user-repo", () => {
         status: "active",
         password_changed_at: null,
         ak_id: "ak1",
-        ak_key_hash: "keyhash123",
+        ak_key_hash: hashApiKeyV1("dn_live_k1"),
         ak_key_prefix: "dn_live_abc123",
         ak_label: "My Key",
         ak_created_at: new Date(),
@@ -104,7 +105,7 @@ describe("user-repo", () => {
       };
       mockQuery.mockResolvedValueOnce({ rows: [row] });
 
-      const result = await findUserByApiKeyHash("keyhash123");
+      const result = await findUserByApiKey("dn_live_k1");
       expect(result).not.toBeNull();
       expect(result!.user.id).toBe("u1");
       expect(result!.user.email).toBe("test@example.com");
@@ -113,10 +114,49 @@ describe("user-repo", () => {
       expect(result!.apiKey.label).toBe("My Key");
     });
 
+    describe("pepper (HMAC-SHA256 v2)", () => {
+      const pepper = Buffer.alloc(32, 7);
+      const raw = "dn_live_pq";
+      const baseRow = { id: "u1", email: "a@b.c", created_at: new Date(), status: "active", password_changed_at: null, ak_id: "ak1", ak_key_prefix: "p", ak_label: "", ak_created_at: new Date(), ak_revoked_at: null };
+      beforeEach(() => _setApiKeyPepperForTest(pepper));
+      afterEach(() => _setApiKeyPepperForTest(undefined));
+
+      it("looks up v2 then v1 in one query", async () => {
+        mockQuery.mockResolvedValueOnce({ rows: [] });
+        expect(await findUserByApiKey(raw)).toBeNull();
+        expect(mockQuery.mock.calls[0][1]).toEqual([[hashApiKeyV2(raw, pepper), hashApiKeyV1(raw)]]);
+      });
+
+      it("migrates a v1 row to v2 on successful auth", async () => {
+        mockQuery.mockResolvedValueOnce({ rows: [{ ...baseRow, ak_key_hash: hashApiKeyV1(raw) }] }).mockResolvedValueOnce({ rows: [] });
+        const r = await findUserByApiKey(raw);
+        expect(r!.user.id).toBe("u1");
+        expect(mockQuery).toHaveBeenCalledTimes(2);
+        expect(mockQuery.mock.calls[1][0]).toContain("UPDATE api_keys SET key_hash = $1");
+        expect(mockQuery.mock.calls[1][1]).toEqual([hashApiKeyV2(raw, pepper), "ak1", hashApiKeyV1(raw)]);
+      });
+
+      it("does not rewrite a v2 row", async () => {
+        mockQuery.mockResolvedValueOnce({ rows: [{ ...baseRow, ak_key_hash: hashApiKeyV2(raw, pepper) }] });
+        expect(await findUserByApiKey(raw)).not.toBeNull();
+        expect(mockQuery).toHaveBeenCalledTimes(1);
+      });
+
+      it("still authenticates when the migration write fails", async () => {
+        mockQuery.mockResolvedValueOnce({ rows: [{ ...baseRow, ak_key_hash: hashApiKeyV1(raw) }] }).mockRejectedValueOnce(new Error("db"));
+        expect(await findUserByApiKey(raw)).not.toBeNull();
+      });
+
+      it("rejects a row whose hash matches neither candidate", async () => {
+        mockQuery.mockResolvedValueOnce({ rows: [{ ...baseRow, ak_key_hash: "f".repeat(64) }] });
+        expect(await findUserByApiKey(raw)).toBeNull();
+      });
+    });
+
     it("should return null when no matching key", async () => {
       mockQuery.mockResolvedValueOnce({ rows: [] });
 
-      const result = await findUserByApiKeyHash("nonexistent-hash");
+      const result = await findUserByApiKey("nonexistent-hash");
       expect(result).toBeNull();
     });
 
@@ -130,7 +170,7 @@ describe("user-repo", () => {
         status: "active" as const,
         password_changed_at: null,
         ak_id: "key-id",
-        ak_key_hash: "kh",
+        ak_key_hash: hashApiKeyV1("dn_live_k2"),
         ak_key_prefix: "pf",
         ak_label: "lbl",
         ak_created_at: now,
@@ -138,7 +178,7 @@ describe("user-repo", () => {
       };
       mockQuery.mockResolvedValueOnce({ rows: [row] });
 
-      const result = await findUserByApiKeyHash("kh");
+      const result = await findUserByApiKey("dn_live_k2");
       expect(result).not.toBeNull();
       // User should not contain ak_ fields
       expect(result!.user).toEqual({

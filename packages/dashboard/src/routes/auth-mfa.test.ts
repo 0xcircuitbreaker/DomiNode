@@ -10,7 +10,7 @@ vi.mock("@dominusnode/shared", () => ({
     findUserByEmail: vi.fn(),
     findUserForAuth: vi.fn(),
     findUserById: vi.fn(),
-    findUserByApiKeyHash: vi.fn(),
+    findUserByApiKey: vi.fn(),
     createUser: vi.fn(),
     updatePassword: vi.fn(),
     revokeAllApiKeys: vi.fn(),
@@ -752,7 +752,7 @@ describe("MFA auth routes", () => {
 
   describe("POST /api/auth/verify-key (MFA bypass)", () => {
     it("should return tokens without MFA challenge for valid API key", async () => {
-      (userRepo.findUserByApiKeyHash as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      (userRepo.findUserByApiKey as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
         user: {
           id: "user1",
           email: "test@example.com",
@@ -802,7 +802,7 @@ describe("human auth gate (ADMIN_HUMAN_LOGIN)", () => {
   });
 
   it("keeps non-human routes (verify-key) available when the flag is off", async () => {
-    (userRepo.findUserByApiKeyHash as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+    (userRepo.findUserByApiKey as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
       user: { id: "user1", email: "w@example.com", status: "active", is_admin: false }, apiKey: { id: "ak1" },
     });
     const res = await request(createApp(), "POST", "/api/auth/verify-key", { apiKey: "dn_live_abc123" });

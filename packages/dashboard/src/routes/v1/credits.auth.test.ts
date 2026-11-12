@@ -1,14 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import express from "express";
 
-const findUserByApiKeyHash = vi.fn();
+const findUserByApiKey = vi.fn();
 const getCreditSummary = vi.fn();
 
 vi.mock("@dominusnode/shared", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@dominusnode/shared")>();
   return {
     ...actual,
-    userRepo: { findUserById: vi.fn(), findUserByApiKeyHash: (h: string) => findUserByApiKeyHash(h) },
+    userRepo: { findUserById: vi.fn(), findUserByApiKey: (h: string) => findUserByApiKey(h) },
     agentCreditsRepo: { ...actual.agentCreditsRepo, getCreditSummary: (u: string) => getCreditSummary(u) },
   };
 });
@@ -24,7 +24,7 @@ function app() {
 }
 
 describe("credits routes auth (real requireAgentPrincipal)", () => {
-  beforeEach(() => { findUserByApiKeyHash.mockReset(); getCreditSummary.mockReset(); });
+  beforeEach(() => { findUserByApiKey.mockReset(); getCreditSummary.mockReset(); });
 
   const routes: [string, string][] = [
     ["GET", "/v1/credits"], ["GET", "/v1/credits/transactions"], ["POST", "/v1/credits/convert"],
@@ -34,7 +34,7 @@ describe("credits routes auth (real requireAgentPrincipal)", () => {
   ];
 
   it.each(routes)("%s %s rejects team API keys", async (method, path) => {
-    findUserByApiKeyHash.mockResolvedValue({
+    findUserByApiKey.mockResolvedValue({
       user: { id: "u1", email: "a@b.com", status: "active", wallet_address: null, email_verified: true },
       apiKey: { team_id: "t1" },
     });

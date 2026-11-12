@@ -4,12 +4,13 @@ import * as net from "node:net";
 import * as path from "node:path";
 import * as tls from "node:tls";
 
-vi.mock("@dominusnode/shared", () => ({
+vi.mock("@dominusnode/shared", async () => ({
   EXIT_CLASSES: ["residential", "mobile", "dc", "masked"],
   createLogger: () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }),
   hashApiKey: vi.fn(),
   userRepo: {},
   planRepo: {},
+  pqTlsOptions: (await import("@dominusnode/shared/dist/src/tls-pq.js")).pqTlsOptions,
 }));
 vi.mock("./geo-check.js", () => ({ initGeoCheck: vi.fn(async () => {}), checkSanctionedCountry: vi.fn(() => null) }));
 

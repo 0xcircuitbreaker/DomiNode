@@ -40,7 +40,7 @@ services:
   # Generates the demo coordinator key once (scripts/gen-coord-key.mjs) and
   # hands the shared /demo volume to uid 1001.
   init:
-    image: node:22-alpine
+    image: node:22.23.5-alpine
     user: "0:0"
     volumes:
       - ./scripts/gen-coord-key.mjs:/opt/gen-coord-key.mjs:ro
