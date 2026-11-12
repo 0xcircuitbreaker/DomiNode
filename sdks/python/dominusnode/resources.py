@@ -479,6 +479,7 @@ class _NodesResource(_Base):
         max_streams: Optional[int] = None,
         max_gb_day: Optional[int] = None,
         max_pow_iterations: int = 200_000_000,
+        declared_class: Optional[str] = None,
     ) -> Gen:
         """challenge -> rebuild attestation (refuse on mismatch) -> PoW -> sign -> POST /v1/nodes.
 
@@ -491,6 +492,8 @@ class _NodesResource(_Base):
         if max_gb_day is not None:
             validate_int_range(max_gb_day, "max_gb_day", 1, 10_000)
         validate_int_range(max_pow_iterations, "max_pow_iterations", 1, 10**12)
+        if declared_class is not None and declared_class not in EXIT_CLASSES:
+            raise invalid_arg("declared_class must be residential, mobile, dc or masked")
         ch = challenge if challenge is not None else (yield from _NodesResource.register_challenge(self, pk))
         _check_challenge(ch)
         message = build_attestation_message(signer.address, ch["nonce"], ch["attestationVersion"], ch["attestationText"], pk)
@@ -515,6 +518,8 @@ class _NodesResource(_Base):
             body["maxStreams"] = max_streams
         if max_gb_day is not None:
             body["maxGbDay"] = max_gb_day
+        if declared_class is not None:
+            body["declaredClass"] = declared_class
         r = yield _post("/v1/nodes", body, "agent")
         if not isinstance(r, dict) or not isinstance(r.get("nodeId"), str) or not UUID_RE.match(r["nodeId"]):
             raise ProtocolError("invalid nodeId in response")
@@ -527,12 +532,15 @@ class _NodesResource(_Base):
             "nodeKey": Secret(r["nodeKey"]),
         }
 
-    def list(self, limit: Optional[int] = None, offset: Optional[int] = None) -> Gen:
+    def list(self, limit: Optional[int] = None, offset: Optional[int] = None, cursor: Optional[str] = None) -> Gen:
+        """Pass ``cursor`` (a previous nextCursor) or ``offset``."""
         if limit is not None:
             validate_int_range(limit, "limit", 1, 500)
         if offset is not None:
             validate_int_range(offset, "offset", 0, 1_000_000)
-        return (yield _get(f"/v1/nodes{qs({'limit': limit, 'offset': offset})}", "agent"))
+        if cursor is not None:
+            validate_page_cursor(cursor)
+        return (yield _get(f"/v1/nodes{qs({'limit': limit, 'offset': offset, 'cursor': cursor})}", "agent"))
 
     def revoke(self, node_id: str) -> Gen:
         """Irreversible."""
@@ -567,6 +575,16 @@ MAX_CONVERT_MUSD = 10_000_000_000
 MIN_WITHDRAW_MUSD = 1_000_000
 MAX_WITHDRAW_MUSD = 100_000_000_000
 _CURSOR_RE = re.compile(r"^[1-9][0-9]{0,18}\Z")
+# Exit classes of a node's egress IP (2.1).
+EXIT_CLASSES = ("residential", "mobile", "dc", "masked")
+# Opaque server cursor for /v1/nodes and /v1/payouts (2.1).
+_PAGE_CURSOR_RE = re.compile(r"^[A-Za-z0-9_\-=+/.:]{1,512}\Z")
+
+
+def validate_page_cursor(cursor: Any) -> str:
+    if not isinstance(cursor, str) or not _PAGE_CURSOR_RE.match(cursor):
+        raise invalid_arg("cursor must be a nextCursor value")
+    return cursor
 
 
 def _check_signed_challenge(ch: Any, signer: Any) -> Dict[str, Any]:
@@ -654,12 +672,15 @@ class _PayoutWalletResource(_Base):
 
 # ---------------------------------------------------------------- 3.14 payouts
 class _PayoutsResource(_Base):
-    def list(self, limit: Optional[int] = None, offset: Optional[int] = None) -> Gen:
+    def list(self, limit: Optional[int] = None, offset: Optional[int] = None, cursor: Optional[str] = None) -> Gen:
+        """Pass ``cursor`` (a previous nextCursor) or ``offset``."""
         if limit is not None:
             validate_int_range(limit, "limit", 1, 200)
         if offset is not None:
             validate_int_range(offset, "offset", 0, 1_000_000)
-        return (yield _get(f"/v1/payouts{qs({'limit': limit, 'offset': offset})}", "agent"))
+        if cursor is not None:
+            validate_page_cursor(cursor)
+        return (yield _get(f"/v1/payouts{qs({'limit': limit, 'offset': offset, 'cursor': cursor})}", "agent"))
 
 
 # ---------------------------------------------------------------- 3.15 proxy
@@ -825,7 +846,14 @@ ProxyResource, AsyncProxyResource = make_variants(_ProxyResource)
 _MAX_OFFSET = 1_000_000
 
 
-def _offset_pager(list_method: str, items_key: str, default_limit: int, max_limit: int, total: bool = False) -> Any:
+def _page_cursor(page: Any, items: List[Any], cursor: Optional[str]) -> Optional[str]:
+    nxt = page.get("nextCursor") if isinstance(page, dict) else None
+    if not items or not isinstance(nxt, str) or not _PAGE_CURSOR_RE.match(nxt) or nxt == cursor:
+        return None
+    return nxt
+
+
+def _offset_pager(list_method: str, items_key: str, default_limit: int, max_limit: int, total: bool = False, cursors: bool = False) -> Any:
     def _done(page: Any, items: List[Any], limit: int, offset: int) -> bool:
         if len(items) < limit:
             return True
@@ -842,10 +870,19 @@ def _offset_pager(list_method: str, items_key: str, default_limit: int, max_limi
     def sync_iter(self: Any, limit: Optional[int] = None, **kwargs: Any) -> Iterator[Any]:
         lim = validate_int_range(default_limit if limit is None else limit, "limit", 1, max_limit)
         offset = 0
+        cursor: Optional[str] = None
         while offset <= _MAX_OFFSET:
-            page = getattr(self, list_method)(limit=lim, offset=offset, **kwargs)
+            if cursor is not None:
+                page = getattr(self, list_method)(limit=lim, cursor=cursor, **kwargs)
+            else:
+                page = getattr(self, list_method)(limit=lim, offset=offset, **kwargs)
             items = _items(page)
             yield from items
+            if cursors and isinstance(page, dict) and "nextCursor" in page:
+                cursor = _page_cursor(page, items, cursor)
+                if cursor is None:
+                    return
+                continue
             if _done(page, items, lim, offset):
                 return
             offset += lim
@@ -853,11 +890,20 @@ def _offset_pager(list_method: str, items_key: str, default_limit: int, max_limi
     async def async_iter(self: Any, limit: Optional[int] = None, **kwargs: Any) -> AsyncIterator[Any]:
         lim = validate_int_range(default_limit if limit is None else limit, "limit", 1, max_limit)
         offset = 0
+        cursor: Optional[str] = None
         while offset <= _MAX_OFFSET:
-            page = await getattr(self, list_method)(limit=lim, offset=offset, **kwargs)
+            if cursor is not None:
+                page = await getattr(self, list_method)(limit=lim, cursor=cursor, **kwargs)
+            else:
+                page = await getattr(self, list_method)(limit=lim, offset=offset, **kwargs)
             items = _items(page)
             for item in items:
                 yield item
+            if cursors and isinstance(page, dict) and "nextCursor" in page:
+                cursor = _page_cursor(page, items, cursor)
+                if cursor is None:
+                    return
+                continue
             if _done(page, items, lim, offset):
                 return
             offset += lim
@@ -903,8 +949,8 @@ async def _credits_iter_async(self: Any, limit: Optional[int] = None, type: Opti
 CreditsResource.iter_transactions = _credits_iter_sync  # type: ignore[attr-defined]
 AsyncCreditsResource.iter_transactions = _credits_iter_async  # type: ignore[attr-defined]
 for _sync_cls, _async_cls, _name, _args in (
-    (PayoutsResource, AsyncPayoutsResource, "iterate", ("list", "payouts", 50, 200)),
-    (NodesResource, AsyncNodesResource, "iterate", ("list", "nodes", 100, 500)),
+    (PayoutsResource, AsyncPayoutsResource, "iterate", ("list", "payouts", 50, 200, False, True)),
+    (NodesResource, AsyncNodesResource, "iterate", ("list", "nodes", 100, 500, False, True)),
     (WalletResource, AsyncWalletResource, "iter_transactions", ("get_transactions", "transactions", 50, 100)),
 ):
     _s, _a = _offset_pager(*_args)
