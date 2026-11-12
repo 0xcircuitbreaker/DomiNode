@@ -7,7 +7,7 @@ Results are the server's JSON as dicts (camelCase keys, as on the wire); see typ
 from __future__ import annotations
 
 import re
-from typing import Any, Dict, List, Mapping, Optional
+from typing import Any, AsyncIterator, Dict, Iterator, List, Mapping, Optional
 
 from ._ops import Call, Gen, make_variants
 from .constants import DEFAULT_HTTP_PROXY_PORT, DEFAULT_PROXY_HOST, DEFAULT_SOCKS5_PROXY_PORT, DEFAULT_TLS_PROXY_PORT
@@ -254,6 +254,24 @@ class _AgenticWalletResource(_Base):
 
 
 # ---------------------------------------------------------------- 3.6 teams
+def _key_prefix(r: Any) -> str:
+    """Server sends ``prefix``; older servers sent ``keyPrefix``."""
+    if not isinstance(r, dict):
+        return ""
+    p = r.get("prefix", r.get("keyPrefix"))
+    return p if isinstance(p, str) else ""
+
+
+def _team_key(k: Dict[str, Any]) -> Dict[str, Any]:
+    prefix = _key_prefix(k)
+    revoked = k.get("revokedAt")
+    return {
+        "id": k.get("id"), "prefix": prefix, "keyPrefix": prefix, "label": k.get("label"),
+        "userId": k.get("userId"), "teamId": k.get("teamId"), "createdAt": k.get("createdAt"),
+        "revokedAt": revoked if isinstance(revoked, str) else None,
+    }
+
+
 class _TeamsResource(_Base):
     def _t(self, team_id: str) -> str:
         return f"/api/teams/{_id(team_id, 'team_id')}"
@@ -321,13 +339,17 @@ class _TeamsResource(_Base):
         return (yield _post(f"/api/teams/invites/{_id(token, 'token')}/accept", {}))
 
     def create_key(self, team_id: str, label: str) -> Gen:
-        """POST /{teamId}/keys -> {id, keyPrefix, label, key: Secret}. Team keys cannot call /v1 routes."""
+        """POST /{teamId}/keys -> {id, prefix, keyPrefix (alias), label, key: Secret}. Team keys cannot call /v1 routes."""
         validate_non_empty(label, "label", 100)
         r = yield _post(f"{self._t(team_id)}/keys", {"label": label})
-        return {**r, "key": Secret(str(r.get("key", "")))}
+        prefix = _key_prefix(r)
+        return {**r, "prefix": prefix, "keyPrefix": prefix, "key": Secret(str(r.get("key", "")))}
 
     def list_keys(self, team_id: str) -> Gen:
-        return (yield _get(f"{self._t(team_id)}/keys"))
+        """-> {keys: [{id, prefix, keyPrefix (alias), label, userId, teamId, createdAt, revokedAt}]}."""
+        r = yield _get(f"{self._t(team_id)}/keys")
+        keys = r.get("keys") if isinstance(r, dict) else None
+        return {"keys": [_team_key(k) for k in keys if isinstance(k, dict)] if isinstance(keys, list) else []}
 
     def revoke_key(self, team_id: str, key_id: str) -> Gen:
         yield _delete(f"{self._t(team_id)}/keys/{_id(key_id, 'key_id')}")
@@ -544,7 +566,7 @@ MIN_CONVERT_MUSD = 10_000
 MAX_CONVERT_MUSD = 10_000_000_000
 MIN_WITHDRAW_MUSD = 1_000_000
 MAX_WITHDRAW_MUSD = 100_000_000_000
-_CURSOR_RE = re.compile(r"^[0-9]{1,20}\Z")
+_CURSOR_RE = re.compile(r"^[1-9][0-9]{0,18}\Z")
 
 
 def _check_signed_challenge(ch: Any, signer: Any) -> Dict[str, Any]:
@@ -595,6 +617,10 @@ class _CreditsResource(_Base):
 
 
 # ---------------------------------------------------------------- 3.13 payoutWallet
+# base-sepolia is an explicit opt-in for staging; the server decides whether it is accepted.
+PAYOUT_CHAINS = ("base", "base-sepolia")
+
+
 class _PayoutWalletResource(_Base):
     def get(self) -> Gen:
         return (yield _get("/v1/payout-wallet", "agent"))
@@ -603,8 +629,8 @@ class _PayoutWalletResource(_Base):
         """Register or change the payout wallet (old wallet co-signs the SAME message when required)."""
         assert_signer(signer)
         addr = validate_address(address).lower()
-        if chain != "base":
-            raise invalid_arg("chain must be 'base'")
+        if chain not in PAYOUT_CHAINS:
+            raise invalid_arg("chain must be 'base' or 'base-sepolia'")
         if old_wallet_signer is not None:
             assert_signer(old_wallet_signer, "old_wallet_signer")
         ch = yield _post("/v1/payout-wallet/challenge", {"address": addr, "chain": chain}, "agent")
@@ -768,7 +794,10 @@ class _ProxyResource(_Base):
         return result
 
     def get_health(self) -> Gen:
-        return (yield _get("/api/proxy/health", "none"))
+        """-> {status}. The server returns only the gateway status."""
+        r = yield _get("/api/proxy/health", "none")
+        status = r.get("status") if isinstance(r, dict) else None
+        return {"status": status if isinstance(status, str) else "unknown"}
 
     def get_config(self) -> Gen:
         return (yield _get("/api/proxy/config"))
@@ -789,3 +818,98 @@ CreditsResource, AsyncCreditsResource = make_variants(_CreditsResource)
 PayoutWalletResource, AsyncPayoutWalletResource = make_variants(_PayoutWalletResource)
 PayoutsResource, AsyncPayoutsResource = make_variants(_PayoutsResource)
 ProxyResource, AsyncProxyResource = make_variants(_ProxyResource)
+
+
+# ---------------------------------------------------------------- pagination helpers
+# Sync variants are generators, async variants async generators. ``limit`` is the page size.
+_MAX_OFFSET = 1_000_000
+
+
+def _offset_pager(list_method: str, items_key: str, default_limit: int, max_limit: int, total: bool = False) -> Any:
+    def _done(page: Any, items: List[Any], limit: int, offset: int) -> bool:
+        if len(items) < limit:
+            return True
+        if total and isinstance(page, dict):
+            t = (page.get("pagination") or {}).get("total")
+            if isinstance(t, int) and offset + len(items) >= t:
+                return True
+        return False
+
+    def _items(page: Any) -> List[Any]:
+        v = page.get(items_key) if isinstance(page, dict) else None
+        return v if isinstance(v, list) else []
+
+    def sync_iter(self: Any, limit: Optional[int] = None, **kwargs: Any) -> Iterator[Any]:
+        lim = validate_int_range(default_limit if limit is None else limit, "limit", 1, max_limit)
+        offset = 0
+        while offset <= _MAX_OFFSET:
+            page = getattr(self, list_method)(limit=lim, offset=offset, **kwargs)
+            items = _items(page)
+            yield from items
+            if _done(page, items, lim, offset):
+                return
+            offset += lim
+
+    async def async_iter(self: Any, limit: Optional[int] = None, **kwargs: Any) -> AsyncIterator[Any]:
+        lim = validate_int_range(default_limit if limit is None else limit, "limit", 1, max_limit)
+        offset = 0
+        while offset <= _MAX_OFFSET:
+            page = await getattr(self, list_method)(limit=lim, offset=offset, **kwargs)
+            items = _items(page)
+            for item in items:
+                yield item
+            if _done(page, items, lim, offset):
+                return
+            offset += lim
+
+    return sync_iter, async_iter
+
+
+def _next_cursor(page: Any, items: List[Any], cursor: Optional[str]) -> Optional[str]:
+    nxt = page.get("nextCursor") if isinstance(page, dict) else None
+    if not items or not isinstance(nxt, str) or not _CURSOR_RE.match(nxt) or nxt == cursor:
+        return None
+    return nxt
+
+
+def _credit_items(page: Any) -> List[Any]:
+    v = page.get("transactions") if isinstance(page, dict) else None
+    return v if isinstance(v, list) else []
+
+
+def _credits_iter_sync(self: Any, limit: Optional[int] = None, type: Optional[str] = None, cursor: Optional[str] = None) -> Iterator[Any]:  # noqa: A002
+    """Every credit transaction (newest first), following nextCursor."""
+    while True:
+        page = self.transactions(limit=limit, cursor=cursor, type=type)
+        items = _credit_items(page)
+        yield from items
+        cursor = _next_cursor(page, items, cursor)
+        if cursor is None:
+            return
+
+
+async def _credits_iter_async(self: Any, limit: Optional[int] = None, type: Optional[str] = None, cursor: Optional[str] = None) -> AsyncIterator[Any]:  # noqa: A002
+    """Every credit transaction (newest first), following nextCursor."""
+    while True:
+        page = await self.transactions(limit=limit, cursor=cursor, type=type)
+        items = _credit_items(page)
+        for item in items:
+            yield item
+        cursor = _next_cursor(page, items, cursor)
+        if cursor is None:
+            return
+
+
+CreditsResource.iter_transactions = _credits_iter_sync  # type: ignore[attr-defined]
+AsyncCreditsResource.iter_transactions = _credits_iter_async  # type: ignore[attr-defined]
+for _sync_cls, _async_cls, _name, _args in (
+    (PayoutsResource, AsyncPayoutsResource, "iterate", ("list", "payouts", 50, 200)),
+    (NodesResource, AsyncNodesResource, "iterate", ("list", "nodes", 100, 500)),
+    (WalletResource, AsyncWalletResource, "iter_transactions", ("get_transactions", "transactions", 50, 100)),
+):
+    _s, _a = _offset_pager(*_args)
+    setattr(_sync_cls, _name, _s)
+    setattr(_async_cls, _name, _a)
+_s, _a = _offset_pager("get", "records", 200, 1000, total=True)
+UsageResource.iter_records = _s  # type: ignore[attr-defined]
+AsyncUsageResource.iter_records = _a  # type: ignore[attr-defined]

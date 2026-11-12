@@ -60,4 +60,4 @@ Traffic you, your wallet or your team send to your own nodes earns nothing (self
 
 ## Getting started without a key
 
-`dominusnode_wallet_challenge` then `dominusnode_wallet_setup` returns an API key; set `DOMINUSNODE_API_KEY` and restart. Fund with `dominusnode_pay_crypto`.
+`dominusnode_wallet_challenge` then `dominusnode_wallet_setup` returns an API key and unlocks the full tool set in the same session (set `DOMINUSNODE_API_KEY` for later sessions). With `DOMINUSNODE_WALLET_KEY_FILE`, call `dominusnode_wallet_setup` without a signature. Fund with `dominusnode_pay_crypto` after sign-in.

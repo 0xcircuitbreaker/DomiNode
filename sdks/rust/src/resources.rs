@@ -702,7 +702,7 @@ impl CreditsResource {
             validate_int_range(l, "limit", 1, 200)?;
         }
         if let Some(c) = cursor {
-            if c.is_empty() || c.len() > 20 || !c.bytes().all(|b| b.is_ascii_digit()) {
+            if !crate::pagination::is_valid_cursor(c) {
                 return Err(DominusNodeError::invalid_arg("cursor must be a nextCursor value"));
             }
         }
@@ -812,8 +812,9 @@ impl PayoutWalletResource {
         validate_address(address, "address")?;
         let address = address.to_lowercase();
         let chain = chain.unwrap_or("base");
-        if chain != "base" {
-            return Err(DominusNodeError::invalid_arg("chain must be 'base'"));
+        // base-sepolia is an explicit staging opt-in; the server decides whether it is accepted.
+        if chain != "base" && chain != "base-sepolia" {
+            return Err(DominusNodeError::invalid_arg("chain must be 'base' or 'base-sepolia'"));
         }
         if let Some(o) = old_wallet_signer {
             assert_signer(o, "oldWalletSigner")?;

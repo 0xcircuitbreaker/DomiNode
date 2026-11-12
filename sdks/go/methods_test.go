@@ -209,7 +209,7 @@ func TestEveryMethodRequest(t *testing.T) {
 			if (tc.body != "") != (r.Header.Get("Content-Type") == "application/json") {
 				t.Fatalf("Content-Type %q with body %q", r.Header.Get("Content-Type"), tc.body)
 			}
-			if r.Header.Get("User-Agent") != "dominusnode-sdk-go/2.0.0" || r.Header.Get("Accept") != "application/json" {
+			if r.Header.Get("User-Agent") != "dominusnode-sdk-go/2.0.1" || r.Header.Get("Accept") != "application/json" {
 				t.Fatalf("bad UA/Accept: %v", r.Header)
 			}
 			got := r.Header.Get("Authorization")
@@ -294,7 +294,7 @@ func TestSecretsWrapped(t *testing.T) {
 	if err != nil || k.Key.Reveal() != testKey || k.Key.String() != "[REDACTED]" {
 		t.Fatalf("%v %v", k, err)
 	}
-	rt.push(ok(`{"id":"k2","keyPrefix":"dn_live_","label":"ci","key":"` + testKey + `"}`))
+	rt.push(ok(`{"id":"k2","prefix":"dn_live_","label":"ci","key":"` + testKey + `"}`))
 	tk, err := c.Teams.CreateKey(context.Background(), testUUID, "ci")
 	if err != nil || tk.Key.Reveal() != testKey {
 		t.Fatalf("%v %v", tk, err)

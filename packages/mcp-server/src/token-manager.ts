@@ -1,3 +1,4 @@
+import { USER_AGENT } from "./version.js";
 const TOKEN_REFRESH_BUFFER_MS = 60_000;
 
 // Maximum response body size for token endpoint responses (1MB)
@@ -21,7 +22,7 @@ export class TokenManager {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "User-Agent": "dominusnode-mcp-server/1.0.0",
+        "User-Agent": USER_AGENT,
         "X-DominusNode-Agent": "mcp", // MCP identification
       },
       body: JSON.stringify({ apiKey }),
@@ -105,7 +106,7 @@ export class TokenManager {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
-              "User-Agent": "dominusnode-mcp-server/1.0.0",
+              "User-Agent": USER_AGENT,
               "X-DominusNode-Agent": "mcp", // MCP identification
             },
             body: JSON.stringify({ refreshToken: this.refreshTokenValue }),

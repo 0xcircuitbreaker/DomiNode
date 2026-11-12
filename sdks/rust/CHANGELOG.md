@@ -5,6 +5,34 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.0.1] - 2026-11-12
+
+No breaking changes: every 2.0.0 public name and type still exists.
+
+### Fixed
+- Team keys read the server's `prefix` field (falls back to `keyPrefix`); key lists
+  expose `userId`, `teamId` and `revokedAt`.
+- Proxy health returns `{ status }` only, matching the server.
+- Team invites carry `invitedBy`.
+- Credits cursor validation matches the server (`^[1-9][0-9]{0,18}$`).
+- 409 responses (e.g. `REPORT_LIMIT`) are never retried and surface with their `code`;
+  429 is retried at most once.
+- Byte-count fields in usage results and network stats decode from a JSON number or a numeric string.
+- `TeamKey`/`TeamKeyCreated`: `key_prefix` is read from the server's `prefix` field (legacy `keyPrefix`
+  accepted); a `prefix()` accessor is added.
+
+### Added
+- `buyerDiscountBps` on credits balance and tier views, `buyerDiscounts` on pricing,
+  `seed`/`community` blocks on network stats.
+- Payout wallet `chain` accepts `base-sepolia` as an explicit opt-in (server decides).
+- Pagination helpers for credit transactions, payouts, nodes, usage records and
+  wallet transactions.
+- README: PoW/client-IP note and a troubleshooting table.
+
+### Deprecated
+- `TeamInvite::token`: never sent by the server; always empty.
+- `ProxyHealth::active_sessions` and `ProxyHealth::uptime_seconds`: never sent by the server; always 0.
+
 ## [2.0.0] - 2026-11-06
 
 ### Changed (breaking)

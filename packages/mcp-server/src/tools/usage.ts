@@ -3,11 +3,18 @@ import { z } from "zod";
 import type { HttpClient } from "../http-client.js";
 import type { UsageSummary, DailyUsage, TopHost } from "../types.js";
 
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
-  return `${(bytes / (1024 * 1024 * 1024)).toFixed(3)} GB`;
+/**
+ * Decimal units, matching relay billing (1 GB = 1e9 bytes, not GiB). The raw byte
+ * count is always shown so the figure can be checked against per-GB prices.
+ */
+export function formatBytes(bytes: number): string {
+  const raw = `${Math.trunc(bytes).toLocaleString("en-US")} bytes`;
+  if (bytes < 1e3) return raw;
+  let scaled: string;
+  if (bytes < 1e6) scaled = `${(bytes / 1e3).toFixed(1)} kB`;
+  else if (bytes < 1e9) scaled = `${(bytes / 1e6).toFixed(2)} MB`;
+  else scaled = `${(bytes / 1e9).toFixed(3)} GB`;
+  return `${scaled} (${raw})`;
 }
 
 export function registerUsageTools(server: McpServer, httpClient: HttpClient): void {
@@ -55,7 +62,7 @@ export function registerUsageTools(server: McpServer, httpClient: HttpClient): v
         }
         const header = "Date       | Bandwidth      | Cost    | Requests";
         const lines = data.days.map(
-          (d) => `${d.date} | ${formatBytes(d.totalBytes).padEnd(14)} | $${d.totalCostUsd.toFixed(2).padStart(5)} | ${d.requestCount}`,
+          (d) => `${d.date} | ${formatBytes(d.totalBytes).padEnd(32)} | $${d.totalCostUsd.toFixed(2).padStart(5)} | ${d.requestCount}`,
         );
         return { content: [{ type: "text", text: [header, ...lines].join("\n") }] };
       } catch (err) {
@@ -86,7 +93,7 @@ export function registerUsageTools(server: McpServer, httpClient: HttpClient): v
         }
         const header = "Host                         | Bandwidth      | Requests";
         const lines = data.hosts.map(
-          (h) => `${h.targetHost.padEnd(28)} | ${formatBytes(h.totalBytes).padEnd(14)} | ${h.requestCount}`,
+          (h) => `${h.targetHost.padEnd(28)} | ${formatBytes(h.totalBytes).padEnd(32)} | ${h.requestCount}`,
         );
         return { content: [{ type: "text", text: [header, ...lines].join("\n") }] };
       } catch (err) {

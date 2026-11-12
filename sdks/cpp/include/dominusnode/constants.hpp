@@ -5,8 +5,8 @@
 
 namespace dominusnode {
 
-inline constexpr const char* SDK_VERSION = "2.0.0";
-inline constexpr const char* USER_AGENT = "dominusnode-sdk-cpp/2.0.0";
+inline constexpr const char* SDK_VERSION = "2.0.1";
+inline constexpr const char* USER_AGENT = "dominusnode-sdk-cpp/2.0.1";
 inline constexpr const char* DEFAULT_BASE_URL = "https://api.dominusnode.daedalusdevelopmentgroup.com";
 inline constexpr const char* DEFAULT_PROXY_HOST = "proxy.dominusnode.daedalusdevelopmentgroup.com";
 inline constexpr int DEFAULT_HTTP_PROXY_PORT = 8080;

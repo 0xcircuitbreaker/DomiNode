@@ -12,3 +12,9 @@ describe("scrubCredentials", () => {
     expect(out).toBe("[REDACTED] [REDACTED] [REDACTED]");
   });
 });
+
+describe("scrubCredentials das_", () => {
+  it("redacts per-agent das_ secrets", () => {
+    expect(scrubCredentials("secret das_AbC123_-xyz leaked")).toBe("secret [REDACTED] leaked");
+  });
+});

@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.0.1] - 2026-11-12
+
+No breaking changes: every 2.0.0 public name and type still exists.
+
+### Fixed
+- Team keys read the server's `prefix` field (falls back to `keyPrefix`); key lists
+  expose `userId`, `teamId` and `revokedAt`.
+- Proxy health returns `{ status }` only, matching the server.
+- Team invites carry `invitedBy`.
+- Credits cursor validation matches the server (`^[1-9][0-9]{0,18}$`).
+- 409 responses (e.g. `REPORT_LIMIT`) are never retried and surface with their `code`;
+  429 is retried at most once.
+- A malformed `Content-Length` response header raises `ServerError` instead of being ignored.
+
+### Added
+- `buyerDiscountBps` on credits balance and tier views, `buyerDiscounts` on pricing,
+  `seed`/`community` blocks on network stats.
+- Payout wallet `chain` accepts `base-sepolia` as an explicit opt-in (server decides).
+- Pagination helpers for credit transactions, payouts, nodes, usage records and
+  wallet transactions.
+- README: PoW/client-IP note and a troubleshooting table.
+
+### Deprecated
+- The `keyPrefix` key in team-key results: use `prefix` (same value).
+
 ## [2.0.0] - 2026-11-06
 
 Breaking: rewritten for the v2 relay-network contract (`sdks/SDK_SURFACE.md`, reference `sdks/node` 2.0.0).

@@ -79,7 +79,7 @@ CASES = [
     ("teams.accept_invite", lambda c: c.teams.accept_invite(WEIRD), "POST", f"/api/teams/invites/{WEIRD_ENC}/accept",
      {}, "jwt", None),
     ("teams.create_key", lambda c: c.teams.create_key(U, "ci"), "POST", f"/api/teams/{U}/keys", {"label": "ci"}, "jwt",
-     {"id": "k", "keyPrefix": "dn_live_", "key": KEY}),
+     {"id": "k", "prefix": "dn_live_", "key": KEY}),
     ("teams.list_keys", lambda c: c.teams.list_keys(U), "GET", f"/api/teams/{U}/keys", None, "jwt", None),
     ("teams.revoke_key", lambda c: c.teams.revoke_key(U, U), "DELETE", f"/api/teams/{U}/keys/{U}", None, "jwt", None),
     # usage (4)
@@ -136,7 +136,7 @@ def _check(rec: Recorder, method: str, path: str, body: Any, auth: str) -> None:
         assert r.headers["content-type"] == "application/json"
     expected = {"jwt": f"Bearer {ACCESS}", "key": f"Bearer {API_KEY}", "none": None}[auth]
     assert r.headers.get("authorization") == expected
-    assert r.headers["user-agent"] == "dominusnode-sdk-python/2.0.0"
+    assert r.headers["user-agent"] == "dominusnode-sdk-python/2.0.1"
     assert r.headers["accept"] == "application/json"
 
 

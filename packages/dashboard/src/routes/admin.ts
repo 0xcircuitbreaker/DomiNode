@@ -89,8 +89,8 @@ router.put("/users/:id/suspend", async (req, res) => {
       res.status(403).json({ error: "Only root admin can suspend another admin account" });
       return;
     }
-    // Root admin account (sarris88p@gmail.com) can never be suspended
-    if (targetUser?.email.toLowerCase() === adminRepo.getRootAdminEmail()) {
+    // The root admin account can never be suspended
+    if (adminRepo.isRootAdmin(targetUser)) {
       res.status(403).json({ error: "Root admin account cannot be suspended" });
       return;
     }
@@ -193,8 +193,8 @@ router.delete("/users/:id", async (req, res) => {
       res.status(403).json({ error: "Only root admin can delete another admin account" });
       return;
     }
-    // Root admin account (sarris88p@gmail.com) can never be deleted
-    if (targetUser?.email.toLowerCase() === adminRepo.getRootAdminEmail()) {
+    // The root admin account can never be deleted
+    if (adminRepo.isRootAdmin(targetUser)) {
       res.status(403).json({ error: "Root admin account cannot be deleted" });
       return;
     }

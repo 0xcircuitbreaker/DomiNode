@@ -142,7 +142,7 @@ class ResourcesTest {
                 }
                 String expected = k.auth.equals("none") ? null : "Bearer " + (k.auth.equals("agent") ? API_KEY : JWT);
                 assertEquals(expected, MockTransport.auth(r));
-                assertEquals("dominusnode-sdk-java/2.0.0", r.headers.get("User-Agent"));
+                assertEquals("dominusnode-sdk-java/2.0.1", r.headers.get("User-Agent"));
                 assertEquals("application/json", r.headers.get("Accept"));
             }));
         }
@@ -169,7 +169,7 @@ class ResourcesTest {
         KeysResource.CreatedKey k = c.keys().create("x");
         assertEquals(API_KEY, k.key.reveal());
         assertFalse(k.toString().contains(API_KEY));
-        t.reply(200, "{\"id\":\"1\",\"keyPrefix\":\"dn_live_\",\"label\":\"x\",\"key\":\"dn_live_teamkey123456\"}");
+        t.reply(200, "{\"id\":\"1\",\"prefix\":\"dn_live_\",\"label\":\"x\",\"key\":\"dn_live_teamkey123456\"}");
         TeamsResource.CreatedTeamKey tk = c.teams().createKey("t", "x");
         assertEquals("dn_live_teamkey123456", tk.key.reveal());
         assertEquals("[REDACTED]", String.valueOf(tk.key));
@@ -197,6 +197,9 @@ class ResourcesTest {
         assertEquals("date,bytes\n2026-01-01,5\n", c.usage().exportCsv());
     }
 
+    /** Convenience iterators on top of the surface; not counted as surface methods. */
+    static final Set<String> PAGINATION_HELPERS = Set.of("iterate", "stream", "iterTransactions", "streamTransactions", "iterRecords", "streamRecords");
+
     /** 15 resources, 71 methods (counting distinct public method names per resource). */
     @Test
     void surfaceCounts() {
@@ -208,7 +211,8 @@ class ResourcesTest {
         for (int i = 0; i < resources.length; i++) {
             Set<String> names = new TreeSet<>();
             for (Method m : resources[i].getClass().getDeclaredMethods()) {
-                if (Modifier.isPublic(m.getModifiers()) && !Modifier.isStatic(m.getModifiers()) && !m.getName().equals("setResolver")) names.add(m.getName());
+                if (Modifier.isPublic(m.getModifiers()) && !Modifier.isStatic(m.getModifiers()) && !m.getName().equals("setResolver")
+                        && !PAGINATION_HELPERS.contains(m.getName())) names.add(m.getName());
             }
             assertEquals(expected[i], names.size(), resources[i].getClass().getSimpleName() + " " + names);
             total += names.size();

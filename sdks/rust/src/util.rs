@@ -445,3 +445,24 @@ pub(crate) async fn sign(s: &dyn Signer, message: &str, name: &str) -> Result<St
     validate_signature(&sig, &format!("{name} signature")).map_err(|e| DominusNodeError::protocol(e.message()))?;
     Ok(sig)
 }
+
+/// Deserialize a byte count from a JSON number, a numeric string or null (0).
+pub(crate) fn de_byte_count<'de, D>(d: D) -> std::result::Result<i64, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::de::Error;
+    match serde_json::Value::deserialize(d)? {
+        serde_json::Value::Null => Ok(0),
+        serde_json::Value::Number(n) => n.as_i64().ok_or_else(|| D::Error::custom("byte count is not an integer")),
+        serde_json::Value::String(s) => {
+            let t = s.trim();
+            let digits = t.strip_prefix('-').unwrap_or(t);
+            if digits.is_empty() || digits.len() > 19 || !digits.bytes().all(|b| b.is_ascii_digit()) {
+                return Err(D::Error::custom("byte count is not a numeric string"));
+            }
+            t.parse::<i64>().map_err(|_| D::Error::custom("byte count out of range"))
+        }
+        _ => Err(D::Error::custom("byte count must be a number or numeric string")),
+    }
+}

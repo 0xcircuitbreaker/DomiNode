@@ -36,4 +36,31 @@ public final class UsageResource {
     public String exportCsv(String from, String to) {
         return http.request("GET", "/api/usage/export" + qs("since", from, "until", to), null, Auth.JWT, null, true).asText();
     }
+
+    /** Every usage record in the range (page size default 200, max 1000); stops at pagination.total. */
+    public java.util.Iterator<JsonNode> iterRecords(String from, String to, Integer limit) {
+        int l = Paging.pageSize(limit, 200, 1000);
+        return Paging.offset(l, "records", true, (lim, off) -> get(from, to, lim, off));
+    }
+
+    public java.util.stream.Stream<JsonNode> streamRecords(String from, String to, Integer limit) {
+        return Paging.stream(iterRecords(from, to, limit));
+    }
+
+    /**
+     * Byte count from a usage/stats field that may be a JSON number or a numeric string. Missing/null = 0.
+     * Anything else (fractions, text, out of range) throws ServerException.
+     */
+    public static long byteCount(JsonNode v) {
+        if (v == null || v.isNull() || v.isMissingNode()) return 0L;
+        if (v.isIntegralNumber() && v.canConvertToLong()) return v.asLong();
+        if (v.isTextual() && v.asText().trim().matches("^-?[0-9]{1,19}$")) {
+            try {
+                return Long.parseLong(v.asText().trim());
+            } catch (NumberFormatException e) {
+                throw new io.dominusnode.sdk.errors.ServerException("byte count out of range", null);
+            }
+        }
+        throw new io.dominusnode.sdk.errors.ServerException("byte count is not a number or numeric string", null);
+    }
 }

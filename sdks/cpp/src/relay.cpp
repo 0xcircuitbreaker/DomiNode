@@ -121,7 +121,7 @@ json CreditsResource::balance() { return http_.get("/v1/credits", AuthMode::Agen
 
 json CreditsResource::transactions(OptInt limit, OptStr cursor, OptStr type) {
     if (limit) validate_int_range(*limit, "limit", 1, 200);
-    static const std::regex cursor_re("^[0-9]{1,20}$");
+    static const std::regex cursor_re("^[1-9][0-9]{0,18}$");
     if (cursor && !std::regex_match(*cursor, cursor_re)) throw invalid_arg("cursor must be a nextCursor value");
     static const std::array<const char*, 6> types = {"earn", "mature", "clawback", "convert", "withdraw", "withdraw_reversal"};
     if (type && std::find(types.begin(), types.end(), *type) == types.end()) {
@@ -184,7 +184,7 @@ json PayoutWalletResource::set(const std::string& address_in, const Signer& sign
                                const std::optional<Signer>& old_signer) {
     assert_signer(signer);
     std::string address = to_lower(validate_address(address_in));
-    if (chain != "base") throw invalid_arg("chain must be 'base'");
+    if (chain != "base" && chain != "base-sepolia") throw invalid_arg("chain must be 'base' or 'base-sepolia'");
     if (old_signer) assert_signer(*old_signer, "oldWalletSigner");
 
     json ch = http_.post("/v1/payout-wallet/challenge", {{"address", address}, {"chain", chain}}, AuthMode::Agent);

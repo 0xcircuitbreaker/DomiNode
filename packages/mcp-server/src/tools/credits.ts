@@ -52,10 +52,14 @@ function usd(m: Money | undefined): string {
   return m && typeof m.usd === "string" ? `$${m.usd}` : "?";
 }
 
-function errorResult(err: unknown) {
+function errorResult(err: unknown, idempotencyKey?: string) {
+  const retry = idempotencyKey
+    ? `\nIdempotency key: ${idempotencyKey}. To retry safely, call again with idempotency_key="${idempotencyKey}" ` +
+      `(same amount): the server applies it at most once.`
+    : "";
   return {
     isError: true,
-    content: [{ type: "text" as const, text: `Error: ${scrubCredentials(err instanceof Error ? err.message : String(err))}` }],
+    content: [{ type: "text" as const, text: `Error: ${scrubCredentials(err instanceof Error ? err.message : String(err))}${retry}` }],
   };
 }
 
@@ -135,23 +139,24 @@ export function registerCreditsTools(server: McpServer, httpClient: HttpClient, 
   server.tool(
     "dominusnode_credits_convert",
     "Convert available node credit into your own requester (proxy) wallet balance (POST /v1/credits/convert). Whole cents only; " +
-      "the sub-cent remainder stays in credits. Credits never move to another user. Idempotent per key.",
+      "the sub-cent remainder stays in credits. Credits never move to another user. Idempotent per key: the key is shown in the " +
+      "result and in any error; on a timeout or error, retry with the same idempotency_key and amount so it is applied at most once.",
     {
       amount_musd: amountArg,
-      idempotency_key: z.string().regex(IDEM_RE).optional().describe("Optional idempotency key (8-120 [A-Za-z0-9_-]); generated if omitted"),
+      idempotency_key: z.string().regex(IDEM_RE).optional().describe("Optional idempotency key (8-120 [A-Za-z0-9_-]); generated if omitted. Reuse the key from a failed call to retry safely"),
     },
     async (args) => {
+      const key = args.idempotency_key ?? `mcp-conv-${randomBytes(12).toString("hex")}`;
       try {
         const n = BigInt(args.amount_musd);
         if (n < 10_000n || n > 10_000_000_000n) throw new NodeToolError("amount_musd must be between 10000 (1 cent) and 10000000000 ($10,000)");
-        const key = args.idempotency_key ?? `mcp-conv-${randomBytes(12).toString("hex")}`;
         const r = await httpClient.request<{ converted: Money; convertedCents: number; duplicate: boolean }>({
           method: "POST", path: "/v1/credits/convert", body: { amountMusd: args.amount_musd },
           headers: { "Idempotency-Key": key }, bearer: bearer(),
         });
         return text(`${r.duplicate ? "Already converted" : "Converted"} ${usd(r.converted)} to your wallet (idempotency key ${key}).`);
       } catch (err) {
-        return errorResult(err);
+        return errorResult(err, key);
       }
     },
   );
@@ -226,17 +231,19 @@ export function registerCreditsTools(server: McpServer, httpClient: HttpClient, 
   server.tool(
     "dominusnode_credits_withdraw",
     "Withdraw available node credit as USDC on Base to your payout wallet (POST /v1/credits/withdraw). Minimum $1, tier daily limit, " +
-      "fresh signature from the linked wallet key in DOMINUSNODE_WALLET_KEY_FILE. Returns 503 PAYOUTS_DISABLED while payouts are off.",
+      "fresh signature from the linked wallet key in DOMINUSNODE_WALLET_KEY_FILE. Returns 503 PAYOUTS_DISABLED while payouts are off. " +
+      "Idempotent per key: the key is shown in the result and in any error; on a timeout or error, retry with the same " +
+      "idempotency_key and amount so at most one payout is created.",
     {
       amount_musd: amountArg,
       idempotency_key: z.string().regex(IDEM_RE).optional().describe("Optional idempotency key; reuse it to retry safely. Generated if omitted"),
       confirm: z.literal(true).describe("Must be true to request the withdrawal"),
     },
     async (args) => {
+      const key = args.idempotency_key ?? `mcp-wd-${randomBytes(12).toString("hex")}`;
       try {
         if (BigInt(args.amount_musd) < 1_000_000n) throw new NodeToolError("minimum withdrawal is $1 (amount_musd >= 1000000)");
         const signer = linkedWallet(config);
-        const key = args.idempotency_key ?? `mcp-wd-${randomBytes(12).toString("hex")}`;
         const ch = await httpClient.request<{ nonce: string; message: string }>({
           method: "POST", path: "/v1/credits/withdraw/challenge", body: { amountMusd: args.amount_musd, idempotencyKey: key }, bearer: bearer(),
         });
@@ -252,7 +259,7 @@ export function registerCreditsTools(server: McpServer, httpClient: HttpClient, 
         });
         return text(`${r.duplicate ? "Existing" : "New"} payout ${r.payout.id}: ${usd(r.payout.amount)} [${r.payout.status}] (idempotency key ${key}). Track it with dominusnode_payouts_list.`);
       } catch (err) {
-        return errorResult(err);
+        return errorResult(err, key);
       }
     },
   );

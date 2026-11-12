@@ -21,7 +21,8 @@ COPY packages/mcp-server/ packages/mcp-server/
 RUN npm ci --ignore-scripts
 
 # Build all packages
-RUN npm run build
+# Build only the copied packages (the root build also references node-agent)
+RUN npx tsc --build packages/dashboard packages/proxy-gateway packages/mcp-server
 
 # Copy schema.sql to dist
 RUN cp packages/shared/src/schema.sql packages/shared/dist/src/schema.sql

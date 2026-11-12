@@ -95,6 +95,36 @@ function throwForStatus(status: number, body: string, headers: Headers): never {
   }
 }
 
+/**
+ * Read a response body as UTF-8, counting bytes as they stream in. Past maxBytes the
+ * stream is cancelled and ServerError is raised, so a chunked (no Content-Length)
+ * body is never buffered beyond the cap.
+ */
+export async function readCapped(res: Response, maxBytes: number): Promise<string> {
+  if (!res.body) return "";
+  const reader = res.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > maxBytes) {
+        await reader.cancel().catch(() => undefined);
+        throw new ServerError("Response body exceeds size limit", res.status);
+      }
+      chunks.push(value);
+    }
+  } catch (err) {
+    if (err instanceof DominusNodeError) throw err;
+    throw new NetworkError(scrubCredentials(`Failed to read response body: ${err instanceof Error ? err.message : String(err)}`));
+  } finally {
+    reader.releaseLock();
+  }
+  return Buffer.concat(chunks, size).toString("utf8");
+}
+
 export interface Credentials {
   tokens: TokenManager;
   apiKey: () => string | null;
@@ -154,9 +184,7 @@ export class HttpClient {
       await res.body?.cancel().catch(() => undefined);
       throw new ServerError("Response body too large", res.status);
     }
-    const text = await res.text();
-    if (Buffer.byteLength(text) > MAX_RESPONSE_BYTES) throw new ServerError("Response body exceeds size limit", res.status);
-    return text;
+    return readCapped(res, MAX_RESPONSE_BYTES);
   }
 
   async request<T>(opts: HttpOptions): Promise<T> {

@@ -14,7 +14,7 @@ export function registerProxyTools(server: McpServer, httpClient: HttpClient, co
     async () => {
       const lines = [
         ...(config.proxyTls ? [`HTTPS proxy (TLS to the gateway, preferred): ${config.proxyHost}:${config.proxyTls.port}`] : []),
-        `HTTP proxy: ${config.proxyHost}:${config.httpProxyPort} (CONNECT for https)`,
+        `HTTP proxy: ${config.proxyHost}:${config.httpProxyPort} (plaintext to the gateway: the API key is sent in clear; avoid)`,
         `SOCKS5 proxy: ${config.proxyHost}:${config.socks5ProxyPort}`,
         ``,
         `Credentials: username = routing flags, password = your dn_live_ API key`,
@@ -24,9 +24,13 @@ export function registerProxyTools(server: McpServer, httpClient: HttpClient, co
         `  session-<id>        sticky exit node for an alphanumeric session id`,
         `  allowhttp-1         permit plaintext http:// (exit-visible)`,
         `Examples:`,
+        ...(config.proxyTls ? [
+          `  curl -x https://country-US-class-residential:$DOMINUSNODE_API_KEY@${config.proxyHost}:${config.proxyTls.port} https://httpbin.org/ip`,
+          `  curl -x https://relay:$DOMINUSNODE_API_KEY@${config.proxyHost}:${config.proxyTls.port} https://example.com`,
+          `Plaintext gateway (only if TLS is unavailable):`,
+        ] : []),
         `  curl -x http://country-US-class-residential:$DOMINUSNODE_API_KEY@${config.proxyHost}:${config.httpProxyPort} https://httpbin.org/ip`,
         `  curl -x http://class-dc-session-abc123:$DOMINUSNODE_API_KEY@${config.proxyHost}:${config.httpProxyPort} https://example.com`,
-        ...(config.proxyTls ? [`  curl -x https://relay:$DOMINUSNODE_API_KEY@${config.proxyHost}:${config.proxyTls.port} https://example.com`] : []),
         ``,
       ];
       const [pricing, policy] = await Promise.allSettled([

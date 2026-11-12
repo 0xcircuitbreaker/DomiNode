@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.14)
-project(dominusnode-cpp VERSION 2.0.0 LANGUAGES CXX)
+project(dominusnode-cpp VERSION 2.0.1 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -18,6 +18,7 @@ add_library(dominusnode
   src/relay.cpp
   src/proxy.cpp
   src/client.cpp
+  src/pagination.cpp
 )
 target_include_directories(dominusnode PUBLIC include)
 target_link_libraries(dominusnode PUBLIC CURL::libcurl nlohmann_json::nlohmann_json OpenSSL::Crypto Threads::Threads)
@@ -41,6 +42,7 @@ if(DOMINUSNODE_BUILD_TESTS)
     tests/test_signed.cpp
     tests/test_proxy.cpp
     tests/test_proxy_tls.cpp
+    tests/test_integrity.cpp
   )
   target_link_libraries(dominusnode_tests PRIVATE dominusnode OpenSSL::SSL)
   if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")

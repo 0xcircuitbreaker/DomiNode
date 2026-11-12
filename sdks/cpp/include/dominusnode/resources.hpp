@@ -10,6 +10,7 @@
 #include <nlohmann/json.hpp>
 #include <cstdint>
 #include <map>
+#include <functional>
 #include <optional>
 #include <string>
 #include <vector>
@@ -19,6 +20,13 @@ namespace dominusnode {
 using json = nlohmann::json;
 using OptStr = std::optional<std::string>;
 using OptInt = std::optional<long long>;
+
+/// Pagination callback: return false to stop early.
+using ItemCallback = std::function<bool(const json&)>;
+
+/// Byte count from a field sent as a JSON number or a numeric string (null/missing = 0).
+/// Fractions, text or out-of-range values throw ServerError.
+std::int64_t byte_count(const json& v);
 
 // ─── 3.1 auth ───────────────────────────────────────────────────────────────
 class AuthResource {
@@ -75,6 +83,8 @@ public:
     /// 1000..100000 cents; currency btc eth ltc xmr zec usdc sol usdt dai bnb link.
     json top_up_crypto(std::int64_t amount_cents, const std::string& currency);
     json get_crypto_status(const std::string& invoice_id);
+    /// Every wallet transaction (page size default 50, server max 100).
+    void for_each_transaction(const ItemCallback& fn, OptInt limit = std::nullopt);
 private:
     HttpClient& http_;
 };
@@ -107,8 +117,14 @@ private:
 
 // ─── 3.6 teams ──────────────────────────────────────────────────────────────
 struct TeamKeyCreateResponse {
-    std::string id, key_prefix, label;
+    std::string id;
+    /// Read from the server's `prefix` field (legacy `keyPrefix` accepted).
+    std::string key_prefix;
+    std::string label;
     Secret key;
+    /// Same value as key_prefix (added in 2.0.1).
+    std::string prefix;
+    std::string created_at;
 };
 class TeamsResource {
 public:
@@ -130,6 +146,7 @@ public:
     void cancel_invite(const std::string& team_id, const std::string& invite_id);
     json accept_invite(const std::string& token);
     TeamKeyCreateResponse create_key(const std::string& team_id, const std::string& label);
+    /// {keys:[{id, prefix, label, userId, teamId, createdAt, revokedAt}]}; a legacy keyPrefix is copied to prefix.
     json list_keys(const std::string& team_id);
     void revoke_key(const std::string& team_id, const std::string& key_id);
 private:
@@ -145,6 +162,8 @@ public:
     json get_top_hosts(OptStr from = std::nullopt, OptStr to = std::nullopt, OptInt limit = std::nullopt);
     /// Raw CSV text.
     std::string export_csv(OptStr from = std::nullopt, OptStr to = std::nullopt);
+    /// Every usage record in the range (page size default 200, max 1000); stops at pagination.total.
+    void for_each_record(const ItemCallback& fn, OptStr from = std::nullopt, OptStr to = std::nullopt, OptInt limit = std::nullopt);
 private:
     HttpClient& http_;
 };
@@ -212,6 +231,8 @@ public:
     /// challenge -> rebuild attestation (refuse mismatch) -> PoW -> sign -> POST /v1/nodes.
     RegisteredNode register_node(const Signer& signer, const RegisterNodeOptions& opts = {});
     json list(OptInt limit = std::nullopt, OptInt offset = std::nullopt);
+    /// Every node you own (page size default 100, max 500).
+    void for_each(const ItemCallback& fn, OptInt limit = std::nullopt);
     json revoke(const std::string& node_id);
     json update_caps(const std::string& node_id, const NodeCaps& caps);
     json tier();
@@ -229,8 +250,10 @@ class CreditsResource {
 public:
     explicit CreditsResource(HttpClient& h) : http_(h) {}
     json balance();
-    /// limit 1..200; cursor ^[0-9]{1,20}$; type earn mature clawback convert withdraw withdraw_reversal.
+    /// limit 1..200; cursor ^[1-9][0-9]{0,18}$; type earn mature clawback convert withdraw withdraw_reversal.
     json transactions(OptInt limit = std::nullopt, OptStr cursor = std::nullopt, OptStr type = std::nullopt);
+    /// Every credit transaction (newest first), following nextCursor; limit = page size.
+    void for_each_transaction(const ItemCallback& fn, OptInt limit = std::nullopt, OptStr type = std::nullopt);
     /// Result includes the idempotencyKey used (retry with it).
     json convert(const MusdInput& amount_musd, OptStr idempotency_key = std::nullopt);
     json withdraw(const MusdInput& amount_musd, const Signer& signer, OptStr idempotency_key = std::nullopt);
@@ -241,6 +264,8 @@ class PayoutsResource {
 public:
     explicit PayoutsResource(HttpClient& h) : http_(h) {}
     json list(OptInt limit = std::nullopt, OptInt offset = std::nullopt);
+    /// Every payout (page size default 50, max 200).
+    void for_each(const ItemCallback& fn, OptInt limit = std::nullopt);
 private:
     HttpClient& http_;
 };
@@ -250,6 +275,7 @@ class PayoutWalletResource {
 public:
     explicit PayoutWalletResource(HttpClient& h) : http_(h) {}
     json get();
+    /// chain "base" or "base-sepolia" (explicit staging opt-in; the server decides).
     json set(const std::string& address, const Signer& signer, const std::string& chain = "base",
              const std::optional<Signer>& old_wallet_signer = std::nullopt);
 private:
@@ -311,6 +337,7 @@ public:
     std::string build_url(const ProxyRoutingOptions& opts = {}, const std::string& protocol = "",
                           const OptStr& api_key = std::nullopt) const;
     ProxyFetchResponse fetch(const std::string& url, const ProxyFetchOptions& opts = {});
+    /// {status} only (the server returns only the gateway status).
     json get_health();
     json get_config();
     /// Test hook: DNS resolver used by the rebinding check.

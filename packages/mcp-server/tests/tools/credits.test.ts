@@ -90,6 +90,19 @@ describe("credits tools", () => {
     expect(calls[0].body).toEqual({ amountMusd: "10000" });
   });
 
+  it("credits_convert and credits_withdraw put the idempotency key in error output", async () => {
+    const server = await setup();
+    route(() => jsonResponse({ error: "upstream timeout" }, 500));
+    const c = await callTool(server, "dominusnode_credits_convert", { amount_musd: "10000", idempotency_key: "retry-key-01" });
+    expect(c.isError).toBe(true);
+    expect(c.content[0].text).toContain('idempotency_key="retry-key-01"');
+    const gen = await callTool(server, "dominusnode_credits_convert", { amount_musd: "10000" });
+    expect(gen.content[0].text).toMatch(/idempotency_key="mcp-conv-[0-9a-f]{24}"/);
+    const w = await callTool(server, "dominusnode_credits_withdraw", { amount_musd: "2000000", idempotency_key: "wd-retry-01", confirm: true });
+    expect(w.isError).toBe(true);
+    expect(w.content[0].text).toContain('idempotency_key="wd-retry-01"');
+  });
+
   it("payout_wallet_set signs the locally rebuilt message with the key file", async () => {
     const server = await setup();
     const addr = Wallet.createRandom().address.toLowerCase();

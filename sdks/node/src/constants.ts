@@ -1,4 +1,4 @@
-export const SDK_VERSION = "2.0.0";
+export const SDK_VERSION = "2.0.1";
 export const USER_AGENT = `dominusnode-sdk-node/${SDK_VERSION}`;
 export const DEFAULT_BASE_URL = "https://api.dominusnode.daedalusdevelopmentgroup.com";
 export const DEFAULT_PROXY_HOST = "proxy.dominusnode.daedalusdevelopmentgroup.com";

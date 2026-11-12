@@ -40,7 +40,7 @@ public final class CreditsResource {
     /** GET /v1/credits/transactions?limit&amp;cursor&amp;type. */
     public JsonNode transactions(Integer limit, String cursor, String type) {
         if (limit != null) Validation.intRange(limit, "limit", 1, 200);
-        if (cursor != null && !cursor.matches("^[0-9]{1,20}$")) throw Validation.invalid("cursor must be a nextCursor value");
+        if (cursor != null && !Paging.CURSOR_RE.matcher(cursor).matches()) throw Validation.invalid("cursor must be a nextCursor value");
         if (type != null && !TX_TYPES.contains(type)) throw Validation.invalid("type must be one of " + String.join(", ", TX_TYPES));
         return http.get("/v1/credits/transactions" + qs("limit", limit, "cursor", cursor, "type", type), Auth.AGENT);
     }
@@ -86,5 +86,16 @@ public final class CreditsResource {
         ObjectNode o = r.isObject() ? (ObjectNode) r : Json.object();
         o.put("idempotencyKey", key);
         return o;
+    }
+
+    /** Every credit transaction (newest first), following nextCursor. {@code limit} is the page size (null = server default). */
+    public java.util.Iterator<JsonNode> iterTransactions(Integer limit, String type) {
+        if (limit != null) Validation.intRange(limit, "limit", 1, 200);
+        return Paging.cursor(null, cur -> transactions(limit, cur, type));
+    }
+
+    /** Stream view of {@link #iterTransactions(Integer, String)}. */
+    public java.util.stream.Stream<JsonNode> streamTransactions(Integer limit, String type) {
+        return Paging.stream(iterTransactions(limit, type));
     }
 }
