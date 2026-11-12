@@ -1,0 +1,133 @@
+# One-command self-host (BOOTSTRAP_PLAN §7 E1). Generated config lives in
+# ./selfhost/ (written by scripts/selfhost/install.sh); do not edit by hand,
+# re-run the installer instead (re-runs upgrade in place).
+#
+#   ./scripts/selfhost/install.sh
+#
+# Hostnames are config only: PUBLIC_HOSTNAMES may list several names (for
+# example an apex domain and a subdomain of another domain) and every one is
+# served with the same API. DOMINUSNODE_DOMAIN is the primary name used in links.
+name: dominusnode
+
+x-common-env: &common-env
+  NODE_ENV: production
+  DATABASE_URL: postgresql://dominusnode:${POSTGRES_PASSWORD:?run scripts/selfhost/install.sh}@postgres:5432/dominusnode
+  DB_SSL: "false"
+  JWT_SECRET: ${JWT_SECRET:?run scripts/selfhost/install.sh}
+  DOMINUSNODE_DOMAIN: ${DOMINUSNODE_DOMAIN:?run scripts/selfhost/install.sh}
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: dominusnode
+      POSTGRES_USER: dominusnode
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?run scripts/selfhost/install.sh}
+    volumes: [pgdata:/var/lib/postgresql/data]
+    networks: [backend]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dominusnode"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    security_opt: ["no-new-privileges:true"]
+
+  migrate:
+    build: { context: ., dockerfile: infra/docker/api.Dockerfile }
+    image: dominusnode-api:selfhost
+    environment: *common-env
+    depends_on:
+      postgres: { condition: service_healthy }
+    networks: [backend]
+    command: ["node", "packages/shared/dist/src/migrate.js"]
+    restart: "no"
+
+  api:
+    image: dominusnode-api:selfhost
+    restart: unless-stopped
+    environment:
+      <<: *common-env
+      MFA_ENCRYPTION_KEY: ${MFA_ENCRYPTION_KEY:?run scripts/selfhost/install.sh}
+      DASHBOARD_PORT: "3000"
+      TRUST_PROXY: "1"
+      COOKIE_SECURE: ${COOKIE_SECURE:-true}
+      APP_URL: https://${DOMINUSNODE_DOMAIN}
+      CORS_ORIGINS: ${CORS_ORIGINS:-}
+      PROXY_INTERNAL_HOST: gateway
+      PROXY_PUBLIC_HOST: ${PROXY_PUBLIC_HOST:-${DOMINUSNODE_DOMAIN}}
+      SMTP_FROM: ${OPERATOR_CONTACT:-}
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+    networks: [backend, frontend]
+    expose: ["3000"]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    read_only: true
+    tmpfs: [/tmp]
+
+  gateway:
+    build: { context: ., dockerfile: infra/docker/proxy.Dockerfile }
+    restart: unless-stopped
+    environment:
+      <<: *common-env
+      PROXY_LISTEN_PORT: "8080"
+      SOCKS5_LISTEN_PORT: "1080"
+      TUNNEL_PORT: "8443"
+      COORD_SIGNING_KEY_FILE: /run/dominusnode/coord-key.pem
+      ASN_DB_FILE: /app/data/ip2asn-combined.tsv.gz
+    volumes:
+      - ./selfhost/coord-key.pem:/run/dominusnode/coord-key.pem:ro
+      - ./data:/app/data:ro
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+    networks: [backend, frontend]
+    ports:
+      - "${PROXY_HTTP_HOST_PORT:-8080}:8080"
+      - "${PROXY_SOCKS5_HOST_PORT:-1080}:1080"
+      - "${TUNNEL_HOST_PORT:-8443}:8443"
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    read_only: true
+    tmpfs: [/tmp]
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on: [api]
+    ports:
+      - "${HTTP_HOST_PORT:-80}:80"
+      - "${HTTPS_HOST_PORT:-443}:443"
+    volumes:
+      - ./selfhost/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks: [frontend]
+
+  # Optional local exit node: docker compose --profile node up -d
+  # Register it first (see docs/agent-network/DEPLOYMENT.md §7).
+  node:
+    profiles: ["node"]
+    build:
+      context: .
+      dockerfile: packages/node-agent/Dockerfile
+      args:
+        DN_COORD_PUBKEYS: ${DN_COORD_PUBKEYS:?run scripts/selfhost/install.sh}
+    restart: unless-stopped
+    environment:
+      DN_NODE_API_URL: https://${DOMINUSNODE_DOMAIN}
+      DN_NODE_GATEWAY_URL: wss://${DOMINUSNODE_DOMAIN}:${TUNNEL_HOST_PORT:-8443}/v1/tunnel
+      DN_NODE_GB_PER_DAY: ${DN_NODE_GB_PER_DAY:-5}
+      DN_NODE_MAX_STREAMS: ${DN_NODE_MAX_STREAMS:-16}
+    volumes:
+      - ./selfhost/node.json:/run/dominusnode/node.json:ro
+
+networks:
+  backend:
+    internal: true
+  frontend:
+
+volumes:
+  pgdata:
+  caddy_data:
+  caddy_config:
