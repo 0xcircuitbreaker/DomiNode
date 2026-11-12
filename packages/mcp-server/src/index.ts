@@ -6,9 +6,14 @@ import { parseConfig, ConfigError } from "./config.js";
 import { TokenManager } from "./token-manager.js";
 import { HttpClient } from "./http-client.js";
 import { PACKAGE_VERSION } from "./version.js";
+import { gatewayEcdhCurve } from "./proxy-fetch.js";
 import { registerAuthenticatedTools, registerBootstrapTools, countTools } from "./register.js";
 
 async function main(): Promise<void> {
+  // stdout is the MCP channel: report TLS capability on stderr only.
+  if (gatewayEcdhCurve() !== "X25519MLKEM768:X25519") {
+    process.stderr.write(`warning: OpenSSL ${process.versions.openssl} lacks X25519MLKEM768; gateway TLS falls back to X25519 (not quantum resistant). Use Node >= 22.20.\n`);
+  }
   let config;
   try {
     config = parseConfig();

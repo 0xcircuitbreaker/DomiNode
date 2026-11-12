@@ -32,3 +32,4 @@ export {
   EXPORTER_LENGTH,
   type ChannelBinding,
 } from "@dominusnode/shared/dist/src/tunnel/auth-sig.js";
+export { pqTlsOptions, reportTlsCapability } from "@dominusnode/shared/dist/src/tls-pq.js";

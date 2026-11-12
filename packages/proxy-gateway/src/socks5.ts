@@ -1,7 +1,7 @@
 import * as net from "node:net";
 import * as tls from "node:tls";
 import type { PlaintextAuthGuard } from "./proxy-tls.js";
-import { createLogger, hashApiKey, userRepo, planRepo } from "@dominusnode/shared";
+import { createLogger, hashApiKey, userRepo, planRepo, pqTlsOptions } from "@dominusnode/shared";
 import { checkBalance, checkTeamBalance } from "./balance-check.js";
 import { bindTunnelLifecycle, isTunnelClient } from "./tunnel-lifecycle.js";
 import { attachByteCounters } from "./counting-stream.js";
@@ -583,7 +583,7 @@ export async function startSocks5Server(port: number, relay: RelayRuntime, opts:
     });
   };
   const server: net.Server = opts.tls
-    ? tls.createServer({ cert: opts.tls.cert, key: opts.tls.key, minVersion: "TLSv1.2", allowHalfOpen: true }, onConnection)
+    ? tls.createServer({ cert: opts.tls.cert, key: opts.tls.key, ...pqTlsOptions(), allowHalfOpen: true }, onConnection)
     : net.createServer({ allowHalfOpen: true }, onConnection);
 
   const maxConns = parseInt(process.env["PROXY_MAX_CONNECTIONS"] ?? "5000", 10);

@@ -241,3 +241,6 @@ export { resolveRequestId, runWithRequestId, currentRequestId, REQUEST_ID_HEADER
 // Keyset pagination cursors
 export { encodeCursor, decodeCursor } from "./cursor.js";
 export type { KeysetCursor } from "./cursor.js";
+
+// Post-quantum hybrid TLS (X25519MLKEM768) for every TLS endpoint we control
+export * from "./tls-pq.js";

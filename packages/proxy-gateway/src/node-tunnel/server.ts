@@ -34,6 +34,7 @@ import {
   verifyEd25519,
   EXPORTER_LABEL,
   EXPORTER_LENGTH,
+  pqTlsOptions,
 } from "@dominusnode/shared";
 import { TunnelMux, STREAM_WINDOW, type StreamCloseReport } from "./mux.js";
 import { PreAuthLimiter, normalizePeerIp, readProxyV2, type PreAuthLimiterOptions } from "./ingress.js";
@@ -442,7 +443,7 @@ export class NodeTunnelServer {
       res.end("Upgrade Required");
     });
     this.trusted = opts.trustedProxyIps ?? new Set();
-    this.secureContext = opts.tls ? tls.createSecureContext({ cert: opts.tls.cert, key: opts.tls.key, minVersion: "TLSv1.3" }) : null;
+    this.secureContext = opts.tls ? tls.createSecureContext({ cert: opts.tls.cert, key: opts.tls.key, ...pqTlsOptions() }) : null;
     this.preAuth = new PreAuthLimiter(opts.preAuth);
     if (opts.production && this.trusted.size === 0 && !this.secureContext) {
       this.log.warn("TUNNEL: production without TUNNEL_TRUSTED_PROXY_IPS or TUNNEL_TLS_*: peer IP is the raw TCP source; " +

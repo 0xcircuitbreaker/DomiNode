@@ -15,7 +15,7 @@ import {
   FrameType, FrameDecoder, encodeFrame, encodeControl, decodeControl, TunnelProtocolError,
   MAX_FRAME_PAYLOAD, FLAG_FIN, FLAG_RST, type Frame,
   challengeMessage, authMessage, signEd25519, verifyEd25519, loadEd25519PrivateKey,
-  EXPORTER_LABEL, EXPORTER_LENGTH,
+  EXPORTER_LABEL, EXPORTER_LENGTH, pqTlsOptions,
 } from "./shared.js";
 import type { KeyObject } from "node:crypto";
 import { effectivePorts, floorHash } from "./floor.js";
@@ -204,6 +204,8 @@ export class TunnelClient extends EventEmitter {
       perMessageDeflate: false,
       maxPayload: MAX_FRAME_PAYLOAD + 12,
       handshakeTimeout: HANDSHAKE_TIMEOUT_MS,
+      // TLS 1.3 + hybrid X25519MLKEM768 to the gateway (ignored for ws:// in dev).
+      ...pqTlsOptions(),
       ...(this.opts.wsOptions ?? {}),
       ...(pins.length > 0
         ? {

@@ -1,7 +1,7 @@
 import dotenv from "dotenv";
 dotenv.config();
 
-import { createLogger, closePool, retentionRepo, connectWithRetry } from "@dominusnode/shared";
+import { createLogger, closePool, retentionRepo, connectWithRetry, reportTlsCapability } from "@dominusnode/shared";
 import { startApiServer } from "./server.js";
 
 const log = createLogger("api:main");
@@ -54,6 +54,7 @@ function validateRequiredEnv(): void {
   }
 
   log.info("environment validation passed");
+  reportTlsCapability(log, "api");
 }
 
 async function start(): Promise<void> {
