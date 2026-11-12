@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import random
+import re
 import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, Optional, Union
@@ -157,11 +158,18 @@ def _content(req: Request) -> Optional[bytes]:
     return None if req.body is _NO_BODY else json.dumps(req.body).encode("utf-8")
 
 
+_CONTENT_LENGTH_RE = re.compile(r"^[0-9]{1,19}\Z")
+
+
 def _too_large_by_header(res: httpx.Response) -> bool:
-    try:
-        return int(res.headers.get("content-length", "0")) > MAX_RESPONSE_BYTES
-    except ValueError:
+    """True when Content-Length exceeds the cap; a malformed value raises ServerError."""
+    raw = res.headers.get("content-length")
+    if raw is None:
         return False
+    value = raw.strip()
+    if not _CONTENT_LENGTH_RE.match(value):
+        raise ServerError("Malformed Content-Length header in response", res.status_code)
+    return int(value) > MAX_RESPONSE_BYTES
 
 
 def _finish(req: Request, res: httpx.Response, data: bytes) -> Any:

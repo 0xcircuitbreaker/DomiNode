@@ -1,6 +1,6 @@
 """SDK-wide constants (mirrors sdks/node/src/constants.ts)."""
 
-SDK_VERSION = "2.0.0"
+SDK_VERSION = "2.0.1"
 USER_AGENT = f"dominusnode-sdk-python/{SDK_VERSION}"
 DEFAULT_BASE_URL = "https://api.dominusnode.daedalusdevelopmentgroup.com"
 DEFAULT_PROXY_HOST = "proxy.dominusnode.daedalusdevelopmentgroup.com"

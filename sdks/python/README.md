@@ -157,3 +157,21 @@ pytest
 
 `tests/fixtures/signed_messages.json` holds the three signed messages as produced by the Node
 SDK builders. `tests/test_signers.py` checks the Python builders against it byte for byte.
+
+## Node registration and the client IP
+
+The node-registration proof-of-work is bound to the client IP that requested it.
+Call the register-challenge and register methods from the same egress (same machine,
+same outbound IP, no proxy or VPN switch in between); otherwise the server rejects
+the solution with `INVALID_CHALLENGE`. Register from the host that will run the node.
+
+## Troubleshooting
+
+| Symptom | Meaning | What to do |
+|---|---|---|
+| HTTP 402 | API call: requester or agentic wallet balance is too low | Top up with crypto or fund the agentic wallet |
+| HTTP 407 (proxy) | Gateway rejected the proxy credentials | Check the API key in the proxy password and the username flags (`country-XX-class-dc-...`, or `relay`) |
+| `EMAIL_NOT_VERIFIED` | The route needs a verified account | Verify the account before financial calls |
+| `NO_NODES_AVAILABLE` | No eligible exit node for the requested country/class | Relax the country/class flags or retry later; check network stats |
+| `PAYOUTS_DISABLED` | Withdrawals are switched off server-side | Keep earning; the credits balance `payoutsEnabled` field shows the state |
+| `REPORT_LIMIT` | Per-node daily session-report cap reached (HTTP 409 conflict error; older servers 429) | Do not retry today; the SDK never retries it |
