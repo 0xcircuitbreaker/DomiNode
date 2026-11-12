@@ -129,6 +129,8 @@ export class TunnelClient extends EventEmitter {
   private keyBuf: Buffer;
   private readonly signKey: KeyObject;
   private challenged = false;
+  /** AUTH was sent in answer to a pin-verified CHALLENGE on this connection. */
+  private authSent = false;
   private readonly log: TunnelLogger;
 
   constructor(private readonly opts: TunnelClientOptions) {
@@ -219,6 +221,7 @@ export class TunnelClient extends EventEmitter {
     ws.on("open", () => {
       this.state = "handshake";
       this.challenged = false;
+      this.authSent = false;
       this.sendControl(FrameType.HELLO, 0, {
         nodeId: this.opts.nodeId,
         agentVersion: this.opts.agentVersion,
@@ -227,6 +230,9 @@ export class TunnelClient extends EventEmitter {
       });
     });
     ws.on("message", (data: WebSocket.RawData, isBinary: boolean) => {
+      // Once we fail() a connection it is CLOSING: frames the peer keeps sending (e.g. an AUTH_OK
+      // racing our close after a protocol error) must never be acted on.
+      if (ws.readyState !== WebSocket.OPEN) return;
       if (!isBinary) return this.fail("text message", 1003);
       const buf = Array.isArray(data) ? Buffer.concat(data) : Buffer.isBuffer(data) ? data : Buffer.from(data);
       let frames: Frame[];
@@ -236,7 +242,7 @@ export class TunnelClient extends EventEmitter {
         return this.fail(e instanceof TunnelProtocolError ? "protocol error" : "decode error", 1002);
       }
       for (const f of frames) {
-        if (this.ws !== ws) return;
+        if (this.ws !== ws || ws.readyState !== WebSocket.OPEN) return;
         try {
           this.onFrame(f);
         } catch (e) {
@@ -366,6 +372,7 @@ export class TunnelClient extends EventEmitter {
       }
       const sig = signEd25519(this.signKey, authMessage(c.nonce, this.opts.nodeId, exporter));
       this.sendControl(FrameType.AUTH, 0, { sig });
+      this.authSent = true;
       return;
     }
     if (f.type === FrameType.AUTH_FAIL) {
@@ -376,6 +383,9 @@ export class TunnelClient extends EventEmitter {
       return this.fail("auth failed");
     }
     if (f.type === FrameType.AUTH_OK) {
+      // Only a peer that proved the coordinator key (signed CHALLENGE) and received our AUTH may
+      // move us to ready; otherwise any TLS endpoint could skip the coordinator pin entirely.
+      if (!this.challenged || !this.authSent) throw new TunnelProtocolError("AUTH_OK before verified CHALLENGE");
       const a = decodeControl<{ heartbeatMs?: unknown; initialWindow?: unknown; policyHash?: unknown }>(f.payload);
       if (typeof a.heartbeatMs === "number" && Number.isFinite(a.heartbeatMs)) {
         this.heartbeatMs = Math.min(60_000, Math.max(5_000, Math.trunc(a.heartbeatMs)));
