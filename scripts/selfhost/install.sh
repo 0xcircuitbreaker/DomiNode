@@ -44,6 +44,7 @@ env_get() {
 # Set KEY=VALUE in .env, replacing an existing line.
 env_set() {
   local key="$1" val="$2" tmp
+  case "$val" in *$'\n'*|*$'\r'*) die "refusing to write a multi-line value for $key" ;; esac
   tmp="$(mktemp "$ROOT/.env.XXXXXX")"
   if [ -f "$ENV_FILE" ]; then grep -vE "^$key=" "$ENV_FILE" > "$tmp" || true; fi
   printf '%s=%s\n' "$key" "$val" >> "$tmp"
@@ -88,6 +89,11 @@ case "$TLS" in auto|internal|off) ;; *) die "TLS mode must be auto, internal or 
 CONTACT_DEFAULT="${OPERATOR_CONTACT:-$(env_get OPERATOR_CONTACT)}"
 CONTACT="$(ask "Operator/abuse contact email (required for ACME and abuse reports)" "$CONTACT_DEFAULT")"
 if [ "$TLS" = auto ] && [ -z "$CONTACT" ]; then die "TLS mode auto needs a contact email for ACME"; fi
+# The contact is written into the Caddyfile and .env verbatim: plain address only.
+case "$CONTACT" in *$'\n'*|*$'\r'*) die "invalid contact email: multi-line value" ;; esac
+if [ -n "$CONTACT" ] && ! printf '%s' "$CONTACT" | grep -Eq '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$'; then
+  die "invalid contact email: must be a plain address like ops@example.org"
+fi
 
 # ─── Secrets and key (generated once, kept on re-run) ───────────────
 ensure_secret POSTGRES_PASSWORD 24
@@ -97,7 +103,11 @@ env_set DOMINUSNODE_DOMAIN "$PRIMARY"
 env_set PUBLIC_HOSTNAMES "$(printf '%s' "$HOSTS" | tr ' ' ',')"
 env_set TLS_MODE "$TLS"
 env_set OPERATOR_CONTACT "$CONTACT"
-if [ "$TLS" = off ]; then env_set COOKIE_SECURE false; else env_set COOKIE_SECURE true; fi
+if [ "$TLS" = off ]; then
+  env_set COOKIE_SECURE false; env_set TUNNEL_SCHEME ws
+else
+  env_set COOKIE_SECURE true; env_set TUNNEL_SCHEME wss
+fi
 CORS=""
 for h in $HOSTS; do CORS="${CORS:+$CORS,}https://$h"; done
 env_set CORS_ORIGINS "$CORS"
@@ -125,6 +135,20 @@ env_set DN_COORD_PUBKEYS "$PUB"
   echo "  encode gzip"
   echo "  reverse_proxy api:3000"
   echo "}"
+  # Node tunnel on :8443: Caddy terminates TLS and passes the node's real address
+  # to the gateway in a PROXY v2 header (the gateway trusts only Caddy's address).
+  TSITES=""
+  for h in $HOSTS; do
+    if [ "$TLS" = off ]; then TSITES="${TSITES:+$TSITES, }http://$h:8443"; else TSITES="${TSITES:+$TSITES, }$h:8443"; fi
+  done
+  echo "$TSITES {"
+  if [ "$TLS" = internal ]; then echo "  tls internal"; fi
+  echo "  reverse_proxy gateway:8443 {"
+  echo "    transport http {"
+  echo "      proxy_protocol v2"
+  echo "    }"
+  echo "  }"
+  echo "}"
 } > "$SH_DIR/Caddyfile.tmp"
 mv "$SH_DIR/Caddyfile.tmp" "$SH_DIR/Caddyfile"
 chmod 644 "$SH_DIR/Caddyfile"
@@ -132,7 +156,18 @@ chmod 644 "$SH_DIR/Caddyfile"
 echo "config written: .env (0600), selfhost/Caddyfile, selfhost/coord-key.pem"
 echo "primary domain: $PRIMARY; all hostnames: $HOSTS; TLS: $TLS"
 echo "coordinator public key (DN_COORD_PUBKEYS): $PUB"
-[ -f "$ROOT/data/ip2asn-combined.tsv.gz" ] || echo "note: run scripts/update-asn-db.sh; without the ASN DB public traffic is refused" >&2
+# ─── ASN/geo database (without it the gateway refuses all public traffic) ───
+ASN_DB="$ROOT/data/ip2asn-combined.tsv.gz"
+if [ ! -f "$ASN_DB" ]; then
+  if [ "${SKIP_ASN_DB:-0}" = 1 ]; then
+    echo "warning: SKIP_ASN_DB=1: no ASN/geo database; the gateway refuses ALL public peers and destinations until scripts/update-asn-db.sh is run" >&2
+  else
+    echo "downloading ASN/geo database (scripts/update-asn-db.sh)"
+    ASN_DB_FILE="$ASN_DB" bash "$ROOT/scripts/update-asn-db.sh" ||
+      die "ASN/geo database download failed; retry, or set SKIP_ASN_DB=1 to continue without it (the relay then refuses public traffic)"
+    [ -f "$ASN_DB" ] || die "ASN/geo database missing after download: $ASN_DB"
+  fi
+fi
 
 if [ "$NO_START" -eq 1 ]; then exit 0; fi
 docker compose -f docker-compose.selfhost.yml --env-file "$ENV_FILE" build

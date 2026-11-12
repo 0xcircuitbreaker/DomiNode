@@ -163,6 +163,14 @@ header:
 `TUNNEL_TLS_CERT_FILE` and `TUNNEL_TLS_KEY_FILE` (set both or neither), and
 leave `TUNNEL_TRUSTED_PROXY_IPS` unset.
 
+**Self-host compose (`docker-compose.selfhost.yml`).** Caddy terminates TLS
+for the tunnel on `:8443` (same hostnames and certificates as the API) and
+reverse-proxies to `gateway:8443` with `transport http { proxy_protocol v2 }`.
+Caddy has a fixed address on the compose network (`172.29.53.2`), which is the
+only entry in `TUNNEL_TRUSTED_PROXY_IPS`; the gateway does not publish 8443
+itself. Channel binding is `none` in this setup (TLS ends at Caddy). With
+`TLS_MODE=off` the tunnel is plain `ws://` and must be fronted by your own TLS.
+
 In production, the gateway refuses tunnel upgrades from non-public peers. A
 missing or misconfigured trusted-proxy list shows up as `403` with a log
 line that mentions `TUNNEL_TRUSTED_PROXY_IPS`.
@@ -257,6 +265,19 @@ docker run -d --name dominusnode-node --restart unless-stopped \
 The caps are enforced by the agent itself and can only lower the floor, never raise it. Check your ISP's terms before sharing a residential line.
 
 After the first registration, flag the node: admin panel → Launch controls → "Flag operator-run", or `POST /api/admin/network/nodes/:id/operator-run {"operatorRun": true}`. The flag takes effect on the node's next tunnel reconnect.
+
+### Self-host installer notes
+
+- `scripts/selfhost/install.sh` downloads the ASN/geo database with
+  `scripts/update-asn-db.sh` when `data/ip2asn-combined.tsv.gz` is missing and
+  fails if the download fails. `SKIP_ASN_DB=1` continues without it; the
+  gateway then refuses all public peers and destinations until the file
+  exists. `SKIP_GEOIP` is not passed through: it is ignored in production.
+- `OPERATOR_CONTACT` must be a plain email address; anything else (spaces,
+  braces, quotes, newlines) is refused because it is written into the
+  Caddyfile and `.env`.
+- The optional `node` profile dials `${TUNNEL_SCHEME}://${DOMINUSNODE_DOMAIN}:8443/v1/tunnel`
+  (`wss` unless `TLS_MODE=off`).
 
 ## 8. Launch jobs and settings
 
