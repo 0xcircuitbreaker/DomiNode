@@ -11,6 +11,7 @@ import { NodeRegistry } from "./node-tunnel/registry.js";
 import { NodeSelector } from "./node-tunnel/selector.js";
 import { loadCoordSigner } from "./node-tunnel/coord-key.js";
 import { NodeTunnelServer } from "./node-tunnel/server.js";
+import { checkGatewayEnv } from "./env-check.js";
 import { startSocks5Server } from "./socks5.js";
 import { loadProxyTls, parseRequireTls, createPlaintextAuthGuard } from "./proxy-tls.js";
 import { envInt, setJobRunRecorder, JOB_RUN_UPSERT_SQL, type Job, type LockPool } from "./jobs/runner.js";
@@ -59,18 +60,21 @@ process.on("unhandledRejection", (reason) => {
   process.exit(1);
 });
 
-// All five listener ports come from one reader; refuse to start on a clash.
+// Fail fast with every problem listed: required env, port parse and clashes.
+{
+  const envErrors = checkGatewayEnv(process.env);
+  if (envErrors.length > 0) {
+    for (const e of envErrors) log.error(`startup validation failed: ${e}`);
+    throw new Error(`Environment validation failed: ${envErrors.join("; ")}`);
+  }
+}
+// All five listener ports come from one reader (validated above).
 const ports = getProxyPorts(process.env);
 assertDistinctProxyPorts(ports);
 const httpPort = ports.http;
 const socks5Port = ports.socks5;
 
 async function main(): Promise<void> {
-  // Validate critical env vars before starting
-  if (!process.env["DATABASE_URL"]) {
-    throw new Error("DATABASE_URL is required");
-  }
-
   // Ensure database is reachable before accepting connections
   await connectWithRetry();
 
