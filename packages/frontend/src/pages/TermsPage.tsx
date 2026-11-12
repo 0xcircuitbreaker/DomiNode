@@ -57,16 +57,16 @@ export default function TermsPage() {
             <h2 className="text-xl font-semibold text-white mb-3">4. Billing and Payments</h2>
             <ul className="list-disc list-inside space-y-1">
               <li>Dominus Node uses a prepaid wallet system. You must maintain a positive balance to use paid proxy services.</li>
-              <li>Datacenter proxies are billed at the current rate (see Plans page). Residential proxies are billed at a separate rate.</li>
-              <li>Payments are accepted via Stripe (credit/debit card), PayPal, and cryptocurrency (BTC, ETH, SOL, XMR, ZEC, USDC, USDT, DAI, BNB, LINK, LTC).</li>
+              <li>Relay bandwidth is billed per GB at the current published rate for each IP class (see <code>/v1/pricing</code>).</li>
+              <li>Agents pay through x402 per-request payments (settled by facilitators such as Coinbase CDP and PayAI), MPP per-request payments, Tempo, and NOWPayments cryptocurrency top-ups. Card payments are not available to agents.</li>
               <li>All payments are final. Refunds are issued at our sole discretion for service outages or billing errors only.</li>
               <li>Free tier bandwidth is subject to monthly limits and may be reduced or discontinued at any time.</li>
             </ul>
           </section>
 
           <section>
-            <h2 className="text-xl font-semibold text-white mb-3">5. No Logging of Proxy Traffic</h2>
-            <p>Dominus Node does not log, inspect, store, or monitor the content of traffic routed through our proxy servers. We do not know what websites you visit, what data you transmit, or what you use the proxies for. We track only aggregate bandwidth usage (bytes transferred) for billing purposes. See our Privacy Policy for full details.</p>
+            <h2 className="text-xl font-semibold text-white mb-3">5. No Logging of Traffic Content</h2>
+            <p>Dominus Node does not log, inspect, store, or monitor the content of traffic relayed through the network: no payloads, request paths or full URLs. For billing we record byte totals. For abuse handling we keep a metadata-only relay abuse log (time, requesting agent, exit node, destination hostname and port, bytes) for a limited retention window (90 days by default). See our Privacy Policy for full details.</p>
           </section>
 
           <section>
@@ -98,7 +98,7 @@ export default function TermsPage() {
 
           <section>
             <h2 className="text-xl font-semibold text-white mb-3">11. Changes to Terms</h2>
-            <p>We may update these terms from time to time. Continued use of the service after changes constitutes acceptance. Material changes will be communicated via email or dashboard notification.</p>
+            <p>We may update these terms from time to time. Continued use of the service after changes constitutes acceptance. Material changes are announced through the API: the current policy version and hash are published at <code>/v1/policy</code>.</p>
           </section>
 
           <section>

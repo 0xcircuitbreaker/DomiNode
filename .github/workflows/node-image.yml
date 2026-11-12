@@ -1,5 +1,10 @@
 # Publishes the exit-node image (BOOTSTRAP_PLAN §7 E4):
 #   ghcr.io/0xcircuitbreaker/dominusnode-node:{<tag>,latest}  (linux/amd64, linux/arm64)
+# Only reviewed code is published: node-v* tags whose commit is on master history,
+# or a manual dispatch from refs/heads/master. The job runs in the `release`
+# environment (required reviewers). :latest moves only on node-v* tag builds;
+# a manual dispatch publishes its explicit tag only. Protect node-v* tags in
+# Settings > Rules so only maintainers can create them.
 # The official network's coordinator pins are PUBLIC keys passed as a build arg from
 # the repository variable DN_COORD_PUBKEYS (Settings > Variables). The Dockerfile's
 # build fails without them, so an image is never published unpinned.
@@ -23,7 +28,11 @@ concurrency:
 
 jobs:
   publish:
+    if: >-
+      (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/node-v')) ||
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master')
     runs-on: ubuntu-latest
+    environment: release
     permissions:
       contents: read
       packages: write
@@ -31,6 +40,15 @@ jobs:
       IMAGE: ghcr.io/0xcircuitbreaker/dominusnode-node
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Require a commit on master history
+        run: |
+          git fetch --no-tags origin +refs/heads/master:refs/remotes/origin/master
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/master \
+            || { echo "refusing to publish $GITHUB_SHA: not on master history"; exit 1; }
 
       - name: Check coordinator pins
         env:
@@ -44,12 +62,17 @@ jobs:
         env:
           INPUT_TAG: ${{ inputs.tag }}
           REF_NAME: ${{ github.ref_name }}
+          EVENT: ${{ github.event_name }}
         run: |
           t="${INPUT_TAG:-${REF_NAME#node-v}}"
           printf '%s' "$t" | grep -Eq '^[0-9A-Za-z][0-9A-Za-z._-]{0,63}$' || { echo "bad tag: $t"; exit 1; }
           echo "tag=$t" >> "$GITHUB_OUTPUT"
+          if [ "$EVENT" = "push" ]; then
+            echo "latest=${IMAGE}:latest" >> "$GITHUB_OUTPUT"
+          else
+            echo "latest=" >> "$GITHUB_OUTPUT"
+          fi
 
-      # TODO: pin to a commit SHA like the other actions in this repo.
       - name: Set up QEMU (arm64)
         uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
 
@@ -71,7 +94,7 @@ jobs:
             DN_COORD_PUBKEYS=${{ vars.DN_COORD_PUBKEYS }}
           tags: |
             ${{ env.IMAGE }}:${{ steps.tag.outputs.tag }}
-            ${{ env.IMAGE }}:latest
+            ${{ steps.tag.outputs.latest }}
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.description=DominusNode exit node agent
