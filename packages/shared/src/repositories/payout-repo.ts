@@ -445,16 +445,32 @@ export async function markPayoutReversedTx(client: TxClient, payoutId: string, r
 export const PAYOUT_JOB_LIMIT = 1000;
 const lim1000 = (n: number) => (Number.isInteger(n) && n > 0 && n <= PAYOUT_JOB_LIMIT ? n : PAYOUT_JOB_LIMIT);
 
-/** Accounts eligible for the daily auto push: available ≥ $1, not frozen, active (non-blocked) wallet. */
-export async function listAutoPayoutCandidates(limit = PAYOUT_JOB_LIMIT): Promise<{ userId: string; availableMusd: bigint }[]> {
-  const r = await query<{ user_id: string; available_musd: string }>(
-    `SELECT a.user_id, a.available_musd FROM node_credit_accounts a
+/**
+ * Accounts eligible for the daily auto push: available ≥ $1, not frozen, active (non-blocked) wallet.
+ * remainingDailyMusd uses the same tier limit / used-today rule as requestWithdraw, so the job can
+ * request an amount that limit will accept.
+ */
+export async function listAutoPayoutCandidates(
+  limit = PAYOUT_JOB_LIMIT,
+): Promise<{ userId: string; availableMusd: bigint; remainingDailyMusd: bigint }[]> {
+  const r = await query<{ user_id: string; available_musd: string; remaining_daily_musd: string | null }>(
+    `SELECT a.user_id, a.available_musd,
+       (SELECT t.daily_withdraw_limit_musd FROM node_tiers t
+         WHERE t.id = COALESCE(u.node_tier_id, (SELECT id FROM node_tiers ORDER BY rank LIMIT 1)))
+       - (SELECT COALESCE(SUM(p.amount_musd), 0) FROM node_payouts p
+           WHERE p.user_id = a.user_id AND p.created_at >= date_trunc('day', now())
+             AND p.status NOT IN ('failed','reversed')) AS remaining_daily_musd
+     FROM node_credit_accounts a
+     JOIN users u ON u.id = a.user_id
      JOIN payout_wallets w ON w.user_id = a.user_id AND w.status IN ('pending','active') AND w.active_from <= now()
      WHERE NOT a.frozen AND a.available_musd >= $1
      ORDER BY a.user_id LIMIT $2`,
     [MIN_WITHDRAW_MUSD.toString(), lim1000(limit)],
   );
-  return r.rows.map((x) => ({ userId: x.user_id, availableMusd: BigInt(x.available_musd) }));
+  return r.rows.map((x) => {
+    const rem = x.remaining_daily_musd === null ? 0n : BigInt(x.remaining_daily_musd); // no tier: fail closed
+    return { userId: x.user_id, availableMusd: BigInt(x.available_musd), remainingDailyMusd: rem < 0n ? 0n : rem };
+  });
 }
 
 export interface DuePayout {

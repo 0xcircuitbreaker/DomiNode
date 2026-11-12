@@ -385,6 +385,25 @@ After the first registration, flag the node: admin panel → Launch controls →
 
 The SDN list must be installed (and refreshed) on every gateway host before x402/MPP is enabled in production; without it paid requests return `503 PAYER_SCREENING_UNAVAILABLE`. The public status page is served by the API at `/status`; put it behind the same TLS proxy as `/v1`.
 
+### Data retention
+
+The dashboard's hourly retention job deletes rows older than `data_retention_policies.retention_days` (admin-tunable). The relay-related defaults are:
+
+| Table | Days | Notes |
+|---|---|---|
+| `sessions` | 90 | Connection metadata. Purging a session sets `session_id` to NULL on rows that outlive it |
+| `usage_records` | 365 | Kept after its session is purged (`session_id` ON DELETE SET NULL) |
+| `agentic_wallet_transactions` | 730 | Financial record; kept after its session is purged (`session_id` ON DELETE SET NULL) |
+| `relay_charges` | not purged | Split ledger; `session_id` ON DELETE SET NULL |
+| `node_reports` | see policy | `session_id` ON DELETE SET NULL |
+| `relay_settle_retries` | with its session | ON DELETE CASCADE; a retry still queued after 90 days is dropped |
+
+Every foreign key to `sessions(id)` must have an ON DELETE action (`schema.test.ts` enforces this); with the default NO ACTION the sessions purge fails on every batch.
+
+### Auto-payouts
+
+The daily payout job queues one automatic withdrawal per eligible owner, for `min(available, tier daily withdraw limit minus today's payouts, $100k)`. The rest goes out on later days. Owners with less than $1 of today's limit left are skipped; any refused auto request is logged at warn level and the run logs an error summary.
+
 ## 8a. Human (admin) login
 
 Agents never use email/password. Human login exists only for the admin panel

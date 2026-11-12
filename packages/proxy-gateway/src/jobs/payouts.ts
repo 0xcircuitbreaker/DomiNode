@@ -59,7 +59,8 @@ export interface DuePayout {
 export interface PayoutDeps {
   enabled(): boolean;
   loadSdn(): Promise<Set<string>>;
-  listAutoCandidates(): Promise<{ userId: string; availableMusd: bigint }[]>;
+  /** remainingDailyMusd: tier daily_withdraw_limit_musd minus today's non-failed payouts (same rule as requestWithdraw). */
+  listAutoCandidates(): Promise<{ userId: string; availableMusd: bigint; remainingDailyMusd: bigint }[]>;
   requestWithdraw(req: { userId: string; amountMusd: bigint; idempotencyKey: string; trigger: "auto" }): Promise<unknown>;
   listDue(): Promise<DuePayout[]>;
   listSubmitted(): Promise<{ id: string; txHash: string }[]>;
@@ -86,10 +87,16 @@ export interface PayoutRunResult {
   sanctioned: number;
   ambiguous: number;
   released: number;
+  /** Candidates whose daily limit was already used up today (nothing to queue). */
+  autoSkipped: number;
+  /** Candidates whose auto request was refused (logged at warn; summary at error). */
+  autoFailed: number;
   paidMusd: bigint;
 }
 
 const MAX_AUTO_MUSD = 100_000_000_000n;
+/** Mirrors payout-repo MIN_WITHDRAW_MUSD ($1): requestWithdraw refuses anything smaller. */
+const MIN_AUTO_MUSD = 1_000_000n;
 
 function dayKey(d: Date): string {
   return d.toISOString().slice(0, 10).replace(/-/g, "");
@@ -109,7 +116,7 @@ async function settleReceipt(deps: PayoutDeps, id: string, txHash: string, out: 
 }
 
 export async function runOnce(deps: PayoutDeps): Promise<PayoutRunResult> {
-  const out: PayoutRunResult = { queued: 0, sent: 0, confirmed: 0, reversed: 0, sanctioned: 0, ambiguous: 0, released: 0, paidMusd: 0n };
+  const out: PayoutRunResult = { queued: 0, sent: 0, confirmed: 0, reversed: 0, sanctioned: 0, ambiguous: 0, released: 0, autoSkipped: 0, autoFailed: 0, paidMusd: 0n };
   if (!deps.enabled()) return { ...out, skipped: "disabled" };
 
   let sdn: Set<string>;
@@ -132,13 +139,25 @@ export async function runOnce(deps: PayoutDeps): Promise<PayoutRunResult> {
   // 2. Daily auto-queue (idempotent per user per UTC day).
   const key = `auto-${dayKey((deps.now ?? (() => new Date()))())}`;
   for (const c of await deps.listAutoCandidates()) {
-    const amount = c.availableMusd > MAX_AUTO_MUSD ? MAX_AUTO_MUSD : c.availableMusd;
+    // Cap at the tier's remaining daily limit: asking for the whole balance made
+    // requestWithdraw refuse every day for anyone whose balance exceeds the limit.
+    let amount = c.availableMusd;
+    if (c.remainingDailyMusd < amount) amount = c.remainingDailyMusd;
+    if (MAX_AUTO_MUSD < amount) amount = MAX_AUTO_MUSD;
+    if (amount < MIN_AUTO_MUSD) {
+      out.autoSkipped++;
+      continue; // daily limit already used up today
+    }
     try {
       await deps.requestWithdraw({ userId: c.userId, amountMusd: amount, idempotencyKey: key, trigger: "auto" });
       out.queued++;
-    } catch {
-      /* limit exceeded, cooling down, etc.: skipped until tomorrow */
+    } catch (err) {
+      out.autoFailed++;
+      deps.logger?.warn("auto payout not queued", { userId: c.userId, error: err instanceof Error ? err.message.slice(0, 120) : "unknown" });
     }
+  }
+  if (out.autoFailed > 0) {
+    deps.logger?.error("auto payouts refused for some owners", { failed: out.autoFailed, queued: out.queued });
   }
 
   // 3. Send.
@@ -186,7 +205,7 @@ export async function runOnce(deps: PayoutDeps): Promise<PayoutRunResult> {
 export function start(o: { deps: PayoutDeps; pool: LockPool; logger: JobLogger; intervalMs?: number }): Job {
   const job = new Job({
     name: "payouts", intervalMs: o.intervalMs ?? 86_400_000, lockKey: JOB_LOCK_KEYS.payouts, pool: o.pool,
-    logger: o.logger, run: () => runOnce(o.deps), initialDelayMs: 120_000,
+    logger: o.logger, run: () => runOnce({ ...o.deps, logger: o.deps.logger ?? o.logger }), initialDelayMs: 120_000,
   });
   job.start();
   return job;

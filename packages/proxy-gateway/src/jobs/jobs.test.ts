@@ -184,6 +184,37 @@ function payoutDeps(over: Partial<PayoutDeps> = {}): PayoutDeps {
 }
 
 describe("payout job", () => {
+  it("caps the daily auto request at the tier's remaining daily limit", async () => {
+    const requestWithdraw = vi.fn().mockResolvedValue({});
+    const d = payoutDeps({
+      requestWithdraw,
+      listAutoCandidates: async () => [{ userId: "u9", availableMusd: 60_000_000n, remainingDailyMusd: 50_000_000n }],
+    });
+    const r = await payouts.runOnce(d);
+    expect(requestWithdraw).toHaveBeenCalledWith(expect.objectContaining({ userId: "u9", amountMusd: 50_000_000n, trigger: "auto" }));
+    expect(r.queued).toBe(1);
+  });
+
+  it("skips an owner whose daily limit is used up, and logs refused auto requests", async () => {
+    const warn = vi.fn();
+    const error = vi.fn();
+    const requestWithdraw = vi.fn().mockRejectedValue(new Error("Payout wallet change is cooling down"));
+    const d = payoutDeps({
+      requestWithdraw,
+      logger: { warn, error, info: vi.fn() } as unknown as PayoutDeps["logger"],
+      listAutoCandidates: async () => [
+        { userId: "spent", availableMusd: 60_000_000n, remainingDailyMusd: 500_000n },
+        { userId: "cool", availableMusd: 5_000_000n, remainingDailyMusd: 50_000_000n },
+      ],
+    });
+    const r = await payouts.runOnce(d);
+    expect(requestWithdraw).toHaveBeenCalledTimes(1);
+    expect(r.autoSkipped).toBe(1);
+    expect(r.autoFailed).toBe(1);
+    expect(warn).toHaveBeenCalledWith("auto payout not queued", expect.objectContaining({ userId: "cool" }));
+    expect(error).toHaveBeenCalled();
+  });
+
   it("does nothing when payouts are disabled", async () => {
     const d = payoutDeps({ enabled: () => false });
     expect((await payouts.runOnce(d)).skipped).toBe("disabled");
@@ -256,7 +287,7 @@ describe("payout job", () => {
   });
 
   it("auto-queues with a per-day idempotency key", async () => {
-    const d = payoutDeps({ listDue: async () => [], listAutoCandidates: async () => [{ userId: "u1", availableMusd: 3_000_000n }],
+    const d = payoutDeps({ listDue: async () => [], listAutoCandidates: async () => [{ userId: "u1", availableMusd: 3_000_000n, remainingDailyMusd: 50_000_000n }],
       now: () => new Date("2026-11-05T12:00:00Z") });
     await payouts.runOnce(d);
     expect(d.requestWithdraw).toHaveBeenCalledWith({ userId: "u1", amountMusd: 3_000_000n, idempotencyKey: "auto-20261105", trigger: "auto" });
