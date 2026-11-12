@@ -28,6 +28,8 @@ export interface TeamInvite {
   role: string;
   /** User id of the member who sent the invite. The invite token is never returned by list/create. */
   invitedBy: string;
+  /** @deprecated Never sent by the server (the token is delivered to the invitee). Always undefined. */
+  token?: string;
   expiresAt: string;
   createdAt: string;
 }

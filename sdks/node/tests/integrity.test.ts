@@ -4,6 +4,19 @@ import { ValidationError, ConflictError, RateLimitError, ServerError } from "../
 import { buildPayoutWalletMessage } from "../src/messages.js";
 import { MAX_RESPONSE_BYTES, USER_AGENT } from "../src/constants.js";
 import { connected, mockFetch, API_KEY, USER_ID, NONCE, SIG, WALLET, signerFor } from "./helpers.js";
+import type { TeamInvite } from "../src/resources/teams.js";
+
+describe("2.0.0 compatibility", () => {
+  it("deprecated fields still type-check and are undefined", async () => {
+    const m = mockFetch([200, { status: "ok" }]);
+    const c = new DominusNodeClient({ baseUrl: "http://api.test", fetch: m.fn });
+    const h = await c.proxy.getHealth();
+    const legacy: number | undefined = h.activeSessions ?? h.uptimeSeconds;
+    expect(legacy).toBeUndefined();
+    const inv: TeamInvite = { id: "i", teamId: "t", email: "e", role: "r", invitedBy: "u", expiresAt: "t", createdAt: "t" };
+    expect(inv.token).toBeUndefined();
+  });
+});
 
 const B = "http://api.test";
 const TEAM = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";

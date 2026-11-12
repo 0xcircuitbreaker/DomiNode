@@ -30,6 +30,10 @@ export interface ProxyUrlOptions extends ProxyRoutingOptions {
 /** The server returns only the gateway status ("ok", "degraded", ...). */
 export interface ProxyHealth {
   status: string;
+  /** @deprecated Never sent by the server. Always undefined. */
+  activeSessions?: number;
+  /** @deprecated Never sent by the server. Always undefined. */
+  uptimeSeconds?: number;
 }
 
 function validPort(p: unknown, name: string): number {
