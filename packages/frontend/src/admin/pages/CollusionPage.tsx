@@ -9,16 +9,38 @@ import {
 const LIMIT = 50;
 type Action = "dismiss" | "confirm";
 
+const NUM = ["windowDays", "concentrationBps", "clusterSize", "clusterBps", "freezeBps"] as const;
+type NumKey = (typeof NUM)[number];
+const BOUNDS: Record<NumKey, [number, number]> = {
+  windowDays: [1, 365], concentrationBps: [1, 10000], clusterSize: [2, 1000], clusterBps: [1, 10000], freezeBps: [1, 10000],
+};
+
+/** Parse the settings draft; returns field errors or the PUT body. Empty input is never treated as 0. */
+export function parseCollusionDraft(draft: Record<string, string>): { body?: Record<NumKey, number>; errors: Partial<Record<NumKey, string>> } {
+  const errors: Partial<Record<NumKey, string>> = {};
+  const body = {} as Record<NumKey, number>;
+  for (const k of NUM) {
+    const raw = (draft[k] ?? "").trim();
+    const [lo, hi] = BOUNDS[k];
+    if (!/^\d+$/.test(raw)) { errors[k] = "Enter a whole number"; continue; }
+    const n = Number(raw);
+    if (n < lo || n > hi) { errors[k] = `Must be ${lo}–${hi}`; continue; }
+    body[k] = n;
+  }
+  return Object.keys(errors).length ? { errors } : { body, errors };
+}
+
 function SettingsCard() {
   const s = useApi(() => collusionApi.settings(), []);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<Record<string, string>>({});
   const [confirm, setConfirm] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
-  const NUM = ["windowDays", "concentrationBps", "clusterSize", "clusterBps", "freezeBps"] as const;
+  const [errors, setErrors] = useState<Partial<Record<NumKey, string>>>({});
 
   const start = (d: CollusionSettings) => {
     setDraft(Object.fromEntries(NUM.map((k) => [k, String(d[k])])));
+    setErrors({});
     setEditing(true);
   };
   return (
@@ -26,9 +48,15 @@ function SettingsCard() {
       {msg && <Notice tone="good">{msg}</Notice>}
       <ErrorBox error={s.error} onRetry={s.refetch} />
       {s.loading && !s.data ? <Loading /> : s.data && (editing ? (
-        <form className="grid gap-3 sm:grid-cols-3" onSubmit={(e) => { e.preventDefault(); setConfirm(true); }}>
+        <form noValidate className="grid gap-3 sm:grid-cols-3" onSubmit={(e) => { e.preventDefault(); const r = parseCollusionDraft(draft); setErrors(r.errors); if (r.body) setConfirm(true); }}>
           {NUM.map((k) => (
-            <Field key={k} label={k}>{(id) => <input id={id} className="input" inputMode="numeric" value={draft[k] ?? ""} onChange={(e) => setDraft({ ...draft, [k]: e.target.value })} />}</Field>
+            <Field key={k} label={k}>{(id) => (
+              <>
+                <input id={id} className="input" inputMode="numeric" aria-invalid={errors[k] ? true : undefined} aria-describedby={errors[k] ? `${id}-err` : undefined}
+                  value={draft[k] ?? ""} onChange={(e) => setDraft({ ...draft, [k]: e.target.value })} />
+                {errors[k] && <p id={`${id}-err`} role="alert" className="mt-1 text-xs text-red-400">{errors[k]}</p>}
+              </>
+            )}</Field>
           ))}
           <div className="flex gap-2 sm:col-span-3">
             <button type="submit" className="btn-primary">Save</button>
@@ -51,13 +79,9 @@ function SettingsCard() {
         description="Thresholds are private to operators. The change is audited."
         onClose={() => setConfirm(false)}
         onConfirm={async () => {
-          const body: Record<string, number> = {};
-          for (const k of NUM) {
-            const n = Number(draft[k]);
-            if (!Number.isInteger(n)) throw new Error(`${k} must be an integer`);
-            body[k] = n;
-          }
-          await collusionApi.updateSettings(body);
+          const r = parseCollusionDraft(draft);
+          if (!r.body) { setErrors(r.errors); setConfirm(false); return; }
+          await collusionApi.updateSettings(r.body);
           setConfirm(false); setEditing(false); setMsg("Settings saved."); s.refetch();
         }} />
     </Card>
@@ -108,11 +132,11 @@ export default function CollusionPage() {
       </Card>
       <SettingsCard />
       <ConfirmDialog open={target !== null} title={`${target?.action === "confirm" ? "Confirm" : "Dismiss"} flag ${shortId(target?.flag.id)}`}
-        confirmLabel={target?.action === "confirm" ? "Confirm flag" : "Dismiss flag"} danger={target?.action === "confirm"} reason="optional"
+        confirmLabel={target?.action === "confirm" ? "Confirm flag" : "Dismiss flag"} danger={target?.action === "confirm"} reason="required"
         description={target?.action === "confirm" ? "Confirming records the finding; it does not freeze the owner." : "A flag dismissed within the window is not re-opened."}
         onClose={() => setTarget(null)}
         onConfirm={async (note) => {
-          const r = await collusionApi.resolve(target!.flag.id, target!.action, note || undefined);
+          const r = await collusionApi.resolve(target!.flag.id, target!.action, note.trim());
           setTarget(null); setMsg(`Flag ${shortId(r.id)} ${r.status}.`); list.refetch();
         }} />
     </div>

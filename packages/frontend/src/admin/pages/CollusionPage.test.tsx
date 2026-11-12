@@ -8,7 +8,7 @@ vi.mock("../../api/admin", async (orig) => {
   return { ...actual, collusionApi: { flags: vi.fn(), resolve: vi.fn(), settings: vi.fn(), updateSettings: vi.fn() } };
 });
 import { collusionApi } from "../../api/admin";
-import CollusionPage from "./CollusionPage";
+import CollusionPage, { parseCollusionDraft } from "./CollusionPage";
 
 const api = vi.mocked(collusionApi);
 const flag = {
@@ -44,6 +44,33 @@ describe("CollusionPage", () => {
     await userEvent.click(screen.getByRole("button", { name: "Dismiss flag" }));
     await waitFor(() => expect(api.resolve).toHaveBeenCalledWith(UUID1, "dismiss", "known reseller"));
     expect(await screen.findByText(/dismissed\./)).toBeInTheDocument();
+  });
+
+  it("requires a reason before confirming a flag", async () => {
+    renderPage(<CollusionPage />);
+    await userEvent.click(await screen.findByRole("button", { name: "Confirm" }));
+    expect(screen.getByRole("button", { name: "Confirm flag" })).toBeDisabled();
+    expect(api.resolve).not.toHaveBeenCalled();
+  });
+
+  it("rejects empty, negative and out-of-range thresholds", () => {
+    const ok = { windowDays: "30", concentrationBps: "8000", clusterSize: "3", clusterBps: "9000", freezeBps: "9500" };
+    expect(parseCollusionDraft(ok).body).toEqual({ windowDays: 30, concentrationBps: 8000, clusterSize: 3, clusterBps: 9000, freezeBps: 9500 });
+    expect(parseCollusionDraft({ ...ok, freezeBps: "" }).errors.freezeBps).toBeTruthy();
+    expect(parseCollusionDraft({ ...ok, windowDays: "  " }).errors.windowDays).toBeTruthy();
+    expect(parseCollusionDraft({ ...ok, clusterBps: "-5" }).errors.clusterBps).toBeTruthy();
+    expect(parseCollusionDraft({ ...ok, concentrationBps: "10001" }).errors.concentrationBps).toBeTruthy();
+    expect(parseCollusionDraft({ ...ok, clusterSize: "1" }).errors.clusterSize).toBeTruthy();
+    expect(parseCollusionDraft({ ...ok, freezeBps: "" }).body).toBeUndefined();
+  });
+
+  it("shows an inline error and does not save a cleared field", async () => {
+    renderPage(<CollusionPage />);
+    await userEvent.click(await screen.findByRole("button", { name: "Edit" }));
+    await userEvent.clear(screen.getByLabelText("freezeBps"));
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(await screen.findByText("Enter a whole number")).toBeInTheDocument();
+    expect(api.updateSettings).not.toHaveBeenCalled();
   });
 
   it("shows an error state", async () => {

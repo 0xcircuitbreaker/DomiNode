@@ -23,7 +23,7 @@ Shared look for Daedalus Development Group sites, ported from jacode.io (no hotl
 | gold-light | `#f0c674` |
 | text-primary | `#f1f5f9` |
 | text-secondary | `#94a3b8` |
-| text-muted | `#64748b` |
+| text-muted | `#8b9ab0` |
 
 Fonts: Inter (UI), JetBrains Mono (code, labels), with system fallbacks. Self-host the woff2 files under `/fonts` if you want exact glyphs (`font-src 'self'`). Style: square corners, 1 px borders (`border-white/10`), mono uppercase labels, gold accents.
 

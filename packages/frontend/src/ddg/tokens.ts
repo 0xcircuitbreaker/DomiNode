@@ -10,7 +10,7 @@ export const DDG_COLORS = {
   "gold-light": "#f0c674",
   "text-primary": "#f1f5f9",
   "text-secondary": "#94a3b8",
-  "text-muted": "#64748b",
+  "text-muted": "#8b9ab0",
 } as const;
 
 /** Faint axis-line colour of the crosshair (gold at ~24% alpha). */

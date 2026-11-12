@@ -17,7 +17,7 @@ export default {
           "gold-light": "#f0c674",
           text: "#f1f5f9",
           "text-2": "#94a3b8",
-          muted: "#64748b",
+          muted: "#8b9ab0",
         },
       },
       fontFamily: {
