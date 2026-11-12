@@ -1,4 +1,5 @@
 import { query, getPool } from "../db.js";
+import { eraseRelayPersonalDataTx } from "./relay-erasure-repo.js";
 import type {
   AdminUserView,
   AdminUserDetail,
@@ -262,6 +263,9 @@ export async function deleteUser(userId: string): Promise<void> {
       "UPDATE sessions SET proxy_ip = 'REDACTED' WHERE user_id = $1",
       [userId]
     );
+
+    // Relay-network personal data (abuse log, node IPs, payout wallets, ...)
+    await eraseRelayPersonalDataTx(client, userId);
 
     await client.query("COMMIT");
   } catch (err) {

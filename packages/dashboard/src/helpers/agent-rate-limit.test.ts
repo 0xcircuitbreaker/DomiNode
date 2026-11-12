@@ -172,4 +172,36 @@ describe("agent-rate-limit", () => {
       expect(isGlobalVerifiedAgent({ headers: { "x-dominusnode-agent": "mcp", "x-dominusnode-agent-secret": "" } } as any)).toBe(false);
     });
   });
+
+  describe("global secret comparison is byte-length safe", () => {
+    const SECRET = "s3cret-value-abc";
+    const reqWith = (secret: string) =>
+      ({ headers: { "x-dominusnode-agent": "mcp", "x-dominusnode-agent-secret": secret } }) as never;
+
+    it("same char length but multi-byte UTF-8 does not throw and is rejected", async () => {
+      process.env["MCP_AGENT_SECRET"] = SECRET;
+      const m = await import("./agent-rate-limit.js");
+      const evil = "\u00e9" + SECRET.slice(1); // same .length, +1 UTF-8 byte
+      expect(evil.length).toBe(SECRET.length);
+      expect(() => m.isGlobalVerifiedAgent(reqWith(evil))).not.toThrow();
+      expect(m.isGlobalVerifiedAgent(reqWith(evil))).toBe(false);
+      expect(m.isVerifiedAgent(reqWith(evil))).toBe(false);
+      await expect(m.isVerifiedAgentAsync(reqWith(evil))).resolves.toEqual({ verified: false });
+    });
+
+    it("correct secret still verifies; wrong length rejected", async () => {
+      process.env["MCP_AGENT_SECRET"] = SECRET;
+      const m = await import("./agent-rate-limit.js");
+      expect(m.isGlobalVerifiedAgent(reqWith(SECRET))).toBe(true);
+      expect(m.isVerifiedAgent(reqWith(SECRET))).toBe(true);
+      expect(m.isGlobalVerifiedAgent(reqWith("short"))).toBe(false);
+    });
+
+    it("matchesGlobalAgentSecret never throws on odd input", async () => {
+      const m = await import("./agent-rate-limit.js");
+      expect(m.matchesGlobalAgentSecret(["a", "b"], SECRET)).toBe(false);
+      expect(m.matchesGlobalAgentSecret("", SECRET)).toBe(false);
+      expect(m.matchesGlobalAgentSecret("x", "")).toBe(false);
+    });
+  });
 });

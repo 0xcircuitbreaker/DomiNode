@@ -156,4 +156,34 @@ describe("API client", () => {
     expect(result).toEqual({ user: { id: "1" } });
     expect(mockFetch).toHaveBeenCalledTimes(3);
   });
+
+  it("re-runs the request once when refresh lost a concurrent rotation (401 retry:true)", async () => {
+    mockFetch.mockResolvedValueOnce({ ok: false, status: 401 });
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 401,
+      text: () => Promise.resolve(JSON.stringify({ error: "Refresh token already rotated; retry", retry: true })),
+    });
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      headers: { get: () => null },
+      text: () => Promise.resolve(JSON.stringify({ user: { id: "1" } })),
+    });
+    const result = await get("/api/auth/me");
+    expect(result).toEqual({ user: { id: "1" } });
+    expect(mockFetch).toHaveBeenCalledTimes(3);
+    expect(mockFetch.mock.calls[2][0]).toBe("/api/auth/me");
+  });
+
+  it("treats a plain 401 from refresh as a failed session", async () => {
+    mockFetch.mockResolvedValueOnce({ ok: false, status: 401 });
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 401,
+      text: () => Promise.resolve(JSON.stringify({ error: "Invalid refresh token" })),
+    });
+    await expect(get("/api/auth/me", { redirectOnUnauthorized: false })).rejects.toThrow();
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+  });
 });

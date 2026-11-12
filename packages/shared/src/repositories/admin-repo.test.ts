@@ -118,7 +118,7 @@ describe("admin-repo", () => {
   describe("deleteUser", () => {
     it("should anonymize and soft-delete in transaction", async () => {
       // deleteUser now uses getPool() for transactional anonymization
-      mockClientQuery.mockResolvedValue({ rows: [{ wallet_address: null }] });
+      mockClientQuery.mockImplementation(async (sql: unknown) => (String(sql).startsWith("SELECT id FROM node_payouts") ? { rows: [] } : { rows: [{ wallet_address: null }] }));
       await deleteUser("u1");
       // Should have called BEGIN and COMMIT
       expect(mockClientQuery).toHaveBeenCalledWith("BEGIN");
@@ -127,6 +127,19 @@ describe("admin-repo", () => {
       const calls = mockClientQuery.mock.calls.map((c: unknown[]) => c[0]);
       expect(calls.some((s: unknown) => typeof s === "string" && s.includes("status = 'deleted'") && s.includes("password_hash = 'DELETED'"))).toBe(true);
       expect(mockClient.release).toHaveBeenCalled();
+    });
+
+    it("erases relay-network personal data inside the same transaction", async () => {
+      mockClientQuery.mockImplementation(async (sql: unknown) => (String(sql).startsWith("SELECT id FROM node_payouts") ? { rows: [] } : { rows: [{ wallet_address: null }] }));
+      await deleteUser("u1");
+      const calls = mockClientQuery.mock.calls.map((c: unknown[]) => String(c[0]));
+      const begin = calls.indexOf("BEGIN");
+      const commit = calls.indexOf("COMMIT");
+      for (const re of [/DELETE FROM relay_abuse_log WHERE requester_user_id/, /observed_ip = NULL/, /DELETE FROM node_ip_slots/, /DELETE FROM payout_wallets/]) {
+        const i = calls.findIndex((s) => re.test(s));
+        expect(i).toBeGreaterThan(begin);
+        expect(i).toBeLessThan(commit);
+      }
     });
   });
 

@@ -33,6 +33,8 @@ class FakeGateway {
   authSigOk: boolean | null = null;
   private nonce = "cd".repeat(32);
   initialWindow = 262144;
+  /** Replace the scripted reply to HELLO (handshake-ordering tests). */
+  onHello: ((gw: FakeGateway) => void) | null = null;
   private waiters: Array<{ pred: (f: Frame) => boolean; resolve: (f: Frame) => void }> = [];
 
   async start(): Promise<void> {
@@ -54,7 +56,9 @@ class FakeGateway {
       ws.on("message", (d: Buffer) => {
         for (const f of dec.push(d)) {
           this.frames.push(f);
-          if (f.type === FrameType.HELLO) {
+          if (f.type === FrameType.HELLO && this.onHello) {
+            this.onHello(this);
+          } else if (f.type === FrameType.HELLO) {
             const serverTime = Date.now();
             const coordSig = this.coordKey ? signEd25519(this.coordKey, challengeMessage(this.nonce, 1, serverTime, "none")) : "";
             this.send(FrameType.CHALLENGE, 0, { nonce: this.nonce, policyVersion: 1, serverTime, binding: "none", coordSig });
@@ -70,6 +74,11 @@ class FakeGateway {
         }
       });
     });
+  }
+
+  signedChallenge(): Record<string, unknown> {
+    const serverTime = Date.now();
+    return { nonce: this.nonce, policyVersion: 1, serverTime, binding: "none", coordSig: signEd25519(COORD.privateKey, challengeMessage(this.nonce, 1, serverTime, "none")) };
   }
 
   send(type: FrameType, stream: number, obj: Record<string, unknown>, flags = 0): void {
@@ -438,6 +447,69 @@ describe("TunnelClient", () => {
     for (const f of afterTarget) f();
   });
 
+
+  describe("handshake ordering", () => {
+    const AUTH_OK = { heartbeatMs: 15000, initialWindow: 262144, policyHash: "x" };
+    /** The client must drop the connection (reconnecting) and never emit ready. */
+    async function expectRejected(script: (g: FakeGateway) => void): Promise<void> {
+      gw.onHello = script;
+      const c = makeClient({ backoffMinMs: 5000, backoffMaxMs: 5000 });
+      let wasReady = false;
+      c.on("ready", () => { wasReady = true; });
+      const reconnecting = new Promise<void>((r) => c.once("reconnecting", () => r()));
+      c.start();
+      await reconnecting;
+      // Give any trailing frames a chance to be (wrongly) processed.
+      await new Promise((r) => setTimeout(r, 50));
+      expect(wasReady).toBe(false);
+      expect(c.currentState).not.toBe("ready");
+      expect(dialCalls).toEqual([]);
+    }
+    const open = (g: FakeGateway) => g.send(FrameType.OPEN, 1, { host: "example.com", port: 80 });
+
+    it("rejects AUTH_OK without a prior CHALLENGE (coordinator pin bypass)", async () => {
+      await expectRejected((g) => { g.send(FrameType.AUTH_OK, 0, AUTH_OK); open(g); });
+      expect(gw.frames.some((f) => f.type === FrameType.AUTH)).toBe(false);
+    });
+    it("rejects AUTH_OK after an unsigned CHALLENGE", async () => {
+      await expectRejected((g) => {
+        g.send(FrameType.CHALLENGE, 0, { ...g.signedChallenge(), coordSig: "" });
+        g.send(FrameType.AUTH_OK, 0, AUTH_OK);
+        open(g);
+      });
+    });
+    it("rejects OPEN before ready", async () => {
+      await expectRejected((g) => { g.send(FrameType.CHALLENGE, 0, g.signedChallenge()); open(g); });
+    });
+    it("rejects POLICY_UPDATE before ready", async () => {
+      await expectRejected((g) => g.send(FrameType.POLICY_UPDATE, 0, { ports: [80] }));
+    });
+    it("rejects WINDOW before ready", async () => {
+      await expectRejected((g) => g.send(FrameType.WINDOW, 1, { credit: 1024 }));
+    });
+    it("rejects a duplicate CHALLENGE", async () => {
+      await expectRejected((g) => {
+        g.send(FrameType.CHALLENGE, 0, g.signedChallenge());
+        g.send(FrameType.CHALLENGE, 0, g.signedChallenge());
+        g.send(FrameType.AUTH_OK, 0, AUTH_OK);
+      });
+    });
+
+    for (const [name, type, payload] of [
+      ["CHALLENGE", FrameType.CHALLENGE, null],
+      ["AUTH_OK", FrameType.AUTH_OK, AUTH_OK],
+      ["AUTH_FAIL", FrameType.AUTH_FAIL, { code: "X" }],
+    ] as const) {
+      it(`closes on ${name} after ready`, async () => {
+        const c = makeClient({ backoffMinMs: 5000, backoffMaxMs: 5000 });
+        await ready(c);
+        const reconnecting = new Promise<void>((r) => c.once("reconnecting", () => r()));
+        gw.send(type, 0, payload ?? gw.signedChallenge());
+        await reconnecting;
+        expect(gw.frames.filter((f) => f.type === FrameType.AUTH).length).toBe(1);
+      });
+    }
+  });
 });
 
 describe("helpers", () => {

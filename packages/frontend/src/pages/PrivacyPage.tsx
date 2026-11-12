@@ -12,20 +12,21 @@ export default function PrivacyPage() {
 
       <main className="max-w-4xl mx-auto px-6 py-12">
         <h1 className="text-3xl font-bold text-white mb-8">Privacy Policy</h1>
-        <p className="text-sm text-gray-500 mb-8">Last updated: February 2026</p>
+        <p className="text-sm text-gray-500 mb-8">Last updated: November 2026</p>
 
         <div className="space-y-8 text-sm leading-relaxed">
           <section>
             <h2 className="text-xl font-semibold text-white mb-3">1. Our Privacy Commitment</h2>
-            <p className="mb-3 text-white font-medium">Dominus Node is built with privacy at its core. By default, we save no traffic logs and we do not know what our proxies are being used for.</p>
-            <p>We do not log, inspect, monitor, store, or analyze the content of any traffic routed through our proxy servers. By default, we do not record which websites you visit — only aggregate bandwidth totals are tracked for billing. You may optionally enable per-site target host logging in your Security settings for usage analytics, but this is off by default. This is by design, not by accident.</p>
+            <p className="mb-3 text-white font-medium">Dominus Node is built with privacy at its core. We never record the content of your traffic. To stop the network being used for abuse, we keep one narrow, metadata-only abuse log for a limited time, described below.</p>
+            <p>We do not log, inspect, monitor, store, or analyze the content of any traffic routed through the relay network: no payloads, full URLs, paths, query strings, headers or cookies. For every relay session we do keep a short metadata-only abuse log entry (time, your account id, the exit node id, destination hostname, destination port and byte count) so that an abuse complaint against an exit node's IP can be traced to the agent that caused it. That log is kept for a fixed retention window (90 days by default) and then deleted. Separately, you may opt in to per-site target host logging in your Security settings for your own usage analytics; that is off by default.</p>
           </section>
 
           <section>
             <h2 className="text-xl font-semibold text-white mb-3">2. What We Do Collect</h2>
             <p className="mb-3">We collect the minimum data necessary to operate the service and bill you accurately:</p>
             <p className="mb-2"><strong className="text-gray-200">Account Information:</strong> Dominus Node accounts belong to AI agents. An agent account is identified by its wallet address, and it authenticates with an API key (<code>dn_live_</code>) or a wallet signature. We store only a SHA-256 hash of each API key, plus its prefix and creation date. We do not collect names, email addresses or other login secrets from agents. Humans use the service only as operators (administrators).</p>
-            <p className="mb-2"><strong className="text-gray-200">Bandwidth Metering:</strong> We track the total number of bytes transferred per session for billing purposes only. This is an aggregate number — we do not log which websites or services generated that traffic.</p>
+            <p className="mb-2"><strong className="text-gray-200">Bandwidth Metering:</strong> We track the total number of bytes transferred per session for billing purposes only. Your usage and billing records hold byte totals only; they do not include the destination unless you opt in to target host logging.</p>
+            <p className="mb-2"><strong className="text-gray-200">Relay Abuse Log (metadata only):</strong> For every relay session we store the time, your account id, the session id, the exit node id, the destination hostname and port, and the byte count. We never store payloads, full URLs, paths or query strings. Purpose: tracing abuse complaints made against an exit node's IP to the requesting agent so that agent can be suspended, and protecting node operators. It is visible only to platform administrators and is deleted after the retention window (see Data Retention).</p>
             <p className="mb-2"><strong className="text-gray-200">Payment Data:</strong> Agents pay with crypto rails only: x402 and MPP per-request payments, Tempo and NOWPayments crypto top-ups. We record payer wallet addresses, amounts, transaction hashes, invoice IDs and payment provider reference IDs. We do not accept or store card numbers.</p>
             <p><strong className="text-gray-200">Security Data:</strong> IP addresses are used transiently for rate limiting and abuse prevention. API key metadata (prefix, creation date) is stored for your key management dashboard.</p>
           </section>
@@ -34,16 +35,15 @@ export default function PrivacyPage() {
             <h2 className="text-xl font-semibold text-white mb-3">3. What We Do NOT Collect (By Default)</h2>
             <p className="mb-2">By default, we do <strong className="text-white">NOT</strong> collect or store:</p>
             <ul className="list-disc list-inside space-y-1">
-              <li>URLs or domains you visit through the proxy (unless you opt in to target host logging)</li>
+              <li>Full URLs, paths or query strings you request through the relay (destination hostnames are kept only in the metadata-only abuse log described above, and in your usage records if you opt in to target host logging)</li>
               <li>HTTP request or response content</li>
               <li>DNS queries made through the proxy</li>
-              <li>Browsing history or browsing patterns</li>
-              <li>File downloads or uploads content</li>
+                            <li>File downloads or uploads content</li>
               <li>Cookies, form data, or authentication credentials you send to third-party sites</li>
               <li>Any content of encrypted (HTTPS/TLS) connections — we cannot see this even if we wanted to</li>
             </ul>
             <p className="mt-3 text-gray-400">Our proxy gateway handles HTTPS traffic via the CONNECT method, which creates an encrypted tunnel directly between your device and the destination. We relay the encrypted bytes and count them for billing. We cannot decrypt or inspect this traffic.</p>
-            <p className="mt-2 text-gray-400"><strong className="text-gray-200">Opt-in target host logging:</strong> You may enable target host logging in your Security settings to see per-site bandwidth analytics. When enabled, the hostname (not full URL) of each destination is stored in your usage records. This is disabled by default and can be turned off at any time.</p>
+            <p className="mt-2 text-gray-400"><strong className="text-gray-200">Opt-in target host logging:</strong> You may enable target host logging in your Security settings to see per-site bandwidth analytics. When enabled, the hostname (not full URL) of each destination is stored in your usage records. This is disabled by default and can be turned off at any time. It is separate from the abuse log, which is always kept for its retention window.</p>
           </section>
 
           <section>
@@ -51,7 +51,7 @@ export default function PrivacyPage() {
             <ul className="list-disc list-inside space-y-1">
               <li>Authenticate your identity and authorize proxy access</li>
               <li>Meter aggregate bandwidth usage and process billing</li>
-              <li>Prevent abuse, fraud, and unauthorized account access</li>
+              <li>Prevent abuse, fraud, and unauthorized account access, including tracing abuse complaints against exit node IPs through the metadata-only abuse log</li>
               <li>Enforce rate limits and connection quotas</li>
               <li>Comply with applicable laws and sanctions regulations</li>
             </ul>
@@ -63,6 +63,7 @@ export default function PrivacyPage() {
             <ul className="list-disc list-inside space-y-1">
               <li>Usage records (bandwidth totals only): 1 year</li>
               <li>Session records (connection metadata): 90 days</li>
+              <li>Relay abuse log (time, account id, node id, destination host and port, bytes): 90 days by default; administrators may set a different window (the <code>logRetentionDays</code> network policy)</li>
               <li>Audit events (account actions): 1 year</li>
               <li>Wallet transactions: 2 years (financial compliance)</li>
               <li>Authentication challenges: 1 day</li>
@@ -93,7 +94,7 @@ export default function PrivacyPage() {
               <li><strong className="text-gray-200">Blockchain RPC providers</strong> (Base and Tempo networks) — wallet addresses and transaction hashes, to verify on-chain payments. Blockchain transactions are public by nature.</li>
               <li><strong className="text-gray-200">IP data</strong> — exit-node IP addresses are classified locally against the public ip2asn dataset; no IP addresses are sent to that provider</li>
               <li><strong className="text-gray-200">Hosting and infrastructure</strong> (GitHub, Cloudflare) — code, release and network hosting; connection routing data only, never traffic content</li>
-              <li><strong className="text-gray-200">Law enforcement</strong> — only when legally compelled, and only the limited account data we have (we cannot provide traffic logs because they do not exist)</li>
+              <li><strong className="text-gray-200">Law enforcement</strong> — only when legally compelled, and only the limited data we have: account data and, within its retention window, the metadata-only abuse log (destination host, port, time and bytes). We have no traffic content, full URLs or payloads to provide.</li>
             </ul>
           </section>
 
@@ -102,7 +103,7 @@ export default function PrivacyPage() {
             <p className="mb-2">You have the right to:</p>
             <ul className="list-disc list-inside space-y-1">
               <li><strong className="text-gray-200">Export your data:</strong> Download your account data through the dashboard or via GET /api/account/export</li>
-              <li><strong className="text-gray-200">Delete your account:</strong> Request full account deletion through your dashboard. Your personal data will be anonymized and billing records retained only as required by law.</li>
+              <li><strong className="text-gray-200">Delete your account:</strong> Request full account deletion through your dashboard. Your personal data will be anonymized, your abuse-log entries, node IP addresses and payout wallets deleted, and billing records retained (unlinked from your identity where possible) only as required by law.</li>
               <li><strong className="text-gray-200">Correct your data:</strong> Rotate or revoke your API keys and update your payout wallet through the API</li>
             </ul>
           </section>
