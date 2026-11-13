@@ -7,7 +7,7 @@
  */
 import { loadConfig, ConfigError, isDemoMode, type FlagMap } from "./config.js";
 import { dial } from "./dialer.js";
-import { Limits } from "./limits.js";
+import { ByteRate, Limits } from "./limits.js";
 import { readNodeFile, registerNode } from "./register.js";
 import { effectiveCoordPins } from "./coord-pins.js";
 import { applyCoordinator } from "./coordinator.js";
@@ -94,6 +94,7 @@ async function main(argv: string[]): Promise<number> {
     localPorts: cfg.ports,
     caps: { maxStreams: cfg.maxStreams, maxMbps: cfg.maxMbps, gbPerDay: cfg.gbPerDay },
     limits,
+    rate: new ByteRate(cfg.maxMbps),
     spkiPins: cfg.spkiPins,
     nodePrivateKeyPem: stored.nodePrivateKeyPem,
     coordPins: cfg.coordPinsExclusive ? cfg.coordPins : effectiveCoordPins(cfg.coordPins),
