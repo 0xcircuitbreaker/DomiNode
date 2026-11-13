@@ -2076,3 +2076,17 @@ DO $$ BEGIN
     CHECK (tier_weight_bps IS NULL OR tier_weight_bps BETWEEN 0 AND 10000);
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
+
+-- ═══ fix/a7-privacy: one-off privacy data migration (idempotent) ═══
+-- x402 payers: store EVM addresses lowercased so erasure matches checksummed rows.
+UPDATE x402_transactions SET payer_address = lower(payer_address)
+ WHERE payer_address ~ '^0x[0-9a-fA-F]{40}$' AND payer_address <> lower(payer_address);
+-- Starter grants: replace plaintext funding sources (wallet addresses) with the
+-- h1 hash grantTx matches (SHA-256 of 'starter-funding:' || lowercased source).
+UPDATE starter_credit_grants
+   SET funding_source = 'h1:' || encode(sha256(convert_to('starter-funding:' || lower(funding_source), 'UTF8')), 'hex')
+ WHERE funding_source !~ '^h[12]:[0-9a-f]{64}$';
+-- PoW challenges hold caller IPs; drop rows past their 1-day retention now
+-- (the hourly retention job keeps it that way).
+DELETE FROM pow_challenges WHERE created_at < now() - INTERVAL '1 day';
+-- ═══ end fix/a7-privacy ═══
