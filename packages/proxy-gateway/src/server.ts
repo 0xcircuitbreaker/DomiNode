@@ -849,8 +849,8 @@ async function handleConnect(
     return;
   }
 
-  const redactedHost = targetHost.split(".").slice(-2).join(".");
-  log.info("CONNECT", { target: `${redactedHost}:${targetPort}`, userId, country: auth.proxyOptions.country, sticky: !!auth.proxyOptions.sessionId });
+  // Privacy: no destination in logs alongside userId (see session-manager).
+  log.info("CONNECT", { userId, country: auth.proxyOptions.country, sticky: !!auth.proxyOptions.sessionId });
 
   let clientGone = false;
   clientSocket.once("close", () => { clientGone = true; });

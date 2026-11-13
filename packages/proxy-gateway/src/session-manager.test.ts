@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // Mock modules before import
+const logSpies = vi.hoisted(() => ({ debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() }));
 const mockReserveBalance = vi.fn();
 const mockReleaseReservation = vi.fn();
 const mockSettleSession = vi.fn();
@@ -37,12 +38,7 @@ vi.mock("@dominusnode/shared", () => ({
   tierRepo: { getChargeSnapshot: (...args: unknown[]) => mockGetChargeSnapshot(...args) },
   relayChargeRepo: { settleRelayCharge: (...args: unknown[]) => mockSettleRelayCharge(...args) },
   relaySettleRetryRepo: { enqueueSettleRetry: (...args: unknown[]) => mockEnqueueRetry(...args) },
-  createLogger: () => ({
-    debug: vi.fn(),
-    info: vi.fn(),
-    warn: vi.fn(),
-    error: vi.fn(),
-  }),
+  createLogger: () => logSpies,
   RELAY_BYTES_PER_GB: 1_000_000_000, BYTES_PER_GIB: 1_073_741_824,
 }));
 
@@ -673,6 +669,18 @@ describe("proxy-gateway/session-manager", () => {
 
       expect(checkBandwidthVelocity(userA).allowed).toBe(false);
       expect(checkBandwidthVelocity(userB).allowed).toBe(true);
+    });
+  });
+
+  describe("log privacy", () => {
+    it("never logs the destination host when target-host logging is off", async () => {
+      mockReserveBalance.mockResolvedValueOnce("wallet-1");
+      mockCreateSession.mockResolvedValueOnce({ id: "sess-logpriv" });
+      await startSession("user-lp", "secret-site.example.org", makeCounter(1000, 1000), 0, RELAY, undefined, false);
+      await endSession("sess-logpriv");
+      const lines = JSON.stringify([...logSpies.info.mock.calls, ...logSpies.warn.mock.calls]);
+      expect(lines).not.toContain("example.org");
+      expect(lines).not.toContain("secret-site");
     });
   });
 });
