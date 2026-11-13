@@ -121,17 +121,19 @@ export async function getNetworkStats(): Promise<NetworkStats> {
      GROUP BY country, ip_class, operator_run`,
   );
   // Paid traffic in the last 24h, seed (operator-run) vs community. Aggregate only.
-  const t = await query<{ operator_run: boolean | null; bytes: string | null }>(
-    `SELECT n.operator_run, SUM(rc.bytes_gateway)::text AS bytes
+  const t = await query<{ operator_run: boolean | null; bytes: string | null; nodes?: string | null }>(
+    `SELECT n.operator_run, SUM(rc.bytes_gateway)::text AS bytes, COUNT(DISTINCT rc.node_id)::text AS nodes
      FROM relay_charges rc JOIN nodes n ON n.id = rc.node_id
      WHERE rc.created_at > now() - interval '24 hours' AND rc.gross_musd > 0
      GROUP BY n.operator_run`,
   );
   const seed = { online: 0, paidBytes24h: "0" };
   const community = { online: 0, paidBytes24h: "0" };
+  let communityPaidNodes = 0;
   for (const row of t.rows ?? []) {
     const b = /^\d{1,20}$/.test(row.bytes ?? "") ? (row.bytes as string) : "0";
-    if (row.operator_run) seed.paidBytes24h = b; else community.paidBytes24h = b;
+    if (row.operator_run) seed.paidBytes24h = b;
+    else { community.paidBytes24h = b; communityPaidNodes = parseInt(row.nodes ?? "0", 10) || 0; }
   }
   let total = 0;
   let other = 0;
@@ -159,6 +161,7 @@ export async function getNetworkStats(): Promise<NetworkStats> {
   const k = networkStatusRepo.kAnonymize({
     onlineNodes: total, seedOnline: seed.online, communityOnline: community.online,
     paidBytes24h: paidTotal, seedPaidBytes24h: seed.paidBytes24h, communityPaidBytes24h: community.paidBytes24h, byClass,
+    communityPaidNodes24h: communityPaidNodes,
   }, MIN_GROUP);
   const hideAll = k.suppressed.includes("onlineNodes");
   if (hideAll) k.suppressed.push("byCountry", "countriesAvailable");

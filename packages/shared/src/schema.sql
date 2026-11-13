@@ -2090,3 +2090,18 @@ UPDATE starter_credit_grants
 -- (the hourly retention job keeps it that way).
 DELETE FROM pow_challenges WHERE created_at < now() - INTERVAL '1 day';
 -- ═══ end fix/a7-privacy ═══
+
+-- ═══ fix/a7-privacy (review): k-anonymity gate on paid traffic (idempotent) ═══
+-- Distinct community nodes with paid traffic in the 24h window; NULL on older
+-- rows (treated as below k, so their paid figures stay suppressed).
+ALTER TABLE network_stats_snapshots ADD COLUMN IF NOT EXISTS community_paid_nodes_24h INTEGER;
+DO $$ BEGIN
+  ALTER TABLE network_stats_snapshots ADD CONSTRAINT chk_nss_community_paid_nodes
+    CHECK (community_paid_nodes_24h IS NULL OR community_paid_nodes_24h BETWEEN 0 AND 100000000);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+-- Finished/dead settle retries are never settled again: drop host and wallet.
+UPDATE relay_settle_retries
+   SET payload = (payload - 'requesterWallet' - 'usageTargetHost') || '{"destHost":"redacted","requesterWallet":null}'::jsonb
+ WHERE status IN ('done','dead') AND payload->>'destHost' IS DISTINCT FROM 'redacted';
+-- ═══ end fix/a7-privacy (review) ═══

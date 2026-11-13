@@ -117,7 +117,7 @@ describe("/v1 public routes", () => {
         { country: "US", ip_class: "dc", operator_run: true, n: "4" },
         { country: "US", ip_class: "residential", operator_run: false, n: "3" },
       ] })
-      .mockResolvedValueOnce({ rows: [{ operator_run: true, bytes: "5000" }, { operator_run: false, bytes: "700" }] });
+      .mockResolvedValueOnce({ rows: [{ operator_run: true, bytes: "5000" }, { operator_run: false, bytes: "700", nodes: "3" }] });
     const r = await call(app(), "GET", "/v1/network/stats");
     expect(r.status).toBe(200);
     expect(r.body["seed"]).toEqual({ online: 4, paidBytes24h: "5000" });
