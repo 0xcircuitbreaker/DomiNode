@@ -3,6 +3,7 @@ package dominusnode
 import (
 	"fmt"
 	"regexp"
+	"strings"
 )
 
 var credentialPatterns = []*regexp.Regexp{
@@ -39,7 +40,8 @@ type DominusNodeError struct {
 }
 
 func (e *DominusNodeError) Error() string {
-	if e.Code != "" {
+	// The code is not repeated when the message already ends with it (CONNECT refusals).
+	if e.Code != "" && !strings.HasSuffix(e.Message, ": "+e.Code) {
 		return fmt.Sprintf("%s (%s)", e.Message, e.Code)
 	}
 	return e.Message

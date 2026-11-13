@@ -4,14 +4,14 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "dominusnode-autogpt"
-version = "2.1.0"
+version = "2.2.0"
 description = "AutoGPT plugin for the DominusNode AI-agent relay network (19 v2 commands on the dominusnode SDK)"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.10"
 dependencies = [
 
-    "dominusnode>=2.1.0,<3",
+    "dominusnode>=2.2.0,<3",
 ]
 
 [project.optional-dependencies]

@@ -48,7 +48,8 @@ public final class Config {
         private String refreshToken;
         private Transport transport;
         private HostResolver resolver;
-        private GatewayTls gatewayTls;
+        // 2.2: TLS to the gateway is the default (production refuses credentials on 8080/1080).
+        private GatewayTls gatewayTls = GatewayTls.defaults();
 
         public Builder baseUrl(String v) { baseUrl = v; return this; }
 
@@ -67,8 +68,15 @@ public final class Config {
         /** DNS resolver for the proxy.fetch rebinding check (tests). */
         public Builder resolver(HostResolver v) { resolver = v; return this; }
 
-        /** Optional TLS to the gateway (HTTPS proxy listener); buildUrl then defaults to https://. */
+        /**
+         * TLS to the gateway (HTTPS proxy listener); buildUrl then defaults to https://. Default since 2.2:
+         * {@link GatewayTls#defaults()} (port 8443). Self-hosted coordinators usually publish 8444
+         * ({@code GatewayTls.builder().port(8444).build()}). {@code null} selects plaintext.
+         */
         public Builder gatewayTls(GatewayTls v) { gatewayTls = v; return this; }
+
+        /** Plaintext 8080/1080 to the gateway (local dev only; production gateways refuse credentials there). */
+        public Builder plaintextGateway() { gatewayTls = null; return this; }
 
         public Config build() { return new Config(this); }
 

@@ -85,6 +85,12 @@ export function registerFetchTools(server: McpServer, config: McpConfig): void {
           hint = "\nHint: Check your API key with dominusnode_get_balance. You may need to create a new key.";
         } else if (msg.includes("INSUFFICIENT_BALANCE") || msg.includes("insufficient")) {
           hint = "\nHint: Use dominusnode_get_balance to check, then dominusnode_pay_crypto to add funds.";
+        } else if (msg.includes("NO_NODES_AVAILABLE")) {
+          hint = "\nHint: No eligible exit node right now. Loosen country/ip_class or retry later (see dominusnode_network_stats).";
+        } else if (msg.includes("QUOTE_CLASS_MISMATCH")) {
+          hint = "\nHint: The x402 quote was for a different exit class. Request a new quote for this ip_class.";
+        } else if (msg.includes("TLS_REQUIRED")) {
+          hint = "\nHint: This gateway refuses plaintext. Unset DOMINUSNODE_PROXY_INSECURE and use DOMINUSNODE_PROXY_URL=https://host:port.";
         } else if (msg.includes("timed out")) {
           hint = "\nHint: Try increasing timeout_ms (max 120000) or a different country/ip_class (see dominusnode_network_stats).";
         } else if (msg.includes("ECONNREFUSED")) {

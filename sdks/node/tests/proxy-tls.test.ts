@@ -75,7 +75,10 @@ describe("gatewayTls (HTTPS proxy)", () => {
     const c = new DominusNodeClient({ proxyHost: "proxy.example.com", gatewayTls: true });
     expect(c.proxy.buildUrl({ apiKey: API_KEY })).toMatch(/^https:\/\/relay:dn_live_[^@]+@proxy\.example\.com:8443$/);
     expect(c.proxy.buildUrl({ apiKey: API_KEY, protocol: "http" })).toMatch(/:8080$/);
-    const plain = new DominusNodeClient({ proxyHost: "proxy.example.com" });
+    // 2.2: TLS is the default; plaintext only with an explicit gatewayTls: false.
+    const dflt = new DominusNodeClient({ proxyHost: "proxy.example.com" });
+    expect(dflt.proxy.buildUrl({ apiKey: API_KEY })).toMatch(/^https:\/\/.*:8443$/);
+    const plain = new DominusNodeClient({ proxyHost: "proxy.example.com", gatewayTls: false });
     expect(plain.proxy.buildUrl({ apiKey: API_KEY })).toMatch(/^http:\/\/.*:8080$/);
     expect(() => plain.proxy.buildUrl({ apiKey: API_KEY, protocol: "https" })).toThrow(ValidationError);
   });

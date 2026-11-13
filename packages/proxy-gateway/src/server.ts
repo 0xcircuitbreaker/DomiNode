@@ -1116,7 +1116,7 @@ export async function startProxyServer(port: number, relay: RelayRuntime, opts: 
     const rid = resolveRequestId(req.headers["x-request-id"]);
     res.setHeader("X-Request-Id", rid);
     if (plaintextAuth && carriesProxyCredential(req.headers) && !plaintextAuth("http")) {
-      res.writeHead(403, { "Content-Type": "text/plain", Connection: "close" });
+      res.writeHead(403, { "Content-Type": "text/plain", Connection: "close", "X-DominusNode-Error": "TLS_REQUIRED" });
       res.end("TLS required: connect to the gateway's HTTPS proxy port");
       return;
     }
@@ -1219,7 +1219,7 @@ export async function startProxyServer(port: number, relay: RelayRuntime, opts: 
     const rid = resolveRequestId(req.headers["x-request-id"]);
     socketRequestIds.set(socket, rid);
     if (plaintextAuth && carriesProxyCredential(req.headers) && !plaintextAuth("http")) {
-      safeSocketWrite(socket, "HTTP/1.1 403 Forbidden\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\nTLS required: connect to the gateway's HTTPS proxy port");
+      safeSocketWrite(socket, "HTTP/1.1 403 Forbidden\r\nContent-Type: text/plain\r\nX-DominusNode-Error: TLS_REQUIRED\r\nConnection: close\r\n\r\nTLS required: connect to the gateway's HTTPS proxy port");
       return;
     }
     runWithRequestId(rid, () => handleConnect(req, socket, head, relay)).catch((err) => {

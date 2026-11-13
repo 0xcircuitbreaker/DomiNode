@@ -26,6 +26,7 @@ std::unique_ptr<DominusNodeClient> gateway_client(int port) {
     cfg.base_url = "https://api.test";
     cfg.proxy_host = "127.0.0.1";
     cfg.http_proxy_port = port;
+    cfg.gateway_tls = std::nullopt;
     cfg.transport = [](const HttpRequest&) { return HttpResponse{200, {}, R"({"token":"x"})"}; };
     auto c = std::make_unique<DominusNodeClient>(cfg);
     c->connect_with_key(KEY);
@@ -75,10 +76,12 @@ TEST(build_url) {
     Fixture f;
     ProxyRoutingOptions o;
     o.country = "DE";
-    CHECK_EQ(f.client->proxy.build_url(o), "http://country-DE:" + KEY + "@proxy.dominusnode.com:8080");
+    // 2.2: TLS to the gateway is the default.
+    CHECK_EQ(f.client->proxy.build_url(o), "https://country-DE:" + KEY + "@proxy.dominusnode.com:8443");
     CHECK_EQ(f.client->proxy.build_url({}, "socks5"), "socks5://relay:" + KEY + "@proxy.dominusnode.com:1080");
     CHECK_EQ(f.client->proxy.build_url({}, "http", std::string("dn_test_override_1")), std::string("http://relay:dn_test_override_1@proxy.dominusnode.com:8080"));
-    CHECK_INVALID(f.client->proxy.build_url({}, "https"));
+    CHECK_EQ(f.client->proxy.build_url({}, "https"), "https://relay:" + KEY + "@proxy.dominusnode.com:8443");
+    CHECK_INVALID(f.client->proxy.build_url({}, "ftp"));
     CHECK_INVALID(f.client->proxy.build_url({}, "http", std::string("nope")));
     Fixture g(false);
     CHECK_THROWS(g.client->proxy.build_url(), AuthenticationError);
@@ -223,7 +226,7 @@ TEST(fetch_http_via_fake_gateway) {
 
 TEST(fetch_connect_refused_reports_status) {
     FakeServer srv([](const std::string&) {
-        return std::string("HTTP/1.1 407 Proxy Authentication Required\r\nContent-Length: 0\r\n\r\n");
+        return std::string("HTTP/1.1 407 Proxy Authentication Required\r\nX-DominusNode-Error: INVALID_API_KEY\r\nRetry-After: 3\r\nContent-Length: 0\r\n\r\n");
     });
     auto c = gateway_client(srv.port());
     try {
@@ -231,6 +234,9 @@ TEST(fetch_connect_refused_reports_status) {
         fail("expected ProxyError", __FILE__, __LINE__);
     } catch (const ProxyError& e) {
         CHECK_EQ(e.status_code(), std::optional<int>(407));
+        CHECK_EQ(e.code(), std::optional<std::string>("INVALID_API_KEY"));
+        CHECK(e.details().count("retryAfter") == 1 && e.details().at("retryAfter").get<int>() == 3);
+        CHECK(std::string(e.what()).find("INVALID_API_KEY") != std::string::npos);
         CHECK(std::string(e.what()).find(KEY) == std::string::npos);
     }
     auto reqs = srv.requests();

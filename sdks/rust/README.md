@@ -6,17 +6,17 @@ implements the language-neutral contract in `sdks/SDK_SURFACE.md` (reference:
 and `is_connected`.
 
 ```bash
-cargo add dominusnode@2
+cargo add dominusnode@3
 cargo add tokio --features full
 ```
 
-Defaults: API `https://api.dominusnode.com`, relay gateway `proxy.dominusnode.com` (HTTP proxy :8080, SOCKS5 :1080). Both can be overridden in the client configuration.
+Defaults: API `https://api.dominusnode.com`, relay gateway `proxy.dominusnode.com` (TLS to the gateway's HTTPS proxy on :8443 by default since 3.1; SOCKS5 :1080). Production gateways refuse credentials on plaintext 8080/1080. A self-hosted coordinator publishes its TLS proxy on 8444: `gateway_tls: Some(GatewayTls { port: Some(8444), ..Default::default() })`. Plaintext 8080 for local development: `gateway_tls: None`. A refused CONNECT carries the gateway's `X-DominusNode-Error` code (e.g. INSUFFICIENT_BALANCE, NO_NODES_AVAILABLE) in `err.code()` / `err.details()["retryAfter"]`. Both can be overridden in the client configuration.
 
 or in `Cargo.toml`:
 
 ```toml
 [dependencies]
-dominusnode = "2"
+dominusnode = "3.1"
 tokio = { version = "1", features = ["full"] }
 ```
 
@@ -101,6 +101,7 @@ calling the signer.
   print and serialise as `[REDACTED]`; secrets are zeroized on drop.
 - Error messages are scrubbed of `dn_live_`/`dn_test_`/`dn_node_`/`dn_proxy_` keys and JWTs.
 - `proxy.build_url` returns a URL that CONTAINS the API key: do not log it.
+- Exit classes (`IpClass`): `Residential`, `Dc`, `Mobile` and `Masked` (`class-masked`: VPN/WARP/Tor exits, cheapest, opt-in; never used unless requested).
 - `proxy.fetch`: GET/HEAD only, ports 80/443, local names and private addresses
   refused (all IPv4 spellings, IPv6 incl. mapped/compatible/NAT64/Teredo/6to4),
   DNS-rebinding check over every resolved address, `http://` only with

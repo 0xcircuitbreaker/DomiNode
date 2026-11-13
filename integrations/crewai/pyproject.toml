@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "dominusnode-crewai"
-version = "2.1.0"
+version = "2.2.0"
 description = "CrewAI tools for the DominusNode AI-agent relay network (19 v2 tools on the dominusnode SDK)"
 readme = "README.md"
 license = "MIT"
@@ -12,7 +12,7 @@ requires-python = ">=3.10"
 dependencies = [
     "crewai>=0.80.0",
     "pydantic>=2.0",
-    "dominusnode>=2.1.0,<3",
+    "dominusnode>=2.2.0,<3",
 ]
 
 [project.optional-dependencies]

@@ -43,7 +43,7 @@ Then in `pom.xml` (the repository `id` must match the server `id`):
 <dependency>
   <groupId>io.dominusnode</groupId>
   <artifactId>dominusnode-sdk</artifactId>
-  <version>2.1.0</version>
+  <version>2.2.0</version>
 </dependency>
 ```
 
@@ -69,7 +69,9 @@ try (DominusNodeClient dn = new DominusNodeClient()) {
 Config cfg = Config.builder()
         .baseUrl("https://api.dominusnode.com")     // http(s), no userinfo
         .proxyHost("proxy.dominusnode.com")
-        .httpProxyPort(8080).socks5ProxyPort(1080)
+        .gatewayTls(GatewayTls.defaults())           // default: TLS to the gateway on 8443 (self-host: .port(8444))
+        // .plaintextGateway().httpProxyPort(8080)    // local dev only; production refuses plaintext
+        .socks5ProxyPort(1080)
         .tokens(accessJwt, refreshJwt)               // optional existing JWT pair
         .transport(myTransport)                      // optional; must not follow redirects
         .build();
@@ -123,9 +125,13 @@ without calling the signer. Signatures returned by the signer are format-checked
 
 ## Proxy
 
-Routing flags go in the proxy username (`country-XX`, `class-residential|dc|mobile`, `session-<id>`,
+Routing flags go in the proxy username (`country-XX`, `class-residential|dc|mobile|masked` (masked = VPN/WARP/Tor exits, cheapest, opt-in), `session-<id>`,
 `wallet-<uuid>`, `allowhttp-1`); OFAC-sanctioned countries (CU, IR, KP, RU, SY) are refused.
-`buildUrl` returns `http://<user>:<key>@host:8080` or `socks5://...:1080`. The URL contains your API key,
+Since 2.2 the proxy talks TLS to the gateway (HTTPS proxy, port 8443; self-hosted coordinators use 8444);
+production gateways refuse credentials on plaintext 8080/1080. A refused CONNECT throws `ProxyException`
+with the gateway's `X-DominusNode-Error` code in `getCode()` (e.g. INSUFFICIENT_BALANCE, NO_NODES_AVAILABLE)
+and `Retry-After` in `getRetryAfter()`.
+`buildUrl` returns `https://<user>:<key>@host:8443` or `socks5://...:1080`. The URL contains your API key,
 so do not log it.
 
 `fetch` allows GET and HEAD only, on ports 80/443. It refuses local names and private IP literals in

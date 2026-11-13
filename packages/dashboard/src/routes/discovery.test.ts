@@ -48,6 +48,9 @@ describe("agent discovery documents", () => {
     expect(doc.proxy["plaintext_warning"]).toMatch(/in clear/);
     const noTls = buildAgentToolDocument(discoveryEnv({} as NodeJS.ProcessEnv), pricing) as { proxy: Record<string, string> };
     expect(noTls.proxy["https"]).toBeUndefined();
+    // x402/MPP payers are pointed at the TLS port when one is published.
+    expect(txt).toMatch(/x402 or MPP at the gateway \(https:\/\/[^)]+:8443, TLS\)/);
+    expect(txt).toContain("class-residential|mobile|dc|masked");
   });
 
   it("agent-tool.json has no legacy terms and pricing matches network_pricing", async () => {
@@ -61,7 +64,17 @@ describe("agent discovery documents", () => {
       { ip_class: "residential", price_per_gb_musd: "730000", price_per_gb_usd: "0.730000" },
     ]);
     const proxy = r.body["proxy"] as { username: { flags: Record<string, string> } };
-    expect(Object.keys(proxy.username.flags)).toEqual(["country-XX", "class-residential|dc|mobile", "session-<id>", "allowhttp-1"]);
+    expect(Object.keys(proxy.username.flags)).toEqual(["country-XX", "class-residential|mobile|dc|masked", "session-<id>", "allowhttp-1"]);
+    // Package identifiers match the real manifests.
+    const fs = await import("node:fs");
+    const root = (await import("node:path")).join(__dirname, "../../../../");
+    const goMod = fs.readFileSync(root + "sdks/go/go.mod", "utf8").split("\n")[0].replace(/^module\s+/, "").trim();
+    const pom = fs.readFileSync(root + "sdks/java/pom.xml", "utf8");
+    const gid = pom.match(/<groupId>([^<]+)<\/groupId>\s*<artifactId>([^<]+)<\/artifactId>/)!;
+    const sdks = (r.body["integrations"] as { sdks: Record<string, string> }).sdks;
+    expect(sdks["go"]).toBe(goMod);
+    expect(sdks["java"]).toBe(`${gid[1]}:${gid[2]}`);
+    expect((r.body["errors"] as { codes: string[] }).codes).toContain("TLS_REQUIRED");
     expect(text).toContain("/v1/policy");
     expect(text).toContain("/v1/abuse-reports");
     expect((r.body["announcements"] as { url: string }).url).toMatch(/\/v1\/announcements$/);
@@ -93,5 +106,19 @@ describe("agent discovery documents", () => {
     const r = await call(app(), "GET", "/.well-known/agent-tool.json");
     expect(r.status).toBe(503);
     expect(JSON.stringify(r.body)).not.toContain("db down");
+  });
+});
+
+describe("production compose advertises the TLS proxy", () => {
+  it("the api service sets PROXY_PUBLIC_TLS_PORT so discovery lists https first", async () => {
+    const fs = await import("node:fs");
+    const { buildAgentToolDocument, discoveryEnv } = await import("./discovery.js");
+    const yml = fs.readFileSync((await import("node:path")).join(__dirname, "../../../../docker-compose.prod.yml"), "utf8");
+    const api = yml.split(/\n {2}api:\n/)[1]!.split(/\n {2}[a-z][a-z0-9-]*:\n/)[0]!;
+    expect(api).toMatch(/PROXY_PUBLIC_TLS_PORT: "\$\{PROXY_TLS_HOST_PORT:-8443\}"/);
+    const env = discoveryEnv({ PROXY_PUBLIC_TLS_PORT: "8443" } as NodeJS.ProcessEnv);
+    const doc = buildAgentToolDocument(env, { prices: [], tiers: [], maturationHours: 0 } as never) as { proxy: Record<string, string> };
+    expect(Object.keys(doc.proxy)[0]).toBe("https");
+    expect(doc.proxy["example"]).toMatch(/^curl -x https:\/\/.+:8443 /);
   });
 });

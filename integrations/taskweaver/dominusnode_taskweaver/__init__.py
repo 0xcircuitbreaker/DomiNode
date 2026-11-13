@@ -10,5 +10,5 @@ from dominusnode_taskweaver._core import TOOL_NAMES, DominusNodeTools
 
 PLUGIN_DIR = Path(__file__).parent / "plugins"
 
-__version__ = "2.1.0"
+__version__ = "2.2.0"
 __all__ = ["DominusNodeTools", "TOOL_NAMES", "PLUGIN_DIR"]

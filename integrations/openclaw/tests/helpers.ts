@@ -25,7 +25,10 @@ export function mockClient() {
         truncated: false,
         text: () => "hello",
       })),
-      buildUrl: vi.fn((o: { protocol?: string }) => `${o.protocol ?? "http"}://country-US:${TEST_KEY}@proxy.dominusnode.com:8080`),
+      buildUrl: vi.fn((o: { protocol?: string }) => {
+        const proto = o.protocol ?? "https";
+        return `${proto}://country-US:${TEST_KEY}@proxy.dominusnode.com:${proto === "https" ? 8443 : proto === "socks5" ? 1080 : 8080}`;
+      }),
       buildUsername: vi.fn(() => "country-US"),
     },
     network: {

@@ -101,11 +101,15 @@ export class DominusNode implements INodeType {
     const items = this.getInputData();
     const creds = (await this.getCredentials("dominusNodeApi")) as IDataObject;
     const port = Number(creds.proxyPort);
+    const tlsPort = Number(creds.proxyTlsPort);
     const provider = new ClientProvider({
       apiKey: typeof creds.apiKey === "string" ? creds.apiKey : undefined,
       baseUrl: typeof creds.baseUrl === "string" && creds.baseUrl ? creds.baseUrl : undefined,
       proxyHost: typeof creds.proxyHost === "string" && creds.proxyHost ? creds.proxyHost : undefined,
       httpProxyPort: Number.isInteger(port) && port > 0 ? port : undefined,
+      tlsProxyPort: Number.isInteger(tlsPort) && tlsPort > 0 ? tlsPort : undefined,
+      // Credentials saved before 2.2 have no proxyTlsPort and default to TLS on 8443.
+      insecureProxy: creds.insecureProxy === true,
     });
     const out: INodeExecutionData[] = [];
     try {

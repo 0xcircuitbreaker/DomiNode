@@ -112,7 +112,20 @@ namespace {
 struct FetchCapture {
     ProxyFetchResponse* res;
     std::size_t max_bytes;
+    // https targets: the first header block is the gateway's CONNECT reply.
+    bool tunnel = false;
+    bool connect_seen = false;
+    bool in_connect = false;
+    std::map<std::string, std::string> connect_headers;
 };
+
+bool relay_code_ok(const std::string& v) {
+    if (v.empty() || v.size() > 64) return false;
+    for (char ch : v) {
+        if (!((ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || ch == '_')) return false;
+    }
+    return true;
+}
 
 size_t fetch_header_cb(char* buf, size_t size, size_t n, void* ud) {
     auto* c = static_cast<FetchCapture*>(ud);
@@ -120,6 +133,9 @@ size_t fetch_header_cb(char* buf, size_t size, size_t n, void* ud) {
     std::string line(buf, total);
     while (!line.empty() && (line.back() == '\r' || line.back() == '\n')) line.pop_back();
     if (line.rfind("HTTP/", 0) == 0) {
+        c->in_connect = c->tunnel && !c->connect_seen;
+        c->connect_seen = true;
+        if (c->in_connect) return total;
         c->res->headers.clear();
         auto s1 = line.find(' ');
         auto s2 = s1 == std::string::npos ? s1 : line.find(' ', s1 + 1);
@@ -131,6 +147,10 @@ size_t fetch_header_cb(char* buf, size_t size, size_t n, void* ud) {
         std::string k = to_lower(line.substr(0, colon));
         std::string v = line.substr(colon + 1);
         v.erase(0, v.find_first_not_of(" \t"));
+        if (c->in_connect) {
+            c->connect_headers.emplace(k, v);
+            return total;
+        }
         auto it = c->res->headers.find(k);
         if (it != c->res->headers.end()) it->second += ", " + v;
         else c->res->headers[k] = v;
@@ -277,7 +297,10 @@ ProxyFetchResponse ProxyResource::fetch(const std::string& url, const ProxyFetch
     curl_easy_setopt(c, CURLOPT_PROXYUSERNAME, username.c_str());
     curl_easy_setopt(c, CURLOPT_PROXYPASSWORD, api_key.c_str());
     curl_easy_setopt(c, CURLOPT_HTTPPROXYTUNNEL, target.scheme == "https" ? 1L : 0L);
-    curl_easy_setopt(c, CURLOPT_SUPPRESS_CONNECT_HEADERS, 1L);
+    // CONNECT reply headers reach the header callback (X-DominusNode-Error on refusals);
+    // FetchCapture keeps them apart from the target's response headers.
+    curl_easy_setopt(c, CURLOPT_SUPPRESS_CONNECT_HEADERS, 0L);
+    cap.tunnel = target.scheme == "https";
     curl_easy_setopt(c, CURLOPT_TIMEOUT_MS, timeout_ms);
     if (method == "HEAD") curl_easy_setopt(c, CURLOPT_NOBODY, 1L);
     curl_easy_setopt(c, CURLOPT_HEADERFUNCTION, fetch_header_cb);
@@ -300,7 +323,17 @@ ProxyFetchResponse ProxyResource::fetch(const std::string& url, const ProxyFetch
     curl_easy_getinfo(c, CURLINFO_RESPONSE_CODE, &res.status);
 
     if (target.scheme == "https" && connect_code != 0 && connect_code != 200) {
-        throw ProxyError("Proxy refused CONNECT (HTTP " + std::to_string(connect_code) + ")", static_cast<int>(connect_code));
+        std::optional<std::string> code;
+        Details details;
+        auto ec = cap.connect_headers.find("x-dominusnode-error");
+        if (ec != cap.connect_headers.end() && relay_code_ok(ec->second)) code = ec->second;
+        auto ra = cap.connect_headers.find("retry-after");
+        if (ra != cap.connect_headers.end() && !ra->second.empty() && ra->second.size() <= 6 &&
+            ra->second.find_first_not_of("0123456789") == std::string::npos) {
+            details["retryAfter"] = std::stoi(ra->second);
+        }
+        throw ProxyError("Proxy refused CONNECT (HTTP " + std::to_string(connect_code) + ")" + (code ? ": " + *code : ""),
+                         static_cast<int>(connect_code), code, std::move(details));
     }
     if (rc == CURLE_WRITE_ERROR && res.truncated) return res;
     if (rc == CURLE_OPERATION_TIMEDOUT) throw ProxyError("Proxy request timed out after " + std::to_string(timeout_ms) + "ms");

@@ -50,6 +50,8 @@ services:
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       MFA_ENCRYPTION_KEY: ${MFA_ENCRYPTION_KEY:?MFA_ENCRYPTION_KEY is required}
       DASHBOARD_PORT: "3000"
+      # Advertise the TLS proxy in agent-tool.json, llms.txt and /api/proxy/config (8080/1080 are loopback-only here).
+      PROXY_PUBLIC_TLS_PORT: "${PROXY_TLS_HOST_PORT:-8443}"
       CORS_ORIGINS: ${CORS_ORIGINS:-https://dominusnode.com,https://www.dominusnode.com,https://dominusnode.daedalusdevelopmentgroup.com}
       STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
       STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}

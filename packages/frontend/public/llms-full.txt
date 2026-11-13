@@ -10,7 +10,7 @@ DominusNode is a decentralized relay network for AI agents only. Requester agent
 
 ## Endpoints
 
-- Gateway: `proxy.dominusnode.com`, HTTP/CONNECT proxy on port 8080, SOCKS5 on port 1080, plus a TLS proxy listener (port set by the operator, commonly 8443) so proxy credentials never travel in clear text.
+- Gateway: `https://proxy.dominusnode.com:8443`, the TLS (HTTPS) proxy listener, so proxy credentials never travel in clear text. Production refuses credentials on the plaintext HTTP/CONNECT (8080) and SOCKS5 (1080) listeners; those are for local gateways only. A self-hosted coordinator publishes its TLS proxy on 8444 by default.
 - API: `https://api.dominusnode.com` (public `/v1/pricing`, `/v1/policy`, `/v1/network/stats`; authenticated `/v1` agent routes).
 - Status: `https://api.dominusnode.com/status` (human-readable page), `https://api.dominusnode.com/v1/network/history` (hourly snapshots), `/v1/network/incidents`, `/v1/network/wanted` (where nodes are needed).
 - API-hosted discovery: `https://api.dominusnode.com/llms.txt` (live prices) and `https://api.dominusnode.com/.well-known/agent-tool.json`.
@@ -28,7 +28,7 @@ The API key goes in the proxy **password**. The username holds hyphen-joined fla
 | Flag | Meaning |
 |---|---|
 | `country-XX` | Exit country, ISO-3166 alpha-2. OFAC countries CU, IR, KP, RU, SY are refused. |
-| `class-residential`, `class-dc`, `class-mobile` | Exit IP class |
+| `class-residential`, `class-dc`, `class-mobile`, `class-masked` | Exit IP class. `masked` (VPN/WARP/Tor egress) is the cheapest and opt-in: unflagged requests never use it |
 | `session-<id>` | Sticky exit (1-64 alphanumerics) |
 | `allowhttp-1` | Allow plaintext `http://` (the exit node can read it) |
 
@@ -36,8 +36,8 @@ With no flags, use `relay`.
 
 ```bash
 export DOMINUSNODE_API_KEY=dn_live_YOUR_KEY
-curl -x "http://country-US-class-residential:$DOMINUSNODE_API_KEY@proxy.dominusnode.com:8080" https://httpbin.org/ip
-curl -x "socks5h://class-dc-session-job42:$DOMINUSNODE_API_KEY@proxy.dominusnode.com:1080" https://httpbin.org/ip
+curl -x "https://country-US-class-residential:$DOMINUSNODE_API_KEY@proxy.dominusnode.com:8443" https://httpbin.org/ip
+curl -x "https://class-dc-session-job42:$DOMINUSNODE_API_KEY@proxy.dominusnode.com:8443" https://httpbin.org/ip
 ```
 
 HTTPS stays end-to-end TLS between the requester and the origin. Plain HTTP is refused unless `allowhttp-1` is set.
@@ -262,21 +262,26 @@ The node agent (`packages/node-agent`, binary `dominusnode-node`) dials **out** 
 mkdir -p ~/.dominusnode && umask 077
 printf '%s' "$WALLET_PRIVATE_KEY_HEX" > ~/.dominusnode/wallet.key && chmod 600 ~/.dominusnode/wallet.key
 
-# 2. Build and register (signs the consent attestation, solves a small proof of work)
-git clone https://github.com/0xcircuitbreaker/DomiNode.git && cd DomiNode
-npm ci && npm run build -w @dominusnode/shared -w @dominusnode/node-agent
-export DN_API_KEY=dn_live_YOUR_KEY
-export DN_NODE_API_URL=https://api.dominusnode.com   # this is the node-agent default
-node packages/node-agent/dist/src/main.js register --wallet-key-file ~/.dominusnode/wallet.key
-# writes ~/.dominusnode/node.json (mode 0600)
+# 2. Register with the published image (official coordinator pins baked in;
+#    signs the consent attestation, solves a small proof of work)
+sudo install -d -o 1001 -g 1001 -m 700 /etc/dominusnode
+sudo install -o 1001 -g 1001 -m 600 ~/.dominusnode/wallet.key /etc/dominusnode/wallet.key
+read -rs DN_API_KEY && export DN_API_KEY
+docker run --rm -e DN_API_KEY -e DN_WALLET_KEY_FILE=/run/dominusnode/wallet.key \
+  -v /etc/dominusnode:/run/dominusnode ghcr.io/0xcircuitbreaker/dominusnode-node register
+sudo rm /etc/dominusnode/wallet.key   # not needed after registration
+# writes /etc/dominusnode/node.json (mode 0600)
 
-# 3. Run it on the machine that owns the IP; keep it running (systemd, pm2, container restart policy)
-node packages/node-agent/dist/src/main.js run --key-file ~/.dominusnode/node.json
+# 3. Run it on the machine that owns the IP; the restart policy keeps it up
+docker run -d --name dominusnode-node --restart unless-stopped \
+  -v /etc/dominusnode/node.json:/run/dominusnode/node.json:ro ghcr.io/0xcircuitbreaker/dominusnode-node
 ```
+
+A plain source build (`npm run build`) embeds no coordinator keys and refuses to start. To run from source, point it at a coordinator and pin its key: `--coordinator <domain> --trust sha256:<fingerprint>`, or set `DN_NODE_COORD_PINS`.
 
 Where are nodes needed? `GET https://api.dominusnode.com/v1/network/wanted` lists country/class combinations requesters asked for with no node online.
 
-Optional limits can only tighten: `--ports 443`, `--max-streams 32`, `--gb-per-day 5`, `--req-per-sec 20`. Env equivalents: `DN_NODE_KEY_FILE`, `DN_NODE_PORTS`, `DN_NODE_MAX_STREAMS`, `DN_NODE_GB_PER_DAY`, `DN_NODE_REQ_PER_SEC`, `DN_NODE_MAX_MBPS`, `DN_NODE_DENY_DOMAINS`.
+Optional limits can only tighten (pass them to the container with `-e`): `DN_NODE_KEY_FILE`, `DN_NODE_PORTS`, `DN_NODE_MAX_STREAMS`, `DN_NODE_GB_PER_DAY`, `DN_NODE_REQ_PER_SEC`, `DN_NODE_MAX_MBPS`, `DN_NODE_DENY_DOMAINS`.
 
 The MCP server can register a node too (`dominusnode_node_register`, with the wallet key in `DOMINUSNODE_WALLET_KEY_FILE`); see [MCP setup](https://dominusnode.com/docs/mcp.md).
 

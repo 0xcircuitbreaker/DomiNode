@@ -46,9 +46,30 @@ export function startFloorDiscovery(apiUrl: string, deps: Omit<SelfDiscoveryOpti
   });
 }
 
+/**
+ * Shown when `run` has no coordinator pins: a plain `npm run build` leaves the
+ * embedded pin list empty (only `build:release` bakes in the official keys), and
+ * without a pin every CHALLENGE is rejected, so the agent would retry forever.
+ */
+export const NO_COORD_PINS_MESSAGE = [
+  "error: no coordinator signing keys are pinned, so this node cannot authenticate any gateway.",
+  "A plain source build (npm run build) does not embed the official keys. Fix one of:",
+  "  - run the published image, which has the official pins baked in:",
+  "      docker run ... ghcr.io/0xcircuitbreaker/dominusnode-node run",
+  "  - point at a coordinator and pin its key fingerprint:",
+  "      --coordinator <domain> --trust sha256:<fingerprint>",
+  "  - set DN_NODE_COORD_PINS to the coordinator's Ed25519 public key(s)",
+  "  - build with the official keys: DN_COORD_PUBKEYS=... npm run build:release -w @dominusnode/node-agent",
+].join("\n");
+
+/** The coordinator pins `run` will use (embedded + configured, or the configured set alone). */
+export function resolveRunCoordPins(cfg: { coordPins: string[]; coordPinsExclusive?: boolean }): string[] {
+  return cfg.coordPinsExclusive ? cfg.coordPins : effectiveCoordPins(cfg.coordPins);
+}
+
 const USAGE = "usage: dominusnode-node <register --wallet-key-file PATH | run> [--key-file PATH] [--ports 80,443] [--max-streams N] [--req-per-sec N] [--gb-per-day N] [--coordinator DOMAIN --trust sha256:FINGERPRINT]";
 
-async function main(argv: string[]): Promise<number> {
+export async function main(argv: string[]): Promise<number> {
   const [cmd, ...rest] = argv;
   if (cmd !== "register" && cmd !== "run") {
     process.stderr.write(USAGE + "\n");
@@ -82,6 +103,11 @@ async function main(argv: string[]): Promise<number> {
     return 0;
   }
 
+  const coordPins = resolveRunCoordPins(cfg);
+  if (coordPins.length === 0) {
+    process.stderr.write(NO_COORD_PINS_MESSAGE + "\n");
+    return 2;
+  }
   reportTlsCapability(stderrLogger, "node-agent");
   const stored = readNodeFile(cfg.keyFile);
   const discovery = startFloorDiscovery(cfg.apiUrl);
@@ -97,7 +123,7 @@ async function main(argv: string[]): Promise<number> {
     rate: new ByteRate(cfg.maxMbps),
     spkiPins: cfg.spkiPins,
     nodePrivateKeyPem: stored.nodePrivateKeyPem,
-    coordPins: cfg.coordPinsExclusive ? cfg.coordPins : effectiveCoordPins(cfg.coordPins),
+    coordPins,
     dial: (host, port, allowedPorts) => dial(host, port, { allowedPorts: () => allowedPorts, denyDomains: cfg.denyDomains }),
   });
   stored.nodeKey = "";

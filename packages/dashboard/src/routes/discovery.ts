@@ -1,6 +1,9 @@
 import { Router } from "express";
 import type { Request, Response } from "express";
-import { createLogger, policyRepo, BLOCKED_COUNTRY_CODES, getPublicProxyPorts } from "@dominusnode/shared";
+import { createLogger, policyRepo, BLOCKED_COUNTRY_CODES, getPublicProxyPorts, EXIT_CLASSES } from "@dominusnode/shared";
+
+/** `class-residential|mobile|dc|masked`, read from the exit-class list so it cannot drift. */
+const CLASS_FLAG = `class-${EXIT_CLASSES.join("|")}`;
 
 /**
  * Agent discovery documents (v2): /.well-known/agent-tool.json and /llms.txt.
@@ -93,7 +96,7 @@ export function buildAgentToolDocument(env: DiscoveryEnv, p: DiscoveryPricing): 
         format: "hyphen-joined flags, or 'relay' for none",
         flags: {
           "country-XX": "ISO 3166-1 alpha-2 exit country",
-          "class-residential|dc|mobile": "exit IP class",
+          [CLASS_FLAG]: "exit IP class; masked (VPN/WARP/Tor egress, cheapest) is opt-in and never used unless requested",
           "session-<id>": "sticky exit for up to 10 minutes",
           "allowhttp-1": "allow plaintext http:// (readable by the exit node)",
         },
@@ -166,8 +169,8 @@ export function buildAgentToolDocument(env: DiscoveryEnv, p: DiscoveryPricing): 
         node: "@dominusnode/sdk",
         python: "dominusnode",
         rust: "dominusnode",
-        go: "github.com/Dominus-Node/dominusnode-go",
-        java: "com.dominusnode:dominusnode-java",
+        go: "github.com/0xcircuitbreaker/DomiNode/sdks/go/v2",
+        java: "io.dominusnode:dominusnode-sdk",
         cpp: "dominusnode-cpp",
       },
       surface: "sdks/SDK_SURFACE.md (v2)",
@@ -179,7 +182,7 @@ export function buildAgentToolDocument(env: DiscoveryEnv, p: DiscoveryPricing): 
       codes: [
         "INSUFFICIENT_BALANCE", "NO_NODES_AVAILABLE", "SANCTIONED_COUNTRY", "TARGET_BLOCKED", "POLICY_DENIED",
         "TOO_MANY_CONNECTIONS", "CONTRIBUTION_REQUIRED", "ANONYMOUS_PAYERS_DISABLED", "PAYER_SANCTIONED",
-        "X402_PAYMENT_INVALID", "MPP_PAYMENT_INVALID",
+        "X402_PAYMENT_INVALID", "MPP_PAYMENT_INVALID", "QUOTE_CLASS_MISMATCH", "TLS_REQUIRED",
       ],
     },
 
@@ -198,10 +201,10 @@ export function buildLlmsTxt(env: DiscoveryEnv, p: DiscoveryPricing): string {
     "> Relay network for AI agents only: an agent-contributed exit network with an operator-run gateway (federation planned). Agents buy bandwidth through the gateway; agents that run a node earn a share of the paid traffic that exits through their IPs. Alpha: earnings convert into bandwidth today; USDC withdrawals are built but disabled.",
     "",
     "## Use it",
-    `- No signup: pay per request with x402 or MPP at the gateway (${env.proxyHost}:${env.httpPort}).`,
+    `- No signup: pay per request with x402 or MPP at the gateway (${env.tlsPort ? `https://${env.proxyHost}:${env.tlsPort}, TLS` : `${env.proxyHost}:${env.httpPort}`}).`,
     `- Or sign in with a wallet signature (${b}/api/auth/wallet/challenge) and create a dn_live_ API key.`,
-    "- Proxy username: hyphen-joined flags country-XX, class-residential|dc|mobile, session-<id>, allowhttp-1; use 'relay' for none.",
-    `- MCP server: npx -y @dominusnode/mcp-server. SDKs: @dominusnode/sdk (Node), dominusnode (Python, Rust), Go, Java, C++.`,
+    `- Proxy username: hyphen-joined flags country-XX, ${CLASS_FLAG} (masked = VPN/WARP/Tor exits, cheapest, opt-in), session-<id>, allowhttp-1; use 'relay' for none.`,
+    `- MCP server: npx -y @dominusnode/mcp-server. SDKs: @dominusnode/sdk (Node), dominusnode (Python, Rust), github.com/0xcircuitbreaker/DomiNode/sdks/go/v2 (Go), io.dominusnode:dominusnode-sdk (Java), dominusnode-cpp (C++).`,
     "",
     "## Pricing (live from the network pricing table)",
     prices,

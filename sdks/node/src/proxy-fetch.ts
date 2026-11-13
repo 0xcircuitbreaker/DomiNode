@@ -204,6 +204,16 @@ function viaAbsoluteUri(ep: ProxyEndpoint, proxyAuth: string, target: URL, metho
   });
 }
 
+/** X-DominusNode-Error / Retry-After from a refused CONNECT head (SDK_SURFACE §3.15 step 7). */
+export function relayErrorHead(h: Record<string, string | string[] | undefined>): { code?: string; retryAfter?: number } {
+  const one = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
+  const raw = one(h["x-dominusnode-error"])?.trim();
+  const code = raw && /^[A-Z0-9_]{1,64}$/.test(raw) ? raw : undefined;
+  const ra = one(h["retry-after"])?.trim();
+  const retryAfter = ra !== undefined && /^\d{1,6}$/.test(ra) ? Number(ra) : undefined;
+  return { code, retryAfter };
+}
+
 function viaConnect(ep: ProxyEndpoint, proxyAuth: string, target: URL, method: string, headers: Record<string, string>,
   maxBytes: number, signal: AbortSignal): Promise<ProxyFetchResponse> {
   const port = target.port || "443";
@@ -216,7 +226,8 @@ function viaConnect(ep: ProxyEndpoint, proxyAuth: string, target: URL, method: s
     connectReq.on("connect", (res, socket) => {
       if (res.statusCode !== 200) {
         socket.destroy();
-        reject(new ProxyError(`Proxy refused CONNECT (HTTP ${res.statusCode ?? 0})`, res.statusCode));
+        const { code, retryAfter } = relayErrorHead(res.headers);
+        reject(new ProxyError(`Proxy refused CONNECT (HTTP ${res.statusCode ?? 0})${code ? `: ${code}` : ""}`, res.statusCode, code, retryAfter));
         return;
       }
       const servername = target.hostname.replace(/^\[|\]$/g, "");
