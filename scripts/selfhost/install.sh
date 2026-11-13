@@ -15,6 +15,11 @@
 #           off (plain HTTP on :80; terminate TLS in front of this box),
 #           cloudflare (site/API only through a Cloudflare Tunnel, no inbound
 #           ports for them; token in CLOUDFLARE_TUNNEL_TOKEN_FILE, mode 0600).
+# ACME_CHALLENGE: http (default; Let's Encrypt HTTP-01/TLS-ALPN-01, inbound 80/443)
+#           or dns-cloudflare (DNS-01 through the Cloudflare API, no inbound
+#           80/443; token in CLOUDFLARE_DNS_TOKEN_FILE, mode 0600, Zone:DNS:Edit
+#           + Zone:Zone:Read for the one zone). Required when TLS_MODE=cloudflare
+#           and this box runs the gateway (it has no inbound 80/443).
 # ROLE: all (default, one box), coordinator (postgres/api, no gateway),
 #       gateway (gateway + Caddy for RELAY_HOST only; DB over WireGuard).
 # RELAY_HOST / PROXY_HOST: public gateway hostnames (default: primary hostname).
@@ -35,7 +40,7 @@ for arg in "$@"; do
   case "$arg" in
     --yes|-y) ASSUME_YES=1 ;;
     --no-start) NO_START=1 ;;
-    -h|--help) sed -n '2,27p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,32p' "$0"; exit 0 ;;
     *) echo "unknown option: $arg" >&2; exit 2 ;;
   esac
 done
@@ -86,6 +91,19 @@ valid_host() {
   printf '%s' "$1" | grep -Eq '^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z][a-z0-9-]{0,62}$|^localhost$'
 }
 
+# A secret file: safe path, regular one-line file, mode 0600/0400. Never read here.
+check_token_file() {
+  local label="$1" key="$2" file="$3" abs
+  printf '%s' "$file" | grep -Eq '^[A-Za-z0-9._/-]+$' || die "invalid $key path"
+  case "$file" in /*) abs="$file" ;; *) abs="$ROOT/$file" ;; esac
+  if [ ! -f "$abs" ] || [ -L "$abs" ]; then die "$label not found (regular file): $file"; fi
+  [ -s "$abs" ] || die "$label is empty: $file"
+  case "$(stat -c %a "$abs" 2>/dev/null || stat -f %Lp "$abs")" in
+    600|400) ;; *) die "$label must be mode 0600 or 0400: $file" ;;
+  esac
+  [ "$(wc -l < "$abs" | tr -d ' ')" -le 1 ] || die "$label must hold one line (the token only)"
+}
+
 ask() {
   local prompt="$1" def="$2" ans
   if [ "$ASSUME_YES" -eq 1 ] || [ ! -t 0 ]; then printf '%s' "$def"; return; fi
@@ -132,14 +150,32 @@ if [ "$TLS" = cloudflare ]; then
   if in_list "$PROXYH" "$HOSTS"; then die "PROXY_HOST must not be a tunnel hostname: proxy traffic must not go through Cloudflare"; fi
   CF_DEFAULT="${CLOUDFLARE_TUNNEL_TOKEN_FILE:-$(env_get CLOUDFLARE_TUNNEL_TOKEN_FILE)}"
   CF_FILE="$(ask "Cloudflare tunnel token file (mode 0600)" "${CF_DEFAULT:-./selfhost/cloudflared.token}")"
-  printf '%s' "$CF_FILE" | grep -Eq '^[A-Za-z0-9._/-]+$' || die "invalid CLOUDFLARE_TUNNEL_TOKEN_FILE path"
-  case "$CF_FILE" in /*) CF_ABS="$CF_FILE" ;; *) CF_ABS="$ROOT/$CF_FILE" ;; esac
-  if [ ! -f "$CF_ABS" ] || [ -L "$CF_ABS" ]; then die "Cloudflare tunnel token file not found (regular file): $CF_FILE"; fi
-  [ -s "$CF_ABS" ] || die "Cloudflare tunnel token file is empty: $CF_FILE"
-  case "$(stat -c %a "$CF_ABS" 2>/dev/null || stat -f %Lp "$CF_ABS")" in
-    600|400) ;; *) die "Cloudflare tunnel token file must be mode 0600 or 0400: $CF_FILE" ;;
+  check_token_file "Cloudflare tunnel token file" CLOUDFLARE_TUNNEL_TOKEN_FILE "$CF_FILE"
+fi
+
+# ACME challenge for Caddy's public certificates.
+ACME_DEFAULT="${ACME_CHALLENGE:-$(env_get ACME_CHALLENGE)}"
+GW_CF=0
+if [ "$TLS" = cloudflare ] && [ "$ROLE_SEL" != coordinator ]; then GW_CF=1; ACME_DEFAULT="${ACME_CHALLENGE:-dns-cloudflare}"; fi
+ACME="$(ask "ACME challenge (http|dns-cloudflare)" "${ACME_DEFAULT:-http}")"
+case "$ACME" in http|dns-cloudflare) ;; *) die "ACME_CHALLENGE must be http or dns-cloudflare" ;; esac
+DNS_TOKEN_HELP="create a Cloudflare API token (My Profile > API Tokens > Create Token > Custom token) with Zone:DNS:Edit and Zone:Zone:Read for this zone only, store it in a 0600 file and set CLOUDFLARE_DNS_TOKEN_FILE (DEPLOYMENT.md 'ACME DNS-01')"
+if [ "$GW_CF" -eq 1 ] && [ "$ACME" != dns-cloudflare ]; then
+  die "TLS_MODE=cloudflare with a gateway on this box needs ACME_CHALLENGE=dns-cloudflare (no inbound 80/443 for HTTP-01): $DNS_TOKEN_HELP"
+fi
+DNS_FILE=""
+if [ "$ACME" = dns-cloudflare ]; then
+  case "$ROLE_SEL:$TLS" in
+    coordinator:cloudflare) die "ACME_CHALLENGE=dns-cloudflare does nothing for ROLE=coordinator TLS_MODE=cloudflare (no Caddy); use http" ;;
+    *:internal|*:off) die "ACME_CHALLENGE=dns-cloudflare needs TLS_MODE auto or cloudflare (public certificates)" ;;
   esac
-  [ "$(wc -l < "$CF_ABS" | tr -d ' ')" -le 1 ] || die "Cloudflare tunnel token file must hold one line (the token only)"
+  DNS_DEFAULT="${CLOUDFLARE_DNS_TOKEN_FILE:-$(env_get CLOUDFLARE_DNS_TOKEN_FILE)}"
+  DNS_FILE="$(ask "Cloudflare DNS API token file (mode 0600)" "${DNS_DEFAULT:-}")"
+  [ -n "$DNS_FILE" ] || die "ACME_CHALLENGE=dns-cloudflare needs CLOUDFLARE_DNS_TOKEN_FILE: $DNS_TOKEN_HELP"
+  check_token_file "Cloudflare DNS token file" CLOUDFLARE_DNS_TOKEN_FILE "$DNS_FILE"
+  if [ -n "$CF_FILE" ] && [ "$DNS_FILE" = "$CF_FILE" ]; then
+    die "CLOUDFLARE_DNS_TOKEN_FILE must differ from CLOUDFLARE_TUNNEL_TOKEN_FILE (separate tokens)"
+  fi
 fi
 
 # ROLE=gateway: the coordinator's Postgres over WireGuard (private address only).
@@ -204,6 +240,8 @@ env_set ROLE "$ROLE_SEL"
 env_set RELAY_HOST "$RELAY"
 env_set PROXY_HOST "$PROXYH"
 if [ "$TLS" = cloudflare ]; then env_set CLOUDFLARE_TUNNEL_TOKEN_FILE "$CF_FILE"; fi
+env_set ACME_CHALLENGE "$ACME"
+if [ -n "$DNS_FILE" ]; then env_set CLOUDFLARE_DNS_TOKEN_FILE "$DNS_FILE"; else env_unset CLOUDFLARE_DNS_TOKEN_FILE; fi
 # Always write every role-specific key so a role change clears stale values
 # (a former gateway must not keep a remote DATABASE_URL; a former coordinator
 # must not keep advertising a retired gateway key).
@@ -247,6 +285,19 @@ if [ -n "$GW_PUB" ] && [ "$GW_PUB" != "$PUB" ]; then PINS="$PUB,$GW_PUB"; fi
 env_set DN_COORD_PUBKEYS "$PINS"
 
 # ─── Caddyfile (regenerated every run) ──────────────────────────────
+# tls block for each public-cert site: internal, DNS-01 via Cloudflare, or none.
+# Caddy reads the DNS token from its own volume ({file.*}, Caddy >= 2.7); the
+# Caddyfile holds only the path.
+tls_block() {
+  if [ "$TLS" = internal ]; then
+    echo "  tls internal"
+  elif [ "$ACME" = dns-cloudflare ]; then
+    echo "  tls {"
+    echo "    dns cloudflare {file./run/caddy-secrets/cloudflare-dns.token}"
+    echo "    resolvers 1.1.1.1 1.0.0.1"
+    echo "  }"
+  fi
+}
 {
   echo "# Generated by scripts/selfhost/install.sh; re-run it instead of editing."
   echo "{"
@@ -260,7 +311,7 @@ env_set DN_COORD_PUBKEYS "$PINS"
       if [ "$TLS" = off ]; then SITES="${SITES:+$SITES, }http://$h"; else SITES="${SITES:+$SITES, }$h"; fi
     done
     echo "$SITES {"
-    if [ "$TLS" = internal ]; then echo "  tls internal"; fi
+    tls_block
     echo "  encode gzip"
     echo "  reverse_proxy api:3000"
     echo "}"
@@ -280,7 +331,7 @@ env_set DN_COORD_PUBKEYS "$PINS"
       if [ "$TLS" = off ]; then TSITES="${TSITES:+$TSITES, }http://$h:8443"; else TSITES="${TSITES:+$TSITES, }$h:8443"; fi
     done
     echo "$TSITES {"
-    if [ "$TLS" = internal ]; then echo "  tls internal"; fi
+    tls_block
     echo "  reverse_proxy gateway:8443 {"
     echo "    transport http {"
     echo "      proxy_protocol v2"
@@ -294,7 +345,7 @@ env_set DN_COORD_PUBKEYS "$PINS"
   if [ "$ROLE_SEL" != coordinator ] && [ "$TLS" != off ]; then
     if [ "$ROLE_SEL" = gateway ] || [ "$TLS" = cloudflare ] || ! in_list "$PROXYH" "$HOSTS"; then
       echo "$PROXYH {"
-      if [ "$TLS" = internal ]; then echo "  tls internal"; fi
+      tls_block
       echo "  respond \"DominusNode relay gateway: use the HTTPS proxy on port 8444\" 404"
       echo "}"
     fi
@@ -311,6 +362,7 @@ case "$ROLE_SEL" in
 esac
 if [ "$TLS" = cloudflare ]; then PROFILES="$PROFILES cloudflare"; fi
 if [ "$ROLE_SEL" != coordinator ] && [ "$TLS" != off ]; then PROFILES="$PROFILES proxytls"; fi
+if [ "$ACME" = dns-cloudflare ]; then PROFILES="$PROFILES dnscf"; fi
 COMPOSE=(docker compose -f docker-compose.selfhost.yml)
 if [ -n "$DB_WG" ]; then COMPOSE+=(-f docker-compose.selfhost.wg-db.yml); fi
 if [ "$ROLE_SEL" != coordinator ] && [ "$PLAIN" = 1 ]; then COMPOSE+=(-f docker-compose.selfhost.plain.yml); fi
@@ -319,7 +371,7 @@ for p in $PROFILES; do COMPOSE+=(--profile "$p"); done
 
 echo "config written: .env (0600), selfhost/Caddyfile, selfhost/coord-key.pem"
 echo "role: $ROLE_SEL; primary domain: $PRIMARY; all hostnames: $HOSTS; TLS: $TLS"
-echo "relay: $RELAY; proxy: $PROXYH; compose profiles: $PROFILES"
+echo "relay: $RELAY; proxy: $PROXYH; ACME challenge: $ACME; compose profiles: $PROFILES"
 echo "this box's signing public key (selfhost/coord.pub): $PUB; DN_COORD_PUBKEYS=$PINS"
 # ─── ASN/geo database (without it the gateway refuses all public traffic) ───
 ASN_DB="$ROOT/data/ip2asn-combined.tsv.gz"
@@ -348,6 +400,16 @@ if [ "$ROLE_SEL" = gateway ]; then
 fi
 "${COMPOSE[@]}" build
 "${COMPOSE[@]}" up -d --remove-orphans
+# The DNS provider reads its token once at provision: restart Caddy so a
+# rotated token (just copied by caddy-dns-keys) takes effect.
+if [ "$ACME" = dns-cloudflare ]; then
+  "${COMPOSE[@]}" restart caddy
+fi
+# Back on HTTP-01: drop any DNS token copy left in Caddy's secret volume.
+if [ "$ACME" = http ] && in_list caddy "$PROFILES"; then
+  docker run --rm --network none --user 0:0 -v dominusnode_caddy_secrets:/dst \
+    dominusnode-api:selfhost rm -f /dst/cloudflare-dns.token >/dev/null 2>&1 || true
+fi
 # The keys service copies selfhost/coord-key.pem into a volume owned by uid
 # 1001 (0400); fail loudly if the gateway still cannot read it.
 if [ "$ROLE_SEL" != coordinator ]; then
