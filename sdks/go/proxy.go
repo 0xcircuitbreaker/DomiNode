@@ -100,8 +100,28 @@ type gatewayTLS struct {
 
 var serverNameRE = regexp.MustCompile(`^[A-Za-z0-9.-]{1,253}$`)
 
+var relayCodeRE = regexp.MustCompile(`^[A-Z0-9_]{1,64}$`)
+
+// connectRefused builds the ProxyError for a non-200 CONNECT, carrying the
+// gateway's X-DominusNode-Error code and Retry-After seconds (Details["retryAfter"]).
+func connectRefused(res *http.Response) error {
+	e := &ProxyError{newBase(fmt.Sprintf("Proxy refused CONNECT (HTTP %d)", res.StatusCode), res.StatusCode, "", nil)}
+	if c := strings.TrimSpace(res.Header.Get("X-DominusNode-Error")); relayCodeRE.MatchString(c) {
+		e.Code = c
+	}
+	if ra := strings.TrimSpace(res.Header.Get("Retry-After")); ra != "" && len(ra) <= 6 {
+		if n, err := strconv.Atoi(ra); err == nil && n >= 0 {
+			e.Details = map[string]any{"retryAfter": n}
+		}
+	}
+	return e
+}
+
 func newGatewayTLS(g *GatewayTLS) (*gatewayTLS, error) {
 	if g == nil {
+		g = &GatewayTLS{}
+	}
+	if g.Disabled {
 		return nil, nil
 	}
 	port := g.Port
@@ -396,7 +416,7 @@ func (p *ProxyResource) roundTrip(ctx context.Context, auth string, target *url.
 		}
 		_ = cres.Body.Close()
 		if cres.StatusCode != 200 {
-			return nil, proxyErr(cres.StatusCode, "Proxy refused CONNECT (HTTP %d)", cres.StatusCode)
+			return nil, connectRefused(cres)
 		}
 		if br.Buffered() > 0 {
 			return nil, proxyErr(0, "Proxy sent unexpected data after CONNECT")

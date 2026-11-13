@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use serde_json::{Map, Value};
 
-use crate::errors::{scrub_credentials, DominusNodeError, Result};
+use crate::errors::{scrub_credentials, DominusNodeError, ErrorInfo, Result};
 use crate::http::{AuthMode, Credentials, HttpClient};
 use crate::ssrf::{assert_public_resolution, validate_target_url, Resolver, Target};
 
@@ -358,9 +358,13 @@ impl ProxyResource {
             let head = read_head_raw(&mut stream).await?;
             let status = parse_status(&head).map(|x| x.0).unwrap_or(0);
             if status != 200 {
-                return Err(FetchFail::Proxy(DominusNodeError::proxy(
-                    format!("Proxy refused CONNECT (HTTP {status})"),
-                    if status == 0 { None } else { Some(status) },
+                let (code, details) = relay_error_head(&head);
+                let msg = match &code {
+                    Some(c) => format!("Proxy refused CONNECT (HTTP {status}): {c}"),
+                    None => format!("Proxy refused CONNECT (HTTP {status})"),
+                };
+                return Err(FetchFail::Proxy(DominusNodeError::Proxy(
+                    ErrorInfo::new(msg, if status == 0 { None } else { Some(status) }).with(code, details),
                 )));
             }
             let sni = host_str.trim_start_matches('[').trim_end_matches(']').to_string();
@@ -486,6 +490,30 @@ async fn read_head_raw(s: &mut Stream) -> std::result::Result<Vec<u8>, FetchFail
         }
     }
     Ok(buf)
+}
+
+/// `X-DominusNode-Error` (as `code`) and `Retry-After` (as `details["retryAfter"]`)
+/// from a refused CONNECT head (SDK_SURFACE 3.15 step 7).
+fn relay_error_head(head: &[u8]) -> (Option<String>, Option<BTreeMap<String, Value>>) {
+    let text = String::from_utf8_lossy(head);
+    let mut code = None;
+    let mut details = None;
+    for line in text.split("\r\n").skip(1) {
+        let Some((name, value)) = line.split_once(':') else { continue };
+        let (name, value) = (name.trim().to_ascii_lowercase(), value.trim());
+        if name == "x-dominusnode-error" && code.is_none() && !value.is_empty() && value.len() <= 64
+            && value.bytes().all(|b| b.is_ascii_uppercase() || b.is_ascii_digit() || b == b'_')
+        {
+            code = Some(value.to_string());
+        } else if name == "retry-after" && details.is_none() && !value.is_empty() && value.len() <= 6 {
+            if let Ok(n) = value.parse::<u32>() {
+                let mut m = BTreeMap::new();
+                m.insert("retryAfter".to_string(), Value::from(n));
+                details = Some(m);
+            }
+        }
+    }
+    (code, details)
 }
 
 fn parse_status(head: &[u8]) -> Option<(u16, String)> {

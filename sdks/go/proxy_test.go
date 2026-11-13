@@ -47,7 +47,7 @@ func TestBuildUsername(t *testing.T) {
 func TestBuildURL(t *testing.T) {
 	c, _ := newTestClient(t)
 	u, err := c.Proxy.BuildURL(RoutingOptions{Country: "US", IPClass: "dc"}, "", "")
-	if err != nil || u != "http://country-US-class-dc:"+testKey+"@proxy.dominusnode.com:8080" {
+	if err != nil || u != "https://country-US-class-dc:"+testKey+"@proxy.dominusnode.com:8443" {
 		t.Fatalf("%q %v", u, err)
 	}
 	u, _ = c.Proxy.BuildURL(RoutingOptions{}, "socks5", "dn_test_otherkey123")
@@ -95,7 +95,7 @@ func fetchClient(t *testing.T, gateway string, lookup LookupFunc) *Client {
 	t.Helper()
 	host, port, _ := net.SplitHostPort(gateway)
 	p, _ := strconv.Atoi(port)
-	c, err := NewClient(Config{ProxyHost: host, HTTPProxyPort: p, Lookup: lookup})
+	c, err := NewClient(Config{ProxyHost: host, HTTPProxyPort: p, Lookup: lookup, GatewayTLS: &GatewayTLS{Disabled: true}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -209,6 +209,8 @@ func TestFetchConnectRefused(t *testing.T) {
 		if r.Method != http.MethodConnect || r.Host != "example.com:443" {
 			t.Errorf("got %s %s", r.Method, r.Host)
 		}
+		w.Header().Set("X-DominusNode-Error", "INVALID_API_KEY")
+		w.Header().Set("Retry-After", "7")
 		w.WriteHeader(http.StatusProxyAuthRequired)
 	}))
 	defer gw.Close()
@@ -217,6 +219,10 @@ func TestFetchConnectRefused(t *testing.T) {
 	var pe *ProxyError
 	if !errors.As(err, &pe) || pe.StatusCode != 407 || strings.Contains(err.Error(), testKey) {
 		t.Fatalf("%v", err)
+	}
+	// The relay error code from X-DominusNode-Error is surfaced.
+	if pe.Code != "INVALID_API_KEY" || pe.Details["retryAfter"] != 7 || !strings.Contains(err.Error(), "INVALID_API_KEY") {
+		t.Fatalf("code=%q details=%v", pe.Code, pe.Details)
 	}
 }
 

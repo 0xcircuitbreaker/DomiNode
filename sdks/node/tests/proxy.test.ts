@@ -29,13 +29,14 @@ describe("buildProxyUsername", () => {
 describe("proxy.buildUrl", () => {
   it("puts flags in the username and the key in the password", async () => {
     const { client } = await connected();
-    expect(client.proxy.buildUrl()).toBe(`http://relay:${API_KEY}@proxy.dominusnode.com:8080`);
+    // 2.2: TLS to the gateway is the default.
+    expect(client.proxy.buildUrl()).toBe(`https://relay:${API_KEY}@proxy.dominusnode.com:8443`);
     expect(client.proxy.buildUrl({ protocol: "socks5", country: "US", ipClass: "dc" }))
       .toBe(`socks5://country-US-class-dc:${API_KEY}@proxy.dominusnode.com:1080`);
     expect(client.proxy.buildUsername({ sessionId: "s1" })).toBe("session-s1");
   });
   it("needs a key; validates config", () => {
-    const c = new DominusNodeClient({ proxyHost: "gw.example", httpProxyPort: 9000 });
+    const c = new DominusNodeClient({ proxyHost: "gw.example", httpProxyPort: 9000, gatewayTls: false });
     expect(() => c.proxy.buildUrl()).toThrow(AuthenticationError);
     expect(c.proxy.buildUrl({ apiKey: API_KEY })).toBe(`http://relay:${API_KEY}@gw.example:9000`);
     expect(() => c.proxy.buildUrl({ apiKey: "nope" })).toThrow(ValidationError);
@@ -89,7 +90,7 @@ describe("proxy.fetch (local fake gateway)", () => {
     if (onConnect) server.on("connect", onConnect);
     await new Promise<void>((r) => server!.listen(0, "127.0.0.1", () => r()));
     const port = (server.address() as AddressInfo).port;
-    const c2 = new DominusNodeClient({ proxyHost: "127.0.0.1", httpProxyPort: port });
+    const c2 = new DominusNodeClient({ proxyHost: "127.0.0.1", httpProxyPort: port, gatewayTls: false });
     c2.proxy.setLookup(async () => [{ address: "93.184.216.34", family: 4 }]);
     return c2;
   }
@@ -134,11 +135,15 @@ describe("proxy.fetch (local fake gateway)", () => {
     const c = await gateway(() => undefined, (req, sock) => {
       connectLine = String(req.url);
       auth = String(req.headers["proxy-authorization"]);
-      sock.end("HTTP/1.1 402 Payment Required\r\nContent-Length: 0\r\n\r\n");
+      sock.end("HTTP/1.1 402 Payment Required\r\nX-DominusNode-Error: INSUFFICIENT_BALANCE\r\nRetry-After: 30\r\nContent-Length: 0\r\n\r\n");
     });
     const err = await c.proxy.fetch("https://example.com/x", { apiKey: API_KEY, ipClass: "dc" }).catch((e) => e);
     expect(err).toBeInstanceOf(ProxyError);
     expect(err.statusCode).toBe(402);
+    // The relay error code is surfaced, not just the status.
+    expect(err.code).toBe("INSUFFICIENT_BALANCE");
+    expect(err.retryAfter).toBe(30);
+    expect(err.message).toContain("INSUFFICIENT_BALANCE");
     expect(connectLine).toBe("example.com:443");
     expect(Buffer.from(auth.slice(6), "base64").toString()).toBe(`class-dc:${API_KEY}`);
   });
@@ -156,7 +161,7 @@ describe("proxy.fetch (local fake gateway)", () => {
   });
 
   it("error messages never contain the key", async () => {
-    const c = new DominusNodeClient({ proxyHost: "127.0.0.1", httpProxyPort: 1 });
+    const c = new DominusNodeClient({ proxyHost: "127.0.0.1", httpProxyPort: 1, gatewayTls: false });
     c.proxy.setLookup(async () => [{ address: "93.184.216.34", family: 4 }]);
     const err = await c.proxy.fetch("https://example.com/", { apiKey: API_KEY }).catch((e) => e);
     expect(err).toBeInstanceOf(ProxyError);

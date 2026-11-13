@@ -133,7 +133,7 @@ TEST(every_method_sends_expected_request) {
         std::string auth = Mock::header(q, "Authorization");
         std::string want = r.auth == 'n' ? "" : r.auth == 'j' ? "Bearer " + JWT : "Bearer " + KEY;
         if (auth != want) fail(ctx + "auth header '" + auth + "'", __FILE__, __LINE__);
-        if (Mock::header(q, "User-Agent") != "dominusnode-sdk-cpp/2.1.0") fail(ctx + "user-agent", __FILE__, __LINE__);
+        if (Mock::header(q, "User-Agent") != "dominusnode-sdk-cpp/2.2.0") fail(ctx + "user-agent", __FILE__, __LINE__);
         if (Mock::header(q, "Accept") != "application/json") fail(ctx + "accept", __FILE__, __LINE__);
     }
 }

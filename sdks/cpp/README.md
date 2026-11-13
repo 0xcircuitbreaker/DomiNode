@@ -10,10 +10,10 @@ the node PoW, random UUIDs). No signing key ever enters the SDK: EIP-191 signing
 ## Install (release tarball)
 
 The C++ SDK is not on a package registry. Each release attaches a source
-tarball and its SHA-256 to the GitHub Release `sdk-cpp-v2.1.0`:
+tarball and its SHA-256 to the GitHub Release `sdk-cpp-v2.2.0`:
 
 ```bash
-v=2.1.0
+v=2.2.0
 base=https://github.com/0xcircuitbreaker/DomiNode/releases/download/sdk-cpp-v$v
 curl -fLO "$base/dominusnode-cpp-$v.tar.gz" -fLO "$base/dominusnode-cpp-$v.tar.gz.sha256"
 sha256sum -c "dominusnode-cpp-$v.tar.gz.sha256"
@@ -26,15 +26,20 @@ or vendor it with CMake `FetchContent`:
 ```cmake
 include(FetchContent)
 FetchContent_Declare(dominusnode
-  URL https://github.com/0xcircuitbreaker/DomiNode/releases/download/sdk-cpp-v2.1.0/dominusnode-cpp-2.1.0.tar.gz
-  URL_HASH SHA256=<from dominusnode-cpp-2.1.0.tar.gz.sha256>)
+  URL https://github.com/0xcircuitbreaker/DomiNode/releases/download/sdk-cpp-v2.2.0/dominusnode-cpp-2.2.0.tar.gz
+  URL_HASH SHA256=<from dominusnode-cpp-2.2.0.tar.gz.sha256>)
 FetchContent_MakeAvailable(dominusnode)
 target_link_libraries(app PRIVATE dominusnode)
 ```
 
 Defaults: API `https://api.dominusnode.com`, relay gateway
-`proxy.dominusnode.com` (HTTP proxy :8080, SOCKS5 :1080). Both can be
-overridden in the client configuration.
+`proxy.dominusnode.com` (TLS to the gateway's HTTPS proxy on :8443 by default
+since 2.2; SOCKS5 :1080). Production gateways refuse credentials on plaintext
+8080/1080. A self-hosted coordinator publishes its TLS proxy on 8444
+(`GatewayTls g; g.port = 8444; cfg.gateway_tls = g;`); `cfg.gateway_tls = std::nullopt`
+selects plaintext 8080 for local development. A refused CONNECT throws `ProxyError`
+with the gateway's `X-DominusNode-Error` code in `code()` and `Retry-After` in
+`details()["retryAfter"]`. All of these can be overridden in the client configuration.
 
 The tarball has no tests; `DOMINUSNODE_BUILD_TESTS` defaults to off there.
 Downloads need the repository to be public (or a GitHub token for a private one).
@@ -71,7 +76,7 @@ int main() {
     dominusnode::ProxyRoutingOptions r;
     r.country = "DE";
     r.session_id = "job42";
-    std::string url = dn.proxy.build_url(r);  // http://country-DE-session-job42:dn_live_...@proxy.dominusnode.com:8080
+    std::string url = dn.proxy.build_url(r);  // https://country-DE-session-job42:dn_live_...@proxy.dominusnode.com:8443
 
     // Prices come only from the server.
     std::cout << dn.network.pricing().dump(2) << "\n";
@@ -148,7 +153,7 @@ Every message is scrubbed of `dn_live_`/`dn_test_`/`dn_node_`/`dn_proxy_` keys a
 
 ## HTTP behaviour
 
-User-Agent `dominusnode-sdk-cpp/2.1.0`; 30 s timeout; `CURLOPT_FOLLOWLOCATION` 0 (a 3xx is an
+User-Agent `dominusnode-sdk-cpp/2.2.0`; 30 s timeout; `CURLOPT_FOLLOWLOCATION` 0 (a 3xx is an
 error); TLS verification and TLS >= 1.2 set explicitly after every `curl_easy_reset()`;
 10 MB cap by Content-Length and in the write callback; one 429 retry
 (`min(Retry-After, 10 s)` ±10 %, floor 100 ms, 429 body not read); one forced JWT refresh
@@ -161,7 +166,7 @@ GET/HEAD only; http(s) on ports 80/443; no userinfo; local names (`localhost`, `
 `http://` needs `allow_http`; all `getaddrinfo` results must be public (DNS-rebinding);
 hop-by-hop and auth headers dropped, CR/LF/NUL refused; redirects returned, not followed;
 body truncated at `max_bytes` (`truncated = true`). Username flags: `country-XX`
-(OFAC CU/IR/KP/RU/SY refused), `class-residential|dc|mobile`, `session-<id>`,
+(OFAC CU/IR/KP/RU/SY refused), `class-residential|dc|mobile|masked` (masked = VPN/WARP/Tor exits, cheapest, opt-in), `session-<id>`,
 `wallet-<uuid>`, `allowhttp-1`; none -> `relay`.
 
 ## Removed in 2.0

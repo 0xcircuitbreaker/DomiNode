@@ -59,8 +59,10 @@ export class ProxyResource {
     this.#httpPort = validPort(config.httpProxyPort ?? DEFAULT_HTTP_PROXY_PORT, "httpProxyPort");
     this.#socksPort = validPort(config.socks5ProxyPort ?? DEFAULT_SOCKS5_PROXY_PORT, "socks5ProxyPort");
     const g = config.gatewayTls;
-    if (g === undefined || g === false) this.#tls = null;
-    else if (g === true) this.#tls = { port: DEFAULT_TLS_PROXY_PORT };
+    // 2.2: TLS to the gateway is the default (production refuses credentials on
+    // plaintext 8080/1080). Plaintext only with an explicit `gatewayTls: false`.
+    if (g === false) this.#tls = null;
+    else if (g === undefined || g === true) this.#tls = { port: DEFAULT_TLS_PROXY_PORT };
     else if (typeof g === "object" && g !== null) {
       if (g.servername !== undefined && (typeof g.servername !== "string" || !/^[A-Za-z0-9.-]{1,253}$/.test(g.servername))) throw invalidArg("gatewayTls.servername is invalid");
       if (g.ca !== undefined && typeof g.ca !== "string" && !Buffer.isBuffer(g.ca)) throw invalidArg("gatewayTls.ca must be a PEM string or Buffer");

@@ -44,13 +44,13 @@ def test_flag_validation(kw: dict) -> None:
 
 def test_build_url(rec: Recorder, client: Any) -> None:
     assert client.proxy.build_url(country="US", ip_class="dc") == \
-        f"http://country-US-class-dc:{API_KEY}@proxy.dominusnode.com:8080"
+        f"https://country-US-class-dc:{API_KEY}@proxy.dominusnode.com:8443"
     assert client.proxy.build_url(protocol="socks5") == f"socks5://relay:{API_KEY}@proxy.dominusnode.com:1080"
     other = "dn_test_otherkey_123"
-    assert client.proxy.build_url(api_key=other).startswith(f"http://relay:{other}@")
+    assert client.proxy.build_url(api_key=other).startswith(f"https://relay:{other}@")
     assert client.proxy.build_username(session_id="s1") == "session-s1"
     with pytest.raises(ValidationError):
-        client.proxy.build_url(protocol="https")
+        client.proxy.build_url(protocol="ftp")
     with pytest.raises(ValidationError):
         client.proxy.build_url(api_key="dn_node_" + "a" * 64)
     assert rec.requests == []
@@ -63,7 +63,7 @@ def test_build_url_needs_key(rec: Recorder) -> None:
 
 
 def test_custom_proxy_config(rec: Recorder) -> None:
-    c = new_client(rec, proxy_host="[::1]", http_proxy_port=9000, socks5_proxy_port=9001)
+    c = new_client(rec, proxy_host="[::1]", http_proxy_port=9000, socks5_proxy_port=9001, gateway_tls=False)
     assert c.proxy.build_url(api_key=API_KEY) == f"http://relay:{API_KEY}@[::1]:9000"
 
 
@@ -220,7 +220,7 @@ class FakeGateway:
 
 
 def gateway_client(rec: Recorder, gw: FakeGateway) -> Any:
-    c = new_client(rec, proxy_host="127.0.0.1", http_proxy_port=gw.port)
+    c = new_client(rec, proxy_host="127.0.0.1", http_proxy_port=gw.port, gateway_tls=False)
     c._ctx.api_key = API_KEY
     c.proxy.set_lookup(lambda h: PUBLIC)
     return c
@@ -276,12 +276,14 @@ def test_head_reads_no_body(rec: Recorder) -> None:
 
 
 def test_connect_refusal(rec: Recorder) -> None:
-    gw = FakeGateway(b"HTTP/1.1 407 Proxy Authentication Required\r\nContent-Length: 0\r\n\r\n")
+    gw = FakeGateway(b"HTTP/1.1 407 Proxy Authentication Required\r\nX-DominusNode-Error: INVALID_API_KEY\r\nRetry-After: 5\r\nContent-Length: 0\r\n\r\n")
     try:
         c = gateway_client(rec, gw)
         with pytest.raises(ProxyError) as ei:
             c.proxy.fetch("https://example.com/x", session_id="s1")
         assert ei.value.status_code == 407
+        assert ei.value.code == "INVALID_API_KEY" and ei.value.retry_after == 5
+        assert "INVALID_API_KEY" in str(ei.value)
         assert gw.heads[0].startswith(b"CONNECT example.com:443 HTTP/1.1\r\n")
         assert gw.header("host") == "example.com:443"
         expected = base64.b64encode(f"session-s1:{API_KEY}".encode()).decode()
@@ -307,7 +309,7 @@ def test_timeout(rec: Recorder) -> None:
     srv.bind(("127.0.0.1", 0))
     srv.listen(1)
     try:
-        c = new_client(rec, proxy_host="127.0.0.1", http_proxy_port=srv.getsockname()[1])
+        c = new_client(rec, proxy_host="127.0.0.1", http_proxy_port=srv.getsockname()[1], gateway_tls=False)
         c._ctx.api_key = API_KEY
         c.proxy.set_lookup(lambda h: PUBLIC)
         with pytest.raises(ProxyError, match="timed out"):
@@ -319,7 +321,7 @@ def test_timeout(rec: Recorder) -> None:
 async def test_async_fetch(rec: Recorder) -> None:
     gw = FakeGateway(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok")
     try:
-        c = new_async_client(rec, proxy_host="127.0.0.1", http_proxy_port=gw.port)
+        c = new_async_client(rec, proxy_host="127.0.0.1", http_proxy_port=gw.port, gateway_tls=False)
         c._ctx.api_key = API_KEY
         c.proxy.set_lookup(lambda h: PUBLIC)
         r = await c.proxy.fetch("http://example.com/", allow_http=True)

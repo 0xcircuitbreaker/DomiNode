@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.2.0] - 2026-11-13
+
+Additive release.
+
+### Changed
+- TLS to the gateway is now the default: proxy traffic goes to the HTTPS proxy listener on port 8443 and the proxy URL builder returns `https://...:8443`. Production gateways refuse credentials on plaintext 8080/1080, so the old default failed on first use. Self-hosted coordinators publish the TLS proxy on 8444 by default; set the gateway TLS port to match. `Config.builder().plaintextGateway()` (or `gatewayTls(null)`) selects plaintext 8080 for local development.
+
+### Added
+- A refused CONNECT now carries the gateway's `X-DominusNode-Error` code (`ProxyException.getCode()`) and `Retry-After` seconds (`ProxyException.getRetryAfter()`), and the code is appended to the error message, so callers can tell INSUFFICIENT_BALANCE from NO_NODES_AVAILABLE or QUOTE_CLASS_MISMATCH.
+
 ## [2.1.0] - 2026-11-12
 
 Additive release; no breaking changes to the v2 surface.
