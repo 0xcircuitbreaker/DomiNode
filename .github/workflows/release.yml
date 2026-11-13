@@ -63,7 +63,27 @@ jobs:
       maven: ${{ steps.plan.outputs.maven }}
       cpp: ${{ steps.plan.outputs.cpp }}
     steps:
+      # Publishing only from master. Every publish job needs this one, so a
+      # non-dry-run dispatched on another branch stops here. Defence in depth:
+      # the `release` environment must also be limited to master (RELEASING.md).
+      - name: Refuse to publish from a non-master ref
+        if: ${{ env.DRY_RUN != 'true' }}
+        env:
+          REF: ${{ github.ref }}
+        run: |
+          if [ "$REF" != "refs/heads/master" ]; then
+            echo "::error::publishing runs only on refs/heads/master (got $REF); use dry_run"
+            exit 1
+          fi
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          fetch-depth: 0
+      - name: Check commit is on master history
+        if: ${{ env.DRY_RUN != 'true' }}
+        run: |
+          git fetch --no-tags origin +refs/heads/master:refs/remotes/origin/master
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/master \
+            || { echo "::error::refusing to publish $GITHUB_SHA: not on master history"; exit 1; }
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: "22"
