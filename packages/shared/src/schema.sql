@@ -2142,3 +2142,13 @@ DO $$ BEGIN
     CHECK (action IN ('payout_wallet_set','withdraw','convert'));
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
+
+-- Agentic wallets fund relay sessions (rail 'agentic_wallet'): in-flight
+-- reservations and the sub-cent carry live on the wallet row.
+ALTER TABLE agentic_wallets ADD COLUMN IF NOT EXISTS reserved_cents INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE agentic_wallets ADD COLUMN IF NOT EXISTS carry_musd BIGINT NOT NULL DEFAULT 0;
+DO $$ BEGIN
+  ALTER TABLE agentic_wallets ADD CONSTRAINT chk_agentic_wallets_reserved
+    CHECK (reserved_cents BETWEEN 0 AND 1000000 AND carry_musd BETWEEN 0 AND 9999);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;

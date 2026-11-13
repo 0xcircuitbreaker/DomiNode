@@ -571,7 +571,8 @@ async function handleRequest(
   {
     let hasBalance: boolean;
     try {
-      hasBalance = a.teamId ? await checkTeamBalance(a.teamId) : await checkBalance(a.userId);
+      // `wallet-<id>` sessions bill the agentic wallet; startSession checks its budget.
+      hasBalance = a.proxyOptions.walletId ? true : a.teamId ? await checkTeamBalance(a.teamId) : await checkBalance(a.userId);
     } catch (err) {
       decrementUserConns(a.userId);
       log.error("balance check failed", { error: err instanceof Error ? err.message : String(err) });
@@ -632,7 +633,7 @@ async function handleRequest(
   let sessionId: string;
   try {
     sessionId = await startSession(a.userId, targetHost, counter, upstream.latencyMs, relayBinding(a, upstream.node, targetPort, upstream.stream),
-      userPlan, a.user.log_target_hosts ?? false, a.teamId, walletPolicy.isAgent);
+      userPlan, a.user.log_target_hosts ?? false, a.teamId, walletPolicy.isAgent, walletPolicy.walletId ?? null);
   } catch (err) {
     upstream.stream.destroy();
     decrementUserConns(a.userId);
@@ -828,7 +829,8 @@ async function handleConnect(
   {
     let hasBalance: boolean;
     try {
-      hasBalance = connectTeamId ? await checkTeamBalance(connectTeamId) : await checkBalance(userId);
+      // `wallet-<id>` sessions bill the agentic wallet; startSession checks its budget.
+      hasBalance = auth.proxyOptions.walletId ? true : connectTeamId ? await checkTeamBalance(connectTeamId) : await checkBalance(userId);
     } catch (err) {
       safeDecrement();
       log.error("balance check failed", { error: err instanceof Error ? err.message : String(err) });
@@ -880,7 +882,7 @@ async function handleConnect(
   let sessionId: string;
   try {
     sessionId = await startSession(userId, targetHost, counter, upstream.latencyMs, relayBinding(auth, upstream.node, targetPort, upstream.stream),
-      connectPlan, auth.user.log_target_hosts ?? false, connectTeamId, connectWalletPolicy.isAgent);
+      connectPlan, auth.user.log_target_hosts ?? false, connectTeamId, connectWalletPolicy.isAgent, connectWalletPolicy.walletId ?? null);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     if (msg.includes("Insufficient balance")) {

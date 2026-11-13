@@ -16,6 +16,8 @@ export interface AgenticWallet {
   allowed_domains: string | null;
   status: AgenticWalletStatus;
   created_at: Date;
+  /** Cents held by open relay sessions (selected only where needed). */
+  reserved_cents?: number;
 }
 
 export interface AgenticWalletTransaction {
@@ -171,7 +173,7 @@ export async function fundWallet(
 
     // Lock agentic wallet
     const agenticResult = await client.query<AgenticWallet>(
-      `SELECT id, user_id, label, balance_cents, spending_limit_cents, daily_limit_cents, allowed_domains, status, created_at
+      `SELECT id, user_id, label, balance_cents, spending_limit_cents, daily_limit_cents, allowed_domains, status, created_at, reserved_cents
        FROM agentic_wallets
        WHERE id = $1 AND user_id = $2 AND status = 'active'
        FOR UPDATE`,
@@ -183,7 +185,7 @@ export async function fundWallet(
 
     // Cap agentic wallet balance at MAX_BALANCE_CENTS to prevent overflow
     const agenticWallet = agenticResult.rows[0];
-    if (agenticWallet.balance_cents + amountCents > MAX_BALANCE_CENTS) {
+    if (agenticWallet.balance_cents + (agenticWallet.reserved_cents ?? 0) + amountCents > MAX_BALANCE_CENTS) {
       throw new Error(`Fund would exceed agentic wallet balance cap of $${(MAX_BALANCE_CENTS / 100).toFixed(2)}`);
     }
 
@@ -409,7 +411,7 @@ export async function deleteWallet(
 
     // Lock agentic wallet
     const walletResult = await client.query<AgenticWallet>(
-      `SELECT id, user_id, label, balance_cents, spending_limit_cents, daily_limit_cents, allowed_domains, status, created_at
+      `SELECT id, user_id, label, balance_cents, spending_limit_cents, daily_limit_cents, allowed_domains, status, created_at, reserved_cents
        FROM agentic_wallets
        WHERE id = $1 AND user_id = $2 AND status = 'active'
        FOR UPDATE`,
@@ -420,6 +422,9 @@ export async function deleteWallet(
     }
 
     const agenticWallet = walletResult.rows[0];
+    if ((agenticWallet.reserved_cents ?? 0) > 0) {
+      throw new Error("Cannot delete: the wallet has relay sessions in progress. Try again when they end.");
+    }
     const refundCents = agenticWallet.balance_cents;
 
     if (refundCents > 0) {
@@ -473,6 +478,101 @@ export async function deleteWallet(
   } finally {
     client.release();
   }
+}
+
+// ─── Relay session budget (rail 'agentic_wallet') ───────────────────
+
+type TxClient = Pick<import("pg").PoolClient, "query">;
+
+/** UTC-day spend already settled for a wallet (caller's transaction). */
+async function dailySpentTx(c: TxClient, walletId: string): Promise<number> {
+  const r = await c.query<{ total: string }>(
+    `SELECT COALESCE(SUM(amount_cents), 0)::text AS total FROM agentic_wallet_transactions
+     WHERE wallet_id = $1 AND type = 'spend' AND created_at >= date_trunc('day', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'`,
+    [walletId],
+  );
+  return parseInt(r.rows[0]?.total ?? "0", 10);
+}
+
+/**
+ * Reserve up to wantCents for a relay session from an agentic wallet, under the
+ * wallet row lock. The reservation is capped by the balance, by the per-session
+ * spending limit (spending_limit_cents, 0 = none) and by what is left of the
+ * daily budget after settled spend AND in-flight reservations, so parallel
+ * sessions cannot overshoot it. Returns the reserved cents (0 = refused).
+ */
+export async function reserveSessionBudget(walletId: string, userId: string, wantCents: number): Promise<number> {
+  if (!Number.isInteger(wantCents) || wantCents <= 0) return 0;
+  const client = await getPool().connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("SET LOCAL lock_timeout = '5s'");
+    const w = await client.query<{ balance_cents: number; spending_limit_cents: number; daily_limit_cents: number | null; reserved_cents: number }>(
+      `SELECT balance_cents, spending_limit_cents, daily_limit_cents, reserved_cents FROM agentic_wallets
+       WHERE id = $1 AND user_id = $2 AND status = 'active' FOR UPDATE`,
+      [walletId, userId],
+    );
+    const row = w.rows[0];
+    if (!row) { await client.query("ROLLBACK"); return 0; }
+    let take = Math.min(wantCents, row.balance_cents);
+    if (row.spending_limit_cents > 0) take = Math.min(take, row.spending_limit_cents);
+    if (row.daily_limit_cents !== null && row.daily_limit_cents > 0) {
+      const room = row.daily_limit_cents - (await dailySpentTx(client, walletId)) - row.reserved_cents;
+      take = Math.min(take, room);
+    }
+    if (take <= 0) { await client.query("ROLLBACK"); return 0; }
+    await client.query(
+      `UPDATE agentic_wallets SET balance_cents = balance_cents - $2, reserved_cents = reserved_cents + $2 WHERE id = $1`,
+      [walletId, take],
+    );
+    await client.query("COMMIT");
+    return take;
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+/** Undo a reservation for a session that never started. */
+export async function releaseSessionBudget(walletId: string, cents: number): Promise<void> {
+  if (!Number.isInteger(cents) || cents <= 0) return;
+  await query(
+    `UPDATE agentic_wallets SET balance_cents = balance_cents + $2, reserved_cents = GREATEST(reserved_cents - $2, 0) WHERE id = $1`,
+    [walletId, cents],
+  );
+}
+
+/**
+ * Settle a relay session against its agentic-wallet reservation (caller's
+ * transaction). Gross accrues into the wallet's sub-cent carry; whole cents are
+ * debited from the reservation (a 'spend' row with the session id), and the
+ * unused reservation goes back to the wallet balance.
+ */
+export async function settleSessionTx(
+  c: TxClient, walletId: string, reservedCents: number, grossMusd: bigint, sessionId: string,
+): Promise<{ debitCents: number; paidInFull: boolean } | null> {
+  const w = await c.query<{ carry_musd: string }>(
+    `SELECT carry_musd::text AS carry_musd FROM agentic_wallets WHERE id = $1 FOR UPDATE`, [walletId]);
+  if (!w.rows[0]) return null;
+  const total = BigInt(w.rows[0].carry_musd) + grossMusd;
+  const dueCents = total / 10_000n;
+  const debit = dueCents > BigInt(reservedCents) ? reservedCents : Number(dueCents);
+  const carry = dueCents > BigInt(reservedCents) ? 0n : total - dueCents * 10_000n;
+  await c.query(
+    `UPDATE agentic_wallets SET balance_cents = balance_cents + $2, reserved_cents = GREATEST(reserved_cents - $3, 0), carry_musd = $4
+     WHERE id = $1`,
+    [walletId, reservedCents - debit, reservedCents, carry.toString()],
+  );
+  if (debit > 0) {
+    await c.query(
+      `INSERT INTO agentic_wallet_transactions (wallet_id, type, amount_cents, description, session_id)
+       VALUES ($1, 'spend', $2, 'Relay session', $3)`,
+      [walletId, debit, sessionId],
+    );
+  }
+  return { debitCents: debit, paidInFull: dueCents <= BigInt(reservedCents) };
 }
 
 // ─── Get Daily Spend ───────────────────────────────────────────────

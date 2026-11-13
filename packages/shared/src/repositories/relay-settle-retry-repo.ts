@@ -36,6 +36,7 @@ export function encodeSettleInput(i: SettleRelayChargeInput): Record<string, unk
     },
     destHost: i.destHost, destPort: i.destPort, usageTargetHost: i.usageTargetHost ?? null,
     zeroReason: i.zeroReason ?? null, prepaidGrossMusd: big(i.prepaidGrossMusd),
+    agenticWalletId: i.agenticWalletId ?? null,
   };
 }
 
@@ -92,6 +93,7 @@ export function decodeSettleInput(p: unknown): SettleRelayChargeInput {
   if (o["usageTargetHost"] !== null && o["usageTargetHost"] !== undefined) out.usageTargetHost = str(o["usageTargetHost"]);
   if (o["zeroReason"] !== null && o["zeroReason"] !== undefined) out.zeroReason = str(o["zeroReason"]) as SettleRelayChargeInput["zeroReason"];
   if (o["prepaidGrossMusd"] !== null && o["prepaidGrossMusd"] !== undefined) out.prepaidGrossMusd = bigOf(o["prepaidGrossMusd"]);
+  if (o["agenticWalletId"] !== null && o["agenticWalletId"] !== undefined) out.agenticWalletId = str(o["agenticWalletId"]);
   return out;
 }
 
