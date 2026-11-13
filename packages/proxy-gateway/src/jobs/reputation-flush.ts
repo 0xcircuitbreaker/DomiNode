@@ -27,6 +27,7 @@ export function toHealthUpdates(items: CounterFlush[]): HealthUpdate[] {
     streams: f.counters.streams,
     failures: f.counters.failures,
     burns: f.counters.burns,
+    onlineSeconds: Math.min(86_400, Math.max(0, Math.floor(f.counters.onlineSeconds ?? 0))),
     reputation: f.reputation,
   }));
 }

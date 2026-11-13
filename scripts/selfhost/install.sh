@@ -281,6 +281,7 @@ ensure_secret POSTGRES_PASSWORD 24
 if [ -n "${COORD_JWT:-}" ]; then env_set JWT_SECRET "$COORD_JWT"; fi
 ensure_secret JWT_SECRET 48
 ensure_secret MFA_ENCRYPTION_KEY 32
+ensure_secret PROBE_AUTH_SECRET 32
 env_set DOMINUSNODE_DOMAIN "$PRIMARY"
 env_set PUBLIC_HOSTNAMES "$(printf '%s' "$HOSTS" | tr ' ' ',')"
 env_set TLS_MODE "$TLS"
@@ -289,6 +290,48 @@ env_set RELAY_HOST "$RELAY"
 env_set PROXY_HOST "$PROXYH"
 if [ "$TLS" = cloudflare ]; then env_set CLOUDFLARE_TUNNEL_TOKEN_FILE "$CF_FILE"; fi
 env_set ACME_CHALLENGE "$ACME"
+# Canary + egress probes (ABUSE_CONTROLS T6). Exit nodes dial the echo URL, so
+# it must be the API over publicly trusted TLS on a public name. The default is
+# set only where that holds: ROLE=all with TLS auto or cloudflare, or
+# ROLE=gateway with the coordinator's public API hostname (PROBE_API_HOST).
+# An operator value (a comma list of echo URLs) is kept on re-run.
+# PROBES_DISABLED=true (environment or .env) is the explicit opt-out and wins.
+public_name() {
+  case "$1" in localhost|*.localhost|*.local|*.internal|*.lan|*.home.arpa|*.arpa) return 1 ;; esac
+  valid_host "$1" || return 1
+  local a
+  if command -v getent >/dev/null 2>&1; then
+    for a in $(getent ahosts "$1" 2>/dev/null | awk '{print $1}' | sort -u); do
+      if private_ipv4 "$a"; then return 1; fi
+      case "$a" in 127.*|0.*|169.254.*|::1|fe80:*|fc*|fd*) return 1 ;; esac
+      if printf '%s' "$a" | grep -Eq '^100\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\.'; then return 1; fi
+    done
+  fi
+  return 0
+}
+PROBES_OFF="${PROBES_DISABLED:-$(env_get PROBES_DISABLED)}"
+if [ "$PROBES_OFF" = true ]; then
+  env_set PROBES_DISABLED true
+  env_unset PROBE_URL
+  echo "install: PROBES_DISABLED=true: canary + egress probes are off" >&2
+else
+  env_unset PROBES_DISABLED
+  if [ -z "$(env_get PROBE_URL)" ] && [ "$ROLE_SEL" != coordinator ]; then
+    PROBE_HOST=""
+    case "$ROLE_SEL:$TLS" in
+      all:auto|all:cloudflare) PROBE_HOST="$PRIMARY" ;;
+      gateway:*)
+        PROBE_HOST="$(ask "Coordinator public API hostname for egress probes (blank = probes off)" "${PROBE_API_HOST:-}" | tr '[:upper:]' '[:lower:]')" ;;
+    esac
+    if [ -n "$PROBE_HOST" ] && public_name "$PROBE_HOST"; then
+      env_set PROBE_URL "https://$PROBE_HOST/v1/probe/echo"
+    else
+      echo "install: WARNING: egress probes are OFF (no publicly trusted API hostname for ROLE=$ROLE_SEL TLS_MODE=$TLS${PROBE_HOST:+, $PROBE_HOST is not public})." >&2
+      echo "install:   Exit classes then rest on the tunnel peer IP only and tampering goes undetected." >&2
+      echo "install:   Set PROBE_URL=https://<public api host>/v1/probe/echo in .env, or PROBES_DISABLED=true to acknowledge." >&2
+    fi
+  fi
+fi
 if [ -n "$DNS_FILE" ]; then env_set CLOUDFLARE_DNS_TOKEN_FILE "$DNS_FILE"; else env_unset CLOUDFLARE_DNS_TOKEN_FILE; fi
 # Always write every role-specific key so a role change clears stale values
 # (a former gateway must not keep a remote DATABASE_URL; a former coordinator

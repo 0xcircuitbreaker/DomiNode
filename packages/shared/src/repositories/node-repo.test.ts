@@ -13,7 +13,7 @@ vi.mock("../db.js", () => ({
 import {
   createChallenge, consumeChallenge, registerNode, getNodeForTunnelAuth,
   markOnline, markOffline, flushHealth, setStatus, listForOwner, listAdmin,
-  hashNodeKey, FLUSH_HEALTH_LIMIT,
+  hashNodeKey, FLUSH_HEALTH_LIMIT, NODE_PENALTY_WINDOW_DAYS, revokeOwnedNode, getOwnerPrefixProbeClasses,
 } from "./node-repo.js";
 
 const U = "11111111-1111-1111-1111-111111111111";
@@ -87,6 +87,27 @@ describe("node-repo", () => {
     });
   });
 
+  describe("penalty carry-over (revoke + re-register)", () => {
+    it("revokeOwnedNode records the status the node had", async () => {
+      mockQuery.mockResolvedValueOnce({ rows: [{ id: N, status: "revoked" }] });
+      expect(await revokeOwnedNode(N, U)).toEqual({ id: N, status: "revoked" });
+      const sql = String(mockQuery.mock.calls[0][0]);
+      expect(sql).toContain("revoked_from_status = status");
+      expect(sql).toContain("owner_user_id = $2");
+      expect(mockQuery.mock.calls[0][1]).toEqual([N, U]);
+    });
+
+    it("getOwnerPrefixProbeClasses reads the owner's other nodes on the prefix, revoked included", async () => {
+      mockQuery.mockResolvedValueOnce({ rows: [{ probe_class: "masked" }, { probe_class: "bogus" }] });
+      expect(await getOwnerPrefixProbeClasses(U, "73.1.2.0/24", N)).toEqual(["masked"]);
+      const sql = String(mockQuery.mock.calls[0][0]);
+      expect(sql).not.toContain("status <> 'revoked'");
+      expect(sql).toContain("ip_prefix24 = $2::cidr");
+      expect(await getOwnerPrefixProbeClasses(U, "not-a-prefix", N)).toEqual([]);
+      expect(mockQuery).toHaveBeenCalledTimes(1);
+    });
+  });
+
   describe("registerNode", () => {
     const input = { ownerUserId: U, ownerWallet: W.toUpperCase().replace("0X", "0x"), attestationVersion: 1, attestationSig: SIG };
 
@@ -95,6 +116,7 @@ describe("node-repo", () => {
         .mockResolvedValueOnce({})
         .mockResolvedValueOnce({ rows: [{ status: "active", tier_name: "probation", max_nodes: 10 }] })
         .mockResolvedValueOnce({ rows: [{ count: "9" }] })
+        .mockResolvedValueOnce({ rows: [{ n: "0" }] })
         .mockResolvedValueOnce({ rows: [{ id: N, status: "pending" }] })
         .mockResolvedValueOnce({});
       const r = await registerNode(input);
@@ -105,13 +127,30 @@ describe("node-repo", () => {
       expect(s[1]).toContain("FOR UPDATE OF u");
       expect(s[1]).toContain("node_tiers");
       expect(s[2]).toContain("status <> 'revoked'");
-      expect(s[3]).not.toContain("RETURNING *");
-      expect(s[3]).not.toMatch(/RETURNING[\s\S]*node_key_hash/);
-      const params = mockClientQuery.mock.calls[3][1] as unknown[];
+      expect(s[3]).toContain("revoked_from_status IN ('quarantined','suspended')");
+      expect(s[4]).not.toContain("RETURNING *");
+      expect(s[4]).not.toMatch(/RETURNING[\s\S]*node_key_hash/);
+      const params = mockClientQuery.mock.calls[4][1] as unknown[];
       expect(params[1]).toBe(W);
       expect(params[2]).toBe(hashNodeKey(r.nodeKey));
       expect(params).not.toContain(r.nodeKey);
-      expect(s[4]).toBe("COMMIT");
+      expect(s[5]).toBe("COMMIT");
+    });
+
+    it("refuses while the owner has a quarantined/suspended node or revoked one in that state", async () => {
+      mockClientQuery
+        .mockResolvedValueOnce({})
+        .mockResolvedValueOnce({ rows: [{ status: "active", tier_name: "probation", max_nodes: 10 }] })
+        .mockResolvedValueOnce({ rows: [{ count: "0" }] })
+        .mockResolvedValueOnce({ rows: [{ n: "1" }] })
+        .mockResolvedValueOnce({});
+      const r = await registerNode(input);
+      expect(r).toEqual({ ok: false, reason: "owner_penalized" });
+      const s = sqlCalls();
+      expect(s[3]).toContain("status IN ('quarantined','suspended')");
+      expect(mockClientQuery.mock.calls[3][1]).toEqual([U, NODE_PENALTY_WINDOW_DAYS]);
+      expect(s[4]).toBe("ROLLBACK");
+      expect(s.some((q) => q.includes("INSERT INTO nodes"))).toBe(false);
     });
 
     it.each([["probation", 10], ["bronze", 25], ["silver", 100], ["gold", 500], ["platinum", 2000], ["partner", 2000]])(

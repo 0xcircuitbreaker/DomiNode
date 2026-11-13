@@ -208,6 +208,9 @@ router.post("/nodes", async (req: Request, res: Response) => {
         case "node_cap_reached":
           res.status(409).json({ error: "Node limit reached for your tier", code: "NODE_CAP_REACHED", cap: result.cap });
           return;
+        case "owner_penalized":
+          res.status(403).json({ error: "A node of yours is quarantined or suspended (or was revoked in that state recently); new nodes cannot be registered until it is resolved", code: "NODE_PENALTY_ACTIVE" });
+          return;
         case "tier_not_found":
           res.status(503).json({ error: "Node tiers not configured", code: "TIERS_NOT_CONFIGURED" });
           return;
@@ -304,19 +307,15 @@ router.delete("/nodes/:id", async (req: Request, res: Response) => {
   }
   try {
     // Owner check and status change in one statement (no TOCTOU).
-    const r = await query<{ id: string; status: string }>(
-      `UPDATE nodes SET status = 'revoked'
-       WHERE id = $1 AND owner_user_id = $2 AND status <> 'revoked'
-       RETURNING id, status`,
-      [id, agent.userId],
-    );
-    if (!r.rows[0]) {
+    // Keeps the prior status so a quarantine/suspension survives revocation.
+    const revoked = await nodeRepo.revokeOwnedNode(id, agent.userId);
+    if (!revoked) {
       res.status(404).json({ error: "Node not found" });
       return;
     }
     // The gateway rejects revoked keys at tunnel auth and on its periodic status sweep.
     log.info("node revoked by owner", { nodeId: id, userId: agent.userId });
-    res.json({ id: r.rows[0].id, status: r.rows[0].status });
+    res.json({ id: revoked.id, status: revoked.status });
   } catch (err) {
     log.error("revoke node failed", { error: err instanceof Error ? err.message : String(err) });
     res.status(500).json({ error: "Failed to revoke node" });

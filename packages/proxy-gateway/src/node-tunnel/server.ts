@@ -37,6 +37,9 @@ import {
   pqTlsOptions,
 } from "@dominusnode/shared";
 import { TunnelMux, STREAM_WINDOW, type StreamCloseReport } from "./mux.js";
+
+/** Framing/control slack on top of the per-stream windows in the send-buffer cap. */
+const SEND_BUFFER_SLACK = 1024 * 1024;
 import { PreAuthLimiter, normalizePeerIp, readProxyV2, type PreAuthLimiterOptions } from "./ingress.js";
 import { NodeRegistry, ipPrefix, dayOf, type LiveNode, type NodeTunnelHandle } from "./registry.js";
 
@@ -78,6 +81,12 @@ export interface TunnelServerDeps {
    */
   claimIpSlot?: (s: { nodeId: string; ip: string; prefix24: string; asn: number | null; enforceAsn: boolean; limits: { per32: number; per24: number; perAsn: number } }) => Promise<boolean>;
   releaseIpSlot?: (nodeId: string) => Promise<void>;
+  /**
+   * Recent probe verdicts of the owner's OTHER nodes (revoked included) on
+   * this /24 or /48. Tightens the connect class so revoke + re-register does
+   * not shed a probe downgrade. Errors reject the connect (fail closed).
+   */
+  ownerPrefixProbeClasses?: (ownerUserId: string, prefix: string, nodeId: string) => Promise<NodeIpClass[]>;
   /**
    * Promote a `pending` node to `active` (compare-and-set from 'pending' only).
    * Called once a tunnel whose attestation meets the current policy minVersion
@@ -129,7 +138,7 @@ export interface TunnelServerOptions {
    * Egress probes are enabled: a connecting node is "unknown" (lowest tier
    * weight, no class-* selection) until a probe on this connection verifies it.
    */
-  deferClassUntilProbe?: boolean;
+  deferClassUntilProbe?: boolean | (() => boolean);
   preAuth?: PreAuthLimiterOptions;
 }
 
@@ -166,6 +175,13 @@ export class NodeTunnel implements NodeTunnelHandle {
   private pingSent = new Map<number, number>();
   rttMs: number | null = null;
   live: LiveNode | null = null;
+  /**
+   * Most a compliant node can leave unread in our send queue: every stream's
+   * full send window plus control/framing slack (DESIGN.md §2.5). A node that
+   * keeps granting WINDOW credit without reading its socket would otherwise
+   * make the gateway buffer requester uploads without bound.
+   */
+  readonly sendBufferCap: number;
 
   constructor(
     private readonly ws: WebSocket,
@@ -175,6 +191,7 @@ export class NodeTunnel implements NodeTunnelHandle {
     /** TLS exporter of this connection; null when TLS terminates upstream (binding "none"). */
     private readonly exporter: Buffer | null = null,
   ) {
+    this.sendBufferCap = (Math.min(1024, Math.max(1, node.max_streams)) + 1) * STREAM_WINDOW + SEND_BUFFER_SLACK;
     this.mux = new TunnelMux({
       send: (b) => this.send(b),
       maxStreams: Math.max(1, node.max_streams),
@@ -202,7 +219,13 @@ export class NodeTunnel implements NodeTunnelHandle {
   }
 
   private send(buf: Buffer): void {
-    if (this.ws.readyState === WebSocket.OPEN) this.ws.send(buf, { binary: true });
+    if (this.ws.readyState !== WebSocket.OPEN) return;
+    if (this.ws.bufferedAmount + buf.length > this.sendBufferCap) {
+      this.server.log.warn("tunnel send buffer over cap, closing", { nodeId: this.node.id, buffered: this.ws.bufferedAmount, cap: this.sendBufferCap });
+      this.close("send buffer overflow", 1008);
+      return;
+    }
+    this.ws.send(buf, { binary: true });
   }
 
   sendControl(type: FrameType, obj: Record<string, unknown>): void {
@@ -287,10 +310,11 @@ export class NodeTunnel implements NodeTunnelHandle {
         case FrameType.PING:
           return this.send(encodeFrame(FrameType.PONG, 0, 0, encodeControl(decodeControl(f.payload))));
         case FrameType.PONG: {
-          this.missedPongs = 0;
+          // Only a PONG answering a PING we actually sent proves liveness.
           const p = decodeControl<{ seq?: unknown }>(f.payload);
           const sent = typeof p.seq === "number" ? this.pingSent.get(p.seq) : undefined;
           if (sent !== undefined) {
+            this.missedPongs = 0;
             this.pingSent.delete(p.seq as number);
             const rtt = Date.now() - sent;
             this.rttMs = this.rttMs === null ? rtt : this.rttMs * 0.8 + rtt * 0.2;
@@ -566,6 +590,18 @@ export class NodeTunnelServer {
     const asn = geo?.asn ?? null;
     if (isPublic && asn === null && this.opts.requireAsn) return t.rejectAuth("ASN_UNAVAILABLE");
     const prefix = ipPrefix(t.peerIp);
+    // Before the cap check: no await between countPeers() and registry.add().
+    let priorProbe: NodeIpClass | null = t.node.probe_class ?? null;
+    if (this.deps.ownerPrefixProbeClasses) {
+      let hist: NodeIpClass[];
+      try {
+        hist = await this.deps.ownerPrefixProbeClasses(t.node.owner_user_id, prefix, t.node.id);
+      } catch {
+        return t.rejectAuth("NODE_UNAVAILABLE");
+      }
+      if (!t.isAuthorizing()) return;
+      for (const c of hist) priorProbe = priorProbe ? conservativeClass(priorProbe, c) : c;
+    }
     const counts = this.registry.countPeers(t.peerIp, prefix, asn, t.node.id);
     const lim = policy.body.nodeCapsPerPrefix;
     // Per-ASN cap always holds for public peers: without ASN data every such
@@ -578,13 +614,17 @@ export class NodeTunnelServer {
     // Connect class: peer IP class, never better than the last persisted probe
     // verdict (a reconnect from another IP must not undo a probe downgrade).
     const peerRaw: NodeIpClass = geo?.ipClass ?? "unknown";
-    const priorProbe = t.node.probe_class ?? null;
     const connectClass: NodeIpClass = priorProbe ? conservativeClass(peerRaw, priorProbe) : peerRaw;
+    // Deferred (probes on): start from positive evidence. A known masked/dc
+    // verdict is kept; anything else is "unknown" and not selectable until probed.
+    const dc = this.opts.deferClassUntilProbe;
+    const defer = typeof dc === "function" ? dc() : dc === true;
+    const deferredClass: NodeIpClass = connectClass === "masked" || connectClass === "dc" ? connectClass : "unknown";
     const live: LiveNode = {
       nodeId: t.node.id, tunnel: t, ready: false, status: t.node.status, ip: t.peerIp, prefix24: prefix, asn, country,
-      // Unverified class is never assumed residential: "unknown" nodes are left out of
-      // explicit class-* selection and price at the "any" rate until classified.
-      ipClass: this.opts.deferClassUntilProbe ? "unknown" : connectClass, peerClass: peerRaw, ownerUserId: t.node.owner_user_id, ownerWallet: t.node.owner_wallet,
+      // Unverified class is never assumed residential; with probes on the node
+      // serves nothing (probePending) until its first probe classifies it.
+      ipClass: defer ? deferredClass : connectClass, probePending: defer, peerClass: peerRaw, connectClass, ownerUserId: t.node.owner_user_id, ownerWallet: t.node.owner_wallet,
       ownerTeamId: t.node.owner_team_id, health: 1, reputation: t.node.reputation, reportPenalty: t.node.report_penalty ?? 0, operatorRun: t.node.operator_run === true,
       maxStreams: Math.min(t.node.max_streams, caps.maxStreams), maxGbDay: t.node.max_gb_day, maxReqPerSec: t.node.max_req_per_sec ?? null,
       ports: caps.ports, bytesToday: 0, earningsTodayMusd: 0, day: dayOf(now), recentOpens: [], cooldownUntil: 0,
@@ -675,13 +715,9 @@ export class NodeTunnelServer {
       }
       live.bytesToday += r.gatewayBytesIn + r.gatewayBytesOut;
     }
-    if (r.nodeReport) {
-      const nodeTotal = r.nodeReport.bytesIn + r.nodeReport.bytesOut;
-      const gwTotal = r.gatewayBytesIn + r.gatewayBytesOut;
-      if (nodeTotal !== gwTotal) {
-        this.log.info("stream byte mismatch", { nodeId, stream: r.streamId, gatewayBytes: gwTotal, nodeBytes: nodeTotal });
-      }
-    }
+    // Byte-report mismatches are logged by the onStreamClose hook, only when
+    // they reach the dispute threshold and rate-limited per node (a node
+    // controls its own report and could otherwise force a line per stream).
     try {
       this.deps.onStreamClose?.(nodeId, r);
     } catch {

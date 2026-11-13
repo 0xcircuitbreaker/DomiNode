@@ -19,6 +19,8 @@ export const QUARANTINE_BELOW = 1000;
 export const REP_BYTES_PER_POINT = 100 * 1024 * 1024;
 /** First paid session of the day from a distinct requester. */
 export const REP_DISTINCT_REQUESTER_BONUS = 5;
+/** Paid bytes a session must carry before its requester counts toward the distinct-requester bonus. */
+export const REP_BONUS_MIN_BYTES = 1024 * 1024;
 export const REP_DISPUTE_PENALTY = 200;
 export const REP_FAILURE_PENALTY = 5;
 export const REP_BURN_PENALTY = 100;
@@ -35,6 +37,8 @@ export interface NodeCounters {
   failures: number;
   burns: number;
   disputes: number;
+  /** Seconds the node's tunnel was open since the last drain (gateway-measured uptime). */
+  onlineSeconds?: number;
   /** eTLD+1 -> ok/burn deltas. */
   etld: Map<string, { ok: number; burn: number }>;
 }
@@ -55,7 +59,7 @@ export interface CounterFlush {
 }
 
 function emptyCounters(): NodeCounters {
-  return { bytes: 0, streams: 0, failures: 0, burns: 0, disputes: 0, etld: new Map() };
+  return { bytes: 0, streams: 0, failures: 0, burns: 0, disputes: 0, onlineSeconds: 0, etld: new Map() };
 }
 
 function clampRep(v: number): number {
@@ -117,9 +121,22 @@ export interface LiveNode {
   /**
    * Connect-time class: tunnel peer IP classification tightened by the last
    * persisted probe verdict. While egress probes are enabled the effective
-   * ipClass stays "unknown" until a probe on this connection confirms it.
+   * ipClass is masked/dc when that is already known (persisted verdict or peer
+   * IP), else "unknown", until a probe on this connection confirms it.
    */
   peerClass?: NodeIpClass;
+  /**
+   * Peer class tightened by recent probe verdicts (own + same owner/prefix,
+   * 30-day window). Base for the first probe on this connection, so a carried
+   * verdict is not discarded by that probe.
+   */
+  connectClass?: NodeIpClass;
+  /**
+   * Egress probes enabled and no probe has classified this connection yet.
+   * The selector serves no traffic through a pending node (no pre-probe
+   * sessions, no pre-probe tier-weight snapshots).
+   */
+  probePending?: boolean;
 }
 
 /** /24 for IPv4, /48 for IPv6 (matches nodes.ip_prefix24). */
@@ -146,6 +163,7 @@ export function dayOf(ms: number): number {
 export class NodeRegistry {
   private nodes = new Map<string, LiveNode>();
   private counters = new Map<string, NodeCounters>();
+  private lastDrainAt: number | null = null;
   private repBytesCarry = new Map<string, number>();
   /** nodeId -> requester keys that paid today (bounded per node). */
   private requestersToday = new Map<string, Set<string>>();
@@ -280,7 +298,7 @@ export class NodeRegistry {
    * reputation per REP_BYTES_PER_POINT, plus a bonus for each distinct requester today.
    */
   recordPaidBytes(nodeId: string, requesterKey: string, bytes: number, etld1?: string): void {
-    if (!Number.isSafeInteger(bytes) || bytes < 0) return;
+    if (!Number.isSafeInteger(bytes) || bytes <= 0) return;
     const c = this.countersFor(nodeId);
     if (!c) return;
     this.rollDay();
@@ -296,7 +314,7 @@ export class NodeRegistry {
     let bonus = 0;
     let set = this.requestersToday.get(nodeId);
     if (!set) this.requestersToday.set(nodeId, (set = new Set()));
-    if (!set.has(requesterKey) && set.size < MAX_REQUESTERS_PER_NODE_DAY) {
+    if (bytes >= REP_BONUS_MIN_BYTES && !set.has(requesterKey) && set.size < MAX_REQUESTERS_PER_NODE_DAY) {
       set.add(requesterKey);
       bonus = REP_DISTINCT_REQUESTER_BONUS;
     }
@@ -381,7 +399,23 @@ export class NodeRegistry {
   /** Take and reset all unflushed counters (for the 60 s flush to node_daily_stats/node_reputation). */
   drainCounters(): CounterFlush[] {
     const out: CounterFlush[] = [];
-    const day = dayOf(this.now());
+    const now = this.now();
+    const day = dayOf(now);
+    // Uptime is measured here from tunnel liveness (ECONOMICS.md rule 3),
+    // never from node reports: every open tunnel accrues the time since the
+    // previous drain (or since it connected, if later).
+    if (this.lastDrainAt !== null) {
+      const elapsed = Math.max(0, now - this.lastDrainAt);
+      for (const n of this.nodes.values()) {
+        if (!n.tunnel.isOpen) continue;
+        const ms = Math.min(elapsed, Math.max(0, now - n.connectedAt));
+        const secs = Math.floor(ms / 1000);
+        if (secs <= 0) continue;
+        const c = this.countersFor(n.nodeId);
+        if (c) c.onlineSeconds = (c.onlineSeconds ?? 0) + secs;
+      }
+    }
+    this.lastDrainAt = now;
     for (const [nodeId, c] of this.counters) {
       const n = this.nodes.get(nodeId);
       // reputation stays the base value (persisted). Quarantine uses the base value only;

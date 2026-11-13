@@ -2080,3 +2080,45 @@ DO $$ BEGIN
     CHECK (tier_weight_bps IS NULL OR tier_weight_bps BETWEEN 0 AND 10000);
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
+
+-- ═══ Egress penalties survive revoke + re-register (fix/a7-egress) ═══
+-- Status a node had when its owner revoked it. A node revoked while
+-- quarantined or suspended blocks new registrations by that owner for
+-- 30 days (node-repo.ts registerNode, NODE_PENALTY_WINDOW_DAYS).
+ALTER TABLE nodes ADD COLUMN IF NOT EXISTS revoked_from_status TEXT;
+ALTER TABLE nodes ADD COLUMN IF NOT EXISTS revoked_at TIMESTAMPTZ;
+DO $$ BEGIN
+  ALTER TABLE nodes ADD CONSTRAINT chk_nodes_revoked_from_status
+    CHECK (revoked_from_status IS NULL OR revoked_from_status IN ('pending','active','cooldown','quarantined','suspended'));
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+-- Owner + prefix probe history lookup at tunnel connect (includes revoked rows).
+CREATE INDEX IF NOT EXISTS idx_nodes_owner_prefix_probe ON nodes(owner_user_id, ip_prefix24)
+  WHERE probe_class IS NOT NULL;
+-- ═══ end fix/a7-egress ═══
+-- ─── Relay session crash/restart recovery (fix/a7-gateway) ─────────────
+-- The owning gateway stores the settle payload (reservation, rail, locked
+-- price + split snapshot) at session start and heartbeats the gateway-counted
+-- bytes; sessions of an instance that stopped heartbeating are settled with
+-- the last flushed bytes (unused reservation refunded) instead of confiscated.
+ALTER TABLE sessions ADD COLUMN IF NOT EXISTS gateway_instance TEXT;
+ALTER TABLE sessions ADD COLUMN IF NOT EXISTS gateway_heartbeat_at TIMESTAMPTZ;
+ALTER TABLE sessions ADD COLUMN IF NOT EXISTS settle_payload JSONB;
+ALTER TABLE sessions ADD COLUMN IF NOT EXISTS flushed_bytes_in BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE sessions ADD COLUMN IF NOT EXISTS flushed_bytes_out BIGINT NOT NULL DEFAULT 0;
+DO $$ BEGIN
+  ALTER TABLE sessions ADD CONSTRAINT sessions_recovery_bounds CHECK (
+    (gateway_instance IS NULL OR length(gateway_instance) BETWEEN 1 AND 64)
+    AND (settle_payload IS NULL OR octet_length(settle_payload::text) <= 8192)
+    AND flushed_bytes_in BETWEEN 0 AND 1099511627776
+    AND flushed_bytes_out BETWEEN 0 AND 1099511627776);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+CREATE INDEX IF NOT EXISTS idx_sessions_active_heartbeat
+  ON sessions(gateway_heartbeat_at) WHERE status = 'active';
+
+-- Gateway-measured node uptime (fix/a7-gateway): seconds the node's tunnel
+-- was open that day, from tunnel liveness (ECONOMICS.md rule 3).
+ALTER TABLE node_daily_stats ADD COLUMN IF NOT EXISTS online_seconds INTEGER NOT NULL DEFAULT 0;
+DO $$ BEGIN
+  ALTER TABLE node_daily_stats ADD CONSTRAINT node_daily_stats_online_seconds_range CHECK (online_seconds BETWEEN 0 AND 86400);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;

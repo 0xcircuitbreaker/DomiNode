@@ -172,7 +172,7 @@ export function exchange(stream: Duplex, target: ProbeTarget, nonce: string, tim
     io.on("close", () => finish(null));
     io.on("error", (e: Error) => finish(e));
     const hostHeader = target.port === (target.tls ? 443 : 80) ? target.host : `${target.host}:${target.port}`;
-    io.write(`GET ${target.path}?nonce=${nonce} HTTP/1.1\r\nHost: ${hostHeader}\r\nAccept: application/json\r\nConnection: close\r\n\r\n`);
+    io.write(`GET ${target.path}?nonce=${nonce} HTTP/1.1\r\nHost: ${hostHeader}\r\nAccept: application/json\r\n${probeAuthHeader(nonce)}Connection: close\r\n\r\n`);
   });
 }
 
@@ -181,6 +181,12 @@ export interface ProbeNode {
   ip: string;
   /** Egress not yet verified by a probe on this gateway: sampled first. */
   unverified?: boolean;
+  /**
+   * True while the node is connected and still waits for its first classifying
+   * probe (not selectable). Pending nodes are retried with backoff and probed
+   * in full by the periodic job, never left to the random sample.
+   */
+  isPending?(): boolean;
   openStream(host: string, port: number): Promise<Duplex>;
 }
 
@@ -203,6 +209,14 @@ export interface ProbeDeps {
   onEgress?(nodeId: string, egressIp: string): Promise<unknown> | void;
   /** Tamper strike memory across runs (defaults to a module-level instance). */
   strikes?: TamperStrikes;
+  /**
+   * Gateway-side health of the echo targets (ProbeHealth.healthy). While false
+   * no probe runs: a broken echo host (bad TLS, 404, API down) is our fault and
+   * must never yield tamper verdicts or keep nodes pending.
+   */
+  isHealthy?(): boolean;
+  /** Concurrent probes of pending nodes in a periodic run (default 8). */
+  pendingConcurrency?: number;
 }
 
 export const TAMPER_STRIKES_REQUIRED = 2;
@@ -313,19 +327,32 @@ export async function runOnce(deps: ProbeDeps): Promise<ProbeRunResult> {
   const runId = ++runCounter;
   const nodes = deps.listNodes();
   strikes.retain(new Set(nodes.map((n) => n.nodeId)));
-  // Bounded load: at most sampleSize probes per run; nodes whose egress has not
-  // been verified yet (fresh connects) go first, the rest are a random sample.
-  const n = deps.sampleSize ?? 20;
-  const fresh = sample(nodes.filter((x) => x.unverified), n);
-  const rest = sample(nodes.filter((x) => !x.unverified), Math.max(0, n - fresh.length));
-  for (const node of [...fresh, ...rest]) {
+  if (deps.isHealthy && !deps.isHealthy()) return out;
+  const count = (v: ProbeVerdict) => {
     out.probed++;
-    const v = await probeOne(deps, node, runId, strikes);
     if (v === "ok") out.ok++;
     else if (v === "inconclusive") out.inconclusive++;
     else if (v === "tamper") out.tampered++;
     else out.errors++;
-  }
+  };
+  // Pending nodes (serving nothing until classified) are all probed, with their
+  // own concurrency cap, so recovery never waits on the random sample.
+  const pending = nodes.filter((x) => x.isPending?.() === true);
+  const conc = Math.max(1, deps.pendingConcurrency ?? 8);
+  let next = 0;
+  await Promise.all(Array.from({ length: Math.min(conc, pending.length) }, async () => {
+    while (next < pending.length) {
+      const node = pending[next++]!;
+      count(await probeOne(deps, node, runId, strikes).catch((): ProbeVerdict => "error"));
+    }
+  }));
+  // Bounded load for the rest: at most sampleSize probes; other unverified
+  // nodes first, then a random sample.
+  const others = nodes.filter((x) => x.isPending?.() !== true);
+  const n = deps.sampleSize ?? 20;
+  const fresh = sample(others.filter((x) => x.unverified), n);
+  const rest = sample(others.filter((x) => !x.unverified), Math.max(0, n - fresh.length));
+  for (const node of [...fresh, ...rest]) count(await probeOne(deps, node, runId, strikes));
   return out;
 }
 
@@ -338,6 +365,12 @@ export interface ConnectProbeQueueOptions {
   minIntervalMs?: number;
   /** Delay before probing a fresh connect, ms (default 2 s; random 0..delay added). */
   delayMs?: number;
+  /**
+   * Backoff before re-probing a node that is still pending after a probe that
+   * did not classify it (error, inconclusive without an egress IP, skipped
+   * while unhealthy). The last value repeats. Default 30 s, 1 m, 2 m, 5 m.
+   */
+  retryDelaysMs?: number[];
   now?: () => number;
 }
 
@@ -361,6 +394,8 @@ export class ConnectProbeQueue {
   private readonly maxQueued: number;
   private readonly minIntervalMs: number;
   private readonly delayMs: number;
+  private readonly retryDelaysMs: number[];
+  private attempts = new Map<string, number>();
   private readonly now: () => number;
 
   constructor(private readonly deps: ProbeDeps, o: ConnectProbeQueueOptions = {}) {
@@ -368,6 +403,8 @@ export class ConnectProbeQueue {
     this.maxQueued = Math.max(1, o.maxQueued ?? 1000);
     this.minIntervalMs = Math.max(0, o.minIntervalMs ?? 60_000);
     this.delayMs = Math.max(0, o.delayMs ?? 2_000);
+    const rd = (o.retryDelaysMs ?? [30_000, 60_000, 120_000, 300_000]).map((x) => Math.max(0, x));
+    this.retryDelaysMs = rd.length > 0 ? rd : [300_000];
     this.now = o.now ?? Date.now;
   }
 
@@ -376,7 +413,9 @@ export class ConnectProbeQueue {
     if (this.stopped || this.queued.has(node.nodeId)) return false;
     const last = this.lastProbe.get(node.nodeId);
     const t = this.now();
-    if (last !== undefined && t - last < this.minIntervalMs) return false;
+    // The min interval bounds reconnect floods of verified nodes; a pending
+    // node serves nothing until probed, so it is never rate-limited here.
+    if (last !== undefined && t - last < this.minIntervalMs && node.isPending?.() !== true) return false;
     if (this.queue.length >= this.maxQueued) return false;
     if (this.lastProbe.size >= 100_000) {
       for (const [k, v] of this.lastProbe) if (t - v >= this.minIntervalMs) this.lastProbe.delete(k);
@@ -405,18 +444,52 @@ export class ConnectProbeQueue {
     while (!this.stopped && this.active < this.concurrency && this.queue.length > 0) {
       const node = this.queue.shift()!;
       this.active++;
-      void probeOne(this.deps, node, ++runCounter)
-        .catch(() => "error")
+      const run = this.deps.isHealthy && !this.deps.isHealthy()
+        ? Promise.resolve<ProbeVerdict>("error")
+        : probeOne(this.deps, node, ++runCounter);
+      void run
+        .catch((): ProbeVerdict => "error")
         .finally(() => {
           this.active--;
           this.queued.delete(node.nodeId);
+          this.scheduleRetry(node);
           this.pump();
         });
     }
   }
 
+  /** Re-probe a node that is still pending, with bounded backoff. */
+  private scheduleRetry(node: ProbeNode): void {
+    if (this.stopped) return;
+    if (node.isPending?.() !== true) {
+      this.attempts.delete(node.nodeId);
+      return;
+    }
+    const n = this.attempts.get(node.nodeId) ?? 0;
+    if (!this.attempts.has(node.nodeId) && this.attempts.size >= 100_000) return; // periodic job still covers it
+    this.attempts.set(node.nodeId, n + 1);
+    const delay = this.retryDelaysMs[Math.min(n, this.retryDelaysMs.length - 1)]!;
+    const timer = setTimeout(() => {
+      this.timers.delete(timer);
+      if (this.stopped) return;
+      if (node.isPending?.() !== true) {
+        this.attempts.delete(node.nodeId);
+        return;
+      }
+      if (this.queued.has(node.nodeId)) return;
+      if (this.queue.length >= this.maxQueued) return this.scheduleRetry(node);
+      this.queued.add(node.nodeId);
+      this.lastProbe.set(node.nodeId, this.now());
+      this.queue.push(node);
+      this.pump();
+    }, delay);
+    timer.unref?.();
+    this.timers.add(timer);
+  }
+
   stop(): void {
     this.stopped = true;
+    this.attempts.clear();
     for (const t of this.timers) clearTimeout(t);
     this.timers.clear();
     this.queue = [];
@@ -424,12 +497,103 @@ export class ConnectProbeQueue {
   }
 }
 
-export function start(o: { deps: ProbeDeps; logger: JobLogger; intervalMs?: number; jitterMs?: number }): Job {
-  const job = new Job({ name: "probes", intervalMs: o.intervalMs ?? 900_000, jitterMs: o.jitterMs, lockKey: null, logger: o.logger, run: () => runOnce(o.deps), initialDelayMs: 120_000 });
+export function start(o: { deps: ProbeDeps; logger: JobLogger; intervalMs?: number; jitterMs?: number; initialDelayMs?: number }): Job {
+  const job = new Job({ name: "probes", intervalMs: o.intervalMs ?? 900_000, jitterMs: o.jitterMs, lockKey: null, logger: o.logger, run: () => runOnce(o.deps), initialDelayMs: o.initialDelayMs ?? 30_000 });
   job.start();
   return job;
 }
 
 export async function stop(job: Job | null): Promise<void> {
   await job?.stop();
+}
+
+/**
+ * X-DN-Probe-Auth header line (HMAC-SHA256 of the nonce with PROBE_AUTH_SECRET)
+ * so the API gives gateway probes their own rate budget; empty when unset.
+ * Sent inside the TLS session to the API, never readable by the exit node.
+ */
+export function probeAuthHeader(nonce: string, secret = process.env["PROBE_AUTH_SECRET"]): string {
+  if (!secret || secret.length < 32) return "";
+  return `X-DN-Probe-Auth: ${crypto.createHmac("sha256", secret).update(nonce).digest("hex")}\r\n`;
+}
+
+// ─── Gateway-side self-check of the echo targets ──────────────────────
+
+export interface SelfCheckResult {
+  ok: boolean;
+  reason?: string;
+}
+
+/**
+ * Fetch an echo target directly from the gateway (no node) and require a 200
+ * that echoes our nonce. Failure means the probe setup itself is broken (TLS
+ * not publicly trusted, 404 from a host without the API, API down), so node
+ * probes against it prove nothing about nodes.
+ */
+export async function selfCheckTarget(
+  target: ProbeTarget,
+  timeoutMs = 10_000,
+  connect: (host: string, port: number) => Promise<Duplex> = dialDirect,
+  ex: typeof exchange = exchange,
+): Promise<SelfCheckResult> {
+  const nonce = crypto.randomBytes(18).toString("base64url");
+  let raw: string | Buffer;
+  try {
+    raw = await ex(await connect(target.host, target.port), target, nonce, timeoutMs);
+  } catch (e) {
+    return { ok: false, reason: e instanceof Error ? e.message.slice(0, 200) : "error" };
+  }
+  const buf = typeof raw === "string" ? Buffer.from(raw, "utf8") : raw;
+  const sep = buf.indexOf("\r\n\r\n");
+  if (sep < 0) return { ok: false, reason: "incomplete response" };
+  const head = buf.subarray(0, sep).toString("latin1");
+  const status = head.split("\r\n")[0]!;
+  if (!/^HTTP\/1\.[01] 200 /.test(status)) return { ok: false, reason: `status ${status.slice(9, 12)}` };
+  const text = completeBody(head, buf.subarray(sep + 4));
+  try {
+    const body = text === null ? null : (JSON.parse(text) as { nonce?: unknown } | null);
+    if (!body || body.nonce !== nonce) return { ok: false, reason: "nonce not echoed" };
+  } catch {
+    return { ok: false, reason: "malformed body" };
+  }
+  return { ok: true };
+}
+
+function dialDirect(host: string, port: number): Promise<Duplex> {
+  return new Promise((resolve, reject) => {
+    const s = net.connect({ host, port });
+    s.once("connect", () => {
+      s.removeListener("error", reject);
+      resolve(s);
+    });
+    s.once("error", reject);
+  });
+}
+
+/**
+ * Tracks which echo targets pass the gateway self-check. `live` is the array
+ * handed to ProbeDeps.targets (mutated in place), so failing targets are never
+ * picked; `healthy` is false when none passes (probes then pause and nodes are
+ * not held pending).
+ */
+export class ProbeHealth {
+  readonly live: ProbeTarget[] = [];
+  constructor(
+    private readonly all: ProbeTarget[],
+    private readonly check: (t: ProbeTarget) => Promise<SelfCheckResult> = (t) => selfCheckTarget(t),
+  ) {}
+  get healthy(): boolean {
+    return this.live.length > 0;
+  }
+  /** Re-check every target; returns the failures. */
+  async refresh(): Promise<{ target: string; reason: string }[]> {
+    const res = await Promise.all(this.all.map(async (t) => ({ t, r: await this.check(t).catch((): SelfCheckResult => ({ ok: false, reason: "error" })) })));
+    this.live.length = 0;
+    const failed: { target: string; reason: string }[] = [];
+    for (const { t, r } of res) {
+      if (r.ok) this.live.push(t);
+      else failed.push({ target: `${t.host}:${t.port}${t.path}`, reason: r.reason ?? "failed" });
+    }
+    return failed;
+  }
 }
