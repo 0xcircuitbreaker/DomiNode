@@ -390,6 +390,7 @@ async function handleSocks5Connection(clientSocket: net.Socket, relay: RelayRunt
       port: targetPort,
       sticky: proxyOptions.sessionId,
       seedOnly: socksAccess.seedOnly,
+      targetAddresses: socksTargetCheck.addresses,
     });
   } catch (err) {
     clearTimeout(totalHandshakeTimer);

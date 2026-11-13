@@ -37,6 +37,15 @@ describe("etld1", () => {
 });
 
 describe("NodeSelector", () => {
+  it("never routes a target to the node's own egress address (hairpin)", () => {
+    const { sel } = make([node({ nodeId: "self", ip: "203.0.113.7" }), node({ nodeId: "other", ip: "198.51.100.9" })]);
+    for (let i = 0; i < 5; i++) {
+      expect(sel.select({ ...base, targetHost: "203.0.113.7" }).nodeId).toBe("other");
+      expect(sel.select({ ...base, targetHost: "router.example", targetAddresses: ["::ffff:203.0.113.7"] }).nodeId).toBe("other");
+    }
+    const { sel: only } = make([node({ nodeId: "self", ip: "203.0.113.7" })]);
+    expect(() => only.select({ ...base, targetHost: "203.0.113.7" })).toThrow(NodeSelectionError);
+  });
   it("seedOnly restricts selection to operator-run nodes", () => {
     const { sel } = make([node({ nodeId: "community" }), node({ nodeId: "seed", operatorRun: true })]);
     for (let i = 0; i < 5; i++) expect(sel.select({ ...base, seedOnly: true }).nodeId).toBe("seed");

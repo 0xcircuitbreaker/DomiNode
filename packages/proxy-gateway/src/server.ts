@@ -405,6 +405,7 @@ async function handleRequest(
       upstream = await openRelayStream(relay, {
         ...relaySelectOpts(null, x402User, clientIp, targetHost, targetPort, selectClassFor(x402Data.poolType)),
         requesterWallet: normalizePayer(x402Data.payer),
+        targetAddresses: targetCheck.addresses,
       });
     } catch (err) {
       const e = relayErrorOf(err);
@@ -615,7 +616,7 @@ async function handleRequest(
   // Select a node and open a stream (DIAL_FAIL/DNS_FAIL retry once on another node)
   let upstream: RelayUpstream;
   try {
-    upstream = await openRelayStream(relay, { ...relaySelectOpts(a, a.userId, clientIp, targetHost, targetPort), seedOnly: access.seedOnly });
+    upstream = await openRelayStream(relay, { ...relaySelectOpts(a, a.userId, clientIp, targetHost, targetPort), seedOnly: access.seedOnly, targetAddresses: targetCheck.addresses });
   } catch (err) {
     decrementUserConns(a.userId);
     const e = relayErrorOf(err);
@@ -858,7 +859,7 @@ async function handleConnect(
 
   let upstream: RelayUpstream;
   try {
-    upstream = await openRelayStream(relay, { ...relaySelectOpts(auth, userId, connectClientIp, targetHost, targetPort), seedOnly: connectAccess.seedOnly });
+    upstream = await openRelayStream(relay, { ...relaySelectOpts(auth, userId, connectClientIp, targetHost, targetPort), seedOnly: connectAccess.seedOnly, targetAddresses: connectTargetCheck.addresses });
   } catch (err) {
     safeDecrement();
     recordError();
@@ -987,6 +988,7 @@ async function handleX402ConnectTunnel(
     upstream = await openRelayStream(relay, {
       ...relaySelectOpts(null, x402User, clientIpOf(clientSocket), targetHost, targetPort, selectClassFor(x402Result.poolType)),
       requesterWallet: normalizePayer(x402Result.payer),
+      targetAddresses: targetCheck.addresses,
     });
   } catch (err) {
     recordError();

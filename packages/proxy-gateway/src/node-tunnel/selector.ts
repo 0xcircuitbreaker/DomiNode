@@ -26,6 +26,13 @@ export interface SelectOpts {
   excludeNodeIds?: string[];
   /** Only operator-run seed nodes (starter-credit sessions during month one). */
   seedOnly?: boolean;
+  /** Addresses validateTarget resolved for targetHost (hairpin check). */
+  targetAddresses?: string[];
+}
+
+function normIp(ip: string): string {
+  const s = ip.toLowerCase().replace(/^\[|\]$/g, "");
+  return s.startsWith("::ffff:") && s.includes(".") ? s.slice(7) : s;
 }
 
 export class NodeSelectionError extends Error {
@@ -101,6 +108,11 @@ export class NodeSelector {
     if (o.requesterWallet && n.ownerWallet.toLowerCase() === o.requesterWallet.toLowerCase()) return false;
     if (o.requesterTeamId && n.ownerTeamId === o.requesterTeamId) return false;
     if (n.prefix24 === clientPrefix) return false;
+    // Hairpin: never send a node to its own egress address (its WAN IP may
+    // reach the operator's router or port-forwarded services via NAT loopback).
+    const nodeIp = normIp(n.ip);
+    if (normIp(o.targetHost) === nodeIp) return false;
+    if (o.targetAddresses && o.targetAddresses.some((a) => normIp(a) === nodeIp)) return false;
     // Caps: streams, GB/day, req/s.
     const maxStreams = Math.min(n.maxStreams, policy.nodeDefaults.maxStreams);
     if (n.tunnel.openStreams >= maxStreams) return false;
