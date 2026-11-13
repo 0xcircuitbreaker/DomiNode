@@ -89,6 +89,11 @@ export const RELAY_EXPORT_QUERIES: ReadonlyArray<{ key: string; table: string; s
     key: "contributionAllowlist", table: "contribution_allowlist",
     sql: `SELECT created_at FROM contribution_allowlist WHERE user_id = $1`,
   },
+  {
+    key: "walletOverflowCredits", table: "wallet_overflow_credits",
+    sql: `SELECT amount_cents, reason, created_at, resolved_at FROM wallet_overflow_credits
+          WHERE user_id = $1 ORDER BY created_at DESC LIMIT ${EXPORT_ROW_CAP}`,
+  },
 ];
 
 /**
