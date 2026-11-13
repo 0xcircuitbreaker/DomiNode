@@ -146,7 +146,12 @@ lives outside the database, so a DB dump alone cannot confirm or correlate a
 
 ```bash
 umask 077; openssl rand -hex 32 > secrets/api-key-pepper
+sudo chown 1001:1001 secrets/api-key-pepper   # the api and proxy images run as uid 1001
 ```
+
+Compose file secrets (non-swarm) are bind mounts that keep the host owner and
+mode, so a 0600 file owned by you or root is unreadable in the containers and
+both services stop at startup. The same applies to `coord-key.pem`.
 
 - Mount the **same** file into the API and the gateway (Docker secret or
   systemd credential) and set `API_KEY_PEPPER_FILE` in both. A mismatch makes
@@ -500,10 +505,23 @@ After the first registration, flag the node: admin panel → Launch controls →
 ### Self-host admin
 
 The coordinator profile runs the admin UI (`frontend` service, nginx serving
-the React build). Caddy sends `/api/*`, `/v1/*`, `/.well-known/*`, `/status`
-and `/llms.txt` to the API and every other path to the admin UI. With
-`TLS_MODE=cloudflare`, map an admin hostname to `http://frontend:8080` in the
-tunnel (it proxies `/api` itself).
+the React build with `infra/nginx/selfhost.conf`: plain HSTS, no
+`includeSubDomains`/`preload`, `connect-src 'self'`). Caddy sends `/api/*`,
+`/v1/*`, `/.well-known/*`, `/status` and `/llms.txt` to the API, only the admin
+paths (`/admin*`, `/login`, `/forgot-password`, `/reset-password`,
+`/verify-email`, `/assets/*`, icons, manifest) to the admin UI, redirects `/` to
+`/admin` and answers 404 elsewhere. The public DominusNode site pages
+(landing, pricing, report-abuse, terms, privacy, AUP) are not served on a
+self-host: they carry the official operator's contacts and terms. Abuse and
+operator contacts for your install come from `security.txt` and
+`coordinator.json` (`ABUSE_CONTACT`, `OPERATOR_CONTACT`).
+
+With `TLS_MODE=cloudflare`, give the admin hostname path-based ingress rules in
+the tunnel, in this order: `/api/*`, `/v1/*`, `/.well-known/*`, `/status*` and
+`/llms.txt` to `http://api:3000`, then everything else to
+`http://frontend:8080`. Do not send `/api` through the frontend: nginx adds a
+hop the api does not trust (`TRUST_PROXY=1`), so every client would share the
+cloudflared address for login rate limits and lockouts.
 
 First admin (§8a, with the installer doing the env part):
 
@@ -882,6 +900,25 @@ gateway runs a user-status sweep (`USER_STATUS_SWEEP_INTERVAL_MS`, default
 settled and closed, so a suspended requester loses open tunnels within one
 interval. The suspend response carries a `warning` when the direct signal
 failed.
+
+**Wallet proxy-session tokens (`dn_proxy_`).** The coordinator's api signs
+them with its `JWT_SECRET`; the gateway verifies them with its own. Give the
+VPS installer the coordinator's value (`COORD_JWT_SECRET=<JWT_SECRET from the
+coordinator's .env>`, or the hidden prompt) and compare the "JWT secret check
+value" both installers print. Without it, `dn_proxy_` tokens are rejected on
+the split gateway; `dn_live_` keys are unaffected.
+
+**Upgrading a split install.** The coordinator re-run creates
+`selfhost/api-key-pepper` (if missing) and the api starts storing keys as v2
+and rewriting v1 rows as keys authenticate there. The gateway cannot go first
+(its installer needs that pepper and the new `selfhost/gateway-database-url`).
+So: (1) re-run the coordinator installer; (2) straight away copy
+`selfhost/api-key-pepper` and `selfhost/gateway-database-url` to the VPS (scp,
+mode 0600) and re-run the VPS installer with `API_KEY_PEPPER`/the pepper file,
+`GATEWAY_DATABASE_URL` and `COORD_JWT_SECRET`; (3) compare the pepper and JWT
+check values. Between (1) and (2) the gateway answers 407 for every key
+created or used on the api since the upgrade; keep that window short or do it
+in a maintenance window.
 
 Admin live gateway stats (`PROXY_INTERNAL_HOST`) are not wired across the split.
 

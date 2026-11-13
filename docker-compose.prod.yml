@@ -233,8 +233,9 @@ secrets:
   # PEM written by `npm run gen:coord-key` (mode 0600, readable by the container user).
   coord_signing_key:
     file: ${COORD_SIGNING_KEY_PATH:-./secrets/coord-signing-key.pem}
-  # API key pepper: `openssl rand -hex 32 > secrets/api-key-pepper` once
-  # (mode 0600); never regenerate it (DEPLOYMENT.md §3b). Back it up.
+  # API key pepper: `openssl rand -hex 32 > secrets/api-key-pepper` once, then
+  # `sudo chown 1001:1001 secrets/api-key-pepper` (mode 0600, readable by the
+  # container user uid 1001); never regenerate it (DEPLOYMENT.md §3b). Back it up.
   api_key_pepper:
     file: ${API_KEY_PEPPER_PATH:-./secrets/api-key-pepper}
 
