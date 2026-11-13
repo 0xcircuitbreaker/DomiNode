@@ -1,6 +1,6 @@
 import { usageRepo, walletRepo, planRepo, teamRepo, policyRepo, tierRepo, relayChargeRepo, relaySettleRetryRepo, createLogger } from "@dominusnode/shared";
 import type { Plan, NodeIpClass } from "@dominusnode/shared";
-import { RELAY_BYTES_PER_GB } from "@dominusnode/shared";
+import { RELAY_BYTES_PER_GB, isClassDowngrade } from "@dominusnode/shared";
 import { recordRequesterSpend, reserveRequesterSpend, releaseRequesterSpend, reserveRequesterShared } from "./policy-enforcer.js";
 import { invalidateBalanceCache, invalidateTeamBalanceCache } from "./balance-check.js";
 import { recordBytes, recordSessionStart } from "./stats.js";
@@ -742,6 +742,35 @@ export function registerSessionDestroy(sessionId: string, destroyFn: () => void)
  */
 export function unregisterSessionDestroy(sessionId: string): void {
   sessionDestroyCallbacks.delete(sessionId);
+}
+
+/**
+ * End a node's in-flight sessions whose locked class is above its new verified
+ * class (a probe downgrade, ECONOMICS.md §1a "In-flight sessions"). Bytes
+ * carried so far settle at the price locked at session start; the sockets are
+ * then closed so no traffic flows at the old class's price or tier weight.
+ */
+export async function terminateNodeSessionsAbove(nodeId: string, cls: NodeIpClass): Promise<number> {
+  const ids: string[] = [];
+  for (const [id, s] of activeSessions) {
+    if (s.relay.nodeId === nodeId && isClassDowngrade(s.relay.ipClass, cls)) ids.push(id);
+  }
+  let ended = 0;
+  for (const sessionId of ids) {
+    try {
+      await endSession(sessionId);
+      ended++;
+    } catch (err) {
+      log.error("downgrade session termination failed", { sessionId, error: err instanceof Error ? err.message : String(err) });
+    }
+    const destroyFn = sessionDestroyCallbacks.get(sessionId);
+    if (destroyFn) {
+      try { destroyFn(); } catch { /* best effort */ }
+      sessionDestroyCallbacks.delete(sessionId);
+    }
+  }
+  if (ended > 0) log.warn("ended in-flight sessions after egress downgrade", { nodeId, to: cls, ended });
+  return ended;
 }
 
 /**

@@ -1,6 +1,7 @@
 import * as net from "node:net";
 import { isBlockedCountry, createLogger } from "@dominusnode/shared";
-import { HOSTING_ASNS, loadAsnDbFile, parseHostingAsns, type AsnDb } from "./asn-db.js";
+import * as fs from "node:fs";
+import { ACCESS_ASNS, HOSTING_ASNS, loadAsnDbFile, parseAccessAsns, parseHostingAsns, type AsnDb } from "./asn-db.js";
 import { classifyEgress, DEFAULT_ANONYMIZER_ASNS, IpRangeSet, loadAnonymizerLists, type EgressVerdict } from "./egress-class.js";
 import type { NodeIpClass } from "@dominusnode/shared";
 
@@ -22,6 +23,7 @@ const log = createLogger("proxy:geo");
  */
 let asnDb: AsnDb | null = null;
 let hostingAsns: ReadonlySet<number> = HOSTING_ASNS;
+let accessAsns: ReadonlySet<number> = ACCESS_ASNS;
 let anonymizerAsns: ReadonlySet<number> = DEFAULT_ANONYMIZER_ASNS;
 let anonymizerIps: IpRangeSet = new IpRangeSet();
 let geoDisabled = false;
@@ -37,6 +39,18 @@ export async function initGeoCheck(): Promise<void> {
   if (geoInitialized) return;
   geoInitialized = true;
   hostingAsns = parseHostingAsns(process.env["HOSTING_ASNS"]);
+  let accessFile: string | null = null;
+  const accessPath = process.env["ACCESS_ASNS_FILE"];
+  if (accessPath) {
+    try {
+      if (fs.statSync(accessPath).size <= 8 * 1024 * 1024) accessFile = fs.readFileSync(accessPath, "utf8");
+      else log.warn("ACCESS_ASNS_FILE too large; using built-in access list");
+    } catch {
+      log.warn("ACCESS_ASNS_FILE unreadable; using built-in access list");
+    }
+  }
+  accessAsns = parseAccessAsns(process.env["ACCESS_ASNS"], accessFile);
+  log.info("access-network ASN allowlist loaded", { asns: accessAsns.size });
   const anon = loadAnonymizerLists(process.env, (m) => log.warn(m));
   anonymizerAsns = anon.asns;
   anonymizerIps = anon.ips;
@@ -128,9 +142,11 @@ export function setAsnDb(
   db: AsnDb | null,
   hosting: ReadonlySet<number> = HOSTING_ASNS,
   anon: { asns?: ReadonlySet<number>; ips?: IpRangeSet } = {},
+  access: ReadonlySet<number> = ACCESS_ASNS,
 ): void {
   asnDb = db;
   hostingAsns = hosting;
+  accessAsns = access;
   anonymizerAsns = anon.asns ?? DEFAULT_ANONYMIZER_ASNS;
   anonymizerIps = anon.ips ?? new IpRangeSet();
   geoDisabled = false;
@@ -141,8 +157,8 @@ export function setAsnDb(
  * Country, ASN and ip_class for a node's peer IP (tunnel auth). Returns null
  * when geo data is unavailable or the address has no country, so the tunnel
  * server fails closed for public peers. ip_class is the VERIFIED exit class
- * (egress-class.ts): masked for anonymizer egress, dc for hosting ASNs,
- * else residential.
+ * (egress-class.ts): masked for anonymizer egress, residential only for
+ * allowlisted access-network ASNs, else dc.
  */
 export function lookupPeerGeo(ip: string): { country: string | null; asn: number | null; ipClass: NodeIpClass | null } | null {
   if (geoDisabled) return { country: null, asn: null, ipClass: null };
@@ -158,5 +174,5 @@ export function lookupPeerGeo(ip: string): { country: string | null; asn: number
 
 /** Verified exit class for an egress IP (connect + canary probe). */
 export function classifyEgressIp(ip: string): EgressVerdict {
-  return classifyEgress(ip, { db: asnDb, hostingAsns, anonymizerAsns, anonymizerIps });
+  return classifyEgress(ip, { db: asnDb, hostingAsns, accessAsns, anonymizerAsns, anonymizerIps });
 }

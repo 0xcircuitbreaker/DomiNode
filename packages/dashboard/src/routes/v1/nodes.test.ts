@@ -16,6 +16,7 @@ const m = vi.hoisted(() => ({
   consumeChallenge: vi.fn(),
   registerNode: vi.fn(),
   listForOwner: vi.fn(),
+  revokeOwnedNode: vi.fn(),
   powCreate: vi.fn(),
   powConsume: vi.fn(),
   powCount: vi.fn(),
@@ -39,7 +40,7 @@ vi.mock("@dominusnode/shared", async (importOriginal) => {
   return {
     ...actual,
     query: (...a: unknown[]) => m.query(...a),
-    nodeRepo: { createChallenge: m.createChallenge, consumeChallenge: m.consumeChallenge, registerNode: m.registerNode, listForOwner: m.listForOwner },
+    nodeRepo: { createChallenge: m.createChallenge, consumeChallenge: m.consumeChallenge, registerNode: m.registerNode, listForOwner: m.listForOwner, revokeOwnedNode: m.revokeOwnedNode },
     powChallengeRepo: { createChallenge: m.powCreate, consumeChallenge: m.powConsume, countActiveChallengesForIp: m.powCount, POW_CHALLENGE_TTL_MS: 300000 },
     policyRepo: { getActivePolicy: m.getActivePolicy },
     tierRepo: { getOwnerTier: m.getOwnerTier, listTiers: m.listTiers, getOwnerTierStats: m.getOwnerTierStats, getTierWeights: m.getTierWeights },
@@ -227,6 +228,13 @@ describe("/v1 node routes", () => {
       expect(m.registerNode).not.toHaveBeenCalled();
     });
 
+    it("refuses registration while a node penalty is active (revoke does not shed it)", async () => {
+      m.registerNode.mockResolvedValue({ ok: false, reason: "owner_penalized" });
+      const r = await call(app(), "POST", "/v1/nodes", { body: await registrationBody() });
+      expect(r.status).toBe(403);
+      expect(r.body["code"]).toBe("NODE_PENALTY_ACTIVE");
+    });
+
     it("maps node cap to 409", async () => {
       m.registerNode.mockResolvedValue({ ok: false, reason: "node_cap_reached", cap: 10 });
       const r = await call(app(), "POST", "/v1/nodes", { body: await registrationBody() });
@@ -299,21 +307,20 @@ describe("/v1 node routes", () => {
     });
 
     it("revokes only an owned node", async () => {
-      m.query.mockResolvedValue({ rows: [{ id: NODE_ID, status: "revoked" }] });
+      m.revokeOwnedNode.mockResolvedValue({ id: NODE_ID, status: "revoked" });
       const r = await call(app(), "DELETE", `/v1/nodes/${NODE_ID}`);
       expect(r.status).toBe(200);
-      expect(m.query.mock.calls[0][1]).toEqual([NODE_ID, USER]);
-      expect(String(m.query.mock.calls[0][0])).toContain("owner_user_id = $2");
+      expect(m.revokeOwnedNode).toHaveBeenCalledWith(NODE_ID, USER);
     });
 
     it("404s for foreign or already-revoked nodes", async () => {
-      m.query.mockResolvedValue({ rows: [] });
+      m.revokeOwnedNode.mockResolvedValue(null);
       expect((await call(app(), "DELETE", `/v1/nodes/${NODE_ID}`)).status).toBe(404);
     });
 
     it("400s on a malformed id", async () => {
       expect((await call(app(), "DELETE", "/v1/nodes/1;drop")).status).toBe(400);
-      expect(m.query).not.toHaveBeenCalled();
+      expect(m.revokeOwnedNode).not.toHaveBeenCalled();
     });
   });
 
