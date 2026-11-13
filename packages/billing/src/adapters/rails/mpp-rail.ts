@@ -154,6 +154,12 @@ export interface MppVerification {
   /** Single-use proof reference (chain id + tx hash); the replay key. */
   proofRef?: string;
   reason?: string;
+  /**
+   * The transfer is real and final but the request must be refused (paid less than
+   * the challenge amount, or a source that does not match the sender). The rail still
+   * claims the payment so the handler records and credits it; it is never served.
+   */
+  refuse?: string;
 }
 export interface MppVerifier {
   verify(credential: string, req: { amountMusd: bigint; resource: string }, nowS: number): Promise<MppVerification>;
@@ -202,7 +208,8 @@ export function createTempoMppVerifier(cfg: MppConfig, rpc: TempoRpc): MppVerifi
       if (amount === null || rq["currency"] !== cfg.currency || rq["recipient"] !== cfg.recipient || md?.["chainId"] !== cfg.chainId) {
         return { ok: false, reason: "invalid-challenge" };
       }
-      if (amount < req.amountMusd) return { ok: false, reason: "payment-insufficient" };
+      // The HMAC binds the challenge amount; the handler compares the paid amount with the
+      // live quote AFTER claiming, so a quote that moved is recorded and credited, not lost.
 
       if (payload["type"] !== "hash") return { ok: false, reason: "method-unsupported" };
       const hash = typeof payload["hash"] === "string" ? payload["hash"].toLowerCase() : "";
@@ -232,19 +239,23 @@ export function createTempoMppVerifier(cfg: MppConfig, rpc: TempoRpc): MppVerifi
         paid += BigInt(lg.data);
       }
       if (!from || paid === 0n) return { ok: false, reason: "verification-failed: no matching transfer" };
-      if (paid < amount) return { ok: false, reason: "payment-insufficient" };
       // Funds already moved on-chain: never reject an overpayment. Accept up to the cap and
       // hand the rest to reconciliation (recorded with the claim, refunded/credited by ops).
       const excess = paid > MAX_MPP_AMOUNT_MUSD ? paid - MAX_MPP_AMOUNT_MUSD : 0n;
       if (excess > 0n) paid = MAX_MPP_AMOUNT_MUSD;
+      if (!ADDR_RE.test(from)) return { ok: false, reason: "verification-failed" };
+      // From here a transfer to us exists: refusals are returned as `refuse` so the payment is
+      // claimed, recorded and credited to the sender instead of being dropped.
+      let refuse: string | undefined;
+      if (paid < amount) refuse = "payment-insufficient: paid below the challenge amount";
       const source = cred["source"];
       if (source !== undefined) {
         if (typeof source !== "string" || source.toLowerCase() !== `did:pkh:eip155:${cfg.chainId}:${from}`) {
-          return { ok: false, reason: "verification-failed: source mismatch" };
+          refuse = "verification-failed: source mismatch";
         }
       }
-      if (!ADDR_RE.test(from)) return { ok: false, reason: "verification-failed" };
-      return { ok: true, payer: from, amountMusd: paid, ...(excess > 0n ? { excessMusd: excess } : {}), proofRef: `tempo:${cfg.chainId}:${hash}` };
+      void req;
+      return { ok: true, payer: from, amountMusd: paid, ...(excess > 0n ? { excessMusd: excess } : {}), proofRef: `tempo:${cfg.chainId}:${hash}`, ...(refuse ? { refuse } : {}) };
     },
   };
 }
@@ -258,6 +269,12 @@ export interface MppStore {
    * keep the claim as 'refund_due'. Never deletes it (the claim is the only record).
    */
   release(paymentHash: string): Promise<void>;
+  /**
+   * Transient refusal (screening or DB outage) before anything was credited: drop a claim
+   * that is still 'claimed'/'verified' with nothing refunded, so a retry with the same
+   * transfer is accepted. Returns false when no such claim was removed.
+   */
+  unclaim(paymentHash: string): Promise<boolean>;
   /**
    * Record money owed back to the payer on the claim: refundMusd owed, creditedCents
    * credited to the payer's wallet-identity user. The claim becomes 'refunded' only
@@ -282,6 +299,14 @@ export const dbMppStore: MppStore = {
   async release(paymentHash) {
     await query(`UPDATE mpp_transactions SET status = 'refund_due' WHERE payment_hash = $1 AND status IN ('claimed','verified')`, [paymentHash]);
   },
+  async unclaim(paymentHash) {
+    const r = await query(
+      `DELETE FROM mpp_transactions WHERE payment_hash = $1 AND status IN ('claimed','verified')
+         AND refunded_cents = 0 AND refund_musd = 0`,
+      [paymentHash],
+    );
+    return (r.rowCount ?? 0) > 0;
+  },
   async recordRefund(paymentHash, r) {
     const full = BigInt(r.creditedCents) * 10_000n === r.refundMusd;
     await query(
@@ -305,6 +330,7 @@ export function buildMppReceipt(reference: string, nowS: number): string {
 export interface MppRail extends PerRequestRail {
   challenge(amountMusd: bigint): (MppChallenge & { header: string }) | null;
   recordRefund: MppStore["recordRefund"];
+  unclaim: MppStore["unclaim"];
 }
 
 export function createMppRail(o: { verifier: MppVerifier | null; config: MppConfig | null; store?: MppStore; now?: () => number }): MppRail {
@@ -334,7 +360,7 @@ export function createMppRail(o: { verifier: MppVerifier | null; config: MppConf
       const claimed = excess > 0n ? await store.claim(paymentHash, v.amountMusd, excess) : await store.claim(paymentHash, v.amountMusd);
       if (!claimed) return { ok: false, paymentHash, reason: "invalid-challenge: payment already used" };
       await store.mark(paymentHash, "verified");
-      return { ok: true, payer: v.payer, paymentHash, amountMusd: v.amountMusd, txRef: v.proofRef };
+      return { ok: true, payer: v.payer, paymentHash, amountMusd: v.amountMusd, txRef: v.proofRef, ...(v.refuse ? { refuse: v.refuse } : {}) };
     },
     async settle(_payload, _req, verified): Promise<SettleResult> {
       // Push mode: funds moved on-chain before verify; settling commits the claim.
@@ -347,6 +373,9 @@ export function createMppRail(o: { verifier: MppVerifier | null; config: MppConf
     },
     async recordRefund(paymentHash, r) {
       await store.recordRefund(paymentHash, r);
+    },
+    async unclaim(paymentHash) {
+      return store.unclaim(paymentHash);
     },
   };
 }

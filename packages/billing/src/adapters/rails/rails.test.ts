@@ -130,18 +130,26 @@ describe("Tempo MPP verifier", () => {
     expect((await v.verify(cred({ challenge: challengeFields(5000n) }), REQ, NOW)).ok).toBe(false); // null receipt
     expect(rpc.getTransactionReceipt).toHaveBeenCalledTimes(1);
   });
-  it("rejects an expired challenge and a challenge priced below the current quote", async () => {
+  it("rejects an expired challenge", async () => {
     const v = createTempoMppVerifier(CFG, rpcOf(null));
     expect((await v.verify(cred({ challenge: challengeFields(5000n, NOW - 301) }), REQ, NOW)).reason).toBe("payment-expired");
-    expect((await v.verify(cred({ challenge: challengeFields(4999n) }), REQ, NOW)).reason).toBe("payment-insufficient");
   });
-  it("rejects wrong recipient, token, memo, underpayment and reverted tx", async () => {
+  it("accepts a paid challenge priced below the live quote (the handler credits it after claiming)", async () => {
+    const c = challengeFields(4999n);
+    const v = await createTempoMppVerifier(CFG, rpcOf(receiptFor(c.id, { amount: 4999n }))).verify(cred({ challenge: c }), REQ, NOW);
+    expect(v).toEqual({ ok: true, payer: PAYER, amountMusd: 4999n, proofRef: `tempo:42431:${TXH}` });
+  });
+  it("reports an on-chain underpayment as a claimable refusal, not a dropped payment", async () => {
+    const c = challengeFields();
+    const v = await createTempoMppVerifier(CFG, rpcOf(receiptFor(c.id, { amount: 4999n }))).verify(cred({ challenge: c }), REQ, NOW);
+    expect(v).toMatchObject({ ok: true, payer: PAYER, amountMusd: 4999n, refuse: expect.stringMatching(/^payment-insufficient/) });
+  });
+  it("rejects wrong recipient, token, memo and reverted tx", async () => {
     const c = challengeFields();
     for (const r of [
       receiptFor(c.id, { to: "0x" + "d".repeat(40) }),
       receiptFor(c.id, { token: "0x" + "e".repeat(40) }),
       receiptFor(c.id, { memo: "0x" + "0".repeat(64) }),
-      receiptFor(c.id, { amount: 4999n }),
       receiptFor(c.id, { status: "0x0" }),
     ]) {
       expect((await createTempoMppVerifier(CFG, rpcOf(r)).verify(cred({ challenge: c }), REQ, NOW)).ok).toBe(false);
@@ -163,7 +171,8 @@ describe("Tempo MPP verifier", () => {
     const c = challengeFields();
     const v = createTempoMppVerifier(CFG, rpcOf(receiptFor(c.id)));
     expect((await v.verify(cred({ challenge: c, source: `did:pkh:eip155:42431:${PAYER}` }), REQ, NOW)).ok).toBe(true);
-    expect((await v.verify(cred({ challenge: c, source: `did:pkh:eip155:42431:0x${"f".repeat(40)}` }), REQ, NOW)).ok).toBe(false);
+    const bad = await v.verify(cred({ challenge: c, source: `did:pkh:eip155:42431:0x${"f".repeat(40)}` }), REQ, NOW);
+    expect(bad).toMatchObject({ ok: true, payer: PAYER, refuse: "verification-failed: source mismatch" });
   });
   it("strips prototype-pollution keys and rejects malformed credentials", async () => {
     const v = createTempoMppVerifier(CFG, rpcOf(null));
@@ -181,7 +190,7 @@ describe("Tempo MPP verifier", () => {
 });
 
 describe("MPP rail", () => {
-  const store = (claimOk = true): MppStore => ({ claim: vi.fn(async () => claimOk), mark: vi.fn(async () => {}), release: vi.fn(async () => {}), recordRefund: vi.fn(async () => {}) });
+  const store = (claimOk = true): MppStore => ({ claim: vi.fn(async () => claimOk), mark: vi.fn(async () => {}), release: vi.fn(async () => {}), recordRefund: vi.fn(async () => {}), unclaim: vi.fn(async () => true) });
   const okVerifier = { verify: vi.fn(async () => ({ ok: true, payer: PAYER, amountMusd: 5000n, proofRef: `tempo:42431:${TXH}` })) };
 
   it("claims the proof (not the credential bytes) once, then settles", async () => {
@@ -192,6 +201,13 @@ describe("MPP rail", () => {
     expect(s.claim).toHaveBeenCalledWith(mppPaymentHash(`tempo:42431:${TXH}`), 5000n);
     expect(await rail.settle("cred-a", REQ, v)).toEqual({ ok: true, txRef: `tempo:42431:${TXH}` });
     expect(s.mark).toHaveBeenLastCalledWith(v.paymentHash, "settled");
+  });
+  it("claims a refused-but-paid transfer and passes the refusal to the handler", async () => {
+    const s = store();
+    const ref = { verify: vi.fn(async () => ({ ok: true, payer: PAYER, amountMusd: 4999n, proofRef: `tempo:42431:${TXH}`, refuse: "payment-insufficient" })) };
+    const v = await createMppRail({ verifier: ref, config: CFG, store: s, now: () => NOW }).verify("cred-r", REQ);
+    expect(v).toMatchObject({ ok: true, amountMusd: 4999n, refuse: "payment-insufficient" });
+    expect(s.claim).toHaveBeenCalledWith(mppPaymentHash(`tempo:42431:${TXH}`), 4999n);
   });
   it("records the overpayment excess with the single claim", async () => {
     const s = store();

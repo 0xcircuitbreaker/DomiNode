@@ -605,6 +605,7 @@ describe("MPP on the gateway", () => {
     settle: vi.fn(),
     release: vi.fn(async () => {}),
     recordRefund: vi.fn(async () => {}),
+    unclaim: vi.fn(async () => true),
   };
   const okVerify = (amountMusd = 525n) => ({ ok: true, payer: MPP_PAYER, paymentHash: "h".repeat(64), amountMusd, txRef: "tempo:1:0xabc" });
 
@@ -614,6 +615,39 @@ describe("MPP on the gateway", () => {
     rail.settle.mockReset();
     rail.release.mockClear();
     rail.recordRefund.mockClear();
+    rail.unclaim.mockClear();
+  });
+
+  it("credits a paid challenge below the live quote (524 µUSD paid, quote 525) and does not serve it", async () => {
+    rail.verify.mockResolvedValue(okVerify(524n));
+    const res = makeResponse();
+    const req = makeRequest({ authorization: "Payment tok" });
+    await handleX402Http(req, res);
+    expect(res._statusCode).toBe(402);
+    expect(getX402Data(req)).toBeNull();
+    expect(rail.release).toHaveBeenCalledWith("h".repeat(64));
+    expect(rail.recordRefund).toHaveBeenCalledWith("h".repeat(64), expect.objectContaining({ userId: "user-x402", refundMusd: 524n, reason: "payment below current quote" }));
+  });
+
+  it("records and credits a verifier refusal (source mismatch) instead of dropping it: 1,000,000 µUSD -> 100 cents", async () => {
+    rail.verify.mockResolvedValue({ ...okVerify(1_000_000n), refuse: "verification-failed: source mismatch" });
+    mockCreditWallet.mockClear();
+    const res = makeResponse();
+    await handleX402Http(makeRequest({ authorization: "Payment tok" }), res);
+    expect(res._statusCode).toBe(402);
+    expect(mockCreditWallet).toHaveBeenCalledWith("user-x402", 100, "mpp", `mpp-refund:${"h".repeat(64)}`, expect.any(String));
+    expect(rail.recordRefund).toHaveBeenCalledWith("h".repeat(64), expect.objectContaining({ refundMusd: 1_000_000n, creditedCents: 100 }));
+  });
+
+  it("transient payer-identity outage drops the uncredited claim so the same transfer can be retried", async () => {
+    rail.verify.mockResolvedValue(okVerify());
+    mockFindOrCreateX402User.mockRejectedValueOnce(new Error("db down"));
+    const res = makeResponse();
+    await handleX402Http(makeRequest({ authorization: "Payment tok" }), res);
+    expect(res._statusCode).toBe(503);
+    expect(rail.unclaim).toHaveBeenCalledWith("h".repeat(64));
+    expect(rail.release).not.toHaveBeenCalled();
+    expect(rail.recordRefund).not.toHaveBeenCalled();
   });
   afterEach(() => setMppRailForTest(null));
 

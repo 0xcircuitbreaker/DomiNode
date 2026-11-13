@@ -10,7 +10,7 @@ Sources (checked 2026-11-06):
 ## MPP per-request rail (`billing/src/adapters/rails/mpp-rail.ts`)
 
 **Confirmed against the spec:**
-- **Challenge.** A 402 response carries `WWW-Authenticate: Payment id, realm, method="tempo", intent="charge", expires (RFC 3339), request` and `Cache-Control: no-store`.
+- **Challenge.** A 402 response carries `WWW-Authenticate: Payment id, realm, method="tempo", intent="charge", expires (RFC 3339), request, opaque` (mandatory) and `Cache-Control: no-store`.
   - `request` is base64url-nopad of the JCS JSON `{amount, currency, recipient, methodDetails:{chainId}}`.
   - `amount` is in TIP-20 base units. These have 6 decimals, so one base unit is 1 µUSD.
 - **Stateless id.** `id = base64url(HMAC-SHA256(MPP_CHALLENGE_SECRET, realm|method|intent|request|expires|digest|opaque))`. Every challenge carries a random 128-bit `opaque`, so each 402 has its own unguessable id and memo; a credential whose challenge has no `opaque` is refused. (Without it the id depended only on the amount and the second, and anyone polling the 402 could match a victim's on-chain memo and redeem the victim's transfer first.)
@@ -18,9 +18,10 @@ Sources (checked 2026-11-06):
 - **Verification steps:**
   1. Recompute the id and compare it in constant time.
   2. Check `expires`.
-  3. Check that the realm, recipient, currency and chain match ours, and that the amount is at least the current quote.
-  4. Accept `payload {type:"hash", hash}` and verify it with `eth_getTransactionReceipt` on `MPP_RPC_URL`. The receipt must have status `0x1`, and a TIP-20 `TransferWithMemo` log must show the token, the recipient and an amount of at least the challenge amount. A transfer above the per-payment cap ($10,000) is still accepted: the request is served for the cap and the excess is stored on the claim (`mpp_transactions.excess_musd`) for reconciliation (refund or credit to the payer).
+  3. Check that the realm, recipient, currency and chain match ours. The challenge amount is bound by the HMAC; it is compared with the live quote only after the transfer is claimed (step 6).
+  4. Accept `payload {type:"hash", hash}` and verify it with `eth_getTransactionReceipt` on `MPP_RPC_URL`. The receipt must have status `0x1`, and a TIP-20 `TransferWithMemo` log must show the token, the recipient and the sender. A transfer above the per-payment cap ($10,000) is still accepted: the request is served for the cap and the excess is stored on the claim (`mpp_transactions.excess_musd`) for reconciliation (refund or credit to the payer).
   5. If `source` is present, it must be `did:pkh:eip155:<chainId>:<from>`.
+  6. Once a matching transfer exists the proof is always claimed. A transfer below the challenge amount, a `source` mismatch, or a challenge amount below the live quote (the quote moved, or the class header changed) is refused AFTER the claim and credited like any other post-verification refusal (below), never dropped.
 - **Single-use proofs.** The replay key is `sha256("tempo:<chainId>:<txHash>")`, claimed in `mpp_transactions.payment_hash` (UNIQUE). It is keyed on the proof rather than on the credential bytes, so wrapping the same transaction in a new credential is still a replay.
 
 **Assumed (not public, or not yet confirmed):**
@@ -36,7 +37,7 @@ Sources (checked 2026-11-06):
 - **402 offer.** When MPP is enabled, a 402 response adds the `WWW-Authenticate: Payment` challenge and an `mpp` block in the body, next to `x402`.
 - **HTTP and CONNECT.** An MPP credential follows the x402 order: verify (the proof is claimed), then map the payer to a wallet-identity user, then select a node, lock the snapshot and open the stream, then settle (which commits the claim), then relay.
 - **Failures.**
-  - The transfer is final once verified, so a refusal after verification (method, target or policy refusal, no node, spend cap, settle failure, payer rate limit, a quote that moved) never deletes the claim. The claim becomes `refund_due`, the payer's wallet-identity user is credited the whole cents (`wallet_transactions` provider `mpp`, payment id `mpp-refund:<hash>`), and the claim records `refund_musd`/`refunded_cents`; it becomes `refunded` once fully credited. Sub-cent remainders, failed credits and refused (e.g. sanctioned) payers stay `refund_due` for reconciliation. The same transaction cannot be presented again.
+  - The transfer is final once verified, so a refusal after verification (method, target or policy refusal, no node, spend cap, settle failure, payer rate limit, a quote that moved, an on-chain underpayment, a `source` mismatch) never deletes the claim. The claim becomes `refund_due`, the payer's wallet-identity user is credited the whole cents (`wallet_transactions` provider `mpp`, payment id `mpp-refund:<hash>`), and the claim records `refund_musd`/`refunded_cents`; it becomes `refunded` once fully credited. Sub-cent remainders, failed credits and refused (e.g. sanctioned) payers stay `refund_due` for reconciliation. The same transaction cannot be presented again. Exception: a transient outage while resolving the payer (sanctions screening or the DB, answered 503 with `Retry-After`) drops the claim while it is still `claimed`/`verified` with nothing credited, so a retry with the same transaction is accepted; if the drop fails it stays `refund_due`.
   - An overpayment above `X402_MAX_OVERPAY_FACTOR` × quote is served at the cap and the excess is credited the same way (payment id `mpp-excess:<hash>`).
   - A failure after settle refunds the payer's identity user through `creditWallet(provider 'mpp', 'mpp-refund:<hash>')`, which is unique per payment.
 

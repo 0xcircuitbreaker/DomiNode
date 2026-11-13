@@ -826,13 +826,26 @@ async function verifyMppRequest(req: http.IncomingMessage): Promise<MppOutcome> 
   // From here the transfer is final on-chain: every refusal keeps the claim and
   // credits the payer (refundMppClaim); nothing is deleted.
   const who = await resolvePayer(v.payer);
+  if (!who.ok && who.status === 503) {
+    // Transient outage (screening list or DB): nothing was credited, so let the payer retry
+    // with the same transfer. Fall back to refund_due only if the claim cannot be dropped.
+    const dropped = await rail.unclaim(v.paymentHash).catch(() => false);
+    if (!dropped) await refundMppClaim(v.paymentHash, null, v.amountMusd, `payer refused: ${who.code}`);
+    return { ok: false, status: who.status, code: who.code, message: who.message };
+  }
   if (!who.ok) {
     // Sanctioned or unusable payer: no credit, claim stays refund_due for review.
     await refundMppClaim(v.paymentHash, null, v.amountMusd, `payer refused: ${who.code}`);
     return { ok: false, status: who.status, code: who.code, message: who.message };
   }
+  if (v.refuse) {
+    // Real transfer that cannot be served (underpaid the challenge, source mismatch): credit it.
+    await refundMppClaim(v.paymentHash, who.userId, v.amountMusd, v.refuse);
+    return { ok: false, status: 402, code: "MPP_PAYMENT_INVALID", message: `${v.refuse.split(":")[0]}: credited to wallet`, challenge: fresh() };
+  }
   if (v.amountMusd < q.amountMusd) {
-    // The quote moved between challenge and payment (the challenge amount was paid).
+    // The quote moved between challenge and payment, or the class header changed: the
+    // challenge amount was paid but is below the live quote. Credit it.
     await refundMppClaim(v.paymentHash, who.userId, v.amountMusd, "payment below current quote");
     return { ok: false, status: 402, code: "MPP_PAYMENT_INVALID", message: "payment-insufficient: credited to wallet", challenge: fresh() };
   }
