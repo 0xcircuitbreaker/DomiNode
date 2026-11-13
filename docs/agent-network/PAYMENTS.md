@@ -39,6 +39,8 @@ Sources (checked 2026-11-06):
   - The transfer is final once verified, so a refusal after verification (method, target or policy refusal, no node, spend cap, settle failure, payer rate limit, a quote that moved) never deletes the claim. The claim becomes `refund_due`, the payer's wallet-identity user is credited the whole cents (`wallet_transactions` provider `mpp`, payment id `mpp-refund:<hash>`), and the claim records `refund_musd`/`refunded_cents`; it becomes `refunded` once fully credited. Sub-cent remainders, failed credits and refused (e.g. sanctioned) payers stay `refund_due` for reconciliation. The same transaction cannot be presented again.
   - An overpayment above `X402_MAX_OVERPAY_FACTOR` × quote is served at the cap and the excess is credited the same way (payment id `mpp-excess:<hash>`).
   - A failure after settle refunds the payer's identity user through `creditWallet(provider 'mpp', 'mpp-refund:<hash>')`, which is unique per payment.
+
+**Non-EVM x402 payers (Solana).** Their wallet-identity user has no wallet address and can never sign in, so a settled-but-unserved payment is not credited to that wallet: the full amount is recorded in `payer_refunds_owed` (keyed by payer address and payment hash, status `owed`) and paid back on-chain by an operator.
 - **Recording and forwarding.** `relay_charges.payment_rail = 'mpp'`. The MPP `Authorization` header is never forwarded to the origin.
 - **Kill switch.** `X402_RELAY_ENABLED=false` refuses MPP as well.
 

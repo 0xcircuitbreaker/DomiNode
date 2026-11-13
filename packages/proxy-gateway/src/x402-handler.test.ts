@@ -47,7 +47,9 @@ vi.mock("@dominusnode/shared", () => ({
     createWallet: (...a: unknown[]) => mockCreateWallet(...a),
     creditWallet: (...a: unknown[]) => mockCreditWallet(...a),
   },
+  payerRefundRepo: { recordOwed: (...a: unknown[]) => mockRecordOwed(...a) },
 }));
+const mockRecordOwed = vi.fn();
 const mockGetWallet = vi.fn();
 const mockCreateWallet = vi.fn();
 const mockCreditWallet = vi.fn();
@@ -353,6 +355,18 @@ describe("x402 relay identity and pricing", () => {
     expect(mockCreditWallet).toHaveBeenCalledWith("user-x402", 1, "x402", "x402-refund:fakehash123", expect.stringContaining("upstream error"));
     expect(await refundX402Payer(p, "again")).toBe(false);
     expect(mockCreditWallet).toHaveBeenCalledTimes(1);
+  });
+  it("refundX402Payer records a Solana payer's refund as owed (12,345 µUSD) instead of crediting an unreachable wallet", async () => {
+    const SOL = "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM";
+    mockVerifyX402Payment.mockResolvedValue({ ...valid, payer: SOL, amountUsd: "0.012345" });
+    mockRecordOwed.mockResolvedValue(true);
+    const req = makeRequest({ "x-payment": "p" });
+    await handleX402Http(req, makeResponse());
+    const p = getX402Data(req)!.pending!;
+    await settleX402Pending(p);
+    expect(await refundX402Payer(p, "upstream error")).toBe(true);
+    expect(mockRecordOwed).toHaveBeenCalledWith({ payerAddress: SOL, rail: "x402", payHash: "fakehash123", amountMusd: 12_345n, reason: "upstream error" });
+    expect(mockCreditWallet).not.toHaveBeenCalled();
   });
   it("CONNECT: suspended payer is refused before settlement", async () => {
     mockVerifyX402Payment.mockResolvedValue(valid);

@@ -2182,3 +2182,18 @@ CREATE TABLE IF NOT EXISTS tempo_payments (
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_tempo_payments_open ON tempo_payments(created_at) WHERE status IN ('unmatched','duplicate');
+
+-- Refunds owed to per-request payers that cannot use a wallet (non-EVM x402
+-- payers such as Solana): settled-but-unserved payments, paid back on-chain.
+CREATE TABLE IF NOT EXISTS payer_refunds_owed (
+  id             BIGSERIAL PRIMARY KEY,
+  payer_address  TEXT NOT NULL CHECK (length(payer_address) BETWEEN 1 AND 100),
+  rail           TEXT NOT NULL CHECK (rail IN ('x402','mpp')),
+  pay_hash       TEXT NOT NULL UNIQUE CHECK (length(pay_hash) BETWEEN 1 AND 128),
+  amount_musd    BIGINT NOT NULL CHECK (amount_musd BETWEEN 1 AND 10000000000),
+  reason         TEXT NOT NULL CHECK (length(reason) <= 200),
+  status         TEXT NOT NULL DEFAULT 'owed' CHECK (status IN ('owed','paid','waived')),
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+  resolved_at    TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_payer_refunds_owed_open ON payer_refunds_owed(created_at) WHERE status = 'owed';

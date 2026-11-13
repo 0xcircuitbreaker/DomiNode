@@ -1,7 +1,7 @@
 import * as http from "node:http";
 import * as net from "node:net";
 import { parseProxyOptions } from "./auth.js";
-import { createLogger, userRepo, policyRepo, walletRepo, RELAY_BYTES_PER_GB, isExitClass, type ExitClass } from "@dominusnode/shared";
+import { createLogger, userRepo, policyRepo, walletRepo, payerRefundRepo, RELAY_BYTES_PER_GB, isExitClass, type ExitClass } from "@dominusnode/shared";
 import {
   isX402Enabled,
   buildX402Requirements,
@@ -353,6 +353,22 @@ export async function settleX402Pending(p: X402Pending): Promise<boolean> {
 export async function refundX402Payer(p: X402Pending, reason: string): Promise<boolean> {
   if (p.state !== "settled") return false;
   p.state = "refunded";
+  if (!/^0x[0-9a-fA-F]{40}$/.test(p.payer)) {
+    // Non-EVM payer (Solana x402): its wallet-identity user can never sign in,
+    // so a wallet credit would be unreachable. Record the full amount as owed
+    // to the payer address instead (paid back on-chain by an operator).
+    try {
+      await payerRefundRepo.recordOwed({ payerAddress: p.payer, rail: p.rail, payHash: p.payHash, amountMusd: p.paidMusd, reason });
+      log.warn("x402 refund owed to non-EVM payer (recorded)", { payer: p.payer.slice(0, 10) + "...", paidMusd: p.paidMusd.toString(), reason });
+      return true;
+    } catch (err) {
+      log.error("x402 REFUND RECORD FAILED — manual reconciliation required", {
+        payer: p.payer.slice(0, 10) + "...", payHash: p.payHash.slice(0, 16), paidMusd: p.paidMusd.toString(), reason,
+        error: err instanceof Error ? err.message.slice(0, 120) : "unknown",
+      });
+      return false;
+    }
+  }
   const cents = Number(p.paidMusd / 10_000n);
   const unrefundedMusd = p.paidMusd - BigInt(cents) * 10_000n;
   if (cents <= 0) {
