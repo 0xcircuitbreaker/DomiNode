@@ -372,7 +372,8 @@ export async function getNodeForTunnelAuth(keyHash: string): Promise<TunnelAuthN
               ORDER BY tm.team_id LIMIT 1) AS owner_team_id,
             n.node_pubkey, n.status, n.attestation_version,
             n.max_streams, n.max_gb_day, n.max_req_per_sec, n.reputation, n.report_penalty, n.operator_run, n.declared_class,
-            n.probe_class
+            -- Own verdict decays like the owner+prefix one (30 days).
+            CASE WHEN n.probe_class_at > now() - interval '30 days' THEN n.probe_class END AS probe_class
      FROM nodes n
      JOIN users u ON u.id = n.owner_user_id
      WHERE n.node_key_hash = $1

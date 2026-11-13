@@ -90,7 +90,10 @@ No — but they should be split by where trust lives:
   an unverified class. Its registry class meanwhile starts from positive
   evidence: `masked` or `dc` when the peer IP or a persisted verdict already
   says so, else `unknown`. A probe that errors or is cut short leaves the node
-  unselectable (no earnings), so failing probes on purpose gains nothing.
+  unselectable (no earnings), so failing probes on purpose gains nothing; it
+  is re-probed with backoff and by every periodic run. If the gateway's own
+  self-check of the echo URL fails (our fault, not the node's) no probes run,
+  no tamper strike is counted and nodes are not held pending.
   Every connect
   is queued for its own probe (`PROBE_CONNECT_CONCURRENCY`, per-node
   `PROBE_CONNECT_MIN_INTERVAL_MS`), on top of the sampled periodic job. The
@@ -99,12 +102,18 @@ No — but they should be split by where trust lives:
   verdict, so redialling from a residential IP does not undo a probe
   downgrade. The verdict is also bound to owner + prefix: the probe verdicts
   of the owner's other nodes (revoked ones included) last seen on the same
-  /24 or /48 in the last 30 days tighten a new connection the same way, so
-  revoking a node and registering a new one does not shed a downgrade.
+  /24 or /48 in the last 30 days tighten a new connection the same way. The
+  tightened connect class is also the base of the first probe on the
+  connection (later probes only tighten), so revoking a node and registering
+  a new one does not shed a downgrade within 30 days. The node's own verdict
+  is replaced by each new probe's observation and expires after 30 days
+  without one, and sibling verdicts expire after 30 days, so a node that
+  really changed network recovers on reconnection after that.
 - **Penalties survive revocation.** Revoking a node records the status it had
   (`nodes.revoked_from_status`, `revoked_at`). While any of an owner's nodes is
   `quarantined` or `suspended`, or was revoked in that state in the last 30
-  days, `POST /v1/nodes` refuses with `NODE_PENALTY_ACTIVE`. An `egress_mismatch` flag is raised when the probe class is below
+  days, `POST /v1/nodes` refuses with `NODE_PENALTY_ACTIVE`. Admins can lift it per node with
+  `POST /api/admin/network/nodes/:id/clear-penalty` (audited). An `egress_mismatch` flag is raised when the probe class is below
   the declared class or below the connect-time class (also for nodes that
   declared nothing). Prepaid (x402/MPP) and balance-funded sessions both
   snapshot the class tier weight at session start.

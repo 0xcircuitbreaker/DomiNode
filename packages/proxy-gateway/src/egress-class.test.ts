@@ -149,6 +149,16 @@ describe("makeEgressVerifier (probe re-verification)", () => {
     expect(onDowngrade).toHaveBeenCalledWith("n1", "residential", "masked");
   });
 
+  it("deferred connect: a carried masked verdict survives the first residential probe (base is connectClass, not peer IP)", async () => {
+    type C = "residential" | "masked" | "dc" | "mobile" | "unknown";
+    // Server with probes on: peer IP residential, sibling/own verdict masked.
+    const live = { ipClass: "masked" as C, peerClass: "residential" as C, connectClass: "masked" as C, probePending: true as boolean | undefined, egressVerifiedAt: undefined as number | undefined };
+    const v = makeEgressVerifier({ getNode: () => live, classify: () => ({ ipClass: "residential" }), record: vi.fn().mockResolvedValue(undefined) });
+    expect(await v("n1", "73.1.2.3")).toBe("masked");
+    expect(live.ipClass).toBe("masked");
+    expect(live.probePending).toBe(false);
+  });
+
   it("downgrades a residential node whose probe egress is masked, immediately and persistently", async () => {
     const live = { ipClass: "residential" as const as "residential" | "masked" | "dc" | "mobile" | "unknown", egressVerifiedAt: undefined as number | undefined };
     const record = vi.fn().mockResolvedValue(undefined);

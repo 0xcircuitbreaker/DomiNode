@@ -264,12 +264,32 @@ Nodes whose verified egress is an anonymizer are classed `masked`
   yet probed on this gateway go first). Every connect is also queued for its
   own probe (`PROBE_CONNECT_CONCURRENCY`, default 4;
   `PROBE_CONNECT_MIN_INTERVAL_MS`, default 60000, between connect probes of
-  the same node); until it passes, the node is `unknown` for `class-*`
-  selection and tier weight. `PROBE_URL` accepts a comma-separated list (up to
+  the same node, not applied while the node is still unclassified); until a
+  probe classifies it the node serves no traffic. A probe that errors or
+  comes back without a verdict is retried with backoff (30 s, 1 m, 2 m, then
+  every 5 m), and every periodic run probes all still-unclassified nodes on
+  top of the sample. The first periodic run starts 30 s after startup.
+  `PROBE_URL` accepts a comma-separated list (up to
   32); list several unpublished echo hostnames that all reach
   `/v1/probe/echo` so probes are harder to single out. Class verification is
   best effort and cannot detect a node agent built to split-route
   (ABUSE_CONTROLS.md).
+- The echo URL must be the API on a public hostname with a publicly trusted
+  certificate: exit nodes refuse private and loopback destinations, and the
+  probe verifies TLS. The gateway checks every echo URL itself at startup and
+  every `PROBE_SELFCHECK_INTERVAL_MS` (default 60000) and uses only those that
+  return a 200 echoing its nonce. While none passes (API still starting,
+  `TLS_MODE=internal`, a host with no API that answers 404) it logs an error,
+  runs no probes, records no tamper strikes and does not hold nodes pending:
+  nodes serve at their connect class, as with probes off.
+- `PROBES_DISABLED=true` turns probes off and wins over `PROBE_URL` (the
+  gateway ignores `PROBE_URL`). `install.sh` honours it from the environment
+  or `.env` and then removes `PROBE_URL` from `.env`. Without it the installer
+  sets `PROBE_URL=https://<primary>/v1/probe/echo` only for `ROLE=all` with
+  `TLS_MODE=auto` or `cloudflare` and a public primary name; for
+  `ROLE=gateway` it asks for the coordinator's public API hostname
+  (`PROBE_API_HOST` in non-interactive runs). In every other case it prints a
+  warning and leaves probes off.
 
 ### 4b. Running a node behind Cloudflare WARP or a VPN
 

@@ -75,8 +75,36 @@ assertDistinctProxyPorts(ports);
 const httpPort = ports.http;
 const socks5Port = ports.socks5;
 
-function toProbeNode(n: LiveNode): probesJob.ProbeNode {
-  return { nodeId: n.nodeId, ip: n.ip, unverified: n.egressVerifiedAt === undefined, openStream: (h, p) => n.tunnel.openStream(h, p) };
+function toProbeNode(registry: NodeRegistry, n: LiveNode): probesJob.ProbeNode {
+  return {
+    nodeId: n.nodeId, ip: n.ip, unverified: n.egressVerifiedAt === undefined,
+    isPending: () => registry.get(n.nodeId) === n && n.probePending === true && n.tunnel.isOpen,
+    openStream: (h, p) => n.tunnel.openStream(h, p),
+  };
+}
+
+/** PROBE_URL targets, or none when PROBES_DISABLED=true (the explicit opt-out wins). */
+function probeTargetsFromEnv(): probesJob.ProbeTarget[] {
+  if (process.env["PROBES_DISABLED"] === "true") return [];
+  return probesJob.parseProbeUrls(process.env["PROBE_URL"]);
+}
+
+/** Echo-target self-check state, shared by the connect queue and the periodic job. */
+let probeHealth: probesJob.ProbeHealth | null = null;
+
+/**
+ * Release every pending node: the probe setup is broken on our side, so nodes
+ * serve at their connect class (peer IP + carried verdicts) as with probes off.
+ */
+function releasePending(registry: NodeRegistry): number {
+  let n = 0;
+  for (const live of registry.all()) {
+    if (live.probePending !== true) continue;
+    live.probePending = false;
+    live.ipClass = live.connectClass ?? live.ipClass;
+    n++;
+  }
+  return n;
 }
 
 /** Probe deps shared by the periodic job and the per-connect queue. */
@@ -124,10 +152,32 @@ async function main(): Promise<void> {
   else log.warn("COORD_SIGNING_KEY_FILE not set: CHALLENGE frames are unsigned (non-production only)");
   // Egress probes: with PROBE_URL set, every connect is queued for its own
   // verification probe and stays "unknown" for class-* selection until then.
-  const probeTargets = probesJob.parseProbeUrls(process.env["PROBE_URL"]);
+  const probeTargets = probeTargetsFromEnv();
+  if (process.env["PROBES_DISABLED"] === "true" && process.env["PROBE_URL"]) log.warn("PROBES_DISABLED=true: ignoring PROBE_URL");
+  if (probeTargets.length > 0) {
+    // Self-check the echo targets from the gateway itself. While none passes
+    // (TLS not publicly trusted, no API on that host, API still starting),
+    // nodes are not held pending and no probe runs, so a broken setup can
+    // neither stop all traffic nor quarantine the fleet as "tamper".
+    const health = new probesJob.ProbeHealth(probeTargets, (t) => probesJob.selfCheckTarget(t, envInt(process.env, "PROBE_TIMEOUT_MS", 10_000, 1000, 60_000)));
+    probeHealth = health;
+    let wasHealthy = false;
+    const refresh = async (): Promise<void> => {
+      const failed = await health.refresh();
+      if (failed.length > 0) log.error("probe echo self-check failed", { failed, healthyTargets: health.live.length });
+      if (!health.healthy) {
+        const released = releasePending(registry);
+        if (wasHealthy || released > 0) log.error("probes paused: no echo target passes the self-check; nodes serve at their connect class", { released });
+      } else if (!wasHealthy) log.info("probe echo self-check passed", { targets: health.live.length });
+      wasHealthy = health.healthy;
+    };
+    await refresh().catch(() => undefined);
+    const t = setInterval(() => { void refresh().catch(() => undefined); }, envInt(process.env, "PROBE_SELFCHECK_INTERVAL_MS", 60_000, 10_000, 3_600_000));
+    t.unref();
+  }
   const connectProbes = probeTargets.length > 0
     ? new probesJob.ConnectProbeQueue(
-      { ...makeProbeDeps(registry, probeTargets, log), listNodes: () => [] },
+      { ...makeProbeDeps(registry, probeHealth?.live ?? probeTargets, log), isHealthy: () => probeHealth?.healthy ?? true, listNodes: () => [] },
       {
         concurrency: envInt(process.env, "PROBE_CONNECT_CONCURRENCY", 4, 1, 64),
         minIntervalMs: envInt(process.env, "PROBE_CONNECT_MIN_INTERVAL_MS", 60_000, 0, 3_600_000),
@@ -147,7 +197,7 @@ async function main(): Promise<void> {
     geoLookup: lookupPeerGeo,
     recordVerifiedClass: nodeRepo.recordVerifiedClass,
     onNodeReady: (live) => {
-      if (connectProbes && live.status === "active") connectProbes.enqueue(toProbeNode(live));
+      if (connectProbes && live.status === "active") connectProbes.enqueue(toProbeNode(registry, live));
     },
     onStreamClose: (nodeId, r) => {
       if (r.nodeReport && (r.nodeReport.bytesIn !== r.gatewayBytesOut || r.nodeReport.bytesOut !== r.gatewayBytesIn)) {
@@ -161,7 +211,8 @@ async function main(): Promise<void> {
     tls: loadTunnelTls(process.env),
     production: isProduction,
     requireAsn: isProduction && !asnDbOptional,
-    deferClassUntilProbe: connectProbes !== null,
+    // Hold new connects pending only while the echo self-check passes.
+    deferClassUntilProbe: connectProbes !== null ? () => probeHealth?.healthy === true : false,
   });
   const tunnelPort = await tunnelServer.listen();
   log.info(`node tunnel server listening on port ${tunnelPort}`);
@@ -397,7 +448,7 @@ function startJobs(registry: NodeRegistry, getPolicy: () => ActivePolicy): Job[]
       grantCredit: genesisRepo.grantCredit, matureCredits: genesisRepo.matureCredits,
     },
   }));
-  const probeTargets = probesJob.parseProbeUrls(process.env["PROBE_URL"]);
+  const probeTargets = probeTargetsFromEnv();
   if (probeTargets.length > 0) {
     const probeIntervalMs = envInt(process.env, "PROBE_INTERVAL_MS", 900_000, 60_000, 86_400_000);
     jobs.push(probesJob.start({
@@ -405,15 +456,18 @@ function startJobs(registry: NodeRegistry, getPolicy: () => ActivePolicy): Job[]
       // Random start offset per run (up to half the interval) so probe timing is unpredictable.
       jitterMs: Math.floor(probeIntervalMs / 2),
       deps: {
-        ...makeProbeDeps(registry, probeTargets, jobLog),
+        ...makeProbeDeps(registry, probeHealth?.live ?? probeTargets, jobLog),
+        isHealthy: () => probeHealth?.healthy ?? true,
         sampleSize: envInt(process.env, "PROBE_SAMPLE_SIZE", 20, 1, 1000),
         listNodes: () => [...registry.all()]
           .filter((n) => n.ready && n.status === "active" && n.tunnel.isOpen)
-          .map(toProbeNode),
+          .map((n) => toProbeNode(registry, n)),
       },
     }));
   } else {
-    if (process.env["NODE_ENV"] === "production" && process.env["PROBES_DISABLED"] !== "true") {
+    if (process.env["PROBES_DISABLED"] === "true") {
+      jobLog.warn("PROBES_DISABLED=true: canary + egress probes disabled");
+    } else if (process.env["NODE_ENV"] === "production") {
       // Loud, not fatal: existing deployments keep starting; set PROBE_URL
       // (or PROBES_DISABLED=true to acknowledge) to clear it.
       jobLog.error("PROBE_URL not set in production: canary + egress probes DISABLED (no tamper detection, peer-IP-only class). Set PROBE_URL or PROBES_DISABLED=true");

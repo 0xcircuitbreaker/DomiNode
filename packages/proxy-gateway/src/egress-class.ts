@@ -262,6 +262,12 @@ export interface VerifiableNode {
   ipClass: NodeIpClass;
   /** Connect-time class (tunnel peer IP); the first probe on a connection starts from it. */
   peerClass?: NodeIpClass;
+  /**
+   * Peer class tightened by recent probe verdicts (own + same owner/prefix,
+   * 30-day window). Base for the first probe on this connection, so a carried
+   * verdict is not discarded by that probe.
+   */
+  connectClass?: NodeIpClass;
   /** ms epoch of the last probe-confirmed egress classification on this gateway. */
   egressVerifiedAt?: number;
   /** True until the first probe on this connection classifies it (not selectable meanwhile). */
@@ -298,7 +304,7 @@ export function makeEgressVerifier(d: EgressVerifierDeps): (nodeId: string, egre
     if (!live) return null;
     const observed = d.classify(egressIp).ipClass;
     const first = live.egressVerifiedAt === undefined;
-    const base = first ? (live.peerClass ?? live.ipClass) : live.ipClass;
+    const base = first ? (live.connectClass ?? live.peerClass ?? live.ipClass) : live.ipClass;
     const next = conservativeClass(base, observed);
     live.egressVerifiedAt = now();
     live.probePending = false;

@@ -33,7 +33,7 @@ afterEach(async () => {
   server = null;
 });
 
-async function start(opts: { policy?: Partial<ActivePolicy["body"]>; geo?: GeoInfo | null; heartbeatMs?: number; deadline?: number; activate?: (id: string) => Promise<boolean>; coordSign?: (m: Buffer) => string; claimIpSlot?: (s: { nodeId: string }) => Promise<boolean>; releaseIpSlot?: (nodeId: string) => Promise<void>; recordVerifiedClass?: (id: string, c: string) => Promise<unknown>; defer?: boolean; onReady?: (id: string) => void; markOnlineClass?: (c: unknown) => void; prefixHist?: () => Promise<string[]> } = {}) {
+async function start(opts: { policy?: Partial<ActivePolicy["body"]>; geo?: GeoInfo | null; heartbeatMs?: number; deadline?: number; activate?: (id: string) => Promise<boolean>; coordSign?: (m: Buffer) => string; claimIpSlot?: (s: { nodeId: string }) => Promise<boolean>; releaseIpSlot?: (nodeId: string) => Promise<void>; recordVerifiedClass?: (id: string, c: string) => Promise<unknown>; defer?: boolean | (() => boolean); onReady?: (id: string) => void; markOnlineClass?: (c: unknown) => void; prefixHist?: () => Promise<string[]> } = {}) {
   const policy: ActivePolicy = { version: 3, sha256: "f".repeat(64), body: { ...DEFAULT_POLICY, ...opts.policy }, createdAt: null };
   const online: string[] = [];
   const offline: string[] = [];
@@ -403,5 +403,27 @@ describe("NodeTunnelServer", () => {
     const id = NODES[hashNodeKey(KEY_A)]!.id;
     expect(registry.get(id)?.ipClass).toBe("masked");
     expect(registry.get(id)?.probePending).toBe(true);
+  });
+  it("with probes enabled an owner+prefix masked verdict is kept as connectClass for the first probe", async () => {
+    const { port, registry } = await start({ geo: { country: "US", asn: 7922, ipClass: "residential" }, defer: true, prefixHist: async () => ["masked"] });
+    const c = connect(port);
+    await c.opened;
+    c.send(FrameType.HELLO, 0, hello());
+    await c.waitFor(FrameType.AUTH_OK);
+    const live = registry.get(NODES[hashNodeKey(KEY_A)]!.id)!;
+    expect(live.peerClass).toBe("residential");
+    expect(live.connectClass).toBe("masked");
+    expect(live.ipClass).toBe("masked");
+  });
+
+  it("a deferral callback returning false (echo self-check failing) does not hold the node pending", async () => {
+    const { port, registry } = await start({ geo: { country: "US", asn: 7922, ipClass: "residential" }, defer: () => false });
+    const c = connect(port);
+    await c.opened;
+    c.send(FrameType.HELLO, 0, hello());
+    await c.waitFor(FrameType.AUTH_OK);
+    const live = registry.get(NODES[hashNodeKey(KEY_A)]!.id)!;
+    expect(live.probePending).toBe(false);
+    expect(live.ipClass).toBe("residential");
   });
 });

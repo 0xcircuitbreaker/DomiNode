@@ -122,6 +122,12 @@ export interface LiveNode {
    */
   peerClass?: NodeIpClass;
   /**
+   * Peer class tightened by recent probe verdicts (own + same owner/prefix,
+   * 30-day window). Base for the first probe on this connection, so a carried
+   * verdict is not discarded by that probe.
+   */
+  connectClass?: NodeIpClass;
+  /**
    * Egress probes enabled and no probe has classified this connection yet.
    * The selector serves no traffic through a pending node (no pre-probe
    * sessions, no pre-probe tier-weight snapshots).

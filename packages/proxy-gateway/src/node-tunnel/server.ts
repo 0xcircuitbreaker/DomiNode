@@ -135,7 +135,7 @@ export interface TunnelServerOptions {
    * Egress probes are enabled: a connecting node is "unknown" (lowest tier
    * weight, no class-* selection) until a probe on this connection verifies it.
    */
-  deferClassUntilProbe?: boolean;
+  deferClassUntilProbe?: boolean | (() => boolean);
   preAuth?: PreAuthLimiterOptions;
 }
 
@@ -599,13 +599,14 @@ export class NodeTunnelServer {
     const connectClass: NodeIpClass = priorProbe ? conservativeClass(peerRaw, priorProbe) : peerRaw;
     // Deferred (probes on): start from positive evidence. A known masked/dc
     // verdict is kept; anything else is "unknown" and not selectable until probed.
-    const defer = this.opts.deferClassUntilProbe === true;
+    const dc = this.opts.deferClassUntilProbe;
+    const defer = typeof dc === "function" ? dc() : dc === true;
     const deferredClass: NodeIpClass = connectClass === "masked" || connectClass === "dc" ? connectClass : "unknown";
     const live: LiveNode = {
       nodeId: t.node.id, tunnel: t, ready: false, status: t.node.status, ip: t.peerIp, prefix24: prefix, asn, country,
       // Unverified class is never assumed residential; with probes on the node
       // serves nothing (probePending) until its first probe classifies it.
-      ipClass: defer ? deferredClass : connectClass, probePending: defer, peerClass: peerRaw, ownerUserId: t.node.owner_user_id, ownerWallet: t.node.owner_wallet,
+      ipClass: defer ? deferredClass : connectClass, probePending: defer, peerClass: peerRaw, connectClass, ownerUserId: t.node.owner_user_id, ownerWallet: t.node.owner_wallet,
       ownerTeamId: t.node.owner_team_id, health: 1, reputation: t.node.reputation, reportPenalty: t.node.report_penalty ?? 0, operatorRun: t.node.operator_run === true,
       maxStreams: Math.min(t.node.max_streams, caps.maxStreams), maxGbDay: t.node.max_gb_day, maxReqPerSec: t.node.max_req_per_sec ?? null,
       ports: caps.ports, bytesToday: 0, earningsTodayMusd: 0, day: dayOf(now), recentOpens: [], cooldownUntil: 0,
