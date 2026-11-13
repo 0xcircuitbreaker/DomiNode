@@ -87,6 +87,15 @@ describe("review fixes", () => {
     expect(r.coordPins).toEqual([pub]);
     expect(lines.join("\n")).toContain(otherFp);
   });
+  it("suggests every listed key in the not-trusted hint (split gateway key included)", () => {
+    expect(() => acceptCoordinatorDocument("coord.example.org", withExtra(), undefined, () => {}))
+      .toThrow(`--trust ${fp},${otherFp}`);
+  });
+  it("warns when an additional key is left out of --trust", () => {
+    const lines: string[] = [];
+    acceptCoordinatorDocument("coord.example.org", withExtra(), fp, (l) => lines.push(l));
+    expect(lines.some((l) => l.startsWith("warning:") && l.includes(otherFp))).toBe(true);
+  });
   it("pins extra keys confirmed through a comma-separated --trust", () => {
     const r = acceptCoordinatorDocument("coord.example.org", withExtra(), `${fp},${otherFp}`, () => {});
     expect(r.coordPins).toEqual([pub, otherPub]);
