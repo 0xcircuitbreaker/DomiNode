@@ -48,9 +48,9 @@ export async function createReferralCode(
     const maxUses = options?.maxUses ?? 0; // 0 = unlimited
     const creditCents = options?.creditCents ?? 100; // $1.00 default
     // Validate creditCents range at repo level (defense-in-depth)
-    if (!Number.isFinite(creditCents) || creditCents < 1 || creditCents > 100000) {
+    if (!Number.isFinite(creditCents) || creditCents < 0 || creditCents > 100000) {
       await client.query("ROLLBACK");
-      throw new Error("creditCents must be between 1 and 100000");
+      throw new Error("creditCents must be between 0 and 100000");
     }
     const expiresAt = options?.expiresAt ?? null;
 
@@ -419,8 +419,8 @@ export async function createPromoCode(
   ext?: DbTxClient,
 ): Promise<PromoCode> {
   // Validate creditCents at repo level (defense-in-depth, matches createReferralCode)
-  if (!Number.isFinite(creditCents) || creditCents < 1 || creditCents > 100000) {
-    throw new Error("creditCents must be between 1 and 100000");
+  if (!Number.isFinite(creditCents) || creditCents < 0 || creditCents > 100000) {
+    throw new Error("creditCents must be between 0 and 100000");
   }
   // Do not return code_hash from RETURNING — hash must not leave DB boundary
   const result = await queryOn<PromoCode>(ext,
