@@ -178,7 +178,7 @@ export interface StarterSettings {
   updatedAt: string | null; grantedToday?: { count: number; amount: Money };
 }
 export interface StarterGrant { id: string; userId: string; walletAddress: string | null; amount: Money; remaining: Money; ipPrefix: string | null; status: string; expiresAt: string; createdAt: string; closedAt: string | null }
-export interface GenesisSettings { enabled: boolean; maxOwners: number; bonusBps: number; boostDays: number; credit: Money; creditThresholdBytes: string; minDistinctPayers?: number; members?: number; updatedAt: string | null }
+export interface GenesisSettings { enabled: boolean; maxOwners: number; bonusBps: number; boostDays: number; credit: Money; creditThresholdBytes: string; minDistinctPayers?: number; creditThresholdNodeMusd?: string; minPayerSpendMusd?: string; members?: number; updatedAt: string | null }
 export interface GenesisMember { ownerUserId: string; walletAddress: string | null; seq: number; enrolledAt: string; boostUntil: string; creditStatus: string; credit: Money | null; creditGrantedAt: string | null; creditMaturesAt: string | null; qualifyingBytes: string }
 export interface Incident { id: string; title: string; body: string; severity: string; status: string; startedAt: string; resolvedAt: string | null; updatedAt: string }
 export interface Announcement { id: string; title: string; body: string; category: string; url: string | null; published: boolean; publishedAt: string; updatedAt: string }
@@ -196,6 +196,8 @@ export const launchApi = {
   starterSettings: () => get<StarterSettings>(`${BASE}/starter-credits/settings`),
   updateStarterSettings: (b: Record<string, unknown>) => put<StarterSettings>(`${BASE}/starter-credits/settings`, b),
   starterGrants: (q: Q) => get<Paged<StarterGrant>>(`${BASE}/starter-credits/grants${qs(q)}`),
+  clawbackGenesis: (ownerUserId: string, reason: string) =>
+    post<{ ownerUserId: string; creditStatus: string; amount: Money }>(`${BASE}/genesis/members/${encodeURIComponent(ownerUserId)}/clawback`, { reason }),
   revokeGrant: (id: string, reason: string) => post<{ id: string; status: string; removed: Money }>(`${BASE}/starter-credits/grants/${encodeURIComponent(id)}/revoke`, { reason }),
   genesisSettings: () => get<GenesisSettings>(`${BASE}/genesis/settings`),
   updateGenesisSettings: (b: Record<string, unknown>) => put<GenesisSettings>(`${BASE}/genesis/settings`, b),
@@ -272,7 +274,8 @@ export const adminApi = {
 
 /* ─── Collusion flags (ADMIN_API.md §12) ─────────────────────────────── */
 export const COLLUSION_STATUSES = ["open", "dismissed", "confirmed"] as const;
-export const COLLUSION_KINDS = ["concentration", "cluster", "circular"] as const;
+// Must match KINDS in dashboard routes/admin-network-collusion.ts.
+export const COLLUSION_KINDS = ["concentration", "cluster", "circular", "report_penalty", "egress_mismatch"] as const;
 export interface CollusionFlag {
   id: string; kind: string; ownerUserId: string; ownerEmail: string | null; nodeId: string | null;
   requesterUserId: string | null; requesterEmail: string | null; shareBps: number; volume: Money; total: Money;
