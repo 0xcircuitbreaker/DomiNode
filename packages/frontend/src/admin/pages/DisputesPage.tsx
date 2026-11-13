@@ -8,7 +8,7 @@ const LIMIT = 50;
 type Resolution = Exclude<DisputeStatus, "open">;
 const RESOLUTIONS: Array<{ value: Resolution; label: string; help: string }> = [
   { value: "resolved_gateway", label: "Gateway count is right", help: "Clears the charge's disputed flag so the node share can mature." },
-  { value: "resolved_node", label: "Node count is right", help: "The charge stays held for a manual clawback or adjustment." },
+  { value: "resolved_node", label: "Node count is right", help: "Re-splits the charge at the node's byte count: claws back the extra node share, refunds the requester, then releases it." },
   { value: "dismissed", label: "Dismiss", help: "Clears the disputed flag; no adjustment." },
 ];
 

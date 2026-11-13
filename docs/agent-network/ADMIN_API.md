@@ -308,9 +308,9 @@ Params: `status` (DisputeStatus), `nodeId` (UUID), `limit`, `offset`. Newest fir
 
 Body `{ resolution: "resolved_gateway" | "resolved_node" | "dismissed"; reason?: string (≤500) }`. Only `open` disputes (`409` otherwise, `404` unknown).
 - `resolved_gateway` / `dismissed`: the linked charge's `disputed` flag is cleared (if no other open dispute on it), so its node share can mature.
-- `resolved_node`: the charge stays held (`disputed`) for a manual clawback or adjustment.
+- `resolved_node`: in the same transaction the charge is re-split at the node's (lower) byte count: gross, node share, platform share and discount scale by `bytes_node / bytes_gateway` (floored); the node share difference is clawed back from the owner's pending credit; the requester gets the gross difference back in whole cents on the personal-wallet rail (over the $10,000 cap: `wallet_overflow_credits`; other rails: reported as `unrefundedMusd` for a manual refund). The charge is then released like `resolved_gateway`.
 
-Response: `{ id: string; status: string; relayChargeId: string | null; chargeReleased: boolean }`. Audit: `byte_dispute_resolve`.
+Response: `{ id: string; status: string; relayChargeId: string | null; chargeReleased: boolean; adjustment: { grossBefore, grossAfter, nodeClawbackMusd, refundCents, overflowCents, unrefundedMusd } | null }`. Audit: `byte_dispute_resolve`.
 
 ## 8. `GET /abuse-log`
 

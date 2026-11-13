@@ -294,11 +294,18 @@ describe("admin network ops", () => {
       expect(txSqls().some((s) => s.includes("FOR UPDATE"))).toBe(true);
     });
 
-    it("resolved_node keeps the charge held", async () => {
-      tx((sql) => sql.includes("FROM byte_disputes WHERE id") ? { rows: [{ status: "open", relay_charge_id: "c1", node_id: NODE }] } : undefined);
+    it("resolved_node re-splits the held charge and then releases it (no longer stuck forever)", async () => {
+      tx((sql) => {
+        if (sql.includes("FROM byte_disputes WHERE id")) return { rows: [{ status: "open", relay_charge_id: "c1", node_id: NODE }] };
+        if (sql.includes("FROM relay_charges rc WHERE rc.id")) return { rows: [{ gross: "5000", node: "1250", discount: "0", list: null, bg: "1000", bn: null, rail: "wallet", requester: "r1", owner: "o1" }] };
+        if (sql.includes("COUNT(*)")) return { rows: [{ n: "0" }] };
+        return undefined;
+      });
       const r = await call(app(), "POST", `${BASE}/disputes/1/resolve`, { body: { resolution: "resolved_node" } });
-      expect(r.body["chargeReleased"]).toBe(false);
-      expect(txSqls().some((s) => s.includes("UPDATE relay_charges"))).toBe(false);
+      expect(r.status).toBe(200);
+      expect(r.body["chargeReleased"]).toBe(true);
+      expect(txSqls().some((s) => s.includes("FROM relay_charges rc WHERE rc.id = $1 FOR UPDATE"))).toBe(true);
+      expect(txSqls().some((s) => s.includes("UPDATE relay_charges SET disputed = false"))).toBe(true);
     });
 
     it("validates and 409s on already-resolved disputes", async () => {
