@@ -398,6 +398,11 @@ export async function startSession(
   }
 
   sessionId = dbSession.id;
+  if (agenticWalletId && reservedCents > 0) {
+    // Ties the reservation to the session so it is returned if settlement never happens.
+    await agenticWalletRepo.recordSessionReservation(agenticWalletId, sessionId, reservedCents)
+      .catch((e) => log.error("agentic reservation record failed", { error: e instanceof Error ? e.message.slice(0, 120) : "unknown" }));
+  }
 
   // Privacy-first: only store actual targetHost when user has opted in
   const storedTargetHost = logTargetHosts ? targetHost : "";

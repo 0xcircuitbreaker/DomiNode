@@ -2,7 +2,7 @@ import type * as net from "node:net";
 import dotenv from "dotenv";
 dotenv.config();
 
-import { createLogger, closePool, getPool, usageRepo, connectWithRetry, nodeRepo, policyRepo, nodeCreditRepo, retentionRepo, tierRepo, payoutRepo, relayChargeRepo, relaySettleRetryRepo, reportReputationRepo, collusionRepo, starterCreditRepo, contributionRepo, genesisRepo, networkStatusRepo, getProxyPorts, assertDistinctProxyPorts, reportTlsCapability, apiKeyPepper } from "@dominusnode/shared";
+import { createLogger, closePool, getPool, usageRepo, agenticWalletRepo, connectWithRetry, nodeRepo, policyRepo, nodeCreditRepo, retentionRepo, tierRepo, payoutRepo, relayChargeRepo, relaySettleRetryRepo, reportReputationRepo, collusionRepo, starterCreditRepo, contributionRepo, genesisRepo, networkStatusRepo, getProxyPorts, assertDistinctProxyPorts, reportTlsCapability, apiKeyPepper } from "@dominusnode/shared";
 import type { ActivePolicy } from "@dominusnode/shared";
 import { startProxyServer } from "./server.js";
 import { geoAvailable, initGeoCheck, lookupPeerGeo, classifyEgressIp } from "./geo-check.js";
@@ -187,6 +187,10 @@ async function main(): Promise<void> {
   if (orphaned > 0) {
     log.info(`cleaned up ${orphaned} orphaned sessions from previous run`);
   }
+  // Return agentic-wallet reservations of sessions that ended without settling.
+  await agenticWalletRepo.releaseOrphanedSessionReservations()
+    .then((c) => { if (c > 0) log.info("released orphaned agentic reservations", { cents: c }); })
+    .catch((e) => log.error("agentic reservation sweep failed", { error: e instanceof Error ? e.message.slice(0, 120) : "unknown" }));
 
   // ─── Background jobs (DESIGN.md §6.4, §15) ─────────────────────────
   const jobs = startJobs(registry, getPolicy);
@@ -315,7 +319,11 @@ function startJobs(registry: NodeRegistry, getPolicy: () => ActivePolicy): Job[]
       settle: relayChargeRepo.settleRelayCharge,
       markDone: relaySettleRetryRepo.markSettleRetryDone,
       markFailed: (id, e) => relaySettleRetryRepo.markSettleRetryFailed(id, e),
-      onDead: async (id, bytes) => { await usageRepo.endSession(id, bytes, "error"); },
+      onDead: async (id, bytes) => {
+        await usageRepo.endSession(id, bytes, "error");
+        // The retry row is 'dead' by now: hand any agentic reservation back.
+        await agenticWalletRepo.releaseOrphanedSessionReservations().catch(() => 0);
+      },
       logger: jobLog,
     },
   }));

@@ -422,8 +422,29 @@ export async function deleteWallet(
     }
 
     const agenticWallet = walletResult.rows[0];
-    if ((agenticWallet.reserved_cents ?? 0) > 0) {
-      throw new Error("Cannot delete: the wallet has relay sessions in progress. Try again when they end.");
+    let reserved = agenticWallet.reserved_cents ?? 0;
+    if (reserved > 0) {
+      // Block only on reservations a live session can still settle: an active
+      // session, a pending settle retry, or a reservation taken in the last
+      // 10 minutes whose session row is not recorded yet. Anything else is a
+      // leftover of a session that ended without settling: return it.
+      const live = await client.query<{ held: string; recent: boolean }>(
+        `SELECT COALESCE((SELECT SUM(r.cents) FROM agentic_session_reservations r
+                           WHERE r.wallet_id = $1 AND NOT (${ORPHANED_RESERVATION_SQL})), 0)::text AS held,
+                COALESCE((SELECT last_reserved_at > now() - interval '10 minutes' FROM agentic_wallets WHERE id = $1), false) AS recent`,
+        [walletId],
+      );
+      const held = Number(live.rows[0]?.held ?? 0);
+      const unrecorded = reserved - Number((await client.query<{ s: string }>(
+        `SELECT COALESCE(SUM(cents), 0)::text AS s FROM agentic_session_reservations WHERE wallet_id = $1`, [walletId])).rows[0]?.s ?? 0);
+      if (held > 0 || (unrecorded > 0 && live.rows[0]?.recent)) {
+        throw new Error("Cannot delete: the wallet has relay sessions in progress. Try again when they end.");
+      }
+      await client.query(`DELETE FROM agentic_session_reservations WHERE wallet_id = $1`, [walletId]);
+      await client.query(
+        `UPDATE agentic_wallets SET balance_cents = balance_cents + reserved_cents, reserved_cents = 0 WHERE id = $1`, [walletId]);
+      agenticWallet.balance_cents += reserved;
+      reserved = 0;
     }
     const refundCents = agenticWallet.balance_cents;
 
@@ -522,7 +543,7 @@ export async function reserveSessionBudget(walletId: string, userId: string, wan
     }
     if (take <= 0) { await client.query("ROLLBACK"); return 0; }
     await client.query(
-      `UPDATE agentic_wallets SET balance_cents = balance_cents - $2, reserved_cents = reserved_cents + $2 WHERE id = $1`,
+      `UPDATE agentic_wallets SET balance_cents = balance_cents - $2, reserved_cents = reserved_cents + $2, last_reserved_at = now() WHERE id = $1`,
       [walletId, take],
     );
     await client.query("COMMIT");
@@ -545,6 +566,63 @@ export async function releaseSessionBudget(walletId: string, cents: number): Pro
 }
 
 /**
+ * Record which session holds a reservation, so a session that ends without
+ * settling (gateway crash, dead settle retry) can have it returned.
+ */
+export async function recordSessionReservation(walletId: string, sessionId: string, cents: number): Promise<void> {
+  if (!Number.isInteger(cents) || cents <= 0) return;
+  await query(
+    `INSERT INTO agentic_session_reservations (session_id, wallet_id, cents) VALUES ($1, $2, $3)
+     ON CONFLICT (session_id) DO NOTHING`,
+    [sessionId, walletId, cents],
+  );
+}
+
+/** Reservation rows whose session is no longer active and has no pending settle retry. */
+const ORPHANED_RESERVATION_SQL = `
+  NOT EXISTS (SELECT 1 FROM sessions s WHERE s.id = r.session_id AND s.status = 'active')
+  AND NOT EXISTS (SELECT 1 FROM relay_settle_retries q WHERE q.session_id = r.session_id AND q.status = 'pending')`;
+
+/**
+ * Return the reservations of sessions that ended without settling (status
+ * 'error' after a crash or a dead settle retry). Settlement deletes the row in
+ * the same transaction that ends the session, so a row left behind on a
+ * non-active session with no pending retry will never be settled.
+ * walletId limits the sweep to one wallet. Returns the cents released.
+ */
+export async function releaseOrphanedSessionReservations(walletId?: string): Promise<number> {
+  const client = await getPool().connect();
+  try {
+    await client.query("BEGIN");
+    const rows = await client.query<{ session_id: string; wallet_id: string; cents: number }>(
+      `DELETE FROM agentic_session_reservations r
+       WHERE r.session_id IN (
+         SELECT r.session_id FROM agentic_session_reservations r
+         WHERE ${ORPHANED_RESERVATION_SQL} ${walletId ? "AND r.wallet_id = $1" : ""}
+         ORDER BY r.created_at LIMIT 1000 FOR UPDATE SKIP LOCKED)
+       RETURNING r.session_id, r.wallet_id, r.cents`,
+      walletId ? [walletId] : [],
+    );
+    let total = 0;
+    for (const row of rows.rows) {
+      await client.query(
+        `UPDATE agentic_wallets SET balance_cents = balance_cents + LEAST($2::int, reserved_cents),
+           reserved_cents = GREATEST(reserved_cents - $2::int, 0) WHERE id = $1`,
+        [row.wallet_id, row.cents],
+      );
+      total += row.cents;
+    }
+    await client.query("COMMIT");
+    return total;
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+/**
  * Settle a relay session against its agentic-wallet reservation (caller's
  * transaction). Gross accrues into the wallet's sub-cent carry; whole cents are
  * debited from the reservation (a 'spend' row with the session id), and the
@@ -556,6 +634,7 @@ export async function settleSessionTx(
   const w = await c.query<{ carry_musd: string }>(
     `SELECT carry_musd::text AS carry_musd FROM agentic_wallets WHERE id = $1 FOR UPDATE`, [walletId]);
   if (!w.rows[0]) return null;
+  await c.query(`DELETE FROM agentic_session_reservations WHERE session_id = $1`, [sessionId]);
   const total = BigInt(w.rows[0].carry_musd) + grossMusd;
   const dueCents = total / 10_000n;
   const debit = dueCents > BigInt(reservedCents) ? reservedCents : Number(dueCents);

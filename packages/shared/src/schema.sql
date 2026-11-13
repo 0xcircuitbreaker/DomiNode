@@ -2197,3 +2197,18 @@ CREATE TABLE IF NOT EXISTS payer_refunds_owed (
   resolved_at    TIMESTAMPTZ
 );
 CREATE INDEX IF NOT EXISTS idx_payer_refunds_owed_open ON payer_refunds_owed(created_at) WHERE status = 'owed';
+
+-- ─── Agentic wallet session reservations (fix/a7-money review) ──────────
+-- One row per relay session holding part of agentic_wallets.reserved_cents.
+-- Settlement deletes it; reservations of sessions that ended without settling
+-- (gateway crash, dead settle retry) are returned to the wallet by
+-- releaseOrphanedSessionReservations. last_reserved_at guards deletion while a
+-- session is still being set up (reservation taken, row not yet recorded).
+CREATE TABLE IF NOT EXISTS agentic_session_reservations (
+  session_id  UUID PRIMARY KEY,
+  wallet_id   UUID NOT NULL REFERENCES agentic_wallets(id) ON DELETE CASCADE,
+  cents       INTEGER NOT NULL CHECK (cents > 0 AND cents <= 1000000),
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_agentic_session_reservations_wallet ON agentic_session_reservations(wallet_id);
+ALTER TABLE agentic_wallets ADD COLUMN IF NOT EXISTS last_reserved_at TIMESTAMPTZ;

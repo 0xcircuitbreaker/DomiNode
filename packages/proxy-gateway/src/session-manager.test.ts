@@ -29,6 +29,7 @@ vi.mock("@dominusnode/shared", () => ({
   agenticWalletRepo: {
     reserveSessionBudget: (...args: unknown[]) => mockReserveAgentic(...args),
     releaseSessionBudget: (...args: unknown[]) => mockReleaseAgentic(...args),
+    recordSessionReservation: async () => undefined,
   },
   usageRepo: {
     createRelaySession: (...args: unknown[]) => mockCreateSession(...args),
