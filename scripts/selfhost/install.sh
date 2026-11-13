@@ -66,8 +66,13 @@ env_set() {
   local key="$1" val="$2" tmp
   case "$val" in *$'\n'*|*$'\r'*) die "refusing to write a multi-line value for $key" ;; esac
   tmp="$(mktemp "$ROOT/.env.XXXXXX")"
-  if [ -f "$ENV_FILE" ]; then grep -vE "^$key=" "$ENV_FILE" > "$tmp" || true; fi
-  printf '%s=%s\n' "$key" "$val" >> "$tmp"
+  # Replace in place so re-runs keep .env byte-stable (restores compare it).
+  if [ -f "$ENV_FILE" ] && grep -qE "^$key=" "$ENV_FILE"; then
+    KEY="$key" VAL="$val" awk 'index($0, ENVIRON["KEY"] "=") == 1 { if (!done) print ENVIRON["KEY"] "=" ENVIRON["VAL"]; done = 1; next } { print }' "$ENV_FILE" > "$tmp"
+  else
+    if [ -f "$ENV_FILE" ]; then cat "$ENV_FILE" > "$tmp"; fi
+    printf '%s=%s\n' "$key" "$val" >> "$tmp"
+  fi
   chmod 600 "$tmp"
   mv "$tmp" "$ENV_FILE"
 }
