@@ -2216,6 +2216,12 @@ ALTER TABLE agentic_wallets ADD COLUMN IF NOT EXISTS last_reserved_at TIMESTAMPT
 -- ─── Starter ledger restore rows (fix/a7-money review) ───────────────────
 -- A byte dispute resolved for the node returns the starter-funded share of the
 -- refund to the grant (type 'restore') instead of paying it out as balance.
-ALTER TABLE starter_credit_ledger DROP CONSTRAINT IF EXISTS starter_credit_ledger_type_check;
-ALTER TABLE starter_credit_ledger ADD CONSTRAINT starter_credit_ledger_type_check
-  CHECK (type IN ('grant','spend','expire','revoke','restore'));
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'starter_credit_ledger_type_check'
+                 AND conrelid = 'starter_credit_ledger'::regclass
+                 AND pg_get_constraintdef(oid) LIKE '%restore%') THEN
+    ALTER TABLE starter_credit_ledger DROP CONSTRAINT IF EXISTS starter_credit_ledger_type_check;
+    ALTER TABLE starter_credit_ledger ADD CONSTRAINT starter_credit_ledger_type_check
+      CHECK (type IN ('grant','spend','expire','revoke','restore'));
+  END IF;
+END $$;
