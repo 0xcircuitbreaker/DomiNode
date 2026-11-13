@@ -133,11 +133,12 @@ services:
     tmpfs: [/tmp]
 
   # Admin UI (React build served by nginx; /api/* is proxied to api:3000).
-  # Caddy routes /api, /v1, /.well-known, /status and /llms.txt to the api and
-  # everything else here.
+  # Caddy routes /api, /v1, /.well-known, /status and /llms.txt to the api,
+  # only the admin paths (/admin, /login, assets) here, and redirects / to /admin.
+  # Self-host nginx config: no HSTS includeSubDomains/preload, connect-src self.
   frontend:
     profiles: [coordinator]
-    build: { context: ., dockerfile: infra/docker/frontend.Dockerfile }
+    build: { context: ., dockerfile: infra/docker/frontend.Dockerfile, args: { NGINX_CONF: infra/nginx/selfhost.conf } }
     image: dominusnode-frontend:selfhost
     restart: unless-stopped
     depends_on:
@@ -316,8 +317,9 @@ services:
         chown 0:0 /dst && chmod 0500 /dst
 
   # Outbound-only Cloudflare Tunnel: no inbound ports. Public hostnames are
-  # mapped to http://frontend:8080 (admin UI; it proxies /api) or http://api:3000
-  # in the Cloudflare dashboard (DEPLOYMENT.md "Split self-host").
+  # mapped in the Cloudflare dashboard: /api, /v1 and the other API paths to
+  # http://api:3000 (keeps per-client IPs), admin paths to http://frontend:8080
+  # (DEPLOYMENT.md "Self-host admin").
   cloudflared:
     profiles: [cloudflare]
     image: cloudflare/cloudflared:2026.10.7@sha256:4955524aeaa379e154023d5a027c250f7b35041a2e7e950cf13f144bc9b9c5ba

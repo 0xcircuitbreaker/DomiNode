@@ -66,7 +66,9 @@ if [ -f "$STAGE/db.dump" ]; then
     if "${C[@]}" exec -T postgres pg_isready -U dominusnode -d dominusnode >/dev/null 2>&1; then break; fi
     sleep 2
   done
-  "${C[@]}" exec -T postgres pg_restore -U dominusnode -d dominusnode --clean --if-exists --no-owner < "$STAGE/db.dump" ||
+  # --no-acl: a split install's dump grants to dominusnode_gateway, a cluster
+  # role pg_dump does not carry; install.sh re-applies gateway-role.sql below.
+  "${C[@]}" exec -T postgres pg_restore -U dominusnode -d dominusnode --clean --if-exists --no-owner --no-acl <"$STAGE/db.dump" ||
     die "pg_restore failed"
   echo "restore: database loaded"
 fi

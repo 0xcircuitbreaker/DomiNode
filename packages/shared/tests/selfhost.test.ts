@@ -397,6 +397,20 @@ describe("self-host roles and Cloudflare Tunnel", () => {
     }
   }, 30_000);
 
+  it.runIf(has("openssl", ["version"]))("gateway takes the coordinator's JWT secret so dn_proxy_ tokens verify", () => {
+    const tmp = setup();
+    try {
+      const jwt = "b2".repeat(48);
+      const r = run(tmp, { ...gwEnv, COORD_JWT_SECRET: jwt });
+      expect(r.status).toBe(0);
+      expect(fs.readFileSync(path.join(tmp, ".env"), "utf8")).toMatch(new RegExp(`^JWT_SECRET=${jwt}$`, "m"));
+      expect(r.stdout + r.stderr).not.toContain(jwt);
+      expect(r.stdout).toMatch(/JWT secret check value[^:]*: [0-9a-f]{16}/);
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  }, 30_000);
+
   it.runIf(has("openssl", ["version"]))("gateway dry run: own key, both pins, relay-only Caddyfile", () => {
     const tmp = setup();
     try {
@@ -461,6 +475,7 @@ describe("self-host roles and Cloudflare Tunnel", () => {
     ["public DB address", { ...gwEnv, GATEWAY_DATABASE_URL: `postgresql://dominusnode_gateway:${pw}@203.0.113.5:5432/dominusnode` }, /private \(WireGuard\)/],
     ["superuser DB role", { ...gwEnv, GATEWAY_DATABASE_URL: `postgresql://dominusnode:${pw}@10.66.0.1:5432/dominusnode` }, /least-privilege|superuser/],
     ["gateway without the pepper", { ...gwEnv, API_KEY_PEPPER: "" }, /API key pepper/],
+    ["gateway with a malformed coordinator JWT secret", { ...gwEnv, COORD_JWT_SECRET: "nothex" }, /COORD_JWT_SECRET/],
     ["weak DB password", { ...gwEnv, GATEWAY_DATABASE_URL: "postgresql://dominusnode_gateway:short@10.66.0.1:5432/dominusnode" }, /GATEWAY_DATABASE_URL must be/],
     ["public DB_WG_BIND", { ...coordEnv, DB_WG_BIND: "0.0.0.0" }, /DB_WG_BIND must be/],
     ["bad role", { ...coordEnv, ROLE: "both" }, /ROLE must be/],
@@ -659,6 +674,14 @@ describe("self-host operations (admin, contacts, pepper, backups)", () => {
   type Svc = { environment?: Record<string, string>; volumes?: string[]; command?: string[]; profiles?: string[]; build?: { dockerfile: string } };
   const svc = () => (yaml.load(fs.readFileSync(path.join(ROOT, "docker-compose.selfhost.yml"), "utf8")) as { services: Record<string, Svc> }).services;
 
+  it("restore skips ACLs and the gateway role is applied in one transaction", () => {
+    expect(fs.readFileSync(path.join(ROOT, "scripts/selfhost/restore.sh"), "utf8")).toMatch(/pg_restore .*--no-acl/);
+    expect(fs.readFileSync(path.join(ROOT, "scripts/selfhost/install.sh"), "utf8")).toMatch(/psql -q -1 -v ON_ERROR_STOP=1 [^\n]*\n?[^\n]*/);
+    const sh = fs.readFileSync(path.join(ROOT, "scripts/selfhost/install.sh"), "utf8");
+    const i = sh.indexOf("gateway-role.sql\"; } |");
+    expect(sh.slice(i, i + 200)).toContain("psql -q -1 ");
+  });
+
   it("passes contacts, branding and the admin bootstrap through to the api", () => {
     const env = svc().api.environment!;
     for (const k of ["OPERATOR_CONTACT", "ABUSE_CONTACT", "OPERATOR_NAME", "SITE_NAME", "ADMIN_HUMAN_LOGIN", "ADMIN_BOOTSTRAP_EMAIL"]) {
@@ -676,6 +699,10 @@ describe("self-host operations (admin, contacts, pepper, backups)", () => {
   it("serves the admin UI and routes API paths to the api", () => {
     const s = svc();
     expect(s.frontend.build!.dockerfile).toBe("infra/docker/frontend.Dockerfile");
+    expect((s.frontend.build as { args?: Record<string, string> }).args?.NGINX_CONF).toBe("infra/nginx/selfhost.conf");
+    const conf = fs.readFileSync(path.join(ROOT, "infra/nginx/selfhost.conf"), "utf8");
+    expect(conf).not.toMatch(/includeSubDomains|; preload/);
+    expect(conf).not.toMatch(/dominusnode\.com/);
     expect(s.frontend.profiles).toEqual(["coordinator"]);
   });
 
@@ -709,8 +736,13 @@ describe("self-host operations (admin, contacts, pepper, backups)", () => {
       expect(env).toMatch(/^ADMIN_BOOTSTRAP_EMAIL=admin@example\.org$/m);
       expect(env).toMatch(/^ABUSE_CONTACT=abuse@example\.org$/m);
       const caddy = fs.readFileSync(path.join(tmp, "selfhost/Caddyfile"), "utf8");
-      expect(caddy).toContain("reverse_proxy @api api:3000");
-      expect(caddy).toContain("reverse_proxy frontend:8080");
+      expect(caddy).toMatch(/handle @api \{\n\s+reverse_proxy api:3000/);
+      expect(caddy).toMatch(/handle @admin \{\n\s+reverse_proxy frontend:8080/);
+      // Only the admin UI reaches the frontend: no official public pages.
+      const admin = caddy.split("\n").find((l) => l.includes("@admin path"))!;
+      for (const p of ["/report-abuse", "/pricing", "/terms", "/privacy", "/aup", "/run-a-node"]) expect(admin).not.toContain(p);
+      expect(caddy).toMatch(/handle \/ \{\n\s+redir \/admin 302/);
+      expect(caddy).toMatch(/handle \{\n\s+respond 404/);
       // Re-run: pepper kept; an explicitly empty bootstrap email closes registration.
       expect(install(tmp, { ADMIN_BOOTSTRAP_EMAIL: "" }).status).toBe(0);
       expect(fs.readFileSync(path.join(tmp, "selfhost/api-key-pepper"), "utf8")).toBe(pep1);

@@ -212,6 +212,15 @@ if [ "$ROLE_SEL" = gateway ]; then
     printf '%s' "$PEPPER_HEX" | grep -Eq '^[0-9a-f]{64}$' ||
       die "ROLE=gateway needs the coordinator's API key pepper: copy its selfhost/api-key-pepper here (mode 0600) or pass API_KEY_PEPPER (64 hex)"
   fi
+  # JWT secret: wallet proxy-session tokens (dn_proxy_) are signed by the
+  # coordinator's api and verified here, so both boxes need the same value.
+  COORD_JWT="${COORD_JWT_SECRET:-}"
+  if [ -z "$COORD_JWT" ] && [ "$ASSUME_YES" -eq 0 ] && [ -t 0 ]; then
+    read -r -s -p "Coordinator JWT_SECRET (from its .env; empty: dn_proxy_ tokens will not work here): " COORD_JWT; echo
+  fi
+  if [ -n "$COORD_JWT" ]; then
+    printf '%s' "$COORD_JWT" | grep -Eq '^[0-9a-f]{64,}$' || die "COORD_JWT_SECRET must be the coordinator's JWT_SECRET (hex)"
+  fi
 fi
 DB_WG=""; GW_PUB=""
 if [ "$ROLE_SEL" = coordinator ]; then
@@ -269,6 +278,7 @@ case "${ADMIN_LOGIN:-false}" in true|false) ;; *) die "ADMIN_HUMAN_LOGIN must be
 
 # ─── Secrets and key (generated once, kept on re-run) ───────────────
 ensure_secret POSTGRES_PASSWORD 24
+if [ -n "${COORD_JWT:-}" ]; then env_set JWT_SECRET "$COORD_JWT"; fi
 ensure_secret JWT_SECRET 48
 ensure_secret MFA_ENCRYPTION_KEY 32
 env_set DOMINUSNODE_DOMAIN "$PRIMARY"
@@ -370,9 +380,21 @@ tls_block() {
     tls_block
     echo "  encode gzip"
     echo "  @api path /api/* /v1/* /v1 /.well-known/* /status /status/* /llms.txt"
-    echo "  reverse_proxy @api api:3000"
-    echo "  # Admin UI (nginx; proxies /api itself as well)."
-    echo "  reverse_proxy frontend:8080"
+    echo "  handle @api {"
+    echo "    reverse_proxy api:3000"
+    echo "  }"
+    echo "  # Admin UI only (nginx). The public DominusNode site pages are not served"
+    echo "  # on a self-host: they carry the official operator's contacts and terms."
+    echo "  @admin path /admin /admin/* /login /forgot-password /reset-password /verify-email /assets/* /favicon.ico /favicon-192.png /apple-touch-icon.png /icon-512.png /icon-mask.svg /icon-maskable-512.png /logo.svg /site.webmanifest"
+    echo "  handle @admin {"
+    echo "    reverse_proxy frontend:8080"
+    echo "  }"
+    echo "  handle / {"
+    echo "    redir /admin 302"
+    echo "  }"
+    echo "  handle {"
+    echo "    respond 404"
+    echo "  }"
     echo "}"
   fi
   # Node tunnel on :8443: Caddy terminates TLS and passes the node's real address
@@ -433,6 +455,8 @@ echo "role: $ROLE_SEL; primary domain: $PRIMARY; all hostnames: $HOSTS; TLS: $TL
 echo "relay: $RELAY; proxy: $PROXYH; ACME challenge: $ACME; compose profiles: $PROFILES"
 echo "this box's signing public key (selfhost/coord.pub): $PUB; DN_COORD_PUBKEYS=$PINS"
 echo "API key pepper check value (must match on coordinator and gateway): $PEPPER_CHECK"
+JWT_CHECK="$(env_get JWT_SECRET | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>process.stdout.write(require("crypto").createHmac("sha256",d.trim()).update("dominusnode-jwt-check").digest("hex").slice(0,16)))')"
+echo "JWT secret check value (must match on coordinator and gateway for dn_proxy_ tokens): $JWT_CHECK"
 fp() { node -e 'process.stdout.write("sha256:"+require("crypto").createHash("sha256").update(Buffer.from(process.argv[1],"hex")).digest("hex"))' "$1"; }
 TRUST="$(for k in $(printf '%s' "$PINS" | tr ',' ' '); do fp "$k"; echo; done | paste -sd, -)"
 echo "exit nodes run on other hosts (a node on this box is refused as a private peer). Join command:"
@@ -496,7 +520,7 @@ fi
 # Least-privilege Postgres role for a separate gateway VPS (never the superuser).
 if [ -n "$DB_WG" ]; then
   { printf '\\set pw %s\n' "$(env_get GATEWAY_DB_PASSWORD)"; cat "$ROOT/scripts/selfhost/gateway-role.sql"; } |
-    "${COMPOSE[@]}" exec -T postgres psql -q -v ON_ERROR_STOP=1 -U dominusnode -d dominusnode >/dev/null ||
+    "${COMPOSE[@]}" exec -T postgres psql -q -1 -v ON_ERROR_STOP=1 -U dominusnode -d dominusnode >/dev/null ||
     die "could not create the dominusnode_gateway role"
   ( umask 077; printf 'postgresql://dominusnode_gateway:%s@%s:5432/dominusnode\n' "$(env_get GATEWAY_DB_PASSWORD)" "$DB_WG" > "$SH_DIR/gateway-database-url" )
   echo "gateway DB URL (least-privilege role) written to selfhost/gateway-database-url (0600); use it as GATEWAY_DATABASE_URL on the gateway VPS"
