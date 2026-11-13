@@ -21,6 +21,8 @@ export interface VerifyResult {
   txRef?: string;
   /** Rail-specific context needed by settle (e.g. the x402 facilitator). */
   facilitator?: X402Facilitator;
+  /** MPP: claimed and verified but must be refused (recorded and credited, never served). */
+  refuse?: string;
 }
 export interface SettleResult {
   ok: boolean;

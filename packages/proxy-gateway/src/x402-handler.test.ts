@@ -40,6 +40,7 @@ vi.mock("@dominusnode/shared", () => ({
     error: vi.fn(),
   }),
   RELAY_BYTES_PER_GB: 1_000_000_000, BYTES_PER_GIB: 1_073_741_824,
+  DEFAULT_PRICE_PER_GB_MUSD: { residential: 500_000, mobile: 500_000, dc: 200_000, masked: 100_000 },
   userRepo: { findOrCreateX402User: (...a: unknown[]) => mockFindOrCreateX402User(...a) },
   policyRepo: { getPricing: (...a: unknown[]) => mockGetPricing(...a) },
   walletRepo: {
@@ -47,7 +48,9 @@ vi.mock("@dominusnode/shared", () => ({
     createWallet: (...a: unknown[]) => mockCreateWallet(...a),
     creditWallet: (...a: unknown[]) => mockCreditWallet(...a),
   },
+  payerRefundRepo: { recordOwed: (...a: unknown[]) => mockRecordOwed(...a) },
 }));
+const mockRecordOwed = vi.fn();
 const mockGetWallet = vi.fn();
 const mockCreateWallet = vi.fn();
 const mockCreditWallet = vi.fn();
@@ -354,6 +357,18 @@ describe("x402 relay identity and pricing", () => {
     expect(await refundX402Payer(p, "again")).toBe(false);
     expect(mockCreditWallet).toHaveBeenCalledTimes(1);
   });
+  it("refundX402Payer records a Solana payer's refund as owed (12,345 µUSD) instead of crediting an unreachable wallet", async () => {
+    const SOL = "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM";
+    mockVerifyX402Payment.mockResolvedValue({ ...valid, payer: SOL, amountUsd: "0.012345" });
+    mockRecordOwed.mockResolvedValue(true);
+    const req = makeRequest({ "x-payment": "p" });
+    await handleX402Http(req, makeResponse());
+    const p = getX402Data(req)!.pending!;
+    await settleX402Pending(p);
+    expect(await refundX402Payer(p, "upstream error")).toBe(true);
+    expect(mockRecordOwed).toHaveBeenCalledWith({ payerAddress: SOL, rail: "x402", payHash: "fakehash123", amountMusd: 12_345n, reason: "upstream error" });
+    expect(mockCreditWallet).not.toHaveBeenCalled();
+  });
   it("CONNECT: suspended payer is refused before settlement", async () => {
     mockVerifyX402Payment.mockResolvedValue(valid);
     mockFindOrCreateX402User.mockResolvedValue({ id: "u", status: "suspended", created: false });
@@ -589,6 +604,8 @@ describe("MPP on the gateway", () => {
     verify: vi.fn(),
     settle: vi.fn(),
     release: vi.fn(async () => {}),
+    recordRefund: vi.fn(async () => {}),
+    unclaim: vi.fn(async () => true),
   };
   const okVerify = (amountMusd = 525n) => ({ ok: true, payer: MPP_PAYER, paymentHash: "h".repeat(64), amountMusd, txRef: "tempo:1:0xabc" });
 
@@ -597,6 +614,40 @@ describe("MPP on the gateway", () => {
     rail.verify.mockReset();
     rail.settle.mockReset();
     rail.release.mockClear();
+    rail.recordRefund.mockClear();
+    rail.unclaim.mockClear();
+  });
+
+  it("credits a paid challenge below the live quote (524 µUSD paid, quote 525) and does not serve it", async () => {
+    rail.verify.mockResolvedValue(okVerify(524n));
+    const res = makeResponse();
+    const req = makeRequest({ authorization: "Payment tok" });
+    await handleX402Http(req, res);
+    expect(res._statusCode).toBe(402);
+    expect(getX402Data(req)).toBeNull();
+    expect(rail.release).toHaveBeenCalledWith("h".repeat(64));
+    expect(rail.recordRefund).toHaveBeenCalledWith("h".repeat(64), expect.objectContaining({ userId: "user-x402", refundMusd: 524n, reason: "payment below current quote" }));
+  });
+
+  it("records and credits a verifier refusal (source mismatch) instead of dropping it: 1,000,000 µUSD -> 100 cents", async () => {
+    rail.verify.mockResolvedValue({ ...okVerify(1_000_000n), refuse: "verification-failed: source mismatch" });
+    mockCreditWallet.mockClear();
+    const res = makeResponse();
+    await handleX402Http(makeRequest({ authorization: "Payment tok" }), res);
+    expect(res._statusCode).toBe(402);
+    expect(mockCreditWallet).toHaveBeenCalledWith("user-x402", 100, "mpp", `mpp-refund:${"h".repeat(64)}`, expect.any(String));
+    expect(rail.recordRefund).toHaveBeenCalledWith("h".repeat(64), expect.objectContaining({ refundMusd: 1_000_000n, creditedCents: 100 }));
+  });
+
+  it("transient payer-identity outage drops the uncredited claim so the same transfer can be retried", async () => {
+    rail.verify.mockResolvedValue(okVerify());
+    mockFindOrCreateX402User.mockRejectedValueOnce(new Error("db down"));
+    const res = makeResponse();
+    await handleX402Http(makeRequest({ authorization: "Payment tok" }), res);
+    expect(res._statusCode).toBe(503);
+    expect(rail.unclaim).toHaveBeenCalledWith("h".repeat(64));
+    expect(rail.release).not.toHaveBeenCalled();
+    expect(rail.recordRefund).not.toHaveBeenCalled();
   });
   afterEach(() => setMppRailForTest(null));
 
@@ -621,17 +672,26 @@ describe("MPP on the gateway", () => {
     expect(mockFindOrCreateX402User).not.toHaveBeenCalled();
   });
 
-  it("releases the claimed proof when the payer is suspended or overpays past the cap (never settles)", async () => {
+  it("keeps the claim of a refused payer (funds moved) and credits nobody when the payer is suspended", async () => {
     rail.verify.mockResolvedValue(okVerify());
     mockFindOrCreateX402User.mockResolvedValueOnce({ id: "u", status: "suspended", created: false });
     const res = makeResponse();
     await handleX402Http(makeRequest({ authorization: "Payment tok" }), res);
     expect(res._statusCode).toBe(403);
-    expect(rail.release).toHaveBeenCalledWith("h".repeat(64));
-    rail.verify.mockResolvedValue(okVerify(525n * 101n));
-    await handleX402Http(makeRequest({ authorization: "Payment tok" }), makeResponse());
-    expect(rail.release).toHaveBeenCalledTimes(2);
+    expect(rail.release).toHaveBeenCalledWith("h".repeat(64)); // -> refund_due, never deleted
+    expect(rail.recordRefund).toHaveBeenCalledWith("h".repeat(64), expect.objectContaining({ userId: null, refundMusd: 525n, creditedCents: 0 }));
+    expect(mockCreditWallet).not.toHaveBeenCalled();
     expect(rail.settle).not.toHaveBeenCalled();
+  });
+
+  it("serves an overpayment at the 100x cap and credits the excess (2,052,500 paid on a 525 quote -> 200 cents)", async () => {
+    rail.verify.mockResolvedValue(okVerify(2_052_500n));
+    const req = makeRequest({ authorization: "Payment tok" });
+    await handleX402Http(req, makeResponse());
+    expect(getX402Data(req)).toMatchObject({ rail: "mpp", amountMusd: 52_500n });
+    expect(mockCreditWallet).toHaveBeenCalledWith("user-x402", 200, "mpp", `mpp-excess:${"h".repeat(64)}`, expect.any(String));
+    expect(rail.recordRefund).toHaveBeenCalledWith("h".repeat(64), expect.objectContaining({ refundMusd: 2_000_000n, creditedCents: 200, closeClaim: false }));
+    expect(rail.release).not.toHaveBeenCalled();
   });
 
   it("CONNECT: Proxy-Authorization Payment → verified mpp result; settle after, refund to identity user as provider mpp", async () => {
@@ -649,12 +709,14 @@ describe("MPP on the gateway", () => {
     expect(await refundX402Payer(r.pending!, "again")).toBe(false); // once
   });
 
-  it("CONNECT: settle failure releases the proof so the payer can retry", async () => {
-    rail.verify.mockResolvedValue(okVerify());
+  it("CONNECT: a refusal after verify keeps the claim and credits the payer (52,499 µUSD -> 5 cents)", async () => {
+    rail.verify.mockResolvedValue(okVerify(52_499n));
     rail.settle.mockResolvedValue({ ok: false });
     const r = (await handleX402Connect(makeRequest({ "proxy-authorization": "Payment tok" }), makeSocket()))!;
     expect(await settleX402Pending(r.pending!)).toBe(false);
     expect(rail.release).toHaveBeenCalledWith("h".repeat(64));
+    expect(mockCreditWallet).toHaveBeenCalledWith("user-x402", 5, "mpp", `mpp-refund:${"h".repeat(64)}`, expect.any(String));
+    expect(rail.recordRefund).toHaveBeenCalledWith("h".repeat(64), expect.objectContaining({ userId: "user-x402", refundMusd: 52_499n, creditedCents: 5, closeClaim: true }));
   });
 
   it("CONNECT: rejection writes a 402 with the challenge", async () => {
@@ -675,6 +737,21 @@ describe("MPP on the gateway", () => {
     expect(body.mpp.wwwAuthenticate).toMatch(/^Payment /);
     expect(paymentChallengeHeaders("dc")["WWW-Authenticate"]).toMatch(/^Payment /);
     expect(build402ConnectResponse("dc")).toMatch(/WWW-Authenticate: Payment /);
+  });
+
+  it("x402AmountMusd quotes 10 MiB at the decimal-GB price: 5243 / 2098 / 1049 µUSD", async () => {
+    const { x402AmountMusd } = await import("./x402-handler.js");
+    expect(x402AmountMusd(500_000n)).toBe(5243n);
+    expect(x402AmountMusd(200_000n)).toBe(2098n);
+    expect(x402AmountMusd(100_000n)).toBe(1049n);
+  });
+
+  it("advertises the default class price before the first quote is cached (masked: 1049 µUSD, not the env price)", async () => {
+    mockIsX402Enabled.mockReturnValue(true);
+    mockBuildX402Requirements.mockReturnValue({ accepts: [] });
+    mockGetPricing.mockReturnValue(new Promise(() => undefined)); // quote never resolves
+    build402ResponseBody("masked");
+    expect(mockBuildX402Requirements).toHaveBeenCalledWith({ amountMusd: 1049n });
   });
 
   it("normalizePayer keeps Solana case, lowercases EVM", () => {

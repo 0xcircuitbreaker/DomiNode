@@ -1,6 +1,6 @@
 import { Router } from "express";
 import type { Request, Response } from "express";
-import { createLogger, getPool, payoutRepo, policyRepo } from "@dominusnode/shared";
+import { createLogger, getPool, payoutRepo, policyRepo, disputeResolutionRepo } from "@dominusnode/shared";
 import { requireAuth } from "../middleware/auth.js";
 import { requireAdmin } from "../middleware/admin.js";
 import {
@@ -221,6 +221,33 @@ for (const [action, spec] of Object.entries(NODE_ACTIONS)) {
     } catch (err) { fail(res, err, `Node ${action}`); }
   });
 }
+
+/**
+ * Lift the registration penalty of a node its owner revoked while it was
+ * quarantined or suspended (POST /v1/nodes NODE_PENALTY_ACTIVE), e.g. after a
+ * false-positive quarantine. The node stays revoked; only the remembered
+ * status is cleared.
+ */
+router.post("/nodes/:id/clear-penalty", async (req: Request, res: Response) => {
+  try {
+    const id = uuidPath(req);
+    const reason = reasonField(body(req), true);
+    const out = await withAdminTx(adminId(req), async (c) => {
+      const r = await c.query<{ status: string; revoked_from_status: string | null }>(
+        `SELECT status, revoked_from_status FROM nodes WHERE id = $1 FOR UPDATE`, [id]);
+      const cur = r.rows[0];
+      if (!cur) throw new HttpError(404, "Node not found");
+      if (cur.status !== "revoked" || (cur.revoked_from_status !== "quarantined" && cur.revoked_from_status !== "suspended")) {
+        throw new HttpError(409, "Node carries no revocation penalty");
+      }
+      await c.query(`UPDATE nodes SET revoked_from_status = NULL WHERE id = $1 AND status = 'revoked'`, [id]);
+      await audit(c, req, "node_penalty_clear", "node", id, { revokedFrom: cur.revoked_from_status, reason });
+      return cur.revoked_from_status;
+    });
+    log.info("node penalty cleared", { nodeId: id, revokedFrom: out, by: adminId(req) });
+    res.json({ nodeId: id, status: "revoked", previousRevokedFrom: out, changed: true });
+  } catch (err) { fail(res, err, "Node clear-penalty"); }
+});
 
 // ─── Agents ─────────────────────────────────────────────────────────
 
@@ -523,9 +550,14 @@ router.post("/disputes/:id/resolve", async (req: Request, res: Response) => {
       if (row.status !== "open") throw new HttpError(409, `Dispute already ${row.status}`);
       await c.query(`UPDATE byte_disputes SET status = $2, resolved_at = now() WHERE id = $1`, [raw, resolution]);
       // Gateway count upheld or dispute dismissed: release the charge so its node share can mature.
-      // resolved_node keeps the charge held (disputed) for manual clawback/adjustment.
+      // resolved_node: re-split the charge at the node's byte count first (claw back the node
+      // share difference, refund the requester), then release what is left the same way.
       let chargeReleased = false;
-      if (row.relay_charge_id && resolution !== "resolved_node") {
+      let resplit: Awaited<ReturnType<typeof disputeResolutionRepo.resplitAtNodeBytesTx>> | null = null;
+      if (row.relay_charge_id && resolution === "resolved_node") {
+        resplit = await disputeResolutionRepo.resplitAtNodeBytesTx(c as never, row.relay_charge_id, adminId(req));
+      }
+      if (row.relay_charge_id) {
         const open = await c.query<{ n: string }>(
           `SELECT COUNT(*)::text AS n FROM byte_disputes WHERE relay_charge_id = $1 AND status = 'open' AND id <> $2`,
           [row.relay_charge_id, raw]);
@@ -534,10 +566,16 @@ router.post("/disputes/:id/resolve", async (req: Request, res: Response) => {
           chargeReleased = true;
         }
       }
-      await audit(c, req, "byte_dispute_resolve", "byte_dispute", raw, { resolution, reason, relayChargeId: row.relay_charge_id, nodeId: row.node_id, chargeReleased });
-      return { chargeReleased, relayChargeId: row.relay_charge_id };
+      const adjustment = resplit && resplit.adjusted ? {
+        grossBefore: resplit.grossBeforeMusd.toString(), grossAfter: resplit.grossAfterMusd.toString(),
+        nodeClawbackMusd: resplit.nodeClawbackMusd.toString(), refundCents: resplit.refundCents,
+        overflowCents: resplit.overflowCents, unrefundedMusd: resplit.unrefundedMusd.toString(),
+        starterRestoredMusd: resplit.starterRestoredMusd.toString(), starterForfeitMusd: resplit.starterForfeitMusd.toString(),
+      } : null;
+      await audit(c, req, "byte_dispute_resolve", "byte_dispute", raw, { resolution, reason, relayChargeId: row.relay_charge_id, nodeId: row.node_id, chargeReleased, adjustment });
+      return { chargeReleased, relayChargeId: row.relay_charge_id, adjustment };
     });
-    res.json({ id: raw, status: resolution, relayChargeId: out.relayChargeId, chargeReleased: out.chargeReleased });
+    res.json({ id: raw, status: resolution, relayChargeId: out.relayChargeId, chargeReleased: out.chargeReleased, adjustment: out.adjustment });
   } catch (err) { fail(res, err, "Dispute resolve"); }
 });
 

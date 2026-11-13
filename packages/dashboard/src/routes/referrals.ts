@@ -75,9 +75,9 @@ router.post("/code", createCodeLimiter, async (req, res) => {
 
     const maxUses = typeof req.body?.maxUses === "number" && req.body.maxUses > 0
       ? Math.min(req.body.maxUses, 100000) : 0;
-    // creditCents is NOT user-controllable — fixed at $1.00 (100 cents)
-    // Allowing users to set their own referral credit amount enables abuse
-    const creditCents = 100;
+    // Referrals no longer pay a balance bonus (free credit comes only from the
+    // starter-credit grant ledger), so new codes carry no credit amount.
+    const creditCents = 0;
 
     const code = await referralRepo.createReferralCode(
       authReq.user.userId,

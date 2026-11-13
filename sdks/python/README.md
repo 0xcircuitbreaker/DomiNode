@@ -13,7 +13,7 @@ the reference implementation.
 pip install dominusnode
 ```
 
-Defaults: API `https://api.dominusnode.com`, relay gateway `proxy.dominusnode.com` (HTTP proxy :8080, SOCKS5 :1080). Both can be overridden in the client configuration.
+Defaults: API `https://api.dominusnode.com`, relay gateway `proxy.dominusnode.com` (TLS to the gateway's HTTPS proxy on :8443 by default since 2.2; SOCKS5 :1080). Production gateways refuse credentials on plaintext 8080/1080. A self-hosted coordinator publishes its TLS proxy on 8444: `gateway_tls={"port": 8444}`. Plaintext 8080 for local development: `gateway_tls=False`. A refused CONNECT carries the gateway's `X-DominusNode-Error` code (e.g. INSUFFICIENT_BALANCE, NO_NODES_AVAILABLE) in `err.code` / `err.retry_after`. Both can be overridden in the client configuration.
 
 ## Quick start
 
@@ -45,13 +45,13 @@ Routing flags go in the proxy **username**, the API key in the **password**:
 
 ```python
 dn.proxy.build_username(country="DE", session_id="abc123")  # "country-DE-session-abc123"
-url = dn.proxy.build_url(country="US", ip_class="dc")        # http://country-US-class-dc:<key>@proxy.dominusnode.com:8080
+url = dn.proxy.build_url(country="US", ip_class="dc")        # https://country-US-class-dc:<key>@proxy.dominusnode.com:8443
 ```
 
 `build_url` returns a URL that **contains your API key: do not log it.**
 
 Flags: `country` (ISO-2; OFAC countries CU IR KP RU SY are refused), `ip_class`
-(`residential`/`dc`/`mobile`), `session_id` (sticky, 1-64 alphanumerics),
+(`residential`/`dc`/`mobile`/`masked`; masked = VPN/WARP/Tor exits, cheapest, opt-in), `session_id` (sticky, 1-64 alphanumerics),
 `agentic_wallet_id` (UUID, spend from an agentic wallet), `allow_http` (`allowhttp-1`).
 With no flags the username is `relay`.
 

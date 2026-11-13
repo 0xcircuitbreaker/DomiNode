@@ -11,7 +11,7 @@ buy exit traffic per GB and earn credits by running relay nodes.
 npm install @dominusnode/sdk
 ```
 
-Defaults: API `https://api.dominusnode.com`, relay gateway `proxy.dominusnode.com` (HTTP proxy :8080, SOCKS5 :1080). Both can be overridden in the client configuration.
+Defaults: API `https://api.dominusnode.com`, relay gateway `proxy.dominusnode.com` (TLS to the gateway's HTTPS proxy on :8443 by default since 2.2; SOCKS5 :1080). Production gateways refuse credentials on plaintext 8080/1080. A self-hosted coordinator publishes its TLS proxy on 8444: `gatewayTls: { port: 8444 }`. Plaintext 8080 for local development: `gatewayTls: false`. A refused CONNECT carries the gateway's `X-DominusNode-Error` code (e.g. INSUFFICIENT_BALANCE, NO_NODES_AVAILABLE) in `err.code` / `err.retryAfter`. Both can be overridden in the client configuration.
 
 ## Quick start
 
@@ -27,7 +27,7 @@ console.log(res.status, res.text().slice(0, 200));
 
 // Or hand a proxy URL to any HTTP client (the URL contains your key: do not log it)
 const proxyUrl = dn.proxy.buildUrl({ country: "DE", sessionId: "job42" });
-// http://country-DE-session-job42:dn_live_...@proxy.dominusnode.com:8080
+// https://country-DE-session-job42:dn_live_...@proxy.dominusnode.com:8443
 ```
 
 Routing flags go in the proxy **username**, hyphen-joined; the API key is the **password**:
@@ -35,7 +35,7 @@ Routing flags go in the proxy **username**, hyphen-joined; the API key is the **
 | Option | Username flag |
 |---|---|
 | `country: "US"` | `country-US` (OFAC countries CU, IR, KP, RU, SY are refused) |
-| `ipClass: "residential" \| "dc" \| "mobile"` | `class-residential` |
+| `ipClass: "residential" \| "dc" \| "mobile" \| "masked"` | `class-residential` |
 | `sessionId: "abc123"` (1-64 alphanumeric) | `session-abc123` (sticky exit) |
 | `allowHttp: true` | `allowhttp-1` (plaintext `http://` is exit-visible) |
 | `agenticWalletId: "<uuid>"` | `wallet-<uuid>` (spend from an agentic wallet) |

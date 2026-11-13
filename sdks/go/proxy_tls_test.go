@@ -180,7 +180,12 @@ func TestGatewayTLSBuildURLAndConfig(t *testing.T) {
 	if u, _ = c.Proxy.BuildURL(RoutingOptions{}, "http", ""); !strings.HasSuffix(u, ":8080") {
 		t.Fatal(u)
 	}
-	plain, _ := NewClient(Config{ProxyHost: "proxy.example.com"})
+	dflt, _ := NewClient(Config{ProxyHost: "proxy.example.com"})
+	dflt.apiKey = testKey
+	if u, _ = dflt.Proxy.BuildURL(RoutingOptions{}, "", ""); !strings.HasPrefix(u, "https://") || !strings.HasSuffix(u, ":8443") {
+		t.Fatalf("2.2 default must be TLS: %s", u)
+	}
+	plain, _ := NewClient(Config{ProxyHost: "proxy.example.com", GatewayTLS: &GatewayTLS{Disabled: true}})
 	plain.apiKey = testKey
 	if u, _ = plain.Proxy.BuildURL(RoutingOptions{}, "", ""); !strings.HasPrefix(u, "http://") {
 		t.Fatal(u)

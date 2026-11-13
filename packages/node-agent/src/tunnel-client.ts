@@ -19,7 +19,7 @@ import {
 } from "./shared.js";
 import type { KeyObject } from "node:crypto";
 import { effectivePorts, floorHash } from "./floor.js";
-import type { Limits } from "./limits.js";
+import type { ByteRate, Limits } from "./limits.js";
 import type { DialResult, OpenErrCode } from "./dialer.js";
 
 export const STREAM_WINDOW = 256 * 1024;
@@ -53,6 +53,8 @@ export interface TunnelClientOptions {
   localPorts: readonly number[];
   caps: { maxStreams: number; maxMbps: number; gbPerDay: number };
   limits: Limits;
+  /** DN_NODE_MAX_MBPS: shared byte-rate cap for all streams, both directions (absent = unlimited). */
+  rate?: ByteRate;
   dial: DialFn;
   logger?: TunnelLogger;
   /** PEM (pkcs8) ed25519 node key generated at registration; signs AUTH. */
@@ -83,6 +85,8 @@ interface Stream {
   closeSent: boolean;
   /** Target sent EOF and we forwarded CLOSE FIN; upstream DATA may still drain. */
   localFin: boolean;
+  /** Pending flush waiting for DN_NODE_MAX_MBPS budget. */
+  rateTimer?: NodeJS.Timeout;
 }
 
 /** An OPEN whose dial is still running; `cancelled` once the gateway gave up on it. */
@@ -363,7 +367,10 @@ export class TunnelClient extends EventEmitter {
       const msg = challengeMessage(c.nonce, c.policyVersion, c.serverTime, binding);
       const pins = this.opts.coordPins;
       if (pins.length === 0 || !pins.some((p) => verifyEd25519(p, msg, c.coordSig))) {
-        this.log.warn("coordinator signature rejected");
+        this.log.warn("coordinator signature rejected", {
+          pins: pins.length,
+          pinPrefixes: pins.map((p) => p.slice(0, 16)).join(","),
+        });
         this.emit("authFail", "COORD_SIGNATURE");
         return this.fail("coordinator signature invalid");
       }
@@ -495,8 +502,21 @@ export class TunnelClient extends EventEmitter {
   }
 
   private flushPending(s: Stream): void {
+    const rate = this.opts.rate;
     while (s.pending && s.sendCredit > 0 && this.streams.has(s.id)) {
-      const n = Math.min(s.sendCredit, MAX_FRAME_PAYLOAD, s.pending.length);
+      const budget = rate ? rate.available() : Infinity;
+      if (budget <= 0) {
+        if (rate && !s.rateTimer) {
+          s.rateTimer = setTimeout(() => {
+            s.rateTimer = undefined;
+            this.flushPending(s);
+          }, Math.max(1, rate.waitMs(Math.min(s.pending.length, MAX_FRAME_PAYLOAD))));
+          s.rateTimer.unref?.();
+        }
+        break;
+      }
+      const n = Math.min(s.sendCredit, MAX_FRAME_PAYLOAD, s.pending.length, budget);
+      rate?.consume(n);
       const part = s.pending.subarray(0, n);
       s.pending = n === s.pending.length ? null : s.pending.subarray(n);
       this.send(encodeFrame(FrameType.DATA, s.id, 0, part));
@@ -524,6 +544,9 @@ export class TunnelClient extends EventEmitter {
     s.bytesIn += f.payload.length;
     if (!this.opts.limits.addBytes(f.payload.length)) return this.closeStream(s, FLAG_RST, "gb_per_day");
     const n = f.payload.length;
+    // Download direction: the gateway is credit-limited, so holding back the
+    // WINDOW grant while over DN_NODE_MAX_MBPS throttles it.
+    this.opts.rate?.consume(n);
     s.socket.write(f.payload, () => {
       if (!this.streams.has(s.id)) return;
       s.recvOutstanding -= n;
@@ -532,7 +555,12 @@ export class TunnelClient extends EventEmitter {
         const credit = Buffer.alloc(4);
         credit.writeUInt32BE(s.recvConsumed, 0);
         s.recvConsumed = 0;
-        this.send(encodeFrame(FrameType.WINDOW, s.id, 0, credit));
+        const grant = (): void => {
+          if (this.streams.has(s.id)) this.send(encodeFrame(FrameType.WINDOW, s.id, 0, credit));
+        };
+        const wait = this.opts.rate?.waitMs() ?? 0;
+        if (wait > 0) setTimeout(grant, wait).unref?.();
+        else grant();
       }
     });
   }

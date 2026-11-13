@@ -1,16 +1,18 @@
 import { describe, it, expect, vi } from "vitest";
 vi.mock("../db.js", () => ({ query: vi.fn(), getPool: () => ({ connect: vi.fn() }) }));
-import { enrolTx, clawbackCreditTx } from "./genesis-repo.js";
+import { enrolTx, clawbackCreditTx, DEFAULT_GENESIS_SETTINGS } from "./genesis-repo.js";
 
 const SETTINGS = { enabled: true, max_owners: 200, bonus_bps: 500, boost_days: 90, credit_musd: "5000000", credit_threshold_bytes: "5000000000", min_distinct_payers: 3, updated_by: null, updated_at: null };
 
-function client(o: { settings?: Partial<typeof SETTINGS>; members?: number } = {}) {
+function client(o: { settings?: Partial<typeof SETTINGS>; members?: number; candidates?: string[]; linked?: string[] } = {}) {
   const calls: Array<{ sql: string; p: unknown[] }> = [];
   const query = vi.fn(async (sql: string, p: unknown[] = []) => {
     calls.push({ sql, p });
     if (sql.includes("FROM genesis_settings")) return { rows: [{ ...SETTINGS, ...o.settings }] };
     if (sql.includes("COUNT(*)::text AS n, MAX(seq)")) return { rows: [{ n: String(o.members ?? 0), max_seq: o.members ? String(o.members) : null }] };
-    if (sql.includes("INSERT INTO genesis_members")) return { rows: [{ owner_user_id: "x" }] };
+    if (sql.includes("SELECT rc.node_owner_user_id AS owner")) return { rows: (o.candidates ?? ["x"]).map((owner) => ({ owner })) };
+    if (sql.startsWith("SELECT 1 WHERE")) return { rows: (o.linked ?? []).includes(p[0] as string) ? [{ "?column?": 1 }] : [] };
+    if (sql.includes("INSERT INTO genesis_members")) return { rows: [{ owner_user_id: p[0] }] };
     if (sql.includes("FROM genesis_members WHERE owner_user_id")) return { rows: [{ credit_musd: "5000000" }] };
     if (sql.includes("FROM node_credit_accounts")) return { rows: [{ user_id: "o", pending_musd: "3000000", available_musd: "0", auto_convert_pct: 0, frozen: false, tax_form_status: "not_required", tax_form_type: null, tax_form_received_at: null, tax_year: null, ytd_paid_musd: "0", updated_at: new Date() }] };
     return { rows: [] };
@@ -23,25 +25,43 @@ describe("genesis enrolment", () => {
     const { c, calls } = client({ members: 150 });
     expect(await enrolTx(c)).toBe(1);
     expect(calls[0].sql).toContain("pg_advisory_xact_lock");
+    const sel = calls.find((x) => x.sql.includes("SELECT rc.node_owner_user_id AS owner"))!;
+    expect(sel.p).toEqual([500, 3, "1000000", []]);
+    // Linked owners are excluded in the candidate SQL itself (no starvation).
+    expect(sel.sql).toContain("FROM genesis_members g WHERE g.owner_user_id <> rc.node_owner_user_id");
+    // Payer diversity: >= N unlinked, matured, paying principals that each spent >= $1.
+    expect(sel.sql).toContain("HAVING COUNT(*) >= $2::int");
+    expect(sel.sql).toContain("HAVING SUM(q.gross_musd) >= $3::bigint");
+    expect(sel.sql).toContain("q.matured");
+    expect(sel.sql).toContain("q.starter_musd = 0");
+    expect(sel.sql).toContain("payment_provider <> 'node_credits'");
+    expect(sel.sql).toContain("team_members a JOIN team_members b");
+    expect(sel.sql).toContain("back.requester_user_id = q.node_owner_user_id");
+    expect(sel.sql).toContain("lower(ow.owner_wallet) = lower(ru.wallet_address)");
+    expect(sel.sql).toContain("n.operator_run");
+    expect(sel.sql).toContain("NOT u.is_admin");
+    expect(sel.sql).toContain("rc.node_musd > 0");
+    expect(sel.sql).toContain("requester_user_id IS DISTINCT FROM rc.node_owner_user_id");
     const ins = calls.find((x) => x.sql.includes("INSERT INTO genesis_members"))!;
-    expect(ins.p).toEqual([50, 90, 150, 3]);
-    // Payer diversity: >= N distinct, unlinked, matured paying principals.
-    expect(ins.sql).toContain("COUNT(DISTINCT q.requester_user_id) >= $4::int");
-    expect(ins.sql).toContain("q.matured");
-    expect(ins.sql).toContain("q.starter_musd = 0");
-    expect(ins.sql).toContain("team_members a JOIN team_members b");
-    expect(ins.sql).toContain("back.requester_user_id = q.node_owner_user_id");
-    expect(ins.sql).toContain("lower(ow.owner_wallet) = lower(ru.wallet_address)");
-    expect(ins.sql).toContain("n.operator_run");
-    expect(ins.sql).toContain("NOT u.is_admin");
-    expect(ins.sql).toContain("rc.node_musd > 0");
-    expect(ins.sql).toContain("requester_user_id IS DISTINCT FROM rc.node_owner_user_id");
+    expect(ins.p).toEqual(["x", 151, 90]);
   });
 
   it("passes the admin-tuned payer threshold", async () => {
     const { c, calls } = client({ settings: { min_distinct_payers: 7 } });
     await enrolTx(c);
-    expect(calls.find((x) => x.sql.includes("INSERT INTO genesis_members"))!.p[3]).toBe(7);
+    expect(calls.find((x) => x.sql.includes("SELECT rc.node_owner_user_id AS owner"))!.p[1]).toBe(7);
+  });
+
+  it("gives one slot per beneficial owner: linked candidates are skipped, seq stays dense", async () => {
+    const { c, calls } = client({ members: 198, candidates: ["a", "b", "c", "d"], linked: ["b"] });
+    expect(await enrolTx(c)).toBe(2);
+    const ins = calls.filter((x) => x.sql.includes("INSERT INTO genesis_members")).map((x) => x.p.slice(0, 2));
+    expect(ins).toEqual([["a", 199], ["c", 200]]);
+  });
+
+  it("is seeded disabled", () => {
+    expect(DEFAULT_GENESIS_SETTINGS.enabled).toBe(false);
+    expect(DEFAULT_GENESIS_SETTINGS.creditThresholdNodeMusd).toBe(2n * DEFAULT_GENESIS_SETTINGS.creditMusd);
   });
 
   it("does nothing when full or disabled", async () => {

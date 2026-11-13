@@ -92,7 +92,8 @@ Wallet sign-in is rate limited: 20 challenges and 5 failed verifications per hou
 | `DOMINUSNODE_API_KEY` | (none: bootstrap mode) | `dn_live_` API key |
 | `DOMINUSNODE_API_URL` | `https://api.dominusnode.com` | API base URL |
 | `DOMINUSNODE_PROXY_HOST` | `proxy.dominusnode.com` | Gateway host |
-| `DOMINUSNODE_PROXY_URL` | `https://proxy.dominusnode.com:8443` | TLS gateway (`https://host[:port]`, default port 8443). Proxy fetches always use TLS to the gateway unless `DOMINUSNODE_PROXY_INSECURE=1` |
+| `DOMINUSNODE_PROXY_URL` | `https://proxy.dominusnode.com:8443` | TLS gateway (`https://host[:port]`, default port 8443; a self-hosted coordinator publishes 8444, e.g. `https://proxy.example.org:8444`). Proxy fetches always use TLS to the gateway unless `DOMINUSNODE_PROXY_INSECURE=1` |
+| `DOMINUSNODE_ALLOW_LOCAL_GATEWAY` | (unset) | `1` = allow a localhost, `.local`/`.internal` or private-IP gateway host (local demo, self-hosted gateway on a LAN). Off by default as an SSRF guard; prints a warning when set |
 | `DOMINUSNODE_PROXY_CA_FILE` | (none) | Extra PEM CA for a privately issued gateway certificate (verification stays on) |
 | `DOMINUSNODE_PROXY_INSECURE` | (unset) | `1` = use the plaintext HTTP listener (`DOMINUSNODE_HTTP_PROXY_PORT`). The API key is then sent in clear; a warning is printed to stderr. Local development only |
 | `DOMINUSNODE_HTTP_PROXY_PORT` | `8080` | Gateway plaintext HTTP/CONNECT port (used only with `DOMINUSNODE_PROXY_INSECURE=1`) |
@@ -114,7 +115,11 @@ dominusnode_network_pricing         # live price per GB and tier shares
 dominusnode_node_register_challenge # preview what you sign
 dominusnode_node_register(accept_attestation: true)
 # -> Node key file (mode 0600): /home/agent/.dominusnode/node.json
-node packages/node-agent/dist/src/main.js run --key-file ~/.dominusnode/node.json
+# On the node machine (Linux; the image runs as uid 1001):
+#   sudo install -d -o 1001 -g 1001 -m 700 /etc/dominusnode
+#   sudo install -o 1001 -g 1001 -m 600 ~/.dominusnode/node.json /etc/dominusnode/node.json
+#   docker run -d --name dominusnode-node --restart unless-stopped \
+#     -v /etc/dominusnode/node.json:/run/dominusnode/node.json:ro ghcr.io/0xcircuitbreaker/dominusnode-node
 dominusnode_node_list / dominusnode_node_tier
 ```
 

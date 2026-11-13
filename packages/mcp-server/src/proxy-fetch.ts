@@ -12,6 +12,21 @@ import type { McpConfig } from "./config.js";
  * published package cannot depend on). Falls back to X25519 on OpenSSL < 3.5.
  */
 let gatewayCurve: string | null = null;
+
+/**
+ * Message for a refused CONNECT: the status plus the gateway's X-DominusNode-Error code and
+ * Retry-After, so callers (and the fetch tool's hints) can tell INSUFFICIENT_BALANCE from
+ * NO_NODES_AVAILABLE or TLS_REQUIRED.
+ */
+export function connectFailureMessage(status: number | undefined, headers: Record<string, string | string[] | undefined>): string {
+  const one = (v: string | string[] | undefined): string | undefined => (Array.isArray(v) ? v[0] : v)?.trim();
+  const raw = one(headers["x-dominusnode-error"]);
+  const code = raw && /^[A-Z0-9_]{1,64}$/.test(raw) ? raw : undefined;
+  const ra = one(headers["retry-after"]);
+  const retry = ra && /^\d{1,6}$/.test(ra) ? ` (retry after ${ra}s)` : "";
+  return `CONNECT tunnel failed with status ${status ?? 0}${code ? `: ${code}` : ""}${retry}`;
+}
+
 export function gatewayEcdhCurve(): string {
   if (gatewayCurve !== null) return gatewayCurve;
   try {
@@ -524,7 +539,7 @@ function httpsProxyFetch(
       if (_res.statusCode !== 200) {
         clearTimeout(timer);
         tunnelSocket.destroy();
-        reject(new Error(`CONNECT tunnel failed with status ${_res.statusCode}`));
+        reject(new Error(connectFailureMessage(_res.statusCode, _res.headers)));
         return;
       }
 

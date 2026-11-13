@@ -116,8 +116,14 @@ export function acceptCoordinatorDocument(
     throw new ConfigError(
       wanted.size > 0
         ? "coordinator fingerprint does not match --trust; refusing to connect"
-        : `not trusted yet: verify the fingerprint out of band, then rerun with --trust ${v.fingerprint}`,
+        : extra.length > 0
+          ? `not trusted yet: verify each fingerprint out of band (the signer and every additional key, e.g. a separate gateway's), then rerun with --trust ${[v.fingerprint, ...extra.map((k) => k.fingerprint)].join(",")}`
+          : `not trusted yet: verify the fingerprint out of band, then rerun with --trust ${v.fingerprint}`,
     );
+  }
+  const unconfirmed = extra.filter((k) => !wanted.has(k.fingerprint));
+  if (unconfirmed.length > 0) {
+    log(`warning: ${unconfirmed.length} additional coordinator key(s) not in --trust; if the gateway signs with one of them the tunnel is refused (COORD_SIGNATURE). Add after verifying: ${unconfirmed.map((k) => k.fingerprint).join(",")}`);
   }
   // Only keys the operator confirmed by fingerprint become tunnel pins.
   const confirmed = [v.signerPublicKey, ...extra.filter((k) => wanted.has(k.fingerprint)).map((k) => k.public_key.toLowerCase())];

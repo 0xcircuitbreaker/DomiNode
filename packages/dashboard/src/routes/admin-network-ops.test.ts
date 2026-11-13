@@ -160,6 +160,22 @@ describe("admin network ops", () => {
       expect(txSqls().some((x) => x.startsWith("UPDATE nodes"))).toBe(false);
     });
 
+    it("clear-penalty: lifts a revoked-while-quarantined penalty with an audit row", async () => {
+      tx((sql) => sql.includes("FROM nodes WHERE id") ? { rows: [{ status: "revoked", revoked_from_status: "quarantined" }] } : undefined);
+      const r = await call(app(), "POST", `${BASE}/nodes/${NODE}/clear-penalty`, { body: { reason: "false-positive probe quarantine" } });
+      expect(r.status).toBe(200);
+      const s = txSqls();
+      expect(s.some((x) => x.includes("SET revoked_from_status = NULL"))).toBe(true);
+      const iAudit = s.findIndex((x) => x.includes("audit_events"));
+      expect((m.clientQuery.mock.calls[iAudit][1] as unknown[])[1]).toBe("node_penalty_clear");
+    });
+
+    it("clear-penalty: 409 without a penalty, 400 without a reason", async () => {
+      tx((sql) => sql.includes("FROM nodes WHERE id") ? { rows: [{ status: "revoked", revoked_from_status: "active" }] } : undefined);
+      expect((await call(app(), "POST", `${BASE}/nodes/${NODE}/clear-penalty`, { body: { reason: "x" } })).status).toBe(409);
+      expect((await call(app(), "POST", `${BASE}/nodes/${NODE}/clear-penalty`, { body: {} })).status).toBe(400);
+    });
+
     it("refuses to activate a node whose owner is suspended", async () => {
       tx((sql) => sql.includes("FROM nodes n") ? { rows: [{ status: "quarantined", owner_status: "suspended" }] } : undefined);
       expect((await call(app(), "POST", `${BASE}/nodes/${NODE}/activate`, { body: {} })).status).toBe(409);
@@ -294,11 +310,18 @@ describe("admin network ops", () => {
       expect(txSqls().some((s) => s.includes("FOR UPDATE"))).toBe(true);
     });
 
-    it("resolved_node keeps the charge held", async () => {
-      tx((sql) => sql.includes("FROM byte_disputes WHERE id") ? { rows: [{ status: "open", relay_charge_id: "c1", node_id: NODE }] } : undefined);
+    it("resolved_node re-splits the held charge and then releases it (no longer stuck forever)", async () => {
+      tx((sql) => {
+        if (sql.includes("FROM byte_disputes WHERE id")) return { rows: [{ status: "open", relay_charge_id: "c1", node_id: NODE }] };
+        if (sql.includes("FROM relay_charges rc WHERE rc.id")) return { rows: [{ gross: "5000", node: "1250", discount: "0", list: null, bg: "1000", bn: null, rail: "wallet", requester: "r1", owner: "o1" }] };
+        if (sql.includes("COUNT(*)")) return { rows: [{ n: "0" }] };
+        return undefined;
+      });
       const r = await call(app(), "POST", `${BASE}/disputes/1/resolve`, { body: { resolution: "resolved_node" } });
-      expect(r.body["chargeReleased"]).toBe(false);
-      expect(txSqls().some((s) => s.includes("UPDATE relay_charges"))).toBe(false);
+      expect(r.status).toBe(200);
+      expect(r.body["chargeReleased"]).toBe(true);
+      expect(txSqls().some((s) => s.includes("FROM relay_charges rc WHERE rc.id = $1 FOR UPDATE"))).toBe(true);
+      expect(txSqls().some((s) => s.includes("UPDATE relay_charges SET disputed = false"))).toBe(true);
     });
 
     it("validates and 409s on already-resolved disputes", async () => {

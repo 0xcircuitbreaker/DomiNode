@@ -185,6 +185,7 @@ Reputation is stored as a current score (`node.reputation`) plus per-target coun
 | `POST /nodes/:id/quarantine` | `{ reason: string }` (required, 1–500 printable chars) | pending, active, cooldown, suspended | quarantined |
 | `POST /nodes/:id/activate` | `{ reason?: string }` | pending, cooldown, quarantined, suspended (owner must be `active`) | active |
 | `POST /nodes/:id/revoke` | `{ reason: string }` (required) | any non-revoked (terminal) | revoked |
+| `POST /nodes/:id/clear-penalty` | `{ reason: string }` (required) | revoked by its owner while quarantined or suspended | revoked (penalty cleared) |
 
 Response `200`:
 ```ts
@@ -192,6 +193,11 @@ Response `200`:
 ```
 `changed: false` when already in the target status (no audit row). Invalid transition or inactive owner → `409`. Unknown node → `404`.
 Audit actions: `node_quarantine`, `node_activate`, `node_revoke` (details `{ from, to, reason }`).
+`clear-penalty` clears `nodes.revoked_from_status`, so the node no longer blocks
+its owner's registrations (`NODE_PENALTY_ACTIVE`); use it after a false-positive
+quarantine. Response `{ nodeId, status: "revoked", previousRevokedFrom, changed: true }`;
+`409` when the node carries no revocation penalty. Audit action
+`node_penalty_clear` (details `{ revokedFrom, reason }`).
 Gateway effect: each gateway's `node-status-sync` job (every 30 s, `NODE_STATUS_SYNC_INTERVAL_MS`) stops routing to any node not `active` and closes the tunnel of revoked, suspended or deleted nodes. Quarantined nodes stay connected but get no traffic.
 
 ## 4. Agents
@@ -308,9 +314,9 @@ Params: `status` (DisputeStatus), `nodeId` (UUID), `limit`, `offset`. Newest fir
 
 Body `{ resolution: "resolved_gateway" | "resolved_node" | "dismissed"; reason?: string (≤500) }`. Only `open` disputes (`409` otherwise, `404` unknown).
 - `resolved_gateway` / `dismissed`: the linked charge's `disputed` flag is cleared (if no other open dispute on it), so its node share can mature.
-- `resolved_node`: the charge stays held (`disputed`) for a manual clawback or adjustment.
+- `resolved_node`: in the same transaction the charge is re-split at the node's (lower) byte count: gross, node share, platform share and discount scale by `bytes_node / bytes_gateway` (floored); the node share difference is clawed back from the owner's pending credit; the requester gets the gross difference back in whole cents on the personal-wallet rail (over the $10,000 cap: `wallet_overflow_credits`; other rails: reported as `unrefundedMusd` for a manual refund). The charge is then released like `resolved_gateway`.
 
-Response: `{ id: string; status: string; relayChargeId: string | null; chargeReleased: boolean }`. Audit: `byte_dispute_resolve`.
+Response: `{ id: string; status: string; relayChargeId: string | null; chargeReleased: boolean; adjustment: { grossBefore, grossAfter, nodeClawbackMusd, refundCents, overflowCents, unrefundedMusd } | null }`. Audit: `byte_dispute_resolve`.
 
 ## 8. `GET /abuse-log`
 
@@ -362,7 +368,7 @@ Heartbeats come from the `job_runs` table, upserted by the gateway job runner af
 | `from`, `to` | ISO | |
 | `limit`, `offset` | | |
 
-Actions: `node_credit_unfreeze`, `node_credit_freeze`, `node_quarantine`, `node_activate`, `node_revoke`, `node_payout_reverse`, `byte_dispute_resolve`, `relay_abuse_log_access`, `network_policy_publish`, `network_pricing_update`, `revenue_split_append`, `node_tier_update`, `node_credit_auto_freeze` (written by the collusion job, `adminUserId` null), `collusion_flag_dismiss`, `collusion_flag_confirm`, `collusion_settings_update`, plus the legacy `/api/admin` actions listed in section 15.
+Actions: `node_credit_unfreeze`, `node_credit_freeze`, `node_quarantine`, `node_activate`, `node_revoke`, `node_penalty_clear`, `node_payout_reverse`, `byte_dispute_resolve`, `relay_abuse_log_access`, `network_policy_publish`, `network_pricing_update`, `revenue_split_append`, `node_tier_update`, `node_credit_auto_freeze` (written by the collusion job, `adminUserId` null), `collusion_flag_dismiss`, `collusion_flag_confirm`, `collusion_settings_update`, plus the legacy `/api/admin` actions listed in section 15.
 
 ```ts
 { limit; offset; total;
@@ -429,10 +435,16 @@ All mutations re-check the admin role `FOR UPDATE` in one transaction and write 
 | `GET /starter-credits/grants?status=&userId=&limit=&offset=` | Grants with remaining amount, /24 prefix and expiry. |
 | `POST /starter-credits/grants/:id/revoke {reason}` | Closes an active grant and removes the unused remainder from the wallet, never below 0 (`starter_credit_revoke`). |
 
+### Referrals
+
+| Endpoint | Notes |
+|---|---|
+| `GET /referrals/settings` / `PUT /referrals/settings` | `redemptionEnabled` (default false). When on, a referral code given at signup is recorded (redemption row + affiliate link) and no signup bonus is credited to either side. The affiliate link does pay the referrer a commission on the referee's later paid top-ups (`recordAffiliateCommission`, a share of money actually paid in). Free credit comes only from starter credits (`referral_settings_update`). |
+
 ### Genesis boost and buyer discounts
 | Endpoint | Notes |
 |---|---|
-| `GET /genesis/settings` / `PUT /genesis/settings` | `enabled`, `maxOwners` (0–100000), `bonusBps` (0–5000), `boostDays` (1–3650), `creditMusd` (0–1e9), `creditThresholdBytes`, `minDistinctPayers` (1–1000, default 3: distinct unlinked paying principals required to enter the cohort) (`genesis_settings_update`). |
+| `GET /genesis/settings` / `PUT /genesis/settings` | `enabled`, `maxOwners` (0–100000), `bonusBps` (0–5000), `boostDays` (1–3650), `creditMusd` (0–1e9), `creditThresholdBytes`, `minDistinctPayers` (1–1000, default 3: distinct unlinked paying principals required to enter the cohort), `minPayerSpendMusd` (default 1000000: paid spend each of those payers needs), `creditThresholdNodeMusd` (default 10000000: matured node earnings from qualifying payers needed for the credit). Seeded `enabled: false` (`genesis_settings_update`). |
 | `GET /genesis/members?limit=&offset=` | Cohort in enrolment order with `boostUntil`, `creditStatus` (`pending|held|matured|clawed_back`) and qualifying matured bytes. |
 | `POST /genesis/members/:userId/clawback {reason}` | Claws back a still-held genesis credit from pending (`genesis_credit_clawback`). |
 | `GET /buyer-discounts/settings` / `PUT /buyer-discounts/settings` | `enabled`, `minPlatformMarginBps` (0–10000, default 2500) (`buyer_discount_settings_update`). |

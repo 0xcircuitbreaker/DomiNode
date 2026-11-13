@@ -236,27 +236,50 @@ export async function getBuyerDiscount(requesterUserId: string): Promise<BuyerDi
   return { buyerTierId: row.tier_id, buyerDiscountBps: Math.max(0, Math.min(5000, row.buyer_discount_bps ?? 0)), minPlatformMarginBps: margin };
 }
 
+/** A tenure day needs at least 1 MB (decimal) of qualifying paid traffic (ECONOMICS §2). */
+export const TENURE_MIN_DAY_BYTES = 1_000_000;
+
 /**
- * Gather tier inputs for one owner. Only matured, undisputed paid traffic
- * from other principals counts. Uptime comes from the caller (health job).
+ * Gather tier inputs for one owner. Tenure counts only matured, undisputed paid
+ * traffic from other principals; active IPs count earning, undisputed traffic
+ * from unlinked principals in the last 7 days. Uptime comes from the caller (health job).
  */
 export async function getOwnerTierStats(userId: string, uptimeBps: number): Promise<OwnerTierStats> {
   const r = await query<{ tenure_days: string; active_ips_weight_bps: string; reputation: string | null; last_clawback_days: string | null }>(
     `SELECT
-       (SELECT COUNT(DISTINCT created_at::date) FROM relay_charges
-         WHERE node_owner_user_id = $1 AND matured AND NOT disputed AND node_musd > 0 AND starter_musd = 0
-           AND requester_user_id IS DISTINCT FROM $1) AS tenure_days,
+       -- Paid tenure (ECONOMICS §2): days on which other principals' matured,
+       -- earning traffic totalled at least 1 MB (TENURE_MIN_DAY_BYTES).
+       (SELECT COUNT(*) FROM (
+          SELECT created_at::date FROM relay_charges
+          WHERE node_owner_user_id = $1 AND matured AND NOT disputed AND node_musd > 0 AND starter_musd = 0
+            AND zero_reason IS NULL AND requester_user_id IS DISTINCT FROM $1
+          GROUP BY created_at::date HAVING SUM(bytes_gateway) >= ${TENURE_MIN_DAY_BYTES}) d) AS tenure_days,
        -- Class-weighted active IPs: per IP the lowest snapshotted weight
-       -- (pre-feature rows: the node's current class weight, else the lowest).
+       -- (pre-feature rows: the node's current class weight, else the lowest),
+       -- capped by the current verified class of the nodes on that IP so a
+       -- node re-classified masked mid-window loses its residential credit.
+       -- Counts only earning traffic (node_musd > 0, no zero_reason: not
+       -- self-dealing, quarantined or collusion-held) from requesters that
+       -- share no team with the owner. Not filtered on matured: the 7-day
+       -- window is shorter than the 14-day Probation hold, so a matured filter
+       -- would make the active-IP rule unreachable; disputes still drop out.
        (SELECT COALESCE(SUM(w), 0) FROM (
-          SELECT MIN(COALESCE(rc.tier_weight_bps,
-                   (SELECT np.tier_weight_bps FROM network_pricing np WHERE np.ip_class = n.ip_class),
-                   (SELECT MIN(np.tier_weight_bps) FROM network_pricing np WHERE np.ip_class <> 'any'),
-                   0)) AS w
+          SELECT LEAST(
+                   MIN(COALESCE(rc.tier_weight_bps,
+                     (SELECT np.tier_weight_bps FROM network_pricing np WHERE np.ip_class = n.ip_class),
+                     (SELECT MIN(np.tier_weight_bps) FROM network_pricing np WHERE np.ip_class <> 'any'),
+                     0)),
+                   MIN(COALESCE(
+                     (SELECT np.tier_weight_bps FROM network_pricing np WHERE np.ip_class = n.ip_class),
+                     (SELECT MIN(np.tier_weight_bps) FROM network_pricing np WHERE np.ip_class <> 'any'),
+                     0))) AS w
           FROM relay_charges rc JOIN nodes n ON n.id = rc.node_id
           WHERE rc.node_owner_user_id = $1 AND rc.created_at >= now() - interval '7 days'
+            AND rc.node_musd > 0 AND rc.zero_reason IS NULL
             AND rc.gross_musd > 0 AND rc.starter_musd = 0 AND NOT rc.disputed AND n.observed_ip IS NOT NULL
             AND rc.requester_user_id IS DISTINCT FROM $1
+            AND NOT EXISTS (SELECT 1 FROM team_members a JOIN team_members b ON b.team_id = a.team_id
+                            WHERE a.user_id = rc.requester_user_id AND b.user_id = $1)
           GROUP BY n.observed_ip HAVING COUNT(DISTINCT rc.requester_user_id) >= 3) ips) AS active_ips_weight_bps,
        (SELECT AVG(GREATEST(0, reputation - report_penalty))::int FROM nodes WHERE owner_user_id = $1 AND status = 'active') AS reputation,
        (SELECT EXTRACT(DAY FROM now() - MAX(created_at))::int FROM node_credit_transactions
@@ -315,15 +338,20 @@ export async function listTierOwners(afterUserId: string | null, limit = 1000): 
 }
 
 /**
- * 30-day uptime approximation in basis points: share of the last 30 days on
- * which at least one of the owner's nodes carried a stream (node_daily_stats).
+ * 30-day uptime in basis points, measured by the gateway from tunnel
+ * liveness (ECONOMICS.md rule 3): for each of the last 30 days, the longest
+ * time any of the owner's nodes had its tunnel open (node_daily_stats
+ * .online_seconds, capped at a day), summed and divided by 30 days.
  */
 export async function getOwnerUptimeBps(userId: string): Promise<number> {
-  const r = await query<{ days: string }>(
-    `SELECT COUNT(DISTINCT s.day) AS days FROM node_daily_stats s JOIN nodes n ON n.id = s.node_id
-     WHERE n.owner_user_id = $1 AND s.day > current_date - 30 AND s.streams > 0`,
+  const r = await query<{ seconds: string | null }>(
+    `SELECT SUM(d.best) AS seconds FROM (
+       SELECT s.day, MAX(LEAST(s.online_seconds, 86400)) AS best
+       FROM node_daily_stats s JOIN nodes n ON n.id = s.node_id
+       WHERE n.owner_user_id = $1 AND s.day > current_date - 30
+       GROUP BY s.day) d`,
     [userId],
   );
-  const days = Math.min(30, Math.max(0, Number(r.rows[0]?.days ?? 0)));
-  return Math.round((days * 10_000) / 30);
+  const secs = Math.min(30 * 86_400, Math.max(0, Number(r.rows[0]?.seconds ?? 0) || 0));
+  return Math.round((secs * 10_000) / (30 * 86_400));
 }

@@ -37,6 +37,7 @@ These rules apply to ALL code changes across the DomiNode codebase.
 - Shell scripts: pass API keys via env var, NOT command-line arguments
 - Log redaction: only show 8 chars of API key prefix
 - .env.example files: NEVER include real email addresses
+- NEVER put an operator's personal hardware, hostnames, IPs or machine names in code, docs, commit messages or branch names (use example.org, 10.66.0.x-style placeholders and role names like "coordinator" / "gateway VPS")
 
 ## Prototype Pollution
 

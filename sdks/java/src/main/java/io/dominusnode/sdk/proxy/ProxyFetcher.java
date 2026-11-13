@@ -117,7 +117,7 @@ public final class ProxyFetcher {
                 out.flush();
                 // Unbuffered read so no tunnel bytes are consumed before the inner TLS starts.
                 Head head = readHead(gw.getInputStream(), deadline);
-                if (head.status != 200) throw new ProxyException("Proxy refused CONNECT (HTTP " + head.status + ")", head.status);
+                if (head.status != 200) throw connectRefused(head);
                 String sni = host.startsWith("[") ? host.substring(1, host.length() - 1) : host;
                 // Inner TLS rides the tunnel socket; the target is never dialled directly.
                 sock = layerTls((SSLSocketFactory) SSLSocketFactory.getDefault(), gw, sni, port, timeoutMs);
@@ -147,6 +147,19 @@ public final class ProxyFetcher {
             if (System.currentTimeMillis() > deadline) throw new ProxyException("Proxy request timed out after " + timeoutMs + "ms");
             throw new ProxyException("Proxy request failed: " + e.getMessage());
         }
+    }
+
+    private static final java.util.regex.Pattern RELAY_CODE = java.util.regex.Pattern.compile("^[A-Z0-9_]{1,64}$");
+
+    /** ProxyException for a non-200 CONNECT with the gateway's X-DominusNode-Error code and Retry-After. */
+    private static ProxyException connectRefused(Head head) {
+        String raw = head.headers.get("x-dominusnode-error");
+        String code = raw != null && RELAY_CODE.matcher(raw).matches() ? raw : null;
+        Integer retryAfter = null;
+        String ra = head.headers.get("retry-after");
+        if (ra != null && ra.matches("^\\d{1,6}$")) retryAfter = Integer.valueOf(ra);
+        return new ProxyException("Proxy refused CONNECT (HTTP " + head.status + ")" + (code != null ? ": " + code : ""),
+                head.status, code, retryAfter);
     }
 
     private static final class Head {

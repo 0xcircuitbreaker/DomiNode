@@ -16,7 +16,9 @@ export interface DominusNodeConfig {
   /**
    * Talk TLS to the gateway (HTTPS proxy listener, PROXY_TLS_PORT): the API key in
    * Proxy-Authorization is encrypted on the wire. `true` uses port 8443 and the
-   * system CA roots. When set, proxy.fetch() and proxy.buildUrl() prefer it.
+   * system CA roots. Default (2.2+): on, port 8443 (self-hosted coordinators
+   * usually publish 8444: pass `{ port: 8444 }`). Pass `false` for plaintext
+   * 8080/1080 (local dev only; production gateways refuse credentials there).
    */
   gatewayTls?: boolean | GatewayTlsConfig;
   /** Connect immediately with an existing JWT pair (e.g. from walletAuth.verify()). */

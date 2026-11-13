@@ -33,13 +33,14 @@ afterEach(async () => {
   server = null;
 });
 
-async function start(opts: { policy?: Partial<ActivePolicy["body"]>; geo?: GeoInfo | null; heartbeatMs?: number; deadline?: number; activate?: (id: string) => Promise<boolean>; coordSign?: (m: Buffer) => string; claimIpSlot?: (s: { nodeId: string }) => Promise<boolean>; releaseIpSlot?: (nodeId: string) => Promise<void>; recordVerifiedClass?: (id: string, c: string) => Promise<unknown>; defer?: boolean; onReady?: (id: string) => void; markOnlineClass?: (c: unknown) => void } = {}) {
+async function start(opts: { policy?: Partial<ActivePolicy["body"]>; geo?: GeoInfo | null; heartbeatMs?: number; deadline?: number; activate?: (id: string) => Promise<boolean>; coordSign?: (m: Buffer) => string; claimIpSlot?: (s: { nodeId: string }) => Promise<boolean>; releaseIpSlot?: (nodeId: string) => Promise<void>; recordVerifiedClass?: (id: string, c: string) => Promise<unknown>; defer?: boolean | (() => boolean); onReady?: (id: string) => void; markOnlineClass?: (c: unknown) => void; prefixHist?: () => Promise<string[]> } = {}) {
   const policy: ActivePolicy = { version: 3, sha256: "f".repeat(64), body: { ...DEFAULT_POLICY, ...opts.policy }, createdAt: null };
   const online: string[] = [];
   const offline: string[] = [];
   const registry = new NodeRegistry();
   server = new NodeTunnelServer(registry, {
     getNodeForTunnelAuth: async (h) => NODES[h] ?? null,
+    ownerPrefixProbeClasses: opts.prefixHist as never,
     markOnline: async (id, ip, _cc, _asn, cls) => { online.push(`${id}@${ip}`); opts.markOnlineClass?.(cls); return true; },
     ...(opts.onReady ? { onNodeReady: (l: { nodeId: string }) => opts.onReady!(l.nodeId) } : {}),
     markOffline: async (id) => { offline.push(id); return true; },
@@ -340,6 +341,33 @@ describe("NodeTunnelServer", () => {
     expect(c.frames.filter((f) => f.type === FrameType.PING).length).toBe(3);
   });
 
+  it("a PONG that answers no PING we sent does not count as liveness", async () => {
+    const { port } = await start({ heartbeatMs: 30 });
+    const c = connect(port);
+    await c.opened;
+    c.send(FrameType.HELLO, 0, hello());
+    await c.waitFor(FrameType.AUTH_OK);
+    const t = setInterval(() => { try { c.send(FrameType.PONG, 0, { seq: 987654 }); } catch { /* closed */ } }, 5);
+    try {
+      expect(await c.closed).toBe(1001);
+    } finally { clearInterval(t); }
+  });
+
+  it("closes a tunnel whose send queue exceeds maxStreams x window (node not reading)", async () => {
+    const { port, registry } = await start();
+    const c = connect(port);
+    await c.opened;
+    c.send(FrameType.HELLO, 0, hello());
+    await c.waitFor(FrameType.AUTH_OK);
+    const live = registry.get(NODES[hashNodeKey(KEY_A)]!.id)!;
+    const tunnel = live.tunnel as unknown as { ws: WebSocket; sendBufferCap: number; sendControl(t: FrameType, o: Record<string, unknown>): void; isOpen: boolean };
+    expect(tunnel.sendBufferCap).toBe((8 + 1) * 256 * 1024 + 1024 * 1024);
+    Object.defineProperty(tunnel.ws, "bufferedAmount", { get: () => tunnel.sendBufferCap, configurable: true });
+    tunnel.sendControl(FrameType.DRAIN, {});
+    expect(tunnel.isOpen).toBe(false);
+    expect(await c.closed).toBe(1008);
+  });
+
   it("pushes policy updates to ready tunnels", async () => {
     const { port } = await start();
     const c = connect(port);
@@ -378,6 +406,51 @@ describe("NodeTunnelServer", () => {
     const id = NODES[hashNodeKey(KEY_A)]!.id;
     expect(registry.get(id)?.ipClass).toBe("unknown");
     expect(registry.get(id)?.peerClass).toBe("residential");
+    expect(registry.get(id)?.probePending).toBe(true);
     expect(ready).toEqual([id]);
+  });
+
+  it("a revoked sibling's masked probe verdict on the same prefix carries over to a new node", async () => {
+    const classes: unknown[] = [];
+    const { port, registry } = await start({ geo: { country: "US", asn: 7922, ipClass: "residential" }, prefixHist: async () => ["masked"], markOnlineClass: (c) => classes.push(c) });
+    const c = connect(port);
+    await c.opened;
+    c.send(FrameType.HELLO, 0, hello());
+    await c.waitFor(FrameType.AUTH_OK);
+    expect(registry.get(NODES[hashNodeKey(KEY_A)]!.id)?.ipClass).toBe("masked");
+    expect(classes).toEqual(["masked"]);
+  });
+
+  it("with probes enabled a known masked peer stays masked (never unknown) until probed", async () => {
+    const { port, registry } = await start({ geo: { country: "US", asn: 13335, ipClass: "masked" }, defer: true });
+    const c = connect(port);
+    await c.opened;
+    c.send(FrameType.HELLO, 0, hello());
+    await c.waitFor(FrameType.AUTH_OK);
+    const id = NODES[hashNodeKey(KEY_A)]!.id;
+    expect(registry.get(id)?.ipClass).toBe("masked");
+    expect(registry.get(id)?.probePending).toBe(true);
+  });
+  it("with probes enabled an owner+prefix masked verdict is kept as connectClass for the first probe", async () => {
+    const { port, registry } = await start({ geo: { country: "US", asn: 7922, ipClass: "residential" }, defer: true, prefixHist: async () => ["masked"] });
+    const c = connect(port);
+    await c.opened;
+    c.send(FrameType.HELLO, 0, hello());
+    await c.waitFor(FrameType.AUTH_OK);
+    const live = registry.get(NODES[hashNodeKey(KEY_A)]!.id)!;
+    expect(live.peerClass).toBe("residential");
+    expect(live.connectClass).toBe("masked");
+    expect(live.ipClass).toBe("masked");
+  });
+
+  it("a deferral callback returning false (echo self-check failing) does not hold the node pending", async () => {
+    const { port, registry } = await start({ geo: { country: "US", asn: 7922, ipClass: "residential" }, defer: () => false });
+    const c = connect(port);
+    await c.opened;
+    c.send(FrameType.HELLO, 0, hello());
+    await c.waitFor(FrameType.AUTH_OK);
+    const live = registry.get(NODES[hashNodeKey(KEY_A)]!.id)!;
+    expect(live.probePending).toBe(false);
+    expect(live.ipClass).toBe("residential");
   });
 });

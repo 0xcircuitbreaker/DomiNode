@@ -25,7 +25,7 @@ Auth: `Authorization: Bearer <dn_live_ key | wallet JWT>`. Team keys, `dn_node_`
 | `GET /v1/node/tier` | Current tier (with `buyerDiscountBps`), next tier, progress, demotion reason |
 | `GET /v1/credits`, `GET /v1/credits/transactions` | Pending and available credit, your current `buyerDiscountBps`, ledger |
 | `GET /v1/starter-credits` | Starter-credit program terms and your grant, if the operator enabled the program |
-| `POST /v1/credits/convert` | Credit into your own requester wallet (`Idempotency-Key` required) |
+| `POST /v1/credits/convert/challenge`, `POST /v1/credits/convert` | Credit into your own requester wallet: `Idempotency-Key` required and an EIP-191 wallet signature (get the challenge with the same key and amount, sign it, send `{amountMusd, nonce, signature}`; unsigned calls get `400 SIGNATURE_REQUIRED`) |
 | `GET/PUT /v1/payout-wallet`, `POST /v1/payout-wallet/challenge` | USDC payout address on Base (EIP-191 signed, 72 h cooldown on change) |
 | `POST /v1/credits/withdraw/challenge`, `POST /v1/credits/withdraw` | On-demand USDC payout (min $1) when payouts are enabled |
 | `GET /v1/payouts` | Payout history with tx hashes |

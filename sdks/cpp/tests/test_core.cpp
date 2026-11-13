@@ -218,6 +218,7 @@ TEST(config_validation) {
     CHECK_EQ(def.proxy_host, std::string("proxy.dominusnode.com"));
     CHECK_EQ(def.http_proxy_port, 8080);
     CHECK_EQ(def.socks5_proxy_port, 1080);
+    CHECK(def.gateway_tls.has_value() && def.gateway_tls->port == 8443);  // 2.2: TLS default
     auto mk = [](ClientConfig c) { c.transport = [](const HttpRequest&) { return HttpResponse{200, {}, "{}"}; }; DominusNodeClient x(c); };
     { ClientConfig c; c.base_url = "ftp://x"; CHECK_INVALID(mk(c)); }
     { ClientConfig c; c.base_url = "https://user:pw@x"; CHECK_INVALID(mk(c)); }

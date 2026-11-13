@@ -343,13 +343,12 @@ else
   fail "MCP server binary" "Not found — run: npm run build"
 fi
 
-# Verify MCP config exists
-MCP_JSON="packages/mcp-server/mcp-server.json"
+# Verify the MCP registry manifest exists (server.json, registry schema)
+MCP_JSON="packages/mcp-server/server.json"
 if [ -f "$MCP_JSON" ]; then
-  TOOL_COUNT=$(grep -c '"name"' "$MCP_JSON" 2>/dev/null || echo 0)
-  pass "MCP server config → ${TOOL_COUNT} tools defined"
+  pass "MCP registry manifest present (${MCP_JSON})"
 else
-  fail "MCP config" "mcp-server.json not found"
+  fail "MCP manifest" "server.json not found"
 fi
 
 # ─── Phase 11: SDK Integration Check ───────────────────────────────

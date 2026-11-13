@@ -7,7 +7,7 @@ vi.mock("../../api/admin", async (orig) => {
   const actual = await orig<typeof import("../../api/admin")>();
   return { ...actual, collusionApi: { flags: vi.fn(), resolve: vi.fn(), settings: vi.fn(), updateSettings: vi.fn() } };
 });
-import { collusionApi } from "../../api/admin";
+import { collusionApi, COLLUSION_KINDS } from "../../api/admin";
 import CollusionPage, { parseCollusionDraft } from "./CollusionPage";
 
 const api = vi.mocked(collusionApi);
@@ -28,6 +28,10 @@ beforeEach(() => {
 });
 
 describe("CollusionPage", () => {
+  it("offers every flag kind the API accepts as a filter (incl. report_penalty, egress_mismatch)", () => {
+    expect([...COLLUSION_KINDS]).toEqual(["concentration", "cluster", "circular", "report_penalty", "egress_mismatch"]);
+  });
+
   it("lists flags and settings", async () => {
     renderPage(<CollusionPage />);
     expect(await screen.findByText("concentration")).toBeInTheDocument();

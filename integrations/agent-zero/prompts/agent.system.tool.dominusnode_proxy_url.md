@@ -6,7 +6,7 @@ args:
 - ip_class (string, optional): Exit IP class. Each class has its own per-GB price (see network_pricing); masked = cheapest, VPN/anonymizer exits, opt-in. one of: residential, dc, mobile, masked.
 - session_id (string, optional): Sticky session id (1-64 alphanumeric) to keep the same exit IP.
 - allow_http (boolean, optional): Opt in to plaintext http:// targets. Plaintext is visible to the exit node; prefer https.
-- protocol (string, optional): Proxy protocol. one of: http, socks5.
+- protocol (string, optional): https (default: TLS to the gateway), socks5, or http (plaintext gateway; local dev only). one of: https, socks5, http.
 usage:
 ~~~json
 {

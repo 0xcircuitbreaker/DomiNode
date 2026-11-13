@@ -96,6 +96,10 @@ public:
 class ProxyError : public DominusNodeError {
 public:
     explicit ProxyError(const std::string& m, std::optional<int> status = std::nullopt) : DominusNodeError(m, status) {}
+    /// Refused CONNECT (2.2): code() = X-DominusNode-Error, details()["retryAfter"] = Retry-After seconds.
+    ProxyError(const std::string& m, std::optional<int> status, std::optional<std::string> code,
+               std::map<std::string, nlohmann::json> details)
+        : DominusNodeError(m, status, std::move(code), std::move(details)) {}
 };
 
 /// Client-side argument validation failure (no request sent).

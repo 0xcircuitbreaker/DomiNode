@@ -37,7 +37,7 @@ export interface CollusionSettings {
 
 export const DEFAULT_COLLUSION_SETTINGS: CollusionSettings = {
   windowDays: 30,
-  minNodeVolumeMusd: 5_000_000n,
+  minNodeVolumeMusd: 1_000_000n,
   concentrationBps: 8000,
   clusterSize: 3,
   clusterBps: 9500,

@@ -4,7 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { Wallet, verifyMessage } from "ethers";
-import { registerCreditsTools, payoutWalletMessage, withdrawMessage } from "../../src/tools/credits.js";
+import { registerCreditsTools, payoutWalletMessage, withdrawMessage, convertMessage } from "../../src/tools/credits.js";
 import type { McpConfig } from "../../src/config.js";
 import { callTool, jsonResponse, makeHttpClient } from "../helpers/mock.js";
 
@@ -81,13 +81,28 @@ describe("credits tools", () => {
     expect((calls[0].init.headers as Record<string, string>)["Authorization"]).toBe(`Bearer ${API_KEY}`);
   });
 
-  it("credits_convert sends Idempotency-Key header", async () => {
+  it("credits_convert signs the locally rebuilt conversion message and sends Idempotency-Key", async () => {
     const server = await setup();
-    const calls = route(() => jsonResponse({ converted: { musd: "10000", usd: "0.010000" }, convertedCents: 1, duplicate: false }));
+    const calls = route((url, _init, body) => {
+      if (url.endsWith("/convert/challenge")) {
+        return jsonResponse({ nonce: NONCE, message: convertMessage({ userId: USER, wallet: wallet.address.toLowerCase(), amountMusd: body["amountMusd"] as string, idempotencyKey: "my-key-0001", nonce: NONCE }) });
+      }
+      return jsonResponse({ converted: { musd: "10000", usd: "0.010000" }, convertedCents: 1, duplicate: false });
+    });
     const r = await callTool(server, "dominusnode_credits_convert", { amount_musd: "10000", idempotency_key: "my-key-0001" });
     expect(r.isError).toBeUndefined();
-    expect((calls[0].init.headers as Record<string, string>)["Idempotency-Key"]).toBe("my-key-0001");
-    expect(calls[0].body).toEqual({ amountMusd: "10000" });
+    expect((calls[1].init.headers as Record<string, string>)["Idempotency-Key"]).toBe("my-key-0001");
+    const msg = convertMessage({ userId: USER, wallet: wallet.address.toLowerCase(), amountMusd: "10000", idempotencyKey: "my-key-0001", nonce: NONCE });
+    expect(calls[1].body).toMatchObject({ amountMusd: "10000", nonce: NONCE });
+    expect(verifyMessage(msg, calls[1].body["signature"] as string).toLowerCase()).toBe(wallet.address.toLowerCase());
+  });
+
+  it("credits_convert refuses to sign a challenge for another amount", async () => {
+    const server = await setup();
+    const calls = route(() => jsonResponse({ nonce: NONCE, message: convertMessage({ userId: USER, wallet: wallet.address.toLowerCase(), amountMusd: "99990000", idempotencyKey: "my-key-0001", nonce: NONCE }) }));
+    const r = await callTool(server, "dominusnode_credits_convert", { amount_musd: "10000", idempotency_key: "my-key-0001" });
+    expect(r.isError).toBe(true);
+    expect(calls).toHaveLength(1);
   });
 
   it("credits_convert and credits_withdraw put the idempotency key in error output", async () => {

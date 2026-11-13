@@ -53,6 +53,6 @@ def create_dominusnode_function_handler(
     return handler
 
 
-__version__ = "2.1.0"
+__version__ = "2.2.0"
 __all__ = ["create_dominusnode_function_handler", "function_declarations", "to_declaration", "DominusNodeTools",
            "TOOL_NAMES", "__version__"]

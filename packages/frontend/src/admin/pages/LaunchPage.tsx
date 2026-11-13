@@ -173,6 +173,8 @@ const GENESIS_FIELDS: FieldDef[] = [
   { key: "creditUsd", label: "One-time credit (USD)", kind: "usd" },
   { key: "creditThresholdBytes", label: "Credit after matured paid bytes", kind: "digits" },
   { key: "minDistinctPayers", label: "Distinct unlinked paying principals to enter", kind: "int" },
+  { key: "minPayerSpendMusd", label: "Paid spend each payer needs (µUSD)", kind: "digits" },
+  { key: "creditThresholdNodeMusd", label: "Credit after matured node earnings (µUSD)", kind: "digits" },
 ];
 
 export function genesisCurrent(g: GenesisSettings): Record<string, string | boolean> {
@@ -180,6 +182,7 @@ export function genesisCurrent(g: GenesisSettings): Record<string, string | bool
     enabled: g.enabled, maxOwners: String(g.maxOwners), bonusBps: String(g.bonusBps), boostDays: String(g.boostDays),
     creditUsd: g.credit.usd.replace(/0+$/, "").replace(/\.$/, ""), creditThresholdBytes: g.creditThresholdBytes,
     minDistinctPayers: String(g.minDistinctPayers ?? 3),
+    minPayerSpendMusd: g.minPayerSpendMusd ?? "1000000", creditThresholdNodeMusd: g.creditThresholdNodeMusd ?? "10000000",
   };
 }
 
@@ -213,7 +216,7 @@ function GenesisCard({ onMsg }: { onMsg: (m: string) => void }) {
       <ConfirmDialog open={claw !== null} title="Claw back genesis credit" confirmLabel="Claw back" danger reason="required"
         description="Removes the still-held one-time genesis credit from this owner."
         onClose={() => setClaw(null)}
-        onConfirm={async (reason) => { const r = await launchApi.genesisClawback(claw!, reason); setClaw(null); onMsg(`Genesis credit clawed back; ${fmtMoney(r.amount)} removed.`); members.refetch(); }} />
+        onConfirm={async (reason) => { const r = await launchApi.clawbackGenesis(claw!, reason); setClaw(null); onMsg(`Genesis credit clawed back; ${fmtMoney(r.amount)} removed.`); members.refetch(); }} />
     </Card>
   );
 }

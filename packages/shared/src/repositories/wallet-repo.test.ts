@@ -366,16 +366,21 @@ describe("wallet-repo", () => {
   // ─── settleSession ─────────────────────────────────────────────────
 
   describe("settleSession", () => {
-    it("should throw (not silently drop refund) when refund would exceed balance cap", async () => {
+    it("refunds up to the cap and records the rest as an overflow credit (balance 999,990c, refund 50c -> 10c + 40c owed)", async () => {
       const wallet = { id: "w1", user_id: "u1", balance_cents: 999_990 };
+      mockClientQuery.mockResolvedValue({ rows: [] });
       mockClientQuery
         .mockResolvedValueOnce({}) // BEGIN
         .mockResolvedValueOnce({}) // SET LOCAL lock_timeout
-        .mockResolvedValueOnce({ rows: [wallet] }) // SELECT FOR UPDATE
-        .mockResolvedValueOnce({}); // ROLLBACK
-      await expect(settleSession("u1", 100, 50, "sess-12345678")).rejects.toThrow(/balance cap/);
-      expect(mockClientQuery).toHaveBeenCalledWith("ROLLBACK");
-      expect(mockClientQuery).not.toHaveBeenCalledWith("COMMIT");
+        .mockResolvedValueOnce({ rows: [wallet] }); // SELECT FOR UPDATE
+      expect(await settleSession("u1", 100, 50, "sess-12345678")).toBe(true);
+      const calls = mockClientQuery.mock.calls as Array<[string, unknown[]]>;
+      const overflow = calls.find(([q]) => q.includes("wallet_overflow_credits"))!;
+      expect(overflow[1].slice(0, 3)).toEqual(["u1", null, 40]);
+      const credit = calls.find(([q]) => q.includes("UPDATE wallets SET balance_cents = balance_cents + $1"))!;
+      expect(credit[1]).toEqual([10, "w1"]);
+      expect(mockClientQuery).toHaveBeenCalledWith("COMMIT");
+      mockClientQuery.mockReset();
     });
 
     it("should settle when actual cost equals reserved", async () => {
