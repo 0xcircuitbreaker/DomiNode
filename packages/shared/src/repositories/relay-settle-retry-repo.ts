@@ -32,6 +32,7 @@ export function encodeSettleInput(i: SettleRelayChargeInput): Record<string, unk
       nodeShareBps: i.snapshot.nodeShareBps, holdDays: i.snapshot.holdDays,
       genesisBonusBps: i.snapshot.genesisBonusBps ?? 0, buyerTierId: i.snapshot.buyerTierId ?? null,
       buyerDiscountBps: i.snapshot.buyerDiscountBps ?? 0, minPlatformMarginBps: i.snapshot.minPlatformMarginBps ?? 2500,
+      tierWeightBps: i.snapshot.tierWeightBps ?? null,
     },
     destHost: i.destHost, destPort: i.destPort, usageTargetHost: i.usageTargetHost ?? null,
     zeroReason: i.zeroReason ?? null, prepaidGrossMusd: big(i.prepaidGrossMusd),
@@ -81,6 +82,13 @@ export function decodeSettleInput(p: unknown): SettleRelayChargeInput {
     },
     destHost: str(o["destHost"]), destPort: int(o["destPort"]),
   };
+  // Snapshotted exit-class weight (ECONOMICS §1a); older payloads have none.
+  const tw = snap["tierWeightBps"];
+  if (tw !== undefined && tw !== null) {
+    const w = int(tw);
+    if (w > 10_000) throw new Error("invalid retry payload");
+    out.snapshot.tierWeightBps = w;
+  }
   if (o["usageTargetHost"] !== null && o["usageTargetHost"] !== undefined) out.usageTargetHost = str(o["usageTargetHost"]);
   if (o["zeroReason"] !== null && o["zeroReason"] !== undefined) out.zeroReason = str(o["zeroReason"]) as SettleRelayChargeInput["zeroReason"];
   if (o["prepaidGrossMusd"] !== null && o["prepaidGrossMusd"] !== undefined) out.prepaidGrossMusd = bigOf(o["prepaidGrossMusd"]);
