@@ -17,6 +17,7 @@ from .messages import (
     assert_same_message,
     build_attestation_message,
     build_payout_wallet_message,
+    build_convert_message,
     build_withdraw_message,
     extract_user_id,
 )
@@ -611,11 +612,21 @@ class _CreditsResource(_Base):
             raise invalid_arg(f"type must be one of {', '.join(CREDIT_TX_TYPES)}")
         return (yield _get(f"/v1/credits/transactions{qs({'limit': limit, 'cursor': cursor, 'type': type})}", "agent"))
 
-    def convert(self, amount_musd: Any, idempotency_key: Optional[str] = None) -> Gen:
-        """10,000 <= amount_musd <= 10,000,000,000. The key is echoed so callers can retry."""
+    def convert(self, amount_musd: Any, signer: Any, idempotency_key: Optional[str] = None) -> Gen:
+        """10,000 <= amount_musd <= 10,000,000,000. challenge -> rebuild message (refuse on mismatch)
+        -> linked wallet signs -> POST /v1/credits/convert. The key is echoed so callers can retry."""
+        assert_signer(signer)
         amount = to_musd(amount_musd, MIN_CONVERT_MUSD, MAX_CONVERT_MUSD)
         key = validate_idempotency_key(idempotency_key if idempotency_key is not None else new_idempotency_key())
-        r = yield _post("/v1/credits/convert", {"amountMusd": amount}, "agent", {"Idempotency-Key": key})
+        hdr = {"Idempotency-Key": key}
+        ch = yield _post("/v1/credits/convert/challenge", {"amountMusd": amount}, "agent", hdr)
+        _check_signed_challenge(ch, signer)
+        server_msg = ch.get("message")
+        local = build_convert_message(extract_user_id(str(server_msg)), signer.address, amount, key, ch["nonce"])
+        assert_same_message(server_msg, local, "credit conversion")
+        signature = yield from sign(signer, local)
+        body = {"amountMusd": amount, "nonce": ch["nonce"], "signature": signature}
+        r = yield _post("/v1/credits/convert", body, "agent", hdr)
         return {**r, "idempotencyKey": key}
 
     def withdraw(self, amount_musd: Any, signer: Any, idempotency_key: Optional[str] = None) -> Gen:

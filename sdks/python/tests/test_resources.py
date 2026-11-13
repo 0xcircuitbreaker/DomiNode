@@ -107,12 +107,10 @@ CASES = [
     ("nodes.update_caps", lambda c: c.nodes.update_caps(U, max_streams=4, req_per_sec=2), "PATCH", f"/v1/nodes/{U}",
      {"maxStreams": 4, "reqPerSec": 2}, "key", None),
     ("nodes.tier", lambda c: c.nodes.tier(), "GET", "/v1/node/tier", None, "key", None),
-    # credits (4; withdraw covered in test_signers)
+    # credits (convert and withdraw covered in test_signers)
     ("credits.balance", lambda c: c.credits.balance(), "GET", "/v1/credits", None, "key", None),
     ("credits.transactions", lambda c: c.credits.transactions(limit=50, cursor="123", type="earn"), "GET",
      "/v1/credits/transactions?limit=50&cursor=123&type=earn", None, "key", None),
-    ("credits.convert", lambda c: c.credits.convert(10_000, "idem-key-1"), "POST", "/v1/credits/convert",
-     {"amountMusd": "10000"}, "key", {"converted": {"musd": "10000", "usd": "0.010000"}}),
     # payoutWallet (get; set covered in test_signers)
     ("payout_wallet.get", lambda c: c.payout_wallet.get(), "GET", "/v1/payout-wallet", None, "key", None),
     # payouts (1)
@@ -136,7 +134,7 @@ def _check(rec: Recorder, method: str, path: str, body: Any, auth: str) -> None:
         assert r.headers["content-type"] == "application/json"
     expected = {"jwt": f"Bearer {ACCESS}", "key": f"Bearer {API_KEY}", "none": None}[auth]
     assert r.headers.get("authorization") == expected
-    assert r.headers["user-agent"] == "dominusnode-sdk-python/2.2.0"
+    assert r.headers["user-agent"] == "dominusnode-sdk-python/2.3.0"
     assert r.headers["accept"] == "application/json"
 
 
@@ -164,15 +162,6 @@ def test_keys_create_wraps_secret(rec: Recorder, client: Any) -> None:
     rec.add(200, {"id": "k", "prefix": "dn_live_", "label": "x", "created_at": "t", "key": API_KEY})
     r = client.keys.create("x")
     assert isinstance(r["key"], Secret) and r["key"].reveal() == API_KEY
-
-
-def test_convert_sends_idempotency_header_and_echoes_key(rec: Recorder, client: Any) -> None:
-    rec.add(200, {"duplicate": False})
-    r = client.credits.convert("10000", idempotency_key="my-key-123")
-    assert rec.last.headers["idempotency-key"] == "my-key-123"
-    assert r["idempotencyKey"] == "my-key-123"
-    r = client.credits.convert(10_000)
-    assert r["idempotencyKey"].startswith("dn-") and rec.last.headers["idempotency-key"] == r["idempotencyKey"]
 
 
 def test_top_up_whole_dollars_serialises_as_integer(rec: Recorder, client: Any) -> None:

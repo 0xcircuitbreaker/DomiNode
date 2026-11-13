@@ -120,7 +120,7 @@ r["idempotencyKey"]                          # reuse it to retry safely
 | `x402` | `get_info` |
 | `network` | `policy`, `pricing`, `stats` |
 | `nodes` | `register_challenge`, `register`, `list`, `revoke`, `update_caps`, `tier` |
-| `credits` | `balance`, `transactions`, `convert`, `withdraw` |
+| `credits` | `balance`, `transactions`, `convert` (signed), `withdraw` (signed) |
 | `payout_wallet` | `get`, `set` |
 | `payouts` | `list` |
 | `proxy` | `build_username`, `build_url`, `fetch`, `get_health`, `get_config` |

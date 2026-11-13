@@ -11,6 +11,16 @@ import pytest
 from conftest import make_jwt, ACCESS, API_KEY, REFRESH, Recorder, connect, new_async_client, new_client
 from dominusnode import AuthenticationError, AuthorizationError, Secret, ValidationError, json_default
 
+
+class _Signer:
+    address = "0x" + "ab" * 20
+
+    def sign_message(self, message: str) -> str:
+        raise AssertionError("must not sign")
+
+
+_SIGNER = _Signer()
+
 U = "123e4567-e89b-12d3-a456-426614174000"
 A = "0x" + "a" * 40
 MAX = 2_147_483_647
@@ -34,11 +44,11 @@ INVALID: list = [
     lambda c: c.wallet.top_up_crypto(0, "btc"),
     lambda c: c.wallet.top_up_crypto(1000, "doge"),
     # µUSD bounds
-    lambda c: c.credits.convert(9_999),
-    lambda c: c.credits.convert(10_000_000_001),
-    lambda c: c.credits.convert("10000.5"),
-    lambda c: c.credits.convert(1e5),
-    lambda c: c.credits.convert("-10000"),
+    lambda c: c.credits.convert(9_999, _SIGNER),
+    lambda c: c.credits.convert(10_000_000_001, _SIGNER),
+    lambda c: c.credits.convert("10000.5", _SIGNER),
+    lambda c: c.credits.convert(1e5, _SIGNER),
+    lambda c: c.credits.convert("-10000", _SIGNER),
     # UUIDs
     lambda c: c.wallet.get_crypto_status("nope"),
     lambda c: c.sessions.report("nope", "captcha"),
@@ -88,7 +98,6 @@ def test_invalid_arguments_send_nothing(rec: Recorder, client: Any, call: Callab
 def test_valid_boundaries(rec: Recorder, client: Any) -> None:
     client.agentic_wallets.fund(U, MAX)
     client.agentic_wallets.create("w", 0)
-    client.credits.convert(10_000_000_000)
     client.wallet.top_up_crypto(100_000, "USDC")
     assert rec.body(0) == {"amountCents": MAX}
 
