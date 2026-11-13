@@ -2167,3 +2167,18 @@ CREATE TABLE IF NOT EXISTS wallet_overflow_credits (
   CHECK ((user_id IS NULL) <> (team_id IS NULL))
 );
 CREATE INDEX IF NOT EXISTS idx_wallet_overflow_open ON wallet_overflow_credits(created_at) WHERE resolved_at IS NULL;
+
+-- Every signed Tempo 'paid' event, recorded before matching. 'unmatched'
+-- (wrong amount, unknown memo) and 'duplicate' (second transfer for a paid
+-- invoice) rows are funds received but not credited: refund or credit them.
+CREATE TABLE IF NOT EXISTS tempo_payments (
+  id            BIGSERIAL PRIMARY KEY,
+  tx_hash       TEXT NOT NULL UNIQUE CHECK (tx_hash ~ '^0x[0-9a-f]{64}$'),
+  charge_id     TEXT NOT NULL CHECK (length(charge_id) <= 100),
+  from_address  TEXT CHECK (from_address IS NULL OR from_address ~ '^0x[0-9a-f]{40}$'),
+  amount_units  NUMERIC(40,0) NOT NULL CHECK (amount_units >= 0),
+  status        TEXT NOT NULL CHECK (status IN ('received','credited','unmatched','duplicate','refunded')),
+  note          TEXT CHECK (note IS NULL OR length(note) <= 200),
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_tempo_payments_open ON tempo_payments(created_at) WHERE status IN ('unmatched','duplicate');

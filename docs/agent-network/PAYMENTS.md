@@ -52,7 +52,7 @@ Sources (checked 2026-11-06):
 - **Memo.** The memo is the charge UUID (16 bytes), right-padded with zeros to bytes32.
 
 **Rules:**
-- **Matching.** The amount must equal the invoice exactly, in base units divided by 10,000 per cent. The token, recipient and chain must match the configuration.
+- **Matching.** The amount must equal the invoice exactly, in base units divided by 10,000 per cent. The token, recipient and chain must match the configuration. Every signed `paid` event is first recorded in `tempo_payments` (unique `tx_hash`). A transfer that is not credited stays there for refund or manual credit: `unmatched` (wrong amount or unknown memo) or `duplicate` (a second transfer for an invoice already paid).
 - **Single-transaction credit.** Crediting goes through `atomicCompleteInvoiceAndCredit` in one transaction.
 - **Failed then paid.** A `paid` event for an invoice already marked `failed` is still credited, once. The claim covers `pending|failed → completed` inside the credit transaction, so redelivery is a no-op.
 - **No downgrade.** A `failed` event never downgrades a completed invoice.

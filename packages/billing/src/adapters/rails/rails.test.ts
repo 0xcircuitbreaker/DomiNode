@@ -313,6 +313,38 @@ describe("Tempo prepaid rail", () => {
     expect(mockCredit).not.toHaveBeenCalled();
   });
 
+  it("records a mismatched transfer (5,000,001 units on a 500-cent invoice) as unmatched instead of dropping it", async () => {
+    mockFindInvoice.mockResolvedValue(invoice);
+    mockQuery.mockResolvedValue({ rows: [], rowCount: 1 });
+    const b = tempoBody({ amount: "5000001" });
+    expect(await rail.handleCallback(b, signed(b))).toBeNull();
+    const sqls = mockQuery.mock.calls.map((c) => [String(c[0]), c[1]] as [string, unknown[]]);
+    const ins = sqls.find(([q]) => q.includes("INSERT INTO tempo_payments"))!;
+    expect(ins[1]).toEqual([TX, CHARGE, PAYER.toLowerCase(), "5000001"]);
+    const upd = sqls.find(([q]) => q.includes("UPDATE tempo_payments SET status = $2"))!;
+    expect(upd[1]![1]).toBe("unmatched");
+    expect(mockCredit).not.toHaveBeenCalled();
+  });
+
+  it("records a second transfer with the same memo as duplicate (not credited twice)", async () => {
+    mockFindInvoice.mockResolvedValue({ ...invoice, status: "completed" });
+    mockCredit.mockResolvedValue({ claimed: false });
+    mockQuery.mockResolvedValue({ rows: [], rowCount: 1 });
+    const TX2 = "0x" + "f".repeat(64);
+    const b = tempoBody({ txHash: TX2 });
+    expect(await rail.handleCallback(b, signed(b))).toMatchObject({ status: "paid" });
+    const dup = mockQuery.mock.calls.find((c) => String(c[0]).includes("SET status = 'duplicate'"))!;
+    expect(dup[1]).toEqual([TX2]);
+  });
+
+  it("records a transfer whose memo has no invoice as unmatched", async () => {
+    mockFindInvoice.mockResolvedValue(null);
+    mockQuery.mockResolvedValue({ rows: [], rowCount: 1 });
+    const b = tempoBody();
+    expect(await rail.handleCallback(b, signed(b))).toBeNull();
+    expect(mockQuery.mock.calls.some((c) => String(c[0]).includes("UPDATE tempo_payments") && (c[1] as unknown[])[1] === "unmatched")).toBe(true);
+  });
+
   it("is inert when not configured", async () => {
     const off = createTempoRail(null);
     const b = tempoBody();
