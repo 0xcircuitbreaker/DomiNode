@@ -80,7 +80,8 @@ TEST(build_url) {
     CHECK_EQ(f.client->proxy.build_url(o), "https://country-DE:" + KEY + "@proxy.dominusnode.com:8443");
     CHECK_EQ(f.client->proxy.build_url({}, "socks5"), "socks5://relay:" + KEY + "@proxy.dominusnode.com:1080");
     CHECK_EQ(f.client->proxy.build_url({}, "http", std::string("dn_test_override_1")), std::string("http://relay:dn_test_override_1@proxy.dominusnode.com:8080"));
-    CHECK_INVALID(f.client->proxy.build_url({}, "https"));
+    CHECK_EQ(f.client->proxy.build_url({}, "https"), "https://relay:" + KEY + "@proxy.dominusnode.com:8443");
+    CHECK_INVALID(f.client->proxy.build_url({}, "ftp"));
     CHECK_INVALID(f.client->proxy.build_url({}, "http", std::string("nope")));
     Fixture g(false);
     CHECK_THROWS(g.client->proxy.build_url(), AuthenticationError);
