@@ -70,6 +70,20 @@ std::string build_payout_wallet_message(const std::string& user_id, const std::s
     });
 }
 
+std::string build_convert_message(const std::string& user_id, const std::string& wallet,
+                                  const std::string& amount_musd, const std::string& idempotency_key,
+                                  const std::string& nonce) {
+    return join_lines({
+        "DominusNode credit conversion",
+        "Action: convert",
+        "User: " + user_id,
+        "Account wallet: " + to_lower(wallet),
+        "Amount (\xC2\xB5USD): " + amount_musd,
+        "Idempotency key: " + idempotency_key,
+        "Nonce: " + nonce,
+    });
+}
+
 std::string build_withdraw_message(const std::string& user_id, const std::string& wallet,
                                    const std::string& amount_musd, const std::string& idempotency_key,
                                    const std::string& nonce) {

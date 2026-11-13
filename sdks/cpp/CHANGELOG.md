@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.3.0] - 2026-11-13
+
+### Changed
+- `credits.convert(amount, signer, idempotency_key?)` is now a signed flow, required by the server (an unsigned call gets `400 SIGNATURE_REQUIRED`). It POSTs `/v1/credits/convert/challenge`, rebuilds the conversion message and refuses with `ProtocolError` if the server text differs, signs with the caller's `Signer`, then POSTs `{amountMusd, nonce, signature}` with the same `Idempotency-Key`. The unsigned `convert(amount, idempotency_key?)` overload is removed; callers must pass a signer.
+
+### Added
+- `build_convert_message(...)` signed-message builder.
+
 ## [2.2.0] - 2026-11-13
 
 Additive release.

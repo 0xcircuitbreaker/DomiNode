@@ -259,7 +259,9 @@ public:
     /// Every credit transaction (newest first), following nextCursor; limit = page size.
     void for_each_transaction(const ItemCallback& fn, OptInt limit = std::nullopt, OptStr type = std::nullopt);
     /// Result includes the idempotencyKey used (retry with it).
-    json convert(const MusdInput& amount_musd, OptStr idempotency_key = std::nullopt);
+    /// Signed: POST /v1/credits/convert/challenge, rebuild + compare the message, sign, then
+    /// POST /v1/credits/convert {amountMusd, nonce, signature} (Idempotency-Key header on both).
+    json convert(const MusdInput& amount_musd, const Signer& signer, OptStr idempotency_key = std::nullopt);
     json withdraw(const MusdInput& amount_musd, const Signer& signer, OptStr idempotency_key = std::nullopt);
 private:
     HttpClient& http_;

@@ -91,10 +91,9 @@ std::vector<Row> rows() {
         {"nodes.revoke", [](C c) { c.nodes.revoke(U); }, "DELETE", "/v1/nodes/" + U, nullptr, 'a'},
         {"nodes.update_caps", [](C c) { NodeCaps k; k.gb_per_day = 5; c.nodes.update_caps(U, k); }, "PATCH", "/v1/nodes/" + U, {{"gbPerDay", 5}}, 'a'},
         {"nodes.tier", [](C c) { c.nodes.tier(); }, "GET", "/v1/node/tier", nullptr, 'a'},
-        // credits (3 here + withdraw in test_signed)
+        // credits (2 here + convert, withdraw in test_signed)
         {"credits.balance", [](C c) { c.credits.balance(); }, "GET", "/v1/credits", nullptr, 'a'},
         {"credits.transactions", [](C c) { c.credits.transactions(50, std::string("123"), std::string("earn")); }, "GET", "/v1/credits/transactions?limit=50&cursor=123&type=earn", nullptr, 'a'},
-        {"credits.convert", [](C c) { c.credits.convert("10000", std::string("idem-key-1")); }, "POST", "/v1/credits/convert", {{"amountMusd", "10000"}}, 'a'},
         // payoutWallet (1 here + set in test_signed)
         {"payout_wallet.get", [](C c) { c.payout_wallet.get(); }, "GET", "/v1/payout-wallet", nullptr, 'a'},
         // payouts (1)
@@ -109,9 +108,9 @@ std::vector<Row> rows() {
 
 TEST(every_method_sends_expected_request) {
     auto rs = rows();
-    // 71 methods = these rows + wallet_auth.sign_in, nodes.register_node, credits.withdraw,
-    // payout_wallet.set (test_signed) + proxy.build_username/build_url/fetch (test_proxy).
-    CHECK_EQ(rs.size() + 4 + 3, std::size_t(71));
+    // 71 methods = these rows + wallet_auth.sign_in, nodes.register_node, credits.convert,
+    // credits.withdraw, payout_wallet.set (test_signed) + proxy.build_username/build_url/fetch (test_proxy).
+    CHECK_EQ(rs.size() + 5 + 3, std::size_t(71));
     for (const auto& r : rs) {
         Fixture f;
         try {
@@ -133,22 +132,9 @@ TEST(every_method_sends_expected_request) {
         std::string auth = Mock::header(q, "Authorization");
         std::string want = r.auth == 'n' ? "" : r.auth == 'j' ? "Bearer " + JWT : "Bearer " + KEY;
         if (auth != want) fail(ctx + "auth header '" + auth + "'", __FILE__, __LINE__);
-        if (Mock::header(q, "User-Agent") != "dominusnode-sdk-cpp/2.2.0") fail(ctx + "user-agent", __FILE__, __LINE__);
+        if (Mock::header(q, "User-Agent") != "dominusnode-sdk-cpp/2.3.0") fail(ctx + "user-agent", __FILE__, __LINE__);
         if (Mock::header(q, "Accept") != "application/json") fail(ctx + "accept", __FILE__, __LINE__);
     }
-}
-
-TEST(convert_sends_idempotency_header_and_echoes_key) {
-    Fixture f;
-    f.mock.push(200, {{"converted", {{"musd", "10000"}, {"usd", "0.010000"}}}, {"convertedCents", 1}, {"duplicate", false}});
-    json r = f.client->credits.convert(10000LL, std::string("idem-key-1"));
-    CHECK_EQ(Mock::header(f.mock.last(), "Idempotency-Key"), std::string("idem-key-1"));
-    CHECK_EQ(r["idempotencyKey"], json("idem-key-1"));
-    CHECK_EQ(r["convertedCents"], json(1));
-    // default key: dn-<uuid v4>
-    f.client->credits.convert(std::string("20000"));
-    std::string k = Mock::header(f.mock.last(), "Idempotency-Key");
-    CHECK(k.rfind("dn-", 0) == 0 && is_uuid(k.substr(3)) && k[17] == '4');
 }
 
 TEST(agent_mode_falls_back_to_wallet_jwt) {
@@ -171,6 +157,7 @@ TEST(no_credential_raises_without_request) {
 TEST(validation_failures_send_no_request) {
     Fixture f;
     auto& c = *f.client;
+    const Signer cs{"0x" + std::string(40, 'a'), [](const std::string&) { return "0x" + std::string(130, 'b'); }};
     CHECK_INVALID(c.agentic_wallets.fund("w", 0));
     CHECK_INVALID(c.agentic_wallets.fund("w", 2147483648LL));
     CHECK_INVALID(c.teams.fund_wallet("t", 0));
@@ -183,14 +170,14 @@ TEST(validation_failures_send_no_request) {
     CHECK_INVALID(c.wallet.top_up_crypto(100001, "btc"));
     CHECK_INVALID(c.wallet.top_up_crypto(1000, "doge"));
     CHECK_INVALID(c.wallet.get_crypto_status("not-a-uuid"));
-    CHECK_INVALID(c.credits.convert(9999LL));
-    CHECK_INVALID(c.credits.convert(10000000001LL));
-    CHECK_INVALID(c.credits.convert("010000"));
-    CHECK_INVALID(c.credits.convert("1.5"));
-    CHECK_INVALID(c.credits.convert(-5));
-    CHECK_INVALID(c.credits.convert("12345678901234567"));
-    CHECK_INVALID(c.credits.convert(20000LL, std::string("short")));
-    CHECK_INVALID(c.credits.convert(20000LL, std::string("bad key!!")));
+    CHECK_INVALID(c.credits.convert(9999LL, cs));
+    CHECK_INVALID(c.credits.convert(10000000001LL, cs));
+    CHECK_INVALID(c.credits.convert("010000", cs));
+    CHECK_INVALID(c.credits.convert("1.5", cs));
+    CHECK_INVALID(c.credits.convert(-5, cs));
+    CHECK_INVALID(c.credits.convert("12345678901234567", cs));
+    CHECK_INVALID(c.credits.convert(20000LL, cs, std::string("short")));
+    CHECK_INVALID(c.credits.convert(20000LL, cs, std::string("bad key!!")));
     CHECK_INVALID(c.credits.transactions(0));
     CHECK_INVALID(c.credits.transactions(201));
     CHECK_INVALID(c.credits.transactions(std::nullopt, std::string("abc")));

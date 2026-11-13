@@ -31,6 +31,9 @@ std::string build_payout_wallet_message(const std::string& user_id, const std::s
 std::string build_withdraw_message(const std::string& user_id, const std::string& wallet,
                                    const std::string& amount_musd, const std::string& idempotency_key,
                                    const std::string& nonce);
+std::string build_convert_message(const std::string& user_id, const std::string& wallet,
+                                  const std::string& amount_musd, const std::string& idempotency_key,
+                                  const std::string& nonce);
 /// Line 3 "User: <uuid>" of a server message; ProtocolError if absent or not a UUID.
 std::string extract_user_id(const std::string& message);
 /// ProtocolError unless server == local (exact).
