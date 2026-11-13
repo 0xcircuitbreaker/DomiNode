@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { generateKeyPairSync, createPublicKey } from "node:crypto";
 import {
   signDocument, signerFromPrivateKey, verifyCoordinatorDocument, verifyPolicyDocument, buildPolicyDocument,
-  coordKeyFingerprint, normalizeFingerprint, resolveBranding, parseHostnameList, parsePubkeyList,
+  coordKeyFingerprint, normalizeFingerprint, resolveBranding, securityTxtContact, parseHostnameList, parsePubkeyList,
   COORDINATOR_DOC_DOMAIN, POLICY_DOC_DOMAIN, OFFICIAL_OPERATOR_NAME, OFFICIAL_CONTACT,
   type CoordinatorDocument,
 } from "./federation.js";
@@ -125,5 +125,13 @@ describe("federation review fixes", () => {
     expect(parsePubkeyList(` ${k.toUpperCase()} ,${k}`)).toEqual([k]);
     expect(() => parsePubkeyList(`${k},abc`)).toThrow(/invalid/);
     expect(parsePubkeyList(undefined)).toEqual([]);
+  });
+});
+
+describe("securityTxtContact", () => {
+  it("turns a bare address into a mailto: URI and keeps URIs", () => {
+    expect(securityTxtContact("ops@example.org")).toBe("mailto:ops@example.org");
+    expect(securityTxtContact("mailto:ops@example.org")).toBe("mailto:ops@example.org");
+    expect(securityTxtContact("https://example.org/security")).toBe("https://example.org/security");
   });
 });

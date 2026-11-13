@@ -9,7 +9,7 @@
 # served with the same API. DOMINUSNODE_DOMAIN is the primary name used in links.
 #
 # Profiles select what runs on this box (install.sh passes them from ROLE/TLS_MODE):
-#   coordinator  postgres, migrate, api           (ROLE=all|coordinator)
+#   coordinator  postgres, migrate, api, admin UI (ROLE=all|coordinator)
 #   gateway      keys, gateway                    (ROLE=all|gateway)
 #   caddy        Caddy TLS front end              (unless ROLE=coordinator TLS_MODE=cloudflare)
 #   cloudflare   cloudflared + its token copier   (TLS_MODE=cloudflare)
@@ -72,6 +72,9 @@ services:
     restart: "no"
     volumes:
       - ./selfhost/coord-key.pem:/src/coord-key.pem:ro
+      # API key pepper (HMAC key for api_keys.key_hash). The api and every
+      # gateway MUST hold the same file; install.sh generates it once.
+      - ./selfhost/api-key-pepper:/src/api-key-pepper:ro
       - gateway_secrets:/dst
     command:
       - sh
@@ -79,6 +82,8 @@ services:
       - |
         install -o 1001 -g 1001 -m 0400 /src/coord-key.pem /dst/coord-key.pem.tmp
         mv -f /dst/coord-key.pem.tmp /dst/coord-key.pem
+        install -o 1001 -g 1001 -m 0400 /src/api-key-pepper /dst/api-key-pepper.tmp
+        mv -f /dst/api-key-pepper.tmp /dst/api-key-pepper
         chown 1001:1001 /dst && chmod 0500 /dst
 
   api:
@@ -99,6 +104,16 @@ services:
       COORD_TUNNEL_URL: wss://${RELAY_HOST:-${DOMINUSNODE_DOMAIN}}:${TUNNEL_HOST_PORT:-8443}/v1/tunnel
       COORD_ADDITIONAL_PUBKEYS: ${COORD_ADDITIONAL_PUBKEYS:-}
       SMTP_FROM: ${OPERATOR_CONTACT:-}
+      # Contacts and branding: /.well-known/security.txt and coordinator.json.
+      OPERATOR_CONTACT: ${OPERATOR_CONTACT:-}
+      ABUSE_CONTACT: ${ABUSE_CONTACT:-}
+      OPERATOR_NAME: ${OPERATOR_NAME:-}
+      SITE_NAME: ${SITE_NAME:-}
+      OFFICIAL_COORD_PUBKEYS: ${OFFICIAL_COORD_PUBKEYS:-}
+      # Human admin login for the admin UI (DEPLOYMENT.md "Self-host admin").
+      ADMIN_HUMAN_LOGIN: ${ADMIN_HUMAN_LOGIN:-false}
+      ADMIN_BOOTSTRAP_EMAIL: ${ADMIN_BOOTSTRAP_EMAIL:-}
+      API_KEY_PEPPER_FILE: /run/dominusnode/api-key-pepper
       # Advertised TLS proxy ports (empty with TLS_MODE=off: not advertised).
       PROXY_PUBLIC_TLS_PORT: ${PROXY_PUBLIC_TLS_PORT-8444}
       PROXY_PUBLIC_SOCKS5_TLS_PORT: ${PROXY_PUBLIC_SOCKS5_TLS_PORT-1443}
@@ -116,6 +131,21 @@ services:
     cap_drop: [ALL]
     read_only: true
     tmpfs: [/tmp]
+
+  # Admin UI (React build served by nginx; /api/* is proxied to api:3000).
+  # Caddy routes /api, /v1, /.well-known, /status and /llms.txt to the api and
+  # everything else here.
+  frontend:
+    profiles: [coordinator]
+    build: { context: ., dockerfile: infra/docker/frontend.Dockerfile }
+    image: dominusnode-frontend:selfhost
+    restart: unless-stopped
+    depends_on:
+      api: { condition: service_started }
+    networks: [frontend]
+    expose: ["8080"]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
 
   gateway:
     profiles: [gateway]
@@ -140,6 +170,7 @@ services:
       # Credentials on plaintext 8080/1080 are refused (production default).
       PROXY_REQUIRE_TLS: ${PROXY_REQUIRE_TLS:-true}
       COORD_SIGNING_KEY_FILE: /run/dominusnode/coord-key.pem
+      API_KEY_PEPPER_FILE: /run/dominusnode/api-key-pepper
       ASN_DB_FILE: /app/data/ip2asn-combined.tsv.gz
       # Caddy terminates TLS for the node tunnel and forwards the node's real
       # address in a PROXY v2 header; only Caddy's fixed address may send one.
@@ -285,7 +316,8 @@ services:
         chown 0:0 /dst && chmod 0500 /dst
 
   # Outbound-only Cloudflare Tunnel: no inbound ports. Public hostnames are
-  # mapped to http://api:3000 in the Cloudflare dashboard (DEPLOYMENT.md §7b).
+  # mapped to http://frontend:8080 (admin UI; it proxies /api) or http://api:3000
+  # in the Cloudflare dashboard (DEPLOYMENT.md "Split self-host").
   cloudflared:
     profiles: [cloudflare]
     image: cloudflare/cloudflared:2026.10.7@sha256:4955524aeaa379e154023d5a027c250f7b35041a2e7e950cf13f144bc9b9c5ba
@@ -302,42 +334,9 @@ services:
     cap_drop: [ALL]
     read_only: true
 
-  # Optional local exit node: docker compose --profile node up -d
-  # Register it first (see docs/agent-network/DEPLOYMENT.md §7).
-  node-keys:
-    profiles: ["node"]
-    image: dominusnode-api:selfhost
-    user: "0:0"
-    network_mode: none
-    restart: "no"
-    volumes:
-      - ./selfhost/node.json:/src/node.json:ro
-      - node_secrets:/dst
-    command:
-      - sh
-      - -euc
-      - |
-        install -o 1001 -g 1001 -m 0400 /src/node.json /dst/node.json.tmp
-        mv -f /dst/node.json.tmp /dst/node.json
-        chown 1001:1001 /dst && chmod 0500 /dst
-
-  node:
-    profiles: ["node"]
-    build:
-      context: .
-      dockerfile: packages/node-agent/Dockerfile
-      args:
-        DN_COORD_PUBKEYS: ${DN_COORD_PUBKEYS:?run scripts/selfhost/install.sh}
-    restart: unless-stopped
-    environment:
-      DN_NODE_API_URL: https://${DOMINUSNODE_DOMAIN}
-      DN_NODE_GATEWAY_URL: ${TUNNEL_SCHEME:-wss}://${RELAY_HOST:-${DOMINUSNODE_DOMAIN}}:${TUNNEL_HOST_PORT:-8443}/v1/tunnel
-      DN_NODE_GB_PER_DAY: ${DN_NODE_GB_PER_DAY:-5}
-      DN_NODE_MAX_STREAMS: ${DN_NODE_MAX_STREAMS:-16}
-    volumes:
-      - node_secrets:/run/dominusnode:ro
-    depends_on:
-      node-keys: { condition: service_completed_successfully }
+  # No in-stack exit node: a node on this box reaches the gateway from a
+  # private address and is refused as a private peer. Run nodes on other hosts
+  # (DEPLOYMENT.md §7 and the join command install.sh prints).
 
 networks:
   backend:
@@ -357,5 +356,4 @@ volumes:
   caddy_secrets:
   gateway_secrets:
   proxy_tls:
-  node_secrets:
   cloudflared_secrets:

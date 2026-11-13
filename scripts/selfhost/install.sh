@@ -28,6 +28,11 @@
 # renewal). Plaintext 8080/1080 are published only with TLS_MODE=off or
 # PUBLISH_PLAINTEXT_PROXY=1 (they refuse credentials unless TLS_MODE=off).
 # See docs/agent-network/DEPLOYMENT.md "Split self-host" for the layout.
+# ADMIN_BOOTSTRAP_EMAIL: first admin's address (enables the admin UI login;
+#           DEPLOYMENT.md "Self-host admin"). ABUSE_CONTACT, OPERATOR_NAME,
+#           SITE_NAME: optional, shown in security.txt and coordinator.json.
+# Secrets kept in selfhost/ (back them up: scripts/selfhost/backup.sh):
+#   coord-key.pem, api-key-pepper; .env holds the generated passwords.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -40,7 +45,7 @@ for arg in "$@"; do
   case "$arg" in
     --yes|-y) ASSUME_YES=1 ;;
     --no-start) NO_START=1 ;;
-    -h|--help) sed -n '2,32p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,37p' "$0"; exit 0 ;;
     *) echo "unknown option: $arg" >&2; exit 2 ;;
   esac
 done
@@ -183,15 +188,30 @@ GW_DB_URL=""; HOME_PUB=""
 if [ "$ROLE_SEL" = gateway ]; then
   GW_DB_URL="${GATEWAY_DATABASE_URL:-$(env_get GATEWAY_DATABASE_URL)}"
   if [ -z "$GW_DB_URL" ] && [ "$ASSUME_YES" -eq 0 ] && [ -t 0 ]; then
-    read -r -s -p "Coordinator DATABASE_URL over WireGuard (postgresql://dominusnode:<pw>@10.x.x.x:5432/dominusnode): " GW_DB_URL; echo
+    read -r -s -p "Coordinator gateway DATABASE_URL (from the coordinator's selfhost/gateway-database-url): " GW_DB_URL; echo
   fi
-  printf '%s' "$GW_DB_URL" | grep -Eq '^postgresql://dominusnode:[A-Za-z0-9]{24,}@[0-9.]+:[0-9]{1,5}/dominusnode$' ||
-    die "GATEWAY_DATABASE_URL must be postgresql://dominusnode:<password, 24+ alphanumerics>@<wireguard ip>:<port>/dominusnode"
+  # The gateway is the internet-facing box: it gets the least-privilege role the
+  # coordinator's installer creates, never the Postgres superuser.
+  if printf '%s' "$GW_DB_URL" | grep -Eq '^postgresql://dominusnode:'; then
+    die "GATEWAY_DATABASE_URL uses the coordinator's Postgres superuser; re-run install.sh on the coordinator (it creates the dominusnode_gateway role) and use the URL in its selfhost/gateway-database-url"
+  fi
+  printf '%s' "$GW_DB_URL" | grep -Eq '^postgresql://dominusnode_gateway:[A-Za-z0-9]{24,}@[0-9.]+:[0-9]{1,5}/dominusnode$' ||
+    die "GATEWAY_DATABASE_URL must be postgresql://dominusnode_gateway:<password, 24+ alphanumerics>@<wireguard ip>:<port>/dominusnode"
   GW_DB_IP="${GW_DB_URL#*@}"; GW_DB_IP="${GW_DB_IP%%:*}"
   private_ipv4 "$GW_DB_IP" || die "GATEWAY_DATABASE_URL host must be a private (WireGuard) IPv4 address, not $GW_DB_IP"
   HOME_PUB="${COORD_PUBKEY:-$(env_get COORD_PUBKEY)}"
   HOME_PUB="$(ask "Coordinator (home) public key from its selfhost/coord.pub" "$HOME_PUB")"
   hex64 "$HOME_PUB" || die "COORD_PUBKEY must be the 64-hex public key printed on the coordinator"
+  # API key pepper: must be the coordinator's (keys hashed there must verify here).
+  PEPPER_HEX=""
+  if [ ! -s "$SH_DIR/api-key-pepper" ]; then
+    PEPPER_HEX="${API_KEY_PEPPER:-}"
+    if [ -z "$PEPPER_HEX" ] && [ "$ASSUME_YES" -eq 0 ] && [ -t 0 ]; then
+      read -r -s -p "API key pepper (contents of the coordinator's selfhost/api-key-pepper): " PEPPER_HEX; echo
+    fi
+    printf '%s' "$PEPPER_HEX" | grep -Eq '^[0-9a-f]{64}$' ||
+      die "ROLE=gateway needs the coordinator's API key pepper: copy its selfhost/api-key-pepper here (mode 0600) or pass API_KEY_PEPPER (64 hex)"
+  fi
 fi
 DB_WG=""; GW_PUB=""
 if [ "$ROLE_SEL" = coordinator ]; then
@@ -212,7 +232,7 @@ if [ "$ROLE_SEL" = coordinator ]; then
         { sudo mkdir -p "$(dirname "$dropin")" \
           && printf '[Unit]\nWants=wg-quick@wg0.service\nAfter=wg-quick@wg0.service\n' | sudo tee "$dropin" >/dev/null \
           && sudo systemctl daemon-reload; } \
-          || echo "warning: could not install $dropin; add it by hand (DEPLOYMENT.md 7c)" >&2
+          || echo "warning: could not install $dropin; add it by hand (DEPLOYMENT.md 'Gateway on a VPS, coordinator at home')" >&2
       fi
     fi
   fi
@@ -228,6 +248,24 @@ case "$CONTACT" in *$'\n'*|*$'\r'*) die "invalid contact email: multi-line value
 if [ -n "$CONTACT" ] && ! printf '%s' "$CONTACT" | grep -Eq '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$'; then
   die "invalid contact email: must be a plain address like ops@example.org"
 fi
+plain_email() { printf '%s' "$1" | grep -Eq '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$'; }
+one_line() { case "$1" in *$'\n'*|*$'\r'*) return 1 ;; esac; [ "${#1}" -le 128 ]; }
+ABUSE="${ABUSE_CONTACT:-$(env_get ABUSE_CONTACT)}"
+if [ -n "$ABUSE" ] && ! plain_email "$ABUSE"; then die "invalid ABUSE_CONTACT: must be a plain address"; fi
+OPNAME="${OPERATOR_NAME:-$(env_get OPERATOR_NAME)}"; SITENAME="${SITE_NAME:-$(env_get SITE_NAME)}"
+one_line "$OPNAME" || die "OPERATOR_NAME must be one line of at most 128 characters"
+one_line "$SITENAME" || die "SITE_NAME must be one line of at most 128 characters"
+
+# First admin (admin UI login). Only where the API runs.
+ADMIN_EMAIL=""; ADMIN_LOGIN="${ADMIN_HUMAN_LOGIN:-$(env_get ADMIN_HUMAN_LOGIN)}"
+if [ "$ROLE_SEL" != gateway ]; then
+  ADMIN_EMAIL="$(ask "First admin email for the admin UI (empty: none)" "${ADMIN_BOOTSTRAP_EMAIL-$(env_get ADMIN_BOOTSTRAP_EMAIL)}")"
+  if [ -n "$ADMIN_EMAIL" ]; then
+    plain_email "$ADMIN_EMAIL" || die "invalid ADMIN_BOOTSTRAP_EMAIL: must be a plain address"
+    ADMIN_LOGIN=true
+  fi
+fi
+case "${ADMIN_LOGIN:-false}" in true|false) ;; *) die "ADMIN_HUMAN_LOGIN must be true or false" ;; esac
 
 # ─── Secrets and key (generated once, kept on re-run) ───────────────
 ensure_secret POSTGRES_PASSWORD 24
@@ -249,6 +287,9 @@ if [ "$ROLE_SEL" != gateway ]; then GW_DB_URL=""; HOME_PUB=""; fi
 env_set GATEWAY_DATABASE_URL "$GW_DB_URL"; env_set COORD_PUBKEY "$HOME_PUB"
 env_set DB_WG_BIND "$DB_WG"; env_set GATEWAY_PUBKEY "$GW_PUB"; env_set COORD_ADDITIONAL_PUBKEYS "$GW_PUB"
 env_set OPERATOR_CONTACT "$CONTACT"
+env_set ABUSE_CONTACT "$ABUSE"; env_set OPERATOR_NAME "$OPNAME"; env_set SITE_NAME "$SITENAME"
+env_set ADMIN_HUMAN_LOGIN "${ADMIN_LOGIN:-false}"; env_set ADMIN_BOOTSTRAP_EMAIL "$ADMIN_EMAIL"
+if [ -n "$DB_WG" ]; then ensure_secret GATEWAY_DB_PASSWORD 24; fi
 if [ "$TLS" = off ]; then
   env_set COOKIE_SECURE false; env_set TUNNEL_SCHEME ws
 else
@@ -275,6 +316,21 @@ env_set CORS_ORIGINS "$CORS"
 if [ ! -f "$SH_DIR/coord-key.pem" ]; then
   node "$ROOT/scripts/gen-coord-key.mjs" "$SH_DIR/coord-key.pem" > "$SH_DIR/coord.pub"
 fi
+# API key pepper: generated once on the coordinator, never regenerated (that
+# would invalidate every peppered key). ROLE=gateway must use the coordinator's.
+PEPPER="$SH_DIR/api-key-pepper"
+if [ ! -s "$PEPPER" ]; then
+  if [ "$ROLE_SEL" = gateway ]; then
+    printf '%s\n' "$PEPPER_HEX" > "$PEPPER"
+    PEPPER_HEX=""
+  else
+    openssl rand -hex 32 > "$PEPPER"
+  fi
+fi
+chmod 600 "$PEPPER"
+grep -Eqx '[0-9a-f]{64}' "$PEPPER" || die "selfhost/api-key-pepper must hold 64 hex characters"
+# Same value on every box: compare this check value between coordinator and gateway.
+PEPPER_CHECK="$(node -e 'const c=require("crypto"),f=require("fs");process.stdout.write(c.createHmac("sha256",Buffer.from(f.readFileSync(process.argv[1],"utf8").trim(),"hex")).update("dominusnode-pepper-check").digest("hex").slice(0,16))' "$PEPPER")"
 PUB="$(tr -d '[:space:]' < "$SH_DIR/coord.pub")"
 printf '%s' "$PUB" | grep -Eq '^[0-9a-f]{64}$' || die "selfhost/coord.pub is not a 64-hex public key"
 # Pins: this box's key plus the other half of a split install. On ROLE=gateway
@@ -313,7 +369,10 @@ tls_block() {
     echo "$SITES {"
     tls_block
     echo "  encode gzip"
-    echo "  reverse_proxy api:3000"
+    echo "  @api path /api/* /v1/* /v1 /.well-known/* /status /status/* /llms.txt"
+    echo "  reverse_proxy @api api:3000"
+    echo "  # Admin UI (nginx; proxies /api itself as well)."
+    echo "  reverse_proxy frontend:8080"
     echo "}"
   fi
   # Node tunnel on :8443: Caddy terminates TLS and passes the node's real address
@@ -373,8 +432,19 @@ echo "config written: .env (0600), selfhost/Caddyfile, selfhost/coord-key.pem"
 echo "role: $ROLE_SEL; primary domain: $PRIMARY; all hostnames: $HOSTS; TLS: $TLS"
 echo "relay: $RELAY; proxy: $PROXYH; ACME challenge: $ACME; compose profiles: $PROFILES"
 echo "this box's signing public key (selfhost/coord.pub): $PUB; DN_COORD_PUBKEYS=$PINS"
+echo "API key pepper check value (must match on coordinator and gateway): $PEPPER_CHECK"
+fp() { node -e 'process.stdout.write("sha256:"+require("crypto").createHash("sha256").update(Buffer.from(process.argv[1],"hex")).digest("hex"))' "$1"; }
+TRUST="$(for k in $(printf '%s' "$PINS" | tr ',' ' '); do fp "$k"; echo; done | paste -sd, -)"
+echo "exit nodes run on other hosts (a node on this box is refused as a private peer). Join command:"
+echo "  dominusnode-node run --coordinator $PRIMARY --trust $TRUST"
+echo "  (verify every fingerprint out of band; a split install lists the gateway key too)"
 # ─── ASN/geo database (without it the gateway refuses all public traffic) ───
 ASN_DB="$ROOT/data/ip2asn-combined.tsv.gz"
+# Re-runs refresh a database older than 7 days (re-allocated ranges, Tor list).
+if [ -f "$ASN_DB" ] && [ "$ROLE_SEL" != coordinator ] && [ "${SKIP_ASN_DB:-0}" != 1 ] && [ -n "$(find "$ASN_DB" -mtime +7 2>/dev/null)" ]; then
+  echo "ASN/geo database is older than 7 days: refreshing"
+  ASN_DB_FILE="$ASN_DB" bash "$ROOT/scripts/update-asn-db.sh" || echo "warning: ASN/geo refresh failed; keeping the old database" >&2
+fi
 if [ ! -f "$ASN_DB" ] && [ "$ROLE_SEL" != coordinator ]; then
   if [ "${SKIP_ASN_DB:-0}" = 1 ]; then
     echo "warning: SKIP_ASN_DB=1: no ASN/geo database; the gateway refuses ALL public peers and destinations until scripts/update-asn-db.sh is run" >&2
@@ -394,12 +464,61 @@ if [ -d "$ROOT/data" ]; then
 fi
 
 if [ "$NO_START" -eq 1 ]; then exit 0; fi
+# Caddy must get a certificate for PROXY_HOST before the gateway's TLS proxy
+# starts; with HTTP-01 that needs DNS pointing here and 80/443 reachable.
+if [ "$TLS" = auto ] && [ "$ACME" = http ] && [ "$ROLE_SEL" != coordinator ]; then
+  for h in $PROXYH $RELAY; do
+    if ! getent ahosts "$h" >/dev/null 2>&1; then
+      echo "warning: $h does not resolve yet: Caddy cannot get its certificate and the gateway waits for it (up to ~10 minutes)" >&2
+    fi
+  done
+fi
+cert_hint() {
+  echo "install: the certificate for $PROXYH was not issued. Check:" >&2
+  echo "  - DNS A/AAAA for $PROXYH and $RELAY point at this host (not proxied/orange-clouded)" >&2
+  echo "  - inbound 80 and 443 reach this host (ACME_CHALLENGE=http), or use ACME_CHALLENGE=dns-cloudflare" >&2
+  echo "  - logs: ${COMPOSE[*]} logs caddy proxy-certs gateway" >&2
+  echo "  Fix it and re-run install.sh." >&2
+}
 # The one-shot key copiers run the api image; ROLE=gateway builds it too.
 if [ "$ROLE_SEL" = gateway ]; then
   docker compose -f docker-compose.selfhost.yml --env-file "$ENV_FILE" --profile coordinator build migrate
 fi
 "${COMPOSE[@]}" build
-"${COMPOSE[@]}" up -d --remove-orphans
+if ! "${COMPOSE[@]}" up -d --remove-orphans; then
+  if in_list proxytls "$PROFILES"; then cert_hint; fi
+  die "docker compose up failed"
+fi
+if in_list proxytls "$PROFILES" && ! "${COMPOSE[@]}" exec -T proxy-certs test -s /dst/proxy.crt 2>/dev/null; then
+  cert_hint
+  die "no TLS proxy certificate for $PROXYH"
+fi
+# Least-privilege Postgres role for a separate gateway VPS (never the superuser).
+if [ -n "$DB_WG" ]; then
+  { printf '\\set pw %s\n' "$(env_get GATEWAY_DB_PASSWORD)"; cat "$ROOT/scripts/selfhost/gateway-role.sql"; } |
+    "${COMPOSE[@]}" exec -T postgres psql -q -v ON_ERROR_STOP=1 -U dominusnode -d dominusnode >/dev/null ||
+    die "could not create the dominusnode_gateway role"
+  ( umask 077; printf 'postgresql://dominusnode_gateway:%s@%s:5432/dominusnode\n' "$(env_get GATEWAY_DB_PASSWORD)" "$DB_WG" > "$SH_DIR/gateway-database-url" )
+  echo "gateway DB URL (least-privilege role) written to selfhost/gateway-database-url (0600); use it as GATEWAY_DATABASE_URL on the gateway VPS"
+fi
+# Weekly ASN/geo refresh + gateway restart (the gateway loads the file at start).
+if [ "$ROLE_SEL" != coordinator ] && [ "${SKIP_ASN_TIMER:-0}" != 1 ]; then
+  if [ -d /run/systemd/system ] && command -v systemctl >/dev/null 2>&1; then
+    unit=/etc/systemd/system/dominusnode-asn-refresh
+    { printf '[Unit]\nDescription=DominusNode ASN/geo database refresh\n[Service]\nType=oneshot\nUser=%s\nExecStart=%s\n' \
+        "$(id -un)" "$ROOT/scripts/selfhost/refresh-asn.sh" | sudo tee "$unit.service" >/dev/null \
+      && printf '[Unit]\nDescription=Weekly DominusNode ASN/geo refresh\n[Timer]\nOnCalendar=weekly\nRandomizedDelaySec=6h\nPersistent=true\n[Install]\nWantedBy=timers.target\n' \
+        | sudo tee "$unit.timer" >/dev/null \
+      && sudo systemctl daemon-reload && sudo systemctl enable --now dominusnode-asn-refresh.timer >/dev/null; } \
+      || echo "warning: could not install the weekly ASN refresh timer; schedule scripts/selfhost/refresh-asn.sh weekly by hand" >&2
+  elif command -v crontab >/dev/null 2>&1; then
+    line="17 4 * * 0 $ROOT/scripts/selfhost/refresh-asn.sh >/dev/null 2>&1"
+    { crontab -l 2>/dev/null | grep -vF "scripts/selfhost/refresh-asn.sh"; echo "$line"; } | crontab - ||
+      echo "warning: could not install the weekly ASN refresh cron job; schedule scripts/selfhost/refresh-asn.sh weekly by hand" >&2
+  else
+    echo "warning: no systemd or cron: run scripts/selfhost/refresh-asn.sh weekly" >&2
+  fi
+fi
 # The DNS provider reads its token once at provision: restart Caddy so a
 # rotated token (just copied by caddy-dns-keys) takes effect.
 if [ "$ACME" = dns-cloudflare ]; then
@@ -424,8 +543,13 @@ if [ "$ROLE_SEL" != coordinator ]; then
     echo "proxy: https://$PROXYH:8444 (HTTPS proxy), SOCKS5 over TLS $PROXYH:1443; node tunnel wss://$RELAY:8443/v1/tunnel"
   fi
 fi
+SCHEME=https; if [ "$TLS" = off ]; then SCHEME=http; fi
+echo "backups: scripts/selfhost/backup.sh (Postgres + keys + .env, encrypted); restore: scripts/selfhost/restore.sh"
 if [ "$ROLE_SEL" = gateway ]; then
   echo "up."
 else
-  echo "up. status page: https://$PRIMARY/status"
+  if [ -n "$ADMIN_EMAIL" ]; then
+    echo "first admin: register $ADMIN_EMAIL (DEPLOYMENT.md 'Self-host admin'), then re-run with ADMIN_BOOTSTRAP_EMAIL= (empty) to close registration"
+  fi
+  echo "up. admin UI: $SCHEME://$PRIMARY/  status page: $SCHEME://$PRIMARY/status"
 fi
