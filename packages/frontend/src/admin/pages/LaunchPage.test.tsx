@@ -102,4 +102,17 @@ describe("LaunchPage", () => {
     expect(usdToMusdString("1e3")).toBeNull();
     expect(starterCurrent(starter as never)).toMatchObject({ amountUsd: "0.5", dailyBudgetUsd: "50" });
   });
+
+  it("claws back a held genesis credit with a reason", async () => {
+    api.genesisMembers.mockResolvedValue(paged([
+      { ownerUserId: UUID1, walletAddress: null, seq: 1, enrolledAt: "2026-11-01T00:00:00Z", boostUntil: "2027-01-01T00:00:00Z", creditStatus: "held", credit: m(5), creditGrantedAt: "2026-11-02T00:00:00Z", creditMaturesAt: "2026-11-20T00:00:00Z", qualifyingBytes: "1" },
+    ]));
+    api.genesisClawback.mockResolvedValue({ ownerUserId: UUID1, creditStatus: "clawed_back", amount: m(5) });
+    renderPage(<LaunchPage />);
+    await userEvent.click(await screen.findByRole("button", { name: "Claw back" }));
+    await userEvent.type(screen.getByLabelText(/Reason/), "self-dealing");
+    const btns = screen.getAllByRole("button", { name: "Claw back" });
+    await userEvent.click(btns[btns.length - 1]!);
+    await waitFor(() => expect(api.genesisClawback).toHaveBeenCalledWith(UUID1, "self-dealing"));
+  });
 });

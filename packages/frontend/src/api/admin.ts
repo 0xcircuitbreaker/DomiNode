@@ -200,6 +200,8 @@ export const launchApi = {
   genesisSettings: () => get<GenesisSettings>(`${BASE}/genesis/settings`),
   updateGenesisSettings: (b: Record<string, unknown>) => put<GenesisSettings>(`${BASE}/genesis/settings`, b),
   genesisMembers: (q: Q) => get<Paged<GenesisMember>>(`${BASE}/genesis/members${qs(q)}`),
+  genesisClawback: (ownerUserId: string, reason: string) =>
+    post<{ ownerUserId: string; creditStatus: string; amount: Money }>(`${BASE}/genesis/members/${encodeURIComponent(ownerUserId)}/clawback`, { reason }),
   discountSettings: () => get<{ enabled: boolean; minPlatformMarginBps: number; updatedAt: string | null }>(`${BASE}/buyer-discounts/settings`),
   updateDiscountSettings: (b: { enabled?: boolean; minPlatformMarginBps?: number }) => put<{ updated: Record<string, unknown> }>(`${BASE}/buyer-discounts/settings`, b),
   incidents: (q: Q) => get<Paged<Incident>>(`${BASE}/incidents${qs(q)}`),
@@ -272,7 +274,7 @@ export const adminApi = {
 
 /* ─── Collusion flags (ADMIN_API.md §12) ─────────────────────────────── */
 export const COLLUSION_STATUSES = ["open", "dismissed", "confirmed"] as const;
-export const COLLUSION_KINDS = ["concentration", "cluster", "circular"] as const;
+export const COLLUSION_KINDS = ["concentration", "cluster", "circular", "report_penalty", "egress_mismatch"] as const;
 export interface CollusionFlag {
   id: string; kind: string; ownerUserId: string; ownerEmail: string | null; nodeId: string | null;
   requesterUserId: string | null; requesterEmail: string | null; shareBps: number; volume: Money; total: Money;
