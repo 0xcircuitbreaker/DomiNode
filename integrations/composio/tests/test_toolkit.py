@@ -51,8 +51,8 @@ def test_execute_routes_to_sdk():
 
 def test_execute_args_and_scrubbed_error():
     tk, sdk = _toolkit()
-    sdk.credits.convert.side_effect = RuntimeError("bad " + KEY)
-    t = _by_name(tk)["dominusnode_credits_convert"]
-    out = t.execute(t.input_params(amount_musd="10000"), None)
-    sdk.credits.convert.assert_called_once_with("10000", idempotency_key=None)
+    sdk.payouts.list.side_effect = RuntimeError("bad " + KEY)
+    t = _by_name(tk)["dominusnode_payouts_list"]
+    out = t.execute(t.input_params(limit=5), None)
+    sdk.payouts.list.assert_called_once_with(limit=5, offset=0)
     assert out["error"] is True and KEY not in json.dumps(out)

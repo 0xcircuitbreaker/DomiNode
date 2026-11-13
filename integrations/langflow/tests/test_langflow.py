@@ -30,10 +30,13 @@ def test_registers_exactly_19_tools():
 
 def test_invoke_dispatches_to_sdk():
     tk, sdk = _tk()
-    sdk.credits.convert.return_value = {"converted": "50000", "idempotencyKey": "k1"}
+    sdk.credits.balance.return_value = {"available": "50000"}
+    out = json.loads(_by_name(tk)["dominusnode_credits_balance"].invoke({}))
+    assert out["available"] == "50000"
+    sdk.credits.balance.assert_called_once_with()
     out = json.loads(_by_name(tk)["dominusnode_credits_convert"].invoke({"amount_musd": "50000"}))
-    assert out["converted"] == "50000"
-    sdk.credits.convert.assert_called_once_with("50000", idempotency_key=None)
+    assert out["status"] == "signing_required"
+    sdk.credits.convert.assert_not_called()
 
 
 def test_fetch_tool_args():

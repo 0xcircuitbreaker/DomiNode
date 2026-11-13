@@ -35,7 +35,6 @@ CASES = {
     "node_list": ({"limit": 3}, "nodes.list", (), {"limit": 3}),
     "node_tier": ({}, "nodes.tier", (), {}),
     "credits_balance": ({}, "credits.balance", (), {}),
-    "credits_convert": ({"amount_musd": "50000"}, "credits.convert", ("50000",), {}),
     "payouts_list": ({"offset": 10}, "payouts.list", (), {"offset": 10}),
     "x402_info": ({}, "x402.get_info", (), {}),
 }
@@ -154,3 +153,10 @@ def test_no_legacy_surface():
     text = json.dumps(TOOL_SPECS).lower()
     for word in ("stripe", "paypal", "plan", "slot", "$3", "$5", "dc-country", "residential-"):
         assert word not in text
+
+
+def test_credits_convert_points_to_signer(tk, sdk):
+    out = tk.call("credits_convert", {"amount_musd": "50000"})
+    assert out["status"] == "signing_required"
+    assert "MCP server" in out["message"] and "signer key file" in out["message"]
+    sdk.credits.convert.assert_not_called()

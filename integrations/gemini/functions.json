@@ -299,7 +299,7 @@
   },
   {
     "name": "dominusnode_credits_convert",
-    "description": "Convert available node earnings into your own requester wallet balance (idempotent; returns the idempotency key).",
+    "description": "Explains how to convert node credits into wallet balance. Conversion needs a wallet signature, so it runs through the DominusNode MCP server or SDK with a signer key file, not through this tool.",
     "parameters": {
       "type": "OBJECT",
       "properties": {

@@ -58,7 +58,6 @@ describe("n8n DominusNode node", () => {
   it.each([
     ["networkPricing", {}, () => current.network.pricing],
     ["topupCrypto", { amount_cents: 1500, currency: "eth" }, () => current.wallet.topUpCrypto],
-    ["creditsConvert", { amount_musd: "20000" }, () => current.credits.convert],
     ["payoutsList", { options: { limit: 5 } }, () => current.payouts.list],
   ])("%s calls the SDK", async (op, params, pick) => {
     await new DominusNode().execute.call(ctx(op, params) as never);

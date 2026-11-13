@@ -42,7 +42,6 @@ const CASES: Array<[string, Record<string, unknown>, (c: ReturnType<typeof mockC
   ["node_list", { limit: 3, offset: 1 }, (c) => c.nodes.list, [{ limit: 3, offset: 1 }]],
   ["node_tier", {}, (c) => c.nodes.tier, []],
   ["credits_balance", {}, (c) => c.credits.balance, []],
-  ["credits_convert", { amount_musd: "50000" }, (c) => c.credits.convert, ["50000"]],
   ["payouts_list", {}, (c) => c.payouts.list, [{ limit: undefined, offset: undefined }]],
   ["x402_info", {}, (c) => c.x402.getInfo, []],
 ];
@@ -73,6 +72,14 @@ describe("dispatch to SDK", () => {
     const out = JSON.parse(await tools(c).call(name, args));
     expect(out).toEqual({ ok: true });
     expect(pick(c)).toHaveBeenCalledWith(...expected);
+  });
+
+  it("credits_convert points to a signer and makes no SDK call", async () => {
+    const c = mockClient();
+    const out = JSON.parse(await tools(c).call("credits_convert", { amount_musd: "50000" }));
+    expect(out.status).toBe("signing_required");
+    expect(out.message).toContain("signer key file");
+    expect(c.credits.convert).not.toHaveBeenCalled();
   });
 
   it("fetch uses proxy.fetch with routing flags", async () => {

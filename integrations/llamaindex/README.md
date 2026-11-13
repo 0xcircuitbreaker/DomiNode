@@ -50,7 +50,7 @@ signatures and docstrings, and errors come back as scrubbed `Error: ...` strings
 | 14 | `dominusnode_node_tier` | Node-operator tier and share | `nodes.tier` |
 | 15 | `dominusnode_node_setup_guide` | Steps to earn by running the node agent | `static text` |
 | 16 | `dominusnode_credits_balance` | Earned node credits | `credits.balance` |
-| 17 | `dominusnode_credits_convert` | Convert credits into wallet balance | `credits.convert` |
+| 17 | `dominusnode_credits_convert` | Points to the MCP server or SDK (needs a wallet signature) | none (signed flow) |
 | 18 | `dominusnode_payouts_list` | On-chain payouts | `payouts.list` |
 | 19 | `dominusnode_x402_info` | x402 micropayment info | `x402.get_info` |
 

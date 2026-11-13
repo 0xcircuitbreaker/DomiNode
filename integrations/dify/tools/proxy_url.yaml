@@ -27,9 +27,9 @@ parameters:
     en_US: Ip Class
   human_description:
     en_US: 'Exit IP class. Omit to let the relay choose. Prices differ by class: see
-      network_pricing.'
+      network_pricing. masked = cheapest, VPN/anonymizer exits, opt-in.'
   llm_description: 'Exit IP class. Omit to let the relay choose. Prices differ by
-    class: see network_pricing.'
+    class: see network_pricing. masked = cheapest, VPN/anonymizer exits, opt-in.'
   required: false
   form: llm
   type: select
@@ -45,7 +45,7 @@ parameters:
       en_US: mobile
   - value: masked
     label:
-      en_US: masked (cheapest, VPN/anonymizer exits, opt-in)
+      en_US: masked
 - name: session_id
   label:
     en_US: Session Id
@@ -73,19 +73,24 @@ parameters:
   label:
     en_US: Protocol
   human_description:
-    en_US: Proxy protocol.
-  llm_description: Proxy protocol.
+    en_US: 'https (default: TLS to the gateway), socks5, or http (plaintext gateway;
+      local dev only).'
+  llm_description: 'https (default: TLS to the gateway), socks5, or http (plaintext
+    gateway; local dev only).'
   required: false
   form: llm
   type: select
   options:
-  - value: http
+  - value: https
     label:
-      en_US: http
+      en_US: https
   - value: socks5
     label:
       en_US: socks5
-  default: http
+  - value: http
+    label:
+      en_US: http
+  default: https
 extra:
   python:
     source: tools/proxy_url.py

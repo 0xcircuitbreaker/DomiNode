@@ -21,8 +21,8 @@ describe("pi extension", () => {
   it("execute calls the SDK and returns pi content", async () => {
     const client = mockClient();
     const tools = createPiTools({ apiKey: TEST_KEY, client: client as never });
-    const res = await tools.find((t) => t.name === "dominusnode_credits_convert")!.execute("1", { amount_musd: "100000" });
-    expect(client.credits.convert).toHaveBeenCalledWith("100000", { idempotencyKey: undefined });
+    const res = await tools.find((t) => t.name === "dominusnode_credits_balance")!.execute("1", {});
+    expect(client.credits.balance).toHaveBeenCalledWith();
     expect(res.content[0].type).toBe("text");
     expect(res.details.ok).toBe(true);
   });

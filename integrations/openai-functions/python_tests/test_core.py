@@ -32,7 +32,6 @@ CASES = {
     "node_list": ({"limit": 3, "offset": 1}, "nodes.list", (), {"limit": 3, "offset": 1}),
     "node_tier": ({}, "nodes.tier", (), {}),
     "credits_balance": ({}, "credits.balance", (), {}),
-    "credits_convert": ({"amount_musd": "50000"}, "credits.convert", ("50000",), {}),
     "payouts_list": ({}, "payouts.list", (), {"limit": None, "offset": None}),
     "x402_info": ({}, "x402.get_info", (), {}),
 }
@@ -136,3 +135,10 @@ def test_missing_key_is_reported(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("DOMINUSNODE_API_KEY", raising=False)
     out = json.loads(DominusNodeTools().call("balance"))
     assert "DOMINUSNODE_API_KEY" in out["error"]
+
+
+def test_credits_convert_points_to_signer(tools, client):
+    out = json.loads(tools.call("credits_convert", {"amount_musd": "50000"}))
+    assert out["status"] == "signing_required"
+    assert "MCP server" in out["message"] and "signer key file" in out["message"]
+    client.credits.convert.assert_not_called()

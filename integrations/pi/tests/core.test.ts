@@ -29,8 +29,6 @@ const CASES: Array<[string, Record<string, unknown>, (c: ReturnType<typeof mockC
   ["node_list", { limit: 3, offset: 1 }, (c) => c.nodes.list, [{ limit: 3, offset: 1 }]],
   ["node_tier", {}, (c) => c.nodes.tier, []],
   ["credits_balance", {}, (c) => c.credits.balance, []],
-  ["credits_convert", { amount_musd: "5000000", idempotency_key: "abcdefgh12" }, (c) => c.credits.convert,
-    ["5000000", { idempotencyKey: "abcdefgh12" }]],
   ["payouts_list", { limit: 2 }, (c) => c.payouts.list, [{ limit: 2, offset: undefined }]],
   ["x402_info", {}, (c) => c.x402.getInfo, []],
 ];
@@ -50,6 +48,16 @@ describe("core tool specs", () => {
     expect(out.startsWith("Error")).toBe(false);
     expect(pick(client)).toHaveBeenCalledWith(...expected);
     expect(out).not.toContain(TEST_KEY);
+  });
+
+  it("credits_convert points to a signer and makes no SDK call", async () => {
+    const { client, provider: p } = provider();
+    const out = JSON.parse(await runTool(byName.get("credits_convert")!, p, { amount_musd: "5000000" }));
+    expect(out.status).toBe("signing_required");
+    expect(out.message).toContain("MCP server");
+    expect(out.message).toContain("signer key file");
+    expect(client.credits.convert).not.toHaveBeenCalled();
+    expect(client.connectWithKey).not.toHaveBeenCalled();
   });
 
   it("node_setup_guide is static and needs no connection", async () => {
