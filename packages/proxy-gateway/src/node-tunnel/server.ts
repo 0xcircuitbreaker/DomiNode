@@ -37,6 +37,9 @@ import {
   pqTlsOptions,
 } from "@dominusnode/shared";
 import { TunnelMux, STREAM_WINDOW, type StreamCloseReport } from "./mux.js";
+
+/** Framing/control slack on top of the per-stream windows in the send-buffer cap. */
+const SEND_BUFFER_SLACK = 1024 * 1024;
 import { PreAuthLimiter, normalizePeerIp, readProxyV2, type PreAuthLimiterOptions } from "./ingress.js";
 import { NodeRegistry, ipPrefix, dayOf, type LiveNode, type NodeTunnelHandle } from "./registry.js";
 
@@ -166,6 +169,13 @@ export class NodeTunnel implements NodeTunnelHandle {
   private pingSent = new Map<number, number>();
   rttMs: number | null = null;
   live: LiveNode | null = null;
+  /**
+   * Most a compliant node can leave unread in our send queue: every stream's
+   * full send window plus control/framing slack (DESIGN.md §2.5). A node that
+   * keeps granting WINDOW credit without reading its socket would otherwise
+   * make the gateway buffer requester uploads without bound.
+   */
+  readonly sendBufferCap: number;
 
   constructor(
     private readonly ws: WebSocket,
@@ -175,6 +185,7 @@ export class NodeTunnel implements NodeTunnelHandle {
     /** TLS exporter of this connection; null when TLS terminates upstream (binding "none"). */
     private readonly exporter: Buffer | null = null,
   ) {
+    this.sendBufferCap = (Math.min(1024, Math.max(1, node.max_streams)) + 1) * STREAM_WINDOW + SEND_BUFFER_SLACK;
     this.mux = new TunnelMux({
       send: (b) => this.send(b),
       maxStreams: Math.max(1, node.max_streams),
@@ -202,7 +213,13 @@ export class NodeTunnel implements NodeTunnelHandle {
   }
 
   private send(buf: Buffer): void {
-    if (this.ws.readyState === WebSocket.OPEN) this.ws.send(buf, { binary: true });
+    if (this.ws.readyState !== WebSocket.OPEN) return;
+    if (this.ws.bufferedAmount + buf.length > this.sendBufferCap) {
+      this.server.log.warn("tunnel send buffer over cap, closing", { nodeId: this.node.id, buffered: this.ws.bufferedAmount, cap: this.sendBufferCap });
+      this.close("send buffer overflow", 1008);
+      return;
+    }
+    this.ws.send(buf, { binary: true });
   }
 
   sendControl(type: FrameType, obj: Record<string, unknown>): void {
@@ -287,10 +304,11 @@ export class NodeTunnel implements NodeTunnelHandle {
         case FrameType.PING:
           return this.send(encodeFrame(FrameType.PONG, 0, 0, encodeControl(decodeControl(f.payload))));
         case FrameType.PONG: {
-          this.missedPongs = 0;
+          // Only a PONG answering a PING we actually sent proves liveness.
           const p = decodeControl<{ seq?: unknown }>(f.payload);
           const sent = typeof p.seq === "number" ? this.pingSent.get(p.seq) : undefined;
           if (sent !== undefined) {
+            this.missedPongs = 0;
             this.pingSent.delete(p.seq as number);
             const rtt = Date.now() - sent;
             this.rttMs = this.rttMs === null ? rtt : this.rttMs * 0.8 + rtt * 0.2;
