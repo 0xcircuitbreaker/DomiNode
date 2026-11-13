@@ -222,6 +222,33 @@ for (const [action, spec] of Object.entries(NODE_ACTIONS)) {
   });
 }
 
+/**
+ * Lift the registration penalty of a node its owner revoked while it was
+ * quarantined or suspended (POST /v1/nodes NODE_PENALTY_ACTIVE), e.g. after a
+ * false-positive quarantine. The node stays revoked; only the remembered
+ * status is cleared.
+ */
+router.post("/nodes/:id/clear-penalty", async (req: Request, res: Response) => {
+  try {
+    const id = uuidPath(req);
+    const reason = reasonField(body(req), true);
+    const out = await withAdminTx(adminId(req), async (c) => {
+      const r = await c.query<{ status: string; revoked_from_status: string | null }>(
+        `SELECT status, revoked_from_status FROM nodes WHERE id = $1 FOR UPDATE`, [id]);
+      const cur = r.rows[0];
+      if (!cur) throw new HttpError(404, "Node not found");
+      if (cur.status !== "revoked" || (cur.revoked_from_status !== "quarantined" && cur.revoked_from_status !== "suspended")) {
+        throw new HttpError(409, "Node carries no revocation penalty");
+      }
+      await c.query(`UPDATE nodes SET revoked_from_status = NULL WHERE id = $1 AND status = 'revoked'`, [id]);
+      await audit(c, req, "node_penalty_clear", "node", id, { revokedFrom: cur.revoked_from_status, reason });
+      return cur.revoked_from_status;
+    });
+    log.info("node penalty cleared", { nodeId: id, revokedFrom: out, by: adminId(req) });
+    res.json({ nodeId: id, status: "revoked", previousRevokedFrom: out, changed: true });
+  } catch (err) { fail(res, err, "Node clear-penalty"); }
+});
+
 // ─── Agents ─────────────────────────────────────────────────────────
 
 const AGENT_CTE = `

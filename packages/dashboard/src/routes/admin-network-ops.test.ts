@@ -160,6 +160,22 @@ describe("admin network ops", () => {
       expect(txSqls().some((x) => x.startsWith("UPDATE nodes"))).toBe(false);
     });
 
+    it("clear-penalty: lifts a revoked-while-quarantined penalty with an audit row", async () => {
+      tx((sql) => sql.includes("FROM nodes WHERE id") ? { rows: [{ status: "revoked", revoked_from_status: "quarantined" }] } : undefined);
+      const r = await call(app(), "POST", `${BASE}/nodes/${NODE}/clear-penalty`, { body: { reason: "false-positive probe quarantine" } });
+      expect(r.status).toBe(200);
+      const s = txSqls();
+      expect(s.some((x) => x.includes("SET revoked_from_status = NULL"))).toBe(true);
+      const iAudit = s.findIndex((x) => x.includes("audit_events"));
+      expect((m.clientQuery.mock.calls[iAudit][1] as unknown[])[1]).toBe("node_penalty_clear");
+    });
+
+    it("clear-penalty: 409 without a penalty, 400 without a reason", async () => {
+      tx((sql) => sql.includes("FROM nodes WHERE id") ? { rows: [{ status: "revoked", revoked_from_status: "active" }] } : undefined);
+      expect((await call(app(), "POST", `${BASE}/nodes/${NODE}/clear-penalty`, { body: { reason: "x" } })).status).toBe(409);
+      expect((await call(app(), "POST", `${BASE}/nodes/${NODE}/clear-penalty`, { body: {} })).status).toBe(400);
+    });
+
     it("refuses to activate a node whose owner is suspended", async () => {
       tx((sql) => sql.includes("FROM nodes n") ? { rows: [{ status: "quarantined", owner_status: "suspended" }] } : undefined);
       expect((await call(app(), "POST", `${BASE}/nodes/${NODE}/activate`, { body: {} })).status).toBe(409);

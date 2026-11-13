@@ -81,3 +81,47 @@ export class Limits {
     return this.bytesToday;
   }
 }
+
+/**
+ * Shared throughput cap (DN_NODE_MAX_MBPS): one token bucket in bytes for all
+ * streams and both directions, refilled at maxMbps * 125 000 B/s with a burst
+ * of one second. Consumers may overdraw (a chunk already read); waitMs() says
+ * how long until `need` bytes (default: zero debt) are available again.
+ */
+export class ByteRate {
+  readonly bytesPerSec: number;
+  private tokens: number;
+  private last: number;
+
+  constructor(maxMbps: number, private readonly now: () => number = Date.now) {
+    if (!Number.isFinite(maxMbps) || maxMbps <= 0) throw new RangeError("maxMbps must be a positive number");
+    this.bytesPerSec = maxMbps * 125_000;
+    this.tokens = this.bytesPerSec;
+    this.last = now();
+  }
+
+  private refill(): void {
+    const t = this.now();
+    if (t > this.last) {
+      this.tokens = Math.min(this.bytesPerSec, this.tokens + ((t - this.last) / 1000) * this.bytesPerSec);
+    }
+    this.last = t;
+  }
+
+  /** Whole bytes that may be sent now. */
+  available(): number {
+    this.refill();
+    return Math.max(0, Math.floor(this.tokens));
+  }
+
+  consume(n: number): void {
+    this.refill();
+    if (Number.isFinite(n) && n > 0) this.tokens -= n;
+  }
+
+  waitMs(need = 0): number {
+    this.refill();
+    const deficit = Math.min(need, this.bytesPerSec) - this.tokens;
+    return deficit <= 0 ? 0 : Math.ceil((deficit / this.bytesPerSec) * 1000);
+  }
+}

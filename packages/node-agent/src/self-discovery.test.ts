@@ -93,4 +93,43 @@ describe("self discovery", () => {
       vi.useRealTimers();
     }
   });
+
+  it("dual-stack: learns the NATed IPv4 WAN address even when the IPv6 echo succeeds", async () => {
+    const ok = await disc.runSelfDiscovery({
+      apiUrl: "https://api.example", ifaces, readFile: (p) => (p.endsWith("ipv6_route") ? ROUTE6 : ROUTE4),
+      fetchForFamily: (f) => echoFetch(f === 4 ? "198.51.100.77" : "2a01:4f8:1:2::5"),
+    });
+    expect(ok).toBe(true);
+    expect(floor.floorAllowsIp("198.51.100.77")).toBe(false); // WAN IPv4 (on no interface)
+    expect(floor.floorAllowsIp("93.184.216.34")).toBe(true);
+  });
+
+  it("keeps the floor closed when an IPv4 default route exists but the IPv4 echo fails", async () => {
+    const failing = (async () => new Response("no", { status: 500 })) as unknown as typeof fetch;
+    const ok = await disc.runSelfDiscovery({
+      apiUrl: "https://api.example", ifaces, readFile: (p) => (p.endsWith("ipv6_route") ? ROUTE6 : ROUTE4),
+      fetchForFamily: (f) => (f === 4 ? failing : echoFetch("2a01:4f8:1:2::5")),
+    });
+    expect(ok).toBe(false);
+    expect(floor.floorAllowsIp("93.184.216.34")).toBe(false);
+    // IPv6-only host (no IPv4 default route): the IPv6 answer is enough.
+    const ok6 = await disc.runSelfDiscovery({
+      apiUrl: "https://api.example", ifaces, readFile: () => null,
+      fetchForFamily: (f) => (f === 4 ? failing : echoFetch("2a01:4f8:1:2::5")),
+    });
+    expect(ok6).toBe(true);
+  });
+
+  it("familyFetch pins the address family", async () => {
+    const http = await import("node:http");
+    const srv = http.createServer((req, res) => {
+      const nonce = new URL(req.url ?? "/", "http://x").searchParams.get("nonce");
+      res.end(JSON.stringify({ ip: req.socket.remoteAddress, nonce }));
+    });
+    await new Promise<void>((r) => srv.listen(0, "127.0.0.1", () => r()));
+    try {
+      const port = (srv.address() as { port: number }).port;
+      expect(await disc.discoverPublicIp(`http://localhost:${port}`, disc.familyFetch(4))).toBe("127.0.0.1");
+    } finally { srv.close(); }
+  });
 });

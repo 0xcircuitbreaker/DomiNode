@@ -263,6 +263,14 @@ export function resolveBranding(env: NodeJS.ProcessEnv, coordPubkeys: readonly s
   return { official: isOfficial, siteName, operatorName, contact, abuseContact };
 }
 
+/**
+ * RFC 9116 Contact value: a URI. A bare address (OPERATOR_CONTACT /
+ * ABUSE_CONTACT as the installer writes it) becomes mailto:<address>.
+ */
+export function securityTxtContact(contact: string): string {
+  return /^[a-z][a-z0-9+.-]*:/i.test(contact) ? contact : `mailto:${contact}`;
+}
+
 export function hasPublicKey(pubHex: string): boolean {
   return ed25519PublicKeyFromHex(pubHex) !== null;
 }

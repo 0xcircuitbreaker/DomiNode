@@ -3,9 +3,13 @@
 #
 # Checks, in order:
 #   1. at least MIN_NODES healthy (active + online) nodes for HEALTH_DURATION_S
-#   2. HTTPS fetch through the gateway via HTTP proxy, SOCKS5 and the TLS proxy
-#   3. plaintext http:// is refused without allowhttp-1
-#   4. cloud metadata IP (169.254.169.254) is refused
+#   2. HTTPS fetch through the gateway's TLS proxy (GATEWAY_TLS_PORT); the
+#      plaintext HTTP proxy and SOCKS5 ports only with PLAINTEXT_PROXY=1 (a
+#      production gateway refuses credentials there: PROXY_REQUIRE_TLS)
+#   3. plaintext http:// is refused without allowhttp-1 (PLAINTEXT_DISABLED)
+#   4. cloud metadata IP (169.254.169.254) is refused (TARGET_BLOCKED)
+#   Refusal checks go through the TLS proxy and pass only on the expected
+#   X-DominusNode-Error code, never on an unrelated 403 (e.g. "TLS required").
 #   5. relay_charges (admin overview) and node-owner credits move after traffic
 #   6. optional: one testnet (base-sepolia) withdrawal when payouts are enabled
 #      and maturation_hours = 0
@@ -22,7 +26,8 @@ API_URL="${API_URL:?set API_URL, e.g. https://api.staging.example}"
 GATEWAY_HOST="${GATEWAY_HOST:?set GATEWAY_HOST}"
 GATEWAY_HTTP_PORT="${GATEWAY_HTTP_PORT:-8080}"
 GATEWAY_SOCKS_PORT="${GATEWAY_SOCKS_PORT:-1080}"
-GATEWAY_TLS_PORT="${GATEWAY_TLS_PORT:-8443}"
+GATEWAY_TLS_PORT="${GATEWAY_TLS_PORT:-8443}"       # 8443 compose/prod, 8444 self-host
+PLAINTEXT_PROXY="${PLAINTEXT_PROXY:-0}"            # 1: also test plaintext 8080/1080 (dev, TLS_MODE=off)
 GATEWAY_TLS_CA="${GATEWAY_TLS_CA:-}"            # optional CA bundle for the TLS proxy
 REQUESTER_API_KEY="${REQUESTER_API_KEY:?set REQUESTER_API_KEY (dn_live_/dn_test_)}"
 NODE_OWNER_API_KEY="${NODE_OWNER_API_KEY:-}"      # agent key of the node owner (credits checks)
@@ -63,6 +68,7 @@ for n in MIN_NODES HEALTH_DURATION_S HEALTH_INTERVAL_S CREDIT_WAIT_S PAYOUT_WAIT
   [[ "${!n}" =~ ^[0-9]+$ ]] || die "$n must be a non-negative integer"
 done
 ((HEALTH_INTERVAL_S > 0)) || die "HEALTH_INTERVAL_S must be > 0"
+[[ "$PLAINTEXT_PROXY" =~ ^[01]$ ]] || die "PLAINTEXT_PROXY must be 0 or 1"
 
 # Redact anything key-like before it reaches the log.
 scrub() {
@@ -102,16 +108,26 @@ proxy_user() {
   printf '%s' "$u"
 }
 
-# proxy_fetch SCHEME PORT URL [FLAGS] -> prints "<http_code> <connect_code> <exit>"
+# proxy_fetch SCHEME PORT URL [FLAGS]
+#   -> prints "<http_code> <connect_code> <exit> <X-DominusNode-Error or ->"
+# The headers file includes the proxy's CONNECT response (curl -D).
 proxy_fetch() {
-  local scheme="$1" port="$2" url="$3" flags="${4:-}" code rc=0
+  local scheme="$1" port="$2" url="$3" flags="${4:-}" code rc=0 hdr err
   local extra=()
   [[ "$scheme" == https && -n "$GATEWAY_TLS_CA" ]] && extra+=(--proxy-cacert "$GATEWAY_TLS_CA")
-  code="$(curl -sS -o /dev/null --max-time 60 -w '%{http_code} %{http_connect}' "${extra[@]}" \
+  hdr="$(mktemp "$WORK/hdr.XXXXXX")"
+  code="$(curl -sS -o /dev/null -D "$hdr" --max-time 60 -w '%{http_code} %{http_connect}' "${extra[@]}" \
     -K <(printf 'proxy = "%s://%s:%s"\nproxy-user = "%s:%s"\n' \
       "$scheme" "$GATEWAY_HOST" "$port" "$(proxy_user "$flags")" "$REQUESTER_API_KEY") \
     "$url" 2>/dev/null)" || rc=$?
-  printf '%s %s\n' "${code:-000 000}" "$rc"
+  err="$(proxy_error_code <"$hdr")"
+  rm -f "$hdr"
+  printf '%s %s %s\n' "${code:-000 000}" "$rc" "${err:--}"
+}
+
+# First X-DominusNode-Error value in a header dump (stdin).
+proxy_error_code() {
+  tr -d '\r' | sed -n 's/^[Xx]-[Dd]ominus[Nn]ode-[Ee]rror: *\([A-Z0-9_]*\).*/\1/p' | head -n1
 }
 
 overview_charges() {
@@ -182,24 +198,34 @@ check_ok() {
   code="${res%% *}"
   if [[ "$code" =~ ^2|^3 ]]; then pass "$label ($res)"; else fail "$label ($res)"; fi
 }
-check_ok "HTTPS via HTTP proxy" "$(proxy_fetch http "$GATEWAY_HTTP_PORT" "$TARGET_URL")"
-check_ok "HTTPS via SOCKS5" "$(proxy_fetch socks5h "$GATEWAY_SOCKS_PORT" "$TARGET_URL")"
 check_ok "HTTPS via TLS proxy" "$(proxy_fetch https "$GATEWAY_TLS_PORT" "$TARGET_URL")"
+if [[ "$PLAINTEXT_PROXY" == 1 ]]; then
+  check_ok "HTTPS via plaintext HTTP proxy" "$(proxy_fetch http "$GATEWAY_HTTP_PORT" "$TARGET_URL")"
+  check_ok "HTTPS via SOCKS5" "$(proxy_fetch socks5h "$GATEWAY_SOCKS_PORT" "$TARGET_URL")"
+else
+  skip "plaintext HTTP proxy and SOCKS5 ports (PLAINTEXT_PROXY=1 to test; production refuses credentials there)"
+fi
 
 # ── 3. plaintext refusal / 4. metadata refusal ────────────────────────────────
+# check_refused LABEL "<proxy_fetch output>" EXPECTED_CODE...
+# Passes only when the gateway answered with one of the expected policy codes:
+# any other refusal (TLS required, auth, rate limit) means the policy under test
+# never ran, so the check fails instead of passing vacuously.
 check_refused() {
-  local label="$1" res code connect
-  res="$2"
-  read -r code connect _ <<<"$res"
-  # No HTTP status at all means the gateway never answered: that is not a refusal.
-  if [[ "$code" == 000 && "$connect" == 000 ]]; then fail "$label: no response from gateway ($res)"
-  elif [[ "$code" =~ ^2 && "$connect" =~ ^(000|200)$ ]]; then fail "$label was NOT refused ($res)"
-  else pass "$label refused ($res)"; fi
+  local label="$1" res="$2" code connect err want
+  shift 2
+  read -r code connect _ err <<<"$res"
+  if [[ "$code" == 000 && "$connect" == 000 ]]; then fail "$label: no response from gateway ($res)"; return; fi
+  if [[ "$code" =~ ^2 && "$connect" =~ ^(000|200)$ ]]; then fail "$label was NOT refused ($res)"; return; fi
+  for want in "$@"; do
+    if [[ "$err" == "$want" ]]; then pass "$label refused with $err ($res)"; return; fi
+  done
+  fail "$label: refused for another reason (X-DominusNode-Error ${err}, want $*): policy not exercised ($res)"
 }
-check_refused "plaintext http without allowhttp-1" "$(proxy_fetch http "$GATEWAY_HTTP_PORT" "$PLAINTEXT_URL")"
-check_refused "metadata IP over HTTPS" "$(proxy_fetch http "$GATEWAY_HTTP_PORT" "https://169.254.169.254/latest/meta-data/")"
+check_refused "plaintext http without allowhttp-1" "$(proxy_fetch https "$GATEWAY_TLS_PORT" "$PLAINTEXT_URL")" PLAINTEXT_DISABLED
+check_refused "metadata IP over HTTPS" "$(proxy_fetch https "$GATEWAY_TLS_PORT" "https://169.254.169.254/latest/meta-data/")" TARGET_BLOCKED
 check_refused "metadata IP over plaintext (allowhttp-1)" \
-  "$(proxy_fetch http "$GATEWAY_HTTP_PORT" "http://169.254.169.254/latest/meta-data/" allowhttp-1)"
+  "$(proxy_fetch https "$GATEWAY_TLS_PORT" "http://169.254.169.254/latest/meta-data/" allowhttp-1)" TARGET_BLOCKED
 
 # ── 5. charges and credits progression ────────────────────────────────────────
 waited=0

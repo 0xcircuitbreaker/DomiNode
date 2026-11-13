@@ -105,7 +105,7 @@ export interface RegisterNodeInput {
 
 export type RegisterNodeResult =
   | { ok: true; node: NodeRecord; nodeKey: string }
-  | { ok: false; reason: "owner_not_found" | "owner_inactive" | "tier_not_found" | "node_cap_reached"; cap?: number };
+  | { ok: false; reason: "owner_not_found" | "owner_inactive" | "tier_not_found" | "node_cap_reached" | "owner_penalized"; cap?: number };
 
 export interface HealthUpdate {
   nodeId: string;
@@ -113,6 +113,8 @@ export interface HealthUpdate {
   streams?: number;
   failures?: number;
   burns?: number;
+  /** Gateway-measured seconds the node's tunnel was open (uptime). */
+  onlineSeconds?: number;
   reputation?: number;
 }
 
@@ -227,6 +229,46 @@ export async function consumeChallenge(
 
 // ─── Registration ──────────────────────────────────────────────────────
 
+/** Days a node revoked while quarantined/suspended keeps blocking new registrations. */
+export const NODE_PENALTY_WINDOW_DAYS = 30;
+
+/**
+ * Revoke an owned node (irreversible), remembering the status it had so a
+ * quarantine or suspension is not shed by revoke + re-register.
+ */
+export async function revokeOwnedNode(nodeId: string, ownerUserId: string): Promise<{ id: string; status: string } | null> {
+  assertUuid(nodeId, "nodeId");
+  assertUuid(ownerUserId, "ownerUserId");
+  const r = await query<{ id: string; status: string }>(
+    `UPDATE nodes SET status = 'revoked', revoked_from_status = status, revoked_at = now()
+     WHERE id = $1 AND owner_user_id = $2 AND status <> 'revoked'
+     RETURNING id, status`,
+    [nodeId, ownerUserId],
+  );
+  return r.rows[0] ?? null;
+}
+
+/**
+ * Probe verdicts recorded in the last 30 days for any of this owner's nodes
+ * (revoked ones included) last seen on the same /24 (IPv4) or /48 (IPv6).
+ * The tunnel server tightens a new connection's class with these, so a probe
+ * downgrade is bound to owner + prefix, not only to the node id.
+ */
+export async function getOwnerPrefixProbeClasses(ownerUserId: string, prefix: string, excludeNodeId: string): Promise<NodeIpClass[]> {
+  assertUuid(ownerUserId, "ownerUserId");
+  assertUuid(excludeNodeId, "excludeNodeId");
+  if (typeof prefix !== "string" || prefix.length > 64 || !/^[0-9a-fA-F:.]+\/(24|48)$/.test(prefix)) return [];
+  const r = await query<{ probe_class: NodeIpClass }>(
+    `SELECT DISTINCT probe_class FROM nodes
+     WHERE owner_user_id = $1 AND ip_prefix24 = $2::cidr AND id <> $3
+       AND probe_class IS NOT NULL AND probe_class <> 'unknown'
+       AND probe_class_at > now() - interval '30 days'
+     LIMIT 10`,
+    [ownerUserId, prefix, excludeNodeId],
+  );
+  return r.rows.map((x) => x.probe_class).filter((c) => IP_CLASSES.includes(c));
+}
+
 /**
  * Register a node. The per-owner cap scales by the owner's tier (§15) and is
  * enforced inside a transaction holding FOR UPDATE on the owner row, so
@@ -287,6 +329,22 @@ export async function registerNode(input: RegisterNodeInput): Promise<RegisterNo
       return { ok: false, reason: "node_cap_reached", cap };
     }
 
+    // Penalties are not shed by revoking: while any of the owner's nodes is
+    // quarantined or suspended, or was revoked in that state within the
+    // window, no new node can be registered.
+    const pen = await client.query<{ n: string }>(
+      `SELECT COUNT(*)::text AS n FROM nodes
+       WHERE owner_user_id = $1
+         AND (status IN ('quarantined','suspended')
+              OR (status = 'revoked' AND revoked_from_status IN ('quarantined','suspended')
+                  AND revoked_at > now() - make_interval(days => $2)))`,
+      [input.ownerUserId, NODE_PENALTY_WINDOW_DAYS],
+    );
+    if (parseInt(pen.rows[0]?.n ?? "0", 10) > 0) {
+      await client.query("ROLLBACK");
+      return { ok: false, reason: "owner_penalized" };
+    }
+
     const ins = await client.query<NodeRecord>(
       `INSERT INTO nodes (owner_user_id, owner_wallet, node_key_hash, node_pubkey,
                           attestation_version, attestation_sig, max_streams, max_gb_day, declared_class)
@@ -316,7 +374,8 @@ export async function getNodeForTunnelAuth(keyHash: string): Promise<TunnelAuthN
               ORDER BY tm.team_id LIMIT 1) AS owner_team_id,
             n.node_pubkey, n.status, n.attestation_version,
             n.max_streams, n.max_gb_day, n.max_req_per_sec, n.reputation, n.report_penalty, n.operator_run, n.declared_class,
-            n.probe_class
+            -- Own verdict decays like the owner+prefix one (30 days).
+            CASE WHEN n.probe_class_at > now() - interval '30 days' THEN n.probe_class END AS probe_class
      FROM nodes n
      JOIN users u ON u.id = n.owner_user_id
      WHERE n.node_key_hash = $1
@@ -448,7 +507,7 @@ export async function flushHealth(batch: HealthUpdate[]): Promise<number> {
 
   // Merge duplicate nodeIds in JS (capped sums) so the INSERT path never
   // exceeds column CHECK limits; reputation: last value wins.
-  const merged = new Map<string, { bytes: number; streams: number; failures: number; burns: number }>();
+  const merged = new Map<string, { bytes: number; streams: number; failures: number; burns: number; online: number }>();
   const repMap = new Map<string, number>();
   for (const h of items) {
     assertUuid(h.nodeId, "nodeId");
@@ -456,14 +515,16 @@ export async function flushHealth(batch: HealthUpdate[]): Promise<number> {
     const s = intInRange(h.streams, 0, MAX_COUNT);
     const f = intInRange(h.failures, 0, MAX_COUNT);
     const u = intInRange(h.burns, 0, MAX_COUNT);
+    const o = intInRange(h.onlineSeconds, 0, 86_400);
     const prev = merged.get(h.nodeId);
     if (prev) {
       prev.bytes = Math.min(prev.bytes + b, MAX_BYTES);
       prev.streams = Math.min(prev.streams + s, MAX_COUNT);
       prev.failures = Math.min(prev.failures + f, MAX_COUNT);
       prev.burns = Math.min(prev.burns + u, MAX_COUNT);
+      prev.online = Math.min(prev.online + o, 86_400);
     } else {
-      merged.set(h.nodeId, { bytes: b, streams: s, failures: f, burns: u });
+      merged.set(h.nodeId, { bytes: b, streams: s, failures: f, burns: u, online: o });
     }
     if (h.reputation !== undefined) {
       repMap.delete(h.nodeId);
@@ -475,12 +536,14 @@ export async function flushHealth(batch: HealthUpdate[]): Promise<number> {
   const streams: number[] = [];
   const failures: number[] = [];
   const burns: number[] = [];
+  const online: number[] = [];
   for (const [id, v] of merged) {
     ids.push(id);
     bytes.push(v.bytes);
     streams.push(v.streams);
     failures.push(v.failures);
     burns.push(v.burns);
+    online.push(v.online);
   }
   const repIds = [...repMap.keys()];
   const reps = [...repMap.values()];
@@ -489,20 +552,22 @@ export async function flushHealth(batch: HealthUpdate[]): Promise<number> {
   try {
     await client.query("BEGIN");
     await client.query(
-      `INSERT INTO node_daily_stats (node_id, day, bytes, streams, failures, burns)
+      `INSERT INTO node_daily_stats (node_id, day, bytes, streams, failures, burns, online_seconds)
        SELECT v.node_id, CURRENT_DATE,
               LEAST(SUM(v.bytes), 1000000000000000), LEAST(SUM(v.streams), 2000000000),
-              LEAST(SUM(v.failures), 2000000000), LEAST(SUM(v.burns), 2000000000)
-       FROM unnest($1::uuid[], $2::bigint[], $3::int[], $4::int[], $5::int[])
-            AS v(node_id, bytes, streams, failures, burns)
+              LEAST(SUM(v.failures), 2000000000), LEAST(SUM(v.burns), 2000000000),
+              LEAST(SUM(v.online), 86400)
+       FROM unnest($1::uuid[], $2::bigint[], $3::int[], $4::int[], $5::int[], $6::int[])
+            AS v(node_id, bytes, streams, failures, burns, online)
        JOIN nodes n ON n.id = v.node_id
        GROUP BY v.node_id
        ON CONFLICT (node_id, day) DO UPDATE SET
          bytes    = LEAST(node_daily_stats.bytes + EXCLUDED.bytes, 1000000000000000),
          streams  = LEAST(node_daily_stats.streams + EXCLUDED.streams, 2000000000),
          failures = LEAST(node_daily_stats.failures + EXCLUDED.failures, 2000000000),
-         burns    = LEAST(node_daily_stats.burns + EXCLUDED.burns, 2000000000)`,
-      [ids, bytes, streams, failures, burns],
+         burns    = LEAST(node_daily_stats.burns + EXCLUDED.burns, 2000000000),
+         online_seconds = LEAST(node_daily_stats.online_seconds + EXCLUDED.online_seconds, 86400)`,
+      [ids, bytes, streams, failures, burns, online],
     );
     if (repIds.length > 0) {
       await client.query(

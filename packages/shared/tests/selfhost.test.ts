@@ -151,9 +151,10 @@ describe("scripts/selfhost/install.sh", () => {
     expect(s.gateway.volumes).toContain("gateway_secrets:/run/dominusnode:ro");
     expect(s.gateway.volumes!.join(" ")).not.toContain("selfhost/coord-key.pem");
     expect(s.gateway.depends_on?.keys?.condition).toBe("service_completed_successfully");
-    expect(s.node.volumes).toContain("node_secrets:/run/dominusnode:ro");
-    expect(s.node.depends_on?.["node-keys"]?.condition).toBe("service_completed_successfully");
-    for (const [name, file] of [["keys", "coord-key.pem"], ["node-keys", "node.json"]] as const) {
+    // No in-stack node: a same-box node is refused as a private peer.
+    expect(s.node).toBeUndefined();
+    expect(s["node-keys"]).toBeUndefined();
+    for (const [name, file] of [["keys", "coord-key.pem"], ["keys", "api-key-pepper"]] as const) {
       const svc = s[name];
       expect(svc.user).toBe("0:0");
       expect(svc.network_mode).toBe("none");
@@ -161,7 +162,7 @@ describe("scripts/selfhost/install.sh", () => {
       expect(cmd).toContain(`install -o 1001 -g 1001 -m 0400 /src/${file}`);
       expect(cmd).toContain("chmod 0500 /dst");
     }
-    expect(Object.keys(doc.volumes)).toEqual(expect.arrayContaining(["gateway_secrets", "node_secrets"]));
+    expect(Object.keys(doc.volumes)).toEqual(expect.arrayContaining(["gateway_secrets"]));
   });
 
   it("installer leaves data/ traversable and checks the gateway can read its key", () => {
@@ -307,8 +308,8 @@ describe("self-host roles and Cloudflare Tunnel", () => {
   });
 
   for (const [name, env, wantBlock, wantPlain] of [
-    ["gateway auto", { ROLE: "gateway", TLS_MODE: "auto", DOMINUSNODE_HOSTNAMES: "example.org", GATEWAY_DATABASE_URL: `postgresql://dominusnode:${"a".repeat(48)}@10.66.0.1:5432/dominusnode`, COORD_PUBKEY: "1".repeat(64) }, true, false],
-    ["gateway internal", { ROLE: "gateway", TLS_MODE: "internal", DOMINUSNODE_HOSTNAMES: "example.org", GATEWAY_DATABASE_URL: `postgresql://dominusnode:${"a".repeat(48)}@10.66.0.1:5432/dominusnode`, COORD_PUBKEY: "1".repeat(64) }, true, false],
+    ["gateway auto", { ROLE: "gateway", TLS_MODE: "auto", DOMINUSNODE_HOSTNAMES: "example.org", GATEWAY_DATABASE_URL: `postgresql://dominusnode_gateway:${"a".repeat(48)}@10.66.0.1:5432/dominusnode`, COORD_PUBKEY: "1".repeat(64), API_KEY_PEPPER: "a1".repeat(32) }, true, false],
+    ["gateway internal", { ROLE: "gateway", TLS_MODE: "internal", DOMINUSNODE_HOSTNAMES: "example.org", GATEWAY_DATABASE_URL: `postgresql://dominusnode_gateway:${"a".repeat(48)}@10.66.0.1:5432/dominusnode`, COORD_PUBKEY: "1".repeat(64), API_KEY_PEPPER: "a1".repeat(32) }, true, false],
     ["all + proxy host among site hosts", { ROLE: "all", TLS_MODE: "auto", DOMINUSNODE_HOSTNAMES: "example.org proxy.example.org" }, false, false],
     ["all + cloudflare", { ROLE: "all", TLS_MODE: "cloudflare", DOMINUSNODE_HOSTNAMES: "example.org", CLOUDFLARE_DNS_TOKEN_FILE: "./selfhost/cloudflare-dns.token" }, true, false],
     ["all + off", { ROLE: "all", TLS_MODE: "off", DOMINUSNODE_HOSTNAMES: "example.org" }, false, true],
@@ -371,7 +372,7 @@ describe("self-host roles and Cloudflare Tunnel", () => {
     });
   const pw = "a".repeat(48);
   const coordEnv = { ROLE: "coordinator", TLS_MODE: "cloudflare", DOMINUSNODE_HOSTNAMES: "example.org www.example.org api.example.org", DB_WG_BIND: "10.66.0.1" };
-  const gwEnv = { ROLE: "gateway", TLS_MODE: "auto", DOMINUSNODE_HOSTNAMES: "example.org", GATEWAY_DATABASE_URL: `postgresql://dominusnode:${pw}@10.66.0.1:5432/dominusnode`, COORD_PUBKEY: "1".repeat(64) };
+  const gwEnv = { ROLE: "gateway", TLS_MODE: "auto", DOMINUSNODE_HOSTNAMES: "example.org", GATEWAY_DATABASE_URL: `postgresql://dominusnode_gateway:${pw}@10.66.0.1:5432/dominusnode`, COORD_PUBKEY: "1".repeat(64), API_KEY_PEPPER: "a1".repeat(32) };
 
   it.runIf(has("openssl", ["version"]))("coordinator + cloudflare dry run: no Caddy sites, token never copied, idempotent", () => {
     const tmp = setup();
@@ -396,6 +397,20 @@ describe("self-host roles and Cloudflare Tunnel", () => {
     }
   }, 30_000);
 
+  it.runIf(has("openssl", ["version"]))("gateway takes the coordinator's JWT secret so dn_proxy_ tokens verify", () => {
+    const tmp = setup();
+    try {
+      const jwt = "b2".repeat(48);
+      const r = run(tmp, { ...gwEnv, COORD_JWT_SECRET: jwt });
+      expect(r.status).toBe(0);
+      expect(fs.readFileSync(path.join(tmp, ".env"), "utf8")).toMatch(new RegExp(`^JWT_SECRET=${jwt}$`, "m"));
+      expect(r.stdout + r.stderr).not.toContain(jwt);
+      expect(r.stdout).toMatch(/JWT secret check value[^:]*: [0-9a-f]{16}/);
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  }, 30_000);
+
   it.runIf(has("openssl", ["version"]))("gateway dry run: own key, both pins, relay-only Caddyfile", () => {
     const tmp = setup();
     try {
@@ -404,7 +419,7 @@ describe("self-host roles and Cloudflare Tunnel", () => {
       const env = fs.readFileSync(path.join(tmp, ".env"), "utf8");
       const own = fs.readFileSync(path.join(tmp, "selfhost/coord.pub"), "utf8").trim();
       expect(env).toContain(`DN_COORD_PUBKEYS=${"1".repeat(64)},${own}`);
-      expect(env).toMatch(/^GATEWAY_DATABASE_URL=postgresql:\/\/dominusnode:a{48}@10\.66\.0\.1:5432\/dominusnode$/m);
+      expect(env).toMatch(/^GATEWAY_DATABASE_URL=postgresql:\/\/dominusnode_gateway:a{48}@10\.66\.0\.1:5432\/dominusnode$/m);
       expect(r.stdout).not.toContain(pw);
       const caddy = fs.readFileSync(path.join(tmp, "selfhost/Caddyfile"), "utf8");
       expect(caddy).toContain("relay.example.org:8443 {");
@@ -457,8 +472,11 @@ describe("self-host roles and Cloudflare Tunnel", () => {
     ["relay host through the tunnel", { ...coordEnv, RELAY_HOST: "api.example.org" }, /RELAY_HOST must not be a tunnel hostname/],
     ["newline in relay host", { ...coordEnv, RELAY_HOST: "relay.example.org\nX=1" }, /invalid RELAY_HOST/],
     ["bad proxy host", { ...coordEnv, PROXY_HOST: "proxy_example" }, /invalid PROXY_HOST/],
-    ["public DB address", { ...gwEnv, GATEWAY_DATABASE_URL: `postgresql://dominusnode:${pw}@203.0.113.5:5432/dominusnode` }, /private \(WireGuard\)/],
-    ["weak DB password", { ...gwEnv, GATEWAY_DATABASE_URL: "postgresql://dominusnode:short@10.66.0.1:5432/dominusnode" }, /GATEWAY_DATABASE_URL must be/],
+    ["public DB address", { ...gwEnv, GATEWAY_DATABASE_URL: `postgresql://dominusnode_gateway:${pw}@203.0.113.5:5432/dominusnode` }, /private \(WireGuard\)/],
+    ["superuser DB role", { ...gwEnv, GATEWAY_DATABASE_URL: `postgresql://dominusnode:${pw}@10.66.0.1:5432/dominusnode` }, /least-privilege|superuser/],
+    ["gateway without the pepper", { ...gwEnv, API_KEY_PEPPER: "" }, /API key pepper/],
+    ["gateway with a malformed coordinator JWT secret", { ...gwEnv, COORD_JWT_SECRET: "nothex" }, /COORD_JWT_SECRET/],
+    ["weak DB password", { ...gwEnv, GATEWAY_DATABASE_URL: "postgresql://dominusnode_gateway:short@10.66.0.1:5432/dominusnode" }, /GATEWAY_DATABASE_URL must be/],
     ["public DB_WG_BIND", { ...coordEnv, DB_WG_BIND: "0.0.0.0" }, /DB_WG_BIND must be/],
     ["bad role", { ...coordEnv, ROLE: "both" }, /ROLE must be/],
   ];
@@ -648,5 +666,144 @@ describe("DNS-01 token rotation and image pins", () => {
     const text = fs.readFileSync(path.join(ROOT, "infra/docker/caddy.Dockerfile"), "utf8");
     expect(text).toMatch(/caddy:2\.11\.9-builder-alpine@sha256:[0-9a-f]{64}/);
     expect(text).toMatch(/caddy:2\.11\.9-alpine@sha256:[0-9a-f]{64}/);
+  });
+});
+
+describe("self-host operations (admin, contacts, pepper, backups)", () => {
+  const yaml = createRequire(__filename)("js-yaml") as { load(s: string): unknown };
+  type Svc = { environment?: Record<string, string>; volumes?: string[]; command?: string[]; profiles?: string[]; build?: { dockerfile: string } };
+  const svc = () => (yaml.load(fs.readFileSync(path.join(ROOT, "docker-compose.selfhost.yml"), "utf8")) as { services: Record<string, Svc> }).services;
+
+  it("restore skips ACLs and the gateway role is applied in one transaction", () => {
+    expect(fs.readFileSync(path.join(ROOT, "scripts/selfhost/restore.sh"), "utf8")).toMatch(/pg_restore .*--no-acl/);
+    expect(fs.readFileSync(path.join(ROOT, "scripts/selfhost/install.sh"), "utf8")).toMatch(/psql -q -1 -v ON_ERROR_STOP=1 [^\n]*\n?[^\n]*/);
+    const sh = fs.readFileSync(path.join(ROOT, "scripts/selfhost/install.sh"), "utf8");
+    const i = sh.indexOf("gateway-role.sql\"; } |");
+    expect(sh.slice(i, i + 200)).toContain("psql -q -1 ");
+  });
+
+  it("passes contacts, branding and the admin bootstrap through to the api", () => {
+    const env = svc().api.environment!;
+    for (const k of ["OPERATOR_CONTACT", "ABUSE_CONTACT", "OPERATOR_NAME", "SITE_NAME", "ADMIN_HUMAN_LOGIN", "ADMIN_BOOTSTRAP_EMAIL"]) {
+      expect(env[k]).toMatch(new RegExp(`^\\$\\{${k}:-`));
+    }
+  });
+
+  it("wires the API key pepper into the api and the gateway", () => {
+    const s = svc();
+    expect(s.api.environment!.API_KEY_PEPPER_FILE).toBe("/run/dominusnode/api-key-pepper");
+    expect(s.gateway.environment!.API_KEY_PEPPER_FILE).toBe("/run/dominusnode/api-key-pepper");
+    expect(s.keys.volumes).toContain("./selfhost/api-key-pepper:/src/api-key-pepper:ro");
+  });
+
+  it("serves the admin UI and routes API paths to the api", () => {
+    const s = svc();
+    expect(s.frontend.build!.dockerfile).toBe("infra/docker/frontend.Dockerfile");
+    expect((s.frontend.build as { args?: Record<string, string> }).args?.NGINX_CONF).toBe("infra/nginx/selfhost.conf");
+    const conf = fs.readFileSync(path.join(ROOT, "infra/nginx/selfhost.conf"), "utf8");
+    expect(conf).not.toMatch(/includeSubDomains|; preload/);
+    expect(conf).not.toMatch(/dominusnode\.com/);
+    expect(s.frontend.profiles).toEqual(["coordinator"]);
+  });
+
+  const setup = () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "dn-selfhost-ops-"));
+    fs.mkdirSync(path.join(tmp, "scripts/selfhost"), { recursive: true });
+    for (const f of ["install.sh", "backup.sh", "restore.sh"]) {
+      fs.copyFileSync(path.join(ROOT, "scripts/selfhost", f), path.join(tmp, "scripts/selfhost", f));
+    }
+    fs.copyFileSync(path.join(ROOT, "scripts/gen-coord-key.mjs"), path.join(tmp, "scripts/gen-coord-key.mjs"));
+    return tmp;
+  };
+  const install = (tmp: string, env: Record<string, string>) =>
+    spawnSync("bash", [path.join(tmp, "scripts/selfhost/install.sh"), "--yes", "--no-start"], {
+      env: { ...process.env, DOMINUSNODE_HOSTNAMES: "example.org", TLS_MODE: "auto", OPERATOR_CONTACT: "ops@example.org", SKIP_ASN_DB: "1", ...env },
+      encoding: "utf8",
+    });
+
+  it.runIf(has("openssl", ["version"]))("generates the pepper once, writes admin/contacts, routes the admin UI", () => {
+    const tmp = setup();
+    try {
+      const r1 = install(tmp, { ADMIN_BOOTSTRAP_EMAIL: "admin@example.org", ABUSE_CONTACT: "abuse@example.org" });
+      expect(r1.status).toBe(0);
+      const pep1 = fs.readFileSync(path.join(tmp, "selfhost/api-key-pepper"), "utf8");
+      expect(pep1).toMatch(/^[0-9a-f]{64}\n$/);
+      expect(fs.statSync(path.join(tmp, "selfhost/api-key-pepper")).mode & 0o077).toBe(0);
+      expect(r1.stdout).not.toContain(pep1.trim());
+      expect(r1.stdout).toMatch(/--trust sha256:[0-9a-f]{64}/);
+      const env = fs.readFileSync(path.join(tmp, ".env"), "utf8");
+      expect(env).toMatch(/^ADMIN_HUMAN_LOGIN=true$/m);
+      expect(env).toMatch(/^ADMIN_BOOTSTRAP_EMAIL=admin@example\.org$/m);
+      expect(env).toMatch(/^ABUSE_CONTACT=abuse@example\.org$/m);
+      const caddy = fs.readFileSync(path.join(tmp, "selfhost/Caddyfile"), "utf8");
+      expect(caddy).toMatch(/handle @api \{\n\s+reverse_proxy api:3000/);
+      expect(caddy).toMatch(/handle @admin \{\n\s+reverse_proxy frontend:8080/);
+      // Only the admin UI reaches the frontend: no official public pages.
+      const admin = caddy.split("\n").find((l) => l.includes("@admin path"))!;
+      for (const p of ["/report-abuse", "/pricing", "/terms", "/privacy", "/aup", "/run-a-node"]) expect(admin).not.toContain(p);
+      expect(caddy).toMatch(/handle \/ \{\n\s+redir \/admin 302/);
+      expect(caddy).toMatch(/handle \{\n\s+respond 404/);
+      // Re-run: pepper kept; an explicitly empty bootstrap email closes registration.
+      expect(install(tmp, { ADMIN_BOOTSTRAP_EMAIL: "" }).status).toBe(0);
+      expect(fs.readFileSync(path.join(tmp, "selfhost/api-key-pepper"), "utf8")).toBe(pep1);
+      expect(fs.readFileSync(path.join(tmp, ".env"), "utf8")).toMatch(/^ADMIN_BOOTSTRAP_EMAIL=$/m);
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  it.runIf(has("openssl", ["version"]))("backup is encrypted, holds Postgres + keys + .env, and restores", () => {
+    const tmp = setup();
+    try {
+      expect(install(tmp, {}).status).toBe(0);
+      // Stub docker: pg_dump prints a marker, pg_restore records its stdin.
+      const bin = path.join(tmp, "bin");
+      fs.mkdirSync(bin);
+      fs.writeFileSync(path.join(bin, "docker"),
+        '#!/usr/bin/env bash\ncase "$*" in *pg_dump*) printf FAKE-PG-DUMP ;; *pg_restore*) cat > "$STUB_RESTORED" ;; esac\n', { mode: 0o755 });
+      const pass = path.join(tmp, "pass");
+      fs.writeFileSync(path.join(pass), "correct horse battery staple\n", { mode: 0o600 });
+      const env = { ...process.env, DOCKER: path.join(bin, "docker"), BACKUP_DIR: path.join(tmp, "backups"), BACKUP_PASSPHRASE_FILE: pass };
+      const unenc = spawnSync("bash", [path.join(tmp, "scripts/selfhost/backup.sh")], { env: { ...env, BACKUP_PASSPHRASE_FILE: "" }, encoding: "utf8" });
+      expect(unenc.status).not.toBe(0);
+      expect(unenc.stderr).toMatch(/refusing to write an unencrypted backup/);
+      const b = spawnSync("bash", [path.join(tmp, "scripts/selfhost/backup.sh")], { env, encoding: "utf8" });
+      expect(b.stderr).toBe("");
+      expect(b.status).toBe(0);
+      const files = fs.readdirSync(path.join(tmp, "backups"));
+      expect(files).toHaveLength(1);
+      const archive = path.join(tmp, "backups", files[0]);
+      const raw = fs.readFileSync(archive);
+      const jwt = fs.readFileSync(path.join(tmp, ".env"), "utf8").match(/^JWT_SECRET=(.*)$/m)![1];
+      expect(raw.includes(Buffer.from(jwt))).toBe(false);
+      expect(raw.subarray(0, 8).toString()).toBe("Salted__");
+
+      // Restore onto an empty checkout.
+      const dst = setup();
+      try {
+        const restored = path.join(dst, "restored.dump");
+        const r = spawnSync("bash", [path.join(dst, "scripts/selfhost/restore.sh"), archive], {
+          env: { ...env, PATH: `${bin}:${process.env.PATH}`, STUB_RESTORED: restored, SKIP_ASN_DB: "1", SKIP_ASN_TIMER: "1", OPERATOR_CONTACT: "ops@example.org" }, encoding: "utf8",
+        });
+        expect(r.stderr).not.toMatch(/restore:/);
+        for (const f of ["selfhost/coord-key.pem", "selfhost/api-key-pepper", ".env"]) {
+          expect(fs.readFileSync(path.join(dst, f))).toEqual(fs.readFileSync(path.join(tmp, f)));
+        }
+        expect(fs.readFileSync(restored, "utf8")).toBe("FAKE-PG-DUMP");
+        expect(fs.statSync(path.join(dst, ".env")).mode & 0o077).toBe(0);
+        // A second restore refuses to overwrite live keys without --force.
+        const again = spawnSync("bash", [path.join(dst, "scripts/selfhost/restore.sh"), "--no-start", archive], { env, encoding: "utf8" });
+        expect(again.status).not.toBe(0);
+        expect(again.stderr).toMatch(/--force/);
+      } finally {
+        fs.rmSync(dst, { recursive: true, force: true });
+      }
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  }, 60_000);
+
+  it.runIf(has("shellcheck", ["--version"]))("ops scripts are shellcheck-clean", () => {
+    for (const f of ["backup.sh", "restore.sh", "refresh-asn.sh"]) execFileSync("shellcheck", [path.join(ROOT, "scripts/selfhost", f)]);
   });
 });

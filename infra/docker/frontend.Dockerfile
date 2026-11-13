@@ -27,7 +27,8 @@ RUN chown -R nginx:nginx /var/cache/nginx /var/log/nginx /etc/nginx/conf.d && \
 COPY --from=builder --chown=nginx:nginx /app/packages/frontend/dist /usr/share/nginx/html
 
 # Copy nginx config
-COPY --chown=nginx:nginx infra/nginx/default.conf /etc/nginx/conf.d/default.conf
+ARG NGINX_CONF=infra/nginx/default.conf
+COPY --chown=nginx:nginx ${NGINX_CONF} /etc/nginx/conf.d/default.conf
 
 USER nginx
 
