@@ -17,6 +17,7 @@ import { startSocks5Server } from "./socks5.js";
 import { loadProxyTls, parseRequireTls, createPlaintextAuthGuard, watchProxyTlsCert, type ReloadableTlsServer } from "./proxy-tls.js";
 import { envInt, setJobRunRecorder, JOB_RUN_UPSERT_SQL, type Job, type JobLogger, type LockPool } from "./jobs/runner.js";
 import * as nodeStatusJob from "./jobs/node-status.js";
+import * as userStatusJob from "./jobs/user-status.js";
 import * as maturityJob from "./jobs/maturity.js";
 import * as retentionJob from "./jobs/retention.js";
 import * as tiersJob from "./jobs/tiers.js";
@@ -302,6 +303,20 @@ function startJobs(registry: NodeRegistry, getPolicy: () => ActivePolicy): Job[]
         if (n && n.status !== status) n.status = status as typeof n.status;
       },
       close: (nodeId, reason) => registry.get(nodeId)?.tunnel.close(reason),
+    },
+  }));
+  // Suspend/erase on a coordinator elsewhere (split self-host, several
+  // gateways) reaches this instance through users.status in the DB.
+  jobs.push(userStatusJob.start({
+    logger: jobLog, intervalMs: envInt(process.env, "USER_STATUS_SWEEP_INTERVAL_MS", 30_000, 5_000, 3_600_000),
+    deps: {
+      liveUserIds: () => getActiveSessions().map((s) => s.userId),
+      fetchStatuses: async (ids) => {
+        const r = await getPool().query<{ id: string; status: string }>(
+          "SELECT id, status FROM users WHERE id = ANY($1::uuid[])", [ids]);
+        return new Map(r.rows.map((x) => [x.id, x.status]));
+      },
+      terminate: (uid) => terminateUserSessions(uid),
     },
   }));
   jobs.push(maturityJob.start({

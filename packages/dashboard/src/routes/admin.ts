@@ -146,6 +146,7 @@ router.put("/users/:id/suspend", async (req, res) => {
     });
     // Signal proxy-gateway to terminate active sessions for this user
     let terminatedSessions = 0;
+    let gatewaySignalled = false;
     try {
       const proxyHost = process.env["PROXY_INTERNAL_HOST"] ?? "127.0.0.1";
       const proxyPort = String(getProxyInternalPort());
@@ -164,13 +165,20 @@ router.put("/users/:id/suspend", async (req, res) => {
       if (resp.ok) {
         const body = await resp.json() as { terminated: number };
         terminatedSessions = body.terminated;
+        gatewaySignalled = true;
+      } else {
+        log.warn("proxy-gateway refused the terminate-sessions signal", { targetUserId: req.params.id, status: resp.status });
       }
     } catch {
       // Best effort — proxy-gateway may not be running in the same process
       log.warn("could not signal proxy-gateway to terminate sessions", { targetUserId: req.params.id });
     }
     log.info("user suspended", { targetUserId: req.params.id, revokedKeys, revokedTokens, terminatedSessions });
-    res.json({ message: "User suspended" });
+    // Every gateway also ends a non-active user's sessions within one
+    // user-status sweep (USER_STATUS_SWEEP_INTERVAL_MS, default 30 s).
+    res.json(gatewaySignalled
+      ? { message: "User suspended", terminatedSessions }
+      : { message: "User suspended", warning: "gateway not reachable: open sessions end at the next gateway user-status sweep (about 30 s)" });
   } catch (err) {
     if (sendHttpError(res, err)) return;
     log.error("failed to suspend user", { error: err instanceof Error ? err.message : String(err) });
