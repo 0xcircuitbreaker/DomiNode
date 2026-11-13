@@ -30,11 +30,25 @@ export class DominusNodeApi implements ICredentialType {
       description: "Relay gateway hostname",
     },
     {
-      displayName: "Proxy Port",
+      displayName: "Proxy TLS Port",
+      name: "proxyTlsPort",
+      type: "number",
+      default: 8443,
+      description: "Relay gateway HTTPS proxy (TLS) port: 8443 for the hosted gateway, usually 8444 for a self-hosted coordinator",
+    },
+    {
+      displayName: "Plaintext Gateway (Local Dev Only)",
+      name: "insecureProxy",
+      type: "boolean",
+      default: false,
+      description: "Whether to send the API key to the gateway without TLS. Production gateways refuse this.",
+    },
+    {
+      displayName: "Plaintext Proxy Port",
       name: "proxyPort",
       type: "number",
       default: 8080,
-      description: "Relay gateway HTTP port",
+      description: "Relay gateway plaintext HTTP port, used only with Plaintext Gateway",
     },
   ];
 }

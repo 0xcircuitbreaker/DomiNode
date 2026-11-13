@@ -73,10 +73,14 @@ export interface DominusNodeToolsConfig {
   apiKey?: string;
   /** Defaults to DOMINUSNODE_BASE_URL or https://api.dominusnode.com. */
   baseUrl?: string;
-  /** Defaults to DOMINUSNODE_PROXY_HOST or proxy.dominusnode.com. */
+  /** Defaults to the DOMINUSNODE_PROXY_URL host, DOMINUSNODE_PROXY_HOST or proxy.dominusnode.com. */
   proxyHost?: string;
-  /** Defaults to DOMINUSNODE_PROXY_PORT or 8080. */
+  /** Gateway TLS (HTTPS proxy) port. Defaults to the DOMINUSNODE_PROXY_URL port, DOMINUSNODE_PROXY_TLS_PORT or 8443 (self-host: 8444). */
+  tlsProxyPort?: number;
+  /** Plaintext port, used only with insecureProxy (local dev). Defaults to DOMINUSNODE_PROXY_PORT or 8080. */
   httpProxyPort?: number;
+  /** Plaintext to the gateway (local dev only; production refuses it). Defaults to DOMINUSNODE_PROXY_INSECURE=1. */
+  insecureProxy?: boolean;
   /** Inject a pre-built client (tests, custom transports). */
   client?: DominusNodeClient;
 }
@@ -84,6 +88,49 @@ export interface DominusNodeToolsConfig {
 function env(name: string): string | undefined {
   const v = typeof process !== "undefined" ? process.env?.[name] : undefined;
   return v && v.trim() ? v.trim() : undefined;
+}
+
+/** Gateway TLS port: production 8443; self-hosted coordinators publish 8444 by default. */
+export const DEFAULT_TLS_PROXY_PORT = 8443;
+
+/**
+ * Where proxy traffic goes. TLS to the gateway's HTTPS proxy is the default (production refuses
+ * credentials on plaintext 8080/1080). DOMINUSNODE_PROXY_URL=https://host[:port] sets host and TLS
+ * port (same variable as the MCP server); DOMINUSNODE_PROXY_INSECURE=1 selects plaintext (local dev).
+ */
+export function resolveGateway(
+  config: { proxyHost?: string; tlsProxyPort?: number; httpProxyPort?: number; insecureProxy?: boolean },
+  getEnv: (name: string) => string | undefined,
+): { proxyHost?: string; httpProxyPort?: number; gatewayTls: false | { port: number } } {
+  const validPort = (p: number | undefined): number | undefined =>
+    p !== undefined && Number.isInteger(p) && p >= 1 && p <= 65535 ? p : undefined;
+  let urlHost: string | undefined;
+  let urlPort: number | undefined;
+  const raw = getEnv("DOMINUSNODE_PROXY_URL");
+  if (raw) {
+    let u: URL;
+    try {
+      u = new URL(raw);
+    } catch {
+      throw new Error("DOMINUSNODE_PROXY_URL is not a valid URL");
+    }
+    if (u.protocol !== "https:") throw new Error("DOMINUSNODE_PROXY_URL must use https:// (TLS to the gateway)");
+    if (u.username || u.password) throw new Error("DOMINUSNODE_PROXY_URL must not contain credentials");
+    urlHost = u.hostname.toLowerCase();
+    urlPort = u.port ? validPort(Number(u.port)) : DEFAULT_TLS_PROXY_PORT;
+  }
+  const insecure = config.insecureProxy ?? getEnv("DOMINUSNODE_PROXY_INSECURE") === "1";
+  if (insecure && raw) throw new Error("DOMINUSNODE_PROXY_URL (TLS) and DOMINUSNODE_PROXY_INSECURE=1 are mutually exclusive");
+  const portEnv = getEnv("DOMINUSNODE_PROXY_PORT");
+  const httpProxyPort = validPort(config.httpProxyPort ?? (portEnv ? Number.parseInt(portEnv, 10) : undefined));
+  const tlsEnv = getEnv("DOMINUSNODE_PROXY_TLS_PORT");
+  const tlsPort =
+    validPort(config.tlsProxyPort) ?? urlPort ?? validPort(tlsEnv ? Number.parseInt(tlsEnv, 10) : undefined) ?? DEFAULT_TLS_PROXY_PORT;
+  return {
+    proxyHost: config.proxyHost ?? urlHost ?? getEnv("DOMINUSNODE_PROXY_HOST"),
+    httpProxyPort,
+    gatewayTls: insecure ? false : { port: tlsPort },
+  };
 }
 
 /** Lazily connects one SDK client per toolkit; failed connects are retried on the next call. */
@@ -97,12 +144,12 @@ export class ClientProvider {
     if (config.client) {
       this.#client = config.client;
     } else {
-      const portEnv = env("DOMINUSNODE_PROXY_PORT");
-      const port = config.httpProxyPort ?? (portEnv ? Number.parseInt(portEnv, 10) : undefined);
+      const gw = resolveGateway(config, env);
       this.#client = new DominusNodeClient({
         baseUrl: config.baseUrl ?? env("DOMINUSNODE_BASE_URL"),
-        proxyHost: config.proxyHost ?? env("DOMINUSNODE_PROXY_HOST"),
-        httpProxyPort: port !== undefined && Number.isInteger(port) && port >= 1 && port <= 65535 ? port : undefined,
+        proxyHost: gw.proxyHost,
+        httpProxyPort: gw.httpProxyPort,
+        gatewayTls: gw.gatewayTls,
       });
     }
   }
@@ -229,22 +276,25 @@ export const NODE_SETUP_GUIDE = [
   "",
   "Prerequisites",
   "  - A wallet-linked account and a personal dn_live_ API key (team keys cannot run nodes).",
-  "  - Node.js >= 18 and git on the machine whose IP you contribute. IPs in sanctioned countries cannot join.",
+  "  - Docker on the machine whose IP you contribute. IPs in sanctioned countries cannot join.",
   "",
   "Step 1: Store the owner wallet key in a private file (never paste it into a chat or a command line)",
   "  umask 077 && mkdir -p ~/.dominusnode && printf '%s' \"$WALLET_PRIVATE_KEY_HEX\" > ~/.dominusnode/wallet.key",
   "",
-  "Step 2: Register the node with the node agent CLI (signing happens locally, not through this tool set)",
-  "  git clone https://github.com/0xcircuitbreaker/DomiNode.git && cd DomiNode",
-  "  npm ci && npm run build -w @dominusnode/shared -w @dominusnode/node-agent",
+  "Step 2: Register the node with the published node image (official coordinator pins baked in; signing is local)",
+  "  sudo install -d -o 1001 -g 1001 -m 700 /etc/dominusnode",
+  "  sudo install -o 1001 -g 1001 -m 600 ~/.dominusnode/wallet.key /etc/dominusnode/wallet.key",
   "  export DN_API_KEY   # your dn_live_ key, from the environment only",
-  "  node packages/node-agent/dist/src/main.js register --wallet-key-file ~/.dominusnode/wallet.key",
+  "  docker run --rm -it -e DN_API_KEY -e DN_WALLET_KEY_FILE=/run/dominusnode/wallet.key \\",
+  "    -v /etc/dominusnode:/run/dominusnode ghcr.io/0xcircuitbreaker/dominusnode-node register",
   "  (or use the DominusNode MCP server's node_register tool / the SDK's nodes.register with a signer)",
   "",
   "Step 3: Run the node agent on the machine that owns the IP",
-  "  node packages/node-agent/dist/src/main.js run --key-file ~/.dominusnode/node.json",
-  "  Optional limits: --ports 443 --max-streams 32 --gb-per-day 5 --req-per-sec 20",
-  "  Keep it running (systemd, pm2 or a container restart policy): uptime drives your tier.",
+  "  docker run -d --name dominusnode-node --restart unless-stopped -e DN_NODE_GB_PER_DAY=5 \\",
+  "    -v /etc/dominusnode/node.json:/run/dominusnode/node.json:ro ghcr.io/0xcircuitbreaker/dominusnode-node",
+  "  A plain source build has no coordinator pins and refuses to start; use the image, or pass",
+  "  --coordinator <domain> --trust sha256:<fingerprint> (or DN_NODE_COORD_PINS) for another coordinator.",
+  "  Keep it running (the restart policy above): uptime drives your tier.",
   "",
   "Step 4: Verify with node_list (status, observed IP, class, last seen) and node_tier.",
   "Withdrawals and payout-wallet changes need a wallet signature: use the MCP server or the SDK with a signer key file.",
@@ -296,11 +346,16 @@ export function createToolSpecs(): DominusNodeToolSpec[] {
         "placeholder ${DOMINUSNODE_API_KEY}, which the caller substitutes from its own environment.",
       parameters: obj({
         ...routing,
-        protocol: { type: "string", enum: ["http", "socks5"], description: "http (default; CONNECT for https) or socks5." },
+        protocol: {
+          type: "string",
+          enum: ["https", "socks5", "http"],
+          description: "https (default: TLS to the gateway), socks5, or http (plaintext gateway; local dev only).",
+        },
       }),
       async run(client, args) {
-        const protocol = (str(args, "protocol") ?? "http") as "http" | "socks5";
-        const url = client.proxy.buildUrl({ ...routingOpts(args), protocol });
+        const asked = str(args, "protocol") as "https" | "http" | "socks5" | undefined;
+        const url = client.proxy.buildUrl({ ...routingOpts(args), ...(asked ? { protocol: asked } : {}) });
+        const protocol = url.slice(0, url.indexOf("://"));
         // Replace the password section with a placeholder; scrubbing is a second line of defence.
         const masked = scrubCredentials(url.replace(/^([a-z0-9]+:\/\/[^:]*:)[^@]*@/i, `$1${KEY_PLACEHOLDER}@`));
         return { proxyUrl: masked, username: client.proxy.buildUsername(routingOpts(args)), protocol };

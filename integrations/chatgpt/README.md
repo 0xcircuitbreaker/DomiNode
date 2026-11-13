@@ -15,7 +15,7 @@ npm install @dominusnode/chatgpt
 export DOMINUSNODE_API_KEY=dn_live_...
 ```
 
-Defaults: API `https://api.dominusnode.com`, relay gateway `proxy.dominusnode.com`. Override with `DOMINUSNODE_BASE_URL` / `DOMINUSNODE_PROXY_HOST`.
+Defaults: API `https://api.dominusnode.com`, relay gateway `proxy.dominusnode.com`. Override with `DOMINUSNODE_BASE_URL` / `DOMINUSNODE_PROXY_HOST`. Proxy traffic uses TLS to the gateway (HTTPS proxy, port 8443). For a self-hosted coordinator set `DOMINUSNODE_PROXY_URL=https://<proxy-host>:8444`; `DOMINUSNODE_PROXY_INSECURE=1` selects plaintext 8080 for local development only (production gateways refuse it).
 
 ```ts
 import OpenAI from "openai";
