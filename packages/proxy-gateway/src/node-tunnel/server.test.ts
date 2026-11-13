@@ -341,6 +341,33 @@ describe("NodeTunnelServer", () => {
     expect(c.frames.filter((f) => f.type === FrameType.PING).length).toBe(3);
   });
 
+  it("a PONG that answers no PING we sent does not count as liveness", async () => {
+    const { port } = await start({ heartbeatMs: 30 });
+    const c = connect(port);
+    await c.opened;
+    c.send(FrameType.HELLO, 0, hello());
+    await c.waitFor(FrameType.AUTH_OK);
+    const t = setInterval(() => { try { c.send(FrameType.PONG, 0, { seq: 987654 }); } catch { /* closed */ } }, 5);
+    try {
+      expect(await c.closed).toBe(1001);
+    } finally { clearInterval(t); }
+  });
+
+  it("closes a tunnel whose send queue exceeds maxStreams x window (node not reading)", async () => {
+    const { port, registry } = await start();
+    const c = connect(port);
+    await c.opened;
+    c.send(FrameType.HELLO, 0, hello());
+    await c.waitFor(FrameType.AUTH_OK);
+    const live = registry.get(NODES[hashNodeKey(KEY_A)]!.id)!;
+    const tunnel = live.tunnel as unknown as { ws: WebSocket; sendBufferCap: number; sendControl(t: FrameType, o: Record<string, unknown>): void; isOpen: boolean };
+    expect(tunnel.sendBufferCap).toBe((8 + 1) * 256 * 1024 + 1024 * 1024);
+    Object.defineProperty(tunnel.ws, "bufferedAmount", { get: () => tunnel.sendBufferCap, configurable: true });
+    tunnel.sendControl(FrameType.DRAIN, {});
+    expect(tunnel.isOpen).toBe(false);
+    expect(await c.closed).toBe(1008);
+  });
+
   it("pushes policy updates to ready tunnels", async () => {
     const { port } = await start();
     const c = connect(port);

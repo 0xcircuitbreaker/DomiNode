@@ -1,3 +1,12 @@
+# Container log rotation: Docker's json-file driver never rotates by default.
+# The gateway logs at least one line per relayed request; cap each container
+# at 5 x 20 MB so logs cannot fill the disk Postgres shares.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "20m"
+    max-file: "5"
+
 services:
   # Netlify hosts the frontend in this deployment model.
   # This disables the local nginx-based frontend container to avoid port conflicts.
@@ -18,6 +27,7 @@ services:
   # TLS reverse proxy for the API (recommended for Netlify -> VPS proxying).
   # Exposes 80/443 on the VPS and forwards to the internal `api:3000` container.
   caddy:
+    logging: *default-logging
     image: caddy:2-alpine
     restart: unless-stopped
     depends_on:

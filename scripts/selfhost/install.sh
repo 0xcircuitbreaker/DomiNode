@@ -233,6 +233,7 @@ fi
 ensure_secret POSTGRES_PASSWORD 24
 ensure_secret JWT_SECRET 48
 ensure_secret MFA_ENCRYPTION_KEY 32
+ensure_secret PROBE_AUTH_SECRET 32
 env_set DOMINUSNODE_DOMAIN "$PRIMARY"
 env_set PUBLIC_HOSTNAMES "$(printf '%s' "$HOSTS" | tr ' ' ',')"
 env_set TLS_MODE "$TLS"

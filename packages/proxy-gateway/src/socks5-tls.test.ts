@@ -12,7 +12,7 @@ vi.mock("@dominusnode/shared", async () => ({
   planRepo: {},
   pqTlsOptions: (await import("@dominusnode/shared/dist/src/tls-pq.js")).pqTlsOptions,
 }));
-vi.mock("./geo-check.js", () => ({ initGeoCheck: vi.fn(async () => {}), checkSanctionedCountry: vi.fn(() => null) }));
+vi.mock("./geo-check.js", () => ({ initGeoCheck: vi.fn(async () => {}), checkSanctionedCountry: vi.fn(() => null), checkClientCountry: vi.fn(() => null) }));
 
 import { startSocks5Server } from "./socks5.js";
 

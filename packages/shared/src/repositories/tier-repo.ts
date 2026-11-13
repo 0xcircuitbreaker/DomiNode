@@ -315,15 +315,20 @@ export async function listTierOwners(afterUserId: string | null, limit = 1000): 
 }
 
 /**
- * 30-day uptime approximation in basis points: share of the last 30 days on
- * which at least one of the owner's nodes carried a stream (node_daily_stats).
+ * 30-day uptime in basis points, measured by the gateway from tunnel
+ * liveness (ECONOMICS.md rule 3): for each of the last 30 days, the longest
+ * time any of the owner's nodes had its tunnel open (node_daily_stats
+ * .online_seconds, capped at a day), summed and divided by 30 days.
  */
 export async function getOwnerUptimeBps(userId: string): Promise<number> {
-  const r = await query<{ days: string }>(
-    `SELECT COUNT(DISTINCT s.day) AS days FROM node_daily_stats s JOIN nodes n ON n.id = s.node_id
-     WHERE n.owner_user_id = $1 AND s.day > current_date - 30 AND s.streams > 0`,
+  const r = await query<{ seconds: string | null }>(
+    `SELECT SUM(d.best) AS seconds FROM (
+       SELECT s.day, MAX(LEAST(s.online_seconds, 86400)) AS best
+       FROM node_daily_stats s JOIN nodes n ON n.id = s.node_id
+       WHERE n.owner_user_id = $1 AND s.day > current_date - 30
+       GROUP BY s.day) d`,
     [userId],
   );
-  const days = Math.min(30, Math.max(0, Number(r.rows[0]?.days ?? 0)));
-  return Math.round((days * 10_000) / 30);
+  const secs = Math.min(30 * 86_400, Math.max(0, Number(r.rows[0]?.seconds ?? 0) || 0));
+  return Math.round((secs * 10_000) / (30 * 86_400));
 }

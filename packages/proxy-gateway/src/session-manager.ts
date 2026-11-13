@@ -1,4 +1,4 @@
-import { usageRepo, walletRepo, planRepo, teamRepo, policyRepo, tierRepo, relayChargeRepo, relaySettleRetryRepo, createLogger } from "@dominusnode/shared";
+import { usageRepo, walletRepo, planRepo, teamRepo, policyRepo, tierRepo, relayChargeRepo, relaySettleRetryRepo, sessionRecoveryRepo, createLogger } from "@dominusnode/shared";
 import type { Plan, NodeIpClass } from "@dominusnode/shared";
 import { RELAY_BYTES_PER_GB, isClassDowngrade } from "@dominusnode/shared";
 import { recordRequesterSpend, reserveRequesterSpend, releaseRequesterSpend, reserveRequesterShared } from "./policy-enforcer.js";
@@ -72,6 +72,117 @@ interface ActiveSession {
 }
 
 const activeSessions = new Map<string, ActiveSession>();
+
+// ─── Crash/restart recovery ──────────────────────────────────────────
+// When set, every session's settle payload is stored on its DB row at start
+// and heartbeated with the gateway-counted bytes, so another (or the next)
+// gateway instance can settle it if this process dies.
+let recoveryInstanceId: string | null = null;
+
+/** A settled relay charge, reported to the node registry (reputation, daily stats, earnings). */
+export interface SettledSessionEvent {
+  nodeId: string;
+  requesterUserId: string;
+  bytes: number;
+  destHost: string;
+  nodeMusd: bigint;
+  disputed: boolean;
+}
+let onSettled: ((e: SettledSessionEvent) => void) | null = null;
+export function configureSettledHook(fn: ((e: SettledSessionEvent) => void) | null): void {
+  onSettled = fn;
+}
+function emitSettled(input: relayChargeRepo.SettleRelayChargeInput, r: relayChargeRepo.SettleRelayChargeResult): void {
+  if (!onSettled || r.status !== "settled") return;
+  // Only paid traffic counts: zero-byte, zero-charge or zeroed (self-dealing,
+  // collusion hold, quarantine) sessions must not raise reputation or stats.
+  if (r.grossMusd <= 0n || r.zeroReason || input.bytesGateway <= 0n) return;
+  try {
+    onSettled({
+      nodeId: input.nodeId, requesterUserId: input.requesterUserId,
+      bytes: Number(input.bytesGateway), destHost: input.destHost,
+      nodeMusd: r.nodeMusd ?? 0n, disputed: r.disputed === true,
+    });
+  } catch {
+    /* never fail a settlement on bookkeeping */
+  }
+}
+export function configureSessionRecovery(instanceId: string | null): void {
+  recoveryInstanceId = instanceId;
+}
+
+/** settleRelayCharge input for a session at its current byte counts. */
+function settleInputFor(session: ActiveSession): relayChargeRepo.SettleRelayChargeInput {
+  const { counter, relay, teamId } = session;
+  return {
+    sessionId: session.sessionId,
+    requesterUserId: session.userId,
+    requesterWallet: relay.requesterWallet ?? null,
+    requesterTeamId: teamId,
+    rail: session.prepaid ? session.prepaid.rail : teamId ? "team" : "wallet",
+    reservedCents: session.reservedCents,
+    nodeId: relay.nodeId,
+    bytesGateway: BigInt(counter.bytesIn + counter.bytesOut),
+    bytesNode: readNodeBytes(relay),
+    bytesIn: counter.bytesIn,
+    bytesOut: counter.bytesOut,
+    pricePerGbMusd: session.pricePerGbMusd,
+    snapshot: session.snapshot,
+    destHost: session.destHost,
+    destPort: relay.destPort,
+    usageTargetHost: session.targetHost, // "" unless logTargetHosts (privacy-first)
+    ...(session.prepaid ? { prepaidGrossMusd: session.prepaid.paidMusd } : {}),
+  };
+}
+
+/** Store the recovery payload; throws if it cannot be stored (caller fails the session). */
+async function persistRecovery(session: ActiveSession): Promise<void> {
+  if (!recoveryInstanceId) return;
+  await sessionRecoveryRepo.attachRecoveryPayload(recoveryInstanceId, settleInputFor(session));
+}
+
+/** Heartbeat this instance's live sessions with their current byte counts. */
+export async function heartbeatActiveSessions(): Promise<number> {
+  if (!recoveryInstanceId || activeSessions.size === 0) return 0;
+  const rows = [...activeSessions.values()].map((s) => ({ sessionId: s.sessionId, bytesIn: s.counter.bytesIn, bytesOut: s.counter.bytesOut }));
+  return sessionRecoveryRepo.heartbeatSessions(recoveryInstanceId, rows);
+}
+
+/**
+ * Settle sessions left active by gateway instances that stopped
+ * heartbeating (crash, SIGKILL, or a previous run of this process): the
+ * requester pays for the last flushed bytes, the rest of the reservation is
+ * refunded and the node is paid. Sessions owned by live instances or by the
+ * settle-retry queue are never touched.
+ */
+/** Legacy rows (no recovery payload) are closed once older than this. */
+export const LEGACY_ORPHAN_AGE_SECONDS = 3600;
+
+export async function recoverOrphanedSessions(staleSeconds: number): Promise<{ settled: number; failed: number; legacyClosed?: number }> {
+  if (!recoveryInstanceId) return { settled: 0, failed: 0 };
+  // Runs every recovery pass (idempotent, cheap): rows left behind by the
+  // upgrade restart itself are minutes old at startup and are closed once
+  // they pass the age limit.
+  let legacyClosed = 0;
+  try {
+    legacyClosed = await sessionRecoveryRepo.closeLegacyOrphans(LEGACY_ORPHAN_AGE_SECONDS);
+    if (legacyClosed > 0) log.warn(`closed ${legacyClosed} legacy orphaned sessions without a recovery payload`);
+  } catch (err) {
+    log.warn("legacy orphan cleanup failed", { error: err instanceof Error ? err.message.slice(0, 100) : "unknown" });
+  }
+  const rows = await sessionRecoveryRepo.listRecoverableSessions(recoveryInstanceId, staleSeconds, 1000);
+  let settled = 0, failed = 0;
+  for (const r of rows) {
+    try {
+      emitSettled(r.input, await relayChargeRepo.settleRelayCharge(r.input));
+      settled++;
+    } catch (err) {
+      failed++;
+      log.error("orphaned session recovery failed", { sessionId: r.sessionId, error: err instanceof Error ? err.message.slice(0, 120) : "unknown" });
+    }
+  }
+  return legacyClosed > 0 ? { settled, failed, legacyClosed } : { settled, failed };
+}
 
 // Socket destroy callbacks registered per session for forced termination.
 // When admin suspends a user, we call these to close the TCP connections.
@@ -406,7 +517,7 @@ export async function startSession(
     throw new Error("Server at capacity. Please try again later.");
   }
 
-  activeSessions.set(sessionId, {
+  const newSession: ActiveSession = {
     sessionId,
     userId,
     targetHost: storedTargetHost,
@@ -422,7 +533,23 @@ export async function startSession(
     pricePerGbMusd,
     snapshot,
     inflightMusd,
-  });
+  };
+  try {
+    await persistRecovery(newSession);
+  } catch (err) {
+    if (reservedCents > 0) {
+      if (teamId) {
+        await teamRepo.releaseTeamReservation(teamId, reservedCents);
+        invalidateTeamBalanceCache(teamId);
+      } else {
+        await walletRepo.releaseReservation(userId, reservedCents);
+        invalidateBalanceCache(userId);
+      }
+    }
+    try { await usageRepo.endSession(sessionId, 0, "error"); } catch { /* best effort */ }
+    throw err;
+  }
+  activeSessions.set(sessionId, newSession);
   } catch (err) {
     releaseRequesterSpend(userId, inflightMusd);
     throw err;
@@ -448,7 +575,7 @@ export async function startSession(
 
   // Redact full hostname from logs to protect user privacy
   const redactedHost = targetHost.split(".").slice(-2).join(".");
-  log.info("session started", { sessionId, userId, targetHost: redactedHost, reservedCents });
+  log.debug("session started", { sessionId, userId, targetHost: redactedHost, reservedCents });
   return sessionId;
 }
 
@@ -498,7 +625,7 @@ export async function startPrepaidSession(i: PrepaidSessionInput): Promise<strin
   }
   const sessionId = dbSession.id;
   const host = i.targetHost;
-  activeSessions.set(sessionId, {
+  const newSession: ActiveSession = {
     sessionId,
     userId: i.userId,
     targetHost: "", // x402 identities never opt in to host logging
@@ -515,7 +642,15 @@ export async function startPrepaidSession(i: PrepaidSessionInput): Promise<strin
     snapshot,
     prepaid: { rail: i.rail, paidMusd: i.paidMusd },
     inflightMusd: i.paidMusd,
-  });
+  };
+  try {
+    await persistRecovery(newSession);
+  } catch (err) {
+    releaseRequesterSpend(i.userId, i.paidMusd);
+    try { await usageRepo.endSession(sessionId, 0, "error"); } catch { /* best effort */ }
+    throw err;
+  }
+  activeSessions.set(sessionId, newSession);
   const paidBytes = maxBytesForPrepaid(i.paidMusd, i.quotedPricePerGbMusd);
   i.counter.maxBytes = Math.max(1, Math.min(paidBytes, i.maxBytes)); // 0 would mean unlimited
   i.counter.onLimitExceeded = () => {
@@ -527,7 +662,7 @@ export async function startPrepaidSession(i: PrepaidSessionInput): Promise<strin
     }
   };
   recordSessionStart();
-  log.info("prepaid session started", { sessionId, rail: i.rail, paidMusd: i.paidMusd.toString() });
+  log.debug("prepaid session started", { sessionId, rail: i.rail, paidMusd: i.paidMusd.toString() });
   return sessionId;
 }
 
@@ -603,7 +738,7 @@ async function settleSession(sessionId: string): Promise<void> {
   // Fix #8: Atomic check-and-remove to prevent TOCTOU race
   if (!activeSessions.delete(sessionId)) return;
 
-  const { userId, counter, reservedCents, teamId, relay } = session;
+  const { userId, counter, reservedCents, teamId } = session;
   const totalBytes = counter.bytesIn + counter.bytesOut;
 
   // Record bandwidth for velocity tracking (prevents single user from monopolizing)
@@ -612,31 +747,13 @@ async function settleSession(sessionId: string): Promise<void> {
     recordBytes(counter.bytesIn, counter.bytesOut);
   }
 
-  const rail = session.prepaid ? session.prepaid.rail : teamId ? "team" : "wallet";
   let settleInput: relayChargeRepo.SettleRelayChargeInput | null = null;
 
   try {
     // One transaction: requester settle, relay_charges, node earn, abuse log,
     // session end and usage record (DESIGN.md §6.3). Bytes are gateway-measured.
-    const r = await relayChargeRepo.settleRelayCharge(settleInput = {
-      sessionId,
-      requesterUserId: userId,
-      requesterWallet: relay.requesterWallet ?? null,
-      requesterTeamId: teamId,
-      rail,
-      reservedCents,
-      nodeId: relay.nodeId,
-      bytesGateway: BigInt(totalBytes),
-      bytesNode: readNodeBytes(relay),
-      bytesIn: counter.bytesIn,
-      bytesOut: counter.bytesOut,
-      pricePerGbMusd: session.pricePerGbMusd,
-      snapshot: session.snapshot,
-      destHost: session.destHost,
-      destPort: relay.destPort,
-      usageTargetHost: session.targetHost, // "" unless logTargetHosts (privacy-first)
-      ...(session.prepaid ? { prepaidGrossMusd: session.prepaid.paidMusd } : {}),
-    });
+    const r = await relayChargeRepo.settleRelayCharge(settleInput = settleInputFor(session));
+    emitSettled(settleInput, r);
     if (session.prepaid) { /* no wallet movement */ }
     else if (teamId) invalidateTeamBalanceCache(teamId);
     else invalidateBalanceCache(userId);
@@ -646,7 +763,7 @@ async function settleSession(sessionId: string): Promise<void> {
       log.error("session settlement partial — unpaid usage", { sessionId, userId, totalBytes, debitCents: r.debitCents, reservedCents });
       return;
     }
-    log.info("session ended", { sessionId, userId, totalBytes, debitCents: r.debitCents, reservedCents, rail });
+    log.debug("session ended", { sessionId, userId, totalBytes, debitCents: r.debitCents, reservedCents, rail: settleInput.rail });
   } catch (err) {
     log.error("session end failed", {
       sessionId,

@@ -261,7 +261,7 @@ export async function deleteUser(userId: string, ext?: DbTxClient): Promise<void
       [userId]
     );
     await client.query(
-      "UPDATE sessions SET proxy_ip = 'REDACTED' WHERE user_id = $1",
+      "UPDATE sessions SET proxy_ip = 'REDACTED', settle_payload = NULL WHERE user_id = $1",
       [userId]
     );
 

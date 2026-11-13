@@ -8,8 +8,11 @@ import { startProxyServer } from "./server.js";
 import { geoAvailable, initGeoCheck, lookupPeerGeo, classifyEgressIp } from "./geo-check.js";
 import { makeEgressVerifier } from "./egress-class.js";
 import { installSharedLimits, makeInstanceId } from "./shared-limits.js";
+import { PerKeyLogLimiter } from "./log-limiter.js";
+
+const mismatchLogLimiter = new PerKeyLogLimiter(60_000, 10_000);
 import { NodeRegistry, type LiveNode } from "./node-tunnel/registry.js";
-import { NodeSelector } from "./node-tunnel/selector.js";
+import { NodeSelector, etld1 } from "./node-tunnel/selector.js";
 import { loadCoordSigner } from "./node-tunnel/coord-key.js";
 import { NodeTunnelServer } from "./node-tunnel/server.js";
 import { checkGatewayEnv } from "./env-check.js";
@@ -33,7 +36,7 @@ import { getLatencyPercentiles } from "./stats.js";
 import { drainUnmetDemand, restoreUnmetDemand } from "./unmet-demand.js";
 import { parseTrustedProxyIps, loadTunnelTls } from "./node-tunnel/ingress.js";
 import { createEthersPayoutSender } from "./jobs/payout-sender-ethers.js";
-import { getActiveSessionCount, terminateUserSessions, terminateNodeSessionsAbove, getActiveSessions, awaitInFlightSettlements, getInFlightSettlementCount } from "./session-manager.js";
+import { getActiveSessionCount, terminateUserSessions, terminateNodeSessionsAbove, getActiveSessions, awaitInFlightSettlements, getInFlightSettlementCount, configureSessionRecovery, heartbeatActiveSessions, recoverOrphanedSessions, configureSettledHook } from "./session-manager.js";
 
 const log = createLogger("proxy:main");
 
@@ -200,7 +203,12 @@ async function main(): Promise<void> {
       if (connectProbes && live.status === "active") connectProbes.enqueue(toProbeNode(registry, live));
     },
     onStreamClose: (nodeId, r) => {
-      if (r.nodeReport && (r.nodeReport.bytesIn !== r.gatewayBytesOut || r.nodeReport.bytesOut !== r.gatewayBytesIn)) {
+      // Nodes are untrusted and control their own report: warn only on a
+      // real dispute (isByteDispute) and at most once per node per minute.
+      if (!r.nodeReport) return;
+      const gw = BigInt(r.gatewayBytesIn + r.gatewayBytesOut);
+      const nd = BigInt(r.nodeReport.bytesIn + r.nodeReport.bytesOut);
+      if (relayChargeRepo.isByteDispute(gw, nd) && mismatchLogLimiter.allow(nodeId, Date.now())) {
         log.warn("node byte report mismatch", { nodeId, gatewayOut: r.gatewayBytesOut, gatewayIn: r.gatewayBytesIn, nodeIn: r.nodeReport.bytesIn, nodeOut: r.nodeReport.bytesOut });
       }
     },
@@ -233,13 +241,42 @@ async function main(): Promise<void> {
   }, 30_000);
   policyInterval.unref();
 
-  const relay = { selector, getPolicy: () => policy.body, nodeCount: () => registry.size };
+  const relay = {
+    selector, getPolicy: () => policy.body, nodeCount: () => registry.size,
+    onNodeFailure: (nodeId: string) => registry.recordFailure(nodeId),
+  };
 
-  // Clean up orphaned sessions from previous crash
-  const orphaned = await usageRepo.cleanupOrphanedSessions();
-  if (orphaned > 0) {
-    log.info(`cleaned up ${orphaned} orphaned sessions from previous run`);
-  }
+  // Reputation, per-node daily stats and today's earnings come from settled
+  // paid sessions (gateway-measured bytes), byte disputes and dial failures.
+  configureSettledHook((e) => {
+    registry.recordPaidBytes(e.nodeId, e.requesterUserId, e.bytes, e.destHost ? etld1(e.destHost.replace(/^\[|\]$/g, "")) : undefined);
+    if (e.disputed) registry.recordDispute(e.nodeId);
+    const live = registry.get(e.nodeId);
+    if (live && e.nodeMusd > 0n) live.earningsTodayMusd += Number(e.nodeMusd);
+  });
+
+  // Crash/restart recovery: sessions carry a settle payload and a heartbeat
+  // owned by this instance. Sessions of instances that stopped heartbeating
+  // (including a previous run of this process) are settled with their last
+  // flushed bytes and the rest of the reservation is refunded. Sessions of
+  // live instances and of the settle-retry queue are left alone.
+  configureSessionRecovery(shared.instanceId);
+  const SESSION_STALE_SECONDS = 120;
+  const runRecovery = async (): Promise<void> => {
+    try {
+      const r = await recoverOrphanedSessions(SESSION_STALE_SECONDS);
+      if (r.settled > 0 || r.failed > 0 || r.legacyClosed) log.info("recovered orphaned sessions", r);
+    } catch (err) {
+      log.warn("orphaned session recovery failed", { error: err instanceof Error ? err.message.slice(0, 100) : "unknown" });
+    }
+  };
+  await runRecovery();
+  const sessionHeartbeat = setInterval(() => {
+    heartbeatActiveSessions().catch((err) => log.warn("session heartbeat failed", { error: err instanceof Error ? err.message.slice(0, 100) : "unknown" }));
+  }, 15_000);
+  sessionHeartbeat.unref();
+  const recoveryInterval = setInterval(() => { void runRecovery(); }, 60_000);
+  recoveryInterval.unref();
 
   // ─── Background jobs (DESIGN.md §6.4, §15) ─────────────────────────
   const jobs = startJobs(registry, getPolicy);
@@ -287,11 +324,14 @@ async function main(): Promise<void> {
     for (const s of tlsServers) s.close();
     certWatch?.stop();
     clearInterval(policyInterval);
+    clearInterval(recoveryInterval);
     connectProbes?.stop();
     await Promise.all(jobs.map((j) => j.stop().catch(() => {})));
 
-    // Wait for active sessions to finish (max 30s)
-    const DRAIN_TIMEOUT_MS = 30_000;
+    // Wait for active sessions to finish. Keep this well under the container
+    // stop timeout (compose stop_grace_period: 60s); sessions still open when
+    // the process dies are settled by the next instance's recovery pass.
+    const DRAIN_TIMEOUT_MS = 20_000;
     const start = Date.now();
     while (getActiveSessionCount() > 0 && Date.now() - start < DRAIN_TIMEOUT_MS) {
       await new Promise((r) => setTimeout(r, 500));
@@ -315,6 +355,7 @@ async function main(): Promise<void> {
       log.warn(`shutdown with ${getInFlightSettlementCount()} settlements still in flight`);
     }
 
+    clearInterval(sessionHeartbeat);
     registry.stopSweep();
     try { await tunnelServer.close(); } catch { /* best effort */ }
     await shared.stop();

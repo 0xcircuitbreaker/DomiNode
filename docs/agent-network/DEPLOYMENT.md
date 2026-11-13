@@ -424,6 +424,36 @@ Clients:
   `DOMINUSNODE_HTTP_PROXY_PORT` when set.
 - curl: `curl -x https://relay:$KEY@proxy.dominusnode.com:8443 https://example.com`.
 
+Client addresses: the OFAC client-country check and per-IP limits need the
+real client address. In production a proxy-listener connection from a
+private, non-loopback address (for example Docker's userland proxy, which
+shows IPv6 clients of an IPv4-only bridge as the bridge gateway) is refused
+as unknown. The self-host compose enables IPv6 on its published network so
+the source is kept; list deliberate private client ranges (an agent LAN) in
+`PROXY_TRUSTED_CLIENT_CIDRS` (passed through by `docker-compose.prod.yml` and
+`docker-compose.selfhost.yml`). Host-local clients of the plaintext ports
+published on `127.0.0.1` (8080/1080) reach the gateway through docker-proxy
+and appear as the bridge gateway address (e.g. `172.x.0.1`): either list that
+address (`/32`) in `PROXY_TRUSTED_CLIENT_CIDRS`, or connect from inside the
+compose network. A trusted address skips the client-country check, so list
+only addresses that cannot carry remote traffic.
+
+Restarts: each relay session's settle payload and gateway-counted bytes are
+stored on its `sessions` row and heartbeated every 15 s. Sessions of a
+gateway that stopped heartbeating for 2 minutes (crash, SIGKILL, previous
+run) are settled by any live gateway with the last flushed bytes; the rest of
+the reservation is refunded. Give the gateway container a stop timeout above
+its 20 s drain (`stop_grace_period: 60s` in the compose files).
+
+Probes: set the same `PROBE_AUTH_SECRET` (32+ chars; the self-host installer
+generates it) on the API and gateways so canary probes get their own budget
+on `/v1/probe/echo`.
+
+Logs: compose files rotate container logs (json-file, 5 x 20 MB per
+container). Per-request lines (`CONNECT`, `session started/ended`) are at
+debug level; byte-report mismatches are logged only at the dispute threshold,
+at most once per node per minute.
+
 ## 7. Seed nodes (operator-run)
 
 Seed nodes are registered under a dedicated platform principal (DESIGN.md §11, LAUNCH_PLAN §4.1) and flagged `operator_run` so they are reported separately and never take genesis slots.

@@ -137,6 +137,42 @@ export function checkSanctionedCountry(clientIp: string): string | null {
   return null;
 }
 
+function isLoopback(ip: string): boolean {
+  return ip === "::1" || ip.startsWith("127.");
+}
+
+let trustedClientRanges: IpRangeSet | null = null;
+let trustedClientEnv: string | undefined;
+function trustedClients(): IpRangeSet {
+  const raw = process.env["PROXY_TRUSTED_CLIENT_CIDRS"];
+  if (!trustedClientRanges || raw !== trustedClientEnv) {
+    trustedClientEnv = raw;
+    trustedClientRanges = IpRangeSet.from((raw ?? "").split(","));
+  }
+  return trustedClientRanges;
+}
+
+/**
+ * Client-country check for requester connections on the proxy listeners.
+ *
+ * A private, non-loopback source address on a public proxy listener means
+ * the real client address was lost on the way in (for example Docker's
+ * userland proxy forwarding IPv6 connections to an IPv4-only bridge, where
+ * every IPv6 client appears as the bridge gateway). Treating that address as
+ * "private, allowed" would silently switch off the OFAC client-country check,
+ * so in production it is refused unless the operator lists it in
+ * PROXY_TRUSTED_CLIENT_CIDRS (comma-separated CIDRs, e.g. a LAN of agents).
+ * Loopback stays allowed. Outside production the old behaviour applies.
+ */
+export function checkClientCountry(clientIp: string): string | null {
+  if (net.isIP(clientIp) === 0) return null;
+  if (isPrivateIp(clientIp) && !isLoopback(clientIp) && isProduction() && !trustedClients().has(clientIp)) {
+    log.warn("private source on proxy listener in production: client address unknown, blocking", { ip: clientIp });
+    return "UNKNOWN";
+  }
+  return checkSanctionedCountry(clientIp);
+}
+
 /** Install the ASN/country database directly (tests; null = unavailable). */
 export function setAsnDb(
   db: AsnDb | null,

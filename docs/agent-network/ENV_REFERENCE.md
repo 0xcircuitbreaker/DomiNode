@@ -86,6 +86,7 @@ elsewhere). Meaning and required/optional status are documented in
 | `PAYOUT_SDN_FILE` |  | `src/main.ts`, `src/payer-screening.ts` |
 | `PAYOUT_SIGNER_KEY_FILE` |  | `src/jobs/payout-sender-ethers.ts` |
 | `PROBES_DISABLED` |  | `src/main.ts` |
+| `PROBE_AUTH_SECRET` |  | `src/jobs/probes.ts` |
 | `PROBE_URL` |  | `src/main.ts` |
 | `PROXY_CONNECT_TIMEOUT_MS` | `30000` | `src/server.ts`, `src/socks5.ts` |
 | `PROXY_MAX_CONNECTIONS` | `5000` | `src/server.ts`, `src/socks5.ts` |
@@ -99,6 +100,7 @@ elsewhere). Meaning and required/optional status are documented in
 | `PROXY_TLS_CERT_FILE` |  | `src/proxy-tls.ts` |
 | `PROXY_TLS_KEY_FILE` |  | `src/proxy-tls.ts` |
 | `PROXY_TLS_PORT` |  | `src/proxy-tls.ts` |
+| `PROXY_TRUSTED_CLIENT_CIDRS` |  | `src/geo-check.ts` |
 | `RELAY_SESSION_BYTE_CAP` | `1000000000` | `src/session-manager.ts` |
 | `SKIP_GEOIP` |  | `src/geo-check.ts` |
 | `SOCKS5_TLS_PORT` |  | `src/proxy-tls.ts` |
@@ -147,6 +149,7 @@ elsewhere). Meaning and required/optional status are documented in
 | `PAYPAL_CLIENT_ID` |  | `src/routes/webhooks.ts` |
 | `PAYPAL_WEBHOOK_IPS` |  | `src/routes/webhooks.ts` |
 | `POW_DIFFICULTY` | `20` | `src/routes/auth.ts` |
+| `PROBE_AUTH_SECRET` |  | `src/routes/v1/probe.ts` |
 | `PROXY_HOST` | `localhost` | `src/routes/proxy-config.ts` |
 | `PROXY_HTTP_PORT` |  | `src/routes/federation.ts` |
 | `PROXY_INTERNAL_HOST` | `127.0.0.1` | `src/routes/account.ts`, `src/routes/admin.ts`, `src/routes/proxy-health.ts` |

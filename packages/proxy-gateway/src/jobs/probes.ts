@@ -172,7 +172,7 @@ export function exchange(stream: Duplex, target: ProbeTarget, nonce: string, tim
     io.on("close", () => finish(null));
     io.on("error", (e: Error) => finish(e));
     const hostHeader = target.port === (target.tls ? 443 : 80) ? target.host : `${target.host}:${target.port}`;
-    io.write(`GET ${target.path}?nonce=${nonce} HTTP/1.1\r\nHost: ${hostHeader}\r\nAccept: application/json\r\nConnection: close\r\n\r\n`);
+    io.write(`GET ${target.path}?nonce=${nonce} HTTP/1.1\r\nHost: ${hostHeader}\r\nAccept: application/json\r\n${probeAuthHeader(nonce)}Connection: close\r\n\r\n`);
   });
 }
 
@@ -505,6 +505,16 @@ export function start(o: { deps: ProbeDeps; logger: JobLogger; intervalMs?: numb
 
 export async function stop(job: Job | null): Promise<void> {
   await job?.stop();
+}
+
+/**
+ * X-DN-Probe-Auth header line (HMAC-SHA256 of the nonce with PROBE_AUTH_SECRET)
+ * so the API gives gateway probes their own rate budget; empty when unset.
+ * Sent inside the TLS session to the API, never readable by the exit node.
+ */
+export function probeAuthHeader(nonce: string, secret = process.env["PROBE_AUTH_SECRET"]): string {
+  if (!secret || secret.length < 32) return "";
+  return `X-DN-Probe-Auth: ${crypto.createHmac("sha256", secret).update(nonce).digest("hex")}\r\n`;
 }
 
 // ─── Gateway-side self-check of the echo targets ──────────────────────

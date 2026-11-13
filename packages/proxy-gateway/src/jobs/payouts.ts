@@ -28,16 +28,30 @@ export type ReceiptStatus = "confirmed" | "reverted" | "dropped" | "pending";
 export interface PayoutSender {
   /** Broadcast a USDC transfer. Must be idempotent per payoutId within the process. */
   send(req: SendRequest): Promise<{ txHash: string }>;
-  waitForReceipt(txHash: string): Promise<ReceiptStatus>;
+  /** timeoutMs overrides the sender's default wait (reconciliation uses a short one). */
+  waitForReceipt(txHash: string, timeoutMs?: number): Promise<ReceiptStatus>;
+  /**
+   * Optional treasury check before the send loop: whether the hot wallet has
+   * gas, and how much USDC (µUSD) it holds. A run with no gas sends nothing.
+   */
+  preflight?(chain: PayoutChain): Promise<{ gasOk: boolean; usdcMusd: bigint }>;
 }
 
-/** Thrown by a sender only when it is CERTAIN nothing reached the network. */
+/**
+ * Thrown by a sender only when it is CERTAIN nothing reached the network.
+ * stopRun: the cause affects every later payout too (hot wallet out of gas,
+ * nonce trouble), so the run stops instead of claiming and failing each one.
+ */
 export class PayoutNotBroadcastError extends Error {
-  constructor(message: string) {
+  constructor(message: string, readonly stopRun = false) {
     super(message);
     this.name = "PayoutNotBroadcastError";
   }
 }
+
+/** Receipt wait during reconciliation of earlier broadcasts (checked in parallel). */
+export const RECONCILE_RECEIPT_TIMEOUT_MS = 5_000;
+const RECONCILE_CONCURRENCY = 10;
 
 /** Broadcast outcome unknown; the signed tx hash is known and must be tracked. */
 export class PayoutBroadcastUncertainError extends Error {
@@ -102,8 +116,8 @@ function dayKey(d: Date): string {
   return d.toISOString().slice(0, 10).replace(/-/g, "");
 }
 
-async function settleReceipt(deps: PayoutDeps, id: string, txHash: string, out: PayoutRunResult): Promise<void> {
-  const st = await deps.sender.waitForReceipt(txHash);
+async function settleReceipt(deps: PayoutDeps, id: string, txHash: string, out: PayoutRunResult, timeoutMs?: number): Promise<void> {
+  const st = timeoutMs === undefined ? await deps.sender.waitForReceipt(txHash) : await deps.sender.waitForReceipt(txHash, timeoutMs);
   if (st === "confirmed") {
     await deps.markConfirmed(id, txHash);
     out.confirmed++;
@@ -127,13 +141,17 @@ export async function runOnce(deps: PayoutDeps): Promise<PayoutRunResult> {
     return { ...out, skipped: "sdn_unavailable" };
   }
 
-  // 1. Reconcile earlier broadcasts.
-  for (const s of await deps.listSubmitted()) {
-    try {
-      await settleReceipt(deps, s.id, s.txHash, out);
-    } catch (err) {
-      deps.logger?.warn("payout reconcile failed", { payoutId: s.id, error: err instanceof Error ? err.message.slice(0, 120) : "unknown" });
-    }
+  // 1. Reconcile earlier broadcasts: short timeout, in parallel batches, so a
+  // backlog of stranded payouts cannot block the run for minutes each.
+  const submitted = await deps.listSubmitted();
+  for (let i = 0; i < submitted.length; i += RECONCILE_CONCURRENCY) {
+    await Promise.all(submitted.slice(i, i + RECONCILE_CONCURRENCY).map(async (s) => {
+      try {
+        await settleReceipt(deps, s.id, s.txHash, out, RECONCILE_RECEIPT_TIMEOUT_MS);
+      } catch (err) {
+        deps.logger?.warn("payout reconcile failed", { payoutId: s.id, error: err instanceof Error ? err.message.slice(0, 120) : "unknown" });
+      }
+    }));
   }
 
   // 2. Daily auto-queue (idempotent per user per UTC day).
@@ -162,7 +180,29 @@ export async function runOnce(deps: PayoutDeps): Promise<PayoutRunResult> {
 
   // 3. Send.
   const cap = deps.runCapMusd && deps.runCapMusd > 0n ? deps.runCapMusd : null;
-  for (const p of await deps.listDue()) {
+  const due = await deps.listDue();
+  // Treasury preflight (per chain): no gas -> send nothing; USDC caps the run.
+  const treasury = new Map<PayoutChain, { gasOk: boolean; usdcMusd: bigint } | null>();
+  for (const p of due) {
+    if (treasury.has(p.chain) || !deps.sender.preflight) continue;
+    try {
+      treasury.set(p.chain, await deps.sender.preflight(p.chain));
+    } catch (err) {
+      treasury.set(p.chain, null);
+      deps.logger?.warn("payout treasury preflight failed", { chain: p.chain, error: err instanceof Error ? err.message.slice(0, 120) : "unknown" });
+    }
+  }
+  const spent = new Map<PayoutChain, bigint>();
+  for (const p of due) {
+    const t = treasury.get(p.chain);
+    if (t && !t.gasOk) {
+      deps.logger?.error("payout run stopped: hot wallet has no gas", { chain: p.chain });
+      break;
+    }
+    if (t && (spent.get(p.chain) ?? 0n) + p.amountMusd > t.usdcMusd) {
+      deps.logger?.error("payout run stopped: hot wallet USDC balance too low", { chain: p.chain, usdcMusd: t.usdcMusd.toString() });
+      break;
+    }
     const to = p.address.toLowerCase();
     if (sdn.has(to)) {
       await deps.blockWallet(p.payoutWalletId, p.userId);
@@ -183,6 +223,10 @@ export async function runOnce(deps: PayoutDeps): Promise<PayoutRunResult> {
       if (err instanceof PayoutNotBroadcastError) {
         await deps.releaseUnbroadcast(p.id);
         out.released++;
+        if (err.stopRun) {
+          deps.logger?.error("payout run stopped: broadcast rejected", { payoutId: p.id, error: err.message.slice(0, 120) });
+          break;
+        }
       } else {
         out.ambiguous++;
         if (err instanceof PayoutBroadcastUncertainError) await deps.recordTx(p.id, err.txHash).catch(() => false);
@@ -193,6 +237,7 @@ export async function runOnce(deps: PayoutDeps): Promise<PayoutRunResult> {
     await deps.recordTx(p.id, txHash);
     out.sent++;
     out.paidMusd += p.amountMusd;
+    spent.set(p.chain, (spent.get(p.chain) ?? 0n) + p.amountMusd);
     try {
       await settleReceipt(deps, p.id, txHash, out);
     } catch (err) {
