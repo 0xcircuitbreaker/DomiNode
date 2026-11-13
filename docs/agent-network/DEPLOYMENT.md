@@ -401,7 +401,13 @@ private, non-loopback address (for example Docker's userland proxy, which
 shows IPv6 clients of an IPv4-only bridge as the bridge gateway) is refused
 as unknown. The self-host compose enables IPv6 on its published network so
 the source is kept; list deliberate private client ranges (an agent LAN) in
-`PROXY_TRUSTED_CLIENT_CIDRS`.
+`PROXY_TRUSTED_CLIENT_CIDRS` (passed through by `docker-compose.prod.yml` and
+`docker-compose.selfhost.yml`). Host-local clients of the plaintext ports
+published on `127.0.0.1` (8080/1080) reach the gateway through docker-proxy
+and appear as the bridge gateway address (e.g. `172.x.0.1`): either list that
+address (`/32`) in `PROXY_TRUSTED_CLIENT_CIDRS`, or connect from inside the
+compose network. A trusted address skips the client-country check, so list
+only addresses that cannot carry remote traffic.
 
 Restarts: each relay session's settle payload and gateway-counted bytes are
 stored on its `sessions` row and heartbeated every 15 s. Sessions of a

@@ -93,6 +93,8 @@ services:
       CDP_API_KEY_SECRET: ${CDP_API_KEY_SECRET:-}
       PAYAI_API_KEY_ID: ${PAYAI_API_KEY_ID:-}
       PAYAI_API_KEY_SECRET: ${PAYAI_API_KEY_SECRET:-}
+      # Canary probe budget on /v1/probe/echo; same value on api and proxy (32+ chars).
+      PROBE_AUTH_SECRET: ${PROBE_AUTH_SECRET:-}
       NODE_ENV: production
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -156,6 +158,11 @@ services:
       # Offline ip2asn country+ASN DB (scripts/update-asn-db.sh). Missing = all public traffic refused.
       ASN_DB_FILE: /app/data/ip2asn-combined.tsv.gz
       AGENT_RATE_LIMIT_MULTIPLIER: ${AGENT_RATE_LIMIT_MULTIPLIER:-10}
+      PROBE_AUTH_SECRET: ${PROBE_AUTH_SECRET:-}
+      # Host-local clients of the 127.0.0.1-published plaintext ports arrive via
+      # docker-proxy as the bridge gateway (private) and are refused in
+      # production unless that address/range is listed here.
+      PROXY_TRUSTED_CLIENT_CIDRS: ${PROXY_TRUSTED_CLIENT_CIDRS:-}
       NODE_ENV: production
     secrets:
       - coord_signing_key
