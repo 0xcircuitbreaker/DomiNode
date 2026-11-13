@@ -2152,3 +2152,18 @@ DO $$ BEGIN
     CHECK (reserved_cents BETWEEN 0 AND 1000000 AND carry_musd BETWEEN 0 AND 9999);
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
+
+-- Reservation refunds that would push a wallet past the $10,000 cap (a deposit
+-- landed while the session was open). Settlement no longer aborts: the part
+-- above the cap is owed here and reconciled by an admin.
+CREATE TABLE IF NOT EXISTS wallet_overflow_credits (
+  id           BIGSERIAL PRIMARY KEY,
+  user_id      UUID REFERENCES users(id) ON DELETE CASCADE,
+  team_id      UUID REFERENCES teams(id) ON DELETE CASCADE,
+  amount_cents INTEGER NOT NULL CHECK (amount_cents BETWEEN 1 AND 1000000),
+  reason       TEXT NOT NULL CHECK (length(reason) <= 200),
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  resolved_at  TIMESTAMPTZ,
+  CHECK ((user_id IS NULL) <> (team_id IS NULL))
+);
+CREATE INDEX IF NOT EXISTS idx_wallet_overflow_open ON wallet_overflow_credits(created_at) WHERE resolved_at IS NULL;
