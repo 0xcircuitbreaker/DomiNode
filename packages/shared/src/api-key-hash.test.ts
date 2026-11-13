@@ -43,6 +43,13 @@ describe("api-key-hash", () => {
     expect(() => apiKeyPepper({ API_KEY_PEPPER_FILE: "/p" }, () => Buffer.from("short"))).toThrow(/at least 32 bytes/);
   });
 
+  it("names the ownership requirement when the pepper file is unreadable", () => {
+    _setApiKeyPepperForTest(undefined);
+    const eacces = () => { throw Object.assign(new Error("EACCES: permission denied"), { code: "EACCES" }); };
+    expect(() => apiKeyPepper({ API_KEY_PEPPER_FILE: "/p" }, eacces)).toThrow(/not readable by uid .*chown 1001:1001/);
+    _setApiKeyPepperForTest(undefined);
+  });
+
   it("hashEquals is length-safe", () => {
     expect(hashEquals("ab", "ab")).toBe(true);
     expect(hashEquals("ab", "ac")).toBe(false);
