@@ -237,6 +237,28 @@ router.delete(
         }
       }
 
+      // Terminate active proxy sessions BEFORE erasing (matches admin delete flow), so
+      // their settles land before the erasure scrubs abuse-log/usage rows. Settles
+      // that still arrive later are tombstoned in settleRelayCharge.
+      try {
+        const terminateUrl = `http://${PROXY_INTERNAL_HOST}:${PROXY_LISTEN_PORT}/internal/terminate-sessions/${userId}`;
+        const proxySecret = process.env["PROXY_STATS_SECRET"] ??
+          (process.env["JWT_SECRET"]
+            ? crypto.createHmac("sha256", process.env["JWT_SECRET"]).update("proxy-stats-endpoint").digest("hex")
+            : "");
+        const headers: Record<string, string> = { "Content-Length": "0" };
+        if (proxySecret) headers["Authorization"] = `Bearer ${proxySecret}`;
+        await fetch(terminateUrl, {
+          method: "POST",
+          headers,
+          signal: AbortSignal.timeout(5000),
+          redirect: "error",
+        });
+      } catch {
+        // Best effort — proxy gateway may be unreachable
+        log.warn("failed to terminate proxy sessions during account deletion", { userId });
+      }
+
       // Wrap all deletion operations in a single DB transaction.
       // Partial erasure (e.g. email anonymized but browsing history retained) violates GDPR.
       const pool = getPool();
@@ -408,26 +430,6 @@ router.delete(
         throw txErr;
       } finally {
         client.release();
-      }
-
-      // Terminate active proxy sessions with auth header (matches admin suspend flow)
-      try {
-        const terminateUrl = `http://${PROXY_INTERNAL_HOST}:${PROXY_LISTEN_PORT}/internal/terminate-sessions/${userId}`;
-        const proxySecret = process.env["PROXY_STATS_SECRET"] ??
-          (process.env["JWT_SECRET"]
-            ? crypto.createHmac("sha256", process.env["JWT_SECRET"]).update("proxy-stats-endpoint").digest("hex")
-            : "");
-        const headers: Record<string, string> = { "Content-Length": "0" };
-        if (proxySecret) headers["Authorization"] = `Bearer ${proxySecret}`;
-        await fetch(terminateUrl, {
-          method: "POST",
-          headers,
-          signal: AbortSignal.timeout(5000),
-          redirect: "error",
-        });
-      } catch {
-        // Best effort — proxy gateway may be unreachable
-        log.warn("failed to terminate proxy sessions during account deletion", { userId });
       }
 
       log.info("account deleted (GDPR erasure)", { userId });

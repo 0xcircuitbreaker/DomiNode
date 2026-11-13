@@ -44,6 +44,14 @@ describe("relay erasure", () => {
     expect(missing).toEqual([]);
   });
 
+  it("scrubs destination and wallet from pending settle retries", () => {
+    const sql = RELAY_ERASURE_STATEMENTS.find((s) => s.label === "relay_settle_retries_pending")?.sql ?? "";
+    expect(sql).toMatch(/UPDATE relay_settle_retries/);
+    expect(sql).toMatch(/status = 'pending'/);
+    expect(sql).toMatch(/"destHost":"redacted"/);
+    expect(sql).toMatch(/- 'usageTargetHost'/);
+  });
+
   it("deletes the requester's abuse-log rows and strips node IPs, slots and payout wallets", () => {
     const sql = (l: string) => RELAY_ERASURE_STATEMENTS.find((s) => s.label === l)?.sql ?? "";
     expect(sql("relay_abuse_log")).toMatch(/DELETE FROM relay_abuse_log WHERE requester_user_id = \$1/);

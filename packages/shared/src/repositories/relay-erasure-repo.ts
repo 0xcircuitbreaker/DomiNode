@@ -10,7 +10,9 @@ import type { PoolClient } from "pg";
  * Kept (accounting / payout audit, keyed only by the now-anonymized user id):
  * relay_charges, node_credit_accounts/transactions, requester_spend_daily,
  * node_payouts amounts and tx hashes, collusion_flags (abuse control).
- * Pending relay_settle_retries are kept so the charge still settles.
+ * Pending relay_settle_retries are kept so the charge still settles, but their
+ * payload is scrubbed of the destination and wallet; settleRelayCharge also
+ * skips the abuse log and usage target_host for a deleted requester.
  */
 export const RELAY_ERASURE_STATEMENTS: ReadonlyArray<{ label: string; sql: string }> = [
   // Destination metadata where this user was the requester.
@@ -19,6 +21,14 @@ export const RELAY_ERASURE_STATEMENTS: ReadonlyArray<{ label: string; sql: strin
   {
     label: "relay_settle_retries",
     sql: "DELETE FROM relay_settle_retries WHERE requester_user_id = $1 AND status <> 'pending'",
+  },
+  // Pending retries still settle; drop the destination and wallet they carry.
+  {
+    label: "relay_settle_retries_pending",
+    sql: `UPDATE relay_settle_retries
+             SET payload = (payload - 'requesterWallet' - 'usageTargetHost')
+                           || '{"destHost":"redacted","requesterWallet":null}'::jsonb
+           WHERE requester_user_id = $1 AND status = 'pending'`,
   },
   // Live IP slots of this user's nodes (exit IP, /24, ASN).
   {
