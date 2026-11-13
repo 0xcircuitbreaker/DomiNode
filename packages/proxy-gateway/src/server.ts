@@ -11,7 +11,7 @@ import { checkBalance, checkTeamBalance } from "./balance-check.js";
 import { bindTunnelLifecycle } from "./tunnel-lifecycle.js";
 import { attachByteCounters, capReadable, type ByteCounter } from "./counting-stream.js";
 import { startSession, startPrepaidSession, abortPrepaidSession, endSession, registerSessionDestroy, unregisterSessionDestroy, type RelayBinding } from "./session-manager.js";
-import { checkSanctionedCountry, initGeoCheck } from "./geo-check.js";
+import { checkClientCountry, initGeoCheck } from "./geo-check.js";
 import { validateTarget, isValidHostname, isValidPort } from "./target-validator.js";
 import { incrementUserConns, decrementUserConns } from "./connection-tracker.js";
 import { checkAuthRateLimit, recordAuthFailure } from "./auth-rate-limit.js";
@@ -311,7 +311,7 @@ async function handleRequest(
 
   // Geo-check: block sanctioned countries
   const clientIp = clientIpOf(clientReq.socket);
-  const blockedCountry = checkSanctionedCountry(clientIp);
+  const blockedCountry = checkClientCountry(clientIp);
   if (blockedCountry) {
     sendError(clientRes, 403, "SANCTIONED_COUNTRY", "Access denied: service unavailable in your region.");
     return;
@@ -738,7 +738,7 @@ async function handleConnect(
   recordRequest();
 
   const connectClientIp = clientIpOf(clientSocket);
-  if (checkSanctionedCountry(connectClientIp)) {
+  if (checkClientCountry(connectClientIp)) {
     safeSocketWrite(clientSocket, "HTTP/1.1 403 Forbidden\r\nX-DominusNode-Error: SANCTIONED_COUNTRY\r\n\r\n");
     return;
   }
@@ -850,7 +850,7 @@ async function handleConnect(
   }
 
   const redactedHost = targetHost.split(".").slice(-2).join(".");
-  log.info("CONNECT", { target: `${redactedHost}:${targetPort}`, userId, country: auth.proxyOptions.country, sticky: !!auth.proxyOptions.sessionId });
+  log.debug("CONNECT", { target: `${redactedHost}:${targetPort}`, userId, country: auth.proxyOptions.country, sticky: !!auth.proxyOptions.sessionId });
 
   let clientGone = false;
   clientSocket.once("close", () => { clientGone = true; });

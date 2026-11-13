@@ -675,13 +675,9 @@ export class NodeTunnelServer {
       }
       live.bytesToday += r.gatewayBytesIn + r.gatewayBytesOut;
     }
-    if (r.nodeReport) {
-      const nodeTotal = r.nodeReport.bytesIn + r.nodeReport.bytesOut;
-      const gwTotal = r.gatewayBytesIn + r.gatewayBytesOut;
-      if (nodeTotal !== gwTotal) {
-        this.log.info("stream byte mismatch", { nodeId, stream: r.streamId, gatewayBytes: gwTotal, nodeBytes: nodeTotal });
-      }
-    }
+    // Byte-report mismatches are logged by the onStreamClose hook, only when
+    // they reach the dispute threshold and rate-limited per node (a node
+    // controls its own report and could otherwise force a line per stream).
     try {
       this.deps.onStreamClose?.(nodeId, r);
     } catch {

@@ -28,8 +28,18 @@ x-common-env: &common-env
   JWT_SECRET: ${JWT_SECRET:?run scripts/selfhost/install.sh}
   DOMINUSNODE_DOMAIN: ${DOMINUSNODE_DOMAIN:?run scripts/selfhost/install.sh}
 
+# Container log rotation: Docker's json-file driver never rotates by default.
+# The gateway logs at least one line per relayed request; cap each container
+# at 5 x 20 MB so logs cannot fill the disk Postgres shares.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "20m"
+    max-file: "5"
+
 services:
   postgres:
+    logging: *default-logging
     profiles: [coordinator]
     image: postgres:16-alpine
     restart: unless-stopped
@@ -47,6 +57,7 @@ services:
     security_opt: ["no-new-privileges:true"]
 
   migrate:
+    logging: *default-logging
     profiles: [coordinator]
     build: { context: ., dockerfile: infra/docker/api.Dockerfile }
     image: dominusnode-api:selfhost
@@ -61,6 +72,7 @@ services:
   # container user (uid 1001, mode 0400). The host files stay 0600 and owned by
   # whoever ran install.sh; re-running fixes the ownership of existing installs.
   keys:
+    logging: *default-logging
     # Copies the coordinator key for every service that signs: the gateway
     # (node-tunnel CHALLENGEs) and the api (coordinator.json, policy.json).
     profiles: [gateway, coordinator]
@@ -82,6 +94,7 @@ services:
         chown 1001:1001 /dst && chmod 0500 /dst
 
   api:
+    logging: *default-logging
     profiles: [coordinator]
     image: dominusnode-api:selfhost
     restart: unless-stopped
@@ -118,6 +131,10 @@ services:
     tmpfs: [/tmp]
 
   gateway:
+    logging: *default-logging
+    # Exceeds the gateway shutdown drain (20 s + settlement) so open
+    # sessions are settled, not cut off by SIGKILL after the 10 s default.
+    stop_grace_period: 60s
     profiles: [gateway]
     build: { context: ., dockerfile: infra/docker/proxy.Dockerfile }
     restart: unless-stopped
@@ -164,6 +181,7 @@ services:
     tmpfs: [/tmp]
 
   caddy:
+    logging: *default-logging
     profiles: [caddy]
     # caddy:2.11.9-alpine + caddy-dns/cloudflare, pinned in infra/docker/caddy.Dockerfile.
     build:
@@ -198,6 +216,7 @@ services:
   # re-reads the files every minute and swaps the cert in place (no restart).
   # Healthy once a cert exists, so the gateway starts only with a cert.
   proxy-certs:
+    logging: *default-logging
     profiles: [proxytls]
     image: dominusnode-api:selfhost
     restart: unless-stopped
@@ -244,6 +263,7 @@ services:
   # by cloudflared's uid (65532, mode 0400). The token never enters .env, the
   # compose environment or any command line.
   cloudflared-keys:
+    logging: *default-logging
     profiles: [cloudflare]
     image: dominusnode-api:selfhost
     user: "0:0"
@@ -265,6 +285,7 @@ services:
   # in its image) mounts, mode 0400. Distinct from the tunnel token. The token
   # never enters .env, the compose environment, any command line or the Caddyfile.
   caddy-dns-keys:
+    logging: *default-logging
     profiles: [dnscf]
     image: dominusnode-api:selfhost
     user: "0:0"
@@ -287,6 +308,7 @@ services:
   # Outbound-only Cloudflare Tunnel: no inbound ports. Public hostnames are
   # mapped to http://api:3000 in the Cloudflare dashboard (DEPLOYMENT.md §7b).
   cloudflared:
+    logging: *default-logging
     profiles: [cloudflare]
     image: cloudflare/cloudflared:2026.10.7@sha256:4955524aeaa379e154023d5a027c250f7b35041a2e7e950cf13f144bc9b9c5ba
     restart: unless-stopped
@@ -305,6 +327,7 @@ services:
   # Optional local exit node: docker compose --profile node up -d
   # Register it first (see docs/agent-network/DEPLOYMENT.md §7).
   node-keys:
+    logging: *default-logging
     profiles: ["node"]
     image: dominusnode-api:selfhost
     user: "0:0"
@@ -322,6 +345,7 @@ services:
         chown 1001:1001 /dst && chmod 0500 /dst
 
   node:
+    logging: *default-logging
     profiles: ["node"]
     build:
       context: .
@@ -343,12 +367,22 @@ networks:
   backend:
     internal: true
   frontend:
+    # IPv6 on the published network: with an IPv4-only bridge, Docker's
+    # userland proxy forwards connections to the host's IPv6 address and the
+    # container sees the bridge gateway (172.29.53.1) as the source, which
+    # hides the client from the OFAC client-country check and from per-IP
+    # limits. With enable_ipv6 (Docker 27+, ip6tables on by default) IPv6
+    # published ports are NATed and the client address is kept. If the
+    # daemon cannot do that, the gateway refuses the private source in
+    # production instead of skipping the check (PROXY_TRUSTED_CLIENT_CIDRS).
+    enable_ipv6: true
     ipam:
       config:
         - subnet: 172.29.53.0/24
           # Dynamic addresses come from the upper half only, so Caddy's fixed
           # 172.29.53.2 (trusted by the gateway for PROXY v2) can never be taken.
           ip_range: 172.29.53.128/25
+        - subnet: fd29:53:0:1::/64
 
 volumes:
   pgdata:

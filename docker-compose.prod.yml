@@ -1,5 +1,15 @@
+# Container log rotation: Docker's json-file driver never rotates by default.
+# The gateway logs at least one line per relayed request; cap each container
+# at 5 x 20 MB so logs cannot fill the disk Postgres shares.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "20m"
+    max-file: "5"
+
 services:
   postgres:
+    logging: *default-logging
     image: postgres:16-alpine
     restart: unless-stopped
     environment:
@@ -26,6 +36,7 @@ services:
           cpus: "1.0"
 
   api:
+    logging: *default-logging
     build:
       context: .
       dockerfile: infra/docker/api.Dockerfile
@@ -114,6 +125,10 @@ services:
           cpus: "1.0"
 
   proxy:
+    logging: *default-logging
+    # Exceeds the gateway shutdown drain (20 s + settlement) so open
+    # sessions are settled, not cut off by SIGKILL after the 10 s default.
+    stop_grace_period: 60s
     build:
       context: .
       dockerfile: infra/docker/proxy.Dockerfile
@@ -178,6 +193,7 @@ services:
           cpus: "2.0"
 
   frontend:
+    logging: *default-logging
     build:
       context: .
       dockerfile: infra/docker/frontend.Dockerfile
