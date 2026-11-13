@@ -13,7 +13,9 @@ umask 077
 WORKDIR="$(mktemp -d "${TMPDIR:-/tmp}/github-push.XXXXXXXX")"
 ASKPASS="$WORKDIR/.askpass"
 cleanup() { rm -rf "$WORKDIR"; }
-trap cleanup EXIT INT TERM
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 # The token stays in the environment: it never appears in argv, a remote URL
 # or .git/config. git asks GIT_ASKPASS, which echoes it from the environment.
@@ -129,7 +131,7 @@ for entry in "${REPOS[@]}"; do
   # Push
   git remote add origin "https://github.com/$ORG/$repo_name.git"
 
-  if git push -u origin main --tags --force 2>&1; then
+  if git -c credential.helper= push -u origin main --tags --force 2>&1; then
     echo "OK: $repo_name v$VERSION"
     SUCCEEDED=$((SUCCEEDED + 1))
   else
