@@ -67,9 +67,9 @@ describe("agent discovery documents", () => {
     expect(Object.keys(proxy.username.flags)).toEqual(["country-XX", "class-residential|mobile|dc|masked", "session-<id>", "allowhttp-1"]);
     // Package identifiers match the real manifests.
     const fs = await import("node:fs");
-    const root = new URL("../../../../", import.meta.url);
-    const goMod = fs.readFileSync(new URL("sdks/go/go.mod", root), "utf8").split("\n")[0].replace(/^module\s+/, "").trim();
-    const pom = fs.readFileSync(new URL("sdks/java/pom.xml", root), "utf8");
+    const root = (await import("node:path")).join(__dirname, "../../../../");
+    const goMod = fs.readFileSync(root + "sdks/go/go.mod", "utf8").split("\n")[0].replace(/^module\s+/, "").trim();
+    const pom = fs.readFileSync(root + "sdks/java/pom.xml", "utf8");
     const gid = pom.match(/<groupId>([^<]+)<\/groupId>\s*<artifactId>([^<]+)<\/artifactId>/)!;
     const sdks = (r.body["integrations"] as { sdks: Record<string, string> }).sdks;
     expect(sdks["go"]).toBe(goMod);
@@ -113,8 +113,8 @@ describe("production compose advertises the TLS proxy", () => {
   it("the api service sets PROXY_PUBLIC_TLS_PORT so discovery lists https first", async () => {
     const fs = await import("node:fs");
     const { buildAgentToolDocument, discoveryEnv } = await import("./discovery.js");
-    const yml = fs.readFileSync(new URL("../../../../docker-compose.prod.yml", import.meta.url), "utf8");
-    const api = yml.split(/\n  api:\n/)[1]!.split(/\n  [a-z][a-z0-9-]*:\n/)[0]!;
+    const yml = fs.readFileSync((await import("node:path")).join(__dirname, "../../../../docker-compose.prod.yml"), "utf8");
+    const api = yml.split(/\n {2}api:\n/)[1]!.split(/\n {2}[a-z][a-z0-9-]*:\n/)[0]!;
     expect(api).toMatch(/PROXY_PUBLIC_TLS_PORT: "\$\{PROXY_TLS_HOST_PORT:-8443\}"/);
     const env = discoveryEnv({ PROXY_PUBLIC_TLS_PORT: "8443" } as NodeJS.ProcessEnv);
     const doc = buildAgentToolDocument(env, { prices: [], tiers: [], maturationHours: 0 } as never) as { proxy: Record<string, string> };
