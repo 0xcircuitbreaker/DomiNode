@@ -26,6 +26,9 @@ x-common-env: &common-env
   DATABASE_URL: postgresql://dominusnode:${POSTGRES_PASSWORD:?run scripts/selfhost/install.sh}@postgres:5432/dominusnode
   DB_SSL: "false"
   JWT_SECRET: ${JWT_SECRET:?run scripts/selfhost/install.sh}
+  # Gateway canary probes authenticate to /v1/probe/echo with an HMAC of the
+  # nonce, so a public flood cannot starve node verification.
+  PROBE_AUTH_SECRET: ${PROBE_AUTH_SECRET:-}
   DOMINUSNODE_DOMAIN: ${DOMINUSNODE_DOMAIN:?run scripts/selfhost/install.sh}
 
 # Container log rotation: Docker's json-file driver never rotates by default.

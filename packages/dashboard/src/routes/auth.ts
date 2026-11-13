@@ -36,6 +36,7 @@ import { requireAuth, type AuthenticatedRequest } from "../middleware/auth.js";
 import { setAuthCookies, clearAuthCookies, getRefreshCookieName } from "../helpers/cookies.js";
 import { isGlobalVerifiedAgent, isVerifiedAgentAsync, getAgentMultiplier } from "../helpers/agent-rate-limit.js";
 import { humanAuthGate, getBootstrapAdminEmail } from "../helpers/human-auth.js";
+import { ipRateKey } from "../helpers/ip-key.js";
 
 const router = Router();
 const log = createLogger("api:auth");
@@ -101,7 +102,8 @@ const MAX_VERIFY_KEY_PER_IP = 10; // 10 attempts per IP per 5-min window
 const VERIFY_KEY_WINDOW_MS = 5 * 60 * 1000;
 const verifyKeyAttempts = new Map<string, { count: number; windowStart: number }>();
 
-function checkVerifyKeyRateLimit(ip: string, isAgent: boolean = false): boolean {
+function checkVerifyKeyRateLimit(rawIp: string, isAgent: boolean = false): boolean {
+  const ip = ipRateKey(rawIp);
   const now = Date.now();
   const limit = isAgent ? MAX_VERIFY_KEY_PER_IP * AGENT_RATE_LIMIT_MULTIPLIER : MAX_VERIFY_KEY_PER_IP;
   const entry = verifyKeyAttempts.get(ip);
@@ -241,7 +243,8 @@ const REGISTRATION_WINDOW_MS = 60 * 60 * 1000; // 1 hour
 const MAX_REG_RATE_MAP_SIZE = 50_000;
 const registrationLog = new Map<string, number[]>(); // IP -> timestamps
 
-function checkRegistrationRateLimit(ip: string, isAgent: boolean = false): boolean {
+function checkRegistrationRateLimit(rawIp: string, isAgent: boolean = false): boolean {
+  const ip = ipRateKey(rawIp);
   const now = Date.now();
   const limit = isAgent ? MAX_REGISTRATIONS_PER_IP * AGENT_RATE_LIMIT_MULTIPLIER : MAX_REGISTRATIONS_PER_IP;
   let timestamps = registrationLog.get(ip);
@@ -287,7 +290,8 @@ const POW_CHALLENGE_WINDOW_MS = 60_000;
 const MAX_POW_MAP_SIZE = 50_000;
 const powChallengeRateMap = new Map<string, number[]>();
 
-function checkPowChallengeRateLimit(ip: string): boolean {
+function checkPowChallengeRateLimit(rawIp: string): boolean {
+  const ip = ipRateKey(rawIp);
   const now = Date.now();
   let timestamps = powChallengeRateMap.get(ip);
   if (!timestamps) {
@@ -1488,7 +1492,8 @@ const MAX_FORGOT_PER_IP = 5; // 5 requests per IP per 15 min
 const FORGOT_WINDOW_MS = 15 * 60 * 1000;
 const forgotPasswordAttempts = new Map<string, { count: number; windowStart: number }>();
 
-function checkForgotPasswordRateLimit(ip: string): boolean {
+function checkForgotPasswordRateLimit(rawIp: string): boolean {
+  const ip = ipRateKey(rawIp);
   const now = Date.now();
   const entry = forgotPasswordAttempts.get(ip);
   if (!entry || now - entry.windowStart > FORGOT_WINDOW_MS) {
@@ -1517,7 +1522,8 @@ setInterval(() => {
 const MAX_RESEND_PER_IP = 3; // 3 requests per IP per 15 min
 const resendVerificationAttempts = new Map<string, { count: number; windowStart: number }>();
 
-function checkResendVerificationRateLimit(ip: string): boolean {
+function checkResendVerificationRateLimit(rawIp: string): boolean {
+  const ip = ipRateKey(rawIp);
   const now = Date.now();
   const entry = resendVerificationAttempts.get(ip);
   if (!entry || now - entry.windowStart > FORGOT_WINDOW_MS) {
