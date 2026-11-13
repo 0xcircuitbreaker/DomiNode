@@ -146,11 +146,22 @@ lives outside the database, so a DB dump alone cannot confirm or correlate a
 
 ```bash
 umask 077; openssl rand -hex 32 > secrets/api-key-pepper
+sudo chown 1001:1001 secrets/api-key-pepper   # the api and proxy images run as uid 1001
 ```
+
+Compose file secrets (non-swarm) are bind mounts that keep the host owner and
+mode, so a 0600 file owned by you or root is unreadable in the containers and
+both services stop at startup. The same applies to `coord-key.pem`.
 
 - Mount the **same** file into the API and the gateway (Docker secret or
   systemd credential) and set `API_KEY_PEPPER_FILE` in both. A mismatch makes
-  every migrated key fail on one side.
+  every migrated key fail on one side. `docker-compose.prod.yml` mounts
+  `secrets/api-key-pepper` (`API_KEY_PEPPER_PATH`) into both as the
+  `api_key_pepper` secret; create it before `up`. The self-host installer
+  generates `selfhost/api-key-pepper` once and copies it into both services;
+  on a split install, give the gateway VPS the coordinator's file (hidden
+  prompt or `API_KEY_PEPPER`) and compare the "API key pepper check value"
+  both installers print.
 - Hex (64+ chars) or at least 32 raw bytes. A set but unreadable or short file
   stops startup. Each service logs `API key hashing {peppered}` at start.
 - Migration is lazy: auth looks up the v2 and v1 hashes in one query,
@@ -226,9 +237,17 @@ scripts/update-asn-db.sh            # writes data/ip2asn-combined.tsv.gz (or $AS
 Published ports: `8443` TLS proxy and `9443` node tunnel on all interfaces;
 `8080`/`1080` plaintext on localhost only by default (`PROXY_*_HOST_PORT`
 overrides). `./secrets` and `./certs` are git-ignored.
-- `HOSTING_ASNS=1,2,3` adds ASNs to the built-in hosting list in
-  `packages/proxy-gateway/src/asn-db.ts`. Peers on those ASNs are classified
-  `dc`.
+- Exit classification is allowlist-based (fails closed). Only ASNs in the
+  access-network allowlist (`ACCESS_ASNS` in
+  `packages/proxy-gateway/src/asn-db.ts`: eyeball ISPs and mobile carriers)
+  are classed `residential`. Every other routed ASN that is not an anonymizer
+  is classed `dc`, so an unlisted hoster or VPN provider is never sold as
+  residential. Extend the allowlist with `ACCESS_ASNS=1,2,3` or
+  `ACCESS_ASNS_FILE` (one ASN per line, `#` comments; for example the PeeringDB
+  networks with info_type "Cable/DSL/ISP" in your markets). A residential node
+  on an unlisted ISP is served (and earns) as `dc` until its ASN is added.
+- `HOSTING_ASNS=1,2,3` adds ASNs to the built-in hosting list. Peers on those
+  ASNs are classified `dc` even if they also appear in the access allowlist.
 
 ### 4a. Anonymizer list (masked exit class)
 
@@ -245,8 +264,9 @@ Nodes whose verified egress is an anonymizer are classed `masked`
 - The IP list is best effort: a failed download keeps the previous file and
   never fails the ASN update. Without any file the built-in ASN list still
   applies (offline-safe). Entries wider than /8 (IPv4) or /16 (IPv6) are ignored.
-- Shared hosting ASNs that VPNs rent from (M247, Datacamp, Leaseweb, ...) stay
-  `dc` through `HOSTING_ASNS`; known exits inside them are caught by the IP list.
+- Shared hosting ASNs that VPNs rent from (M247, Datacamp/CDN77 AS60068 and
+  AS212238, Leaseweb, ...) stay `dc` through `HOSTING_ASNS` (and any unlisted
+  ASN is `dc` anyway); known exits inside them are caught by the IP list.
 - Review `data/anonymizer-asns.json` when you update the ASN database; bump
   `version` with each change.
 - Egress is verified at connect (tunnel peer IP) and again by the canary probe
@@ -255,12 +275,32 @@ Nodes whose verified egress is an anonymizer are classed `masked`
   yet probed on this gateway go first). Every connect is also queued for its
   own probe (`PROBE_CONNECT_CONCURRENCY`, default 4;
   `PROBE_CONNECT_MIN_INTERVAL_MS`, default 60000, between connect probes of
-  the same node); until it passes, the node is `unknown` for `class-*`
-  selection and tier weight. `PROBE_URL` accepts a comma-separated list (up to
+  the same node, not applied while the node is still unclassified); until a
+  probe classifies it the node serves no traffic. A probe that errors or
+  comes back without a verdict is retried with backoff (30 s, 1 m, 2 m, then
+  every 5 m), and every periodic run probes all still-unclassified nodes on
+  top of the sample. The first periodic run starts 30 s after startup.
+  `PROBE_URL` accepts a comma-separated list (up to
   32); list several unpublished echo hostnames that all reach
   `/v1/probe/echo` so probes are harder to single out. Class verification is
   best effort and cannot detect a node agent built to split-route
   (ABUSE_CONTROLS.md).
+- The echo URL must be the API on a public hostname with a publicly trusted
+  certificate: exit nodes refuse private and loopback destinations, and the
+  probe verifies TLS. The gateway checks every echo URL itself at startup and
+  every `PROBE_SELFCHECK_INTERVAL_MS` (default 60000) and uses only those that
+  return a 200 echoing its nonce. While none passes (API still starting,
+  `TLS_MODE=internal`, a host with no API that answers 404) it logs an error,
+  runs no probes, records no tamper strikes and does not hold nodes pending:
+  nodes serve at their connect class, as with probes off.
+- `PROBES_DISABLED=true` turns probes off and wins over `PROBE_URL` (the
+  gateway ignores `PROBE_URL`). `install.sh` honours it from the environment
+  or `.env` and then removes `PROBE_URL` from `.env`. Without it the installer
+  sets `PROBE_URL=https://<primary>/v1/probe/echo` only for `ROLE=all` with
+  `TLS_MODE=auto` or `cloudflare` and a public primary name; for
+  `ROLE=gateway` it asks for the coordinator's public API hostname
+  (`PROBE_API_HOST` in non-interactive runs). In every other case it prints a
+  warning and leaves probes off.
 
 ### 4b. Running a node behind Cloudflare WARP or a VPN
 
@@ -389,11 +429,42 @@ Clients:
 
 - Node SDK: `new DominusNodeClient({ proxyHost, gatewayTls: true })`
   (port 8443) or `gatewayTls: { port, ca }`. `proxy.fetch` uses TLS and
-  `buildUrl` returns `https://...`. Other SDKs: follow-up (SDK_SURFACE.md §5).
+  `buildUrl` returns `https://...`. All six SDKs implement `gatewayTls`
+  (SDK_SURFACE.md).
 - MCP server: `DOMINUSNODE_PROXY_URL=https://proxy.dominusnode.com:8443`
   (optional `DOMINUSNODE_PROXY_CA_FILE` for a private CA). Preferred over
   `DOMINUSNODE_HTTP_PROXY_PORT` when set.
 - curl: `curl -x https://relay:$KEY@proxy.dominusnode.com:8443 https://example.com`.
+
+Client addresses: the OFAC client-country check and per-IP limits need the
+real client address. In production a proxy-listener connection from a
+private, non-loopback address (for example Docker's userland proxy, which
+shows IPv6 clients of an IPv4-only bridge as the bridge gateway) is refused
+as unknown. The self-host compose enables IPv6 on its published network so
+the source is kept; list deliberate private client ranges (an agent LAN) in
+`PROXY_TRUSTED_CLIENT_CIDRS` (passed through by `docker-compose.prod.yml` and
+`docker-compose.selfhost.yml`). Host-local clients of the plaintext ports
+published on `127.0.0.1` (8080/1080) reach the gateway through docker-proxy
+and appear as the bridge gateway address (e.g. `172.x.0.1`): either list that
+address (`/32`) in `PROXY_TRUSTED_CLIENT_CIDRS`, or connect from inside the
+compose network. A trusted address skips the client-country check, so list
+only addresses that cannot carry remote traffic.
+
+Restarts: each relay session's settle payload and gateway-counted bytes are
+stored on its `sessions` row and heartbeated every 15 s. Sessions of a
+gateway that stopped heartbeating for 2 minutes (crash, SIGKILL, previous
+run) are settled by any live gateway with the last flushed bytes; the rest of
+the reservation is refunded. Give the gateway container a stop timeout above
+its 20 s drain (`stop_grace_period: 60s` in the compose files).
+
+Probes: set the same `PROBE_AUTH_SECRET` (32+ chars; the self-host installer
+generates it) on the API and gateways so canary probes get their own budget
+on `/v1/probe/echo`.
+
+Logs: compose files rotate container logs (json-file, 5 x 20 MB per
+container). Per-request lines (`CONNECT`, `session started/ended`) are at
+debug level; byte-report mismatches are logged only at the dispute threshold,
+at most once per node per minute.
 
 ## 7. Seed nodes (operator-run)
 
@@ -428,7 +499,7 @@ First run, `register` subcommand (once; writes the node key file 0600 for uid 10
 sudo install -d -o 1001 -g 1001 -m 700 /etc/dominusnode
 sudo install -o 1001 -g 1001 -m 600 ./wallet.key /etc/dominusnode/wallet.key   # owner wallet, 32-byte hex
 read -rs DN_API_KEY && export DN_API_KEY                                        # never on the command line
-docker run --rm -it -e DN_API_KEY -e DN_WALLET_KEY_FILE=/run/dominusnode/wallet.key \
+docker run --rm -e DN_API_KEY -e DN_WALLET_KEY_FILE=/run/dominusnode/wallet.key \
   -v /etc/dominusnode:/run/dominusnode ghcr.io/0xcircuitbreaker/dominusnode-node register
 sudo rm /etc/dominusnode/wallet.key   # not needed after registration
 ```
@@ -463,15 +534,108 @@ After the first registration, flag the node: admin panel → Launch controls →
   directly (the host file stays 0600, owned by whoever ran the installer).
   The one-shot `keys` service (root, no network) copies it into the
   `gateway_secrets` volume as 0400 owned by 1001 on every `up`, so re-running
-  the installer fixes existing installs. The `node` profile does the same for
-  `selfhost/node.json` via `node-keys` / `node_secrets`. The installer also
+  the installer fixes existing installs. It copies `selfhost/api-key-pepper`
+  the same way (`API_KEY_PEPPER_FILE` on api and gateway). The installer also
   makes `data/` 0755 and the ASN database 0644, and fails before printing
   `up.` if the gateway cannot read its key.
 - `OPERATOR_CONTACT` must be a plain email address; anything else (spaces,
   braces, quotes, newlines) is refused because it is written into the
   Caddyfile and `.env`.
-- The optional `node` profile dials `${TUNNEL_SCHEME}://${RELAY_HOST}:8443/v1/tunnel`
-  (`wss` unless `TLS_MODE=off`; `RELAY_HOST` defaults to the primary hostname).
+- There is no in-stack exit node. A node on the gateway's own box reaches it
+  from a private address and is refused as a private peer, so run nodes on
+  other hosts (published image above). The installer prints the join command
+  with the `sha256:` fingerprint of every pinned key
+  (`dominusnode-node run --coordinator <domain> --trust <fp>[,<fp>]`); confirm
+  each out of band.
+- `OPERATOR_CONTACT`, `ABUSE_CONTACT`, `OPERATOR_NAME` and `SITE_NAME` reach
+  the API: `/.well-known/security.txt` answers with `Contact: mailto:<abuse
+  contact>` and coordinator.json carries the contacts.
+- ASN/geo refresh: re-runs refresh a database older than 7 days, and the
+  installer schedules `scripts/selfhost/refresh-asn.sh` weekly (systemd timer
+  `dominusnode-asn-refresh.timer`, or a cron job without systemd;
+  `SKIP_ASN_TIMER=1` skips it). The script downloads a fresh database and
+  restarts the gateway, which reads it once at start.
+- Certificates: with `TLS_MODE=auto` and HTTP-01 the installer warns when
+  `PROXY_HOST`/`RELAY_HOST` do not resolve, and if Caddy has not issued the
+  `PROXY_HOST` certificate after `up` it stops with a checklist (DNS pointed
+  here and not proxied, inbound 80/443 or `ACME_CHALLENGE=dns-cloudflare`,
+  `docker compose ... logs caddy proxy-certs gateway`). Fix it and re-run.
+
+### Self-host admin
+
+The coordinator profile runs the admin UI (`frontend` service, nginx serving
+the React build with `infra/nginx/selfhost.conf`: plain HSTS, no
+`includeSubDomains`/`preload`, `connect-src 'self'`). Caddy sends `/api/*`,
+`/v1/*`, `/.well-known/*`, `/status` and `/llms.txt` to the API, only the admin
+paths (`/admin*`, `/login`, `/forgot-password`, `/reset-password`,
+`/verify-email`, `/assets/*`, icons, manifest) to the admin UI, redirects `/` to
+`/admin` and answers 404 elsewhere. The public DominusNode site pages
+(landing, pricing, report-abuse, terms, privacy, AUP) are not served on a
+self-host: they carry the official operator's contacts and terms. Abuse and
+operator contacts for your install come from `security.txt` and
+`coordinator.json` (`ABUSE_CONTACT`, `OPERATOR_CONTACT`).
+
+With `TLS_MODE=cloudflare`, give the admin hostname path-based ingress rules in
+the tunnel, in this order: `/api/*`, `/v1/*`, `/.well-known/*`, `/status*` and
+`/llms.txt` to `http://api:3000`, then everything else to
+`http://frontend:8080`. Do not send `/api` through the frontend: nginx adds a
+hop the api does not trust (`TRUST_PROXY=1`), so every client would share the
+cloudflared address for login rate limits and lockouts.
+
+First admin (§8a, with the installer doing the env part):
+
+1. Run the installer with `ADMIN_BOOTSTRAP_EMAIL=<you@example.org>` (or answer
+   the prompt). It sets `ADMIN_HUMAN_LOGIN=true` for the API.
+2. Register that address once (no captcha on a self-host without
+   `RECAPTCHA_SECRET_KEY`). The password is read from a 0600 file, never argv:
+
+   ```bash
+   jq -n --arg e you@example.org --rawfile p ./admin-password.txt \
+     '{email:$e, password:($p|rtrimstr("\n"))}' |
+     curl -sS https://<domain>/api/auth/register -H 'Content-Type: application/json' --data @-
+   ```
+
+3. Re-run the installer with `ADMIN_BOOTSTRAP_EMAIL=` (empty) to close
+   registration, then sign in at `https://<domain>/` and enable MFA.
+
+Without human login, an existing wallet user can be promoted by SQL on the
+coordinator: `docker compose -f docker-compose.selfhost.yml --env-file .env
+exec postgres psql -U dominusnode -d dominusnode -c "UPDATE users SET
+admin_role = 'admin' WHERE wallet_address = lower('<0x...>')"`, then use its
+wallet JWT with the admin API.
+
+### Self-host backup
+
+`scripts/selfhost/backup.sh` writes one encrypted archive with everything a
+rebuild needs: a `pg_dump -Fc` taken inside the postgres container (the host
+has no route to it), `selfhost/` (`coord-key.pem`, which every node image pins,
+`api-key-pepper`, the gateway DB URL, token files) and `.env` (`JWT_SECRET`,
+`MFA_ENCRYPTION_KEY`, `POSTGRES_PASSWORD`). It refuses to write an unencrypted
+archive:
+
+- `BACKUP_AGE_RECIPIENT=age1...`: encrypt to an age public key whose private
+  key lives off this box (preferred), or
+- `BACKUP_PASSPHRASE_FILE=<file>`: OpenSSL AES-256 with PBKDF2 (600k rounds);
+  keep the passphrase off-box too.
+
+`BACKUP_DIR` (default `./backups`) and `BACKUP_KEEP` (default 14) control
+rotation. Run it daily from cron as the installing user and copy the archives
+off the box. A ROLE=gateway box has no database; its archive holds its own key,
+pepper and `.env`.
+
+Restore onto a fresh checkout of the same release:
+
+```bash
+BACKUP_PASSPHRASE_FILE=/path/pass ./scripts/selfhost/restore.sh backups/dominusnode-<ts>.tar.gz.enc
+# or AGE_IDENTITY=/path/age-key.txt ... .tar.gz.age
+```
+
+Order: keys and `.env` first (refused over existing ones unless `--force`),
+then Postgres starts and the dump is loaded with `pg_restore --clean`, then
+`install.sh --yes` migrates (schema.sql is safe to re-run), recreates the
+gateway role and starts everything. `--no-start` restores the files only.
+Restore the coordinator key and pepper exactly: a new key strands every node
+that pins the old one, and a new pepper revokes every peppered API key.
 
 ### Self-host gateway TLS proxy (8444 / 1443)
 
@@ -743,10 +907,18 @@ Persist these with your distribution's tool (`iptables-persistent`, nftables).
 
 **Database link.** The coordinator publishes Postgres only on `DB_WG_BIND`
 (its WireGuard address) through `docker-compose.selfhost.wg-db.yml`, which the
-installer adds automatically. The gateway uses
-`GATEWAY_DATABASE_URL=postgresql://dominusnode:<POSTGRES_PASSWORD>@10.66.0.1:5432/dominusnode`.
-The installer accepts only a private IPv4 host and a password of 24+
-alphanumerics (the coordinator's generated `POSTGRES_PASSWORD` is 48 hex). The
+installer adds automatically. The gateway never gets the Postgres superuser:
+after `migrate` the coordinator's installer applies
+`scripts/selfhost/gateway-role.sql`, which creates `dominusnode_gateway`
+(NOSUPERUSER, no DDL, no server program or file access, row access on the
+tables the gateway uses, none on MFA, agent secrets or root-admin identity),
+and writes its URL to `selfhost/gateway-database-url` (0600). Use that as the
+gateway's
+`GATEWAY_DATABASE_URL=postgresql://dominusnode_gateway:<GATEWAY_DB_PASSWORD>@10.66.0.1:5432/dominusnode`.
+The gateway installer refuses the `dominusnode` superuser, accepts only a
+private IPv4 host and a password of 24+ alphanumerics. Docker NATs the
+published port, so `pg_hba.conf` cannot tell the VPS apart by address: keep the
+`DOCKER-USER` rules above. The
 link is encrypted by WireGuard; Postgres itself runs without TLS (`DB_SSL=false`),
 so never publish it on any other interface. Pass the URL through the
 environment or the hidden prompt, not as a command-line argument; it is stored
@@ -774,6 +946,38 @@ before running it. `ALLOW_NON_WG_DB_BIND=1` overrides the check (tests only).
 `COORD_ADDITIONAL_PUBKEYS`) and clears those that do not belong to the new
 role. To retire a gateway key, rerun the coordinator with an empty
 `GATEWAY_PUBKEY`.
+
+**Nodes trust both keys.** The VPS signs CHALLENGEs with its own key, so a
+node must confirm the home key and the VPS key:
+`--trust sha256:<home>,sha256:<vps>`. The installer prints both fingerprints in
+its join command, and a node that is not yet trusted prints the full list.
+
+**Suspend and erase.** Admin suspend and account deletion also POST to
+`PROXY_INTERNAL_HOST`, which does not reach a gateway on another box. Every
+gateway runs a user-status sweep (`USER_STATUS_SWEEP_INTERVAL_MS`, default
+30 s): sessions of users that are no longer `active` in the database are
+settled and closed, so a suspended requester loses open tunnels within one
+interval. The suspend response carries a `warning` when the direct signal
+failed.
+
+**Wallet proxy-session tokens (`dn_proxy_`).** The coordinator's api signs
+them with its `JWT_SECRET`; the gateway verifies them with its own. Give the
+VPS installer the coordinator's value (`COORD_JWT_SECRET=<JWT_SECRET from the
+coordinator's .env>`, or the hidden prompt) and compare the "JWT secret check
+value" both installers print. Without it, `dn_proxy_` tokens are rejected on
+the split gateway; `dn_live_` keys are unaffected.
+
+**Upgrading a split install.** The coordinator re-run creates
+`selfhost/api-key-pepper` (if missing) and the api starts storing keys as v2
+and rewriting v1 rows as keys authenticate there. The gateway cannot go first
+(its installer needs that pepper and the new `selfhost/gateway-database-url`).
+So: (1) re-run the coordinator installer; (2) straight away copy
+`selfhost/api-key-pepper` and `selfhost/gateway-database-url` to the VPS (scp,
+mode 0600) and re-run the VPS installer with `API_KEY_PEPPER`/the pepper file,
+`GATEWAY_DATABASE_URL` and `COORD_JWT_SECRET`; (3) compare the pepper and JWT
+check values. Between (1) and (2) the gateway answers 407 for every key
+created or used on the api since the upgrade; keep that window short or do it
+in a maintenance window.
 
 Admin live gateway stats (`PROXY_INTERNAL_HOST`) are not wired across the split.
 

@@ -126,7 +126,7 @@ class GatewayTlsTest {
     @Test
     void httpsRidesConnectTunnelPlainGateway() throws Exception {
         try (Gw gw = new Gw(false, "")) {
-            DominusNodeClient c = client(Config.builder().proxyHost("127.0.0.1").httpProxyPort(gw.port()));
+            DominusNodeClient c = client(Config.builder().proxyHost("127.0.0.1").httpProxyPort(gw.port()).plaintextGateway());
             assertThrows(ProxyException.class, () -> c.proxy().fetch("https://example.com/x", ProxyOptions.create().apiKey(API_KEY).timeoutMs(3000)));
             assertEquals(1, gw.accepted.get());
             assertTrue(gw.heads.get(0).startsWith("CONNECT example.com:443 HTTP/1.1\r\n"));
@@ -183,7 +183,10 @@ class GatewayTlsTest {
         String u = c.proxy().buildUrl(ProxyOptions.create().apiKey(API_KEY));
         assertTrue(u.startsWith("https://relay:dn_live_") && u.endsWith("@proxy.example.com:8443"), u);
         assertTrue(c.proxy().buildUrl(null, "http", API_KEY).endsWith(":8080"));
-        DominusNodeClient plain = client(Config.builder().proxyHost("proxy.example.com"));
+        DominusNodeClient dflt = client(Config.builder().proxyHost("proxy.example.com"));
+        String d = dflt.proxy().buildUrl(null, null, API_KEY);
+        assertTrue(d.startsWith("https://") && d.endsWith(":8443"), d);
+        DominusNodeClient plain = client(Config.builder().proxyHost("proxy.example.com").plaintextGateway());
         assertTrue(plain.proxy().buildUrl(null, null, API_KEY).startsWith("http://"));
         assertThrows(ValidationException.class, () -> plain.proxy().buildUrl(null, "https", API_KEY));
     }

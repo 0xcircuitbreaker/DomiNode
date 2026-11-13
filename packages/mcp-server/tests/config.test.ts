@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { parseConfig, ConfigError } from "../src/config.js";
 
 describe("parseConfig", () => {
@@ -85,5 +85,24 @@ describe("parseConfig", () => {
     expect(parseConfig({ ...validEnv, MCP_AGENT_SECRET: b }).mcpAgentSecret).toBe(b);
     expect(parseConfig({ ...validEnv, DOMINUSNODE_AGENT_SECRET: a, MCP_AGENT_SECRET: b }).mcpAgentSecret).toBe(a);
     expect(() => parseConfig({ ...validEnv, DOMINUSNODE_AGENT_SECRET: "short" })).toThrow(ConfigError);
+  });
+
+  describe("local / self-hosted gateway (DOMINUSNODE_ALLOW_LOCAL_GATEWAY)", () => {
+    it("refuses localhost and private proxy hosts by default", () => {
+      expect(() => parseConfig({ DOMINUSNODE_PROXY_HOST: "localhost" })).toThrow(ConfigError);
+      expect(() => parseConfig({ DOMINUSNODE_PROXY_URL: "https://192.168.1.20:8444" })).toThrow(/ALLOW_LOCAL_GATEWAY/);
+    });
+
+    it("accepts them with the explicit opt-in and warns", () => {
+      const write = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+      try {
+        const c = parseConfig({ DOMINUSNODE_PROXY_URL: "https://localhost:8444", DOMINUSNODE_ALLOW_LOCAL_GATEWAY: "1" });
+        expect(c.proxyHost).toBe("localhost");
+        expect(c.proxyTls?.port).toBe(8444);
+        expect(write.mock.calls.map((x) => String(x[0])).join("")).toContain("DOMINUSNODE_ALLOW_LOCAL_GATEWAY");
+      } finally {
+        write.mockRestore();
+      }
+    });
   });
 });

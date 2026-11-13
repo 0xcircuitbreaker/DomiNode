@@ -25,7 +25,8 @@ reported as `SKIP`.
    DN_NODE_API_URL=https://api.staging.example \
    DN_NODE_GATEWAY_URL=wss://gw.staging.example \
    DN_NODE_KEY_FILE=$HOME/.dominusnode/node.key \
-   node packages/node-agent/dist/src/main.js
+   DN_NODE_COORD_PINS=<staging coordinator ed25519 pubkey, 64 hex> \
+   node packages/node-agent/dist/src/main.js run
    ```
 
    The node owner account must have a linked wallet; its private key file is
@@ -41,7 +42,9 @@ so they never appear in the process list.
 |---|---|---|---|
 | `API_URL` | yes | | API base URL |
 | `GATEWAY_HOST` | yes | | Gateway hostname |
-| `GATEWAY_HTTP_PORT` / `GATEWAY_SOCKS_PORT` / `GATEWAY_TLS_PORT` | | 8080 / 1080 / 8443 | Gateway listeners |
+| `GATEWAY_TLS_PORT` | | 8443 | TLS proxy port: all fetches and the policy refusal checks go here (self-host: 8444) |
+| `PLAINTEXT_PROXY` | | 0 | 1 also tests plaintext `GATEWAY_HTTP_PORT` / `GATEWAY_SOCKS_PORT` (8080 / 1080); production gateways refuse credentials there |
+| `GATEWAY_HTTP_PORT` / `GATEWAY_SOCKS_PORT` | | 8080 / 1080 | Plaintext listeners (only with `PLAINTEXT_PROXY=1`) |
 | `GATEWAY_TLS_CA` | | | CA bundle for the TLS proxy listener |
 | `REQUESTER_API_KEY` | yes | | Requester agent key (`dn_live_`/`dn_test_`), with balance |
 | `NODE_OWNER_API_KEY` | | | Node owner's agent key; enables credits + withdraw checks |

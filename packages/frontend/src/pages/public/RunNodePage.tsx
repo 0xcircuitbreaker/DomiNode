@@ -24,7 +24,7 @@ export default function RunNodePage() {
         <Pre label="Register">{`sudo install -d -o 1001 -g 1001 -m 700 /etc/dominusnode
 sudo install -o 1001 -g 1001 -m 600 ./wallet.key /etc/dominusnode/wallet.key
 read -rs DN_API_KEY && export DN_API_KEY          # never on the command line
-docker run --rm -it -e DN_API_KEY -e DN_WALLET_KEY_FILE=/run/dominusnode/wallet.key \\
+docker run --rm -e DN_API_KEY -e DN_WALLET_KEY_FILE=/run/dominusnode/wallet.key \\
   -v /etc/dominusnode:/run/dominusnode ${NODE_IMAGE} register
 sudo rm /etc/dominusnode/wallet.key               # not needed after registration`}</Pre>
         <div className="mt-4"><Pre label="Run">{`docker run -d --name dominusnode-node --restart unless-stopped \\

@@ -33,7 +33,7 @@ import v1Routes from "./routes/v1/index.js";
 import discoveryRoutes from "./routes/discovery.js";
 import statusPageRoutes from "./routes/status-page.js";
 import { createFederationRouter, loadDocSigner } from "./routes/federation.js";
-import { resolveBranding } from "@dominusnode/shared";
+import { resolveBranding, securityTxtContact } from "@dominusnode/shared";
 
 const log = createLogger("api:server");
 
@@ -254,7 +254,7 @@ export function startApiServer(port: number = 3000): ReturnType<express.Express[
     }
     const expires = new Date(Date.now() + 180 * 24 * 60 * 60 * 1000).toISOString();
     res.type("text/plain").send(
-      `Contact: ${securityContact}\n` +
+      `Contact: ${securityTxtContact(securityContact)}\n` +
       `Expires: ${expires}\n` +
       `Preferred-Languages: en\n`
     );

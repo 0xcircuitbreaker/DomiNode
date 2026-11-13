@@ -1,6 +1,6 @@
 {
   "name": "@dominusnode/ai-tools",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "description": "Vercel AI SDK tools for the DominusNode AI-agent relay network (19 standard v2 tools, built on @dominusnode/sdk)",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -22,7 +22,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@dominusnode/sdk": "^2.1.0"
+    "@dominusnode/sdk": "^2.2.0"
   },
   "peerDependencies": {
     "ai": ">=5.0.0"

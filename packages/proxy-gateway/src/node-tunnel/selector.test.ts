@@ -37,6 +37,15 @@ describe("etld1", () => {
 });
 
 describe("NodeSelector", () => {
+  it("never routes a target to the node's own egress address (hairpin)", () => {
+    const { sel } = make([node({ nodeId: "self", ip: "203.0.113.7" }), node({ nodeId: "other", ip: "198.51.100.9" })]);
+    for (let i = 0; i < 5; i++) {
+      expect(sel.select({ ...base, targetHost: "203.0.113.7" }).nodeId).toBe("other");
+      expect(sel.select({ ...base, targetHost: "router.example", targetAddresses: ["::ffff:203.0.113.7"] }).nodeId).toBe("other");
+    }
+    const { sel: only } = make([node({ nodeId: "self", ip: "203.0.113.7" })]);
+    expect(() => only.select({ ...base, targetHost: "203.0.113.7" })).toThrow(NodeSelectionError);
+  });
   it("seedOnly restricts selection to operator-run nodes", () => {
     const { sel } = make([node({ nodeId: "community" }), node({ nodeId: "seed", operatorRun: true })]);
     for (let i = 0; i < 5; i++) expect(sel.select({ ...base, seedOnly: true }).nodeId).toBe("seed");
@@ -172,6 +181,12 @@ describe("NodeRegistry", () => {
     reg.add(node({ nodeId: "b", ip: "8.8.2.1", prefix24: ipPrefix("8.8.2.1"), asn: null }));
     reg.add(node({ nodeId: "c", ip: "8.8.3.1", prefix24: ipPrefix("8.8.3.1"), asn: 9 }));
     expect(reg.countPeers("8.8.4.1", "8.8.4.0/24", null).perAsn).toBe(2);
+  });
+
+  it("a node whose egress probe is pending serves nothing, flagged or unflagged", () => {
+    const { sel } = make([node({ ipClass: "unknown", probePending: true })]);
+    expect(() => sel.select(base)).toThrow(NodeSelectionError);
+    expect(() => sel.select({ ...base, ipClass: "residential" })).toThrow(NodeSelectionError);
   });
 
   it("unclassified nodes are not selected for an explicit class", () => {

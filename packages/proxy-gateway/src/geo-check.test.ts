@@ -33,7 +33,7 @@ vi.mock("./asn-db.js", async (importOriginal) => {
   };
 });
 
-import { initGeoCheck, checkSanctionedCountry, setAsnDb, lookupPeerGeo } from "./geo-check.js";
+import { initGeoCheck, checkSanctionedCountry, checkClientCountry, setAsnDb, lookupPeerGeo } from "./geo-check.js";
 import { parseAsnTsv } from "./asn-db.js";
 
 describe("proxy-gateway/geo-check", () => {
@@ -270,6 +270,24 @@ describe("proxy-gateway/geo-check", () => {
       expect(checkSanctionedCountry("203.0.113.2")).toBe("UNKNOWN");
     });
 
+    it("client check: a private non-loopback proxy-listener source is unknown in production (lost client address)", () => {
+      process.env["NODE_ENV"] = "production";
+      // Docker userland proxy: every IPv6 client appears as the bridge gateway.
+      expect(checkClientCountry("172.29.53.1")).toBe("UNKNOWN");
+      expect(checkClientCountry("fd00::1")).toBe("UNKNOWN");
+      expect(checkClientCountry("127.0.0.1")).toBeNull();
+      expect(checkClientCountry("::1")).toBeNull();
+      process.env["PROXY_TRUSTED_CLIENT_CIDRS"] = "192.168.10.0/24";
+      try {
+        expect(checkClientCountry("192.168.10.5")).toBeNull();
+        expect(checkClientCountry("192.168.11.5")).toBe("UNKNOWN");
+      } finally { delete process.env["PROXY_TRUSTED_CLIENT_CIDRS"]; }
+    });
+
+    it("client check outside production keeps allowing private sources", () => {
+      expect(checkClientCountry("172.29.53.1")).toBeNull();
+    });
+
     it("still allows private IPs in production", () => {
       process.env["NODE_ENV"] = "production";
       expect(checkSanctionedCountry("10.0.0.1")).toBeNull();
@@ -286,7 +304,7 @@ describe("proxy-gateway/geo-check", () => {
       mockIsBlockedCountry.mockImplementation((c: string) => c === "IR");
       expect(checkSanctionedCountry("5.0.0.7")).toBe("IR");
       expect(checkSanctionedCountry("8.8.8.8")).toBeNull();
-      expect(lookupPeerGeo("5.0.0.7")).toEqual({ country: "IR", asn: 197207, ipClass: "residential" });
+      expect(lookupPeerGeo("5.0.0.7")).toEqual({ country: "IR", asn: 197207, ipClass: "dc" });
     });
 
     it("blocks every public IP when the database is unavailable", () => {

@@ -1,5 +1,16 @@
 import { describe, it, expect } from "vitest";
-import { validateUrl } from "../src/proxy-fetch.js";
+import { validateUrl, connectFailureMessage } from "../src/proxy-fetch.js";
+
+describe("connectFailureMessage", () => {
+  it("carries the gateway's X-DominusNode-Error code and Retry-After", () => {
+    expect(connectFailureMessage(402, { "x-dominusnode-error": "INSUFFICIENT_BALANCE" }))
+      .toBe("CONNECT tunnel failed with status 402: INSUFFICIENT_BALANCE");
+    expect(connectFailureMessage(503, { "x-dominusnode-error": "NO_NODES_AVAILABLE", "retry-after": "30" }))
+      .toBe("CONNECT tunnel failed with status 503: NO_NODES_AVAILABLE (retry after 30s)");
+    expect(connectFailureMessage(403, {})).toBe("CONNECT tunnel failed with status 403");
+    expect(connectFailureMessage(403, { "x-dominusnode-error": "bad\r\nvalue" })).toBe("CONNECT tunnel failed with status 403");
+  });
+});
 
 describe("proxy-fetch", () => {
   describe("validateUrl", () => {

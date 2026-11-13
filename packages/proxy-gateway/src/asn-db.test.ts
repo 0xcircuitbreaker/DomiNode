@@ -71,6 +71,9 @@ describe("asn-db", () => {
     expect(lookupPeerGeo("8.8.8.8")).toBeNull();
     setAsnDb(loadAsnDbFile(FIXTURE));
     expect(lookupPeerGeo("8.8.8.8")).toEqual({ country: "US", asn: 15169, ipClass: "dc" });
+    // Unlisted ASN: dc (fails closed), residential only via the access allowlist.
+    expect(lookupPeerGeo("81.2.69.142")).toEqual({ country: "GB", asn: 20712, ipClass: "dc" });
+    setAsnDb(loadAsnDbFile(FIXTURE), undefined, {}, new Set([20712]));
     expect(lookupPeerGeo("81.2.69.142")).toEqual({ country: "GB", asn: 20712, ipClass: "residential" });
     expect(lookupPeerGeo("10.1.2.3")).toBeNull();
   });

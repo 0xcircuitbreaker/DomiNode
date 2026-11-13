@@ -1,6 +1,6 @@
 {
   "name": "n8n-nodes-dominusnode",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "description": "n8n community node for the DominusNode AI-agent relay network (19 standard v2 operations, built on @dominusnode/sdk)",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -39,7 +39,7 @@
     "url": "https://github.com/0xcircuitbreaker/DomiNode/issues"
   },
   "dependencies": {
-    "@dominusnode/sdk": "^2.1.0"
+    "@dominusnode/sdk": "^2.2.0"
   },
   "peerDependencies": {
     "n8n-workflow": ">=1.0.0"

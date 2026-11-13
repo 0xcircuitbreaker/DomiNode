@@ -17,7 +17,15 @@ export interface RelayRuntime {
   getPolicy: () => NetworkPolicy;
   /** Live node count, for /internal/stats. */
   nodeCount?: () => number;
+  /**
+   * Open failure attributable to the node (DIAL_FAIL/DNS_FAIL/TIMEOUT): lowers its
+   * reputation. Reported only once another node reached the same target in the
+   * same open, so an unreachable target (chosen by the requester) penalises no one.
+   */
+  onNodeFailure?: (nodeId: string, code: string) => void;
 }
+
+const NODE_FAILURE_CODES: ReadonlySet<string> = new Set(["DIAL_FAIL", "DNS_FAIL", "TIMEOUT"]);
 
 /** Failure opening a relay upstream, carrying the HTTP contract. */
 export class RelayOpenError extends Error {
@@ -70,6 +78,7 @@ export function guardRelayStream(stream: Duplex, nodeId: string): void {
  */
 export async function openRelayStream(rt: RelayRuntime, opts: SelectOpts): Promise<RelayUpstream> {
   const start = Date.now();
+  const failed: Array<{ nodeId: string; code: string }> = [];
   const r = await withNodeRetry<{ node: LiveNode; stream: Duplex }>(
     async (exclude) => {
       const node = (() => {
@@ -88,11 +97,22 @@ export async function openRelayStream(rt: RelayRuntime, opts: SelectOpts): Promi
         guardRelayStream(stream, node.nodeId);
         return { nodeId: node.nodeId, value: { node, stream } };
       } catch (err) {
-        throw toRelayError(err, node.nodeId);
+        const re = toRelayError(err, node.nodeId);
+        if (err instanceof TunnelOpenError && NODE_FAILURE_CODES.has(err.code)) {
+          failed.push({ nodeId: node.nodeId, code: err.code });
+        }
+        throw re;
       }
     },
     (err) => (err instanceof RelayOpenError ? err.nodeId : null),
     (err) => (err instanceof RelayOpenError ? err.code : null),
   );
+  // The target is reachable (another node just opened it): earlier failures are the nodes' fault.
+  if (rt.onNodeFailure) {
+    for (const f of failed) {
+      if (f.nodeId === r.value.node.nodeId) continue;
+      try { rt.onNodeFailure(f.nodeId, f.code); } catch { /* never break the data path */ }
+    }
+  }
   return { node: r.value.node, stream: r.value.stream, latencyMs: Date.now() - start, retries: r.retries };
 }

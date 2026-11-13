@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 vi.mock("../db.js", () => ({ query: vi.fn(), getPool: () => ({ connect: vi.fn() }) }));
-import { computeOwnerTier, genesisBonusFor, getChargeSnapshot, getBuyerDiscount, type NodeTier, type OwnerTierStats } from "./tier-repo.js";
+import { computeOwnerTier, genesisBonusFor, getChargeSnapshot, getBuyerDiscount, getOwnerUptimeBps, type NodeTier, type OwnerTierStats } from "./tier-repo.js";
 import { query } from "../db.js";
 
 const T = (id: number, rank: number, ten: number, up: number, ips: number, rep: number, nc = 0): NodeTier => ({
@@ -69,5 +69,19 @@ describe("genesis boost snapshot", () => {
     expect(await getBuyerDiscount("u2")).toEqual({ buyerTierId: null, buyerDiscountBps: 0, minPlatformMarginBps: 2500 });
     q.mockResolvedValueOnce({ rows: [{ tier_id: 3, buyer_discount_bps: 1000, enabled: false, min_platform_margin_bps: 3000 }] } as never);
     expect(await getBuyerDiscount("u3")).toMatchObject({ buyerDiscountBps: 0, minPlatformMarginBps: 3000 });
+  });
+});
+
+describe("getOwnerUptimeBps (gateway tunnel liveness)", () => {
+  it("is computed from online_seconds, not from days with a stream", async () => {
+    vi.mocked(query).mockResolvedValueOnce({ rows: [{ seconds: String(15 * 86_400) }] } as never);
+    expect(await getOwnerUptimeBps("u1")).toBe(5000);
+    const sql = String(vi.mocked(query).mock.calls.at(-1)![0]);
+    expect(sql).toContain("online_seconds");
+    expect(sql).not.toContain("streams > 0");
+    vi.mocked(query).mockResolvedValueOnce({ rows: [{ seconds: null }] } as never);
+    expect(await getOwnerUptimeBps("u1")).toBe(0);
+    vi.mocked(query).mockResolvedValueOnce({ rows: [{ seconds: String(99 * 86_400) }] } as never);
+    expect(await getOwnerUptimeBps("u1")).toBe(10_000);
   });
 });

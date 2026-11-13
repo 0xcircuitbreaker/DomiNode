@@ -34,7 +34,10 @@ pub struct Config {
     pub transport: Option<Arc<dyn Transport>>,
     /// Custom DNS resolver for `proxy.fetch` (tests).
     pub resolver: Option<Resolver>,
-    /// Optional TLS to the gateway (`PROXY_TLS_PORT`); `build_url` then defaults to `https://`.
+    /// TLS to the gateway (`PROXY_TLS_PORT`); `build_url` then defaults to `https://`.
+    /// Since 3.1 the default is `Some(GatewayTls::default())` (port 8443): production
+    /// gateways refuse credentials on plaintext 8080/1080. Self-hosted coordinators
+    /// usually publish 8444 (`port: Some(8444)`). `None` selects plaintext (local dev only).
     pub gateway_tls: Option<GatewayTls>,
 }
 
@@ -49,7 +52,7 @@ impl Default for Config {
             refresh_token: None,
             transport: None,
             resolver: None,
-            gateway_tls: None,
+            gateway_tls: Some(GatewayTls::default()),
         }
     }
 }

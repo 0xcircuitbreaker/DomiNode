@@ -1,5 +1,6 @@
 import * as crypto from "node:crypto";
 import rateLimit, { type Options } from "express-rate-limit";
+import { ipRateKey } from "./ip-key.js";
 import type { Request } from "express";
 import { agentSecretRepo } from "@dominusnode/shared";
 
@@ -174,6 +175,8 @@ export function agentAwareRateLimit(
   const multiplier = getAgentMultiplier();
 
   return rateLimit({
+    // IPv6 clients are keyed by /64 (express-rate-limit v7 keys the full /128).
+    keyGenerator: (req: Request) => ipRateKey(req.ip ?? req.socket?.remoteAddress ?? ""),
     ...opts,
     max: (req: Request) => (isVerifiedAgent(req) ? baseMax * multiplier : baseMax),
   });

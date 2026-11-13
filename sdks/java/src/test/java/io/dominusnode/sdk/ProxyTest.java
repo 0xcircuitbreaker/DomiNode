@@ -60,15 +60,16 @@ class ProxyTest {
     void buildUrl() {
         MockTransport t = new MockTransport();
         DominusNodeClient c = connected(t);
-        assertEquals("http://country-DE:" + API_KEY + "@proxy.dominusnode.com:8080", c.proxy().buildUrl(ProxyOptions.create().country("de")));
+        // 2.2: TLS to the gateway is the default.
+        assertEquals("https://country-DE:" + API_KEY + "@proxy.dominusnode.com:8443", c.proxy().buildUrl(ProxyOptions.create().country("de")));
         assertEquals("socks5://relay:" + API_KEY + "@proxy.dominusnode.com:1080", c.proxy().buildUrl(null, "socks5", null));
         assertEquals("http://relay:dn_test_otherkey99@proxy.dominusnode.com:8080", c.proxy().buildUrl(null, "http", "dn_test_otherkey99"));
         assertEquals("relay", c.proxy().buildUsername(null));
-        assertThrows(ValidationException.class, () -> c.proxy().buildUrl(null, "https", null));
+        assertThrows(ValidationException.class, () -> c.proxy().buildUrl(null, "ftp", null));
         assertThrows(ValidationException.class, () -> c.proxy().buildUrl(null, "http", "not-a-key"));
         DominusNodeClient anon = client(t);
         assertThrows(AuthenticationException.class, () -> anon.proxy().buildUrl(null));
-        DominusNodeClient custom = new DominusNodeClient(Config.builder().proxyHost("[::1]").httpProxyPort(3128).transport(t).build());
+        DominusNodeClient custom = new DominusNodeClient(Config.builder().proxyHost("[::1]").httpProxyPort(3128).plaintextGateway().transport(t).build());
         assertEquals("http://relay:" + API_KEY + "@[::1]:3128", custom.proxy().buildUrl(null, "http", API_KEY));
         assertThrows(ValidationException.class, () -> new DominusNodeClient(Config.builder().proxyHost("evil.com/x").build()));
         assertThrows(ValidationException.class, () -> new DominusNodeClient(Config.builder().httpProxyPort(0).build()));
@@ -179,7 +180,7 @@ class ProxyTest {
 
     static DominusNodeClient gatewayClient(MockTransport t, int port) {
         DominusNodeClient c = new DominusNodeClient(Config.builder().baseUrl("https://api.test").transport(t)
-                .proxyHost("127.0.0.1").httpProxyPort(port).resolver(PUBLIC).build());
+                .proxyHost("127.0.0.1").httpProxyPort(port).plaintextGateway().resolver(PUBLIC).build());
         t.reply(200, "{\"token\":\"" + JWT + "\",\"refreshToken\":\"" + REFRESH + "\"}");
         c.connectWithKey(API_KEY);
         return c;
@@ -247,10 +248,13 @@ class ProxyTest {
 
     @Test
     void connectRefused() throws Exception {
-        try (Gateway g = new Gateway("HTTP/1.1 407 Proxy Authentication Required\r\nContent-Length: 0\r\n\r\n", null)) {
+        try (Gateway g = new Gateway("HTTP/1.1 407 Proxy Authentication Required\r\nX-DominusNode-Error: INVALID_API_KEY\r\nRetry-After: 4\r\nContent-Length: 0\r\n\r\n", null)) {
             DominusNodeClient c = gatewayClient(new MockTransport(), g.port());
             ProxyException e = assertThrows(ProxyException.class, () -> c.proxy().fetch("https://example.com/x", ProxyOptions.create().sessionId("s1")));
             assertEquals(407, e.getStatusCode());
+            assertEquals("INVALID_API_KEY", e.getCode());
+            assertEquals(Integer.valueOf(4), e.getRetryAfter());
+            assertTrue(e.getMessage().contains("INVALID_API_KEY"));
             List<String> lines = g.lines();
             assertEquals("CONNECT example.com:443 HTTP/1.1", lines.get(0));
             assertTrue(lines.contains("Proxy-Authorization: Basic " + Base64.getEncoder().encodeToString(

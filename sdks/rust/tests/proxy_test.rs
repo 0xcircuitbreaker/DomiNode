@@ -171,6 +171,7 @@ fn gw_client(port: u16) -> dominusnode::DominusNodeClient {
     client_with(&m, |cfg| {
         cfg.proxy_host = "127.0.0.1".into();
         cfg.http_proxy_port = port as u32;
+        cfg.gateway_tls = None;
     })
 }
 
@@ -237,12 +238,16 @@ async fn head_reads_no_body() {
 
 #[tokio::test]
 async fn connect_refusal_is_proxy_error() {
-    let (port, seen) = gateway(b"HTTP/1.1 407 Proxy Authentication Required\r\nContent-Length: 0\r\n\r\n".to_vec()).await;
+    let (port, seen) = gateway(b"HTTP/1.1 407 Proxy Authentication Required\r\nX-DominusNode-Error: INVALID_API_KEY\r\nRetry-After: 9\r\nContent-Length: 0\r\n\r\n".to_vec()).await;
     let c = gw_client(port);
     let e = c.proxy.fetch("https://example.com/x", ProxyFetchOptions { api_key: Some(API_KEY.into()), ..fopts() }).await.unwrap_err();
     assert!(matches!(e, DominusNodeError::Proxy(_)), "{e:?}");
     assert_eq!(e.status_code(), Some(407));
     assert!(e.message().contains("HTTP 407"), "{}", e.message());
+    // Relay error code surfaced from X-DominusNode-Error (3.1).
+    assert_eq!(e.code(), Some("INVALID_API_KEY"));
+    assert_eq!(e.details().and_then(|d| d.get("retryAfter")).and_then(|v| v.as_u64()), Some(9));
+    assert!(e.message().contains("INVALID_API_KEY"));
     assert!(!e.message().contains(API_KEY));
     let req = seen.lock().unwrap().clone();
     assert!(req.starts_with("CONNECT example.com:443 HTTP/1.1"), "{req}");

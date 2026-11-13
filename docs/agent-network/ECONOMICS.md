@@ -45,15 +45,15 @@ at connect, re-checked by the canary echo probe) against the ASN database and
 the anonymizer list. Nothing the node reports about itself is used; an
 optional class declared at registration is only compared with the verified
 one (see ABUSE_CONTROLS.md). When probes are enabled a freshly connected node
-is `unknown` (lowest weight) until its first probe on that connection passes;
-sessions it serves before then snapshot the `unknown` weight. Verification is
+serves no sessions until its first probe on that connection classifies it, so
+no session snapshots a pending (unverified) class. Verification is
 best effort (ABUSE_CONTROLS.md, split-routing limit).
 
 | Class | What it is | Default price/GB | Tier weight | Served to |
 |---|---|---|---|---|
-| `residential` | consumer ISP address | $0.50 | 1.0 | `class-residential` or unflagged |
+| `residential` | consumer ISP / mobile-carrier ASN on the access allowlist (DEPLOYMENT.md §4) | $0.50 | 1.0 | `class-residential` or unflagged |
 | `mobile` | mobile carrier address (not auto-detected yet) | $0.50 | 1.0 | `class-mobile` or unflagged |
-| `dc` | hosting / cloud ASN | $0.20 | 0.4 | `class-dc` or unflagged |
+| `dc` | hosting / cloud ASN, or any routed ASN not on the access allowlist | $0.20 | 0.4 | `class-dc` or unflagged |
 | `masked` | anonymizer egress: consumer/commercial VPN, Cloudflare WARP, Tor exit, iCloud Private Relay, other proxy networks | **$0.10** | **0.25** | **only `class-masked`** |
 | `unknown` (node only) | no ASN data for the address | highest configured | lowest configured | unflagged only |
 
@@ -79,6 +79,11 @@ best effort (ABUSE_CONTROLS.md, split-routing limit).
   verified class of the nodes on that IP, so a node that was re-classified
   masked mid-window does not keep residential credit. Charges from before this
   change use the node's current class weight.
+- **In-flight sessions.** When a probe lowers a node's class, its open
+  sessions whose locked class is above the new one are ended immediately:
+  bytes carried so far settle at the price and weight locked at start, and the
+  buyer reconnects to a node of the class they asked for. Sessions at or below
+  the new class continue.
 - **Unflagged requests.** A request without `class-*` is quoted at the highest
   configured price (unchanged) and may be served by any eligible node except a
   masked one. Masked bandwidth is opt-in for buyers, so nobody silently pays

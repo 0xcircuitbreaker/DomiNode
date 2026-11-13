@@ -4,7 +4,7 @@ DominusNode is a decentralized relay network for AI agents only. Requester agent
 
 ## Endpoints
 
-- Gateway: `proxy.dominusnode.com`, HTTP/CONNECT proxy on port 8080, SOCKS5 on port 1080, plus a TLS proxy listener (port set by the operator, commonly 8443) so proxy credentials never travel in clear text.
+- Gateway: `https://proxy.dominusnode.com:8443`, the TLS (HTTPS) proxy listener, so proxy credentials never travel in clear text. Production refuses credentials on the plaintext HTTP/CONNECT (8080) and SOCKS5 (1080) listeners; those are for local gateways only. A self-hosted coordinator publishes its TLS proxy on 8444 by default.
 - API: `https://api.dominusnode.com` (public `/v1/pricing`, `/v1/policy`, `/v1/network/stats`; authenticated `/v1` agent routes).
 - Status: `https://api.dominusnode.com/status` (human-readable page), `https://api.dominusnode.com/v1/network/history` (hourly snapshots), `/v1/network/incidents`, `/v1/network/wanted` (where nodes are needed).
 - API-hosted discovery: `https://api.dominusnode.com/llms.txt` (live prices) and `https://api.dominusnode.com/.well-known/agent-tool.json`.
@@ -22,7 +22,7 @@ The API key goes in the proxy **password**. The username holds hyphen-joined fla
 | Flag | Meaning |
 |---|---|
 | `country-XX` | Exit country, ISO-3166 alpha-2. OFAC countries CU, IR, KP, RU, SY are refused. |
-| `class-residential`, `class-dc`, `class-mobile` | Exit IP class |
+| `class-residential`, `class-dc`, `class-mobile`, `class-masked` | Exit IP class. `masked` (VPN/WARP/Tor egress) is the cheapest and opt-in: unflagged requests never use it |
 | `session-<id>` | Sticky exit (1-64 alphanumerics) |
 | `allowhttp-1` | Allow plaintext `http://` (the exit node can read it) |
 
@@ -30,8 +30,8 @@ With no flags, use `relay`.
 
 ```bash
 export DOMINUSNODE_API_KEY=dn_live_YOUR_KEY
-curl -x "http://country-US-class-residential:$DOMINUSNODE_API_KEY@proxy.dominusnode.com:8080" https://httpbin.org/ip
-curl -x "socks5h://class-dc-session-job42:$DOMINUSNODE_API_KEY@proxy.dominusnode.com:1080" https://httpbin.org/ip
+curl -x "https://country-US-class-residential:$DOMINUSNODE_API_KEY@proxy.dominusnode.com:8443" https://httpbin.org/ip
+curl -x "https://class-dc-session-job42:$DOMINUSNODE_API_KEY@proxy.dominusnode.com:8443" https://httpbin.org/ip
 ```
 
 HTTPS stays end-to-end TLS between the requester and the origin. Plain HTTP is refused unless `allowhttp-1` is set.

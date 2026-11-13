@@ -34,6 +34,9 @@ API_KEY_ENV = "DOMINUSNODE_API_KEY"
 BASE_URL_ENV = "DOMINUSNODE_BASE_URL"
 PROXY_HOST_ENV = "DOMINUSNODE_PROXY_HOST"
 PROXY_PORT_ENV = "DOMINUSNODE_PROXY_PORT"
+PROXY_URL_ENV = "DOMINUSNODE_PROXY_URL"
+PROXY_TLS_PORT_ENV = "DOMINUSNODE_PROXY_TLS_PORT"
+PROXY_INSECURE_ENV = "DOMINUSNODE_PROXY_INSECURE"
 
 MAX_BODY_CHARS = 100_000
 DEFAULT_BODY_CHARS = 4_000
@@ -75,38 +78,88 @@ How earning works
 
 Prerequisites
   - A wallet-linked account and a personal dn_live_ API key (not a team key).
-  - Node.js >= 18 and git on the machine whose IP you contribute.
+  - Docker on the machine whose IP you contribute.
   - IPs in sanctioned countries (Cuba, Iran, North Korea, Russia, Syria) cannot join.
 
 Step 1: Store the owner wallet key in a private file (never pass it as an argument or to an LLM)
   umask 077 && printf '%s' "$WALLET_PRIVATE_KEY_HEX" > ~/.dominusnode/wallet.key
 
-Step 2: Register the node with the node agent CLI (signing happens locally, not through this tool)
-  git clone https://github.com/0xcircuitbreaker/DomiNode.git && cd DomiNode
-  npm ci && npm run build -w @dominusnode/shared -w @dominusnode/node-agent
+Step 2: Register the node with the published node image (official coordinator pins baked in;
+signing happens locally, not through this tool)
+  sudo install -d -o 1001 -g 1001 -m 700 /etc/dominusnode
+  sudo install -o 1001 -g 1001 -m 600 ~/.dominusnode/wallet.key /etc/dominusnode/wallet.key
   export DN_API_KEY   # your dn_live_ key, from the environment only
-  node packages/node-agent/dist/src/main.js register --wallet-key-file ~/.dominusnode/wallet.key
+  docker run --rm -e DN_API_KEY -e DN_WALLET_KEY_FILE=/run/dominusnode/wallet.key \\
+    -v /etc/dominusnode:/run/dominusnode ghcr.io/0xcircuitbreaker/dominusnode-node register
+  sudo rm /etc/dominusnode/wallet.key   # not needed after registration
   (Alternatively use the DominusNode MCP server or SDK nodes.register with a signer key file.)
 
 Step 3: Run the node agent on the machine that owns the IP
-  node packages/node-agent/dist/src/main.js run --key-file ~/.dominusnode/node.json
-  Optional limits (can only tighten): --ports 443 --max-streams 32 --gb-per-day 5 --req-per-sec 20
-  Keep it running (systemd, pm2, or a container restart policy): uptime drives your tier.
+  docker run -d --name dominusnode-node --restart unless-stopped -e DN_NODE_GB_PER_DAY=5 \\
+    -v /etc/dominusnode/node.json:/run/dominusnode/node.json:ro ghcr.io/0xcircuitbreaker/dominusnode-node
+  A plain source build has no coordinator pins and refuses to start: use the image, or pass
+  --coordinator <domain> --trust sha256:<fingerprint> (or DN_NODE_COORD_PINS) for another coordinator.
+  Keep it running (the restart policy above): uptime drives your tier.
 
 Step 4: Verify
   dominusnode_node_list shows status and last-seen time once the tunnel is up.
 """
 
 
-def _env_int(name: str, default: int) -> int:
-    raw = os.environ.get(name)
-    if not raw:
-        return default
-    try:
-        v = int(raw)
-    except ValueError:
-        return default
-    return v if 1 <= v <= 65535 else default
+#: Gateway TLS (HTTPS proxy) port: production 8443; self-hosted coordinators publish 8444 by default.
+DEFAULT_TLS_PROXY_PORT = 8443
+
+
+def resolve_gateway(
+    proxy_host: Optional[str] = None,
+    tls_port: Optional[int] = None,
+    http_port: Optional[int] = None,
+    insecure: Optional[bool] = None,
+    env: Optional[Any] = None,
+) -> Dict[str, Any]:
+    """Where proxy traffic goes. TLS to the gateway's HTTPS proxy is the default: production
+    gateways refuse credentials on plaintext 8080/1080. ``DOMINUSNODE_PROXY_URL=https://host[:port]``
+    sets host and TLS port (same variable as the MCP server), ``DOMINUSNODE_PROXY_TLS_PORT`` the TLS
+    port, and ``DOMINUSNODE_PROXY_INSECURE=1`` selects plaintext (local development only).
+
+    Returns ``{"proxy_host", "http_port", "gateway_tls"}`` where ``gateway_tls`` is ``False`` or
+    ``{"port": n}``, ready for ``DominusNodeClient(gateway_tls=...)``.
+    """
+    from urllib.parse import urlsplit
+
+    e = os.environ if env is None else env
+
+    def _port(v: Any) -> Optional[int]:
+        try:
+            n = int(v)
+        except (TypeError, ValueError):
+            return None
+        return n if 1 <= n <= 65535 else None
+
+    url_host: Optional[str] = None
+    url_port: Optional[int] = None
+    raw = (e.get("DOMINUSNODE_PROXY_URL") or "").strip()
+    if raw:
+        u = urlsplit(raw)
+        if u.scheme != "https" or not u.hostname:
+            raise ValueError("DOMINUSNODE_PROXY_URL must be https://host[:port] (TLS to the gateway)")
+        if u.username or u.password:
+            raise ValueError("DOMINUSNODE_PROXY_URL must not contain credentials")
+        url_host = u.hostname.lower()
+        try:
+            url_port = _port(u.port) if u.port else DEFAULT_TLS_PROXY_PORT
+        except ValueError:
+            raise ValueError("DOMINUSNODE_PROXY_URL has an invalid port") from None
+    if insecure is None:
+        insecure = (e.get("DOMINUSNODE_PROXY_INSECURE") or "").strip() == "1"
+    if insecure and raw:
+        raise ValueError("DOMINUSNODE_PROXY_URL (TLS) and DOMINUSNODE_PROXY_INSECURE=1 are mutually exclusive")
+    tls = _port(tls_port) or url_port or _port(e.get("DOMINUSNODE_PROXY_TLS_PORT")) or DEFAULT_TLS_PROXY_PORT
+    return {
+        "proxy_host": proxy_host or url_host or (e.get("DOMINUSNODE_PROXY_HOST") or "").strip() or None,
+        "http_port": _port(http_port) or _port(e.get("DOMINUSNODE_PROXY_PORT")),
+        "gateway_tls": False if insecure else {"port": tls},
+    }
 
 
 _JSON_SCALARS = (dict, list, tuple, str, int, float, bool, type(None))
@@ -140,11 +193,15 @@ class DominusNodeTools:
         proxy_host: Optional[str] = None,
         http_proxy_port: Optional[int] = None,
         client: Any = None,
+        tls_proxy_port: Optional[int] = None,
+        insecure_proxy: Optional[bool] = None,
     ) -> None:
         self.__key = api_key or os.environ.get(API_KEY_ENV) or None
         self._base_url = base_url or os.environ.get(BASE_URL_ENV) or DEFAULT_BASE_URL
-        self._proxy_host = proxy_host or os.environ.get(PROXY_HOST_ENV) or DEFAULT_PROXY_HOST
-        self._http_port = http_proxy_port or _env_int(PROXY_PORT_ENV, DEFAULT_HTTP_PROXY_PORT)
+        gw = resolve_gateway(proxy_host, tls_proxy_port, http_proxy_port, insecure_proxy)
+        self._proxy_host = gw["proxy_host"] or DEFAULT_PROXY_HOST
+        self._http_port = gw["http_port"] or DEFAULT_HTTP_PROXY_PORT
+        self._gateway_tls = gw["gateway_tls"]
         self._client = client
         self._connected = client is not None and getattr(client, "is_connected", False) is True
 
@@ -165,6 +222,7 @@ class DominusNodeTools:
                 proxy_host=self._proxy_host,
                 http_proxy_port=self._http_port,
                 socks5_proxy_port=DEFAULT_SOCKS5_PROXY_PORT,
+                gateway_tls=self._gateway_tls,
             )
         if not self._connected:
             if not self.__key:
@@ -278,7 +336,11 @@ class DominusNodeTools:
             )
             return {
                 "username": user,
-                "proxyUrl": f"http://{user}:{KEY_PLACEHOLDER}@{self._proxy_host}:{self._http_port}",
+                "proxyUrl": (
+                    f"https://{user}:{KEY_PLACEHOLDER}@{self._proxy_host}:{self._gateway_tls['port']}"
+                    if self._gateway_tls
+                    else f"http://{user}:{KEY_PLACEHOLDER}@{self._proxy_host}:{self._http_port}"
+                ),
                 "note": f"Replace {KEY_PLACEHOLDER} with the value of ${API_KEY_ENV}; never log the real URL.",
             }
 

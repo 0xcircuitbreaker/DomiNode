@@ -142,7 +142,7 @@ class ResourcesTest {
                 }
                 String expected = k.auth.equals("none") ? null : "Bearer " + (k.auth.equals("agent") ? API_KEY : JWT);
                 assertEquals(expected, MockTransport.auth(r));
-                assertEquals("dominusnode-sdk-java/2.1.0", r.headers.get("User-Agent"));
+                assertEquals("dominusnode-sdk-java/2.2.0", r.headers.get("User-Agent"));
                 assertEquals("application/json", r.headers.get("Accept"));
             }));
         }

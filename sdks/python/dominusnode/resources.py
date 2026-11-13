@@ -694,10 +694,11 @@ def _valid_port(p: Any, name: str) -> int:
 
 
 def _gateway_tls(g: Any) -> Optional[GatewayTls]:
-    """``None``/``False`` -> off; ``True`` -> port 8443; mapping ``{port, ca, servername}`` or GatewayTls."""
-    if g is None or g is False:
+    """``False`` -> plaintext (local dev only); ``None`` (default, 2.2+) or ``True`` -> TLS on port 8443;
+    mapping ``{port, ca, servername}`` or GatewayTls. Production gateways refuse credentials on 8080/1080."""
+    if g is False:
         return None
-    if g is True:
+    if g is None or g is True:
         return GatewayTls()
     if isinstance(g, GatewayTls):
         g = {"port": g.port, "ca": g.ca, "servername": g.servername}

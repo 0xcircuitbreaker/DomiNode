@@ -20,13 +20,14 @@ describe("relay-settle-retry-repo", () => {
     expect(back).toEqual({ ...input, snapshot: { ...input.snapshot, genesisBonusBps: 0, buyerTierId: null, buyerDiscountBps: 0, minPlatformMarginBps: 2500 } });
   });
 
-  it("keeps the snapshotted tier weight across a retry (masked 2500 stays 2500)", () => {
-    const masked = { ...input, snapshot: { ...input.snapshot, tierWeightBps: 2500 } };
-    expect(decodeSettleInput(JSON.parse(JSON.stringify(encodeSettleInput(masked)))).snapshot.tierWeightBps).toBe(2500);
-    const enc = JSON.parse(JSON.stringify(encodeSettleInput(masked)));
+  it("round-trips the snapshotted tier weight (absent in old payloads, range-checked)", () => {
+    const withW = { ...input, snapshot: { ...input.snapshot, tierWeightBps: 4000 } };
+    const enc = JSON.parse(JSON.stringify(encodeSettleInput(withW)));
+    expect(decodeSettleInput(enc).snapshot.tierWeightBps).toBe(4000);
+    const old = JSON.parse(JSON.stringify(enc));
+    delete old.snapshot.tierWeightBps;
+    expect(decodeSettleInput(old).snapshot.tierWeightBps).toBeUndefined();
     expect(() => decodeSettleInput({ ...enc, snapshot: { ...enc.snapshot, tierWeightBps: 10001 } })).toThrow();
-    delete enc.snapshot.tierWeightBps;
-    expect(decodeSettleInput(enc).snapshot.tierWeightBps).toBeUndefined();
   });
 
   it("rejects malformed or polluted payloads without copying unknown keys", () => {

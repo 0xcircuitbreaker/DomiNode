@@ -68,7 +68,13 @@ export class ProtocolError extends DominusNodeError {
 }
 /** Failure inside proxy.fetch(): blocked target, tunnel refused, size cap, timeout. */
 export class ProxyError extends DominusNodeError {
-  constructor(message: string, statusCode?: number) { super(message, statusCode); this.name = "ProxyError"; }
+  /** Seconds from the gateway's Retry-After header on a refused CONNECT, if any. */
+  public readonly retryAfter?: number;
+  constructor(message: string, statusCode?: number, code?: string, retryAfter?: number) {
+    super(message, statusCode, code);
+    this.name = "ProxyError";
+    if (retryAfter !== undefined) this.retryAfter = retryAfter;
+  }
 }
 
 /** Client-side argument validation failure (no request sent). */

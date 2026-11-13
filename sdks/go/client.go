@@ -19,7 +19,7 @@ import (
 
 const (
 	// SDKVersion is the SDK version.
-	SDKVersion = "2.1.0"
+	SDKVersion = "2.2.0"
 	// UserAgent is sent on every API request.
 	UserAgent = "dominusnode-sdk-go/" + SDKVersion
 	// DefaultBaseURL is the API server.
@@ -50,9 +50,12 @@ type Config struct {
 	HTTPClient *http.Client
 	// Lookup overrides the DNS resolver used by Proxy.Fetch's rebinding check.
 	Lookup LookupFunc
-	// GatewayTLS, when non-nil, makes Proxy.Fetch talk TLS to the gateway's HTTPS proxy
-	// listener so Proxy-Authorization is encrypted; BuildURL then defaults to https://.
-	// Use &GatewayTLS{} for the defaults (port 8443, system roots, SNI = ProxyHost).
+	// GatewayTLS configures TLS to the gateway's HTTPS proxy listener so
+	// Proxy-Authorization is encrypted. Since 2.2 TLS is the default: nil means
+	// port 8443, system roots, SNI = ProxyHost, and BuildURL defaults to https://.
+	// Self-hosted coordinators usually publish 8444 (&GatewayTLS{Port: 8444}).
+	// &GatewayTLS{Disabled: true} selects plaintext 8080/1080 (local dev only:
+	// production gateways refuse credentials there).
 	GatewayTLS *GatewayTLS
 }
 
@@ -64,6 +67,8 @@ type GatewayTLS struct {
 	CA []byte
 	// ServerName overrides the TLS server name (default: ProxyHost), e.g. when ProxyHost is an IP.
 	ServerName string
+	// Disabled selects the plaintext HTTP proxy port instead (2.2).
+	Disabled bool
 }
 
 // ConnectResult is returned by ConnectWithKey.

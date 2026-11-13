@@ -78,11 +78,12 @@
         },
         "protocol": {
           "type": "STRING",
-          "description": "Proxy protocol.",
+          "description": "https (default: TLS to the gateway), socks5, or http (plaintext gateway; local dev only).",
           "format": "enum",
           "enum": [
-            "http",
-            "socks5"
+            "https",
+            "socks5",
+            "http"
           ]
         }
       },

@@ -77,7 +77,12 @@ export function parseConfig(env: Record<string, string | undefined> = process.en
   if (proxyHost.length > 253) {
     throw new ConfigError("DOMINUSNODE_PROXY_HOST exceeds maximum hostname length (253)");
   }
-  // Block bare localhost and other loopback/private hostnames
+  // Block bare localhost and other loopback/private hostnames, unless the operator opts in
+  // (DOMINUSNODE_ALLOW_LOCAL_GATEWAY=1) for a local demo or a self-hosted gateway on a LAN.
+  const allowLocalGateway = env["DOMINUSNODE_ALLOW_LOCAL_GATEWAY"] === "1";
+  const refuseLocal = (message: string): void => {
+    if (!allowLocalGateway) throw new ConfigError(message);
+  };
   const BLOCKED_PROXY_HOSTS = new Set([
     "localhost", "localhost.localdomain", "ip6-localhost", "ip6-loopback",
     "0.0.0.0", "127.0.0.1",
@@ -89,7 +94,7 @@ export function parseConfig(env: Record<string, string | undefined> = process.en
     proxyHostLower.endsWith(".local") ||
     proxyHostLower.endsWith(".localhost")
   ) {
-    throw new ConfigError("DOMINUSNODE_PROXY_HOST must not be a localhost/internal hostname");
+    refuseLocal("DOMINUSNODE_PROXY_HOST must not be a localhost/internal hostname (set DOMINUSNODE_ALLOW_LOCAL_GATEWAY=1 for a local or self-hosted gateway)");
   }
   // Block private IP ranges
   const ipMatch = proxyHost.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
@@ -102,8 +107,14 @@ export function parseConfig(env: Record<string, string | undefined> = process.en
     const a = parseInt(ipMatch[1], 10);
     const b = parseInt(ipMatch[2], 10);
     if (a === 127 || a === 10 || a === 0 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168)) {
-      throw new ConfigError("DOMINUSNODE_PROXY_HOST must not be a private/loopback IP address");
+      refuseLocal("DOMINUSNODE_PROXY_HOST must not be a private/loopback IP address (set DOMINUSNODE_ALLOW_LOCAL_GATEWAY=1 for a local or self-hosted gateway)");
     }
+  }
+
+  if (allowLocalGateway) {
+    process.stderr.write(
+      `WARNING: DOMINUSNODE_ALLOW_LOCAL_GATEWAY=1: the proxy gateway host (${proxyHost}) is not checked against localhost/private addresses.\n`,
+    );
   }
 
   const httpProxyPort = parsePort(env["DOMINUSNODE_HTTP_PROXY_PORT"], 8080, "DOMINUSNODE_HTTP_PROXY_PORT");

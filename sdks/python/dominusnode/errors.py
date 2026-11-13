@@ -144,8 +144,16 @@ class ProtocolError(DominusNodeError):
 class ProxyError(DominusNodeError):
     """Failure inside proxy.fetch(): blocked target, refused tunnel, timeout."""
 
-    def __init__(self, message: str, status_code: Optional[int] = None) -> None:
-        super().__init__(message, status_code)
+    def __init__(
+        self,
+        message: str,
+        status_code: Optional[int] = None,
+        code: Optional[str] = None,
+        retry_after: Optional[int] = None,
+    ) -> None:
+        super().__init__(message, status_code, code)
+        #: Seconds from the gateway's Retry-After header on a refused CONNECT, if any.
+        self.retry_after = retry_after
 
 
 def invalid_arg(message: str) -> ValidationError:

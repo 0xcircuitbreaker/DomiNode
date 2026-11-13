@@ -153,6 +153,25 @@ def prepare_fetch(
     return _Prepared(scheme, host, port, host_header, path, m, clean, "Basic " + token, t / 1000.0, mb)
 
 
+_RELAY_CODE_RE = re.compile(r"^[A-Z0-9_]{1,64}\Z")
+
+
+def relay_error_head(head: bytes) -> "tuple[Optional[str], Optional[int]]":
+    """``X-DominusNode-Error`` and ``Retry-After`` from a refused CONNECT head (SDK_SURFACE 3.15 step 7)."""
+    code: Optional[str] = None
+    retry_after: Optional[int] = None
+    for line in head.decode("latin-1").split("\r\n")[1:]:
+        name, sep, value = line.partition(":")
+        if not sep:
+            continue
+        name, value = name.strip().lower(), value.strip()
+        if name == "x-dominusnode-error" and code is None and _RELAY_CODE_RE.match(value):
+            code = value
+        elif name == "retry-after" and retry_after is None and value.isdigit() and len(value) <= 6:
+            retry_after = int(value)
+    return code, retry_after
+
+
 def _read_head(sock: socket.socket, limit: int = 64 * 1024) -> bytes:
     buf = b""
     while b"\r\n\r\n" not in buf:
@@ -315,7 +334,9 @@ def execute_fetch(
             m = re.match(rb"^HTTP/\d\.\d (\d{3})", head)
             status = int(m.group(1)) if m else 0
             if status != 200:
-                raise ProxyError(f"Proxy refused CONNECT (HTTP {status})", status or None)
+                code, retry_after = relay_error_head(head)
+                suffix = f": {code}" if code else ""
+                raise ProxyError(f"Proxy refused CONNECT (HTTP {status}){suffix}", status or None, code, retry_after)
             # The inner TLS session rides the CONNECT tunnel socket; never dial the target directly.
             if gateway_tls is not None:
                 sock = _TlsOverStream(sock, _tls_context(), p.host)

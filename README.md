@@ -27,6 +27,7 @@ Prices are per IP class and set by the admin in `network_pricing`. The defaults 
 |---|---|
 | `residential` / `mobile` | $0.50 |
 | `dc` | $0.20 |
+| `masked` (VPN/WARP/Tor egress, opt-in) | $0.10 |
 
 Node owners earn 25% (Probation) to 50% (Partner) of what their nodes carry. The tier depends on paid tenure, uptime, active IPs and reputation. Credits mature after a 3–14 day hold. Today you can convert matured credits into bandwidth; USDC withdrawals are built but disabled in alpha (`PAYOUTS_DISABLED`). See [docs/agent-network/ECONOMICS.md](docs/agent-network/ECONOMICS.md).
 
@@ -45,7 +46,7 @@ The API key goes in the password field. The username holds hyphen-joined flags:
 | Flag | Meaning |
 |---|---|
 | `country-XX` | Exit country (OFAC countries CU, IR, KP, RU and SY are refused) |
-| `class-residential` / `class-dc` / `class-mobile` | IP class |
+| `class-residential` / `class-dc` / `class-mobile` / `class-masked` | IP class. `masked` (VPN/WARP/Tor egress) is the cheapest and opt-in: unflagged requests never use it |
 | `session-<id>` | Sticky session |
 | `allowhttp-1` | Allow plaintext HTTP (the exit can read it) |
 
@@ -61,12 +62,14 @@ curl -x https://relay:$DOMINUSNODE_API_KEY@proxy.dominusnode.com:8443 https://ht
 
 Ports 8080 (HTTP proxy) and 1080 (SOCKS5) are **plaintext**: the
 `Proxy-Authorization` header, including your API key, is readable on the path to
-the gateway. Use them only on trusted networks or for local development:
+the gateway. The hosted gateway refuses credentials on plaintext and accepts them
+only on the TLS proxy at :8443. Use 8080/1080 only against a gateway you run
+yourself, for local development:
 
 ```bash
-# Plaintext listeners (API key sent in clear)
-curl -x http://class-dc:$DOMINUSNODE_API_KEY@proxy.dominusnode.com:8080 https://httpbin.org/ip
-curl -x socks5h://class-dc-session-abc123:$DOMINUSNODE_API_KEY@proxy.dominusnode.com:1080 https://httpbin.org/ip
+# Plaintext listeners on a local gateway (API key sent in clear)
+curl -x http://class-dc:$DOMINUSNODE_API_KEY@localhost:8080 https://httpbin.org/ip
+curl -x socks5h://class-dc-session-abc123:$DOMINUSNODE_API_KEY@localhost:1080 https://httpbin.org/ip
 ```
 
 ## Get an API key
@@ -147,7 +150,7 @@ docker compose -f docker-compose.demo.yml down -v   # throw it all away
 ./scripts/selfhost/install.sh
 ```
 
-It asks for one or more public hostnames (the first is the primary `DOMINUSNODE_DOMAIN`; all of them are served), the TLS mode (`auto`, `internal`, `off`) and an operator contact. It generates the coordinator key, a `.env` with random secrets and `selfhost/Caddyfile`, then starts `docker-compose.selfhost.yml`. Re-run it to upgrade; existing secrets and the key are kept. Non-interactive: `DOMINUSNODE_HOSTNAMES="a.example b.example" TLS_MODE=auto OPERATOR_CONTACT=ops@example ./scripts/selfhost/install.sh --yes`.
+It asks for one or more public hostnames (the first is the primary `DOMINUSNODE_DOMAIN`; all of them are served), the role (`ROLE`: `all`, `coordinator`, or `gateway` for a separate gateway VPS over WireGuard), the TLS mode (`auto`, `internal`, `off`, `cloudflare`), an operator contact and an optional first admin email (`ADMIN_BOOTSTRAP_EMAIL`; the admin UI is served at your domain). It generates the coordinator key, a `.env` with random secrets and `selfhost/Caddyfile`, then starts `docker-compose.selfhost.yml`. Re-run it to upgrade; existing secrets and the key are kept. Non-interactive: `DOMINUSNODE_HOSTNAMES="a.example b.example" TLS_MODE=auto OPERATOR_CONTACT=ops@example ./scripts/selfhost/install.sh --yes`. Back up with `scripts/selfhost/backup.sh` (database, keys and `.env`, encrypted); see DEPLOYMENT.md "Self-host backup".
 
 For production setup (coordinator signing key, SPKI pins, ASN database and tunnel ingress), see [docs/agent-network/DEPLOYMENT.md](docs/agent-network/DEPLOYMENT.md). For the architecture overview, see [ARCHITECTURE.md](ARCHITECTURE.md).
 

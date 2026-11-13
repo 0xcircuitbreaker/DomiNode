@@ -249,7 +249,10 @@ gateway observed; `tierWeight` is that class's tier-credit weight as a decimal
 
 ### `DELETE /v1/nodes/:id`
 Revokes an owned node (irreversible) → `{"id", "status": "revoked"}`; not yours or
-already revoked: `404`.
+already revoked: `404`. Revoking a node that is `quarantined` or `suspended`
+does not clear the penalty: for 30 days after that, `POST /v1/nodes` refuses new
+registrations by the same owner with `403 NODE_PENALTY_ACTIVE` (an admin can
+lift it after review).
 
 ### `GET /v1/node/tier`
 `{tier, nextTier, progress, changedAt, uptimeGraceUntil, demotionReason, tierWeights}`; each
@@ -277,6 +280,7 @@ SDKs 2.1.0 (all six) expose `verifiedClass`, `declaredClass`, `classVerifiedAt`,
 | `400 INVALID_CAPS` | `maxStreams` (1-1024) or `maxGbDay` (1-10000) out of range |
 | `400 CLIENT_IP_UNKNOWN` | The API could not determine the client IP |
 | `409 NODE_CAP_REACHED` | Tier node limit reached (`cap` in the body) |
+| `403 NODE_PENALTY_ACTIVE` | One of your nodes is quarantined or suspended, or was revoked in that state in the last 30 days |
 | `403 NOT_ELIGIBLE` | Account cannot register nodes |
 | `503 TIERS_NOT_CONFIGURED` | Operator has not configured node tiers |
 | `429 RATE_LIMITED` | Too many challenges or registration attempts |

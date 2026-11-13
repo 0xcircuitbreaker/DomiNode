@@ -84,6 +84,12 @@ describe("usage-repo", () => {
       );
     });
 
+    it("clears the recovery payload (target host, wallet) when the session ends", async () => {
+      mockQuery.mockResolvedValueOnce({});
+      await endSession("s1", 1000, "completed");
+      expect(String(mockQuery.mock.calls[0]![0])).toMatch(/settle_payload\s*=\s*NULL/);
+    });
+
     it("should accept error status", async () => {
       mockQuery.mockResolvedValueOnce({});
 

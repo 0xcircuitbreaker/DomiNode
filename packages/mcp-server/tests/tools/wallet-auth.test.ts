@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { HttpClient } from "../../src/http-client.js";
 import { TokenManager } from "../../src/token-manager.js";
-import { registerWalletAuthTools, _resetWalletAuthLimits, isSignInMessage } from "../../src/tools/wallet-auth.js";
+import { registerWalletAuthTools, _resetWalletAuthLimits, isSignInMessage, proxyUsageLines } from "../../src/tools/wallet-auth.js";
 import { Wallet, verifyMessage } from "ethers";
 import * as fs from "node:fs";
 import * as os from "node:os";
@@ -292,5 +292,17 @@ describe("wallet-auth tools", () => {
       expect(isSignInMessage(signIn(wallet.address, "n"), VALID_ADDRESS, "n")).toBe(false);
       expect(isSignInMessage(signIn(wallet.address, "n"), wallet.address, "x")).toBe(false);
     });
+  });
+});
+
+describe("wallet_setup proxy example", () => {
+  it("uses the configured gateway host and TLS port, not a hardcoded host", () => {
+    expect(proxyUsageLines({ proxyHost: "proxy.example.org", proxyTls: { port: 8444 }, httpProxyPort: 8080 }).join("\n"))
+      .toContain("https://country-US:<YOUR_API_KEY>@proxy.example.org:8444");
+    expect(proxyUsageLines({ proxyHost: "proxy.dominusnode.com", proxyTls: { port: 8443 }, httpProxyPort: 8080 }).join("\n"))
+      .toContain("@proxy.dominusnode.com:8443");
+    const plain = proxyUsageLines({ proxyHost: "localhost", proxyTls: null, httpProxyPort: 8080 }).join("\n");
+    expect(plain).toContain("http://country-US:<YOUR_API_KEY>@localhost:8080");
+    expect(plain).toContain("local development only");
   });
 });
