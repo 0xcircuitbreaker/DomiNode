@@ -166,7 +166,7 @@ describe("reputation flush job", () => {
       ],
       flushHealth, quarantine,
     });
-    expect(flushHealth.mock.calls[0]![0][1]).toEqual({ nodeId: "n2", bytes: 0, streams: 0, failures: 3, burns: 2, reputation: 500 });
+    expect(flushHealth.mock.calls[0]![0][1]).toEqual({ nodeId: "n2", bytes: 0, streams: 0, failures: 3, burns: 2, onlineSeconds: 0, reputation: 500 });
     expect(quarantine).toHaveBeenCalledWith("n2");
     expect(r).toEqual({ nodes: 2, flushed: 2, quarantined: 1, reviewFlagged: 0 });
   });

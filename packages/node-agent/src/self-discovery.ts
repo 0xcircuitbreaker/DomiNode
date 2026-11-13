@@ -5,13 +5,17 @@
  *   - every local interface address,
  *   - every global IPv6 interface prefix (real prefix length, widened to >= /64),
  *   - every public IPv4 interface subnet,
- *   - its public egress IPv4 as seen by the API (GET /v1/probe/echo),
+ *   - its public egress address per family (IPv4 and IPv6, queried separately) as seen
+ *     by the API (GET /v1/probe/echo); with an IPv4 default route the IPv4 answer is
+ *     required, so a dual-stack host's NATed IPv4 WAN address is always blocked,
  *   - the default gateway(s), where determinable (/proc/net/route, /proc/net/ipv6_route).
  * The floor refuses every IP until the first discovery succeeds.
  */
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as net from "node:net";
+import * as http from "node:http";
+import * as https from "node:https";
 import { randomBytes } from "node:crypto";
 import { addSelfAddress, addSelfPrefix, markSelfDiscoveryComplete } from "./floor.js";
 import { isPublicAddress } from "./shared.js";
@@ -109,9 +113,43 @@ export async function discoverPublicIp(apiUrl: string, fetchFn: typeof fetch = f
   return body.ip;
 }
 
+export type IpFamily = 4 | 6;
+
+/**
+ * A fetch whose connection is pinned to one address family (node:https with
+ * `family`), so a dual-stack host learns both its IPv4 and IPv6 egress.
+ * Returns a minimal Response-compatible object; no redirects are followed.
+ */
+export function familyFetch(family: IpFamily): typeof fetch {
+  return ((url: string | URL, init?: RequestInit) => new Promise((resolve, reject) => {
+    const u = new URL(String(url));
+    const mod = u.protocol === "https:" ? https : u.protocol === "http:" ? http : null;
+    if (!mod) return reject(new Error("unsupported protocol"));
+    const req = mod.request(u, { method: "GET", family, signal: init?.signal ?? undefined, headers: { Accept: "application/json" } }, (res) => {
+      const chunks: Buffer[] = [];
+      let size = 0;
+      res.on("data", (c: Buffer) => {
+        size += c.length;
+        if (size > MAX_ECHO_BYTES) { req.destroy(new Error("probe echo response too large")); return; }
+        chunks.push(c);
+      });
+      res.on("end", () => {
+        const status = res.statusCode ?? 0;
+        const body = Buffer.concat(chunks).toString("utf8");
+        resolve({ ok: status >= 200 && status < 300, status, text: async () => body } as unknown as Response);
+      });
+      res.on("error", reject);
+    });
+    req.on("error", reject);
+    req.end();
+  })) as unknown as typeof fetch;
+}
+
 export interface SelfDiscoveryOptions {
   apiUrl: string;
+  /** Single fetch used for both families (tests); default pins each family with familyFetch. */
   fetchFn?: typeof fetch;
+  fetchForFamily?: (family: IpFamily) => typeof fetch;
   ifaces?: () => Ifaces;
   readFile?: (p: string) => string | null;
   intervalMs?: number;
@@ -123,17 +161,33 @@ export interface SelfDiscoveryOptions {
 export async function runSelfDiscovery(opts: SelfDiscoveryOptions): Promise<boolean> {
   blockInterfaceAddresses(opts.ifaces ? opts.ifaces() : os.networkInterfaces());
   blockDefaultGateways(opts.readFile ?? readOrNull);
-  try {
-    const ip = await discoverPublicIp(opts.apiUrl, opts.fetchFn ?? fetch);
-    addSelfAddress(ip);
-    markSelfDiscoveryComplete();
-    return true;
-  } catch (err) {
+  const route4 = (opts.readFile ?? readOrNull)("/proc/net/route");
+  const hasV4Default = parseDefaultGateways(route4, null).length > 0;
+  const fetchFor = opts.fetchForFamily ?? (opts.fetchFn ? () => opts.fetchFn as typeof fetch : familyFetch);
+  const results = await Promise.all(([4, 6] as const).map(async (family) => {
+    try {
+      const ip = await discoverPublicIp(opts.apiUrl, fetchFor(family));
+      return net.isIP(ip) === family ? ip : null; // an answer from the other family is not this family's egress
+    } catch (err) {
+      return err instanceof Error ? err : new Error(String(err));
+    }
+  }));
+  const [v4, v6] = results;
+  for (const r of results) if (typeof r === "string") addSelfAddress(r);
+  const learned = results.some((r) => typeof r === "string");
+  // With an IPv4 default route the host has an IPv4 egress (often a NATed WAN
+  // address that is on no interface): without learning it, keep the floor closed.
+  const v4Missing = hasV4Default && typeof v4 !== "string";
+  if (!learned || v4Missing) {
+    const errs = results.filter((r): r is Error => r instanceof Error).map((e) => e.message);
     opts.log?.("self-discovery: public IP lookup failed; floor stays closed until it succeeds", {
-      error: err instanceof Error ? err.message : String(err),
+      error: v4Missing ? `IPv4 egress not learned${errs.length ? `: ${errs.join("; ")}` : ""}` : errs.join("; ") || "no address",
+      v6: typeof v6 === "string" ? "ok" : "missing",
     });
     return false;
   }
+  markSelfDiscoveryComplete();
+  return true;
 }
 
 /** Start discovery and periodic re-discovery. Returns a stop function. */

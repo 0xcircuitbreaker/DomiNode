@@ -226,9 +226,17 @@ scripts/update-asn-db.sh            # writes data/ip2asn-combined.tsv.gz (or $AS
 Published ports: `8443` TLS proxy and `9443` node tunnel on all interfaces;
 `8080`/`1080` plaintext on localhost only by default (`PROXY_*_HOST_PORT`
 overrides). `./secrets` and `./certs` are git-ignored.
-- `HOSTING_ASNS=1,2,3` adds ASNs to the built-in hosting list in
-  `packages/proxy-gateway/src/asn-db.ts`. Peers on those ASNs are classified
-  `dc`.
+- Exit classification is allowlist-based (fails closed). Only ASNs in the
+  access-network allowlist (`ACCESS_ASNS` in
+  `packages/proxy-gateway/src/asn-db.ts`: eyeball ISPs and mobile carriers)
+  are classed `residential`. Every other routed ASN that is not an anonymizer
+  is classed `dc`, so an unlisted hoster or VPN provider is never sold as
+  residential. Extend the allowlist with `ACCESS_ASNS=1,2,3` or
+  `ACCESS_ASNS_FILE` (one ASN per line, `#` comments; for example the PeeringDB
+  networks with info_type "Cable/DSL/ISP" in your markets). A residential node
+  on an unlisted ISP is served (and earns) as `dc` until its ASN is added.
+- `HOSTING_ASNS=1,2,3` adds ASNs to the built-in hosting list. Peers on those
+  ASNs are classified `dc` even if they also appear in the access allowlist.
 
 ### 4a. Anonymizer list (masked exit class)
 
@@ -245,8 +253,9 @@ Nodes whose verified egress is an anonymizer are classed `masked`
 - The IP list is best effort: a failed download keeps the previous file and
   never fails the ASN update. Without any file the built-in ASN list still
   applies (offline-safe). Entries wider than /8 (IPv4) or /16 (IPv6) are ignored.
-- Shared hosting ASNs that VPNs rent from (M247, Datacamp, Leaseweb, ...) stay
-  `dc` through `HOSTING_ASNS`; known exits inside them are caught by the IP list.
+- Shared hosting ASNs that VPNs rent from (M247, Datacamp/CDN77 AS60068 and
+  AS212238, Leaseweb, ...) stay `dc` through `HOSTING_ASNS` (and any unlisted
+  ASN is `dc` anyway); known exits inside them are caught by the IP list.
 - Review `data/anonymizer-asns.json` when you update the ASN database; bump
   `version` with each change.
 - Egress is verified at connect (tunnel peer IP) and again by the canary probe
@@ -255,12 +264,32 @@ Nodes whose verified egress is an anonymizer are classed `masked`
   yet probed on this gateway go first). Every connect is also queued for its
   own probe (`PROBE_CONNECT_CONCURRENCY`, default 4;
   `PROBE_CONNECT_MIN_INTERVAL_MS`, default 60000, between connect probes of
-  the same node); until it passes, the node is `unknown` for `class-*`
-  selection and tier weight. `PROBE_URL` accepts a comma-separated list (up to
+  the same node, not applied while the node is still unclassified); until a
+  probe classifies it the node serves no traffic. A probe that errors or
+  comes back without a verdict is retried with backoff (30 s, 1 m, 2 m, then
+  every 5 m), and every periodic run probes all still-unclassified nodes on
+  top of the sample. The first periodic run starts 30 s after startup.
+  `PROBE_URL` accepts a comma-separated list (up to
   32); list several unpublished echo hostnames that all reach
   `/v1/probe/echo` so probes are harder to single out. Class verification is
   best effort and cannot detect a node agent built to split-route
   (ABUSE_CONTROLS.md).
+- The echo URL must be the API on a public hostname with a publicly trusted
+  certificate: exit nodes refuse private and loopback destinations, and the
+  probe verifies TLS. The gateway checks every echo URL itself at startup and
+  every `PROBE_SELFCHECK_INTERVAL_MS` (default 60000) and uses only those that
+  return a 200 echoing its nonce. While none passes (API still starting,
+  `TLS_MODE=internal`, a host with no API that answers 404) it logs an error,
+  runs no probes, records no tamper strikes and does not hold nodes pending:
+  nodes serve at their connect class, as with probes off.
+- `PROBES_DISABLED=true` turns probes off and wins over `PROBE_URL` (the
+  gateway ignores `PROBE_URL`). `install.sh` honours it from the environment
+  or `.env` and then removes `PROBE_URL` from `.env`. Without it the installer
+  sets `PROBE_URL=https://<primary>/v1/probe/echo` only for `ROLE=all` with
+  `TLS_MODE=auto` or `cloudflare` and a public primary name; for
+  `ROLE=gateway` it asks for the coordinator's public API hostname
+  (`PROBE_API_HOST` in non-interactive runs). In every other case it prints a
+  warning and leaves probes off.
 
 ### 4b. Running a node behind Cloudflare WARP or a VPN
 
@@ -394,6 +423,36 @@ Clients:
   (optional `DOMINUSNODE_PROXY_CA_FILE` for a private CA). Preferred over
   `DOMINUSNODE_HTTP_PROXY_PORT` when set.
 - curl: `curl -x https://relay:$KEY@proxy.dominusnode.com:8443 https://example.com`.
+
+Client addresses: the OFAC client-country check and per-IP limits need the
+real client address. In production a proxy-listener connection from a
+private, non-loopback address (for example Docker's userland proxy, which
+shows IPv6 clients of an IPv4-only bridge as the bridge gateway) is refused
+as unknown. The self-host compose enables IPv6 on its published network so
+the source is kept; list deliberate private client ranges (an agent LAN) in
+`PROXY_TRUSTED_CLIENT_CIDRS` (passed through by `docker-compose.prod.yml` and
+`docker-compose.selfhost.yml`). Host-local clients of the plaintext ports
+published on `127.0.0.1` (8080/1080) reach the gateway through docker-proxy
+and appear as the bridge gateway address (e.g. `172.x.0.1`): either list that
+address (`/32`) in `PROXY_TRUSTED_CLIENT_CIDRS`, or connect from inside the
+compose network. A trusted address skips the client-country check, so list
+only addresses that cannot carry remote traffic.
+
+Restarts: each relay session's settle payload and gateway-counted bytes are
+stored on its `sessions` row and heartbeated every 15 s. Sessions of a
+gateway that stopped heartbeating for 2 minutes (crash, SIGKILL, previous
+run) are settled by any live gateway with the last flushed bytes; the rest of
+the reservation is refunded. Give the gateway container a stop timeout above
+its 20 s drain (`stop_grace_period: 60s` in the compose files).
+
+Probes: set the same `PROBE_AUTH_SECRET` (32+ chars; the self-host installer
+generates it) on the API and gateways so canary probes get their own budget
+on `/v1/probe/echo`.
+
+Logs: compose files rotate container logs (json-file, 5 x 20 MB per
+container). Per-request lines (`CONNECT`, `session started/ended`) are at
+debug level; byte-report mismatches are logged only at the dispute threshold,
+at most once per node per minute.
 
 ## 7. Seed nodes (operator-run)
 

@@ -81,6 +81,7 @@ vi.mock("./session-manager.js", () => ({
 
 vi.mock("./geo-check.js", () => ({
   checkSanctionedCountry: (...args: unknown[]) => mockCheckSanctionedCountry(...args),
+  checkClientCountry: (...args: unknown[]) => mockCheckSanctionedCountry(...args),
   initGeoCheck: () => mockInitGeoCheck(),
 }));
 

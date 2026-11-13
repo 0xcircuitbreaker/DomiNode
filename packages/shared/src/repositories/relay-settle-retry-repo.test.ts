@@ -20,6 +20,16 @@ describe("relay-settle-retry-repo", () => {
     expect(back).toEqual({ ...input, snapshot: { ...input.snapshot, genesisBonusBps: 0, buyerTierId: null, buyerDiscountBps: 0, minPlatformMarginBps: 2500 } });
   });
 
+  it("round-trips the snapshotted tier weight (absent in old payloads, range-checked)", () => {
+    const withW = { ...input, snapshot: { ...input.snapshot, tierWeightBps: 4000 } };
+    const enc = JSON.parse(JSON.stringify(encodeSettleInput(withW)));
+    expect(decodeSettleInput(enc).snapshot.tierWeightBps).toBe(4000);
+    const old = JSON.parse(JSON.stringify(enc));
+    delete old.snapshot.tierWeightBps;
+    expect(decodeSettleInput(old).snapshot.tierWeightBps).toBeUndefined();
+    expect(() => decodeSettleInput({ ...enc, snapshot: { ...enc.snapshot, tierWeightBps: 10001 } })).toThrow();
+  });
+
   it("rejects malformed or polluted payloads without copying unknown keys", () => {
     const enc = JSON.parse(JSON.stringify(encodeSettleInput(input)));
     expect(() => decodeSettleInput({ ...enc, rail: "evil" })).toThrow();

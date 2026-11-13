@@ -422,7 +422,7 @@ router.delete(
 
         // Anonymize session records (proxy_ip is infra, but timestamps are personal)
         await client.query(
-          "UPDATE sessions SET proxy_ip = 'REDACTED' WHERE user_id = $1",
+          "UPDATE sessions SET proxy_ip = 'REDACTED', settle_payload = NULL WHERE user_id = $1",
           [userId]
         );
 

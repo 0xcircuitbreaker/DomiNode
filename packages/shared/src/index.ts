@@ -209,6 +209,7 @@ export type { NodeRecord, NodeStatus, NodeIpClass, TunnelAuthNode, NodeChallenge
 export { hashNodeKey, generateNodeKey, NODE_KEY_PREFIX, NODE_CAP_BY_TIER } from "./repositories/node-repo.js";
 export * as relayChargeRepo from "./repositories/relay-charge-repo.js";
 export * as relaySettleRetryRepo from "./repositories/relay-settle-retry-repo.js";
+export * as sessionRecoveryRepo from "./repositories/session-recovery-repo.js";
 export * as nodeCreditRepo from "./repositories/node-credit-repo.js";
 export * as tierRepo from "./repositories/tier-repo.js";
 export * as reportReputationRepo from "./repositories/report-reputation-repo.js";

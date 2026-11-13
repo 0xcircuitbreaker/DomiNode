@@ -11,7 +11,7 @@ import { checkBalance, checkTeamBalance } from "./balance-check.js";
 import { bindTunnelLifecycle } from "./tunnel-lifecycle.js";
 import { attachByteCounters, capReadable, type ByteCounter } from "./counting-stream.js";
 import { startSession, startPrepaidSession, abortPrepaidSession, endSession, registerSessionDestroy, unregisterSessionDestroy, type RelayBinding } from "./session-manager.js";
-import { checkSanctionedCountry, initGeoCheck } from "./geo-check.js";
+import { checkClientCountry, initGeoCheck } from "./geo-check.js";
 import { validateTarget, isValidHostname, isValidPort } from "./target-validator.js";
 import { incrementUserConns, decrementUserConns } from "./connection-tracker.js";
 import { checkAuthRateLimit, recordAuthFailure } from "./auth-rate-limit.js";
@@ -311,7 +311,7 @@ async function handleRequest(
 
   // Geo-check: block sanctioned countries
   const clientIp = clientIpOf(clientReq.socket);
-  const blockedCountry = checkSanctionedCountry(clientIp);
+  const blockedCountry = checkClientCountry(clientIp);
   if (blockedCountry) {
     sendError(clientRes, 403, "SANCTIONED_COUNTRY", "Access denied: service unavailable in your region.");
     return;
@@ -405,6 +405,7 @@ async function handleRequest(
       upstream = await openRelayStream(relay, {
         ...relaySelectOpts(null, x402User, clientIp, targetHost, targetPort, selectClassFor(x402Data.poolType)),
         requesterWallet: normalizePayer(x402Data.payer),
+        targetAddresses: targetCheck.addresses,
       });
     } catch (err) {
       const e = relayErrorOf(err);
@@ -615,7 +616,7 @@ async function handleRequest(
   // Select a node and open a stream (DIAL_FAIL/DNS_FAIL retry once on another node)
   let upstream: RelayUpstream;
   try {
-    upstream = await openRelayStream(relay, { ...relaySelectOpts(a, a.userId, clientIp, targetHost, targetPort), seedOnly: access.seedOnly });
+    upstream = await openRelayStream(relay, { ...relaySelectOpts(a, a.userId, clientIp, targetHost, targetPort), seedOnly: access.seedOnly, targetAddresses: targetCheck.addresses });
   } catch (err) {
     decrementUserConns(a.userId);
     const e = relayErrorOf(err);
@@ -738,7 +739,7 @@ async function handleConnect(
   recordRequest();
 
   const connectClientIp = clientIpOf(clientSocket);
-  if (checkSanctionedCountry(connectClientIp)) {
+  if (checkClientCountry(connectClientIp)) {
     safeSocketWrite(clientSocket, "HTTP/1.1 403 Forbidden\r\nX-DominusNode-Error: SANCTIONED_COUNTRY\r\n\r\n");
     return;
   }
@@ -858,7 +859,7 @@ async function handleConnect(
 
   let upstream: RelayUpstream;
   try {
-    upstream = await openRelayStream(relay, { ...relaySelectOpts(auth, userId, connectClientIp, targetHost, targetPort), seedOnly: connectAccess.seedOnly });
+    upstream = await openRelayStream(relay, { ...relaySelectOpts(auth, userId, connectClientIp, targetHost, targetPort), seedOnly: connectAccess.seedOnly, targetAddresses: connectTargetCheck.addresses });
   } catch (err) {
     safeDecrement();
     recordError();
@@ -987,6 +988,7 @@ async function handleX402ConnectTunnel(
     upstream = await openRelayStream(relay, {
       ...relaySelectOpts(null, x402User, clientIpOf(clientSocket), targetHost, targetPort, selectClassFor(x402Result.poolType)),
       requesterWallet: normalizePayer(x402Result.payer),
+      targetAddresses: targetCheck.addresses,
     });
   } catch (err) {
     recordError();

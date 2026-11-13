@@ -1,6 +1,11 @@
+import { ipRateKey } from "../../helpers/ip-key.js";
+
 /**
  * Bounded in-memory sliding-window limiter (size cap + periodic cleanup per
- * .claude/rules/database.md). Keyed by user id or IP.
+ * .claude/rules/database.md). Keyed by user id or IP; IPv6 keys are reduced
+ * to their /64 (ipRateKey) so one host cannot rotate addresses for budget.
+ * When the key map is full the oldest key is evicted: failing closed would
+ * let one flood deny every new client.
  */
 export interface KeyedLimiter {
   /** Returns true if allowed (and records the hit). */
@@ -21,7 +26,8 @@ export function createKeyedLimiter(max: number, windowMs: number, maxKeys = 50_0
   const timer = setInterval(() => prune(Date.now()), Math.max(windowMs, 60_000));
   timer.unref?.();
   return {
-    hit(key: string): boolean {
+    hit(rawKey: string): boolean {
+      const key = ipRateKey(rawKey);
       const now = Date.now();
       const list = (hits.get(key) ?? []).filter((t) => now - t < windowMs);
       if (list.length >= max) {
@@ -30,7 +36,11 @@ export function createKeyedLimiter(max: number, windowMs: number, maxKeys = 50_0
       }
       if (!hits.has(key) && hits.size >= maxKeys) {
         prune(now);
-        if (hits.size >= maxKeys) return false; // fail closed under key flood
+        while (hits.size >= maxKeys) {
+          const oldest = hits.keys().next().value;
+          if (oldest === undefined) break;
+          hits.delete(oldest);
+        }
       }
       list.push(now);
       hits.set(key, list);

@@ -8,7 +8,7 @@ import { attachByteCounters } from "./counting-stream.js";
 import { checkAgenticWalletPolicy } from "./wallet-policy.js";
 import { startSession, endSession, registerSessionDestroy, unregisterSessionDestroy } from "./session-manager.js";
 import { parseProxyOptions, type ProxyOptions } from "./auth.js";
-import { checkSanctionedCountry } from "./geo-check.js";
+import { checkClientCountry } from "./geo-check.js";
 import { validateTarget, isValidHostname, isValidPort } from "./target-validator.js";
 import { incrementUserConns, decrementUserConns } from "./connection-tracker.js";
 import { checkAuthRateLimit, recordAuthFailure } from "./auth-rate-limit.js";
@@ -95,7 +95,7 @@ async function handleSocks5Connection(clientSocket: net.Socket, relay: RelayRunt
   clientSocket.once("close", () => clearTimeout(totalHandshakeTimer));
 
   // Geo-check
-  const blocked = checkSanctionedCountry(clientIp);
+  const blocked = checkClientCountry(clientIp);
   if (blocked) {
     clearTimeout(totalHandshakeTimer);
     clientSocket.end();
@@ -390,6 +390,7 @@ async function handleSocks5Connection(clientSocket: net.Socket, relay: RelayRunt
       port: targetPort,
       sticky: proxyOptions.sessionId,
       seedOnly: socksAccess.seedOnly,
+      targetAddresses: socksTargetCheck.addresses,
     });
   } catch (err) {
     clearTimeout(totalHandshakeTimer);

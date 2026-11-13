@@ -26,6 +26,7 @@ import { requireAuth, type AuthenticatedRequest } from "../middleware/auth.js";
 import { setAuthCookies } from "../helpers/cookies.js";
 
 import { isVerifiedAgent, isGlobalVerifiedAgent, isVerifiedAgentAsync, getAgentMultiplier } from "../helpers/agent-rate-limit.js";
+import { ipRateKey } from "../helpers/ip-key.js";
 
 const router = Router();
 const log = createLogger("api:wallet-auth");
@@ -55,7 +56,8 @@ const CHALLENGE_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
 const MAX_CHALLENGE_MAP_SIZE = 50_000;
 const challengeRateMap = new Map<string, { count: number; windowStart: number }>();
 
-function checkChallengeRateLimit(ip: string, isAgent: boolean = false): boolean {
+function checkChallengeRateLimit(rawIp: string, isAgent: boolean = false): boolean {
+  const ip = ipRateKey(rawIp);
   const now = Date.now();
   const limit = isAgent ? MAX_CHALLENGES_PER_IP * AGENT_RATE_LIMIT_MULTIPLIER : MAX_CHALLENGES_PER_IP;
   const entry = challengeRateMap.get(ip);
@@ -77,7 +79,8 @@ const VERIFY_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
 const MAX_VERIFY_MAP_SIZE = 50_000;
 const verifyRateMap = new Map<string, { count: number; windowStart: number }>();
 
-function checkVerifyRateLimit(ip: string, isAgent: boolean = false): boolean {
+function checkVerifyRateLimit(rawIp: string, isAgent: boolean = false): boolean {
+  const ip = ipRateKey(rawIp);
   const now = Date.now();
   const limit = isAgent ? MAX_VERIFY_PER_IP * AGENT_RATE_LIMIT_MULTIPLIER : MAX_VERIFY_PER_IP;
   const entry = verifyRateMap.get(ip);
@@ -99,7 +102,8 @@ const LINK_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
 const MAX_LINK_MAP_SIZE = 50_000;
 const linkRateMap = new Map<string, { count: number; windowStart: number }>();
 
-function checkLinkRateLimit(ip: string, isAgent: boolean = false): boolean {
+function checkLinkRateLimit(rawIp: string, isAgent: boolean = false): boolean {
+  const ip = ipRateKey(rawIp);
   const now = Date.now();
   const limit = isAgent ? MAX_LINK_PER_IP * AGENT_RATE_LIMIT_MULTIPLIER : MAX_LINK_PER_IP;
   const entry = linkRateMap.get(ip);
@@ -121,7 +125,8 @@ const WALLET_REG_WINDOW_MS = 60 * 60 * 1000;
 const MAX_WALLET_REG_MAP_SIZE = 50_000;
 const walletRegistrationLog = new Map<string, number[]>();
 
-function checkWalletRegistrationRateLimit(ip: string, isAgent: boolean = false): boolean {
+function checkWalletRegistrationRateLimit(rawIp: string, isAgent: boolean = false): boolean {
+  const ip = ipRateKey(rawIp);
   const now = Date.now();
   const limit = isAgent ? MAX_WALLET_REGISTRATIONS_PER_IP * AGENT_RATE_LIMIT_MULTIPLIER : MAX_WALLET_REGISTRATIONS_PER_IP;
   let timestamps = walletRegistrationLog.get(ip);
@@ -564,7 +569,8 @@ const MAX_PROXY_SESSION_MAP_SIZE = 50_000;
 const proxySessionRateMap = new Map<string, { count: number; windowStart: number }>();
 const proxySessionUserRateMap = new Map<string, { count: number; windowStart: number }>();
 
-function checkProxySessionRateLimit(ip: string): boolean {
+function checkProxySessionRateLimit(rawIp: string): boolean {
+  const ip = ipRateKey(rawIp);
   const now = Date.now();
   const entry = proxySessionRateMap.get(ip);
   if (!entry || now - entry.windowStart > PROXY_SESSION_WINDOW_MS) {
