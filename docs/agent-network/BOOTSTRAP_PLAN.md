@@ -1,6 +1,6 @@
-# DominusNode bootstrap plan (solo, zero budget) — drafted 2026-11-12
+# DominusNode bootstrap plan (small operator, zero budget)
 
-Status: draft for the owner, not committed. It **replaces the resourcing assumptions** in LAUNCH_PLAN.md (about 40 paid seed nodes, a funded beta, launch partners with $100 credits, Product Hunt) for as long as the project is run by one unfunded developer. LAUNCH_PLAN.md stays the reference for directory steps (§2), lessons from other networks (§1), and what not to do (§4.3). This plan reuses those and leaves out anything that costs money.
+Status: draft. It **replaces the resourcing assumptions** in LAUNCH_PLAN.md (about 40 paid seed nodes, a funded beta, launch partners with $100 credits, Product Hunt) for as long as the project is run by one unfunded developer. LAUNCH_PLAN.md stays the reference for directory steps (§2), lessons from other networks (§1), and what not to do (§4.3). This plan reuses those and leaves out anything that costs money.
 
 Starting position: one developer, personal hardware, one X account, a public MIT repo (github.com/0xcircuitbreaker/DomiNode), packages at 2.0.0 on npm/PyPI/crates.io/Go plus the MCP server, and daedalusdevelopmentgroup.com (DDG) with some AI-crawler traffic and an agent service that DominusNode will sit under as a subdomain (DEPLOYMENT.md §0, §9).
 
@@ -8,17 +8,17 @@ Web facts were checked on 2026-11-12. Many sources are secondary (marked as such
 
 ---
 
-## 1. Decentralization: what is true today, and a path a solo dev can execute
+## 1. Decentralization: what is true today, and a path a small operator can execute
 
 ### 1.1 Honest architecture today
 
 | Component | Who runs it | Decentralized? |
 |---|---|---|
 | Exit nodes (`packages/node-agent`) | Anyone who opts in | **Yes.** Untrusted, and the SSRF/port floor is enforced on the node itself (ABUSE_CONTROLS #4) |
-| Gateway (`packages/proxy-gateway`): HTTP/SOCKS5 front end, node selection, tunnel server, **the only byte meter** | The owner | **No.** Single operator, single point of failure and trust |
-| Coordinator (registry, tiers, probes, policy, signing key `gen:coord-key`) | The owner | **No.** Nodes pin its ed25519 key (DESIGN §2.4, T11) |
-| API, ledger, Postgres (`packages/dashboard`, `shared`) | The owner | **No.** Balances, credits and earnings sit in one database |
-| Payments (x402/MPP/Tempo/NOWPayments) | Facilitators, keyed to the owner's wallets | Rails are open protocols, but the receiving account is the owner's |
+| Gateway (`packages/proxy-gateway`): HTTP/SOCKS5 front end, node selection, tunnel server, **the only byte meter** | The operator | **No.** Single operator, single point of failure and trust |
+| Coordinator (registry, tiers, probes, policy, signing key `gen:coord-key`) | The operator | **No.** Nodes pin its ed25519 key (DESIGN §2.4, T11) |
+| API, ledger, Postgres (`packages/dashboard`, `shared`) | The operator | **No.** Balances, credits and earnings sit in one database |
+| Payments (x402/MPP/Tempo/NOWPayments) | Facilitators, keyed to the operator's wallets | Rails are open protocols, but the receiving account is the operator's |
 | Code, SDKs, integrations | MIT, public | **Yes.** Anyone can fork and run it |
 
 Say this publicly, in the README and on the site, in these words: *"Open-source and self-hostable. The public network at dominusnode.com is currently run by one operator. Exit nodes are independent; the gateway, metering and ledger are not (yet)."* Over-claiming decentralization is the fastest way to lose the crypto/agent crowd's trust, and it carries consumer-protection risk.
@@ -38,7 +38,7 @@ Options:
 |---|---|---|---|
 | **A1. Home server (mini PC / old laptop) + home IP + DDNS + port forwards** | $0 (power ~$2–5/mo) | Simplest; all data stays on your box | Many ISPs use **CGNAT** (no inbound possible), and DDNS changes break pinned hostnames. **Residential ISP terms commonly forbid running servers or reselling/sharing the connection, so read yours.** Every byte crosses your home uplink about twice (in from the node, out to the client). The home IP becomes publicly tied to a proxy service. Fine for a private alpha, poor beyond that |
 | **A2. Home server for Postgres/API/coordinator + Cloudflare Tunnel (free) for HTTP only + home IP for gateway TCP ports** | $0 | Hides the home IP for the website/API and gives free TLS/DDoS shielding for HTTP | Gateway TCP ports still expose the home IP, so this saves less than it looks |
-| **A3. Home server (DB, API, coordinator jobs, signing key) + small VPS running the gateway** (recommended) | $4–6/mo (Hetzner/OVH-class VPS with unmetered or ~20 TB traffic) | Clean public IP, stable DNS, no ISP server-ToS problem at home, and the relay bandwidth leaves from a datacenter. The DB and the money stay on hardware you own. The VPS can also be one of the first DC exit nodes | Recurring cost (small). The gateway needs a DB connection to home: use WireGuard/Tailscale (free tier) from VPS to home, never expose Postgres. **Check the VPS provider's AUP on proxy services.** Many allow proxies you operate but forbid open proxies and act on abuse reports. You are running an authenticated proxy, so keep the abuse inbox answered |
+| **A3. Home server (DB, API, coordinator jobs, signing key) + small VPS running the gateway** (recommended) | $4–6/mo (small VPS with unmetered or ~20 TB traffic; check the provider's terms allow authenticated proxy services, e.g. OVHcloud's VPS terms forbid them) | Clean public IP, stable DNS, no ISP server-ToS problem at home, and the relay bandwidth leaves from a datacenter. The DB and the money stay on hardware you own. The VPS can also be one of the first DC exit nodes | Recurring cost (small). The gateway needs a DB connection to home: use WireGuard/Tailscale (free tier) from VPS to home, never expose Postgres. **Check the VPS provider's AUP on proxy services.** Many allow proxies you operate but forbid open proxies and act on abuse reports. You are running an authenticated proxy, so keep the abuse inbox answered |
 | **A4. Oracle Cloud Always Free as the gateway** | $0 | Free public IPs. A third-party blog claims 10 TB/mo outbound; that is not confirmed in Oracle's docs, so verify | Oracle **halved the Always Free Arm allowance to 2 OCPU / 12 GB from 2026-06-15** ([InfoQ](https://infoq.com/news/2026/07/oracle-cloud-free-tier-limits/), [Oracle docs](https://docs.cloud.oracle.com/Content/FreeTier/freetier.htm)). Oracle reclaims idle instances and has been known to terminate free accounts without much recourse, so treat it as disposable. Its AUP on proxy services must be read. Capacity is often unavailable in popular regions. Good as a **second/backup gateway or L4 relay**, not as the only one |
 | **A5. Fly.io / Railway** | — | — | **No longer free for new accounts.** Fly.io offers a 2-VM-hour / 7-day trial ([agentdeals](https://agentdeals.dev/vendor/fly-io), [flaviocopes, Sept 2026](https://flaviocopes.com/hosting-free-tiers.md), secondary). Railway gives a one-time $5 trial, then $1/mo credit ([Railway docs](https://docs.railway.com/pricing/free-trial.md)). Egress is metered, which is bad for a relay. Skip |
 
@@ -71,7 +71,7 @@ The **federation-readiness changes** below are the minimal changes that let inde
 
 No ICO, no airdrop, no points, no "early contributors may receive…" language. Options, in rough order of realism:
 
-1. **Many independent coordinators plus multi-homed nodes** (F1–F5). Like email or the fediverse: each coordinator sets its own prices and policy above the shared floor, and nodes pick which ones to serve. Requesters choose a coordinator like they choose an RPC provider. This is achievable by one person.
+1. **Many independent coordinators plus multi-homed nodes** (F1–F5). Like email or the fediverse: each coordinator sets its own prices and policy above the shared floor, and nodes pick which ones to serve. Requesters choose a coordinator like they choose an RPC provider. This is achievable by a small team.
 2. **A public coordinator directory**: a plain JSON list in a GitHub repo, added to by PR, carrying each coordinator's F1 document and uptime from the public status page. There is no on-chain registry. The DDG coordinator is just one entry.
 3. **Cross-coordinator settlement over x402**: coordinator A can buy capacity from coordinator B's gateway per request with x402, exactly like any agent. This needs no new protocol, since x402 is already the rail.
 4. **On-chain settlement and escrow for node earnings** (later, after counsel): node earnings accrue as signed receipts that a node can redeem from a coordinator's escrow contract in USDC. This removes the "trust the operator's ledger" problem without a token. It is complicated and has legal implications (money transmission), so it is a 2027+ question.
@@ -81,7 +81,7 @@ No ICO, no airdrop, no points, no "early contributors may receive…" language. 
 
 ## 2. Supply bootstrap at zero budget
 
-### 2.1 The owner's own hardware as nodes 1–5
+### 2.1 Operator-run hardware as nodes 1–5
 
 | Node | Class | Notes |
 |---|---|---|
@@ -179,7 +179,7 @@ Rules: you write every post yourself, no scheduled reply bots, no engagement pod
 | 3: "proof" | A demo video: an agent paying with x402, no signup, fetching from a German exit. "Week 3 numbers" (nodes, agents, GB), even if tiny. A thread on the design decision that only the gateway counts bytes | Answer questions from the HN/Reddit launch, if done this week |
 | 4: "invite" | A self-host guide thread (one command, your own coordinator). "Looking for contributors" with linked good-first-issues. A monthly network report (first edition) | Thank contributors by handle (with consent) |
 
-Formats that work for solo developers: 20–40 second terminal recordings (asciinema → GIF, or OBS), honest numbers, and one clear call to action per post.
+Formats that work for small teams: 20–40 second terminal recordings (asciinema → GIF, or OBS), honest numbers, and one clear call to action per post.
 
 ### 3.4 Using DDG and its agent service
 
@@ -213,11 +213,11 @@ Pattern: apply only where the project already fits. Lead with "open-source, self
 
 ---
 
-## 5. Legal and safety minimums for a solo exit-network operator
+## 5. Legal and safety minimums for a small exit-network operator
 
 Practical checklist, not legal advice; get a lawyer before turning payouts on.
 
-1. **Abuse contact**: `abuse@` on the DDG domain, monitored daily, and listed in WHOIS/RDAP where possible, in the site footer, in the F1 coordinator doc and in `security.txt`. A public abuse-report form already exists (PoW-protected, `ABUSE_REPORT_POW_DIFFICULTY`). Target a first response within 24 h, and say it is best effort while solo.
+1. **Abuse contact**: `abuse@` on the DDG domain, monitored daily, and listed in WHOIS/RDAP where possible, in the site footer, in the F1 coordinator doc and in `security.txt`. A public abuse-report form already exists (PoW-protected, `ABUSE_REPORT_POW_DIFFICULTY`). Target a first response within 24 h, and say it is best effort while the team is small.
 2. **ToS + AUP + contributor attestation**: short, plain language. Prohibited uses (fraud, account creation, credential stuffing, spam, CSAM, harassment, sanctions evasion, anything illegal at source or destination). Node operators attest that they control the connection and accept relaying (control #1). Version them, since re-attestation is already supported.
 3. **Payouts off**: `PAYOUTS_ENABLED=false`. Credits are not money and are not redeemable for cash. No exceptions for friends.
 4. **Sanctions**: keep the OFAC country block (Cuba, Iran, North Korea, Russia, Syria), install the SDN address list on the gateway (`PAYER_SDN_FILE`, `PAYER_SDN_REQUIRED=true` in production; otherwise x402/MPP returns 503 by design), and refresh it on a cron.
@@ -230,7 +230,7 @@ Practical checklist, not legal advice; get a lawyer before turning payouts on.
 
 ---
 
-## 6. Eight-week plan (one person)
+## 6. Eight-week plan (small team)
 
 Assumes about 10–15 h/week alongside other work. Start: Mon 2026-11-16.
 
@@ -251,9 +251,9 @@ Assumes about 10–15 h/week alongside other work. Start: Mon 2026-11-16.
 
 | Metric | Target | Stretch |
 |---|---|---|
-| Nodes online (7-day avg) | 5 (≥2 not run by the owner) | 10, in ≥3 countries |
+| Nodes online (7-day avg) | 5 (≥2 not run by the operator) | 10, in ≥3 countries |
 | Distinct agents/principals with ≥1 successful request | 10 | 30 |
-| First paid GB (x402 or top-up, from someone other than the owner) | ≥1 GB | 10 GB |
+| First paid GB (x402 or top-up, from someone other than the operator) | ≥1 GB | 10 GB |
 | Self-host installs reported (issue/discussion/X) | 2 | 5 |
 | GitHub stars | 50 | 200 |
 | Abuse reports resolved in <48 h | 100% | — |
@@ -264,7 +264,7 @@ Assumes about 10–15 h/week alongside other work. Start: Mon 2026-11-16.
 
 - **Go, keep pushing the hosted network**: ≥1 paid GB from outsiders, ≥5 nodes, and no unmanageable abuse.
 - **Pivot to "software first"**: if paid demand is ≈0 but self-host interest exists, focus on the self-host/federation story (F1–F7) and treat the DDG network as a reference instance. This matches "truly open source and decentralized" anyway.
-- **Pause the public network**: if abuse reports exceed what one person can handle (e.g. >3/week with real ISP notices), or an ISP/VPS warns you. Keep the code, stop the public exit, and fix the controls first.
+- **Pause the public network**: if abuse reports exceed what the operator can handle (e.g. >3/week with real ISP notices), or an ISP/VPS warns you. Keep the code, stop the public exit, and fix the controls first.
 
 ---
 
@@ -285,7 +285,7 @@ Checked against the repo on 2026-11-12. "Exists" means the repo already has it.
 | E9 | **Multi-coordinator node F3** | — | One tunnel per coordinator, per-coordinator caps | 3–5 days |
 | E10 | **Reciprocity grant** (free monthly quota for healthy community nodes, credits only) | Genesis/starter-credit jobs and credits ledger | One job and an admin setting; excluded from tier tenure | 1 day |
 | E11 | **Branding/config for forks F8 and a `GOVERNANCE.md`/`SECURITY.md`/CONTRIBUTING with good-first-issues** | Check SECURITY.md exists (Glama score) | Docs and a config switch | 0.5–1 day |
-| E12 | **Cost guardrails for a solo operator**: global daily cap on starter/reciprocity grants, per-node GB/day defaults for residential, bandwidth alarm on the VPS | Abuse caps (#6, #7) are admin-editable | Defaults tuned for a 5-node network, plus one alert (email/Telegram webhook) on abuse report or bandwidth spike | 0.5–1 day |
+| E12 | **Cost guardrails for a small operator**: global daily cap on starter/reciprocity grants, per-node GB/day defaults for residential, bandwidth alarm on the VPS | Abuse caps (#6, #7) are admin-editable | Defaults tuned for a 5-node network, plus one alert (email/Telegram webhook) on abuse report or bandwidth spike | 0.5–1 day |
 
 Order: E3 → E1 → E4 → E5 → E6 (before any public post), then E2, E12, E11, then E7 → E8 → E10 → E9.
 Total before Show HN: about 7–9 working days.
