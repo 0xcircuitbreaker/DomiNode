@@ -44,7 +44,7 @@
     "lint": "tsc --noEmit"
   },
   "dependencies": {
-    "@dominusnode/sdk": "^2.2.0"
+    "@dominusnode/sdk": "^2.3.0"
   },
   "peerDependencies": {
     "typebox": "^1.0.0"

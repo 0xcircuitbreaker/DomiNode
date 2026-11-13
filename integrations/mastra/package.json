@@ -17,7 +17,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@dominusnode/sdk": "^2.2.0"
+    "@dominusnode/sdk": "^2.3.0"
   },
   "peerDependencies": {
     "@mastra/core": ">=1.0.0",
