@@ -144,15 +144,6 @@ json CreditsResource::transactions(OptInt limit, OptStr cursor, OptStr type) {
                      AuthMode::Agent);
 }
 
-json CreditsResource::convert(const MusdInput& amount_musd, OptStr idempotency_key) {
-    std::string amount = amount_musd.normalize(MIN_CONVERT_MUSD, MAX_CONVERT_MUSD);
-    std::string key = validate_idempotency_key(idempotency_key ? *idempotency_key : new_idempotency_key());
-    json r = http_.post("/v1/credits/convert", {{"amountMusd", amount}}, AuthMode::Agent, {{"Idempotency-Key", key}});
-    if (!r.is_object()) r = json::object();
-    r["idempotencyKey"] = key;
-    return r;
-}
-
 static void check_nonce_and_signer(const json& ch, const Signer& signer) {
     if (!ch.is_object() || !ch.contains("nonce") || !ch["nonce"].is_string() || !is_hex64(ch["nonce"].get<std::string>())) {
         throw ProtocolError("invalid challenge nonce");
@@ -161,6 +152,26 @@ static void check_nonce_and_signer(const json& ch, const Signer& signer) {
         throw ProtocolError("the account's linked wallet is not the signer's address; refusing to sign");
     }
     if (!ch.contains("message") || !ch["message"].is_string()) throw ProtocolError("invalid challenge message");
+}
+
+json CreditsResource::convert(const MusdInput& amount_musd, const Signer& signer, OptStr idempotency_key) {
+    assert_signer(signer);
+    std::string amount = amount_musd.normalize(MIN_CONVERT_MUSD, MAX_CONVERT_MUSD);
+    std::string key = validate_idempotency_key(idempotency_key ? *idempotency_key : new_idempotency_key());
+    const std::vector<std::pair<std::string, std::string>> hdr = {{"Idempotency-Key", key}};
+
+    json ch = http_.post("/v1/credits/convert/challenge", {{"amountMusd", amount}}, AuthMode::Agent, hdr);
+    check_nonce_and_signer(ch, signer);
+    const std::string server_msg = ch["message"].get<std::string>();
+    const std::string nonce = ch["nonce"].get<std::string>();
+    std::string local = build_convert_message(extract_user_id(server_msg), signer.address, amount, key, nonce);
+    assert_same_message(server_msg, local, "credit conversion");
+    std::string sig = sign_with(signer, local);
+    json r = http_.post("/v1/credits/convert", {{"amountMusd", amount}, {"nonce", nonce}, {"signature", sig}},
+                        AuthMode::Agent, hdr);
+    if (!r.is_object()) r = json::object();
+    r["idempotencyKey"] = key;
+    return r;
 }
 
 json CreditsResource::withdraw(const MusdInput& amount_musd, const Signer& signer, OptStr idempotency_key) {
