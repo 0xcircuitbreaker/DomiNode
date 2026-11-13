@@ -12,14 +12,17 @@
  *  2. unknown: no ASN for the address (conservative: lowest tier weight,
  *     never matches a class-* request, priced at the highest price).
  *  3. dc: ASN in the hosting list.
- *  4. residential: any other routed ASN.
+ *  4. residential: ASN in the access-network allowlist (asn-db.ts ACCESS_ASNS
+ *     + ACCESS_ASNS / ACCESS_ASNS_FILE).
+ *  5. dc: any other routed ASN (reason unlisted_asn). Fails closed: an
+ *     unlisted hoster or VPN can never be sold as residential.
  * Mobile carriers are not auto-detected (no carrier list yet); mobile is
  * never assigned from data a node controls.
  */
 import * as fs from "node:fs";
 import * as net from "node:net";
-import { conservativeClass, type NodeIpClass } from "@dominusnode/shared";
-import { HOSTING_ASNS, type AsnDb } from "./asn-db.js";
+import { conservativeClass, isClassDowngrade, type NodeIpClass } from "@dominusnode/shared";
+import { ACCESS_ASNS, HOSTING_ASNS, type AsnDb } from "./asn-db.js";
 
 /** Built-in anonymizer ASNs (offline-safe default; mirrors data/anonymizer-asns.json v1). */
 export const DEFAULT_ANONYMIZER_ASNS: ReadonlySet<number> = new Set([
@@ -176,6 +179,8 @@ export function isTransitionTunnel(ip: string): boolean {
 export interface EgressClassifierData {
   db: AsnDb | null;
   hostingAsns?: ReadonlySet<number>;
+  /** Access-network allowlist: the only ASNs classed residential. */
+  accessAsns?: ReadonlySet<number>;
   anonymizerAsns?: ReadonlySet<number>;
   anonymizerIps?: IpRangeSet | null;
 }
@@ -184,7 +189,7 @@ export interface EgressVerdict {
   ipClass: NodeIpClass;
   asn: number | null;
   country: string | null;
-  reason: "anonymizer_ip" | "ipv6_tunnel" | "anonymizer_asn" | "no_asn" | "hosting_asn" | "access_asn" | "invalid_ip";
+  reason: "anonymizer_ip" | "ipv6_tunnel" | "anonymizer_asn" | "no_asn" | "hosting_asn" | "access_asn" | "unlisted_asn" | "invalid_ip";
 }
 
 /** Classify an observed egress IP (pure given its data). */
@@ -205,7 +210,8 @@ export function classifyEgress(ip: string, d: EgressClassifierData): EgressVerdi
   }
   if (asn === null) return { ipClass: "unknown", asn, country, reason: "no_asn" };
   if ((d.hostingAsns ?? HOSTING_ASNS).has(asn)) return { ipClass: "dc", asn, country, reason: "hosting_asn" };
-  return { ipClass: "residential", asn, country, reason: "access_asn" };
+  if ((d.accessAsns ?? ACCESS_ASNS).has(asn)) return { ipClass: "residential", asn, country, reason: "access_asn" };
+  return { ipClass: "dc", asn, country, reason: "unlisted_asn" };
 }
 
 // ─── Loading (offline-safe) ──────────────────────────────────────────
@@ -256,8 +262,16 @@ export interface VerifiableNode {
   ipClass: NodeIpClass;
   /** Connect-time class (tunnel peer IP); the first probe on a connection starts from it. */
   peerClass?: NodeIpClass;
+  /**
+   * Peer class tightened by recent probe verdicts (own + same owner/prefix,
+   * 30-day window). Base for the first probe on this connection, so a carried
+   * verdict is not discarded by that probe.
+   */
+  connectClass?: NodeIpClass;
   /** ms epoch of the last probe-confirmed egress classification on this gateway. */
   egressVerifiedAt?: number;
+  /** True until the first probe on this connection classifies it (not selectable meanwhile). */
+  probePending?: boolean;
 }
 
 export interface EgressVerifierDeps {
@@ -269,6 +283,8 @@ export interface EgressVerifierDeps {
    * (nodeRepo.recordVerifiedClass).
    */
   record(nodeId: string, cls: NodeIpClass, opts: { probeClass: NodeIpClass; connectClass: NodeIpClass | null }): Promise<unknown>;
+  /** Called when the class drops below the previous one (end in-flight sessions above it). */
+  onDowngrade?: (nodeId: string, from: NodeIpClass, to: NodeIpClass) => Promise<unknown> | void;
   now?: () => number;
   logger?: { warn(msg: string, meta?: Record<string, unknown>): void };
 }
@@ -288,12 +304,21 @@ export function makeEgressVerifier(d: EgressVerifierDeps): (nodeId: string, egre
     if (!live) return null;
     const observed = d.classify(egressIp).ipClass;
     const first = live.egressVerifiedAt === undefined;
-    const base = first ? (live.peerClass ?? live.ipClass) : live.ipClass;
+    const base = first ? (live.connectClass ?? live.peerClass ?? live.ipClass) : live.ipClass;
     const next = conservativeClass(base, observed);
     live.egressVerifiedAt = now();
-    if (next !== live.ipClass) {
-      d.logger?.warn("node egress reclassified", { nodeId, from: live.ipClass, to: next });
+    live.probePending = false;
+    const prev = live.ipClass;
+    if (next !== prev) {
+      d.logger?.warn("node egress reclassified", { nodeId, from: prev, to: next });
       live.ipClass = next; // routing exclusion applies immediately
+    }
+    if (d.onDowngrade && isClassDowngrade(prev, next)) {
+      try {
+        await d.onDowngrade(nodeId, prev, next);
+      } catch {
+        /* sessions still end at max age */
+      }
     }
     await d.record(nodeId, next, { probeClass: observed, connectClass: live.peerClass ?? null });
     return next;

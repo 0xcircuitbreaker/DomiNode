@@ -304,7 +304,7 @@ describe("proxy-gateway/geo-check", () => {
       mockIsBlockedCountry.mockImplementation((c: string) => c === "IR");
       expect(checkSanctionedCountry("5.0.0.7")).toBe("IR");
       expect(checkSanctionedCountry("8.8.8.8")).toBeNull();
-      expect(lookupPeerGeo("5.0.0.7")).toEqual({ country: "IR", asn: 197207, ipClass: "residential" });
+      expect(lookupPeerGeo("5.0.0.7")).toEqual({ country: "IR", asn: 197207, ipClass: "dc" });
     });
 
     it("blocks every public IP when the database is unavailable", () => {

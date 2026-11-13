@@ -169,8 +169,9 @@ export function loadAsnDbFile(path: string): AsnDb | null {
 }
 
 /**
- * Hosting / cloud ASNs used to classify a peer as `dc` (anything else with a
- * known ASN is `residential`). Hand-maintained from each provider's published
+ * Hosting / cloud ASNs used to classify a peer as `dc` with reason
+ * `hosting_asn`. Unlisted ASNs are also `dc` (see ACCESS_ASNS): this list
+ * only documents known hosters explicitly. Hand-maintained from each provider's published
  * ASNs as listed in PeeringDB (info_type "Content" / "NSP" hosting networks)
  * and bgp.he.net. Extend at deploy time with HOSTING_ASNS="1,2,3".
  */
@@ -202,7 +203,65 @@ export const HOSTING_ASNS: ReadonlySet<number> = new Set([
   197540,                   // netcup
   51852,                    // Private Layer
   396356,                   // Latitude.sh / Maxihost
+  60068, 212238,            // Datacamp Limited (CDN77 / CDNEXT)
 ]);
+
+/**
+ * Access-network (eyeball ISP / mobile carrier) ASNs: the ONLY ASNs classed
+ * `residential`. Classification is allowlist-based: an ASN that is neither
+ * here nor an anonymizer is `dc` (reason `unlisted_asn`), so an unlisted
+ * hoster or VPN provider can never be sold as residential. Hand-maintained
+ * from ISPs' published ASNs (PeeringDB info_type "Cable/DSL/ISP"); networks
+ * that also sell hosting/transit at scale are deliberately left out. Extend at
+ * deploy time with ACCESS_ASNS="1,2,3" or ACCESS_ASNS_FILE (one ASN per line,
+ * e.g. generated from PeeringDB).
+ */
+export const ACCESS_ASNS: ReadonlySet<number> = new Set([
+  7922,                     // Comcast
+  7018,                     // AT&T
+  22773,                    // Cox
+  20115, 11427, 11426, 10796, 20001, 33363, 12271, // Charter / Spectrum
+  6128,                     // Optimum (Cablevision)
+  5650,                     // Frontier
+  812,                      // Rogers
+  577,                      // Bell Canada
+  6327,                     // Shaw
+  852,                      // Telus
+  3320,                     // Deutsche Telekom
+  3209,                     // Vodafone Germany
+  6805,                     // Telefonica Germany
+  3215,                     // Orange France
+  12322,                    // Free (Proxad)
+  5410,                     // Bouygues Telecom
+  2856,                     // BT
+  5089,                     // Virgin Media
+  3352,                     // Telefonica Spain
+  3269,                     // Telecom Italia
+  1136,                     // KPN
+  4766,                     // Korea Telecom
+  17676,                    // SoftBank
+  2516,                     // KDDI
+  4713,                     // NTT OCN
+  1221,                     // Telstra
+  4804,                     // Optus
+  9829,                     // BSNL
+  24560,                    // Bharti Airtel
+  55836,                    // Reliance Jio
+  28573,                    // Claro Brazil
+  27699,                    // Telefonica Brasil (Vivo)
+  8151,                     // Telmex (Uninet)
+]);
+
+/** ACCESS_ASNS plus a comma list (env ACCESS_ASNS) and an optional newline file. */
+export function parseAccessAsns(env: string | undefined, fileText?: string | null): Set<number> {
+  const out = new Set(ACCESS_ASNS);
+  const tokens = [...(env ?? "").split(","), ...(fileText ?? "").split(/\r?\n/).map((l) => l.replace(/#.*/, ""))];
+  for (const t of tokens.slice(0, 500_000)) {
+    const n = Number(t.trim());
+    if (t.trim() && Number.isInteger(n) && n > 0 && n <= 4_294_967_295) out.add(n);
+  }
+  return out;
+}
 
 export function parseHostingAsns(env: string | undefined): Set<number> {
   const out = new Set(HOSTING_ASNS);
@@ -213,7 +272,12 @@ export function parseHostingAsns(env: string | undefined): Set<number> {
   return out;
 }
 
-export function classifyAsn(asn: number | null, hosting: ReadonlySet<number> = HOSTING_ASNS): "dc" | "residential" | "unknown" {
+export function classifyAsn(
+  asn: number | null,
+  hosting: ReadonlySet<number> = HOSTING_ASNS,
+  access: ReadonlySet<number> = ACCESS_ASNS,
+): "dc" | "residential" | "unknown" {
   if (asn === null) return "unknown";
-  return hosting.has(asn) ? "dc" : "residential";
+  if (hosting.has(asn)) return "dc";
+  return access.has(asn) ? "residential" : "dc";
 }

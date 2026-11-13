@@ -58,6 +58,8 @@ elsewhere). Meaning and required/optional status are documented in
 
 | Variable | Default(s) | Read in |
 |---|---|---|
+| `ACCESS_ASNS` |  | `src/geo-check.ts` |
+| `ACCESS_ASNS_FILE` |  | `src/geo-check.ts` |
 | `AGENT_RATE_LIMIT_MULTIPLIER` | `10` | `src/session-manager.ts`, `src/x402-handler.ts` |
 | `ANONYMIZER_ASNS` |  | `src/egress-class.ts` |
 | `ANONYMIZER_ASNS_FILE` | `data/anonymizer-asns.json` | `src/egress-class.ts` |
@@ -84,6 +86,7 @@ elsewhere). Meaning and required/optional status are documented in
 | `PAYOUT_SDN_FILE` |  | `src/main.ts`, `src/payer-screening.ts` |
 | `PAYOUT_SIGNER_KEY_FILE` |  | `src/jobs/payout-sender-ethers.ts` |
 | `PROBE_AUTH_SECRET` |  | `src/jobs/probes.ts` |
+| `PROBES_DISABLED` |  | `src/main.ts` |
 | `PROBE_URL` |  | `src/main.ts` |
 | `PROXY_CONNECT_TIMEOUT_MS` | `30000` | `src/server.ts`, `src/socks5.ts` |
 | `PROXY_MAX_CONNECTIONS` | `5000` | `src/server.ts`, `src/socks5.ts` |

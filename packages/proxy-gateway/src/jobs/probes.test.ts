@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { Duplex } from "node:stream";
-import { judgeProbeResponse, parseProbeUrl, parseProbeUrls, runOnce, exchange, TamperStrikes, ConnectProbeQueue, type ProbeNode } from "./probes.js";
+import { judgeProbeResponse, parseProbeUrl, parseProbeUrls, runOnce, exchange, TamperStrikes, ConnectProbeQueue, ProbeHealth, selfCheckTarget, type ProbeNode } from "./probes.js";
 
 const NONCE = "n".repeat(24);
 const ok = (ip: string, nonce = NONCE, status = "200 OK") => {
@@ -190,5 +190,85 @@ describe("probe target rotation and connect queue", () => {
     t = 61_000;
     expect(q.enqueue(mk("a"))).toBe(true);
     q.stop();
+  });
+});
+
+describe("pending nodes: retries, full coverage, self-check", () => {
+  const stream = () => new Duplex({ read() {}, write(_c, _e, cb) { cb(); } });
+  const pendingNode = (id: string, state: { pending: boolean }): ProbeNode => ({
+    nodeId: id, ip: "203.0.113.5", unverified: true, isPending: () => state.pending, openStream: vi.fn(async () => stream()),
+  });
+
+  it("connect queue re-probes a pending node after a 502 until it is classified", async () => {
+    const state = { pending: true };
+    let calls = 0;
+    const ex = vi.fn(async (_s: Duplex, _t: unknown, nonce: string) => (++calls === 1 ? "HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\n\r\n" : ok("203.0.113.5", nonce)));
+    const onEgress = vi.fn(() => { state.pending = false; });
+    const q = new ConnectProbeQueue(
+      { target, listNodes: () => [], quarantine: vi.fn(), exchange: ex as typeof exchange, nonce: () => NONCE, onEgress, strikes: new TamperStrikes() },
+      { delayMs: 0, retryDelaysMs: [5] },
+    );
+    expect(q.enqueue(pendingNode("p", state))).toBe(true);
+    await new Promise((r) => setTimeout(r, 40));
+    expect(ex).toHaveBeenCalledTimes(2);
+    expect(onEgress).toHaveBeenCalledTimes(1);
+    expect(state.pending).toBe(false);
+    q.stop();
+  });
+
+  it("the min interval does not block a node that is still pending", async () => {
+    let t = 0;
+    const st = { pending: true };
+    const n = pendingNode("x", st);
+    const q = new ConnectProbeQueue(
+      { target, listNodes: () => [], quarantine: vi.fn(), exchange: vi.fn(async () => "HTTP/1.1 502 X\r\n\r\n") as never, strikes: new TamperStrikes() },
+      { delayMs: 0, minIntervalMs: 60_000, retryDelaysMs: [1_000_000], now: () => t },
+    );
+    expect(q.enqueue(n)).toBe(true);
+    t = 10;
+    await new Promise((r) => setTimeout(r, 10));
+    expect(q.enqueue(n)).toBe(true); // pending: not rate-limited
+    st.pending = false;
+    await new Promise((r) => setTimeout(r, 10));
+    expect(q.enqueue(n)).toBe(false); // verified: rate-limited again
+    q.stop();
+  });
+
+  it("periodic run probes every pending node beyond the sample size", async () => {
+    const ex = vi.fn(async (_s: Duplex, _t: unknown, nonce: string) => ok("203.0.113.5", nonce));
+    const nodes = Array.from({ length: 30 }, (_, i) => pendingNode(`p${i}`, { pending: true }));
+    const r = await runOnce({ target, listNodes: () => nodes, quarantine: vi.fn(), exchange: ex as typeof exchange, nonce: () => NONCE, sampleSize: 5, strikes: new TamperStrikes() });
+    expect(r.probed).toBe(30);
+  });
+
+  it("no probe (and so no tamper strike) while the echo self-check fails", async () => {
+    const quarantine = vi.fn();
+    const ex = vi.fn(async () => "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n");
+    const deps = { target, listNodes: () => [pendingNode("a", { pending: true })], quarantine, exchange: ex as typeof exchange, isHealthy: () => false, strikes: new TamperStrikes() };
+    await runOnce(deps);
+    await runOnce(deps);
+    expect(ex).not.toHaveBeenCalled();
+    expect(quarantine).not.toHaveBeenCalled();
+  });
+
+  it("self-check: 200 echoing the nonce passes; 404, TLS errors and wrong nonce fail", async () => {
+    const dial = async () => stream();
+    const echo = vi.fn(async (_s: Duplex, _t: unknown, nonce: string) => ok("198.51.100.1", nonce));
+    expect((await selfCheckTarget(target, 1000, dial, echo as typeof exchange)).ok).toBe(true);
+    const r404 = await selfCheckTarget(target, 1000, dial, (async () => "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n") as never);
+    expect(r404).toEqual({ ok: false, reason: "status 404" });
+    const rTls = await selfCheckTarget(target, 1000, dial, (async () => { throw new Error("self-signed certificate"); }) as never);
+    expect(rTls.ok).toBe(false);
+    expect((await selfCheckTarget(target, 1000, dial, (async () => ok("1.1.1.1", "other")) as never)).ok).toBe(false);
+  });
+
+  it("ProbeHealth keeps only passing targets in its live list", async () => {
+    const t2 = { ...target, host: "b.example.com" };
+    const h = new ProbeHealth([target, t2], async (t) => ({ ok: t.host === "b.example.com", reason: "x" }));
+    expect(h.healthy).toBe(false);
+    const failed = await h.refresh();
+    expect(h.healthy).toBe(true);
+    expect(h.live).toEqual([t2]);
+    expect(failed).toHaveLength(1);
   });
 });

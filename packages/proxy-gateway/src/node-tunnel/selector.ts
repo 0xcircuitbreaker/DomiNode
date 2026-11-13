@@ -95,6 +95,8 @@ export class NodeSelector {
   /** Whether a node passes every §4 filter for this request. */
   eligible(n: LiveNode, o: SelectOpts, policy: NetworkPolicy, now: number, exclude: Set<string>, clientPrefix: string): boolean {
     if (!n.ready || !n.tunnel.isOpen || n.status !== "active") return false;
+    // Egress not yet probed on this connection: serve nothing until classified.
+    if (n.probePending === true) return false;
     if (exclude.has(n.nodeId)) return false;
     if (n.cooldownUntil > now || n.health < MIN_HEALTH) return false;
     if (!n.country || this.isSanctioned(n.country, policy)) return false;

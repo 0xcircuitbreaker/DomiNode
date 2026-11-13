@@ -185,6 +185,7 @@ Reputation is stored as a current score (`node.reputation`) plus per-target coun
 | `POST /nodes/:id/quarantine` | `{ reason: string }` (required, 1–500 printable chars) | pending, active, cooldown, suspended | quarantined |
 | `POST /nodes/:id/activate` | `{ reason?: string }` | pending, cooldown, quarantined, suspended (owner must be `active`) | active |
 | `POST /nodes/:id/revoke` | `{ reason: string }` (required) | any non-revoked (terminal) | revoked |
+| `POST /nodes/:id/clear-penalty` | `{ reason: string }` (required) | revoked by its owner while quarantined or suspended | revoked (penalty cleared) |
 
 Response `200`:
 ```ts
@@ -192,6 +193,11 @@ Response `200`:
 ```
 `changed: false` when already in the target status (no audit row). Invalid transition or inactive owner → `409`. Unknown node → `404`.
 Audit actions: `node_quarantine`, `node_activate`, `node_revoke` (details `{ from, to, reason }`).
+`clear-penalty` clears `nodes.revoked_from_status`, so the node no longer blocks
+its owner's registrations (`NODE_PENALTY_ACTIVE`); use it after a false-positive
+quarantine. Response `{ nodeId, status: "revoked", previousRevokedFrom, changed: true }`;
+`409` when the node carries no revocation penalty. Audit action
+`node_penalty_clear` (details `{ revokedFrom, reason }`).
 Gateway effect: each gateway's `node-status-sync` job (every 30 s, `NODE_STATUS_SYNC_INTERVAL_MS`) stops routing to any node not `active` and closes the tunnel of revoked, suspended or deleted nodes. Quarantined nodes stay connected but get no traffic.
 
 ## 4. Agents
@@ -362,7 +368,7 @@ Heartbeats come from the `job_runs` table, upserted by the gateway job runner af
 | `from`, `to` | ISO | |
 | `limit`, `offset` | | |
 
-Actions: `node_credit_unfreeze`, `node_credit_freeze`, `node_quarantine`, `node_activate`, `node_revoke`, `node_payout_reverse`, `byte_dispute_resolve`, `relay_abuse_log_access`, `network_policy_publish`, `network_pricing_update`, `revenue_split_append`, `node_tier_update`, `node_credit_auto_freeze` (written by the collusion job, `adminUserId` null), `collusion_flag_dismiss`, `collusion_flag_confirm`, `collusion_settings_update`, plus the legacy `/api/admin` actions listed in section 15.
+Actions: `node_credit_unfreeze`, `node_credit_freeze`, `node_quarantine`, `node_activate`, `node_revoke`, `node_penalty_clear`, `node_payout_reverse`, `byte_dispute_resolve`, `relay_abuse_log_access`, `network_policy_publish`, `network_pricing_update`, `revenue_split_append`, `node_tier_update`, `node_credit_auto_freeze` (written by the collusion job, `adminUserId` null), `collusion_flag_dismiss`, `collusion_flag_confirm`, `collusion_settings_update`, plus the legacy `/api/admin` actions listed in section 15.
 
 ```ts
 { limit; offset; total;

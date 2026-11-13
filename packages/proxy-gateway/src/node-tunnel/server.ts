@@ -82,6 +82,12 @@ export interface TunnelServerDeps {
   claimIpSlot?: (s: { nodeId: string; ip: string; prefix24: string; asn: number | null; enforceAsn: boolean; limits: { per32: number; per24: number; perAsn: number } }) => Promise<boolean>;
   releaseIpSlot?: (nodeId: string) => Promise<void>;
   /**
+   * Recent probe verdicts of the owner's OTHER nodes (revoked included) on
+   * this /24 or /48. Tightens the connect class so revoke + re-register does
+   * not shed a probe downgrade. Errors reject the connect (fail closed).
+   */
+  ownerPrefixProbeClasses?: (ownerUserId: string, prefix: string, nodeId: string) => Promise<NodeIpClass[]>;
+  /**
    * Promote a `pending` node to `active` (compare-and-set from 'pending' only).
    * Called once a tunnel whose attestation meets the current policy minVersion
    * has passed every handshake check. Returns false if the row was not pending.
@@ -132,7 +138,7 @@ export interface TunnelServerOptions {
    * Egress probes are enabled: a connecting node is "unknown" (lowest tier
    * weight, no class-* selection) until a probe on this connection verifies it.
    */
-  deferClassUntilProbe?: boolean;
+  deferClassUntilProbe?: boolean | (() => boolean);
   preAuth?: PreAuthLimiterOptions;
 }
 
@@ -584,6 +590,18 @@ export class NodeTunnelServer {
     const asn = geo?.asn ?? null;
     if (isPublic && asn === null && this.opts.requireAsn) return t.rejectAuth("ASN_UNAVAILABLE");
     const prefix = ipPrefix(t.peerIp);
+    // Before the cap check: no await between countPeers() and registry.add().
+    let priorProbe: NodeIpClass | null = t.node.probe_class ?? null;
+    if (this.deps.ownerPrefixProbeClasses) {
+      let hist: NodeIpClass[];
+      try {
+        hist = await this.deps.ownerPrefixProbeClasses(t.node.owner_user_id, prefix, t.node.id);
+      } catch {
+        return t.rejectAuth("NODE_UNAVAILABLE");
+      }
+      if (!t.isAuthorizing()) return;
+      for (const c of hist) priorProbe = priorProbe ? conservativeClass(priorProbe, c) : c;
+    }
     const counts = this.registry.countPeers(t.peerIp, prefix, asn, t.node.id);
     const lim = policy.body.nodeCapsPerPrefix;
     // Per-ASN cap always holds for public peers: without ASN data every such
@@ -596,13 +614,17 @@ export class NodeTunnelServer {
     // Connect class: peer IP class, never better than the last persisted probe
     // verdict (a reconnect from another IP must not undo a probe downgrade).
     const peerRaw: NodeIpClass = geo?.ipClass ?? "unknown";
-    const priorProbe = t.node.probe_class ?? null;
     const connectClass: NodeIpClass = priorProbe ? conservativeClass(peerRaw, priorProbe) : peerRaw;
+    // Deferred (probes on): start from positive evidence. A known masked/dc
+    // verdict is kept; anything else is "unknown" and not selectable until probed.
+    const dc = this.opts.deferClassUntilProbe;
+    const defer = typeof dc === "function" ? dc() : dc === true;
+    const deferredClass: NodeIpClass = connectClass === "masked" || connectClass === "dc" ? connectClass : "unknown";
     const live: LiveNode = {
       nodeId: t.node.id, tunnel: t, ready: false, status: t.node.status, ip: t.peerIp, prefix24: prefix, asn, country,
-      // Unverified class is never assumed residential: "unknown" nodes are left out of
-      // explicit class-* selection and price at the "any" rate until classified.
-      ipClass: this.opts.deferClassUntilProbe ? "unknown" : connectClass, peerClass: peerRaw, ownerUserId: t.node.owner_user_id, ownerWallet: t.node.owner_wallet,
+      // Unverified class is never assumed residential; with probes on the node
+      // serves nothing (probePending) until its first probe classifies it.
+      ipClass: defer ? deferredClass : connectClass, probePending: defer, peerClass: peerRaw, connectClass, ownerUserId: t.node.owner_user_id, ownerWallet: t.node.owner_wallet,
       ownerTeamId: t.node.owner_team_id, health: 1, reputation: t.node.reputation, reportPenalty: t.node.report_penalty ?? 0, operatorRun: t.node.operator_run === true,
       maxStreams: Math.min(t.node.max_streams, caps.maxStreams), maxGbDay: t.node.max_gb_day, maxReqPerSec: t.node.max_req_per_sec ?? null,
       ports: caps.ports, bytesToday: 0, earningsTodayMusd: 0, day: dayOf(now), recentOpens: [], cooldownUntil: 0,
