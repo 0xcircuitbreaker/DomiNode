@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import * as payouts from "./payouts.js";
 import { PayoutNotBroadcastError, type PayoutDeps, type DuePayout } from "./payouts.js";
-import { classifyBroadcastError, isDropped } from "./payout-sender-ethers.js";
+import { classifyBroadcastError, isDropped, confirmDropped, DROP_CONFIRM_MS } from "./payout-sender-ethers.js";
 
 const ADDR = "0x" + "c".repeat(40);
 const TX = "0x" + "d".repeat(64);
@@ -51,11 +51,39 @@ describe("payout broadcast error classification", () => {
 
 describe("dropped transaction detection", () => {
   it("dropped only when the node forgot the tx and the confirmed nonce passed it", async () => {
-    const gone = { getTransaction: async () => null, confirmedNonce: async () => 8 };
+    const gone = { getTransaction: async () => null, getTransactionReceipt: async () => null, confirmedNonce: async () => 8 };
     expect(await isDropped(TX, 7, gone)).toBe(true);
     expect(await isDropped(TX, 8, gone)).toBe(false);
     expect(await isDropped(TX, 7, { ...gone, getTransaction: async () => ({}) })).toBe(false);
     expect(await isDropped(TX, undefined, gone)).toBe(false);
+  });
+
+  it("a tx mined between the lookups is never reported dropped", async () => {
+    // Pending tx is invisible on this RPC; it gets mined while we look it up.
+    let mined = false;
+    const c = {
+      confirmedNonce: async () => (mined ? 8 : 7),
+      getTransactionReceipt: async () => (mined ? { status: 1 } : null),
+      getTransaction: async () => { mined = true; return null; },
+    };
+    expect(await isDropped(TX, 7, c)).toBe(false);
+    // Nonce already past, but mined between the tx and the second receipt lookup.
+    let calls = 0;
+    const c2 = {
+      confirmedNonce: async () => 8,
+      getTransactionReceipt: async () => (++calls > 1 ? { status: 1 } : null),
+      getTransaction: async () => null,
+    };
+    expect(await isDropped(TX, 7, c2)).toBe(false);
+  });
+
+  it("requires two dropped observations some minutes apart", () => {
+    const m = new Map<string, number>();
+    expect(confirmDropped(m, TX, true, 0)).toBe(false);
+    expect(confirmDropped(m, TX, true, DROP_CONFIRM_MS - 1)).toBe(false);
+    expect(confirmDropped(m, TX, false, DROP_CONFIRM_MS)).toBe(false);
+    expect(confirmDropped(m, TX, true, DROP_CONFIRM_MS + 1)).toBe(false);
+    expect(confirmDropped(m, TX, true, 2 * DROP_CONFIRM_MS + 1)).toBe(true);
   });
 
   it("reconciliation reverses dropped payouts and checks submitted ones in parallel with a short timeout", async () => {

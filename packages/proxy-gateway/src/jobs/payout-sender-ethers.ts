@@ -33,20 +33,52 @@ export function classifyBroadcastError(err: unknown): "rejected" | "uncertain" {
 export interface DroppedCheck {
   /** null: the node does not know the transaction. */
   getTransaction(hash: string): Promise<unknown | null>;
+  /** null: no receipt (not mined, as far as this node knows). */
+  getTransactionReceipt(hash: string): Promise<unknown | null>;
   /** The signer's confirmed ("latest") nonce. */
   confirmedNonce(): Promise<number>;
 }
 
 /**
- * A transaction is dropped when the node no longer knows it AND the signer's
- * confirmed nonce has moved past its nonce: that nonce slot was used by
- * another transaction, so this one can never be mined. Unknown nonce (e.g.
+ * A transaction looks dropped when the signer's confirmed nonce had ALREADY
+ * moved past its nonce before we looked it up, and the node then knows
+ * neither the transaction nor a receipt for it. The nonce is read first: if
+ * it were read last, a tx mined between the lookups (pending txs are often
+ * invisible on sequencer-forwarding RPCs) would read as "unknown + nonce
+ * passed" and a confirmed payout would be reversed. Unknown nonce (e.g.
  * after a restart) is never treated as dropped.
  */
 export async function isDropped(hash: string, nonce: number | undefined, c: DroppedCheck): Promise<boolean> {
   if (nonce === undefined) return false;
+  if ((await c.confirmedNonce()) <= nonce) return false;
+  if ((await c.getTransactionReceipt(hash)) !== null) return false;
   if ((await c.getTransaction(hash)) !== null) return false;
-  return (await c.confirmedNonce()) > nonce;
+  return (await c.getTransactionReceipt(hash)) === null;
+}
+
+/** Minimum gap between two "looks dropped" observations before a payout is reversed. */
+export const DROP_CONFIRM_MS = 5 * 60_000;
+const MAX_SUSPECTS = 10_000;
+
+/**
+ * Two-pass confirmation: a tx is reported dropped only when it looked dropped
+ * on two checks at least DROP_CONFIRM_MS apart, so one lagging RPC backend
+ * cannot trigger a reversal (and a double payment).
+ */
+export function confirmDropped(suspects: Map<string, number>, hash: string, looksDropped: boolean, now: number, gapMs = DROP_CONFIRM_MS): boolean {
+  if (!looksDropped) {
+    suspects.delete(hash);
+    return false;
+  }
+  const first = suspects.get(hash);
+  if (first === undefined) {
+    if (suspects.size >= MAX_SUSPECTS) suspects.delete(suspects.keys().next().value as string);
+    suspects.set(hash, now);
+    return false;
+  }
+  if (now - first < gapMs) return false;
+  suspects.delete(hash);
+  return true;
 }
 const MAX_SENT_CACHE = 10_000;
 
@@ -71,6 +103,7 @@ export function createEthersPayoutSender(env: NodeJS.ProcessEnv, opts: { receipt
   const wallet: Wallet = new Wallet(readSignerKeyFile(env["PAYOUT_SIGNER_KEY_FILE"]), provider);
   const sent = new Map<string, string>(); // payoutId -> txHash (in-process idempotency)
   const nonces = new Map<string, number>(); // txHash -> nonce (dropped-tx detection)
+  const suspects = new Map<string, number>(); // txHash -> first time it looked dropped
   const timeout = opts.receiptTimeoutMs ?? 120_000;
 
   return {
@@ -115,11 +148,12 @@ export function createEthersPayoutSender(env: NodeJS.ProcessEnv, opts: { receipt
     async waitForReceipt(txHash: string, timeoutMs?: number): Promise<ReceiptStatus> {
       const r = await provider.waitForTransaction(txHash, 1, timeoutMs ?? timeout).catch(() => null);
       if (r) return r.status === 1 ? "confirmed" : "reverted";
-      const dropped = await isDropped(txHash, nonces.get(txHash), {
-        getTransaction: (h) => provider.getTransaction(h),
+      const looks = await isDropped(txHash, nonces.get(txHash), {
         confirmedNonce: () => provider.getTransactionCount(wallet.address, "latest"),
+        getTransactionReceipt: (h) => provider.getTransactionReceipt(h),
+        getTransaction: (h) => provider.getTransaction(h),
       }).catch(() => false);
-      return dropped ? "dropped" : "pending";
+      return confirmDropped(suspects, txHash, looks, Date.now()) ? "dropped" : "pending";
     },
     async preflight(chain: PayoutChain): Promise<{ gasOk: boolean; usdcMusd: bigint }> {
       const [eth, usdc] = await Promise.all([
