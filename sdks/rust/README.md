@@ -16,7 +16,7 @@ or in `Cargo.toml`:
 
 ```toml
 [dependencies]
-dominusnode = "3.1"
+dominusnode = "4.0"
 tokio = { version = "1", features = ["full"] }
 ```
 
@@ -70,7 +70,7 @@ async fn main() -> dominusnode::Result<()> {
 ## Signers
 
 The SDK has no crypto dependency. Signed flows (`wallet_auth.sign_in`,
-`nodes.register`, `credits.withdraw`, `payout_wallet.set`) take a `&dyn Signer`
+`nodes.register`, `credits.convert`, `credits.withdraw`, `payout_wallet.set`) take a `&dyn Signer`
 that performs EIP-191 `personal_sign`:
 
 ```rust

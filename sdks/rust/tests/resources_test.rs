@@ -188,30 +188,9 @@ case!(nodes_revoke, json!({"id": UUID, "status": "revoked"}), |c| c.nodes.revoke
 case!(nodes_update_caps, json!({"id": UUID}), |c| c.nodes.update_caps(UUID, &NodeCaps { max_streams: Some(4), gb_per_day: None, req_per_sec: Some(10) }), "PATCH", &format!("/v1/nodes/{UUID}"), Some(json!({"maxStreams": 4, "reqPerSec": 10})), A);
 case!(nodes_tier, json!({"tier": {"dailyWithdrawLimitMusd": "100000000"}}), |c| c.nodes.tier(), "GET", "/v1/node/tier", None, A);
 
-// ---- credits (balance, transactions, convert; withdraw in signer_test)
+// ---- credits (balance, transactions; convert and withdraw in signer_test)
 case!(credits_balance, json!({"available": {"musd": "1", "usd": "0.000001"}}), |c| c.credits.balance(), "GET", "/v1/credits", None, A);
 case!(credits_transactions, json!({"transactions": [], "nextCursor": null}), |c| c.credits.transactions(Some(50), Some("123"), Some("earn")), "GET", "/v1/credits/transactions?limit=50&cursor=123&type=earn", None, A);
-
-#[tokio::test]
-async fn credits_convert_sends_string_and_idempotency_header() {
-    let (c, m) = connected().await;
-    m.push(r(200, json!({"converted": {"musd": "50000", "usd": "0.05"}, "convertedCents": 5, "duplicate": false})));
-    let res = c.credits.convert(50_000u64, Some("my-key-0001")).await.unwrap();
-    check(&m, "POST", "/v1/credits/convert", Some(json!({"amountMusd": "50000"})), A);
-    assert_eq!(m.last().header("idempotency-key").as_deref(), Some("my-key-0001"));
-    assert_eq!(res.idempotency_key, "my-key-0001");
-    assert_eq!(res.converted_cents, 5);
-}
-
-#[tokio::test]
-async fn credits_convert_default_key() {
-    let (c, m) = connected().await;
-    m.push(r(200, json!({})));
-    let res = c.credits.convert("10000", None).await.unwrap();
-    let k = m.last().header("idempotency-key").unwrap();
-    assert!(k.starts_with("dn-") && k.len() == 39);
-    assert_eq!(res.idempotency_key, k);
-}
 
 // ---- payouts (1), payoutWallet.get (1)
 case!(payouts_list, json!({"payouts": [], "limit": 5, "offset": 1}), |c| c.payouts.list(Some(5), Some(1)), "GET", "/v1/payouts?limit=5&offset=1", None, A);
