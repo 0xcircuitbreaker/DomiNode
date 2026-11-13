@@ -63,6 +63,19 @@ func BuildWithdrawMessage(userID, wallet, amountMusd, idempotencyKey, nonce stri
 	}, "\n")
 }
 
+// BuildConvertMessage mirrors routes/v1/credits.ts convertMessage.
+func BuildConvertMessage(userID, wallet, amountMusd, idempotencyKey, nonce string) string {
+	return strings.Join([]string{
+		"DominusNode credit conversion",
+		"Action: convert",
+		"User: " + userID,
+		"Account wallet: " + strings.ToLower(wallet),
+		"Amount (µUSD): " + amountMusd,
+		"Idempotency key: " + idempotencyKey,
+		"Nonce: " + nonce,
+	}, "\n")
+}
+
 // extractUserID takes line 3 ("User: <uuid>") of a server message.
 func extractUserID(message string) (string, error) {
 	lines := strings.Split(message, "\n")

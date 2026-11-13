@@ -231,6 +231,95 @@ func TestBadSignatureFromSigner(t *testing.T) {
 	}
 }
 
+// ---- convert
+
+func convertChallenge(signer, amount, key string, mutate func(string) string) string {
+	nonce := strings.Repeat("d", 64)
+	msg := BuildConvertMessage(testUUID, signer, amount, key, nonce)
+	if mutate != nil {
+		msg = mutate(msg)
+	}
+	b, _ := json.Marshal(map[string]any{"nonce": nonce, "message": msg, "expiresAt": "t", "signer": strings.ToLower(signer)})
+	return string(b)
+}
+
+func TestConvertMessageMatchesServer(t *testing.T) {
+	want := "DominusNode credit conversion\nAction: convert\nUser: " + testUUID + "\nAccount wallet: " + strings.ToLower(testAddr) +
+		"\nAmount (µUSD): 10000\nIdempotency key: dn-key_12345678\nNonce: " + strings.Repeat("d", 64)
+	if got := BuildConvertMessage(testUUID, testAddr, "10000", "dn-key_12345678", strings.Repeat("d", 64)); got != want {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestConvertFlow(t *testing.T) {
+	c, rt := newTestClient(t)
+	s := &fakeSigner{addr: testAddr}
+	key := "dn-key_12345678"
+	rt.push(ok(convertChallenge(testAddr, "10000", key, nil)),
+		ok(`{"converted":{"musd":"10000","usd":"0.010000"},"convertedCents":1,"duplicate":false}`))
+	r, err := c.Credits.Convert(context.Background(), ConvertOptions{AmountMusd: int64(10_000), Signer: s, IdempotencyKey: key})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.IdempotencyKey != key || r.Converted.Musd != "10000" || r.ConvertedCents != 1 || len(s.calls) != 1 {
+		t.Fatalf("%+v", r)
+	}
+	if rt.reqs[0].Path != "/v1/credits/convert/challenge" || rt.reqs[1].Path != "/v1/credits/convert" {
+		t.Fatal("paths")
+	}
+	jsonEq(t, rt.reqs[0].Body, `{"amountMusd":"10000"}`)
+	jsonEq(t, rt.reqs[1].Body, `{"amountMusd":"10000","nonce":"`+strings.Repeat("d", 64)+`","signature":"`+testSig+`"}`)
+	for _, q := range rt.reqs {
+		if q.Header.Get("Idempotency-Key") != key || q.Method != "POST" {
+			t.Fatal("idempotency header / method")
+		}
+	}
+}
+
+func TestConvertRefusals(t *testing.T) {
+	key := "dn-key_12345678"
+	cases := map[string]string{
+		"text mismatch": convertChallenge(testAddr, "10000", key, func(m string) string { return strings.Replace(m, "10000", "99999", 1) }),
+		"action swap":   convertChallenge(testAddr, "10000", key, func(m string) string { return strings.Replace(m, "Action: convert", "Action: withdraw", 1) }),
+		"server signer": strings.Replace(convertChallenge(testAddr, "10000", key, nil), `"signer":"`+strings.ToLower(testAddr), `"signer":"0x`+strings.Repeat("1", 40), 1),
+		"bad nonce":     strings.Replace(convertChallenge(testAddr, "10000", key, nil), `"nonce":"`+strings.Repeat("d", 64), `"nonce":"x`, 1),
+	}
+	for name, chal := range cases {
+		t.Run(name, func(t *testing.T) {
+			c, rt := newTestClient(t)
+			s := &fakeSigner{addr: testAddr}
+			rt.push(ok(chal))
+			_, err := c.Credits.Convert(context.Background(), ConvertOptions{AmountMusd: 10_000, Signer: s, IdempotencyKey: key})
+			if !isType[*ProtocolError](err) || len(s.calls) != 0 || len(rt.reqs) != 1 {
+				t.Fatalf("err=%v calls=%d reqs=%d", err, len(s.calls), len(rt.reqs))
+			}
+		})
+	}
+}
+
+func TestConvertMissingSigner(t *testing.T) {
+	c, rt := newTestClient(t)
+	_, err := c.Credits.Convert(context.Background(), ConvertOptions{AmountMusd: 10_000})
+	if err == nil || len(rt.reqs) != 0 {
+		t.Fatalf("err=%v reqs=%d", err, len(rt.reqs))
+	}
+}
+
+func TestConvertDefaultIdempotencyKey(t *testing.T) {
+	c, rt := newTestClient(t)
+	s := &fakeSigner{addr: testAddr}
+	// Server text built for another key: the SDK must refuse before signing.
+	rt.push(ok(convertChallenge(testAddr, "10000", "dn-other_123456", nil)))
+	_, err := c.Credits.Convert(context.Background(), ConvertOptions{AmountMusd: "10000", Signer: s})
+	if !isType[*ProtocolError](err) || len(s.calls) != 0 {
+		t.Fatalf("err=%v", err)
+	}
+	k := rt.last(t).Header.Get("Idempotency-Key")
+	if !strings.HasPrefix(k, "dn-") || len(k) != 39 || !idempotencyKeyRE.MatchString(k) {
+		t.Fatalf("key %q", k)
+	}
+}
+
 // ---- payout wallet
 
 const newPayout = "0x2222222222222222222222222222222222222AbC"
