@@ -1,9 +1,9 @@
 import { describe, it, expect, afterAll } from "vitest";
-import { PG_TEST_URL, mkUser, mkNode, mkCharge, mkTeam } from "./pg-fixtures.js";
+import { PG_TEST_URL, mkUser, mkNode, mkCharge, mkTeam } from "./pg-fixtures.test.helpers.js";
 import { query, closePool } from "../db.js";
 import { getOwnerTierStats } from "./tier-repo.js";
 
-// Opt-in: runs only against a scratch database (see pg-fixtures.ts).
+// Opt-in: runs only against a scratch database (see pg-fixtures.test.helpers.ts).
 describe.skipIf(!PG_TEST_URL)("getOwnerTierStats against PostgreSQL", () => {
   afterAll(async () => { await closePool(); });
   let ipSeq = 1 + Math.floor(Math.random() * 200);

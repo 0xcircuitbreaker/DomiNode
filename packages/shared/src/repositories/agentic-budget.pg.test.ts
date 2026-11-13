@@ -1,5 +1,5 @@
 import { describe, it, expect, afterAll } from "vitest";
-import { PG_TEST_URL, mkUser } from "./pg-fixtures.js";
+import { PG_TEST_URL, mkUser } from "./pg-fixtures.test.helpers.js";
 import { query, closePool, getPool } from "../db.js";
 import { reserveSessionBudget, releaseSessionBudget, settleSessionTx } from "./agentic-wallet-repo.js";
 
@@ -22,7 +22,7 @@ async function settle(walletId: string, userId: string, reserved: number, grossM
   } finally { c.release(); }
 }
 
-// Opt-in: runs only against a scratch database (see pg-fixtures.ts).
+// Opt-in: runs only against a scratch database (see pg-fixtures.test.helpers.ts).
 describe.skipIf(!PG_TEST_URL)("agentic wallet relay budget against PostgreSQL", () => {
   afterAll(async () => { await closePool(); });
 

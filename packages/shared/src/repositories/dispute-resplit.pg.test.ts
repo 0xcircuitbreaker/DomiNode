@@ -1,9 +1,9 @@
 import { describe, it, expect, afterAll } from "vitest";
-import { PG_TEST_URL, mkUser, mkNode, mkCharge } from "./pg-fixtures.js";
+import { PG_TEST_URL, mkUser, mkNode, mkCharge } from "./pg-fixtures.test.helpers.js";
 import { query, closePool, getPool } from "../db.js";
 import { resplitAtNodeBytesTx } from "./dispute-resolution-repo.js";
 
-// Opt-in: runs only against a scratch database (see pg-fixtures.ts).
+// Opt-in: runs only against a scratch database (see pg-fixtures.test.helpers.ts).
 describe.skipIf(!PG_TEST_URL)("resolved_node re-split against PostgreSQL", () => {
   afterAll(async () => { await closePool(); });
 

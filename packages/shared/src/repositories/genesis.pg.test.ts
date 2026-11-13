@@ -1,5 +1,5 @@
 import { describe, it, expect, afterAll, beforeAll } from "vitest";
-import { PG_TEST_URL, mkUser, mkNode, mkCharge } from "./pg-fixtures.js";
+import { PG_TEST_URL, mkUser, mkNode, mkCharge } from "./pg-fixtures.test.helpers.js";
 import { query, closePool } from "../db.js";
 import { enrol, listCreditCandidates, grantCredit } from "./genesis-repo.js";
 
@@ -10,7 +10,7 @@ async function paidTopup(userId: string, cents = 500): Promise<void> {
 }
 const isMember = async (u: string) => (await query(`SELECT 1 FROM genesis_members WHERE owner_user_id = $1`, [u])).rows.length === 1;
 
-// Opt-in: runs only against a scratch database (see pg-fixtures.ts).
+// Opt-in: runs only against a scratch database (see pg-fixtures.test.helpers.ts).
 describe.skipIf(!PG_TEST_URL)("genesis cohort against PostgreSQL", () => {
   beforeAll(async () => {
     await query(`DELETE FROM genesis_members`);
@@ -57,9 +57,11 @@ describe.skipIf(!PG_TEST_URL)("genesis cohort against PostgreSQL", () => {
   it("gives one slot per beneficial owner (same egress /24)", async () => {
     const a = await mkUser();
     const b = await mkUser();
-    const na = await mkNode(a, "192.0.2.10");
-    const nb = await mkNode(b, "192.0.2.20");
-    await query(`UPDATE nodes SET ip_prefix24 = '192.0.2.0/24' WHERE id = ANY($1::uuid[])`, [[na, nb]]);
+    // A fresh /24 per run, so owners left over from earlier runs never share it.
+    const net = `10.${Math.floor(Math.random() * 250)}.${Math.floor(Math.random() * 250)}`;
+    const na = await mkNode(a, `${net}.10`);
+    const nb = await mkNode(b, `${net}.20`);
+    await query(`UPDATE nodes SET ip_prefix24 = $2::cidr WHERE id = ANY($1::uuid[])`, [[na, nb], `${net}.0/24`]);
     const payers = [await mkUser(), await mkUser(), await mkUser()];
     for (const p of payers) {
       await paidTopup(p);
