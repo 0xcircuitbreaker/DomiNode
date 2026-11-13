@@ -147,7 +147,7 @@ docker compose -f docker-compose.demo.yml down -v   # throw it all away
 ./scripts/selfhost/install.sh
 ```
 
-It asks for one or more public hostnames (the first is the primary `DOMINUSNODE_DOMAIN`; all of them are served), the TLS mode (`auto`, `internal`, `off`) and an operator contact. It generates the coordinator key, a `.env` with random secrets and `selfhost/Caddyfile`, then starts `docker-compose.selfhost.yml`. Re-run it to upgrade; existing secrets and the key are kept. Non-interactive: `DOMINUSNODE_HOSTNAMES="a.example b.example" TLS_MODE=auto OPERATOR_CONTACT=ops@example ./scripts/selfhost/install.sh --yes`.
+It asks for one or more public hostnames (the first is the primary `DOMINUSNODE_DOMAIN`; all of them are served), the role (`ROLE`: `all`, `coordinator`, or `gateway` for a separate gateway VPS over WireGuard), the TLS mode (`auto`, `internal`, `off`, `cloudflare`), an operator contact and an optional first admin email (`ADMIN_BOOTSTRAP_EMAIL`; the admin UI is served at your domain). It generates the coordinator key, a `.env` with random secrets and `selfhost/Caddyfile`, then starts `docker-compose.selfhost.yml`. Re-run it to upgrade; existing secrets and the key are kept. Non-interactive: `DOMINUSNODE_HOSTNAMES="a.example b.example" TLS_MODE=auto OPERATOR_CONTACT=ops@example ./scripts/selfhost/install.sh --yes`. Back up with `scripts/selfhost/backup.sh` (database, keys and `.env`, encrypted); see DEPLOYMENT.md "Self-host backup".
 
 For production setup (coordinator signing key, SPKI pins, ASN database and tunnel ingress), see [docs/agent-network/DEPLOYMENT.md](docs/agent-network/DEPLOYMENT.md). For the architecture overview, see [ARCHITECTURE.md](ARCHITECTURE.md).
 
