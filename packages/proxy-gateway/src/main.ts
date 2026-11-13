@@ -2,7 +2,7 @@ import type * as net from "node:net";
 import dotenv from "dotenv";
 dotenv.config();
 
-import { createLogger, closePool, getPool, usageRepo, connectWithRetry, nodeRepo, policyRepo, nodeCreditRepo, retentionRepo, tierRepo, payoutRepo, relayChargeRepo, relaySettleRetryRepo, sessionRecoveryRepo, reportReputationRepo, collusionRepo, starterCreditRepo, contributionRepo, genesisRepo, networkStatusRepo, getProxyPorts, assertDistinctProxyPorts, reportTlsCapability, apiKeyPepper } from "@dominusnode/shared";
+import { createLogger, closePool, getPool, usageRepo, connectWithRetry, nodeRepo, policyRepo, nodeCreditRepo, retentionRepo, tierRepo, payoutRepo, relayChargeRepo, relaySettleRetryRepo, reportReputationRepo, collusionRepo, starterCreditRepo, contributionRepo, genesisRepo, networkStatusRepo, getProxyPorts, assertDistinctProxyPorts, reportTlsCapability, apiKeyPepper } from "@dominusnode/shared";
 import type { ActivePolicy } from "@dominusnode/shared";
 import { startProxyServer } from "./server.js";
 import { geoAvailable, initGeoCheck, lookupPeerGeo, classifyEgressIp } from "./geo-check.js";
@@ -212,17 +212,11 @@ async function main(): Promise<void> {
   const runRecovery = async (): Promise<void> => {
     try {
       const r = await recoverOrphanedSessions(SESSION_STALE_SECONDS);
-      if (r.settled > 0 || r.failed > 0) log.info("recovered orphaned sessions", r);
+      if (r.settled > 0 || r.failed > 0 || r.legacyClosed) log.info("recovered orphaned sessions", r);
     } catch (err) {
       log.warn("orphaned session recovery failed", { error: err instanceof Error ? err.message.slice(0, 100) : "unknown" });
     }
   };
-  try {
-    const legacy = await sessionRecoveryRepo.closeLegacyOrphans(3600);
-    if (legacy > 0) log.warn(`closed ${legacy} legacy orphaned sessions without a recovery payload`);
-  } catch (err) {
-    log.warn("legacy orphan cleanup failed", { error: err instanceof Error ? err.message.slice(0, 100) : "unknown" });
-  }
   await runRecovery();
   const sessionHeartbeat = setInterval(() => {
     heartbeatActiveSessions().catch((err) => log.warn("session heartbeat failed", { error: err instanceof Error ? err.message.slice(0, 100) : "unknown" }));

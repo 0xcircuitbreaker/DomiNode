@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
-  NodeRegistry, ipPrefix, dayOf, type LiveNode, REP_BYTES_PER_POINT, REP_DISTINCT_REQUESTER_BONUS,
+  NodeRegistry, ipPrefix, dayOf, type LiveNode, REP_BYTES_PER_POINT, REP_DISTINCT_REQUESTER_BONUS, REP_BONUS_MIN_BYTES,
   REP_DISPUTE_PENALTY, REP_BURN_PENALTY, MAX_REPORTS_PER_REQUESTER_NODE_DAY, QUARANTINE_BELOW,
 } from "./registry.js";
 
@@ -49,6 +49,16 @@ describe("NodeRegistry reputation & burn counters", () => {
     expect(f.counters.bytes).toBe(REP_BYTES_PER_POINT * 3);
     expect(f.counters.etld.get("example.com")).toEqual({ ok: 1, burn: 0 });
     expect(r.drainCounters()).toEqual([]);
+  });
+
+  it("zero-byte and tiny sessions earn no distinct-requester bonus or stream count", () => {
+    const r = new NodeRegistry();
+    r.add(node("a"));
+    for (let i = 0; i < 50; i++) r.recordPaidBytes("a", `sybil${i}`, 0);
+    r.recordPaidBytes("a", "sybil-x", REP_BONUS_MIN_BYTES - 1);
+    expect(r.get("a")!.reputation).toBe(3000);
+    const [f] = r.drainCounters();
+    expect(f.counters.streams).toBe(1);
   });
 
   it("penalizes disputes and burns, sets cooldown, clamps at 0, flags quarantine", () => {

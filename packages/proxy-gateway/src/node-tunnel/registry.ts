@@ -19,6 +19,8 @@ export const QUARANTINE_BELOW = 1000;
 export const REP_BYTES_PER_POINT = 100 * 1024 * 1024;
 /** First paid session of the day from a distinct requester. */
 export const REP_DISTINCT_REQUESTER_BONUS = 5;
+/** Paid bytes a session must carry before its requester counts toward the distinct-requester bonus. */
+export const REP_BONUS_MIN_BYTES = 1024 * 1024;
 export const REP_DISPUTE_PENALTY = 200;
 export const REP_FAILURE_PENALTY = 5;
 export const REP_BURN_PENALTY = 100;
@@ -283,7 +285,7 @@ export class NodeRegistry {
    * reputation per REP_BYTES_PER_POINT, plus a bonus for each distinct requester today.
    */
   recordPaidBytes(nodeId: string, requesterKey: string, bytes: number, etld1?: string): void {
-    if (!Number.isSafeInteger(bytes) || bytes < 0) return;
+    if (!Number.isSafeInteger(bytes) || bytes <= 0) return;
     const c = this.countersFor(nodeId);
     if (!c) return;
     this.rollDay();
@@ -299,7 +301,7 @@ export class NodeRegistry {
     let bonus = 0;
     let set = this.requestersToday.get(nodeId);
     if (!set) this.requestersToday.set(nodeId, (set = new Set()));
-    if (!set.has(requesterKey) && set.size < MAX_REQUESTERS_PER_NODE_DAY) {
+    if (bytes >= REP_BONUS_MIN_BYTES && !set.has(requesterKey) && set.size < MAX_REQUESTERS_PER_NODE_DAY) {
       set.add(requesterKey);
       bonus = REP_DISTINCT_REQUESTER_BONUS;
     }

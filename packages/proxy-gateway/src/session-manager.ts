@@ -94,6 +94,9 @@ export function configureSettledHook(fn: ((e: SettledSessionEvent) => void) | nu
 }
 function emitSettled(input: relayChargeRepo.SettleRelayChargeInput, r: relayChargeRepo.SettleRelayChargeResult): void {
   if (!onSettled || r.status !== "settled") return;
+  // Only paid traffic counts: zero-byte, zero-charge or zeroed (self-dealing,
+  // collusion hold, quarantine) sessions must not raise reputation or stats.
+  if (r.grossMusd <= 0n || r.zeroReason || input.bytesGateway <= 0n) return;
   try {
     onSettled({
       nodeId: input.nodeId, requesterUserId: input.requesterUserId,
@@ -152,8 +155,21 @@ export async function heartbeatActiveSessions(): Promise<number> {
  * refunded and the node is paid. Sessions owned by live instances or by the
  * settle-retry queue are never touched.
  */
-export async function recoverOrphanedSessions(staleSeconds: number): Promise<{ settled: number; failed: number }> {
+/** Legacy rows (no recovery payload) are closed once older than this. */
+export const LEGACY_ORPHAN_AGE_SECONDS = 3600;
+
+export async function recoverOrphanedSessions(staleSeconds: number): Promise<{ settled: number; failed: number; legacyClosed?: number }> {
   if (!recoveryInstanceId) return { settled: 0, failed: 0 };
+  // Runs every recovery pass (idempotent, cheap): rows left behind by the
+  // upgrade restart itself are minutes old at startup and are closed once
+  // they pass the age limit.
+  let legacyClosed = 0;
+  try {
+    legacyClosed = await sessionRecoveryRepo.closeLegacyOrphans(LEGACY_ORPHAN_AGE_SECONDS);
+    if (legacyClosed > 0) log.warn(`closed ${legacyClosed} legacy orphaned sessions without a recovery payload`);
+  } catch (err) {
+    log.warn("legacy orphan cleanup failed", { error: err instanceof Error ? err.message.slice(0, 100) : "unknown" });
+  }
   const rows = await sessionRecoveryRepo.listRecoverableSessions(recoveryInstanceId, staleSeconds, 1000);
   let settled = 0, failed = 0;
   for (const r of rows) {
@@ -165,7 +181,7 @@ export async function recoverOrphanedSessions(staleSeconds: number): Promise<{ s
       log.error("orphaned session recovery failed", { sessionId: r.sessionId, error: err instanceof Error ? err.message.slice(0, 120) : "unknown" });
     }
   }
-  return { settled, failed };
+  return legacyClosed > 0 ? { settled, failed, legacyClosed } : { settled, failed };
 }
 
 // Socket destroy callbacks registered per session for forced termination.

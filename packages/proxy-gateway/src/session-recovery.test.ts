@@ -8,6 +8,7 @@ const mockSettleRelayCharge = vi.fn();
 const mockAttach = vi.fn();
 const mockHeartbeat = vi.fn();
 const mockListRecoverable = vi.fn();
+const mockCloseLegacy = vi.fn(async () => 0);
 const SNAPSHOT = { splitConfigId: 1, tierId: 1, nodeShareBps: 2500, holdDays: 14 };
 const RELAY = { nodeId: "node-1", ipClass: "residential" as const, nodeOwnerUserId: "owner-1", destPort: 443 };
 
@@ -34,6 +35,7 @@ vi.mock("@dominusnode/shared", () => ({
     attachRecoveryPayload: (...a: unknown[]) => mockAttach(...a),
     heartbeatSessions: (...a: unknown[]) => mockHeartbeat(...a),
     listRecoverableSessions: (...a: unknown[]) => mockListRecoverable(...a),
+    closeLegacyOrphans: (...a: unknown[]) => mockCloseLegacy(...(a as [])),
   },
   createLogger: () => ({ debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() }),
   RELAY_BYTES_PER_GB: 1_000_000_000,
@@ -91,6 +93,39 @@ describe("session crash/restart recovery", () => {
     expect(mockListRecoverable).toHaveBeenCalledWith("gw-self", 120, 1000);
     expect(mockSettleRelayCharge).toHaveBeenCalledWith(input);
     expect(r).toEqual({ settled: 1, failed: 0 });
+  });
+
+  it("closes legacy orphans on every recovery pass, not only at startup", async () => {
+    mockCloseLegacy.mockClear();
+    mockListRecoverable.mockResolvedValue([]);
+    await recoverOrphanedSessions(120);
+    await recoverOrphanedSessions(120);
+    expect(mockCloseLegacy).toHaveBeenCalledTimes(2);
+    expect(mockCloseLegacy).toHaveBeenCalledWith(3600);
+    mockCloseLegacy.mockRejectedValueOnce(new Error("db down"));
+    await expect(recoverOrphanedSessions(120)).resolves.toEqual({ settled: 0, failed: 0 });
+    mockListRecoverable.mockReset();
+  });
+
+  it("does not report unpaid sessions (zero bytes, zero charge, zeroed) to the registry hook", async () => {
+    const events: unknown[] = [];
+    configureSettledHook((e) => events.push(e));
+    try {
+      const rows = [
+        { sessionId: "z1", input: { nodeId: "n", requesterUserId: "u", bytesGateway: 0n, destHost: "a" } },
+        { sessionId: "z2", input: { nodeId: "n", requesterUserId: "u", bytesGateway: 5000n, destHost: "a" } },
+        { sessionId: "z3", input: { nodeId: "n", requesterUserId: "u", bytesGateway: 5000n, destHost: "a" } },
+      ];
+      mockListRecoverable.mockResolvedValueOnce(rows);
+      mockSettleRelayCharge
+        .mockResolvedValueOnce({ status: "settled", grossMusd: 0n, nodeMusd: 0n, zeroReason: null })
+        .mockResolvedValueOnce({ status: "settled", grossMusd: 0n, nodeMusd: 0n, zeroReason: null })
+        .mockResolvedValueOnce({ status: "settled", grossMusd: 900n, nodeMusd: 0n, zeroReason: "self_dealing" });
+      await recoverOrphanedSessions(120);
+      expect(events).toEqual([]);
+    } finally {
+      configureSettledHook(null);
+    }
   });
 
   it("reports each settled charge to the node registry hook (reputation, daily stats, earnings)", async () => {
