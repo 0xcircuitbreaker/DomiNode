@@ -60,7 +60,9 @@ services:
   # container user (uid 1001, mode 0400). The host files stay 0600 and owned by
   # whoever ran install.sh; re-running fixes the ownership of existing installs.
   keys:
-    profiles: [gateway]
+    # Copies the coordinator key for every service that signs: the gateway
+    # (node-tunnel CHALLENGEs) and the api (coordinator.json, policy.json).
+    profiles: [gateway, coordinator]
     image: dominusnode-api:selfhost
     depends_on:
       migrate: { condition: service_completed_successfully, required: false }
@@ -99,8 +101,14 @@ services:
       # Advertised TLS proxy ports (empty with TLS_MODE=off: not advertised).
       PROXY_PUBLIC_TLS_PORT: ${PROXY_PUBLIC_TLS_PORT-8444}
       PROXY_PUBLIC_SOCKS5_TLS_PORT: ${PROXY_PUBLIC_SOCKS5_TLS_PORT-1443}
+      # Signs /.well-known/dominusnode/{coordinator,policy}.json (503 without it).
+      COORD_SIGNING_KEY_FILE: /run/dominusnode/coord-key.pem
+      COORDINATOR_HOSTNAMES: ${PUBLIC_HOSTNAMES:-${DOMINUSNODE_DOMAIN}}
+    volumes:
+      - gateway_secrets:/run/dominusnode:ro
     depends_on:
       migrate: { condition: service_completed_successfully }
+      keys: { condition: service_completed_successfully }
     networks: [backend, frontend]
     expose: ["3000"]
     security_opt: ["no-new-privileges:true"]
@@ -305,6 +313,9 @@ networks:
     ipam:
       config:
         - subnet: 172.29.53.0/24
+          # Dynamic addresses come from the upper half only, so Caddy's fixed
+          # 172.29.53.2 (trusted by the gateway for PROXY v2) can never be taken.
+          ip_range: 172.29.53.128/25
 
 volumes:
   pgdata:
