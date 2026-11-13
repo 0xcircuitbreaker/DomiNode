@@ -51,6 +51,14 @@ describe("relay erasure", () => {
     expect(sql).toMatch(/sha256\(convert_to\('starter-funding:'/);
   });
 
+  it("anonymizes admin audit rows about the erased user (and their nodes)", () => {
+    const sql = RELAY_ERASURE_STATEMENTS.find((s) => s.label === "audit_events_about_user")?.sql ?? "";
+    expect(sql).toMatch(/UPDATE audit_events SET resource_id = 'REDACTED', details = NULL/);
+    expect(sql).toMatch(/details->>'requesterId' = \$1::text/);
+    expect(sql).toMatch(/resource_id = \$1::text/);
+    expect(sql).toMatch(/FROM nodes WHERE owner_user_id::text = \$1::text/);
+  });
+
   it("scrubs destination and wallet from pending settle retries", () => {
     const sql = RELAY_ERASURE_STATEMENTS.find((s) => s.label === "relay_settle_retries_pending")?.sql ?? "";
     expect(sql).toMatch(/UPDATE relay_settle_retries/);

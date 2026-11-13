@@ -67,6 +67,17 @@ export const RELAY_ERASURE_STATEMENTS: ReadonlyArray<{ label: string; sql: strin
   },
   { label: "requester_spend_inflight", sql: "DELETE FROM requester_spend_inflight WHERE user_id = $1" },
   { label: "requester_rate_window", sql: "DELETE FROM requester_rate_window WHERE user_id = $1" },
+  // Admin audit rows ABOUT this user (user_id there is the admin): keep the
+  // action and admin for accountability, drop what links back to the user.
+  {
+    label: "audit_events_about_user",
+    sql: `UPDATE audit_events SET resource_id = 'REDACTED', details = NULL
+          WHERE (user_id IS NULL OR user_id::text <> $1::text)
+            AND (resource_id = $1::text
+              OR details->>'requesterId' = $1::text OR details->>'userId' = $1::text
+              OR details->>'ownerUserId' = $1::text OR details->>'targetUserId' = $1::text
+              OR resource_id IN (SELECT id::text FROM nodes WHERE owner_user_id::text = $1::text))`,
+  },
 ];
 
 /** Erasure refused: a payout may be on-chain and must settle first. */

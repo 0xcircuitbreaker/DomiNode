@@ -321,7 +321,8 @@ function startJobs(registry: NodeRegistry, getPolicy: () => ActivePolicy): Job[]
   }));
   jobs.push(retentionJob.start({
     pool, logger: jobLog, intervalMs: envInt(process.env, "RETENTION_JOB_INTERVAL_MS", 3_600_000, 60_000, 86_400_000),
-    deps: { getRetentionDays: () => getPolicy().body.logRetentionDays, purgeBatch: retentionRepo.purgeRelayAbuseLogBatch },
+    deps: { getRetentionDays: () => getPolicy().body.logRetentionDays, purgeBatch: retentionRepo.purgeRelayAbuseLogBatch,
+      scrubAccessAuditBatch: retentionRepo.scrubAbuseLogAccessAuditBatch },
   }));
   jobs.push(tiersJob.start({
     pool, logger: jobLog, intervalMs: envInt(process.env, "TIER_JOB_INTERVAL_MS", 86_400_000, 3_600_000, 7 * 86_400_000),

@@ -8,10 +8,12 @@ export interface RetentionDeps {
   /** policy.logRetentionDays (validated 1..3650 by the policy validator). */
   getRetentionDays(): number;
   purgeBatch(days: number, batch: number): Promise<number>;
+  /** Scrub requester/host from abuse-log access audit rows past the same retention. */
+  scrubAccessAuditBatch?(days: number, batch: number): Promise<number>;
   maxBatches?: number;
 }
 
-export async function runOnce(deps: RetentionDeps): Promise<{ days: number; deleted: number; batches: number }> {
+export async function runOnce(deps: RetentionDeps): Promise<{ days: number; deleted: number; batches: number; scrubbed?: number }> {
   const days = deps.getRetentionDays();
   if (!Number.isInteger(days) || days < 1 || days > 3650) throw new Error("logRetentionDays out of range");
   const max = deps.maxBatches ?? 1000;
@@ -23,7 +25,14 @@ export async function runOnce(deps: RetentionDeps): Promise<{ days: number; dele
     deleted += n;
     if (n < RETENTION_BATCH) break;
   }
-  return { days, deleted, batches };
+  if (!deps.scrubAccessAuditBatch) return { days, deleted, batches };
+  let scrubbed = 0;
+  for (let i = 0; i < max; i++) {
+    const n = await deps.scrubAccessAuditBatch(days, RETENTION_BATCH);
+    scrubbed += n;
+    if (n < RETENTION_BATCH) break;
+  }
+  return { days, deleted, batches, scrubbed };
 }
 
 export function start(o: { deps: RetentionDeps; pool: LockPool; logger: JobLogger; intervalMs?: number }): Job {

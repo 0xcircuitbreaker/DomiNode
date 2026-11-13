@@ -200,3 +200,26 @@ export async function purgeRelayAbuseLogBatch(days: number, batch = ABUSE_LOG_BA
   );
   return r.rowCount ?? 0;
 }
+
+/**
+ * Admin audit rows of abuse-log lookups (relay_abuse_log_access) name a
+ * requester id and destination host. Once the abuse log itself is past
+ * retention, keep the accountability record (who looked, when) but drop the
+ * requester/node/host it pointed at. One batch (<=1000 rows) per call.
+ */
+export async function scrubAbuseLogAccessAuditBatch(days: number, batch = ABUSE_LOG_BATCH): Promise<number> {
+  if (!Number.isInteger(days) || days < 1 || days > 3650) throw new Error("days out of range");
+  const lim = Number.isInteger(batch) && batch > 0 && batch <= ABUSE_LOG_BATCH ? batch : ABUSE_LOG_BATCH;
+  const r = await query(
+    `UPDATE audit_events SET resource_id = 'REDACTED',
+            details = (details - 'requesterId' - 'host' - 'nodeId') || '{"scrubbed":true}'::jsonb
+      WHERE id IN (
+        SELECT id FROM audit_events
+         WHERE action = 'relay_abuse_log_access' AND created_at < now() - INTERVAL '1 day' * $1
+           AND NOT (COALESCE(details, '{}'::jsonb) ? 'scrubbed')
+         LIMIT $2
+      )`,
+    [days, lim],
+  );
+  return r.rowCount ?? 0;
+}

@@ -130,6 +130,12 @@ describe("retention job", () => {
     expect(purgeBatch).toHaveBeenCalledWith(30, 1000);
     expect(r).toEqual({ days: 30, deleted: 1010, batches: 2 });
   });
+  it("also scrubs abuse-log access audit rows past the same retention", async () => {
+    const scrubAccessAuditBatch = vi.fn().mockResolvedValueOnce(1000).mockResolvedValueOnce(3);
+    const r = await retention.runOnce({ getRetentionDays: () => 90, purgeBatch: vi.fn().mockResolvedValue(0), scrubAccessAuditBatch });
+    expect(scrubAccessAuditBatch).toHaveBeenCalledWith(90, 1000);
+    expect(r.scrubbed).toBe(1003);
+  });
   it("refuses an out-of-range retention", async () => {
     await expect(retention.runOnce({ getRetentionDays: () => 0, purgeBatch: vi.fn() })).rejects.toThrow();
   });

@@ -5,7 +5,7 @@ import { join } from "node:path";
 const mockQuery = vi.fn();
 vi.mock("../db.js", () => ({ query: (...args: unknown[]) => mockQuery(...args) }));
 
-import { enforceRetentionPolicies, RETENTION_EXEMPT_TABLES, RETENTION_PURGEABLE_TABLES } from "./retention-repo.js";
+import { enforceRetentionPolicies, RETENTION_EXEMPT_TABLES, RETENTION_PURGEABLE_TABLES, scrubAbuseLogAccessAuditBatch } from "./retention-repo.js";
 
 const here = __dirname;
 const schema = readFileSync(join(here, "..", "schema.sql"), "utf8");
@@ -37,5 +37,16 @@ describe("retention-repo", () => {
     expect(n).toBe(3);
     expect(String(mockQuery.mock.calls[1][0])).toMatch(/DELETE FROM pow_challenges/);
     expect(mockQuery.mock.calls[1][1]).toEqual([1, 10_000]);
+  });
+
+  it("scrubs requester/host from abuse-log access audit rows past retention", async () => {
+    mockQuery.mockResolvedValueOnce({ rowCount: 2 });
+    expect(await scrubAbuseLogAccessAuditBatch(90)).toBe(2);
+    const sql = String(mockQuery.mock.calls[0][0]);
+    expect(sql).toMatch(/action = 'relay_abuse_log_access'/);
+    expect(sql).toMatch(/- 'requesterId' - 'host'/);
+    expect(sql).toMatch(/resource_id = 'REDACTED'/);
+    expect(mockQuery.mock.calls[0][1]).toEqual([90, 1000]);
+    await expect(scrubAbuseLogAccessAuditBatch(0)).rejects.toThrow();
   });
 });
