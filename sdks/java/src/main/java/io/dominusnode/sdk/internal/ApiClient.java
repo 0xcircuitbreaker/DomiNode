@@ -25,7 +25,7 @@ import java.util.function.Supplier;
 
 /** HTTP layer shared by all resources. Internal. */
 public final class ApiClient {
-    public static final String SDK_VERSION = "2.2.0";
+    public static final String SDK_VERSION = "2.3.0";
     public static final String USER_AGENT = "dominusnode-sdk-java/" + SDK_VERSION;
     public static final int MAX_RESPONSE_BYTES = 10 * 1024 * 1024;
     static final long MAX_RETRY_WAIT_MS = 10_000;
