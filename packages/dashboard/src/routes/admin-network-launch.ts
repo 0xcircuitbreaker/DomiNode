@@ -246,6 +246,7 @@ function genesisOut(s: Awaited<ReturnType<typeof genesisRepo.getSettings>>) {
     enabled: s.enabled, maxOwners: s.maxOwners, bonusBps: s.bonusBps, boostDays: s.boostDays,
     credit: money(s.creditMusd.toString()), creditThresholdBytes: s.creditThresholdBytes.toString(),
     minDistinctPayers: s.minDistinctPayers,
+    creditThresholdNodeMusd: s.creditThresholdNodeMusd.toString(), minPayerSpendMusd: s.minPayerSpendMusd.toString(),
     updatedBy: s.updatedBy, updatedAt: s.updatedAt,
   };
 }
@@ -280,6 +281,8 @@ const GENESIS_SPEC: Record<string, FieldSpec> = {
   creditMusd: ["credit_musd", "musd", 0n, 1_000_000_000n],
   creditThresholdBytes: ["credit_threshold_bytes", "musd", 0n, 1_000_000_000_000_000n],
   minDistinctPayers: ["min_distinct_payers", "int", 1n, 1000n],
+  creditThresholdNodeMusd: ["credit_threshold_node_musd", "musd", 0n, 1_000_000_000_000n],
+  minPayerSpendMusd: ["min_payer_spend_musd", "musd", 0n, 1_000_000_000_000n],
 };
 
 router.put("/genesis/settings", async (req: Request, res: Response) => {

@@ -2090,3 +2090,25 @@ CREATE TABLE IF NOT EXISTS referral_settings (
 );
 INSERT INTO referral_settings (id) VALUES (1) ON CONFLICT (id) DO NOTHING;
 ALTER TABLE referral_codes ALTER COLUMN credit_cents SET DEFAULT 0;
+
+-- Genesis: seeded disabled, credit gated on spend, per-payer minimum spend.
+-- Only rows an admin never changed (updated_by IS NULL) are switched off.
+ALTER TABLE genesis_settings ALTER COLUMN enabled SET DEFAULT false;
+UPDATE genesis_settings SET enabled = false WHERE id = 1 AND enabled AND updated_by IS NULL;
+ALTER TABLE genesis_settings ADD COLUMN IF NOT EXISTS credit_threshold_node_musd BIGINT NOT NULL DEFAULT 10000000;
+ALTER TABLE genesis_settings ADD COLUMN IF NOT EXISTS min_payer_spend_musd BIGINT NOT NULL DEFAULT 1000000;
+DO $$ BEGIN
+  ALTER TABLE genesis_settings ADD CONSTRAINT chk_genesis_credit_threshold_node_musd
+    CHECK (credit_threshold_node_musd BETWEEN 0 AND 1000000000000);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+DO $$ BEGIN
+  ALTER TABLE genesis_settings ADD CONSTRAINT chk_genesis_min_payer_spend_musd
+    CHECK (min_payer_spend_musd BETWEEN 0 AND 1000000000000);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+-- Collusion detector floor below the genesis qualifying spend ($1, was $5).
+ALTER TABLE collusion_settings ALTER COLUMN min_node_volume_musd SET DEFAULT 1000000;
+UPDATE collusion_settings SET min_node_volume_musd = 1000000
+  WHERE id = 1 AND min_node_volume_musd = 5000000 AND updated_by IS NULL;

@@ -438,7 +438,7 @@ All mutations re-check the admin role `FOR UPDATE` in one transaction and write 
 ### Genesis boost and buyer discounts
 | Endpoint | Notes |
 |---|---|
-| `GET /genesis/settings` / `PUT /genesis/settings` | `enabled`, `maxOwners` (0–100000), `bonusBps` (0–5000), `boostDays` (1–3650), `creditMusd` (0–1e9), `creditThresholdBytes`, `minDistinctPayers` (1–1000, default 3: distinct unlinked paying principals required to enter the cohort) (`genesis_settings_update`). |
+| `GET /genesis/settings` / `PUT /genesis/settings` | `enabled`, `maxOwners` (0–100000), `bonusBps` (0–5000), `boostDays` (1–3650), `creditMusd` (0–1e9), `creditThresholdBytes`, `minDistinctPayers` (1–1000, default 3: distinct unlinked paying principals required to enter the cohort), `minPayerSpendMusd` (default 1000000: paid spend each of those payers needs), `creditThresholdNodeMusd` (default 10000000: matured node earnings from qualifying payers needed for the credit). Seeded `enabled: false` (`genesis_settings_update`). |
 | `GET /genesis/members?limit=&offset=` | Cohort in enrolment order with `boostUntil`, `creditStatus` (`pending|held|matured|clawed_back`) and qualifying matured bytes. |
 | `POST /genesis/members/:userId/clawback {reason}` | Claws back a still-held genesis credit from pending (`genesis_credit_clawback`). |
 | `GET /buyer-discounts/settings` / `PUT /buyer-discounts/settings` | `enabled`, `minPlatformMarginBps` (0–10000, default 2500) (`buyer_discount_settings_update`). |
