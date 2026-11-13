@@ -40,6 +40,7 @@ vi.mock("@dominusnode/shared", () => ({
     error: vi.fn(),
   }),
   RELAY_BYTES_PER_GB: 1_000_000_000, BYTES_PER_GIB: 1_073_741_824,
+  DEFAULT_PRICE_PER_GB_MUSD: { residential: 500_000, mobile: 500_000, dc: 200_000, masked: 100_000 },
   userRepo: { findOrCreateX402User: (...a: unknown[]) => mockFindOrCreateX402User(...a) },
   policyRepo: { getPricing: (...a: unknown[]) => mockGetPricing(...a) },
   walletRepo: {
@@ -702,6 +703,21 @@ describe("MPP on the gateway", () => {
     expect(body.mpp.wwwAuthenticate).toMatch(/^Payment /);
     expect(paymentChallengeHeaders("dc")["WWW-Authenticate"]).toMatch(/^Payment /);
     expect(build402ConnectResponse("dc")).toMatch(/WWW-Authenticate: Payment /);
+  });
+
+  it("x402AmountMusd quotes 10 MiB at the decimal-GB price: 5243 / 2098 / 1049 µUSD", async () => {
+    const { x402AmountMusd } = await import("./x402-handler.js");
+    expect(x402AmountMusd(500_000n)).toBe(5243n);
+    expect(x402AmountMusd(200_000n)).toBe(2098n);
+    expect(x402AmountMusd(100_000n)).toBe(1049n);
+  });
+
+  it("advertises the default class price before the first quote is cached (masked: 1049 µUSD, not the env price)", async () => {
+    mockIsX402Enabled.mockReturnValue(true);
+    mockBuildX402Requirements.mockReturnValue({ accepts: [] });
+    mockGetPricing.mockReturnValue(new Promise(() => undefined)); // quote never resolves
+    build402ResponseBody("masked");
+    expect(mockBuildX402Requirements).toHaveBeenCalledWith({ amountMusd: 1049n });
   });
 
   it("normalizePayer keeps Solana case, lowercases EVM", () => {

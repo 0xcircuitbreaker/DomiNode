@@ -1,7 +1,7 @@
 import * as http from "node:http";
 import * as net from "node:net";
 import { parseProxyOptions } from "./auth.js";
-import { createLogger, userRepo, policyRepo, walletRepo, payerRefundRepo, RELAY_BYTES_PER_GB, isExitClass, type ExitClass } from "@dominusnode/shared";
+import { createLogger, userRepo, policyRepo, walletRepo, payerRefundRepo, RELAY_BYTES_PER_GB, DEFAULT_PRICE_PER_GB_MUSD, isExitClass, type ExitClass } from "@dominusnode/shared";
 import {
   isX402Enabled,
   buildX402Requirements,
@@ -141,7 +141,11 @@ export function getPoolTypeFromRequest(req: http.IncomingMessage): X402Class {
 
 // ─── Relay pricing (DESIGN.md §7) ───────────────────────────────────
 
-/** Bytes one x402 payment buys: price_per_gb × X402_BYTES_PER_REQUEST (default 10 MB). */
+/**
+ * Bytes one x402 payment buys: price_per_gb × X402_BYTES_PER_REQUEST
+ * (default 10 MiB = 10,485,760 bytes; prices are per decimal GB, so the
+ * default residential quote is ceil(500000 × 10485760 / 1e9) = 5243 µUSD).
+ */
 const X402_BYTES_PER_REQUEST = parseInt(process.env["X402_BYTES_PER_REQUEST"] ?? "10485760", 10);
 if (isNaN(X402_BYTES_PER_REQUEST) || X402_BYTES_PER_REQUEST < 65_536 || X402_BYTES_PER_REQUEST > 1_073_741_824) {
   throw new Error("X402_BYTES_PER_REQUEST must be between 65536 and 1073741824");
@@ -173,7 +177,11 @@ async function quote(poolType: X402Class): Promise<X402Quote> {
 function advertisedRequirements(poolType: X402Class) {
   quote(poolType).catch(() => undefined);
   const q = lastQuote.get(poolType);
-  return q ? buildX402Requirements({ amountMusd: q.amountMusd }) : buildX402Requirements(poolType === "dc" ? "dc" : "residential");
+  // Before the first quote is cached, advertise the default class price for the
+  // same byte count (not the flat env per-request price, which undercuts the
+  // real res/mobile quote and overstates masked).
+  const fallbackPrice = BigInt(DEFAULT_PRICE_PER_GB_MUSD[poolType === "any" ? "residential" : poolType]);
+  return buildX402Requirements({ amountMusd: q ? q.amountMusd : x402AmountMusd(fallbackPrice) });
 }
 
 /** Bytes this payment may carry: min(X402_MAX_RESPONSE_BYTES, bytes the paid amount buys). */

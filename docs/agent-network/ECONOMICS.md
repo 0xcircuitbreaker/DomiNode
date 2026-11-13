@@ -23,7 +23,7 @@ Recommended prices, with no minimum purchase and credit that never expires:
 | Residential / mobile (`residential`) | **$0.50** | 50% below DataImpulse entry, 37% below its 1 TB rate, 50% below PacketStream, about 88% below Bright Data's promo price |
 | Datacenter / VPS nodes (`dc`) | **$0.20** | 56% below DataImpulse DC at 1 TB |
 | Anonymizer egress (`masked`: VPN, WARP, Tor, relay) | **$0.10** | opt-in only (`class-masked`); see §1a |
-| x402 / MPP per-request | the same per-GB price × 10 MB = $0.005 (res) or $0.002 (dc) per request | above the $0.001 CDP fee after the 1,000 free settlements a month (https://docs.cdp.coinbase.com/x402/support/faq) and Stripe MPP's reported $0.01 minimum |
+| x402 / MPP per-request | the same per-GB price × 10 MiB (`X402_BYTES_PER_REQUEST` = 10,485,760 bytes, priced per decimal GB, rounded up) = 5,243 µUSD ($0.005243) res/mobile, 2,098 µUSD dc, 1,049 µUSD masked per request | above the $0.001 CDP fee after the 1,000 free settlements a month (https://docs.cdp.coinbase.com/x402/support/faq) and Stripe MPP's reported $0.01 minimum |
 
 Margin math at $0.50/GB residential:
 

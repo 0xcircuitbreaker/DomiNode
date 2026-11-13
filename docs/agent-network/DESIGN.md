@@ -441,7 +441,7 @@ export interface PrepaidRail {                     // top-up rails
 
 **Gateway.**
 - `x402-handler.ts` drops `poolType`. A 402 lists `accepts[]` from every enabled `PerRequestRail` (env `PAYMENT_RAILS`, checked against an allowlist).
-- The price per request is `price_per_gb_musd × X402_BYTES_PER_REQUEST`, which defaults to 10 MB, and the paid amount caps the session bytes.
+- The price per request is `price_per_gb_musd × X402_BYTES_PER_REQUEST`, which defaults to 10 MiB (10,485,760 bytes; prices are per decimal GB, so the default residential quote is 5,243 µUSD), and the paid amount caps the session bytes.
 - On settle, `settleRelayCharge` runs with `payment_rail='x402'|'mpp'` and `gross` set to the paid µUSD; unused bytes are not refunded in v1.
 
 ## 8. Gateway integration points
