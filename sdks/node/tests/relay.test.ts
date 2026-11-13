@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { createHash } from "node:crypto";
 import { ValidationError, ProtocolError, ConflictError } from "../src/errors.js";
 import { Secret } from "../src/secret.js";
-import { buildAttestationMessage, buildPayoutWalletMessage, buildWithdrawMessage } from "../src/messages.js";
+import { buildAttestationMessage, buildConvertMessage, buildPayoutWalletMessage, buildWithdrawMessage } from "../src/messages.js";
 import { solvePow } from "../src/pow.js";
 import { connected, UUID, WALLET, OTHER_WALLET, USER_ID, SIG, NONCE, API_KEY, signerFor } from "./helpers.js";
 
@@ -136,19 +136,56 @@ describe("credits", () => {
     await expect(client.credits.transactions({ limit: 201 })).rejects.toBeInstanceOf(ValidationError);
   });
 
-  it("convert sends µUSD string + Idempotency-Key header", async () => {
-    const { client, calls } = await connected([200, { converted: { musd: "1500000", usd: "1.500000" }, convertedCents: 150, duplicate: false }], [200, {}], [200, {}]);
-    const r = await client.credits.convert(1_500_000n, { idempotencyKey: "my-key-0001" });
-    expect(calls[0].body).toEqual({ amountMusd: "1500000" });
+  function convertChallenge(amount = "1500000", key = "my-key-0001", wallet = WALLET) {
+    return { nonce: NONCE, message: buildConvertMessage({ userId: USER_ID, wallet, amountMusd: amount, idempotencyKey: key, nonce: NONCE }), expiresAt: "t", signer: wallet.toLowerCase() };
+  }
+  const CONVERTED = { converted: { musd: "1500000", usd: "1.500000" }, convertedCents: 150, duplicate: false };
+
+  it("convert: challenge -> local message -> sign -> submit (Idempotency-Key on both)", async () => {
+    const { client, calls } = await connected([200, convertChallenge()], [200, CONVERTED]);
+    const { signer, signed } = signerFor();
+    const r = await client.credits.convert({ amountMusd: 1_500_000n, signer, idempotencyKey: "my-key-0001" });
+    expect(calls[0]).toMatchObject({ url: `${B}/v1/credits/convert/challenge`, method: "POST", body: { amountMusd: "1500000" } });
     expect(calls[0].headers["Idempotency-Key"]).toBe("my-key-0001");
-    expect(r.idempotencyKey).toBe("my-key-0001");
-    const r2 = await client.credits.convert("10000");
-    expect(r2.idempotencyKey).toMatch(/^dn-[0-9a-f-]{36}$/);
-    await client.credits.convert(10_000);
+    expect(signed).toEqual([convertChallenge().message]);
+    expect(calls[1]).toMatchObject({ url: `${B}/v1/credits/convert`, body: { amountMusd: "1500000", nonce: NONCE, signature: SIG } });
+    expect(calls[1].headers["Idempotency-Key"]).toBe("my-key-0001");
+    expect(r).toMatchObject({ convertedCents: 150, duplicate: false, idempotencyKey: "my-key-0001" });
+  });
+
+  it("convert refuses when the server message differs (no signature, no submit)", async () => {
+    const { client, calls } = await connected([200, convertChallenge("9000000")]);
+    const { signer, signed } = signerFor();
+    await expect(client.credits.convert({ amountMusd: "1500000", signer, idempotencyKey: "my-key-0001" })).rejects.toBeInstanceOf(ProtocolError);
+    expect(signed).toHaveLength(0);
+    expect(calls).toHaveLength(1);
+    const ch = convertChallenge();
+    const { client: c2 } = await connected([200, { ...ch, message: ch.message.replace("Action: convert", "Action: withdraw") }]);
+    await expect(c2.credits.convert({ amountMusd: "1500000", signer, idempotencyKey: "my-key-0001" })).rejects.toBeInstanceOf(ProtocolError);
+    const { client: c3 } = await connected([200, convertChallenge("1500000", "my-key-0001", OTHER_WALLET)]);
+    await expect(c3.credits.convert({ amountMusd: "1500000", signer, idempotencyKey: "my-key-0001" })).rejects.toThrow(/linked wallet/);
+    expect(signed).toHaveLength(0);
+  });
+
+  it("convert requires a signer and validates input before any request", async () => {
+    const { client, calls } = await connected();
+    await expect(client.credits.convert({ amountMusd: 1_500_000n } as any)).rejects.toBeInstanceOf(ValidationError);
+    await expect((client.credits.convert as any)(1_500_000n)).rejects.toBeInstanceOf(ValidationError);
+    const signer = signerFor().signer;
     for (const bad of [9_999n, 10_000_000_001n, "1.5", "-5", "0", 1.5, Number.MAX_SAFE_INTEGER + 1]) {
-      await expect(client.credits.convert(bad as bigint)).rejects.toBeInstanceOf(ValidationError);
+      await expect(client.credits.convert({ amountMusd: bad as bigint, signer })).rejects.toBeInstanceOf(ValidationError);
     }
-    await expect(client.credits.convert(20_000n, { idempotencyKey: "short" })).rejects.toBeInstanceOf(ValidationError);
+    await expect(client.credits.convert({ amountMusd: 20_000n, signer, idempotencyKey: "short" })).rejects.toBeInstanceOf(ValidationError);
+    expect(calls).toHaveLength(0);
+  });
+
+  it("convert generates an idempotency key when none is given", async () => {
+    const { client, calls } = await connected([200, {}], [200, CONVERTED]);
+    // Echo the generated key back in a valid challenge.
+    const { signer } = signerFor();
+    const p = client.credits.convert({ amountMusd: "1500000", signer });
+    await expect(p).rejects.toBeInstanceOf(ProtocolError); // empty challenge refused
+    expect(calls[0].headers["Idempotency-Key"]).toMatch(/^dn-[0-9a-f-]{36}$/);
   });
 
   function withdrawChallenge(amount = "2000000", key = "wd-key-0001", wallet = WALLET) {

@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.3.0] - 2026-11-13
+
+### Changed
+- `credits.convert` is now a signed flow, matching the server, which rejects unsigned conversions with `400 SIGNATURE_REQUIRED`. Call `credits.convert({ amountMusd, signer, idempotencyKey? })`: the SDK requests `POST /v1/credits/convert/challenge`, rebuilds the message locally and refuses (`ProtocolError`) if the server's text differs or the linked wallet is not the signer, then signs and posts `{amountMusd, nonce, signature}`. The unsigned `convert(amountMusd, opts)` form is removed.
+
 ## [2.2.0] - 2026-11-13
 
 Additive release.
