@@ -100,7 +100,7 @@ export const TOOL_SPECS: ToolSpec[] = [
       "and how tiers and the self-dealing rule work.", parameters: obj() },
   { name: "credits_balance", description: "Node-operator earnings: pending and available credit (µUSD).", parameters: obj() },
   { name: "credits_convert", description:
-      "Convert available node earnings into your own requester wallet balance (idempotent; returns the idempotency key).",
+      "Explains how to convert node credits into wallet balance. Conversion needs a wallet signature, so it runs through the DominusNode MCP server or SDK with a signer key file, not through this tool.",
     parameters: obj({ amount_musd: { type: "string", description: "Amount in micro-USD as a digit string (min 10000 = $0.01)." } }, ["amount_musd"]) },
   { name: "payouts_list", description: "Your USDC payouts of node earnings with status and transaction hash.",
     parameters: obj({ limit: LIMIT, offset: OFFSET }) },
@@ -109,6 +109,10 @@ export const TOOL_SPECS: ToolSpec[] = [
 
 export const TOOL_NAMES: string[] = TOOL_SPECS.map((t) => t.name);
 const SPECS = new Map(TOOL_SPECS.map((t) => [t.name, t]));
+
+/** credits_convert needs a wallet signature; signing flows are not exposed as LLM tools. */
+export const CREDITS_CONVERT_SIGNING_MESSAGE =
+  "Converting credits needs a fresh signature from the wallet linked to this account, so this tool does not convert. Use the DominusNode MCP server (tool dominusnode_credits_convert, with DOMINUSNODE_WALLET_KEY_FILE pointing at a chmod-600 wallet key file) or a DominusNode SDK's credits.convert with a signer key file. Check available credit with credits_balance.";
 
 export const NODE_SETUP_GUIDE = [
   "DominusNode relay node setup (earn by contributing an IP)",
@@ -309,7 +313,7 @@ export class DominusNodeTools {
       case "node_list": return c.nodes.list({ limit: optInt(a, "limit"), offset: optInt(a, "offset") });
       case "node_tier": return c.nodes.tier();
       case "credits_balance": return c.credits.balance();
-      case "credits_convert": return c.credits.convert(String(a.amount_musd));
+      case "credits_convert": return { status: "signing_required", message: CREDITS_CONVERT_SIGNING_MESSAGE };
       case "payouts_list": return c.payouts.list({ limit: optInt(a, "limit"), offset: optInt(a, "offset") });
       case "x402_info": return c.x402.getInfo();
       default: throw new Error(`unknown tool: ${name}`);

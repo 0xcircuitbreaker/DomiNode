@@ -39,17 +39,17 @@ class ValidationRedactionTest {
         invalid(t, () -> c.wallet().topUpCrypto(100_001, "btc"));
         invalid(t, () -> c.wallet().topUpCrypto(5000, "doge"));
         // µUSD bounds and types
-        invalid(t, () -> c.credits().convert(9_999L));
-        invalid(t, () -> c.credits().convert(10_000_000_001L));
-        invalid(t, () -> c.credits().convert("010000"));
-        invalid(t, () -> c.credits().convert("1e5"));
-        invalid(t, () -> c.credits().convert(1.5));
-        invalid(t, () -> c.credits().convert(9_007_199_254_740_992L));
+        invalid(t, () -> c.credits().convert(9_999L, Signer.of(WALLET, m -> SIG)));
+        invalid(t, () -> c.credits().convert(10_000_000_001L, Signer.of(WALLET, m -> SIG)));
+        invalid(t, () -> c.credits().convert("010000", Signer.of(WALLET, m -> SIG)));
+        invalid(t, () -> c.credits().convert("1e5", Signer.of(WALLET, m -> SIG)));
+        invalid(t, () -> c.credits().convert(1.5, Signer.of(WALLET, m -> SIG)));
+        invalid(t, () -> c.credits().convert(9_007_199_254_740_992L, Signer.of(WALLET, m -> SIG)));
         invalid(t, () -> c.credits().withdraw(999_999L, Signer.of(WALLET, m -> SIG)));
         invalid(t, () -> c.credits().withdraw(new BigInteger("100000000001"), Signer.of(WALLET, m -> SIG)));
         // idempotency key
-        invalid(t, () -> c.credits().convert(10_000L, "short"));
-        invalid(t, () -> c.credits().convert(10_000L, "bad key!!"));
+        invalid(t, () -> c.credits().convert(10_000L, Signer.of(WALLET, m -> SIG), "short"));
+        invalid(t, () -> c.credits().convert(10_000L, Signer.of(WALLET, m -> SIG), "bad key!!"));
         invalid(t, () -> c.credits().withdraw(1_000_000L, Signer.of(WALLET, m -> SIG), "x".repeat(121)));
         // uuid
         invalid(t, () -> c.nodes().revoke("not-a-uuid"));
@@ -82,11 +82,11 @@ class ValidationRedactionTest {
     void musdAcceptsBigIntegerStringAndLong() {
         MockTransport t = new MockTransport();
         DominusNodeClient c = connected(t);
-        c.credits().convert(new BigInteger("10000000000"));
+        assertThrows(io.dominusnode.sdk.errors.ProtocolException.class, () -> c.credits().convert(new BigInteger("10000000000"), Signer.of(WALLET, m -> SIG)));
         assertEquals("{\"amountMusd\":\"10000000000\"}", t.last().body);
-        c.credits().convert("10000");
+        assertThrows(io.dominusnode.sdk.errors.ProtocolException.class, () -> c.credits().convert("10000", Signer.of(WALLET, m -> SIG)));
         assertEquals("{\"amountMusd\":\"10000\"}", t.last().body);
-        c.credits().convert(123456L);
+        assertThrows(io.dominusnode.sdk.errors.ProtocolException.class, () -> c.credits().convert(123456L, Signer.of(WALLET, m -> SIG)));
         assertEquals("{\"amountMusd\":\"123456\"}", t.last().body);
     }
 

@@ -58,6 +58,20 @@ def build_withdraw_message(user_id: str, wallet: str, amount_musd: str, idempote
     )
 
 
+def build_convert_message(user_id: str, wallet: str, amount_musd: str, idempotency_key: str, nonce: str) -> str:
+    return "\n".join(
+        [
+            "DominusNode credit conversion",
+            "Action: convert",
+            f"User: {user_id}",
+            f"Account wallet: {wallet.lower()}",
+            f"Amount (µUSD): {amount_musd}",
+            f"Idempotency key: {idempotency_key}",
+            f"Nonce: {nonce}",
+        ]
+    )
+
+
 _USER_LINE = re.compile(r"^User: (.+)\Z")
 
 

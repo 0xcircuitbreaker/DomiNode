@@ -15,6 +15,7 @@ from dominusnode import (
     Secret,
     ValidationError,
     build_attestation_message,
+    build_convert_message,
     build_payout_wallet_message,
     build_withdraw_message,
 )
@@ -239,6 +240,82 @@ def test_withdraw_server_signer_mismatch(rec: Recorder, client: Any) -> None:
     assert s.messages == []
 
 
+# ------------------------------------------------------------ convert
+def convert_challenge(amount: str, key: str, **over: Any) -> dict:
+    ch = {"nonce": NONCE, "expiresAt": "t", "signer": ADDR.lower(),
+          "message": build_convert_message(USER, ADDR, amount, key, NONCE)}
+    ch.update(over)
+    return ch
+
+
+def test_convert_message_format() -> None:
+    assert build_convert_message(USER, ADDR, "10000", "idem-12345", NONCE) == "\n".join([
+        "DominusNode credit conversion", "Action: convert", f"User: {USER}",
+        f"Account wallet: {ADDR.lower()}", "Amount (µUSD): 10000", "Idempotency key: idem-12345", f"Nonce: {NONCE}",
+    ])
+
+
+def test_convert_flow(rec: Recorder, client: Any) -> None:
+    rec.add(200, convert_challenge("10000", "idem-12345"))
+    rec.add(200, {"converted": {"musd": "10000", "usd": "0.010000"}, "convertedCents": 1, "duplicate": False})
+    s = FakeSigner()
+    r = client.credits.convert(10_000, s, idempotency_key="idem-12345")
+    assert rec.requests[0].url.path == "/v1/credits/convert/challenge"
+    assert rec.requests[0].headers["idempotency-key"] == "idem-12345"
+    assert rec.body(0) == {"amountMusd": "10000"}
+    assert rec.requests[1].url.path == "/v1/credits/convert"
+    assert rec.requests[1].headers["idempotency-key"] == "idem-12345"
+    assert rec.body(1) == {"amountMusd": "10000", "nonce": NONCE, "signature": SIG}
+    assert s.messages == [build_convert_message(USER, ADDR, "10000", "idem-12345", NONCE)]
+    assert r["idempotencyKey"] == "idem-12345" and r["duplicate"] is False and r["convertedCents"] == 1
+
+
+def test_convert_default_key_echoed(rec: Recorder, client: Any) -> None:
+    s = FakeSigner()
+    rec.add(200, {"nonce": NONCE, "signer": ADDR, "message": "x"})
+    with pytest.raises(ProtocolError):
+        client.credits.convert("20000", s)
+    key = rec.requests[0].headers["idempotency-key"]
+    assert key.startswith("dn-") and len(key) == 39 and s.messages == []
+
+
+@pytest.mark.parametrize("mutate", [
+    lambda m: m.replace("Amount (µUSD): 10000", "Amount (µUSD): 90000"),
+    lambda m: m.replace("credit conversion", "withdrawal"),
+    lambda m: m.replace("Action: convert", "Action: withdraw"),
+    lambda m: m + "\n",
+    lambda m: m.replace(USER, "not-a-uuid"),
+])
+def test_convert_message_mismatch_refused(rec: Recorder, client: Any, mutate: Any) -> None:
+    ch = convert_challenge("10000", "idem-12345")
+    ch["message"] = mutate(ch["message"])
+    rec.add(200, ch)
+    s = FakeSigner()
+    with pytest.raises(ProtocolError):
+        client.credits.convert(10_000, s, idempotency_key="idem-12345")
+    assert s.messages == [] and len(rec.requests) == 1
+
+
+def test_convert_server_signer_mismatch(rec: Recorder, client: Any) -> None:
+    rec.add(200, convert_challenge("10000", "idem-12345", signer=OLD))
+    s = FakeSigner()
+    with pytest.raises(ProtocolError, match="linked wallet"):
+        client.credits.convert(10_000, s, idempotency_key="idem-12345")
+    assert s.messages == [] and len(rec.requests) == 1
+
+
+def test_convert_missing_signer(rec: Recorder, client: Any) -> None:
+    class NoSign:
+        address = ADDR
+
+    with pytest.raises(TypeError):
+        client.credits.convert(10_000)  # type: ignore[call-arg]
+    for bad in (None, NoSign(), FakeSigner(address="0x123")):
+        with pytest.raises(ValidationError):
+            client.credits.convert(10_000, bad, idempotency_key="idem-12345")
+    assert rec.requests == []
+
+
 @pytest.mark.parametrize("sig", ["0x" + "a" * 129, "0x" + "a" * 199, "0x" + "g" * 130, None, 5])
 def test_bad_signature_from_signer(rec: Recorder, client: Any, sig: Any) -> None:
     rec.add(200, withdraw_challenge("1000000", "idem-12345"))
@@ -266,7 +343,7 @@ def test_idempotency_key_validation(rec: Recorder, client: Any, key: str) -> Non
     with pytest.raises(ValidationError):
         client.credits.withdraw(1_000_000, FakeSigner(), idempotency_key=key)
     with pytest.raises(ValidationError):
-        client.credits.convert(10_000, idempotency_key=key)
+        client.credits.convert(10_000, FakeSigner(), idempotency_key=key)
     assert rec.requests == []
 
 

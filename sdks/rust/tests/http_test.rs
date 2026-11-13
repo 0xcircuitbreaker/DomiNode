@@ -258,19 +258,19 @@ async fn validation_failures_send_nothing() {
     is_inv(c.wallet.top_up_crypto(100_001, "btc").await.unwrap_err());
     is_inv(c.wallet.top_up_crypto(5000, "doge").await.unwrap_err());
     // µUSD
-    is_inv(c.credits.convert(9_999u64, None).await.unwrap_err());
-    is_inv(c.credits.convert(10_000_000_001u64, None).await.unwrap_err());
-    is_inv(c.credits.convert("012345", None).await.unwrap_err());
-    is_inv(c.credits.convert("1.5", None).await.unwrap_err());
-    is_inv(c.credits.convert(-5i64, None).await.unwrap_err());
-    is_inv(c.credits.convert("12345678901234567", None).await.unwrap_err());
     let (s, _) = signer_for(WALLET, sig());
+    is_inv(c.credits.convert(9_999u64, &s, None).await.unwrap_err());
+    is_inv(c.credits.convert(10_000_000_001u64, &s, None).await.unwrap_err());
+    is_inv(c.credits.convert("012345", &s, None).await.unwrap_err());
+    is_inv(c.credits.convert("1.5", &s, None).await.unwrap_err());
+    is_inv(c.credits.convert(-5i64, &s, None).await.unwrap_err());
+    is_inv(c.credits.convert("12345678901234567", &s, None).await.unwrap_err());
     is_inv(c.credits.withdraw(999_999u64, &s, None).await.unwrap_err());
     is_inv(c.credits.withdraw(100_000_000_001u64, &s, None).await.unwrap_err());
     // idempotency key
-    is_inv(c.credits.convert(10_000u64, Some("short")).await.unwrap_err());
-    is_inv(c.credits.convert(10_000u64, Some("has space!!")).await.unwrap_err());
-    is_inv(c.credits.convert(10_000u64, Some(&"a".repeat(121))).await.unwrap_err());
+    is_inv(c.credits.convert(10_000u64, &s, Some("short")).await.unwrap_err());
+    is_inv(c.credits.convert(10_000u64, &s, Some("has space!!")).await.unwrap_err());
+    is_inv(c.credits.convert(10_000u64, &s, Some(&"a".repeat(121))).await.unwrap_err());
     // uuid / address / signature
     is_inv(c.nodes.revoke("not-a-uuid").await.unwrap_err());
     is_inv(c.sessions.report("x", "slow").await.unwrap_err());

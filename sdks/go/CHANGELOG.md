@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.3.0] - 2026-11-13
+
+### Changed
+- `Credits.Convert` is now a signed flow: `Convert(ctx, ConvertOptions{AmountMusd, Signer, IdempotencyKey})` POSTs `/v1/credits/convert/challenge`, rebuilds the conversion message (`BuildConvertMessage`), refuses with `ProtocolError` if the server text, nonce or signer differ, calls the signer, then POSTs `{amountMusd, nonce, signature}` with the same `Idempotency-Key`. The unsigned path is removed: the server answers it with `400 SIGNATURE_REQUIRED`.
+
 ## [2.2.0] - 2026-11-13
 
 Additive release.

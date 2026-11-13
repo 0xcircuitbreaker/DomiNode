@@ -47,6 +47,17 @@ public final class Messages {
                 "Nonce: " + nonce);
     }
 
+    public static String convert(String userId, String wallet, String amountMusd, String idempotencyKey, String nonce) {
+        return String.join("\n",
+                "DominusNode credit conversion",
+                "Action: convert",
+                "User: " + userId,
+                "Account wallet: " + wallet.toLowerCase(Locale.ROOT),
+                "Amount (µUSD): " + amountMusd,
+                "Idempotency key: " + idempotencyKey,
+                "Nonce: " + nonce);
+    }
+
     /** Line 3 of a payout/withdraw message must be "User: &lt;uuid&gt;". */
     public static String extractUserId(String message) {
         String[] lines = message == null ? new String[0] : message.split("\n", -1);

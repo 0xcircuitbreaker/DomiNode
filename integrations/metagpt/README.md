@@ -57,7 +57,7 @@ Tools are exposed as methods of `DominusNodeTools`, registered with MetaGPT's `r
 | 14 | `node_tier` | `nodes.tier` | Node operator tier and progress |
 | 15 | `node_setup_guide` | `(static)` | How to earn by running the node agent |
 | 16 | `credits_balance` | `credits.balance` | Earned credits (µUSD) |
-| 17 | `credits_convert` | `credits.convert` | Convert credits into wallet balance |
+| 17 | `credits_convert` | none (signed flow) | Points to the MCP server or SDK (needs a wallet signature) |
 | 18 | `payouts_list` | `payouts.list` | Payouts of earned credits |
 | 19 | `x402_info` | `x402.get_info` | x402 micropayment info |
 

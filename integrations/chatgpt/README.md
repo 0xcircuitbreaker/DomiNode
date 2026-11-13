@@ -45,7 +45,7 @@ with a personal `dn_live_` key. The schema covers only routes that accept the ra
 | `node_list` | `GET /v1/nodes` |
 | `node_tier` | `GET /v1/node/tier` |
 | `credits_balance` | `GET /v1/credits` |
-| `credits_convert` | `POST /v1/credits/convert` (Idempotency-Key header) |
+| `credits_convert` | not an action: conversion needs a wallet signature (use the MCP server or SDK with a signer key file) |
 | `payouts_list` | `GET /v1/payouts` |
 | `report_session` | `POST /v1/sessions/{id}/report` |
 | `x402_info` | `GET /api/x402/info` |
@@ -76,7 +76,7 @@ Function names are `dominusnode_<name>` (the handler also accepts the bare name)
 | 14 | `node_tier` | `nodes.tier` | Your node-operator tier and progress |
 | 15 | `node_setup_guide` | static | How to earn by contributing an IP with the node agent |
 | 16 | `credits_balance` | `credits.balance` | Node earnings (pending/available/frozen) |
-| 17 | `credits_convert` | `credits.convert` | Convert node credit into wallet balance |
+| 17 | `credits_convert` | `credits.convert` | Points to the MCP server or SDK (conversion needs a wallet signature) |
 | 18 | `payouts_list` | `payouts.list` | Payout history |
 | 19 | `x402_info` | `x402.getInfo` | x402 micropayment info (public) |
 

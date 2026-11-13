@@ -152,41 +152,11 @@ paths:
                   tier: { type: object }
                   payoutsEnabled: { type: boolean }
                   minWithdraw: { $ref: "#/components/schemas/Money" }
-  /v1/credits/convert:
-    post:
-      operationId: credits_convert
-      summary: Convert available node credit into prepaid wallet balance
-      description: Amount in µUSD (10000 to 10000000000). Reuse the same Idempotency-Key to retry safely.
-      parameters:
-        - name: Idempotency-Key
-          in: header
-          required: true
-          schema: { type: string, pattern: "^[A-Za-z0-9_-]{8,120}$" }
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [amountMusd]
-              properties:
-                amountMusd: { type: string, pattern: "^[1-9][0-9]{0,15}$", description: "Whole µUSD as a string, e.g. \"5000000\" for $5" }
-      responses:
-        "200":
-          description: Converted
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  converted: { $ref: "#/components/schemas/Money" }
-                  convertedCents: { type: integer }
-                  duplicate: { type: boolean }
   /v1/payouts:
     get:
       operationId: payouts_list
       summary: On-chain payout history for node earnings
-      description: Withdrawals themselves need a wallet signature and are not available as an action.
+      description: Withdrawals and credit conversion need a wallet signature and are not available as actions.
       parameters:
         - { name: limit, in: query, required: false, schema: { type: integer, minimum: 1, maximum: 200 } }
         - { name: offset, in: query, required: false, schema: { type: integer, minimum: 0, maximum: 1000000 } }

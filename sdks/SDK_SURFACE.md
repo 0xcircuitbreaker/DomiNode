@@ -1,7 +1,7 @@
 # DominusNode SDK surface (v2)
 
 Language-neutral contract for all six SDKs. The reference implementation is
-`sdks/node` (2.2.0; the Rust crate ships the same surface as 3.1.0, its 3.0.0 having taken the major bump for a new enum variant); Python, Go, Rust, Java and C++ must expose the same
+`sdks/node` (2.2.0; the Rust crate ships the same surface as 4.0.0, with signed `credits.convert`, its 3.0.0 having taken the major bump for a new enum variant); Python, Go, Rust, Java and C++ must expose the same
 resources, methods, parameters, results, errors and security behaviour.
 Use each language's naming convention (`register_challenge`, `RegisterChallenge`,
 `registerChallenge`), but keep the names below recognisable.

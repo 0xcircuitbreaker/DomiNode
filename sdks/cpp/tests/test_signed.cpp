@@ -201,6 +201,75 @@ TEST(signer_bad_signature_or_exception_is_protocol_error) {
     CHECK_THROWS(f.client->nodes.register_node(thrower), ProtocolError);
 }
 
+// ─── credits.convert ────────────────────────────────────────────────────────
+
+namespace {
+json convert_challenge(const std::string& amount, const std::string& key) {
+    return {{"nonce", N}, {"message", build_convert_message(USER, W, amount, key, N)}, {"expiresAt", "t"}, {"signer", to_lower(W)}};
+}
+}  // namespace
+
+TEST(convert_message_bytes) {
+    std::string m = build_convert_message(USER, W, "10000", "idem-key-1", N);
+    CHECK_EQ(m, std::string("DominusNode credit conversion\nAction: convert\nUser: ") + USER +
+                    "\nAccount wallet: " + to_lower(W) + "\nAmount (\xC2\xB5USD): 10000\nIdempotency key: idem-key-1\nNonce: " + N);
+}
+
+TEST(convert_full_flow) {
+    Fixture f;
+    RecSigner sg;
+    f.mock.push(200, convert_challenge("10000", "idem-key-1"));
+    f.mock.push(200, {{"converted", {{"musd", "10000"}, {"usd", "0.010000"}}}, {"convertedCents", 1}, {"duplicate", false}});
+    json r = f.client->credits.convert(10000LL, sg.s, std::string("idem-key-1"));
+    CHECK_EQ(Mock::path(f.mock.calls[0]), std::string("/v1/credits/convert/challenge"));
+    CHECK_EQ(Mock::body(f.mock.calls[0]), json({{"amountMusd", "10000"}}));
+    CHECK_EQ(Mock::header(f.mock.calls[0], "Idempotency-Key"), std::string("idem-key-1"));
+    CHECK_EQ(*sg.signed_msgs, std::vector<std::string>{build_convert_message(USER, W, "10000", "idem-key-1", N)});
+    CHECK_EQ(Mock::path(f.mock.calls[1]), std::string("/v1/credits/convert"));
+    CHECK_EQ(Mock::body(f.mock.calls[1]), json({{"amountMusd", "10000"}, {"nonce", N}, {"signature", SIG}}));
+    CHECK_EQ(Mock::header(f.mock.calls[1], "Idempotency-Key"), std::string("idem-key-1"));
+    CHECK_EQ(Mock::header(f.mock.calls[1], "Authorization"), "Bearer " + KEY);
+    CHECK_EQ(r["idempotencyKey"], json("idem-key-1"));
+    CHECK_EQ(r["convertedCents"], json(1));
+}
+
+TEST(convert_default_key_is_uuid) {
+    Fixture f;
+    RecSigner sg;
+    f.mock.push(200, json::object());  // nonce missing -> ProtocolError after the challenge
+    CHECK_THROWS(f.client->credits.convert(std::string("20000"), sg.s), ProtocolError);
+    std::string k = Mock::header(f.mock.calls[0], "Idempotency-Key");
+    CHECK(k.rfind("dn-", 0) == 0 && k.size() == 39);
+}
+
+TEST(convert_refuses_message_mismatch) {
+    Fixture f;
+    RecSigner sg;
+    json ch = convert_challenge("10000", "idem-key-1");
+    ch["message"] = build_convert_message(USER, W, "99999", "idem-key-1", N);
+    f.mock.push(200, ch);
+    CHECK_THROWS(f.client->credits.convert(10000LL, sg.s, std::string("idem-key-1")), ProtocolError);
+    CHECK(sg.signed_msgs->empty());
+    CHECK_EQ(f.mock.calls.size(), std::size_t(1));
+    // a withdrawal message offered for a conversion is refused too
+    Fixture g;
+    RecSigner sg2;
+    json ch2 = convert_challenge("10000", "idem-key-1");
+    ch2["message"] = build_withdraw_message(USER, W, "10000", "idem-key-1", N);
+    g.mock.push(200, ch2);
+    CHECK_THROWS(g.client->credits.convert(10000LL, sg2.s, std::string("idem-key-1")), ProtocolError);
+    CHECK(sg2.signed_msgs->empty());
+}
+
+TEST(convert_missing_signer_sends_nothing) {
+    Fixture f;
+    Signer none{W, nullptr};
+    CHECK_THROWS(f.client->credits.convert(10000LL, none, std::string("idem-key-1")), ValidationError);
+    Signer bad_addr{"nope", [](const std::string&) { return SIG; }};
+    CHECK_THROWS(f.client->credits.convert(10000LL, bad_addr, std::string("idem-key-1")), ValidationError);
+    CHECK_EQ(f.mock.calls.size(), std::size_t(0));
+}
+
 // ─── credits.withdraw ───────────────────────────────────────────────────────
 
 namespace {

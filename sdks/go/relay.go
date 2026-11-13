@@ -530,28 +530,72 @@ func (r *CreditsResource) Transactions(ctx context.Context, q CreditTransactions
 	return &out, r.h.get(ctx, path, authAgent, &out)
 }
 
-// Convert: POST /v1/credits/convert. amountMusd is *big.Int, a digit string or a
-// Go integer, 10,000..10,000,000,000. idempotencyKey "" = "dn-<uuid>".
-func (r *CreditsResource) Convert(ctx context.Context, amountMusd any, idempotencyKey string) (*ConvertResult, error) {
-	amount, err := toMusd(amountMusd, MinConvertMusd, MaxConvertMusd, "amountMusd")
+// ConvertOptions configures Convert. AmountMusd is *big.Int, a digit string or a Go
+// integer, 10,000..10,000,000,000. IdempotencyKey "" = "dn-<uuid>". Signer signs for the
+// account's linked wallet (required: the server refuses unsigned conversions).
+type ConvertOptions struct {
+	AmountMusd     any
+	Signer         Signer
+	IdempotencyKey string
+}
+
+// Convert: POST /v1/credits/convert/challenge -> rebuild message (refuse on mismatch) ->
+// sign -> POST /v1/credits/convert {amountMusd, nonce, signature} (Idempotency-Key header).
+func (r *CreditsResource) Convert(ctx context.Context, o ConvertOptions) (*ConvertResult, error) {
+	if err := assertSigner(o.Signer, "signer"); err != nil {
+		return nil, err
+	}
+	amount, err := toMusd(o.AmountMusd, MinConvertMusd, MaxConvertMusd, "amountMusd")
 	if err != nil {
 		return nil, err
 	}
-	if idempotencyKey == "" {
-		idempotencyKey = NewIdempotencyKey()
+	key := o.IdempotencyKey
+	if key == "" {
+		key = NewIdempotencyKey()
 	}
-	if err := validateIdempotencyKey(idempotencyKey); err != nil {
+	if err := validateIdempotencyKey(key); err != nil {
+		return nil, err
+	}
+	hdr := map[string]string{"Idempotency-Key": key}
+	var ch struct {
+		Nonce     string `json:"nonce"`
+		Message   string `json:"message"`
+		ExpiresAt string `json:"expiresAt"`
+		Signer    string `json:"signer"`
+	}
+	if err := r.h.call(ctx, request{
+		method: "POST", path: "/v1/credits/convert/challenge", body: map[string]any{"amountMusd": amount},
+		headers: hdr, auth: authAgent,
+	}, &ch); err != nil {
+		return nil, err
+	}
+	if !hex64RE.MatchString(ch.Nonce) {
+		return nil, protocolErr("invalid challenge nonce")
+	}
+	if !strings.EqualFold(ch.Signer, o.Signer.Address()) {
+		return nil, protocolErr("the account's linked wallet is not the signer's address; refusing to sign")
+	}
+	uid, err := extractUserID(ch.Message)
+	if err != nil {
+		return nil, err
+	}
+	local := BuildConvertMessage(uid, o.Signer.Address(), amount, key, ch.Nonce)
+	if err := assertSameMessage(ch.Message, local, "conversion"); err != nil {
+		return nil, err
+	}
+	sig, err := sign(ctx, o.Signer, local, "signer")
+	if err != nil {
 		return nil, err
 	}
 	var out ConvertResult
-	err = r.h.call(ctx, request{
-		method: "POST", path: "/v1/credits/convert", body: map[string]any{"amountMusd": amount},
-		headers: map[string]string{"Idempotency-Key": idempotencyKey}, auth: authAgent,
-	}, &out)
-	if err != nil {
+	if err := r.h.call(ctx, request{
+		method: "POST", path: "/v1/credits/convert",
+		body:    map[string]any{"amountMusd": amount, "nonce": ch.Nonce, "signature": sig},
+		headers: hdr, auth: authAgent,
+	}, &out); err != nil {
 		return nil, err
 	}
-	out.IdempotencyKey = idempotencyKey
+	out.IdempotencyKey = key
 	return &out, nil
 }
 

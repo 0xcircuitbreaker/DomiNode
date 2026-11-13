@@ -109,7 +109,6 @@ class ResourcesTest {
         // credits (withdraw in SignerFlowsTest)
         l.add(new Case("credits.balance", c -> c.credits().balance(), "GET", "/v1/credits", null, "agent"));
         l.add(new Case("credits.transactions", c -> c.credits().transactions(50, "123", "earn"), "GET", "/v1/credits/transactions?limit=50&cursor=123&type=earn", null, "agent"));
-        l.add(new Case("credits.convert", c -> c.credits().convert(new java.math.BigInteger("10000"), "idem-key-1"), "POST", "/v1/credits/convert", "{\"amountMusd\":\"10000\"}", "agent"));
         // payoutWallet (set in SignerFlowsTest), payouts
         l.add(new Case("payoutWallet.get", c -> c.payoutWallet().get(), "GET", "/v1/payout-wallet", null, "agent"));
         l.add(new Case("payouts.list", c -> c.payouts().list(200, 1_000_000), "GET", "/v1/payouts?limit=200&offset=1000000", null, "agent"));
@@ -142,23 +141,11 @@ class ResourcesTest {
                 }
                 String expected = k.auth.equals("none") ? null : "Bearer " + (k.auth.equals("agent") ? API_KEY : JWT);
                 assertEquals(expected, MockTransport.auth(r));
-                assertEquals("dominusnode-sdk-java/2.2.0", r.headers.get("User-Agent"));
+                assertEquals("dominusnode-sdk-java/2.3.0", r.headers.get("User-Agent"));
                 assertEquals("application/json", r.headers.get("Accept"));
             }));
         }
         return out;
-    }
-
-    @Test
-    void convertSendsIdempotencyHeaderAndEchoesKey() {
-        MockTransport t = new MockTransport();
-        DominusNodeClient c = connected(t);
-        t.reply(200, "{\"converted\":{\"musd\":\"10000\",\"usd\":\"0.010000\"},\"convertedCents\":1,\"duplicate\":false}");
-        JsonNode r = c.credits().convert("10000");
-        String key = t.last().headers.get("Idempotency-Key");
-        assertTrue(key.matches("^dn-[0-9a-f-]{36}$"));
-        assertEquals(key, r.get("idempotencyKey").asText());
-        assertEquals(1, r.get("convertedCents").asInt());
     }
 
     @Test

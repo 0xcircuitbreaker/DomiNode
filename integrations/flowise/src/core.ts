@@ -263,6 +263,10 @@ function routingOpts(args: Record<string, unknown>) {
 const limitProp = (max: number): JsonSchemaProperty => ({ type: "integer", minimum: 1, maximum: max, description: `Optional page size (1-${max}).` });
 const offsetProp: JsonSchemaProperty = { type: "integer", minimum: 0, description: "Optional offset for paging (default 0)." };
 
+/** credits_convert needs a wallet signature; signing flows are not exposed as LLM tools. */
+export const CREDITS_CONVERT_SIGNING_MESSAGE =
+  "Converting credits needs a fresh signature from the wallet linked to this account, so this tool does not convert. Use the DominusNode MCP server (tool dominusnode_credits_convert, with DOMINUSNODE_WALLET_KEY_FILE pointing at a chmod-600 wallet key file) or a DominusNode SDK's credits.convert with a signer key file. Check available credit with credits_balance.";
+
 export const NODE_SETUP_GUIDE = [
   "DominusNode relay node setup (earn by contributing an IP)",
   "",
@@ -507,10 +511,9 @@ export function createToolSpecs(): DominusNodeToolSpec[] {
     {
       name: "credits_convert",
       title: "Convert credits",
-      public: false,
+      public: true,
       description:
-        "Convert available node credit into prepaid wallet balance to pay for your own relay traffic. Amount in µUSD " +
-        "(10,000 = $0.01 up to 10,000,000,000). Pass the same idempotency_key to retry safely.",
+        "Explains how to convert node credits into wallet balance. Conversion needs a wallet signature, so it runs through the DominusNode MCP server or SDK with a signer key file, not through this tool.",
       parameters: obj(
         {
           amount_musd: { type: "string", description: "Amount in µUSD as a whole-number string, e.g. \"5000000\" for $5." },
@@ -518,8 +521,7 @@ export function createToolSpecs(): DominusNodeToolSpec[] {
         },
         ["amount_musd"],
       ),
-      run: (client, args) =>
-        client.credits.convert(reqStr(args, "amount_musd"), { idempotencyKey: str(args, "idempotency_key") }),
+      run: async () => ({ status: "signing_required", message: CREDITS_CONVERT_SIGNING_MESSAGE }),
     },
     {
       name: "payouts_list",

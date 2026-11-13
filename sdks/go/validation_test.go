@@ -28,13 +28,27 @@ func TestValidationSendsNoRequest(t *testing.T) {
 		"topup 100001":       func() error { return e(c.Wallet.TopUpCrypto(ctx, 100001, "btc")) },
 		"topup currency":     func() error { return e(c.Wallet.TopUpCrypto(ctx, 1000, "doge")) },
 		"crypto status uuid": func() error { return e(c.Wallet.GetCryptoStatus(ctx, "nope")) },
-		"convert low":        func() error { return e(c.Credits.Convert(ctx, int64(9_999), "")) },
-		"convert high":       func() error { return e(c.Credits.Convert(ctx, "10000000001", "")) },
-		"convert float":      func() error { return e(c.Credits.Convert(ctx, 10000.0, "")) },
-		"convert lead zero":  func() error { return e(c.Credits.Convert(ctx, "010000", "")) },
-		"convert neg big":    func() error { return e(c.Credits.Convert(ctx, big.NewInt(-1), "")) },
-		"convert idem short": func() error { return e(c.Credits.Convert(ctx, 10_000, "short")) },
-		"convert idem chars": func() error { return e(c.Credits.Convert(ctx, 10_000, "has space!!")) },
+		"convert low": func() error {
+			return e(c.Credits.Convert(ctx, ConvertOptions{AmountMusd: int64(9_999), Signer: &fakeSigner{addr: testAddr}, IdempotencyKey: ""}))
+		},
+		"convert high": func() error {
+			return e(c.Credits.Convert(ctx, ConvertOptions{AmountMusd: "10000000001", Signer: &fakeSigner{addr: testAddr}, IdempotencyKey: ""}))
+		},
+		"convert float": func() error {
+			return e(c.Credits.Convert(ctx, ConvertOptions{AmountMusd: 10000.0, Signer: &fakeSigner{addr: testAddr}, IdempotencyKey: ""}))
+		},
+		"convert lead zero": func() error {
+			return e(c.Credits.Convert(ctx, ConvertOptions{AmountMusd: "010000", Signer: &fakeSigner{addr: testAddr}, IdempotencyKey: ""}))
+		},
+		"convert neg big": func() error {
+			return e(c.Credits.Convert(ctx, ConvertOptions{AmountMusd: big.NewInt(-1), Signer: &fakeSigner{addr: testAddr}, IdempotencyKey: ""}))
+		},
+		"convert idem short": func() error {
+			return e(c.Credits.Convert(ctx, ConvertOptions{AmountMusd: 10_000, Signer: &fakeSigner{addr: testAddr}, IdempotencyKey: "short"}))
+		},
+		"convert idem chars": func() error {
+			return e(c.Credits.Convert(ctx, ConvertOptions{AmountMusd: 10_000, Signer: &fakeSigner{addr: testAddr}, IdempotencyKey: "has space!!"}))
+		},
 		"withdraw low": func() error {
 			return e(c.Credits.Withdraw(ctx, WithdrawOptions{AmountMusd: 999_999, Signer: &fakeSigner{addr: testAddr}}))
 		},
@@ -103,21 +117,5 @@ func TestMusdInputs(t *testing.T) {
 	}
 	if _, err := toMusd("12345678901234567", 1, 1<<62, "x"); err == nil {
 		t.Fatal("17-digit string accepted")
-	}
-}
-
-func TestIdempotencyKeyDefaultAndEcho(t *testing.T) {
-	c, rt := newTestClient(t)
-	rt.push(ok(`{"converted":{"musd":"10000","usd":"0.010000"},"convertedCents":1,"duplicate":false}`))
-	r, err := c.Credits.Convert(context.Background(), "10000", "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	k := rt.last(t).Header.Get("Idempotency-Key")
-	if !strings.HasPrefix(k, "dn-") || len(k) != 39 || r.IdempotencyKey != k || !idempotencyKeyRE.MatchString(k) {
-		t.Fatalf("key %q / %q", k, r.IdempotencyKey)
-	}
-	if r.Converted.Musd != "10000" || r.ConvertedCents != 1 {
-		t.Fatalf("%+v", r)
 	}
 }

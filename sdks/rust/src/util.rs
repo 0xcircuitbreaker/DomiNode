@@ -323,6 +323,20 @@ pub fn build_withdraw_message(user_id: &str, wallet: &str, amount_musd: &str, id
     .join("\n")
 }
 
+/// The credit-conversion message the server asks the linked wallet to sign.
+pub fn build_convert_message(user_id: &str, wallet: &str, amount_musd: &str, idempotency_key: &str, nonce: &str) -> String {
+    [
+        "DominusNode credit conversion".to_string(),
+        "Action: convert".to_string(),
+        format!("User: {user_id}"),
+        format!("Account wallet: {}", wallet.to_lowercase()),
+        format!("Amount (µUSD): {amount_musd}"),
+        format!("Idempotency key: {idempotency_key}"),
+        format!("Nonce: {nonce}"),
+    ]
+    .join("\n")
+}
+
 /// Take the user id from line 3 (`User: <uuid>`) of a server message.
 pub fn extract_user_id(message: &str) -> Result<String> {
     let line = message.split('\n').nth(2).unwrap_or("");

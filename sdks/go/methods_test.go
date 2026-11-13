@@ -163,15 +163,12 @@ func TestEveryMethodRequest(t *testing.T) {
 			method: "PATCH", path: "/v1/nodes/" + id, body: `{"gbPerDay":10}`, auth: "agent"},
 		{name: "Nodes.Tier", call: func(x context.Context, c *Client) error { return e(c.Nodes.Tier(x)) },
 			method: "GET", path: "/v1/node/tier", auth: "agent"},
-		// credits (3 here; Withdraw in signer tests)
+		// credits (2 here; Convert and Withdraw in signer tests)
 		{name: "Credits.Balance", call: func(x context.Context, c *Client) error { return e(c.Credits.Balance(x)) },
 			method: "GET", path: "/v1/credits", auth: "agent"},
 		{name: "Credits.Transactions", call: func(x context.Context, c *Client) error {
 			return e(c.Credits.Transactions(x, CreditTransactionsQuery{Limit: Int(200), Cursor: "123", Type: "withdraw_reversal"}))
 		}, method: "GET", path: "/v1/credits/transactions", query: "limit=200&cursor=123&type=withdraw_reversal", auth: "agent"},
-		{name: "Credits.Convert", call: func(x context.Context, c *Client) error { return e(c.Credits.Convert(x, int64(10_000), "my-key-123")) },
-			method: "POST", path: "/v1/credits/convert", body: `{"amountMusd":"10000"}`, auth: "agent",
-			header: map[string]string{"Idempotency-Key": "my-key-123"}},
 		// payoutWallet (1 here; Set in signer tests)
 		{name: "PayoutWallet.Get", call: func(x context.Context, c *Client) error { return e(c.PayoutWallet.Get(x)) },
 			method: "GET", path: "/v1/payout-wallet", auth: "agent"},
@@ -209,7 +206,7 @@ func TestEveryMethodRequest(t *testing.T) {
 			if (tc.body != "") != (r.Header.Get("Content-Type") == "application/json") {
 				t.Fatalf("Content-Type %q with body %q", r.Header.Get("Content-Type"), tc.body)
 			}
-			if r.Header.Get("User-Agent") != "dominusnode-sdk-go/2.2.0" || r.Header.Get("Accept") != "application/json" {
+			if r.Header.Get("User-Agent") != "dominusnode-sdk-go/2.3.0" || r.Header.Get("Accept") != "application/json" {
 				t.Fatalf("bad UA/Accept: %v", r.Header)
 			}
 			got := r.Header.Get("Authorization")

@@ -5,7 +5,7 @@ Implements the language-neutral contract in `sdks/SDK_SURFACE.md`
 (15 resources, 71 methods); the reference implementation is `sdks/node`.
 
 ```bash
-go get github.com/0xcircuitbreaker/DomiNode/sdks/go/v2@v2.2.0
+go get github.com/0xcircuitbreaker/DomiNode/sdks/go/v2@v2.3.0
 ```
 
 Defaults: API `https://api.dominusnode.com`, relay gateway `proxy.dominusnode.com` (TLS to the gateway's HTTPS proxy on :8443 by default since 2.2; SOCKS5 :1080). Production gateways refuse credentials on plaintext 8080/1080. A self-hosted coordinator publishes its TLS proxy on 8444: `GatewayTLS: &dominusnode.GatewayTLS{Port: 8444}`. Plaintext 8080 for local development: `GatewayTLS: &dominusnode.GatewayTLS{Disabled: true}`. A refused CONNECT carries the gateway's `X-DominusNode-Error` code (e.g. INSUFFICIENT_BALANCE, NO_NODES_AVAILABLE) in `pe.Code` / `pe.Details["retryAfter"]`. Both can be overridden in the client configuration.
@@ -82,7 +82,7 @@ the signer if the server's message differs.
 ## Money
 
 - Cents arguments: `int64`, `0 < x <= 2,147,483,647` (or `>= 0` where noted).
-- µUSD arguments (`Credits.Convert`, `WithdrawOptions.AmountMusd`): `*big.Int`, a
+- µUSD arguments (`ConvertOptions.AmountMusd`, `WithdrawOptions.AmountMusd`): `*big.Int`, a
   digit string, or a Go integer — never a float. Sent as decimal strings.
 - Server amounts are `Money{Musd, Usd}` strings.
 

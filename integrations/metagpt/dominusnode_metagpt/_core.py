@@ -77,13 +77,19 @@ NODE_SETUP_GUIDE: Dict[str, Any] = {
         "ghcr.io/0xcircuitbreaker/dominusnode-node. A plain source build has no coordinator pins and refuses to start; "
         "for another coordinator pass --coordinator <domain> --trust sha256:<fingerprint> or DN_NODE_COORD_PINS. "
         "Keep it running; uptime drives your tier.",
-        "4. Verify with node_list, then watch earnings with credits_balance and convert them with credits_convert.",
+        "4. Verify with node_list, then watch earnings with credits_balance and convert them through the MCP server or SDK with a signer key file (credits_convert explains how).",
     ],
 }
 
 
 #: Gateway TLS (HTTPS proxy) port: production 8443; self-hosted coordinators publish 8444 by default.
 DEFAULT_TLS_PROXY_PORT = 8443
+
+
+#: credits_convert needs a wallet signature; signing flows are not exposed as LLM tools.
+CREDITS_CONVERT_SIGNING_MESSAGE = (
+    "Converting credits needs a fresh signature from the wallet linked to this account, so this tool does not convert. Use the DominusNode MCP server (tool dominusnode_credits_convert, with DOMINUSNODE_WALLET_KEY_FILE pointing at a chmod-600 wallet key file) or a DominusNode SDK's credits.convert with a signer key file. Check available credit with credits_balance."
+)
 
 
 def resolve_gateway(
@@ -363,7 +369,7 @@ class DominusNodeToolkit:
         return self._run(lambda c: c.credits.balance())
 
     def credits_convert(self, amount_musd: str, idempotency_key: Optional[str] = None) -> Dict[str, Any]:
-        return self._run(lambda c: c.credits.convert(str(amount_musd), idempotency_key=idempotency_key or None))
+        return {"status": "signing_required", "message": CREDITS_CONVERT_SIGNING_MESSAGE}
 
     def payouts_list(self, limit: Optional[int] = None, offset: Optional[int] = None) -> Dict[str, Any]:
         return self._run(lambda c: c.payouts.list(limit=limit, offset=offset))
@@ -497,7 +503,7 @@ TOOL_SPECS: Dict[str, Dict[str, Any]] = {
         "parameters": _obj({}),
     },
     "credits_convert": {
-        "description": "Convert available earned credits (micro-USD) into prepaid wallet balance to pay for relay traffic. Retry with the returned idempotency key.",
+        "description": "Explains how to convert node credits into wallet balance. Conversion needs a wallet signature, so it runs through the DominusNode MCP server or SDK with a signer key file, not through this tool.",
         "parameters": _obj(
             {
                 "amount_musd": {"type": "string", "description": "Amount in micro-USD as a digit string (1000000 = $1; min 10000)."},

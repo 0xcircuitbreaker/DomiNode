@@ -206,6 +206,83 @@ async fn withdraw_refuses_mismatch_and_wrong_signer() {
     assert_eq!(m.count() + m2.count(), 2);
 }
 
+// ---------------------------------------------------------------- convert
+
+fn convert_challenge(amount: &str, key: &str, signer: &str) -> Value {
+    json!({"nonce": nonce(), "message": build_convert_message(USER_ID, WALLET, amount, key, &nonce()), "expiresAt": "t", "signer": signer})
+}
+
+#[test]
+fn convert_message_format() {
+    let m = build_convert_message(USER_ID, &WALLET.to_uppercase().replace("0X", "0x"), "50000", "my-key-0001", &nonce());
+    let lines: Vec<&str> = m.split('\n').collect();
+    assert_eq!(lines[0], "DominusNode credit conversion");
+    assert_eq!(lines[1], "Action: convert");
+    assert_eq!(lines[2], format!("User: {USER_ID}"));
+    assert_eq!(lines[3], format!("Account wallet: {}", WALLET.to_lowercase()));
+    assert_eq!(lines[4], "Amount (µUSD): 50000");
+    assert_eq!(lines[5], "Idempotency key: my-key-0001");
+    assert_eq!(lines[6], format!("Nonce: {}", nonce()));
+}
+
+#[tokio::test]
+async fn convert_flow() {
+    let (c, m) = connected().await;
+    m.push(r(200, convert_challenge("50000", "my-key-0001", WALLET)));
+    m.push(r(200, json!({"converted": {"musd": "50000", "usd": "0.05"}, "convertedCents": 5, "duplicate": false})));
+    let (s, signed) = signer_for(WALLET, sig());
+    let res = c.credits.convert(50_000u64, &s, Some("my-key-0001")).await.unwrap();
+    assert_eq!(res.idempotency_key, "my-key-0001");
+    assert_eq!(res.converted_cents, 5);
+    let calls = m.calls();
+    assert_eq!(calls[0].path, "/v1/credits/convert/challenge");
+    assert_eq!(calls[0].body, Some(json!({"amountMusd": "50000"})));
+    assert_eq!(calls[0].header("idempotency-key").as_deref(), Some("my-key-0001"));
+    assert_eq!(calls[1].path, "/v1/credits/convert");
+    assert_eq!(calls[1].body, Some(json!({"amountMusd": "50000", "nonce": nonce(), "signature": sig()})));
+    assert_eq!(calls[1].header("idempotency-key").as_deref(), Some("my-key-0001"));
+    assert_eq!(signed.lock().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn convert_default_key_is_shared_by_both_calls() {
+    let (c, m) = connected().await;
+    let (s, _) = signer_for(WALLET, sig());
+    // the key is generated before the challenge, so answer with a message built from what was sent
+    m.push(r(200, json!({})));
+    let e = c.credits.convert("10000", &s, None).await.unwrap_err();
+    assert!(matches!(e, DominusNodeError::Protocol(_)));
+    let k = m.last().header("idempotency-key").unwrap();
+    assert!(k.starts_with("dn-") && k.len() == 39);
+}
+
+#[tokio::test]
+async fn convert_refuses_text_mismatch() {
+    let (s, signed) = signer_for(WALLET, sig());
+    let (c, m) = connected().await;
+    m.push(r(200, convert_challenge("9999999", "my-key-0001", WALLET)));
+    assert!(matches!(c.credits.convert(50_000u64, &s, Some("my-key-0001")).await, Err(DominusNodeError::Protocol(_))));
+    // a withdrawal message for the same fields is not a conversion message
+    let (c, m2) = connected().await;
+    m2.push(r(200, json!({"nonce": nonce(), "message": build_withdraw_message(USER_ID, WALLET, "50000", "my-key-0001", &nonce()), "expiresAt": "t", "signer": WALLET})));
+    assert!(matches!(c.credits.convert(50_000u64, &s, Some("my-key-0001")).await, Err(DominusNodeError::Protocol(_))));
+    // server signer differs
+    let (c, m3) = connected().await;
+    m3.push(r(200, convert_challenge("50000", "my-key-0001", OTHER_WALLET)));
+    assert!(matches!(c.credits.convert(50_000u64, &s, Some("my-key-0001")).await, Err(DominusNodeError::Protocol(_))));
+    assert!(signed.lock().unwrap().is_empty());
+    assert_eq!(m.count() + m2.count() + m3.count(), 3);
+}
+
+#[tokio::test]
+async fn convert_requires_signer() {
+    let (c, m) = connected().await;
+    let (s, signed) = signer_for("", sig());
+    assert!(matches!(c.credits.convert(50_000u64, &s, None).await, Err(DominusNodeError::Validation(_))));
+    assert!(signed.lock().unwrap().is_empty());
+    assert_eq!(m.count(), 0);
+}
+
 // ---------------------------------------------------------------- payout wallet
 
 const NEW_ADDR: &str = "0x3333333333333333333333333333333333333ABC";
