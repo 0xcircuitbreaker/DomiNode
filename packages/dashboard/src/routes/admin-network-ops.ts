@@ -543,6 +543,7 @@ router.post("/disputes/:id/resolve", async (req: Request, res: Response) => {
         grossBefore: resplit.grossBeforeMusd.toString(), grossAfter: resplit.grossAfterMusd.toString(),
         nodeClawbackMusd: resplit.nodeClawbackMusd.toString(), refundCents: resplit.refundCents,
         overflowCents: resplit.overflowCents, unrefundedMusd: resplit.unrefundedMusd.toString(),
+        starterRestoredMusd: resplit.starterRestoredMusd.toString(), starterForfeitMusd: resplit.starterForfeitMusd.toString(),
       } : null;
       await audit(c, req, "byte_dispute_resolve", "byte_dispute", raw, { resolution, reason, relayChargeId: row.relay_charge_id, nodeId: row.node_id, chargeReleased, adjustment });
       return { chargeReleased, relayChargeId: row.relay_charge_id, adjustment };

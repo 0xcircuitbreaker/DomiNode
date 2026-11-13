@@ -18,6 +18,10 @@ export interface ResplitResult {
   overflowCents: number;
   /** µUSD the requester overpaid on a rail refunded manually (team/agentic/x402/mpp). */
   unrefundedMusd: bigint;
+  /** µUSD of the refund that came from starter credit and went back to the grant (still locked, expiring). */
+  starterRestoredMusd: bigint;
+  /** µUSD of the refund that came from a closed (expired/revoked) starter grant: not refunded as balance. */
+  starterForfeitMusd: bigint;
 }
 
 /**
@@ -32,18 +36,19 @@ export interface ResplitResult {
 export async function resplitAtNodeBytesTx(c: TxClient, chargeId: string, adminUserId: string): Promise<ResplitResult> {
   const r = await c.query<{
     gross: string; node: string; discount: string; list: string | null; bg: string; bn: string | null;
-    rail: string; requester: string | null; owner: string | null;
+    rail: string; requester: string | null; owner: string | null; starter: string;
   }>(
     `SELECT rc.gross_musd::text AS gross, rc.node_musd::text AS node, rc.discount_musd::text AS discount,
             rc.list_gross_musd::text AS list, rc.bytes_gateway::text AS bg, rc.bytes_node::text AS bn,
-            rc.payment_rail AS rail, rc.requester_user_id AS requester, rc.node_owner_user_id AS owner
+            rc.payment_rail AS rail, rc.requester_user_id AS requester, rc.node_owner_user_id AS owner,
+            rc.starter_musd::text AS starter
      FROM relay_charges rc WHERE rc.id = $1 FOR UPDATE`,
     [chargeId],
   );
   const x = r.rows[0];
   if (!x) throw new Error("Relay charge not found");
   const gross = BigInt(x.gross);
-  const none: ResplitResult = { adjusted: false, grossBeforeMusd: gross, grossAfterMusd: gross, nodeClawbackMusd: 0n, refundCents: 0, overflowCents: 0, unrefundedMusd: 0n };
+  const none: ResplitResult = { adjusted: false, grossBeforeMusd: gross, grossAfterMusd: gross, nodeClawbackMusd: 0n, refundCents: 0, overflowCents: 0, unrefundedMusd: 0n, starterRestoredMusd: 0n, starterForfeitMusd: 0n };
   const bg = BigInt(x.bg);
   if (x.bn === null || bg === 0n || BigInt(x.bn) >= bg) return none;
   const bn = BigInt(x.bn);
@@ -73,7 +78,38 @@ export async function resplitAtNodeBytesTx(c: TxClient, chargeId: string, adminU
   }
 
   const grossDelta = gross - newGross;
-  const cents = Number(grossDelta / 10_000n);
+  // The starter-funded share of the refund (proportional, floored) is never paid out as
+  // ordinary balance: it goes back to the grant's remaining amount (so those cents stay
+  // locked, non-transferable and expiring), or, when the grant is closed, it is dropped.
+  const starter = BigInt(x.starter ?? "0");
+  const newStarter = gross > 0n ? (starter * newGross) / gross : 0n;
+  const starterShare = starter - newStarter;
+  let starterRestored = 0n;
+  let starterForfeit = 0n;
+  if (starterShare > 0n && x.rail === "wallet" && x.requester) {
+    const g = await c.query<{ id: string; amount: string; remaining: string; open: boolean }>(
+      `SELECT id, amount_musd::text AS amount, remaining_musd::text AS remaining,
+              (status IN ('active','exhausted') AND expires_at > now()) AS open
+       FROM starter_credit_grants WHERE user_id = $1 FOR UPDATE`, [x.requester]);
+    const grant = g.rows[0];
+    if (grant?.open) {
+      const room = BigInt(grant.amount) - BigInt(grant.remaining);
+      starterRestored = starterShare < room ? starterShare : room;
+      if (starterRestored > 0n) {
+        await c.query(
+          `UPDATE starter_credit_grants SET remaining_musd = remaining_musd + $2, status = 'active', closed_at = NULL WHERE id = $1`,
+          [grant.id, starterRestored.toString()]);
+        await c.query(
+          `INSERT INTO starter_credit_ledger (grant_id, type, amount_musd, relay_charge_id, created_by) VALUES ($1, 'restore', $2, $3, $4)`,
+          [grant.id, starterRestored.toString(), chargeId, adminUserId]);
+      }
+    }
+    starterForfeit = starterShare - starterRestored;
+    await c.query(`UPDATE relay_charges SET starter_musd = $2 WHERE id = $1`, [chargeId, newStarter.toString()]);
+  }
+  // Cash refunded: everything but the forfeited starter share (the restored share is
+  // credited back to the wallet too, but as locked starter cents).
+  const cents = Number((grossDelta - starterForfeit) / 10_000n);
   let refundCents = 0;
   let overflowCents = 0;
   let unrefunded = 0n;
@@ -94,10 +130,11 @@ export async function resplitAtNodeBytesTx(c: TxClient, chargeId: string, adminU
     } else {
       unrefunded = grossDelta;
     }
-  } else {
+  } else if (x.rail !== "wallet" || !x.requester) {
     // team/agentic/x402/mpp: no personal wallet movement here; the audit row
     // carries the amount for a manual refund.
     unrefunded = grossDelta;
   }
-  return { adjusted: true, grossBeforeMusd: gross, grossAfterMusd: newGross, nodeClawbackMusd: clawed, refundCents, overflowCents, unrefundedMusd: unrefunded };
+  return { adjusted: true, grossBeforeMusd: gross, grossAfterMusd: newGross, nodeClawbackMusd: clawed, refundCents, overflowCents, unrefundedMusd: unrefunded,
+    starterRestoredMusd: starterRestored, starterForfeitMusd: starterForfeit };
 }

@@ -2212,3 +2212,10 @@ CREATE TABLE IF NOT EXISTS agentic_session_reservations (
 );
 CREATE INDEX IF NOT EXISTS idx_agentic_session_reservations_wallet ON agentic_session_reservations(wallet_id);
 ALTER TABLE agentic_wallets ADD COLUMN IF NOT EXISTS last_reserved_at TIMESTAMPTZ;
+
+-- ─── Starter ledger restore rows (fix/a7-money review) ───────────────────
+-- A byte dispute resolved for the node returns the starter-funded share of the
+-- refund to the grant (type 'restore') instead of paying it out as balance.
+ALTER TABLE starter_credit_ledger DROP CONSTRAINT IF EXISTS starter_credit_ledger_type_check;
+ALTER TABLE starter_credit_ledger ADD CONSTRAINT starter_credit_ledger_type_check
+  CHECK (type IN ('grant','spend','expire','revoke','restore'));
