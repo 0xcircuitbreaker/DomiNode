@@ -3,7 +3,7 @@ import rateLimit from "express-rate-limit";
 import crypto from "node:crypto";
 import { requireAuth, type AuthenticatedRequest } from "../middleware/auth.js";
 import { clearAuthCookies } from "../helpers/cookies.js";
-import { query, getPool, createLogger, userRepo, relayErasureRepo, verifyPassword, isWalletEmail, getProxyInternalPort } from "@dominusnode/shared";
+import { query, getPool, createLogger, userRepo, relayErasureRepo, relayExportRepo, verifyPassword, isWalletEmail, getProxyInternalPort } from "@dominusnode/shared";
 
 const log = createLogger("api:account");
 const router = Router();
@@ -158,9 +158,15 @@ router.get(
         ),
       ]);
 
+      // Relay-network personal data (nodes, abuse log, charges, earnings, payouts, x402/MPP, ...)
+      const relayNetwork = await relayExportRepo.exportRelayPersonalData(
+        userId,
+        (userResult.rows[0] as { wallet_address?: string | null } | undefined)?.wallet_address ?? null,
+      );
+
       const exportData = {
         exportedAt: new Date().toISOString(),
-        exportVersion: "1.1",
+        exportVersion: "1.2",
         user: userResult.rows[0] ?? null,
         wallet: walletResult.rows[0] ?? null,
         transactions: transactionsResult.rows,
@@ -180,6 +186,7 @@ router.get(
         affiliateCommissions: affiliateCommissionsResult.rows,
         promoRedemptions: promoRedemptionsResult.rows,
         loyaltyRewards: loyaltyRewardsResult.rows,
+        relayNetwork,
       };
 
       log.info("GDPR data export", { userId });
