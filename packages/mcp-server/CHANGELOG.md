@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.1.0] - 2026-11-13
+
+### Added
+- `DOMINUSNODE_ALLOW_LOCAL_GATEWAY=1` lets the server target a localhost, `.local`/`.internal` or private-IP gateway (local demo, self-hosted gateway on a LAN). The SSRF guard stays on by default; a warning is printed when the opt-in is set.
+- A refused CONNECT now reports the gateway's `X-DominusNode-Error` code and `Retry-After` (`CONNECT tunnel failed with status 402: INSUFFICIENT_BALANCE`), so the fetch tool's hints fire for HTTPS targets. New hints for NO_NODES_AVAILABLE, QUOTE_CLASS_MISMATCH and TLS_REQUIRED.
+
+### Changed
+- `wallet_setup` prints the proxy example for the configured gateway host and TLS port (8444 on a self-hosted coordinator) instead of a hardcoded host.
+- `node_setup_guide` uses the published node image (`ghcr.io/0xcircuitbreaker/dominusnode-node`), which has the official coordinator pins baked in. A plain source build has none and now refuses to start.
+
 ## [2.0.2] - 2026-11-12
 
 ### Changed

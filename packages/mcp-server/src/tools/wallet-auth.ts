@@ -90,6 +90,19 @@ function errText(err: unknown): string {
   return scrubCredentials(err instanceof Error ? err.message : String(err));
 }
 
+/** curl example for the configured gateway (self-hosted coordinators use their own host and TLS port). */
+export function proxyUsageLines(config: Pick<McpConfig, "proxyHost" | "proxyTls" | "httpProxyPort"> | undefined): string[] {
+  const host = config?.proxyHost ?? "proxy.dominusnode.com";
+  if (config && config.proxyTls === null) {
+    return [
+      `  curl -x http://country-US:<YOUR_API_KEY>@${host}:${config.httpProxyPort} https://httpbin.org/ip`,
+      `  (plaintext gateway: the key is sent in clear; local development only)`,
+    ];
+  }
+  const port = config?.proxyTls?.port ?? 8443;
+  return [`  curl -x https://country-US:<YOUR_API_KEY>@${host}:${port} https://httpbin.org/ip`];
+}
+
 export function registerWalletAuthTools(server: McpServer, httpClient: HttpClient, options: WalletAuthOptions = {}): void {
   const config = options.config;
 
@@ -301,8 +314,7 @@ export function registerWalletAuthTools(server: McpServer, httpClient: HttpClien
           `  Label: ${keyData.label}`,
           ``,
           `Proxy Usage:`,
-          `  curl -x https://country-US:<YOUR_API_KEY>@proxy.dominusnode.com:8443 https://httpbin.org/ip`,
-          `  (plaintext http://...:8080 sends the key in clear; use only if TLS is unavailable)`,
+          ...proxyUsageLines(config),
           ``,
           `Traffic is relayed through agent-contributed nodes; see dominusnode_network_pricing.`,
           unlocked

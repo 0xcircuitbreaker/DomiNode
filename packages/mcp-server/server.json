@@ -8,13 +8,13 @@
     "source": "github",
     "subfolder": "packages/mcp-server"
   },
-  "version": "2.0.2",
+  "version": "2.1.0",
   "packages": [
     {
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "@dominusnode/mcp-server",
-      "version": "2.0.2",
+      "version": "2.1.0",
       "transport": {
         "type": "stdio"
       },
@@ -39,6 +39,13 @@
           "isRequired": false,
           "isSecret": false,
           "format": "filepath"
+        },
+        {
+          "name": "DOMINUSNODE_ALLOW_LOCAL_GATEWAY",
+          "description": "Set to 1 to allow a localhost or private-network gateway host (local demo or self-hosted gateway).",
+          "isRequired": false,
+          "isSecret": false,
+          "format": "string"
         },
         {
           "name": "DOMINUSNODE_PROXY_INSECURE",
