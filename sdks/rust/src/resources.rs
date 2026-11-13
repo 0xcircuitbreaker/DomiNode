@@ -744,19 +744,31 @@ impl CreditsResource {
         let q = qs(&[("limit", opt(limit)), ("cursor", opt(cursor)), ("type", opt(tx_type))]);
         self.http.get(&format!("/v1/credits/transactions{q}"), AuthMode::Agent).await
     }
-    /// `POST /v1/credits/convert` with `Idempotency-Key`.
-    pub async fn convert(&self, amount_musd: impl Into<Musd>, idempotency_key: Option<&str>) -> Result<ConvertResult> {
+    /// Convert: `POST /v1/credits/convert/challenge` -> rebuild message (refuse on mismatch) -> sign ->
+    /// `POST /v1/credits/convert` `{amountMusd, nonce, signature}`, both with `Idempotency-Key`.
+    pub async fn convert(&self, amount_musd: impl Into<Musd>, signer: &dyn Signer, idempotency_key: Option<&str>) -> Result<ConvertResult> {
+        assert_signer(signer, "signer")?;
         let amount = to_musd(amount_musd.into(), MIN_CONVERT_MUSD, MAX_CONVERT_MUSD)?;
         let key = idempotency_key.map(str::to_string).unwrap_or_else(new_idempotency_key);
         validate_idempotency_key(&key)?;
+        let hdr = [("Idempotency-Key".to_string(), key.clone())];
+        let ch: SignChallenge = self
+            .http
+            .request("POST", "/v1/credits/convert/challenge", Some(json!({ "amountMusd": amount })), AuthMode::Agent, &hdr)
+            .await?;
+        check_sign_challenge(&ch, signer)?;
+        let user_id = extract_user_id(&ch.message)?;
+        let local = build_convert_message(&user_id, signer.address(), &amount, &key, &ch.nonce);
+        assert_same_message(&ch.message, &local, "credit conversion")?;
+        let signature = sign(signer, &local, "signer").await?;
         let mut r: ConvertResult = self
             .http
             .request(
                 "POST",
                 "/v1/credits/convert",
-                Some(json!({ "amountMusd": amount })),
+                Some(json!({ "amountMusd": amount, "nonce": ch.nonce, "signature": signature })),
                 AuthMode::Agent,
-                &[("Idempotency-Key".to_string(), key.clone())],
+                &hdr,
             )
             .await?;
         r.idempotency_key = key;

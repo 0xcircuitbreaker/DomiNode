@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [4.0.0] - 2026-11-13
+
+The server now requires a linked-wallet signature to convert node credit (an unsigned call gets `400 SIGNATURE_REQUIRED`).
+This is a major bump because `credits.convert` takes a new argument, which is a breaking change under Rust semver
+(the same rule 3.0.0 followed).
+
+### Breaking
+- `credits.convert(amount_musd, signer, idempotency_key)` now takes a `&dyn Signer`, like `credits.withdraw`. It POSTs `/v1/credits/convert/challenge` (with the `Idempotency-Key` header), checks the nonce and that the server's `signer` is the signer's address, rebuilds the conversion message and refuses with `DominusNodeError::Protocol` if the server's text differs (without calling the signer), then POSTs `/v1/credits/convert` with `{amountMusd, nonce, signature}` and the same key. The unsigned path is removed.
+
+### Added
+- `util::build_convert_message`, the credit-conversion message the linked wallet signs.
+
 ## [3.1.0] - 2026-11-13
 
 Additive release.
