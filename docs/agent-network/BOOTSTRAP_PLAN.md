@@ -71,7 +71,7 @@ The **federation-readiness changes** below are the minimal changes that let inde
 
 No ICO, no airdrop, no points, no "early contributors may receive…" language. Options, in rough order of realism:
 
-1. **Many independent coordinators plus multi-homed nodes** (F1–F5). Like email or the fediverse: each coordinator sets its own prices and policy above the shared floor, and nodes pick which ones to serve. Requesters choose a coordinator like they choose an RPC provider. This is achievable by one person.
+1. **Many independent coordinators plus multi-homed nodes** (F1–F5). Like email or the fediverse: each coordinator sets its own prices and policy above the shared floor, and nodes pick which ones to serve. Requesters choose a coordinator like they choose an RPC provider. This is achievable by a small team.
 2. **A public coordinator directory**: a plain JSON list in a GitHub repo, added to by PR, carrying each coordinator's F1 document and uptime from the public status page. There is no on-chain registry. The DDG coordinator is just one entry.
 3. **Cross-coordinator settlement over x402**: coordinator A can buy capacity from coordinator B's gateway per request with x402, exactly like any agent. This needs no new protocol, since x402 is already the rail.
 4. **On-chain settlement and escrow for node earnings** (later, after counsel): node earnings accrue as signed receipts that a node can redeem from a coordinator's escrow contract in USDC. This removes the "trust the operator's ledger" problem without a token. It is complicated and has legal implications (money transmission), so it is a 2027+ question.
@@ -217,7 +217,7 @@ Pattern: apply only where the project already fits. Lead with "open-source, self
 
 Practical checklist, not legal advice; get a lawyer before turning payouts on.
 
-1. **Abuse contact**: `abuse@` on the DDG domain, monitored daily, and listed in WHOIS/RDAP where possible, in the site footer, in the F1 coordinator doc and in `security.txt`. A public abuse-report form already exists (PoW-protected, `ABUSE_REPORT_POW_DIFFICULTY`). Target a first response within 24 h, and say it is best effort while solo.
+1. **Abuse contact**: `abuse@` on the DDG domain, monitored daily, and listed in WHOIS/RDAP where possible, in the site footer, in the F1 coordinator doc and in `security.txt`. A public abuse-report form already exists (PoW-protected, `ABUSE_REPORT_POW_DIFFICULTY`). Target a first response within 24 h, and say it is best effort while the team is small.
 2. **ToS + AUP + contributor attestation**: short, plain language. Prohibited uses (fraud, account creation, credential stuffing, spam, CSAM, harassment, sanctions evasion, anything illegal at source or destination). Node operators attest that they control the connection and accept relaying (control #1). Version them, since re-attestation is already supported.
 3. **Payouts off**: `PAYOUTS_ENABLED=false`. Credits are not money and are not redeemable for cash. No exceptions for friends.
 4. **Sanctions**: keep the OFAC country block (Cuba, Iran, North Korea, Russia, Syria), install the SDN address list on the gateway (`PAYER_SDN_FILE`, `PAYER_SDN_REQUIRED=true` in production; otherwise x402/MPP returns 503 by design), and refresh it on a cron.
