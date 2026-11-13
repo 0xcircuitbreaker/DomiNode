@@ -132,6 +132,20 @@ describe("relay-charge-repo", () => {
     expect(JSON.stringify(usage.params)).not.toContain("example.com");
   });
 
+  it("locks users before sessions (same order as erasure, no deadlock)", async () => {
+    const r = setup([
+      [/FROM wallets WHERE user_id/, () => ({ rows: [{ id: "w1", balance_cents: 1000 }] })],
+      [/FROM nodes WHERE id/, () => nodeRow()],
+      [/INSERT INTO relay_charges/, () => ({ rows: [{ id: "rc-lock" }] })],
+    ]);
+    await settleRelayCharge(base);
+    const s = r.sqls();
+    const u = s.findIndex((x) => /FROM users WHERE id = \$1 FOR SHARE/.test(x));
+    const se = s.findIndex((x) => /FROM sessions WHERE id = \$1 FOR UPDATE/.test(x));
+    expect(u).toBeGreaterThanOrEqual(0);
+    expect(u).toBeLessThan(se);
+  });
+
   it("is idempotent when a charge exists", async () => {
     const r = setup([[/FROM relay_charges WHERE session_id/, () => ({ rows: [{ id: "rc1", gross_musd: "1", node_musd: "0", platform_musd: "1", zero_reason: null }] })]]);
     const res = await settleRelayCharge(base);

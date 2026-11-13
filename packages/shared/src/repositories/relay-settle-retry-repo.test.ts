@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const mockQuery = vi.fn();
 vi.mock("../db.js", () => ({ query: (...a: unknown[]) => mockQuery(...a) }));
-import { encodeSettleInput, decodeSettleInput, enqueueSettleRetry, listDueSettleRetries, markSettleRetryFailed } from "./relay-settle-retry-repo.js";
+import { encodeSettleInput, decodeSettleInput, enqueueSettleRetry, listDueSettleRetries, markSettleRetryFailed, markSettleRetryDone } from "./relay-settle-retry-repo.js";
 import type { SettleRelayChargeInput } from "./relay-charge-repo.js";
 
 const input: SettleRelayChargeInput = {
@@ -56,5 +56,22 @@ describe("relay-settle-retry-repo", () => {
     mockQuery.mockResolvedValueOnce({ rows: [{ status: "dead" }] });
     expect(await markSettleRetryFailed("s1", "x", 20)).toBe(true);
     expect(mockQuery.mock.calls[0][0]).toMatch(/power\(2/);
+  });
+
+  it("enqueue scrubs host and wallet when the requester is already erased", async () => {
+    mockQuery.mockResolvedValue({ rows: [] });
+    await enqueueSettleRetry(input, "boom");
+    const sql = String(mockQuery.mock.calls[0][0]);
+    expect(sql).toMatch(/FROM users WHERE id = \$2::uuid AND status = 'deleted'/);
+    expect(sql).toMatch(/"destHost":"redacted","requesterWallet":null/);
+  });
+
+  it("done and dead rows drop host and wallet from the payload", async () => {
+    mockQuery.mockResolvedValue({ rows: [] });
+    await markSettleRetryDone("s1");
+    expect(String(mockQuery.mock.calls[0][0])).toMatch(/status = 'done', payload = \(payload - 'requesterWallet' - 'usageTargetHost'\)/);
+    mockQuery.mockResolvedValueOnce({ rows: [{ status: "dead" }] });
+    await markSettleRetryFailed("s1", "x", 20);
+    expect(String(mockQuery.mock.calls[1][0])).toMatch(/payload = CASE WHEN attempts \+ 1 >= \$3 THEN \(payload - 'requesterWallet'/);
   });
 });
