@@ -85,8 +85,8 @@ elsewhere). Meaning and required/optional status are documented in
 | `PAYOUT_RPC_URL` |  | `src/jobs/payout-sender-ethers.ts` |
 | `PAYOUT_SDN_FILE` |  | `src/main.ts`, `src/payer-screening.ts` |
 | `PAYOUT_SIGNER_KEY_FILE` |  | `src/jobs/payout-sender-ethers.ts` |
-| `PROBE_AUTH_SECRET` |  | `src/jobs/probes.ts` |
 | `PROBES_DISABLED` |  | `src/main.ts` |
+| `PROBE_AUTH_SECRET` |  | `src/jobs/probes.ts` |
 | `PROBE_URL` |  | `src/main.ts` |
 | `PROXY_CONNECT_TIMEOUT_MS` | `30000` | `src/server.ts`, `src/socks5.ts` |
 | `PROXY_MAX_CONNECTIONS` | `5000` | `src/server.ts`, `src/socks5.ts` |
