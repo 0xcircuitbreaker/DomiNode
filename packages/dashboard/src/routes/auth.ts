@@ -35,7 +35,7 @@ import {
 import { requireAuth, type AuthenticatedRequest } from "../middleware/auth.js";
 import { setAuthCookies, clearAuthCookies, getRefreshCookieName } from "../helpers/cookies.js";
 import { isGlobalVerifiedAgent, isVerifiedAgentAsync, getAgentMultiplier } from "../helpers/agent-rate-limit.js";
-import { humanAuthGate, getBootstrapAdminEmail } from "../helpers/human-auth.js";
+import { humanAuthGate, requireHumanLogin, getBootstrapAdminEmail } from "../helpers/human-auth.js";
 import { ipRateKey } from "../helpers/ip-key.js";
 
 const router = Router();
@@ -381,7 +381,7 @@ router.post("/pow/challenge", async (req, res) => {
 });
 
 // POST /api/auth/register
-router.post("/register", async (req, res) => {
+router.post("/register", requireHumanLogin, async (req, res) => {
   try {
     const email = sanitizeString(req.body.email ?? "", 254).toLowerCase();
     const password = req.body.password ?? "";
@@ -604,7 +604,7 @@ router.post("/register", async (req, res) => {
 });
 
 // POST /api/auth/login
-router.post("/login", async (req, res) => {
+router.post("/login", requireHumanLogin, async (req, res) => {
   try {
     const email = sanitizeString(req.body.email ?? "", 254).toLowerCase();
     const password = req.body.password ?? "";
@@ -1137,7 +1137,7 @@ setInterval(() => {
 }, 300_000).unref();
 
 // POST /api/auth/mfa/verify — Complete MFA challenge with TOTP code or backup code
-router.post("/mfa/verify", async (req, res) => {
+router.post("/mfa/verify", requireHumanLogin, async (req, res) => {
   try {
     // Per-IP rate limiting for MFA verification (prevents distributed brute force)
     const clientIp = (req.ip ?? req.socket.remoteAddress ?? "").replace(/^::ffff:/, "");
@@ -1285,7 +1285,7 @@ router.post("/mfa/verify", async (req, res) => {
 });
 
 // POST /api/auth/mfa/setup — Generate TOTP secret + QR URI + backup codes (shown once)
-router.post("/mfa/setup", requireAuth, async (req, res) => {
+router.post("/mfa/setup", requireHumanLogin, requireAuth, async (req, res) => {
   try {
     const { userId, email } = (req as AuthenticatedRequest).user;
 
@@ -1324,7 +1324,7 @@ router.post("/mfa/setup", requireAuth, async (req, res) => {
 });
 
 // POST /api/auth/mfa/enable — Verify initial TOTP code to activate MFA
-router.post("/mfa/enable", requireAuth, async (req, res) => {
+router.post("/mfa/enable", requireHumanLogin, requireAuth, async (req, res) => {
   try {
     const { userId } = (req as AuthenticatedRequest).user;
     const code = sanitizeString(req.body.code ?? "", 6);
@@ -1373,7 +1373,7 @@ router.post("/mfa/enable", requireAuth, async (req, res) => {
 });
 
 // POST /api/auth/mfa/disable — Disable MFA (requires password + TOTP code)
-router.post("/mfa/disable", requireAuth, async (req, res) => {
+router.post("/mfa/disable", requireHumanLogin, requireAuth, async (req, res) => {
   try {
     const { userId, email } = (req as AuthenticatedRequest).user;
     const password = req.body.password ?? "";
@@ -1465,7 +1465,7 @@ router.post("/mfa/disable", requireAuth, async (req, res) => {
 });
 
 // GET /api/auth/mfa/status — Check MFA status
-router.get("/mfa/status", requireAuth, async (req, res) => {
+router.get("/mfa/status", requireHumanLogin, requireAuth, async (req, res) => {
   try {
     const { userId } = (req as AuthenticatedRequest).user;
     const mfaConfig = await mfaRepo.findMfaConfigByUserId(userId);
@@ -1548,7 +1548,7 @@ setInterval(() => {
 }, 300_000).unref();
 
 // ─── POST /api/auth/forgot-password ─────────────────────────────────
-router.post("/forgot-password", async (req, res) => {
+router.post("/forgot-password", requireHumanLogin, async (req, res) => {
   try {
     const email = sanitizeString(req.body.email ?? "", 254).toLowerCase();
 
@@ -1599,7 +1599,7 @@ router.post("/forgot-password", async (req, res) => {
 });
 
 // ─── POST /api/auth/reset-password ──────────────────────────────────
-router.post("/reset-password", async (req, res) => {
+router.post("/reset-password", requireHumanLogin, async (req, res) => {
   try {
     const token = sanitizeString(req.body.token ?? "", 128);
     const newPassword = req.body.newPassword ?? "";

@@ -50,6 +50,16 @@ describe("CollusionPage", () => {
     expect(await screen.findByText(/dismissed\./)).toBeInTheDocument();
   });
 
+  it("offers report_penalty and egress_mismatch in the kind filter", async () => {
+    renderPage(<CollusionPage />);
+    await screen.findByText("concentration");
+    for (const k of ["report penalty", "egress mismatch"]) {
+      expect(screen.getByRole("option", { name: k })).toBeInTheDocument();
+    }
+    await userEvent.selectOptions(screen.getByLabelText("Kind"), "egress_mismatch");
+    await waitFor(() => expect(api.flags).toHaveBeenLastCalledWith(expect.objectContaining({ kind: "egress_mismatch" })));
+  });
+
   it("requires a reason before confirming a flag", async () => {
     renderPage(<CollusionPage />);
     await userEvent.click(await screen.findByRole("button", { name: "Confirm" }));

@@ -29,6 +29,14 @@ jobs:
 
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          fetch-depth: 0
+
+      - name: Check tag is on master history
+        run: |
+          git fetch --no-tags origin +refs/heads/master:refs/remotes/origin/master
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/master \
+            || { echo "::error::refusing to deploy $GITHUB_SHA: not on master history"; exit 1; }
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.4.0
@@ -70,6 +78,14 @@ jobs:
 
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          fetch-depth: 0
+
+      - name: Check tag is on master history
+        run: |
+          git fetch --no-tags origin +refs/heads/master:refs/remotes/origin/master
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/master \
+            || { echo "::error::refusing to deploy $GITHUB_SHA: not on master history"; exit 1; }
 
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:

@@ -21,7 +21,10 @@ export function getBootstrapAdminEmail(): string | null {
 }
 
 /** Paths (relative to /api/auth) that belong to human login. */
-export function isHumanAuthPath(path: string): boolean {
+export function isHumanAuthPath(rawPath: string): boolean {
+  // Express routers match case-insensitively and ignore a trailing slash, so
+  // normalise the same way before comparing (/LOGIN, /login/, /Mfa/verify).
+  const path = rawPath.toLowerCase().replace(/\/+$/, "");
   return (
     path === "/register" ||
     path === "/login" ||
@@ -35,6 +38,15 @@ export function isHumanAuthPath(path: string): boolean {
 /** Router middleware: 404 for human-auth paths while ADMIN_HUMAN_LOGIN is off. */
 export function humanAuthGate(req: Request, res: Response, next: NextFunction): void {
   if (!isHumanLoginEnabled() && isHumanAuthPath(req.path)) {
+    res.status(404).json({ error: "Not found" });
+    return;
+  }
+  next();
+}
+
+/** Per-handler guard: 404 unless ADMIN_HUMAN_LOGIN=true (defence in depth). */
+export function requireHumanLogin(_req: Request, res: Response, next: NextFunction): void {
+  if (!isHumanLoginEnabled()) {
     res.status(404).json({ error: "Not found" });
     return;
   }

@@ -214,6 +214,7 @@ function GenesisCard({ onMsg }: { onMsg: (m: string) => void }) {
             ? <button type="button" className="btn-secondary !py-1 text-xs" onClick={() => setClaw(g.ownerUserId)}>Claw back</button> : null },
         ]} />
       <ConfirmDialog open={claw !== null} title="Claw back genesis credit" confirmLabel="Claw back" danger reason="required"
+        description="Removes the still-held one-time genesis credit from this owner."
         onClose={() => setClaw(null)}
         onConfirm={async (reason) => { const r = await launchApi.clawbackGenesis(claw!, reason); setClaw(null); onMsg(`Genesis credit clawed back; ${fmtMoney(r.amount)} removed.`); members.refetch(); }} />
     </Card>
