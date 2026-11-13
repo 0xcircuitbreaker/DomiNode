@@ -39,7 +39,8 @@ export async function endSession(
     `UPDATE sessions
      SET ended_at = now(),
          bytes_total = $1,
-         status = $2
+         status = $2,
+         settle_payload = NULL
      WHERE id = $3`,
     [bytesTotal, status, sessionId],
   );
@@ -56,7 +57,8 @@ export async function endSessionTx(
     `UPDATE sessions
      SET ended_at = now(),
          bytes_total = $1,
-         status = $2
+         status = $2,
+         settle_payload = NULL
      WHERE id = $3`,
     [bytesTotal, status, sessionId],
   );
@@ -263,7 +265,8 @@ export async function cleanupOrphanedSessions(): Promise<number> {
   const result = await query(
     `UPDATE sessions
      SET status = 'error',
-         ended_at = now()
+         ended_at = now(),
+         settle_payload = NULL
      WHERE status = 'active'`,
   );
   return result.rowCount ?? 0;

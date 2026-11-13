@@ -113,7 +113,7 @@ export async function listRecoverableSessions(selfInstanceId: string, staleSecon
 export async function closeLegacyOrphans(olderThanSeconds: number): Promise<number> {
   const age = Math.max(300, Math.min(30 * 86_400, Math.floor(olderThanSeconds)));
   const r = await query(
-    `UPDATE sessions s SET status = 'error', ended_at = now()
+    `UPDATE sessions s SET status = 'error', ended_at = now(), settle_payload = NULL
      WHERE s.status = 'active' AND s.settle_payload IS NULL
        AND s.started_at < now() - make_interval(secs => $1)
        AND NOT EXISTS (SELECT 1 FROM relay_settle_retries q WHERE q.session_id = s.id AND q.status = 'pending')`,
