@@ -3,7 +3,7 @@
  * NEVER signs a server-supplied string blindly: it rebuilds the message from
  * values it knows and refuses (ProtocolError) if the server's text differs.
  * Server sources: packages/shared/src/attestation.ts (buildAttestationMessage),
- * packages/dashboard/src/routes/v1/credits.ts (payoutWalletMessage, withdrawMessage).
+ * packages/dashboard/src/routes/v1/credits.ts (payoutWalletMessage, withdrawMessage, convertMessage).
  */
 import { ProtocolError } from "./errors.js";
 import { UUID_RE } from "./validation.js";
@@ -50,8 +50,20 @@ export function buildWithdrawMessage(i: { userId: string; wallet: string; amount
   ].join("\n");
 }
 
+export function buildConvertMessage(i: { userId: string; wallet: string; amountMusd: string; idempotencyKey: string; nonce: string }): string {
+  return [
+    "DominusNode credit conversion",
+    "Action: convert",
+    `User: ${i.userId}`,
+    `Account wallet: ${i.wallet.toLowerCase()}`,
+    `Amount (µUSD): ${i.amountMusd}`,
+    `Idempotency key: ${i.idempotencyKey}`,
+    `Nonce: ${i.nonce}`,
+  ].join("\n");
+}
+
 /**
- * The payout/withdraw messages carry the account's user id, which the SDK may
+ * The payout/withdraw/convert messages carry the account's user id, which the SDK may
  * not know. Take it from line 3 ("User: <uuid>") — it must be a UUID — and
  * rebuild the whole message from it plus the SDK-known values; any other
  * difference is a refusal.

@@ -93,7 +93,7 @@ Amount arguments accept `bigint`, digit strings or safe integers.
 ```ts
 await dn.credits.balance();
 await dn.credits.transactions({ limit: 50, type: "earn" });
-await dn.credits.convert(1_500_000n);                          // into your requester wallet
+await dn.credits.convert({ amountMusd: 1_500_000n, signer });  // into your requester wallet (signed)
 await dn.payoutWallet.set({ address: "0x...", signer });       // + oldWalletSigner when changing
 await dn.credits.withdraw({ amountMusd: 2_000_000n, signer }); // returns idempotencyKey for retries
 await dn.payouts.list();

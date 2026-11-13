@@ -4,7 +4,7 @@ import type { HttpClient } from "../http.js";
 import type { Money } from "../types.js";
 import { invalidArg, ProtocolError } from "../errors.js";
 import { assertSigner, sign, type Signer } from "../signer.js";
-import { buildWithdrawMessage, extractUserId, assertSameMessage } from "../messages.js";
+import { buildConvertMessage, buildWithdrawMessage, extractUserId, assertSameMessage } from "../messages.js";
 import { HEX64_RE, qs, toMusd, validateIdempotencyKey, validateIntRange, type MusdInput } from "../validation.js";
 
 export const CREDIT_TX_TYPES = ["earn", "mature", "clawback", "convert", "withdraw", "withdraw_reversal"] as const;
@@ -109,13 +109,30 @@ export class CreditsResource {
   }
 
   /**
-   * POST /v1/credits/convert — move available credit (whole cents) into the requester wallet.
+   * Move available credit (whole cents) into the requester wallet. Signed flow:
+   * POST /v1/credits/convert/challenge -> rebuild the message locally (refuse on mismatch)
+   * -> signer (the LINKED wallet) signs -> POST /v1/credits/convert {amountMusd, nonce, signature}.
    * 10,000 <= amountMusd <= 10,000,000,000. Pass the same idempotencyKey to retry safely.
    */
-  async convert(amountMusd: MusdInput, opts: { idempotencyKey?: string } = {}): Promise<ConvertResult & { idempotencyKey: string }> {
-    const amount = toMusd(amountMusd, MIN_CONVERT_MUSD, MAX_CONVERT_MUSD);
+  async convert(opts: { amountMusd: MusdInput; signer: Signer; idempotencyKey?: string }): Promise<ConvertResult & { idempotencyKey: string }> {
+    const signer = assertSigner(opts?.signer);
+    const amountMusd = toMusd(opts.amountMusd, MIN_CONVERT_MUSD, MAX_CONVERT_MUSD);
     const key = validateIdempotencyKey(opts.idempotencyKey ?? newIdempotencyKey());
-    const r = await this.http.post<ConvertResult>("/v1/credits/convert", { amountMusd: amount }, "agent", { "Idempotency-Key": key });
+    const headers = { "Idempotency-Key": key };
+
+    const ch = await this.http.post<{ nonce: string; message: string; expiresAt: string; signer: string }>(
+      "/v1/credits/convert/challenge", { amountMusd }, "agent", headers,
+    );
+    if (typeof ch.nonce !== "string" || !HEX64_RE.test(ch.nonce)) throw new ProtocolError("invalid challenge nonce");
+    if (typeof ch.signer !== "string" || ch.signer.toLowerCase() !== signer.address.toLowerCase()) {
+      throw new ProtocolError("the account's linked wallet is not the signer's address; refusing to sign");
+    }
+    const local = buildConvertMessage({
+      userId: extractUserId(String(ch.message)), wallet: signer.address, amountMusd, idempotencyKey: key, nonce: ch.nonce,
+    });
+    assertSameMessage(ch.message, local, "credit conversion");
+    const signature = await sign(signer, local);
+    const r = await this.http.post<ConvertResult>("/v1/credits/convert", { amountMusd, nonce: ch.nonce, signature }, "agent", headers);
     return { ...r, idempotencyKey: key };
   }
 
