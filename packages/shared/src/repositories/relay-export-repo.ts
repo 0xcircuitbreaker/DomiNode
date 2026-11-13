@@ -57,7 +57,7 @@ export const RELAY_EXPORT_QUERIES: ReadonlyArray<{ key: string; table: string; s
     key: "x402Transactions", table: "x402_transactions",
     sql: `SELECT id, facilitator, payer_address, amount_usd, tx_hash, pool_type, target_host, status, created_at
           FROM x402_transactions
-          WHERE ($2::text IS NOT NULL AND lower(payer_address) = lower($2::text))
+          WHERE ($2::text IS NOT NULL AND payer_address = lower($2::text))
              OR payer_address IN (SELECT address FROM payer_identities WHERE user_id = $1)
           ORDER BY created_at DESC LIMIT ${EXPORT_ROW_CAP}`,
   },

@@ -122,7 +122,7 @@ export const PAYOUT_ERASURE_REVERSAL_SQL = `WITH rev AS (
  */
 export const X402_ERASURE_SQL = `UPDATE x402_transactions
      SET payer_address = 'REDACTED', target_host = 'REDACTED', tx_hash = 'REDACTED'
-   WHERE ($2::text IS NOT NULL AND lower(payer_address) = lower($2::text))
+   WHERE ($2::text IS NOT NULL AND payer_address = lower($2::text))
       OR payer_address IN (SELECT address FROM payer_identities WHERE user_id = $1)`;
 
 export async function eraseRelayPersonalDataTx(

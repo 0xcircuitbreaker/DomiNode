@@ -212,7 +212,7 @@ export async function scrubAbuseLogAccessAuditBatch(days: number, batch = ABUSE_
   const lim = Number.isInteger(batch) && batch > 0 && batch <= ABUSE_LOG_BATCH ? batch : ABUSE_LOG_BATCH;
   const r = await query(
     `UPDATE audit_events SET resource_id = 'REDACTED',
-            details = (details - 'requesterId' - 'host' - 'nodeId') || '{"scrubbed":true}'::jsonb
+            details = (COALESCE(details, '{}'::jsonb) - 'requesterId' - 'host' - 'nodeId') || '{"scrubbed":true}'::jsonb
       WHERE id IN (
         SELECT id FROM audit_events
          WHERE action = 'relay_abuse_log_access' AND created_at < now() - INTERVAL '1 day' * $1

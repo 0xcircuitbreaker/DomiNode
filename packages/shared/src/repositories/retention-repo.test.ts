@@ -46,6 +46,8 @@ describe("retention-repo", () => {
     expect(sql).toMatch(/action = 'relay_abuse_log_access'/);
     expect(sql).toMatch(/- 'requesterId' - 'host'/);
     expect(sql).toMatch(/resource_id = 'REDACTED'/);
+    // NULL details (erased rows) must still get the marker, or they are rewritten forever.
+    expect(sql).toMatch(/details = \(COALESCE\(details, '\{\}'::jsonb\)/);
     expect(mockQuery.mock.calls[0][1]).toEqual([90, 1000]);
     await expect(scrubAbuseLogAccessAuditBatch(0)).rejects.toThrow();
   });

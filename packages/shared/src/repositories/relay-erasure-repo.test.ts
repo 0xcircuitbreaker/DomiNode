@@ -102,7 +102,9 @@ describe("relay erasure", () => {
     expect(x).toBeGreaterThanOrEqual(0);
     expect(x).toBeLessThan(pi);
     expect(client.query.mock.calls[x][1]).toEqual(["u1", checksummed]);
-    expect(X402_ERASURE_SQL).toMatch(/lower\(payer_address\) = lower\(\$2::text\)/);
+    expect(X402_ERASURE_SQL).toMatch(/[^(]payer_address = lower\(\$2::text\)/);
+    // Plain column on the left so idx_x402_transactions_payer is usable.
+    expect(X402_ERASURE_SQL).not.toMatch(/lower\(payer_address\)/);
     expect(X402_ERASURE_SQL).toMatch(/payer_identities WHERE user_id = \$1/);
   });
 

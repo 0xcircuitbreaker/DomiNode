@@ -7,16 +7,22 @@ const clientQuery = vi.fn(async (sql: string) => {
   order.push(sql);
   return { rows: [{ wallet_address: null }], rowCount: 0 };
 });
+const payoutInFlight = { value: false };
 const erase = vi.fn(async () => {
   order.push("ERASE_RELAY");
 });
 
 vi.mock("@dominusnode/shared", () => ({
-  query: vi.fn(async () => ({ rows: [{ email: "0xabc@wallet.dominusnode.com" }] })),
+  query: vi.fn(async (sql: string) => {
+    if (sql.includes("FROM node_payouts")) return { rows: payoutInFlight.value ? [{ id: "p1" }] : [] };
+    return { rows: [{ email: "0xabc@wallet.dominusnode.com" }] };
+  }),
   getPool: vi.fn(() => ({ connect: async () => ({ query: clientQuery, release: vi.fn() }) })),
   createLogger: vi.fn(() => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn() })),
   userRepo: { findUserForAuth: vi.fn(), findUserById: vi.fn() },
-  relayErasureRepo: { eraseRelayPersonalDataTx: (...a: unknown[]) => erase(...(a as [])) },
+  relayErasureRepo: {
+    PAYOUT_IN_FLIGHT_SQL: "SELECT id FROM node_payouts WHERE user_id = $1 LIMIT 1 FOR UPDATE",
+    eraseRelayPersonalDataTx: (...a: unknown[]) => erase(...(a as [])) },
   verifyPassword: vi.fn(),
   isWalletEmail: vi.fn(() => true),
   getProxyInternalPort: vi.fn(() => 1),
@@ -50,6 +56,7 @@ function del(app: express.Express, user = "u1"): Promise<number> {
 describe("DELETE /api/account relay-network erasure", () => {
   beforeEach(() => {
     order.length = 0;
+    payoutInFlight.value = false;
     vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true })));
   });
 
@@ -90,5 +97,17 @@ describe("DELETE /api/account relay-network erasure", () => {
     expect(await del(app, "u2")).toBe(409);
     expect(order).toContain("ROLLBACK");
     expect(order).not.toContain("COMMIT");
+  });
+
+  it("does not terminate sessions when a payout is already in flight", async () => {
+    payoutInFlight.value = true;
+    const f = vi.fn(async () => ({ ok: true }));
+    vi.stubGlobal("fetch", f);
+    const app = express();
+    app.use(express.json());
+    app.use("/api/account", accountRouter);
+    expect(await del(app, "u4")).toBe(409);
+    expect(f).not.toHaveBeenCalled();
+    expect(order).not.toContain("BEGIN");
   });
 });

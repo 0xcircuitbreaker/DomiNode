@@ -244,6 +244,14 @@ router.delete(
         }
       }
 
+      // Refuse before touching the proxy (as the admin route does): sessions must
+      // not be killed for a delete that will fail. The erasure re-checks under lock.
+      const inFlight = await query(relayErasureRepo.PAYOUT_IN_FLIGHT_SQL.replace(/\s+FOR UPDATE\s*$/, ""), [userId]);
+      if ((inFlight.rows?.length ?? 0) > 0) {
+        res.status(409).json({ error: "A payout is in flight. Retry account deletion once it settles." });
+        return;
+      }
+
       // Terminate active proxy sessions BEFORE erasing (matches admin delete flow), so
       // their settles land before the erasure scrubs abuse-log/usage rows. Settles
       // that still arrive later are tombstoned in settleRelayCharge.
