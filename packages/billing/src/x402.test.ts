@@ -653,6 +653,12 @@ describe("updateX402Transaction", () => {
     expect(mockQuery.mock.calls[0][1]).toEqual(["payai", "SolPayer", "0.005", null, "residential", "target.com", "failed", "hash456"]);
   });
 
+  it("stores EVM payers lowercased so erasure can match them", async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [], rowCount: 1 });
+    await updateX402Transaction("h", "coinbase", "0xAbCdEf0123456789aBcDeF0123456789AbCdEf01", "0.001", "0xTx", "dc", "e.com", "settled");
+    expect((mockQuery.mock.calls[0][1] as string[])[1]).toBe("0xabcdef0123456789abcdef0123456789abcdef01");
+  });
+
   it("truncates long inputs to safe lengths", async () => {
     mockQuery.mockResolvedValueOnce({ rows: [], rowCount: 1 });
 

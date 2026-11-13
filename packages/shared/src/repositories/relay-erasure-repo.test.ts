@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
-  RELAY_ERASURE_STATEMENTS, eraseRelayPersonalDataTx, PAYOUT_ERASURE_REVERSAL_SQL, PAYOUT_IN_FLIGHT_SQL, PayoutInFlightError,
+  RELAY_ERASURE_STATEMENTS, eraseRelayPersonalDataTx, PAYOUT_ERASURE_REVERSAL_SQL, X402_ERASURE_SQL, PAYOUT_IN_FLIGHT_SQL, PayoutInFlightError,
 } from "./relay-erasure-repo.js";
 
 const schema = readFileSync(join(__dirname, "..", "schema.sql"), "utf8");
@@ -44,6 +44,13 @@ describe("relay erasure", () => {
     expect(missing).toEqual([]);
   });
 
+  it("hashes a legacy plaintext starter-grant funding source on erasure", () => {
+    const sql = RELAY_ERASURE_STATEMENTS.find((s) => s.label === "starter_credit_grants")?.sql ?? "";
+    expect(sql).toMatch(/ip_prefix = NULL/);
+    expect(sql).toMatch(/funding_source = CASE/);
+    expect(sql).toMatch(/sha256\(convert_to\('starter-funding:'/);
+  });
+
   it("scrubs destination and wallet from pending settle retries", () => {
     const sql = RELAY_ERASURE_STATEMENTS.find((s) => s.label === "relay_settle_retries_pending")?.sql ?? "";
     expect(sql).toMatch(/UPDATE relay_settle_retries/);
@@ -70,8 +77,25 @@ describe("relay erasure", () => {
   it("runs every statement on the caller's client with the user id", async () => {
     const client = { query: vi.fn().mockResolvedValue({ rows: [], rowCount: 0 }) };
     await eraseRelayPersonalDataTx(client as never, "u1");
-    expect(client.query).toHaveBeenCalledTimes(RELAY_ERASURE_STATEMENTS.length + 3);
-    for (const c of client.query.mock.calls) expect(c[1]).toEqual(["u1"]);
+    expect(client.query).toHaveBeenCalledTimes(RELAY_ERASURE_STATEMENTS.length + 4);
+    for (const c of client.query.mock.calls) {
+      if (c[0] === X402_ERASURE_SQL) expect(c[1]).toEqual(["u1", null]);
+      else expect(c[1]).toEqual(["u1"]);
+    }
+  });
+
+  it("redacts x402 payers case-insensitively and via payer_identities, before that link is deleted", async () => {
+    const client = { query: vi.fn().mockResolvedValue({ rows: [], rowCount: 0 }) };
+    const checksummed = "0xAbCdEf0123456789aBcDeF0123456789AbCdEf01";
+    await eraseRelayPersonalDataTx(client as never, "u1", checksummed);
+    const sqls = client.query.mock.calls.map((c) => c[0] as string);
+    const x = sqls.indexOf(X402_ERASURE_SQL);
+    const pi = sqls.findIndex((s) => s.startsWith("DELETE FROM payer_identities"));
+    expect(x).toBeGreaterThanOrEqual(0);
+    expect(x).toBeLessThan(pi);
+    expect(client.query.mock.calls[x][1]).toEqual(["u1", checksummed]);
+    expect(X402_ERASURE_SQL).toMatch(/lower\(payer_address\) = lower\(\$2::text\)/);
+    expect(X402_ERASURE_SQL).toMatch(/payer_identities WHERE user_id = \$1/);
   });
 
   it("reverses unsent payouts (with re-credit) before deleting the payout wallet", async () => {

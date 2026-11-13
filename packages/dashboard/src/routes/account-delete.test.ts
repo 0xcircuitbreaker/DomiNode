@@ -58,7 +58,7 @@ describe("DELETE /api/account relay-network erasure", () => {
     app.use(express.json());
     app.use("/api/account", accountRouter);
     expect(await del(app)).toBe(200);
-    expect(erase).toHaveBeenCalledWith(expect.objectContaining({ query: clientQuery }), "u1");
+    expect(erase).toHaveBeenCalledWith(expect.objectContaining({ query: clientQuery }), "u1", null);
     const b = order.indexOf("BEGIN");
     const e = order.indexOf("ERASE_RELAY");
     const c = order.indexOf("COMMIT");

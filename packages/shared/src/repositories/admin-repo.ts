@@ -184,14 +184,7 @@ export async function deleteUser(userId: string, ext?: DbTxClient): Promise<void
       );
     }
 
-    // Anonymize x402 transactions linked to user's wallet address
-    if (userRow?.wallet_address) {
-      await client.query(
-        `UPDATE x402_transactions SET payer_address = 'REDACTED', target_host = 'REDACTED', tx_hash = 'REDACTED'
-         WHERE payer_address = $1`,
-        [userRow.wallet_address.toLowerCase()]
-      );
-    }
+    // x402 transactions are redacted in eraseRelayPersonalDataTx (EVM + Solana payers).
 
     // Clean up agentic wallets
     await client.query(
@@ -266,7 +259,7 @@ export async function deleteUser(userId: string, ext?: DbTxClient): Promise<void
     );
 
     // Relay-network personal data (abuse log, node IPs, payout wallets, ...)
-    await eraseRelayPersonalDataTx(client, userId);
+    await eraseRelayPersonalDataTx(client, userId, userRow?.wallet_address ?? null);
 
     if (own) await client.query("COMMIT");
   } catch (err) {

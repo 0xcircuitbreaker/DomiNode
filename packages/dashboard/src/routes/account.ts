@@ -422,7 +422,7 @@ router.delete(
         await client.query("DELETE FROM loyalty_rewards WHERE user_id = $1", [userId]);
 
         // Relay-network personal data (abuse log, node IPs, payout wallets, ...)
-        await relayErasureRepo.eraseRelayPersonalDataTx(client, userId);
+        await relayErasureRepo.eraseRelayPersonalDataTx(client, userId, walletAddrRow?.wallet_address ?? null);
 
         await client.query("COMMIT");
       } catch (txErr) {

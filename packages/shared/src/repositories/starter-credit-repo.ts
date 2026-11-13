@@ -1,4 +1,6 @@
 import { isIP } from "node:net";
+import * as crypto from "node:crypto";
+import { apiKeyPepper } from "../api-key-hash.js";
 import type pg from "pg";
 import { query } from "../db.js";
 import { withTx } from "./node-credit-repo.js";
@@ -107,6 +109,22 @@ export const PAID_TOPUP_SQL = `SELECT 1 AS one FROM wallet_transactions wt JOIN 
   WHERE w.user_id = $1 AND wt.type = 'topup' AND wt.amount_cents >= $2
     AND wt.payment_provider IS NOT NULL AND wt.payment_provider <> 'node_credits' LIMIT 1`;
 
+/**
+ * Funding-source keys stored in starter_credit_grants.funding_source. The cap
+ * only needs equality, so the wallet address itself is never stored:
+ *  h2: HMAC-SHA256(API key pepper, "starter-funding:" + source) when a pepper is set
+ *  h1: SHA-256("starter-funding:" + source) otherwise (also what the schema
+ *      migration and erasure produce from legacy plaintext rows)
+ * Lookups match every form so a wallet that re-registers is still capped.
+ */
+export function fundingSourceKeys(source: string, pepper: Buffer | null = apiKeyPepper()): { store: string; match: string[] } {
+  const msg = "starter-funding:" + source;
+  const h1 = "h1:" + crypto.createHash("sha256").update(msg, "utf8").digest("hex");
+  if (!pepper) return { store: h1, match: [h1, source] };
+  const h2 = "h2:" + crypto.createHmac("sha256", pepper).update(msg, "utf8").digest("hex");
+  return { store: h2, match: [h2, h1, source] };
+}
+
 /** Decide caps on the caller's transaction (exported for tests). */
 export async function grantTx(c: TxClient, i: GrantInput, now: Date = new Date()): Promise<GrantResult> {
   const fundingSource = i.fundingSource.trim().toLowerCase();
@@ -121,15 +139,16 @@ export async function grantTx(c: TxClient, i: GrantInput, now: Date = new Date()
     if (t.rows.length === 0) return { granted: false, reason: "unfunded" };
   }
 
+  const fsKeys = fundingSourceKeys(fundingSource);
   const prefix = grantPrefix(i.clientIp);
   const counts = await c.query<{ today_musd: string | null; prefix_n: string; funding_n: string }>(
     `SELECT
        (SELECT SUM(amount_musd) FROM starter_credit_grants WHERE created_at >= date_trunc('day', $1::timestamptz AT TIME ZONE 'UTC') AT TIME ZONE 'UTC')::text AS today_musd,
        (SELECT COUNT(*) FROM starter_credit_grants WHERE $2::cidr IS NOT NULL AND ip_prefix = $2::cidr
           AND created_at > $1::timestamptz - make_interval(days => $4))::text AS prefix_n,
-       (SELECT COUNT(*) FROM starter_credit_grants WHERE funding_source = $3
+       (SELECT COUNT(*) FROM starter_credit_grants WHERE funding_source = ANY($3::text[])
           AND created_at > $1::timestamptz - make_interval(days => $4))::text AS funding_n`,
-    [now.toISOString(), prefix, fundingSource, s.capWindowDays],
+    [now.toISOString(), prefix, fsKeys.match, s.capWindowDays],
   );
   const row = counts.rows[0];
   const today = BigInt(row?.today_musd ?? "0");
@@ -154,7 +173,7 @@ export async function grantTx(c: TxClient, i: GrantInput, now: Date = new Date()
     `INSERT INTO starter_credit_grants (user_id, amount_musd, remaining_musd, ip_prefix, funding_source, expires_at)
      VALUES ($1, $2, $2, $3::cidr, $4, $5::timestamptz + make_interval(days => $6))
      RETURNING id, expires_at`,
-    [i.userId, s.amountMusd.toString(), prefix, fundingSource, now.toISOString(), s.expiryDays],
+    [i.userId, s.amountMusd.toString(), prefix, fsKeys.store, now.toISOString(), s.expiryDays],
   );
   const grant = g.rows[0];
   await c.query(`INSERT INTO starter_credit_ledger (grant_id, type, amount_musd) VALUES ($1, 'grant', $2)`, [grant.id, s.amountMusd.toString()]);
