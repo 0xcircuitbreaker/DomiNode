@@ -400,6 +400,11 @@ if [ "$ROLE_SEL" = gateway ]; then
 fi
 "${COMPOSE[@]}" build
 "${COMPOSE[@]}" up -d --remove-orphans
+# The DNS provider reads its token once at provision: restart Caddy so a
+# rotated token (just copied by caddy-dns-keys) takes effect.
+if [ "$ACME" = dns-cloudflare ]; then
+  "${COMPOSE[@]}" restart caddy
+fi
 # Back on HTTP-01: drop any DNS token copy left in Caddy's secret volume.
 if [ "$ACME" = http ] && in_list caddy "$PROFILES"; then
   docker run --rm --network none --user 0:0 -v dominusnode_caddy_secrets:/dst \

@@ -3,9 +3,9 @@
 # base image is pinned (multi-arch index digests); bump all of them together.
 #   caddy                           v2.11.9 (caddy:2.11.9-builder-alpine, caddy:2.11.9-alpine)
 #   github.com/caddy-dns/cloudflare v0.2.4
-FROM caddy:2.11.9-builder-alpine@sha256:29f98311e17e583811355fa62cc080f71d6f3aa19cf09a9e1494d30579f8bebf AS build
+FROM caddy:2.11.9-builder-alpine@sha256:646fee578e680989ca5c7fd1ce6f1de574d19fd71ef2221810cc0510a9f40c86 AS build
 RUN xcaddy build v2.11.9 --with github.com/caddy-dns/cloudflare@v0.2.4 \
  && ./caddy list-modules | grep -qx 'dns.providers.cloudflare'
 
-FROM caddy:2.11.9-alpine@sha256:fc9cbc100585871d18d4e451cca7021785c90a7006087427ae5ceb3e4efe6424
+FROM caddy:2.11.9-alpine@sha256:003a97808e781aa9f7e75cc2f43d34d461099031faf5e20faefb9f61126836f0
 COPY --from=build /usr/bin/caddy /usr/bin/caddy

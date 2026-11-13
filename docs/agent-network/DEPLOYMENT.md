@@ -657,7 +657,7 @@ certificates are stored in the same layout
 (`caddy_data:/caddy/certificates/<issuer>/<host>/<host>.crt`), so `proxy-certs`
 finds and hot-swaps the `PROXY_HOST` certificate exactly as with HTTP-01. If the
 token is rotated, replace the file and re-run the installer (the one-shot
-copies the new token; Caddy re-reads it on restart).
+copies the new token and restarts Caddy, which reads the token only at startup).
 
 Troubleshooting (`docker compose -f docker-compose.selfhost.yml logs caddy caddy-dns-keys`):
 

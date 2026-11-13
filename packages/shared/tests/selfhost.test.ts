@@ -638,3 +638,15 @@ describe("self-host fixes from the first live install", () => {
     expect(text).not.toMatch(/gzip -dc "\$TMP" \| head/);
   });
 });
+
+describe("DNS-01 token rotation and image pins", () => {
+  it("restarts Caddy after copying the DNS token so a rotated token takes effect", () => {
+    const text = fs.readFileSync(INSTALL, "utf8");
+    expect(text).toMatch(/if \[ "\$ACME" = dns-cloudflare \]; then\n\s+"\$\{COMPOSE\[@\]\}" restart caddy/);
+  });
+  it("pins both Caddy base images by digest", () => {
+    const text = fs.readFileSync(path.join(ROOT, "infra/docker/caddy.Dockerfile"), "utf8");
+    expect(text).toMatch(/caddy:2\.11\.9-builder-alpine@sha256:[0-9a-f]{64}/);
+    expect(text).toMatch(/caddy:2\.11\.9-alpine@sha256:[0-9a-f]{64}/);
+  });
+});
