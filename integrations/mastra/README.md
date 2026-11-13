@@ -59,7 +59,7 @@ Tool ids are `dominusnode_<name>` (e.g. `dominusnode_fetch`); `getTools()` retur
 | 14 | `node_tier` | `nodes.tier` | Your node-operator tier and progress |
 | 15 | `node_setup_guide` | static | How to earn by contributing an IP with the node agent |
 | 16 | `credits_balance` | `credits.balance` | Node earnings (pending/available/frozen) |
-| 17 | `credits_convert` | `credits.convert` | Convert node credit into wallet balance |
+| 17 | `credits_convert` | none (signed flow) | Points to the MCP server or SDK (needs a wallet signature) |
 | 18 | `payouts_list` | `payouts.list` | Payout history |
 | 19 | `x402_info` | `x402.getInfo` | x402 micropayment info (public) |
 

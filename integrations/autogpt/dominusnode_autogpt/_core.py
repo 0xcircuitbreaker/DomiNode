@@ -110,6 +110,12 @@ Step 4: Verify
 DEFAULT_TLS_PROXY_PORT = 8443
 
 
+#: credits_convert needs a wallet signature; signing flows are not exposed as LLM tools.
+CREDITS_CONVERT_SIGNING_MESSAGE = (
+    "Converting credits needs a fresh signature from the wallet linked to this account, so this tool does not convert. Use the DominusNode MCP server (tool dominusnode_credits_convert, with DOMINUSNODE_WALLET_KEY_FILE pointing at a chmod-600 wallet key file) or a DominusNode SDK's credits.convert with a signer key file. Check available credit with credits_balance."
+)
+
+
 def resolve_gateway(
     proxy_host: Optional[str] = None,
     tls_port: Optional[int] = None,
@@ -447,13 +453,13 @@ class DominusNodeTools:
         return self._call(lambda dn: dn.credits.balance())
 
     def dominusnode_credits_convert(self, amount_musd: str, idempotency_key: Optional[str] = None) -> str:
-        """Convert available earned credits into wallet balance to spend on relay traffic.
+        """Explain how to convert earned credits into wallet balance (needs a wallet signature, so not done here).
 
         Args:
             amount_musd: Amount in µUSD as a digit string (10000 = $0.01; min 10000).
             idempotency_key: Optional key from a previous attempt, to retry safely.
         """
-        return self._call(lambda dn: dn.credits.convert(amount_musd, idempotency_key=idempotency_key))
+        return self._ok({"status": "signing_required", "message": CREDITS_CONVERT_SIGNING_MESSAGE})
 
     def dominusnode_payouts_list(self, limit: int = 20, offset: int = 0) -> str:
         """List your on-chain payouts (withdrawals of earned credits). Withdrawing needs a signer, not this tool.

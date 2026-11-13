@@ -25,7 +25,6 @@ EXPECTED = {
     "dominusnode_node_list": ({}, "nodes.list"),
     "dominusnode_node_tier": ({}, "nodes.tier"),
     "dominusnode_credits_balance": ({}, "credits.balance"),
-    "dominusnode_credits_convert": ({"amount_musd": "10000"}, "credits.convert"),
     "dominusnode_payouts_list": ({}, "payouts.list"),
     "dominusnode_x402_info": ({}, "x402.get_info"),
 }
@@ -56,7 +55,7 @@ def tools(sdk):
 
 def test_nineteen_tools():
     assert len(TOOL_NAMES) == 19 == len(set(TOOL_NAMES))
-    assert set(EXPECTED) | {"dominusnode_fetch", "dominusnode_node_setup_guide"} == set(TOOL_NAMES)
+    assert set(EXPECTED) | {"dominusnode_fetch", "dominusnode_node_setup_guide", "dominusnode_credits_convert"} == set(TOOL_NAMES)
 
 
 @pytest.mark.parametrize("name", sorted(EXPECTED))
@@ -74,8 +73,6 @@ def test_argument_mapping(tools, sdk):
     sdk.wallet.top_up_crypto.assert_called_once_with(2500, "btc")
     tools.dominusnode_usage(since="a", until="b")
     sdk.usage.get.assert_called_once_with(from_="a", to="b")
-    tools.dominusnode_credits_convert(amount_musd="20000")
-    sdk.credits.convert.assert_called_once_with("20000", idempotency_key=None)
     tools.dominusnode_report_session(session_id="s", reason="slow")
     sdk.sessions.report.assert_called_once_with("s", "slow")
 
@@ -130,3 +127,11 @@ def test_key_from_env(monkeypatch, sdk):
 
 def test_repr_hides_key(tools):
     assert KEY not in repr(tools) and KEY not in str(tools)
+
+
+def test_credits_convert_points_to_signer(tools, sdk):
+    out = json.loads(tools.dominusnode_credits_convert(amount_musd="20000"))
+    assert out["status"] == "signing_required"
+    assert "MCP server" in out["message"] and "signer key file" in out["message"]
+    sdk.credits.convert.assert_not_called()
+    sdk.connect_with_key.assert_not_called()

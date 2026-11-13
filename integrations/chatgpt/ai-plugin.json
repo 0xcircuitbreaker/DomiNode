@@ -3,7 +3,7 @@
   "name_for_human": "DominusNode Relay",
   "name_for_model": "dominusnode",
   "description_for_human": "AI-agent relay network: live pricing, network stats, node earnings and payouts.",
-  "description_for_model": "DominusNode is a relay network for AI agents: web requests exit through residential, datacenter and mobile IPs contributed by node operators, billed per GB. Use network_pricing for live prices (never assume them), network_stats for capacity by country/class, network_policy for the rules, node_list/node_tier/credits_balance/credits_convert/payouts_list for node-operator earnings, report_session to report a bad exit, and x402_info for micropayments.",
+  "description_for_model": "DominusNode is a relay network for AI agents: web requests exit through residential, datacenter and mobile IPs contributed by node operators, billed per GB. Use network_pricing for live prices (never assume them), network_stats for capacity by country/class, network_policy for the rules, node_list/node_tier/credits_balance/payouts_list for node-operator earnings (converting credits needs a wallet signature: use the MCP server or SDK with a signer key file), report_session to report a bad exit, and x402_info for micropayments.",
   "auth": {
     "type": "user_http",
     "authorization_type": "bearer"

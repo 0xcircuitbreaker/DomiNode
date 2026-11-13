@@ -58,7 +58,7 @@ The plugin files are generated from the shared tool specs; after changing `_core
 | 14 | `dominusnode_node_tier` | Your node-operator tier, revenue share and progress toward the next tier (tenure, uptime, active IPs, reputation). |
 | 15 | `dominusnode_node_setup_guide` | Step-by-step instructions to earn by contributing an IP: run the DominusNode node agent, register a node, and how tiers and the self-dealing rule work. |
 | 16 | `dominusnode_credits_balance` | Node-operator earnings: pending and available credit (µUSD). |
-| 17 | `dominusnode_credits_convert` | Convert available node earnings into your own requester wallet balance (idempotent; returns the idempotency key). |
+| 17 | `dominusnode_credits_convert` | Explains how to convert node credits into wallet balance. Conversion needs a wallet signature, so it runs through the DominusNode MCP server or SDK with a signer key file, not through this tool. |
 | 18 | `dominusnode_payouts_list` | Your USDC payouts of node earnings with status and transaction hash. |
 | 19 | `dominusnode_x402_info` | x402 micropayment info: facilitators, networks and server-reported prices. |
 

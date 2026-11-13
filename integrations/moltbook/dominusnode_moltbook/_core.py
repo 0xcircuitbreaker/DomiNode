@@ -32,6 +32,12 @@ _LIMIT = {"type": "integer", "minimum": 1, "description": "Maximum number of ite
 _OFFSET = {"type": "integer", "minimum": 0, "description": "Items to skip."}
 
 
+#: credits_convert needs a wallet signature; signing flows are not exposed as LLM tools.
+CREDITS_CONVERT_SIGNING_MESSAGE = (
+    "Converting credits needs a fresh signature from the wallet linked to this account, so this tool does not convert. Use the DominusNode MCP server (tool dominusnode_credits_convert, with DOMINUSNODE_WALLET_KEY_FILE pointing at a chmod-600 wallet key file) or a DominusNode SDK's credits.convert with a signer key file. Check available credit with credits_balance."
+)
+
+
 def _obj(props: Optional[Dict[str, Any]] = None, required: Optional[List[str]] = None) -> Dict[str, Any]:
     return {"type": "object", "properties": props or {}, "required": required or [], "additionalProperties": False}
 
@@ -97,7 +103,7 @@ TOOL_SPECS: List[Dict[str, Any]] = [
     {"name": "credits_balance", "description": "Node-operator earnings: pending and available credit (µUSD).",
      "parameters": _obj()},
     {"name": "credits_convert", "description": (
-        "Convert available node earnings into your own requester wallet balance (idempotent; returns the idempotency key)."),
+        "Explains how to convert node credits into wallet balance. Conversion needs a wallet signature, so it runs through the DominusNode MCP server or SDK with a signer key file, not through this tool."),
      "parameters": _obj({"amount_musd": {"type": "string",
                                          "description": "Amount in micro-USD as a digit string (min 10000 = $0.01)."}},
                         ["amount_musd"])},
@@ -280,6 +286,8 @@ class DominusNodeTools:
             return self._proxy_url(a)
         if name == "node_setup_guide":
             return {"guide": NODE_SETUP_GUIDE}
+        if name == "credits_convert":
+            return {"status": "signing_required", "message": CREDITS_CONVERT_SIGNING_MESSAGE}
         c = self._sdk()
         if name == "network_policy":
             return c.network.policy()
@@ -307,8 +315,6 @@ class DominusNodeTools:
             return c.nodes.tier()
         if name == "credits_balance":
             return c.credits.balance()
-        if name == "credits_convert":
-            return c.credits.convert(str(a["amount_musd"]))
         if name == "payouts_list":
             return c.payouts.list(limit=_opt_int(a, "limit"), offset=_opt_int(a, "offset"))
         if name == "x402_info":

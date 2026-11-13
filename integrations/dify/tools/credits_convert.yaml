@@ -5,10 +5,10 @@ identity:
     en_US: Credits Convert
 description:
   human:
-    en_US: Convert available earned credits (micro-USD) into prepaid wallet balance
-      to pay for relay traffic.
-  llm: Convert available earned credits (micro-USD) into prepaid wallet balance to
-    pay for relay traffic. Retry with the returned idempotency key.
+    en_US: Explains how to convert node credits into wallet balance.
+  llm: Explains how to convert node credits into wallet balance. Conversion needs
+    a wallet signature, so it runs through the DominusNode MCP server or SDK with
+    a signer key file, not through this tool.
 parameters:
 - name: amount_musd
   label:
