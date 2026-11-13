@@ -72,4 +72,30 @@ describe.skipIf(!PG_TEST_URL)("genesis cohort against PostgreSQL", () => {
     expect(await isMember(a)).toBe(true);
     expect(await isMember(b)).toBe(false);
   });
+
+  it("a member's 12 linked sybils ahead in line cannot starve the last slot (1 slot -> page of 10)", async () => {
+    const member = await mkUser();
+    const net = `10.${Math.floor(Math.random() * 250)}.${Math.floor(Math.random() * 250)}`;
+    const mn = await mkNode(member, `${net}.1`);
+    await query(`UPDATE nodes SET ip_prefix24 = $2::cidr WHERE id = $1`, [mn, `${net}.0/24`]);
+    const n = (await query<{ n: string; s: string | null }>(`SELECT COUNT(*)::text AS n, MAX(seq)::text AS s FROM genesis_members`)).rows[0]!;
+    await query(`INSERT INTO genesis_members (owner_user_id, seq, enrolled_at, boost_until) VALUES ($1, $2, now(), now())`,
+      [member, Number(n.s ?? 0) + 1]);
+    await query(`UPDATE genesis_settings SET max_owners = $1 WHERE id = 1`, [Number(n.n) + 2]); // one slot left
+    const payers = [await mkUser(), await mkUser(), await mkUser()];
+    for (const p of payers) await paidTopup(p);
+    // Older than any other test's charges, so the sybils head the first-paid order.
+    for (let i = 0; i < 12; i++) {
+      const s = await mkUser();
+      const sn = await mkNode(s, `${net}.${10 + i}`);
+      await query(`UPDATE nodes SET ip_prefix24 = $2::cidr WHERE id = $1`, [sn, `${net}.0/24`]);
+      for (const p of payers) await mkCharge({ requester: p, node: sn, owner: s, grossMusd: 1_000_000, daysAgo: 400 - i });
+    }
+    const honest = await mkUser();
+    const hn = await mkNode(honest, "198.51.100.77");
+    for (const p of payers) await mkCharge({ requester: p, node: hn, owner: honest, grossMusd: 1_000_000, daysAgo: 300 });
+    expect(await enrol()).toBe(1);
+    expect(await isMember(honest)).toBe(true);
+    await query(`UPDATE genesis_settings SET max_owners = 200 WHERE id = 1`);
+  });
 });

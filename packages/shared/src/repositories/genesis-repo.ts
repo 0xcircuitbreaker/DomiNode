@@ -114,21 +114,34 @@ export const QUALIFIED_OWNERS_SQL = (payersParam: string, minSpendParam: string)
   GROUP BY p.owner HAVING COUNT(*) >= ${payersParam}::int`;
 
 /**
- * A row when owner $1 shares a beneficial owner with an existing genesis
- * member: a shared team, payout wallet address, node wallet, wallet identity,
- * or node egress prefix (/24 for IPv4, /48 for IPv6). One slot per beneficial owner.
+ * True when the owner (SQL expression `o`) shares a beneficial owner with an
+ * existing genesis member: a shared team, payout wallet address, node wallet,
+ * a wallet identity (users.wallet_address) that is the other side's node or
+ * payout wallet, or node egress prefix (ip_prefix24: /24 for IPv4, /48 for
+ * IPv6). One slot per beneficial owner.
  */
-export const LINKED_TO_MEMBER_SQL = `
-  SELECT 1 FROM genesis_members g WHERE g.owner_user_id <> $1 AND (
+export const LINKED_TO_MEMBER_PRED = (o: string): string => `
+  EXISTS (SELECT 1 FROM genesis_members g WHERE g.owner_user_id <> ${o} AND (
     EXISTS (SELECT 1 FROM team_members a JOIN team_members b ON b.team_id = a.team_id
-            WHERE a.user_id = $1 AND b.user_id = g.owner_user_id)
+            WHERE a.user_id = ${o} AND b.user_id = g.owner_user_id)
     OR EXISTS (SELECT 1 FROM payout_wallets p1 JOIN payout_wallets p2 ON lower(p2.address) = lower(p1.address)
-               WHERE p1.user_id = $1 AND p2.user_id = g.owner_user_id)
+               WHERE p1.user_id = ${o} AND p2.user_id = g.owner_user_id)
     OR EXISTS (SELECT 1 FROM nodes n1 JOIN nodes n2
                  ON lower(n2.owner_wallet) = lower(n1.owner_wallet)
                  OR (n1.ip_prefix24 IS NOT NULL AND n2.ip_prefix24 = n1.ip_prefix24)
-               WHERE n1.owner_user_id = $1 AND n2.owner_user_id = g.owner_user_id)
-  ) LIMIT 1`;
+               WHERE n1.owner_user_id = ${o} AND n2.owner_user_id = g.owner_user_id)
+    OR EXISTS (SELECT 1 FROM users ua, users ub
+               WHERE ua.id = ${o} AND ub.id = g.owner_user_id AND (
+                 (ua.wallet_address IS NOT NULL AND (
+                    EXISTS (SELECT 1 FROM nodes nb WHERE nb.owner_user_id = ub.id AND lower(nb.owner_wallet) = lower(ua.wallet_address))
+                    OR EXISTS (SELECT 1 FROM payout_wallets pb WHERE pb.user_id = ub.id AND lower(pb.address) = lower(ua.wallet_address))))
+                 OR (ub.wallet_address IS NOT NULL AND (
+                    EXISTS (SELECT 1 FROM nodes na WHERE na.owner_user_id = ua.id AND lower(na.owner_wallet) = lower(ub.wallet_address))
+                    OR EXISTS (SELECT 1 FROM payout_wallets pa WHERE pa.user_id = ua.id AND lower(pa.address) = lower(ub.wallet_address))))))
+  ))`;
+
+/** A row when owner $1 is linked to an existing member (see LINKED_TO_MEMBER_PRED). */
+export const LINKED_TO_MEMBER_SQL = `SELECT 1 WHERE ${LINKED_TO_MEMBER_PRED("$1::uuid")}`;
 
 /**
  * Enrol up to the remaining cohort slots, in first-paid-charge order, one
@@ -142,30 +155,42 @@ export async function enrolTx(c: TxClient): Promise<number> {
   let slots = s.maxOwners - Number(n.rows[0]?.n ?? 0);
   if (slots <= 0) return 0;
   let seq = Number(n.rows[0]?.max_seq ?? 0);
-  const cand = await c.query<{ owner: string }>(
-    `SELECT rc.node_owner_user_id AS owner
-     FROM relay_charges rc
-     JOIN users u ON u.id = rc.node_owner_user_id AND u.status = 'active' AND NOT u.is_admin
-     WHERE rc.node_musd > 0 AND NOT rc.disputed
-       AND rc.requester_user_id IS DISTINCT FROM rc.node_owner_user_id
-       AND NOT EXISTS (SELECT 1 FROM genesis_members g WHERE g.owner_user_id = rc.node_owner_user_id)
-       AND NOT EXISTS (SELECT 1 FROM nodes n WHERE n.owner_user_id = rc.node_owner_user_id AND n.operator_run)
-       AND rc.node_owner_user_id IN (${QUALIFIED_OWNERS_SQL("$2", "$3")})
-     GROUP BY rc.node_owner_user_id
-     ORDER BY MIN(rc.created_at), rc.node_owner_user_id
-     LIMIT $1`,
-    [Math.min(1000, slots * 10), s.minDistinctPayers, s.minPayerSpendMusd.toString()],
-  );
+  // Linked owners are excluded in SQL, so they can never fill the candidate page
+  // ahead of an unlinked one; pages continue (skipping owners already examined)
+  // until the slots are filled or the list runs out. The per-candidate check
+  // below still catches links to members enrolled earlier in this run.
+  const examined: string[] = [];
   let joined = 0;
-  for (const { owner } of cand.rows) {
-    if (slots <= 0) break;
-    const linked = await c.query(LINKED_TO_MEMBER_SQL, [owner]);
-    if (linked.rows.length > 0) continue;
-    const r = await c.query(
-      `INSERT INTO genesis_members (owner_user_id, seq, enrolled_at, boost_until)
-       VALUES ($1, $2, now(), now() + make_interval(days => $3)) ON CONFLICT (owner_user_id) DO NOTHING RETURNING owner_user_id`,
-      [owner, seq + 1, s.boostDays]);
-    if (r.rows.length > 0) { seq++; slots--; joined++; }
+  for (let page = 0; slots > 0 && page < 20; page++) {
+    const cand = await c.query<{ owner: string }>(
+      `SELECT rc.node_owner_user_id AS owner
+       FROM relay_charges rc
+       JOIN users u ON u.id = rc.node_owner_user_id AND u.status = 'active' AND NOT u.is_admin
+       WHERE rc.node_musd > 0 AND NOT rc.disputed
+         AND rc.requester_user_id IS DISTINCT FROM rc.node_owner_user_id
+         AND NOT EXISTS (SELECT 1 FROM genesis_members g WHERE g.owner_user_id = rc.node_owner_user_id)
+         AND NOT EXISTS (SELECT 1 FROM nodes n WHERE n.owner_user_id = rc.node_owner_user_id AND n.operator_run)
+         AND NOT (rc.node_owner_user_id = ANY($4::uuid[]))
+         AND NOT ${LINKED_TO_MEMBER_PRED("rc.node_owner_user_id")}
+         AND rc.node_owner_user_id IN (${QUALIFIED_OWNERS_SQL("$2", "$3")})
+       GROUP BY rc.node_owner_user_id
+       ORDER BY MIN(rc.created_at), rc.node_owner_user_id
+       LIMIT $1`,
+      [Math.min(1000, slots * 10), s.minDistinctPayers, s.minPayerSpendMusd.toString(), [...examined]],
+    );
+    const fresh = cand.rows.filter(({ owner }) => !examined.includes(owner));
+    if (fresh.length === 0) break;
+    for (const { owner } of fresh) {
+      examined.push(owner);
+      if (slots <= 0) break;
+      const linked = await c.query(LINKED_TO_MEMBER_SQL, [owner]);
+      if (linked.rows.length > 0) continue;
+      const r = await c.query(
+        `INSERT INTO genesis_members (owner_user_id, seq, enrolled_at, boost_until)
+         VALUES ($1, $2, now(), now() + make_interval(days => $3)) ON CONFLICT (owner_user_id) DO NOTHING RETURNING owner_user_id`,
+        [owner, seq + 1, s.boostDays]);
+      if (r.rows.length > 0) { seq++; slots--; joined++; }
+    }
   }
   return joined;
 }

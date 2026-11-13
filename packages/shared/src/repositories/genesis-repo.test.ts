@@ -11,7 +11,7 @@ function client(o: { settings?: Partial<typeof SETTINGS>; members?: number; cand
     if (sql.includes("FROM genesis_settings")) return { rows: [{ ...SETTINGS, ...o.settings }] };
     if (sql.includes("COUNT(*)::text AS n, MAX(seq)")) return { rows: [{ n: String(o.members ?? 0), max_seq: o.members ? String(o.members) : null }] };
     if (sql.includes("SELECT rc.node_owner_user_id AS owner")) return { rows: (o.candidates ?? ["x"]).map((owner) => ({ owner })) };
-    if (sql.includes("SELECT 1 FROM genesis_members g WHERE g.owner_user_id <> $1")) return { rows: (o.linked ?? []).includes(p[0] as string) ? [{ "?column?": 1 }] : [] };
+    if (sql.startsWith("SELECT 1 WHERE")) return { rows: (o.linked ?? []).includes(p[0] as string) ? [{ "?column?": 1 }] : [] };
     if (sql.includes("INSERT INTO genesis_members")) return { rows: [{ owner_user_id: p[0] }] };
     if (sql.includes("FROM genesis_members WHERE owner_user_id")) return { rows: [{ credit_musd: "5000000" }] };
     if (sql.includes("FROM node_credit_accounts")) return { rows: [{ user_id: "o", pending_musd: "3000000", available_musd: "0", auto_convert_pct: 0, frozen: false, tax_form_status: "not_required", tax_form_type: null, tax_form_received_at: null, tax_year: null, ytd_paid_musd: "0", updated_at: new Date() }] };
@@ -26,7 +26,9 @@ describe("genesis enrolment", () => {
     expect(await enrolTx(c)).toBe(1);
     expect(calls[0].sql).toContain("pg_advisory_xact_lock");
     const sel = calls.find((x) => x.sql.includes("SELECT rc.node_owner_user_id AS owner"))!;
-    expect(sel.p).toEqual([500, 3, "1000000"]);
+    expect(sel.p).toEqual([500, 3, "1000000", []]);
+    // Linked owners are excluded in the candidate SQL itself (no starvation).
+    expect(sel.sql).toContain("FROM genesis_members g WHERE g.owner_user_id <> rc.node_owner_user_id");
     // Payer diversity: >= N unlinked, matured, paying principals that each spent >= $1.
     expect(sel.sql).toContain("HAVING COUNT(*) >= $2::int");
     expect(sel.sql).toContain("HAVING SUM(q.gross_musd) >= $3::bigint");
