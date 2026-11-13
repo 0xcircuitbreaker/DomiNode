@@ -67,6 +67,17 @@ describe("DELETE /api/account relay-network erasure", () => {
     expect(c).toBeGreaterThan(e);
   });
 
+  it("terminates live proxy sessions before the erasure transaction begins", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => { order.push(`FETCH ${url}`); return { ok: true }; }));
+    const app = express();
+    app.use(express.json());
+    app.use("/api/account", accountRouter);
+    expect(await del(app, "u3")).toBe(200);
+    const t = order.findIndex((x) => x.startsWith("FETCH") && x.includes("/internal/terminate-sessions/u3"));
+    expect(t).toBeGreaterThanOrEqual(0);
+    expect(t).toBeLessThan(order.indexOf("BEGIN"));
+  });
+
   it("returns 409 and rolls back while a payout is in flight", async () => {
     erase.mockImplementationOnce(async () => {
       const err = new Error("in flight");
