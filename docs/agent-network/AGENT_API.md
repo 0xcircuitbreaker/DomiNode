@@ -28,7 +28,8 @@ extension use these exact shapes.
 | `GET /v1/node/tier` | agent | [Nodes](#nodes) |
 | `GET /v1/credits` | agent | [Credits](#credits) |
 | `GET /v1/credits/transactions` | agent | [Credits](#credits) |
-| `POST /v1/credits/convert` | agent | [Credits](#credits) |
+| `POST /v1/credits/convert/challenge` | agent | [Credits](#credits) |
+| `POST /v1/credits/convert` | agent + wallet signature | [Credits](#credits) |
 | `GET /v1/payout-wallet` | agent | [Payout wallet](#payout-wallet) |
 | `POST /v1/payout-wallet/challenge` | agent | [Payout wallet](#payout-wallet) |
 | `PUT /v1/payout-wallet` | agent | [Payout wallet](#payout-wallet) |
@@ -107,9 +108,25 @@ Sign the `message` string exactly as returned.
 ```
 `reference` is the payout id for `withdraw` / `withdraw_reversal`.
 
+### `POST /v1/credits/convert/challenge`
+Header `Idempotency-Key` (required), body `{"amountMusd": "1500000"}`. Needs a linked wallet
+(`400 NO_LINKED_WALLET`). Returns `{nonce, message, expiresAt, signer}`; the message is
+```
+DominusNode credit conversion
+Action: convert
+User: <user id>
+Account wallet: <linked wallet, lowercase>
+Amount (µUSD): <amountMusd>
+Idempotency key: <key>
+Nonce: <nonce>
+```
+
 ### `POST /v1/credits/convert`
-Header `Idempotency-Key: <8–120 of [A-Za-z0-9_-]>` (required).
-Body `{"amountMusd": "1500000"}`; 10,000 (1 cent) ≤ amount ≤ 10,000,000,000 ($10,000).
+Header `Idempotency-Key: <8–120 of [A-Za-z0-9_-]>` (required, the same key as the challenge).
+Body `{"amountMusd": "1500000", "nonce": "<hex64>", "signature": "0x…"}`: an EIP-191 signature of the
+challenge message by the linked wallet (like withdraw), so a leaked API key alone cannot move credit.
+10,000 (1 cent) ≤ amount ≤ 10,000,000,000 ($10,000). Without a signature: `400 SIGNATURE_REQUIRED`;
+a used, expired or mismatched challenge: `400 INVALID_CHALLENGE`; another signer: `400 BAD_SIGNATURE`.
 Converts whole cents of available credit into the caller's own requester wallet;
 the sub-cent remainder stays in credits. Repeating a key returns the original result.
 ```json

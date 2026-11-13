@@ -2134,3 +2134,11 @@ DO $$ BEGIN
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 CREATE INDEX IF NOT EXISTS idx_mpp_refund_due ON mpp_transactions(created_at) WHERE status = 'refund_due';
+
+-- Credit conversion needs a signed challenge like withdraw (action 'convert').
+ALTER TABLE agent_sign_challenges DROP CONSTRAINT IF EXISTS agent_sign_challenges_action_check;
+DO $$ BEGIN
+  ALTER TABLE agent_sign_challenges ADD CONSTRAINT chk_agent_sign_challenges_action
+    CHECK (action IN ('payout_wallet_set','withdraw','convert'));
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;

@@ -139,27 +139,55 @@ describe("GET /v1/credits/transactions", () => {
 
 describe("POST /v1/credits/convert", () => {
   const h = { "idempotency-key": "conv-key-0001" };
-  it("converts with an idempotency key", async () => {
-    m.convert.mockResolvedValue({ convertedCents: 150, convertedMusd: 1_500_000n });
+  async function signed(amountMusd: string) {
+    const ch = await call(app(), "POST", "/v1/credits/convert/challenge", { body: { amountMusd }, headers: h });
+    expect(ch.status).toBe(200);
+    const c = ch.body as { nonce: string; message: string };
+    return { amountMusd, nonce: c.nonce, signature: await wallet.signMessage(c.message) };
+  }
+  it("refuses an unsigned conversion (a leaked API key alone cannot move credit)", async () => {
     const r = await call(app(), "POST", "/v1/credits/convert", { body: { amountMusd: "1500000" }, headers: h });
+    expect(r.status).toBe(400);
+    expect(r.body).toMatchObject({ code: "SIGNATURE_REQUIRED" });
+    expect(m.convert).not.toHaveBeenCalled();
+  });
+  it("converts with a fresh signature from the linked wallet", async () => {
+    m.convert.mockResolvedValue({ convertedCents: 150, convertedMusd: 1_500_000n });
+    const r = await call(app(), "POST", "/v1/credits/convert", { body: await signed("1500000"), headers: h });
     expect(r.status).toBe(200);
     expect(r.body).toMatchObject({ converted: { musd: "1500000" }, convertedCents: 150, duplicate: false });
     expect(m.convert).toHaveBeenCalledWith(USER, 1_500_000n, "conv-key-0001");
   });
-  it("requires the header, amount bounds and verification", async () => {
-    expect((await call(app(), "POST", "/v1/credits/convert", { body: { amountMusd: "1500000" } })).status).toBe(400);
-    expect((await call(app(), "POST", "/v1/credits/convert", { body: { amountMusd: "9999" }, headers: h })).status).toBe(400);
-    expect((await call(app(), "POST", "/v1/credits/convert", { body: { amountMusd: "10000000001" }, headers: h })).status).toBe(400);
-    expect((await call(app(), "POST", "/v1/credits/convert", { body: { amountMusd: 1.5 }, headers: h })).status).toBe(400);
+  it("rejects replay, a changed amount, another key and another signer", async () => {
+    m.convert.mockResolvedValue({ convertedCents: 150, convertedMusd: 1_500_000n });
+    const b = await signed("1500000");
+    expect((await call(app(), "POST", "/v1/credits/convert", { body: { ...b, amountMusd: "1500001" }, headers: h })).body).toMatchObject({ code: "INVALID_CHALLENGE" });
+    const b2 = await signed("1500000");
+    expect((await call(app(), "POST", "/v1/credits/convert", { body: b2, headers: { "idempotency-key": "conv-key-0002" } })).body).toMatchObject({ code: "INVALID_CHALLENGE" });
+    const ch = await call(app(), "POST", "/v1/credits/convert/challenge", { body: { amountMusd: "1500000" }, headers: h });
+    const other = await Wallet.createRandom().signMessage((ch.body as { message: string }).message);
+    expect((await call(app(), "POST", "/v1/credits/convert", { body: { amountMusd: "1500000", nonce: (ch.body as { nonce: string }).nonce, signature: other }, headers: h })).body).toMatchObject({ code: "BAD_SIGNATURE" });
+    const ok = await signed("1500000");
+    expect((await call(app(), "POST", "/v1/credits/convert", { body: ok, headers: h })).status).toBe(200);
+    expect((await call(app(), "POST", "/v1/credits/convert", { body: ok, headers: h })).body).toMatchObject({ code: "INVALID_CHALLENGE" });
+    expect(m.convert).toHaveBeenCalledTimes(1);
+  });
+  it("requires a linked wallet, the header, amount bounds and verification", async () => {
+    expect((await call(app(), "POST", "/v1/credits/convert/challenge", { body: { amountMusd: "1500000" } })).status).toBe(400);
+    expect((await call(app(), "POST", "/v1/credits/convert/challenge", { body: { amountMusd: "9999" }, headers: h })).status).toBe(400);
+    expect((await call(app(), "POST", "/v1/credits/convert/challenge", { body: { amountMusd: "10000000001" }, headers: h })).status).toBe(400);
+    expect((await call(app(), "POST", "/v1/credits/convert/challenge", { body: { amountMusd: 1.5 }, headers: h })).status).toBe(400);
+    principal = { ...base, walletAddress: null };
+    expect((await call(app(), "POST", "/v1/credits/convert/challenge", { body: { amountMusd: "1500000" }, headers: h })).body).toMatchObject({ code: "NO_LINKED_WALLET" });
     principal = { ...base, verified: false };
     expect((await call(app(), "POST", "/v1/credits/convert", { body: { amountMusd: "1500000" }, headers: h })).status).toBe(403);
     expect(m.convert).not.toHaveBeenCalled();
   });
   it("maps frozen and insufficient", async () => {
     m.convert.mockRejectedValueOnce(new Error("Node credit account is frozen"));
-    expect((await call(app(), "POST", "/v1/credits/convert", { body: { amountMusd: "10000" }, headers: h })).status).toBe(403);
+    expect((await call(app(), "POST", "/v1/credits/convert", { body: await signed("10000"), headers: h })).status).toBe(403);
     m.convert.mockRejectedValueOnce(new Error("Insufficient available credit"));
-    expect((await call(app(), "POST", "/v1/credits/convert", { body: { amountMusd: "10000" }, headers: h })).status).toBe(409);
+    expect((await call(app(), "POST", "/v1/credits/convert", { body: await signed("10000"), headers: h })).status).toBe(409);
   });
 });
 
