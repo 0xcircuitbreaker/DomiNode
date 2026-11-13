@@ -2112,3 +2112,25 @@ END $$;
 ALTER TABLE collusion_settings ALTER COLUMN min_node_volume_musd SET DEFAULT 1000000;
 UPDATE collusion_settings SET min_node_volume_musd = 1000000
   WHERE id = 1 AND min_node_volume_musd = 5000000 AND updated_by IS NULL;
+
+-- MPP: a claim whose funds moved is never deleted. A request refused after
+-- verification leaves it 'refund_due'; the payer is credited (whole cents) and
+-- the claim becomes 'refunded' once fully credited. Overpayment above the
+-- per-request cap is recorded in refund_musd and credited the same way.
+ALTER TABLE mpp_transactions DROP CONSTRAINT IF EXISTS mpp_transactions_status_check;
+DO $$ BEGIN
+  ALTER TABLE mpp_transactions ADD CONSTRAINT chk_mpp_status
+    CHECK (status IN ('claimed','verified','settled','failed','released','refund_due','refunded'));
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+ALTER TABLE mpp_transactions ADD COLUMN IF NOT EXISTS refund_musd BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE mpp_transactions ADD COLUMN IF NOT EXISTS refunded_cents INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE mpp_transactions ADD COLUMN IF NOT EXISTS refund_reason TEXT;
+DO $$ BEGIN
+  ALTER TABLE mpp_transactions ADD CONSTRAINT chk_mpp_refund
+    CHECK (refund_musd BETWEEN 0 AND 10000000000 AND refunded_cents BETWEEN 0 AND 1000000
+           AND refunded_cents::bigint * 10000 <= refund_musd
+           AND (refund_reason IS NULL OR length(refund_reason) <= 200));
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+CREATE INDEX IF NOT EXISTS idx_mpp_refund_due ON mpp_transactions(created_at) WHERE status = 'refund_due';

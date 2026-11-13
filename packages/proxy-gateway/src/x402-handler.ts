@@ -268,13 +268,49 @@ function makePending(
   };
 }
 
-/** Reject before settlement: release the claimed hash so the payer can retry. */
-export async function releaseX402Pending(p: X402Pending | undefined): Promise<void> {
+/**
+ * Reject before settlement. x402: release the claimed hash so the payer can
+ * retry (nothing has settled yet). MPP: the transfer is already final, so the
+ * claim is kept ('refund_due') and the payer is credited (see creditMppPayer).
+ */
+export async function releaseX402Pending(p: X402Pending | undefined, reason = "refused before settlement"): Promise<void> {
   if (!p || p.state !== "verified") return;
   p.state = "released";
   p.paymentHeader = "";
-  if (p.rail === "mpp") await getMppRail().release(p.payHash).catch(() => {});
+  if (p.rail === "mpp") await refundMppClaim(p.payHash, p.userId, p.paidMusd, reason);
   else await releasePaymentHash(p.payHash).catch(() => {});
+}
+
+/**
+ * MPP push payments are final once verified: never drop the claim. Keep it as
+ * 'refund_due', credit floor(musd / 10000) cents to the payer's wallet-identity
+ * user (when known and allowed), and record what was owed and credited.
+ */
+async function refundMppClaim(payHash: string, userId: string | null, musd: bigint, reason: string): Promise<void> {
+  const rail = getMppRail();
+  await rail.release(payHash).catch((e) => log.error("mpp claim refund_due update failed", { error: e instanceof Error ? e.message.slice(0, 120) : "unknown" }));
+  await creditMppPayer(payHash, userId, musd, reason, true);
+}
+
+/** Credit an MPP payer for money already received, and record it on the claim. */
+async function creditMppPayer(payHash: string, userId: string | null, musd: bigint, reason: string, closeClaim: boolean): Promise<void> {
+  const rail = getMppRail();
+  const cents = Number(musd / 10_000n);
+  let credited = 0;
+  if (userId && cents > 0) {
+    try {
+      if (!(await walletRepo.getWallet(userId))) await walletRepo.createWallet(userId).catch(() => undefined);
+      await walletRepo.creditWallet(userId, cents, "mpp", `mpp-${closeClaim ? "refund" : "excess"}:${payHash}`, `mpp refund: ${reason.slice(0, 80)}`);
+      credited = cents;
+    } catch (err) {
+      log.error("MPP REFUND CREDIT FAILED — claim left refund_due for reconciliation", {
+        payHash: payHash.slice(0, 16), musd: musd.toString(), error: err instanceof Error ? err.message.slice(0, 120) : "unknown",
+      });
+    }
+  }
+  await rail.recordRefund(payHash, { userId, refundMusd: musd, creditedCents: credited, reason, closeClaim })
+    .catch((e) => log.error("mpp refund record failed", { payHash: payHash.slice(0, 16), error: e instanceof Error ? e.message.slice(0, 120) : "unknown" }));
+  log.warn("mpp payment refunded", { payHash: payHash.slice(0, 16), musd: musd.toString(), credited, reason: reason.slice(0, 80) });
 }
 
 /**
@@ -763,23 +799,34 @@ async function verifyMppRequest(req: http.IncomingMessage): Promise<MppOutcome> 
     log.warn("mpp payment verification failed", { reason: (v.reason ?? "").slice(0, 80) });
     return { ok: false, status: 402, code: "MPP_PAYMENT_INVALID", message: v.reason ?? "verification-failed", challenge: fresh() };
   }
-  const release = () => rail.release(v.paymentHash).catch(() => {});
-  if (v.amountMusd < q.amountMusd || v.amountMusd > maxPaidMusd(q)) {
-    await release();
-    return { ok: false, status: 402, code: "MPP_PAYMENT_INVALID", message: "payment-insufficient", challenge: fresh() };
-  }
+  // From here the transfer is final on-chain: every refusal keeps the claim and
+  // credits the payer (refundMppClaim); nothing is deleted.
   const who = await resolvePayer(v.payer);
   if (!who.ok) {
-    await release();
+    // Sanctioned or unusable payer: no credit, claim stays refund_due for review.
+    await refundMppClaim(v.paymentHash, null, v.amountMusd, `payer refused: ${who.code}`);
     return { ok: false, status: who.status, code: who.code, message: who.message };
   }
+  if (v.amountMusd < q.amountMusd) {
+    // The quote moved between challenge and payment (the challenge amount was paid).
+    await refundMppClaim(v.paymentHash, who.userId, v.amountMusd, "payment below current quote");
+    return { ok: false, status: 402, code: "MPP_PAYMENT_INVALID", message: "payment-insufficient: credited to wallet", challenge: fresh() };
+  }
   if (!checkX402RateLimit(`payer:${v.payer}`)) {
-    await release();
+    await refundMppClaim(v.paymentHash, who.userId, v.amountMusd, "payer rate limited");
     return { ok: false, status: 429, code: "X402_RATE_LIMITED", message: "Too many paid requests from this payer. Please wait." };
+  }
+  // Overpayment: serve up to the per-request sanity cap and credit the rest
+  // (the claim records it). Never reject: the funds already moved.
+  let paidMusd = v.amountMusd;
+  const cap = maxPaidMusd(q);
+  if (paidMusd > cap) {
+    await creditMppPayer(v.paymentHash, who.userId, paidMusd - cap, "overpayment above per-request cap", false);
+    paidMusd = cap;
   }
   const pending: X402Pending = {
     rail: "mpp", paymentHeader: "", payHash: v.paymentHash, mppVerified: v, payer: v.payer,
-    amountUsd: musdToUsd(v.amountMusd), poolType, userId: who.userId, paidMusd: v.amountMusd, state: "verified",
+    amountUsd: musdToUsd(paidMusd), poolType, userId: who.userId, paidMusd, state: "verified",
   };
   return { ok: true, q, pending };
 }

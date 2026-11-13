@@ -84,14 +84,20 @@ export function computeChallengeId(secret: string, c: Omit<MppChallenge, "id">):
 
 const quote = (s: string) => `"${s.replace(/[\\"]/g, "")}"`;
 
-export function buildMppChallenge(cfg: MppConfig, amountMusd: bigint, nowS: number): MppChallenge & { header: string } {
+/**
+ * Issue a challenge. Every challenge carries a random 128-bit `opaque`, so each
+ * 402 has its own unguessable id (and memo = sha256(id)). Without it the id was
+ * a function of (amount, second) only, and anyone polling the 402 could match a
+ * victim's on-chain memo to a harvested id and redeem the victim's transfer.
+ */
+export function buildMppChallenge(cfg: MppConfig, amountMusd: bigint, nowS: number, opaque: string = crypto.randomBytes(16).toString("base64url")): MppChallenge & { header: string } {
   const request = b64u(jcs({
     amount: amountMusd.toString(), currency: cfg.currency, methodDetails: { chainId: cfg.chainId }, recipient: cfg.recipient,
   }));
   const expires = new Date((nowS + MPP_CHALLENGE_TTL_S) * 1000).toISOString().replace(/\.\d{3}Z$/, "Z");
-  const base = { realm: cfg.realm, method: "tempo", intent: "charge", request, expires };
+  const base = { realm: cfg.realm, method: "tempo", intent: "charge", request, expires, opaque };
   const id = computeChallengeId(cfg.secret, base);
-  const header = `Payment id=${quote(id)}, realm=${quote(cfg.realm)}, method="tempo", intent="charge", expires=${quote(expires)}, request=${quote(request)}`;
+  const header = `Payment id=${quote(id)}, realm=${quote(cfg.realm)}, method="tempo", intent="charge", expires=${quote(expires)}, request=${quote(request)}, opaque=${quote(opaque)}`;
   return { id, ...base, header };
 }
 
@@ -177,6 +183,8 @@ export function createTempoMppVerifier(cfg: MppConfig, rpc: TempoRpc): MppVerifi
       if (!c.id || !c.realm || !c.method || !c.intent || !c.request) return { ok: false, reason: "malformed-credential" };
       if (c.method !== "tempo" || c.intent !== "charge") return { ok: false, reason: "method-unsupported" };
       if (c.realm !== cfg.realm) return { ok: false, reason: "invalid-challenge" };
+      // Only challenges issued with a random opaque (see buildMppChallenge) are accepted.
+      if (!c.opaque || !/^[A-Za-z0-9_-]{22,64}$/.test(c.opaque)) return { ok: false, reason: "invalid-challenge" };
       const expect = Buffer.from(computeChallengeId(cfg.secret, c as Omit<MppChallenge, "id">));
       const got = Buffer.from(c.id);
       if (got.length !== expect.length || !crypto.timingSafeEqual(got, expect)) return { ok: false, reason: "invalid-challenge" };
@@ -245,7 +253,18 @@ export interface MppStore {
   /** excessMusd: overpayment above the cap, stored for reconciliation (omitted when 0). */
   claim(paymentHash: string, amountMusd: bigint, excessMusd?: bigint): Promise<boolean>;
   mark(paymentHash: string, status: "verified" | "settled" | "failed"): Promise<void>;
+  /**
+   * The request was refused after the transfer was verified (funds already moved):
+   * keep the claim as 'refund_due'. Never deletes it (the claim is the only record).
+   */
   release(paymentHash: string): Promise<void>;
+  /**
+   * Record money owed back to the payer on the claim: refundMusd owed, creditedCents
+   * credited to the payer's wallet-identity user. The claim becomes 'refunded' only
+   * when closeClaim and the whole amount was credited; otherwise it stays
+   * 'refund_due' (sub-cent remainders and failed credits stay visible).
+   */
+  recordRefund(paymentHash: string, r: { userId: string | null; refundMusd: bigint; creditedCents: number; reason: string; closeClaim: boolean }): Promise<void>;
 }
 
 export const dbMppStore: MppStore = {
@@ -261,7 +280,17 @@ export const dbMppStore: MppStore = {
     await query(`UPDATE mpp_transactions SET status = $2 WHERE payment_hash = $1`, [paymentHash, status]);
   },
   async release(paymentHash) {
-    await query(`DELETE FROM mpp_transactions WHERE payment_hash = $1 AND status IN ('claimed','verified')`, [paymentHash]);
+    await query(`UPDATE mpp_transactions SET status = 'refund_due' WHERE payment_hash = $1 AND status IN ('claimed','verified')`, [paymentHash]);
+  },
+  async recordRefund(paymentHash, r) {
+    const full = BigInt(r.creditedCents) * 10_000n === r.refundMusd;
+    await query(
+      `UPDATE mpp_transactions SET user_id = COALESCE($2::uuid, user_id), refund_musd = refund_musd + $3::bigint,
+         refunded_cents = refunded_cents + $4::int, refund_reason = $5,
+         status = CASE WHEN $6::boolean AND status IN ('claimed','verified','refund_due') THEN 'refunded' ELSE status END
+       WHERE payment_hash = $1`,
+      [paymentHash, r.userId, r.refundMusd.toString(), r.creditedCents, r.reason.slice(0, 200), r.closeClaim && full],
+    );
   },
 };
 
@@ -275,6 +304,7 @@ export function buildMppReceipt(reference: string, nowS: number): string {
 
 export interface MppRail extends PerRequestRail {
   challenge(amountMusd: bigint): (MppChallenge & { header: string }) | null;
+  recordRefund: MppStore["recordRefund"];
 }
 
 export function createMppRail(o: { verifier: MppVerifier | null; config: MppConfig | null; store?: MppStore; now?: () => number }): MppRail {
@@ -314,6 +344,9 @@ export function createMppRail(o: { verifier: MppVerifier | null; config: MppConf
     },
     async release(paymentHash) {
       await store.release(paymentHash);
+    },
+    async recordRefund(paymentHash, r) {
+      await store.recordRefund(paymentHash, r);
     },
   };
 }

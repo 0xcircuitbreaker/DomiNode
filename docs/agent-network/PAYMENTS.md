@@ -13,7 +13,7 @@ Sources (checked 2026-11-06):
 - **Challenge.** A 402 response carries `WWW-Authenticate: Payment id, realm, method="tempo", intent="charge", expires (RFC 3339), request` and `Cache-Control: no-store`.
   - `request` is base64url-nopad of the JCS JSON `{amount, currency, recipient, methodDetails:{chainId}}`.
   - `amount` is in TIP-20 base units. These have 6 decimals, so one base unit is 1 µUSD.
-- **Stateless id.** `id = base64url(HMAC-SHA256(MPP_CHALLENGE_SECRET, realm|method|intent|request|expires|digest|opaque))`.
+- **Stateless id.** `id = base64url(HMAC-SHA256(MPP_CHALLENGE_SECRET, realm|method|intent|request|expires|digest|opaque))`. Every challenge carries a random 128-bit `opaque`, so each 402 has its own unguessable id and memo; a credential whose challenge has no `opaque` is refused. (Without it the id depended only on the amount and the second, and anyone polling the 402 could match a victim's on-chain memo and redeem the victim's transfer first.)
 - **Credential.** The client sends `Authorization: Payment <base64url JSON {challenge, source?, payload}>`.
 - **Verification steps:**
   1. Recompute the id and compare it in constant time.
@@ -36,7 +36,8 @@ Sources (checked 2026-11-06):
 - **402 offer.** When MPP is enabled, a 402 response adds the `WWW-Authenticate: Payment` challenge and an `mpp` block in the body, next to `x402`.
 - **HTTP and CONNECT.** An MPP credential follows the x402 order: verify (the proof is claimed), then map the payer to a wallet-identity user, then select a node, lock the snapshot and open the stream, then settle (which commits the claim), then relay.
 - **Failures.**
-  - A failure before settle releases the claim, so the same transaction can be retried.
+  - The transfer is final once verified, so a refusal after verification (method, target or policy refusal, no node, spend cap, settle failure, payer rate limit, a quote that moved) never deletes the claim. The claim becomes `refund_due`, the payer's wallet-identity user is credited the whole cents (`wallet_transactions` provider `mpp`, payment id `mpp-refund:<hash>`), and the claim records `refund_musd`/`refunded_cents`; it becomes `refunded` once fully credited. Sub-cent remainders, failed credits and refused (e.g. sanctioned) payers stay `refund_due` for reconciliation. The same transaction cannot be presented again.
+  - An overpayment above `X402_MAX_OVERPAY_FACTOR` × quote is served at the cap and the excess is credited the same way (payment id `mpp-excess:<hash>`).
   - A failure after settle refunds the payer's identity user through `creditWallet(provider 'mpp', 'mpp-refund:<hash>')`, which is unique per payment.
 - **Recording and forwarding.** `relay_charges.payment_rail = 'mpp'`. The MPP `Authorization` header is never forwarded to the origin.
 - **Kill switch.** `X402_RELAY_ENABLED=false` refuses MPP as well.

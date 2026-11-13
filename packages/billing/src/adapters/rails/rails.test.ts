@@ -79,14 +79,22 @@ const rpcOf = (r: TempoReceipt | null | Error): TempoRpc => ({
 describe("MPP challenge (draft-ryan-httpauth-payment)", () => {
   it("emits a WWW-Authenticate Payment challenge with a JCS base64url request and HMAC-bound id", () => {
     const c = buildMppChallenge(CFG, 5000n, NOW);
-    expect(c.header).toMatch(/^Payment id="[A-Za-z0-9_-]+", realm="dn", method="tempo", intent="charge", expires="[^"]+Z", request="[A-Za-z0-9_-]+"$/);
+    expect(c.header).toMatch(/^Payment id="[A-Za-z0-9_-]+", realm="dn", method="tempo", intent="charge", expires="[^"]+Z", request="[A-Za-z0-9_-]+", opaque="[A-Za-z0-9_-]{22}"$/);
     expect(JSON.parse(Buffer.from(c.request, "base64url").toString())).toEqual({
       amount: "5000", currency: TOKEN, methodDetails: { chainId: 42431 }, recipient: RECIP,
     });
     expect(Buffer.from(c.request, "base64url").toString()).toBe(jcs({ recipient: RECIP, amount: "5000", methodDetails: { chainId: 42431 }, currency: TOKEN }));
-    const input = ["dn", "tempo", "charge", c.request, c.expires, "", ""].join("|");
+    const input = ["dn", "tempo", "charge", c.request, c.expires, "", c.opaque].join("|");
     expect(c.id).toBe(crypto.createHmac("sha256", SECRET).update(input).digest("base64url"));
     expect(computeChallengeId(SECRET, c)).toBe(c.id);
+  });
+  it("gives every challenge its own unguessable id, even for the same amount in the same second", () => {
+    const a = buildMppChallenge(CFG, 5000n, NOW);
+    const b = buildMppChallenge(CFG, 5000n, NOW);
+    expect(a.request).toBe(b.request);
+    expect(a.expires).toBe(b.expires);
+    expect(a.opaque).not.toBe(b.opaque);
+    expect(a.id).not.toBe(b.id);
   });
   it("parses Authorization / Proxy-Authorization Payment credentials, size-capped", () => {
     expect(parseMppAuthorization({ authorization: "Payment abc_-1" })).toBe("abc_-1");
@@ -104,6 +112,13 @@ describe("Tempo MPP verifier", () => {
     const v = await createTempoMppVerifier(CFG, rpc).verify(cred({ challenge: c }), REQ, NOW);
     expect(v).toEqual({ ok: true, payer: PAYER, amountMusd: 5000n, proofRef: `tempo:42431:${TXH}` });
     expect(rpc.getTransactionReceipt).toHaveBeenCalledWith(TXH);
+  });
+  it("rejects a correctly signed challenge that has no random opaque (the old guessable form)", async () => {
+    const rpc = rpcOf(null);
+    const { opaque: _o, id: _i, ...rest } = challengeFields();
+    const old = { ...rest, id: computeChallengeId(SECRET, rest) };
+    expect((await createTempoMppVerifier(CFG, rpc).verify(cred({ challenge: old }), REQ, NOW)).reason).toBe("invalid-challenge");
+    expect(rpc.getTransactionReceipt).not.toHaveBeenCalled();
   });
   it("rejects a forged challenge id or a tampered request without an RPC call", async () => {
     const rpc = rpcOf(null);
@@ -166,7 +181,7 @@ describe("Tempo MPP verifier", () => {
 });
 
 describe("MPP rail", () => {
-  const store = (claimOk = true): MppStore => ({ claim: vi.fn(async () => claimOk), mark: vi.fn(async () => {}), release: vi.fn(async () => {}) });
+  const store = (claimOk = true): MppStore => ({ claim: vi.fn(async () => claimOk), mark: vi.fn(async () => {}), release: vi.fn(async () => {}), recordRefund: vi.fn(async () => {}) });
   const okVerifier = { verify: vi.fn(async () => ({ ok: true, payer: PAYER, amountMusd: 5000n, proofRef: `tempo:42431:${TXH}` })) };
 
   it("claims the proof (not the credential bytes) once, then settles", async () => {

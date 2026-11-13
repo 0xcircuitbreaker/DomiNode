@@ -589,6 +589,7 @@ describe("MPP on the gateway", () => {
     verify: vi.fn(),
     settle: vi.fn(),
     release: vi.fn(async () => {}),
+    recordRefund: vi.fn(async () => {}),
   };
   const okVerify = (amountMusd = 525n) => ({ ok: true, payer: MPP_PAYER, paymentHash: "h".repeat(64), amountMusd, txRef: "tempo:1:0xabc" });
 
@@ -597,6 +598,7 @@ describe("MPP on the gateway", () => {
     rail.verify.mockReset();
     rail.settle.mockReset();
     rail.release.mockClear();
+    rail.recordRefund.mockClear();
   });
   afterEach(() => setMppRailForTest(null));
 
@@ -621,17 +623,26 @@ describe("MPP on the gateway", () => {
     expect(mockFindOrCreateX402User).not.toHaveBeenCalled();
   });
 
-  it("releases the claimed proof when the payer is suspended or overpays past the cap (never settles)", async () => {
+  it("keeps the claim of a refused payer (funds moved) and credits nobody when the payer is suspended", async () => {
     rail.verify.mockResolvedValue(okVerify());
     mockFindOrCreateX402User.mockResolvedValueOnce({ id: "u", status: "suspended", created: false });
     const res = makeResponse();
     await handleX402Http(makeRequest({ authorization: "Payment tok" }), res);
     expect(res._statusCode).toBe(403);
-    expect(rail.release).toHaveBeenCalledWith("h".repeat(64));
-    rail.verify.mockResolvedValue(okVerify(525n * 101n));
-    await handleX402Http(makeRequest({ authorization: "Payment tok" }), makeResponse());
-    expect(rail.release).toHaveBeenCalledTimes(2);
+    expect(rail.release).toHaveBeenCalledWith("h".repeat(64)); // -> refund_due, never deleted
+    expect(rail.recordRefund).toHaveBeenCalledWith("h".repeat(64), expect.objectContaining({ userId: null, refundMusd: 525n, creditedCents: 0 }));
+    expect(mockCreditWallet).not.toHaveBeenCalled();
     expect(rail.settle).not.toHaveBeenCalled();
+  });
+
+  it("serves an overpayment at the 100x cap and credits the excess (2,052,500 paid on a 525 quote -> 200 cents)", async () => {
+    rail.verify.mockResolvedValue(okVerify(2_052_500n));
+    const req = makeRequest({ authorization: "Payment tok" });
+    await handleX402Http(req, makeResponse());
+    expect(getX402Data(req)).toMatchObject({ rail: "mpp", amountMusd: 52_500n });
+    expect(mockCreditWallet).toHaveBeenCalledWith("user-x402", 200, "mpp", `mpp-excess:${"h".repeat(64)}`, expect.any(String));
+    expect(rail.recordRefund).toHaveBeenCalledWith("h".repeat(64), expect.objectContaining({ refundMusd: 2_000_000n, creditedCents: 200, closeClaim: false }));
+    expect(rail.release).not.toHaveBeenCalled();
   });
 
   it("CONNECT: Proxy-Authorization Payment → verified mpp result; settle after, refund to identity user as provider mpp", async () => {
@@ -649,12 +660,14 @@ describe("MPP on the gateway", () => {
     expect(await refundX402Payer(r.pending!, "again")).toBe(false); // once
   });
 
-  it("CONNECT: settle failure releases the proof so the payer can retry", async () => {
-    rail.verify.mockResolvedValue(okVerify());
+  it("CONNECT: a refusal after verify keeps the claim and credits the payer (52,499 µUSD -> 5 cents)", async () => {
+    rail.verify.mockResolvedValue(okVerify(52_499n));
     rail.settle.mockResolvedValue({ ok: false });
     const r = (await handleX402Connect(makeRequest({ "proxy-authorization": "Payment tok" }), makeSocket()))!;
     expect(await settleX402Pending(r.pending!)).toBe(false);
     expect(rail.release).toHaveBeenCalledWith("h".repeat(64));
+    expect(mockCreditWallet).toHaveBeenCalledWith("user-x402", 5, "mpp", `mpp-refund:${"h".repeat(64)}`, expect.any(String));
+    expect(rail.recordRefund).toHaveBeenCalledWith("h".repeat(64), expect.objectContaining({ userId: "user-x402", refundMusd: 52_499n, creditedCents: 5, closeClaim: true }));
   });
 
   it("CONNECT: rejection writes a 402 with the challenge", async () => {
