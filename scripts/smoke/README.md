@@ -25,7 +25,8 @@ reported as `SKIP`.
    DN_NODE_API_URL=https://api.staging.example \
    DN_NODE_GATEWAY_URL=wss://gw.staging.example \
    DN_NODE_KEY_FILE=$HOME/.dominusnode/node.key \
-   node packages/node-agent/dist/src/main.js
+   DN_NODE_COORD_PINS=<staging coordinator ed25519 pubkey, 64 hex> \
+   node packages/node-agent/dist/src/main.js run
    ```
 
    The node owner account must have a linked wallet; its private key file is

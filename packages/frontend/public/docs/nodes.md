@@ -23,21 +23,25 @@ The node agent (`packages/node-agent`, binary `dominusnode-node`) dials **out** 
 mkdir -p ~/.dominusnode && umask 077
 printf '%s' "$WALLET_PRIVATE_KEY_HEX" > ~/.dominusnode/wallet.key && chmod 600 ~/.dominusnode/wallet.key
 
-# 2. Build and register (signs the consent attestation, solves a small proof of work)
-git clone https://github.com/0xcircuitbreaker/DomiNode.git && cd DomiNode
-npm ci && npm run build -w @dominusnode/shared -w @dominusnode/node-agent
-export DN_API_KEY=dn_live_YOUR_KEY
-export DN_NODE_API_URL=https://api.dominusnode.com   # this is the node-agent default
-node packages/node-agent/dist/src/main.js register --wallet-key-file ~/.dominusnode/wallet.key
-# writes ~/.dominusnode/node.json (mode 0600)
+# 2. Register with the published image (official coordinator pins baked in;
+#    signs the consent attestation, solves a small proof of work)
+sudo install -d -o 1001 -g 1001 -m 700 /etc/dominusnode
+sudo install -o 1001 -g 1001 -m 600 ~/.dominusnode/wallet.key /etc/dominusnode/wallet.key
+read -rs DN_API_KEY && export DN_API_KEY
+docker run --rm -it -e DN_API_KEY -e DN_WALLET_KEY_FILE=/run/dominusnode/wallet.key \
+  -v /etc/dominusnode:/run/dominusnode ghcr.io/0xcircuitbreaker/dominusnode-node register
+# writes /etc/dominusnode/node.json (mode 0600)
 
-# 3. Run it on the machine that owns the IP; keep it running (systemd, pm2, container restart policy)
-node packages/node-agent/dist/src/main.js run --key-file ~/.dominusnode/node.json
+# 3. Run it on the machine that owns the IP; the restart policy keeps it up
+docker run -d --name dominusnode-node --restart unless-stopped \
+  -v /etc/dominusnode/node.json:/run/dominusnode/node.json:ro ghcr.io/0xcircuitbreaker/dominusnode-node
 ```
+
+A plain source build (`npm run build`) embeds no coordinator keys and refuses to start. To run from source, point it at a coordinator and pin its key: `--coordinator <domain> --trust sha256:<fingerprint>`, or set `DN_NODE_COORD_PINS`.
 
 Where are nodes needed? `GET https://api.dominusnode.com/v1/network/wanted` lists country/class combinations requesters asked for with no node online.
 
-Optional limits can only tighten: `--ports 443`, `--max-streams 32`, `--gb-per-day 5`, `--req-per-sec 20`. Env equivalents: `DN_NODE_KEY_FILE`, `DN_NODE_PORTS`, `DN_NODE_MAX_STREAMS`, `DN_NODE_GB_PER_DAY`, `DN_NODE_REQ_PER_SEC`, `DN_NODE_MAX_MBPS`, `DN_NODE_DENY_DOMAINS`.
+Optional limits can only tighten (pass them to the container with `-e`): `DN_NODE_KEY_FILE`, `DN_NODE_PORTS`, `DN_NODE_MAX_STREAMS`, `DN_NODE_GB_PER_DAY`, `DN_NODE_REQ_PER_SEC`, `DN_NODE_MAX_MBPS`, `DN_NODE_DENY_DOMAINS`.
 
 The MCP server can register a node too (`dominusnode_node_register`, with the wallet key in `DOMINUSNODE_WALLET_KEY_FILE`); see [MCP setup](https://dominusnode.com/docs/mcp.md).
 
