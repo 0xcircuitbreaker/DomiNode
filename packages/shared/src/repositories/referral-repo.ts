@@ -100,8 +100,10 @@ export async function isRedemptionEnabled(client?: Pick<DbTxClient, "query">): P
 
 /**
  * Record a referral (redemption row + affiliate link). Disabled unless an
- * admin turns referral_settings.redemption_enabled on, and even then it never
- * moves money: the old $1 + $1 balance bonus minted spendable credit per sybil
+ * admin turns referral_settings.redemption_enabled on, and even then it credits
+ * no signup bonus to either side. It does create the affiliate link, so the
+ * referrer later earns recordAffiliateCommission on the referee's paid top-ups
+ * (a share of real money paid in, not minted credit). The old $1 + $1 balance bonus minted spendable credit per sybil
  * signup with none of the starter-credit controls. Free credit for a new
  * principal comes only from the starter-credit grant ledger (caps, budget,
  * funding check, expiry, seed-only routing, starter_musd stamping), which the

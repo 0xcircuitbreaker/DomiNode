@@ -433,7 +433,7 @@ All mutations re-check the admin role `FOR UPDATE` in one transaction and write 
 
 | Endpoint | Notes |
 |---|---|
-| `GET /referrals/settings` / `PUT /referrals/settings` | `redemptionEnabled` (default false). When on, a referral code given at signup is recorded (redemption row + affiliate link) but no balance is credited to either side; free credit comes only from starter credits (`referral_settings_update`). |
+| `GET /referrals/settings` / `PUT /referrals/settings` | `redemptionEnabled` (default false). When on, a referral code given at signup is recorded (redemption row + affiliate link) and no signup bonus is credited to either side. The affiliate link does pay the referrer a commission on the referee's later paid top-ups (`recordAffiliateCommission`, a share of money actually paid in). Free credit comes only from starter credits (`referral_settings_update`). |
 
 ### Genesis boost and buyer discounts
 | Endpoint | Notes |

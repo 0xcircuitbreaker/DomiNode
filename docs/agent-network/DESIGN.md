@@ -619,7 +619,7 @@ Source research and citations: `ECONOMICS.md`.
   | Partner | 50% | ≥180 | ≥97% | ≥50 | ≥0.85, no clawback in 90 d | 3 d |
 
   Hard ceiling: `CHECK (node_share_bps BETWEEN 0 AND 5000)`. Thresholds are admin-editable rows.
-  - Tenure days and active IPs count only matured, undisputed paid traffic from other principals.
+  - Tenure days count only matured, undisputed paid traffic from other principals. Active IPs count earning, undisputed paid traffic from other principals without waiting for maturity (the 7-day window is shorter than the Probation hold); a later dispute or clawback still removes the charge (ECONOMICS.md anti-gaming rule 1).
   - An active IP is a distinct /32 with at least 3 distinct paying requesters in 7 days.
   - Tier inputs are aggregated per beneficial owner, linked by payout wallet, funding source or team.
   - `relay_charges` snapshots both `tier_id` and `node_share_bps` at session start.
