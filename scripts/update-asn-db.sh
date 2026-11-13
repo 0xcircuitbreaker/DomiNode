@@ -35,7 +35,9 @@ if [ "$SIZE" -lt "$MIN_BYTES" ]; then
 fi
 # Validate: gzip integrity and the expected 5-column TSV shape.
 gzip -t "$TMP"
-if ! gzip -dc "$TMP" | head -n 100 | awk -F'\t' 'NF < 5 { bad=1 } END { exit bad }'; then
+# Read via process substitution: with pipefail, `gzip -dc | head` can fail
+# at random when head exits early and gzip gets SIGPIPE.
+if ! head -n 100 < <(gzip -dc "$TMP") | awk -F'\t' 'NF < 5 { bad=1 } END { exit bad }'; then
   echo "update-asn-db: unexpected file format, keeping existing file" >&2
   exit 1
 fi

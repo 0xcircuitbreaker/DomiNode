@@ -468,3 +468,35 @@ describe("self-host roles and Cloudflare Tunnel", () => {
     }
   });
 });
+
+describe("self-host fixes from the first live install", () => {
+  type Svc = { profiles?: string[]; environment?: Record<string, string>; volumes?: string[]; depends_on?: Record<string, { condition: string }> };
+  const yaml = createRequire(__filename)("js-yaml") as { load(s: string): unknown };
+  const doc = yaml.load(fs.readFileSync(path.join(ROOT, "docker-compose.selfhost.yml"), "utf8")) as {
+    services: Record<string, Svc>;
+    networks: Record<string, { ipam?: { config?: Array<{ subnet?: string; ip_range?: string }> } }>;
+  };
+
+  it("the api gets the coordinator key so coordinator.json and policy.json are signed", () => {
+    const api = doc.services["api"]!;
+    expect(api.environment?.["COORD_SIGNING_KEY_FILE"]).toBe("/run/dominusnode/coord-key.pem");
+    expect(api.environment?.["COORDINATOR_HOSTNAMES"]).toContain("PUBLIC_HOSTNAMES");
+    expect(api.volumes).toContain("gateway_secrets:/run/dominusnode:ro");
+    expect(api.depends_on?.["keys"]?.condition).toBe("service_completed_successfully");
+    expect(doc.services["keys"]!.profiles).toEqual(expect.arrayContaining(["gateway", "coordinator"]));
+  });
+
+  it("dynamic frontend addresses never collide with Caddy's fixed IP", () => {
+    const cfg = doc.networks["frontend"]!.ipam!.config![0]!;
+    expect(cfg.subnet).toBe("172.29.53.0/24");
+    expect(cfg.ip_range).toBe("172.29.53.128/25");
+    const text = fs.readFileSync(path.join(ROOT, "docker-compose.selfhost.yml"), "utf8");
+    expect(text).toMatch(/ipv4_address:\s*172\.29\.53\.2\b/);
+  });
+
+  it("update-asn-db.sh reads the gzip head without a SIGPIPE-prone pipeline", () => {
+    const text = fs.readFileSync(path.join(ROOT, "scripts/update-asn-db.sh"), "utf8");
+    expect(text).toMatch(/head -n 100 < <\(gzip -dc "\$TMP"\)/);
+    expect(text).not.toMatch(/gzip -dc "\$TMP" \| head/);
+  });
+});
