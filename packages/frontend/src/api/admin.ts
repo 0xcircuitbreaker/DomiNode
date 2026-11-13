@@ -139,7 +139,7 @@ export const AUDIT_ACTIONS = [
   "node_credit_unfreeze", "node_credit_freeze", "node_quarantine", "node_activate", "node_revoke",
   "node_payout_reverse", "byte_dispute_resolve", "relay_abuse_log_access",
   "network_policy_publish", "network_pricing_update", "revenue_split_append", "node_tier_update",
-  "node_operator_run_set", "starter_credit_settings_update", "starter_credit_revoke", "genesis_settings_update",
+  "node_operator_run_set", "starter_credit_settings_update", "starter_credit_revoke", "genesis_settings_update", "referral_settings_update",
   "genesis_credit_clawback", "buyer_discount_settings_update", "network_incident_create", "network_incident_update",
   "announcement_create", "announcement_update", "announcement_delete",
   "abuse_report_triage", "contribution_allowlist_add", "contribution_allowlist_remove",

@@ -429,6 +429,12 @@ All mutations re-check the admin role `FOR UPDATE` in one transaction and write 
 | `GET /starter-credits/grants?status=&userId=&limit=&offset=` | Grants with remaining amount, /24 prefix and expiry. |
 | `POST /starter-credits/grants/:id/revoke {reason}` | Closes an active grant and removes the unused remainder from the wallet, never below 0 (`starter_credit_revoke`). |
 
+### Referrals
+
+| Endpoint | Notes |
+|---|---|
+| `GET /referrals/settings` / `PUT /referrals/settings` | `redemptionEnabled` (default false). When on, a referral code given at signup is recorded (redemption row + affiliate link) but no balance is credited to either side; free credit comes only from starter credits (`referral_settings_update`). |
+
 ### Genesis boost and buyer discounts
 | Endpoint | Notes |
 |---|---|

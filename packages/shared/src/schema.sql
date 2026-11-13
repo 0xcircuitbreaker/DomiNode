@@ -2076,3 +2076,17 @@ DO $$ BEGIN
     CHECK (tier_weight_bps IS NULL OR tier_weight_bps BETWEEN 0 AND 10000);
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
+
+-- ═══ Money integrity fixes (fix/a7-money) ═══════════════════════════
+-- Idempotent; safe to apply repeatedly.
+
+-- Referral redemption switch: off by default. Redemption records the referral
+-- only; it no longer credits balance (free credit = starter-credit ledger).
+CREATE TABLE IF NOT EXISTS referral_settings (
+  id                 SMALLINT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+  redemption_enabled BOOLEAN NOT NULL DEFAULT false,
+  updated_by         UUID REFERENCES users(id) ON DELETE SET NULL,
+  updated_at         TIMESTAMPTZ
+);
+INSERT INTO referral_settings (id) VALUES (1) ON CONFLICT (id) DO NOTHING;
+ALTER TABLE referral_codes ALTER COLUMN credit_cents SET DEFAULT 0;

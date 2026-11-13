@@ -1,6 +1,6 @@
 import { Router } from "express";
 import type { Request, Response } from "express";
-import { createLogger, getPool, starterCreditRepo, genesisRepo, networkStatusRepo, rpcUrlFromEnv } from "@dominusnode/shared";
+import { createLogger, getPool, starterCreditRepo, genesisRepo, referralRepo, networkStatusRepo, rpcUrlFromEnv } from "@dominusnode/shared";
 import { requireAuth } from "../middleware/auth.js";
 import { requireAdmin } from "../middleware/admin.js";
 import { HttpError, fail, money, page, enumParam, uuidParam, withAdminTx, audit, adminId, UUID_RE } from "./admin-network-common.js";
@@ -249,6 +249,21 @@ function genesisOut(s: Awaited<ReturnType<typeof genesisRepo.getSettings>>) {
     updatedBy: s.updatedBy, updatedAt: s.updatedAt,
   };
 }
+
+// Referral redemption switch (off by default). Redemption only records the
+// referral; it never credits balance (free credit = starter-credit ledger).
+router.get("/referrals/settings", async (_req: Request, res: Response) => {
+  try {
+    res.json({ redemptionEnabled: await referralRepo.isRedemptionEnabled() });
+  } catch (err) { fail(res, err, "Referral settings"); }
+});
+
+router.put("/referrals/settings", async (req: Request, res: Response) => {
+  try {
+    await updateSingleton(req, "referral_settings", "referral_settings_update", { redemptionEnabled: ["redemption_enabled", "bool", 0n, 0n] });
+    res.json({ redemptionEnabled: await referralRepo.isRedemptionEnabled() });
+  } catch (err) { fail(res, err, "Referral settings update"); }
+});
 
 router.get("/genesis/settings", async (_req: Request, res: Response) => {
   try {
