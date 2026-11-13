@@ -117,9 +117,16 @@ export interface LiveNode {
   /**
    * Connect-time class: tunnel peer IP classification tightened by the last
    * persisted probe verdict. While egress probes are enabled the effective
-   * ipClass stays "unknown" until a probe on this connection confirms it.
+   * ipClass is masked/dc when that is already known (persisted verdict or peer
+   * IP), else "unknown", until a probe on this connection confirms it.
    */
   peerClass?: NodeIpClass;
+  /**
+   * Egress probes enabled and no probe has classified this connection yet.
+   * The selector serves no traffic through a pending node (no pre-probe
+   * sessions, no pre-probe tier-weight snapshots).
+   */
+  probePending?: boolean;
 }
 
 /** /24 for IPv4, /48 for IPv6 (matches nodes.ip_prefix24). */

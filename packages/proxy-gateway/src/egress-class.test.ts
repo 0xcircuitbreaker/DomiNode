@@ -35,6 +35,16 @@ describe("classifyEgress", () => {
     expect(classifyEgress("185.65.134.7", data())).toMatchObject({ ipClass: "masked", asn: 39351 });
   });
 
+  it("fails closed: an unlisted ASN is dc, never residential (Datacamp is an explicit hoster)", () => {
+    const d2 = parseAsnTsv([
+      "89.187.160.0\t89.187.191.255\t60068\tGB\tCDN77",
+      "45.80.0.0\t45.80.0.255\t64512\tNL\tSOME-UNLISTED-HOSTER",
+    ].join("\n"));
+    expect(classifyEgress("89.187.170.1", { db: d2 })).toMatchObject({ ipClass: "dc", reason: "hosting_asn" });
+    expect(classifyEgress("45.80.0.9", { db: d2 })).toMatchObject({ ipClass: "dc", reason: "unlisted_asn" });
+    expect(classifyEgress("45.80.0.9", { db: d2, accessAsns: new Set([64512]) })).toMatchObject({ ipClass: "residential", reason: "access_asn" });
+  });
+
   it("anonymizer ASN wins over the hosting list (Cloudflare is in both)", () => {
     expect(classifyEgress("104.28.10.20", { ...data(), hostingAsns: new Set([13335]) }).ipClass).toBe("masked");
   });
@@ -125,6 +135,20 @@ describe("anonymizer list loading (offline-safe)", () => {
 });
 
 describe("makeEgressVerifier (probe re-verification)", () => {
+  it("clears probePending and ends in-flight sessions above the new class on a downgrade", async () => {
+    type C = "residential" | "masked" | "dc" | "mobile" | "unknown";
+    const live = { ipClass: "residential" as C, probePending: true as boolean | undefined, egressVerifiedAt: 1 as number | undefined };
+    const onDowngrade = vi.fn();
+    let obs: C = "residential";
+    const v = makeEgressVerifier({ getNode: () => live, classify: () => ({ ipClass: obs }), record: vi.fn().mockResolvedValue(undefined), onDowngrade });
+    await v("n1", "1.1.1.1");
+    expect(live.probePending).toBe(false);
+    expect(onDowngrade).not.toHaveBeenCalled();
+    obs = "masked";
+    await v("n1", "1.1.1.1");
+    expect(onDowngrade).toHaveBeenCalledWith("n1", "residential", "masked");
+  });
+
   it("downgrades a residential node whose probe egress is masked, immediately and persistently", async () => {
     const live = { ipClass: "residential" as const as "residential" | "masked" | "dc" | "mobile" | "unknown", egressVerifiedAt: undefined as number | undefined };
     const record = vi.fn().mockResolvedValue(undefined);

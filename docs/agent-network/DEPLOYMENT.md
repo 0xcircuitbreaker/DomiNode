@@ -226,9 +226,17 @@ scripts/update-asn-db.sh            # writes data/ip2asn-combined.tsv.gz (or $AS
 Published ports: `8443` TLS proxy and `9443` node tunnel on all interfaces;
 `8080`/`1080` plaintext on localhost only by default (`PROXY_*_HOST_PORT`
 overrides). `./secrets` and `./certs` are git-ignored.
-- `HOSTING_ASNS=1,2,3` adds ASNs to the built-in hosting list in
-  `packages/proxy-gateway/src/asn-db.ts`. Peers on those ASNs are classified
-  `dc`.
+- Exit classification is allowlist-based (fails closed). Only ASNs in the
+  access-network allowlist (`ACCESS_ASNS` in
+  `packages/proxy-gateway/src/asn-db.ts`: eyeball ISPs and mobile carriers)
+  are classed `residential`. Every other routed ASN that is not an anonymizer
+  is classed `dc`, so an unlisted hoster or VPN provider is never sold as
+  residential. Extend the allowlist with `ACCESS_ASNS=1,2,3` or
+  `ACCESS_ASNS_FILE` (one ASN per line, `#` comments; for example the PeeringDB
+  networks with info_type "Cable/DSL/ISP" in your markets). A residential node
+  on an unlisted ISP is served (and earns) as `dc` until its ASN is added.
+- `HOSTING_ASNS=1,2,3` adds ASNs to the built-in hosting list. Peers on those
+  ASNs are classified `dc` even if they also appear in the access allowlist.
 
 ### 4a. Anonymizer list (masked exit class)
 
@@ -245,8 +253,9 @@ Nodes whose verified egress is an anonymizer are classed `masked`
 - The IP list is best effort: a failed download keeps the previous file and
   never fails the ASN update. Without any file the built-in ASN list still
   applies (offline-safe). Entries wider than /8 (IPv4) or /16 (IPv6) are ignored.
-- Shared hosting ASNs that VPNs rent from (M247, Datacamp, Leaseweb, ...) stay
-  `dc` through `HOSTING_ASNS`; known exits inside them are caught by the IP list.
+- Shared hosting ASNs that VPNs rent from (M247, Datacamp/CDN77 AS60068 and
+  AS212238, Leaseweb, ...) stay `dc` through `HOSTING_ASNS` (and any unlisted
+  ASN is `dc` anyway); known exits inside them are caught by the IP list.
 - Review `data/anonymizer-asns.json` when you update the ASN database; bump
   `version` with each change.
 - Egress is verified at connect (tunnel peer IP) and again by the canary probe

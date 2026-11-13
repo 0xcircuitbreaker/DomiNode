@@ -241,6 +241,12 @@ env_set RELAY_HOST "$RELAY"
 env_set PROXY_HOST "$PROXYH"
 if [ "$TLS" = cloudflare ]; then env_set CLOUDFLARE_TUNNEL_TOKEN_FILE "$CF_FILE"; fi
 env_set ACME_CHALLENGE "$ACME"
+# Canary + egress probes (ABUSE_CONTROLS T6): on by default against this
+# deployment's own echo endpoint. An operator value (a comma list of echo URLs)
+# is kept on re-run; PROBES_DISABLED=true is the explicit opt-out.
+if [ -z "$(env_get PROBE_URL)" ] && [ "$(env_get PROBES_DISABLED)" != true ]; then
+  env_set PROBE_URL "https://$PRIMARY/v1/probe/echo"
+fi
 if [ -n "$DNS_FILE" ]; then env_set CLOUDFLARE_DNS_TOKEN_FILE "$DNS_FILE"; else env_unset CLOUDFLARE_DNS_TOKEN_FILE; fi
 # Always write every role-specific key so a role change clears stale values
 # (a former gateway must not keep a remote DATABASE_URL; a former coordinator

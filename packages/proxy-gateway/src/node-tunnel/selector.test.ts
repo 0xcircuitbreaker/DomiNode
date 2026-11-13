@@ -174,6 +174,12 @@ describe("NodeRegistry", () => {
     expect(reg.countPeers("8.8.4.1", "8.8.4.0/24", null).perAsn).toBe(2);
   });
 
+  it("a node whose egress probe is pending serves nothing, flagged or unflagged", () => {
+    const { sel } = make([node({ ipClass: "unknown", probePending: true })]);
+    expect(() => sel.select(base)).toThrow(NodeSelectionError);
+    expect(() => sel.select({ ...base, ipClass: "residential" })).toThrow(NodeSelectionError);
+  });
+
   it("unclassified nodes are not selected for an explicit class", () => {
     const { sel } = make([node({ ipClass: "unknown" })]);
     expect(() => sel.select({ ...base, ipClass: "residential" })).toThrow(NodeSelectionError);

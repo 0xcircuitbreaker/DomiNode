@@ -144,6 +144,21 @@ services:
       # Caddy terminates TLS for the node tunnel and forwards the node's real
       # address in a PROXY v2 header; only Caddy's fixed address may send one.
       TUNNEL_TRUSTED_PROXY_IPS: 172.29.53.2
+      # Canary + egress verification probes (install.sh sets PROBE_URL to this
+      # deployment's /v1/probe/echo) and exit-classifier overrides, from .env.
+      PROBE_URL: ${PROBE_URL:-}
+      PROBES_DISABLED: ${PROBES_DISABLED:-}
+      PROBE_INTERVAL_MS: ${PROBE_INTERVAL_MS:-}
+      PROBE_SAMPLE_SIZE: ${PROBE_SAMPLE_SIZE:-}
+      PROBE_TIMEOUT_MS: ${PROBE_TIMEOUT_MS:-}
+      PROBE_CONNECT_CONCURRENCY: ${PROBE_CONNECT_CONCURRENCY:-}
+      PROBE_CONNECT_MIN_INTERVAL_MS: ${PROBE_CONNECT_MIN_INTERVAL_MS:-}
+      HOSTING_ASNS: ${HOSTING_ASNS:-}
+      ACCESS_ASNS: ${ACCESS_ASNS:-}
+      ACCESS_ASNS_FILE: ${ACCESS_ASNS_FILE:-}
+      ANONYMIZER_ASNS: ${ANONYMIZER_ASNS:-}
+      ANONYMIZER_ASNS_FILE: ${ANONYMIZER_ASNS_FILE:-/app/data/anonymizer-asns.json}
+      ANONYMIZER_IPS_FILE: ${ANONYMIZER_IPS_FILE:-/app/data/anonymizer-ips.txt}
     volumes:
       - gateway_secrets:/run/dominusnode:ro
       - proxy_tls:/run/dominusnode-tls:ro

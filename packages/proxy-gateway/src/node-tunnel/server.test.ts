@@ -33,13 +33,14 @@ afterEach(async () => {
   server = null;
 });
 
-async function start(opts: { policy?: Partial<ActivePolicy["body"]>; geo?: GeoInfo | null; heartbeatMs?: number; deadline?: number; activate?: (id: string) => Promise<boolean>; coordSign?: (m: Buffer) => string; claimIpSlot?: (s: { nodeId: string }) => Promise<boolean>; releaseIpSlot?: (nodeId: string) => Promise<void>; recordVerifiedClass?: (id: string, c: string) => Promise<unknown>; defer?: boolean; onReady?: (id: string) => void; markOnlineClass?: (c: unknown) => void } = {}) {
+async function start(opts: { policy?: Partial<ActivePolicy["body"]>; geo?: GeoInfo | null; heartbeatMs?: number; deadline?: number; activate?: (id: string) => Promise<boolean>; coordSign?: (m: Buffer) => string; claimIpSlot?: (s: { nodeId: string }) => Promise<boolean>; releaseIpSlot?: (nodeId: string) => Promise<void>; recordVerifiedClass?: (id: string, c: string) => Promise<unknown>; defer?: boolean; onReady?: (id: string) => void; markOnlineClass?: (c: unknown) => void; prefixHist?: () => Promise<string[]> } = {}) {
   const policy: ActivePolicy = { version: 3, sha256: "f".repeat(64), body: { ...DEFAULT_POLICY, ...opts.policy }, createdAt: null };
   const online: string[] = [];
   const offline: string[] = [];
   const registry = new NodeRegistry();
   server = new NodeTunnelServer(registry, {
     getNodeForTunnelAuth: async (h) => NODES[h] ?? null,
+    ownerPrefixProbeClasses: opts.prefixHist as never,
     markOnline: async (id, ip, _cc, _asn, cls) => { online.push(`${id}@${ip}`); opts.markOnlineClass?.(cls); return true; },
     ...(opts.onReady ? { onNodeReady: (l: { nodeId: string }) => opts.onReady!(l.nodeId) } : {}),
     markOffline: async (id) => { offline.push(id); return true; },
@@ -378,6 +379,29 @@ describe("NodeTunnelServer", () => {
     const id = NODES[hashNodeKey(KEY_A)]!.id;
     expect(registry.get(id)?.ipClass).toBe("unknown");
     expect(registry.get(id)?.peerClass).toBe("residential");
+    expect(registry.get(id)?.probePending).toBe(true);
     expect(ready).toEqual([id]);
+  });
+
+  it("a revoked sibling's masked probe verdict on the same prefix carries over to a new node", async () => {
+    const classes: unknown[] = [];
+    const { port, registry } = await start({ geo: { country: "US", asn: 7922, ipClass: "residential" }, prefixHist: async () => ["masked"], markOnlineClass: (c) => classes.push(c) });
+    const c = connect(port);
+    await c.opened;
+    c.send(FrameType.HELLO, 0, hello());
+    await c.waitFor(FrameType.AUTH_OK);
+    expect(registry.get(NODES[hashNodeKey(KEY_A)]!.id)?.ipClass).toBe("masked");
+    expect(classes).toEqual(["masked"]);
+  });
+
+  it("with probes enabled a known masked peer stays masked (never unknown) until probed", async () => {
+    const { port, registry } = await start({ geo: { country: "US", asn: 13335, ipClass: "masked" }, defer: true });
+    const c = connect(port);
+    await c.opened;
+    c.send(FrameType.HELLO, 0, hello());
+    await c.waitFor(FrameType.AUTH_OK);
+    const id = NODES[hashNodeKey(KEY_A)]!.id;
+    expect(registry.get(id)?.ipClass).toBe("masked");
+    expect(registry.get(id)?.probePending).toBe(true);
   });
 });

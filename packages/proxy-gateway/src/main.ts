@@ -33,7 +33,7 @@ import { getLatencyPercentiles } from "./stats.js";
 import { drainUnmetDemand, restoreUnmetDemand } from "./unmet-demand.js";
 import { parseTrustedProxyIps, loadTunnelTls } from "./node-tunnel/ingress.js";
 import { createEthersPayoutSender } from "./jobs/payout-sender-ethers.js";
-import { getActiveSessionCount, terminateUserSessions, getActiveSessions, awaitInFlightSettlements, getInFlightSettlementCount } from "./session-manager.js";
+import { getActiveSessionCount, terminateUserSessions, terminateNodeSessionsAbove, getActiveSessions, awaitInFlightSettlements, getInFlightSettlementCount } from "./session-manager.js";
 
 const log = createLogger("proxy:main");
 
@@ -88,6 +88,7 @@ function makeProbeDeps(registry: NodeRegistry, targets: probesJob.ProbeTarget[],
       getNode: (id) => registry.get(id),
       classify: classifyEgressIp,
       record: nodeRepo.recordVerifiedClass,
+      onDowngrade: (nodeId, _from, to) => terminateNodeSessionsAbove(nodeId, to),
       logger,
     }),
     quarantine: async (nodeId, reason) => {
@@ -137,6 +138,7 @@ async function main(): Promise<void> {
     coordSign: coordSigner?.sign,
     getNodeForTunnelAuth: nodeRepo.getNodeForTunnelAuth,
     markOnline: nodeRepo.markOnline,
+    ownerPrefixProbeClasses: nodeRepo.getOwnerPrefixProbeClasses,
     markOffline: nodeRepo.markOffline,
     claimIpSlot: shared.claimIpSlot,
     releaseIpSlot: shared.releaseIpSlot,
@@ -411,7 +413,13 @@ function startJobs(registry: NodeRegistry, getPolicy: () => ActivePolicy): Job[]
       },
     }));
   } else {
-    jobLog.warn("PROBE_URL not set: canary probes disabled");
+    if (process.env["NODE_ENV"] === "production" && process.env["PROBES_DISABLED"] !== "true") {
+      // Loud, not fatal: existing deployments keep starting; set PROBE_URL
+      // (or PROBES_DISABLED=true to acknowledge) to clear it.
+      jobLog.error("PROBE_URL not set in production: canary + egress probes DISABLED (no tamper detection, peer-IP-only class). Set PROBE_URL or PROBES_DISABLED=true");
+    } else {
+      jobLog.warn("PROBE_URL not set: canary probes disabled");
+    }
   }
   if (payoutRepo.payoutsEnabled()) {
     const capUsd = envInt(process.env, "PAYOUT_RUN_CAP_USD", 10_000, 1, 1_000_000);
