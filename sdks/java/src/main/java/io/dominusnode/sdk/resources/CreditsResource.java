@@ -45,13 +45,32 @@ public final class CreditsResource {
         return http.get("/v1/credits/transactions" + qs("limit", limit, "cursor", cursor, "type", type), Auth.AGENT);
     }
 
-    public JsonNode convert(Object amountMusd) { return convert(amountMusd, null); }
+    public JsonNode convert(Object amountMusd, Signer signer) { return convert(amountMusd, signer, null); }
 
-    /** POST /v1/credits/convert with Idempotency-Key; the key is echoed in the result. */
-    public JsonNode convert(Object amountMusd, String idempotencyKey) {
+    /**
+     * POST /v1/credits/convert/challenge (Idempotency-Key header) -> check server signer and rebuild the
+     * conversion message (refuse on mismatch, signer not called) -> sign -> POST /v1/credits/convert
+     * {amountMusd, nonce, signature}. Returns {converted, convertedCents, duplicate, idempotencyKey}.
+     */
+    public JsonNode convert(Object amountMusd, Signer signer, String idempotencyKey) {
+        if (signer == null) throw ValidationException.invalidArg("signer is required");
         String amount = Validation.musd(amountMusd, MIN_CONVERT_MUSD, MAX_CONVERT_MUSD, "amountMusd");
         String key = Validation.idempotencyKey(idempotencyKey == null ? Validation.newIdempotencyKey() : idempotencyKey);
-        JsonNode r = http.request("POST", "/v1/credits/convert", body("amountMusd", amount), Auth.AGENT, Map.of("Idempotency-Key", key), false);
+        Map<String, String> headers = Map.of("Idempotency-Key", key);
+
+        JsonNode ch = http.request("POST", "/v1/credits/convert/challenge", body("amountMusd", amount), Auth.AGENT, headers, false);
+        String nonce = ch.path("nonce").isTextual() ? ch.get("nonce").asText() : "";
+        if (!Validation.HEX64_RE.matcher(nonce).matches()) throw new ProtocolException("invalid challenge nonce");
+        if (!ch.path("signer").isTextual()
+                || !ch.get("signer").asText().toLowerCase(Locale.ROOT).equals(signer.getAddress().toLowerCase(Locale.ROOT))) {
+            throw new ProtocolException("the account's linked wallet is not the signer's address; refusing to sign");
+        }
+        String serverMsg = ch.path("message").isTextual() ? ch.get("message").asText() : null;
+        String local = Messages.convert(Messages.extractUserId(serverMsg), signer.getAddress(), amount, key, nonce);
+        Messages.assertSame(serverMsg, local, "credit conversion");
+        String signature = signer.sign(local, "signer");
+        JsonNode r = http.request("POST", "/v1/credits/convert",
+                body("amountMusd", amount, "nonce", nonce, "signature", signature), Auth.AGENT, headers, false);
         return withKey(r, key);
     }
 

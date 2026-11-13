@@ -190,6 +190,70 @@ class SignerFlowsTest {
         assertEquals(3, t.requests.size());
     }
 
+    // ---- convert ----
+
+    @Test
+    void convertFlow() {
+        MockTransport t = new MockTransport();
+        DominusNodeClient c = connected(t);
+        Recorder rec = new Recorder();
+        String msg = Messages.convert(UUID, WALLET, "10000", "idem-key-88", NONCE);
+        t.reply(200, withdrawChallenge(WALLET.toLowerCase(), msg));
+        t.reply(200, "{\"converted\":{\"musd\":\"10000\",\"usd\":\"0.010000\"},\"convertedCents\":1,\"duplicate\":false}");
+        JsonNode r = c.credits().convert(10_000L, rec.signer(WALLET), "idem-key-88");
+        assertEquals("idem-key-88", r.get("idempotencyKey").asText());
+        assertEquals(1, r.get("convertedCents").asInt());
+        assertEquals(List.of(msg), rec.signed);
+        assertEquals("/v1/credits/convert/challenge", MockTransport.path(t.requests.get(0)));
+        assertEquals("{\"amountMusd\":\"10000\"}", t.requests.get(0).body);
+        assertEquals("idem-key-88", t.requests.get(0).headers.get("Idempotency-Key"));
+        assertEquals("/v1/credits/convert", MockTransport.path(t.requests.get(1)));
+        assertEquals("idem-key-88", t.requests.get(1).headers.get("Idempotency-Key"));
+        JsonNode b = MockTransport.json(t.requests.get(1));
+        assertEquals("10000", b.get("amountMusd").asText());
+        assertEquals(NONCE, b.get("nonce").asText());
+        assertEquals(SIG, b.get("signature").asText());
+    }
+
+    @Test
+    void convertGeneratesKey() {
+        MockTransport t = new MockTransport();
+        DominusNodeClient c = connected(t);
+        Recorder rec = new Recorder();
+        // key is generated client-side; the challenge message must carry it, so a mismatch is expected here
+        t.reply(200, withdrawChallenge(WALLET, Messages.convert(UUID, WALLET, "10000", "other-key-1", NONCE)));
+        assertThrows(ProtocolException.class, () -> c.credits().convert("10000", rec.signer(WALLET)));
+        assertTrue(t.requests.get(0).headers.get("Idempotency-Key").matches("^dn-[0-9a-f-]{36}$"));
+        assertTrue(rec.signed.isEmpty());
+    }
+
+    @Test
+    void convertTextMismatchRefuses() {
+        MockTransport t = new MockTransport();
+        DominusNodeClient c = connected(t);
+        Recorder rec = new Recorder();
+        // amount differs
+        t.reply(200, withdrawChallenge(WALLET, Messages.convert(UUID, WALLET, "99999", "idem-key-88", NONCE)));
+        assertThrows(ProtocolException.class, () -> c.credits().convert("10000", rec.signer(WALLET), "idem-key-88"));
+        // withdrawal text served for a convert
+        t.reply(200, withdrawChallenge(WALLET, Messages.withdraw(UUID, WALLET, "10000", "idem-key-88", NONCE)));
+        assertThrows(ProtocolException.class, () -> c.credits().convert("10000", rec.signer(WALLET), "idem-key-88"));
+        // server signer differs
+        t.reply(200, withdrawChallenge(OLD, Messages.convert(UUID, WALLET, "10000", "idem-key-88", NONCE)));
+        assertThrows(ProtocolException.class, () -> c.credits().convert("10000", rec.signer(WALLET), "idem-key-88"));
+        assertTrue(rec.signed.isEmpty());
+        assertEquals(3, t.requests.size());
+    }
+
+    @Test
+    void convertMissingSigner() {
+        MockTransport t = new MockTransport();
+        DominusNodeClient c = connected(t);
+        assertThrows(ValidationException.class, () -> c.credits().convert("10000", null));
+        assertThrows(ValidationException.class, () -> c.credits().convert("10000", null, "idem-key-88"));
+        assertEquals(0, t.requests.size());
+    }
+
     // ---- payout wallet ----
 
     static String payoutChallenge(String message, boolean oldRequired, String oldAddress) {
