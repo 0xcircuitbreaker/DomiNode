@@ -197,14 +197,21 @@ describe("self-host roles and Cloudflare Tunnel", () => {
   const WGDB = path.join(ROOT, "docker-compose.selfhost.wg-db.yml");
   const PLAIN = path.join(ROOT, "docker-compose.selfhost.plain.yml");
   const TOKEN = "eyJhIjoiU0VDUkVUVE9LRU5WQUxVRSJ9";
-  const matrix: Array<[string, string, string[]]> = [];
+  const DNS_TOKEN = "cfdnsSECRETtokenVALUE0123456789abcdefXYZ";
+  // Every ROLE x TLS_MODE x ACME_CHALLENGE combination install.sh accepts.
+  const matrix: Array<[string, string, string, string[]]> = [];
   for (const role of ["all", "coordinator", "gateway"]) {
     for (const tls of ["auto", "internal", "off", "cloudflare"]) {
-      if (role === "gateway" && tls === "cloudflare") continue;
-      const p = role === "all" ? ["coordinator", "gateway", "caddy"] : role === "coordinator" ? ["coordinator", ...(tls === "cloudflare" ? [] : ["caddy"])] : ["gateway", "caddy"];
-      if (tls === "cloudflare") p.push("cloudflare");
-      if (role !== "coordinator" && tls !== "off") p.push("proxytls");
-      matrix.push([role, tls, p]);
+      for (const acme of ["http", "dns-cloudflare"]) {
+        if (role === "gateway" && tls === "cloudflare") continue;
+        if (acme === "dns-cloudflare" && (tls === "internal" || tls === "off" || (role === "coordinator" && tls === "cloudflare"))) continue;
+        if (acme === "http" && tls === "cloudflare" && role !== "coordinator") continue;
+        const p = role === "all" ? ["coordinator", "gateway", "caddy"] : role === "coordinator" ? ["coordinator", ...(tls === "cloudflare" ? [] : ["caddy"])] : ["gateway", "caddy"];
+        if (tls === "cloudflare") p.push("cloudflare");
+        if (role !== "coordinator" && tls !== "off") p.push("proxytls");
+        if (acme === "dns-cloudflare") p.push("dnscf");
+        matrix.push([role, tls, acme, p]);
+      }
     }
   }
 
@@ -222,8 +229,8 @@ describe("self-host roles and Cloudflare Tunnel", () => {
     GATEWAY_PROXY_TLS_PORT: "", GATEWAY_SOCKS5_TLS_PORT: "", GATEWAY_PROXY_TLS_CERT_FILE: "", GATEWAY_PROXY_TLS_KEY_FILE: "",
     PROXY_PUBLIC_TLS_PORT: "", PROXY_PUBLIC_SOCKS5_TLS_PORT: "", PROXY_REQUIRE_TLS: "false",
   };
-  for (const [role, tls, profiles] of matrix) {
-    it.runIf(dockerCompose)(`compose parses for ROLE=${role} TLS_MODE=${tls}`, () => {
+  for (const [role, tls, acme, profiles] of matrix) {
+    it.runIf(dockerCompose)(`compose parses for ROLE=${role} TLS_MODE=${tls} ACME_CHALLENGE=${acme}`, () => {
       const files = role !== "coordinator" && tls === "off" ? [MAIN, PLAIN] : [MAIN];
       const cfg = config(profiles, files, tls === "off" ? offEnv : {});
       const names = Object.keys(cfg.services);
@@ -236,6 +243,12 @@ describe("self-host roles and Cloudflare Tunnel", () => {
         if (role === "coordinator") expect(names).not.toContain("caddy");
       }
       expect(names.includes("proxy-certs")).toBe(role !== "coordinator" && tls !== "off");
+      expect(names.includes("caddy-dns-keys")).toBe(acme === "dns-cloudflare");
+      if (cfg.services.caddy) {
+        expect(JSON.stringify(cfg.services.caddy)).toContain("dominusnode-caddy:selfhost");
+        if (acme === "dns-cloudflare") expect(cfg.services.caddy.depends_on?.["caddy-dns-keys"]?.condition).toBe("service_completed_successfully");
+        expect(JSON.stringify(cfg.services.caddy)).not.toContain(DNS_TOKEN);
+      }
       const gw = cfg.services.gateway;
       if (gw) {
         const published = (gw.ports ?? []).map((p) => p.target).sort((a, b) => a - b);
@@ -297,7 +310,7 @@ describe("self-host roles and Cloudflare Tunnel", () => {
     ["gateway auto", { ROLE: "gateway", TLS_MODE: "auto", DOMINUSNODE_HOSTNAMES: "example.org", GATEWAY_DATABASE_URL: `postgresql://dominusnode:${"a".repeat(48)}@10.66.0.1:5432/dominusnode`, COORD_PUBKEY: "1".repeat(64) }, true, false],
     ["gateway internal", { ROLE: "gateway", TLS_MODE: "internal", DOMINUSNODE_HOSTNAMES: "example.org", GATEWAY_DATABASE_URL: `postgresql://dominusnode:${"a".repeat(48)}@10.66.0.1:5432/dominusnode`, COORD_PUBKEY: "1".repeat(64) }, true, false],
     ["all + proxy host among site hosts", { ROLE: "all", TLS_MODE: "auto", DOMINUSNODE_HOSTNAMES: "example.org proxy.example.org" }, false, false],
-    ["all + cloudflare", { ROLE: "all", TLS_MODE: "cloudflare", DOMINUSNODE_HOSTNAMES: "example.org" }, true, false],
+    ["all + cloudflare", { ROLE: "all", TLS_MODE: "cloudflare", DOMINUSNODE_HOSTNAMES: "example.org", CLOUDFLARE_DNS_TOKEN_FILE: "./selfhost/cloudflare-dns.token" }, true, false],
     ["all + off", { ROLE: "all", TLS_MODE: "off", DOMINUSNODE_HOSTNAMES: "example.org" }, false, true],
   ] as Array<[string, Record<string, string>, boolean, boolean]>) {
     it.runIf(has("openssl", ["version"]))(`proxy TLS dry run: ${name}`, () => {
@@ -348,6 +361,7 @@ describe("self-host roles and Cloudflare Tunnel", () => {
     fs.copyFileSync(INSTALL, path.join(tmp, "scripts/selfhost/install.sh"));
     fs.copyFileSync(path.join(ROOT, "scripts/gen-coord-key.mjs"), path.join(tmp, "scripts/gen-coord-key.mjs"));
     fs.writeFileSync(path.join(tmp, "selfhost/cloudflared.token"), TOKEN, { mode: 0o600 });
+    fs.writeFileSync(path.join(tmp, "selfhost/cloudflare-dns.token"), DNS_TOKEN + "\n", { mode: 0o600 });
     return tmp;
   };
   const run = (tmp: string, env: Record<string, string>) =>
@@ -434,6 +448,12 @@ describe("self-host roles and Cloudflare Tunnel", () => {
 
   const bad: Array<[string, Record<string, string>, RegExp]> = [
     ["gateway with cloudflare", { ...gwEnv, TLS_MODE: "cloudflare" }, /ROLE=gateway cannot use/],
+    ["all + cloudflare without a DNS token", { ROLE: "all", TLS_MODE: "cloudflare", DOMINUSNODE_HOSTNAMES: "example.org" }, /needs CLOUDFLARE_DNS_TOKEN_FILE.*Zone:DNS:Edit and Zone:Zone:Read/],
+    ["all + cloudflare forced to http", { ROLE: "all", TLS_MODE: "cloudflare", DOMINUSNODE_HOSTNAMES: "example.org", ACME_CHALLENGE: "http" }, /needs ACME_CHALLENGE=dns-cloudflare.*Zone:DNS:Edit/],
+    ["dns-cloudflare with internal", { ...gwEnv, TLS_MODE: "internal", ACME_CHALLENGE: "dns-cloudflare", CLOUDFLARE_DNS_TOKEN_FILE: "./selfhost/cloudflare-dns.token" }, /needs TLS_MODE auto or cloudflare/],
+    ["bad ACME_CHALLENGE", { ...gwEnv, ACME_CHALLENGE: "dns" }, /ACME_CHALLENGE must be/],
+    ["DNS token file = tunnel token file", { ROLE: "all", TLS_MODE: "cloudflare", DOMINUSNODE_HOSTNAMES: "example.org", CLOUDFLARE_DNS_TOKEN_FILE: "./selfhost/cloudflared.token" }, /must differ/],
+    ["DNS token path with spaces", { ...gwEnv, ACME_CHALLENGE: "dns-cloudflare", CLOUDFLARE_DNS_TOKEN_FILE: "./self host/t" }, /invalid CLOUDFLARE_DNS_TOKEN_FILE path/],
     ["relay host through the tunnel", { ...coordEnv, RELAY_HOST: "api.example.org" }, /RELAY_HOST must not be a tunnel hostname/],
     ["newline in relay host", { ...coordEnv, RELAY_HOST: "relay.example.org\nX=1" }, /invalid RELAY_HOST/],
     ["bad proxy host", { ...coordEnv, PROXY_HOST: "proxy_example" }, /invalid PROXY_HOST/],
@@ -455,6 +475,124 @@ describe("self-host roles and Cloudflare Tunnel", () => {
       }
     });
   }
+
+  const dnsEnv = { ...gwEnv, ACME_CHALLENGE: "dns-cloudflare", CLOUDFLARE_DNS_TOKEN_FILE: "./selfhost/cloudflare-dns.token" };
+  const tree = (tmp: string) => fs.readFileSync(path.join(tmp, ".env"), "utf8") + fs.readFileSync(path.join(tmp, "selfhost/Caddyfile"), "utf8");
+
+  it.runIf(has("openssl", ["version"]))("dns-cloudflare Caddyfile snapshot (gateway auto): DNS-01 on relay and proxy, token by path only", () => {
+    const tmp = setup();
+    try {
+      for (let i = 0; i < 2; i++) {
+        const r = run(tmp, dnsEnv);
+        expect(r.status).toBe(0);
+        expect(r.stdout + r.stderr).not.toContain(DNS_TOKEN);
+        expect(r.stdout).toMatch(/ACME challenge: dns-cloudflare; compose profiles: gateway caddy proxytls dnscf/);
+      }
+      expect(fs.readFileSync(path.join(tmp, "selfhost/Caddyfile"), "utf8")).toBe(
+        [
+          "# Generated by scripts/selfhost/install.sh; re-run it instead of editing.",
+          "{",
+          "  email ops@example.org",
+          "}",
+          "relay.example.org:8443 {",
+          "  tls {",
+          "    dns cloudflare {file./run/caddy-secrets/cloudflare-dns.token}",
+          "    resolvers 1.1.1.1 1.0.0.1",
+          "  }",
+          "  reverse_proxy gateway:8443 {",
+          "    transport http {",
+          "      proxy_protocol v2",
+          "    }",
+          "  }",
+          "}",
+          "proxy.example.org {",
+          "  tls {",
+          "    dns cloudflare {file./run/caddy-secrets/cloudflare-dns.token}",
+          "    resolvers 1.1.1.1 1.0.0.1",
+          "  }",
+          '  respond "DominusNode relay gateway: use the HTTPS proxy on port 8444" 404',
+          "}",
+          "",
+        ].join("\n"),
+      );
+      const env = fs.readFileSync(path.join(tmp, ".env"), "utf8");
+      expect(env).toMatch(/^ACME_CHALLENGE=dns-cloudflare$/m);
+      expect(env).toMatch(/^CLOUDFLARE_DNS_TOKEN_FILE=\.\/selfhost\/cloudflare-dns\.token$/m);
+      expect(tree(tmp)).not.toContain(DNS_TOKEN);
+      expect(fs.readFileSync(MAIN, "utf8")).not.toContain(DNS_TOKEN);
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  it.runIf(has("openssl", ["version"]))("dns-cloudflare covers every public-cert site block (all + auto, all + cloudflare)", () => {
+    const tmp = setup();
+    try {
+      expect(run(tmp, { ROLE: "all", TLS_MODE: "auto", DOMINUSNODE_HOSTNAMES: "example.org www.example.org", ACME_CHALLENGE: "dns-cloudflare", CLOUDFLARE_DNS_TOKEN_FILE: "./selfhost/cloudflare-dns.token" }).status).toBe(0);
+      let caddy = fs.readFileSync(path.join(tmp, "selfhost/Caddyfile"), "utf8");
+      const sites = caddy.split("\n").filter((l) => /^[a-z].* \{$/.test(l));
+      expect(sites).toEqual(["example.org, www.example.org {", "example.org:8443, www.example.org:8443, relay.example.org:8443 {", "proxy.example.org {"]);
+      expect(caddy.match(/dns cloudflare \{file\.\/run\/caddy-secrets\/cloudflare-dns\.token\}/g)).toHaveLength(3);
+      // Default for TLS_MODE=cloudflare with a gateway: DNS-01 without being asked.
+      expect(run(tmp, { ROLE: "all", TLS_MODE: "cloudflare", DOMINUSNODE_HOSTNAMES: "example.org", CLOUDFLARE_DNS_TOKEN_FILE: "./selfhost/cloudflare-dns.token" }).status).toBe(0);
+      caddy = fs.readFileSync(path.join(tmp, "selfhost/Caddyfile"), "utf8");
+      expect(caddy).not.toContain("api:3000");
+      expect(caddy.match(/dns cloudflare/g)).toHaveLength(2);
+      expect(tree(tmp)).not.toContain(DNS_TOKEN);
+      expect(tree(tmp)).not.toContain(TOKEN);
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  }, 60_000);
+
+  it.runIf(has("openssl", ["version"]))("switching ACME_CHALLENGE back and forth is idempotent", () => {
+    const tmp = setup();
+    try {
+      expect(run(tmp, dnsEnv).status).toBe(0);
+      const dnsCaddy = fs.readFileSync(path.join(tmp, "selfhost/Caddyfile"), "utf8");
+      expect(run(tmp, { ...gwEnv, ACME_CHALLENGE: "http" }).status).toBe(0);
+      let env = fs.readFileSync(path.join(tmp, ".env"), "utf8");
+      expect(env).toMatch(/^ACME_CHALLENGE=http$/m);
+      expect(env).not.toMatch(/^CLOUDFLARE_DNS_TOKEN_FILE=/m);
+      expect(fs.readFileSync(path.join(tmp, "selfhost/Caddyfile"), "utf8")).not.toContain("dns cloudflare");
+      // Stored http is kept on a plain re-run.
+      expect(run(tmp, gwEnv).stdout).toMatch(/ACME challenge: http;/);
+      expect(run(tmp, dnsEnv).status).toBe(0);
+      expect(fs.readFileSync(path.join(tmp, "selfhost/Caddyfile"), "utf8")).toBe(dnsCaddy);
+      env = fs.readFileSync(path.join(tmp, ".env"), "utf8");
+      expect(env.match(/^ACME_CHALLENGE=/gm)).toHaveLength(1);
+      expect(env.match(/^CLOUDFLARE_DNS_TOKEN_FILE=/gm)).toHaveLength(1);
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  }, 60_000);
+
+  it.runIf(has("openssl", ["version"]))("rejects a group-readable or multi-line DNS token file", () => {
+    const tmp = setup();
+    try {
+      const f = path.join(tmp, "selfhost/cloudflare-dns.token");
+      fs.chmodSync(f, 0o640);
+      expect(run(tmp, dnsEnv).stderr).toMatch(/Cloudflare DNS token file must be mode 0600/);
+      fs.chmodSync(f, 0o600);
+      fs.writeFileSync(f, "a\nb\n");
+      expect(run(tmp, dnsEnv).stderr).toMatch(/must hold one line/);
+      expect(fs.existsSync(path.join(tmp, ".env"))).toBe(false);
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("Caddy image is built locally from pinned versions and base digests", () => {
+    const df = fs.readFileSync(path.join(ROOT, "infra/docker/caddy.Dockerfile"), "utf8");
+    const froms = [...df.matchAll(/^FROM (\S+)/gm)].map((m) => m[1]);
+    expect(froms).toHaveLength(2);
+    for (const f of froms) expect(f).toMatch(/^caddy:\d+\.\d+\.\d+-(builder-)?alpine@sha256:[0-9a-f]{64}$/);
+    expect(df).toMatch(/xcaddy build v\d+\.\d+\.\d+ --with github\.com\/caddy-dns\/cloudflare@v\d+\.\d+\.\d+/);
+    const text = fs.readFileSync(MAIN, "utf8");
+    expect(text).not.toMatch(/image: caddy:/);
+    expect(text).toMatch(/\$\{CLOUDFLARE_DNS_TOKEN_FILE:-[^}]+\}:\/src\/token:ro/);
+    expect(text).not.toMatch(/CF_API_TOKEN|CLOUDFLARE_API_TOKEN|env\.CLOUDFLARE/);
+  });
 
   it.runIf(has("openssl", ["version"]))("rejects a group-readable token file", () => {
     const tmp = setup();

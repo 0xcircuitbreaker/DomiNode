@@ -589,6 +589,92 @@ public keys 64 hex. `env_set` refuses multi-line values. Re-runs keep secrets.
 5. Remove any old A/AAAA records and router port forwards for the site
    hostnames: nothing inbound is needed on the coordinator.
 
+#### ACME DNS-01 through Cloudflare (ACME_CHALLENGE=dns-cloudflare)
+
+By default (`ACME_CHALLENGE=http`) Caddy proves control of each hostname to
+Let's Encrypt over inbound port 80/443 (HTTP-01 / TLS-ALPN-01). With
+`ACME_CHALLENGE=dns-cloudflare` it publishes a `_acme-challenge` TXT record
+through the Cloudflare API instead (DNS-01), so **no inbound 80/443 is needed**
+for any certificate. It is required (and the default) when `TLS_MODE=cloudflare`
+and the box runs a gateway (`ROLE=all`): such a box has no inbound 80/443, so
+HTTP-01 for `RELAY_HOST`/`PROXY_HOST` can never succeed and the installer
+refuses to continue without a DNS token. It is also the recommended mode for a
+`ROLE=gateway` VPS. Not available with `TLS_MODE=internal|off` or on a
+`ROLE=coordinator TLS_MODE=cloudflare` box (no Caddy there).
+
+Caddy is built locally by the installer as `dominusnode-caddy:selfhost` from
+`infra/docker/caddy.Dockerfile`: `xcaddy` adds `github.com/caddy-dns/cloudflare`
+to the pinned Caddy release, and both base images (builder and runtime) are
+pinned by digest. Bump the Caddy version, module tag and both digests together.
+
+1. Cloudflare dashboard → My Profile → API Tokens → Create Token → **Create
+   Custom Token**. Name it `dominusnode-acme`. Permissions, least privilege:
+   - `Zone` → `DNS` → `Edit`
+   - `Zone` → `Zone` → `Read`
+
+   Zone Resources: `Include` → `Specific zone` → your zone only (for example
+   `dominusnode.com`). Optionally restrict Client IP Address Filtering to the
+   box's egress address and set a TTL you will rotate before. Do not reuse the
+   tunnel token or a Global API Key.
+2. On the server, store only the token in a 0600 file (separate from the
+   tunnel token file):
+   `install -m 600 /dev/null selfhost/cloudflare-dns.token && read -rs T && printf '%s' "$T" > selfhost/cloudflare-dns.token; unset T`.
+   The installer refuses it unless it is a regular one-line file, mode
+   0600/0400, at a path matching `[A-Za-z0-9._/-]+`, and different from
+   `CLOUDFLARE_TUNNEL_TOKEN_FILE`.
+3. Re-run the installer:
+   `ACME_CHALLENGE=dns-cloudflare CLOUDFLARE_DNS_TOKEN_FILE=./selfhost/cloudflare-dns.token ./scripts/selfhost/install.sh`.
+   Only the path and `ACME_CHALLENGE` go in `.env`. A root-only, no-network
+   one-shot (`caddy-dns-keys`, compose profile `dnscf`) copies the file into the
+   `caddy_secrets` volume (0400, directory 0500), mounted read-only only by
+   Caddy. The generated Caddyfile adds to every public-cert site block (site
+   hostnames with `TLS_MODE=auto`, `RELAY_HOST:8443`, `PROXY_HOST`):
+
+   ```
+   tls {
+     dns cloudflare {file./run/caddy-secrets/cloudflare-dns.token}
+     resolvers 1.1.1.1 1.0.0.1
+   }
+   ```
+
+   `{file.*}` is resolved by Caddy when it loads the config (Caddy ≥ 2.7,
+   trailing newline stripped since 2.8.5), so the token never appears in `.env`,
+   compose, the Caddyfile, any command line or log line. `resolvers` makes Caddy
+   check TXT propagation against Cloudflare's public resolvers rather than a
+   local or split-horizon resolver (the module's recommendation).
+4. Once certificates are issued you may close inbound 80/443 on a gateway-only
+   box (the gateway's 8443, 8444 and 1443 stay open). On a `TLS_MODE=auto` box
+   that serves the site, 443 must stay open for visitors.
+
+Switching back: `ACME_CHALLENGE=http ./scripts/selfhost/install.sh` removes the
+`tls { dns … }` blocks and `CLOUDFLARE_DNS_TOKEN_FILE` from `.env` and
+deletes the token copy from `caddy_secrets`
+(re-open inbound 80/443 first). Re-runs in either direction are idempotent.
+
+Renewal: Caddy renews about 30 days before expiry (Let's Encrypt, ZeroSSL as
+fallback issuer) with the same DNS-01 challenge; nothing to schedule. DNS-01
+certificates are stored in the same layout
+(`caddy_data:/caddy/certificates/<issuer>/<host>/<host>.crt`), so `proxy-certs`
+finds and hot-swaps the `PROXY_HOST` certificate exactly as with HTTP-01. If the
+token is rotated, replace the file and re-run the installer (the one-shot
+copies the new token; Caddy re-reads it on restart).
+
+Troubleshooting (`docker compose -f docker-compose.selfhost.yml logs caddy caddy-dns-keys`):
+
+- `caddy-dns-keys` exited non-zero: the token file path in `.env` is wrong or
+  not readable by root; re-run the installer.
+- `HTTP 403` / `Authentication error` / `9109`: wrong token, token without
+  `Zone:DNS:Edit`, or scoped to another zone. `expected 1 zone, got 0`: missing
+  `Zone:Zone:Read`, or the hostname is not in the token's zone.
+- `timed out waiting for record to fully propagate`: check that the zone is
+  really on Cloudflare (`dig NS dominusnode.com`), that no leftover
+  `_acme-challenge` CNAME exists, and that the box can reach 1.1.1.1:53.
+- `module not registered: dns.providers.cloudflare`: Caddy is not the locally
+  built image; re-run the installer (it builds `dominusnode-caddy:selfhost`).
+  Check with `docker compose -f docker-compose.selfhost.yml exec caddy caddy list-modules | grep dns.providers.cloudflare`.
+- Rate limits after repeated failures: Let's Encrypt limits failed validations
+  per hostname per hour; fix the cause, then wait before retrying.
+
 #### Gateway on a VPS, coordinator at home (WireGuard)
 
 **Who signs.** The gateway signs every node-tunnel CHALLENGE

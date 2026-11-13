@@ -14,6 +14,7 @@
 #   caddy        Caddy TLS front end              (unless ROLE=coordinator TLS_MODE=cloudflare)
 #   cloudflare   cloudflared + its token copier   (TLS_MODE=cloudflare)
 #   proxytls     proxy-certs: Caddy's PROXY_HOST cert -> gateway (unless TLS_MODE=off)
+#   dnscf        caddy-dns-keys: Cloudflare DNS token for ACME DNS-01 (ACME_CHALLENGE=dns-cloudflare)
 # docker-compose.selfhost.plain.yml publishes plaintext 8080/1080 (TLS_MODE=off,
 # or PUBLISH_PLAINTEXT_PROXY=1).
 # docker-compose.selfhost.wg-db.yml is added for ROLE=coordinator with DB_WG_BIND
@@ -164,10 +165,15 @@ services:
 
   caddy:
     profiles: [caddy]
-    image: caddy:2-alpine
+    # caddy:2.11.9-alpine + caddy-dns/cloudflare, pinned in infra/docker/caddy.Dockerfile.
+    build:
+      context: .
+      dockerfile: infra/docker/caddy.Dockerfile
+    image: dominusnode-caddy:selfhost
     restart: unless-stopped
     depends_on:
       api: { condition: service_started, required: false }
+      caddy-dns-keys: { condition: service_completed_successfully, required: false }
     # No dependency on gateway: gateway waits (service_healthy) on proxy-certs,
     # which waits for the cert only a running Caddy can obtain. reverse_proxy
     # tolerates an upstream that is not up yet.
@@ -179,6 +185,9 @@ services:
       - ./selfhost/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
       - caddy_config:/config
+      # ACME_CHALLENGE=dns-cloudflare: the Caddyfile reads the DNS token with
+      # {file./run/caddy-secrets/cloudflare-dns.token}; empty volume otherwise.
+      - caddy_secrets:/run/caddy-secrets:ro
     networks:
       frontend:
         ipv4_address: 172.29.53.2
@@ -251,6 +260,30 @@ services:
         mv -f /dst/token.tmp /dst/token
         chown 65532:65532 /dst && chmod 0500 /dst
 
+  # ACME_CHALLENGE=dns-cloudflare: copies the 0600 Cloudflare DNS API token file
+  # (Zone:DNS:Edit + Zone:Zone:Read, one zone) into a volume only Caddy (root
+  # in its image) mounts, mode 0400. Distinct from the tunnel token. The token
+  # never enters .env, the compose environment, any command line or the Caddyfile.
+  caddy-dns-keys:
+    profiles: [dnscf]
+    image: dominusnode-api:selfhost
+    user: "0:0"
+    network_mode: none
+    restart: "no"
+    volumes:
+      - ${CLOUDFLARE_DNS_TOKEN_FILE:-./selfhost/cloudflare-dns.token}:/src/token:ro
+      - caddy_secrets:/dst
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER]
+    security_opt: ["no-new-privileges:true"]
+    command:
+      - sh
+      - -euc
+      - |
+        install -o 0 -g 0 -m 0400 /src/token /dst/cloudflare-dns.token.tmp
+        mv -f /dst/cloudflare-dns.token.tmp /dst/cloudflare-dns.token
+        chown 0:0 /dst && chmod 0500 /dst
+
   # Outbound-only Cloudflare Tunnel: no inbound ports. Public hostnames are
   # mapped to http://api:3000 in the Cloudflare dashboard (DEPLOYMENT.md §7b).
   cloudflared:
@@ -321,6 +354,7 @@ volumes:
   pgdata:
   caddy_data:
   caddy_config:
+  caddy_secrets:
   gateway_secrets:
   proxy_tls:
   node_secrets:
