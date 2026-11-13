@@ -1726,10 +1726,13 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_collusion_flags_open ON collusion_flags (
 CREATE INDEX IF NOT EXISTS idx_collusion_flags_status ON collusion_flags(status, last_seen_at DESC);
 CREATE INDEX IF NOT EXISTS idx_collusion_flags_owner ON collusion_flags(owner_user_id);
 -- 'report_penalty': burn-report penalty alone would quarantine a node; admin review instead.
+-- The list must stay the full current set (incl. 'egress_mismatch', added
+-- below): schema.sql re-runs on every migrate, and a narrower list here fails
+-- with check_violation once such rows exist.
 DO $$ BEGIN
   ALTER TABLE collusion_flags DROP CONSTRAINT IF EXISTS collusion_flags_kind_check;
   ALTER TABLE collusion_flags ADD CONSTRAINT collusion_flags_kind_check
-    CHECK (kind IN ('concentration','cluster','circular','report_penalty'));
+    CHECK (kind IN ('concentration','cluster','circular','report_penalty','egress_mismatch'));
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
@@ -1992,11 +1995,12 @@ CREATE INDEX IF NOT EXISTS idx_network_announcements_pub ON network_announcement
 INSERT INTO network_pricing (ip_class, price_per_gb_musd) VALUES ('mobile', 500000)
 ON CONFLICT (ip_class) DO NOTHING;
 
--- x402 quotes are per exit class (incl. mobile) or 'any' (highest price). Idempotent.
+-- x402 quotes are per exit class (incl. mobile, masked) or 'any' (highest price).
+-- Keep the full current list: a narrower re-add fails on re-run once rows exist.
 DO $$ BEGIN
   ALTER TABLE x402_transactions DROP CONSTRAINT IF EXISTS x402_transactions_pool_type_check;
   ALTER TABLE x402_transactions ADD CONSTRAINT x402_transactions_pool_type_check
-    CHECK (pool_type IN ('dc', 'residential', 'mobile', 'any'));
+    CHECK (pool_type IN ('dc', 'residential', 'mobile', 'masked', 'any'));
 END $$;
 
 -- Retention: sessions are kept 90 days but usage_records (365d) and
