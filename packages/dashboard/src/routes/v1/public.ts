@@ -4,6 +4,7 @@ import {
   createLogger,
   query,
   policyRepo,
+  networkStatusRepo,
   FLOOR_ALLOWED_PORTS,
   HARD_DENY_PORTS,
   BLOCKED_COUNTRY_CODES,
@@ -105,6 +106,8 @@ export interface NetworkStats {
   countriesAvailable: number;
   seed: { online: number; paidBytes24h: string };
   community: { online: number; paidBytes24h: string };
+  /** Figures hidden by k-anonymity (published as 0); see networkStatusRepo.kAnonymize. */
+  suppressed?: string[];
   generatedAt: string;
 }
 
@@ -152,9 +155,20 @@ export async function getNetworkStats(): Promise<NetworkStats> {
     else other += online;
   }
   countries.sort((a, b) => b.online - a.online || a.country.localeCompare(b.country));
+  const paidTotal = (BigInt(seed.paidBytes24h) + BigInt(community.paidBytes24h)).toString();
+  const k = networkStatusRepo.kAnonymize({
+    onlineNodes: total, seedOnline: seed.online, communityOnline: community.online,
+    paidBytes24h: paidTotal, seedPaidBytes24h: seed.paidBytes24h, communityPaidBytes24h: community.paidBytes24h, byClass,
+  }, MIN_GROUP);
+  const hideAll = k.suppressed.includes("onlineNodes");
+  if (hideAll) k.suppressed.push("byCountry", "countriesAvailable");
   const value: NetworkStats = {
-    onlineNodes: total, byClass, byCountry: countries, otherCountries: other, countriesAvailable,
-    seed, community, generatedAt: new Date(now).toISOString(),
+    onlineNodes: k.onlineNodes, byClass: k.byClass,
+    byCountry: hideAll ? [] : countries, otherCountries: hideAll ? 0 : other,
+    countriesAvailable: hideAll ? 0 : countriesAvailable,
+    seed: { online: k.seedOnline, paidBytes24h: k.seedPaidBytes24h },
+    community: { online: k.communityOnline, paidBytes24h: k.communityPaidBytes24h },
+    suppressed: k.suppressed, generatedAt: new Date(now).toISOString(),
   };
   statsCache = { at: now, value };
   return value;

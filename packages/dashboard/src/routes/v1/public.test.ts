@@ -91,10 +91,24 @@ describe("/v1 public routes", () => {
     expect(r.body["otherCountries"]).toBe(6);
     // US and DE are available; IR is sanctioned and never counted.
     expect(r.body["countriesAvailable"]).toBe(2);
-    expect(r.body["byClass"]).toEqual({ residential: 10, dc: 2, unknown: 1 });
+    // Classes with fewer than 3 nodes fold into "other" (k-anonymity).
+    expect(r.body["byClass"]).toEqual({ residential: 10, other: 3 });
     const sql = String(query.mock.calls[0][0]);
     expect(sql).not.toMatch(/observed_ip|node_key_hash|\bid\b/);
     expect(JSON.stringify(r.body)).not.toMatch(/\d+\.\d+\.\d+\.\d+/);
+  });
+
+  it("GET /v1/network/stats never singles out one community node (k-anonymity)", async () => {
+    query
+      .mockResolvedValueOnce({ rows: [{ country: "US", ip_class: "residential", operator_run: false, n: "1" }] })
+      .mockResolvedValueOnce({ rows: [{ operator_run: false, bytes: "123456789" }] });
+    const r = await call(app(), "GET", "/v1/network/stats");
+    expect(r.status).toBe(200);
+    expect(JSON.stringify(r.body)).not.toContain("123456789");
+    expect(r.body["community"]).toEqual({ online: 0, paidBytes24h: "0" });
+    expect(r.body["onlineNodes"]).toBe(0);
+    expect(r.body["byClass"]).toEqual({});
+    expect(r.body["suppressed"]).toEqual(expect.arrayContaining(["communityOnline", "communityPaidBytes24h", "onlineNodes"]));
   });
 
   it("GET /v1/network/stats reports operator-run seed nodes separately from community nodes", async () => {

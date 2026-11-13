@@ -6,6 +6,52 @@ import { BLOCKED_COUNTRY_CODES } from "../sanctions.js";
  * Everything here is aggregate: no node ids, IPs, requester ids or hosts.
  */
 
+/**
+ * k-anonymity for public stats: no published figure may describe fewer than
+ * this many community (agent-run) nodes, so one operator's paid traffic and
+ * online pattern are never singled out.
+ */
+export const PUBLIC_MIN_GROUP = 3;
+
+export interface PublicSplit {
+  onlineNodes: number; seedOnline: number; communityOnline: number;
+  paidBytes24h: string; seedPaidBytes24h: string; communityPaidBytes24h: string;
+  byClass: Record<string, number>;
+}
+
+/**
+ * Suppress small groups. Suppressed figures are published as 0 / "0" and named
+ * in `suppressed` (numeric types stay stable for the SDKs).
+ *  - 1..k-1 community nodes: the seed/community split (counts and paid bytes)
+ *    is hidden, since either side plus the total gives the other.
+ *  - if the seed side is also below k, the totals would still describe at most
+ *    a handful of nodes including that operator, so they are hidden too.
+ *  - byClass entries below k fold into "other"; an "other" below k is dropped.
+ */
+export function kAnonymize<T extends PublicSplit>(x: T, k = PUBLIC_MIN_GROUP): T & { suppressed: string[] } {
+  const out = { ...x, byClass: { ...x.byClass }, suppressed: [] as string[] };
+  const smallCommunity = x.communityOnline > 0 && x.communityOnline < k;
+  if (smallCommunity) {
+    out.seedOnline = 0; out.communityOnline = 0; out.seedPaidBytes24h = "0"; out.communityPaidBytes24h = "0";
+    out.suppressed.push("seedOnline", "communityOnline", "seedPaidBytes24h", "communityPaidBytes24h");
+    if (x.seedOnline < k) {
+      out.onlineNodes = 0; out.paidBytes24h = "0";
+      out.suppressed.push("onlineNodes", "paidBytes24h");
+    }
+  }
+  const byClass: Record<string, number> = {};
+  let other = 0;
+  const hideAll = out.suppressed.includes("onlineNodes");
+  for (const [cls, n] of Object.entries(x.byClass)) {
+    if (!Number.isFinite(n) || n <= 0) continue;
+    if (n >= k && !hideAll) byClass[cls] = n; else other += n;
+  }
+  if (other >= k && !hideAll) byClass["other"] = (byClass["other"] ?? 0) + other;
+  else if (other > 0) out.suppressed.push("byClass");
+  out.byClass = byClass;
+  return out;
+}
+
 export interface SnapshotInput {
   p50Ms: number | null;
   p95Ms: number | null;
@@ -64,8 +110,11 @@ export interface SnapshotRow {
   hour: Date; onlineNodes: number; seedOnline: number; communityOnline: number; countries: number; asns: number;
   successRateBps: number | null; p50Ms: number | null; p95Ms: number | null; paidBytes24h: string;
   seedPaidBytes24h: string; communityPaidBytes24h: string; byClass: Record<string, number>;
+  /** Fields hidden by kAnonymize (published as 0). */
+  suppressed?: string[];
 }
 
+/** Public history; every row passes through kAnonymize. */
 export async function listSnapshots(hours: number): Promise<SnapshotRow[]> {
   const r = await query<{
     hour: Date; online_nodes: number; seed_online: number; community_online: number; countries: number; asns: number;
@@ -78,12 +127,20 @@ export async function listSnapshots(hours: number): Promise<SnapshotRow[]> {
      FROM network_stats_snapshots WHERE hour > now() - make_interval(hours => $1) ORDER BY hour ASC LIMIT 10000`,
     [hours],
   );
-  return r.rows.map((x) => ({
-    hour: x.hour, onlineNodes: x.online_nodes, seedOnline: x.seed_online, communityOnline: x.community_online,
-    countries: x.countries, asns: x.asns, successRateBps: x.success_rate_bps, p50Ms: x.p50_ms, p95Ms: x.p95_ms,
-    paidBytes24h: x.paid_bytes_24h, seedPaidBytes24h: x.seed_paid_bytes_24h, communityPaidBytes24h: x.community_paid_bytes_24h,
-    byClass: x.by_class ?? {},
-  }));
+  return r.rows.map((x) => {
+    const row = kAnonymize({
+      hour: x.hour, onlineNodes: x.online_nodes, seedOnline: x.seed_online, communityOnline: x.community_online,
+      countries: x.countries, asns: x.asns, successRateBps: x.success_rate_bps, p50Ms: x.p50_ms, p95Ms: x.p95_ms,
+      paidBytes24h: x.paid_bytes_24h, seedPaidBytes24h: x.seed_paid_bytes_24h, communityPaidBytes24h: x.community_paid_bytes_24h,
+      byClass: x.by_class ?? {},
+    });
+    // Country/ASN counts of a suppressed hour would still describe the few nodes.
+    if (row.suppressed.includes("onlineNodes")) {
+      row.countries = 0; row.asns = 0;
+      row.suppressed.push("countries", "asns");
+    }
+    return row;
+  });
 }
 
 export interface IncidentRow {

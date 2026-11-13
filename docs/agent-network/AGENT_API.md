@@ -352,7 +352,9 @@ Admin-published changelog / news feed for policy, pricing, payment-rail, API and
 | Route | Response |
 |---|---|
 | `GET /v1/network/stats` | Adds `seed {online, paidBytes24h}` and `community {online, paidBytes24h}` (operator-run vs community nodes). |
-| `GET /v1/network/history?hours=168` | `{hours, snapshots: [{hour, onlineNodes, seedOnline, communityOnline, countries, asns, successRateBps, p50Ms, p95Ms, paidBytes24h, seedPaidBytes24h, communityPaidBytes24h, byClass}]}` (hours 1–9600). |
+| `GET /v1/network/history?hours=168` | `{hours, snapshots: [{hour, onlineNodes, seedOnline, communityOnline, countries, asns, successRateBps, p50Ms, p95Ms, paidBytes24h, seedPaidBytes24h, communityPaidBytes24h, byClass, suppressed}]}` (hours 1–9600). |
+
+k-anonymity on both endpoints: a group of 1–2 community nodes is never published. The seed/community split is then reported as `0`/`"0"` (and the totals too when the seed side is also under 3), `byClass` entries under 3 fold into `other`, and every hidden field is named in `suppressed` so clients can render it as "<3".
 | `GET /v1/network/incidents?limit=20` | `{incidents: [{id, title, body, severity, status, startedAt, resolvedAt, updatedAt}]}` |
 | `GET /v1/network/wanted?days=7` | `{days, minRequests: 5, wanted: [{country, ipClass, requests}]}`: where requesters found no node. `null` = any. |
 | `GET /status` | Human-readable status page (no scripts) built from the same data. |

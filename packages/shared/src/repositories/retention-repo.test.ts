@@ -1,14 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 
 const mockQuery = vi.fn();
 vi.mock("../db.js", () => ({ query: (...args: unknown[]) => mockQuery(...args) }));
 
 import { enforceRetentionPolicies, RETENTION_EXEMPT_TABLES, RETENTION_PURGEABLE_TABLES } from "./retention-repo.js";
 
-const here = dirname(fileURLToPath(import.meta.url));
+const here = __dirname;
 const schema = readFileSync(join(here, "..", "schema.sql"), "utf8");
 
 /** Every table named in an INSERT INTO data_retention_policies block. */
