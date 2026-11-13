@@ -4,7 +4,7 @@ import * as net from "node:net";
 import { WebSocketServer, type WebSocket } from "ws";
 import { TunnelClient, backoffDelay, scrub, type TunnelLogger } from "./tunnel-client.js";
 import { dial, type Connector, type DialResult } from "./dialer.js";
-import { Limits } from "./limits.js";
+import { ByteRate, Limits } from "./limits.js";
 import { FrameDecoder, FrameType, encodeFrame, encodeControl, decodeControl, FLAG_FIN, FLAG_RST, type Frame,
   challengeMessage, authMessage, signEd25519, verifyEd25519 } from "./shared.js";
 import { generateKeyPairSync, type KeyObject } from "node:crypto";
@@ -223,6 +223,44 @@ describe("TunnelClient", () => {
     expect(ctl(close)).toMatchObject({ bytesIn: 9, bytesOut: 9 });
     expect(c.activeStreamCount).toBe(0);
   });
+
+  it("caps relayed throughput at DN_NODE_MAX_MBPS (shared ByteRate, both directions)", async () => {
+    const W = 65536;
+    gw.initialWindow = W;
+    // 2 Mbps = 250 000 B/s with a one-second burst. Echoing 300 kB moves 600 kB
+    // through the bucket, so it cannot finish in under ~1.4 s.
+    const c = makeClient({ rate: new ByteRate(2) });
+    await ready(c);
+    gw.send(FrameType.OPEN, 1, { host: "example.com", port: 443 });
+    await gw.next(onStream(FrameType.OPEN_OK, 1));
+    const started = Date.now();
+    const total = 300_000;
+    let sent = 0;
+    let credit = W;
+    let received = 0;
+    const pump = () => {
+      while (sent < total && credit > 0) {
+        const n = Math.min(credit, 40_000, total - sent);
+        gw.sendRaw(FrameType.DATA, 1, Buffer.alloc(n, 7));
+        sent += n;
+        credit -= n;
+      }
+    };
+    pump();
+    while (received < total) {
+      const f = await gw.next((x) => x.streamId === 1 && (x.type === FrameType.DATA || x.type === FrameType.WINDOW));
+      if (f.type === FrameType.WINDOW) {
+        credit += f.payload.readUInt32BE(0);
+        pump();
+        continue;
+      }
+      received += f.payload.length;
+      const grant = Buffer.alloc(4);
+      grant.writeUInt32BE(f.payload.length, 0);
+      gw.sendRaw(FrameType.WINDOW, 1, grant);
+    }
+    expect(Date.now() - started).toBeGreaterThanOrEqual(1_200);
+  }, 15_000);
 
   it("never sends more DATA than the peer-granted window", async () => {
     const W = 65536;

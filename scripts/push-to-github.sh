@@ -3,11 +3,29 @@
 # Push all SDKs, integrations, and MCP server to GitHub under dominus-node org.
 # Each gets a fresh repo with clean history (no CLAUDE.md, no Co-Authored-By).
 
+set -euo pipefail
+
 ORG="dominus-node"
 MONO="$(cd "$(dirname "$0")/.." && pwd)"
-WORKDIR="/tmp/github-push-$$"
-TOKEN=$(~/.local/bin/gh auth token)
-mkdir -p "$WORKDIR"
+
+# Private work dir (0700), removed on any exit or interruption.
+umask 077
+WORKDIR="$(mktemp -d "${TMPDIR:-/tmp}/github-push.XXXXXXXX")"
+ASKPASS="$WORKDIR/.askpass"
+cleanup() { rm -rf "$WORKDIR"; }
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+# The token stays in the environment: it never appears in argv, a remote URL
+# or .git/config. git asks GIT_ASKPASS, which echoes it from the environment.
+GH_BIN="$(command -v gh || echo "$HOME/.local/bin/gh")"
+GH_PUSH_TOKEN="$("$GH_BIN" auth token)"
+export GH_PUSH_TOKEN
+# shellcheck disable=SC2016
+printf '#!/bin/sh\ncase "$1" in Username*) echo x-access-token ;; *) printf %%s "$GH_PUSH_TOKEN" ;; esac\n' > "$ASKPASS"
+chmod 700 "$ASKPASS"
+export GIT_ASKPASS="$ASKPASS" GIT_TERMINAL_PROMPT=0
 
 # Ordered list: local_dir|github_repo_name
 REPOS=(
@@ -90,13 +108,13 @@ for entry in "${REPOS[@]}"; do
   # Get version from package files
   VERSION=""
   if [ -f package.json ]; then
-    VERSION=$(grep '"version"' package.json | head -1 | sed 's/.*: "//;s/".*//')
+    VERSION=$(grep '"version"' package.json | head -1 | sed 's/.*: "//;s/".*//' || true)
   elif [ -f pyproject.toml ]; then
-    VERSION=$(grep '^version' pyproject.toml | head -1 | sed 's/.*= "//;s/".*//')
+    VERSION=$(grep '^version' pyproject.toml | head -1 | sed 's/.*= "//;s/".*//' || true)
   elif [ -f Cargo.toml ]; then
-    VERSION=$(grep '^version' Cargo.toml | head -1 | sed 's/.*= "//;s/".*//')
+    VERSION=$(grep '^version' Cargo.toml | head -1 | sed 's/.*= "//;s/".*//' || true)
   elif [ -f pom.xml ]; then
-    VERSION=$(grep '<version>' pom.xml | head -1 | sed 's/.*<version>//;s/<.*//')
+    VERSION=$(grep '<version>' pom.xml | head -1 | sed 's/.*<version>//;s/<.*//' || true)
   elif [ -f go.mod ]; then
     VERSION="1.0.1"
   fi
@@ -111,9 +129,9 @@ for entry in "${REPOS[@]}"; do
   fi
 
   # Push
-  git remote add origin "https://x-access-token:${TOKEN}@github.com/$ORG/$repo_name.git"
+  git remote add origin "https://github.com/$ORG/$repo_name.git"
 
-  if git push -u origin main --tags --force 2>&1; then
+  if git -c credential.helper= push -u origin main --tags --force 2>&1; then
     echo "OK: $repo_name v$VERSION"
     SUCCEEDED=$((SUCCEEDED + 1))
   else
@@ -132,5 +150,3 @@ if [ -n "$FAILURES" ]; then
   echo -e "Failures:$FAILURES"
 fi
 echo "============================================"
-
-rm -rf "$WORKDIR"

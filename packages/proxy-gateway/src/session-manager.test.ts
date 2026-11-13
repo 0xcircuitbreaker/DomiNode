@@ -15,6 +15,8 @@ const mockGetChargeSnapshot = vi.fn();
 const mockSettleRelayCharge = vi.fn();
 const mockGetBalance = vi.fn();
 const mockEnqueueRetry = vi.fn();
+const mockReserveAgentic = vi.fn();
+const mockReleaseAgentic = vi.fn();
 const SNAPSHOT = { splitConfigId: 1, tierId: 1, nodeShareBps: 2500, holdDays: 14 };
 const RELAY = { nodeId: "node-1", ipClass: "residential" as const, nodeOwnerUserId: "owner-1", destPort: 443 };
 
@@ -24,6 +26,11 @@ vi.mock("@dominusnode/shared", () => ({
     getBalance: (...args: unknown[]) => mockGetBalance(...args),
     releaseReservation: (...args: unknown[]) => mockReleaseReservation(...args),
     settleSession: (...args: unknown[]) => mockSettleSession(...args),
+  },
+  agenticWalletRepo: {
+    reserveSessionBudget: (...args: unknown[]) => mockReserveAgentic(...args),
+    releaseSessionBudget: (...args: unknown[]) => mockReleaseAgentic(...args),
+    recordSessionReservation: async () => undefined,
   },
   usageRepo: {
     createRelaySession: (...args: unknown[]) => mockCreateSession(...args),
@@ -123,6 +130,30 @@ describe("proxy-gateway/session-manager", () => {
       expect(reservationCentsFor(500_000n, BYTES_PER_GB)).toBe(50);
       expect(reservationCentsFor(1n, 1024)).toBe(1);
       expect(reservationCentsFor(0n)).toBe(0);
+    });
+  });
+
+  describe("agentic wallet billing (wallet-<id>)", () => {
+    it("reserves from the agentic wallet, never the personal wallet, and settles on the agentic_wallet rail", async () => {
+      mockReserveAgentic.mockResolvedValueOnce(12); // budget left: 12c of the 50c wanted
+      mockCreateSession.mockResolvedValueOnce({ id: "sess-ag" });
+      const counter = makeCounter();
+      await startSession("user-ag", "example.com", counter, 0, RELAY, undefined, false, null, true, "aw-1");
+      expect(mockReserveAgentic).toHaveBeenCalledWith("aw-1", "user-ag", 50);
+      expect(mockReserveBalance).not.toHaveBeenCalled();
+      expect(counter.maxBytes).toBe(maxBytesForReservation(12, 500_000n));
+      await endSession("sess-ag");
+      expect(mockSettleRelayCharge).toHaveBeenCalledWith(expect.objectContaining({ rail: "agentic_wallet", agenticWalletId: "aw-1", reservedCents: 12 }));
+    });
+
+    it("refuses when the agentic budget is exhausted and releases on a failed start", async () => {
+      mockReserveAgentic.mockResolvedValueOnce(0);
+      await expect(startSession("user-ag2", "example.com", makeCounter(), 0, RELAY, undefined, false, null, true, "aw-2")).rejects.toThrow("Insufficient balance");
+      mockReserveAgentic.mockResolvedValueOnce(30);
+      mockCreateSession.mockRejectedValueOnce(new Error("db down"));
+      await expect(startSession("user-ag3", "example.com", makeCounter(), 0, RELAY, undefined, false, null, true, "aw-3")).rejects.toThrow("db down");
+      expect(mockReleaseAgentic).toHaveBeenCalledWith("aw-3", 30);
+      expect(mockReserveBalance).not.toHaveBeenCalled();
     });
   });
 

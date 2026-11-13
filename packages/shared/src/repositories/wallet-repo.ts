@@ -251,24 +251,40 @@ export async function settleSessionTx(
   } else if (diff < 0) {
     // Refund excess reservation in full. A reservation is the user's own money,
     // so it must never be silently truncated by the balance cap.
-    const refund = -diff;
-    if (wallet.balance_cents + refund > MAX_BALANCE_CENTS) {
-      throw new Error(
-        `Reservation refund of ${refund} cents would exceed wallet balance cap (${sessionLabel}); settlement aborted to avoid fund loss`,
+    // A top-up or conversion during the session can fill the wallet to the cap;
+    // the part of the refund above it is recorded as an overflow credit (never
+    // lost, never aborting the settlement that pays the node).
+    const room = Math.max(0, MAX_BALANCE_CENTS - wallet.balance_cents);
+    const refund = Math.min(-diff, room);
+    if (-diff > refund) await recordOverflowCreditTx(client, { userId, teamId: null, cents: -diff - refund, reason: `reservation refund over cap (${sessionLabel})` });
+    if (refund > 0) {
+      await client.query(
+        `UPDATE wallets SET balance_cents = balance_cents + $1 WHERE id = $2`,
+        [refund, wallet.id],
+      );
+      await client.query(
+        `INSERT INTO wallet_transactions (wallet_id, type, amount_cents, description)
+         VALUES ($1, 'refund', $2, $3)`,
+        [wallet.id, refund, `Reservation refund (${sessionLabel})`],
       );
     }
-    await client.query(
-      `UPDATE wallets SET balance_cents = balance_cents + $1 WHERE id = $2`,
-      [refund, wallet.id],
-    );
-    await client.query(
-      `INSERT INTO wallet_transactions (wallet_id, type, amount_cents, description)
-       VALUES ($1, 'refund', $2, $3)`,
-      [wallet.id, refund, `Reservation refund (${sessionLabel})`],
-    );
   }
   // diff == 0: reservation matched actual cost exactly
   return "ok";
+}
+
+/**
+ * Record cents owed to a wallet that could not be credited because the wallet
+ * is at the $10,000 cap (wallet_overflow_credits, reconciled by an admin).
+ */
+export async function recordOverflowCreditTx(
+  client: Pick<DbTxClient, "query">, o: { userId: string | null; teamId: string | null; cents: number; reason: string },
+): Promise<void> {
+  if (!Number.isInteger(o.cents) || o.cents <= 0) return;
+  await client.query(
+    `INSERT INTO wallet_overflow_credits (user_id, team_id, amount_cents, reason) VALUES ($1, $2, $3, $4)`,
+    [o.userId, o.teamId, o.cents, o.reason.slice(0, 200)],
+  );
 }
 
 /**

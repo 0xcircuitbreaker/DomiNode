@@ -7,7 +7,7 @@ vi.mock("../../api/admin", async (orig) => {
   const actual = await orig<typeof import("../../api/admin")>();
   return { ...actual, collusionApi: { flags: vi.fn(), resolve: vi.fn(), settings: vi.fn(), updateSettings: vi.fn() } };
 });
-import { collusionApi } from "../../api/admin";
+import { collusionApi, COLLUSION_KINDS } from "../../api/admin";
 import CollusionPage, { parseCollusionDraft } from "./CollusionPage";
 
 const api = vi.mocked(collusionApi);
@@ -28,6 +28,10 @@ beforeEach(() => {
 });
 
 describe("CollusionPage", () => {
+  it("offers every flag kind the API accepts as a filter (incl. report_penalty, egress_mismatch)", () => {
+    expect([...COLLUSION_KINDS]).toEqual(["concentration", "cluster", "circular", "report_penalty", "egress_mismatch"]);
+  });
+
   it("lists flags and settings", async () => {
     renderPage(<CollusionPage />);
     expect(await screen.findByText("concentration")).toBeInTheDocument();
@@ -44,6 +48,16 @@ describe("CollusionPage", () => {
     await userEvent.click(screen.getByRole("button", { name: "Dismiss flag" }));
     await waitFor(() => expect(api.resolve).toHaveBeenCalledWith(UUID1, "dismiss", "known reseller"));
     expect(await screen.findByText(/dismissed\./)).toBeInTheDocument();
+  });
+
+  it("offers report_penalty and egress_mismatch in the kind filter", async () => {
+    renderPage(<CollusionPage />);
+    await screen.findByText("concentration");
+    for (const k of ["report penalty", "egress mismatch"]) {
+      expect(screen.getByRole("option", { name: k })).toBeInTheDocument();
+    }
+    await userEvent.selectOptions(screen.getByLabelText("Kind"), "egress_mismatch");
+    await waitFor(() => expect(api.flags).toHaveBeenLastCalledWith(expect.objectContaining({ kind: "egress_mismatch" })));
   });
 
   it("requires a reason before confirming a flag", async () => {

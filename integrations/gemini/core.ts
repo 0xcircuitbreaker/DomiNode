@@ -57,7 +57,10 @@ export const TOOL_SPECS: ToolSpec[] = [
       "placeholder: substitute the key from the environment, never paste it into chat.",
     parameters: obj({
       country: COUNTRY, ip_class: IP_CLASS, session_id: SESSION, allow_http: ALLOW_HTTP,
-      protocol: { type: "string", enum: ["http", "socks5"], description: "Proxy protocol." },
+      protocol: {
+        type: "string", enum: ["https", "socks5", "http"],
+        description: "https (default: TLS to the gateway), socks5, or http (plaintext gateway; local dev only).",
+      },
     }) },
   { name: "network_policy", description:
       "Relay network policy: allowed ports, plaintext (allowhttp) rules, blocked ranges, sanctioned countries " +
@@ -120,13 +123,17 @@ export const NODE_SETUP_GUIDE = [
   "Steps",
   "  1. Store your owner wallet key in a private file (never pass it to a tool or chat):",
   "     umask 077 && printf '%s' \"$WALLET_PRIVATE_KEY_HEX\" > ~/.dominusnode/wallet.key",
-  "  2. On the machine whose IP you contribute (Node.js >= 18):",
-  "     git clone https://github.com/0xcircuitbreaker/DomiNode.git && cd DomiNode",
-  "     npm ci && npm run build -w @dominusnode/shared -w @dominusnode/node-agent",
+  "  2. On the machine whose IP you contribute (Docker), register with the published image",
+  "     (official coordinator pins baked in; a plain source build has none and refuses to start):",
+  "     sudo install -d -o 1001 -g 1001 -m 700 /etc/dominusnode",
+  "     sudo install -o 1001 -g 1001 -m 600 ~/.dominusnode/wallet.key /etc/dominusnode/wallet.key",
   "     export DN_API_KEY   # your dn_live_ key, from the environment only",
-  "     node packages/node-agent/dist/src/main.js register --wallet-key-file ~/.dominusnode/wallet.key",
-  "  3. Run it and keep it running (systemd/pm2) - uptime drives your tier:",
-  "     node packages/node-agent/dist/src/main.js run --key-file ~/.dominusnode/node.json",
+  "     docker run --rm -e DN_API_KEY -e DN_WALLET_KEY_FILE=/run/dominusnode/wallet.key \\",
+  "       -v /etc/dominusnode:/run/dominusnode ghcr.io/0xcircuitbreaker/dominusnode-node register",
+  "     sudo rm /etc/dominusnode/wallet.key   # not needed after registration",
+  "  3. Run it and keep it running - uptime drives your tier:",
+  "     docker run -d --name dominusnode-node --restart unless-stopped \\",
+  "       -v /etc/dominusnode/node.json:/run/dominusnode/node.json:ro ghcr.io/0xcircuitbreaker/dominusnode-node",
   "  4. Verify with node_list and node_tier; earnings appear in credits_balance.",
   "",
   "Signing flows (node register, withdraw, payout wallet) are not available as tools here; use the",
@@ -139,11 +146,61 @@ export type SdkClient = Pick<
   "connectWithKey" | "proxy" | "network" | "wallet" | "usage" | "sessions" | "nodes" | "credits" | "payouts" | "x402"
 >;
 
+/** Gateway TLS port: production 8443; self-hosted coordinators publish 8444 by default. */
+export const DEFAULT_TLS_PROXY_PORT = 8443;
+
+/**
+ * Where proxy traffic goes. TLS to the gateway's HTTPS proxy is the default (production refuses
+ * credentials on plaintext 8080/1080). DOMINUSNODE_PROXY_URL=https://host[:port] sets host and TLS
+ * port (same variable as the MCP server); DOMINUSNODE_PROXY_INSECURE=1 selects plaintext (local dev).
+ */
+export function resolveGateway(
+  config: { proxyHost?: string; tlsProxyPort?: number; httpProxyPort?: number; insecureProxy?: boolean },
+  getEnv: (name: string) => string | undefined,
+): { proxyHost?: string; httpProxyPort?: number; gatewayTls: false | { port: number } } {
+  const validPort = (p: number | undefined): number | undefined =>
+    p !== undefined && Number.isInteger(p) && p >= 1 && p <= 65535 ? p : undefined;
+  let urlHost: string | undefined;
+  let urlPort: number | undefined;
+  const raw = getEnv("DOMINUSNODE_PROXY_URL");
+  if (raw) {
+    let u: URL;
+    try {
+      u = new URL(raw);
+    } catch {
+      throw new Error("DOMINUSNODE_PROXY_URL is not a valid URL");
+    }
+    if (u.protocol !== "https:") throw new Error("DOMINUSNODE_PROXY_URL must use https:// (TLS to the gateway)");
+    if (u.username || u.password) throw new Error("DOMINUSNODE_PROXY_URL must not contain credentials");
+    urlHost = u.hostname.toLowerCase();
+    urlPort = u.port ? validPort(Number(u.port)) : DEFAULT_TLS_PROXY_PORT;
+  }
+  const insecure = config.insecureProxy ?? getEnv("DOMINUSNODE_PROXY_INSECURE") === "1";
+  if (insecure && raw) throw new Error("DOMINUSNODE_PROXY_URL (TLS) and DOMINUSNODE_PROXY_INSECURE=1 are mutually exclusive");
+  const portEnv = getEnv("DOMINUSNODE_PROXY_PORT");
+  const httpProxyPort = validPort(config.httpProxyPort ?? (portEnv ? Number.parseInt(portEnv, 10) : undefined));
+  const tlsEnv = getEnv("DOMINUSNODE_PROXY_TLS_PORT");
+  const tlsPort =
+    validPort(config.tlsProxyPort) ?? urlPort ?? validPort(tlsEnv ? Number.parseInt(tlsEnv, 10) : undefined) ?? DEFAULT_TLS_PROXY_PORT;
+  return {
+    proxyHost: config.proxyHost ?? urlHost ?? getEnv("DOMINUSNODE_PROXY_HOST"),
+    httpProxyPort,
+    gatewayTls: insecure ? false : { port: tlsPort },
+  };
+}
+
 export interface DominusNodeToolsConfig {
   /** Defaults to process.env.DOMINUSNODE_API_KEY. Never pass it from model output. */
   apiKey?: string;
   baseUrl?: string;
+  /** Defaults to the DOMINUSNODE_PROXY_URL host, DOMINUSNODE_PROXY_HOST or the SDK default. */
   proxyHost?: string;
+  /** Gateway TLS (HTTPS proxy) port. Defaults to the DOMINUSNODE_PROXY_URL port, DOMINUSNODE_PROXY_TLS_PORT or 8443 (self-host: 8444). */
+  tlsProxyPort?: number;
+  /** Plaintext port, used only with insecureProxy. Defaults to DOMINUSNODE_PROXY_PORT or 8080. */
+  httpProxyPort?: number;
+  /** Plaintext to the gateway (local dev only; production refuses it). Defaults to DOMINUSNODE_PROXY_INSECURE=1. */
+  insecureProxy?: boolean;
   /** Pre-built SDK client (already connected unless `connect` is true). */
   client?: SdkClient;
   /** With `client`: still call connectWithKey(apiKey) before first use. */
@@ -172,12 +229,12 @@ export class DominusNodeTools {
   #client: SdkClient | undefined;
   #connected: Promise<void> | undefined;
   #baseUrl: string | undefined;
-  #proxyHost: string | undefined;
+  #gateway: ReturnType<typeof resolveGateway>;
 
   constructor(config: DominusNodeToolsConfig = {}) {
     this.#apiKey = config.apiKey || process.env.DOMINUSNODE_API_KEY || undefined;
     this.#baseUrl = config.baseUrl || process.env.DOMINUSNODE_BASE_URL || undefined;
-    this.#proxyHost = config.proxyHost || process.env.DOMINUSNODE_PROXY_HOST || undefined;
+    this.#gateway = resolveGateway(config, (k) => process.env[k]?.trim() || undefined);
     if (config.client) {
       this.#client = config.client;
       if (!config.connect) this.#connected = Promise.resolve();
@@ -191,7 +248,9 @@ export class DominusNodeTools {
     if (!this.#client) {
       this.#client = new DominusNodeClient({
         ...(this.#baseUrl ? { baseUrl: this.#baseUrl } : {}),
-        ...(this.#proxyHost ? { proxyHost: this.#proxyHost } : {}),
+        ...(this.#gateway.proxyHost ? { proxyHost: this.#gateway.proxyHost } : {}),
+        ...(this.#gateway.httpProxyPort ? { httpProxyPort: this.#gateway.httpProxyPort } : {}),
+        gatewayTls: this.#gateway.gatewayTls,
       });
     }
     if (!this.#connected) {
@@ -226,8 +285,8 @@ export class DominusNodeTools {
         };
       }
       case "proxy_url": {
-        const protocol = (optStr(a, "protocol") ?? "http") as "http" | "socks5";
-        const url = c.proxy.buildUrl({ ...routing, protocol });
+        const protocol = optStr(a, "protocol") as "https" | "http" | "socks5" | undefined;
+        const url = c.proxy.buildUrl({ ...routing, ...(protocol ? { protocol } : {}) });
         const [scheme, rest] = url.split("://", 2);
         const at = rest.lastIndexOf("@");
         const user = rest.slice(0, at).split(":", 1)[0];

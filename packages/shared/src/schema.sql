@@ -1726,10 +1726,13 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_collusion_flags_open ON collusion_flags (
 CREATE INDEX IF NOT EXISTS idx_collusion_flags_status ON collusion_flags(status, last_seen_at DESC);
 CREATE INDEX IF NOT EXISTS idx_collusion_flags_owner ON collusion_flags(owner_user_id);
 -- 'report_penalty': burn-report penalty alone would quarantine a node; admin review instead.
+-- The list must stay the full current set (incl. 'egress_mismatch', added
+-- below): schema.sql re-runs on every migrate, and a narrower list here fails
+-- with check_violation once such rows exist.
 DO $$ BEGIN
   ALTER TABLE collusion_flags DROP CONSTRAINT IF EXISTS collusion_flags_kind_check;
   ALTER TABLE collusion_flags ADD CONSTRAINT collusion_flags_kind_check
-    CHECK (kind IN ('concentration','cluster','circular','report_penalty'));
+    CHECK (kind IN ('concentration','cluster','circular','report_penalty','egress_mismatch'));
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
@@ -1992,11 +1995,12 @@ CREATE INDEX IF NOT EXISTS idx_network_announcements_pub ON network_announcement
 INSERT INTO network_pricing (ip_class, price_per_gb_musd) VALUES ('mobile', 500000)
 ON CONFLICT (ip_class) DO NOTHING;
 
--- x402 quotes are per exit class (incl. mobile) or 'any' (highest price). Idempotent.
+-- x402 quotes are per exit class (incl. mobile, masked) or 'any' (highest price).
+-- Keep the full current list: a narrower re-add fails on re-run once rows exist.
 DO $$ BEGIN
   ALTER TABLE x402_transactions DROP CONSTRAINT IF EXISTS x402_transactions_pool_type_check;
   ALTER TABLE x402_transactions ADD CONSTRAINT x402_transactions_pool_type_check
-    CHECK (pool_type IN ('dc', 'residential', 'mobile', 'any'));
+    CHECK (pool_type IN ('dc', 'residential', 'mobile', 'masked', 'any'));
 END $$;
 
 -- Retention: sessions are kept 90 days but usage_records (365d) and
@@ -2118,6 +2122,155 @@ ALTER TABLE node_daily_stats ADD COLUMN IF NOT EXISTS online_seconds INTEGER NOT
 DO $$ BEGIN
   ALTER TABLE node_daily_stats ADD CONSTRAINT node_daily_stats_online_seconds_range CHECK (online_seconds BETWEEN 0 AND 86400);
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+-- ═══ Money integrity fixes (fix/a7-money) ═══════════════════════════
+-- Idempotent; safe to apply repeatedly.
+
+-- Referral redemption switch: off by default. Redemption records the referral
+-- only; it no longer credits balance (free credit = starter-credit ledger).
+CREATE TABLE IF NOT EXISTS referral_settings (
+  id                 SMALLINT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+  redemption_enabled BOOLEAN NOT NULL DEFAULT false,
+  updated_by         UUID REFERENCES users(id) ON DELETE SET NULL,
+  updated_at         TIMESTAMPTZ
+);
+INSERT INTO referral_settings (id) VALUES (1) ON CONFLICT (id) DO NOTHING;
+ALTER TABLE referral_codes ALTER COLUMN credit_cents SET DEFAULT 0;
+
+-- Genesis: seeded disabled, credit gated on spend, per-payer minimum spend.
+-- Only rows an admin never changed (updated_by IS NULL) are switched off.
+ALTER TABLE genesis_settings ALTER COLUMN enabled SET DEFAULT false;
+UPDATE genesis_settings SET enabled = false WHERE id = 1 AND enabled AND updated_by IS NULL;
+ALTER TABLE genesis_settings ADD COLUMN IF NOT EXISTS credit_threshold_node_musd BIGINT NOT NULL DEFAULT 10000000;
+ALTER TABLE genesis_settings ADD COLUMN IF NOT EXISTS min_payer_spend_musd BIGINT NOT NULL DEFAULT 1000000;
+DO $$ BEGIN
+  ALTER TABLE genesis_settings ADD CONSTRAINT chk_genesis_credit_threshold_node_musd
+    CHECK (credit_threshold_node_musd BETWEEN 0 AND 1000000000000);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+DO $$ BEGIN
+  ALTER TABLE genesis_settings ADD CONSTRAINT chk_genesis_min_payer_spend_musd
+    CHECK (min_payer_spend_musd BETWEEN 0 AND 1000000000000);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+-- Collusion detector floor below the genesis qualifying spend ($1, was $5).
+ALTER TABLE collusion_settings ALTER COLUMN min_node_volume_musd SET DEFAULT 1000000;
+UPDATE collusion_settings SET min_node_volume_musd = 1000000
+  WHERE id = 1 AND min_node_volume_musd = 5000000 AND updated_by IS NULL;
+
+-- MPP: a claim whose funds moved is never deleted. A request refused after
+-- verification leaves it 'refund_due'; the payer is credited (whole cents) and
+-- the claim becomes 'refunded' once fully credited. Overpayment above the
+-- per-request cap is recorded in refund_musd and credited the same way.
+ALTER TABLE mpp_transactions DROP CONSTRAINT IF EXISTS mpp_transactions_status_check;
+DO $$ BEGIN
+  ALTER TABLE mpp_transactions ADD CONSTRAINT chk_mpp_status
+    CHECK (status IN ('claimed','verified','settled','failed','released','refund_due','refunded'));
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+ALTER TABLE mpp_transactions ADD COLUMN IF NOT EXISTS refund_musd BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE mpp_transactions ADD COLUMN IF NOT EXISTS refunded_cents INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE mpp_transactions ADD COLUMN IF NOT EXISTS refund_reason TEXT;
+DO $$ BEGIN
+  ALTER TABLE mpp_transactions ADD CONSTRAINT chk_mpp_refund
+    CHECK (refund_musd BETWEEN 0 AND 10000000000 AND refunded_cents BETWEEN 0 AND 1000000
+           AND refunded_cents::bigint * 10000 <= refund_musd
+           AND (refund_reason IS NULL OR length(refund_reason) <= 200));
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+CREATE INDEX IF NOT EXISTS idx_mpp_refund_due ON mpp_transactions(created_at) WHERE status = 'refund_due';
+
+-- Credit conversion needs a signed challenge like withdraw (action 'convert').
+ALTER TABLE agent_sign_challenges DROP CONSTRAINT IF EXISTS agent_sign_challenges_action_check;
+DO $$ BEGIN
+  ALTER TABLE agent_sign_challenges ADD CONSTRAINT chk_agent_sign_challenges_action
+    CHECK (action IN ('payout_wallet_set','withdraw','convert'));
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+-- Agentic wallets fund relay sessions (rail 'agentic_wallet'): in-flight
+-- reservations and the sub-cent carry live on the wallet row.
+ALTER TABLE agentic_wallets ADD COLUMN IF NOT EXISTS reserved_cents INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE agentic_wallets ADD COLUMN IF NOT EXISTS carry_musd BIGINT NOT NULL DEFAULT 0;
+DO $$ BEGIN
+  ALTER TABLE agentic_wallets ADD CONSTRAINT chk_agentic_wallets_reserved
+    CHECK (reserved_cents BETWEEN 0 AND 1000000 AND carry_musd BETWEEN 0 AND 9999);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+-- Reservation refunds that would push a wallet past the $10,000 cap (a deposit
+-- landed while the session was open). Settlement no longer aborts: the part
+-- above the cap is owed here and reconciled by an admin.
+CREATE TABLE IF NOT EXISTS wallet_overflow_credits (
+  id           BIGSERIAL PRIMARY KEY,
+  user_id      UUID REFERENCES users(id) ON DELETE CASCADE,
+  team_id      UUID REFERENCES teams(id) ON DELETE CASCADE,
+  amount_cents INTEGER NOT NULL CHECK (amount_cents BETWEEN 1 AND 1000000),
+  reason       TEXT NOT NULL CHECK (length(reason) <= 200),
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  resolved_at  TIMESTAMPTZ,
+  CHECK ((user_id IS NULL) <> (team_id IS NULL))
+);
+CREATE INDEX IF NOT EXISTS idx_wallet_overflow_open ON wallet_overflow_credits(created_at) WHERE resolved_at IS NULL;
+
+-- Every signed Tempo 'paid' event, recorded before matching. 'unmatched'
+-- (wrong amount, unknown memo) and 'duplicate' (second transfer for a paid
+-- invoice) rows are funds received but not credited: refund or credit them.
+CREATE TABLE IF NOT EXISTS tempo_payments (
+  id            BIGSERIAL PRIMARY KEY,
+  tx_hash       TEXT NOT NULL UNIQUE CHECK (tx_hash ~ '^0x[0-9a-f]{64}$'),
+  charge_id     TEXT NOT NULL CHECK (length(charge_id) <= 100),
+  from_address  TEXT CHECK (from_address IS NULL OR from_address ~ '^0x[0-9a-f]{40}$'),
+  amount_units  NUMERIC(40,0) NOT NULL CHECK (amount_units >= 0),
+  status        TEXT NOT NULL CHECK (status IN ('received','credited','unmatched','duplicate','refunded')),
+  note          TEXT CHECK (note IS NULL OR length(note) <= 200),
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_tempo_payments_open ON tempo_payments(created_at) WHERE status IN ('unmatched','duplicate');
+
+-- Refunds owed to per-request payers that cannot use a wallet (non-EVM x402
+-- payers such as Solana): settled-but-unserved payments, paid back on-chain.
+CREATE TABLE IF NOT EXISTS payer_refunds_owed (
+  id             BIGSERIAL PRIMARY KEY,
+  payer_address  TEXT NOT NULL CHECK (length(payer_address) BETWEEN 1 AND 100),
+  rail           TEXT NOT NULL CHECK (rail IN ('x402','mpp')),
+  pay_hash       TEXT NOT NULL UNIQUE CHECK (length(pay_hash) BETWEEN 1 AND 128),
+  amount_musd    BIGINT NOT NULL CHECK (amount_musd BETWEEN 1 AND 10000000000),
+  reason         TEXT NOT NULL CHECK (length(reason) <= 200),
+  status         TEXT NOT NULL DEFAULT 'owed' CHECK (status IN ('owed','paid','waived')),
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+  resolved_at    TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_payer_refunds_owed_open ON payer_refunds_owed(created_at) WHERE status = 'owed';
+
+-- ─── Agentic wallet session reservations (fix/a7-money review) ──────────
+-- One row per relay session holding part of agentic_wallets.reserved_cents.
+-- Settlement deletes it; reservations of sessions that ended without settling
+-- (gateway crash, dead settle retry) are returned to the wallet by
+-- releaseOrphanedSessionReservations. last_reserved_at guards deletion while a
+-- session is still being set up (reservation taken, row not yet recorded).
+CREATE TABLE IF NOT EXISTS agentic_session_reservations (
+  session_id  UUID PRIMARY KEY,
+  wallet_id   UUID NOT NULL REFERENCES agentic_wallets(id) ON DELETE CASCADE,
+  cents       INTEGER NOT NULL CHECK (cents > 0 AND cents <= 1000000),
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_agentic_session_reservations_wallet ON agentic_session_reservations(wallet_id);
+ALTER TABLE agentic_wallets ADD COLUMN IF NOT EXISTS last_reserved_at TIMESTAMPTZ;
+
+-- ─── Starter ledger restore rows (fix/a7-money review) ───────────────────
+-- A byte dispute resolved for the node returns the starter-funded share of the
+-- refund to the grant (type 'restore') instead of paying it out as balance.
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'starter_credit_ledger_type_check'
+                 AND conrelid = 'starter_credit_ledger'::regclass
+                 AND pg_get_constraintdef(oid) LIKE '%restore%') THEN
+    ALTER TABLE starter_credit_ledger DROP CONSTRAINT IF EXISTS starter_credit_ledger_type_check;
+    ALTER TABLE starter_credit_ledger ADD CONSTRAINT starter_credit_ledger_type_check
+      CHECK (type IN ('grant','spend','expire','revoke','restore'));
+  END IF;
+END $$;
 
 -- ═══ fix/a7-privacy: one-off privacy data migration (idempotent) ═══
 -- x402 payers: store EVM addresses lowercased so erasure matches checksummed rows.

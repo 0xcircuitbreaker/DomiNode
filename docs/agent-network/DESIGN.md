@@ -441,7 +441,7 @@ export interface PrepaidRail {                     // top-up rails
 
 **Gateway.**
 - `x402-handler.ts` drops `poolType`. A 402 lists `accepts[]` from every enabled `PerRequestRail` (env `PAYMENT_RAILS`, checked against an allowlist).
-- The price per request is `price_per_gb_musd × X402_BYTES_PER_REQUEST`, which defaults to 10 MB, and the paid amount caps the session bytes.
+- The price per request is `price_per_gb_musd × X402_BYTES_PER_REQUEST`, which defaults to 10 MiB (10,485,760 bytes; prices are per decimal GB, so the default residential quote is 5,243 µUSD), and the paid amount caps the session bytes.
 - On settle, `settleRelayCharge` runs with `payment_rail='x402'|'mpp'` and `gross` set to the paid µUSD; unused bytes are not refunded in v1.
 
 ## 8. Gateway integration points
@@ -619,7 +619,7 @@ Source research and citations: `ECONOMICS.md`.
   | Partner | 50% | ≥180 | ≥97% | ≥50 | ≥0.85, no clawback in 90 d | 3 d |
 
   Hard ceiling: `CHECK (node_share_bps BETWEEN 0 AND 5000)`. Thresholds are admin-editable rows.
-  - Tenure days and active IPs count only matured, undisputed paid traffic from other principals.
+  - Tenure days count only matured, undisputed paid traffic from other principals. Active IPs count earning, undisputed paid traffic from other principals without waiting for maturity (the 7-day window is shorter than the Probation hold); a later dispute or clawback still removes the charge (ECONOMICS.md anti-gaming rule 1).
   - An active IP is a distinct /32 with at least 3 distinct paying requesters in 7 days.
   - Tier inputs are aggregated per beneficial owner, linked by payout wallet, funding source or team.
   - `relay_charges` snapshots both `tier_id` and `node_share_bps` at session start.

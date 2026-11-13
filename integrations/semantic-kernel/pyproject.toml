@@ -4,12 +4,12 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "dominusnode-semantic-kernel"
-version = "2.1.0"
+version = "2.2.0"
 description = "DominusNode agent relay network tools for Semantic Kernel (19 tools, built on the dominusnode SDK)"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.10"
-dependencies = ["dominusnode>=2.1.0,<3", "semantic-kernel>=1.0"]
+dependencies = ["dominusnode>=2.2.0,<3", "semantic-kernel>=1.0"]
 
 [project.optional-dependencies]
 dev = ["pytest>=7.0"]

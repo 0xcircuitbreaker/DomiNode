@@ -2,6 +2,7 @@ import { RELAY_BYTES_PER_GB } from "../types.js";
 import { withTx, earnTx, MUSD_PER_CENT } from "./node-credit-repo.js";
 import { settleSessionTx, accrueCarryTx } from "./wallet-repo.js";
 import { settleTeamSessionTx, accrueTeamCarryTx } from "./team-repo.js";
+import { settleSessionTx as settleAgenticSessionTx } from "./agentic-wallet-repo.js";
 import { endSessionTx, createUsageRecordTx } from "./usage-repo.js";
 import type { ChargeSnapshot } from "./tier-repo.js";
 import { consumeTx as consumeStarterTx } from "./starter-credit-repo.js";
@@ -39,6 +40,8 @@ export interface SettleRelayChargeInput {
    * (DESIGN.md §7: unused bytes are not refunded in v1), split by the locked bps.
    */
   prepaidGrossMusd?: bigint;
+  /** agentic_wallet rail: the wallet the session reserved from. */
+  agenticWalletId?: string | null;
 }
 
 export interface SettleRelayChargeResult {
@@ -119,6 +122,7 @@ function validate(i: SettleRelayChargeInput): void {
     throw new Error("destHost must be a bare hostname");
   }
   if (i.rail === "team" && !i.requesterTeamId) throw new Error("team rail requires requesterTeamId");
+  if (i.rail === "agentic_wallet" && !i.agenticWalletId) throw new Error("agentic_wallet rail requires agenticWalletId");
   if (i.prepaidGrossMusd !== undefined) {
     if (i.rail !== "x402" && i.rail !== "mpp") throw new Error("prepaidGrossMusd is only valid for x402/mpp rails");
     if (typeof i.prepaidGrossMusd !== "bigint" || i.prepaidGrossMusd < 1n || i.prepaidGrossMusd > 10_000_000_000n) {
@@ -196,8 +200,13 @@ export async function settleRelayCharge(i: SettleRelayChargeInput): Promise<Sett
       const r = await settleTeamSessionTx(client, i.requesterTeamId as string, i.reservedCents, debitCents, i.sessionId);
       if (r === "no_wallet" || r === "invalid") throw new Error("Team settlement failed");
       paidInFull = r === "ok";
+    } else if (i.rail === "agentic_wallet") {
+      const r = await settleAgenticSessionTx(client, i.agenticWalletId as string, i.reservedCents, split.grossMusd, i.sessionId);
+      if (!r) throw new Error("Agentic wallet not found");
+      debitCents = r.debitCents;
+      paidInFull = r.paidInFull;
     }
-    // agentic_wallet/x402/mpp were prepaid upstream; recorded only.
+    // x402/mpp were prepaid upstream; recorded only.
 
     // Re-check self-dealing against the node owner.
     const n = await client.query<{ owner_user_id: string; owner_wallet: string; status: string }>(

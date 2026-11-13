@@ -50,6 +50,8 @@ services:
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       MFA_ENCRYPTION_KEY: ${MFA_ENCRYPTION_KEY:?MFA_ENCRYPTION_KEY is required}
       DASHBOARD_PORT: "3000"
+      # Advertise the TLS proxy in agent-tool.json, llms.txt and /api/proxy/config (8080/1080 are loopback-only here).
+      PROXY_PUBLIC_TLS_PORT: "${PROXY_TLS_HOST_PORT:-8443}"
       CORS_ORIGINS: ${CORS_ORIGINS:-https://dominusnode.com,https://www.dominusnode.com,https://dominusnode.daedalusdevelopmentgroup.com}
       STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
       STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
@@ -78,6 +80,16 @@ services:
       MAX_REGISTERED_USERS: ${MAX_REGISTERED_USERS:-0}
       ADMIN_HUMAN_LOGIN: ${ADMIN_HUMAN_LOGIN:-false}
       ADMIN_BOOTSTRAP_EMAIL: ${ADMIN_BOOTSTRAP_EMAIL:-}
+      # Contacts/branding for /.well-known/security.txt and coordinator.json.
+      OPERATOR_CONTACT: ${OPERATOR_CONTACT:-}
+      ABUSE_CONTACT: ${ABUSE_CONTACT:-}
+      OPERATOR_NAME: ${OPERATOR_NAME:-}
+      SITE_NAME: ${SITE_NAME:-}
+      OFFICIAL_COORD_PUBKEYS: ${OFFICIAL_COORD_PUBKEYS:-}
+      # Signs coordinator.json/policy.json (503 without it); same key as the proxy.
+      COORD_SIGNING_KEY_FILE: /run/secrets/coord_signing_key
+      # API key pepper (DEPLOYMENT.md §3b); MUST be the same file as the proxy's.
+      API_KEY_PEPPER_FILE: /run/secrets/api_key_pepper
       MCP_AGENT_SECRET: ${MCP_AGENT_SECRET:-}
       AGENT_RATE_LIMIT_MULTIPLIER: ${AGENT_RATE_LIMIT_MULTIPLIER:-10}
       DOMINUSNODE_DOMAIN: ${DOMINUSNODE_DOMAIN:-dominusnode.com}
@@ -96,6 +108,9 @@ services:
       # Canary probe budget on /v1/probe/echo; same value on api and proxy (32+ chars).
       PROBE_AUTH_SECRET: ${PROBE_AUTH_SECRET:-}
       NODE_ENV: production
+    secrets:
+      - coord_signing_key
+      - api_key_pepper
     extra_hosts:
       - "host.docker.internal:host-gateway"
     # API port NOT exposed to host — only reachable via nginx on the frontend network
@@ -155,6 +170,7 @@ services:
       TUNNEL_TLS_KEY_FILE: /app/certs/tunnel.key
       # Coordinator signing key (npm run gen:coord-key); required in production.
       COORD_SIGNING_KEY_FILE: /run/secrets/coord_signing_key
+      API_KEY_PEPPER_FILE: /run/secrets/api_key_pepper
       # Offline ip2asn country+ASN DB (scripts/update-asn-db.sh). Missing = all public traffic refused.
       ASN_DB_FILE: /app/data/ip2asn-combined.tsv.gz
       AGENT_RATE_LIMIT_MULTIPLIER: ${AGENT_RATE_LIMIT_MULTIPLIER:-10}
@@ -166,6 +182,7 @@ services:
       NODE_ENV: production
     secrets:
       - coord_signing_key
+      - api_key_pepper
     volumes:
       - ./data:/app/data:ro
       - ${PROXY_TLS_DIR:-./certs}:/app/certs:ro
@@ -241,6 +258,11 @@ secrets:
   # PEM written by `npm run gen:coord-key` (mode 0600, readable by the container user).
   coord_signing_key:
     file: ${COORD_SIGNING_KEY_PATH:-./secrets/coord-signing-key.pem}
+  # API key pepper: `openssl rand -hex 32 > secrets/api-key-pepper` once, then
+  # `sudo chown 1001:1001 secrets/api-key-pepper` (mode 0600, readable by the
+  # container user uid 1001); never regenerate it (DEPLOYMENT.md §3b). Back it up.
+  api_key_pepper:
+    file: ${API_KEY_PEPPER_PATH:-./secrets/api-key-pepper}
 
 volumes:
   pgdata:

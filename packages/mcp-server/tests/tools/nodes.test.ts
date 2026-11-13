@@ -310,8 +310,13 @@ describe("other node tools", () => {
   it("node_setup_guide gives exact commands and explains earning rules", async () => {
     const server = await setup();
     const text = (await callTool(server, "dominusnode_node_setup_guide")).content[0].text;
-    expect(text).toContain("main.js register --wallet-key-file");
-    expect(text).toContain("main.js run --key-file");
+    // The published image has the official coordinator pins; a plain source build has none.
+    expect(text).toContain("ghcr.io/0xcircuitbreaker/dominusnode-node register");
+    expect(text).toContain("--restart unless-stopped");
+    expect(text).not.toContain("npm run build -w");
+    // Agents run commands without a terminal; -t makes docker fail ("input device is not a TTY").
+    expect(text).not.toMatch(/docker run[^\n]* -i?t\b/);
+    expect(text).toContain("sudo rm /etc/dominusnode/wallet.key");
     expect(text).toContain("DOMINUSNODE_WALLET_KEY_FILE");
     expect(text).toMatch(/Self-dealing earns nothing/);
     expect(text).toMatch(/80\/443/);

@@ -105,7 +105,7 @@ def _assert_client_hello(data: bytes, sni: bytes) -> None:
 def test_https_rides_connect_tunnel_plain_gateway(rec: Recorder) -> None:
     gw = Gateway()
     try:
-        c = _client(rec, proxy_host="127.0.0.1", http_proxy_port=gw.port)
+        c = _client(rec, proxy_host="127.0.0.1", http_proxy_port=gw.port, gateway_tls=False)
         with pytest.raises(ProxyError):
             c.proxy.fetch("https://example.com/x", timeout_ms=3000)
         assert gw.accepted == 1 and gw.heads[0].startswith(b"CONNECT example.com:443 HTTP/1.1\r\n")
@@ -174,7 +174,10 @@ def test_build_url_https_default(rec: Recorder) -> None:
     assert c.proxy.build_url().startswith("https://relay:dn_live_")
     assert c.proxy.build_url().endswith("@proxy.example.com:8443")
     assert c.proxy.build_url(protocol="http").endswith(":8080")
-    plain = new_client(rec, proxy_host="proxy.example.com")
+    dflt = new_client(rec, proxy_host="proxy.example.com")
+    dflt._ctx.api_key = API_KEY
+    assert dflt.proxy.build_url().startswith("https://") and dflt.proxy.build_url().endswith(":8443")
+    plain = new_client(rec, proxy_host="proxy.example.com", gateway_tls=False)
     plain._ctx.api_key = API_KEY
     assert plain.proxy.build_url().startswith("http://") and plain.proxy.build_url().endswith(":8080")
     with pytest.raises(ValidationError):

@@ -3,7 +3,7 @@
   "name": "io.github.0xcircuitbreaker/dominusnode",
   "title": "DominusNode",
   "description": "Relay network for AI agents: fetch through agent-contributed IPs, run nodes, track earnings and wallets.",
-  "version": "2.0.2",
+  "version": "2.1.0",
   "websiteUrl": "https://dominusnode.com",
   "repository": {
     "url": "https://github.com/0xcircuitbreaker/DomiNode",
@@ -15,7 +15,7 @@
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "@dominusnode/mcp-server",
-      "version": "2.0.2",
+      "version": "2.1.0",
       "runtimeHint": "npx",
       "transport": {
         "type": "stdio"

@@ -88,6 +88,18 @@ describe("LaunchPage", () => {
     await waitFor(() => expect(api.updateAnnouncement).toHaveBeenCalledWith(UUID1, { published: false }));
   });
 
+  it("claws back a held genesis credit with a required reason", async () => {
+    api.genesisMembers.mockResolvedValue(paged([
+      { ownerUserId: UUID1, walletAddress: null, seq: 1, enrolledAt: "2026-11-01T00:00:00Z", boostUntil: "2027-01-30T00:00:00Z", creditStatus: "held", credit: m(5), creditGrantedAt: null, creditMaturesAt: null, qualifyingBytes: "0" },
+    ]));
+    api.clawbackGenesis.mockResolvedValue({ ownerUserId: UUID1, creditStatus: "clawed_back", amount: m(5) });
+    renderPage(<LaunchPage />, "/admin/launch");
+    await userEvent.click(await screen.findByRole("button", { name: "Claw back" }));
+    await userEvent.type(await screen.findByLabelText(/reason/i), "sybil cluster");
+    await userEvent.click(screen.getAllByRole("button", { name: "Claw back" }).at(-1)!);
+    await waitFor(() => expect(api.clawbackGenesis).toHaveBeenCalledWith(UUID1, "sybil cluster"));
+  });
+
   it("flags a node as operator-run", async () => {
     api.setOperatorRun.mockResolvedValue({ nodeId: UUID1, operatorRun: true, previous: false });
     renderPage(<LaunchPage />, "/admin/launch");

@@ -112,6 +112,18 @@ export function withdrawMessage(i: { userId: string; wallet: string; amountMusd:
   ].join("\n");
 }
 
+export function convertMessage(i: { userId: string; wallet: string; amountMusd: bigint; idempotencyKey: string; nonce: string }): string {
+  return [
+    "DominusNode credit conversion",
+    "Action: convert",
+    `User: ${i.userId}`,
+    `Account wallet: ${i.wallet}`,
+    `Amount (µUSD): ${i.amountMusd.toString()}`,
+    `Idempotency key: ${i.idempotencyKey}`,
+    `Nonce: ${i.nonce}`,
+  ].join("\n");
+}
+
 // ─── OFAC SDN screening (PAYOUT_SDN_FILE; cached, fail closed) ──────────
 
 let sdnCache: { at: number; set: Set<string> } | null = null;
@@ -203,10 +215,18 @@ router.get("/credits/transactions", async (req: Request, res: Response) => {
   }
 });
 
-// POST /v1/credits/convert {amountMusd}  (Idempotency-Key header)
-router.post("/credits/convert", async (req: Request, res: Response) => {
+// Converting withdrawable node credit into requester balance moves money, so it
+// needs a fresh EIP-191 signature from the linked wallet like withdraw and
+// payout-wallet changes (DESIGN T12, §6.4): a leaked API key alone cannot do it.
+
+// POST /v1/credits/convert/challenge {amountMusd}  (Idempotency-Key header)
+router.post("/credits/convert/challenge", async (req: Request, res: Response) => {
   const agent = principal(req);
   if (!requireVerified(req, res)) return;
+  if (!agent.walletAddress) {
+    res.status(400).json({ error: "A linked wallet is required to convert credit", code: "NO_LINKED_WALLET" });
+    return;
+  }
   const idem = req.headers["idempotency-key"];
   if (typeof idem !== "string" || !IDEM_RE.test(idem)) {
     res.status(400).json({ error: "Idempotency-Key header required (8-120 chars of A-Z a-z 0-9 _ -)" });
@@ -217,8 +237,59 @@ router.post("/credits/convert", async (req: Request, res: Response) => {
     res.status(400).json({ error: `amountMusd must be an integer between ${MIN_CONVERT_MUSD} and ${MAX_CONVERT_MUSD}` });
     return;
   }
+  if (!limit(signChallengeLimiter, req, res)) return;
+  try {
+    const nonce = crypto.randomBytes(32).toString("hex");
+    const message = convertMessage({ userId: agent.userId, wallet: agent.walletAddress, amountMusd: amount, idempotencyKey: idem, nonce });
+    const stored = await agentCreditsRepo.createSignChallenge(agent.userId, "convert", sha256Hex(nonce), message);
+    if (!stored) { res.status(429).json({ error: "Too many outstanding challenges", code: "RATE_LIMITED" }); return; }
+    res.setHeader("Cache-Control", "no-store");
+    res.json({ nonce, message, expiresAt: stored.expiresAt, signer: agent.walletAddress });
+  } catch (err) {
+    log.error("convert challenge failed", { error: errMsg(err) });
+    res.status(500).json({ error: "Failed to create challenge" });
+  }
+});
+
+// POST /v1/credits/convert {amountMusd, nonce, signature}  (Idempotency-Key header)
+router.post("/credits/convert", async (req: Request, res: Response) => {
+  const agent = principal(req);
+  if (!requireVerified(req, res)) return;
+  if (!agent.walletAddress) {
+    res.status(400).json({ error: "A linked wallet is required to convert credit", code: "NO_LINKED_WALLET" });
+    return;
+  }
+  const idem = req.headers["idempotency-key"];
+  if (typeof idem !== "string" || !IDEM_RE.test(idem)) {
+    res.status(400).json({ error: "Idempotency-Key header required (8-120 chars of A-Z a-z 0-9 _ -)" });
+    return;
+  }
+  const amount = parseMusd(req.body?.amountMusd);
+  if (amount === null || amount < MIN_CONVERT_MUSD || amount > MAX_CONVERT_MUSD) {
+    res.status(400).json({ error: `amountMusd must be an integer between ${MIN_CONVERT_MUSD} and ${MAX_CONVERT_MUSD}` });
+    return;
+  }
+  const nonce = typeof req.body?.nonce === "string" ? (req.body.nonce as string).toLowerCase() : "";
+  const sig = typeof req.body?.signature === "string" ? (req.body.signature as string) : "";
+  if (!HEX64.test(nonce) || !SIG_RE.test(sig)) {
+    res.status(400).json({
+      error: "A wallet signature is required: POST /v1/credits/convert/challenge, sign the message with your linked wallet, then send nonce and signature",
+      code: "SIGNATURE_REQUIRED",
+    });
+    return;
+  }
   if (!limit(mutationLimiter, req, res)) return;
   try {
+    const stored = await agentCreditsRepo.consumeSignChallenge(agent.userId, "convert", sha256Hex(nonce));
+    const message = convertMessage({ userId: agent.userId, wallet: agent.walletAddress, amountMusd: amount, idempotencyKey: idem, nonce });
+    if (!stored || stored !== message) {
+      res.status(400).json({ error: "Invalid or expired challenge", code: "INVALID_CHALLENGE" });
+      return;
+    }
+    if (recoverSignerAddress(message, sig) !== agent.walletAddress) {
+      res.status(400).json({ error: "Signature does not match your linked wallet", code: "BAD_SIGNATURE" });
+      return;
+    }
     const r = await nodeCreditRepo.convertToWallet(agent.userId, amount, idem);
     res.json({ converted: money(r.convertedMusd), convertedCents: r.convertedCents, duplicate: r.duplicate === true });
   } catch (err) {

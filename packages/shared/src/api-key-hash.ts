@@ -36,7 +36,20 @@ export function apiKeyPepper(
     pepper = null;
     return pepper;
   }
-  const raw = readFile(file.trim());
+  let raw: Buffer;
+  try {
+    raw = readFile(file.trim());
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === "EACCES" || code === "EPERM") {
+      const uid = typeof process.getuid === "function" ? process.getuid() : "this";
+      throw new Error(
+        `API_KEY_PEPPER_FILE is not readable by uid ${uid}: make the file owned by the container user ` +
+          `(e.g. chown 1001:1001, mode 0400/0600; DEPLOYMENT.md §3b)`,
+      );
+    }
+    throw err;
+  }
   // Accept a binary file or a text file (trailing newline trimmed).
   const txt = raw.toString("utf8").trim();
   const buf = /^[0-9a-fA-F]+$/.test(txt) && txt.length % 2 === 0 ? Buffer.from(txt, "hex") : Buffer.from(txt, "utf8");

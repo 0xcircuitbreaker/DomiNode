@@ -1,7 +1,7 @@
 # DominusNode SDK surface (v2)
 
 Language-neutral contract for all six SDKs. The reference implementation is
-`sdks/node` (2.1.0; the Rust crate ships the same surface as 3.0.0 because a new enum variant is a semver break in Rust); Python, Go, Rust, Java and C++ must expose the same
+`sdks/node` (2.2.0; the Rust crate ships the same surface as 3.1.0, its 3.0.0 having taken the major bump for a new enum variant); Python, Go, Rust, Java and C++ must expose the same
 resources, methods, parameters, results, errors and security behaviour.
 Use each language's naming convention (`register_challenge`, `RegisterChallenge`,
 `registerChallenge`), but keep the names below recognisable.
@@ -50,7 +50,7 @@ Prices come only from `network.pricing()` and `x402.getInfo()`.
 | proxyHost | `proxy.dominusnode.com` | `[A-Za-z0-9.-]{1,253}` or bracketed IPv6; else INVALID_ARGUMENT |
 | httpProxyPort | 8080 | integer 1..65535 |
 | socks5ProxyPort | 1080 | integer 1..65535 |
-| gatewayTls | off | optional. `true` or `{ port = 8443, ca?, servername? }`: TLS to the gateway's HTTPS proxy listener (`PROXY_TLS_PORT`), so `Proxy-Authorization` is encrypted. Certificate verification always on. `ca` is a PEM root ADDED to the system roots (append, never replace: Node passes `[...tls.rootCertificates, ca]`, C++ prepends the default CA bundle to `CURLOPT_PROXY_CAINFO_BLOB`, Go/Rust/Python/Java add it to the default store). `servername` overrides SNI and the verified name (default proxyHost; useful when proxyHost is an IP). When set, `proxy.fetch` uses it and `buildUrl` defaults to `https://`. All six SDKs. |
+| gatewayTls | **on, port 8443** (2.2; Rust 3.1) | `true` or `{ port = 8443, ca?, servername? }`: TLS to the gateway's HTTPS proxy listener (`PROXY_TLS_PORT`), so `Proxy-Authorization` is encrypted. Production gateways refuse credentials on plaintext 8080/1080 (`PROXY_REQUIRE_TLS`), so TLS is the default; a self-hosted coordinator publishes its TLS proxy on 8444 (`{ port = 8444 }`). Plaintext only through an explicit opt-out: Node `false`, Python `False`, Go `&GatewayTLS{Disabled: true}`, Rust `None`, Java `plaintextGateway()` / `gatewayTls(null)`, C++ `std::nullopt` (local development only). Certificate verification always on. `ca` is a PEM root ADDED to the system roots (append, never replace: Node passes `[...tls.rootCertificates, ca]`, C++ prepends the default CA bundle to `CURLOPT_PROXY_CAINFO_BLOB`, Go/Rust/Python/Java add it to the default store). `servername` overrides SNI and the verified name (default proxyHost; useful when proxyHost is an IP). When set, `proxy.fetch` uses it and `buildUrl` defaults to `https://`. All six SDKs. |
 | accessToken, refreshToken | none | optional pre-existing JWT pair |
 | HTTP transport | platform default | injectable for tests; must not follow redirects |
 
@@ -356,7 +356,7 @@ NodeInfo = `{id, status, walletAddress, nodePubkey, attestationVersion, observed
 |---|---|---|
 | `balance()` | GET `/v1/credits` | `{pending, available, frozen, autoConvertPct, tier:{id, name, rank, holdDays, dailyWithdrawLimit}, taxFormStatus, ytdPaid, payoutsEnabled, minWithdraw, buyerDiscountBps}` (Money fields; buyerDiscountBps is 0 unless the account runs a node) |
 | `transactions(limit?, cursor?, type?)` | limit 1..200; cursor `^[1-9][0-9]{0,18}$` (same as the server); type in `earn mature clawback convert withdraw withdraw_reversal`; GET `/v1/credits/transactions?limit&cursor&type` | `{transactions:[{id, type, amount, relayChargeId, reference, createdAt}], nextCursor}` |
-| `convert(amountMusd, idempotencyKey?)` | 10,000 <= amount <= 10,000,000,000; POST `/v1/credits/convert` header `Idempotency-Key: <key>` body `{amountMusd:"<string>"}` | `{converted, convertedCents, duplicate, idempotencyKey}` (key echoed so callers can retry) |
+| `convert(amountMusd, idempotencyKey?)` | 10,000 <= amount <= 10,000,000,000; POST `/v1/credits/convert` header `Idempotency-Key: <key>` body `{amountMusd:"<string>"}`. **RELEASE BLOCKER: the server now requires a wallet signature; this branch must not ship until all 6 SDKs and the 27 integrations' `credits_convert` tool send it (or the tool is removed):** POST `/v1/credits/convert/challenge` with the same header and amount, rebuild and sign the message like withdraw (signer callback), then send `{amountMusd, nonce, signature}`. Until the SDKs add the signer, an unsigned call gets `400 SIGNATURE_REQUIRED` | `{converted, convertedCents, duplicate, idempotencyKey}` (key echoed so callers can retry) |
 | `withdraw(amountMusd, signer, idempotencyKey?)` | see flow | `{payout, duplicate, idempotencyKey}` |
 
 **withdraw flow**: amount 1,000,000..100,000,000,000; key default `dn-<uuid>`.
@@ -406,7 +406,7 @@ PUT `/v1/payout-wallet` `{address, chain, nonce, signature, oldWalletSignature?}
 | Method | Behaviour |
 |---|---|
 | `buildUsername(options)` | as above |
-| `buildUrl(options, protocol = http|https|socks5, apiKey?)` | `<protocol>://<urlenc(username)>:<urlenc(apiKey)>@<proxyHost>:<port>`; port = httpProxyPort, gatewayTls.port or socks5ProxyPort. Default protocol: `https` when gatewayTls is set, else `http`; `https` without gatewayTls is INVALID_ARGUMENT. Key = argument or the connected key (AuthenticationError if none; validated). |
+| `buildUrl(options, protocol = http|https|socks5, apiKey?)` | `<protocol>://<urlenc(username)>:<urlenc(apiKey)>@<proxyHost>:<port>`; port = httpProxyPort, gatewayTls.port or socks5ProxyPort. Default protocol: `https` when gatewayTls is set (the default), else `http`; `https` without gatewayTls is INVALID_ARGUMENT. Key = argument or the connected key (AuthenticationError if none; validated). |
 | `fetch(url, options)` | see below -> `{status, statusText, headers: map, body: bytes, truncated: bool, text()}` |
 | `getHealth()` | GET `/api/proxy/health` [none] -> `{status}` only (build it field by field; never default missing counters to 0) |
 | `getConfig()` | GET `/api/proxy/config` [jwt] -> object |
@@ -422,7 +422,7 @@ Order (all checks before any network I/O except step 6):
 6. **DNS rebinding check**: resolve the hostname to ALL addresses (A + AAAA); fail if resolution fails, returns nothing, or ANY address is private.
 7. `Proxy-Authorization: Basic base64(username + ":" + apiKey)` to `proxyHost:httpProxyPort` over plain TCP, or, with `gatewayTls`, to `proxyHost:gatewayTls.port` over TLS (>= 1.2, verified, SNI = proxyHost) and the steps below run inside that channel (TLS-in-TLS for https targets).
    The inner request must really ride the tunnel socket (Node: do not pass `agent: false` together with `createConnection`; Node then ignores `createConnection` and dials the target directly).
-   - https: `CONNECT host:port` (port default 443). Non-200 -> ProxyError with that status. Then TLS (>= 1.2, certificate and hostname verification ON, SNI = host) over the tunnel and send the request with `Host`, `Connection: close`.
+   - https: `CONNECT host:port` (port default 443). Non-200 -> ProxyError with that status, `code` = the reply's `X-DominusNode-Error` header (`^[A-Z0-9_]{1,64}$`, e.g. INSUFFICIENT_BALANCE, NO_NODES_AVAILABLE, QUOTE_CLASS_MISMATCH, TLS_REQUIRED) and the `Retry-After` seconds (Node/Python `retryAfter`/`retry_after`, Java `getRetryAfter()`, Go/Rust/C++ `details["retryAfter"]`); the code is also appended to the message (`Proxy refused CONNECT (HTTP 402): INSUFFICIENT_BALANCE`) (2.2). Then TLS (>= 1.2, certificate and hostname verification ON, SNI = host) over the tunnel and send the request with `Host`, `Connection: close`.
    - http: absolute-URI request line (`GET http://host/path?q HTTP/1.1`) with `Host`, `Connection: close`.
 8. Never follow redirects: return 3xx as-is. Read at most `maxBytes` of body; on overflow keep the first `maxBytes`, set `truncated`, close the connection. HEAD reads no body.
 9. Timeout -> ProxyError. Every error message is credential-scrubbed.

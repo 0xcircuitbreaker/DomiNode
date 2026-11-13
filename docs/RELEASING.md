@@ -282,8 +282,16 @@ add a **Trusted Publisher**: GitHub, owner `0xcircuitbreaker`, repository
 
 1. Create the environment `release` at
    https://github.com/0xcircuitbreaker/DomiNode/settings/environments
-   (optionally add required reviewers and restrict it to the `master` branch;
-   every publish job then waits for approval).
+   and **before giving anyone else write access** configure it (required, not
+   optional): under "Deployment branches and tags" choose "Selected branches
+   and tags" and allow only `master`; add required reviewers (every publish
+   job then waits for approval). Do the same for the `production` environment
+   used by `deploy.yml`, and add a tag ruleset restricting who may create
+   `v*`, `*-v*` and `sdks/go/v*` tags. Trusted publishers are bound to the
+   environment, not a branch, so this rule is what stops a dispatched run on
+   an unreviewed branch from publishing. `release.yml` and `deploy.yml` also
+   refuse non-master refs themselves, but a branch can edit those checks, so
+   they are defence in depth only.
 2. At https://github.com/0xcircuitbreaker/DomiNode/settings/actions, under
    "Workflow permissions", allow GitHub Actions to create releases (the jobs
    request `contents: write` and, for Maven, `packages: write`; the default

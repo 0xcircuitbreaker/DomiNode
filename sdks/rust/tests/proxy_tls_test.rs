@@ -111,6 +111,7 @@ async fn https_rides_connect_tunnel_plain_gateway() {
     let c = client_with(&m, |cfg| {
         cfg.proxy_host = "127.0.0.1".into();
         cfg.http_proxy_port = port as u32;
+        cfg.gateway_tls = None;
     });
     let e = c.proxy.fetch("https://example.com/x", fetch_opts()).await.unwrap_err();
     assert!(matches!(e, DominusNodeError::Proxy(_)));
@@ -188,7 +189,14 @@ async fn build_url_defaults_to_https_with_gateway_tls() {
     assert!(u.starts_with("https://relay:dn_live_") && u.ends_with("@proxy.example.com:8443"), "{u}");
     let u = c.proxy.build_url(&ProxyRoutingOptions::default(), ProxyProtocol::Http, Some(API_KEY)).unwrap();
     assert!(u.ends_with(":8080"));
-    let plain = client_with(&m, |cfg| cfg.proxy_host = "proxy.example.com".into());
+    // 3.1: TLS is the default.
+    let dflt = client_with(&m, |cfg| cfg.proxy_host = "proxy.example.com".into());
+    let u = dflt.proxy.build_url(&ProxyRoutingOptions::default(), ProxyProtocol::Auto, Some(API_KEY)).unwrap();
+    assert!(u.starts_with("https://") && u.ends_with(":8443"), "{u}");
+    let plain = client_with(&m, |cfg| {
+        cfg.proxy_host = "proxy.example.com".into();
+        cfg.gateway_tls = None;
+    });
     let u = plain.proxy.build_url(&ProxyRoutingOptions::default(), ProxyProtocol::Auto, Some(API_KEY)).unwrap();
     assert!(u.starts_with("http://") && u.ends_with(":8080"));
     assert!(plain.proxy.build_url(&ProxyRoutingOptions::default(), ProxyProtocol::Https, Some(API_KEY)).is_err());

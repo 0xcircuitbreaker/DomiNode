@@ -23,7 +23,7 @@ Recommended prices, with no minimum purchase and credit that never expires:
 | Residential / mobile (`residential`) | **$0.50** | 50% below DataImpulse entry, 37% below its 1 TB rate, 50% below PacketStream, about 88% below Bright Data's promo price |
 | Datacenter / VPS nodes (`dc`) | **$0.20** | 56% below DataImpulse DC at 1 TB |
 | Anonymizer egress (`masked`: VPN, WARP, Tor, relay) | **$0.10** | opt-in only (`class-masked`); see §1a |
-| x402 / MPP per-request | the same per-GB price × 10 MB = $0.005 (res) or $0.002 (dc) per request | above the $0.001 CDP fee after the 1,000 free settlements a month (https://docs.cdp.coinbase.com/x402/support/faq) and Stripe MPP's reported $0.01 minimum |
+| x402 / MPP per-request | the same per-GB price × 10 MiB (`X402_BYTES_PER_REQUEST` = 10,485,760 bytes, priced per decimal GB, rounded up) = 5,243 µUSD ($0.005243) res/mobile, 2,098 µUSD dc, 1,049 µUSD masked per request | above the $0.001 CDP fee after the 1,000 free settlements a month (https://docs.cdp.coinbase.com/x402/support/faq) and Stripe MPP's reported $0.01 minimum |
 
 Margin math at $0.50/GB residential:
 
@@ -75,9 +75,10 @@ best effort (ABUSE_CONTROLS.md, split-routing limit).
   Gold still gets 40% of what it relays, it just relays cheaper traffic.
 - **Snapshot.** The class weight is snapshotted at session start into
   `relay_charges.tier_weight_bps`, like `node_share_bps`. Per IP the tier job
-  uses the lowest snapshotted weight in the window, so a node that was
-  re-classified masked mid-window does not keep residential credit. Charges
-  from before this change use the node's current class weight.
+  uses the lowest snapshotted weight in the window, capped by the current
+  verified class of the nodes on that IP, so a node that was re-classified
+  masked mid-window does not keep residential credit. Charges from before this
+  change use the node's current class weight.
 - **In-flight sessions.** When a probe lowers a node's class, its open
   sessions whose locked class is above the new one are ended immediately:
   bytes carried so far settle at the price and weight locked at start, and the
@@ -112,7 +113,7 @@ Notes on the table:
 - **Lock the tier at session start.** The share is snapshotted at `startSession` (§6.3 step 4), so a tier change in the middle of a session does not reprice it.
 
 Anti-gaming rules:
-1. **Count only paid traffic from other principals.** "Active IP" and "tenure day" count only traffic from other principals that has matured and was not disputed. This reuses T5(c) and the self-dealing check, so an agent cannot buy traffic to its own nodes to climb tiers.
+1. **Count only paid traffic from other principals.** A "tenure day" is a day on which matured, undisputed, earning traffic from other principals totalled at least 1 MB (1,000,000 bytes). An "active IP" counts only earning traffic (node share > 0, not zeroed as self-dealing, quarantined or collusion-held, not disputed) from principals that share no team with the owner. Active IPs do not wait for maturity, because the 7-day window is shorter than the 14-day Probation hold; a later dispute or clawback still removes the charge. This reuses T5(c) and the self-dealing check, so an agent cannot buy traffic to its own nodes to climb tiers.
 2. **Count distinct IPs only.** An IP counts only if it is a distinct observed /32 within the existing per-/32, /24 and ASN caps (default 2 per /32). It also needs at least 3 distinct paying requesters in the window. That stops one buyer from keeping a farm of IPs "active".
 3. **Uptime comes from the gateway, not the node.** Measure it from tunnel PING/liveness at the gateway. The node's own reports never count (principle 3).
 4. **Aggregate tier inputs per beneficial owner.** Sum them across agents linked by the same payout wallet, funding source or team. Splitting IPs across many accounts then gains nothing, and a cluster gets one tier, not many.
@@ -215,7 +216,8 @@ Purpose: let a new agent try the network without a top-up, without becoming a fa
 
 ## 9. Genesis boost
 
-- **Cohort:** the first `max_owners` (200) node owners, ordered by their first paid, non-self-dealing relay charge. Owners of operator-run seed nodes and admin principals never take a slot.
+- **Off by default:** `genesis_settings.enabled` is seeded false; an admin turns it on.
+- **Cohort:** the first `max_owners` (200) beneficial owners, ordered by their first paid, non-self-dealing relay charge. An owner that shares a team, payout wallet address, node wallet or node egress prefix (/24 IPv4, /48 IPv6) with an existing member does not take another slot. Owners of operator-run seed nodes and admin principals never take a slot.
 - **Share boost:** `+bonus_bps` (500 = 5 points) on top of the tier share for `boost_days` (90), never above the 5000 bps ceiling; snapshotted at session start into `relay_charges.node_share_bps` with the bonus part in `genesis_bonus_bps`.
-- **Entry rule:** an owner joins the cohort (in first-paid-charge order) only after its nodes carried matured, undisputed, paid traffic (starter-credit spend excluded) from at least `min_distinct_payers` (3) distinct paying principals that are not linked to it. Linked means the same principal, a shared team, a circular flow (the owner paid that requester's nodes), or the requester's wallet identity being one of the owner's node wallets.
-- **One-time credit:** `credit_musd` ($5) once the owner's matured, undisputed, other-principal paid traffic (starter-credit spend excluded) reaches `credit_threshold_bytes` (5 GB). It is credited to pending with the owner tier's hold, matures to available afterwards, and can be clawed back by an admin while held. All values are in `genesis_settings` and every change is audited.
+- **Entry rule:** an owner joins the cohort (in first-paid-charge order) only after its nodes carried matured, undisputed, paid traffic (starter-credit spend excluded) from at least `min_distinct_payers` (3) distinct paying principals that are not linked to it. Each such payer must have paid with real money (a per-request x402/MPP payment, or a paid top-up) and spent at least `min_payer_spend_musd` ($1) on the owner's nodes. Linked means the same principal, a shared team, a circular flow (the owner paid that requester's nodes), or the requester's wallet identity being one of the owner's node wallets.
+- **One-time credit:** `credit_musd` ($5) once matured node earnings from qualifying payers (as in the entry rule; starter-credit spend excluded) reach `credit_threshold_node_musd` ($10, twice the credit) and their traffic reaches `credit_threshold_bytes` (5 GB). The threshold is on spend, not bytes, so cheap masked or dc traffic cannot farm it. An owner with an open or confirmed collusion flag gets no credit; the collusion detector's `min_node_volume_musd` default is $1, below the qualifying spend. It is credited to pending with the owner tier's hold, matures to available afterwards, and can be clawed back by an admin while held. All values are in `genesis_settings` and every change is audited.

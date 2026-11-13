@@ -24,7 +24,7 @@ beforeEach(() => { m.query.mockReset(); m.clientQuery.mockReset(); m.release.moc
 describe("evaluateNode", () => {
   it("ignores spread-out traffic and low-volume nodes", () => {
     expect(evaluateNode(conc(), S)).toBeNull();
-    expect(evaluateNode(conc({ totalMusd: USD, topMusd: USD }), S)).toBeNull(); // below $5 minimum
+    expect(evaluateNode(conc({ totalMusd: USD - 1n, topMusd: USD - 1n }), S)).toBeNull(); // below $1 minimum
     expect(evaluateNode(conc({ totalMusd: 0n, topMusd: 0n, topRequesterUserId: null, requesters: 0 }), S)).toBeNull();
   });
 

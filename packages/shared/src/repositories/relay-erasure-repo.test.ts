@@ -18,6 +18,7 @@ const KEPT: Record<string, string> = {
   contribution_allowlist: "admin policy row",
   genesis_members: "earnings program record",
   mpp_transactions: "payment idempotency ledger",
+  wallet_overflow_credits: "financial ledger (money owed to the user)",
 };
 
 function relayTablesWithUserLinks(): string[] {

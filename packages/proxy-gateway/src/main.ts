@@ -2,7 +2,7 @@ import type * as net from "node:net";
 import dotenv from "dotenv";
 dotenv.config();
 
-import { createLogger, closePool, getPool, usageRepo, connectWithRetry, nodeRepo, policyRepo, nodeCreditRepo, retentionRepo, tierRepo, payoutRepo, relayChargeRepo, relaySettleRetryRepo, reportReputationRepo, collusionRepo, starterCreditRepo, contributionRepo, genesisRepo, networkStatusRepo, getProxyPorts, assertDistinctProxyPorts, reportTlsCapability, apiKeyPepper } from "@dominusnode/shared";
+import { createLogger, closePool, getPool, usageRepo, agenticWalletRepo, connectWithRetry, nodeRepo, policyRepo, nodeCreditRepo, retentionRepo, tierRepo, payoutRepo, relayChargeRepo, relaySettleRetryRepo, reportReputationRepo, collusionRepo, starterCreditRepo, contributionRepo, genesisRepo, networkStatusRepo, getProxyPorts, assertDistinctProxyPorts, reportTlsCapability, apiKeyPepper } from "@dominusnode/shared";
 import type { ActivePolicy } from "@dominusnode/shared";
 import { startProxyServer } from "./server.js";
 import { geoAvailable, initGeoCheck, lookupPeerGeo, classifyEgressIp } from "./geo-check.js";
@@ -20,6 +20,7 @@ import { startSocks5Server } from "./socks5.js";
 import { loadProxyTls, parseRequireTls, createPlaintextAuthGuard, watchProxyTlsCert, type ReloadableTlsServer } from "./proxy-tls.js";
 import { envInt, setJobRunRecorder, JOB_RUN_UPSERT_SQL, type Job, type JobLogger, type LockPool } from "./jobs/runner.js";
 import * as nodeStatusJob from "./jobs/node-status.js";
+import * as userStatusJob from "./jobs/user-status.js";
 import * as maturityJob from "./jobs/maturity.js";
 import * as retentionJob from "./jobs/retention.js";
 import * as tiersJob from "./jobs/tiers.js";
@@ -266,6 +267,9 @@ async function main(): Promise<void> {
     try {
       const r = await recoverOrphanedSessions(SESSION_STALE_SECONDS);
       if (r.settled > 0 || r.failed > 0 || r.legacyClosed) log.info("recovered orphaned sessions", r);
+      // Return agentic-wallet reservations of sessions that ended without settling.
+      const c = await agenticWalletRepo.releaseOrphanedSessionReservations();
+      if (c > 0) log.info("released orphaned agentic reservations", { cents: c });
     } catch (err) {
       log.warn("orphaned session recovery failed", { error: err instanceof Error ? err.message.slice(0, 100) : "unknown" });
     }
@@ -398,6 +402,20 @@ function startJobs(registry: NodeRegistry, getPolicy: () => ActivePolicy): Job[]
       close: (nodeId, reason) => registry.get(nodeId)?.tunnel.close(reason),
     },
   }));
+  // Suspend/erase on a coordinator elsewhere (split self-host, several
+  // gateways) reaches this instance through users.status in the DB.
+  jobs.push(userStatusJob.start({
+    logger: jobLog, intervalMs: envInt(process.env, "USER_STATUS_SWEEP_INTERVAL_MS", 30_000, 5_000, 3_600_000),
+    deps: {
+      liveUserIds: () => getActiveSessions().map((s) => s.userId),
+      fetchStatuses: async (ids) => {
+        const r = await getPool().query<{ id: string; status: string }>(
+          "SELECT id, status FROM users WHERE id = ANY($1::uuid[])", [ids]);
+        return new Map(r.rows.map((x) => [x.id, x.status]));
+      },
+      terminate: (uid) => terminateUserSessions(uid),
+    },
+  }));
   jobs.push(maturityJob.start({
     pool, logger: jobLog, intervalMs: envInt(process.env, "MATURITY_JOB_INTERVAL_MS", 3_600_000, 60_000, 86_400_000),
     deps: { matureDue: nodeCreditRepo.matureDue },
@@ -409,7 +427,11 @@ function startJobs(registry: NodeRegistry, getPolicy: () => ActivePolicy): Job[]
       settle: relayChargeRepo.settleRelayCharge,
       markDone: relaySettleRetryRepo.markSettleRetryDone,
       markFailed: (id, e) => relaySettleRetryRepo.markSettleRetryFailed(id, e),
-      onDead: async (id, bytes) => { await usageRepo.endSession(id, bytes, "error"); },
+      onDead: async (id, bytes) => {
+        await usageRepo.endSession(id, bytes, "error");
+        // The retry row is 'dead' by now: hand any agentic reservation back.
+        await agenticWalletRepo.releaseOrphanedSessionReservations().catch(() => 0);
+      },
       logger: jobLog,
     },
   }));

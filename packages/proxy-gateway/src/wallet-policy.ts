@@ -6,12 +6,17 @@ export interface WalletPolicyResult {
   allowed: boolean;
   /** True only when a walletId was supplied AND resolved to an active wallet owned by the user. */
   isAgent: boolean;
+  /** The verified agentic wallet: the session is reserved from and billed to it. */
+  walletId?: string;
   errorCode?: string;
   message?: string;
 }
 
 /**
- * Agentic wallet policy check (domain allowlist + daily budget).
+ * Agentic wallet policy check (domain allowlist + daily budget). A passing
+ * `wallet-<id>` session is then reserved from and settled against that wallet
+ * (startSession), which enforces the spending limit and daily budget in the
+ * reservation itself.
  * Fails closed: unknown/inactive wallets, malformed allowlists and DB errors are rejected,
  * so a fabricated `wallet-<uuid>` in the username cannot unlock agent rate limits.
  */
@@ -59,5 +64,5 @@ export async function checkAgenticWalletPolicy(
     return { allowed: false, isAgent: false, errorCode: "WALLET_POLICY_ERROR", message: "Wallet policy could not be evaluated" };
   }
 
-  return { allowed: true, isAgent: true };
+  return { allowed: true, isAgent: true, walletId };
 }

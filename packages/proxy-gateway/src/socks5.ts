@@ -243,7 +243,10 @@ async function handleSocks5Connection(clientSocket: net.Socket, relay: RelayRunt
   {
     let hasBalance: boolean;
     try {
-      hasBalance = teamId
+      // `wallet-<id>` sessions bill the agentic wallet; startSession checks its budget.
+      hasBalance = proxyOptions.walletId
+        ? true
+        : teamId
         ? await checkTeamBalance(teamId)
         : await checkBalance(userId);
     } catch (err) {
@@ -427,7 +430,7 @@ async function handleSocks5Connection(clientSocket: net.Socket, relay: RelayRunt
         const rep = (psStream as { nodeReport?: { bytesIn: number; bytesOut: number } | null }).nodeReport;
         return rep ? BigInt(rep.bytesIn) + BigInt(rep.bytesOut) : null;
       },
-    }, socksUserPlan, logTargetHosts, teamId, walletPolicy.isAgent);
+    }, socksUserPlan, logTargetHosts, teamId, walletPolicy.isAgent, walletPolicy.walletId ?? null);
   } catch (err) {
     clearTimeout(totalHandshakeTimer);
     log.error("SOCKS5 failed to start session", { error: err instanceof Error ? err.message : String(err) });
