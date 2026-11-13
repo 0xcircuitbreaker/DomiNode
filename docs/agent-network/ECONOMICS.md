@@ -75,9 +75,10 @@ best effort (ABUSE_CONTROLS.md, split-routing limit).
   Gold still gets 40% of what it relays, it just relays cheaper traffic.
 - **Snapshot.** The class weight is snapshotted at session start into
   `relay_charges.tier_weight_bps`, like `node_share_bps`. Per IP the tier job
-  uses the lowest snapshotted weight in the window, so a node that was
-  re-classified masked mid-window does not keep residential credit. Charges
-  from before this change use the node's current class weight.
+  uses the lowest snapshotted weight in the window, capped by the current
+  verified class of the nodes on that IP, so a node that was re-classified
+  masked mid-window does not keep residential credit. Charges from before this
+  change use the node's current class weight.
 - **Unflagged requests.** A request without `class-*` is quoted at the highest
   configured price (unchanged) and may be served by any eligible node except a
   masked one. Masked bandwidth is opt-in for buyers, so nobody silently pays
@@ -107,7 +108,7 @@ Notes on the table:
 - **Lock the tier at session start.** The share is snapshotted at `startSession` (§6.3 step 4), so a tier change in the middle of a session does not reprice it.
 
 Anti-gaming rules:
-1. **Count only paid traffic from other principals.** "Active IP" and "tenure day" count only traffic from other principals that has matured and was not disputed. This reuses T5(c) and the self-dealing check, so an agent cannot buy traffic to its own nodes to climb tiers.
+1. **Count only paid traffic from other principals.** A "tenure day" is a day on which matured, undisputed, earning traffic from other principals totalled at least 1 MB (1,000,000 bytes). An "active IP" counts only earning traffic (node share > 0, not zeroed as self-dealing, quarantined or collusion-held, not disputed) from principals that share no team with the owner. Active IPs do not wait for maturity, because the 7-day window is shorter than the 14-day Probation hold; a later dispute or clawback still removes the charge. This reuses T5(c) and the self-dealing check, so an agent cannot buy traffic to its own nodes to climb tiers.
 2. **Count distinct IPs only.** An IP counts only if it is a distinct observed /32 within the existing per-/32, /24 and ASN caps (default 2 per /32). It also needs at least 3 distinct paying requesters in the window. That stops one buyer from keeping a farm of IPs "active".
 3. **Uptime comes from the gateway, not the node.** Measure it from tunnel PING/liveness at the gateway. The node's own reports never count (principle 3).
 4. **Aggregate tier inputs per beneficial owner.** Sum them across agents linked by the same payout wallet, funding source or team. Splitting IPs across many accounts then gains nothing, and a cluster gets one tier, not many.
