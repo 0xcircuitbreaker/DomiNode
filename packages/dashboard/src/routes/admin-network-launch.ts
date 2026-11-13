@@ -1,6 +1,6 @@
 import { Router } from "express";
 import type { Request, Response } from "express";
-import { createLogger, getPool, starterCreditRepo, genesisRepo, networkStatusRepo, rpcUrlFromEnv } from "@dominusnode/shared";
+import { createLogger, getPool, starterCreditRepo, genesisRepo, referralRepo, networkStatusRepo, rpcUrlFromEnv } from "@dominusnode/shared";
 import { requireAuth } from "../middleware/auth.js";
 import { requireAdmin } from "../middleware/admin.js";
 import { HttpError, fail, money, page, enumParam, uuidParam, withAdminTx, audit, adminId, UUID_RE } from "./admin-network-common.js";
@@ -246,9 +246,25 @@ function genesisOut(s: Awaited<ReturnType<typeof genesisRepo.getSettings>>) {
     enabled: s.enabled, maxOwners: s.maxOwners, bonusBps: s.bonusBps, boostDays: s.boostDays,
     credit: money(s.creditMusd.toString()), creditThresholdBytes: s.creditThresholdBytes.toString(),
     minDistinctPayers: s.minDistinctPayers,
+    creditThresholdNodeMusd: s.creditThresholdNodeMusd.toString(), minPayerSpendMusd: s.minPayerSpendMusd.toString(),
     updatedBy: s.updatedBy, updatedAt: s.updatedAt,
   };
 }
+
+// Referral redemption switch (off by default). Redemption only records the
+// referral; it never credits balance (free credit = starter-credit ledger).
+router.get("/referrals/settings", async (_req: Request, res: Response) => {
+  try {
+    res.json({ redemptionEnabled: await referralRepo.isRedemptionEnabled() });
+  } catch (err) { fail(res, err, "Referral settings"); }
+});
+
+router.put("/referrals/settings", async (req: Request, res: Response) => {
+  try {
+    await updateSingleton(req, "referral_settings", "referral_settings_update", { redemptionEnabled: ["redemption_enabled", "bool", 0n, 0n] });
+    res.json({ redemptionEnabled: await referralRepo.isRedemptionEnabled() });
+  } catch (err) { fail(res, err, "Referral settings update"); }
+});
 
 router.get("/genesis/settings", async (_req: Request, res: Response) => {
   try {
@@ -265,6 +281,8 @@ const GENESIS_SPEC: Record<string, FieldSpec> = {
   creditMusd: ["credit_musd", "musd", 0n, 1_000_000_000n],
   creditThresholdBytes: ["credit_threshold_bytes", "musd", 0n, 1_000_000_000_000_000n],
   minDistinctPayers: ["min_distinct_payers", "int", 1n, 1000n],
+  creditThresholdNodeMusd: ["credit_threshold_node_musd", "musd", 0n, 1_000_000_000_000n],
+  minPayerSpendMusd: ["min_payer_spend_musd", "musd", 0n, 1_000_000_000_000n],
 };
 
 router.put("/genesis/settings", async (req: Request, res: Response) => {

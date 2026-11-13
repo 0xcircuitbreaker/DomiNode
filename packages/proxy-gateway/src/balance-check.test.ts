@@ -193,20 +193,24 @@ describe("proxy-gateway/balance-check", () => {
       expect(r3).toBe(true);
     });
 
-    it("should return false for balance below reservation minimum (1 cent)", async () => {
+    it("should return false for an empty balance (0 cents)", async () => {
       const uid = nextUser();
-      mockGetBalance.mockResolvedValue(1);
+      mockGetBalance.mockResolvedValue(0);
 
       const result = await checkBalance(uid);
       expect(result).toBe(false);
     });
 
-    it("should return true for balance at exact reservation minimum (50 cents)", async () => {
+    it("lets a 1-cent balance through (session byte cap is sized from what can be reserved; masked is 10 cents/GB)", async () => {
       const uid = nextUser();
-      mockGetBalance.mockResolvedValue(50);
+      mockGetBalance.mockResolvedValue(1);
+      expect(await checkBalance(uid)).toBe(true);
+    });
 
-      const result = await checkBalance(uid);
-      expect(result).toBe(true);
+    it("lets a 49-cent leftover starter balance through (was refused by the old 50-cent gate)", async () => {
+      const uid = nextUser();
+      mockGetBalance.mockResolvedValue(49);
+      expect(await checkBalance(uid)).toBe(true);
     });
 
     it("should handle very large balance values", async () => {

@@ -3,6 +3,7 @@ import type pg from "pg";
 import { query, getPool } from "../db.js";
 import { lockedStarterCentsTx } from "./starter-credit-repo.js";
 import type { Team, TeamMember, TeamInvite, TeamWallet, TeamWalletTransaction, TeamRole } from "../types.js";
+import { recordOverflowCreditTx } from "./wallet-repo.js";
 
 // ─── Constants ────────────────────────────────────────────────────────
 
@@ -580,16 +581,16 @@ export async function settleTeamSessionTx(
 
   const diff = reservedCents - actualCostCents;
   if (diff > 0) {
-    // Refund excess reservation in full; never silently truncate at the cap.
-    if (wallet.balance_cents + diff > MAX_BALANCE_CENTS) {
-      throw new Error(
-        `Team reservation refund of ${diff} cents would exceed wallet balance cap (session ${sessionId.slice(0, 8)}); settlement aborted to avoid fund loss`,
+    // Refund excess reservation; the part above the cap (a deposit landed during
+    // the session) is recorded as an overflow credit instead of aborting settlement.
+    const refund = Math.min(diff, Math.max(0, MAX_BALANCE_CENTS - wallet.balance_cents));
+    if (diff > refund) await recordOverflowCreditTx(client, { userId: null, teamId, cents: diff - refund, reason: `team reservation refund over cap (session ${sessionId.slice(0, 8)})` });
+    if (refund > 0) {
+      await client.query(
+        `UPDATE team_wallets SET balance_cents = balance_cents + $1 WHERE id = $2`,
+        [refund, wallet.id],
       );
     }
-    await client.query(
-      `UPDATE team_wallets SET balance_cents = balance_cents + $1 WHERE id = $2`,
-      [diff, wallet.id],
-    );
   } else if (diff < 0) {
     // Charge overage — partial charge if insufficient (matches personal wallet behavior)
     const overage = Math.abs(diff);

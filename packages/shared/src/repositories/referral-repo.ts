@@ -48,9 +48,9 @@ export async function createReferralCode(
     const maxUses = options?.maxUses ?? 0; // 0 = unlimited
     const creditCents = options?.creditCents ?? 100; // $1.00 default
     // Validate creditCents range at repo level (defense-in-depth)
-    if (!Number.isFinite(creditCents) || creditCents < 1 || creditCents > 100000) {
+    if (!Number.isFinite(creditCents) || creditCents < 0 || creditCents > 100000) {
       await client.query("ROLLBACK");
-      throw new Error("creditCents must be between 1 and 100000");
+      throw new Error("creditCents must be between 0 and 100000");
     }
     const expiresAt = options?.expiresAt ?? null;
 
@@ -84,6 +84,31 @@ export async function findReferralCodeByHash(codeHash: string): Promise<Referral
   return result.rows[0] ?? null;
 }
 
+/**
+ * Admin switch for referral redemption (referral_settings.redemption_enabled).
+ * Fails closed: a missing row or a lookup error reads as disabled.
+ */
+export async function isRedemptionEnabled(client?: Pick<DbTxClient, "query">): Promise<boolean> {
+  try {
+    const sql = "SELECT redemption_enabled FROM referral_settings WHERE id = 1";
+    const r = client ? await client.query<{ redemption_enabled: boolean }>(sql) : await query<{ redemption_enabled: boolean }>(sql);
+    return r.rows[0]?.redemption_enabled === true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Record a referral (redemption row + affiliate link). Disabled unless an
+ * admin turns referral_settings.redemption_enabled on, and even then it credits
+ * no signup bonus to either side. It does create the affiliate link, so the
+ * referrer later earns recordAffiliateCommission on the referee's paid top-ups
+ * (a share of real money paid in, not minted credit). The old $1 + $1 balance bonus minted spendable credit per sybil
+ * signup with none of the starter-credit controls. Free credit for a new
+ * principal comes only from the starter-credit grant ledger (caps, budget,
+ * funding check, expiry, seed-only routing, starter_musd stamping), which the
+ * sign-up path already applies. Returns null when disabled or the code is unusable.
+ */
 export async function redeemReferralCode(
   codeHash: string,
   refereeUserId: string,
@@ -92,6 +117,10 @@ export async function redeemReferralCode(
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
+    if (!(await isRedemptionEnabled(client))) {
+      await client.query("ROLLBACK");
+      return null;
+    }
 
     // Lock the referral code row
     const codeResult = await client.query(
@@ -132,58 +161,12 @@ export async function redeemReferralCode(
     );
     code.uses = updatedCode.rows[0]!.uses;
 
-    // Credit referee wallet (balance cap check)
-    const refereeWallet = await client.query(
-      "SELECT id, balance_cents FROM wallets WHERE user_id = $1 FOR UPDATE",
-      [refereeUserId],
-    );
-    if (refereeWallet.rows.length === 0) {
-      await client.query("ROLLBACK");
-      throw new Error("Referee wallet not found");
-    }
-    const refereeBalance = (refereeWallet.rows[0] as { balance_cents: number }).balance_cents;
-    if (refereeBalance + code.credit_cents > MAX_BALANCE_CENTS) {
-      await client.query("ROLLBACK");
-      throw new Error("Referee wallet would exceed balance cap");
-    }
-    const refereeWalletId = (refereeWallet.rows[0] as { id: string }).id;
-    await client.query(
-      "UPDATE wallets SET balance_cents = balance_cents + $1 WHERE id = $2",
-      [code.credit_cents, refereeWalletId],
-    );
-    await client.query(
-      `INSERT INTO wallet_transactions (wallet_id, type, amount_cents, description)
-       VALUES ($1, 'topup', $2, $3)`,
-      [refereeWalletId, code.credit_cents, `Referral bonus (code ${code.code_prefix}...)`],
-    );
-
-    // Credit referrer wallet
-    const referrerWallet = await client.query(
-      "SELECT id, balance_cents FROM wallets WHERE user_id = $1 FOR UPDATE",
-      [code.user_id],
-    );
-    if (referrerWallet.rows.length > 0) {
-      const referrerBalance = (referrerWallet.rows[0] as { balance_cents: number }).balance_cents;
-      if (referrerBalance + code.credit_cents <= MAX_BALANCE_CENTS) {
-        const referrerWalletId = (referrerWallet.rows[0] as { id: string }).id;
-        await client.query(
-          "UPDATE wallets SET balance_cents = balance_cents + $1 WHERE id = $2",
-          [code.credit_cents, referrerWalletId],
-        );
-        await client.query(
-          `INSERT INTO wallet_transactions (wallet_id, type, amount_cents, description)
-           VALUES ($1, 'topup', $2, $3)`,
-          [referrerWalletId, code.credit_cents, `Referral reward (new user signed up)`],
-        );
-      }
-    }
-
     // Create redemption record
     const redemptionResult = await client.query(
       `INSERT INTO referral_redemptions (referral_code_id, referrer_id, referee_id, credit_cents)
        VALUES ($1, $2, $3, $4)
        RETURNING id, referral_code_id, referrer_id, referee_id, credit_cents, created_at`,
-      [code.id, code.user_id, refereeUserId, code.credit_cents],
+      [code.id, code.user_id, refereeUserId, 0],
     );
 
     // Create affiliate link (lifetime relationship)
@@ -438,8 +421,8 @@ export async function createPromoCode(
   ext?: DbTxClient,
 ): Promise<PromoCode> {
   // Validate creditCents at repo level (defense-in-depth, matches createReferralCode)
-  if (!Number.isFinite(creditCents) || creditCents < 1 || creditCents > 100000) {
-    throw new Error("creditCents must be between 1 and 100000");
+  if (!Number.isFinite(creditCents) || creditCents < 0 || creditCents > 100000) {
+    throw new Error("creditCents must be between 0 and 100000");
   }
   // Do not return code_hash from RETURNING — hash must not leave DB boundary
   const result = await queryOn<PromoCode>(ext,

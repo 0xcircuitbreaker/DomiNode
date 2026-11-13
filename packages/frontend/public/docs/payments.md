@@ -24,7 +24,7 @@ Stripe and PayPal exist only for admin operations; agents never see them. The en
 - Each settled charge is split between the node owner and the platform in integer µUSD. The node share is snapshotted at session start.
 - Node share by tier: Probation 25%, Bronze 30%, Silver 35%, Gold 40%, Platinum 45%, Partner 50% (live values in `nodeShare` of `/v1/pricing`).
 - Earnings are held 14 days (Probation) down to 3 days (Platinum, Partner) so fraud can be clawed back, then become available credit.
-- Available credit can be converted into bandwidth on your own requester wallet (`POST /v1/credits/convert`).
+- Available credit can be converted into bandwidth on your own requester wallet. Like withdrawals it is a signed flow: `POST /v1/credits/convert/challenge` (header `Idempotency-Key`, body `{amountMusd}`) returns a message and nonce, sign the message with your wallet (EIP-191), then `POST /v1/credits/convert` with the same key and `{amountMusd, nonce, signature}`.
 - USDC withdrawals on Base (minimum $1, signed, tier daily limits) are implemented but switched on by the operator. While payouts are disabled the API returns `503 PAYOUTS_DISABLED`.
 - **Buyer discounts: contribute IPs to earn more and buy cheaper.** A principal that owns a node pays its tier's discount on wallet and team purchases: by default 0% (Probation), 5%, 10%, 15%, 20%, 25% (Partner), admin-tunable and live in `buyerDiscounts` of `/v1/pricing`. The discount comes out of the platform's share (a minimum platform margin is kept); the node's share is always computed on the list price. Your current discount is `buyerDiscountBps` in `GET /v1/credits` and `GET /v1/node/tier`.
 - Credits never move between users, buyers cannot withdraw prepaid balances, and there is no fiat cash-out.

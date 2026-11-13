@@ -1,4 +1,4 @@
-import { usageRepo, walletRepo, planRepo, teamRepo, policyRepo, tierRepo, relayChargeRepo, relaySettleRetryRepo, sessionRecoveryRepo, createLogger } from "@dominusnode/shared";
+import { usageRepo, walletRepo, planRepo, teamRepo, agenticWalletRepo, policyRepo, tierRepo, relayChargeRepo, relaySettleRetryRepo, sessionRecoveryRepo, createLogger } from "@dominusnode/shared";
 import type { Plan, NodeIpClass } from "@dominusnode/shared";
 import { RELAY_BYTES_PER_GB, isClassDowngrade } from "@dominusnode/shared";
 import { recordRequesterSpend, reserveRequesterSpend, releaseRequesterSpend, reserveRequesterShared } from "./policy-enforcer.js";
@@ -61,6 +61,8 @@ interface ActiveSession {
   errorCount: number;
   proxyType: string; // Track provider pool type (dc/residential) for usage records
   teamId: string | null; // When set, billing goes to team wallet
+  /** When set, the session is reserved from and settled against this agentic wallet. */
+  agenticWalletId?: string | null;
   relay: RelayBinding;
   destHost: string; // Bare host for relay_abuse_log (metadata only)
   pricePerGbMusd: bigint; // network_pricing for the node class, locked at start
@@ -119,7 +121,7 @@ function settleInputFor(session: ActiveSession): relayChargeRepo.SettleRelayChar
     requesterUserId: session.userId,
     requesterWallet: relay.requesterWallet ?? null,
     requesterTeamId: teamId,
-    rail: session.prepaid ? session.prepaid.rail : teamId ? "team" : "wallet",
+    rail: session.prepaid ? session.prepaid.rail : session.agenticWalletId ? "agentic_wallet" : teamId ? "team" : "wallet",
     reservedCents: session.reservedCents,
     nodeId: relay.nodeId,
     bytesGateway: BigInt(counter.bytesIn + counter.bytesOut),
@@ -132,6 +134,7 @@ function settleInputFor(session: ActiveSession): relayChargeRepo.SettleRelayChar
     destPort: relay.destPort,
     usageTargetHost: session.targetHost, // "" unless logTargetHosts (privacy-first)
     ...(session.prepaid ? { prepaidGrossMusd: session.prepaid.paidMusd } : {}),
+    ...(session.agenticWalletId ? { agenticWalletId: session.agenticWalletId } : {}),
   };
 }
 
@@ -357,6 +360,7 @@ export async function startSession(
   logTargetHosts: boolean = false, // Privacy-first: only store targetHost when user opts in
   teamId?: string | null, // When set, billing goes to team wallet
   isAgent?: boolean, // AI agents get higher rate limits via AGENT_RATE_LIMIT_MULTIPLIER
+  agenticWalletId?: string | null, // `wallet-<id>`: bill this agentic wallet within its budgets
 ): Promise<string> {
   const proxyType = "relay";
   // Per-user bandwidth velocity check: prevent monopolizing upstream
@@ -446,7 +450,14 @@ export async function startSession(
 
   let sessionId: string;
   try {
-  if (teamId) {
+  if (agenticWalletId) {
+    // Agentic wallet: reserve within its balance, per-session spending limit
+    // and remaining daily budget (incl. in-flight reservations), under its row lock.
+    const want = reservationCentsFor(pricePerGbMusd);
+    const got = await agenticWalletRepo.reserveSessionBudget(agenticWalletId, userId, want);
+    if (got <= 0) throw new Error("Insufficient balance for reservation (agentic wallet budget)");
+    reservedCents = got;
+  } else if (teamId) {
     // Team billing: reserve from team wallet instead of personal wallet
     const balance = await teamRepo.getTeamBalance(teamId);
     const want = Math.min(balance, reservationCentsFor(pricePerGbMusd));
@@ -485,7 +496,9 @@ export async function startSession(
   } catch (err) {
     // If DB session creation fails, release the reservation
     if (reservedCents > 0) {
-      if (teamId) {
+      if (agenticWalletId) {
+        await agenticWalletRepo.releaseSessionBudget(agenticWalletId, reservedCents);
+      } else if (teamId) {
         await teamRepo.releaseTeamReservation(teamId, reservedCents);
         invalidateTeamBalanceCache(teamId);
       } else {
@@ -497,6 +510,11 @@ export async function startSession(
   }
 
   sessionId = dbSession.id;
+  if (agenticWalletId && reservedCents > 0) {
+    // Ties the reservation to the session so it is returned if settlement never happens.
+    await agenticWalletRepo.recordSessionReservation(agenticWalletId, sessionId, reservedCents)
+      .catch((e) => log.error("agentic reservation record failed", { error: e instanceof Error ? e.message.slice(0, 120) : "unknown" }));
+  }
 
   // Privacy-first: only store actual targetHost when user has opted in
   const storedTargetHost = logTargetHosts ? targetHost : "";
@@ -506,7 +524,9 @@ export async function startSession(
   if (activeSessions.size >= MAX_ACTIVE_SESSIONS) {
     // Release reservation before rejecting
     if (reservedCents > 0) {
-      if (teamId) {
+      if (agenticWalletId) {
+        await agenticWalletRepo.releaseSessionBudget(agenticWalletId, reservedCents);
+      } else if (teamId) {
         await teamRepo.releaseTeamReservation(teamId, reservedCents);
         invalidateTeamBalanceCache(teamId);
       } else {
@@ -528,6 +548,7 @@ export async function startSession(
     errorCount: 0,
     proxyType,
     teamId: teamId ?? null,
+    agenticWalletId: agenticWalletId ?? null,
     relay,
     destHost: targetHost.includes(":") && !targetHost.startsWith("[") ? `[${targetHost}]` : (targetHost || "unknown"),
     pricePerGbMusd,
@@ -754,7 +775,7 @@ async function settleSession(sessionId: string): Promise<void> {
     // session end and usage record (DESIGN.md §6.3). Bytes are gateway-measured.
     const r = await relayChargeRepo.settleRelayCharge(settleInput = settleInputFor(session));
     emitSettled(settleInput, r);
-    if (session.prepaid) { /* no wallet movement */ }
+    if (session.prepaid || session.agenticWalletId) { /* personal/team wallet unchanged */ }
     else if (teamId) invalidateTeamBalanceCache(teamId);
     else invalidateBalanceCache(userId);
     recordRequesterSpend(userId, r.grossMusd);

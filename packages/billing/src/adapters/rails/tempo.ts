@@ -1,6 +1,6 @@
 import * as crypto from "node:crypto";
 import type { IncomingHttpHeaders } from "node:http";
-import { createLogger, invoiceRepo, walletRepo, stripDangerousKeys } from "@dominusnode/shared";
+import { createLogger, invoiceRepo, walletRepo, stripDangerousKeys, query } from "@dominusnode/shared";
 import type { PrepaidRail, PrepaidCallbackResult } from "../types.js";
 import { NotConfiguredError } from "../types.js";
 
@@ -89,6 +89,26 @@ export function verifyTempoSignature(rawBody: Buffer, header: string | undefined
   return crypto.timingSafeEqual(mac, Buffer.from(v1, "hex"));
 }
 
+/**
+ * Durable record of every signed 'paid' event (tempo_payments, UNIQUE tx_hash),
+ * written before matching, so a transfer that is not credited (wrong amount, a
+ * second transfer with the same memo, unknown memo) is never lost: it stays
+ * 'unmatched' / 'duplicate' for refund or manual credit.
+ */
+async function recordTempoPayment(p: { txHash: string; chargeId: string; from: string | null; units: string }): Promise<void> {
+  await query(
+    `INSERT INTO tempo_payments (tx_hash, charge_id, from_address, amount_units, status)
+     VALUES ($1, $2, $3, $4::numeric, 'received') ON CONFLICT (tx_hash) DO NOTHING`,
+    [p.txHash, p.chargeId, p.from, p.units],
+  );
+}
+async function markTempoPayment(txHash: string, status: "credited" | "unmatched" | "duplicate", note: string): Promise<void> {
+  await query(
+    `UPDATE tempo_payments SET status = $2, note = $3 WHERE tx_hash = $1 AND status IN ('received','unmatched')`,
+    [txHash, status, note.slice(0, 200)],
+  );
+}
+
 export function createTempoRail(cfg: TempoConfig | null, now: () => number = () => Math.floor(Date.now() / 1000)): PrepaidRail {
   return {
     id: "tempo",
@@ -132,8 +152,21 @@ export function createTempoRail(cfg: TempoConfig | null, now: () => number = () 
       const chargeId = typeof memo === "string" ? memoToChargeId(memo) : null;
       if (!chargeId || !CHARGE_ID_RE.test(chargeId)) return null;
 
+      const tx = txHash.toLowerCase();
+      if (status === "paid") {
+        const fromRaw = (body as Record<string, unknown>)["from"];
+        const from = typeof fromRaw === "string" && /^0x[0-9a-fA-F]{40}$/.test(fromRaw) ? fromRaw.toLowerCase() : null;
+        // Throws on a DB error: the webhook then answers 5xx and is redelivered.
+        await recordTempoPayment({ txHash: tx, chargeId, from, units: amount });
+      }
       const invoice = await invoiceRepo.findInvoice("tempo", chargeId);
-      if (!invoice) return null;
+      if (!invoice) {
+        if (status === "paid") {
+          await markTempoPayment(tx, "unmatched", "no invoice for memo");
+          log.error("tempo payment UNMATCHED: no invoice (recorded for refund)", { chargeId, txHash: tx.slice(0, 12) });
+        }
+        return null;
+      }
       if (status === "failed") {
         if (invoice.status === "pending") await invoiceRepo.failInvoice(invoice.id);
         return invoice.status === "completed" ? null : { chargeId, status: "failed", amountCents: invoice.amount_cents, userId: invoice.user_id };
@@ -144,15 +177,29 @@ export function createTempoRail(cfg: TempoConfig | null, now: () => number = () 
       // paid: the on-chain amount must be exactly the invoiced cents.
       const units = BigInt(amount);
       if (units % UNITS_PER_CENT !== 0n || units / UNITS_PER_CENT !== BigInt(invoice.amount_cents)) {
-        log.error("tempo amount mismatch", { chargeId });
+        await markTempoPayment(tx, "unmatched", `amount ${amount} units, invoice ${invoice.amount_cents} cents`);
+        log.error("tempo payment UNMATCHED: amount mismatch (recorded for refund)", { chargeId, txHash: tx.slice(0, 12), amount });
         return null;
       }
       // Failed-then-paid: credit once (claims pending|failed -> completed inside the credit tx).
       const r = await walletRepo.atomicCompleteInvoiceAndCredit(
-        invoice.id, invoice.user_id, invoice.amount_cents, "tempo", txHash.toLowerCase(),
+        invoice.id, invoice.user_id, invoice.amount_cents, "tempo", tx,
         `Tempo top-up $${(invoice.amount_cents / 100).toFixed(2)}`, ["pending", "failed"],
       );
-      if (r?.claimed && invoice.status === "failed") log.warn("tempo paid after failed: credited", { chargeId });
+      if (r?.claimed) {
+        await markTempoPayment(tx, "credited", "");
+        if (invoice.status === "failed") log.warn("tempo paid after failed: credited", { chargeId });
+      } else {
+        // Not claimed: a redelivery of the crediting transfer, or a second
+        // transfer for an already-paid invoice. Only the latter is kept for refund.
+        const d = await query(
+          `UPDATE tempo_payments SET status = 'duplicate', note = 'invoice already paid by another transfer'
+           WHERE tx_hash = $1 AND status = 'received'
+             AND NOT EXISTS (SELECT 1 FROM wallet_transactions WHERE payment_provider = 'tempo' AND payment_id = $1)`,
+          [tx],
+        );
+        if ((d?.rowCount ?? 0) > 0) log.error("tempo payment DUPLICATE: invoice already paid (recorded for refund)", { chargeId, txHash: tx.slice(0, 12) });
+      }
       return { chargeId, status: "paid", amountCents: invoice.amount_cents, userId: invoice.user_id };
     },
   };

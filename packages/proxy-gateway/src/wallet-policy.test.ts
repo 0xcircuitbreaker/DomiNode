@@ -41,6 +41,6 @@ describe("proxy-gateway/wallet-policy", () => {
   });
   it("active wallet with matching domain: allowed + agent", async () => {
     mockGetWallet.mockResolvedValueOnce({ ...base, allowed_domains: '["a.com"]' });
-    expect(await checkAgenticWalletPolicy(W, "u", "x.a.com")).toEqual({ allowed: true, isAgent: true });
+    expect(await checkAgenticWalletPolicy(W, "u", "x.a.com")).toEqual({ allowed: true, isAgent: true, walletId: W });
   });
 });

@@ -11,7 +11,7 @@ export const MAX_OUTSTANDING_SIGN_CHALLENGES = 10;
 export const MAX_REPORTS_PER_NODE_PER_DAY = 5;
 export const REPORT_WINDOW_DAYS = 7;
 
-export type SignAction = "payout_wallet_set" | "withdraw";
+export type SignAction = "payout_wallet_set" | "withdraw" | "convert";
 export const REPORT_REASONS = ["blocked", "captcha", "rate_limited", "slow", "bad_content", "other"] as const;
 export type ReportReason = (typeof REPORT_REASONS)[number];
 

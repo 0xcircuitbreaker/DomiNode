@@ -8,7 +8,10 @@ interface CacheEntry {
 // Cap TTL at 30s to limit free bandwidth window from stale cache
 const rawCacheTtl = parseInt(process.env["BALANCE_CACHE_TTL_MS"] ?? "5000", 10);
 const CACHE_TTL_MS = Math.min(Math.max(isNaN(rawCacheTtl) ? 5000 : rawCacheTtl, 1000), 30_000);
-const MIN_RESERVATION_CENTS = 50;
+// Any positive balance may open a session: startSession sizes the session byte
+// cap from what it can reserve (masked traffic is 10 cents/GB), so a fixed
+// 50-cent floor only stranded small balances (ECONOMICS: no minimum purchase).
+const MIN_RESERVATION_CENTS = 1;
 const MAX_CACHE_SIZE = 10_000;
 const cache = new Map<string, CacheEntry>();
 

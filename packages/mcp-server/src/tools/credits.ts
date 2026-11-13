@@ -41,6 +41,14 @@ export function withdrawMessage(i: { userId: string; wallet: string; amountMusd:
   ].join("\n");
 }
 
+/** Must match convertMessage in packages/dashboard/src/routes/v1/credits.ts. */
+export function convertMessage(i: { userId: string; wallet: string; amountMusd: string; idempotencyKey: string; nonce: string }): string {
+  return [
+    "DominusNode credit conversion", "Action: convert", `User: ${i.userId}`, `Account wallet: ${i.wallet}`,
+    `Amount (µUSD): ${i.amountMusd}`, `Idempotency key: ${i.idempotencyKey}`, `Nonce: ${i.nonce}`,
+  ].join("\n");
+}
+
 /** The user id line is server-assigned; extract and validate it, everything else is rebuilt locally. */
 function userIdFrom(message: string): string {
   const m = /\nUser: ([0-9a-f-]{36})\n/i.exec(message);
@@ -139,7 +147,8 @@ export function registerCreditsTools(server: McpServer, httpClient: HttpClient, 
   server.tool(
     "dominusnode_credits_convert",
     "Convert available node credit into your own requester (proxy) wallet balance (POST /v1/credits/convert). Whole cents only; " +
-      "the sub-cent remainder stays in credits. Credits never move to another user. Idempotent per key: the key is shown in the " +
+      "the sub-cent remainder stays in credits. Credits never move to another user. Needs a fresh signature from the linked wallet " +
+      "key in DOMINUSNODE_WALLET_KEY_FILE. Idempotent per key: the key is shown in the " +
       "result and in any error; on a timeout or error, retry with the same idempotency_key and amount so it is applied at most once.",
     {
       amount_musd: amountArg,
@@ -150,8 +159,19 @@ export function registerCreditsTools(server: McpServer, httpClient: HttpClient, 
       try {
         const n = BigInt(args.amount_musd);
         if (n < 10_000n || n > 10_000_000_000n) throw new NodeToolError("amount_musd must be between 10000 (1 cent) and 10000000000 ($10,000)");
+        const signer = linkedWallet(config);
+        const ch = await httpClient.request<{ nonce: string; message: string }>({
+          method: "POST", path: "/v1/credits/convert/challenge", body: { amountMusd: args.amount_musd },
+          headers: { "Idempotency-Key": key }, bearer: bearer(),
+        });
+        if (typeof ch.nonce !== "string" || !HEX64.test(ch.nonce) || typeof ch.message !== "string") throw new NodeToolError("invalid challenge");
+        const expected = convertMessage({
+          userId: userIdFrom(ch.message), wallet: signer.address.toLowerCase(), amountMusd: args.amount_musd, idempotencyKey: key, nonce: ch.nonce,
+        });
+        if (ch.message !== expected) throw new NodeToolError("server challenge does not match the requested conversion; refusing to sign");
         const r = await httpClient.request<{ converted: Money; convertedCents: number; duplicate: boolean }>({
-          method: "POST", path: "/v1/credits/convert", body: { amountMusd: args.amount_musd },
+          method: "POST", path: "/v1/credits/convert",
+          body: { amountMusd: args.amount_musd, nonce: ch.nonce, signature: await signer.signMessage(expected) },
           headers: { "Idempotency-Key": key }, bearer: bearer(),
         });
         return text(`${r.duplicate ? "Already converted" : "Converted"} ${usd(r.converted)} to your wallet (idempotency key ${key}).`);

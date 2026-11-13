@@ -6,6 +6,8 @@ import { getOwnerTier } from "./tier-repo.js";
 /**
  * Genesis cohort (LAUNCH_PLAN §4.2, ECONOMICS.md "Genesis boost").
  *
+ * Seeded disabled: an admin turns it on (PUT /genesis/settings).
+ *
  * Enrolment (daily job): the first max_owners node owners by their first paid,
  * non-self-dealing relay charge (node_musd > 0, which already excludes
  * self-dealing and quarantined traffic). An owner qualifies only once its nodes
@@ -16,8 +18,11 @@ import { getOwnerTier } from "./tier-repo.js";
  *
  * Benefit A: +bonus_bps share until boost_until (tier-repo getChargeSnapshot,
  * capped at 5000, snapshotted in relay_charges.genesis_bonus_bps).
- * Benefit B: a one-time credit once the owner's matured, undisputed,
- * other-principal paid traffic reaches credit_threshold_bytes. It is credited
+ * One slot per beneficial owner (a shared team, payout wallet, node wallet or
+ * egress prefix with an existing member blocks enrolment).
+ * Benefit B: a one-time credit once matured node earnings from qualifying
+ * payers reach credit_threshold_node_musd (default 2x the credit) and their
+ * bytes reach credit_threshold_bytes, with no open collusion flag. It is credited
  * to pending with the owner tier's hold, matures like earnings, and can be
  * clawed back by an admin while held.
  */
@@ -33,23 +38,31 @@ export interface GenesisSettings {
   creditMusd: bigint;
   creditThresholdBytes: bigint;
   minDistinctPayers: number;
+  /** Matured node earnings (µUSD) from qualifying payers needed for the one-time credit. */
+  creditThresholdNodeMusd: bigint;
+  /** Paid, non-starter spend (µUSD) each payer must have on the owner's nodes to count. */
+  minPayerSpendMusd: bigint;
   updatedBy: string | null;
   updatedAt: Date | null;
 }
 
 interface Row {
   enabled: boolean; max_owners: number; bonus_bps: number; boost_days: number; credit_musd: string;
-  credit_threshold_bytes: string; min_distinct_payers: number; updated_by: string | null; updated_at: Date | null;
+  credit_threshold_bytes: string; min_distinct_payers: number; credit_threshold_node_musd: string | null;
+  min_payer_spend_musd: string | null; updated_by: string | null; updated_at: Date | null;
 }
 
 export const DEFAULT_GENESIS_SETTINGS: GenesisSettings = {
-  enabled: true, maxOwners: 200, bonusBps: 500, boostDays: 90, creditMusd: 5_000_000n,
-  creditThresholdBytes: 5_000_000_000n, minDistinctPayers: 3, updatedBy: null, updatedAt: null,
+  enabled: false, maxOwners: 200, bonusBps: 500, boostDays: 90, creditMusd: 5_000_000n,
+  creditThresholdBytes: 5_000_000_000n, minDistinctPayers: 3,
+  creditThresholdNodeMusd: 10_000_000n, minPayerSpendMusd: 1_000_000n, updatedBy: null, updatedAt: null,
 };
 
 export async function getSettings(client?: TxClient): Promise<GenesisSettings> {
   const sql = `SELECT enabled, max_owners, bonus_bps, boost_days, credit_musd::text AS credit_musd,
-    credit_threshold_bytes::text AS credit_threshold_bytes, min_distinct_payers, updated_by, updated_at FROM genesis_settings WHERE id = 1`;
+    credit_threshold_bytes::text AS credit_threshold_bytes, min_distinct_payers,
+    credit_threshold_node_musd::text AS credit_threshold_node_musd, min_payer_spend_musd::text AS min_payer_spend_musd,
+    updated_by, updated_at FROM genesis_settings WHERE id = 1`;
   const r = client ? await client.query<Row>(sql) : await query<Row>(sql);
   const x = r.rows[0];
   if (!x) return { ...DEFAULT_GENESIS_SETTINGS };
@@ -57,23 +70,34 @@ export async function getSettings(client?: TxClient): Promise<GenesisSettings> {
     enabled: x.enabled, maxOwners: x.max_owners, bonusBps: x.bonus_bps, boostDays: x.boost_days,
     creditMusd: BigInt(x.credit_musd), creditThresholdBytes: BigInt(x.credit_threshold_bytes),
     minDistinctPayers: x.min_distinct_payers ?? DEFAULT_GENESIS_SETTINGS.minDistinctPayers,
+    creditThresholdNodeMusd: x.credit_threshold_node_musd == null ? DEFAULT_GENESIS_SETTINGS.creditThresholdNodeMusd : BigInt(x.credit_threshold_node_musd),
+    minPayerSpendMusd: x.min_payer_spend_musd == null ? DEFAULT_GENESIS_SETTINGS.minPayerSpendMusd : BigInt(x.min_payer_spend_musd),
     updatedBy: x.updated_by, updatedAt: x.updated_at,
   };
 }
 
 /**
- * Owners whose nodes carried matured, undisputed, paid (node_musd > 0, no
- * starter credit) traffic from at least $4 distinct requesters that are not
- * linked to the owner. Linked = same principal, a shared team, a circular flow
- * (the owner paid the requester's nodes), or the requester's wallet identity is
- * one of the owner's node wallets.
+ * Qualifying (owner, payer) pairs: matured, undisputed, earning (node_musd > 0,
+ * no starter credit, no zero_reason) traffic from a payer that is not linked to
+ * the owner, that paid with real money (a per-request rail, or a payer with a
+ * paid top-up), and that spent at least the min payer spend (µUSD, the given
+ * parameter) on the owner's nodes. Linked = same principal, a shared team, a
+ * circular flow (the owner paid the payer's nodes), or the payer's wallet
+ * identity is one of the owner's node wallets. Columns: owner, requester,
+ * node_musd, bytes.
  */
-export const QUALIFIED_OWNERS_SQL = `
-  SELECT q.node_owner_user_id FROM relay_charges q
+export const QUALIFYING_PAIRS_SQL = (minSpendParam: string): string => `
+  SELECT q.node_owner_user_id AS owner, q.requester_user_id AS requester,
+         SUM(q.node_musd) AS node_musd, SUM(q.bytes_gateway) AS bytes
+  FROM relay_charges q
   LEFT JOIN users ru ON ru.id = q.requester_user_id
-  WHERE q.matured AND NOT q.disputed AND q.node_musd > 0 AND q.starter_musd = 0
+  WHERE q.matured AND NOT q.disputed AND q.node_musd > 0 AND q.starter_musd = 0 AND q.zero_reason IS NULL
     AND q.requester_user_id IS NOT NULL AND q.node_owner_user_id IS NOT NULL
     AND q.requester_user_id <> q.node_owner_user_id
+    AND (q.payment_rail IN ('x402','mpp')
+         OR EXISTS (SELECT 1 FROM wallet_transactions wt JOIN wallets w ON w.id = wt.wallet_id
+                    WHERE w.user_id = q.requester_user_id AND wt.type = 'topup' AND wt.amount_cents > 0
+                      AND wt.payment_provider IS NOT NULL AND wt.payment_provider <> 'node_credits'))
     AND NOT EXISTS (SELECT 1 FROM team_members a JOIN team_members b ON b.team_id = a.team_id
                     WHERE a.user_id = q.requester_user_id AND b.user_id = q.node_owner_user_id)
     AND NOT EXISTS (SELECT 1 FROM relay_charges back
@@ -81,57 +105,115 @@ export const QUALIFIED_OWNERS_SQL = `
                       AND back.gross_musd > 0 AND NOT back.disputed)
     AND NOT EXISTS (SELECT 1 FROM nodes ow WHERE ow.owner_user_id = q.node_owner_user_id
                       AND ru.wallet_address IS NOT NULL AND lower(ow.owner_wallet) = lower(ru.wallet_address))
-  GROUP BY q.node_owner_user_id
-  HAVING COUNT(DISTINCT q.requester_user_id) >= $4::int`;
+  GROUP BY q.node_owner_user_id, q.requester_user_id
+  HAVING SUM(q.gross_musd) >= ${minSpendParam}::bigint`;
 
-/** Enrol up to the remaining cohort slots, in first-paid-charge order. Returns how many joined. */
+/** Owners with at least `payersParam` qualifying payers. */
+export const QUALIFIED_OWNERS_SQL = (payersParam: string, minSpendParam: string): string => `
+  SELECT p.owner FROM (${QUALIFYING_PAIRS_SQL(minSpendParam)}) p
+  GROUP BY p.owner HAVING COUNT(*) >= ${payersParam}::int`;
+
+/**
+ * True when the owner (SQL expression `o`) shares a beneficial owner with an
+ * existing genesis member: a shared team, payout wallet address, node wallet,
+ * a wallet identity (users.wallet_address) that is the other side's node or
+ * payout wallet, or node egress prefix (ip_prefix24: /24 for IPv4, /48 for
+ * IPv6). One slot per beneficial owner.
+ */
+export const LINKED_TO_MEMBER_PRED = (o: string): string => `
+  EXISTS (SELECT 1 FROM genesis_members g WHERE g.owner_user_id <> ${o} AND (
+    EXISTS (SELECT 1 FROM team_members a JOIN team_members b ON b.team_id = a.team_id
+            WHERE a.user_id = ${o} AND b.user_id = g.owner_user_id)
+    OR EXISTS (SELECT 1 FROM payout_wallets p1 JOIN payout_wallets p2 ON lower(p2.address) = lower(p1.address)
+               WHERE p1.user_id = ${o} AND p2.user_id = g.owner_user_id)
+    OR EXISTS (SELECT 1 FROM nodes n1 JOIN nodes n2
+                 ON lower(n2.owner_wallet) = lower(n1.owner_wallet)
+                 OR (n1.ip_prefix24 IS NOT NULL AND n2.ip_prefix24 = n1.ip_prefix24)
+               WHERE n1.owner_user_id = ${o} AND n2.owner_user_id = g.owner_user_id)
+    OR EXISTS (SELECT 1 FROM users ua, users ub
+               WHERE ua.id = ${o} AND ub.id = g.owner_user_id AND (
+                 (ua.wallet_address IS NOT NULL AND (
+                    EXISTS (SELECT 1 FROM nodes nb WHERE nb.owner_user_id = ub.id AND lower(nb.owner_wallet) = lower(ua.wallet_address))
+                    OR EXISTS (SELECT 1 FROM payout_wallets pb WHERE pb.user_id = ub.id AND lower(pb.address) = lower(ua.wallet_address))))
+                 OR (ub.wallet_address IS NOT NULL AND (
+                    EXISTS (SELECT 1 FROM nodes na WHERE na.owner_user_id = ua.id AND lower(na.owner_wallet) = lower(ub.wallet_address))
+                    OR EXISTS (SELECT 1 FROM payout_wallets pa WHERE pa.user_id = ua.id AND lower(pa.address) = lower(ub.wallet_address))))))
+  ))`;
+
+/** A row when owner $1 is linked to an existing member (see LINKED_TO_MEMBER_PRED). */
+export const LINKED_TO_MEMBER_SQL = `SELECT 1 WHERE ${LINKED_TO_MEMBER_PRED("$1::uuid")}`;
+
+/**
+ * Enrol up to the remaining cohort slots, in first-paid-charge order, one
+ * beneficial owner per slot. Returns how many joined.
+ */
 export async function enrolTx(c: TxClient): Promise<number> {
   await c.query("SELECT pg_advisory_xact_lock($1)", [ENROL_LOCK]);
   const s = await getSettings(c);
   if (!s.enabled) return 0;
   const n = await c.query<{ n: string; max_seq: string | null }>(`SELECT COUNT(*)::text AS n, MAX(seq)::text AS max_seq FROM genesis_members`);
-  const slots = s.maxOwners - Number(n.rows[0]?.n ?? 0);
+  let slots = s.maxOwners - Number(n.rows[0]?.n ?? 0);
   if (slots <= 0) return 0;
-  const r = await c.query<{ owner_user_id: string }>(
-    `INSERT INTO genesis_members (owner_user_id, seq, enrolled_at, boost_until)
-     SELECT x.owner, $3::int + ROW_NUMBER() OVER (ORDER BY x.first_at, x.owner), now(), now() + make_interval(days => $2)
-     FROM (
-       SELECT rc.node_owner_user_id AS owner, MIN(rc.created_at) AS first_at
+  let seq = Number(n.rows[0]?.max_seq ?? 0);
+  // Linked owners are excluded in SQL, so they can never fill the candidate page
+  // ahead of an unlinked one; pages continue (skipping owners already examined)
+  // until the slots are filled or the list runs out. The per-candidate check
+  // below still catches links to members enrolled earlier in this run.
+  const examined: string[] = [];
+  let joined = 0;
+  for (let page = 0; slots > 0 && page < 20; page++) {
+    const cand = await c.query<{ owner: string }>(
+      `SELECT rc.node_owner_user_id AS owner
        FROM relay_charges rc
        JOIN users u ON u.id = rc.node_owner_user_id AND u.status = 'active' AND NOT u.is_admin
        WHERE rc.node_musd > 0 AND NOT rc.disputed
          AND rc.requester_user_id IS DISTINCT FROM rc.node_owner_user_id
          AND NOT EXISTS (SELECT 1 FROM genesis_members g WHERE g.owner_user_id = rc.node_owner_user_id)
          AND NOT EXISTS (SELECT 1 FROM nodes n WHERE n.owner_user_id = rc.node_owner_user_id AND n.operator_run)
-         AND rc.node_owner_user_id IN (${QUALIFIED_OWNERS_SQL})
+         AND NOT (rc.node_owner_user_id = ANY($4::uuid[]))
+         AND NOT ${LINKED_TO_MEMBER_PRED("rc.node_owner_user_id")}
+         AND rc.node_owner_user_id IN (${QUALIFIED_OWNERS_SQL("$2", "$3")})
        GROUP BY rc.node_owner_user_id
        ORDER BY MIN(rc.created_at), rc.node_owner_user_id
-       LIMIT $1
-     ) x
-     ON CONFLICT (owner_user_id) DO NOTHING
-     RETURNING owner_user_id`,
-    [slots, s.boostDays, Number(n.rows[0]?.max_seq ?? 0), s.minDistinctPayers],
-  );
-  return r.rows.length;
+       LIMIT $1`,
+      [Math.min(1000, slots * 10), s.minDistinctPayers, s.minPayerSpendMusd.toString(), [...examined]],
+    );
+    const fresh = cand.rows.filter(({ owner }) => !examined.includes(owner));
+    if (fresh.length === 0) break;
+    for (const { owner } of fresh) {
+      examined.push(owner);
+      if (slots <= 0) break;
+      const linked = await c.query(LINKED_TO_MEMBER_SQL, [owner]);
+      if (linked.rows.length > 0) continue;
+      const r = await c.query(
+        `INSERT INTO genesis_members (owner_user_id, seq, enrolled_at, boost_until)
+         VALUES ($1, $2, now(), now() + make_interval(days => $3)) ON CONFLICT (owner_user_id) DO NOTHING RETURNING owner_user_id`,
+        [owner, seq + 1, s.boostDays]);
+      if (r.rows.length > 0) { seq++; slots--; joined++; }
+    }
+  }
+  return joined;
 }
 
 export async function enrol(): Promise<number> {
   return withTx((c) => enrolTx(c));
 }
 
-/** Members whose qualifying traffic reached the threshold and have no credit yet. */
+/**
+ * Members whose qualifying traffic reached both thresholds and have no credit
+ * yet: matured node earnings from qualifying payers (spend, not bytes, so cheap
+ * masked/dc traffic cannot farm it) and the byte floor.
+ */
 export async function listCreditCandidates(limit = 1000): Promise<string[]> {
   const s = await getSettings();
   if (!s.enabled || s.creditMusd <= 0n) return [];
   const r = await query<{ owner_user_id: string }>(
     `SELECT m.owner_user_id FROM genesis_members m
-     WHERE m.credit_status = 'pending'
-       AND (SELECT COALESCE(SUM(rc.bytes_gateway), 0) FROM relay_charges rc
-            WHERE rc.node_owner_user_id = m.owner_user_id AND rc.matured AND NOT rc.disputed
-              AND rc.node_musd > 0 AND rc.starter_musd = 0
-              AND rc.requester_user_id IS DISTINCT FROM m.owner_user_id) >= $1::bigint
-     ORDER BY m.seq LIMIT $2`,
-    [s.creditThresholdBytes.toString(), limit],
+     JOIN (SELECT p.owner, SUM(p.node_musd) AS node_musd, SUM(p.bytes) AS bytes
+           FROM (${QUALIFYING_PAIRS_SQL("$4")}) p GROUP BY p.owner) t ON t.owner = m.owner_user_id
+     WHERE m.credit_status = 'pending' AND t.bytes >= $1::bigint AND t.node_musd >= $2::bigint
+     ORDER BY m.seq LIMIT $3`,
+    [s.creditThresholdBytes.toString(), s.creditThresholdNodeMusd.toString(), limit, s.minPayerSpendMusd.toString()],
   );
   return r.rows.map((x) => x.owner_user_id);
 }
@@ -144,6 +226,10 @@ export async function grantCredit(ownerUserId: string): Promise<boolean> {
     const m = await c.query<{ credit_status: string }>(
       `SELECT credit_status FROM genesis_members WHERE owner_user_id = $1 FOR UPDATE`, [ownerUserId]);
     if (m.rows[0]?.credit_status !== "pending" || !s.enabled || s.creditMusd <= 0n) return false;
+    // Collusion precondition: no open or confirmed flag on the owner.
+    const flagged = await c.query(
+      `SELECT 1 FROM collusion_flags WHERE owner_user_id = $1 AND status IN ('open','confirmed') LIMIT 1`, [ownerUserId]);
+    if (flagged.rows.length > 0) return false;
     await lockAccountTx(c, ownerUserId);
     await c.query(`UPDATE node_credit_accounts SET pending_musd = pending_musd + $2, updated_at = now() WHERE user_id = $1`,
       [ownerUserId, s.creditMusd.toString()]);
