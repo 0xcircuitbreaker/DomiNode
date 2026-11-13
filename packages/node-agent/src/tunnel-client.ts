@@ -363,7 +363,10 @@ export class TunnelClient extends EventEmitter {
       const msg = challengeMessage(c.nonce, c.policyVersion, c.serverTime, binding);
       const pins = this.opts.coordPins;
       if (pins.length === 0 || !pins.some((p) => verifyEd25519(p, msg, c.coordSig))) {
-        this.log.warn("coordinator signature rejected");
+        this.log.warn("coordinator signature rejected", {
+          pins: pins.length,
+          pinPrefixes: pins.map((p) => p.slice(0, 16)).join(","),
+        });
         this.emit("authFail", "COORD_SIGNATURE");
         return this.fail("coordinator signature invalid");
       }
