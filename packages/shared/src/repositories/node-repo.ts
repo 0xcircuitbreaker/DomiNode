@@ -113,6 +113,8 @@ export interface HealthUpdate {
   streams?: number;
   failures?: number;
   burns?: number;
+  /** Gateway-measured seconds the node's tunnel was open (uptime). */
+  onlineSeconds?: number;
   reputation?: number;
 }
 
@@ -448,7 +450,7 @@ export async function flushHealth(batch: HealthUpdate[]): Promise<number> {
 
   // Merge duplicate nodeIds in JS (capped sums) so the INSERT path never
   // exceeds column CHECK limits; reputation: last value wins.
-  const merged = new Map<string, { bytes: number; streams: number; failures: number; burns: number }>();
+  const merged = new Map<string, { bytes: number; streams: number; failures: number; burns: number; online: number }>();
   const repMap = new Map<string, number>();
   for (const h of items) {
     assertUuid(h.nodeId, "nodeId");
@@ -456,14 +458,16 @@ export async function flushHealth(batch: HealthUpdate[]): Promise<number> {
     const s = intInRange(h.streams, 0, MAX_COUNT);
     const f = intInRange(h.failures, 0, MAX_COUNT);
     const u = intInRange(h.burns, 0, MAX_COUNT);
+    const o = intInRange(h.onlineSeconds, 0, 86_400);
     const prev = merged.get(h.nodeId);
     if (prev) {
       prev.bytes = Math.min(prev.bytes + b, MAX_BYTES);
       prev.streams = Math.min(prev.streams + s, MAX_COUNT);
       prev.failures = Math.min(prev.failures + f, MAX_COUNT);
       prev.burns = Math.min(prev.burns + u, MAX_COUNT);
+      prev.online = Math.min(prev.online + o, 86_400);
     } else {
-      merged.set(h.nodeId, { bytes: b, streams: s, failures: f, burns: u });
+      merged.set(h.nodeId, { bytes: b, streams: s, failures: f, burns: u, online: o });
     }
     if (h.reputation !== undefined) {
       repMap.delete(h.nodeId);
@@ -475,12 +479,14 @@ export async function flushHealth(batch: HealthUpdate[]): Promise<number> {
   const streams: number[] = [];
   const failures: number[] = [];
   const burns: number[] = [];
+  const online: number[] = [];
   for (const [id, v] of merged) {
     ids.push(id);
     bytes.push(v.bytes);
     streams.push(v.streams);
     failures.push(v.failures);
     burns.push(v.burns);
+    online.push(v.online);
   }
   const repIds = [...repMap.keys()];
   const reps = [...repMap.values()];
@@ -489,20 +495,22 @@ export async function flushHealth(batch: HealthUpdate[]): Promise<number> {
   try {
     await client.query("BEGIN");
     await client.query(
-      `INSERT INTO node_daily_stats (node_id, day, bytes, streams, failures, burns)
+      `INSERT INTO node_daily_stats (node_id, day, bytes, streams, failures, burns, online_seconds)
        SELECT v.node_id, CURRENT_DATE,
               LEAST(SUM(v.bytes), 1000000000000000), LEAST(SUM(v.streams), 2000000000),
-              LEAST(SUM(v.failures), 2000000000), LEAST(SUM(v.burns), 2000000000)
-       FROM unnest($1::uuid[], $2::bigint[], $3::int[], $4::int[], $5::int[])
-            AS v(node_id, bytes, streams, failures, burns)
+              LEAST(SUM(v.failures), 2000000000), LEAST(SUM(v.burns), 2000000000),
+              LEAST(SUM(v.online), 86400)
+       FROM unnest($1::uuid[], $2::bigint[], $3::int[], $4::int[], $5::int[], $6::int[])
+            AS v(node_id, bytes, streams, failures, burns, online)
        JOIN nodes n ON n.id = v.node_id
        GROUP BY v.node_id
        ON CONFLICT (node_id, day) DO UPDATE SET
          bytes    = LEAST(node_daily_stats.bytes + EXCLUDED.bytes, 1000000000000000),
          streams  = LEAST(node_daily_stats.streams + EXCLUDED.streams, 2000000000),
          failures = LEAST(node_daily_stats.failures + EXCLUDED.failures, 2000000000),
-         burns    = LEAST(node_daily_stats.burns + EXCLUDED.burns, 2000000000)`,
-      [ids, bytes, streams, failures, burns],
+         burns    = LEAST(node_daily_stats.burns + EXCLUDED.burns, 2000000000),
+         online_seconds = LEAST(node_daily_stats.online_seconds + EXCLUDED.online_seconds, 86400)`,
+      [ids, bytes, streams, failures, burns, online],
     );
     if (repIds.length > 0) {
       await client.query(

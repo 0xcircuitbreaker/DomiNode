@@ -35,6 +35,8 @@ export interface NodeCounters {
   failures: number;
   burns: number;
   disputes: number;
+  /** Seconds the node's tunnel was open since the last drain (gateway-measured uptime). */
+  onlineSeconds?: number;
   /** eTLD+1 -> ok/burn deltas. */
   etld: Map<string, { ok: number; burn: number }>;
 }
@@ -55,7 +57,7 @@ export interface CounterFlush {
 }
 
 function emptyCounters(): NodeCounters {
-  return { bytes: 0, streams: 0, failures: 0, burns: 0, disputes: 0, etld: new Map() };
+  return { bytes: 0, streams: 0, failures: 0, burns: 0, disputes: 0, onlineSeconds: 0, etld: new Map() };
 }
 
 function clampRep(v: number): number {
@@ -146,6 +148,7 @@ export function dayOf(ms: number): number {
 export class NodeRegistry {
   private nodes = new Map<string, LiveNode>();
   private counters = new Map<string, NodeCounters>();
+  private lastDrainAt: number | null = null;
   private repBytesCarry = new Map<string, number>();
   /** nodeId -> requester keys that paid today (bounded per node). */
   private requestersToday = new Map<string, Set<string>>();
@@ -381,7 +384,23 @@ export class NodeRegistry {
   /** Take and reset all unflushed counters (for the 60 s flush to node_daily_stats/node_reputation). */
   drainCounters(): CounterFlush[] {
     const out: CounterFlush[] = [];
-    const day = dayOf(this.now());
+    const now = this.now();
+    const day = dayOf(now);
+    // Uptime is measured here from tunnel liveness (ECONOMICS.md rule 3),
+    // never from node reports: every open tunnel accrues the time since the
+    // previous drain (or since it connected, if later).
+    if (this.lastDrainAt !== null) {
+      const elapsed = Math.max(0, now - this.lastDrainAt);
+      for (const n of this.nodes.values()) {
+        if (!n.tunnel.isOpen) continue;
+        const ms = Math.min(elapsed, Math.max(0, now - n.connectedAt));
+        const secs = Math.floor(ms / 1000);
+        if (secs <= 0) continue;
+        const c = this.countersFor(n.nodeId);
+        if (c) c.onlineSeconds = (c.onlineSeconds ?? 0) + secs;
+      }
+    }
+    this.lastDrainAt = now;
     for (const [nodeId, c] of this.counters) {
       const n = this.nodes.get(nodeId);
       // reputation stays the base value (persisted). Quarantine uses the base value only;

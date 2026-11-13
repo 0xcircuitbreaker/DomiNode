@@ -40,7 +40,7 @@ vi.mock("@dominusnode/shared", () => ({
 }));
 vi.mock("./balance-check.js", () => ({ invalidateBalanceCache: vi.fn(), invalidateTeamBalanceCache: vi.fn() }));
 
-import { startSession, endSession, configureSessionRecovery, heartbeatActiveSessions, recoverOrphanedSessions, getActiveSessionCount } from "./session-manager.js";
+import { startSession, endSession, configureSessionRecovery, configureSettledHook, heartbeatActiveSessions, recoverOrphanedSessions, getActiveSessionCount } from "./session-manager.js";
 
 const counter = (i = 0, o = 0) => ({ bytesIn: i, bytesOut: o, maxBytes: 0, onLimitExceeded: null });
 
@@ -91,5 +91,25 @@ describe("session crash/restart recovery", () => {
     expect(mockListRecoverable).toHaveBeenCalledWith("gw-self", 120, 1000);
     expect(mockSettleRelayCharge).toHaveBeenCalledWith(input);
     expect(r).toEqual({ settled: 1, failed: 0 });
+  });
+
+  it("reports each settled charge to the node registry hook (reputation, daily stats, earnings)", async () => {
+    const events: unknown[] = [];
+    configureSettledHook((e) => events.push(e));
+    try {
+      mockReserveBalance.mockResolvedValueOnce("w1");
+      mockCreateSession.mockResolvedValueOnce({ id: "sess-d" });
+      await startSession("user-d", "www.example.com", counter(4000, 1000), 0, RELAY);
+      mockSettleRelayCharge.mockResolvedValueOnce({ status: "settled", paidInFull: true, grossMusd: 10n, nodeMusd: 3n, debitCents: 0, disputed: true });
+      await endSession("sess-d");
+      expect(events).toEqual([{ nodeId: "node-1", requesterUserId: "user-d", bytes: 5000, destHost: "www.example.com", nodeMusd: 3n, disputed: true }]);
+      // Duplicates (already settled elsewhere) are not counted twice.
+      mockListRecoverable.mockResolvedValueOnce([{ sessionId: "x", input: { nodeId: "node-1", requesterUserId: "u", bytesGateway: 1n, destHost: "a" } }]);
+      mockSettleRelayCharge.mockResolvedValueOnce({ status: "duplicate", nodeMusd: 1n });
+      await recoverOrphanedSessions(120);
+      expect(events).toHaveLength(1);
+    } finally {
+      configureSettledHook(null);
+    }
   });
 });

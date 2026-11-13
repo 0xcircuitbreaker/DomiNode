@@ -2096,3 +2096,10 @@ DO $$ BEGIN
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 CREATE INDEX IF NOT EXISTS idx_sessions_active_heartbeat
   ON sessions(gateway_heartbeat_at) WHERE status = 'active';
+
+-- Gateway-measured node uptime (fix/a7-gateway): seconds the node's tunnel
+-- was open that day, from tunnel liveness (ECONOMICS.md rule 3).
+ALTER TABLE node_daily_stats ADD COLUMN IF NOT EXISTS online_seconds INTEGER NOT NULL DEFAULT 0;
+DO $$ BEGIN
+  ALTER TABLE node_daily_stats ADD CONSTRAINT node_daily_stats_online_seconds_range CHECK (online_seconds BETWEEN 0 AND 86400);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;

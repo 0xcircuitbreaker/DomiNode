@@ -12,7 +12,7 @@ import { PerKeyLogLimiter } from "./log-limiter.js";
 
 const mismatchLogLimiter = new PerKeyLogLimiter(60_000, 10_000);
 import { NodeRegistry, type LiveNode } from "./node-tunnel/registry.js";
-import { NodeSelector } from "./node-tunnel/selector.js";
+import { NodeSelector, etld1 } from "./node-tunnel/selector.js";
 import { loadCoordSigner } from "./node-tunnel/coord-key.js";
 import { NodeTunnelServer } from "./node-tunnel/server.js";
 import { checkGatewayEnv } from "./env-check.js";
@@ -36,7 +36,7 @@ import { getLatencyPercentiles } from "./stats.js";
 import { drainUnmetDemand, restoreUnmetDemand } from "./unmet-demand.js";
 import { parseTrustedProxyIps, loadTunnelTls } from "./node-tunnel/ingress.js";
 import { createEthersPayoutSender } from "./jobs/payout-sender-ethers.js";
-import { getActiveSessionCount, terminateUserSessions, getActiveSessions, awaitInFlightSettlements, getInFlightSettlementCount, configureSessionRecovery, heartbeatActiveSessions, recoverOrphanedSessions } from "./session-manager.js";
+import { getActiveSessionCount, terminateUserSessions, getActiveSessions, awaitInFlightSettlements, getInFlightSettlementCount, configureSessionRecovery, heartbeatActiveSessions, recoverOrphanedSessions, configureSettledHook } from "./session-manager.js";
 
 const log = createLogger("proxy:main");
 
@@ -188,7 +188,19 @@ async function main(): Promise<void> {
   }, 30_000);
   policyInterval.unref();
 
-  const relay = { selector, getPolicy: () => policy.body, nodeCount: () => registry.size };
+  const relay = {
+    selector, getPolicy: () => policy.body, nodeCount: () => registry.size,
+    onNodeFailure: (nodeId: string) => registry.recordFailure(nodeId),
+  };
+
+  // Reputation, per-node daily stats and today's earnings come from settled
+  // paid sessions (gateway-measured bytes), byte disputes and dial failures.
+  configureSettledHook((e) => {
+    registry.recordPaidBytes(e.nodeId, e.requesterUserId, e.bytes, e.destHost ? etld1(e.destHost.replace(/^\[|\]$/g, "")) : undefined);
+    if (e.disputed) registry.recordDispute(e.nodeId);
+    const live = registry.get(e.nodeId);
+    if (live && e.nodeMusd > 0n) live.earningsTodayMusd += Number(e.nodeMusd);
+  });
 
   // Crash/restart recovery: sessions carry a settle payload and a heartbeat
   // owned by this instance. Sessions of instances that stopped heartbeating

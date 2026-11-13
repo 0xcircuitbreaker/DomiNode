@@ -16,6 +16,25 @@ function node(id: string, reputation = 3000): LiveNode {
 }
 
 describe("NodeRegistry reputation & burn counters", () => {
+  it("accrues gateway-measured uptime for open tunnels between drains", () => {
+    let now = 1_000_000_000;
+    const r = new NodeRegistry(100, () => now);
+    const a = node("a");
+    a.connectedAt = now - 10_000;
+    r.add(a);
+    const b = node("b");
+    b.connectedAt = now + 30_000; // connects mid-interval
+    r.add(b);
+    expect(r.drainCounters()).toEqual([]); // first drain only sets the baseline
+    now += 60_000;
+    const out = new Map(r.drainCounters().map((f) => [f.nodeId, f.counters.onlineSeconds]));
+    expect(out.get("a")).toBe(60);
+    expect(out.get("b")).toBe(30);
+    (a.tunnel as { isOpen: boolean }).isOpen = false;
+    now += 60_000;
+    expect(r.drainCounters().map((f) => f.nodeId)).toEqual(["b"]);
+  });
+
   it("raises reputation with paid bytes and distinct requesters only", () => {
     const r = new NodeRegistry();
     r.add(node("a"));

@@ -17,7 +17,11 @@ export interface RelayRuntime {
   getPolicy: () => NetworkPolicy;
   /** Live node count, for /internal/stats. */
   nodeCount?: () => number;
+  /** Open failure attributable to the node (DIAL_FAIL/DNS_FAIL/TIMEOUT): lowers its reputation. */
+  onNodeFailure?: (nodeId: string, code: string) => void;
 }
+
+const NODE_FAILURE_CODES: ReadonlySet<string> = new Set(["DIAL_FAIL", "DNS_FAIL", "TIMEOUT"]);
 
 /** Failure opening a relay upstream, carrying the HTTP contract. */
 export class RelayOpenError extends Error {
@@ -88,7 +92,11 @@ export async function openRelayStream(rt: RelayRuntime, opts: SelectOpts): Promi
         guardRelayStream(stream, node.nodeId);
         return { nodeId: node.nodeId, value: { node, stream } };
       } catch (err) {
-        throw toRelayError(err, node.nodeId);
+        const re = toRelayError(err, node.nodeId);
+        if (rt.onNodeFailure && err instanceof TunnelOpenError && NODE_FAILURE_CODES.has(err.code)) {
+          try { rt.onNodeFailure(node.nodeId, err.code); } catch { /* never break the data path */ }
+        }
+        throw re;
       }
     },
     (err) => (err instanceof RelayOpenError ? err.nodeId : null),

@@ -78,6 +78,32 @@ const activeSessions = new Map<string, ActiveSession>();
 // and heartbeated with the gateway-counted bytes, so another (or the next)
 // gateway instance can settle it if this process dies.
 let recoveryInstanceId: string | null = null;
+
+/** A settled relay charge, reported to the node registry (reputation, daily stats, earnings). */
+export interface SettledSessionEvent {
+  nodeId: string;
+  requesterUserId: string;
+  bytes: number;
+  destHost: string;
+  nodeMusd: bigint;
+  disputed: boolean;
+}
+let onSettled: ((e: SettledSessionEvent) => void) | null = null;
+export function configureSettledHook(fn: ((e: SettledSessionEvent) => void) | null): void {
+  onSettled = fn;
+}
+function emitSettled(input: relayChargeRepo.SettleRelayChargeInput, r: relayChargeRepo.SettleRelayChargeResult): void {
+  if (!onSettled || r.status !== "settled") return;
+  try {
+    onSettled({
+      nodeId: input.nodeId, requesterUserId: input.requesterUserId,
+      bytes: Number(input.bytesGateway), destHost: input.destHost,
+      nodeMusd: r.nodeMusd ?? 0n, disputed: r.disputed === true,
+    });
+  } catch {
+    /* never fail a settlement on bookkeeping */
+  }
+}
 export function configureSessionRecovery(instanceId: string | null): void {
   recoveryInstanceId = instanceId;
 }
@@ -132,7 +158,7 @@ export async function recoverOrphanedSessions(staleSeconds: number): Promise<{ s
   let settled = 0, failed = 0;
   for (const r of rows) {
     try {
-      await relayChargeRepo.settleRelayCharge(r.input);
+      emitSettled(r.input, await relayChargeRepo.settleRelayCharge(r.input));
       settled++;
     } catch (err) {
       failed++;
@@ -711,6 +737,7 @@ async function settleSession(sessionId: string): Promise<void> {
     // One transaction: requester settle, relay_charges, node earn, abuse log,
     // session end and usage record (DESIGN.md §6.3). Bytes are gateway-measured.
     const r = await relayChargeRepo.settleRelayCharge(settleInput = settleInputFor(session));
+    emitSettled(settleInput, r);
     if (session.prepaid) { /* no wallet movement */ }
     else if (teamId) invalidateTeamBalanceCache(teamId);
     else invalidateBalanceCache(userId);
