@@ -88,8 +88,9 @@ sudo install -d -o 1001 -g 1001 -m 700 /etc/dominusnode
 sudo install -o 1001 -g 1001 -m 600 ./wallet.key /etc/dominusnode/wallet.key
 read -rs DN_API_KEY && export DN_API_KEY   # env only, never an argument
 # Registration signs a consent attestation locally
-docker run --rm -it -e DN_API_KEY -e DN_WALLET_KEY_FILE=/run/dominusnode/wallet.key \\
+docker run --rm -e DN_API_KEY -e DN_WALLET_KEY_FILE=/run/dominusnode/wallet.key \\
   -v /etc/dominusnode:/run/dominusnode ${NODE_IMAGE} register
+sudo rm /etc/dominusnode/wallet.key   # not needed after registration
 # Dials OUT to the gateway (no inbound ports). Limits can only tighten:
 docker run -d --name dominusnode-node --restart unless-stopped \\
   -e DN_NODE_GB_PER_DAY=5 -e DN_NODE_MAX_STREAMS=32 \\

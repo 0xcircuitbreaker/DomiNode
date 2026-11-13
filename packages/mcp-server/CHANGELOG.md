@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - A refused CONNECT now reports the gateway's `X-DominusNode-Error` code and `Retry-After` (`CONNECT tunnel failed with status 402: INSUFFICIENT_BALANCE`), so the fetch tool's hints fire for HTTPS targets. New hints for NO_NODES_AVAILABLE, QUOTE_CLASS_MISMATCH and TLS_REQUIRED.
 
 ### Changed
+- `node_setup_guide` registers with `docker run --rm` (no `-it`: agents run commands without a TTY) and removes the copied owner wallet key after registration.
 - `wallet_setup` prints the proxy example for the configured gateway host and TLS port (8444 on a self-hosted coordinator) instead of a hardcoded host.
 - `node_setup_guide` uses the published node image (`ghcr.io/0xcircuitbreaker/dominusnode-node`), which has the official coordinator pins baked in. A plain source build has none and now refuses to start.
 

@@ -62,12 +62,14 @@ curl -x https://relay:$DOMINUSNODE_API_KEY@proxy.dominusnode.com:8443 https://ht
 
 Ports 8080 (HTTP proxy) and 1080 (SOCKS5) are **plaintext**: the
 `Proxy-Authorization` header, including your API key, is readable on the path to
-the gateway. Use them only on trusted networks or for local development:
+the gateway. The hosted gateway refuses credentials on plaintext and accepts them
+only on the TLS proxy at :8443. Use 8080/1080 only against a gateway you run
+yourself, for local development:
 
 ```bash
-# Plaintext listeners (API key sent in clear)
-curl -x http://class-dc:$DOMINUSNODE_API_KEY@proxy.dominusnode.com:8080 https://httpbin.org/ip
-curl -x socks5h://class-dc-session-abc123:$DOMINUSNODE_API_KEY@proxy.dominusnode.com:1080 https://httpbin.org/ip
+# Plaintext listeners on a local gateway (API key sent in clear)
+curl -x http://class-dc:$DOMINUSNODE_API_KEY@localhost:8080 https://httpbin.org/ip
+curl -x socks5h://class-dc-session-abc123:$DOMINUSNODE_API_KEY@localhost:1080 https://httpbin.org/ip
 ```
 
 ## Get an API key

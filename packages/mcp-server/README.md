@@ -115,7 +115,11 @@ dominusnode_network_pricing         # live price per GB and tier shares
 dominusnode_node_register_challenge # preview what you sign
 dominusnode_node_register(accept_attestation: true)
 # -> Node key file (mode 0600): /home/agent/.dominusnode/node.json
-node packages/node-agent/dist/src/main.js run --key-file ~/.dominusnode/node.json
+# On the node machine (Linux; the image runs as uid 1001):
+#   sudo install -d -o 1001 -g 1001 -m 700 /etc/dominusnode
+#   sudo install -o 1001 -g 1001 -m 600 ~/.dominusnode/node.json /etc/dominusnode/node.json
+#   docker run -d --name dominusnode-node --restart unless-stopped \
+#     -v /etc/dominusnode/node.json:/run/dominusnode/node.json:ro ghcr.io/0xcircuitbreaker/dominusnode-node
 dominusnode_node_list / dominusnode_node_tier
 ```
 

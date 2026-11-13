@@ -428,7 +428,7 @@ First run, `register` subcommand (once; writes the node key file 0600 for uid 10
 sudo install -d -o 1001 -g 1001 -m 700 /etc/dominusnode
 sudo install -o 1001 -g 1001 -m 600 ./wallet.key /etc/dominusnode/wallet.key   # owner wallet, 32-byte hex
 read -rs DN_API_KEY && export DN_API_KEY                                        # never on the command line
-docker run --rm -it -e DN_API_KEY -e DN_WALLET_KEY_FILE=/run/dominusnode/wallet.key \
+docker run --rm -e DN_API_KEY -e DN_WALLET_KEY_FILE=/run/dominusnode/wallet.key \
   -v /etc/dominusnode:/run/dominusnode ghcr.io/0xcircuitbreaker/dominusnode-node register
 sudo rm /etc/dominusnode/wallet.key   # not needed after registration
 ```

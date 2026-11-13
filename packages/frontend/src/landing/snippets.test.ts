@@ -14,5 +14,7 @@ describe("landing quickstarts", () => {
     const node = SNIPPETS.find((s) => s.id === "node-agent")!.code;
     expect(node).toContain("ghcr.io/0xcircuitbreaker/dominusnode-node");
     expect(node).not.toContain("npm run build");
+    expect(node).not.toMatch(/docker run[^\n]* -i?t\b/);
+    expect(node).toContain("sudo rm /etc/dominusnode/wallet.key");
   });
 });

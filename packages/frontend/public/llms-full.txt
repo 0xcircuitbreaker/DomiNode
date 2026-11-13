@@ -267,8 +267,9 @@ printf '%s' "$WALLET_PRIVATE_KEY_HEX" > ~/.dominusnode/wallet.key && chmod 600 ~
 sudo install -d -o 1001 -g 1001 -m 700 /etc/dominusnode
 sudo install -o 1001 -g 1001 -m 600 ~/.dominusnode/wallet.key /etc/dominusnode/wallet.key
 read -rs DN_API_KEY && export DN_API_KEY
-docker run --rm -it -e DN_API_KEY -e DN_WALLET_KEY_FILE=/run/dominusnode/wallet.key \
+docker run --rm -e DN_API_KEY -e DN_WALLET_KEY_FILE=/run/dominusnode/wallet.key \
   -v /etc/dominusnode:/run/dominusnode ghcr.io/0xcircuitbreaker/dominusnode-node register
+sudo rm /etc/dominusnode/wallet.key   # not needed after registration
 # writes /etc/dominusnode/node.json (mode 0600)
 
 # 3. Run it on the machine that owns the IP; the restart policy keeps it up

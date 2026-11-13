@@ -18,12 +18,14 @@ export function osFromPlatform(os: string | undefined): GuideOs {
   return "linux";
 }
 
-const REPO = "https://github.com/0xcircuitbreaker/DomiNode.git";
+const IMAGE = "ghcr.io/0xcircuitbreaker/dominusnode-node";
 
 export function nodeSetupGuide(os: GuideOs): GuideStep[] {
   const win = os === "win";
   const keyDir = win ? "$env:USERPROFILE\\.dominusnode" : "~/.dominusnode";
-  const main = win ? "node packages\\node-agent\\dist\\src\\main.js" : "node packages/node-agent/dist/src/main.js";
+  const linux = os === "linux";
+  // On Linux the container user (uid 1001) must own the files; Docker Desktop (mac/win) maps ownership.
+  const mount = win ? "${env:USERPROFILE}\\.dominusnode" : linux ? "/etc/dominusnode" : "$HOME/.dominusnode";
   return [
     {
       title: "How earning works",
@@ -39,7 +41,7 @@ export function nodeSetupGuide(os: GuideOs): GuideStep[] {
       title: "Prerequisites",
       text: [
         "A wallet-linked account and a dn_live_ API key (not a team key).",
-        "Node.js >= 18 and git on the machine whose IP you contribute.",
+        "Docker on the machine whose IP you contribute (the official image ghcr.io/0xcircuitbreaker/dominusnode-node).",
         "IPs in sanctioned countries (Cuba, Iran, North Korea, Russia, Syria) cannot join.",
       ],
     },
@@ -57,31 +59,32 @@ export function nodeSetupGuide(os: GuideOs): GuideStep[] {
           ],
     },
     {
-      title: "Step 2: Register the node with the node agent CLI (on the node machine)",
+      title: "Step 2: Register the node with the official node image (on the node machine)",
       commands: [
-        `git clone ${REPO}`,
-        "cd DomiNode",
-        "npm ci",
-        "npm run build -w @dominusnode/shared -w @dominusnode/node-agent",
         win ? "$env:DN_API_KEY = Read-Host -MaskInput 'dn_live_ key'" : "read -rs DN_API_KEY && export DN_API_KEY   # your dn_live_ key, from env only",
-        `${main} register --wallet-key-file ${keyDir}${win ? "\\" : "/"}wallet.key`,
+        ...(linux
+          ? [
+              "sudo install -d -o 1001 -g 1001 -m 700 /etc/dominusnode",
+              `sudo install -o 1001 -g 1001 -m 600 ${keyDir}/wallet.key /etc/dominusnode/wallet.key && rm ${keyDir}/wallet.key`,
+            ]
+          : []),
+        `docker run --rm -e DN_API_KEY -e DN_WALLET_KEY_FILE=/run/dominusnode/wallet.key -v ${mount}:/run/dominusnode ${IMAGE} register`,
+        win
+          ? `Remove-Item ${keyDir}\\wallet.key   # not needed after registration`
+          : `${linux ? "sudo " : ""}rm ${mount}/wallet.key   # not needed after registration`,
       ],
       text: [
-        `Writes ${keyDir}${win ? "\\" : "/"}node.json (private, mode 0600); override with --key-file or DN_NODE_KEY_FILE.`,
+        `Writes ${mount}${win ? "\\" : "/"}node.json (private, mode 0600).`,
         "Alternatively, register from the MCP server with dominusnode_node_register and copy the node file here.",
       ],
     },
     {
       title: "Step 3: Run the node agent on the machine that owns the IP",
-      commands: [`${main} run --key-file ${keyDir}${win ? "\\" : "/"}node.json`],
+      commands: [`docker run -d --name dominusnode-node --restart unless-stopped -v ${mount}:/run/dominusnode:ro ${IMAGE}`],
       text: [
-        "Optional limits (can only tighten): --ports 443  --max-streams 32  --gb-per-day 5  --req-per-sec 20",
+        "Optional limits (can only tighten), passed with -e: DN_NODE_PORTS=443 DN_NODE_MAX_STREAMS=32 DN_NODE_GB_PER_DAY=5 DN_NODE_REQ_PER_SEC=20",
         "Env equivalents: DN_NODE_KEY_FILE, DN_NODE_PORTS, DN_NODE_MAX_STREAMS, DN_NODE_GB_PER_DAY, DN_NODE_REQ_PER_SEC, DN_NODE_MAX_MBPS, DN_NODE_DENY_DOMAINS, DN_NODE_API_URL, DN_NODE_GATEWAY_URL.",
-        win
-          ? "Keep it running (a Scheduled Task at logon, NSSM service, or pm2) - uptime drives your tier."
-          : os === "mac"
-            ? "Keep it running (a launchd agent, pm2, or a container restart policy) - uptime drives your tier."
-            : "Keep it running (systemd, pm2, or a container restart policy) - uptime drives your tier.",
+        "The restart policy keeps it running - uptime drives your tier.",
       ],
     },
     {

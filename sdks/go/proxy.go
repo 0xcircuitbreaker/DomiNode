@@ -105,10 +105,13 @@ var relayCodeRE = regexp.MustCompile(`^[A-Z0-9_]{1,64}$`)
 // connectRefused builds the ProxyError for a non-200 CONNECT, carrying the
 // gateway's X-DominusNode-Error code and Retry-After seconds (Details["retryAfter"]).
 func connectRefused(res *http.Response) error {
-	e := &ProxyError{newBase(fmt.Sprintf("Proxy refused CONNECT (HTTP %d)", res.StatusCode), res.StatusCode, "", nil)}
+	msg := fmt.Sprintf("Proxy refused CONNECT (HTTP %d)", res.StatusCode)
+	code := ""
 	if c := strings.TrimSpace(res.Header.Get("X-DominusNode-Error")); relayCodeRE.MatchString(c) {
-		e.Code = c
+		code = c
+		msg += ": " + c
 	}
+	e := &ProxyError{newBase(msg, res.StatusCode, code, nil)}
 	if ra := strings.TrimSpace(res.Header.Get("Retry-After")); ra != "" && len(ra) <= 6 {
 		if n, err := strconv.Atoi(ra); err == nil && n >= 0 {
 			e.Details = map[string]any{"retryAfter": n}

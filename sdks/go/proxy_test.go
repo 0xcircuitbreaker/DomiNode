@@ -224,6 +224,10 @@ func TestFetchConnectRefused(t *testing.T) {
 	if pe.Code != "INVALID_API_KEY" || pe.Details["retryAfter"] != 7 || !strings.Contains(err.Error(), "INVALID_API_KEY") {
 		t.Fatalf("code=%q details=%v", pe.Code, pe.Details)
 	}
+	// SDK_SURFACE 3.15 step 7: the code is appended to the message itself, once.
+	if pe.Message != "Proxy refused CONNECT (HTTP 407): INVALID_API_KEY" || err.Error() != pe.Message {
+		t.Fatalf("message=%q error=%q", pe.Message, err.Error())
+	}
 }
 
 // A CONNECT gateway that tunnels to a local TLS server; verifies end-to-end TLS.

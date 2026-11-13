@@ -68,8 +68,9 @@ NODE_SETUP_GUIDE: Dict[str, Any] = {
         "2. Register the node (signing happens locally, not through this tool set): either the DominusNode MCP server "
         "(DOMINUSNODE_WALLET_KEY_FILE set, tool dominusnode_node_register) or the published node image, which has the "
         "official coordinator pins baked in: copy the wallet key to /etc/dominusnode/wallet.key (owner uid 1001, mode "
-        "0600), then docker run --rm -it -e DN_API_KEY -e DN_WALLET_KEY_FILE=/run/dominusnode/wallet.key "
+        "0600), then docker run --rm -e DN_API_KEY -e DN_WALLET_KEY_FILE=/run/dominusnode/wallet.key "
         "-v /etc/dominusnode:/run/dominusnode ghcr.io/0xcircuitbreaker/dominusnode-node register "
+        "0600), then sudo rm /etc/dominusnode/wallet.key   # not needed after registration "
         "(API key from the DN_API_KEY environment variable).",
         "3. Run the agent on the machine that owns the IP: docker run -d --name dominusnode-node --restart "
         "unless-stopped -e DN_NODE_GB_PER_DAY=5 -v /etc/dominusnode/node.json:/run/dominusnode/node.json:ro "

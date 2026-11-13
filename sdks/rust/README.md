@@ -6,7 +6,7 @@ implements the language-neutral contract in `sdks/SDK_SURFACE.md` (reference:
 and `is_connected`.
 
 ```bash
-cargo add dominusnode@2
+cargo add dominusnode@3
 cargo add tokio --features full
 ```
 
@@ -16,7 +16,7 @@ or in `Cargo.toml`:
 
 ```toml
 [dependencies]
-dominusnode = "2"
+dominusnode = "3.1"
 tokio = { version = "1", features = ["full"] }
 ```
 

@@ -89,8 +89,9 @@ signing happens locally, not through this tool)
   sudo install -d -o 1001 -g 1001 -m 700 /etc/dominusnode
   sudo install -o 1001 -g 1001 -m 600 ~/.dominusnode/wallet.key /etc/dominusnode/wallet.key
   export DN_API_KEY   # your dn_live_ key, from the environment only
-  docker run --rm -it -e DN_API_KEY -e DN_WALLET_KEY_FILE=/run/dominusnode/wallet.key \\
+  docker run --rm -e DN_API_KEY -e DN_WALLET_KEY_FILE=/run/dominusnode/wallet.key \\
     -v /etc/dominusnode:/run/dominusnode ghcr.io/0xcircuitbreaker/dominusnode-node register
+  sudo rm /etc/dominusnode/wallet.key   # not needed after registration
   (Alternatively use the DominusNode MCP server or SDK nodes.register with a signer key file.)
 
 Step 3: Run the node agent on the machine that owns the IP

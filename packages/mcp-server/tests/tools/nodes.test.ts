@@ -314,6 +314,9 @@ describe("other node tools", () => {
     expect(text).toContain("ghcr.io/0xcircuitbreaker/dominusnode-node register");
     expect(text).toContain("--restart unless-stopped");
     expect(text).not.toContain("npm run build -w");
+    // Agents run commands without a terminal; -t makes docker fail ("input device is not a TTY").
+    expect(text).not.toMatch(/docker run[^\n]* -i?t\b/);
+    expect(text).toContain("sudo rm /etc/dominusnode/wallet.key");
     expect(text).toContain("DOMINUSNODE_WALLET_KEY_FILE");
     expect(text).toMatch(/Self-dealing earns nothing/);
     expect(text).toMatch(/80\/443/);
