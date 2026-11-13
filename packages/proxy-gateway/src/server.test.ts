@@ -174,7 +174,7 @@ function makeConnect(
   port: number,
   target: string,
   headers?: Record<string, string>,
-): Promise<{ status: number; socket: net.Socket; head: string }> {
+): Promise<{ status: number; socket: net.Socket; head: string; headers: http.IncomingHttpHeaders }> {
   return new Promise((resolve, reject) => {
     const req = http.request({
       hostname: "127.0.0.1",
@@ -187,7 +187,7 @@ function makeConnect(
       },
     });
     req.on("connect", (res, socket, head) => {
-      resolve({ status: res.statusCode ?? 500, socket, head: head.toString() });
+      resolve({ status: res.statusCode ?? 500, socket, head: head.toString(), headers: res.headers });
     });
     req.on("error", reject);
     req.end();
@@ -972,6 +972,7 @@ describe("proxy-gateway server", () => {
       const res = await makeRequest(plainPort, { path: "http://httpbin.org/ip", method: "GET", headers: { "Proxy-Authorization": "Basic eA==" } });
       expect(res.status).toBe(403);
       expect(res.body).toContain("TLS required");
+      expect(res.headers["x-dominusnode-error"]).toBe("TLS_REQUIRED");
       expect(mockAuthenticateRequest).not.toHaveBeenCalled();
     });
 
@@ -979,6 +980,7 @@ describe("proxy-gateway server", () => {
       guard.mockReturnValue(false);
       const res = await makeConnect(plainPort, "example.com:443", { "Proxy-Authorization": "Basic eA==" });
       expect(res.status).toBe(403);
+      expect(res.headers["x-dominusnode-error"]).toBe("TLS_REQUIRED");
       expect(mockAuthenticateRequest).not.toHaveBeenCalled();
       res.socket.destroy();
     });
