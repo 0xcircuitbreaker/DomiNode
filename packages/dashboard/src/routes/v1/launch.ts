@@ -51,7 +51,7 @@ router.get("/network/history", async (req: Request, res: Response) => {
         hour: r.hour, onlineNodes: r.onlineNodes, seedOnline: r.seedOnline, communityOnline: r.communityOnline,
         countries: r.countries, asns: r.asns, successRateBps: r.successRateBps, p50Ms: r.p50Ms, p95Ms: r.p95Ms,
         paidBytes24h: r.paidBytes24h, seedPaidBytes24h: r.seedPaidBytes24h, communityPaidBytes24h: r.communityPaidBytes24h,
-        byClass: r.byClass,
+        byClass: r.byClass, suppressed: r.suppressed,
       })),
     });
   } catch (err) {

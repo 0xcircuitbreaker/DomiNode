@@ -513,7 +513,9 @@ export async function updateX402Transaction(
   targetHost: string,
   status: "settled" | "failed",
 ): Promise<void> {
-  const safePayer = payerAddress.slice(0, 255);
+  // EVM addresses are stored lowercased so erasure (which matches the lowercased
+  // users.wallet_address) finds EIP-55 checksummed payers. Solana keeps case.
+  const safePayer = (/^0x[0-9a-fA-F]{40}$/.test(payerAddress) ? payerAddress.toLowerCase() : payerAddress).slice(0, 255);
   const safeAmount = /^\d+\.?\d*$/.test(amountUsd) ? amountUsd.slice(0, 50) : "0";
   const safeTxHash = txHash ? txHash.slice(0, 255) : null;
   const safeTarget = targetHost.slice(0, 255);

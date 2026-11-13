@@ -4,6 +4,7 @@ import {
   createLogger,
   query,
   policyRepo,
+  networkStatusRepo,
   FLOOR_ALLOWED_PORTS,
   HARD_DENY_PORTS,
   BLOCKED_COUNTRY_CODES,
@@ -105,6 +106,8 @@ export interface NetworkStats {
   countriesAvailable: number;
   seed: { online: number; paidBytes24h: string };
   community: { online: number; paidBytes24h: string };
+  /** Figures hidden by k-anonymity (published as 0); see networkStatusRepo.kAnonymize. */
+  suppressed?: string[];
   generatedAt: string;
 }
 
@@ -118,17 +121,19 @@ export async function getNetworkStats(): Promise<NetworkStats> {
      GROUP BY country, ip_class, operator_run`,
   );
   // Paid traffic in the last 24h, seed (operator-run) vs community. Aggregate only.
-  const t = await query<{ operator_run: boolean | null; bytes: string | null }>(
-    `SELECT n.operator_run, SUM(rc.bytes_gateway)::text AS bytes
+  const t = await query<{ operator_run: boolean | null; bytes: string | null; nodes?: string | null }>(
+    `SELECT n.operator_run, SUM(rc.bytes_gateway)::text AS bytes, COUNT(DISTINCT rc.node_id)::text AS nodes
      FROM relay_charges rc JOIN nodes n ON n.id = rc.node_id
      WHERE rc.created_at > now() - interval '24 hours' AND rc.gross_musd > 0
      GROUP BY n.operator_run`,
   );
   const seed = { online: 0, paidBytes24h: "0" };
   const community = { online: 0, paidBytes24h: "0" };
+  let communityPaidNodes = 0;
   for (const row of t.rows ?? []) {
     const b = /^\d{1,20}$/.test(row.bytes ?? "") ? (row.bytes as string) : "0";
-    if (row.operator_run) seed.paidBytes24h = b; else community.paidBytes24h = b;
+    if (row.operator_run) seed.paidBytes24h = b;
+    else { community.paidBytes24h = b; communityPaidNodes = parseInt(row.nodes ?? "0", 10) || 0; }
   }
   let total = 0;
   let other = 0;
@@ -152,9 +157,21 @@ export async function getNetworkStats(): Promise<NetworkStats> {
     else other += online;
   }
   countries.sort((a, b) => b.online - a.online || a.country.localeCompare(b.country));
+  const paidTotal = (BigInt(seed.paidBytes24h) + BigInt(community.paidBytes24h)).toString();
+  const k = networkStatusRepo.kAnonymize({
+    onlineNodes: total, seedOnline: seed.online, communityOnline: community.online,
+    paidBytes24h: paidTotal, seedPaidBytes24h: seed.paidBytes24h, communityPaidBytes24h: community.paidBytes24h, byClass,
+    communityPaidNodes24h: communityPaidNodes,
+  }, MIN_GROUP);
+  const hideAll = k.suppressed.includes("onlineNodes");
+  if (hideAll) k.suppressed.push("byCountry", "countriesAvailable");
   const value: NetworkStats = {
-    onlineNodes: total, byClass, byCountry: countries, otherCountries: other, countriesAvailable,
-    seed, community, generatedAt: new Date(now).toISOString(),
+    onlineNodes: k.onlineNodes, byClass: k.byClass,
+    byCountry: hideAll ? [] : countries, otherCountries: hideAll ? 0 : other,
+    countriesAvailable: hideAll ? 0 : countriesAvailable,
+    seed: { online: k.seedOnline, paidBytes24h: k.seedPaidBytes24h },
+    community: { online: k.communityOnline, paidBytes24h: k.communityPaidBytes24h },
+    suppressed: k.suppressed, generatedAt: new Date(now).toISOString(),
   };
   statsCache = { at: now, value };
   return value;

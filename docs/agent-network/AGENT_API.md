@@ -373,10 +373,12 @@ Admin-published changelog / news feed for policy, pricing, payment-rail, API and
 | Route | Response |
 |---|---|
 | `GET /v1/network/stats` | Adds `seed {online, paidBytes24h}` and `community {online, paidBytes24h}` (operator-run vs community nodes). |
-| `GET /v1/network/history?hours=168` | `{hours, snapshots: [{hour, onlineNodes, seedOnline, communityOnline, countries, asns, successRateBps, p50Ms, p95Ms, paidBytes24h, seedPaidBytes24h, communityPaidBytes24h, byClass}]}` (hours 1–9600). |
+| `GET /v1/network/history?hours=168` | `{hours, snapshots: [{hour, onlineNodes, seedOnline, communityOnline, countries, asns, successRateBps, p50Ms, p95Ms, paidBytes24h, seedPaidBytes24h, communityPaidBytes24h, byClass, suppressed}]}` (hours 1–9600). |
 | `GET /v1/network/incidents?limit=20` | `{incidents: [{id, title, body, severity, status, startedAt, resolvedAt, updatedAt}]}` |
 | `GET /v1/network/wanted?days=7` | `{days, minRequests: 5, wanted: [{country, ipClass, requests}]}`: where requesters found no node. `null` = any. |
 | `GET /status` | Human-readable status page (no scripts) built from the same data. |
+
+k-anonymity on `/v1/network/stats`, `/v1/network/history` and `/status`: while fewer than 3 community nodes are online (0 included), `onlineNodes`, `seedOnline`, `communityOnline`, `byClass` and all three paid-bytes figures are published as `0`/`"0"`/`{}` with the same `suppressed` list every time, so no hour-to-hour change reveals one node. While fewer than 3 distinct community nodes earned paid traffic in the 24h window (online or not), the three paid-bytes figures are suppressed. Otherwise `byClass` entries under 3 fold into `other`. Every hidden field is named in `suppressed` so clients can render it as "<3".
 
 ### Abuse reports (no account, proof-of-work gated)
 1. `POST /v1/abuse-reports/challenge` → `{challengeId, prefix, difficulty, algorithm: "sha256", expiresAt}`. Find `nonce` (≤ 32 chars) so that `sha256(prefix + nonce)` has `difficulty` leading zero bits.

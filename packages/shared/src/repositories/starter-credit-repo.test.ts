@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { grantTx, grantPrefix, consumeTx, closeGrantTx, PAID_TOPUP_SQL } from "./starter-credit-repo.js";
+import { grantTx, grantPrefix, consumeTx, closeGrantTx, PAID_TOPUP_SQL, fundingSourceKeys } from "./starter-credit-repo.js";
 
 const SETTINGS = {
   enabled: true, amount_musd: "500000", daily_budget_musd: "50000000", per_prefix_cap: 1, per_funding_source_cap: 1,
@@ -78,7 +78,10 @@ describe("grantTx abuse caps", () => {
     const credit = calls.find((x) => x.sql.startsWith("UPDATE wallets"));
     expect(credit?.p).toEqual(["u1", "50"]);
     const ins = calls.find((x) => x.sql.includes("INSERT INTO starter_credit_grants"));
-    expect(ins?.p).toContain("0xabc"); // funding source lowercased
+    // The wallet address is never stored, only its keyed/unkeyed hash of the lowercased form.
+    expect(ins?.p).not.toContain("0xabc");
+    expect(JSON.stringify(ins?.p)).not.toMatch(/0xabc/i);
+    expect(ins?.p).toContain(fundingSourceKeys("0xabc").store);
     expect(ins?.p).toContain("203.0.113.0/24");
     expect(calls.some((x) => x.sql.includes("INSERT INTO starter_credit_ledger"))).toBe(true);
     expect(calls.some((x) => /RETURNING \*/.test(x.sql))).toBe(false);

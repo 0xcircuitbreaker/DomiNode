@@ -24,4 +24,12 @@ describe("PrivacyPage", () => {
     expect(t).not.toMatch(/we do not record which websites you visit/i);
     expect(t).not.toMatch(/we do not log which websites/i);
   });
+
+  it("discloses that Cloudflare terminates TLS for the site and API", () => {
+    const t = text();
+    expect(t).not.toMatch(/connection routing data only, never traffic content/i);
+    expect(t).toMatch(/Cloudflare — terminates TLS for this website and the API/);
+    expect(t).toMatch(/including API keys/);
+    expect(t).toMatch(/Relay and proxy traffic .* does not pass through Cloudflare/);
+  });
 });

@@ -97,11 +97,24 @@ export function decodeSettleInput(p: unknown): SettleRelayChargeInput {
   return out;
 }
 
+/**
+ * Payload scrub: drop the destination and wallet a retry carries. Applied when
+ * the requester is already erased at enqueue time, and when a row leaves the
+ * pending state (done/dead rows are never needed for settlement again).
+ */
+export const SCRUB_PAYLOAD_SQL =
+  `(payload - 'requesterWallet' - 'usageTargetHost') || '{"destHost":"redacted","requesterWallet":null}'::jsonb`;
+
 /** Enqueue (idempotent on session_id: a second enqueue keeps the first payload). */
 export async function enqueueSettleRetry(i: SettleRelayChargeInput, error: string): Promise<void> {
+  // GDPR tombstone: a retry enqueued for an erased requester keeps no host/wallet.
   await query(
     `INSERT INTO relay_settle_retries (session_id, requester_user_id, bytes_gateway, bytes_in, bytes_out, payload, last_error, next_attempt_at)
-     VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, now() + interval '30 seconds')
+     SELECT $1::uuid, $2::uuid, $3::bigint, $4::bigint, $5::bigint,
+            CASE WHEN EXISTS (SELECT 1 FROM users WHERE id = $2::uuid AND status = 'deleted')
+                 THEN ($6::jsonb - 'requesterWallet' - 'usageTargetHost') || '{"destHost":"redacted","requesterWallet":null}'::jsonb
+                 ELSE $6::jsonb END,
+            $7::text, now() + interval '30 seconds'
      ON CONFLICT (session_id) DO NOTHING`,
     [i.sessionId, i.requesterUserId, i.bytesGateway.toString(), i.bytesIn, i.bytesOut,
       JSON.stringify(encodeSettleInput(i)), error.slice(0, 500)],
@@ -123,7 +136,7 @@ export async function listDueSettleRetries(limit = 100): Promise<SettleRetryRow[
       out.push({ sessionId: row.session_id, attempts: row.attempts, input: decodeSettleInput(row.payload) });
     } catch {
       await query(
-        `UPDATE relay_settle_retries SET status = 'dead', last_error = 'invalid payload', updated_at = now() WHERE session_id = $1`,
+        `UPDATE relay_settle_retries SET status = 'dead', payload = '{}'::jsonb, last_error = 'invalid payload', updated_at = now() WHERE session_id = $1`,
         [row.session_id],
       );
     }
@@ -133,7 +146,7 @@ export async function listDueSettleRetries(limit = 100): Promise<SettleRetryRow[
 
 export async function markSettleRetryDone(sessionId: string): Promise<void> {
   await query(
-    `UPDATE relay_settle_retries SET status = 'done', attempts = LEAST(attempts + 1, 1000), last_error = NULL, updated_at = now()
+    `UPDATE relay_settle_retries SET status = 'done', payload = ${SCRUB_PAYLOAD_SQL}, attempts = LEAST(attempts + 1, 1000), last_error = NULL, updated_at = now()
      WHERE session_id = $1 AND status = 'pending'`,
     [sessionId],
   );
@@ -146,6 +159,7 @@ export async function markSettleRetryFailed(sessionId: string, error: string, ma
      SET attempts = LEAST(attempts + 1, 1000),
          last_error = $2,
          status = CASE WHEN attempts + 1 >= $3 THEN 'dead' ELSE 'pending' END,
+         payload = CASE WHEN attempts + 1 >= $3 THEN ${SCRUB_PAYLOAD_SQL} ELSE payload END,
          next_attempt_at = now() + LEAST(interval '6 hours', interval '1 minute' * power(2, LEAST(attempts + 1, 20))),
          updated_at = now()
      WHERE session_id = $1 AND status = 'pending'

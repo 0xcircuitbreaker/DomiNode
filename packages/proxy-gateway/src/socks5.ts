@@ -367,8 +367,8 @@ async function handleSocks5Connection(clientSocket: net.Socket, relay: RelayRunt
     return;
   }
 
-  const redactedHost = targetHost.split(".").slice(-2).join(".");
-  log.debug("SOCKS5 CONNECT", { target: `${redactedHost}:${targetPort}`, userId, country: proxyOptions.country });
+  // Privacy: no destination in logs alongside userId (see session-manager).
+  log.info("SOCKS5 CONNECT", { userId, country: proxyOptions.country });
 
   // Once-guard to prevent double-decrement
   let decremented = false;

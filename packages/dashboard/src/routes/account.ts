@@ -3,7 +3,7 @@ import rateLimit from "express-rate-limit";
 import crypto from "node:crypto";
 import { requireAuth, type AuthenticatedRequest } from "../middleware/auth.js";
 import { clearAuthCookies } from "../helpers/cookies.js";
-import { query, getPool, createLogger, userRepo, relayErasureRepo, verifyPassword, isWalletEmail, getProxyInternalPort } from "@dominusnode/shared";
+import { query, getPool, createLogger, userRepo, relayErasureRepo, relayExportRepo, verifyPassword, isWalletEmail, getProxyInternalPort } from "@dominusnode/shared";
 
 const log = createLogger("api:account");
 const router = Router();
@@ -158,9 +158,15 @@ router.get(
         ),
       ]);
 
+      // Relay-network personal data (nodes, abuse log, charges, earnings, payouts, x402/MPP, ...)
+      const relayNetwork = await relayExportRepo.exportRelayPersonalData(
+        userId,
+        (userResult.rows[0] as { wallet_address?: string | null } | undefined)?.wallet_address ?? null,
+      );
+
       const exportData = {
         exportedAt: new Date().toISOString(),
-        exportVersion: "1.1",
+        exportVersion: "1.2",
         user: userResult.rows[0] ?? null,
         wallet: walletResult.rows[0] ?? null,
         transactions: transactionsResult.rows,
@@ -180,6 +186,7 @@ router.get(
         affiliateCommissions: affiliateCommissionsResult.rows,
         promoRedemptions: promoRedemptionsResult.rows,
         loyaltyRewards: loyaltyRewardsResult.rows,
+        relayNetwork,
       };
 
       log.info("GDPR data export", { userId });
@@ -235,6 +242,36 @@ router.delete(
           res.status(403).json({ error: "Incorrect password." });
           return;
         }
+      }
+
+      // Refuse before touching the proxy (as the admin route does): sessions must
+      // not be killed for a delete that will fail. The erasure re-checks under lock.
+      const inFlight = await query(relayErasureRepo.PAYOUT_IN_FLIGHT_SQL.replace(/\s+FOR UPDATE\s*$/, ""), [userId]);
+      if ((inFlight.rows?.length ?? 0) > 0) {
+        res.status(409).json({ error: "A payout is in flight. Retry account deletion once it settles." });
+        return;
+      }
+
+      // Terminate active proxy sessions BEFORE erasing (matches admin delete flow), so
+      // their settles land before the erasure scrubs abuse-log/usage rows. Settles
+      // that still arrive later are tombstoned in settleRelayCharge.
+      try {
+        const terminateUrl = `http://${PROXY_INTERNAL_HOST}:${PROXY_LISTEN_PORT}/internal/terminate-sessions/${userId}`;
+        const proxySecret = process.env["PROXY_STATS_SECRET"] ??
+          (process.env["JWT_SECRET"]
+            ? crypto.createHmac("sha256", process.env["JWT_SECRET"]).update("proxy-stats-endpoint").digest("hex")
+            : "");
+        const headers: Record<string, string> = { "Content-Length": "0" };
+        if (proxySecret) headers["Authorization"] = `Bearer ${proxySecret}`;
+        await fetch(terminateUrl, {
+          method: "POST",
+          headers,
+          signal: AbortSignal.timeout(5000),
+          redirect: "error",
+        });
+      } catch {
+        // Best effort — proxy gateway may be unreachable
+        log.warn("failed to terminate proxy sessions during account deletion", { userId });
       }
 
       // Wrap all deletion operations in a single DB transaction.
@@ -400,7 +437,7 @@ router.delete(
         await client.query("DELETE FROM loyalty_rewards WHERE user_id = $1", [userId]);
 
         // Relay-network personal data (abuse log, node IPs, payout wallets, ...)
-        await relayErasureRepo.eraseRelayPersonalDataTx(client, userId);
+        await relayErasureRepo.eraseRelayPersonalDataTx(client, userId, walletAddrRow?.wallet_address ?? null);
 
         await client.query("COMMIT");
       } catch (txErr) {
@@ -408,26 +445,6 @@ router.delete(
         throw txErr;
       } finally {
         client.release();
-      }
-
-      // Terminate active proxy sessions with auth header (matches admin suspend flow)
-      try {
-        const terminateUrl = `http://${PROXY_INTERNAL_HOST}:${PROXY_LISTEN_PORT}/internal/terminate-sessions/${userId}`;
-        const proxySecret = process.env["PROXY_STATS_SECRET"] ??
-          (process.env["JWT_SECRET"]
-            ? crypto.createHmac("sha256", process.env["JWT_SECRET"]).update("proxy-stats-endpoint").digest("hex")
-            : "");
-        const headers: Record<string, string> = { "Content-Length": "0" };
-        if (proxySecret) headers["Authorization"] = `Bearer ${proxySecret}`;
-        await fetch(terminateUrl, {
-          method: "POST",
-          headers,
-          signal: AbortSignal.timeout(5000),
-          redirect: "error",
-        });
-      } catch {
-        // Best effort — proxy gateway may be unreachable
-        log.warn("failed to terminate proxy sessions during account deletion", { userId });
       }
 
       log.info("account deleted (GDPR erasure)", { userId });

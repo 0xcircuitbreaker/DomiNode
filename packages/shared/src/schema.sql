@@ -2271,3 +2271,32 @@ DO $$ BEGIN
       CHECK (type IN ('grant','spend','expire','revoke','restore'));
   END IF;
 END $$;
+
+-- ═══ fix/a7-privacy: one-off privacy data migration (idempotent) ═══
+-- x402 payers: store EVM addresses lowercased so erasure matches checksummed rows.
+UPDATE x402_transactions SET payer_address = lower(payer_address)
+ WHERE payer_address ~ '^0x[0-9a-fA-F]{40}$' AND payer_address <> lower(payer_address);
+-- Starter grants: replace plaintext funding sources (wallet addresses) with the
+-- h1 hash grantTx matches (SHA-256 of 'starter-funding:' || lowercased source).
+UPDATE starter_credit_grants
+   SET funding_source = 'h1:' || encode(sha256(convert_to('starter-funding:' || lower(funding_source), 'UTF8')), 'hex')
+ WHERE funding_source !~ '^h[12]:[0-9a-f]{64}$';
+-- PoW challenges hold caller IPs; drop rows past their 1-day retention now
+-- (the hourly retention job keeps it that way).
+DELETE FROM pow_challenges WHERE created_at < now() - INTERVAL '1 day';
+-- ═══ end fix/a7-privacy ═══
+
+-- ═══ fix/a7-privacy (review): k-anonymity gate on paid traffic (idempotent) ═══
+-- Distinct community nodes with paid traffic in the 24h window; NULL on older
+-- rows (treated as below k, so their paid figures stay suppressed).
+ALTER TABLE network_stats_snapshots ADD COLUMN IF NOT EXISTS community_paid_nodes_24h INTEGER;
+DO $$ BEGIN
+  ALTER TABLE network_stats_snapshots ADD CONSTRAINT chk_nss_community_paid_nodes
+    CHECK (community_paid_nodes_24h IS NULL OR community_paid_nodes_24h BETWEEN 0 AND 100000000);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+-- Finished/dead settle retries are never settled again: drop host and wallet.
+UPDATE relay_settle_retries
+   SET payload = (payload - 'requesterWallet' - 'usageTargetHost') || '{"destHost":"redacted","requesterWallet":null}'::jsonb
+ WHERE status IN ('done','dead') AND payload->>'destHost' IS DISTINCT FROM 'redacted';
+-- ═══ end fix/a7-privacy (review) ═══

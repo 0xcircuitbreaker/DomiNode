@@ -595,8 +595,9 @@ export async function startSession(
   recordSessionStart();
 
   // Redact full hostname from logs to protect user privacy
-  const redactedHost = targetHost.split(".").slice(-2).join(".");
-  log.debug("session started", { sessionId, userId, targetHost: redactedHost, reservedCents });
+  // Privacy: never pair userId with the destination in stdout logs (they have
+  // no retention limit). The abuse log ties session to host under its policy.
+  log.info("session started", { sessionId, userId, reservedCents });
   return sessionId;
 }
 

@@ -24,6 +24,11 @@ const pct = (bps: number | null) => (bps === null ? "n/a" : `${(bps / 100).toFix
 const ms = (v: number | null) => (v === null ? "n/a" : `${v} ms`);
 
 type Snap = Awaited<ReturnType<typeof networkStatusRepo.listSnapshots>>[number];
+
+/** A figure hidden by k-anonymity renders as "<3" instead of a misleading 0. */
+const SUPPRESSED = `<${networkStatusRepo.PUBLIC_MIN_GROUP}`;
+const fig = (o: { suppressed?: string[] }, field: string, v: string): string =>
+  (o.suppressed ?? []).includes(field) ? SUPPRESSED : v;
 type Incident = Awaited<ReturnType<typeof networkStatusRepo.listIncidents>>[number];
 
 /** "Live now" card: operator-run vs community split and countries available (aggregate only). */
@@ -32,9 +37,9 @@ export function renderLiveSection(live: NetworkStats | null): string {
   const row = (k: string, v: string) => `<tr><th scope="row">${escapeHtml(k)}</th><td>${escapeHtml(v)}</td></tr>`;
   const listed = live.byCountry.map((c) => c.country).join(", ");
   return `<div class="card"><table>${[
-    row("Nodes online now", String(live.onlineNodes)),
-    row("Operator-run nodes / community nodes", `${live.seed.online} / ${live.community.online}`),
-    row("Countries available", String(live.countriesAvailable)),
+    row("Nodes online now", fig(live, "onlineNodes", String(live.onlineNodes))),
+    row("Operator-run nodes / community nodes", `${fig(live, "seedOnline", String(live.seed.online))} / ${fig(live, "communityOnline", String(live.community.online))}`),
+    row("Countries available", fig(live, "countriesAvailable", String(live.countriesAvailable))),
     row("Countries with 3+ nodes", listed || "none yet"),
   ].join("")}</table></div>`;
 }
@@ -47,17 +52,17 @@ export function renderStatusPage(snaps: Snap[], incidents: Incident[], policy: {
   const row = (k: string, v: string) => `<tr><th scope="row">${escapeHtml(k)}</th><td>${escapeHtml(v)}</td></tr>`;
   const summary = last
     ? [
-        row("Nodes online", String(last.onlineNodes)),
-        row("Operator seed nodes / community nodes", `${last.seedOnline} / ${last.communityOnline}`),
-        row("Countries / ASNs", `${last.countries} / ${last.asns}`),
+        row("Nodes online", fig(last, "onlineNodes", String(last.onlineNodes))),
+        row("Operator seed nodes / community nodes", `${fig(last, "seedOnline", String(last.seedOnline))} / ${fig(last, "communityOnline", String(last.communityOnline))}`),
+        row("Countries / ASNs", `${fig(last, "countries", String(last.countries))} / ${fig(last, "asns", String(last.asns))}`),
         row("Stream success rate (today and yesterday)", pct(last.successRateBps)),
         row("Connect latency p50 / p95", `${ms(last.p50Ms)} / ${ms(last.p95Ms)}`),
-        row("Paid GB, last 24 h (seed / community)", `${gb(last.paidBytes24h)} (${gb(last.seedPaidBytes24h)} / ${gb(last.communityPaidBytes24h)})`),
+        row("Paid GB, last 24 h (seed / community)", `${fig(last, "paidBytes24h", gb(last.paidBytes24h))} (${fig(last, "seedPaidBytes24h", gb(last.seedPaidBytes24h))} / ${fig(last, "communityPaidBytes24h", gb(last.communityPaidBytes24h))})`),
         row("Snapshot", new Date(last.hour).toISOString()),
       ].join("")
     : row("Status", "No snapshot has been taken yet.");
   const history = day.slice(-24).reverse().map((s) =>
-    `<tr><td>${escapeHtml(new Date(s.hour).toISOString().slice(0, 16).replace("T", " "))}</td><td>${s.onlineNodes}</td><td>${s.seedOnline}/${s.communityOnline}</td><td>${escapeHtml(pct(s.successRateBps))}</td><td>${escapeHtml(ms(s.p50Ms))}</td><td>${escapeHtml(ms(s.p95Ms))}</td><td>${escapeHtml(gb(s.paidBytes24h))}</td></tr>`,
+    `<tr><td>${escapeHtml(new Date(s.hour).toISOString().slice(0, 16).replace("T", " "))}</td><td>${escapeHtml(fig(s, "onlineNodes", String(s.onlineNodes)))}</td><td>${escapeHtml(`${fig(s, "seedOnline", String(s.seedOnline))}/${fig(s, "communityOnline", String(s.communityOnline))}`)}</td><td>${escapeHtml(pct(s.successRateBps))}</td><td>${escapeHtml(ms(s.p50Ms))}</td><td>${escapeHtml(ms(s.p95Ms))}</td><td>${escapeHtml(fig(s, "paidBytes24h", gb(s.paidBytes24h)))}</td></tr>`,
   ).join("");
   const inc = incidents.length === 0 ? "<p>No incidents reported.</p>" : `<ul>${incidents.map((i) =>
     `<li><strong>${escapeHtml(i.title)}</strong> <span class="tag">${escapeHtml(i.severity)}</span> <span class="tag">${escapeHtml(i.status)}</span><br>` +

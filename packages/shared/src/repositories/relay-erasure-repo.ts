@@ -10,7 +10,9 @@ import type { PoolClient } from "pg";
  * Kept (accounting / payout audit, keyed only by the now-anonymized user id):
  * relay_charges, node_credit_accounts/transactions, requester_spend_daily,
  * node_payouts amounts and tx hashes, collusion_flags (abuse control).
- * Pending relay_settle_retries are kept so the charge still settles.
+ * Pending relay_settle_retries are kept so the charge still settles, but their
+ * payload is scrubbed of the destination and wallet; settleRelayCharge also
+ * skips the abuse log and usage target_host for a deleted requester.
  */
 export const RELAY_ERASURE_STATEMENTS: ReadonlyArray<{ label: string; sql: string }> = [
   // Destination metadata where this user was the requester.
@@ -19,6 +21,14 @@ export const RELAY_ERASURE_STATEMENTS: ReadonlyArray<{ label: string; sql: strin
   {
     label: "relay_settle_retries",
     sql: "DELETE FROM relay_settle_retries WHERE requester_user_id = $1 AND status <> 'pending'",
+  },
+  // Pending retries still settle; drop the destination and wallet they carry.
+  {
+    label: "relay_settle_retries_pending",
+    sql: `UPDATE relay_settle_retries
+             SET payload = (payload - 'requesterWallet' - 'usageTargetHost')
+                           || '{"destHost":"redacted","requesterWallet":null}'::jsonb
+           WHERE requester_user_id = $1 AND status = 'pending'`,
   },
   // Live IP slots of this user's nodes (exit IP, /24, ASN).
   {
@@ -46,10 +56,28 @@ export const RELAY_ERASURE_STATEMENTS: ReadonlyArray<{ label: string; sql: strin
   { label: "payer_identities", sql: "DELETE FROM payer_identities WHERE user_id = $1" },
   // Burn reports this user filed as a requester.
   { label: "node_reports", sql: "DELETE FROM node_reports WHERE reporter_user_id = $1" },
-  // Starter-credit grant: drop the claimant's IP prefix.
-  { label: "starter_credit_grants", sql: "UPDATE starter_credit_grants SET ip_prefix = NULL WHERE user_id = $1" },
+  // Starter-credit grant: drop the claimant's IP prefix and hash any legacy
+  // plaintext funding source (same h1 form grantTx matches, so caps still hold).
+  {
+    label: "starter_credit_grants",
+    sql: `UPDATE starter_credit_grants SET ip_prefix = NULL,
+            funding_source = CASE WHEN funding_source ~ '^h[12]:[0-9a-f]{64}$' THEN funding_source
+              ELSE 'h1:' || encode(sha256(convert_to('starter-funding:' || funding_source, 'UTF8')), 'hex') END
+          WHERE user_id = $1`,
+  },
   { label: "requester_spend_inflight", sql: "DELETE FROM requester_spend_inflight WHERE user_id = $1" },
   { label: "requester_rate_window", sql: "DELETE FROM requester_rate_window WHERE user_id = $1" },
+  // Admin audit rows ABOUT this user (user_id there is the admin): keep the
+  // action and admin for accountability, drop what links back to the user.
+  {
+    label: "audit_events_about_user",
+    sql: `UPDATE audit_events SET resource_id = 'REDACTED', details = NULL
+          WHERE (user_id IS NULL OR user_id::text <> $1::text)
+            AND (resource_id = $1::text
+              OR details->>'requesterId' = $1::text OR details->>'userId' = $1::text
+              OR details->>'ownerUserId' = $1::text OR details->>'targetUserId' = $1::text
+              OR resource_id IN (SELECT id::text FROM nodes WHERE owner_user_id::text = $1::text))`,
+  },
 ];
 
 /** Erasure refused: a payout may be on-chain and must settle first. */
@@ -86,12 +114,28 @@ export const PAYOUT_ERASURE_REVERSAL_SQL = `WITH rev AS (
  * Run every relay-network erasure statement on the caller's transaction client.
  * Throws PayoutInFlightError (caller rolls back) while a payout may be on-chain.
  */
-export async function eraseRelayPersonalDataTx(client: Pick<PoolClient, "query">, userId: string): Promise<void> {
+/**
+ * x402 payments by this user: redact payer, tx hash and host (amounts kept for
+ * accounting). Matches the EVM wallet case-insensitively and any Solana payer
+ * linked via payer_identities, so it must run before payer_identities is deleted.
+ * $2 is the user's wallet address read BEFORE users.wallet_address is nulled.
+ */
+export const X402_ERASURE_SQL = `UPDATE x402_transactions
+     SET payer_address = 'REDACTED', target_host = 'REDACTED', tx_hash = 'REDACTED'
+   WHERE ($2::text IS NOT NULL AND payer_address = lower($2::text))
+      OR payer_address IN (SELECT address FROM payer_identities WHERE user_id = $1)`;
+
+export async function eraseRelayPersonalDataTx(
+  client: Pick<PoolClient, "query">,
+  userId: string,
+  walletAddress: string | null = null,
+): Promise<void> {
   // Lock the earnings account first, the same order the payout paths use.
   await client.query("SELECT user_id FROM node_credit_accounts WHERE user_id = $1 FOR UPDATE", [userId]);
   const inFlight = await client.query(PAYOUT_IN_FLIGHT_SQL, [userId]);
   if ((inFlight.rows?.length ?? 0) > 0) throw new PayoutInFlightError();
   await client.query(PAYOUT_ERASURE_REVERSAL_SQL, [userId]);
+  await client.query(X402_ERASURE_SQL, [userId, walletAddress]);
   for (const s of RELAY_ERASURE_STATEMENTS) {
     await client.query(s.sql, [userId]);
   }

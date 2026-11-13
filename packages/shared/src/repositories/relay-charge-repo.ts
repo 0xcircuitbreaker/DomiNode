@@ -134,6 +134,14 @@ function validate(i: SettleRelayChargeInput): void {
 export async function settleRelayCharge(i: SettleRelayChargeInput): Promise<SettleRelayChargeResult> {
   validate(i);
   return withTx(async (client) => {
+    // GDPR tombstone: a session that settles after its requester was erased
+    // must not re-create destination metadata (abuse log, usage target_host).
+    // FOR SHARE waits for an in-progress erasure to commit. Lock order is
+    // users then sessions, the same order as both erasure paths (no deadlock).
+    const reqUser = await client.query<{ status: string }>(
+      `SELECT status FROM users WHERE id = $1 FOR SHARE`,
+      [i.requesterUserId],
+    );
     // Serialize concurrent settles of one session, then idempotency check.
     const sess = await client.query<{ id: string; user_id: string; status: string }>(
       `SELECT id, user_id, status FROM sessions WHERE id = $1 FOR UPDATE`,
@@ -142,6 +150,7 @@ export async function settleRelayCharge(i: SettleRelayChargeInput): Promise<Sett
     const session = sess.rows[0];
     if (!session) throw new Error("Session not found");
     if (session.user_id !== i.requesterUserId) throw new Error("Session does not belong to requester");
+    const requesterErased = reqUser.rows[0]?.status === "deleted";
     const existing = await client.query<{ id: string; gross_musd: string; node_musd: string; platform_musd: string; zero_reason: ZeroReason | null }>(
       `SELECT id, gross_musd, node_musd, platform_musd, zero_reason FROM relay_charges WHERE session_id = $1`,
       [i.sessionId],
@@ -290,17 +299,20 @@ export async function settleRelayCharge(i: SettleRelayChargeInput): Promise<Sett
     if (nodeMusd > 0n) await earnTx(client, node.owner_user_id, nodeMusd, relayChargeId);
 
     // Metadata only: host, port, byte count. No path/query/payload.
-    await client.query(
-      `INSERT INTO relay_abuse_log (session_id, requester_user_id, node_id, dest_host, dest_port, bytes)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
-      [i.sessionId, i.requesterUserId, i.nodeId, i.destHost.toLowerCase(), i.destPort, i.bytesGateway.toString()],
-    );
+    if (!requesterErased) {
+      await client.query(
+        `INSERT INTO relay_abuse_log (session_id, requester_user_id, node_id, dest_host, dest_port, bytes)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [i.sessionId, i.requesterUserId, i.nodeId, i.destHost.toLowerCase(), i.destPort, i.bytesGateway.toString()],
+      );
+    }
 
     const bytesTotal = i.bytesIn + i.bytesOut;
     await endSessionTx(client, i.sessionId, bytesTotal, i.sessionStatus ?? "completed");
     await createUsageRecordTx(client, {
       user_id: i.requesterUserId, session_id: i.sessionId, bytes_in: i.bytesIn, bytes_out: i.bytesOut,
-      cost_cents: debitCents, proxy_type: "relay", target_host: (i.usageTargetHost ?? i.destHost).toLowerCase(),
+      cost_cents: debitCents, proxy_type: "relay",
+      target_host: requesterErased ? "" : (i.usageTargetHost ?? i.destHost).toLowerCase(),
     });
 
     return { status: "settled", relayChargeId, paidInFull, grossMusd, nodeMusd, platformMusd, debitCents, zeroReason, disputed };

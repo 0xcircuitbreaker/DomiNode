@@ -81,7 +81,37 @@ const TABLE_QUERIES: Record<string, string> = {
   loyalty_rewards: `DELETE FROM loyalty_rewards WHERE ctid IN (
     SELECT ctid FROM loyalty_rewards WHERE created_at < NOW() - INTERVAL '1 day' * $1 AND status = 'credited' LIMIT $2
   )`,
+  // Short-lived challenges. pow_challenges holds the caller's IP (abuse-report
+  // and node-registration PoW), so it must actually age out.
+  pow_challenges: `DELETE FROM pow_challenges WHERE ctid IN (
+    SELECT ctid FROM pow_challenges WHERE created_at < NOW() - INTERVAL '1 day' * $1 LIMIT $2
+  )`,
+  node_challenges: `DELETE FROM node_challenges WHERE ctid IN (
+    SELECT ctid FROM node_challenges WHERE created_at < NOW() - INTERVAL '1 day' * $1 LIMIT $2
+  )`,
+  agent_sign_challenges: `DELETE FROM agent_sign_challenges WHERE ctid IN (
+    SELECT ctid FROM agent_sign_challenges WHERE created_at < NOW() - INTERVAL '1 day' * $1 LIMIT $2
+  )`,
+  waitlist: `DELETE FROM waitlist WHERE ctid IN (
+    SELECT ctid FROM waitlist WHERE created_at < NOW() - INTERVAL '1 day' * $1 LIMIT $2
+  )`,
 };
+
+/**
+ * Policy rows that are deliberately not purged by age here. They are live
+ * records (kept while the account exists and removed by erasure), or are
+ * purged by a dedicated job: relay_abuse_log uses policy.logRetentionDays
+ * (purgeRelayAbuseLogBatch).
+ */
+export const RETENTION_EXEMPT_TABLES: ReadonlySet<string> = new Set([
+  "team_wallets",
+  "team_members",
+  "agent_secrets",
+  "relay_abuse_log",
+]);
+
+/** Tables enforceRetentionPolicies can purge by age. */
+export const RETENTION_PURGEABLE_TABLES: ReadonlySet<string> = new Set(Object.keys(TABLE_QUERIES));
 
 interface RetentionPolicy {
   table_name: string;
@@ -102,7 +132,8 @@ export async function enforceRetentionPolicies(): Promise<number> {
   for (const policy of result.rows) {
     const deleteQuery = TABLE_QUERIES[policy.table_name];
     if (!deleteQuery) {
-      log.warn("skipping unknown table in retention policy", { table: policy.table_name });
+      if (RETENTION_EXEMPT_TABLES.has(policy.table_name)) continue;
+      log.error("skipping unknown table in retention policy", { table: policy.table_name });
       continue;
     }
 
@@ -165,6 +196,29 @@ export async function purgeRelayAbuseLogBatch(days: number, batch = ABUSE_LOG_BA
     `DELETE FROM relay_abuse_log WHERE id IN (
        SELECT id FROM relay_abuse_log WHERE ts < now() - INTERVAL '1 day' * $1 ORDER BY id LIMIT $2
      )`,
+    [days, lim],
+  );
+  return r.rowCount ?? 0;
+}
+
+/**
+ * Admin audit rows of abuse-log lookups (relay_abuse_log_access) name a
+ * requester id and destination host. Once the abuse log itself is past
+ * retention, keep the accountability record (who looked, when) but drop the
+ * requester/node/host it pointed at. One batch (<=1000 rows) per call.
+ */
+export async function scrubAbuseLogAccessAuditBatch(days: number, batch = ABUSE_LOG_BATCH): Promise<number> {
+  if (!Number.isInteger(days) || days < 1 || days > 3650) throw new Error("days out of range");
+  const lim = Number.isInteger(batch) && batch > 0 && batch <= ABUSE_LOG_BATCH ? batch : ABUSE_LOG_BATCH;
+  const r = await query(
+    `UPDATE audit_events SET resource_id = 'REDACTED',
+            details = (COALESCE(details, '{}'::jsonb) - 'requesterId' - 'host' - 'nodeId') || '{"scrubbed":true}'::jsonb
+      WHERE id IN (
+        SELECT id FROM audit_events
+         WHERE action = 'relay_abuse_log_access' AND created_at < now() - INTERVAL '1 day' * $1
+           AND NOT (COALESCE(details, '{}'::jsonb) ? 'scrubbed')
+         LIMIT $2
+      )`,
     [days, lim],
   );
   return r.rowCount ?? 0;
