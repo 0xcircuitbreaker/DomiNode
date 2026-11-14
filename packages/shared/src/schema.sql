@@ -2301,6 +2301,16 @@ UPDATE relay_settle_retries
  WHERE status IN ('done','dead') AND payload->>'destHost' IS DISTINCT FROM 'redacted';
 -- ═══ end fix/a7-privacy (review) ═══
 
+-- ─── Public status: gateway liveness heartbeats (availability %) ───
+-- One row per gateway instance per UTC minute it was alive. Public output is
+-- only the share of minutes with any live instance (24h / 7d); instance ids
+-- are never published. Purged by the network-snapshot job after 8 days.
+CREATE TABLE IF NOT EXISTS gateway_heartbeats (
+  minute       TIMESTAMPTZ NOT NULL,
+  instance_id  TEXT NOT NULL CHECK (length(instance_id) BETWEEN 1 AND 64),
+  PRIMARY KEY (minute, instance_id)
+);
+
 -- ═══ feat/kill-switches: admin kill switches (idempotent) ═══
 -- One row per switch; engaged = new work of that kind is refused. Every change
 -- writes an audit_events row (kill_switch_set) in the same admin transaction.

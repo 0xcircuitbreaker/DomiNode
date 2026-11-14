@@ -184,6 +184,17 @@ describe("incidents + unmet demand admin", () => {
     expect(txSqls().filter((s) => s.includes("INSERT INTO audit_events")).length).toBe(2);
   });
 
+  it("deletes an incident with audit; unknown id is 404", async () => {
+    tx((sql) => (sql.includes("DELETE FROM network_incidents") ? { rows: [{ id: NODE, title: "oops" }] } : undefined));
+    const d = await call(app(), "DELETE", `${BASE}/incidents/${NODE}`);
+    expect(d.status).toBe(200);
+    expect(txSqls().find((s) => s.startsWith("DELETE FROM network_incidents"))).toContain("RETURNING id, title");
+    expect(txSqls().some((s) => s.includes("INSERT INTO audit_events"))).toBe(true);
+    tx(() => ({ rows: [] }));
+    expect((await call(app(), "DELETE", `${BASE}/incidents/${NODE}`)).status).toBe(404);
+    expect((await call(app(), "DELETE", `${BASE}/incidents/not-a-uuid`)).status).toBe(400);
+  });
+
   it("lists aggregated unmet demand without requester or host columns", async () => {
     m.poolQuery.mockImplementation(async (sql: string) => sql.includes("to_char")
       ? { rows: [{ day: "2026-11-06", requests: "12" }] }

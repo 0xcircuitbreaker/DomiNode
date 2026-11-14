@@ -13,6 +13,7 @@ extension use these exact shapes.
 | `GET /v1/policy` | public | [Public policy and pricing](#public-policy-and-pricing) |
 | `GET /v1/pricing` | public | [Public policy and pricing](#public-policy-and-pricing) |
 | `GET /v1/network/stats` | public | [Public network data](#public-network-data-no-auth-cached-120-reqmin-per-ip) |
+| `GET /v1/status` | public | [Public network data](#public-network-data-no-auth-cached-120-reqmin-per-ip) |
 | `GET /v1/network/history` | public | same |
 | `GET /v1/network/incidents` | public | same |
 | `GET /v1/network/wanted` | public | same |
@@ -382,6 +383,7 @@ Admin-published changelog / news feed for policy, pricing, payment-rail, API and
 ### Public network data (no auth, cached, 120 req/min per IP)
 | Route | Response |
 |---|---|
+| `GET /v1/status` | `{status: operational|degraded|down|unknown, coordinator {status, policyVersion}, gateway {status, instancesOnline, lastHeartbeatAt}, availability {last24h, last7d}, nodes {onlineNodes, byClass, byCountry, otherCountries, countriesAvailable, suppressed?}, incidents [{title, body, severity, status, startedAt, resolvedAt, updatedAt}], generatedAt}`. Availability is the percent of whole UTC minutes in the window (from the first heartbeat on record) in which at least one gateway instance heartbeated; `null` before any. Node figures are the same k-anonymous aggregates as `/v1/network/stats`. No IPs, node ids, gateway instance ids or incident ids. `Cache-Control: public, max-age=30`. |
 | `GET /v1/network/stats` | Adds `seed {online, paidBytes24h}` and `community {online, paidBytes24h}` (operator-run vs community nodes). |
 | `GET /v1/network/history?hours=168` | `{hours, snapshots: [{hour, onlineNodes, seedOnline, communityOnline, countries, asns, successRateBps, p50Ms, p95Ms, paidBytes24h, seedPaidBytes24h, communityPaidBytes24h, byClass, suppressed}]}` (hours 1–9600). |
 | `GET /v1/network/incidents?limit=20` | `{incidents: [{id, title, body, severity, status, startedAt, resolvedAt, updatedAt}]}` |
