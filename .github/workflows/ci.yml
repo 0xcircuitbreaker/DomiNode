@@ -53,6 +53,8 @@ jobs:
         run: npx vitest run
       - name: Frontend tests
         run: npm run test:frontend
+      - name: Frontend test type-check
+        run: npm run typecheck:test --workspace=packages/frontend
       - name: Frontend build (as the Dockerfile runs it)
         run: npm run build --workspace=packages/frontend
       - name: Extension build

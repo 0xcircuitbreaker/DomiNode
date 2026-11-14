@@ -29,4 +29,16 @@ describe("frontend build tsconfig", () => {
     const ci = fs.readFileSync(path.join(ROOT, ".github/workflows/ci.yml"), "utf8");
     expect(ci).toContain("npm run build --workspace=packages/frontend");
   });
+
+  it("test files are still type-checked by a separate tsconfig run in CI", () => {
+    const fe = path.join(ROOT, "packages/frontend");
+    const cfg = JSON.parse(fs.readFileSync(path.join(fe, "tsconfig.test.json"), "utf8"));
+    expect(cfg.extends).toBe("./tsconfig.json");
+    expect(cfg.include).toEqual(["src"]);
+    expect(cfg.exclude).toEqual([]);
+    const pkg = JSON.parse(fs.readFileSync(path.join(fe, "package.json"), "utf8"));
+    expect(pkg.scripts["typecheck:test"]).toBe("tsc -p tsconfig.test.json");
+    const ci = fs.readFileSync(path.join(ROOT, ".github/workflows/ci.yml"), "utf8");
+    expect(ci).toContain("npm run typecheck:test --workspace=packages/frontend");
+  });
 });
