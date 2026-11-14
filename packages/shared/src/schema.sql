@@ -2300,3 +2300,13 @@ UPDATE relay_settle_retries
    SET payload = (payload - 'requesterWallet' - 'usageTargetHost') || '{"destHost":"redacted","requesterWallet":null}'::jsonb
  WHERE status IN ('done','dead') AND payload->>'destHost' IS DISTINCT FROM 'redacted';
 -- ═══ end fix/a7-privacy (review) ═══
+
+-- ─── Public status: gateway liveness heartbeats (availability %) ───
+-- One row per gateway instance per UTC minute it was alive. Public output is
+-- only the share of minutes with any live instance (24h / 7d); instance ids
+-- are never published. Purged by the network-snapshot job after 8 days.
+CREATE TABLE IF NOT EXISTS gateway_heartbeats (
+  minute       TIMESTAMPTZ NOT NULL,
+  instance_id  TEXT NOT NULL CHECK (length(instance_id) BETWEEN 1 AND 64),
+  PRIMARY KEY (minute, instance_id)
+);

@@ -151,7 +151,7 @@ async function main(): Promise<void> {
   log.info("API key hashing", { peppered: apiKeyPepper() !== null });
   const asnDbOptional = process.env["ASN_DB_OPTIONAL"] === "true";
   if (!geoAvailable()) log.warn("geo database unavailable: public peers and destinations are refused", { asnRequired: isProduction && !asnDbOptional });
-  const shared = installSharedLimits(log);
+  const shared = installSharedLimits(log, undefined, makeInstanceId(), networkStatusRepo.recordGatewayHeartbeat);
   const registry = new NodeRegistry();
   registry.startSweep();
   const selector = new NodeSelector(registry, { getPolicy: () => policy.body });
@@ -511,6 +511,7 @@ function startJobs(registry: NodeRegistry, getPolicy: () => ActivePolicy): Job[]
       takeSnapshot: networkStatusRepo.takeSnapshot,
       purgeSnapshots: networkStatusRepo.purgeSnapshots,
       purgeUnmetDemand: networkStatusRepo.purgeUnmetDemand,
+      purgeGatewayHeartbeats: networkStatusRepo.purgeGatewayHeartbeats,
       snapshotRetentionDays: envInt(process.env, "NETWORK_SNAPSHOT_RETENTION_DAYS", 400, 7, 3650),
       unmetRetentionDays: envInt(process.env, "UNMET_DEMAND_RETENTION_DAYS", 90, 7, 3650),
     },

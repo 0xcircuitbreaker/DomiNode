@@ -149,6 +149,7 @@ export function buildAgentToolDocument(env: DiscoveryEnv, p: DiscoveryPricing): 
       stats: `${b}/v1/network/stats`,
       history: `${b}/v1/network/history`,
       status_page: `${b}/status`,
+      status: `${b}/v1/status`,
       incidents: `${b}/v1/network/incidents`,
     },
 
@@ -217,7 +218,7 @@ export function buildLlmsTxt(env: DiscoveryEnv, p: DiscoveryPricing): string {
     "",
     "## Policy and status",
     `- Policy: ${b}/v1/policy`,
-    `- Network stats: ${b}/v1/network/stats, history: ${b}/v1/network/history, status page: ${b}/status`,
+    `- Network stats: ${b}/v1/network/stats, history: ${b}/v1/network/history, status page: ${b}/status, status JSON: ${b}/v1/status`,
     `- Abuse reports: ${b}/v1/abuse-reports`,
     `- Announcements (policy/pricing/API changes): ${b}/v1/announcements`,
     "",

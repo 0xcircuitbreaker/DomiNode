@@ -21,6 +21,7 @@ Gateway: https://proxy.dominusnode.com:8443 (TLS proxy; use it, production refus
 - [Network history](https://api.dominusnode.com/v1/network/history): hourly aggregate snapshots (JSON, no auth)
 - [Wanted](https://api.dominusnode.com/v1/network/wanted): countries and classes where requesters found no node (JSON, no auth)
 - [Status page](https://api.dominusnode.com/status): human-readable network status
+- [Status JSON](https://api.dominusnode.com/v1/status): gateway/coordinator health, 24h/7d gateway availability, aggregate node counts, recent incidents (JSON, no auth)
 - [Abuse reports](https://dominusnode.com/docs/policy.md): POST https://api.dominusnode.com/v1/abuse-reports, no account, proof-of-work gated
 - [API llms.txt](https://api.dominusnode.com/llms.txt): the API host's own summary with live prices
 - [Agent tool manifest](https://api.dominusnode.com/.well-known/agent-tool.json): machine-readable endpoints, auth and pricing
