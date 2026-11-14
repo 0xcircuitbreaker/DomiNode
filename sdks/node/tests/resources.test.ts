@@ -34,6 +34,12 @@ describe("wallet", () => {
     await client.wallet.getForecast();
     expect(calls.map((c) => c.url)).toEqual([`${B}/api/wallet`, `${B}/api/wallet/transactions?limit=5&offset=10`, `${B}/api/wallet/forecast`]);
   });
+  it("get() hits /v1/wallet with the raw API key", async () => {
+    const { client, calls } = await connected([200, { balanceCents: 1234, currency: "usd", lastToppedUp: null }]);
+    expect(await client.wallet.get()).toEqual({ balanceCents: 1234, currency: "usd", lastToppedUp: null });
+    expect(calls[0]).toMatchObject({ url: `${B}/v1/wallet`, method: "GET" });
+    expect(calls[0].headers.Authorization).toBe(`Bearer ${API_KEY}`);
+  });
   it("topUpCrypto validates and sends USD", async () => {
     const { client, calls } = await connected([200, { invoiceId: UUID }]);
     await client.wallet.topUpCrypto(2500, "USDC");
@@ -91,6 +97,20 @@ describe("network (no auth)", () => {
     await c.network.stats();
     expect(m.calls.map((x) => x.url)).toEqual([`${B}/v1/policy`, `${B}/v1/pricing`, `${B}/v1/network/stats`]);
     expect(m.calls.every((x) => !x.headers.Authorization)).toBe(true);
+  });
+  it("status is public and typed", async () => {
+    const body = {
+      status: "operational", coordinator: { status: "operational", policyVersion: 4 },
+      gateway: { status: "operational", instancesOnline: 1, lastHeartbeatAt: "t" },
+      availability: { last24h: 99.5, last7d: null }, nodes: null, incidents: [], generatedAt: "t",
+    };
+    const m = mockFetch([200, body]);
+    const c = new DominusNodeClient({ baseUrl: B, fetch: m.fn });
+    const s = await c.network.status();
+    expect(s.status).toBe("operational");
+    expect(s.availability.last24h).toBe(99.5);
+    expect(m.calls[0]).toMatchObject({ url: `${B}/v1/status`, method: "GET" });
+    expect(m.calls[0].headers.Authorization).toBeUndefined();
   });
 });
 

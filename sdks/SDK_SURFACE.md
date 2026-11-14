@@ -1,7 +1,7 @@
 # DominusNode SDK surface (v2)
 
 Language-neutral contract for all six SDKs. The reference implementation is
-`sdks/node` (2.2.0; the Rust crate ships the same surface as 4.0.0, with signed `credits.convert`, its 3.0.0 having taken the major bump for a new enum variant); Python, Go, Rust, Java and C++ must expose the same
+`sdks/node` (2.4.0; the Rust crate ships the same surface as 4.1.0; its 4.0.0 brought signed `credits.convert`, and 3.0.0 took the major bump for a new enum variant); Python, Go, Rust, Java and C++ must expose the same
 resources, methods, parameters, results, errors and security behaviour.
 Use each language's naming convention (`register_challenge`, `RegisterChallenge`,
 `registerChallenge`), but keep the names below recognisable.
@@ -10,7 +10,7 @@ Server sources: `docs/agent-network/AGENT_API.md`, `packages/dashboard/src/route
 `packages/dashboard/src/routes/{auth,wallet-auth,keys,wallet,agent-wallet,teams,usage,sessions,x402,proxy-health,proxy-config}.ts`,
 `packages/proxy-gateway/src/auth.ts` (`parseProxyOptions`).
 
-**Totals: 15 resources, 71 resource methods, plus 3 client members.** Pagination helpers (section 3.16)
+**Totals: 15 resources, 73 resource methods, plus 3 client members.** Pagination helpers (section 3.16)
 are conveniences on top and are not counted.
 
 | Resource | Methods |
@@ -18,13 +18,13 @@ are conveniences on top and are not counted.
 | auth | 4 |
 | walletAuth | 4 |
 | keys | 3 |
-| wallet | 5 |
+| wallet | 6 |
 | agenticWallets | 9 |
 | teams | 18 |
 | usage | 4 |
 | sessions | 2 |
 | x402 | 1 |
-| network | 3 |
+| network | 4 |
 | nodes | 6 |
 | credits | 4 |
 | payoutWallet | 2 |
@@ -237,11 +237,12 @@ Notation: `METHOD path` `[mode]` `body`/`query` -> result. Optional parameters i
 | `list()` | GET `/api/keys` [jwt] | `{keys: [{id, prefix, label, created_at, revoked_at}]}` |
 | `revoke(id)` | DELETE `/api/keys/{id}` [jwt] | void |
 
-### 3.4 wallet (5) — requester prepaid wallet, cents
+### 3.4 wallet (6) — requester prepaid wallet, cents
 
 | Method | Request | Result |
 |---|---|---|
 | `getBalance()` | GET `/api/wallet` [jwt] | `{balanceCents, balanceUsd, currency, lastToppedUp}` |
+| `get()` (2.4; Rust 4.1) | GET `/v1/wallet` [agent] (raw API key; no JWT is minted) | `{balanceCents, currency, lastToppedUp: string\|null}` |
 | `getTransactions(limit?, offset?)` | GET `/api/wallet/transactions?limit&offset` [jwt] | `{transactions: [{id, type, amountCents, amountUsd, description, paymentProvider, createdAt}]}` |
 | `getForecast()` | GET `/api/wallet/forecast` [jwt] | `{dailyAvgCents, daysRemaining, trend, trendPct}` |
 | `topUpCrypto(amountCents, currency)` | cents 1000..100000; currency (case-insensitive) in `btc eth ltc xmr zec usdc sol usdt dai bnb link`; POST `/api/wallet/topup/crypto` [jwt] `{amountUsd: amountCents/100, currency: lowercased}` | `{invoiceId, invoiceUrl, payCurrency, priceAmount}` |
@@ -319,13 +320,14 @@ strings, null -> 0) and refuse anything else.
 
 `getInfo()` GET `/api/x402/info` [none] -> `{supported, enabled, protocol, version, facilitators: map<name, {network, receivingAddress, currency}>, pricing: map<string, string|number>, currencies, walletType, agenticWallets}`.
 
-### 3.10 network (3) — public, [none]
+### 3.10 network (4) — public, [none]
 
 | Method | Request | Result |
 |---|---|---|
 | `policy()` | GET `/v1/policy` | `{version, sha256, body: object, floorGuarantees: [string]}` |
 | `pricing()` | GET `/v1/pricing` | `{currency:"USD", unit:"musd_per_gb", prices:[{ipClass, pricePerGbMusd}], nodeShare:[{tier, rank, nodeShareBps}], buyerDiscounts:[{tier, rank, buyerDiscountBps}], maturationHours, rails:[string]}` |
 | `stats()` | GET `/v1/network/stats` | `{onlineNodes, byClass: map, byCountry: [{country, online}], otherCountries, seed:{online, paidBytes24h}, community:{online, paidBytes24h}, generatedAt}` (seed = operator-run, community = agent-run; paidBytes24h is a decimal string) |
+| `status()` (2.4; Rust 4.1) | GET `/v1/status` | `{status: "operational"\|"degraded"\|"down"\|"unknown", coordinator:{status, policyVersion: int\|null}, gateway:{status, instancesOnline, lastHeartbeatAt: string\|null}, availability:{last24h: number\|null, last7d: number\|null} (percent), nodes: {onlineNodes, byClass, byCountry, otherCountries, countriesAvailable, suppressed?: [string]}\|null, incidents:[{title, body, severity, status, startedAt, resolvedAt: string\|null, updatedAt}], generatedAt}`. Aggregates only: no node ids, instance ids, incident ids or IPs |
 
 ### 3.11 nodes (6) — [agent]
 

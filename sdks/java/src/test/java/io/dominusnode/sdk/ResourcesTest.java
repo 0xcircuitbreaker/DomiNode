@@ -51,6 +51,7 @@ class ResourcesTest {
         l.add(new Case("keys.revoke", c -> c.keys().revoke(RAW), "DELETE", "/api/keys/" + ENC, null, "jwt"));
         // wallet (5)
         l.add(new Case("wallet.getBalance", c -> c.wallet().getBalance(), "GET", "/api/wallet", null, "jwt"));
+        l.add(new Case("wallet.get", c -> c.wallet().get(), "GET", "/v1/wallet", null, "agent"));
         l.add(new Case("wallet.getTransactions", c -> c.wallet().getTransactions(10, 5), "GET", "/api/wallet/transactions?limit=10&offset=5", null, "jwt"));
         l.add(new Case("wallet.getForecast", c -> c.wallet().getForecast(), "GET", "/api/wallet/forecast", null, "jwt"));
         l.add(new Case("wallet.topUpCrypto", c -> c.wallet().topUpCrypto(2550, "USDC"), "POST", "/api/wallet/topup/crypto", "{\"amountUsd\":25.5,\"currency\":\"usdc\"}", "jwt"));
@@ -99,6 +100,7 @@ class ResourcesTest {
         l.add(new Case("network.policy", c -> c.network().policy(), "GET", "/v1/policy", null, "none"));
         l.add(new Case("network.pricing", c -> c.network().pricing(), "GET", "/v1/pricing", null, "none"));
         l.add(new Case("network.stats", c -> c.network().stats(), "GET", "/v1/network/stats", null, "none"));
+        l.add(new Case("network.status", c -> c.network().status(), "GET", "/v1/status", null, "none"));
         // nodes (register in SignerFlowsTest)
         l.add(new Case("nodes.registerChallenge", c -> c.nodes().registerChallenge("AB".repeat(32)), "POST", "/v1/nodes/challenge", "{\"nodePubkey\":\"" + "ab".repeat(32) + "\"}", "agent"));
         l.add(new Case("nodes.registerChallenge(empty)", c -> c.nodes().registerChallenge(), "POST", "/v1/nodes/challenge", "{}", "agent"));
@@ -141,7 +143,7 @@ class ResourcesTest {
                 }
                 String expected = k.auth.equals("none") ? null : "Bearer " + (k.auth.equals("agent") ? API_KEY : JWT);
                 assertEquals(expected, MockTransport.auth(r));
-                assertEquals("dominusnode-sdk-java/2.3.0", r.headers.get("User-Agent"));
+                assertEquals("dominusnode-sdk-java/2.4.0", r.headers.get("User-Agent"));
                 assertEquals("application/json", r.headers.get("Accept"));
             }));
         }
@@ -187,13 +189,13 @@ class ResourcesTest {
     /** Convenience iterators on top of the surface; not counted as surface methods. */
     static final Set<String> PAGINATION_HELPERS = Set.of("iterate", "stream", "listAfter", "iterTransactions", "streamTransactions", "iterRecords", "streamRecords");
 
-    /** 15 resources, 71 methods (counting distinct public method names per resource). */
+    /** 15 resources, 73 methods (counting distinct public method names per resource). */
     @Test
     void surfaceCounts() {
         DominusNodeClient c = client(new MockTransport());
         Object[] resources = {c.auth(), c.walletAuth(), c.keys(), c.wallet(), c.agenticWallets(), c.teams(), c.usage(),
                 c.sessions(), c.x402(), c.network(), c.nodes(), c.credits(), c.payoutWallet(), c.payouts(), c.proxy()};
-        int[] expected = {4, 4, 3, 5, 9, 18, 4, 2, 1, 3, 6, 4, 2, 1, 5};
+        int[] expected = {4, 4, 3, 6, 9, 18, 4, 2, 1, 4, 6, 4, 2, 1, 5};
         int total = 0;
         for (int i = 0; i < resources.length; i++) {
             Set<String> names = new TreeSet<>();
@@ -205,6 +207,6 @@ class ResourcesTest {
             total += names.size();
         }
         assertEquals(15, resources.length);
-        assertEquals(71, total);
+        assertEquals(73, total);
     }
 }

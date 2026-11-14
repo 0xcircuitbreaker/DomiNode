@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.4.0] - 2026-11-14
+
+Additive release (SDK surface: 15 resources, 73 methods).
+
+### Added
+- `Network.Status(ctx)`: `GET /v1/status` (no auth), typed `*NetworkStatus`: overall status, coordinator and gateway health, availability (percent), node aggregates and public incidents. Aggregates only, no node ids, instance ids or IPs.
+- `Wallet.Get(ctx)`: `GET /v1/wallet` with the raw API key, typed `*AgentWalletBalance` (`{balanceCents, currency, lastToppedUp}`); no JWT is minted.
+
 ## [2.3.0] - 2026-11-13
 
 ### Changed

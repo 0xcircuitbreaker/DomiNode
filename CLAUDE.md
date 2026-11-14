@@ -144,4 +144,4 @@ curl -x http://class-dc-allowhttp-1:dn_live_KEY@localhost:8080 http://httpbin.or
 
 ## Current Status
 
-Alpha. All packages compile. 2,436 tests pass across 154 test files in the root `npx vitest run`; integration and SDK suites run separately in their own toolchains.
+Alpha. All packages compile. 2,856 tests pass across 183 test files in the root `npx vitest run` (6 further files, 22 tests, are skipped); integration and SDK suites run separately in their own toolchains.

@@ -1,4 +1,4 @@
-"""The 15 resources (71 methods), each written once as sans-I/O generators.
+"""The 15 resources (73 methods), each written once as sans-I/O generators.
 
 ``make_variants`` turns each core class into a sync and an async resource class.
 Results are the server's JSON as dicts (camelCase keys, as on the wire); see types.py.
@@ -175,6 +175,10 @@ class _WalletResource(_Base):
 
     def get_balance(self) -> Gen:
         return (yield _get("/api/wallet"))
+
+    def get(self) -> Gen:
+        """GET /v1/wallet [agent]: balance with the raw API key (no JWT minted). See types.AgentWalletBalance."""
+        return (yield _get("/v1/wallet", "agent"))
 
     def get_transactions(self, limit: Optional[int] = None, offset: Optional[int] = None) -> Gen:
         return (yield _get(f"/api/wallet/transactions{_page(limit, offset)}"))
@@ -422,6 +426,10 @@ class _NetworkResource(_Base):
 
     def stats(self) -> Gen:
         return (yield _get("/v1/network/stats", "none"))
+
+    def status(self) -> Gen:
+        """GET /v1/status [none]: public health summary. See types.NetworkStatus."""
+        return (yield _get("/v1/status", "none"))
 
 
 # ---------------------------------------------------------------- 3.11 nodes

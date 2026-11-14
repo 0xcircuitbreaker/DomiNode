@@ -47,7 +47,7 @@
     "node": ">=18.0.0"
   },
   "dependencies": {
-    "@dominusnode/sdk": "^2.3.0"
+    "@dominusnode/sdk": "^2.4.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

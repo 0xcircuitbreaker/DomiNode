@@ -20,6 +20,12 @@ public final class WalletResource {
 
     public WalletResource(ApiClient http) { this.http = http; }
 
+    /**
+     * GET /v1/wallet [agent]: balance read with the raw API key (no JWT is minted).
+     * Fields: {@code balanceCents} (int), {@code currency}, {@code lastToppedUp} (string or null).
+     */
+    public JsonNode get() { return http.get("/v1/wallet", Auth.AGENT); }
+
     /** GET /api/wallet. */
     public JsonNode getBalance() { return http.get("/api/wallet", Auth.JWT); }
 

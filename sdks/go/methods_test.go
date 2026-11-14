@@ -50,7 +50,9 @@ func TestEveryMethodRequest(t *testing.T) {
 			method: "GET", path: "/api/keys", auth: "jwt"},
 		{name: "Keys.Revoke", call: func(x context.Context, c *Client) error { return c.Keys.Revoke(x, odd) },
 			method: "DELETE", path: "/api/keys/" + oddEnc, auth: "jwt"},
-		// wallet (5)
+		// wallet (6)
+		{name: "Wallet.Get", call: func(x context.Context, c *Client) error { return e(c.Wallet.Get(x)) },
+			method: "GET", path: "/v1/wallet", auth: "agent"},
 		{name: "Wallet.GetBalance", call: func(x context.Context, c *Client) error { return e(c.Wallet.GetBalance(x)) },
 			method: "GET", path: "/api/wallet", auth: "jwt"},
 		{name: "Wallet.GetTransactions", call: func(x context.Context, c *Client) error { return e(c.Wallet.GetTransactions(x, Int(5), Int(10))) },
@@ -146,6 +148,8 @@ func TestEveryMethodRequest(t *testing.T) {
 			method: "GET", path: "/v1/pricing", auth: "none"},
 		{name: "Network.Stats", call: func(x context.Context, c *Client) error { return e(c.Network.Stats(x)) },
 			method: "GET", path: "/v1/network/stats", auth: "none"},
+		{name: "Network.Status", call: func(x context.Context, c *Client) error { return e(c.Network.Status(x)) },
+			method: "GET", path: "/v1/status", auth: "none"},
 		// nodes (5 here; Register in signer tests)
 		{name: "Nodes.RegisterChallenge", call: func(x context.Context, c *Client) error {
 			return e(c.Nodes.RegisterChallenge(x, strings.Repeat("AB", 32)))
@@ -206,7 +210,7 @@ func TestEveryMethodRequest(t *testing.T) {
 			if (tc.body != "") != (r.Header.Get("Content-Type") == "application/json") {
 				t.Fatalf("Content-Type %q with body %q", r.Header.Get("Content-Type"), tc.body)
 			}
-			if r.Header.Get("User-Agent") != "dominusnode-sdk-go/2.3.0" || r.Header.Get("Accept") != "application/json" {
+			if r.Header.Get("User-Agent") != "dominusnode-sdk-go/2.4.0" || r.Header.Get("Accept") != "application/json" {
 				t.Fatalf("bad UA/Accept: %v", r.Header)
 			}
 			got := r.Header.Get("Authorization")

@@ -148,6 +148,10 @@ impl WalletResource {
     pub(crate) fn new(http: Http) -> Self {
         Self { http }
     }
+    /// `GET /v1/wallet` [agent]: balance read with the raw API key (no JWT is minted).
+    pub async fn get(&self) -> Result<AgentWalletBalance> {
+        self.http.get("/v1/wallet", AuthMode::Agent).await
+    }
     /// `GET /api/wallet` [jwt].
     pub async fn get_balance(&self) -> Result<WalletBalance> {
         self.http.get("/api/wallet", AuthMode::Jwt).await
@@ -480,6 +484,10 @@ impl NetworkResource {
     /// `GET /v1/network/stats` [none].
     pub async fn stats(&self) -> Result<NetworkStats> {
         self.http.get("/v1/network/stats", AuthMode::None).await
+    }
+    /// `GET /v1/status` [none]: public health summary.
+    pub async fn status(&self) -> Result<NetworkStatus> {
+        self.http.get("/v1/status", AuthMode::None).await
     }
 }
 

@@ -40,6 +40,39 @@ export interface NetworkStats {
   generatedAt: string;
 }
 
+export type StatusLevel = "operational" | "degraded" | "down" | "unknown";
+
+/** Public incident as published on /v1/status (no incident ids). */
+export interface PublicIncident {
+  title: string;
+  body: string;
+  severity: string;
+  status: string;
+  startedAt: string;
+  resolvedAt: string | null;
+  updatedAt: string;
+}
+
+/** GET /v1/status: aggregate public health. No node ids, instance ids or IPs. */
+export interface NetworkStatus {
+  status: StatusLevel;
+  coordinator: { status: "operational" | "down"; policyVersion: number | null };
+  gateway: { status: "operational" | "down" | "unknown"; instancesOnline: number; lastHeartbeatAt: string | null };
+  /** Share of minutes with a live gateway, in percent; null before any heartbeat. */
+  availability: { last24h: number | null; last7d: number | null };
+  nodes: {
+    onlineNodes: number;
+    byClass: Record<string, number>;
+    byCountry: Array<{ country: string; online: number }>;
+    otherCountries: number;
+    countriesAvailable: number;
+    /** Figures hidden by k-anonymity (published as 0). */
+    suppressed?: string[];
+  } | null;
+  incidents: PublicIncident[];
+  generatedAt: string;
+}
+
 /** Public relay-network info (no auth). */
 export class NetworkResource {
   constructor(private http: HttpClient) {}
@@ -57,5 +90,10 @@ export class NetworkResource {
   /** GET /v1/network/stats — aggregates only, never node ids or IPs. */
   async stats(): Promise<NetworkStats> {
     return this.http.get("/v1/network/stats", "none");
+  }
+
+  /** GET /v1/status — public health summary (gateway, coordinator, availability, incidents). */
+  async status(): Promise<NetworkStatus> {
+    return this.http.get("/v1/status", "none");
   }
 }

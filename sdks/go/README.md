@@ -2,10 +2,10 @@
 
 Go client for the DominusNode relay network. Standard library only, Go 1.22+.
 Implements the language-neutral contract in `sdks/SDK_SURFACE.md`
-(15 resources, 71 methods); the reference implementation is `sdks/node`.
+(15 resources, 73 methods); the reference implementation is `sdks/node`.
 
 ```bash
-go get github.com/0xcircuitbreaker/DomiNode/sdks/go/v2@v2.3.0
+go get github.com/0xcircuitbreaker/DomiNode/sdks/go/v2@v2.4.0
 ```
 
 Defaults: API `https://api.dominusnode.com`, relay gateway `proxy.dominusnode.com` (TLS to the gateway's HTTPS proxy on :8443 by default since 2.2; SOCKS5 :1080). Production gateways refuse credentials on plaintext 8080/1080. Self-hosted coordinators use 8443 as well. Plaintext 8080 for local development: `GatewayTLS: &dominusnode.GatewayTLS{Disabled: true}`. A refused CONNECT carries the gateway's `X-DominusNode-Error` code (e.g. INSUFFICIENT_BALANCE, NO_NODES_AVAILABLE) in `pe.Code` / `pe.Details["retryAfter"]`. Both can be overridden in the client configuration.

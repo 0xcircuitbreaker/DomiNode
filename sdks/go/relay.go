@@ -79,6 +79,59 @@ func (r *NetworkResource) Pricing(ctx context.Context) (*NetworkPricing, error) 
 	return &out, r.h.get(ctx, "/v1/pricing", authNone, &out)
 }
 
+// PublicIncident is an incident as published on /v1/status (no incident ids).
+type PublicIncident struct {
+	Title      string  `json:"title"`
+	Body       string  `json:"body"`
+	Severity   string  `json:"severity"`
+	Status     string  `json:"status"`
+	StartedAt  string  `json:"startedAt"`
+	ResolvedAt *string `json:"resolvedAt"`
+	UpdatedAt  string  `json:"updatedAt"`
+}
+
+// StatusNodes is the node aggregate inside NetworkStatus.
+type StatusNodes struct {
+	OnlineNodes int            `json:"onlineNodes"`
+	ByClass     map[string]int `json:"byClass"`
+	ByCountry   []struct {
+		Country string `json:"country"`
+		Online  int    `json:"online"`
+	} `json:"byCountry"`
+	OtherCountries     int      `json:"otherCountries"`
+	CountriesAvailable int      `json:"countriesAvailable"`
+	Suppressed         []string `json:"suppressed,omitempty"`
+}
+
+// NetworkStatus is the response of GET /v1/status: aggregates only, no node
+// ids, instance ids or IPs.
+type NetworkStatus struct {
+	Status      string `json:"status"` // operational | degraded | down | unknown
+	Coordinator struct {
+		Status        string `json:"status"` // operational | down
+		PolicyVersion *int   `json:"policyVersion"`
+	} `json:"coordinator"`
+	Gateway struct {
+		Status          string  `json:"status"` // operational | down | unknown
+		InstancesOnline int     `json:"instancesOnline"`
+		LastHeartbeatAt *string `json:"lastHeartbeatAt"`
+	} `json:"gateway"`
+	// Availability is the percent of minutes with a live gateway; nil before any heartbeat.
+	Availability struct {
+		Last24h *float64 `json:"last24h"`
+		Last7d  *float64 `json:"last7d"`
+	} `json:"availability"`
+	Nodes       *StatusNodes     `json:"nodes"`
+	Incidents   []PublicIncident `json:"incidents"`
+	GeneratedAt string           `json:"generatedAt"`
+}
+
+// Status: GET /v1/status [none].
+func (r *NetworkResource) Status(ctx context.Context) (*NetworkStatus, error) {
+	var out NetworkStatus
+	return &out, r.h.get(ctx, "/v1/status", authNone, &out)
+}
+
 // Stats: GET /v1/network/stats.
 func (r *NetworkResource) Stats(ctx context.Context) (*NetworkStats, error) {
 	var out NetworkStats

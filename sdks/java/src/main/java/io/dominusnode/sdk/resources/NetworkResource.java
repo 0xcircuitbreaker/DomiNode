@@ -18,4 +18,13 @@ public final class NetworkResource {
 
     /** GET /v1/network/stats. */
     public JsonNode stats() { return http.get("/v1/network/stats", Auth.NONE); }
+
+    /**
+     * GET /v1/status: public health summary. Fields: {@code status} (operational|degraded|down|unknown),
+     * {@code coordinator {status, policyVersion}}, {@code gateway {status, instancesOnline, lastHeartbeatAt}},
+     * {@code availability {last24h, last7d}} (percent or null), {@code nodes} (aggregates or null),
+     * {@code incidents [{title, body, severity, status, startedAt, resolvedAt, updatedAt}]}, {@code generatedAt}.
+     * Aggregates only: no node ids, instance ids or IPs.
+     */
+    public JsonNode status() { return http.get("/v1/status", Auth.NONE); }
 }

@@ -77,6 +77,8 @@ private:
 class WalletResource {
 public:
     explicit WalletResource(HttpClient& h) : http_(h) {}
+    /// GET /v1/wallet [agent]: {balanceCents, currency, lastToppedUp|null}, read with the raw API key.
+    json get();
     json get_balance();
     json get_transactions(OptInt limit = std::nullopt, OptInt offset = std::nullopt);
     json get_forecast();
@@ -202,6 +204,9 @@ public:
     json policy();
     json pricing();
     json stats();
+    /// GET /v1/status [none]: {status, coordinator{status, policyVersion}, gateway{status, instancesOnline,
+    /// lastHeartbeatAt}, availability{last24h, last7d}, nodes|null, incidents[], generatedAt}. Aggregates only.
+    json status();
 private:
     HttpClient& http_;
 };
