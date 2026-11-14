@@ -3,7 +3,7 @@
  * tunnel (DESIGN.md §4, §8). Replaces the pool-manager ProviderSelector.
  */
 import type { Duplex } from "node:stream";
-import { createLogger, type NetworkPolicy } from "@dominusnode/shared";
+import { createLogger, killSwitches, type KillSwitchView, type NetworkPolicy } from "@dominusnode/shared";
 import { NodeSelectionError, type NodeSelector, type SelectOpts } from "./node-tunnel/selector.js";
 import { TunnelOpenError, mapOpenError } from "./node-tunnel/mux.js";
 import type { LiveNode } from "./node-tunnel/registry.js";
@@ -23,6 +23,11 @@ export interface RelayRuntime {
    * same open, so an unreachable target (chosen by the requester) penalises no one.
    */
   onNodeFailure?: (nodeId: string, code: string) => void;
+  /**
+   * Admin kill switches (ADMIN_API.md §17). main.ts always wires the polled,
+   * fail-closed cache; when absent the process gate is used (fail closed in production).
+   */
+  killSwitches?: () => KillSwitchView;
 }
 
 const NODE_FAILURE_CODES: ReadonlySet<string> = new Set(["DIAL_FAIL", "DNS_FAIL", "TIMEOUT"]);
@@ -78,6 +83,16 @@ export function guardRelayStream(stream: Duplex, nodeId: string): void {
  */
 export async function openRelayStream(rt: RelayRuntime, opts: SelectOpts): Promise<RelayUpstream> {
   const start = Date.now();
+  // Admin kill switches (ADMIN_API.md §17): checked before any node is chosen.
+  // Without an injected view, fall back to the process gate (fails closed in production).
+  const ks = rt.killSwitches?.() ?? killSwitches();
+  const block = ks.checkRelay(opts.ipClass);
+  if (block) throw new RelayOpenError(block.status, block.code, block.message);
+  const paused = ks.pausedClasses();
+  const drained = ks.drainedNodeIds();
+  if (paused.length > 0 || drained.length > 0) {
+    opts = { ...opts, excludeIpClasses: paused, excludeNodeIds: [...(opts.excludeNodeIds ?? []), ...drained] };
+  }
   const failed: Array<{ nodeId: string; code: string }> = [];
   const r = await withNodeRetry<{ node: LiveNode; stream: Duplex }>(
     async (exclude) => {

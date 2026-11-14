@@ -32,6 +32,7 @@ const HealthPage = lazy(() => import("./admin/pages/HealthPage"));
 const AuditPage = lazy(() => import("./admin/pages/AuditPage"));
 const CollusionPage = lazy(() => import("./admin/pages/CollusionPage"));
 const LaunchPage = lazy(() => import("./admin/pages/LaunchPage"));
+const KillSwitchesPage = lazy(() => import("./admin/pages/KillSwitchesPage"));
 
 const page = (el: React.ReactNode) => <Suspense fallback={<Loading />}>{el}</Suspense>;
 
@@ -68,6 +69,7 @@ export default function App() {
         <Route path="health" element={page(<HealthPage />)} />
         <Route path="audit" element={page(<AuditPage />)} />
         <Route path="launch" element={page(<LaunchPage />)} />
+        <Route path="kill-switches" element={page(<KillSwitchesPage />)} />
         <Route path="*" element={<Navigate to="/admin" replace />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />

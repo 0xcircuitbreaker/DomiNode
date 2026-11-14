@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { userRepo, generateApiKey, sanitizeString, createLogger } from "@dominusnode/shared";
 import { requireAuth, type AuthenticatedRequest } from "../middleware/auth.js";
+import { refusedBySwitch } from "../helpers/kill-switch.js";
 
 const router = Router();
 const log = createLogger("api:keys");
@@ -12,6 +13,7 @@ router.use(requireAuth);
 // POST /api/keys — create new API key
 router.post("/", async (req, res) => {
   try {
+    if (refusedBySwitch(res, "api_keys")) return;
     const { userId } = (req as AuthenticatedRequest).user;
 
     // Check user is still active (JWT may outlive suspend by up to 15min)

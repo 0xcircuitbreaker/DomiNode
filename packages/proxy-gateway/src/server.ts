@@ -2,8 +2,8 @@ import * as crypto from "node:crypto";
 import * as http from "node:http";
 import * as https from "node:https";
 import * as net from "node:net";
-import { createLogger, planRepo, resolveRequestId, runWithRequestId, pqTlsOptions } from "@dominusnode/shared";
-import type { ExitClass } from "@dominusnode/shared";
+import { createLogger, killSwitches, planRepo, resolveRequestId, runWithRequestId, pqTlsOptions } from "@dominusnode/shared";
+import type { ExitClass, KillSwitchBlock } from "@dominusnode/shared";
 import { checkAgenticWalletPolicy } from "./wallet-policy.js";
 import type { Duplex } from "node:stream";
 import { authenticateRequest, type AuthResult } from "./auth.js";
@@ -116,6 +116,16 @@ function x402Binding(node: LiveNode, port: number, payer: string, stream: Duplex
       return rep ? BigInt(rep.bytesIn) + BigInt(rep.bytesOut) : null;
     },
   };
+}
+
+/**
+ * Kill switch for the per-request rails (ADMIN_API.md §17), checked BEFORE
+ * verification so a paused rail never charges the payer. X-PAYMENT = x402,
+ * otherwise the MPP credential.
+ */
+export function paidRailBlock(relay: RelayRuntime, h: http.IncomingHttpHeaders): KillSwitchBlock | null {
+  const ks = relay.killSwitches?.() ?? killSwitches();
+  return ks.checkRail(h["x-payment"] ? "x402" : "mpp");
 }
 
 function x402RelayUnavailableBody(): string {
@@ -332,6 +342,11 @@ async function handleRequest(
       return;
     }
     if (paidAttempt) {
+      const railBlock = paidRailBlock(relay, clientReq.headers);
+      if (railBlock) {
+        sendError(clientRes, railBlock.status, railBlock.code, railBlock.message, { "Retry-After": String(railBlock.retryAfterSec) });
+        return;
+      }
       // policy.allowAnonymousPayers: refuse BEFORE verification so the payer is never charged
       const anon = checkAnonymousPayer(relay.getPolicy());
       if (!anon.allowed) {
@@ -758,6 +773,11 @@ async function handleConnect(
       return;
     }
     if (paidAttempt) {
+      const railBlock = paidRailBlock(relay, req.headers);
+      if (railBlock) {
+        safeSocketWrite(clientSocket, `HTTP/1.1 503 Service Unavailable\r\nX-DominusNode-Error: ${railBlock.code}\r\nRetry-After: ${railBlock.retryAfterSec}\r\nConnection: close\r\n\r\n`);
+        return;
+      }
       const anon = checkAnonymousPayer(relay.getPolicy());
       if (!anon.allowed) {
         safeSocketWrite(clientSocket, `HTTP/1.1 ${anon.status} Forbidden\r\nX-DominusNode-Error: ${anon.code}\r\nConnection: close\r\n\r\n`);

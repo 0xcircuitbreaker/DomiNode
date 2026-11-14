@@ -2310,3 +2310,27 @@ CREATE TABLE IF NOT EXISTS gateway_heartbeats (
   instance_id  TEXT NOT NULL CHECK (length(instance_id) BETWEEN 1 AND 64),
   PRIMARY KEY (minute, instance_id)
 );
+
+-- ═══ feat/kill-switches: admin kill switches (idempotent) ═══
+-- One row per switch; engaged = new work of that kind is refused. Every change
+-- writes an audit_events row (kill_switch_set) in the same admin transaction.
+CREATE TABLE IF NOT EXISTS kill_switches (
+  key TEXT PRIMARY KEY CHECK (key IN ('relay','relay_residential','relay_mobile','relay_dc','relay_masked',
+    'signups','api_keys','payouts','rail_x402','rail_mpp','rail_tempo','rail_nowpayments')),
+  engaged BOOLEAN NOT NULL DEFAULT false,
+  reason TEXT CHECK (reason IS NULL OR length(reason) BETWEEN 1 AND 500),
+  updated_by UUID REFERENCES users(id) ON DELETE SET NULL,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+INSERT INTO kill_switches (key) VALUES
+  ('relay'),('relay_residential'),('relay_mobile'),('relay_dc'),('relay_masked'),
+  ('signups'),('api_keys'),('payouts'),('rail_x402'),('rail_mpp'),('rail_tempo'),('rail_nowpayments')
+ON CONFLICT (key) DO NOTHING;
+-- Drained nodes get no new sessions; open streams finish. Row deleted = undrained.
+CREATE TABLE IF NOT EXISTS node_drains (
+  node_id UUID PRIMARY KEY REFERENCES nodes(id) ON DELETE CASCADE,
+  reason TEXT NOT NULL CHECK (length(reason) BETWEEN 1 AND 500),
+  created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+-- ═══ end feat/kill-switches ═══

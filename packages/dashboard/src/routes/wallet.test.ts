@@ -13,7 +13,9 @@ const mockCreateCheckoutSession = vi.fn();
 const mockCreateCryptoInvoice = vi.fn();
 const mockFindUserById = vi.fn();
 
+const mockKillSwitches = vi.hoisted(() => vi.fn(() => ({ check: (): unknown => null, checkRail: (): unknown => null })));
 vi.mock("@dominusnode/shared", () => ({
+  killSwitches: () => mockKillSwitches(),
   walletRepo: {
     getWallet: (...args: unknown[]) => mockGetWallet(...args),
     getTransactions: (...args: unknown[]) => mockGetTransactions(...args),

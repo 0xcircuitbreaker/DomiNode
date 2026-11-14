@@ -294,3 +294,23 @@ export const collusionApi = {
   settings: () => get<CollusionSettings>(`${BASE}/collusion/settings`),
   updateSettings: (b: Record<string, unknown>) => put<CollusionSettings>(`${BASE}/collusion/settings`, b),
 };
+
+// ─── Kill switches (ADMIN_API.md §17) ───────────────────────────────
+export const KILL_SWITCH_KEYS = [
+  "relay", "relay_residential", "relay_mobile", "relay_dc", "relay_masked",
+  "signups", "api_keys", "payouts", "rail_x402", "rail_mpp", "rail_tempo", "rail_nowpayments",
+] as const;
+export type KillSwitchKey = (typeof KILL_SWITCH_KEYS)[number];
+export interface KillSwitch { key: KillSwitchKey; engaged: boolean; reason: string | null; updatedBy: string | null; updatedAt: string }
+export interface DrainedNode { nodeId: string; reason: string; createdBy: string | null; createdAt: string; status: NodeStatus | null; ipClass: IpClass | null; country: string | null }
+export interface KillSwitchState { pollIntervalMs: number; switches: KillSwitch[]; drainedNodes: Paged<DrainedNode> }
+
+export const killSwitchApi = {
+  state: (q: Q = {}) => get<KillSwitchState>(`${BASE}/kill-switches${qs(q)}`),
+  set: (key: KillSwitchKey, engaged: boolean, reason: string) =>
+    put<KillSwitch & { previous: boolean; changed: boolean; effectWithinMs: number }>(`${BASE}/kill-switches/${encodeURIComponent(key)}`, { engaged, reason }),
+  drain: (nodeId: string, reason: string) =>
+    post<{ nodeId: string; drained: boolean; changed: boolean }>(`${BASE}/nodes/${encodeURIComponent(nodeId)}/drain`, { reason }),
+  undrain: (nodeId: string, reason: string) =>
+    post<{ nodeId: string; drained: boolean; changed: boolean }>(`${BASE}/nodes/${encodeURIComponent(nodeId)}/undrain`, { reason }),
+};

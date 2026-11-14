@@ -18,6 +18,7 @@ import { createTempoRail, tempoConfigFromEnv } from "@dominusnode/billing";
 import { requireAuth, type AuthenticatedRequest } from "../middleware/auth.js";
 import { agentAwareRateLimit } from "../helpers/agent-rate-limit.js";
 import { requireAdmin } from "../middleware/admin.js";
+import { refusedByRail } from "../helpers/kill-switch.js";
 
 const router = Router();
 const log = createLogger("api:wallet");
@@ -136,6 +137,7 @@ router.post("/topup/stripe", requireAdmin, topupLimiter, async (req, res) => {
 // POST /api/wallet/topup/crypto
 router.post("/topup/crypto", topupLimiter, async (req, res) => {
   try {
+    if (refusedByRail(res, "nowpayments")) return;
     const { userId } = (req as AuthenticatedRequest).user;
 
     // Require email verification before accepting payments
@@ -196,6 +198,7 @@ router.post("/topup/crypto", topupLimiter, async (req, res) => {
 const tempoRail = createTempoRail(tempoConfigFromEnv());
 router.post("/topup/tempo", topupLimiter, async (req, res) => {
   try {
+    if (refusedByRail(res, "tempo")) return;
     if (!tempoConfigFromEnv()) {
       res.status(503).json({ error: "Tempo top-up is not available" });
       return;

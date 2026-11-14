@@ -62,6 +62,16 @@ data. Authenticated `GET /api/proxy/status` adds endpoints and session counts.
 - **Pagination:** list routes return `nextCursor` (`null` on the last page);
   pass it back as `?cursor=` (opaque). `limit`/`offset` still work; `offset` is
   ignored when `cursor` is given. A malformed cursor is `400 {code:"INVALID_CURSOR"}`.
+- **Operator pauses:** an admin kill switch refuses new work with `503`,
+  `Retry-After` and `X-DominusNode-Error`: `SIGNUPS_PAUSED` (new wallet account),
+  `API_KEYS_PAUSED` (new user/team key), `PAYOUTS_PAUSED` (withdraw + challenge),
+  `PAYMENT_RAIL_PAUSED` (Tempo / NOWPayments top-up; x402 / MPP on the gateway,
+  refused before the payment is verified, so nothing is charged). On the relay
+  gateway (HTTP header / SOCKS reply): `RELAY_PAUSED` (all new sessions) and
+  `EXIT_CLASS_PAUSED` (the requested `class-` is paused; unflagged requests just
+  skip paused classes). `KILL_SWITCH_UNAVAILABLE` means the service could not
+  read its control state and refuses all of the above until it can. Retry later;
+  work already in flight is not interrupted. See ADMIN_API.md §17.
 - **Rate limits (per user):** reads 120/min; mutations 30/h; signing challenges 30/h
   (plus at most 10 outstanding); reports 60/h. Over the limit: `429 {code:"RATE_LIMITED"}`.
 
