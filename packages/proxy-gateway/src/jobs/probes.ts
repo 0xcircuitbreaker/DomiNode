@@ -363,8 +363,13 @@ export interface ConnectProbeQueueOptions {
   maxQueued?: number;
   /** Min ms between connect probes of the same node (default 60 s). */
   minIntervalMs?: number;
-  /** Delay before probing a fresh connect, ms (default 2 s; random 0..delay added). */
+  /** Delay before probing a fresh connect, ms (default 2 s). */
   delayMs?: number;
+  /**
+   * Uniform random extra delay 0..jitterMs before a connect probe (default
+   * 30 s), so a node cannot predict which early stream is the probe.
+   */
+  jitterMs?: number;
   /**
    * Backoff before re-probing a node that is still pending after a probe that
    * did not classify it (error, inconclusive without an egress IP, skipped
@@ -394,7 +399,11 @@ export class ConnectProbeQueue {
   private readonly maxQueued: number;
   private readonly minIntervalMs: number;
   private readonly delayMs: number;
+  private readonly jitterMs: number;
   private readonly retryDelaysMs: number[];
+  /** Pending nodes waiting on a backoff timer because the queue was full. */
+  private overflow = new Set<string>();
+  private dropped = 0;
   private attempts = new Map<string, number>();
   private readonly now: () => number;
 
@@ -403,6 +412,7 @@ export class ConnectProbeQueue {
     this.maxQueued = Math.max(1, o.maxQueued ?? 1000);
     this.minIntervalMs = Math.max(0, o.minIntervalMs ?? 60_000);
     this.delayMs = Math.max(0, o.delayMs ?? 2_000);
+    this.jitterMs = Math.max(0, o.jitterMs ?? 30_000);
     const rd = (o.retryDelaysMs ?? [30_000, 60_000, 120_000, 300_000]).map((x) => Math.max(0, x));
     this.retryDelaysMs = rd.length > 0 ? rd : [300_000];
     this.now = o.now ?? Date.now;
@@ -416,7 +426,17 @@ export class ConnectProbeQueue {
     // The min interval bounds reconnect floods of verified nodes; a pending
     // node serves nothing until probed, so it is never rate-limited here.
     if (last !== undefined && t - last < this.minIntervalMs && node.isPending?.() !== true) return false;
-    if (this.queue.length >= this.maxQueued) return false;
+    if (this.queue.length >= this.maxQueued) {
+      // A pending node serves nothing until probed: never drop it, back off
+      // (bounded, jittered) until the queue drains. Verified nodes are dropped.
+      if (node.isPending?.() === true && !this.overflow.has(node.nodeId)) {
+        this.overflow.add(node.nodeId);
+        this.scheduleRetry(node);
+        return true;
+      }
+      this.dropped++;
+      return false;
+    }
     if (this.lastProbe.size >= 100_000) {
       for (const [k, v] of this.lastProbe) if (t - v >= this.minIntervalMs) this.lastProbe.delete(k);
       if (this.lastProbe.size >= 100_000) return false;
@@ -424,11 +444,11 @@ export class ConnectProbeQueue {
     this.lastProbe.set(node.nodeId, t);
     this.queued.add(node.nodeId);
     this.queue.push(node);
-    if (this.delayMs > 0) {
+    if (this.delayMs > 0 || this.jitterMs > 0) {
       const timer = setTimeout(() => {
         this.timers.delete(timer);
         this.pump();
-      }, this.delayMs + crypto.randomInt(this.delayMs + 1));
+      }, this.delayMs + (this.jitterMs > 0 ? crypto.randomInt(this.jitterMs + 1) : 0));
       timer.unref?.();
       this.timers.add(timer);
     } else this.pump();
@@ -439,10 +459,18 @@ export class ConnectProbeQueue {
     return this.queue.length + this.active;
   }
 
+  /** Backlog metric: queued, in flight, overflow (pending nodes backing off), dropped (verified, queue full). */
+  stats(): { queued: number; active: number; overflow: number; dropped: number } {
+    return { queued: this.queue.length, active: this.active, overflow: this.overflow.size, dropped: this.dropped };
+  }
+
   /** Drain without the start delay (tests). */
   pump(): void {
     while (!this.stopped && this.active < this.concurrency && this.queue.length > 0) {
-      const node = this.queue.shift()!;
+      // Fair order: pending nodes (serving nothing) before re-verification of
+      // already classified ones, FIFO within each group.
+      const pi = this.queue.findIndex((n) => n.isPending?.() === true);
+      const node = this.queue.splice(pi >= 0 ? pi : 0, 1)[0]!;
       this.active++;
       const run = this.deps.isHealthy && !this.deps.isHealthy()
         ? Promise.resolve<ProbeVerdict>("error")
@@ -463,21 +491,27 @@ export class ConnectProbeQueue {
     if (this.stopped) return;
     if (node.isPending?.() !== true) {
       this.attempts.delete(node.nodeId);
+      this.overflow.delete(node.nodeId);
       return;
     }
     const n = this.attempts.get(node.nodeId) ?? 0;
     if (!this.attempts.has(node.nodeId) && this.attempts.size >= 100_000) return; // periodic job still covers it
     this.attempts.set(node.nodeId, n + 1);
-    const delay = this.retryDelaysMs[Math.min(n, this.retryDelaysMs.length - 1)]!;
+    const baseDelay = this.retryDelaysMs[Math.min(n, this.retryDelaysMs.length - 1)]!;
+    // +/-25% jitter: retries of a reconnect wave spread out and are not predictable.
+    const spread = Math.floor(baseDelay / 4);
+    const delay = spread > 0 ? baseDelay - spread + crypto.randomInt(2 * spread + 1) : baseDelay;
     const timer = setTimeout(() => {
       this.timers.delete(timer);
       if (this.stopped) return;
       if (node.isPending?.() !== true) {
         this.attempts.delete(node.nodeId);
+        this.overflow.delete(node.nodeId);
         return;
       }
       if (this.queued.has(node.nodeId)) return;
       if (this.queue.length >= this.maxQueued) return this.scheduleRetry(node);
+      this.overflow.delete(node.nodeId);
       this.queued.add(node.nodeId);
       this.lastProbe.set(node.nodeId, this.now());
       this.queue.push(node);
@@ -494,6 +528,7 @@ export class ConnectProbeQueue {
     this.timers.clear();
     this.queue = [];
     this.queued.clear();
+    this.overflow.clear();
   }
 }
 

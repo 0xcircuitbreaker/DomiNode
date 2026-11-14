@@ -436,6 +436,8 @@ export interface VerifiedClassOptions {
   probeClass?: NodeIpClass;
   /** Connect-time class (tunnel peer IP); a verified class below it also raises the flag. */
   connectClass?: NodeIpClass | null;
+  /** Open the egress_mismatch flag regardless of class (e.g. probe egress country differs from the tunnel IP's). */
+  forceFlag?: boolean;
 }
 
 export async function recordVerifiedClass(nodeId: string, verified: NodeIpClass, opts: VerifiedClassOptions = {}): Promise<VerifiedClassResult> {
@@ -464,7 +466,7 @@ export async function recordVerifiedClass(nodeId: string, verified: NodeIpClass,
     );
     // Flag when the verified class is below the declared class OR below the
     // connect-time class (catches nodes that never declared a class).
-    const flagged = isClassDowngrade(row.declared_class, verified) || isClassDowngrade(opts.connectClass ?? null, verified);
+    const flagged = isClassDowngrade(row.declared_class, verified) || isClassDowngrade(opts.connectClass ?? null, verified) || opts.forceFlag === true;
     if (flagged) {
       await client.query(
         `INSERT INTO collusion_flags (kind, owner_user_id, node_id, share_bps, volume_musd, total_musd, window_days)

@@ -21,7 +21,7 @@
  */
 import * as fs from "node:fs";
 import * as net from "node:net";
-import { conservativeClass, isClassDowngrade, type NodeIpClass } from "@dominusnode/shared";
+import { conservativeClass, isBlockedCountry, isClassDowngrade, type NodeIpClass } from "@dominusnode/shared";
 import { ACCESS_ASNS, HOSTING_ASNS, type AsnDb } from "./asn-db.js";
 
 /** Built-in anonymizer ASNs (offline-safe default; mirrors data/anonymizer-asns.json v1). */
@@ -272,17 +272,24 @@ export interface VerifiableNode {
   egressVerifiedAt?: number;
   /** True until the first probe on this connection classifies it (not selectable meanwhile). */
   probePending?: boolean;
+  /** Country of the tunnel peer IP (what the node is sold under). */
+  country?: string | null;
 }
 
 export interface EgressVerifierDeps {
   getNode(nodeId: string): VerifiableNode | null | undefined;
-  classify(ip: string): { ipClass: NodeIpClass };
+  classify(ip: string): { ipClass: NodeIpClass; country?: string | null };
   /**
    * Persist the verified class and the raw probe verdict, and raise the
    * egress_mismatch flag when it is below the declared or connect-time class
    * (nodeRepo.recordVerifiedClass).
    */
-  record(nodeId: string, cls: NodeIpClass, opts: { probeClass: NodeIpClass; connectClass: NodeIpClass | null }): Promise<unknown>;
+  record(nodeId: string, cls: NodeIpClass, opts: { probeClass: NodeIpClass; connectClass: NodeIpClass | null; forceFlag?: boolean }): Promise<unknown>;
+  /**
+   * Quarantine a node whose probed egress is in a sanctioned (OFAC) country.
+   * Without it the node is still made unselectable ("unknown", flagged).
+   */
+  quarantine?: (nodeId: string, reason: string) => Promise<unknown>;
   /** Called when the class drops below the previous one (end in-flight sessions above it). */
   onDowngrade?: (nodeId: string, from: NodeIpClass, to: NodeIpClass) => Promise<unknown> | void;
   now?: () => number;
@@ -302,10 +309,21 @@ export function makeEgressVerifier(d: EgressVerifierDeps): (nodeId: string, egre
   return async (nodeId, egressIp) => {
     const live = d.getNode(nodeId);
     if (!live) return null;
-    const observed = d.classify(egressIp).ipClass;
+    const verdict = d.classify(egressIp);
+    const observed = verdict.ipClass;
     const first = live.egressVerifiedAt === undefined;
     const base = first ? (live.connectClass ?? live.peerClass ?? live.ipClass) : live.ipClass;
-    const next = conservativeClass(base, observed);
+    let next = conservativeClass(base, observed);
+    // Country check: the node is sold under its tunnel IP's country, so a
+    // probe egress elsewhere (or in a sanctioned country) must not serve.
+    const egressCc = verdict.country ? verdict.country.toUpperCase() : null;
+    const liveCc = live.country ? live.country.toUpperCase() : null;
+    const sanctioned = egressCc !== null && isBlockedCountry(egressCc);
+    const countryMismatch = egressCc !== null && liveCc !== null && egressCc !== liveCc;
+    if (sanctioned || countryMismatch) {
+      next = "unknown"; // never matches a class-* or country-* request
+      d.logger?.warn("node egress country mismatch", { nodeId, sanctioned, egressCountry: egressCc, tunnelCountry: liveCc });
+    }
     live.egressVerifiedAt = now();
     live.probePending = false;
     const prev = live.ipClass;
@@ -320,7 +338,14 @@ export function makeEgressVerifier(d: EgressVerifierDeps): (nodeId: string, egre
         /* sessions still end at max age */
       }
     }
-    await d.record(nodeId, next, { probeClass: observed, connectClass: live.peerClass ?? null });
+    if (sanctioned && d.quarantine) {
+      try {
+        await d.quarantine(nodeId, "sanctioned_egress_country");
+      } catch {
+        /* class is already "unknown"; retried on the next probe */
+      }
+    }
+    await d.record(nodeId, next, { probeClass: observed, connectClass: live.peerClass ?? null, ...(sanctioned || countryMismatch ? { forceFlag: true } : {}) });
     return next;
   };
 }

@@ -15,7 +15,7 @@ import { NodeRegistry, type LiveNode } from "./node-tunnel/registry.js";
 import { NodeSelector, etld1 } from "./node-tunnel/selector.js";
 import { loadCoordSigner } from "./node-tunnel/coord-key.js";
 import { NodeTunnelServer } from "./node-tunnel/server.js";
-import { checkGatewayEnv } from "./env-check.js";
+import { checkGatewayEnv, gatewayEnvWarnings } from "./env-check.js";
 import { startSocks5Server } from "./socks5.js";
 import { loadProxyTls, parseRequireTls, createPlaintextAuthGuard, watchProxyTlsCert, type ReloadableTlsServer } from "./proxy-tls.js";
 import { envInt, setJobRunRecorder, JOB_RUN_UPSERT_SQL, type Job, type JobLogger, type LockPool } from "./jobs/runner.js";
@@ -72,6 +72,7 @@ process.on("unhandledRejection", (reason) => {
     for (const e of envErrors) log.error(`startup validation failed: ${e}`);
     throw new Error(`Environment validation failed: ${envErrors.join("; ")}`);
   }
+  for (const w of gatewayEnvWarnings(process.env)) log.warn(`startup check: ${w}`);
 }
 // All five listener ports come from one reader (validated above).
 const ports = getProxyPorts(process.env);
@@ -113,6 +114,10 @@ function releasePending(registry: NodeRegistry): number {
 
 /** Probe deps shared by the periodic job and the per-connect queue. */
 function makeProbeDeps(registry: NodeRegistry, targets: probesJob.ProbeTarget[], logger: JobLogger): Omit<probesJob.ProbeDeps, "listNodes"> {
+  const quarantine = async (nodeId: string, reason: string): Promise<void> => {
+    await nodeRepo.setStatus(nodeId, "quarantined", ["active", "pending", "cooldown"]);
+    registry.get(nodeId)?.tunnel.close(`probe: ${reason}`);
+  };
   return {
     targets,
     timeoutMs: envInt(process.env, "PROBE_TIMEOUT_MS", 10_000, 1000, 60_000),
@@ -121,12 +126,10 @@ function makeProbeDeps(registry: NodeRegistry, targets: probesJob.ProbeTarget[],
       classify: classifyEgressIp,
       record: nodeRepo.recordVerifiedClass,
       onDowngrade: (nodeId, _from, to) => terminateNodeSessionsAbove(nodeId, to),
+      quarantine,
       logger,
     }),
-    quarantine: async (nodeId, reason) => {
-      await nodeRepo.setStatus(nodeId, "quarantined", ["active", "pending", "cooldown"]);
-      registry.get(nodeId)?.tunnel.close(`probe: ${reason}`);
-    },
+    quarantine,
     logger,
   };
 }
@@ -185,9 +188,19 @@ async function main(): Promise<void> {
       {
         concurrency: envInt(process.env, "PROBE_CONNECT_CONCURRENCY", 4, 1, 64),
         minIntervalMs: envInt(process.env, "PROBE_CONNECT_MIN_INTERVAL_MS", 60_000, 0, 3_600_000),
+        maxQueued: envInt(process.env, "PROBE_CONNECT_MAX_QUEUED", 1000, 1, 100_000),
+        jitterMs: envInt(process.env, "PROBE_CONNECT_JITTER_MS", 30_000, 0, 600_000),
       },
     )
     : null;
+  if (connectProbes) {
+    // Backlog metric: a mass reconnect shows up here instead of silently starving verification.
+    const backlogTimer = setInterval(() => {
+      const st = connectProbes.stats();
+      if (st.queued + st.overflow > 0 || st.dropped > 0) log.warn("connect probe backlog", st);
+    }, 60_000);
+    backlogTimer.unref();
+  }
   const tunnelServer = new NodeTunnelServer(registry, {
     coordSign: coordSigner?.sign,
     getNodeForTunnelAuth: nodeRepo.getNodeForTunnelAuth,
