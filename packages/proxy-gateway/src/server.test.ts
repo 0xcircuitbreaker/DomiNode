@@ -42,6 +42,7 @@ const x402Pending = { state: "verified" };
 let mppChallengeHeaders: Record<string, string> = {};
 const x402Data = { pending: x402Pending, payer: X402_PAYER, userId: "x402-user", amountUsd: "0.005243", amountMusd: 5243n, pricePerGbMusd: 500000n, facilitator: "coinbase", poolType: "residential", maxResponseBytes: 10_485_760 };
 
+const mockRailsOffered = vi.fn(() => false);
 vi.mock("./x402-handler.js", () => ({
   toX402Class: (c?: string | null) => (c === "residential" || c === "dc" || c === "mobile" ? c : "any"),
   selectClassFor: (c: string) => (c === "any" ? undefined : c),
@@ -58,9 +59,12 @@ vi.mock("./x402-handler.js", () => ({
   settleX402Pending: (...a: unknown[]) => mockSettlePending(...a),
   releaseX402Pending: (...a: unknown[]) => mockReleasePending(...a),
   refundX402Payer: (...a: unknown[]) => mockRefundPayer(...a),
+  getPoolTypeFromRequest: () => "any",
+  paymentRailsOffered: () => mockRailsOffered(),
 }));
 
-vi.mock("./auth.js", () => ({
+vi.mock("./auth.js", async (orig) => ({
+  parseProxyOptions: ((await orig()) as { parseProxyOptions: unknown }).parseProxyOptions,
   authenticateRequest: (...args: unknown[]) => mockAuthenticateRequest(...args),
 }));
 
@@ -128,7 +132,7 @@ vi.mock("@dominusnode/shared", async (importOriginal) => ({
   },
 }));
 
-import { startProxyServer, paidRailBlock } from "./server.js";
+import { startProxyServer, paidRailBlock, mppRailBlockAfterVerify } from "./server.js";
 import { KillSwitchView } from "@dominusnode/shared";
 import { NodeSelectionError } from "./node-tunnel/selector.js";
 import { TunnelOpenError } from "./node-tunnel/mux.js";
@@ -307,6 +311,35 @@ describe("proxy-gateway server", () => {
       });
       expect(res.status).toBe(407);
       expect(res.headers["proxy-authenticate"]).toContain("Basic");
+    });
+
+    it("answers 402 with payment requirements (not 407) to a credential-less request when a rail is offered", async () => {
+      mockAuthenticateRequest.mockResolvedValue(null);
+      mockRailsOffered.mockReturnValue(true);
+      try {
+        const res = await makeRequest(port, { path: "http://httpbin.org/ip", method: "GET" });
+        expect(res.status).toBe(402);
+        expect(res.headers["proxy-authenticate"]).toContain("Basic");
+        expect(mockRecordAuthFailure).not.toHaveBeenCalled();
+        expect(mockX402Http).not.toHaveBeenCalled();
+      } finally {
+        mockRailsOffered.mockReturnValue(false);
+      }
+    });
+
+    it("never verifies a payment for a malformed target (MPP transfer not consumed)", async () => {
+      mockAuthenticateRequest.mockResolvedValue(null);
+      const res = await makeRequest(port, { path: "/origin-form", method: "GET", headers: { Authorization: "Payment eyJ4IjoxfQ" } });
+      expect(res.status).toBe(400);
+      expect(res.body).toContain("absolute http:// URL");
+      expect(mockX402Http).not.toHaveBeenCalled();
+    });
+
+    it("refuses a paid plain-http POST before verification", async () => {
+      mockAuthenticateRequest.mockResolvedValue(null);
+      const res = await makeRequest(port, { path: "http://httpbin.org/post", method: "POST", headers: { Authorization: "Payment eyJ4IjoxfQ" } });
+      expect(res.status).toBe(405);
+      expect(mockX402Http).not.toHaveBeenCalled();
     });
 
     it("should return 403 when client is from sanctioned country", async () => {
@@ -752,6 +785,19 @@ describe("proxy-gateway server", () => {
       res.socket.destroy();
     });
 
+    it("answers 402 to a credential-less CONNECT when a rail is offered", async () => {
+      mockAuthenticateRequest.mockResolvedValue(null);
+      mockRailsOffered.mockReturnValue(true);
+      try {
+        const res = await makeConnect(port, "example.com:443");
+        expect(res.status).toBe(402);
+        expect(mockRecordAuthFailure).not.toHaveBeenCalled();
+        res.socket.destroy();
+      } finally {
+        mockRailsOffered.mockReturnValue(false);
+      }
+    });
+
     it("should return 403 on CONNECT from sanctioned country", async () => {
       mockCheckSanctionedCountry.mockReturnValue("CU");
       const res = await makeConnect(port, "example.com:443");
@@ -1050,8 +1096,11 @@ describe("paidRailBlock (x402 / MPP kill switches)", () => {
     expect(paidRailBlock(relayWith(["rail_x402"]), { "x-payment": "abc" })?.code).toBe("PAYMENT_RAIL_PAUSED");
     expect(paidRailBlock(relayWith(["rail_x402"]), { authorization: "Payment x" })).toBeNull();
   });
-  it("refuses a paused MPP rail", () => {
-    expect(paidRailBlock(relayWith(["rail_mpp"]), { authorization: "Payment x" })?.code).toBe("PAYMENT_RAIL_PAUSED");
+  it("does not refuse a push-paid MPP credential unverified; refuses it after verify so it is refunded", () => {
+    expect(paidRailBlock(relayWith(["rail_mpp"]), { authorization: "Payment x" })).toBeNull();
+    const req = { __x402: { rail: "mpp" } } as never;
+    expect(mppRailBlockAfterVerify(relayWith(["rail_mpp"]), req)?.code).toBe("PAYMENT_RAIL_PAUSED");
+    expect(mppRailBlockAfterVerify(relayWith([]), req)).toBeNull();
   });
   it("fails closed when switch state is unreadable", () => {
     expect(paidRailBlock(relayWith(null), { "x-payment": "abc" })?.code).toBe("KILL_SWITCH_UNAVAILABLE");

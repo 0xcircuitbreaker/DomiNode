@@ -338,9 +338,14 @@ export async function requestWithdraw(req: WithdrawRequest): Promise<{ payout: N
 
 /** Mark a payout confirmed on-chain. Idempotent for the same tx hash. */
 export async function markPayoutConfirmed(payoutId: string, txHash: string): Promise<NodePayout> {
+  return withTx((client) => markPayoutConfirmedTx(client, payoutId, txHash));
+}
+
+/** markPayoutConfirmed in the caller's transaction (admin reconciliation + audit). */
+export async function markPayoutConfirmedTx(client: TxClient, payoutId: string, txHash: string): Promise<NodePayout> {
   const hash = typeof txHash === "string" ? txHash.toLowerCase() : "";
   if (!TX_HASH_RE.test(hash)) throw new Error("Invalid tx hash");
-  return withTx(async (client) => {
+  {
     const r = await client.query<NpRow>(`SELECT ${NP_COLS} FROM node_payouts WHERE id = $1 FOR UPDATE`, [payoutId]);
     const p = r.rows[0];
     if (!p) throw new Error("Payout not found");
@@ -349,6 +354,7 @@ export async function markPayoutConfirmed(payoutId: string, txHash: string): Pro
       throw new Error("Payout already confirmed with a different tx hash");
     }
     if (p.status !== "pending" && p.status !== "submitted") throw new Error(`Cannot confirm payout in status ${p.status}`);
+    if (p.tx_hash && p.tx_hash !== hash) throw new Error("Confirmation tx hash does not match payout");
     const u = await client.query<NpRow>(
       `UPDATE node_payouts SET status = 'confirmed', tx_hash = $2, updated_at = now() WHERE id = $1 RETURNING ${NP_COLS}`,
       [payoutId, hash],
@@ -363,7 +369,7 @@ export async function markPayoutConfirmed(payoutId: string, txHash: string): Pro
       );
     }
     return mapNp(u.rows[0]);
-  });
+  }
 }
 
 /**
@@ -374,12 +380,19 @@ export async function markPayoutConfirmed(payoutId: string, txHash: string): Pro
 export async function markPayoutFailed(
   payoutId: string, evidence: { txHash: string; outcome: "dropped" | "reverted"; detail?: string },
 ): Promise<NodePayout> {
+  return withTx((client) => markPayoutFailedTx(client, payoutId, evidence));
+}
+
+/** markPayoutFailed in the caller's transaction (admin reconciliation + audit). */
+export async function markPayoutFailedTx(
+  client: TxClient, payoutId: string, evidence: { txHash: string; outcome: "dropped" | "reverted"; detail?: string },
+): Promise<NodePayout> {
   const hash = typeof evidence?.txHash === "string" ? evidence.txHash.toLowerCase() : "";
   if (!TX_HASH_RE.test(hash)) throw new Error("Invalid tx hash");
   if (evidence.outcome !== "dropped" && evidence.outcome !== "reverted") throw new Error("Invalid failure outcome");
   const detail = typeof evidence.detail === "string" ? evidence.detail.slice(0, 120) : "";
   const reason = `tx ${evidence.outcome}${detail ? `: ${detail}` : ""}`.slice(0, 200);
-  return withTx(async (client) => {
+  {
     const r = await client.query<NpRow>(`SELECT ${NP_COLS} FROM node_payouts WHERE id = $1 FOR UPDATE`, [payoutId]);
     const p = r.rows[0];
     if (!p) throw new Error("Payout not found");
@@ -392,7 +405,7 @@ export async function markPayoutFailed(
       [payoutId, hash, reason],
     );
     return mapNp(u.rows[0]);
-  });
+  }
 }
 
 /**
@@ -514,13 +527,14 @@ export async function claimPayoutForSend(payoutId: string): Promise<boolean> {
 }
 
 /** Record the broadcast tx hash on a claimed payout (only once). */
-export async function recordPayoutTx(payoutId: string, txHash: string): Promise<boolean> {
+export async function recordPayoutTx(payoutId: string, txHash: string, nonce?: number): Promise<boolean> {
   const hash = typeof txHash === "string" ? txHash.toLowerCase() : "";
   if (!TX_HASH_RE.test(hash)) throw new Error("Invalid tx hash");
+  const n = nonce !== undefined && Number.isSafeInteger(nonce) && nonce >= 0 ? nonce : null;
   const r = await query(
-    `UPDATE node_payouts SET tx_hash = $2, updated_at = now()
+    `UPDATE node_payouts SET tx_hash = $2, tx_nonce = $3, updated_at = now()
      WHERE id = $1 AND status = 'submitted' AND tx_hash IS NULL`,
-    [payoutId, hash],
+    [payoutId, hash, n],
   );
   return (r.rowCount ?? 0) === 1;
 }
@@ -547,11 +561,29 @@ export async function blockWalletForSanctions(payoutWalletId: string, userId: st
 }
 
 /** Submitted payouts with a broadcast tx awaiting a final receipt (reconciled each run). */
-export async function listSubmittedPayouts(limit = PAYOUT_JOB_LIMIT): Promise<{ id: string; txHash: string }[]> {
-  const r = await query<{ id: string; tx_hash: string }>(
-    `SELECT id, tx_hash FROM node_payouts WHERE status = 'submitted' AND tx_hash IS NOT NULL
+export async function listSubmittedPayouts(limit = PAYOUT_JOB_LIMIT): Promise<{ id: string; txHash: string; nonce?: number }[]> {
+  const r = await query<{ id: string; tx_hash: string; tx_nonce: string | null }>(
+    `SELECT id, tx_hash, tx_nonce FROM node_payouts WHERE status = 'submitted' AND tx_hash IS NOT NULL
      ORDER BY updated_at LIMIT $1`,
     [lim1000(limit)],
   );
-  return r.rows.map((x) => ({ id: x.id, txHash: x.tx_hash }));
+  return r.rows.map((x) => ({ id: x.id, txHash: x.tx_hash, ...(x.tx_nonce !== null ? { nonce: Number(x.tx_nonce) } : {}) }));
+}
+
+/** Minutes after which a 'submitted' payout with no tx hash counts as stranded. */
+export const STRANDED_PAYOUT_MINUTES = 30;
+
+/**
+ * Payouts claimed for send whose tx hash was never recorded (crash or DB error
+ * between claim and broadcast). No job resolves these: an admin checks the
+ * hot wallet on chain and confirms or fails each one.
+ */
+export async function listStrandedPayouts(limit = PAYOUT_JOB_LIMIT): Promise<{ id: string; userId: string | null; amountMusd: bigint; updatedAt: Date }[]> {
+  const r = await query<{ id: string; user_id: string | null; amount_musd: string; updated_at: Date }>(
+    `SELECT id, user_id, amount_musd, updated_at FROM node_payouts
+     WHERE status = 'submitted' AND tx_hash IS NULL AND updated_at < now() - make_interval(mins => $2)
+     ORDER BY updated_at LIMIT $1`,
+    [lim1000(limit), STRANDED_PAYOUT_MINUTES],
+  );
+  return r.rows.map((x) => ({ id: x.id, userId: x.user_id, amountMusd: BigInt(x.amount_musd), updatedAt: x.updated_at }));
 }

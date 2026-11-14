@@ -17,6 +17,8 @@ const mockGetBalance = vi.fn();
 const mockEnqueueRetry = vi.fn();
 const mockReserveAgentic = vi.fn();
 const mockReleaseAgentic = vi.fn();
+const mockReleaseAgenticSession = vi.fn();
+const mockAttachRecovery = vi.fn();
 const SNAPSHOT = { splitConfigId: 1, tierId: 1, nodeShareBps: 2500, holdDays: 14 };
 const RELAY = { nodeId: "node-1", ipClass: "residential" as const, nodeOwnerUserId: "owner-1", destPort: 443 };
 
@@ -31,7 +33,9 @@ vi.mock("@dominusnode/shared", () => ({
     reserveSessionBudget: (...args: unknown[]) => mockReserveAgentic(...args),
     releaseSessionBudget: (...args: unknown[]) => mockReleaseAgentic(...args),
     recordSessionReservation: async () => undefined,
+    releaseSessionReservation: (...args: unknown[]) => mockReleaseAgenticSession(...args),
   },
+  sessionRecoveryRepo: { attachRecoveryPayload: (...args: unknown[]) => mockAttachRecovery(...args) },
   usageRepo: {
     createRelaySession: (...args: unknown[]) => mockCreateSession(...args),
     endSession: (...args: unknown[]) => mockEndSessionRepo(...args),
@@ -64,7 +68,7 @@ vi.mock("./balance-check.js", () => ({
   invalidateBalanceCache: vi.fn(),
 }));
 
-import { startSession, endSession, getActiveSessionCount, checkSessionRateLimit, checkBandwidthVelocity, recordBandwidthUsage, reservationCentsFor, maxBytesForReservation, startPrepaidSession, maxBytesForPrepaid, abortPrepaidSession, awaitInFlightSettlements, getInFlightSettlementCount } from "./session-manager.js";
+import { configureSessionRecovery, startSession, endSession, getActiveSessionCount, checkSessionRateLimit, checkBandwidthVelocity, recordBandwidthUsage, reservationCentsFor, maxBytesForReservation, startPrepaidSession, maxBytesForPrepaid, abortPrepaidSession, awaitInFlightSettlements, getInFlightSettlementCount } from "./session-manager.js";
 import type { ByteCounter } from "./counting-stream.js";
 import { enforcePolicy, _resetPolicyEnforcer, getRequesterInflightSpend, getRequesterSpend } from "./policy-enforcer.js";
 const BYTES_PER_GB = 1_000_000_000;
@@ -154,6 +158,22 @@ describe("proxy-gateway/session-manager", () => {
       await expect(startSession("user-ag3", "example.com", makeCounter(), 0, RELAY, undefined, false, null, true, "aw-3")).rejects.toThrow("db down");
       expect(mockReleaseAgentic).toHaveBeenCalledWith("aw-3", 30);
       expect(mockReserveBalance).not.toHaveBeenCalled();
+    });
+
+    it("returns an agentic reservation to the agentic wallet (never the personal wallet) when the recovery payload cannot be stored", async () => {
+      configureSessionRecovery("inst-1");
+      try {
+        mockReserveAgentic.mockResolvedValueOnce(30);
+        mockCreateSession.mockResolvedValueOnce({ id: "sess-ag4" });
+        mockAttachRecovery.mockRejectedValueOnce(new Error("statement timeout"));
+        await expect(startSession("user-ag4", "example.com", makeCounter(), 0, RELAY, undefined, false, null, true, "aw-4")).rejects.toThrow("statement timeout");
+        // one statement: cents back + reservation row deleted (sweeper cannot release it again)
+        expect(mockReleaseAgenticSession).toHaveBeenCalledWith("aw-4", "sess-ag4", 30);
+        expect(mockReleaseReservation).not.toHaveBeenCalled();
+        expect(mockEndSessionRepo).toHaveBeenCalledWith("sess-ag4", 0, "error");
+      } finally {
+        configureSessionRecovery(null);
+      }
     });
   });
 

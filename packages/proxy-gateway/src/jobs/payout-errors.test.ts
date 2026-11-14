@@ -86,13 +86,20 @@ describe("dropped transaction detection", () => {
     expect(confirmDropped(m, TX, true, 2 * DROP_CONFIRM_MS + 1)).toBe(true);
   });
 
+  it("reconciliation passes the persisted nonce so dropped detection survives a restart", async () => {
+    const waitForReceipt = vi.fn(async () => "pending" as const);
+    const d = deps({ listDue: async () => [], listSubmitted: async () => [{ id: "s0", txHash: "0xa", nonce: 42 }], sender: { send: vi.fn(), waitForReceipt } });
+    await payouts.runOnce(d);
+    expect(waitForReceipt).toHaveBeenCalledWith("0xa", payouts.RECONCILE_RECEIPT_TIMEOUT_MS, 42);
+  });
+
   it("reconciliation reverses dropped payouts and checks submitted ones in parallel with a short timeout", async () => {
     const waitForReceipt = vi.fn(async (h: string) => (h === "0xdrop" ? "dropped" : "pending"));
     const subs = Array.from({ length: 12 }, (_, i) => ({ id: `s${i}`, txHash: i === 0 ? "0xdrop" : `0x${i}` }));
     const d = deps({ listDue: async () => [], listSubmitted: async () => subs, sender: { send: vi.fn(), waitForReceipt } });
     const r = await payouts.runOnce(d);
     expect(waitForReceipt).toHaveBeenCalledTimes(12);
-    expect(waitForReceipt).toHaveBeenCalledWith("0xdrop", payouts.RECONCILE_RECEIPT_TIMEOUT_MS);
+    expect(waitForReceipt).toHaveBeenCalledWith("0xdrop", payouts.RECONCILE_RECEIPT_TIMEOUT_MS, undefined);
     expect(d.markFailed).toHaveBeenCalledWith("s0", { txHash: "0xdrop", outcome: "dropped" });
     expect(d.markReversed).toHaveBeenCalledWith("s0", "tx dropped");
     expect(r.reversed).toBe(1);

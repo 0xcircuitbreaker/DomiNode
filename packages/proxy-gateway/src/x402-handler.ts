@@ -1,7 +1,7 @@
 import * as http from "node:http";
 import * as net from "node:net";
 import { parseProxyOptions } from "./auth.js";
-import { createLogger, userRepo, policyRepo, walletRepo, payerRefundRepo, RELAY_BYTES_PER_GB, DEFAULT_PRICE_PER_GB_MUSD, isExitClass, type ExitClass } from "@dominusnode/shared";
+import { createLogger, killSwitches, userRepo, policyRepo, walletRepo, payerRefundRepo, RELAY_BYTES_PER_GB, DEFAULT_PRICE_PER_GB_MUSD, isExitClass, type ExitClass } from "@dominusnode/shared";
 import {
   isX402Enabled,
   buildX402Requirements,
@@ -291,7 +291,7 @@ export async function releaseX402Pending(p: X402Pending | undefined, reason = "r
 
 /**
  * MPP push payments are final once verified: never drop the claim. Keep it as
- * 'refund_due', credit floor(musd / 10000) cents to the payer's wallet-identity
+ * 'refund_due', refund the µUSD to the payer's wallet-identity
  * user (when known and allowed), and record what was owed and credited.
  */
 async function refundMppClaim(payHash: string, userId: string | null, musd: bigint, reason: string): Promise<void> {
@@ -303,20 +303,22 @@ async function refundMppClaim(payHash: string, userId: string | null, musd: bigi
 /** Credit an MPP payer for money already received, and record it on the claim. */
 async function creditMppPayer(payHash: string, userId: string | null, musd: bigint, reason: string, closeClaim: boolean): Promise<void> {
   const rail = getMppRail();
-  const cents = Number(musd / 10_000n);
   let credited = 0;
-  if (userId && cents > 0) {
+  let fullyCredited = false;
+  if (userId && musd > 0n) {
     try {
       if (!(await walletRepo.getWallet(userId))) await walletRepo.createWallet(userId).catch(() => undefined);
-      await walletRepo.creditWallet(userId, cents, "mpp", `mpp-${closeClaim ? "refund" : "excess"}:${payHash}`, `mpp refund: ${reason.slice(0, 80)}`);
-      credited = cents;
+      // µUSD precision: per-request quotes are below one cent (refundWalletMusd).
+      const r = await walletRepo.refundWalletMusd(userId, musd, "mpp", `mpp-${closeClaim ? "refund" : "excess"}:${payHash}`, `mpp refund: ${reason.slice(0, 80)}`);
+      credited = r.creditedCents;
+      fullyCredited = true;
     } catch (err) {
       log.error("MPP REFUND CREDIT FAILED — claim left refund_due for reconciliation", {
         payHash: payHash.slice(0, 16), musd: musd.toString(), error: err instanceof Error ? err.message.slice(0, 120) : "unknown",
       });
     }
   }
-  await rail.recordRefund(payHash, { userId, refundMusd: musd, creditedCents: credited, reason, closeClaim })
+  await rail.recordRefund(payHash, { userId, refundMusd: musd, creditedCents: credited, reason, closeClaim, fullyCredited })
     .catch((e) => log.error("mpp refund record failed", { payHash: payHash.slice(0, 16), error: e instanceof Error ? e.message.slice(0, 120) : "unknown" }));
   log.warn("mpp payment refunded", { payHash: payHash.slice(0, 16), musd: musd.toString(), credited, reason: reason.slice(0, 80) });
 }
@@ -354,9 +356,9 @@ export async function settleX402Pending(p: X402Pending): Promise<boolean> {
 
 /**
  * A settled payment whose request could not be served: credit the payer's
- * wallet-identity user wallet (FLOOR to whole cents; one recorded transaction).
- * Never refunds more than was paid: the sub-cent remainder stays with the
- * platform (logged as unrefunded), and a sub-cent payment refunds nothing.
+ * wallet-identity user wallet at µUSD precision (walletRepo.refundWalletMusd:
+ * the refund cancels carry first, then credits whole cents with the sub-cent
+ * overshoot kept as carry), so sub-cent payments are refunded too.
  */
 export async function refundX402Payer(p: X402Pending, reason: string): Promise<boolean> {
   if (p.state !== "settled") return false;
@@ -377,24 +379,17 @@ export async function refundX402Payer(p: X402Pending, reason: string): Promise<b
       return false;
     }
   }
-  const cents = Number(p.paidMusd / 10_000n);
-  const unrefundedMusd = p.paidMusd - BigInt(cents) * 10_000n;
-  if (cents <= 0) {
-    log.warn("x402 refund below one cent — nothing credited", {
-      payer: p.payer.slice(0, 10) + "...", payHash: p.payHash.slice(0, 16), unrefundedMusd: unrefundedMusd.toString(), reason,
-    });
-    return true;
-  }
   try {
     if (!(await walletRepo.getWallet(p.userId))) {
       await walletRepo.createWallet(p.userId).catch(() => undefined); // raced create is fine
     }
-    await walletRepo.creditWallet(
-      p.userId, cents, p.rail, `${p.rail}-refund:${p.payHash}`,
+    // µUSD precision: sub-cent refunds reduce the payer's carry instead of vanishing.
+    const { creditedCents: cents, carryMusd } = await walletRepo.refundWalletMusd(
+      p.userId, p.paidMusd, p.rail, `${p.rail}-refund:${p.payHash}`,
       `${p.rail} refund: ${reason.slice(0, 80)}`,
     );
     log.warn("x402 payment refunded to wallet", {
-      payer: p.payer.slice(0, 10) + "...", cents, unrefundedMusd: unrefundedMusd.toString(), reason,
+      payer: p.payer.slice(0, 10) + "...", cents, paidMusd: p.paidMusd.toString(), carryMusd: carryMusd.toString(), reason,
     });
     return true;
   } catch (err) {
@@ -685,13 +680,14 @@ export async function settleX402ConnectRequest(
  */
 export function build402ResponseBody(poolType?: X402Class): string {
   const mpp = advertisedMppChallenge(poolType ?? "any");
-  if (!isX402Enabled() && !mpp) {
+  const x402 = x402Offered();
+  if (!x402 && !mpp) {
     return "Insufficient balance. Top up your wallet at the Dominus Node dashboard.";
   }
   return JSON.stringify({
     error: "INSUFFICIENT_BALANCE",
     message: "Insufficient balance. Pay per request (x402 or MPP) or top up your wallet.",
-    ...(isX402Enabled() ? { x402: advertisedRequirements(poolType ?? "any") } : {}),
+    ...(x402 ? { x402: advertisedRequirements(poolType ?? "any") } : {}),
     ...(mpp ? { mpp: { method: mpp.method, intent: mpp.intent, realm: mpp.realm, expires: mpp.expires, wwwAuthenticate: mpp.header } } : {}),
   });
 }
@@ -713,7 +709,7 @@ function challengeHeaderLines(h: Record<string, string>): string {
  * Build a 402 CONNECT response with x402 requirements.
  */
 export function build402ConnectResponse(poolType?: X402Class): string {
-  if (!isX402Enabled() && !getMppRail().enabled()) {
+  if (!paymentRailsOffered()) {
     return "HTTP/1.1 402 Payment Required\r\nX-DominusNode-Error: INSUFFICIENT_BALANCE\r\n\r\n";
   }
 
@@ -786,9 +782,37 @@ export function normalizePayer(p: string): string {
   return /^0x/i.test(p) ? p.toLowerCase() : p;
 }
 
+/**
+ * A rail is offered (advertised in 402s) only while it is configured and its
+ * kill switch is released: a paused push rail (MPP) must never hand out a
+ * challenge the payer would pay and then have refused.
+ */
+function railOpen(rail: "x402" | "mpp"): boolean {
+  try {
+    return killSwitches().checkRail(rail) === null;
+  } catch {
+    return false;
+  }
+}
+
+/** x402 is configured in this process and rail_x402 is released. */
+export function x402Offered(): boolean {
+  return isX402Enabled() && railOpen("x402");
+}
+
+/** MPP is configured in this process and rail_mpp is released. */
+export function mppOffered(): boolean {
+  return getMppRail().enabled() && railOpen("mpp");
+}
+
+/** At least one per-request rail can be paid right now. */
+export function paymentRailsOffered(): boolean {
+  return x402Offered() || mppOffered();
+}
+
 function advertisedMppChallenge(poolType: X402Class) {
   const r = getMppRail();
-  if (!r.enabled()) return null;
+  if (!mppOffered()) return null;
   quote(poolType).catch(() => undefined);
   const q = lastQuote.get(poolType);
   return q ? r.challenge(q.amountMusd) : null;

@@ -30,6 +30,7 @@ vi.mock("@dominusnode/billing", () => ({
 
 const mockFindOrCreateX402User = vi.fn();
 const mockGetPricing = vi.fn();
+const refundCarry = new Map<string, bigint>();
 vi.mock("@dominusnode/shared", () => ({
   EXIT_CLASSES: ["residential", "mobile", "dc", "masked"],
   isExitClass: (c: unknown) => ["residential", "mobile", "dc", "masked"].includes(c as string),
@@ -47,10 +48,21 @@ vi.mock("@dominusnode/shared", () => ({
     getWallet: (...a: unknown[]) => mockGetWallet(...a),
     createWallet: (...a: unknown[]) => mockCreateWallet(...a),
     creditWallet: (...a: unknown[]) => mockCreditWallet(...a),
+    // Mirrors wallet-repo refundWalletMusd: carry first, then whole cents rounded up.
+    refundWalletMusd: async (userId: string, musd: bigint, provider: string, paymentId: string, desc: string) => {
+      let carry = (refundCarry.get(userId) ?? 0n) - musd;
+      let cents = 0n;
+      if (carry < 0n) { cents = (-carry + 9_999n) / 10_000n; carry += cents * 10_000n; }
+      if (cents > 0n) await mockCreditWallet(userId, Number(cents), provider, paymentId, desc);
+      refundCarry.set(userId, carry);
+      return { creditedCents: Number(cents), carryMusd: carry };
+    },
   },
+  killSwitches: () => ({ checkRail: () => null }),
   payerRefundRepo: { recordOwed: (...a: unknown[]) => mockRecordOwed(...a) },
 }));
 const mockRecordOwed = vi.fn();
+beforeEach(() => refundCarry.clear());
 const mockGetWallet = vi.fn();
 const mockCreateWallet = vi.fn();
 const mockCreditWallet = vi.fn();
@@ -352,8 +364,9 @@ describe("x402 relay identity and pricing", () => {
     mockCreateWallet.mockResolvedValueOnce({ id: "w-new" });
     expect(await refundX402Payer(p, "upstream error")).toBe(true);
     expect(mockCreateWallet).toHaveBeenCalledWith("user-x402");
-    // 12345 µUSD → floor to 1 cent (never refund more than was paid)
-    expect(mockCreditWallet).toHaveBeenCalledWith("user-x402", 1, "x402", "x402-refund:fakehash123", expect.stringContaining("upstream error"));
+    // 12,345 µUSD at µUSD precision: 2 cents credited, 7,655 µUSD carry owed back (net exact)
+    expect(mockCreditWallet).toHaveBeenCalledWith("user-x402", 2, "x402", "x402-refund:fakehash123", expect.stringContaining("upstream error"));
+    expect(refundCarry.get("user-x402")).toBe(7_655n);
     expect(await refundX402Payer(p, "again")).toBe(false);
     expect(mockCreditWallet).toHaveBeenCalledTimes(1);
   });
@@ -703,20 +716,21 @@ describe("MPP on the gateway", () => {
     expect(await settleX402Pending(r.pending!)).toBe(true);
     expect(await settleX402Pending(r.pending!)).toBe(true); // idempotent
     expect(rail.settle).toHaveBeenCalledTimes(1);
-    // 525 µUSD paid → floor 0 cents: nothing minted, sub-cent remainder stays with the platform
+    // 525 µUSD paid → refunded at µUSD precision: 1 cent credited, 9,475 µUSD carry owed back
     expect(await refundX402Payer(r.pending!, "upstream failed")).toBe(true);
-    expect(mockCreditWallet).not.toHaveBeenCalled();
+    expect(mockCreditWallet).toHaveBeenCalledWith("user-x402", 1, "mpp", expect.any(String), expect.any(String));
+    expect(refundCarry.get("user-x402")).toBe(9_475n);
     expect(await refundX402Payer(r.pending!, "again")).toBe(false); // once
   });
 
-  it("CONNECT: a refusal after verify keeps the claim and credits the payer (52,499 µUSD -> 5 cents)", async () => {
+  it("CONNECT: a refusal after verify keeps the claim and credits the payer (52,499 µUSD -> 6 cents, 1 µUSD carry)", async () => {
     rail.verify.mockResolvedValue(okVerify(52_499n));
     rail.settle.mockResolvedValue({ ok: false });
     const r = (await handleX402Connect(makeRequest({ "proxy-authorization": "Payment tok" }), makeSocket()))!;
     expect(await settleX402Pending(r.pending!)).toBe(false);
     expect(rail.release).toHaveBeenCalledWith("h".repeat(64));
-    expect(mockCreditWallet).toHaveBeenCalledWith("user-x402", 5, "mpp", `mpp-refund:${"h".repeat(64)}`, expect.any(String));
-    expect(rail.recordRefund).toHaveBeenCalledWith("h".repeat(64), expect.objectContaining({ userId: "user-x402", refundMusd: 52_499n, creditedCents: 5, closeClaim: true }));
+    expect(mockCreditWallet).toHaveBeenCalledWith("user-x402", 6, "mpp", `mpp-refund:${"h".repeat(64)}`, expect.any(String));
+    expect(rail.recordRefund).toHaveBeenCalledWith("h".repeat(64), expect.objectContaining({ userId: "user-x402", refundMusd: 52_499n, creditedCents: 6, closeClaim: true, fullyCredited: true }));
   });
 
   it("CONNECT: rejection writes a 402 with the challenge", async () => {

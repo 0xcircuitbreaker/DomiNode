@@ -566,6 +566,21 @@ export async function releaseSessionBudget(walletId: string, cents: number): Pro
 }
 
 /**
+ * Undo the reservation of a session that failed to start after its
+ * reservation was recorded: return the cents and delete the
+ * agentic_session_reservations row in ONE statement, so the orphan sweeper can
+ * never return the same cents a second time.
+ */
+export async function releaseSessionReservation(walletId: string, sessionId: string, cents: number): Promise<void> {
+  if (!Number.isInteger(cents) || cents <= 0) return;
+  await query(
+    `WITH d AS (DELETE FROM agentic_session_reservations WHERE session_id = $3 AND wallet_id = $1 RETURNING session_id)
+     UPDATE agentic_wallets SET balance_cents = balance_cents + $2, reserved_cents = GREATEST(reserved_cents - $2, 0) WHERE id = $1`,
+    [walletId, cents, sessionId],
+  );
+}
+
+/**
  * Record which session holds a reservation, so a session that ends without
  * settling (gateway crash, dead settle retry) can have it returned.
  */

@@ -131,6 +131,19 @@ export function createEthersPayoutSender(env: NodeJS.ProcessEnv, opts: { receipt
       sent.set(req.payoutId, txHash);
       if (nonces.size >= MAX_SENT_CACHE) nonces.delete(nonces.keys().next().value as string);
       nonces.set(txHash, parsed.nonce);
+      if (req.beforeBroadcast) {
+        let ok = false;
+        try {
+          ok = await req.beforeBroadcast(txHash, parsed.nonce);
+        } catch {
+          ok = false;
+        }
+        if (!ok) {
+          sent.delete(req.payoutId);
+          nonces.delete(txHash);
+          throw new PayoutNotBroadcastError("tx hash could not be recorded before broadcast");
+        }
+      }
       try {
         await provider.broadcastTransaction(signed);
       } catch (err) {
@@ -145,10 +158,11 @@ export function createEthersPayoutSender(env: NodeJS.ProcessEnv, opts: { receipt
       }
       return { txHash };
     },
-    async waitForReceipt(txHash: string, timeoutMs?: number): Promise<ReceiptStatus> {
+    async waitForReceipt(txHash: string, timeoutMs?: number, nonce?: number): Promise<ReceiptStatus> {
       const r = await provider.waitForTransaction(txHash, 1, timeoutMs ?? timeout).catch(() => null);
       if (r) return r.status === 1 ? "confirmed" : "reverted";
-      const looks = await isDropped(txHash, nonces.get(txHash), {
+      // The nonce persisted with the payout lets dropped detection work after a restart.
+      const looks = await isDropped(txHash, nonces.get(txHash) ?? nonce, {
         confirmedNonce: () => provider.getTransactionCount(wallet.address, "latest"),
         getTransactionReceipt: (h) => provider.getTransactionReceipt(h),
         getTransaction: (h) => provider.getTransaction(h),

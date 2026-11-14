@@ -281,7 +281,7 @@ export interface MppStore {
    * when closeClaim and the whole amount was credited; otherwise it stays
    * 'refund_due' (sub-cent remainders and failed credits stay visible).
    */
-  recordRefund(paymentHash: string, r: { userId: string | null; refundMusd: bigint; creditedCents: number; reason: string; closeClaim: boolean }): Promise<void>;
+  recordRefund(paymentHash: string, r: { userId: string | null; refundMusd: bigint; creditedCents: number; reason: string; closeClaim: boolean; fullyCredited?: boolean }): Promise<void>;
 }
 
 export const dbMppStore: MppStore = {
@@ -308,7 +308,8 @@ export const dbMppStore: MppStore = {
     return (r.rowCount ?? 0) > 0;
   },
   async recordRefund(paymentHash, r) {
-    const full = BigInt(r.creditedCents) * 10_000n === r.refundMusd;
+    // fullyCredited: refunded at µUSD precision (cents + wallet carry).
+    const full = r.fullyCredited === true || BigInt(r.creditedCents) * 10_000n === r.refundMusd;
     await query(
       `UPDATE mpp_transactions SET user_id = COALESCE($2::uuid, user_id), refund_musd = refund_musd + $3::bigint,
          refunded_cents = refunded_cents + $4::int, refund_reason = $5,

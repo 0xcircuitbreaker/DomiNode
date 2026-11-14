@@ -296,6 +296,18 @@ Body `{ reason: string }` (required, 1–200). Reverses a `pending`, `held_tax`,
 `404` unknown payout. `409` when `submitted` or `confirmed`.
 Response: `{ id: string; userId: string | null; status: "reversed"; amount: Money; txHash: string | null }`. Audit: `node_payout_reverse`.
 
+### `GET /payouts/stranded`
+
+Payouts claimed for send (`submitted`) whose tx hash was never recorded for 30 minutes (the job records the signed hash and nonce before broadcast, so this only follows a crash or DB error mid-send). No job touches them again; the payout job also logs them at error on every run. Check the hot wallet on chain, then confirm or fail each one. Response `{ olderThanMinutes: 30; items: { id; userId; amount: Money; updatedAt }[] }`.
+
+### `POST /payouts/:id/confirm`
+
+Body `{ txHash: string /* 0x + 64 hex */; reason: string }`. Confirms a `pending` or `submitted` payout whose transfer is on chain (`markPayoutConfirmed`, adds to the owner's YTD paid). `409` when the payout is in another status or already carries a different hash. Audit: `node_payout_confirm`.
+
+### `POST /payouts/:id/fail`
+
+Body `{ txHash: string; outcome: "dropped" | "reverted"; reason: string }`. For a `submitted` payout whose tx was dropped, replaced or reverted (for a stranded row, the hash of the signed tx or the nonce's replacement): marks it `failed` with that evidence and reverses it, re-crediting the owner's available credits, in one transaction. `409` on a status or hash mismatch. Audit: `node_payout_fail`.
+
 ## 7. Byte disputes
 
 ### `GET /disputes`
@@ -520,8 +532,9 @@ Mounted at `/api/admin/network`. Switches live in `kill_switches` (one row per k
 | `relay_residential`, `relay_mobile`, `relay_dc`, `relay_masked` | sessions that request that class; unflagged sessions skip it (refused only when residential, mobile and dc are all paused) | `EXIT_CLASS_PAUSED` |
 | `signups` | creating a new wallet-identity account (`POST /api/auth/wallet/verify` for an unknown address); existing accounts still sign in. The refusal comes before the sign-in challenge is consumed, so the same signature works once signups resume | `SIGNUPS_PAUSED` |
 | `api_keys` | `POST /api/keys`, `POST /api/teams/:id/keys`; also `dn_node_` key issuance at `POST /v1/nodes` (refused before the registration challenge or PoW is consumed) | `API_KEYS_PAUSED`; `NODE_REGISTRATION_PAUSED` for `POST /v1/nodes` |
-| `payouts` | `POST /v1/credits/withdraw/challenge`, `POST /v1/credits/withdraw`, and new work in the gateway payout job: no auto-queues, claims or broadcasts while engaged. Payouts already broadcast keep being reconciled (receipt checks, confirm, or reverse and re-credit) on every run; new sends resume on the first run after release | `PAYOUTS_PAUSED` |
-| `rail_x402`, `rail_mpp` | paid relay requests on that rail, refused at the gateway **before** verification so the payer is never charged | `PAYMENT_RAIL_PAUSED` |
+| `payouts` | `POST /v1/credits/withdraw/challenge`, `POST /v1/credits/withdraw`, and new work in the gateway payout job: no auto-queues, claims or broadcasts while engaged. The job re-reads the switch before every auto-queue and every claim, so engaging it during a run stops new sends at once; a payout already broadcast is still waited on and settled. Payouts already broadcast keep being reconciled (receipt checks, confirm, or reverse and re-credit) on every run; new sends resume on the first run after release | `PAYOUTS_PAUSED` |
+| `rail_x402` | x402 paid relay requests, refused at the gateway **before** verification so the payer is never charged (x402 is pull: nothing moves until settlement). 402 responses stop advertising x402 requirements | `PAYMENT_RAIL_PAUSED` |
+| `rail_mpp` | MPP paid relay requests. MPP is push-paid: the transfer is final before the credential arrives, so a presented credential is still verified and claimed, then refused and refunded to the payer's wallet (µUSD precision, see PAYMENTS.md), never left unrecorded. 402 responses stop carrying MPP challenges while engaged | `PAYMENT_RAIL_PAUSED` |
 | `rail_tempo`, `rail_nowpayments` | new top-ups (`POST /api/wallet/topup/tempo`, `POST /api/wallet/topup/crypto`). Webhooks for payments already made still credit | `PAYMENT_RAIL_PAUSED` |
 
 Refusals carry `Retry-After` and `X-DominusNode-Error: <code>`; API bodies are `{ error, code }`. Open sessions, streams and in-flight settlements are never cut.

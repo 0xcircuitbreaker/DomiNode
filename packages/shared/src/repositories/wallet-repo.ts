@@ -493,3 +493,61 @@ export async function accrueCarryTx(
   await client.query(`UPDATE wallets SET carry_musd = $1 WHERE id = $2`, [carryMusd.toString(), w.id]);
   return { cents, carryMusd };
 }
+
+/**
+ * Refund at µUSD precision (per-request MPP/x402 refunds are usually below one
+ * cent). Under the wallet row lock the refund first cancels accrued carry (µUSD
+ * the payer still owes); what remains is credited in whole cents rounded up,
+ * and the overshoot (< 1 cent) becomes carry the payer owes back. carry stays
+ * in 0..9999, so across refunds the payer gets exactly what was refunded and is
+ * never more than one cent ahead. Returns the cents credited now (0 when the
+ * refund only reduced the carry).
+ */
+export async function refundWalletMusd(
+  userId: string,
+  musd: bigint,
+  provider: string,
+  paymentId: string,
+  description: string,
+): Promise<{ creditedCents: number; carryMusd: bigint }> {
+  if (musd <= 0n || musd > 2_147_483_647n * MUSD_PER_CENT_BIG) throw new Error("Refund amount out of range");
+  const client = await getPool().connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("SET LOCAL lock_timeout = '5s'");
+    const r = await client.query<{ id: string; balance_cents: number; carry_musd: string }>(
+      `SELECT id, balance_cents, carry_musd FROM wallets WHERE user_id = $1 FOR UPDATE`,
+      [userId],
+    );
+    const w = r.rows[0];
+    if (!w) throw new Error(`No wallet found for user ${userId}`);
+    let carry = BigInt(w.carry_musd ?? "0") - musd;
+    let cents = 0n;
+    if (carry < 0n) {
+      cents = (-carry + MUSD_PER_CENT_BIG - 1n) / MUSD_PER_CENT_BIG;
+      carry += cents * MUSD_PER_CENT_BIG;
+    }
+    const centsN = Number(cents);
+    if (centsN > 0 && Number(w.balance_cents) + centsN > MAX_BALANCE_CENTS) {
+      throw new Error(`Credit would exceed maximum wallet balance of $${(MAX_BALANCE_CENTS / 100).toFixed(2)}`);
+    }
+    await client.query(
+      `UPDATE wallets SET carry_musd = $1, balance_cents = balance_cents + $2 WHERE id = $3`,
+      [carry.toString(), centsN, w.id],
+    );
+    if (centsN > 0) {
+      await client.query(
+        `INSERT INTO wallet_transactions (wallet_id, type, amount_cents, description, payment_provider, payment_id)
+         VALUES ($1, 'refund', $2, $3, $4, $5)`,
+        [w.id, centsN, description, provider, paymentId],
+      );
+    }
+    await client.query("COMMIT");
+    return { creditedCents: centsN, carryMusd: carry };
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => undefined);
+    throw err;
+  } finally {
+    client.release();
+  }
+}
