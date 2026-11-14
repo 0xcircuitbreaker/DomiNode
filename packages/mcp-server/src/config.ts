@@ -233,3 +233,72 @@ function parseFilePath(value: string | undefined, name: string): string | null {
   }
   return v;
 }
+
+/** Remote (Streamable HTTP) transport settings. Enabled by DOMINUSNODE_MCP_HTTP_PORT or --http. */
+export interface McpHttpConfig {
+  port: number;
+  host: string;
+  /** Exact Origin values accepted; requests carrying any other Origin are refused (403). */
+  allowedOrigins: string[];
+  sessionIdleMs: number;
+  maxSessions: number;
+  rateLimitPerMinute: number;
+  maxBodyBytes: number;
+}
+
+const DEFAULT_MCP_HTTP_PORT = 3333;
+
+/**
+ * Parse the remote transport settings. Returns null for stdio mode (no DOMINUSNODE_MCP_HTTP_PORT
+ * and no --http flag). In remote mode every request carries its own key, so DOMINUSNODE_API_KEY
+ * must be unset: the operator's key must never serve remote agents.
+ */
+export function parseHttpConfig(
+  env: Record<string, string | undefined> = process.env,
+  argv: string[] = process.argv.slice(2),
+): McpHttpConfig | null {
+  const portEnv = env["DOMINUSNODE_MCP_HTTP_PORT"];
+  const httpFlag = argv.includes("--http");
+  if ((portEnv === undefined || portEnv === "") && !httpFlag) return null;
+
+  if (env["DOMINUSNODE_API_KEY"] !== undefined && env["DOMINUSNODE_API_KEY"] !== "") {
+    throw new ConfigError("DOMINUSNODE_API_KEY must not be set in remote HTTP mode; agents send their own key as a Bearer token");
+  }
+  const port = parsePort(portEnv === "" ? undefined : portEnv, DEFAULT_MCP_HTTP_PORT, "DOMINUSNODE_MCP_HTTP_PORT");
+
+  const host = (env["DOMINUSNODE_MCP_HTTP_HOST"] ?? "127.0.0.1").trim();
+  if (!/^[A-Za-z0-9.:-]{1,253}$/.test(host)) {
+    throw new ConfigError("DOMINUSNODE_MCP_HTTP_HOST must be a hostname or IP address");
+  }
+
+  const allowedOrigins = (env["DOMINUSNODE_MCP_ALLOWED_ORIGINS"] ?? "")
+    .split(",")
+    .map((o) => o.trim())
+    .filter((o) => o !== "");
+  for (const o of allowedOrigins) {
+    let u: URL;
+    try {
+      u = new URL(o);
+    } catch {
+      throw new ConfigError("DOMINUSNODE_MCP_ALLOWED_ORIGINS must be a comma-separated list of origins");
+    }
+    if ((u.protocol !== "https:" && u.protocol !== "http:") || u.origin !== o) {
+      throw new ConfigError("DOMINUSNODE_MCP_ALLOWED_ORIGINS entries must be bare origins like https://agent.example.com");
+    }
+  }
+
+  const sessionIdleMs = parseBoundedInt(env["DOMINUSNODE_MCP_SESSION_IDLE_MS"], 15 * 60_000, 60_000, 24 * 3_600_000, "DOMINUSNODE_MCP_SESSION_IDLE_MS");
+  const maxSessions = parseBoundedInt(env["DOMINUSNODE_MCP_MAX_SESSIONS"], 1000, 1, 100_000, "DOMINUSNODE_MCP_MAX_SESSIONS");
+  const rateLimitPerMinute = parseBoundedInt(env["DOMINUSNODE_MCP_RATE_LIMIT_PER_MIN"], 120, 1, 10_000, "DOMINUSNODE_MCP_RATE_LIMIT_PER_MIN");
+  const maxBodyBytes = parseBoundedInt(env["DOMINUSNODE_MCP_MAX_BODY_BYTES"], 1024 * 1024, 1024, 4 * 1024 * 1024, "DOMINUSNODE_MCP_MAX_BODY_BYTES");
+
+  return { port, host, allowedOrigins, sessionIdleMs, maxSessions, rateLimitPerMinute, maxBodyBytes };
+}
+
+function parseBoundedInt(value: string | undefined, defaultValue: number, min: number, max: number, name: string): number {
+  if (value === undefined || value === "") return defaultValue;
+  if (!/^\d+$/.test(value.trim())) throw new ConfigError(`${name} must be an integer between ${min} and ${max}`);
+  const n = parseInt(value, 10);
+  if (isNaN(n) || n < min || n > max) throw new ConfigError(`${name} must be an integer between ${min} and ${max}`);
+  return n;
+}

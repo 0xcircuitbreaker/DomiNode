@@ -85,6 +85,63 @@ Wallet sign-in is rate limited: 20 challenges and 5 failed verifications per hou
 
 **Teams (17)**: `dominusnode_create_team`, `dominusnode_list_teams`, `dominusnode_team_details`, `dominusnode_team_update`, `dominusnode_team_update_member_role`, `dominusnode_team_add_member`, `dominusnode_team_remove_member`, `dominusnode_team_fund`, `dominusnode_team_create_key`, `dominusnode_team_revoke_key`, `dominusnode_team_usage`, `dominusnode_team_list_members`, `dominusnode_team_invite_member`, `dominusnode_team_list_invites`, `dominusnode_team_cancel_invite`, `dominusnode_team_list_keys`, `dominusnode_team_delete`. Team keys cannot call `/v1` node endpoints.
 
+## Remote MCP (Streamable HTTP)
+
+Hosted agent platforms that cannot spawn a local process can connect over HTTP. Run the server in
+remote mode and point the platform at `https://<your-host>/mcp`; each agent sends its own key:
+
+```bash
+DOMINUSNODE_MCP_HTTP_PORT=3333 npx -y @dominusnode/mcp-server   # or: npx -y @dominusnode/mcp-server --http
+```
+
+```json
+{
+  "mcpServers": {
+    "dominusnode": {
+      "type": "http",
+      "url": "https://mcp.example.com/mcp",
+      "headers": { "Authorization": "Bearer dn_live_YOUR_KEY" }
+    }
+  }
+}
+```
+
+- Every request needs `Authorization: Bearer dn_live_...`. A session is bound to the key that opened
+  it; another key gets `404` for that session id. The key is never logged and is scrubbed from every
+  response body.
+- The tool set is the same 65-tool authenticated set as stdio. `DOMINUSNODE_API_KEY` must be unset in
+  remote mode (the operator key never serves remote agents). `DOMINUSNODE_WALLET_KEY_FILE` and
+  `DOMINUSNODE_PAYOUT_WALLET_KEY_FILE` are ignored for remote sessions, so the signing tools
+  (node register, withdraw, payout wallet) refuse; remote agents sign with their own SDK or stdio server.
+- Binds `127.0.0.1` by default. To expose it, set `DOMINUSNODE_MCP_HTTP_HOST=0.0.0.0` behind a TLS
+  reverse proxy; Bearer keys must not cross the network in clear.
+- Requests carrying an `Origin` header are refused unless listed in `DOMINUSNODE_MCP_ALLOWED_ORIGINS`.
+- `GET /healthz` returns `{"ok":true}`.
+
+| Variable | Default | Range / notes |
+|---|---|---|
+| `DOMINUSNODE_MCP_HTTP_PORT` | unset (stdio) | 1-65535; `--http` uses 3333 |
+| `DOMINUSNODE_MCP_HTTP_HOST` | `127.0.0.1` | bind address |
+| `DOMINUSNODE_MCP_ALLOWED_ORIGINS` | empty | comma-separated bare origins |
+| `DOMINUSNODE_MCP_SESSION_IDLE_MS` | `900000` | 60000-86400000; idle sessions are closed and their credentials cleared |
+| `DOMINUSNODE_MCP_MAX_SESSIONS` | `1000` | 1-100000 |
+| `DOMINUSNODE_MCP_RATE_LIMIT_PER_MIN` | `120` | 1-10000 requests per key per minute |
+| `DOMINUSNODE_MCP_MAX_BODY_BYTES` | `1048576` | 1024-4194304 |
+
+Optional compose service (not shipped in the repo's compose files; add it to your own):
+
+```yaml
+  mcp-remote:
+    image: node:22-alpine
+    command: ["npx", "-y", "@dominusnode/mcp-server", "--http"]
+    environment:
+      DOMINUSNODE_MCP_HTTP_HOST: 0.0.0.0
+      DOMINUSNODE_MCP_HTTP_PORT: "3333"
+      DOMINUSNODE_API_URL: https://api.example.com
+    expose: ["3333"]   # publish only through your TLS reverse proxy
+    restart: unless-stopped
+```
+
 ## Environment variables
 
 | Variable | Default | Purpose |
