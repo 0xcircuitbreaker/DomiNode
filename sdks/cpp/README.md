@@ -10,7 +10,7 @@ the node PoW, random UUIDs). No signing key ever enters the SDK: EIP-191 signing
 ## Install (release tarball)
 
 The C++ SDK is not on a package registry. Each release attaches a source
-tarball and its SHA-256 to the GitHub Release `sdk-cpp-v2.3.0`:
+tarball and its SHA-256 to the GitHub Release `sdk-cpp-v2.4.0`:
 
 ```bash
 v=2.4.0
@@ -26,7 +26,7 @@ or vendor it with CMake `FetchContent`:
 ```cmake
 include(FetchContent)
 FetchContent_Declare(dominusnode
-  URL https://github.com/0xcircuitbreaker/DomiNode/releases/download/sdk-cpp-v2.3.0/dominusnode-cpp-2.4.0.tar.gz
+  URL https://github.com/0xcircuitbreaker/DomiNode/releases/download/sdk-cpp-v2.4.0/dominusnode-cpp-2.4.0.tar.gz
   URL_HASH SHA256=<from dominusnode-cpp-2.4.0.tar.gz.sha256>)
 FetchContent_MakeAvailable(dominusnode)
 target_link_libraries(app PRIVATE dominusnode)

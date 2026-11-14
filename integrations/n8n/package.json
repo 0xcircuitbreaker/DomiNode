@@ -39,7 +39,7 @@
     "url": "https://github.com/0xcircuitbreaker/DomiNode/issues"
   },
   "dependencies": {
-    "@dominusnode/sdk": "^2.3.0"
+    "@dominusnode/sdk": "^2.4.0"
   },
   "peerDependencies": {
     "n8n-workflow": ">=1.0.0"
