@@ -484,3 +484,28 @@ Every mutating route under `/api/admin` (outside `/network`) requires a JSON bod
 | `POST /commissions/process` | | `commissions_process` (affiliate_commissions, `batch`) | `processed`, `totalCreditedCents` |
 
 The loyalty and commission runs credit each user in its own transaction, so their single audit row is written after the run and records its totals. For `credit-wallet`, `reason` also becomes the wallet transaction description (first 200 chars). `DELETE` requests carry the reason as a JSON body (`Content-Type: application/json`).
+
+## 16. Operator alerting (`admin-ops-alerts.ts`, `ops-alerts.ts`)
+
+A checker in the API process runs every `OPS_ALERT_INTERVAL_SEC` (default 60) and posts to every webhook in `OPS_ALERT_WEBHOOKS`. Rules:
+
+| Rule | Severity | Fires when |
+|---|---|---|
+| `gateway_heartbeat_stale` | critical | newest of `node_ip_slots.heartbeat_at` / `job_runs.last_finished_at` is older than `OPS_ALERT_GATEWAY_STALE_SEC` (180) |
+| `live_nodes_low` | critical | live nodes (slot heartbeat < 90 s) below `OPS_ALERT_MIN_LIVE_NODES` (0 = off) |
+| `live_nodes_drop` | warning | live nodes fell `OPS_ALERT_NODE_DROP_PCT` (50) % or more below the 10-minute peak |
+| `payment_webhook_failures` | critical | `OPS_ALERT_PAYMENT_FAILURES` (3) or more payment webhook handler errors in 10 min |
+| `wallet_debit_spike` | warning | wallet debits in 10 min ≥ `OPS_ALERT_DEBIT_SPIKE_CENTS` (5000) and ≥ `OPS_ALERT_DEBIT_SPIKE_FACTOR` (5) × the 10-min average of the prior 6 h |
+| `v1_error_rate` | warning | ≥ `OPS_ALERT_V1_ERROR_PCT` (20) % of `/v1` responses were 5xx in 10 min, with at least `OPS_ALERT_V1_MIN_REQUESTS` (50) requests |
+
+A firing rule notifies once per `OPS_ALERT_DEDUPE_SEC` (1800); a `resolved` notice is sent when it clears. All sends (including tests) share a cap of `OPS_ALERT_MAX_PER_HOUR` (30). Counters, dedupe state (capped at 1000 entries, pruned each run) and the last 200 alerts are in memory and reset on restart; each API instance alerts independently.
+
+`OPS_ALERT_WEBHOOKS` is a comma-separated list of `[kind=]https://host/path`, kind `json` (default), `slack`, `discord` (Slack/Discord-compatible `text`/`content`) or `ntfy` (plain-text body with `Title`/`Priority`/`Tags` headers). At most 8; HTTPS on port 443 only, no credentials in the URL. Every host is DNS-resolved at startup and before each send and rejected if any address is private/internal (SSRF floor); a bad entry fails API startup. Requests have a 5 s timeout and do not follow redirects. Payloads hold only the rule, severity, status, a summary and numeric values: no user ids, wallets, keys or URLs.
+
+### `GET /api/admin/ops-alerts?limit=50`
+
+Returns `webhooks` (`kind` and `host` only; paths are secrets and never returned), `thresholds`, `firing` (rule ids) and `alerts` (newest first, ≤ 200): `{ rule, severity, status: firing|resolved|test, summary, values, at, delivered, suppressed: null|rate_limit }`. Dedupe-suppressed repeats are not listed. 503 when the checker is not running.
+
+### `POST /api/admin/ops-alerts/test`
+
+Body `{ "reason": "..." }` (required). Sends a test alert to every webhook (bypasses dedupe, counts toward the hourly cap) and writes audit action `ops_alert_test` (`ops_alert`, `test`) with `reason`, `delivered`, `webhooks`, `suppressed`. Returns `{ alert, webhooks }`.
