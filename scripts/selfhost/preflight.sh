@@ -101,7 +101,8 @@ for port in 80 443 8443 1443 9443; do
   else
     fail ports "tcp/$port held by another process: $(printf '%s' "$line" | grep -Eo 'users:\(\("[^"]+"' | cut -d'"' -f2)"
   fi
-  if printf '%s' "$UFW" | grep -q '^Status: active' && ! printf '%s' "$UFW" | grep -Eq "^$port(/tcp)?[[:space:]]+ALLOW"; then
+  # ufw lists single ports ("443/tcp") and multiport rules ("80,443/tcp").
+  if printf '%s' "$UFW" | grep -q '^Status: active' && ! printf '%s' "$UFW" | grep -Eq "^([0-9:]+,)*$port(,[0-9:]+)*(/tcp)?[[:space:]]+ALLOW"; then
     fail ports "ufw is active and does not allow tcp/$port"
   fi
 done
@@ -129,8 +130,10 @@ fi
 if [ -z "$DB_URL" ]; then
   fail db "GATEWAY_DATABASE_URL is not set"
 else
-  hp="$(printf '%s' "$DB_URL" | sed -nE 's#^postgresql://[^@]+@([0-9.]+):([0-9]{1,5})/.*#\1 \2#p')"
+  # postgres:// and postgresql:// are both valid; the port defaults to 5432.
+  hp="$(printf '%s' "$DB_URL" | sed -nE 's#^postgres(ql)?://[^@/]+@([0-9.]+)(:([0-9]{1,5}))?(/.*)?$#\2 \4#p')"
   db_ip="${hp% *}" db_port="${hp#* }"
+  db_port="${db_port:-5432}"
   if [ -z "$hp" ] || ! ipv4_ok "$db_ip"; then
     fail db "GATEWAY_DATABASE_URL host must be an IPv4 WireGuard address"
   else

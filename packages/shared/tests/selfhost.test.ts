@@ -873,7 +873,7 @@ describe("gateway VPS readiness", () => {
   }, 30_000);
 
   // Stubbed system tools so the checks run deterministically anywhere.
-  const stubs = (opts: { dns: Record<string, string>; route: string; hs: number; ntp: string }) => {
+  const stubs = (opts: { dns: Record<string, string>; route: string; hs: number; ntp: string; ufw?: string; url?: (port: number) => string }) => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dn-pre-"));
     const w = (n: string, body: string) => fs.writeFileSync(path.join(dir, n), `#!/usr/bin/env bash\n${body}\n`, { mode: 0o755 });
     w("getent", Object.entries(opts.dns).map(([h, a]) => `[ "$2" = ${h} ] && echo "${a} STREAM ${h}" && exit 0`).join("\n") + "\nexit 2");
@@ -881,7 +881,7 @@ describe("gateway VPS readiness", () => {
     w("wg", `echo "peerkey= ${opts.hs}"`);
     w("timedatectl", `echo ${opts.ntp}`);
     w("ss", "exit 0");
-    w("ufw", "echo 'Status: inactive'");
+    w("ufw", `printf '%b\\n' ${JSON.stringify(opts.ufw ?? "Status: inactive")}`);
     return dir;
   };
   const preflight = async (opts: Parameters<typeof stubs>[0]) => {
@@ -895,7 +895,7 @@ describe("gateway VPS readiness", () => {
         env: {
           PATH: `${bin}:${process.env.PATH}`, PUBLIC_IP: "203.0.113.10", RELAY_HOST: "relay.example.org", PROXY_HOST: "proxy.example.org",
           ROLE: "gateway", PREFLIGHT_MIN_DISK_GB: "0",
-          GATEWAY_DATABASE_URL: `postgresql://dominusnode_gateway:${pw}@127.0.0.1:${port}/dominusnode`,
+          GATEWAY_DATABASE_URL: opts.url ? opts.url(port) : `postgresql://dominusnode_gateway:${pw}@127.0.0.1:${port}/dominusnode`,
         },
         encoding: "utf8",
       });
@@ -928,6 +928,16 @@ describe("gateway VPS readiness", () => {
     expect(r.stdout).toMatch(/FAIL\s+db\s+127\.0\.0\.1 is routed via eth0, not wg0/);
     expect(r.stdout).toMatch(/FAIL\s+wg\s+wg0 last handshake/);
     expect(r.stdout).toMatch(/FAIL\s+clock/);
+    expect(r.stdout + r.stderr).not.toContain(pw);
+  });
+
+  it("preflight accepts postgres:// URLs and multiport ufw rules, and fails a port ufw does not allow", async () => {
+    const ufw = "Status: active\n\nTo Action From\n80,443/tcp ALLOW Anywhere\n8443/tcp ALLOW Anywhere\n9443 ALLOW Anywhere";
+    const r = await preflight({ ...good, hs: now(), ufw, url: (p) => `postgres://dominusnode_gateway:${pw}@127.0.0.1:${p}/dominusnode?sslmode=disable` });
+    expect(r.stdout).toMatch(/ok\s+db\s+127\.0\.0\.1:\d+ reachable over wg0/);
+    expect(r.stdout).not.toMatch(/ufw is active and does not allow tcp\/(80|443|8443|9443)$/m);
+    expect(r.stdout).toMatch(/FAIL\s+ports\s+ufw is active and does not allow tcp\/1443/);
+    expect(r.status).toBe(1);
     expect(r.stdout + r.stderr).not.toContain(pw);
   });
 
