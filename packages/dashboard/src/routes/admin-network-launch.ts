@@ -2,6 +2,7 @@ import { Router } from "express";
 import type { Request, Response } from "express";
 import { createLogger, getPool, starterCreditRepo, genesisRepo, referralRepo, networkStatusRepo, rpcUrlFromEnv } from "@dominusnode/shared";
 import { requireAuth } from "../middleware/auth.js";
+import { invalidatePublicCaches } from "./v1/public.js";
 import { requireAdmin } from "../middleware/admin.js";
 import { HttpError, fail, money, page, enumParam, uuidParam, withAdminTx, audit, adminId, UUID_RE } from "./admin-network-common.js";
 
@@ -396,6 +397,7 @@ router.post("/incidents", async (req: Request, res: Response) => {
       await audit(c, req, "network_incident_create", "network_incident", id, { title, severity, status });
       return { id };
     });
+    invalidatePublicCaches();
     res.status(201).json({ id: row.id, title, severity, status });
   } catch (err) { fail(res, err, "Incident create"); }
 });
@@ -423,8 +425,23 @@ router.patch("/incidents/:id", async (req: Request, res: Response) => {
       if (!r.rows[0]) throw new HttpError(404, "Incident not found");
       await audit(c, req, "network_incident_update", "network_incident", id, { fields: Object.keys(b), status: b["status"] ?? null });
     });
+    invalidatePublicCaches();
     res.json({ id, updated: Object.keys(b) });
   } catch (err) { fail(res, err, "Incident update"); }
+});
+
+// DELETE /incidents/:id (e.g. one posted by mistake; resolve real ones instead)
+router.delete("/incidents/:id", async (req: Request, res: Response) => {
+  try {
+    const id = idParam(req);
+    await withAdminTx(adminId(req), async (c) => {
+      const r = await c.query<{ id: string; title: string }>(`DELETE FROM network_incidents WHERE id = $1 RETURNING id, title`, [id]);
+      if (!r.rows[0]) throw new HttpError(404, "Incident not found");
+      await audit(c, req, "network_incident_delete", "network_incident", id, { title: r.rows[0].title });
+    });
+    invalidatePublicCaches();
+    res.json({ id, deleted: true });
+  } catch (err) { fail(res, err, "Incident delete"); }
 });
 
 // ─── Announcements (GET /v1/announcements feed) ─────────────────────

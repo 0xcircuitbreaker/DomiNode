@@ -66,6 +66,7 @@ function llmsTxt(origin) {
     `- [Network history](${API_BASE}/v1/network/history): hourly aggregate snapshots (JSON, no auth)`,
     `- [Wanted](${API_BASE}/v1/network/wanted): countries and classes where requesters found no node (JSON, no auth)`,
     `- [Status page](${API_BASE}/status): human-readable network status`,
+    `- [Status JSON](${API_BASE}/v1/status): gateway/coordinator health, 24h/7d gateway availability, aggregate node counts, recent incidents (JSON, no auth)`,
     `- [Abuse reports](${origin}/docs/policy.md): POST ${API_BASE}/v1/abuse-reports, no account, proof-of-work gated`,
     `- [API llms.txt](${API_BASE}/llms.txt): the API host's own summary with live prices`,
     `- [Agent tool manifest](${API_BASE}/.well-known/agent-tool.json): machine-readable endpoints, auth and pricing`,

@@ -22,6 +22,8 @@ export interface SnapshotDeps {
   takeSnapshot(i: { p50Ms: number | null; p95Ms: number | null }): Promise<void>;
   purgeSnapshots(retentionDays: number): Promise<number>;
   purgeUnmetDemand(retentionDays: number): Promise<number>;
+  /** Drop gateway liveness rows past the 7d availability window (optional). */
+  purgeGatewayHeartbeats?(): Promise<number>;
   snapshotRetentionDays: number;
   unmetRetentionDays: number;
 }
@@ -31,6 +33,7 @@ export async function runNetworkSnapshot(deps: SnapshotDeps): Promise<{ purged: 
   await deps.takeSnapshot({ p50Ms: l.p50, p95Ms: l.p95 });
   const purged = await deps.purgeSnapshots(deps.snapshotRetentionDays);
   const purgedUnmet = await deps.purgeUnmetDemand(deps.unmetRetentionDays);
+  if (deps.purgeGatewayHeartbeats) await deps.purgeGatewayHeartbeats();
   return { purged, purgedUnmet };
 }
 
