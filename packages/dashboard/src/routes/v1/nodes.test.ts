@@ -160,6 +160,21 @@ describe("/v1 node routes", () => {
       }
     });
 
+    it("fails closed with KILL_SWITCH_UNAVAILABLE when switch state is unreadable, consuming nothing", async () => {
+      const v = new KillSwitchView(null);
+      configureKillSwitches({ current: () => v } as unknown as KillSwitchCache);
+      try {
+        const r = await call(app(), "POST", "/v1/nodes", { body: await registrationBody() });
+        expect(r.status).toBe(503);
+        expect(r.body["code"]).toBe("KILL_SWITCH_UNAVAILABLE");
+        expect(m.consumeChallenge).not.toHaveBeenCalled();
+        expect(m.powConsume).not.toHaveBeenCalled();
+        expect(m.registerNode).not.toHaveBeenCalled();
+      } finally {
+        configureKillSwitches(null);
+      }
+    });
+
     it("registers with a valid attestation + PoW and returns the node key once", async () => {
       m.registerNode.mockResolvedValue({ ok: true, nodeKey: "dn_node_" + "c".repeat(64), node: { id: NODE_ID, status: "pending", attestation_version: 1 } });
       const body = await registrationBody();
