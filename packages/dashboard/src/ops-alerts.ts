@@ -1,5 +1,8 @@
 import { createLogger, getPool, resolveAndCheck, isValidHostname } from "@dominusnode/shared";
 import type { ResolveCheckResult } from "@dominusnode/shared";
+import https from "node:https";
+import net from "node:net";
+import type { LookupFunction } from "node:net";
 
 /**
  * Operator push alerting (docs/agent-network/ADMIN_API.md §16).
@@ -247,13 +250,51 @@ export function formatPayload(kind: WebhookKind, a: OpsAlert, instance: string):
 
 export type Sender = (hook: OpsWebhook, body: string, headers: Record<string, string>) => Promise<void>;
 
-/** POST with SSRF re-check per send (DNS rebinding), no redirects, 5 s timeout. */
+/**
+ * Build a dns.lookup replacement that only ever returns the pre-vetted
+ * addresses, so the socket connects to exactly what the SSRF check approved
+ * (no second resolution an attacker could rebind between check and connect).
+ */
+export function pinnedLookup(addresses: string[]): LookupFunction {
+  return ((_host: string, opts: unknown, cb?: unknown) => {
+    const callback = (typeof opts === "function" ? opts : cb) as (...args: unknown[]) => void;
+    const o = (typeof opts === "object" && opts !== null ? opts : {}) as { all?: boolean; family?: number };
+    const list = addresses
+      .map((address) => ({ address, family: net.isIP(address) }))
+      .filter((a) => a.family !== 0 && (!o.family || a.family === o.family));
+    if (list.length === 0) {
+      callback(Object.assign(new Error("no vetted address"), { code: "ENOTFOUND" }));
+      return;
+    }
+    if (o.all) callback(null, list);
+    else callback(null, list[0]!.address, list[0]!.family);
+  }) as LookupFunction;
+}
+
+/**
+ * POST with an SSRF check per send, the connection pinned to the vetted
+ * addresses (DNS rebinding), no redirects, 5 s timeout, 64 KiB response cap.
+ */
 export const defaultSender: Sender = async (hook, body, headers) => {
   const r = await resolveAndCheck(hook.url.hostname.replace(/^\[|\]$/g, ""));
-  if (!r.allowed) throw new Error("webhook host rejected by SSRF check");
-  const res = await fetch(hook.url, { method: "POST", body, headers, redirect: "manual", signal: AbortSignal.timeout(5000) });
-  await res.body?.cancel().catch(() => undefined);
-  if (res.status < 200 || res.status >= 300) throw new Error(`webhook returned HTTP ${res.status}`);
+  if (!r.allowed || !r.addresses || r.addresses.length === 0) throw new Error("webhook host rejected by SSRF check");
+  const lookup = pinnedLookup(r.addresses);
+  const status = await new Promise<number>((resolve, reject) => {
+    const req = https.request(hook.url, {
+      method: "POST",
+      headers: { ...headers, "content-length": String(Buffer.byteLength(body)) },
+      lookup,
+      timeout: 5000,
+    }, (res) => {
+      res.resume();
+      res.on("end", () => resolve(res.statusCode ?? 0));
+      res.on("error", reject);
+    });
+    req.on("timeout", () => req.destroy(new Error("webhook timed out")));
+    req.on("error", (e) => reject(new Error(`webhook request failed: ${(e as NodeJS.ErrnoException).code ?? "error"}`)));
+    req.end(body);
+  });
+  if (status < 200 || status >= 300) throw new Error(`webhook returned HTTP ${status}`);
 };
 
 export const MAX_DEDUPE_ENTRIES = 1000;

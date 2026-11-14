@@ -258,3 +258,22 @@ describe("admin routes", () => {
     expect(sqls.some((s) => s.includes("INSERT INTO audit_events"))).toBe(true);
   });
 });
+
+describe("pinnedLookup (DNS rebinding pin)", () => {
+  it("returns only vetted addresses, honouring family and all", async () => {
+    const { pinnedLookup } = await import("./ops-alerts.js");
+    const lk = pinnedLookup(["93.184.216.34", "2606:2800:220:1::1"]);
+    const one = await new Promise<unknown[]>((res) => lk("evil.example", {}, (...a: unknown[]) => res(a)));
+    expect(one).toEqual([null, "93.184.216.34", 4]);
+    const v6 = await new Promise<unknown[]>((res) => lk("evil.example", { family: 6 }, (...a: unknown[]) => res(a)));
+    expect(v6).toEqual([null, "2606:2800:220:1::1", 6]);
+    const all = await new Promise<unknown[]>((res) => lk("evil.example", { all: true }, (...a: unknown[]) => res(a)));
+    expect((all[1] as unknown[]).length).toBe(2);
+  });
+  it("fails when no vetted address matches the family", async () => {
+    const { pinnedLookup } = await import("./ops-alerts.js");
+    const lk = pinnedLookup(["93.184.216.34"]);
+    const r = await new Promise<unknown[]>((res) => lk("x.example", { family: 6 }, (...a: unknown[]) => res(a)));
+    expect(r[0]).toBeInstanceOf(Error);
+  });
+});
