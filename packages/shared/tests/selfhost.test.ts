@@ -1004,6 +1004,23 @@ describe("gateway VPS readiness", () => {
     expect(r.status).toBe(1);
     const bad = await preflight({ ...good, hs: now(), env: { PREFLIGHT_REACH_URL: "http://check.example.org/" } });
     expect(bad.status).toBe(2);
+    // URL globbing off, and a RELAY_HOST that is not a plain hostname is never sent to the checker.
+    const glob = `case " $* " in *" -g "*) exit 0 ;; esac; exit 7`;
+    const g = await preflight({ ...good, hs: now(), curl: glob, env: { PREFLIGHT_REACH_URL: "https://check.example.org/tcp?h={host}&p={port}" } });
+    expect(g.stdout).toMatch(/ok\s+reach\s+tcp\/443 reachable from outside/);
+    const inj = await preflight({ ...good, hs: now(), curl: "exit 0", env: { RELAY_HOST: "relay.example.org&x=1", PREFLIGHT_REACH_URL: "https://check.example.org/tcp?h={host}&p={port}" } });
+    expect(inj.stdout).toMatch(/FAIL\s+reach\s+RELAY_HOST is not a plain hostname/);
+    expect(inj.stdout).not.toMatch(/reachable from outside/);
+  });
+
+  it("preflight rejects an oversized Cloudflare list and --help prints only the header", async () => {
+    const big = `case "$*" in *ips-v*) for i in $(seq 1 6000); do echo 198.51.100.0/24; done ;; *) exit 7 ;; esac`;
+    const r = await preflight({ ...good, hs: now(), curl: big });
+    expect(r.stdout).toMatch(/Cloudflare ranges: built-in \(fetch from cloudflare\.com failed\)/);
+    const h = spawnSync("bash", [PREFLIGHT, "--help"], { encoding: "utf8" });
+    expect(h.status).toBe(0);
+    expect(h.stdout).toMatch(/Exit status/);
+    expect(h.stdout).not.toMatch(/set -uo|ROOT=/);
   });
 
   it("docs cover the gateway checklist with placeholder hosts only", () => {

@@ -28,7 +28,7 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 ENV_FILE="$ROOT/.env"
 case "${1:-}" in
-  -h|--help) sed -n '2,28p' "$0"; exit 0 ;;
+  -h|--help) sed -n '2,/^# Exit status/p' "$0"; exit 0 ;;
   "") ;;
   *) echo "unknown option: $1" >&2; exit 2 ;;
 esac
@@ -93,7 +93,9 @@ CF_V6="2400:cb00::/32 2606:4700::/32 2803:f800::/32 2405:b500::/32 2405:8100::/3
 cf_fetch() {
   local body line out=""
   has curl || return 1
-  body="$(curl -fsS --proto =https --max-time 10 --max-filesize 65536 "https://www.cloudflare.com/$1" 2>/dev/null)" || return 1
+  # --max-filesize is not enforced without Content-Length, so cap the body too.
+  body="$(curl -fsS --proto =https --max-redirs 0 --max-time 10 --max-filesize 65536 "https://www.cloudflare.com/$1" 2>/dev/null | head -c 65537)" || return 1
+  [ "${#body}" -le 65536 ] || return 1
   while IFS= read -r line; do
     line="${line%$'\r'}"
     [ -n "$line" ] || continue
@@ -205,10 +207,12 @@ elif ! has curl; then
   fail reach "PREFLIGHT_REACH_URL set but curl is not installed"
 elif [ -z "$RELAY" ]; then
   fail reach "RELAY_HOST is not set: nothing to check"
+elif ! printf '%s' "$RELAY" | grep -Eq '^[A-Za-z0-9]([A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$'; then
+  fail reach "RELAY_HOST is not a plain hostname: not passing it to the checker"
 else
   for port in 80 443 8443 1443 9443; do
     u="${REACH_URL//\{host\}/$RELAY}"; u="${u//\{port\}/$port}"
-    if curl -fsS -o /dev/null --proto =https --max-redirs 0 --max-time 15 "$u" 2>/dev/null; then
+    if curl -fsS -g -o /dev/null --proto =https --max-redirs 0 --max-time 15 "$u" 2>/dev/null; then
       ok reach "tcp/$port reachable from outside"
     else
       fail reach "tcp/$port not reachable from outside (checker at PREFLIGHT_REACH_URL); check the provider firewall"
