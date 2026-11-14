@@ -72,6 +72,12 @@ export interface DuePayout {
 
 export interface PayoutDeps {
   enabled(): boolean;
+  /**
+   * Admin "payouts" kill switch. While true the run only reconciles payouts
+   * already broadcast (receipt checks, confirm / reverse); it queues, claims
+   * and sends nothing new.
+   */
+  paused?(): boolean;
   loadSdn(): Promise<Set<string>>;
   /** remainingDailyMusd: tier daily_withdraw_limit_musd minus today's non-failed payouts (same rule as requestWithdraw). */
   listAutoCandidates(): Promise<{ userId: string; availableMusd: bigint; remainingDailyMusd: bigint }[]>;
@@ -93,7 +99,7 @@ export interface PayoutDeps {
 }
 
 export interface PayoutRunResult {
-  skipped?: "disabled" | "sdn_unavailable";
+  skipped?: "disabled" | "paused" | "sdn_unavailable";
   queued: number;
   sent: number;
   confirmed: number;
@@ -129,9 +135,29 @@ async function settleReceipt(deps: PayoutDeps, id: string, txHash: string, out: 
   // pending: reconciled on a later run via listSubmitted
 }
 
+async function reconcileSubmitted(deps: PayoutDeps, out: PayoutRunResult): Promise<void> {
+  const submitted = await deps.listSubmitted();
+  for (let i = 0; i < submitted.length; i += RECONCILE_CONCURRENCY) {
+    await Promise.all(submitted.slice(i, i + RECONCILE_CONCURRENCY).map(async (s) => {
+      try {
+        await settleReceipt(deps, s.id, s.txHash, out, RECONCILE_RECEIPT_TIMEOUT_MS);
+      } catch (err) {
+        deps.logger?.warn("payout reconcile failed", { payoutId: s.id, error: err instanceof Error ? err.message.slice(0, 120) : "unknown" });
+      }
+    }));
+  }
+}
+
 export async function runOnce(deps: PayoutDeps): Promise<PayoutRunResult> {
   const out: PayoutRunResult = { queued: 0, sent: 0, confirmed: 0, reversed: 0, sanctioned: 0, ambiguous: 0, released: 0, autoSkipped: 0, autoFailed: 0, paidMusd: 0n };
   if (!deps.enabled()) return { ...out, skipped: "disabled" };
+
+  // Kill switch: keep settling broadcasts already on chain (no SDN needed:
+  // nothing new is sent), stop before any new queueing or broadcast.
+  if (deps.paused?.()) {
+    await reconcileSubmitted(deps, out);
+    return { ...out, skipped: "paused" };
+  }
 
   let sdn: Set<string>;
   try {
@@ -143,16 +169,7 @@ export async function runOnce(deps: PayoutDeps): Promise<PayoutRunResult> {
 
   // 1. Reconcile earlier broadcasts: short timeout, in parallel batches, so a
   // backlog of stranded payouts cannot block the run for minutes each.
-  const submitted = await deps.listSubmitted();
-  for (let i = 0; i < submitted.length; i += RECONCILE_CONCURRENCY) {
-    await Promise.all(submitted.slice(i, i + RECONCILE_CONCURRENCY).map(async (s) => {
-      try {
-        await settleReceipt(deps, s.id, s.txHash, out, RECONCILE_RECEIPT_TIMEOUT_MS);
-      } catch (err) {
-        deps.logger?.warn("payout reconcile failed", { payoutId: s.id, error: err instanceof Error ? err.message.slice(0, 120) : "unknown" });
-      }
-    }));
-  }
+  await reconcileSubmitted(deps, out);
 
   // 2. Daily auto-queue (idempotent per user per UTC day).
   const key = `auto-${dayKey((deps.now ?? (() => new Date()))())}`;

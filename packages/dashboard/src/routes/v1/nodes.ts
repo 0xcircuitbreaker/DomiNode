@@ -10,8 +10,10 @@ import {
   powChallengeRepo,
   isExitClass,
   tierWeightBpsFor,
+  killSwitches,
   type ExitClass,
 } from "@dominusnode/shared";
+import { sendKillSwitchBlock } from "../../helpers/kill-switch.js";
 import { requireAgentPrincipal, type AgentRequest } from "../../middleware/agent.js";
 import { recoverSignerAddress } from "../../helpers/verify-signature.js";
 import { buildAttestationMessage, sha256Hex, verifyPow, encodeCursor, decodeCursor } from "@dominusnode/shared";
@@ -124,6 +126,13 @@ router.post("/nodes", async (req: Request, res: Response) => {
   }
   if (!agent.walletAddress) {
     res.status(400).json({ error: "A linked wallet is required to register nodes", code: "NO_LINKED_WALLET" });
+    return;
+  }
+  // Kill switch "api_keys" also covers dn_node_ key issuance. Checked before
+  // the challenge or PoW is consumed, so the same attempt works on resume.
+  const ks = killSwitches().checkNodeRegistration();
+  if (ks) {
+    sendKillSwitchBlock(res, ks);
     return;
   }
   const body = (req.body ?? {}) as Record<string, unknown>;
