@@ -505,6 +505,14 @@ echo "role: $ROLE_SEL; primary domain: $PRIMARY; all hostnames: $HOSTS; TLS: $TL
 echo "relay: $RELAY; proxy: $PROXYH; ACME challenge: $ACME; compose profiles: $PROFILES"
 echo "this box's signing public key (selfhost/coord.pub): $PUB; DN_COORD_PUBKEYS=$PINS"
 echo "API key pepper check value (must match on coordinator and gateway): $PEPPER_CHECK"
+if [ "$ROLE_SEL" = gateway ]; then
+  # The VPS signs node-tunnel CHALLENGEs with its own key; the coordinator key
+  # never comes here. Hand this public key to the coordinator and node builds.
+  echo "gateway public key (hex): $PUB"
+  echo "next, on the coordinator: GATEWAY_PUBKEY=$PUB ./scripts/selfhost/install.sh --yes"
+  echo "node release builds: DN_COORD_PUBKEYS=$PINS (DEPLOYMENT.md 'Gateway VPS checklist')"
+  echo "check this box: ./scripts/selfhost/preflight.sh"
+fi
 JWT_CHECK="$(env_get JWT_SECRET | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>process.stdout.write(require("crypto").createHmac("sha256",d.trim()).update("dominusnode-jwt-check").digest("hex").slice(0,16)))')"
 echo "JWT secret check value (must match on coordinator and gateway for dn_proxy_ tokens): $JWT_CHECK"
 fp() { node -e 'process.stdout.write("sha256:"+require("crypto").createHash("sha256").update(Buffer.from(process.argv[1],"hex")).digest("hex"))' "$1"; }

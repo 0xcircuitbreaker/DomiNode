@@ -915,8 +915,8 @@ PublicKey = <VPS public key>
 AllowedIPs = 10.66.0.2/32
 ```
 
-VPS (10.66.0.2; the VPS dials home, so home needs UDP 51820 forwarded, or swap
-roles so home dials a listening VPS and nothing is forwarded at home):
+VPS (10.66.0.2; the VPS dials home, so home needs UDP 51820 forwarded; for
+the reverse, home dials a listening VPS, see "Gateway VPS checklist"):
 
 ```ini
 [Interface]
@@ -1015,6 +1015,82 @@ created or used on the api since the upgrade; keep that window short or do it
 in a maintenance window.
 
 Admin live gateway stats (`PROXY_INTERNAL_HOST`) are not wired across the split.
+
+#### Gateway VPS checklist
+
+The order for bringing up a fresh gateway VPS (`gateway.example.org` below; the
+coordinator stays at home). Hostnames are placeholders.
+
+1. **DNS.** Point `relay.example.org` and `proxy.example.org` (A records) at
+   the VPS's public IPv4. Both must be **DNS only** (grey cloud) in Cloudflare:
+   relay and proxy traffic must never go through the Cloudflare proxy, and
+   Caddy needs inbound 80/443 for HTTP-01.
+2. **Firewall.** Open TCP 80, 443 (ACME + relay site), 8443 (HTTPS proxy),
+   1443 (SOCKS5 over TLS), 9443 (node tunnel) and, for the direction below,
+   UDP 51820, at the provider and in `ufw`. Nothing else, and never 5432.
+3. **WireGuard.** Either direction from "Gateway on a VPS, coordinator at
+   home" works. Recommended for a home box behind NAT/CGNAT: **home dials the
+   VPS**, so nothing is forwarded at home. The VPS listens:
+
+   ```ini
+   # VPS /etc/wireguard/wg0.conf (10.66.0.2)
+   [Interface]
+   Address = 10.66.0.2/24
+   ListenPort = 51820
+   PostUp = wg set %i private-key /etc/wireguard/wg0.key
+   [Peer]
+   PublicKey = <home public key>
+   AllowedIPs = 10.66.0.1/32
+   ```
+
+   and the home box dials out and keeps the NAT mapping open:
+
+   ```ini
+   # home /etc/wireguard/wg0.conf (10.66.0.1)
+   [Interface]
+   Address = 10.66.0.1/24
+   PostUp = wg set %i private-key /etc/wireguard/wg0.key
+   [Peer]
+   PublicKey = <VPS public key>
+   Endpoint = gateway.example.org:51820
+   AllowedIPs = 10.66.0.2/32
+   PersistentKeepalive = 25
+   ```
+
+   Postgres still only listens on home's `DB_WG_BIND` (10.66.0.1); the
+   `DOCKER-USER` rules above apply unchanged. The VPS cannot reach home until
+   home has dialed, so start wg on home after the VPS.
+4. **Coordinator.** On the home box, with wg up:
+   `DB_WG_BIND=10.66.0.1 ./scripts/selfhost/install.sh --yes`, then copy
+   `selfhost/gateway-database-url` and `selfhost/api-key-pepper` to the VPS
+   (scp, mode 0600).
+5. **Gateway.** On the VPS:
+   `ROLE=gateway RELAY_HOST=relay.example.org PROXY_HOST=proxy.example.org
+   COORD_PUBKEY=<home coord.pub> ./scripts/selfhost/install.sh` (the
+   database URL, pepper and `COORD_JWT_SECRET` through the hidden prompts or
+   environment, never argv). The VPS generates its **own** signing key
+   (`selfhost/coord-key.pem`); the coordinator key is never copied to it. The
+   installer prints `gateway public key (hex): <vps>`.
+6. **Preflight.** `./scripts/selfhost/preflight.sh` on the VPS. Read-only; it
+   checks that both hostnames resolve to this host and not to a Cloudflare
+   address, the gateway ports are free or held by the stack (and allowed by
+   ufw), wg0 has a handshake under 180 s, the `GATEWAY_DATABASE_URL` host is
+   routed over wg0 and accepts TCP, NTP is synchronised and there is at least
+   `PREFLIGHT_MIN_DISK_GB` (default 10) free. `PUBLIC_IP` overrides the address
+   it compares DNS against (NAT'd VPS). Inbound reachability from the internet
+   cannot be proven from the box itself; test from outside with
+   `curl -v https://relay.example.org:9443/` and a proxied request.
+7. **Add the gateway key to the coordinator.** On the home box:
+   `GATEWAY_PUBKEY=<vps> ./scripts/selfhost/install.sh --yes`. That sets
+   `GATEWAY_PUBKEY` and `COORD_ADDITIONAL_PUBKEYS` so coordinator.json lists
+   the key, and `DN_COORD_PUBKEYS=<home>,<vps>`.
+8. **Node images.** Release node-agent builds and the published node image
+   must pin both keys (§2):
+   `DN_COORD_PUBKEYS=<home>,<vps> npm run build:release -w @dominusnode/node-agent`.
+   Nodes already running confirm both with `--trust sha256:<home>,sha256:<vps>`
+   (printed by the installer). Until a node trusts the VPS key it refuses the
+   gateway's CHALLENGE.
+9. Compare the pepper and JWT check values printed on both boxes.
 
 ## 8. Launch jobs and settings
 
