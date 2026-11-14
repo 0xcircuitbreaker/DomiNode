@@ -56,6 +56,12 @@ describe("KillSwitchView", () => {
     expect(v.checkRail("x402")).toBeNull();
   });
 
+  it("api_keys also refuses node registration with its own code", () => {
+    expect(view(["api_keys"]).checkNodeRegistration()).toMatchObject({ status: 503, code: "NODE_REGISTRATION_PAUSED", retryAfterSec: 300 });
+    expect(view(["signups", "payouts"]).checkNodeRegistration()).toBeNull();
+    expect(new KillSwitchView(null).checkNodeRegistration()?.code).toBe("KILL_SWITCH_UNAVAILABLE");
+  });
+
   it("fail-closed view refuses everything", () => {
     const v = new KillSwitchView(null);
     expect(v.unavailable).toBe(true);

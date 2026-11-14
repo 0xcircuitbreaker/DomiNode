@@ -51,7 +51,7 @@ vi.hoisted(() => { process.env["NODE_POW_DIFFICULTY"] = "10"; });
 import router, * as mod from "./nodes.js";
 import { call } from "./test-helpers.js";
 import { buildAttestationMessage, sha256Hex, verifyPow } from "@dominusnode/shared";
-import { DEFAULT_POLICY } from "@dominusnode/shared";
+import { DEFAULT_POLICY, KillSwitchView, configureKillSwitches, type KillSwitchCache } from "@dominusnode/shared";
 
 
 function app() {
@@ -145,6 +145,21 @@ describe("/v1 node routes", () => {
   });
 
   describe("POST /v1/nodes", () => {
+    it("refuses with NODE_REGISTRATION_PAUSED while the api_keys switch is engaged, consuming nothing", async () => {
+      const v = new KillSwitchView({ engaged: new Set(["api_keys"]), drainedNodeIds: new Set() });
+      configureKillSwitches({ current: () => v } as unknown as KillSwitchCache);
+      try {
+        const r = await call(app(), "POST", "/v1/nodes", { body: await registrationBody() });
+        expect(r.status).toBe(503);
+        expect(r.body["code"]).toBe("NODE_REGISTRATION_PAUSED");
+        expect(m.consumeChallenge).not.toHaveBeenCalled();
+        expect(m.powConsume).not.toHaveBeenCalled();
+        expect(m.registerNode).not.toHaveBeenCalled();
+      } finally {
+        configureKillSwitches(null);
+      }
+    });
+
     it("registers with a valid attestation + PoW and returns the node key once", async () => {
       m.registerNode.mockResolvedValue({ ok: true, nodeKey: "dn_node_" + "c".repeat(64), node: { id: NODE_ID, status: "pending", attestation_version: 1 } });
       const body = await registrationBody();

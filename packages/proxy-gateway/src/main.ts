@@ -564,8 +564,10 @@ function startJobs(registry: NodeRegistry, getPolicy: () => ActivePolicy): Job[]
     jobs.push(payoutsJob.start({
       pool, logger: jobLog, intervalMs: envInt(process.env, "PAYOUT_JOB_INTERVAL_MS", 86_400_000, 3_600_000, 7 * 86_400_000),
       deps: {
-        // Kill switch "payouts" (or unreadable switch state) pauses the whole run.
-        enabled: () => payoutRepo.payoutsEnabled() && !killSwitches().engaged("payouts"),
+        enabled: () => payoutRepo.payoutsEnabled(),
+        // Kill switch "payouts" (or unreadable switch state): no new queueing or
+        // sends; receipts of payouts already broadcast are still reconciled.
+        paused: () => killSwitches().engaged("payouts"),
         loadSdn: () => loadSdnFile(process.env["PAYOUT_SDN_FILE"]),
         listAutoCandidates: () => payoutRepo.listAutoPayoutCandidates(),
         requestWithdraw: payoutRepo.requestWithdraw,
