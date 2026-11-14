@@ -85,9 +85,9 @@ elsewhere). Meaning and required/optional status are documented in
 | `PAYOUT_RPC_URL` |  | `src/jobs/payout-sender-ethers.ts` |
 | `PAYOUT_SDN_FILE` |  | `src/main.ts`, `src/payer-screening.ts` |
 | `PAYOUT_SIGNER_KEY_FILE` |  | `src/jobs/payout-sender-ethers.ts` |
-| `PROBES_DISABLED` |  | `src/main.ts` |
+| `PROBES_DISABLED` |  | `src/env-check.ts`, `src/main.ts` |
 | `PROBE_AUTH_SECRET` |  | `src/jobs/probes.ts` |
-| `PROBE_URL` |  | `src/main.ts` |
+| `PROBE_URL` | `""` | `src/env-check.ts`, `src/main.ts` |
 | `PROXY_CONNECT_TIMEOUT_MS` | `30000` | `src/server.ts`, `src/socks5.ts` |
 | `PROXY_MAX_CONNECTIONS` | `5000` | `src/server.ts`, `src/socks5.ts` |
 | `PROXY_MAX_PER_USER` | `100` | `src/connection-tracker.ts` |
@@ -144,6 +144,18 @@ elsewhere). Meaning and required/optional status are documented in
 | `NODE_POW_DIFFICULTY` | `20` | `src/routes/v1/nodes.ts` |
 | `NOWPAYMENTS_API_KEY` |  | `src/routes/webhooks.ts` |
 | `NOWPAYMENTS_WEBHOOK_IPS` |  | `src/routes/webhooks.ts`, `src/server.ts` |
+| `OPS_ALERT_DEBIT_SPIKE_CENTS` | `5000` | `src/ops-alerts.ts` |
+| `OPS_ALERT_DEBIT_SPIKE_FACTOR` | `5` | `src/ops-alerts.ts` |
+| `OPS_ALERT_DEDUPE_SEC` | `1800` | `src/ops-alerts.ts` |
+| `OPS_ALERT_GATEWAY_STALE_SEC` | `180` | `src/ops-alerts.ts` |
+| `OPS_ALERT_INTERVAL_SEC` | `60` | `src/ops-alerts.ts` |
+| `OPS_ALERT_MAX_PER_HOUR` | `30` | `src/ops-alerts.ts` |
+| `OPS_ALERT_MIN_LIVE_NODES` | `0` | `src/ops-alerts.ts` |
+| `OPS_ALERT_NODE_DROP_PCT` | `50` | `src/ops-alerts.ts` |
+| `OPS_ALERT_PAYMENT_FAILURES` | `3` | `src/ops-alerts.ts` |
+| `OPS_ALERT_V1_ERROR_PCT` | `20` | `src/ops-alerts.ts` |
+| `OPS_ALERT_V1_MIN_REQUESTS` | `50` | `src/ops-alerts.ts` |
+| `OPS_ALERT_WEBHOOKS` |  | `src/ops-alerts.ts` |
 | `PAYOUT_ALLOW_TESTNET` |  | `src/routes/v1/credits.ts` |
 | `PAYOUT_SDN_FILE` |  | `src/routes/v1/credits.ts` |
 | `PAYPAL_CLIENT_ID` |  | `src/routes/webhooks.ts` |
@@ -155,6 +167,7 @@ elsewhere). Meaning and required/optional status are documented in
 | `PROXY_INTERNAL_HOST` | `127.0.0.1` | `src/routes/account.ts`, `src/routes/admin.ts`, `src/routes/proxy-health.ts` |
 | `PROXY_INTERNAL_URL` |  | `src/routes/proxy-health.ts` |
 | `PROXY_PUBLIC_HOST` | `proxy.dominusnode.com` | `src/routes/discovery.ts`, `src/routes/federation.ts`, `src/routes/proxy-config.ts`, `src/routes/proxy-health.ts`, `src/routes/x402.ts` |
+| `PROXY_PUBLISH_PLAINTEXT` | `""` | `src/routes/federation.ts` |
 | `PROXY_STATS_SECRET` |  | `src/routes/account.ts`, `src/routes/admin.ts`, `src/routes/proxy-health.ts` |
 | `RECAPTCHA_SCORE_THRESHOLD` | `0.5` | `src/routes/auth.ts` |
 | `RECAPTCHA_SECRET_KEY` | `""` | `src/routes/auth.ts` |

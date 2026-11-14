@@ -37,7 +37,7 @@ pub struct Config {
     /// TLS to the gateway (`PROXY_TLS_PORT`); `build_url` then defaults to `https://`.
     /// Since 3.1 the default is `Some(GatewayTls::default())` (port 8443): production
     /// gateways refuse credentials on plaintext 8080/1080. Self-hosted coordinators
-    /// usually publish 8444 (`port: Some(8444)`). `None` selects plaintext (local dev only).
+    /// use 8443 too. `None` selects plaintext (local dev only).
     pub gateway_tls: Option<GatewayTls>,
 }
 

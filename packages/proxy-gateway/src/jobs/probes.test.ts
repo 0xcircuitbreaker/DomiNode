@@ -174,7 +174,7 @@ describe("probe target rotation and connect queue", () => {
     });
     const q = new ConnectProbeQueue(
       { target, listNodes: () => [], quarantine: vi.fn(), exchange: ex as typeof exchange, nonce: () => NONCE, onEgress, strikes: new TamperStrikes() },
-      { concurrency: 2, delayMs: 0, minIntervalMs: 60_000, now: () => t },
+      { concurrency: 2, delayMs: 0, jitterMs: 0, minIntervalMs: 60_000, now: () => t },
     );
     const mk = (id: string) => ({ nodeId: id, ip: "203.0.113.5", openStream: vi.fn(async () => new Duplex({ read() {}, write(_c, _e, cb) { cb(); } })) });
     expect(q.enqueue(mk("a"))).toBe(true);
@@ -206,7 +206,7 @@ describe("pending nodes: retries, full coverage, self-check", () => {
     const onEgress = vi.fn(() => { state.pending = false; });
     const q = new ConnectProbeQueue(
       { target, listNodes: () => [], quarantine: vi.fn(), exchange: ex as typeof exchange, nonce: () => NONCE, onEgress, strikes: new TamperStrikes() },
-      { delayMs: 0, retryDelaysMs: [5] },
+      { delayMs: 0, jitterMs: 0, retryDelaysMs: [5] },
     );
     expect(q.enqueue(pendingNode("p", state))).toBe(true);
     await new Promise((r) => setTimeout(r, 40));
@@ -222,7 +222,7 @@ describe("pending nodes: retries, full coverage, self-check", () => {
     const n = pendingNode("x", st);
     const q = new ConnectProbeQueue(
       { target, listNodes: () => [], quarantine: vi.fn(), exchange: vi.fn(async () => "HTTP/1.1 502 X\r\n\r\n") as never, strikes: new TamperStrikes() },
-      { delayMs: 0, minIntervalMs: 60_000, retryDelaysMs: [1_000_000], now: () => t },
+      { delayMs: 0, jitterMs: 0, minIntervalMs: 60_000, retryDelaysMs: [1_000_000], now: () => t },
     );
     expect(q.enqueue(n)).toBe(true);
     t = 10;
@@ -232,6 +232,71 @@ describe("pending nodes: retries, full coverage, self-check", () => {
     await new Promise((r) => setTimeout(r, 10));
     expect(q.enqueue(n)).toBe(false); // verified: rate-limited again
     q.stop();
+  });
+
+  it("a full queue never drops a pending node: it backs off (overflow metric) and is probed once the queue drains", async () => {
+    const releases: Array<() => void> = [];
+    const ex = vi.fn(async (_s: Duplex, _t: unknown, nonce: string) => { await new Promise<void>((r) => releases.push(r)); return ok("203.0.113.5", nonce); });
+    const states = new Map<string, { pending: boolean }>();
+    const onEgress = vi.fn(async (id: string) => { states.get(id)!.pending = false; });
+    const q = new ConnectProbeQueue(
+      { target, listNodes: () => [], quarantine: vi.fn(), exchange: ex as typeof exchange, nonce: () => NONCE, onEgress, strikes: new TamperStrikes() },
+      { concurrency: 1, maxQueued: 1, delayMs: 0, jitterMs: 0, retryDelaysMs: [4] },
+    );
+    const mk = (id: string) => { const st = { pending: true }; states.set(id, st); return pendingNode(id, st); };
+    expect(q.enqueue(mk("a"))).toBe(true); // in flight
+    expect(q.enqueue(mk("b"))).toBe(true); // queued
+    expect(q.enqueue(mk("c"))).toBe(true); // overflow, backing off
+    expect(q.stats()).toMatchObject({ active: 1, queued: 1, overflow: 1, dropped: 0 });
+    expect(q.enqueue(pendingNode("c", states.get("c")!))).toBe(true); // reconnect while backing off: not dropped, not doubled
+    expect(q.stats()).toMatchObject({ overflow: 1, dropped: 0 });
+    const verified = { nodeId: "v", ip: "203.0.113.5", isPending: () => false, openStream: vi.fn(async () => stream()) };
+    expect(q.enqueue(verified)).toBe(false);
+    expect(q.stats().dropped).toBe(1);
+    for (let i = 0; i < 20 && onEgress.mock.calls.length < 3; i++) {
+      releases.splice(0).forEach((r) => r());
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    expect(onEgress.mock.calls.map((c) => c[0]).sort()).toEqual(["a", "b", "c"]);
+    expect(q.stats().overflow).toBe(0);
+    q.stop();
+  });
+
+  it("probes pending nodes before re-verifying classified ones", async () => {
+    const order: string[] = [];
+    const ex = vi.fn(async (_s: Duplex, _t: unknown, nonce: string) => ok("203.0.113.5", nonce));
+    const q = new ConnectProbeQueue(
+      { target, listNodes: () => [], quarantine: vi.fn(), exchange: ex as typeof exchange, nonce: () => NONCE, onEgress: async (id) => { order.push(id); }, strikes: new TamperStrikes() },
+      { concurrency: 1, delayMs: 1, jitterMs: 0 },
+    );
+    q.enqueue({ nodeId: "verified", ip: "203.0.113.5", isPending: () => false, openStream: vi.fn(async () => stream()) });
+    q.enqueue(pendingNode("pending", { pending: true }));
+    await new Promise((r) => setTimeout(r, 30));
+    expect(order[0]).toBe("pending");
+    q.stop();
+  });
+
+  it("connect probe start time is randomized within delay..delay+jitter", async () => {
+    vi.useFakeTimers();
+    try {
+      const starts: number[] = [];
+      for (let i = 0; i < 12; i++) {
+        const q = new ConnectProbeQueue(
+          { target, listNodes: () => [], quarantine: vi.fn(), exchange: vi.fn(async () => "HTTP/1.1 502 X\r\n\r\n") as never, strikes: new TamperStrikes() },
+          { delayMs: 1_000, jitterMs: 10_000, retryDelaysMs: [1_000_000] },
+        );
+        const n = { nodeId: `j${i}`, ip: "203.0.113.5", openStream: vi.fn(async () => { starts.push(Date.now() - t0); return stream(); }) };
+        const t0 = Date.now();
+        q.enqueue(n);
+        await vi.advanceTimersByTimeAsync(11_001);
+        q.stop();
+      }
+      expect(starts).toHaveLength(12);
+      for (const s of starts) expect(s >= 1_000 && s <= 11_000).toBe(true);
+      expect(new Set(starts).size).toBeGreaterThan(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("periodic run probes every pending node beyond the sample size", async () => {

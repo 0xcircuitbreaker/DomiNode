@@ -10,7 +10,7 @@ cargo add dominusnode@3
 cargo add tokio --features full
 ```
 
-Defaults: API `https://api.dominusnode.com`, relay gateway `proxy.dominusnode.com` (TLS to the gateway's HTTPS proxy on :8443 by default since 3.1; SOCKS5 :1080). Production gateways refuse credentials on plaintext 8080/1080. A self-hosted coordinator publishes its TLS proxy on 8444: `gateway_tls: Some(GatewayTls { port: Some(8444), ..Default::default() })`. Plaintext 8080 for local development: `gateway_tls: None`. A refused CONNECT carries the gateway's `X-DominusNode-Error` code (e.g. INSUFFICIENT_BALANCE, NO_NODES_AVAILABLE) in `err.code()` / `err.details()["retryAfter"]`. Both can be overridden in the client configuration.
+Defaults: API `https://api.dominusnode.com`, relay gateway `proxy.dominusnode.com` (TLS to the gateway's HTTPS proxy on :8443 by default since 3.1; SOCKS5 :1080). Production gateways refuse credentials on plaintext 8080/1080. Self-hosted coordinators use 8443 as well. Plaintext 8080 for local development: `gateway_tls: None`. A refused CONNECT carries the gateway's `X-DominusNode-Error` code (e.g. INSUFFICIENT_BALANCE, NO_NODES_AVAILABLE) in `err.code()` / `err.details()["retryAfter"]`. Both can be overridden in the client configuration.
 
 or in `Cargo.toml`:
 

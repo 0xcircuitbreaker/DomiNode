@@ -60,8 +60,11 @@ export interface CoordinatorDocument {
   hostnames: string[];
   site_name: string;
   api_url: string;
-  /** https_proxy / socks5_tls_proxy (TLS listeners, preferred) are present only when enabled. */
-  gateway: { https_proxy?: string; socks5_tls_proxy?: string; http_proxy: string; socks5_proxy: string; tunnel_url: string };
+  /**
+   * https_proxy / socks5_tls_proxy (TLS listeners, preferred) are present only
+   * when enabled; http_proxy / socks5_proxy only when plaintext is published.
+   */
+  gateway: { https_proxy?: string; socks5_tls_proxy?: string; http_proxy?: string; socks5_proxy?: string; tunnel_url: string };
   policy: { version: number; sha256: string; url: string };
   pricing_url: string;
   operator: { name: string; contact: string | null; abuse_contact: string | null };

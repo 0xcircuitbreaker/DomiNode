@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { checkGatewayEnv } from "./env-check.js";
+import { checkGatewayEnv, gatewayEnvWarnings } from "./env-check.js";
 
 describe("gateway startup env validation", () => {
   it("passes a minimal dev config", () => {
@@ -13,5 +13,17 @@ describe("gateway startup env validation", () => {
   it("reports port clashes", () => {
     const e = checkGatewayEnv({ DATABASE_URL: "x", PROXY_TLS_PORT: "8443", TUNNEL_PORT: "8443" });
     expect(e.join(" ")).toMatch(/PROXY_TLS_PORT and TUNNEL_PORT are both 8443/);
+  });
+});
+
+describe("gateway startup env warnings", () => {
+  it("warns when PROBE_URL is unset in production", () => {
+    expect(gatewayEnvWarnings({ NODE_ENV: "production" }).join(" ")).toMatch(/PROBE_URL is not set in production/);
+    expect(gatewayEnvWarnings({ NODE_ENV: "production", PROBE_URL: "  " })).toHaveLength(1);
+  });
+  it("is quiet with PROBE_URL, an explicit opt-out, or outside production", () => {
+    expect(gatewayEnvWarnings({ NODE_ENV: "production", PROBE_URL: "https://echo.example.com/ip" })).toEqual([]);
+    expect(gatewayEnvWarnings({ NODE_ENV: "production", PROBES_DISABLED: "true" })).toEqual([]);
+    expect(gatewayEnvWarnings({})).toEqual([]);
   });
 });

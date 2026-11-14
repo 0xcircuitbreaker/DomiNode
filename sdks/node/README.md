@@ -11,7 +11,7 @@ buy exit traffic per GB and earn credits by running relay nodes.
 npm install @dominusnode/sdk
 ```
 
-Defaults: API `https://api.dominusnode.com`, relay gateway `proxy.dominusnode.com` (TLS to the gateway's HTTPS proxy on :8443 by default since 2.2; SOCKS5 :1080). Production gateways refuse credentials on plaintext 8080/1080. A self-hosted coordinator publishes its TLS proxy on 8444: `gatewayTls: { port: 8444 }`. Plaintext 8080 for local development: `gatewayTls: false`. A refused CONNECT carries the gateway's `X-DominusNode-Error` code (e.g. INSUFFICIENT_BALANCE, NO_NODES_AVAILABLE) in `err.code` / `err.retryAfter`. Both can be overridden in the client configuration.
+Defaults: API `https://api.dominusnode.com`, relay gateway `proxy.dominusnode.com` (TLS to the gateway's HTTPS proxy on :8443 by default since 2.2; SOCKS5 :1080). Production gateways refuse credentials on plaintext 8080/1080. Self-hosted coordinators use 8443 as well. Plaintext 8080 for local development: `gatewayTls: false`. A refused CONNECT carries the gateway's `X-DominusNode-Error` code (e.g. INSUFFICIENT_BALANCE, NO_NODES_AVAILABLE) in `err.code` / `err.retryAfter`. Both can be overridden in the client configuration.
 
 ## Quick start
 

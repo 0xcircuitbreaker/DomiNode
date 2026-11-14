@@ -69,7 +69,7 @@ try (DominusNodeClient dn = new DominusNodeClient()) {
 Config cfg = Config.builder()
         .baseUrl("https://api.dominusnode.com")     // http(s), no userinfo
         .proxyHost("proxy.dominusnode.com")
-        .gatewayTls(GatewayTls.defaults())           // default: TLS to the gateway on 8443 (self-host: .port(8444))
+        .gatewayTls(GatewayTls.defaults())           // default: TLS to the gateway on 8443
         // .plaintextGateway().httpProxyPort(8080)    // local dev only; production refuses plaintext
         .socks5ProxyPort(1080)
         .tokens(accessJwt, refreshJwt)               // optional existing JWT pair
@@ -127,7 +127,7 @@ without calling the signer. Signatures returned by the signer are format-checked
 
 Routing flags go in the proxy username (`country-XX`, `class-residential|dc|mobile|masked` (masked = VPN/WARP/Tor exits, cheapest, opt-in), `session-<id>`,
 `wallet-<uuid>`, `allowhttp-1`); OFAC-sanctioned countries (CU, IR, KP, RU, SY) are refused.
-Since 2.2 the proxy talks TLS to the gateway (HTTPS proxy, port 8443; self-hosted coordinators use 8444);
+Since 2.2 the proxy talks TLS to the gateway (HTTPS proxy, port 8443; self-hosted coordinators use 8443 too);
 production gateways refuse credentials on plaintext 8080/1080. A refused CONNECT throws `ProxyException`
 with the gateway's `X-DominusNode-Error` code in `getCode()` (e.g. INSUFFICIENT_BALANCE, NO_NODES_AVAILABLE)
 and `Retry-After` in `getRetryAfter()`.

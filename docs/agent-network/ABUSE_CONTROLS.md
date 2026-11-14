@@ -80,7 +80,11 @@ No — but they should be split by where trust lives:
   on re-detection) in the same review queue as collusion and report-penalty
   flags. The flag never changes money by itself; the class downgrade already
   reprices new sessions, and in-flight sessions whose locked class is above
-  the new class are ended at once (bytes so far settle at the locked price). Privacy: the classification reuses `nodes.observed_ip`
+  the new class are ended at once (bytes so far settle at the locked price).
+  Country check: when the probe egress country differs from the tunnel IP's
+  country the node becomes `unknown` (unselectable), the `egress_mismatch` flag
+  opens and every in-flight session on the node ends; a sanctioned (OFAC)
+  egress country also quarantines the node and closes its tunnel. Privacy: the classification reuses `nodes.observed_ip`
   (already stored, already erased with the node owner); only the class, the
   declared class and a timestamp are added, and logs carry node ids and
   classes, not IPs.

@@ -23,7 +23,7 @@
 # ROLE: all (default, one box), coordinator (postgres/api, no gateway),
 #       gateway (gateway + Caddy for RELAY_HOST only; DB over WireGuard).
 # RELAY_HOST / PROXY_HOST: public gateway hostnames (default: primary hostname).
-# Agents use the TLS proxy: https://PROXY_HOST:8444 (HTTPS proxy) and SOCKS5
+# Agents use the TLS proxy: https://PROXY_HOST:8443 (HTTPS proxy) and SOCKS5
 # inside TLS on :1443, with Caddy's certificate for PROXY_HOST (hot-reloaded on
 # renewal). Plaintext 8080/1080 are published only with TLS_MODE=off or
 # PUBLISH_PLAINTEXT_PROXY=1 (they refuse credentials unless TLS_MODE=off).
@@ -353,7 +353,7 @@ if [ "$TLS" = off ]; then
 else
   env_set COOKIE_SECURE true; env_set TUNNEL_SCHEME wss
 fi
-# Gateway TLS proxy (8444 HTTPS proxy, 1443 SOCKS5-over-TLS). TLS_MODE=off has
+# Gateway TLS proxy (8443 HTTPS proxy, 1443 SOCKS5-over-TLS). TLS_MODE=off has
 # no certificate: listeners off, plaintext credentials accepted (warned).
 PLAIN="${PUBLISH_PLAINTEXT_PROXY:-$(env_get PUBLISH_PLAINTEXT_PROXY)}"
 case "${PLAIN:-0}" in 0|1) ;; *) die "PUBLISH_PLAINTEXT_PROXY must be 0 or 1" ;; esac
@@ -367,6 +367,8 @@ else
   for k in $TLS_KEYS; do env_unset "$k"; done
   env_set PROXY_REQUIRE_TLS true
 fi
+# What the API lists in coordinator.json: plaintext only when published.
+env_set PLAINTEXT_PROXY_PUBLISHED "${PLAIN:-0}"
 CORS=""
 for h in $HOSTS; do CORS="${CORS:+$CORS,}https://$h"; done
 env_set CORS_ORIGINS "$CORS"
@@ -445,7 +447,7 @@ tls_block() {
     echo "  }"
     echo "}"
   fi
-  # Node tunnel on :8443: Caddy terminates TLS and passes the node's real address
+  # Node tunnel on :9443: Caddy terminates TLS and passes the node's real address
   # to the gateway in a PROXY v2 header (the gateway trusts only Caddy's address).
   # Single-box non-tunnel installs serve every hostname (plus RELAY_HOST);
   # gateway and cloudflare installs serve RELAY_HOST only; coordinator none.
@@ -457,25 +459,25 @@ tls_block() {
   if [ -n "$THOSTS" ]; then
     TSITES=""
     for h in $THOSTS; do
-      if [ "$TLS" = off ]; then TSITES="${TSITES:+$TSITES, }http://$h:8443"; else TSITES="${TSITES:+$TSITES, }$h:8443"; fi
+      if [ "$TLS" = off ]; then TSITES="${TSITES:+$TSITES, }http://$h:9443"; else TSITES="${TSITES:+$TSITES, }$h:9443"; fi
     done
     echo "$TSITES {"
     tls_block
-    echo "  reverse_proxy gateway:8443 {"
+    echo "  reverse_proxy gateway:9443 {"
     echo "    transport http {"
     echo "      proxy_protocol v2"
     echo "    }"
     echo "  }"
     echo "}"
   fi
-  # Certificate for the gateway's TLS proxy (8444/1443): Caddy obtains and
+  # Certificate for the gateway's TLS proxy (8443/1443): Caddy obtains and
   # renews it; proxy-certs copies it to the gateway. Only needed when no site
   # block above already covers PROXY_HOST on :443.
   if [ "$ROLE_SEL" != coordinator ] && [ "$TLS" != off ]; then
     if [ "$ROLE_SEL" = gateway ] || [ "$TLS" = cloudflare ] || ! in_list "$PROXYH" "$HOSTS"; then
       echo "$PROXYH {"
       tls_block
-      echo "  respond \"DominusNode relay gateway: use the HTTPS proxy on port 8444\" 404"
+      echo "  respond \"DominusNode relay gateway: use the HTTPS proxy on port 8443\" 404"
       echo "}"
     fi
   fi
@@ -612,7 +614,7 @@ if [ "$ROLE_SEL" != coordinator ]; then
   if [ "$TLS" = off ]; then
     echo "proxy (plaintext, TLS_MODE=off): http://$PROXYH:8080 / socks5h://$PROXYH:1080"
   else
-    echo "proxy: https://$PROXYH:8444 (HTTPS proxy), SOCKS5 over TLS $PROXYH:1443; node tunnel wss://$RELAY:8443/v1/tunnel"
+    echo "proxy: https://$PROXYH:8443 (HTTPS proxy), SOCKS5 over TLS $PROXYH:1443; node tunnel wss://$RELAY:9443/v1/tunnel"
   fi
 fi
 SCHEME=https; if [ "$TLS" = off ]; then SCHEME=http; fi

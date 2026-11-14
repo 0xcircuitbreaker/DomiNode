@@ -51,6 +51,22 @@ export function loadDocSigner(env: NodeJS.ProcessEnv, read: (p: string) => strin
   }
 }
 
+/**
+ * Whether coordinator.json lists the plaintext 8080/1080 listeners.
+ * PROXY_PUBLISH_PLAINTEXT=true|1 / false|0 decides explicitly; unset, they are
+ * listed only when no TLS listener is advertised (a TLS_MODE=off install).
+ * A deployment that keeps them loopback-only must not point agents at them:
+ * credentials sent there would cross the network in clear or hit another
+ * service on that port.
+ */
+export function advertisePlaintextProxy(env: NodeJS.ProcessEnv, hasTls: boolean): boolean {
+  const raw = (env["PROXY_PUBLISH_PLAINTEXT"] ?? "").trim().toLowerCase();
+  if (raw === "") return !hasTls;
+  if (raw === "true" || raw === "1") return true;
+  if (raw === "false" || raw === "0") return false;
+  throw new Error("PROXY_PUBLISH_PLAINTEXT must be true, false, 1 or 0");
+}
+
 /** Build the unsigned coordinator payload from env + the active policy. Pure. */
 export function buildCoordinatorPayload(
   env: NodeJS.ProcessEnv,
@@ -69,6 +85,7 @@ export function buildCoordinatorPayload(
   const pubs = [signerPub, ...parsePubkeyList(env["COORD_ADDITIONAL_PUBKEYS"]).filter((k) => k !== signerPub)];
   const branding = resolveBranding(env, [signerPub]);
   const ports = getPublicProxyPorts(env);
+  const plaintext = advertisePlaintextProxy(env, ports.tls !== null || ports.socks5Tls !== null);
   return {
     type: "dominusnode-coordinator",
     doc_version: 1,
@@ -80,8 +97,7 @@ export function buildCoordinatorPayload(
       // TLS listeners first: agents should send credentials only over TLS.
       ...(ports.tls !== null ? { https_proxy: `${proxyHost}:${ports.tls}` } : {}),
       ...(ports.socks5Tls !== null ? { socks5_tls_proxy: `${proxyHost}:${ports.socks5Tls}` } : {}),
-      http_proxy: `${proxyHost}:${env["PROXY_HTTP_PORT"] ?? ports.http}`,
-      socks5_proxy: `${proxyHost}:${ports.socks5}`,
+      ...(plaintext ? { http_proxy: `${proxyHost}:${env["PROXY_HTTP_PORT"] ?? ports.http}`, socks5_proxy: `${proxyHost}:${ports.socks5}` } : {}),
       tunnel_url: tunnelUrl,
     },
     policy: { version: policy.version, sha256: policy.sha256, url: `${apiUrl}${POLICY_DOC_PATH}` },
@@ -94,6 +110,9 @@ export function buildCoordinatorPayload(
 
 export function createFederationRouter(env: NodeJS.ProcessEnv = process.env, signer: DocSigner | null = loadDocSigner(env), getPolicy: () => Promise<ActivePolicy> = () => policyRepo.getActivePolicy()): Router {
   const router = Router();
+  // Fail at startup on a bad PROXY_PUBLISH_PLAINTEXT instead of 503ing both
+  // coordinator.json and policy.json (node agents need policy.json) on every request.
+  advertisePlaintextProxy(env, false);
   // Both documents are built from one policy read and cached under one
   // timestamp, so coordinator.json never advertises a policy hash that
   // policy.json does not serve.

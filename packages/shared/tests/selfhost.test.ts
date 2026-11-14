@@ -73,7 +73,7 @@ describe("scripts/selfhost/install.sh", () => {
       expect(fs.statSync(path.join(tmp, "selfhost/coord-key.pem")).mode & 0o077).toBe(0);
       const caddy = fs.readFileSync(path.join(tmp, "selfhost/Caddyfile"), "utf8");
       expect(caddy).toContain("node.example.org, relay.example.net {");
-      expect(caddy).toContain("node.example.org:8443, relay.example.net:8443 {");
+      expect(caddy).toContain("node.example.org:9443, relay.example.net:9443 {");
       expect(caddy).toContain("proxy_protocol v2");
       expect(env1).toMatch(/^TUNNEL_SCHEME=wss$/m);
       run();
@@ -133,13 +133,30 @@ describe("scripts/selfhost/install.sh", () => {
     }, 30_000);
   });
 
+  it("prod compose enables canary probes and keeps loopback plaintext out of coordinator.json", () => {
+    const text = fs.readFileSync(path.join(ROOT, "docker-compose.prod.yml"), "utf8");
+    const proxy = text.slice(text.indexOf("\n  proxy:"));
+    expect(proxy).toMatch(/PROBE_URL: \$\{PROBE_URL:-https:\/\/\$\{DOMINUSNODE_DOMAIN:-[^}]+\}\/v1\/probe\/echo\}/);
+    expect(proxy).toMatch(/PROBES_DISABLED: \$\{PROBES_DISABLED:-\}/);
+    expect(text).toMatch(/PROXY_PUBLISH_PLAINTEXT: \$\{PROXY_PUBLISH_PLAINTEXT:-false\}/);
+    expect(proxy).toMatch(/PROXY_TLS_PORT: "8443"/);
+    expect(proxy).toMatch(/TUNNEL_PORT: "9443"/);
+  });
+
+  it("self-host gateway passes PROBE_URL through", () => {
+    const text = fs.readFileSync(path.join(ROOT, "docker-compose.selfhost.yml"), "utf8");
+    const gateway = text.slice(text.indexOf("\n  gateway:"), text.indexOf("\n  caddy:"));
+    expect(gateway).toMatch(/PROBE_URL: \$\{PROBE_URL:-\}/);
+    expect(gateway).toMatch(/TUNNEL_PORT: "9443"/);
+  });
+
   it("node tunnel goes through Caddy with PROXY v2, not a published gateway port", () => {
     const text = fs.readFileSync(path.join(ROOT, "docker-compose.selfhost.yml"), "utf8");
     const gateway = text.slice(text.indexOf("\n  gateway:"), text.indexOf("\n  caddy:"));
     const caddy = text.slice(text.indexOf("\n  caddy:"), text.indexOf("\n  node:"));
-    expect(gateway).not.toMatch(/-\s*"[^"]*:8443"/);
+    expect(gateway).not.toMatch(/-\s*"[^"]*:9443"/);
     expect(gateway).toMatch(/TUNNEL_TRUSTED_PROXY_IPS:\s*172\.29\.53\.2/);
-    expect(caddy).toMatch(/:8443"/);
+    expect(caddy).toMatch(/:9443"/);
     expect(caddy).toMatch(/ipv4_address:\s*172\.29\.53\.2/);
   });
 
@@ -228,7 +245,7 @@ describe("self-host roles and Cloudflare Tunnel", () => {
   // The env install.sh writes for TLS_MODE=off (empty TLS keys, plaintext allowed).
   const offEnv = {
     GATEWAY_PROXY_TLS_PORT: "", GATEWAY_SOCKS5_TLS_PORT: "", GATEWAY_PROXY_TLS_CERT_FILE: "", GATEWAY_PROXY_TLS_KEY_FILE: "",
-    PROXY_PUBLIC_TLS_PORT: "", PROXY_PUBLIC_SOCKS5_TLS_PORT: "", PROXY_REQUIRE_TLS: "false",
+    PROXY_PUBLIC_TLS_PORT: "", PROXY_PUBLIC_SOCKS5_TLS_PORT: "", PROXY_REQUIRE_TLS: "false", PLAINTEXT_PROXY_PUBLISHED: "1",
   };
   for (const [role, tls, acme, profiles] of matrix) {
     it.runIf(dockerCompose)(`compose parses for ROLE=${role} TLS_MODE=${tls} ACME_CHALLENGE=${acme}`, () => {
@@ -255,14 +272,14 @@ describe("self-host roles and Cloudflare Tunnel", () => {
         const published = (gw.ports ?? []).map((p) => p.target).sort((a, b) => a - b);
         const env = gw.environment ?? {};
         if (tls === "off") {
-          expect(published).toEqual([1080, 1443, 8080, 8444]);
+          expect(published).toEqual([1080, 1443, 8080, 8443]);
           expect(env.PROXY_REQUIRE_TLS).toBe("false");
           expect(env.PROXY_TLS_PORT ?? "").toBe("");
           expect(env.PROXY_TLS_CERT_FILE ?? "").toBe("");
         } else {
-          expect(published).toEqual([1443, 8444]);
+          expect(published).toEqual([1443, 8443]);
           expect(env.PROXY_REQUIRE_TLS).toBe("true");
-          expect(env.PROXY_TLS_PORT).toBe("8444");
+          expect(env.PROXY_TLS_PORT).toBe("8443");
           expect(env.SOCKS5_TLS_PORT).toBe("1443");
           expect(env.PROXY_TLS_CERT_FILE).toBe("/run/dominusnode-tls/proxy.crt");
           expect(gw.depends_on?.["proxy-certs"]?.condition).toBe("service_healthy");
@@ -286,7 +303,9 @@ describe("self-host roles and Cloudflare Tunnel", () => {
       for (const n of names) visit(n, []);
       if (cfg.services.caddy) expect(Object.keys(cfg.services.caddy.depends_on ?? {})).not.toContain("gateway");
       const api = cfg.services.api;
-      if (api) expect(api.environment?.PROXY_PUBLIC_TLS_PORT ?? "").toBe(tls === "off" ? "" : "8444");
+      if (api) expect(api.environment?.PROXY_PUBLIC_TLS_PORT ?? "").toBe(tls === "off" ? "" : "8443");
+      // coordinator.json lists 8080/1080 only when they are published.
+      if (api) expect(api.environment?.PROXY_PUBLISH_PLAINTEXT).toBe(tls === "off" ? "1" : "0");
     });
   }
 
@@ -324,6 +343,7 @@ describe("self-host roles and Cloudflare Tunnel", () => {
         const e = fs.readFileSync(path.join(tmp, ".env"), "utf8");
         expect(e).toMatch(new RegExp(`^PROXY_REQUIRE_TLS=${wantPlain ? "false" : "true"}$`, "m"));
         expect(e).toMatch(new RegExp(`^PUBLISH_PLAINTEXT_PROXY=0$`, "m"));
+        expect(e).toMatch(new RegExp(`^PLAINTEXT_PROXY_PUBLISHED=${wantPlain ? "1" : "0"}$`, "m"));
         expect(e.match(/^PROXY_REQUIRE_TLS=/gm)).toHaveLength(1);
         if (wantPlain) expect(e).toMatch(/^GATEWAY_PROXY_TLS_PORT=$/m);
         else expect(e).not.toMatch(/^GATEWAY_PROXY_TLS_PORT=/m);
@@ -422,7 +442,7 @@ describe("self-host roles and Cloudflare Tunnel", () => {
       expect(env).toMatch(/^GATEWAY_DATABASE_URL=postgresql:\/\/dominusnode_gateway:a{48}@10\.66\.0\.1:5432\/dominusnode$/m);
       expect(r.stdout).not.toContain(pw);
       const caddy = fs.readFileSync(path.join(tmp, "selfhost/Caddyfile"), "utf8");
-      expect(caddy).toContain("relay.example.org:8443 {");
+      expect(caddy).toContain("relay.example.org:9443 {");
       expect(caddy).not.toContain("api:3000");
     } finally {
       fs.rmSync(tmp, { recursive: true, force: true });
@@ -512,12 +532,12 @@ describe("self-host roles and Cloudflare Tunnel", () => {
           "{",
           "  email ops@example.org",
           "}",
-          "relay.example.org:8443 {",
+          "relay.example.org:9443 {",
           "  tls {",
           "    dns cloudflare {file./run/caddy-secrets/cloudflare-dns.token}",
           "    resolvers 1.1.1.1 1.0.0.1",
           "  }",
-          "  reverse_proxy gateway:8443 {",
+          "  reverse_proxy gateway:9443 {",
           "    transport http {",
           "      proxy_protocol v2",
           "    }",
@@ -528,7 +548,7 @@ describe("self-host roles and Cloudflare Tunnel", () => {
           "    dns cloudflare {file./run/caddy-secrets/cloudflare-dns.token}",
           "    resolvers 1.1.1.1 1.0.0.1",
           "  }",
-          '  respond "DominusNode relay gateway: use the HTTPS proxy on port 8444" 404',
+          '  respond "DominusNode relay gateway: use the HTTPS proxy on port 8443" 404',
           "}",
           "",
         ].join("\n"),
@@ -549,7 +569,7 @@ describe("self-host roles and Cloudflare Tunnel", () => {
       expect(run(tmp, { ROLE: "all", TLS_MODE: "auto", DOMINUSNODE_HOSTNAMES: "example.org www.example.org", ACME_CHALLENGE: "dns-cloudflare", CLOUDFLARE_DNS_TOKEN_FILE: "./selfhost/cloudflare-dns.token" }).status).toBe(0);
       let caddy = fs.readFileSync(path.join(tmp, "selfhost/Caddyfile"), "utf8");
       const sites = caddy.split("\n").filter((l) => /^[a-z].* \{$/.test(l));
-      expect(sites).toEqual(["example.org, www.example.org {", "example.org:8443, www.example.org:8443, relay.example.org:8443 {", "proxy.example.org {"]);
+      expect(sites).toEqual(["example.org, www.example.org {", "example.org:9443, www.example.org:9443, relay.example.org:9443 {", "proxy.example.org {"]);
       expect(caddy.match(/dns cloudflare \{file\.\/run\/caddy-secrets\/cloudflare-dns\.token\}/g)).toHaveLength(3);
       // Default for TLS_MODE=cloudflare with a gateway: DNS-01 without being asked.
       expect(run(tmp, { ROLE: "all", TLS_MODE: "cloudflare", DOMINUSNODE_HOSTNAMES: "example.org", CLOUDFLARE_DNS_TOKEN_FILE: "./selfhost/cloudflare-dns.token" }).status).toBe(0);
