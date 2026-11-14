@@ -615,7 +615,9 @@ export class NodeTunnelServer {
     // verdict (a reconnect from another IP must not undo a probe downgrade).
     const peerRaw: NodeIpClass = geo?.ipClass ?? "unknown";
     const connectClass: NodeIpClass = priorProbe ? conservativeClass(peerRaw, priorProbe) : peerRaw;
-    // Deferred (probes on): start from positive evidence. A known masked/dc
+    // Deferred (probes on): peerClass is seeded with connectClass so a persisted
+    // probe downgrade survives the reconnect (first probe and flag base).
+    // Start from positive evidence. A known masked/dc
     // verdict is kept; anything else is "unknown" and not selectable until probed.
     const dc = this.opts.deferClassUntilProbe;
     const defer = typeof dc === "function" ? dc() : dc === true;
@@ -624,7 +626,7 @@ export class NodeTunnelServer {
       nodeId: t.node.id, tunnel: t, ready: false, status: t.node.status, ip: t.peerIp, prefix24: prefix, asn, country,
       // Unverified class is never assumed residential; with probes on the node
       // serves nothing (probePending) until its first probe classifies it.
-      ipClass: defer ? deferredClass : connectClass, probePending: defer, peerClass: peerRaw, connectClass, ownerUserId: t.node.owner_user_id, ownerWallet: t.node.owner_wallet,
+      ipClass: defer ? deferredClass : connectClass, probePending: defer, peerClass: defer ? connectClass : peerRaw, connectClass, ownerUserId: t.node.owner_user_id, ownerWallet: t.node.owner_wallet,
       ownerTeamId: t.node.owner_team_id, health: 1, reputation: t.node.reputation, reportPenalty: t.node.report_penalty ?? 0, operatorRun: t.node.operator_run === true,
       maxStreams: Math.min(t.node.max_streams, caps.maxStreams), maxGbDay: t.node.max_gb_day, maxReqPerSec: t.node.max_req_per_sec ?? null,
       ports: caps.ports, bytesToday: 0, earningsTodayMusd: 0, day: dayOf(now), recentOpens: [], cooldownUntil: 0,

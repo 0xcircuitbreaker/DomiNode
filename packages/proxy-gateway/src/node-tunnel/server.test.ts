@@ -396,6 +396,24 @@ describe("NodeTunnelServer", () => {
     }
   });
 
+  it("deferred reconnect seeds peerClass with the conservative connect class (persisted probe downgrade kept)", async () => {
+    const n = NODES[hashNodeKey(KEY_A)]!;
+    (n as { probe_class?: string | null }).probe_class = "masked";
+    try {
+      const { port, registry } = await start({ geo: { country: "US", asn: 7922, ipClass: "residential" }, defer: true });
+      const c = connect(port);
+      await c.opened;
+      c.send(FrameType.HELLO, 0, hello());
+      await c.waitFor(FrameType.AUTH_OK);
+      const live = registry.get(n.id);
+      expect(live?.peerClass).toBe("masked");
+      expect(live?.connectClass).toBe("masked");
+      expect(live?.ipClass).toBe("masked");
+    } finally {
+      delete (n as { probe_class?: string | null }).probe_class;
+    }
+  });
+
   it("with probes enabled a fresh connect is unknown until probed and is queued for a connect probe", async () => {
     const ready: string[] = [];
     const { port, registry } = await start({ geo: { country: "US", asn: 7922, ipClass: "residential" }, defer: true, onReady: (id) => ready.push(id) });
@@ -438,7 +456,7 @@ describe("NodeTunnelServer", () => {
     c.send(FrameType.HELLO, 0, hello());
     await c.waitFor(FrameType.AUTH_OK);
     const live = registry.get(NODES[hashNodeKey(KEY_A)]!.id)!;
-    expect(live.peerClass).toBe("residential");
+    expect(live.peerClass).toBe("masked"); // deferred: seeded with the conservative connect class
     expect(live.connectClass).toBe("masked");
     expect(live.ipClass).toBe("masked");
   });

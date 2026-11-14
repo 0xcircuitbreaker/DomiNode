@@ -17,3 +17,16 @@ export function checkGatewayEnv(env: NodeJS.ProcessEnv): string[] {
   }
   return errors;
 }
+
+/**
+ * Non-fatal startup warnings. Production without PROBE_URL runs with no egress
+ * verification (no tamper detection, no egress class/country check), so it is
+ * called out unless the operator opted out explicitly with PROBES_DISABLED=true.
+ */
+export function gatewayEnvWarnings(env: NodeJS.ProcessEnv): string[] {
+  const warnings: string[] = [];
+  if (env["NODE_ENV"] === "production" && env["PROBES_DISABLED"] !== "true" && !(env["PROBE_URL"] ?? "").trim()) {
+    warnings.push("PROBE_URL is not set in production: egress probes are disabled (no tamper detection, no egress class/country/OFAC check). Set PROBE_URL or PROBES_DISABLED=true");
+  }
+  return warnings;
+}

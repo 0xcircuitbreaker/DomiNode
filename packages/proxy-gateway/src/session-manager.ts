@@ -890,9 +890,21 @@ export function unregisterSessionDestroy(sessionId: string): void {
  * then closed so no traffic flows at the old class's price or tier weight.
  */
 export async function terminateNodeSessionsAbove(nodeId: string, cls: NodeIpClass): Promise<number> {
+  return endNodeSessions(nodeId, (s) => isClassDowngrade(s.relay.ipClass, cls), cls);
+}
+
+/**
+ * Forcibly end every in-flight session relayed through a node (e.g. its probed
+ * egress country no longer matches the country it is sold under).
+ */
+export async function terminateNodeSessions(nodeId: string): Promise<number> {
+  return endNodeSessions(nodeId, () => true, "unknown");
+}
+
+async function endNodeSessions(nodeId: string, match: (s: ActiveSession) => boolean, cls: NodeIpClass): Promise<number> {
   const ids: string[] = [];
   for (const [id, s] of activeSessions) {
-    if (s.relay.nodeId === nodeId && isClassDowngrade(s.relay.ipClass, cls)) ids.push(id);
+    if (s.relay.nodeId === nodeId && match(s)) ids.push(id);
   }
   let ended = 0;
   for (const sessionId of ids) {
