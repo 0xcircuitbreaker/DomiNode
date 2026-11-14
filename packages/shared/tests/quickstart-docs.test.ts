@@ -114,11 +114,15 @@ describe("quickstart docs and snippets", () => {
       expect(sh).not.toMatch(/jq[^\n]*--arg[^\n]*KEY/);
       expect(sh).toMatch(/-K \/dev\/fd\/3/);
     });
+    it("never mints a refresh token (raw-key /v1/wallet, no verify-key)", () => {
+      expect(sh).not.toContain("verify-key");
+      expect(sh).not.toContain("/api/wallet\"");
+    });
     it("validates DN_CA_BUNDLE before use", () => {
       expect(sh).toMatch(/DN_CA_BUNDLE must be a readable file/);
     });
     it("hits policy, pricing, balance and the proxy, with next steps on failure", () => {
-      for (const s of ["/v1/policy", "/v1/pricing", "/api/auth/verify-key", "/api/wallet", "NO_NODES_AVAILABLE", "topup/crypto", "x402", "/status"]) {
+      for (const s of ["/v1/policy", "/v1/pricing", "/v1/wallet", "NO_NODES_AVAILABLE", "topup/crypto", "x402", "/status"]) {
         expect(sh, s).toContain(s);
       }
     });

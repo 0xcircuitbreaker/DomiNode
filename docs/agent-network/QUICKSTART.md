@@ -83,7 +83,7 @@ DN_API_URL=https://api.example.org DN_PROXY_HOST=proxy.example.org scripts/quick
 |---|---|---|
 | 1 | `GET /v1/policy` | API unreachable: check `DN_API_URL` and the status page |
 | 2 | `GET /v1/pricing` | same |
-| 3 | wallet balance (`/api/auth/verify-key`, then `GET /api/wallet`) | key rejected: create a new key; zero balance: top up with crypto or use x402 |
+| 3 | wallet balance (`GET /v1/wallet` with the raw API key; no token is minted) | key rejected: create a new key; zero balance: top up with crypto or use x402 |
 | 4 | fetch through `proxy.dominusnode.com:8443` | `402`: fund the wallet or pay per request; no node: see `https://api.dominusnode.com/status` and `/v1/network/wanted` |
 
 Optional variables: `DN_FLAGS` (proxy username, default `relay`),

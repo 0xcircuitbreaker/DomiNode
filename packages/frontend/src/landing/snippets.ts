@@ -1,6 +1,6 @@
 import { API_BASE, NODE_IMAGE, PROXY_HOST } from "./site";
 
-/** Copy-paste quickstarts. Placeholder keys only (dn_live_YOUR_KEY / $DOMINUSNODE_API_KEY). */
+/** Copy-paste quickstarts. Placeholder keys only (dn_live_YOUR_KEY / $DOMINUSNODE_API_KEY); keys never in argv or a proxy URL. */
 export interface Snippet { id: string; label: string; lang: string; code: string }
 
 export const SNIPPETS: Snippet[] = [
@@ -27,14 +27,16 @@ export const SNIPPETS: Snippet[] = [
     id: "curl",
     label: "curl (API key)",
     lang: "bash",
-    code: `export DOMINUSNODE_API_KEY=dn_live_YOUR_KEY
-# US residential exit over the TLS proxy (the key never travels in clear);
-# HTTPS stays end-to-end TLS through the exit node
-curl -x "https://country-US-class-residential:$DOMINUSNODE_API_KEY@${PROXY_HOST}:8443" \\
+    code: `read -rs DOMINUSNODE_API_KEY && export DOMINUSNODE_API_KEY   # paste your dn_live_ key; env only
+# US residential exit over the TLS proxy. The key reaches curl through a config on a
+# file descriptor, never argv or the proxy URL; HTTPS stays end-to-end TLS to the site
+curl -x https://${PROXY_HOST}:8443 \\
+  -K <(printf 'proxy-user = "country-US-class-residential:%s"\\n' "$DOMINUSNODE_API_KEY") \\
   https://httpbin.org/ip
 
 # Sticky datacenter session; class-masked (VPN/WARP exits) is the cheapest, opt-in
-curl -x "https://class-dc-session-job42:$DOMINUSNODE_API_KEY@${PROXY_HOST}:8443" \\
+curl -x https://${PROXY_HOST}:8443 \\
+  -K <(printf 'proxy-user = "class-dc-session-job42:%s"\\n' "$DOMINUSNODE_API_KEY") \\
   https://httpbin.org/ip
 # Plaintext :8080 / socks5 :1080 are for a local gateway only; production refuses credentials there.`,
   },

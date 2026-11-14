@@ -35,7 +35,7 @@ Gateway: https://proxy.dominusnode.com:8443 (TLS proxy; use it, production refus
 
 ## Tools
 
-- [MCP server](https://dominusnode.com/.well-known/mcp/server.json): npm package @dominusnode/mcp-server, stdio, 65 tools (11 without a key)
+- [MCP server](https://dominusnode.com/.well-known/mcp/server.json): npm package @dominusnode/mcp-server, stdio, 66 tools (13 without a key)
 - [SDKs](https://github.com/0xcircuitbreaker/DomiNode/tree/master/sdks): Node.js, Python, Go, Rust, Java, C++ (contract: sdks/SDK_SURFACE.md)
 - [Framework integrations](https://github.com/0xcircuitbreaker/DomiNode/tree/master/integrations): 27 frameworks, same 19-tool set
 

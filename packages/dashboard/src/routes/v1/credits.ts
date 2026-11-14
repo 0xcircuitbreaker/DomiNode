@@ -8,6 +8,7 @@ import {
   tierRepo,
   policyRepo,
   agentCreditsRepo,
+  walletRepo,
   loadSdnFile,
   sha256Hex,
   encodeCursor,
@@ -165,6 +166,24 @@ router.get("/credits", async (req: Request, res: Response) => {
   } catch (err) {
     log.error("credits summary failed", { error: errMsg(err) });
     res.status(500).json({ error: "Failed to load credits" });
+  }
+});
+
+// GET /v1/wallet: prepaid relay wallet balance, authenticated with the raw
+// API key (no JWT or refresh token is minted, unlike /api/auth/verify-key).
+router.get("/wallet", async (req: Request, res: Response) => {
+  const agent = principal(req);
+  if (!limit(readLimiter, req, res)) return;
+  try {
+    const w = await walletRepo.getWallet(agent.userId);
+    if (!w) {
+      res.status(404).json({ error: "Wallet not found" });
+      return;
+    }
+    res.json({ balanceCents: w.balance_cents, currency: w.currency, lastToppedUp: w.last_topped_up });
+  } catch (err) {
+    log.error("wallet fetch failed", { error: errMsg(err) });
+    res.status(500).json({ error: "Failed to fetch wallet" });
   }
 });
 

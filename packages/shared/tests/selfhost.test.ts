@@ -143,6 +143,18 @@ describe("scripts/selfhost/install.sh", () => {
     expect(proxy).toMatch(/TUNNEL_PORT: "9443"/);
   });
 
+  it("prod compose serves and publishes 8443/1443/9443 like self-host", () => {
+    const text = fs.readFileSync(path.join(ROOT, "docker-compose.prod.yml"), "utf8");
+    const proxy = text.slice(text.indexOf("\n  proxy:"));
+    expect(proxy).toMatch(/SOCKS5_TLS_PORT: "1443"/);
+    for (const p of ["${PROXY_TLS_HOST_PORT:-8443}:8443", "${SOCKS5_TLS_HOST_PORT:-1443}:1443", "${TUNNEL_HOST_PORT:-9443}:9443"]) {
+      expect(proxy).toContain(`- "${p}"`);
+    }
+    expect(text).toMatch(/PROXY_PUBLIC_SOCKS5_TLS_PORT: "\$\{SOCKS5_TLS_HOST_PORT:-1443\}"/);
+    const self = fs.readFileSync(path.join(ROOT, "docker-compose.selfhost.yml"), "utf8");
+    expect(self).toContain('- "${SOCKS5_TLS_HOST_PORT:-1443}:1443"');
+  });
+
   it("self-host gateway passes PROBE_URL through", () => {
     const text = fs.readFileSync(path.join(ROOT, "docker-compose.selfhost.yml"), "utf8");
     const gateway = text.slice(text.indexOf("\n  gateway:"), text.indexOf("\n  caddy:"));

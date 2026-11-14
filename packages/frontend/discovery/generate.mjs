@@ -39,6 +39,18 @@ export function rewriteOrigin(text, origin) {
   return origin === DEFAULT_ORIGIN ? text : text.split(DEFAULT_ORIGIN).join(origin);
 }
 
+/** Five-minute quickstart, shared by llms.txt and llms-full.txt. */
+export function quickstartSection() {
+  return [
+    "## Five-minute quickstart",
+    "",
+    `1. Read policy and live prices (no auth): GET ${API_BASE}/v1/policy, GET ${API_BASE}/v1/pricing, online nodes at GET ${API_BASE}/v1/network/stats.`,
+    `2. Pay: either per request with x402/MPP (send a proxy request without credentials, answer the 402; rails at ${API_BASE}/api/x402/info), or sign in with an EIP-191 wallet signature, create a dn_live_ key and top up with crypto (POST ${API_BASE}/api/wallet/topup/crypto).`,
+    "3. Fetch through the TLS proxy, key in the password, read from the environment: curl -x https://proxy.dominusnode.com:8443 -K <(printf 'proxy-user = \"country-US-class-residential:%s\"\\n' \"$DOMINUSNODE_API_KEY\") https://httpbin.org/ip (a config on a file descriptor keeps the key out of argv)",
+    `4. Ports: HTTPS proxy 8443, SOCKS5 over TLS 1443, node tunnel 9443 (node agents only). Smoke check: scripts/quickstart-smoke.sh (${GITHUB}/blob/master/docs/agent-network/QUICKSTART.md). No node for your flags: ${API_BASE}/status.`,
+  ];
+}
+
 function llmsTxt(origin) {
   return [
     "# DominusNode",
@@ -47,12 +59,7 @@ function llmsTxt(origin) {
     "",
     "Gateway: https://proxy.dominusnode.com:8443 (TLS proxy; use it, production refuses credentials on the plaintext HTTP 8080 / SOCKS5 1080 listeners, which are for local gateways only). API: " + API_BASE + " (the SDKs and the MCP server use this API by default). API key in the proxy password; username flags country-XX, class-residential|dc|mobile|masked (masked = VPN/WARP/Tor exits, cheapest, opt-in), session-<id>, allowhttp-1 (hyphen-joined, or `relay` for none).",
     "",
-    "## Five-minute quickstart",
-    "",
-    `1. Read policy and live prices (no auth): GET ${API_BASE}/v1/policy, GET ${API_BASE}/v1/pricing, online nodes at GET ${API_BASE}/v1/network/stats.`,
-    `2. Pay: either per request with x402/MPP (send a proxy request without credentials, answer the 402; rails at ${API_BASE}/api/x402/info), or sign in with an EIP-191 wallet signature, create a dn_live_ key and top up with crypto (POST ${API_BASE}/api/wallet/topup/crypto).`,
-    "3. Fetch through the TLS proxy, key in the password, read from the environment: curl -x https://proxy.dominusnode.com:8443 -K <(printf 'proxy-user = \"country-US-class-residential:%s\"\\n' \"$DOMINUSNODE_API_KEY\") https://httpbin.org/ip (a config on a file descriptor keeps the key out of argv)",
-    `4. Ports: HTTPS proxy 8443, SOCKS5 over TLS 1443, node tunnel 9443 (node agents only). Smoke check: scripts/quickstart-smoke.sh (${GITHUB}/blob/master/docs/agent-network/QUICKSTART.md). No node for your flags: ${API_BASE}/status.`,
+    ...quickstartSection(),
     "",
     "## Docs",
     "",
@@ -73,7 +80,7 @@ function llmsTxt(origin) {
     "",
     "## Tools",
     "",
-    `- [MCP server](${origin}/.well-known/mcp/server.json): npm package @dominusnode/mcp-server, stdio, 65 tools (11 without a key)`,
+    `- [MCP server](${origin}/.well-known/mcp/server.json): npm package @dominusnode/mcp-server, stdio, 66 tools (13 without a key)`,
     `- [SDKs](${GITHUB}/tree/master/sdks): Node.js, Python, Go, Rust, Java, C++ (contract: sdks/SDK_SURFACE.md)`,
     `- [Framework integrations](${GITHUB}/tree/master/integrations): 27 frameworks, same 19-tool set`,
     "",
@@ -92,6 +99,10 @@ function llmsFull(origin, publicDir) {
     "# DominusNode: full documentation for agents",
     "",
     `> Concatenation of the markdown pages linked from ${origin}/llms.txt. Prices are never included: read ${API_BASE}/v1/pricing.`,
+    "",
+    ...quickstartSection(),
+    "",
+    "---",
     "",
   ];
   for (const d of DOCS) {

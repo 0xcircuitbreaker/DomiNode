@@ -33,7 +33,7 @@ Registry name: `io.github.0xcircuitbreaker/dominusnode` in the official MCP Regi
 
 The same block works for Claude Desktop, Claude Code (`.mcp.json`), Gemini CLI, Codex CLI, Cursor and VS Code. Without `DOMINUSNODE_API_KEY` the server starts in **bootstrap mode**.
 
-## Bootstrap mode (no API key): 12 tools
+## Bootstrap mode (no API key): 13 tools
 
 | Tool | Purpose |
 |---|---|
@@ -45,20 +45,20 @@ The same block works for Claude Desktop, Claude Code (`.mcp.json`), Gemini CLI, 
 | `dominusnode_create_agent_secret` | Per-agent `das_` secret |
 | `dominusnode_pay_crypto` / `dominusnode_check_payment` | Crypto top-up and status (sign in first) |
 | `dominusnode_x402_info` | Public: whether x402 pay-per-request is enabled and how to use it |
-| `dominusnode_network_policy` / `dominusnode_network_pricing` / `dominusnode_network_stats` | Public network info |
+| `dominusnode_network_policy` / `dominusnode_network_pricing` / `dominusnode_network_stats` / `dominusnode_status` | Public network info and live status (`/v1/status`) |
 
 Email/password registration, login and email verification are human flows (admin-only) and are not exposed.
 
 Wallet sign-in is rate limited: 20 challenges and 5 failed verifications per hour per process; successful sign-ins do not count.
 
-## Authenticated mode: 65 tools
+## Authenticated mode: 66 tools
 
 **Relay fetch and proxy config**
 - `dominusnode_fetch`: GET/HEAD through the HTTP proxy gateway (CONNECT tunnel for https, full-URL request for http). Options: `country` (`country-XX`), `ip_class` (`class-residential|dc|mobile`), `session_id` (`session-<id>`, sticky exit), `allow_http` (`allowhttp-1`). Client-side SSRF checks incl. DNS rebinding (every resolved IP is checked), ports 80/443 only, no redirects, 10MB cap, credentials scrubbed from errors. Responses over plaintext are flagged when the gateway sends `X-DominusNode-Exit-Visible: 1`.
 - `dominusnode_get_proxy_config`: endpoints, username flags, live pricing and policy for use with curl/SDKs.
 - `dominusnode_get_proxy_status`, `dominusnode_get_active_sessions`
 
-**Network (public)**: `dominusnode_network_policy`, `dominusnode_network_pricing`, `dominusnode_network_stats`
+**Network (public)**: `dominusnode_network_policy`, `dominusnode_network_pricing`, `dominusnode_network_stats`, `dominusnode_status`
 
 **Nodes (earning)**
 - `dominusnode_node_setup_guide`: exact install/run steps for the node agent
@@ -109,7 +109,7 @@ DOMINUSNODE_MCP_HTTP_PORT=3333 npx -y @dominusnode/mcp-server   # or: npx -y @do
 - Every request needs `Authorization: Bearer dn_live_...`. A session is bound to the key that opened
   it; another key gets `404` for that session id. The key is never logged and is scrubbed from every
   response body.
-- The tool set is the same 65-tool authenticated set as stdio. `DOMINUSNODE_API_KEY` must be unset in
+- The tool set is the same 66-tool authenticated set as stdio. `DOMINUSNODE_API_KEY` must be unset in
   remote mode (the operator key never serves remote agents). `DOMINUSNODE_WALLET_KEY_FILE` and
   `DOMINUSNODE_PAYOUT_WALLET_KEY_FILE` are ignored for remote sessions, so the signing tools
   (node register, withdraw, payout wallet) refuse; remote agents sign with their own SDK or stdio server.

@@ -46,6 +46,13 @@ describe("discovery files", () => {
     expect(lines.filter((l) => /^- \[.+\]\(https?:\/\/.+\)/.test(l)).length).toBeGreaterThan(5);
   });
 
+  it("llms-full.txt carries the five-minute quickstart", () => {
+    const full = read("llms-full.txt");
+    expect(full).toContain("## Five-minute quickstart");
+    expect(full).toContain("SOCKS5 over TLS 1443");
+    expect(full).toContain("quickstart-smoke.sh");
+  });
+
   it("sitemap is well-formed XML", () => {
     const doc = new DOMParser().parseFromString(read("sitemap.xml"), "application/xml");
     expect(doc.getElementsByTagName("parsererror").length).toBe(0);

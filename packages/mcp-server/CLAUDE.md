@@ -2,7 +2,7 @@
 
 Team: **AI & Integrations**
 
-MCP server for the AI-agent relay network: 65 authenticated + 12 bootstrap tools
+MCP server for the AI-agent relay network: 66 authenticated + 13 bootstrap tools
 (canonical list: `tests/tool-list.ts`; registration: `src/register.ts`).
 
 ## Rules
