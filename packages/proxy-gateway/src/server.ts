@@ -2,7 +2,7 @@ import * as crypto from "node:crypto";
 import * as http from "node:http";
 import * as https from "node:https";
 import * as net from "node:net";
-import { createLogger, planRepo, resolveRequestId, runWithRequestId, pqTlsOptions } from "@dominusnode/shared";
+import { createLogger, killSwitches, planRepo, resolveRequestId, runWithRequestId, pqTlsOptions } from "@dominusnode/shared";
 import type { ExitClass, KillSwitchBlock } from "@dominusnode/shared";
 import { checkAgenticWalletPolicy } from "./wallet-policy.js";
 import type { Duplex } from "node:stream";
@@ -124,8 +124,8 @@ function x402Binding(node: LiveNode, port: number, payer: string, stream: Duplex
  * otherwise the MPP credential.
  */
 export function paidRailBlock(relay: RelayRuntime, h: http.IncomingHttpHeaders): KillSwitchBlock | null {
-  const ks = relay.killSwitches?.();
-  return ks ? ks.checkRail(h["x-payment"] ? "x402" : "mpp") : null;
+  const ks = relay.killSwitches?.() ?? killSwitches();
+  return ks.checkRail(h["x-payment"] ? "x402" : "mpp");
 }
 
 function x402RelayUnavailableBody(): string {

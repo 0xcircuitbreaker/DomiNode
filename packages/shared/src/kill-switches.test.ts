@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import {
-  KillSwitchCache, KillSwitchView, KILL_SWITCH_KEYS, configureKillSwitches, killSwitches, killSwitchEnvMs, isKillSwitchKey,
+  KillSwitchCache, KillSwitchView, KILL_SWITCH_KEYS, configureKillSwitches, killSwitches, killSwitchEnvMs, killSwitchTiming, isKillSwitchKey,
   type KillSwitchKey,
 } from "./kill-switches.js";
 
@@ -125,5 +125,14 @@ describe("killSwitchEnvMs", () => {
     expect(() => killSwitchEnvMs({ KILL_SWITCH_POLL_MS: "60000" }, "KILL_SWITCH_POLL_MS")).toThrow();
     expect(killSwitchEnvMs({}, "KILL_SWITCH_MAX_STALE_MS")).toBe(15_000);
     expect(() => killSwitchEnvMs({ KILL_SWITCH_MAX_STALE_MS: "1000" }, "KILL_SWITCH_MAX_STALE_MS")).toThrow();
+  });
+});
+
+describe("killSwitchTiming", () => {
+  it("requires max stale >= 2x poll so a healthy service never reads stale", () => {
+    expect(killSwitchTiming({})).toEqual({ pollMs: 5_000, maxStaleMs: 15_000 });
+    expect(() => killSwitchTiming({ KILL_SWITCH_POLL_MS: "10000", KILL_SWITCH_MAX_STALE_MS: "5000" })).toThrow(/at least twice/);
+    expect(() => killSwitchTiming({ KILL_SWITCH_POLL_MS: "10000", KILL_SWITCH_MAX_STALE_MS: "19999" })).toThrow(/at least twice/);
+    expect(killSwitchTiming({ KILL_SWITCH_POLL_MS: "10000", KILL_SWITCH_MAX_STALE_MS: "20000" })).toEqual({ pollMs: 10_000, maxStaleMs: 20_000 });
   });
 });

@@ -518,7 +518,7 @@ Mounted at `/api/admin/network`. Switches live in `kill_switches` (one row per k
 |---|---|---|
 | `relay` | every new relay session (HTTP, CONNECT, SOCKS5, x402/MPP) | `RELAY_PAUSED` |
 | `relay_residential`, `relay_mobile`, `relay_dc`, `relay_masked` | sessions that request that class; unflagged sessions skip it (refused only when residential, mobile and dc are all paused) | `EXIT_CLASS_PAUSED` |
-| `signups` | creating a new wallet-identity account (`POST /api/auth/wallet/verify` for an unknown address); existing accounts still sign in | `SIGNUPS_PAUSED` |
+| `signups` | creating a new wallet-identity account (`POST /api/auth/wallet/verify` for an unknown address); existing accounts still sign in. The refusal comes before the sign-in challenge is consumed, so the same signature works once signups resume | `SIGNUPS_PAUSED` |
 | `api_keys` | `POST /api/keys`, `POST /api/teams/:id/keys` | `API_KEYS_PAUSED` |
 | `payouts` | `POST /v1/credits/withdraw/challenge`, `POST /v1/credits/withdraw`, and the gateway payout job (no sends, auto-queues or receipt checks while engaged; it resumes on the next run) | `PAYOUTS_PAUSED` |
 | `rail_x402`, `rail_mpp` | paid relay requests on that rail, refused at the gateway **before** verification so the payer is never charged | `PAYMENT_RAIL_PAUSED` |
@@ -526,7 +526,7 @@ Mounted at `/api/admin/network`. Switches live in `kill_switches` (one row per k
 
 Refusals carry `Retry-After` and `X-DominusNode-Error: <code>`; API bodies are `{ error, code }`. Open sessions, streams and in-flight settlements are never cut.
 
-**Propagation and failure:** each gateway and API instance re-reads both tables every `KILL_SWITCH_POLL_MS` (default 5000, 1000–10000). If no read has succeeded for `KILL_SWITCH_MAX_STALE_MS` (default 15000, 5000–120000) — including at startup before the first read — the instance fails closed: every switch reads as engaged, every drained-node check as drained, and agents get `KILL_SWITCH_UNAVAILABLE` (503, `Retry-After: 30`). Invalid values for either variable stop the service at startup.
+**Propagation and failure:** each gateway and API instance re-reads both tables every `KILL_SWITCH_POLL_MS` (default 5000, 1000–10000). If no read has succeeded for `KILL_SWITCH_MAX_STALE_MS` (default 15000, 5000–120000) — including at startup before the first read — the instance fails closed: every switch reads as engaged, every drained-node check as drained, and agents get `KILL_SWITCH_UNAVAILABLE` (503, `Retry-After: 30`). Invalid values for either variable, or a `KILL_SWITCH_MAX_STALE_MS` below twice `KILL_SWITCH_POLL_MS`, stop the service at startup.
 
 **Drain:** a drained node is excluded from node selection (sticky sessions move to another node); its tunnel stays up and open streams finish. Unlike quarantine it does not change `nodes.status` or reputation.
 

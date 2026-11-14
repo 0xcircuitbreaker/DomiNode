@@ -20,6 +20,7 @@ import {
   referralRepo,
   starterCreditRepo,
   createProxySessionToken,
+  killSwitches,
 } from "@dominusnode/shared";
 import { recoverSignerAddress } from "../helpers/verify-signature.js";
 import { refusedBySwitch } from "../helpers/kill-switch.js";
@@ -296,6 +297,14 @@ router.post("/verify", async (req, res) => {
     // Validate signature is hex-encoded EIP-191 format (0x + 130 hex chars = 65 bytes)
     if (!signature || !/^0x[0-9a-fA-F]{130}$/.test(signature)) {
       res.status(400).json({ error: "Invalid signature format" });
+      return;
+    }
+
+    // Signups kill switch: refuse a new wallet BEFORE consuming its challenge so
+    // the agent can retry the same signature once signups resume (no-op for
+    // existing users; re-checked below after verification).
+    if (killSwitches().check("signups") && !(await userRepo.findUserByWalletAddress(address))) {
+      refusedBySwitch(res, "signups");
       return;
     }
 

@@ -204,7 +204,7 @@ export function killSwitches(env: NodeJS.ProcessEnv = process.env): KillSwitchVi
   return env.NODE_ENV === "production" ? new KillSwitchView(null) : OPEN;
 }
 
-/** Parse a bounded integer env var (NaN / out of range → default). */
+/** Parse a bounded integer env var (empty → default; NaN / out of range → throws). */
 export function killSwitchEnvMs(env: NodeJS.ProcessEnv, name: "KILL_SWITCH_POLL_MS" | "KILL_SWITCH_MAX_STALE_MS"): number {
   const [def, min, max] = name === "KILL_SWITCH_POLL_MS"
     ? [KILL_SWITCH_POLL_MS_DEFAULT, 1_000, 10_000]
@@ -216,4 +216,18 @@ export function killSwitchEnvMs(env: NodeJS.ProcessEnv, name: "KILL_SWITCH_POLL_
     throw new Error(`${name} must be an integer between ${min} and ${max}`);
   }
   return n;
+}
+
+/**
+ * Both timing vars, cross-checked: KILL_SWITCH_MAX_STALE_MS must be at least
+ * twice KILL_SWITCH_POLL_MS, or a single slow poll (or every gap between polls)
+ * would read as stale and the service would refuse everything while healthy.
+ */
+export function killSwitchTiming(env: NodeJS.ProcessEnv): { pollMs: number; maxStaleMs: number } {
+  const pollMs = killSwitchEnvMs(env, "KILL_SWITCH_POLL_MS");
+  const maxStaleMs = killSwitchEnvMs(env, "KILL_SWITCH_MAX_STALE_MS");
+  if (maxStaleMs < 2 * pollMs) {
+    throw new Error(`KILL_SWITCH_MAX_STALE_MS (${maxStaleMs}) must be at least twice KILL_SWITCH_POLL_MS (${pollMs})`);
+  }
+  return { pollMs, maxStaleMs };
 }

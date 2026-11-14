@@ -1,7 +1,9 @@
 import { PassThrough } from "node:stream";
 import { describe, it, expect, vi } from "vitest";
 
+const gate = vi.hoisted(() => ({ view: null as unknown }));
 vi.mock("@dominusnode/shared", () => ({
+  killSwitches: () => gate.view,
   createLogger: () => ({ debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() }),
 }));
 vi.mock("./unmet-demand.js", () => ({ recordUnmetDemand: vi.fn() }));
@@ -44,5 +46,14 @@ describe("openRelayStream kill switches", () => {
     const seen: unknown[] = [];
     await expect(openRelayStream(rt(new KillSwitchView(null), seen), opts)).rejects.toMatchObject({ code: "KILL_SWITCH_UNAVAILABLE" });
     expect(seen).toEqual([]);
+  });
+
+  it("falls back to the process gate when no view is injected", async () => {
+    const seen: unknown[] = [];
+    gate.view = new KillSwitchView(null);
+    await expect(openRelayStream(rt(undefined, seen), opts)).rejects.toMatchObject({ code: "KILL_SWITCH_UNAVAILABLE" });
+    expect(seen).toEqual([]);
+    gate.view = v();
+    await expect(openRelayStream(rt(undefined, seen), opts)).resolves.toMatchObject({ node: { nodeId: "node-1" } });
   });
 });

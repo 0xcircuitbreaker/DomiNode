@@ -3,7 +3,7 @@
  * run inside the dashboard's audited admin transaction.
  */
 import { query } from "../db.js";
-import { isKillSwitchKey, KillSwitchCache, configureKillSwitches, killSwitchEnvMs, type KillSwitchKey, type KillSwitchState } from "../kill-switches.js";
+import { isKillSwitchKey, KillSwitchCache, configureKillSwitches, killSwitchTiming, type KillSwitchKey, type KillSwitchState } from "../kill-switches.js";
 
 /** Snapshot for KillSwitchCache. Throws on DB error (the cache fails closed). */
 export async function loadState(): Promise<KillSwitchState> {
@@ -25,10 +25,11 @@ export async function startProcessCache(
   env: NodeJS.ProcessEnv,
   logger: { warn: (msg: string, meta?: Record<string, unknown>) => void },
 ): Promise<KillSwitchCache> {
+  const { pollMs, maxStaleMs } = killSwitchTiming(env);
   const cache = new KillSwitchCache({
     load: loadState,
-    pollMs: killSwitchEnvMs(env, "KILL_SWITCH_POLL_MS"),
-    maxStaleMs: killSwitchEnvMs(env, "KILL_SWITCH_MAX_STALE_MS"),
+    pollMs,
+    maxStaleMs,
     onError: (err) => logger.warn("kill switch reload failed (failing closed once stale)", { error: err instanceof Error ? err.message.slice(0, 120) : "unknown" }),
   });
   await cache.start();

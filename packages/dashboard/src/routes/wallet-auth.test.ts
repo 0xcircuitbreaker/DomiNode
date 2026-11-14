@@ -204,6 +204,23 @@ describe("wallet-auth routes", () => {
   // ─── POST /verify ─────────────────────────────────────────────────
 
   describe("POST /verify", () => {
+    it("refuses a new wallet while signups are paused without consuming its challenge", async () => {
+      mockKillSwitches.mockReturnValue({
+        check: () => ({ status: 503, code: "SIGNUPS_PAUSED", message: "paused", retryAfterSec: 300 }),
+        checkRail: () => null,
+      });
+      try {
+        vi.mocked(userRepo.findUserByWalletAddress).mockResolvedValue(null);
+        vi.mocked(walletChallengeRepo.consumeChallenge).mockClear();
+        const res = await request(createApp(), "POST", "/api/auth/wallet/verify", { address: VALID_ADDRESS, signature: VALID_SIGNATURE });
+        expect(res.status).toBe(503);
+        expect(res.body.code).toBe("SIGNUPS_PAUSED");
+        expect(walletChallengeRepo.consumeChallenge).not.toHaveBeenCalled();
+      } finally {
+        mockKillSwitches.mockReturnValue({ check: () => null, checkRail: () => null });
+      }
+    });
+
     it("should create a new user for a new wallet", async () => {
       const now = new Date();
       vi.mocked(walletChallengeRepo.consumeChallenge).mockResolvedValue({
