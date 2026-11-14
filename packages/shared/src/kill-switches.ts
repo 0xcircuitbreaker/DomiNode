@@ -39,6 +39,7 @@ export interface KillSwitchBlock {
     | "EXIT_CLASS_PAUSED"
     | "SIGNUPS_PAUSED"
     | "API_KEYS_PAUSED"
+    | "NODE_REGISTRATION_PAUSED"
     | "PAYOUTS_PAUSED"
     | "PAYMENT_RAIL_PAUSED"
     | "KILL_SWITCH_UNAVAILABLE";
@@ -87,6 +88,20 @@ export class KillSwitchView {
     if (this.state === null) return UNAVAILABLE;
     if (!this.state.engaged.has(key)) return null;
     return { status: 503, ...MESSAGES[key], retryAfterSec: 300 };
+  }
+
+  /**
+   * Refusal for node registration (POST /v1/nodes issues a dn_node_ key), or
+   * null. Governed by the "api_keys" switch, with its own code so agents can
+   * tell a paused node signup from a paused API key mint.
+   */
+  checkNodeRegistration(): KillSwitchBlock | null {
+    if (this.state === null) return UNAVAILABLE;
+    if (!this.state.engaged.has("api_keys")) return null;
+    return {
+      status: 503, code: "NODE_REGISTRATION_PAUSED", retryAfterSec: 300,
+      message: "New node registration (dn_node_ key issuance) is paused by the operator. Retry later.",
+    };
   }
 
   /** Refusal for a payment rail, or null. */

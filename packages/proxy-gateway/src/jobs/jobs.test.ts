@@ -251,6 +251,29 @@ describe("payout job", () => {
     expect(d.sender.send).not.toHaveBeenCalled();
   });
 
+  it("while the payouts kill switch is engaged, still settles broadcast payouts but sends nothing new", async () => {
+    const requestWithdraw = vi.fn().mockResolvedValue({});
+    const loadSdn = vi.fn().mockRejectedValue(new Error("unreadable"));
+    const d = payoutDeps({
+      paused: () => true,
+      loadSdn,
+      requestWithdraw,
+      listAutoCandidates: async () => [{ userId: "u9", availableMusd: 5_000_000n, remainingDailyMusd: 50_000_000n }],
+      listSubmitted: async () => [{ id: "s1", txHash: TX }, { id: "s2", txHash: TX }],
+      sender: { send: vi.fn(), waitForReceipt: vi.fn().mockResolvedValueOnce("confirmed").mockResolvedValueOnce("reverted") },
+    });
+    const r = await payouts.runOnce(d);
+    expect(r.skipped).toBe("paused");
+    expect(r.confirmed).toBe(1);
+    expect(r.reversed).toBe(1);
+    expect(d.markConfirmed).toHaveBeenCalledWith("s1", TX);
+    expect(d.markReversed).toHaveBeenCalledWith("s2", "tx reverted");
+    expect(loadSdn).not.toHaveBeenCalled();
+    expect(requestWithdraw).not.toHaveBeenCalled();
+    expect(d.claim).not.toHaveBeenCalled();
+    expect(d.sender.send).not.toHaveBeenCalled();
+  });
+
   it("refuses to pay anything when the SDN file is unavailable", async () => {
     const d = payoutDeps({ loadSdn: () => loadSdnFile("/nonexistent/sdn") });
     const r = await payouts.runOnce(d);

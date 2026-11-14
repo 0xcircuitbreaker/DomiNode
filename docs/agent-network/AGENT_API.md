@@ -64,7 +64,7 @@ data. Authenticated `GET /api/proxy/status` adds endpoints and session counts.
   ignored when `cursor` is given. A malformed cursor is `400 {code:"INVALID_CURSOR"}`.
 - **Operator pauses:** an admin kill switch refuses new work with `503`,
   `Retry-After` and `X-DominusNode-Error`: `SIGNUPS_PAUSED` (new wallet account),
-  `API_KEYS_PAUSED` (new user/team key), `PAYOUTS_PAUSED` (withdraw + challenge),
+  `API_KEYS_PAUSED` (new user/team key), `NODE_REGISTRATION_PAUSED` (`POST /v1/nodes`), `PAYOUTS_PAUSED` (withdraw + challenge),
   `PAYMENT_RAIL_PAUSED` (Tempo / NOWPayments top-up; x402 / MPP on the gateway,
   refused before the payment is verified, so nothing is charged). On the relay
   gateway (HTTP header / SOCKS reply): `RELAY_PAUSED` (all new sessions) and

@@ -519,8 +519,8 @@ Mounted at `/api/admin/network`. Switches live in `kill_switches` (one row per k
 | `relay` | every new relay session (HTTP, CONNECT, SOCKS5, x402/MPP) | `RELAY_PAUSED` |
 | `relay_residential`, `relay_mobile`, `relay_dc`, `relay_masked` | sessions that request that class; unflagged sessions skip it (refused only when residential, mobile and dc are all paused) | `EXIT_CLASS_PAUSED` |
 | `signups` | creating a new wallet-identity account (`POST /api/auth/wallet/verify` for an unknown address); existing accounts still sign in. The refusal comes before the sign-in challenge is consumed, so the same signature works once signups resume | `SIGNUPS_PAUSED` |
-| `api_keys` | `POST /api/keys`, `POST /api/teams/:id/keys` | `API_KEYS_PAUSED` |
-| `payouts` | `POST /v1/credits/withdraw/challenge`, `POST /v1/credits/withdraw`, and the gateway payout job (no sends, auto-queues or receipt checks while engaged; it resumes on the next run) | `PAYOUTS_PAUSED` |
+| `api_keys` | `POST /api/keys`, `POST /api/teams/:id/keys`; also `dn_node_` key issuance at `POST /v1/nodes` (refused before the registration challenge or PoW is consumed) | `API_KEYS_PAUSED`; `NODE_REGISTRATION_PAUSED` for `POST /v1/nodes` |
+| `payouts` | `POST /v1/credits/withdraw/challenge`, `POST /v1/credits/withdraw`, and new work in the gateway payout job: no auto-queues, claims or broadcasts while engaged. Payouts already broadcast keep being reconciled (receipt checks, confirm, or reverse and re-credit) on every run; new sends resume on the first run after release | `PAYOUTS_PAUSED` |
 | `rail_x402`, `rail_mpp` | paid relay requests on that rail, refused at the gateway **before** verification so the payer is never charged | `PAYMENT_RAIL_PAUSED` |
 | `rail_tempo`, `rail_nowpayments` | new top-ups (`POST /api/wallet/topup/tempo`, `POST /api/wallet/topup/crypto`). Webhooks for payments already made still credit | `PAYMENT_RAIL_PAUSED` |
 
