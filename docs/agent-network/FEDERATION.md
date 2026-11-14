@@ -19,7 +19,7 @@ Each signature covers the UTF-8 bytes of `"<domain>\n" + canonicalJson(payload)`
 | Coordinator identity (F1) | `/.well-known/dominusnode/coordinator.json` | `dominode-coordinator-v1` |
 | Network policy (F6) | `/.well-known/dominusnode/policy.json` | `dominode-policy-v1` |
 
-Because the domains differ, a policy signature can never verify as an identity document, and neither can verify as a tunnel CHALLENGE (`dominode-challenge-v1`). Both documents are signed with the coordinator key the gateway already uses, `COORD_SIGNING_KEY_FILE`. If no key is set, the API returns 503 for these paths.
+Because the domains differ, a policy signature can never verify as an identity document, and neither can verify as a tunnel CHALLENGE (`dominode-challenge-v1`). Both documents are signed with the coordinator key the gateway already uses, `COORD_SIGNING_KEY_FILE`. If no key is set, the API returns 503 for these paths. Until the first network policy is published, `/.well-known/dominusnode/coordinator.json` and `policy.json` return 503 (the built-in default is version 0, and signed documents need version 1 or later); node agents cannot join until then. Publish it once as an admin: in the admin panel, or with `PUT /api/admin/network/policy` and the policy body (`GET` the same path returns the current default to start from). See DEPLOYMENT.md §3a.
 
 A key fingerprint is `sha256:` followed by the hex SHA-256 of the raw 32-byte ed25519 public key.
 

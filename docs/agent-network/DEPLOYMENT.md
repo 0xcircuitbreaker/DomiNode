@@ -175,7 +175,19 @@ both services stop at startup. The same applies to `coord-key.pem`.
 
 The API serves `/.well-known/dominusnode/coordinator.json` and `policy.json`
 (see FEDERATION.md), signed with `COORD_SIGNING_KEY_FILE`. Both are built from
-one policy read and cached together for 5 minutes. Settings:
+one policy read and cached together for 5 minutes.
+
+Until the first network policy is published, `/.well-known/dominusnode/coordinator.json` and `policy.json` return 503 (the built-in default is version 0, and signed documents need version 1 or later); node agents cannot join until then. Publish it once as an admin: in the admin panel, or with `PUT /api/admin/network/policy` and the policy body (`GET` the same path returns the current default to start from). Example with an admin access token:
+
+```bash
+curl -sS https://<domain>/api/admin/network/policy -H "Authorization: Bearer $ADMIN_JWT" |
+  jq .body |
+  curl -sS -X PUT https://<domain>/api/admin/network/policy \
+    -H "Authorization: Bearer $ADMIN_JWT" -H 'Content-Type: application/json' --data @-
+curl -sS -o /dev/null -w '%{http_code}\n' https://<domain>/.well-known/dominusnode/policy.json  # 200
+```
+
+The cache holds for up to 5 minutes after publishing. Settings:
 
 | Variable | Meaning |
 |---|---|
@@ -601,6 +613,9 @@ First admin (§8a, with the installer doing the env part):
 
 3. Re-run the installer with `ADMIN_BOOTSTRAP_EMAIL=` (empty) to close
    registration, then sign in at `https://<domain>/` and enable MFA.
+4. Publish the first network policy (§3a). Until then
+   `/.well-known/dominusnode/coordinator.json` and `policy.json` return 503
+   and no node can join.
 
 Without human login, an existing wallet user can be promoted by SQL on the
 coordinator: `docker compose -f docker-compose.selfhost.yml --env-file .env
@@ -1053,6 +1068,8 @@ First admin:
 1. Set `ADMIN_HUMAN_LOGIN=true` and `ADMIN_BOOTSTRAP_EMAIL=<your address>` on the API, restart.
 2. Register that address through the admin panel login page (or `POST /api/auth/register`).
 3. Unset `ADMIN_BOOTSTRAP_EMAIL` and restart. Enable MFA from the admin panel.
+4. Publish the first network policy (§3a). Until then the federation documents
+   (`coordinator.json`, `policy.json`) return 503.
 
 Keep `ADMIN_HUMAN_LOGIN=true` on the API that serves the admin panel; the
 panel's login and MFA steps need it. `/api/auth/refresh`, `/me`, `/logout`,
