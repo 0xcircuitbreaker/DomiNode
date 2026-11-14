@@ -1,6 +1,6 @@
 [package]
 name = "dominusnode"
-version = "4.0.0"
+version = "4.1.0"
 edition = "2021"
 description = "Official Dominus Node relay-network SDK for Rust"
 license = "MIT"

@@ -123,6 +123,63 @@ class NetworkStats(TypedDict):
     generatedAt: str
 
 
+class AgentWalletBalance(TypedDict):
+    """GET /v1/wallet (raw API key)."""
+
+    balanceCents: int
+    currency: str
+    lastToppedUp: Optional[str]
+
+
+class PublicIncident(TypedDict):
+    title: str
+    body: str
+    severity: str
+    status: str
+    startedAt: str
+    resolvedAt: Optional[str]
+    updatedAt: str
+
+
+class StatusCoordinator(TypedDict):
+    status: str  # "operational" | "down"
+    policyVersion: Optional[int]
+
+
+class StatusGateway(TypedDict):
+    status: str  # "operational" | "down" | "unknown"
+    instancesOnline: int
+    lastHeartbeatAt: Optional[str]
+
+
+class StatusAvailability(TypedDict):
+    """Percent of minutes with a live gateway; None before any heartbeat."""
+
+    last24h: Optional[float]
+    last7d: Optional[float]
+
+
+class StatusNodes(TypedDict, total=False):
+    onlineNodes: int
+    byClass: Dict[str, int]
+    byCountry: List[Dict[str, object]]
+    otherCountries: int
+    countriesAvailable: int
+    suppressed: List[str]
+
+
+class NetworkStatus(TypedDict):
+    """GET /v1/status: aggregate public health; no node ids, instance ids or IPs."""
+
+    status: str  # "operational" | "degraded" | "down" | "unknown"
+    coordinator: StatusCoordinator
+    gateway: StatusGateway
+    availability: StatusAvailability
+    nodes: Optional[StatusNodes]
+    incidents: List[PublicIncident]
+    generatedAt: str
+
+
 class TeamKey(TypedDict):
     id: str
     prefix: str

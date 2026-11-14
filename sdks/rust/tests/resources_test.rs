@@ -98,7 +98,8 @@ async fn keys_create() {
 case!(keys_list, json!({"keys": [{"id": "k", "prefix": "p", "label": "l", "created_at": "t", "revoked_at": null}]}), |c| c.keys.list(), "GET", "/api/keys", None, J);
 case!(keys_revoke_encodes, json!({}), |c| c.keys.revoke("a/b c"), "DELETE", "/api/keys/a%2Fb%20c", None, J);
 
-// ---- wallet (5)
+// ---- wallet (6)
+case!(wallet_get_v1, json!({"balanceCents": 100, "currency": "usd", "lastToppedUp": null}), |c| c.wallet.get(), "GET", "/v1/wallet", None, A);
 case!(wallet_balance, json!({"balanceCents": 100}), |c| c.wallet.get_balance(), "GET", "/api/wallet", None, J);
 case!(wallet_transactions, json!({"transactions": []}), |c| c.wallet.get_transactions(Some(10), Some(5)), "GET", "/api/wallet/transactions?limit=10&offset=5", None, J);
 case!(wallet_transactions_no_query, json!({"transactions": []}), |c| c.wallet.get_transactions(None, None), "GET", "/api/wallet/transactions", None, J);
@@ -174,11 +175,12 @@ async fn sessions_get_active_drops_unknown_fields() {
 }
 case!(sessions_report, json!({"reportId": "r", "reportsToday": 1, "limitPerDay": 5}), |c| c.sessions.report(UUID, "captcha"), "POST", &format!("/v1/sessions/{UUID}/report"), Some(json!({"reason": "captcha"})), A);
 
-// ---- x402 (1) + network (3)
+// ---- x402 (1) + network (4)
 case!(x402_info, json!({"supported": true, "pricing": {"perGb": "1.00"}}), |c| c.x402.get_info(), "GET", "/api/x402/info", None, N);
 case!(network_policy, json!({"version": 1, "body": {"a": 1}}), |c| c.network.policy(), "GET", "/v1/policy", None, N);
 case!(network_pricing, json!({"prices": [{"ipClass": "dc", "pricePerGbMusd": "1000000"}]}), |c| c.network.pricing(), "GET", "/v1/pricing", None, N);
 case!(network_stats, json!({"onlineNodes": 3, "byClass": {"dc": 3}}), |c| c.network.stats(), "GET", "/v1/network/stats", None, N);
+case!(network_status, json!({"status": "operational", "availability": {"last24h": 99.5, "last7d": null}, "nodes": null, "incidents": []}), |c| c.network.status(), "GET", "/v1/status", None, N);
 
 // ---- nodes (list, revoke, update_caps, tier, register_challenge; register in signer_test)
 case!(nodes_challenge_empty, json!({}), |c| c.nodes.register_challenge(None), "POST", "/v1/nodes/challenge", Some(json!({})), A);
@@ -219,4 +221,25 @@ async fn no_credential_raises_auth_without_request() {
     let e = c.credits.balance().await.unwrap_err();
     assert!(matches!(e, dominusnode::DominusNodeError::Authentication(_)));
     assert_eq!(m.count(), 0);
+}
+
+#[tokio::test]
+async fn network_status_decodes_typed() {
+    let (cl, m) = connected().await;
+    m.push(r(200, json!({
+        "status": "degraded", "coordinator": {"status": "operational", "policyVersion": 4},
+        "gateway": {"status": "operational", "instancesOnline": 2, "lastHeartbeatAt": "t"},
+        "availability": {"last24h": 99.5, "last7d": null},
+        "nodes": {"onlineNodes": 7, "byClass": {"dc": 7}, "byCountry": [{"country": "DE", "online": 7}], "otherCountries": 0, "countriesAvailable": 1},
+        "incidents": [{"title": "x", "body": "", "severity": "major", "status": "investigating", "startedAt": "t", "resolvedAt": null, "updatedAt": "t"}],
+        "generatedAt": "t"
+    })));
+    let s = cl.network.status().await.unwrap();
+    assert_eq!(s.status, "degraded");
+    assert_eq!(s.coordinator.policy_version, Some(4));
+    assert_eq!(s.gateway.instances_online, 2);
+    assert_eq!(s.availability.last_24h, Some(99.5));
+    assert_eq!(s.availability.last_7d, None);
+    assert_eq!(s.nodes.as_ref().unwrap().countries_available, 1);
+    assert_eq!(s.incidents[0].resolved_at, None);
 }

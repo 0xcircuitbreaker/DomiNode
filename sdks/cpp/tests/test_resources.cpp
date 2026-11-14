@@ -34,7 +34,8 @@ std::vector<Row> rows() {
         {"keys.create", [](C c) { c.keys.create(); }, "POST", "/api/keys", {{"label", "Default"}}, 'j'},
         {"keys.list", [](C c) { c.keys.list(); }, "GET", "/api/keys", nullptr, 'j'},
         {"keys.revoke", [](C c) { c.keys.revoke("a/b"); }, "DELETE", "/api/keys/a%2Fb", nullptr, 'j'},
-        // wallet (5)
+        // wallet (6)
+        {"wallet.get", [](C c) { c.wallet.get(); }, "GET", "/v1/wallet", nullptr, 'a'},
         {"wallet.get_balance", [](C c) { c.wallet.get_balance(); }, "GET", "/api/wallet", nullptr, 'j'},
         {"wallet.get_transactions", [](C c) { c.wallet.get_transactions(10, 5); }, "GET", "/api/wallet/transactions?limit=10&offset=5", nullptr, 'j'},
         {"wallet.get_forecast", [](C c) { c.wallet.get_forecast(); }, "GET", "/api/wallet/forecast", nullptr, 'j'},
@@ -85,6 +86,7 @@ std::vector<Row> rows() {
         {"network.policy", [](C c) { c.network.policy(); }, "GET", "/v1/policy", nullptr, 'n'},
         {"network.pricing", [](C c) { c.network.pricing(); }, "GET", "/v1/pricing", nullptr, 'n'},
         {"network.stats", [](C c) { c.network.stats(); }, "GET", "/v1/network/stats", nullptr, 'n'},
+        {"network.status", [](C c) { c.network.status(); }, "GET", "/v1/status", nullptr, 'n'},
         // nodes (5 here + register_node in test_signed)
         {"nodes.register_challenge", [](C c) { c.nodes.register_challenge(std::string(64, 'A')); }, "POST", "/v1/nodes/challenge", {{"nodePubkey", std::string(64, 'a')}}, 'a'},
         {"nodes.list", [](C c) { c.nodes.list(500, 0); }, "GET", "/v1/nodes?limit=500&offset=0", nullptr, 'a'},
@@ -108,9 +110,9 @@ std::vector<Row> rows() {
 
 TEST(every_method_sends_expected_request) {
     auto rs = rows();
-    // 71 methods = these rows + wallet_auth.sign_in, nodes.register_node, credits.convert,
+    // 73 methods = these rows + wallet_auth.sign_in, nodes.register_node, credits.convert,
     // credits.withdraw, payout_wallet.set (test_signed) + proxy.build_username/build_url/fetch (test_proxy).
-    CHECK_EQ(rs.size() + 5 + 3, std::size_t(71));
+    CHECK_EQ(rs.size() + 5 + 3, std::size_t(73));
     for (const auto& r : rs) {
         Fixture f;
         try {
@@ -132,7 +134,7 @@ TEST(every_method_sends_expected_request) {
         std::string auth = Mock::header(q, "Authorization");
         std::string want = r.auth == 'n' ? "" : r.auth == 'j' ? "Bearer " + JWT : "Bearer " + KEY;
         if (auth != want) fail(ctx + "auth header '" + auth + "'", __FILE__, __LINE__);
-        if (Mock::header(q, "User-Agent") != "dominusnode-sdk-cpp/2.3.0") fail(ctx + "user-agent", __FILE__, __LINE__);
+        if (Mock::header(q, "User-Agent") != "dominusnode-sdk-cpp/2.4.0") fail(ctx + "user-agent", __FILE__, __LINE__);
         if (Mock::header(q, "Accept") != "application/json") fail(ctx + "accept", __FILE__, __LINE__);
     }
 }

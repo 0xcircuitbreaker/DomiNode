@@ -2,7 +2,7 @@
 
 Go client for the DominusNode relay network. Standard library only, Go 1.22+.
 Implements the language-neutral contract in `sdks/SDK_SURFACE.md`
-(15 resources, 71 methods); the reference implementation is `sdks/node`.
+(15 resources, 73 methods); the reference implementation is `sdks/node`.
 
 ```bash
 go get github.com/0xcircuitbreaker/DomiNode/sdks/go/v2@v2.3.0

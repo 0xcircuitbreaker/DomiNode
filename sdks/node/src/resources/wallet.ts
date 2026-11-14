@@ -9,6 +9,13 @@ export interface WalletBalance {
   lastToppedUp: string | null;
 }
 
+/** GET /v1/wallet (agent route, raw API key). */
+export interface AgentWalletBalance {
+  balanceCents: number;
+  currency: string;
+  lastToppedUp: string | null;
+}
+
 export interface WalletTransaction {
   id: string;
   type: string;
@@ -48,6 +55,11 @@ export type CryptoCurrency = (typeof CRYPTO_CURRENCIES)[number];
 /** Requester (prepaid) wallet. Card/PayPal top-ups are not available to agents. */
 export class WalletResource {
   constructor(private http: HttpClient) {}
+
+  /** GET /v1/wallet — balance with the raw API key (no JWT is minted). */
+  async get(): Promise<AgentWalletBalance> {
+    return this.http.get("/v1/wallet", "agent");
+  }
 
   /** GET /api/wallet */
   async getBalance(): Promise<WalletBalance> {

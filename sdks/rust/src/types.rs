@@ -122,6 +122,10 @@ model! {
     pub struct WalletBalance { pub balance_cents: i64, pub balance_usd: f64, pub currency: String, pub last_topped_up: Option<String> }
 }
 model! {
+    /// `GET /v1/wallet` (raw API key).
+    pub struct AgentWalletBalance { pub balance_cents: i64, pub currency: String, pub last_topped_up: Option<String> }
+}
+model! {
     /// Wallet transaction.
     pub struct WalletTransaction {
         pub id: String, pub r#type: String, pub amount_cents: i64, pub amount_usd: f64,
@@ -403,6 +407,49 @@ model! {
         /// Agent-run community nodes.
         pub community: NetworkGroupStats,
         pub generated_at: String,
+    }
+}
+
+model! {
+    /// Coordinator health in `NetworkStatus` (`operational` | `down`).
+    pub struct StatusCoordinator { pub status: String, pub policy_version: Option<i64> }
+}
+model! {
+    /// Gateway health in `NetworkStatus` (`operational` | `down` | `unknown`).
+    pub struct StatusGateway { pub status: String, pub instances_online: i64, pub last_heartbeat_at: Option<String> }
+}
+model! {
+    /// Percent of minutes with a live gateway; `None` before any heartbeat.
+    pub struct StatusAvailability {
+        #[serde(rename = "last24h")]
+        pub last_24h: Option<f64>,
+        #[serde(rename = "last7d")]
+        pub last_7d: Option<f64>,
+    }
+}
+model! {
+    /// Node aggregates in `NetworkStatus`.
+    pub struct StatusNodes {
+        pub online_nodes: i64, pub by_class: BTreeMap<String, i64>, pub by_country: Vec<CountryCount>,
+        pub other_countries: i64, pub countries_available: i64,
+        /// Figures hidden by k-anonymity (published as 0).
+        pub suppressed: Option<Vec<String>>,
+    }
+}
+model! {
+    /// Public incident (no incident id).
+    pub struct PublicIncident {
+        pub title: String, pub body: String, pub severity: String, pub status: String,
+        pub started_at: String, pub resolved_at: Option<String>, pub updated_at: String,
+    }
+}
+model! {
+    /// `GET /v1/status`: aggregates only, no node ids, instance ids or IPs.
+    pub struct NetworkStatus {
+        /// `operational` | `degraded` | `down` | `unknown`.
+        pub status: String,
+        pub coordinator: StatusCoordinator, pub gateway: StatusGateway, pub availability: StatusAvailability,
+        pub nodes: Option<StatusNodes>, pub incidents: Vec<PublicIncident>, pub generated_at: String,
     }
 }
 

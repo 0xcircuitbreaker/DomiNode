@@ -35,6 +35,7 @@ CASES = [
     ("keys.revoke", lambda c: c.keys.revoke(WEIRD), "DELETE", f"/api/keys/{WEIRD_ENC}", None, "jwt", None),
     # wallet (5)
     ("wallet.get_balance", lambda c: c.wallet.get_balance(), "GET", "/api/wallet", None, "jwt", None),
+    ("wallet.get", lambda c: c.wallet.get(), "GET", "/v1/wallet", None, "key", None),
     ("wallet.get_transactions", lambda c: c.wallet.get_transactions(10, 5), "GET",
      "/api/wallet/transactions?limit=10&offset=5", None, "jwt", None),
     ("wallet.get_forecast", lambda c: c.wallet.get_forecast(), "GET", "/api/wallet/forecast", None, "jwt", None),
@@ -95,10 +96,11 @@ CASES = [
      {"reason": "captcha"}, "key", None),
     # x402 (1)
     ("x402.get_info", lambda c: c.x402.get_info(), "GET", "/api/x402/info", None, "none", None),
-    # network (3)
+    # network (4)
     ("network.policy", lambda c: c.network.policy(), "GET", "/v1/policy", None, "none", None),
     ("network.pricing", lambda c: c.network.pricing(), "GET", "/v1/pricing", None, "none", None),
     ("network.stats", lambda c: c.network.stats(), "GET", "/v1/network/stats", None, "none", None),
+    ("network.status", lambda c: c.network.status(), "GET", "/v1/status", None, "none", None),
     # nodes (6; register covered in test_signers)
     ("nodes.register_challenge", lambda c: c.nodes.register_challenge("AB" * 32), "POST", "/v1/nodes/challenge",
      {"nodePubkey": "ab" * 32}, "key", None),
@@ -134,7 +136,7 @@ def _check(rec: Recorder, method: str, path: str, body: Any, auth: str) -> None:
         assert r.headers["content-type"] == "application/json"
     expected = {"jwt": f"Bearer {ACCESS}", "key": f"Bearer {API_KEY}", "none": None}[auth]
     assert r.headers.get("authorization") == expected
-    assert r.headers["user-agent"] == "dominusnode-sdk-python/2.3.0"
+    assert r.headers["user-agent"] == "dominusnode-sdk-python/2.4.0"
     assert r.headers["accept"] == "application/json"
 
 
@@ -204,7 +206,7 @@ def test_wallet_verify_stores_tokens_unless_mfa(rec: Recorder) -> None:
     assert c.is_connected
 
 
-def test_method_count_is_71() -> None:
+def test_method_count_is_73() -> None:
     from conftest import new_client
 
     c = new_client(Recorder())
@@ -214,7 +216,7 @@ def test_method_count_is_71() -> None:
     for n in names:
         core = type(getattr(c, n)).__mro__[1]
         total += len([m for m in vars(core) if not m.startswith("_") and m != "set_lookup"])
-    assert len(names) == 15 and total == 71
+    assert len(names) == 15 and total == 73
     for member in ("connect_with_key", "disconnect", "is_connected"):
         assert hasattr(c, member)
     for removed in ("plans", "slots", "admin", "connect_with_credentials", "complete_mfa"):

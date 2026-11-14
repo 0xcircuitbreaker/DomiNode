@@ -78,6 +78,7 @@ void KeysResource::revoke(const std::string& id) { http_.del("/api/keys/" + url_
 
 // ─── wallet ─────────────────────────────────────────────────────────────────
 
+json WalletResource::get() { return http_.get("/v1/wallet", AuthMode::Agent); }
 json WalletResource::get_balance() { return http_.get("/api/wallet"); }
 json WalletResource::get_transactions(OptInt limit, OptInt offset) {
     return http_.get("/api/wallet/transactions" + Query().add("limit", limit).add("offset", offset).str());
@@ -253,5 +254,6 @@ json X402Resource::get_info() { return http_.get("/api/x402/info", AuthMode::Non
 json NetworkResource::policy() { return http_.get("/v1/policy", AuthMode::None); }
 json NetworkResource::pricing() { return http_.get("/v1/pricing", AuthMode::None); }
 json NetworkResource::stats() { return http_.get("/v1/network/stats", AuthMode::None); }
+json NetworkResource::status() { return http_.get("/v1/status", AuthMode::None); }
 
 }  // namespace dominusnode

@@ -302,6 +302,19 @@ func oneOf(v string, set []string) bool {
 	return false
 }
 
+// AgentWalletBalance is the response of GET /v1/wallet.
+type AgentWalletBalance struct {
+	BalanceCents int64   `json:"balanceCents"`
+	Currency     string  `json:"currency"`
+	LastToppedUp *string `json:"lastToppedUp"`
+}
+
+// Get: GET /v1/wallet [agent]. Balance read with the raw API key (no JWT is minted).
+func (r *WalletResource) Get(ctx context.Context) (*AgentWalletBalance, error) {
+	var out AgentWalletBalance
+	return &out, r.h.get(ctx, "/v1/wallet", authAgent, &out)
+}
+
 // GetBalance: GET /api/wallet [jwt].
 func (r *WalletResource) GetBalance(ctx context.Context) (*WalletBalance, error) {
 	var out WalletBalance

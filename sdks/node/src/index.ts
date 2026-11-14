@@ -9,7 +9,7 @@ export type { WalletChallenge, WalletVerifyResult, WalletLinkResult } from "./re
 export { KeysResource } from "./resources/keys.js";
 export type { ApiKeyInfo, CreatedApiKey } from "./resources/keys.js";
 export { WalletResource, CRYPTO_CURRENCIES } from "./resources/wallet.js";
-export type { WalletBalance, WalletTransaction, CryptoInvoice, CryptoInvoiceStatus, Forecast, CryptoCurrency } from "./resources/wallet.js";
+export type { WalletBalance, AgentWalletBalance, WalletTransaction, CryptoInvoice, CryptoInvoiceStatus, Forecast, CryptoCurrency } from "./resources/wallet.js";
 export { AgenticWalletResource } from "./resources/agent-wallet.js";
 export type {
   AgenticWallet, AgenticWalletTransaction, AgenticWalletListResponse, AgenticWalletFundResponse,
@@ -27,7 +27,7 @@ export type { ActiveSession, ReportReason, ReportResult } from "./resources/sess
 export { X402Resource } from "./resources/x402.js";
 export type { X402Info, X402Facilitator } from "./resources/x402.js";
 export { NetworkResource } from "./resources/network.js";
-export type { NetworkPolicy, NetworkPricing, NetworkStats, NetworkGroupStats } from "./resources/network.js";
+export type { NetworkPolicy, NetworkPricing, NetworkStats, NetworkGroupStats, NetworkStatus, StatusLevel, PublicIncident } from "./resources/network.js";
 export { NodesResource, EXIT_CLASSES, validatePageCursor } from "./resources/nodes.js";
 export type {
   ExitClass, NodeChallenge, RegisterNodeOptions, RegisteredNode, NodeInfo, NodeCaps, UpdateCapsResult, NodeTier, TierView, TierRequirement,

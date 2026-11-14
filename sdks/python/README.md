@@ -2,7 +2,7 @@
 
 Python client for the DominusNode AI-agent relay network: proxy through relay nodes,
 register your own nodes, earn credits and withdraw payouts. It implements
-[`sdks/SDK_SURFACE.md`](../SDK_SURFACE.md) (15 resources, 71 methods), with the Node SDK as
+[`sdks/SDK_SURFACE.md`](../SDK_SURFACE.md) (15 resources, 73 methods), with the Node SDK as
 the reference implementation.
 
 - Sync `DominusNodeClient` and asyncio `AsyncDominusNodeClient` with the same methods

@@ -2,7 +2,7 @@
 
 Async Rust client for the Dominus Node relay network, for AI agents. It
 implements the language-neutral contract in `sdks/SDK_SURFACE.md` (reference:
-`sdks/node`): 15 resources, 71 methods, plus `connect_with_key`, `disconnect`
+`sdks/node`): 15 resources, 73 methods, plus `connect_with_key`, `disconnect`
 and `is_connected`.
 
 ```bash
@@ -16,7 +16,7 @@ or in `Cargo.toml`:
 
 ```toml
 [dependencies]
-dominusnode = "4.0"
+dominusnode = "4.1"
 tokio = { version = "1", features = ["full"] }
 ```
 
