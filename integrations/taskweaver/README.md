@@ -18,7 +18,7 @@ pip install dominusnode-taskweaver
 | `DOMINUSNODE_API_KEY` | yes | Your `dn_live_` API key. Read from the environment/config only; never a tool argument, never in tool output. |
 | `DOMINUSNODE_BASE_URL` | no | API base URL (default `https://api.dominusnode.com`). |
 | `DOMINUSNODE_PROXY_HOST` | no | Gateway host (default `proxy.dominusnode.com`). |
-| `DOMINUSNODE_PROXY_URL` | no | `https://host[:port]` of the gateway's TLS proxy (default port 8443; self-hosted coordinators use 8444). |
+| `DOMINUSNODE_PROXY_URL` | no | `https://host[:port]` of the gateway's TLS proxy (default port 8443; self-hosted coordinators use 8443 too). |
 | `DOMINUSNODE_PROXY_INSECURE` | no | `1` = plaintext gateway on 8080 (local development only; production refuses it). |
 
 ## Usage

@@ -65,6 +65,38 @@ describe("federation documents", () => {
     expect(Object.keys(on)[0]).toBe("https_proxy");
   });
 
+  it("omits plaintext listeners when TLS is advertised and plaintext is not published", () => {
+    const tls = { ...env, PROXY_PUBLIC_HOST: "proxy.example.org", PROXY_PUBLIC_TLS_PORT: "8443", PROXY_PUBLIC_SOCKS5_TLS_PORT: "1443" };
+    const gw = buildCoordinatorPayload(tls, signer.publicKeyHex, policy).gateway;
+    expect(gw.http_proxy).toBeUndefined();
+    expect(gw.socks5_proxy).toBeUndefined();
+    expect(gw.https_proxy).toBe("proxy.example.org:8443");
+    const off = buildCoordinatorPayload({ ...tls, PROXY_PUBLISH_PLAINTEXT: "false" }, signer.publicKeyHex, policy).gateway;
+    expect(off.http_proxy).toBeUndefined();
+    const on = buildCoordinatorPayload({ ...tls, PROXY_PUBLISH_PLAINTEXT: "1" }, signer.publicKeyHex, policy).gateway;
+    expect(on.http_proxy).toBe("proxy.example.org:8080");
+    expect(on.socks5_proxy).toBe("proxy.example.org:1080");
+  });
+
+  it("advertises plaintext only for a TLS-less install unless disabled", () => {
+    const gw = buildCoordinatorPayload(env, signer.publicKeyHex, policy).gateway;
+    expect(gw.http_proxy).toBe("proxy.dominusnode.com:8080");
+    expect(buildCoordinatorPayload({ ...env, PROXY_PUBLISH_PLAINTEXT: "0" }, signer.publicKeyHex, policy).gateway.socks5_proxy).toBeUndefined();
+    expect(() => buildCoordinatorPayload({ ...env, PROXY_PUBLISH_PLAINTEXT: "yes" }, signer.publicKeyHex, policy)).toThrow(/PROXY_PUBLISH_PLAINTEXT/);
+  });
+
+  it("serves a signed coordinator.json without plaintext listeners on a TLS deployment", async () => {
+    const tls = { ...env, PROXY_PUBLIC_TLS_PORT: "8443", PROXY_PUBLISH_PLAINTEXT: "false" };
+    const r = await get(createFederationRouter(tls, signer, vi.fn().mockResolvedValue(policy)), "/.well-known/dominusnode/coordinator.json");
+    const v = verifyCoordinatorDocument(r.body);
+    expect(v.ok).toBe(true);
+    if (v.ok) {
+      expect(v.payload.gateway.https_proxy).toBe("proxy.dominusnode.com:8443");
+      expect(v.payload.gateway).not.toHaveProperty("http_proxy");
+      expect(v.payload.gateway).not.toHaveProperty("socks5_proxy");
+    }
+  });
+
   it("requires APP_URL", () => {
     expect(() => buildCoordinatorPayload({}, signer.publicKeyHex, policy)).toThrow(/APP_URL/);
   });

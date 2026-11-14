@@ -52,6 +52,8 @@ services:
       DASHBOARD_PORT: "3000"
       # Advertise the TLS proxy in agent-tool.json, llms.txt and /api/proxy/config (8080/1080 are loopback-only here).
       PROXY_PUBLIC_TLS_PORT: "${PROXY_TLS_HOST_PORT:-8443}"
+      # 8080/1080 are loopback-only: keep them out of coordinator.json.
+      PROXY_PUBLISH_PLAINTEXT: ${PROXY_PUBLISH_PLAINTEXT:-false}
       CORS_ORIGINS: ${CORS_ORIGINS:-https://dominusnode.com,https://www.dominusnode.com,https://dominusnode.daedalusdevelopmentgroup.com}
       STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
       STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
@@ -175,6 +177,11 @@ services:
       ASN_DB_FILE: /app/data/ip2asn-combined.tsv.gz
       AGENT_RATE_LIMIT_MULTIPLIER: ${AGENT_RATE_LIMIT_MULTIPLIER:-10}
       PROBE_AUTH_SECRET: ${PROBE_AUTH_SECRET:-}
+      # Canary + egress verification probes (ABUSE_CONTROLS T6): exit nodes
+      # dial this public echo URL so split-tunnel class fraud is caught.
+      # PROBES_DISABLED=true is the explicit opt-out and wins over PROBE_URL.
+      PROBE_URL: ${PROBE_URL:-https://${DOMINUSNODE_DOMAIN:-dominusnode.com}/v1/probe/echo}
+      PROBES_DISABLED: ${PROBES_DISABLED:-}
       # Host-local clients of the 127.0.0.1-published plaintext ports arrive via
       # docker-proxy as the bridge gateway (private) and are refused in
       # production unless that address/range is listed here.

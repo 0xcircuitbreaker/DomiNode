@@ -17,7 +17,7 @@ npm install @dominusnode/mastra-tools @mastra/core zod
 export DOMINUSNODE_API_KEY=dn_live_...          # required for account tools
 export DOMINUSNODE_BASE_URL=https://api.dominusnode.com   # optional
 export DOMINUSNODE_PROXY_HOST=proxy.dominusnode.com       # optional
-export DOMINUSNODE_PROXY_URL=https://proxy.dominusnode.com:8443  # optional; TLS proxy (self-host: :8444)
+export DOMINUSNODE_PROXY_URL=https://proxy.dominusnode.com:8443  # optional; TLS proxy
 ```
 
 ## Usage

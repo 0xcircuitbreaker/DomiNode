@@ -53,7 +53,7 @@ type Config struct {
 	// GatewayTLS configures TLS to the gateway's HTTPS proxy listener so
 	// Proxy-Authorization is encrypted. Since 2.2 TLS is the default: nil means
 	// port 8443, system roots, SNI = ProxyHost, and BuildURL defaults to https://.
-	// Self-hosted coordinators usually publish 8444 (&GatewayTLS{Port: 8444}).
+	// Self-hosted coordinators use 8443 as well.
 	// &GatewayTLS{Disabled: true} selects plaintext 8080/1080 (local dev only:
 	// production gateways refuse credentials there).
 	GatewayTLS *GatewayTLS

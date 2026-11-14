@@ -82,7 +82,7 @@ NODE_SETUP_GUIDE: Dict[str, Any] = {
 }
 
 
-#: Gateway TLS (HTTPS proxy) port: production 8443; self-hosted coordinators publish 8444 by default.
+#: Gateway TLS (HTTPS proxy) port: production 8443; self-hosted coordinators use 8443 too.
 DEFAULT_TLS_PROXY_PORT = 8443
 
 
