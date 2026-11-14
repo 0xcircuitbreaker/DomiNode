@@ -3,7 +3,7 @@ import express from "express";
 
 const m = vi.hoisted(() => ({
   poolQuery: vi.fn(), clientQuery: vi.fn(), release: vi.fn(),
-  markPayoutReversedTx: vi.fn(), freezeAccountTx: vi.fn(), getActivePolicy: vi.fn(),
+  markPayoutReversedTx: vi.fn(), markPayoutConfirmedTx: vi.fn(), markPayoutFailedTx: vi.fn(), freezeAccountTx: vi.fn(), getActivePolicy: vi.fn(),
 }));
 
 vi.mock("../middleware/auth.js", () => ({
@@ -20,7 +20,7 @@ vi.mock("@dominusnode/shared", async (importOriginal) => {
   return {
     ...actual,
     getPool: () => ({ query: m.poolQuery, connect: async () => ({ query: m.clientQuery, release: m.release }) }),
-    payoutRepo: { ...actual.payoutRepo, markPayoutReversedTx: m.markPayoutReversedTx, freezeAccountTx: m.freezeAccountTx },
+    payoutRepo: { ...actual.payoutRepo, markPayoutReversedTx: m.markPayoutReversedTx, markPayoutConfirmedTx: m.markPayoutConfirmedTx, markPayoutFailedTx: m.markPayoutFailedTx, freezeAccountTx: m.freezeAccountTx },
     policyRepo: { ...actual.policyRepo, getActivePolicy: m.getActivePolicy },
   };
 });
@@ -269,6 +269,32 @@ describe("admin network ops", () => {
       m.markPayoutReversedTx.mockRejectedValueOnce(new Error("Payout not found"));
       expect((await call(app(), "POST", `${BASE}/payouts/${PAYOUT}/reverse`, { body: { reason: "x" } })).status).toBe(404);
       expect((await call(app(), "POST", `${BASE}/payouts/${PAYOUT}/reverse`, { body: {} })).status).toBe(400);
+    });
+
+    it("POST /payouts/:id/fail marks a stranded submitted payout failed, reverses it and audits, in one admin tx", async () => {
+      const TXH = "0x" + "ab".repeat(32);
+      m.markPayoutFailedTx.mockResolvedValue({});
+      m.markPayoutReversedTx.mockResolvedValue({ id: PAYOUT, userId: USER, amountMusd: 1_000_000n, status: "reversed", txHash: TXH });
+      const r = await call(app(), "POST", `${BASE}/payouts/${PAYOUT}/fail`, { body: { txHash: TXH, outcome: "dropped", reason: "nonce reused on chain" } });
+      expect(r.status).toBe(200);
+      expect(r.body).toMatchObject({ status: "reversed" });
+      expect(m.markPayoutFailedTx.mock.calls[0].slice(1)).toEqual([PAYOUT, { txHash: TXH, outcome: "dropped", detail: "admin: nonce reused on chain" }]);
+      expect(m.markPayoutReversedTx.mock.invocationCallOrder[0]).toBeGreaterThan(m.markPayoutFailedTx.mock.invocationCallOrder[0]);
+      expect(txSqls().some((s) => s.includes("INSERT INTO audit_events"))).toBe(true);
+      expect(txSqls()).toContain("COMMIT");
+      expect((await call(app(), "POST", `${BASE}/payouts/${PAYOUT}/fail`, { body: { txHash: "0x1", outcome: "dropped", reason: "x" } })).status).toBe(400);
+      expect((await call(app(), "POST", `${BASE}/payouts/${PAYOUT}/fail`, { body: { txHash: TXH, outcome: "lost", reason: "x" } })).status).toBe(400);
+    });
+
+    it("POST /payouts/:id/confirm confirms a submitted payout with its tx hash; mismatch is 409", async () => {
+      const TXH = "0x" + "cd".repeat(32);
+      m.markPayoutConfirmedTx.mockResolvedValueOnce({ id: PAYOUT, userId: USER, amountMusd: 1_000_000n, status: "confirmed", txHash: TXH });
+      const r = await call(app(), "POST", `${BASE}/payouts/${PAYOUT}/confirm`, { body: { txHash: TXH, reason: "seen on basescan" } });
+      expect(r.status).toBe(200);
+      expect(r.body).toMatchObject({ status: "confirmed", txHash: TXH });
+      expect(m.markPayoutConfirmedTx.mock.calls[0].slice(1)).toEqual([PAYOUT, TXH]);
+      m.markPayoutConfirmedTx.mockRejectedValueOnce(new Error("Confirmation tx hash does not match payout"));
+      expect((await call(app(), "POST", `${BASE}/payouts/${PAYOUT}/confirm`, { body: { txHash: TXH, reason: "x" } })).status).toBe(409);
     });
 
     it("POST /accounts/:userId/freeze uses freezeAccountTx in the admin tx", async () => {

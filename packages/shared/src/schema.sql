@@ -2334,3 +2334,10 @@ CREATE TABLE IF NOT EXISTS node_drains (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 -- ═══ end feat/kill-switches ═══
+
+-- ═══ fix/prelaunch-audit: payout tx nonce (dropped-tx detection survives restarts) ═══
+ALTER TABLE node_payouts ADD COLUMN IF NOT EXISTS tx_nonce BIGINT;
+DO $$ BEGIN
+  ALTER TABLE node_payouts ADD CONSTRAINT chk_node_payouts_tx_nonce CHECK (tx_nonce IS NULL OR tx_nonce BETWEEN 0 AND 9007199254740991);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+-- ═══ end fix/prelaunch-audit ═══

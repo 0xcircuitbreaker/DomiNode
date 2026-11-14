@@ -1,5 +1,6 @@
 import { Router } from "express";
-import { SUPPORTED_CRYPTO, policyRepo, createLogger, RELAY_BYTES_PER_GB } from "@dominusnode/shared";
+import { SUPPORTED_CRYPTO, policyRepo, createLogger, RELAY_BYTES_PER_GB, killSwitches } from "@dominusnode/shared";
+import { x402Configured } from "./payment-rails.js";
 import { X402_RESOURCE_DESCRIPTION, bazaarExtension } from "@dominusnode/billing";
 
 const router = Router();
@@ -40,13 +41,22 @@ async function livePricing(): Promise<Record<string, unknown> | null> {
   }
 }
 
+function x402RailOpen(): boolean {
+  try {
+    return killSwitches().checkRail("x402") === null;
+  } catch {
+    return false;
+  }
+}
+
 // GET /api/x402/info — Public x402 payment protocol info
 // Prices are read live from network_pricing; see also GET /v1/pricing.
 router.get("/info", async (_req, res) => {
   const pricing = await livePricing();
   res.json({
     supported: true,
-    enabled: process.env["X402_ENABLED"] === "true",
+    // Configured here (enabled + a receiving address) and rail_x402 released.
+    enabled: x402Configured() && x402RailOpen(),
     protocol: "x402",
     version: "1",
     facilitators: {

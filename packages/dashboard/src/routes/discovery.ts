@@ -1,6 +1,7 @@
 import { Router } from "express";
 import type { Request, Response } from "express";
 import { createLogger, policyRepo, BLOCKED_COUNTRY_CODES, getPublicProxyPorts, EXIT_CLASSES } from "@dominusnode/shared";
+import { enabledRails } from "./payment-rails.js";
 
 /** `class-residential|mobile|dc|masked`, read from the exit-class list so it cannot drift. */
 const CLASS_FLAG = `class-${EXIT_CLASSES.join("|")}`;
@@ -35,8 +36,7 @@ export interface DiscoveryPricing {
 }
 
 export function discoveryEnv(env: NodeJS.ProcessEnv = process.env): DiscoveryEnv {
-  const rails = (env["NETWORK_PAYMENT_RAILS"] ?? "wallet,x402,crypto")
-    .split(",").map((s) => s.trim()).filter((s) => /^[a-z0-9_-]{1,32}$/.test(s)).slice(0, 16);
+  const rails = enabledRails(env); // configured + kill switch released (payment-rails.ts)
   return {
     baseUrl: (env["APP_URL"] ?? "https://dominusnode.com").replace(/\/+$/, ""),
     proxyHost: env["PROXY_PUBLIC_HOST"] ?? "proxy.dominusnode.com",

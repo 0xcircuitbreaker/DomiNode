@@ -135,6 +135,9 @@ function makeProbeDeps(registry: NodeRegistry, targets: probesJob.ProbeTarget[],
   };
 }
 
+/** Max wait for background jobs during shutdown (under the 60 s compose stop grace period). */
+const JOB_STOP_DEADLINE_MS = 30_000;
+
 async function main(): Promise<void> {
   // Ensure database is reachable before accepting connections
   await connectWithRetry();
@@ -349,7 +352,13 @@ async function main(): Promise<void> {
     killSwitchCache.stop();
     clearInterval(recoveryInterval);
     connectProbes?.stop();
-    await Promise.all(jobs.map((j) => j.stop().catch(() => {})));
+    // Bounded: a payout run can wait minutes on receipts, and the container is
+    // SIGKILLed after its stop grace period (60 s in compose). The tx hash is
+    // persisted before every broadcast, so cutting a run short strands nothing.
+    await Promise.race([
+      Promise.all(jobs.map((j) => j.stop().catch(() => {}))),
+      new Promise<void>((resolve) => setTimeout(resolve, JOB_STOP_DEADLINE_MS).unref()),
+    ]);
 
     // Wait for active sessions to finish. Keep this well under the container
     // stop timeout (compose stop_grace_period: 60s); sessions still open when
@@ -573,6 +582,7 @@ function startJobs(registry: NodeRegistry, getPolicy: () => ActivePolicy): Job[]
         requestWithdraw: payoutRepo.requestWithdraw,
         listDue: () => payoutRepo.listDuePayouts(),
         listSubmitted: () => payoutRepo.listSubmittedPayouts(),
+        listStranded: () => payoutRepo.listStrandedPayouts(),
         claim: payoutRepo.claimPayoutForSend,
         recordTx: payoutRepo.recordPayoutTx,
         releaseUnbroadcast: payoutRepo.releaseUnbroadcastPayout,

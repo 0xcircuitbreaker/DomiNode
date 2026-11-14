@@ -347,6 +347,28 @@ setInterval(() => {
 }, STALE_CLEANUP_INTERVAL_MS).unref();
 
 /**
+ * Return a session's reservation to the wallet it was taken from (agentic
+ * wallet, team wallet or personal wallet: same branch order everywhere).
+ * With a sessionId, an agentic reservation row is deleted in the same
+ * statement so the orphan sweeper cannot release it again.
+ */
+async function releaseReservationFor(r: {
+  userId: string; teamId?: string | null; agenticWalletId?: string | null; reservedCents: number; sessionId: string | null;
+}): Promise<void> {
+  if (r.reservedCents <= 0) return;
+  if (r.agenticWalletId) {
+    if (r.sessionId) await agenticWalletRepo.releaseSessionReservation(r.agenticWalletId, r.sessionId, r.reservedCents);
+    else await agenticWalletRepo.releaseSessionBudget(r.agenticWalletId, r.reservedCents);
+  } else if (r.teamId) {
+    await teamRepo.releaseTeamReservation(r.teamId, r.reservedCents);
+    invalidateTeamBalanceCache(r.teamId);
+  } else {
+    await walletRepo.releaseReservation(r.userId, r.reservedCents);
+    invalidateBalanceCache(r.userId);
+  }
+}
+
+/**
  * Start a proxy session with upfront balance reservation.
  * Throws if insufficient balance (caller should return 402).
  */
@@ -495,17 +517,7 @@ export async function startSession(
     dbSession = await usageRepo.createRelaySession(userId, relay.nodeId, relay.destPort);
   } catch (err) {
     // If DB session creation fails, release the reservation
-    if (reservedCents > 0) {
-      if (agenticWalletId) {
-        await agenticWalletRepo.releaseSessionBudget(agenticWalletId, reservedCents);
-      } else if (teamId) {
-        await teamRepo.releaseTeamReservation(teamId, reservedCents);
-        invalidateTeamBalanceCache(teamId);
-      } else {
-        await walletRepo.releaseReservation(userId, reservedCents);
-        invalidateBalanceCache(userId);
-      }
-    }
+    await releaseReservationFor({ userId, teamId, agenticWalletId, reservedCents, sessionId: null });
     throw err;
   }
 
@@ -522,18 +534,9 @@ export async function startSession(
   // Cap active sessions to prevent OOM from session accumulation
   // MAX_ACTIVE_SESSIONS hoisted to module-level constant
   if (activeSessions.size >= MAX_ACTIVE_SESSIONS) {
-    // Release reservation before rejecting
-    if (reservedCents > 0) {
-      if (agenticWalletId) {
-        await agenticWalletRepo.releaseSessionBudget(agenticWalletId, reservedCents);
-      } else if (teamId) {
-        await teamRepo.releaseTeamReservation(teamId, reservedCents);
-        invalidateTeamBalanceCache(teamId);
-      } else {
-        await walletRepo.releaseReservation(userId, reservedCents);
-        invalidateBalanceCache(userId);
-      }
-    }
+    // Release reservation before rejecting, and end the recorded DB session
+    await releaseReservationFor({ userId, teamId, agenticWalletId, reservedCents, sessionId });
+    try { await usageRepo.endSession(sessionId, 0, "error"); } catch { /* best effort */ }
     throw new Error("Server at capacity. Please try again later.");
   }
 
@@ -558,15 +561,7 @@ export async function startSession(
   try {
     await persistRecovery(newSession);
   } catch (err) {
-    if (reservedCents > 0) {
-      if (teamId) {
-        await teamRepo.releaseTeamReservation(teamId, reservedCents);
-        invalidateTeamBalanceCache(teamId);
-      } else {
-        await walletRepo.releaseReservation(userId, reservedCents);
-        invalidateBalanceCache(userId);
-      }
-    }
+    await releaseReservationFor({ userId, teamId, agenticWalletId, reservedCents, sessionId });
     try { await usageRepo.endSession(sessionId, 0, "error"); } catch { /* best effort */ }
     throw err;
   }

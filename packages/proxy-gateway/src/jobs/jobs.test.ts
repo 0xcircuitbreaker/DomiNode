@@ -291,10 +291,61 @@ describe("payout job", () => {
     expect(d.sender.send).not.toHaveBeenCalled();
   });
 
+  it("re-reads the kill switch before every claim: engaging it mid-run stops further sends", async () => {
+    let paused = false;
+    const due = ["p1", "p2", "p3"].map((id) => ({ id, userId: "u1", payoutWalletId: "w1", address: ADDR, chain: "base" as const, amountMusd: 2_000_000n }));
+    const send = vi.fn(async () => { paused = true; return { txHash: TX }; });
+    const d = payoutDeps({ paused: () => paused, listDue: async () => due, sender: { send, waitForReceipt: vi.fn().mockResolvedValue("confirmed") } });
+    const r = await payouts.runOnce(d);
+    expect(r.skipped).toBe("paused");
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(d.claim).toHaveBeenCalledTimes(1);
+    expect(r.confirmed).toBe(1); // the one already broadcast is still settled
+  });
+
+  it("re-reads the kill switch in the auto-queue loop", async () => {
+    let calls = 0;
+    const requestWithdraw = vi.fn().mockResolvedValue({});
+    const d = payoutDeps({
+      paused: () => calls++ > 1, // released at run start + first candidate, engaged before the second
+      requestWithdraw,
+      listAutoCandidates: async () => [
+        { userId: "a", availableMusd: 5_000_000n, remainingDailyMusd: 50_000_000n },
+        { userId: "b", availableMusd: 5_000_000n, remainingDailyMusd: 50_000_000n },
+      ],
+    });
+    const r = await payouts.runOnce(d);
+    expect(r.skipped).toBe("paused");
+    expect(requestWithdraw).toHaveBeenCalledTimes(1);
+    expect(d.claim).not.toHaveBeenCalled();
+  });
+
+  it("persists the tx hash and nonce before broadcast via beforeBroadcast; a failed write broadcasts nothing", async () => {
+    const recordTx = vi.fn().mockResolvedValue(false);
+    const send = vi.fn(async (req: { beforeBroadcast?: (h: string, n: number) => Promise<boolean> }) => {
+      if (!(await req.beforeBroadcast!(TX, 7))) throw new payouts.PayoutNotBroadcastError("not recorded");
+      return { txHash: TX };
+    });
+    const d = payoutDeps({ recordTx, sender: { send, waitForReceipt: vi.fn() } });
+    const r = await payouts.runOnce(d);
+    expect(recordTx).toHaveBeenCalledWith("p1", TX, 7);
+    expect(d.releaseUnbroadcast).toHaveBeenCalledWith("p1");
+    expect(r.sent).toBe(0);
+    expect(r.released).toBe(1);
+  });
+
+  it("logs stranded submitted payouts (no tx hash) every run", async () => {
+    const error = vi.fn();
+    const d = payoutDeps({ listDue: async () => [], listStranded: async () => [{ id: "s1" }], logger: { info: vi.fn(), warn: vi.fn(), error } as never });
+    const r = await payouts.runOnce(d);
+    expect(r.stranded).toBe(1);
+    expect(error).toHaveBeenCalledWith(expect.stringContaining("stranded"), expect.objectContaining({ count: 1 }));
+  });
+
   it("confirms a successful payout and records the tx hash", async () => {
     const d = payoutDeps();
     const r = await payouts.runOnce(d);
-    expect(d.sender.send).toHaveBeenCalledWith({ payoutId: "p1", to: ADDR, amountMusd: 2_000_000n, chain: "base" });
+    expect(d.sender.send).toHaveBeenCalledWith(expect.objectContaining({ payoutId: "p1", to: ADDR, amountMusd: 2_000_000n, chain: "base" }));
     expect(d.recordTx).toHaveBeenCalledWith("p1", TX);
     expect(d.markConfirmed).toHaveBeenCalledWith("p1", TX);
     expect(r.confirmed).toBe(1);

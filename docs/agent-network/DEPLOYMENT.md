@@ -1120,6 +1120,16 @@ coordinator stays at home). Hostnames are placeholders.
 
 The SDN list must be installed (and refreshed) on every gateway host before x402/MPP is enabled in production; without it paid requests return `503 PAYER_SCREENING_UNAVAILABLE`. The public status page is served by the API at `/status`; put it behind the same TLS proxy as `/v1`.
 
+### Payment rails in the compose files
+
+Containers get env only from the compose `environment:` maps (`.env` is excluded from images and only interpolates `${…}`). Both `docker-compose.prod.yml` and `docker-compose.selfhost.yml` share three anchors:
+
+- `x-rail-env` (gateway and api): `X402_*`, `CDP_*`, `PAYAI_*`, `MPP_*`, `PAYOUTS_ENABLED`, `PAYOUT_SDN_FILE`, `PAYOUT_ALLOW_TESTNET`, `STARTER_CREDIT_*`. x402 and MPP are verified and settled in the **gateway**; the api only advertises them.
+- `x-rail-gateway-env`: `X402_RELAY_ENABLED`, `X402_MAX_OVERPAY_FACTOR`, `X402_RATE_LIMIT_MAX`, `PAYER_SDN_FILE`, `PAYER_SDN_REQUIRED`, `PAYOUT_RPC_URL`, `PAYOUT_SIGNER_KEY_FILE` (default `/app/data/payout-signer-key`: put the 0600 key file in `./data`, never an env value), `PAYOUT_RUN_CAP_USD`, `PAYOUT_JOB_INTERVAL_MS`.
+- `x-rail-api-env`: `NOWPAYMENTS_*`, `TEMPO_*`, `NETWORK_PAYMENT_RAILS`, `MAX_REGISTERED_USERS` (default `0` = no signup cap; the code default without it is 2500), `OPS_ALERT_*`.
+
+Set the values in `.env` (self-host: `./selfhost/.env` via the installer). `/v1/pricing` `rails`, discovery and `/api/x402/info` `enabled` only list rails that are configured in the api process and whose kill switch is released, so set a rail's variables on both services. `packages/shared/tests/compose-rails.test.ts` fails when a rail variable a process reads does not reach its service.
+
 ### Data retention
 
 The dashboard's hourly retention job deletes rows older than `data_retention_policies.retention_days` (admin-tunable). The relay-related defaults are:

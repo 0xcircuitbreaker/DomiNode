@@ -9,6 +9,7 @@ import {
   HARD_DENY_PORTS,
   BLOCKED_COUNTRY_CODES,
 } from "@dominusnode/shared";
+import { enabledRails } from "../payment-rails.js";
 
 const log = createLogger("api:v1:public");
 const router = Router();
@@ -65,10 +66,7 @@ router.get("/policy", async (req: Request, res: Response) => {
   }
 });
 
-function enabledRails(): string[] {
-  const raw = process.env["NETWORK_PAYMENT_RAILS"] ?? "wallet,x402,crypto";
-  return raw.split(",").map((s) => s.trim()).filter((s) => /^[a-z0-9_-]{1,32}$/.test(s)).slice(0, 16);
-}
+
 
 // GET /v1/pricing — per-class price, tier share bps, rails
 router.get("/pricing", async (_req: Request, res: Response) => {

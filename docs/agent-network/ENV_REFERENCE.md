@@ -141,10 +141,10 @@ elsewhere). Meaning and required/optional status are documented in
 | `MAX_REGISTERED_USERS` | `2500` | `src/routes/auth.ts`, `src/routes/wallet-auth.ts` |
 | `MCP_AGENT_SECRET` | `""` | `src/helpers/agent-rate-limit.ts`, `src/main.ts` |
 | `MFA_ENCRYPTION_KEY` |  | `src/main.ts` |
-| `NETWORK_PAYMENT_RAILS` | `wallet,x402,crypto` | `src/routes/discovery.ts`, `src/routes/v1/public.ts` |
+| `NETWORK_PAYMENT_RAILS` | `wallet,x402,mpp,tempo,crypto` | `src/routes/payment-rails.ts` |
 | `NODE_ENV` |  | `src/demo-seed.ts`, `src/helpers/cookies.ts`, `src/main.ts`, `src/routes/auth.ts`, `src/routes/v1/credits.ts`, `src/routes/wallet-auth.ts`, `src/server.ts` |
 | `NODE_POW_DIFFICULTY` | `20` | `src/routes/v1/nodes.ts` |
-| `NOWPAYMENTS_API_KEY` |  | `src/routes/webhooks.ts` |
+| `NOWPAYMENTS_API_KEY` |  | `src/routes/payment-rails.ts`, `src/routes/webhooks.ts` |
 | `NOWPAYMENTS_WEBHOOK_IPS` |  | `src/routes/webhooks.ts`, `src/server.ts` |
 | `OPS_ALERT_DEBIT_SPIKE_CENTS` | `5000` | `src/ops-alerts.ts` |
 | `OPS_ALERT_DEBIT_SPIKE_FACTOR` | `5` | `src/ops-alerts.ts` |
@@ -176,10 +176,10 @@ elsewhere). Meaning and required/optional status are documented in
 | `STRIPE_WEBHOOK_IPS` |  | `src/routes/webhooks.ts`, `src/server.ts` |
 | `TRUST_PROXY` |  | `src/server.ts` |
 | `X402_BYTES_PER_REQUEST` | `10485760` | `src/routes/x402.ts` |
-| `X402_ENABLED` |  | `src/routes/discovery.ts`, `src/routes/x402.ts` |
+| `X402_ENABLED` |  | `src/routes/discovery.ts`, `src/routes/payment-rails.ts` |
 | `X402_NETWORK` | `base-sepolia` | `src/routes/x402.ts` |
-| `X402_RECEIVING_ADDRESS` |  | `src/routes/x402.ts` |
-| `X402_RECEIVING_ADDRESS_SOLANA` |  | `src/routes/x402.ts` |
+| `X402_RECEIVING_ADDRESS` |  | `src/routes/payment-rails.ts`, `src/routes/x402.ts` |
+| `X402_RECEIVING_ADDRESS_SOLANA` |  | `src/routes/payment-rails.ts`, `src/routes/x402.ts` |
 
 ## billing
 

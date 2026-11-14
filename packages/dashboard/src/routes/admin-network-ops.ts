@@ -491,6 +491,84 @@ router.post("/payouts/:id/reverse", async (req: Request, res: Response) => {
   } catch (err) { fail(res, err, "Payout reverse"); }
 });
 
+const TX_HASH_RE = /^0x[0-9a-fA-F]{64}$/;
+
+function txHashField(b: Record<string, unknown>): string {
+  const h = b["txHash"];
+  if (typeof h !== "string" || !TX_HASH_RE.test(h)) throw new HttpError(400, "txHash must be 0x followed by 64 hex characters");
+  return h.toLowerCase();
+}
+
+function payoutConflict(err: unknown): never {
+  const m = err instanceof Error ? err.message : "";
+  if (m === "Payout not found") throw new HttpError(404, m);
+  if (m.startsWith("Cannot ") || m.includes("does not match") || m.includes("already confirmed")) throw new HttpError(409, m.slice(0, 200));
+  throw err;
+}
+
+/**
+ * Stranded payouts: claimed for send ('submitted') with no tx hash recorded
+ * for STRANDED_PAYOUT_MINUTES. The job never touches them again; check the hot
+ * wallet on chain, then confirm or fail each one below.
+ */
+router.get("/payouts/stranded", async (_req: Request, res: Response) => {
+  try {
+    const rows = await payoutRepo.listStrandedPayouts();
+    res.json({
+      olderThanMinutes: payoutRepo.STRANDED_PAYOUT_MINUTES,
+      items: rows.map((r) => ({ id: r.id, userId: r.userId, amount: money(r.amountMusd.toString()), updatedAt: r.updatedAt })),
+    });
+  } catch (err) { fail(res, err, "Stranded payouts"); }
+});
+
+/** Admin reconciliation: the payout's transfer is confirmed on chain under txHash. */
+router.post("/payouts/:id/confirm", async (req: Request, res: Response) => {
+  try {
+    const id = uuidPath(req);
+    const b = body(req);
+    const txHash = txHashField(b);
+    const reason = reasonField(b, true, 200)!;
+    const p = await withAdminTx(adminId(req), async (c: TxClient) => {
+      let r;
+      try {
+        r = await payoutRepo.markPayoutConfirmedTx(c as unknown as Parameters<typeof payoutRepo.markPayoutConfirmedTx>[0], id, txHash);
+      } catch (err) { payoutConflict(err); }
+      await audit(c, req, "node_payout_confirm", "node_payout", id, { reason, txHash, userId: r.userId, amountMusd: r.amountMusd.toString() });
+      return r;
+    });
+    log.info("payout confirmed by admin", { payoutId: id, by: adminId(req) });
+    res.json({ id: p.id, userId: p.userId, status: p.status, amount: money(p.amountMusd), txHash: p.txHash });
+  } catch (err) { fail(res, err, "Payout confirm"); }
+});
+
+/**
+ * Admin reconciliation: the payout's tx was dropped or reverted (or, with no
+ * txHash on the row, never reached the chain): mark it failed with that
+ * evidence and reverse it, re-crediting the owner's available balance.
+ */
+router.post("/payouts/:id/fail", async (req: Request, res: Response) => {
+  try {
+    const id = uuidPath(req);
+    const b = body(req);
+    const txHash = txHashField(b);
+    const outcome = b["outcome"];
+    if (outcome !== "dropped" && outcome !== "reverted") throw new HttpError(400, "outcome must be dropped or reverted");
+    const reason = reasonField(b, true, 200)!;
+    const p = await withAdminTx(adminId(req), async (c: TxClient) => {
+      const tx = c as unknown as Parameters<typeof payoutRepo.markPayoutFailedTx>[0];
+      let r;
+      try {
+        await payoutRepo.markPayoutFailedTx(tx, id, { txHash, outcome, detail: `admin: ${reason}` });
+        r = await payoutRepo.markPayoutReversedTx(tx, id, `admin: tx ${outcome}: ${reason}`);
+      } catch (err) { payoutConflict(err); }
+      await audit(c, req, "node_payout_fail", "node_payout", id, { reason, txHash, outcome, userId: r.userId, amountMusd: r.amountMusd.toString() });
+      return r;
+    });
+    log.info("payout failed and reversed by admin", { payoutId: id, by: adminId(req) });
+    res.json({ id: p.id, userId: p.userId, status: p.status, amount: money(p.amountMusd), txHash: p.txHash });
+  } catch (err) { fail(res, err, "Payout fail"); }
+});
+
 // ─── Byte disputes ──────────────────────────────────────────────────
 
 const DISPUTE_STATUSES = ["open", "resolved_gateway", "resolved_node", "dismissed"] as const;

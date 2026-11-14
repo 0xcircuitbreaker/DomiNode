@@ -6,7 +6,7 @@ import { createLogger, killSwitches, planRepo, resolveRequestId, runWithRequestI
 import type { ExitClass, KillSwitchBlock } from "@dominusnode/shared";
 import { checkAgenticWalletPolicy } from "./wallet-policy.js";
 import type { Duplex } from "node:stream";
-import { authenticateRequest, type AuthResult } from "./auth.js";
+import { authenticateRequest, parseProxyOptions, type AuthResult } from "./auth.js";
 import { checkBalance, checkTeamBalance } from "./balance-check.js";
 import { bindTunnelLifecycle } from "./tunnel-lifecycle.js";
 import { attachByteCounters, capReadable, type ByteCounter } from "./counting-stream.js";
@@ -16,7 +16,7 @@ import { validateTarget, isValidHostname, isValidPort } from "./target-validator
 import { incrementUserConns, decrementUserConns } from "./connection-tracker.js";
 import { checkAuthRateLimit, recordAuthFailure } from "./auth-rate-limit.js";
 import { recordRequest, recordError, recordLatency } from "./stats.js";
-import { handleX402Http, handleX402Connect, build402ResponseBody, build402ConnectResponse, isX402Verified, getX402Data, settleX402Pending, releaseX402Pending, refundX402Payer, hasMppCredential, normalizePayer, paymentChallengeHeaders, toX402Class, selectClassFor, nodeMatchesQuotedClass } from "./x402-handler.js";
+import { handleX402Http, handleX402Connect, build402ResponseBody, build402ConnectResponse, isX402Verified, getX402Data, settleX402Pending, releaseX402Pending, refundX402Payer, hasMppCredential, normalizePayer, paymentChallengeHeaders, toX402Class, selectClassFor, nodeMatchesQuotedClass, getPoolTypeFromRequest, paymentRailsOffered } from "./x402-handler.js";
 import { checkRequesterAccess, checkAnonymousPayer } from "./access-gate.js";
 import { enforcePolicy, isPlaintextPort, EXIT_VISIBLE_HEADER } from "./policy-enforcer.js";
 import { openRelayStream, RelayOpenError, type RelayRuntime, type RelayUpstream } from "./relay.js";
@@ -119,13 +119,163 @@ function x402Binding(node: LiveNode, port: number, payer: string, stream: Duplex
 }
 
 /**
- * Kill switch for the per-request rails (ADMIN_API.md §17), checked BEFORE
- * verification so a paused rail never charges the payer. X-PAYMENT = x402,
- * otherwise the MPP credential.
+ * Kill switch for x402 (pull: nothing moves until settlement), checked BEFORE
+ * verification so a paused rail never charges the payer (ADMIN_API.md §17).
+ * MPP is push-paid (the transfer is final before the credential arrives), so
+ * a credential under an engaged rail_mpp is verified, claimed and refunded
+ * instead (mppRailBlockAfterVerify); this returns null for it.
  */
 export function paidRailBlock(relay: RelayRuntime, h: http.IncomingHttpHeaders): KillSwitchBlock | null {
+  if (!h["x-payment"]) return null;
   const ks = relay.killSwitches?.() ?? killSwitches();
-  return ks.checkRail(h["x-payment"] ? "x402" : "mpp");
+  return ks.checkRail("x402");
+}
+
+/** rail_mpp refusal for an already-verified MPP payment (refund, never drop). */
+export function mppRailBlockAfterVerify(relay: RelayRuntime, req: http.IncomingMessage): KillSwitchBlock | null {
+  const d = getX402Data(req);
+  if (!d || d.rail !== "mpp") return null;
+  const ks = relay.killSwitches?.() ?? killSwitches();
+  return ks.checkRail("mpp");
+}
+
+type Refusal = { status: number; code: string; message: string; retryAfterSec?: number };
+
+/** `allowhttp-1` from a Basic username on a paid (credential-less) request. */
+export function paidAllowHttp(req: http.IncomingMessage): boolean {
+  const h = req.headers["proxy-authorization"];
+  if (typeof h !== "string" || !h.startsWith("Basic ")) return false;
+  let decoded: string;
+  try {
+    decoded = Buffer.from(h.slice(6).trim(), "base64").toString("utf-8");
+  } catch {
+    return false;
+  }
+  const i = decoded.indexOf(":");
+  return parseProxyOptions(i === -1 ? decoded : decoded.slice(0, i)).allowHttp === true;
+}
+
+/**
+ * Refusals that need no payment, run BEFORE the payment is verified so an
+ * x402 hash is never claimed and an MPP transfer never consumed for them:
+ * x402 rail switch, anonymous payers, relay/class switch, method, target, and
+ * plaintext policy. `target` is the parsed absolute-form http:// URL.
+ */
+export function paidPrecheck(
+  relay: RelayRuntime,
+  req: http.IncomingMessage,
+  target: { host: string; port: number } | null,
+): Refusal | null {
+  const railBlock = paidRailBlock(relay, req.headers);
+  if (railBlock) return railBlock;
+  const anon = checkAnonymousPayer(relay.getPolicy());
+  if (!anon.allowed) return { status: anon.status, code: anon.code, message: anon.message };
+  const ks = relay.killSwitches?.() ?? killSwitches();
+  const relayBlock = ks.checkRelay(selectClassFor(getPoolTypeFromRequest(req)));
+  if (relayBlock) return relayBlock;
+  if (!target || !isValidHostname(target.host) || !isValidPort(target.port)) {
+    return { status: 400, code: "INVALID_TARGET", message: "Bad request: absolute http:// URL required" };
+  }
+  if (!["GET", "HEAD", "OPTIONS"].includes((req.method ?? "").toUpperCase())) {
+    return { status: 405, code: "METHOD_NOT_ALLOWED", message: "x402 micropayment requests only support GET, HEAD, and OPTIONS methods" };
+  }
+  const plain = relay.getPolicy().plaintext;
+  if (plain === "deny" || (plain === "opt_in" && !paidAllowHttp(req))) {
+    return {
+      status: 403, code: "PLAINTEXT_DISABLED",
+      message: plain === "deny"
+        ? "Plaintext HTTP is disabled on this network; use CONNECT (https://)"
+        : "Plaintext HTTP is visible to the exit node; send Proxy-Authorization: Basic with username allowhttp-1 (empty password) alongside the payment to opt in",
+    };
+  }
+  return null;
+}
+
+/** CONNECT variant of paidPrecheck (target is host:port; plaintext ports need allowhttp-1). */
+export function paidConnectPrecheck(relay: RelayRuntime, req: http.IncomingMessage): Refusal | null {
+  const railBlock = paidRailBlock(relay, req.headers);
+  if (railBlock) return railBlock;
+  const anon = checkAnonymousPayer(relay.getPolicy());
+  if (!anon.allowed) return { status: anon.status, code: anon.code, message: anon.message };
+  const ks = relay.killSwitches?.() ?? killSwitches();
+  const relayBlock = ks.checkRelay(selectClassFor(getPoolTypeFromRequest(req)));
+  if (relayBlock) return relayBlock;
+  const parsed = parseConnectTarget(req.url ?? "");
+  if (!parsed || !isValidHostname(parsed.host) || !isValidPort(parsed.port) || /[\x00-\x1f\x7f]/.test(parsed.host)) {
+    return { status: 400, code: "INVALID_TARGET", message: "Bad request: host:port required" };
+  }
+  const plain = relay.getPolicy().plaintext;
+  if (isPlaintextPort(parsed.port) && (plain === "deny" || (plain === "opt_in" && !paidAllowHttp(req)))) {
+    return { status: 403, code: "PLAINTEXT_DISABLED", message: "Plaintext ports need the allowhttp-1 Basic username next to the payment" };
+  }
+  return null;
+}
+
+// 402 challenges for credential-less requests are rate-limited per IP on their
+// own (they are not auth failures, so they never feed AUTH_RATE_LIMITED).
+const CHALLENGE_WINDOW_MS = 60_000;
+const CHALLENGES_PER_WINDOW = 120;
+const MAX_CHALLENGE_IPS = 100_000;
+const challengeHits = new Map<string, { n: number; resetAt: number }>();
+
+export function challengeRateLimited(ip: string, now = Date.now()): boolean {
+  let e = challengeHits.get(ip);
+  if (!e || e.resetAt <= now) {
+    if (!e && challengeHits.size >= MAX_CHALLENGE_IPS) {
+      for (const [k, v] of challengeHits) if (v.resetAt <= now) challengeHits.delete(k);
+      if (challengeHits.size >= MAX_CHALLENGE_IPS) return true;
+    }
+    e = { n: 0, resetAt: now + CHALLENGE_WINDOW_MS };
+    challengeHits.set(ip, e);
+  }
+  e.n += 1;
+  return e.n > CHALLENGES_PER_WINDOW;
+}
+
+export function resetChallengeRateForTest(): void {
+  challengeHits.clear();
+}
+
+/** Whether a credential-less request should get a 402 payment challenge. */
+function offersChallenge(relay: RelayRuntime, req: http.IncomingMessage): boolean {
+  if (req.headers["proxy-authorization"]) return false; // a bad key stays a 407 auth failure
+  if (!X402_RELAY_ENABLED || !paymentRailsOffered()) return false;
+  return checkAnonymousPayer(relay.getPolicy()).allowed;
+}
+
+/**
+ * Zero-signup flow (agents.md quickstart): a request with no credentials and
+ * no payment gets 402 with x402 requirements and the MPP challenge, still
+ * advertising Proxy-Authenticate: Basic for API-key clients. Returns false
+ * when no rail is offered (caller answers 407).
+ */
+function sendPaymentChallenge(relay: RelayRuntime, req: http.IncomingMessage, res: http.ServerResponse, ip: string): boolean {
+  if (!offersChallenge(relay, req)) return false;
+  if (challengeRateLimited(ip)) {
+    sendError(res, 429, "X402_RATE_LIMITED", "Too many payment challenges from this IP. Please wait.", { "Retry-After": "60" });
+    return true;
+  }
+  const body = build402ResponseBody(getPoolTypeFromRequest(req));
+  res.writeHead(402, {
+    "Content-Type": "application/json",
+    "Proxy-Authenticate": 'Basic realm="Dominus Node Proxy"',
+    "X-DominusNode-Error": "PAYMENT_REQUIRED",
+    "Cache-Control": "no-store",
+    ...paymentChallengeHeaders(getPoolTypeFromRequest(req)),
+  });
+  res.end(body);
+  return true;
+}
+
+function sendConnectPaymentChallenge(relay: RelayRuntime, req: http.IncomingMessage, sock: net.Socket, ip: string): boolean {
+  if (!offersChallenge(relay, req)) return false;
+  if (challengeRateLimited(ip)) {
+    safeSocketWrite(sock, "HTTP/1.1 429 Too Many Requests\r\nX-DominusNode-Error: X402_RATE_LIMITED\r\nRetry-After: 60\r\n\r\n");
+    return true;
+  }
+  const r = build402ConnectResponse(getPoolTypeFromRequest(req));
+  safeSocketWrite(sock, r.replace("\r\n", '\r\nProxy-Authenticate: Basic realm="Dominus Node Proxy"\r\n'));
+  return true;
 }
 
 function x402RelayUnavailableBody(): string {
@@ -334,28 +484,34 @@ async function handleRequest(
   }
 
   const auth = await authenticateRequest(clientReq);
+  // Parse the target BEFORE any payment is verified: a malformed request must
+  // never claim a (final, push-paid) MPP transfer.
+  const target = parseForwardTarget(clientReq.url ?? "");
   if (!auth) {
     const paidAttempt = !!clientReq.headers["x-payment"] || hasMppCredential(clientReq.headers);
-    if (paidAttempt && !X402_RELAY_ENABLED) {
+    if (!paidAttempt) {
+      if (sendPaymentChallenge(relay, clientReq, clientRes, clientIp)) return;
+      recordAuthFailure(clientIp);
+      clientRes.writeHead(407, {
+        "Proxy-Authenticate": 'Basic realm="Dominus Node Proxy"',
+        "Content-Type": "text/plain",
+      });
+      clientRes.end("Proxy authentication required");
+      return;
+    }
+    if (!X402_RELAY_ENABLED) {
       clientRes.writeHead(503, { "Content-Type": "application/json", "X-DominusNode-Error": "X402_RELAY_UNAVAILABLE", "Retry-After": "3600" });
       clientRes.end(x402RelayUnavailableBody());
       return;
     }
-    if (paidAttempt) {
-      const railBlock = paidRailBlock(relay, clientReq.headers);
-      if (railBlock) {
-        sendError(clientRes, railBlock.status, railBlock.code, railBlock.message, { "Retry-After": String(railBlock.retryAfterSec) });
-        return;
-      }
-      // policy.allowAnonymousPayers: refuse BEFORE verification so the payer is never charged
-      const anon = checkAnonymousPayer(relay.getPolicy());
-      if (!anon.allowed) {
-        sendError(clientRes, anon.status, anon.code, anon.message);
-        return;
-      }
-      const x402Handled = await handleX402Http(clientReq, clientRes);
-      if (x402Handled && !isX402Verified(clientReq)) return;
+    // Cheap refusals before verification so the payer is never charged for them.
+    const pre = paidPrecheck(relay, clientReq, target);
+    if (pre) {
+      sendError(clientRes, pre.status, pre.code, pre.message, pre.retryAfterSec ? { "Retry-After": String(pre.retryAfterSec) } : undefined);
+      return;
     }
+    const x402Handled = await handleX402Http(clientReq, clientRes);
+    if (x402Handled && !isX402Verified(clientReq)) return;
     if (!isX402Verified(clientReq)) {
       recordAuthFailure(clientIp);
       clientRes.writeHead(407, {
@@ -365,9 +521,16 @@ async function handleRequest(
       clientRes.end("Proxy authentication required");
       return;
     }
+    // A push-paid MPP transfer under an engaged rail_mpp is final: it was
+    // claimed above and is refunded to the payer, never left unrecorded.
+    const mppBlock = mppRailBlockAfterVerify(relay, clientReq);
+    if (mppBlock) {
+      await releaseX402Pending(getX402Data(clientReq)?.pending, "rail_mpp paused");
+      sendError(clientRes, mppBlock.status, mppBlock.code, mppBlock.message, { "Retry-After": String(mppBlock.retryAfterSec) });
+      return;
+    }
   }
 
-  const target = parseForwardTarget(clientReq.url ?? "");
   if (!target || !isValidHostname(target.host) || !isValidPort(target.port)) {
     sendError(clientRes, 400, "INVALID_TARGET", "Bad request: absolute http:// URL required");
     return;
@@ -378,171 +541,177 @@ async function handleRequest(
   // ─── x402 path: no user account, skip plan/balance/session ────────
   const x402Data = getX402Data(clientReq);
   if (x402Data && !auth) {
-    const X402_SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
-    if (!X402_SAFE_METHODS.has((clientReq.method ?? "").toUpperCase())) {
-      await releaseX402Pending(x402Data.pending);
-      sendError(clientRes, 405, "METHOD_NOT_ALLOWED", "x402 micropayment requests only support GET, HEAD, and OPTIONS methods");
-      return;
-    }
-
-    const targetCheck = await validateTarget(targetHost, targetPort);
-    if (!targetCheck.allowed) {
-      await releaseX402Pending(x402Data.pending);
-      sendError(clientRes, 403, "TARGET_BLOCKED", targetCheck.reason || "Blocked: target is a private/internal address");
-      return;
-    }
-    const x402User = x402Data.userId;
-    const enforced = enforcePolicy(relay.getPolicy(), {
-      userId: x402User, host: targetHost, port: targetPort, plaintext: true, allowHttp: false, resolvedIps: targetCheck.addresses,
-    });
-    if (!enforced.allowed) {
-      await releaseX402Pending(x402Data.pending);
-      sendError(clientRes, enforced.status, enforced.code, enforced.message);
-      return;
-    }
-
-    const x402Headers: http.OutgoingHttpHeaders = { ...clientReq.headers };
-    for (const h of HOP_BY_HOP_REQUEST) delete x402Headers[h];
-    delete x402Headers["x-payment"];
-    delete x402Headers["x-pool-type"];
-    if (x402Data.rail === "mpp") delete x402Headers["authorization"]; // the MPP credential is for us, not the origin
-    x402Headers["host"] = hostHeaderFor(targetHost, targetPort); // policy was checked on the URL authority
-
-    const x402Body = await readBody(clientReq);
-    if (x402Body === "too_large") {
-      await releaseX402Pending(x402Data.pending);
-      sendError(clientRes, 413, "BODY_TOO_LARGE", "Request body too large");
-      return;
-    }
-
-    let upstream: RelayUpstream;
     try {
-      upstream = await openRelayStream(relay, {
-        ...relaySelectOpts(null, x402User, clientIp, targetHost, targetPort, selectClassFor(x402Data.poolType)),
-        requesterWallet: normalizePayer(x402Data.payer),
-        targetAddresses: targetCheck.addresses,
+      const X402_SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
+      if (!X402_SAFE_METHODS.has((clientReq.method ?? "").toUpperCase())) {
+        await releaseX402Pending(x402Data.pending);
+        sendError(clientRes, 405, "METHOD_NOT_ALLOWED", "x402 micropayment requests only support GET, HEAD, and OPTIONS methods");
+        return;
+      }
+
+      const targetCheck = await validateTarget(targetHost, targetPort);
+      if (!targetCheck.allowed) {
+        await releaseX402Pending(x402Data.pending);
+        sendError(clientRes, 403, "TARGET_BLOCKED", targetCheck.reason || "Blocked: target is a private/internal address");
+        return;
+      }
+      const x402User = x402Data.userId;
+      const enforced = enforcePolicy(relay.getPolicy(), {
+        userId: x402User, host: targetHost, port: targetPort, plaintext: true, allowHttp: paidAllowHttp(clientReq), resolvedIps: targetCheck.addresses,
       });
-    } catch (err) {
-      const e = relayErrorOf(err);
-      recordError();
-      await releaseX402Pending(x402Data.pending);
-      log.error("x402 paid request could not be relayed", { code: e.code, payer: x402Data.payer.slice(0, 10) + "..." });
-      sendError(clientRes, e.status, e.code, e.message, e.status === 503 ? { "Retry-After": "30" } : undefined);
-      return;
-    }
-    // The payment was quoted for one exit class; never serve it from another.
-    if (!nodeMatchesQuotedClass(x402Data.poolType, upstream.node.ipClass)) {
-      upstream.stream.destroy();
-      await releaseX402Pending(x402Data.pending);
-      log.error("x402 node class differs from quote", { quoted: x402Data.poolType, node: upstream.node.ipClass });
-      sendError(clientRes, 503, "QUOTE_CLASS_MISMATCH", "No node of the quoted exit class is available. Request a new quote.", { "Retry-After": "5" });
-      return;
-    }
-    recordLatency(upstream.latencyMs);
+      if (!enforced.allowed) {
+        await releaseX402Pending(x402Data.pending);
+        sendError(clientRes, enforced.status, enforced.code, enforced.message);
+        return;
+      }
 
-    const x402Counter: ByteCounter = { bytesIn: 0, bytesOut: 0, maxBytes: 0, onLimitExceeded: null };
-    let x402SessionId: string;
-    try {
-      x402SessionId = await startPrepaidSession({
-        userId: x402User, targetHost, counter: x402Counter, connectLatencyMs: upstream.latencyMs,
-        relay: x402Binding(upstream.node, targetPort, x402Data.payer, upstream.stream),
-        rail: x402Data.rail, paidMusd: x402Data.amountMusd, quotedPricePerGbMusd: x402Data.pricePerGbMusd, maxBytes: x402Data.maxResponseBytes,
-      });
-    } catch (err) {
-      upstream.stream.destroy();
-      await releaseX402Pending(x402Data.pending);
-      log.error("x402 session start failed", { error: err instanceof Error ? err.message.slice(0, 120) : "unknown" });
-      sendError(clientRes, 500, "INTERNAL_ERROR", "Internal proxy error");
-      return;
-    }
+      const x402Headers: http.OutgoingHttpHeaders = { ...clientReq.headers };
+      for (const h of HOP_BY_HOP_REQUEST) delete x402Headers[h];
+      delete x402Headers["x-payment"];
+      delete x402Headers["x-pool-type"];
+      if (x402Data.rail === "mpp") delete x402Headers["authorization"]; // the MPP credential is for us, not the origin
+      x402Headers["host"] = hostHeaderFor(targetHost, targetPort); // policy was checked on the URL authority
 
-    // The node may have reset the stream (or the tunnel dropped) while the
-    // session was starting: never take the payment for a dead stream.
-    if (upstream.stream.destroyed) {
-      await abortPrepaidSession(x402SessionId);
-      await releaseX402Pending(x402Data.pending);
-      recordError();
-      sendError(clientRes, 502, "UPSTREAM_UNAVAILABLE", "Bad gateway");
-      return;
-    }
+      const x402Body = await readBody(clientReq);
+      if (x402Body === "too_large") {
+        await releaseX402Pending(x402Data.pending);
+        sendError(clientRes, 413, "BODY_TOO_LARGE", "Request body too large");
+        return;
+      }
 
-    if (x402Counter.maxBytes > 0 && x402Body.length > x402Counter.maxBytes) {
-      upstream.stream.destroy();
-      await abortPrepaidSession(x402SessionId);
-      await releaseX402Pending(x402Data.pending);
-      sendError(clientRes, 413, "BODY_TOO_LARGE", "Request body exceeds the paid byte cap");
-      return;
-    }
+      let upstream: RelayUpstream;
+      try {
+        upstream = await openRelayStream(relay, {
+          ...relaySelectOpts(null, x402User, clientIp, targetHost, targetPort, selectClassFor(x402Data.poolType)),
+          requesterWallet: normalizePayer(x402Data.payer),
+          targetAddresses: targetCheck.addresses,
+        });
+      } catch (err) {
+        const e = relayErrorOf(err);
+        recordError();
+        await releaseX402Pending(x402Data.pending);
+        log.error("x402 paid request could not be relayed", { code: e.code, payer: x402Data.payer.slice(0, 10) + "..." });
+        sendError(clientRes, e.status, e.code, e.message, e.status === 503 ? { "Retry-After": "30" } : undefined);
+        return;
+      }
+      // The payment was quoted for one exit class; never serve it from another.
+      if (!nodeMatchesQuotedClass(x402Data.poolType, upstream.node.ipClass)) {
+        upstream.stream.destroy();
+        await releaseX402Pending(x402Data.pending);
+        log.error("x402 node class differs from quote", { quoted: x402Data.poolType, node: upstream.node.ipClass });
+        sendError(clientRes, 503, "QUOTE_CLASS_MISMATCH", "No node of the quoted exit class is available. Request a new quote.", { "Retry-After": "5" });
+        return;
+      }
+      recordLatency(upstream.latencyMs);
 
-    // Node selected, snapshot locked, stream open: only now take the payment.
-    const x402Pending = x402Data.pending;
-    if (!x402Pending || !(await settleX402Pending(x402Pending))) {
-      upstream.stream.destroy();
-      await abortPrepaidSession(x402SessionId);
-      sendError(clientRes, 402, "X402_SETTLEMENT_FAILED", "Payment settlement failed. Please try again.");
-      return;
-    }
-    // Settled but nothing served yet: refund to the payer's wallet, never charge.
-    const x402Unserved = async (reason: string) => {
-      unregisterSessionDestroy(x402SessionId);
-      if (!upstream.stream.destroyed) upstream.stream.destroy();
-      // Only refund if the session was never charged (abort won the race).
-      if (await abortPrepaidSession(x402SessionId)) await refundX402Payer(x402Pending, reason);
-    };
-    if (clientRes.destroyed || clientReq.socket.destroyed) {
-      await x402Unserved("client disconnected before relay");
-      return;
-    }
+      const x402Counter: ByteCounter = { bytesIn: 0, bytesOut: 0, maxBytes: 0, onLimitExceeded: null };
+      let x402SessionId: string;
+      try {
+        x402SessionId = await startPrepaidSession({
+          userId: x402User, targetHost, counter: x402Counter, connectLatencyMs: upstream.latencyMs,
+          relay: x402Binding(upstream.node, targetPort, x402Data.payer, upstream.stream),
+          rail: x402Data.rail, paidMusd: x402Data.amountMusd, quotedPricePerGbMusd: x402Data.pricePerGbMusd, maxBytes: x402Data.maxResponseBytes,
+        });
+      } catch (err) {
+        upstream.stream.destroy();
+        await releaseX402Pending(x402Data.pending);
+        log.error("x402 session start failed", { error: err instanceof Error ? err.message.slice(0, 120) : "unknown" });
+        sendError(clientRes, 500, "INTERNAL_ERROR", "Internal proxy error");
+        return;
+      }
 
-    let x402Done = false;
-    const x402Cleanup = () => {
-      if (x402Done) return;
-      x402Done = true;
-      unregisterSessionDestroy(x402SessionId);
-      if (!upstream.stream.destroyed) upstream.stream.destroy();
-      endSession(x402SessionId).catch((e) => log.error("x402 session end failed", { error: e instanceof Error ? e.message : String(e) }));
-    };
-    registerSessionDestroy(x402SessionId, () => {
-      if (!clientRes.headersSent) clientRes.writeHead(413, { "Content-Type": "text/plain" });
-      clientRes.end();
-      x402Cleanup();
-    });
-    meterStream(upstream.stream, x402Counter);
+      // The node may have reset the stream (or the tunnel dropped) while the
+      // session was starting: never take the payment for a dead stream.
+      if (upstream.stream.destroyed) {
+        await abortPrepaidSession(x402SessionId);
+        await releaseX402Pending(x402Data.pending);
+        recordError();
+        sendError(clientRes, 502, "UPSTREAM_UNAVAILABLE", "Bad gateway");
+        return;
+      }
 
-    let proxyRes: http.IncomingMessage;
-    try {
-      proxyRes = await requestOverStream(upstream.stream, clientReq.method ?? "GET", target.path, x402Headers, x402Body);
-    } catch (err) {
-      recordError();
-      const errMsg = err instanceof Error ? err.message : String(err);
-      log.error("x402 upstream error", { error: sanitizeUpstreamMsg(errMsg) });
-      x402Done = true;
-      await x402Unserved("upstream error before response");
-      if (!clientRes.headersSent) sendError(clientRes, 502, "UPSTREAM_UNAVAILABLE", "Bad gateway");
-      return;
-    }
-    try {
-      const responseHeaders = { ...proxyRes.headers };
-      for (const h of HOP_BY_HOP_RESPONSE) delete responseHeaders[h];
-      if (enforced.exitVisible) responseHeaders[EXIT_VISIBLE_HEADER.toLowerCase()] = "1";
+      if (x402Counter.maxBytes > 0 && x402Body.length > x402Counter.maxBytes) {
+        upstream.stream.destroy();
+        await abortPrepaidSession(x402SessionId);
+        await releaseX402Pending(x402Data.pending);
+        sendError(clientRes, 413, "BODY_TOO_LARGE", "Request body exceeds the paid byte cap");
+        return;
+      }
 
-      clientRes.writeHead(proxyRes.statusCode ?? 502, responseHeaders);
-      proxyRes.pipe(clientRes, { end: true });
-      clientRes.on("close", () => {
-        if (!proxyRes.destroyed) proxyRes.destroy();
+      // Node selected, snapshot locked, stream open: only now take the payment.
+      const x402Pending = x402Data.pending;
+      if (!x402Pending || !(await settleX402Pending(x402Pending))) {
+        upstream.stream.destroy();
+        await abortPrepaidSession(x402SessionId);
+        sendError(clientRes, 402, "X402_SETTLEMENT_FAILED", "Payment settlement failed. Please try again.");
+        return;
+      }
+      // Settled but nothing served yet: refund to the payer's wallet, never charge.
+      const x402Unserved = async (reason: string) => {
+        unregisterSessionDestroy(x402SessionId);
+        if (!upstream.stream.destroyed) upstream.stream.destroy();
+        // Only refund if the session was never charged (abort won the race).
+        if (await abortPrepaidSession(x402SessionId)) await refundX402Payer(x402Pending, reason);
+      };
+      if (clientRes.destroyed || clientReq.socket.destroyed) {
+        await x402Unserved("client disconnected before relay");
+        return;
+      }
+
+      let x402Done = false;
+      const x402Cleanup = () => {
+        if (x402Done) return;
+        x402Done = true;
+        unregisterSessionDestroy(x402SessionId);
+        if (!upstream.stream.destroyed) upstream.stream.destroy();
+        endSession(x402SessionId).catch((e) => log.error("x402 session end failed", { error: e instanceof Error ? e.message : String(e) }));
+      };
+      registerSessionDestroy(x402SessionId, () => {
+        if (!clientRes.headersSent) clientRes.writeHead(413, { "Content-Type": "text/plain" });
+        clientRes.end();
         x402Cleanup();
       });
-      proxyRes.on("end", x402Cleanup);
-      proxyRes.on("error", x402Cleanup);
-      proxyRes.on("close", x402Cleanup);
-    } catch (err) {
-      recordError();
-      const errMsg = err instanceof Error ? err.message : String(err);
-      log.error("x402 upstream error", { error: sanitizeUpstreamMsg(errMsg) });
-      if (!clientRes.headersSent) sendError(clientRes, 502, "UPSTREAM_UNAVAILABLE", "Bad gateway");
-      x402Cleanup();
+      meterStream(upstream.stream, x402Counter);
+
+      let proxyRes: http.IncomingMessage;
+      try {
+        proxyRes = await requestOverStream(upstream.stream, clientReq.method ?? "GET", target.path, x402Headers, x402Body);
+      } catch (err) {
+        recordError();
+        const errMsg = err instanceof Error ? err.message : String(err);
+        log.error("x402 upstream error", { error: sanitizeUpstreamMsg(errMsg) });
+        x402Done = true;
+        await x402Unserved("upstream error before response");
+        if (!clientRes.headersSent) sendError(clientRes, 502, "UPSTREAM_UNAVAILABLE", "Bad gateway");
+        return;
+      }
+      try {
+        const responseHeaders = { ...proxyRes.headers };
+        for (const h of HOP_BY_HOP_RESPONSE) delete responseHeaders[h];
+        if (enforced.exitVisible) responseHeaders[EXIT_VISIBLE_HEADER.toLowerCase()] = "1";
+
+        clientRes.writeHead(proxyRes.statusCode ?? 502, responseHeaders);
+        proxyRes.pipe(clientRes, { end: true });
+        clientRes.on("close", () => {
+          if (!proxyRes.destroyed) proxyRes.destroy();
+          x402Cleanup();
+        });
+        proxyRes.on("end", x402Cleanup);
+        proxyRes.on("error", x402Cleanup);
+        proxyRes.on("close", x402Cleanup);
+      } catch (err) {
+        recordError();
+        const errMsg = err instanceof Error ? err.message : String(err);
+        log.error("x402 upstream error", { error: sanitizeUpstreamMsg(errMsg) });
+        if (!clientRes.headersSent) sendError(clientRes, 502, "UPSTREAM_UNAVAILABLE", "Bad gateway");
+        x402Cleanup();
+      }
+      return;
+    } finally {
+      // Any exit before settlement (thrown readBody, a future early return)
+      // releases the claim: x402 hash freed, MPP claim refunded.
+      await releaseX402Pending(x402Data.pending, "request ended before settlement");
     }
-    return;
   }
 
   // ─── Standard auth path (API key authenticated) ───────────────────
@@ -768,24 +937,30 @@ async function handleConnect(
   const auth = await authenticateRequest(req);
   if (!auth) {
     const paidAttempt = !!req.headers["x-payment"] || hasMppCredential(req.headers);
+    if (!paidAttempt && sendConnectPaymentChallenge(relay, req, clientSocket, connectClientIp)) return;
     if (paidAttempt && !X402_RELAY_ENABLED) {
       safeSocketWrite(clientSocket, "HTTP/1.1 503 Service Unavailable\r\nX-DominusNode-Error: X402_RELAY_UNAVAILABLE\r\nRetry-After: 3600\r\n\r\n");
       return;
     }
     if (paidAttempt) {
-      const railBlock = paidRailBlock(relay, req.headers);
-      if (railBlock) {
-        safeSocketWrite(clientSocket, `HTTP/1.1 503 Service Unavailable\r\nX-DominusNode-Error: ${railBlock.code}\r\nRetry-After: ${railBlock.retryAfterSec}\r\nConnection: close\r\n\r\n`);
-        return;
-      }
-      const anon = checkAnonymousPayer(relay.getPolicy());
-      if (!anon.allowed) {
-        safeSocketWrite(clientSocket, `HTTP/1.1 ${anon.status} Forbidden\r\nX-DominusNode-Error: ${anon.code}\r\nConnection: close\r\n\r\n`);
+      const pre = paidConnectPrecheck(relay, req);
+      if (pre) {
+        const ra = pre.retryAfterSec ? `Retry-After: ${pre.retryAfterSec}\r\n` : "";
+        safeSocketWrite(clientSocket, `HTTP/1.1 ${pre.status} ${http.STATUS_CODES[pre.status] ?? "Error"}\r\nX-DominusNode-Error: ${pre.code}\r\n${ra}Connection: close\r\n\r\n`);
         return;
       }
       const x402Result = await handleX402Connect(req, clientSocket);
       if (x402Result) {
         if (!x402Result.verified) return;
+        if (x402Result.rail === "mpp") {
+          const ks = relay.killSwitches?.() ?? killSwitches();
+          const mppBlock = ks.checkRail("mpp");
+          if (mppBlock) {
+            await releaseX402Pending(x402Result.pending, "rail_mpp paused");
+            safeSocketWrite(clientSocket, `HTTP/1.1 503 Service Unavailable\r\nX-DominusNode-Error: ${mppBlock.code}\r\nRetry-After: ${mppBlock.retryAfterSec}\r\nConnection: close\r\n\r\n`);
+            return;
+          }
+        }
         await handleX402ConnectTunnel(req, clientSocket, head, relay, x402Result);
         return;
       }
@@ -997,7 +1172,7 @@ async function handleX402ConnectTunnel(
     return;
   }
   const enforced = enforcePolicy(relay.getPolicy(), {
-    userId: x402User, host: targetHost, port: targetPort, plaintext: isPlaintextPort(targetPort), allowHttp: false,
+    userId: x402User, host: targetHost, port: targetPort, plaintext: isPlaintextPort(targetPort), allowHttp: paidAllowHttp(req),
     resolvedIps: targetCheck.addresses,
   });
   if (!enforced.allowed) {
