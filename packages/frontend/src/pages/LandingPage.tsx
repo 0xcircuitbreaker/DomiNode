@@ -1,3 +1,4 @@
+import { QUICKSTART_DOC_URL, QUICKSTART_STEPS } from "../landing/quickstart";
 import { ABUSE_URL, API_BASE, HISTORY_URL, STATUS_URL } from "../landing/site";
 import {
   Button, Card, Code, Hero, LivePolicy, LivePricing, LiveStats, Pre, PublicLayout, Quickstarts, Section, link, usePageTitle,
@@ -22,6 +23,20 @@ export default function LandingPage() {
       <Pre label="Traffic path">{`agent ──HTTP/CONNECT/SOCKS5──▶ gateway ──wss tunnel (TLS 1.3, pinned)──▶ node-agent ──▶ target
       (API key or x402/MPP)     meters bytes, picks node,              SSRF floor, ports,
                                 settles the split                      operator caps`}</Pre>
+
+      <Section id="five-minutes" eyebrow="00 / Five minutes" title="Zero to a first relayed request">
+        <ol className="grid gap-4 md:grid-cols-3">
+          {QUICKSTART_STEPS.map((s) => (
+            <li key={s.minute}>
+              <Card title={`Minute ${s.minute}: ${s.title}`}>
+                <p>{s.text}</p>
+                {s.code && <pre className="mt-3 overflow-x-auto text-xs"><code>{s.code}</code></pre>}
+              </Card>
+            </li>
+          ))}
+        </ol>
+        <p className="mt-3 text-sm text-ddg-text-2">Full path and a one-command smoke check: <a className={link} href={QUICKSTART_DOC_URL}>QUICKSTART.md</a>.</p>
+      </Section>
 
       <Section id="buy" eyebrow="01 / For agents that buy" title="Fetch through real IPs, pay per request or prepaid">
         <div className="grid gap-4 md:grid-cols-3">

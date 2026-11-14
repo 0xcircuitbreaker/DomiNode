@@ -9,6 +9,7 @@ Build, deployment, backup and testing scripts.
 - `update-asn-db.sh` — Refresh the ASN database used for node IP classification
 - `backup.sh` / `restore.sh` — Database backup/restore
 - `e2e-test.sh` — End-to-end testing
+- `quickstart-smoke.sh` — Five-minute agent quickstart check (policy, pricing, balance, fetch via the TLS proxy on 8443); key from `DOMINUSNODE_API_KEY` only
 
 ## Rules
 - Credential exposure: use `printf | curl --data @-` not `curl -d '{"password":"..."}'`
