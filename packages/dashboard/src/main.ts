@@ -3,6 +3,7 @@ dotenv.config();
 
 import { createLogger, closePool, retentionRepo, connectWithRetry, reportTlsCapability, apiKeyPepper } from "@dominusnode/shared";
 import { startApiServer } from "./server.js";
+import { startOpsAlerts } from "./ops-alerts.js";
 
 const log = createLogger("api:main");
 
@@ -70,6 +71,9 @@ async function start(): Promise<void> {
   // Ensure database is reachable before accepting requests
   await connectWithRetry();
 
+  // Fails startup on a malformed or SSRF-rejected OPS_ALERT_WEBHOOKS entry.
+  const opsAlerter = await startOpsAlerts();
+
   const server = startApiServer(port);
 
   // Add server error listener for clear port-in-use errors
@@ -128,6 +132,7 @@ async function start(): Promise<void> {
       }, 30_000);
     });
 
+    opsAlerter.stop();
     await closePool();
     process.exit(0);
   }

@@ -4,6 +4,7 @@ import { handleCheckoutWebhook } from "@dominusnode/billing";
 import { handleIpnCallback } from "@dominusnode/billing";
 import { handlePaypalWebhook } from "@dominusnode/billing";
 import { createTempoRail, tempoConfigFromEnv, TEMPO_MAX_BODY_BYTES } from "@dominusnode/billing";
+import { recordOpsEvent } from "../ops-alerts.js";
 
 const router = Router();
 const log = createLogger("api:webhooks");
@@ -90,6 +91,7 @@ router.post("/stripe", webhookIpCheck(STRIPE_WEBHOOK_IPS, "stripe"), raw({ type:
     res.json({ received: true });
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
+    recordOpsEvent("payment_webhook_failure");
     log.error("stripe webhook error", { error: errMsg });
     // Only return 500 for transient DB errors (Stripe retries on 500).
     // For permanent errors (balance cap exceeded, wallet not found), return 200
@@ -127,6 +129,7 @@ router.post("/nowpayments", webhookIpCheck(NOWPAYMENTS_IPS, "nowpayments"), json
     res.json({ received: true });
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
+    recordOpsEvent("payment_webhook_failure");
     log.error("nowpayments webhook error", { error: errMsg });
     // Only return 500 for transient DB errors (NOWPayments retries on 500).
     // Balance cap errors are retryable (user might spend down balance)
@@ -186,6 +189,7 @@ router.post("/paypal", webhookIpCheck(PAYPAL_WEBHOOK_IPS, "paypal"), raw({ type:
     res.json({ received: true });
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
+    recordOpsEvent("payment_webhook_failure");
     log.error("paypal webhook error", { error: errMsg });
     // Only return 500 for transient DB errors (PayPal retries on 500).
     // Balance cap errors are retryable (user might spend down balance)
@@ -217,6 +221,7 @@ router.post("/tempo", raw({ type: "application/json", limit: TEMPO_MAX_BODY_BYTE
     res.json({ received: true });
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
+    recordOpsEvent("payment_webhook_failure");
     log.error("tempo webhook error", { error: errMsg });
     const isTransient = errMsg.includes("connection") || errMsg.includes("timeout")
       || errMsg.includes("ECONNREFUSED") || errMsg.includes("lock")

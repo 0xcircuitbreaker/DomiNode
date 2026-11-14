@@ -30,6 +30,8 @@ import adminNetworkOpsRoutes from "./routes/admin-network-ops.js";
 import adminNetworkCollusionRoutes from "./routes/admin-network-collusion.js";
 import adminNetworkLaunchRoutes from "./routes/admin-network-launch.js";
 import v1Routes from "./routes/v1/index.js";
+import adminOpsAlertsRoutes from "./routes/admin-ops-alerts.js";
+import { v1ErrorCounter } from "./ops-alerts.js";
 import discoveryRoutes from "./routes/discovery.js";
 import statusPageRoutes from "./routes/status-page.js";
 import { createFederationRouter, loadDocSigner } from "./routes/federation.js";
@@ -231,6 +233,7 @@ export function startApiServer(port: number = 3000): ReturnType<express.Express[
   app.use("/api/admin/network", adminNetworkOpsRoutes);
   app.use("/api/admin/network", adminNetworkCollusionRoutes);
   app.use("/api/admin/network", adminNetworkLaunchRoutes);
+  app.use("/api/admin/ops-alerts", adminOpsAlertsRoutes);
   app.use("/api/admin", adminRoutes);
   app.use("/api/proxy/config", proxyConfigRoutes);
   app.use("/api/proxy", proxyHealthRoutes);
@@ -241,7 +244,7 @@ export function startApiServer(port: number = 3000): ReturnType<express.Express[
   app.use("/api/bug-reports", bugReportRoutes);
   app.use("/api/referrals", referralRoutes);
   app.use("/api/agent/secret", agentSecretRoutes);
-  app.use("/v1", v1Routes);
+  app.use("/v1", v1ErrorCounter, v1Routes);
 
   // RFC 9116: security.txt
   // Contact is config (F8); the official default only applies to an official coordinator key.

@@ -144,6 +144,18 @@ elsewhere). Meaning and required/optional status are documented in
 | `NODE_POW_DIFFICULTY` | `20` | `src/routes/v1/nodes.ts` |
 | `NOWPAYMENTS_API_KEY` |  | `src/routes/webhooks.ts` |
 | `NOWPAYMENTS_WEBHOOK_IPS` |  | `src/routes/webhooks.ts`, `src/server.ts` |
+| `OPS_ALERT_DEBIT_SPIKE_CENTS` | `5000` | `src/ops-alerts.ts` |
+| `OPS_ALERT_DEBIT_SPIKE_FACTOR` | `5` | `src/ops-alerts.ts` |
+| `OPS_ALERT_DEDUPE_SEC` | `1800` | `src/ops-alerts.ts` |
+| `OPS_ALERT_GATEWAY_STALE_SEC` | `180` | `src/ops-alerts.ts` |
+| `OPS_ALERT_INTERVAL_SEC` | `60` | `src/ops-alerts.ts` |
+| `OPS_ALERT_MAX_PER_HOUR` | `30` | `src/ops-alerts.ts` |
+| `OPS_ALERT_MIN_LIVE_NODES` | `0` | `src/ops-alerts.ts` |
+| `OPS_ALERT_NODE_DROP_PCT` | `50` | `src/ops-alerts.ts` |
+| `OPS_ALERT_PAYMENT_FAILURES` | `3` | `src/ops-alerts.ts` |
+| `OPS_ALERT_V1_ERROR_PCT` | `20` | `src/ops-alerts.ts` |
+| `OPS_ALERT_V1_MIN_REQUESTS` | `50` | `src/ops-alerts.ts` |
+| `OPS_ALERT_WEBHOOKS` |  | `src/ops-alerts.ts` |
 | `PAYOUT_ALLOW_TESTNET` |  | `src/routes/v1/credits.ts` |
 | `PAYOUT_SDN_FILE` |  | `src/routes/v1/credits.ts` |
 | `PAYPAL_CLIENT_ID` |  | `src/routes/webhooks.ts` |
