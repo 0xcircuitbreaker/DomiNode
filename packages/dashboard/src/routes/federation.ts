@@ -110,6 +110,9 @@ export function buildCoordinatorPayload(
 
 export function createFederationRouter(env: NodeJS.ProcessEnv = process.env, signer: DocSigner | null = loadDocSigner(env), getPolicy: () => Promise<ActivePolicy> = () => policyRepo.getActivePolicy()): Router {
   const router = Router();
+  // Fail at startup on a bad PROXY_PUBLISH_PLAINTEXT instead of 503ing both
+  // coordinator.json and policy.json (node agents need policy.json) on every request.
+  advertisePlaintextProxy(env, false);
   // Both documents are built from one policy read and cached under one
   // timestamp, so coordinator.json never advertises a policy hash that
   // policy.json does not serve.

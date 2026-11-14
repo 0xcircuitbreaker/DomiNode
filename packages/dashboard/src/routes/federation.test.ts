@@ -5,6 +5,12 @@ import { generateKeyPairSync } from "node:crypto";
 import { DEFAULT_POLICY, policySha256, verifyCoordinatorDocument, verifyPolicyDocument } from "@dominusnode/shared";
 import { createFederationRouter, loadDocSigner, buildCoordinatorPayload } from "./federation.js";
 
+describe("PROXY_PUBLISH_PLAINTEXT startup validation", () => {
+  it("refuses to build the router with an invalid value", () => {
+    expect(() => createFederationRouter({ PROXY_PUBLISH_PLAINTEXT: "yes" }, null, async () => { throw new Error("unused"); })).toThrow(/PROXY_PUBLISH_PLAINTEXT/);
+  });
+});
+
 const pem = generateKeyPairSync("ed25519").privateKey.export({ format: "pem", type: "pkcs8" }).toString();
 const env = {
   APP_URL: "https://dominusnode.com",
