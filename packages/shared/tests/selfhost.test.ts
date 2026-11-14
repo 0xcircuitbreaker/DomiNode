@@ -827,3 +827,115 @@ describe("self-host operations (admin, contacts, pepper, backups)", () => {
     for (const f of ["backup.sh", "restore.sh", "refresh-asn.sh"]) execFileSync("shellcheck", [path.join(ROOT, "scripts/selfhost", f)]);
   });
 });
+
+describe("gateway VPS readiness", () => {
+  const PREFLIGHT = path.join(ROOT, "scripts/selfhost/preflight.sh");
+  const pw = "a".repeat(48);
+
+  it.runIf(has("shellcheck", ["--version"]))("preflight.sh is shellcheck-clean", () => {
+    execFileSync("shellcheck", [PREFLIGHT]);
+  });
+
+  it.runIf(has("openssl", ["version"]))("ROLE=gateway generates its own key, prints it and never needs the coordinator key", () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "dn-gw-"));
+    try {
+      fs.mkdirSync(path.join(tmp, "scripts/selfhost"), { recursive: true });
+      fs.copyFileSync(INSTALL, path.join(tmp, "scripts/selfhost/install.sh"));
+      fs.copyFileSync(path.join(ROOT, "scripts/gen-coord-key.mjs"), path.join(tmp, "scripts/gen-coord-key.mjs"));
+      const home = "1".repeat(64);
+      const r = spawnSync("bash", [path.join(tmp, "scripts/selfhost/install.sh"), "--yes", "--no-start"], {
+        env: {
+          ...process.env, ROLE: "gateway", TLS_MODE: "auto", DOMINUSNODE_HOSTNAMES: "example.org",
+          RELAY_HOST: "relay.example.org", PROXY_HOST: "proxy.example.org", OPERATOR_CONTACT: "ops@example.org", SKIP_ASN_DB: "1",
+          GATEWAY_DATABASE_URL: `postgresql://dominusnode_gateway:${pw}@10.66.0.1:5432/dominusnode`, COORD_PUBKEY: home, API_KEY_PEPPER: "a1".repeat(32),
+        },
+        encoding: "utf8",
+      });
+      expect(r.stderr).not.toMatch(/install: (?!WARNING|  )/);
+      expect(r.status).toBe(0);
+      const pub = fs.readFileSync(path.join(tmp, "selfhost/coord.pub"), "utf8").trim();
+      expect(pub).toMatch(/^[0-9a-f]{64}$/);
+      expect(pub).not.toBe(home);
+      expect(r.stdout).toContain(`gateway public key (hex): ${pub}`);
+      expect(r.stdout).toContain(`GATEWAY_PUBKEY=${pub} ./scripts/selfhost/install.sh`);
+      expect(r.stdout).toContain(`DN_COORD_PUBKEYS=${home},${pub}`);
+      expect(r.stdout).not.toContain(pw);
+      const env = fs.readFileSync(path.join(tmp, ".env"), "utf8");
+      expect(env).toMatch(/^RELAY_HOST=relay\.example\.org$/m);
+      expect(env).toMatch(/^PROXY_HOST=proxy\.example\.org$/m);
+      expect(env).toMatch(new RegExp(`^DN_COORD_PUBKEYS=${home},${pub}$`, "m"));
+      const caddy = fs.readFileSync(path.join(tmp, "selfhost/Caddyfile"), "utf8");
+      expect(caddy).toContain("relay.example.org:9443");
+      expect(caddy).not.toContain("reverse_proxy api:3000");
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  // Stubbed system tools so the checks run deterministically anywhere.
+  const stubs = (opts: { dns: Record<string, string>; route: string; hs: number; ntp: string }) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dn-pre-"));
+    const w = (n: string, body: string) => fs.writeFileSync(path.join(dir, n), `#!/usr/bin/env bash\n${body}\n`, { mode: 0o755 });
+    w("getent", Object.entries(opts.dns).map(([h, a]) => `[ "$2" = ${h} ] && echo "${a} STREAM ${h}" && exit 0`).join("\n") + "\nexit 2");
+    w("ip", `if [ "$1" = -o ] && [ "$2" = route ]; then echo "$4 dev ${opts.route} src 10.66.0.2 uid 0"; fi`);
+    w("wg", `echo "peerkey= ${opts.hs}"`);
+    w("timedatectl", `echo ${opts.ntp}`);
+    w("ss", "exit 0");
+    w("ufw", "echo 'Status: inactive'");
+    return dir;
+  };
+  const preflight = async (opts: Parameters<typeof stubs>[0]) => {
+    const net = await import("node:net");
+    const srv = net.createServer().listen(0, "127.0.0.1");
+    await new Promise((r) => srv.once("listening", r));
+    const port = (srv.address() as { port: number }).port;
+    const bin = stubs(opts);
+    try {
+      const r = spawnSync("bash", [PREFLIGHT], {
+        env: {
+          PATH: `${bin}:${process.env.PATH}`, PUBLIC_IP: "203.0.113.10", RELAY_HOST: "relay.example.org", PROXY_HOST: "proxy.example.org",
+          ROLE: "gateway", PREFLIGHT_MIN_DISK_GB: "0",
+          GATEWAY_DATABASE_URL: `postgresql://dominusnode_gateway:${pw}@127.0.0.1:${port}/dominusnode`,
+        },
+        encoding: "utf8",
+      });
+      return r;
+    } finally {
+      srv.close();
+      fs.rmSync(bin, { recursive: true, force: true });
+    }
+  };
+  const now = () => Math.floor(Date.now() / 1000);
+  const good = { dns: { "relay.example.org": "203.0.113.10", "proxy.example.org": "203.0.113.10" }, route: "wg0", ntp: "yes" };
+
+  it("preflight passes on a ready gateway and never prints the DB password", async () => {
+    const r = await preflight({ ...good, hs: now() - 5 });
+    expect(r.stdout).toContain("preflight: all checks passed");
+    expect(r.status).toBe(0);
+    expect(r.stdout + r.stderr).not.toContain(pw);
+  });
+
+  it("preflight fails on Cloudflare-proxied or foreign DNS", async () => {
+    const r = await preflight({ ...good, hs: now(), dns: { "relay.example.org": "104.16.1.1", "proxy.example.org": "198.51.100.7" } });
+    expect(r.status).toBe(1);
+    expect(r.stdout).toMatch(/FAIL\s+dns\s+RELAY_HOST relay\.example\.org -> 104\.16\.1\.1 is a Cloudflare proxy/);
+    expect(r.stdout).toMatch(/FAIL\s+dns\s+PROXY_HOST proxy\.example\.org -> 198\.51\.100\.7, not this host/);
+  });
+
+  it("preflight fails when the DB is not routed over WireGuard, the peer is stale or the clock unsynced", async () => {
+    const r = await preflight({ ...good, route: "eth0", hs: now() - 600, ntp: "no" });
+    expect(r.status).toBe(1);
+    expect(r.stdout).toMatch(/FAIL\s+db\s+127\.0\.0\.1 is routed via eth0, not wg0/);
+    expect(r.stdout).toMatch(/FAIL\s+wg\s+wg0 last handshake/);
+    expect(r.stdout).toMatch(/FAIL\s+clock/);
+    expect(r.stdout + r.stderr).not.toContain(pw);
+  });
+
+  it("docs cover the gateway checklist with placeholder hosts only", () => {
+    const doc = fs.readFileSync(path.join(ROOT, "docs/agent-network/DEPLOYMENT.md"), "utf8");
+    const sec = doc.slice(doc.indexOf("#### Gateway VPS checklist"), doc.indexOf("## 8. Launch jobs"));
+    expect(sec.length).toBeGreaterThan(100);
+    for (const s of ["preflight.sh", "GATEWAY_PUBKEY", "DN_COORD_PUBKEYS", "ListenPort = 51820", "PersistentKeepalive = 25", "DNS only"]) expect(sec).toContain(s);
+    expect(sec).not.toMatch(/daedalusdevelopmentgroup|dominusnode\.com|@gmail\.|@protonmail\.|\b(?!10\.66\.0\.)\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b/);
+  });
+});
