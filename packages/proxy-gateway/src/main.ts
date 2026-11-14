@@ -37,7 +37,7 @@ import { getLatencyPercentiles } from "./stats.js";
 import { drainUnmetDemand, restoreUnmetDemand } from "./unmet-demand.js";
 import { parseTrustedProxyIps, loadTunnelTls } from "./node-tunnel/ingress.js";
 import { createEthersPayoutSender } from "./jobs/payout-sender-ethers.js";
-import { getActiveSessionCount, terminateUserSessions, terminateNodeSessionsAbove, getActiveSessions, awaitInFlightSettlements, getInFlightSettlementCount, configureSessionRecovery, heartbeatActiveSessions, recoverOrphanedSessions, configureSettledHook } from "./session-manager.js";
+import { getActiveSessionCount, terminateUserSessions, terminateNodeSessionsAbove, terminateNodeSessions, getActiveSessions, awaitInFlightSettlements, getInFlightSettlementCount, configureSessionRecovery, heartbeatActiveSessions, recoverOrphanedSessions, configureSettledHook } from "./session-manager.js";
 
 const log = createLogger("proxy:main");
 
@@ -126,6 +126,7 @@ function makeProbeDeps(registry: NodeRegistry, targets: probesJob.ProbeTarget[],
       classify: classifyEgressIp,
       record: nodeRepo.recordVerifiedClass,
       onDowngrade: (nodeId, _from, to) => terminateNodeSessionsAbove(nodeId, to),
+      onCountryMismatch: (nodeId) => terminateNodeSessions(nodeId),
       quarantine,
       logger,
     }),

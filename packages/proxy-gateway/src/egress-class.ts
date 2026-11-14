@@ -290,6 +290,8 @@ export interface EgressVerifierDeps {
    * Without it the node is still made unselectable ("unknown", flagged).
    */
   quarantine?: (nodeId: string, reason: string) => Promise<unknown>;
+  /** Called on a country mismatch or sanctioned egress: end every in-flight session on the node. */
+  onCountryMismatch?: (nodeId: string) => Promise<unknown> | void;
   /** Called when the class drops below the previous one (end in-flight sessions above it). */
   onDowngrade?: (nodeId: string, from: NodeIpClass, to: NodeIpClass) => Promise<unknown> | void;
   now?: () => number;
@@ -336,6 +338,13 @@ export function makeEgressVerifier(d: EgressVerifierDeps): (nodeId: string, egre
         await d.onDowngrade(nodeId, prev, next);
       } catch {
         /* sessions still end at max age */
+      }
+    }
+    if ((sanctioned || countryMismatch) && d.onCountryMismatch) {
+      try {
+        await d.onCountryMismatch(nodeId);
+      } catch {
+        /* class is already "unknown" (not selectable); sessions still end at max age */
       }
     }
     if (sanctioned && d.quarantine) {

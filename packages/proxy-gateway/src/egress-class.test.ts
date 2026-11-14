@@ -227,15 +227,25 @@ describe("makeEgressVerifier (egress country / OFAC)", () => {
     expect(record).toHaveBeenCalledWith("n1", "unknown", { probeClass: "residential", connectClass: null, forceFlag: true });
   });
 
+  it("ends every in-flight session on a country mismatch (not only those above a class)", async () => {
+    const live = { ipClass: "residential" as C, country: "US", egressVerifiedAt: 1 as number | undefined };
+    const onCountryMismatch = vi.fn().mockRejectedValue(new Error("db down"));
+    const v = makeEgressVerifier({ getNode: () => live, classify: () => ({ ipClass: "residential", country: "BR" }), record: vi.fn().mockResolvedValue(undefined), onCountryMismatch });
+    expect(await v("n1", "177.1.1.1")).toBe("unknown"); // hook failure does not undo the tightening
+    expect(onCountryMismatch).toHaveBeenCalledWith("n1");
+  });
+
   it("matching or unknown egress country leaves the class alone and raises no flag", async () => {
     const live = { ipClass: "residential" as C, country: "us", egressVerifiedAt: 1 as number | undefined };
     const record = vi.fn().mockResolvedValue(undefined);
     let cc: string | null = "US";
-    const v = makeEgressVerifier({ getNode: () => live, classify: () => ({ ipClass: "residential", country: cc }), record });
+    const onCountryMismatch = vi.fn();
+    const v = makeEgressVerifier({ getNode: () => live, classify: () => ({ ipClass: "residential", country: cc }), record, onCountryMismatch });
     expect(await v("n1", "73.1.1.1")).toBe("residential");
     cc = null;
     expect(await v("n1", "73.1.1.1")).toBe("residential");
     expect(record).toHaveBeenLastCalledWith("n1", "residential", { probeClass: "residential", connectClass: null });
+    expect(onCountryMismatch).not.toHaveBeenCalled();
   });
 });
 

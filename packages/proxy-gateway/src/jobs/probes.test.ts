@@ -248,6 +248,8 @@ describe("pending nodes: retries, full coverage, self-check", () => {
     expect(q.enqueue(mk("b"))).toBe(true); // queued
     expect(q.enqueue(mk("c"))).toBe(true); // overflow, backing off
     expect(q.stats()).toMatchObject({ active: 1, queued: 1, overflow: 1, dropped: 0 });
+    expect(q.enqueue(pendingNode("c", states.get("c")!))).toBe(true); // reconnect while backing off: not dropped, not doubled
+    expect(q.stats()).toMatchObject({ overflow: 1, dropped: 0 });
     const verified = { nodeId: "v", ip: "203.0.113.5", isPending: () => false, openStream: vi.fn(async () => stream()) };
     expect(q.enqueue(verified)).toBe(false);
     expect(q.stats().dropped).toBe(1);

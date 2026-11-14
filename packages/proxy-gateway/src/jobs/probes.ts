@@ -429,9 +429,11 @@ export class ConnectProbeQueue {
     if (this.queue.length >= this.maxQueued) {
       // A pending node serves nothing until probed: never drop it, back off
       // (bounded, jittered) until the queue drains. Verified nodes are dropped.
-      if (node.isPending?.() === true && !this.overflow.has(node.nodeId)) {
-        this.overflow.add(node.nodeId);
+      if (node.isPending?.() === true) {
+        if (this.overflow.has(node.nodeId) || this.queued.has(node.nodeId)) return true;
         this.scheduleRetry(node);
+        // Track only when a retry was actually scheduled (attempts map is capped).
+        if (this.attempts.has(node.nodeId)) this.overflow.add(node.nodeId);
         return true;
       }
       this.dropped++;
