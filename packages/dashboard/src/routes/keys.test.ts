@@ -12,7 +12,9 @@ const mockFindUserById = vi.fn();
 const mockGenerateApiKey = vi.fn();
 const mockSanitizeString = vi.fn((s: string, _max?: number) => s);
 
+const mockKillSwitches = vi.hoisted(() => vi.fn(() => ({ check: (): unknown => null, checkRail: (): unknown => null })));
 vi.mock("@dominusnode/shared", () => ({
+  killSwitches: () => mockKillSwitches(),
   userRepo: {
     countActiveKeys: (...args: unknown[]) => mockCountActiveKeys(...args),
     createApiKey: (...args: unknown[]) => mockCreateApiKey(...args),
@@ -160,6 +162,17 @@ describe("keys routes", () => {
   // ─── POST /api/keys ────────────────────────────────────────────────
 
   describe("POST /api/keys", () => {
+    it("returns 503 API_KEYS_PAUSED when the kill switch is engaged, before any DB work", async () => {
+      mockKillSwitches.mockReturnValueOnce({
+        check: () => ({ status: 503, code: "API_KEYS_PAUSED", message: "paused", retryAfterSec: 300 }),
+        checkRail: () => null,
+      });
+      const res = await requestWithBody(createApp(), "POST", "/api/keys", { label: "x" });
+      expect(res.status).toBe(503);
+      expect(res.body.code).toBe("API_KEYS_PAUSED");
+      expect(mockCreateApiKey).not.toHaveBeenCalled();
+    });
+
     it("should create a new API key (201)", async () => {
       mockFindUserById.mockResolvedValueOnce({ id: "test-user-id", status: "active", email_verified: true });
       mockCountActiveKeys.mockResolvedValueOnce(5);

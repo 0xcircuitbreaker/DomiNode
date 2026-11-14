@@ -13,7 +13,9 @@ const mockPool = {
   connect: vi.fn(() => Promise.resolve(mockPoolClient)),
 };
 
+const mockKillSwitches = vi.hoisted(() => vi.fn(() => ({ check: (): unknown => null, checkRail: (): unknown => null })));
 vi.mock("@dominusnode/shared", () => ({
+  killSwitches: () => mockKillSwitches(),
   hashPassword: vi.fn().mockResolvedValue("$2b$10$unusable-hashed-password"),
   userRepo: {
     findUserByWalletAddress: vi.fn(),

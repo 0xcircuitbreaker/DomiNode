@@ -30,7 +30,9 @@ const mockGenerateApiKey = vi.fn();
 const mockIsValidEmail = vi.fn();
 const mockSendTeamInviteEmail = vi.fn();
 
+const mockKillSwitches = vi.hoisted(() => vi.fn(() => ({ check: (): unknown => null, checkRail: (): unknown => null })));
 vi.mock("@dominusnode/shared", () => ({
+  killSwitches: () => mockKillSwitches(),
   teamRepo: {
     createTeam: (...args: unknown[]) => mockCreateTeam(...args),
     listTeams: (...args: unknown[]) => mockListTeams(...args),

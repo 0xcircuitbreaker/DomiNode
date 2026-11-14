@@ -29,6 +29,7 @@ import adminNetworkMetricsRoutes from "./routes/admin-network-metrics.js";
 import adminNetworkOpsRoutes from "./routes/admin-network-ops.js";
 import adminNetworkCollusionRoutes from "./routes/admin-network-collusion.js";
 import adminNetworkLaunchRoutes from "./routes/admin-network-launch.js";
+import adminKillSwitchRoutes from "./routes/admin-kill-switches.js";
 import v1Routes from "./routes/v1/index.js";
 import adminOpsAlertsRoutes from "./routes/admin-ops-alerts.js";
 import { v1ErrorCounter } from "./ops-alerts.js";
@@ -233,6 +234,7 @@ export function startApiServer(port: number = 3000): ReturnType<express.Express[
   app.use("/api/admin/network", adminNetworkOpsRoutes);
   app.use("/api/admin/network", adminNetworkCollusionRoutes);
   app.use("/api/admin/network", adminNetworkLaunchRoutes);
+  app.use("/api/admin/network", adminKillSwitchRoutes);
   app.use("/api/admin/ops-alerts", adminOpsAlertsRoutes);
   app.use("/api/admin", adminRoutes);
   app.use("/api/proxy/config", proxyConfigRoutes);

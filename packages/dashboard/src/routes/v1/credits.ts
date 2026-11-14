@@ -14,6 +14,7 @@ import {
   decodeCursor,
 } from "@dominusnode/shared";
 import { requireAgentPrincipal, type AgentRequest } from "../../middleware/agent.js";
+import { refusedBySwitch } from "../../helpers/kill-switch.js";
 import { recoverSignerAddress } from "../../helpers/verify-signature.js";
 import { createKeyedLimiter } from "./limiter.js";
 
@@ -458,6 +459,7 @@ router.put("/payout-wallet", async (req: Request, res: Response) => {
 router.post("/credits/withdraw/challenge", async (req: Request, res: Response) => {
   const agent = principal(req);
   if (!payoutRepo.payoutsEnabled()) { payoutsDisabled(res); return; }
+  if (refusedBySwitch(res, "payouts")) return;
   if (!requireVerified(req, res)) return;
   if (!agent.walletAddress) {
     res.status(400).json({ error: "A linked wallet is required to withdraw", code: "NO_LINKED_WALLET" });
@@ -492,6 +494,7 @@ function publicPayout(p: { id: string; amountMusd: bigint; trigger: string; stat
 router.post("/credits/withdraw", async (req: Request, res: Response) => {
   const agent = principal(req);
   if (!payoutRepo.payoutsEnabled()) { payoutsDisabled(res); return; }
+  if (refusedBySwitch(res, "payouts")) return;
   if (!requireVerified(req, res)) return;
   if (!agent.walletAddress) {
     res.status(400).json({ error: "A linked wallet is required to withdraw", code: "NO_LINKED_WALLET" });

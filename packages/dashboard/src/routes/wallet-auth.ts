@@ -22,6 +22,7 @@ import {
   createProxySessionToken,
 } from "@dominusnode/shared";
 import { recoverSignerAddress } from "../helpers/verify-signature.js";
+import { refusedBySwitch } from "../helpers/kill-switch.js";
 import { requireAuth, type AuthenticatedRequest } from "../middleware/auth.js";
 import { setAuthCookies } from "../helpers/cookies.js";
 
@@ -324,6 +325,7 @@ router.post("/verify", async (req, res) => {
     let isNewUser = false;
 
     if (!user) {
+      if (refusedBySwitch(res, "signups")) return;
       // Per-IP registration rate limit for wallet auth — verified agents skip
       if (!isAgentVerify && !checkWalletRegistrationRateLimit(clientIp)) {
         res.status(429).json({ error: "Too many new accounts from this IP. Try again later." });
