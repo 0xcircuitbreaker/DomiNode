@@ -25,6 +25,6 @@ export const QUICKSTART_STEPS: QuickstartStep[] = [
     minute: "3-5",
     title: "Fetch through the TLS proxy",
     text: `HTTPS proxy :${PORTS.httpsProxy}, SOCKS5 over TLS :${PORTS.socks5Tls}. No node for your flags? Check the status page: ${STATUS_URL}`,
-    code: `curl -x "https://relay:$DOMINUSNODE_API_KEY@${PROXY_HOST}:8443" https://httpbin.org/ip`,
+    code: `curl -x https://${PROXY_HOST}:${PORTS.httpsProxy} \\\n  -K <(printf 'proxy-user = "relay:%s"\\n' "$DOMINUSNODE_API_KEY") \\\n  https://httpbin.org/ip`,
   },
 ];

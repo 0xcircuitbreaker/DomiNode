@@ -48,6 +48,7 @@ fi
 [[ "$DN_FLAGS" =~ ^[A-Za-z0-9-]+$ ]] || die "DN_FLAGS must be hyphen-joined flags (e.g. country-US-class-dc) or relay"
 [[ "$DN_TARGET_URL" =~ ^https?:// ]] || die "DN_TARGET_URL must be an http(s) URL"
 DN_API_URL="${DN_API_URL%/}"
+[[ -z "$DN_CA_BUNDLE" || -r "$DN_CA_BUNDLE" ]] || die "DN_CA_BUNDLE must be a readable file"
 
 KEY="${DOMINUSNODE_API_KEY:-}"
 [[ -n "$KEY" ]] || fail "DOMINUSNODE_API_KEY is not set" \

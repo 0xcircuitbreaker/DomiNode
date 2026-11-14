@@ -51,7 +51,7 @@ function llmsTxt(origin) {
     "",
     `1. Read policy and live prices (no auth): GET ${API_BASE}/v1/policy, GET ${API_BASE}/v1/pricing, online nodes at GET ${API_BASE}/v1/network/stats.`,
     `2. Pay: either per request with x402/MPP (send a proxy request without credentials, answer the 402; rails at ${API_BASE}/api/x402/info), or sign in with an EIP-191 wallet signature, create a dn_live_ key and top up with crypto (POST ${API_BASE}/api/wallet/topup/crypto).`,
-    "3. Fetch through the TLS proxy, key in the password, read from the environment: curl -x \"https://country-US-class-residential:$DOMINUSNODE_API_KEY@proxy.dominusnode.com:8443\" https://httpbin.org/ip",
+    "3. Fetch through the TLS proxy, key in the password, read from the environment: curl -x https://proxy.dominusnode.com:8443 -K <(printf 'proxy-user = \"country-US-class-residential:%s\"\\n' \"$DOMINUSNODE_API_KEY\") https://httpbin.org/ip (a config on a file descriptor keeps the key out of argv)",
     `4. Ports: HTTPS proxy 8443, SOCKS5 over TLS 1443, node tunnel 9443 (node agents only). Smoke check: scripts/quickstart-smoke.sh (${GITHUB}/blob/master/docs/agent-network/QUICKSTART.md). No node for your flags: ${API_BASE}/status.`,
     "",
     "## Docs",

@@ -83,6 +83,23 @@ describe("quickstart docs and snippets", () => {
     }
   });
 
+  it("keeps the key out of argv in the new quickstart examples", () => {
+    // QUICKSTART.md tells agents never to pass the key as an argument, so its own
+    // examples (and the copies on the site and in llms.txt) must not embed it in a proxy URL.
+    for (const f of ["docs/agent-network/QUICKSTART.md", "packages/frontend/src/landing/quickstart.ts", "packages/frontend/public/llms.txt"]) {
+      const t = read(f);
+      const section = f.endsWith("llms.txt") ? t.slice(t.indexOf("## Five-minute quickstart"), t.indexOf("## Docs")) : t;
+      expect(section, f).not.toMatch(/:\$\{?DOMINUSNODE_API_KEY\}?@/);
+      expect(section, f).toMatch(/proxy-user = /);
+    }
+  });
+
+  it("documents the crypto top-up rails accurately", () => {
+    const t = read("docs/agent-network/QUICKSTART.md");
+    expect(t).toContain("/api/wallet/topup/crypto");
+    expect(t).toContain("/api/wallet/topup/tempo");
+  });
+
   describe("scripts/quickstart-smoke.sh", () => {
     const sh = read("scripts/quickstart-smoke.sh");
     it("defaults to the TLS proxy port and reads the key from the environment", () => {
@@ -96,6 +113,9 @@ describe("quickstart docs and snippets", () => {
       expect(sh).not.toMatch(/-H\s+"Authorization/);
       expect(sh).not.toMatch(/jq[^\n]*--arg[^\n]*KEY/);
       expect(sh).toMatch(/-K \/dev\/fd\/3/);
+    });
+    it("validates DN_CA_BUNDLE before use", () => {
+      expect(sh).toMatch(/DN_CA_BUNDLE must be a readable file/);
     });
     it("hits policy, pricing, balance and the proxy, with next steps on failure", () => {
       for (const s of ["/v1/policy", "/v1/pricing", "/api/auth/verify-key", "/api/wallet", "NO_NODES_AVAILABLE", "topup/crypto", "x402", "/status"]) {

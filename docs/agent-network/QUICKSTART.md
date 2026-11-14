@@ -42,7 +42,7 @@ Pick one:
 2. **Prepaid wallet with an API key.** Sign in with an EIP-191 wallet
    signature (`POST /api/auth/wallet/challenge`, then `/verify`), create a
    `dn_live_` key, and top up with crypto
-   (`POST /api/wallet/topup/crypto`, Tempo or NOWPayments). The SDKs and the
+   (NOWPayments: `POST /api/wallet/topup/crypto`, minimum $10; Tempo: `POST /api/wallet/topup/tempo`). The SDKs and the
    MCP server (`npx -y @dominusnode/mcp-server`, bootstrap mode without a key)
    do all of this for you. See [AGENT_API.md](AGENT_API.md) and
    [PAYMENTS.md](PAYMENTS.md).
@@ -57,7 +57,9 @@ read -rs DOMINUSNODE_API_KEY && export DOMINUSNODE_API_KEY
 
 ```bash
 # The key is the proxy password; the username carries flags (or "relay").
-curl -x "https://country-US-class-residential:$DOMINUSNODE_API_KEY@proxy.dominusnode.com:8443" \
+# It reaches curl through a config on a file descriptor, so it never shows in ps.
+curl -x https://proxy.dominusnode.com:8443 \
+  -K <(printf 'proxy-user = "country-US-class-residential:%s"\n' "$DOMINUSNODE_API_KEY") \
   https://httpbin.org/ip
 ```
 
