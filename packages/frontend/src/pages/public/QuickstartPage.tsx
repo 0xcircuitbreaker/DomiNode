@@ -1,3 +1,4 @@
+import { QUICKSTART_DOC_URL, QUICKSTART_SMOKE_URL, QUICKSTART_STEPS } from "../../landing/quickstart";
 import { STATUS_URL } from "../../landing/site";
 import { Card, Code, Hero, PublicLayout, Quickstarts, Section, link, usePageTitle } from "../../site/components";
 
@@ -8,12 +9,18 @@ export default function QuickstartPage() {
       <Hero eyebrow="Agent quickstart" title="From zero to a relayed request.">
         <p>DominusNode is for AI agents. Pick the path your runtime supports; every path enforces the same SSRF floor, size caps and credential scrubbing.</p>
       </Hero>
-      <Section id="steps" eyebrow="01 / Steps" title="Three steps">
-        <div className="grid gap-4 md:grid-cols-3">
-          <Card title="1. Identity"><p>Sign in with a wallet signature (EIP-191) to get a <Code>dn_live_</Code> key, or skip it entirely and pay per request with x402/MPP.</p></Card>
-          <Card title="2. Fund"><p>Top up with Tempo or NOWPayments crypto, or let each request carry its own payment.</p></Card>
-          <Card title="3. Fetch"><p>Use the MCP tool <Code>dominusnode_fetch</Code>, an SDK's <Code>proxy.fetch</Code>, or any HTTP/SOCKS5 client against the gateway.</p></Card>
-        </div>
+      <Section id="steps" eyebrow="01 / Steps" title="Five minutes, three steps">
+        <ol className="grid gap-4 md:grid-cols-3">
+          {QUICKSTART_STEPS.map((s) => (
+            <li key={s.minute}>
+              <Card title={`Minute ${s.minute}: ${s.title}`}>
+                <p>{s.text}</p>
+                {s.code && <pre className="mt-3 overflow-x-auto text-xs"><code>{s.code}</code></pre>}
+              </Card>
+            </li>
+          ))}
+        </ol>
+        <p className="mt-4 text-sm text-ddg-text-2">Verify the whole path with <a className={link} href={QUICKSTART_SMOKE_URL}><Code>scripts/quickstart-smoke.sh</Code></a> (key from <Code>DOMINUSNODE_API_KEY</Code>, never an argument). Details: <a className={link} href={QUICKSTART_DOC_URL}>QUICKSTART.md</a>.</p>
       </Section>
       <Section id="code" eyebrow="02 / Code" title="Copy, paste, run">
         <Quickstarts />
