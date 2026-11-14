@@ -246,7 +246,9 @@ scripts/update-asn-db.sh            # writes data/ip2asn-combined.tsv.gz (or $AS
 | `${PROXY_TLS_DIR:-./certs}` (ro) | `/app/certs` | `proxy.crt`/`proxy.key` (TLS proxy) and `tunnel.crt`/`tunnel.key` (node tunnel) |
 | secret `coord_signing_key` from `${COORD_SIGNING_KEY_PATH:-./secrets/coord-signing-key.pem}` | `/run/secrets/coord_signing_key` | `COORD_SIGNING_KEY_FILE` |
 
-Published ports: `8443` TLS proxy and `9443` node tunnel on all interfaces;
+Published ports: `8443` HTTPS proxy, `1443` SOCKS5 over TLS (`SOCKS5_TLS_PORT`,
+same `proxy.crt`; `SOCKS5_TLS_HOST_PORT`) and `9443` node tunnel on all interfaces,
+the same layout as self-host;
 `8080`/`1080` plaintext on localhost only by default (`PROXY_*_HOST_PORT`
 overrides). `./secrets` and `./certs` are git-ignored.
 - Exit classification is allowlist-based (fails closed). Only ASNs in the
@@ -412,8 +414,8 @@ plaintext. Roll out: enable `PROXY_TLS_PORT`, move clients, then remove the
 `PROXY_TLS_PORT` now fails at gateway startup. `docker-compose.selfhost.yml`
 runs the TLS proxy on 8443 / 1443 with Caddy's certificate and
 `PROXY_REQUIRE_TLS=true` (only `TLS_MODE=off` turns it off; see "Self-host
-gateway TLS proxy" below); `docker-compose.prod.yml` sets `PROXY_TLS_PORT`
-with the cert files.
+gateway TLS proxy" below); `docker-compose.prod.yml` sets `PROXY_TLS_PORT` (8443) and
+`SOCKS5_TLS_PORT` (1443) with the cert files.
 
 **Certificate renewal.** The gateway re-reads `PROXY_TLS_CERT_FILE` /
 `PROXY_TLS_KEY_FILE` every 60 s and, when they changed and form a valid pair,

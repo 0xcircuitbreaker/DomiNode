@@ -39,7 +39,7 @@ npx vitest run --coverage   # Tests with coverage
 | `packages/metering` | Cost calculation, usage recording |
 | `packages/billing` | Payment rails: x402, MPP, Tempo, NOWPayments (Stripe/PayPal admin-only) |
 | `packages/dashboard` | Express REST API (`/v1` agent routes, `/api` JWT routes, admin) |
-| `packages/mcp-server` | 65 MCP tools (+12 bootstrap) for AI agents: relay fetch, nodes, earnings, wallets |
+| `packages/mcp-server` | 66 MCP tools (+13 bootstrap) for AI agents: relay fetch, nodes, earnings, wallets |
 | `packages/frontend` | React 18 + Vite + Tailwind admin dashboard |
 | `packages/extension` | MV3 browser extension |
 

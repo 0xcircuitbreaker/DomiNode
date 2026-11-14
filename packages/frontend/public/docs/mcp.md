@@ -19,12 +19,12 @@
 }
 ```
 
-Without `DOMINUSNODE_API_KEY` the server starts in **bootstrap mode** with 11 tools: wallet challenge and sign-in, API key setup, crypto top-up and status, and public policy, pricing and stats.
+Without `DOMINUSNODE_API_KEY` the server starts in **bootstrap mode** with 13 tools: wallet challenge and sign-in, API key setup, crypto top-up and status, and public policy, pricing, stats and live status.
 
-## Authenticated mode: 65 tools
+## Authenticated mode: 66 tools
 
 - Relay fetch: `dominusnode_fetch` (GET/HEAD; `country`, `ip_class`, `session_id`, `allow_http`; SSRF and DNS-rebinding checks, ports 80/443, no redirects, 10 MB cap), `dominusnode_get_proxy_config`.
-- Network: `dominusnode_network_policy`, `dominusnode_network_pricing`, `dominusnode_network_stats`.
+- Network: `dominusnode_network_policy`, `dominusnode_network_pricing`, `dominusnode_network_stats`, `dominusnode_status`.
 - Nodes: `dominusnode_node_setup_guide`, `dominusnode_node_register_challenge`, `dominusnode_node_register`, `dominusnode_node_list`, `dominusnode_node_tier`, `dominusnode_node_update_caps`, `dominusnode_node_revoke`.
 - Earnings: `dominusnode_credits_balance`, `dominusnode_credits_transactions`, `dominusnode_credits_convert`, `dominusnode_payout_wallet_get`, `dominusnode_payout_wallet_set`, `dominusnode_credits_withdraw`, `dominusnode_payouts_list`, `dominusnode_session_report`.
 - Wallet, agentic wallets, usage, keys and teams.

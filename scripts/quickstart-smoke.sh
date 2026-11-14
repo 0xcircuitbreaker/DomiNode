@@ -3,7 +3,7 @@
 #
 #   1. GET /v1/policy            (public)
 #   2. GET /v1/pricing           (public)
-#   3. wallet balance            (POST /api/auth/verify-key, then GET /api/wallet)
+#   3. wallet balance            (GET /v1/wallet, raw API key; no token minted)
 #   4. one fetch through the TLS (HTTPS) proxy on 8443
 #
 # The API key comes from DOMINUSNODE_API_KEY only. It reaches curl through
@@ -73,24 +73,17 @@ for path in /v1/policy /v1/pricing; do
   ok "GET ${path}"
 done
 
-# 3. Balance. The key goes in a JSON body on stdin (printf is a builtin, so it
-# never shows in ps; the regex above limits the key to JSON-safe characters),
-# the JWT in a curl config on fd 3.
-code="$(printf '{"apiKey":"%s"}' "$KEY" \
-  | "${CURL[@]}" -o "$WORK/auth" -w '%{http_code}' -H 'Content-Type: application/json' \
-    --data @- "${DN_API_URL}/api/auth/verify-key" || true)"
-if [[ "$code" != 200 ]]; then
-  fail "API key rejected (HTTP ${code:-no response})" \
+# 3. Balance via GET /v1/wallet, authenticated with the raw API key. The key
+# goes in a curl config on fd 3 (printf is a builtin, so it never shows in ps).
+# No JWT or refresh token is minted, so nothing is left to revoke.
+code="$("${CURL[@]}" -o "$WORK/wallet" -w '%{http_code}' -K /dev/fd/3 "${DN_API_URL}/v1/wallet" \
+  3< <(printf 'header = "Authorization: Bearer %s"\n' "$KEY") || true)"
+if [[ "$code" == 401 || "$code" == 403 ]]; then
+  fail "API key rejected (HTTP ${code})" \
     "the key may be revoked or mistyped: sign in with your wallet and create a new dn_live_ key" \
     "or pay per request with x402 instead: ${DN_API_URL}/api/x402/info"
 fi
-TOKEN="$(jq -r '.token // empty' "$WORK/auth")"
-rm -f "$WORK/auth"
-[[ "$TOKEN" =~ ^[A-Za-z0-9._-]+$ ]] || fail "no access token in the verify-key response" "retry; if it persists see ${STATUS_URL}"
-code="$("${CURL[@]}" -o "$WORK/wallet" -w '%{http_code}' -K /dev/fd/3 "${DN_API_URL}/api/wallet" \
-  3< <(printf 'header = "Authorization: Bearer %s"\n' "$TOKEN") || true)"
-TOKEN=""
-[[ "$code" == 200 ]] || fail "GET /api/wallet returned ${code:-no response}" "retry; if it persists see ${STATUS_URL}"
+[[ "$code" == 200 ]] || fail "GET /v1/wallet returned ${code:-no response}" "retry; if it persists see ${STATUS_URL}"
 CENTS="$(jq -r '.balanceCents // 0' "$WORK/wallet")"
 [[ "$CENTS" =~ ^[0-9]+$ ]] || CENTS=0
 if ((CENTS <= 0)); then

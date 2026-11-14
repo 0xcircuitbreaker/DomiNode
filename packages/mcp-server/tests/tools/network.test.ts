@@ -69,4 +69,37 @@ describe("network tools", () => {
     expect(r.isError).toBe(true);
     expect(r.content[0].text).toContain("Pricing unavailable");
   });
+
+  it("status reads GET /v1/status unauthenticated and lists open incidents only", async () => {
+    const server = await setup();
+    const fetchFn = mockFetchSequence(jsonResponse({
+      status: "degraded",
+      coordinator: { status: "operational", policyVersion: 4 },
+      gateway: { status: "operational", instancesOnline: 2, lastHeartbeatAt: "2026-11-14T00:00:00Z" },
+      availability: { last24h: 99.5, last7d: null },
+      nodes: { onlineNodes: 17, byClass: { dc: 10 } },
+      incidents: [
+        { title: "EU exits flapping", severity: "major", status: "investigating", startedAt: "2026-11-13T22:00:00Z", resolvedAt: null },
+        { title: "Old outage", severity: "minor", status: "resolved", startedAt: "2026-11-01T00:00:00Z", resolvedAt: "2026-11-01T01:00:00Z" },
+      ],
+      generatedAt: "2026-11-14T00:00:01Z",
+    }));
+    const text = (await callTool(server, "dominusnode_status")).content[0].text;
+    expect(fetchFn.mock.calls[0][0]).toBe("http://localhost:3000/v1/status");
+    expect(fetchFn.mock.calls[0][1].headers.Authorization).toBeUndefined();
+    expect(text).toContain("Status: degraded");
+    expect(text).toContain("Gateway: operational (2 online)");
+    expect(text).toContain("policy v4");
+    expect(text).toContain("24h 99.5%, 7d n/a");
+    expect(text).toContain("Online nodes: 17");
+    expect(text).toContain("[major] EU exits flapping");
+    expect(text).not.toContain("Old outage");
+  });
+
+  it("status surfaces API errors", async () => {
+    const server = await setup();
+    mockFetchSequence(jsonResponse({ error: "Status unavailable" }, 503));
+    const r = await callTool(server, "dominusnode_status");
+    expect(r.isError).toBe(true);
+  });
 });

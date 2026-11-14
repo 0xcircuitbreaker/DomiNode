@@ -27,6 +27,7 @@ extension use these exact shapes.
 | `PATCH /v1/nodes/:id` | agent | [Nodes](#nodes) |
 | `DELETE /v1/nodes/:id` | agent | [Nodes](#nodes) |
 | `GET /v1/node/tier` | agent | [Nodes](#nodes) |
+| `GET /v1/wallet` | agent | [Credits](#credits) (prepaid wallet `balanceCents`, raw API key, no token minted) |
 | `GET /v1/credits` | agent | [Credits](#credits) |
 | `GET /v1/credits/transactions` | agent | [Credits](#credits) |
 | `POST /v1/credits/convert/challenge` | agent | [Credits](#credits) |

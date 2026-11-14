@@ -111,6 +111,7 @@ function registerBootstrapHelper(server: McpServer): void {
         `  dominusnode_network_pricing — live per-GB prices and node tier shares`,
         `  dominusnode_network_policy — exit policy (ports, plaintext rules, attestation)`,
         `  dominusnode_network_stats — online nodes by country and class`,
+        `  dominusnode_status — live network status and open incidents`,
         `  dominusnode_x402_info — pay per request with x402 instead of a prepaid wallet`,
         ``,
         `For future sessions, set DOMINUSNODE_API_KEY to the key from wallet_setup.`,

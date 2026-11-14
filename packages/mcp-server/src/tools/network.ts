@@ -31,6 +31,19 @@ export interface NetworkPolicyResponse {
   floorGuarantees?: string[];
 }
 
+/** GET /v1/status response (public, aggregate; no IPs or ids). */
+export interface NetworkStatus {
+  status: "operational" | "degraded" | "down" | "unknown";
+  coordinator: { status: string; policyVersion: number | null };
+  gateway: { status: string; instancesOnline: number; lastHeartbeatAt: string | null };
+  availability: { last24h: number | null; last7d: number | null };
+  nodes: { onlineNodes: number; byClass?: Record<string, number> } | null;
+  incidents: Array<{ title: string; severity: string; status: string; startedAt: string; resolvedAt: string | null }>;
+  generatedAt: string;
+}
+
+const pct = (v: number | null | undefined) => (typeof v === "number" ? `${v}%` : "n/a");
+
 export interface NetworkStats {
   onlineNodes: number;
   byClass: Record<string, number>;
@@ -164,6 +177,33 @@ export function registerNetworkTools(server: McpServer, httpClient: HttpClient):
           `By class: ${Object.entries(s.byClass ?? {}).map(([k, v]) => `${k}=${v}`).join(", ") || "none"}`,
           `By country: ${(s.byCountry ?? []).map((c) => `${c.country}=${c.online}`).join(", ") || "none"}`,
           `Other countries (groups < 3): ${s.otherCountries ?? 0}`,
+          `Generated at: ${s.generatedAt}`,
+        ];
+        return { content: [{ type: "text", text: lines.join("\n") }] };
+      } catch (err) {
+        return errorResult(err);
+      }
+    },
+  );
+
+  server.tool(
+    "dominusnode_status",
+    "Get live network status (GET /v1/status, public): overall status, gateway and coordinator health, 24h/7d gateway availability, " +
+      "online node count and open incidents. Check this first when a fetch fails with no eligible node or the proxy is unreachable.",
+    {},
+    async () => {
+      try {
+        const s = await httpClient.get<NetworkStatus>("/v1/status", false);
+        const open = (s.incidents ?? []).filter((i) => i.status !== "resolved");
+        const lines = [
+          `Status: ${s.status}`,
+          `Gateway: ${s.gateway?.status ?? "unknown"} (${s.gateway?.instancesOnline ?? 0} online)`,
+          `Coordinator: ${s.coordinator?.status ?? "unknown"}${s.coordinator?.policyVersion != null ? ` (policy v${s.coordinator.policyVersion})` : ""}`,
+          `Availability: 24h ${pct(s.availability?.last24h)}, 7d ${pct(s.availability?.last7d)}`,
+          `Online nodes: ${s.nodes ? s.nodes.onlineNodes : "unavailable"}`,
+          open.length
+            ? `Open incidents:\n${open.map((i) => `  - [${i.severity}] ${i.title} (${i.status}, since ${i.startedAt})`).join("\n")}`
+            : "Open incidents: none",
           `Generated at: ${s.generatedAt}`,
         ];
         return { content: [{ type: "text", text: lines.join("\n") }] };

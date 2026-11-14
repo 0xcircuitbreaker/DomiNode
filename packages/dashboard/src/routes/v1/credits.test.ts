@@ -20,7 +20,7 @@ let principal = { ...base };
 const m = vi.hoisted(() => ({
   summary: vi.fn(), listTx: vi.fn(), listPayouts: vi.fn(), updateCaps: vi.fn(), report: vi.fn(),
   createCh: vi.fn(), consumeCh: vi.fn(), convert: vi.fn(), getLive: vi.fn(), register: vi.fn(), change: vi.fn(),
-  withdraw: vi.fn(), getOwnerTier: vi.fn(), getActivePolicy: vi.fn(),
+  withdraw: vi.fn(), getOwnerTier: vi.fn(), getActivePolicy: vi.fn(), getWallet: vi.fn(),
 }));
 
 vi.mock("../../middleware/agent.js", () => ({
@@ -46,6 +46,7 @@ vi.mock("@dominusnode/shared", async (importOriginal) => {
     },
     tierRepo: { getOwnerTier: m.getOwnerTier, getBuyerDiscount: async () => ({ buyerTierId: 2, buyerDiscountBps: 500, minPlatformMarginBps: 2500 }) },
     policyRepo: { getActivePolicy: m.getActivePolicy },
+    walletRepo: { ...actual.walletRepo, getWallet: m.getWallet },
   };
 });
 
@@ -115,6 +116,20 @@ describe("GET /v1/credits", () => {
       ytdPaid: { musd: "0" }, payoutsEnabled: false, buyerDiscountBps: 500,
     });
     expect(m.summary).toHaveBeenCalledWith(USER);
+  });
+});
+
+describe("GET /v1/wallet", () => {
+  it("returns the caller's prepaid balance", async () => {
+    m.getWallet.mockResolvedValue({ balance_cents: 1234, currency: "usd", last_topped_up: null });
+    const r = await call(app(), "GET", "/v1/wallet");
+    expect(r.status).toBe(200);
+    expect(r.body).toEqual({ balanceCents: 1234, currency: "usd", lastToppedUp: null });
+    expect(m.getWallet).toHaveBeenCalledWith(USER);
+  });
+  it("404s when the user has no wallet", async () => {
+    m.getWallet.mockResolvedValue(null);
+    expect((await call(app(), "GET", "/v1/wallet")).status).toBe(404);
   });
 });
 
