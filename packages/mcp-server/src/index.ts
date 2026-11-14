@@ -2,7 +2,8 @@
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { parseConfig, ConfigError } from "./config.js";
+import { parseConfig, parseHttpConfig, ConfigError } from "./config.js";
+import { createRemoteMcpServer, defaultSessionFactory, MCP_PATH } from "./http-server.js";
 import { TokenManager } from "./token-manager.js";
 import { HttpClient } from "./http-client.js";
 import { PACKAGE_VERSION } from "./version.js";
@@ -15,7 +16,9 @@ async function main(): Promise<void> {
     process.stderr.write(`warning: OpenSSL ${process.versions.openssl} lacks X25519MLKEM768; gateway TLS falls back to X25519 (not quantum resistant). Use Node >= 22.20.\n`);
   }
   let config;
+  let httpConfig;
   try {
+    httpConfig = parseHttpConfig();
     config = parseConfig();
   } catch (err) {
     if (err instanceof ConfigError) {
@@ -31,9 +34,30 @@ async function main(): Promise<void> {
       process.stderr.write(`  DOMINUSNODE_PROXY_INSECURE  — set to 1 to use plaintext http to the gateway (key sent in clear)\n`);
       process.stderr.write(`  DOMINUSNODE_WALLET_KEY_FILE — chmod-600 wallet key file (node registration only)\n`);
       process.stderr.write(`  DOMINUSNODE_NODE_KEY_FILE   — node credential output file (default ~/.dominusnode/node.json)\n`);
+      process.stderr.write(`  DOMINUSNODE_MCP_HTTP_PORT   — serve remote MCP (Streamable HTTP) on this port instead of stdio (or pass --http)\n`);
       process.exit(1);
     }
     throw err;
+  }
+
+  if (httpConfig) {
+    // ── Remote Mode (Streamable HTTP) ───────────────────────────────
+    // Each request authenticates with its own Bearer dn_live_ key; sessions are isolated per key.
+    const remote = createRemoteMcpServer(httpConfig, defaultSessionFactory(config));
+    const shutdown = (): void => {
+      void remote.close().finally(() => process.exit(0));
+    };
+    process.on("SIGINT", shutdown);
+    process.on("SIGTERM", shutdown);
+    await new Promise<void>((resolve, reject) => {
+      remote.httpServer.once("error", reject);
+      remote.httpServer.listen(httpConfig.port, httpConfig.host, () => resolve());
+    });
+    process.stderr.write(`Dominus Node MCP Server ready — remote mode on http://${httpConfig.host}:${httpConfig.port}${MCP_PATH}\n`);
+    if (httpConfig.host !== "127.0.0.1" && httpConfig.host !== "localhost" && httpConfig.host !== "::1") {
+      process.stderr.write("Listening beyond loopback: put a TLS reverse proxy in front; Bearer keys must not cross the network in clear.\n");
+    }
+    return;
   }
 
   const tokenManager = new TokenManager(config.apiUrl);
