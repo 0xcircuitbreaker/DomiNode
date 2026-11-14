@@ -873,18 +873,27 @@ describe("gateway VPS readiness", () => {
   }, 30_000);
 
   // Stubbed system tools so the checks run deterministically anywhere.
-  const stubs = (opts: { dns: Record<string, string>; route: string; hs: number; ntp: string; ufw?: string; url?: (port: number) => string }) => {
+  type PreOpts = {
+    dns: Record<string, string>; route: string; hs: number; ntp: string; ufw?: string; url?: (port: number) => string;
+    dns6?: Record<string, string>; udp?: string; curl?: string; env?: Record<string, string>;
+  };
+  const stubs = (opts: PreOpts) => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dn-pre-"));
     const w = (n: string, body: string) => fs.writeFileSync(path.join(dir, n), `#!/usr/bin/env bash\n${body}\n`, { mode: 0o755 });
-    w("getent", Object.entries(opts.dns).map(([h, a]) => `[ "$2" = ${h} ] && echo "${a} STREAM ${h}" && exit 0`).join("\n") + "\nexit 2");
+    w("getent", [
+      ...Object.entries(opts.dns).map(([h, a]) => `[ "$1" = ahostsv4 ] && [ "$2" = ${h} ] && echo "${a} STREAM ${h}" && exit 0`),
+      ...Object.entries(opts.dns6 ?? {}).map(([h, a]) => `[ "$1" = ahostsv6 ] && [ "$2" = ${h} ] && echo "${a} STREAM ${h}" && exit 0`),
+    ].join("\n") + "\nexit 2");
     w("ip", `if [ "$1" = -o ] && [ "$2" = route ]; then echo "$4 dev ${opts.route} src 10.66.0.2 uid 0"; fi`);
     w("wg", `echo "peerkey= ${opts.hs}"`);
     w("timedatectl", `echo ${opts.ntp}`);
-    w("ss", "exit 0");
+    w("ss", opts.udp ? `[ "$1" = -Hlun ] && echo "UNCONN 0 0 0.0.0.0:${opts.udp} 0.0.0.0:*"; exit 0` : "exit 0");
+    // Default curl stub fails, so the Cloudflare fetch falls back and nothing touches the network.
+    w("curl", opts.curl ?? "exit 7");
     w("ufw", `printf '%b\\n' ${JSON.stringify(opts.ufw ?? "Status: inactive")}`);
     return dir;
   };
-  const preflight = async (opts: Parameters<typeof stubs>[0]) => {
+  const preflight = async (opts: PreOpts) => {
     const net = await import("node:net");
     const srv = net.createServer().listen(0, "127.0.0.1");
     await new Promise((r) => srv.once("listening", r));
@@ -894,7 +903,7 @@ describe("gateway VPS readiness", () => {
       const r = spawnSync("bash", [PREFLIGHT], {
         env: {
           PATH: `${bin}:${process.env.PATH}`, PUBLIC_IP: "203.0.113.10", RELAY_HOST: "relay.example.org", PROXY_HOST: "proxy.example.org",
-          ROLE: "gateway", PREFLIGHT_MIN_DISK_GB: "0",
+          ROLE: "gateway", PREFLIGHT_MIN_DISK_GB: "0", ...opts.env,
           GATEWAY_DATABASE_URL: opts.url ? opts.url(port) : `postgresql://dominusnode_gateway:${pw}@127.0.0.1:${port}/dominusnode`,
         },
         encoding: "utf8",
@@ -939,6 +948,79 @@ describe("gateway VPS readiness", () => {
     expect(r.stdout).toMatch(/FAIL\s+ports\s+ufw is active and does not allow tcp\/1443/);
     expect(r.status).toBe(1);
     expect(r.stdout + r.stderr).not.toContain(pw);
+  });
+
+  it("preflight falls back to the built-in Cloudflare list when the fetch fails", async () => {
+    const r = await preflight({ ...good, hs: now(), dns: { ...good.dns, "relay.example.org": "104.16.1.1" } });
+    expect(r.stdout).toMatch(/ok\s+dns\s+Cloudflare ranges: built-in \(fetch from cloudflare\.com failed\)/);
+    expect(r.stdout).toMatch(/FAIL\s+dns\s+RELAY_HOST relay\.example\.org -> 104\.16\.1\.1 is a Cloudflare proxy/);
+  });
+
+  it("preflight uses the Cloudflare ranges fetched at runtime and rejects a malformed list", async () => {
+    const live = `case "$*" in *ips-v4*) printf '198.51.100.0/24\\n' ;; *ips-v6*) printf '2001:db8:cf::/48\\n' ;; *) exit 7 ;; esac`;
+    const r = await preflight({
+      ...good, hs: now(), curl: live,
+      dns: { ...good.dns, "proxy.example.org": "198.51.100.9" }, dns6: { "relay.example.org": "2001:db8:cf::5" },
+    });
+    expect(r.stdout).toMatch(/Cloudflare ranges: cloudflare\.com/);
+    expect(r.stdout).toMatch(/FAIL\s+dns\s+PROXY_HOST proxy\.example\.org -> 198\.51\.100\.9 is a Cloudflare proxy/);
+    expect(r.stdout).toMatch(/FAIL\s+dns\s+RELAY_HOST relay\.example\.org -> 2001:db8:cf::5 \(AAAA\) is a Cloudflare proxy/);
+    const bad = await preflight({ ...good, hs: now(), curl: `echo '<html>not a list</html>'` });
+    expect(bad.stdout).toMatch(/Cloudflare ranges: built-in \(fetch from cloudflare\.com failed\)/);
+  });
+
+  it("preflight fails a Cloudflare AAAA and warns on an AAAA that is not this host", async () => {
+    const r = await preflight({
+      ...good, hs: now(), env: { PUBLIC_IP6: "2001:db8::10" },
+      dns6: { "relay.example.org": "2606:4700::6810:1", "proxy.example.org": "2001:db8::99" },
+    });
+    expect(r.status).toBe(1);
+    expect(r.stdout).toMatch(/FAIL\s+dns\s+RELAY_HOST relay\.example\.org -> 2606:4700::6810:1 \(AAAA\) is a Cloudflare proxy/);
+    expect(r.stdout).toMatch(/warn\s+dns\s+PROXY_HOST proxy\.example\.org -> 2001:db8::99 \(AAAA\), not this host/);
+    const okr = await preflight({ ...good, hs: now(), env: { PUBLIC_IP6: "2001:db8::10" }, dns6: { "relay.example.org": "2001:db8:0::10" } });
+    expect(okr.stdout).toMatch(/ok\s+dns\s+RELAY_HOST relay\.example\.org -> 2001:db8:0::10 \(AAAA\)/);
+    expect(okr.status).toBe(0);
+  });
+
+  it("preflight checks the UDP WireGuard listener and ufw in server mode only", async () => {
+    const off = await preflight({ ...good, hs: now() });
+    expect(off.stdout).not.toMatch(/udp\/51820/);
+    const missing = await preflight({ ...good, hs: now(), env: { WG_SERVER: "1" }, ufw: "Status: active\n80,443,8443,1443,9443/tcp ALLOW Anywhere" });
+    expect(missing.status).toBe(1);
+    expect(missing.stdout).toMatch(/FAIL\s+wg\s+udp\/51820 not listening/);
+    expect(missing.stdout).toMatch(/FAIL\s+wg\s+ufw is active and does not allow udp\/51820/);
+    const up = await preflight({ ...good, hs: now(), udp: "51820", env: { WG_SERVER: "1" }, ufw: "Status: active\n80,443,8443,1443,9443/tcp ALLOW Anywhere\n51820/udp ALLOW Anywhere" });
+    expect(up.stdout).toMatch(/ok\s+wg\s+udp\/51820 listening/);
+    expect(up.status).toBe(0);
+  });
+
+  it("preflight skips external reachability with a note, or checks each port via PREFLIGHT_REACH_URL", async () => {
+    const skip = await preflight({ ...good, hs: now() });
+    expect(skip.stdout).toMatch(/warn\s+reach\s+external reachability skipped/);
+    const curl = `for a in "$@"; do case "$a" in https://check.example.org/*) case "$a" in *port=1443*) exit 22 ;; *) exit 0 ;; esac ;; esac; done; exit 7`;
+    const r = await preflight({ ...good, hs: now(), curl, env: { PREFLIGHT_REACH_URL: "https://check.example.org/tcp?host={host}&port={port}" } });
+    expect(r.stdout).toMatch(/ok\s+reach\s+tcp\/9443 reachable from outside/);
+    expect(r.stdout).toMatch(/FAIL\s+reach\s+tcp\/1443 not reachable from outside/);
+    expect(r.status).toBe(1);
+    const bad = await preflight({ ...good, hs: now(), env: { PREFLIGHT_REACH_URL: "http://check.example.org/" } });
+    expect(bad.status).toBe(2);
+    // URL globbing off, and a RELAY_HOST that is not a plain hostname is never sent to the checker.
+    const glob = `case " $* " in *" -g "*) exit 0 ;; esac; exit 7`;
+    const g = await preflight({ ...good, hs: now(), curl: glob, env: { PREFLIGHT_REACH_URL: "https://check.example.org/tcp?h={host}&p={port}" } });
+    expect(g.stdout).toMatch(/ok\s+reach\s+tcp\/443 reachable from outside/);
+    const inj = await preflight({ ...good, hs: now(), curl: "exit 0", env: { RELAY_HOST: "relay.example.org&x=1", PREFLIGHT_REACH_URL: "https://check.example.org/tcp?h={host}&p={port}" } });
+    expect(inj.stdout).toMatch(/FAIL\s+reach\s+RELAY_HOST is not a plain hostname/);
+    expect(inj.stdout).not.toMatch(/reachable from outside/);
+  });
+
+  it("preflight rejects an oversized Cloudflare list and --help prints only the header", async () => {
+    const big = `case "$*" in *ips-v*) for i in $(seq 1 6000); do echo 198.51.100.0/24; done ;; *) exit 7 ;; esac`;
+    const r = await preflight({ ...good, hs: now(), curl: big });
+    expect(r.stdout).toMatch(/Cloudflare ranges: built-in \(fetch from cloudflare\.com failed\)/);
+    const h = spawnSync("bash", [PREFLIGHT, "--help"], { encoding: "utf8" });
+    expect(h.status).toBe(0);
+    expect(h.stdout).toMatch(/Exit status/);
+    expect(h.stdout).not.toMatch(/set -uo|ROOT=/);
   });
 
   it("docs cover the gateway checklist with placeholder hosts only", () => {

@@ -1077,8 +1077,16 @@ coordinator stays at home). Hostnames are placeholders.
    ufw), wg0 has a handshake under 180 s, the `GATEWAY_DATABASE_URL` host is
    routed over wg0 and accepts TCP, NTP is synchronised and there is at least
    `PREFLIGHT_MIN_DISK_GB` (default 10) free. `PUBLIC_IP` overrides the address
-   it compares DNS against (NAT'd VPS). Inbound reachability from the internet
-   cannot be proven from the box itself; test from outside with
+   it compares DNS against (NAT'd VPS), `PUBLIC_IP6` the IPv6 one. AAAA
+   records fail if they are Cloudflare-proxied and warn if they point at
+   another host. Cloudflare ranges are fetched from cloudflare.com/ips-v4 and
+   ips-v6 at run time, with a built-in list as fallback
+   (`PREFLIGHT_CF_FETCH=0` skips the fetch). With `WG_SERVER=1` (this box
+   terminates WireGuard) it also checks UDP `WG_PORT` (default 51820) is
+   listening and allowed by ufw. Inbound reachability cannot be proven from
+   the box itself: set `PREFLIGHT_REACH_URL` to an outside checker
+   (`https://check.example.org/tcp?host={host}&port={port}`, 2xx = reachable),
+   or the check is skipped with a note; then test from outside with
    `curl -v https://relay.example.org:9443/` and a proxied request.
 7. **Add the gateway key to the coordinator.** On the home box:
    `GATEWAY_PUBKEY=<vps> ./scripts/selfhost/install.sh --yes`. That sets
