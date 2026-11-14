@@ -1,7 +1,7 @@
 import { Router } from "express";
 import type { Request, Response } from "express";
 import { createLogger, networkStatusRepo, policyRepo } from "@dominusnode/shared";
-import { getNetworkStats, type NetworkStats } from "./v1/public.js";
+import { getNetworkStats, getStatusSummary, type NetworkStats, type StatusSummary } from "./v1/public.js";
 
 /**
  * Public network status page (GET /status). Server-rendered HTML with no
@@ -44,11 +44,27 @@ export function renderLiveSection(live: NetworkStats | null): string {
   ].join("")}</table></div>`;
 }
 
-export function renderStatusPage(snaps: Snap[], incidents: Incident[], policy: { version: number; sha256: string } | null, now = new Date(), live: NetworkStats | null = null): string {
+const STATUS_LABEL: Record<string, string> = { operational: "Operational", degraded: "Degraded", down: "Outage", unknown: "Unknown" };
+const avail = (p: number | null) => (p === null ? "n/a (no heartbeats yet)" : `${p.toFixed(2)}%`);
+
+/** Gateway/coordinator health and 24h/7d gateway availability (no instance ids). */
+export function renderHealthSection(h: StatusSummary | null): string {
+  if (!h) return "<p>Health figures unavailable.</p>";
+  const row = (k: string, v: string) => `<tr><th scope="row">${escapeHtml(k)}</th><td>${escapeHtml(v)}</td></tr>`;
+  return `<div class="card"><table>${[
+    row("Relay gateway", `${STATUS_LABEL[h.gateway.status] ?? h.gateway.status} (${h.gateway.instancesOnline} instance${h.gateway.instancesOnline === 1 ? "" : "s"} live)`),
+    row("Coordinator", `${STATUS_LABEL[h.coordinator.status] ?? h.coordinator.status}${h.coordinator.policyVersion !== null ? `, policy v${h.coordinator.policyVersion}` : ""}`),
+    row("Gateway availability, last 24 h", avail(h.availability.last24h)),
+    row("Gateway availability, last 7 days", avail(h.availability.last7d)),
+    row("Last gateway heartbeat", h.gateway.lastHeartbeatAt ?? "none"),
+  ].join("")}</table></div>`;
+}
+
+export function renderStatusPage(snaps: Snap[], incidents: Incident[], policy: { version: number; sha256: string } | null, now = new Date(), live: NetworkStats | null = null, health: StatusSummary | null = null): string {
   const last = snaps.at(-1) ?? null;
   const day = snaps.filter((s) => now.getTime() - new Date(s.hour).getTime() <= 24 * 3_600_000);
   const open = incidents.filter((i) => i.status !== "resolved");
-  const overall = !last ? "No data yet" : open.some((i) => i.severity === "critical" || i.severity === "major") ? "Degraded" : "Operational";
+  const overall = health ? (STATUS_LABEL[health.status] ?? health.status) : !last ? "No data yet" : open.some((i) => i.severity === "critical" || i.severity === "major") ? "Degraded" : "Operational";
   const row = (k: string, v: string) => `<tr><th scope="row">${escapeHtml(k)}</th><td>${escapeHtml(v)}</td></tr>`;
   const summary = last
     ? [
@@ -84,6 +100,9 @@ small,.muted{color:var(--muted)}ul{padding-left:18px}
 </style></head><body><main>
 <h1>Network status: ${escapeHtml(overall)}</h1>
 <p class="muted">Aggregate figures only; node identities and IPs are never published. Alpha service.</p>
+<h2>Service health</h2>
+${renderHealthSection(health)}
+<h2>Network</h2>
 <div class="card"><table>${summary}</table></div>
 <h2>Live now</h2>
 ${renderLiveSection(live)}
@@ -92,22 +111,23 @@ ${renderLiveSection(live)}
 <h2>Incidents</h2>
 <div class="card">${inc}</div>
 <h2>Policy</h2>
-<p>${policy ? `Active policy version ${policy.version}, SHA-256 <code>${escapeHtml(policy.sha256)}</code>.` : "Policy unavailable."} Machine-readable: <a href="/v1/policy">/v1/policy</a>, <a href="/v1/network/stats">/v1/network/stats</a>, <a href="/v1/network/history">/v1/network/history</a>, <a href="/v1/network/incidents">/v1/network/incidents</a>, <a href="/v1/network/wanted">/v1/network/wanted</a>.</p>
+<p>${policy ? `Active policy version ${policy.version}, SHA-256 <code>${escapeHtml(policy.sha256)}</code>.` : "Policy unavailable."} Machine-readable: <a href="/v1/status">/v1/status</a>, <a href="/v1/policy">/v1/policy</a>, <a href="/v1/network/stats">/v1/network/stats</a>, <a href="/v1/network/history">/v1/network/history</a>, <a href="/v1/network/incidents">/v1/network/incidents</a>, <a href="/v1/network/wanted">/v1/network/wanted</a>.</p>
 <p>Report abuse through an exit IP with <code>POST /v1/abuse-reports</code> (proof-of-work gated; see <a href="/.well-known/agent-tool.json">/.well-known/agent-tool.json</a>).</p>
 </main></body></html>`;
 }
 
 router.get("/status", async (_req: Request, res: Response) => {
   try {
-    const [snaps, incidents, policy, live] = await Promise.all([
+    const [snaps, incidents, policy, live, health] = await Promise.all([
       networkStatusRepo.listSnapshots(48),
       networkStatusRepo.listIncidents(20),
       policyRepo.getActivePolicy().then((p) => ({ version: p.version, sha256: p.sha256 })).catch(() => null),
       getNetworkStats().catch(() => null),
+      getStatusSummary().catch(() => null),
     ]);
     res.setHeader("Cache-Control", "public, max-age=60");
     res.removeHeader("Pragma");
-    res.type("text/html; charset=utf-8").send(renderStatusPage(snaps, incidents, policy, new Date(), live));
+    res.type("text/html; charset=utf-8").send(renderStatusPage(snaps, incidents, policy, new Date(), live, health));
   } catch (err) {
     log.error("status page failed", { error: err instanceof Error ? err.message : String(err) });
     res.status(503).type("text/plain").send("Status temporarily unavailable\n");

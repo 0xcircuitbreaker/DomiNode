@@ -34,6 +34,7 @@ let statsCache: Cached<unknown> | null = null;
 export function invalidatePublicCaches(): void {
   policyCache = null;
   statsCache = null;
+  statusCache = null;
 }
 
 function setPublicCache(res: Response): void {
@@ -186,6 +187,83 @@ router.get("/network/stats", async (_req: Request, res: Response) => {
   } catch (err) {
     log.error("network stats failed", { error: err instanceof Error ? err.message : String(err) });
     res.status(503).json({ error: "Stats unavailable" });
+  }
+});
+
+export interface PublicIncident {
+  title: string; body: string; severity: string; status: string;
+  startedAt: string; resolvedAt: string | null; updatedAt: string;
+}
+
+export interface StatusSummary {
+  status: "operational" | "degraded" | "down" | "unknown";
+  coordinator: { status: "operational" | "down"; policyVersion: number | null };
+  gateway: { status: "operational" | "down" | "unknown"; instancesOnline: number; lastHeartbeatAt: string | null };
+  /** Share of minutes with a live gateway, percent with 2 decimals; null before any heartbeat. */
+  availability: { last24h: number | null; last7d: number | null };
+  nodes: Pick<NetworkStats, "onlineNodes" | "byClass" | "byCountry" | "otherCountries" | "countriesAvailable" | "suppressed"> | null;
+  incidents: PublicIncident[];
+  generatedAt: string;
+}
+
+let statusCache: Cached<StatusSummary> | null = null;
+
+const bpsToPct = (b: number | null) => (b === null ? null : b / 100);
+
+/** Overall public status: gateway/coordinator health first, then open major/critical incidents. */
+export function overallStatus(s: Pick<StatusSummary, "coordinator" | "gateway" | "incidents">): StatusSummary["status"] {
+  if (s.coordinator.status === "down" || s.gateway.status === "down") return "down";
+  if (s.incidents.some((i) => i.status !== "resolved" && (i.severity === "critical" || i.severity === "major"))) return "degraded";
+  if (s.gateway.status === "unknown") return "unknown";
+  return "operational";
+}
+
+/** Aggregate public status (cached CACHE_TTL_MS). No IPs, node ids, instance ids or incident ids. */
+export async function getStatusSummary(): Promise<StatusSummary> {
+  const now = Date.now();
+  if (statusCache && now - statusCache.at <= CACHE_TTL_MS) return statusCache.value;
+  const [policy, gw, stats, inc] = await Promise.all([
+    policyRepo.getActivePolicy().then((p) => p.version).catch(() => null),
+    networkStatusRepo.getGatewayLiveness().catch(() => null),
+    getNetworkStats().catch(() => null),
+    networkStatusRepo.listIncidents(10).catch(() => []),
+  ]);
+  const incidents: PublicIncident[] = inc.map((i) => ({
+    title: i.title, body: i.body, severity: i.severity, status: i.status,
+    startedAt: new Date(i.startedAt).toISOString(), resolvedAt: i.resolvedAt ? new Date(i.resolvedAt).toISOString() : null,
+    updatedAt: new Date(i.updatedAt).toISOString(),
+  }));
+  const coordinator = { status: (policy === null || gw === null ? "down" : "operational") as "operational" | "down", policyVersion: policy };
+  const gateway: StatusSummary["gateway"] = gw === null
+    ? { status: "unknown", instancesOnline: 0, lastHeartbeatAt: null }
+    : {
+        status: gw.instancesOnline > 0 ? "operational" : gw.lastHeartbeatAt ? "down" : "unknown",
+        instancesOnline: gw.instancesOnline,
+        lastHeartbeatAt: gw.lastHeartbeatAt ? new Date(gw.lastHeartbeatAt).toISOString() : null,
+      };
+  const value: StatusSummary = {
+    status: "unknown", coordinator, gateway,
+    availability: { last24h: bpsToPct(gw?.availability24hBps ?? null), last7d: bpsToPct(gw?.availability7dBps ?? null) },
+    nodes: stats ? {
+      onlineNodes: stats.onlineNodes, byClass: stats.byClass, byCountry: stats.byCountry, otherCountries: stats.otherCountries,
+      countriesAvailable: stats.countriesAvailable, ...(stats.suppressed ? { suppressed: stats.suppressed } : {}),
+    } : null,
+    incidents, generatedAt: new Date(now).toISOString(),
+  };
+  value.status = overallStatus(value);
+  statusCache = { at: now, value };
+  return value;
+}
+
+// GET /v1/status — public status summary (no auth)
+router.get("/status", async (_req: Request, res: Response) => {
+  try {
+    const value = await getStatusSummary();
+    setPublicCache(res);
+    res.json(value);
+  } catch (err) {
+    log.error("status summary failed", { error: err instanceof Error ? err.message : String(err) });
+    res.status(503).json({ error: "Status unavailable" });
   }
 });
 

@@ -22,6 +22,20 @@ describe("shared limits", () => {
     enforcePolicy(DEFAULT_POLICY, { userId: "seed", host: "example.com", port: 443, plaintext: false, allowHttp: false });
   });
 
+  it("marks the instance alive at start and on every heartbeat", async () => {
+    vi.useFakeTimers();
+    try {
+      const alive = vi.fn().mockResolvedValue(undefined);
+      const s = installSharedLimits(log, fakeRepo(async () => "ok") as never, "gw-a", alive);
+      expect(alive).toHaveBeenCalledWith("gw-a");
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(alive).toHaveBeenCalledTimes(2);
+      alive.mockRejectedValueOnce(new Error("db"));
+      await vi.advanceTimersByTimeAsync(30_000);
+      await s.stop();
+    } finally { vi.useRealTimers(); }
+  });
+
   it("instance ids are short and safe", () => {
     expect(makeInstanceId()).toMatch(/^[A-Za-z0-9._:-]{1,64}$/);
   });

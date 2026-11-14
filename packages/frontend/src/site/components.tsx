@@ -40,6 +40,7 @@ export function PublicLayout({ children }: { children: ReactNode }) {
             {PUBLIC_NAV.map(([to, label]) => (
               <NavLink key={to} to={to} end={to === "/"} className={({ isActive }) => (isActive ? "text-ddg-gold" : "hover:text-ddg-text")}>{label}</NavLink>
             ))}
+            <a href={STATUS_URL} className="hover:text-ddg-text">Status</a>
           </nav>
           <div className="flex items-center gap-3">
             <a href={GITHUB_URL} className="hidden sm:inline font-mono text-[11px] uppercase tracking-[0.16em] text-ddg-text-2 hover:text-ddg-gold">GitHub</a>
@@ -52,6 +53,7 @@ export function PublicLayout({ children }: { children: ReactNode }) {
               <NavLink key={to} to={to} end={to === "/"} onClick={() => setOpen(false)}
                 className={({ isActive }) => `block py-2 font-mono text-xs uppercase tracking-[0.16em] ${isActive ? "text-ddg-gold" : "text-ddg-text-2"}`}>{label}</NavLink>
             ))}
+            <a href={STATUS_URL} className="block py-2 font-mono text-xs uppercase tracking-[0.16em] text-ddg-text-2">Status</a>
           </nav>
         )}
       </header>

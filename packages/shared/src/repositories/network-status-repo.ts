@@ -218,3 +218,57 @@ export async function listWanted(days: number, minRequests: number, limit = 100)
     .filter((x) => !BLOCKED_COUNTRY_CODES.has(x.country))
     .map((x) => ({ country: x.country || null, ipClass: x.ip_class || null, requests: Number(x.requests) }));
 }
+
+// ─── Gateway liveness (public status availability) ──────────────────
+
+/** Mark this gateway instance alive for the current UTC minute (idempotent). */
+export async function recordGatewayHeartbeat(instanceId: string): Promise<void> {
+  if (typeof instanceId !== "string" || instanceId.length < 1 || instanceId.length > 64) return;
+  await query(
+    `INSERT INTO gateway_heartbeats (minute, instance_id) VALUES (date_trunc('minute', now()), $1)
+     ON CONFLICT (minute, instance_id) DO NOTHING`,
+    [instanceId],
+  );
+}
+
+export async function purgeGatewayHeartbeats(retentionDays = 8): Promise<number> {
+  const r = await query(`DELETE FROM gateway_heartbeats WHERE minute < now() - make_interval(days => $1)`, [retentionDays]);
+  return r.rowCount ?? 0;
+}
+
+export interface GatewayLiveness {
+  /** Distinct gateway instances that heartbeated in the last 2 minutes. */
+  instancesOnline: number;
+  lastHeartbeatAt: Date | null;
+  /** Share of whole minutes with at least one live gateway, in basis points; null before any data. */
+  availability24hBps: number | null;
+  availability7dBps: number | null;
+}
+
+/** Availability = minutes with any heartbeat / minutes in the window (window starts no earlier than the first heartbeat on record). */
+export function availabilityBps(up: number, total: number): number | null {
+  if (!Number.isFinite(up) || !Number.isFinite(total) || total <= 0) return null;
+  return Math.max(0, Math.min(10_000, Math.floor((up * 10_000) / total)));
+}
+
+export async function getGatewayLiveness(): Promise<GatewayLiveness> {
+  const r = await query<{ online: string; last: Date | null; up24: string; tot24: string; up7: string; tot7: string }>(
+    `WITH e AS (SELECT date_trunc('minute', now()) AS e, (SELECT MIN(minute) FROM gateway_heartbeats) AS first),
+     w AS (SELECT e.e, GREATEST(e.e - interval '24 hours', COALESCE(e.first, e.e)) AS s24, GREATEST(e.e - interval '7 days', COALESCE(e.first, e.e)) AS s7 FROM e)
+     SELECT (SELECT COUNT(DISTINCT instance_id) FROM gateway_heartbeats WHERE minute >= w.e - interval '2 minutes')::text AS online,
+            (SELECT MAX(minute) FROM gateway_heartbeats) AS last,
+            (SELECT COUNT(DISTINCT minute) FROM gateway_heartbeats WHERE minute >= w.s24 AND minute < w.e)::text AS up24,
+            COALESCE(FLOOR(EXTRACT(EPOCH FROM (w.e - w.s24)) / 60), 0)::text AS tot24,
+            (SELECT COUNT(DISTINCT minute) FROM gateway_heartbeats WHERE minute >= w.s7 AND minute < w.e)::text AS up7,
+            COALESCE(FLOOR(EXTRACT(EPOCH FROM (w.e - w.s7)) / 60), 0)::text AS tot7
+     FROM w`,
+  );
+  const x = r.rows[0];
+  const n = (s: string | undefined) => { const v = parseInt(s ?? "0", 10); return Number.isFinite(v) ? v : 0; };
+  return {
+    instancesOnline: n(x?.online),
+    lastHeartbeatAt: x?.last ?? null,
+    availability24hBps: availabilityBps(n(x?.up24), n(x?.tot24)),
+    availability7dBps: availabilityBps(n(x?.up7), n(x?.tot7)),
+  };
+}
