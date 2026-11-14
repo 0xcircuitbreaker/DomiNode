@@ -35,8 +35,7 @@ target_link_libraries(app PRIVATE dominusnode)
 Defaults: API `https://api.dominusnode.com`, relay gateway
 `proxy.dominusnode.com` (TLS to the gateway's HTTPS proxy on :8443 by default
 since 2.2; SOCKS5 :1080). Production gateways refuse credentials on plaintext
-8080/1080. A self-hosted coordinator publishes its TLS proxy on 8444
-(`GatewayTls g; g.port = 8444; cfg.gateway_tls = g;`); `cfg.gateway_tls = std::nullopt`
+8080/1080. Self-hosted coordinators use 8443 as well; `cfg.gateway_tls = std::nullopt`
 selects plaintext 8080 for local development. A refused CONNECT throws `ProxyError`
 with the gateway's `X-DominusNode-Error` code in `code()` and `Retry-After` in
 `details()["retryAfter"]`. All of these can be overridden in the client configuration.

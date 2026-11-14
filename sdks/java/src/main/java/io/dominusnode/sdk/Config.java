@@ -70,8 +70,8 @@ public final class Config {
 
         /**
          * TLS to the gateway (HTTPS proxy listener); buildUrl then defaults to https://. Default since 2.2:
-         * {@link GatewayTls#defaults()} (port 8443). Self-hosted coordinators usually publish 8444
-         * ({@code GatewayTls.builder().port(8444).build()}). {@code null} selects plaintext.
+         * {@link GatewayTls#defaults()} (port 8443, self-hosted coordinators
+         * too). {@code null} selects plaintext.
          */
         public Builder gatewayTls(GatewayTls v) { gatewayTls = v; return this; }
 

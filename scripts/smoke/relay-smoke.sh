@@ -26,7 +26,7 @@ API_URL="${API_URL:?set API_URL, e.g. https://api.staging.example}"
 GATEWAY_HOST="${GATEWAY_HOST:?set GATEWAY_HOST}"
 GATEWAY_HTTP_PORT="${GATEWAY_HTTP_PORT:-8080}"
 GATEWAY_SOCKS_PORT="${GATEWAY_SOCKS_PORT:-1080}"
-GATEWAY_TLS_PORT="${GATEWAY_TLS_PORT:-8443}"       # 8443 compose/prod, 8444 self-host
+GATEWAY_TLS_PORT="${GATEWAY_TLS_PORT:-8443}"       # 8443 compose, prod and self-host
 PLAINTEXT_PROXY="${PLAINTEXT_PROXY:-0}"            # 1: also test plaintext 8080/1080 (dev, TLS_MODE=off)
 GATEWAY_TLS_CA="${GATEWAY_TLS_CA:-}"            # optional CA bundle for the TLS proxy
 REQUESTER_API_KEY="${REQUESTER_API_KEY:?set REQUESTER_API_KEY (dn_live_/dn_test_)}"

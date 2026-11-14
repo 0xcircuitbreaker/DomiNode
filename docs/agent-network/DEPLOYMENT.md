@@ -301,6 +301,10 @@ Nodes whose verified egress is an anonymizer are classed `masked`
   `ROLE=gateway` it asks for the coordinator's public API hostname
   (`PROBE_API_HOST` in non-interactive runs). In every other case it prints a
   warning and leaves probes off.
+- `docker-compose.prod.yml` passes `PROBE_URL` to the gateway, defaulting to
+  `https://${DOMINUSNODE_DOMAIN}/v1/probe/echo`, so probes are on unless
+  `PROBES_DISABLED=true`. `docker-compose.selfhost.yml` passes the value
+  `install.sh` wrote to `.env`.
 
 ### 4b. Running a node behind Cloudflare WARP or a VPN
 
@@ -358,10 +362,10 @@ header:
 leave `TUNNEL_TRUSTED_PROXY_IPS` unset.
 
 **Self-host compose (`docker-compose.selfhost.yml`).** Caddy terminates TLS
-for the tunnel on `:8443` (same hostnames and certificates as the API) and
-reverse-proxies to `gateway:8443` with `transport http { proxy_protocol v2 }`.
+for the tunnel on `:9443` (same hostnames and certificates as the API) and
+reverse-proxies to `gateway:9443` with `transport http { proxy_protocol v2 }`.
 Caddy has a fixed address on the compose network (`172.29.53.2`), which is the
-only entry in `TUNNEL_TRUSTED_PROXY_IPS`; the gateway does not publish 8443
+only entry in `TUNNEL_TRUSTED_PROXY_IPS`; the gateway does not publish 9443
 itself. Channel binding is `none` in this setup (TLS ends at Caddy). With
 `TLS_MODE=off` the tunnel is plain `ws://` and must be fronted by your own TLS.
 
@@ -394,7 +398,7 @@ plaintext. Roll out: enable `PROXY_TLS_PORT`, move clients, then remove the
 
 **Breaking default:** any deployment with `NODE_ENV=production` and no
 `PROXY_TLS_PORT` now fails at gateway startup. `docker-compose.selfhost.yml`
-runs the TLS proxy on 8444 / 1443 with Caddy's certificate and
+runs the TLS proxy on 8443 / 1443 with Caddy's certificate and
 `PROXY_REQUIRE_TLS=true` (only `TLS_MODE=off` turns it off; see "Self-host
 gateway TLS proxy" below); `docker-compose.prod.yml` sets `PROXY_TLS_PORT`
 with the cert files.
@@ -637,27 +641,43 @@ gateway role and starts everything. `--no-start` restores the files only.
 Restore the coordinator key and pepper exactly: a new key strands every node
 that pins the old one, and a new pepper revokes every peppered API key.
 
-### Self-host gateway TLS proxy (8444 / 1443)
+### Self-host gateway TLS proxy (8443 / 1443)
 
 Agents send their API key to the gateway only over TLS. On `ROLE=all|gateway`
 with `TLS_MODE` `auto`, `internal` or `cloudflare`:
 
 | Port | Listener | Published |
 |---|---|---|
-| 8444 | HTTPS proxy (`PROXY_TLS_PORT`): `curl -x https://relay:$KEY@PROXY_HOST:8444 https://httpbin.org/ip` | yes (`PROXY_TLS_HOST_PORT`) |
+| 8443 | HTTPS proxy (`PROXY_TLS_PORT`): `curl -x https://relay:$KEY@PROXY_HOST:8443 https://httpbin.org/ip` | yes (`PROXY_TLS_HOST_PORT`) |
 | 1443 | SOCKS5 inside TLS (`SOCKS5_TLS_PORT`) | yes (`SOCKS5_TLS_HOST_PORT`) |
-| 8443 | node tunnel (Caddy, PROXY v2 to the gateway) | yes (Caddy) |
+| 9443 | node tunnel (Caddy, PROXY v2 to the gateway) | yes (Caddy, `TUNNEL_HOST_PORT`) |
 | 8080 / 1080 | plaintext HTTP / SOCKS5 | no: only with `TLS_MODE=off` or `PUBLISH_PLAINTEXT_PROXY=1` (`docker-compose.selfhost.plain.yml`); credentials are refused there unless `TLS_MODE=off` |
 
-8443 stays the node tunnel so existing nodes keep their URL; that is why the
-self-host TLS proxy is on 8444 and not on the 8443 used by
-`docker-compose.prod.yml`. The SDKs (`gatewayTls.port`) and the MCP server
-(`DOMINUSNODE_PROXY_URL=https://PROXY_HOST:8444`) default to 8443 and must be
-pointed at 8444 for a self-hosted gateway; `/api/proxy/config` (`tlsProxy`),
-the discovery document (`proxy.https`, listed first, and the example) and
-`coordinator.json` (`gateway.https_proxy`, `gateway.socks5_tls_proxy`, listed
-first) advertise the right port from `PROXY_PUBLIC_TLS_PORT` /
-`PROXY_PUBLIC_SOCKS5_TLS_PORT`.
+The HTTPS proxy is on 8443, the port the SDKs (`gatewayTls.port`) and the MCP
+server (`DOMINUSNODE_PROXY_URL=https://PROXY_HOST:8443`) default to, matching
+`docker-compose.prod.yml`. The node tunnel is on 9443 (the node agent takes
+its URL from `coordinator.json` `gateway.tunnel_url`, or
+`DN_NODE_GATEWAY_URL=wss://RELAY_HOST:9443/v1/tunnel`).
+`/api/proxy/config` (`tlsProxy`), the discovery document (`proxy.https`,
+listed first, and the example) and `coordinator.json`
+(`gateway.https_proxy`, `gateway.socks5_tls_proxy`) advertise the port from
+`PROXY_PUBLIC_TLS_PORT` / `PROXY_PUBLIC_SOCKS5_TLS_PORT`.
+
+`coordinator.json` lists the plaintext `gateway.http_proxy` /
+`gateway.socks5_proxy` only when they are published
+(`PROXY_PUBLISH_PLAINTEXT`; install.sh writes `PLAINTEXT_PROXY_PUBLISHED=1`
+for `TLS_MODE=off` or `PUBLISH_PLAINTEXT_PROXY=1`, otherwise 0;
+`docker-compose.prod.yml` sets it false because 8080/1080 are loopback-only
+there). Unset, plaintext is listed only when no TLS listener is advertised.
+
+**Upgrading an install from before this layout** (HTTPS proxy on 8444, node
+tunnel on 8443): re-run `install.sh`, open 9443 and close 8444 in the
+firewall, and point each node at the new tunnel URL
+(`wss://RELAY_HOST:9443/v1/tunnel`, re-run its setup against
+`coordinator.json` or set `DN_NODE_GATEWAY_URL`). Until then old nodes reach
+the HTTPS proxy on 8443 and fail the tunnel handshake. Agents configured for
+`:8444` move to the default `:8443`. Previously, an agent left on the default
+8443 sent its key to Caddy's tunnel site.
 
 **Certificate.** Caddy obtains and renews the certificate for `PROXY_HOST`
 (the installer adds a `PROXY_HOST` site block when no site block already
@@ -686,18 +706,18 @@ published and `PROXY_REQUIRE_TLS=false` (credentials in plaintext; the gateway
 logs warnings). Use it only behind your own TLS front end or for tests.
 
 **Firewall.** Open TCP 80 and 443 (ACME HTTP-01 and the site / cert host),
-8443 (node tunnel), 8444 (HTTPS proxy) and 1443 (SOCKS5 over TLS) on the
+9443 (node tunnel), 8443 (HTTPS proxy) and 1443 (SOCKS5 over TLS) on the
 gateway box. Close 8080/1080 unless you set `PUBLISH_PLAINTEXT_PROXY=1`.
-Example (ufw): `sudo ufw allow 80,443,8443,8444,1443/tcp`; firewalld:
-`sudo firewall-cmd --permanent --add-port={80,443,8443,8444,1443}/tcp && sudo firewall-cmd --reload`.
+Example (ufw): `sudo ufw allow 80,443,8443,9443,1443/tcp`; firewalld:
+`sudo firewall-cmd --permanent --add-port={80,443,8443,9443,1443}/tcp && sudo firewall-cmd --reload`.
 Docker-published ports bypass ufw's INPUT chain; the cloud provider's firewall
 is the reliable place to restrict them. `PROXY_HOST` must be DNS only (grey
 cloud) on Cloudflare.
 
 Verify after install:
-`openssl s_client -connect PROXY_HOST:8444 -servername PROXY_HOST -tls1_3 -groups X25519MLKEM768 </dev/null`
+`openssl s_client -connect PROXY_HOST:8443 -servername PROXY_HOST -tls1_3 -groups X25519MLKEM768 </dev/null`
 shows `Negotiated TLS1.3 group: X25519MLKEM768`, and
-`curl -x https://relay:$DOMINUSNODE_API_KEY@PROXY_HOST:8444 https://httpbin.org/ip`
+`curl -x https://relay:$DOMINUSNODE_API_KEY@PROXY_HOST:8443 https://httpbin.org/ip`
 returns an exit IP.
 
 ### Split self-host: ROLE, RELAY_HOST/PROXY_HOST, Cloudflare Tunnel
@@ -718,11 +738,11 @@ The installer picks compose profiles from two settings (stored in `.env`):
 `RELAY_HOST` and `PROXY_HOST` are the gateway's public names (for example
 `relay.dominusnode.com`, `proxy.dominusnode.com`). They feed
 `PROXY_PUBLIC_HOST` (advertised proxy endpoint), `COORD_TUNNEL_URL`
-(`wss://RELAY_HOST:8443/v1/tunnel` in coordinator.json) and the node tunnel
+(`wss://RELAY_HOST:9443/v1/tunnel` in coordinator.json) and the node tunnel
 URL. With `TLS_MODE=cloudflare` the installer refuses a `RELAY_HOST` or
 `PROXY_HOST` that is also a tunnel hostname: **proxy and relay traffic must
-never go through Cloudflare** (long-lived raw TCP/WebSocket on ports 8444, 1443,
-8443 and, when published, 8080/1080, which the tunnel's HTTP hostnames do not carry and Cloudflare's terms
+never go through Cloudflare** (long-lived raw TCP/WebSocket on ports 8443, 1443,
+9443 and, when published, 8080/1080, which the tunnel's HTTP hostnames do not carry and Cloudflare's terms
 do not allow for proxying). Point those DNS records (grey cloud, DNS only) at
 the box that runs the gateway.
 
@@ -792,7 +812,7 @@ pinned by digest. Bump the Caddy version, module tag and both digests together.
    one-shot (`caddy-dns-keys`, compose profile `dnscf`) copies the file into the
    `caddy_secrets` volume (0400, directory 0500), mounted read-only only by
    Caddy. The generated Caddyfile adds to every public-cert site block (site
-   hostnames with `TLS_MODE=auto`, `RELAY_HOST:8443`, `PROXY_HOST`):
+   hostnames with `TLS_MODE=auto`, `RELAY_HOST:9443`, `PROXY_HOST`):
 
    ```
    tls {
@@ -807,7 +827,7 @@ pinned by digest. Bump the Caddy version, module tag and both digests together.
    check TXT propagation against Cloudflare's public resolvers rather than a
    local or split-horizon resolver (the module's recommendation).
 4. Once certificates are issued you may close inbound 80/443 on a gateway-only
-   box (the gateway's 8443, 8444 and 1443 stay open). On a `TLS_MODE=auto` box
+   box (the gateway's 8443, 9443 and 1443 stay open). On a `TLS_MODE=auto` box
    that serves the site, 443 must stay open for visitors.
 
 Switching back: `ACME_CHALLENGE=http ./scripts/selfhost/install.sh` removes the

@@ -17,7 +17,7 @@ struct ClientConfig {
     int socks5_proxy_port = DEFAULT_SOCKS5_PROXY_PORT;
     /// TLS to the gateway (HTTPS proxy); build_url then defaults to https://. Default since 2.2:
     /// GatewayTls{} (port 8443): production gateways refuse credentials on plaintext 8080/1080.
-    /// Self-hosted coordinators usually publish 8444. std::nullopt selects plaintext (local dev only).
+    /// Self-hosted coordinators use 8443 as well. std::nullopt selects plaintext (local dev only).
     std::optional<GatewayTls> gateway_tls = GatewayTls{};
     std::optional<std::string> access_token;
     std::optional<std::string> refresh_token;

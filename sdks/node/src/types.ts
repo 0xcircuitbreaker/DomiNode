@@ -17,7 +17,7 @@ export interface DominusNodeConfig {
    * Talk TLS to the gateway (HTTPS proxy listener, PROXY_TLS_PORT): the API key in
    * Proxy-Authorization is encrypted on the wire. `true` uses port 8443 and the
    * system CA roots. Default (2.2+): on, port 8443 (self-hosted coordinators
-   * usually publish 8444: pass `{ port: 8444 }`). Pass `false` for plaintext
+   * use 8443 too). Pass `false` for plaintext
    * 8080/1080 (local dev only; production gateways refuse credentials there).
    */
   gatewayTls?: boolean | GatewayTlsConfig;

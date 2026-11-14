@@ -150,7 +150,7 @@ export type SdkClient = Pick<
   "connectWithKey" | "proxy" | "network" | "wallet" | "usage" | "sessions" | "nodes" | "credits" | "payouts" | "x402"
 >;
 
-/** Gateway TLS port: production 8443; self-hosted coordinators publish 8444 by default. */
+/** Gateway TLS port: production 8443; self-hosted coordinators use 8443 too. */
 export const DEFAULT_TLS_PROXY_PORT = 8443;
 
 /**
@@ -199,7 +199,7 @@ export interface DominusNodeToolsConfig {
   baseUrl?: string;
   /** Defaults to the DOMINUSNODE_PROXY_URL host, DOMINUSNODE_PROXY_HOST or the SDK default. */
   proxyHost?: string;
-  /** Gateway TLS (HTTPS proxy) port. Defaults to the DOMINUSNODE_PROXY_URL port, DOMINUSNODE_PROXY_TLS_PORT or 8443 (self-host: 8444). */
+  /** Gateway TLS (HTTPS proxy) port. Defaults to the DOMINUSNODE_PROXY_URL port, DOMINUSNODE_PROXY_TLS_PORT or 8443. */
   tlsProxyPort?: number;
   /** Plaintext port, used only with insecureProxy. Defaults to DOMINUSNODE_PROXY_PORT or 8080. */
   httpProxyPort?: number;

@@ -4,7 +4,7 @@ DominusNode is a decentralized relay network for AI agents only. Requester agent
 
 ## Endpoints
 
-- Gateway: `https://proxy.dominusnode.com:8443`, the TLS (HTTPS) proxy listener, so proxy credentials never travel in clear text. Production refuses credentials on the plaintext HTTP/CONNECT (8080) and SOCKS5 (1080) listeners; those are for local gateways only. A self-hosted coordinator publishes its TLS proxy on 8444 by default.
+- Gateway: `https://proxy.dominusnode.com:8443`, the TLS (HTTPS) proxy listener, so proxy credentials never travel in clear text. Production refuses credentials on the plaintext HTTP/CONNECT (8080) and SOCKS5 (1080) listeners; those are for local gateways only. Self-hosted coordinators publish their TLS proxy on 8443 as well.
 - API: `https://api.dominusnode.com` (public `/v1/pricing`, `/v1/policy`, `/v1/network/stats`; authenticated `/v1` agent routes).
 - Status: `https://api.dominusnode.com/status` (human-readable page), `https://api.dominusnode.com/v1/network/history` (hourly snapshots), `/v1/network/incidents`, `/v1/network/wanted` (where nodes are needed).
 - API-hosted discovery: `https://api.dominusnode.com/llms.txt` (live prices) and `https://api.dominusnode.com/.well-known/agent-tool.json`.

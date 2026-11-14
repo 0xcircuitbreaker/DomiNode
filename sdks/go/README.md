@@ -8,7 +8,7 @@ Implements the language-neutral contract in `sdks/SDK_SURFACE.md`
 go get github.com/0xcircuitbreaker/DomiNode/sdks/go/v2@v2.3.0
 ```
 
-Defaults: API `https://api.dominusnode.com`, relay gateway `proxy.dominusnode.com` (TLS to the gateway's HTTPS proxy on :8443 by default since 2.2; SOCKS5 :1080). Production gateways refuse credentials on plaintext 8080/1080. A self-hosted coordinator publishes its TLS proxy on 8444: `GatewayTLS: &dominusnode.GatewayTLS{Port: 8444}`. Plaintext 8080 for local development: `GatewayTLS: &dominusnode.GatewayTLS{Disabled: true}`. A refused CONNECT carries the gateway's `X-DominusNode-Error` code (e.g. INSUFFICIENT_BALANCE, NO_NODES_AVAILABLE) in `pe.Code` / `pe.Details["retryAfter"]`. Both can be overridden in the client configuration.
+Defaults: API `https://api.dominusnode.com`, relay gateway `proxy.dominusnode.com` (TLS to the gateway's HTTPS proxy on :8443 by default since 2.2; SOCKS5 :1080). Production gateways refuse credentials on plaintext 8080/1080. Self-hosted coordinators use 8443 as well. Plaintext 8080 for local development: `GatewayTLS: &dominusnode.GatewayTLS{Disabled: true}`. A refused CONNECT carries the gateway's `X-DominusNode-Error` code (e.g. INSUFFICIENT_BALANCE, NO_NODES_AVAILABLE) in `pe.Code` / `pe.Details["retryAfter"]`. Both can be overridden in the client configuration.
 
 `go get` resolves through proxy.golang.org, which only serves public
 repositories. While the DomiNode repository is private, set
