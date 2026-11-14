@@ -90,11 +90,17 @@ export function signJwt(payload: JwtPayload): string {
   return jwt.sign(payload, getJwtSecret(), { algorithm: "HS256", expiresIn: ACCESS_TOKEN_EXPIRY });
 }
 
-/** Sign a long-lived refresh token (7 days) */
+/**
+ * Sign a long-lived refresh token (7 days). A random jti makes every
+ * issuance unique: without it, two logins in the same second produce the
+ * same token (same payload + iat), and the stored hash collides with the
+ * unique index on refresh_tokens.token_hash.
+ */
 export function signRefreshToken(payload: JwtPayload): string {
   return jwt.sign({ ...payload, type: "refresh" }, getRefreshSecret(), {
     algorithm: "HS256",
     expiresIn: REFRESH_TOKEN_EXPIRY,
+    jwtid: crypto.randomUUID(),
   });
 }
 

@@ -1,0 +1,32 @@
+name: Frontend image
+
+# Builds the admin UI image exactly as docker-compose.selfhost.yml does, so a
+# type error that only `tsc -b && vite build` sees fails the PR, not the deploy.
+on:
+  pull_request:
+    paths:
+      - "packages/frontend/**"
+      - "infra/docker/**"
+      - "infra/nginx/**"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/frontend-image.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: frontend-image-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  docker-build:
+    name: Frontend Docker build (self-host)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - name: Build frontend image
+        run: >-
+          docker build -f infra/docker/frontend.Dockerfile
+          --build-arg NGINX_CONF=infra/nginx/selfhost.conf
+          -t dominusnode-frontend:ci .

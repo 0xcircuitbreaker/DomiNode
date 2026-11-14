@@ -96,7 +96,8 @@ describe("LaunchPage", () => {
     renderPage(<LaunchPage />, "/admin/launch");
     await userEvent.click(await screen.findByRole("button", { name: "Claw back" }));
     await userEvent.type(await screen.findByLabelText(/reason/i), "sybil cluster");
-    await userEvent.click(screen.getAllByRole("button", { name: "Claw back" }).at(-1)!);
+    const clawBack = screen.getAllByRole("button", { name: "Claw back" });
+    await userEvent.click(clawBack[clawBack.length - 1]);
     await waitFor(() => expect(api.clawbackGenesis).toHaveBeenCalledWith(UUID1, "sybil cluster"));
   });
 

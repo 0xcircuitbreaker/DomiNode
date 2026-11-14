@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
 import jwt from "jsonwebtoken";
 import {
   generateApiKey,
@@ -178,6 +178,23 @@ describe("auth", () => {
       expect(decoded!.userId).toBe("user-456");
       expect(decoded!.email).toBe("refresh@test.com");
       expect(decoded!.iat).toBeDefined();
+    });
+
+    it("issues a distinct refresh token for each call in the same second", () => {
+      vi.useFakeTimers();
+      try {
+        vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
+        const payload = { userId: "user-456", email: "refresh@test.com" };
+        const a = signRefreshToken(payload);
+        const b = signRefreshToken(payload);
+        expect(a).not.toBe(b);
+        const pa = createTokenPair(payload);
+        const pb = createTokenPair(payload);
+        expect(pa.refreshToken).not.toBe(pb.refreshToken);
+        expect(verifyRefreshToken(a)).not.toBeNull();
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     it("should not verify a refresh token as an access token", () => {
