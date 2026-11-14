@@ -110,7 +110,9 @@ DOMINUSNODE_MCP_HTTP_PORT=3333 npx -y @dominusnode/mcp-server   # or: npx -y @do
   it; another key gets `404` for that session id. The key is never logged and is scrubbed from every
   response body.
 - The tool set is the same 65-tool authenticated set as stdio. `DOMINUSNODE_API_KEY` must be unset in
-  remote mode (the operator key never serves remote agents).
+  remote mode (the operator key never serves remote agents). `DOMINUSNODE_WALLET_KEY_FILE` and
+  `DOMINUSNODE_PAYOUT_WALLET_KEY_FILE` are ignored for remote sessions, so the signing tools
+  (node register, withdraw, payout wallet) refuse; remote agents sign with their own SDK or stdio server.
 - Binds `127.0.0.1` by default. To expose it, set `DOMINUSNODE_MCP_HTTP_HOST=0.0.0.0` behind a TLS
   reverse proxy; Bearer keys must not cross the network in clear.
 - Requests carrying an `Origin` header are refused unless listed in `DOMINUSNODE_MCP_ALLOWED_ORIGINS`.

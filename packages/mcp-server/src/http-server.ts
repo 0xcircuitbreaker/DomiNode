@@ -55,8 +55,7 @@ export function defaultSessionFactory(base: McpConfig): SessionFactory {
     const tokenManager = new TokenManager(base.apiUrl);
     await tokenManager.initialize(apiKey);
     const httpClient = new HttpClient(base.apiUrl, tokenManager, base.mcpAgentSecret);
-    // Per-session config copy: the fetch tool reads config.apiKey, so it must be this agent's key.
-    const config: McpConfig = { ...base, apiKey };
+    const config = sessionConfig(base, apiKey);
     const server = new McpServer({ name: "dominusnode", version: PACKAGE_VERSION });
     registerAuthenticatedTools(server, httpClient, config);
     return {
@@ -67,6 +66,15 @@ export function defaultSessionFactory(base: McpConfig): SessionFactory {
       },
     };
   };
+}
+
+/**
+ * Per-session config copy. The fetch tool reads config.apiKey, so it must be this agent's key.
+ * The operator's signing key files are dropped: a remote agent must never sign node
+ * registrations, withdrawals or payout-wallet changes with the operator's wallet.
+ */
+export function sessionConfig(base: McpConfig, apiKey: string): McpConfig {
+  return { ...base, apiKey, walletKeyFile: null, payoutWalletKeyFile: null };
 }
 
 export function hashKey(apiKey: string): Buffer {

@@ -3,6 +3,7 @@ import type { AddressInfo } from "node:net";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import {
+  sessionConfig,
   createRemoteMcpServer,
   bearerKey,
   KeyRateLimiter,
@@ -285,5 +286,20 @@ describe("defaultSessionFactory", () => {
     expect(base.apiKey).toBeNull();
     s.dispose();
     init.mockRestore();
+  });
+});
+
+describe("sessionConfig", () => {
+  it("binds the agent key and drops the operator's signing key files", () => {
+    const base = {
+      apiKey: null,
+      walletKeyFile: "/operator/wallet.key",
+      payoutWalletKeyFile: "/operator/payout.key",
+    } as unknown as Parameters<typeof sessionConfig>[0];
+    const c = sessionConfig(base, "dn_live_agentkey123");
+    expect(c.apiKey).toBe("dn_live_agentkey123");
+    expect(c.walletKeyFile).toBeNull();
+    expect(c.payoutWalletKeyFile).toBeNull();
+    expect(base.walletKeyFile).toBe("/operator/wallet.key");
   });
 });
