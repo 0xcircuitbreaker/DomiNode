@@ -13,6 +13,7 @@ extension use these exact shapes.
 | `GET /v1/policy` | public | [Public policy and pricing](#public-policy-and-pricing) |
 | `GET /v1/pricing` | public | [Public policy and pricing](#public-policy-and-pricing) |
 | `GET /v1/network/stats` | public | [Public network data](#public-network-data-no-auth-cached-120-reqmin-per-ip) |
+| `GET /v1/status` | public | [Public network data](#public-network-data-no-auth-cached-120-reqmin-per-ip) |
 | `GET /v1/network/history` | public | same |
 | `GET /v1/network/incidents` | public | same |
 | `GET /v1/network/wanted` | public | same |
@@ -61,6 +62,16 @@ data. Authenticated `GET /api/proxy/status` adds endpoints and session counts.
 - **Pagination:** list routes return `nextCursor` (`null` on the last page);
   pass it back as `?cursor=` (opaque). `limit`/`offset` still work; `offset` is
   ignored when `cursor` is given. A malformed cursor is `400 {code:"INVALID_CURSOR"}`.
+- **Operator pauses:** an admin kill switch refuses new work with `503`,
+  `Retry-After` and `X-DominusNode-Error`: `SIGNUPS_PAUSED` (new wallet account),
+  `API_KEYS_PAUSED` (new user/team key), `PAYOUTS_PAUSED` (withdraw + challenge),
+  `PAYMENT_RAIL_PAUSED` (Tempo / NOWPayments top-up; x402 / MPP on the gateway,
+  refused before the payment is verified, so nothing is charged). On the relay
+  gateway (HTTP header / SOCKS reply): `RELAY_PAUSED` (all new sessions) and
+  `EXIT_CLASS_PAUSED` (the requested `class-` is paused; unflagged requests just
+  skip paused classes). `KILL_SWITCH_UNAVAILABLE` means the service could not
+  read its control state and refuses all of the above until it can. Retry later;
+  work already in flight is not interrupted. See ADMIN_API.md §17.
 - **Rate limits (per user):** reads 120/min; mutations 30/h; signing challenges 30/h
   (plus at most 10 outstanding); reports 60/h. Over the limit: `429 {code:"RATE_LIMITED"}`.
 
@@ -372,6 +383,7 @@ Admin-published changelog / news feed for policy, pricing, payment-rail, API and
 ### Public network data (no auth, cached, 120 req/min per IP)
 | Route | Response |
 |---|---|
+| `GET /v1/status` | `{status: operational|degraded|down|unknown, coordinator {status, policyVersion}, gateway {status, instancesOnline, lastHeartbeatAt}, availability {last24h, last7d}, nodes {onlineNodes, byClass, byCountry, otherCountries, countriesAvailable, suppressed?}, incidents [{title, body, severity, status, startedAt, resolvedAt, updatedAt}], generatedAt}`. Availability is the percent of whole UTC minutes in the window (from the first heartbeat on record) in which at least one gateway instance heartbeated; `null` before any. Node figures are the same k-anonymous aggregates as `/v1/network/stats`. No IPs, node ids, gateway instance ids or incident ids. `Cache-Control: public, max-age=30`. |
 | `GET /v1/network/stats` | Adds `seed {online, paidBytes24h}` and `community {online, paidBytes24h}` (operator-run vs community nodes). |
 | `GET /v1/network/history?hours=168` | `{hours, snapshots: [{hour, onlineNodes, seedOnline, communityOnline, countries, asns, successRateBps, p50Ms, p95Ms, paidBytes24h, seedPaidBytes24h, communityPaidBytes24h, byClass, suppressed}]}` (hours 1–9600). |
 | `GET /v1/network/incidents?limit=20` | `{incidents: [{id, title, body, severity, status, startedAt, resolvedAt, updatedAt}]}` |

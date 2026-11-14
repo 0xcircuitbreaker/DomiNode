@@ -24,6 +24,8 @@ export interface SelectOpts {
   port: number;
   sticky?: string;
   excludeNodeIds?: string[];
+  /** Exit classes with new sessions paused (admin kill switch). */
+  excludeIpClasses?: readonly string[];
   /** Only operator-run seed nodes (starter-credit sessions during month one). */
   seedOnly?: boolean;
   /** Addresses validateTarget resolved for targetHost (hairpin check). */
@@ -104,6 +106,7 @@ export class NodeSelector {
     if (o.ipClass && n.ipClass !== o.ipClass) return false;
     // Masked (anonymizer) exits serve only explicit class-masked requests.
     if (!o.ipClass && n.ipClass === "masked") return false;
+    if (o.excludeIpClasses && o.excludeIpClasses.includes(n.ipClass)) return false;
     if (o.seedOnly && n.operatorRun !== true) return false;
     // Self-dealing: owner, wallet, team or the requester's /24.
     if (n.ownerUserId === o.requesterUserId) return false;

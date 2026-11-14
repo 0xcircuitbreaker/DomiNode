@@ -32,6 +32,9 @@ describe("launch jobs", () => {
     expect(deps.takeSnapshot).toHaveBeenCalledWith({ p50Ms: 110, p95Ms: 900 });
     expect(deps.purgeSnapshots).toHaveBeenCalledWith(400);
     expect(deps.purgeUnmetDemand).toHaveBeenCalledWith(90);
+    const purgeGatewayHeartbeats = vi.fn().mockResolvedValue(5);
+    await runNetworkSnapshot({ ...deps, purgeGatewayHeartbeats });
+    expect(purgeGatewayHeartbeats).toHaveBeenCalledTimes(1);
   });
 
   it("starter-expiry loops full batches only", async () => {

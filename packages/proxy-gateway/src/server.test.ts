@@ -128,7 +128,8 @@ vi.mock("@dominusnode/shared", async (importOriginal) => ({
   },
 }));
 
-import { startProxyServer } from "./server.js";
+import { startProxyServer, paidRailBlock } from "./server.js";
+import { KillSwitchView } from "@dominusnode/shared";
 import { NodeSelectionError } from "./node-tunnel/selector.js";
 import { TunnelOpenError } from "./node-tunnel/mux.js";
 import { _resetPolicyEnforcer } from "./policy-enforcer.js";
@@ -1038,5 +1039,21 @@ describe("gateway X-Request-Id on raw CONNECT responses", () => {
     const once = withRequestIdHeader("HTTP/1.1 200 OK\r\n\r\n", "a");
     expect(withRequestIdHeader(once, "b")).toBe(once);
     expect(withRequestIdHeader("not http", "a")).toBe("not http");
+  });
+});
+
+describe("paidRailBlock (x402 / MPP kill switches)", () => {
+  const relayWith = (keys: string[] | null) => ({
+    killSwitches: () => new KillSwitchView(keys === null ? null : { engaged: new Set(keys as never[]), drainedNodeIds: new Set() }),
+  }) as never;
+  it("refuses a paused x402 rail before verification, but not MPP", () => {
+    expect(paidRailBlock(relayWith(["rail_x402"]), { "x-payment": "abc" })?.code).toBe("PAYMENT_RAIL_PAUSED");
+    expect(paidRailBlock(relayWith(["rail_x402"]), { authorization: "Payment x" })).toBeNull();
+  });
+  it("refuses a paused MPP rail", () => {
+    expect(paidRailBlock(relayWith(["rail_mpp"]), { authorization: "Payment x" })?.code).toBe("PAYMENT_RAIL_PAUSED");
+  });
+  it("fails closed when switch state is unreadable", () => {
+    expect(paidRailBlock(relayWith(null), { "x-payment": "abc" })?.code).toBe("KILL_SWITCH_UNAVAILABLE");
   });
 });

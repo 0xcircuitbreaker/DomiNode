@@ -2300,3 +2300,37 @@ UPDATE relay_settle_retries
    SET payload = (payload - 'requesterWallet' - 'usageTargetHost') || '{"destHost":"redacted","requesterWallet":null}'::jsonb
  WHERE status IN ('done','dead') AND payload->>'destHost' IS DISTINCT FROM 'redacted';
 -- ═══ end fix/a7-privacy (review) ═══
+
+-- ─── Public status: gateway liveness heartbeats (availability %) ───
+-- One row per gateway instance per UTC minute it was alive. Public output is
+-- only the share of minutes with any live instance (24h / 7d); instance ids
+-- are never published. Purged by the network-snapshot job after 8 days.
+CREATE TABLE IF NOT EXISTS gateway_heartbeats (
+  minute       TIMESTAMPTZ NOT NULL,
+  instance_id  TEXT NOT NULL CHECK (length(instance_id) BETWEEN 1 AND 64),
+  PRIMARY KEY (minute, instance_id)
+);
+
+-- ═══ feat/kill-switches: admin kill switches (idempotent) ═══
+-- One row per switch; engaged = new work of that kind is refused. Every change
+-- writes an audit_events row (kill_switch_set) in the same admin transaction.
+CREATE TABLE IF NOT EXISTS kill_switches (
+  key TEXT PRIMARY KEY CHECK (key IN ('relay','relay_residential','relay_mobile','relay_dc','relay_masked',
+    'signups','api_keys','payouts','rail_x402','rail_mpp','rail_tempo','rail_nowpayments')),
+  engaged BOOLEAN NOT NULL DEFAULT false,
+  reason TEXT CHECK (reason IS NULL OR length(reason) BETWEEN 1 AND 500),
+  updated_by UUID REFERENCES users(id) ON DELETE SET NULL,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+INSERT INTO kill_switches (key) VALUES
+  ('relay'),('relay_residential'),('relay_mobile'),('relay_dc'),('relay_masked'),
+  ('signups'),('api_keys'),('payouts'),('rail_x402'),('rail_mpp'),('rail_tempo'),('rail_nowpayments')
+ON CONFLICT (key) DO NOTHING;
+-- Drained nodes get no new sessions; open streams finish. Row deleted = undrained.
+CREATE TABLE IF NOT EXISTS node_drains (
+  node_id UUID PRIMARY KEY REFERENCES nodes(id) ON DELETE CASCADE,
+  reason TEXT NOT NULL CHECK (length(reason) BETWEEN 1 AND 500),
+  created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+-- ═══ end feat/kill-switches ═══

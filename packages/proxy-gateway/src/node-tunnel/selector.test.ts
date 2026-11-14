@@ -46,6 +46,11 @@ describe("NodeSelector", () => {
     const { sel: only } = make([node({ nodeId: "self", ip: "203.0.113.7" })]);
     expect(() => only.select({ ...base, targetHost: "203.0.113.7" })).toThrow(NodeSelectionError);
   });
+  it("excludeIpClasses skips nodes of paused exit classes (kill switch)", () => {
+    const { sel } = make([node({ nodeId: "dc", ipClass: "dc" }), node({ nodeId: "res", ipClass: "residential" })]);
+    for (let i = 0; i < 5; i++) expect(sel.select({ ...base, excludeIpClasses: ["dc"] }).nodeId).toBe("res");
+    expect(() => sel.select({ ...base, excludeIpClasses: ["dc", "residential"] })).toThrow(NodeSelectionError);
+  });
   it("seedOnly restricts selection to operator-run nodes", () => {
     const { sel } = make([node({ nodeId: "community" }), node({ nodeId: "seed", operatorRun: true })]);
     for (let i = 0; i < 5; i++) expect(sel.select({ ...base, seedOnly: true }).nodeId).toBe("seed");

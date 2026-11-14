@@ -2,7 +2,7 @@ import type * as net from "node:net";
 import dotenv from "dotenv";
 dotenv.config();
 
-import { createLogger, closePool, getPool, usageRepo, agenticWalletRepo, connectWithRetry, nodeRepo, policyRepo, nodeCreditRepo, retentionRepo, tierRepo, payoutRepo, relayChargeRepo, relaySettleRetryRepo, reportReputationRepo, collusionRepo, starterCreditRepo, contributionRepo, genesisRepo, networkStatusRepo, getProxyPorts, assertDistinctProxyPorts, reportTlsCapability, apiKeyPepper } from "@dominusnode/shared";
+import { createLogger, closePool, getPool, usageRepo, agenticWalletRepo, connectWithRetry, nodeRepo, policyRepo, nodeCreditRepo, retentionRepo, tierRepo, payoutRepo, relayChargeRepo, relaySettleRetryRepo, reportReputationRepo, collusionRepo, starterCreditRepo, contributionRepo, killSwitchRepo, killSwitches, genesisRepo, networkStatusRepo, getProxyPorts, assertDistinctProxyPorts, reportTlsCapability, apiKeyPepper } from "@dominusnode/shared";
 import type { ActivePolicy } from "@dominusnode/shared";
 import { startProxyServer } from "./server.js";
 import { geoAvailable, initGeoCheck, lookupPeerGeo, classifyEgressIp } from "./geo-check.js";
@@ -143,6 +143,9 @@ async function main(): Promise<void> {
   let policy: ActivePolicy = await policyRepo.getActivePolicy();
   const getPolicy = (): ActivePolicy => policy;
 
+  // Admin kill switches (ADMIN_API.md §17): polled, fail closed when stale.
+  const killSwitchCache = await killSwitchRepo.startProcessCache(process.env, log);
+
   // ─── Node tunnel server + registry + selector ────────────────────
   await initGeoCheck();
   const isProduction = process.env["NODE_ENV"] === "production";
@@ -151,7 +154,7 @@ async function main(): Promise<void> {
   log.info("API key hashing", { peppered: apiKeyPepper() !== null });
   const asnDbOptional = process.env["ASN_DB_OPTIONAL"] === "true";
   if (!geoAvailable()) log.warn("geo database unavailable: public peers and destinations are refused", { asnRequired: isProduction && !asnDbOptional });
-  const shared = installSharedLimits(log);
+  const shared = installSharedLimits(log, undefined, makeInstanceId(), networkStatusRepo.recordGatewayHeartbeat);
   const registry = new NodeRegistry();
   registry.startSweep();
   const selector = new NodeSelector(registry, { getPolicy: () => policy.body });
@@ -259,6 +262,7 @@ async function main(): Promise<void> {
   const relay = {
     selector, getPolicy: () => policy.body, nodeCount: () => registry.size,
     onNodeFailure: (nodeId: string) => registry.recordFailure(nodeId),
+    killSwitches: () => killSwitchCache.current(),
   };
 
   // Reputation, per-node daily stats and today's earnings come from settled
@@ -342,6 +346,7 @@ async function main(): Promise<void> {
     for (const s of tlsServers) s.close();
     certWatch?.stop();
     clearInterval(policyInterval);
+    killSwitchCache.stop();
     clearInterval(recoveryInterval);
     connectProbes?.stop();
     await Promise.all(jobs.map((j) => j.stop().catch(() => {})));
@@ -511,6 +516,7 @@ function startJobs(registry: NodeRegistry, getPolicy: () => ActivePolicy): Job[]
       takeSnapshot: networkStatusRepo.takeSnapshot,
       purgeSnapshots: networkStatusRepo.purgeSnapshots,
       purgeUnmetDemand: networkStatusRepo.purgeUnmetDemand,
+      purgeGatewayHeartbeats: networkStatusRepo.purgeGatewayHeartbeats,
       snapshotRetentionDays: envInt(process.env, "NETWORK_SNAPSHOT_RETENTION_DAYS", 400, 7, 3650),
       unmetRetentionDays: envInt(process.env, "UNMET_DEMAND_RETENTION_DAYS", 90, 7, 3650),
     },
@@ -558,7 +564,8 @@ function startJobs(registry: NodeRegistry, getPolicy: () => ActivePolicy): Job[]
     jobs.push(payoutsJob.start({
       pool, logger: jobLog, intervalMs: envInt(process.env, "PAYOUT_JOB_INTERVAL_MS", 86_400_000, 3_600_000, 7 * 86_400_000),
       deps: {
-        enabled: payoutRepo.payoutsEnabled,
+        // Kill switch "payouts" (or unreadable switch state) pauses the whole run.
+        enabled: () => payoutRepo.payoutsEnabled() && !killSwitches().engaged("payouts"),
         loadSdn: () => loadSdnFile(process.env["PAYOUT_SDN_FILE"]),
         listAutoCandidates: () => payoutRepo.listAutoPayoutCandidates(),
         requestWithdraw: payoutRepo.requestWithdraw,

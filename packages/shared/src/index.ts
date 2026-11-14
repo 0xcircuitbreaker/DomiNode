@@ -128,6 +128,8 @@ export * as agentSecretRepo from "./repositories/agent-secret-repo.js";
 export type { AgentSecret, GeneratedAgentSecret } from "./repositories/agent-secret-repo.js";
 
 export * as referralRepo from "./repositories/referral-repo.js";
+export * as killSwitchRepo from "./repositories/kill-switch-repo.js";
+export * from "./kill-switches.js";
 export type {
   ReferralCode,
   ReferralRedemption,

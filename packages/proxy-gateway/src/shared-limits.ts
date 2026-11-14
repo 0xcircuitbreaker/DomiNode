@@ -27,13 +27,20 @@ export function installSharedLimits(
   log: { warn(msg: string, meta?: Record<string, unknown>): void },
   repo: typeof relayLimitsRepo = relayLimitsRepo,
   instanceId = makeInstanceId(),
+  /** Optional liveness sink (public status availability); called at start and every heartbeat. */
+  alive?: (instanceId: string) => Promise<void>,
 ): SharedLimits {
   const errMeta = (op: string, err: unknown) => ({ op, error: err instanceof Error ? err.message.slice(0, 100) : "unknown" });
   setSharedLimitStore({
     reserve: (i) => repo.reserveRequester({ ...i, instanceId }),
     settle: (userId, release, settled) => repo.settleRequester(userId, instanceId, release, settled),
   }, (op, err) => log.warn("shared limit store error", errMeta(op, err)));
+  const markAlive = () => {
+    alive?.(instanceId).catch((err) => log.warn("gateway liveness heartbeat failed", errMeta("alive", err)));
+  };
+  markAlive();
   const hb = setInterval(() => {
+    markAlive();
     repo.heartbeat(instanceId).catch((err) => log.warn("shared limit heartbeat failed", errMeta("heartbeat", err)));
   }, HEARTBEAT_MS);
   hb.unref();

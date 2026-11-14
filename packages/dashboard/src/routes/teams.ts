@@ -10,6 +10,7 @@ import {
   userRepo,
 } from "@dominusnode/shared";
 import { requireAuth, type AuthenticatedRequest } from "../middleware/auth.js";
+import { refusedBySwitch } from "../helpers/kill-switch.js";
 import { agentAwareRateLimit } from "../helpers/agent-rate-limit.js";
 
 const router = Router();
@@ -809,6 +810,7 @@ router.post("/invites/:token/accept", inviteLimiter, async (req, res) => {
 // POST /api/teams/:id/keys — Create team API key
 router.post("/:id/keys", financialLimiter, async (req, res) => {
   try {
+    if (refusedBySwitch(res, "api_keys")) return;
     const { userId } = (req as unknown as AuthenticatedRequest).user;
 
     // Require verified email before creating team API keys

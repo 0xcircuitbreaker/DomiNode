@@ -1,7 +1,7 @@
 import dotenv from "dotenv";
 dotenv.config();
 
-import { createLogger, closePool, retentionRepo, connectWithRetry, reportTlsCapability, apiKeyPepper } from "@dominusnode/shared";
+import { createLogger, closePool, retentionRepo, connectWithRetry, killSwitchRepo, reportTlsCapability, apiKeyPepper } from "@dominusnode/shared";
 import { startApiServer } from "./server.js";
 import { startOpsAlerts } from "./ops-alerts.js";
 
@@ -70,6 +70,9 @@ async function start(): Promise<void> {
 
   // Ensure database is reachable before accepting requests
   await connectWithRetry();
+
+  // Admin kill switches (ADMIN_API.md §17): polled, fail closed when stale.
+  await killSwitchRepo.startProcessCache(process.env, log);
 
   // Fails startup on a malformed or SSRF-rejected OPS_ALERT_WEBHOOKS entry.
   const opsAlerter = await startOpsAlerts();

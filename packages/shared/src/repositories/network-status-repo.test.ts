@@ -1,7 +1,9 @@
 import { describe, it, expect, vi } from "vitest";
 
 vi.mock("../db.js", () => ({ query: vi.fn() }));
-import { kAnonymize } from "./network-status-repo.js";
+import { kAnonymize, availabilityBps, getGatewayLiveness, recordGatewayHeartbeat, purgeGatewayHeartbeats } from "./network-status-repo.js";
+import { query } from "../db.js";
+const q = vi.mocked(query);
 
 const base = { onlineNodes: 0, seedOnline: 0, communityOnline: 0, paidBytes24h: "0", seedPaidBytes24h: "0", communityPaidBytes24h: "0", byClass: {} };
 
@@ -49,5 +51,39 @@ describe("kAnonymize", () => {
     const { communityPaidNodes24h: _n, ...pub } = x;
     expect(r).toMatchObject(pub);
     expect(r.suppressed).toEqual([]);
+  });
+});
+
+describe("gateway liveness", () => {
+  it("availabilityBps clamps and returns null without a window", () => {
+    expect(availabilityBps(1439, 1440)).toBe(9993);
+    expect(availabilityBps(1440, 1440)).toBe(10000);
+    expect(availabilityBps(2000, 1440)).toBe(10000);
+    expect(availabilityBps(0, 0)).toBeNull();
+    expect(availabilityBps(Number.NaN, 10)).toBeNull();
+  });
+
+  it("records one row per instance per minute and rejects bad ids", async () => {
+    q.mockReset().mockResolvedValue({ rows: [], rowCount: 1 } as never);
+    await recordGatewayHeartbeat("gw:1:abcd");
+    expect(String(q.mock.calls[0]![0])).toContain("date_trunc('minute', now())");
+    expect(String(q.mock.calls[0]![0])).toContain("ON CONFLICT (minute, instance_id) DO NOTHING");
+    await recordGatewayHeartbeat("");
+    await recordGatewayHeartbeat("x".repeat(65));
+    expect(q).toHaveBeenCalledTimes(1);
+    expect(await purgeGatewayHeartbeats()).toBe(1);
+    expect(q.mock.calls[1]![1]).toEqual([8]);
+  });
+
+  it("maps the liveness query without exposing instance ids", async () => {
+    const last = new Date("2026-11-14T10:00:00Z");
+    q.mockReset().mockResolvedValue({ rows: [{ online: "2", last, up24: "1439", tot24: "1440", up7: "0", tot7: "0" }] } as never);
+    expect(await getGatewayLiveness()).toEqual({ instancesOnline: 2, lastHeartbeatAt: last, availability24hBps: 9993, availability7dBps: null });
+    const sql = String(q.mock.calls[0]![0]);
+    expect(sql).not.toMatch(/SELECT \*/);
+    expect(sql).toContain("COUNT(DISTINCT instance_id)");
+    expect(sql).toContain("COALESCE(e.first, e.e)");
+    q.mockResolvedValue({ rows: [] } as never);
+    expect(await getGatewayLiveness()).toEqual({ instancesOnline: 0, lastHeartbeatAt: null, availability24hBps: null, availability7dBps: null });
   });
 });

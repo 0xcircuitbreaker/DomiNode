@@ -226,6 +226,7 @@ function IncidentsCard({ onMsg }: { onMsg: (m: string) => void }) {
   const [title, setTitle] = useState("");
   const [severity, setSeverity] = useState("minor");
   const [err, setErr] = useState<string | null>(null);
+  const [remove, setRemove] = useState<string | null>(null);
   const setStatus = async (i: Incident, status: string) => {
     try { await launchApi.updateIncident(i.id, { status }); list.refetch(); onMsg(`Incident marked ${status}.`); } catch (e) { setErr(errText(e)); }
   };
@@ -248,13 +249,19 @@ function IncidentsCard({ onMsg }: { onMsg: (m: string) => void }) {
           { key: "s", header: "Severity", render: (i) => <Badge>{i.severity}</Badge> },
           { key: "st", header: "Status", render: (i) => <Badge>{i.status}</Badge> },
           { key: "d", header: "Started", render: (i) => fmtDate(i.startedAt) },
-          { key: "x", header: <span className="sr-only">Actions</span>, render: (i) => i.status === "resolved" ? fmtDate(i.resolvedAt) : (
-            <span className="flex gap-1">
-              <button type="button" className="btn-secondary !py-1 text-xs" onClick={() => void setStatus(i, "monitoring")}>Monitoring</button>
-              <button type="button" className="btn-secondary !py-1 text-xs" onClick={() => void setStatus(i, "resolved")}>Resolve</button>
+          { key: "x", header: <span className="sr-only">Actions</span>, render: (i) => (
+            <span className="flex items-center gap-1">
+              {i.status === "resolved" ? <span>{fmtDate(i.resolvedAt)}</span> : (<>
+                <button type="button" className="btn-secondary !py-1 text-xs" onClick={() => void setStatus(i, "monitoring")}>Monitoring</button>
+                <button type="button" className="btn-secondary !py-1 text-xs" onClick={() => void setStatus(i, "resolved")}>Resolve</button>
+              </>)}
+              <button type="button" className="btn-secondary !py-1 text-xs" aria-label={`Delete incident ${i.title}`} onClick={() => setRemove(i.id)}>Delete</button>
             </span>
           ) },
         ]} />
+      <ConfirmDialog open={remove !== null} title="Delete incident" confirmLabel="Delete" danger
+        onClose={() => setRemove(null)}
+        onConfirm={async () => { await launchApi.deleteIncident(remove!); setRemove(null); list.refetch(); onMsg("Incident deleted."); }} />
     </Card>
   );
 }

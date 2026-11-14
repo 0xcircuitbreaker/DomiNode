@@ -140,7 +140,7 @@ export const AUDIT_ACTIONS = [
   "node_payout_reverse", "byte_dispute_resolve", "relay_abuse_log_access",
   "network_policy_publish", "network_pricing_update", "revenue_split_append", "node_tier_update",
   "node_operator_run_set", "starter_credit_settings_update", "starter_credit_revoke", "genesis_settings_update", "referral_settings_update",
-  "genesis_credit_clawback", "buyer_discount_settings_update", "network_incident_create", "network_incident_update",
+  "genesis_credit_clawback", "buyer_discount_settings_update", "network_incident_create", "network_incident_update", "network_incident_delete",
   "announcement_create", "announcement_update", "announcement_delete",
   "abuse_report_triage", "contribution_allowlist_add", "contribution_allowlist_remove",
   "user_suspend", "user_activate", "user_delete", "user_plan_set", "admin_role_set",
@@ -207,6 +207,7 @@ export const launchApi = {
   incidents: (q: Q) => get<Paged<Incident>>(`${BASE}/incidents${qs(q)}`),
   createIncident: (b: { title: string; body?: string; severity: string; status?: string }) => post<{ id: string }>(`${BASE}/incidents`, b),
   updateIncident: (id: string, b: Record<string, unknown>) => patch<{ id: string }>(`${BASE}/incidents/${encodeURIComponent(id)}`, b),
+  deleteIncident: (id: string) => del(`${BASE}/incidents/${encodeURIComponent(id)}`),
   announcements: (q: Q) => get<Paged<Announcement>>(`${BASE}/announcements${qs(q)}`),
   createAnnouncement: (b: { title: string; body?: string; category?: string; url?: string; published?: boolean }) => post<{ id: string }>(`${BASE}/announcements`, b),
   updateAnnouncement: (id: string, b: Record<string, unknown>) => patch<{ id: string }>(`${BASE}/announcements/${encodeURIComponent(id)}`, b),
@@ -292,4 +293,24 @@ export const collusionApi = {
     post<{ id: string; status: string }>(`${BASE}/collusion/flags/${encodeURIComponent(id)}/${action}`, note ? { note } : {}),
   settings: () => get<CollusionSettings>(`${BASE}/collusion/settings`),
   updateSettings: (b: Record<string, unknown>) => put<CollusionSettings>(`${BASE}/collusion/settings`, b),
+};
+
+// ─── Kill switches (ADMIN_API.md §17) ───────────────────────────────
+export const KILL_SWITCH_KEYS = [
+  "relay", "relay_residential", "relay_mobile", "relay_dc", "relay_masked",
+  "signups", "api_keys", "payouts", "rail_x402", "rail_mpp", "rail_tempo", "rail_nowpayments",
+] as const;
+export type KillSwitchKey = (typeof KILL_SWITCH_KEYS)[number];
+export interface KillSwitch { key: KillSwitchKey; engaged: boolean; reason: string | null; updatedBy: string | null; updatedAt: string }
+export interface DrainedNode { nodeId: string; reason: string; createdBy: string | null; createdAt: string; status: NodeStatus | null; ipClass: IpClass | null; country: string | null }
+export interface KillSwitchState { pollIntervalMs: number; switches: KillSwitch[]; drainedNodes: Paged<DrainedNode> }
+
+export const killSwitchApi = {
+  state: (q: Q = {}) => get<KillSwitchState>(`${BASE}/kill-switches${qs(q)}`),
+  set: (key: KillSwitchKey, engaged: boolean, reason: string) =>
+    put<KillSwitch & { previous: boolean; changed: boolean; effectWithinMs: number }>(`${BASE}/kill-switches/${encodeURIComponent(key)}`, { engaged, reason }),
+  drain: (nodeId: string, reason: string) =>
+    post<{ nodeId: string; drained: boolean; changed: boolean }>(`${BASE}/nodes/${encodeURIComponent(nodeId)}/drain`, { reason }),
+  undrain: (nodeId: string, reason: string) =>
+    post<{ nodeId: string; drained: boolean; changed: boolean }>(`${BASE}/nodes/${encodeURIComponent(nodeId)}/undrain`, { reason }),
 };

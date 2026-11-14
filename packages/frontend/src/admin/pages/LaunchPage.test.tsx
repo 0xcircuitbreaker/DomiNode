@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { screen, waitFor } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { m, renderPage, UUID1 } from "../test-helpers";
 
@@ -107,6 +107,16 @@ describe("LaunchPage", () => {
     await userEvent.type(await screen.findByLabelText("Node id"), UUID1);
     await userEvent.click(screen.getByRole("button", { name: "Flag operator-run" }));
     await waitFor(() => expect(api.setOperatorRun).toHaveBeenCalledWith(UUID1, true));
+  });
+
+  it("deletes an incident after confirmation", async () => {
+    api.incidents.mockResolvedValue(paged([{ id: UUID1, title: "Posted by mistake", body: "", severity: "minor", status: "investigating", startedAt: "2026-11-06T10:00:00Z", resolvedAt: null, updatedAt: "2026-11-06T10:00:00Z" }]));
+    api.deleteIncident.mockResolvedValue(undefined as never);
+    renderPage(<LaunchPage />, "/admin/launch");
+    await userEvent.click(await screen.findByRole("button", { name: "Delete incident Posted by mistake" }));
+    const dialog = await screen.findByRole("alertdialog");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
+    await waitFor(() => expect(api.deleteIncident).toHaveBeenCalledWith(UUID1));
   });
 
   it("helpers", () => {

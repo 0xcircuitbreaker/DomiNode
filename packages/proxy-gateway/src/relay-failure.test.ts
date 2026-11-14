@@ -2,6 +2,7 @@ import { PassThrough } from "node:stream";
 import { describe, it, expect, vi } from "vitest";
 
 vi.mock("@dominusnode/shared", () => ({
+  killSwitches: () => ({ checkRelay: () => null, pausedClasses: () => [], drainedNodeIds: () => [] }),
   createLogger: () => ({ debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() }),
 }));
 vi.mock("./unmet-demand.js", () => ({ recordUnmetDemand: vi.fn() }));

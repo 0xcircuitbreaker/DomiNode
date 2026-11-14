@@ -453,7 +453,7 @@ All mutations re-check the admin role `FOR UPDATE` in one transaction and write 
 | Endpoint | Notes |
 |---|---|
 | `GET /announcements` / `POST /announcements {title, body?, category?, url?, published?, publishedAt?}` / `PATCH /announcements/:id` / `DELETE /announcements/:id` | Agent news feed. `category ∈ policy|pricing|payments|api|network|news`, `url` https only; drafts (`published: false`) stay private (`announcement_create`, `announcement_update`, `announcement_delete`). Public at `/v1/announcements`. |
-| `GET /incidents` / `POST /incidents {title, body?, severity, status?, startedAt?}` / `PATCH /incidents/:id` | `severity ∈ minor|major|critical|maintenance`, `status ∈ investigating|identified|monitoring|resolved`; `resolved` stamps `resolved_at` (`network_incident_create`, `network_incident_update`). Public at `/v1/network/incidents` and `/status`. |
+| `GET /incidents` / `POST /incidents {title, body?, severity, status?, startedAt?}` / `PATCH /incidents/:id` / `DELETE /incidents/:id` | `severity ∈ minor|major|critical|maintenance`, `status ∈ investigating|identified|monitoring|resolved`; `resolved` stamps `resolved_at` (`network_incident_create`, `network_incident_update`, `network_incident_delete`; delete is for mistaken posts, resolve real ones). Public at `/v1/network/incidents`, `/v1/status` and `/status`. |
 | `GET /unmet-demand?days=7` | `{groups: [{country, ipClass, requests, lastHour}], daily: [{day, requests}]}`; `null` country/class means "any". No requester ids or hosts exist in the table. |
 | `GET /abuse-reports?status=` | Public reports with `matches {sessions, requesters}`: counts of metadata-only `relay_abuse_log` rows for the same host inside the window. Look the requesters up with `GET /abuse-log` (itself audited). |
 | `POST /abuse-reports/:id/triage {status: triaged|actioned|dismissed, note?}` | (`abuse_report_triage`). |
@@ -509,3 +509,32 @@ Returns `webhooks` (`kind` and `host` only; paths are secrets and never returned
 ### `POST /api/admin/ops-alerts/test`
 
 Body `{ "reason": "..." }` (required). Sends a test alert to every webhook (bypasses dedupe, counts toward the hourly cap) and writes audit action `ops_alert_test` (`ops_alert`, `test`) with `reason`, `delivered`, `webhooks`, `suppressed`. Returns `{ alert, webhooks }`.
+
+## 17. Kill switches (`admin-kill-switches.ts`)
+
+Mounted at `/api/admin/network`. Switches live in `kill_switches` (one row per key), drained nodes in `node_drains`. Every change re-checks the admin role `FOR UPDATE` and writes an `audit_events` row in the same transaction; a failed audit insert rolls the change back. `reason` (3–500 printable chars) is required on every mutation.
+
+| Key | Refuses (new work only) | Agent-facing code (503) |
+|---|---|---|
+| `relay` | every new relay session (HTTP, CONNECT, SOCKS5, x402/MPP) | `RELAY_PAUSED` |
+| `relay_residential`, `relay_mobile`, `relay_dc`, `relay_masked` | sessions that request that class; unflagged sessions skip it (refused only when residential, mobile and dc are all paused) | `EXIT_CLASS_PAUSED` |
+| `signups` | creating a new wallet-identity account (`POST /api/auth/wallet/verify` for an unknown address); existing accounts still sign in. The refusal comes before the sign-in challenge is consumed, so the same signature works once signups resume | `SIGNUPS_PAUSED` |
+| `api_keys` | `POST /api/keys`, `POST /api/teams/:id/keys` | `API_KEYS_PAUSED` |
+| `payouts` | `POST /v1/credits/withdraw/challenge`, `POST /v1/credits/withdraw`, and the gateway payout job (no sends, auto-queues or receipt checks while engaged; it resumes on the next run) | `PAYOUTS_PAUSED` |
+| `rail_x402`, `rail_mpp` | paid relay requests on that rail, refused at the gateway **before** verification so the payer is never charged | `PAYMENT_RAIL_PAUSED` |
+| `rail_tempo`, `rail_nowpayments` | new top-ups (`POST /api/wallet/topup/tempo`, `POST /api/wallet/topup/crypto`). Webhooks for payments already made still credit | `PAYMENT_RAIL_PAUSED` |
+
+Refusals carry `Retry-After` and `X-DominusNode-Error: <code>`; API bodies are `{ error, code }`. Open sessions, streams and in-flight settlements are never cut.
+
+**Propagation and failure:** each gateway and API instance re-reads both tables every `KILL_SWITCH_POLL_MS` (default 5000, 1000–10000). If no read has succeeded for `KILL_SWITCH_MAX_STALE_MS` (default 15000, 5000–120000) — including at startup before the first read — the instance fails closed: every switch reads as engaged, every drained-node check as drained, and agents get `KILL_SWITCH_UNAVAILABLE` (503, `Retry-After: 30`). Invalid values for either variable, or a `KILL_SWITCH_MAX_STALE_MS` below twice `KILL_SWITCH_POLL_MS`, stop the service at startup.
+
+**Drain:** a drained node is excluded from node selection (sticky sessions move to another node); its tunnel stays up and open streams finish. Unlike quarantine it does not change `nodes.status` or reputation.
+
+| Route | Body | Response |
+|---|---|---|
+| `GET /kill-switches` | `limit`, `offset` (drained-node page, default 100) | `{ pollIntervalMs, switches: [{ key, engaged, reason, updatedBy, updatedAt }], drainedNodes: { limit, offset, total, items: [{ nodeId, reason, createdBy, createdAt, status, ipClass, country }] } }` |
+| `PUT /kill-switches/:key` | `{ engaged: bool, reason }` | `{ key, engaged, reason, updatedBy, updatedAt, previous, changed, effectWithinMs }`; unknown key `404`. Audit `kill_switch_set` (`kill_switch`, key) with `{ engaged, previous, reason }` (written even when unchanged) |
+| `POST /nodes/:id/drain` | `{ reason }` | `{ nodeId, drained: true, changed, effectWithinMs }`; unknown node `404`. Audit `node_drain` when newly drained |
+| `POST /nodes/:id/undrain` | `{ reason }` | `{ nodeId, drained: false, changed, effectWithinMs }`. Audit `node_undrain` with `{ reason, drainReason }` when a drain was removed |
+
+The admin panel's **Kill switches** page (`/admin/kill-switches`) shows every switch with its agent error code, pauses/resumes with a required reason, and drains or undrains nodes.

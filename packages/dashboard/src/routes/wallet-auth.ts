@@ -20,8 +20,10 @@ import {
   referralRepo,
   starterCreditRepo,
   createProxySessionToken,
+  killSwitches,
 } from "@dominusnode/shared";
 import { recoverSignerAddress } from "../helpers/verify-signature.js";
+import { refusedBySwitch } from "../helpers/kill-switch.js";
 import { requireAuth, type AuthenticatedRequest } from "../middleware/auth.js";
 import { setAuthCookies } from "../helpers/cookies.js";
 
@@ -298,6 +300,14 @@ router.post("/verify", async (req, res) => {
       return;
     }
 
+    // Signups kill switch: refuse a new wallet BEFORE consuming its challenge so
+    // the agent can retry the same signature once signups resume (no-op for
+    // existing users; re-checked below after verification).
+    if (killSwitches().check("signups") && !(await userRepo.findUserByWalletAddress(address))) {
+      refusedBySwitch(res, "signups");
+      return;
+    }
+
     // Atomically consume the challenge, bound to originating IP
     const challenge = await walletChallengeRepo.consumeChallenge(address, clientIp);
     if (!challenge) {
@@ -324,6 +334,7 @@ router.post("/verify", async (req, res) => {
     let isNewUser = false;
 
     if (!user) {
+      if (refusedBySwitch(res, "signups")) return;
       // Per-IP registration rate limit for wallet auth — verified agents skip
       if (!isAgentVerify && !checkWalletRegistrationRateLimit(clientIp)) {
         res.status(429).json({ error: "Too many new accounts from this IP. Try again later." });

@@ -24,9 +24,11 @@ elsewhere). Meaning and required/optional status are documented in
 | `DOMINUSNODE_DOMAIN` | `localhost` | `src/email.ts` |
 | `EMAIL_ENABLED` |  | `src/email.ts` |
 | `JWT_SECRET` |  | `src/auth.ts` |
+| `KILL_SWITCH_MAX_STALE_MS` |  | `src/kill-switches.ts` |
+| `KILL_SWITCH_POLL_MS` |  | `src/kill-switches.ts` |
 | `LOG_LEVEL` | `info` | `src/logger.ts` |
 | `MFA_ENCRYPTION_KEY` |  | `src/totp.ts` |
-| `NODE_ENV` |  | `src/db.ts`, `src/email.ts` |
+| `NODE_ENV` |  | `src/db.ts`, `src/email.ts`, `src/kill-switches.ts` |
 | `OFFICIAL_COORD_PUBKEYS` |  | `src/federation.ts` |
 | `OPERATOR_CONTACT` |  | `src/federation.ts` |
 | `OPERATOR_NAME` |  | `src/federation.ts` |
