@@ -888,6 +888,7 @@ describe("gateway VPS readiness", () => {
   type PreOpts = {
     dns: Record<string, string>; route: string; hs: number; ntp: string; ufw?: string; url?: (port: number) => string;
     dns6?: Record<string, string>; udp?: string; curl?: string; env?: Record<string, string>;
+    tcp?: string; wg?: string;
   };
   const stubs = (opts: PreOpts) => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dn-pre-"));
@@ -897,9 +898,13 @@ describe("gateway VPS readiness", () => {
       ...Object.entries(opts.dns6 ?? {}).map(([h, a]) => `[ "$1" = ahostsv6 ] && [ "$2" = ${h} ] && echo "${a} STREAM ${h}" && exit 0`),
     ].join("\n") + "\nexit 2");
     w("ip", `if [ "$1" = -o ] && [ "$2" = route ]; then echo "$4 dev ${opts.route} src 10.66.0.2 uid 0"; fi`);
-    w("wg", `echo "peerkey= ${opts.hs}"`);
+    w("wg", opts.wg ?? `echo "peerkey= ${opts.hs}"`);
     w("timedatectl", `echo ${opts.ntp}`);
-    w("ss", opts.udp ? `[ "$1" = -Hlun ] && echo "UNCONN 0 0 0.0.0.0:${opts.udp} 0.0.0.0:*"; exit 0` : "exit 0");
+    w("ss", [
+      opts.udp ? `[ "$1" = -Hlun ] && echo "UNCONN 0 0 0.0.0.0:${opts.udp} 0.0.0.0:*" && exit 0` : "",
+      opts.tcp ? `[ "$1" = -Hltnp ] && printf '%b\\n' ${JSON.stringify(opts.tcp)} && exit 0` : "",
+      "exit 0",
+    ].join("\n"));
     // Default curl stub fails, so the Cloudflare fetch falls back and nothing touches the network.
     w("curl", opts.curl ?? "exit 7");
     w("ufw", `printf '%b\\n' ${JSON.stringify(opts.ufw ?? "Status: inactive")}`);
@@ -915,7 +920,7 @@ describe("gateway VPS readiness", () => {
       const r = spawnSync("bash", [PREFLIGHT], {
         env: {
           PATH: `${bin}:${process.env.PATH}`, PUBLIC_IP: "203.0.113.10", RELAY_HOST: "relay.example.org", PROXY_HOST: "proxy.example.org",
-          ROLE: "gateway", PREFLIGHT_MIN_DISK_GB: "0", ...opts.env,
+          ROLE: "gateway", PREFLIGHT_MIN_DISK_GB: "0", PREFLIGHT_EUID: "0", ...opts.env,
           GATEWAY_DATABASE_URL: opts.url ? opts.url(port) : `postgresql://dominusnode_gateway:${pw}@127.0.0.1:${port}/dominusnode`,
         },
         encoding: "utf8",
@@ -992,6 +997,22 @@ describe("gateway VPS readiness", () => {
     const okr = await preflight({ ...good, hs: now(), env: { PUBLIC_IP6: "2001:db8::10" }, dns6: { "relay.example.org": "2001:db8:0::10" } });
     expect(okr.stdout).toMatch(/ok\s+dns\s+RELAY_HOST relay\.example\.org -> 2001:db8:0::10 \(AAAA\)/);
     expect(okr.status).toBe(0);
+  });
+
+  it("preflight run without root warns instead of failing on hidden listener owners, wg and ufw", async () => {
+    const tcp = [80, 443, 8443, 1443, 9443].map((p) => `LISTEN 0 4096 0.0.0.0:${p} 0.0.0.0:*`).join("\n");
+    const r = await preflight({ ...good, hs: 0, tcp, wg: `echo "Unable to access interface: Operation not permitted" >&2; exit 1`, ufw: "", env: { PREFLIGHT_EUID: "1000" } });
+    expect(r.stdout).toMatch(/warn\s+root\s+not running as root/);
+    expect(r.stdout).toMatch(/warn\s+ports\s+tcp\/8443 in use by an unknown process/);
+    expect(r.stdout).toMatch(/warn\s+ports\s+ufw status needs root/);
+    expect(r.stdout).toMatch(/warn\s+wg\s+cannot read wg0 handshakes without root/);
+    expect(r.stdout).not.toMatch(/FAIL/);
+    expect(r.status).toBe(0);
+    // As root the same empty wg output is still a failure; a named foreign owner still fails.
+    const root = await preflight({ ...good, hs: 0, tcp: `LISTEN 0 511 0.0.0.0:443 0.0.0.0:* users:(("nginx",pid=9,fd=6))`, wg: "exit 1" });
+    expect(root.stdout).toMatch(/FAIL\s+wg\s+wg0 is not up or has no peer/);
+    expect(root.stdout).toMatch(/FAIL\s+ports\s+tcp\/443 held by another process: nginx/);
+    expect(root.stdout).not.toMatch(/not running as root/);
   });
 
   it("preflight checks the UDP WireGuard listener and ufw in server mode only", async () => {

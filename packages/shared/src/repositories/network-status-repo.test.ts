@@ -71,11 +71,40 @@ describe("kAnonymize (distinct owners)", () => {
     const r = kAnonymize({ ...crowd, communityOwnersOnline: null, communityPaidOwners24h: null });
     expect(r.onlineNodes).toBe(0);
   });
-  it("a class held by fewer than k owners is dropped, not folded", () => {
+  it("a class held by fewer than k owners is folded with a k-owner class into other", () => {
     const r = kAnonymize({ ...crowd, communityOwnersOnline: 3, communityPaidOwners24h: 3, byClass: { residential: 3, dc: 4 }, byClassOwners: { residential: 3, dc: 1 } });
-    expect(r.byClass).toEqual({ residential: 3 });
-    expect(r.suppressed).toContain("byClass");
+    expect(r.byClass).toEqual({ other: 7 });
+    expect(r.suppressed).not.toContain("byClass");
     expect(r).not.toHaveProperty("byClassOwners");
+  });
+});
+
+describe("kAnonymize (complementary suppression and quality)", () => {
+  const crowd = { ...base, seedOnline: 5, communityOnline: 5, communityPaidNodes24h: 3, paidBytes24h: "10", seedPaidBytes24h: "5", communityPaidBytes24h: "5" };
+  it("a hidden class cannot be recovered from the total, and suppressed does not flag it", () => {
+    const withMobile = kAnonymize({ ...crowd, onlineNodes: 10, byClass: { dc: 5, residential: 4, mobile: 1 } });
+    const without = kAnonymize({ ...crowd, onlineNodes: 9, communityOnline: 4, byClass: { dc: 5, residential: 4 } });
+    const sum = (o: Record<string, number>) => Object.values(o).reduce((a, b) => a + b, 0);
+    expect(withMobile.byClass).toEqual({ dc: 5, other: 5 });
+    expect(sum(withMobile.byClass)).toBe(withMobile.onlineNodes);
+    expect(sum(without.byClass)).toBe(without.onlineNodes);
+    expect(withMobile.suppressed).toEqual(without.suppressed);
+    expect(withMobile.suppressed).not.toContain("byClass");
+  });
+  it("folds everything into other when no class split is safe", () => {
+    const r = kAnonymize({ ...crowd, onlineNodes: 5, seedOnline: 0, byClass: { dc: 2, residential: 2, mobile: 1 } });
+    expect(r.byClass).toEqual({ other: 5 });
+  });
+  it("nulls quality metrics whenever paid figures are suppressed, and keeps them otherwise", () => {
+    const q = { successRateBps: 9876, p50Ms: 123, p95Ms: 456 };
+    const small = kAnonymize({ ...base, ...q, onlineNodes: 6, seedOnline: 5, communityOnline: 1, byClass: { dc: 6 } });
+    expect(small).toMatchObject({ successRateBps: null, p50Ms: null, p95Ms: null });
+    expect(small.suppressed).toEqual(expect.arrayContaining(["successRateBps", "p50Ms", "p95Ms"]));
+    const fewPaid = kAnonymize({ ...crowd, ...q, onlineNodes: 10, communityPaidNodes24h: 1, byClass: { dc: 10 } });
+    expect(fewPaid.p95Ms).toBeNull();
+    const big = kAnonymize({ ...crowd, ...q, onlineNodes: 10, byClass: { dc: 10 } });
+    expect(big).toMatchObject(q);
+    expect(big.suppressed).toEqual([]);
   });
 });
 

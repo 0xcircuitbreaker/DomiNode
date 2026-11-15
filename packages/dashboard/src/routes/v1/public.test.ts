@@ -95,9 +95,10 @@ describe("/v1 public routes", () => {
     expect(r.body["otherCountries"]).toBe(6);
     // US and DE are available; IR is sanctioned and never counted.
     expect(r.body["countriesAvailable"]).toBe(2);
-    // Classes with fewer than 3 nodes or owners are dropped (k-anonymity).
-    expect(r.body["byClass"]).toEqual({ residential: 10 });
-    expect(r.body["suppressed"]).toContain("byClass");
+    // Classes with fewer than 3 nodes or owners fold into "other"; the split
+    // must still sum to onlineNodes, so residential folds in too (complementary).
+    expect(r.body["byClass"]).toEqual({ other: 13 });
+    expect(r.body["suppressed"]).not.toContain("byClass");
     const sql = String(query.mock.calls[0][0]);
     expect(sql).not.toMatch(/observed_ip|node_key_hash|last_seen_at/);
     expect(sql).toContain("node_ip_slots");

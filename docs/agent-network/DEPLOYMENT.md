@@ -1094,7 +1094,7 @@ coordinator stays at home). Hostnames are placeholders.
    environment, never argv). The VPS generates its **own** signing key
    (`selfhost/coord-key.pem`); the coordinator key is never copied to it. The
    installer prints `gateway public key (hex): <vps>`.
-6. **Preflight.** `./scripts/selfhost/preflight.sh` on the VPS. Read-only; it
+6. **Preflight.** `sudo ./scripts/selfhost/preflight.sh` on the VPS (root sees listener owners, WireGuard handshakes and ufw rules; unprivileged those checks only warn). Read-only; it
    checks that both hostnames resolve to this host and not to a Cloudflare
    address, the gateway ports are free or held by the stack (and allowed by
    ufw), wg0 has a handshake under 180 s, the `GATEWAY_DATABASE_URL` host is

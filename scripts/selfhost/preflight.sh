@@ -22,6 +22,9 @@
 # Overrides: PUBLIC_IP / PUBLIC_IP6 (default: first global address), WG_IF
 # (default wg0), WG_SERVER, WG_PORT, RELAY_HOST, PROXY_HOST,
 # GATEWAY_DATABASE_URL, PREFLIGHT_REACH_URL, PREFLIGHT_CF_FETCH=0 (offline).
+# Run as root (sudo) for a full check: unprivileged, ss hides the owner of
+# root-owned listeners (docker-proxy), wg cannot read handshakes and ufw
+# refuses to report, so those checks become warnings instead of failures.
 # Exit status: 0 when every check passes, 1 otherwise. Warnings do not fail.
 set -uo pipefail
 
@@ -42,6 +45,10 @@ ok()   { printf 'ok    %-5s %s\n' "$1" "$2"; }
 warn() { printf 'warn  %-5s %s\n' "$1" "$2"; }
 fail() { printf 'FAIL  %-5s %s\n' "$1" "$2"; FAILS=$((FAILS + 1)); }
 has()  { command -v "$1" >/dev/null 2>&1; }
+# PREFLIGHT_EUID overrides the effective uid (tests only).
+RUN_UID="${PREFLIGHT_EUID:-$EUID}"
+IS_ROOT=0
+[ "$RUN_UID" = 0 ] && IS_ROOT=1
 
 ipv4_ok() {
   printf '%s' "$1" | grep -Eq '^([0-9]{1,3}\.){3}[0-9]{1,3}$' || return 1
@@ -180,16 +187,22 @@ for pair in "RELAY_HOST:$RELAY" "PROXY_HOST:$PROXYH"; do
 done
 
 # ─── ports ──────────────────────────────────────────────────────────
+[ "$IS_ROOT" = 1 ] || warn root "not running as root: listener owners, WireGuard handshakes and ufw rules may not be visible; run with sudo for a full check"
 LISTEN=""
 if has ss; then LISTEN="$(ss -Hltnp 2>/dev/null || true)"; fi
 UFW=""
 if has ufw; then UFW="$(ufw status 2>/dev/null || true)"; fi
+if has ufw && [ -z "$UFW" ] && [ "$IS_ROOT" != 1 ]; then
+  warn ports "ufw status needs root: ufw rules not checked (run as root for this check)"
+fi
 for port in 80 443 8443 1443 9443; do
   line="$(printf '%s\n' "$LISTEN" | awk -v p=":$port" '$4 ~ p"$"' | head -n1)"
   if [ -z "$line" ]; then
     ok ports "tcp/$port free"
   elif printf '%s' "$line" | grep -Eq 'docker-proxy|caddy|node'; then
     ok ports "tcp/$port held by the stack"
+  elif ! printf '%s' "$line" | grep -q 'users:(('; then
+    warn ports "tcp/$port in use by an unknown process (owner not visible; run as root to check it is the stack)"
   else
     fail ports "tcp/$port held by another process: $(printf '%s' "$line" | grep -Eo 'users:\(\("[^"]+"' | cut -d'"' -f2)"
   fi
@@ -226,7 +239,9 @@ if ! has wg; then
 else
   hs="$(wg show "$WG_IF" latest-handshakes 2>/dev/null | awk '{print $2}' | sort -n | tail -n1)"
   now="$(date +%s)"
-  if [ -z "$hs" ]; then
+  if [ -z "$hs" ] && [ "$IS_ROOT" != 1 ]; then
+    warn wg "cannot read $WG_IF handshakes without root (run as root for this check)"
+  elif [ -z "$hs" ]; then
     fail wg "$WG_IF is not up or has no peer (systemctl enable --now wg-quick@$WG_IF)"
   elif [ "$hs" -eq 0 ]; then
     fail wg "$WG_IF peer has never completed a handshake"
