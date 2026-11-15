@@ -199,6 +199,19 @@ describe("wallet-auth routes", () => {
 
       expect(res.status).toBe(429);
     });
+
+    it("counts the per-address cap for this requester's IP only (no cross-requester sign-in DoS)", async () => {
+      vi.mocked(walletChallengeRepo.countActiveChallengesForIp).mockResolvedValue(0);
+      vi.mocked(walletChallengeRepo.createChallenge).mockResolvedValue({
+        id: "ch-2", address: VALID_ADDRESS, nonce: "b".repeat(64), created_at: new Date(), consumed: false,
+      });
+      const res = await request(createApp(), "POST", "/api/auth/wallet/challenge", { address: VALID_ADDRESS });
+      expect(res.status).toBe(200);
+      const call = vi.mocked(walletChallengeRepo.countActiveChallengesForAddress).mock.calls.at(-1)!;
+      expect(call).toHaveLength(2);
+      expect(typeof call[1]).toBe("string");
+      expect(call[1]).not.toBe("");
+    });
   });
 
   // ─── POST /verify ─────────────────────────────────────────────────

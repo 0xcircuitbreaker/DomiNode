@@ -112,6 +112,7 @@ elsewhere). Meaning and required/optional status are documented in
 | `TUNNEL_TLS_KEY_FILE` |  | `src/node-tunnel/ingress.ts` |
 | `TUNNEL_TRUSTED_PROXY_IPS` |  | `src/main.ts` |
 | `X402_BYTES_PER_REQUEST` | `10485760` | `src/x402-handler.ts` |
+| `X402_ENABLED` |  | `src/main.ts` |
 | `X402_MAX_OVERPAY_FACTOR` | `100` | `src/x402-handler.ts` |
 | `X402_RATE_LIMIT_MAX` | `60` | `src/x402-handler.ts` |
 | `X402_RELAY_ENABLED` |  | `src/server.ts` |
@@ -176,8 +177,7 @@ elsewhere). Meaning and required/optional status are documented in
 | `STRIPE_WEBHOOK_IPS` |  | `src/routes/webhooks.ts`, `src/server.ts` |
 | `TRUST_PROXY` |  | `src/server.ts` |
 | `X402_BYTES_PER_REQUEST` | `10485760` | `src/routes/x402.ts` |
-| `X402_ENABLED` |  | `src/routes/discovery.ts`, `src/routes/payment-rails.ts` |
-| `X402_NETWORK` | `base-sepolia` | `src/routes/x402.ts` |
+| `X402_ENABLED` |  | `src/main.ts`, `src/routes/discovery.ts`, `src/routes/payment-rails.ts` |
 | `X402_RECEIVING_ADDRESS` |  | `src/routes/payment-rails.ts`, `src/routes/x402.ts` |
 | `X402_RECEIVING_ADDRESS_SOLANA` |  | `src/routes/payment-rails.ts`, `src/routes/x402.ts` |
 
@@ -194,6 +194,7 @@ elsewhere). Meaning and required/optional status are documented in
 | `MPP_PAY_TO` |  | `src/adapters/rails/mpp-rail.ts` |
 | `MPP_REALM` | `dominusnode-proxy` | `src/adapters/rails/mpp-rail.ts` |
 | `MPP_RPC_URL` |  | `src/adapters/rails/mpp-rail.ts` |
+| `NODE_ENV` |  | `src/x402.ts` |
 | `NOWPAYMENTS_API_KEY` |  | `src/nowpayments.ts` |
 | `NOWPAYMENTS_API_URL` | `https://api.nowpayments.io/v1` | `src/nowpayments.ts` |
 | `NOWPAYMENTS_IPN_SECRET` |  | `src/nowpayments.ts` |
@@ -215,12 +216,13 @@ elsewhere). Meaning and required/optional status are documented in
 | `TEMPO_PAY_TO` |  | `src/adapters/rails/tempo.ts` |
 | `TEMPO_TOKEN` | `""` | `src/adapters/rails/tempo.ts` |
 | `TEMPO_WEBHOOK_SECRET` |  | `src/adapters/rails/tempo.ts` |
+| `X402_ALLOW_TESTNET` |  | `src/x402.ts` |
 | `X402_DC_PRICE_PER_REQUEST_USD` | `0.001` | `src/x402.ts` |
 | `X402_ENABLED` |  | `src/x402.ts` |
 | `X402_FACILITATOR` |  | `src/adapters/facilitators/index.ts` |
 | `X402_MAX_REQUEST_BODY_BYTES` | `10485760` | `src/x402.ts` |
 | `X402_MAX_RESPONSE_BYTES` | `10485760` | `src/x402.ts` |
-| `X402_NETWORK` | `base-sepolia` | `src/x402.ts` |
+| `X402_NETWORK` | `""` | `src/x402.ts` |
 | `X402_RECEIVING_ADDRESS` |  | `src/x402.ts` |
 | `X402_RECEIVING_ADDRESS_SOLANA` |  | `src/x402.ts` |
 | `X402_RES_PRICE_PER_REQUEST_USD` | `0.005` | `src/x402.ts` |

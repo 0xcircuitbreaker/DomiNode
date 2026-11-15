@@ -68,7 +68,7 @@ vi.mock("./balance-check.js", () => ({
   invalidateBalanceCache: vi.fn(),
 }));
 
-import { configureSessionRecovery, startSession, endSession, getActiveSessionCount, checkSessionRateLimit, checkBandwidthVelocity, recordBandwidthUsage, reservationCentsFor, maxBytesForReservation, startPrepaidSession, maxBytesForPrepaid, abortPrepaidSession, awaitInFlightSettlements, getInFlightSettlementCount } from "./session-manager.js";
+import { configureSessionRecovery, startSession, endSession, getActiveSessionCount, checkSessionRateLimit, checkBandwidthVelocity, recordBandwidthUsage, reservationCentsFor, maxBytesForReservation, startPrepaidSession, maxBytesForPrepaid, abortPrepaidSession, confirmPrepaidPayment, awaitInFlightSettlements, getInFlightSettlementCount } from "./session-manager.js";
 import type { ByteCounter } from "./counting-stream.js";
 import { enforcePolicy, _resetPolicyEnforcer, getRequesterInflightSpend, getRequesterSpend } from "./policy-enforcer.js";
 const BYTES_PER_GB = 1_000_000_000;
@@ -373,6 +373,7 @@ describe("proxy-gateway/session-manager", () => {
       expect(mockGetBalance).not.toHaveBeenCalled();
       expect(counter.maxBytes).toBe(Math.min(maxBytesForPrepaid(4883n, 500_000n), 10_485_760));
       expect(counter.maxBytes).toBeLessThanOrEqual(10_485_760);
+      await confirmPrepaidPayment(id);
       mockSettleRelayCharge.mockResolvedValueOnce({ status: "settled", paidInFull: true, grossMusd: 4883n, debitCents: 0 });
       await endSession(id);
       expect(mockSettleRelayCharge).toHaveBeenCalledWith(expect.objectContaining({
@@ -389,6 +390,7 @@ describe("proxy-gateway/session-manager", () => {
         relay: { ...RELAY, ipClass: "masked" as never }, rail: "mpp", paidMusd: 1000n, quotedPricePerGbMusd: 100_000n, maxBytes: 10_485_760,
       });
       expect(mockGetChargeSnapshot).toHaveBeenCalledWith("owner-1", "masked");
+      await confirmPrepaidPayment(id);
       await endSession(id);
       expect(mockSettleRelayCharge).toHaveBeenCalledWith(expect.objectContaining({ sessionId: "sess-x402-masked", snapshot: expect.objectContaining({ tierWeightBps: 2500 }) }));
     });
@@ -405,6 +407,49 @@ describe("proxy-gateway/session-manager", () => {
       await endSession(id);
       expect(mockSettleRelayCharge).not.toHaveBeenCalled();
       expect(mockEndSessionRepo).toHaveBeenCalledWith("sess-abort", 0, "error");
+    });
+
+    it("a prepaid session force-ended before payment capture settles no charge when capture fails", async () => {
+      mockCreateSession.mockResolvedValueOnce({ id: "sess-uncaptured" });
+      const id = await startPrepaidSession({
+        userId: "x402-user", targetHost: "example.com", counter: makeCounter(10, 10), connectLatencyMs: 0, relay: RELAY,
+        rail: "x402", paidMusd: 4883n, quotedPricePerGbMusd: 500_000n, maxBytes: 10_485_760,
+      });
+      const ended = endSession(id); // e.g. suspend / shutdown while the facilitator call is in flight
+      expect(await abortPrepaidSession(id)).toBe(false); // settlement failed; session already gone
+      await ended;
+      expect(mockSettleRelayCharge).not.toHaveBeenCalled();
+      expect(mockEndSessionRepo).toHaveBeenCalledWith("sess-uncaptured", 0, "error");
+    });
+
+    it("a prepaid session force-ended before capture is charged once capture succeeds", async () => {
+      mockCreateSession.mockResolvedValueOnce({ id: "sess-captured-late" });
+      const id = await startPrepaidSession({
+        userId: "x402-user", targetHost: "example.com", counter: makeCounter(10, 10), connectLatencyMs: 0, relay: RELAY,
+        rail: "x402", paidMusd: 4883n, quotedPricePerGbMusd: 500_000n, maxBytes: 10_485_760,
+      });
+      mockSettleRelayCharge.mockResolvedValueOnce({ status: "settled", paidInFull: true, grossMusd: 4883n, debitCents: 0 });
+      const ended = endSession(id);
+      await confirmPrepaidPayment(id);
+      await ended;
+      expect(mockSettleRelayCharge).toHaveBeenCalledWith(expect.objectContaining({ sessionId: "sess-captured-late", prepaidGrossMusd: 4883n }));
+    });
+
+    it("stores no recovery payload until the payment is captured", async () => {
+      configureSessionRecovery("inst-prepaid");
+      try {
+        mockCreateSession.mockResolvedValueOnce({ id: "sess-recov" });
+        const id = await startPrepaidSession({
+          userId: "x402-user", targetHost: "example.com", counter: makeCounter(10, 10), connectLatencyMs: 0, relay: RELAY,
+          rail: "x402", paidMusd: 4883n, quotedPricePerGbMusd: 500_000n, maxBytes: 10_485_760,
+        });
+        expect(mockAttachRecovery).not.toHaveBeenCalled();
+        await confirmPrepaidPayment(id);
+        expect(mockAttachRecovery).toHaveBeenCalledWith("inst-prepaid", expect.objectContaining({ sessionId: "sess-recov", prepaidGrossMusd: 4883n }));
+        await abortPrepaidSession(id);
+      } finally {
+        configureSessionRecovery(null);
+      }
     });
 
     it("refuses a non-positive prepaid amount", async () => {

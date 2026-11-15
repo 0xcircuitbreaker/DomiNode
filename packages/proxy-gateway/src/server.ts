@@ -10,13 +10,13 @@ import { authenticateRequest, parseProxyOptions, type AuthResult } from "./auth.
 import { checkBalance, checkTeamBalance } from "./balance-check.js";
 import { bindTunnelLifecycle } from "./tunnel-lifecycle.js";
 import { attachByteCounters, capReadable, type ByteCounter } from "./counting-stream.js";
-import { startSession, startPrepaidSession, abortPrepaidSession, endSession, registerSessionDestroy, unregisterSessionDestroy, type RelayBinding } from "./session-manager.js";
+import { startSession, startPrepaidSession, abortPrepaidSession, confirmPrepaidPayment, endSession, registerSessionDestroy, unregisterSessionDestroy, type RelayBinding } from "./session-manager.js";
 import { checkClientCountry, initGeoCheck } from "./geo-check.js";
 import { validateTarget, isValidHostname, isValidPort } from "./target-validator.js";
 import { incrementUserConns, decrementUserConns } from "./connection-tracker.js";
 import { checkAuthRateLimit, recordAuthFailure } from "./auth-rate-limit.js";
 import { recordRequest, recordError, recordLatency } from "./stats.js";
-import { handleX402Http, handleX402Connect, build402ResponseBody, build402ConnectResponse, isX402Verified, getX402Data, settleX402Pending, releaseX402Pending, refundX402Payer, hasMppCredential, normalizePayer, paymentChallengeHeaders, toX402Class, selectClassFor, nodeMatchesQuotedClass, getPoolTypeFromRequest, paymentRailsOffered } from "./x402-handler.js";
+import { handleX402Http, handleX402Connect, build402ResponseBody, build402ConnectResponse, buildAuthenticated402Body, buildAuthenticated402ConnectResponse, PAYMENT_WITH_API_KEY_MESSAGE, isX402Verified, getX402Data, settleX402Pending, releaseX402Pending, refundX402Payer, hasMppCredential, normalizePayer, paymentChallengeHeaders, selectClassFor, nodeMatchesQuotedClass, getPoolTypeFromRequest, paymentRailsOffered } from "./x402-handler.js";
 import { checkRequesterAccess, checkAnonymousPayer } from "./access-gate.js";
 import { enforcePolicy, isPlaintextPort, EXIT_VISIBLE_HEADER } from "./policy-enforcer.js";
 import { openRelayStream, RelayOpenError, type RelayRuntime, type RelayUpstream } from "./relay.js";
@@ -487,6 +487,10 @@ async function handleRequest(
   // Parse the target BEFORE any payment is verified: a malformed request must
   // never claim a (final, push-paid) MPP transfer.
   const target = parseForwardTarget(clientReq.url ?? "");
+  if (auth && (!!clientReq.headers["x-payment"] || hasMppCredential(clientReq.headers))) {
+    sendError(clientRes, 400, "PAYMENT_WITH_API_KEY", PAYMENT_WITH_API_KEY_MESSAGE);
+    return;
+  }
   if (!auth) {
     const paidAttempt = !!clientReq.headers["x-payment"] || hasMppCredential(clientReq.headers);
     if (!paidAttempt) {
@@ -646,6 +650,7 @@ async function handleRequest(
         sendError(clientRes, 402, "X402_SETTLEMENT_FAILED", "Payment settlement failed. Please try again.");
         return;
       }
+      await confirmPrepaidPayment(x402SessionId);
       // Settled but nothing served yet: refund to the payer's wallet, never charge.
       const x402Unserved = async (reason: string) => {
         unregisterSessionDestroy(x402SessionId);
@@ -766,8 +771,8 @@ async function handleRequest(
     }
     if (!hasBalance) {
       decrementUserConns(a.userId);
-      clientRes.writeHead(402, { "Content-Type": "application/json", "X-DominusNode-Error": "INSUFFICIENT_BALANCE", ...paymentChallengeHeaders(toX402Class(a.proxyOptions.ipClass)) });
-      clientRes.end(build402ResponseBody(toX402Class(a.proxyOptions.ipClass)));
+      clientRes.writeHead(402, { "Content-Type": "application/json", "X-DominusNode-Error": "INSUFFICIENT_BALANCE", "Cache-Control": "no-store" });
+      clientRes.end(buildAuthenticated402Body());
       return;
     }
   }
@@ -824,8 +829,8 @@ async function handleRequest(
     decrementUserConns(a.userId);
     const msg = err instanceof Error ? err.message : String(err);
     if (msg.includes("Insufficient balance")) {
-      clientRes.writeHead(402, { "Content-Type": "application/json", "X-DominusNode-Error": "INSUFFICIENT_BALANCE", ...paymentChallengeHeaders(toX402Class(upstream.node.ipClass)) });
-      clientRes.end(build402ResponseBody(toX402Class(upstream.node.ipClass)));
+      clientRes.writeHead(402, { "Content-Type": "application/json", "X-DominusNode-Error": "INSUFFICIENT_BALANCE", "Cache-Control": "no-store" });
+      clientRes.end(buildAuthenticated402Body());
     } else if (msg.includes("bandwidth limit")) {
       sendError(clientRes, 403, "BANDWIDTH_LIMIT_EXCEEDED", "Monthly bandwidth limit exceeded. Upgrade your plan at the Dominus Node dashboard.");
     } else if (msg.includes("spend cap")) {
@@ -935,6 +940,11 @@ async function handleConnect(
   }
 
   const auth = await authenticateRequest(req);
+  if (auth && (!!req.headers["x-payment"] || hasMppCredential(req.headers))) {
+    const body = JSON.stringify({ error: "PAYMENT_WITH_API_KEY", message: PAYMENT_WITH_API_KEY_MESSAGE });
+    safeSocketWrite(clientSocket, `HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\nContent-Length: ${Buffer.byteLength(body)}\r\nX-DominusNode-Error: PAYMENT_WITH_API_KEY\r\n\r\n${body}`);
+    return;
+  }
   if (!auth) {
     const paidAttempt = !!req.headers["x-payment"] || hasMppCredential(req.headers);
     if (!paidAttempt && sendConnectPaymentChallenge(relay, req, clientSocket, connectClientIp)) return;
@@ -1035,7 +1045,7 @@ async function handleConnect(
     }
     if (!hasBalance) {
       safeDecrement();
-      safeSocketWrite(clientSocket, build402ConnectResponse(toX402Class(auth.proxyOptions.ipClass)));
+      safeSocketWrite(clientSocket, buildAuthenticated402ConnectResponse());
       return;
     }
   }
@@ -1082,7 +1092,7 @@ async function handleConnect(
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     if (msg.includes("Insufficient balance")) {
-      safeSocketWrite(clientSocket, build402ConnectResponse(toX402Class(upstream.node.ipClass)));
+      safeSocketWrite(clientSocket, buildAuthenticated402ConnectResponse());
     } else if (msg.includes("bandwidth limit")) {
       safeSocketWrite(clientSocket, "HTTP/1.1 403 Forbidden\r\nX-DominusNode-Error: BANDWIDTH_LIMIT_EXCEEDED\r\n\r\n");
     } else if (msg.includes("spend cap")) {
@@ -1232,6 +1242,7 @@ async function handleX402ConnectTunnel(
       `HTTP/1.1 402 Payment Required\r\nContent-Type: application/json\r\nContent-Length: ${Buffer.byteLength(errBody)}\r\nX-DominusNode-Error: X402_SETTLEMENT_FAILED\r\n\r\n${errBody}`);
     return;
   }
+  await confirmPrepaidPayment(sessionId);
 
   let tunnelCleanedUp = false;
   const x402Cleanup = () => {

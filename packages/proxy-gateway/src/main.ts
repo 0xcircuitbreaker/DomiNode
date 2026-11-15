@@ -1,3 +1,4 @@
+import { x402NetworkConfigError } from "@dominusnode/billing";
 import type * as net from "node:net";
 import dotenv from "dotenv";
 dotenv.config();
@@ -152,6 +153,10 @@ async function main(): Promise<void> {
   // ─── Node tunnel server + registry + selector ────────────────────
   await initGeoCheck();
   const isProduction = process.env["NODE_ENV"] === "production";
+  if (process.env["X402_ENABLED"] === "true") {
+    const netErr = x402NetworkConfigError(process.env);
+    if (netErr) throw new Error(netErr);
+  }
   reportTlsCapability(log, "proxy-gateway");
   // Load API_KEY_PEPPER_FILE now so a bad file fails startup, not the first auth.
   log.info("API key hashing", { peppered: apiKeyPepper() !== null });

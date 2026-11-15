@@ -341,13 +341,13 @@ export async function releaseReservation(
       await client.query("ROLLBACK");
       return;
     }
-    // Never silently truncate a released reservation: fail loudly instead.
-    if (wallet.balance_cents + reservedCents > MAX_BALANCE_CENTS) {
-      throw new Error(
-        `Reservation release of ${reservedCents} cents would exceed wallet balance cap; release aborted to avoid fund loss`,
-      );
+    // Never silently truncate a released reservation: credit up to the cap and
+    // record the rest as an overflow credit (owed, reconciled by an admin).
+    const cappedRefund = Math.min(reservedCents, Math.max(0, MAX_BALANCE_CENTS - wallet.balance_cents));
+    if (reservedCents > cappedRefund) {
+      await recordOverflowCreditTx(client, { userId, teamId: null, cents: reservedCents - cappedRefund, reason: "reservation release over cap (session failed)" });
     }
-    const cappedRefund = reservedCents;
+    if (cappedRefund <= 0) { await client.query("COMMIT"); return; }
     await client.query(
       `UPDATE wallets SET balance_cents = balance_cents + $1 WHERE id = $2`,
       [cappedRefund, wallet.id],

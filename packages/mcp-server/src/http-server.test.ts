@@ -10,6 +10,8 @@ import {
   type RemoteMcpServer,
   type SessionFactory,
 } from "./http-server.js";
+import { registerKeysTools } from "./tools/keys.js";
+import type { HttpClient } from "./http-client.js";
 import { parseHttpConfig, ConfigError, type McpHttpConfig } from "./config.js";
 
 const KEY_A = "dn_live_aaaaaaaaaaaaaaaaaaaa";
@@ -81,9 +83,9 @@ async function openSession(key: string): Promise<string> {
   return sid!;
 }
 
-function callTool(key: string, sid: string, name: string): Promise<Response> {
+function callTool(key: string, sid: string, name: string, args: Record<string, unknown> = {}): Promise<Response> {
   return post(
-    { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name, arguments: {} } },
+    { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name, arguments: args } },
     { Authorization: `Bearer ${key}`, "Mcp-Session-Id": sid, "Mcp-Protocol-Version": "2025-03-26" },
   );
 }
@@ -182,6 +184,42 @@ describe("remote MCP endpoint: scrubbing and limits", () => {
     const sid = await openSession(KEY_A);
     const text = await (await callTool(KEY_A, sid, "boom")).text();
     expect(text).not.toContain(KEY_A);
+  });
+
+  it("returns a one-time secret a tool just created, but still hides the session's own key", async () => {
+    const NEW_KEY = "dn_live_" + "n".repeat(32);
+    const factory: SessionFactory = async (apiKey) => {
+      const server = new McpServer({ name: "test", version: "0.0.0" });
+      const http = { post: async () => ({ key: NEW_KEY, id: "k1", label: "x" }) } as unknown as HttpClient;
+      registerKeysTools(server, http);
+      server.tool("echo_own", "own", {}, async () => ({ content: [{ type: "text", text: `own ${apiKey}` }] }));
+      return { server, dispose: () => undefined };
+    };
+    await start(factory);
+    const sid = await openSession(KEY_A);
+    const text = await (await callTool(KEY_A, sid, "dominusnode_create_key", { label: "x" })).text();
+    expect(text).toContain(NEW_KEY);
+    const own = await (await callTool(KEY_A, sid, "echo_own")).text();
+    expect(own).not.toContain(KEY_A);
+    expect(own).toContain("[REDACTED]");
+  });
+
+  it("keeps tool rate limits per session: one tenant cannot exhaust another's", async () => {
+    let n = 0;
+    const factory: SessionFactory = async () => {
+      const server = new McpServer({ name: "test", version: "0.0.0" });
+      const http = { post: async () => ({ key: `dn_live_${"z".repeat(20)}${n++}`, id: "k", label: "x" }) } as unknown as HttpClient;
+      registerKeysTools(server, http);
+      return { server, dispose: () => undefined };
+    };
+    await start(factory);
+    const sa = await openSession(KEY_A);
+    for (let i = 0; i < 10; i++) await callTool(KEY_A, sa, "dominusnode_create_key", { label: "x" });
+    expect(await (await callTool(KEY_A, sa, "dominusnode_create_key", { label: "x" })).text()).toContain("Rate limit exceeded");
+    const sb = await openSession(KEY_B);
+    const b = await (await callTool(KEY_B, sb, "dominusnode_create_key", { label: "x" })).text();
+    expect(b).not.toContain("Rate limit exceeded");
+    expect(b).toContain("New API key created");
   });
 
   it("refuses foreign Origins", async () => {

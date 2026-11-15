@@ -151,6 +151,16 @@ describe("rules", () => {
     recordOpsEvent("payment_webhook_failure", clock.now());
     expect((await a.evaluate()).map((x) => x.rule)).toEqual(["payment_webhook_failures"]);
   });
+  it("fires while owed-funds rows are open", async () => {
+    const { a } = setup();
+    let open = 0;
+    (a as unknown as { metrics: OpsMetrics }).metrics.openOwedFunds = async () => open;
+    expect(await a.evaluate()).toEqual([]);
+    open = 2;
+    const r = await a.evaluate();
+    expect(r.map((x) => x.rule)).toEqual(["owed_funds_open"]);
+    expect(r[0]!.values).toEqual({ open: 2 });
+  });
   it("fires on a debit spike over both thresholds", async () => {
     expect((await setup({}, { recent: 9000, baseline: 100 }).a.evaluate()).map((x) => x.rule)).toEqual(["wallet_debit_spike"]);
     expect(await setup({}, { recent: 9000, baseline: 5000 }).a.evaluate()).toEqual([]);

@@ -1,3 +1,4 @@
+import { x402NetworkConfigError } from "@dominusnode/billing";
 import dotenv from "dotenv";
 dotenv.config();
 
@@ -35,6 +36,11 @@ function validateRequiredEnv(): void {
 
   if (process.env.NODE_ENV === "production" && jwtSecret === "change-me-to-a-64-char-random-string-in-production") {
     errors.push("JWT_SECRET must not use the default value in production");
+  }
+
+  if (process.env["X402_ENABLED"] === "true") {
+    const netErr = x402NetworkConfigError(process.env);
+    if (netErr) errors.push(netErr);
   }
 
   const mfaKey = process.env["MFA_ENCRYPTION_KEY"];

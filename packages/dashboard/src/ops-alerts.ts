@@ -1,4 +1,4 @@
-import { createLogger, getPool, resolveAndCheck, isValidHostname } from "@dominusnode/shared";
+import { createLogger, getPool, resolveAndCheck, isValidHostname, owedFundsRepo } from "@dominusnode/shared";
 import type { ResolveCheckResult } from "@dominusnode/shared";
 import https from "node:https";
 import net from "node:net";
@@ -171,6 +171,8 @@ export interface OpsMetrics {
   liveNodeCount(): Promise<number>;
   /** Wallet debits (cents) in the last 10 min and the 10-min average over the 6 h before. */
   walletDebits(): Promise<{ recentCents: number; baselineCents: number }>;
+  /** Open owed-funds rows (money received but not credited), see owedFundsRepo. */
+  openOwedFunds?(): Promise<number>;
 }
 
 export const dbOpsMetrics: OpsMetrics = {
@@ -201,6 +203,9 @@ export const dbOpsMetrics: OpsMetrics = {
     const recent = Number(r.rows[0]?.recent ?? 0);
     const prior = Number(r.rows[0]?.prior ?? 0);
     return { recentCents: recent, baselineCents: Math.round(prior / 36) };
+  },
+  async openOwedFunds() {
+    return (await owedFundsRepo.summary()).totalOpen;
   },
 };
 
@@ -389,6 +394,15 @@ export class OpsAlerter {
       return { rule: "payment_webhook_failures", severity: "critical", status: "firing", at,
         summary: `${f} payment webhook failures in 10 min (threshold ${c.paymentFailures})`,
         values: { failures: f, threshold: c.paymentFailures } };
+    });
+
+    await check("owed_funds_open", async () => {
+      if (!this.metrics.openOwedFunds) return null;
+      const n = await this.metrics.openOwedFunds();
+      if (n <= 0) return null;
+      return { rule: "owed_funds_open", severity: "warning", status: "firing", at,
+        summary: `${n} owed-funds row(s) open (received, not credited): GET /api/admin/network/reconciliation`,
+        values: { open: n } };
     });
 
     await check("wallet_debit_spike", async () => {

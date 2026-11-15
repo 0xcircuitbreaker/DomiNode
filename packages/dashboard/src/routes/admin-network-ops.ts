@@ -1,6 +1,6 @@
 import { Router } from "express";
 import type { Request, Response } from "express";
-import { createLogger, getPool, payoutRepo, policyRepo, disputeResolutionRepo } from "@dominusnode/shared";
+import { createLogger, getPool, payoutRepo, policyRepo, disputeResolutionRepo, owedFundsRepo } from "@dominusnode/shared";
 import { requireAuth } from "../middleware/auth.js";
 import { requireAdmin } from "../middleware/admin.js";
 import {
@@ -567,6 +567,55 @@ router.post("/payouts/:id/fail", async (req: Request, res: Response) => {
     log.info("payout failed and reversed by admin", { payoutId: id, by: adminId(req) });
     res.json({ id: p.id, userId: p.userId, status: p.status, amount: money(p.amountMusd), txHash: p.txHash });
   } catch (err) { fail(res, err, "Payout fail"); }
+});
+
+// ─── Owed-funds reconciliation ──────────────────────────────────────
+
+/**
+ * Money received but not credited: wallet overflow credits, payer refunds,
+ * MPP refund_due/excess and unmatched/duplicate Tempo transfers. Totals plus
+ * the oldest open rows of each source.
+ */
+router.get("/reconciliation", async (req: Request, res: Response) => {
+  try {
+    const lim = intParam(req, "limit", 1, 500) ?? 100;
+    const [summary, overflow, payerRefund, mpp, tempo] = await Promise.all([
+      owedFundsRepo.summary(),
+      owedFundsRepo.listOpen("overflow", lim),
+      owedFundsRepo.listOpen("payer_refund", lim),
+      owedFundsRepo.listOpen("mpp", lim),
+      owedFundsRepo.listOpen("tempo", lim),
+    ]);
+    res.json({ summary, open: { overflow, payerRefund, mpp, tempo } });
+  } catch (err) { fail(res, err, "Reconciliation"); }
+});
+
+/**
+ * Resolve one owed-funds row after paying it back, crediting it by hand or
+ * waiving it: {resolution, reason}. Audited.
+ */
+router.post("/reconciliation/:source/:id/resolve", async (req: Request, res: Response) => {
+  try {
+    const src = String(req.params["source"] ?? "");
+    if (!(owedFundsRepo.OWED_SOURCES as readonly string[]).includes(src)) throw new HttpError(400, `source must be one of ${owedFundsRepo.OWED_SOURCES.join("|")}`);
+    const source = src as owedFundsRepo.OwedSource;
+    const id = String(req.params["id"] ?? "");
+    const idOk = source === "mpp" ? /^[0-9a-f-]{36}$/i.test(id) : /^[1-9][0-9]{0,18}$/.test(id);
+    if (!idOk) throw new HttpError(400, "Invalid id");
+    const b = body(req);
+    const resolution = b["resolution"];
+    if (typeof resolution !== "string" || !owedFundsRepo.OWED_RESOLUTIONS[source].includes(resolution)) {
+      throw new HttpError(400, `resolution must be one of ${owedFundsRepo.OWED_RESOLUTIONS[source].join(", ")}`);
+    }
+    const reason = reasonField(b, true, 200)!;
+    await withAdminTx(adminId(req), async (c: TxClient) => {
+      const ok = await owedFundsRepo.resolveTx(c as unknown as Parameters<typeof owedFundsRepo.resolveTx>[0], source, id, resolution);
+      if (!ok) throw new HttpError(409, "Row is not open");
+      await audit(c, req, "owed_funds_resolve", `owed_${source}`, id, { reason, resolution });
+    });
+    log.info("owed funds resolved by admin", { source, id, resolution, by: adminId(req) });
+    res.json({ source, id, resolution });
+  } catch (err) { fail(res, err, "Reconciliation resolve"); }
 });
 
 // ─── Byte disputes ──────────────────────────────────────────────────

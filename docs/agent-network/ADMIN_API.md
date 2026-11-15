@@ -308,6 +308,14 @@ Body `{ txHash: string /* 0x + 64 hex */; reason: string }`. Confirms a `pending
 
 Body `{ txHash: string; outcome: "dropped" | "reverted"; reason: string }`. For a `submitted` payout whose tx was dropped, replaced or reverted (for a stranded row, the hash of the signed tx or the nonce's replacement): marks it `failed` with that evidence and reverses it, re-crediting the owner's available credits, in one transaction. `409` on a status or hash mismatch. Audit: `node_payout_fail`.
 
+### `GET /reconciliation?limit=100`
+
+Money received but not credited, from four ledgers: `wallet_overflow_credits` (refunds or reservation releases above the $10,000 wallet cap), `payer_refunds_owed` (settled-but-unserved payments of non-wallet payers), `mpp_transactions` with `status='refund_due'` or `excess_musd > 0`, and `tempo_payments` that are `unmatched` or `duplicate`. Returns `summary` (open count and totals per ledger, `totalOpen`) and `open.{overflow,payerRefund,mpp,tempo}` (oldest first, up to `limit` each). The `owed_funds_open` ops alert fires while `totalOpen > 0`.
+
+### `POST /reconciliation/:source/:id/resolve`
+
+Body `{ resolution: string; reason: string }`. `source` is `overflow` (`credited`|`waived`), `payer_refund` (`paid`|`waived`), `mpp` (`refunded`|`waived`) or `tempo` (`refunded`|`credited`). Pay the money back (or credit it with an admin credit) first, then mark the row: sets `resolved_at` / `status`. `409` if the row is not open. Audit: `owed_funds_resolve`.
+
 ## 7. Byte disputes
 
 ### `GET /disputes`
@@ -508,6 +516,7 @@ A checker in the API process runs every `OPS_ALERT_INTERVAL_SEC` (default 60) an
 | `live_nodes_drop` | warning | live nodes fell `OPS_ALERT_NODE_DROP_PCT` (50) % or more below the 10-minute peak |
 | `payment_webhook_failures` | critical | `OPS_ALERT_PAYMENT_FAILURES` (3) or more payment webhook handler errors in 10 min |
 | `wallet_debit_spike` | warning | wallet debits in 10 min ≥ `OPS_ALERT_DEBIT_SPIKE_CENTS` (5000) and ≥ `OPS_ALERT_DEBIT_SPIKE_FACTOR` (5) × the 10-min average of the prior 6 h |
+| `owed_funds_open` | warning | any owed-funds row is open (see `GET /reconciliation`) |
 | `v1_error_rate` | warning | ≥ `OPS_ALERT_V1_ERROR_PCT` (20) % of `/v1` responses were 5xx in 10 min, with at least `OPS_ALERT_V1_MIN_REQUESTS` (50) requests |
 
 A firing rule notifies once per `OPS_ALERT_DEDUPE_SEC` (1800); a `resolved` notice is sent when it clears. All sends (including tests) share a cap of `OPS_ALERT_MAX_PER_HOUR` (30). Counters, dedupe state (capped at 1000 entries, pruned each run) and the last 200 alerts are in memory and reset on restart; each API instance alerts independently.

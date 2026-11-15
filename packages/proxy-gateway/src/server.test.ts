@@ -51,6 +51,9 @@ vi.mock("./x402-handler.js", () => ({
   handleX402Connect: (...args: unknown[]) => mockX402Connect(...args),
   build402ResponseBody: () => "Insufficient balance",
   build402ConnectResponse: () => "HTTP/1.1 402 Payment Required\r\n\r\n",
+  buildAuthenticated402Body: () => JSON.stringify({ error: "INSUFFICIENT_BALANCE", message: "Insufficient balance. Top up, or remove the API key to pay per request" }),
+  buildAuthenticated402ConnectResponse: () => "HTTP/1.1 402 Payment Required\r\nX-DominusNode-Error: INSUFFICIENT_BALANCE\r\n\r\n",
+  PAYMENT_WITH_API_KEY_MESSAGE: "remove the API key and retry with the same payment",
   isX402Verified: (req: { __x402?: unknown }) => !!req.__x402,
   getX402Data: (req: { __x402?: { rail?: string } }) => (req.__x402 ? { rail: "x402", ...req.__x402 } : null),
   hasMppCredential: (h: Record<string, unknown>) => /^Payment /i.test(String(h["authorization"] ?? h["proxy-authorization"] ?? "")),
@@ -76,6 +79,7 @@ vi.mock("./session-manager.js", () => ({
   startSession: (...args: unknown[]) => mockStartSession(...args),
   startPrepaidSession: (...args: unknown[]) => mockStartPrepaidSession(...args),
   abortPrepaidSession: (...args: unknown[]) => mockAbortPrepaid(...args),
+  confirmPrepaidPayment: vi.fn(async () => undefined),
   endSession: (...args: unknown[]) => mockEndSession(...args),
   getActiveSessionCount: () => mockGetActiveSessionCount(),
   registerSessionDestroy: vi.fn(),
@@ -397,13 +401,24 @@ describe("proxy-gateway server", () => {
       expect(res.body).toContain("Too many concurrent connections");
     });
 
-    it("402 carries the MPP WWW-Authenticate challenge when MPP is configured", async () => {
+    it("API-key 402 carries no MPP challenge or x402 requirements (a keyed paid retry would be ignored)", async () => {
       mockCheckBalance.mockResolvedValue(false);
       mppChallengeHeaders = { "WWW-Authenticate": 'Payment id="i", realm="dn", method="tempo", intent="charge", request="r"', "Cache-Control": "no-store" };
       const res = await makeRequest(port, { path: "http://httpbin.org/ip", method: "GET" });
       expect(res.status).toBe(402);
-      expect(res.headers["www-authenticate"]).toMatch(/^Payment id="i"/);
-      expect(res.headers["cache-control"]).toBe("no-store");
+      expect(res.headers["www-authenticate"]).toBeUndefined();
+      expect(res.body).toContain("remove the API key");
+    });
+
+    it("API key + zero balance + payment credential: refused before any verification", async () => {
+      mockCheckBalance.mockResolvedValue(false);
+      const res = await makeRequest(port, { path: "http://httpbin.org/ip", method: "GET", headers: { Authorization: "Payment eyJ4IjoxfQ" } });
+      expect(res.status).toBe(400);
+      expect(res.headers["x-dominusnode-error"]).toBe("PAYMENT_WITH_API_KEY");
+      expect(mockX402Http).not.toHaveBeenCalled();
+      const res2 = await makeRequest(port, { path: "http://httpbin.org/ip", method: "GET", headers: { "X-PAYMENT": "abc" } });
+      expect(res2.status).toBe(400);
+      expect(mockX402Http).not.toHaveBeenCalled();
     });
 
     it("relays an MPP-paid request as rail mpp: verify → stream → settle, credential not forwarded", async () => {
@@ -832,6 +847,15 @@ describe("proxy-gateway server", () => {
       mockCheckBalance.mockResolvedValue(false);
       const res = await makeConnect(port, "example.com:443");
       expect(res.status).toBe(402);
+      res.socket.destroy();
+    });
+
+    it("CONNECT with API key + payment credential: 400 before verification", async () => {
+      mockCheckBalance.mockResolvedValue(false);
+      const res = await makeConnect(port, "example.com:443", { Authorization: "Payment eyJ4IjoxfQ" });
+      expect(res.status).toBe(400);
+      expect(res.headers["x-dominusnode-error"]).toBe("PAYMENT_WITH_API_KEY");
+      expect(mockX402Connect).not.toHaveBeenCalled();
       res.socket.destroy();
     });
 

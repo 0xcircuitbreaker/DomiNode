@@ -75,6 +75,29 @@ interface ActiveSession {
 
 const activeSessions = new Map<string, ActiveSession>();
 
+/**
+ * Prepaid sessions whose payment is not captured yet (x402 settles through the
+ * facilitator after the session starts). Until confirmPrepaidPayment() the
+ * session has no recovery payload and a forced end closes it with no charge,
+ * so node credit is never recorded for money that was not collected.
+ */
+interface PaymentGate { promise: Promise<boolean>; resolve: (ok: boolean) => void }
+const paymentGates = new Map<string, PaymentGate>();
+const PAYMENT_GATE_WAIT_MS = 120_000;
+
+function openPaymentGate(sessionId: string): void {
+  let resolve!: (ok: boolean) => void;
+  const promise = new Promise<boolean>((r) => { resolve = r; });
+  paymentGates.set(sessionId, { promise, resolve });
+}
+
+function closePaymentGate(sessionId: string, ok: boolean): void {
+  const g = paymentGates.get(sessionId);
+  if (!g) return;
+  paymentGates.delete(sessionId);
+  g.resolve(ok);
+}
+
 // ─── Crash/restart recovery ──────────────────────────────────────────
 // When set, every session's settle payload is stored on its DB row at start
 // and heartbeated with the gateway-counted bytes, so another (or the next)
@@ -660,13 +683,9 @@ export async function startPrepaidSession(i: PrepaidSessionInput): Promise<strin
     prepaid: { rail: i.rail, paidMusd: i.paidMusd },
     inflightMusd: i.paidMusd,
   };
-  try {
-    await persistRecovery(newSession);
-  } catch (err) {
-    releaseRequesterSpend(i.userId, i.paidMusd);
-    try { await usageRepo.endSession(sessionId, 0, "error"); } catch { /* best effort */ }
-    throw err;
-  }
+  // No recovery payload yet: it is stored once the payment is captured
+  // (confirmPrepaidPayment), so a crash before capture never settles a charge.
+  openPaymentGate(sessionId);
   activeSessions.set(sessionId, newSession);
   const paidBytes = maxBytesForPrepaid(i.paidMusd, i.quotedPricePerGbMusd);
   i.counter.maxBytes = Math.max(1, Math.min(paidBytes, i.maxBytes)); // 0 would mean unlimited
@@ -684,10 +703,27 @@ export async function startPrepaidSession(i: PrepaidSessionInput): Promise<strin
 }
 
 /**
+ * The prepaid session's payment was captured: from now on it settles as a
+ * relay charge (including after a crash, via its recovery payload).
+ */
+export async function confirmPrepaidPayment(sessionId: string): Promise<void> {
+  closePaymentGate(sessionId, true);
+  const session = activeSessions.get(sessionId);
+  if (!session) return;
+  try {
+    await persistRecovery(session);
+  } catch (err) {
+    log.error("prepaid session recovery payload not stored", { sessionId, error: err instanceof Error ? err.message.slice(0, 120) : "unknown" });
+  }
+}
+
+/**
  * Abort a prepaid session whose payment never settled or was refunded: no
  * relay charge, no node earnings; the DB session is closed as "error".
  */
 export async function abortPrepaidSession(sessionId: string): Promise<boolean> {
+  // A forced end already in progress waits on this gate: it must not charge.
+  closePaymentGate(sessionId, false);
   const session = activeSessions.get(sessionId);
   if (!session || !session.prepaid) return false;
   if (!activeSessions.delete(sessionId)) return false;
@@ -754,6 +790,26 @@ async function settleSession(sessionId: string): Promise<void> {
 
   // Fix #8: Atomic check-and-remove to prevent TOCTOU race
   if (!activeSessions.delete(sessionId)) return;
+
+  const gate = paymentGates.get(sessionId);
+  if (gate) {
+    // Ended (shutdown, suspend, probe verdict, sweep) before the payment was
+    // captured: charge only if capture succeeds.
+    let timer: NodeJS.Timeout | undefined;
+    const ok = await Promise.race([
+      gate.promise,
+      new Promise<boolean>((r) => { timer = setTimeout(() => r(false), PAYMENT_GATE_WAIT_MS); timer.unref?.(); }),
+    ]);
+    clearTimeout(timer);
+    if (!ok) {
+      paymentGates.delete(sessionId);
+      sessionDestroyCallbacks.delete(sessionId);
+      releaseRequesterSpend(session.userId, session.inflightMusd ?? 0n);
+      try { await usageRepo.endSession(sessionId, 0, "error"); } catch { /* best effort */ }
+      log.warn("prepaid session ended before payment capture; closed without charge", { sessionId });
+      return;
+    }
+  }
 
   const { userId, counter, reservedCents, teamId } = session;
   const totalBytes = counter.bytesIn + counter.bytesOut;

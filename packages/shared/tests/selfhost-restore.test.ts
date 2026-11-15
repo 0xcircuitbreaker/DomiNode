@@ -22,7 +22,7 @@ function restoreFlags(): string[] {
   const args = line.slice(line.indexOf("pg_restore") + "pg_restore".length).split("<")[0].trim().split(/\s+/);
   const out: string[] = [];
   for (let i = 0; i < args.length; i++) {
-    if (args[i] === "-U" || args[i] === "-d") { i++; continue; }
+    if (args[i] === "-U" || args[i] === "-d" || args[i] === "-h") { i++; continue; }
     out.push(args[i]);
   }
   return out;
@@ -31,6 +31,19 @@ function restoreFlags(): string[] {
 describe("restore.sh pg_restore", () => {
   it("skips ACLs (install.sh re-applies the gateway role)", () => {
     expect(restoreFlags()).toContain("--no-acl");
+  });
+
+  it("restores atomically, after stopping writers, once postgres answers over TCP", () => {
+    expect(restoreFlags()).toEqual(expect.arrayContaining(["--single-transaction", "--exit-on-error"]));
+    const stop = restoreSh.indexOf("stop api gateway frontend");
+    const ready = restoreSh.indexOf("pg_isready -h 127.0.0.1");
+    const restore = restoreSh.indexOf("exec -T postgres pg_restore");
+    expect(stop).toBeGreaterThan(0);
+    expect(ready).toBeGreaterThan(stop);
+    expect(restore).toBeGreaterThan(ready);
+    expect(restoreSh).toMatch(/SELECT 1/);
+    const compose = fs.readFileSync(path.join(ROOT, "docker-compose.selfhost.yml"), "utf8");
+    expect(compose).toContain("pg_isready -h 127.0.0.1 -U dominusnode");
   });
 
   it.skipIf(!url || spawnSync("pg_dump", ["--version"]).status !== 0)(

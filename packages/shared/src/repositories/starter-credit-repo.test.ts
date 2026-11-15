@@ -137,4 +137,18 @@ describe("consumeTx / closeGrantTx", () => {
     expect(calls.find((x) => x.sql.startsWith("UPDATE wallets"))?.p).toEqual(["w1", "25"]);
     expect(calls.find((x) => x.sql.includes("INSERT INTO starter_credit_ledger"))?.p).toEqual(["g1", "expire", "250000", null]);
   });
+
+  it("expiry waits while the user has an open session (the reservation holds starter cents)", async () => {
+    const calls: string[] = [];
+    const c = { query: vi.fn(async (sql: string) => {
+      calls.push(sql);
+      if (sql.includes("FROM starter_credit_grants")) return { rows: [{ id: "g1", user_id: "u1", remaining_musd: "500000" }] };
+      if (sql.includes("FROM wallets")) return { rows: [{ id: "w1", balance_cents: 0 }] };
+      if (sql.includes("FROM sessions")) return { rows: [{ id: "s1" }] };
+      return { rows: [] };
+    }) } as never;
+    expect(await closeGrantTx(c, "g1", "expired", null)).toBeNull();
+    expect(calls.some((q) => q.startsWith("UPDATE starter_credit_grants"))).toBe(false);
+    expect(calls.some((q) => q.startsWith("UPDATE wallets"))).toBe(false);
+  });
 });

@@ -178,6 +178,31 @@ export function isX402Enabled(): boolean {
   return process.env["X402_ENABLED"] === "true";
 }
 
+const TESTNET_RE = /(sepolia|devnet|testnet|amoy|fuji)/i;
+
+export function isTestnetNetwork(network: string): boolean {
+  return TESTNET_RE.test(network);
+}
+
+/**
+ * Coinbase x402 network. Defaults to Base mainnet in production and Base
+ * Sepolia elsewhere; a testnet in production needs X402_ALLOW_TESTNET=true.
+ */
+export function getX402Network(env: NodeJS.ProcessEnv = process.env): string {
+  const v = (env["X402_NETWORK"] ?? "").trim();
+  if (v) return v;
+  return env["NODE_ENV"] === "production" ? "base" : "base-sepolia";
+}
+
+/** Null when acceptable; otherwise why x402 must not run with this network. */
+export function x402NetworkConfigError(env: NodeJS.ProcessEnv = process.env): string | null {
+  const network = getX402Network(env);
+  if (env["NODE_ENV"] === "production" && isTestnetNetwork(network) && env["X402_ALLOW_TESTNET"] !== "true") {
+    return `X402_NETWORK=${network} is a testnet; refused in production (set X402_NETWORK=base, or X402_ALLOW_TESTNET=true for a staging stack)`;
+  }
+  return null;
+}
+
 export function getDcPricePerRequestUsd(): string {
   return process.env["X402_DC_PRICE_PER_REQUEST_USD"] ?? "0.001";
 }
@@ -284,9 +309,12 @@ export function buildX402Requirements(arg: "dc" | "residential" | { amountMusd: 
     if (!/^0x[0-9a-fA-F]{40}$/.test(evmAddr)) {
       log.warn("Invalid X402_RECEIVING_ADDRESS format — must be 0x + 40 hex chars", { addr: evmAddr.slice(0, 6) });
     } else {
-      const network = process.env["X402_NETWORK"] ?? "base-sepolia";
+      const network = getX402Network();
       const assetAddress = getUsdcAssetAddress(network);
-      if (!assetAddress) {
+      const netErr = x402NetworkConfigError();
+      if (netErr) {
+        log.error(netErr);
+      } else if (!assetAddress) {
         log.warn(`No USDC asset address for Coinbase network ${network} — set X402_USDC_ADDRESS_${network.toUpperCase().replace(/-/g, "_")}`);
       } else {
         accepts.push({

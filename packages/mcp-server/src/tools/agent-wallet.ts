@@ -2,22 +2,17 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { HttpClient } from "../http-client.js";
 import type { McpConfig } from "../config.js";
+import { SlidingWindow, perServer } from "../session-limiter.js";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const AGENT_WALLET_RATE_MAX = 20;
 const AGENT_WALLET_RATE_WINDOW_MS = 60_000;
-const agentWalletTimestamps: number[] = [];
 
-function checkAgentWalletRateLimit(): boolean {
-  const now = Date.now();
-  while (agentWalletTimestamps.length > 0 && now - agentWalletTimestamps[0] > AGENT_WALLET_RATE_WINDOW_MS) {
-    agentWalletTimestamps.shift();
-  }
-  if (agentWalletTimestamps.length > 100) agentWalletTimestamps.length = 100;
-  if (agentWalletTimestamps.length >= AGENT_WALLET_RATE_MAX) return false;
-  agentWalletTimestamps.push(now);
-  return true;
+const agentWalletLimiter = perServer(() => new SlidingWindow(AGENT_WALLET_RATE_MAX, AGENT_WALLET_RATE_WINDOW_MS));
+
+function checkAgentWalletRateLimit(server: object): boolean {
+  return agentWalletLimiter.get(server).take();
 }
 
 /**
@@ -102,7 +97,7 @@ export function registerAgentWalletTools(server: McpServer, httpClient: HttpClie
     },
     async (args) => {
       try {
-        if (!checkAgentWalletRateLimit()) {
+        if (!checkAgentWalletRateLimit(server)) {
           return {
             isError: true,
             content: [{ type: "text", text: "Rate limit exceeded: maximum 20 agentic wallet operations per minute. Please wait before retrying." }],
@@ -205,7 +200,7 @@ export function registerAgentWalletTools(server: McpServer, httpClient: HttpClie
     },
     async (args) => {
       try {
-        if (!checkAgentWalletRateLimit()) {
+        if (!checkAgentWalletRateLimit(server)) {
           return {
             isError: true,
             content: [{ type: "text", text: "Rate limit exceeded: maximum 20 agentic wallet operations per minute. Please wait before retrying." }],
@@ -303,7 +298,7 @@ export function registerAgentWalletTools(server: McpServer, httpClient: HttpClie
     },
     async (args) => {
       try {
-        if (!checkAgentWalletRateLimit()) {
+        if (!checkAgentWalletRateLimit(server)) {
           return {
             isError: true,
             content: [{ type: "text", text: "Rate limit exceeded: maximum 20 agentic wallet operations per minute. Please wait before retrying." }],
@@ -347,7 +342,7 @@ export function registerAgentWalletTools(server: McpServer, httpClient: HttpClie
     },
     async (args) => {
       try {
-        if (!checkAgentWalletRateLimit()) {
+        if (!checkAgentWalletRateLimit(server)) {
           return {
             isError: true,
             content: [{ type: "text", text: "Rate limit exceeded: maximum 20 agentic wallet operations per minute. Please wait before retrying." }],
@@ -392,7 +387,7 @@ export function registerAgentWalletTools(server: McpServer, httpClient: HttpClie
     },
     async (args) => {
       try {
-        if (!checkAgentWalletRateLimit()) {
+        if (!checkAgentWalletRateLimit(server)) {
           return {
             isError: true,
             content: [{ type: "text", text: "Rate limit exceeded: maximum 20 agentic wallet operations per minute. Please wait before retrying." }],
@@ -442,7 +437,7 @@ export function registerAgentWalletTools(server: McpServer, httpClient: HttpClie
     },
     async (args) => {
       try {
-        if (!checkAgentWalletRateLimit()) {
+        if (!checkAgentWalletRateLimit(server)) {
           return {
             isError: true,
             content: [{ type: "text", text: "Rate limit exceeded: maximum 20 agentic wallet operations per minute. Please wait before retrying." }],

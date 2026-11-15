@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { SUPPORTED_CRYPTO, policyRepo, createLogger, RELAY_BYTES_PER_GB, killSwitches } from "@dominusnode/shared";
 import { x402Configured } from "./payment-rails.js";
-import { X402_RESOURCE_DESCRIPTION, bazaarExtension } from "@dominusnode/billing";
+import { X402_RESOURCE_DESCRIPTION, bazaarExtension, getX402Network } from "@dominusnode/billing";
 
 const router = Router();
 const log = createLogger("api:x402-info");
@@ -61,7 +61,7 @@ router.get("/info", async (_req, res) => {
     version: "1",
     facilitators: {
       coinbase: {
-        network: process.env["X402_NETWORK"] ?? "base-sepolia",
+        network: getX402Network(),
         receivingAddress: process.env["X402_RECEIVING_ADDRESS"] || null,
         currency: "USDC",
       },

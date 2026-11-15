@@ -61,15 +61,27 @@ if [ "$NO_START" -eq 1 ]; then exit 0; fi
 # 2. database
 if [ -f "$STAGE/db.dump" ]; then
   C=("$DOCKER" compose -f docker-compose.selfhost.yml --env-file "$ROOT/.env" --profile coordinator)
+  # Nothing may write while the database is replaced: in-memory sessions and
+  # reservations in a running api/gateway would point at rolled-back rows.
+  "${C[@]}" stop api gateway frontend >/dev/null 2>&1 || true
   "${C[@]}" up -d postgres
-  for _ in $(seq 1 60); do
-    if "${C[@]}" exec -T postgres pg_isready -U dominusnode -d dominusnode >/dev/null 2>&1; then break; fi
+  # TCP readiness (-h 127.0.0.1) plus a real query: on a fresh volume the image's
+  # init-time server listens on the unix socket only and is about to shut down.
+  ready=0
+  for _ in $(seq 1 90); do
+    if "${C[@]}" exec -T postgres pg_isready -h 127.0.0.1 -U dominusnode -d dominusnode >/dev/null 2>&1 &&
+      "${C[@]}" exec -T postgres psql -h 127.0.0.1 -U dominusnode -d dominusnode -tAc 'SELECT 1' >/dev/null 2>&1; then
+      ready=1
+      break
+    fi
     sleep 2
   done
+  [ "$ready" -eq 1 ] || die "postgres did not become ready"
   # --no-acl: a split install's dump grants to dominusnode_gateway, a cluster
   # role pg_dump does not carry; install.sh re-applies gateway-role.sql below.
-  "${C[@]}" exec -T postgres pg_restore -U dominusnode -d dominusnode --clean --if-exists --no-owner --no-acl <"$STAGE/db.dump" ||
+  "${C[@]}" exec -T postgres pg_restore -h 127.0.0.1 -U dominusnode -d dominusnode --clean --if-exists --no-owner --no-acl --single-transaction --exit-on-error <"$STAGE/db.dump" ||
     die "pg_restore failed"
+  echo "restore: on a split install, restart the gateway VPS stack after this restore"
   echo "restore: database loaded"
 fi
 
