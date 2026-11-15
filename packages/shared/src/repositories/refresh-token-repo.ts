@@ -13,6 +13,10 @@ export interface RefreshTokenRecord {
   created_at: Date;
   /** Set only when the token was rotated by /refresh (not on logout/family revoke). */
   rotated_at?: Date | null;
+  /** API key the family was minted from (verify-key); null for password/wallet logins. */
+  api_key_id?: string | null;
+  /** The originating API key is revoked (findTokenByHash only). */
+  api_key_revoked?: boolean;
 }
 
 /** A rotated token presented again within this window is a benign concurrent refresh, not theft. */
@@ -81,12 +85,13 @@ export async function storeToken(
   familyId: string,
   expiresAt: Date,
   clientHash: string | null = null,
+  apiKeyId: string | null = null,
 ): Promise<Omit<RefreshTokenRecord, "token_hash">> {
   const result = await query<Omit<RefreshTokenRecord, "token_hash">>(
-    `INSERT INTO refresh_tokens (user_id, token_hash, family_id, expires_at, client_hash)
-     VALUES ($1, $2, $3, $4, $5)
-     RETURNING id, user_id, family_id, revoked, expires_at, created_at`,
-    [userId, tokenHash, familyId, expiresAt, clientHash],
+    `INSERT INTO refresh_tokens (user_id, token_hash, family_id, expires_at, client_hash, api_key_id)
+     VALUES ($1, $2, $3, $4, $5, $6)
+     RETURNING id, user_id, family_id, revoked, expires_at, created_at, api_key_id`,
+    [userId, tokenHash, familyId, expiresAt, clientHash, apiKeyId],
   );
   return result.rows[0];
 }
@@ -107,7 +112,10 @@ export async function findValidToken(tokenHash: string): Promise<Omit<RefreshTok
 export async function findTokenByHash(tokenHash: string): Promise<Omit<RefreshTokenRecord, "token_hash"> | null> {
   // Exclude token_hash from SELECT — caller already has the hash as input
   const result = await query<Omit<RefreshTokenRecord, "token_hash">>(
-    `SELECT id, user_id, family_id, revoked, expires_at, created_at, rotated_at FROM refresh_tokens WHERE token_hash = $1 LIMIT 1`,
+    `SELECT rt.id, rt.user_id, rt.family_id, rt.revoked, rt.expires_at, rt.created_at, rt.rotated_at, rt.api_key_id,
+            (rt.api_key_id IS NOT NULL AND (k.id IS NULL OR k.revoked_at IS NOT NULL)) AS api_key_revoked
+     FROM refresh_tokens rt LEFT JOIN api_keys k ON k.id = rt.api_key_id
+     WHERE rt.token_hash = $1 LIMIT 1`,
     [tokenHash],
   );
   return result.rows[0] ?? null;

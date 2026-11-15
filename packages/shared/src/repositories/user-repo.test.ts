@@ -332,6 +332,13 @@ describe("user-repo", () => {
       const result = await revokeApiKey("ak1", "u1");
       expect(result).toBe(false);
     });
+
+    it("revokes the refresh-token families minted from the key in the same statement", async () => {
+      mockQuery.mockResolvedValueOnce({ rowCount: 1 });
+      await revokeApiKey("ak1", "u1");
+      const sql = String(mockQuery.mock.calls.at(-1)![0]);
+      expect(sql).toMatch(/UPDATE refresh_tokens SET revoked = true\s+WHERE api_key_id IN \(SELECT id FROM k\)/);
+    });
   });
 
   describe("findOrCreateX402User", () => {

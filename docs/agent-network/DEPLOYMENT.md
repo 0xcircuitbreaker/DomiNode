@@ -331,10 +331,13 @@ home IP, and classes the node `masked`. Consequences:
 - Do not declare it `residential` at registration: a declared class above the
   verified one opens an admin review flag.
 - Split tunnelling (tunnel to the gateway direct, target traffic through the
-  VPN, or the reverse) is usually detected by the canary probe: a same-family
-  mismatch between the tunnel IP and the probed egress IP is tamper evidence
-  and quarantines the node; an other-family egress is classified and the more
-  conservative class wins.
+  VPN, or the reverse) is usually detected by the canary probe: whenever the
+  probed egress IP differs from the tunnel IP (another family, or another
+  /24 / IPv6 /64) the egress IP is classified and the more conservative class
+  wins, and an egress in another country blocks the node and opens a review
+  flag. A different address alone is not tamper evidence (CGNAT pools,
+  multi-WAN routers and IPv6 temporary addresses do this honestly); only a
+  forged plaintext echo is, and two such verdicts quarantine the node.
 - Check your VPN provider's terms. Many consumer VPN and WARP terms forbid
   reselling bandwidth or running a proxy for third parties; that is between
   you and the provider.
@@ -476,7 +479,10 @@ the reservation is refunded. Give the gateway container a stop timeout above
 its 20 s drain (`stop_grace_period: 60s` in the compose files).
 
 Probes: set the same `PROBE_AUTH_SECRET` (32+ chars; the self-host installer
-generates it) on the API and gateways so canary probes get their own budget
+generates it on the coordinator, and a gateway VPS takes the coordinator's
+value as `COORD_PROBE_AUTH_SECRET` or through the hidden prompt; compare the
+"probe auth check value" both installers print) on the API and gateways so
+canary probes get their own budget
 on `/v1/probe/echo`.
 
 Logs: compose files rotate container logs (json-file, 5 x 20 MB per
@@ -603,13 +609,17 @@ cloudflared address for login rate limits and lockouts.
 First admin (§8a, with the installer doing the env part):
 
 1. Run the installer with `ADMIN_BOOTSTRAP_EMAIL=<you@example.org>` (or answer
-   the prompt). It sets `ADMIN_HUMAN_LOGIN=true` for the API.
-2. Register that address once (no captcha on a self-host without
-   `RECAPTCHA_SECRET_KEY`). The password is read from a 0600 file, never argv:
+   the prompt). It sets `ADMIN_HUMAN_LOGIN=true` for the API and generates a
+   one-time `ADMIN_BOOTSTRAP_TOKEN` in `.env` (0600).
+2. Register that address once, presenting the bootstrap token (no captcha on a
+   self-host without `RECAPTCHA_SECRET_KEY`). The address alone is refused, so
+   a published or guessed address cannot claim the panel first. The password
+   and token are read from files, never argv:
 
    ```bash
    jq -n --arg e you@example.org --rawfile p ./admin-password.txt \
-     '{email:$e, password:($p|rtrimstr("\n"))}' |
+     --arg t "$(grep '^ADMIN_BOOTSTRAP_TOKEN=' .env | cut -d= -f2-)" \
+     '{email:$e, password:($p|rtrimstr("\n")), bootstrapToken:$t}' |
      curl -sS https://<domain>/api/auth/register -H 'Content-Type: application/json' --data @-
    ```
 
@@ -1002,7 +1012,10 @@ them with its `JWT_SECRET`; the gateway verifies them with its own. Give the
 VPS installer the coordinator's value (`COORD_JWT_SECRET=<JWT_SECRET from the
 coordinator's .env>`, or the hidden prompt) and compare the "JWT secret check
 value" both installers print. Without it, `dn_proxy_` tokens are rejected on
-the split gateway; `dn_live_` keys are unaffected.
+the split gateway; `dn_live_` keys are unaffected. Do the same for the probe
+secret (`COORD_PROBE_AUTH_SECRET=<PROBE_AUTH_SECRET from the coordinator's
+.env>`, "probe auth check value"); the gateway logs a warning while the API
+does not accept its probe signature.
 
 **Upgrading a split install.** The coordinator re-run creates
 `selfhost/api-key-pepper` (if missing) and the api starts storing keys as v2
@@ -1011,8 +1024,8 @@ and rewriting v1 rows as keys authenticate there. The gateway cannot go first
 So: (1) re-run the coordinator installer; (2) straight away copy
 `selfhost/api-key-pepper` and `selfhost/gateway-database-url` to the VPS (scp,
 mode 0600) and re-run the VPS installer with `API_KEY_PEPPER`/the pepper file,
-`GATEWAY_DATABASE_URL` and `COORD_JWT_SECRET`; (3) compare the pepper and JWT
-check values. Between (1) and (2) the gateway answers 407 for every key
+`GATEWAY_DATABASE_URL`, `COORD_JWT_SECRET` and `COORD_PROBE_AUTH_SECRET`;
+(3) compare the pepper, JWT and probe auth check values. Between (1) and (2) the gateway answers 407 for every key
 created or used on the api since the upgrade; keep that window short or do it
 in a maintenance window.
 
@@ -1069,7 +1082,7 @@ coordinator stays at home). Hostnames are placeholders.
 5. **Gateway.** On the VPS:
    `ROLE=gateway RELAY_HOST=relay.example.org PROXY_HOST=proxy.example.org
    COORD_PUBKEY=<home coord.pub> ./scripts/selfhost/install.sh` (the
-   database URL, pepper and `COORD_JWT_SECRET` through the hidden prompts or
+   database URL, pepper, `COORD_JWT_SECRET` and `COORD_PROBE_AUTH_SECRET` through the hidden prompts or
    environment, never argv). The VPS generates its **own** signing key
    (`selfhost/coord-key.pem`); the coordinator key is never copied to it. The
    installer prints `gateway public key (hex): <vps>`.
@@ -1157,19 +1170,20 @@ and is **off by default**.
 | Env var | Default | Meaning |
 |---|---|---|
 | `ADMIN_HUMAN_LOGIN` | `false` | `true` enables `/api/auth/register`, `/login`, `/forgot-password`, `/reset-password` and `/mfa/*`. Off: those routes answer `404`. On: login succeeds only for users whose `admin_role` is not `none` (others get the same `401` as a wrong password) |
-| `ADMIN_BOOTSTRAP_EMAIL` | unset | With `ADMIN_HUMAN_LOGIN=true`, allows exactly one registration: this address, while no admin exists. That account becomes `admin`. Any other registration answers `403 REGISTRATION_CLOSED` |
+| `ADMIN_BOOTSTRAP_EMAIL` | unset | With `ADMIN_HUMAN_LOGIN=true`, allows exactly one registration: this address, while no admin exists, presenting `ADMIN_BOOTSTRAP_TOKEN` as `bootstrapToken`. That account becomes `admin`. Any other registration answers `403 REGISTRATION_CLOSED` |
+| `ADMIN_BOOTSTRAP_TOKEN` | unset | One-time secret (32+ chars) the bootstrap registration must present. Unset: no bootstrap registration is accepted |
 
 First admin:
 
-1. Set `ADMIN_HUMAN_LOGIN=true` and `ADMIN_BOOTSTRAP_EMAIL=<your address>` on the API, restart.
-2. Register that address through the admin panel login page (or `POST /api/auth/register`).
-3. Unset `ADMIN_BOOTSTRAP_EMAIL` and restart. Enable MFA from the admin panel.
+1. Set `ADMIN_HUMAN_LOGIN=true`, `ADMIN_BOOTSTRAP_EMAIL=<your address>` and `ADMIN_BOOTSTRAP_TOKEN=<openssl rand -hex 32>` on the API, restart.
+2. Register that address with `POST /api/auth/register` and `"bootstrapToken": "<the token>"` in the body.
+3. Unset `ADMIN_BOOTSTRAP_EMAIL` and `ADMIN_BOOTSTRAP_TOKEN` and restart. Enable MFA from the admin panel.
 4. Publish the first network policy (§3a). Until then the federation documents
    (`coordinator.json`, `policy.json`) return 503.
 
 Keep `ADMIN_HUMAN_LOGIN=true` on the API that serves the admin panel; the
 panel's login and MFA steps need it. `/api/auth/refresh`, `/me`, `/logout`,
-`/verify-key` and wallet sign-in (`/api/auth/wallet/*`) are not affected by the flag.
+`/verify-key` and wallet sign-in (`/api/auth/wallet/*`) are not affected by the flag. `/verify-key` never issues a session for an admin account.
 
 ## 9. Public product site (DDG subdomain)
 

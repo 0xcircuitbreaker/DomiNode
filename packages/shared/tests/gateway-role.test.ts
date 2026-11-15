@@ -48,6 +48,24 @@ describe("gateway-role.sql", () => {
       await gw.connect();
       try {
         await gw.query("SELECT count(*) FROM users");
+        await gw.query("SELECT id, email, status, admin_role, wallet_address, node_tier_id FROM users LIMIT 1");
+        await expect(gw.query("SELECT password_hash FROM users LIMIT 1")).rejects.toThrow(/permission denied/);
+        await expect(gw.query("UPDATE users SET admin_role = 'admin'")).rejects.toThrow(/permission denied/);
+        await expect(gw.query("UPDATE users SET status = 'active'")).rejects.toThrow(/permission denied/);
+        await gw.query("UPDATE users SET node_tier_grace_until = NULL WHERE false");
+        await gw.query("SELECT id FROM users WHERE false FOR UPDATE");
+        await gw.query(`INSERT INTO users (email, password_hash, wallet_address, email_verified, payer_origin)
+                        VALUES ('gw-payer@example.org', 'x', NULL, true, true) ON CONFLICT DO NOTHING RETURNING id, status`);
+        await expect(gw.query("DELETE FROM audit_events")).rejects.toThrow(/permission denied/);
+        await gw.query("UPDATE audit_events SET resource_id = 'REDACTED' WHERE false");
+        await expect(gw.query("UPDATE network_pricing SET price_per_gb_musd = 1")).rejects.toThrow(/permission denied/);
+        await expect(gw.query("UPDATE kill_switches SET engaged = true")).rejects.toThrow(/permission denied/);
+        await gw.query("SELECT 1 FROM network_pricing LIMIT 1");
+        for (const t of ["refresh_tokens", "password_reset_tokens", "email_verification_tokens", "wallet_challenges"]) {
+          await expect(gw.query(`SELECT 1 FROM ${t} LIMIT 1`)).rejects.toThrow(/permission denied/);
+        }
+        await expect(gw.query("INSERT INTO api_keys (user_id, key_hash, key_prefix, label) VALUES (gen_random_uuid(), 'x', 'dn_live_', 'x')")).rejects.toThrow(/permission denied/);
+        await gw.query("UPDATE api_keys SET key_hash = key_hash WHERE false");
         await gw.query("SELECT count(*) FROM nodes");
         await expect(gw.query("SELECT 1 FROM mfa_configs LIMIT 1")).rejects.toThrow(/permission denied/);
         await expect(gw.query("CREATE TABLE gw_probe (a int)")).rejects.toThrow(/permission denied/);

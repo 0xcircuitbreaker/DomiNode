@@ -116,6 +116,9 @@ DOMINUSNODE_MCP_HTTP_PORT=3333 npx -y @dominusnode/mcp-server   # or: npx -y @do
 - Binds `127.0.0.1` by default. To expose it, set `DOMINUSNODE_MCP_HTTP_HOST=0.0.0.0` behind a TLS
   reverse proxy; Bearer keys must not cross the network in clear.
 - Requests carrying an `Origin` header are refused unless listed in `DOMINUSNODE_MCP_ALLOWED_ORIGINS`.
+- Remote mode refuses to start without `DOMINUSNODE_AGENT_SECRET` (same value as the API's
+  `MCP_AGENT_SECRET`). A key the API rejects is answered locally for 5 minutes; an API that is down
+  or rate limiting answers `503` with `Retry-After`, not `401`.
 - `GET /healthz` returns `{"ok":true}`.
 
 | Variable | Default | Range / notes |
@@ -127,6 +130,10 @@ DOMINUSNODE_MCP_HTTP_PORT=3333 npx -y @dominusnode/mcp-server   # or: npx -y @do
 | `DOMINUSNODE_MCP_MAX_SESSIONS` | `1000` | 1-100000 |
 | `DOMINUSNODE_MCP_RATE_LIMIT_PER_MIN` | `120` | 1-10000 requests per key per minute |
 | `DOMINUSNODE_MCP_MAX_BODY_BYTES` | `1048576` | 1024-4194304 |
+| `DOMINUSNODE_MCP_MAX_SESSIONS_PER_KEY` | `5` | 1-1000; a key's oldest session is closed when it opens one more |
+| `DOMINUSNODE_MCP_INIT_PER_IP_PER_MIN` | `30` | 1-10000 session opens per client IP (IPv6 /64) per minute, checked before the key reaches the API |
+| `DOMINUSNODE_MCP_TRUST_PROXY_HEADER` | unset | `x-forwarded-for`, `x-real-ip` or `cf-connecting-ip`: client IP header set by your reverse proxy |
+| `DOMINUSNODE_AGENT_SECRET` | required | the API's `MCP_AGENT_SECRET`; sent on verify-key/refresh so remote sessions are not held to the API's per-IP auth limits |
 
 Optional compose service (not shipped in the repo's compose files; add it to your own):
 

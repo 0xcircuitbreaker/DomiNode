@@ -232,10 +232,20 @@ export async function revokeApiKey(
   id: string,
   userId: string,
 ): Promise<boolean> {
+  // Sessions minted from the key (verify-key refresh families) end with it:
+  // revoking a leaked key must also end what was obtained with it.
   const result = await query(
-    `UPDATE api_keys
-     SET revoked_at = now()
-     WHERE id = $1 AND user_id = $2 AND revoked_at IS NULL`,
+    `WITH k AS (
+       UPDATE api_keys
+       SET revoked_at = now()
+       WHERE id = $1 AND user_id = $2 AND revoked_at IS NULL
+       RETURNING id
+     ), t AS (
+       UPDATE refresh_tokens SET revoked = true
+       WHERE api_key_id IN (SELECT id FROM k) AND NOT revoked
+       RETURNING id
+     )
+     SELECT id FROM k`,
     [id, userId],
   );
   return (result.rowCount ?? 0) > 0;

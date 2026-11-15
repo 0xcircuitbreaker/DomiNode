@@ -1,4 +1,4 @@
-import { NODE_IP_CLASSES } from "@dominusnode/shared";
+import { NODE_IP_CLASSES, networkStatusRepo } from "@dominusnode/shared";
 import { Router } from "express";
 import type { Request, Response } from "express";
 import { getPool } from "@dominusnode/shared";
@@ -16,7 +16,7 @@ const router = Router();
 router.use(requireAuth, requireAdmin);
 
 /** A node is "online" while its gateway slot heartbeat is fresh (relay-limits-repo SLOT_TTL_SECONDS). */
-export const ONLINE_SQL = `EXISTS (SELECT 1 FROM node_ip_slots s WHERE s.node_id = n.id AND s.heartbeat_at > now() - interval '90 seconds')`;
+export const ONLINE_SQL = networkStatusRepo.NODE_ONLINE_SQL;
 
 export const RAILS = ["wallet", "team", "agentic_wallet", "x402", "mpp", "free"] as const;
 export const IP_CLASSES = NODE_IP_CLASSES;

@@ -79,11 +79,13 @@ describe("/v1 public routes", () => {
   it("GET /v1/network/stats aggregates and folds small/sanctioned groups", async () => {
     query.mockResolvedValue({
       rows: [
-        { country: "US", ip_class: "residential", n: "5" },
-        { country: "US", ip_class: "dc", n: "2" },
-        { country: "DE", ip_class: "residential", n: "1" },
-        { country: "IR", ip_class: "residential", n: "4" },
-        { country: null, ip_class: null, n: "1" },
+        { country: "US", ip_class: "residential", owner_user_id: "o1", cnt: "2" },
+        { country: "US", ip_class: "residential", owner_user_id: "o6", cnt: "2" },
+        { country: "US", ip_class: "residential", owner_user_id: "o7", cnt: "1" },
+        { country: "US", ip_class: "dc", owner_user_id: "o2", cnt: "2" },
+        { country: "DE", ip_class: "residential", owner_user_id: "o3", cnt: "1" },
+        { country: "IR", ip_class: "residential", owner_user_id: "o4", cnt: "4" },
+        { country: null, ip_class: null, owner_user_id: "o5", cnt: "1" },
       ],
     });
     const r = await call(app(), "GET", "/v1/network/stats");
@@ -93,16 +95,19 @@ describe("/v1 public routes", () => {
     expect(r.body["otherCountries"]).toBe(6);
     // US and DE are available; IR is sanctioned and never counted.
     expect(r.body["countriesAvailable"]).toBe(2);
-    // Classes with fewer than 3 nodes fold into "other" (k-anonymity).
-    expect(r.body["byClass"]).toEqual({ residential: 10, other: 3 });
+    // Classes with fewer than 3 nodes or owners are dropped (k-anonymity).
+    expect(r.body["byClass"]).toEqual({ residential: 10 });
+    expect(r.body["suppressed"]).toContain("byClass");
     const sql = String(query.mock.calls[0][0]);
-    expect(sql).not.toMatch(/observed_ip|node_key_hash|\bid\b/);
+    expect(sql).not.toMatch(/observed_ip|node_key_hash|last_seen_at/);
+    expect(sql).toContain("node_ip_slots");
+    expect(JSON.stringify(r.body)).not.toMatch(/"o\d"/);
     expect(JSON.stringify(r.body)).not.toMatch(/\d+\.\d+\.\d+\.\d+/);
   });
 
   it("GET /v1/network/stats never singles out one community node (k-anonymity)", async () => {
     query
-      .mockResolvedValueOnce({ rows: [{ country: "US", ip_class: "residential", operator_run: false, n: "1" }] })
+      .mockResolvedValueOnce({ rows: [{ country: "US", ip_class: "residential", operator_run: false, owner_user_id: "o1", cnt: "1" }] })
       .mockResolvedValueOnce({ rows: [{ operator_run: false, bytes: "123456789" }] });
     const r = await call(app(), "GET", "/v1/network/stats");
     expect(r.status).toBe(200);
@@ -116,27 +121,47 @@ describe("/v1 public routes", () => {
   it("GET /v1/network/stats reports operator-run seed nodes separately from community nodes", async () => {
     query
       .mockResolvedValueOnce({ rows: [
-        { country: "US", ip_class: "dc", operator_run: true, n: "4" },
-        { country: "US", ip_class: "residential", operator_run: false, n: "3" },
+        { country: "US", ip_class: "dc", operator_run: true, owner_user_id: "seed", cnt: "4" },
+        { country: "US", ip_class: "residential", operator_run: false, owner_user_id: "o1", cnt: "1" },
+        { country: "US", ip_class: "residential", operator_run: false, owner_user_id: "o2", cnt: "1" },
+        { country: "US", ip_class: "residential", operator_run: false, owner_user_id: "o3", cnt: "1" },
       ] })
-      .mockResolvedValueOnce({ rows: [{ operator_run: true, bytes: "5000" }, { operator_run: false, bytes: "700", nodes: "3" }] });
+      .mockResolvedValueOnce({ rows: [{ operator_run: true, bytes: "5000" }, { operator_run: false, bytes: "700", nodes: "3", owners: "3" }] });
     const r = await call(app(), "GET", "/v1/network/stats");
     expect(r.status).toBe(200);
     expect(r.body["seed"]).toEqual({ online: 4, paidBytes24h: "5000" });
     expect(r.body["community"]).toEqual({ online: 3, paidBytes24h: "700" });
   });
 
+  it("GET /v1/network/stats gates on distinct owners: one owner with three paid nodes is suppressed", async () => {
+    query
+      .mockResolvedValueOnce({ rows: [
+        { country: "US", ip_class: "dc", operator_run: true, owner_user_id: "seed", cnt: "2" },
+        { country: "US", ip_class: "residential", operator_run: false, owner_user_id: "o1", cnt: "3" },
+      ] })
+      .mockResolvedValueOnce({ rows: [{ operator_run: false, bytes: "6000000000", nodes: "3", owners: "1" }] });
+    const r = await call(app(), "GET", "/v1/network/stats");
+    expect(r.status).toBe(200);
+    expect(JSON.stringify(r.body)).not.toContain("6000000000");
+    expect(r.body["community"]).toEqual({ online: 0, paidBytes24h: "0" });
+    expect(r.body["byCountry"]).toEqual([]);
+  });
+
   describe("GET /v1/status", () => {
-    const nodesSql = (sql: string) => sql.includes("FROM nodes\n") || sql.includes("GROUP BY country, ip_class, operator_run");
+    const nodesSql = (sql: string) => sql.includes("GROUP BY n.country, n.ip_class, n.operator_run, n.owner_user_id");
     beforeEach(() => {
       getActivePolicy.mockResolvedValue({ version: 4, sha256: SHA, body: DEFAULT_POLICY, createdAt: null });
       getGatewayLiveness.mockResolvedValue({ instancesOnline: 2, lastHeartbeatAt: new Date("2026-11-14T10:00:00Z"), availability24hBps: 9993, availability7dBps: 10000 });
       listIncidents.mockResolvedValue([{ id: "11111111-1111-4111-8111-111111111111", title: "Slow tunnels", body: "", severity: "minor", status: "monitoring", startedAt: new Date("2026-11-14T09:00:00Z"), resolvedAt: null, updatedAt: new Date("2026-11-14T09:30:00Z") }]);
       query.mockImplementation(async (sql: string) => nodesSql(sql)
         ? { rows: [
-            { country: "US", ip_class: "residential", operator_run: false, n: "4" },
-            { country: "DE", ip_class: "dc", operator_run: true, n: "3" },
-            { country: "FR", ip_class: "dc", operator_run: false, n: "1" },
+            { country: "US", ip_class: "residential", operator_run: false, owner_user_id: "o1", cnt: "2" },
+            { country: "US", ip_class: "residential", operator_run: false, owner_user_id: "o2", cnt: "1" },
+            { country: "US", ip_class: "residential", operator_run: false, owner_user_id: "o3", cnt: "1" },
+            { country: "DE", ip_class: "dc", operator_run: true, owner_user_id: "s1", cnt: "1" },
+            { country: "DE", ip_class: "dc", operator_run: true, owner_user_id: "s2", cnt: "1" },
+            { country: "DE", ip_class: "dc", operator_run: true, owner_user_id: "s3", cnt: "1" },
+            { country: "FR", ip_class: "dc", operator_run: false, owner_user_id: "o4", cnt: "1" },
           ] }
         : { rows: [] });
     });

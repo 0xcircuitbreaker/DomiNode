@@ -12,7 +12,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import type { McpConfig, McpHttpConfig } from "./config.js";
-import { TokenManager } from "./token-manager.js";
+import { TokenManager, TokenVerifyError } from "./token-manager.js";
 import { HttpClient, scrubCredentials } from "./http-client.js";
 import { PACKAGE_VERSION } from "./version.js";
 import { registerAuthenticatedTools } from "./register.js";
@@ -23,6 +23,39 @@ const DANGEROUS_KEYS = new Set(["__proto__", "constructor", "prototype"]);
 const RATE_WINDOW_MS = 60_000;
 /** Cap on the per-key rate-limit map (rules: in-memory maps need a size cap + cleanup). */
 export const MAX_RATE_LIMIT_ENTRIES = 10_000;
+/** Default per-key session cap; the key's oldest session is evicted beyond it. */
+export const DEFAULT_MAX_SESSIONS_PER_KEY = 5;
+/** Default initialize attempts per client IP per minute (before the key is checked upstream). */
+export const DEFAULT_INIT_PER_IP_PER_MINUTE = 30;
+/** Rejected keys are answered locally for this long, so bad keys never reach the API. */
+const REJECTED_KEY_TTL_MS = 5 * 60_000;
+const MAX_REJECTED_KEYS = 10_000;
+
+/** The factory's key was refused by the API (401/403), as opposed to the API being unavailable. */
+export function isKeyRejection(err: unknown): boolean {
+  if (err instanceof TokenVerifyError) return err.status === 401 || err.status === 403;
+  const status = (err as { status?: unknown } | null)?.status;
+  return typeof status === "number" && (status === 401 || status === 403);
+}
+
+/** Client IP for the pre-auth limiter: the trusted proxy header when configured, else the socket. IPv6 by /64. */
+export function clientIpKey(req: http.IncomingMessage, trustHeader: string | null): string {
+  let ip = "";
+  if (trustHeader) {
+    const raw = req.headers[trustHeader];
+    const v = Array.isArray(raw) ? raw[0] : raw;
+    // Rightmost entry is the one the trusted proxy appended.
+    if (typeof v === "string") ip = v.split(",").map((x) => x.trim()).filter(Boolean).pop() ?? "";
+  }
+  if (!ip) ip = req.socket.remoteAddress ?? "";
+  if (ip.startsWith("::ffff:") && ip.includes(".")) ip = ip.slice(7);
+  if (ip.includes(":")) {
+    const [head] = ip.split("::");
+    const parts = (head ?? "").split(":").filter(Boolean);
+    return `${parts.slice(0, 4).join(":")}::/64`;
+  }
+  return ip;
+}
 
 /** A per-session MCP server plus the cleanup for its credentials. */
 export interface SessionServer {
@@ -52,7 +85,7 @@ export interface RemoteMcpServer {
 /** Default factory: verify the key against the API, then register the standard tool set. */
 export function defaultSessionFactory(base: McpConfig): SessionFactory {
   return async (apiKey) => {
-    const tokenManager = new TokenManager(base.apiUrl);
+    const tokenManager = new TokenManager(base.apiUrl, base.mcpAgentSecret);
     await tokenManager.initialize(apiKey);
     const httpClient = new HttpClient(base.apiUrl, tokenManager, base.mcpAgentSecret);
     const config = sessionConfig(base, apiKey);
@@ -261,6 +294,20 @@ export function createRemoteMcpServer(
 ): RemoteMcpServer {
   const sessions = new Map<string, Session>();
   const limiter = new KeyRateLimiter(httpConfig.rateLimitPerMinute);
+  const initLimiter = new KeyRateLimiter(httpConfig.initPerIpPerMinute ?? DEFAULT_INIT_PER_IP_PER_MINUTE);
+  const perKeyCap = httpConfig.maxSessionsPerKey ?? DEFAULT_MAX_SESSIONS_PER_KEY;
+  const trustHeader = httpConfig.trustProxyHeader ?? null;
+  /** keyHash hex -> expiry of a recent upstream rejection (capped, swept). */
+  const rejectedKeys = new Map<string, number>();
+  /** Session slots reserved by initializes still awaiting the factory. */
+  let reserved = 0;
+  const reservedPerKey = new Map<string, number>();
+
+  function sessionsOfKey(keyHex: string): string[] {
+    const ids: string[] = [];
+    for (const [id, s] of sessions) if (s.keyHash.toString("hex") === keyHex) ids.push(id);
+    return ids;
+  }
   const allowedOrigins = new Set(httpConfig.allowedOrigins);
 
   function closeSession(id: string, reason: string): void {
@@ -286,6 +333,8 @@ export function createRemoteMcpServer(
       }
     }
     limiter.cleanup(now);
+    initLimiter.cleanup(now);
+    for (const [k, exp] of rejectedKeys) if (exp <= now) rejectedKeys.delete(k);
     return n;
   }
 
@@ -345,25 +394,66 @@ export function createRemoteMcpServer(
           sendJsonError(res, 400, "Missing Mcp-Session-Id header (send initialize first)");
           return;
         }
-        if (sessions.size >= httpConfig.maxSessions) {
+        // Pre-auth throttle per client IP: initialize is what reaches the API.
+        if (!initLimiter.allow(clientIpKey(req, trustHeader))) {
+          sendJsonError(res, 429, "Too many sessions opened from this address", { "Retry-After": "60" });
+          return;
+        }
+        const keyHex = keyHash.toString("hex");
+        const rejectedUntil = rejectedKeys.get(keyHex);
+        if (rejectedUntil !== undefined && rejectedUntil > Date.now()) {
+          sendJsonError(res, 401, "API key rejected", { "WWW-Authenticate": 'Bearer error="invalid_token"' });
+          return;
+        }
+        // Per-key cap: the key's oldest sessions make room (one key cannot hold every slot).
+        const own = sessionsOfKey(keyHex);
+        const ownReserved = reservedPerKey.get(keyHex) ?? 0;
+        if (ownReserved >= perKeyCap) {
+          sendJsonError(res, 429, "Too many concurrent session setups for this key", { "Retry-After": "5" });
+          return;
+        }
+        own.sort((a, b) => sessions.get(a)!.lastSeen - sessions.get(b)!.lastSeen);
+        while (own.length > 0 && own.length + ownReserved >= perKeyCap) closeSession(own.shift()!, "per-key cap");
+        if (sessions.size + reserved >= httpConfig.maxSessions) {
           sweepIdle();
-          if (sessions.size >= httpConfig.maxSessions) {
+          if (sessions.size + reserved >= httpConfig.maxSessions) {
             sendJsonError(res, 503, "Too many active sessions", { "Retry-After": "30" });
             return;
           }
         }
+        // Reserve the slot before awaiting the factory so concurrent initializes cannot overshoot.
+        reserved++;
+        reservedPerKey.set(keyHex, ownReserved + 1);
+        const release = (): void => {
+          reserved--;
+          const left = (reservedPerKey.get(keyHex) ?? 1) - 1;
+          if (left > 0) reservedPerKey.set(keyHex, left); else reservedPerKey.delete(keyHex);
+        };
         let sessionServer: SessionServer;
         try {
           sessionServer = await factory(apiKey);
-        } catch {
+        } catch (err) {
+          release();
           // Do not echo upstream details: they could carry the key.
-          sendJsonError(res, 401, "API key rejected", { "WWW-Authenticate": 'Bearer error="invalid_token"' });
+          if (isKeyRejection(err)) {
+            if (rejectedKeys.size >= MAX_REJECTED_KEYS) {
+              const oldest = rejectedKeys.keys().next().value;
+              if (oldest !== undefined) rejectedKeys.delete(oldest);
+            }
+            rejectedKeys.set(keyHex, Date.now() + REJECTED_KEY_TTL_MS);
+            sendJsonError(res, 401, "API key rejected", { "WWW-Authenticate": 'Bearer error="invalid_token"' });
+          } else {
+            sendJsonError(res, 503, "API unavailable, retry shortly", { "Retry-After": "30" });
+          }
           return;
         }
+        let released = false;
+        const releaseOnce = (): void => { if (!released) { released = true; release(); } };
         const transport = new StreamableHTTPServerTransport({
           sessionIdGenerator: () => randomUUID(),
           enableJsonResponse: true,
           onsessioninitialized: (id) => {
+            releaseOnce();
             sessions.set(id, { keyHash, transport, server: sessionServer, lastSeen: Date.now() });
             log(`mcp-http: session opened; ${sessions.size} active`);
           },
@@ -371,8 +461,12 @@ export function createRemoteMcpServer(
         transport.onclose = () => {
           if (transport.sessionId) closeSession(transport.sessionId, "closed");
         };
-        await sessionServer.server.connect(transport);
-        await transport.handleRequest(req, res, body);
+        try {
+          await sessionServer.server.connect(transport);
+          await transport.handleRequest(req, res, body);
+        } finally {
+          releaseOnce();
+        }
         if (!transport.sessionId || !sessions.has(transport.sessionId)) {
           // Initialize failed inside the transport: release the credentials now.
           sessionServer.dispose();

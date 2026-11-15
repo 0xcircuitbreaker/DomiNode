@@ -43,10 +43,15 @@ export async function attachRecoveryPayload(instanceId: string, input: SettleRel
 
 export interface SessionBytes { sessionId: string; bytesIn: number; bytesOut: number }
 
-/** Heartbeat this instance's live sessions and flush their gateway-counted bytes (one statement). */
-export async function heartbeatSessions(instanceId: string, rows: SessionBytes[]): Promise<number> {
+/**
+ * Heartbeat this instance's live sessions and flush their gateway-counted
+ * bytes (one statement). Returns the ids actually updated: a session missing
+ * from the result is no longer this instance's active session (e.g. another
+ * instance's recovery settled it) and must stop relaying (fencing).
+ */
+export async function heartbeatSessions(instanceId: string, rows: SessionBytes[]): Promise<string[]> {
   checkInstance(instanceId);
-  if (rows.length === 0) return 0;
+  if (rows.length === 0) return [];
   const ids: string[] = [], ins: string[] = [], outs: string[] = [];
   for (const r of rows.slice(0, 100_000)) {
     ids.push(r.sessionId); ins.push(String(clampBytes(r.bytesIn))); outs.push(String(clampBytes(r.bytesOut)));
@@ -57,10 +62,11 @@ export async function heartbeatSessions(instanceId: string, rows: SessionBytes[]
          flushed_bytes_in = GREATEST(s.flushed_bytes_in, v.bin),
          flushed_bytes_out = GREATEST(s.flushed_bytes_out, v.bout)
      FROM unnest($2::uuid[], $3::bigint[], $4::bigint[]) AS v(id, bin, bout)
-     WHERE s.id = v.id AND s.gateway_instance = $1 AND s.status = 'active'`,
+     WHERE s.id = v.id AND s.gateway_instance = $1 AND s.status = 'active'
+     RETURNING s.id`,
     [instanceId, ids, ins, outs],
   );
-  return res.rowCount ?? 0;
+  return (res.rows as Array<{ id: string }> | undefined ?? []).map((r) => r.id);
 }
 
 export interface RecoverableSession { sessionId: string; input: SettleRelayChargeInput }

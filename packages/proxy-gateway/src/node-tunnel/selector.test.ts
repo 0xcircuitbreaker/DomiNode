@@ -37,6 +37,12 @@ describe("etld1", () => {
 });
 
 describe("NodeSelector", () => {
+  it("serves nothing through a node whose probe egress is in another country (egressBlocked)", () => {
+    const { sel } = make([node({ nodeId: "blocked", country: "US", egressBlocked: true })]);
+    expect(() => sel.select({ ...base })).toThrow(NodeSelectionError);
+    expect(() => sel.select({ ...base, country: "US" })).toThrow(NodeSelectionError);
+    expect(() => sel.select({ ...base, ipClass: "residential" })).toThrow(NodeSelectionError);
+  });
   it("never routes a target to the node's own egress address (hairpin)", () => {
     const { sel } = make([node({ nodeId: "self", ip: "203.0.113.7" }), node({ nodeId: "other", ip: "198.51.100.9" })]);
     for (let i = 0; i < 5; i++) {

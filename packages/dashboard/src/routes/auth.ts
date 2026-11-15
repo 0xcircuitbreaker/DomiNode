@@ -35,7 +35,7 @@ import {
 import { requireAuth, type AuthenticatedRequest } from "../middleware/auth.js";
 import { setAuthCookies, clearAuthCookies, getRefreshCookieName } from "../helpers/cookies.js";
 import { isGlobalVerifiedAgent, isVerifiedAgentAsync, getAgentMultiplier } from "../helpers/agent-rate-limit.js";
-import { humanAuthGate, requireHumanLogin, getBootstrapAdminEmail } from "../helpers/human-auth.js";
+import { humanAuthGate, requireHumanLogin, getBootstrapAdminEmail, checkBootstrapToken } from "../helpers/human-auth.js";
 import { ipRateKey } from "../helpers/ip-key.js";
 
 const router = Router();
@@ -69,7 +69,8 @@ const loginAttempts = new Map<string, { count: number; lockedUntil: number }>();
 const MAX_LOGIN_ATTEMPTS_PER_IP = 20; // 20 total login attempts per IP per 15 min
 const ipLoginAttempts = new Map<string, { count: number; windowStart: number }>();
 
-function checkIpLoginLimit(ip: string, isAgent: boolean = false): string | null {
+function checkIpLoginLimit(rawIp: string, isAgent: boolean = false): string | null {
+  const ip = ipRateKey(rawIp); // IPv6 by /64: rotating addresses in one /64 shares the budget
   const now = Date.now();
   const entry = ipLoginAttempts.get(ip);
   if (!entry || now - entry.windowStart > LOCKOUT_DURATION_MS) {
@@ -83,7 +84,8 @@ function checkIpLoginLimit(ip: string, isAgent: boolean = false): string | null 
   return null;
 }
 
-function recordIpLoginAttempt(ip: string): void {
+function recordIpLoginAttempt(rawIp: string): void {
+  const ip = ipRateKey(rawIp);
   const now = Date.now();
   if (ipLoginAttempts.size >= MAX_LOCKOUT_MAP_SIZE) {
     const firstKey = ipLoginAttempts.keys().next().value;
@@ -140,8 +142,17 @@ setInterval(() => {
 }, 300_000).unref();
 
 function lockoutKey(ip: string, email: string): string {
-  return `${ip}:${email}`;
+  return `${ipRateKey(ip)}:${email}`;
 }
+
+/** Login limiter internals, exported for tests only. */
+export const __loginLimitsForTest = {
+  checkIpLoginLimit: (ip: string) => checkIpLoginLimit(ip),
+  recordIpLoginAttempt: (ip: string) => recordIpLoginAttempt(ip),
+  checkLoginLockout: (ip: string, email: string) => checkLoginLockout(ip, email),
+  recordLoginFailure: (ip: string, email: string) => recordLoginFailure(ip, email),
+  reset: () => { loginAttempts.clear(); ipLoginAttempts.clear(); },
+};
 
 function checkLoginLockout(ip: string, email: string, isAgent: boolean = false): string | null {
   const key = lockoutKey(ip, email);
@@ -396,6 +407,13 @@ router.post("/register", requireHumanLogin, async (req, res) => {
     // ADMIN_BOOTSTRAP_EMAIL, and only while no admin exists.
     const bootstrapEmail = getBootstrapAdminEmail();
     if (!bootstrapEmail || email !== bootstrapEmail) {
+      res.status(403).json({ error: "Registration is closed", code: "REGISTRATION_CLOSED" });
+      return;
+    }
+    // The address alone proves nothing (it may be published or guessable):
+    // the one-time ADMIN_BOOTSTRAP_TOKEN from the operator's .env is required.
+    if (!checkBootstrapToken(req.body?.bootstrapToken)) {
+      log.warn("bootstrap registration refused: missing or wrong bootstrap token");
       res.status(403).json({ error: "Registration is closed", code: "REGISTRATION_CLOSED" });
       return;
     }
@@ -817,9 +835,19 @@ router.post("/refresh", async (req, res) => {
       return;
     }
 
-    // Check if password was changed after refresh token was issued
-    if (payload.iat && user.password_changed_at) {
-      const tokenIssuedAt = payload.iat * 1000;
+    // A family minted from an API key ends when that key is revoked.
+    if (storedToken.api_key_revoked === true) {
+      await refreshTokenRepo.revokeFamily(storedToken.family_id);
+      res.status(401).json({ error: "API key revoked" });
+      return;
+    }
+
+    // Check if password was changed after refresh token was issued. The row's
+    // created_at (DB clock, sub-second) is used: iat is whole seconds, so a
+    // token issued right after the change would otherwise look older than it.
+    if (user.password_changed_at) {
+      const created = storedToken.created_at ? new Date(storedToken.created_at).getTime() : NaN;
+      const tokenIssuedAt = Number.isFinite(created) ? created : payload.iat ? (payload.iat + 1) * 1000 - 1 : 0;
       if (new Date(user.password_changed_at).getTime() > tokenIssuedAt) {
         await refreshTokenRepo.revokeToken(incomingHash);
         res.status(401).json({ error: "Token invalidated by password change" });
@@ -850,6 +878,7 @@ router.post("/refresh", async (req, res) => {
     await refreshTokenRepo.storeToken(
       user.id, newHash, storedToken.family_id, expiresAt,
       refreshTokenRepo.clientBindingHash(req.get("user-agent"), req.ip ?? req.socket.remoteAddress),
+      storedToken.api_key_id ?? null,
     );
 
     setAuthCookies(res, tokens.accessToken, tokens.refreshToken);
@@ -1033,6 +1062,13 @@ router.post("/verify-key", async (req, res) => {
       return;
     }
 
+    // An API key alone never yields an admin session: keys sit in proxy URLs,
+    // logs and MCP configs. Admins sign in with password+MFA or a wallet signature.
+    if (result.user.is_admin || (result.user.admin_role ?? "none") !== "none") {
+      res.status(403).json({ valid: false, error: "Admin accounts cannot exchange an API key for a session", code: "ADMIN_KEY_SESSION_REFUSED" });
+      return;
+    }
+
     // Block verify-key when MFA is enabled — API key alone must not bypass MFA
     const mfaConfig = await mfaRepo.findMfaConfigByUserId(result.user.id);
     if (mfaConfig?.enabled) {
@@ -1055,7 +1091,8 @@ router.post("/verify-key", async (req, res) => {
     const familyId = refreshTokenRepo.newFamilyId();
     const rtHash = refreshTokenRepo.hashToken(tokens.refreshToken);
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
-    await refreshTokenRepo.storeToken(result.user.id, rtHash, familyId, expiresAt);
+    // Linked to the key: revoking it revokes this family, and /refresh checks it.
+    await refreshTokenRepo.storeToken(result.user.id, rtHash, familyId, expiresAt, null, result.apiKey?.id ?? null);
 
     // Extension-only endpoint: return tokens + user info for chrome.storage.session
     res.json({

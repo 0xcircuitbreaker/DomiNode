@@ -8,8 +8,9 @@ import { Job, type JobLogger } from "./runner.js";
  * Canary probes (DESIGN.md §13 commit 26, minimal). The gateway opens a
  * stream through a node to the coordinator's GET /v1/probe/echo and checks
  * that the response echoes our random nonce and the node's egress IP. A node
- * that alters the response (wrong nonce, wrong same-family IP, malformed
- * reply) is quarantined. Dial errors and timeouts are not tamper evidence, and
+ * that alters a plaintext response (wrong nonce, malformed reply) is
+ * quarantined; over TLS such replies come from the front end and are
+ * inconclusive. A differing egress IP is classified, not tamper evidence. Dial errors and timeouts are not tamper evidence, and
  * a response is only judged when it is provably complete (Content-Length met
  * or chunked body terminated); truncated replies are inconclusive. Quarantine
  * needs TAMPER_STRIKES_REQUIRED tamper verdicts from separate runs.
@@ -96,18 +97,53 @@ export function completeBody(head: string, rest: Buffer): string | null {
   return rest.subarray(0, cl).toString("utf8");
 }
 
-/** Judge a raw HTTP response against the nonce and the node's IP (pure). */
-export function judgeProbeResponse(raw: string | Buffer, nonce: string, nodeIp: string): ProbeOutcome {
+/** Fixed User-Agent on probes and the self-check, so a front end can allow-list them. */
+export const PROBE_USER_AGENT = "DominusNode-Probe/1";
+
+/** Same /24 (IPv4) or /64 (IPv6): one operator's address pool, rotation or NAT pool. */
+export function sameEgressPrefix(a: string, b: string): boolean {
+  const fa = family(a);
+  if (fa === 0 || fa !== family(b)) return false;
+  if (fa === 4) return a.split(".").slice(0, 3).join(".") === b.split(".").slice(0, 3).join(".");
+  const hextets = (ip: string): string[] | null => {
+    const [head, tail] = ip.toLowerCase().split("::");
+    const h = head ? head.split(":") : [];
+    const t = tail !== undefined ? (tail ? tail.split(":") : []) : [];
+    if (tail === undefined && h.length !== 8) return null;
+    // An embedded IPv4 tail occupies two hextets; only the first 4 matter here.
+    const fill = 8 - h.length - t.length - (t.some((x) => x.includes(".")) ? 1 : 0);
+    const all = [...h, ...Array(Math.max(0, fill)).fill("0"), ...t];
+    return all.slice(0, 4).map((x) => (x.includes(".") ? x : parseInt(x || "0", 16).toString(16)));
+  };
+  const ha = hextets(a);
+  const hb = hextets(b);
+  return ha !== null && hb !== null && ha.join(":") === hb.join(":");
+}
+
+/**
+ * Judge a raw HTTP response against the nonce and the node's IP (pure).
+ *
+ * Tamper is reserved for what only the node could have done. Over TLS
+ * (`tls`, rejectUnauthorized) the node cannot alter status, body or nonce, so
+ * an unexpected status (a CDN/WAF 403 for some source IPs), a malformed body or
+ * a nonce mismatch came from the operator's own front end: inconclusive. An
+ * echoed egress address that differs from the tunnel's is not tamper either
+ * (CGNAT pools, multi-WAN, IPv6 temporary addresses): the egress IP is
+ * classified through onEgress, where the conservative class wins and a country
+ * mismatch blocks and flags the node.
+ */
+export function judgeProbeResponse(raw: string | Buffer, nonce: string, nodeIp: string, tls = false): ProbeOutcome {
   const buf = typeof raw === "string" ? Buffer.from(raw, "utf8") : raw;
   const sepB = buf.indexOf("\r\n\r\n");
   // Headers never fully arrived: truncation (stream cut, node restart) is not proof of tampering.
   if (sepB < 0) return { kind: "inconclusive", reason: "incomplete response" };
+  const notNode = (reason: string): ProbeOutcome => (tls ? { kind: "inconclusive", reason: `${reason} (tls)` } : { kind: "tamper", reason });
   const head = buf.subarray(0, sepB).toString("latin1");
   const statusLine = head.split("\r\n")[0]!;
   if (!/^HTTP\/1\.[01] 200 /.test(statusLine)) {
     // A 429 or 5xx from our own API is not node misbehaviour.
     if (/^HTTP\/1\.[01] (429|5\d\d) /.test(statusLine)) return { kind: "inconclusive", reason: "probe endpoint unavailable" };
-    return { kind: "tamper", reason: "unexpected status" };
+    return notNode("unexpected status");
   }
   const text = completeBody(head, buf.subarray(sepB + 4));
   if (text === null) return { kind: "inconclusive", reason: "incomplete body" };
@@ -115,21 +151,21 @@ export function judgeProbeResponse(raw: string | Buffer, nonce: string, nodeIp: 
   try {
     body = JSON.parse(text);
   } catch {
-    return { kind: "tamper", reason: "malformed body" };
+    return notNode("malformed body");
   }
-  if (!body || typeof body !== "object") return { kind: "tamper", reason: "malformed body" };
+  if (!body || typeof body !== "object") return notNode("malformed body");
   const { ip, nonce: echoed } = body as { ip?: unknown; nonce?: unknown };
-  if (echoed !== nonce) return { kind: "tamper", reason: "nonce mismatch" };
-  if (typeof ip !== "string") return { kind: "tamper", reason: "missing ip" };
+  if (echoed !== nonce) return notNode("nonce mismatch");
+  if (typeof ip !== "string") return notNode("missing ip");
   const a = normIp(ip);
   const b = normIp(nodeIp);
   if (a === b) return { kind: "ok", egressIp: a };
-  // Dual-stack nodes may egress on another family than their tunnel: not proof of
-  // tampering, but the echoed egress IP is still classified (egress verification).
-  if (family(a) !== family(b)) {
-    return family(a) === 0 ? { kind: "tamper", reason: "invalid egress ip" } : { kind: "inconclusive", reason: "egress family differs", egressIp: a };
-  }
-  return { kind: "tamper", reason: "egress ip mismatch" };
+  if (family(a) === 0) return notNode("invalid egress ip");
+  // Same /24 or /64: the operator's own address pool; verified, and classified.
+  if (sameEgressPrefix(a, b)) return { kind: "ok", egressIp: a };
+  // Another family (dual stack) or another prefix (multi-WAN, CGNAT pool,
+  // split tunnel): classify the echoed egress; never a quarantine by itself.
+  return { kind: "inconclusive", reason: family(a) !== family(b) ? "egress family differs" : "egress ip differs", egressIp: a };
 }
 
 /**
@@ -172,7 +208,7 @@ export function exchange(stream: Duplex, target: ProbeTarget, nonce: string, tim
     io.on("close", () => finish(null));
     io.on("error", (e: Error) => finish(e));
     const hostHeader = target.port === (target.tls ? 443 : 80) ? target.host : `${target.host}:${target.port}`;
-    io.write(`GET ${target.path}?nonce=${nonce} HTTP/1.1\r\nHost: ${hostHeader}\r\nAccept: application/json\r\n${probeAuthHeader(nonce)}Connection: close\r\n\r\n`);
+    io.write(`GET ${target.path}?nonce=${nonce} HTTP/1.1\r\nHost: ${hostHeader}\r\nAccept: application/json\r\nUser-Agent: ${PROBE_USER_AGENT}\r\n${probeAuthHeader(nonce)}Connection: close\r\n\r\n`);
   });
 }
 
@@ -287,14 +323,15 @@ export async function probeOne(deps: ProbeDeps, node: ProbeNode, runId: number, 
   const mkNonce = deps.nonce ?? (() => crypto.randomBytes(18).toString("base64url"));
   const nonce = mkNonce();
   let raw: string | Buffer;
+  let target: ProbeTarget;
   try {
-    const target = pickTarget(deps);
+    target = pickTarget(deps);
     const stream = await node.openStream(target.host, target.port);
     raw = await ex(stream, target, nonce, deps.timeoutMs ?? 10_000);
   } catch {
     return "error";
   }
-  const verdict = judgeProbeResponse(raw, nonce, node.ip);
+  const verdict = judgeProbeResponse(raw, nonce, node.ip, target.tls);
   if (verdict.kind !== "tamper" && verdict.egressIp && deps.onEgress) {
     try {
       await deps.onEgress(node.nodeId, verdict.egressIp);
@@ -405,6 +442,10 @@ export class ConnectProbeQueue {
   private overflow = new Set<string>();
   private dropped = 0;
   private attempts = new Map<string, number>();
+  /** Newer connection of a node whose probe is in flight; queued when it finishes. */
+  private newer = new Map<string, ProbeNode>();
+  /** The connection queued or in flight per node id. */
+  private current = new Map<string, ProbeNode>();
   private readonly now: () => number;
 
   constructor(private readonly deps: ProbeDeps, o: ConnectProbeQueueOptions = {}) {
@@ -420,7 +461,22 @@ export class ConnectProbeQueue {
 
   /** Queue a connect probe; false when deduplicated, rate-limited or full. */
   enqueue(node: ProbeNode): boolean {
-    if (this.stopped || this.queued.has(node.nodeId)) return false;
+    if (this.stopped) return false;
+    if (this.queued.has(node.nodeId)) {
+      // A reconnect while the previous connection is still queued or in
+      // flight: the queued entry is bound to the dead connection, so the new
+      // one replaces it (or is re-queued once the in-flight probe finishes).
+      if (this.current.get(node.nodeId) === node || this.newer.get(node.nodeId) === node) return false;
+      const i = this.queue.findIndex((q) => q.nodeId === node.nodeId);
+      if (i >= 0) {
+        this.queue[i] = node;
+        this.current.set(node.nodeId, node);
+        return true;
+      }
+      if (this.newer.size >= 100_000) return false;
+      this.newer.set(node.nodeId, node);
+      return true;
+    }
     const last = this.lastProbe.get(node.nodeId);
     const t = this.now();
     // The min interval bounds reconnect floods of verified nodes; a pending
@@ -445,6 +501,7 @@ export class ConnectProbeQueue {
     }
     this.lastProbe.set(node.nodeId, t);
     this.queued.add(node.nodeId);
+    this.current.set(node.nodeId, node);
     this.queue.push(node);
     if (this.delayMs > 0 || this.jitterMs > 0) {
       const timer = setTimeout(() => {
@@ -482,7 +539,13 @@ export class ConnectProbeQueue {
         .finally(() => {
           this.active--;
           this.queued.delete(node.nodeId);
-          this.scheduleRetry(node);
+          this.current.delete(node.nodeId);
+          const next = this.newer.get(node.nodeId);
+          this.newer.delete(node.nodeId);
+          if (next && next !== node) {
+            this.attempts.delete(node.nodeId);
+            this.enqueue(next);
+          } else this.scheduleRetry(node);
           this.pump();
         });
     }
@@ -531,6 +594,8 @@ export class ConnectProbeQueue {
     this.queue = [];
     this.queued.clear();
     this.overflow.clear();
+    this.newer.clear();
+    this.current.clear();
   }
 }
 
@@ -559,6 +624,12 @@ export function probeAuthHeader(nonce: string, secret = process.env["PROBE_AUTH_
 export interface SelfCheckResult {
   ok: boolean;
   reason?: string;
+  /**
+   * PROBE_AUTH_SECRET is set but the echo target did not accept its signature
+   * (secret differs between gateway and API): probes fall back to the public
+   * per-IP budget there.
+   */
+  authRejected?: boolean;
 }
 
 /**
@@ -587,13 +658,15 @@ export async function selfCheckTarget(
   const status = head.split("\r\n")[0]!;
   if (!/^HTTP\/1\.[01] 200 /.test(status)) return { ok: false, reason: `status ${status.slice(9, 12)}` };
   const text = completeBody(head, buf.subarray(sep + 4));
+  let gatewayAuth: unknown;
   try {
-    const body = text === null ? null : (JSON.parse(text) as { nonce?: unknown } | null);
+    const body = text === null ? null : (JSON.parse(text) as { nonce?: unknown; gateway?: unknown } | null);
     if (!body || body.nonce !== nonce) return { ok: false, reason: "nonce not echoed" };
+    gatewayAuth = body.gateway;
   } catch {
     return { ok: false, reason: "malformed body" };
   }
-  return { ok: true };
+  return probeAuthHeader(nonce) !== "" && gatewayAuth !== true ? { ok: true, authRejected: true } : { ok: true };
 }
 
 function dialDirect(host: string, port: number): Promise<Duplex> {
@@ -622,12 +695,16 @@ export class ProbeHealth {
   get healthy(): boolean {
     return this.live.length > 0;
   }
+  /** Targets that answered but did not accept this gateway's PROBE_AUTH_SECRET (last refresh). */
+  readonly authRejected: string[] = [];
   /** Re-check every target; returns the failures. */
   async refresh(): Promise<{ target: string; reason: string }[]> {
     const res = await Promise.all(this.all.map(async (t) => ({ t, r: await this.check(t).catch((): SelfCheckResult => ({ ok: false, reason: "error" })) })));
     this.live.length = 0;
+    this.authRejected.length = 0;
     const failed: { target: string; reason: string }[] = [];
     for (const { t, r } of res) {
+      if (r.ok && r.authRejected) this.authRejected.push(`${t.host}:${t.port}${t.path}`);
       if (r.ok) this.live.push(t);
       else failed.push({ target: `${t.host}:${t.port}${t.path}`, reason: r.reason ?? "failed" });
     }

@@ -38,7 +38,7 @@ import { getLatencyPercentiles } from "./stats.js";
 import { drainUnmetDemand, restoreUnmetDemand } from "./unmet-demand.js";
 import { parseTrustedProxyIps, loadTunnelTls } from "./node-tunnel/ingress.js";
 import { createEthersPayoutSender } from "./jobs/payout-sender-ethers.js";
-import { getActiveSessionCount, terminateUserSessions, terminateNodeSessionsAbove, terminateNodeSessions, getActiveSessions, awaitInFlightSettlements, getInFlightSettlementCount, configureSessionRecovery, heartbeatActiveSessions, recoverOrphanedSessions, configureSettledHook } from "./session-manager.js";
+import { getActiveSessionCount, terminateUserSessions, terminateNodeSessionsAbove, terminateNodeSessions, getActiveSessions, awaitInFlightSettlements, getInFlightSettlementCount, configureSessionRecovery, heartbeatActiveSessions, fenceOnHeartbeatLoss, recoverOrphanedSessions, configureSettledHook } from "./session-manager.js";
 
 const log = createLogger("proxy:main");
 
@@ -97,6 +97,19 @@ function probeTargetsFromEnv(): probesJob.ProbeTarget[] {
 
 /** Echo-target self-check state, shared by the connect queue and the periodic job. */
 let probeHealth: probesJob.ProbeHealth | null = null;
+/** Set once the connect-probe queue exists (the self-check runs before it). */
+let connectProbeQueue: probesJob.ConnectProbeQueue | null = null;
+
+/** Queue a connect probe for every live active node never verified on this connection. */
+function requeueUnverified(registry: NodeRegistry): number {
+  if (!connectProbeQueue) return 0;
+  let n = 0;
+  for (const live of registry.all()) {
+    if (live.egressVerifiedAt !== undefined || live.status !== "active" || !live.ready || !live.tunnel.isOpen) continue;
+    if (connectProbeQueue.enqueue(toProbeNode(registry, live))) n++;
+  }
+  return n;
+}
 
 /**
  * Release every pending node: the probe setup is broken on our side, so nodes
@@ -114,7 +127,7 @@ function releasePending(registry: NodeRegistry): number {
 }
 
 /** Probe deps shared by the periodic job and the per-connect queue. */
-function makeProbeDeps(registry: NodeRegistry, targets: probesJob.ProbeTarget[], logger: JobLogger): Omit<probesJob.ProbeDeps, "listNodes"> {
+function makeProbeDeps(registry: NodeRegistry, targets: probesJob.ProbeTarget[], logger: JobLogger, sanctioned: () => readonly string[]): Omit<probesJob.ProbeDeps, "listNodes"> {
   const quarantine = async (nodeId: string, reason: string): Promise<void> => {
     await nodeRepo.setStatus(nodeId, "quarantined", ["active", "pending", "cooldown"]);
     registry.get(nodeId)?.tunnel.close(`probe: ${reason}`);
@@ -128,6 +141,7 @@ function makeProbeDeps(registry: NodeRegistry, targets: probesJob.ProbeTarget[],
       record: nodeRepo.recordVerifiedClass,
       onDowngrade: (nodeId, _from, to) => terminateNodeSessionsAbove(nodeId, to),
       onCountryMismatch: (nodeId) => terminateNodeSessions(nodeId),
+      isSanctionedCountry: (cc) => sanctioned().includes(cc),
       quarantine,
       logger,
     }),
@@ -184,10 +198,20 @@ async function main(): Promise<void> {
     const refresh = async (): Promise<void> => {
       const failed = await health.refresh();
       if (failed.length > 0) log.error("probe echo self-check failed", { failed, healthyTargets: health.live.length });
+      if (health.authRejected.length > 0) {
+        log.warn("probe echo target does not accept this gateway's PROBE_AUTH_SECRET (must equal the API's); probes use the public per-IP budget", { targets: health.authRejected });
+      }
       if (!health.healthy) {
         const released = releasePending(registry);
         if (wasHealthy || released > 0) log.error("probes paused: no echo target passes the self-check; nodes serve at their connect class", { released });
-      } else if (!wasHealthy) log.info("probe echo self-check passed", { targets: health.live.length });
+      } else if (!wasHealthy) {
+        log.info("probe echo self-check passed", { targets: health.live.length });
+        // Nodes that connected (or whose connect probe failed) while probes
+        // were paused were never verified: queue them now instead of waiting
+        // for the periodic job's sample.
+        const queued = requeueUnverified(registry);
+        if (queued > 0) log.info("queued unverified nodes after probe recovery", { queued });
+      }
       wasHealthy = health.healthy;
     };
     await refresh().catch(() => undefined);
@@ -196,7 +220,7 @@ async function main(): Promise<void> {
   }
   const connectProbes = probeTargets.length > 0
     ? new probesJob.ConnectProbeQueue(
-      { ...makeProbeDeps(registry, probeHealth?.live ?? probeTargets, log), isHealthy: () => probeHealth?.healthy ?? true, listNodes: () => [] },
+      { ...makeProbeDeps(registry, probeHealth?.live ?? probeTargets, log, () => policy.body.sanctionedCountries), isHealthy: () => probeHealth?.healthy ?? true, listNodes: () => [] },
       {
         concurrency: envInt(process.env, "PROBE_CONNECT_CONCURRENCY", 4, 1, 64),
         minIntervalMs: envInt(process.env, "PROBE_CONNECT_MIN_INTERVAL_MS", 60_000, 0, 3_600_000),
@@ -205,6 +229,7 @@ async function main(): Promise<void> {
       },
     )
     : null;
+  connectProbeQueue = connectProbes;
   if (connectProbes) {
     // Backlog metric: a mass reconnect shows up here instead of silently starving verification.
     const backlogTimer = setInterval(() => {
@@ -302,7 +327,11 @@ async function main(): Promise<void> {
   };
   await runRecovery();
   const sessionHeartbeat = setInterval(() => {
-    heartbeatActiveSessions().catch((err) => log.warn("session heartbeat failed", { error: err instanceof Error ? err.message.slice(0, 100) : "unknown" }));
+    heartbeatActiveSessions().catch((err) => {
+      log.warn("session heartbeat failed", { error: err instanceof Error ? err.message.slice(0, 100) : "unknown" });
+      // Stop relaying well before SESSION_STALE_SECONDS lets another instance settle them.
+      return fenceOnHeartbeatLoss((SESSION_STALE_SECONDS - 45) * 1000);
+    }).catch(() => undefined);
   }, 15_000);
   sessionHeartbeat.unref();
   const recoveryInterval = setInterval(() => { void runRecovery(); }, 60_000);
@@ -554,7 +583,7 @@ function startJobs(registry: NodeRegistry, getPolicy: () => ActivePolicy): Job[]
       // Random start offset per run (up to half the interval) so probe timing is unpredictable.
       jitterMs: Math.floor(probeIntervalMs / 2),
       deps: {
-        ...makeProbeDeps(registry, probeHealth?.live ?? probeTargets, jobLog),
+        ...makeProbeDeps(registry, probeHealth?.live ?? probeTargets, jobLog, () => getPolicy().body.sanctionedCountries),
         isHealthy: () => probeHealth?.healthy ?? true,
         sampleSize: envInt(process.env, "PROBE_SAMPLE_SIZE", 20, 1, 1000),
         listNodes: () => [...registry.all()]

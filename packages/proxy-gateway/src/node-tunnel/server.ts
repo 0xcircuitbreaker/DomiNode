@@ -632,6 +632,9 @@ export class NodeTunnelServer {
       ports: caps.ports, bytesToday: 0, earningsTodayMusd: 0, day: dayOf(now), recentOpens: [], cooldownUntil: 0,
       cooldowns: new Map(), floorHashKnown: caps.floorHash !== null && (this.deps.knownFloorHashes?.has(caps.floorHash) ?? false),
       connectedAt: now,
+      // A persisted country-mismatch verdict carries over the reconnect; only
+      // a matching probe on this connection clears it.
+      egressBlocked: t.node.egress_blocked === true,
     };
     // Reserve the slot synchronously so concurrent handshakes see it in countPeers().
     let prev: LiveNode | null;

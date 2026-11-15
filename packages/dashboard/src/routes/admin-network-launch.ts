@@ -73,10 +73,10 @@ router.get("/seed-summary", async (_req: Request, res: Response) => {
   try {
     const [nodes, traffic] = await Promise.all([
       q<{ operator_run: boolean; total: string; online: string; countries: string; asns: string }>(
-        `SELECT operator_run, COUNT(*)::text AS total,
-                COUNT(*) FILTER (WHERE status = 'active' AND last_seen_at > now() - interval '5 minutes')::text AS online,
-                COUNT(DISTINCT country)::text AS countries, COUNT(DISTINCT asn)::text AS asns
-         FROM nodes WHERE status <> 'revoked' GROUP BY operator_run`,
+        `SELECT n.operator_run, COUNT(*)::text AS total,
+                COUNT(*) FILTER (WHERE n.status = 'active' AND ${networkStatusRepo.NODE_ONLINE_SQL})::text AS online,
+                COUNT(DISTINCT n.country)::text AS countries, COUNT(DISTINCT n.asn)::text AS asns
+         FROM nodes n WHERE n.status <> 'revoked' GROUP BY n.operator_run`,
       ),
       q<{ operator_run: boolean; bytes_24h: string | null; gross_24h: string | null; bytes_30d: string | null; gross_30d: string | null }>(
         `SELECT n.operator_run,

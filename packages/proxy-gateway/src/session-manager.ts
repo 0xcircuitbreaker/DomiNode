@@ -165,13 +165,76 @@ function settleInputFor(session: ActiveSession): relayChargeRepo.SettleRelayChar
 async function persistRecovery(session: ActiveSession): Promise<void> {
   if (!recoveryInstanceId) return;
   await sessionRecoveryRepo.attachRecoveryPayload(recoveryInstanceId, settleInputFor(session));
+  recoveryAttached.add(session);
 }
 
-/** Heartbeat this instance's live sessions with their current byte counts. */
-export async function heartbeatActiveSessions(): Promise<number> {
+/**
+ * Sessions whose row carries this instance's recovery payload. Only these can
+ * be settled by another instance's recovery, so only these are fenced (a
+ * prepaid session before payment capture has no payload yet).
+ */
+const recoveryAttached = new WeakSet<ActiveSession>();
+
+/** Sessions younger than this are never fenced (their row may not carry the instance id yet). */
+const FENCE_MIN_AGE_MS = 30_000;
+let lastHeartbeatOkAt: number | null = null;
+
+/**
+ * Heartbeat this instance's live sessions with their current byte counts.
+ * Fencing: a session the heartbeat did not update is no longer active for
+ * this instance in the database (another instance's recovery settled it), so
+ * it is ended and its sockets destroyed instead of relaying unbilled bytes.
+ */
+export async function heartbeatActiveSessions(now = Date.now()): Promise<number> {
+  if (!recoveryInstanceId || activeSessions.size === 0) {
+    lastHeartbeatOkAt = now;
+    return 0;
+  }
+  const snapshot = [...activeSessions.values()];
+  const rows = snapshot.map((s) => ({ sessionId: s.sessionId, bytesIn: s.counter.bytesIn, bytesOut: s.counter.bytesOut }));
+  const updated = await sessionRecoveryRepo.heartbeatSessions(recoveryInstanceId, rows);
+  lastHeartbeatOkAt = now;
+  if (!Array.isArray(updated)) return 0;
+  const alive = new Set(updated);
+  const fenced = snapshot
+    .filter((s) => recoveryAttached.has(s) && !alive.has(s.sessionId) && now - s.startedAt.getTime() >= FENCE_MIN_AGE_MS && activeSessions.get(s.sessionId) === s)
+    .map((s) => s.sessionId);
+  if (fenced.length > 0) {
+    log.warn("ending sessions no longer active for this instance in the database (fenced)", { count: fenced.length });
+    await destroySessions(fenced);
+  }
+  return updated.length;
+}
+
+/**
+ * Heartbeat failing for longer than maxAgeMs (keep it below the recovery
+ * stale threshold): another instance may settle our sessions soon, so stop
+ * relaying them. Returns the number of sessions ended.
+ */
+export async function fenceOnHeartbeatLoss(maxAgeMs: number, now = Date.now()): Promise<number> {
   if (!recoveryInstanceId || activeSessions.size === 0) return 0;
-  const rows = [...activeSessions.values()].map((s) => ({ sessionId: s.sessionId, bytesIn: s.counter.bytesIn, bytesOut: s.counter.bytesOut }));
-  return sessionRecoveryRepo.heartbeatSessions(recoveryInstanceId, rows);
+  if (lastHeartbeatOkAt === null) lastHeartbeatOkAt = now;
+  if (now - lastHeartbeatOkAt <= maxAgeMs) return 0;
+  const ids = [...activeSessions.keys()];
+  log.error("session heartbeat lost: ending local sessions before another instance recovers them", { count: ids.length });
+  await destroySessions(ids);
+  return ids.length;
+}
+
+async function destroySessions(ids: string[]): Promise<void> {
+  // endSession removes the session from the map synchronously, so the socket
+  // close handlers that run on destroy see it gone; sockets close at once even
+  // when settlement is slow (DB unreachable) or a duplicate (settled elsewhere).
+  const settles: Promise<void>[] = [];
+  for (const sessionId of ids) {
+    settles.push(endSession(sessionId).catch(() => undefined));
+    const destroyFn = sessionDestroyCallbacks.get(sessionId);
+    if (destroyFn) {
+      try { destroyFn(); } catch { /* best effort */ }
+      sessionDestroyCallbacks.delete(sessionId);
+    }
+  }
+  await Promise.all(settles);
 }
 
 /**

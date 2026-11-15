@@ -123,6 +123,7 @@ elsewhere). Meaning and required/optional status are documented in
 |---|---|---|
 | `ABUSE_REPORT_POW_DIFFICULTY` | `20` | `src/routes/v1/launch.ts` |
 | `ADMIN_BOOTSTRAP_EMAIL` | `""` | `src/helpers/human-auth.ts` |
+| `ADMIN_BOOTSTRAP_TOKEN` | `""` | `src/helpers/human-auth.ts` |
 | `ADMIN_HUMAN_LOGIN` |  | `src/helpers/human-auth.ts` |
 | `ADMIN_MAX_CREDIT_CENTS` | `50000` | `src/routes/admin.ts` |
 | `AGENT_RATE_LIMIT_MULTIPLIER` | `""` | `src/helpers/agent-rate-limit.ts` |

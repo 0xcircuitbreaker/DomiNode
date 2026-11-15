@@ -137,6 +137,12 @@ export interface LiveNode {
    * sessions, no pre-probe tier-weight snapshots).
    */
   probePending?: boolean;
+  /**
+   * Probe egress country differs from the tunnel IP's, or is sanctioned. The
+   * selector serves nothing through the node; a later matching probe on this
+   * connection clears it. Seeded from nodes.egress_blocked_at on connect.
+   */
+  egressBlocked?: boolean;
 }
 
 /** /24 for IPv4, /48 for IPv6 (matches nodes.ip_prefix24). */

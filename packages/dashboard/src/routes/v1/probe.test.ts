@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
+import { createHmac } from "node:crypto";
 import express from "express";
 import router, { normalizeIp, _resetProbeLimiter } from "./probe.js";
 import { call } from "./test-helpers.js";
@@ -17,6 +18,22 @@ describe("GET /v1/probe/echo", () => {
     expect(r.status).toBe(200);
     expect(r.body).toEqual({ ip: "127.0.0.1", nonce: "abcdefghijklmnop_1" });
     expect(r.headers.get("cache-control")).toBe("no-store");
+  });
+
+  it("tells an authenticated gateway probe that its signature was accepted", async () => {
+    const prev = process.env["PROBE_AUTH_SECRET"];
+    process.env["PROBE_AUTH_SECRET"] = "p".repeat(40);
+    try {
+      const nonce = "abcdefghijklmnop_2";
+      const sig = createHmac("sha256", "p".repeat(40)).update(nonce).digest("hex");
+      const ok = await call(app(), "GET", `/v1/probe/echo?nonce=${nonce}`, { headers: { "X-DN-Probe-Auth": sig } });
+      expect(ok.body).toEqual({ ip: "127.0.0.1", nonce, gateway: true });
+      const other = createHmac("sha256", "q".repeat(40)).update(nonce).digest("hex");
+      const bad = await call(app(), "GET", `/v1/probe/echo?nonce=${nonce}`, { headers: { "X-DN-Probe-Auth": other } });
+      expect(bad.body).toEqual({ ip: "127.0.0.1", nonce });
+    } finally {
+      if (prev === undefined) delete process.env["PROBE_AUTH_SECRET"]; else process.env["PROBE_AUTH_SECRET"] = prev;
+    }
   });
 
   it("rejects missing, short or unsafe nonces", async () => {

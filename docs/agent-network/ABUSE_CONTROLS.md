@@ -82,9 +82,13 @@ No — but they should be split by where trust lives:
   reprices new sessions, and in-flight sessions whose locked class is above
   the new class are ended at once (bytes so far settle at the locked price).
   Country check: when the probe egress country differs from the tunnel IP's
-  country the node becomes `unknown` (unselectable), the `egress_mismatch` flag
+  country the node is blocked (`nodes.egress_blocked_at`, unselectable for every
+  request, kept across reconnects until a probe on a later connection matches;
+  its class stays the conservative probe verdict; with probes disabled an admin
+  clears it with `UPDATE nodes SET egress_blocked_at = NULL`), the `egress_mismatch` flag
   opens and every in-flight session on the node ends; a sanctioned (OFAC)
-  egress country also quarantines the node and closes its tunnel. Privacy: the classification reuses `nodes.observed_ip`
+  egress country (OFAC list or policy `sanctionedCountries`) also quarantines
+  the node and closes its tunnel. Privacy: the classification reuses `nodes.observed_ip`
   (already stored, already erased with the node owner); only the class, the
   declared class and a timestamp are added, and logs carry node ids and
   classes, not IPs.

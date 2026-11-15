@@ -201,6 +201,7 @@ services:
       # Human admin login for the admin UI (DEPLOYMENT.md "Self-host admin").
       ADMIN_HUMAN_LOGIN: ${ADMIN_HUMAN_LOGIN:-false}
       ADMIN_BOOTSTRAP_EMAIL: ${ADMIN_BOOTSTRAP_EMAIL:-}
+      ADMIN_BOOTSTRAP_TOKEN: ${ADMIN_BOOTSTRAP_TOKEN:-}
       API_KEY_PEPPER_FILE: /run/dominusnode/api-key-pepper
       # Advertised TLS proxy ports (empty with TLS_MODE=off: not advertised).
       PROXY_PUBLIC_TLS_PORT: ${PROXY_PUBLIC_TLS_PORT-8443}

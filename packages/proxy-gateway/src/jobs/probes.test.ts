@@ -14,9 +14,8 @@ describe("canary probe judging", () => {
     expect(judgeProbeResponse(ok("203.0.113.5"), NONCE, "203.0.113.5")).toEqual({ kind: "ok", egressIp: "203.0.113.5" });
     expect(judgeProbeResponse(ok("203.0.113.5"), NONCE, "::ffff:203.0.113.5")).toEqual({ kind: "ok", egressIp: "203.0.113.5" });
   });
-  it("flags a nonce mismatch, a same-family IP mismatch and malformed replies as tamper", () => {
+  it("flags a nonce mismatch and malformed replies as tamper on plaintext targets", () => {
     expect(judgeProbeResponse(ok("203.0.113.5", "x".repeat(24)), NONCE, "203.0.113.5").kind).toBe("tamper");
-    expect(judgeProbeResponse(ok("198.51.100.1"), NONCE, "203.0.113.5").kind).toBe("tamper");
     expect(judgeProbeResponse("HTTP/1.1 200 OK\r\nContent-Length: 6\r\n\r\n<html>", NONCE, "203.0.113.5").kind).toBe("tamper");
     expect(judgeProbeResponse(ok("203.0.113.5", NONCE, "302 Found"), NONCE, "203.0.113.5").kind).toBe("tamper");
   });
@@ -32,11 +31,89 @@ describe("canary probe judging", () => {
     const cut = `HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n${body.length.toString(16)}\r\n${body}\r\n`;
     expect(judgeProbeResponse(cut, NONCE, "198.51.100.9").kind).toBe("inconclusive");
     const badChunked = `HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n${body.length.toString(16)}\r\n${body}\r\n0\r\n\r\n`;
-    expect(judgeProbeResponse(badChunked, NONCE, "198.51.100.9").kind).toBe("tamper");
+    expect(judgeProbeResponse(badChunked, NONCE, "198.51.100.9")).toEqual({ kind: "inconclusive", reason: "egress ip differs", egressIp: "203.0.113.5" });
   });
   it("treats endpoint errors and cross-family egress as inconclusive", () => {
     expect(judgeProbeResponse(ok("203.0.113.5", NONCE, "503 Service Unavailable"), NONCE, "203.0.113.5").kind).toBe("inconclusive");
     expect(judgeProbeResponse(ok("2001:db8::1"), NONCE, "203.0.113.5").kind).toBe("inconclusive");
+  });
+});
+
+describe("probe judging: honest address differences and TLS front ends", () => {
+  it("a same-prefix egress (CGNAT pool, IPv6 temporary address) is ok and classified", () => {
+    expect(judgeProbeResponse(ok("100.20.30.41"), NONCE, "100.20.30.40")).toEqual({ kind: "ok", egressIp: "100.20.30.41" });
+    expect(judgeProbeResponse(ok("2001:db8:1:2:aaaa::1"), NONCE, "2001:db8:1:2::5")).toEqual({ kind: "ok", egressIp: "2001:db8:1:2:aaaa::1" });
+  });
+  it("another prefix in the same family is inconclusive with the egress IP (classified, never a strike)", () => {
+    expect(judgeProbeResponse(ok("198.51.100.1"), NONCE, "203.0.113.5")).toEqual({ kind: "inconclusive", reason: "egress ip differs", egressIp: "198.51.100.1" });
+    expect(judgeProbeResponse(ok("2001:db8:9::1"), NONCE, "2001:db8:1::1").kind).toBe("inconclusive");
+  });
+  it("over TLS, an unexpected status, malformed body or nonce mismatch is the front end's, not the node's", () => {
+    const forbidden = "HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n";
+    expect(judgeProbeResponse(forbidden, NONCE, "203.0.113.5", true).kind).toBe("inconclusive");
+    expect(judgeProbeResponse(forbidden, NONCE, "203.0.113.5", false).kind).toBe("tamper");
+    expect(judgeProbeResponse("HTTP/1.1 200 OK\r\nContent-Length: 6\r\n\r\n<html>", NONCE, "203.0.113.5", true).kind).toBe("inconclusive");
+    expect(judgeProbeResponse(ok("203.0.113.5", "x".repeat(24)), NONCE, "203.0.113.5", true).kind).toBe("inconclusive");
+  });
+  it("a CGNAT node is never quarantined across repeated connect probes", async () => {
+    const quarantine = vi.fn();
+    const n = node("cg", "100.20.30.40");
+    const ex = vi.fn(async (_s: Duplex, _t: unknown, nonce: string) => ok("100.20.30.41", nonce));
+    const deps = { target, listNodes: () => [n], quarantine, exchange: ex as typeof exchange, nonce: () => NONCE, strikes: new TamperStrikes() };
+    for (let i = 0; i < 3; i++) await runOnce(deps);
+    expect(quarantine).not.toHaveBeenCalled();
+  });
+  it("sends a fixed User-Agent", async () => {
+    let written = "";
+    const body = JSON.stringify({ ip: "203.0.113.5", nonce: NONCE });
+    const s = new Duplex({
+      read() {},
+      write(c, _e, cb) { written += c.toString(); this.push(`HTTP/1.1 200 OK\r\nContent-Length: ${body.length}\r\n\r\n${body}`); this.push(null); cb(); },
+    });
+    await exchange(s, target, NONCE, 1000);
+    expect(written).toContain("User-Agent: DominusNode-Probe/1\r\n");
+  });
+});
+
+describe("connect queue reconnects", () => {
+  it("a reconnect while the old connection is queued replaces it; the live connection is probed", async () => {
+    const ex = vi.fn(async (_s: Duplex, _t: unknown, nonce: string) => ok("203.0.113.5", nonce));
+    const onEgress = vi.fn();
+    const q = new ConnectProbeQueue(
+      { target, listNodes: () => [], quarantine: vi.fn(), exchange: ex as typeof exchange, nonce: () => NONCE, onEgress, strikes: new TamperStrikes() },
+      { concurrency: 1, delayMs: 60_000, jitterMs: 0, minIntervalMs: 60_000 },
+    );
+    const dead = { nodeId: "a", ip: "203.0.113.5", isPending: () => false, openStream: vi.fn().mockRejectedValue(new Error("closed")) };
+    const live = { nodeId: "a", ip: "203.0.113.5", isPending: () => true, openStream: vi.fn(async () => new Duplex({ read() {}, write(_c, _e, cb) { cb(); } })) };
+    expect(q.enqueue(dead)).toBe(true);
+    expect(q.enqueue(live)).toBe(true);
+    q.pump();
+    await new Promise((r) => setTimeout(r, 5));
+    expect(dead.openStream).not.toHaveBeenCalled();
+    expect(live.openStream).toHaveBeenCalled();
+    q.stop();
+  });
+  it("a reconnect while the old connection's probe is in flight is probed after it", async () => {
+    const releases: (() => void)[] = [];
+    const ex = vi.fn(async (_s: Duplex, _t: unknown, nonce: string) => { await new Promise<void>((r) => releases.push(r)); return ok("203.0.113.5", nonce); });
+    const q = new ConnectProbeQueue(
+      { target, listNodes: () => [], quarantine: vi.fn(), exchange: ex as typeof exchange, nonce: () => NONCE, strikes: new TamperStrikes() },
+      { concurrency: 1, delayMs: 0, jitterMs: 0, minIntervalMs: 60_000 },
+    );
+    let livePending = true;
+    const mkStream = () => new Duplex({ read() {}, write(_c, _e, cb) { cb(); } });
+    const old = { nodeId: "a", ip: "203.0.113.5", isPending: () => false, openStream: vi.fn(async () => mkStream()) };
+    const live = { nodeId: "a", ip: "203.0.113.5", isPending: () => livePending, openStream: vi.fn(async () => mkStream()) };
+    expect(q.enqueue(old)).toBe(true);
+    await new Promise((r) => setTimeout(r, 5));
+    expect(q.enqueue(live)).toBe(true);
+    expect(q.enqueue(live)).toBe(false);
+    releases.shift()!();
+    await new Promise((r) => setTimeout(r, 5));
+    expect(live.openStream).toHaveBeenCalled();
+    livePending = false;
+    releases.shift()?.();
+    q.stop();
   });
 });
 
@@ -58,8 +135,10 @@ describe("probe job", () => {
   it("quarantines a tampering node only, after two separate runs", async () => {
     const quarantine = vi.fn().mockResolvedValue(null);
     const good = node("good", "203.0.113.5");
-    const bad = node("bad", "203.0.113.6");
-    const ex = vi.fn(async (_s: Duplex, _t: unknown, nonce: string) => ok("203.0.113.5", nonce));
+    const badStream = new Duplex({ read() {}, write(_c, _e, cb) { cb(); } });
+    const bad = { ...node("bad", "203.0.113.6"), openStream: vi.fn().mockResolvedValue(badStream) };
+    // A node rewriting a plaintext echo (forged nonce) is provable tampering.
+    const ex = vi.fn(async (s: Duplex, _t: unknown, nonce: string) => (s === badStream ? ok("203.0.113.6", "f".repeat(24)) : ok("203.0.113.5", nonce)));
     const strikes = new TamperStrikes();
     const deps = { target, listNodes: () => [good, bad], quarantine, exchange: ex as typeof exchange, nonce: () => NONCE, strikes };
     const r1 = await runOnce(deps);
@@ -68,20 +147,20 @@ describe("probe job", () => {
     const r = await runOnce(deps);
     expect(good.openStream).toHaveBeenCalledWith("api.example.com", 80);
     expect(quarantine).toHaveBeenCalledTimes(1);
-    expect(quarantine).toHaveBeenCalledWith("bad", "egress ip mismatch");
+    expect(quarantine).toHaveBeenCalledWith("bad", "nonce mismatch");
     expect(r).toMatchObject({ probed: 2, ok: 1, tampered: 1 });
   });
   it("an ok verdict between tamper verdicts resets the strike count", async () => {
     const quarantine = vi.fn();
     const n = node("n", "203.0.113.6");
     const strikes = new TamperStrikes();
-    let ip = "203.0.113.5";
-    const ex = vi.fn(async (_s: Duplex, _t: unknown, nonce: string) => ok(ip, nonce));
+    let forged = true;
+    const ex = vi.fn(async (_s: Duplex, _t: unknown, nonce: string) => ok("203.0.113.6", forged ? "f".repeat(24) : nonce));
     const deps = { target, listNodes: () => [n], quarantine, exchange: ex as typeof exchange, nonce: () => NONCE, strikes };
     await runOnce(deps);
-    ip = "203.0.113.6";
+    forged = false;
     await runOnce(deps);
-    ip = "203.0.113.5";
+    forged = true;
     await runOnce(deps);
     expect(quarantine).not.toHaveBeenCalled();
     expect(strikes.hit("n", 999)).toBe(2);
@@ -104,9 +183,12 @@ describe("probe job", () => {
     ip = "2a09:bac1::5"; // dual-stack node egressing over IPv6 (e.g. through WARP)
     await runOnce(deps);
     expect(onEgress).toHaveBeenLastCalledWith("n", "2a09:bac1::5");
-    ip = "203.0.113.9"; // same-family mismatch = tamper: never classified
+    ip = "198.51.100.9"; // same-family, other prefix: classified (conservative class wins)
     await runOnce(deps);
-    expect(onEgress).toHaveBeenCalledTimes(2);
+    expect(onEgress).toHaveBeenLastCalledWith("n", "198.51.100.9");
+    ex.mockImplementationOnce(async () => ok("203.0.113.5", "f".repeat(24))); // tamper: never classified
+    await runOnce(deps);
+    expect(onEgress).toHaveBeenCalledTimes(3);
   });
   it("onEgress failures do not break the run", async () => {
     const n = node("n", "203.0.113.5");
@@ -177,8 +259,9 @@ describe("probe target rotation and connect queue", () => {
       { concurrency: 2, delayMs: 0, jitterMs: 0, minIntervalMs: 60_000, now: () => t },
     );
     const mk = (id: string) => ({ nodeId: id, ip: "203.0.113.5", openStream: vi.fn(async () => new Duplex({ read() {}, write(_c, _e, cb) { cb(); } })) });
-    expect(q.enqueue(mk("a"))).toBe(true);
-    expect(q.enqueue(mk("a"))).toBe(false); // dedupe while queued / rate limit
+    const a = mk("a");
+    expect(q.enqueue(a)).toBe(true);
+    expect(q.enqueue(a)).toBe(false); // dedupe while queued
     expect(q.enqueue(mk("b"))).toBe(true);
     expect(q.enqueue(mk("c"))).toBe(true);
     await new Promise((r) => setTimeout(r, 5));
@@ -325,6 +408,27 @@ describe("pending nodes: retries, full coverage, self-check", () => {
     const rTls = await selfCheckTarget(target, 1000, dial, (async () => { throw new Error("self-signed certificate"); }) as never);
     expect(rTls.ok).toBe(false);
     expect((await selfCheckTarget(target, 1000, dial, (async () => ok("1.1.1.1", "other")) as never)).ok).toBe(false);
+  });
+
+  it("self-check reports when the API does not accept this gateway's PROBE_AUTH_SECRET", async () => {
+    const prev = process.env["PROBE_AUTH_SECRET"];
+    process.env["PROBE_AUTH_SECRET"] = "p".repeat(40);
+    try {
+      const dial = async () => stream();
+      const plain = vi.fn(async (_s: Duplex, _t: unknown, nonce: string) => ok("198.51.100.1", nonce));
+      expect(await selfCheckTarget(target, 1000, dial, plain as typeof exchange)).toEqual({ ok: true, authRejected: true });
+      const accepted = vi.fn(async (_s: Duplex, _t: unknown, nonce: string) => {
+        const body = JSON.stringify({ ip: "198.51.100.1", nonce, gateway: true });
+        return `HTTP/1.1 200 OK\r\nContent-Length: ${body.length}\r\n\r\n${body}`;
+      });
+      expect(await selfCheckTarget(target, 1000, dial, accepted as typeof exchange)).toEqual({ ok: true });
+      const h = new ProbeHealth([target], async () => ({ ok: true, authRejected: true }));
+      await h.refresh();
+      expect(h.healthy).toBe(true);
+      expect(h.authRejected).toHaveLength(1);
+    } finally {
+      if (prev === undefined) delete process.env["PROBE_AUTH_SECRET"]; else process.env["PROBE_AUTH_SECRET"] = prev;
+    }
   });
 
   it("ProbeHealth keeps only passing targets in its live list", async () => {

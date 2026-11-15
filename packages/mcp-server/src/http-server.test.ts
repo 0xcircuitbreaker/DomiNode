@@ -13,6 +13,7 @@ import {
 import { registerKeysTools } from "./tools/keys.js";
 import type { HttpClient } from "./http-client.js";
 import { parseHttpConfig, ConfigError, type McpHttpConfig } from "./config.js";
+import { TokenVerifyError } from "./token-manager.js";
 
 const KEY_A = "dn_live_aaaaaaaaaaaaaaaaaaaa";
 const KEY_B = "dn_live_bbbbbbbbbbbbbbbbbbbb";
@@ -28,10 +29,13 @@ const baseConfig: McpHttpConfig = {
 };
 
 /** Test factory: one "whoami" tool that reports which key the session was built for. */
-function makeFactory(opts: { reject?: string } = {}) {
+function makeFactory(opts: { reject?: string; unavailable?: boolean } = {}) {
   const disposed: string[] = [];
+  let calls = 0;
   const factory: SessionFactory = async (apiKey) => {
-    if (opts.reject && apiKey === opts.reject) throw new Error(`API error 401: bad key ${apiKey}`);
+    calls++;
+    if (opts.unavailable) throw new TokenVerifyError("Failed to verify API key (HTTP 429)", 429);
+    if (opts.reject && apiKey === opts.reject) throw new TokenVerifyError(`API error 401: bad key ${apiKey}`, 401);
     const server = new McpServer({ name: "test", version: "0.0.0" });
     server.tool("whoami", "who", { n: z.number().optional() }, async () => ({
       content: [{ type: "text", text: `owner-${apiKey.slice(-4)}` }],
@@ -41,7 +45,7 @@ function makeFactory(opts: { reject?: string } = {}) {
     });
     return { server, dispose: () => disposed.push(apiKey.slice(0, 10)) };
   };
-  return { factory, disposed };
+  return { factory, disposed, calls: () => calls };
 }
 
 let remote: RemoteMcpServer | null = null;
@@ -175,6 +179,52 @@ describe("remote MCP endpoint: isolation", () => {
     await openSession(KEY_A);
     const res = await post(initBody, { Authorization: `Bearer ${KEY_B}` });
     expect(res.status).toBe(503);
+  });
+});
+
+describe("remote MCP endpoint: abuse limits", () => {
+  it("caps sessions per key, evicting that key's oldest, so other keys still get a slot", async () => {
+    await start(makeFactory().factory, { maxSessions: 4, maxSessionsPerKey: 2 });
+    const first = await openSession(KEY_A);
+    await openSession(KEY_A);
+    await openSession(KEY_A);
+    expect(remote!.sessionCount()).toBe(2);
+    expect((await callTool(KEY_A, first, "whoami")).status).toBe(404);
+    await openSession(KEY_B);
+    expect(remote!.sessionCount()).toBe(3);
+  });
+
+  it("concurrent initializes cannot overshoot the global cap", async () => {
+    await start(makeFactory().factory, { maxSessions: 2, maxSessionsPerKey: 10 });
+    const keys = Array.from({ length: 6 }, (_, i) => `dn_live_${String(i).repeat(20)}`);
+    const res = await Promise.all(keys.map((k) => post(initBody, { Authorization: `Bearer ${k}` })));
+    expect(res.filter((r) => r.status === 200).length).toBeLessThanOrEqual(2);
+    expect(remote!.sessionCount()).toBeLessThanOrEqual(2);
+  });
+
+  it("throttles initialize per client IP before the key reaches the API", async () => {
+    const f = makeFactory({ reject: "never" });
+    await start(f.factory, { initPerIpPerMinute: 3 });
+    const res: number[] = [];
+    for (let i = 0; i < 6; i++) res.push((await post(initBody, { Authorization: `Bearer dn_live_bogus${i}xxxxxxxxxx` })).status);
+    expect(res.filter((s) => s === 429).length).toBe(3);
+    expect(f.calls()).toBe(3);
+  });
+
+  it("remembers a rejected key instead of asking the API again", async () => {
+    const f = makeFactory({ reject: KEY_A });
+    await start(f.factory);
+    expect((await post(initBody, { Authorization: `Bearer ${KEY_A}` })).status).toBe(401);
+    expect((await post(initBody, { Authorization: `Bearer ${KEY_A}` })).status).toBe(401);
+    expect(f.calls()).toBe(1);
+  });
+
+  it("an unavailable or rate-limited API is 503 with Retry-After, not 'API key rejected'", async () => {
+    await start(makeFactory({ unavailable: true }).factory);
+    const res = await post(initBody, { Authorization: `Bearer ${KEY_A}` });
+    expect(res.status).toBe(503);
+    expect(res.headers.get("retry-after")).toBe("30");
+    expect(await res.text()).not.toContain("API key rejected");
   });
 });
 

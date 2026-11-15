@@ -39,7 +39,7 @@ describe("recordVerifiedClass", () => {
     expect(s[0]).toBe("BEGIN");
     expect(s[1]).toContain("FOR UPDATE");
     expect(s[2]).toContain("UPDATE nodes SET ip_class = $2");
-    expect(mockClientQuery.mock.calls[2][1]).toEqual([N, "masked", null]);
+    expect(mockClientQuery.mock.calls[2][1]).toEqual([N, "masked", null, null]);
     expect(s[3]).toContain("'egress_mismatch'");
     expect(s[3]).toContain("ON CONFLICT");
     expect(s[4]).toBe("COMMIT");
@@ -67,7 +67,7 @@ describe("recordVerifiedClass", () => {
     const r = await recordVerifiedClass(N, "masked", { probeClass: "masked", connectClass: "residential" });
     expect(r.flagged).toBe(true);
     const upd = mockClientQuery.mock.calls.find((c) => String(c[0]).includes("probe_class = COALESCE"))!;
-    expect(upd[1]).toEqual([N, "masked", "masked"]);
+    expect(upd[1]).toEqual([N, "masked", "masked", null]);
     expect(sqls().some((x) => x.includes("'egress_mismatch'"))).toBe(true);
   });
 
