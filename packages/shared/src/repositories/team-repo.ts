@@ -533,12 +533,13 @@ export async function releaseTeamReservation(
     );
     const wallet = walletResult.rows[0];
     if (!wallet) { await client.query("ROLLBACK"); return; }
-    if (wallet.balance_cents + amountCents > MAX_BALANCE_CENTS) {
-      throw new Error(
-        `Team reservation release of ${amountCents} cents would exceed wallet balance cap; release aborted to avoid fund loss`,
-      );
+    // Credit up to the cap; the rest is recorded as an overflow credit (owed,
+    // never lost) instead of failing the release.
+    const cappedRefund = Math.min(amountCents, Math.max(0, MAX_BALANCE_CENTS - wallet.balance_cents));
+    if (amountCents > cappedRefund) {
+      await recordOverflowCreditTx(client, { userId: null, teamId, cents: amountCents - cappedRefund, reason: "team reservation release over cap (session failed)" });
     }
-    const cappedRefund = amountCents;
+    if (cappedRefund <= 0) { await client.query("COMMIT"); return; }
     await client.query(
       `UPDATE team_wallets SET balance_cents = balance_cents + $1 WHERE id = $2`,
       [cappedRefund, wallet.id],
@@ -579,49 +580,43 @@ export async function settleTeamSessionTx(
   const wallet = walletResult.rows[0];
   if (!wallet) return "no_wallet";
 
+  // The reservation was already recorded as a 'Session reservation hold'
+  // debit, so the ledger only needs the difference (mirrors settleSessionTx):
+  // a 'refund' row for unused reservation, a 'debit' row for overage.
+  const label = `session ${sessionId.slice(0, 8)}`;
   const diff = reservedCents - actualCostCents;
   if (diff > 0) {
     // Refund excess reservation; the part above the cap (a deposit landed during
     // the session) is recorded as an overflow credit instead of aborting settlement.
     const refund = Math.min(diff, Math.max(0, MAX_BALANCE_CENTS - wallet.balance_cents));
-    if (diff > refund) await recordOverflowCreditTx(client, { userId: null, teamId, cents: diff - refund, reason: `team reservation refund over cap (session ${sessionId.slice(0, 8)})` });
+    if (diff > refund) await recordOverflowCreditTx(client, { userId: null, teamId, cents: diff - refund, reason: `team reservation refund over cap (${label})` });
     if (refund > 0) {
       await client.query(
         `UPDATE team_wallets SET balance_cents = balance_cents + $1 WHERE id = $2`,
         [refund, wallet.id],
       );
+      await client.query(
+        `INSERT INTO team_wallet_transactions (wallet_id, type, amount_cents, description)
+         VALUES ($1, 'refund', $2, $3)`,
+        [wallet.id, refund, `Reservation refund (${label})`],
+      );
     }
   } else if (diff < 0) {
     // Charge overage — partial charge if insufficient (matches personal wallet behavior)
     const overage = Math.abs(diff);
-    if (wallet.balance_cents < overage) {
-      const partial = wallet.balance_cents;
-      if (partial > 0) {
-        await client.query(
-          `UPDATE team_wallets SET balance_cents = 0 WHERE id = $1`,
-          [wallet.id],
-        );
-      }
-      if (actualCostCents > 0) {
-        await client.query(
-          `INSERT INTO team_wallet_transactions (wallet_id, type, amount_cents, description)
-           VALUES ($1, 'debit', $2, $3)`,
-          [wallet.id, actualCostCents, `Proxy session ${sessionId.slice(0, 8)} (partial)`],
-        );
-      }
-      return "partial";
+    const charged = Math.min(overage, wallet.balance_cents);
+    if (charged > 0) {
+      await client.query(
+        `UPDATE team_wallets SET balance_cents = balance_cents - $1 WHERE id = $2`,
+        [charged, wallet.id],
+      );
+      await client.query(
+        `INSERT INTO team_wallet_transactions (wallet_id, type, amount_cents, description)
+         VALUES ($1, 'debit', $2, $3)`,
+        [wallet.id, charged, `Proxy usage overage (${label})${charged < overage ? " (partial)" : ""}`],
+      );
     }
-    await client.query(
-      `UPDATE team_wallets SET balance_cents = balance_cents - $1 WHERE id = $2`,
-      [overage, wallet.id],
-    );
-  }
-  if (actualCostCents > 0) {
-    await client.query(
-      `INSERT INTO team_wallet_transactions (wallet_id, type, amount_cents, description)
-       VALUES ($1, 'debit', $2, $3)`,
-      [wallet.id, actualCostCents, `Proxy session ${sessionId.slice(0, 8)}`],
-    );
+    if (charged < overage) return "partial";
   }
   return "ok";
 }

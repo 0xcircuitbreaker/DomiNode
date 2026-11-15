@@ -409,4 +409,9 @@ k-anonymity on `/v1/network/stats`, `/v1/network/history` and `/status`: while f
 | `403 CONTRIBUTION_REQUIRED` | `policy.requireContribution` is on and the API-key principal has no active node with matured paid traffic in the window and no allowlist entry. |
 | `403 ANONYMOUS_PAYERS_DISABLED` | `policy.allowAnonymousPayers` is off; x402/MPP requests are refused before payment verification. |
 | `403 PAYER_SANCTIONED` | The x402/MPP payer wallet is on the SDN list; the payment is not settled. |
+| `400 PAYMENT_WITH_API_KEY` | An x402/MPP payment credential was sent together with an API key. Per-request payment is only accepted without proxy credentials; drop the key and retry with the same payment. |
 | `503 PAYER_SCREENING_UNAVAILABLE` | The SDN list is required but missing (always in production); nothing is charged. |
+
+## Account deletion (wallet accounts)
+
+`DELETE /api/account` erases the account (irreversible; unspent balance and node credit are forfeited). A wallet account must sign for it: `POST /api/account/delete-challenge` returns `{nonce, message, signer}`; sign `message` (EIP-191) with the linked wallet and send `{nonce, signature}` in the `DELETE` body. A JWT obtained from an API key alone (`/api/auth/verify-key`) cannot delete the account. Team API keys are proxy-only: `/api/auth/verify-key` refuses them with `403`.

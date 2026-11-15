@@ -1,22 +1,17 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { HttpClient } from "../http-client.js";
+import { SlidingWindow, perServer } from "../session-limiter.js";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const TEAMS_RATE_MAX = 20;
 const TEAMS_RATE_WINDOW_MS = 60_000;
-const teamsTimestamps: number[] = [];
 
-function checkTeamsRateLimit(): boolean {
-  const now = Date.now();
-  while (teamsTimestamps.length > 0 && now - teamsTimestamps[0] > TEAMS_RATE_WINDOW_MS) {
-    teamsTimestamps.shift();
-  }
-  if (teamsTimestamps.length > 100) teamsTimestamps.length = 100;
-  if (teamsTimestamps.length >= TEAMS_RATE_MAX) return false;
-  teamsTimestamps.push(now);
-  return true;
+const teamsLimiter = perServer(() => new SlidingWindow(TEAMS_RATE_MAX, TEAMS_RATE_WINDOW_MS));
+
+function checkTeamsRateLimit(server: object): boolean {
+  return teamsLimiter.get(server).take();
 }
 
 export function registerTeamsTools(server: McpServer, httpClient: HttpClient): void {
@@ -29,7 +24,7 @@ export function registerTeamsTools(server: McpServer, httpClient: HttpClient): v
     },
     async (args) => {
       try {
-        if (!checkTeamsRateLimit()) {
+        if (!checkTeamsRateLimit(server)) {
           return {
             isError: true,
             content: [{ type: "text", text: "Rate limit exceeded: maximum 20 team operations per minute. Please wait before retrying." }],
@@ -176,7 +171,7 @@ export function registerTeamsTools(server: McpServer, httpClient: HttpClient): v
     },
     async (args) => {
       try {
-        if (!checkTeamsRateLimit()) {
+        if (!checkTeamsRateLimit(server)) {
           return {
             isError: true,
             content: [{ type: "text", text: "Rate limit exceeded: maximum 20 team operations per minute. Please wait before retrying." }],
@@ -232,7 +227,7 @@ export function registerTeamsTools(server: McpServer, httpClient: HttpClient): v
     },
     async (args) => {
       try {
-        if (!checkTeamsRateLimit()) {
+        if (!checkTeamsRateLimit(server)) {
           return {
             isError: true,
             content: [{ type: "text", text: "Rate limit exceeded: maximum 20 team operations per minute. Please wait before retrying." }],
@@ -270,7 +265,7 @@ export function registerTeamsTools(server: McpServer, httpClient: HttpClient): v
     },
     async (args) => {
       try {
-        if (!checkTeamsRateLimit()) {
+        if (!checkTeamsRateLimit(server)) {
           return {
             isError: true,
             content: [{ type: "text", text: "Rate limit exceeded: maximum 20 team operations per minute. Please wait before retrying." }],
@@ -311,7 +306,7 @@ export function registerTeamsTools(server: McpServer, httpClient: HttpClient): v
     },
     async (args) => {
       try {
-        if (!checkTeamsRateLimit()) {
+        if (!checkTeamsRateLimit(server)) {
           return {
             isError: true,
             content: [{ type: "text", text: "Rate limit exceeded: maximum 20 team operations per minute. Please wait before retrying." }],
@@ -342,7 +337,7 @@ export function registerTeamsTools(server: McpServer, httpClient: HttpClient): v
     },
     async (args) => {
       try {
-        if (!checkTeamsRateLimit()) {
+        if (!checkTeamsRateLimit(server)) {
           return {
             isError: true,
             content: [{ type: "text", text: "Rate limit exceeded: maximum 20 team operations per minute. Please wait before retrying." }],
@@ -394,7 +389,7 @@ export function registerTeamsTools(server: McpServer, httpClient: HttpClient): v
     },
     async (args) => {
       try {
-        if (!checkTeamsRateLimit()) {
+        if (!checkTeamsRateLimit(server)) {
           return {
             isError: true,
             content: [{ type: "text", text: "Rate limit exceeded: maximum 20 team operations per minute. Please wait before retrying." }],
@@ -444,7 +439,7 @@ export function registerTeamsTools(server: McpServer, httpClient: HttpClient): v
     },
     async (args) => {
       try {
-        if (!checkTeamsRateLimit()) {
+        if (!checkTeamsRateLimit(server)) {
           return {
             isError: true,
             content: [{ type: "text", text: "Rate limit exceeded: maximum 20 team operations per minute. Please wait before retrying." }],
@@ -569,7 +564,7 @@ export function registerTeamsTools(server: McpServer, httpClient: HttpClient): v
     },
     async (args) => {
       try {
-        if (!checkTeamsRateLimit()) {
+        if (!checkTeamsRateLimit(server)) {
           return {
             isError: true,
             content: [{ type: "text", text: "Rate limit exceeded: maximum 20 team operations per minute. Please wait before retrying." }],
@@ -668,7 +663,7 @@ export function registerTeamsTools(server: McpServer, httpClient: HttpClient): v
     },
     async (args) => {
       try {
-        if (!checkTeamsRateLimit()) {
+        if (!checkTeamsRateLimit(server)) {
           return {
             isError: true,
             content: [{ type: "text", text: "Rate limit exceeded: maximum 20 team operations per minute. Please wait before retrying." }],
@@ -744,7 +739,7 @@ export function registerTeamsTools(server: McpServer, httpClient: HttpClient): v
     },
     async (args) => {
       try {
-        if (!checkTeamsRateLimit()) {
+        if (!checkTeamsRateLimit(server)) {
           return {
             isError: true,
             content: [{ type: "text", text: "Rate limit exceeded: maximum 20 team operations per minute. Please wait before retrying." }],

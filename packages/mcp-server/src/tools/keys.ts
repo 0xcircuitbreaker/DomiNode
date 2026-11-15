@@ -2,22 +2,17 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { HttpClient } from "../http-client.js";
 import type { ApiKey, ApiKeyCreated } from "../types.js";
+import { SlidingWindow, perServer } from "../session-limiter.js";
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const KEYS_RATE_MAX = 10;
 const KEYS_RATE_WINDOW_MS = 60_000;
-const keysTimestamps: number[] = [];
 
-function checkKeysRateLimit(): boolean {
-  const now = Date.now();
-  while (keysTimestamps.length > 0 && now - keysTimestamps[0] > KEYS_RATE_WINDOW_MS) {
-    keysTimestamps.shift();
-  }
-  if (keysTimestamps.length > 100) keysTimestamps.length = 100;
-  if (keysTimestamps.length >= KEYS_RATE_MAX) return false;
-  keysTimestamps.push(now);
-  return true;
+const keysLimiter = perServer(() => new SlidingWindow(KEYS_RATE_MAX, KEYS_RATE_WINDOW_MS));
+
+function checkKeysRateLimit(server: object): boolean {
+  return keysLimiter.get(server).take();
 }
 
 export function registerKeysTools(server: McpServer, httpClient: HttpClient): void {
@@ -54,7 +49,7 @@ export function registerKeysTools(server: McpServer, httpClient: HttpClient): vo
     },
     async (args) => {
       try {
-        if (!checkKeysRateLimit()) {
+        if (!checkKeysRateLimit(server)) {
           return {
             isError: true,
             content: [{ type: "text", text: "Rate limit exceeded: maximum 10 key operations per minute. Please wait before retrying." }],
@@ -90,7 +85,7 @@ export function registerKeysTools(server: McpServer, httpClient: HttpClient): vo
     },
     async (args) => {
       try {
-        if (!checkKeysRateLimit()) {
+        if (!checkKeysRateLimit(server)) {
           return {
             isError: true,
             content: [{ type: "text", text: "Rate limit exceeded: maximum 10 key operations per minute. Please wait before retrying." }],

@@ -3,7 +3,8 @@ import rateLimit from "express-rate-limit";
 import crypto from "node:crypto";
 import { requireAuth, type AuthenticatedRequest } from "../middleware/auth.js";
 import { clearAuthCookies } from "../helpers/cookies.js";
-import { query, getPool, createLogger, userRepo, relayErasureRepo, relayExportRepo, verifyPassword, isWalletEmail, getProxyInternalPort } from "@dominusnode/shared";
+import { query, getPool, createLogger, userRepo, adminRepo, agentCreditsRepo, relayErasureRepo, relayExportRepo, verifyPassword, isWalletEmail, getProxyInternalPort } from "@dominusnode/shared";
+import { recoverSignerAddress } from "../helpers/verify-signature.js";
 
 const log = createLogger("api:account");
 const router = Router();
@@ -19,6 +20,15 @@ const exportLimiter = rateLimit({
 });
 
 // Rate limit: 1 deletion per hour per user
+const deleteChallengeLimiter = rateLimit({
+  windowMs: 60 * 60_000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many deletion challenges. Please try again later." },
+  keyGenerator: (req) => (req as AuthenticatedRequest).user?.userId ?? "unknown",
+});
+
 const deleteLimiter = rateLimit({
   windowMs: 60 * 60_000, // 1 hour
   max: 1,
@@ -200,6 +210,45 @@ router.get(
   }
 );
 
+const HEX64 = /^[0-9a-f]{64}$/;
+const SIG_RE = /^0x[0-9a-fA-F]{130}$/;
+const sha256Hex = (v: string): string => crypto.createHash("sha256").update(v).digest("hex");
+
+export function accountDeleteMessage(i: { userId: string; wallet: string; nonce: string }): string {
+  return [
+    "DominusNode account deletion",
+    "Action: account_delete",
+    `User: ${i.userId}`,
+    `Account wallet: ${i.wallet}`,
+    "This permanently erases the account. Unspent balance and node credit are forfeited.",
+    `Nonce: ${i.nonce}`,
+  ].join("\n");
+}
+
+/**
+ * POST /api/account/delete-challenge
+ * Single-use message the linked wallet signs to authorize DELETE /api/account.
+ */
+router.post("/delete-challenge", requireAuth, deleteChallengeLimiter, async (req, res) => {
+  const { userId } = (req as AuthenticatedRequest).user;
+  try {
+    const row = (await query("SELECT email, wallet_address FROM users WHERE id = $1", [userId])).rows[0];
+    if (!row) { res.status(404).json({ error: "Account not found." }); return; }
+    if (!isWalletEmail(row.email)) { res.status(400).json({ error: "Password accounts confirm deletion with their password." }); return; }
+    const wallet = typeof row.wallet_address === "string" ? row.wallet_address.toLowerCase() : "";
+    if (!wallet) { res.status(400).json({ error: "A linked wallet is required to delete this account.", code: "NO_LINKED_WALLET" }); return; }
+    const nonce = crypto.randomBytes(32).toString("hex");
+    const message = accountDeleteMessage({ userId, wallet, nonce });
+    const stored = await agentCreditsRepo.createSignChallenge(userId, "account_delete", sha256Hex(nonce), message);
+    if (!stored) { res.status(429).json({ error: "Too many outstanding challenges", code: "RATE_LIMITED" }); return; }
+    res.setHeader("Cache-Control", "no-store");
+    res.json({ nonce, message, expiresAt: stored.expiresAt, signer: wallet });
+  } catch (err) {
+    log.error("account delete challenge failed", { userId, error: err instanceof Error ? err.message : String(err) });
+    res.status(500).json({ error: "Failed to create challenge" });
+  }
+});
+
 /**
  * DELETE /api/account
  * GDPR right to erasure: anonymize user data
@@ -214,16 +263,40 @@ router.delete(
 
     try {
       // Look up user email for auth check
-      const emailRow = (await query("SELECT email FROM users WHERE id = $1", [userId])).rows[0];
+      const emailRow = (await query("SELECT email, wallet_address FROM users WHERE id = $1", [userId])).rows[0];
       if (!emailRow) {
         res.status(404).json({ error: "Account not found." });
         return;
       }
       const userEmail = emailRow.email;
 
-      // Wallet-only accounts don't have a usable password — allow deletion
-      // since they already proved identity via JWT from wallet auth
-      if (!isWalletEmail(userEmail)) {
+      // Wallet accounts: a JWT can be minted from a bare dn_live_ key
+      // (verify-key), so erasure needs a fresh EIP-191 signature from the linked
+      // wallet over a single-use challenge (POST /api/account/delete-challenge).
+      if (isWalletEmail(userEmail)) {
+        const wallet = typeof emailRow.wallet_address === "string" ? emailRow.wallet_address.toLowerCase() : "";
+        const b = (req.body ?? {}) as Record<string, unknown>;
+        const nonce = typeof b["nonce"] === "string" ? b["nonce"].toLowerCase() : "";
+        const sig = typeof b["signature"] === "string" ? b["signature"] : "";
+        if (!wallet) {
+          res.status(400).json({ error: "A linked wallet is required to delete this account.", code: "NO_LINKED_WALLET" });
+          return;
+        }
+        if (!HEX64.test(nonce) || !SIG_RE.test(sig)) {
+          res.status(400).json({ error: "Wallet signature required: request POST /api/account/delete-challenge and sign its message.", code: "SIGNATURE_REQUIRED" });
+          return;
+        }
+        // Consume before verifying (single use, no brute force on one challenge).
+        const stored = await agentCreditsRepo.consumeSignChallenge(userId, "account_delete", sha256Hex(nonce));
+        if (!stored || stored !== accountDeleteMessage({ userId, wallet, nonce })) {
+          res.status(400).json({ error: "Invalid or expired challenge", code: "INVALID_CHALLENGE" });
+          return;
+        }
+        if (recoverSignerAddress(stored, sig) !== wallet) {
+          res.status(403).json({ error: "Signature does not match your linked wallet", code: "BAD_SIGNATURE" });
+          return;
+        }
+      } else {
         // Password-based accounts: require password re-authentication
         const { password } = req.body ?? {};
         if (!password || typeof password !== "string") {
@@ -281,163 +354,8 @@ router.delete(
       try {
         await client.query("BEGIN");
 
-        // Read wallet_address BEFORE anonymization (UPDATE sets it to NULL)
-        const walletAddrRow = (await client.query(
-          "SELECT wallet_address FROM users WHERE id = $1", [userId]
-        )).rows[0];
-
-        // Anonymize user: replace email, clear wallet_address, set status to deleted
-        await client.query(
-          `UPDATE users SET
-            email = 'deleted-' || id || '@deleted.dominusnode.com',
-            password_hash = 'DELETED',
-            status = 'deleted',
-            wallet_address = NULL
-           WHERE id = $1`,
-          [userId]
-        );
-
-        // Anonymize browsing history (GDPR: target_host is personal data)
-        await client.query(
-          "UPDATE usage_records SET target_host = 'REDACTED' WHERE user_id = $1",
-          [userId]
-        );
-
-        // Anonymize wallet transaction payment references (links to external processors)
-        await client.query(
-          `UPDATE wallet_transactions SET payment_id = 'REDACTED', description = 'REDACTED'
-           WHERE wallet_id IN (SELECT id FROM wallets WHERE user_id = $1)`,
-          [userId]
-        );
-
-        // Revoke all API keys
-        await client.query(
-          "UPDATE api_keys SET revoked_at = NOW() WHERE user_id = $1 AND revoked_at IS NULL",
-          [userId]
-        );
-
-        // Revoke all refresh tokens
-        await client.query(
-          "UPDATE refresh_tokens SET revoked = TRUE WHERE user_id = $1 AND NOT revoked",
-          [userId]
-        );
-
-        // Delete MFA config
-        await client.query("DELETE FROM mfa_backup_codes WHERE user_id = $1", [userId]);
-        await client.query("DELETE FROM mfa_configs WHERE user_id = $1", [userId]);
-
-        // Delete password reset tokens and email verification tokens (GDPR completeness)
-        await client.query("DELETE FROM password_reset_tokens WHERE user_id = $1", [userId]);
-        await client.query("DELETE FROM email_verification_tokens WHERE user_id = $1", [userId]);
-
-        // Delete wallet challenges by wallet address (table has no user_id column)
-        // walletAddrRow captured BEFORE anonymization (above) so wallet_address is non-NULL
-        if (walletAddrRow?.wallet_address) {
-          await client.query(
-            "DELETE FROM wallet_challenges WHERE address = $1",
-            [walletAddrRow.wallet_address.toLowerCase()]
-          );
-        }
-
-        // Clean up agentic wallets (GDPR: sub-wallet data is personal)
-        await client.query(
-          "DELETE FROM agentic_wallet_transactions WHERE wallet_id IN (SELECT id FROM agentic_wallets WHERE user_id = $1)",
-          [userId]
-        );
-        await client.query("DELETE FROM agentic_wallets WHERE user_id = $1", [userId]);
-
-        // Handle teams owned by this user
-        // Revoke all API keys for owned teams
-        await client.query(
-          `UPDATE api_keys SET revoked_at = NOW()
-           WHERE team_id IN (SELECT id FROM teams WHERE owner_id = $1)
-           AND revoked_at IS NULL`,
-          [userId]
-        );
-        // Delete team wallet transactions for owned teams
-        await client.query(
-          `DELETE FROM team_wallet_transactions
-           WHERE wallet_id IN (
-             SELECT tw.id FROM team_wallets tw
-             JOIN teams t ON t.id = tw.team_id WHERE t.owner_id = $1
-           )`,
-          [userId]
-        );
-        // Remove all members from owned teams (except self — deleted below)
-        await client.query(
-          `DELETE FROM team_members
-           WHERE team_id IN (SELECT id FROM teams WHERE owner_id = $1)
-           AND user_id != $1`,
-          [userId]
-        );
-        // Delete team invites for owned teams
-        await client.query(
-          `DELETE FROM team_invites
-           WHERE team_id IN (SELECT id FROM teams WHERE owner_id = $1)`,
-          [userId]
-        );
-        // Delete team wallets for owned teams
-        await client.query(
-          `DELETE FROM team_wallets WHERE team_id IN (SELECT id FROM teams WHERE owner_id = $1)`,
-          [userId]
-        );
-        // Delete owned teams
-        await client.query("DELETE FROM teams WHERE owner_id = $1", [userId]);
-
-        // Clean up team memberships and owned teams
-        await client.query("DELETE FROM team_invites WHERE invited_by = $1", [userId]);
-        // Delete pending team invites sent TO this user's email
-        // (userEmail captured before anonymization above)
-        await client.query(
-          "DELETE FROM team_invites WHERE email = $1 AND accepted_at IS NULL",
-          [userEmail]
-        );
-        await client.query(
-          "DELETE FROM team_members WHERE user_id = $1",
-          [userId]
-        );
-
-        // Anonymize team wallet transactions for teams owned by this user
-        await client.query(
-          `UPDATE team_wallet_transactions SET description = 'REDACTED'
-           WHERE wallet_id IN (
-             SELECT tw.id FROM team_wallets tw
-             JOIN teams t ON t.id = tw.team_id
-             WHERE t.owner_id = $1
-           )`,
-          [userId]
-        );
-
-        // Anonymize audit events (IP addresses and action details are personal data)
-        await client.query(
-          "UPDATE audit_events SET ip_address = 'REDACTED', details = NULL WHERE user_id = $1",
-          [userId]
-        );
-
-        // Anonymize payment invoice external references
-        await client.query(
-          "UPDATE payment_invoices SET external_id = 'REDACTED' WHERE user_id = $1",
-          [userId]
-        );
-
-        // Anonymize session records (proxy_ip is infra, but timestamps are personal)
-        await client.query(
-          "UPDATE sessions SET proxy_ip = 'REDACTED', settle_payload = NULL WHERE user_id = $1",
-          [userId]
-        );
-
-        // GDPR: Clean up referral/affiliate/promo/loyalty data
-        await client.query("UPDATE referral_codes SET active = false WHERE user_id = $1", [userId]);
-        // Delete referral_redemptions for BOTH referee AND referrer sides
-        await client.query("DELETE FROM referral_redemptions WHERE referee_id = $1 OR referrer_id = $1", [userId]);
-        await client.query("UPDATE affiliate_links SET active = false WHERE referrer_id = $1 OR referee_id = $1", [userId]);
-        // Cancel commissions for BOTH referrer AND referee sides
-        await client.query("UPDATE affiliate_commissions SET status = 'cancelled' WHERE (referrer_id = $1 OR referee_id = $1) AND status = 'pending'", [userId]);
-        await client.query("DELETE FROM promo_redemptions WHERE user_id = $1", [userId]);
-        await client.query("DELETE FROM loyalty_rewards WHERE user_id = $1", [userId]);
-
-        // Relay-network personal data (abuse log, node IPs, payout wallets, ...)
-        await relayErasureRepo.eraseRelayPersonalDataTx(client, userId, walletAddrRow?.wallet_address ?? null);
+        // One erasure statement list, shared with the admin delete path.
+        await adminRepo.deleteUser(userId, client);
 
         await client.query("COMMIT");
       } catch (txErr) {

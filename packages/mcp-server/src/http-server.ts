@@ -192,14 +192,44 @@ function readJsonBody(req: http.IncomingMessage, maxBytes: number): Promise<unkn
   });
 }
 
+const SESSION_TOKEN_PATTERNS = [
+  /eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*/g,
+  /Bearer\s+[A-Za-z0-9._-]+/gi,
+];
+
+/** Redact the session's own bearer key and any JWT; leave other credential-shaped strings. */
+export function scrubSessionSecrets(text: string, sessionKey: string | null): string {
+  let out = sessionKey ? text.split(sessionKey).join("[REDACTED]") : text;
+  for (const p of SESSION_TOKEN_PATTERNS) out = out.replace(p, "[REDACTED]");
+  return out;
+}
+
+function isErrorMessage(m: unknown): boolean {
+  if (!m || typeof m !== "object") return true;
+  const o = m as { error?: unknown; result?: { isError?: unknown } };
+  return o.error !== undefined || o.result?.isError === true;
+}
+
 /**
- * Scrub credentials from everything the transport writes (tool errors can echo upstream text).
+ * Scrub what the transport writes. Errors (JSON-RPC errors and isError tool
+ * results, which can echo upstream text) and anything that is not a parseable
+ * JSON-RPC body get the full credential scrub. Successful tool results only
+ * lose the session's own key and JWTs, so one-time secrets a tool just created
+ * (create_key, team keys, agent secrets, wallet setup) reach the agent.
  * Content-Length is dropped because scrubbing can change the length; Node falls back to chunked.
  */
-export function scrubResponse(res: http.ServerResponse): void {
+export function scrubBody(text: string, sessionKey: string | null): string {
+  let parsed: unknown;
+  try { parsed = JSON.parse(text); } catch { return scrubCredentials(text); }
+  const msgs = Array.isArray(parsed) ? parsed : [parsed];
+  if (msgs.length === 0 || msgs.some(isErrorMessage)) return scrubCredentials(text);
+  return scrubSessionSecrets(text, sessionKey);
+}
+
+export function scrubResponse(res: http.ServerResponse, sessionKey: string | null = null): void {
   const scrub = (chunk: unknown): unknown => {
-    if (typeof chunk === "string") return scrubCredentials(chunk);
-    if (Buffer.isBuffer(chunk) || chunk instanceof Uint8Array) return scrubCredentials(Buffer.from(chunk).toString("utf8"));
+    if (typeof chunk === "string") return scrubBody(chunk, sessionKey);
+    if (Buffer.isBuffer(chunk) || chunk instanceof Uint8Array) return scrubBody(Buffer.from(chunk).toString("utf8"), sessionKey);
     return chunk;
   };
   const origWriteHead = res.writeHead.bind(res) as (...a: unknown[]) => http.ServerResponse;
@@ -291,7 +321,7 @@ export function createRemoteMcpServer(
       return;
     }
 
-    scrubResponse(res);
+    scrubResponse(res, apiKey);
     const rawSid = req.headers["mcp-session-id"];
     const sessionId = typeof rawSid === "string" ? rawSid : undefined;
 

@@ -31,6 +31,9 @@ export {
   getMaxRequestBodyBytes,
   getX402MaxResponseBytes,
   hashPaymentHeader,
+  getX402Network,
+  isTestnetNetwork,
+  x402NetworkConfigError,
 } from "./x402.js";
 
 export type {

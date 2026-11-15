@@ -4,6 +4,7 @@ import express from "express";
 const m = vi.hoisted(() => ({
   poolQuery: vi.fn(), clientQuery: vi.fn(), release: vi.fn(),
   markPayoutReversedTx: vi.fn(), markPayoutConfirmedTx: vi.fn(), markPayoutFailedTx: vi.fn(), freezeAccountTx: vi.fn(), getActivePolicy: vi.fn(),
+  owedSummary: vi.fn(), owedList: vi.fn(),
 }));
 
 vi.mock("../middleware/auth.js", () => ({
@@ -22,6 +23,7 @@ vi.mock("@dominusnode/shared", async (importOriginal) => {
     getPool: () => ({ query: m.poolQuery, connect: async () => ({ query: m.clientQuery, release: m.release }) }),
     payoutRepo: { ...actual.payoutRepo, markPayoutReversedTx: m.markPayoutReversedTx, markPayoutConfirmedTx: m.markPayoutConfirmedTx, markPayoutFailedTx: m.markPayoutFailedTx, freezeAccountTx: m.freezeAccountTx },
     policyRepo: { ...actual.policyRepo, getActivePolicy: m.getActivePolicy },
+    owedFundsRepo: { ...actual.owedFundsRepo, summary: m.owedSummary, listOpen: m.owedList },
   };
 });
 
@@ -295,6 +297,30 @@ describe("admin network ops", () => {
       expect(m.markPayoutConfirmedTx.mock.calls[0].slice(1)).toEqual([PAYOUT, TXH]);
       m.markPayoutConfirmedTx.mockRejectedValueOnce(new Error("Confirmation tx hash does not match payout"));
       expect((await call(app(), "POST", `${BASE}/payouts/${PAYOUT}/confirm`, { body: { txHash: TXH, reason: "x" } })).status).toBe(409);
+    });
+
+    it("GET /reconciliation lists open owed-funds rows with totals", async () => {
+      m.owedSummary.mockResolvedValue({ totalOpen: 1, overflow: { open: 1, cents: "40" } });
+      m.owedList.mockImplementation(async (src: string) => src === "overflow" ? [{ source: "overflow", id: "7", createdAt: new Date(0), detail: { amountCents: 40 } }] : []);
+      const r = await call(app(), "GET", `${BASE}/reconciliation`);
+      expect(r.status).toBe(200);
+      const b = r.body as { summary: { totalOpen: number }; open: { overflow: unknown[] } };
+      expect(b.summary.totalOpen).toBe(1);
+      expect(b.open.overflow).toHaveLength(1);
+      expect(m.owedList.mock.calls.map((c) => c[0]).sort()).toEqual(["mpp", "overflow", "payer_refund", "tempo"]);
+    });
+
+    it("POST /reconciliation/:source/:id/resolve marks the row resolved and audits it; closed rows 409", async () => {
+      tx((sql) => sql.startsWith("UPDATE payer_refunds_owed") ? { rows: [{ id: "9" }] } : undefined);
+      const r = await call(app(), "POST", `${BASE}/reconciliation/payer_refund/9/resolve`, { body: { resolution: "paid", reason: "sent on solana" } });
+      expect(r.status).toBe(200);
+      const upd = m.clientQuery.mock.calls.find((c) => String(c[0]).startsWith("UPDATE payer_refunds_owed"))!;
+      expect(upd[1]).toEqual(["9", "paid"]);
+      expect(txSqls().some((s) => s.includes("INSERT INTO audit_events"))).toBe(true);
+      tx(() => undefined);
+      expect((await call(app(), "POST", `${BASE}/reconciliation/payer_refund/9/resolve`, { body: { resolution: "paid", reason: "x" } })).status).toBe(409);
+      expect((await call(app(), "POST", `${BASE}/reconciliation/payer_refund/9/resolve`, { body: { resolution: "credited", reason: "x" } })).status).toBe(400);
+      expect((await call(app(), "POST", `${BASE}/reconciliation/bogus/9/resolve`, { body: { resolution: "paid", reason: "x" } })).status).toBe(400);
     });
 
     it("POST /accounts/:userId/freeze uses freezeAccountTx in the admin tx", async () => {

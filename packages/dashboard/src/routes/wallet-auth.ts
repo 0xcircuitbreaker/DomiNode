@@ -244,8 +244,9 @@ router.post("/challenge", async (req, res) => {
       }
     }
 
-    // Per-address rate limit to prevent address-targeted challenge exhaustion
-    const addressCount = await walletChallengeRepo.countActiveChallengesForAddress(address);
+    // Per-(address, requester IP) cap. Not global per address: other requesters'
+    // challenges cannot be consumed from here, so a global cap is a sign-in DoS.
+    const addressCount = await walletChallengeRepo.countActiveChallengesForAddress(address, clientIp);
     if (addressCount >= 10) {
       res.status(429).json({ error: "Too many pending challenges for this address. Try again later." });
       return;

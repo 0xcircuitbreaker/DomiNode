@@ -284,6 +284,14 @@ export async function closeGrantTx(c: TxClient, grantId: string, status: "expire
   if (wantCents > 0n) {
     const w = await c.query<{ id: string; balance_cents: number }>(`SELECT id, balance_cents FROM wallets WHERE user_id = $1 FOR UPDATE`, [g.user_id]);
     const wallet = w.rows[0];
+    // An open relay session holds a reservation outside balance_cents; closing
+    // now would let the starter cents come back later as ordinary balance.
+    // Expiry waits (the grant and its restrictions stay in force) until the
+    // user has no active session; the hourly job retries.
+    if (status === "expired" && wallet) {
+      const open = await c.query(`SELECT id FROM sessions WHERE user_id = $1 AND status = 'active' LIMIT 1`, [g.user_id]);
+      if ((open.rows?.length ?? 0) > 0) return null;
+    }
     if (wallet) {
       const bal = BigInt(wallet.balance_cents);
       removed = wantCents < bal ? wantCents : bal;

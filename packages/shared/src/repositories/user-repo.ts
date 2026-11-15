@@ -47,11 +47,11 @@ export async function findUserByEmail(email: string): Promise<User | null> {
 
 /**
  * Count all non-deleted, non-admin users. Used for global registration cap enforcement.
- * Admin accounts don't consume alpha slots.
+ * Admin accounts and gateway-created x402/MPP payer identities don't consume alpha slots.
  */
 export async function countActiveUsers(): Promise<number> {
   const result = await query<{ count: string }>(
-    `SELECT COUNT(*) AS count FROM users WHERE status != 'deleted' AND is_admin = false`,
+    `SELECT COUNT(*) AS count FROM users WHERE status != 'deleted' AND is_admin = false AND payer_origin = false`,
   );
   return parseInt(result.rows[0].count, 10);
 }
@@ -373,7 +373,7 @@ async function findOrCreateSolanaPayerUser(addr: string): Promise<{ id: string; 
   const email = `sol-${createHash("sha256").update(addr).digest("hex").slice(0, 40)}@${WALLET_EMAIL_DOMAIN}`;
   const ins = await query<{ id: string; status: string }>(
     `WITH u AS (
-       INSERT INTO users (email, password_hash, email_verified) VALUES ($1, $2, true)
+       INSERT INTO users (email, password_hash, email_verified, payer_origin) VALUES ($1, $2, true, true)
        ON CONFLICT DO NOTHING RETURNING id, status
      ), p AS (
        INSERT INTO payer_identities (chain, address, user_id) SELECT 'solana', $3, id FROM u
@@ -406,8 +406,8 @@ export async function findOrCreateX402User(payer: string): Promise<{ id: string;
   if (existing) return { ...existing, created: false };
   const unusable = await hashPassword(randomBytes(64).toString("hex"));
   const ins = await query<{ id: string; status: string }>(
-    `INSERT INTO users (email, password_hash, wallet_address, email_verified)
-     VALUES ($1, $2, $3, true)
+    `INSERT INTO users (email, password_hash, wallet_address, email_verified, payer_origin)
+     VALUES ($1, $2, $3, true, true)
      ON CONFLICT DO NOTHING
      RETURNING id, status`,
     [`${addr}@${WALLET_EMAIL_DOMAIN}`, unusable, addr],

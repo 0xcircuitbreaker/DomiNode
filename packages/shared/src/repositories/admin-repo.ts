@@ -123,8 +123,11 @@ export async function reactivateUser(userId: string, ext?: DbTxClient): Promise<
   return (result.rowCount ?? 0) > 0;
 }
 
+/**
+ * GDPR erasure: the one statement list used by both admin delete and
+ * self-service DELETE /api/account (pass the caller's transaction client).
+ */
 export async function deleteUser(userId: string, ext?: DbTxClient): Promise<void> {
-  // Admin delete now anonymizes data same as GDPR self-deletion
   const own = !ext;
   const client = ext ?? await getPool().connect();
   try {
@@ -153,9 +156,13 @@ export async function deleteUser(userId: string, ext?: DbTxClient): Promise<void
       [userId]
     );
 
-    // Anonymize wallet transaction payment references
+    // Anonymize wallet transaction payment references. Per-row tombstone:
+    // idx_wallet_tx_payment_unique is UNIQUE on (payment_provider, payment_id),
+    // so a constant would collide across rows/users on the same rail. NULL stays NULL.
     await client.query(
-      `UPDATE wallet_transactions SET payment_id = 'REDACTED', description = 'REDACTED'
+      `UPDATE wallet_transactions
+          SET payment_id = CASE WHEN payment_id IS NULL THEN NULL ELSE 'REDACTED-' || id END,
+              description = 'REDACTED'
        WHERE wallet_id IN (SELECT id FROM wallets WHERE user_id = $1)`,
       [userId]
     );
@@ -194,7 +201,12 @@ export async function deleteUser(userId: string, ext?: DbTxClient): Promise<void
     await client.query("DELETE FROM agentic_wallets WHERE user_id = $1", [userId]);
 
     // Clean up teams owned by this user (full cascade)
-    // First, detach api_keys from owned teams to avoid FK violation
+    // Revoke owned-team keys (held by other agents), then detach them to avoid FK violation
+    await client.query(
+      `UPDATE api_keys SET revoked_at = NOW()
+       WHERE team_id IN (SELECT id FROM teams WHERE owner_id = $1) AND revoked_at IS NULL`,
+      [userId]
+    );
     await client.query(
       `UPDATE api_keys SET team_id = NULL
        WHERE team_id IN (SELECT id FROM teams WHERE owner_id = $1)`,
@@ -257,6 +269,17 @@ export async function deleteUser(userId: string, ext?: DbTxClient): Promise<void
       "UPDATE sessions SET proxy_ip = 'REDACTED', settle_payload = NULL WHERE user_id = $1",
       [userId]
     );
+
+    // Referral/affiliate/promo/loyalty data (both referrer and referee sides)
+    await client.query("UPDATE referral_codes SET active = false WHERE user_id = $1", [userId]);
+    await client.query("DELETE FROM referral_redemptions WHERE referee_id = $1 OR referrer_id = $1", [userId]);
+    await client.query("UPDATE affiliate_links SET active = false WHERE referrer_id = $1 OR referee_id = $1", [userId]);
+    await client.query(
+      "UPDATE affiliate_commissions SET status = 'cancelled' WHERE (referrer_id = $1 OR referee_id = $1) AND status = 'pending'",
+      [userId]
+    );
+    await client.query("DELETE FROM promo_redemptions WHERE user_id = $1", [userId]);
+    await client.query("DELETE FROM loyalty_rewards WHERE user_id = $1", [userId]);
 
     // Relay-network personal data (abuse log, node IPs, payout wallets, ...)
     await eraseRelayPersonalDataTx(client, userId, userRow?.wallet_address ?? null);

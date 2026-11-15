@@ -706,6 +706,29 @@ function challengeHeaderLines(h: Record<string, string>): string {
 }
 
 /**
+ * 402 for an API-key caller whose wallet cannot cover the session. The paid
+ * rails only run for credential-less requests, so a pay-and-retry that kept
+ * the API key would never be verified (an MPP push transfer would be stranded).
+ * No x402 requirements or MPP challenge are attached; the body says how to pay
+ * per request instead.
+ */
+export const AUTHENTICATED_402_MESSAGE =
+  "Insufficient balance. Top up your wallet, or remove the API key from the proxy credentials to pay per request (x402 or MPP).";
+
+export function buildAuthenticated402Body(): string {
+  return JSON.stringify({ error: "INSUFFICIENT_BALANCE", message: AUTHENTICATED_402_MESSAGE });
+}
+
+export function buildAuthenticated402ConnectResponse(): string {
+  const body = buildAuthenticated402Body();
+  return `HTTP/1.1 402 Payment Required\r\nContent-Type: application/json\r\nContent-Length: ${Buffer.byteLength(body)}\r\nX-DominusNode-Error: INSUFFICIENT_BALANCE\r\n\r\n${body}`;
+}
+
+/** A payment credential sent alongside an API key: refused before any verify. */
+export const PAYMENT_WITH_API_KEY_MESSAGE =
+  "A payment credential was sent with an API key. Per-request payment (x402 or MPP) is only accepted without proxy credentials; remove the API key and retry with the same payment.";
+
+/**
  * Build a 402 CONNECT response with x402 requirements.
  */
 export function build402ConnectResponse(poolType?: X402Class): string {

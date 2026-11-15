@@ -102,6 +102,7 @@ export * as waitlistRepo from "./repositories/waitlist-repo.js";
 export type { WaitlistEntry } from "./repositories/waitlist-repo.js";
 export * as agenticWalletRepo from "./repositories/agentic-wallet-repo.js";
 export * as payerRefundRepo from "./repositories/payer-refund-repo.js";
+export * as owedFundsRepo from "./repositories/owed-funds-repo.js";
 export * as disputeResolutionRepo from "./repositories/dispute-resolution-repo.js";
 export type {
   AgenticWallet,

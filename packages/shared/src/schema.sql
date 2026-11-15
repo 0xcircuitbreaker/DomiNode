@@ -2189,6 +2189,15 @@ DO $$ BEGIN
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
+-- Wallet-account erasure needs a signed challenge too (action 'account_delete'):
+-- an API-key-derived JWT alone must not erase an account.
+ALTER TABLE agent_sign_challenges DROP CONSTRAINT IF EXISTS chk_agent_sign_challenges_action;
+DO $$ BEGIN
+  ALTER TABLE agent_sign_challenges ADD CONSTRAINT chk_agent_sign_challenges_action
+    CHECK (action IN ('payout_wallet_set','withdraw','convert','account_delete'));
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
 -- Agentic wallets fund relay sessions (rail 'agentic_wallet'): in-flight
 -- reservations and the sub-cent carry live on the wallet row.
 ALTER TABLE agentic_wallets ADD COLUMN IF NOT EXISTS reserved_cents INTEGER NOT NULL DEFAULT 0;
@@ -2341,3 +2350,10 @@ DO $$ BEGIN
   ALTER TABLE node_payouts ADD CONSTRAINT chk_node_payouts_tx_nonce CHECK (tx_nonce IS NULL OR tx_nonce BETWEEN 0 AND 9007199254740991);
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 -- ═══ end fix/prelaunch-audit ═══
+
+-- Identities created by the gateway for x402/MPP payers do not take a
+-- registration slot (MAX_REGISTERED_USERS counts wallet-auth signups only).
+ALTER TABLE users ADD COLUMN IF NOT EXISTS payer_origin BOOLEAN NOT NULL DEFAULT false;
+
+-- Admin resolution of MPP owed funds (refund_due / excess_musd), see owed-funds-repo.
+ALTER TABLE mpp_transactions ADD COLUMN IF NOT EXISTS owed_resolved_at TIMESTAMPTZ;

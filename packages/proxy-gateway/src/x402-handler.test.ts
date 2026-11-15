@@ -97,6 +97,8 @@ import {
   settleX402ConnectRequest,
   build402ResponseBody,
   build402ConnectResponse,
+  buildAuthenticated402Body,
+  buildAuthenticated402ConnectResponse,
   isX402Verified,
   getX402Data,
   settleX402Pending,
@@ -567,6 +569,19 @@ describe("build402ResponseBody", () => {
     expect(parsed.error).toBe("INSUFFICIENT_BALANCE");
     expect(parsed.x402).toBeDefined();
     expect(parsed.x402.version).toBe("1");
+  });
+});
+
+describe("authenticated 402", () => {
+  it("never carries x402 requirements or an MPP challenge, and says to drop the key", () => {
+    const body = JSON.parse(buildAuthenticated402Body());
+    expect(body.error).toBe("INSUFFICIENT_BALANCE");
+    expect(body.x402).toBeUndefined();
+    expect(body.mpp).toBeUndefined();
+    expect(body.message).toMatch(/remove the API key/);
+    const r = buildAuthenticated402ConnectResponse();
+    expect(r).not.toMatch(/WWW-Authenticate/);
+    expect(r).toMatch(/^HTTP\/1.1 402/);
   });
 });
 

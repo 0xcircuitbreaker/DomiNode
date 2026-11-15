@@ -532,16 +532,19 @@ describe("wallet-repo", () => {
   // ─── releaseReservation ────────────────────────────────────────────
 
   describe("releaseReservation", () => {
-    it("should throw (not silently drop funds) when release would exceed balance cap", async () => {
-      const wallet = { id: "w1", user_id: "u1", balance_cents: 1_000_000 };
+    it("credits up to the cap and records the rest as an overflow credit (never throws, never drops)", async () => {
+      const wallet = { id: "w1", user_id: "u1", balance_cents: 999_960 };
       mockClientQuery
         .mockResolvedValueOnce({}) // BEGIN
         .mockResolvedValueOnce({}) // SET LOCAL lock_timeout
         .mockResolvedValueOnce({ rows: [wallet] }) // SELECT FOR UPDATE
-        .mockResolvedValueOnce({}); // ROLLBACK
-      await expect(releaseReservation("u1", 100)).rejects.toThrow(/balance cap/);
-      expect(mockClientQuery).toHaveBeenCalledWith("ROLLBACK");
-      expect(mockClientQuery).not.toHaveBeenCalledWith("COMMIT");
+        .mockResolvedValue({ rows: [] });
+      await releaseReservation("u1", 100);
+      const calls = mockClientQuery.mock.calls.map((c) => [String(c[0]), c[1]] as const);
+      expect(calls.find(([sql]) => sql.includes("INSERT INTO wallet_overflow_credits"))?.[1]).toEqual(["u1", null, 60, expect.any(String)]);
+      expect(calls.find(([sql]) => sql.startsWith("UPDATE wallets"))?.[1]).toEqual([40, "w1"]);
+      expect(mockClientQuery).toHaveBeenCalledWith("COMMIT");
+      mockClientQuery.mockReset();
     });
 
     it("should release reserved amount back to wallet", async () => {

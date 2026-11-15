@@ -1,38 +1,27 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { HttpClient } from "../http-client.js";
+import { SlidingWindow, perServer } from "../session-limiter.js";
 
 const SUPPORTED_CRYPTO = ["BTC", "ETH", "LTC", "XMR", "ZEC", "USDC", "SOL", "USDT", "DAI", "BNB", "LINK"] as const;
 
 const CRYPTO_PAY_MAX = 5;
 const CRYPTO_PAY_WINDOW_MS = 3_600_000;
-const cryptoPayTimestamps: number[] = [];
 
-function checkCryptoPayLimit(): boolean {
-  const now = Date.now();
-  while (cryptoPayTimestamps.length > 0 && now - cryptoPayTimestamps[0] > CRYPTO_PAY_WINDOW_MS) {
-    cryptoPayTimestamps.shift();
-  }
-  if (cryptoPayTimestamps.length > 100) cryptoPayTimestamps.length = 100;
-  if (cryptoPayTimestamps.length >= CRYPTO_PAY_MAX) return false;
-  cryptoPayTimestamps.push(now);
-  return true;
+const cryptoPayLimiter = perServer(() => new SlidingWindow(CRYPTO_PAY_MAX, CRYPTO_PAY_WINDOW_MS));
+
+function checkCryptoPayLimit(server: object): boolean {
+  return cryptoPayLimiter.get(server).take();
 }
 
 // Rate limit check_payment to prevent polling abuse
 const CHECK_PAYMENT_MAX = 30;
 const CHECK_PAYMENT_WINDOW_MS = 300_000; // 5 minutes
-const checkPaymentTimestamps: number[] = [];
 
-function checkPaymentRateLimit(): boolean {
-  const now = Date.now();
-  while (checkPaymentTimestamps.length > 0 && now - checkPaymentTimestamps[0] > CHECK_PAYMENT_WINDOW_MS) {
-    checkPaymentTimestamps.shift();
-  }
-  if (checkPaymentTimestamps.length > 100) checkPaymentTimestamps.length = 100;
-  if (checkPaymentTimestamps.length >= CHECK_PAYMENT_MAX) return false;
-  checkPaymentTimestamps.push(now);
-  return true;
+const checkPaymentLimiter = perServer(() => new SlidingWindow(CHECK_PAYMENT_MAX, CHECK_PAYMENT_WINDOW_MS));
+
+function checkPaymentRateLimit(server: object): boolean {
+  return checkPaymentLimiter.get(server).take();
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -47,7 +36,7 @@ export function registerCryptoTools(server: McpServer, httpClient: HttpClient): 
     },
     async (args) => {
       try {
-        if (!checkCryptoPayLimit()) {
+        if (!checkCryptoPayLimit(server)) {
           return {
             isError: true,
             content: [{ type: "text", text: "Rate limit exceeded: maximum 5 crypto payment invoices per hour. Please wait before creating another." }],
@@ -97,7 +86,7 @@ export function registerCryptoTools(server: McpServer, httpClient: HttpClient): 
     },
     async (args) => {
       try {
-        if (!checkPaymentRateLimit()) {
+        if (!checkPaymentRateLimit(server)) {
           return {
             isError: true,
             content: [{ type: "text", text: "Rate limit exceeded: maximum 30 payment status checks per 5 minutes. Please wait before checking again." }],

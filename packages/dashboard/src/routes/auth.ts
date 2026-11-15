@@ -1026,6 +1026,13 @@ router.post("/verify-key", async (req, res) => {
       return;
     }
 
+    // Team keys are proxy-only credentials stored under their creator's
+    // user_id; exchanging one for a session would make its holder the creator.
+    if (result.apiKey?.team_id) {
+      res.status(403).json({ valid: false, error: "Team keys cannot be used for agent endpoints", code: "TEAM_KEY_PROXY_ONLY" });
+      return;
+    }
+
     // Block verify-key when MFA is enabled — API key alone must not bypass MFA
     const mfaConfig = await mfaRepo.findMfaConfigByUserId(result.user.id);
     if (mfaConfig?.enabled) {

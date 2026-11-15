@@ -775,6 +775,18 @@ describe("MFA auth routes", () => {
       // but since mock returns null (no MFA), tokens are still issued
       expect(mfaRepo.findMfaConfigByUserId).toHaveBeenCalledWith("user1");
     });
+
+    it("refuses a team API key (no session for the key's creator)", async () => {
+      (userRepo.findUserByApiKey as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+        user: { id: "owner1", email: "o@example.com", status: "active", is_admin: false },
+        apiKey: { id: "ak2", team_id: "team1" },
+      });
+      const res = await request(createApp(), "POST", "/api/auth/verify-key", { apiKey: "dn_live_teamkey" });
+      expect(res.status).toBe(403);
+      expect(res.body.valid).toBe(false);
+      expect(res.body.token).toBeUndefined();
+      expect(refreshTokenRepo.storeToken).not.toHaveBeenCalled();
+    });
   });
 });
 

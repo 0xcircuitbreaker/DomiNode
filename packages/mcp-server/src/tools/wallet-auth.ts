@@ -5,6 +5,7 @@ import type { HttpClient } from "../http-client.js";
 import { scrubCredentials } from "../http-client.js";
 import type { McpConfig } from "../config.js";
 import { readWalletKey } from "./nodes.js";
+import { SlidingWindow, perServer } from "../session-limiter.js";
 
 // Bootstrap rate limiting. Challenges are cheap and capped at 20/hour; only FAILED
 // signature verifications count toward the verify cap, so a successful sign-in
@@ -12,36 +13,26 @@ import { readWalletKey } from "./nodes.js";
 const CHALLENGE_MAX = 20;
 const VERIFY_FAILURE_MAX = 5;
 const WINDOW_MS = 3600_000; // 1 hour
-const challengeTimestamps: number[] = [];
-const verifyFailureTimestamps: number[] = [];
+const walletAuthLimits = perServer(() => ({
+  challenges: new SlidingWindow(CHALLENGE_MAX, WINDOW_MS),
+  verifyFailures: new SlidingWindow(VERIFY_FAILURE_MAX, WINDOW_MS),
+}));
 
 /** @internal Exported for testing only — clears rate limit state */
 export function _resetWalletAuthLimits(): void {
-  challengeTimestamps.length = 0;
-  verifyFailureTimestamps.length = 0;
+  walletAuthLimits.reset();
 }
 
-function prune(ts: number[]): void {
-  const now = Date.now();
-  while (ts.length > 0 && now - ts[0] > WINDOW_MS) ts.shift();
-  // Hard cap prevents unbounded growth under pathological clock skew
-  if (ts.length > 100) ts.length = 100;
+function takeChallengeSlot(server: object): boolean {
+  return walletAuthLimits.get(server).challenges.take();
 }
 
-function takeChallengeSlot(): boolean {
-  prune(challengeTimestamps);
-  if (challengeTimestamps.length >= CHALLENGE_MAX) return false;
-  challengeTimestamps.push(Date.now());
-  return true;
+function verifyAllowed(server: object): boolean {
+  return walletAuthLimits.get(server).verifyFailures.allowed();
 }
 
-function verifyAllowed(): boolean {
-  prune(verifyFailureTimestamps);
-  return verifyFailureTimestamps.length < VERIFY_FAILURE_MAX;
-}
-
-function recordVerifyFailure(): void {
-  verifyFailureTimestamps.push(Date.now());
+function recordVerifyFailure(server: object): void {
+  walletAuthLimits.get(server).verifyFailures.record();
 }
 
 const VERIFY_LIMIT_TEXT =
@@ -115,7 +106,7 @@ export function registerWalletAuthTools(server: McpServer, httpClient: HttpClien
     },
     async (args) => {
       try {
-        if (!takeChallengeSlot()) {
+        if (!takeChallengeSlot(server)) {
           return { isError: true, content: [{ type: "text", text: `Wallet challenge rate limit exceeded (max ${CHALLENGE_MAX} per hour). Try again later.` }] };
         }
         const data = await httpClient.post<{ message: string; nonce: string }>(
@@ -163,7 +154,7 @@ export function registerWalletAuthTools(server: McpServer, httpClient: HttpClien
     },
     async (args) => {
       try {
-        if (!verifyAllowed()) {
+        if (!verifyAllowed(server)) {
           return { isError: true, content: [{ type: "text" as const, text: VERIFY_LIMIT_TEXT }] };
         }
 
@@ -175,7 +166,7 @@ export function registerWalletAuthTools(server: McpServer, httpClient: HttpClien
             false,
           );
         } catch (err) {
-          recordVerifyFailure();
+          recordVerifyFailure(server);
           throw err;
         }
 
@@ -221,7 +212,7 @@ export function registerWalletAuthTools(server: McpServer, httpClient: HttpClien
     },
     async (args) => {
       try {
-        if (!verifyAllowed()) {
+        if (!verifyAllowed(server)) {
           return { isError: true, content: [{ type: "text", text: VERIFY_LIMIT_TEXT }] };
         }
 
@@ -239,7 +230,7 @@ export function registerWalletAuthTools(server: McpServer, httpClient: HttpClien
             return { isError: true, content: [{ type: "text", text: `address ${address} does not match the DOMINUSNODE_WALLET_KEY_FILE wallet ${wallet.address}` }] };
           }
           address = wallet.address;
-          if (!takeChallengeSlot()) {
+          if (!takeChallengeSlot(server)) {
             return { isError: true, content: [{ type: "text", text: `Wallet challenge rate limit exceeded (max ${CHALLENGE_MAX} per hour). Try again later.` }] };
           }
           const ch = await httpClient.post<{ message: string; nonce: string }>("/api/auth/wallet/challenge", { address }, false);
@@ -260,7 +251,7 @@ export function registerWalletAuthTools(server: McpServer, httpClient: HttpClien
             false,
           );
         } catch (err) {
-          recordVerifyFailure();
+          recordVerifyFailure(server);
           throw err;
         }
 

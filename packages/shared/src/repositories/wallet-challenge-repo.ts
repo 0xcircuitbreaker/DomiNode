@@ -97,13 +97,17 @@ export async function countActiveChallengesForIp(ip: string): Promise<number> {
   return parseInt(result.rows[0].count, 10);
 }
 
-/** Count active (unconsumed, non-expired) challenges for a specific address */
-export async function countActiveChallengesForAddress(address: string): Promise<number> {
+/**
+ * Count active (unconsumed, non-expired) challenges for an address requested
+ * from one IP. Challenges are consumed only from their originating IP, so a
+ * cap across all requesters would let anyone block another address's sign-in.
+ */
+export async function countActiveChallengesForAddress(address: string, ip: string): Promise<number> {
   const ttlCutoff = new Date(Date.now() - WALLET_CHALLENGE_TTL_MS);
   const result = await query<{ count: string }>(
     `SELECT COUNT(*) AS count FROM wallet_challenges
-     WHERE address = $1 AND consumed = false AND created_at > $2`,
-    [address.toLowerCase(), ttlCutoff.toISOString()],
+     WHERE address = $1 AND ip_address = $3 AND consumed = false AND created_at > $2`,
+    [address.toLowerCase(), ttlCutoff.toISOString(), ip],
   );
   return parseInt(result.rows[0].count, 10);
 }
